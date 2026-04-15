@@ -185,6 +185,11 @@ func SessionWindowStatus(v string) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldSessionWindowStatus, v))
 }
 
+// ChannelType applies equality check predicate on the "channel_type" field. It's identical to ChannelTypeEQ.
+func ChannelType(v int) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldChannelType, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldCreatedAt, v))
@@ -1493,6 +1498,46 @@ func SessionWindowStatusEqualFold(v string) predicate.Account {
 // SessionWindowStatusContainsFold applies the ContainsFold predicate on the "session_window_status" field.
 func SessionWindowStatusContainsFold(v string) predicate.Account {
 	return predicate.Account(sql.FieldContainsFold(FieldSessionWindowStatus, v))
+}
+
+// ChannelTypeEQ applies the EQ predicate on the "channel_type" field.
+func ChannelTypeEQ(v int) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldChannelType, v))
+}
+
+// ChannelTypeNEQ applies the NEQ predicate on the "channel_type" field.
+func ChannelTypeNEQ(v int) predicate.Account {
+	return predicate.Account(sql.FieldNEQ(FieldChannelType, v))
+}
+
+// ChannelTypeIn applies the In predicate on the "channel_type" field.
+func ChannelTypeIn(vs ...int) predicate.Account {
+	return predicate.Account(sql.FieldIn(FieldChannelType, vs...))
+}
+
+// ChannelTypeNotIn applies the NotIn predicate on the "channel_type" field.
+func ChannelTypeNotIn(vs ...int) predicate.Account {
+	return predicate.Account(sql.FieldNotIn(FieldChannelType, vs...))
+}
+
+// ChannelTypeGT applies the GT predicate on the "channel_type" field.
+func ChannelTypeGT(v int) predicate.Account {
+	return predicate.Account(sql.FieldGT(FieldChannelType, v))
+}
+
+// ChannelTypeGTE applies the GTE predicate on the "channel_type" field.
+func ChannelTypeGTE(v int) predicate.Account {
+	return predicate.Account(sql.FieldGTE(FieldChannelType, v))
+}
+
+// ChannelTypeLT applies the LT predicate on the "channel_type" field.
+func ChannelTypeLT(v int) predicate.Account {
+	return predicate.Account(sql.FieldLT(FieldChannelType, v))
+}
+
+// ChannelTypeLTE applies the LTE predicate on the "channel_type" field.
+func ChannelTypeLTE(v int) predicate.Account {
+	return predicate.Account(sql.FieldLTE(FieldChannelType, v))
 }
 
 // HasGroups applies the HasEdge predicate on the "groups" edge.

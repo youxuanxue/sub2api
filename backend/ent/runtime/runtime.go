@@ -243,6 +243,10 @@ func init() {
 	accountDescSessionWindowStatus := accountFields[24].Descriptor()
 	// account.SessionWindowStatusValidator is a validator for the "session_window_status" field. It is called by the builders before save.
 	account.SessionWindowStatusValidator = accountDescSessionWindowStatus.Validators[0].(func(string) error)
+	// accountDescChannelType is the schema descriptor for channel_type field.
+	accountDescChannelType := accountFields[25].Descriptor()
+	// account.DefaultChannelType holds the default value on creation for the channel_type field.
+	account.DefaultChannelType = accountDescChannelType.Default.(int)
 	accountgroupFields := schema.AccountGroup{}.Fields()
 	_ = accountgroupFields
 	// accountgroupDescPriority is the schema descriptor for priority field.

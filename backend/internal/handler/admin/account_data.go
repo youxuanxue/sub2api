@@ -53,6 +53,7 @@ type DataAccount struct {
 	ProxyKey           *string        `json:"proxy_key,omitempty"`
 	Concurrency        int            `json:"concurrency"`
 	Priority           int            `json:"priority"`
+	ChannelType        int            `json:"channel_type"`
 	RateMultiplier     *float64       `json:"rate_multiplier,omitempty"`
 	ExpiresAt          *int64         `json:"expires_at,omitempty"`
 	AutoPauseOnExpired *bool          `json:"auto_pause_on_expired,omitempty"`
@@ -311,6 +312,7 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 			ProxyID:              proxyID,
 			Concurrency:          item.Concurrency,
 			Priority:             item.Priority,
+			ChannelType:          item.ChannelType,
 			RateMultiplier:       item.RateMultiplier,
 			GroupIDs:             nil,
 			ExpiresAt:            item.ExpiresAt,
@@ -572,6 +574,12 @@ func validateDataAccount(item DataAccount) error {
 	}
 	if item.Priority < 0 {
 		return errors.New("priority must be >= 0")
+	}
+	if item.ChannelType < 0 {
+		return errors.New("channel_type must be >= 0")
+	}
+	if msg := tkValidateNewAPIAccountCreate(item.Platform, item.ChannelType, item.Credentials); msg != "" {
+		return errors.New(msg)
 	}
 	return nil
 }

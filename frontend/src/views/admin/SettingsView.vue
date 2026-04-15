@@ -1951,21 +1951,6 @@
             </p>
           </div>
           <div class="space-y-6 p-6">
-            <!-- Backend Mode -->
-            <div
-              class="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-900/20"
-            >
-              <div>
-                <h3 class="text-sm font-medium text-gray-900 dark:text-white">
-                  {{ t('admin.settings.site.backendMode') }}
-                </h3>
-                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('admin.settings.site.backendModeDescription') }}
-                </p>
-              </div>
-              <Toggle v-model="form.backend_mode_enabled" />
-            </div>
-
             <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
               <div>
                 <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -2366,9 +2351,9 @@
             <template v-if="form.payment_enabled">
               <!-- Row 1: Product name -->
               <div class="grid grid-cols-3 gap-3">
-                <div><label class="input-label">{{ t('admin.settings.payment.productNamePrefix') }}</label><input v-model="form.payment_product_name_prefix" type="text" class="input" placeholder="Sub2API" /></div>
+                <div><label class="input-label">{{ t('admin.settings.payment.productNamePrefix') }}</label><input v-model="form.payment_product_name_prefix" type="text" class="input" placeholder="TokenKey" /></div>
                 <div><label class="input-label">{{ t('admin.settings.payment.productNameSuffix') }}</label><input v-model="form.payment_product_name_suffix" type="text" class="input" placeholder="CNY" /></div>
-                <div><label class="input-label">{{ t('admin.settings.payment.preview') }}</label><div class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-300">{{ (form.payment_product_name_prefix || 'Sub2API') + ' 100 ' + (form.payment_product_name_suffix || 'CNY') }}</div></div>
+                <div><label class="input-label">{{ t('admin.settings.payment.preview') }}</label><div class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-300">{{ (form.payment_product_name_prefix || 'TokenKey') + ' 100 ' + (form.payment_product_name_suffix || 'CNY') }}</div></div>
               </div>
               <!-- Row 2: Balance toggle + amounts -->
               <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -2959,14 +2944,13 @@ const form = reactive<SettingsForm>({
   default_balance: 0,
   default_concurrency: 1,
   default_subscriptions: [],
-  site_name: 'Sub2API',
+  site_name: 'TokenKey',
   site_logo: '',
-  site_subtitle: 'Subscription to API Conversion Platform',
+  site_subtitle: 'AI API Gateway Platform',
   api_base_url: '',
   contact_info: '',
   doc_url: '',
   home_content: '',
-  backend_mode_enabled: false,
   hide_ccs_import_button: false,
   payment_enabled: false,  payment_min_amount: 1,  payment_max_amount: 10000,  payment_daily_limit: 50000,  payment_max_pending_orders: 3,  payment_order_timeout_minutes: 30,  payment_balance_disabled: false,  payment_enabled_types: [],  payment_help_image_url: '',  payment_help_text: '',  payment_product_name_prefix: '',  payment_product_name_suffix: '',  payment_load_balance_strategy: 'round-robin',  payment_cancel_rate_limit_enabled: false,  payment_cancel_rate_limit_max: 10,  payment_cancel_rate_limit_window: 1,  payment_cancel_rate_limit_unit: 'day',  payment_cancel_rate_limit_window_mode: 'rolling',
   table_default_page_size: tablePageSizeDefault,
@@ -3413,7 +3397,6 @@ async function loadSettings() {
         (form as Record<string, unknown>)[key] = value
       }
     }
-    form.backend_mode_enabled = settings.backend_mode_enabled
     form.default_subscriptions = Array.isArray(settings.default_subscriptions)
       ? settings.default_subscriptions
           .filter((item) => item.group_id > 0 && item.validity_days > 0)
@@ -3563,7 +3546,6 @@ async function saveSettings() {
       contact_info: form.contact_info,
       doc_url: form.doc_url,
       home_content: form.home_content,
-      backend_mode_enabled: form.backend_mode_enabled,
       hide_ccs_import_button: form.hide_ccs_import_button,
       table_default_page_size: form.table_default_page_size,
       table_page_size_options: form.table_page_size_options,

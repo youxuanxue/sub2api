@@ -193,6 +193,10 @@ func (Account) Fields() []ent.Field {
 			Optional().
 			Nillable().
 			MaxLen(20),
+
+		// channel_type: New API adaptor channel type (>0 selects adaptor; 0 = legacy path)
+		field.Int("channel_type").
+			Default(0),
 	}
 }
 

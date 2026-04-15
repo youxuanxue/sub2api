@@ -86,6 +86,9 @@ func RegisterAdminRoutes(
 		// 定时测试计划
 		registerScheduledTestRoutes(admin, h)
 
+		// TokenKey New API admin helpers
+		registerTKAdminChannelRoutes(admin, h)
+
 		// 渠道管理
 		registerChannelRoutes(admin, h)
 	}
@@ -557,6 +560,7 @@ func registerChannelRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	{
 		channels.GET("", h.Admin.Channel.List)
 		channels.GET("/model-pricing", h.Admin.Channel.GetModelDefaultPricing)
+		registerTKAdminChannelNestedRoutes(channels, h)
 		channels.GET("/:id", h.Admin.Channel.GetByID)
 		channels.POST("", h.Admin.Channel.Create)
 		channels.PUT("/:id", h.Admin.Channel.Update)

@@ -194,12 +194,6 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	// Backend mode: only admin can login
-	if h.settingSvc.IsBackendModeEnabled(c.Request.Context()) && !user.IsAdmin() {
-		response.Forbidden(c, "Backend mode is active. Only admin login is allowed.")
-		return
-	}
-
 	h.respondWithTokenPair(c, user)
 }
 
@@ -260,12 +254,6 @@ func (h *AuthHandler) Login2FA(c *gin.Context) {
 	user, err := h.userService.GetByID(c.Request.Context(), session.UserID)
 	if err != nil {
 		response.ErrorFrom(c, err)
-		return
-	}
-
-	// Backend mode: only admin can login (check BEFORE deleting session)
-	if h.settingSvc.IsBackendModeEnabled(c.Request.Context()) && !user.IsAdmin() {
-		response.Forbidden(c, "Backend mode is active. Only admin login is allowed.")
 		return
 	}
 
@@ -537,12 +525,6 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	result, err := h.authService.RefreshTokenPair(c.Request.Context(), req.RefreshToken)
 	if err != nil {
 		response.ErrorFrom(c, err)
-		return
-	}
-
-	// Backend mode: block non-admin token refresh
-	if h.settingSvc.IsBackendModeEnabled(c.Request.Context()) && result.UserRole != "admin" {
-		response.Forbidden(c, "Backend mode is active. Only admin login is allowed.")
 		return
 	}
 

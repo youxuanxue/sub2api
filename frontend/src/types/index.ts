@@ -125,7 +125,6 @@ export interface PublicSettings {
   linuxdo_oauth_enabled: boolean
   oidc_oauth_enabled: boolean
   oidc_oauth_provider_name: string
-  backend_mode_enabled: boolean
   version: string
   balance_low_notify_enabled: boolean
   account_quota_notify_enabled: boolean
@@ -381,7 +380,7 @@ export interface PaginationConfig {
 
 // ==================== API Key & Group Types ====================
 
-export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity'
+export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'newapi'
 
 export type SubscriptionType = 'standard' | 'subscription'
 
@@ -554,7 +553,7 @@ export interface UpdateGroupRequest {
 
 // ==================== Account & Proxy Types ====================
 
-export type AccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity'
+export type AccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'newapi'
 export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock'
 export type OAuthAddMethod = 'oauth' | 'setup-token'
 export type ProxyProtocol = 'http' | 'https' | 'socks5' | 'socks5h'

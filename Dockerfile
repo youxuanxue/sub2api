@@ -5,6 +5,23 @@
 # Stage 2: Build Go backend with embedded frontend
 # Stage 3: Final minimal image
 # =============================================================================
+#
+# Build context MUST be the parent directory of this repo — the folder that
+# contains BOTH:
+#   sub2api/     (this application)
+#   new-api/     (github.com/QuantumNous/new-api; matches backend/go.mod replace)
+#
+# Example:
+#   tk/
+#     sub2api/    ← you are here (this Dockerfile)
+#     new-api/
+#
+#   cd tk
+#   docker build -f sub2api/Dockerfile -t sub2api:local .
+#
+# From sub2api/deploy:
+#   docker compose -f docker-compose.dev.yml build
+# =============================================================================
 
 ARG NODE_IMAGE=node:24-alpine
 ARG GOLANG_IMAGE=golang:1.26.2-alpine
@@ -18,17 +35,17 @@ ARG GOSUMDB=sum.golang.google.cn
 # -----------------------------------------------------------------------------
 FROM ${NODE_IMAGE} AS frontend-builder
 
-WORKDIR /app/frontend
+WORKDIR /build/sub2api/frontend
 
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
 # Install dependencies first (better caching)
-COPY frontend/package.json frontend/pnpm-lock.yaml ./
+COPY sub2api/frontend/package.json sub2api/frontend/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
 # Copy frontend source and build
-COPY frontend/ ./
+COPY sub2api/frontend/ ./
 RUN pnpm run build
 
 # -----------------------------------------------------------------------------
@@ -49,17 +66,19 @@ ENV GOSUMDB=${GOSUMDB}
 # Install build dependencies
 RUN apk add --no-cache git ca-certificates tzdata
 
-WORKDIR /app/backend
+# go.mod replace: ../../new-api → /build/new-api when module dir is /build/sub2api/backend
+WORKDIR /build/sub2api/backend
 
 # Copy go mod files first (better caching)
-COPY backend/go.mod backend/go.sum ./
+COPY sub2api/backend/go.mod sub2api/backend/go.sum ./
+COPY new-api /build/new-api
 RUN go mod download
 
 # Copy backend source first
-COPY backend/ ./
+COPY sub2api/backend/ ./
 
 # Copy frontend dist from previous stage (must be after backend copy to avoid being overwritten)
-COPY --from=frontend-builder /app/backend/internal/web/dist ./internal/web/dist
+COPY --from=frontend-builder /build/sub2api/backend/internal/web/dist ./internal/web/dist
 
 # Build the binary (BuildType=release for CI builds, embed frontend)
 # Version precedence: build arg VERSION > cmd/server/VERSION
@@ -116,13 +135,13 @@ WORKDIR /app
 
 # Copy binary/resources with ownership to avoid extra full-layer chown copy
 COPY --from=backend-builder --chown=sub2api:sub2api /app/sub2api /app/sub2api
-COPY --from=backend-builder --chown=sub2api:sub2api /app/backend/resources /app/resources
+COPY --from=backend-builder --chown=sub2api:sub2api /build/sub2api/backend/resources /app/resources
 
 # Create data directory
 RUN mkdir -p /app/data && chown sub2api:sub2api /app/data
 
 # Copy entrypoint script (fixes volume permissions then drops to sub2api)
-COPY deploy/docker-entrypoint.sh /app/docker-entrypoint.sh
+COPY sub2api/deploy/docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
 
 # Expose port (can be overridden by SERVER_PORT env var)

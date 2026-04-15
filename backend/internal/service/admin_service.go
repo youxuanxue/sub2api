@@ -206,6 +206,7 @@ type CreateAccountInput struct {
 	ProxyID            *int64
 	Concurrency        int
 	Priority           int
+	ChannelType        int
 	RateMultiplier     *float64 // 账号计费倍率（>=0，允许 0）
 	LoadFactor         *int
 	GroupIDs           []int64
@@ -225,8 +226,9 @@ type UpdateAccountInput struct {
 	Credentials           map[string]any
 	Extra                 map[string]any
 	ProxyID               *int64
-	Concurrency           *int     // 使用指针区分"未提供"和"设置为0"
-	Priority              *int     // 使用指针区分"未提供"和"设置为0"
+	Concurrency           *int // 使用指针区分"未提供"和"设置为0"
+	Priority              *int // 使用指针区分"未提供"和"设置为0"
+	ChannelType           *int
 	RateMultiplier        *float64 // 账号计费倍率（>=0，允许 0）
 	LoadFactor            *int
 	Status                string
@@ -1528,8 +1530,15 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		ProxyID:     input.ProxyID,
 		Concurrency: input.Concurrency,
 		Priority:    input.Priority,
+		ChannelType: input.ChannelType,
 		Status:      StatusActive,
 		Schedulable: true,
+	}
+	if input.ChannelType < 0 {
+		return nil, errors.New("channel_type must be >= 0")
+	}
+	if input.Platform == PlatformNewAPI && input.ChannelType <= 0 {
+		return nil, errors.New("channel_type must be > 0 for newapi platform")
 	}
 	// 预计算固定时间重置的下次重置时间
 	if account.Extra != nil {
@@ -1660,6 +1669,15 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	// 只在指针非 nil 时更新 Priority（支持设置为 0）
 	if input.Priority != nil {
 		account.Priority = *input.Priority
+	}
+	if input.ChannelType != nil {
+		if *input.ChannelType < 0 {
+			return nil, errors.New("channel_type must be >= 0")
+		}
+		if account.Platform == PlatformNewAPI && *input.ChannelType <= 0 {
+			return nil, errors.New("channel_type must be > 0 for newapi platform")
+		}
+		account.ChannelType = *input.ChannelType
 	}
 	if input.RateMultiplier != nil {
 		if *input.RateMultiplier < 0 {

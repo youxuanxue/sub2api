@@ -37,8 +37,11 @@ func TestNormalizeInboundEndpoint(t *testing.T) {
 		{"/v1beta/models/*modelAction", EndpointGeminiModels},
 		{"/v1/responses/*subpath", EndpointResponses},
 
-		// Unknown path is returned as-is.
-		{"/v1/embeddings", "/v1/embeddings"},
+		// TokenKey OpenAI-compat aliases.
+		{"/v1/embeddings", EndpointEmbeddings},
+		{"/embeddings", EndpointEmbeddings},
+		{"/v1/images/generations", EndpointImagesGenerations},
+		{"/images/generations", EndpointImagesGenerations},
 		{"", ""},
 		{"  /v1/messages  ", EndpointMessages},
 	}
@@ -73,6 +76,10 @@ func TestDeriveUpstreamEndpoint(t *testing.T) {
 		{"openai responses nested", EndpointResponses, "/openai/v1/responses/compact/detail", service.PlatformOpenAI, "/v1/responses/compact/detail"},
 		{"openai from messages", EndpointMessages, "/v1/messages", service.PlatformOpenAI, EndpointResponses},
 		{"openai from completions", EndpointChatCompletions, "/v1/chat/completions", service.PlatformOpenAI, EndpointResponses},
+		{"openai embeddings", EndpointEmbeddings, "/v1/embeddings", service.PlatformOpenAI, EndpointEmbeddings},
+		{"openai images", EndpointImagesGenerations, "/v1/images/generations", service.PlatformOpenAI, EndpointImagesGenerations},
+		{"newapi messages", EndpointMessages, "/v1/messages", service.PlatformNewAPI, EndpointResponses},
+		{"newapi embeddings", EndpointEmbeddings, "/v1/embeddings", service.PlatformNewAPI, EndpointEmbeddings},
 
 		// Antigravity — uses inbound to pick Claude vs Gemini upstream.
 		{"antigravity claude", EndpointMessages, "/antigravity/v1/messages", service.PlatformAntigravity, EndpointMessages},

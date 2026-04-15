@@ -116,8 +116,8 @@ type SystemSettings struct {
 	// 分组隔离
 	AllowUngroupedKeyScheduling bool `json:"allow_ungrouped_key_scheduling"`
 
-	// Backend Mode
-	BackendModeEnabled bool `json:"backend_mode_enabled"`
+	// TokenKey
+	NewAPIBridgeEnabled bool `json:"newapi_bridge_enabled"`
 
 	// Gateway forwarding behavior
 	EnableFingerprintUnification bool `json:"enable_fingerprint_unification"`
@@ -190,7 +190,6 @@ type PublicSettings struct {
 	OIDCOAuthEnabled                 bool             `json:"oidc_oauth_enabled"`
 	OIDCOAuthProviderName            string           `json:"oidc_oauth_provider_name"`
 	SoraClientEnabled                bool             `json:"sora_client_enabled"`
-	BackendModeEnabled               bool             `json:"backend_mode_enabled"`
 	PaymentEnabled                   bool             `json:"payment_enabled"`
 	Version                          string           `json:"version"`
 	BalanceLowNotifyEnabled          bool             `json:"balance_low_notify_enabled"`

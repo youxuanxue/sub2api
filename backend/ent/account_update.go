@@ -503,6 +503,27 @@ func (_u *AccountUpdate) ClearSessionWindowStatus() *AccountUpdate {
 	return _u
 }
 
+// SetChannelType sets the "channel_type" field.
+func (_u *AccountUpdate) SetChannelType(v int) *AccountUpdate {
+	_u.mutation.ResetChannelType()
+	_u.mutation.SetChannelType(v)
+	return _u
+}
+
+// SetNillableChannelType sets the "channel_type" field if the given value is not nil.
+func (_u *AccountUpdate) SetNillableChannelType(v *int) *AccountUpdate {
+	if v != nil {
+		_u.SetChannelType(*v)
+	}
+	return _u
+}
+
+// AddChannelType adds value to the "channel_type" field.
+func (_u *AccountUpdate) AddChannelType(v int) *AccountUpdate {
+	_u.mutation.AddChannelType(v)
+	return _u
+}
+
 // AddGroupIDs adds the "groups" edge to the Group entity by IDs.
 func (_u *AccountUpdate) AddGroupIDs(ids ...int64) *AccountUpdate {
 	_u.mutation.AddGroupIDs(ids...)
@@ -806,6 +827,12 @@ func (_u *AccountUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.SessionWindowStatusCleared() {
 		_spec.ClearField(account.FieldSessionWindowStatus, field.TypeString)
+	}
+	if value, ok := _u.mutation.ChannelType(); ok {
+		_spec.SetField(account.FieldChannelType, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedChannelType(); ok {
+		_spec.AddField(account.FieldChannelType, field.TypeInt, value)
 	}
 	if _u.mutation.GroupsCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -1430,6 +1457,27 @@ func (_u *AccountUpdateOne) ClearSessionWindowStatus() *AccountUpdateOne {
 	return _u
 }
 
+// SetChannelType sets the "channel_type" field.
+func (_u *AccountUpdateOne) SetChannelType(v int) *AccountUpdateOne {
+	_u.mutation.ResetChannelType()
+	_u.mutation.SetChannelType(v)
+	return _u
+}
+
+// SetNillableChannelType sets the "channel_type" field if the given value is not nil.
+func (_u *AccountUpdateOne) SetNillableChannelType(v *int) *AccountUpdateOne {
+	if v != nil {
+		_u.SetChannelType(*v)
+	}
+	return _u
+}
+
+// AddChannelType adds value to the "channel_type" field.
+func (_u *AccountUpdateOne) AddChannelType(v int) *AccountUpdateOne {
+	_u.mutation.AddChannelType(v)
+	return _u
+}
+
 // AddGroupIDs adds the "groups" edge to the Group entity by IDs.
 func (_u *AccountUpdateOne) AddGroupIDs(ids ...int64) *AccountUpdateOne {
 	_u.mutation.AddGroupIDs(ids...)
@@ -1763,6 +1811,12 @@ func (_u *AccountUpdateOne) sqlSave(ctx context.Context) (_node *Account, err er
 	}
 	if _u.mutation.SessionWindowStatusCleared() {
 		_spec.ClearField(account.FieldSessionWindowStatus, field.TypeString)
+	}
+	if value, ok := _u.mutation.ChannelType(); ok {
+		_spec.SetField(account.FieldChannelType, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedChannelType(); ok {
+		_spec.AddField(account.FieldChannelType, field.TypeInt, value)
 	}
 	if _u.mutation.GroupsCleared() {
 		edge := &sqlgraph.EdgeSpec{

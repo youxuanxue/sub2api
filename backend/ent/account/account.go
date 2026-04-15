@@ -71,6 +71,8 @@ const (
 	FieldSessionWindowEnd = "session_window_end"
 	// FieldSessionWindowStatus holds the string denoting the session_window_status field in the database.
 	FieldSessionWindowStatus = "session_window_status"
+	// FieldChannelType holds the string denoting the channel_type field in the database.
+	FieldChannelType = "channel_type"
 	// EdgeGroups holds the string denoting the groups edge name in mutations.
 	EdgeGroups = "groups"
 	// EdgeProxy holds the string denoting the proxy edge name in mutations.
@@ -140,6 +142,7 @@ var Columns = []string{
 	FieldSessionWindowStart,
 	FieldSessionWindowEnd,
 	FieldSessionWindowStatus,
+	FieldChannelType,
 }
 
 var (
@@ -198,6 +201,8 @@ var (
 	DefaultSchedulable bool
 	// SessionWindowStatusValidator is a validator for the "session_window_status" field. It is called by the builders before save.
 	SessionWindowStatusValidator func(string) error
+	// DefaultChannelType holds the default value on creation for the "channel_type" field.
+	DefaultChannelType int
 )
 
 // OrderOption defines the ordering options for the Account queries.
@@ -336,6 +341,11 @@ func BySessionWindowEnd(opts ...sql.OrderTermOption) OrderOption {
 // BySessionWindowStatus orders the results by the session_window_status field.
 func BySessionWindowStatus(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldSessionWindowStatus, opts...).ToFunc()
+}
+
+// ByChannelType orders the results by the channel_type field.
+func ByChannelType(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldChannelType, opts...).ToFunc()
 }
 
 // ByGroupsCount orders the results by groups count.

@@ -328,6 +328,7 @@ type OpenAIGatewayService struct {
 	resolver              *ModelPricingResolver
 	channelService        *ChannelService
 	balanceNotifyService  *BalanceNotifyService
+	settingService        *SettingService
 
 	openaiWSPoolOnce              sync.Once
 	openaiWSStateStoreOnce        sync.Once
@@ -401,6 +402,11 @@ func NewOpenAIGatewayService(
 	}
 	svc.logOpenAIWSModeBootstrap()
 	return svc
+}
+
+// SetSettingService injects the SettingService after construction (avoids Wire circular dependency).
+func (s *OpenAIGatewayService) SetSettingService(ss *SettingService) {
+	s.settingService = ss
 }
 
 // ResolveChannelMapping 解析渠道级模型映射（代理到 ChannelService）

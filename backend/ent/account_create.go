@@ -377,6 +377,20 @@ func (_c *AccountCreate) SetNillableSessionWindowStatus(v *string) *AccountCreat
 	return _c
 }
 
+// SetChannelType sets the "channel_type" field.
+func (_c *AccountCreate) SetChannelType(v int) *AccountCreate {
+	_c.mutation.SetChannelType(v)
+	return _c
+}
+
+// SetNillableChannelType sets the "channel_type" field if the given value is not nil.
+func (_c *AccountCreate) SetNillableChannelType(v *int) *AccountCreate {
+	if v != nil {
+		_c.SetChannelType(*v)
+	}
+	return _c
+}
+
 // AddGroupIDs adds the "groups" edge to the Group entity by IDs.
 func (_c *AccountCreate) AddGroupIDs(ids ...int64) *AccountCreate {
 	_c.mutation.AddGroupIDs(ids...)
@@ -501,6 +515,10 @@ func (_c *AccountCreate) defaults() error {
 		v := account.DefaultSchedulable
 		_c.mutation.SetSchedulable(v)
 	}
+	if _, ok := _c.mutation.ChannelType(); !ok {
+		v := account.DefaultChannelType
+		_c.mutation.SetChannelType(v)
+	}
 	return nil
 }
 
@@ -569,6 +587,9 @@ func (_c *AccountCreate) check() error {
 		if err := account.SessionWindowStatusValidator(v); err != nil {
 			return &ValidationError{Name: "session_window_status", err: fmt.Errorf(`ent: validator failed for field "Account.session_window_status": %w`, err)}
 		}
+	}
+	if _, ok := _c.mutation.ChannelType(); !ok {
+		return &ValidationError{Name: "channel_type", err: errors.New(`ent: missing required field "Account.channel_type"`)}
 	}
 	return nil
 }
@@ -704,6 +725,10 @@ func (_c *AccountCreate) createSpec() (*Account, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.SessionWindowStatus(); ok {
 		_spec.SetField(account.FieldSessionWindowStatus, field.TypeString, value)
 		_node.SessionWindowStatus = &value
+	}
+	if value, ok := _c.mutation.ChannelType(); ok {
+		_spec.SetField(account.FieldChannelType, field.TypeInt, value)
+		_node.ChannelType = value
 	}
 	if nodes := _c.mutation.GroupsIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
@@ -1245,6 +1270,24 @@ func (u *AccountUpsert) UpdateSessionWindowStatus() *AccountUpsert {
 // ClearSessionWindowStatus clears the value of the "session_window_status" field.
 func (u *AccountUpsert) ClearSessionWindowStatus() *AccountUpsert {
 	u.SetNull(account.FieldSessionWindowStatus)
+	return u
+}
+
+// SetChannelType sets the "channel_type" field.
+func (u *AccountUpsert) SetChannelType(v int) *AccountUpsert {
+	u.Set(account.FieldChannelType, v)
+	return u
+}
+
+// UpdateChannelType sets the "channel_type" field to the value that was provided on create.
+func (u *AccountUpsert) UpdateChannelType() *AccountUpsert {
+	u.SetExcluded(account.FieldChannelType)
+	return u
+}
+
+// AddChannelType adds v to the "channel_type" field.
+func (u *AccountUpsert) AddChannelType(v int) *AccountUpsert {
+	u.Add(account.FieldChannelType, v)
 	return u
 }
 
@@ -1801,6 +1844,27 @@ func (u *AccountUpsertOne) UpdateSessionWindowStatus() *AccountUpsertOne {
 func (u *AccountUpsertOne) ClearSessionWindowStatus() *AccountUpsertOne {
 	return u.Update(func(s *AccountUpsert) {
 		s.ClearSessionWindowStatus()
+	})
+}
+
+// SetChannelType sets the "channel_type" field.
+func (u *AccountUpsertOne) SetChannelType(v int) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetChannelType(v)
+	})
+}
+
+// AddChannelType adds v to the "channel_type" field.
+func (u *AccountUpsertOne) AddChannelType(v int) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.AddChannelType(v)
+	})
+}
+
+// UpdateChannelType sets the "channel_type" field to the value that was provided on create.
+func (u *AccountUpsertOne) UpdateChannelType() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateChannelType()
 	})
 }
 
@@ -2523,6 +2587,27 @@ func (u *AccountUpsertBulk) UpdateSessionWindowStatus() *AccountUpsertBulk {
 func (u *AccountUpsertBulk) ClearSessionWindowStatus() *AccountUpsertBulk {
 	return u.Update(func(s *AccountUpsert) {
 		s.ClearSessionWindowStatus()
+	})
+}
+
+// SetChannelType sets the "channel_type" field.
+func (u *AccountUpsertBulk) SetChannelType(v int) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetChannelType(v)
+	})
+}
+
+// AddChannelType adds v to the "channel_type" field.
+func (u *AccountUpsertBulk) AddChannelType(v int) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.AddChannelType(v)
+	})
+}
+
+// UpdateChannelType sets the "channel_type" field to the value that was provided on create.
+func (u *AccountUpsertBulk) UpdateChannelType() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateChannelType()
 	})
 }
 

@@ -1,325 +1,414 @@
-# Agent Contract (Generated)
+# Agent Contract
 
-*Generated from live Gin route declarations by `scripts/export_agent_contract.py`.*
+Generated from live Gin route registrations in `backend/internal/server/routes`.
+Do not hand-edit this file; run `python3 scripts/export_agent_contract.py`.
 
 ## HTTP Routes
 
+- `GET /admin/accounts` from `backend/internal/server/routes/admin.go`
+- `POST /admin/accounts` from `backend/internal/server/routes/admin.go`
+- `DELETE /admin/accounts/:id` from `backend/internal/server/routes/admin.go`
+- `GET /admin/accounts/:id` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/accounts/:id` from `backend/internal/server/routes/admin.go`
+- `POST /admin/accounts/:id/clear-error` from `backend/internal/server/routes/admin.go`
+- `POST /admin/accounts/:id/clear-rate-limit` from `backend/internal/server/routes/admin.go`
+- `GET /admin/accounts/:id/models` from `backend/internal/server/routes/admin.go`
+- `POST /admin/accounts/:id/recover-state` from `backend/internal/server/routes/admin.go`
+- `POST /admin/accounts/:id/refresh` from `backend/internal/server/routes/admin.go`
+- `POST /admin/accounts/:id/refresh-tier` from `backend/internal/server/routes/admin.go`
+- `POST /admin/accounts/:id/reset-quota` from `backend/internal/server/routes/admin.go`
+- `POST /admin/accounts/:id/schedulable` from `backend/internal/server/routes/admin.go`
+- `GET /admin/accounts/:id/scheduled-test-plans` from `backend/internal/server/routes/admin.go`
+- `POST /admin/accounts/:id/set-privacy` from `backend/internal/server/routes/admin.go`
+- `GET /admin/accounts/:id/stats` from `backend/internal/server/routes/admin.go`
+- `DELETE /admin/accounts/:id/temp-unschedulable` from `backend/internal/server/routes/admin.go`
+- `GET /admin/accounts/:id/temp-unschedulable` from `backend/internal/server/routes/admin.go`
+- `POST /admin/accounts/:id/test` from `backend/internal/server/routes/admin.go`
+- `GET /admin/accounts/:id/today-stats` from `backend/internal/server/routes/admin.go`
+- `GET /admin/accounts/:id/usage` from `backend/internal/server/routes/admin.go`
+- `GET /admin/accounts/antigravity/default-model-mapping` from `backend/internal/server/routes/admin.go`
+- `POST /admin/accounts/batch` from `backend/internal/server/routes/admin.go`
+- `POST /admin/accounts/batch-clear-error` from `backend/internal/server/routes/admin.go`
+- `POST /admin/accounts/batch-refresh` from `backend/internal/server/routes/admin.go`
+- `POST /admin/accounts/batch-refresh-tier` from `backend/internal/server/routes/admin.go`
+- `POST /admin/accounts/batch-update-credentials` from `backend/internal/server/routes/admin.go`
+- `POST /admin/accounts/bulk-update` from `backend/internal/server/routes/admin.go`
+- `POST /admin/accounts/check-mixed-channel` from `backend/internal/server/routes/admin.go`
+- `POST /admin/accounts/cookie-auth` from `backend/internal/server/routes/admin.go`
+- `GET /admin/accounts/data` from `backend/internal/server/routes/admin.go`
+- `POST /admin/accounts/data` from `backend/internal/server/routes/admin.go`
+- `POST /admin/accounts/exchange-code` from `backend/internal/server/routes/admin.go`
+- `POST /admin/accounts/exchange-setup-token-code` from `backend/internal/server/routes/admin.go`
+- `POST /admin/accounts/generate-auth-url` from `backend/internal/server/routes/admin.go`
+- `POST /admin/accounts/generate-setup-token-url` from `backend/internal/server/routes/admin.go`
+- `POST /admin/accounts/setup-token-cookie-auth` from `backend/internal/server/routes/admin.go`
+- `POST /admin/accounts/sync/crs` from `backend/internal/server/routes/admin.go`
+- `POST /admin/accounts/sync/crs/preview` from `backend/internal/server/routes/admin.go`
+- `POST /admin/accounts/today-stats/batch` from `backend/internal/server/routes/admin.go`
+- `GET /admin/announcements` from `backend/internal/server/routes/admin.go`
+- `POST /admin/announcements` from `backend/internal/server/routes/admin.go`
+- `DELETE /admin/announcements/:id` from `backend/internal/server/routes/admin.go`
+- `GET /admin/announcements/:id` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/announcements/:id` from `backend/internal/server/routes/admin.go`
+- `GET /admin/announcements/:id/read-status` from `backend/internal/server/routes/admin.go`
+- `POST /admin/antigravity/oauth/auth-url` from `backend/internal/server/routes/admin.go`
+- `POST /admin/antigravity/oauth/exchange-code` from `backend/internal/server/routes/admin.go`
+- `POST /admin/antigravity/oauth/refresh-token` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/api-keys/:id` from `backend/internal/server/routes/admin.go`
+- `GET /admin/backups` from `backend/internal/server/routes/admin.go`
+- `POST /admin/backups` from `backend/internal/server/routes/admin.go`
+- `DELETE /admin/backups/:id` from `backend/internal/server/routes/admin.go`
+- `GET /admin/backups/:id` from `backend/internal/server/routes/admin.go`
+- `GET /admin/backups/:id/download-url` from `backend/internal/server/routes/admin.go`
+- `POST /admin/backups/:id/restore` from `backend/internal/server/routes/admin.go`
+- `GET /admin/backups/s3-config` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/backups/s3-config` from `backend/internal/server/routes/admin.go`
+- `POST /admin/backups/s3-config/test` from `backend/internal/server/routes/admin.go`
+- `GET /admin/backups/schedule` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/backups/schedule` from `backend/internal/server/routes/admin.go`
+- `GET /admin/channels` from `backend/internal/server/routes/admin.go`
+- `POST /admin/channels` from `backend/internal/server/routes/admin.go`
+- `DELETE /admin/channels/:id` from `backend/internal/server/routes/admin.go`
+- `GET /admin/channels/:id` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/channels/:id` from `backend/internal/server/routes/admin.go`
+- `GET /admin/channels/model-pricing` from `backend/internal/server/routes/admin.go`
+- `POST /admin/dashboard/aggregation/backfill` from `backend/internal/server/routes/admin.go`
+- `GET /admin/dashboard/api-keys-trend` from `backend/internal/server/routes/admin.go`
+- `POST /admin/dashboard/api-keys-usage` from `backend/internal/server/routes/admin.go`
+- `GET /admin/dashboard/groups` from `backend/internal/server/routes/admin.go`
+- `GET /admin/dashboard/models` from `backend/internal/server/routes/admin.go`
+- `GET /admin/dashboard/realtime` from `backend/internal/server/routes/admin.go`
+- `GET /admin/dashboard/snapshot-v2` from `backend/internal/server/routes/admin.go`
+- `GET /admin/dashboard/stats` from `backend/internal/server/routes/admin.go`
+- `GET /admin/dashboard/trend` from `backend/internal/server/routes/admin.go`
+- `GET /admin/dashboard/user-breakdown` from `backend/internal/server/routes/admin.go`
+- `GET /admin/dashboard/users-ranking` from `backend/internal/server/routes/admin.go`
+- `GET /admin/dashboard/users-trend` from `backend/internal/server/routes/admin.go`
+- `POST /admin/dashboard/users-usage` from `backend/internal/server/routes/admin.go`
+- `GET /admin/data-management/agent/health` from `backend/internal/server/routes/admin.go`
+- `GET /admin/data-management/backups` from `backend/internal/server/routes/admin.go`
+- `POST /admin/data-management/backups` from `backend/internal/server/routes/admin.go`
+- `GET /admin/data-management/backups/:job_id` from `backend/internal/server/routes/admin.go`
+- `GET /admin/data-management/config` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/data-management/config` from `backend/internal/server/routes/admin.go`
+- `GET /admin/data-management/s3/profiles` from `backend/internal/server/routes/admin.go`
+- `POST /admin/data-management/s3/profiles` from `backend/internal/server/routes/admin.go`
+- `DELETE /admin/data-management/s3/profiles/:profile_id` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/data-management/s3/profiles/:profile_id` from `backend/internal/server/routes/admin.go`
+- `POST /admin/data-management/s3/profiles/:profile_id/activate` from `backend/internal/server/routes/admin.go`
+- `POST /admin/data-management/s3/test` from `backend/internal/server/routes/admin.go`
+- `GET /admin/data-management/sources/:source_type/profiles` from `backend/internal/server/routes/admin.go`
+- `POST /admin/data-management/sources/:source_type/profiles` from `backend/internal/server/routes/admin.go`
+- `DELETE /admin/data-management/sources/:source_type/profiles/:profile_id` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/data-management/sources/:source_type/profiles/:profile_id` from `backend/internal/server/routes/admin.go`
+- `POST /admin/data-management/sources/:source_type/profiles/:profile_id/activate` from `backend/internal/server/routes/admin.go`
+- `GET /admin/error-passthrough-rules` from `backend/internal/server/routes/admin.go`
+- `POST /admin/error-passthrough-rules` from `backend/internal/server/routes/admin.go`
+- `DELETE /admin/error-passthrough-rules/:id` from `backend/internal/server/routes/admin.go`
+- `GET /admin/error-passthrough-rules/:id` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/error-passthrough-rules/:id` from `backend/internal/server/routes/admin.go`
+- `POST /admin/gemini/oauth/auth-url` from `backend/internal/server/routes/admin.go`
+- `GET /admin/gemini/oauth/capabilities` from `backend/internal/server/routes/admin.go`
+- `POST /admin/gemini/oauth/exchange-code` from `backend/internal/server/routes/admin.go`
+- `GET /admin/groups` from `backend/internal/server/routes/admin.go`
+- `POST /admin/groups` from `backend/internal/server/routes/admin.go`
+- `DELETE /admin/groups/:id` from `backend/internal/server/routes/admin.go`
+- `GET /admin/groups/:id` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/groups/:id` from `backend/internal/server/routes/admin.go`
+- `GET /admin/groups/:id/api-keys` from `backend/internal/server/routes/admin.go`
+- `DELETE /admin/groups/:id/rate-multipliers` from `backend/internal/server/routes/admin.go`
+- `GET /admin/groups/:id/rate-multipliers` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/groups/:id/rate-multipliers` from `backend/internal/server/routes/admin.go`
+- `GET /admin/groups/:id/stats` from `backend/internal/server/routes/admin.go`
+- `GET /admin/groups/:id/subscriptions` from `backend/internal/server/routes/admin.go`
+- `GET /admin/groups/all` from `backend/internal/server/routes/admin.go`
+- `GET /admin/groups/capacity-summary` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/groups/sort-order` from `backend/internal/server/routes/admin.go`
+- `GET /admin/groups/usage-summary` from `backend/internal/server/routes/admin.go`
+- `POST /admin/openai/accounts/:id/refresh` from `backend/internal/server/routes/admin.go`
+- `POST /admin/openai/create-from-oauth` from `backend/internal/server/routes/admin.go`
+- `POST /admin/openai/exchange-code` from `backend/internal/server/routes/admin.go`
+- `POST /admin/openai/generate-auth-url` from `backend/internal/server/routes/admin.go`
+- `POST /admin/openai/refresh-token` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/account-availability` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/advanced-settings` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/ops/advanced-settings` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/alert-events` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/alert-events/:id` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/ops/alert-events/:id/status` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/alert-rules` from `backend/internal/server/routes/admin.go`
+- `POST /admin/ops/alert-rules` from `backend/internal/server/routes/admin.go`
+- `DELETE /admin/ops/alert-rules/:id` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/ops/alert-rules/:id` from `backend/internal/server/routes/admin.go`
+- `POST /admin/ops/alert-silences` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/concurrency` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/dashboard/error-distribution` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/dashboard/error-trend` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/dashboard/latency-histogram` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/dashboard/openai-token-stats` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/dashboard/overview` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/dashboard/snapshot-v2` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/dashboard/throughput-trend` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/email-notification/config` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/ops/email-notification/config` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/errors` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/errors/:id` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/ops/errors/:id/resolve` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/errors/:id/retries` from `backend/internal/server/routes/admin.go`
+- `POST /admin/ops/errors/:id/retry` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/realtime-traffic` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/request-errors` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/request-errors/:id` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/ops/request-errors/:id/resolve` from `backend/internal/server/routes/admin.go`
+- `POST /admin/ops/request-errors/:id/retry-client` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/request-errors/:id/upstream-errors` from `backend/internal/server/routes/admin.go`
+- `POST /admin/ops/request-errors/:id/upstream-errors/:idx/retry` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/requests` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/runtime/alert` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/ops/runtime/alert` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/runtime/logging` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/ops/runtime/logging` from `backend/internal/server/routes/admin.go`
+- `POST /admin/ops/runtime/logging/reset` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/settings/metric-thresholds` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/ops/settings/metric-thresholds` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/system-logs` from `backend/internal/server/routes/admin.go`
+- `POST /admin/ops/system-logs/cleanup` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/system-logs/health` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/upstream-errors` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/upstream-errors/:id` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/ops/upstream-errors/:id/resolve` from `backend/internal/server/routes/admin.go`
+- `POST /admin/ops/upstream-errors/:id/retry` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/user-concurrency` from `backend/internal/server/routes/admin.go`
+- `GET /admin/ops/ws/qps` from `backend/internal/server/routes/admin.go`
+- `GET /admin/payment/config` from `backend/internal/server/routes/payment.go`
+- `PUT /admin/payment/config` from `backend/internal/server/routes/payment.go`
+- `GET /admin/payment/dashboard` from `backend/internal/server/routes/payment.go`
+- `GET /admin/payment/orders` from `backend/internal/server/routes/payment.go`
+- `GET /admin/payment/orders/:id` from `backend/internal/server/routes/payment.go`
+- `POST /admin/payment/orders/:id/cancel` from `backend/internal/server/routes/payment.go`
+- `POST /admin/payment/orders/:id/refund` from `backend/internal/server/routes/payment.go`
+- `POST /admin/payment/orders/:id/retry` from `backend/internal/server/routes/payment.go`
+- `GET /admin/payment/plans` from `backend/internal/server/routes/payment.go`
+- `POST /admin/payment/plans` from `backend/internal/server/routes/payment.go`
+- `DELETE /admin/payment/plans/:id` from `backend/internal/server/routes/payment.go`
+- `PUT /admin/payment/plans/:id` from `backend/internal/server/routes/payment.go`
+- `GET /admin/payment/providers` from `backend/internal/server/routes/payment.go`
+- `POST /admin/payment/providers` from `backend/internal/server/routes/payment.go`
+- `DELETE /admin/payment/providers/:id` from `backend/internal/server/routes/payment.go`
+- `PUT /admin/payment/providers/:id` from `backend/internal/server/routes/payment.go`
+- `GET /admin/promo-codes` from `backend/internal/server/routes/admin.go`
+- `POST /admin/promo-codes` from `backend/internal/server/routes/admin.go`
+- `DELETE /admin/promo-codes/:id` from `backend/internal/server/routes/admin.go`
+- `GET /admin/promo-codes/:id` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/promo-codes/:id` from `backend/internal/server/routes/admin.go`
+- `GET /admin/promo-codes/:id/usages` from `backend/internal/server/routes/admin.go`
+- `GET /admin/proxies` from `backend/internal/server/routes/admin.go`
+- `POST /admin/proxies` from `backend/internal/server/routes/admin.go`
+- `DELETE /admin/proxies/:id` from `backend/internal/server/routes/admin.go`
+- `GET /admin/proxies/:id` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/proxies/:id` from `backend/internal/server/routes/admin.go`
+- `GET /admin/proxies/:id/accounts` from `backend/internal/server/routes/admin.go`
+- `POST /admin/proxies/:id/quality-check` from `backend/internal/server/routes/admin.go`
+- `GET /admin/proxies/:id/stats` from `backend/internal/server/routes/admin.go`
+- `POST /admin/proxies/:id/test` from `backend/internal/server/routes/admin.go`
+- `GET /admin/proxies/all` from `backend/internal/server/routes/admin.go`
+- `POST /admin/proxies/batch` from `backend/internal/server/routes/admin.go`
+- `POST /admin/proxies/batch-delete` from `backend/internal/server/routes/admin.go`
+- `GET /admin/proxies/data` from `backend/internal/server/routes/admin.go`
+- `POST /admin/proxies/data` from `backend/internal/server/routes/admin.go`
+- `GET /admin/redeem-codes` from `backend/internal/server/routes/admin.go`
+- `DELETE /admin/redeem-codes/:id` from `backend/internal/server/routes/admin.go`
+- `GET /admin/redeem-codes/:id` from `backend/internal/server/routes/admin.go`
+- `POST /admin/redeem-codes/:id/expire` from `backend/internal/server/routes/admin.go`
+- `POST /admin/redeem-codes/batch-delete` from `backend/internal/server/routes/admin.go`
+- `POST /admin/redeem-codes/create-and-redeem` from `backend/internal/server/routes/admin.go`
+- `GET /admin/redeem-codes/export` from `backend/internal/server/routes/admin.go`
+- `POST /admin/redeem-codes/generate` from `backend/internal/server/routes/admin.go`
+- `GET /admin/redeem-codes/stats` from `backend/internal/server/routes/admin.go`
+- `POST /admin/scheduled-test-plans` from `backend/internal/server/routes/admin.go`
+- `DELETE /admin/scheduled-test-plans/:id` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/scheduled-test-plans/:id` from `backend/internal/server/routes/admin.go`
+- `GET /admin/scheduled-test-plans/:id/results` from `backend/internal/server/routes/admin.go`
+- `GET /admin/settings` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/settings` from `backend/internal/server/routes/admin.go`
+- `DELETE /admin/settings/admin-api-key` from `backend/internal/server/routes/admin.go`
+- `GET /admin/settings/admin-api-key` from `backend/internal/server/routes/admin.go`
+- `POST /admin/settings/admin-api-key/regenerate` from `backend/internal/server/routes/admin.go`
+- `GET /admin/settings/beta-policy` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/settings/beta-policy` from `backend/internal/server/routes/admin.go`
+- `GET /admin/settings/overload-cooldown` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/settings/overload-cooldown` from `backend/internal/server/routes/admin.go`
+- `GET /admin/settings/rectifier` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/settings/rectifier` from `backend/internal/server/routes/admin.go`
+- `POST /admin/settings/send-test-email` from `backend/internal/server/routes/admin.go`
+- `GET /admin/settings/stream-timeout` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/settings/stream-timeout` from `backend/internal/server/routes/admin.go`
+- `POST /admin/settings/test-smtp` from `backend/internal/server/routes/admin.go`
+- `GET /admin/settings/web-search-emulation` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/settings/web-search-emulation` from `backend/internal/server/routes/admin.go`
+- `POST /admin/settings/web-search-emulation/reset-usage` from `backend/internal/server/routes/admin.go`
+- `POST /admin/settings/web-search-emulation/test` from `backend/internal/server/routes/admin.go`
+- `GET /admin/subscriptions` from `backend/internal/server/routes/admin.go`
+- `DELETE /admin/subscriptions/:id` from `backend/internal/server/routes/admin.go`
+- `GET /admin/subscriptions/:id` from `backend/internal/server/routes/admin.go`
+- `POST /admin/subscriptions/:id/extend` from `backend/internal/server/routes/admin.go`
+- `GET /admin/subscriptions/:id/progress` from `backend/internal/server/routes/admin.go`
+- `POST /admin/subscriptions/:id/reset-quota` from `backend/internal/server/routes/admin.go`
+- `POST /admin/subscriptions/assign` from `backend/internal/server/routes/admin.go`
+- `POST /admin/subscriptions/bulk-assign` from `backend/internal/server/routes/admin.go`
+- `GET /admin/system/check-updates` from `backend/internal/server/routes/admin.go`
+- `POST /admin/system/restart` from `backend/internal/server/routes/admin.go`
+- `POST /admin/system/rollback` from `backend/internal/server/routes/admin.go`
+- `POST /admin/system/update` from `backend/internal/server/routes/admin.go`
+- `GET /admin/system/version` from `backend/internal/server/routes/admin.go`
+- `GET /admin/tls-fingerprint-profiles` from `backend/internal/server/routes/admin.go`
+- `POST /admin/tls-fingerprint-profiles` from `backend/internal/server/routes/admin.go`
+- `DELETE /admin/tls-fingerprint-profiles/:id` from `backend/internal/server/routes/admin.go`
+- `GET /admin/tls-fingerprint-profiles/:id` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/tls-fingerprint-profiles/:id` from `backend/internal/server/routes/admin.go`
+- `GET /admin/usage` from `backend/internal/server/routes/admin.go`
+- `GET /admin/usage/cleanup-tasks` from `backend/internal/server/routes/admin.go`
+- `POST /admin/usage/cleanup-tasks` from `backend/internal/server/routes/admin.go`
+- `POST /admin/usage/cleanup-tasks/:id/cancel` from `backend/internal/server/routes/admin.go`
+- `GET /admin/usage/search-api-keys` from `backend/internal/server/routes/admin.go`
+- `GET /admin/usage/search-users` from `backend/internal/server/routes/admin.go`
+- `GET /admin/usage/stats` from `backend/internal/server/routes/admin.go`
+- `GET /admin/user-attributes` from `backend/internal/server/routes/admin.go`
+- `POST /admin/user-attributes` from `backend/internal/server/routes/admin.go`
+- `DELETE /admin/user-attributes/:id` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/user-attributes/:id` from `backend/internal/server/routes/admin.go`
+- `POST /admin/user-attributes/batch` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/user-attributes/reorder` from `backend/internal/server/routes/admin.go`
+- `GET /admin/users` from `backend/internal/server/routes/admin.go`
+- `POST /admin/users` from `backend/internal/server/routes/admin.go`
+- `DELETE /admin/users/:id` from `backend/internal/server/routes/admin.go`
+- `GET /admin/users/:id` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/users/:id` from `backend/internal/server/routes/admin.go`
+- `GET /admin/users/:id/api-keys` from `backend/internal/server/routes/admin.go`
+- `GET /admin/users/:id/attributes` from `backend/internal/server/routes/admin.go`
+- `PUT /admin/users/:id/attributes` from `backend/internal/server/routes/admin.go`
+- `POST /admin/users/:id/balance` from `backend/internal/server/routes/admin.go`
+- `GET /admin/users/:id/balance-history` from `backend/internal/server/routes/admin.go`
+- `POST /admin/users/:id/replace-group` from `backend/internal/server/routes/admin.go`
+- `GET /admin/users/:id/subscriptions` from `backend/internal/server/routes/admin.go`
+- `GET /admin/users/:id/usage` from `backend/internal/server/routes/admin.go`
+- `POST /aggregated-group-models` from `backend/internal/server/routes/admin_tk_channel_routes.go`
+- `GET /announcements` from `backend/internal/server/routes/user.go`
+- `POST /announcements/:id/read` from `backend/internal/server/routes/user.go`
+- `GET /antigravity/models` from `backend/internal/server/routes/gateway.go`
+- `POST /antigravity/v1/messages` from `backend/internal/server/routes/gateway.go`
+- `POST /antigravity/v1/messages/count_tokens` from `backend/internal/server/routes/gateway.go`
+- `GET /antigravity/v1/models` from `backend/internal/server/routes/gateway.go`
+- `GET /antigravity/v1/usage` from `backend/internal/server/routes/gateway.go`
+- `GET /antigravity/v1beta/models` from `backend/internal/server/routes/gateway.go`
+- `POST /antigravity/v1beta/models/*modelAction` from `backend/internal/server/routes/gateway.go`
+- `GET /antigravity/v1beta/models/:model` from `backend/internal/server/routes/gateway.go`
+- `POST /api/event_logging/batch` from `backend/internal/server/routes/common.go`
+- `POST /auth/forgot-password` from `backend/internal/server/routes/auth.go`
+- `POST /auth/login` from `backend/internal/server/routes/auth.go`
+- `POST /auth/login/2fa` from `backend/internal/server/routes/auth.go`
+- `POST /auth/logout` from `backend/internal/server/routes/auth.go`
+- `GET /auth/me` from `backend/internal/server/routes/auth.go`
+- `GET /auth/oauth/linuxdo/callback` from `backend/internal/server/routes/auth.go`
+- `POST /auth/oauth/linuxdo/complete-registration` from `backend/internal/server/routes/auth.go`
+- `GET /auth/oauth/linuxdo/start` from `backend/internal/server/routes/auth.go`
+- `GET /auth/oauth/oidc/callback` from `backend/internal/server/routes/auth.go`
+- `POST /auth/oauth/oidc/complete-registration` from `backend/internal/server/routes/auth.go`
+- `GET /auth/oauth/oidc/start` from `backend/internal/server/routes/auth.go`
+- `POST /auth/refresh` from `backend/internal/server/routes/auth.go`
+- `POST /auth/register` from `backend/internal/server/routes/auth.go`
+- `POST /auth/reset-password` from `backend/internal/server/routes/auth.go`
+- `POST /auth/revoke-all-sessions` from `backend/internal/server/routes/auth.go`
+- `POST /auth/send-verify-code` from `backend/internal/server/routes/auth.go`
+- `POST /auth/validate-invitation-code` from `backend/internal/server/routes/auth.go`
+- `POST /auth/validate-promo-code` from `backend/internal/server/routes/auth.go`
+- `GET /channel-type-models` from `backend/internal/server/routes/admin_tk_channel_routes.go`
+- `GET /channel-types` from `backend/internal/server/routes/admin_tk_channel_routes.go`
+- `POST /channel-types/fetch-upstream-models` from `backend/internal/server/routes/admin_tk_channel_routes.go`
+- `POST /chat/completions` from `backend/internal/server/routes/gateway.go`
+- `POST /embeddings` from `backend/internal/server/routes/gateway.go`
+- `GET /groups/available` from `backend/internal/server/routes/user.go`
+- `GET /groups/rates` from `backend/internal/server/routes/user.go`
+- `GET /health` from `backend/internal/server/routes/common.go`
+- `POST /images/generations` from `backend/internal/server/routes/gateway.go`
+- `GET /keys` from `backend/internal/server/routes/user.go`
+- `POST /keys` from `backend/internal/server/routes/user.go`
+- `DELETE /keys/:id` from `backend/internal/server/routes/user.go`
+- `GET /keys/:id` from `backend/internal/server/routes/user.go`
+- `PUT /keys/:id` from `backend/internal/server/routes/user.go`
+- `GET /payment/channels` from `backend/internal/server/routes/payment.go`
+- `GET /payment/checkout-info` from `backend/internal/server/routes/payment.go`
+- `GET /payment/config` from `backend/internal/server/routes/payment.go`
+- `GET /payment/limits` from `backend/internal/server/routes/payment.go`
+- `POST /payment/orders` from `backend/internal/server/routes/payment.go`
+- `GET /payment/orders/:id` from `backend/internal/server/routes/payment.go`
+- `POST /payment/orders/:id/cancel` from `backend/internal/server/routes/payment.go`
+- `POST /payment/orders/:id/refund-request` from `backend/internal/server/routes/payment.go`
+- `GET /payment/orders/my` from `backend/internal/server/routes/payment.go`
+- `GET /payment/orders/refund-eligible-providers` from `backend/internal/server/routes/payment.go`
+- `POST /payment/orders/verify` from `backend/internal/server/routes/payment.go`
+- `GET /payment/plans` from `backend/internal/server/routes/payment.go`
+- `POST /payment/public/orders/verify` from `backend/internal/server/routes/payment.go`
+- `POST /payment/webhook/alipay` from `backend/internal/server/routes/payment.go`
+- `GET /payment/webhook/easypay` from `backend/internal/server/routes/payment.go`
+- `POST /payment/webhook/easypay` from `backend/internal/server/routes/payment.go`
+- `POST /payment/webhook/stripe` from `backend/internal/server/routes/payment.go`
+- `POST /payment/webhook/wxpay` from `backend/internal/server/routes/payment.go`
+- `POST /redeem` from `backend/internal/server/routes/user.go`
+- `GET /redeem/history` from `backend/internal/server/routes/user.go`
+- `GET /responses` from `backend/internal/server/routes/gateway.go`
+- `POST /responses` from `backend/internal/server/routes/gateway.go`
+- `POST /responses/*subpath` from `backend/internal/server/routes/gateway.go`
+- `GET /settings/public` from `backend/internal/server/routes/auth.go`
+- `GET /setup/status` from `backend/internal/server/routes/common.go`
+- `GET /subscriptions` from `backend/internal/server/routes/user.go`
+- `GET /subscriptions/active` from `backend/internal/server/routes/user.go`
+- `GET /subscriptions/progress` from `backend/internal/server/routes/user.go`
+- `GET /subscriptions/summary` from `backend/internal/server/routes/user.go`
+- `GET /usage` from `backend/internal/server/routes/user.go`
+- `GET /usage/:id` from `backend/internal/server/routes/user.go`
+- `POST /usage/dashboard/api-keys-usage` from `backend/internal/server/routes/user.go`
+- `GET /usage/dashboard/models` from `backend/internal/server/routes/user.go`
+- `GET /usage/dashboard/stats` from `backend/internal/server/routes/user.go`
+- `GET /usage/dashboard/trend` from `backend/internal/server/routes/user.go`
+- `GET /usage/stats` from `backend/internal/server/routes/user.go`
+- `PUT /user` from `backend/internal/server/routes/user.go`
+- `DELETE /user/notify-email` from `backend/internal/server/routes/user.go`
+- `POST /user/notify-email/send-code` from `backend/internal/server/routes/user.go`
+- `PUT /user/notify-email/toggle` from `backend/internal/server/routes/user.go`
+- `POST /user/notify-email/verify` from `backend/internal/server/routes/user.go`
+- `PUT /user/password` from `backend/internal/server/routes/user.go`
+- `GET /user/profile` from `backend/internal/server/routes/user.go`
+- `POST /user/totp/disable` from `backend/internal/server/routes/user.go`
+- `POST /user/totp/enable` from `backend/internal/server/routes/user.go`
+- `POST /user/totp/send-code` from `backend/internal/server/routes/user.go`
+- `POST /user/totp/setup` from `backend/internal/server/routes/user.go`
+- `GET /user/totp/status` from `backend/internal/server/routes/user.go`
+- `GET /user/totp/verification-method` from `backend/internal/server/routes/user.go`
+- `POST /v1/chat/completions` from `backend/internal/server/routes/gateway.go`
+- `POST /v1/embeddings` from `backend/internal/server/routes/gateway.go`
+- `POST /v1/images/generations` from `backend/internal/server/routes/gateway.go`
+- `POST /v1/messages` from `backend/internal/server/routes/gateway.go`
+- `POST /v1/messages/count_tokens` from `backend/internal/server/routes/gateway.go`
+- `GET /v1/models` from `backend/internal/server/routes/gateway.go`
+- `GET /v1/responses` from `backend/internal/server/routes/gateway.go`
+- `POST /v1/responses` from `backend/internal/server/routes/gateway.go`
+- `POST /v1/responses/*subpath` from `backend/internal/server/routes/gateway.go`
+- `GET /v1/usage` from `backend/internal/server/routes/gateway.go`
+- `GET /v1beta/models` from `backend/internal/server/routes/gateway.go`
+- `POST /v1beta/models/*modelAction` from `backend/internal/server/routes/gateway.go`
+- `GET /v1beta/models/:model` from `backend/internal/server/routes/gateway.go`
 
-| Method   | Path                                                  | Source       |
-| -------- | ----------------------------------------------------- | ------------ |
-| `DELETE` | `/:id`                                                | `admin.go`   |
-| `DELETE` | `/:id`                                                | `admin.go`   |
-| `DELETE` | `/:id`                                                | `admin.go`   |
-| `DELETE` | `/:id`                                                | `admin.go`   |
-| `DELETE` | `/:id`                                                | `admin.go`   |
-| `DELETE` | `/:id`                                                | `admin.go`   |
-| `DELETE` | `/:id`                                                | `admin.go`   |
-| `DELETE` | `/:id`                                                | `admin.go`   |
-| `DELETE` | `/:id`                                                | `admin.go`   |
-| `DELETE` | `/:id`                                                | `admin.go`   |
-| `DELETE` | `/:id`                                                | `admin.go`   |
-| `DELETE` | `/:id`                                                | `admin.go`   |
-| `DELETE` | `/:id`                                                | `admin.go`   |
-| `DELETE` | `/:id`                                                | `admin.go`   |
-| `DELETE` | `/:id`                                                | `user.go`    |
-| `GET`    | `/:id`                                                | `admin.go`   |
-| `GET`    | `/:id`                                                | `admin.go`   |
-| `GET`    | `/:id`                                                | `admin.go`   |
-| `GET`    | `/:id`                                                | `admin.go`   |
-| `GET`    | `/:id`                                                | `admin.go`   |
-| `GET`    | `/:id`                                                | `admin.go`   |
-| `GET`    | `/:id`                                                | `admin.go`   |
-| `GET`    | `/:id`                                                | `admin.go`   |
-| `GET`    | `/:id`                                                | `admin.go`   |
-| `GET`    | `/:id`                                                | `admin.go`   |
-| `GET`    | `/:id`                                                | `admin.go`   |
-| `GET`    | `/:id`                                                | `admin.go`   |
-| `GET`    | `/:id`                                                | `user.go`    |
-| `GET`    | `/:id`                                                | `user.go`    |
-| `PUT`    | `/:id`                                                | `admin.go`   |
-| `PUT`    | `/:id`                                                | `admin.go`   |
-| `PUT`    | `/:id`                                                | `admin.go`   |
-| `PUT`    | `/:id`                                                | `admin.go`   |
-| `PUT`    | `/:id`                                                | `admin.go`   |
-| `PUT`    | `/:id`                                                | `admin.go`   |
-| `PUT`    | `/:id`                                                | `admin.go`   |
-| `PUT`    | `/:id`                                                | `admin.go`   |
-| `PUT`    | `/:id`                                                | `admin.go`   |
-| `PUT`    | `/:id`                                                | `admin.go`   |
-| `PUT`    | `/:id`                                                | `admin.go`   |
-| `PUT`    | `/:id`                                                | `admin.go`   |
-| `PUT`    | `/:id`                                                | `user.go`    |
-| `GET`    | `/:id/accounts`                                       | `admin.go`   |
-| `GET`    | `/:id/api-keys`                                       | `admin.go`   |
-| `GET`    | `/:id/api-keys`                                       | `admin.go`   |
-| `GET`    | `/:id/attributes`                                     | `admin.go`   |
-| `PUT`    | `/:id/attributes`                                     | `admin.go`   |
-| `POST`   | `/:id/balance`                                        | `admin.go`   |
-| `GET`    | `/:id/balance-history`                                | `admin.go`   |
-| `POST`   | `/:id/clear-error`                                    | `admin.go`   |
-| `POST`   | `/:id/clear-rate-limit`                               | `admin.go`   |
-| `GET`    | `/:id/download-url`                                   | `admin.go`   |
-| `POST`   | `/:id/expire`                                         | `admin.go`   |
-| `POST`   | `/:id/extend`                                         | `admin.go`   |
-| `GET`    | `/:id/models`                                         | `admin.go`   |
-| `GET`    | `/:id/progress`                                       | `admin.go`   |
-| `POST`   | `/:id/quality-check`                                  | `admin.go`   |
-| `DELETE` | `/:id/rate-multipliers`                               | `admin.go`   |
-| `GET`    | `/:id/rate-multipliers`                               | `admin.go`   |
-| `PUT`    | `/:id/rate-multipliers`                               | `admin.go`   |
-| `POST`   | `/:id/read`                                           | `user.go`    |
-| `GET`    | `/:id/read-status`                                    | `admin.go`   |
-| `POST`   | `/:id/recover-state`                                  | `admin.go`   |
-| `POST`   | `/:id/refresh`                                        | `admin.go`   |
-| `POST`   | `/:id/refresh-tier`                                   | `admin.go`   |
-| `POST`   | `/:id/replace-group`                                  | `admin.go`   |
-| `POST`   | `/:id/reset-quota`                                    | `admin.go`   |
-| `POST`   | `/:id/reset-quota`                                    | `admin.go`   |
-| `POST`   | `/:id/restore`                                        | `admin.go`   |
-| `GET`    | `/:id/results`                                        | `admin.go`   |
-| `POST`   | `/:id/schedulable`                                    | `admin.go`   |
-| `POST`   | `/:id/set-privacy`                                    | `admin.go`   |
-| `GET`    | `/:id/stats`                                          | `admin.go`   |
-| `GET`    | `/:id/stats`                                          | `admin.go`   |
-| `GET`    | `/:id/stats`                                          | `admin.go`   |
-| `DELETE` | `/:id/temp-unschedulable`                             | `admin.go`   |
-| `GET`    | `/:id/temp-unschedulable`                             | `admin.go`   |
-| `POST`   | `/:id/test`                                           | `admin.go`   |
-| `POST`   | `/:id/test`                                           | `admin.go`   |
-| `GET`    | `/:id/today-stats`                                    | `admin.go`   |
-| `GET`    | `/:id/usage`                                          | `admin.go`   |
-| `GET`    | `/:id/usage`                                          | `admin.go`   |
-| `GET`    | `/:id/usages`                                         | `admin.go`   |
-| `GET`    | `/account-availability`                               | `admin.go`   |
-| `POST`   | `/accounts/:id/refresh`                               | `admin.go`   |
-| `GET`    | `/accounts/:id/scheduled-test-plans`                  | `admin.go`   |
-| `GET`    | `/active`                                             | `user.go`    |
-| `DELETE` | `/admin-api-key`                                      | `admin.go`   |
-| `GET`    | `/admin-api-key`                                      | `admin.go`   |
-| `POST`   | `/admin-api-key/regenerate`                           | `admin.go`   |
-| `GET`    | `/advanced-settings`                                  | `admin.go`   |
-| `PUT`    | `/advanced-settings`                                  | `admin.go`   |
-| `GET`    | `/agent/health`                                       | `admin.go`   |
-| `POST`   | `/aggregation/backfill`                               | `admin.go`   |
-| `GET`    | `/alert`                                              | `admin.go`   |
-| `PUT`    | `/alert`                                              | `admin.go`   |
-| `GET`    | `/alert-events`                                       | `admin.go`   |
-| `GET`    | `/alert-events/:id`                                   | `admin.go`   |
-| `PUT`    | `/alert-events/:id/status`                            | `admin.go`   |
-| `GET`    | `/alert-rules`                                        | `admin.go`   |
-| `POST`   | `/alert-rules`                                        | `admin.go`   |
-| `DELETE` | `/alert-rules/:id`                                    | `admin.go`   |
-| `PUT`    | `/alert-rules/:id`                                    | `admin.go`   |
-| `POST`   | `/alert-silences`                                     | `admin.go`   |
-| `GET`    | `/all`                                                | `admin.go`   |
-| `GET`    | `/all`                                                | `admin.go`   |
-| `GET`    | `/antigravity/default-model-mapping`                  | `admin.go`   |
-| `GET`    | `/antigravity/models`                                 | `gateway.go` |
-| `GET`    | `/api-keys-trend`                                     | `admin.go`   |
-| `POST`   | `/api-keys-usage`                                     | `admin.go`   |
-| `POST`   | `/api/event_logging/batch`                            | `common.go`  |
-| `POST`   | `/assign`                                             | `admin.go`   |
-| `GET`    | `/auth/me`                                            | `auth.go`    |
-| `POST`   | `/auth/revoke-all-sessions`                           | `auth.go`    |
-| `GET`    | `/available`                                          | `user.go`    |
-| `GET`    | `/backups`                                            | `admin.go`   |
-| `POST`   | `/backups`                                            | `admin.go`   |
-| `GET`    | `/backups/:job_id`                                    | `admin.go`   |
-| `POST`   | `/batch`                                              | `admin.go`   |
-| `POST`   | `/batch`                                              | `admin.go`   |
-| `POST`   | `/batch`                                              | `admin.go`   |
-| `POST`   | `/batch-clear-error`                                  | `admin.go`   |
-| `POST`   | `/batch-delete`                                       | `admin.go`   |
-| `POST`   | `/batch-delete`                                       | `admin.go`   |
-| `POST`   | `/batch-refresh`                                      | `admin.go`   |
-| `POST`   | `/batch-refresh-tier`                                 | `admin.go`   |
-| `POST`   | `/batch-update-credentials`                           | `admin.go`   |
-| `GET`    | `/beta-policy`                                        | `admin.go`   |
-| `PUT`    | `/beta-policy`                                        | `admin.go`   |
-| `POST`   | `/bulk-assign`                                        | `admin.go`   |
-| `POST`   | `/bulk-update`                                        | `admin.go`   |
-| `GET`    | `/capacity-summary`                                   | `admin.go`   |
-| `GET`    | `/channel-types`                                      | `admin.go`   |
-| `POST`   | `/chat/completions`                                   | `gateway.go` |
-| `POST`   | `/chat/completions`                                   | `gateway.go` |
-| `POST`   | `/check-mixed-channel`                                | `admin.go`   |
-| `GET`    | `/check-updates`                                      | `admin.go`   |
-| `GET`    | `/cleanup-tasks`                                      | `admin.go`   |
-| `POST`   | `/cleanup-tasks`                                      | `admin.go`   |
-| `POST`   | `/cleanup-tasks/:id/cancel`                           | `admin.go`   |
-| `GET`    | `/concurrency`                                        | `admin.go`   |
-| `GET`    | `/config`                                             | `admin.go`   |
-| `PUT`    | `/config`                                             | `admin.go`   |
-| `POST`   | `/cookie-auth`                                        | `admin.go`   |
-| `POST`   | `/create-and-redeem`                                  | `admin.go`   |
-| `POST`   | `/create-from-oauth`                                  | `admin.go`   |
-| `POST`   | `/dashboard/api-keys-usage`                           | `user.go`    |
-| `GET`    | `/dashboard/error-distribution`                       | `admin.go`   |
-| `GET`    | `/dashboard/error-trend`                              | `admin.go`   |
-| `GET`    | `/dashboard/latency-histogram`                        | `admin.go`   |
-| `GET`    | `/dashboard/models`                                   | `user.go`    |
-| `GET`    | `/dashboard/openai-token-stats`                       | `admin.go`   |
-| `GET`    | `/dashboard/overview`                                 | `admin.go`   |
-| `GET`    | `/dashboard/snapshot-v2`                              | `admin.go`   |
-| `GET`    | `/dashboard/stats`                                    | `user.go`    |
-| `GET`    | `/dashboard/throughput-trend`                         | `admin.go`   |
-| `GET`    | `/dashboard/trend`                                    | `user.go`    |
-| `GET`    | `/data`                                               | `admin.go`   |
-| `GET`    | `/data`                                               | `admin.go`   |
-| `POST`   | `/data`                                               | `admin.go`   |
-| `POST`   | `/data`                                               | `admin.go`   |
-| `POST`   | `/disable`                                            | `user.go`    |
-| `GET`    | `/email-notification/config`                          | `admin.go`   |
-| `PUT`    | `/email-notification/config`                          | `admin.go`   |
-| `POST`   | `/enable`                                             | `user.go`    |
-| `GET`    | `/errors`                                             | `admin.go`   |
-| `GET`    | `/errors/:id`                                         | `admin.go`   |
-| `PUT`    | `/errors/:id/resolve`                                 | `admin.go`   |
-| `GET`    | `/errors/:id/retries`                                 | `admin.go`   |
-| `POST`   | `/errors/:id/retry`                                   | `admin.go`   |
-| `POST`   | `/exchange-code`                                      | `admin.go`   |
-| `POST`   | `/exchange-code`                                      | `admin.go`   |
-| `POST`   | `/exchange-setup-token-code`                          | `admin.go`   |
-| `GET`    | `/export`                                             | `admin.go`   |
-| `POST`   | `/forgot-password`                                    | `auth.go`    |
-| `POST`   | `/generate`                                           | `admin.go`   |
-| `POST`   | `/generate-auth-url`                                  | `admin.go`   |
-| `POST`   | `/generate-auth-url`                                  | `admin.go`   |
-| `POST`   | `/generate-setup-token-url`                           | `admin.go`   |
-| `GET`    | `/groups`                                             | `admin.go`   |
-| `GET`    | `/groups/:id/subscriptions`                           | `admin.go`   |
-| `GET`    | `/health`                                             | `common.go`  |
-| `GET`    | `/history`                                            | `user.go`    |
-| `GET`    | `/logging`                                            | `admin.go`   |
-| `PUT`    | `/logging`                                            | `admin.go`   |
-| `POST`   | `/logging/reset`                                      | `admin.go`   |
-| `POST`   | `/login`                                              | `auth.go`    |
-| `POST`   | `/login/2fa`                                          | `auth.go`    |
-| `POST`   | `/logout`                                             | `auth.go`    |
-| `POST`   | `/messages`                                           | `gateway.go` |
-| `POST`   | `/messages`                                           | `gateway.go` |
-| `POST`   | `/messages/count_tokens`                              | `gateway.go` |
-| `POST`   | `/messages/count_tokens`                              | `gateway.go` |
-| `GET`    | `/metric-thresholds`                                  | `admin.go`   |
-| `PUT`    | `/metric-thresholds`                                  | `admin.go`   |
-| `GET`    | `/model-pricing`                                      | `admin.go`   |
-| `GET`    | `/models`                                             | `admin.go`   |
-| `GET`    | `/models`                                             | `gateway.go` |
-| `GET`    | `/models`                                             | `gateway.go` |
-| `GET`    | `/models`                                             | `gateway.go` |
-| `GET`    | `/models`                                             | `gateway.go` |
-| `POST`   | `/models/*modelAction`                                | `gateway.go` |
-| `POST`   | `/models/*modelAction`                                | `gateway.go` |
-| `GET`    | `/models/:model`                                      | `gateway.go` |
-| `GET`    | `/models/:model`                                      | `gateway.go` |
-| `POST`   | `/oauth/auth-url`                                     | `admin.go`   |
-| `POST`   | `/oauth/auth-url`                                     | `admin.go`   |
-| `GET`    | `/oauth/capabilities`                                 | `admin.go`   |
-| `POST`   | `/oauth/exchange-code`                                | `admin.go`   |
-| `POST`   | `/oauth/exchange-code`                                | `admin.go`   |
-| `GET`    | `/oauth/linuxdo/callback`                             | `auth.go`    |
-| `POST`   | `/oauth/linuxdo/complete-registration`                | `auth.go`    |
-| `GET`    | `/oauth/linuxdo/start`                                | `auth.go`    |
-| `POST`   | `/oauth/refresh-token`                                | `admin.go`   |
-| `GET`    | `/overload-cooldown`                                  | `admin.go`   |
-| `PUT`    | `/overload-cooldown`                                  | `admin.go`   |
-| `PUT`    | `/password`                                           | `user.go`    |
-| `GET`    | `/profile`                                            | `user.go`    |
-| `GET`    | `/progress`                                           | `user.go`    |
-| `GET`    | `/public`                                             | `auth.go`    |
-| `GET`    | `/qps`                                                | `admin.go`   |
-| `GET`    | `/rates`                                              | `user.go`    |
-| `GET`    | `/realtime`                                           | `admin.go`   |
-| `GET`    | `/realtime-traffic`                                   | `admin.go`   |
-| `GET`    | `/rectifier`                                          | `admin.go`   |
-| `PUT`    | `/rectifier`                                          | `admin.go`   |
-| `POST`   | `/refresh`                                            | `auth.go`    |
-| `POST`   | `/refresh-token`                                      | `admin.go`   |
-| `POST`   | `/register`                                           | `auth.go`    |
-| `PUT`    | `/reorder`                                            | `admin.go`   |
-| `GET`    | `/request-errors`                                     | `admin.go`   |
-| `GET`    | `/request-errors/:id`                                 | `admin.go`   |
-| `PUT`    | `/request-errors/:id/resolve`                         | `admin.go`   |
-| `POST`   | `/request-errors/:id/retry-client`                    | `admin.go`   |
-| `GET`    | `/request-errors/:id/upstream-errors`                 | `admin.go`   |
-| `POST`   | `/request-errors/:id/upstream-errors/:idx/retry`      | `admin.go`   |
-| `GET`    | `/requests`                                           | `admin.go`   |
-| `POST`   | `/reset-password`                                     | `auth.go`    |
-| `GET`    | `/responses`                                          | `gateway.go` |
-| `GET`    | `/responses`                                          | `gateway.go` |
-| `POST`   | `/responses`                                          | `gateway.go` |
-| `POST`   | `/responses`                                          | `gateway.go` |
-| `POST`   | `/responses/*subpath`                                 | `gateway.go` |
-| `POST`   | `/responses/*subpath`                                 | `gateway.go` |
-| `POST`   | `/restart`                                            | `admin.go`   |
-| `POST`   | `/rollback`                                           | `admin.go`   |
-| `GET`    | `/s3-config`                                          | `admin.go`   |
-| `PUT`    | `/s3-config`                                          | `admin.go`   |
-| `POST`   | `/s3-config/test`                                     | `admin.go`   |
-| `GET`    | `/s3/profiles`                                        | `admin.go`   |
-| `POST`   | `/s3/profiles`                                        | `admin.go`   |
-| `DELETE` | `/s3/profiles/:profile_id`                            | `admin.go`   |
-| `PUT`    | `/s3/profiles/:profile_id`                            | `admin.go`   |
-| `POST`   | `/s3/profiles/:profile_id/activate`                   | `admin.go`   |
-| `POST`   | `/s3/test`                                            | `admin.go`   |
-| `GET`    | `/schedule`                                           | `admin.go`   |
-| `PUT`    | `/schedule`                                           | `admin.go`   |
-| `GET`    | `/search-api-keys`                                    | `admin.go`   |
-| `GET`    | `/search-users`                                       | `admin.go`   |
-| `POST`   | `/send-code`                                          | `user.go`    |
-| `POST`   | `/send-test-email`                                    | `admin.go`   |
-| `POST`   | `/send-verify-code`                                   | `auth.go`    |
-| `POST`   | `/setup`                                              | `user.go`    |
-| `POST`   | `/setup-token-cookie-auth`                            | `admin.go`   |
-| `GET`    | `/setup/status`                                       | `common.go`  |
-| `GET`    | `/snapshot-v2`                                        | `admin.go`   |
-| `PUT`    | `/sort-order`                                         | `admin.go`   |
-| `GET`    | `/sources/:source_type/profiles`                      | `admin.go`   |
-| `POST`   | `/sources/:source_type/profiles`                      | `admin.go`   |
-| `DELETE` | `/sources/:source_type/profiles/:profile_id`          | `admin.go`   |
-| `PUT`    | `/sources/:source_type/profiles/:profile_id`          | `admin.go`   |
-| `POST`   | `/sources/:source_type/profiles/:profile_id/activate` | `admin.go`   |
-| `GET`    | `/stats`                                              | `admin.go`   |
-| `GET`    | `/stats`                                              | `admin.go`   |
-| `GET`    | `/stats`                                              | `admin.go`   |
-| `GET`    | `/stats`                                              | `user.go`    |
-| `GET`    | `/status`                                             | `user.go`    |
-| `GET`    | `/stream-timeout`                                     | `admin.go`   |
-| `PUT`    | `/stream-timeout`                                     | `admin.go`   |
-| `GET`    | `/summary`                                            | `user.go`    |
-| `POST`   | `/sync/crs`                                           | `admin.go`   |
-| `POST`   | `/sync/crs/preview`                                   | `admin.go`   |
-| `GET`    | `/system-logs`                                        | `admin.go`   |
-| `POST`   | `/system-logs/cleanup`                                | `admin.go`   |
-| `GET`    | `/system-logs/health`                                 | `admin.go`   |
-| `POST`   | `/test-smtp`                                          | `admin.go`   |
-| `POST`   | `/today-stats/batch`                                  | `admin.go`   |
-| `GET`    | `/trend`                                              | `admin.go`   |
-| `POST`   | `/update`                                             | `admin.go`   |
-| `GET`    | `/upstream-errors`                                    | `admin.go`   |
-| `GET`    | `/upstream-errors/:id`                                | `admin.go`   |
-| `PUT`    | `/upstream-errors/:id/resolve`                        | `admin.go`   |
-| `POST`   | `/upstream-errors/:id/retry`                          | `admin.go`   |
-| `GET`    | `/usage`                                              | `gateway.go` |
-| `GET`    | `/usage`                                              | `gateway.go` |
-| `GET`    | `/usage-summary`                                      | `admin.go`   |
-| `GET`    | `/user-breakdown`                                     | `admin.go`   |
-| `GET`    | `/user-concurrency`                                   | `admin.go`   |
-| `GET`    | `/users-ranking`                                      | `admin.go`   |
-| `GET`    | `/users-trend`                                        | `admin.go`   |
-| `POST`   | `/users-usage`                                        | `admin.go`   |
-| `GET`    | `/users/:id/subscriptions`                            | `admin.go`   |
-| `POST`   | `/validate-invitation-code`                           | `auth.go`    |
-| `POST`   | `/validate-promo-code`                                | `auth.go`    |
-| `GET`    | `/verification-method`                                | `user.go`    |
-| `GET`    | `/version`                                            | `admin.go`   |
+## CLI
 
+_No dedicated CLI contract export is implemented for this repository._
+
+## MCP
+
+_No MCP entrypoint detected in this repository._
 
 ---
 
 # Agent Contract Notes
 
-Manual notes about runtime behavior that are not represented by route inventories.
-
-- Keep this file human-edited.
-- Do not duplicate generated route tables here.
+_No manual notes yet._

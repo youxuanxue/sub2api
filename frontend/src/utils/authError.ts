@@ -23,3 +23,7 @@ export function buildAuthErrorMessage(
   const message = extractErrorMessage(error)
   return message || fallback
 }
+
+export function unknownToErrorMessage(error: unknown, fallback = 'Unknown error'): string {
+  return extractErrorMessage(error) || fallback
+}

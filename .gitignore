@@ -43,6 +43,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+.pnpm-store/
 
 # ===================
 # 环境配置
@@ -112,14 +113,10 @@ deploy/config.yaml
 backend/.installed
 
 # ===================
-# 部署运行时数据
-# ===================
-deploy/data/
-
-# ===================
 # 其他
 # ===================
 tests
+CLAUDE.md
 .claude
 scripts
 .code-review-state
@@ -130,6 +127,9 @@ backend/cmd/server/server
 deploy/docker-compose.override.yml
 .gocache/
 vite.config.js
+docs/*
+!docs/PAYMENT.md
+!docs/PAYMENT_CN.md
 .serena/
 .codex/
 frontend/coverage/

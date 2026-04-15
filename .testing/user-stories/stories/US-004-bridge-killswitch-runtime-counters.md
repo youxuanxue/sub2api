@@ -4,7 +4,7 @@
 - Title: Bridge emergency kill switch and runtime counters
 - Version: V1.0
 - Priority: P0
-- As a / I want / So that: 作为平台运维，我希望能在 settings 里一键关闭 NewAPI bridge 路径，并持续采集 bridge/affinity/支付与 passkey 失败计数，以便线上故障时可快速回退与诊断。
+- As a / I want / So that: 作为平台运维，我希望能在 settings 里一键关闭 NewAPI bridge 路径，并持续采集 bridge/affinity/支付失败计数，以便线上故障时可快速回退与诊断。
 - Trace: [防御需求]
 - Risk Focus:
 - 逻辑错误：bridge 分流在 kill switch 关闭后仍继续命中。
@@ -23,7 +23,7 @@
 - `GatewayService` 与 `OpenAIGatewayService` 的 bridge 判定都受 `SettingKeyNewAPIBridgeEnabled` 控制。
 - bridge 分流总量计数器可通过 `BridgeDispatchStats()` 读取。
 - affinity 命中计数可通过 `AffinityHitStats()` 读取。
-- passkey/payment 失败计数器函数可调用且可读。
+- payment 失败计数器函数可调用且可读。
 
 ## Linked Tests
 

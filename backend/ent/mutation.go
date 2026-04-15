@@ -2290,6 +2290,8 @@ type AccountMutation struct {
 	session_window_start      *time.Time
 	session_window_end        *time.Time
 	session_window_status     *string
+	channel_type              *int
+	addchannel_type           *int
 	clearedFields             map[string]struct{}
 	groups                    map[int64]struct{}
 	removedgroups             map[int64]struct{}
@@ -3686,6 +3688,62 @@ func (m *AccountMutation) ResetSessionWindowStatus() {
 	delete(m.clearedFields, account.FieldSessionWindowStatus)
 }
 
+// SetChannelType sets the "channel_type" field.
+func (m *AccountMutation) SetChannelType(i int) {
+	m.channel_type = &i
+	m.addchannel_type = nil
+}
+
+// ChannelType returns the value of the "channel_type" field in the mutation.
+func (m *AccountMutation) ChannelType() (r int, exists bool) {
+	v := m.channel_type
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldChannelType returns the old "channel_type" field's value of the Account entity.
+// If the Account object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AccountMutation) OldChannelType(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldChannelType is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldChannelType requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldChannelType: %w", err)
+	}
+	return oldValue.ChannelType, nil
+}
+
+// AddChannelType adds i to the "channel_type" field.
+func (m *AccountMutation) AddChannelType(i int) {
+	if m.addchannel_type != nil {
+		*m.addchannel_type += i
+	} else {
+		m.addchannel_type = &i
+	}
+}
+
+// AddedChannelType returns the value that was added to the "channel_type" field in this mutation.
+func (m *AccountMutation) AddedChannelType() (r int, exists bool) {
+	v := m.addchannel_type
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetChannelType resets all changes to the "channel_type" field.
+func (m *AccountMutation) ResetChannelType() {
+	m.channel_type = nil
+	m.addchannel_type = nil
+}
+
 // AddGroupIDs adds the "groups" edge to the Group entity by ids.
 func (m *AccountMutation) AddGroupIDs(ids ...int64) {
 	if m.groups == nil {
@@ -3855,7 +3913,7 @@ func (m *AccountMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *AccountMutation) Fields() []string {
-	fields := make([]string, 0, 28)
+	fields := make([]string, 0, 29)
 	if m.created_at != nil {
 		fields = append(fields, account.FieldCreatedAt)
 	}
@@ -3940,6 +3998,9 @@ func (m *AccountMutation) Fields() []string {
 	if m.session_window_status != nil {
 		fields = append(fields, account.FieldSessionWindowStatus)
 	}
+	if m.channel_type != nil {
+		fields = append(fields, account.FieldChannelType)
+	}
 	return fields
 }
 
@@ -4004,6 +4065,8 @@ func (m *AccountMutation) Field(name string) (ent.Value, bool) {
 		return m.SessionWindowEnd()
 	case account.FieldSessionWindowStatus:
 		return m.SessionWindowStatus()
+	case account.FieldChannelType:
+		return m.ChannelType()
 	}
 	return nil, false
 }
@@ -4069,6 +4132,8 @@ func (m *AccountMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldSessionWindowEnd(ctx)
 	case account.FieldSessionWindowStatus:
 		return m.OldSessionWindowStatus(ctx)
+	case account.FieldChannelType:
+		return m.OldChannelType(ctx)
 	}
 	return nil, fmt.Errorf("unknown Account field %s", name)
 }
@@ -4274,6 +4339,13 @@ func (m *AccountMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetSessionWindowStatus(v)
 		return nil
+	case account.FieldChannelType:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetChannelType(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Account field %s", name)
 }
@@ -4294,6 +4366,9 @@ func (m *AccountMutation) AddedFields() []string {
 	if m.addrate_multiplier != nil {
 		fields = append(fields, account.FieldRateMultiplier)
 	}
+	if m.addchannel_type != nil {
+		fields = append(fields, account.FieldChannelType)
+	}
 	return fields
 }
 
@@ -4310,6 +4385,8 @@ func (m *AccountMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedPriority()
 	case account.FieldRateMultiplier:
 		return m.AddedRateMultiplier()
+	case account.FieldChannelType:
+		return m.AddedChannelType()
 	}
 	return nil, false
 }
@@ -4346,6 +4423,13 @@ func (m *AccountMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddRateMultiplier(v)
+		return nil
+	case account.FieldChannelType:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddChannelType(v)
 		return nil
 	}
 	return fmt.Errorf("unknown Account numeric field %s", name)
@@ -4550,6 +4634,9 @@ func (m *AccountMutation) ResetField(name string) error {
 		return nil
 	case account.FieldSessionWindowStatus:
 		m.ResetSessionWindowStatus()
+		return nil
+	case account.FieldChannelType:
+		m.ResetChannelType()
 		return nil
 	}
 	return fmt.Errorf("unknown Account field %s", name)

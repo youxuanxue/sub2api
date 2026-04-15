@@ -6,13 +6,15 @@
 # Usage:
 #   cd deploy
 #   docker compose -f docker-compose.dev.yml up --build
+#
+# Build context is the parent of sub2api (contains sub2api/ + new-api/). See Dockerfile header.
 # =============================================================================
 
 services:
   sub2api:
     build:
-      context: ..
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: sub2api/Dockerfile
     container_name: sub2api-dev
     restart: unless-stopped
     ports:

@@ -163,5 +163,51 @@ export async function getModelDefaultPricing(model: string): Promise<ModelDefaul
   return data
 }
 
-const channelsAPI = { list, getById, create, update, remove, getModelDefaultPricing }
+import type { GroupPlatform } from '@/types'
+
+export interface ChannelTypeInfo {
+  channel_type: number
+  name: string
+  api_type: number
+  has_adaptor: boolean
+  base_url: string
+}
+
+export async function listChannelTypes(): Promise<ChannelTypeInfo[]> {
+  const { data } = await apiClient.get<ChannelTypeInfo[]>('/admin/channel-types')
+  return data
+}
+
+export async function listChannelTypeModels(): Promise<Record<string, string[]>> {
+  const { data } = await apiClient.get<Record<string, string[]>>('/admin/channel-type-models')
+  return data
+}
+
+export interface FetchUpstreamModelsRequest {
+  base_url: string
+  channel_type: number
+  api_key: string
+  account_id?: number
+}
+
+export async function fetchUpstreamModels(req: FetchUpstreamModelsRequest): Promise<string[]> {
+  const { data } = await apiClient.post<{ models: string[] }>('/admin/channel-types/fetch-upstream-models', req)
+  return Array.isArray(data?.models) ? data.models : []
+}
+
+export async function aggregatedGroupModels(params: {
+  group_ids: number[]
+  platform: GroupPlatform
+}): Promise<string[]> {
+  const { data } = await apiClient.post<{ models: string[] }>('/admin/channels/aggregated-group-models', {
+    group_ids: params.group_ids,
+    platform: params.platform
+  })
+  return Array.isArray(data?.models) ? data.models : []
+}
+
+const channelsAPI = {
+  list, getById, create, update, remove, getModelDefaultPricing,
+  listChannelTypes, listChannelTypeModels, fetchUpstreamModels, aggregatedGroupModels
+}
 export default channelsAPI

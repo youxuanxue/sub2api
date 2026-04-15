@@ -15,10 +15,12 @@ import (
 // ──────────────────────────────────────────────────────────
 
 const (
-	EndpointMessages        = "/v1/messages"
-	EndpointChatCompletions = "/v1/chat/completions"
-	EndpointResponses       = "/v1/responses"
-	EndpointGeminiModels    = "/v1beta/models"
+	EndpointMessages          = "/v1/messages"
+	EndpointChatCompletions   = "/v1/chat/completions"
+	EndpointResponses         = "/v1/responses"
+	EndpointGeminiModels      = "/v1beta/models"
+	EndpointEmbeddings        = "/v1/embeddings"
+	EndpointImagesGenerations = "/v1/images/generations"
 )
 
 // gin.Context keys used by the middleware and helpers below.
@@ -39,6 +41,9 @@ const (
 //	"/v1beta/models/gemini:gen"  → "/v1beta/models"
 func NormalizeInboundEndpoint(path string) string {
 	path = strings.TrimSpace(path)
+	if normalized, ok := tkNormalizeTokenKeyInboundAliases(path); ok {
+		return normalized
+	}
 	switch {
 	case strings.Contains(path, EndpointChatCompletions):
 		return EndpointChatCompletions
@@ -68,7 +73,10 @@ func DeriveUpstreamEndpoint(inbound, rawRequestPath, platform string) string {
 	inbound = strings.TrimSpace(inbound)
 
 	switch platform {
-	case service.PlatformOpenAI:
+	case service.PlatformOpenAI, service.PlatformNewAPI:
+		if upstream, ok := tkDeriveOpenAITokenKeyUpstream(inbound); ok {
+			return upstream
+		}
 		// OpenAI forwards everything to the Responses API.
 		// Preserve subresource suffix (e.g. /v1/responses/compact).
 		if suffix := responsesSubpathSuffix(rawRequestPath); suffix != "" {

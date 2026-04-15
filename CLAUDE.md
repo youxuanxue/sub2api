@@ -190,7 +190,7 @@ HTTP Request → Auth (JWT/APIKey) → Account Scheduling (sticky/load-aware)
   → Usage recording + quota deduction
 ```
 
-The fifth platform **`newapi`** is a first-class account/group platform (not an add-on card on the other four): it uses OpenAI-compatible gateway routes and the New API **adaptor** layer in `internal/relay/bridge` when `channel_type > 0`. The `internal/integration/newapi/` package provides channel-type catalog, Affinity helpers, WebAuthn builder bridge, and Tier2 payment SDK wrappers (Stripe, EPay, Waffo).
+The fifth platform **`newapi`** is a first-class account/group platform (not an add-on card on the other four): it uses OpenAI-compatible gateway routes and the New API **adaptor** layer in `internal/relay/bridge` when `channel_type > 0`. The `internal/integration/newapi/` package provides the channel-type catalog, affinity helpers, upstream model metadata helpers, and other `newapi`-specific bridge support required by TokenKey's fifth-platform flow.
 
 ### Fusion / Bridge Plans
 

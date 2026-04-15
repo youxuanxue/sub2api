@@ -52,6 +52,8 @@ type Account struct {
 	SessionWindowEnd    *time.Time
 	SessionWindowStatus string
 
+	ChannelType int // New API channel type (>0 means use New API adaptor bridge)
+
 	Proxy         *Proxy
 	AccountGroups []AccountGroup
 	GroupIDs      []int64
