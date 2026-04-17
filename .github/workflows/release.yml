@@ -94,6 +94,22 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.inputs.tag || github.ref }}
 
+      - name: Checkout new-api sibling (cross-repo dep via go.mod replace)
+        env:
+          # backend/go.mod: `replace github.com/QuantumNous/new-api => ../../new-api`.
+          # On CI, GITHUB_WORKSPACE = /home/runner/work/sub2api/sub2api, so
+          # ../../new-api resolves to /home/runner/work/sub2api/new-api. We pin
+          # to the exact commit used in local dev to keep release output
+          # bit-identical to what's tested locally. Bump alongside any
+          # new-api upgrade (and re-pull your local sibling clone).
+          NEW_API_REF: 0664bb3f65f05ba1734276264e92e2512b7cacd4
+        run: |
+          set -euxo pipefail
+          target="${GITHUB_WORKSPACE}/../new-api"
+          git clone --filter=blob:none https://github.com/QuantumNous/new-api.git "$target"
+          git -C "$target" checkout "$NEW_API_REF"
+          ls "$target/go.mod"
+
       - name: Download VERSION artifact
         uses: actions/download-artifact@v8
         with:

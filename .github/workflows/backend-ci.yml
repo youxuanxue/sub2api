@@ -10,8 +10,19 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      # Pinned commit of QuantumNous/new-api required by
+      # `replace github.com/QuantumNous/new-api => ../../new-api` in backend/go.mod.
+      # Bump alongside any new-api upgrade (and update local sibling clone).
+      NEW_API_REF: 0664bb3f65f05ba1734276264e92e2512b7cacd4
     steps:
       - uses: actions/checkout@v6
+      - name: Checkout new-api sibling (cross-repo dep via go.mod replace)
+        run: |
+          set -euxo pipefail
+          target="${GITHUB_WORKSPACE}/../new-api"
+          git clone --filter=blob:none https://github.com/QuantumNous/new-api.git "$target"
+          git -C "$target" checkout "$NEW_API_REF"
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
@@ -30,8 +41,16 @@ jobs:
 
   golangci-lint:
     runs-on: ubuntu-latest
+    env:
+      NEW_API_REF: 0664bb3f65f05ba1734276264e92e2512b7cacd4
     steps:
       - uses: actions/checkout@v6
+      - name: Checkout new-api sibling (cross-repo dep via go.mod replace)
+        run: |
+          set -euxo pipefail
+          target="${GITHUB_WORKSPACE}/../new-api"
+          git clone --filter=blob:none https://github.com/QuantumNous/new-api.git "$target"
+          git -C "$target" checkout "$NEW_API_REF"
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
