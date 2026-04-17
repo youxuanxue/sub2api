@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -60,10 +61,25 @@ func main() {
 
 	// Parse command line flags
 	setupMode := flag.Bool("setup", false, "Run setup wizard in CLI mode")
-	showVersion := flag.Bool("version", false, "Show version information")
+	// Some imported dependencies (e.g. new-api/common) also register "-version"
+	// during init(). Reuse existing registration to avoid duplicate-flag panic.
+	var showVersionFlag *bool
+	if flag.Lookup("version") == nil {
+		showVersionFlag = flag.Bool("version", false, "Show version information")
+	}
 	flag.Parse()
 
-	if *showVersion {
+	showVersion := false
+	if showVersionFlag != nil {
+		showVersion = *showVersionFlag
+	} else if existing := flag.Lookup("version"); existing != nil {
+		parsed, err := strconv.ParseBool(existing.Value.String())
+		if err == nil {
+			showVersion = parsed
+		}
+	}
+
+	if showVersion {
 		log.Printf("TokenKey %s (commit: %s, built: %s)\n", Version, Commit, Date)
 		return
 	}

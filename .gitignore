@@ -131,6 +131,7 @@ docs/*
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
 !docs/deploy/
+!docs/flows/
 .serena/
 .codex/
 frontend/coverage/
