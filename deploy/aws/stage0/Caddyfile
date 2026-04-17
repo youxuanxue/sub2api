@@ -1,0 +1,51 @@
+# tokenkey · AWS Stage 0 · Caddyfile
+# -----------------------------------------------------------------------------
+# Cloud-Init 会用 envsubst 把 ${API_DOMAIN}/${ACME_EMAIL} 替换为实际值。
+# Caddy 容器启动后会通过 HTTP-01 自动申请并续签 Let's Encrypt 证书。
+# -----------------------------------------------------------------------------
+
+{
+	email ${ACME_EMAIL}
+	# 取消下一行注释可改用 staging（联调时避免触发 LE 速率限制）
+	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+${API_DOMAIN} {
+	encode zstd gzip
+
+	@static {
+		path /assets/*
+		path /logo.png
+		path /favicon.ico
+	}
+	header @static Cache-Control "public, max-age=31536000, immutable"
+
+	tls {
+		protocols tls1.2 tls1.3
+	}
+
+	reverse_proxy tokenkey:8080 {
+		health_uri /health
+		health_interval 30s
+		health_timeout 10s
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-Host {host}
+		transport http {
+			keepalive 120s
+			keepalive_idle_conns 64
+			compression off
+		}
+	}
+
+	request_body {
+		max_size 100MB
+	}
+
+	log {
+		output stdout
+		format json
+		level INFO
+	}
+}

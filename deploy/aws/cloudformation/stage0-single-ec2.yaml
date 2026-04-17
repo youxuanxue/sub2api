@@ -1,0 +1,512 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  tokenkey (sub2api fork) Stage 0: single EC2 (Graviton) in 1 AZ + EIP, Caddy +
+  app + PostgreSQL + Redis via docker-compose. Daily EBS snapshot via DLM
+  (optional hourly). Self-contained: docker-compose.yml and Caddyfile are
+  embedded in UserData (gzip+base64), so the source repo can stay private.
+  Application image is pulled from a GitHub Container Registry (GHCR) private
+  repo; the PAT is read from SSM Parameter Store at runtime.
+
+# =============================================================================
+# Regenerating embedded blocks:
+#   After editing  deploy/aws/stage0/docker-compose.yml  or  Caddyfile,
+#   run            bash deploy/aws/stage0/build-cfn.sh
+#   to refresh the COMPOSE_GZB64 / CADDY_GZB64 markers below in place.
+#
+# Fn::Sub escaping inside the UserData bash:
+#   The UserData lives inside Fn::Base64: !Sub | ... so CFN scans it for
+#   $-brace references. To get a literal "$VAR" at runtime (for bash), write
+#   it as the escaped form (open-brace, exclamation, name, close-brace);
+#   CFN renders that as the un-escaped form before the EC2 instance sees it.
+#   To pass a CFN parameter through, write the un-escaped form directly,
+#   e.g. ApiDomain.
+# =============================================================================
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: tokenkey
+  Environment:
+    Type: String
+    Default: prod
+    AllowedPattern: '^[a-z0-9-]+$'
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+  PublicSubnetCidr:
+    Type: String
+    Default: 10.0.1.0/24
+
+  ApiDomain:
+    Type: String
+    AllowedPattern: '^[a-z0-9.-]+\.[a-z]{2,}$'
+    Description: "REQUIRED. Public hostname (DNS A-record must point to the EIP). Caddy will request a Let's Encrypt cert for it. Example: api.tokenkey.dev"
+  AcmeEmail:
+    Type: String
+    AllowedPattern: '^[^@\s]+@[^@\s]+\.[^@\s]+$'
+    Description: "REQUIRED. Contact email for Let's Encrypt account (used for cert expiry notices)."
+  AdminEmail:
+    Type: String
+    Default: ''
+    Description: Optional admin email; if empty, defaults to admin@<ApiDomain> at runtime.
+  Timezone:
+    Type: String
+    Default: UTC
+
+  InstanceType:
+    Type: String
+    Default: t4g.small
+    AllowedValues:
+      - t4g.small
+      - t4g.medium
+      - t4g.large
+    Description: Graviton/ARM only (matches AL2023 ARM AMI parameter below).
+  RootVolumeSizeGiB:
+    Type: Number
+    Default: 30
+    MinValue: 20
+    MaxValue: 200
+  AmazonLinux2023Arm64Ami:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+    Description: SSM parameter that always resolves to the latest AL2023 ARM64 AMI in the current region.
+
+  AdminCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR allowed to reach SSH (22). Prefer SSM Session Manager. To fully disable raw SSH, set to 127.0.0.1/32.
+
+  GhcrOwner:
+    Type: String
+    AllowedPattern: '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}[A-Za-z0-9])?$'
+    Description: REQUIRED. GitHub user / org that owns the GHCR image (image will be ghcr.io/<GhcrOwner>/<GhcrImageName>:<ImageTag>).
+  GhcrImageName:
+    Type: String
+    Default: sub2api
+    Description: GHCR image name (matches the upstream package name; do not rename for fork).
+  ImageTag:
+    Type: String
+    Default: main
+    Description: GHCR image tag. Prefer a fixed sha-XXXXXX tag for reproducible deploys.
+  GhcrPullUser:
+    Type: String
+    AllowedPattern: '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}[A-Za-z0-9])?$'
+    Description: REQUIRED. GitHub username used for `docker login ghcr.io`. Usually the same as GhcrOwner, or a dedicated machine user.
+  GhcrPatSsmName:
+    Type: String
+    Default: /tokenkey/ghcr/pat
+    Description: SSM Parameter Store path (SecureString) holding the GHCR PAT (read:packages scope is enough). Create it ONCE before stack create.
+
+  SnapshotSchedule:
+    Type: String
+    Default: daily
+    AllowedValues: [daily, hourly]
+    Description: EBS snapshot cadence (daily=1x/day keep 7; hourly=1x/hour keep 168 = 7 days).
+
+Conditions:
+  IsHourlySnapshots: !Equals [!Ref SnapshotSchedule, hourly]
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-vpc'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-igw'}
+
+  IGWAttach:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Ref PublicSubnetCidr
+      MapPublicIpOnLaunch: true
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-public'}
+        - {Key: Tier, Value: public}
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-public-rt'}
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: IGWAttach
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet
+
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: tokenkey Stage 0 - public 80/443; SSH from AdminCidr only
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 80,  ToPort: 80,  CidrIp: 0.0.0.0/0, Description: HTTP (LE HTTP-01 + redirect)}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: HTTPS}
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref AdminCidr
+          Description: SSH (prefer SSM Session Manager)
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-sg'}
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+      Policies:
+        - PolicyName: ReadGhcrPat
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${GhcrPatSsmName}'
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    'kms:ViaService': !Sub 'ssm.${AWS::Region}.amazonaws.com'
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref InstanceRole]
+
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    DependsOn: IGWAttach
+    Properties:
+      Domain: vpc
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-eip'}
+
+  Instance:
+    Type: AWS::EC2::Instance
+    DependsOn: IGWAttach
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref AmazonLinux2023Arm64Ami
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds: [!Ref AppSecurityGroup]
+      IamInstanceProfile: !Ref InstanceProfile
+      MetadataOptions:
+        HttpTokens: required
+        HttpEndpoint: enabled
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeType: gp3
+            VolumeSize: !Ref RootVolumeSizeGiB
+            DeleteOnTermination: false
+            Encrypted: true
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-app'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: Backup, Value: stage0}
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # tokenkey Stage 0 bootstrap (inlined; no external repo fetch).
+          # See the Fn::Sub escaping notes at the top of this CFN template.
+          set -euxo pipefail
+          exec > >(tee -a /var/log/tokenkey-bootstrap.log) 2>&1
+
+          API_DOMAIN='${ApiDomain}'
+          ACME_EMAIL='${AcmeEmail}'
+          ADMIN_EMAIL='${AdminEmail}'
+          [ -z "${!ADMIN_EMAIL}" ] && ADMIN_EMAIL="admin@${!API_DOMAIN}"
+          TZ_VALUE='${Timezone}'
+          REGION='${AWS::Region}'
+          GHCR_OWNER='${GhcrOwner}'
+          GHCR_IMAGE_NAME='${GhcrImageName}'
+          IMAGE_TAG='${ImageTag}'
+          GHCR_PULL_USER='${GhcrPullUser}'
+          GHCR_PAT_SSM_NAME='${GhcrPatSsmName}'
+          TOKENKEY_IMAGE="ghcr.io/${!GHCR_OWNER}/${!GHCR_IMAGE_NAME}:${!IMAGE_TAG}"
+
+          # --- 1. system packages -------------------------------------------------
+          dnf -y update
+          dnf -y install docker git jq gettext openssl
+          ARCH="$(uname -m)"
+          case "${!ARCH}" in
+            aarch64) CWA_ARCH="arm64" ;;
+            x86_64)  CWA_ARCH="amd64" ;;
+            *) echo "unsupported arch ${!ARCH}" >&2; exit 1 ;;
+          esac
+          dnf -y install "https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/${!CWA_ARCH}/latest/amazon-cloudwatch-agent.rpm" || true
+          systemctl enable --now docker
+
+          # Compose v2 plugin (AL2023 dnf has no docker-compose-plugin)
+          DOCKER_COMPOSE_VERSION="v2.29.7"
+          mkdir -p /usr/local/lib/docker/cli-plugins
+          curl -fsSL "https://github.com/docker/compose/releases/download/${!DOCKER_COMPOSE_VERSION}/docker-compose-linux-$(uname -m)" \
+            -o /usr/local/lib/docker/cli-plugins/docker-compose
+          chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+          usermod -aG docker ec2-user
+
+          # --- 2. data directory layout (single root => easy EBS restore) -------
+          install -d -m 0755 -o root -g root /var/lib/tokenkey
+          install -d -m 0755 /var/lib/tokenkey/app
+          install -d -m 0700 /var/lib/tokenkey/postgres
+          install -d -m 0755 /var/lib/tokenkey/redis
+          install -d -m 0755 /var/lib/tokenkey/pgdump
+          install -d -m 0755 /var/lib/tokenkey/caddy
+          install -d -m 0755 /var/lib/tokenkey/caddy/data
+          install -d -m 0755 /var/lib/tokenkey/caddy/config
+          install -d -m 0755 /var/lib/tokenkey/logs
+          cd /var/lib/tokenkey
+
+          # --- 3. decode embedded compose / caddy templates ---------------------
+          # >>> COMPOSE_GZB64 START (regenerated by build-cfn.sh) <<<
+          COMPOSE_GZB64='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'
+          # >>> COMPOSE_GZB64 END <<<
+          # >>> CADDY_GZB64 START (regenerated by build-cfn.sh) <<<
+          CADDY_GZB64='H4sIAAAAAAACA61TW2sTQRR+zv6KQysI0k02rZZSEKwxxUBv2IK+LdPdSTJ2d2edmcSmIZAqJTXai1CUVlD0oRahrVDoRYsF/4rZXJ76Fzyb2JYKgg/dh9n5vnPmm3ObblB8hnoztAA/D2Do4SRMKpKhYIQwQWy7kGYO1bpBv8oP9RIOz9l6ymMKascbjbUtoF5e5qalgnq1CteKQxMp89746FBqrBRDlBhNmklEIyWovzupL32qHX4Ldt631heC8vGv8rNQMgwXgp2jYH0rWN0Nqrguo3irvNE8qcD9qakJ3YhDs/IFTY21vebuQXC03/i+3dj+ASNUXZeQ9CxR8BU0d+drR5sd2avNXCtqEeoS5sClpLRINwQrb+r7i7XDl7XDcvPjq/reVqtSDVZ262tHYX0kNoZ5mdPjxeb8WvPr8/rb/db8SbCw1Py8Gay8hpEktMofGsuV1vpqsLh/evwiFCWWS02LQFYpXw7GYiHW/0jpeaM3SnwWdaiStJN6lItMzGaCWoqLglbStEutgDB8z+I2hTmpbMjMMV/TIndQUTErtEZ8orIQI1KiaOzGOeHwDI/6XuacSJM8s7gXxUWLYAGylNhUwJlUglhZqie4pwR3oMvPTTvM6gGXzOo4oLf74rf6+g3D6AHmujlFph3ahYEoR3aCEFxxiyNCJh7t7fz6wou0iKB5KiQ10Wm2cP4ABgeMAaN9GCNxVNbMCQaxzv6CZJ6iIk8c6DPkBauYS3lOQfyMxEzMnA+P9AfooKcmoCioyxU1s1yq0l8+w1w8JcKmdrj7T8+JMEEoSiySS//tdh9FoHgmpQTxpM+Fao9DO9fIDKU+cVieQry3Hf0FYzLbweHhnieh/2ZosrjrCyol4x7wdBqp0llJn+SoVOY0xycY6mKfTMnmUNUwRu92nHAE2jaslI/FwvnBHeI0Fy5R8FhyD5GD3XEgNTY8Hp4qab8BG2tOk6MEAAA='
+          # >>> CADDY_GZB64 END <<<
+
+          echo "${!COMPOSE_GZB64}" | base64 -d | gunzip > docker-compose.yml
+          echo "${!CADDY_GZB64}"   | base64 -d | gunzip > caddy/Caddyfile.template
+          API_DOMAIN="${!API_DOMAIN}" ACME_EMAIL="${!ACME_EMAIL}" \
+            envsubst '${!API_DOMAIN} ${!ACME_EMAIL}' \
+            < caddy/Caddyfile.template > caddy/Caddyfile
+
+          # --- 4. secrets + .env ------------------------------------------------
+          gen_secret() { openssl rand -hex 32; }
+          gen_pwd()    { openssl rand -hex 24; }
+          POSTGRES_PASSWORD="$(gen_pwd)"
+          JWT_SECRET="$(gen_secret)"
+          TOTP_ENCRYPTION_KEY="$(gen_secret)"
+
+          cat > /var/lib/tokenkey/.env <<ENVEOF
+          API_DOMAIN=${!API_DOMAIN}
+          ACME_EMAIL=${!ACME_EMAIL}
+          TZ=${!TZ_VALUE}
+          SERVER_MODE=release
+          RUN_MODE=standard
+          TOKENKEY_IMAGE=${!TOKENKEY_IMAGE}
+          POSTGRES_USER=tokenkey
+          POSTGRES_PASSWORD=${!POSTGRES_PASSWORD}
+          POSTGRES_DB=tokenkey
+          DATABASE_MAX_OPEN_CONNS=50
+          DATABASE_MAX_IDLE_CONNS=10
+          REDIS_PASSWORD=
+          REDIS_DB=0
+          REDIS_POOL_SIZE=1024
+          REDIS_MIN_IDLE_CONNS=10
+          ADMIN_EMAIL=${!ADMIN_EMAIL}
+          ADMIN_PASSWORD=
+          JWT_SECRET=${!JWT_SECRET}
+          JWT_EXPIRE_HOUR=24
+          TOTP_ENCRYPTION_KEY=${!TOTP_ENCRYPTION_KEY}
+          ENVEOF
+          chmod 0600 /var/lib/tokenkey/.env
+
+          # --- 5. GHCR private-image login -------------------------------------
+          # Read PAT from SSM SecureString; never echo it. EC2 IAM role has minimal access.
+          GHCR_PAT="$(aws --region "${!REGION}" ssm get-parameter \
+            --name "${!GHCR_PAT_SSM_NAME}" --with-decryption \
+            --query Parameter.Value --output text)"
+          echo "${!GHCR_PAT}" | docker login ghcr.io -u "${!GHCR_PULL_USER}" --password-stdin
+          unset GHCR_PAT
+
+          # --- 6. systemd units ------------------------------------------------
+          cat > /etc/systemd/system/tokenkey.service <<'UNITEOF'
+          [Unit]
+          Description=tokenkey stack (docker compose)
+          Requires=docker.service
+          After=docker.service network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          WorkingDirectory=/var/lib/tokenkey
+          EnvironmentFile=/var/lib/tokenkey/.env
+          ExecStartPre=/usr/bin/docker compose --env-file /var/lib/tokenkey/.env pull
+          ExecStart=/usr/bin/docker compose --env-file /var/lib/tokenkey/.env up -d --remove-orphans
+          ExecStop=/usr/bin/docker compose --env-file /var/lib/tokenkey/.env down
+          TimeoutStartSec=10min
+
+          [Install]
+          WantedBy=multi-user.target
+          UNITEOF
+
+          # hourly pg_dump (application-consistent backup)
+          cat > /usr/local/bin/tokenkey-pgdump.sh <<'PGEOF'
+          #!/bin/bash
+          set -euo pipefail
+          TS=$(date -u +%Y%m%dT%H%M%SZ)
+          OUT="/var/lib/tokenkey/pgdump/tokenkey-${!TS}.sql.gz"
+          docker exec tokenkey-postgres pg_dump -U tokenkey -d tokenkey --format=plain --no-owner \
+            | gzip -9 > "${!OUT}"
+          ls -1t /var/lib/tokenkey/pgdump/tokenkey-*.sql.gz | tail -n +169 | xargs -r rm -f
+          PGEOF
+          chmod +x /usr/local/bin/tokenkey-pgdump.sh
+
+          cat > /etc/systemd/system/tokenkey-pgdump.service <<'PSEOF'
+          [Unit]
+          Description=tokenkey hourly pg_dump
+          After=tokenkey.service
+          Requires=tokenkey.service
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/bin/tokenkey-pgdump.sh
+          PSEOF
+
+          cat > /etc/systemd/system/tokenkey-pgdump.timer <<'PTEOF'
+          [Unit]
+          Description=Run tokenkey-pgdump every hour
+
+          [Timer]
+          OnCalendar=hourly
+          Persistent=true
+          RandomizedDelaySec=2min
+
+          [Install]
+          WantedBy=timers.target
+          PTEOF
+
+          # --- 7. CloudWatch Agent ---------------------------------------------
+          cat > /opt/aws/amazon-cloudwatch-agent/etc/tokenkey.json <<'CWEOF'
+          {
+            "logs": {
+              "logs_collected": {
+                "files": {
+                  "collect_list": [
+                    {"file_path": "/var/log/tokenkey-bootstrap.log", "log_group_name": "/tokenkey/bootstrap", "log_stream_name": "{instance_id}"},
+                    {"file_path": "/var/log/cloud-init-output.log", "log_group_name": "/tokenkey/cloud-init", "log_stream_name": "{instance_id}"}
+                  ]
+                }
+              }
+            },
+            "metrics": {
+              "namespace": "tokenkey/EC2",
+              "append_dimensions": {"InstanceId": "${!aws:InstanceId}"},
+              "metrics_collected": {
+                "mem":  {"measurement": ["mem_used_percent"]},
+                "disk": {"measurement": ["used_percent"], "resources": ["/", "/var/lib/tokenkey"]}
+              }
+            }
+          }
+          CWEOF
+
+          systemctl daemon-reload
+          systemctl enable --now tokenkey.service
+          systemctl enable --now tokenkey-pgdump.timer
+          if [ -x /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl ]; then
+            /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+              -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/tokenkey.json -s || true
+          fi
+
+          sleep 30
+          ( docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env ps || true ) \
+            >> /var/log/tokenkey-bootstrap.log 2>&1
+          echo "BOOTSTRAP_DONE $(date -u +%FT%TZ)" >> /var/log/tokenkey-bootstrap.log
+
+  EIPAssoc:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt ElasticIP.AllocationId
+      InstanceId: !Ref Instance
+
+  # --- DLM: automated EBS snapshots (daily by default, optional hourly) -------
+  DLMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: dlm.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSDataLifecycleManagerServiceRole
+
+  SnapshotPolicy:
+    Type: AWS::DLM::LifecyclePolicy
+    Properties:
+      Description: !Sub '${ProjectName} Stage 0 EBS snapshot policy'
+      State: ENABLED
+      ExecutionRoleArn: !GetAtt DLMRole.Arn
+      PolicyDetails:
+        PolicyType: EBS_SNAPSHOT_MANAGEMENT
+        ResourceTypes: [INSTANCE]
+        TargetTags:
+          - {Key: Backup, Value: stage0}
+        Schedules:
+          - Name: !If [IsHourlySnapshots, hourly-7d, daily-7d]
+            CopyTags: true
+            TagsToAdd:
+              - {Key: snapshot-by, Value: dlm}
+              - {Key: snapshot-cadence, Value: !Ref SnapshotSchedule}
+            CreateRule:
+              Interval: !If [IsHourlySnapshots, 1, 24]
+              IntervalUnit: HOURS
+              Times: !If [IsHourlySnapshots, !Ref AWS::NoValue, ['03:00']]
+            RetainRule:
+              Count: !If [IsHourlySnapshots, 168, 7]
+
+Outputs:
+  PublicIP:
+    Description: Elastic IP - set this as the A record for ApiDomain
+    Value: !Ref ElasticIP
+  InstanceId:
+    Description: EC2 instance ID
+    Value: !Ref Instance
+  ApiUrl:
+    Description: After DNS A-record propagation + LE issuance
+    Value: !Sub 'https://${ApiDomain}'
+  SsmStartSession:
+    Description: Open shell without SSH key
+    Value: !Sub 'aws ssm start-session --region ${AWS::Region} --target ${Instance}'
+  SnapshotPolicyId:
+    Description: DLM lifecycle policy ID
+    Value: !Ref SnapshotPolicy
+  ResolvedImage:
+    Description: Image reference that the EC2 instance will pull from GHCR
+    Value: !Sub 'ghcr.io/${GhcrOwner}/${GhcrImageName}:${ImageTag}'

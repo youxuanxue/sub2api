@@ -1,0 +1,143 @@
+# =============================================================================
+# tokenkey · AWS Stage 0 (Single EC2, all-in-one)
+# -----------------------------------------------------------------------------
+# 与 deploy/docker-compose.yml 的差异：
+#   - 不向宿主机暴露 PostgreSQL / Redis 端口（EC2 在公有子网，避免被外网扫到）
+#   - 增加 Caddy 容器作为唯一对外服务（443 / 80），自动签 Let's Encrypt 证书
+#   - 所有数据卷集中在 /var/lib/tokenkey 下（Cloud-Init 已建好），便于 EBS 快照恢复
+# 镜像使用本仓库 fork 自己发布的版本（GHCR），而不是上游 weishaw/sub2api:latest，
+# 这样才能跑到 TokenKey 自己的 new-api 集成 / passkey / payments 等差异化代码。
+# 镜像名通过 .env 的 TOKENKEY_IMAGE 注入，例如：
+#   TOKENKEY_IMAGE=ghcr.io/<owner>/sub2api:main
+#   TOKENKEY_IMAGE=ghcr.io/<owner>/sub2api:sha-abc1234   # 推荐固定 commit
+# =============================================================================
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: tokenkey-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/lib/tokenkey/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - /var/lib/tokenkey/caddy/data:/data
+      - /var/lib/tokenkey/caddy/config:/config
+    depends_on:
+      tokenkey:
+        condition: service_started
+    networks:
+      - tokenkey-network
+
+  tokenkey:
+    image: ${TOKENKEY_IMAGE:?TOKENKEY_IMAGE is required (e.g. ghcr.io/<owner>/sub2api:<tag>)}
+    container_name: tokenkey
+    pull_policy: always
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 100000
+        hard: 100000
+    expose:
+      - "8080"
+    volumes:
+      - /var/lib/tokenkey/app:/app/data
+    environment:
+      - AUTO_SETUP=true
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8080
+      - SERVER_MODE=${SERVER_MODE:-release}
+      - RUN_MODE=${RUN_MODE:-standard}
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_USER=${POSTGRES_USER:-tokenkey}
+      - DATABASE_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      - DATABASE_DBNAME=${POSTGRES_DB:-tokenkey}
+      - DATABASE_SSLMODE=disable
+      - DATABASE_MAX_OPEN_CONNS=${DATABASE_MAX_OPEN_CONNS:-50}
+      - DATABASE_MAX_IDLE_CONNS=${DATABASE_MAX_IDLE_CONNS:-10}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - REDIS_DB=${REDIS_DB:-0}
+      - REDIS_POOL_SIZE=${REDIS_POOL_SIZE:-1024}
+      - REDIS_MIN_IDLE_CONNS=${REDIS_MIN_IDLE_CONNS:-10}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@tokenkey.local}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required (openssl rand -hex 32)}
+      - JWT_EXPIRE_HOUR=${JWT_EXPIRE_HOUR:-24}
+      - TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY:?TOTP_ENCRYPTION_KEY is required (openssl rand -hex 32)}
+      - TZ=${TZ:-UTC}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - tokenkey-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  postgres:
+    image: postgres:18-alpine
+    container_name: tokenkey-postgres
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 100000
+        hard: 100000
+    volumes:
+      - /var/lib/tokenkey/postgres:/var/lib/postgresql/data
+      - /var/lib/tokenkey/pgdump:/pgdump
+    environment:
+      - PGDATA=/var/lib/postgresql/data
+      - POSTGRES_USER=${POSTGRES_USER:-tokenkey}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      - POSTGRES_DB=${POSTGRES_DB:-tokenkey}
+      - TZ=${TZ:-UTC}
+    networks:
+      - tokenkey-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tokenkey} -d ${POSTGRES_DB:-tokenkey}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:8-alpine
+    container_name: tokenkey-redis
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 100000
+        hard: 100000
+    volumes:
+      - /var/lib/tokenkey/redis:/data
+    command: >
+      sh -c '
+        redis-server
+        --save 60 1
+        --appendonly yes
+        --appendfsync everysec
+        ${REDIS_PASSWORD:+--requirepass "$REDIS_PASSWORD"}'
+    environment:
+      - TZ=${TZ:-UTC}
+      - REDISCLI_AUTH=${REDIS_PASSWORD:-}
+    networks:
+      - tokenkey-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+networks:
+  tokenkey-network:
+    driver: bridge

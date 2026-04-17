@@ -130,6 +130,7 @@ vite.config.js
 docs/*
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
+!docs/deploy/
 .serena/
 .codex/
 frontend/coverage/
