@@ -13,18 +13,19 @@ jobs:
   backend-security:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      # Pinned commit of QuantumNous/new-api required by
-      # `replace github.com/QuantumNous/new-api => ../../new-api` in backend/go.mod.
-      NEW_API_REF: 0664bb3f65f05ba1734276264e92e2512b7cacd4
     steps:
       - uses: actions/checkout@v6
       - name: Checkout new-api sibling (cross-repo dep via go.mod replace)
         run: |
+          # Pin = single source of truth in .new-api-ref (bumped via
+          # scripts/sync-new-api.sh --bump <sha>).
           set -euxo pipefail
+          NEW_API_REF="$(tr -d '[:space:]' < .new-api-ref)"
+          [ -n "${NEW_API_REF}" ] || { echo "ERROR: .new-api-ref is empty" >&2; exit 1; }
           target="${GITHUB_WORKSPACE}/../new-api"
           git clone --filter=blob:none https://github.com/QuantumNous/new-api.git "$target"
-          git -C "$target" checkout "$NEW_API_REF"
+          git -C "$target" fetch --filter=blob:none origin "${NEW_API_REF}" || true
+          git -C "$target" checkout "${NEW_API_REF}"
       - name: Set up Go
         uses: actions/setup-go@v6
         with:

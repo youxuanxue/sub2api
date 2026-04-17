@@ -127,6 +127,18 @@ replace github.com/QuantumNous/new-api => ../../new-api
 
 **Required layout:** `new-api` must sit next to `sub2api` under the same parent directory. The `../../new-api` path resolves from `sub2api/backend/` up two levels to the parent, then into `new-api/`.
 
+**Pinned commit (`.new-api-ref` is the single source of truth):**
+
+The repo-root file `.new-api-ref` records the exact `QuantumNous/new-api` commit SHA used by both local dev and CI. `scripts/sync-new-api.sh` and the three workflows (`release.yml`, `backend-ci.yml`, `security-scan.yml`) all read it, so the release Docker image is bit-identical to what is tested locally.
+
+```bash
+bash scripts/sync-new-api.sh           # pull sibling clone to the pinned SHA
+bash scripts/sync-new-api.sh --check   # CI-style drift check; exit 1 if mismatch
+bash scripts/sync-new-api.sh --bump <sha>   # update .new-api-ref + sync
+```
+
+**Bumping the pin:** `--bump <sha>` → `make test` → `git add .new-api-ref` → commit. **NEVER** hand-edit hardcoded SHAs in workflows.
+
 **Docker build:** From the parent of `sub2api/`, run `docker build -f sub2api/Dockerfile -t sub2api:local .`, or from `deploy/`: `docker compose -f docker-compose.dev.yml build`. See `Dockerfile` header.
 
 **Constraints:**
@@ -134,6 +146,7 @@ replace github.com/QuantumNous/new-api => ../../new-api
 - Import only stateless packages: `relay/channel/`*, `relay/common/*`, `dto/*`, `constant/*`, `types/*`, `service/` (affinity). **NEVER** call GORM DB operations from New API code.
 - New API integration logic lives in `internal/integration/newapi/`. Keep it there.
 - When upstream changes break compilation, fix the bridge — do NOT modify New API from this repo.
+- New-api packages may register top-level `flag.Bool` (e.g. `-version`) in their `init()`; check `flag.Lookup` before defining your own to avoid `flag redefined` panics at startup. See `backend/cmd/server/main.go`.
 
 ### 5. Upstream Isolation
 
