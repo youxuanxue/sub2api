@@ -189,7 +189,7 @@ aws cloudformation deploy \
 | | `GhcrOwner` | — | ✅ | GHCR 镜像所属 GitHub 用户/组织 |
 | | `GhcrPullUser` | — | ✅ | `docker login ghcr.io` 用的用户名（通常 = GhcrOwner） |
 | **可选** | `AdminEmail` | `''` → `admin@<ApiDomain>` | | 管理员邮箱与 ApiDomain 域不同时 |
-| | `ImageTag` | `main` | | 改成 `sha-<gitsha>` 实现可重复部署 |
+| | `ImageTag` | `latest` | | **生产**固定到具体版本（如 `1.1.0`）实现可复现部署；**测试**保持 `latest` 自动跟最新 release。Release workflow 仅在 `tags: v*` 触发，`main` 不构建镜像，故 `:main` 不存在。 |
 | | `SnapshotSchedule` | `daily` | | 改 `hourly` 把整机 RPO 从 24h 压到 1h（每月加 \$1–4），见 §3.7 |
 | | `InstanceType` | `t4g.small` | | 改 `t4g.medium`（\$24/月）/ `t4g.large` 应对扩容；见 §3.3 |
 | | `RootVolumeSizeGiB` | `30` | | PG 数据 + pg_dump 接近 75% 时扩 |

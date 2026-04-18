@@ -86,8 +86,14 @@ Parameters:
     Description: GHCR image name (matches the upstream package name; do not rename for fork).
   ImageTag:
     Type: String
-    Default: main
-    Description: GHCR image tag. Prefer a fixed sha-XXXXXX tag for reproducible deploys.
+    Default: latest
+    Description: |
+      GHCR image tag. GoReleaser publishes `:latest`, `:<MAJOR>`, `:<MAJOR.MINOR>`,
+      and `:<MAJOR.MINOR.PATCH>` on every `git tag vX.Y.Z` push.
+      Recommended:
+        - tokenkey-prod stack: pin to `1.1.0` (immutable, reproducible, rollback-safe).
+        - tokenkey-test stack: use `latest` (auto-tracks newest release, no CFN update needed).
+      `main` is NOT a valid tag — Release workflow only fires on `tags: v*`, not on main branch pushes.
   GhcrPullUser:
     Type: String
     AllowedPattern: '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}[A-Za-z0-9])?$'

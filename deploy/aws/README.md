@@ -6,9 +6,9 @@
 
 本目录是 Stage 0 的可执行 IaC + 运行配置。完整方案、成本表、规格选型、备份策略、升级触发条件、所有 CFN 参数详表都在主文档：
 
-- **`docs/deploy/aws-us-openai-gateway-deployment.md`** ← 权威，本 README 不重复
+- `**docs/deploy/aws-us-openai-gateway-deployment.md`** ← 权威，本 README 不重复
 
-当前实现：**Stage 0**（单台 EC2 全栈，约 \$25–40/月，覆盖 100 同时活跃用户）。Stage 1/2/3 触发后再实施。
+当前实现：**Stage 0**（单台 EC2 全栈，约 25–40/月，覆盖 100 同时活跃用户）。Stage 1/2/3 触发后再实施。
 
 ## 目录布局
 
@@ -55,7 +55,8 @@ aws ssm put-parameter --region "${REGION}" \
   --name /tokenkey/ghcr/pat --type SecureString \
   --value 'ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
 
-# 2) 部署栈（其余 14 个参数全用默认值；如需调整见主文档 §3.5「全部参数总表」）
+# 2) 部署栈（其余参数全用默认值；如需调整见主文档 §3.5「全部参数总表」）
+#    注意 ImageTag：生产固定到具体版本（如 1.1.0）以可复现；测试用 latest 自动跟最新。
 aws cloudformation deploy \
   --region "${REGION}" \
   --stack-name tokenkey-prod-stage0 \
@@ -66,7 +67,8 @@ aws cloudformation deploy \
     AcmeEmail="${ACME_EMAIL}" \
     AdminEmail="${ADMIN_EMAIL}" \
     GhcrOwner="${GHCR_OWNER}" \
-    GhcrPullUser="${GHCR_OWNER}"
+    GhcrPullUser="${GHCR_OWNER}" \
+    ImageTag=1.1.0
 
 # 3) 取 EIP 去 Porkbun 加 A 记录
 aws cloudformation describe-stacks --region "${REGION}" \
@@ -76,6 +78,61 @@ aws cloudformation describe-stacks --region "${REGION}" \
 # 4) DNS 生效后（1–10 min），验证
 curl -sS -o /dev/null -w '%{http_code}\n' "https://${DOMAIN}/health"
 # 期望 200；首次若 503 是 LE 还在签证书，等 1–2 min
+```
+
+## 测试环境（轻量、低资源、与生产隔离）
+
+测试环境与生产**完全隔离**（独立 stack / VPC / EBS / EIP / 子域名），通过不同的 `ImageTag` 决定追踪策略：
+
+| Stack | `ImageTag` 策略 | `ApiDomain` | 升级方式 |
+|---|---|---|---|
+| `tokenkey-prod-stage0` | 固定 `1.1.0`（每次发版手动 bump） | `api.tokenkey.dev` | 改 CFN 参数 + `aws cloudformation deploy` |
+| `tokenkey-test-stage0` | `latest`（自动跟随最新 tag） | `test-api.tokenkey.dev` | `git tag vX.Y.Z` 后在实例 `docker compose pull && up -d` |
+
+> GoReleaser 在 `git tag vX.Y.Z && git push` 之后会同时发布 `:X.Y.Z`、`:X.Y`、`:X`、`:latest`。Release workflow **只在 `tags: v*` 触发**，`main` 分支 push 不构建镜像。
+
+部署测试环境（重用同一 CFN 模板，仅改 stack 名 / 子域名 / ImageTag）：
+
+```bash
+# 复用同一 GHCR PAT（同 region 已存在 /tokenkey/ghcr/pat 即可）
+aws cloudformation deploy \
+  --region "${REGION}" \
+  --stack-name tokenkey-test-stage0 \
+  --template-file deploy/aws/cloudformation/stage0-single-ec2.yaml \
+  --capabilities CAPABILITY_IAM \
+  --parameter-overrides \
+    Environment=test \
+    ApiDomain=test-api.tokenkey.dev \
+    AcmeEmail=forsurexue@gmail.com \
+    AdminEmail=admin@tokenkey.dev \
+    GhcrOwner=youxuanxue \
+    GhcrPullUser=youxuanxue \
+    ImageTag=latest
+
+# 取测试 EIP，去 Porkbun 加 A 记录 test-api.tokenkey.dev → <EIP>
+aws cloudformation describe-stacks --region "${REGION}" \
+  --stack-name tokenkey-test-stage0 \
+  --query 'Stacks[0].Outputs[?OutputKey==`PublicIP`].OutputValue' --output text
+```
+
+测试栈推送新版镜像：`git tag` 触发 Release → workflow 完成后 SSM 进实例：
+
+```bash
+INSTANCE_ID=$(aws cloudformation describe-stacks --region us-east-1 \
+  --stack-name tokenkey-test-stage0 \
+  --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)
+aws ssm send-command --region us-east-1 \
+  --document-name AWS-RunShellScript \
+  --instance-ids "${INSTANCE_ID}" \
+  --parameters 'commands=["cd /var/lib/tokenkey && docker compose pull && docker compose up -d"]'
+```
+
+测试环境用完销毁（彻底清零，不留 EIP/EBS 计费）：
+
+```bash
+aws cloudformation delete-stack --region us-east-1 --stack-name tokenkey-test-stage0
+# 等 stack 真的删干净
+aws cloudformation wait stack-delete-complete --region us-east-1 --stack-name tokenkey-test-stage0
 ```
 
 ## 进入实例排错（不需要 SSH 私钥）
@@ -111,3 +168,4 @@ aws cloudformation delete-stack --region us-east-1 --stack-name <旧栈名>
 - **应用更新 / 滚动 / 回滚** → 主文档 §3.6
 - **Stage 1/2/3 升级触发条件** → 主文档 §二、§3.9
 - **CFN 全部 18 个参数详表** → 主文档 §3.5「全部参数总表」
+
