@@ -204,6 +204,65 @@
           </div>
         </div>
 
+        <!-- Row 3: Prompt Cache Hit Rate (sticky-routing observability) -->
+        <!-- See docs/approved/sticky-routing.md §6 (success metric). -->
+        <div class="card p-4">
+          <div class="flex items-start gap-3">
+            <div class="rounded-lg bg-cyan-100 p-2 dark:bg-cyan-900/30">
+              <Icon
+                name="bolt"
+                size="md"
+                class="text-cyan-600 dark:text-cyan-400"
+                :stroke-width="2"
+              />
+            </div>
+            <div class="flex-1">
+              <div class="flex items-baseline justify-between">
+                <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
+                  {{ t('admin.dashboard.promptCacheHitRate') }}
+                </p>
+                <p class="text-[11px] text-gray-400 dark:text-gray-500">
+                  {{ t('admin.dashboard.promptCacheHitRateHint') }}
+                </p>
+              </div>
+              <div class="mt-2 grid grid-cols-2 gap-4">
+                <!-- Today -->
+                <div>
+                  <p class="text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('admin.dashboard.promptCacheToday') }}
+                  </p>
+                  <p class="text-2xl font-bold text-cyan-600 dark:text-cyan-400">
+                    {{ formatPercent(promptCacheHitRateToday) }}
+                  </p>
+                  <p class="text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('admin.dashboard.cacheReadTokens') }}:
+                    {{ formatTokens(stats.today_cache_read_tokens) }}
+                    ·
+                    {{ t('admin.dashboard.cacheCreateTokens') }}:
+                    {{ formatTokens(stats.today_cache_creation_tokens) }}
+                  </p>
+                </div>
+                <!-- Total -->
+                <div>
+                  <p class="text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('admin.dashboard.promptCacheTotal') }}
+                  </p>
+                  <p class="text-2xl font-bold text-gray-900 dark:text-white">
+                    {{ formatPercent(promptCacheHitRateTotal) }}
+                  </p>
+                  <p class="text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('admin.dashboard.cacheReadTokens') }}:
+                    {{ formatTokens(stats.total_cache_read_tokens) }}
+                    ·
+                    {{ t('admin.dashboard.cacheCreateTokens') }}:
+                    {{ formatTokens(stats.total_cache_creation_tokens) }}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Charts Section -->
         <div class="space-y-6">
           <!-- Date Range Filter -->
@@ -541,6 +600,43 @@ const formatDuration = (ms: number): string => {
     return `${(ms / 1000).toFixed(2)}s`
   }
   return `${Math.round(ms)}ms`
+}
+
+// Prompt cache hit-rate (sticky-routing observability).
+// Definition: cache_read / (cache_read + input + cache_create).
+// Returns null when the denominator is 0 so the UI can render a "—" placeholder.
+const computeHitRate = (
+  cacheRead: number | undefined,
+  input: number | undefined,
+  cacheCreate: number | undefined
+): number | null => {
+  const r = cacheRead ?? 0
+  const i = input ?? 0
+  const c = cacheCreate ?? 0
+  const denom = r + i + c
+  if (denom <= 0) return null
+  return r / denom
+}
+
+const promptCacheHitRateToday = computed(() =>
+  computeHitRate(
+    stats.value?.today_cache_read_tokens,
+    stats.value?.today_input_tokens,
+    stats.value?.today_cache_creation_tokens
+  )
+)
+
+const promptCacheHitRateTotal = computed(() =>
+  computeHitRate(
+    stats.value?.total_cache_read_tokens,
+    stats.value?.total_input_tokens,
+    stats.value?.total_cache_creation_tokens
+  )
+)
+
+const formatPercent = (rate: number | null): string => {
+  if (rate === null) return '—'
+  return `${(rate * 100).toFixed(1)}%`
 }
 
 const goToUserUsage = (item: UserSpendingRankingItem) => {

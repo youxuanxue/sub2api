@@ -567,6 +567,20 @@ func (_u *GroupUpdate) SetNillableMessagesDispatchModelConfig(v *domain.OpenAIMe
 	return _u
 }
 
+// SetStickyRoutingMode sets the "sticky_routing_mode" field.
+func (_u *GroupUpdate) SetStickyRoutingMode(v group.StickyRoutingMode) *GroupUpdate {
+	_u.mutation.SetStickyRoutingMode(v)
+	return _u
+}
+
+// SetNillableStickyRoutingMode sets the "sticky_routing_mode" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableStickyRoutingMode(v *group.StickyRoutingMode) *GroupUpdate {
+	if v != nil {
+		_u.SetStickyRoutingMode(*v)
+	}
+	return _u
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by IDs.
 func (_u *GroupUpdate) AddAPIKeyIDs(ids ...int64) *GroupUpdate {
 	_u.mutation.AddAPIKeyIDs(ids...)
@@ -857,6 +871,11 @@ func (_u *GroupUpdate) check() error {
 			return &ValidationError{Name: "default_mapped_model", err: fmt.Errorf(`ent: validator failed for field "Group.default_mapped_model": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.StickyRoutingMode(); ok {
+		if err := group.StickyRoutingModeValidator(v); err != nil {
+			return &ValidationError{Name: "sticky_routing_mode", err: fmt.Errorf(`ent: validator failed for field "Group.sticky_routing_mode": %w`, err)}
+		}
+	}
 	return nil
 }
 
@@ -1029,6 +1048,9 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.MessagesDispatchModelConfig(); ok {
 		_spec.SetField(group.FieldMessagesDispatchModelConfig, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.StickyRoutingMode(); ok {
+		_spec.SetField(group.FieldStickyRoutingMode, field.TypeEnum, value)
 	}
 	if _u.mutation.APIKeysCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -1875,6 +1897,20 @@ func (_u *GroupUpdateOne) SetNillableMessagesDispatchModelConfig(v *domain.OpenA
 	return _u
 }
 
+// SetStickyRoutingMode sets the "sticky_routing_mode" field.
+func (_u *GroupUpdateOne) SetStickyRoutingMode(v group.StickyRoutingMode) *GroupUpdateOne {
+	_u.mutation.SetStickyRoutingMode(v)
+	return _u
+}
+
+// SetNillableStickyRoutingMode sets the "sticky_routing_mode" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableStickyRoutingMode(v *group.StickyRoutingMode) *GroupUpdateOne {
+	if v != nil {
+		_u.SetStickyRoutingMode(*v)
+	}
+	return _u
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by IDs.
 func (_u *GroupUpdateOne) AddAPIKeyIDs(ids ...int64) *GroupUpdateOne {
 	_u.mutation.AddAPIKeyIDs(ids...)
@@ -2178,6 +2214,11 @@ func (_u *GroupUpdateOne) check() error {
 			return &ValidationError{Name: "default_mapped_model", err: fmt.Errorf(`ent: validator failed for field "Group.default_mapped_model": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.StickyRoutingMode(); ok {
+		if err := group.StickyRoutingModeValidator(v); err != nil {
+			return &ValidationError{Name: "sticky_routing_mode", err: fmt.Errorf(`ent: validator failed for field "Group.sticky_routing_mode": %w`, err)}
+		}
+	}
 	return nil
 }
 
@@ -2367,6 +2408,9 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if value, ok := _u.mutation.MessagesDispatchModelConfig(); ok {
 		_spec.SetField(group.FieldMessagesDispatchModelConfig, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.StickyRoutingMode(); ok {
+		_spec.SetField(group.FieldStickyRoutingMode, field.TypeEnum, value)
 	}
 	if _u.mutation.APIKeysCleared() {
 		edge := &sqlgraph.EdgeSpec{

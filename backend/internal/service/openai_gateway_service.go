@@ -1997,6 +1997,30 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 	}
 
+	// Sticky routing: when no prompt_cache_key is present yet (neither client-
+	// supplied nor codex-derived), derive a stable one from
+	// (api_key, system, tools) and inject it. Cascades into session_id /
+	// conversation_id headers via the existing logic at buildUpstreamRequestOpenAIPassthrough.
+	// See docs/approved/sticky-routing.md.
+	if strings.TrimSpace(promptCacheKey) == "" {
+		stickyReq := buildStickyInjectionRequestFromGin(ctx, c, s.settingService, upstreamModel, openAIStickyAccountKind(account), false)
+		if stickyReq.Strategy.AllowsInjection() {
+			stickyBodyForDerive, _ := json.Marshal(reqBody)
+			key := DeriveStickyKey(stickyReq, stickyBodyForDerive)
+			if key.Value != "" {
+				if existing, _ := reqBody["prompt_cache_key"].(string); strings.TrimSpace(existing) == "" {
+					reqBody["prompt_cache_key"] = key.Value
+					bodyModified = true
+					markPatchSet("prompt_cache_key", key.Value)
+					promptCacheKey = key.Value
+					logger.LegacyPrintf("service.openai_gateway",
+						"[OpenAI sticky] injected prompt_cache_key source=%s len=%d account=%s model=%s",
+						key.Source, len(key.Value), account.Name, upstreamModel)
+				}
+			}
+		}
+	}
+
 	// Handle max_output_tokens based on platform and account type
 	if !isCodexCLI {
 		if maxOutputTokens, hasMaxOutputTokens := reqBody["max_output_tokens"]; hasMaxOutputTokens {
@@ -2499,6 +2523,25 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	}
 	if sanitized {
 		body = sanitizedBody
+	}
+
+	// Sticky routing in passthrough mode: only set prompt_cache_key when the
+	// body lacks one (client + minimal touch principle). Header session_id /
+	// conversation_id are derived downstream from the body field by
+	// buildUpstreamRequestOpenAIPassthrough. See docs/approved/sticky-routing.md.
+	{
+		stickyReq := buildStickyInjectionRequestFromGin(ctx, c, s.settingService, reqModel, openAIStickyAccountKind(account), false)
+		if stickyReq.Strategy.AllowsInjection() {
+			key := DeriveStickyKey(stickyReq, body)
+			if key.Value != "" {
+				if injected, mut, ierr := InjectOpenAIResponsesBody(body, key, stickyReq.Strategy); ierr == nil && mut {
+					body = injected
+					logger.LegacyPrintf("service.openai_gateway",
+						"[OpenAI sticky passthrough] injected prompt_cache_key source=%s len=%d account=%s model=%s",
+						key.Source, len(key.Value), account.Name, reqModel)
+				}
+			}
+		}
 	}
 
 	logger.LegacyPrintf("service.openai_gateway",

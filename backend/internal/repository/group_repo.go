@@ -65,6 +65,11 @@ func (r *groupRepository) Create(ctx context.Context, groupIn *service.Group) er
 		SetDefaultMappedModel(groupIn.DefaultMappedModel).
 		SetMessagesDispatchModelConfig(groupIn.MessagesDispatchModelConfig)
 
+	// Sticky routing 策略（空字符串走 schema 默认值 "auto"）。
+	if mode := strings.TrimSpace(groupIn.StickyRoutingMode); mode != "" {
+		builder = builder.SetStickyRoutingMode(group.StickyRoutingMode(mode))
+	}
+
 	// 设置模型路由配置
 	if groupIn.ModelRouting != nil {
 		builder = builder.SetModelRouting(groupIn.ModelRouting)
@@ -131,6 +136,11 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetRequirePrivacySet(groupIn.RequirePrivacySet).
 		SetDefaultMappedModel(groupIn.DefaultMappedModel).
 		SetMessagesDispatchModelConfig(groupIn.MessagesDispatchModelConfig)
+
+	// Sticky routing 策略（空字符串视为不变更，由 admin_service 决定是否传值）。
+	if mode := strings.TrimSpace(groupIn.StickyRoutingMode); mode != "" {
+		builder = builder.SetStickyRoutingMode(group.StickyRoutingMode(mode))
+	}
 
 	// 显式处理可空字段：nil 需要 clear，非 nil 需要 set。
 	if groupIn.DailyLimitUSD != nil {

@@ -145,6 +145,14 @@ func (Group) Fields() []ent.Field {
 			Default(domain.OpenAIMessagesDispatchModelConfig{}).
 			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).
 			Comment("OpenAI Messages 调度模型配置：按 Claude 系列/精确模型映射到目标 GPT 模型"),
+
+		// Sticky routing strategy for upstream prompt cache hits
+		// (added by tk_002, see docs/approved/sticky-routing.md)
+		// auto: 派生 + 注入；passthrough: 仅透传客户端已送的；off: 完全不处理
+		field.Enum("sticky_routing_mode").
+			Values("auto", "passthrough", "off").
+			Default("auto").
+			Comment("Sticky routing strategy: auto | passthrough | off"),
 	}
 }
 

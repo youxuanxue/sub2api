@@ -633,6 +633,12 @@ export default {
         codexCliWs: 'Codex CLI (WebSocket)',
         opencode: 'OpenCode',
       },
+      claudeCode: {
+        envHint:
+          'Recommended: disables adaptive thinking (avoids silent down-grading), pins thinking budget to 31999 tokens, auto-compacts at 200k context. The commented NONESSENTIAL_TRAFFIC flag should only be enabled when routing directly to Anthropic OAuth — otherwise upstream prompt cache TTL drops from 1h to 5min and token cost spikes.',
+        vscodeHint:
+          'Claude Code settings.json with effortLevel=high and all recommended env vars. Replace the file to apply.',
+      },
       antigravity: {
         description: 'Configure API access for Antigravity group. Select the configuration method based on your client.',
         claudeCode: 'Claude Code',
@@ -1053,7 +1059,14 @@ export default {
       spendShort: 'Spend',
       requestsShort: 'Req',
       tokensShort: 'Tok',
-      failedToLoad: 'Failed to load dashboard statistics'
+      failedToLoad: 'Failed to load dashboard statistics',
+      promptCacheHitRate: 'Prompt Cache Hit Rate',
+      promptCacheHitRateHint:
+        'cache_read / (cache_read + input + cache_create). Higher = better. Sticky routing aims to maximize this.',
+      cacheReadTokens: 'Cache Read',
+      cacheCreateTokens: 'Cache Created',
+      promptCacheToday: 'Today',
+      promptCacheTotal: 'Total'
     },
 
     backup: {
@@ -4422,6 +4435,9 @@ export default {
         metadataPassthroughHint: 'Pass through client\'s original metadata.user_id without rewriting. May improve upstream cache hit rates.',
         cchSigning: 'CCH Signing',
         cchSigningHint: 'Sign the billing header in forwarded requests with CCH hash. When disabled, the placeholder is preserved.',
+        stickyRouting: 'Prompt Cache Sticky Routing',
+        stickyRoutingHint:
+          'Enabled by default. Derives stable prompt_cache_key / metadata.user_id / X-Session-Id and injects them upstream to maximize prompt cache hits. When disabled, every group falls back to passthrough — only forwarding sticky fields the client already sent. See docs/approved/sticky-routing.md.'
       },
       webSearchEmulation: {
         title: 'Web Search Emulation',

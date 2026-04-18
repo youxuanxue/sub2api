@@ -135,6 +135,10 @@ type AdminGroup struct {
 
 	// 分组排序
 	SortOrder int `json:"sort_order"`
+
+	// Upstream prompt-cache 粘性路由策略：auto | passthrough | off
+	// 详见 docs/approved/sticky-routing.md。
+	StickyRoutingMode string `json:"sticky_routing_mode"`
 }
 
 type Account struct {

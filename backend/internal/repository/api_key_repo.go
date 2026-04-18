@@ -707,6 +707,7 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 		RequirePrivacySet:               g.RequirePrivacySet,
 		DefaultMappedModel:              g.DefaultMappedModel,
 		MessagesDispatchModelConfig:     g.MessagesDispatchModelConfig,
+		StickyRoutingMode:               string(g.StickyRoutingMode),
 		CreatedAt:                       g.CreatedAt,
 		UpdatedAt:                       g.UpdatedAt,
 	}

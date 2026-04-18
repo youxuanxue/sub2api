@@ -976,7 +976,15 @@ func TestOpenAIGatewayService_APIKeyPassthrough_PreservesBodyAndUsesResponsesEnd
 	require.NotNil(t, result.ServiceTier)
 	require.Equal(t, "flex", *result.ServiceTier)
 	require.NotNil(t, upstream.lastReq)
-	require.Equal(t, originalBody, upstream.lastBody)
+	// Sticky routing: passthrough now derives + injects prompt_cache_key when
+	// the body lacks one. Original fields must be preserved verbatim.
+	// See docs/approved/sticky-routing.md.
+	require.Equal(t, "gpt-5.2", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, false, gjson.GetBytes(upstream.lastBody, "stream").Bool())
+	require.Equal(t, "flex", gjson.GetBytes(upstream.lastBody, "service_tier").String())
+	require.Equal(t, int64(128), gjson.GetBytes(upstream.lastBody, "max_output_tokens").Int())
+	require.NotEmpty(t, gjson.GetBytes(upstream.lastBody, "prompt_cache_key").String(),
+		"sticky routing should inject prompt_cache_key on passthrough when client didn't supply one")
 	require.Equal(t, "https://api.openai.com/v1/responses", upstream.lastReq.URL.String())
 	require.Equal(t, "Bearer sk-api-key", upstream.lastReq.Header.Get("Authorization"))
 	require.Equal(t, "curl/8.0", upstream.lastReq.Header.Get("User-Agent"))

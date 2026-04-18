@@ -606,6 +606,7 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 	updates[SettingKeyEnableFingerprintUnification] = strconv.FormatBool(settings.EnableFingerprintUnification)
 	updates[SettingKeyEnableMetadataPassthrough] = strconv.FormatBool(settings.EnableMetadataPassthrough)
 	updates[SettingKeyEnableCCHSigning] = strconv.FormatBool(settings.EnableCCHSigning)
+	updates[SettingKeyStickyRoutingEnabled] = strconv.FormatBool(settings.StickyRoutingEnabled)
 
 	// Balance low notification
 	updates[SettingKeyBalanceLowNotifyEnabled] = strconv.FormatBool(settings.BalanceLowNotifyEnabled)
@@ -630,6 +631,11 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 			metadataPassthrough:    settings.EnableMetadataPassthrough,
 			cchSigning:             settings.EnableCCHSigning,
 			expiresAt:              time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
+		})
+		stickyRoutingSF.Forget("sticky_routing_enabled")
+		stickyRoutingCache.Store(&stickyRoutingCacheEntry{
+			enabled:   settings.StickyRoutingEnabled,
+			expiresAt: time.Now().Add(stickyRoutingCacheTTL).UnixNano(),
 		})
 		if s.onUpdate != nil {
 			s.onUpdate() // Invalidate cache after settings update
@@ -740,6 +746,64 @@ func (s *SettingService) GetGatewayForwardingSettings(ctx context.Context) (fing
 		return r.fp, r.mp, r.cch
 	}
 	return true, false, false // fail-open defaults
+}
+
+// stickyRoutingCache 缓存 sticky routing 全局开关（进程内 atomic.Value，60s TTL）
+type stickyRoutingCacheEntry struct {
+	enabled   bool
+	expiresAt int64 // unix nano
+}
+
+var stickyRoutingCache atomic.Value // *stickyRoutingCacheEntry
+var stickyRoutingSF singleflight.Group
+
+const stickyRoutingCacheTTL = 60 * time.Second
+const stickyRoutingErrorTTL = 5 * time.Second
+const stickyRoutingDBTimeout = 5 * time.Second
+
+// IsStickyRoutingEnabled returns whether the global prompt-cache sticky routing
+// is enabled. Defaults to true (fail-open) when the setting is missing or DB
+// errors. See docs/approved/sticky-routing.md §3.2.
+func (s *SettingService) IsStickyRoutingEnabled(ctx context.Context) bool {
+	if s == nil || s.settingRepo == nil {
+		// Defensive: tests / setups without a wired SettingService should not
+		// panic on singleflight; assume the global default (enabled).
+		return true
+	}
+	if cached, ok := stickyRoutingCache.Load().(*stickyRoutingCacheEntry); ok && cached != nil {
+		if time.Now().UnixNano() < cached.expiresAt {
+			return cached.enabled
+		}
+	}
+	val, _, _ := stickyRoutingSF.Do("sticky_routing_enabled", func() (any, error) {
+		if cached, ok := stickyRoutingCache.Load().(*stickyRoutingCacheEntry); ok && cached != nil {
+			if time.Now().UnixNano() < cached.expiresAt {
+				return cached.enabled, nil
+			}
+		}
+		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stickyRoutingDBTimeout)
+		defer cancel()
+		raw, err := s.settingRepo.GetValue(dbCtx, SettingKeyStickyRoutingEnabled)
+		if err != nil {
+			slog.Warn("failed to get sticky routing setting", "error", err)
+			stickyRoutingCache.Store(&stickyRoutingCacheEntry{
+				enabled:   true,
+				expiresAt: time.Now().Add(stickyRoutingErrorTTL).UnixNano(),
+			})
+			return true, nil
+		}
+		// Empty string => never set => default true (opt-out, not opt-in).
+		enabled := strings.TrimSpace(raw) != "false"
+		stickyRoutingCache.Store(&stickyRoutingCacheEntry{
+			enabled:   enabled,
+			expiresAt: time.Now().Add(stickyRoutingCacheTTL).UnixNano(),
+		})
+		return enabled, nil
+	})
+	if b, ok := val.(bool); ok {
+		return b
+	}
+	return true
 }
 
 // IsEmailVerifyEnabled 检查是否开启邮件验证
@@ -1186,6 +1250,12 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	}
 	result.EnableMetadataPassthrough = settings[SettingKeyEnableMetadataPassthrough] == "true"
 	result.EnableCCHSigning = settings[SettingKeyEnableCCHSigning] == "true"
+	// Sticky routing defaults to true (opt-out): only false when explicitly set to "false".
+	if raw, ok := settings[SettingKeyStickyRoutingEnabled]; ok && strings.TrimSpace(raw) != "" {
+		result.StickyRoutingEnabled = strings.TrimSpace(raw) != "false"
+	} else {
+		result.StickyRoutingEnabled = true
+	}
 
 	// Web search emulation: quick enabled check from the JSON config
 	if raw := settings[SettingKeyWebSearchEmulationConfig]; raw != "" {

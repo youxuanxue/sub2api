@@ -1201,6 +1201,23 @@
               />
             </button>
           </div>
+
+          <!-- Sticky routing mode (per-group). docs/approved/sticky-routing.md -->
+          <div>
+            <label class="text-sm text-gray-600 dark:text-gray-400">
+              Prompt Cache 粘性路由策略
+            </label>
+            <Select
+              v-model="createForm.sticky_routing_mode"
+              :options="stickyRoutingModeOptions"
+              class="mt-1"
+            />
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+              auto：网关派生稳定 prompt_cache_key /
+              metadata.user_id；passthrough：仅在客户端已发送时透传，不主动派生；off：完全关闭。详见
+              docs/approved/sticky-routing.md。
+            </p>
+          </div>
         </div>
 
         <!-- 无效请求兜底（仅 anthropic/antigravity 平台，且非订阅分组） -->
@@ -2319,6 +2336,23 @@
               />
             </button>
           </div>
+
+          <!-- Sticky routing mode (per-group). docs/approved/sticky-routing.md -->
+          <div>
+            <label class="text-sm text-gray-600 dark:text-gray-400">
+              Prompt Cache 粘性路由策略
+            </label>
+            <Select
+              v-model="editForm.sticky_routing_mode"
+              :options="stickyRoutingModeOptions"
+              class="mt-1"
+            />
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+              auto：网关派生稳定 prompt_cache_key /
+              metadata.user_id；passthrough：仅在客户端已发送时透传，不主动派生；off：完全关闭。详见
+              docs/approved/sticky-routing.md。
+            </p>
+          </div>
         </div>
 
         <!-- 无效请求兜底（仅 anthropic/antigravity 平台，且非订阅分组） -->
@@ -2837,6 +2871,13 @@ const fallbackGroupOptionsForEdit = computed(() => {
   return options;
 });
 
+// Sticky routing 策略选项（详见 docs/approved/sticky-routing.md）。
+const stickyRoutingModeOptions = [
+  { value: "auto", label: "auto — 派生稳定 cache key（默认，推荐）" },
+  { value: "passthrough", label: "passthrough — 仅透传客户端字段，不派生" },
+  { value: "off", label: "off — 关闭粘性路由（清空 sticky 字段）" },
+];
+
 // 无效请求兜底分组选项（创建时）- 仅包含 anthropic 平台、非订阅且未配置兜底的分组
 const invalidRequestFallbackOptions = computed(() => {
   const options: { value: number | null; label: string }[] = [
@@ -2986,6 +3027,9 @@ const createForm = reactive({
   supported_model_scopes: ["claude", "gemini_text", "gemini_image"] as string[],
   // MCP XML 协议注入开关（仅 antigravity 平台）
   mcp_xml_inject: true,
+  // 上游 prompt cache 粘性路由策略 (auto | passthrough | off)
+  // 详见 docs/approved/sticky-routing.md。
+  sticky_routing_mode: "auto" as "auto" | "passthrough" | "off",
   // 从分组复制账号
   copy_accounts_from_group_ids: [] as number[],
 });
@@ -3267,6 +3311,9 @@ const editForm = reactive({
   supported_model_scopes: ["claude", "gemini_text", "gemini_image"] as string[],
   // MCP XML 协议注入开关（仅 antigravity 平台）
   mcp_xml_inject: true,
+  // 上游 prompt cache 粘性路由策略 (auto | passthrough | off)
+  // 详见 docs/approved/sticky-routing.md。
+  sticky_routing_mode: "auto" as "auto" | "passthrough" | "off",
   // 从分组复制账号
   copy_accounts_from_group_ids: [] as number[],
 });
@@ -3559,6 +3606,7 @@ const handleEdit = async (group: AdminGroup) => {
     "gemini_image",
   ];
   editForm.mcp_xml_inject = group.mcp_xml_inject ?? true;
+  editForm.sticky_routing_mode = (group.sticky_routing_mode as "auto" | "passthrough" | "off") || "auto";
   editForm.copy_accounts_from_group_ids = []; // 复制账号字段每次编辑时重置为空
   // 加载模型路由规则（异步加载账号名称）
   editModelRoutingRules.value = await convertApiFormatToRoutingRules(

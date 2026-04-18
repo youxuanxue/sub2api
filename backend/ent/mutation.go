@@ -8342,6 +8342,7 @@ type GroupMutation struct {
 	require_privacy_set                     *bool
 	default_mapped_model                    *string
 	messages_dispatch_model_config          *domain.OpenAIMessagesDispatchModelConfig
+	sticky_routing_mode                     *group.StickyRoutingMode
 	clearedFields                           map[string]struct{}
 	api_keys                                map[int64]struct{}
 	removedapi_keys                         map[int64]struct{}
@@ -9930,6 +9931,42 @@ func (m *GroupMutation) ResetMessagesDispatchModelConfig() {
 	m.messages_dispatch_model_config = nil
 }
 
+// SetStickyRoutingMode sets the "sticky_routing_mode" field.
+func (m *GroupMutation) SetStickyRoutingMode(grm group.StickyRoutingMode) {
+	m.sticky_routing_mode = &grm
+}
+
+// StickyRoutingMode returns the value of the "sticky_routing_mode" field in the mutation.
+func (m *GroupMutation) StickyRoutingMode() (r group.StickyRoutingMode, exists bool) {
+	v := m.sticky_routing_mode
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStickyRoutingMode returns the old "sticky_routing_mode" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldStickyRoutingMode(ctx context.Context) (v group.StickyRoutingMode, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStickyRoutingMode is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStickyRoutingMode requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStickyRoutingMode: %w", err)
+	}
+	return oldValue.StickyRoutingMode, nil
+}
+
+// ResetStickyRoutingMode resets all changes to the "sticky_routing_mode" field.
+func (m *GroupMutation) ResetStickyRoutingMode() {
+	m.sticky_routing_mode = nil
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by ids.
 func (m *GroupMutation) AddAPIKeyIDs(ids ...int64) {
 	if m.api_keys == nil {
@@ -10288,7 +10325,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 30)
+	fields := make([]string, 0, 31)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -10379,6 +10416,9 @@ func (m *GroupMutation) Fields() []string {
 	if m.messages_dispatch_model_config != nil {
 		fields = append(fields, group.FieldMessagesDispatchModelConfig)
 	}
+	if m.sticky_routing_mode != nil {
+		fields = append(fields, group.FieldStickyRoutingMode)
+	}
 	return fields
 }
 
@@ -10447,6 +10487,8 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.DefaultMappedModel()
 	case group.FieldMessagesDispatchModelConfig:
 		return m.MessagesDispatchModelConfig()
+	case group.FieldStickyRoutingMode:
+		return m.StickyRoutingMode()
 	}
 	return nil, false
 }
@@ -10516,6 +10558,8 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldDefaultMappedModel(ctx)
 	case group.FieldMessagesDispatchModelConfig:
 		return m.OldMessagesDispatchModelConfig(ctx)
+	case group.FieldStickyRoutingMode:
+		return m.OldStickyRoutingMode(ctx)
 	}
 	return nil, fmt.Errorf("unknown Group field %s", name)
 }
@@ -10734,6 +10778,13 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetMessagesDispatchModelConfig(v)
+		return nil
+	case group.FieldStickyRoutingMode:
+		v, ok := value.(group.StickyRoutingMode)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStickyRoutingMode(v)
 		return nil
 	}
 	return fmt.Errorf("unknown Group field %s", name)
@@ -11077,6 +11128,9 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldMessagesDispatchModelConfig:
 		m.ResetMessagesDispatchModelConfig()
+		return nil
+	case group.FieldStickyRoutingMode:
+		m.ResetStickyRoutingMode()
 		return nil
 	}
 	return fmt.Errorf("unknown Group field %s", name)

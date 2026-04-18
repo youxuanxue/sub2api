@@ -417,6 +417,9 @@ export interface Group {
   messages_dispatch_model_config?: OpenAIMessagesDispatchModelConfig
   require_oauth_only: boolean
   require_privacy_set: boolean
+  // 上游 prompt cache 粘性路由策略 (auto | passthrough | off)
+  // docs/approved/sticky-routing.md
+  sticky_routing_mode?: 'auto' | 'passthrough' | 'off'
   created_at: string
   updated_at: string
 }
@@ -523,6 +526,8 @@ export interface CreateGroupRequest {
   supported_model_scopes?: string[]
   require_oauth_only?: boolean
   require_privacy_set?: boolean
+  // 上游 prompt cache 粘性路由策略 (auto | passthrough | off)
+  sticky_routing_mode?: 'auto' | 'passthrough' | 'off'
   // 从指定分组复制账号
   copy_accounts_from_group_ids?: number[]
 }
@@ -548,6 +553,7 @@ export interface UpdateGroupRequest {
   supported_model_scopes?: string[]
   require_oauth_only?: boolean
   require_privacy_set?: boolean
+  sticky_routing_mode?: 'auto' | 'passthrough' | 'off'
   copy_accounts_from_group_ids?: number[]
 }
 

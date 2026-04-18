@@ -123,6 +123,9 @@ type SystemSettings struct {
 	EnableFingerprintUnification bool `json:"enable_fingerprint_unification"`
 	EnableMetadataPassthrough    bool `json:"enable_metadata_passthrough"`
 	EnableCCHSigning             bool `json:"enable_cch_signing"`
+	// Sticky routing kill switch (default true).
+	// See docs/approved/sticky-routing.md §3.2.
+	StickyRoutingEnabled bool `json:"sticky_routing_enabled"`
 
 	// Web Search Emulation
 	WebSearchEmulationEnabled bool `json:"web_search_emulation_enabled"`

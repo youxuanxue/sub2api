@@ -113,6 +113,9 @@ export interface SystemSettings {
   enable_fingerprint_unification: boolean
   enable_metadata_passthrough: boolean
   enable_cch_signing: boolean
+  // Sticky routing kill switch (default true).
+  // See docs/approved/sticky-routing.md.
+  sticky_routing_enabled: boolean
   web_search_emulation_enabled?: boolean
 
   // Payment configuration
@@ -220,6 +223,7 @@ export interface UpdateSettingsRequest {
   enable_fingerprint_unification?: boolean
   enable_metadata_passthrough?: boolean
   enable_cch_signing?: boolean
+  sticky_routing_enabled?: boolean
   // Payment configuration
   payment_enabled?: boolean
   payment_min_amount?: number

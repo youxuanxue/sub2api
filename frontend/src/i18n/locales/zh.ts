@@ -633,6 +633,12 @@ export default {
         codexCliWs: 'Codex CLI (WebSocket)',
         opencode: 'OpenCode'
       },
+      claudeCode: {
+        envHint:
+          '推荐配置：禁用动态思考(防降智)+固定 31999 tokens 思考预算+200k 上下文自动压缩。注释掉的 NONESSENTIAL_TRAFFIC 标志仅在直连 Anthropic OAuth 时才考虑开启，否则会让上游 prompt cache TTL 从 1h 降到 5min，token 消耗暴涨。',
+        vscodeHint:
+          'Claude Code settings.json：包含 effortLevel=high 与全部推荐 env，覆盖即可生效。'
+      },
       antigravity: {
         description: '为 Antigravity 分组配置 API 访问。请根据您使用的客户端选择对应的配置方式。',
         claudeCode: 'Claude Code',
@@ -1074,7 +1080,14 @@ export default {
       configureAiAccounts: '配置 AI 平台账号',
       systemSettings: '系统设置',
       configureSystem: '配置系统设置',
-      failedToLoad: '加载仪表盘数据失败'
+      failedToLoad: '加载仪表盘数据失败',
+      promptCacheHitRate: 'Prompt Cache 命中率',
+      promptCacheHitRateHint:
+        '命中率 = cache_read / (cache_read + input + cache_create)。值越高越好。粘性路由的目标就是把这一项尽量推高。',
+      cacheReadTokens: '命中缓存',
+      cacheCreateTokens: '写入缓存',
+      promptCacheToday: '今日',
+      promptCacheTotal: '累计'
     },
 
     backup: {
@@ -4584,6 +4597,9 @@ export default {
         metadataPassthroughHint: '透传客户端原始 metadata.user_id，不进行重写。可能提高上游缓存命中率。',
         cchSigning: 'CCH 签名',
         cchSigningHint: '对转发请求的 billing header 进行 CCH 哈希签名。关闭时保留原始占位符。',
+        stickyRouting: 'Prompt Cache 粘性路由',
+        stickyRoutingHint:
+          '默认开启：网关派生稳定的 prompt_cache_key / metadata.user_id / X-Session-Id 注入到上游，以提高 prompt cache 命中率。关闭后所有分组退化为透传客户端已发送的字段，不再派生。详见 docs/approved/sticky-routing.md。'
       },
       webSearchEmulation: {
         title: 'Web Search 模拟',

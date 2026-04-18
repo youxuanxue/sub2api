@@ -32,6 +32,10 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 		return s.ForwardAsChatCompletions(ctx, c, account, body, promptCacheKey, defaultMappedModel)
 	}
 	recordBridgeDispatch()
+	// Sticky routing for newapi bridge: derive a key (or accept client-sent one),
+	// inject prompt_cache_key into body AND set X-Session-Id header on the gin
+	// request so GLM-style adaptors can pick it up. See docs/approved/sticky-routing.md.
+	body = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, body, "")
 	auth := bridgeAuthFromGin(c)
 	in := newAPIBridgeChannelInput(account, auth.UserID, auth.GroupName)
 	if strings.TrimSpace(in.APIKey) == "" {
@@ -81,6 +85,7 @@ func (s *OpenAIGatewayService) ForwardAsResponsesDispatched(
 		return s.Forward(ctx, c, account, body)
 	}
 	recordBridgeDispatch()
+	body = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, body, "")
 	auth := bridgeAuthFromGin(c)
 	in := newAPIBridgeChannelInput(account, auth.UserID, auth.GroupName)
 	if strings.TrimSpace(in.APIKey) == "" {

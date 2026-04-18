@@ -59,6 +59,10 @@ type Group struct {
 	DefaultMappedModel          string
 	MessagesDispatchModelConfig OpenAIMessagesDispatchModelConfig
 
+	// Upstream prompt-cache sticky routing strategy: "auto" | "passthrough" | "off".
+	// Default empty / "auto" — see docs/approved/sticky-routing.md §3.1.
+	StickyRoutingMode string
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 

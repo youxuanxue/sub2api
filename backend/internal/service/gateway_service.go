@@ -4570,6 +4570,26 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	// Pre-filter: strip empty text blocks (including nested in tool_result) to prevent upstream 400.
 	input.Body = StripEmptyTextBlocks(input.Body)
 
+	// Sticky routing: for non-Claude-Code clients hitting Anthropic API Key,
+	// derive + inject metadata.user_id so upstream prompt cache can bucket
+	// repeated requests in the same logical task. Real Claude Code UA is
+	// skipped — it owns its own session identity. See docs/approved/sticky-routing.md.
+	{
+		isClaudeCode := IsClaudeCodeClient(ctx)
+		stickyReq := buildStickyInjectionRequestFromGin(ctx, c, s.settingService, input.RequestModel, anthropicStickyAccountKind(account), isClaudeCode)
+		if stickyReq.Strategy.AllowsInjection() {
+			key := DeriveStickyKey(stickyReq, input.Body)
+			if key.Value != "" {
+				if injected, mut, ierr := InjectAnthropicMessagesBody(input.Body, key, stickyReq); ierr == nil && mut {
+					input.Body = injected
+					logger.LegacyPrintf("service.gateway",
+						"[Anthropic sticky apikey] injected metadata.user_id source=%s len=%d account=%s model=%s",
+						key.Source, len(key.Value), account.Name, input.RequestModel)
+				}
+			}
+		}
+	}
+
 	// 重试间复用同一请求体，避免每次 string(body) 产生额外分配。
 	setOpsUpstreamRequestBody(c, input.Body)
 
