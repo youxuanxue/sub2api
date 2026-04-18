@@ -17,7 +17,6 @@
 package service
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -377,31 +376,3 @@ func InjectXSessionIDHeader(headers http.Header, key StickyKey, strategy StickyS
 	return true
 }
 
-// ---------------------------------------------------------------------------
-// JSON helpers (kept package-private; intentionally tiny)
-// ---------------------------------------------------------------------------
-
-// debugDumpInjection is used by tests / debug logs to print the StickyKey
-// + selected fields from req in stable JSON shape. Not used in production
-// hot paths.
-func debugDumpInjection(req StickyInjectionRequest, key StickyKey) string {
-	type dump struct {
-		APIKeyID     int64             `json:"api_key_id"`
-		GroupID      int64             `json:"group_id"`
-		AccountKind  StickyAccountKind `json:"account_kind"`
-		Mode         StickyMode        `json:"mode"`
-		EffectiveMod StickyMode        `json:"effective_mode"`
-		Source       string            `json:"source"`
-		ValueLen     int               `json:"value_len"`
-	}
-	b, _ := json.Marshal(dump{
-		APIKeyID:     req.APIKeyID,
-		GroupID:      req.GroupID,
-		AccountKind:  req.AccountKind,
-		Mode:         req.Strategy.Mode,
-		EffectiveMod: req.Strategy.EffectiveMode(),
-		Source:       key.Source,
-		ValueLen:     len(key.Value),
-	})
-	return string(b)
-}

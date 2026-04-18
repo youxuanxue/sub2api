@@ -8,7 +8,6 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	servermiddleware "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -27,7 +26,7 @@ func newGatewayRoutesTestRouter(platform string) *gin.Engine {
 			OpenAIGateway: &handler.OpenAIGatewayHandler{},
 		},
 		servermiddleware.APIKeyAuthMiddleware(func(c *gin.Context) {
-			c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+			c.Set(string(servermiddleware.ContextKeyAPIKey), &service.APIKey{
 				ID:      1,
 				GroupID: &groupID,
 				Group:   &service.Group{ID: groupID, Platform: platform},
