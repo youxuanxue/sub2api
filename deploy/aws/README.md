@@ -86,10 +86,23 @@ curl -sS -o /dev/null -w '%{http_code}\n' "https://${DOMAIN}/health"
 
 | Stack | `ImageTag` 策略 | `ApiDomain` | 升级方式 |
 |---|---|---|---|
-| `tokenkey-prod-stage0` | 固定 `1.1.0`（每次发版手动 bump） | `api.tokenkey.dev` | 改 CFN 参数 + `aws cloudformation deploy` |
+| `tokenkey-prod-stage0` | 固定 `1.2.0`（每次发版手动 bump） | `api.tokenkey.dev` | 改 CFN 参数 + `aws cloudformation deploy` |
 | `tokenkey-test-stage0` | `latest`（自动跟随最新 tag） | `test-api.tokenkey.dev` | `git tag vX.Y.Z` 后在实例 `docker compose pull && up -d` |
 
 > GoReleaser 在 `git tag vX.Y.Z && git push` 之后会同时发布 `:X.Y.Z`、`:X.Y`、`:X`、`:latest`。Release workflow **只在 `tags: v*` 触发**，`main` 分支 push 不构建镜像。
+
+### 发版纪律（两条铁律）
+
+1. **VERSION bump commit 不要带 `[skip ci]`** — Release workflow 由 `tag push` 触发，但
+   GitHub 会读 tag 指向的 **commit message** 来决定要不要 skip。如果你 `chore: bump VERSION
+   to X.Y.Z [skip ci]` 然后 `git tag vX.Y.Z`，tag push 会被静默吞掉，必须人工
+   `gh workflow run release.yml -f tag=vX.Y.Z` 补救。**只有 release.yml 里 sync-version-file
+   job 自动生成的回写 commit** 才需要 `[skip ci]`（防 release → sync → release 死循环）。
+
+2. **不要随手开 `simple_release=true`** — 这个开关只构建 amd64 单架构镜像并覆盖 `:latest` /
+   `:X.Y.Z` 等共享 tag，AWS Graviton (t4g/c7g/m7g) 等 ARM 主机会立即在 `exec format error`
+   崩溃。生产/测试栈都跑 t4g，**默认必须 `false`**。如果手抖开了，立刻重发同 tag 的
+   `simple_release=false` workflow 覆盖回 multi-arch manifest。
 
 部署测试环境（重用同一 CFN 模板，仅改 stack 名 / 子域名 / ImageTag）：
 

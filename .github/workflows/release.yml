@@ -11,7 +11,11 @@ on:
         required: true
         type: string
       simple_release:
-        description: 'Simple release: only x86_64 GHCR image, skip other artifacts'
+        # ⚠️ DANGER: 启用后只构建 linux/amd64 单架构镜像，并会**覆盖** :latest / :X.Y.Z 等
+        # 共享 tag —— 任何 ARM 主机（AWS Graviton t4g/c7g/m7g 等）拉到这些 tag 都会
+        # 立即崩溃在 "exec format error"。仅在确认所有消费者都是 amd64 时才开启。
+        # 默认关闭；启用必须人工 dispatch 时显式打勾。
+        description: '⚠️ amd64-only build. WILL break ARM (Graviton) consumers using :latest. Default false; enable only if you know every host is amd64.'
         required: false
         type: boolean
         default: false
@@ -173,6 +177,20 @@ jobs:
       - name: Set lowercase owner for GHCR
         id: lowercase
         run: echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+      # 显式醒目地把 simple_release 模式打印到 Actions UI summary，避免后续维护者忽视
+      - name: Warn on simple_release mode
+        if: ${{ env.SIMPLE_RELEASE == 'true' }}
+        run: |
+          {
+            echo "## ⚠️ simple_release=true 已启用"
+            echo ""
+            echo "本次只构建 **linux/amd64** 单架构镜像，并会覆盖 \`:latest\` / \`:X.Y.Z\` 等共享 tag。"
+            echo "**任何 ARM (Graviton) 主机拉到这些 tag 都会立即崩溃在 \`exec format error\`**。"
+            echo ""
+            echo "如果误用，请立即重发 \`workflow_dispatch\` 并将 \`simple_release=false\` 重新发布该版本以恢复 multi-arch manifest。"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::warning::simple_release=true — amd64-only build, will overwrite shared tags and break ARM consumers"
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
