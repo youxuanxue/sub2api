@@ -186,12 +186,12 @@ func DispatchEmbeddings(_ context.Context, c *gin.Context, in ChannelContextInpu
 	}
 
 	upstream := relayInfo.OriginModelName
-	if relayInfo.ChannelMeta != nil && relayInfo.ChannelMeta.UpstreamModelName != "" {
-		upstream = relayInfo.ChannelMeta.UpstreamModelName
+	if relayInfo.ChannelMeta != nil && relayInfo.UpstreamModelName != "" {
+		upstream = relayInfo.UpstreamModelName
 	}
 	apiType := 0
 	if relayInfo.ChannelMeta != nil {
-		apiType = relayInfo.ChannelMeta.ApiType
+		apiType = relayInfo.ApiType
 	}
 
 	return &DispatchOutcome{
@@ -236,12 +236,12 @@ func DispatchImageGenerations(_ context.Context, c *gin.Context, in ChannelConte
 	}
 
 	upstream := relayInfo.OriginModelName
-	if relayInfo.ChannelMeta != nil && relayInfo.ChannelMeta.UpstreamModelName != "" {
-		upstream = relayInfo.ChannelMeta.UpstreamModelName
+	if relayInfo.ChannelMeta != nil && relayInfo.UpstreamModelName != "" {
+		upstream = relayInfo.UpstreamModelName
 	}
 	apiType := 0
 	if relayInfo.ChannelMeta != nil {
-		apiType = relayInfo.ChannelMeta.ApiType
+		apiType = relayInfo.ApiType
 	}
 
 	return &DispatchOutcome{

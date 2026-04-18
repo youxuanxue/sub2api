@@ -375,4 +375,3 @@ func InjectXSessionIDHeader(headers http.Header, key StickyKey, strategy StickyS
 	headers.Set("X-Session-Id", key.Value)
 	return true
 }
-

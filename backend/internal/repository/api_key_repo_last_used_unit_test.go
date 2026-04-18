@@ -13,7 +13,9 @@ import (
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
-	_ "modernc.org/sqlite"
+	// "sqlite" driver is registered transitively via new-api → glebarez/go-sqlite
+	// (which wraps modernc.org/sqlite). Adding `_ "modernc.org/sqlite"` here would
+	// double-register the same driver name and panic on test init.
 )
 
 func newAPIKeyRepoSQLite(t *testing.T) (*apiKeyRepository, *dbent.Client) {
