@@ -193,6 +193,37 @@ handler → service → repository → ent
 
 **NEVER** import upward (repository must not import handler, service must not import handler).
 
+### 9. Release Discipline (ARM + Tag Triggers)
+
+Both production (`api.tokenkey.dev`) and the test stack (`test-api.tokenkey.dev`) run on **AWS Graviton (`t4g.small`, `arm64`)**, and Release workflow is triggered by `tags: v*`. Two pitfalls have already broken prod once each — both are now **hard rules**:
+
+#### 9.1 `simple_release` MUST stay `false`
+
+`.github/workflows/release.yml` exposes a `workflow_dispatch` input `simple_release`. **DEFAULT MUST REMAIN `false`.**
+
+- `simple_release=true` → GoReleaser builds **`linux/amd64` only**, then **overwrites the shared tags** `:latest`, `:X`, `:X.Y`, `:X.Y.Z` with that single-arch image.
+- Any ARM host pulling `:latest` (or any overwritten tag) will crash immediately with `exec format error` on `docker compose up`. **Both our hosts are ARM** — this is a guaranteed prod outage.
+- **NEVER** flip the default to `true`, **NEVER** dispatch with `simple_release=true` unless every consumer has been verified amd64.
+- If accidentally dispatched: re-dispatch the **same** tag with `simple_release=false` immediately to rewrite the multi-arch manifest.
+
+The release workflow already prints a `::warning::` and a Step Summary banner when `simple_release=true` — do not silence it; treat it as a stop-the-line signal.
+
+#### 9.2 `VERSION` bump commits MUST NOT carry `[skip ci]`
+
+Release is triggered by `tag push`, but GitHub evaluates `[skip ci]` against the **commit message of the commit the tag points at**. So:
+
+```
+git commit -m "chore: bump VERSION to X.Y.Z [skip ci]"   # ← BAD
+git tag vX.Y.Z
+git push origin main vX.Y.Z                              # release.yml is silently SKIPPED
+```
+
+→ No image is built, prod/test deploys go stale, and the only recovery is a manual `gh workflow run release.yml -f tag=vX.Y.Z`.
+
+**Rule:** when bumping `backend/cmd/server/VERSION` by hand for a release, the commit message MUST NOT contain `[skip ci]` / `[ci skip]`. The **only** commits in this repo that may include `[skip ci]` are the auto-generated **`sync-version-file` writeback commits** produced by `release.yml` itself (those need `[skip ci]` to break the release → sync → release loop).
+
+See `deploy/aws/README.md` § "发版纪律（两条铁律）" for the operator-facing version of these two rules.
+
 ## Key Reference
 
 ### Current Gateway Flow
@@ -218,3 +249,5 @@ Treat `internal/integration/newapi/` and `internal/relay/bridge/` as the impleme
 - Test stubs complete (if interfaces changed)
 - Ent generated code committed (if schema changed)
 - `go build ./...` succeeds (cross-repo dependency compiles)
+- If bumping `backend/cmd/server/VERSION` for a release: commit message contains **no** `[skip ci]` (rule 9.2)
+- If touching `.github/workflows/release.yml`: `simple_release` default stays `false`; warning banner step is intact (rule 9.1)
