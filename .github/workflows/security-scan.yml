@@ -15,17 +15,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
-      - name: Checkout new-api sibling (cross-repo dep via go.mod replace)
-        run: |
-          # Pin = single source of truth in .new-api-ref (bumped via
-          # scripts/sync-new-api.sh --bump <sha>).
-          set -euxo pipefail
-          NEW_API_REF="$(tr -d '[:space:]' < .new-api-ref)"
-          [ -n "${NEW_API_REF}" ] || { echo "ERROR: .new-api-ref is empty" >&2; exit 1; }
-          target="${GITHUB_WORKSPACE}/../new-api"
-          git clone --filter=blob:none https://github.com/QuantumNous/new-api.git "$target"
-          git -C "$target" fetch --filter=blob:none origin "${NEW_API_REF}" || true
-          git -C "$target" checkout "${NEW_API_REF}"
+      - uses: ./.github/actions/checkout-new-api
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
