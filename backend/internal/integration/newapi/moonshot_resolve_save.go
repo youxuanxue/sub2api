@@ -115,7 +115,7 @@ func moonshotProbeModelsOK(ctx context.Context, baseRoot, apiKey string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusOK {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024))
 		return nil

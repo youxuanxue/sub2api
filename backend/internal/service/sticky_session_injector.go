@@ -206,17 +206,17 @@ func deriveStickyContentHash(req StickyInjectionRequest, body []byte) string {
 			if len(sys) > stickyDerivedSystemPromptCap {
 				sys = sys[:stickyDerivedSystemPromptCap]
 			}
-			sb.WriteString("sys=")
-			sb.WriteString(sys)
-			sb.WriteByte('|')
+			_, _ = sb.WriteString("sys=")
+			_, _ = sb.WriteString(sys)
+			_ = sb.WriteByte('|')
 		}
 
 		// tools signature: name+description only (avoid full schema → too volatile).
 		toolsSig := extractToolsSignatureForSticky(body)
 		if toolsSig != "" {
-			sb.WriteString("tools=")
-			sb.WriteString(toolsSig)
-			sb.WriteByte('|')
+			_, _ = sb.WriteString("tools=")
+			_, _ = sb.WriteString(toolsSig)
+			_ = sb.WriteByte('|')
 		}
 	}
 
@@ -240,8 +240,8 @@ func extractSystemPromptForSticky(body []byte) string {
 			var sb strings.Builder
 			v.ForEach(func(_, item gjson.Result) bool {
 				if t := item.Get("text"); t.Exists() {
-					sb.WriteString(t.String())
-					sb.WriteByte('\n')
+					_, _ = sb.WriteString(t.String())
+					_ = sb.WriteByte('\n')
 				}
 				return true
 			})
@@ -265,8 +265,8 @@ func extractSystemPromptForSticky(body []byte) string {
 			var sb strings.Builder
 			v.ForEach(func(_, item gjson.Result) bool {
 				if t := item.Get("text"); t.Exists() {
-					sb.WriteString(t.String())
-					sb.WriteByte('\n')
+					_, _ = sb.WriteString(t.String())
+					_ = sb.WriteByte('\n')
 				}
 				return true
 			})

@@ -107,7 +107,7 @@ func fetchOpenAICompatModels(ctx context.Context, url, apiKey string) ([]string,
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		s := string(body)

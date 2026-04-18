@@ -7,9 +7,9 @@ import (
 	"strings"
 	"sync/atomic"
 
+	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
-	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )

@@ -63,7 +63,11 @@ func RunImageRelay(c *gin.Context, info *relaycommon.RelayInfo) (*dto.Usage, *ty
 
 		switch convertedRequest.(type) {
 		case *bytes.Buffer:
-			requestBody = convertedRequest.(io.Reader)
+			r, ok := convertedRequest.(io.Reader)
+			if !ok {
+				return nil, types.NewError(fmt.Errorf("converted image request is not io.Reader"), types.ErrorCodeConvertRequestFailed)
+			}
+			requestBody = r
 		default:
 			jsonData, err := common.Marshal(convertedRequest)
 			if err != nil {

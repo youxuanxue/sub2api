@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
+	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
-	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
@@ -467,18 +467,25 @@ func newBridgeCaptureWriter(buf *bytes.Buffer) *bridgeCaptureWriter {
 	return &bridgeCaptureWriter{header: make(http.Header), buf: buf, statusCode: 200}
 }
 
-func (w *bridgeCaptureWriter) Header() http.Header                 { return w.header }
-func (w *bridgeCaptureWriter) WriteHeader(code int)                 { w.statusCode = code; w.written = true }
-func (w *bridgeCaptureWriter) Write(data []byte) (int, error)       { w.written = true; n, e := w.buf.Write(data); w.size += n; return n, e }
-func (w *bridgeCaptureWriter) WriteString(s string) (int, error)    { return w.Write([]byte(s)) }
-func (w *bridgeCaptureWriter) Status() int                          { return w.statusCode }
-func (w *bridgeCaptureWriter) Size() int                            { return w.size }
-func (w *bridgeCaptureWriter) Written() bool                        { return w.written }
-func (w *bridgeCaptureWriter) WriteHeaderNow()                      {}
-func (w *bridgeCaptureWriter) Flush()                               {}
-func (w *bridgeCaptureWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) { return nil, nil, fmt.Errorf("not supported") }
-func (w *bridgeCaptureWriter) CloseNotify() <-chan bool             { return make(chan bool) } //nolint:staticcheck
-func (w *bridgeCaptureWriter) Pusher() http.Pusher                  { return nil }
+func (w *bridgeCaptureWriter) Header() http.Header  { return w.header }
+func (w *bridgeCaptureWriter) WriteHeader(code int) { w.statusCode = code; w.written = true }
+func (w *bridgeCaptureWriter) Write(data []byte) (int, error) {
+	w.written = true
+	n, e := w.buf.Write(data)
+	w.size += n
+	return n, e
+}
+func (w *bridgeCaptureWriter) WriteString(s string) (int, error) { return w.Write([]byte(s)) }
+func (w *bridgeCaptureWriter) Status() int                       { return w.statusCode }
+func (w *bridgeCaptureWriter) Size() int                         { return w.size }
+func (w *bridgeCaptureWriter) Written() bool                     { return w.written }
+func (w *bridgeCaptureWriter) WriteHeaderNow()                   {}
+func (w *bridgeCaptureWriter) Flush()                            {}
+func (w *bridgeCaptureWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return nil, nil, fmt.Errorf("not supported")
+}
+func (w *bridgeCaptureWriter) CloseNotify() <-chan bool { return make(chan bool) } //nolint:staticcheck
+func (w *bridgeCaptureWriter) Pusher() http.Pusher      { return nil }
 
 // ---------------------------------------------------------------------------
 // Chat Completions buffer → Anthropic SSE conversion
@@ -576,7 +583,7 @@ func convertBufferedChatCompletionsToAnthropicJSON(
 		}
 		for _, ch := range chunk.Choices {
 			if ch.Delta.Content != nil {
-				contentText.WriteString(*ch.Delta.Content)
+				_, _ = contentText.WriteString(*ch.Delta.Content)
 			}
 			for _, tc := range ch.Delta.ToolCalls {
 				if tc.ID != "" {
@@ -594,7 +601,7 @@ func convertBufferedChatCompletionsToAnthropicJSON(
 						}
 					}
 					if ai >= 0 && ai < len(toolCalls) {
-						toolCalls[ai].Args.WriteString(tc.Function.Arguments)
+						_, _ = toolCalls[ai].Args.WriteString(tc.Function.Arguments)
 					}
 				}
 			}
@@ -637,7 +644,7 @@ func convertBufferedChatCompletionsToAnthropicJSON(
 	}
 
 	resp := apicompat.AnthropicResponse{
-		ID: fmt.Sprintf("msg_bridge_%d", time.Now().UnixNano()),
+		ID:   fmt.Sprintf("msg_bridge_%d", time.Now().UnixNano()),
 		Type: "message", Role: "assistant",
 		Content: content, Model: originalModel,
 		StopReason: stopReason,
