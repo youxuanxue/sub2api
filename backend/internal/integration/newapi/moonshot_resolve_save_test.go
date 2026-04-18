@@ -8,7 +8,9 @@ import (
 )
 
 func TestResolveMoonshotRegionalBaseAtSave_FirstSuccessWins(t *testing.T) {
-	t.Parallel()
+	// 不可 t.Parallel()：本测试与 TestResolveMoonshotRegionalBaseAtSave_BothFail 共享
+	// 包级全局 moonshotProbeBasesForTest，并行会被对方 defer 置 nil 的 race 击穿，
+	// 退化为打到真实 Moonshot 上游，CI 必然偶发 401。
 	fail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/models" {
 			http.Error(w, "nope", http.StatusUnauthorized)
@@ -40,7 +42,7 @@ func TestResolveMoonshotRegionalBaseAtSave_FirstSuccessWins(t *testing.T) {
 }
 
 func TestResolveMoonshotRegionalBaseAtSave_BothFail(t *testing.T) {
-	t.Parallel()
+	// 同上：不可与 _FirstSuccessWins 并行，避免 moonshotProbeBasesForTest race。
 	fail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "nope", http.StatusUnauthorized)
 	}))
