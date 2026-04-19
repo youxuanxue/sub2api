@@ -78,7 +78,11 @@ func disableOpenAITraining(ctx context.Context, clientFactory PrivacyClientFacto
 	}
 
 	if !resp.IsSuccessState() {
-		slog.Warn("openai_privacy_failed", "status", resp.StatusCode, "body", truncate(resp.String(), 200))
+		// truncate at 2000B (was 200B): OpenAI privacy API failure responses can include
+		// nested HTML/JSON error envelopes, request-id, and rate-limit hints; 200B routinely
+		// cut these off mid-key and forced operators to re-enable debug logging to root-cause
+		// (see prod incident on 2026-04: "Privacy not set" loop on GPT-A1).
+		slog.Warn("openai_privacy_failed", "status", resp.StatusCode, "body", truncate(resp.String(), 2000))
 		return PrivacyModeFailed
 	}
 

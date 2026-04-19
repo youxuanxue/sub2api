@@ -434,6 +434,10 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		"responses_websockets_v2_enabled",
 		"openai_ws_enabled",
 		"openai_ws_force_http",
+		// privacy_mode 是 Account.IsPrivacySet() 的依赖；缺失会导致开启
+		// require_privacy_set 的分组里所有账号被反复 SetError("Privacy not set")
+		// 且永远调度不到。详见 service/account.go:IsPrivacySet。
+		"privacy_mode",
 	}
 	filtered := make(map[string]any)
 	for _, key := range keys {
