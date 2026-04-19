@@ -66,6 +66,21 @@ const versionBoundsErrorTTL = 5 * time.Second
 // versionBoundsDBTimeout singleflight 内 DB 查询超时，独立于请求 context
 const versionBoundsDBTimeout = 5 * time.Second
 
+// cachedBackendMode Backend Mode cache (in-process, 60s TTL).
+// 重新引入：上游 commit 6826149a 加入 Backend Mode 后，TK 默认开启该模式，复用上游能力 +
+// 缓存基础设施，避免每次 upstream 改 auth.go 都触发 conflict。
+type cachedBackendMode struct {
+	value     bool
+	expiresAt int64 // unix nano
+}
+
+var backendModeCache atomic.Value // *cachedBackendMode
+var backendModeSF singleflight.Group
+
+const backendModeCacheTTL = 60 * time.Second
+const backendModeErrorTTL = 5 * time.Second
+const backendModeDBTimeout = 5 * time.Second
+
 // cachedGatewayForwardingSettings 缓存网关转发行为设置（进程内缓存，60s TTL）
 type cachedGatewayForwardingSettings struct {
 	fingerprintUnification bool
@@ -165,6 +180,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyCustomMenuItems,
 		SettingKeyCustomEndpoints,
 		SettingKeyLinuxDoConnectEnabled,
+		SettingKeyBackendModeEnabled,
 		SettingPaymentEnabled,
 		SettingKeyOIDCConnectEnabled,
 		SettingKeyOIDCConnectProviderName,
@@ -240,6 +256,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		CustomMenuItems:                  settings[SettingKeyCustomMenuItems],
 		CustomEndpoints:                  settings[SettingKeyCustomEndpoints],
 		LinuxDoOAuthEnabled:              linuxDoEnabled,
+		BackendModeEnabled:               settings[SettingKeyBackendModeEnabled] == "true",
 		PaymentEnabled:                   settings[SettingPaymentEnabled] == "true",
 		OIDCOAuthEnabled:                 oidcEnabled,
 		OIDCOAuthProviderName:            oidcProviderName,
@@ -295,6 +312,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		CustomMenuItems                  json.RawMessage `json:"custom_menu_items"`
 		CustomEndpoints                  json.RawMessage `json:"custom_endpoints"`
 		LinuxDoOAuthEnabled              bool            `json:"linuxdo_oauth_enabled"`
+		BackendModeEnabled               bool            `json:"backend_mode_enabled"`
 		PaymentEnabled                   bool            `json:"payment_enabled"`
 		OIDCOAuthEnabled                 bool            `json:"oidc_oauth_enabled"`
 		OIDCOAuthProviderName            string          `json:"oidc_oauth_provider_name"`
@@ -328,6 +346,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		CustomMenuItems:                  filterUserVisibleMenuItems(settings.CustomMenuItems),
 		CustomEndpoints:                  safeRawJSONArray(settings.CustomEndpoints),
 		LinuxDoOAuthEnabled:              settings.LinuxDoOAuthEnabled,
+		BackendModeEnabled:               settings.BackendModeEnabled,
 		PaymentEnabled:                   settings.PaymentEnabled,
 		OIDCOAuthEnabled:                 settings.OIDCOAuthEnabled,
 		OIDCOAuthProviderName:            settings.OIDCOAuthProviderName,
@@ -602,6 +621,9 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 	// 分组隔离
 	updates[SettingKeyAllowUngroupedKeyScheduling] = strconv.FormatBool(settings.AllowUngroupedKeyScheduling)
 
+	// Backend Mode
+	updates[SettingKeyBackendModeEnabled] = strconv.FormatBool(settings.BackendModeEnabled)
+
 	// Gateway forwarding behavior
 	updates[SettingKeyEnableFingerprintUnification] = strconv.FormatBool(settings.EnableFingerprintUnification)
 	updates[SettingKeyEnableMetadataPassthrough] = strconv.FormatBool(settings.EnableMetadataPassthrough)
@@ -624,6 +646,11 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 			min:       settings.MinClaudeCodeVersion,
 			max:       settings.MaxClaudeCodeVersion,
 			expiresAt: time.Now().Add(versionBoundsCacheTTL).UnixNano(),
+		})
+		backendModeSF.Forget("backend_mode")
+		backendModeCache.Store(&cachedBackendMode{
+			value:     settings.BackendModeEnabled,
+			expiresAt: time.Now().Add(backendModeCacheTTL).UnixNano(),
 		})
 		gatewayForwardingSF.Forget("gateway_forwarding")
 		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
@@ -691,6 +718,57 @@ func (s *SettingService) IsRegistrationEnabled(ctx context.Context) bool {
 		return false
 	}
 	return value == "true"
+}
+
+// IsBackendModeEnabled checks if backend mode is enabled (in-process atomic.Value
+// cache with 60s TTL, zero-lock hot path).
+//
+// Behavior matches upstream commit 6826149a exactly: default false on missing/error.
+// TokenKey's "default true on fresh install" semantic comes from the migration
+// (tk_003_default_backend_mode_enabled.sql) injecting the row at provisioning,
+// NOT from a code-side override — keeping this method byte-for-byte compatible
+// with upstream tests (rule CLAUDE.md §5: minimal-invasion).
+func (s *SettingService) IsBackendModeEnabled(ctx context.Context) bool {
+	if cached, ok := backendModeCache.Load().(*cachedBackendMode); ok && cached != nil {
+		if time.Now().UnixNano() < cached.expiresAt {
+			return cached.value
+		}
+	}
+	result, _, _ := backendModeSF.Do("backend_mode", func() (any, error) {
+		if cached, ok := backendModeCache.Load().(*cachedBackendMode); ok && cached != nil {
+			if time.Now().UnixNano() < cached.expiresAt {
+				return cached.value, nil
+			}
+		}
+		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), backendModeDBTimeout)
+		defer cancel()
+		value, err := s.settingRepo.GetValue(dbCtx, SettingKeyBackendModeEnabled)
+		if err != nil {
+			if errors.Is(err, ErrSettingNotFound) {
+				backendModeCache.Store(&cachedBackendMode{
+					value:     false,
+					expiresAt: time.Now().Add(backendModeCacheTTL).UnixNano(),
+				})
+				return false, nil
+			}
+			slog.Warn("failed to get backend_mode_enabled setting", "error", err)
+			backendModeCache.Store(&cachedBackendMode{
+				value:     false,
+				expiresAt: time.Now().Add(backendModeErrorTTL).UnixNano(),
+			})
+			return false, nil
+		}
+		enabled := value == "true"
+		backendModeCache.Store(&cachedBackendMode{
+			value:     enabled,
+			expiresAt: time.Now().Add(backendModeCacheTTL).UnixNano(),
+		})
+		return enabled, nil
+	})
+	if val, ok := result.(bool); ok {
+		return val
+	}
+	return false
 }
 
 // GetGatewayForwardingSettings returns cached gateway forwarding settings.
@@ -968,6 +1046,10 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 
 		// 分组隔离（默认不允许未分组 Key 调度）
 		SettingKeyAllowUngroupedKeyScheduling: "false",
+
+		// Backend Mode：TokenKey 默认开启（管理员发号场景）。
+		// 关闭后等价于上游 sub2api 的"用户自助"形态。
+		SettingKeyBackendModeEnabled: "true",
 	}
 	tkMergeDefaultTokenKeyBridgeSettings(defaults)
 
@@ -1007,6 +1089,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		PurchaseSubscriptionURL:          strings.TrimSpace(settings[SettingKeyPurchaseSubscriptionURL]),
 		CustomMenuItems:                  settings[SettingKeyCustomMenuItems],
 		CustomEndpoints:                  settings[SettingKeyCustomEndpoints],
+		BackendModeEnabled:               settings[SettingKeyBackendModeEnabled] == "true",
 	}
 	tkApplyTokenKeyBridgeParsed(settings, result)
 	result.TableDefaultPageSize, result.TablePageSizeOptions = parseTablePreferences(
