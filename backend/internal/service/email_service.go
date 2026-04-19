@@ -444,12 +444,22 @@ func (s *EmailService) TestSMTPConnectionWithConfig(config *SMTPConfig) error {
 		return client.Quit()
 	}
 
-	// 非TLS连接测试
+	// 非 TLS（端口 25/587）：先建明文连接，若服务端宣告 STARTTLS 则升级。
+	// 必须升级后再 Auth，否则 Go net/smtp 的 PlainAuth 会以
+	// "unencrypted connection" 拒绝把账号密码发送到明文链路
+	// （此前导致用户用 587+UseTLS=false 测试 SES 一直误报"认证失败"）。
+	// 与 sendMailPlain 的发送路径保持行为一致。
 	client, err := smtp.Dial(addr)
 	if err != nil {
 		return fmt.Errorf("smtp connection failed: %w", err)
 	}
 	defer func() { _ = client.Close() }()
+
+	if ok, _ := client.Extension("STARTTLS"); ok {
+		if err = client.StartTLS(&tls.Config{ServerName: config.Host, MinVersion: tls.VersionTLS12}); err != nil {
+			return fmt.Errorf("starttls failed: %w", err)
+		}
+	}
 
 	auth := smtp.PlainAuth("", config.Username, config.Password, config.Host)
 	if err = client.Auth(auth); err != nil {
