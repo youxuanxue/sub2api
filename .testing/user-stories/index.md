@@ -9,3 +9,4 @@
 | US-004 | Bridge emergency kill switch and runtime counters | Done   | `.testing/user-stories/stories/US-004-bridge-killswitch-runtime-counters.md`          |
 | US-005 | Preserve newapi core while converging peripheral TK features to upstream | Done   | `.testing/user-stories/stories/US-005-newapi-openai-compat-and-upstream-payment-gate.md` |
 | US-006 | Upstream prompt-cache 粘性路由（统一注入） | InTest | `.testing/user-stories/stories/US-006-sticky-routing-prompt-cache.md` |
+| US-007 | 重新引入上游 Backend Mode 并 fresh-install 默认开启 | InTest | `.testing/user-stories/stories/US-007-readopt-backend-mode-default-true.md` |
