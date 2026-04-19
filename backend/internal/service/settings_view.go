@@ -117,6 +117,10 @@ type SystemSettings struct {
 	AccountQuotaNotifyEnabled bool
 	AccountQuotaNotifyEmails  []NotifyEmailEntry
 
+	// Backend Mode: 关闭普通用户自助流程（注册 / 第三方登录 / 自助充值），仅管理员登录可用。
+	// TokenKey 默认开启（管理员发号场景）。详见 CLAUDE.md Hard Rule #5 关于 upstream 能力默认覆盖的纪律。
+	BackendModeEnabled bool
+
 	// TokenKey: bridge
 	NewAPIBridgeEnabled bool
 }
@@ -156,6 +160,7 @@ type PublicSettings struct {
 	PaymentEnabled        bool
 	OIDCOAuthEnabled      bool
 	OIDCOAuthProviderName string
+	BackendModeEnabled    bool // 透出给前端：关闭则隐藏注册/自助等入口
 	Version               string
 
 	BalanceLowNotifyEnabled     bool

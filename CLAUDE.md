@@ -159,6 +159,35 @@ This repo is a fork of `Wei-Shaw/sub2api`, tracked via the `upstream` remote (`u
 - Merge upstream: `git fetch upstream && git merge upstream/main` → resolve → `make test`.
 - See `docs/sub2api_legacy_audit_and_cleanup_strategy.md` for the full upstream merge guide and what NOT to modify.
 
+#### 5.x Deletion discipline — default = keep, override; never silent-delete
+
+**Default assumption: an upstream feature stays compiled in.** TokenKey almost always wants to **change defaults / wire new behavior**, not strip community capabilities. Quietly deleting upstream files (handlers, middleware, services, migrations) is the highest-risk form of divergence because:
+
+1. It silently regresses functionality every operator may rely on (e.g. `backend_mode_guard` was deleted in TK once → blocked our own admin-only deployment story until re-adopted).
+2. It guarantees recurring **merge conflicts** at every upstream change to the deleted file's call sites (`auth.go`, `payment.go`, `user.go` …).
+3. It loses upstream's **tests + docs** for that feature, then we have to rebuild a worse version later.
+
+**Rules:**
+
+- **NEVER** delete an upstream-owned file/method/route to "clean up" or "simplify" — open an issue / PR comment and discuss instead.
+- If TK truly does not want a feature, prefer one of these in order:
+  1. **Override the default** via migration or `InitializeDefaultSettings` (e.g. `tk_003_default_backend_mode_enabled.sql` flips the user-facing default without touching code).
+  2. **Add an admin-toggleable setting** (`SettingKey* + IsXxxEnabled()`) and ship a `*_tk_*.go` companion that short-circuits at the call site.
+  3. Last resort, **comment out the registration** with an inline `// TK: disabled because <link to ticket>` — easier to re-enable on merge than a deletion.
+- Any PR that net-deletes upstream symbols (functions / route registrations / DB columns) MUST in its description: (a) link the upstream commit being reverted, (b) state the regression cost, (c) list which upstream tests are now skipped or removed.
+- A drift detector for "TK-only deletions of upstream files" lives in `git diff --diff-filter=D upstream/main..HEAD -- backend/`. If that command returns anything, the next merge will fight us — re-evaluate.
+
+#### 5.y Forward-looking history & merge discipline
+
+The `main` branch is **immutable history** once pushed. Past 23+ TK-ahead commits include both linear and merge commits and several `vX.Y.Z` tags pointing into them — rewriting history would orphan tags and break PR audit trails. Going forward:
+
+- **No history rewrites on `main`.** No `git rebase -i` of pushed commits, no `git push --force` to `main`/`master`, no squash-merge of already-merged feature branches.
+- **Every TK feature lands via PR** with a clear scope (new file or one upstream-file injection point), reviewed against rule §5 above. Small + frequent beats one giant rebase.
+- **Upstream merges use `git merge --no-ff upstream/main`** (true merge commit, never `--squash`, never `--ff-only`). This preserves auditability of which upstream commits we picked up and when, and keeps `git log --oneline upstream/main..HEAD` meaningful.
+- **`git merge-tree upstream/main HEAD` is the pre-merge dry-run.** Run it before any upstream merge to surface conflicts; resolve in a dedicated `merge/upstream-YYYYMMDD` branch, not on `main`.
+- **Tag = consolidation point, not a rewrite cue.** When you tag `vX.Y.Z`, all earlier commits become permanent history. If a tag points at a commit with `[skip ci]` (see §9.2), do NOT delete and re-tag — dispatch the workflow manually.
+- **Audit cadence:** every merge PR description includes `git log --oneline upstream/main..HEAD | wc -l` (TK ahead count) + `git diff --stat upstream/main..HEAD -- backend/` (top changed files). Use these numbers to decide whether the next batch of TK work should be split into smaller PRs.
+
 #### Convergence & minimal invasion (especially large upstream files)
 
 **Goal:** TK behavior should **converge** into dedicated modules so the fork stays **merge-friendly**; upstream files should read almost unchanged except for **thin injection points** (imports + a few lines, not new pages of logic).
@@ -251,3 +280,5 @@ Treat `internal/integration/newapi/` and `internal/relay/bridge/` as the impleme
 - `go build ./...` succeeds (cross-repo dependency compiles)
 - If bumping `backend/cmd/server/VERSION` for a release: commit message contains **no** `[skip ci]` (rule 9.2)
 - If touching `.github/workflows/release.yml`: `simple_release` default stays `false`; warning banner step is intact (rule 9.1)
+- If the PR deletes any upstream-owned file/method/route: PR description contains the (a)/(b)/(c) justification block from rule §5.x; otherwise change to "override default" or "disable via setting" instead
+- After upstream merge: PR body includes `git log --oneline upstream/main..HEAD | wc -l` and the top-5 lines of `git diff --stat upstream/main..HEAD -- backend/` (rule §5.y audit cadence)
