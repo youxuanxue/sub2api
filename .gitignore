@@ -118,7 +118,13 @@ backend/.installed
 tests
 CLAUDE.md
 .claude
-scripts
+# scripts/ defaults to ignored (local helpers, ad-hoc tooling) but tracked
+# scripts that the repo / CI / CLAUDE.md depend on are explicitly allow-listed:
+scripts/*
+!scripts/sync-new-api.sh
+!scripts/export_agent_contract.py
+!scripts/check-upstream-drift.sh
+!scripts/release-tag.sh
 .code-review-state
 #openspec/
 code-reviews/

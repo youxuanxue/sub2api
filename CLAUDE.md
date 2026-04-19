@@ -191,6 +191,20 @@ The `main` branch is **immutable history** once pushed. Past 23+ TK-ahead commit
 - **Tag = consolidation point, not a rewrite cue.** When you tag `vX.Y.Z`, all earlier commits become permanent history. If a tag points at a commit with `[skip ci]` (see §9.2), do NOT delete and re-tag — dispatch the workflow manually.
 - **Audit cadence:** every merge PR description includes `git log --oneline upstream/main..HEAD | wc -l` (TK ahead count) + `git diff --stat upstream/main..HEAD -- backend/` (top changed files). Use these numbers to decide whether the next batch of TK work should be split into smaller PRs.
 
+#### 5.y.1 Mechanical enforcement (no soft rule without a check)
+
+Per dev-rules §"Hard Constraint Wiring" — every soft rule above MUST have an automated gate. The §5.y enforcement stack:
+
+| Mechanism | Trigger | What it does |
+|---|---|---|
+| `scripts/check-upstream-drift.sh` | local, on demand (`bash scripts/check-upstream-drift.sh`) | Auto-adds `upstream` remote if missing, fetches both, prints TK ahead/behind counts + the §5.y procedure when behind. Exit codes: `0` = synced, `1` = behind, `2` = git/network failure. Supports `--json` for CI consumption and `--quiet` for hooks. |
+| `.github/workflows/upstream-drift-monitor.yml` | every Monday 09:00 UTC + manual dispatch | Calls the same script in `--json` mode. When TK is behind, opens (or updates) a single issue labelled `upstream-drift` with the full commit list, files touched, and the exact 7-line procedure. Auto-closes the issue with a comment when the next merge PR brings the fork back in sync. |
+| `.github/workflows/upstream-merge-pr-shape.yml` | any PR whose head branch matches `merge/upstream-*` | Three hard gates that fail the PR if any is violated: (1) PR must contain a merge commit whose second parent is reachable from `upstream/main` — squash and ff merges fail this, (2) PR body must include the literal substring `upstream/main..HEAD` so the §5.y audit cadence is present, (3) no commit in the PR may carry literal `[skip ci]` / `[ci skip]` in its message (those silently disable downstream pipelines — see §9.2 / v1.3.0 incident). |
+
+**Branch protection on `main`** SHOULD list `Upstream Merge PR Shape / validate` as a required status check for `merge/upstream-*` PRs. Configure in repo Settings → Branches → main.
+
+**Trade-off acknowledged:** the drift monitor + PR shape check cannot stop a determined operator from clicking GitHub's "Squash and merge" on a `merge/upstream-*` PR — GitHub does not expose merge-method choice as a webhook. They can only stop the merge PR from passing CI in the wrong shape. Combined with the PR Checklist reviewer reminder above, this brings the path of least resistance to the correct behavior; full lockdown requires GitHub Enterprise org-level branch rules.
+
 #### Convergence & minimal invasion (especially large upstream files)
 
 **Goal:** TK behavior should **converge** into dedicated modules so the fork stays **merge-friendly**; upstream files should read almost unchanged except for **thin injection points** (imports + a few lines, not new pages of logic).
@@ -252,7 +266,9 @@ git push origin main vX.Y.Z                              # release.yml is silent
 
 → No image is built, prod/test deploys go stale, and the only recovery is a manual `gh workflow run release.yml -f tag=vX.Y.Z`.
 
-**Rule:** when bumping `backend/cmd/server/VERSION` by hand for a release, the commit message MUST NOT contain `[skip ci]` / `[ci skip]`. The **only** commits in this repo that may include `[skip ci]` are the auto-generated **`sync-version-file` writeback commits** produced by `release.yml` itself (those need `[skip ci]` to break the release → sync → release loop).
+**Rule:** when bumping `backend/cmd/server/VERSION` by hand for a release, the commit message MUST NOT contain `[skip ci]` / `[ci skip]`. **The trap goes further than the literal commit body**: the v1.3.0 release was silently broken because the squash-merge commit body contained the explanatory phrase _"this commit deliberately omits `[skip ci]`"_ — GitHub matched the literal substring inside the explanation and skipped `release.yml` anyway. Discussing the marker in commit text counts as carrying it. The **only** commits in this repo that may include `[skip ci]` are the auto-generated **`sync-version-file` writeback commits** produced by `release.yml` itself (those need `[skip ci]` to break the release → sync → release loop).
+
+**Mechanical enforcement:** use `bash scripts/release-tag.sh vX.Y.Z` instead of `git tag` directly. The helper validates that the HEAD commit message does NOT contain literal `[skip ci]` / `[ci skip]` anywhere, that `backend/cmd/server/VERSION` matches the tag, that the tag does not already exist, and that local `main` is in sync with `origin/main`; only then does it create the annotated tag and push. If the [skip ci] check fires it prints both fix paths (reword commit / use `gh workflow run` recovery dispatch). The `merge/upstream-*` PR shape workflow (§5.y.1) enforces the same rule on every commit in upstream-merge PRs as a defense in depth.
 
 See `deploy/aws/README.md` § "发版纪律（两条铁律）" for the operator-facing version of these two rules.
 
@@ -281,8 +297,9 @@ Treat `internal/integration/newapi/` and `internal/relay/bridge/` as the impleme
 - Test stubs complete (if interfaces changed)
 - Ent generated code committed (if schema changed)
 - `go build ./...` succeeds (cross-repo dependency compiles)
-- If bumping `backend/cmd/server/VERSION` for a release: commit message contains **no** `[skip ci]` (rule 9.2)
+- If bumping `backend/cmd/server/VERSION` for a release: commit message contains **no** literal `[skip ci]` / `[ci skip]` anywhere (rule 9.2 — discussion of the marker counts as carrying it). Use `bash scripts/release-tag.sh vX.Y.Z` to push the tag — it enforces this mechanically.
 - If touching `.github/workflows/release.yml`: `simple_release` default stays `false`; warning banner step is intact (rule 9.1)
 - If the PR deletes any upstream-owned file/method/route: PR description contains the (a)/(b)/(c) justification block from rule §5.x; otherwise change to "override default" or "disable via setting" instead
-- After upstream merge: PR body includes `git log --oneline upstream/main..HEAD | wc -l` and the top-5 lines of `git diff --stat upstream/main..HEAD -- backend/` (rule §5.y audit cadence)
+- After upstream merge: PR body includes `git log --oneline upstream/main..HEAD | wc -l` and the top-5 lines of `git diff --stat upstream/main..HEAD -- backend/` (rule §5.y audit cadence). The `Upstream Merge PR Shape` workflow (§5.y.1) enforces this automatically — fix any failures it reports rather than ignoring them.
+- Drift check: before opening any non-trivial PR, run `bash scripts/check-upstream-drift.sh`. If TK is behind upstream/main, pause and either land the upstream merge first or document why this PR ships out of order.
 - Reviewer picks the GitHub merge button per rule §5.y: **Squash and merge** for TK-originated PRs (feature / fix / chore / docs), **Create a merge commit** for `merge/upstream-*` PRs. Never use **Rebase and merge** on `main`.

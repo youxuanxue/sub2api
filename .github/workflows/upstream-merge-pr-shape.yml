@@ -1,0 +1,126 @@
+name: Upstream Merge PR Shape
+
+# Mechanical enforcement of CLAUDE.md §5.y for any PR whose head branch
+# matches `merge/upstream-*`. Validates three things:
+#
+#   1. The PR contains at least one merge commit whose second parent is
+#      reachable from upstream/main. This is what `git merge --no-ff
+#      upstream/main` produces; squash merges and ff-merges fail this check.
+#   2. The PR body includes the required §5.y audit cadence reference
+#      (the literal string `upstream/main..HEAD`, which appears in both
+#      mandated commands).
+#   3. No commit in the PR carries `[skip ci]` / `[ci skip]` literally,
+#      which would silently disable the release pipeline for the merge
+#      commit (we burned 30 min on this with v1.3.0 — never again).
+#
+# A green check here is a hard prerequisite for merging. Branch protection
+# on `main` should require this workflow status for `merge/upstream-*` PRs.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  validate:
+    if: startsWith(github.head_ref, 'merge/upstream-')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Add upstream remote and fetch
+        run: |
+          if ! git remote get-url upstream >/dev/null 2>&1; then
+            git remote add upstream https://github.com/Wei-Shaw/sub2api.git
+          fi
+          git fetch upstream main --quiet
+
+      - name: Check 1 — PR contains a --no-ff merge of upstream/main
+        run: |
+          BASE='${{ github.event.pull_request.base.sha }}'
+          HEAD='${{ github.event.pull_request.head.sha }}'
+
+          MERGE_COMMITS=$(git log --merges --format='%H' "$BASE".."$HEAD")
+          if [ -z "$MERGE_COMMITS" ]; then
+            echo "::error::PR head branch matches 'merge/upstream-*' but contains zero merge commits."
+            echo "::error::Per CLAUDE.md §5.y, upstream merges MUST use 'git merge --no-ff upstream/main'."
+            echo "::error::Squash merges and ff merges are forbidden because they sever the upstream"
+            echo "::error::commit chain that 'git log upstream/main..HEAD' depends on."
+            exit 1
+          fi
+
+          FOUND=0
+          for sha in $MERGE_COMMITS; do
+            P2=$(git log -1 --format='%P' "$sha" | awk '{print $2}')
+            if [ -n "$P2" ] && git merge-base --is-ancestor "$P2" upstream/main 2>/dev/null; then
+              echo "OK: merge commit $sha pulls in upstream/main (second parent: $P2)"
+              FOUND=1
+              break
+            fi
+          done
+
+          if [ "$FOUND" -ne 1 ]; then
+            echo "::error::None of the merge commits in this PR has a second parent"
+            echo "::error::reachable from upstream/main."
+            echo "::error::Inspected merge commits:"
+            for sha in $MERGE_COMMITS; do
+              echo "::error::  $sha (parents: $(git log -1 --format='%P' "$sha"))"
+            done
+            echo "::error::Per §5.y, the PR must contain 'git merge --no-ff upstream/main'."
+            exit 1
+          fi
+
+      - name: Check 2 — PR body contains §5.y audit cadence
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if [ -z "$PR_BODY" ]; then
+            echo "::error::PR body is empty. Per §5.y it must include the audit cadence."
+            exit 1
+          fi
+
+          # Both mandated commands embed the literal string `upstream/main..HEAD`:
+          #   git log --oneline upstream/main..HEAD | wc -l
+          #   git diff --stat upstream/main..HEAD -- backend/
+          if ! echo "$PR_BODY" | grep -q 'upstream/main\.\.HEAD'; then
+            echo "::error::PR body must include the §5.y audit cadence:"
+            echo "::error::  - git log --oneline upstream/main..HEAD | wc -l"
+            echo "::error::  - git diff --stat upstream/main..HEAD -- backend/ | head -5"
+            echo "::error::Neither command was referenced (looking for 'upstream/main..HEAD' substring)."
+            exit 1
+          fi
+          echo "OK: PR body references §5.y audit cadence."
+
+      - name: Check 3 — No '[skip ci]' / '[ci skip]' in any commit
+        run: |
+          BASE='${{ github.event.pull_request.base.sha }}'
+          HEAD='${{ github.event.pull_request.head.sha }}'
+
+          # GitHub's [skip ci] detector matches the literal substring anywhere in
+          # the commit message, ignoring context. A merge PR carrying [skip ci]
+          # would silently disable release.yml for the merge commit when later
+          # tagged. Only release.yml's own sync-version-file writeback may use it
+          # (rule §9.2), and that commit never appears in a merge PR.
+          OFFENDERS=$(git log --format='%H %s' "$BASE".."$HEAD" | \
+            grep -E '\[skip ci\]|\[ci skip\]' || true)
+
+          if [ -n "$OFFENDERS" ]; then
+            echo "::error::Found commits with literal '[skip ci]' / '[ci skip]':"
+            echo "$OFFENDERS" | while read line; do echo "::error::  $line"; done
+            echo "::error::Per §9.2, only release.yml's sync-version-file writeback may carry [skip ci]."
+            echo "::error::Rewrite the offending commit messages (use e.g. 'skip-ci' or remove entirely)."
+            exit 1
+          fi
+          echo "OK: no commits carry literal [skip ci] / [ci skip]."
+
+      - name: Summary
+        run: |
+          echo "All three §5.y checks passed for merge/upstream-* PR."
+          echo "Reviewer reminder: pick GitHub 'Create a merge commit' (not Squash)."
