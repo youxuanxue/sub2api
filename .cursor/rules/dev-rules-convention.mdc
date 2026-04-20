@@ -1,0 +1,157 @@
+---
+description: dev-rules submodule 约定：规则的单一事实来源管理规范
+alwaysApply: true
+---
+
+# dev-rules 约定
+
+## 项目结构
+
+每个 IT 产品研发项目必须包含 `dev-rules` 作为 git submodule：
+
+```
+项目根目录/
+├── dev-rules/                       ← git submodule → git@github.com:youxuanxue/dev-rules.git
+│   ├── rules/*.mdc                  ← 规则原件（唯一编辑入口）
+│   ├── commands/*.md                ← Claude Code 自定义命令
+│   ├── global/CLAUDE.md             ← Claude Code 全局工作宪法
+│   ├── schemas/*.json               ← JSON Schema（review 输出契约等）
+│   ├── templates/                   ← 项目侧脚本模板
+│   │   ├── preflight.sh             ←   提交前/CI 强约束门禁模板
+│   │   ├── install-hooks.sh         ←   一键安装 git pre-commit hook
+│   │   ├── launchagent.plist        ←   跨机器同步用 LaunchAgent 模板
+│   │   └── install-launchagent.sh   ←   渲染 plist + 注册到 launchctl
+│   ├── scripts/                     ← 跨项目共享检查脚本（被 templates/preflight.sh 调用）
+│   │   └── check_approved_docs.py   ←   docs/approved/*.md frontmatter R1-R4 不变量
+│   ├── sync.sh                      ← 分发脚本（--push/--pull/--local/--check）
+│   ├── sync-stats.sh                ← 散文档数值漂移机械检查
+│   └── verify-rules.sh              ← 规则仓库自身完整性检查（8 段）
+├── .cursor/rules/*.mdc              ← sync 产物（禁止直接编辑）
+├── scripts/
+│   └── preflight.sh                 ← 可选：项目级 wrapper（仅当有项目特异检查时需要）
+└── .git/hooks/pre-commit            ← 由 install-hooks.sh 安装；按 fallback 链解析：
+                                       优先 scripts/preflight.sh，否则 dev-rules/templates/preflight.sh
+
+家目录消费端（symlink，由 sync.sh 维护）：
+~/.cursor/rules/        → dev-rules/rules/
+~/.claude/commands/     → dev-rules/commands/
+~/.claude/CLAUDE.md     → dev-rules/global/CLAUDE.md
+```
+
+## 新项目接入
+
+```bash
+cd 项目根目录
+git submodule add git@github.com:youxuanxue/dev-rules.git dev-rules
+dev-rules/sync.sh --local                   # 复制规则 + 自动 register 该项目
+git add .cursor/rules/ .gitmodules dev-rules
+git commit -m "chore: add dev-rules submodule and sync rules"
+```
+
+**首次在本机使用**（仅一次）：
+
+```bash
+git clone git@github.com:youxuanxue/dev-rules.git ~/Codes/dev-rules
+~/Codes/dev-rules/sync.sh                                          # 创建 home symlinks
+bash ~/Codes/dev-rules/templates/install-launchagent.sh            # 注册跨机器同步 agent
+```
+
+之后在任意项目里 `sync.sh --local` 就会自动 register 进 `~/Codes/dev-rules/.registered-projects`，下一次 `--push` / `--pull` / LaunchAgent 自动 fan-out 到该项目。
+
+## 编辑规则
+
+涉及 `dev-rules/` 的 Git 提交**必须**遵守「先子模块、后父仓库」顺序（详见下一节）。**两种工作流**——日常用 wrapper，特殊场景手工：
+
+### 日常工作流（推荐 — 一条命令完成 push + 全机生效）
+
+1. 在任意项目内编辑 `dev-rules/rules/*.mdc`（或 `commands/`、`global/`）
+2. 运行 `dev-rules/sync.sh --local` 同步到当前项目的 `.cursor/rules/` 并自动 register 该项目
+3. 在子模块仓库内 commit：
+   ```bash
+   cd dev-rules && git add -A && git commit -m "update rules"
+   ```
+4. 用 wrapper 一步完成 push + ~/Codes 拉取 + 所有项目 fan-out：
+   ```bash
+   ./sync.sh --push          # 在 dev-rules/ 内运行；它会自己 git push origin
+   cd ..
+   ```
+5. 父仓库提交子模块指针 + 已同步的 `.cursor/rules/`：
+   ```bash
+   git add dev-rules .cursor/rules/ && git commit -m "chore: sync dev-rules" && git push
+   ```
+
+### 手工工作流（断网 / wrapper 不可用 / debug 时）
+
+把第 4 步拆为 `git push` + `cd ~/Codes/dev-rules && git pull --ff-only && ./sync.sh --all`。效果与 `--push` 完全等价。
+
+### 跨机器同步（被动路径）
+
+不需要任何手工动作。本机 LaunchAgent `local.dev-rules.sync` 每 30 分钟跑 `sync.sh --pull`，把别的机器推上来的更新自动拉到 `~/Codes/dev-rules` 并 fan-out 到所有已注册项目。如果验证失败（`verify-rules.sh` 段 8）说明 LaunchAgent 没装，按提示运行 `templates/install-launchagent.sh`。
+
+## Git 提交顺序（强制）
+
+凡变更 `dev-rules/`（含 `rules/`、`commands/`、`sync.sh` 等子模块内任意文件），**必须先**在子模块仓库完成提交（并 `git push` 到远端），**再**在父项目提交「子模块指针 + `.cursor/rules/` 同步产物」。
+
+**正确顺序**：
+
+1. 子模块：`cd dev-rules` → `git add -A` → `git commit` → `git push`
+2. 父仓库：`cd ..` → `git add dev-rules .cursor/rules/` → `git commit` → `git push`
+
+**原因**：父仓库中的 `dev-rules` 记录的是子模块某一提交的 SHA；若先提交父仓库而子模块尚无对应 commit，协作者与 CI 会出现无法解析的悬空指针或「有 sync 产物但规则仓库无历史」的不一致。
+
+**禁止**：在子模块未提交（或未推送、若团队以远端为准）的情况下，单独在父仓库 `git commit` 更新 `dev-rules` 子模块引用或仅提交 `.cursor/rules/` 而不同步子模块上游。
+
+## 强约束门禁（机械检查，禁止仅"靠自觉"）
+
+每条软规则都有对应的可执行脚本。**完整的「软规则 → 硬检查」映射表是单一事实来源**，定义在 `digital-clone-research.md §六.½`。本节只列接入步骤：
+
+1. **项目级 wrapper（可选）**：仅当项目有「dev-rules 模板未覆盖的特异检查」时，`cp dev-rules/templates/preflight.sh scripts/preflight.sh` 并在 wrapper 里追加项目段。否则**不需要**新建 `scripts/preflight.sh`——`install-hooks.sh` 会自动 fallback 到 `dev-rules/templates/preflight.sh`。
+2. **安装 git hook**：`bash dev-rules/templates/install-hooks.sh`。Hook 在运行时按以下顺序解析 preflight：
+   ```
+   $REPO_ROOT/scripts/preflight.sh           ← 项目 wrapper（若存在）
+   $REPO_ROOT/dev-rules/templates/preflight.sh   ← 模板（fallback）
+   ```
+   增删项目 wrapper 后**无需**重装 hook。
+3. **CI 同步运行**：在 GitHub Actions / GitLab CI 中追加一步 `./scripts/preflight.sh`（若存在）或 `./dev-rules/templates/preflight.sh`。
+4. **dev-rules 子模块自身**：在子模块内提交前必须跑 `./dev-rules/verify-rules.sh`。
+
+接入完成后，违反任何一条强约束的提交都会被 hook 拦截，违反者的 CI 会 fail。`/user:calibrate` 在汇总指标前会用 `dev-rules/schemas/review.schema.json` 校验所有 `docs/review-*.json`。
+
+如果某项检查段在该项目尚不可自动化（例如还没有 API 时跳过 contract drift），必须把缺口记入 `docs/preflight-debt.md` 并设定截止日期，**禁止悄悄降级为"靠自觉"**。
+
+## approved-doc status 词汇（跨项目共享）
+
+`docs/approved/*.md` 的 frontmatter `status` 字段使用统一词汇表，由 `dev-rules/scripts/check_approved_docs.py` 强制（preflight § 7 R1-R4，任何分支）：
+
+| status     | 语义                                                                            |
+| ---------- | ----------------------------------------------------------------------------- |
+| `draft`    | 早期草稿，可自由修改                                                                    |
+| `pending`  | 设计已提出，等待人工审批                                                                  |
+| `approved` | 已审批基线，变更需走 GATE / PR review（zw-brain GATE 模型主用）                              |
+| `shipped`  | 实现已合并，状态从 pending/approved 翻转而来                                               |
+| `archived` | 被取代或不再权威                                                                      |
+
+附加不变量：
+
+- **R3** `pending + (related_prs OR related_commits)` → 拒绝（"shipped under pending" 烟雾）
+- **R4** `shipped` 必须列出 `related_prs` 或 `related_commits`（审计链不许断）
+- **R5** `approved_by: pending` 不许 land 到 `main` / `master`（preflight § 7 R5，仅在 main/master 触发；其它分支可临时持有 pending approver）
+
+项目特异的更细分类（如 zw-brain 的 `gate: GATE-1..GATE-5`）属于 wrapper 层职责，不进入此通用词汇表。
+
+## 禁止事项
+
+- 禁止直接编辑 `.cursor/rules/` 中的文件（它们是 sync 产物）
+- 禁止把 `~/Codes/dev-rules/` 用作"另一个上游"——每个项目的真相是它自己的 submodule SHA
+- 禁止在项目里把 `.cursor/rules/*.mdc` 改为 symlink 指向 `~/Codes/dev-rules/`（云端 Agent 拿不到目标文件 + 上游错乱）
+- 禁止在 `dev-rules/sync.sh --check` 失败的情况下提交父仓库
+- 禁止在 `dev-rules/verify-rules.sh` 失败的情况下提交 dev-rules 子模块
+- 禁止在 macOS dev 机器上把 LaunchAgent 卸载后不重新装回——跨机器同步路径会变回"承诺"
+
+## Agent 行为约束
+
+- 如果发现项目缺少 `dev-rules/` submodule，提醒用户按"新项目接入"步骤接入
+- 如果发现 `.cursor/rules/` 与 `dev-rules/rules/` 内容不一致，运行 `dev-rules/sync.sh --local` 修复（提交前必须再跑 `--check` 确认归零）
+- 修改规则的标准链路：`编辑 dev-rules/{rules,commands,global}/* → sync.sh --local → verify-rules.sh → cd dev-rules && git commit → ./sync.sh --push → cd .. && git commit && git push`
+- 涉及 `dev-rules/` 的提交与推送时，**必须**按「Git 提交顺序（强制）」先子模块、后父仓库；不得颠倒顺序或只提交父仓库而不同步子模块上游
+- 如果 `dev-rules/sync.sh --status` 报告 mirror SHA 与 submodule SHA 不一致，必须先 `--push`（本机有未推变更）或 `--pull`（远端有未拉变更），不得在 mirror 落后状态下做新规则编辑

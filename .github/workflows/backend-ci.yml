@@ -8,6 +8,22 @@ permissions:
   contents: read
 
 jobs:
+  preflight:
+    # Mechanical gate for process / quality rules from dev-rules submodule.
+    # See CLAUDE.md § 10 and dev-rules/rules/dev-rules-convention.mdc.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - name: Run preflight (dev-rules template, 8 sections)
+        run: |
+          if [ -x scripts/preflight.sh ]; then
+            ./scripts/preflight.sh
+          else
+            ./dev-rules/templates/preflight.sh
+          fi
+
   test:
     runs-on: ubuntu-latest
     steps:

@@ -272,6 +272,32 @@ git push origin main vX.Y.Z                              # release.yml is silent
 
 See `deploy/aws/README.md` § "发版纪律（两条铁律）" for the operator-facing version of these two rules.
 
+### 10. Dev-rules Submodule (Single Source of Truth for Process Rules)
+
+This repo consumes process/quality rules from `github.com/youxuanxue/dev-rules` as
+a git submodule at `dev-rules/`. The full convention is in
+`dev-rules/rules/dev-rules-convention.mdc` (synced to `.cursor/rules/`); this
+section only records sub2api-specific choices.
+
+- **No project-level `scripts/preflight.sh` wrapper.** All preflight checks
+  needed by sub2api are already covered by `dev-rules/templates/preflight.sh`
+  (8 sections: branch naming, submodule pointer, .cursor/rules drift, agent
+  contract drift, story/test alignment, docs/approved discipline,
+  approved-doc invariants R1-R5, doc-stat drift). The git pre-commit hook
+  installed by `dev-rules/templates/install-hooks.sh` resolves preflight at
+  runtime and falls back to the dev-rules template directly. Add
+  `scripts/preflight.sh` later only if a sub2api-specific check emerges that
+  doesn't belong in dev-rules (and document the reason in
+  `docs/preflight-debt.md`).
+- **CI must check out submodules.** All workflow jobs that run
+  `dev-rules/...` (preflight, contract drift, etc.) must use
+  `actions/checkout@v6` with `submodules: recursive`.
+- **Editing rules:** edit `dev-rules/rules/*.mdc` (or `commands/`,
+  `global/`), then `dev-rules/sync.sh --local`, commit submodule first, push
+  submodule, then commit parent (`dev-rules` pointer + `.cursor/rules/`).
+  The "submodule first" order is enforced by preflight § 2 (warns on offline,
+  fails if SHA missing locally) and by `dev-rules/rules/dev-rules-convention.mdc`.
+
 ## Key Reference
 
 ### Current Gateway Flow
@@ -303,3 +329,4 @@ Treat `internal/integration/newapi/` and `internal/relay/bridge/` as the impleme
 - After upstream merge: PR body includes `git log --oneline upstream/main..HEAD | wc -l` and the top-5 lines of `git diff --stat upstream/main..HEAD -- backend/` (rule §5.y audit cadence). The `Upstream Merge PR Shape` workflow (§5.y.1) enforces this automatically — fix any failures it reports rather than ignoring them.
 - Drift check: before opening any non-trivial PR, run `bash scripts/check-upstream-drift.sh`. If TK is behind upstream/main, pause and either land the upstream merge first or document why this PR ships out of order.
 - Reviewer picks the GitHub merge button per rule §5.y: **Squash and merge** for TK-originated PRs (feature / fix / chore / docs), **Create a merge commit** for `merge/upstream-*` PRs. Never use **Rebase and merge** on `main`.
+- If the PR touches `dev-rules/` (submodule pointer bump or `.cursor/rules/` resync): per rule §10, the dev-rules submodule MUST be pushed first; this PR's CI `preflight` job will fail otherwise (the dev-rules SHA in `.gitmodules` won't be reachable on `origin/main`).
