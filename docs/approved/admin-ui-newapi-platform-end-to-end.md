@@ -1,5 +1,5 @@
 ---
-title: Admin UI — Fifth Platform `newapi` End-to-End Visibility & Operability
+title: Admin UI — 第五平台 `newapi` 端到端可见性与可操作性
 status: pending
 approved_by: pending
 approved_at: pending
@@ -8,97 +8,100 @@ created: 2026-04-20
 related_prs: []
 related_commits: []
 related_stories: [US-017]
-related_audit: tester report 2026-04-20 — 创建分组 modal lacks fifth platform option
+related_audit: tester report 2026-04-20 — 创建分组 modal 缺失第五平台选项
 supersedes: none
 parent_design: docs/approved/newapi-as-fifth-platform.md
 ---
 
-# Admin UI — Fifth Platform `newapi` End-to-End
+# Admin UI — 第五平台 `newapi` 端到端
 
 ## 0. TL;DR
 
-`docs/approved/newapi-as-fifth-platform.md` (shipped v1.4.0) explicitly **deferred admin-UI
-integration** ("frontend：`platformOptions` 是否含 newapi 由 admin UI 决定，不在本 design
-范围"). Result today: backend, scheduler, sticky routing, error passthrough, bridge—every
-runtime path treats `newapi` as a first-class fifth platform; **but the admin UI does not
-expose it**. Operators cannot create newapi groups or accounts through the UI; the only
-workaround is hand-crafting admin API calls.
+`docs/approved/newapi-as-fifth-platform.md`（v1.4.0 已 ship）明确**推迟了 admin UI 集成**
+（"frontend：`platformOptions` 是否含 newapi 由 admin UI 决定，不在本 design 范围"）。
+今天的现状：后端、调度器、sticky routing、错误透传、bridge —— 所有运行时路径都把
+`newapi` 当作一等的第五平台；**但 admin UI 完全不暴露它**。运维无法通过界面创建
+newapi 分组或账号，唯一的绕路是手工构造 admin API 调用。
 
-This design closes that gap with the **smallest** UI surface that lets an operator drive
-newapi end-to-end (create group → create account → see correctly-labelled account → filter
-list). Out-of-scope polish (ops-dashboard filter, error-passthrough rules, bulk edit,
-gradient/discount/button color variants) is enumerated for stage-3 follow-up but explicitly
-excluded from the prototype.
+本设计用**最小**的 UI 改动闭合这一缺口，让运维可以端到端跑通 newapi
+（创建分组 → 创建账号 → 看到正确标注的账号 → 列表筛选）。Out-of-scope 的精修
+（ops-dashboard 筛选、错误透传规则、批量编辑、渐变色/折扣/按钮颜色变体）会列入
+stage-3 跟进，但明确排除在本次原型之外。
 
-## 1. Scope
+## 1. 范围
 
-### In-scope (this design + prototype)
+### In-scope（本设计 + 原型）
 
-1. **Single source of truth for platform options** — extract `usePlatformOptions()`
-   composable backed by `frontend/src/constants/gatewayPlatforms.ts` `GATEWAY_PLATFORMS`
-   (already includes `newapi`). Replace `GroupsView.vue`'s two hardcoded option lists.
-2. **Account creation** — `CreateAccountModal.vue` gains a 5th platform segment
-   `newapi` that wires the existing-but-unused `AccountNewApiPlatformFields.vue` to the
-   existing-but-unused `listChannelTypes()` / `fetchUpstreamModels()` API clients.
-3. **Account display correctness** — `PlatformTypeBadge.vue` adds a `newapi` arm and
-   stops using "Gemini" as the catch-all fallback. (Today a newapi account renders as
-   "Gemini" + blue badge, which is silently wrong data display, not a styling nit.)
-4. **Regression safeguard** — vitest unit covering `usePlatformOptions()` returns 5
-   platforms in canonical order so future refactors cannot drop newapi again.
+1. **平台选项的单一事实源** —— 抽出 `usePlatformOptions()` composable，
+   背后由 `frontend/src/constants/gatewayPlatforms.ts` 的 `GATEWAY_PLATFORMS`
+   驱动（其中已经包含 `newapi`）。替换 `GroupsView.vue` 中两处硬编码的选项列表。
+2. **创建账号** —— `CreateAccountModal.vue` 增加第 5 个平台 segment `newapi`，
+   把已存在但未启用的 `AccountNewApiPlatformFields.vue` 接到已存在但未启用的
+   `listChannelTypes()` / `fetchUpstreamModels()` API client 上。
+3. **账号展示正确性** —— `PlatformTypeBadge.vue` 增加 `newapi` 分支，并停止
+   把 "Gemini" 当作通配回退。（今天 newapi 账号在列表里会被渲染成
+   "Gemini" + 蓝色徽章，这是数据展示静默错误，不是样式 nit。）
+4. **回归保护** —— 用 **2 个** vitest spec 覆盖核心改动：
+   - `usePlatformOptions.spec.ts`：断言返回规范顺序的 5 个平台，避免后续重构再次把 newapi 漏掉；
+   - `PlatformTypeBadge.spec.ts`：断言 `newapi` 渲染为 "New API" + 青色，
+     真未知平台走中性灰回退（不再被静默错标为 Gemini），4 个老平台快照不变。
 
-### Out-of-scope (stage-3 backlog, listed in `docs/task-breakdown-admin-ui-newapi.md`)
+### Out-of-scope（stage-3 backlog，原型审批合并后单独 PR 做）
+
+> 设计阶段曾设想把 backlog 单独抽到 `docs/task-breakdown-admin-ui-newapi.md`，
+> 该文件**最终未落地**（避免散文档漂移）。stage-3 任务列表就以本节为单一来源，
+> follow-up PR 直接引用本节锚点即可。
 
 - `AccountTableFilters.vue` / `OpsDashboardHeader.vue` / `ErrorPassthroughRulesModal.vue`
-  platform pickers — same composable swap, but each has its own filter semantics that
-  warrant individual review.
-- `EditAccountModal.vue` / `BulkEditAccountModal.vue` — must not regress, but full
-  newapi-channel editing in bulk has UX implications (mass channel_type change is
-  destructive). Keep behind a separate review.
-- `utils/platformColors.ts` — extend `Platform` union and add `newapi` to all 9
-  variant maps for visual completeness in non-badge surfaces.
-- `PlatformIcon.vue` — picking a brand mark for newapi is a design decision, not a
-  bug. Today's generic-globe fallback is acceptable.
-- `SubscriptionsView.vue` — newapi has no OAuth subscription concept. Adding it would
-  mislead.
+  的平台 picker —— 同样换成本 composable，但每个都有自己的筛选语义，需要单独 review。
+- `EditAccountModal.vue` / `BulkEditAccountModal.vue` —— 不能让它们回归，但
+  完整支持批量编辑 newapi 渠道有 UX 影响（批量改 channel_type 是破坏性操作），
+  放到独立 review 里。
+- `utils/platformColors.ts` —— 扩展 `Platform` 联合类型并把 `newapi` 加进全部
+  9 张 variant map，让非 badge 表面也具备视觉完整性。
+- `PlatformIcon.vue` —— 给 newapi 选品牌图标是设计决策不是 bug；目前的通用
+  地球图标回退是可以接受的。
+- `SubscriptionsView.vue` —— newapi 没有 OAuth 订阅这个概念，加上反而误导。
 
-### Non-goals (will not do, and design explains why)
+### Non-goals（不会做，并解释为什么）
 
-- **No new backend endpoints.** Backend already accepts `Platform: "newapi"` in
-  `CreateGroup` / `CreateAccount` (admin_service.go:1565 enforces `channel_type > 0`).
-  No backend change needed; doing one would violate CLAUDE.md §5 minimal API surface.
-- **No new DTO fields.** `AccountNewApiPlatformFields` already binds to existing
-  `channel_type` / `base_url` / `api_key` — they round-trip via existing APIs.
-- **No global UI restructure.** Per CLAUDE.md §5.x, prefer additive injection points
-  over rewriting upstream-shaped files (`CreateAccountModal.vue` is upstream-derived).
-  All edits are append-only inside existing `v-if` chains.
+- **不新增 backend endpoint。** 后端 `CreateGroup` / `CreateAccount` 已经接受
+  `Platform: "newapi"`（admin_service.go:1565 强制 `channel_type > 0`）。
+  完全不需要后端改动；额外加一个会违反 CLAUDE.md §5 的最小 API surface 原则。
+- **不新增协议级 DTO。** `AccountNewApiPlatformFields` 已经绑定到现有的
+  `channel_type` / `base_url` / `api_key` —— 字段通过现有 API 自然往返。
+  本设计仅在前端 TypeScript 类型 `CreateAccountRequest` 上把已经事实存在的
+  顶层 `channel_type?: number` 显式声明出来（见 §3.5 C3），不动后端 DTO。
+- **不重构全局 UI。** 按 CLAUDE.md §5.x，应优先选择附加式注入而不是重写
+  upstream-shaped 文件（`CreateAccountModal.vue` 来自上游）。所有改动都是在
+  现有 `v-if` 链里追加。
 
-## 2. Current Failure Path
+## 2. 当前失败路径
 
 ```
-User → 「分组管理」→ 创建分组
+用户 → 「分组管理」→ 创建分组
    → modal 平台下拉只渲染 [Anthropic, OpenAI, Gemini, Antigravity]
    → 用户无法选 newapi → 只能放弃或操作 admin API
 ```
 
-Root cause: `frontend/src/views/admin/GroupsView.vue:2813-2818` hardcodes a 4-element
-`platformOptions` literal. Same anti-pattern repeats in `:2820-2826` (filter), and in 4
-other admin views (`AccountTableFilters.vue`, `OpsDashboardHeader.vue`,
-`ErrorPassthroughRulesModal.vue`, `SubscriptionsView.vue`) and 1 display component
-(`PlatformTypeBadge.vue`). Each was written before `GATEWAY_PLATFORMS` constant existed
-(2026-04-19) and never refactored to consume it.
+根因：`frontend/src/views/admin/GroupsView.vue:2813-2818` 把 4 个元素的
+`platformOptions` 字面量硬编码进去。同样的反模式在 `:2820-2826`（筛选器）以及
+另外 4 个 admin view（`AccountTableFilters.vue`、`OpsDashboardHeader.vue`、
+`ErrorPassthroughRulesModal.vue`、`SubscriptionsView.vue`）和 1 个展示组件
+（`PlatformTypeBadge.vue`）里反复出现。每一处都是在 `GATEWAY_PLATFORMS` 常量
+诞生（2026-04-19）之前写的，从未被重构去消费它。
 
-This is **organizational drift**, not a logic bug — the canonical `GATEWAY_PLATFORMS`
-exists; nothing consumes it for option-list generation.
+这是**组织漂移**，不是逻辑 bug —— 规范的 `GATEWAY_PLATFORMS` 已存在；只是没有
+任何地方用它来生成选项列表。
 
-## 3. Design
+## 3. 设计
 
-### 3.1 Single source of truth — `usePlatformOptions()`
+### 3.1 单一事实源 —— `usePlatformOptions()`
 
-Add `frontend/src/composables/usePlatformOptions.ts`:
+新增 `frontend/src/composables/usePlatformOptions.ts`：
 
 ```ts
 import { computed } from 'vue'
-import { useI18n } from 'vue-i18n'
 import { GATEWAY_PLATFORMS } from '@/constants/gatewayPlatforms'
 import type { AccountPlatform } from '@/types'
 
@@ -115,12 +118,12 @@ export interface PlatformOption {
   label: string
 }
 
-/** Canonical platform options, ordered per GATEWAY_PLATFORMS. */
+/** 规范的平台选项，顺序与 GATEWAY_PLATFORMS 一致。 */
 export function usePlatformOptions() {
   const options = computed<PlatformOption[]>(() =>
     GATEWAY_PLATFORMS.map(p => ({ value: p, label: PLATFORM_LABELS[p] })))
 
-  /** Filter variant — prepend an "all" sentinel localized at call site. */
+  /** 筛选变体 —— 在调用点传入本地化的 "全部" 标签作为前置 sentinel。 */
   const optionsWithAll = (allLabel: string) =>
     computed<Array<{ value: '' | AccountPlatform; label: string }>>(() => [
       { value: '', label: allLabel },
@@ -131,58 +134,64 @@ export function usePlatformOptions() {
 }
 ```
 
-Rationale (Jobs simplicity + OPC automation):
-- One canonical map, ordered by `GATEWAY_PLATFORMS` (which TypeScript already pins to
-  `AccountPlatform` union — adding a 6th platform later requires touching one file).
-- No i18n keys for platform labels: brand names (Anthropic / OpenAI / Gemini /
-  Antigravity / New API) are not translated in this codebase today; introducing
-  per-locale brand strings now would be premature.
-- Filter variant is a function (not a computed) so callers pass their localized
-  "all" label without globalizing it.
+理由（乔布斯式简洁 + OPC 自动化）：
 
-### 3.2 Account-creation tab — `CreateAccountModal.vue`
+- 一张规范 map，由 `GATEWAY_PLATFORMS` 排序（TypeScript 已经把它绑到
+  `AccountPlatform` 联合类型上 —— 将来加第 6 个平台只需要改一个文件）。
+- **平台品牌名不做 i18n key**：Anthropic / OpenAI / Gemini / Antigravity / New API
+  在本仓库今天都没有翻译；现在引入分语种品牌字符串属于过早抽象。
+- **创建账号表单的字段标签需要 i18n key**：channel_type / base_url / api_key 等
+  字段说明文字必须本地化，统一放在 `admin.accounts.newApiPlatform.*`
+  命名空间下（en/zh 两份 locale 同步加），见 §3.5。这与"品牌名不本地化"
+  并不冲突 —— 前者是品牌，后者是 UI 文案。
+- 筛选变体写成函数（不是 computed），这样调用方能自己传本地化 "全部" 标签，
+  不必把它全局化。
 
-Append a 5th segmented-control button after the existing Antigravity button (around
-line 139). Wire `form.platform = 'newapi'`. Add a `<div v-if="form.platform === 'newapi'">`
-block immediately after the existing `antigravity` block (around line 707) that hosts
-`<AccountNewApiPlatformFields v-model:channelType="..." v-model:baseUrl="..."
-v-model:apiKey="..." :channel-type-options="..." :channel-types-loading="..."
-:channel-types-error="..." :selected-channel-type-base-url="..." />`.
+### 3.2 创建账号 tab —— `CreateAccountModal.vue`
 
-Data wiring:
-- On modal open (or first time `form.platform === 'newapi'`), call
-  `listChannelTypes()` from `@/api/admin/channels` and project to `{value, label}`
-  pairs.
-- `selectedChannelTypeBaseUrl` derived from the chosen `channel_type` row (used as
-  the input placeholder so operators see the official upstream URL even when the
-  field is blank).
-- Submit → call existing `createAccount()` with `platform: 'newapi'`,
-  `channel_type`, `base_url`, `api_key`, `name`. Backend validates
-  `channel_type > 0` (admin_service.go:1565) so no client-side guard duplication is
-  needed beyond a "required field" hint.
+在现有 Antigravity 按钮之后（约第 139 行）追加第 5 个 segmented-control 按钮，
+绑定 `form.platform = 'newapi'`。在现有 `antigravity` 块（约第 707 行）之后
+紧接着加一个 `<div v-if="form.platform === 'newapi'">` 块，承载
+`<AccountNewApiPlatformFields v-model:channelType="..." v-model:baseUrl="..." v-model:apiKey="..." :channel-type-options="..." :channel-types-loading="..." :channel-types-error="..." :selected-channel-type-base-url="..." />`。
 
-Following CLAUDE.md §5.x: `CreateAccountModal.vue` is upstream-derived; we only
-**append** a tab and a `v-if` block (no rewrite).
+数据接线：
 
-### 3.3 Display correctness — `PlatformTypeBadge.vue`
+- modal 打开时（或第一次 `form.platform === 'newapi'` 时）调用
+  `@/api/admin/channels` 的 `listChannelTypes()`，投影成 `{value, label}` pair。
+- `selectedChannelTypeBaseUrl` 由所选 `channel_type` 行派生，**双重用途**：
+  ① 作为输入框 placeholder，让运维即使不填也能看到上游官方 URL；
+  ② 提交时若用户留空 `base_url`，自动回退到 channel-type 的默认 URL
+  （CreateAccountModal.vue:4104：`baseUrl = newapiBaseUrl.value.trim() || newapiSelectedBaseUrl.value`）。
+  这两个用途必须保持一致，未来重构者不得把它退化为"纯 placeholder"。
+- 提交 → 调用现有 `createAccount()` 时带上 `platform: 'newapi'`、
+  顶层 `channel_type`（数字）、`base_url`、`api_key`、`name`。后端校验
+  `channel_type > 0`（admin_service.go:1565），所以前端无需重复这一守卫，
+  仅给一个 "必填" 的提示即可。
+- **OAuth 流程必须 bypass**：`isOAuthFlow` 在 `form.platform === 'newapi'`
+  时强制为 false（newapi 仅 apikey），否则 template 的 step indicator
+  `v-if="isOAuthFlow"` 会对单步流程错误地渲染 "step 1/2"。
 
-Today line 74-79:
+遵循 CLAUDE.md §5.x：`CreateAccountModal.vue` 来自上游；我们只**追加**一个
+tab 和一个 `v-if` 块（不重写）。
+
+### 3.3 展示正确性 —— `PlatformTypeBadge.vue`
+
+今天第 74-79 行：
 
 ```ts
 const platformLabel = computed(() => {
   if (props.platform === 'anthropic') return 'Anthropic'
   if (props.platform === 'openai') return 'OpenAI'
   if (props.platform === 'antigravity') return 'Antigravity'
-  return 'Gemini'  // ← BUG: any unknown platform shown as Gemini
+  return 'Gemini'  // ← BUG：任何未知平台都被渲染成 Gemini
 })
 ```
 
-Same anti-pattern in `platformClass` and `typeClass` (default fallback = blue/Gemini
-styling).
+`platformClass` 和 `typeClass` 里有同样的反模式（默认回退 = 蓝色/Gemini 样式）。
 
-Fix: switch to explicit map keyed by `AccountPlatform` (which already includes
-`newapi`); add `newapi` arm with cyan styling matching `gatewayPlatforms.ts:30`; add
-a true unknown-platform branch (gray) for forward-compat.
+修法：用显式的 `Record<AccountPlatform, …>` map（或等价的穷举 switch）替换隐式
+default，**真未知平台走中性灰**而非"Gemini 蓝"。配色与 `gatewayPlatforms.ts:30`
+的 cyan 一致。
 
 ```ts
 const PLATFORM_LABEL: Record<AccountPlatform, string> = {
@@ -196,66 +205,93 @@ const PLATFORM_BG: Record<AccountPlatform, string> = {
   antigravity:'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
   newapi:   'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400',
 }
-const PLATFORM_TYPE_BG: Record<AccountPlatform, string> = { /* same shape */ }
+const PLATFORM_TYPE_BG: Record<AccountPlatform, string> = { /* 同形 */ }
 ```
 
-This eliminates the silent "Gemini fallback" bug for **any** platform unknown to the
-component (newapi, future 6th, typo'd payload).
+> 实现备注：原型 commit 落在了等价的穷举 `switch` 上（已含中性灰 default 分支）。
+> 行为与 Map 版一致，但"加第 6 个平台只改一处"的承诺要求 3 个 switch 同步改 3 处。
+> 推荐 stage-3 把 3 个 switch 折叠成 import `gatewayPlatforms.ts` 已有的
+> `SOFT_BADGE` map（line 25-31，已经包含全部 5 个平台的同款配色），
+> 与"单一事实源"主张闭环。
 
-### 3.4 GroupsView option swap
+### 3.4 GroupsView 选项替换
 
-Replace literals at `GroupsView.vue:2813-2818` and `:2820-2826` with the composable.
-Filter variant uses `optionsWithAll(t('admin.groups.allPlatforms'))`.
+把 `GroupsView.vue:2813-2818` 和 `:2820-2826` 的字面量替换成 composable 调用。
+筛选变体使用 `optionsWithAll(t('admin.groups.allPlatforms'))`。
 
-### 3.5 Files Touched (prototype)
+### 3.5 涉及文件（原型）
 
-| Path | Change |
+| 路径 | 变更 |
 | --- | --- |
-| `frontend/src/composables/usePlatformOptions.ts` | NEW — composable |
-| `frontend/src/composables/__tests__/usePlatformOptions.spec.ts` | NEW — vitest regression test |
-| `frontend/src/views/admin/GroupsView.vue` | replace 2 hardcoded option lists with composable (≤10 line diff) |
-| `frontend/src/components/account/CreateAccountModal.vue` | + 5th segment button + `v-if newapi` block + `listChannelTypes` wiring |
-| `frontend/src/components/common/PlatformTypeBadge.vue` | replace 4-arm `if/else` with `Record<AccountPlatform, …>` map; add newapi |
-| `.testing/user-stories/stories/US-017-admin-ui-newapi-platform-pickers.md` | NEW — story |
-| `.testing/user-stories/index.md` | + US-017 row |
-| `docs/task-breakdown-admin-ui-newapi.md` | already written (stage-1 artifact) |
-| `docs/approved/admin-ui-newapi-platform-end-to-end.md` | this doc |
+| `frontend/src/composables/usePlatformOptions.ts` | NEW —— composable |
+| `frontend/src/composables/__tests__/usePlatformOptions.spec.ts` | NEW —— vitest 回归测试（AC-001 / AC-002） |
+| `frontend/src/views/admin/GroupsView.vue` | 把 2 处硬编码选项列表换成 composable（≤10 行 diff） |
+| `frontend/src/components/account/CreateAccountModal.vue` | + 第 5 个 segment 按钮 + `v-if newapi` 块 + `listChannelTypes` 接线 + `isOAuthFlow` bypass |
+| `frontend/src/components/common/PlatformTypeBadge.vue` | 把隐式 default 替换为穷举分支；新增 `newapi`（青色），未知平台走中性灰 |
+| `frontend/src/components/common/__tests__/PlatformTypeBadge.spec.ts` | NEW —— vitest 回归测试（AC-003 / AC-004） |
+| `frontend/src/types/index.ts` | `CreateAccountRequest` 增加可选顶层 `channel_type?: number`（让 newapi 提交路径在 TS 层面合法） |
+| `frontend/src/i18n/locales/en.ts` | + `admin.accounts.newApiPlatform.*` 字段标签（channelType / baseUrl / apiKey 等） |
+| `frontend/src/i18n/locales/zh.ts` | 同上 zh 版 |
+| `.testing/user-stories/stories/US-017-admin-ui-newapi-platform-end-to-end.md` | NEW —— story |
+| `.testing/user-stories/index.md` | + US-017 行 |
+| `docs/approved/admin-ui-newapi-platform-end-to-end.md` | 本文档 |
 
-No backend / Ent / Wire changes. No new dependencies.
+不动 backend / Ent / Wire。不引入新依赖。
 
-## 4. Risk Analysis
+## 4. 风险分析
 
-| Risk | Likelihood | Impact | Mitigation |
+| 风险 | 概率 | 影响 | 缓解 |
 | --- | --- | --- | --- |
-| Existing 4-platform UX regresses after composable swap | Med | Medium | vitest asserts order = GATEWAY_PLATFORMS; manual click-through of 4 existing tabs in CreateAccountModal during prototype demo |
-| Operators create newapi account with wrong channel_type / base_url and call fails | High (UX, not regression) | Low (clear backend error) | `AccountNewApiPlatformFields` already wires `fetchUpstreamModels` for self-test; required-asterisks visible |
-| Translation gap — "New API" not localized | Low | Low | Brand names not localized today (4 existing platforms hardcoded in English) — defer to project i18n pass |
-| `usePlatformOptions()` accidentally used in scopes that should hide newapi (e.g. SubscriptionsView) | Low | Med | Out-of-scope list explicitly excludes those views; reviewer checks call sites |
-| Backend rejects `Platform: "newapi"` somewhere we didn't audit | Low | High | `admin_service.go:1565` is the only platform check in CreateAccount; `CreateGroup` accepts any string; covered by US-008..014 backend tests |
+| 已有 4 平台 UX 在 composable 替换后回归 | 中 | 中 | vitest 断言顺序 = GATEWAY_PLATFORMS；原型演示时手工点完 CreateAccountModal 中已有的 4 个 tab |
+| 运维用错 channel_type / base_url 创建 newapi 账号导致调用失败 | 高（UX，非回归） | 低（后端错误清晰） | `AccountNewApiPlatformFields` 已经接了 `fetchUpstreamModels` 用于自测；必填红星可见；`base_url` 留空时回退 channel-type 默认值 |
+| 翻译缺口 —— "New API" 未本地化 | 低 | 低 | 品牌名今天都不本地化（已有 4 个平台都硬编码英文）—— 等项目 i18n 统一 pass 时一起做 |
+| `usePlatformOptions()` 被误用在不该出现 newapi 的 scope（如 SubscriptionsView） | 低 | 中 | Out-of-scope 列表明确排除这些 view；reviewer 检查调用点；建议 §5 加防漂移 preflight |
+| 后端在某个我们没审计到的地方拒绝 `Platform: "newapi"` | 低 | 高 | `admin_service.go:1565` 是 CreateAccount 唯一的平台检查；`CreateGroup` 接受任意字符串；US-008..014 的后端测试已经覆盖 |
 
-## 5. Acceptance (end-to-end demo for stage-2 approval)
+## 5. 验收（stage-2 审批用的端到端 demo）
 
-The prototype is approval-worthy if a reviewer can, on a fresh dev stack:
+原型在 reviewer 拿到一份新的 dev 栈时能跑通以下流程，即视为可审批：
 
-1. Open `/admin/groups`, click 「创建分组」, see **5** platforms in dropdown including "New API". Create a `newapi` test group successfully.
-2. Open `/admin/accounts`, click 「创建账号」, see **5** platform tabs. Click "New API". Channel type list loads. Pick e.g. DeepSeek, fill base_url + api_key, save. Account created, list refreshed.
-3. The new account renders in the list with badge "New API" + cyan, **not** "Gemini" + blue.
-4. Existing 4 platforms still work identically (no visual / behavioral diff).
-5. `pnpm lint:check && pnpm typecheck && pnpm test:unit` green.
-6. `./scripts/preflight.sh` green.
+1. 打开 `/admin/groups`，点 「创建分组」，下拉里看到 **5** 个平台，包括 "New API"。成功创建一个 `newapi` 测试分组。
+2. 打开 `/admin/accounts`，点 「创建账号」，看到 **5** 个平台 tab。点 "New API"。channel type 列表加载完成。选择 e.g. DeepSeek，填 base_url + api_key，保存。账号创建，列表刷新。
+3. 新账号在列表中渲染为 "New API" + 青色徽章，**而非** "Gemini" + 蓝色。
+4. 已有 4 个平台行为完全一致（无视觉/行为 diff）—— 重点点开 4 个老平台 tab，确认 step indicator (`isOAuthFlow`) 的显隐与升级前完全一致；newapi tab 选中时 step indicator **不**显示。
+5. `pnpm lint:check && pnpm typecheck && pnpm test:unit` 全绿。
+6. `./scripts/preflight.sh` 全绿（含 `dev-rules/scripts/check_approved_docs.py` 对本文档 frontmatter 的 R1-R5 校验）。
 
-## 6. Stage-3 Follow-up (after this is approved & shipped)
+### 5.7 防漂移 preflight（建议在 stage-3 引入）
 
-Track in `docs/task-breakdown-admin-ui-newapi.md` §2 M1.3-M1.5, M2.4-M2.5, M3.2, M4.2-M4.4.
-Each is a small, independent PR. Order suggestion: AccountTableFilters first (highest
-operator visibility), then OpsDashboardHeader, then EditAccountModal, then bulk-edit
-guardrails, then `platformColors.ts` fill-in, then ErrorPassthroughRulesModal (lowest
-operational urgency).
+本设计修复的是"组织漂移"——`GATEWAY_PLATFORMS` 早就存在，但没有任何调用点用它生成选项。
+为了避免下一个 PR 又往 admin view 里塞硬编码列表，建议在 `scripts/preflight.sh` 增加一段：
 
-## 7. Open Questions for Approval
+```bash
+# 任何 admin view 出现字面量 ['anthropic','openai','gemini','antigravity'] 必须 fail
+! rg -nP "\\['anthropic',\\s*'openai',\\s*'gemini',\\s*'antigravity'" \
+    frontend/src --glob '!*/constants/gatewayPlatforms.ts' \
+  || { echo "FAIL: hardcoded 4-platform list — use usePlatformOptions()"; exit 1; }
+```
 
-1. **Display label**: "New API" vs "NewAPI" vs "newapi"? Prototype uses **"New API"** (matches channel-type catalog conventions).
-2. **Color**: cyan (`gatewayPlatforms.ts` already declared). Approve or override?
-3. **Localization**: keep brand names in English (current convention) or add i18n keys? Prototype: keep English.
-4. **Default channel_type on create**: blank (force user to choose) or pre-select first item? Prototype: blank with required asterisk.
-5. **AccountNewApiPlatformFields component path**: lives at `frontend/src/components/account/AccountNewApiPlatformFields.vue` — keep or move to a `*.tk.ts`-ish convention (CLAUDE.md §5)? Prototype: keep (the file already exists and follows TK companion-file convention by name; moving it would inflate diff).
+按 product-dev.mdc「能写成脚本/CI 检查/Rule 的，绝不依赖 Agent 每次自觉遵守」，
+这是把"靠记忆"升级为"靠规则"。原型 PR 不强制要求，stage-3 第一个 PR 必须落地。
+
+## 6. Stage-3 跟进（本次审批合并后）
+
+跟进项以 §1 Out-of-scope 列出的 5 条为单一事实源，每一项一个独立 PR。建议顺序：
+
+1. `AccountTableFilters.vue` 切到 `usePlatformOptions()` —— 运维可见性最高
+2. `OpsDashboardHeader.vue` 同上
+3. `EditAccountModal.vue` 增加 newapi 编辑分支（不含批量）
+4. `BulkEditAccountModal.vue` 加批量编辑守卫（`channel_type` 不允许批量改）
+5. `utils/platformColors.ts` 把 `newapi` 加进 9 张 variant map（视觉完整性）
+6. `ErrorPassthroughRulesModal.vue` 同 §1（运营紧迫性最低）
+7. `PlatformTypeBadge.vue` 3 个 `switch` → import `gatewayPlatforms.ts` 的 `SOFT_BADGE` map（§3.3 实现备注）
+8. §5.7 的防漂移 preflight 段落落地
+
+## 7. 待审批的开放问题
+
+> 已经被原型实现做出选择的项不再列在这里（避免审批者以为还要表态）。
+
+1. **展示标签**："New API" / "NewAPI" / "newapi"？原型用 **"New API"**（与 channel-type 目录习惯一致）。
+2. **配色**：cyan（`gatewayPlatforms.ts` 已声明）。批准还是覆盖？
+3. **本地化策略**：品牌名继续保留英文（当前惯例）+ 字段标签走 i18n key。批准还是要求把品牌名也加 i18n？
+
