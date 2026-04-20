@@ -335,11 +335,11 @@ go test -tags=integration -run 'TestUS00[89]_|TestUS01[0-5]_' ./backend/internal
 - [x] §3.1 全部 upstream 注入点完成且每处 ≤ 5 行 — 4 文件，diff ≈ +98/-46 in upstream-shaped files (commit `6e0c0fce`)
 - [x] §3.2 全部 companion 文件 + 单元测试 — `account_tk_compat_pool.go`、`openai_gateway_service_tk_newapi_pool.go`、`openai_messages_dispatch_tk_newapi.go` + 三个 `*_test.go`（commits `0211c2b7`, `6e0c0fce`）
 - [x] US-008..US-015 全部从 Draft → InTest（unit-tier AC 已断言；e2e AC 由 follow-up PR 推进，见 §11）
-- [x] §5.1 preflight 段 (§ 2 newapi compat-pool drift) 加入 `scripts/preflight.sh` 并行为验证可 fail（commit `4441b642`）
+- [x] §5.1 preflight 段（newapi compat-pool drift，sub2api-specific）加入 `scripts/preflight.sh § 9` 并行为验证可 fail（commit `4441b642`，merge PR #11 后 wrapper 重构为 `dev-rules/templates/preflight.sh § 1-8 + § 9 sub2api`）
 - [ ] §5.2 集成测试 testcontainer 化 — **延期到 follow-up PR `feature/newapi-fifth-platform-e2e`**（见 `docs/preflight-debt.md` §4，2026-05-03 截止）；当下用 21 个 mock-based 单测覆盖全部安全/逻辑/回归 AC
-- [x] §5.3 `scripts/export_agent_contract.py --check` 接入 preflight § 3，本 PR 仅 audit 模式（routes/*.go ↔ doc 计数 + Notes 段平台覆盖），完整 prefix-resolving generator 见 preflight-debt §3（commit `ab39ddbb`）
+- [x] §5.3 `scripts/export_agent_contract.py --check` 由 `dev-rules/templates/preflight.sh § 4 (agent contract drift)` 自动接入，本 PR 仅 audit 模式（routes/*.go ↔ doc 计数 + Notes 段平台覆盖），完整 prefix-resolving generator 见 preflight-debt §3（commit `ab39ddbb`）
 - [x] `go test -tags=unit ./internal/service/...` 全绿 — 82.8s（M5a 验证日志：`.testing/user-stories/attachments/us-newapi-unit-run-2026-04-19.txt`）
-- [x] CLAUDE.md "Current Gateway Flow" 段补 newapi 调度池语义（M8）
+- [x] CLAUDE.md "Current Gateway Flow" 段补 newapi 调度池语义（M8，commit `90d5d90c`）
 
 ## 10. 设计前后对比
 
@@ -361,13 +361,21 @@ PR：[`feature/newapi-fifth-platform → main`](https://github.com/youxuanxue/su
 | US 编号对齐 | `c5130c29` | design doc §4.1 / §4.2 / §5.2 用全局 ID（US-008..015）替换设计期 alias `US-NEWAPI-001..008` |
 | M3-补 + M4 | `6e0c0fce` | §3.1 upstream U1-U7 注入点（`scheduler.go` + `gateway_service.go` + `messages_dispatch.go` + `ws_forwarder.go`，4 文件 +98/-46）+ companion `openai_gateway_service_tk_newapi_pool.go` + 漏补的 `openai_messages_dispatch_tk_newapi_test.go` |
 | M5a | `bf784cab` | scheduler-tier 行为单测 8 case（`openai_account_scheduler_tk_newapi_test.go`）+ gateway-tier sticky 单测 5 case（`openai_gateway_service_tk_newapi_pool_test.go`）+ 8 故事 status → InTest + Linked Tests 回填 + evidence 归档 + preflight-debt §4 记录 M5b 延期 |
-| M6 | `4441b642` | `scripts/preflight.sh` § 2 段（两条 drift check：直接 `PlatformOpenAI` bucket / 裸 `!account.IsOpenAI()`），POSIX grep + 行为验证可 fail |
-| M7 | `ab39ddbb` | `scripts/export_agent_contract.py`（audit 模式）+ preflight § 3 + `docs/agent_integration.md` Notes 段 5 平台 + newapi 三入口契约 + preflight-debt §3 更新 |
-| M8（本 commit） | TBD | CLAUDE.md "Current Gateway Flow" 补 newapi 调度池语义 + design doc §9 验收清单勾选 + frontmatter shipped + §11 实施情况 |
+| M6 | `4441b642` | `scripts/preflight.sh § 2` 段（两条 drift check：直接 `PlatformOpenAI` bucket / 裸 `!account.IsOpenAI()`），POSIX grep + 行为验证可 fail（merge PR #11 后由 `scripts/preflight.sh § 9` 承担，语义不变） |
+| M7 | `ab39ddbb` | `scripts/export_agent_contract.py`（audit 模式）+ 项目级 `preflight § 3` 接入 + `docs/agent_integration.md` Notes 段 5 平台 + newapi 三入口契约 + preflight-debt §3 更新（merge PR #11 后由 `dev-rules/templates/preflight.sh § 4 (agent contract drift)` 自动调用，无需项目级段） |
+| M8 | `90d5d90c` | CLAUDE.md "Current Gateway Flow" 补 newapi 调度池语义 + design doc §9 验收清单勾选 + frontmatter shipped + §11 实施情况 + preflight-debt §2 closed |
+| Merge `origin/main` (PR #11) | TBD | 接入 dev-rules submodule（删除项目级 `scripts/preflight.sh` + `scripts/check_approved_docs.py`）→ 重建 `scripts/preflight.sh` 为 wrapper（dev-rules 模板 § 1-8 + sub2api § 9）、同步对齐文档 § 编号引用、CLAUDE.md §10 描述更新为"thin wrapper" |
 
-### 11.2 单测覆盖（M5a 21 case）
+### 11.2 单测覆盖（34 case，覆盖 US-008..015）
 
-按风险类型 × 故事 ID 矩阵：
+实际分布（`grep -cE "^func Test"`）：
+
+- `account_tk_compat_pool_test.go`：9（compat-pool predicate truth-table，US-011/012）
+- `openai_account_scheduler_tk_newapi_test.go`：8（scheduler-tier，US-008/011/012/015）
+- `openai_gateway_service_tk_newapi_pool_test.go`：5（sticky-session，US-011/013/015）
+- `openai_messages_dispatch_tk_newapi_test.go`：12（dispatch sanitize + truth table，US-009/014/015）
+
+下表列出按风险类型 × 故事 ID 的代表性映射（非全集）：
 
 | 风险 | US | 测试 | 文件 |
 |---|---|---|---|
@@ -388,7 +396,7 @@ PR：[`feature/newapi-fifth-platform → main`](https://github.com/youxuanxue/su
 | 回归（dispatch 清除） | US-009/014 | `TestUS009_Sanitize_AnthropicGroup_Cleared` 等 5 case | 同上 |
 | Truth table | predicate | `TestIsOpenAICompatPlatformGroup_Truth` | 同上 |
 
-全部 21 case 在 `go test -tags=unit -count=1 ./internal/service/...` 内运行（82.8s 全 service suite），无新增失败、无 flaky。
+全部 34 case 在 `go test -tags=unit -count=1 ./internal/service/...` 内运行（82.8s 全 service suite，含本 PR 之外测试），无新增失败、无 flaky。
 
 ### 11.3 推迟项（follow-up PR）
 
@@ -400,10 +408,11 @@ PR：[`feature/newapi-fifth-platform → main`](https://github.com/youxuanxue/su
 
 ### 11.4 已建立的合规门禁（防止下次"shipped under pending"）
 
-- `scripts/check_approved_docs.py`（M1 扩展支持 `approved` 状态）→ preflight § 1
-- `scripts/preflight.sh` § 2 → newapi compat-pool drift（行为验证：构造 probe 文件能稳定 fail）
-- `scripts/preflight.sh` § 3 → agent contract Notes 段平台覆盖（行为验证：删除 `newapi` 后稳定 fail）
-- 所有 8 篇 user story 状态 InTest + Linked Tests 与真实测试函数对齐（test-philosophy §5 漂移检测）
-- [ ] `go test -tags=integration ./...` 全绿
+- **frontmatter 不变量 R1-R5**：`dev-rules/scripts/check_approved_docs.py`（lifecycle 现支持 `approved` 状态，本 PR M1 提案，后由 PR #11 上提到 dev-rules 与 zw-brain 共享）→ `dev-rules/templates/preflight.sh § 7`
+- **newapi compat-pool drift**（sub2api-specific）：`scripts/preflight.sh § 9`（行为验证：构造 probe 文件能稳定 fail）
+- **agent contract drift**：`scripts/export_agent_contract.py --check` → 由 `dev-rules/templates/preflight.sh § 4` 自动调用（行为验证：删除 `newapi` 后 Notes 段覆盖检查稳定 fail）
+- **故事 ↔ 测试对齐**：所有 8 篇 user story 状态 InTest + Linked Tests 与真实测试函数对齐（test-philosophy §5 漂移检测）
+- **CI 与本地强度对齐**：`.github/workflows/backend-ci.yml` `preflight` job（`submodules: recursive`）与 pre-commit hook 走同一 `scripts/preflight.sh`
+- [ ] `go test -tags=integration ./...` 全绿（与 §9 验收清单中 §5.2 一并由 follow-up e2e PR 关闭）
 - [ ] `golangci-lint run ./...` 无新问题
 - [ ] 旧 openai group 在 prod 镜像里手测三入口仍正常

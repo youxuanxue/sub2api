@@ -1,65 +1,90 @@
 #!/usr/bin/env bash
-# Project-level preflight gate.
-# Required by dev-rules/product-dev.mdc §完成自检 and dev-rules-convention.mdc §强约束门禁.
-# Each section MUST exit non-zero on failure; CI and pre-commit hook will block.
 #
-# Install pre-commit hook (idempotent):
-#   bash dev-rules/templates/install-hooks.sh
+# preflight.sh — sub2api project wrapper.
 #
-# Add new sections by adding `echo "[preflight] § N  ..."` headers
-# so failures are easy to locate in CI logs.
+# Per CLAUDE.md § 10, the dev-rules submodule template
+# (`dev-rules/templates/preflight.sh`, 8 sections) covers everything
+# generic. This wrapper exists ONLY because sub2api has one project-
+# specific check that does not belong in the shared template:
+#
+#   § 9  newapi compat-pool drift  — guards the P0 regression that
+#        triggered docs/approved/newapi-as-fifth-platform.md (any new
+#        scheduler/gateway caller must use IsOpenAICompatPoolMember /
+#        OpenAICompatPlatforms instead of bare PlatformOpenAI / IsOpenAI).
+#
+# Sections 1-8 (branch naming, submodule pointer, .cursor/rules drift,
+# agent contract drift, story/test alignment, docs/approved discipline,
+# approved-doc invariants R1-R5, doc-stat drift) are NOT duplicated
+# here — they are run by delegating to the dev-rules template.
+#
+# Usage:  ./scripts/preflight.sh [--fix]
+# Exit 0 = all sections passed.  Non-zero = at least one failed.
+#
+set -u
 
-set -e
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT"
 
-repo_root="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$repo_root"
+# ---- Sections 1-8: delegate to dev-rules template ----------------------------
+if [ ! -x ./dev-rules/templates/preflight.sh ]; then
+    echo "FAIL: dev-rules submodule not initialized."
+    echo "      Run: git submodule update --init --recursive"
+    exit 1
+fi
 
-echo "[preflight] § 1  approved-doc frontmatter / truth"
-python3 scripts/check_approved_docs.py
+PREFLIGHT_REPO_ROOT="$REPO_ROOT" ./dev-rules/templates/preflight.sh "$@"
+dev_status=$?
+if [ "$dev_status" -ne 0 ]; then
+    exit "$dev_status"
+fi
 
-echo "[preflight] § 2  newapi compat-pool drift"
+# ---- § 9: sub2api-specific newapi compat-pool drift -------------------------
 # Source of truth: docs/approved/newapi-as-fifth-platform.md §5.1.
-# Both checks are deliberately implemented with POSIX grep (not ripgrep) so
-# they work in CI runners without rg installed.
-#
-# Drift check 2.a — candidate-pool fetch must go through the TK helper
+# Both checks deliberately use POSIX `grep -rnE` (not ripgrep) so they work
+# in CI runners without rg installed.
+echo ""
+echo "=== § 9  sub2api: newapi compat-pool drift ==="
+errors=0
+
+# 9.a — candidate-pool fetch must go through the TK helper
 # (IsOpenAICompatPoolMember / OpenAICompatPlatforms). A new caller passing
 # PlatformOpenAI directly to ListSchedulableAccounts would silently exclude
-# newapi accounts and re-introduce the §0 P0 regression.
+# newapi accounts and re-introduce the original P0 regression.
 drift1_hits="$(grep -rnE 'ListSchedulableAccounts\([^)]*PlatformOpenAI' \
     backend/internal/service \
     --include='*.go' \
     --exclude='*_test.go' \
-    --exclude='*_tk_*.go' || true)"
-if [[ -n "$drift1_hits" ]]; then
-  echo "FAIL: direct PlatformOpenAI bucket usage outside TK helpers (use OpenAICompatPlatforms / IsOpenAICompatPoolMember instead):" >&2
-  echo "$drift1_hits" >&2
-  exit 1
+    --exclude='*_tk_*.go' 2>/dev/null || true)"
+if [ -n "$drift1_hits" ]; then
+    echo "  FAIL: direct PlatformOpenAI bucket usage outside TK helpers"
+    echo "        (use OpenAICompatPlatforms / IsOpenAICompatPoolMember instead):"
+    echo "$drift1_hits" | sed 's/^/    /'
+    errors=$((errors + 1))
+else
+    echo "  ok: no direct PlatformOpenAI ListSchedulableAccounts callers outside TK helpers"
 fi
-# Drift check 2.b — scheduler/gateway filters must not regress to bare
+
+# 9.b — scheduler/gateway filters must not regress to bare
 # `!account.IsOpenAI()`; the canonical predicate is
 # `!account.IsOpenAICompatPoolMember(groupPlatform)`. The bare form silently
 # rejects newapi accounts even for newapi groups.
 drift2_hits="$(grep -nE '!\s*account\.IsOpenAI\(\)' \
     backend/internal/service/openai_account_scheduler.go \
-    backend/internal/service/openai_gateway_service.go || true)"
-if [[ -n "$drift2_hits" ]]; then
-  echo "FAIL: scheduling filter still uses bare !account.IsOpenAI() — switch to !account.IsOpenAICompatPoolMember(groupPlatform):" >&2
-  echo "$drift2_hits" >&2
-  exit 1
+    backend/internal/service/openai_gateway_service.go 2>/dev/null || true)"
+if [ -n "$drift2_hits" ]; then
+    echo "  FAIL: scheduling filter still uses bare !account.IsOpenAI()"
+    echo "        — switch to !account.IsOpenAICompatPoolMember(groupPlatform):"
+    echo "$drift2_hits" | sed 's/^/    /'
+    errors=$((errors + 1))
+else
+    echo "  ok: scheduler / gateway filters use IsOpenAICompatPoolMember predicate"
 fi
-echo "[preflight] § 2  OK"
 
-echo "[preflight] § 3  agent contract notes coverage"
-# Source of truth: docs/agent_integration.md `# Agent Contract Notes` tail.
-# Hard-fails only on platform-coverage gaps (the §0-grade regression we
-# are guarding); route-count drift is reported as a soft warning until
-# the prefix-resolving generator lands (see docs/preflight-debt.md).
-python3 scripts/export_agent_contract.py --check
-echo "[preflight] § 3  OK"
-
-# Future sections (TK-specific) live below; each guarded with its own header:
-# § 4  ent schema regen guard    — TODO
-# § 5  pnpm-lock sync            — TODO
-
-echo "[preflight] OK"
+echo ""
+if [ "$errors" -eq 0 ]; then
+    echo "=== preflight (with § 9 sub2api): PASS ==="
+    exit 0
+else
+    echo "=== preflight (with § 9 sub2api): FAIL ($errors check(s) failed in § 9) ==="
+    exit 1
+fi

@@ -42,7 +42,8 @@ func (a *Account) IsOpenAICompatPoolMember(groupPlatform string) bool {
 // Mirrors the predicate used at the route layer
 // (`isOpenAICompatPlatform` in routes/gateway_tk_openai_compat_handlers.go).
 // When adding a sixth compat platform, BOTH places must be updated; the
-// scripts/preflight.sh § 2 drift check guards against forgetting either side.
+// scripts/preflight.sh § 9 (newapi compat-pool drift) check guards against
+// forgetting either side.
 func OpenAICompatPlatforms() []string {
 	return []string{PlatformOpenAI, PlatformNewAPI}
 }
