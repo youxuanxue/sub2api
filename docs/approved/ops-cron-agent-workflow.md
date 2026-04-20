@@ -18,7 +18,7 @@ focus: 错误自动发现 + 自动出修复提案
 - **Stage 2A（1 周开发 + 2 周 issue-only 观察）**：cron 跑聚类 + 飞书摘要 + GitHub issue;Agent step `if: false` 暂关
 - **Stage 2B（1 周开 Agent）**：2A 过门后启用 `agent-draft-pr`,产 draft PR
 
-**为什么从 1 个 cron + 两阶段开始**：OPC "对一千件事说不"——先用真实运行 1 个月的证据决定下一个 cron 该不该上，避免一次性堆 6 个 workflow（4 个未必用到，但全要写、要测、要维护、要监控）。两阶段的好处是不让"信号准确性"和"Agent 行动质量"两个未知数同时赌。Stage 2 落地总人力从原案的 6 周降为 **1+2+1=4 周（其中 2 周仅观察）**。
+**为什么从 1 个 cron + 两阶段开始**：OPC "对一千件事说不"——先用真实运行 1 个月的证据决定下一个 cron 该不该上，避免一次性堆 6 个 workflow（4 个未必用到，但全要写、要测、要维护、要监控）。两阶段的好处是不让"信号准确性"和"Agent 行动质量"两个未知数同时赌。**总人力 1+2+1=4 周**（其中 2 周仅观察、不消耗工程时间）。
 
 **核心架构**：
 
@@ -44,7 +44,7 @@ qa_records + ops_error_logs (来自文档 2)
 - Agent **永远不直接合 main**，只产 draft PR
 - **Stage 2A → 2B 过门**：信号准确率 ≥ 80% + 修复方向可在 5min 给出 + 至少 3 个独立 cluster；详见 §5.1
 - 同一 cluster signature **7 天冷却**——基于 PR label `cluster-sig:<sha-12>`（**不**基于 title 字符串匹配,v1 草稿的 title search 永远 miss,已修）
-- preflight 段强制要求"待处理 auto PR 数 ≤ 5"（仅 feature/chore/docs 分支生效;fix/* bypass 避免死锁）
+- preflight 段 9：待处理 auto PR ≤ 5——**仅在 feature/chore/docs 分支生效**，`fix/*` `hotfix/*` `merge/upstream-*` bypass（避免修 bug 时被自身机制锁死，详 §6.3）
 - KPI 评估**不靠手算**——周报自动测算并归档
 - 单次 Agent 任务预算 **≤ $2**，月度封顶 **$50**；杠杆比 = 节省人时 ÷ 预算 > 5
 
@@ -54,7 +54,7 @@ qa_records + ops_error_logs (来自文档 2)
 1. `scripts/setup-claude-code.sh`（详 §7 清单；MVP 期 composite action 内已加 `npm` 兜底）
 2. 项目级 `scripts/preflight.sh` wrapper（详 §6.2；引入即同步追加段 9-10，紧贴 dev-rules 模板的 1-8 段）
 
-**审批门禁约束（R5）**：本文档 frontmatter `approved_by: pending`。dev-rules preflight 段 7 R5 在 `main`/`master` 分支会拒绝任何 `approved_by: pending` 的 approved doc 落地——合 main 前必须由 reviewer 把 frontmatter 改为真名。
+**审批门禁**：见 [`ops-p0-observability.md`](./ops-p0-observability.md) §0.1 的 R5 约束（合 main 前 reviewer 须把 `approved_by: pending` 改真名；本文档同样适用）。
 
 ---
 
@@ -501,31 +501,18 @@ Agent 输出到 `/tmp/pr-body.md` 的内容必须符合：
 - 冷却签名: <signature>
 ```
 
-### 3.4 PR 类型分类与典型例子
+### 3.4 MVP 期 PR 类型（仅类型 A）
 
-#### 类型 A：配置调整（最常见）
+MVP 只有 1 个 cron（`error-clustering-daily`），其触发的 PR 几乎全是**类型 A：配置调整**。
 
-**例子**：`error-clustering` 发现某 OpenAI 账号 7 天连续 429 → Agent 草拟改 [`backend/internal/integration/newapi/`](../../backend/internal/integration/newapi/) 中该账号的权重为 0。
+**典型例子**：`error-clustering` 发现某 OpenAI 账号 7 天连续 429 → Agent 草拟改 [`backend/internal/integration/newapi/`](../../backend/internal/integration/newapi/) 中该账号的权重为 0。**风险**：低（仅配置 + 可立即回滚）。
 
-**风险**：低（仅配置）。
+**v2 类型扩展**（启用对应 cron 时再写）：
+- 类型 B 超时/重试参数调整（依赖 §13 backlog 的 `slow-request-pulse-weekly`）
+- 类型 C metric 加点（依赖更细粒度的错误信号源）
+- 类型 D 文档/runbook 更新（依赖 §13 backlog 的 `account-health-daily`）
 
-#### 类型 B：超时/重试参数调整
-
-**例子**：`slow-request-pulse` 发现 Gemini 在长 prompt 下 50% 超时 → Agent 草拟把 [`backend/internal/config/config.go`](../../backend/internal/config/config.go) 中 Gemini 的 default timeout 从 60s 改为 120s。
-
-**风险**：中（影响所有 Gemini 调用）。
-
-#### 类型 C：metric 加点
-
-**例子**：`error-clustering` 发现某错误类型频繁但缺乏 metric → Agent 草拟在 [`backend/internal/service/fusion_metrics_tk_core.go`](../../backend/internal/service/) 增加一个 counter。
-
-**风险**：低（纯观测）。
-
-#### 类型 D：文档与 runbook 更新
-
-**例子**：`account-health` 发现新型上游错误模式 → Agent 草拟更新 `docs/runbooks/<error_type>.md`，记录排查步骤。
-
-**风险**：零。
+**OPC**："为想象的 PR 类型预留模板 = 维护 4 份从未触发的样板"——v1 只列实际会发生的 A，挣得位置后再扩。
 
 #### 不允许的类型
 
@@ -769,53 +756,24 @@ fi
 
 ---
 
-## 12. 不做的事（OPC 拒绝清单）
+## 12. 不做（每条都是真实诱惑过的方案）
 
-- **不让 Agent 自动 merge 任何 PR**——哪怕 CI 全绿
-- **不让 Agent 调用 prod API**——只读 DSN，禁写
-- **不做 Slack / 钉钉 / Telegram / 邮件多通道**——飞书一个群够用，多通道 = 维护负担 ×N + 同一告警重复消费
-- **不做"AI 自动写运维 runbook"全自动**——runbook 是 Agent 草拟 → 人改 → 沉淀
-- **不做实时告警风暴抑制系统**（PagerDuty/Opsgenie）——告警从源头精简到 3 个 P1，不需要去重器
-- **不做 GitOps（ArgoCD/Flux）**——单机 docker-compose + ssh 部署够用，K8s 是反 OPC
+- **不让 Agent 自动 merge 任何 PR**——哪怕 CI 全绿，最后一公里必须人审（这是整个安全模型的根基，不是配置项）
+- **不让 Agent 调用 prod API**——只读 DSN + IAM readonly，禁写禁删
+- **不做多告警通道**（Slack/钉钉/Telegram/邮件）——飞书一个群够用，多通道 = 同一告警重复消费 + 维护负担 ×N
 
 ---
 
-## 13. v2 Backlog — 4 个候选 cron（**MVP 跑稳后逐个评估**）
+## 13. v2 Backlog — 候选 cron 占位（**MVP 跑稳后再展开实现**）
 
-每个候选都有明确的"启用条件"——条件未满足前不实现，避免预先写然后吃灰。
+每个候选只列**启用条件**——条件未满足前不写实现细节，避免预先设计然后吃灰。真到那一天，复制 §2.1 `error-clustering-daily.yml` 骨架按下方"统一升级清单"扩 5 步即可。
 
-### 13.1 `slo-budget-hourly.yml`
+| 候选 cron | 一句话目标 | 启用条件（必须全部满足） |
+|----------|-----------|------------------------|
+| `slo-budget-hourly` | 月度错误预算 < 20% 开 SLO issue | MVP 满 1 月 + 已有 ≥1 次"错误率高没人盯"事件 |
+| `cost-anomaly-daily` | 检测 user/key/model 维度 cost 突刺 | 单用户月 cost > $50 的账号数 ≥ 5 |
+| `slow-request-pulse-weekly` | 找出慢请求集中的 (model, upstream) 组合 | 日均请求 ≥ 10K + `qa_records.duration_ms` 已稳定 ≥ 4 周 |
+| `account-health-daily` | 上游账号健康度评分 + 自动调权重 | 账号池 ≥ 20 + 人工已调权重 ≥ 3 次 |
 
-- **目标**：每小时计算月度错误预算消耗百分比，预算 < 20% 时开/更新单一 SLO issue（用 `gh issue` CLI + 固定 label `slo-budget` 做幂等，与 §2.1 cluster issue 同模式）。
-- **启用条件**：MVP 跑满 1 个月 + 已经被人为发现 ≥1 次"错误率持续高但没人盯"的事件。
-- **实现新增**：`scripts/slo_budget/`（Go 程序，查 Prometheus）+ workflow yml + preflight 段 11（SLO 预算 < 50% 时 warning）。
-
-### 13.2 `cost-anomaly-daily.yml`
-
-- **目标**：每日 03:00 UTC 检测"今日 user/api_key/model 单元的 cost > 7 日均值 ×3 且绝对值 > $1"的异常，开 issue 列出疑似账号被盗或失控的 key。
-- **启用条件**：单用户月度 cost > $50 的账号数 ≥ 5（金额规模到了，异常才有信号意义；同时也确认有"可暂停 key"的人介入意愿）。
-- **实现新增**：`scripts/cost_anomaly/`（Go 程序 + SQL）+ workflow yml。
-
-### 13.3 `slow-request-pulse-weekly.yml`
-
-- **目标**：每周分析"哪些 (model, upstream_account) 组合慢请求最多"，输出"该不该把权重调低"的 Agent PR。
-- **启用条件**：日均请求 ≥ 10K（流量低于此 p99 噪声大于信号）+ `qa_records.duration_ms` 列已稳定（依赖文档 2 落地后至少 4 周数据）。
-- **实现新增**：`scripts/slow_request_pulse/` + workflow yml。
-
-### 13.4 `account-health-daily.yml`
-
-- **目标**：每日 04:00 UTC 给每个上游账号打健康度评分（失败率 + 慢请求率 + 充分使用），评分 < 60 持续 3 天 → Agent PR 提议"权重 50%" 或 "禁用 X 天"。
-- **启用条件**：上游账号池规模 ≥ 20（账号少时人盯效率更高）+ 已经手动调整过权重 ≥3 次（说明人介入次数高到值得自动化）。
-- **实现新增**：`scripts/account_health/` + workflow yml。
-
-### 升级时的统一动作清单
-
-逐个 cron 启用时，按此清单走，避免遗漏：
-
-1. 复制 §2.1 `error-clustering-daily.yml` 的骨架，改 query + 触发条件
-2. 在 §7 组件清单表追加新行
-3. 在 §10 验收 checklist 增加对应"功能性"勾选项
-4. 在 §6 preflight 评估是否需要新增段
-5. 在 `weekly-product-pulse` 周报模板中追加该 cron 的当周指标，避免周报与新检测脱节
-6. 同步更新 P0 文档 §0.1 文档索引行（如果工期表有变）
+**统一升级清单**（任一 cron 启用时按序）：(1) 复制 §2.1 骨架改 query + 触发条件 → (2) §7 组件清单表追加 → (3) §10 验收 checklist 加项 → (4) §6 preflight 评估是否需要新段 → (5) 周报模板追加该 cron 当周指标 → (6) 如工期变化同步 P0 文档 §0.1。
 

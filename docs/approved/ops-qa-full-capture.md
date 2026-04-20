@@ -46,7 +46,7 @@ depends_on: [ops-p0-observability.md]
 
 **核心原则**：**"100% 全落"不等于"100% 同等优先级"**——用**双速通道**：成功路径热写入 PG 索引 + 异步批量上传 blob，错误路径同步立刻写两份。这是 OPC 的"对延迟的 SLA 不一刀切"。
 
-**审批门禁约束（R5）**：本文档 frontmatter `approved_by: pending`。dev-rules preflight 段 7 R5 在 `main`/`master` 分支会拒绝任何 `approved_by: pending` 的 approved doc 落地——合 main 前必须由 reviewer 把 frontmatter 改为真名。
+**审批门禁**：见 [`ops-p0-observability.md`](./ops-p0-observability.md) §0.1 的 R5 约束（合 main 前 reviewer 须把 `approved_by: pending` 改真名；本文档同样适用）。
 
 ---
 
@@ -207,9 +207,11 @@ jobs:
       {"t": 256, "raw_b64": "ZGF0YTogeyJ0eXBlIjoiY29udGVudF9ibG9ja19kZWx0YSIsLi4ufQoK"}
     ]
   },
-  "redactions": [...],
-  "compression": {"algo": "zstd", "level": 6, "original_bytes": 8192}
+  "redactions": [...]
 }
+// 注: 不存 compression metadata 字段——algo 由 blob_uri 的 .zst 后缀自描述,
+// level 与 original_bytes v1 无消费方（blob_size_bytes 已在 §2.1 PG 表删除）。
+// 真要看压缩率, BlobStore.Get 后比 len(decoded)/len(raw) 即可,不预存。
 ```
 
 **关键决策**：
@@ -256,7 +258,7 @@ backend/internal/observability/qa/
 ├── types.go            # CaptureInput / RawSSEChunk / 内部 DTO（被 handler hook 引用,§3.2）
 ├── worker_pool.go      # 复用 usageRecordWorkerPool 模式
 ├── sse_tee.go          # 顶层 ResponseWriter wrapper + 请求体 tee（§3.3 + §3.3.1）
-├── blob_writer.go      # 对象存储抽象（S3 / MinIO / 本地 fs）
+├── blob_writer.go      # 对象存储抽象（s3blob 走 S3 协议覆盖 AWS/OSS/MinIO + localfs）
 ├── dlq.go              # 本地文件 dead-letter（§8.3,不新建 PG 表）
 ├── redact_pipeline.go  # 复用 ops_service 的脱敏链路;支持 typed JSON 与 raw SSE bytes（§3.3.2）
 ├── tags.go             # 异常标签自动打标
@@ -369,15 +371,14 @@ type BlobStore interface {
 }
 ```
 
-**三种实现**（按部署形态选择）：
+**两种实现**（v1 范围；MinIO 本就是 S3 兼容协议，无需独立实现）：
 
 | 实现 | 适用场景 | 配置 |
 |------|---------|------|
-| `s3blob` | AWS / 阿里云 OSS（S3 兼容） | 复用 `aws-sdk-go-v2`（项目已 indirect 依赖） |
-| `miniob` | 自建 MinIO（OPC 推荐） | 同 S3 SDK，endpoint 改成 MinIO |
+| `s3blob` | AWS S3 / 阿里云 OSS / 自建 MinIO（皆走 S3 协议） | 复用 `aws-sdk-go-v2`（项目已 indirect 依赖）；MinIO 仅需把 `endpoint` 改成 `http://minio:9000` 即可，无需新代码 |
 | `localfs` | 本地开发 + 单机 standalone 部署 | 写到 `${DATA_DIR}/qa_blobs/` |
 
-**默认**：standalone compose 用 `localfs`，aws compose 用 `s3blob`。
+**默认**：standalone compose 用 `localfs`，aws compose 用 `s3blob`。**自建 OPC 用户**走 `s3blob` 指向自部署的 MinIO（在 yaml 里把 `endpoint` 改为 `http://minio:9000` 即可），不再单独实现 `miniob`——OPC "依赖最小化"，避免维护两份相似 SDK 适配。
 
 ### 3.5 Wire DI 接入
 
@@ -502,35 +503,49 @@ jobs:
 
 **v2 才考虑**：单用户单次 > 5GB 的"超大导出"场景（届时再决定是否引入异步邮件链路或 SFTP push）。
 
-### 5.3 用户级数据删除（GDPR 合规要求）
+### 5.3 用户级数据删除（GDPR 第 17 条 "被遗忘权"）
 
-新增端点 `DELETE /v1/me/qa-data?before=YYYY-MM-DD`（fork-only），同步：
-1. PG `DELETE FROM qa_records WHERE user_id=? AND created_at < ?`
+新增端点 `DELETE /v1/me/qa-data?before=YYYY-MM-DD`（fork-only），其中 `before` **可选**：
+- **缺省 `before`**（裸 `DELETE /v1/me/qa-data`）= 删该用户**全部**历史 QA 数据。GDPR 第 17 条要求用户可"全部抹除"，必填 `before` 会构成对该权利的限制。
+- **带 `before=YYYY-MM-DD`** = 删该日期之前的（用户出于隐私或存储焦虑做"分段清理"的低风险路径）
+
+执行（同步语义）：
+1. PG `DELETE FROM qa_records WHERE user_id=? [AND created_at < ?]`
 2. 异步触发 blob 删除任务（按 PG 删除前查到的 `blob_uri` 列表）
 
 **删除要求记录在 `payment_audit_logs`**（已存在表），保留删除事件本身用于合规审计。
 
 ---
 
-## 6. 隐私 / 合规底线（默认 ON）
+## 6. 隐私 / 合规底线（最小开关集，每条挣得位置）
 
 | 控制 | 实现位置 | 默认值 | 合规对应 |
 |------|---------|--------|---------|
-| 用户级 `qa_capture_enabled` 开关 | `users` 新增 bool 列 + 用户中心 UI 显著位置 | true | GDPR 知情同意 |
-| API key 级 `qa_never_capture` 标 | `api_keys` 新增 bool | false | 调试 key 可关 |
-| 全局 `qa_capture.enabled` | admin 设置项 | true | 总开关 |
-| `qa_capture.headers_whitelist` | admin 配置（默认列表） | 见 §2.2 | 防泄漏 |
-| `qa_capture.body_max_bytes` | 默认 256KB，超过截断（保留前 N + 后 N + 中间标记） | 256KB | 防 DoS |
-| `qa_capture.skip_models` | admin 配置（如某些极敏感模型） | 空 | 客户协议 |
-| `qa_capture.tenant_isolation` | admin 看其他用户 QA 全文必须有审批工单 ID | 强制 | 合规审计 |
+| 用户级 `qa_capture_enabled` 开关 | `users` 新增 bool 列 + 用户中心 UI 显著位置 | **true**（legitimate interest 基础，见下方"关键设计"） | GDPR Art.6(1)(f) 合法利益 + 第 7 条可随时撤回 |
+| API key 级 `qa_never_capture` 标 | `api_keys` 新增 bool（调试 key 主动关） | false | 调试 key 可关 |
+| 全局 `qa_capture.enabled` | admin 设置项（总开关 / kill switch） | true | 紧急熔断 |
+| `qa_capture.body_max_bytes` | 默认 256KB，超过截断（保留前 N + 后 N + 中间标记）；body 限制属于"防 DoS"基线，不应频繁调 | 256KB | 防 DoS |
 | TTL（v1 单一保留期） | `retention_until = created_at + 60d`，统一不分档 | 60 天 | 数据最小化原则 |
 | 用户主动删除端点 | `DELETE /v1/me/qa-data` | 必须实现 | GDPR 第 17 条 |
 | 用户主动导出端点 | `GET /v1/me/qa-data/export` | 必须实现 | GDPR 第 20 条 |
 | Admin 查看审计 | 写 `payment_audit_logs.detail`（JSON 包含 admin_id、查询时间、命中行数） | 强制 | 合规审计 |
-| 加密静态存储 | 对象存储 SSE-KMS（AWS）或 MinIO server-side encryption | 强制 | 合规基线 |
+| 加密静态存储 | 对象存储 SSE-KMS（AWS）或自建 server-side encryption | 强制 | 合规基线 |
 | 传输加密 | HTTPS（已有 Caddy） | 强制 | 合规基线 |
 
-**关键设计**：用户级开关在用户 onboarding 时**必须显式同意**——首次登录弹窗"我们记录你的 API 调用以改进服务，可随时关闭"，这是 GDPR 与中国个保法的最低合规线。
+**v1 不暴露为配置的项**（按 OPC "设置项即维护负担"）：
+- `headers_whitelist` —— 写死代码（白名单是设计约束不是运营调整，详 §2.2）
+- `skip_models` —— v1 删除（出现真实"客户要求某模型不存"诉求时再加，不预设猜测）
+- `tenant_isolation` —— 不是开关而是硬性 invariant（admin 跨用户查 QA 全文必须有审批工单号，preflight + 审计日志双重兜底，不可关）
+
+**关键设计（GDPR 法律基础选择）**：本方案走 **Art.6(1)(f) "legitimate interest"** 路线（处理用户 API 调用以改进服务质量、防滥用、计费追溯），**不**走 Art.6(1)(a) "consent" 路线。两者差异：
+
+- Consent 路线 = 默认 false + 必须 opt-in + 撤回简单（适合 marketing email 等纯营销用途）
+- Legitimate interest 路线 = 默认 true + 注册流程明确告知 + 一键关闭 + 隐私政策书面记录 LIA（Legitimate Interest Assessment）+ 用户随时可行使反对权（Art.21）
+
+**配套要求**（必做，否则 LI 法律基础不成立）：
+1. 注册时**显著告知**（不是埋在 ToS 第 47 条）："我们会记录您的 API 调用内容以改进服务，您可随时在 设置 → 隐私 中关闭"
+2. 用户中心"隐私"tab 一级入口可一键关闭，关闭后立即生效（下一次请求不入库）
+3. 在 [`docs/approved/`](./) 维护 `gdpr-lia.md`（v1 待写）记录 LI 评估：必要性、平衡测试、用户合理预期
 
 ---
 
@@ -611,7 +626,7 @@ gantt
     section Capture 链路
     QACaptureService + WorkerPool     :c1, after s2, 3d
     顶层 SSE tee.ResponseWriter        :c2, after c1, 0.5d
-    BlobStore (s3 + miniob + localfs) :c3, after c2, 2d
+    BlobStore (s3blob + localfs)      :c3, after c2, 2d
     脱敏链路复用 + tags 自动标         :c4, after c3, 2d
     section CLI + 端点
     qa-export CLI + Parquet           :e1, after c4, 2d
@@ -669,7 +684,8 @@ jobs:
 - [ ] 错误请求（故意 401）→ blob 立即可下载（不等批量 flush）
 - [ ] `GET /v1/me/qa-data/export?since=...&until=...` 返回 200 + presigned URL（24h 有效），URL 直接 GET 下载 zip 内容包含该范围全部记录
 - [ ] 跨度 > 31 天时端点返回 400 + 引导分批
-- [ ] `DELETE /v1/me/qa-data?before=...` 后 PG 同步查不到，blob 在 24h 内（内部 SLA）从对象存储删除
+- [ ] `DELETE /v1/me/qa-data`（裸调用）后 PG 同步查不到该用户**全部**记录，blob 在 24h 内（内部 SLA）从对象存储删除
+- [ ] `DELETE /v1/me/qa-data?before=...` 后 PG 同步查不到该日期之前的记录，blob 在 24h 内删除
 - [ ] `qa-export` CLI 输出 Parquet 可用 DuckDB `SELECT * FROM 'file.parquet' LIMIT 10` 读取
 
 ### 性能
@@ -703,12 +719,9 @@ jobs:
 
 ---
 
-## 13. 不做的事（OPC 拒绝清单）
+## 13. 不做（每条都是真实诱惑过的方案）
 
-- **不做向量化检索**——这是搜索/RAG 产品功能，不是观测；如要做单独立项
-- **不做实时分析仪表盘**——Grafana 够看趋势，深度分析靠月度 Parquet
-- **不做用户级 QA 查看 UI**——产品需求暂未提，避免过度工程
-- **不做训练数据导出**——涉及版权/合规复杂度，单独立项
-- **不做多模态附件原文存储**（仅存指纹+尺寸）——隐私风险远大于价值
-- **不做 cross-region 复制**——单 region 备份足够，跨 region 是企业级需求
+- **不做向量化检索 / 训练数据导出**——这是 RAG/Fine-tune 产品线，不属于观测；要做单独立项，不混进 QA 落盘
+- **不做用户级 QA 查看 UI**——v1 通过 `GET /v1/me/qa-data/export` 满足 GDPR 第 20 条即可；做 UI 又要分页/搜索/权限，是产品功能不是合规
+- **不做多模态附件原文存储**（仅存指纹 + 尺寸）——隐私风险远大于观测价值，且 blob 体积可能 ×100
 

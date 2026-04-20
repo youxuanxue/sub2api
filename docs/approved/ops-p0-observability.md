@@ -70,13 +70,7 @@ owners: [tk-platform]
 | `backend/internal/pkg/logger/redact_core.go` | **新增 fork-only** | 全新文件 | 零 |
 | `backend/internal/config/config.go` | Upstream-owned | 加一个 `Logger.Redact` 子结构（约 5 行） | 低（新字段在结构末尾追加） |
 
-**验证方法**：
-
-```bash
-# 在 fork 顶端跑一遍，确认 upstream merge 不会触碰这些行
-git diff upstream/main..HEAD -- backend/internal/pkg/logger/
-git merge-tree upstream/main HEAD -- backend/internal/pkg/logger/
-```
+（logger 包整体是 fork-only，理论冲突面=0；upstream 验证省略——`config.go` 加 5 行子结构按追加风格随 §5.x 通用 merge 流程兜底即可。）
 
 ### 1.4 OPC 冲击评估
 
@@ -326,62 +320,22 @@ bash dev-rules/templates/install-hooks.sh
 
 **为什么只设 3 个？** OPC "对一千件事说不"——告警太多 = 告警疲劳 = 全部失效。等 Stage 2 跑顺再加。
 
-**为什么用飞书自定义机器人**：单 secret（webhook URL 本身即 secret）+ 国内直连 + 群里加机器人 1 分钟搞定。Slack/Telegram/飞书应用机器人都至少多一个 secret 或权限审批，对一人公司是过度成本。
+**为什么用飞书自定义机器人**：webhook URL 本身即 secret，国内直连，群机器人 1 分钟创建。Slack/Telegram/飞书应用机器人都至少多 1 个 secret 或权限审批。
 
-#### 上手步骤（5 分钟）
+#### 接入要点（详细操作 manual 见 `deploy/aws/README.md` runbook，本节只列设计决策）
 
-1. **创建机器人**：飞书运维群 → 设置 → 群机器人 → 添加机器人 → 自定义机器人 → 命名 `tk-ops-alert` → 复制 webhook URL
-2. **v1 不启用签名校验**——见下方"为什么 v1 不签名校验"。如未来开启,本节会更新为带签名版本。
-3. **存入 GitHub Secrets**：
-   - `FEISHU_OPS_WEBHOOK`：完整 URL，形如 `https://open.feishu.cn/open-apis/bot/v2/hook/<token>`（**本身即 secret,纳入 GitHub secret scanning + 季度轮换**）
-4. **存入 Grafana**：Grafana → Alerting → Contact points → New → Type=Webhook → URL=<上述 URL> → Body 模板见下
-5. **冒烟测试**：
+- **唯一 secret**：webhook URL = `https://open.feishu.cn/open-apis/bot/v2/hook/<token>`，存为 GitHub Actions secret `FEISHU_OPS_WEBHOOK` + Grafana Cloud Contact point；**禁止入仓库**（GitHub secret scanning 兜底）+ 季度轮换 + 群机器人开"群内可用"收口
+- **v1 明确不启用签名校验**：飞书签名格式与 Grafana 原生 webhook 不兼容，需要 sidecar 做 timestamp+HMAC 转发——多 1 个进程 = 多 1 份故障点，违反 OPC 依赖最小化。出现 (1) URL 泄漏被滥发 或 (2) 合规审计要求来源真实性 时，v2 加 sidecar 1d 即可
+- **频率聚合**：飞书 100 条/分钟、5 条/秒上限。Alertmanager 必须设 `group_wait + group_interval` 聚合 + `repeat_interval` 防重发（Grafana 默认 4h 合理）
+- **卡片模板**：使用飞书 `interactive` 卡片格式，header 染色（firing=red/resolved=green）+ Grafana 跳转按钮——具体 JSON 模板放进 runbook，不入设计文档
 
-   ```bash
-   curl -X POST "$FEISHU_OPS_WEBHOOK" \
-     -H "Content-Type: application/json" \
-     -d '{"msg_type":"text","content":{"text":"[tk-ops] webhook smoke test ok"}}'
-   ```
-
-   群内收到消息即配置成功。
-
-#### Grafana Alert 推送模板（飞书"卡片"格式）
-
-```json
-{
-  "msg_type": "interactive",
-  "card": {
-    "header": {
-      "title": {"tag": "plain_text", "content": "[{{ .Status }}] {{ .CommonLabels.alertname }}"},
-      "template": "{{ if eq .Status \"firing\" }}red{{ else }}green{{ end }}"
-    },
-    "elements": [
-      {"tag": "div", "text": {"tag": "lark_md",
-        "content": "**触发时间**: {{ .StartsAt }}\n**当前值**: {{ .CommonAnnotations.value }}\n**Runbook**: {{ .CommonAnnotations.runbook_url }}"}},
-      {"tag": "action", "actions": [
-        {"tag": "button", "text": {"tag": "plain_text", "content": "查看 Grafana"},
-         "url": "{{ .ExternalURL }}", "type": "primary"}
-      ]}
-    ]
-  }
-}
-```
-
-**关键约束**：
-- **v1 明确不启用签名校验**：webhook URL 即 secret,通过 GitHub Actions secret + Grafana secret 存储,**禁止入仓库**(由 GitHub secret scanning 兜底)。签名校验需要在 Grafana ↔ 飞书之间放一个 sidecar 做 timestamp + HMAC 签名转发(Grafana 原生 webhook 不支持飞书签名格式),多一个进程 = 多一份维护对象 + 多一个故障点,违反 OPC "依赖最小化"。**当前替代措施**:webhook URL 季度轮换 + 群机器人开"群内可用"权限收口(只能向本群发,不能跨群)。
-- **何时升级到签名校验**:出现以下任一情况:(1) webhook URL 泄漏被滥发垃圾,(2) 要求合规审计每条告警来源真实性。届时 v2 加签名 sidecar 是 1d 工作量,不预设。
-- **频率限制**：飞书自定义机器人 100 条/分钟、5 条/秒。Alertmanager 端必须设 `group_wait + group_interval` 聚合，避免风暴。
-- 同一 alert 在 `repeat_interval` 内不重发——Grafana 默认 4 小时合理。
-
-### 4.4 不推荐做（明确说不）
+### 4.4 不做（每条都是真实诱惑过的方案）
 
 | 不做的事 | 理由 |
 |---------|------|
-| 不引入 OpenTelemetry / Jaeger / Tempo trace | 单服务架构，无微服务调用链；trace 价值低于成本 |
-| 不引入 ELK / Elasticsearch | 资源占用是 Loki 的 5-10 倍，OPC 单机扛不住 |
-| 不接入 SaaS 日志（Datadog 等） | 合规出境问题，且月成本不可控 |
-| 不做日志全文搜索的 fuzzy 匹配 | Loki 的 LogQL `|=` 已够用；fuzzy 是"看起来高级但用不到 3 次/月"的功能 |
-| 不在 Stage 1 加 SLO Service | SLO 在 Stage 2 周报里手算即可；专门的 sloth/pyrra 等过度工程 |
+| 不引入 OpenTelemetry / Jaeger trace | 单服务架构，无微服务调用链 |
+| 不引入 ELK / Elasticsearch | 资源占用是 Loki 的 5-10 倍，单机扛不住 |
+| 不在 Stage 1 加 SLO Service | SLO 在 Stage 2 周报里手算即可；sloth/pyrra 是过度工程 |
 
 ---
 
