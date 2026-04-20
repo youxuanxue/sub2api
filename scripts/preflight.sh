@@ -50,8 +50,15 @@ if [[ -n "$drift2_hits" ]]; then
 fi
 echo "[preflight] § 2  OK"
 
+echo "[preflight] § 3  agent contract notes coverage"
+# Source of truth: docs/agent_integration.md `# Agent Contract Notes` tail.
+# Hard-fails only on platform-coverage gaps (the §0-grade regression we
+# are guarding); route-count drift is reported as a soft warning until
+# the prefix-resolving generator lands (see docs/preflight-debt.md).
+python3 scripts/export_agent_contract.py --check
+echo "[preflight] § 3  OK"
+
 # Future sections (TK-specific) live below; each guarded with its own header:
-# § 3  contract drift            — TODO when scripts/export_agent_contract.py is ready (see docs/preflight-debt.md)
 # § 4  ent schema regen guard    — TODO
 # § 5  pnpm-lock sync            — TODO
 

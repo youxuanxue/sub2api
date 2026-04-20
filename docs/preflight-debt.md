@@ -20,11 +20,15 @@
 - **决策**：下次合并 `newapi-as-fifth-platform` PR 时一并补（同一段"调度与转发"流程图）。
 - **门禁**：暂无。
 
-### 3. `scripts/export_agent_contract.py` 尚未为本仓库定制
+### 3. `scripts/export_agent_contract.py` — 仅 audit 模式，未做 prefix-resolving generator
 
-- **现象**：`agent-contract-enforcement.mdc` 要求每个项目维护本地化的 contract 导出脚本；本仓库根目录有 placeholder（来自 main 上 WIP），但未对齐 TK 的 admin / gateway / setup / payment 路由结构。
-- **决策**：随 `newapi-as-fifth-platform` PR 一并定制。届时 `scripts/preflight.sh` § 2 段同步上线（见 §7 中的 § 2 TODO 注释）。
-- **门禁**：暂无（脚本完成后 § 2 段会拦截 contract drift）。
+- **现象**：本 PR 落地了 `scripts/export_agent_contract.py`，但**仅作为 audit 工具**：
+  - **强检（preflight § 3 hard-fail）**：`docs/agent_integration.md` 的 `# Agent Contract Notes` 段必须提及全部 5 个 first-class 平台（`openai/anthropic/gemini/antigravity/newapi`）。这是新增 newapi 时的 §0 级回归门禁。
+  - **软检（warning，不 fail）**：`routes/*.go` 中 `<ident>.METHOD(` 字面量计数 vs `docs/agent_integration.md` 的 `- \`METHOD …\`` 列表条数；超 ±10% 提示人工审计。
+- **未做**：完整的 prefix-resolving generator —— Gin 嵌套 `Group("/x").Group("/y")` 跨函数调用（如 `registerAccountRoutes(admin, h)`）需要 Go AST walker 或运行时 `engine.Routes()` dump（需 Wire DI + handler stub）。本 PR 试过 Python 字面提取，结果会把 `accounts.GET("/:id")` 错出成裸 `/:id`，反而退化 doc。
+- **决策**：拆为 follow-up PR。理由（Jobs 聚焦）：本 PR 是"newapi 接入"，不是"contract generator 重写"；当下 audit 已经能挡住 §0 级"忘了写新平台"的回归，超出 ROI 反成包袱。
+- **门禁**：preflight § 3 已上线；route-count 警告留给 follow-up PR 把它升成 hard-fail。
+- **截止日期**：next routes 重构 PR 之前必须做完（无固定日期，但下次有人新增/删除路由族系前会被 warning 提醒）。
 
 ### 4. newapi-as-fifth-platform e2e 测试（HTTP+PG+upstream）暂以单测替代
 

@@ -411,4 +411,67 @@ _No MCP entrypoint detected in this repository._
 
 # Agent Contract Notes
 
-_No manual notes yet._
+## TokenKey first-class platforms (account / group `platform` field)
+
+The gateway routes above dispatch to one of five first-class platforms.
+The canonical names are defined in `backend/internal/domain/constants.go`
+(`PlatformOpenAI`, `PlatformAnthropic`, `PlatformGemini`,
+`PlatformAntigravity`, `PlatformNewAPI`). Every TokenKey account and
+group MUST set `platform` to exactly one of:
+
+| Platform name | Gateway entry points (subset) | Notes |
+|---|---|---|
+| `openai` | `POST /v1/chat/completions`, `POST /v1/messages`, `POST /v1/responses`, `GET /v1/responses` (WS), `POST /v1/embeddings`, `POST /v1/images/generations`, `GET /v1/usage`, `GET /v1/models` | OpenAI-compat surface — also accepts `/v1/messages` (Anthropic-shaped) and `/v1/responses` (OpenAI Responses API). |
+| `anthropic` | `POST /v1/messages` (native Anthropic), `POST /v1/messages/count_tokens`, `POST /responses`, `GET /responses` (WS), and the `requireGroupAnthropic`-gated `/responses`, `/chat/completions`, `/embeddings`, `/images/generations` | Native Claude account pool. |
+| `gemini` | `GET /v1beta/models`, `GET /v1beta/models/:model`, `POST /v1beta/models/*modelAction` | Gemini-native surface. |
+| `antigravity` | `GET /antigravity/models`, the `/antigravity/v1` and `/antigravity/v1beta` subtrees | Antigravity-native surface; admin endpoints under `/admin/antigravity/*`. |
+| `newapi` | Same OpenAI-compat surface as `openai` (`/v1/chat/completions`, `/v1/messages`, `/v1/responses` and the WS variant) | First-class fifth platform — see next section. |
+
+## NewAPI as first-class fifth platform
+
+Per `docs/approved/newapi-as-fifth-platform.md`, `group.platform = "newapi"`
+participates in the **OpenAI-compatible** scheduling pool and answers the
+same three OpenAI-shaped entry points (`/v1/chat/completions`,
+`/v1/messages`, `/v1/responses`) as `openai` groups. Agent-visible
+contract:
+
+- A `newapi` group MUST contain at least one `Account.Platform = "newapi"`
+  whose `channel_type > 0`. Any account with `channel_type = 0` is
+  filtered out of the scheduling pool (bridge dispatch needs a channel
+  target). An empty pool surfaces a clear `no available openai accounts`
+  / `no available accounts` error — the gateway NEVER falls back across
+  platforms.
+- An `openai` group continues to receive only `openai` accounts; an
+  `openai` account must never be dispatched to a `newapi` group and
+  vice versa. The strict-equality filter is `IsOpenAICompatPoolMember`
+  in `backend/internal/service/account_tk_compat_pool.go`; a stale
+  sticky-session binding pointing at the wrong-platform account is
+  invalidated and the request fails over to load-balance.
+- `messages_dispatch_model_config` (the per-group model-name remap used
+  for `/v1/messages` translation) is **preserved** for both `openai` and
+  `newapi` groups and **cleared** for `anthropic` / `gemini` /
+  `antigravity` groups. The shared predicate is
+  `isOpenAICompatPlatformGroup` in
+  `backend/internal/service/openai_messages_dispatch_tk_newapi.go`.
+
+## OpenAI-compatible entry-point families
+
+The same handler set under `backend/internal/server/routes/gateway.go`
+(via `tkOpenAICompatChatCompletionsPOST`,
+`tkOpenAICompatMessagesPOST`, `tkOpenAICompatResponsesPOST`,
+`tkOpenAICompatCountTokensPOST`, `tkOpenAICompatEmbeddingsHandler`,
+`tkOpenAICompatImageGenerationsHandler`) serves both `openai` and
+`newapi` groups. Agents that key behavior off `group.platform` should
+treat these two values as the OpenAI-compatible class; everything else
+is platform-native.
+
+## Drift checks
+
+The contract guards live in:
+
+- `scripts/export_agent_contract.py --check` — Notes-section coverage
+  (every first-class platform must be acknowledged here) plus a
+  route-count sanity check.
+- `scripts/preflight.sh § 2` — `IsOpenAICompatPoolMember` /
+  `OpenAICompatPlatforms` adoption (forbids regression to bare
+  `!account.IsOpenAI()` or direct `PlatformOpenAI` bucket fetches).
