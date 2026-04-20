@@ -147,6 +147,32 @@
   - 验证：external `/health` HTTP 200，bootstrap 日志全绿，3 min 内 0 错误，多架构 manifest 4 tag 一致。
   - 实际 downtime：仅 `tokenkey` 容器 ~30s；caddy / postgres / redis 不重启。
 
+### 10. 无机械门禁阻止 secrets 进入 commit message / PR body / docs
+
+- **现象**（2026-04-20，US-016 修复期间复发）：本月内同一类问题已发生 **2 次**：
+  1. SMTP 调试期间，操作者把 Google App Password 明文贴进开发者对话窗口（影响范围：本地日志、Cursor agent transcript）。
+  2. PR #21 创建时，agent 把同一 App Password 当成"运维提醒"原文写进 PR body；repo 是 **PUBLIC**，password 在 GitHub 上公开存在约 5 分钟，期间足够被 GitHub Search 索引 + secret-scanner 抓取。事后 redact 只对未登录用户生效，PR description edit history 对任何登录用户仍可见。该 App Password 必须永久撤销。
+- **根因**：
+  - 现有 `dev-rules/rules/safe-shell-commands.mdc` 只覆盖**破坏性命令**（rm / force push / kill -9 等），不覆盖 "把 secret 写进将进 git/GitHub 的文本"。
+  - `scripts/preflight.sh` 没有任何阶段扫描 staged diff / commit message / `gh pr create --body` 参数中的高熵字符串。
+  - GitHub 自带 secret scanning 在 push 后才触发告警，对于 public repo 已经是 "数据泄露后 alert"，不是预防。
+- **决策**：登记为 debt，**不**立刻在本 SMTP 修复 PR 内夹带规则改动（OPC 流程极简：一次只解一个问题）。最小可行实现拆三步：
+  1. **dev-rules 仓库**新增 `dev-rules/rules/no-secrets-in-text.mdc`：禁止在 commit message / PR body / docs / chat 引用真实凭据；要求所有真实凭据使用占位（`<APP_PASSWORD>` / `***REDACTED***`）。
+  2. **dev-rules `templates/preflight.sh` 新增 § 11 段**：扫描 `git diff --cached` + `git log -1 --format=%B` 中匹配以下正则任一的字符串并 fail：
+     - Google App Password（精确 16 位小写字母，`^[a-z]{16}$` 单独成行或被 backtick 包围）
+     - `sk-[A-Za-z0-9]{20,}`（OpenAI/Anthropic 风格 API key）
+     - `ghp_[A-Za-z0-9]{36}` / `github_pat_[A-Za-z0-9_]{82}`（GitHub PAT）
+     - `AKIA[0-9A-Z]{16}`（AWS Access Key ID）
+     - 任意 entropy ≥ 4.0 bit/char 且长度 ≥ 32 的连续 base64-ish 字符串（兜底）
+     - 例外：明确标注的占位（`<APP_PASSWORD>`、`***REDACTED***`、`xxxxxxxxxxxxxxxx`）
+  3. **`gh pr create` 包装层**（更难做，可选）：在 dev-rules 提供 `dev-rules/scripts/safe-pr-create.sh` wrapper，对 `--body` / `--body-file` 参数先跑同一段 regex；agent 工作流改用 wrapper。这一步 ROI 待评估，可能 dev-rules `commit-msg` hook（覆盖 commit body）+ CI secret-scan 已经够用，wrapper 成本不抵收益。
+- **门禁**：步骤 (1)+(2) 上线后，dev-rules `templates/preflight.sh § 11` 自动接入到所有消费者项目的 pre-commit hook + CI；无需各项目额外接线。
+- **截止日期**：2026-05-10（两周内，优先级高于 §4 e2e 缺口，因为这条已经导致过两次 P0 级凭据泄露；本条 closed 之前所有 agent 提交、新 PR 都靠"操作者自觉 + 事后 redact"，复发风险高）。
+- **跨参考**：US-016（PR #21）中的"Operator note (security)"段；本次事故的 root-cause 是 agent 在 heredoc 里直接展开真实密码字符串而非占位。
+- **临时缓解**（在 §10 closed 之前的强制约定）：
+  - Agent 在任何 `git commit -m` / `gh pr create --body` / 文档写入时，**禁止**包含从用户对话窗口、终端输出、配置文件、env 中读到的任何真实凭据原文；必须用占位替换。
+  - 操作者在对话窗口提供凭据用于调试时，agent 必须立刻提示"该凭据需视为已泄露、调试结束后撤销"，并避免在后续任何 artifact 中复述该值。
+
 ---
 
 ## 历史事件
