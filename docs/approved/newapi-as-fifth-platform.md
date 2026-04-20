@@ -200,18 +200,21 @@ bucket key 已经是 `(groupID, platform, mode)` 三元组（`scheduler_snapshot
 
 ## 4. 测试矩阵（6 维 + 风险覆盖，按 test-philosophy.mdc）
 
-### 4.1 User Story（必须创建）
+### 4.1 User Story（已建立，状态对齐到 `.testing/user-stories/index.md`）
 
-| ID | Title | Trace | 优先级 |
-|---|---|---|---|
-| US-NEWAPI-001 | newapi group + ChatCompletions 端到端走通 | 角色×能力 | P0 |
-| US-NEWAPI-002 | newapi group + Messages（一站式 K） | 角色×能力 | P0 |
-| US-NEWAPI-003 | newapi group + Responses 端到端走通 | 角色×能力 | P0 |
-| US-NEWAPI-004 | openai group 调度池**不被** newapi 账号污染 | 防御需求 | P0 |
-| US-NEWAPI-005 | newapi group 池空时返回明确"no available newapi accounts" | 防御需求 | P1 |
-| US-NEWAPI-006 | newapi group + sticky session 命中后 recheck 通过/失效降级 | 实体生命周期 | P1 |
-| US-NEWAPI-007 | newapi group 配置 messages_dispatch_model_config 持久化与读取 | 角色×能力 | P1 |
-| US-NEWAPI-008 | 历史 openai group 行为完全不变（回归） | 防御需求 | P0 |
+> 编号约定：本仓库 user story 走全局递增编号（`.testing/user-stories/index.md`），
+> design 阶段曾用别名 `US-NEWAPI-001~008`，实际登记为 `US-008~015`。下表是单一事实来源。
+
+| 全局 ID | 别名（design） | Title | Trace | 优先级 |
+|---|---|---|---|---|
+| US-008 | US-NEWAPI-001 | newapi group + ChatCompletions 端到端走通 | 角色×能力 | P0 |
+| US-009 | US-NEWAPI-002 | newapi group + Messages（一站式 K） | 角色×能力 | P0 |
+| US-010 | US-NEWAPI-003 | newapi group + Responses 端到端走通 | 角色×能力 | P0 |
+| US-011 | US-NEWAPI-004 | openai group 调度池**不被** newapi 账号污染 | 防御需求 | P0 |
+| US-012 | US-NEWAPI-005 | newapi group 池空时返回明确"no available newapi accounts" | 防御需求 | P1 |
+| US-013 | US-NEWAPI-006 | newapi group + sticky session 命中后 recheck 通过/失效降级 | 实体生命周期 | P1 |
+| US-014 | US-NEWAPI-007 | newapi group 配置 messages_dispatch_model_config 持久化与读取 | 角色×能力 | P1 |
+| US-015 | US-NEWAPI-008 | 历史 openai group 行为完全不变（回归） | 防御需求 | P0 |
 
 ### 4.2 6 维用例覆盖（按 test-philosophy §4）
 
@@ -253,8 +256,9 @@ echo "[preflight] newapi compat pool drift check OK"
 ### 5.2 集成测试（必须 testcontainer 自动化，不依赖手动）
 
 ```bash
-go test -tags=integration -run 'TestUSNEWAPI_' ./backend/internal/service/...
-go test -tags=integration -run 'TestUSNEWAPI_' ./backend/internal/handler/...
+# 全局编号已对齐，run 模式按 US-008 ~ US-015
+go test -tags=integration -run 'TestUS00[89]_|TestUS01[0-5]_' ./backend/internal/service/...
+go test -tags=integration -run 'TestUS00[89]_|TestUS01[0-5]_' ./backend/internal/handler/...
 ```
 
 ### 5.3 契约文档自动重生成
