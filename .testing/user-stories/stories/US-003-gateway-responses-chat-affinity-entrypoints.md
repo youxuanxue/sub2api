@@ -25,8 +25,9 @@
 
 ## Linked Tests
 
-- `sub2api/backend/internal/handler`::`(package compile and regression tests)`
-- 运行命令: `cd sub2api/backend && go test -count=1 ./internal/handler`
+- `backend/internal/handler/openai_gateway_affinity_test.go`::`TestWithAffinityPrefetchedSession_Hit`
+- `backend/internal/handler/openai_gateway_affinity_test.go`::`TestWithAffinityPrefetchedSession_Miss`
+- 运行命令: `cd backend && go test -count=1 ./internal/handler -run 'TestWithAffinityPrefetchedSession_(Hit|Miss)' && go test -count=1 ./internal/handler` (行为断言 + 整包回归)
 
 ## Evidence
 

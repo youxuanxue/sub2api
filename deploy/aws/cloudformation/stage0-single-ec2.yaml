@@ -66,6 +66,19 @@ Parameters:
     Default: 30
     MinValue: 20
     MaxValue: 200
+  DataVolumeSizeGiB:
+    Type: Number
+    Default: 30
+    MinValue: 20
+    MaxValue: 500
+    Description: |
+      Size of the dedicated data EBS volume that persists PostgreSQL, Redis,
+      Caddy state, and bootstrap secrets across instance replacement
+      (DeletionPolicy: Retain + UpdateReplacePolicy: Retain). When the EC2
+      instance is replaced (e.g. by an ImageTag CFN change — see issue #8 +
+      preflight-debt §9.b), this volume detaches and re-attaches to the new
+      instance with all data intact, instead of being thrown away with the
+      old root EBS. Default 30 GiB matches the prior root-EBS data layout.
   AmazonLinux2023Arm64Ami:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
@@ -294,8 +307,51 @@ Resources:
           chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
           usermod -aG docker ec2-user
 
-          # --- 2. data directory layout (single root => easy EBS restore) -------
+          # --- 2a. mount persistent data volume (preflight-debt §9.b) ----------
+          # The CFN DataVolume resource is attached at /dev/sdf; on AL2023 NVMe
+          # this surfaces as /dev/nvme1n1 (or /dev/nvme2n1 if root happens to be
+          # nvme2). Wait up to 90s for the kernel to enumerate it before failing
+          # — VolumeAttachment creates concurrently with the instance and may
+          # take a few seconds to appear after first boot.
+          DATA_DEV=""
+          for attempt in 1 2 3 4 5 6 7 8 9; do
+            for cand in /dev/nvme1n1 /dev/nvme2n1 /dev/nvme3n1 /dev/xvdf /dev/sdf; do
+              if [ -b "${!cand}" ]; then
+                # Skip if this is the root device (e.g. nvme0n1 is always root)
+                ROOT_DEV="$(findmnt -no SOURCE / | sed 's/p[0-9]*$//')"
+                if [ "${!cand}" != "${!ROOT_DEV}" ]; then
+                  DATA_DEV="${!cand}"
+                  break
+                fi
+              fi
+            done
+            [ -n "${!DATA_DEV}" ] && break
+            sleep 10
+          done
+          if [ -z "${!DATA_DEV}" ]; then
+            echo "FATAL: tokenkey data volume not attached within 90s" >&2
+            exit 1
+          fi
+          echo "tokenkey data volume detected at ${!DATA_DEV}"
+
+          # Format the volume only if it has no filesystem (first boot).
+          # blkid exits 2 when the device has no recognised superblock.
+          if ! blkid "${!DATA_DEV}" >/dev/null 2>&1; then
+            echo "Formatting ${!DATA_DEV} as ext4 (first-time provisioning)"
+            mkfs.ext4 -L tokenkey-data "${!DATA_DEV}"
+          else
+            echo "Reusing existing filesystem on ${!DATA_DEV} (preserved across instance replacement)"
+          fi
+
           install -d -m 0755 -o root -g root /var/lib/tokenkey
+          mount "${!DATA_DEV}" /var/lib/tokenkey
+          # Persist via fstab using LABEL so NVMe device renumbering after
+          # reboot doesn't break the mount.
+          if ! grep -q 'LABEL=tokenkey-data' /etc/fstab; then
+            echo 'LABEL=tokenkey-data /var/lib/tokenkey ext4 defaults,nofail,x-systemd.device-timeout=90 0 2' >> /etc/fstab
+          fi
+
+          # --- 2b. data directory layout (idempotent: pre-existing dirs survive) -
           install -d -m 0755 /var/lib/tokenkey/app
           install -d -m 0700 /var/lib/tokenkey/postgres
           install -d -m 0755 /var/lib/tokenkey/redis
@@ -320,12 +376,44 @@ Resources:
             envsubst '${!API_DOMAIN} ${!ACME_EMAIL}' \
             < caddy/Caddyfile.template > caddy/Caddyfile
 
-          # --- 4. secrets + .env ------------------------------------------------
-          gen_secret() { openssl rand -hex 32; }
-          gen_pwd()    { openssl rand -hex 24; }
-          POSTGRES_PASSWORD="$(gen_pwd)"
-          JWT_SECRET="$(gen_secret)"
-          TOTP_ENCRYPTION_KEY="$(gen_secret)"
+          # --- 4. secrets + .env (split: persistent vs per-boot) ----------------
+          # Two-file strategy (preflight-debt §9.b / issue #8):
+          #
+          #   /var/lib/tokenkey/.env.secret  → POSTGRES_PASSWORD, JWT_SECRET,
+          #                                    TOTP_ENCRYPTION_KEY. Generated
+          #                                    EXACTLY ONCE on first boot of a
+          #                                    fresh data volume; on subsequent
+          #                                    boots (including instance
+          #                                    replacement triggered by ImageTag
+          #                                    change) we re-source these so
+          #                                    PostgreSQL data + JWT-issued
+          #                                    sessions + TOTP records survive.
+          #   /var/lib/tokenkey/.env         → CFN-parameter-driven config
+          #                                    (TOKENKEY_IMAGE, API_DOMAIN, …).
+          #                                    Regenerated every boot to pick
+          #                                    up parameter changes.
+          #
+          # NEVER include secrets in /var/lib/tokenkey/.env — that file is
+          # rewritten by every cfn-init and would clobber persisted creds if
+          # we ever got the order wrong.
+          SECRET_FILE=/var/lib/tokenkey/.env.secret
+          if [ ! -f "${!SECRET_FILE}" ]; then
+            echo "Generating new persistent secrets at ${!SECRET_FILE} (first boot of data volume)"
+            gen_secret() { openssl rand -hex 32; }
+            gen_pwd()    { openssl rand -hex 24; }
+            umask 077
+            cat > "${!SECRET_FILE}" <<SECEOF
+          POSTGRES_PASSWORD=$(gen_pwd)
+          JWT_SECRET=$(gen_secret)
+          TOTP_ENCRYPTION_KEY=$(gen_secret)
+          SECEOF
+            chmod 0600 "${!SECRET_FILE}"
+            chown root:root "${!SECRET_FILE}"
+          else
+            echo "Reusing existing persistent secrets from ${!SECRET_FILE} (data volume preserved across instance replacement)"
+          fi
+          # shellcheck disable=SC1090
+          set -a; . "${!SECRET_FILE}"; set +a
 
           cat > /var/lib/tokenkey/.env <<ENVEOF
           API_DOMAIN=${!API_DOMAIN}
@@ -454,6 +542,43 @@ Resources:
             >> /var/log/tokenkey-bootstrap.log 2>&1
           echo "BOOTSTRAP_DONE $(date -u +%FT%TZ)" >> /var/log/tokenkey-bootstrap.log
 
+  # ---------------------------------------------------------------------------
+  # Persistent data volume (preflight-debt §9.b / issue #8)
+  # ---------------------------------------------------------------------------
+  # DeletionPolicy: Retain   — preserved if the stack is deleted (manual cleanup)
+  # UpdateReplacePolicy: Retain — preserved if a property change forces volume
+  #                              replacement; the old volume is kept and a new
+  #                              one is created (operator must reconcile).
+  # AvailabilityZone — must equal the instance's AZ; both are pinned to the
+  #                    first AZ via !Select [0, !GetAZs ''].
+  # The mount is performed by UserData (see "data volume" section). All
+  # /var/lib/tokenkey/{postgres,redis,caddy,app,pgdump,.env.secret} state lives
+  # here, so that EC2 instance replacement (e.g. ImageTag CFN parameter change
+  # → UserData re-substitution → BlockDeviceMappings churn → root EBS thrown
+  # away) NO LONGER destroys application data.
+  DataVolume:
+    Type: AWS::EC2::Volume
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Size: !Ref DataVolumeSizeGiB
+      VolumeType: gp3
+      Encrypted: true
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-data'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: Backup, Value: stage0}
+        - {Key: Purpose, Value: 'tokenkey-state-postgres-redis-caddy'}
+
+  DataVolumeAttachment:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      Device: /dev/sdf
+      InstanceId: !Ref Instance
+      VolumeId: !Ref DataVolume
+
   EIPAssoc:
     Type: AWS::EC2::EIPAssociation
     Properties:
@@ -504,6 +629,12 @@ Outputs:
   InstanceId:
     Description: EC2 instance ID
     Value: !Ref Instance
+  DataVolumeId:
+    Description: |
+      Persistent EBS data volume (DeletionPolicy: Retain). Snapshot this for
+      backup, and reference it when migrating an existing root-volume stack to
+      the new layout (preflight-debt §9.b runbook).
+    Value: !Ref DataVolume
   ApiUrl:
     Description: After DNS A-record propagation + LE issuance
     Value: !Sub 'https://${ApiDomain}'

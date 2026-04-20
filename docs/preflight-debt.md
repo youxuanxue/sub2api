@@ -7,12 +7,13 @@
 
 ## 已知漂移
 
-### 1. sticky-routing 测试函数命名 `TestUS201_*` ↔ 故事 `US-006`
+### 1. sticky-routing 测试函数前缀 `TestUS201_*` ↔ 故事 ID `US-006`（命名约定漂移，非 doc-vs-code 漂移）
 
-- **现象**：`docs/approved/sticky-routing.md` §6 表格写 `TestUS201_*`，实际代码中为 `TestUS006_*` / `TestStickySessionInjector_*`。
-- **来源**：草拟设计时按"功能编号"写了 US-201；实施时按 `.testing/user-stories/index.md` 顺次拿到 US-006，未回头改 doc。
-- **决策**：**不修**。理由：rename ~10 函数 + 跑全套测试，与"消除真实风险"的 ROI 不匹配。下次新增测试一律遵循 US-006 实际命名；老命名保留作为历史。
-- **未来门禁**：可在 preflight 加一段，校验 `docs/approved/*.md` 中提到的 `TestUS***_` 函数必须在 `backend/internal/.../*_test.go` 真实存在 — 当前未实现，先登记。
+- **现象**（2026-04-20 修正后描述）：`docs/approved/sticky-routing.md` §6 表格、`.testing/user-stories/stories/US-006-sticky-routing-prompt-cache.md` 与 `backend/internal/service/sticky_session_*_test.go` 中的实际测试函数三方**一致**使用 `TestUS201_*` 前缀（共 22 个函数）；与故事 ID `US-006` 不匹配（前缀来源于早期"功能编号 201"的草拟阶段）。
+- **早期版本误描述（已废弃）**：原版本声称"实际代码中为 `TestUS006_*` / `TestStickySessionInjector_*`"，与现实不符。`grep -rn 'TestUS006_\|TestStickySessionInjector_' backend/ docs/ .testing/` 返回 0 命中，`grep -rn 'TestUS201_' backend/internal/service/sticky_session_*_test.go` 返回 22 命中。**这是 debt log 自身的描述漂移**，2026-04-20 同步修正。
+- **来源**：草拟设计时按"功能编号"写了 US-201；实施时按 `.testing/user-stories/index.md` 顺次拿到 US-006，故事文件 + 设计 doc + 测试代码全部沿用 `TestUS201_*` 前缀，未回头与故事 ID 对齐。
+- **决策**：**不修**。理由：rename 22 函数 + 跑全套测试，与"消除真实风险"的 ROI 不匹配。下次新增 sticky-routing 相关测试一律遵循 `TestUS006_*` 命名；老命名保留作为历史。
+- **未来门禁**：可在 preflight 加一段，校验 `.testing/user-stories/stories/US-XXX*.md` 中 `Linked Tests` 引用的测试函数必须在对应 `*_test.go` 真实存在 — 这就是 §5 待实现的 `verify_quality.py` 范畴；§5 落地后此门禁自动覆盖（`TestUS201_*` 函数确实存在，故仍 PASS，命名约定漂移由人眼审）。
 
 ### 2. CLAUDE.md "Current Gateway Flow" 段未提 sticky routing — **closed (2026-04-20)**
 
@@ -114,7 +115,7 @@
 - **未做（明确 out-of-scope）**：把 helper 的 grep 检查上提到 dev-rules `commit-msg` hook —— ROI 不高，因为 helper 本身已经强制（仅当 helper 被绕过时才会重演事故，而绕过 helper 本身就违反 §9.2）。如果未来又有人再次绕过 helper 直接 git tag，再考虑把 helper 升成 commit-msg hook + tag-pre hook。
 - **跨参考**：v1.4.0 完整事故时间线见 docs/preflight-debt.md（git log），以及 `gh run view 24660924811` 的 manual dispatch recovery 记录。
 
-### 9. AWS Stage-0 CFN 模板：改 ImageTag 触发实例 replace = PG 数据丢失风险
+### 9. AWS Stage-0 CFN 模板：改 ImageTag 触发实例 replace = PG 数据丢失风险 — **9.b closed (2026-04-20)**
 
 - **现象**（2026-04-20 v1.4.0 发版时确认）：
   - `deploy/aws/cloudformation/stage0-single-ec2.yaml` 把 `ImageTag` 直接 substitute 进 `AWS::EC2::Instance.UserData`（line 272 `IMAGE_TAG='${ImageTag}'`）。
@@ -135,13 +136,20 @@
   - 测试栈段同样统一到 SSM 路径（删掉之前不一致的"测试栈用 SSM、prod 用 CFN"双轨）。
   - drift 现状告知：CFN `describe-stacks` 显示的 `ImageTag` 会与实际运行版本漂移，这是 stage-0 模板限制下的有意 trade-off，CFN 参数视为"初始化默认值"，实际版本以 `.env` 内 `TOKENKEY_IMAGE` 为准。
 
-  **9.b — CFN 模板拆独立 volume（open，长期方案）**
+  **9.b — CFN 模板拆独立 volume（closed 2026-04-20，本 fix PR）**
 
-  - 把 PG / Redis / Caddy 数据 volume 从 root EBS 拆到独立 `AWS::EC2::Volume` + `AWS::EC2::VolumeAttachment`（带 `DeletionPolicy: Retain` + `UpdateReplacePolicy: Retain`）。
-  - 改完后 README 才能恢复"改 ImageTag + `aws cloudformation deploy`"的安全语义；在此之前 prod 升级永远走 SSM 路径。
-  - 这一步需要一次 prod 迁移窗口（停机 + EBS dump/restore + 重新挂载），属于 stage-0 → stage-0.5 的小升级。
-  - **截止日期**：2026-05-31（与 stage 1 升级评估同窗口）。
-  - **drift 短期防御（可选 follow-up）**：在 stack Tag / Description 里加 `DO NOT change ImageTag via CFN; use SSM instead`；preflight 增加一段拉 stack 当前 ImageTag 与实例实际镜像 tag 对比，不一致 warn。优先级低于 9.b 本身。
+  - **整改**（issue #8 在此 PR closed）：
+    - `deploy/aws/cloudformation/stage0-single-ec2.yaml` 新增 `DataVolume` (`AWS::EC2::Volume`) + `DataVolumeAttachment` (`AWS::EC2::VolumeAttachment` 挂 `/dev/sdf`)，带 `DeletionPolicy: Retain` + `UpdateReplacePolicy: Retain` + `Encrypted: true`，新参数 `DataVolumeSizeGiB` 默认 30 GiB。
+    - `UserData` 新增 §2a 段：候选块设备探测 (`/dev/nvme1n1` / `/dev/nvme2n1` / `/dev/nvme3n1` / `/dev/xvdf` / `/dev/sdf`，最多等 90s) + 排除 root device + `blkid` 检测既有 filesystem（首次 boot `mkfs.ext4 -L tokenkey-data`，后续 boot 复用）+ 写 `/etc/fstab` (`LABEL=tokenkey-data ... defaults,nofail`) + mount 到 `/var/lib/tokenkey`。
+    - `UserData` 新增 §4 改造：秘密拆到 `/var/lib/tokenkey/.env.secret`（`POSTGRES_PASSWORD` / `JWT_SECRET` / `TOTP_ENCRYPTION_KEY`），首次 boot 生成后**永不重写**；`/var/lib/tokenkey/.env` 仍每次 boot 重生成接收 CFN 参数变化。这样实例替换时 PG 用户密码 + 已签发 JWT 会话 + TOTP 记录都活下来。
+    - 新增 `DataVolumeId` Output。
+    - DLM `SnapshotPolicy` 复用现有 `Backup=stage0` tag 自动覆盖（`ResourceTypes: [INSTANCE]` 会快照实例上所有附加卷）。
+  - **变更门验证**（2026-04-20，对当前 prod stack `tokenkey-prod-stage0` 跑 dry-run change-set 后立即 `delete-change-set`，未 execute）：
+    - **Add**：`DataVolume` (`AWS::EC2::Volume`)、`DataVolumeAttachment` (`AWS::EC2::VolumeAttachment`) — 符合预期。
+    - **Modify**：`Instance` (`AWS::EC2::Instance`, Replacement: Conditional)、`EIPAssoc` (`AWS::EC2::EIPAssociation`, Replacement: Conditional) — UserData 变化触发，符合预期；仍是首次迁移必经路径。
+    - 数据保护语义：本次 deploy 之后，**未来**任何 ImageTag / UserData 改动都只 replace `Instance`，`DataVolume` 仍 attach 到新实例 → filesystem 已存在 → 跳过 mkfs → 直接 mount → 数据零丢失。
+  - **首次迁移**：现有 prod stack 数据**还在 root EBS 上**，本 PR 落地后第一次 `aws cloudformation deploy` 仍会触发实例 replace 并启动**空** PG（DataVolume 是新创建的）。运维侧需要按 `deploy/aws/README.md §现有 prod 栈迁移到 DataVolume` 的 7 步 SOP（snapshot → 停服 → tar → S3 → CFN deploy → 复制旧密钥 → restore → 验证）做一次 5–10 min 停机窗口的迁移。SOP 含完整 rollback 路径（snapshot 留 7 天）。新栈 deploy 不受影响。
+  - **drift 短期防御**（依然推荐做）：preflight 加一段对比 stack `ImageTag` 与实例实际运行的 `TOKENKEY_IMAGE` tag —— 但这是 follow-up 改进，不是 9.b 闭环条件。优先级降到 §10。
 - **实操记录**（v1.4.0）：
   - 升级路径：`aws ssm send-command i-04a8afd18c997b8ac` → `sed .env 1.3.1 → 1.4.0` → `docker compose --env-file .env pull tokenkey && up -d --no-deps tokenkey` → 35s 内 healthy。
   - 验证：external `/health` HTTP 200，bootstrap 日志全绿，3 min 内 0 错误，多架构 manifest 4 tag 一致。

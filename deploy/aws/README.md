@@ -86,18 +86,119 @@ curl -sS -o /dev/null -w '%{http_code}\n' "https://${DOMAIN}/health"
 
 | Stack | `ImageTag` 来源 | `ApiDomain` | 升级方式 |
 |---|---|---|---|
-| `tokenkey-prod-stage0` | `.env` 内的 `TOKENKEY_IMAGE`（CFN 参数仅用于初始化） | `api.tokenkey.dev` | **唯一安全路径：SSM `docker compose pull && up -d tokenkey`**（见下方 §生产升级 SOP）。**不要**用 `aws cloudformation deploy` 改 `ImageTag` —— 会触发实例 replace，root EBS 上的 PG / Redis / Caddy / pgdumps 全部变孤儿，从空 PG 起来。 |
+| `tokenkey-prod-stage0` | `.env` 内的 `TOKENKEY_IMAGE`（CFN 参数仅用于初始化） | `api.tokenkey.dev` | **首选路径：SSM `docker compose pull && up -d tokenkey`**（见下方 §生产升级 SOP），原地热替换、零停机。CFN deploy 改 `ImageTag` 现在**安全**（数据在独立 `DataVolume` 上，instance replace 时 detach + 新 instance attach），但仍有 1–3 min 停机窗口（旧实例 stop → 新实例 boot + bootstrap）。 |
 | `tokenkey-test-stage0`（如存在） | `.env` 同上，初始化用 `latest` 跟随 | `test-api.tokenkey.dev` | 同上 SSM 路径；`latest` 让镜像自动是最新 release，但仍要 SSM 触发 `pull && up -d` 才会真正切换。 |
 
-> **stage-0 模板限制**：`stage0-single-ec2.yaml` 的 `AWS::EC2::Instance.UserData` 把 `ImageTag`
-> substitute 到 `IMAGE_TAG='${ImageTag}'`，CFN 视 UserData 为 immutable —— 任何改 `ImageTag`
-> 的 deploy 都会标记 `Replacement: True`。同时模板没有独立的 `AWS::EC2::Volume`，所有持久化
-> 数据都在 EC2 root EBS 上（`DeleteOnTermination: false` 保住旧 EBS 但新实例挂的是新 EBS）。
-> 这两个事实合起来 = 改 `ImageTag` 走 CFN deploy 等于**销毁所有用户/配额/key 数据**。
+> **数据持久化（preflight-debt §9.b / issue #8 已修，2026-04-20）**：
+> `stage0-single-ec2.yaml` 现在创建独立的 `AWS::EC2::Volume`（资源名 `DataVolume`，参数
+> `DataVolumeSizeGiB`，默认 30 GiB），带 `DeletionPolicy: Retain` + `UpdateReplacePolicy: Retain`，
+> 通过 `AWS::EC2::VolumeAttachment` 挂到 `/dev/sdf`，`UserData` 检测 `/dev/nvme1n1` 等候选块设备、
+> 用 `LABEL=tokenkey-data` 写 `/etc/fstab` 后挂载到 `/var/lib/tokenkey/`。所有应用数据
+> （`postgres/`、`redis/`、`caddy/data`、`app/`、`pgdump/`、`.env.secret`）都在这个独立卷上。
 >
-> 长期方案是把 PG/Redis/Caddy 数据 volume 从 root EBS 拆到独立 `AWS::EC2::Volume`（带
-> `DeletionPolicy: Retain` + `UpdateReplacePolicy: Retain`），CFN deploy 路径才能恢复安全
-> 语义。在此之前，**stage-0 prod 升级一律走 SSM**，CFN deploy 仅用于初始化 stack。
+> 实例被替换时（无论是改 `ImageTag` 还是 AMI/UserData 任意改动），`DataVolume` **detach** 后
+> attach 到新实例，filesystem 已存在 → `UserData` 跳过 `mkfs.ext4` 直接重挂载 → 数据零丢失。
+>
+> 持久秘密单独写入 `/var/lib/tokenkey/.env.secret`（`POSTGRES_PASSWORD` / `JWT_SECRET` /
+> `TOTP_ENCRYPTION_KEY`），首次 boot 生成后永不重写；`/var/lib/tokenkey/.env` 仍每次 boot 重生成
+> 以接收 CFN 参数变化。这样 PG 用户密码、JWT 已签发会话、TOTP 记录都能跨实例替换存活。
+
+### 现有 prod 栈迁移到 DataVolume（一次性，必须做）
+
+> **谁需要做**：在 2026-04-20 之前用旧版模板 deploy 的栈（数据全部在 root EBS 上）。
+> **谁不用做**：在 2026-04-20 之后首次 deploy 的栈（已经是新拓扑）。
+>
+> 判断方法：`aws cloudformation describe-stack-resources --stack-name tokenkey-prod-stage0
+> --logical-resource-id DataVolume`，返回 "does not exist" 即旧拓扑。
+
+迁移需要 **5–10 min 停机窗口**（取决于数据量），按以下顺序执行：
+
+```bash
+REGION=us-east-1
+STACK=tokenkey-prod-stage0
+INSTANCE_ID=$(aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK" \
+  --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)
+
+# 1) 全量备份（迁移前的最后一道保险）— 触发 DLM 立即快照 root EBS
+ROOT_VOL=$(aws ec2 describe-instances --region "$REGION" --instance-ids "$INSTANCE_ID" \
+  --query 'Reservations[0].Instances[0].BlockDeviceMappings[?DeviceName==`/dev/xvda`].Ebs.VolumeId' \
+  --output text)
+aws ec2 create-snapshot --region "$REGION" --volume-id "$ROOT_VOL" \
+  --description "tokenkey pre-DataVolume-migration $(date -u +%FT%TZ)"
+# 等 snapshot 进入 completed（视卷大小，通常 5–15 min）
+SNAP_ID=$(aws ec2 describe-snapshots --region "$REGION" --owner-ids self \
+  --filters "Name=volume-id,Values=$ROOT_VOL" --query 'Snapshots | sort_by(@,&StartTime) | [-1].SnapshotId' --output text)
+aws ec2 wait snapshot-completed --region "$REGION" --snapshot-ids "$SNAP_ID"
+
+# 2) 进实例 → 停服 → 把 /var/lib/tokenkey 打包到 /tmp/tokenkey-data.tar.gz
+aws ssm start-session --region "$REGION" --target "$INSTANCE_ID"
+# (在实例内)
+sudo systemctl stop tokenkey
+sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env down
+cd /var/lib/tokenkey
+sudo tar -czf /tmp/tokenkey-data.tar.gz --one-file-system .
+sudo ls -lh /tmp/tokenkey-data.tar.gz                  # 确认大小合理
+exit                                                   # 退出 SSM session
+
+# 3) 把 tarball 挪到本地（或 S3）作为冷备 — 万一 CFN 重启失败时手工恢复用
+aws ssm send-command --region "$REGION" --instance-ids "$INSTANCE_ID" \
+  --document-name AWS-RunShellScript \
+  --parameters "commands=[\"aws s3 cp /tmp/tokenkey-data.tar.gz s3://<your-backup-bucket>/tokenkey-pre-migrate-$(date +%s).tar.gz\"]"
+
+# 4) CFN deploy — 这一步会创建新 DataVolume 并替换实例。新 UserData 会发现
+#    DataVolume 是空的 → mkfs.ext4 → 挂在 /var/lib/tokenkey → 生成全新 .env.secret →
+#    PG / Redis 从空状态启动。**这是预期行为** —— 步骤 5 才把数据塞回去。
+aws cloudformation deploy --region "$REGION" \
+  --stack-name "$STACK" \
+  --template-file deploy/aws/cloudformation/stage0-single-ec2.yaml \
+  --capabilities CAPABILITY_IAM \
+  --parameter-overrides DataVolumeSizeGiB=30
+NEW_INSTANCE_ID=$(aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK" \
+  --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)
+
+# 5) 进新实例 → 停服 → 用 tarball 覆盖 → 起服
+aws ssm start-session --region "$REGION" --target "$NEW_INSTANCE_ID"
+# (在实例内)
+sudo systemctl stop tokenkey
+# 把步骤 3 留在 S3 的 tarball 拿回来（或从旧实例 EIP 上 scp，但旧实例已经被销毁，所以走 S3）
+aws s3 cp s3://<your-backup-bucket>/tokenkey-pre-migrate-<ts>.tar.gz /tmp/tokenkey-data.tar.gz
+cd /var/lib/tokenkey
+# 保留新生成的 .env.secret 和 .env，覆盖业务数据目录
+sudo cp .env.secret /tmp/.env.secret.new
+sudo cp .env        /tmp/.env.new
+sudo tar -xzf /tmp/tokenkey-data.tar.gz --overwrite \
+  --exclude='./.env' --exclude='./.env.secret' --exclude='./.env.before-*'
+# 注意：因为旧拓扑下 PG 用的是旧 .env 里的 POSTGRES_PASSWORD，新 .env.secret 是新生成的，
+# 直接起 docker compose 会因为密码不匹配 PG 起不来。两个选择：
+# 选 A（推荐）：把旧的 POSTGRES_PASSWORD 抄进新的 .env.secret —— 与旧 PG 数据一致
+sudo grep '^POSTGRES_PASSWORD' /tmp/tokenkey-data.tar.gz | head -1   # 不对，要解开看 .env
+# 实际操作：在解 tarball 时不排除 .env，改为读出旧密码再丢弃旧 .env
+sudo tar -xzf /tmp/tokenkey-data.tar.gz ./.env -O | grep '^POSTGRES_PASSWORD=' > /tmp/old-pg-pwd
+OLD_PG_PWD=$(cut -d= -f2 /tmp/old-pg-pwd)
+sudo sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$OLD_PG_PWD|" /var/lib/tokenkey/.env.secret
+# JWT_SECRET / TOTP_ENCRYPTION_KEY 同理 —— 旧值不抄进来 = 已签发 token 全部失效 + TOTP 二次验证全部废
+sudo tar -xzf /tmp/tokenkey-data.tar.gz ./.env -O | grep -E '^(JWT_SECRET|TOTP_ENCRYPTION_KEY)=' >> /tmp/old-secrets
+# 用 awk 把 .env.secret 里的 JWT_SECRET / TOTP 行替换为旧值（具体一行命令略 — 操作时手贴）
+sudo systemctl start tokenkey
+sudo docker compose ps                                 # 全 healthy
+exit
+
+# 6) 外部验证
+curl -sS -o /dev/null -w 'HTTP %{http_code}\n' https://api.tokenkey.dev/health
+# 用一个已知账号试着登录，确认 PG 数据 / JWT 会话 / TOTP 都正常
+
+# 7) 清理 — 旧 root EBS 因为 DeleteOnTermination=false 留着，确认新栈跑稳后再删
+#    (snapshot 也建议留 7 天再删，DLM 自动管)
+```
+
+> **失败回退**：步骤 4 之前任何一步出问题，CFN 还没真的 deploy，旧实例 / 旧 EBS 都在，
+> 重启 `systemctl start tokenkey` 即可恢复；步骤 4 之后出问题，从步骤 1 的 snapshot
+> 创建新 EBS、建一台同规格 EC2、attach、`mount /dev/xvda1 /mnt`、把数据再 `tar` 回来即可。
+>
+> **简化路径**：如果可以接受 5–10 min 停服 + 重置 admin 密码 + 所有用户重新登录 + 重置
+> TOTP，跳过步骤 5 的"复制旧密钥"动作，直接让新栈起空 PG，再用 admin 账号导入业务数据
+> 备份（`pg_restore` 之前要 `DROP DATABASE tokenkey; CREATE DATABASE tokenkey;`）。
+> 选哪个看历史数据规模 + 用户数。
 
 ### 发版 SOP（开发者侧 — 创建 release）
 
