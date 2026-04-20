@@ -2604,6 +2604,16 @@ export default {
         pleaseEnterBaseUrl: 'Please enter upstream Base URL',
         pleaseEnterApiKey: 'Please enter upstream API Key'
       },
+      newApiPlatform: {
+        channelType: 'Channel Type',
+        channelTypePlaceholder: 'Select a New API channel type',
+        channelTypeLoadFailed: 'Failed to load channel types, please retry',
+        baseUrl: 'Base URL',
+        baseUrlHint: 'Upstream endpoint, e.g. https://api.deepseek.com',
+        apiKey: 'API Key',
+        apiKeyPlaceholder: 'sk-...',
+        apiKeyEditHint: 'Leave empty to keep current key'
+      },
       // OAuth flow
       oauth: {
         title: 'Claude Account Authorization',

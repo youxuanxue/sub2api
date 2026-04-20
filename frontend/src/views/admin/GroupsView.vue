@@ -2748,6 +2748,7 @@ import { VueDraggable } from "vue-draggable-plus";
 import { createStableObjectKeyResolver } from "@/utils/stableObjectKey";
 import { useKeyedDebouncedSearch } from "@/composables/useKeyedDebouncedSearch";
 import { getPersistedPageSize } from "@/composables/usePersistedPageSize";
+import { usePlatformOptions } from "@/composables/usePlatformOptions";
 import {
   createDefaultMessagesDispatchFormState,
   messagesDispatchConfigToFormState,
@@ -2810,20 +2811,11 @@ const exclusiveOptions = computed(() => [
   { value: "false", label: t("admin.groups.nonExclusive") },
 ]);
 
-const platformOptions = computed(() => [
-  { value: "anthropic", label: "Anthropic" },
-  { value: "openai", label: "OpenAI" },
-  { value: "gemini", label: "Gemini" },
-  { value: "antigravity", label: "Antigravity" },
-]);
-
-const platformFilterOptions = computed(() => [
-  { value: "", label: t("admin.groups.allPlatforms") },
-  { value: "anthropic", label: "Anthropic" },
-  { value: "openai", label: "OpenAI" },
-  { value: "gemini", label: "Gemini" },
-  { value: "antigravity", label: "Antigravity" },
-]);
+// Platform options derived from canonical GATEWAY_PLATFORMS via usePlatformOptions
+// composable. Adding a 6th platform later requires touching only that composable;
+// this view (and every other admin picker) auto-picks it up. See US-017.
+const { options: platformOptions, optionsWithAll } = usePlatformOptions();
+const platformFilterOptions = optionsWithAll(t("admin.groups.allPlatforms"));
 
 const editStatusOptions = computed(() => [
   { value: "active", label: t("admin.accounts.status.active") },

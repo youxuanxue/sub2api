@@ -2747,6 +2747,16 @@ export default {
         pleaseEnterBaseUrl: '请输入上游 Base URL',
         pleaseEnterApiKey: '请输入上游 API Key'
       },
+      newApiPlatform: {
+        channelType: '渠道类型',
+        channelTypePlaceholder: '请选择 New API 渠道类型',
+        channelTypeLoadFailed: '加载渠道类型失败，请重试',
+        baseUrl: 'Base URL',
+        baseUrlHint: '上游服务地址，例如 https://api.deepseek.com',
+        apiKey: 'API Key',
+        apiKeyPlaceholder: 'sk-...',
+        apiKeyEditHint: '留空表示保留当前密钥'
+      },
       // OAuth flow
       oauth: {
         title: 'Claude 账号授权',

@@ -147,6 +147,24 @@
             <Icon name="cloud" size="sm" />
             Antigravity
           </button>
+          <!--
+            5th platform: New API (US-017, prototype). Picks up styling from
+            CREATE_ACCOUNT_PLATFORM_SEGMENT_ACTIVE (cyan) so it stays consistent
+            with the gatewayPlatforms.ts constant (single source of truth per CLAUDE.md §5).
+          -->
+          <button
+            type="button"
+            @click="form.platform = 'newapi'"
+            :class="[
+              'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+              form.platform === 'newapi'
+                ? 'bg-white text-cyan-600 shadow-sm dark:bg-dark-600 dark:text-cyan-400'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+          >
+            <Icon name="server" size="sm" />
+            New API
+          </button>
         </div>
       </div>
 
@@ -701,6 +719,24 @@
             </div>
           </button>
         </div>
+      </div>
+
+      <!--
+        New API (5th platform) account fields. US-017 prototype scope.
+        AccountNewApiPlatformFields was already shipped with the design but never
+        wired in until now; component handles channel-type catalog + base_url + api_key.
+      -->
+      <div v-if="form.platform === 'newapi'" class="space-y-4">
+        <AccountNewApiPlatformFields
+          v-model:channelType="newapiChannelType"
+          v-model:baseUrl="newapiBaseUrl"
+          v-model:apiKey="newapiApiKey"
+          :channel-type-options="newapiChannelTypeOptions"
+          :channel-types-loading="newapiChannelTypesLoading"
+          :channel-types-error="newapiChannelTypesError"
+          :selected-channel-type-base-url="newapiSelectedBaseUrl"
+          variant="create"
+        />
       </div>
 
       <!-- Upstream config (only for Antigravity upstream type) -->
@@ -2940,6 +2976,8 @@ import {
   type OpenAIWSMode
 } from '@/utils/openaiWsMode'
 import OAuthAuthorizationFlow from './OAuthAuthorizationFlow.vue'
+import AccountNewApiPlatformFields from './AccountNewApiPlatformFields.vue'
+import { listChannelTypes, type ChannelTypeInfo } from '@/api/admin/channels'
 
 // Type for exposed OAuthAuthorizationFlow component
 // Note: defineExpose automatically unwraps refs, so we use the unwrapped types
@@ -3109,6 +3147,25 @@ const bedrockSessionToken = ref('')
 const bedrockRegion = ref('us-east-1')
 const bedrockForceGlobal = ref(false)
 const bedrockApiKeyValue = ref('')
+
+// New API (5th platform) state. US-017 prototype scope.
+// channel_type catalog comes from GET /api/v1/admin/channel-types (cached for the
+// modal's lifetime); when the user picks a type we prefill base_url from the
+// catalog entry but keep the field editable.
+const newapiChannelType = ref<number>(0)
+const newapiBaseUrl = ref('')
+const newapiApiKey = ref('')
+const newapiChannelTypes = ref<ChannelTypeInfo[]>([])
+const newapiChannelTypesLoading = ref(false)
+const newapiChannelTypesError = ref<string | null>(null)
+const newapiChannelTypeOptions = computed(() =>
+  newapiChannelTypes.value.map((c) => ({ value: c.channel_type, label: c.name }))
+)
+const newapiSelectedBaseUrl = computed(() => {
+  const found = newapiChannelTypes.value.find((c) => c.channel_type === newapiChannelType.value)
+  return found?.base_url || ''
+})
+
 const tempUnschedEnabled = ref(false)
 const tempUnschedRules = ref<TempUnschedRuleForm[]>([])
 const getModelMappingKey = createStableObjectKeyResolver<ModelMapping>('create-model-mapping')
@@ -3287,6 +3344,10 @@ const isOAuthFlow = computed(() => {
   if (form.platform === 'anthropic' && accountCategory.value === 'bedrock') {
     return false
   }
+  // newapi (5th platform) is API-key only — no OAuth flow.
+  if (form.platform === 'newapi') {
+    return false
+  }
   return accountCategory.value === 'oauth-based'
 })
 
@@ -3326,6 +3387,16 @@ watch(
         .catch(() => { tlsFingerprintProfiles.value = [] })
       // Modal opened - fill related models
       allowedModels.value = [...getModelsByPlatform(form.platform)]
+      if (newapiChannelTypes.value.length === 0 && !newapiChannelTypesLoading.value) {
+        newapiChannelTypesLoading.value = true
+        newapiChannelTypesError.value = null
+        listChannelTypes()
+          .then((rows) => { newapiChannelTypes.value = rows })
+          .catch(() => {
+            newapiChannelTypesError.value = t('admin.accounts.newApiPlatform.channelTypeLoadFailed')
+          })
+          .finally(() => { newapiChannelTypesLoading.value = false })
+      }
       // Antigravity: 默认使用映射模式并填充默认映射
       if (form.platform === 'antigravity') {
         antigravityModelRestrictionMode.value = 'mapping'
@@ -4015,6 +4086,50 @@ const handleSubmit = async () => {
     applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
 
     await createAccountAndFinish('anthropic', 'bedrock' as AccountType, credentials)
+    return
+  }
+
+  // For New API (5th platform), create directly with channel_type top-level field.
+  // Backend admin_service.go:1565 enforces channel_type > 0 when platform == 'newapi';
+  // type is 'apikey' (matches antigravity-upstream pattern) — there is no OAuth flow.
+  if (form.platform === 'newapi') {
+    if (!form.name.trim()) {
+      appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
+      return
+    }
+    if (!newapiChannelType.value || newapiChannelType.value <= 0) {
+      appStore.showError(t('admin.accounts.newApiPlatform.channelType'))
+      return
+    }
+    const baseUrl = newapiBaseUrl.value.trim() || newapiSelectedBaseUrl.value
+    if (!baseUrl) {
+      appStore.showError(t('admin.accounts.newApiPlatform.baseUrl'))
+      return
+    }
+    if (!newapiApiKey.value.trim()) {
+      appStore.showError(t('admin.accounts.newApiPlatform.apiKey'))
+      return
+    }
+    const credentials: Record<string, unknown> = {
+      base_url: baseUrl,
+      api_key: newapiApiKey.value.trim()
+    }
+    await doCreateAccount({
+      name: form.name,
+      notes: form.notes,
+      platform: 'newapi',
+      type: 'apikey',
+      channel_type: newapiChannelType.value,
+      credentials,
+      proxy_id: form.proxy_id,
+      concurrency: form.concurrency,
+      load_factor: form.load_factor ?? undefined,
+      priority: form.priority,
+      rate_multiplier: form.rate_multiplier,
+      group_ids: form.group_ids,
+      expires_at: form.expires_at,
+      auto_pause_on_expired: autoPauseOnExpired.value
+    })
     return
   }
 
