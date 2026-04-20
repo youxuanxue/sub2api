@@ -1,9 +1,11 @@
 ---
 title: P0 可观测性最小起步（JSON 日志 + /metrics + preflight）
-status: draft
-approved_by: pending
+status: approved
+approved_by: youxuanxue
+approved_at: 2026-04-20
 created: 2026-04-19
 owners: [tk-platform]
+related_prs: ["#13"]
 ---
 
 # P0 可观测性最小起步：冲突面、OPC 冲击、推荐运维栈

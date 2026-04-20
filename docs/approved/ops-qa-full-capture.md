@@ -1,10 +1,12 @@
 ---
 title: QA 数据 100% 全落盘的低成本 OPC 方案
-status: draft
-approved_by: pending
+status: approved
+approved_by: youxuanxue
+approved_at: 2026-04-20
 created: 2026-04-19
 owners: [tk-platform]
 depends_on: [ops-p0-observability.md]
+related_prs: ["#13"]
 ---
 
 # QA 数据 100% 全落盘 — 低成本改造、存储、定期导出
