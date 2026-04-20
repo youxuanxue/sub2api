@@ -103,6 +103,8 @@ alwaysApply: true
 - 原型分支命名：`prototype/[issue-id]-[描述]`
 - 功能分支命名：`feature/[issue-id]-[描述]`
 - 修复分支命名：`fix/[issue-id]-[描述]`
+- 文档分支命名：`docs/[描述]`
+- 上游合并分支命名：`merge/upstream-YYYY-MM-DD`（消费 fork 的项目使用，受 PR shape 工作流验证）
 - 提交消息聚焦"为什么"而非"改了什么"
 - 每个 PR 只解决一个问题，不混合无关变更
 
