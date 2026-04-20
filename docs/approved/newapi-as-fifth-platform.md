@@ -291,10 +291,20 @@ go test -tags=integration -run 'TestUSNEWAPI_' ./backend/internal/handler/...
 
 ### 7.2 Rollout 顺序
 
-1. PR1: §3.2 companion 文件 + 单元测试（不动 upstream，绿）
-2. PR2: §3.1 upstream 注入点切换 + 集成测试（绿后合并）
-3. PR3: §5 preflight 段 + contract 重生成
-4. SSM 升级 prod（参考 v1.3.1 升级模式，零数据迁移）
+按"一个完整 PR"交付，避免细碎切分稀释 review 注意力。该 PR 包含：
+
+- §3.1 upstream 最小注入点（`scheduler.go` 1 行 + `bridge_dispatch.go` 1 行 + `openai_gateway_service.go` 1 处 sanitize 放行）
+- §3.2 companion 文件（`scheduler_tk_pool.go`、`messages_dispatch_tk_newapi.go`、`openai_compat_tk_pool.go`）
+- §5 preflight 段 + `scripts/export_agent_contract.py` 重生成
+- §6 全部测试（US-001 ~ US-008 单元 + 集成 testcontainer）
+- `CLAUDE.md` "Current Gateway Flow" 现状盘点更新（移除 `newapi` 名实不符的隐含债务）
+
+合入后 SSM 升级 prod（参考 v1.3.1 升级模式，零数据迁移）。
+
+> **为什么不切 3 个 PR**：本设计的 3 处注入点 + companion 文件 + 测试是同一个语义"放行 newapi 进调度池"的不同切面。
+> 分开 review 反而拆散语义、增加来回；§3.2 没有 §3.1 的注入点不会被实际调用、§3.1 没有 §3.2 的 helper 又编译不过。
+> 单 PR review 同时看到"接入点 + 实现 + 测试"才能判断切面完整。
+> 这与 sticky-routing 的"单提交大爆炸"是不同的——后者是 8 个独立可上线特性强行打包，本 PR 是同一特性的最小不可分原子单元。
 
 ### 7.3 回滚策略
 

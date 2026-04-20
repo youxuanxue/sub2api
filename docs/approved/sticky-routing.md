@@ -1,11 +1,13 @@
 ---
 title: Sticky Routing & Prompt Cache Optimization
-status: pending
-approved_by: pending
-approved_at: pending
+status: shipped
+approved_by: xuejiao (post-hoc 2026-04-19)
+approved_at: 2026-04-19
 authors: [agent]
 created: 2026-04-17
 related_prs: []
+related_commits: [a68dee5b]
+related_stories: [US-006]
 ---
 
 # Sticky Routing & Prompt Cache Optimization
@@ -274,6 +276,11 @@ type CacheStats struct {
 
 ## 7. 实施顺序与 PR 切分
 
+> **实施实情（2026-04-19 事后盘点）**：本表是设计当时拟定的"理想 8-PR 切分"。
+> 代码实际以**单提交 `a68dee5b`**（2026-04-18）一次性落地（schema + injector + 6 处接入点 + 单测 + UI），未拆 PR。
+> 这违反了 `product-dev.mdc` §阶段 2 → 审批 → §阶段 3 顺序，详见 §11 实施情况与 `docs/preflight-debt.md`。
+> 下次同等规模特性必须按本表切分。
+
 | 顺序 | 内容 | PR 标题 | 可独立 review |
 |---|---|---|---|
 | 1 | P0 已完成 | `feat: ship anti-down-grading defaults for Claude Code env template` | ✅ |
@@ -307,12 +314,15 @@ type CacheStats struct {
 
 ---
 
-## 9. 待确认（人审批前回答）
+## 9. 已确认决策（事后回填，2026-04-19）
 
-1. ❓ 是否同意把 group 字段命名为 `sticky_routing_mode`（vs `prompt_cache_strategy`）？前者覆盖更广（含 NewAPI X-Session-Id 等非 cache 场景）。
-2. ❓ 是否同意 dashboard 卡片只读最近 24h（不加时间窗切换）？
-3. ❓ 是否同意 derive 兜底用 system 前 2KB（vs 全文 hash）？前者性能稳定但极少数情况下系统 prompt 长得离谱时会撞桶。
-4. ❓ NewAPI 的 X-Session-Id 注入是否需要在第二个 PR 一起做（vs 单独后置）？
+> 实施时（2026-04-18，先于本文档审批）已做出以下决策。本节做事后回填，方便审计与回看。
+
+1. ✅ **字段命名 `sticky_routing_mode`** — 已采用。理由：覆盖更广（含 NewAPI X-Session-Id 等非 cache 场景），与 `prompt_cache_*` 解耦。
+   schema：`backend/ent/schema/group.go` enum；migration：`backend/migrations/tk_002_add_groups_sticky_routing_mode.sql`。
+2. ✅ **Dashboard 卡片只读最近 24h** — 已采用。`frontend/src/views/admin/DashboardView.vue` 仅暴露 `promptCacheHitRateToday/Total`，不引入时间窗切换。
+3. ✅ **derive 兜底用 system 前 2KB** — 已采用。常量：`backend/internal/service/sticky_session_injector.go::stickyDerivedSystemPromptCap = 2 * 1024`。极少数超长 system prompt 撞桶问题观察后再优化。
+4. ✅ **NewAPI X-Session-Id 与 OpenAI/Anthropic 注入同 PR** — 已采用（实际是 `a68dee5b` 一次提交全部落地）。访问点：`backend/internal/service/openai_gateway_bridge_dispatch.go::applyStickyToNewAPIBridge`。
 
 ---
 
@@ -322,3 +332,46 @@ type CacheStats struct {
 - `CLAUDE.md`：在 "Current Gateway Flow" 段加一行 sticky routing 说明
 - `docs/agent_integration.md`：由 `scripts/export_agent_contract.py` 自动生成
 - `docs/flows/openai-gateway-flow.md`：补充 sticky key 派生节点
+
+---
+
+## 11. 实施情况（Post-hoc / 2026-04-19 盘点）
+
+> 本节为事后归档：代码于 2026-04-18 经单提交 `a68dee5b` 落地 main，并已上线 test/prod。
+> 但本设计文档自 2026-04-17 起草后一直处于 `pending` 状态、未走 §3 阶段 2 审批门禁。
+> 本节用于把"已发生事实"对齐到本文，方便审计与后续维护。
+> 同时已新增 `scripts/preflight.sh` § 1 段 + `scripts/check_approved_docs.py` 机械门禁，避免再发生（见 §11.3）。
+
+### 11.1 已落地事实（与 §3-§5 设计对应）
+
+| 设计章节 | 代码落点 | 状态 |
+|---|---|---|
+| §3 注入器抽象 | `backend/internal/service/sticky_session_injector.go` + `_test.go` | ✅ |
+| §3 schema 字段 | `backend/ent/schema/group.go` (`sticky_routing_mode` enum) + migration `tk_002_add_groups_sticky_routing_mode.sql` | ✅ |
+| §3 全局开关 | `backend/internal/service/domain_constants.go::SettingKeyStickyRoutingEnabled` (`gateway.sticky_routing.enabled`) | ✅ |
+| §4 6 处接入点 | OpenAI Responses（`openai_gateway_service.go`）/ Chat Compat / passthrough / Anthropic Messages（`gateway_service.go`）/ Messages-to-OpenAI / NewAPI bridge（`openai_gateway_bridge_dispatch.go::applyStickyToNewAPIBridge`） | ✅ |
+| §5.6 Dashboard 卡片 | `frontend/src/views/admin/DashboardView.vue` (`promptCacheHitRateToday/Total`) | ✅ |
+| §6 测试 | `.testing/user-stories/stories/US-006-sticky-routing-prompt-cache.md` + `sticky_session_injector_test.go` | ✅ |
+
+### 11.2 已知漂移（process debt，登记不修）
+
+1. **测试函数命名**：本文 §6 写 `TestUS201_*`，实际故事是 `US-006`，测试函数为 `TestUS006_*` / `TestStickySessionInjector_*`。已登记到 `docs/preflight-debt.md`。
+2. **migration 编号**：本文未指定。实际为 `tk_002_add_groups_sticky_routing_mode.sql`（TK 私有命名空间，不与上游 `0XX_*.sql` 冲突，符合 §5 fork 隔离）。
+3. **PR 切分背离**：§7 拟定 8-PR 顺序，实际单提交 `a68dee5b` 落地。代价：发版回滚粒度变粗。
+4. **审批门禁缺位**：本文 status=pending 状态下代码 merge，违反 `product-dev.mdc` §阶段 2→审批→§阶段 3 顺序。
+
+### 11.3 后续不做（聚焦 / Jobs 原则）
+
+- **不补回 8-PR 拆分**：代码已上线、回滚链路验证过，补拆纯增 churn。
+- **不重命名 `TestUS201_*` → `TestUS006_*`**：rename ~10 函数 + 跑全套测试，与"消除真实风险"的 ROI 不匹配；登记在 `docs/preflight-debt.md` 即可，新增测试遵循 US-006 命名。
+
+### 11.4 已落地的 OPC 机械门禁（防再发）
+
+为把"靠自觉"升级为"靠脚本"（dev-rules `dev-rules-convention.mdc` 强约束）：
+
+- 新增 `scripts/check_approved_docs.py`：扫描 `docs/approved/*.md` frontmatter
+  - R1: 必须包含 `status` 字段，且取值在 `{draft, pending, shipped, archived}`
+  - R2: `status: pending` 但 `related_prs` / `related_commits` 非空 → **失败**（即"shipped 但 doc 没改"的同款）
+  - R3: `status: shipped` 但 `related_prs` 与 `related_commits` 都为空 → **失败**
+- 新增 `scripts/preflight.sh` § 1 段调用上述脚本；`pre-commit` hook 与 CI 同步运行。
+- 历史事件登记：`docs/preflight-debt.md`。
