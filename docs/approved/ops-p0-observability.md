@@ -27,7 +27,7 @@ owners: [tk-platform]
 | # | 文档 | 解决什么 | 何时读 |
 |---|------|----------|--------|
 | 1 | **本文** [`ops-p0-observability.md`](./ops-p0-observability.md) | JSON 日志 + `/metrics` + preflight git hook + 推荐运维栈 + 飞书告警 | **从这里开始**——3 天落地（dev-rules 已 PR #11 接入，preflight 仅剩本机装 hook），没有它后两份没有信号源 |
-| 2 | [`ops-qa-full-capture.md`](./ops-qa-full-capture.md) | 用户 API key 调用形成的 QA 数据 **100% 全落盘**（业务硬决策）+ 低成本存储分层 + 月度导出 | P0 跑稳后，约 4 周落地 |
+| 2 | [`ops-qa-full-capture.md`](./ops-qa-full-capture.md) | 用户 API key 调用形成的 QA 数据 **100% 全落盘**（业务硬决策）+ 低成本存储分层 + 月度导出 | P0 跑稳后，约 5 周落地（含 1 周灰度 + Stage 1.5） |
 | 3 | [`ops-cron-agent-workflow.md`](./ops-cron-agent-workflow.md) | OPC 自动化闭环：error-clustering cron + Agent 草拟 PR（**MVP 版**，其余 cron 在 v2 backlog） | 文档 2 跑稳 1 个月后，约 4 周落地（Stage 2A 1 周开发 + 2 周 issue-only 观察 + Stage 2B 1 周开 Agent） |
 
 **Upstream 友好原则**：所有新增代码进 `*_tk_*.go` 同伴文件或 fork-only 目录（[`internal/integration/newapi/`](../../backend/internal/integration/newapi/)、`internal/observability/` 新目录），upstream-owned 文件改动控制在"一行 hook"级别。详见 [`CLAUDE.md`](../../CLAUDE.md) §5。
@@ -106,7 +106,7 @@ $ rg "PrometheusMetrics|/metrics" backend/internal/server/
 (空)
 ```
 
-当前指标只有 6 个（bridge dispatch、affinity、payment webhook），**严重不足以支撑 SLO**——缺核心 QPS、p99 延迟、按平台/模型/账号的错误率。
+**现有指标只有 6 个**（bridge dispatch、affinity、payment webhook），**严重不足以支撑 SLO**——缺核心 QPS、p99 延迟、按平台/模型/账号的错误率。本文 §2.2 将**新增 6 类核心指标**，覆盖 SLO 必需面（与现有 6 个共存，不替换）。
 
 ### 2.2 改动方案
 
@@ -202,7 +202,7 @@ routes.RegisterMetricsRoute(r)
 | CI `.github/workflows/backend-ci.yml` 已加 `preflight` job（`submodules: recursive` + 跑 `dev-rules/templates/preflight.sh` 8 段） | ✅ 已接入 | PR #11 |
 | 项目级 `scripts/preflight.sh` wrapper | ❌ **故意不创建** | [`CLAUDE.md`](../../CLAUDE.md) §10 |
 | `scripts/check_approved_docs.py` | ❌ 已上提到 `dev-rules/scripts/` | PR #11 |
-| 本机 git pre-commit hook (`.git/hooks/pre-commit`) | ❓ 视开发者而定（hook 不进 git） | 见 §3.2 |
+| 本机 git pre-commit hook (`.git/hooks/pre-commit`) | ⚠️ 一次性 onboarding 动作（hook 不进 git，每位开发者各装一次） | 见 §3.2 |
 
 **P0-3 实际剩余工作**：每个开发者本地跑一次 `bash dev-rules/templates/install-hooks.sh` 装 hook，工作量 < 1 分钟。文档化为"新人 onboarding checklist"即可。
 
@@ -260,7 +260,7 @@ bash dev-rules/templates/install-hooks.sh
 
 - 故意 `git checkout -b mybranch` 后 commit → hook 段 1 拒绝（"branch 'mybranch' does not match required prefix"）。
 - 故意改 `dev-rules/rules/*.mdc` 但不 `dev-rules/sync.sh --local` → hook 段 3 拒绝（drift）。
-- 在 main 分支模拟一个 `approved_by: pending` 的 docs/approved/* 文件 → hook 段 7 R5 拒绝。
+- 验证 R5（`approved_by: pending` 拦截）：R5 只在 `main`/`master` 分支触发（详 `dev-rules/templates/preflight.sh` 段 7），本地 feature 分支不触发，**只能在 PR 合 main 之前由 CI preflight job 兜底**——故意提一个保留 `pending` 的 PR 跑 CI，应看到 preflight job fail。
 - `./dev-rules/templates/preflight.sh` 在干净的 main 分支必须 0 fail（段 4/5 skip 不算 fail）。
 
 > P0-3 不增加任何代码改动，只是把"已经在 main 的能力"装到本机 hook。如果开发者已经从其他项目装过同名 hook，跳过本步即可。
@@ -389,7 +389,7 @@ bash dev-rules/templates/install-hooks.sh
 
 ```mermaid
 gantt
-    title P0 三件事时间盒（按 OPC 顺序串行）
+    title P0 三件事时间盒（实施串行，验收并行 P0-1/P0-2 期间穿插）
     dateFormat YYYY-MM-DD
     section P0-1
     JSON 日志默认值翻转       :p1a, 2026-04-22, 0.5d
@@ -399,16 +399,18 @@ gantt
     扩展核心指标集            :p2b, after p2a, 1d
     section P0-3
     装 git pre-commit hook   :p3a, after p2b, 0.1d
-    section 验收
-    Grafana Cloud 接入 + agent  :v1, after p3a, 1d
-    3 个 dashboard + 3 告警   :v2, after v1, 1d
+    section 验收（与 P0-1/2 并行）
+    Grafana Cloud 接入 + Alloy agent  :v1, 2026-04-22, 1d
+    3 个 dashboard + 3 告警           :v2, after v1, 1d
 ```
 
-**总计：3 天人力**（不含审批等待）。明细：
+**总计：约 3 天人力**（不含审批等待）。明细：
 - **P0-1** = 1d（0.5+0.5）
 - **P0-2** = 1.5d（0.5+1）
 - **P0-3** ≈ 0.1d（仅本机一行 `bash dev-rules/templates/install-hooks.sh`；dev-rules submodule + CI preflight job 已在 main，PR #11）
-- **验收** = 2d（Grafana Cloud 注册 + Alloy agent + 3 dashboard + 3 飞书告警）≈ 与 P0 实现并行
+- **验收** = 2d（Grafana Cloud 注册 + Alloy agent + 3 dashboard + 3 飞书告警）—— **与 P0-1/P0-2 实施期并行**（注册/创建 dashboard 不依赖代码完成）
+
+**关键路径**：实施段 1+1.5+0.1 ≈ 2.6d，验收并行不延长关键路径，按日历约 3 天可完工。
 
 **审批门禁顺序**（按 [`product-dev.mdc`](../../.cursor/rules/product-dev.mdc) §"产品研发工作流"）：
 1. 本设计文档 merge → reviewer 把 `approved_by: pending` 改为真名（preflight 段 7 R5 在 main 分支强制），进入功能实现

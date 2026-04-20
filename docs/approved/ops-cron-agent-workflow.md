@@ -15,7 +15,7 @@ focus: 错误自动发现 + 自动出修复提案
 **MVP 范围**：仅 **1 个检测 cron**（`error-clustering-daily`）+ **1 份观察周报**（`weekly-product-pulse`）+ **1 个 Agent composite action**（`agent-draft-pr`）。其他 4 个候选 cron（slo-budget / cost-anomaly / slow-request / account-health）进 §13 v2 backlog——**不做即不维护**。
 
 **两阶段落地（信号先证、行动后赌）**：
-- **Stage 2A（2 周 issue-only）**：cron 跑聚类 + 飞书摘要 + GitHub issue;Agent step `if: false` 暂关
+- **Stage 2A（1 周开发 + 2 周 issue-only 观察）**：cron 跑聚类 + 飞书摘要 + GitHub issue;Agent step `if: false` 暂关
 - **Stage 2B（1 周开 Agent）**：2A 过门后启用 `agent-draft-pr`,产 draft PR
 
 **为什么从 1 个 cron + 两阶段开始**：OPC "对一千件事说不"——先用真实运行 1 个月的证据决定下一个 cron 该不该上，避免一次性堆 6 个 workflow（4 个未必用到，但全要写、要测、要维护、要监控）。两阶段的好处是不让"信号准确性"和"Agent 行动质量"两个未知数同时赌。Stage 2 落地总人力从原案的 6 周降为 **1+2+1=4 周（其中 2 周仅观察）**。
@@ -52,7 +52,7 @@ qa_records + ops_error_logs (来自文档 2)
 
 **待落地依赖（Stage 2B 启用前必须完成）**：
 1. `scripts/setup-claude-code.sh`（详 §7 清单；MVP 期 composite action 内已加 `npm` 兜底）
-2. 项目级 `scripts/preflight.sh` wrapper（详 §6.2；引入即同步追加段 12-13）
+2. 项目级 `scripts/preflight.sh` wrapper（详 §6.2；引入即同步追加段 9-10，紧贴 dev-rules 模板的 1-8 段）
 
 **审批门禁约束（R5）**：本文档 frontmatter `approved_by: pending`。dev-rules preflight 段 7 R5 在 `main`/`master` 分支会拒绝任何 `approved_by: pending` 的 approved doc 落地——合 main 前必须由 reviewer 把 frontmatter 改为真名。
 
@@ -455,8 +455,8 @@ runs:
 | 约束 | 实现 |
 |------|------|
 | **永远 draft，永远人审** | `gh pr create --draft` |
-| **改动量上限 200 行** | preflight 段加 `git diff --stat HEAD~1 \| awk '{s+=$3}END{exit (s>200)}'` |
-| **禁修敏感目录** | preflight 段加 `git diff --name-only HEAD~1 \| grep -E '(ent/(?!schema)\|wire_gen\|migrations\|docs/approved\|CLAUDE\.md\|dev-rules)' && exit 1` |
+| **改动量上限 200 行** | composite action 在 `git push` 前自查：`git diff --stat HEAD~1 \| awk '$1!="" {s+=$3}END{exit (s>200)}'` —— 超出立即 fail，不开 PR |
+| **禁修敏感目录** | composite action 在 `git push` 前自查（**`ent/` 下仅允许 `ent/schema/` 改动**，其余生成代码禁改）：<br>`git diff --name-only HEAD~1 \| awk '/^ent\// && !/^ent\/schema\// {print; bad=1} /wire_gen/ {print; bad=1} /^backend\/migrations\// {print; bad=1} /^docs\/approved\// {print; bad=1} /^CLAUDE\.md$/ {print; bad=1} /^dev-rules\// {print; bad=1} END {exit bad+0}'`<br>—— awk ERE 不支持 PCRE 的负向先行断言 `(?!schema)`，故拆为两条规则联合（`^ent/` 命中且非 `^ent/schema/` 才视为违规）；命中任意一条立即 `exit 1` |
 | **必须跑全套 preflight** | composite action 中显式 `[ -x scripts/preflight.sh ] && ./scripts/preflight.sh \|\| ./dev-rules/templates/preflight.sh` (与本机 hook + CI `backend-ci.yml` preflight job 走同一脚本) |
 | **冷却机制** | composite action 的 cooldown step（**基于 PR label `cluster-sig:<sha-12>`** + 7 天 createdAt 过滤；**不**基于 title 字符串匹配——v1 设计中 PR 标题不含 signature 导致永远 miss） |
 | **预算上限** | `--max-budget-usd 2.00` per task |
@@ -585,7 +585,7 @@ sequenceDiagram
 
 | 阶段 | 包含的内容 | 落地文档 | 工期 |
 |------|-----------|---------|------|
-| Stage 1（感官） | JSON 日志 + `/metrics` + preflight git hook + Grafana Cloud Free + QA capture | 文档 1 + 文档 2 | 3 天 + 4 周（dev-rules submodule 已通过 PR #11 接入 main） |
+| Stage 1（感官） | JSON 日志 + `/metrics` + preflight git hook + Grafana Cloud Free + QA capture | 文档 1 + 文档 2 | 3 天 + 5 周（dev-rules submodule 已通过 PR #11 接入 main） |
 | Stage 1.5（最小消费） | QA 落地 D+1：daily failure top-10 飞书摘要（纯 SQL + jq） | 文档 2 §10 | 1 天 |
 | **Stage 2A（信号验证，2 周 issue-only）** | `error-clustering-daily` 跑 cluster + 开 issue（**Agent PR 步骤暂关**）；`weekly-product-pulse` 同步上线 | 本文档 §2 | 1 周开发 + 2 周观察 |
 | **Stage 2B（反射弧，开 Agent）** | 2A 跑稳后开 `agent-draft-pr` composite action | 本文档 §3 | 1 周 |
@@ -599,7 +599,7 @@ sequenceDiagram
 **Stage 2A（issue-only）期间的具体动作**：
 - `error-clustering-daily.yml` 跑全套聚类 + 输出报告 artifact + 飞书摘要
 - 不调 `agent-draft-pr` composite action（在 workflow 里把 `Trigger Agent PR` step 暂时 comment 掉或 `if: false`）
-- 改为开 GitHub issue（`peter-evans/create-or-update-issue` 幂等），label `cluster-detected,needs-triage`
+- 改为开 GitHub issue（**通过 `gh issue` CLI + `cluster-sig:<sha-12>` label 做幂等**——查到同 label 开放 issue 则评论新报告，否则新建；详 §2.1 workflow 中 `Open / reuse cluster issue` step），label `cluster-detected,needs-triage,automated`
 - 人在 issue 里以"如果信号准确,我会怎么改"格式回复 → 数据用于评估
 
 **过门到 2B 的条件**（必须全部满足）：
@@ -629,27 +629,27 @@ sequenceDiagram
 
 ### 6.1 与 dev-rules 8 段的分工
 
-[`dev-rules/templates/preflight.sh`](../../dev-rules/templates/preflight.sh) 已固定 8 段（分支命名、submodule 顺序、`.cursor/rules/` drift、契约 drift、story/test、approved doc 改动、approved 不变量 R1-R5、stat 漂移），覆盖通用规则。本节段 12-13 是 **sub2api-specific OPC 自动化逻辑**（关联 GitHub issue/PR 状态），按 [`CLAUDE.md`](../../CLAUDE.md) §10 "Add `scripts/preflight.sh` later only if a sub2api-specific check emerges that doesn't belong in dev-rules" 规定，**应作为项目 wrapper 引入**。
+[`dev-rules/templates/preflight.sh`](../../dev-rules/templates/preflight.sh) 已固定 8 段（分支命名、submodule 顺序、`.cursor/rules/` drift、契约 drift、story/test、approved doc 改动、approved 不变量 R1-R5、stat 漂移），覆盖通用规则。本节段 9-10 是 **sub2api-specific OPC 自动化逻辑**（关联 GitHub issue/PR 状态），按 [`CLAUDE.md`](../../CLAUDE.md) §10 "Add `scripts/preflight.sh` later only if a sub2api-specific check emerges that doesn't belong in dev-rules" 规定，**应作为项目 wrapper 引入**。
 
 ### 6.2 何时引入 wrapper
 
 | 阶段 | wrapper 状态 | 理由 |
 |---|---|---|
 | P0 / 文档 2 落地期 | ❌ 不引入 | 没有"待处理 auto PR"概念，引入即冗余 |
-| Stage 2A（issue-only 试运行） | ❌ 不引入 | 没有 auto PR，段 12 永远跳过 |
-| **Stage 2B（开 Agent PR 当周）** | ✅ 引入 `scripts/preflight.sh`（追加段 12-13 后 `exec dev-rules/templates/preflight.sh`） | 段 12 真正起守门作用 |
+| Stage 2A（issue-only 试运行） | ❌ 不引入 | 没有 auto PR，段 9 永远跳过 |
+| **Stage 2B（开 Agent PR 当周）** | ✅ 引入 `scripts/preflight.sh`（开头 `exec` dev-rules 模板的 1-8 段，末尾追加段 9-10） | 段 9 真正起守门作用 |
 
 **引入步骤**（Stage 2B Day 0）：
-1. 新建 `scripts/preflight.sh`，开头 `exec` dev-rules 模板，末尾追加段 12-13（见 §6.3）
+1. 新建 `scripts/preflight.sh`，开头 `exec` dev-rules 模板，末尾追加段 9-10（见 §6.3）
 2. CI `backend-ci.yml` preflight job 已写 `if [ -x scripts/preflight.sh ]; then ./scripts/preflight.sh; else ./dev-rules/templates/preflight.sh; fi`，**无需改 CI**
 3. 本机 hook 同样自动改走 wrapper（`install-hooks.sh` 同款 fallback）
 4. 在 [`docs/preflight-debt.md`](../../docs/preflight-debt.md) 追加事件记录"为 sub2api-specific Agent OPC 检查重新引入项目 wrapper"
 
-### 6.3 wrapper 末尾追加的 sub2api-specific 段（命名空间 ≥ 9，避开 dev-rules 1-8）
+### 6.3 wrapper 末尾追加的 sub2api-specific 段（紧贴 dev-rules 模板 1-8 段，本仓库占用 9-10，预留 11 给 v2 SLO）
 
 ```bash
-# 段 12: 自动 Agent PR 待处理数 ≤ 5
-# 仅对 feature/* / chore/* / docs/* 分支生效;fix/* 与 merge/upstream-* bypass
+# 段 9: 自动 Agent PR 待处理数 ≤ 5
+# 仅对 feature/* / chore/* / docs/* 分支生效;fix/* / hotfix/* / merge/upstream-* bypass
 # (修 P1 本身就要 commit,不能让守门变成死锁)
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 case "$BRANCH" in
@@ -664,7 +664,7 @@ case "$BRANCH" in
     ;;
 esac
 
-# 段 13: P1 issue 待处理数 — 仅作 warning,不 block commit
+# 段 10: P1 issue 待处理数 — 仅作 warning,不 block commit
 # (v1 设计 block commit 是死锁:修 P1 的 PR 自己也要 commit;改为飞书提醒由人盯)
 P1_OPEN=$(gh issue list --label p1 --state open --json number 2>/dev/null | jq length)
 if [ "${P1_OPEN:-0}" -gt 0 ]; then
@@ -672,11 +672,11 @@ if [ "${P1_OPEN:-0}" -gt 0 ]; then
 fi
 ```
 
-**段 14（SLO 预算守门）随 v2 `slo-budget-hourly` 一起启用**——MVP 期没有 SLO 预算指标可查，预先写检查会永远 warning，反而稀释信号。
+**段 11（SLO 预算守门）随 v2 `slo-budget-hourly` 一起启用**——MVP 期没有 SLO 预算指标可查，预先写检查会永远 warning，反而稀释信号。
 
 这把"自动报告"从"看了就忘"升级为"必须处理"。是 OPC 自动化哲学的硬约束。
 
-**v1 设计 bug 修复说明**：v1 草稿的段 13 写 `[ $P1_OPEN -gt 0 ] && exit 1` —— 修 P1 的 PR 自己也要 commit,会被自己的守门阻死。本版改为 warning + 段 12 仅对非 fix 分支生效,既保留"P1 优先"信号又不死锁。
+**v1 设计 bug 修复说明**：v1 草稿的段 10（原编号段 13）写 `[ $P1_OPEN -gt 0 ] && exit 1` —— 修 P1 的 PR 自己也要 commit,会被自己的守门阻死。本版改为 warning + 段 9 仅对非 fix 分支生效,既保留"P1 优先"信号又不死锁。
 
 ---
 
@@ -734,8 +734,8 @@ fi
 - [ ] composite action `agent-draft-pr` 可以基于一份 mock 报告生成 draft PR（Stage 2B 启用前测试）
 - [ ] **冷却机制基于 PR label**（`cluster-sig:<sha-12>`）+ 7 天 createdAt 过滤，故意触发同 cluster 两次确认第二次跳过
 - [ ] **Prompt 包含真实报告内容**（用 `python str.replace` 注入）：触发后查 `/tmp/agent-prompt.txt` 应含报告而非字面 `$(cat ...)`
-- [ ] preflight 段 12 生效：feature 分支制造 6 个 auto PR → preflight fail；fix 分支同条件 → bypass 成功
-- [ ] preflight 段 13 不阻断 commit（仅 warning），故意 open 一个 P1 issue 后正常 commit
+- [ ] preflight 段 9 生效：feature 分支制造 6 个 auto PR → preflight fail；fix 分支同条件 → bypass 成功
+- [ ] preflight 段 10 不阻断 commit（仅 warning），故意 open 一个 P1 issue 后正常 commit
 
 ### 质量（Stage 2A 过门指标）
 - [ ] Issue 信号语义正确率 ≥ 80%（人工抽查 20 个 issue）
@@ -764,7 +764,7 @@ fi
 | 飞书 webhook URL 泄漏（公开仓库） | 中（任意人可向群发垃圾） | v1 兜底：旋转 webhook + GitHub secret scanning + 群机器人收口"群内可用"；v2 升级：sidecar 加签名校验（详见文档 1 §4.3） |
 | 飞书机器人被踢出群 | 低（通知静默丢失） | preflight 段加冒烟测试,每周自动跑一次 webhook ping |
 | Claude API 成本失控 | 低（per-task budget cap） | 全局环境变量 `MAX_BUDGET=0` 一键关闭 |
-| 自动报告变成"看了就忘" | **高** | 必须开 preflight 段 12-14 守门 |
+| 自动报告变成"看了就忘" | **高** | 必须开 preflight 段 9-11 守门（Stage 2B Day 0 引入 wrapper） |
 | Agent 暴露生产 secrets | 中（GitHub Actions secret masking） | 严格用 `PROD_*_READONLY` 命名 + IAM 最小权限 |
 
 ---
@@ -786,9 +786,9 @@ fi
 
 ### 13.1 `slo-budget-hourly.yml`
 
-- **目标**：每小时计算月度错误预算消耗百分比，预算 < 20% 时开/更新单一 SLO issue（`peter-evans/create-or-update-issue` 实现幂等）。
+- **目标**：每小时计算月度错误预算消耗百分比，预算 < 20% 时开/更新单一 SLO issue（用 `gh issue` CLI + 固定 label `slo-budget` 做幂等，与 §2.1 cluster issue 同模式）。
 - **启用条件**：MVP 跑满 1 个月 + 已经被人为发现 ≥1 次"错误率持续高但没人盯"的事件。
-- **实现新增**：`scripts/slo_budget/`（Go 程序，查 Prometheus）+ workflow yml + preflight 段 14（SLO 预算 < 50% 时 warning）。
+- **实现新增**：`scripts/slo_budget/`（Go 程序，查 Prometheus）+ workflow yml + preflight 段 11（SLO 预算 < 50% 时 warning）。
 
 ### 13.2 `cost-anomaly-daily.yml`
 

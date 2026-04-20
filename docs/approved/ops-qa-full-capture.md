@@ -253,6 +253,7 @@ sequenceDiagram
 ```
 backend/internal/observability/qa/
 ├── service.go          # QACaptureService
+├── types.go            # CaptureInput / RawSSEChunk / 内部 DTO（被 handler hook 引用,§3.2）
 ├── worker_pool.go      # 复用 usageRecordWorkerPool 模式
 ├── sse_tee.go          # 顶层 ResponseWriter wrapper + 请求体 tee（§3.3 + §3.3.1）
 ├── blob_writer.go      # 对象存储抽象（S3 / MinIO / 本地 fs）
@@ -273,7 +274,7 @@ backend/internal/observability/qa/
 
 #### Hook 类 A — handler 内提交 capture（拿元数据用）
 
-各平台 handler 的 `submitUsageRecordTask` 紧邻位置（如 `gateway_handler.go` 约第 1742 行 / `openai_chat_completions.go` 等），各加**一行**：
+各平台 handler 中 `submitUsageRecordTask(...)` 的**调用点**紧邻位置（参考：[`gateway_handler.go`](../../backend/internal/handler/gateway_handler.go) 当前在第 473、815 行调用，定义在 1742；行号会随 upstream merge 漂移，以 `grep -n "submitUsageRecordTask(" backend/internal/handler/` 实时定位为准），各加**一行**：
 
 ```go
 h.QACapture.SubmitFromGateway(ctx, captureInput) // TK qa-capture
@@ -293,7 +294,7 @@ gatewayGroup.Use(qa.SSETeeMiddleware(qaService)) // TK qa-capture stream sniff
 
 middleware 的唯一职责是包 `c.Writer` 为 tee 实例并塞进 `ctx`,**不做业务判断**——tee 是被动透传字节的 `gin.ResponseWriter`,handler 写流量时同步 sniff;handler 退出后 `qaService.SubmitFromGateway` 从 `ctx` 取 `tee.Snapshot()`。这与"中间件做业务"是两码事——它做的是"字节拦截",不是"业务编排"。
 
-**Hook 总数**:N 个 handler 各 1 行 + 1 个 middleware 注册 + 0 个 SSE 解码层(v0 草稿是 N+M,v1 是 N+1)。
+**Hook 总数**:5 个平台 handler（claude / openai / gemini / antigravity / newapi）各 1 行 + 1 个 middleware 注册 + 0 个 SSE 解码层（v0 草稿是 N+M,v1 是 5+1=6 行 upstream-owned 改动）。
 
 ### 3.3 SSE 流式聚合（**顶层 ResponseWriter wrapper,非 SSE 解码层 hook**）
 
@@ -625,7 +626,7 @@ gantt
     daily failure top-10 飞书摘要 cron :s15, after t2, 1d
 ```
 
-**总计：约 4 周人力**（含灰度上线 + Stage 1.5）。
+**总计：约 5 周人力**（含灰度上线 5d + Stage 1.5）。明细按 mermaid 串行求和：Schema 3d + Capture 链路 7.5d + CLI/端点 4d + 部署 2d + 测试灰度 8d + Stage 1.5 1d ≈ 25.5 工作日。Schema 与 Capture 链路开发期可与对象存储部署并行（自建 MinIO 配置不阻塞），实际关键路径约 4-5 周。
 
 **Stage 1.5（D+1 即开消费）**——v0 草稿到文档 3 落地有 1 个月空窗,QA 数据只堆不消费,运维感知"做了一堆没回报"。**Stage 1.5 在 QA 上线 D+1 立即开**:
 
