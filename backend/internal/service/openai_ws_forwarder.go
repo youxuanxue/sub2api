@@ -3833,14 +3833,20 @@ func (s *OpenAIGatewayService) SelectAccountByPreviousResponseID(
 	if s.getOpenAIWSProtocolResolver().Resolve(account).Transport != OpenAIUpstreamTransportResponsesWebsocketV2 {
 		return nil, nil
 	}
-	if shouldClearStickySession(account, requestedModel) || !account.IsOpenAI() || !account.IsSchedulable() {
+	// TK: scheduling-pool platform threading; see
+	// docs/approved/newapi-as-fifth-platform.md §3.1 (extension: design listed
+	// only the openai_gateway_service.go IsOpenAI() filters, but the same
+	// filter exists in this previous_response_id sticky path; both must move
+	// together to preserve the no-mixing guarantee).
+	groupPlatform := s.resolveGroupPlatform(ctx, groupID)
+	if shouldClearStickySession(account, requestedModel) || !account.IsOpenAICompatPoolMember(groupPlatform) || !account.IsSchedulable() {
 		_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
 		return nil, nil
 	}
 	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
 		return nil, nil
 	}
-	account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, requestedModel)
+	account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, requestedModel, groupPlatform)
 	if account == nil {
 		_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
 		return nil, nil
