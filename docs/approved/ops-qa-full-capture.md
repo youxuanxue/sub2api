@@ -4,14 +4,14 @@ status: Draft
 approved_by: pending
 created: 2026-04-19
 owners: [tk-platform]
-depends_on: [p0-observability-quickwins.md]
+depends_on: [ops-p0-observability.md]
 ---
 
 # QA 数据 100% 全落盘 — 低成本改造、存储、定期导出
 
 ## 0. TL;DR
 
-**目标**：用户通过 API key 调用 LLM 形成的 **prompt + completion + tool_calls + 多模态指针** 全部落盘，错误样本与采样样本同等待遇，符合 OPC 单人公司"低成本 + 自动化 + 合规"三铁律。
+**目标**：用户通过 API key 调用 LLM 形成的 **prompt + completion + tool_calls + 多模态指针** **100% 全落盘（业务硬决策,无采样）**——错误样本与成功样本同等待遇,符合 OPC 单人公司"低成本 + 自动化 + 合规"三铁律。
 
 **核心架构**：
 
@@ -50,7 +50,7 @@ depends_on: [p0-observability-quickwins.md]
 
 ## 1. 现状回顾（与文档 1 同步基线）
 
-[`docs/ops/p0-observability-quickwins.md`](./p0-observability-quickwins.md) 已盘点 8 类日志。**对话正文当前完全不入库**，仅有：
+[`docs/approved/ops-p0-observability.md`](./ops-p0-observability.md) 已盘点 8 类日志。**对话正文当前完全不入库**，仅有：
 
 - [`backend/ent/schema/usage_log.go`](../../backend/ent/schema/usage_log.go)：仅 token 数与成本，**无文本列**
 - [`backend/internal/service/usage_billing.go`](../../backend/internal/service/usage_billing.go) + [`backend/internal/repository/usage_billing_repo.go`](../../backend/internal/repository/usage_billing_repo.go)：请求体 SHA256 用于扣费指纹，**不可反查**
@@ -68,7 +68,7 @@ depends_on: [p0-observability-quickwins.md]
 新建 ent schema `backend/ent/schema/qa_record.go`（**fork-only 新增**，本方案落地后产生）：
 
 ```go
-// 字段清单（最小实用集，避免过度设计）
+// 字段清单（最小实用集；每列必须有"当前已存在的查询"支撑——Jobs"挣得位置"）
 type QARecord struct{ ent.Schema }
 
 func (QARecord) Fields() []ent.Field {
@@ -99,16 +99,11 @@ func (QARecord) Fields() []ent.Field {
         field.String("request_sha256"),       // 与 usage_billing fingerprint 一致
         field.String("response_sha256"),
         field.String("blob_uri").Nillable(),  // s3://bucket/qa_blobs/2026/04/<request_id>.json.zst
-        field.Int("blob_size_bytes").Default(0),
-        // v1 不存 storage_class——统一 standard 由对象存储 lifecycle policy 自动转 IA/Glacier；
-        // 触发条件（成本失控）满足后再回来加列。
 
-        // 异常标签（自动聚类用）
+        // 异常标签（自动聚类用,文档 3 §2.1 的 signature 算法当前不直接 group by tags,
+        // 但写入便宜,作为未来 cluster 算法升级的扩展点保留）
         field.JSON("tags", []string{}).Default([]string{}),
         // 例: ["error_5xx", "slow_p99", "tool_loop", "tokens_overflow", "redacted_prompt"]
-
-        field.JSON("redactions", []map[string]any{}).Default([]map[string]any{}),
-        // 例: [{"path": "messages[0].content", "reason": "email_pattern"}]
 
         field.Time("created_at").Default(time.Now).Immutable(),
         field.Time("retention_until"),  // v1: capture 时统一 = created_at + 60d
@@ -121,16 +116,63 @@ func (QARecord) Indexes() []ent.Index {
         index.Fields("api_key_id", "created_at"),
         index.Fields("user_id", "created_at"),
         index.Fields("platform", "status_code", "created_at"),
-        index.Fields("tags"),  // GIN index for tag-based clustering
+        // 注:tags GIN 索引 v1 不建——文档 3 当前聚类用 signature 而非 tag group by;
+        // GIN 写入放大 + VACUUM 负担实测显著(tags 列变更频繁时尤甚)。
+        // 等真出现 "WHERE tags ?| array['x','y']" 查询频率 > 100/h 时再加,届时一行 SQL 即可。
     }
 }
 ```
 
+**v1 删的列（与 v0 草稿差异）**：
+| 列 | 删除理由 |
+|---|---|
+| `blob_size_bytes` | 消费方仅 v2 backlog 的 cost-anomaly cron;v1 用不到,v2 启用时 `ALTER TABLE` 一行加回 |
+| `redactions` JSON | 99% query 路径不查它;**移入 blob JSON**(blob 本来就有 `redactions` 字段,§2.2);PG 表少一列 → 索引页更紧凑 + pg_dump 更快 |
+
 **migration 策略**：
 - 新建 [`backend/migrations/tk_004_create_qa_records.sql`](../../backend/migrations/)（按 [`CLAUDE.md`](../../CLAUDE.md) §5 fork-only 命名约定，与 upstream 数字编号空间隔离；当前 upstream 编号已到 107，TK 命名空间已用至 `tk_003`）
 - 启用 PG 原生 **declarative partitioning**：按 `created_at` 月分区，分区表名 `qa_records_2026_04` 等
-- 配合 [`pg_partman`](https://github.com/pgpartman/pg_partman) 自动建未来分区（cron 每周触发）
-- **不建议手写分区**——上次有人这么做最后成了运维 debt
+- **不引入 pg_partman 扩展**——v1 用 GitHub Actions 月度 cron 建下月分区（约 20 行 SQL，零 PG 扩展依赖），见 §2.1.1。等分区数 > 24（约 2 年）再考虑 pg_partman。OPC "依赖最小化"。
+- **不建议手写每分区** SQL——下面 §2.1.1 的 cron 是参数化的,只要写一次。
+
+#### 2.1.1 GitHub Actions 月度建分区 cron（替代 pg_partman）
+
+```yaml
+# .github/workflows/qa-records-partition-monthly.yml（fork-only 新增）
+name: QA Records — create next month partition
+on:
+  schedule:
+    - cron: '0 1 25 * *'   # 每月 25 号 01:00 UTC,提前一周建下月分区
+  workflow_dispatch:
+
+jobs:
+  partition:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create next month partition
+        env:
+          PG_DSN: ${{ secrets.PROD_PG_DSN }}   # 需要写权限
+        run: |
+          NEXT=$(date -u -v+1m +%Y-%m 2>/dev/null || date -u -d 'next month' +%Y-%m)
+          YYYY=${NEXT%-*}; MM=${NEXT#*-}
+          NEXT_NEXT=$(date -u -v+2m +%Y-%m 2>/dev/null || date -u -d '2 months' +%Y-%m)
+          YYYY2=${NEXT_NEXT%-*}; MM2=${NEXT_NEXT#*-}
+          psql "$PG_DSN" -v ON_ERROR_STOP=1 <<SQL
+          CREATE TABLE IF NOT EXISTS qa_records_${YYYY}_${MM}
+            PARTITION OF qa_records
+            FOR VALUES FROM ('${YYYY}-${MM}-01') TO ('${YYYY2}-${MM2}-01');
+          SQL
+      - name: Notify Feishu on failure
+        if: failure()
+        env:
+          FEISHU_OPS_WEBHOOK: ${{ secrets.FEISHU_OPS_WEBHOOK }}
+        run: |
+          curl -sS -X POST "$FEISHU_OPS_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d '{"msg_type":"text","content":{"text":"[tk-qa] partition cron failed,下月写入将无分区!"}}'
+```
+
+**为什么这够用**:cron 失败的最坏后果是"下月初写入落到 default 分区"——只要 default 分区存在 `qa_records DEFAULT` 子句,数据不会丢。监控有飞书告警兜底。pg_partman 的复杂场景（自动 detach 老分区 + retention）我们用文档 §4.4 的 ALTER TABLE DETACH 月度脚本处理,同样零扩展依赖。
 
 ### 2.2 对象存储 blob
 
@@ -159,8 +201,8 @@ func (QARecord) Indexes() []ent.Index {
   "stream": {
     "first_chunk_at_ms": 234,
     "chunks": [
-      {"t": 234, "type": "content_block_start", "data": {...}},
-      {"t": 256, "type": "content_block_delta", "data": {...}}
+      {"t": 234, "raw_b64": "ZGF0YTogeyJ0eXBlIjoiY29udGVudF9ibG9ja19zdGFydCIsLi4ufQoK"},
+      {"t": 256, "raw_b64": "ZGF0YTogeyJ0eXBlIjoiY29udGVudF9ibG9ja19kZWx0YSIsLi4ufQoK"}
     ]
   },
   "redactions": [...],
@@ -169,7 +211,7 @@ func (QARecord) Indexes() []ent.Index {
 ```
 
 **关键决策**：
-- **流式 chunks 全留**——这是后续做"模型行为分析"的核心信号（哪个模型在第几个 chunk 卡顿）。但只留 chunk 元信息和 delta 摘要，不留每个字节，控制体积。
+- **流式 chunks 100% 全留**——这是后续做"模型行为分析"的核心信号（哪个模型在第几个 chunk 卡顿）。**v1 存 raw SSE wire bytes（base64 编码）**而非 typed delta,符合"100% 落盘"业务硬决策的最强解释（业务约束未变化,只是落得更原始）;ZSTD 压缩后体积与 typed JSON 相当,且解析延后到分析时（§3.3）。
 - **headers 走白名单**——只保留 `content-type / user-agent / x-request-id / accept-encoding`，其余一律 drop（避免泄漏 cookie、地址等）。
 - **JSON body 整体过 [`logredact.RedactText`](../../backend/internal/util/logredact/redact.go) + `sanitizeAndTrimRequestBody`** 已有链路（[`backend/internal/service/ops_service.go`](../../backend/internal/service/ops_service.go) 406-477）。
 - **多模态附件**（图片/音频）**只存 SHA256 + size + MIME**，**不存原始字节**——用户上传的图可能是隐私敏感（人脸/证件），落盘风险远大于价值。如未来需要，单独做"用户主动开启的多模态归档"功能。
@@ -210,42 +252,106 @@ sequenceDiagram
 backend/internal/observability/qa/
 ├── service.go          # QACaptureService
 ├── worker_pool.go      # 复用 usageRecordWorkerPool 模式
+├── sse_tee.go          # 顶层 ResponseWriter wrapper + 请求体 tee（§3.3 + §3.3.1）
 ├── blob_writer.go      # 对象存储抽象（S3 / MinIO / 本地 fs）
-├── redact_pipeline.go  # 复用 ops_service 的脱敏链路
+├── dlq.go              # 本地文件 dead-letter（§8.3,不新建 PG 表）
+├── redact_pipeline.go  # 复用 ops_service 的脱敏链路;支持 typed JSON 与 raw SSE bytes（§3.3.2）
 ├── tags.go             # 异常标签自动打标
-├── exporter.go         # 月度 Parquet 导出
+├── exporter.go         # 月度 Parquet 导出 + 用户级 presigned URL 导出（§5.2）
 └── service_test.go
-# 注: v1 单一 60d 保留期, retention_until = created_at + 60d 直接在 service.go capture 时算,
-#     不另起 retention.go 模块——避免"为想象的分档功能预留代码骨架"。
+# 注:
+# - v1 单一 60d 保留期, retention_until = created_at + 60d 直接在 service.go capture 时算,
+#   不另起 retention.go 模块——避免"为想象的分档功能预留代码骨架"。
+# - dlq.go 用本地文件 + metric 暴露,不引入新 PG 表,符合 OPC "不多加数据库对象"。
 ```
 
 ### 3.2 接入 hook（upstream 文件改动）
 
-**只在两个点 hook upstream-owned 文件**：
+**两类 hook,各司其职**(handler hook 提交元数据 + middleware sniff 流字节,职责正交):
 
-#### Hook 点 1：[`backend/internal/handler/gateway_handler.go`](../../backend/internal/handler/gateway_handler.go)
+#### Hook 类 A — handler 内提交 capture（拿元数据用）
 
-`submitUsageRecordTask` 紧邻位置（约第 1742-1761 行），新增**一行**：
+各平台 handler 的 `submitUsageRecordTask` 紧邻位置（如 `gateway_handler.go` 约第 1742 行 / `openai_chat_completions.go` 等），各加**一行**：
 
 ```go
 h.QACapture.SubmitFromGateway(ctx, captureInput) // TK qa-capture
 ```
 
-`captureInput` 结构在 fork-only `qa/types.go` 定义，handler 只负责把 `forwardResult` + `requestBytes` + `responseBytes` 打包传过去。
+`captureInput` 结构在 fork-only `qa/types.go` 定义，handler 把 `forwardResult` + `requestBytes` 打包传过去。**响应字节由 §3.3 的 tee 从 `ctx` 取出**,handler 不直接传 `responseBytes`(流式场景 handler 拿不到完整字节)。
 
-#### Hook 点 2：[`backend/internal/handler/openai_chat_completions.go`](../../backend/internal/handler/openai_chat_completions.go) 等 OpenAI/Gemini/Antigravity handler
+**为什么 handler hook 不可省**：中间件拿不到 `forwardResult`（账号选择、上游响应、首 token 时间等业务元数据）——这些在 handler 内决策,强行注入 `gin.Context` 会污染 upstream 接口。元数据走 handler hook,是最小侵入。
 
-同样的一行 hook，紧邻各自的 `submitUsageRecordTask`。
+#### Hook 类 B — middleware 注册 SSE tee（仅 sniff 字节）
 
-**为什么不写中间件？** 中间件层拿不到 `forwardResult`（账号选择、上游响应、首 token 时间等），强行做就要把这些信息往 `gin.Context` 里塞，污染 upstream 接口。一行 handler hook 是最小侵入。
+`backend/internal/server/router.go` 注册 gateway 路由组时新增**一行**：
 
-### 3.3 SSE 流式聚合
+```go
+gatewayGroup.Use(qa.SSETeeMiddleware(qaService)) // TK qa-capture stream sniff
+```
+
+middleware 的唯一职责是包 `c.Writer` 为 tee 实例并塞进 `ctx`,**不做业务判断**——tee 是被动透传字节的 `gin.ResponseWriter`,handler 写流量时同步 sniff;handler 退出后 `qaService.SubmitFromGateway` 从 `ctx` 取 `tee.Snapshot()`。这与"中间件做业务"是两码事——它做的是"字节拦截",不是"业务编排"。
+
+**Hook 总数**:N 个 handler 各 1 行 + 1 个 middleware 注册 + 0 个 SSE 解码层(v0 草稿是 N+M,v1 是 N+1)。
+
+### 3.3 SSE 流式聚合（**顶层 ResponseWriter wrapper,非 SSE 解码层 hook**）
 
 **问题**：流式响应是逐 chunk 写回客户端，handler 没有"完整响应 body"可以传给 capture。
 
-**解决方案**：在现有 SSE 解码层（如 [`backend/internal/service/gateway_forward_as_chat_completions.go`](../../backend/internal/service/) 等）新增一个 **`chunkRecorder`**——实现 `io.Writer` 接口，被动接受每个 chunk，内部累积到 ring buffer 上限（默认 1MB）。流结束时 `chunkRecorder.Snapshot()` 返回完整 chunks 列表给 capture。
+**v1 解决方案（顶层化）**：在 gateway 响应链路顶层（gin middleware 或 handler 入口）包一层 `tee.ResponseWriter`——实现 `gin.ResponseWriter`（含 `http.ResponseWriter` + `http.Flusher` + `http.Hijacker`），所有写入字节按 SSE 协议 `data: \n\n` 边界切分,带时间戳累积到 ring buffer（默认 1MB）。流结束时 `tee.Snapshot()` 返回 `[]RawSSEChunk{Bytes, RecvAtMs}` 给 capture。
 
-**关键**：`chunkRecorder` 是**可选注入**——如果 `qa_capture.enabled=false`，注入 nil writer，零开销。
+```go
+// backend/internal/observability/qa/sse_tee.go (示意)
+type RawSSEChunk struct {
+    Bytes    []byte // 原始 wire bytes,含 "data: " 前缀和 "\n\n" 终止
+    RecvAtMs int64  // 自请求开始的相对毫秒
+}
+
+type teeResponseWriter struct {
+    gin.ResponseWriter
+    startNs int64
+    buf     bytes.Buffer  // 累积当前未完成的 chunk
+    chunks  []RawSSEChunk
+    cap     int           // 默认 1MB
+}
+
+func (t *teeResponseWriter) Write(p []byte) (int, error) {
+    n, err := t.ResponseWriter.Write(p)
+    t.appendAndSplit(p[:n])  // 按 \n\n 切边界
+    return n, err
+}
+```
+
+**与 v0 草稿（每个平台 SSE 解码层 hook）的对比**：
+
+| 维度 | v0 N 处 hook | v1 顶层化 |
+|---|---|---|
+| Hook 点数量 | N 个 SSE handler（每平台 1+） | **1**（顶层 ResponseWriter） |
+| Upstream 重构 SSE 解码 | hook 全失效，需逐个修 | **不受影响**（顶层抽象稳定） |
+| 100% 落盘的"原始性" | 解码后的 typed chunk | **raw wire bytes**，更原始 |
+| 工期 | 2d | **0.5d** |
+| Upstream 冲突等级 | 中（§7 v0 表自己承认） | **低**（仅 1 处 middleware 注册） |
+
+**Trade-off**：blob 中 `stream.chunks` 改为 raw SSE byte slices（不存 typed `content_block_delta` / `text_delta` 等结构化字段）。下游分析（文档 3 聚类）需要时用独立 SSE parser 处理一次——SSE 协议简单（`data: <json>\n\n`），parser 约 30 行,且**只在需要时跑**,不常态消耗。
+
+**关键**：`tee.ResponseWriter` 是**可选注入**——middleware 检查 `qa_capture.enabled` + 用户/key 级开关,关闭时注入原始 `gin.ResponseWriter`,零开销。
+
+#### 3.3.1 请求字节捕获（容易漏的实现陷阱）
+
+`gin.Context.Request.Body` 是 `io.ReadCloser` 一次性流,handler 读完后游标到末尾,后续 capture 无法再读。**v1 在同一个 SSE tee middleware 内顺手做请求体 tee**：
+
+```go
+// sse_tee.go middleware 内
+bodyBytes, _ := io.ReadAll(c.Request.Body)
+_ = c.Request.Body.Close()
+c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))  // 让 handler 还能读
+ctx.Set("qa_request_bytes", bodyBytes)                       // capture 出口取
+```
+
+体积上限走全局 `qa_capture.max_body_kb`（默认 256 KB）配置,超限截断 + 写 `tags=[req_truncated]`。模型 multimodal 上传可能超这个,**业务约束未变**(仍 100% 全落盘),只是 blob 标记截断点 + 用户/key 可临时调高（在 §4 隐私配置中暴露 per-key override）。
+
+#### 3.3.2 脱敏顺序（raw SSE bytes 也必须脱敏）
+
+`redact_pipeline` 必须能消费两种输入:(a) typed JSON request body,(b) raw SSE chunk bytes 数组。后者的脱敏需要先按 `data: <json>\n\n` 解一次帧 → 对每帧 JSON 跑脱敏 → 重写回 raw bytes。**模型输出可能反弹用户给的 token/email**(`Sure, here's your sk-xxx...`)——如果只对请求体脱敏放过响应,会留下与请求体同等敏感的"输出泄漏"。脱敏 → 计算 sha256 → ZSTD → 上传 blob,顺序不可调换(sha256 应基于脱敏后内容,否则就形成"脱敏前指纹"反向反查表)。
 
 ### 3.4 对象存储抽象
 
@@ -309,17 +415,29 @@ type BlobStore interface {
 | `bytea` 列存 blob | TOAST 表膨胀，VACUUM 慢，查询拖累 | pg_dump 100GB+ | 拒绝 |
 | 对象存储 + URI 列 | 索引表瘦长，查询毫秒 | pg_dump 1GB | 采用 |
 
-### 4.4 PG 表生命周期
+### 4.4 PG 表生命周期（与 §2.1.1 同 cron 模式，零 PG 扩展依赖）
 
-```sql
--- 按月分区,7 个月后整分区 DETACH 并归档为单文件 dump
--- 每月 1 号 02:00 cron 触发
-SELECT detach_old_partition('qa_records', '7 months');
-COPY qa_records_2025_09 TO '/backup/qa_records_2025_09.csv.gz' WITH CSV;
-DROP TABLE qa_records_2025_09;
+新建 `.github/workflows/qa-records-archive-monthly.yml`，每月 1 号 02:00 UTC 跑：
+
+```bash
+# 计算 7 个月前的分区表名
+CUTOFF=$(date -u -v-7m +%Y_%m 2>/dev/null || date -u -d '7 months ago' +%Y_%m)
+PART="qa_records_${CUTOFF}"
+
+# 检查分区是否存在,不存在跳过(避免冷启动期重复 fail 告警)
+EXISTS=$(psql "$PG_DSN" -tAc "SELECT to_regclass('public.${PART}') IS NOT NULL")
+[ "$EXISTS" = "t" ] || { echo "no old partition to detach,skip"; exit 0; }
+
+# DETACH + COPY + DROP（DETACH 后表仍可查,COPY 完再 DROP 才安全）
+psql "$PG_DSN" -v ON_ERROR_STOP=1 <<SQL
+ALTER TABLE qa_records DETACH PARTITION ${PART};
+SQL
+psql "$PG_DSN" -c "\COPY ${PART} TO PROGRAM 'gzip > /tmp/${PART}.csv.gz' WITH CSV HEADER"
+aws s3 cp /tmp/${PART}.csv.gz s3://${BUCKET}/qa_archive/${PART}.csv.gz
+psql "$PG_DSN" -c "DROP TABLE ${PART}"
 ```
 
-PG 表保留 6 个月明细 + 月度索引 dump 在对象存储归档（够便宜，归档 6 个月 ~10GB CSV.gz）。
+PG 表保留 6 个月明细 + 月度索引 dump 在对象存储归档（够便宜，归档 6 个月 ~10GB CSV.gz）。**与 §2.1.1 的建分区 cron 同模式**(GitHub Actions + psql + 飞书失败告警),不引入 pg_partman 等 PG 扩展。
 
 ---
 
@@ -367,9 +485,19 @@ jobs:
 
 ### 5.2 用户级数据导出（GDPR 合规要求）
 
-新增端点 `GET /v1/me/qa-data/export?format=zip`（fork-only），返回该 user 所有 `qa_records` + 关联 blob 打包 zip。**异步任务**——大用户可能几 GB，立即返回 task_id，邮件通知下载链接。
+新增端点 `GET /v1/me/qa-data/export?since=YYYY-MM-DD&until=YYYY-MM-DD&format=zip`（fork-only）,**`since` + `until` 必填**(限制单次范围,避免几 GB 包),最大跨度 31 天。
 
-实现：复用现有 [`backend/internal/handler/`](../../backend/internal/handler/) 的异步任务模式（如 backup 模块）。
+**v1 同步生成 + presigned URL**（**不走邮件链路**——SMTP 是新依赖,且 [`CLAUDE.md`](../../CLAUDE.md) §9.2 提到 SMTP 测试假错的历史风险）：
+
+1. 服务端流式生成 zip（`qa_records` JSON 行 + 关联 blob）写入对象存储临时桶 `tk-qa-export-tmp/<user_id>/<request_id>.zip`
+2. 返回 **presigned URL（24h 有效）**给客户端,用户直接 GET 下载
+3. 临时桶配 lifecycle policy 7 天后 expire,自动清理
+
+**31 天跨度上限的兜底**:大用户超出范围请分批 `?since=2026-01-01&until=2026-01-31`,然后 `?since=2026-02-01...`。**v1 不做"分批合并 zip + 邮件下载链接"**——OPC 拒绝多依赖路径。
+
+实现：复用 §3.4 `BlobStore.Put` + AWS SDK `GeneratePresignedURL` API；S3/MinIO 都原生支持。
+
+**v2 才考虑**：单用户单次 > 5GB 的"超大导出"场景（届时再决定是否引入异步邮件链路或 SFTP push）。
 
 ### 5.3 用户级数据删除（GDPR 合规要求）
 
@@ -410,15 +538,16 @@ jobs:
 | `backend/internal/observability/qa/*` | **新增 fork-only 目录** | 全新 ~2000 行 | 零 |
 | `backend/ent/schema/qa_record.go` | **新增 fork-only** | 全新 schema | 零（ent 生成代码每次 regen，§5 已豁免） |
 | `backend/migrations/tk_004_*.sql` | **新增 fork-only**（TK 命名空间） | 全新 SQL | 零（与 upstream 数字编号空间隔离） |
-| `backend/internal/handler/gateway_handler.go` | Upstream-owned | **1 行 hook** | 极低 |
+| `backend/internal/handler/gateway_handler.go` | Upstream-owned | **1 行 hook**（提交 capture） | 极低 |
 | 其他平台 handler | Upstream-owned | 各 1 行 hook | 极低 |
-| SSE forward 文件 | Upstream-owned | 各 2-3 行（注入 chunkRecorder） | 中（依赖 SSE 解码点稳定性） |
+| `backend/internal/server/router.go` 或 gateway middleware 注册点 | Upstream-owned | **1 行**注册 `tee.Middleware()` | 极低 |
+| SSE forward 文件 | Upstream-owned | **0 行**（v1 顶层 ResponseWriter wrapper 取代 v0 SSE 解码层 hook） | **零**（不再依赖 SSE 解码点稳定性,v0 草稿的"中等风险"已消除） |
 | `backend/cmd/server/wire.go` | Mixed | provider 列表 +1 | 低 |
 | `backend/cmd/server/qa_export.go` | **新增 fork-only** | 全新 CLI | 零 |
 | `users` 表加 `qa_capture_enabled` | Upstream schema | migration 加列 | 低（追加列不影响上游） |
 | `api_keys` 表加 `qa_never_capture` | Upstream schema | migration 加列 | 低 |
 
-**SSE 注入点是唯一中等风险**——如果 upstream 重构 SSE 解码，hook 点会失效。**对策**：在 [`docs/preflight-debt.md`](../../docs/) 登记，每次 upstream merge 跑专门的 SSE 集成测试。
+**v1 已消除 v0 草稿的 SSE 中等风险**——v0 在每个平台 SSE 解码层注入 `chunkRecorder`,upstream 重构会失效;v1 改为 gateway 顶层 ResponseWriter wrapper（§3.3）,只依赖 `gin.ResponseWriter` 接口稳定性（与 gin 框架版本绑定,极少破坏性变更）,upstream 业务代码重构不影响。仍建议每次 upstream merge 跑一次"流式 capture 集成测试"作为防御。
 
 ---
 
@@ -448,7 +577,7 @@ jobs:
 
 | 失败 | 影响 | 恢复 |
 |------|------|------|
-| 对象存储不可达 | blob 入 `qa_capture_dead_letter` 表 | 后台 retry worker 每分钟重试，3 次失败永久 dead-letter |
+| 对象存储不可达 | blob 入**本地文件 dead-letter** `${DATA_DIR}/qa_dlq/<request_id>.json.zst`（**不新建 PG 表**——多一张表 = 多一份备份/监控/迁移负担,反 OPC） | 后台 retry worker 每分钟扫目录重试，3 次失败保留 + 写 `qa_records.blob_uri = 'dlq://...'` 标记;`sub2api_qa_dlq_size` gauge metric 暴露给告警 |
 | PG 写入失败 | capture 任务丢弃，**不影响主流程** | 记 metric `sub2api_qa_capture_drops_total`，告警阈值 >1%/h |
 | Worker pool 溢出 | 入队丢弃，best-effort | 同上 metric，扩 worker 数 |
 | ZSTD 压缩失败 | blob 退化为未压缩 JSON | metric 计数，自动告警 |
@@ -457,7 +586,7 @@ jobs:
 
 ## 9. 与 OPC 自动化的衔接
 
-`qa_records` + blob 是文档 3（[`cron-and-agent-pr-workflow.md`](./cron-and-agent-pr-workflow.md)）所有自动化的**信号源**：
+`qa_records` + blob 是文档 3（[`ops-cron-agent-workflow.md`](./ops-cron-agent-workflow.md)）所有自动化的**信号源**：
 
 - **失败聚类**：`SELECT tags, count(*) FROM qa_records WHERE status_code >= 400 GROUP BY tags` → 自动周报
 - **慢请求分析**：`duration_ms > p99 baseline` 的 blob 拉下来给 Agent 看 prompt 模式 → 自动出"加 timeout"或"换模型"建议
@@ -478,7 +607,7 @@ gantt
     用户/API key 开关字段              :s2, after s1, 1d
     section Capture 链路
     QACaptureService + WorkerPool     :c1, after s2, 3d
-    SSE chunkRecorder 注入            :c2, after c1, 2d
+    顶层 SSE tee.ResponseWriter        :c2, after c1, 0.5d
     BlobStore (s3 + miniob + localfs) :c3, after c2, 2d
     脱敏链路复用 + tags 自动标         :c4, after c3, 2d
     section CLI + 端点
@@ -489,10 +618,41 @@ gantt
     standalone compose 加 minio 服务  :d2, after d1, 1d
     section 测试与上线
     单元测试 + 集成测试               :t1, after d2, 3d
-    灰度（1% 采样开始）→ 全量         :t2, after t1, 5d
+    灰度（1% 用户开关 → 全量）        :t2, after t1, 5d
+    section Stage 1.5 (D+1 立即消费)
+    daily failure top-10 飞书摘要 cron :s15, after t2, 1d
 ```
 
-**总计：约 4 周人力**（含灰度上线）。
+**总计：约 4 周人力**（含灰度上线 + Stage 1.5）。
+
+**Stage 1.5（D+1 即开消费）**——v0 草稿到文档 3 落地有 1 个月空窗,QA 数据只堆不消费,运维感知"做了一堆没回报"。**Stage 1.5 在 QA 上线 D+1 立即开**:
+
+```yaml
+# .github/workflows/qa-failure-daily-summary.yml（fork-only 新增,1 天工作量）
+name: QA Failure Daily Summary
+on:
+  schedule:
+    - cron: '0 1 * * *'   # 每日 01:00 UTC
+jobs:
+  summary:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          PG_DSN: ${{ secrets.PROD_PG_READONLY_DSN }}
+          FEISHU_OPS_WEBHOOK: ${{ secrets.FEISHU_OPS_WEBHOOK }}
+        run: |
+          SQL="SELECT platform, status_code, count(*) AS c
+               FROM qa_records
+               WHERE created_at > now() - interval '24 hours' AND status_code >= 400
+               GROUP BY platform, status_code ORDER BY c DESC LIMIT 10"
+          TOP10=$(psql "$PG_DSN" -t -A -F'|' -c "$SQL")
+          curl -sS -X POST "$FEISHU_OPS_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg t "[qa-daily] 24h failure top10:\n$TOP10" \
+              '{msg_type:"text",content:{text:$t}}')"
+```
+
+100 行不到的 cron,QA 落地第一天就有飞书价值。文档 3 §2.1 的 `error-clustering-daily` 上线后,Stage 1.5 cron 可保留也可关（重叠不冲突,关掉一行注释即可）。**Jobs 端到端体验**:用户（运维）从 QA 上线 D+1 起就感知到价值,不等 1 个月。
 
 ---
 
@@ -504,8 +664,9 @@ gantt
 - [ ] 故意带敏感信息（email/phone/key）调用，blob 中相应字段必须 `[REDACTED]`
 - [ ] 流式调用结束后，blob 中 `stream.chunks` 数组非空且时间戳合理
 - [ ] 错误请求（故意 401）→ blob 立即可下载（不等批量 flush）
-- [ ] `GET /v1/me/qa-data/export` 返回 zip 包含该用户全部记录
-- [ ] `DELETE /v1/me/qa-data?before=...` 后 PG + 对象存储均查不到
+- [ ] `GET /v1/me/qa-data/export?since=...&until=...` 返回 200 + presigned URL（24h 有效），URL 直接 GET 下载 zip 内容包含该范围全部记录
+- [ ] 跨度 > 31 天时端点返回 400 + 引导分批
+- [ ] `DELETE /v1/me/qa-data?before=...` 后 PG 同步查不到，blob 在 24h 内（内部 SLA）从对象存储删除
 - [ ] `qa-export` CLI 输出 Parquet 可用 DuckDB `SELECT * FROM 'file.parquet' LIMIT 10` 读取
 
 ### 性能
@@ -535,7 +696,7 @@ gantt
 | PG 分区切换 bug 导致写入失败 | 中（capture 丢失，主流程不受影响） | 切回单表（migration 反向），可用 |
 | `qa-export` CLI 把生产 PG 拉爆 | 中 | export 走 read replica（如有）或限速 1000 行/秒 |
 | 对象存储成本失控 | 中 | lifecycle: 创建 30 天后转 IA、60 天后 expiration（与 v1 retention_until 一致），CloudWatch 设月度预算告警 $10。注：v1 单一 60d 保留期下不会触发 Glacier，只有进 v2 多档保留期后才考虑 90 天 Glacier 转冷 |
-| GDPR 删除请求未及时执行 | 高（合规） | 删除任务必须在 30 天内完成，超时自动告警 + 手动介入 |
+| GDPR 删除请求未及时执行 | 高（合规） | **内部 SLA 24h**（异步 blob 删除 worker 完成）；30 天是 GDPR 法规上限,贴线即风险,OPC 不应贴线。超 24h 自动飞书告警 + 升级到 owner |
 
 ---
 

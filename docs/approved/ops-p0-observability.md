@@ -26,9 +26,9 @@ owners: [tk-platform]
 
 | # | 文档 | 解决什么 | 何时读 |
 |---|------|----------|--------|
-| 1 | **本文** [`p0-observability-quickwins.md`](./p0-observability-quickwins.md) | JSON 日志 + `/metrics` + preflight + 推荐运维栈 + 飞书告警 | **从这里开始**——5 天落地，没有它后两份没有信号源 |
-| 2 | [`qa-full-capture-low-cost.md`](./qa-full-capture-low-cost.md) | 用户 API key 调用形成的 QA 数据 **100% 全落盘**（业务硬决策）+ 低成本存储分层 + 月度导出 | P0 跑稳后，约 4 周落地 |
-| 3 | [`cron-and-agent-pr-workflow.md`](./cron-and-agent-pr-workflow.md) | OPC 自动化闭环：error-clustering cron + Agent 草拟 PR（**MVP 版**，其余 cron 在 v2 backlog） | 文档 2 跑稳 1 个月后，约 2 周落地 |
+| 1 | **本文** [`ops-p0-observability.md`](./ops-p0-observability.md) | JSON 日志 + `/metrics` + preflight + 推荐运维栈 + 飞书告警 | **从这里开始**——5.5 天落地（含 dev-rules submodule 0.5d 前置），没有它后两份没有信号源 |
+| 2 | [`ops-qa-full-capture.md`](./ops-qa-full-capture.md) | 用户 API key 调用形成的 QA 数据 **100% 全落盘**（业务硬决策）+ 低成本存储分层 + 月度导出 | P0 跑稳后，约 4 周落地 |
+| 3 | [`ops-cron-agent-workflow.md`](./ops-cron-agent-workflow.md) | OPC 自动化闭环：error-clustering cron + Agent 草拟 PR（**MVP 版**，其余 cron 在 v2 backlog） | 文档 2 跑稳 1 个月后，约 4 周落地（Stage 2A 1 周开发 + 2 周 issue-only 观察 + Stage 2B 1 周开 Agent） |
 
 **Upstream 友好原则**：所有新增代码进 `*_tk_*.go` 同伴文件或 fork-only 目录（[`internal/integration/newapi/`](../../backend/internal/integration/newapi/)、`internal/observability/` 新目录），upstream-owned 文件改动控制在"一行 hook"级别。详见 [`CLAUDE.md`](../../CLAUDE.md) §5。
 
@@ -150,7 +150,8 @@ routes.RegisterMetricsRoute(r)
 | `sub2api_account_pool_size` | gauge | `platform`, `status` | 各平台可用账号数 |
 | `sub2api_account_failure_total` | counter | `platform`, `account_id`, `reason` | 账号失败次数（用于 Stage 2 自动剔除） |
 | `sub2api_usage_billing_apply_errors_total` | counter | `reason` | 计费失败原因（dedup 冲突 / DB 错） |
-| `sub2api_qa_capture_total` | counter | `sampled` | QA 采样命中数（文档 2 落地后启用） |
+
+**为什么不在 P0 列 `sub2api_qa_capture_total`**：QA 落盘是文档 2 的事，P0 阶段没有数据源，提前列会让指标显示 `0` 一个月，稀释信号。每个指标必须在它出现的那刻就有数据（Jobs "挣得位置"）。文档 2 落地时再加。
 
 **为什么不引入 prometheus client_golang 的完整 registry？**
 
@@ -182,7 +183,7 @@ routes.RegisterMetricsRoute(r)
 
 ### 2.5 验收标准
 
-- `curl http://localhost:8080/metrics | head -50` 输出包含上表 7 类指标。
+- `curl http://localhost:8080/metrics | head -50` 输出包含上表 6 类指标。
 - 跑一次完整请求（Claude `/v1/messages` + OpenAI `/v1/chat/completions` + Gemini `generateContent`），检查 `sub2api_http_requests_total` 三个 platform 标签都 +1。
 - 故意把一个账号 disable，10s 内 `sub2api_account_pool_size{status="active"}` 必须减 1。
 
@@ -303,13 +304,7 @@ python3 scripts/check_preflight_debt.py  # 新增脚本，检查 docs/preflight-
 - 出现合规要求"日志不可出境"，或
 - 出现可观测数据隐私事件
 
-满足任一条件后再启用下方自建方案。
-
-#### Backlog：单机 docker-compose 自建（v2，仅当上述触发条件满足时启用）
-
-> 触发条件未达前不要部署。下文是 v2 才考虑的备选方案，列在这里只为留个种子，不应该现在投入。
-
-`deploy/docker-compose.observability.yml`（v2 新增）容器集合：`prometheus + loki + promtail + grafana` 共 4 个服务。完整 yaml 在 v2 设计阶段补全。**注意 ARM 兼容性**（生产/测试均为 t4g.small，详见 [`CLAUDE.md`](../../CLAUDE.md) §9）。
+**v1 不在本文档预留任何自建方案的细节**——预留即心理承诺，会被人在闲时"提前做了再说"，违反 OPC "对一千件事说不"。触发条件出现的当天再开 v2 设计文档（届时栈选型、ARM 兼容性、容器数量都需要按当时实际情况判断，现在写下的清单大概率会过期）。
 
 ### 4.2 推荐：日志分级保留策略
 
@@ -340,10 +335,9 @@ python3 scripts/check_preflight_debt.py  # 新增脚本，检查 docs/preflight-
 #### 上手步骤（5 分钟）
 
 1. **创建机器人**：飞书运维群 → 设置 → 群机器人 → 添加机器人 → 自定义机器人 → 命名 `tk-ops-alert` → 复制 webhook URL
-2. **可选签名校验**：勾选"签名校验"得到 secret，提升安全性（公开仓库强烈推荐）
+2. **v1 不启用签名校验**——见下方"为什么 v1 不签名校验"。如未来开启,本节会更新为带签名版本。
 3. **存入 GitHub Secrets**：
-   - `FEISHU_OPS_WEBHOOK`：完整 URL，形如 `https://open.feishu.cn/open-apis/bot/v2/hook/<token>`
-   - `FEISHU_OPS_SECRET`：（可选）签名校验密钥
+   - `FEISHU_OPS_WEBHOOK`：完整 URL，形如 `https://open.feishu.cn/open-apis/bot/v2/hook/<token>`（**本身即 secret,纳入 GitHub secret scanning + 季度轮换**）
 4. **存入 Grafana**：Grafana → Alerting → Contact points → New → Type=Webhook → URL=<上述 URL> → Body 模板见下
 5. **冒烟测试**：
 
@@ -378,7 +372,8 @@ python3 scripts/check_preflight_debt.py  # 新增脚本，检查 docs/preflight-
 ```
 
 **关键约束**：
-- 签名校验启用时，curl 必须带 `timestamp` + `sign` 字段，详见 [飞书自定义机器人文档](https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot)。Grafana webhook 需要写一个轻量的 sidecar（5 行 Go）做签名转发，或临时关签名校验（私有部署低风险）。
+- **v1 明确不启用签名校验**：webhook URL 即 secret,通过 GitHub Actions secret + Grafana secret 存储,**禁止入仓库**(由 GitHub secret scanning 兜底)。签名校验需要在 Grafana ↔ 飞书之间放一个 sidecar 做 timestamp + HMAC 签名转发(Grafana 原生 webhook 不支持飞书签名格式),多一个进程 = 多一份维护对象 + 多一个故障点,违反 OPC "依赖最小化"。**当前替代措施**:webhook URL 季度轮换 + 群机器人开"群内可用"权限收口(只能向本群发,不能跨群)。
+- **何时升级到签名校验**:出现以下任一情况:(1) webhook URL 泄漏被滥发垃圾,(2) 要求合规审计每条告警来源真实性。届时 v2 加签名 sidecar 是 1d 工作量,不预设。
 - **频率限制**：飞书自定义机器人 100 条/分钟、5 条/秒。Alertmanager 端必须设 `group_wait + group_interval` 聚合，避免风暴。
 - 同一 alert 在 `repeat_interval` 内不重发——Grafana 默认 4 小时合理。
 
@@ -400,8 +395,10 @@ python3 scripts/check_preflight_debt.py  # 新增脚本，检查 docs/preflight-
 gantt
     title P0 三件事时间盒（按 OPC 顺序串行）
     dateFormat YYYY-MM-DD
+    section 前置
+    接入 dev-rules submodule    :p0a, 2026-04-22, 0.5d
     section P0-1
-    JSON 日志默认值翻转       :p1a, 2026-04-22, 0.5d
+    JSON 日志默认值翻转       :p1a, after p0a, 0.5d
     全局脱敏 Core            :p1b, after p1a, 0.5d
     section P0-2
     挂 /metrics 路由         :p2a, after p1b, 0.5d
@@ -409,26 +406,38 @@ gantt
     section P0-3
     preflight.sh 接入        :p3a, after p2b, 0.5d
     section 验收
-    Loki+Prom+Grafana 部署   :v1, after p3a, 1d
-    3 个 dashboard + 3 告警  :v2, after v1, 1d
+    Grafana Cloud 接入 + agent  :v1, after p3a, 1d
+    3 个 dashboard + 3 告警   :v2, after v1, 1d
 ```
 
-**总计：5 天人力**（不含审批等待）。明细：P0-1 = 1d（0.5+0.5）、P0-2 = 1.5d（0.5+1）、P0-3 = 0.5d、验收（Loki/Prom/Grafana 部署 + 看板告警）= 2d。
+**总计：5.5 天人力**（不含审批等待）。明细：
+- **前置（D0）**：接入 `dev-rules/` submodule = **0.5d**（按 [`dev-rules-convention.mdc`](../../.cursor/rules/dev-rules-convention.mdc) "新项目接入"段；P0-3 必须先有 submodule 否则无 `templates/preflight.sh` 模板可拷——v1 草稿把这个隐藏依赖埋在 §3.1 注释里没纳入工期，本版补上）
+- **P0-1** = 1d（0.5+0.5）
+- **P0-2** = 1.5d（0.5+1）
+- **P0-3** = 0.5d
+- **验收** = 2d（Grafana Cloud 注册 + Alloy agent + 3 dashboard + 3 飞书告警）
 
-完成 P0 后才能开始文档 2（[`qa-full-capture-low-cost.md`](./qa-full-capture-low-cost.md)）的工作。
+**审批门禁顺序**（按 [`product-dev.mdc`](../../.cursor/rules/product-dev.mdc) §"产品研发工作流"）：
+1. 本设计文档 merge → `approved_by: <github-user>`，进入功能实现
+2. 前置 submodule PR 单独 merge（不与 P0 实现混合，符合 [`CLAUDE.md`](../../CLAUDE.md) §5.y "小 + 频"）
+3. P0-1/2/3 三件事可在同一 feature PR
+
+**兜底方案**：如果暂时不接入 submodule，P0-3 可手写 8 段 preflight.sh = 1d 而非 0.5d，但后续 dev-rules 升级要逐项跟进（违反 OPC "靠脚本不靠记忆"），不推荐。
+
+完成 P0 后才能开始文档 2（[`ops-qa-full-capture.md`](./ops-qa-full-capture.md)）的工作。
 
 ---
 
 ## 6. 验收 Checklist（合并前必过）
 
-- [ ] `curl localhost:8080/metrics` 返回 200，含 7 类核心指标
+- [ ] `curl localhost:8080/metrics` 返回 200，含 6 类核心指标
 - [ ] `docker logs sub2api 2>&1 | head -1 | jq .` 返回 JSON 对象（无解析错误）
 - [ ] 脱敏单测：`go test -tags=unit ./internal/pkg/logger/... -run TestRedact` 全绿
 - [ ] `bash scripts/preflight.sh` 在 main 分支 0 fail
 - [ ] `git diff upstream/main..HEAD -- backend/internal/server/router.go` ≤ 3 行（仅 1 行注册 + 必要 import）
 - [ ] `git diff upstream/main..HEAD -- backend/internal/pkg/logger/options.go` ≤ 1 行
 - [ ] Grafana 三个 dashboard 截图附在 PR 描述里
-- [ ] 文档 [`docs/approved/p0-observability-quickwins.md`](./p0-observability-quickwins.md) frontmatter 已 approved
+- [ ] 文档 [`docs/approved/ops-p0-observability.md`](./ops-p0-observability.md) frontmatter 已 approved
 
 ---
 

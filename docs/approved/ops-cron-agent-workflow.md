@@ -4,7 +4,7 @@ status: Draft
 approved_by: pending
 created: 2026-04-19
 owners: [tk-platform]
-depends_on: [p0-observability-quickwins.md, qa-full-capture-low-cost.md]
+depends_on: [ops-p0-observability.md, ops-qa-full-capture.md]
 focus: 错误自动发现 + 自动出修复提案
 ---
 
@@ -14,7 +14,11 @@ focus: 错误自动发现 + 自动出修复提案
 
 **MVP 范围**：仅 **1 个检测 cron**（`error-clustering-daily`）+ **1 份观察周报**（`weekly-product-pulse`）+ **1 个 Agent composite action**（`agent-draft-pr`）。其他 4 个候选 cron（slo-budget / cost-anomaly / slow-request / account-health）进 §13 v2 backlog——**不做即不维护**。
 
-**为什么从 1 个开始**：OPC "对一千件事说不"——先用真实运行 1 个月的证据决定下一个 cron 该不该上，避免一次性堆 6 个 workflow（4 个未必用到，但全要写、要测、要维护、要监控）。Stage 2 落地总人力从原案的 6 周降为 **2 周**。
+**两阶段落地（信号先证、行动后赌）**：
+- **Stage 2A（2 周 issue-only）**：cron 跑聚类 + 飞书摘要 + GitHub issue;Agent step `if: false` 暂关
+- **Stage 2B（1 周开 Agent）**：2A 过门后启用 `agent-draft-pr`,产 draft PR
+
+**为什么从 1 个 cron + 两阶段开始**：OPC "对一千件事说不"——先用真实运行 1 个月的证据决定下一个 cron 该不该上，避免一次性堆 6 个 workflow（4 个未必用到，但全要写、要测、要维护、要监控）。两阶段的好处是不让"信号准确性"和"Agent 行动质量"两个未知数同时赌。Stage 2 落地总人力从原案的 6 周降为 **1+2+1=4 周（其中 2 周仅观察）**。
 
 **核心架构**：
 
@@ -23,27 +27,35 @@ qa_records + ops_error_logs (来自文档 2)
         ▼
 [ error-clustering-daily ]  — 唯一 MVP 检测 cron
         ▼ (持续型 cluster ≥3 天)
-[ agent-draft-pr ]  — Claude Code 读报告 + 读代码,产 draft PR
-        ▼
-人审 5 分钟 → merge → 自动部署 → 下次 cron 验证回归
+        │
+   ┌────┴─────────────────────────────────────────┐
+   ▼ Stage 2A (2 周观察)              Stage 2B (过门后)
+[ open issue ] cluster-detected     [ agent-draft-pr ]
+   ▼                                  ▼
+人审 issue 给"会怎么改"             Claude Code 产 draft PR
+                                      ▼
+                                    人审 5 分钟 → merge → 部署 → 下次 cron 验证回归
 
 每周一并行: [ weekly-product-pulse ] → docs/auto-reports/weekly/*.md + 飞书
+                                       (含 MVP 4 KPI 自动测算)
 ```
 
 **OPC 关键约束**：
 - Agent **永远不直接合 main**，只产 draft PR
-- 同一 cluster signature **7 天冷却**，不重复 PR
-- preflight 段强制要求"待处理 auto PR 数 ≤ 5"——保证报告"必须处理"而不是"看了就忘"
-- 单次 Agent 任务预算 **≤ $2**，月度封顶 **$50**
+- **Stage 2A → 2B 过门**：信号准确率 ≥ 80% + 修复方向可在 5min 给出 + 至少 3 个独立 cluster；详见 §5.1
+- 同一 cluster signature **7 天冷却**——基于 PR label `cluster-sig:<sha-12>`（**不**基于 title 字符串匹配,v1 草稿的 title search 永远 miss,已修）
+- preflight 段强制要求"待处理 auto PR 数 ≤ 5"（仅 feature/chore/docs 分支生效;fix/* bypass 避免死锁）
+- KPI 评估**不靠手算**——周报自动测算并归档
+- 单次 Agent 任务预算 **≤ $2**，月度封顶 **$50**；杠杆比 = 节省人时 ÷ 预算 > 5
 
 ---
 
 ## 1. MVP 范围（仅 2 个 workflow）
 
-| Workflow | 频率 | 输入 | 输出 | 是否触发 Agent PR |
-|----------|------|------|------|------------------|
-| `error-clustering-daily.yml` | 每日 02:00 UTC | 过去 24h `qa_records` (status≥400) + `ops_error_logs` | 失败聚类 JSON + markdown 报告 | **是**（同一 cluster 持续 ≥3 天） |
-| `weekly-product-pulse.yml` | 周一 09:00 UTC | 综合指标 | 周报 markdown + 飞书推送 | 否（纯观测） |
+| Workflow | 频率 | 输入 | 输出 | Stage 2A 行动 | Stage 2B 行动 |
+|----------|------|------|------|---------------|---------------|
+| `error-clustering-daily.yml` | 每日 02:00 UTC | 过去 24h `qa_records` (status≥400) + `ops_error_logs` | 失败聚类 JSON + markdown 报告 | 持续型 cluster → **开 GitHub issue**（agent step `if: false` 暂关） | 持续型 cluster → **触发 `agent-draft-pr` composite action** |
+| `weekly-product-pulse.yml` | 周一 09:00 UTC | 综合指标 + 4 KPI 测算 | 周报 markdown + 飞书推送 + `docs/auto-reports/weekly/*.md` 归档 | 同 Stage 2B（无差异） | 同左 |
 
 **Backlog（v2，详见 §13）**：slo-budget-hourly / cost-anomaly-daily / slow-request-pulse-weekly / account-health-daily。各自的触发条件 + 升级判断标准在 §13 列出，不在 MVP 范围。
 
@@ -108,15 +120,38 @@ jobs:
             report.json
             report.md
 
-      - name: Decide if Agent PR needed
+      - name: Decide if downstream action needed
         id: decide
         run: |
           # 触发条件: 同一 cluster (signature) 在过去 3 天每天都有 ≥10 次
           NEED=$(jq '.persistent_clusters | length' report.json)
-          echo "need_pr=$([ $NEED -gt 0 ] && echo true || echo false)" >> $GITHUB_OUTPUT
+          echo "need_action=$([ $NEED -gt 0 ] && echo true || echo false)" >> $GITHUB_OUTPUT
 
-      - name: Trigger Agent PR
-        if: steps.decide.outputs.need_pr == 'true'
+      # Stage 2A: 仅开 issue (issue-only),不调 Agent
+      # 用 gh CLI 而非第三方 action,减少依赖漂移风险;签名 label 复用文档 §3.1 的 cooldown
+      - name: Open / reuse cluster issue (Stage 2A)
+        if: steps.decide.outputs.need_action == 'true' && vars.STAGE_2A_ISSUE_ONLY == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SIG=$(jq -r '.persistent_clusters[0].signature' report.json 2>/dev/null || echo "no-sig")
+          SIG_SHORT=$(printf '%s' "$SIG" | shasum -a 256 | cut -c1-12)
+          LABEL="cluster-sig:$SIG_SHORT"
+          gh label create "$LABEL" --color BFD4F2 --description "cluster signature for cooldown" 2>/dev/null || true
+          # 查找该 signature 的开放 issue;有则评论新报告,无则创建
+          EXISTING_ISSUE=$(gh issue list --label "$LABEL" --state open --json number --limit 1 | jq -r '.[0].number // empty')
+          if [ -n "$EXISTING_ISSUE" ]; then
+            gh issue comment "$EXISTING_ISSUE" --body-file report.md
+          else
+            gh issue create \
+              --title "[cluster] $(jq -r .summary report.json)" \
+              --body-file report.md \
+              --label "cluster-detected,needs-triage,automated,$LABEL"
+          fi
+
+      # Stage 2B: 过门后启用 Agent;切换方式 = 在 repo Variables 里把 STAGE_2A_ISSUE_ONLY 从 'true' 改为 'false'
+      - name: Trigger Agent PR (Stage 2B)
+        if: steps.decide.outputs.need_action == 'true' && vars.STAGE_2A_ISSUE_ONLY != 'true'
         uses: ./.github/actions/agent-draft-pr
         with:
           report_path: report.md
@@ -202,8 +237,15 @@ func computeSignature(rec QARecord, blob ParsedBlob) string {
 - 上周成本同环比 + top 10 模型用量
 - 当周由 `error-clustering-daily` 检测到的 top 3 持续型 cluster 摘要
 - 待处理 auto PR 数（来自 GitHub API），> 5 时高亮提醒
+- **MVP KPI 自动测算段**（避免人手算）：
+  - Agent PR 采纳率 7d/30d：`merged_or_changed_then_merged / created`（标签 `automated`）
+  - 人均看 auto PR 时间 7d：从 PR `createdAt` 到 `mergedAt`/`closedAt` 的中位数
+  - MTTD 7d：从 `qa_records.created_at`（cluster 首次出现）到对应 `error-clustering-daily` workflow run 完成时间的中位数
+  - MTTR 7d：从 cluster 首次出现到对应 fix PR merge 时间的中位数
 
 **为什么不开 issue/PR**：周报是"全景观察"，不是"待办"——OPC 哲学 "拒绝纯展示" 的例外是周报本身就是决策素材，**不能让全景图变成 todo list**。如果某项指标连续多周糟糕，应当在 §13 评估升级对应的检测 cron。
+
+**KPI 自动化的杠杆**：4 个 MVP KPI（§5）每月评估都要查 GitHub API + PG，手算约 30 分钟。嵌入周报后**每周 0 分钟**，且评估时直接看周报历史归档（`docs/auto-reports/weekly/*.md`）。把"靠记忆评估"转化为"靠数据归档"，符合 OPC "升级原则"。
 
 ---
 
@@ -250,49 +292,73 @@ runs:
         SHORT=$(echo "${{ inputs.workflow }}" | tr '_' '-')
         echo "name=auto/${SHORT}-${DATE}-${{ github.run_id }}" >> $GITHUB_OUTPUT
 
-    - name: Cooldown check
-      id: cooldown
+    - name: Compute signature short code
+      id: sig
       shell: bash
       run: |
-        # 同一 workflow + 同一 cluster signature 7 天内只产一份提案
         SIG=$(jq -r '.clusters[0].signature' ${{ inputs.report_json }} 2>/dev/null || echo "no-sig")
-        EXISTING=$(gh pr list --search "in:title \"${{ inputs.workflow }}\" \"${SIG:0:24}\"" --state all --json number --limit 1 | jq length)
-        if [ $EXISTING -gt 0 ]; then
+        # 取前 12 字符作为 label（GitHub label 长度限制 50,留余量给 prefix）
+        SIG_SHORT=$(printf '%s' "$SIG" | shasum -a 256 | cut -c1-12)
+        echo "short=$SIG_SHORT" >> $GITHUB_OUTPUT
+        echo "label=cluster-sig:$SIG_SHORT" >> $GITHUB_OUTPUT
+
+    - name: Cooldown check (基于 PR label,非 title 字符串匹配)
+      id: cooldown
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        # 同一 cluster signature 7 天内只产一份提案;label 比 title search 可靠
+        # gh pr list 默认按 created desc;7 天内有任意 state 的 PR 即视为冷却中
+        EXISTING=$(gh pr list \
+          --label "${{ steps.sig.outputs.label }}" \
+          --state all \
+          --json number,createdAt \
+          --limit 5 \
+          | jq --arg cutoff "$(date -u -v-7d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)" \
+              '[.[] | select(.createdAt > $cutoff)] | length')
+        if [ "$EXISTING" -gt 0 ]; then
           echo "skip=true" >> $GITHUB_OUTPUT
-          echo "::warning::同 cluster 7 天内已有 PR,跳过"
+          echo "::notice::同 cluster signature ${{ steps.sig.outputs.short }} 在 7 天内已有 $EXISTING 个 PR,跳过"
         else
           echo "skip=false" >> $GITHUB_OUTPUT
         fi
-      env:
-        GH_TOKEN: ${{ github.token }}
 
-    - name: Run Claude Code
+    - name: Build prompt with embedded report
       if: steps.cooldown.outputs.skip == 'false'
+      id: prompt
       shell: bash
-      env:
-        ANTHROPIC_API_KEY: ${{ inputs.claude_api_key }}
       run: |
-        claude -p "$(cat <<'EOF'
+        # 关键: 用占位符 + bash 字符串替换,避免 heredoc 'EOF' 阻止 $(cat) 展开导致
+        # Claude 拿到字面 "$(cat report.md)" 而非报告内容（v1 设计 bug,已修）
+        PROMPT_TEMPLATE=$(cat <<'TEMPLATE_EOF'
         你是 TokenKey (sub2api) 项目的运维 Agent。
 
         ## 任务
         基于以下检测报告,草拟一个 draft PR 来缓解或解决问题。
 
         ## 输入
-        - 报告: $(cat ${{ inputs.report_path }})
-        - 详细数据: $(cat ${{ inputs.report_json }})
+        - 报告 markdown:
+        ===REPORT_MD_START===
+        <<<REPORT_MD>>>
+        ===REPORT_MD_END===
+
+        - 详细数据 JSON:
+        ===REPORT_JSON_START===
+        <<<REPORT_JSON>>>
+        ===REPORT_JSON_END===
 
         ## 必须遵守的约束
         1. 只输出 draft PR,不直接合并
         2. 改动范围限制: 配置文件 / Go 文件中追加注释或加 metric / 文档更新
-        3. 禁止修改: ent schema / wire_gen.go / migrations
+        3. 禁止修改: ent schema / wire_gen.go / migrations / docs/approved/* / CLAUDE.md / dev-rules
         4. 必须在 PR 描述中说明:
            - 问题概述（来自报告）
            - 根因分析（基于代码 + blob 样本）
            - 提议的改动（diff 结构化列出）
            - 风险评估（high/medium/low + 回滚方案）
            - 验证步骤（人 review 时如何确认）
-        5. 必须在 PR 标题前缀加 [auto-${{ inputs.workflow }}]
+        5. 必须在 PR 标题前缀加 [auto-WORKFLOW_NAME]
         6. 改动总行数 < 200 行,超出请拆分
         7. 必须跑 ./scripts/preflight.sh 通过
 
@@ -303,11 +369,37 @@ runs:
         4. 生成 patch
         5. 跑 preflight
         6. 输出 PR 描述模板到 /tmp/pr-body.md
+        TEMPLATE_EOF
+        )
 
-        EOF
-        )" \
-        --max-budget-usd ${{ inputs.max_budget_usd }} \
-        --output /tmp/agent-output.txt
+        # 用 python 做字符串替换,避免 sed 在含特殊字符的报告内容上炸裂
+        REPORT_MD_PATH="${{ inputs.report_path }}"
+        REPORT_JSON_PATH="${{ inputs.report_json }}"
+        WORKFLOW="${{ inputs.workflow }}"
+        export PROMPT_TEMPLATE REPORT_MD_PATH REPORT_JSON_PATH WORKFLOW
+        python3 - <<'PYEOF' > /tmp/agent-prompt.txt
+        import os
+        tpl = os.environ['PROMPT_TEMPLATE']
+        with open(os.environ['REPORT_MD_PATH']) as f:
+            md = f.read()
+        with open(os.environ['REPORT_JSON_PATH']) as f:
+            js = f.read()
+        out = (tpl
+               .replace('<<<REPORT_MD>>>', md)
+               .replace('<<<REPORT_JSON>>>', js)
+               .replace('WORKFLOW_NAME', os.environ['WORKFLOW']))
+        print(out)
+        PYEOF
+
+    - name: Run Claude Code
+      if: steps.cooldown.outputs.skip == 'false'
+      shell: bash
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.claude_api_key }}
+      run: |
+        claude -p "$(cat /tmp/agent-prompt.txt)" \
+          --max-budget-usd ${{ inputs.max_budget_usd }} \
+          --output /tmp/agent-output.txt
 
     - name: Open Draft PR
       if: steps.cooldown.outputs.skip == 'false'
@@ -325,11 +417,21 @@ runs:
         git add -A
         git commit -m "auto(${{ inputs.workflow }}): draft proposal from $(date -u +%Y-%m-%d)"
         git push origin ${{ steps.branch.outputs.name }}
+        # cluster-sig:<short> label 是 cooldown 的唯一可靠匹配点,必须先确认 label 已存在
+        gh label create "${{ steps.sig.outputs.label }}" --color BFD4F2 --description "cluster signature for cooldown" 2>/dev/null || true
         gh pr create --draft \
           --title "[auto-${{ inputs.workflow }}] $(jq -r .summary ${{ inputs.report_json }})" \
           --body-file /tmp/pr-body.md \
-          --label automated,needs-review
+          --label "automated,needs-review,${{ steps.sig.outputs.label }}"
 ```
+
+**Bug 修复说明（与 v1 草稿的差异）**：
+
+| Bug | v1 写法 | 现修复 | 影响 |
+|---|---|---|---|
+| Cooldown 100% miss | `gh pr list --search "in:title ${SIG:0:24}"` 但 PR 标题里**没有** signature | 改用 PR label `cluster-sig:<sha-12>` 精确匹配 + 7 天 createdAt 过滤 | 不再每天给同一 cluster 重复产 PR |
+| Prompt 字面字符串 | `<<'EOF'` 单引号阻止 `$(cat report.md)` 展开,Claude 拿到字面字符串 | 占位符 `<<<REPORT_MD>>>` + python 安全替换 | Agent 真的读到报告内容 |
+| 报告含特殊字符炸 sed | sed/bash 替换在含 `&` `\n` 的报告内容上易出错 | python `str.replace` 字面替换 | 报告内容任意字节安全 |
 
 ### 3.2 Agent 安全约束（硬性）
 
@@ -337,12 +439,12 @@ runs:
 |------|------|
 | **永远 draft，永远人审** | `gh pr create --draft` |
 | **改动量上限 200 行** | preflight 段加 `git diff --stat HEAD~1 \| awk '{s+=$3}END{exit (s>200)}'` |
-| **禁修敏感目录** | preflight 段加 `git diff --name-only HEAD~1 \| grep -E '(ent/(?!schema)|wire_gen|migrations)' && exit 1` |
+| **禁修敏感目录** | preflight 段加 `git diff --name-only HEAD~1 \| grep -E '(ent/(?!schema)\|wire_gen\|migrations\|docs/approved\|CLAUDE\.md\|dev-rules)' && exit 1` |
 | **必须跑全套 preflight** | composite action 中显式 `./scripts/preflight.sh \|\| exit 1` |
-| **冷却机制** | composite action 的 cooldown step（7 天内同 signature 不重复） |
+| **冷却机制** | composite action 的 cooldown step（**基于 PR label `cluster-sig:<sha-12>`** + 7 天 createdAt 过滤；**不**基于 title 字符串匹配——v1 设计中 PR 标题不含 signature 导致永远 miss） |
 | **预算上限** | `--max-budget-usd 2.00` per task |
 | **CI 必须全绿才能脱 draft** | branch protection rule on main |
-| **审计** | bot commit author = `tk-auto-agent[bot]`，标签 `automated`，便于过滤与审计 |
+| **审计** | bot commit author = `tk-auto-agent[bot]`，标签 `automated` + `cluster-sig:<short>`，便于过滤与审计 |
 
 ### 3.3 PR 描述强制模板
 
@@ -466,19 +568,41 @@ sequenceDiagram
 
 | 阶段 | 包含的内容 | 落地文档 | 工期 |
 |------|-----------|---------|------|
-| Stage 1（感官） | JSON 日志 + `/metrics` + preflight + Grafana Cloud Free + QA capture | 文档 1 + 文档 2 | 5 天 + 4 周 |
-| **Stage 2 MVP（反射弧）** | **`error-clustering-daily` + `weekly-product-pulse` + `agent-draft-pr`** | **本文档** | **2 周** |
-| v2 backlog（详 §13） | slo-budget / cost-anomaly / slow-request / account-health 4 个 cron | 本文档 §13 | 跑 1 个月 MVP 后**逐个评估** |
+| Stage 1（感官） | JSON 日志 + `/metrics` + preflight + Grafana Cloud Free + QA capture | 文档 1 + 文档 2 | 5.5 天 + 4 周 |
+| Stage 1.5（最小消费） | QA 落地 D+1：daily failure top-10 飞书摘要（纯 SQL + jq） | 文档 2 §10 | 1 天 |
+| **Stage 2A（信号验证，2 周 issue-only）** | `error-clustering-daily` 跑 cluster + 开 issue（**Agent PR 步骤暂关**）；`weekly-product-pulse` 同步上线 | 本文档 §2 | 1 周开发 + 2 周观察 |
+| **Stage 2B（反射弧，开 Agent）** | 2A 跑稳后开 `agent-draft-pr` composite action | 本文档 §3 | 1 周 |
+| v2 backlog（详 §13） | slo-budget / cost-anomaly / slow-request / account-health 4 个 cron | 本文档 §13 | 2B 跑 1 个月后**逐个评估** |
 | Stage 3（自治） | 金丝雀 + SLO 自动回滚 + 模型成本自动重排 | 暂不规划 |  |
 
-**Stage 2 MVP 的成功标准**（运行 1 个月后回看）：
+### 5.1 Stage 2A → 2B 的过门条件（信号先证、行动后赌）
+
+**为什么先 2 周 issue-only**：当前架构是 cluster signal → Agent → draft PR。如果 cluster signal 噪声大,Agent 会基于错信号产错 PR,人审 5 分钟变 15 分钟拒绝,杠杆变负。**先证信号准确,再赌行动质量**。
+
+**Stage 2A（issue-only）期间的具体动作**：
+- `error-clustering-daily.yml` 跑全套聚类 + 输出报告 artifact + 飞书摘要
+- 不调 `agent-draft-pr` composite action（在 workflow 里把 `Trigger Agent PR` step 暂时 comment 掉或 `if: false`）
+- 改为开 GitHub issue（`peter-evans/create-or-update-issue` 幂等），label `cluster-detected,needs-triage`
+- 人在 issue 里以"如果信号准确,我会怎么改"格式回复 → 数据用于评估
+
+**过门到 2B 的条件**（必须全部满足）：
+- Issue 信号语义正确率 ≥ 80%（人手抽查 20 个 issue）
+- 人在 issue 里平均给出"修复方向"在 ≤ 5 分钟内（说明信号足够具体可执行）
+- 至少出现 3 个独立 cluster signature（说明聚类有区分度）
+
+**未过门 → 调 cluster 算法（如 §2.1 token shape hash 长度、最小 count 阈值），不开 Agent**。
+
+### 5.2 Stage 2B（开 Agent 后）的成功标准（运行 1 个月后回看）
 
 - Agent PR **采纳率 ≥ 60%**（merge / 改后 merge 算采纳）
 - 人均每天看 PR 的时间 **≤ 15 分钟**
 - 错误平均检测时延（MTTD）**< 1 天**
 - 错误平均修复时延（MTTR）**< 2 天**
+- **杠杆比**：节省人时 ÷ Agent 月度成本 > 5（Agent 预算上限 $50/月,节省人时按 $30/h 折算需 ≥ 8h/月）
 
-**升级到 v2 的判定**：达成上述 4 项 + 月度有具体场景诉求（见 §13 各 cron 的"启用条件"）。**未达成 → 不加新 cron，回头调 prompt / 调信号源**——OPC "对一千件事说不"。
+**KPI 全部由 `weekly-product-pulse` 周报自动测算并归档**（详见 §2.2），评估时不需要手算。
+
+**升级到 v2 的判定**：达成上述 5 项 + 月度有具体场景诉求（见 §13 各 cron 的"启用条件"）。**未达成 → 不加新 cron，回头调 prompt / 调信号源**——OPC "对一千件事说不"。
 
 ---
 
@@ -490,23 +614,34 @@ sequenceDiagram
 
 ```bash
 # 段 12: 自动 Agent PR 待处理数 ≤ 5
-PENDING_AUTO=$(gh pr list --label automated --state open --json number | jq length)
-if [ $PENDING_AUTO -gt 5 ]; then
-  echo "::error::已有 $PENDING_AUTO 个 auto PR 未处理 (上限 5),先消化再提交新代码"
-  exit 1
-fi
+# 仅对 feature/* / chore/* / docs/* 分支生效;fix/* 与 merge/upstream-* bypass
+# (修 P1 本身就要 commit,不能让守门变成死锁)
+BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+case "$BRANCH" in
+  fix/*|merge/upstream-*|hotfix/*) ;;
+  *)
+    PENDING_AUTO=$(gh pr list --label automated --state open --json number 2>/dev/null | jq length)
+    if [ "${PENDING_AUTO:-0}" -gt 5 ]; then
+      echo "::error::已有 $PENDING_AUTO 个 auto PR 未处理 (上限 5),先消化再提交新 feature/chore/docs 代码"
+      echo "       fix/* 分支可 bypass; 紧急情况 git commit --no-verify (但 CI 仍会 fail)"
+      exit 1
+    fi
+    ;;
+esac
 
-# 段 13: P1 issue 待处理数 == 0
-P1_OPEN=$(gh issue list --label p1 --state open --json number | jq length)
-if [ $P1_OPEN -gt 0 ]; then
-  echo "::error::有 $P1_OPEN 个 P1 issue 未处理,先关闭再提交"
-  exit 1
+# 段 13: P1 issue 待处理数 — 仅作 warning,不 block commit
+# (v1 设计 block commit 是死锁:修 P1 的 PR 自己也要 commit;改为飞书提醒由人盯)
+P1_OPEN=$(gh issue list --label p1 --state open --json number 2>/dev/null | jq length)
+if [ "${P1_OPEN:-0}" -gt 0 ]; then
+  echo "::warning::有 $P1_OPEN 个 P1 issue 未处理(不阻断 commit,但请优先处理)"
 fi
 ```
 
 **段 14（SLO 预算守门）随 v2 `slo-budget-hourly` 一起启用**——MVP 期没有 SLO 预算指标可查，预先写检查会永远 warning，反而稀释信号。
 
 这把"自动报告"从"看了就忘"升级为"必须处理"。是 OPC 自动化哲学的硬约束。
+
+**v1 设计 bug 修复说明**：v1 草稿的段 13 写 `[ $P1_OPEN -gt 0 ] && exit 1` —— 修 P1 的 PR 自己也要 commit,会被自己的守门阻死。本版改为 warning + 段 12 仅对非 fix 分支生效,既保留"P1 优先"信号又不死锁。
 
 ---
 
@@ -525,16 +660,16 @@ fi
 
 ---
 
-## 8. 必需的 GitHub Secrets
+## 8. 必需的 GitHub Secrets 与 Variables
 
-| Secret | 用途 | 设置位置 |
-|--------|------|---------|
-| `ANTHROPIC_API_KEY` | Claude Code CLI 调用 | Repo Secrets |
-| `PROD_PG_READONLY_DSN` | cron 查询生产数据 | Repo Secrets（**只读账号**） |
-| `PROD_OBJSTORE_RO` | 拉 blob 样本 | Repo Secrets（只读 IAM） |
-| `PROM_URL` | SLO 查询 | Repo Variables（非密） |
-| `FEISHU_OPS_WEBHOOK` | 飞书运维群机器人 webhook URL | **本方案新增**——按 [`p0-observability-quickwins.md`](./p0-observability-quickwins.md) §4.3 上手步骤创建 |
-| `FEISHU_OPS_SECRET` | （可选）签名校验密钥 | 启用签名校验时新增；公开仓库强烈推荐 |
+| 名称 | 类型 | 用途 | 设置位置 |
+|--------|------|------|---------|
+| `ANTHROPIC_API_KEY` | Secret | Claude Code CLI 调用（Stage 2B 启用后才需要） | Repo Secrets |
+| `PROD_PG_READONLY_DSN` | Secret | cron 查询生产数据 | Repo Secrets（**只读账号**） |
+| `PROD_OBJSTORE_RO` | Secret | 拉 blob 样本 | Repo Secrets（只读 IAM） |
+| `PROM_URL` | Variable | SLO 查询 | Repo Variables（非密） |
+| `FEISHU_OPS_WEBHOOK` | Secret | 飞书运维群机器人 webhook URL | **本方案新增**——按 [`ops-p0-observability.md`](./ops-p0-observability.md) §4.3 上手步骤创建（v1 不启用签名校验，URL 季度轮换 + GitHub secret scanning 兜底） |
+| `STAGE_2A_ISSUE_ONLY` | Variable | **Stage 2A/2B 切换开关**: `true` = 仅开 issue，`false` = 触发 Agent PR（详 §5.1 过门条件） | Repo Variables |
 
 **安全约束**：所有 prod 数据访问必须是**只读**专用账号 + IP 白名单 GitHub Actions runner range。
 
@@ -558,19 +693,26 @@ fi
 ## 10. 验收 Checklist（合并前必过）
 
 ### 功能性
-- [ ] MVP 的 2 个 workflow（`error-clustering-daily` + `weekly-product-pulse`）均可手工 dispatch 成功，输出符合 §1 表
-- [ ] composite action `agent-draft-pr` 可以基于一份 mock 报告生成 draft PR
-- [ ] 冷却机制：同一 signature 7 天内不重复 PR
-- [ ] preflight 段 12-14 全部生效（故意制造 6 个 auto PR → preflight fail）
+- [ ] Stage 2A 上线：`error-clustering-daily` + `weekly-product-pulse` 可手工 dispatch 成功，输出符合 §1 表
+- [ ] Stage 2A 上线：repo Variable `STAGE_2A_ISSUE_ONLY=true`，cluster 检出**只开 issue 不开 PR**
+- [ ] composite action `agent-draft-pr` 可以基于一份 mock 报告生成 draft PR（Stage 2B 启用前测试）
+- [ ] **冷却机制基于 PR label**（`cluster-sig:<sha-12>`）+ 7 天 createdAt 过滤，故意触发同 cluster 两次确认第二次跳过
+- [ ] **Prompt 包含真实报告内容**（用 `python str.replace` 注入）：触发后查 `/tmp/agent-prompt.txt` 应含报告而非字面 `$(cat ...)`
+- [ ] preflight 段 12 生效：feature 分支制造 6 个 auto PR → preflight fail；fix 分支同条件 → bypass 成功
+- [ ] preflight 段 13 不阻断 commit（仅 warning），故意 open 一个 P1 issue 后正常 commit
 
-### 质量
-- [ ] 错误聚类准确率：人工抽查 20 个 cluster，至少 16 个语义正确
-- [ ] 成本异常误报率 < 30%
-- [ ] Agent PR 描述完整（10 段必填项全有）
+### 质量（Stage 2A 过门指标）
+- [ ] Issue 信号语义正确率 ≥ 80%（人工抽查 20 个 issue）
+- [ ] 人在 issue 给"修复方向"的中位时间 ≤ 5 分钟
+- [ ] 至少出现 3 个独立 cluster signature
+
+### KPI 自动化（不靠手算）
+- [ ] `weekly-product-pulse.yml` 周报中"MVP KPI 自动测算段"输出 4 个数字：采纳率/看 PR 时间/MTTD/MTTR
+- [ ] 历史周报归档至 `docs/auto-reports/weekly/2026-WXX.md`（评估时直接看归档,不再手算）
 
 ### OPC
 - [ ] Agent 永远只 draft，main 分支保护规则禁止 bot account 直 push
-- [ ] 单次 Agent 任务预算 ≤ $2，月度预算 ≤ $50
+- [ ] 单次 Agent 任务预算 ≤ $2，月度预算 ≤ $50；杠杆比（节省人时 ÷ 月预算 × $30/h）≥ 5
 - [ ] 飞书通知不超过每日 5 条（聚合发送），且单分钟不超过 100 条（飞书自定义机器人硬限）
 
 ---
@@ -583,7 +725,7 @@ fi
 | Agent 提议错误改动被误合 | 中（preflight + CI 兜底） | branch protection 强制 review；revert 即可 |
 | Cron 把 Prometheus / PG 拉爆 | 低（已用 readonly DSN + LIMIT） | 关 workflow，调 query |
 | 飞书告警疲劳 | 低（MVP 仅 1 类检测推送 + 周报聚合） | 调群机器人或新建只读告警子群 |
-| 飞书 webhook URL 泄漏（公开仓库） | 中（任意人可向群发垃圾） | 启用签名校验 + 旋转 webhook + GitHub secret scanning |
+| 飞书 webhook URL 泄漏（公开仓库） | 中（任意人可向群发垃圾） | v1 兜底：旋转 webhook + GitHub secret scanning + 群机器人收口"群内可用"；v2 升级：sidecar 加签名校验（详见文档 1 §4.3） |
 | 飞书机器人被踢出群 | 低（通知静默丢失） | preflight 段加冒烟测试,每周自动跑一次 webhook ping |
 | Claude API 成本失控 | 低（per-task budget cap） | 全局环境变量 `MAX_BUDGET=0` 一键关闭 |
 | 自动报告变成"看了就忘" | **高** | 必须开 preflight 段 12-14 守门 |
