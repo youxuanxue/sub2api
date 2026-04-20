@@ -48,4 +48,6 @@ HTTP+PG end-to-end (follow-up PR, see `docs/preflight-debt.md` §4):
 
 ## Status
 
-- [x] InTest (sanitize predicate locked; HTTP e2e follow-up)
+- [x] Draft
+
+> **Honest status note (2026-04-20 audit)**: 此故事的核心 AC 是「`POST /v1/messages` Anthropic 协议端到端走通」。当前 PR 仅交付 `sanitizeGroupMessagesDispatchFields` 的 mock 单测（覆盖 newapi group 配置保留、非-compat group 配置清空），未跑过任何真 Anthropic→OpenAI 协议转换 + 真 newapi upstream 响应的 HTTP e2e。AC 标注的 `TestUS009_HTTP_NewAPIGroup_Messages_E2E` 仍是 *(planned)*。按 `test-philosophy.mdc §6` 纪律，本故事 status 保持 `Draft`，待 follow-up PR `feature/newapi-fifth-platform-e2e` 跑通真 e2e 后升级。

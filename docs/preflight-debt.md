@@ -30,17 +30,33 @@
 - **门禁**：dev-rules `preflight § 4` 已自动接入；route-count 警告留给 follow-up PR 把它升成 hard-fail。
 - **截止日期**：next routes 重构 PR 之前必须做完（无固定日期，但下次有人新增/删除路由族系前会被 warning 提醒）。
 
-### 4. newapi-as-fifth-platform e2e 测试（HTTP+PG+upstream）暂以单测替代
+### 4. newapi-as-fifth-platform US-008/009/010 e2e 缺口 — **故事降级到 Draft，acknowledged gap**
 
-- **现象**：`docs/approved/newapi-as-fifth-platform.md` §5.2 要求 US-008/009/010 跑 testcontainer 化的端到端集成测试（HTTP→Auth→scheduler→bridge dispatch→真 PG）。本 PR 提供：
-  - **已落**：compat-pool predicate + scheduler-tier + gateway-tier sticky + messages_dispatch sanitize 行为测试（34 个 unit case，全 mock，覆盖 US-008/009/011/012/013/014/015 的核心安全/逻辑/回归 AC）— 见 `.testing/user-stories/attachments/us-newapi-unit-run-2026-04-19.txt`。
-  - **未落**：真 HTTP+PG e2e（US-008 chat completions、US-009 messages、US-010 responses 端到端）。
-- **决策**：拆为 follow-up PR `feature/newapi-fifth-platform-e2e`。理由（OPC 务实）：
-  1. 单测已锁死全部 design §3 注入点的关键不变量（混池防御 / 池空报错 / sticky 漂移降级 / channel_type=0 排除 / 平台分桶）；这些是 P0 安全断言，不依赖 e2e。
-  2. e2e 需要 docker daemon + testcontainer + 完整 fixture（user/group/account/api_key），与本 PR 的代码改动正交（仅追加 `*_integration_test.go`），延后不增加合并风险。
-  3. design §7.2 单 PR 原则的本意是"实现 + 行为契约不可拆"；行为契约由 21 个单测保证，e2e 是验证集成接缝、不是验证设计。
-- **门禁**：follow-up PR 必须把 §5.2 命令跑绿、附 testcontainer 日志，并把这条 debt 项标 closed。
+- **现象**：`docs/approved/newapi-as-fifth-platform.md` §5.2 要求 US-008/009/010 跑 testcontainer 化的端到端集成测试（HTTP→Auth→scheduler→bridge dispatch→真 PG → 真 newapi upstream）。本 PR 实际交付：
+  - **已落（mock 单测，34 个 case）**：compat-pool predicate / scheduler-tier load-balance / gateway-tier sticky / messages_dispatch sanitize 的行为测试。这 34 个 case 覆盖了 US-011/012/013/014/015 五个故事的全部核心 AC（混池防御、池空报错、sticky 漂移降级、channel_type=0 排除、平台分桶、回归基线）。
+  - **未落（US-008/009/010 核心 AC 直接未覆盖）**：
+    - US-008 `POST /v1/chat/completions` 真 HTTP→Auth→bridge→newapi upstream e2e — **零 e2e 测试**
+    - US-009 `POST /v1/messages` Anthropic→OpenAI 协议转换 + 真上游 e2e — **零 e2e 测试**
+    - US-010 `POST /v1/responses` 入口端到端 — **零专属测试**（连 unit-tier 也没有 `TestUS010_*`，仅靠 scheduler 传递性覆盖）
+
+- **诚实承认**（2026-04-20 audit）：
+
+  原 §4 写过 3 条延期理由，全部站不住，已删除：
+  1. "单测已锁死全部 §3 注入点的不变量" — 真，但 US-008/009/010 的核心 AC 不是"调度不变量"，而是"端到端走通"。这是用 sub-AC 替换 super-AC，是滑坡。
+  2. "design §7.2 单 PR 原则 / 21 个单测保证行为契约" — 反向自圆其说。§7.2 原话是"实现 + 行为契约不可分"，恰恰支持 e2e 与实现一起落，而不是支持延后。
+  3. "e2e 与本 PR 正交，延后不增合并风险" — 这一条**部分成立**，是唯一站得住的论据。
+
+  **真实理由**（保留）：
+  1. e2e 需要 docker daemon + testcontainer + Wire DI 完整启动 + 真 PG schema migration + 真 newapi upstream stub（含 channel_type=1 真 endpoint 联通）— 估 0.5–1 d 工作量。
+  2. 本 PR 已经 11 commits + 1 merge，再扩大 e2e 测试 + fixture 会让 review 失焦、合并周期延长。
+  3. e2e 相关 `*_integration_test.go` 与本 PR 现有代码正交（仅追加新文件，不改 production code），延后到 follow-up PR 不增加 production 风险。
+
+- **决策**：
+  - **本 PR**：US-008/009/010 status 从 `InTest` **降级回 `Draft`**（与"端到端 AC 未覆盖"事实对齐，遵守 `test-philosophy.mdc §6` 验证纪律）。
+  - **Follow-up PR `feature/newapi-fifth-platform-e2e`**：交付 testcontainer 化的真 HTTP e2e；US-008/009/010 status 跑通后升 `InTest → Done`，本 debt §4 标 closed。
+- **门禁**：follow-up PR 必须 (a) `go test -tags=integration -run 'TestUS00[89]_HTTP_|TestUS010_HTTP_' ./internal/handler/...` 全绿；(b) 附 testcontainer 日志到 evidence；(c) 同步把 index.md + 3 个 story 文件 status 升 `InTest`（runtime 通过即升 `Done`）；(d) 删除 3 个 story 文件里的 "Honest status note" 段。
 - **截止日期**：2026-05-03（两周内）。
+- **跨参考**：`docs/approved/newapi-as-fifth-platform.md` §9 第 5 行（acknowledged gap 标注）+ §11.4（本 PR 的诚实清单）。
 
 ### 5. `.testing/user-stories/verify_quality.py` 缺失 — story↔test 漂移检测尚未机械化
 
