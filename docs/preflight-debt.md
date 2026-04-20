@@ -22,9 +22,9 @@
 
 ### 3. `scripts/export_agent_contract.py` 尚未为本仓库定制
 
-- **现象**：`agent-contract-enforcement.mdc` 要求每个项目维护本地化的 contract 导出脚本；本仓库根目录有 placeholder（来自 main 上 WIP），但未对齐 TK 的 admin / gateway / setup / payment 路由结构。
-- **决策**：随 `newapi-as-fifth-platform` PR 一并定制。届时 `scripts/preflight.sh` § 2 段同步上线（见 §7 中的 § 2 TODO 注释）。
-- **门禁**：暂无（脚本完成后 § 2 段会拦截 contract drift）。
+- **现象**：`agent-contract-enforcement.mdc` 要求每个项目维护本地化的 contract 导出脚本；本仓库尚未实现，preflight § 4 (`dev-rules/templates/preflight.sh`) 因此跳过该检查段而非拦截。
+- **决策**：随 `newapi-as-fifth-platform` PR 一并定制。脚本上线后，preflight § 4 会自动启用对 contract drift 的拦截（dev-rules 模板已写好该段，无需额外接线）。
+- **门禁**：暂无（脚本完成后 dev-rules 模板 § 4 会自动拦截 contract drift）。
 
 ---
 
@@ -40,3 +40,15 @@
   2. 新增 `scripts/check_approved_docs.py`：拒绝 `status=pending` 但 `related_prs/related_commits` 非空的 doc（即"shipped under pending"同款）。
   3. 新增 `scripts/preflight.sh` § 1 段调用上述脚本；本日起 commit / CI 强制运行。
 - **不再发生的依据**：scripts/check_approved_docs.py R3 规则机械拦截。任何 doc 一旦在 frontmatter 写了 commit / PR，必须同时把 status 翻为 `shipped`，否则 hook fail。
+
+### 2026-04-19: 接入 dev-rules submodule + 上提 check_approved_docs.py
+
+- **事件**：`scripts/preflight.sh` 与 `scripts/check_approved_docs.py` 都是 sub2api 私有，但前者只调用后者一行、后者本身是「跨项目共享的 frontmatter 不变量」；同时 dev-rules 仓库已存在 `templates/preflight.sh` 模板（8 段，覆盖本项目所需全部检查）。两份冗余实现导致：
+  1. 任何对 frontmatter 规则的演进（如 `ALLOWED_STATUS` 加 `approved` 以兼容 zw-brain GATE 模型）都要同时改两处；
+  2. 项目 wrapper 仅 1 段、模板有 8 段，本地 commit 实际只跑 1 段就放行——CI 与 hook 强度不一致。
+- **整改**（2026-04-19）：
+  1. 在 dev-rules 仓库新增 `dev-rules/scripts/check_approved_docs.py`（ALLOWED_STATUS = {draft, pending, approved, shipped, archived}），由 `dev-rules/templates/preflight.sh § 7 R1-R4` 在任何分支上调用；R5 (`approved_by: pending`) 仍仅在 main/master 拦截。
+  2. 改 `dev-rules/templates/install-hooks.sh`：项目无 `scripts/preflight.sh` 时，pre-commit hook 自动 fallback 到 `dev-rules/templates/preflight.sh`（8 段全跑）。
+  3. sub2api 接入 dev-rules 为 git submodule（`dev-rules/`），删除项目级 `scripts/preflight.sh` + `scripts/check_approved_docs.py`，沿用 dev-rules 模板（CLAUDE.md §10 记录此选择）。
+  4. CI `.github/workflows/backend-ci.yml` 新增 `preflight` job（`submodules: recursive`），与 pre-commit hook 走同一脚本，本地与 CI 强度对齐。
+- **不再发生的依据**：单一事实来源（dev-rules）+ 本地与 CI 调用同一脚本 + dev-rules-convention.mdc §"Git 提交顺序" 与 preflight § 2 子模块指针检查共同保障"先子模块后父仓库"。
