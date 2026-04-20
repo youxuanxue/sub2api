@@ -198,6 +198,16 @@ func (s *EmailService) SendEmailWithConfig(config *SMTPConfig, to, subject, body
 //  1. Domain part of the From address  (admin@orbitlogic.dev → orbitlogic.dev)
 //  2. Domain part of the SMTP username (same shape)
 //  3. SMTP host as last resort (e.g. smtp-relay.gmail.com — verified accepted)
+//
+// RFC 5321 §4.1.4 caveat: strictly speaking the EHLO argument is supposed to
+// be the *client's own* fully-qualified domain (or address literal), not the
+// mail domain. We use the mail domain because (a) Google Workspace SMTP relay
+// only enforces "not localhost" and authenticates the tenant via the App
+// Password rather than the EHLO name, and (b) we don't have a stable public
+// hostname (containers, autoscaling, no PTR for the From-domain on EC2).
+// If a future relay performs forward-confirmed reverse DNS validation against
+// the EHLO argument we'll need to surface this as an explicit operator
+// setting; track that work behind US-016 follow-ups, not in this helper.
 func ehloHostFromConfig(config *SMTPConfig) string {
 	for _, candidate := range []string{config.From, config.Username} {
 		if d := domainFromEmail(candidate); d != "" {

@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"errors"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -50,9 +51,12 @@ func TestEHLOHostFromConfig(t *testing.T) {
 			want: "smtp.example.com",
 		},
 		{
-			name: "leading-at-treated-as-malformed",
+			// "@example.com" has @ at index 0, domain part is "example.com"
+			// (non-empty) so it wins. We accept this as "extract whatever the
+			// user typed after the @"; rejecting it would force operators with
+			// quirky From values into the localhost-fallback trap.
+			name: "leading-at-still-extracts-domain",
 			cfg:  &SMTPConfig{From: "@example.com", Username: "", Host: "smtp.example.com"},
-			// "@example.com" has @ at index 0, domain part is "example.com" (non-empty) → wins.
 			want: "example.com",
 		},
 		{
@@ -144,7 +148,6 @@ func TestSendEmail_PreFixBehaviorReproduces(t *testing.T) {
 // localhost and otherwise speaks just enough SMTP to let net/smtp.Client
 // complete a Plain-auth send-mail flow.
 type pickyEHLOServer struct {
-	t        *testing.T
 	listener net.Listener
 	mu       sync.Mutex
 	lastEHLO string
@@ -155,7 +158,7 @@ func newPickyEHLOServer(t *testing.T) *pickyEHLOServer {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	srv := &pickyEHLOServer{t: t, listener: ln}
+	srv := &pickyEHLOServer{listener: ln}
 	srv.wg.Add(1)
 	go srv.acceptLoop()
 	return srv
@@ -170,10 +173,7 @@ func (s *pickyEHLOServer) Host() string {
 
 func (s *pickyEHLOServer) Port() int {
 	_, port, _ := net.SplitHostPort(s.Addr())
-	var p int
-	for _, c := range port {
-		p = p*10 + int(c-'0')
-	}
+	p, _ := strconv.Atoi(port)
 	return p
 }
 
