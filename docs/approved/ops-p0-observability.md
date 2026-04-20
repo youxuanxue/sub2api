@@ -32,7 +32,10 @@ owners: [tk-platform]
 
 **Upstream 友好原则**：所有新增代码进 `*_tk_*.go` 同伴文件或 fork-only 目录（[`internal/integration/newapi/`](../../backend/internal/integration/newapi/)、`internal/observability/` 新目录），upstream-owned 文件改动控制在"一行 hook"级别。详见 [`CLAUDE.md`](../../CLAUDE.md) §5。
 
-**关于 dev-rules submodule**：本仓库已通过 PR #11（commit `65498445`，2026-04-19）接入 [`dev-rules/`](../../dev-rules/) submodule（pinned `5fc8988`），`.cursor/rules/` 已 sync 出 5 个 mdc，CI 已跑 8 段 preflight。本仓库**遵 `CLAUDE.md` §10 不创建项目级 `scripts/preflight.sh` wrapper**——直接走 `dev-rules/templates/preflight.sh`，详见 §3。
+**关于 dev-rules submodule + preflight wrapper**：
+- PR #11（2026-04-19）接入 [`dev-rules/`](../../dev-rules/) submodule（pinned `5fc8988`），`.cursor/rules/` 已 sync 出 5 个 mdc，CI 已跑 8 段 preflight。
+- PR #10（newapi 第五平台）落地了 [`scripts/preflight.sh`](../../scripts/preflight.sh) **thin wrapper**——内部 delegate dev-rules 模板的 1-8 段，并追加 **§9 newapi compat-pool drift**（详 [`CLAUDE.md`](../../CLAUDE.md) §10）。
+- 本文档 P0-3 的全部基础设施已在 main，**仅剩本机一行 `bash dev-rules/templates/install-hooks.sh` 装 git hook**（hook 自动 prefer wrapper 而非裸模板）。
 
 **审批门禁约束（R5）**：本文档 frontmatter `status: draft`、`approved_by: pending`。dev-rules preflight 段 7 的 R5 在 `main`/`master` 分支会拒绝任何 `approved_by: pending` 的 approved doc 落地——即**合 main 前必须由 reviewer 把 frontmatter 改为真名**（任意非 main 分支允许 pending），merge PR 后本文档即成符合性基线。否决/需修改的反馈直接在 PR 评论给出。
 
@@ -183,19 +186,20 @@ routes.RegisterMetricsRoute(r)
 
 ---
 
-## 3. P0-3：preflight git hook 安装（dev-rules 已接入，无项目级 wrapper）
+## 3. P0-3：preflight git hook 安装（dev-rules + wrapper 已接入，仅装 hook）
 
 ### 3.1 现状（main 已落地的部分）
 
-本仓库已接入 [`dev-rules/`](../../dev-rules/) submodule（commit `65498445` / PR #11，2026-04-19）。**P0-3 的大半已经在 main 完成**：
+PR #11（dev-rules submodule，2026-04-19）+ PR #10（newapi 第五平台 + thin wrapper，2026-04-20）已把 P0-3 几乎全部基础设施落到 main：
 
 | 项 | main 上的状态 | 来源 |
 |---|---|---|
 | `dev-rules/` submodule pinned 到 `5fc8988` | ✅ 已接入 | PR #11 |
 | `.cursor/rules/` 同步出 5 个 mdc（真复制，云端 agent 可用） | ✅ 已 sync | PR #11 |
-| CI `.github/workflows/backend-ci.yml` 已加 `preflight` job（`submodules: recursive` + 跑 `dev-rules/templates/preflight.sh` 8 段） | ✅ 已接入 | PR #11 |
-| 项目级 `scripts/preflight.sh` wrapper | ❌ **故意不创建** | [`CLAUDE.md`](../../CLAUDE.md) §10 |
-| `scripts/check_approved_docs.py` | ❌ 已上提到 `dev-rules/scripts/` | PR #11 |
+| CI `.github/workflows/backend-ci.yml` 已加 `preflight` job（`submodules: recursive` + 优先 `./scripts/preflight.sh`，fallback `dev-rules/templates/preflight.sh`） | ✅ 已接入 | PR #11 |
+| `scripts/check_approved_docs.py` | ❌ 已上提到 `dev-rules/scripts/`（不再在本仓库） | PR #11 |
+| `scripts/preflight.sh` thin wrapper（**§9 newapi compat-pool drift**；1-8 段 delegate dev-rules 模板） | ✅ 已落地 | PR #10（[`CLAUDE.md`](../../CLAUDE.md) §10 明文批准） |
+| `scripts/export_agent_contract.py`（仅 audit 模式：5 平台齐全 hard-fail + route 数 ±10% warning） | ✅ 已落地 | PR #10（详 [`docs/preflight-debt.md`](../../docs/preflight-debt.md) §3） |
 | 本机 git pre-commit hook (`.git/hooks/pre-commit`) | ⚠️ 一次性 onboarding 动作（hook 不进 git，每位开发者各装一次） | 见 §3.2 |
 
 **P0-3 实际剩余工作**：每个开发者本地跑一次 `bash dev-rules/templates/install-hooks.sh` 装 hook，工作量 < 1 分钟。文档化为"新人 onboarding checklist"即可。
@@ -207,55 +211,43 @@ routes.RegisterMetricsRoute(r)
 bash dev-rules/templates/install-hooks.sh
 ```
 
-`install-hooks.sh` 的逻辑（见 dev-rules 模板）：项目根有 `scripts/preflight.sh` 时调用项目 wrapper，否则 fallback 到 `dev-rules/templates/preflight.sh`。本仓库走 fallback 分支（与 CI 一致）。
+`install-hooks.sh` **prefer 项目 wrapper**：项目根有 `scripts/preflight.sh` 时调用 wrapper（本仓库已有），否则 fallback 到 `dev-rules/templates/preflight.sh`。**本仓库走 wrapper 分支**——hook 跑 dev-rules 1-8 段 + sub2api §9 newapi 段，与 CI 走同一脚本。
 
-### 3.3 dev-rules 8 段 preflight 已涵盖的检查
+### 3.3 当前 preflight 段位图（dev-rules 1-8 + sub2api 9）
 
 | 段 | 检查项 | 失败动作 | 当前状态 |
 |----|--------|----------|----------|
 | 1 | 分支命名规范（`feature/`、`fix/`、`prototype/`、`chore/`、`docs/`、`merge/upstream-*`） | 拒绝 commit | ✅ 启用 |
-| 2 | dev-rules submodule 提交顺序（先 submodule 后父仓库） | 拒绝 commit；离线时 warn | ✅ 启用 |
+| 2 | dev-rules submodule 提交顺序（先 submodule 后父仓库） | 拒绝 commit；离线时 warn | ✅ 启用（worktree 内 hook 假 fail，详 [`docs/preflight-debt.md`](../../docs/preflight-debt.md) §7） |
 | 3 | `.cursor/rules/` drift（`dev-rules/sync.sh --check`） | 拒绝 commit | ✅ 启用 |
-| 4 | API/CLI/MCP 契约 drift（`scripts/export_agent_contract.py --check`） | 拒绝 commit | ⚠️ skip（脚本未实现，见 [`docs/preflight-debt.md`](../../docs/preflight-debt.md) §3） |
-| 5 | User Story / Test 对齐（`.testing/user-stories/verify_quality.py`） | 拒绝 commit | ⚠️ skip（脚本未建） |
+| 4 | API/CLI/MCP 契约 drift（`scripts/export_agent_contract.py --check`） | hard-fail：5 平台齐全；warning：route 数 ±10% | ✅ 启用（仅 audit 模式，详 [`docs/preflight-debt.md`](../../docs/preflight-debt.md) §3） |
+| 5 | User Story / Test 对齐（`.testing/user-stories/verify_quality.py`） | 拒绝 commit | ⚠️ skip（脚本未建，详 [`docs/preflight-debt.md`](../../docs/preflight-debt.md) §5） |
 | 6 | `docs/approved/` 改动门禁（非 prototype/* 分支改动需 reviewer 确认） | warn | ✅ 启用 |
 | 7 | approved-doc 不变量 R1-R4（任何分支）+ R5（仅 main/master 拦截 `approved_by: pending`） | 拒绝 commit | ✅ 启用 |
 | 8 | 散文档数值漂移（`dev-rules/sync-stats.sh --check`） | 拒绝 commit | ✅ 启用 |
+| **9** | **sub2api: newapi compat-pool drift**（scheduler/gateway 必须用 `IsOpenAICompatPoolMember` 而非裸 `PlatformOpenAI`） | **拒绝 commit** | **✅ 启用**（PR #10 引入；source of truth = [`docs/approved/newapi-as-fifth-platform.md`](./newapi-as-fifth-platform.md) §5.1） |
 
-**段 4/5 是合规债**，不在 P0 范围（详见 [`docs/preflight-debt.md`](../../docs/preflight-debt.md) §3）。
+**段 5 是合规债**（验证脚本未建）；段 4 已落地但仅 audit 模式（generator 重写是 follow-up，详 preflight-debt §3）。文档 3 [`ops-cron-agent-workflow.md`](./ops-cron-agent-workflow.md) §6 计划在 Stage 2B 追加 §10（auto PR ≤ 5）+ §11（P1 issue warning）—— **从 §10 起编**，因为 §9 已被 newapi 占。
 
-### 3.4 sub2api-specific 段是否需要在 P0 引入？
+### 3.4 Upstream 冲突面分析
 
-**结论：P0 阶段不引入项目级 wrapper**。理由：
+**零冲突**：dev-rules + preflight wrapper 相关的所有文件（`.gitmodules`、`dev-rules/`、`.cursor/rules/`、`backend-ci.yml` 的 preflight job、`scripts/preflight.sh`、`scripts/export_agent_contract.py`、`CLAUDE.md` §10）都是 PR #10/#11 已合并到 main 的 fork-only 改动。本文档无新增 backend / CI 代码。
 
-按 [`CLAUDE.md`](../../CLAUDE.md) §10 明文规定："Add `scripts/preflight.sh` later only if a sub2api-specific check emerges that doesn't belong in dev-rules"。当前 P0 范围（JSON 日志 + `/metrics`）触发的检查都已在 dev-rules 8 段内。
-
-**何时引入 wrapper**：当文档 3 [`ops-cron-agent-workflow.md`](./ops-cron-agent-workflow.md) §6 的 sub2api-specific 段（待处理 auto PR ≤ 5、P1 issue warning）落地 Stage 2 时。届时同步：
-1. 创建 `scripts/preflight.sh`，内部 `exec dev-rules/templates/preflight.sh "$@"` 完之后追加自定义段 ≥ 9
-2. `install-hooks.sh` 自动改用项目 wrapper（无需重装）
-3. CI 自动改走 `scripts/preflight.sh` 分支（`backend-ci.yml` preflight job 已写 `if [ -x scripts/preflight.sh ]; then ./scripts/preflight.sh; else ./dev-rules/templates/preflight.sh; fi`）
-4. `docs/preflight-debt.md` 登记新增段的合规理由
-
-**OPC 杠杆**：P0 阶段写 wrapper = 0 价值（什么都加不进去）；Stage 2 引入时 wrapper 自然必要——挣得位置后再做。
-
-### 3.5 Upstream 冲突面分析
-
-**零冲突**：dev-rules 接入相关的所有文件（`.gitmodules`、`dev-rules/`、`.cursor/rules/`、`backend-ci.yml` 的 preflight job、`CLAUDE.md` §10）都是 PR #11 已经合并到 main 的 fork-only 改动。本文档无新增。
-
-### 3.6 OPC 冲击评估
+### 3.5 OPC 冲击评估
 
 | 维度 | 影响 |
 |------|------|
-| **新增日常工作** | 提交时 hook 跑 dev-rules 8 段 ≈ 2-5 秒；CI preflight job 同样脚本 ≈ 30 秒。 |
+| **新增日常工作** | 提交时 hook 跑 dev-rules 1-8 段 + sub2api §9 ≈ 2-5 秒；CI preflight job 同样脚本 ≈ 30 秒。 |
 | **学习成本** | 0；preflight 失败信息明确指出修复路径（含 `--fix` 自动修复模式）。 |
-| **杠杆系数** | **核心**——本地与 CI 走同一脚本，避免"hook 跑 1 段、CI 跑 0 段"的强度漂移（PR #11 commit message 提到的历史问题）。 |
+| **杠杆系数** | **核心**——本地 hook 与 CI preflight job 走同一 `scripts/preflight.sh`，避免"hook 跑 1 段、CI 跑 0 段"的强度漂移（PR #11 commit message 提到的历史问题）。 |
 
-### 3.7 验收标准
+### 3.6 验收标准
 
 - 故意 `git checkout -b mybranch` 后 commit → hook 段 1 拒绝（"branch 'mybranch' does not match required prefix"）。
 - 故意改 `dev-rules/rules/*.mdc` 但不 `dev-rules/sync.sh --local` → hook 段 3 拒绝（drift）。
+- 故意在 `backend/internal/service/openai_account_scheduler.go` 把 `IsOpenAICompatPoolMember` 改回裸 `IsOpenAI()` → hook **段 9 拒绝**（PR #10 引入的 sub2api 段）。
 - 验证 R5（`approved_by: pending` 拦截）：R5 只在 `main`/`master` 分支触发（详 `dev-rules/templates/preflight.sh` 段 7），本地 feature 分支不触发，**只能在 PR 合 main 之前由 CI preflight job 兜底**——故意提一个保留 `pending` 的 PR 跑 CI，应看到 preflight job fail。
-- `./dev-rules/templates/preflight.sh` 在干净的 main 分支必须 0 fail（段 4/5 skip 不算 fail）。
+- `./scripts/preflight.sh` 在干净的 main 分支必须 0 fail（段 5 skip 不算 fail）。
 
 > P0-3 不增加任何代码改动，只是把"已经在 main 的能力"装到本机 hook。如果开发者已经从其他项目装过同名 hook，跳过本步即可。
 
@@ -379,7 +371,7 @@ gantt
 - [ ] `curl localhost:8080/metrics` 返回 200，含 6 类核心指标
 - [ ] `docker logs sub2api 2>&1 | head -1 | jq .` 返回 JSON 对象（无解析错误）
 - [ ] 脱敏单测：`go test -tags=unit ./internal/pkg/logger/... -run TestRedact` 全绿
-- [ ] `./dev-rules/templates/preflight.sh` 在干净的 main 分支 0 fail（段 4/5 skip 不算 fail，见 §3.3）
+- [ ] `./scripts/preflight.sh` 在干净的 main 分支 0 fail（段 5 skip 不算 fail，详 §3.3）
 - [ ] `git diff upstream/main..HEAD -- backend/internal/server/router.go` ≤ 3 行（仅 1 行注册 + 必要 import）
 - [ ] `git diff upstream/main..HEAD -- backend/internal/pkg/logger/options.go` ≤ 1 行
 - [ ] Grafana 三个 dashboard 截图附在 PR 描述里

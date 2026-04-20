@@ -491,7 +491,7 @@ jobs:
 
 新增端点 `GET /v1/me/qa-data/export?since=YYYY-MM-DD&until=YYYY-MM-DD&format=zip`（fork-only）,**`since` + `until` 必填**(限制单次范围,避免几 GB 包),最大跨度 31 天。
 
-**v1 同步生成 + presigned URL**（**不走邮件链路**——SMTP 是新依赖,且 [`CLAUDE.md`](../../CLAUDE.md) §9.2 提到 SMTP 测试假错的历史风险）：
+**v1 同步生成 + presigned URL**（**不走邮件链路**——SMTP 是新依赖、邮件交付难调试，违反 OPC 依赖最小化）：
 
 1. 服务端流式生成 zip（`qa_records` JSON 行 + 关联 blob）写入对象存储临时桶 `tk-qa-export-tmp/<user_id>/<request_id>.zip`
 2. 返回 **presigned URL（24h 有效）**给客户端,用户直接 GET 下载
