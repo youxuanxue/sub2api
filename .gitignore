@@ -125,6 +125,8 @@ scripts/*
 !scripts/export_agent_contract.py
 !scripts/check-upstream-drift.sh
 !scripts/release-tag.sh
+!scripts/preflight.sh
+!scripts/check_approved_docs.py
 .code-review-state
 #openspec/
 code-reviews/
@@ -136,8 +138,10 @@ vite.config.js
 docs/*
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
+!docs/approved/
 !docs/deploy/
 !docs/flows/
+!docs/preflight-debt.md
 .serena/
 .codex/
 frontend/coverage/
