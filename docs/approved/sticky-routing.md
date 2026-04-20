@@ -3,6 +3,7 @@ title: Sticky Routing & Prompt Cache Optimization
 status: shipped
 approved_by: xuejiao (post-hoc 2026-04-19)
 approved_at: 2026-04-19
+shipped_at: 2026-04-19
 authors: [agent]
 created: 2026-04-17
 related_prs: []

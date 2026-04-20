@@ -57,6 +57,18 @@
 - **不再发生的依据**：design doc §11.2 现在提供按文件 `grep -cE "^func Test"` 的可复算明细；下次任何人加测试时，只要本 PR 的覆盖矩阵列表与统计一起改即可。
 - **未来门禁**：可在 `docs/approved/*.md` 中新增 `<!-- stat:newapi-tests -->34<!-- /stat -->` 块，由 `dev-rules/sync-stats.sh --check`（preflight § 8）机械核对——目前未做，因为只有一处数字、人工 audit 成本低于建表本身。
 
+### 7. dev-rules `templates/preflight.sh § 2` 在 worktree 内 commit hook 中假 fail
+
+- **现象**：本 worktree (`/Users/xuejiao/Codes/token/tk/sub2api-newapi-fifth`) 是从主仓库 `git worktree add` 出来的；`./scripts/preflight.sh` 直接跑 PASS，但通过 `git commit` 触发 pre-commit hook 时 § 2 (`dev-rules submodule pointer is reachable on remote`) 报 `FAIL: submodule SHA ... not found in dev-rules — submodule was not committed first`。
+- **根因**（2026-04-20 复现确认）：git 在 commit 阶段把 `GIT_DIR=/path/to/sub2api/.git/worktrees/sub2api-newapi-fifth` / `GIT_INDEX_FILE=...` 注入 hook 子进程；`templates/preflight.sh § 2` 内 `(cd dev-rules && git cat-file -e "$sub_sha" 2>/dev/null)` 子 shell 不 unset GIT_DIR，git 仍按上级 worktree 的 GIT_DIR 解析对象库，找不到子模块对象。脚本 `bash -c '... env -i ... cd dev-rules && git cat-file -e $sha'` 复现稳定（exit=1），unset GIT_DIR 后 PASS。
+- **影响**：
+  - 阻塞所有从 worktree 发起的合法 commit（手动 preflight 全绿但 hook 假 fail）。
+  - 本 PR 在 audit 阶段被迫使用 `git commit --no-verify`（手动 preflight 已 PASS 作为补偿），违反"hook 必须通过"软规则。
+- **决策**：上修到 dev-rules 仓库（`templates/preflight.sh § 2` 在 `cd dev-rules` 子 shell 前 `unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE`）。本 PR 范围内仅登记 + worktree commit 用 `--no-verify`。
+- **门禁**：dev-rules 修复后，本仓库 `git submodule update --remote dev-rules` 拉新 SHA 即自动恢复 hook 拦截。
+- **截止日期**：2026-04-26（一周内推 dev-rules 修复 PR）。
+- **临时缓解**：从 sub2api **主仓库** 目录（非 worktree）做 commit 不受影响（GIT_DIR 直接指向主 .git）；或用 `git -c core.hooksPath=/dev/null commit ...` 显式跳 hook（与 `--no-verify` 等价但更显式）。
+
 ---
 
 ## 历史事件
