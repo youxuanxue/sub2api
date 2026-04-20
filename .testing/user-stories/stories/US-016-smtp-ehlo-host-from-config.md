@@ -62,7 +62,13 @@ go test -tags=unit -count=1 ./backend/internal/service/...
   - `go build ./...` clean。
   - `go test -tags=unit -count=1 -v -run 'TestEHLOHostFromConfig|TestSendEmail_RejectsEHLOLocalhost|TestSendEmail_PreFixBehaviorReproduces' ./internal/service/...` → 3 个测试 + 8 个子用例全 PASS。
   - `go test -tags=unit -count=1 ./internal/service/...` → 包通过（`ok ... 80.666s`），无新增 FAIL。
+- Prod 部署收尾验证（2026-04-20T22:13Z 起）：
+  - 发版链路：`bash scripts/release-tag.sh v1.4.1` → release.yml 全绿 4 job（`update-version` / `build-frontend` / `release` / `sync-version-file`）→ multi-arch image `ghcr.io/youxuanxue/sub2api:1.4.1` (`linux/amd64` + `linux/arm64`) 发布。
+  - 部署链路：SSM `sed .env 1.4.0 → 1.4.1` + `docker compose pull tokenkey && up -d --no-deps tokenkey` → `tokenkey` 容器 `healthy` (image=`sub2api:1.4.1`) → 外部 `https://api.tokenkey.dev/health` HTTP 200 / 0.75s。
+  - Bootstrap 日志清洁：last-1m `error|fatal|panic` 0 命中。
+  - **运维侧 click-test（操作者实测）**：admin SMTP 设置页 → "测试连接" ✅ 通过；发测试邮件到 Gmail 收件箱 → 收到，DKIM/SPF pass。**修复前**同一配置下报 `Failed to send test email: smtp auth: EOF`。
+  - 安全清理：用于调试的 Google App Password 已撤销重发，新值仅存在 prod DB（settings 表）+ Google Workspace 控制台，不再出现在 chat / commit / PR body。
 
 ## Status
 
-- [ ] InTest（PR 等 review；merge 后转 Done，并随下一次 prod 部署在 admin SMTP 设置页用 `admin@orbitlogic.dev` + App Password 实测「测试连接」+ 收到测试信收尾验证）。
+- [x] Done — 2026-04-20。code merged at PR #21 (`ec999c3d`)；shipped to prod via PR #22 (`5bb30d0b`) + tag `v1.4.1`；运维侧 click-test 通过。后续任何 SMTP backend 切换（如改回 SES / 加 Mailgun fallback）都应复用 `ehloHostFromConfig` 推导路径，不要再显式传 `localhost`。
