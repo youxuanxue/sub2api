@@ -1223,22 +1223,26 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 		return nil, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, requestedModel)
 	}
 
+	// TK: resolve scheduling-pool platform once per request and thread it
+	// through; see docs/approved/newapi-as-fifth-platform.md §3.1.
+	groupPlatform := s.resolveGroupPlatform(ctx, groupID)
+
 	// 1. 尝试粘性会话命中
 	// Try sticky session hit
-	if account := s.tryStickySessionHit(ctx, groupID, sessionHash, requestedModel, excludedIDs, stickyAccountID); account != nil {
+	if account := s.tryStickySessionHit(ctx, groupID, sessionHash, requestedModel, excludedIDs, stickyAccountID, groupPlatform); account != nil {
 		return account, nil
 	}
 
-	// 2. 获取可调度的 OpenAI 账号
-	// Get schedulable OpenAI accounts
-	accounts, err := s.listSchedulableAccounts(ctx, groupID)
+	// 2. 获取可调度的 OpenAI-compat 账号（platform 由 group 决定，可能是 openai 或 newapi）
+	// Get schedulable accounts for this group's platform
+	accounts, err := s.listSchedulableAccounts(ctx, groupID, groupPlatform)
 	if err != nil {
 		return nil, fmt.Errorf("query accounts failed: %w", err)
 	}
 
 	// 3. 按优先级 + LRU 选择最佳账号
 	// Select by priority + LRU
-	selected := s.selectBestAccount(ctx, groupID, accounts, requestedModel, excludedIDs)
+	selected := s.selectBestAccount(ctx, groupID, accounts, requestedModel, excludedIDs, groupPlatform)
 
 	if selected == nil {
 		if requestedModel != "" {
@@ -1261,9 +1265,17 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 //
 // tryStickySessionHit attempts to get account from sticky session.
 // Returns account if hit and usable; clears session and returns nil if account is unavailable.
-func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID *int64, sessionHash, requestedModel string, excludedIDs map[int64]struct{}, stickyAccountID int64) *Account {
+// tryStickySessionHit takes a groupPlatform parameter so it can validate the
+// sticky-bound account against the actual scheduling-pool predicate (newapi
+// or openai), not the legacy hardcoded "must be openai" check. Empty
+// groupPlatform falls back to PlatformOpenAI for backward compatibility.
+// See docs/approved/newapi-as-fifth-platform.md §3.1 U5.
+func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID *int64, sessionHash, requestedModel string, excludedIDs map[int64]struct{}, stickyAccountID int64, groupPlatform string) *Account {
 	if sessionHash == "" {
 		return nil
+	}
+	if groupPlatform == "" {
+		groupPlatform = PlatformOpenAI
 	}
 
 	accountID := stickyAccountID
@@ -1293,13 +1305,13 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 
 	// 验证账号是否可用于当前请求
 	// Verify account is usable for current request
-	if !account.IsSchedulable() || !account.IsOpenAI() {
+	if !account.IsSchedulable() || !account.IsOpenAICompatPoolMember(groupPlatform) {
 		return nil
 	}
 	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
 		return nil
 	}
-	account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, requestedModel)
+	account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, requestedModel, groupPlatform)
 	if account == nil {
 		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 		return nil
@@ -1320,8 +1332,10 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 // 返回 nil 表示无可用账号。
 //
 // selectBestAccount selects the best account from candidates (priority + LRU).
-// Returns nil if no available account.
-func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *int64, accounts []Account, requestedModel string, excludedIDs map[int64]struct{}) *Account {
+// Returns nil if no available account. groupPlatform threads the scheduling-pool
+// platform through fresh/recheck filters; see
+// docs/approved/newapi-as-fifth-platform.md §3.1.
+func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *int64, accounts []Account, requestedModel string, excludedIDs map[int64]struct{}, groupPlatform string) *Account {
 	var selected *Account
 	needsUpstreamCheck := s.needsUpstreamChannelRestrictionCheck(ctx, groupID)
 
@@ -1334,11 +1348,11 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 			continue
 		}
 
-		fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, acc, requestedModel)
+		fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, acc, requestedModel, groupPlatform)
 		if fresh == nil {
 			continue
 		}
-		fresh = s.recheckSelectedOpenAIAccountFromDB(ctx, fresh, requestedModel)
+		fresh = s.recheckSelectedOpenAIAccountFromDB(ctx, fresh, requestedModel, groupPlatform)
 		if fresh == nil {
 			continue
 		}
@@ -1403,6 +1417,10 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 		return nil, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, requestedModel)
 	}
 
+	// TK: resolve scheduling-pool platform once per request and thread it
+	// through; see docs/approved/newapi-as-fifth-platform.md §3.1.
+	groupPlatform := s.resolveGroupPlatform(ctx, groupID)
+
 	cfg := s.schedulingConfig()
 	needsUpstreamCheck := s.needsUpstreamChannelRestrictionCheck(ctx, groupID)
 	var stickyAccountID int64
@@ -1439,7 +1457,7 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 		})
 	}
 
-	accounts, err := s.listSchedulableAccounts(ctx, groupID)
+	accounts, err := s.listSchedulableAccounts(ctx, groupID, groupPlatform)
 	if err != nil {
 		return nil, err
 	}
@@ -1465,9 +1483,9 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 				if clearSticky {
 					_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 				}
-				if !clearSticky && account.IsSchedulable() && account.IsOpenAI() &&
+				if !clearSticky && account.IsSchedulable() && account.IsOpenAICompatPoolMember(groupPlatform) &&
 					(requestedModel == "" || account.IsModelSupported(requestedModel)) {
-					account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, requestedModel)
+					account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, requestedModel, groupPlatform)
 					if account == nil {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 					} else if needsUpstreamCheck && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, account, requestedModel) {
@@ -1533,7 +1551,7 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 		ordered := append([]*Account(nil), candidates...)
 		sortAccountsByPriorityAndLastUsed(ordered, false)
 		for _, acc := range ordered {
-			fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, acc, requestedModel)
+			fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, acc, requestedModel, groupPlatform)
 			if fresh == nil {
 				continue
 			}
@@ -1586,7 +1604,7 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 			shuffleWithinSortGroups(available)
 
 			for _, item := range available {
-				fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, item.account, requestedModel)
+				fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, item.account, requestedModel, groupPlatform)
 				if fresh == nil {
 					continue
 				}
@@ -1607,7 +1625,7 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 	// ============ Layer 3: Fallback wait ============
 	sortAccountsByPriorityAndLastUsed(candidates, false)
 	for _, acc := range candidates {
-		fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, acc, requestedModel)
+		fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, acc, requestedModel, groupPlatform)
 		if fresh == nil {
 			continue
 		}
@@ -1625,20 +1643,12 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 	return nil, ErrNoAvailableAccounts
 }
 
-func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64) ([]Account, error) {
-	if s.schedulerSnapshot != nil {
-		accounts, _, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, PlatformOpenAI, false)
-		return accounts, err
-	}
-	var accounts []Account
-	var err error
-	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
-		accounts, err = s.accountRepo.ListSchedulableByPlatform(ctx, PlatformOpenAI)
-	} else if groupID != nil {
-		accounts, err = s.accountRepo.ListSchedulableByGroupIDAndPlatform(ctx, *groupID, PlatformOpenAI)
-	} else {
-		accounts, err = s.accountRepo.ListSchedulableUngroupedByPlatform(ctx, PlatformOpenAI)
-	}
+// listSchedulableAccounts is the legacy entrypoint preserved for callers that
+// have not (yet) been threaded with groupPlatform. New code paths SHOULD call
+// listOpenAICompatSchedulableAccounts directly with the resolved platform —
+// see docs/approved/newapi-as-fifth-platform.md §3.1 U1 / §3.2.
+func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64, groupPlatform string) ([]Account, error) {
+	accounts, err := s.listOpenAICompatSchedulableAccounts(ctx, groupID, groupPlatform)
 	if err != nil {
 		return nil, fmt.Errorf("query accounts failed: %w", err)
 	}
@@ -1652,9 +1662,16 @@ func (s *OpenAIGatewayService) tryAcquireAccountSlot(ctx context.Context, accoun
 	return s.concurrencyService.AcquireAccountSlot(ctx, accountID, maxConcurrency)
 }
 
-func (s *OpenAIGatewayService) resolveFreshSchedulableOpenAIAccount(ctx context.Context, account *Account, requestedModel string) *Account {
+// resolveFreshSchedulableOpenAIAccount re-validates a candidate account against
+// the OpenAI-compatible scheduling pool of the given groupPlatform. Empty
+// groupPlatform falls back to PlatformOpenAI for backward compatibility.
+// See docs/approved/newapi-as-fifth-platform.md §3.1 U6.
+func (s *OpenAIGatewayService) resolveFreshSchedulableOpenAIAccount(ctx context.Context, account *Account, requestedModel string, groupPlatform string) *Account {
 	if account == nil {
 		return nil
+	}
+	if groupPlatform == "" {
+		groupPlatform = PlatformOpenAI
 	}
 
 	fresh := account
@@ -1666,7 +1683,7 @@ func (s *OpenAIGatewayService) resolveFreshSchedulableOpenAIAccount(ctx context.
 		fresh = current
 	}
 
-	if !fresh.IsSchedulable() || !fresh.IsOpenAI() {
+	if !fresh.IsSchedulable() || !fresh.IsOpenAICompatPoolMember(groupPlatform) {
 		return nil
 	}
 	if requestedModel != "" && !fresh.IsModelSupported(requestedModel) {
@@ -1675,19 +1692,28 @@ func (s *OpenAIGatewayService) resolveFreshSchedulableOpenAIAccount(ctx context.
 	return fresh
 }
 
-func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDB(ctx context.Context, account *Account, requestedModel string) *Account {
+// recheckSelectedOpenAIAccountFromDB re-reads the account from PG and validates
+// it against the OpenAI-compatible scheduling pool of groupPlatform. Empty
+// groupPlatform falls back to PlatformOpenAI for backward compatibility.
+// See docs/approved/newapi-as-fifth-platform.md §3.1 U6 (extension: design
+// originally only listed resolveFresh, but recheck performs the symmetric
+// IsOpenAI() filter and was a design oversight — both must move together).
+func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDB(ctx context.Context, account *Account, requestedModel string, groupPlatform string) *Account {
 	if account == nil {
 		return nil
 	}
 	if s.schedulerSnapshot == nil || s.accountRepo == nil {
 		return account
 	}
+	if groupPlatform == "" {
+		groupPlatform = PlatformOpenAI
+	}
 
 	latest, err := s.accountRepo.GetByID(ctx, account.ID)
 	if err != nil || latest == nil {
 		return nil
 	}
-	if !latest.IsSchedulable() || !latest.IsOpenAI() {
+	if !latest.IsSchedulable() || !latest.IsOpenAICompatPoolMember(groupPlatform) {
 		return nil
 	}
 	if requestedModel != "" && !latest.IsModelSupported(requestedModel) {

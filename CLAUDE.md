@@ -279,16 +279,23 @@ a git submodule at `dev-rules/`. The full convention is in
 `dev-rules/rules/dev-rules-convention.mdc` (synced to `.cursor/rules/`); this
 section only records sub2api-specific choices.
 
-- **No project-level `scripts/preflight.sh` wrapper.** All preflight checks
-  needed by sub2api are already covered by `dev-rules/templates/preflight.sh`
-  (8 sections: branch naming, submodule pointer, .cursor/rules drift, agent
+- **`scripts/preflight.sh` is a thin wrapper, not a re-implementation.**
+  Sections 1-8 (branch naming, submodule pointer, .cursor/rules drift, agent
   contract drift, story/test alignment, docs/approved discipline,
-  approved-doc invariants R1-R5, doc-stat drift). The git pre-commit hook
-  installed by `dev-rules/templates/install-hooks.sh` resolves preflight at
-  runtime and falls back to the dev-rules template directly. Add
-  `scripts/preflight.sh` later only if a sub2api-specific check emerges that
-  doesn't belong in dev-rules (and document the reason in
-  `docs/preflight-debt.md`).
+  approved-doc invariants R1-R5, doc-stat drift) are **delegated** to
+  `dev-rules/templates/preflight.sh` — the wrapper just invokes it. The
+  wrapper exists ONLY to host **§ 9 sub2api-specific checks**:
+  - § 9  newapi compat-pool drift — guards the P0 regression that triggered
+    `docs/approved/newapi-as-fifth-platform.md`. Any new scheduler/gateway
+    caller must use `IsOpenAICompatPoolMember` / `OpenAICompatPlatforms`
+    instead of bare `PlatformOpenAI` / `IsOpenAI`.
+  When adding a new sub2api-only check, add it as `§ 10`, `§ 11`, … in
+  `scripts/preflight.sh` (NEVER in the dev-rules template — that is shared
+  across all consumer projects). If the check turns out to be useful for
+  more than just sub2api, lift it into dev-rules and remove the local copy.
+  The git pre-commit hook installed by `dev-rules/templates/install-hooks.sh`
+  prefers `scripts/preflight.sh` when present and falls back to the dev-rules
+  template otherwise.
 - **CI must check out submodules.** All workflow jobs that run
   `dev-rules/...` (preflight, contract drift, etc.) must use
   `actions/checkout@v6` with `submodules: recursive`.
@@ -309,6 +316,8 @@ HTTP Request → Auth (JWT/APIKey) → Account Scheduling (sticky/load-aware)
 ```
 
 The fifth platform **`newapi`** is a first-class account/group platform (not an add-on card on the other four): it uses OpenAI-compatible gateway routes and the New API **adaptor** layer in `internal/relay/bridge` when `channel_type > 0`. The `internal/integration/newapi/` package provides the channel-type catalog, affinity helpers, upstream model metadata helpers, and other `newapi`-specific bridge support required by TokenKey's fifth-platform flow.
+
+**Scheduling-pool semantics (per `docs/approved/newapi-as-fifth-platform.md`, shipped):** the OpenAI-compatible pool now partitions strictly by `group.platform`. `openai` groups schedule only `openai` accounts; `newapi` groups schedule only `newapi` accounts (with `channel_type > 0`). The canonical predicate is `account.IsOpenAICompatPoolMember(groupPlatform)` in `backend/internal/service/account_tk_compat_pool.go`, used by load-balance, sticky-session, and recheck paths in `openai_account_scheduler.go` / `openai_gateway_service.go`. Cross-platform fallback is forbidden — an empty pool surfaces an error. Sticky-session bindings whose bound account drifted to the wrong platform (or whose `channel_type` was reset to 0) are invalidated and the request fails over to load-balance. `messages_dispatch_model_config` is preserved for `openai` and `newapi` groups, cleared for `anthropic` / `gemini` / `antigravity` (predicate: `isOpenAICompatPlatformGroup`). Sticky routing (per `docs/approved/sticky-routing.md`, shipped) layers above this pool to optimize prompt-cache hit rates within each platform's bucket.
 
 ### Fusion / Bridge Plans
 

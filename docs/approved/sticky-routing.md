@@ -3,6 +3,7 @@ title: Sticky Routing & Prompt Cache Optimization
 status: shipped
 approved_by: xuejiao (post-hoc 2026-04-19)
 approved_at: 2026-04-19
+shipped_at: 2026-04-19
 authors: [agent]
 created: 2026-04-17
 related_prs: []
@@ -340,7 +341,7 @@ type CacheStats struct {
 > 本节为事后归档：代码于 2026-04-18 经单提交 `a68dee5b` 落地 main，并已上线 test/prod。
 > 但本设计文档自 2026-04-17 起草后一直处于 `pending` 状态、未走 §3 阶段 2 审批门禁。
 > 本节用于把"已发生事实"对齐到本文，方便审计与后续维护。
-> 同时已新增 `scripts/preflight.sh` § 1 段 + `scripts/check_approved_docs.py` 机械门禁，避免再发生（见 §11.3）。
+> 同时已新增 `dev-rules/scripts/check_approved_docs.py` + `dev-rules/templates/preflight.sh § 7` 机械门禁，避免再发生（见 §11.3）。
 
 ### 11.1 已落地事实（与 §3-§5 设计对应）
 
@@ -369,9 +370,11 @@ type CacheStats struct {
 
 为把"靠自觉"升级为"靠脚本"（dev-rules `dev-rules-convention.mdc` 强约束）：
 
-- 新增 `scripts/check_approved_docs.py`：扫描 `docs/approved/*.md` frontmatter
-  - R1: 必须包含 `status` 字段，且取值在 `{draft, pending, shipped, archived}`
+- **dev-rules 集中实现**：`dev-rules/scripts/check_approved_docs.py` 扫描 `docs/approved/*.md` frontmatter
+  - R1: 必须包含 `status` 字段，且取值在 `{draft, pending, approved, shipped, archived}`
   - R2: `status: pending` 但 `related_prs` / `related_commits` 非空 → **失败**（即"shipped 但 doc 没改"的同款）
-  - R3: `status: shipped` 但 `related_prs` 与 `related_commits` 都为空 → **失败**
-- 新增 `scripts/preflight.sh` § 1 段调用上述脚本；`pre-commit` hook 与 CI 同步运行。
+  - R3/R4: `status: approved` 或 `shipped` 但 `related_prs` 与 `related_commits` 都为空 → **失败**
+  - R5: main/master 分支上禁止 `approved_by: pending`（其他分支允许）
+- **执行链**：`dev-rules/templates/preflight.sh § 7` 调用上述脚本；`scripts/preflight.sh`（项目 wrapper）→ dev-rules 模板 → § 7；`pre-commit` hook 与 CI（`.github/workflows/backend-ci.yml` `preflight` job）同步运行。
+- **演进路径**：本机制 2026-04-19 由 sub2api 项目级实现上提到 dev-rules submodule，详见 `docs/preflight-debt.md` 历史事件「2026-04-19: 接入 dev-rules submodule」。
 - 历史事件登记：`docs/preflight-debt.md`。

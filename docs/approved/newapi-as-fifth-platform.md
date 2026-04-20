@@ -1,12 +1,15 @@
 ---
 title: NewAPI as First-Class Fifth Platform — Scheduling & Dispatch Convergence
-status: pending
-approved_by: pending
-approved_at: pending
+status: shipped
+approved_by: xuejiao (PR #9 squash-merge)
+approved_at: 2026-04-19
+shipped_at: 2026-04-19
 authors: [agent]
 created: 2026-04-19
-related_prs: []
-related_audit: TOKENKEY_PLATFORM_AUDIT_2026-04-19(1).md
+related_prs: ["#9", "#10"]
+related_commits: [e768deed, af9a73a6, e9f8bc56, 0211c2b7, c5130c29, 6e0c0fce, bf784cab, 4441b642, ab39ddbb, 90d5d90c, d13b2646]
+related_stories: [US-008, US-009, US-010, US-011, US-012, US-013, US-014, US-015]
+related_audit: external — testers report 2026-04-19 (not committed to repo; cited in §0/§1 narrative)
 ---
 
 # NewAPI as First-Class Fifth Platform
@@ -199,36 +202,39 @@ bucket key 已经是 `(groupID, platform, mode)` 三元组（`scheduler_snapshot
 
 ## 4. 测试矩阵（6 维 + 风险覆盖，按 test-philosophy.mdc）
 
-### 4.1 User Story（必须创建）
+### 4.1 User Story（已建立，状态对齐到 `.testing/user-stories/index.md`）
 
-| ID | Title | Trace | 优先级 |
-|---|---|---|---|
-| US-NEWAPI-001 | newapi group + ChatCompletions 端到端走通 | 角色×能力 | P0 |
-| US-NEWAPI-002 | newapi group + Messages（一站式 K） | 角色×能力 | P0 |
-| US-NEWAPI-003 | newapi group + Responses 端到端走通 | 角色×能力 | P0 |
-| US-NEWAPI-004 | openai group 调度池**不被** newapi 账号污染 | 防御需求 | P0 |
-| US-NEWAPI-005 | newapi group 池空时返回明确"no available newapi accounts" | 防御需求 | P1 |
-| US-NEWAPI-006 | newapi group + sticky session 命中后 recheck 通过/失效降级 | 实体生命周期 | P1 |
-| US-NEWAPI-007 | newapi group 配置 messages_dispatch_model_config 持久化与读取 | 角色×能力 | P1 |
-| US-NEWAPI-008 | 历史 openai group 行为完全不变（回归） | 防御需求 | P0 |
+> 编号约定：本仓库 user story 走全局递增编号（`.testing/user-stories/index.md`），
+> design 阶段曾用别名 `US-NEWAPI-001~008`，实际登记为 `US-008~015`。下表是单一事实来源。
 
-### 4.2 6 维用例覆盖（按 test-philosophy §4）
+| 全局 ID | 别名（design） | Title | Trace | 优先级 |
+|---|---|---|---|---|
+| US-008 | US-NEWAPI-001 | newapi group + ChatCompletions 端到端走通 | 角色×能力 | P0 |
+| US-009 | US-NEWAPI-002 | newapi group + Messages（一站式 K） | 角色×能力 | P0 |
+| US-010 | US-NEWAPI-003 | newapi group + Responses 端到端走通 | 角色×能力 | P0 |
+| US-011 | US-NEWAPI-004 | openai group 调度池**不被** newapi 账号污染 | 防御需求 | P0 |
+| US-012 | US-NEWAPI-005 | newapi group 池空时返回明确"no available newapi accounts" | 防御需求 | P1 |
+| US-013 | US-NEWAPI-006 | newapi group + sticky session 命中后 recheck 通过/失效降级 | 实体生命周期 | P1 |
+| US-014 | US-NEWAPI-007 | newapi group 配置 messages_dispatch_model_config 持久化与读取 | 角色×能力 | P1 |
+| US-015 | US-NEWAPI-008 | 历史 openai group 行为完全不变（回归） | 防御需求 | P0 |
 
-| 维度 | 必测 case | 覆盖 |
+### 4.2 6 维用例覆盖（按 test-philosophy §4，编号已对齐到全局 US-008~015）
+
+| 维度 | 必测 case | 覆盖 story |
 |---|---|---|
-| 正向路径 | newapi group 三入口走通 | US-001/002/003 |
-| 输入空间 | groupPlatform="" / 未知值 → 回退 openai 行为 | US-008 |
-| 前置状态 | newapi 账号 channel_type=0（不应入池）| US-005 |
-| 副作用 | scheduler bucket cache key 按 platform 分桶 | US-004 |
-| 并发时序 | openai group + newapi group 同时调度互不干扰 | US-004 |
-| 权限角色 | newapi group + AllowMessagesDispatch=false → 403 | US-002 |
+| 正向路径 | newapi group 三入口走通 | US-008 / US-009 / US-010 |
+| 输入空间 | groupPlatform="" / 未知值 → 回退 openai 行为 | US-015（回归基线 + 默认值 helper 单测） |
+| 前置状态 | newapi 账号 channel_type=0（不应入池） | US-012 |
+| 副作用 | scheduler bucket cache key 按 platform 分桶 | US-011 + US-008 AC-001 断言 bucketKey |
+| 并发时序 | openai group + newapi group 同时调度互不干扰 | US-011 AC-004（混池排除）+ US-015 |
+| 权限角色 | non-compat group（anthropic 等）`messages_dispatch` 强制清空 | US-014 / US-009 sanitize 测试 |
 
 ### 4.3 风险覆盖（4 类必声明）
 
-- **逻辑错误**：`groupPlatform=""` 回退路径必须保证旧 openai group 选不到 newapi 账号
-- **行为回归**：US-008 必须运行旧 openai group 的所有既有 sticky/loadbalance 测试通过
-- **安全问题**：openai group 不得越权调度到 newapi 账号（混池漏洞），US-004 显式断言
-- **运行时问题**：scheduler cache 在升级后旧 openai bucket 仍命中、新 newapi bucket 冷启动正常
+- **逻辑错误**：`groupPlatform=""` 回退路径必须保证旧 openai group 选不到 newapi 账号（US-011 + US-015 联合断言）
+- **行为回归**：US-015 必须保留旧 openai group 的所有既有 sticky/loadbalance 行为
+- **安全问题**：openai group 不得越权调度到 newapi 账号（混池漏洞），US-011 全部 AC 显式断言
+- **运行时问题**：scheduler cache 在升级后旧 openai bucket 仍命中、新 newapi bucket 冷启动正常（US-008 AC-001 中 schedulerSnapshot.bucketKey 断言）
 
 ## 5. OPC 自动化门禁（preflight 接入）
 
@@ -252,8 +258,9 @@ echo "[preflight] newapi compat pool drift check OK"
 ### 5.2 集成测试（必须 testcontainer 自动化，不依赖手动）
 
 ```bash
-go test -tags=integration -run 'TestUSNEWAPI_' ./backend/internal/service/...
-go test -tags=integration -run 'TestUSNEWAPI_' ./backend/internal/handler/...
+# 全局编号已对齐，run 模式按 US-008 ~ US-015
+go test -tags=integration -run 'TestUS00[89]_|TestUS01[0-5]_' ./backend/internal/service/...
+go test -tags=integration -run 'TestUS00[89]_|TestUS01[0-5]_' ./backend/internal/handler/...
 ```
 
 ### 5.3 契约文档自动重生成
@@ -280,8 +287,8 @@ go test -tags=integration -run 'TestUSNEWAPI_' ./backend/internal/handler/...
 
 | 阶段 | 估时 | 产出 |
 |---|---|---|
-| 原型实现（P0 流程跑通） | 1 d | §3 全部实施 + US-001/002/003 单测 |
-| 测试补全（6 维 + 回归） | 1.5 d | US-004~008 + 集成测试 testcontainer |
+| 原型实现（P0 流程跑通） | 1 d | §3 全部实施 + US-008/009/010 单测 |
+| 测试补全（6 维 + 回归） | 1.5 d | US-011~015 + 集成测试 testcontainer |
 | 审批门禁（§5 落地） | 0.5 d | preflight 段 + contract 重生成 |
 | 文档同步 | 0.5 d | CLAUDE.md 现状盘点更新（移除"first-class fifth platform 名实不符"的隐含债务） |
 | **合计** | **3.5 d** | |
@@ -293,10 +300,10 @@ go test -tags=integration -run 'TestUSNEWAPI_' ./backend/internal/handler/...
 
 按"一个完整 PR"交付，避免细碎切分稀释 review 注意力。该 PR 包含：
 
-- §3.1 upstream 最小注入点（`scheduler.go` 1 行 + `bridge_dispatch.go` 1 行 + `openai_gateway_service.go` 1 处 sanitize 放行）
-- §3.2 companion 文件（`scheduler_tk_pool.go`、`messages_dispatch_tk_newapi.go`、`openai_compat_tk_pool.go`）
+- §3.1 upstream 最小注入点（`openai_account_scheduler.go` 加 `GroupPlatform` 字段 + 改 1 处 filter；`openai_gateway_service.go` sticky/recheck/listSchedulableAccounts 各 1 处；`openai_messages_dispatch.go` 1 行 sanitize 放行；`openai_ws_forwarder.go` 同步改 LB 入口字段）
+- §3.2 companion 文件（实际命名：`account_tk_compat_pool.go`、`openai_gateway_service_tk_newapi_pool.go`、`openai_messages_dispatch_tk_newapi.go` + 各自 `*_test.go`）
 - §5 preflight 段 + `scripts/export_agent_contract.py` 重生成
-- §6 全部测试（US-001 ~ US-008 单元 + 集成 testcontainer）
+- §6 全部测试（US-008 ~ US-015 单元 + 集成 testcontainer）
 - `CLAUDE.md` "Current Gateway Flow" 现状盘点更新（移除 `newapi` 名实不符的隐含债务）
 
 合入后 SSM 升级 prod（参考 v1.3.1 升级模式，零数据迁移）。
@@ -325,13 +332,93 @@ go test -tags=integration -run 'TestUSNEWAPI_' ./backend/internal/handler/...
 
 ## 9. 验收清单（合并门禁）
 
-- [ ] §3.1 全部 upstream 注入点完成且每处 ≤ 5 行
-- [ ] §3.2 全部 companion 文件 + 单元测试（覆盖 6 维矩阵）
-- [ ] US-NEWAPI-001~008 全部从 Draft → Done
-- [ ] §5.1 preflight 两段 drift check 加入 `scripts/preflight.sh` 并 CI 跑通
-- [ ] §5.2 集成测试 testcontainer 化，CI 跑通
-- [ ] §5.3 `scripts/export_agent_contract.py --check` 通过
-- [ ] `go test -tags=unit ./...` 全绿
-- [ ] `go test -tags=integration ./...` 全绿
-- [ ] `golangci-lint run ./...` 无新问题
-- [ ] 旧 openai group 在 prod 镜像里手测三入口仍正常
+- [x] §3.1 全部 upstream 注入点完成且每处 ≤ 5 行 — 4 文件，diff ≈ +98/-46 in upstream-shaped files (commit `6e0c0fce`)
+- [x] §3.2 全部 companion 文件 + 单元测试 — `account_tk_compat_pool.go`、`openai_gateway_service_tk_newapi_pool.go`、`openai_messages_dispatch_tk_newapi.go` + 三个 `*_test.go`（commits `0211c2b7`, `6e0c0fce`）
+- [x] US-011..US-015 从 Draft → InTest（5 个故事的核心 AC 由 mock 单测真断言）
+- [ ] **US-008/009/010 仍是 Draft（acknowledged gap）**：3 个端到端故事的核心 AC 是「真 HTTP→Auth→bridge→newapi upstream 走通」，本 PR 未交付任何 e2e 测试。按 `test-philosophy.mdc §6`「阅读代码 ≠ 验证」纪律，故事 status 不能升 InTest。详细诚实承认见 `docs/preflight-debt.md` §4，3 个 story 文件各自 "Honest status note" 段
+- [x] §5.1 preflight 段（newapi compat-pool drift，sub2api-specific）加入 `scripts/preflight.sh § 9` 并行为验证可 fail（commit `4441b642`，merge PR #11 后 wrapper 重构为 `dev-rules/templates/preflight.sh § 1-8 + § 9 sub2api`）
+- [ ] §5.2 集成测试 testcontainer 化 — **acknowledged gap，延期到 follow-up PR `feature/newapi-fifth-platform-e2e`**（见 `docs/preflight-debt.md` §4 重写后的诚实理由，2026-05-03 截止）；当下 34 个 mock 单测**仅**覆盖 US-011~015 的核心 AC（分布见 §11.2），US-008/009/010 的端到端 AC **未覆盖**
+- [x] §5.3 `scripts/export_agent_contract.py --check` 由 `dev-rules/templates/preflight.sh § 4 (agent contract drift)` 自动接入，本 PR 仅 audit 模式（routes/*.go ↔ doc 计数 + Notes 段平台覆盖），完整 prefix-resolving generator 见 preflight-debt §3（commit `ab39ddbb`）
+- [x] `go test -tags=unit ./internal/service/...` 全绿 — 82.8s（M5a 验证日志：`.testing/user-stories/attachments/us-newapi-unit-run-2026-04-19.txt`）
+- [x] CLAUDE.md "Current Gateway Flow" 段补 newapi 调度池语义（M8，commit `90d5d90c`）
+
+## 10. 设计前后对比
+
+> 见 git log `feature/newapi-fifth-platform ^main`（2026-04-19 起 9 工作 commits + 1 merge commit `d13b2646`；
+> 11 个 working files in `backend/internal/service/` — 4 个 upstream-shape 改动 + 7 个 TK companion / 测试新增）。
+> 三个 helper（`IsOpenAICompatPoolMember`, `OpenAICompatPlatforms`,
+> `isOpenAICompatPlatformGroup`）替换了所有 `IsOpenAI()` 调度筛选场景；upstream 文件每处改动 ≤ 5 行。
+
+## 11. 实施情况（2026-04-19 ~ 2026-04-20）
+
+PR：[`feature/newapi-fifth-platform → main`](https://github.com/youxuanxue/sub2api/pull/) — 待开。
+
+### 11.1 提交序列（review 顺序）
+
+| Milestone | Commit | 内容 |
+|---|---|---|
+| M1 现状对齐 | `af9a73a6` | design doc frontmatter pending → approved + 扩展 `check_approved_docs.py` lifecycle 支持 `approved` |
+| M2 用户故事 | `e9f8bc56` | 新建 `.testing/user-stories/stories/US-008..US-015.md` 8 篇（覆盖 §0 全部 P0 AC + 回归基线）+ index 更新 |
+| M3 companion (part 1) | `0211c2b7` | `account_tk_compat_pool.go` + `account_tk_compat_pool_test.go` + `openai_messages_dispatch_tk_newapi.go` |
+| US 编号对齐 | `c5130c29` | design doc §4.1 / §4.2 / §5.2 用全局 ID（US-008..015）替换设计期 alias `US-NEWAPI-001..008` |
+| M3-补 + M4 | `6e0c0fce` | §3.1 upstream U1-U7 注入点（`scheduler.go` + `gateway_service.go` + `messages_dispatch.go` + `ws_forwarder.go`，4 文件 +98/-46）+ companion `openai_gateway_service_tk_newapi_pool.go` + 漏补的 `openai_messages_dispatch_tk_newapi_test.go` |
+| M5a | `bf784cab` | scheduler-tier 行为单测 8 case（`openai_account_scheduler_tk_newapi_test.go`）+ gateway-tier sticky 单测 5 case（`openai_gateway_service_tk_newapi_pool_test.go`）+ 8 故事 status → InTest + Linked Tests 回填 + evidence 归档 + preflight-debt §4 记录 M5b 延期 |
+| M6 | `4441b642` | `scripts/preflight.sh § 2` 段（两条 drift check：直接 `PlatformOpenAI` bucket / 裸 `!account.IsOpenAI()`），POSIX grep + 行为验证可 fail（merge PR #11 后由 `scripts/preflight.sh § 9` 承担，语义不变） |
+| M7 | `ab39ddbb` | `scripts/export_agent_contract.py`（audit 模式）+ 项目级 `preflight § 3` 接入 + `docs/agent_integration.md` Notes 段 5 平台 + newapi 三入口契约 + preflight-debt §3 更新（merge PR #11 后由 `dev-rules/templates/preflight.sh § 4 (agent contract drift)` 自动调用，无需项目级段） |
+| M8 | `90d5d90c` | CLAUDE.md "Current Gateway Flow" 补 newapi 调度池语义 + design doc §9 验收清单勾选 + frontmatter shipped + §11 实施情况 + preflight-debt §2 closed |
+| Merge `origin/main` (PR #11) | `d13b2646` | 接入 dev-rules submodule（删除项目级 `scripts/preflight.sh` + `scripts/check_approved_docs.py`）→ 重建 `scripts/preflight.sh` 为 wrapper（dev-rules 模板 § 1-8 + sub2api § 9）、同步对齐文档 § 编号引用、CLAUDE.md §10 描述更新为"thin wrapper" |
+
+### 11.2 单测覆盖（34 case，覆盖 US-008..015）
+
+实际分布（`grep -cE "^func Test"`）：
+
+- `account_tk_compat_pool_test.go`：9（compat-pool predicate truth-table，US-011/012）
+- `openai_account_scheduler_tk_newapi_test.go`：8（scheduler-tier，US-008/011/012/015）
+- `openai_gateway_service_tk_newapi_pool_test.go`：5（sticky-session，US-011/013/015）
+- `openai_messages_dispatch_tk_newapi_test.go`：12（dispatch sanitize + truth table，US-009/014/015）
+
+下表列出按风险类型 × 故事 ID 的代表性映射（非全集）：
+
+| 风险 | US | 测试 | 文件 |
+|---|---|---|---|
+| 逻辑（正向） | US-008 | `TestUS008_NewAPIGroup_Scheduler_PicksNewAPIAccount` | `openai_account_scheduler_tk_newapi_test.go` |
+| 逻辑（无回退） | US-008/012 | `TestUS008_NewAPIGroup_PoolEmpty_NoFallback` | 同上 |
+| 回归（正向） | US-008/015 | `TestUS008_OpenAIGroup_SchedulerSelect_Unchanged` | 同上 |
+| 安全（混池防御 1） | US-011 | `TestUS011_LoadBalance_FiltersOutNewAPIFromOpenAIGroup` | 同上 |
+| 安全（混池防御 2） | US-011 | `TestUS011_LoadBalance_FiltersOutOpenAIFromNewAPIGroup` | 同上 |
+| 安全（channel_type=0） | US-012 | `TestUS012_LoadBalance_ExcludesNewAPIChannelTypeZero` | 同上 |
+| 逻辑（池空报错） | US-012 | `TestUS012_NewAPIGroup_AllChannelTypeZero_PoolEmpty` | 同上 |
+| 缓存分桶 | US-015 | `TestUS015_SchedulerBucket_PartitionedByPlatform` | 同上 |
+| 逻辑（sticky HIT） | US-013 | `TestUS013_Sticky_NewAPIGroup_HitsBoundAccount` | `openai_gateway_service_tk_newapi_pool_test.go` |
+| 安全（sticky 漂移 1） | US-011/013 | `TestUS011_Sticky_FailsOver_WhenAccountChangedPlatform` | 同上 |
+| 安全（sticky 漂移 2） | US-013 | `TestUS013_Sticky_NewAPIGroup_FailsOver_WhenStickyAccountIsOpenAI` | 同上 |
+| 安全（sticky 配置失效） | US-013 | `TestUS013_Sticky_NewAPIGroup_FailsOver_WhenChannelTypeReset` | 同上 |
+| 回归（openai sticky） | US-015 | `TestUS015_Sticky_OpenAIGroup_HitPreserved` | 同上 |
+| 逻辑（dispatch 放行） | US-009/014 | `TestUS009_Sanitize_NewAPIGroup_Preserves`, `TestUS014_NewAPIGroup_MessagesDispatchConfig_RoundTrip` | `openai_messages_dispatch_tk_newapi_test.go` |
+| 回归（dispatch 清除） | US-009/014 | `TestUS009_Sanitize_AnthropicGroup_Cleared` 等 5 case | 同上 |
+| Truth table | predicate | `TestIsOpenAICompatPlatformGroup_Truth` | 同上 |
+
+全部 34 case 在 `go test -tags=unit -count=1 ./internal/service/...` 内运行（82.8s 全 service suite，含本 PR 之外测试），无新增失败、无 flaky。
+
+### 11.3 推迟项（follow-up PR）
+
+| 项 | 范围 | 截止 |
+|---|---|---|
+| §5.2 e2e（HTTP+PG+upstream） | US-008/009/010 三入口端到端，testcontainer 化 | 2026-05-03（preflight-debt §4） |
+| §5.3 完整 prefix-resolving contract generator | Go AST walker 或 runtime route dump，重生成 393 routes 的完整列表 | 下次 routes 重构前（preflight-debt §3） |
+| §9 §5.2 验收勾选 | 由 e2e PR 完成时补打 | 同上 |
+
+### 11.4 已建立的合规门禁（防止下次"shipped under pending"）
+
+- **frontmatter 不变量 R1-R5**：`dev-rules/scripts/check_approved_docs.py`（lifecycle 现支持 `approved` 状态，本 PR M1 提案，后由 PR #11 上提到 dev-rules 与 zw-brain 共享）→ `dev-rules/templates/preflight.sh § 7`
+- **newapi compat-pool drift**（sub2api-specific）：`scripts/preflight.sh § 9`（行为验证：构造 probe 文件能稳定 fail）
+- **agent contract drift**：`scripts/export_agent_contract.py --check` → 由 `dev-rules/templates/preflight.sh § 4` 自动调用（行为验证：删除 `newapi` 后 Notes 段覆盖检查稳定 fail）
+- **故事 ↔ 测试对齐（含降级纪律）**：8 篇 user story 中 5 篇（US-011..015）核心 AC 由单测真覆盖 → status `InTest`；3 篇（US-008/009/010）核心 AC 是端到端，**本 PR 未覆盖** → status 保持 `Draft`（acknowledged gap，2026-04-20 audit 决议）。test-philosophy §6「单测全绿不是结论」纪律得到执行
+- **CI 与本地强度对齐**：`.github/workflows/backend-ci.yml` `preflight` job（`submodules: recursive`）与 pre-commit hook 走同一 `scripts/preflight.sh`
+
+### 11.5 本 PR 未闭环的事项（acknowledged gaps，由 follow-up 关闭）
+
+- [ ] `go test -tags=integration -run 'TestUS00[89]_HTTP_|TestUS010_HTTP_' ./internal/handler/...` 全绿 — **未做**，由 `feature/newapi-fifth-platform-e2e` 关闭（2026-05-03，见 preflight-debt §4）
+- [ ] US-008/009/010 status 升 InTest/Done — **未做**，与上一项同 follow-up
+- [ ] `golangci-lint run ./...` 无新问题 — 未在本 PR 验证清单中跑过；merge 前由 reviewer 触发或 CI 自动跑
+- [ ] 旧 openai group 在 prod 镜像里手测三入口仍正常 — **未做**，prod 灰度时的 SSM 操作员自测项
