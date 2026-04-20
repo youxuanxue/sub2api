@@ -85,20 +85,24 @@
 - **截止日期**：2026-04-26（一周内推 dev-rules 修复 PR）。
 - **临时缓解**：从 sub2api **主仓库** 目录（非 worktree）做 commit 不受影响（GIT_DIR 直接指向主 .git）；或用 `git -c core.hooksPath=/dev/null commit ...` 显式跳 hook（与 `--no-verify` 等价但更显式）。
 
-### 8. commit message body 提及 `[skip ci]` 字面字符串触发 GitHub Actions skip — **2026-04-20 prod 事故**
+### 8. commit message body 提及 skip-marker 字面触发 GitHub Actions skip — **closed (2026-04-20)**
 
-- **现象**：v1.4.0 release 准备阶段，VERSION bump commit (`4d82eb32 chore: bump VERSION to 1.4.0`) 的 message **subject 行不含 `[skip ci]`**，但 body 里有两处用反引号包起来的 `` `[skip ci]` `` 字面（用于解释"不要带 [skip ci]"的注意事项）。结果：
+- **现象**：v1.4.0 release 准备阶段，VERSION bump commit (`4d82eb32 chore: bump VERSION to 1.4.0`) 的 message subject 干净，但 body 把 skip-marker 当字面字符串讨论（用于解释"不要带"的注意事项）。结果：
   - `git push origin main` → 没触发 CI workflow（`[CI]`/`[Security Scan]` 都没排队）
-  - `git push origin v1.4.0` → 没触发 release workflow（**release.yml 被静默吞掉，与 v1.3.1 当时被吞同款**）
+  - `git push origin v1.4.0` → 没触发 release workflow（release.yml 被静默吞掉，与 v1.3.0 同款）
   - 必须手动 `gh workflow run release.yml -f tag=v1.4.0 -f simple_release=false` 补救。
-- **根因**：GitHub Actions 的 skip-message 检测对**整个 commit message（含 body）**做子串匹配，不区分上下文（不区分代码块/反引号/转义）。`https://docs.github.com/actions/managing-workflow-runs/skipping-workflow-runs` 明确："the search is **case-insensitive** and looks anywhere in the commit message including the body"。CLAUDE.md §9.2 与 deploy/aws/README.md §发版纪律两条都只警告了"subject 不能带"，没强调 body 也不能提。
-- **影响**：本次仅延迟 ~5 min 发版（手动 dispatch 即可补救）；但对 prod hot-fix 场景属于"静默回归"——不主动监控 release tab 就感知不到。
-- **决策**：双向加固，本次 PR 范围内可立即落地的两条：
-  1. **CLAUDE.md §9.2 升级**：从"commit message contains no `[skip ci]`"改为"commit message **anywhere (subject or body)** contains no `[skip ci]` / `[ci skip]` / `[no ci]` / `[skip actions]` / `[actions skip]` literal — including inside backticks/code blocks"。同步改 `deploy/aws/README.md §发版纪律` 第一条。
-  2. **preflight 段加 SkipCI guard**：新增 `scripts/preflight.sh § 10` 或 `dev-rules/templates/preflight.sh` 新段，对当前 staged commit message（`git log -1 --format=%B HEAD` 在 amend 流程；commit-msg hook 阶段读 `$1`）做 `grep -iE '\[(skip ci|ci skip|no ci|skip actions|actions skip)\]'`，**仅当本次 commit 改动包含 `backend/cmd/server/VERSION` 时**（即 release-bump commit）拦截非空匹配。这样既不影响 release.yml 自身的 sync-version-file `[skip ci]` 回写（那不是本地 commit），又能在源头挡住"VERSION bump 带 [skip ci]"。
-- **门禁**：preflight 检查上线 + CLAUDE.md/README 双向更新后，本 debt 标 closed。
-- **截止日期**：2026-04-27（与 §7 dev-rules hook fix 同周，合在一个 dev-rules PR 推）。
-- **跨参考**：本次实际执行链——`git push origin v1.4.0` (10:09) → 监控 5 min 无 release run (10:14) → 诊断 commit body → manual dispatch run id `24660924811` (10:13) → release 跑通。
+- **根因**：GitHub Actions 的 skip-message 检测对**整个 commit message（含 body）**做子串匹配，不区分上下文（代码块/反引号/转义都不豁免）。
+- **复盘**（2026-04-20 audit）：
+  - **CLAUDE.md §9.2 早已升级**（v1.3.0 事故后落地）：line 269 明确写 _"the trap goes further than the literal commit body... matched the literal substring inside the explanation"_，line 271/335 强制要求 `bash scripts/release-tag.sh vX.Y.Z`。
+  - **`scripts/release-tag.sh` 早已存在**（5100 字节，5 项校验包括 `git log -1 --format=%B | grep -qE '\[skip ci\]|\[ci skip\]'`），用它本应被拦截。
+  - **真实根因**：操作者直接 `git tag v1.4.0 && git push origin v1.4.0` 跳过 helper —— 这是 PR Checklist 里写明要用 helper 的 §9.2 规则被绕过，不是规则缺失。
+  - **唯一缺的环节**：`deploy/aws/README.md §发版纪律` 第 1 条还是 v1.3.0 之前的旧措辞，没有同步到 CLAUDE.md §9.2 强度，也没指向 helper。运维路径文档与开发纪律文档不对齐，加大了"忘记 helper"的概率。
+- **整改**（2026-04-20，本 fix PR）：
+  1. `deploy/aws/README.md §发版纪律` 第 1 条重写到与 CLAUDE.md §9.2 相同强度，明确：(a) 任何位置 skip-marker 都会触发，(b) 必须用 `bash scripts/release-tag.sh vX.Y.Z`，(c) 唯一允许带的是 release.yml `sync-version-file` job 自动回写 commit。
+  2. README 新增 §发版 SOP（开发者侧）+ §生产升级 SOP（运维侧），把 v1.4.0 实测路径标准化。
+- **不再发生的依据**：CLAUDE.md §9.2 + helper + 本次同步过的 README，三处口径一致。下次发版只要走 `bash scripts/release-tag.sh vX.Y.Z`，helper 在 push 前就会精确 grep 拦截，事故无法重现。
+- **未做（明确 out-of-scope）**：把 helper 的 grep 检查上提到 dev-rules `commit-msg` hook —— ROI 不高，因为 helper 本身已经强制（仅当 helper 被绕过时才会重演事故，而绕过 helper 本身就违反 §9.2）。如果未来又有人再次绕过 helper 直接 git tag，再考虑把 helper 升成 commit-msg hook + tag-pre hook。
+- **跨参考**：v1.4.0 完整事故时间线见 docs/preflight-debt.md（git log），以及 `gh run view 24660924811` 的 manual dispatch recovery 记录。
 
 ### 9. AWS Stage-0 CFN 模板：改 ImageTag 触发实例 replace = PG 数据丢失风险
 
@@ -111,14 +115,23 @@
 - **影响**：
   - 任何不知情者执行 `aws cloudformation deploy ... ImageTag=X` → 触发实例重建 → **prod 用户/配额/key/账单数据全丢**。这是 P0 级隐患。
   - CFN drift 让 `aws cloudformation describe-stacks --query Drift` 显示偏差，长期累积会让回滚/扩容/迁移决策失去 IaC 兜底。
-- **决策**：拆 follow-up PR 修两件事：
-  1. **README 紧急修订**：删掉 §107 的"改 CFN 参数 + deploy"指南，改成"prod 升级**唯一路径**：SSM `docker compose pull && up -d tokenkey`（步骤完整）"；§141 SSM 段从"测试栈"提升到 README 顶部的 quick start 之后。
-  2. **CFN 模板长期方案**：把 PG / Redis / Caddy 数据 volume 从 root EBS 拆到独立 `AWS::EC2::Volume` + `AWS::EC2::VolumeAttachment`（带 `DeletionPolicy: Retain` + `UpdateReplacePolicy: Retain`）；改完后 README §107 才能恢复"改参数 + deploy"的安全语义。这一步需要一次 prod 迁移窗口（停机 + EBS dump/restore），属于 stage-0 → stage-0.5 的小升级。
-  3. **drift 同步**：当前 CFN ImageTag=1.2.0、实际 1.4.0；下次有人触发 `aws cloudformation deploy` 会引爆。短期防御：在 stack tag/Description 里加红色警告 `DO NOT change ImageTag via CFN; use SSM instead`，preflight 增加一段拉 stack 当前 ImageTag 与实例实际镜像 tag 对比警告（warning，不 fail）。
-- **门禁**：长期方案落地后，prod 发版可恢复"`aws cloudformation deploy`"路径，本 debt closed。
-- **截止日期**：
-  - README 紧急修订：**2026-04-22**（48 小时内，未修期间 prod 暴露在"任何 CFN 操作"的风险下）。
-  - CFN 模板拆 volume：2026-05-31（与 stage 1 升级评估同窗口）。
+- **决策**：拆 closed/open 两段：
+
+  **9.a — README 紧急修订（closed 2026-04-20，本 fix PR）**
+
+  - 表格 §升级 / 发版：prod 升级方式从"改 CFN 参数 + deploy"改成"**唯一安全路径**：SSM `docker compose pull && up -d tokenkey`"，附明确警告"会触发实例 replace、root EBS 上的 PG / Redis / Caddy / pgdumps 全部变孤儿，从空 PG 起来"。
+  - 新增 §发版 SOP（开发者侧 — `bash scripts/release-tag.sh vX.Y.Z`）+ §生产升级 SOP（运维侧 — 完整 `aws ssm send-command` 模板，含 `.env` 备份 + healthcheck 等待 + 回滚），把 v1.4.0 实测路径标准化。
+  - Quick Start 段 `ImageTag=1.1.0` 硬编码改为 `gh release list -L 1` 自动取，并注明"仅用于 stack 初始化时的首次镜像拉取，后续升级**不要**改这个参数"。
+  - 测试栈段同样统一到 SSM 路径（删掉之前不一致的"测试栈用 SSM、prod 用 CFN"双轨）。
+  - drift 现状告知：CFN `describe-stacks` 显示的 `ImageTag` 会与实际运行版本漂移，这是 stage-0 模板限制下的有意 trade-off，CFN 参数视为"初始化默认值"，实际版本以 `.env` 内 `TOKENKEY_IMAGE` 为准。
+
+  **9.b — CFN 模板拆独立 volume（open，长期方案）**
+
+  - 把 PG / Redis / Caddy 数据 volume 从 root EBS 拆到独立 `AWS::EC2::Volume` + `AWS::EC2::VolumeAttachment`（带 `DeletionPolicy: Retain` + `UpdateReplacePolicy: Retain`）。
+  - 改完后 README 才能恢复"改 ImageTag + `aws cloudformation deploy`"的安全语义；在此之前 prod 升级永远走 SSM 路径。
+  - 这一步需要一次 prod 迁移窗口（停机 + EBS dump/restore + 重新挂载），属于 stage-0 → stage-0.5 的小升级。
+  - **截止日期**：2026-05-31（与 stage 1 升级评估同窗口）。
+  - **drift 短期防御（可选 follow-up）**：在 stack Tag / Description 里加 `DO NOT change ImageTag via CFN; use SSM instead`；preflight 增加一段拉 stack 当前 ImageTag 与实例实际镜像 tag 对比，不一致 warn。优先级低于 9.b 本身。
 - **实操记录**（v1.4.0）：
   - 升级路径：`aws ssm send-command i-04a8afd18c997b8ac` → `sed .env 1.3.1 → 1.4.0` → `docker compose --env-file .env pull tokenkey && up -d --no-deps tokenkey` → 35s 内 healthy。
   - 验证：external `/health` HTTP 200，bootstrap 日志全绿，3 min 内 0 错误，多架构 manifest 4 tag 一致。
