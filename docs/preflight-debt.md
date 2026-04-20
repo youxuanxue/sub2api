@@ -85,6 +85,45 @@
 - **截止日期**：2026-04-26（一周内推 dev-rules 修复 PR）。
 - **临时缓解**：从 sub2api **主仓库** 目录（非 worktree）做 commit 不受影响（GIT_DIR 直接指向主 .git）；或用 `git -c core.hooksPath=/dev/null commit ...` 显式跳 hook（与 `--no-verify` 等价但更显式）。
 
+### 8. commit message body 提及 `[skip ci]` 字面字符串触发 GitHub Actions skip — **2026-04-20 prod 事故**
+
+- **现象**：v1.4.0 release 准备阶段，VERSION bump commit (`4d82eb32 chore: bump VERSION to 1.4.0`) 的 message **subject 行不含 `[skip ci]`**，但 body 里有两处用反引号包起来的 `` `[skip ci]` `` 字面（用于解释"不要带 [skip ci]"的注意事项）。结果：
+  - `git push origin main` → 没触发 CI workflow（`[CI]`/`[Security Scan]` 都没排队）
+  - `git push origin v1.4.0` → 没触发 release workflow（**release.yml 被静默吞掉，与 v1.3.1 当时被吞同款**）
+  - 必须手动 `gh workflow run release.yml -f tag=v1.4.0 -f simple_release=false` 补救。
+- **根因**：GitHub Actions 的 skip-message 检测对**整个 commit message（含 body）**做子串匹配，不区分上下文（不区分代码块/反引号/转义）。`https://docs.github.com/actions/managing-workflow-runs/skipping-workflow-runs` 明确："the search is **case-insensitive** and looks anywhere in the commit message including the body"。CLAUDE.md §9.2 与 deploy/aws/README.md §发版纪律两条都只警告了"subject 不能带"，没强调 body 也不能提。
+- **影响**：本次仅延迟 ~5 min 发版（手动 dispatch 即可补救）；但对 prod hot-fix 场景属于"静默回归"——不主动监控 release tab 就感知不到。
+- **决策**：双向加固，本次 PR 范围内可立即落地的两条：
+  1. **CLAUDE.md §9.2 升级**：从"commit message contains no `[skip ci]`"改为"commit message **anywhere (subject or body)** contains no `[skip ci]` / `[ci skip]` / `[no ci]` / `[skip actions]` / `[actions skip]` literal — including inside backticks/code blocks"。同步改 `deploy/aws/README.md §发版纪律` 第一条。
+  2. **preflight 段加 SkipCI guard**：新增 `scripts/preflight.sh § 10` 或 `dev-rules/templates/preflight.sh` 新段，对当前 staged commit message（`git log -1 --format=%B HEAD` 在 amend 流程；commit-msg hook 阶段读 `$1`）做 `grep -iE '\[(skip ci|ci skip|no ci|skip actions|actions skip)\]'`，**仅当本次 commit 改动包含 `backend/cmd/server/VERSION` 时**（即 release-bump commit）拦截非空匹配。这样既不影响 release.yml 自身的 sync-version-file `[skip ci]` 回写（那不是本地 commit），又能在源头挡住"VERSION bump 带 [skip ci]"。
+- **门禁**：preflight 检查上线 + CLAUDE.md/README 双向更新后，本 debt 标 closed。
+- **截止日期**：2026-04-27（与 §7 dev-rules hook fix 同周，合在一个 dev-rules PR 推）。
+- **跨参考**：本次实际执行链——`git push origin v1.4.0` (10:09) → 监控 5 min 无 release run (10:14) → 诊断 commit body → manual dispatch run id `24660924811` (10:13) → release 跑通。
+
+### 9. AWS Stage-0 CFN 模板：改 ImageTag 触发实例 replace = PG 数据丢失风险
+
+- **现象**（2026-04-20 v1.4.0 发版时确认）：
+  - `deploy/aws/cloudformation/stage0-single-ec2.yaml` 把 `ImageTag` 直接 substitute 进 `AWS::EC2::Instance.UserData`（line 272 `IMAGE_TAG='${ImageTag}'`）。
+  - CFN 默认行为：`AWS::EC2::Instance` 的 `UserData` 字段任何变化触发 **Replacement: True** → 旧 instance terminate + 新 instance launch。
+  - 模板**没有独立的 `AWS::EC2::Volume` / `AWS::EC2::VolumeAttachment`**，所有数据（PG / Redis / Caddy certs / pgdumps）都在 EC2 root EBS 里（`/var/lib/tokenkey/*` 全在 root）。`DeleteOnTermination: false` 保住了旧 EBS 不被删，但**新 instance 挂的是新 EBS**，旧 EBS 变孤儿，服务从空 PG 起来。
+  - `deploy/aws/README.md §107`/§89 写的"生产升级方式：改 CFN 参数 + `aws cloudformation deploy`"在 stage-0 实际是 destructive 操作 — README 在这一段是错的。
+- **暴露**：v1.4.0 准备 ship 时计划走 README §107 路径，验证 EBS 配置后发现实例 replace = PG 全丢；改走 README §141（"测试栈用 SSM"）的 in-place 路径。**CFN 当前显示 `ImageTag=1.2.0`**，但实例上一次升级（→1.3.1）已经走 SSM in-place、本次（→1.4.0）也走 SSM — CFN 已 drift 2 个 minor。
+- **影响**：
+  - 任何不知情者执行 `aws cloudformation deploy ... ImageTag=X` → 触发实例重建 → **prod 用户/配额/key/账单数据全丢**。这是 P0 级隐患。
+  - CFN drift 让 `aws cloudformation describe-stacks --query Drift` 显示偏差，长期累积会让回滚/扩容/迁移决策失去 IaC 兜底。
+- **决策**：拆 follow-up PR 修两件事：
+  1. **README 紧急修订**：删掉 §107 的"改 CFN 参数 + deploy"指南，改成"prod 升级**唯一路径**：SSM `docker compose pull && up -d tokenkey`（步骤完整）"；§141 SSM 段从"测试栈"提升到 README 顶部的 quick start 之后。
+  2. **CFN 模板长期方案**：把 PG / Redis / Caddy 数据 volume 从 root EBS 拆到独立 `AWS::EC2::Volume` + `AWS::EC2::VolumeAttachment`（带 `DeletionPolicy: Retain` + `UpdateReplacePolicy: Retain`）；改完后 README §107 才能恢复"改参数 + deploy"的安全语义。这一步需要一次 prod 迁移窗口（停机 + EBS dump/restore），属于 stage-0 → stage-0.5 的小升级。
+  3. **drift 同步**：当前 CFN ImageTag=1.2.0、实际 1.4.0；下次有人触发 `aws cloudformation deploy` 会引爆。短期防御：在 stack tag/Description 里加红色警告 `DO NOT change ImageTag via CFN; use SSM instead`，preflight 增加一段拉 stack 当前 ImageTag 与实例实际镜像 tag 对比警告（warning，不 fail）。
+- **门禁**：长期方案落地后，prod 发版可恢复"`aws cloudformation deploy`"路径，本 debt closed。
+- **截止日期**：
+  - README 紧急修订：**2026-04-22**（48 小时内，未修期间 prod 暴露在"任何 CFN 操作"的风险下）。
+  - CFN 模板拆 volume：2026-05-31（与 stage 1 升级评估同窗口）。
+- **实操记录**（v1.4.0）：
+  - 升级路径：`aws ssm send-command i-04a8afd18c997b8ac` → `sed .env 1.3.1 → 1.4.0` → `docker compose --env-file .env pull tokenkey && up -d --no-deps tokenkey` → 35s 内 healthy。
+  - 验证：external `/health` HTTP 200，bootstrap 日志全绿，3 min 内 0 错误，多架构 manifest 4 tag 一致。
+  - 实际 downtime：仅 `tokenkey` 容器 ~30s；caddy / postgres / redis 不重启。
+
 ---
 
 ## 历史事件
