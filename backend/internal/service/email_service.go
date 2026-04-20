@@ -176,16 +176,56 @@ func (s *EmailService) SendEmailWithConfig(config *SMTPConfig, to, subject, body
 
 	addr := fmt.Sprintf("%s:%d", config.Host, config.Port)
 	auth := smtp.PlainAuth("", config.Username, config.Password, config.Host)
+	ehloHost := ehloHostFromConfig(config)
 
 	if config.UseTLS {
-		return s.sendMailTLS(addr, auth, config.From, to, []byte(msg), config.Host)
+		return s.sendMailTLS(addr, auth, config.From, to, []byte(msg), config.Host, ehloHost)
 	}
 
-	return s.sendMailPlain(addr, auth, config.From, to, []byte(msg), config.Host)
+	return s.sendMailPlain(addr, auth, config.From, to, []byte(msg), config.Host, ehloHost)
+}
+
+// ehloHostFromConfig derives a non-localhost hostname for the EHLO command.
+//
+// Background: Go stdlib net/smtp.Client defaults its EHLO/HELO local name to
+// "localhost" when Hello() is not called explicitly. Strict relays — most
+// notably Google Workspace SMTP relay (smtp-relay.gmail.com) — drop the TCP
+// connection at AUTH stage when greeted with "EHLO localhost" as part of
+// anti-abuse / anti-open-relay protection, surfacing as `smtp auth: EOF`
+// to the caller. We must always EHLO with a real domain we own.
+//
+// Priority (first non-empty wins, "localhost" is rejected as last-resort fallback):
+//  1. Domain part of the From address  (admin@orbitlogic.dev → orbitlogic.dev)
+//  2. Domain part of the SMTP username (same shape)
+//  3. SMTP host as last resort (e.g. smtp-relay.gmail.com — verified accepted)
+func ehloHostFromConfig(config *SMTPConfig) string {
+	for _, candidate := range []string{config.From, config.Username} {
+		if d := domainFromEmail(candidate); d != "" {
+			return d
+		}
+	}
+	if h := strings.TrimSpace(config.Host); h != "" && !strings.EqualFold(h, "localhost") {
+		return h
+	}
+	// Should not happen in practice (config.Host is required upstream of this
+	// helper). Returning a marker rather than empty/"localhost" keeps the
+	// failure mode loud rather than silently regressing to the original bug.
+	return "tokenkey.invalid"
+}
+
+// domainFromEmail extracts the domain portion of an email address ("user@host"
+// → "host"). Returns "" when the input is not a well-formed address.
+func domainFromEmail(addr string) string {
+	addr = strings.TrimSpace(addr)
+	i := strings.LastIndex(addr, "@")
+	if i < 0 || i == len(addr)-1 {
+		return ""
+	}
+	return addr[i+1:]
 }
 
 // sendMailPlain sends mail without TLS using a dialer with timeout.
-func (s *EmailService) sendMailPlain(addr string, auth smtp.Auth, from, to string, msg []byte, host string) error {
+func (s *EmailService) sendMailPlain(addr string, auth smtp.Auth, from, to string, msg []byte, host, ehloHost string) error {
 	dialer := &net.Dialer{Timeout: smtpDialTimeout}
 	conn, err := dialer.Dial("tcp", addr)
 	if err != nil {
@@ -199,6 +239,13 @@ func (s *EmailService) sendMailPlain(addr string, auth smtp.Auth, from, to strin
 		return fmt.Errorf("new smtp client: %w", err)
 	}
 	defer func() { _ = client.Close() }()
+
+	// EHLO with our real domain BEFORE Extension/StartTLS/Auth. See
+	// ehloHostFromConfig docstring — Google Workspace SMTP relay drops the
+	// connection at AUTH when greeted with the stdlib default "EHLO localhost".
+	if err = client.Hello(ehloHost); err != nil {
+		return fmt.Errorf("smtp hello: %w", err)
+	}
 
 	// Opportunistic STARTTLS: upgrade to encrypted connection if the server supports it.
 	// This mirrors the behavior of smtp.SendMail which we replaced for timeout support.
@@ -232,7 +279,7 @@ func (s *EmailService) sendMailPlain(addr string, auth smtp.Auth, from, to strin
 }
 
 // sendMailTLS 使用TLS发送邮件
-func (s *EmailService) sendMailTLS(addr string, auth smtp.Auth, from, to string, msg []byte, host string) error {
+func (s *EmailService) sendMailTLS(addr string, auth smtp.Auth, from, to string, msg []byte, host, ehloHost string) error {
 	tlsConfig := &tls.Config{
 		ServerName: host,
 		// 强制 TLS 1.2+，避免协议降级导致的弱加密风险。
@@ -252,6 +299,11 @@ func (s *EmailService) sendMailTLS(addr string, auth smtp.Auth, from, to string,
 		return fmt.Errorf("new smtp client: %w", err)
 	}
 	defer func() { _ = client.Close() }()
+
+	// EHLO with our real domain BEFORE Auth — see ehloHostFromConfig docstring.
+	if err = client.Hello(ehloHost); err != nil {
+		return fmt.Errorf("smtp hello: %w", err)
+	}
 
 	if err = client.Auth(auth); err != nil {
 		return fmt.Errorf("smtp auth: %w", err)
@@ -417,6 +469,7 @@ func (s *EmailService) buildVerifyCodeEmailBody(code, siteName string) string {
 // TestSMTPConnectionWithConfig 使用指定配置测试SMTP连接
 func (s *EmailService) TestSMTPConnectionWithConfig(config *SMTPConfig) error {
 	addr := fmt.Sprintf("%s:%d", config.Host, config.Port)
+	ehloHost := ehloHostFromConfig(config)
 
 	if config.UseTLS {
 		tlsConfig := &tls.Config{
@@ -436,6 +489,11 @@ func (s *EmailService) TestSMTPConnectionWithConfig(config *SMTPConfig) error {
 		}
 		defer func() { _ = client.Close() }()
 
+		// EHLO with our real domain BEFORE Auth — see ehloHostFromConfig docstring.
+		if err = client.Hello(ehloHost); err != nil {
+			return fmt.Errorf("smtp hello failed: %w", err)
+		}
+
 		auth := smtp.PlainAuth("", config.Username, config.Password, config.Host)
 		if err = client.Auth(auth); err != nil {
 			return fmt.Errorf("smtp authentication failed: %w", err)
@@ -454,6 +512,11 @@ func (s *EmailService) TestSMTPConnectionWithConfig(config *SMTPConfig) error {
 		return fmt.Errorf("smtp connection failed: %w", err)
 	}
 	defer func() { _ = client.Close() }()
+
+	// EHLO with our real domain BEFORE Extension/StartTLS/Auth.
+	if err = client.Hello(ehloHost); err != nil {
+		return fmt.Errorf("smtp hello failed: %w", err)
+	}
 
 	if ok, _ := client.Extension("STARTTLS"); ok {
 		if err = client.StartTLS(&tls.Config{ServerName: config.Host, MinVersion: tls.VersionTLS12}); err != nil {

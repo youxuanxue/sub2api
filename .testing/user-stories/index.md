@@ -18,3 +18,4 @@
 | US-013 | newapi group + sticky session 命中 recheck / 漂移降级 | InTest | `.testing/user-stories/stories/US-013-newapi-group-sticky-session.md` |
 | US-014 | newapi group 配置 messages_dispatch_model_config 持久化 | InTest | `.testing/user-stories/stories/US-014-newapi-group-messages-dispatch-config.md` |
 | US-015 | 历史 openai group 行为完全不变（回归基线） | InTest | `.testing/user-stories/stories/US-015-openai-group-regression-baseline.md` |
+| US-016 | SMTP EHLO host 从 From/Username 推导（修 Google Workspace `auth: EOF`） | InTest | `.testing/user-stories/stories/US-016-smtp-ehlo-host-from-config.md` |
