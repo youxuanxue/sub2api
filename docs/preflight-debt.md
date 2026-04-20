@@ -14,11 +14,11 @@
 - **决策**：**不修**。理由：rename ~10 函数 + 跑全套测试，与"消除真实风险"的 ROI 不匹配。下次新增测试一律遵循 US-006 实际命名；老命名保留作为历史。
 - **未来门禁**：可在 preflight 加一段，校验 `docs/approved/*.md` 中提到的 `TestUS***_` 函数必须在 `backend/internal/.../*_test.go` 真实存在 — 当前未实现，先登记。
 
-### 2. CLAUDE.md "Current Gateway Flow" 段未提 sticky routing
+### 2. CLAUDE.md "Current Gateway Flow" 段未提 sticky routing — **closed (2026-04-20)**
 
 - **现象**：`docs/approved/sticky-routing.md` §10 计划在 CLAUDE.md 加一行 sticky routing 说明，未做。
-- **决策**：下次合并 `newapi-as-fifth-platform` PR 时一并补（同一段"调度与转发"流程图）。
-- **门禁**：暂无。
+- **整改**：随 `feature/newapi-fifth-platform` PR 一起补到 CLAUDE.md "Current Gateway Flow" 段尾——新增段落同时讲清调度池分桶（newapi）与 sticky routing（在分桶之上做 prompt-cache 优化）的层叠关系。
+- **闭环 commit**：M8 of `feature/newapi-fifth-platform` 分支。
 
 ### 3. `scripts/export_agent_contract.py` — 仅 audit 模式，未做 prefix-resolving generator
 
