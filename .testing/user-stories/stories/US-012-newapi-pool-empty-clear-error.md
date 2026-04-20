@@ -29,16 +29,24 @@
 
 ## Linked Tests
 
-- `backend/internal/service/openai_gateway_service_tk_newapi_pool_test.go`::`TestUS012_NewAPIPool_Empty_ReturnsNoAvailable`
+Pure predicate (this PR):
+
 - `backend/internal/service/account_tk_compat_pool_test.go`::`TestUS012_PoolMember_NewAPIChannelTypeZero_Excluded`
 - `backend/internal/service/account_tk_compat_pool_test.go`::`TestUS012_PoolMember_NewAPIChannelTypePositive_Allowed`
-- `backend/internal/service/openai_gateway_service_tk_newapi_pool_test.go`::`TestUS012_OpenAIPool_Empty_ErrorUnchanged`
-- 运行命令: `cd backend && go test -tags=unit -v -run 'TestUS012_' ./internal/service/`
+
+Scheduler-tier (this PR, mocked snapshot — covers AC "channel_type=0
+filtered out at loadBalance" and "all-channel_type=0 pool returns clear
+error"):
+
+- `backend/internal/service/openai_account_scheduler_tk_newapi_test.go`::`TestUS012_LoadBalance_ExcludesNewAPIChannelTypeZero`
+- `backend/internal/service/openai_account_scheduler_tk_newapi_test.go`::`TestUS012_NewAPIGroup_AllChannelTypeZero_PoolEmpty`
+- `backend/internal/service/openai_account_scheduler_tk_newapi_test.go`::`TestUS008_NewAPIGroup_PoolEmpty_NoFallback` *(transitive: also asserts no openai fallback)*
+- 运行命令: `cd backend && go test -tags=unit -v -run 'TestUS012_|TestUS008_NewAPIGroup_PoolEmpty' ./internal/service/`
 
 ## Evidence
 
-- `.testing/user-stories/attachments/us012-newapi-pool-empty-run.txt`
+- `.testing/user-stories/attachments/us-newapi-unit-run-2026-04-19.txt`
 
 ## Status
 
-- [ ] Draft
+- [x] InTest (channel_type=0 defense + pool-empty error fully locked)

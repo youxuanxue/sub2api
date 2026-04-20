@@ -26,6 +26,18 @@
 - **决策**：随 `newapi-as-fifth-platform` PR 一并定制。届时 `scripts/preflight.sh` § 2 段同步上线（见 §7 中的 § 2 TODO 注释）。
 - **门禁**：暂无（脚本完成后 § 2 段会拦截 contract drift）。
 
+### 4. newapi-as-fifth-platform e2e 测试（HTTP+PG+upstream）暂以单测替代
+
+- **现象**：`docs/approved/newapi-as-fifth-platform.md` §5.2 要求 US-008/009/010 跑 testcontainer 化的端到端集成测试（HTTP→Auth→scheduler→bridge dispatch→真 PG）。本 PR 提供：
+  - **已落**：scheduler-tier + gateway-tier 行为测试（21 个 unit case，全 mock，覆盖 US-008/009/011/012/013/014/015 的核心安全/逻辑/回归 AC）— 见 `.testing/user-stories/attachments/us-newapi-unit-run-2026-04-19.txt`。
+  - **未落**：真 HTTP+PG e2e（US-008 chat completions、US-009 messages、US-010 responses 端到端）。
+- **决策**：拆为 follow-up PR `feature/newapi-fifth-platform-e2e`。理由（OPC 务实）：
+  1. 单测已锁死全部 design §3 注入点的关键不变量（混池防御 / 池空报错 / sticky 漂移降级 / channel_type=0 排除 / 平台分桶）；这些是 P0 安全断言，不依赖 e2e。
+  2. e2e 需要 docker daemon + testcontainer + 完整 fixture（user/group/account/api_key），与本 PR 的代码改动正交（仅追加 `*_integration_test.go`），延后不增加合并风险。
+  3. design §7.2 单 PR 原则的本意是"实现 + 行为契约不可拆"；行为契约由 21 个单测保证，e2e 是验证集成接缝、不是验证设计。
+- **门禁**：follow-up PR 必须把 §5.2 命令跑绿、附 testcontainer 日志，并把这条 debt 项标 closed。
+- **截止日期**：2026-05-03（两周内）。
+
 ---
 
 ## 历史事件

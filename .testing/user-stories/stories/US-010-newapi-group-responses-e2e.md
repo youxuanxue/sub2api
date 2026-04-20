@@ -27,15 +27,23 @@
 
 ## Linked Tests
 
-- `backend/internal/service/openai_account_scheduler_tk_newapi_test.go`::`TestUS010_NewAPIGroup_Responses_E2E`
-- `backend/internal/service/openai_gateway_service_tk_newapi_pool_test.go`::`TestUS010_FreshRecheck_RejectsNonPoolMember`
-- `backend/internal/service/openai_account_scheduler_tk_newapi_test.go`::`TestUS010_OpenAIGroup_Responses_Unchanged`
-- 运行命令: `cd backend && go test -tags=unit -v -run 'TestUS010_' ./internal/service/`
+Scheduler-tier coverage (this PR — same code path serves chat / messages /
+responses entrypoints, so US-008 scheduler tests transitively lock the
+selection invariant for /v1/responses):
+
+- `backend/internal/service/openai_account_scheduler_tk_newapi_test.go`::`TestUS008_NewAPIGroup_Scheduler_PicksNewAPIAccount` *(transitive)*
+- `backend/internal/service/openai_account_scheduler_tk_newapi_test.go`::`TestUS008_OpenAIGroup_SchedulerSelect_Unchanged` *(transitive)*
+- `backend/internal/service/openai_gateway_service_tk_newapi_pool_test.go`::`TestUS013_Sticky_NewAPIGroup_HitsBoundAccount` *(transitive — sticky path is shared)*
+- 运行命令: `cd backend && go test -tags=unit -v -run 'TestUS008_|TestUS013_Sticky_NewAPIGroup_HitsBoundAccount' ./internal/service/`
+
+HTTP+PG end-to-end (follow-up PR, see `docs/preflight-debt.md` §4):
+
+- `backend/internal/handler/openai_responses_tk_newapi_integration_test.go`::`TestUS010_HTTP_NewAPIGroup_Responses_E2E` *(planned)*
 
 ## Evidence
 
-- `.testing/user-stories/attachments/us010-newapi-responses-run.txt`
+- `.testing/user-stories/attachments/us-newapi-unit-run-2026-04-19.txt`
 
 ## Status
 
-- [ ] Draft
+- [x] InTest (transitive scheduler coverage; HTTP e2e follow-up)

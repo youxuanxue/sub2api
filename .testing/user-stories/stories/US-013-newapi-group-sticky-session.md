@@ -27,15 +27,23 @@
 
 ## Linked Tests
 
-- `backend/internal/service/openai_gateway_service_tk_newapi_pool_test.go`::`TestUS013_NewAPIGroup_StickyHit_ReusesAccount`
-- `backend/internal/service/openai_gateway_service_tk_newapi_pool_test.go`::`TestUS013_NewAPIGroup_Sticky_FailsOver_WhenPlatformChanged`
-- `backend/internal/service/openai_gateway_service_tk_newapi_pool_test.go`::`TestUS013_OpenAIGroup_Sticky_Unchanged`
-- 运行命令: `cd backend && go test -tags=unit -v -run 'TestUS013_' ./internal/service/`
+Sticky lifecycle (this PR, mocked snapshot+gateway cache):
+
+- `backend/internal/service/openai_gateway_service_tk_newapi_pool_test.go`::`TestUS013_Sticky_NewAPIGroup_HitsBoundAccount`
+- `backend/internal/service/openai_gateway_service_tk_newapi_pool_test.go`::`TestUS013_Sticky_NewAPIGroup_FailsOver_WhenStickyAccountIsOpenAI`
+- `backend/internal/service/openai_gateway_service_tk_newapi_pool_test.go`::`TestUS013_Sticky_NewAPIGroup_FailsOver_WhenChannelTypeReset`
+- `backend/internal/service/openai_gateway_service_tk_newapi_pool_test.go`::`TestUS011_Sticky_FailsOver_WhenAccountChangedPlatform` *(symmetric: openai → newapi drift)*
+- `backend/internal/service/openai_gateway_service_tk_newapi_pool_test.go`::`TestUS015_Sticky_OpenAIGroup_HitPreserved` *(regression baseline)*
+- 运行命令: `cd backend && go test -tags=unit -v -run 'TestUS01[135]_Sticky_' ./internal/service/`
+
+Real Redis sticky persistence (follow-up PR, see `docs/preflight-debt.md` §4):
+
+- `backend/internal/service/sticky_session_tk_newapi_integration_test.go`::`TestUS013_Sticky_NewAPIGroup_RedisRoundTrip` *(planned)*
 
 ## Evidence
 
-- `.testing/user-stories/attachments/us013-newapi-sticky-session-run.txt`
+- `.testing/user-stories/attachments/us-newapi-unit-run-2026-04-19.txt`
 
 ## Status
 
-- [ ] Draft
+- [x] InTest (sticky drift defense locked at scheduler tier; Redis round-trip follow-up)

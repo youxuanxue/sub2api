@@ -27,15 +27,21 @@
 
 ## Linked Tests
 
+In-memory sanitize round-trip (this PR):
+
 - `backend/internal/service/openai_messages_dispatch_tk_newapi_test.go`::`TestUS014_NewAPIGroup_MessagesDispatchConfig_RoundTrip`
 - `backend/internal/service/openai_messages_dispatch_tk_newapi_test.go`::`TestUS014_AnthropicGroup_MessagesDispatchConfig_Cleared`
 - `backend/internal/service/openai_messages_dispatch_tk_newapi_test.go`::`TestUS014_OpenAIGroup_MessagesDispatchConfig_Preserved`
 - 运行命令: `cd backend && go test -tags=unit -v -run 'TestUS014_' ./internal/service/`
 
+PG persistence (follow-up PR, see `docs/preflight-debt.md` §4):
+
+- `backend/internal/repository/group_repo_messages_dispatch_tk_newapi_integration_test.go`::`TestUS014_NewAPIGroup_MessagesDispatchConfig_PGRoundTrip` *(planned)*
+
 ## Evidence
 
-- `.testing/user-stories/attachments/us014-newapi-messages-dispatch-config-run.txt`
+- `.testing/user-stories/attachments/us-newapi-unit-run-2026-04-19.txt`
 
 ## Status
 
-- [ ] Draft
+- [x] InTest (sanitize predicate locked; PG round-trip follow-up)

@@ -216,23 +216,23 @@ bucket key 已经是 `(groupID, platform, mode)` 三元组（`scheduler_snapshot
 | US-014 | US-NEWAPI-007 | newapi group 配置 messages_dispatch_model_config 持久化与读取 | 角色×能力 | P1 |
 | US-015 | US-NEWAPI-008 | 历史 openai group 行为完全不变（回归） | 防御需求 | P0 |
 
-### 4.2 6 维用例覆盖（按 test-philosophy §4）
+### 4.2 6 维用例覆盖（按 test-philosophy §4，编号已对齐到全局 US-008~015）
 
-| 维度 | 必测 case | 覆盖 |
+| 维度 | 必测 case | 覆盖 story |
 |---|---|---|
-| 正向路径 | newapi group 三入口走通 | US-001/002/003 |
-| 输入空间 | groupPlatform="" / 未知值 → 回退 openai 行为 | US-008 |
-| 前置状态 | newapi 账号 channel_type=0（不应入池）| US-005 |
-| 副作用 | scheduler bucket cache key 按 platform 分桶 | US-004 |
-| 并发时序 | openai group + newapi group 同时调度互不干扰 | US-004 |
-| 权限角色 | newapi group + AllowMessagesDispatch=false → 403 | US-002 |
+| 正向路径 | newapi group 三入口走通 | US-008 / US-009 / US-010 |
+| 输入空间 | groupPlatform="" / 未知值 → 回退 openai 行为 | US-015（回归基线 + 默认值 helper 单测） |
+| 前置状态 | newapi 账号 channel_type=0（不应入池） | US-012 |
+| 副作用 | scheduler bucket cache key 按 platform 分桶 | US-011 + US-008 AC-001 断言 bucketKey |
+| 并发时序 | openai group + newapi group 同时调度互不干扰 | US-011 AC-004（混池排除）+ US-015 |
+| 权限角色 | non-compat group（anthropic 等）`messages_dispatch` 强制清空 | US-014 / US-009 sanitize 测试 |
 
 ### 4.3 风险覆盖（4 类必声明）
 
-- **逻辑错误**：`groupPlatform=""` 回退路径必须保证旧 openai group 选不到 newapi 账号
-- **行为回归**：US-008 必须运行旧 openai group 的所有既有 sticky/loadbalance 测试通过
-- **安全问题**：openai group 不得越权调度到 newapi 账号（混池漏洞），US-004 显式断言
-- **运行时问题**：scheduler cache 在升级后旧 openai bucket 仍命中、新 newapi bucket 冷启动正常
+- **逻辑错误**：`groupPlatform=""` 回退路径必须保证旧 openai group 选不到 newapi 账号（US-011 + US-015 联合断言）
+- **行为回归**：US-015 必须保留旧 openai group 的所有既有 sticky/loadbalance 行为
+- **安全问题**：openai group 不得越权调度到 newapi 账号（混池漏洞），US-011 全部 AC 显式断言
+- **运行时问题**：scheduler cache 在升级后旧 openai bucket 仍命中、新 newapi bucket 冷启动正常（US-008 AC-001 中 schedulerSnapshot.bucketKey 断言）
 
 ## 5. OPC 自动化门禁（preflight 接入）
 

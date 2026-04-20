@@ -29,17 +29,27 @@
 
 ## Linked Tests
 
+Pure predicate (this PR):
+
 - `backend/internal/service/account_tk_compat_pool_test.go`::`TestUS011_PoolMember_OpenAIAccountInOpenAIGroup`
 - `backend/internal/service/account_tk_compat_pool_test.go`::`TestUS011_PoolMember_NewAPIAccountInOpenAIGroup_Rejected`
 - `backend/internal/service/account_tk_compat_pool_test.go`::`TestUS011_PoolMember_OpenAIAccountInNewAPIGroup_Rejected`
+- `backend/internal/service/account_tk_compat_pool_test.go`::`TestUS011_PoolMember_NilAccount_False`
+- `backend/internal/service/account_tk_compat_pool_test.go`::`TestUS011_PoolMember_EmptyGroupPlatform_False`
+- `backend/internal/service/account_tk_compat_pool_test.go`::`TestUS011_PoolMember_UnknownPlatform_False`
+
+Scheduler-tier (this PR, mocked snapshot, exercises the security filter at
+the loadBalance and sticky boundaries — covers AC-004 / AC-005):
+
 - `backend/internal/service/openai_account_scheduler_tk_newapi_test.go`::`TestUS011_LoadBalance_FiltersOutNewAPIFromOpenAIGroup`
+- `backend/internal/service/openai_account_scheduler_tk_newapi_test.go`::`TestUS011_LoadBalance_FiltersOutOpenAIFromNewAPIGroup`
 - `backend/internal/service/openai_gateway_service_tk_newapi_pool_test.go`::`TestUS011_Sticky_FailsOver_WhenAccountChangedPlatform`
 - 运行命令: `cd backend && go test -tags=unit -v -run 'TestUS011_' ./internal/service/`
 
 ## Evidence
 
-- `.testing/user-stories/attachments/us011-openai-pool-not-polluted-run.txt`
+- `.testing/user-stories/attachments/us-newapi-unit-run-2026-04-19.txt`
 
 ## Status
 
-- [ ] Draft
+- [x] InTest (5 ACs all covered at the right tier; merge gate)

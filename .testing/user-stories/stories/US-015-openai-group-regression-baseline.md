@@ -31,17 +31,23 @@
 
 ## Linked Tests
 
-- `backend/internal/service/openai_account_scheduler_tk_newapi_test.go`::`TestUS015_OpenAIGroup_LoadBalance_BehaviorUnchanged`
-- `backend/internal/service/openai_gateway_service_tk_newapi_pool_test.go`::`TestUS015_OpenAIGroup_Sticky_BehaviorUnchanged`
-- `backend/internal/service/openai_gateway_service_tk_newapi_pool_test.go`::`TestUS015_OpenAIGroup_FreshRecheck_BehaviorUnchanged`
-- `backend/internal/service/openai_messages_dispatch_tk_newapi_test.go`::`TestUS015_OpenAIGroup_MessagesDispatchSanitize_Unchanged`
-- `backend/internal/service/openai_gateway_service_tk_newapi_pool_test.go`::`TestUS015_SchedulerBucketCache_OpenAIKeyStillHits`
-- 运行命令: `cd backend && go test -tags=unit -v -run 'TestUS015_' ./internal/service/`
+OpenAI-group baseline preserved (this PR):
+
+- `backend/internal/service/openai_account_scheduler_tk_newapi_test.go`::`TestUS008_OpenAIGroup_SchedulerSelect_Unchanged` *(load-balance baseline; alias for AC-001)*
+- `backend/internal/service/openai_gateway_service_tk_newapi_pool_test.go`::`TestUS015_Sticky_OpenAIGroup_HitPreserved` *(sticky baseline; AC-002)*
+- `backend/internal/service/openai_messages_dispatch_tk_newapi_test.go`::`TestUS015_OpenAIGroup_MessagesDispatchSanitize_Unchanged` *(sanitize baseline; AC-003)*
+- `backend/internal/service/openai_account_scheduler_tk_newapi_test.go`::`TestUS015_SchedulerBucket_PartitionedByPlatform` *(cache key partitioning; AC-005)*
+- 运行命令: `cd backend && go test -tags=unit -v -run 'TestUS008_OpenAIGroup_|TestUS015_' ./internal/service/`
+
+Existing scheduler regression suite (must continue to pass — design §3 is
+strictly additive for openai groups):
+
+- 运行命令: `cd backend && go test -tags=unit -count=1 ./internal/service/...`
 
 ## Evidence
 
-- `.testing/user-stories/attachments/us015-openai-group-regression-run.txt`
+- `.testing/user-stories/attachments/us-newapi-unit-run-2026-04-19.txt`
 
 ## Status
 
-- [ ] Draft
+- [x] InTest (full openai-group regression baseline locked)
