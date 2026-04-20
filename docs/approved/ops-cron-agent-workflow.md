@@ -1,11 +1,13 @@
 ---
 title: OPC 自动化闭环 — Cron Workflow + Agent 草拟 PR
-status: draft
-approved_by: pending
+status: approved
+approved_by: youxuanxue
+approved_at: 2026-04-20
 created: 2026-04-19
 owners: [tk-platform]
 depends_on: [ops-p0-observability.md, ops-qa-full-capture.md]
 focus: 错误自动发现 + 自动出修复提案
+related_prs: ["#13"]
 ---
 
 # OPC 自动化闭环 — MVP: 1 个 cron + 1 份周报 + Agent PR
