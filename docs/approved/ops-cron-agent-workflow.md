@@ -1,6 +1,6 @@
 ---
 title: OPC 自动化闭环 — Cron Workflow + Agent 草拟 PR
-status: Draft
+status: draft
 approved_by: pending
 created: 2026-04-19
 owners: [tk-platform]
@@ -47,6 +47,14 @@ qa_records + ops_error_logs (来自文档 2)
 - preflight 段强制要求"待处理 auto PR 数 ≤ 5"（仅 feature/chore/docs 分支生效;fix/* bypass 避免死锁）
 - KPI 评估**不靠手算**——周报自动测算并归档
 - 单次 Agent 任务预算 **≤ $2**，月度封顶 **$50**；杠杆比 = 节省人时 ÷ 预算 > 5
+
+**前置依赖（main 已落地的部分）**：dev-rules submodule + CI preflight job + 8 段 preflight 通过 PR #11 已落地（详 [`ops-p0-observability.md`](./ops-p0-observability.md) §3.1）。本文档不再假设这些是待办。
+
+**待落地依赖（Stage 2B 启用前必须完成）**：
+1. `scripts/setup-claude-code.sh`（详 §7 清单；MVP 期 composite action 内已加 `npm` 兜底）
+2. 项目级 `scripts/preflight.sh` wrapper（详 §6.2；引入即同步追加段 12-13）
+
+**审批门禁约束（R5）**：本文档 frontmatter `approved_by: pending`。dev-rules preflight 段 7 R5 在 `main`/`master` 分支会拒绝任何 `approved_by: pending` 的 approved doc 落地——合 main 前必须由 reviewer 把 frontmatter 改为真名。
 
 ---
 
@@ -282,7 +290,16 @@ runs:
 
     - name: Install Claude Code CLI
       shell: bash
-      run: bash scripts/setup-claude-code.sh
+      run: |
+        # scripts/setup-claude-code.sh 是 product-dev.mdc §"云端 Agent 调用" 要求的项目脚本,
+        # 但本仓库尚未实现（见 §7 清单与 docs/preflight-debt.md）。Stage 2B 启用前必须落地;
+        # MVP 期临时兜底:直接 npm 安装。
+        if [ -x scripts/setup-claude-code.sh ]; then
+          bash scripts/setup-claude-code.sh
+        else
+          echo "::warning::scripts/setup-claude-code.sh 未实现,临时使用 npm 兜底安装"
+          npm install -g @anthropic-ai/claude-code
+        fi
 
     - name: Compute branch name
       id: branch
@@ -360,7 +377,7 @@ runs:
            - 验证步骤（人 review 时如何确认）
         5. 必须在 PR 标题前缀加 [auto-WORKFLOW_NAME]
         6. 改动总行数 < 200 行,超出请拆分
-        7. 必须跑 ./scripts/preflight.sh 通过
+        7. 必须跑 ./dev-rules/templates/preflight.sh 通过(若项目已有 scripts/preflight.sh wrapper 则跑 wrapper)
 
         ## 工作流
         1. 阅读报告,理解问题
@@ -440,7 +457,7 @@ runs:
 | **永远 draft，永远人审** | `gh pr create --draft` |
 | **改动量上限 200 行** | preflight 段加 `git diff --stat HEAD~1 \| awk '{s+=$3}END{exit (s>200)}'` |
 | **禁修敏感目录** | preflight 段加 `git diff --name-only HEAD~1 \| grep -E '(ent/(?!schema)\|wire_gen\|migrations\|docs/approved\|CLAUDE\.md\|dev-rules)' && exit 1` |
-| **必须跑全套 preflight** | composite action 中显式 `./scripts/preflight.sh \|\| exit 1` |
+| **必须跑全套 preflight** | composite action 中显式 `[ -x scripts/preflight.sh ] && ./scripts/preflight.sh \|\| ./dev-rules/templates/preflight.sh` (与本机 hook + CI `backend-ci.yml` preflight job 走同一脚本) |
 | **冷却机制** | composite action 的 cooldown step（**基于 PR label `cluster-sig:<sha-12>`** + 7 天 createdAt 过滤；**不**基于 title 字符串匹配——v1 设计中 PR 标题不含 signature 导致永远 miss） |
 | **预算上限** | `--max-budget-usd 2.00` per task |
 | **CI 必须全绿才能脱 draft** | branch protection rule on main |
@@ -568,7 +585,7 @@ sequenceDiagram
 
 | 阶段 | 包含的内容 | 落地文档 | 工期 |
 |------|-----------|---------|------|
-| Stage 1（感官） | JSON 日志 + `/metrics` + preflight + Grafana Cloud Free + QA capture | 文档 1 + 文档 2 | 5.5 天 + 4 周 |
+| Stage 1（感官） | JSON 日志 + `/metrics` + preflight git hook + Grafana Cloud Free + QA capture | 文档 1 + 文档 2 | 3 天 + 4 周（dev-rules submodule 已通过 PR #11 接入 main） |
 | Stage 1.5（最小消费） | QA 落地 D+1：daily failure top-10 飞书摘要（纯 SQL + jq） | 文档 2 §10 | 1 天 |
 | **Stage 2A（信号验证，2 周 issue-only）** | `error-clustering-daily` 跑 cluster + 开 issue（**Agent PR 步骤暂关**）；`weekly-product-pulse` 同步上线 | 本文档 §2 | 1 周开发 + 2 周观察 |
 | **Stage 2B（反射弧，开 Agent）** | 2A 跑稳后开 `agent-draft-pr` composite action | 本文档 §3 | 1 周 |
@@ -606,11 +623,29 @@ sequenceDiagram
 
 ---
 
-## 6. preflight 守门（关键 OPC 闭环）
+## 6. preflight 守门（Stage 2B 启用时引入项目 wrapper）
 
 按 `agent-contract-enforcement.mdc` "Hard Constraint Wiring"：**自动报告必须有未处理的硬约束**。
 
-`scripts/preflight.sh` MVP 新增段（详见文档 1 §3）：
+### 6.1 与 dev-rules 8 段的分工
+
+[`dev-rules/templates/preflight.sh`](../../dev-rules/templates/preflight.sh) 已固定 8 段（分支命名、submodule 顺序、`.cursor/rules/` drift、契约 drift、story/test、approved doc 改动、approved 不变量 R1-R5、stat 漂移），覆盖通用规则。本节段 12-13 是 **sub2api-specific OPC 自动化逻辑**（关联 GitHub issue/PR 状态），按 [`CLAUDE.md`](../../CLAUDE.md) §10 "Add `scripts/preflight.sh` later only if a sub2api-specific check emerges that doesn't belong in dev-rules" 规定，**应作为项目 wrapper 引入**。
+
+### 6.2 何时引入 wrapper
+
+| 阶段 | wrapper 状态 | 理由 |
+|---|---|---|
+| P0 / 文档 2 落地期 | ❌ 不引入 | 没有"待处理 auto PR"概念，引入即冗余 |
+| Stage 2A（issue-only 试运行） | ❌ 不引入 | 没有 auto PR，段 12 永远跳过 |
+| **Stage 2B（开 Agent PR 当周）** | ✅ 引入 `scripts/preflight.sh`（追加段 12-13 后 `exec dev-rules/templates/preflight.sh`） | 段 12 真正起守门作用 |
+
+**引入步骤**（Stage 2B Day 0）：
+1. 新建 `scripts/preflight.sh`，开头 `exec` dev-rules 模板，末尾追加段 12-13（见 §6.3）
+2. CI `backend-ci.yml` preflight job 已写 `if [ -x scripts/preflight.sh ]; then ./scripts/preflight.sh; else ./dev-rules/templates/preflight.sh; fi`，**无需改 CI**
+3. 本机 hook 同样自动改走 wrapper（`install-hooks.sh` 同款 fallback）
+4. 在 [`docs/preflight-debt.md`](../../docs/preflight-debt.md) 追加事件记录"为 sub2api-specific Agent OPC 检查重新引入项目 wrapper"
+
+### 6.3 wrapper 末尾追加的 sub2api-specific 段（命名空间 ≥ 9，避开 dev-rules 1-8）
 
 ```bash
 # 段 12: 自动 Agent PR 待处理数 ≤ 5
@@ -653,7 +688,8 @@ fi
 | [`.github/workflows/weekly-product-pulse.yml`](../../.github/workflows/) | workflow | §2.2 |
 | [`.github/actions/agent-draft-pr/action.yml`](../../.github/) | composite action | §3.1 |
 | [`scripts/error_clustering/`](../../scripts/) | Go 程序 | §2.1 聚类引擎 |
-| [`scripts/setup-claude-code.sh`](../../scripts/) | bash | 已在 [`CLAUDE.md`](../../CLAUDE.md) 提及，本方案确认必备 |
+| `scripts/setup-claude-code.sh` | bash | **❌ 待落地**：[`product-dev.mdc`](../../.cursor/rules/product-dev.mdc) §"云端 Agent 调用 Claude Code CLI" 要求每个项目维护此脚本（检查 + 安装 Claude Code CLI + 校验 `ANTHROPIC_API_KEY`），本仓库尚未实现。Stage 2B 启用前必须落地；MVP 期 `agent-draft-pr/action.yml` 已加 `npm i -g @anthropic-ai/claude-code` 兜底。落地后同步在 [`docs/preflight-debt.md`](../../docs/preflight-debt.md) 标记关闭。 |
+| `scripts/preflight.sh` | bash wrapper | **❌ 故意未创建**（[`CLAUDE.md`](../../CLAUDE.md) §10）；Stage 2B 启用 Agent PR 当周一并落地（详 §6.2）。MVP 期 hook 与 CI 直接走 [`dev-rules/templates/preflight.sh`](../../dev-rules/templates/preflight.sh)。 |
 | [`docs/auto-reports/`](../../docs/) | 目录 | 周报与失败聚类报告归档 |
 
 **v2 backlog 涉及的新增组件**（启用对应 cron 时一并新增）：`scripts/slo_budget/`、`scripts/cost_anomaly/`、`scripts/slow_request_pulse/`、`scripts/account_health/`、对应 workflow yml、`docs/runbooks/`（Agent 维护的 runbook 集合，等积累足够语料再开目录）。

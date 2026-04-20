@@ -125,8 +125,8 @@ scripts/*
 !scripts/export_agent_contract.py
 !scripts/check-upstream-drift.sh
 !scripts/release-tag.sh
-!scripts/preflight.sh
-!scripts/check_approved_docs.py
+# scripts/preflight.sh + scripts/check_approved_docs.py 已上提到 dev-rules
+# (PR #11, CLAUDE.md §10);若 sub2api-specific OPC wrapper 重新引入,在此 allow-list 即可。
 .code-review-state
 #openspec/
 code-reviews/

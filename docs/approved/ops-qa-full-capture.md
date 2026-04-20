@@ -1,6 +1,6 @@
 ---
 title: QA 数据 100% 全落盘的低成本 OPC 方案
-status: Draft
+status: draft
 approved_by: pending
 created: 2026-04-19
 owners: [tk-platform]
@@ -45,6 +45,8 @@ depends_on: [ops-p0-observability.md]
 | **合计** | | **< $1/月** 或自建 0 |
 
 **核心原则**：**"100% 全落"不等于"100% 同等优先级"**——用**双速通道**：成功路径热写入 PG 索引 + 异步批量上传 blob，错误路径同步立刻写两份。这是 OPC 的"对延迟的 SLA 不一刀切"。
+
+**审批门禁约束（R5）**：本文档 frontmatter `approved_by: pending`。dev-rules preflight 段 7 R5 在 `main`/`master` 分支会拒绝任何 `approved_by: pending` 的 approved doc 落地——合 main 前必须由 reviewer 把 frontmatter 改为真名。
 
 ---
 
