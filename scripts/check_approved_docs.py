@@ -1,15 +1,24 @@
 #!/usr/bin/env python3
 """Validate frontmatter of every docs/approved/*.md.
 
+Lifecycle (per product-dev.mdc 阶段流):
+  draft     — 草稿；尚未提交审批
+  pending   — 审批进行中（design PR open）
+  approved  — 审批通过（design PR merged），实施进行中
+  shipped   — 代码已上线（impl PR merged）
+  archived  — 废弃
+
 Rules (Jobs minimalism + OPC automation; see dev-rules/product-dev.mdc §完成自检):
   R1. Frontmatter MUST exist.
-  R2. status MUST be one of {draft, pending, shipped, archived}.
+  R2. status MUST be one of {draft, pending, approved, shipped, archived}.
   R3. status == "pending" AND (related_prs OR related_commits) non-empty
       → "shipped under pending" smell. This is the same incident class as
       sticky-routing.md (created 2026-04-17, pending; commit a68dee5b shipped
-      2026-04-18). Refuse to merge until status is flipped or PRs/commits
-      removed from frontmatter.
-  R4. status == "shipped" MUST list at least one of related_prs / related_commits.
+      2026-04-18). Refuse to merge until status is flipped (to approved or
+      shipped) or PRs/commits removed from frontmatter.
+  R4. status in {approved, shipped} MUST list at least one of
+      related_prs / related_commits — otherwise the doc claims a state but
+      provides no audit trail.
 
 Exit non-zero on any violation.
 """
@@ -19,7 +28,8 @@ import pathlib
 import re
 import sys
 
-ALLOWED_STATUS = {"draft", "pending", "shipped", "archived"}
+ALLOWED_STATUS = {"draft", "pending", "approved", "shipped", "archived"}
+STATUS_REQUIRES_TRAIL = {"approved", "shipped"}
 APPROVED_DIR = pathlib.Path("docs/approved")
 FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?\n)---\s*\n", re.DOTALL)
 
@@ -67,9 +77,9 @@ def check(path: pathlib.Path) -> list[str]:
             "did you ship code without flipping status to 'shipped'? "
             "See docs/preflight-debt.md for the 2026-04-18 sticky-routing incident."
         )
-    if status == "shipped" and not (has_prs or has_commits):
+    if status in STATUS_REQUIRES_TRAIL and not (has_prs or has_commits):
         errs.append(
-            f"{path}: status=shipped but no related_prs and no related_commits listed"
+            f"{path}: status={status} but no related_prs and no related_commits listed"
         )
     return errs
 

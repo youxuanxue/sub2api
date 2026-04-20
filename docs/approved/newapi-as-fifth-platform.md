@@ -1,11 +1,12 @@
 ---
 title: NewAPI as First-Class Fifth Platform — Scheduling & Dispatch Convergence
-status: pending
-approved_by: pending
-approved_at: pending
+status: approved
+approved_by: xuejiao (PR #9 squash-merge)
+approved_at: 2026-04-19
 authors: [agent]
 created: 2026-04-19
-related_prs: []
+related_prs: ["#9"]
+related_commits: [e768deed]
 related_audit: TOKENKEY_PLATFORM_AUDIT_2026-04-19(1).md
 ---
 
