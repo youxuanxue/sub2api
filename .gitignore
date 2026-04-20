@@ -141,6 +141,7 @@ docs/*
 !docs/approved/
 !docs/deploy/
 !docs/flows/
+!docs/ops/
 !docs/preflight-debt.md
 .serena/
 .codex/
