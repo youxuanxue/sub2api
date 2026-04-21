@@ -5,7 +5,7 @@ import { GATEWAY_PLATFORMS } from '@/constants/gatewayPlatforms'
 
 import { PLATFORM_LABELS, usePlatformOptions } from '../usePlatformOptions'
 
-describe('usePlatformOptions (US-017 regression — fifth platform newapi must surface in every admin picker)', () => {
+describe('usePlatformOptions (US-018 regression — fifth platform newapi must surface in every admin picker)', () => {
   it('exposes exactly the 5 canonical gateway platforms in GATEWAY_PLATFORMS order', () => {
     const { options } = usePlatformOptions()
 

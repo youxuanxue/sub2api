@@ -1,6 +1,6 @@
-# US-017-admin-ui-newapi-platform-end-to-end
+# US-018-admin-ui-newapi-platform-end-to-end
 
-- ID: US-017
+- ID: US-018
 - Title: Admin UI 接入第五平台 newapi（端到端可创建组与账号）
 - Version: V1.2
 - Priority: P0
@@ -15,8 +15,8 @@
 
 ## Acceptance Criteria
 
-1. AC-001 (正向 / 单一事实)：Given canonical `GATEWAY_PLATFORMS = ['anthropic','openai','gemini','antigravity','newapi']`，When `usePlatformOptions()` 渲染，Then 返回 5 项且第 5 项是 `{value:'newapi', label:'New API'}`，顺序与 `GATEWAY_PLATFORMS` 一致 (`TestUS017_PlatformOptions_AllFiveCanonicalOrder`).
-2. AC-002 (正向 / GroupsView 过滤器)：Given `optionsWithAll('admin.groups.allPlatforms')` 被 GroupsView 调用，When 渲染过滤器，Then 第一项为 `{value:'', label:<allLabel>}`，剩余 5 项与 `GATEWAY_PLATFORMS` 一致 (`TestUS017_PlatformFilter_PrependsAllOption`).
+1. AC-001 (正向 / 单一事实)：Given canonical `GATEWAY_PLATFORMS = ['anthropic','openai','gemini','antigravity','newapi']`，When `usePlatformOptions()` 渲染，Then 返回 5 项且第 5 项是 `{value:'newapi', label:'New API'}`，顺序与 `GATEWAY_PLATFORMS` 一致 (`TestUS018_PlatformOptions_AllFiveCanonicalOrder`).
+2. AC-002 (正向 / GroupsView 过滤器)：Given `optionsWithAll('admin.groups.allPlatforms')` 被 GroupsView 调用，When 渲染过滤器，Then 第一项为 `{value:'', label:<allLabel>}`，剩余 5 项与 `GATEWAY_PLATFORMS` 一致 (`TestUS018_PlatformFilter_PrependsAllOption`).
 3. AC-003 (负向 / Badge fallback)：Given 一个 platform 字符串 `'newapi'` 传入 `PlatformTypeBadge`，When 渲染，Then label === 'New API'（不是 'Gemini'）且 platformClass 含 `bg-cyan-100`。Given 真正未知 platform `'unknown-x'`，Then label === `'unknown-x'` 且 platformClass 走中性灰 fallback（不再被错标 Gemini）。
 4. AC-004 (回归 / 4 个老平台 Badge 不变)：Given 历史平台 `anthropic`/`openai`/`gemini`/`antigravity`，When 渲染 PlatformTypeBadge，Then label 与 class 与升级前快照完全一致（颜色：橙/绿/蓝/紫）。
 5. AC-005 (回归 / CreateAccountModal 4 个老平台分支不变)：Given 用户选 `anthropic`/`openai`/`gemini`/`antigravity`，When 触发 OAuth/apikey/bedrock/upstream 各子流程的 `handleSubmit`，Then 走原有分支，`isOAuthFlow` 不被 newapi 改动影响。
@@ -66,7 +66,7 @@ Stage-4 review surfaces a regression.
 
 ## Evidence
 
-- `.testing/user-stories/attachments/us-017-admin-ui-newapi-vitest-2026-04-20.txt`（待 stage 4 测试运行后归档）
+- `.testing/user-stories/attachments/us-018-admin-ui-newapi-vitest-2026-04-20.txt`（待 stage 4 测试运行后归档）
 
 ## Status
 

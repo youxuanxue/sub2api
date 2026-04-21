@@ -7,7 +7,7 @@ authors: [agent]
 created: 2026-04-20
 related_prs: []
 related_commits: []
-related_stories: [US-017]
+related_stories: [US-018]
 related_audit: tester report 2026-04-20 — 创建分组 modal 缺失第五平台选项
 supersedes: none
 parent_design: docs/approved/newapi-as-fifth-platform.md
@@ -340,8 +340,8 @@ const PLATFORM_TYPE_BG: Record<AccountPlatform, string> = { /* 同形 */ }
 | `frontend/src/types/index.ts`                                                 | `CreateAccountRequest` 增加可选顶层 `channel_type?: number`（让 newapi 提交路径在 TS 层面合法）       |
 | `frontend/src/i18n/locales/en.ts`                                             | + `admin.accounts.newApiPlatform.*` 字段标签（channelType / baseUrl / apiKey 等）          |
 | `frontend/src/i18n/locales/zh.ts`                                             | 同上 zh 版                                                                             |
-| `.testing/user-stories/stories/US-017-admin-ui-newapi-platform-end-to-end.md` | NEW —— story                                                                        |
-| `.testing/user-stories/index.md`                                              | + US-017 行                                                                          |
+| `.testing/user-stories/stories/US-018-admin-ui-newapi-platform-end-to-end.md` | NEW —— story                                                                        |
+| `.testing/user-stories/index.md`                                              | + US-018 行                                                                          |
 | `docs/approved/admin-ui-newapi-platform-end-to-end.md`                        | 本文档                                                                                 |
 
 

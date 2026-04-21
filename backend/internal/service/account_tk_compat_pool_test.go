@@ -77,12 +77,12 @@ func TestUS011_PoolMember_UnknownPlatform_False(t *testing.T) {
 	}
 }
 
-// US-017 regression — IsOpenAICompatPlatform is the string-arg sibling of
+// US-018 regression — IsOpenAICompatPlatform is the string-arg sibling of
 // IsOpenAICompatPoolMember. /v1/models fallback and ops fallback both rely on
 // it; previously /v1/models defaulted to Claude DefaultModels for newapi
 // groups whose accounts had empty model_mapping (wrong response shape for
 // OpenAI-compat clients).
-func TestUS017_IsOpenAICompatPlatform_Truth(t *testing.T) {
+func TestUS018_IsOpenAICompatPlatform_Truth(t *testing.T) {
 	cases := []struct {
 		platform string
 		want     bool

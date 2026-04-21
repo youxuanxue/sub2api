@@ -14,7 +14,7 @@
  * bug as a side-effect of the contract.
  *
  * See: docs/approved/admin-ui-newapi-platform-end-to-end.md §1.5
- *      .testing/user-stories/stories/US-017-admin-ui-newapi-platform-end-to-end.md
+ *      .testing/user-stories/stories/US-018-admin-ui-newapi-platform-end-to-end.md
  */
 
 import type {

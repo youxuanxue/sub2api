@@ -1,11 +1,11 @@
 /**
- * PlatformTypeBadge — US-017 regression guard.
+ * PlatformTypeBadge — US-018 regression guard.
  *
  * Why this spec exists: PlatformTypeBadge.vue used to default *every* unknown
  * platform string to "Gemini" with blue styling (lines 74-79 + 116-127 in the
  * pre-fix file). After the backend started returning a fifth platform `newapi`,
  * those rows were silently mislabeled as Gemini in the admin account list — the
- * exact symptom that triggered US-017. We pin the new behavior here so a future
+ * exact symptom that triggered US-018. We pin the new behavior here so a future
  * refactor cannot bring the Gemini-fallback bug back.
  */
 import { describe, expect, it } from 'vitest'
