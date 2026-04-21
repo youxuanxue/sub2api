@@ -155,6 +155,7 @@ import Icon from '@/components/icons/Icon.vue'
 import TurnstileWidget from '@/components/TurnstileWidget.vue'
 import { useAppStore } from '@/stores'
 import { getPublicSettings, forgotPassword } from '@/api/auth'
+import { buildAuthErrorMessage } from '@/utils/authError'
 
 const { t } = useI18n()
 
@@ -266,15 +267,12 @@ async function handleSubmit(): Promise<void> {
       turnstileToken.value = ''
     }
 
-    const err = error as { message?: string; response?: { data?: { detail?: string } } }
-
-    if (err.response?.data?.detail) {
-      errorMessage.value = err.response.data.detail
-    } else if (err.message) {
-      errorMessage.value = err.message
-    } else {
-      errorMessage.value = t('auth.sendResetLinkFailed')
-    }
+    errorMessage.value = buildAuthErrorMessage(error, {
+      fallback: t('auth.sendResetLinkFailed'),
+      reasonOverrides: {
+        TURNSTILE_VERIFICATION_FAILED: t('auth.turnstileFailedRefresh')
+      }
+    })
 
     appStore.showError(errorMessage.value)
   } finally {
