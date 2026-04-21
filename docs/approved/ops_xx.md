@@ -32,16 +32,14 @@ Single source of truth for Ops in this repo.
 Required outcomes:
 
 - QA requests/responses are captured with metadata and blob references.
-- Monthly QA maintenance workflows exist (export / partition / archive).
 
 Runtime rule:
 
-- If `qa_records` is not yet deployed in a target environment, QA workflows must **skip cleanly** and not fail the run.
+- If `qa_records` is not yet deployed in a target environment, QA-dependent jobs must **skip cleanly** and not fail the run.
 
 Compatibility rule:
 
-- API changes must not break existing callers by tightening optional parameters without fallback.
-- QA export keeps backward-compatible default `format=zip` when omitted.
+- API changes must not break existing online callers.
 
 ## 3. Core Capability B: ErrorToIssue/PR
 
@@ -49,7 +47,6 @@ Required outcomes:
 
 - Daily clustering (`error-clustering-daily`) can create/update issue signals.
 - Agent action can draft PRs from persistent clusters.
-- Weekly pulse reports KPI snapshots for review cadence.
 
 Hard guardrails:
 
@@ -70,7 +67,6 @@ Must stay green:
 
 - `python3 scripts/export_agent_contract.py --check`
 - `./scripts/preflight.sh`
-- `./scripts/weekly-product-pulse-dry-run.sh`
 
 Workflow resilience baseline:
 
@@ -84,4 +80,4 @@ Branch is aligned when:
 - Existing online/upstream capabilities remain available.
 - QA workflows degrade safely when `qa_records` is absent.
 - Error clustering can flow to issue/draft-PR with guardrails intact.
-- Weekly KPI generation remains automated and dry-run verifiable.
+
