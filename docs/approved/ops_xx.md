@@ -80,4 +80,3 @@ Branch is aligned when:
 - Existing online/upstream capabilities remain available.
 - QA workflows degrade safely when `qa_records` is absent.
 - Error clustering can flow to issue/draft-PR with guardrails intact.
-
