@@ -27,6 +27,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/promocode"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/ent/qarecord"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
 	"github.com/Wei-Shaw/sub2api/ent/securitysecret"
 	"github.com/Wei-Shaw/sub2api/ent/setting"
@@ -65,6 +66,7 @@ const (
 	TypePromoCode               = "PromoCode"
 	TypePromoCodeUsage          = "PromoCodeUsage"
 	TypeProxy                   = "Proxy"
+	TypeQARecord                = "QARecord"
 	TypeRedeemCode              = "RedeemCode"
 	TypeSecuritySecret          = "SecuritySecret"
 	TypeSetting                 = "Setting"
@@ -19353,6 +19355,1990 @@ func (m *ProxyMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown Proxy edge %s", name)
+}
+
+// QARecordMutation represents an operation that mutates the QARecord nodes in the graph.
+type QARecordMutation struct {
+	config
+	op                 Op
+	typ                string
+	id                 *int64
+	request_id         *string
+	user_id            *int64
+	adduser_id         *int64
+	api_key_id         *int64
+	addapi_key_id      *int64
+	account_id         *int64
+	addaccount_id      *int64
+	platform           *string
+	requested_model    *string
+	upstream_model     *string
+	inbound_endpoint   *string
+	upstream_endpoint  *string
+	status_code        *int
+	addstatus_code     *int
+	duration_ms        *int64
+	addduration_ms     *int64
+	first_token_ms     *int64
+	addfirst_token_ms  *int64
+	stream             *bool
+	tool_calls_present *bool
+	multimodal_present *bool
+	input_tokens       *int
+	addinput_tokens    *int
+	output_tokens      *int
+	addoutput_tokens   *int
+	cached_tokens      *int
+	addcached_tokens   *int
+	request_sha256     *string
+	response_sha256    *string
+	blob_uri           *string
+	tags               *[]string
+	appendtags         []string
+	created_at         *time.Time
+	retention_until    *time.Time
+	clearedFields      map[string]struct{}
+	done               bool
+	oldValue           func(context.Context) (*QARecord, error)
+	predicates         []predicate.QARecord
+}
+
+var _ ent.Mutation = (*QARecordMutation)(nil)
+
+// qarecordOption allows management of the mutation configuration using functional options.
+type qarecordOption func(*QARecordMutation)
+
+// newQARecordMutation creates new mutation for the QARecord entity.
+func newQARecordMutation(c config, op Op, opts ...qarecordOption) *QARecordMutation {
+	m := &QARecordMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeQARecord,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withQARecordID sets the ID field of the mutation.
+func withQARecordID(id int64) qarecordOption {
+	return func(m *QARecordMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *QARecord
+		)
+		m.oldValue = func(ctx context.Context) (*QARecord, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().QARecord.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withQARecord sets the old QARecord of the mutation.
+func withQARecord(node *QARecord) qarecordOption {
+	return func(m *QARecordMutation) {
+		m.oldValue = func(context.Context) (*QARecord, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m QARecordMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m QARecordMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *QARecordMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *QARecordMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().QARecord.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetRequestID sets the "request_id" field.
+func (m *QARecordMutation) SetRequestID(s string) {
+	m.request_id = &s
+}
+
+// RequestID returns the value of the "request_id" field in the mutation.
+func (m *QARecordMutation) RequestID() (r string, exists bool) {
+	v := m.request_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRequestID returns the old "request_id" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldRequestID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRequestID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRequestID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRequestID: %w", err)
+	}
+	return oldValue.RequestID, nil
+}
+
+// ResetRequestID resets all changes to the "request_id" field.
+func (m *QARecordMutation) ResetRequestID() {
+	m.request_id = nil
+}
+
+// SetUserID sets the "user_id" field.
+func (m *QARecordMutation) SetUserID(i int64) {
+	m.user_id = &i
+	m.adduser_id = nil
+}
+
+// UserID returns the value of the "user_id" field in the mutation.
+func (m *QARecordMutation) UserID() (r int64, exists bool) {
+	v := m.user_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUserID returns the old "user_id" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldUserID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUserID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUserID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUserID: %w", err)
+	}
+	return oldValue.UserID, nil
+}
+
+// AddUserID adds i to the "user_id" field.
+func (m *QARecordMutation) AddUserID(i int64) {
+	if m.adduser_id != nil {
+		*m.adduser_id += i
+	} else {
+		m.adduser_id = &i
+	}
+}
+
+// AddedUserID returns the value that was added to the "user_id" field in this mutation.
+func (m *QARecordMutation) AddedUserID() (r int64, exists bool) {
+	v := m.adduser_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetUserID resets all changes to the "user_id" field.
+func (m *QARecordMutation) ResetUserID() {
+	m.user_id = nil
+	m.adduser_id = nil
+}
+
+// SetAPIKeyID sets the "api_key_id" field.
+func (m *QARecordMutation) SetAPIKeyID(i int64) {
+	m.api_key_id = &i
+	m.addapi_key_id = nil
+}
+
+// APIKeyID returns the value of the "api_key_id" field in the mutation.
+func (m *QARecordMutation) APIKeyID() (r int64, exists bool) {
+	v := m.api_key_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAPIKeyID returns the old "api_key_id" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldAPIKeyID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAPIKeyID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAPIKeyID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAPIKeyID: %w", err)
+	}
+	return oldValue.APIKeyID, nil
+}
+
+// AddAPIKeyID adds i to the "api_key_id" field.
+func (m *QARecordMutation) AddAPIKeyID(i int64) {
+	if m.addapi_key_id != nil {
+		*m.addapi_key_id += i
+	} else {
+		m.addapi_key_id = &i
+	}
+}
+
+// AddedAPIKeyID returns the value that was added to the "api_key_id" field in this mutation.
+func (m *QARecordMutation) AddedAPIKeyID() (r int64, exists bool) {
+	v := m.addapi_key_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetAPIKeyID resets all changes to the "api_key_id" field.
+func (m *QARecordMutation) ResetAPIKeyID() {
+	m.api_key_id = nil
+	m.addapi_key_id = nil
+}
+
+// SetAccountID sets the "account_id" field.
+func (m *QARecordMutation) SetAccountID(i int64) {
+	m.account_id = &i
+	m.addaccount_id = nil
+}
+
+// AccountID returns the value of the "account_id" field in the mutation.
+func (m *QARecordMutation) AccountID() (r int64, exists bool) {
+	v := m.account_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAccountID returns the old "account_id" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldAccountID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAccountID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAccountID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAccountID: %w", err)
+	}
+	return oldValue.AccountID, nil
+}
+
+// AddAccountID adds i to the "account_id" field.
+func (m *QARecordMutation) AddAccountID(i int64) {
+	if m.addaccount_id != nil {
+		*m.addaccount_id += i
+	} else {
+		m.addaccount_id = &i
+	}
+}
+
+// AddedAccountID returns the value that was added to the "account_id" field in this mutation.
+func (m *QARecordMutation) AddedAccountID() (r int64, exists bool) {
+	v := m.addaccount_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearAccountID clears the value of the "account_id" field.
+func (m *QARecordMutation) ClearAccountID() {
+	m.account_id = nil
+	m.addaccount_id = nil
+	m.clearedFields[qarecord.FieldAccountID] = struct{}{}
+}
+
+// AccountIDCleared returns if the "account_id" field was cleared in this mutation.
+func (m *QARecordMutation) AccountIDCleared() bool {
+	_, ok := m.clearedFields[qarecord.FieldAccountID]
+	return ok
+}
+
+// ResetAccountID resets all changes to the "account_id" field.
+func (m *QARecordMutation) ResetAccountID() {
+	m.account_id = nil
+	m.addaccount_id = nil
+	delete(m.clearedFields, qarecord.FieldAccountID)
+}
+
+// SetPlatform sets the "platform" field.
+func (m *QARecordMutation) SetPlatform(s string) {
+	m.platform = &s
+}
+
+// Platform returns the value of the "platform" field in the mutation.
+func (m *QARecordMutation) Platform() (r string, exists bool) {
+	v := m.platform
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPlatform returns the old "platform" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldPlatform(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPlatform is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPlatform requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPlatform: %w", err)
+	}
+	return oldValue.Platform, nil
+}
+
+// ResetPlatform resets all changes to the "platform" field.
+func (m *QARecordMutation) ResetPlatform() {
+	m.platform = nil
+}
+
+// SetRequestedModel sets the "requested_model" field.
+func (m *QARecordMutation) SetRequestedModel(s string) {
+	m.requested_model = &s
+}
+
+// RequestedModel returns the value of the "requested_model" field in the mutation.
+func (m *QARecordMutation) RequestedModel() (r string, exists bool) {
+	v := m.requested_model
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRequestedModel returns the old "requested_model" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldRequestedModel(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRequestedModel is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRequestedModel requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRequestedModel: %w", err)
+	}
+	return oldValue.RequestedModel, nil
+}
+
+// ResetRequestedModel resets all changes to the "requested_model" field.
+func (m *QARecordMutation) ResetRequestedModel() {
+	m.requested_model = nil
+}
+
+// SetUpstreamModel sets the "upstream_model" field.
+func (m *QARecordMutation) SetUpstreamModel(s string) {
+	m.upstream_model = &s
+}
+
+// UpstreamModel returns the value of the "upstream_model" field in the mutation.
+func (m *QARecordMutation) UpstreamModel() (r string, exists bool) {
+	v := m.upstream_model
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpstreamModel returns the old "upstream_model" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldUpstreamModel(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpstreamModel is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpstreamModel requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpstreamModel: %w", err)
+	}
+	return oldValue.UpstreamModel, nil
+}
+
+// ClearUpstreamModel clears the value of the "upstream_model" field.
+func (m *QARecordMutation) ClearUpstreamModel() {
+	m.upstream_model = nil
+	m.clearedFields[qarecord.FieldUpstreamModel] = struct{}{}
+}
+
+// UpstreamModelCleared returns if the "upstream_model" field was cleared in this mutation.
+func (m *QARecordMutation) UpstreamModelCleared() bool {
+	_, ok := m.clearedFields[qarecord.FieldUpstreamModel]
+	return ok
+}
+
+// ResetUpstreamModel resets all changes to the "upstream_model" field.
+func (m *QARecordMutation) ResetUpstreamModel() {
+	m.upstream_model = nil
+	delete(m.clearedFields, qarecord.FieldUpstreamModel)
+}
+
+// SetInboundEndpoint sets the "inbound_endpoint" field.
+func (m *QARecordMutation) SetInboundEndpoint(s string) {
+	m.inbound_endpoint = &s
+}
+
+// InboundEndpoint returns the value of the "inbound_endpoint" field in the mutation.
+func (m *QARecordMutation) InboundEndpoint() (r string, exists bool) {
+	v := m.inbound_endpoint
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldInboundEndpoint returns the old "inbound_endpoint" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldInboundEndpoint(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldInboundEndpoint is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldInboundEndpoint requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldInboundEndpoint: %w", err)
+	}
+	return oldValue.InboundEndpoint, nil
+}
+
+// ResetInboundEndpoint resets all changes to the "inbound_endpoint" field.
+func (m *QARecordMutation) ResetInboundEndpoint() {
+	m.inbound_endpoint = nil
+}
+
+// SetUpstreamEndpoint sets the "upstream_endpoint" field.
+func (m *QARecordMutation) SetUpstreamEndpoint(s string) {
+	m.upstream_endpoint = &s
+}
+
+// UpstreamEndpoint returns the value of the "upstream_endpoint" field in the mutation.
+func (m *QARecordMutation) UpstreamEndpoint() (r string, exists bool) {
+	v := m.upstream_endpoint
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpstreamEndpoint returns the old "upstream_endpoint" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldUpstreamEndpoint(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpstreamEndpoint is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpstreamEndpoint requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpstreamEndpoint: %w", err)
+	}
+	return oldValue.UpstreamEndpoint, nil
+}
+
+// ClearUpstreamEndpoint clears the value of the "upstream_endpoint" field.
+func (m *QARecordMutation) ClearUpstreamEndpoint() {
+	m.upstream_endpoint = nil
+	m.clearedFields[qarecord.FieldUpstreamEndpoint] = struct{}{}
+}
+
+// UpstreamEndpointCleared returns if the "upstream_endpoint" field was cleared in this mutation.
+func (m *QARecordMutation) UpstreamEndpointCleared() bool {
+	_, ok := m.clearedFields[qarecord.FieldUpstreamEndpoint]
+	return ok
+}
+
+// ResetUpstreamEndpoint resets all changes to the "upstream_endpoint" field.
+func (m *QARecordMutation) ResetUpstreamEndpoint() {
+	m.upstream_endpoint = nil
+	delete(m.clearedFields, qarecord.FieldUpstreamEndpoint)
+}
+
+// SetStatusCode sets the "status_code" field.
+func (m *QARecordMutation) SetStatusCode(i int) {
+	m.status_code = &i
+	m.addstatus_code = nil
+}
+
+// StatusCode returns the value of the "status_code" field in the mutation.
+func (m *QARecordMutation) StatusCode() (r int, exists bool) {
+	v := m.status_code
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStatusCode returns the old "status_code" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldStatusCode(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStatusCode is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStatusCode requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStatusCode: %w", err)
+	}
+	return oldValue.StatusCode, nil
+}
+
+// AddStatusCode adds i to the "status_code" field.
+func (m *QARecordMutation) AddStatusCode(i int) {
+	if m.addstatus_code != nil {
+		*m.addstatus_code += i
+	} else {
+		m.addstatus_code = &i
+	}
+}
+
+// AddedStatusCode returns the value that was added to the "status_code" field in this mutation.
+func (m *QARecordMutation) AddedStatusCode() (r int, exists bool) {
+	v := m.addstatus_code
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetStatusCode resets all changes to the "status_code" field.
+func (m *QARecordMutation) ResetStatusCode() {
+	m.status_code = nil
+	m.addstatus_code = nil
+}
+
+// SetDurationMs sets the "duration_ms" field.
+func (m *QARecordMutation) SetDurationMs(i int64) {
+	m.duration_ms = &i
+	m.addduration_ms = nil
+}
+
+// DurationMs returns the value of the "duration_ms" field in the mutation.
+func (m *QARecordMutation) DurationMs() (r int64, exists bool) {
+	v := m.duration_ms
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDurationMs returns the old "duration_ms" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldDurationMs(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDurationMs is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDurationMs requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDurationMs: %w", err)
+	}
+	return oldValue.DurationMs, nil
+}
+
+// AddDurationMs adds i to the "duration_ms" field.
+func (m *QARecordMutation) AddDurationMs(i int64) {
+	if m.addduration_ms != nil {
+		*m.addduration_ms += i
+	} else {
+		m.addduration_ms = &i
+	}
+}
+
+// AddedDurationMs returns the value that was added to the "duration_ms" field in this mutation.
+func (m *QARecordMutation) AddedDurationMs() (r int64, exists bool) {
+	v := m.addduration_ms
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetDurationMs resets all changes to the "duration_ms" field.
+func (m *QARecordMutation) ResetDurationMs() {
+	m.duration_ms = nil
+	m.addduration_ms = nil
+}
+
+// SetFirstTokenMs sets the "first_token_ms" field.
+func (m *QARecordMutation) SetFirstTokenMs(i int64) {
+	m.first_token_ms = &i
+	m.addfirst_token_ms = nil
+}
+
+// FirstTokenMs returns the value of the "first_token_ms" field in the mutation.
+func (m *QARecordMutation) FirstTokenMs() (r int64, exists bool) {
+	v := m.first_token_ms
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldFirstTokenMs returns the old "first_token_ms" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldFirstTokenMs(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldFirstTokenMs is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldFirstTokenMs requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldFirstTokenMs: %w", err)
+	}
+	return oldValue.FirstTokenMs, nil
+}
+
+// AddFirstTokenMs adds i to the "first_token_ms" field.
+func (m *QARecordMutation) AddFirstTokenMs(i int64) {
+	if m.addfirst_token_ms != nil {
+		*m.addfirst_token_ms += i
+	} else {
+		m.addfirst_token_ms = &i
+	}
+}
+
+// AddedFirstTokenMs returns the value that was added to the "first_token_ms" field in this mutation.
+func (m *QARecordMutation) AddedFirstTokenMs() (r int64, exists bool) {
+	v := m.addfirst_token_ms
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearFirstTokenMs clears the value of the "first_token_ms" field.
+func (m *QARecordMutation) ClearFirstTokenMs() {
+	m.first_token_ms = nil
+	m.addfirst_token_ms = nil
+	m.clearedFields[qarecord.FieldFirstTokenMs] = struct{}{}
+}
+
+// FirstTokenMsCleared returns if the "first_token_ms" field was cleared in this mutation.
+func (m *QARecordMutation) FirstTokenMsCleared() bool {
+	_, ok := m.clearedFields[qarecord.FieldFirstTokenMs]
+	return ok
+}
+
+// ResetFirstTokenMs resets all changes to the "first_token_ms" field.
+func (m *QARecordMutation) ResetFirstTokenMs() {
+	m.first_token_ms = nil
+	m.addfirst_token_ms = nil
+	delete(m.clearedFields, qarecord.FieldFirstTokenMs)
+}
+
+// SetStream sets the "stream" field.
+func (m *QARecordMutation) SetStream(b bool) {
+	m.stream = &b
+}
+
+// Stream returns the value of the "stream" field in the mutation.
+func (m *QARecordMutation) Stream() (r bool, exists bool) {
+	v := m.stream
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStream returns the old "stream" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldStream(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStream is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStream requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStream: %w", err)
+	}
+	return oldValue.Stream, nil
+}
+
+// ResetStream resets all changes to the "stream" field.
+func (m *QARecordMutation) ResetStream() {
+	m.stream = nil
+}
+
+// SetToolCallsPresent sets the "tool_calls_present" field.
+func (m *QARecordMutation) SetToolCallsPresent(b bool) {
+	m.tool_calls_present = &b
+}
+
+// ToolCallsPresent returns the value of the "tool_calls_present" field in the mutation.
+func (m *QARecordMutation) ToolCallsPresent() (r bool, exists bool) {
+	v := m.tool_calls_present
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldToolCallsPresent returns the old "tool_calls_present" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldToolCallsPresent(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldToolCallsPresent is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldToolCallsPresent requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldToolCallsPresent: %w", err)
+	}
+	return oldValue.ToolCallsPresent, nil
+}
+
+// ResetToolCallsPresent resets all changes to the "tool_calls_present" field.
+func (m *QARecordMutation) ResetToolCallsPresent() {
+	m.tool_calls_present = nil
+}
+
+// SetMultimodalPresent sets the "multimodal_present" field.
+func (m *QARecordMutation) SetMultimodalPresent(b bool) {
+	m.multimodal_present = &b
+}
+
+// MultimodalPresent returns the value of the "multimodal_present" field in the mutation.
+func (m *QARecordMutation) MultimodalPresent() (r bool, exists bool) {
+	v := m.multimodal_present
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMultimodalPresent returns the old "multimodal_present" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldMultimodalPresent(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMultimodalPresent is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMultimodalPresent requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMultimodalPresent: %w", err)
+	}
+	return oldValue.MultimodalPresent, nil
+}
+
+// ResetMultimodalPresent resets all changes to the "multimodal_present" field.
+func (m *QARecordMutation) ResetMultimodalPresent() {
+	m.multimodal_present = nil
+}
+
+// SetInputTokens sets the "input_tokens" field.
+func (m *QARecordMutation) SetInputTokens(i int) {
+	m.input_tokens = &i
+	m.addinput_tokens = nil
+}
+
+// InputTokens returns the value of the "input_tokens" field in the mutation.
+func (m *QARecordMutation) InputTokens() (r int, exists bool) {
+	v := m.input_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldInputTokens returns the old "input_tokens" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldInputTokens(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldInputTokens is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldInputTokens requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldInputTokens: %w", err)
+	}
+	return oldValue.InputTokens, nil
+}
+
+// AddInputTokens adds i to the "input_tokens" field.
+func (m *QARecordMutation) AddInputTokens(i int) {
+	if m.addinput_tokens != nil {
+		*m.addinput_tokens += i
+	} else {
+		m.addinput_tokens = &i
+	}
+}
+
+// AddedInputTokens returns the value that was added to the "input_tokens" field in this mutation.
+func (m *QARecordMutation) AddedInputTokens() (r int, exists bool) {
+	v := m.addinput_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetInputTokens resets all changes to the "input_tokens" field.
+func (m *QARecordMutation) ResetInputTokens() {
+	m.input_tokens = nil
+	m.addinput_tokens = nil
+}
+
+// SetOutputTokens sets the "output_tokens" field.
+func (m *QARecordMutation) SetOutputTokens(i int) {
+	m.output_tokens = &i
+	m.addoutput_tokens = nil
+}
+
+// OutputTokens returns the value of the "output_tokens" field in the mutation.
+func (m *QARecordMutation) OutputTokens() (r int, exists bool) {
+	v := m.output_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOutputTokens returns the old "output_tokens" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldOutputTokens(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOutputTokens is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOutputTokens requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOutputTokens: %w", err)
+	}
+	return oldValue.OutputTokens, nil
+}
+
+// AddOutputTokens adds i to the "output_tokens" field.
+func (m *QARecordMutation) AddOutputTokens(i int) {
+	if m.addoutput_tokens != nil {
+		*m.addoutput_tokens += i
+	} else {
+		m.addoutput_tokens = &i
+	}
+}
+
+// AddedOutputTokens returns the value that was added to the "output_tokens" field in this mutation.
+func (m *QARecordMutation) AddedOutputTokens() (r int, exists bool) {
+	v := m.addoutput_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetOutputTokens resets all changes to the "output_tokens" field.
+func (m *QARecordMutation) ResetOutputTokens() {
+	m.output_tokens = nil
+	m.addoutput_tokens = nil
+}
+
+// SetCachedTokens sets the "cached_tokens" field.
+func (m *QARecordMutation) SetCachedTokens(i int) {
+	m.cached_tokens = &i
+	m.addcached_tokens = nil
+}
+
+// CachedTokens returns the value of the "cached_tokens" field in the mutation.
+func (m *QARecordMutation) CachedTokens() (r int, exists bool) {
+	v := m.cached_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCachedTokens returns the old "cached_tokens" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldCachedTokens(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCachedTokens is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCachedTokens requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCachedTokens: %w", err)
+	}
+	return oldValue.CachedTokens, nil
+}
+
+// AddCachedTokens adds i to the "cached_tokens" field.
+func (m *QARecordMutation) AddCachedTokens(i int) {
+	if m.addcached_tokens != nil {
+		*m.addcached_tokens += i
+	} else {
+		m.addcached_tokens = &i
+	}
+}
+
+// AddedCachedTokens returns the value that was added to the "cached_tokens" field in this mutation.
+func (m *QARecordMutation) AddedCachedTokens() (r int, exists bool) {
+	v := m.addcached_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetCachedTokens resets all changes to the "cached_tokens" field.
+func (m *QARecordMutation) ResetCachedTokens() {
+	m.cached_tokens = nil
+	m.addcached_tokens = nil
+}
+
+// SetRequestSha256 sets the "request_sha256" field.
+func (m *QARecordMutation) SetRequestSha256(s string) {
+	m.request_sha256 = &s
+}
+
+// RequestSha256 returns the value of the "request_sha256" field in the mutation.
+func (m *QARecordMutation) RequestSha256() (r string, exists bool) {
+	v := m.request_sha256
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRequestSha256 returns the old "request_sha256" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldRequestSha256(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRequestSha256 is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRequestSha256 requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRequestSha256: %w", err)
+	}
+	return oldValue.RequestSha256, nil
+}
+
+// ResetRequestSha256 resets all changes to the "request_sha256" field.
+func (m *QARecordMutation) ResetRequestSha256() {
+	m.request_sha256 = nil
+}
+
+// SetResponseSha256 sets the "response_sha256" field.
+func (m *QARecordMutation) SetResponseSha256(s string) {
+	m.response_sha256 = &s
+}
+
+// ResponseSha256 returns the value of the "response_sha256" field in the mutation.
+func (m *QARecordMutation) ResponseSha256() (r string, exists bool) {
+	v := m.response_sha256
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldResponseSha256 returns the old "response_sha256" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldResponseSha256(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldResponseSha256 is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldResponseSha256 requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldResponseSha256: %w", err)
+	}
+	return oldValue.ResponseSha256, nil
+}
+
+// ResetResponseSha256 resets all changes to the "response_sha256" field.
+func (m *QARecordMutation) ResetResponseSha256() {
+	m.response_sha256 = nil
+}
+
+// SetBlobURI sets the "blob_uri" field.
+func (m *QARecordMutation) SetBlobURI(s string) {
+	m.blob_uri = &s
+}
+
+// BlobURI returns the value of the "blob_uri" field in the mutation.
+func (m *QARecordMutation) BlobURI() (r string, exists bool) {
+	v := m.blob_uri
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBlobURI returns the old "blob_uri" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldBlobURI(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBlobURI is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBlobURI requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBlobURI: %w", err)
+	}
+	return oldValue.BlobURI, nil
+}
+
+// ClearBlobURI clears the value of the "blob_uri" field.
+func (m *QARecordMutation) ClearBlobURI() {
+	m.blob_uri = nil
+	m.clearedFields[qarecord.FieldBlobURI] = struct{}{}
+}
+
+// BlobURICleared returns if the "blob_uri" field was cleared in this mutation.
+func (m *QARecordMutation) BlobURICleared() bool {
+	_, ok := m.clearedFields[qarecord.FieldBlobURI]
+	return ok
+}
+
+// ResetBlobURI resets all changes to the "blob_uri" field.
+func (m *QARecordMutation) ResetBlobURI() {
+	m.blob_uri = nil
+	delete(m.clearedFields, qarecord.FieldBlobURI)
+}
+
+// SetTags sets the "tags" field.
+func (m *QARecordMutation) SetTags(s []string) {
+	m.tags = &s
+	m.appendtags = nil
+}
+
+// Tags returns the value of the "tags" field in the mutation.
+func (m *QARecordMutation) Tags() (r []string, exists bool) {
+	v := m.tags
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTags returns the old "tags" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldTags(ctx context.Context) (v []string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTags is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTags requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTags: %w", err)
+	}
+	return oldValue.Tags, nil
+}
+
+// AppendTags adds s to the "tags" field.
+func (m *QARecordMutation) AppendTags(s []string) {
+	m.appendtags = append(m.appendtags, s...)
+}
+
+// AppendedTags returns the list of values that were appended to the "tags" field in this mutation.
+func (m *QARecordMutation) AppendedTags() ([]string, bool) {
+	if len(m.appendtags) == 0 {
+		return nil, false
+	}
+	return m.appendtags, true
+}
+
+// ResetTags resets all changes to the "tags" field.
+func (m *QARecordMutation) ResetTags() {
+	m.tags = nil
+	m.appendtags = nil
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *QARecordMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *QARecordMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *QARecordMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetRetentionUntil sets the "retention_until" field.
+func (m *QARecordMutation) SetRetentionUntil(t time.Time) {
+	m.retention_until = &t
+}
+
+// RetentionUntil returns the value of the "retention_until" field in the mutation.
+func (m *QARecordMutation) RetentionUntil() (r time.Time, exists bool) {
+	v := m.retention_until
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRetentionUntil returns the old "retention_until" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldRetentionUntil(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRetentionUntil is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRetentionUntil requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRetentionUntil: %w", err)
+	}
+	return oldValue.RetentionUntil, nil
+}
+
+// ResetRetentionUntil resets all changes to the "retention_until" field.
+func (m *QARecordMutation) ResetRetentionUntil() {
+	m.retention_until = nil
+}
+
+// Where appends a list predicates to the QARecordMutation builder.
+func (m *QARecordMutation) Where(ps ...predicate.QARecord) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the QARecordMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *QARecordMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.QARecord, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *QARecordMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *QARecordMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (QARecord).
+func (m *QARecordMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *QARecordMutation) Fields() []string {
+	fields := make([]string, 0, 24)
+	if m.request_id != nil {
+		fields = append(fields, qarecord.FieldRequestID)
+	}
+	if m.user_id != nil {
+		fields = append(fields, qarecord.FieldUserID)
+	}
+	if m.api_key_id != nil {
+		fields = append(fields, qarecord.FieldAPIKeyID)
+	}
+	if m.account_id != nil {
+		fields = append(fields, qarecord.FieldAccountID)
+	}
+	if m.platform != nil {
+		fields = append(fields, qarecord.FieldPlatform)
+	}
+	if m.requested_model != nil {
+		fields = append(fields, qarecord.FieldRequestedModel)
+	}
+	if m.upstream_model != nil {
+		fields = append(fields, qarecord.FieldUpstreamModel)
+	}
+	if m.inbound_endpoint != nil {
+		fields = append(fields, qarecord.FieldInboundEndpoint)
+	}
+	if m.upstream_endpoint != nil {
+		fields = append(fields, qarecord.FieldUpstreamEndpoint)
+	}
+	if m.status_code != nil {
+		fields = append(fields, qarecord.FieldStatusCode)
+	}
+	if m.duration_ms != nil {
+		fields = append(fields, qarecord.FieldDurationMs)
+	}
+	if m.first_token_ms != nil {
+		fields = append(fields, qarecord.FieldFirstTokenMs)
+	}
+	if m.stream != nil {
+		fields = append(fields, qarecord.FieldStream)
+	}
+	if m.tool_calls_present != nil {
+		fields = append(fields, qarecord.FieldToolCallsPresent)
+	}
+	if m.multimodal_present != nil {
+		fields = append(fields, qarecord.FieldMultimodalPresent)
+	}
+	if m.input_tokens != nil {
+		fields = append(fields, qarecord.FieldInputTokens)
+	}
+	if m.output_tokens != nil {
+		fields = append(fields, qarecord.FieldOutputTokens)
+	}
+	if m.cached_tokens != nil {
+		fields = append(fields, qarecord.FieldCachedTokens)
+	}
+	if m.request_sha256 != nil {
+		fields = append(fields, qarecord.FieldRequestSha256)
+	}
+	if m.response_sha256 != nil {
+		fields = append(fields, qarecord.FieldResponseSha256)
+	}
+	if m.blob_uri != nil {
+		fields = append(fields, qarecord.FieldBlobURI)
+	}
+	if m.tags != nil {
+		fields = append(fields, qarecord.FieldTags)
+	}
+	if m.created_at != nil {
+		fields = append(fields, qarecord.FieldCreatedAt)
+	}
+	if m.retention_until != nil {
+		fields = append(fields, qarecord.FieldRetentionUntil)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *QARecordMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case qarecord.FieldRequestID:
+		return m.RequestID()
+	case qarecord.FieldUserID:
+		return m.UserID()
+	case qarecord.FieldAPIKeyID:
+		return m.APIKeyID()
+	case qarecord.FieldAccountID:
+		return m.AccountID()
+	case qarecord.FieldPlatform:
+		return m.Platform()
+	case qarecord.FieldRequestedModel:
+		return m.RequestedModel()
+	case qarecord.FieldUpstreamModel:
+		return m.UpstreamModel()
+	case qarecord.FieldInboundEndpoint:
+		return m.InboundEndpoint()
+	case qarecord.FieldUpstreamEndpoint:
+		return m.UpstreamEndpoint()
+	case qarecord.FieldStatusCode:
+		return m.StatusCode()
+	case qarecord.FieldDurationMs:
+		return m.DurationMs()
+	case qarecord.FieldFirstTokenMs:
+		return m.FirstTokenMs()
+	case qarecord.FieldStream:
+		return m.Stream()
+	case qarecord.FieldToolCallsPresent:
+		return m.ToolCallsPresent()
+	case qarecord.FieldMultimodalPresent:
+		return m.MultimodalPresent()
+	case qarecord.FieldInputTokens:
+		return m.InputTokens()
+	case qarecord.FieldOutputTokens:
+		return m.OutputTokens()
+	case qarecord.FieldCachedTokens:
+		return m.CachedTokens()
+	case qarecord.FieldRequestSha256:
+		return m.RequestSha256()
+	case qarecord.FieldResponseSha256:
+		return m.ResponseSha256()
+	case qarecord.FieldBlobURI:
+		return m.BlobURI()
+	case qarecord.FieldTags:
+		return m.Tags()
+	case qarecord.FieldCreatedAt:
+		return m.CreatedAt()
+	case qarecord.FieldRetentionUntil:
+		return m.RetentionUntil()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *QARecordMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case qarecord.FieldRequestID:
+		return m.OldRequestID(ctx)
+	case qarecord.FieldUserID:
+		return m.OldUserID(ctx)
+	case qarecord.FieldAPIKeyID:
+		return m.OldAPIKeyID(ctx)
+	case qarecord.FieldAccountID:
+		return m.OldAccountID(ctx)
+	case qarecord.FieldPlatform:
+		return m.OldPlatform(ctx)
+	case qarecord.FieldRequestedModel:
+		return m.OldRequestedModel(ctx)
+	case qarecord.FieldUpstreamModel:
+		return m.OldUpstreamModel(ctx)
+	case qarecord.FieldInboundEndpoint:
+		return m.OldInboundEndpoint(ctx)
+	case qarecord.FieldUpstreamEndpoint:
+		return m.OldUpstreamEndpoint(ctx)
+	case qarecord.FieldStatusCode:
+		return m.OldStatusCode(ctx)
+	case qarecord.FieldDurationMs:
+		return m.OldDurationMs(ctx)
+	case qarecord.FieldFirstTokenMs:
+		return m.OldFirstTokenMs(ctx)
+	case qarecord.FieldStream:
+		return m.OldStream(ctx)
+	case qarecord.FieldToolCallsPresent:
+		return m.OldToolCallsPresent(ctx)
+	case qarecord.FieldMultimodalPresent:
+		return m.OldMultimodalPresent(ctx)
+	case qarecord.FieldInputTokens:
+		return m.OldInputTokens(ctx)
+	case qarecord.FieldOutputTokens:
+		return m.OldOutputTokens(ctx)
+	case qarecord.FieldCachedTokens:
+		return m.OldCachedTokens(ctx)
+	case qarecord.FieldRequestSha256:
+		return m.OldRequestSha256(ctx)
+	case qarecord.FieldResponseSha256:
+		return m.OldResponseSha256(ctx)
+	case qarecord.FieldBlobURI:
+		return m.OldBlobURI(ctx)
+	case qarecord.FieldTags:
+		return m.OldTags(ctx)
+	case qarecord.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case qarecord.FieldRetentionUntil:
+		return m.OldRetentionUntil(ctx)
+	}
+	return nil, fmt.Errorf("unknown QARecord field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *QARecordMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case qarecord.FieldRequestID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRequestID(v)
+		return nil
+	case qarecord.FieldUserID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUserID(v)
+		return nil
+	case qarecord.FieldAPIKeyID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAPIKeyID(v)
+		return nil
+	case qarecord.FieldAccountID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAccountID(v)
+		return nil
+	case qarecord.FieldPlatform:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPlatform(v)
+		return nil
+	case qarecord.FieldRequestedModel:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRequestedModel(v)
+		return nil
+	case qarecord.FieldUpstreamModel:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpstreamModel(v)
+		return nil
+	case qarecord.FieldInboundEndpoint:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetInboundEndpoint(v)
+		return nil
+	case qarecord.FieldUpstreamEndpoint:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpstreamEndpoint(v)
+		return nil
+	case qarecord.FieldStatusCode:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStatusCode(v)
+		return nil
+	case qarecord.FieldDurationMs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDurationMs(v)
+		return nil
+	case qarecord.FieldFirstTokenMs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetFirstTokenMs(v)
+		return nil
+	case qarecord.FieldStream:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStream(v)
+		return nil
+	case qarecord.FieldToolCallsPresent:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetToolCallsPresent(v)
+		return nil
+	case qarecord.FieldMultimodalPresent:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMultimodalPresent(v)
+		return nil
+	case qarecord.FieldInputTokens:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetInputTokens(v)
+		return nil
+	case qarecord.FieldOutputTokens:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOutputTokens(v)
+		return nil
+	case qarecord.FieldCachedTokens:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCachedTokens(v)
+		return nil
+	case qarecord.FieldRequestSha256:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRequestSha256(v)
+		return nil
+	case qarecord.FieldResponseSha256:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetResponseSha256(v)
+		return nil
+	case qarecord.FieldBlobURI:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBlobURI(v)
+		return nil
+	case qarecord.FieldTags:
+		v, ok := value.([]string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTags(v)
+		return nil
+	case qarecord.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case qarecord.FieldRetentionUntil:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRetentionUntil(v)
+		return nil
+	}
+	return fmt.Errorf("unknown QARecord field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *QARecordMutation) AddedFields() []string {
+	var fields []string
+	if m.adduser_id != nil {
+		fields = append(fields, qarecord.FieldUserID)
+	}
+	if m.addapi_key_id != nil {
+		fields = append(fields, qarecord.FieldAPIKeyID)
+	}
+	if m.addaccount_id != nil {
+		fields = append(fields, qarecord.FieldAccountID)
+	}
+	if m.addstatus_code != nil {
+		fields = append(fields, qarecord.FieldStatusCode)
+	}
+	if m.addduration_ms != nil {
+		fields = append(fields, qarecord.FieldDurationMs)
+	}
+	if m.addfirst_token_ms != nil {
+		fields = append(fields, qarecord.FieldFirstTokenMs)
+	}
+	if m.addinput_tokens != nil {
+		fields = append(fields, qarecord.FieldInputTokens)
+	}
+	if m.addoutput_tokens != nil {
+		fields = append(fields, qarecord.FieldOutputTokens)
+	}
+	if m.addcached_tokens != nil {
+		fields = append(fields, qarecord.FieldCachedTokens)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *QARecordMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case qarecord.FieldUserID:
+		return m.AddedUserID()
+	case qarecord.FieldAPIKeyID:
+		return m.AddedAPIKeyID()
+	case qarecord.FieldAccountID:
+		return m.AddedAccountID()
+	case qarecord.FieldStatusCode:
+		return m.AddedStatusCode()
+	case qarecord.FieldDurationMs:
+		return m.AddedDurationMs()
+	case qarecord.FieldFirstTokenMs:
+		return m.AddedFirstTokenMs()
+	case qarecord.FieldInputTokens:
+		return m.AddedInputTokens()
+	case qarecord.FieldOutputTokens:
+		return m.AddedOutputTokens()
+	case qarecord.FieldCachedTokens:
+		return m.AddedCachedTokens()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *QARecordMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case qarecord.FieldUserID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddUserID(v)
+		return nil
+	case qarecord.FieldAPIKeyID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAPIKeyID(v)
+		return nil
+	case qarecord.FieldAccountID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAccountID(v)
+		return nil
+	case qarecord.FieldStatusCode:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddStatusCode(v)
+		return nil
+	case qarecord.FieldDurationMs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddDurationMs(v)
+		return nil
+	case qarecord.FieldFirstTokenMs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddFirstTokenMs(v)
+		return nil
+	case qarecord.FieldInputTokens:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddInputTokens(v)
+		return nil
+	case qarecord.FieldOutputTokens:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddOutputTokens(v)
+		return nil
+	case qarecord.FieldCachedTokens:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddCachedTokens(v)
+		return nil
+	}
+	return fmt.Errorf("unknown QARecord numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *QARecordMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(qarecord.FieldAccountID) {
+		fields = append(fields, qarecord.FieldAccountID)
+	}
+	if m.FieldCleared(qarecord.FieldUpstreamModel) {
+		fields = append(fields, qarecord.FieldUpstreamModel)
+	}
+	if m.FieldCleared(qarecord.FieldUpstreamEndpoint) {
+		fields = append(fields, qarecord.FieldUpstreamEndpoint)
+	}
+	if m.FieldCleared(qarecord.FieldFirstTokenMs) {
+		fields = append(fields, qarecord.FieldFirstTokenMs)
+	}
+	if m.FieldCleared(qarecord.FieldBlobURI) {
+		fields = append(fields, qarecord.FieldBlobURI)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *QARecordMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *QARecordMutation) ClearField(name string) error {
+	switch name {
+	case qarecord.FieldAccountID:
+		m.ClearAccountID()
+		return nil
+	case qarecord.FieldUpstreamModel:
+		m.ClearUpstreamModel()
+		return nil
+	case qarecord.FieldUpstreamEndpoint:
+		m.ClearUpstreamEndpoint()
+		return nil
+	case qarecord.FieldFirstTokenMs:
+		m.ClearFirstTokenMs()
+		return nil
+	case qarecord.FieldBlobURI:
+		m.ClearBlobURI()
+		return nil
+	}
+	return fmt.Errorf("unknown QARecord nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *QARecordMutation) ResetField(name string) error {
+	switch name {
+	case qarecord.FieldRequestID:
+		m.ResetRequestID()
+		return nil
+	case qarecord.FieldUserID:
+		m.ResetUserID()
+		return nil
+	case qarecord.FieldAPIKeyID:
+		m.ResetAPIKeyID()
+		return nil
+	case qarecord.FieldAccountID:
+		m.ResetAccountID()
+		return nil
+	case qarecord.FieldPlatform:
+		m.ResetPlatform()
+		return nil
+	case qarecord.FieldRequestedModel:
+		m.ResetRequestedModel()
+		return nil
+	case qarecord.FieldUpstreamModel:
+		m.ResetUpstreamModel()
+		return nil
+	case qarecord.FieldInboundEndpoint:
+		m.ResetInboundEndpoint()
+		return nil
+	case qarecord.FieldUpstreamEndpoint:
+		m.ResetUpstreamEndpoint()
+		return nil
+	case qarecord.FieldStatusCode:
+		m.ResetStatusCode()
+		return nil
+	case qarecord.FieldDurationMs:
+		m.ResetDurationMs()
+		return nil
+	case qarecord.FieldFirstTokenMs:
+		m.ResetFirstTokenMs()
+		return nil
+	case qarecord.FieldStream:
+		m.ResetStream()
+		return nil
+	case qarecord.FieldToolCallsPresent:
+		m.ResetToolCallsPresent()
+		return nil
+	case qarecord.FieldMultimodalPresent:
+		m.ResetMultimodalPresent()
+		return nil
+	case qarecord.FieldInputTokens:
+		m.ResetInputTokens()
+		return nil
+	case qarecord.FieldOutputTokens:
+		m.ResetOutputTokens()
+		return nil
+	case qarecord.FieldCachedTokens:
+		m.ResetCachedTokens()
+		return nil
+	case qarecord.FieldRequestSha256:
+		m.ResetRequestSha256()
+		return nil
+	case qarecord.FieldResponseSha256:
+		m.ResetResponseSha256()
+		return nil
+	case qarecord.FieldBlobURI:
+		m.ResetBlobURI()
+		return nil
+	case qarecord.FieldTags:
+		m.ResetTags()
+		return nil
+	case qarecord.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case qarecord.FieldRetentionUntil:
+		m.ResetRetentionUntil()
+		return nil
+	}
+	return fmt.Errorf("unknown QARecord field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *QARecordMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *QARecordMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *QARecordMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *QARecordMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *QARecordMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *QARecordMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *QARecordMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown QARecord unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *QARecordMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown QARecord edge %s", name)
 }
 
 // RedeemCodeMutation represents an operation that mutates the RedeemCode nodes in the graph.

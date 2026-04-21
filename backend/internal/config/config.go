@@ -88,6 +88,7 @@ type Config struct {
 	Gemini                  GeminiConfig                  `mapstructure:"gemini"`
 	Update                  UpdateConfig                  `mapstructure:"update"`
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
+	QACapture               QACaptureConfig               `mapstructure:"qa_capture"`
 }
 
 type LogConfig struct {
@@ -149,6 +150,26 @@ type UpdateConfig struct {
 	// 支持 http/https/socks5/socks5h 协议
 	// 例如: "http://127.0.0.1:7890", "socks5://127.0.0.1:1080"
 	ProxyURL string `mapstructure:"proxy_url"`
+}
+
+type QACaptureConfig struct {
+	Enabled       bool                   `mapstructure:"enabled"`
+	BodyMaxBytes  int                    `mapstructure:"body_max_bytes"`
+	RetentionDays int                    `mapstructure:"retention_days"`
+	WorkerCount   int                    `mapstructure:"worker_count"`
+	QueueSize     int                    `mapstructure:"queue_size"`
+	Storage       QACaptureStorageConfig `mapstructure:"storage"`
+}
+
+type QACaptureStorageConfig struct {
+	Driver          string `mapstructure:"driver"`
+	Endpoint        string `mapstructure:"endpoint"`
+	Region          string `mapstructure:"region"`
+	Bucket          string `mapstructure:"bucket"`
+	AccessKeyID     string `mapstructure:"access_key_id"`
+	SecretAccessKey string `mapstructure:"secret_access_key"`
+	Prefix          string `mapstructure:"prefix"`
+	ForcePathStyle  bool   `mapstructure:"force_path_style"`
 }
 
 type IdempotencyConfig struct {
@@ -1353,6 +1374,21 @@ func setDefaults() {
 	viper.SetDefault("idempotency.cleanup_interval_seconds", 60)
 	viper.SetDefault("idempotency.cleanup_batch_size", 500)
 
+	// QA capture
+	viper.SetDefault("qa_capture.enabled", true)
+	viper.SetDefault("qa_capture.body_max_bytes", 256*1024)
+	viper.SetDefault("qa_capture.retention_days", 60)
+	viper.SetDefault("qa_capture.worker_count", 8)
+	viper.SetDefault("qa_capture.queue_size", 2048)
+	viper.SetDefault("qa_capture.storage.driver", "localfs")
+	viper.SetDefault("qa_capture.storage.endpoint", "")
+	viper.SetDefault("qa_capture.storage.region", "auto")
+	viper.SetDefault("qa_capture.storage.bucket", "")
+	viper.SetDefault("qa_capture.storage.access_key_id", "")
+	viper.SetDefault("qa_capture.storage.secret_access_key", "")
+	viper.SetDefault("qa_capture.storage.prefix", "qa_blobs")
+	viper.SetDefault("qa_capture.storage.force_path_style", false)
+
 	// Gateway
 	viper.SetDefault("gateway.response_header_timeout", 600) // 600秒(10分钟)等待上游响应头，LLM高负载时可能排队较久
 	viper.SetDefault("gateway.log_upstream_error_body", true)
@@ -1925,6 +1961,23 @@ func (c *Config) Validate() error {
 	}
 	if c.Idempotency.CleanupBatchSize <= 0 {
 		return fmt.Errorf("idempotency.cleanup_batch_size must be positive")
+	}
+	if c.QACapture.BodyMaxBytes <= 0 {
+		return fmt.Errorf("qa_capture.body_max_bytes must be positive")
+	}
+	if c.QACapture.RetentionDays <= 0 {
+		return fmt.Errorf("qa_capture.retention_days must be positive")
+	}
+	if c.QACapture.WorkerCount <= 0 {
+		return fmt.Errorf("qa_capture.worker_count must be positive")
+	}
+	if c.QACapture.QueueSize <= 0 {
+		return fmt.Errorf("qa_capture.queue_size must be positive")
+	}
+	switch strings.ToLower(strings.TrimSpace(c.QACapture.Storage.Driver)) {
+	case "", "localfs", "s3":
+	default:
+		return fmt.Errorf("qa_capture.storage.driver must be one of: localfs/s3")
 	}
 	if c.Gateway.MaxBodySize <= 0 {
 		return fmt.Errorf("gateway.max_body_size must be positive")

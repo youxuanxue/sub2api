@@ -1,0 +1,160 @@
+name: Agent Draft PR
+description: Draft a remediation PR from an ops report using Claude Code CLI
+inputs:
+  report_path:
+    description: Markdown report path
+    required: true
+  report_json:
+    description: JSON report path
+    required: true
+  workflow:
+    description: Source workflow name
+    required: true
+  claude_api_key:
+    description: Claude API key
+    required: true
+  max_budget_usd:
+    description: Max budget for a single agent run
+    default: "2.00"
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Install Claude Code CLI
+      shell: bash
+      run: |
+        if [ -x scripts/setup-claude-code.sh ]; then
+          bash scripts/setup-claude-code.sh
+        else
+          echo "::warning::scripts/setup-claude-code.sh missing, using npm fallback"
+          npm install -g @anthropic-ai/claude-code
+        fi
+
+    - name: Compute branch name
+      id: branch
+      shell: bash
+      run: |
+        DATE="$(date -u +%Y%m%d)"
+        SHORT="$(echo "${{ inputs.workflow }}" | tr '_' '-')"
+        echo "name=auto/${SHORT}-${DATE}-${{ github.run_id }}" >> "$GITHUB_OUTPUT"
+
+    - name: Compute cluster signature label
+      id: sig
+      shell: bash
+      run: |
+        SIG="$(jq -r '.persistent_clusters[0].signature // .clusters[0].signature // "no-sig"' "${{ inputs.report_json }}")"
+        SIG_SHORT="$(printf '%s' "$SIG" | shasum -a 256 | cut -c1-12)"
+        echo "short=$SIG_SHORT" >> "$GITHUB_OUTPUT"
+        echo "label=cluster-sig:$SIG_SHORT" >> "$GITHUB_OUTPUT"
+
+    - name: Cooldown check
+      id: cooldown
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        CUTOFF="$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-7d +%Y-%m-%dT%H:%M:%SZ)"
+        EXISTING="$(gh pr list --label "${{ steps.sig.outputs.label }}" --state all --json number,createdAt --limit 5 \
+          | jq --arg cutoff "$CUTOFF" '[.[] | select(.createdAt > $cutoff)] | length')"
+        if [ "${EXISTING:-0}" -gt 0 ]; then
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+          echo "::notice::cooldown active for ${{ steps.sig.outputs.label }}"
+        else
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Build prompt
+      if: steps.cooldown.outputs.skip == 'false'
+      shell: bash
+      run: |
+        cat > /tmp/agent-prompt.txt <<'EOF'
+        你是 TokenKey (sub2api) 项目的运维 Agent。
+
+        任务：
+        基于检测报告草拟一个 draft PR 来缓解或解决问题。
+
+        必须遵守的约束：
+        1. 只输出 draft PR，不直接合并
+        2. 禁止修改 ent 生成代码（允许 backend/ent/schema/*）/ wire_gen.go / migrations / docs/approved/* / CLAUDE.md / dev-rules
+        3. 改动总行数必须 < 200
+        4. 必须运行 ./scripts/preflight.sh
+        5. 必须写出 PR 描述到 /tmp/pr-body.md
+        EOF
+        printf '\n## 报告 Markdown\n\n' >> /tmp/agent-prompt.txt
+        cat "${{ inputs.report_path }}" >> /tmp/agent-prompt.txt
+        printf '\n\n## 报告 JSON\n\n' >> /tmp/agent-prompt.txt
+        cat "${{ inputs.report_json }}" >> /tmp/agent-prompt.txt
+
+    - name: Run Claude Code
+      if: steps.cooldown.outputs.skip == 'false'
+      shell: bash
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.claude_api_key }}
+      run: |
+        claude -p "$(cat /tmp/agent-prompt.txt)" \
+          --max-budget-usd "${{ inputs.max_budget_usd }}" \
+          --output /tmp/agent-output.txt
+
+    - name: Guard diff scope
+      if: steps.cooldown.outputs.skip == 'false'
+      shell: bash
+      run: |
+        if git diff --quiet; then
+          echo "No changes produced by agent; skipping PR creation"
+          exit 0
+        fi
+        if git diff --name-only | awk '
+          /^backend\/ent\// && $0 !~ /^backend\/ent\/schema\// { bad=1; print }
+          /^backend\/migrations\// { bad=1; print }
+          /wire_gen\.go$/ { bad=1; print }
+          /^docs\/approved\// { bad=1; print }
+          /^CLAUDE\.md$/ { bad=1; print }
+          /^dev-rules\// { bad=1; print }
+          END { exit bad+0 }'; then
+          :
+        else
+          echo "::error::agent modified a protected path"
+          exit 1
+        fi
+        LINES="$(git diff --numstat | awk '{add+=$1; del+=$2} END {print add+del}')"
+        if [ "${LINES:-0}" -gt 200 ]; then
+          echo "::error::agent diff is too large: ${LINES} lines"
+          exit 1
+        fi
+
+    - name: Run preflight
+      if: steps.cooldown.outputs.skip == 'false'
+      shell: bash
+      run: |
+        ./scripts/preflight.sh
+
+    - name: Open draft PR
+      if: steps.cooldown.outputs.skip == 'false'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        git config user.name "tk-auto-agent[bot]"
+        git config user.email "auto-agent@tokenkey.dev"
+        git checkout -b "${{ steps.branch.outputs.name }}"
+        git add -A
+        git commit -m "auto(${{ inputs.workflow }}): draft proposal from $(date -u +%Y-%m-%d)"
+        git push origin "${{ steps.branch.outputs.name }}"
+        gh label create "${{ steps.sig.outputs.label }}" --color BFD4F2 --description "cluster signature for cooldown" 2>/dev/null || true
+        if [ ! -f /tmp/pr-body.md ]; then
+          cat > /tmp/pr-body.md <<EOF
+        ## Trigger
+        - Workflow: ${{ inputs.workflow }}
+        - Label: ${{ steps.sig.outputs.label }}
+
+        ## Summary
+        Draft remediation generated from ops report.
+        EOF
+        fi
+        gh pr create --draft \
+          --title "[auto-${{ inputs.workflow }}] $(jq -r '.summary // "ops draft proposal"' "${{ inputs.report_json }}")" \
+          --body-file /tmp/pr-body.md \
+          --label "automated,needs-review,${{ steps.sig.outputs.label }}"

@@ -13,6 +13,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
+	qaobs "github.com/Wei-Shaw/sub2api/internal/observability/qa"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/Wei-Shaw/sub2api/internal/repository"
 	"github.com/Wei-Shaw/sub2api/internal/server"
@@ -36,6 +37,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		// Business layer ProviderSets
 		repository.ProviderSet,
 		service.ProviderSet,
+		wire.NewSet(qaobs.NewService),
 		payment.ProviderSet,
 		middleware.ProviderSet,
 		handler.ProviderSet,
@@ -88,6 +90,7 @@ func provideCleanup(
 	emailQueue *service.EmailQueueService,
 	billingCache *service.BillingCacheService,
 	usageRecordWorkerPool *service.UsageRecordWorkerPool,
+	qaCapture *qaobs.Service,
 	subscriptionService *service.SubscriptionService,
 	oauth *service.OAuthService,
 	openaiOAuth *service.OpenAIOAuthService,
@@ -196,6 +199,12 @@ func provideCleanup(
 			{"UsageRecordWorkerPool", func() error {
 				if usageRecordWorkerPool != nil {
 					usageRecordWorkerPool.Stop()
+				}
+				return nil
+			}},
+			{"QACaptureService", func() error {
+				if qaCapture != nil {
+					qaCapture.Stop()
 				}
 				return nil
 			}},

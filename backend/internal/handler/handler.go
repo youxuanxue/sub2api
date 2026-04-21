@@ -2,6 +2,7 @@ package handler
 
 import (
 	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
+	qaobs "github.com/Wei-Shaw/sub2api/internal/observability/qa"
 )
 
 // AdminHandlers contains all admin-related HTTP handlers
@@ -51,6 +52,7 @@ type Handlers struct {
 	Totp           *TotpHandler
 	Payment        *PaymentHandler
 	PaymentWebhook *PaymentWebhookHandler
+	QACapture      *qaobs.Service
 }
 
 // BuildInfo contains build-time information

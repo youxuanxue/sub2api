@@ -1,0 +1,100 @@
+name: Error Clustering Daily
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+    inputs:
+      since_hours:
+        description: Lookback window in hours
+        required: false
+        default: "24"
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  cluster:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+
+      - name: Run clustering
+        env:
+          PG_DSN: ${{ secrets.PROD_PG_READONLY_DSN }}
+        run: |
+          if [ -z "${PG_DSN:-}" ]; then
+            echo "PG_DSN is empty, skip clustering run"
+            cat > report.json <<'EOF'
+          {"summary":"skip: PROD_PG_READONLY_DSN missing","clusters":[],"persistent_clusters":[]}
+          EOF
+            cat > report.md <<'EOF'
+          # Error Clustering
+
+          skipped: PROD_PG_READONLY_DSN is not configured
+          EOF
+            exit 0
+          fi
+          cd backend
+          go run ../scripts/error_clustering \
+            --since-hours "${{ inputs.since_hours || '24' }}" \
+            --output ../report.json \
+            --markdown ../report.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: error-clustering-${{ github.run_id }}
+          path: |
+            report.json
+            report.md
+
+      - name: Decide downstream action
+        id: decide
+        run: |
+          NEED="$(jq '.persistent_clusters | length' report.json)"
+          echo "need_action=$([ "${NEED:-0}" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update issue (Stage 2A)
+        if: steps.decide.outputs.need_action == 'true' && vars.STAGE_2A_ISSUE_ONLY == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SIG="$(jq -r '.persistent_clusters[0].signature // .clusters[0].signature // "no-sig"' report.json)"
+          SIG_SHORT="$(printf '%s' "$SIG" | shasum -a 256 | cut -c1-12)"
+          LABEL="cluster-sig:$SIG_SHORT"
+          gh label create "$LABEL" --color BFD4F2 --description "cluster signature for cooldown" 2>/dev/null || true
+          EXISTING="$(gh issue list --label "$LABEL" --state open --json number --limit 1 | jq -r '.[0].number // empty')"
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body-file report.md
+          else
+            gh issue create \
+              --title "[cluster] $(jq -r '.summary // "persistent cluster detected"' report.json)" \
+              --body-file report.md \
+              --label "cluster-detected,needs-triage,automated,$LABEL"
+          fi
+
+      - name: Trigger draft PR (Stage 2B)
+        if: steps.decide.outputs.need_action == 'true' && vars.STAGE_2A_ISSUE_ONLY != 'true'
+        uses: ./.github/actions/agent-draft-pr
+        with:
+          report_path: report.md
+          report_json: report.json
+          workflow: error-clustering
+          claude_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Notify Feishu
+        if: always()
+        env:
+          FEISHU_OPS_WEBHOOK: ${{ secrets.FEISHU_OPS_WEBHOOK }}
+        run: |
+          [ -n "${FEISHU_OPS_WEBHOOK:-}" ] || exit 0
+          MSG="$(jq -r '.summary // "error clustering finished"' report.json 2>/dev/null)"
+          curl -sS -X POST "$FEISHU_OPS_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg t "[error-clustering] $MSG" '{msg_type:"text",content:{text:$t}}')" || true
