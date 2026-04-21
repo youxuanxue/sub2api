@@ -1,12 +1,13 @@
 ---
 title: Admin UI — 第五平台 `newapi` 端到端可见性与可操作性
-status: pending
-approved_by: pending
-approved_at: pending
+status: shipped
+approved_by: xuejiao (PR #19 squash-merge)
+approved_at: 2026-04-21
+shipped_at: 2026-04-21
 authors: [agent]
 created: 2026-04-20
-related_prs: []
-related_commits: []
+related_prs: ["#19"]
+related_commits: [3a43a109]
 related_stories: [US-018]
 related_audit: tester report 2026-04-20 — 创建分组 modal 缺失第五平台选项
 supersedes: none
