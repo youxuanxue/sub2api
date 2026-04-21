@@ -1,4 +1,5 @@
 ---
+title: Ops Unified Contract (QA + ErrorToIssue/PR)
 status: approved
 approved_by: youxuanxue
 approved_at: 2026-04-21
@@ -10,12 +11,7 @@ scope: "QA capture + ErrorToIssue/PR"
 
 # Ops Unified Contract
 
-Single source of truth for Ops in this repo.  
-This file replaces:
-
-- `docs/approved/ops-p0-observability.md`
-- `docs/approved/ops-qa-full-capture.md`
-- `docs/approved/ops-cron-agent-workflow.md`
+Single source of truth for Ops in this repo.
 
 ## 1. Non-Negotiables
 
