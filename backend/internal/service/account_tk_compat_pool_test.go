@@ -77,6 +77,32 @@ func TestUS011_PoolMember_UnknownPlatform_False(t *testing.T) {
 	}
 }
 
+// US-017 regression — IsOpenAICompatPlatform is the string-arg sibling of
+// IsOpenAICompatPoolMember. /v1/models fallback and ops fallback both rely on
+// it; previously /v1/models defaulted to Claude DefaultModels for newapi
+// groups whose accounts had empty model_mapping (wrong response shape for
+// OpenAI-compat clients).
+func TestUS017_IsOpenAICompatPlatform_Truth(t *testing.T) {
+	cases := []struct {
+		platform string
+		want     bool
+	}{
+		{PlatformOpenAI, true},
+		{PlatformNewAPI, true},
+		{PlatformAnthropic, false},
+		{PlatformGemini, false},
+		{PlatformAntigravity, false},
+		{"", false},
+		{"unknown", false},
+	}
+	for _, tc := range cases {
+		got := IsOpenAICompatPlatform(tc.platform)
+		if got != tc.want {
+			t.Fatalf("IsOpenAICompatPlatform(%q) = %v, want %v", tc.platform, got, tc.want)
+		}
+	}
+}
+
 func TestOpenAICompatPlatforms_ListsBothCanonicals(t *testing.T) {
 	got := OpenAICompatPlatforms()
 	if len(got) != 2 {

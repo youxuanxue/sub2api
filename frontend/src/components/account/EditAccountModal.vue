@@ -28,46 +28,65 @@
 
       <!-- API Key fields (only for apikey type) -->
       <div v-if="account.type === 'apikey'" class="space-y-4">
-        <div>
-          <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
-          <input
-            v-model="editBaseUrl"
-            type="text"
-            class="input"
-            :placeholder="
-              account.platform === 'openai'
-                ? 'https://api.openai.com'
-                : account.platform === 'gemini'
-                  ? 'https://generativelanguage.googleapis.com'
-                  : account.platform === 'antigravity'
-                    ? 'https://cloudcode-pa.googleapis.com'
-                    : 'https://api.anthropic.com'
-            "
-          />
-          <p class="input-hint">{{ baseUrlHint }}</p>
-        </div>
-        <div>
-          <label class="input-label">{{ t('admin.accounts.apiKey') }}</label>
-          <input
-            v-model="editApiKey"
-            type="password"
-            class="input font-mono"
-            autocomplete="new-password"
-            data-1p-ignore
-            data-lpignore="true"
-            data-bwignore="true"
-            :placeholder="
-              account.platform === 'openai'
-                ? 'sk-proj-...'
-                : account.platform === 'gemini'
-                  ? 'AIza...'
-                  : account.platform === 'antigravity'
-                    ? 'sk-...'
-                    : 'sk-ant-...'
-            "
-          />
-          <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
-        </div>
+        <!--
+          newapi (5th platform) uses the same shared field set as
+          CreateAccountModal (US-017): channel_type catalog + base_url +
+          api_key. Variant=edit suppresses required asterisks and shows
+          a "leave empty to keep" hint on api_key.
+        -->
+        <AccountNewApiPlatformFields
+          v-if="account.platform === 'newapi'"
+          v-model:channelType="newapiChannelType"
+          v-model:baseUrl="newapiBaseUrl"
+          v-model:apiKey="newapiApiKey"
+          :channel-type-options="newapiChannelTypeOptions"
+          :channel-types-loading="newapiChannelTypesLoading"
+          :channel-types-error="newapiChannelTypesError"
+          :selected-channel-type-base-url="newapiSelectedBaseUrl"
+          variant="edit"
+        />
+        <template v-else>
+          <div>
+            <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
+            <input
+              v-model="editBaseUrl"
+              type="text"
+              class="input"
+              :placeholder="
+                account.platform === 'openai'
+                  ? 'https://api.openai.com'
+                  : account.platform === 'gemini'
+                    ? 'https://generativelanguage.googleapis.com'
+                    : account.platform === 'antigravity'
+                      ? 'https://cloudcode-pa.googleapis.com'
+                      : 'https://api.anthropic.com'
+              "
+            />
+            <p class="input-hint">{{ baseUrlHint }}</p>
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accounts.apiKey') }}</label>
+            <input
+              v-model="editApiKey"
+              type="password"
+              class="input font-mono"
+              autocomplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
+              data-bwignore="true"
+              :placeholder="
+                account.platform === 'openai'
+                  ? 'sk-proj-...'
+                  : account.platform === 'gemini'
+                    ? 'AIza...'
+                    : account.platform === 'antigravity'
+                      ? 'sk-...'
+                      : 'sk-ant-...'
+              "
+            />
+            <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
+          </div>
+        </template>
 
         <!-- Model Restriction Section (不适用于 Antigravity) -->
         <div v-if="account.platform !== 'antigravity'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
@@ -1858,6 +1877,8 @@ import ProxySelector from '@/components/common/ProxySelector.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
+import AccountNewApiPlatformFields from './AccountNewApiPlatformFields.vue'
+import { listChannelTypes, type ChannelTypeInfo } from '@/api/admin/channels'
 import { applyInterceptWarmup } from '@/components/account/credentialsBuilder'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
@@ -1922,6 +1943,23 @@ interface TempUnschedRuleForm {
 const submitting = ref(false)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
+// newapi (5th platform) edit fields. channel_type is a top-level account
+// field on the API; base_url + api_key are stored under credentials.
+// Pre-populated from the account in syncFormFromAccount; pushed back via
+// the apikey credentials block in handleSubmit.
+const newapiChannelType = ref<number>(0)
+const newapiBaseUrl = ref('')
+const newapiApiKey = ref('')
+const newapiChannelTypes = ref<ChannelTypeInfo[]>([])
+const newapiChannelTypesLoading = ref(false)
+const newapiChannelTypesError = ref<string | null>(null)
+const newapiChannelTypeOptions = computed(() =>
+  newapiChannelTypes.value.map((c) => ({ value: c.channel_type, label: c.name }))
+)
+const newapiSelectedBaseUrl = computed(() => {
+  const found = newapiChannelTypes.value.find((c) => c.channel_type === newapiChannelType.value)
+  return found?.base_url ?? ''
+})
 // Bedrock credentials
 const editBedrockAccessKeyId = ref('')
 const editBedrockSecretAccessKey = ref('')
@@ -2290,6 +2328,28 @@ const syncFormFromAccount = (newAccount: Account | null) => {
           ? 'https://generativelanguage.googleapis.com'
           : 'https://api.anthropic.com'
     editBaseUrl.value = (credentials.base_url as string) || platformDefaultUrl
+
+    // Mirror values into the newapi-specific refs so the shared
+    // AccountNewApiPlatformFields component renders the current
+    // configuration; channel_type is a top-level field on the account.
+    if (newAccount.platform === 'newapi') {
+      newapiChannelType.value = newAccount.channel_type ?? 0
+      newapiBaseUrl.value = (credentials.base_url as string) ?? ''
+      newapiApiKey.value = ''
+      // Lazy-load the channel-type catalog so the Select shows human names.
+      // Errors are surfaced via newapiChannelTypesError; they do not block
+      // the user from saving (the channel_type ID is already known).
+      if (newapiChannelTypes.value.length === 0 && !newapiChannelTypesLoading.value) {
+        newapiChannelTypesLoading.value = true
+        newapiChannelTypesError.value = null
+        listChannelTypes()
+          .then((rows) => { newapiChannelTypes.value = rows })
+          .catch(() => {
+            newapiChannelTypesError.value = t('admin.accounts.newApiPlatform.channelTypeLoadFailed')
+          })
+          .finally(() => { newapiChannelTypesLoading.value = false })
+      }
+    }
 
     // Load model mappings and detect mode
     const existingMappings = credentials.model_mapping as Record<string, string> | undefined
@@ -2879,21 +2939,40 @@ const handleSubmit = async () => {
     // For apikey type, handle credentials update
     if (props.account.type === 'apikey') {
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
-      const newBaseUrl = editBaseUrl.value.trim() || defaultBaseUrl.value
+      const isNewAPI = props.account.platform === 'newapi'
+      // Determine which input refs are authoritative for this platform.
+      const submittedBaseUrl = isNewAPI
+        ? (newapiBaseUrl.value.trim() || newapiSelectedBaseUrl.value)
+        : (editBaseUrl.value.trim() || defaultBaseUrl.value)
+      const submittedApiKey = isNewAPI ? newapiApiKey.value : editApiKey.value
       const shouldApplyModelMapping = !(props.account.platform === 'openai' && openaiPassthroughEnabled.value)
+
+      // Validate newapi-specific invariants — channel_type > 0 mirrors
+      // backend admin_service.go:1702 enforcement.
+      if (isNewAPI) {
+        if (!newapiChannelType.value || newapiChannelType.value <= 0) {
+          appStore.showError(t('admin.accounts.newApiPlatform.pleaseSelectChannelType'))
+          return
+        }
+        if (!submittedBaseUrl) {
+          appStore.showError(t('admin.accounts.newApiPlatform.pleaseEnterBaseUrl'))
+          return
+        }
+        // Surface channel_type at the top level so admin_service.Update
+        // picks it up via UpdateAccountInput.ChannelType.
+        updatePayload.channel_type = newapiChannelType.value
+      }
 
       // Always update credentials for apikey type to handle model mapping changes
       const newCredentials: Record<string, unknown> = {
         ...currentCredentials,
-        base_url: newBaseUrl
+        base_url: submittedBaseUrl
       }
 
       // Handle API key
-      if (editApiKey.value.trim()) {
-        // User provided a new API key
-        newCredentials.api_key = editApiKey.value.trim()
+      if (submittedApiKey.trim()) {
+        newCredentials.api_key = submittedApiKey.trim()
       } else if (currentCredentials.api_key) {
-        // Preserve existing api_key
         newCredentials.api_key = currentCredentials.api_key
       } else {
         appStore.showError(t('admin.accounts.apiKeyIsRequired'))

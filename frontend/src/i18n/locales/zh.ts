@@ -97,6 +97,7 @@ export default {
       claude: 'Claude',
       gemini: 'Gemini',
       antigravity: 'Antigravity',
+      newapi: 'New API',
       more: '更多'
     },
     // CTA 区块

@@ -1719,6 +1719,11 @@ const executeCcsImport = (row: ApiKey, clientType: 'claude' | 'gemini') => {
   } else {
     switch (platform) {
       case 'openai':
+      case 'newapi':
+        // newapi shares the OpenAI-compatible HTTP shape, so the codex
+        // CLI is the correct CCSwitch app target. Previously this fell
+        // through to default (claude) which would silently fail with
+        // wrong protocol and wrong endpoint base.
         app = 'codex'
         endpoint = baseUrl
         break

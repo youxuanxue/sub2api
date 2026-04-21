@@ -3349,9 +3349,14 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 		)
 	}
 
+	// Use account.Platform (not the literal PlatformOpenAI) so admin-configured
+	// passthrough rules scoped to `newapi` actually fire on this path; the
+	// sibling handleCompatErrorResponse already does this — both paths now
+	// agree. (Bug fix: previously newapi rules silently never matched here
+	// and openai rules incorrectly matched newapi traffic.)
 	if status, errType, errMsg, matched := applyErrorPassthroughRule(
 		c,
-		PlatformOpenAI,
+		account.Platform,
 		resp.StatusCode,
 		body,
 		http.StatusBadGateway,
