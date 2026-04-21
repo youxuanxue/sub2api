@@ -1,114 +1,92 @@
 ---
-title: Ops Unified Contract (P0 + QA + Cron Agent)
 status: approved
 approved_by: youxuanxue
 approved_at: 2026-04-21
 created: 2026-04-21
 owners: [tk-platform]
 related_prs: ["#13"]
+scope: "QA capture + ErrorToIssue/PR"
 ---
 
 # Ops Unified Contract
 
-This document is the single source of truth for TokenKey ops capability.
-It replaces and supersedes:
+Single source of truth for Ops in this repo.  
+This file replaces:
 
-- `ops-p0-observability.md`
-- `ops-qa-full-capture.md`
-- `ops-cron-agent-workflow.md`
+- `docs/approved/ops-p0-observability.md`
+- `docs/approved/ops-qa-full-capture.md`
+- `docs/approved/ops-cron-agent-workflow.md`
 
-All new ops changes must align to this contract first, then implementation.
+## 1. Non-Negotiables
 
-## 1) Product Principle (Jobs)
+### 1.1 Jobs focus
 
-- Focus first: prioritize the smallest end-to-end loop that creates real operator value.
-- One intent, one path: avoid duplicate endpoints and duplicated UI journeys.
-- Preserve existing user-visible capabilities: do not silently remove upstream or already-online features.
-- Prefer clear defaults over extra knobs unless a knob has an active operator use case.
+- Keep only capabilities that shorten operator decision/fix loop.
+- One intent, one canonical path; avoid parallel surfaces for the same action.
+- Do not trim existing online or upstream-visible functionality.
 
-## 2) Engineering Principle (OPC)
+### 1.2 OPC leverage
 
-- Automation over ritual: recurring checks must run in workflow/preflight, not by memory.
-- Reliability over sophistication: graceful degradation beats brittle "perfect path".
-- Minimize operational surface area: avoid adding systems unless current systems are proven bottlenecks.
-- Keep merge friction low: fork-only additions and thin upstream hook points.
+- Automate checks in workflow/preflight; do not rely on memory.
+- Favor graceful degradation (`skip`) over brittle hard failure in cron pipelines.
+- Keep merge conflict surface minimal (fork-only modules + thin upstream hook points).
 
-## 3) Canonical Scope
+## 2. Core Capability A: 100% QA Capture
 
-### 3.1 Ops monitoring baseline (P0)
+Required outcomes:
 
-Required baseline:
+- QA requests/responses are captured with metadata and blob references.
+- User can export and delete own QA data.
+- Monthly QA maintenance workflows exist (export / partition / archive).
 
-- Structured JSON logs with redaction.
-- Prometheus metrics endpoint wired and protected.
-- Preflight gates in local hook + CI.
-- Admin ops runtime switch in settings (`ops_monitoring_enabled`).
+Runtime rule:
 
-### 3.2 QA full capture
+- If `qa_records` is not yet deployed in a target environment, QA workflows must **skip cleanly** and not fail the run.
 
-Target contract:
+Compatibility rule:
 
-- Capture gateway QA records with metadata + blob storage flow.
-- User-scoped QA export and delete APIs.
-- Monthly export and partition/archive workflows.
+- API changes must not break existing callers by tightening optional parameters without fallback.
+- QA export keeps backward-compatible default `format=zip` when omitted.
 
-Runtime compatibility rule:
+## 3. Core Capability B: ErrorToIssue/PR
 
-- If `qa_records` is not deployed yet, QA cron workflows must exit cleanly (skip), not fail.
+Required outcomes:
 
-### 3.3 Cron + agent loop
+- Daily clustering (`error-clustering-daily`) can create/update issue signals.
+- Agent action can draft PRs from persistent clusters.
+- Weekly pulse reports KPI snapshots for review cadence.
 
-Minimum automation loop:
+Hard guardrails:
 
-- `error-clustering-daily` for persistent clusters.
-- `weekly-product-pulse` for KPI and trend summary.
-- `agent-draft-pr` outputs draft PR only (never auto-merge).
+- Draft PR only (never auto-merge).
+- Signature cooldown to avoid duplicate churn.
+- Protected-path diff guard before PR creation.
+- `./scripts/preflight.sh` must pass before draft PR creation.
 
-Cooldown and guardrails must remain enabled:
+## 4. Merge-Safe Alignment Rules
 
-- Cluster-signature cooldown.
-- Protected-path diff guard.
-- Preflight pass before draft PR creation.
+- No capability trimming: preserve currently online/admin/upstream behavior.
+- De-duplication is allowed only with compatibility window (legacy path remains until explicit retirement plan lands).
+- Prefer additive or stabilizing changes over broad rewrites in upstream-owned files.
 
-## 4) Current Implementation Alignment Rules
+## 5. Mechanical Gates
 
-### 4.1 Backward compatibility
-
-- Existing API behavior must not be broken by optional parameter tightening.
-- Example: QA export keeps backward-compatible default `format=zip` when omitted.
-
-### 4.2 No capability trimming
-
-- Do not remove online/upstream capabilities in ops routes or admin pages.
-- Improvements must be additive, stabilizing, or de-duplicating behind compatibility windows.
-
-### 4.3 De-duplication policy
-
-- Legacy and split paths may coexist only during migration windows.
-- New code should prefer canonical split paths; legacy paths stay until explicit deprecation plan lands.
-
-## 5) Required Mechanical Checks
+Must stay green:
 
 - `python3 scripts/export_agent_contract.py --check`
 - `./scripts/preflight.sh`
-- Workflow-level safeguards for ops cron jobs:
-  - missing secret => skip (non-fatal)
-  - missing required table => skip (non-fatal)
+- `./scripts/weekly-product-pulse-dry-run.sh`
 
-## 6) Decision Matrix (Jobs + OPC)
+Workflow resilience baseline:
 
-When evaluating an ops change:
+- Missing secret => skip (non-fatal)
+- Missing required table => skip (non-fatal)
 
-1. Does it preserve existing online capability? If no, reject.
-2. Does it reduce operator time-to-decision or time-to-fix? If no, reject.
-3. Is there already another path for same intent? If yes, converge instead of adding.
-4. Can failure degrade to safe skip/retry rather than hard stop? If no, redesign.
+## 6. Acceptance Checklist
 
-## 7) Immediate Execution Baseline
+Branch is aligned when:
 
-The branch is considered aligned when all are true:
-
-- Ops monitoring remains enabled and authenticated.
-- QA cron jobs skip cleanly when `qa_records` is not yet present.
-- Weekly pulse KPI generation is automated and has local dry-run verification.
-- No change in this branch silently removes existing upstream/online ops features.
+- Existing online/upstream capabilities remain available.
+- QA workflows degrade safely when `qa_records` is absent.
+- Error clustering can flow to issue/draft-PR with guardrails intact.
+- Weekly KPI generation remains automated and dry-run verifiable.
