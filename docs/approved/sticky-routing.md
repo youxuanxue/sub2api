@@ -356,7 +356,7 @@ type CacheStats struct {
 
 ### 11.2 已知漂移（process debt，登记不修）
 
-1. **测试函数命名**：本文 §6 写 `TestUS201_*`，实际故事是 `US-006`，测试函数为 `TestUS006_*` / `TestStickySessionInjector_*`。已登记到 `docs/preflight-debt.md`。
+1. **测试函数命名**：本文 §6、`US-006-sticky-routing-prompt-cache.md` 与 `backend/internal/service/sticky_session_*_test.go` 中的实际测试函数三方一致使用 `TestUS201_*` 前缀（共 22 个函数：`sticky_session_injector_test.go` 14 个 + `sticky_session_context_test.go` 8 个）；与故事 ID `US-006` 不匹配（前缀来源于早期"功能编号 201"的草拟阶段）。已登记到 `docs/preflight-debt.md` §1。**注**：本条 2026-04-20 修正：早期版本的描述错误声称"实际代码中为 `TestUS006_*` / `TestStickySessionInjector_*`"，与现实不符——三方一致，无 doc-vs-code 漂移，仅有"前缀 ↔ 故事 ID"的命名约定漂移。
 2. **migration 编号**：本文未指定。实际为 `tk_002_add_groups_sticky_routing_mode.sql`（TK 私有命名空间，不与上游 `0XX_*.sql` 冲突，符合 §5 fork 隔离）。
 3. **PR 切分背离**：§7 拟定 8-PR 顺序，实际单提交 `a68dee5b` 落地。代价：发版回滚粒度变粗。
 4. **审批门禁缺位**：本文 status=pending 状态下代码 merge，违反 `product-dev.mdc` §阶段 2→审批→§阶段 3 顺序。
