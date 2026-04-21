@@ -436,7 +436,7 @@ const currentFiles = computed((): FileConfig[] => {
 function generateAnthropicFiles(baseUrl: string, apiKey: string): FileConfig[] {
   // Recommended defaults (see docs/approved/sticky-routing.md §「Claude Code 推荐配置」):
   //   - DISABLE_ADAPTIVE_THINKING + fixed MAX_THINKING_TOKENS: 防止 Anthropic 动态降智
-  //   - DISABLE_1M_CONTEXT + AUTO_COMPACT_WINDOW=200k: 长任务上下文不爆 + 性能不跳水
+  //   - DISABLE_1M_CONTEXT + AUTO_COMPACT_WINDOW=120k: 长任务上下文不爆 + 性能不跳水（120k 为 OpenAI Team 5h 窗口下的更稳值）
   //   - 不默认开 DISABLE_NONESSENTIAL_TRAFFIC: 直连 Anthropic 时它会把 cache TTL 从 1h 砍到 5min
   let path: string
   let content: string
@@ -449,9 +449,9 @@ export ANTHROPIC_AUTH_TOKEN="${apiKey}"
 
 # 防降智 + 控成本（详见 hint）
 export CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1
-export MAX_THINKING_TOKENS=31999
+export MAX_THINKING_TOKENS=16000
 export CLAUDE_CODE_DISABLE_1M_CONTEXT=1
-export CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000
+export CLAUDE_CODE_AUTO_COMPACT_WINDOW=120000
 
 # 仅当上游为 Anthropic OAuth 且确实不想上传 telemetry 时再开（会损害 cache TTL）：
 # export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
@@ -464,9 +464,9 @@ export CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000
 set ANTHROPIC_AUTH_TOKEN=${apiKey}
 
 set CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1
-set MAX_THINKING_TOKENS=31999
+set MAX_THINKING_TOKENS=16000
 set CLAUDE_CODE_DISABLE_1M_CONTEXT=1
-set CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000
+set CLAUDE_CODE_AUTO_COMPACT_WINDOW=120000
 
 REM 仅当上游为 Anthropic OAuth 时再开（会损害 cache TTL）：
 REM set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
@@ -479,9 +479,9 @@ REM set CLAUDE_CODE_MAKE_NO_MISTAKES=1`
 $env:ANTHROPIC_AUTH_TOKEN="${apiKey}"
 
 $env:CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING="1"
-$env:MAX_THINKING_TOKENS="31999"
+$env:MAX_THINKING_TOKENS="16000"
 $env:CLAUDE_CODE_DISABLE_1M_CONTEXT="1"
-$env:CLAUDE_CODE_AUTO_COMPACT_WINDOW="200000"
+$env:CLAUDE_CODE_AUTO_COMPACT_WINDOW="120000"
 
 # 仅当上游为 Anthropic OAuth 时再开（会损害 cache TTL）：
 # $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1"
@@ -503,9 +503,9 @@ $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW="200000"
     "ANTHROPIC_BASE_URL": "${baseUrl}",
     "ANTHROPIC_AUTH_TOKEN": "${apiKey}",
     "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1",
-    "MAX_THINKING_TOKENS": "31999",
+    "MAX_THINKING_TOKENS": "16000",
     "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1",
-    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "200000",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "120000",
     "CLAUDE_CODE_ATTRIBUTION_HEADER": "0"
   }
 }`
@@ -573,8 +573,8 @@ model_reasoning_effort = "xhigh"
 disable_response_storage = true
 network_access = "enabled"
 windows_wsl_setup_acknowledged = true
-model_context_window = 1000000
-model_auto_compact_token_limit = 900000
+model_context_window = 400000
+model_auto_compact_token_limit = 250000
 
 [model_providers.OpenAI]
 name = "OpenAI"
@@ -612,8 +612,8 @@ model_reasoning_effort = "xhigh"
 disable_response_storage = true
 network_access = "enabled"
 windows_wsl_setup_acknowledged = true
-model_context_window = 1000000
-model_auto_compact_token_limit = 900000
+model_context_window = 400000
+model_auto_compact_token_limit = 250000
 
 [model_providers.OpenAI]
 name = "OpenAI"

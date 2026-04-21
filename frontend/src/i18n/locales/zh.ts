@@ -635,7 +635,7 @@ export default {
       },
       claudeCode: {
         envHint:
-          '推荐配置：禁用动态思考(防降智)+固定 31999 tokens 思考预算+200k 上下文自动压缩。注释掉的 NONESSENTIAL_TRAFFIC 标志仅在直连 Anthropic OAuth 时才考虑开启，否则会让上游 prompt cache TTL 从 1h 降到 5min，token 消耗暴涨。',
+          '推荐配置：禁用动态思考(防降智)+固定 16000 tokens 思考预算+120k 上下文自动压缩（针对 OpenAI Team 5h 窗口优化）。注释掉的 NONESSENTIAL_TRAFFIC 标志仅在直连 Anthropic OAuth 时才考虑开启，否则会让上游 prompt cache TTL 从 1h 降到 5min，token 消耗暴涨。',
         vscodeHint:
           'Claude Code settings.json：包含 effortLevel=high 与全部推荐 env，覆盖即可生效。'
       },
