@@ -7,7 +7,7 @@ dev-rules `test-philosophy.mdc` section 5.
 
 Invoked by `dev-rules/templates/preflight.sh` check 5 (user story / test
 alignment). Exits non-zero if any story violates structural or alignment
-invariants. Closes preflight-debt.md section 5 (verify_quality.py missing).
+invariants. Satisfies `docs/preflight-debt.md` §5 (closed).
 
 Output report:  .testing/user-stories/attachments/story-quality-report.md
 
@@ -169,8 +169,11 @@ def verify_alignment(story: dict) -> List[str]:
     issues: List[str] = []
     status = story["status"]
 
-    if "## Linked Tests" in story.get("issues", []):
-        return issues  # already reported as missing section
+    if any(
+        msg == "missing required section: '## Linked Tests'"
+        for msg in story["issues"]
+    ):
+        return issues  # parse_story already reported; skip duplicate alignment noise
 
     if not story["has_run_cmd"]:
         issues.append(

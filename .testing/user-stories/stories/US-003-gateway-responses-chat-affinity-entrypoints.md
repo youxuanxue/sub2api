@@ -27,6 +27,7 @@
 
 - `backend/internal/handler/openai_gateway_affinity_test.go`::`TestWithAffinityPrefetchedSession_Hit`
 - `backend/internal/handler/openai_gateway_affinity_test.go`::`TestWithAffinityPrefetchedSession_Miss`
+- **说明**：`/v1/responses` 与 `/v1/chat/completions` 在选路前通过 `OpenAIGatewayHandler.withAffinityPrefetchedSession` 注入上下文；与 US-002 共用同一组单测（无独立 HTTP 级用例），Assertions 中的 handler 行为以代码审阅与整包回归为准。
 - 运行命令: `cd backend && go test -count=1 ./internal/handler -run 'TestWithAffinityPrefetchedSession_(Hit|Miss)' && go test -count=1 ./internal/handler` (行为断言 + 整包回归)
 
 ## Evidence

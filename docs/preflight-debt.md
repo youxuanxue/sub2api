@@ -13,7 +13,7 @@
 - **早期版本误描述（已废弃）**：原版本声称"实际代码中为 `TestUS006_*` / `TestStickySessionInjector_*`"，与现实不符。`grep -rn 'TestUS006_\|TestStickySessionInjector_' backend/ docs/ .testing/` 返回 0 命中，`grep -rn 'TestUS201_' backend/internal/service/sticky_session_*_test.go` 返回 22 命中。**这是 debt log 自身的描述漂移**，2026-04-20 同步修正。
 - **来源**：草拟设计时按"功能编号"写了 US-201；实施时按 `.testing/user-stories/index.md` 顺次拿到 US-006，故事文件 + 设计 doc + 测试代码全部沿用 `TestUS201_*` 前缀，未回头与故事 ID 对齐。
 - **决策**：**不修**。理由：rename 22 函数 + 跑全套测试，与"消除真实风险"的 ROI 不匹配。下次新增 sticky-routing 相关测试一律遵循 `TestUS006_*` 命名；老命名保留作为历史。
-- **未来门禁**：可在 preflight 加一段，校验 `.testing/user-stories/stories/US-XXX*.md` 中 `Linked Tests` 引用的测试函数必须在对应 `*_test.go` 真实存在 — 这就是 §5 待实现的 `verify_quality.py` 范畴；§5 落地后此门禁自动覆盖（`TestUS201_*` 函数确实存在，故仍 PASS，命名约定漂移由人眼审）。
+- **未来门禁**：`Linked Tests` 与 `*_test.go` 对齐已由 **§5（closed）** 的 `verify_quality.py` 机械执行；`TestUS201_*` 与故事 ID `US-006` 的纯前缀不一致仍按 §1 决策保留，不由脚本强检。
 
 ### 2. CLAUDE.md "Current Gateway Flow" 段未提 sticky routing — **closed (2026-04-20)**
 
@@ -59,13 +59,12 @@
 - **截止日期**：2026-05-03（两周内）。
 - **跨参考**：`docs/approved/newapi-as-fifth-platform.md` §9 第 5 行（acknowledged gap 标注）+ §11.4（本 PR 的诚实清单）。
 
-### 5. `.testing/user-stories/verify_quality.py` 缺失 — story↔test 漂移检测尚未机械化
+### 5. `.testing/user-stories/verify_quality.py` — **closed (2026-04-20)**
 
-- **现象**：dev-rules `test-philosophy.mdc §5` 要求维护 `.testing/user-stories/verify_quality.py`，本仓库未实现；`dev-rules/templates/preflight.sh § 5 (story/test alignment)` 因此跳过该检查段而非拦截（合并 PR #11 后通过 wrapper `scripts/preflight.sh` 仍是 skip）。
-- **影响**：故事 `Linked Tests` 引用的测试函数若被 rename / 删除，目前需要靠 reviewer 人眼对齐（`docs/approved/sticky-routing.md` §6 的 `TestUS201_*` 漂移就是这类问题，见 §1）。
-- **决策**：登记，不在本 PR 范围内。最小实现是用 `grep` 扫描所有 `.testing/user-stories/stories/*.md` 中 `path/to/file.go::TestFunc` 字符串，与 `^func TestFunc` 对应，输出不命中清单（exit 非零）。
-- **门禁**：脚本上线后 `dev-rules/templates/preflight.sh § 5` 自动启用拦截，无需额外接线。
-- **截止日期**：2026-05-31（与下一次 stories 大批量新增前完成）。
+- **现象（历史）**：`test-philosophy.mdc §5` 要求维护 `.testing/user-stories/verify_quality.py`，本仓库曾长期缺失；`dev-rules/templates/preflight.sh § 5` 对该段为 **skip**，`Linked Tests` 与真实 `func Test…` 的对齐依赖 review。
+- **整改**：落地 `.testing/user-stories/verify_quality.py`（结构字段与章节、`Status` 词汇、`InTest`/`Done` 时 `*.go::TestFunc` 存在性、`Risk Focus` 四类风险、`运行命令` 可执行提示、`*(planned)*` 显式缺口）；报告输出 `.testing/user-stories/attachments/story-quality-report.md`。
+- **门禁**：脚本存在时 `dev-rules/templates/preflight.sh § 5` **hard-fail**（不再 skip）；sub2api 经 `scripts/preflight.sh` 委托同一模板，本地与 CI 强度一致。
+- **不再发生的依据**：每次 preflight 跑通即证明当前 `stories/US-*.md` 与引用测试未漂移；命名前缀与故事 ID 不一致类问题仍按 §1「不修」人眼处理。
 
 ### 6. 数字漂移历史 — design doc §11.2 单测计数
 
@@ -149,7 +148,7 @@
     - **Modify**：`Instance` (`AWS::EC2::Instance`, Replacement: Conditional)、`EIPAssoc` (`AWS::EC2::EIPAssociation`, Replacement: Conditional) — UserData 变化触发，符合预期；仍是首次迁移必经路径。
     - 数据保护语义：本次 deploy 之后，**未来**任何 ImageTag / UserData 改动都只 replace `Instance`，`DataVolume` 仍 attach 到新实例 → filesystem 已存在 → 跳过 mkfs → 直接 mount → 数据零丢失。
   - **首次迁移**：现有 prod stack 数据**还在 root EBS 上**，本 PR 落地后第一次 `aws cloudformation deploy` 仍会触发实例 replace 并启动**空** PG（DataVolume 是新创建的）。运维侧需要按 `deploy/aws/README.md §现有 prod 栈迁移到 DataVolume` 的 7 步 SOP（snapshot → 停服 → tar → S3 → CFN deploy → 复制旧密钥 → restore → 验证）做一次 5–10 min 停机窗口的迁移。SOP 含完整 rollback 路径（snapshot 留 7 天）。新栈 deploy 不受影响。
-  - **drift 短期防御**（依然推荐做）：preflight 加一段对比 stack `ImageTag` 与实例实际运行的 `TOKENKEY_IMAGE` tag —— 但这是 follow-up 改进，不是 9.b 闭环条件。优先级降到 §10。
+  - **drift 短期防御**（依然推荐做）：preflight 加一段对比 stack `ImageTag` 与实例实际运行的 `TOKENKEY_IMAGE` tag —— 但这是 follow-up 改进，不是 9.b 闭环条件；优先级低于凭据泄露类 P0（见下方 **§10**，二者勿混为一谈）。
 - **实操记录**（v1.4.0）：
   - 升级路径：`aws ssm send-command i-04a8afd18c997b8ac` → `sed .env 1.3.1 → 1.4.0` → `docker compose --env-file .env pull tokenkey && up -d --no-deps tokenkey` → 35s 内 healthy。
   - 验证：external `/health` HTTP 200，bootstrap 日志全绿，3 min 内 0 错误，多架构 manifest 4 tag 一致。
