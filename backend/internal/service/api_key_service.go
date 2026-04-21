@@ -600,6 +600,7 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 	// 更新 IP 限制（空数组会清空设置）
 	apiKey.IPWhitelist = req.IPWhitelist
 	apiKey.IPBlacklist = req.IPBlacklist
+
 	// Update rate limit configuration
 	if req.RateLimit5h != nil {
 		apiKey.RateLimit5h = *req.RateLimit5h
