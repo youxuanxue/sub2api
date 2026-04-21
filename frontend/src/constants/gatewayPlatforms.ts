@@ -3,6 +3,25 @@ import type { AccountPlatform } from '@/types'
 /** Ordered account/group platforms, including the independent fifth platform `newapi`. */
 export const GATEWAY_PLATFORMS = ['anthropic', 'openai', 'gemini', 'antigravity', 'newapi'] as const satisfies readonly AccountPlatform[]
 
+/**
+ * Platforms that participate in the OpenAI-compatible HTTP request shape
+ * (i.e. clients speaking the OpenAI protocol: `/v1/chat/completions`,
+ * `/v1/responses`, `/v1/messages` 调度 etc.).
+ *
+ * Mirrors `service.OpenAICompatPlatforms()` in the Go backend
+ * (`backend/internal/service/account_tk_compat_pool.go`). When adding a sixth
+ * compat platform, BOTH places must be updated in lockstep — `scripts/preflight.sh`
+ * § 9 (newapi compat-pool drift) catches the backend half; the frontend half is
+ * covered by the `useModelWhitelist` and `usePlatformOptions` test suites.
+ */
+export const OPENAI_COMPAT_PLATFORMS: readonly AccountPlatform[] = ['openai', 'newapi'] as const
+
+/** Predicate sibling of {@link OPENAI_COMPAT_PLATFORMS} — use whenever a UI branch is gated on "speaks OpenAI HTTP shape". */
+export function isOpenAICompatPlatform(platform: string | null | undefined): boolean {
+  if (!platform) return false
+  return (OPENAI_COMPAT_PLATFORMS as readonly string[]).includes(platform)
+}
+
 /** Tailwind active-state classes for the create-account platform segmented control (order follows {@link GATEWAY_PLATFORMS}). */
 export const CREATE_ACCOUNT_PLATFORM_SEGMENT_ACTIVE: Record<AccountPlatform, string> = {
   anthropic:

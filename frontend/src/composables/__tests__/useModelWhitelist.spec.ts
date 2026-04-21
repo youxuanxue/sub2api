@@ -4,7 +4,7 @@ vi.mock('@/api/admin/accounts', () => ({
   getAntigravityDefaultModelMapping: vi.fn()
 }))
 
-import { buildModelMappingObject, getModelsByPlatform } from '../useModelWhitelist'
+import { buildModelMappingObject, getModelsByPlatform, getPresetMappingsByPlatform } from '../useModelWhitelist'
 
 describe('useModelWhitelist', () => {
   it('openai 模型列表包含 GPT-5.4 官方快照', () => {
@@ -62,5 +62,15 @@ describe('useModelWhitelist', () => {
       'gpt-5.4-mini': 'gpt-5.4-mini',
       'gpt-5.4-nano': 'gpt-5.4-nano'
     })
+  })
+
+  // US-017 (newapi 第五平台) — newapi 走 OpenAI-compat HTTP 协议，UI 默认模型/
+  // 预设映射应与 openai 完全一致，避免一份并行的 newapi 列表立即与 openai 漂移。
+  it('newapi 模型列表与 openai 完全一致（OpenAI-compat 协议默认提示）', () => {
+    expect(getModelsByPlatform('newapi')).toEqual(getModelsByPlatform('openai'))
+  })
+
+  it('newapi 预设映射与 openai 完全一致（共享模型 ID 命名空间）', () => {
+    expect(getPresetMappingsByPlatform('newapi')).toEqual(getPresetMappingsByPlatform('openai'))
   })
 })

@@ -319,3 +319,43 @@ func TestSetOpsEndpointContext_NilContext(t *testing.T) {
 		setOpsEndpointContext(nil, "model", int16(1))
 	})
 }
+
+func TestGuessPlatformFromPath(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{
+			name: "antigravity prefix keeps antigravity",
+			path: "/antigravity/v1/messages",
+			want: service.PlatformAntigravity,
+		},
+		{
+			name: "gemini prefix keeps gemini",
+			path: "/v1beta/models/gemini-2.5-pro:generateContent",
+			want: service.PlatformGemini,
+		},
+		{
+			name: "messages path falls back to openai compat bucket",
+			path: "/v1/messages",
+			want: service.PlatformOpenAI,
+		},
+		{
+			name: "responses path falls back to openai compat bucket",
+			path: "/v1/responses",
+			want: service.PlatformOpenAI,
+		},
+		{
+			name: "unknown path returns empty",
+			path: "/healthz",
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, guessPlatformFromPath(tt.path))
+		})
+	}
+}

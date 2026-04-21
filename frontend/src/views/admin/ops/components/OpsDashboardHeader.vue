@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Select from '@/components/common/Select.vue'
+import { usePlatformOptions } from '@/composables/usePlatformOptions'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -106,13 +107,11 @@ function formatCustomTimeRangeLabel(startTime: string, endTime: string): string 
 
 const groups = ref<Array<{ id: number; name: string; platform: string }>>([])
 
-const platformOptions = computed(() => [
-  { value: '', label: t('common.all') },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'anthropic', label: 'Anthropic' },
-  { value: 'gemini', label: 'Gemini' },
-  { value: 'antigravity', label: 'Antigravity' }
-])
+// Ops dashboard platform filter — driven by the canonical composable so any
+// new platform (e.g. `newapi`, the fifth platform) appears here without a
+// dedicated edit. Getter form keeps the "All" label reactive on locale change.
+const { optionsWithAll: platformOptionsWithAll } = usePlatformOptions()
+const platformOptions = platformOptionsWithAll(() => t('common.all'))
 
 const timeRangeOptions = computed(() => [
   { value: '5m', label: t('admin.ops.timeRange.5m') },

@@ -9,8 +9,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// isOpenAICompatPlatform delegates to the canonical service-layer helper so
+// that adding a sixth compat platform only requires updating
+// service.OpenAICompatPlatforms(). Kept as a thin local wrapper to keep the
+// route-table call sites concise.
 func isOpenAICompatPlatform(platform string) bool {
-	return platform == service.PlatformOpenAI || platform == service.PlatformNewAPI
+	return service.IsOpenAICompatPlatform(platform)
 }
 
 func tkOpenAICompatMessagesPOST(h *handler.Handlers) gin.HandlerFunc {

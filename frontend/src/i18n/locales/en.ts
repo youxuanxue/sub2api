@@ -97,6 +97,7 @@ export default {
       claude: 'Claude',
       gemini: 'Gemini',
       antigravity: 'Antigravity',
+      newapi: 'New API',
       more: 'More'
     },
     // CTA section
@@ -1686,6 +1687,7 @@ export default {
         openai: 'OpenAI',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
+        newapi: 'New API',
       },
       deleteConfirm:
         "Are you sure you want to delete '{name}'? All associated API keys will no longer belong to any group.",
@@ -2119,6 +2121,7 @@ export default {
         openai: 'OpenAI',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
+        newapi: 'New API',
       },
       types: {
         oauth: 'OAuth',
@@ -2603,6 +2606,19 @@ export default {
         baseUrlHint: 'The address of the upstream Antigravity service, e.g., https://cloudcode-pa.googleapis.com',
         apiKey: 'Upstream API Key',
         apiKeyHint: 'API Key for the upstream service',
+        pleaseEnterBaseUrl: 'Please enter upstream Base URL',
+        pleaseEnterApiKey: 'Please enter upstream API Key'
+      },
+      newApiPlatform: {
+        channelType: 'Channel Type',
+        channelTypePlaceholder: 'Select a New API channel type',
+        channelTypeLoadFailed: 'Failed to load channel types, please retry',
+        baseUrl: 'Base URL',
+        baseUrlHint: 'Upstream endpoint, e.g. https://api.deepseek.com',
+        apiKey: 'API Key',
+        apiKeyPlaceholder: 'sk-...',
+        apiKeyEditHint: 'Leave empty to keep current key',
+        pleaseSelectChannelType: 'Please select a New API channel type',
         pleaseEnterBaseUrl: 'Please enter upstream Base URL',
         pleaseEnterApiKey: 'Please enter upstream API Key'
       },
