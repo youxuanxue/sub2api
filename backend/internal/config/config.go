@@ -98,15 +98,9 @@ type LogConfig struct {
 	Environment     string            `mapstructure:"env"`
 	Caller          bool              `mapstructure:"caller"`
 	StacktraceLevel string            `mapstructure:"stacktrace_level"`
-	Redact          LogRedactConfig   `mapstructure:"redact"`
 	Output          LogOutputConfig   `mapstructure:"output"`
 	Rotation        LogRotationConfig `mapstructure:"rotation"`
 	Sampling        LogSamplingConfig `mapstructure:"sampling"`
-}
-
-type LogRedactConfig struct {
-	Enabled   bool     `mapstructure:"enabled"`
-	ExtraKeys []string `mapstructure:"extra_keys"`
 }
 
 type LogOutputConfig struct {
@@ -1160,13 +1154,11 @@ func setDefaults() {
 
 	// Log
 	viper.SetDefault("log.level", "info")
-	viper.SetDefault("log.format", "json")
+	viper.SetDefault("log.format", "console")
 	viper.SetDefault("log.service_name", "sub2api")
 	viper.SetDefault("log.env", "production")
 	viper.SetDefault("log.caller", true)
 	viper.SetDefault("log.stacktrace_level", "error")
-	viper.SetDefault("log.redact.enabled", true)
-	viper.SetDefault("log.redact.extra_keys", []string{})
 	viper.SetDefault("log.output.to_stdout", true)
 	viper.SetDefault("log.output.to_file", true)
 	viper.SetDefault("log.output.file_path", "")
