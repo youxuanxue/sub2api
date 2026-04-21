@@ -4098,16 +4098,16 @@ const handleSubmit = async () => {
       return
     }
     if (!newapiChannelType.value || newapiChannelType.value <= 0) {
-      appStore.showError(t('admin.accounts.newApiPlatform.channelType'))
+      appStore.showError(t('admin.accounts.newApiPlatform.pleaseSelectChannelType'))
       return
     }
     const baseUrl = newapiBaseUrl.value.trim() || newapiSelectedBaseUrl.value
     if (!baseUrl) {
-      appStore.showError(t('admin.accounts.newApiPlatform.baseUrl'))
+      appStore.showError(t('admin.accounts.newApiPlatform.pleaseEnterBaseUrl'))
       return
     }
     if (!newapiApiKey.value.trim()) {
-      appStore.showError(t('admin.accounts.newApiPlatform.apiKey'))
+      appStore.showError(t('admin.accounts.newApiPlatform.pleaseEnterApiKey'))
       return
     }
     const credentials: Record<string, unknown> = {

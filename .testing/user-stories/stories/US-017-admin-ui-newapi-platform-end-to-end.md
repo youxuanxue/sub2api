@@ -48,7 +48,7 @@ prototype is approved and we move to feature implementation.
 
 ## Evidence
 
-- `.testing/user-stories/attachments/us-016-admin-ui-newapi-vitest-2026-04-20.txt`（待 stage 4 测试运行后归档）
+- `.testing/user-stories/attachments/us-017-admin-ui-newapi-vitest-2026-04-20.txt`（待 stage 4 测试运行后归档）
 
 ## Status
 

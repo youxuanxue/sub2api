@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { ref } from 'vue'
 
 import { GATEWAY_PLATFORMS } from '@/constants/gatewayPlatforms'
 
@@ -38,6 +39,31 @@ describe('usePlatformOptions (US-017 regression — fifth platform newapi must s
     expect(opts[0]).toEqual({ value: '', label: '全部平台' })
     expect(opts.slice(1).map((o) => o.value)).toEqual([...GATEWAY_PLATFORMS])
     expect(opts).toHaveLength(GATEWAY_PLATFORMS.length + 1)
+  })
+
+  it('optionsWithAll re-evaluates the "all" label when a getter is passed (i18n reactivity)', () => {
+    // Real-world bug guard: GroupsView passes `() => t('admin.groups.allPlatforms')`
+    // so language switches must update the sentinel. A string snapshot would
+    // freeze the original locale's label.
+    const { optionsWithAll } = usePlatformOptions()
+    const locale = ref<'en' | 'zh'>('en')
+    const filterOpts = optionsWithAll(() =>
+      locale.value === 'en' ? 'All Platforms' : '全部平台',
+    )
+
+    expect(filterOpts.value[0]).toEqual({ value: '', label: 'All Platforms' })
+    locale.value = 'zh'
+    expect(filterOpts.value[0]).toEqual({ value: '', label: '全部平台' })
+  })
+
+  it('optionsWithAll unwraps refs (MaybeRefOrGetter contract)', () => {
+    const { optionsWithAll } = usePlatformOptions()
+    const labelRef = ref('All')
+    const filterOpts = optionsWithAll(labelRef)
+
+    expect(filterOpts.value[0].label).toBe('All')
+    labelRef.value = 'Tout'
+    expect(filterOpts.value[0].label).toBe('Tout')
   })
 
   it('NEGATIVE — composable cannot return a platform absent from GATEWAY_PLATFORMS (drift guard)', () => {

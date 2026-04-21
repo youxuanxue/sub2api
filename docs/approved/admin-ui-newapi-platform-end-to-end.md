@@ -57,6 +57,11 @@ stage-3 跟进，但明确排除在本次原型之外。
 - `EditAccountModal.vue` / `BulkEditAccountModal.vue` —— 不能让它们回归，但
   完整支持批量编辑 newapi 渠道有 UX 影响（批量改 channel_type 是破坏性操作），
   放到独立 review 里。
+- `ChannelsView.vue:721` `platformOrder: GroupPlatform[]` 也是 4-元素硬编码
+  数组，被 v-for 渲染分组 + 成员判定使用。需要先搞清楚"channels view 只渲染
+  4 个 OAuth/订阅平台"是有意为之（newapi 用的是 channel_type 而非 channel
+  名词，可能不属于本视图）还是同款组织漂移——属于"先审计再决定要不要切
+  composable"，stage-3 单独一个 PR。
 - `utils/platformColors.ts` —— 扩展 `Platform` 联合类型并把 `newapi` 加进全部
   9 张 variant map，让非 badge 表面也具备视觉完整性。
 - `PlatformIcon.vue` —— 给 newapi 选品牌图标是设计决策不是 bug；目前的通用
@@ -276,7 +281,7 @@ const PLATFORM_TYPE_BG: Record<AccountPlatform, string> = { /* 同形 */ }
 
 ## 6. Stage-3 跟进（本次审批合并后）
 
-跟进项以 §1 Out-of-scope 列出的 5 条为单一事实源，每一项一个独立 PR。建议顺序：
+跟进项以 §1 Out-of-scope 列出的条目为单一事实源，每一项一个独立 PR。建议顺序：
 
 1. `AccountTableFilters.vue` 切到 `usePlatformOptions()` —— 运维可见性最高
 2. `OpsDashboardHeader.vue` 同上
@@ -285,7 +290,10 @@ const PLATFORM_TYPE_BG: Record<AccountPlatform, string> = { /* 同形 */ }
 5. `utils/platformColors.ts` 把 `newapi` 加进 9 张 variant map（视觉完整性）
 6. `ErrorPassthroughRulesModal.vue` 同 §1（运营紧迫性最低）
 7. `PlatformTypeBadge.vue` 3 个 `switch` → import `gatewayPlatforms.ts` 的 `SOFT_BADGE` map（§3.3 实现备注）
-8. §5.7 的防漂移 preflight 段落落地
+8. `ChannelsView.vue:721` `platformOrder` 审计：先确认"channels view 只渲染 4 个
+   OAuth/订阅平台"是有意为之还是组织漂移；如果是后者切到 composable，如果是
+   前者在常量旁补一行注释说明排除原因（防止下一个 reviewer 重复怀疑）。
+9. §5.7 的防漂移 preflight 段落落地（应在切完 §1-§3 之后，否则会 fail 自己）
 
 ## 7. 待审批的开放问题
 

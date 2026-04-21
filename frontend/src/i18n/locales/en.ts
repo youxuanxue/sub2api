@@ -2612,7 +2612,10 @@ export default {
         baseUrlHint: 'Upstream endpoint, e.g. https://api.deepseek.com',
         apiKey: 'API Key',
         apiKeyPlaceholder: 'sk-...',
-        apiKeyEditHint: 'Leave empty to keep current key'
+        apiKeyEditHint: 'Leave empty to keep current key',
+        pleaseSelectChannelType: 'Please select a New API channel type',
+        pleaseEnterBaseUrl: 'Please enter upstream Base URL',
+        pleaseEnterApiKey: 'Please enter upstream API Key'
       },
       // OAuth flow
       oauth: {

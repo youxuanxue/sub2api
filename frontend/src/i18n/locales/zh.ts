@@ -2755,7 +2755,10 @@ export default {
         baseUrlHint: '上游服务地址，例如 https://api.deepseek.com',
         apiKey: 'API Key',
         apiKeyPlaceholder: 'sk-...',
-        apiKeyEditHint: '留空表示保留当前密钥'
+        apiKeyEditHint: '留空表示保留当前密钥',
+        pleaseSelectChannelType: '请选择 New API 渠道类型',
+        pleaseEnterBaseUrl: '请输入上游 Base URL',
+        pleaseEnterApiKey: '请输入上游 API Key'
       },
       // OAuth flow
       oauth: {

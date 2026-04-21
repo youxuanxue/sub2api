@@ -1,4 +1,4 @@
-import { computed, type ComputedRef } from 'vue'
+import { computed, toValue, type ComputedRef, type MaybeRefOrGetter } from 'vue'
 import { GATEWAY_PLATFORMS } from '@/constants/gatewayPlatforms'
 import type { AccountPlatform } from '@/types'
 
@@ -35,20 +35,28 @@ export interface PlatformFilterOption {
  * (Jobs minimalism + OPC automation: one canonical list, one regression test).
  *
  * @example
- *   const { options } = usePlatformOptions()           // 5 entries, ordered
- *   const filterOpts = optionsWithAll(t('admin.allPlatforms')) // ['' | platform]
+ *   const { options } = usePlatformOptions()
+ *   // i18n-reactive caller: pass a getter so language switches re-evaluate.
+ *   const filterOpts = optionsWithAll(() => t('admin.allPlatforms'))
  */
 export function usePlatformOptions(): {
   options: ComputedRef<PlatformOption[]>
-  optionsWithAll: (allLabel: string) => ComputedRef<PlatformFilterOption[]>
+  optionsWithAll: (
+    allLabel: MaybeRefOrGetter<string>,
+  ) => ComputedRef<PlatformFilterOption[]>
 } {
   const options = computed<PlatformOption[]>(() =>
     GATEWAY_PLATFORMS.map((p) => ({ value: p, label: PLATFORM_LABELS[p] })),
   )
 
-  const optionsWithAll = (allLabel: string): ComputedRef<PlatformFilterOption[]> =>
+  // `allLabel` accepts a string, ref, or getter so callers passing
+  // `() => t('...')` keep i18n reactivity (the previous string-only signature
+  // captured a snapshot at composition time and went stale on language switch).
+  const optionsWithAll = (
+    allLabel: MaybeRefOrGetter<string>,
+  ): ComputedRef<PlatformFilterOption[]> =>
     computed<PlatformFilterOption[]>(() => [
-      { value: '', label: allLabel },
+      { value: '', label: toValue(allLabel) },
       ...options.value,
     ])
 

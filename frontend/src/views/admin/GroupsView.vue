@@ -2814,8 +2814,10 @@ const exclusiveOptions = computed(() => [
 // Platform options derived from canonical GATEWAY_PLATFORMS via usePlatformOptions
 // composable. Adding a 6th platform later requires touching only that composable;
 // this view (and every other admin picker) auto-picks it up. See US-017.
+// Pass `() => t(...)` (not the resolved string) so the "all platforms" sentinel
+// stays reactive on language switch.
 const { options: platformOptions, optionsWithAll } = usePlatformOptions();
-const platformFilterOptions = optionsWithAll(t("admin.groups.allPlatforms"));
+const platformFilterOptions = optionsWithAll(() => t("admin.groups.allPlatforms"));
 
 const editStatusOptions = computed(() => [
   { value: "active", label: t("admin.accounts.status.active") },
