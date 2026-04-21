@@ -71,10 +71,14 @@ LINKED_TEST_RE = re.compile(r"`([^`]+\.go)`::`([A-Za-z0-9_]+)`")
 # you can run to validate this story" — the format is cosmetic, presence
 # is the semantic gate.
 RUN_CMD_RE = re.compile(r"(?m)(运行命令|Run command|Run)\s*[:：]")
-# Accept both "- [x] Done" (template form) and bare "- Done" (older
-# stories US-001..US-005 predate the [x] checkbox convention). Both
-# unambiguously declare the story's status in the Status section.
-STATUS_LINE_RE = re.compile(r"^\s*-\s*(?:\[x\]\s*)?([A-Za-z]+)", re.MULTILINE)
+# Status line forms in the Status section:
+#   "- Done" / "- Draft" (bare),
+#   "- [x] Done" / "- [x] InTest" (checked task),
+#   "- [ ] Draft" (unchecked task — e.g. US-018 prototype scope).
+STATUS_LINE_RE = re.compile(
+    r"^\s*-\s*(?:\[[^\]]*\]\s*)?([A-Za-z]+)",
+    re.MULTILINE,
+)
 ID_RE = re.compile(r"^\s*-\s*ID:\s*(US-\d+)\s*$", re.MULTILINE)
 GO_FUNC_RE_TEMPLATE = r"^func\s+{name}\s*\("
 
