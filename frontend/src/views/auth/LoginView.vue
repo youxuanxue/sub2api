@@ -206,6 +206,7 @@ import TurnstileWidget from '@/components/TurnstileWidget.vue'
 import { useAuthStore, useAppStore } from '@/stores'
 import { getPublicSettings, isTotp2FARequired } from '@/api/auth'
 import type { TotpLoginResponse } from '@/types'
+import { buildAuthErrorMessage } from '@/utils/authError'
 
 const { t } = useI18n()
 
@@ -372,18 +373,16 @@ async function handleLogin(): Promise<void> {
       turnstileToken.value = ''
     }
 
-    // Handle login error
-    const err = error as { message?: string; response?: { data?: { detail?: string } } }
+    // 后端 reason=TURNSTILE_VERIFICATION_FAILED 的真实根因绝大多数是 stale browser
+    // tab：widget 在页面里活了太久，challenge 实例已被 Cloudflare 滚动掉，下一次
+    // 提交的 token 就被 invalid-input-response。直接给出自救建议，比通用文案省事。
+    errorMessage.value = buildAuthErrorMessage(error, {
+      fallback: t('auth.loginFailed'),
+      reasonOverrides: {
+        TURNSTILE_VERIFICATION_FAILED: t('auth.turnstileFailedRefresh')
+      }
+    })
 
-    if (err.response?.data?.detail) {
-      errorMessage.value = err.response.data.detail
-    } else if (err.message) {
-      errorMessage.value = err.message
-    } else {
-      errorMessage.value = t('auth.loginFailed')
-    }
-
-    // Also show error toast
     appStore.showError(errorMessage.value)
   } finally {
     isLoading.value = false
