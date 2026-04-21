@@ -84,10 +84,12 @@ curl -sS -o /dev/null -w '%{http_code}\n' "https://${DOMAIN}/health"
 
 ## 升级 / 发版（生产 + 测试栈共用）
 
-| Stack | `ImageTag` 来源 | `ApiDomain` | 升级方式 |
-|---|---|---|---|
-| `tokenkey-prod-stage0` | `.env` 内的 `TOKENKEY_IMAGE`（CFN 参数仅用于初始化） | `api.tokenkey.dev` | **首选路径：SSM `docker compose pull && up -d tokenkey`**（见下方 §生产升级 SOP），原地热替换、零停机。CFN deploy 改 `ImageTag` 现在**安全**（数据在独立 `DataVolume` 上，instance replace 时 detach + 新 instance attach），但仍有 1–3 min 停机窗口（旧实例 stop → 新实例 boot + bootstrap）。 |
-| `tokenkey-test-stage0`（如存在） | `.env` 同上，初始化用 `latest` 跟随 | `test-api.tokenkey.dev` | 同上 SSM 路径；`latest` 让镜像自动是最新 release，但仍要 SSM 触发 `pull && up -d` 才会真正切换。 |
+
+| Stack                       | `ImageTag` 来源                            | `ApiDomain`             | 升级方式                                                                                                                                                                                                                                  |
+| --------------------------- | ---------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tokenkey-prod-stage0`      | `.env` 内的 `TOKENKEY_IMAGE`（CFN 参数仅用于初始化） | `api.tokenkey.dev`      | **首选路径：SSM `docker compose pull && up -d tokenkey`**（见下方 §生产升级 SOP），原地热替换、零停机。CFN deploy 改 `ImageTag` 现在**安全**（数据在独立 `DataVolume` 上，instance replace 时 detach + 新 instance attach），但仍有 1–3 min 停机窗口（旧实例 stop → 新实例 boot + bootstrap）。 |
+| `tokenkey-test-stage0`（如存在） | `.env` 同上，初始化用 `latest` 跟随               | `test-api.tokenkey.dev` | 同上 SSM 路径；`latest` 让镜像自动是最新 release，但仍要 SSM 触发 `pull && up -d` 才会真正切换。                                                                                                                                                                |
+
 
 > 2026-04-21 实测：prod 栈 CFN `ImageTag=1.2.0`，但运行态 `TOKENKEY_IMAGE` 与容器实际镜像均为 `ghcr.io/youxuanxue/sub2api:1.4.1`（SSM 原地升级后形成的受控漂移）。
 
@@ -117,21 +119,20 @@ curl -sS -o /dev/null -w '%{http_code}\n' "https://${DOMAIN}/health"
 > **谁需要做**：在 2026-04-20 之前用旧版模板 deploy 的栈（数据全部在 root EBS 上）。
 > **谁不用做**：在 2026-04-20 之后首次 deploy 的栈（已经是新拓扑）。
 >
-> 判断方法：`aws cloudformation describe-stack-resources --stack-name tokenkey-prod-stage0
-> --logical-resource-id DataVolume`，返回 "does not exist" 即旧拓扑。
+> 判断方法：`aws cloudformation describe-stack-resources --stack-name tokenkey-prod-stage0 --logical-resource-id DataVolume`，返回 "does not exist" 即旧拓扑。
 
 #### 执行清单（10 行，窗口前逐项勾选）
 
-- [ ] 已公告维护窗口（预期 5-10 分钟停机），并冻结变更入口。  
-- [ ] 已记录当前 `INSTANCE_ID`、`ROOT_VOL`、`ImageTag`、运行态 `TOKENKEY_IMAGE`。  
-- [ ] 已完成 root EBS snapshot 且状态 `completed`。  
-- [ ] 已导出 `/var/lib/tokenkey` 冷备 tar 到 S3（含校验大小/可读）。  
-- [ ] 已执行 CFN deploy（创建 `DataVolume`）并拿到新 `InstanceId`。  
-- [ ] 已在新实例恢复业务目录数据（不覆盖新生成 `.env` / `.env.secret` 文件本身）。  
-- [ ] 已从旧备份 `.env` 回灌 `POSTGRES_PASSWORD` / `JWT_SECRET` / `TOTP_ENCRYPTION_KEY` 到新 `.env.secret`。  
-- [ ] 已启动 `tokenkey`，并确认 `docker compose ps` 全部 healthy。  
-- [ ] 已完成外部 `/health`、登录、TOTP、关键 API 冒烟验证。  
-- [ ] 已记录回滚锚点（snapshot id + S3 备份路径）并保留至少 7 天。  
+- 已公告维护窗口（预期 5-10 分钟停机），并冻结变更入口。  
+- 已记录当前 `INSTANCE_ID`、`ROOT_VOL`、`ImageTag`、运行态 `TOKENKEY_IMAGE`。  
+- 已完成 root EBS snapshot 且状态 `completed`。  
+- 已导出 `/var/lib/tokenkey` 冷备 tar 到 S3（含校验大小/可读）。  
+- 已执行 CFN deploy（创建 `DataVolume`）并拿到新 `InstanceId`。  
+- 已在新实例恢复业务目录数据（不覆盖新生成 `.env` / `.env.secret` 文件本身）。  
+- 已从旧备份 `.env` 回灌 `POSTGRES_PASSWORD` / `JWT_SECRET` / `TOTP_ENCRYPTION_KEY` 到新 `.env.secret`。  
+- 已启动 `tokenkey`，并确认 `docker compose ps` 全部 healthy。  
+- 已完成外部 `/health`、登录、TOTP、关键 API 冒烟验证。  
+- 已记录回滚锚点（snapshot id + S3 备份路径）并保留至少 7 天。
 
 迁移需要 **5–10 min 停机窗口**（取决于数据量），按以下顺序执行：
 
@@ -297,26 +298,22 @@ aws ssm send-command --region us-east-1 \
 ### 发版纪律（两条铁律）
 
 1. **VERSION bump commit 整段消息任何位置都不能出现 skip-marker 字面**，并且发版**必须**走
-   `bash scripts/release-tag.sh vX.Y.Z` —— 不要手敲 `git tag` + `git push origin vX.Y.Z`。
-
+  `bash scripts/release-tag.sh vX.Y.Z` —— 不要手敲 `git tag` + `git push origin vX.Y.Z`。
    背景：Release workflow 由 `tag push` 触发，GitHub 会扫描 tag 指向 commit 的**整段消息**
    （subject + body + 代码块 + 反引号）寻找 `[skip ci]` / `[ci skip]` / `[no ci]` /
    `[skip actions]` / `[actions skip]` 字面。任意位置命中 → release.yml 被静默吞掉 →
    不构建镜像 → prod / test 栈拿不到新版本 → 唯一恢复路径是
    `gh workflow run release.yml -f tag=vX.Y.Z -f simple_release=false`。
-
    两次踩坑（v1.3.0 / v1.4.0）的共同模式都是：commit body 把 `[skip ci]` 当成示例字符串
    讨论"不要带 [skip ci]"，结果 GitHub 不区分上下文一律识别为 skip。**讨论这个标记字面
    等同于携带它**。helper `scripts/release-tag.sh` 在打 tag 前会 `git log -1 --format=%B`
    做精确 grep 拦截、校验 `backend/cmd/server/VERSION` 与 tag 一致、确认 `main` 与
    `origin/main` 同步，**全过才创建 annotated tag 并 push**。CLAUDE.md §9.2 是该 helper
    的权威说明。
-
    **唯一允许带 skip-marker 的 commit** 是 release.yml 自己的 `sync-version-file` job
    生成的回写 commit（避免 release → sync → release 死循环），这条 commit 不是人手写的。
-
 2. **不要随手开 `simple_release=true`** — 这个开关只构建 amd64 单架构镜像并覆盖 `:latest` /
-   `:X.Y.Z` 等共享 tag，AWS Graviton (t4g/c7g/m7g) 等 ARM 主机会立即在 `exec format error`
+  `:X.Y.Z` 等共享 tag，AWS Graviton (t4g/c7g/m7g) 等 ARM 主机会立即在 `exec format error`
    崩溃。生产/测试栈都跑 t4g，**默认必须 `false`**。如果手抖开了，立刻重发同 tag 的
    `simple_release=false` workflow 覆盖回 multi-arch manifest。
 
