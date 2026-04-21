@@ -29,6 +29,18 @@ jobs:
         env:
           PG_DSN: ${{ secrets.PROD_PG_READONLY_DSN }}
         run: |
+          if [ -z "${PG_DSN:-}" ]; then
+            echo "PG_DSN is empty, skip clustering run"
+            cat > report.json <<'EOF'
+          {"summary":"skip: PROD_PG_READONLY_DSN missing","clusters":[],"persistent_clusters":[]}
+          EOF
+            cat > report.md <<'EOF'
+          # Error Clustering
+
+          skipped: PROD_PG_READONLY_DSN is not configured
+          EOF
+            exit 0
+          fi
           cd backend
           go run ../scripts/error_clustering \
             --since-hours "${{ inputs.since_hours || '24' }}" \
