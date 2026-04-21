@@ -47,3 +47,28 @@ func (a *Account) IsOpenAICompatPoolMember(groupPlatform string) bool {
 func OpenAICompatPlatforms() []string {
 	return []string{PlatformOpenAI, PlatformNewAPI}
 }
+
+// IsOpenAICompatPlatform reports whether the given platform identifier
+// participates in the OpenAI-compatible request shape (i.e. clients speaking
+// the OpenAI HTTP protocol). This is the canonical *string-arg* sibling of
+// IsOpenAICompatPoolMember (which takes an Account) and routes-layer
+// `isOpenAICompatPlatform` (which is private to the routes package).
+//
+// Use this whenever a handler / service has a raw platform string in scope and
+// needs to decide between OpenAI-shape and Anthropic-shape default behavior
+// (e.g. `/v1/models` fallback list, default upstream protocol guess).
+//
+// Strict equality only — empty / unknown returns false. Adding a sixth compat
+// platform requires updating OpenAICompatPlatforms() above; this helper
+// derives from that list automatically.
+func IsOpenAICompatPlatform(platform string) bool {
+	if platform == "" {
+		return false
+	}
+	for _, p := range OpenAICompatPlatforms() {
+		if platform == p {
+			return true
+		}
+	}
+	return false
+}

@@ -25,9 +25,9 @@
 
 ## Linked Tests
 
-- `sub2api/backend/internal/handler/openai_gateway_affinity_test.go`::`TestWithAffinityPrefetchedSession_Hit`
-- `sub2api/backend/internal/handler/openai_gateway_affinity_test.go`::`TestWithAffinityPrefetchedSession_Miss`
-- 运行命令: `cd sub2api/backend && go test ./internal/handler -run 'TestWithAffinityPrefetchedSession_(Hit|Miss)'`
+- `backend/internal/handler/openai_gateway_affinity_test.go`::`TestWithAffinityPrefetchedSession_Hit`
+- `backend/internal/handler/openai_gateway_affinity_test.go`::`TestWithAffinityPrefetchedSession_Miss`
+- 运行命令: `cd backend && go test ./internal/handler -run 'TestWithAffinityPrefetchedSession_(Hit|Miss)'`
 
 ## Evidence
 

@@ -336,7 +336,10 @@ async function sendCode(): Promise<void> {
     resendTurnstileToken.value = ''
   } catch (error: unknown) {
     errorMessage.value = buildAuthErrorMessage(error, {
-      fallback: t('auth.sendCodeFailed')
+      fallback: t('auth.sendCodeFailed'),
+      reasonOverrides: {
+        TURNSTILE_VERIFICATION_FAILED: t('auth.turnstileFailedRefresh')
+      }
     })
 
     appStore.showError(errorMessage.value)
@@ -415,7 +418,10 @@ async function handleVerify(): Promise<void> {
     await router.push('/dashboard')
   } catch (error: unknown) {
     errorMessage.value = buildAuthErrorMessage(error, {
-      fallback: t('auth.verifyFailed')
+      fallback: t('auth.verifyFailed'),
+      reasonOverrides: {
+        TURNSTILE_VERIFICATION_FAILED: t('auth.turnstileFailedRefresh')
+      }
     })
 
     appStore.showError(errorMessage.value)

@@ -24,10 +24,5 @@ func isOpenAICompatPlatformGroup(g *Group) bool {
 	if g == nil {
 		return false
 	}
-	switch g.Platform {
-	case PlatformOpenAI, PlatformNewAPI:
-		return true
-	default:
-		return false
-	}
+	return IsOpenAICompatPlatform(g.Platform)
 }

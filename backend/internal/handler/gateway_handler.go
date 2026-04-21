@@ -886,8 +886,15 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		return
 	}
 
-	// Fallback to default models
-	if platform == "openai" {
+	// Fallback to default models.
+	//
+	// Group platforms participating in the OpenAI-compat pool (today: openai,
+	// newapi — see service.OpenAICompatPlatforms) speak the OpenAI HTTP
+	// protocol and therefore expect openai.DefaultModels. Without this
+	// branch, newapi groups whose accounts have empty model_mapping would
+	// silently get Claude default models via the catch-all below — wrong
+	// shape for OpenAI-compat clients.
+	if service.IsOpenAICompatPlatform(platform) {
 		c.JSON(http.StatusOK, gin.H{
 			"object": "list",
 			"data":   openai.DefaultModels,

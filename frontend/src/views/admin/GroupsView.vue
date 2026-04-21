@@ -888,9 +888,9 @@
           </div>
         </div>
 
-        <!-- OpenAI Messages 调度配置（仅 openai 平台） -->
+        <!-- Messages 调度配置（OpenAI-compat 平台：openai / newapi） -->
         <div
-          v-if="createForm.platform === 'openai'"
+          v-if="isOpenAICompatPlatform(createForm.platform)"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -1115,10 +1115,10 @@
           </div>
         </div>
 
-        <!-- 账号过滤控制 (OpenAI/Antigravity/Anthropic/Gemini) -->
+        <!-- 账号过滤控制 (OpenAI/Antigravity/Anthropic/Gemini/NewAPI) -->
         <div
           v-if="
-            ['openai', 'antigravity', 'anthropic', 'gemini'].includes(
+            ['openai', 'antigravity', 'anthropic', 'gemini', 'newapi'].includes(
               createForm.platform,
             )
           "
@@ -1128,8 +1128,8 @@
             账号过滤控制
           </h4>
 
-          <!-- require_oauth_only toggle -->
-          <div class="flex items-center justify-between">
+          <!-- require_oauth_only toggle (newapi 账号始终是 API Key 形态，隐藏) -->
+          <div v-if="createForm.platform !== 'newapi'" class="flex items-center justify-between">
             <div>
               <label class="text-sm text-gray-600 dark:text-gray-400"
                 >仅允许 OAuth 账号</label
@@ -1165,8 +1165,8 @@
             </button>
           </div>
 
-          <!-- require_privacy_set toggle -->
-          <div class="flex items-center justify-between">
+          <!-- require_privacy_set toggle (newapi 账号无 OAuth privacy 字段，隐藏) -->
+          <div v-if="createForm.platform !== 'newapi'" class="flex items-center justify-between">
             <div>
               <label class="text-sm text-gray-600 dark:text-gray-400"
                 >仅允许隐私保护已设置的账号</label
@@ -2023,9 +2023,9 @@
           </div>
         </div>
 
-        <!-- OpenAI Messages 调度配置（仅 openai 平台） -->
+        <!-- Messages 调度配置（OpenAI-compat 平台：openai / newapi） -->
         <div
-          v-if="editForm.platform === 'openai'"
+          v-if="isOpenAICompatPlatform(editForm.platform)"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -2250,10 +2250,10 @@
           </div>
         </div>
 
-        <!-- 账号过滤控制 (OpenAI/Antigravity/Anthropic/Gemini) -->
+        <!-- 账号过滤控制 (OpenAI/Antigravity/Anthropic/Gemini/NewAPI) -->
         <div
           v-if="
-            ['openai', 'antigravity', 'anthropic', 'gemini'].includes(
+            ['openai', 'antigravity', 'anthropic', 'gemini', 'newapi'].includes(
               editForm.platform,
             )
           "
@@ -2263,8 +2263,8 @@
             账号过滤控制
           </h4>
 
-          <!-- require_oauth_only toggle -->
-          <div class="flex items-center justify-between">
+          <!-- require_oauth_only toggle (newapi 账号始终是 API Key 形态，隐藏) -->
+          <div v-if="editForm.platform !== 'newapi'" class="flex items-center justify-between">
             <div>
               <label class="text-sm text-gray-600 dark:text-gray-400"
                 >仅允许 OAuth 账号</label
@@ -2300,8 +2300,8 @@
             </button>
           </div>
 
-          <!-- require_privacy_set toggle -->
-          <div class="flex items-center justify-between">
+          <!-- require_privacy_set toggle (newapi 账号无 OAuth privacy 字段，隐藏) -->
+          <div v-if="editForm.platform !== 'newapi'" class="flex items-center justify-between">
             <div>
               <label class="text-sm text-gray-600 dark:text-gray-400"
                 >仅允许隐私保护已设置的账号</label
@@ -2660,9 +2660,11 @@
                       ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
                       : group.platform === 'openai'
                         ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                        : group.platform === 'antigravity'
-                          ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-                          : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+                        : group.platform === 'newapi'
+                          ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'
+                          : group.platform === 'antigravity'
+                            ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
+                            : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
                   ]"
                 >
                   {{ t("admin.groups.platforms." + group.platform) }}
@@ -2748,6 +2750,8 @@ import { VueDraggable } from "vue-draggable-plus";
 import { createStableObjectKeyResolver } from "@/utils/stableObjectKey";
 import { useKeyedDebouncedSearch } from "@/composables/useKeyedDebouncedSearch";
 import { getPersistedPageSize } from "@/composables/usePersistedPageSize";
+import { usePlatformOptions } from "@/composables/usePlatformOptions";
+import { isOpenAICompatPlatform } from "@/constants/gatewayPlatforms";
 import {
   createDefaultMessagesDispatchFormState,
   messagesDispatchConfigToFormState,
@@ -2810,20 +2814,13 @@ const exclusiveOptions = computed(() => [
   { value: "false", label: t("admin.groups.nonExclusive") },
 ]);
 
-const platformOptions = computed(() => [
-  { value: "anthropic", label: "Anthropic" },
-  { value: "openai", label: "OpenAI" },
-  { value: "gemini", label: "Gemini" },
-  { value: "antigravity", label: "Antigravity" },
-]);
-
-const platformFilterOptions = computed(() => [
-  { value: "", label: t("admin.groups.allPlatforms") },
-  { value: "anthropic", label: "Anthropic" },
-  { value: "openai", label: "OpenAI" },
-  { value: "gemini", label: "Gemini" },
-  { value: "antigravity", label: "Antigravity" },
-]);
+// Platform options derived from canonical GATEWAY_PLATFORMS via usePlatformOptions
+// composable. Adding a 6th platform later requires touching only that composable;
+// this view (and every other admin picker) auto-picks it up. See US-017.
+// Pass `() => t(...)` (not the resolved string) so the "all platforms" sentinel
+// stays reactive on language switch.
+const { options: platformOptions, optionsWithAll } = usePlatformOptions();
+const platformFilterOptions = optionsWithAll(() => t("admin.groups.allPlatforms"));
 
 const editStatusOptions = computed(() => [
   { value: "active", label: t("admin.accounts.status.active") },
@@ -3533,7 +3530,7 @@ const handleCreateGroup = async () => {
         createModelRoutingRules.value,
       ),
       messages_dispatch_model_config:
-        createForm.platform === "openai"
+        isOpenAICompatPlatform(createForm.platform)
           ? messagesDispatchFormStateToConfig({
               allow_messages_dispatch: createForm.allow_messages_dispatch,
               opus_mapped_model: createForm.opus_mapped_model,
@@ -3658,7 +3655,7 @@ const handleUpdateGroup = async () => {
         editModelRoutingRules.value,
       ),
       messages_dispatch_model_config:
-        editForm.platform === "openai"
+        isOpenAICompatPlatform(editForm.platform)
           ? messagesDispatchFormStateToConfig({
               allow_messages_dispatch: editForm.allow_messages_dispatch,
               opus_mapped_model: editForm.opus_mapped_model,
@@ -3755,10 +3752,13 @@ watch(
     if (!["anthropic", "antigravity"].includes(newVal)) {
       createForm.fallback_group_id_on_invalid_request = null;
     }
-    if (newVal !== "openai") {
+    if (!isOpenAICompatPlatform(newVal)) {
       resetMessagesDispatchFormState(createForm);
     }
     if (!["openai", "antigravity", "anthropic", "gemini"].includes(newVal)) {
+      // require_oauth_only / require_privacy_set are OAuth-credential semantics;
+      // newapi accounts are always API-key-shaped so the toggles are meaningless
+      // there — falling through to the reset path keeps the values cleared.
       createForm.require_oauth_only = false;
       createForm.require_privacy_set = false;
     }
@@ -3771,7 +3771,7 @@ watch(
     if (!["anthropic", "antigravity"].includes(newVal)) {
       editForm.fallback_group_id_on_invalid_request = null;
     }
-    if (newVal !== "openai") {
+    if (!isOpenAICompatPlatform(newVal)) {
       resetMessagesDispatchFormState(editForm);
     }
     if (!["openai", "antigravity", "anthropic", "gemini"].includes(newVal)) {
@@ -3787,7 +3787,7 @@ watch(
     if (!['anthropic', 'antigravity'].includes(newVal)) {
       editForm.fallback_group_id_on_invalid_request = null
     }
-    if (newVal !== 'openai') {
+    if (!isOpenAICompatPlatform(newVal)) {
       editForm.allow_messages_dispatch = false
       editForm.default_mapped_model = ''
     }

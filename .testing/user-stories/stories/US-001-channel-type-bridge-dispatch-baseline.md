@@ -25,10 +25,10 @@
 
 ## Linked Tests
 
-- `sub2api/backend/internal/service/gateway_bridge_dispatch_test.go`::`TestShouldDispatchToNewAPIBridge`
-- `sub2api/backend/internal/service/openai_gateway_bridge_dispatch_test.go`::`TestOpenAIShouldDispatchToNewAPIBridge`
-- `sub2api/backend/internal/handler/admin/account_data_test.go`::`TestValidateDataAccount_ChannelTypeMustBeNonNegative`
-- 运行命令: `cd sub2api/backend && go test ./internal/service -run 'Test(OpenAIShouldDispatchToNewAPIBridge|ShouldDispatchToNewAPIBridge)' && go test ./internal/handler/admin -run TestValidateDataAccount_ChannelTypeMustBeNonNegative`
+- `backend/internal/service/gateway_bridge_dispatch_test.go`::`TestShouldDispatchToNewAPIBridge`
+- `backend/internal/service/openai_gateway_bridge_dispatch_test.go`::`TestOpenAIShouldDispatchToNewAPIBridge`
+- `backend/internal/handler/admin/account_data_test.go`::`TestValidateDataAccount_ChannelTypeMustBeNonNegative`
+- 运行命令: `cd backend && go test ./internal/service -run 'Test(OpenAIShouldDispatchToNewAPIBridge|ShouldDispatchToNewAPIBridge)' && go test ./internal/handler/admin -run TestValidateDataAccount_ChannelTypeMustBeNonNegative`
 
 ## Evidence
 
