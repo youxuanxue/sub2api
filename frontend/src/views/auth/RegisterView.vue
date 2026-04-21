@@ -743,9 +743,13 @@ async function handleRegister(): Promise<void> {
       turnstileToken.value = ''
     }
 
-    // Handle registration error
+    // Handle registration error。reasonOverrides 把 stale Turnstile token 翻译成
+    // 「请刷新页面」自救提示，与 LoginView/EmailVerifyView/ForgotPasswordView 保持一致。
     errorMessage.value = buildAuthErrorMessage(error, {
-      fallback: t('auth.registrationFailed')
+      fallback: t('auth.registrationFailed'),
+      reasonOverrides: {
+        TURNSTILE_VERIFICATION_FAILED: t('auth.turnstileFailedRefresh')
+      }
     })
 
     // Also show error toast

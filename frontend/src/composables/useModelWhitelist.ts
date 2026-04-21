@@ -367,7 +367,11 @@ export const commonErrorCodes = [
 // 按平台获取模型
 export function getModelsByPlatform(platform: string): string[] {
   switch (platform) {
-    case 'openai': return openaiModels
+    case 'openai':
+    case 'newapi':
+      // newapi 走 OpenAI-compat HTTP 协议，模型白名单/默认列表沿用 openai 列表
+      // （channel_type 决定真实上游路由，但 UI 层默认提示与 openai 等价）。
+      return openaiModels
     case 'anthropic':
     case 'claude': return claudeModels
     case 'gemini': return geminiModels
@@ -393,7 +397,9 @@ export function getModelsByPlatform(platform: string): string[] {
 
 // 按平台获取预设映射
 export function getPresetMappingsByPlatform(platform: string) {
-  if (platform === 'openai') return openaiPresetMappings
+  // newapi 共用 openai 预设映射 —— 两者都使用 OpenAI-compat 模型 ID 命名空间。
+  // 单独维护一套 newapi 预设会立即漂移于 openai 之后，且语义没有差异。
+  if (platform === 'openai' || platform === 'newapi') return openaiPresetMappings
   if (platform === 'gemini') return geminiPresetMappings
   if (platform === 'antigravity') return antigravityPresetMappings
   if (platform === 'bedrock') return bedrockPresetMappings

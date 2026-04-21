@@ -97,6 +97,7 @@ export default {
       claude: 'Claude',
       gemini: 'Gemini',
       antigravity: 'Antigravity',
+      newapi: 'New API',
       more: '更多'
     },
     // CTA 区块
@@ -399,6 +400,8 @@ export default {
     reloginRequired: '会话已过期，请重新登录。',
     turnstileExpired: '验证已过期，请重试',
     turnstileFailed: '验证失败，请重试',
+    turnstileFailedRefresh:
+      '验证 token 已失效（通常是页面停留过久）—— 请刷新本页后重试。',
     completeVerification: '请完成验证',
     verifyYourEmail: '验证您的邮箱',
     sessionExpired: '会话已过期',
@@ -1720,6 +1723,7 @@ export default {
         openai: 'OpenAI',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
+        newapi: 'New API',
       },
       saving: '保存中...',
       noGroups: '暂无分组',
@@ -2304,6 +2308,7 @@ export default {
         anthropic: 'Anthropic',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
+        newapi: 'New API',
       },
       types: {
         oauth: 'OAuth',
@@ -2328,6 +2333,7 @@ export default {
         rateLimited: '限流中',
         overloaded: '过载中',
         tempUnschedulable: '临时不可调度',
+        quotaExceeded: '配额超限',
         unschedulable: '不可调度',
         rateLimitedUntil: '限流中，当前不参与调度，预计 {time} 自动恢复',
         rateLimitedAutoResume: '{time} 自动恢复',
@@ -2743,6 +2749,19 @@ export default {
         baseUrlHint: '上游 Antigravity 服务的地址，例如：https://cloudcode-pa.googleapis.com',
         apiKey: '上游 API Key',
         apiKeyHint: '上游服务的 API Key',
+        pleaseEnterBaseUrl: '请输入上游 Base URL',
+        pleaseEnterApiKey: '请输入上游 API Key'
+      },
+      newApiPlatform: {
+        channelType: '渠道类型',
+        channelTypePlaceholder: '请选择 New API 渠道类型',
+        channelTypeLoadFailed: '加载渠道类型失败，请重试',
+        baseUrl: 'Base URL',
+        baseUrlHint: '上游服务地址，例如 https://api.deepseek.com',
+        apiKey: 'API Key',
+        apiKeyPlaceholder: 'sk-...',
+        apiKeyEditHint: '留空表示保留当前密钥',
+        pleaseSelectChannelType: '请选择 New API 渠道类型',
         pleaseEnterBaseUrl: '请输入上游 Base URL',
         pleaseEnterApiKey: '请输入上游 API Key'
       },

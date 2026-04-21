@@ -687,6 +687,11 @@ export interface Account {
   name: string
   notes?: string | null
   platform: AccountPlatform
+  // Top-level channel_type for the fifth platform `newapi`. Backend
+  // admin_service.go:1565 enforces channel_type > 0 when platform == 'newapi'
+  // and 0 elsewhere; treat as optional on the read path because the four
+  // legacy platforms always serialize 0 and it is meaningless to consume.
+  channel_type?: number
   type: AccountType
   credentials?: Record<string, unknown>
   // Extra fields including Codex usage and model-level rate limits (Antigravity smart retry)
@@ -878,6 +883,10 @@ export interface CreateAccountRequest {
   expires_at?: number | null
   auto_pause_on_expired?: boolean
   confirm_mixed_channel_risk?: boolean
+  // Top-level channel_type for the fifth platform `newapi` (admin_service.go:1565
+  // enforces channel_type > 0 when platform == 'newapi'). Required only on the
+  // newapi branch; ignored by the other 4 platforms.
+  channel_type?: number
 }
 
 export interface UpdateAccountRequest {

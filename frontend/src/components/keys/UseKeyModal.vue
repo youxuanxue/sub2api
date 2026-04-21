@@ -176,10 +176,16 @@ const copiedIndex = ref<number | null>(null)
 const activeTab = ref<string>('unix')
 const activeClientTab = ref<string>('claude')
 
-// Reset tabs when platform changes
+// Reset tabs when platform changes.
+// `newapi` (the fifth platform) is an OpenAI-compatible HTTP gateway: the
+// upstream speaks OpenAI's /v1/chat/completions shape but does not expose
+// ChatGPT WebSocket auth, so codex (HTTP) is the right default — same as
+// `openai` minus codex-ws.
 const defaultClientTab = computed(() => {
   switch (props.platform) {
     case 'openai':
+      return 'codex'
+    case 'newapi':
       return 'codex'
     case 'gemini':
       return 'gemini'
@@ -288,6 +294,18 @@ const clientTabs = computed((): TabConfig[] => {
         { id: 'gemini', label: t('keys.useKeyModal.cliTabs.geminiCli'), icon: SparkleIcon },
         { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
       ]
+    case 'newapi': {
+      // OpenAI-compat HTTP only; no codex-ws. Optionally claude tab when the
+      // group enables messages dispatch (mirrors the openai branch).
+      const tabs: TabConfig[] = [
+        { id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCli'), icon: TerminalIcon },
+      ]
+      if (props.allowMessagesDispatch) {
+        tabs.push({ id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon })
+      }
+      tabs.push({ id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon })
+      return tabs
+    }
     default:
       return [
         { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
@@ -319,13 +337,21 @@ const currentTabs = computed(() => {
   return shellTabs
 })
 
+// Treat newapi as openai for description / note copy: the user-facing client
+// instructions are identical (codex CLI + opencode), and our gateway already
+// routes both platforms through the OpenAI-compat handlers.
+const isOpenAICompatPlatform = computed(
+  () => props.platform === 'openai' || props.platform === 'newapi',
+)
+
 const platformDescription = computed(() => {
+  if (isOpenAICompatPlatform.value) {
+    if (activeClientTab.value === 'claude') {
+      return t('keys.useKeyModal.description')
+    }
+    return t('keys.useKeyModal.openai.description')
+  }
   switch (props.platform) {
-    case 'openai':
-      if (activeClientTab.value === 'claude') {
-        return t('keys.useKeyModal.description')
-      }
-      return t('keys.useKeyModal.openai.description')
     case 'gemini':
       return t('keys.useKeyModal.gemini.description')
     case 'antigravity':
@@ -336,14 +362,15 @@ const platformDescription = computed(() => {
 })
 
 const platformNote = computed(() => {
+  if (isOpenAICompatPlatform.value) {
+    if (activeClientTab.value === 'claude') {
+      return t('keys.useKeyModal.note')
+    }
+    return activeTab.value === 'windows'
+      ? t('keys.useKeyModal.openai.noteWindows')
+      : t('keys.useKeyModal.openai.note')
+  }
   switch (props.platform) {
-    case 'openai':
-      if (activeClientTab.value === 'claude') {
-        return t('keys.useKeyModal.note')
-      }
-      return activeTab.value === 'windows'
-        ? t('keys.useKeyModal.openai.noteWindows')
-        : t('keys.useKeyModal.openai.note')
     case 'gemini':
       return t('keys.useKeyModal.gemini.note')
     case 'antigravity':
@@ -399,6 +426,11 @@ const currentFiles = computed((): FileConfig[] => {
       case 'anthropic':
         return [generateOpenCodeConfig('anthropic', apiBase, apiKey)]
       case 'openai':
+      case 'newapi':
+        // newapi shares OpenAI-compat HTTP shape: codex CLI / opencode use
+        // identical config (provider=openai, baseURL=apiBase). Sticking
+        // both branches together avoids a parallel newapi catalog that
+        // would drift from openai's.
         return [generateOpenCodeConfig('openai', apiBase, apiKey)]
       case 'gemini':
         return [generateOpenCodeConfig('gemini', geminiBase, apiKey)]
@@ -419,6 +451,13 @@ const currentFiles = computed((): FileConfig[] => {
       }
       if (activeClientTab.value === 'codex-ws') {
         return generateOpenAIWsFiles(baseUrl, apiKey)
+      }
+      return generateOpenAIFiles(baseUrl, apiKey)
+    case 'newapi':
+      // newapi has no OAuth WS path (codex-ws not offered in its tabs).
+      // claude tab only appears when the group enables messages dispatch.
+      if (activeClientTab.value === 'claude') {
+        return generateAnthropicFiles(baseUrl, apiKey)
       }
       return generateOpenAIFiles(baseUrl, apiKey)
     case 'gemini':

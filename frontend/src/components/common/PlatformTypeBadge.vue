@@ -71,11 +71,18 @@ interface Props {
 
 const props = defineProps<Props>()
 
+// US-017: explicit map per canonical GATEWAY_PLATFORMS. Earlier code defaulted
+// every unknown platform to "Gemini" with blue styling — that mislabeled `newapi`
+// (5th platform) accounts as Gemini after the backend started returning them.
 const platformLabel = computed(() => {
-  if (props.platform === 'anthropic') return 'Anthropic'
-  if (props.platform === 'openai') return 'OpenAI'
-  if (props.platform === 'antigravity') return 'Antigravity'
-  return 'Gemini'
+  switch (props.platform) {
+    case 'anthropic': return 'Anthropic'
+    case 'openai': return 'OpenAI'
+    case 'gemini': return 'Gemini'
+    case 'antigravity': return 'Antigravity'
+    case 'newapi': return 'New API'
+    default: return props.platform
+  }
 })
 
 const typeLabel = computed(() => {
@@ -113,30 +120,41 @@ const planLabel = computed(() => {
   }
 })
 
+// Color map mirrors GATEWAY_PLATFORMS color hints — keep both classes (700 / 600)
+// in sync if a new platform is added. `gemini` keeps the historic blue, and
+// truly unknown platforms fall back to a neutral gray so we never silently mislabel.
 const platformClass = computed(() => {
-  if (props.platform === 'anthropic') {
-    return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
+  switch (props.platform) {
+    case 'anthropic':
+      return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
+    case 'openai':
+      return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+    case 'gemini':
+      return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+    case 'antigravity':
+      return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
+    case 'newapi':
+      return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400'
+    default:
+      return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
   }
-  if (props.platform === 'openai') {
-    return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-  }
-  if (props.platform === 'antigravity') {
-    return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-  }
-  return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
 })
 
 const typeClass = computed(() => {
-  if (props.platform === 'anthropic') {
-    return 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400'
+  switch (props.platform) {
+    case 'anthropic':
+      return 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400'
+    case 'openai':
+      return 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400'
+    case 'gemini':
+      return 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
+    case 'antigravity':
+      return 'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400'
+    case 'newapi':
+      return 'bg-cyan-100 text-cyan-600 dark:bg-cyan-900/30 dark:text-cyan-400'
+    default:
+      return 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300'
   }
-  if (props.platform === 'openai') {
-    return 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400'
-  }
-  if (props.platform === 'antigravity') {
-    return 'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400'
-  }
-  return 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
 })
 
 const planBadgeClass = computed(() => {

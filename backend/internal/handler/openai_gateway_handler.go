@@ -1440,9 +1440,18 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 	statusCode := failoverErr.StatusCode
 	responseBody := failoverErr.ResponseBody
 
+	// Resolve the actual group platform so admin-configured passthrough rules
+	// scoped to `newapi` (or any non-openai compat platform) actually fire on
+	// the failover-exhaustion path. Falls back to the legacy literal "openai"
+	// only if context is missing — keeps pre-newapi installs unchanged.
+	rulePlatform := service.PlatformOpenAI
+	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.Group != nil && apiKey.Group.Platform != "" {
+		rulePlatform = apiKey.Group.Platform
+	}
+
 	// 先检查透传规则
 	if h.errorPassthroughService != nil && len(responseBody) > 0 {
-		if rule := h.errorPassthroughService.MatchRule("openai", statusCode, responseBody); rule != nil {
+		if rule := h.errorPassthroughService.MatchRule(rulePlatform, statusCode, responseBody); rule != nil {
 			// 确定响应状态码
 			respCode := statusCode
 			if !rule.PassthroughCode && rule.ResponseCode != nil {
