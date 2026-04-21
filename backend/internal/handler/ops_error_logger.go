@@ -1063,11 +1063,11 @@ func resolveOpsPlatform(apiKey *service.APIKey, fallback string) string {
 
 // guessPlatformFromPath is the *fallback* path-based platform heuristic for
 // ops logging when the request never reached a group-aware handler (no
-// resolveOpsPlatform hit). It cannot distinguish openai from newapi because
-// both share the OpenAI-compat path shape — when a group exists,
+// resolveOpsPlatform hit). For /v1/messages we intentionally prefer the
+// OpenAI-compat bucket so early failures from openai/newapi do not get
+// silently collapsed into anthropic. Once a group context exists,
 // resolveOpsPlatform always wins and returns the real platform (including
-// newapi). The OpenAI-compat bucket here is therefore the conservative
-// fallback.
+// newapi).
 func guessPlatformFromPath(path string) string {
 	p := strings.ToLower(path)
 	switch {
@@ -1076,7 +1076,7 @@ func guessPlatformFromPath(path string) string {
 	case strings.HasPrefix(p, "/v1beta/"):
 		return service.PlatformGemini
 	case strings.Contains(p, "/v1/messages"):
-		return service.PlatformAnthropic
+		return service.PlatformOpenAI
 	case strings.Contains(p, "/responses"),
 		strings.Contains(p, "/chat/completions"),
 		strings.Contains(p, "/embeddings"),
