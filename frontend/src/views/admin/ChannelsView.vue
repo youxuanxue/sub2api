@@ -590,12 +590,18 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { adminAPI } from '@/api/admin'
-import type { Channel, ChannelModelPricing, CreateChannelRequest, UpdateChannelRequest, AccountStatsPricingRule } from '@/api/admin/channels'
+import type { Channel, CreateChannelRequest, UpdateChannelRequest, AccountStatsPricingRule } from '@/api/admin/channels'
 import type { PricingFormEntry } from '@/components/admin/channel/types'
 import { mTokToPerToken, perTokenToMTok, apiIntervalsToForm, formIntervalsToAPI, findModelConflict, validateIntervals } from '@/components/admin/channel/types'
 import type { AdminGroup, GroupPlatform } from '@/types'
 import type { Column } from '@/components/common/types'
 import { platformTextClass, platformBadgeLightClass } from '@/utils/platformColors'
+import { GATEWAY_PLATFORMS } from '@/constants/gatewayPlatforms'
+import {
+  apiToFormSections,
+  formSectionsToApi,
+  type PlatformSection,
+} from '@/utils/channelFormConversion'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
@@ -634,17 +640,7 @@ interface FormPricingRule {
   pricing: PricingFormEntry[]
 }
 
-// ── Platform Section type ──
-interface PlatformSection {
-  platform: GroupPlatform
-  enabled: boolean
-  collapsed: boolean
-  group_ids: number[]
-  model_mapping: Record<string, string>
-  model_pricing: PricingFormEntry[]
-  web_search_emulation: boolean
-  account_stats_pricing_rules: FormPricingRule[]
-}
+// PlatformSection type lives in @/utils/channelFormConversion (reused by tests).
 
 // ── Table columns ──
 const columns = computed<Column[]>(() => [
@@ -718,7 +714,10 @@ const form = reactive({
 let abortController: AbortController | null = null
 
 // ── Platform config ──
-const platformOrder: GroupPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity']
+// Single source of truth: GATEWAY_PLATFORMS includes the fifth platform `newapi`.
+// A previous 4-element hardcoded array silently dropped newapi data on the
+// API → form → API round-trip (see docs/approved/admin-ui-newapi-platform-end-to-end.md §1.5).
+const platformOrder: readonly GroupPlatform[] = GATEWAY_PLATFORMS
 
 // ── Helpers ──
 function formatDate(value: string): string {
@@ -995,120 +994,16 @@ function accountStatsRulesToAPI(): AccountStatsPricingRule[] {
 }
 
 // ── Form ↔ API conversion ──
-function formToAPI(): { group_ids: number[], model_pricing: ChannelModelPricing[], model_mapping: Record<string, Record<string, string>>, features_config: Record<string, unknown> } {
-  const group_ids: number[] = []
-  const model_pricing: ChannelModelPricing[] = []
-  const model_mapping: Record<string, Record<string, string>> = {}
-  // Preserve existing features_config fields not managed by the form
-  const featuresConfig: Record<string, unknown> = editingChannel.value?.features_config
-    ? { ...editingChannel.value.features_config }
-    : {}
-
-  for (const section of form.platforms) {
-    if (!section.enabled) continue
-    group_ids.push(...section.group_ids)
-
-    // Model mapping per platform
-    if (Object.keys(section.model_mapping).length > 0) {
-      model_mapping[section.platform] = { ...section.model_mapping }
-    }
-
-    // Model pricing with platform tag
-    for (const entry of section.model_pricing) {
-      if (entry.models.length === 0) continue
-      model_pricing.push({
-        platform: section.platform,
-        models: entry.models,
-        billing_mode: entry.billing_mode,
-        input_price: mTokToPerToken(entry.input_price),
-        output_price: mTokToPerToken(entry.output_price),
-        cache_write_price: mTokToPerToken(entry.cache_write_price),
-        cache_read_price: mTokToPerToken(entry.cache_read_price),
-        image_output_price: mTokToPerToken(entry.image_output_price),
-        per_request_price: entry.per_request_price != null && entry.per_request_price !== '' ? Number(entry.per_request_price) : null,
-        intervals: formIntervalsToAPI(entry.intervals || [])
-      })
-    }
-  }
-
-  // Collect web_search_emulation (only anthropic platform supports it)
-  // Always write the key so that disabling in the UI correctly sets platform to false,
-  // rather than leaving a stale true value from the cloned features_config.
-  const wsEmulation: Record<string, boolean> = {}
-  for (const section of form.platforms) {
-    if (!section.enabled) continue
-    if (section.platform === 'anthropic') {
-      wsEmulation[section.platform] = !!section.web_search_emulation
-    }
-  }
-  if (Object.keys(wsEmulation).length > 0) {
-    featuresConfig.web_search_emulation = wsEmulation
-  } else {
-    delete featuresConfig.web_search_emulation
-  }
-
-  return { group_ids, model_pricing, model_mapping, features_config: featuresConfig }
+// Pure converters live in @/utils/channelFormConversion so the round-trip can
+// be exercised by unit tests without mounting the view. Driving the canonical
+// platform order from GATEWAY_PLATFORMS (instead of a 4-element local array)
+// preserves `newapi` data through the round-trip.
+function formToAPI() {
+  return formSectionsToApi(form.platforms, editingChannel.value?.features_config)
 }
 
 function apiToForm(channel: Channel): PlatformSection[] {
-  // Build a map: groupID → platform
-  const groupPlatformMap = new Map<number, GroupPlatform>()
-  for (const g of allGroups.value) {
-    groupPlatformMap.set(g.id, g.platform)
-  }
-
-  // Determine which platforms are active (from groups + pricing + mapping)
-  const activePlatforms = new Set<GroupPlatform>()
-  for (const gid of channel.group_ids || []) {
-    const p = groupPlatformMap.get(gid)
-    if (p) activePlatforms.add(p)
-  }
-  for (const p of channel.model_pricing || []) {
-    if (p.platform) activePlatforms.add(p.platform as GroupPlatform)
-  }
-  for (const p of Object.keys(channel.model_mapping || {})) {
-    if (platformOrder.includes(p as GroupPlatform)) activePlatforms.add(p as GroupPlatform)
-  }
-
-  // Build sections in platform order
-  const sections: PlatformSection[] = []
-  for (const platform of platformOrder) {
-    if (!activePlatforms.has(platform)) continue
-
-    const groupIds = (channel.group_ids || []).filter(gid => groupPlatformMap.get(gid) === platform)
-    const mapping = (channel.model_mapping || {})[platform] || {}
-    const pricing = (channel.model_pricing || [])
-      .filter(p => (p.platform || 'anthropic') === platform)
-      .map(p => ({
-        models: p.models || [],
-        billing_mode: p.billing_mode,
-        input_price: perTokenToMTok(p.input_price),
-        output_price: perTokenToMTok(p.output_price),
-        cache_write_price: perTokenToMTok(p.cache_write_price),
-        cache_read_price: perTokenToMTok(p.cache_read_price),
-        image_output_price: perTokenToMTok(p.image_output_price),
-        per_request_price: p.per_request_price,
-        intervals: apiIntervalsToForm(p.intervals || [])
-      } as PricingFormEntry))
-
-    // Read web_search_emulation from features_config
-    const fc = channel.features_config
-    const wsEmulation = fc?.web_search_emulation as Record<string, boolean> | undefined
-    const webSearchEnabled = wsEmulation?.[platform] === true
-
-    sections.push({
-      platform,
-      enabled: true,
-      collapsed: false,
-      group_ids: groupIds,
-      model_mapping: { ...mapping },
-      model_pricing: pricing,
-      web_search_emulation: webSearchEnabled,
-      account_stats_pricing_rules: [],
-    })
-  }
-
-  return sections
+  return apiToFormSections(channel, allGroups.value, platformOrder)
 }
 
 // ── Load data ──

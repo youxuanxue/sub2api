@@ -25,8 +25,13 @@ newapi 分组或账号，唯一的绕路是手工构造 admin API 调用。
 
 本设计用**最小**的 UI 改动闭合这一缺口，让运维可以端到端跑通 newapi
 （创建分组 → 创建账号 → 看到正确标注的账号 → 列表筛选）。Out-of-scope 的精修
-（ops-dashboard 筛选、错误透传规则、批量编辑、渐变色/折扣/按钮颜色变体）会列入
-stage-3 跟进，但明确排除在本次原型之外。
+（ops-dashboard 筛选、错误透传规则、批量编辑）会列入 stage-3 跟进，但明确排除
+在本次原型之外。
+
+PR #19 review 后，§1.5「审批前补强」额外把 `ChannelsView.vue` 修进来——它的
+4 元素 `platformOrder` 不只是视觉漂移，而是一个**会静默吞掉 newapi channel
+数据的 bug**（详见 §1.5）。同时 `utils/platformColors.ts` 的 cyan 完整化和
+i18n 的 `newapi` 标签也一并补齐。
 
 ## 1. 范围
 
@@ -57,16 +62,46 @@ stage-3 跟进，但明确排除在本次原型之外。
 - `EditAccountModal.vue` / `BulkEditAccountModal.vue` —— 不能让它们回归，但
   完整支持批量编辑 newapi 渠道有 UX 影响（批量改 channel_type 是破坏性操作），
   放到独立 review 里。
-- `ChannelsView.vue:721` `platformOrder: GroupPlatform[]` 也是 4-元素硬编码
-  数组，被 v-for 渲染分组 + 成员判定使用。需要先搞清楚"channels view 只渲染
-  4 个 OAuth/订阅平台"是有意为之（newapi 用的是 channel_type 而非 channel
-  名词，可能不属于本视图）还是同款组织漂移——属于"先审计再决定要不要切
-  composable"，stage-3 单独一个 PR。
-- `utils/platformColors.ts` —— 扩展 `Platform` 联合类型并把 `newapi` 加进全部
-  9 张 variant map，让非 badge 表面也具备视觉完整性。
 - `PlatformIcon.vue` —— 给 newapi 选品牌图标是设计决策不是 bug；目前的通用
   地球图标回退是可以接受的。
 - `SubscriptionsView.vue` —— newapi 没有 OAuth 订阅这个概念，加上反而误导。
+
+### 1.5 审批前补强（PR #19 review 后追加）
+
+PR #19 的二次 review 对 `ChannelsView.vue` 做深度审计后，发现原 §1 Out-of-scope
+中的两项不能延后到 stage-3 —— 它们触发了一个**已经在生产分支里的潜伏数据丢失
+bug**：
+
+- `ChannelsView.vue:721` 的 `platformOrder = ['anthropic','openai','gemini','antigravity']`
+  被两条**互不相干的代码路径**消费：
+  ① `apiToForm` 第 1070 行用它过滤 `channel.model_mapping` 的键；
+  ② `formToAPI` 第 1007 行迭代 `form.platforms`（其内容由 ① 决定）。
+  这意味着：**任何后端返回了 `newapi` 数据的 channel，被运维在 ChannelsView
+  打开并保存后，会静默丢失全部 `newapi` 行**（model_mapping、model_pricing、
+  group 关联）。
+  后端早就接受 `newapi` channel（`channel_handler_tk_newapi_admin.go:35`
+  在 `oneof` 白名单中显式列出 `newapi`，`channel_repo.go:133` 的 Update 全量
+  替换 JSONB），所以这不是"只读视图"假设的延伸，而是**前端 vs 后端之间的不
+  对称组织漂移**。
+- `utils/platformColors.ts` 的 `Platform` 联合类型缺 `newapi`，导致 ChannelsView
+  在切到 composable 后，`newapi` 平台行/徽章的颜色会回退到默认灰，与设计承诺
+  的 cyan 不一致——不算数据 bug，但一旦 ChannelsView 开始渲染 `newapi`
+  必须同步修，否则视觉漂移。
+
+补强清单（commits 4-N，与 §3 in-scope 共享同一个 PR #19）：
+
+| # | 路径 | 变更 | 风险归属 |
+| --- | --- | --- | --- |
+| 1 | `frontend/src/utils/channelFormConversion.ts` (NEW) | 抽出纯函数 `apiToFormSections` / `formSectionsToApi`，把 canonical platform order 当参数传入（默认 `GATEWAY_PLATFORMS`）；让 round-trip 可被单测覆盖 | 逻辑错误（数据丢失） |
+| 2 | `frontend/src/views/admin/ChannelsView.vue` | 删除本地 `platformOrder` 4 元素字面量，改 `import { GATEWAY_PLATFORMS }`；`apiToForm` / `formToAPI` 改为调用 §1 的纯函数 | 逻辑错误 + 行为回归 |
+| 3 | `frontend/src/utils/platformColors.ts` | `Platform` 联合类型加 `'newapi'`；9 张 variant map 全部加 cyan 项；`isPlatform()` 与 `platformLabel()` 同步加分支；`Record<Platform, …>` 让漏一项编译失败 | 行为回归（视觉） |
+| 4 | `frontend/src/components/admin/channel/types.ts` | `getPlatformTagClass()` 增加 `case 'newapi'`（cyan tag） | 行为回归（视觉） |
+| 5 | `frontend/src/i18n/locales/{en,zh}.ts` | `admin.groups.platforms.newapi` 与 `admin.accounts.platforms.newapi` 都加 `'New API'`，避免 ChannelsView/GroupsView 显示原始 key | 行为回归（文案） |
+| 6 | `frontend/src/utils/__tests__/channelFormConversion.spec.ts` (NEW) | 9 个 vitest case：5 平台 round-trip 保留 newapi、用 4 元素旧 order 调用证明数据丢失（NEGATIVE）、纯 4 平台回归、`web_search_emulation` on/off/clear、disabled section 跳过、canonical order、空 pricing 过滤 | 防漂移护栏 |
+
+`PlatformIcon` / `PlatformTypeBadge` 的 cyan 与 newapi 显示在 §1 已涵盖，
+不在本节重复。`SubscriptionsView.vue` / `BulkEditAccountModal.vue` 等仍属
+stage-3。
 
 ### Non-goals（不会做，并解释为什么）
 
@@ -241,6 +276,17 @@ const PLATFORM_TYPE_BG: Record<AccountPlatform, string> = { /* 同形 */ }
 | `.testing/user-stories/index.md` | + US-017 行 |
 | `docs/approved/admin-ui-newapi-platform-end-to-end.md` | 本文档 |
 
+§1.5 review 后追加的文件（同一 PR）：
+
+| 路径 | 变更 |
+| --- | --- |
+| `frontend/src/utils/channelFormConversion.ts` | NEW —— 抽出 ChannelsView 的 apiToForm/formToAPI 为纯函数，平台顺序参数化 |
+| `frontend/src/utils/__tests__/channelFormConversion.spec.ts` | NEW —— 9 个 round-trip vitest case（含数据丢失 bug 的 NEGATIVE 反证） |
+| `frontend/src/views/admin/ChannelsView.vue` | `platformOrder` 改为 `GATEWAY_PLATFORMS`；apiToForm/formToAPI 改为调用纯函数 |
+| `frontend/src/utils/platformColors.ts` | `Platform` 联合类型 + 9 张 variant map + `isPlatform()` + `platformLabel()` 全部加 `newapi`（cyan） |
+| `frontend/src/components/admin/channel/types.ts` | `getPlatformTagClass()` + `case 'newapi'`（cyan） |
+| `frontend/src/i18n/locales/{en,zh}.ts` | + `admin.groups.platforms.newapi` + `admin.accounts.platforms.newapi` |
+
 不动 backend / Ent / Wire。不引入新依赖。
 
 ## 4. 风险分析
@@ -287,13 +333,13 @@ const PLATFORM_TYPE_BG: Record<AccountPlatform, string> = { /* 同形 */ }
 2. `OpsDashboardHeader.vue` 同上
 3. `EditAccountModal.vue` 增加 newapi 编辑分支（不含批量）
 4. `BulkEditAccountModal.vue` 加批量编辑守卫（`channel_type` 不允许批量改）
-5. `utils/platformColors.ts` 把 `newapi` 加进 9 张 variant map（视觉完整性）
-6. `ErrorPassthroughRulesModal.vue` 同 §1（运营紧迫性最低）
-7. `PlatformTypeBadge.vue` 3 个 `switch` → import `gatewayPlatforms.ts` 的 `SOFT_BADGE` map（§3.3 实现备注）
-8. `ChannelsView.vue:721` `platformOrder` 审计：先确认"channels view 只渲染 4 个
-   OAuth/订阅平台"是有意为之还是组织漂移；如果是后者切到 composable，如果是
-   前者在常量旁补一行注释说明排除原因（防止下一个 reviewer 重复怀疑）。
-9. §5.7 的防漂移 preflight 段落落地（应在切完 §1-§3 之后，否则会 fail 自己）
+5. `ErrorPassthroughRulesModal.vue` 同 §1（运营紧迫性最低）
+6. `PlatformTypeBadge.vue` 3 个 `switch` → import `gatewayPlatforms.ts` 的 `SOFT_BADGE` map（§3.3 实现备注）
+7. §5.7 的防漂移 preflight 段落落地（应在切完 §1-§5 之后，否则会 fail 自己）
+
+> 历史：原列表中的 `utils/platformColors.ts`（cyan 完整化）与
+> `ChannelsView.vue:721` 审计已在 PR #19 review 期间被发现是**数据丢失 bug**
+> 而非纯视觉补全，因此前置到 §1.5 一同合并，不再是 stage-3 跟进项。
 
 ## 7. 待审批的开放问题
 
