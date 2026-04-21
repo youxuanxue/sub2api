@@ -88,6 +88,8 @@ func (User) Fields() []ent.Field {
 		field.Float("total_recharged").
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}).
 			Default(0),
+		field.Bool("qa_capture_enabled").
+			Default(true),
 	}
 }
 

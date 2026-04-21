@@ -1,0 +1,39 @@
+name: QA Failure Daily Summary
+
+on:
+  schedule:
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+
+jobs:
+  summary:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summarize failures
+        env:
+          PG_DSN: ${{ secrets.PROD_PG_READONLY_DSN }}
+          FEISHU_OPS_WEBHOOK: ${{ secrets.FEISHU_OPS_WEBHOOK }}
+        run: |
+          [ -n "${PG_DSN:-}" ] || exit 0
+          HAS_QA_TABLE="$(psql "$PG_DSN" -tAc "SELECT to_regclass('public.qa_records') IS NOT NULL")"
+          if [ "$HAS_QA_TABLE" != "t" ]; then
+            echo "qa_records table does not exist yet, skip daily summary"
+            exit 0
+          fi
+          SUMMARY="$(psql "$PG_DSN" -At <<'SQL'
+          SELECT COALESCE(string_agg(platform || '|' || status_code || ':' || cnt, E'\n'), 'no recent failures')
+          FROM (
+            SELECT platform, status_code, count(*) AS cnt
+            FROM qa_records
+            WHERE status_code >= 400 AND created_at >= now() - interval '24 hours'
+            GROUP BY platform, status_code
+            ORDER BY cnt DESC
+            LIMIT 10
+          ) t;
+          SQL
+          )"
+          [ -n "${FEISHU_OPS_WEBHOOK:-}" ] || exit 0
+          curl -sS -X POST "$FEISHU_OPS_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg t "[qa-daily] 24h failure top10:
+${SUMMARY}" '{msg_type:"text",content:{text:$t}}')" || true

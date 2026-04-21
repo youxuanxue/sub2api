@@ -115,6 +115,9 @@ func (APIKey) Fields() []ent.Field {
 			Optional().
 			Nillable().
 			Comment("Start time of the current 7d rate limit window"),
+		field.Bool("qa_never_capture").
+			Default(false).
+			Comment("Disable QA capture for requests authenticated by this API key"),
 	}
 }
 

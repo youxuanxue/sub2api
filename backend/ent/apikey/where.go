@@ -160,6 +160,11 @@ func Window7dStart(v time.Time) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldWindow7dStart, v))
 }
 
+// QaNeverCapture applies equality check predicate on the "qa_never_capture" field. It's identical to QaNeverCaptureEQ.
+func QaNeverCapture(v bool) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldQaNeverCapture, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldCreatedAt, v))
@@ -1123,6 +1128,16 @@ func Window7dStartIsNil() predicate.APIKey {
 // Window7dStartNotNil applies the NotNil predicate on the "window_7d_start" field.
 func Window7dStartNotNil() predicate.APIKey {
 	return predicate.APIKey(sql.FieldNotNull(FieldWindow7dStart))
+}
+
+// QaNeverCaptureEQ applies the EQ predicate on the "qa_never_capture" field.
+func QaNeverCaptureEQ(v bool) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldQaNeverCapture, v))
+}
+
+// QaNeverCaptureNEQ applies the NEQ predicate on the "qa_never_capture" field.
+func QaNeverCaptureNEQ(v bool) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldQaNeverCapture, v))
 }
 
 // HasUser applies the HasEdge predicate on the "user" edge.

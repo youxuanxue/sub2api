@@ -1,7 +1,10 @@
 package handler
 
 import (
+	"time"
+
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
+	qaobs "github.com/Wei-Shaw/sub2api/internal/observability/qa"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -14,14 +17,16 @@ type UserHandler struct {
 	userService  *service.UserService
 	emailService *service.EmailService
 	emailCache   service.EmailCache
+	qaService    *qaobs.Service
 }
 
 // NewUserHandler creates a new UserHandler
-func NewUserHandler(userService *service.UserService, emailService *service.EmailService, emailCache service.EmailCache) *UserHandler {
+func NewUserHandler(userService *service.UserService, emailService *service.EmailService, emailCache service.EmailCache, qaService *qaobs.Service) *UserHandler {
 	return &UserHandler{
 		userService:  userService,
 		emailService: emailService,
 		emailCache:   emailCache,
+		qaService:    qaService,
 	}
 }
 
@@ -36,6 +41,7 @@ type UpdateProfileRequest struct {
 	Username               *string  `json:"username"`
 	BalanceNotifyEnabled   *bool    `json:"balance_notify_enabled"`
 	BalanceNotifyThreshold *float64 `json:"balance_notify_threshold"`
+	QACaptureEnabled       *bool    `json:"qa_capture_enabled"`
 }
 
 // GetProfile handles getting user profile
@@ -103,6 +109,7 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 		Username:               req.Username,
 		BalanceNotifyEnabled:   req.BalanceNotifyEnabled,
 		BalanceNotifyThreshold: req.BalanceNotifyThreshold,
+		QACaptureEnabled:       req.QACaptureEnabled,
 	}
 	updatedUser, err := h.userService.UpdateProfile(c.Request.Context(), subject.UserID, svcReq)
 	if err != nil {
@@ -249,4 +256,88 @@ func (h *UserHandler) ToggleNotifyEmail(c *gin.Context) {
 	}
 
 	response.Success(c, dto.UserFromService(updatedUser))
+}
+
+// ExportQAData creates a user-scoped QA export and returns a temporary download URL.
+func (h *UserHandler) ExportQAData(c *gin.Context) {
+	if h.qaService == nil {
+		response.InternalError(c, "QA capture service unavailable")
+		return
+	}
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	sinceRaw := c.Query("since")
+	untilRaw := c.Query("until")
+	format := c.Query("format")
+	if sinceRaw == "" || untilRaw == "" {
+		response.BadRequest(c, "since and until are required")
+		return
+	}
+	// Backward-compatible default: callers that omit format still receive zip exports.
+	if format == "" {
+		format = "zip"
+	}
+	if format != "zip" {
+		response.BadRequest(c, "format must be zip")
+		return
+	}
+	since, err := time.Parse("2006-01-02", sinceRaw)
+	if err != nil {
+		response.BadRequest(c, "invalid since")
+		return
+	}
+	until, err := time.Parse("2006-01-02", untilRaw)
+	if err != nil {
+		response.BadRequest(c, "invalid until")
+		return
+	}
+	if until.Before(since) {
+		response.BadRequest(c, "until must be >= since")
+		return
+	}
+	if until.Sub(since) > 31*24*time.Hour {
+		response.BadRequest(c, "date range must be <= 31 days")
+		return
+	}
+
+	result, err := h.qaService.ExportUserData(c.Request.Context(), subject.UserID, since, until.Add(24*time.Hour-time.Nanosecond))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
+// DeleteQAData deletes user-scoped QA records, optionally before a cutoff date.
+func (h *UserHandler) DeleteQAData(c *gin.Context) {
+	if h.qaService == nil {
+		response.InternalError(c, "QA capture service unavailable")
+		return
+	}
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	var before *time.Time
+	if raw := c.Query("before"); raw != "" {
+		parsed, err := time.Parse("2006-01-02", raw)
+		if err != nil {
+			response.BadRequest(c, "invalid before")
+			return
+		}
+		before = &parsed
+	}
+
+	deleted, err := h.qaService.DeleteUserData(c.Request.Context(), subject.UserID, before)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"deleted": deleted})
 }

@@ -28,6 +28,7 @@ func UserFromServiceShallow(u *service.User) *User {
 		BalanceNotifyThreshold:     u.BalanceNotifyThreshold,
 		BalanceNotifyExtraEmails:   NotifyEmailEntriesFromService(u.BalanceNotifyExtraEmails),
 		TotalRecharged:             u.TotalRecharged,
+		QACaptureEnabled:           u.QACaptureEnabled,
 	}
 }
 
@@ -83,6 +84,7 @@ func APIKeyFromService(k *service.APIKey) *APIKey {
 		Status:        k.Status,
 		IPWhitelist:   k.IPWhitelist,
 		IPBlacklist:   k.IPBlacklist,
+		QANeverCapture: k.QANeverCapture,
 		LastUsedAt:    k.LastUsedAt,
 		Quota:         k.Quota,
 		QuotaUsed:     k.QuotaUsed,

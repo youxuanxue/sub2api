@@ -7473,6 +7473,7 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 
 	result, err := repo.Apply(billingCtx, cmd)
 	if err != nil {
+		RecordFusionUsageBillingApplyError("apply_failed")
 		return false, err
 	}
 

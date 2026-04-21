@@ -33,6 +33,7 @@ var (
 		{Name: "window_5h_start", Type: field.TypeTime, Nullable: true},
 		{Name: "window_1d_start", Type: field.TypeTime, Nullable: true},
 		{Name: "window_7d_start", Type: field.TypeTime, Nullable: true},
+		{Name: "qa_never_capture", Type: field.TypeBool, Default: false},
 		{Name: "group_id", Type: field.TypeInt64, Nullable: true},
 		{Name: "user_id", Type: field.TypeInt64},
 	}
@@ -44,13 +45,13 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "api_keys_groups_api_keys",
-				Columns:    []*schema.Column{APIKeysColumns[22]},
+				Columns:    []*schema.Column{APIKeysColumns[23]},
 				RefColumns: []*schema.Column{GroupsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "api_keys_users_api_keys",
-				Columns:    []*schema.Column{APIKeysColumns[23]},
+				Columns:    []*schema.Column{APIKeysColumns[24]},
 				RefColumns: []*schema.Column{UsersColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -59,12 +60,12 @@ var (
 			{
 				Name:    "apikey_user_id",
 				Unique:  false,
-				Columns: []*schema.Column{APIKeysColumns[23]},
+				Columns: []*schema.Column{APIKeysColumns[24]},
 			},
 			{
 				Name:    "apikey_group_id",
 				Unique:  false,
-				Columns: []*schema.Column{APIKeysColumns[22]},
+				Columns: []*schema.Column{APIKeysColumns[23]},
 			},
 			{
 				Name:    "apikey_status",
@@ -748,6 +749,62 @@ var (
 			},
 		},
 	}
+	// QaRecordsColumns holds the columns for the "qa_records" table.
+	QaRecordsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "request_id", Type: field.TypeString, Unique: true},
+		{Name: "user_id", Type: field.TypeInt64},
+		{Name: "api_key_id", Type: field.TypeInt64},
+		{Name: "account_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "platform", Type: field.TypeString, Default: "unknown"},
+		{Name: "requested_model", Type: field.TypeString, Default: ""},
+		{Name: "upstream_model", Type: field.TypeString, Nullable: true},
+		{Name: "inbound_endpoint", Type: field.TypeString, Default: ""},
+		{Name: "upstream_endpoint", Type: field.TypeString, Nullable: true},
+		{Name: "status_code", Type: field.TypeInt, Default: 0},
+		{Name: "duration_ms", Type: field.TypeInt64, Default: 0},
+		{Name: "first_token_ms", Type: field.TypeInt64, Nullable: true},
+		{Name: "stream", Type: field.TypeBool, Default: false},
+		{Name: "tool_calls_present", Type: field.TypeBool, Default: false},
+		{Name: "multimodal_present", Type: field.TypeBool, Default: false},
+		{Name: "input_tokens", Type: field.TypeInt, Default: 0},
+		{Name: "output_tokens", Type: field.TypeInt, Default: 0},
+		{Name: "cached_tokens", Type: field.TypeInt, Default: 0},
+		{Name: "request_sha256", Type: field.TypeString, Default: ""},
+		{Name: "response_sha256", Type: field.TypeString, Default: ""},
+		{Name: "blob_uri", Type: field.TypeString, Nullable: true},
+		{Name: "tags", Type: field.TypeJSON},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "retention_until", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+	}
+	// QaRecordsTable holds the schema information for the "qa_records" table.
+	QaRecordsTable = &schema.Table{
+		Name:       "qa_records",
+		Columns:    QaRecordsColumns,
+		PrimaryKey: []*schema.Column{QaRecordsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "qarecord_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{QaRecordsColumns[23]},
+			},
+			{
+				Name:    "qarecord_api_key_id_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{QaRecordsColumns[3], QaRecordsColumns[23]},
+			},
+			{
+				Name:    "qarecord_user_id_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{QaRecordsColumns[2], QaRecordsColumns[23]},
+			},
+			{
+				Name:    "qarecord_platform_status_code_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{QaRecordsColumns[5], QaRecordsColumns[10], QaRecordsColumns[23]},
+			},
+		},
+	}
 	// RedeemCodesColumns holds the columns for the "redeem_codes" table.
 	RedeemCodesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -1086,6 +1143,7 @@ var (
 		{Name: "balance_notify_threshold", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},
 		{Name: "balance_notify_extra_emails", Type: field.TypeString, Default: "[]", SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "total_recharged", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},
+		{Name: "qa_capture_enabled", Type: field.TypeBool, Default: true},
 	}
 	// UsersTable holds the schema information for the "users" table.
 	UsersTable = &schema.Table{
@@ -1329,6 +1387,7 @@ var (
 		PromoCodesTable,
 		PromoCodeUsagesTable,
 		ProxiesTable,
+		QaRecordsTable,
 		RedeemCodesTable,
 		SecuritySecretsTable,
 		SettingsTable,
@@ -1396,6 +1455,9 @@ func init() {
 	}
 	ProxiesTable.Annotation = &entsql.Annotation{
 		Table: "proxies",
+	}
+	QaRecordsTable.Annotation = &entsql.Annotation{
+		Table: "qa_records",
 	}
 	RedeemCodesTable.ForeignKeys[0].RefTable = GroupsTable
 	RedeemCodesTable.ForeignKeys[1].RefTable = UsersTable

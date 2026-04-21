@@ -82,7 +82,34 @@ fi
 
 echo ""
 if [ "$errors" -eq 0 ]; then
-    echo "=== preflight (with § 9 sub2api): PASS ==="
+    echo "=== § 10 sub2api: automated PR backlog guard ==="
+    BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+    case "$BRANCH" in
+        fix/*|merge/upstream-*|hotfix/*)
+            echo "  ok: branch $BRANCH bypasses automated PR backlog guard"
+            ;;
+        *)
+            PENDING_AUTO="$(gh pr list --label automated --state open --json number 2>/dev/null | jq length)"
+            if [ "${PENDING_AUTO:-0}" -gt 5 ]; then
+                echo "::error::已有 $PENDING_AUTO 个 auto PR 未处理 (上限 5),先消化再提交新 feature/chore/docs 代码"
+                echo "       fix/* 分支可 bypass; 紧急情况 git commit --no-verify (但 CI 仍会 fail)"
+                exit 1
+            fi
+            echo "  ok: pending automated PRs = ${PENDING_AUTO:-0}"
+            ;;
+    esac
+
+    echo ""
+    echo "=== § 11 sub2api: open P1 issue warning ==="
+    P1_OPEN="$(gh issue list --label p1 --state open --json number 2>/dev/null | jq length)"
+    if [ "${P1_OPEN:-0}" -gt 0 ]; then
+        echo "::warning::有 $P1_OPEN 个 P1 issue 未处理(不阻断 commit,但请优先处理)"
+    else
+        echo "  ok: no open P1 issues"
+    fi
+
+    echo ""
+    echo "=== preflight (with § 9-11 sub2api): PASS ==="
     exit 0
 else
     echo "=== preflight (with § 9 sub2api): FAIL ($errors check(s) failed in § 9) ==="

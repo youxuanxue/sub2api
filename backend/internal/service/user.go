@@ -36,6 +36,7 @@ type User struct {
 	BalanceNotifyThreshold     *float64
 	BalanceNotifyExtraEmails   []NotifyEmailEntry
 	TotalRecharged             float64
+	QACaptureEnabled           bool
 
 	APIKeys       []APIKey
 	Subscriptions []UserSubscription

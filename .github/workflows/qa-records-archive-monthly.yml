@@ -1,0 +1,29 @@
+name: QA Records Archive Monthly
+
+on:
+  schedule:
+    - cron: "0 2 1 * *"
+  workflow_dispatch:
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Archive old QA partition
+        env:
+          PG_DSN: ${{ secrets.PROD_PG_DSN }}
+          BUCKET: ${{ secrets.QA_ARCHIVE_BUCKET }}
+        run: |
+          IS_PARTITIONED="$(psql "$PG_DSN" -tAc "SELECT EXISTS (SELECT 1 FROM pg_partitioned_table p JOIN pg_class c ON c.oid = p.partrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'qa_records')")"
+          if [ "$IS_PARTITIONED" != "t" ]; then
+            echo "qa_records is not partitioned; skipping monthly archive"
+            exit 0
+          fi
+          CUTOFF="$(date -u -d '7 months ago' +%Y_%m 2>/dev/null || date -u -v-7m +%Y_%m)"
+          PART="qa_records_${CUTOFF}"
+          EXISTS="$(psql "$PG_DSN" -tAc "SELECT to_regclass('public.${PART}') IS NOT NULL")"
+          [ "$EXISTS" = "t" ] || { echo "no old partition to archive"; exit 0; }
+          psql "$PG_DSN" -v ON_ERROR_STOP=1 -c "ALTER TABLE qa_records DETACH PARTITION ${PART}"
+          psql "$PG_DSN" -c "\\COPY ${PART} TO PROGRAM 'gzip > /tmp/${PART}.csv.gz' WITH CSV HEADER"
+          aws s3 cp "/tmp/${PART}.csv.gz" "s3://${BUCKET}/qa_archive/${PART}.csv.gz"
+          psql "$PG_DSN" -c "DROP TABLE ${PART}"

@@ -48,6 +48,9 @@ type PromoCodeUsage func(*sql.Selector)
 // Proxy is the predicate function for proxy builders.
 type Proxy func(*sql.Selector)
 
+// QARecord is the predicate function for qarecord builders.
+type QARecord func(*sql.Selector)
+
 // RedeemCode is the predicate function for redeemcode builders.
 type RedeemCode func(*sql.Selector)
 

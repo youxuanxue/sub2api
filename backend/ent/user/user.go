@@ -53,6 +53,8 @@ const (
 	FieldBalanceNotifyExtraEmails = "balance_notify_extra_emails"
 	// FieldTotalRecharged holds the string denoting the total_recharged field in the database.
 	FieldTotalRecharged = "total_recharged"
+	// FieldQaCaptureEnabled holds the string denoting the qa_capture_enabled field in the database.
+	FieldQaCaptureEnabled = "qa_capture_enabled"
 	// EdgeAPIKeys holds the string denoting the api_keys edge name in mutations.
 	EdgeAPIKeys = "api_keys"
 	// EdgeRedeemCodes holds the string denoting the redeem_codes edge name in mutations.
@@ -176,6 +178,7 @@ var Columns = []string{
 	FieldBalanceNotifyThreshold,
 	FieldBalanceNotifyExtraEmails,
 	FieldTotalRecharged,
+	FieldQaCaptureEnabled,
 }
 
 var (
@@ -240,6 +243,8 @@ var (
 	DefaultBalanceNotifyExtraEmails string
 	// DefaultTotalRecharged holds the default value on creation for the "total_recharged" field.
 	DefaultTotalRecharged float64
+	// DefaultQaCaptureEnabled holds the default value on creation for the "qa_capture_enabled" field.
+	DefaultQaCaptureEnabled bool
 )
 
 // OrderOption defines the ordering options for the User queries.
@@ -343,6 +348,11 @@ func ByBalanceNotifyExtraEmails(opts ...sql.OrderTermOption) OrderOption {
 // ByTotalRecharged orders the results by the total_recharged field.
 func ByTotalRecharged(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldTotalRecharged, opts...).ToFunc()
+}
+
+// ByQaCaptureEnabled orders the results by the qa_capture_enabled field.
+func ByQaCaptureEnabled(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldQaCaptureEnabled, opts...).ToFunc()
 }
 
 // ByAPIKeysCount orders the results by api_keys count.

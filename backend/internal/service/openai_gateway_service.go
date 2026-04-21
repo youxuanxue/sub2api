@@ -400,6 +400,7 @@ func NewOpenAIGatewayService(
 		responseHeaderFilter:  compileResponseHeaderFilter(cfg),
 		codexSnapshotThrottle: newAccountWriteThrottle(openAICodexSnapshotPersistMinInterval),
 	}
+	RegisterFusionOpenAISchedulerMetricsProvider(svc.SnapshotOpenAIAccountSchedulerMetrics)
 	svc.logOpenAIWSModeBootstrap()
 	return svc
 }

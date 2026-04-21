@@ -1,0 +1,63 @@
+name: Weekly Product Pulse
+
+on:
+  schedule:
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate markdown report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p docs/auto-reports/weekly
+          WEEK="$(date -u +%G-W%V)"
+          FILE="docs/auto-reports/weekly/${WEEK}.md"
+          OPEN_AUTO="$(gh pr list --label automated --state open --json number | jq 'length')"
+          gh pr list --label automated --state all --limit 200 --json number,createdAt,mergedAt,closedAt,state,labels > /tmp/auto-prs.json \
+            || printf '[]\n' > /tmp/auto-prs.json
+          gh issue list --label cluster-detected --state all --limit 200 --json number,createdAt,updatedAt,body,labels > /tmp/cluster-issues.json \
+            || printf '[]\n' > /tmp/cluster-issues.json
+          python3 scripts/weekly_product_pulse_kpi.py \
+            --prs-json /tmp/auto-prs.json \
+            --issues-json /tmp/cluster-issues.json \
+            --format env > /tmp/weekly-kpi.env
+          source /tmp/weekly-kpi.env
+          cat > "$FILE" <<EOF
+          # Weekly Product Pulse ${WEEK}
+
+          - Pending auto PRs: ${OPEN_AUTO}
+          - Agent PR adoption 7d: ${ADOPTION_7D}%
+          - Agent PR adoption 30d: ${ADOPTION_30D}%
+          - Review time 7d (median hours): ${REVIEW_MEDIAN_H_7D}
+          - MTTD 7d (median hours): ${MTTD_MEDIAN_H_7D}
+          - MTTR 7d (median hours): ${MTTR_MEDIAN_H_7D}
+          EOF
+
+      - name: Commit report
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/auto-reports/weekly
+          git diff --cached --quiet && exit 0
+          git commit -m "chore(ops): weekly product pulse $(date -u +%G-W%V)"
+          git push
+
+      - name: Notify Feishu
+        if: always()
+        env:
+          FEISHU_OPS_WEBHOOK: ${{ secrets.FEISHU_OPS_WEBHOOK }}
+        run: |
+          [ -n "${FEISHU_OPS_WEBHOOK:-}" ] || exit 0
+          WEEK="$(date -u +%G-W%V)"
+          curl -sS -X POST "$FEISHU_OPS_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg t "[weekly-product-pulse] ${WEEK} generated" '{msg_type:"text",content:{text:$t}}')" || true

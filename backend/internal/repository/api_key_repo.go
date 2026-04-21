@@ -43,6 +43,7 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 		SetKey(key.Key).
 		SetName(key.Name).
 		SetStatus(key.Status).
+		SetQaNeverCapture(key.QANeverCapture).
 		SetNillableGroupID(key.GroupID).
 		SetNillableLastUsedAt(key.LastUsedAt).
 		SetQuota(key.Quota).
@@ -126,6 +127,7 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 			apikey.FieldUserID,
 			apikey.FieldGroupID,
 			apikey.FieldStatus,
+			apikey.FieldQaNeverCapture,
 			apikey.FieldIPWhitelist,
 			apikey.FieldIPBlacklist,
 			apikey.FieldQuota,
@@ -149,6 +151,7 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 				user.FieldBalanceNotifyThreshold,
 				user.FieldBalanceNotifyExtraEmails,
 				user.FieldTotalRecharged,
+				user.FieldQaCaptureEnabled,
 			)
 		}).
 		WithGroup(func(q *dbent.GroupQuery) {
@@ -199,6 +202,7 @@ func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey) erro
 		Where(apikey.IDEQ(key.ID), apikey.DeletedAtIsNil()).
 		SetName(key.Name).
 		SetStatus(key.Status).
+		SetQaNeverCapture(key.QANeverCapture).
 		SetQuota(key.Quota).
 		SetQuotaUsed(key.QuotaUsed).
 		SetRateLimit5h(key.RateLimit5h).
@@ -632,6 +636,7 @@ func apiKeyEntityToService(m *dbent.APIKey) *service.APIKey {
 		Window5hStart: m.Window5hStart,
 		Window1dStart: m.Window1dStart,
 		Window7dStart: m.Window7dStart,
+		QANeverCapture: m.QaNeverCapture,
 	}
 	if m.Edges.User != nil {
 		out.User = userEntityToService(m.Edges.User)
@@ -663,6 +668,7 @@ func userEntityToService(u *dbent.User) *service.User {
 		BalanceNotifyThresholdType: u.BalanceNotifyThresholdType,
 		BalanceNotifyThreshold:     u.BalanceNotifyThreshold,
 		TotalRecharged:             u.TotalRecharged,
+		QACaptureEnabled:           u.QaCaptureEnabled,
 		CreatedAt:                  u.CreatedAt,
 		UpdatedAt:                  u.UpdatedAt,
 	}

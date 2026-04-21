@@ -1,0 +1,31 @@
+name: QA Records Create Next Partition
+
+on:
+  schedule:
+    - cron: "0 1 25 * *"
+  workflow_dispatch:
+
+jobs:
+  partition:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create next month partition
+        env:
+          PG_DSN: ${{ secrets.PROD_PG_DSN }}
+        run: |
+          IS_PARTITIONED="$(psql "$PG_DSN" -tAc "SELECT EXISTS (SELECT 1 FROM pg_partitioned_table p JOIN pg_class c ON c.oid = p.partrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'qa_records')")"
+          if [ "$IS_PARTITIONED" != "t" ]; then
+            echo "qa_records is not partitioned; skipping monthly partition creation"
+            exit 0
+          fi
+          NEXT="$(date -u -d 'next month' +%Y-%m 2>/dev/null || date -u -v+1m +%Y-%m)"
+          YYYY="${NEXT%-*}"
+          MM="${NEXT#*-}"
+          NEXT_NEXT="$(date -u -d '2 months' +%Y-%m 2>/dev/null || date -u -v+2m +%Y-%m)"
+          YYYY2="${NEXT_NEXT%-*}"
+          MM2="${NEXT_NEXT#*-}"
+          psql "$PG_DSN" -v ON_ERROR_STOP=1 <<SQL
+          CREATE TABLE IF NOT EXISTS qa_records_${YYYY}_${MM}
+            PARTITION OF qa_records
+            FOR VALUES FROM ('${YYYY}-${MM}-01') TO ('${YYYY2}-${MM2}-01');
+          SQL
