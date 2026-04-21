@@ -27,11 +27,11 @@
 
 ## Linked Tests
 
-- `sub2api/backend/internal/service/gateway_bridge_dispatch_test.go`::`TestShouldDispatchToNewAPIBridge`
-- `sub2api/backend/internal/service/gateway_bridge_dispatch_test.go`::`TestShouldDispatchToNewAPIBridge_RespectsKillSwitch`
-- `sub2api/backend/internal/service/openai_gateway_bridge_dispatch_test.go`::`TestOpenAIShouldDispatchToNewAPIBridge`
-- `sub2api/backend/internal/service/openai_gateway_bridge_dispatch_test.go`::`TestOpenAIShouldDispatchToNewAPIBridge_RespectsKillSwitch`
-- 运行命令: `cd sub2api/backend && go test ./internal/service -run "Bridge|Dispatch|Affinity"`
+- `backend/internal/service/gateway_bridge_dispatch_test.go`::`TestShouldDispatchToNewAPIBridge`
+- `backend/internal/service/gateway_bridge_dispatch_test.go`::`TestShouldDispatchToNewAPIBridge_RespectsKillSwitch`
+- `backend/internal/service/openai_gateway_bridge_dispatch_test.go`::`TestOpenAIShouldDispatchToNewAPIBridge`
+- `backend/internal/service/openai_gateway_bridge_dispatch_test.go`::`TestOpenAIShouldDispatchToNewAPIBridge_RespectsKillSwitch`
+- 运行命令: `cd backend && go test ./internal/service -run "Bridge|Dispatch|Affinity"`
 
 ## Evidence
 
