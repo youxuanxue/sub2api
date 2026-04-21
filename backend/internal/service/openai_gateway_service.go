@@ -1988,8 +1988,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			markPatchSet("model", upstreamModel)
 		}
 
-		// 移除 gpt-5.2-codex 以下的版本 verbosity 参数
-		// 确保高版本模型向低版本模型映射不报错
+		// 对不支持 verbosity 的模型移除该参数，
+		// 避免模型归一化后触发上游参数校验错误。
 		if !SupportsVerbosity(upstreamModel) {
 			if text, ok := reqBody["text"].(map[string]any); ok {
 				delete(text, "verbosity")
