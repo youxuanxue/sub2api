@@ -99,8 +99,5 @@ func RegisterUserRoutes(
 			subscriptions.GET("/progress", h.Subscription.GetProgress)
 			subscriptions.GET("/summary", h.Subscription.GetSummary)
 		}
-
-		authenticated.GET("/me/qa-data/export", h.User.ExportQAData)
-		authenticated.DELETE("/me/qa-data", h.User.DeleteQAData)
 	}
 }

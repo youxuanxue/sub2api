@@ -32,7 +32,6 @@ Single source of truth for Ops in this repo.
 Required outcomes:
 
 - QA requests/responses are captured with metadata and blob references.
-- User can export and delete own QA data.
 - Monthly QA maintenance workflows exist (export / partition / archive).
 
 Runtime rule:
