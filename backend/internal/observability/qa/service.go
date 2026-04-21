@@ -104,7 +104,7 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 		return
 	}
 	apiKey, ok := middleware.GetAPIKeyFromContext(c)
-	if !ok || apiKey == nil || apiKey.User == nil || !apiKey.User.QACaptureEnabled || apiKey.QANeverCapture {
+	if !ok || apiKey == nil || apiKey.User == nil {
 		return
 	}
 

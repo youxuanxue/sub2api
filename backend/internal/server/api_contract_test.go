@@ -63,8 +63,7 @@ func TestAPIContracts(t *testing.T) {
 					"balance_notify_threshold": null,
 					"balance_notify_extra_emails": null,
 					"total_recharged": 0,
-					"run_mode": "standard",
-					"qa_capture_enabled": false
+					"run_mode": "standard"
 				}
 			}`,
 		},

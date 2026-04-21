@@ -10,10 +10,6 @@ func OptionsFromConfig(cfg config.LogConfig) InitOptions {
 		Environment:     cfg.Environment,
 		Caller:          cfg.Caller,
 		StacktraceLevel: cfg.StacktraceLevel,
-		Redact: RedactOptions{
-			Enabled:   cfg.Redact.Enabled,
-			ExtraKeys: cfg.Redact.ExtraKeys,
-		},
 		Output: OutputOptions{
 			ToStdout: cfg.Output.ToStdout,
 			ToFile:   cfg.Output.ToFile,

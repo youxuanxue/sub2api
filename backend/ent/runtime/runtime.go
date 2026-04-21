@@ -133,10 +133,6 @@ func init() {
 	apikeyDescUsage7d := apikeyFields[16].Descriptor()
 	// apikey.DefaultUsage7d holds the default value on creation for the usage_7d field.
 	apikey.DefaultUsage7d = apikeyDescUsage7d.Default.(float64)
-	// apikeyDescQaNeverCapture is the schema descriptor for qa_never_capture field.
-	apikeyDescQaNeverCapture := apikeyFields[20].Descriptor()
-	// apikey.DefaultQaNeverCapture holds the default value on creation for the qa_never_capture field.
-	apikey.DefaultQaNeverCapture = apikeyDescQaNeverCapture.Default.(bool)
 	accountMixin := schema.Account{}.Mixin()
 	accountMixinHooks1 := accountMixin[1].Hooks()
 	account.Hooks[0] = accountMixinHooks1[0]
@@ -1388,10 +1384,6 @@ func init() {
 	userDescTotalRecharged := userFields[15].Descriptor()
 	// user.DefaultTotalRecharged holds the default value on creation for the total_recharged field.
 	user.DefaultTotalRecharged = userDescTotalRecharged.Default.(float64)
-	// userDescQaCaptureEnabled is the schema descriptor for qa_capture_enabled field.
-	userDescQaCaptureEnabled := userFields[16].Descriptor()
-	// user.DefaultQaCaptureEnabled holds the default value on creation for the qa_capture_enabled field.
-	user.DefaultQaCaptureEnabled = userDescQaCaptureEnabled.Default.(bool)
 	userallowedgroupFields := schema.UserAllowedGroup{}.Fields()
 	_ = userallowedgroupFields
 	// userallowedgroupDescCreatedAt is the schema descriptor for created_at field.

@@ -20,15 +20,9 @@ type InitOptions struct {
 	Environment     string
 	Caller          bool
 	StacktraceLevel string
-	Redact          RedactOptions
 	Output          OutputOptions
 	Rotation        RotationOptions
 	Sampling        SamplingOptions
-}
-
-type RedactOptions struct {
-	Enabled   bool
-	ExtraKeys []string
 }
 
 type OutputOptions struct {
@@ -59,7 +53,7 @@ func (o InitOptions) normalized() InitOptions {
 	}
 	out.Format = strings.ToLower(strings.TrimSpace(out.Format))
 	if out.Format == "" {
-		out.Format = "json"
+		out.Format = "console"
 	}
 	out.ServiceName = strings.TrimSpace(out.ServiceName)
 	if out.ServiceName == "" {
@@ -77,7 +71,6 @@ func (o InitOptions) normalized() InitOptions {
 		out.Output.ToStdout = true
 	}
 	out.Output.FilePath = resolveLogFilePath(out.Output.FilePath)
-	out.Redact.ExtraKeys = normalizedExtraKeys(out.Redact.ExtraKeys)
 	if out.Rotation.MaxSizeMB <= 0 {
 		out.Rotation.MaxSizeMB = 100
 	}
@@ -113,12 +106,9 @@ func resolveLogFilePath(explicit string) string {
 func bootstrapOptions() InitOptions {
 	return InitOptions{
 		Level:       "info",
-		Format:      "json",
+		Format:      "console",
 		ServiceName: "sub2api",
 		Environment: "bootstrap",
-		Redact: RedactOptions{
-			Enabled: true,
-		},
 		Output: OutputOptions{
 			ToStdout: true,
 			ToFile:   false,
@@ -168,24 +158,4 @@ func parseStacktraceLevel(level string) (Level, bool) {
 
 func samplingTick() time.Duration {
 	return time.Second
-}
-
-func normalizedExtraKeys(keys []string) []string {
-	if len(keys) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(keys))
-	seen := make(map[string]struct{}, len(keys))
-	for _, key := range keys {
-		key = strings.ToLower(strings.TrimSpace(key))
-		if key == "" {
-			continue
-		}
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		out = append(out, key)
-	}
-	return out
 }

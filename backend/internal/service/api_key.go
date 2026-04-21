@@ -60,7 +60,6 @@ type APIKey struct {
 	Window5hStart *time.Time // Start of current 5h window
 	Window1dStart *time.Time // Start of current 1d window
 	Window7dStart *time.Time // Start of current 7d window
-	QANeverCapture bool
 }
 
 func (k *APIKey) IsActive() bool {

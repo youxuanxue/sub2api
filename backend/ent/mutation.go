@@ -118,7 +118,6 @@ type APIKeyMutation struct {
 	window_5h_start    *time.Time
 	window_1d_start    *time.Time
 	window_7d_start    *time.Time
-	qa_never_capture   *bool
 	clearedFields      map[string]struct{}
 	user               *int64
 	cleareduser        bool
@@ -1367,42 +1366,6 @@ func (m *APIKeyMutation) ResetWindow7dStart() {
 	delete(m.clearedFields, apikey.FieldWindow7dStart)
 }
 
-// SetQaNeverCapture sets the "qa_never_capture" field.
-func (m *APIKeyMutation) SetQaNeverCapture(b bool) {
-	m.qa_never_capture = &b
-}
-
-// QaNeverCapture returns the value of the "qa_never_capture" field in the mutation.
-func (m *APIKeyMutation) QaNeverCapture() (r bool, exists bool) {
-	v := m.qa_never_capture
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// OldQaNeverCapture returns the old "qa_never_capture" field's value of the APIKey entity.
-// If the APIKey object wasn't provided to the builder, the object is fetched from the database.
-// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *APIKeyMutation) OldQaNeverCapture(ctx context.Context) (v bool, err error) {
-	if !m.op.Is(OpUpdateOne) {
-		return v, errors.New("OldQaNeverCapture is only allowed on UpdateOne operations")
-	}
-	if m.id == nil || m.oldValue == nil {
-		return v, errors.New("OldQaNeverCapture requires an ID field in the mutation")
-	}
-	oldValue, err := m.oldValue(ctx)
-	if err != nil {
-		return v, fmt.Errorf("querying old value for OldQaNeverCapture: %w", err)
-	}
-	return oldValue.QaNeverCapture, nil
-}
-
-// ResetQaNeverCapture resets all changes to the "qa_never_capture" field.
-func (m *APIKeyMutation) ResetQaNeverCapture() {
-	m.qa_never_capture = nil
-}
-
 // ClearUser clears the "user" edge to the User entity.
 func (m *APIKeyMutation) ClearUser() {
 	m.cleareduser = true
@@ -1545,7 +1508,7 @@ func (m *APIKeyMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *APIKeyMutation) Fields() []string {
-	fields := make([]string, 0, 24)
+	fields := make([]string, 0, 23)
 	if m.created_at != nil {
 		fields = append(fields, apikey.FieldCreatedAt)
 	}
@@ -1615,9 +1578,6 @@ func (m *APIKeyMutation) Fields() []string {
 	if m.window_7d_start != nil {
 		fields = append(fields, apikey.FieldWindow7dStart)
 	}
-	if m.qa_never_capture != nil {
-		fields = append(fields, apikey.FieldQaNeverCapture)
-	}
 	return fields
 }
 
@@ -1672,8 +1632,6 @@ func (m *APIKeyMutation) Field(name string) (ent.Value, bool) {
 		return m.Window1dStart()
 	case apikey.FieldWindow7dStart:
 		return m.Window7dStart()
-	case apikey.FieldQaNeverCapture:
-		return m.QaNeverCapture()
 	}
 	return nil, false
 }
@@ -1729,8 +1687,6 @@ func (m *APIKeyMutation) OldField(ctx context.Context, name string) (ent.Value, 
 		return m.OldWindow1dStart(ctx)
 	case apikey.FieldWindow7dStart:
 		return m.OldWindow7dStart(ctx)
-	case apikey.FieldQaNeverCapture:
-		return m.OldQaNeverCapture(ctx)
 	}
 	return nil, fmt.Errorf("unknown APIKey field %s", name)
 }
@@ -1900,13 +1856,6 @@ func (m *APIKeyMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetWindow7dStart(v)
-		return nil
-	case apikey.FieldQaNeverCapture:
-		v, ok := value.(bool)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.SetQaNeverCapture(v)
 		return nil
 	}
 	return fmt.Errorf("unknown APIKey field %s", name)
@@ -2181,9 +2130,6 @@ func (m *APIKeyMutation) ResetField(name string) error {
 		return nil
 	case apikey.FieldWindow7dStart:
 		m.ResetWindow7dStart()
-		return nil
-	case apikey.FieldQaNeverCapture:
-		m.ResetQaNeverCapture()
 		return nil
 	}
 	return fmt.Errorf("unknown APIKey field %s", name)
@@ -30452,7 +30398,6 @@ type UserMutation struct {
 	balance_notify_extra_emails   *string
 	total_recharged               *float64
 	addtotal_recharged            *float64
-	qa_capture_enabled            *bool
 	clearedFields                 map[string]struct{}
 	api_keys                      map[int64]struct{}
 	removedapi_keys               map[int64]struct{}
@@ -31404,42 +31349,6 @@ func (m *UserMutation) ResetTotalRecharged() {
 	m.addtotal_recharged = nil
 }
 
-// SetQaCaptureEnabled sets the "qa_capture_enabled" field.
-func (m *UserMutation) SetQaCaptureEnabled(b bool) {
-	m.qa_capture_enabled = &b
-}
-
-// QaCaptureEnabled returns the value of the "qa_capture_enabled" field in the mutation.
-func (m *UserMutation) QaCaptureEnabled() (r bool, exists bool) {
-	v := m.qa_capture_enabled
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// OldQaCaptureEnabled returns the old "qa_capture_enabled" field's value of the User entity.
-// If the User object wasn't provided to the builder, the object is fetched from the database.
-// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *UserMutation) OldQaCaptureEnabled(ctx context.Context) (v bool, err error) {
-	if !m.op.Is(OpUpdateOne) {
-		return v, errors.New("OldQaCaptureEnabled is only allowed on UpdateOne operations")
-	}
-	if m.id == nil || m.oldValue == nil {
-		return v, errors.New("OldQaCaptureEnabled requires an ID field in the mutation")
-	}
-	oldValue, err := m.oldValue(ctx)
-	if err != nil {
-		return v, fmt.Errorf("querying old value for OldQaCaptureEnabled: %w", err)
-	}
-	return oldValue.QaCaptureEnabled, nil
-}
-
-// ResetQaCaptureEnabled resets all changes to the "qa_capture_enabled" field.
-func (m *UserMutation) ResetQaCaptureEnabled() {
-	m.qa_capture_enabled = nil
-}
-
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by ids.
 func (m *UserMutation) AddAPIKeyIDs(ids ...int64) {
 	if m.api_keys == nil {
@@ -32014,7 +31923,7 @@ func (m *UserMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UserMutation) Fields() []string {
-	fields := make([]string, 0, 20)
+	fields := make([]string, 0, 19)
 	if m.created_at != nil {
 		fields = append(fields, user.FieldCreatedAt)
 	}
@@ -32072,9 +31981,6 @@ func (m *UserMutation) Fields() []string {
 	if m.total_recharged != nil {
 		fields = append(fields, user.FieldTotalRecharged)
 	}
-	if m.qa_capture_enabled != nil {
-		fields = append(fields, user.FieldQaCaptureEnabled)
-	}
 	return fields
 }
 
@@ -32121,8 +32027,6 @@ func (m *UserMutation) Field(name string) (ent.Value, bool) {
 		return m.BalanceNotifyExtraEmails()
 	case user.FieldTotalRecharged:
 		return m.TotalRecharged()
-	case user.FieldQaCaptureEnabled:
-		return m.QaCaptureEnabled()
 	}
 	return nil, false
 }
@@ -32170,8 +32074,6 @@ func (m *UserMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldBalanceNotifyExtraEmails(ctx)
 	case user.FieldTotalRecharged:
 		return m.OldTotalRecharged(ctx)
-	case user.FieldQaCaptureEnabled:
-		return m.OldQaCaptureEnabled(ctx)
 	}
 	return nil, fmt.Errorf("unknown User field %s", name)
 }
@@ -32313,13 +32215,6 @@ func (m *UserMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetTotalRecharged(v)
-		return nil
-	case user.FieldQaCaptureEnabled:
-		v, ok := value.(bool)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.SetQaCaptureEnabled(v)
 		return nil
 	}
 	return fmt.Errorf("unknown User field %s", name)
@@ -32504,9 +32399,6 @@ func (m *UserMutation) ResetField(name string) error {
 		return nil
 	case user.FieldTotalRecharged:
 		m.ResetTotalRecharged()
-		return nil
-	case user.FieldQaCaptureEnabled:
-		m.ResetQaCaptureEnabled()
 		return nil
 	}
 	return fmt.Errorf("unknown User field %s", name)

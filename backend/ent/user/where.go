@@ -150,11 +150,6 @@ func TotalRecharged(v float64) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldTotalRecharged, v))
 }
 
-// QaCaptureEnabled applies equality check predicate on the "qa_capture_enabled" field. It's identical to QaCaptureEnabledEQ.
-func QaCaptureEnabled(v bool) predicate.User {
-	return predicate.User(sql.FieldEQ(FieldQaCaptureEnabled, v))
-}
-
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldCreatedAt, v))
@@ -1118,16 +1113,6 @@ func TotalRechargedLT(v float64) predicate.User {
 // TotalRechargedLTE applies the LTE predicate on the "total_recharged" field.
 func TotalRechargedLTE(v float64) predicate.User {
 	return predicate.User(sql.FieldLTE(FieldTotalRecharged, v))
-}
-
-// QaCaptureEnabledEQ applies the EQ predicate on the "qa_capture_enabled" field.
-func QaCaptureEnabledEQ(v bool) predicate.User {
-	return predicate.User(sql.FieldEQ(FieldQaCaptureEnabled, v))
-}
-
-// QaCaptureEnabledNEQ applies the NEQ predicate on the "qa_capture_enabled" field.
-func QaCaptureEnabledNEQ(v bool) predicate.User {
-	return predicate.User(sql.FieldNEQ(FieldQaCaptureEnabled, v))
 }
 
 // HasAPIKeys applies the HasEdge predicate on the "api_keys" edge.

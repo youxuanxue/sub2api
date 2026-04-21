@@ -68,8 +68,3 @@ BEGIN
     );
 END $$;
 
-ALTER TABLE users
-    ADD COLUMN IF NOT EXISTS qa_capture_enabled boolean NOT NULL DEFAULT true;
-
-ALTER TABLE api_keys
-    ADD COLUMN IF NOT EXISTS qa_never_capture boolean NOT NULL DEFAULT false;

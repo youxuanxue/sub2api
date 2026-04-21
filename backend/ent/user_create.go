@@ -281,20 +281,6 @@ func (_c *UserCreate) SetNillableTotalRecharged(v *float64) *UserCreate {
 	return _c
 }
 
-// SetQaCaptureEnabled sets the "qa_capture_enabled" field.
-func (_c *UserCreate) SetQaCaptureEnabled(v bool) *UserCreate {
-	_c.mutation.SetQaCaptureEnabled(v)
-	return _c
-}
-
-// SetNillableQaCaptureEnabled sets the "qa_capture_enabled" field if the given value is not nil.
-func (_c *UserCreate) SetNillableQaCaptureEnabled(v *bool) *UserCreate {
-	if v != nil {
-		_c.SetQaCaptureEnabled(*v)
-	}
-	return _c
-}
-
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by IDs.
 func (_c *UserCreate) AddAPIKeyIDs(ids ...int64) *UserCreate {
 	_c.mutation.AddAPIKeyIDs(ids...)
@@ -540,10 +526,6 @@ func (_c *UserCreate) defaults() error {
 		v := user.DefaultTotalRecharged
 		_c.mutation.SetTotalRecharged(v)
 	}
-	if _, ok := _c.mutation.QaCaptureEnabled(); !ok {
-		v := user.DefaultQaCaptureEnabled
-		_c.mutation.SetQaCaptureEnabled(v)
-	}
 	return nil
 }
 
@@ -618,9 +600,6 @@ func (_c *UserCreate) check() error {
 	}
 	if _, ok := _c.mutation.TotalRecharged(); !ok {
 		return &ValidationError{Name: "total_recharged", err: errors.New(`ent: missing required field "User.total_recharged"`)}
-	}
-	if _, ok := _c.mutation.QaCaptureEnabled(); !ok {
-		return &ValidationError{Name: "qa_capture_enabled", err: errors.New(`ent: missing required field "User.qa_capture_enabled"`)}
 	}
 	return nil
 }
@@ -724,10 +703,6 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.TotalRecharged(); ok {
 		_spec.SetField(user.FieldTotalRecharged, field.TypeFloat64, value)
 		_node.TotalRecharged = value
-	}
-	if value, ok := _c.mutation.QaCaptureEnabled(); ok {
-		_spec.SetField(user.FieldQaCaptureEnabled, field.TypeBool, value)
-		_node.QaCaptureEnabled = value
 	}
 	if nodes := _c.mutation.APIKeysIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
@@ -1209,18 +1184,6 @@ func (u *UserUpsert) AddTotalRecharged(v float64) *UserUpsert {
 	return u
 }
 
-// SetQaCaptureEnabled sets the "qa_capture_enabled" field.
-func (u *UserUpsert) SetQaCaptureEnabled(v bool) *UserUpsert {
-	u.Set(user.FieldQaCaptureEnabled, v)
-	return u
-}
-
-// UpdateQaCaptureEnabled sets the "qa_capture_enabled" field to the value that was provided on create.
-func (u *UserUpsert) UpdateQaCaptureEnabled() *UserUpsert {
-	u.SetExcluded(user.FieldQaCaptureEnabled)
-	return u
-}
-
 // UpdateNewValues updates the mutable fields using the new values that were set on create.
 // Using this option is equivalent to using:
 //
@@ -1571,20 +1534,6 @@ func (u *UserUpsertOne) AddTotalRecharged(v float64) *UserUpsertOne {
 func (u *UserUpsertOne) UpdateTotalRecharged() *UserUpsertOne {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateTotalRecharged()
-	})
-}
-
-// SetQaCaptureEnabled sets the "qa_capture_enabled" field.
-func (u *UserUpsertOne) SetQaCaptureEnabled(v bool) *UserUpsertOne {
-	return u.Update(func(s *UserUpsert) {
-		s.SetQaCaptureEnabled(v)
-	})
-}
-
-// UpdateQaCaptureEnabled sets the "qa_capture_enabled" field to the value that was provided on create.
-func (u *UserUpsertOne) UpdateQaCaptureEnabled() *UserUpsertOne {
-	return u.Update(func(s *UserUpsert) {
-		s.UpdateQaCaptureEnabled()
 	})
 }
 
@@ -2104,20 +2053,6 @@ func (u *UserUpsertBulk) AddTotalRecharged(v float64) *UserUpsertBulk {
 func (u *UserUpsertBulk) UpdateTotalRecharged() *UserUpsertBulk {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateTotalRecharged()
-	})
-}
-
-// SetQaCaptureEnabled sets the "qa_capture_enabled" field.
-func (u *UserUpsertBulk) SetQaCaptureEnabled(v bool) *UserUpsertBulk {
-	return u.Update(func(s *UserUpsert) {
-		s.SetQaCaptureEnabled(v)
-	})
-}
-
-// UpdateQaCaptureEnabled sets the "qa_capture_enabled" field to the value that was provided on create.
-func (u *UserUpsertBulk) UpdateQaCaptureEnabled() *UserUpsertBulk {
-	return u.Update(func(s *UserUpsert) {
-		s.UpdateQaCaptureEnabled()
 	})
 }
 

@@ -333,20 +333,6 @@ func (_u *UserUpdate) AddTotalRecharged(v float64) *UserUpdate {
 	return _u
 }
 
-// SetQaCaptureEnabled sets the "qa_capture_enabled" field.
-func (_u *UserUpdate) SetQaCaptureEnabled(v bool) *UserUpdate {
-	_u.mutation.SetQaCaptureEnabled(v)
-	return _u
-}
-
-// SetNillableQaCaptureEnabled sets the "qa_capture_enabled" field if the given value is not nil.
-func (_u *UserUpdate) SetNillableQaCaptureEnabled(v *bool) *UserUpdate {
-	if v != nil {
-		_u.SetQaCaptureEnabled(*v)
-	}
-	return _u
-}
-
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by IDs.
 func (_u *UserUpdate) AddAPIKeyIDs(ids ...int64) *UserUpdate {
 	_u.mutation.AddAPIKeyIDs(ids...)
@@ -873,9 +859,6 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.AddedTotalRecharged(); ok {
 		_spec.AddField(user.FieldTotalRecharged, field.TypeFloat64, value)
-	}
-	if value, ok := _u.mutation.QaCaptureEnabled(); ok {
-		_spec.SetField(user.FieldQaCaptureEnabled, field.TypeBool, value)
 	}
 	if _u.mutation.APIKeysCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -1655,20 +1638,6 @@ func (_u *UserUpdateOne) AddTotalRecharged(v float64) *UserUpdateOne {
 	return _u
 }
 
-// SetQaCaptureEnabled sets the "qa_capture_enabled" field.
-func (_u *UserUpdateOne) SetQaCaptureEnabled(v bool) *UserUpdateOne {
-	_u.mutation.SetQaCaptureEnabled(v)
-	return _u
-}
-
-// SetNillableQaCaptureEnabled sets the "qa_capture_enabled" field if the given value is not nil.
-func (_u *UserUpdateOne) SetNillableQaCaptureEnabled(v *bool) *UserUpdateOne {
-	if v != nil {
-		_u.SetQaCaptureEnabled(*v)
-	}
-	return _u
-}
-
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by IDs.
 func (_u *UserUpdateOne) AddAPIKeyIDs(ids ...int64) *UserUpdateOne {
 	_u.mutation.AddAPIKeyIDs(ids...)
@@ -2225,9 +2194,6 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 	}
 	if value, ok := _u.mutation.AddedTotalRecharged(); ok {
 		_spec.AddField(user.FieldTotalRecharged, field.TypeFloat64, value)
-	}
-	if value, ok := _u.mutation.QaCaptureEnabled(); ok {
-		_spec.SetField(user.FieldQaCaptureEnabled, field.TypeBool, value)
 	}
 	if _u.mutation.APIKeysCleared() {
 		edge := &sqlgraph.EdgeSpec{

@@ -74,7 +74,6 @@ type UpdateProfileRequest struct {
 	Concurrency            *int     `json:"concurrency"`
 	BalanceNotifyEnabled   *bool    `json:"balance_notify_enabled"`
 	BalanceNotifyThreshold *float64 `json:"balance_notify_threshold"`
-	QACaptureEnabled       *bool    `json:"qa_capture_enabled"`
 }
 
 // ChangePasswordRequest 修改密码请求
@@ -158,10 +157,6 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID int64, req Updat
 			user.BalanceNotifyThreshold = req.BalanceNotifyThreshold
 		}
 	}
-	if req.QACaptureEnabled != nil {
-		user.QACaptureEnabled = *req.QACaptureEnabled
-	}
-
 	if err := s.userRepo.Update(ctx, user); err != nil {
 		return nil, fmt.Errorf("update user: %w", err)
 	}

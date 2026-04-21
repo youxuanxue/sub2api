@@ -41,7 +41,6 @@ type UpdateProfileRequest struct {
 	Username               *string  `json:"username"`
 	BalanceNotifyEnabled   *bool    `json:"balance_notify_enabled"`
 	BalanceNotifyThreshold *float64 `json:"balance_notify_threshold"`
-	QACaptureEnabled       *bool    `json:"qa_capture_enabled"`
 }
 
 // GetProfile handles getting user profile
@@ -109,7 +108,6 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 		Username:               req.Username,
 		BalanceNotifyEnabled:   req.BalanceNotifyEnabled,
 		BalanceNotifyThreshold: req.BalanceNotifyThreshold,
-		QACaptureEnabled:       req.QACaptureEnabled,
 	}
 	updatedUser, err := h.userService.UpdateProfile(c.Request.Context(), subject.UserID, svcReq)
 	if err != nil {

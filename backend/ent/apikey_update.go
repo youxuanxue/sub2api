@@ -438,20 +438,6 @@ func (_u *APIKeyUpdate) ClearWindow7dStart() *APIKeyUpdate {
 	return _u
 }
 
-// SetQaNeverCapture sets the "qa_never_capture" field.
-func (_u *APIKeyUpdate) SetQaNeverCapture(v bool) *APIKeyUpdate {
-	_u.mutation.SetQaNeverCapture(v)
-	return _u
-}
-
-// SetNillableQaNeverCapture sets the "qa_never_capture" field if the given value is not nil.
-func (_u *APIKeyUpdate) SetNillableQaNeverCapture(v *bool) *APIKeyUpdate {
-	if v != nil {
-		_u.SetQaNeverCapture(*v)
-	}
-	return _u
-}
-
 // SetUser sets the "user" edge to the User entity.
 func (_u *APIKeyUpdate) SetUser(v *User) *APIKeyUpdate {
 	return _u.SetUserID(v.ID)
@@ -709,9 +695,6 @@ func (_u *APIKeyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.Window7dStartCleared() {
 		_spec.ClearField(apikey.FieldWindow7dStart, field.TypeTime)
-	}
-	if value, ok := _u.mutation.QaNeverCapture(); ok {
-		_spec.SetField(apikey.FieldQaNeverCapture, field.TypeBool, value)
 	}
 	if _u.mutation.UserCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -1242,20 +1225,6 @@ func (_u *APIKeyUpdateOne) ClearWindow7dStart() *APIKeyUpdateOne {
 	return _u
 }
 
-// SetQaNeverCapture sets the "qa_never_capture" field.
-func (_u *APIKeyUpdateOne) SetQaNeverCapture(v bool) *APIKeyUpdateOne {
-	_u.mutation.SetQaNeverCapture(v)
-	return _u
-}
-
-// SetNillableQaNeverCapture sets the "qa_never_capture" field if the given value is not nil.
-func (_u *APIKeyUpdateOne) SetNillableQaNeverCapture(v *bool) *APIKeyUpdateOne {
-	if v != nil {
-		_u.SetQaNeverCapture(*v)
-	}
-	return _u
-}
-
 // SetUser sets the "user" edge to the User entity.
 func (_u *APIKeyUpdateOne) SetUser(v *User) *APIKeyUpdateOne {
 	return _u.SetUserID(v.ID)
@@ -1543,9 +1512,6 @@ func (_u *APIKeyUpdateOne) sqlSave(ctx context.Context) (_node *APIKey, err erro
 	}
 	if _u.mutation.Window7dStartCleared() {
 		_spec.ClearField(apikey.FieldWindow7dStart, field.TypeTime)
-	}
-	if value, ok := _u.mutation.QaNeverCapture(); ok {
-		_spec.SetField(apikey.FieldQaNeverCapture, field.TypeBool, value)
 	}
 	if _u.mutation.UserCleared() {
 		edge := &sqlgraph.EdgeSpec{

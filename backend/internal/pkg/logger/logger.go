@@ -263,13 +263,8 @@ func buildLogger(options InitOptions) (*zap.Logger, zap.AtomicLevel, error) {
 		enc = zapcore.NewJSONEncoder(encoderCfg)
 	}
 
-	cores := make([]zapcore.Core, 0, 4)
-	wrapCore := func(core zapcore.Core) zapcore.Core {
-		if !options.Redact.Enabled {
-			return core
-		}
-		return newRedactCore(core, options.Redact.ExtraKeys)
-	}
+	sinkCore := newSinkCore()
+	cores := make([]zapcore.Core, 0, 3)
 
 	if options.Output.ToStdout {
 		infoPriority := zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
@@ -278,8 +273,8 @@ func buildLogger(options InitOptions) (*zap.Logger, zap.AtomicLevel, error) {
 		errPriority := zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
 			return lvl >= atomic.Level() && lvl >= zapcore.WarnLevel
 		})
-		cores = append(cores, wrapCore(zapcore.NewCore(enc, zapcore.Lock(os.Stdout), infoPriority)))
-		cores = append(cores, wrapCore(zapcore.NewCore(enc, zapcore.Lock(os.Stderr), errPriority)))
+		cores = append(cores, zapcore.NewCore(enc, zapcore.Lock(os.Stdout), infoPriority))
+		cores = append(cores, zapcore.NewCore(enc, zapcore.Lock(os.Stderr), errPriority))
 	}
 
 	if options.Output.ToFile {
@@ -291,23 +286,19 @@ func buildLogger(options InitOptions) (*zap.Logger, zap.AtomicLevel, error) {
 				fileErr,
 			)
 		} else {
-			cores = append(cores, wrapCore(fileCore))
+			cores = append(cores, fileCore)
 		}
 	}
 
 	if len(cores) == 0 {
-		cores = append(cores, wrapCore(zapcore.NewCore(enc, zapcore.Lock(os.Stdout), atomic)))
-	}
-
-	sinkCore := newSinkCore(atomic)
-	if sinkCore != nil {
-		cores = append(cores, wrapCore(sinkCore))
+		cores = append(cores, zapcore.NewCore(enc, zapcore.Lock(os.Stdout), atomic))
 	}
 
 	core := zapcore.NewTee(cores...)
 	if options.Sampling.Enabled {
 		core = zapcore.NewSamplerWithOptions(core, samplingTick(), options.Sampling.Initial, options.Sampling.Thereafter)
 	}
+	core = sinkCore.Wrap(core)
 
 	stacktraceLevel, _ := parseStacktraceLevel(options.StacktraceLevel)
 	zapOpts := make([]zap.Option, 0, 5)
@@ -347,40 +338,46 @@ func buildFileCore(enc zapcore.Encoder, atomic zap.AtomicLevel, options InitOpti
 }
 
 type sinkCore struct {
-	level  zapcore.LevelEnabler
+	core   zapcore.Core
 	fields []zapcore.Field
 }
 
-func newSinkCore(level zapcore.LevelEnabler) *sinkCore {
-	return &sinkCore{level: level}
+func newSinkCore() *sinkCore {
+	return &sinkCore{}
+}
+
+func (s *sinkCore) Wrap(core zapcore.Core) zapcore.Core {
+	cp := *s
+	cp.core = core
+	return &cp
 }
 
 func (s *sinkCore) Enabled(level zapcore.Level) bool {
-	if s == nil || s.level == nil {
-		return false
-	}
-	return s.level.Enabled(level)
+	return s.core.Enabled(level)
 }
 
 func (s *sinkCore) With(fields []zapcore.Field) zapcore.Core {
 	nextFields := append([]zapcore.Field{}, s.fields...)
 	nextFields = append(nextFields, fields...)
 	return &sinkCore{
-		level:  s.level,
+		core:   s.core.With(fields),
 		fields: nextFields,
 	}
 }
 
 func (s *sinkCore) Check(entry zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry {
-	if s == nil || !s.Enabled(entry.Level) {
-		return ce
+	// Delegate to inner core (tee) so each sub-core's level enabler is respected.
+	// Then add ourselves for sink forwarding only.
+	ce = s.core.Check(entry, ce)
+	if ce != nil {
+		ce = ce.AddCore(entry, s)
 	}
-	return ce.AddCore(entry, s)
+	return ce
 }
 
 func (s *sinkCore) Write(entry zapcore.Entry, fields []zapcore.Field) error {
 	// Only handle sink forwarding — the inner cores write via their own
-	// Write methods as independent tee branches.
+	// Write methods (added to CheckedEntry by s.core.Check above).
 	sink := loadSink()
 	if sink == nil {
 		return nil
@@ -407,7 +404,7 @@ func (s *sinkCore) Write(entry zapcore.Entry, fields []zapcore.Field) error {
 }
 
 func (s *sinkCore) Sync() error {
-	return nil
+	return s.core.Sync()
 }
 
 type stdLogBridge struct {
