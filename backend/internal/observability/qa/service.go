@@ -243,7 +243,9 @@ func (s *Service) ExportUserData(ctx context.Context, userID int64, since, until
 	if err != nil {
 		return nil, err
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() {
+		_ = os.Remove(tmpFile.Name())
+	}()
 
 	zipWriter := zip.NewWriter(tmpFile)
 	indexWriter, err := zipWriter.Create("qa_records.jsonl")

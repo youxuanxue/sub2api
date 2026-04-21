@@ -142,7 +142,9 @@ func (s *s3BlobStore) Get(ctx context.Context, key string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer out.Body.Close()
+	defer func() {
+		_ = out.Body.Close()
+	}()
 	return io.ReadAll(out.Body)
 }
 
