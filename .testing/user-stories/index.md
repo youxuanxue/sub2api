@@ -21,3 +21,6 @@
 | US-016 | SMTP EHLO host 从 From/Username 推导（修 Google Workspace `auth: EOF`） | Done   | `.testing/user-stories/stories/US-016-smtp-ehlo-host-from-config.md` |
 | US-017 | Turnstile siteverify 失败可观测 + UX 自救引导 | InTest | `.testing/user-stories/stories/US-017-turnstile-observability-and-stale-tab-ux.md` |
 | US-018 | Admin UI 接入第五平台 newapi（端到端可创建组与账号） | Draft  | `.testing/user-stories/stories/US-018-admin-ui-newapi-platform-end-to-end.md` |
+| US-019 | newapi 账号暴露 model_mapping / status_code_mapping / openai_organization 三个真实影响转发的字段 | InTest | `.testing/user-stories/stories/US-019-newapi-forwarding-affecting-fields.md` |
+| US-020 | 调度快照重建必须包含第五平台 newapi（防 PlatformNewAPI 漂移性丢失） | InTest | `.testing/user-stories/stories/US-020-newapi-scheduler-snapshot-includes-fifth-platform.md` |
+| US-021 | newapi 账号保存时自动解析 Moonshot 区域 base URL（.cn vs .ai） | InTest | `.testing/user-stories/stories/US-021-newapi-moonshot-regional-resolve-on-save.md` |
