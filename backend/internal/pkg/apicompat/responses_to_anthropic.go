@@ -127,6 +127,19 @@ type ResponsesEventToAnthropicState struct {
 	ContentBlockOpen  bool
 	CurrentBlockType  string // "text" | "thinking" | "tool_use"
 
+	// EmittedAnyContentBlock records whether any content_block_start event has
+	// been produced for this stream. Used by the empty-stream schema firewall
+	// (US-027): when the upstream stream ends without emitting a single content
+	// block, the gateway would otherwise send Claude Code a `message_start`
+	// immediately followed by `message_delta` + `message_stop` with zero content
+	// — a shape that triggers session-JSONL corruption in Claude Code
+	// (anthropics/claude-code#24662). resToAnthHandleCompleted and
+	// FinalizeResponsesAnthropicStream both call ensureContentBlockEmittedAsEmptyText
+	// just before message_delta to inject one empty-text content_block_start/_stop
+	// pair when this flag is still false. See
+	// docs/approved/openai-codex-as-claude-thinking-continuity.md §2.1.
+	EmittedAnyContentBlock bool
+
 	// OutputIndexToBlockIdx maps Responses output_index → Anthropic content block index.
 	OutputIndexToBlockIdx map[int]int
 
@@ -188,6 +201,10 @@ func FinalizeResponsesAnthropicStream(state *ResponsesEventToAnthropicState) []A
 
 	var events []AnthropicStreamEvent
 	events = append(events, closeCurrentBlock(state)...)
+	// US-027: same schema firewall as resToAnthHandleCompleted, but for the
+	// premature-stream-end path (upstream cut us off before sending a terminal
+	// event).
+	events = append(events, ensureContentBlockEmittedAsEmptyText(state)...)
 
 	events = append(events,
 		AnthropicStreamEvent{
@@ -205,6 +222,33 @@ func FinalizeResponsesAnthropicStream(state *ResponsesEventToAnthropicState) []A
 	)
 	state.MessageStopSent = true
 	return events
+}
+
+// ensureContentBlockEmittedAsEmptyText injects a single empty-text content block
+// when the streaming state has produced no real content blocks. Used by both
+// terminal handlers (resToAnthHandleCompleted + FinalizeResponsesAnthropicStream)
+// to guarantee the Anthropic SSE stream never closes with zero content blocks
+// — see US-027 / anthropics/claude-code#24662.
+//
+// No-op when state.EmittedAnyContentBlock is true (the normal happy path).
+func ensureContentBlockEmittedAsEmptyText(state *ResponsesEventToAnthropicState) []AnthropicStreamEvent {
+	if state.EmittedAnyContentBlock {
+		return nil
+	}
+	idx := state.ContentBlockIndex
+	state.ContentBlockIndex++
+	state.EmittedAnyContentBlock = true
+	return []AnthropicStreamEvent{
+		{
+			Type:         "content_block_start",
+			Index:        &idx,
+			ContentBlock: &AnthropicContentBlock{Type: "text", Text: ""},
+		},
+		{
+			Type:  "content_block_stop",
+			Index: &idx,
+		},
+	}
 }
 
 // ResponsesAnthropicEventToSSE formats an AnthropicStreamEvent as an SSE line pair.
@@ -262,6 +306,7 @@ func resToAnthHandleOutputItemAdded(evt *ResponsesStreamEvent, state *ResponsesE
 		state.OutputIndexToBlockIdx[evt.OutputIndex] = idx
 		state.ContentBlockOpen = true
 		state.CurrentBlockType = "tool_use"
+		state.EmittedAnyContentBlock = true
 
 		events = append(events, AnthropicStreamEvent{
 			Type:  "content_block_start",
@@ -283,6 +328,7 @@ func resToAnthHandleOutputItemAdded(evt *ResponsesStreamEvent, state *ResponsesE
 		state.OutputIndexToBlockIdx[evt.OutputIndex] = idx
 		state.ContentBlockOpen = true
 		state.CurrentBlockType = "thinking"
+		state.EmittedAnyContentBlock = true
 
 		events = append(events, AnthropicStreamEvent{
 			Type:  "content_block_start",
@@ -314,6 +360,7 @@ func resToAnthHandleTextDelta(evt *ResponsesStreamEvent, state *ResponsesEventTo
 		idx := state.ContentBlockIndex
 		state.ContentBlockOpen = true
 		state.CurrentBlockType = "text"
+		state.EmittedAnyContentBlock = true
 
 		events = append(events, AnthropicStreamEvent{
 			Type:  "content_block_start",
@@ -431,6 +478,7 @@ func resToAnthHandleWebSearchDone(evt *ResponsesStreamEvent, state *ResponsesEve
 		Index: &idx1,
 	})
 	state.ContentBlockIndex++
+	state.EmittedAnyContentBlock = true
 
 	// Emit web_search_tool_result block (start + stop).
 	// Content is empty because OpenAI does not expose individual search results;
@@ -462,6 +510,13 @@ func resToAnthHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 
 	var events []AnthropicStreamEvent
 	events = append(events, closeCurrentBlock(state)...)
+	// US-027 schema firewall: a terminal event MUST be preceded by at least one
+	// content_block_start/_stop pair. If the upstream stream emitted neither
+	// real content nor a synthesizable delta, inject an empty-text block here so
+	// Claude Code never persists a content-less message into its session JSONL
+	// (anthropics/claude-code#24662). Mirrors the non-streaming fallback in
+	// ResponsesToAnthropic (`if len(blocks) == 0 { append empty text }`).
+	events = append(events, ensureContentBlockEmittedAsEmptyText(state)...)
 
 	stopReason := "end_turn"
 	if evt.Response != nil {

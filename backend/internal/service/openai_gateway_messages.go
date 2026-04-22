@@ -473,6 +473,11 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	}
 
 	// finalizeStream sends any remaining Anthropic events and returns the result.
+	// US-027 safety net (empty-content schema firewall) lives one layer down in
+	// apicompat: resToAnthHandleCompleted and FinalizeResponsesAnthropicStream
+	// both call ensureContentBlockEmittedAsEmptyText to guarantee at least one
+	// content_block_start/_stop pair before message_delta/_stop. See
+	// docs/approved/openai-codex-as-claude-thinking-continuity.md §2.1.
 	finalizeStream := func() (*OpenAIForwardResult, error) {
 		if finalEvents := apicompat.FinalizeResponsesAnthropicStream(state); len(finalEvents) > 0 {
 			for _, evt := range finalEvents {
