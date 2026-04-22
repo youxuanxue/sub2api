@@ -5,7 +5,7 @@ approved_by: pending
 authors: [agent]
 created: 2026-04-22
 related_prs: []
-related_stories: [US-019, US-020, US-021, US-022, US-023]
+related_stories: [US-019, US-020, US-021, US-022, US-023, US-024]
 parent_design: docs/approved/admin-ui-newapi-platform-end-to-end.md
 ---
 
@@ -92,6 +92,24 @@ Moonshot 默认域且 API key 非空且 platform=newapi"四道短路条件，命
   分支，newapi 分组徽章会回退到 catch-all 蓝色（与 gemini 同色）；同
   文件下方的"账号选择面板"已有正确的 cyan 色——前后不一致是 PR #19
   的遗漏。修复：补 cyan 分支，与下方面板对齐。
+- **Round-3 audit fixes（再过一遍 admin 批量 + ops 可观测性，US-024）**：
+  US-022/023 之后第三轮 audit 把目标转向 admin 批量导入与 ops 卡片粒度
+  上的 newapi 静默路径。修了 2 处——
+  (a) `account_handler.go::BatchCreate` 漏拷 `ChannelType` 与
+  `LoadFactor` 到 `CreateAccountInput`，且漏调
+  `tkValidateNewAPIAccountCreate`。后果：单条 Create 走得通的 newapi
+  导入流程在批量路径上 100% 失败（service 层会以
+  "channel_type must be > 0 for newapi platform" 拒绝），且
+  load_factor 在批量路径上对所有平台都被静默丢弃。修复：透传
+  `ChannelType` / `LoadFactor`，并在循环开头先调
+  `tkValidateNewAPIAccountCreate` 给清晰错误信息。
+  (b) `ops_repo_openai_token_stats.go` 写死 `WHERE ul.model LIKE 'gpt%'`
+  过滤。后果：选择 `platform=newapi` 看 OpenAI Token Stats 卡片几乎永
+  远空表（newapi 下游 model id 几乎不以 gpt 前缀，例如
+  `moonshot-v1-32k`、`claude-3-5-sonnet`、自定义渠道名），等价于
+  newapi 在该卡片上没有可观测性。修复：仅当
+  `Platform != PlatformNewAPI` 时保留 gpt 前缀过滤；newapi 选项放行所
+  有 model id。OpenAI 卡片本身语义不变（含 gpt% 子句的回归测试保护）。
 
 ### 1.2 Out-of-scope（明确推迟）
 
@@ -157,6 +175,24 @@ pass 时再做。
   - `backend/internal/repository/simple_mode_default_groups_integration_test.go`
     - `TestEnsureSimpleModeDefaultGroups_CreatesMissingDefaults` 已扩展
       断言 `newapi-default` 存在。
+- US-024（admin 批量 + ops 可观测性 audit round 3）：
+  - `backend/internal/handler/admin/us024_account_handler_batch_create_test.go`
+    - `TestUS024_BatchCreate_NewAPI_ForwardsChannelTypeAndLoadFactor`（正向：
+      ChannelType=14 / LoadFactor=200 必须透传到 CreateAccountInput）
+    - `TestUS024_BatchCreate_NewAPI_RejectsZeroChannelType`（负向：
+      handler 层校验拦截，不到达 CreateAccount）
+    - `TestUS024_BatchCreate_NewAPI_RejectsMissingBaseURL`（负向：
+      base_url 缺失被拒）
+    - `TestUS024_BatchCreate_AnthropicWithoutChannelType_StillPasses`（回归：
+      其它平台批量导入未被新校验误伤）
+  - `backend/internal/repository/us024_newapi_token_stats_filter_test.go`
+    - `TestUS024_OpenAITokenStats_NewAPI_SkipsGPTPrefixFilter`（正向：
+      newapi 时 SQL 不含 `ul.model LIKE 'gpt%'`，moonshot/claude-shape
+      模型可见）
+    - `TestUS024_OpenAITokenStats_OpenAI_KeepsGPTPrefixFilter`（回归：
+      OpenAI 卡片仍只显示 gpt 前缀模型）
+    - `TestUS024_OpenAITokenStats_NoPlatform_KeepsGPTPrefixFilter`（回归：
+      未指定平台时仍保留 gpt 前缀子句，行为与修复前一致）
 - US-023（runtime audit round 2）：
   - `backend/internal/service/us023_newapi_handle429_test.go`
     - `TestUS023_NewAPI_Handle429_ParsesOpenAICompatBody`（newapi 429

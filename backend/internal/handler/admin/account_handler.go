@@ -1192,6 +1192,19 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 				})
 				continue
 			}
+			// US-024: 单条 Create 走 tkValidateNewAPIAccountCreate，BatchCreate 此前漏调，
+			// 导致 newapi 行只能在 service 层被 "channel_type must be > 0" 拦截，错误信息
+			// 不一致；同时 channel_type / load_factor 之前未透传，使 newapi 批量创建在
+			// service 层 100% 失败。这里补齐验证 + 字段透传。
+			if msg := tkValidateNewAPIAccountCreate(item.Platform, item.ChannelType, item.Credentials); msg != "" {
+				failed++
+				results = append(results, gin.H{
+					"name":    item.Name,
+					"success": false,
+					"error":   msg,
+				})
+				continue
+			}
 
 			// base_rpm 输入校验：负值归零，超过 10000 截断
 			sanitizeExtraBaseRPM(item.Extra)
@@ -1208,7 +1221,9 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 				ProxyID:               item.ProxyID,
 				Concurrency:           item.Concurrency,
 				Priority:              item.Priority,
+				ChannelType:           item.ChannelType,
 				RateMultiplier:        item.RateMultiplier,
+				LoadFactor:            item.LoadFactor,
 				GroupIDs:              item.GroupIDs,
 				ExpiresAt:             item.ExpiresAt,
 				AutoPauseOnExpired:    item.AutoPauseOnExpired,
