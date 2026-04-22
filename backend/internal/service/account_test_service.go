@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
@@ -181,7 +182,66 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		return s.routeAntigravityTest(c, account, modelID, prompt)
 	}
 
+	if account.Platform == PlatformNewAPI {
+		return s.testNewAPIAccountConnection(c, account)
+	}
+
 	return s.testClaudeAccountConnection(c, account, modelID)
+}
+
+// testNewAPIAccountConnection probes a fifth-platform `newapi` account by
+// calling the same upstream model-list endpoint admin uses for "获取模型列表"
+// (FetchUpstreamModelList). A successful 200 with at least one model proves
+// (a) base_url is reachable, (b) api_key is accepted by the upstream, and
+// (c) the channel-type → upstream-shape resolution is correct. We deliberately
+// do NOT execute a chat/completions probe here because newapi accounts may
+// be configured for niche shapes (Ollama/Gemini-style) where a generic
+// /v1/chat/completions probe would yield false negatives.
+func (s *AccountTestService) testNewAPIAccountConnection(c *gin.Context, account *Account) error {
+	ctx := c.Request.Context()
+
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
+	c.Writer.Flush()
+
+	apiKey := strings.TrimSpace(account.GetCredential("api_key"))
+	if apiKey == "" {
+		return s.sendErrorAndEnd(c, "No API key available")
+	}
+	baseURL := strings.TrimSpace(account.GetCredential("base_url"))
+	channelType := account.ChannelType
+	if channelType <= 0 {
+		return s.sendErrorAndEnd(c, "Account is missing channel_type; reconfigure under the newapi platform")
+	}
+
+	probeLabel := fmt.Sprintf("newapi/channel_type=%d", channelType)
+	s.sendEvent(c, TestEvent{Type: "test_start", Model: probeLabel})
+
+	models, err := newapiintegration.FetchUpstreamModelList(ctx, baseURL, channelType, apiKey)
+	if err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Upstream probe failed: %s", err.Error()))
+	}
+	preview := ""
+	if len(models) > 0 {
+		head := models
+		if len(head) > 5 {
+			head = head[:5]
+		}
+		preview = strings.Join(head, ", ")
+		if len(models) > len(head) {
+			preview = fmt.Sprintf("%s … (+%d more)", preview, len(models)-len(head))
+		}
+	}
+	s.sendEvent(c, TestEvent{
+		Type:    "test_end",
+		Status:  "success",
+		Success: true,
+		Text:    fmt.Sprintf("Reachable. %d model(s) returned: %s", len(models), preview),
+		Data:    map[string]any{"model_count": len(models)},
+	})
+	return nil
 }
 
 // testClaudeAccountConnection tests an Anthropic Claude account's connection

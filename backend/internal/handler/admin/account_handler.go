@@ -1895,6 +1895,32 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
+	// Handle fifth platform `newapi` accounts.
+	// newapi accounts route OpenAI-compatible payloads through the new-api adaptor
+	// pool, so the model space is whatever the upstream channel exposes. The admin
+	// UI has a dedicated probe (POST /api/v1/admin/channel-types/fetch-upstream-models)
+	// for live model discovery; this endpoint must NOT fall through to the Claude
+	// catalog. We mirror openai's behavior: prefer model_mapping keys when set,
+	// otherwise return an empty list (the UI shows "configure model_mapping" hint).
+	if account.Platform == service.PlatformNewAPI {
+		mapping := account.GetModelMapping()
+		if len(mapping) == 0 {
+			response.Success(c, []openai.Model{})
+			return
+		}
+		models := make([]openai.Model, 0, len(mapping))
+		for requestedModel := range mapping {
+			models = append(models, openai.Model{
+				ID:          requestedModel,
+				Object:      "model",
+				Type:        "model",
+				DisplayName: requestedModel,
+			})
+		}
+		response.Success(c, models)
+		return
+	}
+
 	// Handle Claude/Anthropic accounts
 	// For OAuth and Setup-Token accounts: return default models
 	if account.IsOAuth() {
