@@ -421,7 +421,12 @@ GitHub Actions 不再用长期 AWS 凭证，**OIDC 临时换 STS** → `ssm:Send
        CreateOIDCProvider=false   # 已在 step 1 手动创建
    ```
 
-   首次 PR 自验时可临时把 `AllowedSubjects` 加上当前分支 ref，验完缩回 main。
+   首次 PR 自验时可临时把 `AllowedSubjects` 加上当前分支 ref，验完后**用同样的命令** redeploy 把它去掉即可（`AllowedSubjects` 是普通参数，可以反复改；只有 `CreateOIDCProvider` 不能反复 flip，见下方坑位）。
+
+   > **坑位（2026-04-22 真实事故）**：`CreateOIDCProvider` 参数**只在第一次 deploy 时选定一次**，之后每次 redeploy 都必须保持同值。
+   > - 如果首次用 `true`（让本栈创建 provider），之后所有 redeploy 都必须保持 `true`，否则 CFN 会把 provider 当成「资源被移除」直接删除（已加 `DeletionPolicy: Retain` 兜底，但仍会脱离栈管理，下一次再 flip 回 `true` 会因为 provider 已存在而 `EntityAlreadyExists` 失败）。
+   > - 如果首次用 `false`（手动 step 1 已创建 provider），之后保持 `false` 即可。
+   > 简言之：**首次定一次，后续不改这个参数**。要改 `AllowedSubjects` / `TargetInstanceId` / `GitHubRepo` 都没问题。
 
 3. **GitHub repo variables（Settings → Secrets and variables → Actions → Variables）**：
 
