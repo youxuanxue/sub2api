@@ -18,7 +18,15 @@ type ChannelContextInput struct {
 	APIKey      string
 	// ModelMappingJSON is optional JSON object for New API model_mapping (same as New API Gin key "model_mapping").
 	ModelMappingJSON string
-	Organization     string
+	// Organization is optional OpenAI Organization header value; New API relay handlers read
+	// it from Gin key "channel_organization" to set OpenAI-Organization on outbound requests.
+	Organization string
+	// StatusCodeMappingJSON is an optional JSON object that remaps upstream HTTP status
+	// codes per New API's status_code_mapping contract (e.g. {"404":"500"}). It is read
+	// downstream by every relay handler in new-api/relay/* via c.GetString("status_code_mapping"),
+	// so accounts that need to mask transient upstream errors as 5xx (or vice versa) MUST
+	// have this populated here. Empty / "{}" disables remapping.
+	StatusCodeMappingJSON string
 	// UserID is optional; used for RelayInfo / diagnostics (Sub2API billing does not use New API quota).
 	UserID int
 	// UserGroup / UsingGroup optional, for affinity/logging alignment.
@@ -51,6 +59,9 @@ func PopulateContextKeys(c *gin.Context, in ChannelContextInput) {
 
 	if in.ModelMappingJSON != "" && in.ModelMappingJSON != "{}" {
 		c.Set("model_mapping", in.ModelMappingJSON)
+	}
+	if in.StatusCodeMappingJSON != "" && in.StatusCodeMappingJSON != "{}" {
+		c.Set("status_code_mapping", in.StatusCodeMappingJSON)
 	}
 }
 

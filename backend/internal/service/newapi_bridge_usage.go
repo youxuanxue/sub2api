@@ -73,14 +73,24 @@ func newAPIBridgeChannelInput(account *Account, userID int64, groupLabel string)
 	if apiKey == "" {
 		apiKey = strings.TrimSpace(account.GetOpenAIApiKey())
 	}
+	// Forwarding-affecting credentials that the new-api relay handlers read from
+	// the Gin context (see PopulateContextKeys). Storing them under credentials
+	// keeps them with the account that owns them; UI exposes them via the
+	// AccountNewApiPlatformFields component (US-019). Empty values are skipped
+	// downstream by PopulateContextKeys, so plain ascii whitespace-only inputs
+	// effectively disable the feature, mirroring upstream new-api semantics.
+	organization := strings.TrimSpace(account.GetCredential("openai_organization"))
+	statusCodeMappingJSON := strings.TrimSpace(account.GetCredential("status_code_mapping"))
 	return bridge.ChannelContextInput{
-		ChannelType:      account.ChannelType,
-		ChannelID:        int(account.ID),
-		BaseURL:          baseURL,
-		APIKey:           apiKey,
-		ModelMappingJSON: mappingJSON,
-		UserID:           int(userID),
-		UserGroup:        groupLabel,
-		UsingGroup:       groupLabel,
+		ChannelType:           account.ChannelType,
+		ChannelID:             int(account.ID),
+		BaseURL:               baseURL,
+		APIKey:                apiKey,
+		ModelMappingJSON:      mappingJSON,
+		Organization:          organization,
+		StatusCodeMappingJSON: statusCodeMappingJSON,
+		UserID:                int(userID),
+		UserGroup:             groupLabel,
+		UsingGroup:            groupLabel,
 	}
 }

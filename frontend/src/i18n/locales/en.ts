@@ -2620,7 +2620,15 @@ export default {
         apiKeyEditHint: 'Leave empty to keep current key',
         pleaseSelectChannelType: 'Please select a New API channel type',
         pleaseEnterBaseUrl: 'Please enter upstream Base URL',
-        pleaseEnterApiKey: 'Please enter upstream API Key'
+        pleaseEnterApiKey: 'Please enter upstream API Key',
+        modelMapping: 'Model Mapping (JSON, optional)',
+        modelMappingHint: 'Aliases the requester-supplied model name before forwarding (e.g. {"gpt-4":"gpt-4-turbo"}). Leave empty to pass through.',
+        statusCodeMapping: 'Status Code Mapping (JSON, optional)',
+        statusCodeMappingHint: 'Remaps upstream HTTP status codes (e.g. {"404":"500"}). Leave empty to pass through.',
+        openaiOrganization: 'OpenAI Organization (optional)',
+        openaiOrganizationHint: 'Sent as the OpenAI-Organization header on outbound requests. Leave empty to omit.',
+        jsonInvalid: 'Must be valid JSON',
+        jsonObjectRequired: 'Must be a JSON object'
       },
       // OAuth flow
       oauth: {
