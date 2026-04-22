@@ -5,7 +5,7 @@ approved_by: pending
 authors: [agent]
 created: 2026-04-22
 related_prs: []
-related_stories: [US-019, US-020, US-021, US-022]
+related_stories: [US-019, US-020, US-021, US-022, US-023]
 parent_design: docs/approved/admin-ui-newapi-platform-end-to-end.md
 ---
 
@@ -72,6 +72,26 @@ Moonshot 默认域且 API key 非空且 platform=newapi"四道短路条件，命
 - **ChannelTypeBadge**：新建 `frontend/src/components/common/ChannelTypeBadge.vue`，
 在 `AccountsView` 列表里把 newapi 账号的 `channel_type` 数字翻译成可读
 友好名（"Moonshot" / "DeepSeek" 等），让运维一眼看出账号配的是哪个上游。
+- **Round-2 audit fixes（再过一遍 runtime 路径，US-023）**：US-022 收
+  口 admin 平面之后又跑了一轮 audit，把目标转向 runtime 热路径。发现
+  并修复 3 处——
+  (a) `ratelimit_service.go::handle429` body-parse switch 漏 newapi
+  分支：当 upstream 返回 429 但响应头没有 `anthropic-ratelimit-unified-reset`
+  时，OpenAI 的 `usage_limit_reached` 体（new-api adaptor 透传）被忽略，
+  newapi 账号被默认 5 分钟锁兜底——而真实 reset 往往是数小时到数天，
+  会导致重复打满。修复：把 `PlatformNewAPI` 与 `PlatformOpenAI` 合并到
+  同一 case 走 `parseOpenAIRateLimitResetTime`。
+  (b) `ops_retry.go::detectOpsRetryType` 把 `/v1/chat/completions` 错
+  分类为 `opsRetryTypeMessages`，导致 admin "重试此请求" 在 chat
+  completions 错误日志上对 OpenAI/NewAPI 账号必然失败（用 Anthropic 解
+  析器 + Anthropic 转发器）。修复：新增 `/chat/completions` → `opsRetryTypeOpenAI`
+  分支。同时 `executeWithAccount` messages-default 加守卫——任何
+  PlatformOpenAI/PlatformNewAPI 账号走到这里都返回 explicit failure
+  并指向 `opsRetryTypeOpenAI`，防止未来分类器回归被静默吃掉。
+  (c) `GroupsView.vue` 主表 platform badge 三元链漏 `value === 'newapi'`
+  分支，newapi 分组徽章会回退到 catch-all 蓝色（与 gemini 同色）；同
+  文件下方的"账号选择面板"已有正确的 cyan 色——前后不一致是 PR #19
+  的遗漏。修复：补 cyan 分支，与下方面板对齐。
 
 ### 1.2 Out-of-scope（明确推迟）
 
@@ -137,6 +157,18 @@ pass 时再做。
   - `backend/internal/repository/simple_mode_default_groups_integration_test.go`
     - `TestEnsureSimpleModeDefaultGroups_CreatesMissingDefaults` 已扩展
       断言 `newapi-default` 存在。
+- US-023（runtime audit round 2）：
+  - `backend/internal/service/us023_newapi_handle429_test.go`
+    - `TestUS023_NewAPI_Handle429_ParsesOpenAICompatBody`（newapi 429
+      响应体里的 `resets_at` 必须被采用，**不**走 5min 默认）
+    - `TestUS023_NewAPI_Handle429_FallsBackTo5MinWhenBodyHasNoResetTime`
+      （负向：缺 reset 字段时 5min 兜底依旧生效，确保修复未"过度解析"）
+    - `TestUS023_OpsRetry_ClassifiesChatCompletionsAsOpenAI`
+      （`/chat/completions` → `opsRetryTypeOpenAI`，`/v1/messages` /
+      `/v1/responses` / `/v1beta/...` 4 条历史分类回归保护）
+    - `TestUS023_OpsRetry_ExecuteWithAccount_GuardsOpenAICompatInMessagesDefault`
+      （PlatformOpenAI/PlatformNewAPI 在 messages-default 走守卫并 fail
+      fast，**不**调用 `gatewayService.Forward`）
 - 前端 vitest：`ChannelTypeBadge.spec.ts` 渲染断言。
 
 ### 3.2 手动 stage-4 smoke
