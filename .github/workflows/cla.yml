@@ -31,7 +31,13 @@ jobs:
           path-to-signatures: "cla.json"
           path-to-document: "https://github.com/Wei-Shaw/sub2api/blob/main/CLA.md"
           branch: "cla-signatures"
-          allowlist: "dependabot[bot],renovate[bot],bot*"
+          # NOTE: yyy@no-replay.com is the placeholder commit identity used by
+          # the maintainer's local git config; commits with this email cannot
+          # be mapped to a GitHub user, so the CLA Assistant cannot match the
+          # signature comment. Adding it to allowlist unblocks the PR. Long-term
+          # fix is to set a real `git config user.email` linked to the GitHub
+          # account; once that lands, this entry can be removed.
+          allowlist: "dependabot[bot],renovate[bot],bot*,yyy@no-replay.com"
           lock-pullrequest-aftermerge: false
           custom-notsigned-prcomment: |
             Thank you for your contribution! Before we can merge this PR, we need $you to sign our [Contributor License Agreement (CLA)](https://github.com/Wei-Shaw/sub2api/blob/main/CLA.md).
@@ -56,4 +62,5 @@ jobs:
           path-to-signatures: "cla.json"
           path-to-document: "https://github.com/Wei-Shaw/sub2api/blob/main/CLA.md"
           branch: "cla-signatures"
+          allowlist: "dependabot[bot],renovate[bot],bot*,yyy@no-replay.com"
           lock-pullrequest-aftermerge: true
