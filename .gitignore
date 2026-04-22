@@ -127,6 +127,8 @@ scripts/*
 !scripts/release-tag.sh
 !scripts/preflight.sh
 !scripts/check_approved_docs.py
+!scripts/newapi-sentinels.json
+!scripts/check-newapi-sentinels.py
 .code-review-state
 #openspec/
 code-reviews/

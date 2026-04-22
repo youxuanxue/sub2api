@@ -4,13 +4,19 @@
 #
 # Per CLAUDE.md § 10, the dev-rules submodule template
 # (`dev-rules/templates/preflight.sh`, 8 sections) covers everything
-# generic. This wrapper exists ONLY because sub2api has one project-
-# specific check that does not belong in the shared template:
+# generic. This wrapper exists ONLY because sub2api has project-
+# specific checks that do not belong in the shared template:
 #
-#   § 9  newapi compat-pool drift  — guards the P0 regression that
+#   § 9  newapi compat-pool drift   — guards the P0 regression that
 #        triggered docs/approved/newapi-as-fifth-platform.md (any new
 #        scheduler/gateway caller must use IsOpenAICompatPoolMember /
 #        OpenAICompatPlatforms instead of bare PlatformOpenAI / IsOpenAI).
+#   § 10 newapi sentinel registry   — guards the recurring upstream-merge
+#        regression where load-bearing fifth-platform files / symbols get
+#        silently deleted. Driven by `scripts/newapi-sentinels.json`
+#        (single source of truth) via `scripts/check-newapi-sentinels.py`.
+#        The same script is invoked by
+#        `.github/workflows/upstream-merge-pr-shape.yml` Check 4.
 #
 # Sections 1-8 (branch naming, submodule pointer, .cursor/rules drift,
 # agent contract drift, story/test alignment, docs/approved discipline,
@@ -80,11 +86,30 @@ else
     echo "  ok: scheduler / gateway filters use IsOpenAICompatPoolMember predicate"
 fi
 
+# ---- § 10: sub2api-specific newapi sentinel registry ------------------------
+# Source of truth: scripts/newapi-sentinels.json. Verifies that every
+# load-bearing surface of the fifth platform (`newapi`) — TK companion files,
+# canonical predicates, frontend platform enumerations — is still present.
+# This catches the failure mode that triggered this guard: an upstream merge
+# silently dropping a file or a switch-case branch and the regression only
+# surfacing weeks later in production.
+echo ""
+echo "=== § 10 sub2api: newapi sentinel registry ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required to read newapi-sentinels.json)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/check-newapi-sentinels.py --quiet; then
+    # check-newapi-sentinels.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: all newapi sentinels intact"
+fi
+
 echo ""
 if [ "$errors" -eq 0 ]; then
-    echo "=== preflight (with § 9 sub2api): PASS ==="
+    echo "=== preflight (with § 9 + § 10 sub2api): PASS ==="
     exit 0
 else
-    echo "=== preflight (with § 9 sub2api): FAIL ($errors check(s) failed in § 9) ==="
+    echo "=== preflight (with § 9 + § 10 sub2api): FAIL ($errors check(s) failed) ==="
     exit 1
 fi
