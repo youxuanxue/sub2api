@@ -1,5 +1,17 @@
 name: Error Clustering Daily
 
+# Runs the error_clustering binary against prod PostgreSQL via AWS SSM
+# Run-Command on the prod EC2 host. Path:
+#   GHA → AWS STS (OIDC) → ssm:SendCommand → EC2 → docker run --network
+#   tokenkey_default + /usr/local/bin/error_clustering → reports back via stdout
+# No long-lived AWS credentials, no PostgreSQL port exposure to the internet.
+#
+# Graceful degradation contract (from docs/approved/ops_xx.md):
+# - If AWS_OIDC_ROLE_ARN repo variable is empty, the job emits a "skip:"
+#   report and exits 0. Same shape as the previous PG_DSN-missing skip path.
+# - If qa_records is missing on the target environment, the binary itself
+#   emits an empty cluster list and the job still exits 0.
+
 on:
   schedule:
     - cron: "0 2 * * *"
@@ -12,40 +24,129 @@ on:
 
 permissions:
   contents: write
+  id-token: write
   issues: write
   pull-requests: write
 
 jobs:
   cluster:
     runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      STACK_NAME: ${{ vars.PROD_STACK_NAME || 'tokenkey-prod-stage0' }}
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: backend/go.mod
-
-      - name: Run clustering
-        env:
-          PG_DSN: ${{ secrets.PROD_PG_READONLY_DSN }}
+      - name: Precheck OIDC role
+        id: precheck
         run: |
-          if [ -z "${PG_DSN:-}" ]; then
-            echo "PG_DSN is empty, skip clustering run"
+          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
+            echo "AWS_OIDC_ROLE_ARN repo variable not set; skipping clustering run"
             cat > report.json <<'EOF'
-          {"summary":"skip: PROD_PG_READONLY_DSN missing","clusters":[],"persistent_clusters":[]}
+          {"summary":"skip: AWS_OIDC_ROLE_ARN missing","clusters":[],"persistent_clusters":[]}
           EOF
             cat > report.md <<'EOF'
           # Error Clustering
 
-          skipped: PROD_PG_READONLY_DSN is not configured
+          skipped: AWS_OIDC_ROLE_ARN repo variable is not configured
           EOF
-            exit 0
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
-          cd backend
-          go run ../scripts/error_clustering \
-            --since-hours "${{ inputs.since_hours || '24' }}" \
-            --output ../report.json \
-            --markdown ../report.md
+
+      - name: Configure AWS credentials via OIDC
+        if: steps.precheck.outputs.skip == 'false'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve prod instance ID
+        if: steps.precheck.outputs.skip == 'false'
+        id: instance
+        run: |
+          ID=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
+            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)
+          if [ -z "$ID" ] || [ "$ID" = "None" ]; then
+            echo "could not resolve InstanceId from stack $STACK_NAME" >&2
+            exit 1
+          fi
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
+      - name: Run clustering on prod EC2 via SSM
+        if: steps.precheck.outputs.skip == 'false'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          SINCE_HOURS: ${{ inputs.since_hours || '24' }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$SINCE_HOURS" | grep -Eq '^[0-9]+$'; then
+            echo "::error::since_hours must be a positive integer, got: $SINCE_HOURS"
+            exit 1
+          fi
+          jq -n --arg sh "$SINCE_HOURS" '{
+            commands: [
+              "set -euo pipefail",
+              "PGPASS=$(sudo grep \u0027^POSTGRES_PASSWORD=\u0027 /var/lib/tokenkey/.env | cut -d= -f2-)",
+              "[ -n \"$PGPASS\" ] || { echo no_pg_password >&2; exit 2; }",
+              "OUT=/tmp/clustering",
+              "sudo rm -rf \"$OUT\" && sudo mkdir -p \"$OUT\" && sudo chmod 0777 \"$OUT\"",
+              "NET=$(sudo docker inspect tokenkey-postgres --format \u0027{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}\u0027)",
+              ("sudo docker run --rm --network \"$NET\" -v /usr/local/bin/error_clustering:/binary:ro -v \"$OUT\":/out -e PG_DSN=\"postgres://tokenkey:$PGPASS@tokenkey-postgres:5432/tokenkey?sslmode=disable\" alpine:3.21 /binary --since-hours " + $sh + " --output /out/report.json --markdown /out/report.md"),
+              "echo ===BEGIN_REPORT_JSON===",
+              "base64 -w0 \"$OUT/report.json\" 2>/dev/null || base64 \"$OUT/report.json\" | tr -d \u0027\\n\u0027",
+              "echo",
+              "echo ===END_REPORT_JSON===",
+              "echo ===BEGIN_REPORT_MD===",
+              "base64 -w0 \"$OUT/report.md\" 2>/dev/null || base64 \"$OUT/report.md\" | tr -d \u0027\\n\u0027",
+              "echo",
+              "echo ===END_REPORT_MD==="
+            ]
+          }' > ssm-params.json
+
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "error-clustering daily run ${SINCE_HOURS}h" \
+            --parameters file://ssm-params.json \
+            --query 'Command.CommandId' --output text)
+          echo "ssm command-id=$CMD_ID"
+
+          DEADLINE=$(( $(date +%s) + 240 ))
+          while true; do
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+              --query 'Status' --output text 2>/dev/null || echo InProgress)
+            case "$STATUS" in Success|Failed|TimedOut|Cancelled) break ;; esac
+            [ $(date +%s) -lt $DEADLINE ] || { echo "ssm timeout" >&2; STATUS=TimedOut; break; }
+            sleep 6
+          done
+
+          aws ssm get-command-invocation \
+            --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query 'StandardOutputContent' --output text > stdout.txt
+          aws ssm get-command-invocation \
+            --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query 'StandardErrorContent' --output text > stderr.txt
+
+          if [ "$STATUS" != "Success" ]; then
+            echo "::error::ssm command status=$STATUS"
+            echo '--- stderr ---'; cat stderr.txt
+            echo '--- stdout ---'; cat stdout.txt
+            exit 1
+          fi
+
+          awk '/^===BEGIN_REPORT_JSON===$/{f=1;next} /^===END_REPORT_JSON===$/{f=0} f' stdout.txt | tr -d '\n' | base64 -d > report.json
+          awk '/^===BEGIN_REPORT_MD===$/{f=1;next} /^===END_REPORT_MD===$/{f=0} f' stdout.txt | tr -d '\n' | base64 -d > report.md
+
+          if ! jq empty report.json 2>/dev/null; then
+            echo "::error::report.json is not valid JSON"
+            cat stdout.txt
+            exit 1
+          fi
+          jq -r '.summary' report.json
 
       - uses: actions/upload-artifact@v4
         with:
@@ -57,7 +158,7 @@ jobs:
       - name: Decide downstream action
         id: decide
         run: |
-          NEED="$(jq '.persistent_clusters | length' report.json)"
+          NEED="$(jq '.persistent_clusters | length' report.json 2>/dev/null || echo 0)"
           echo "need_action=$([ "${NEED:-0}" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
       - name: Open or update issue (Stage 2A)

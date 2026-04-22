@@ -55,6 +55,21 @@ Hard guardrails:
 - Protected-path diff guard before PR creation.
 - `./scripts/preflight.sh` must pass before draft PR creation.
 
+Transport (since 2026-04-22):
+
+- Workflow runs the clustering binary on the prod EC2 host via AWS SSM
+  Run-Command, authenticated by GitHub OIDC. PostgreSQL is **not** exposed
+  to the public internet; the binary connects to `tokenkey-postgres` via the
+  `tokenkey_default` docker network from a transient `alpine:3.21` container.
+- IAM trust scope: single role per repo+branch (default `main` only),
+  permitted only `ssm:SendCommand` against the prod EC2 instance and the
+  `AWS-RunShellScript` document.
+- IaC: `deploy/aws/cloudformation/cicd-oidc.yaml`. Setup SOP:
+  `deploy/aws/README.md` § "CI 通过 OIDC 调度 SSM".
+- Graceful skip path now keys on `vars.AWS_OIDC_ROLE_ARN` instead of the
+  legacy `secrets.PROD_PG_READONLY_DSN`; same shape (empty → exit 0 with
+  `skip:` summary), no behavior regression for environments not yet wired.
+
 ## 4. Merge-Safe Alignment Rules
 
 - No capability trimming: preserve currently online/admin/upstream behavior.
