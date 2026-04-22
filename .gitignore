@@ -127,6 +127,10 @@ scripts/*
 !scripts/release-tag.sh
 !scripts/preflight.sh
 !scripts/check_approved_docs.py
+!scripts/error_clustering/
+!scripts/error_clustering/**
+!scripts/build-error-clustering-binary.sh
+!scripts/deploy-error-clustering-binary.sh
 .code-review-state
 #openspec/
 code-reviews/
