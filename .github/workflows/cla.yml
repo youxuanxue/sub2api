@@ -31,13 +31,18 @@ jobs:
           path-to-signatures: "cla.json"
           path-to-document: "https://github.com/Wei-Shaw/sub2api/blob/main/CLA.md"
           branch: "cla-signatures"
-          # NOTE: yyy@no-replay.com is the placeholder commit identity used by
-          # the maintainer's local git config; commits with this email cannot
-          # be mapped to a GitHub user, so the CLA Assistant cannot match the
-          # signature comment. Adding it to allowlist unblocks the PR. Long-term
-          # fix is to set a real `git config user.email` linked to the GitHub
-          # account; once that lands, this entry can be removed.
-          allowlist: "dependabot[bot],renovate[bot],bot*,yyy@no-replay.com"
+          # NOTE: `yyy` is the placeholder git author NAME used by the
+          # maintainer's local git config (commits as `yyy <yyy@no-replay.com>`).
+          # Because that email is not linked to any GitHub account, the action
+          # falls back to commit.author.name for matching (see graphql.ts in
+          # contributor-assistant/github-action — extractUserFromCommit returns
+          # commit.author when commit.author.user is null, and committer.name
+          # = login || name). So the allowlist entry must be the git author
+          # NAME, NOT the email. Long-term fix: set a proper `git config
+          # user.email` linked to the GitHub account; once the maintainer's
+          # commits show up with author.user.login = "youxuanxue", remove
+          # this entry.
+          allowlist: "dependabot[bot],renovate[bot],bot*,yyy"
           lock-pullrequest-aftermerge: false
           custom-notsigned-prcomment: |
             Thank you for your contribution! Before we can merge this PR, we need $you to sign our [Contributor License Agreement (CLA)](https://github.com/Wei-Shaw/sub2api/blob/main/CLA.md).
@@ -62,5 +67,5 @@ jobs:
           path-to-signatures: "cla.json"
           path-to-document: "https://github.com/Wei-Shaw/sub2api/blob/main/CLA.md"
           branch: "cla-signatures"
-          allowlist: "dependabot[bot],renovate[bot],bot*,yyy@no-replay.com"
+          allowlist: "dependabot[bot],renovate[bot],bot*,yyy"
           lock-pullrequest-aftermerge: true
