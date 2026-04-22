@@ -21,13 +21,21 @@ func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
 		return nil, err
 	}
 
+	// NOTE(US-027): Do NOT request `reasoning.encrypted_content`.
+	// When Include=reasoning.encrypted_content is set together with Store=false,
+	// the Codex Responses backend treats every multi-turn request as a stateless
+	// "encrypted reasoning continuation" and expects each prior reasoning item to
+	// be echoed back in the next turn's input. Our Anthropic→Responses conversion
+	// drops thinking blocks (see anthropicAssistantToResponses) and we do not
+	// roundtrip the encrypted state, so the upstream silently returns a
+	// 0-token / empty assistant message on the second turn whenever the history
+	// contains thinking + tool_result. See docs/approved/openai-codex-as-claude-thinking-continuity.md.
 	out := &ResponsesRequest{
 		Model:       req.Model,
 		Input:       inputJSON,
 		Temperature: req.Temperature,
 		TopP:        req.TopP,
 		Stream:      req.Stream,
-		Include:     []string{"reasoning.encrypted_content"},
 	}
 
 	storeFalse := false

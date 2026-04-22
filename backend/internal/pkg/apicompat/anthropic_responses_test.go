@@ -513,9 +513,19 @@ func TestStreamingEmptyResponse(t *testing.T) {
 		},
 	}, state)
 
-	require.Len(t, events, 2) // message_delta + message_stop
-	assert.Equal(t, "message_delta", events[0].Type)
-	assert.Equal(t, "end_turn", events[0].Delta.StopReason)
+	// US-027 schema firewall: even when the upstream sends ZERO content events,
+	// we MUST inject one empty-text content_block_start/_stop pair before
+	// message_delta/_stop. Otherwise Claude Code persists a content-less
+	// message into its session JSONL and crashes on reload (claude-code#24662).
+	require.Len(t, events, 4)
+	assert.Equal(t, "content_block_start", events[0].Type)
+	require.NotNil(t, events[0].ContentBlock)
+	assert.Equal(t, "text", events[0].ContentBlock.Type)
+	assert.Equal(t, "", events[0].ContentBlock.Text)
+	assert.Equal(t, "content_block_stop", events[1].Type)
+	assert.Equal(t, "message_delta", events[2].Type)
+	assert.Equal(t, "end_turn", events[2].Delta.StopReason)
+	assert.Equal(t, "message_stop", events[3].Type)
 }
 
 func TestResponsesAnthropicEventToSSE(t *testing.T) {
@@ -592,11 +602,18 @@ func TestStreamingFailedNoOutput(t *testing.T) {
 		},
 	}, state)
 
-	// Should emit message_delta + message_stop (no block to close)
-	require.Len(t, events, 2)
-	assert.Equal(t, "message_delta", events[0].Type)
-	assert.Equal(t, "end_turn", events[0].Delta.StopReason)
-	assert.Equal(t, "message_stop", events[1].Type)
+	// US-027 schema firewall: response.failed with no prior output still must
+	// emit one empty-text content block before message_delta/_stop, otherwise
+	// Claude Code corrupts its session on the failed turn.
+	require.Len(t, events, 4)
+	assert.Equal(t, "content_block_start", events[0].Type)
+	require.NotNil(t, events[0].ContentBlock)
+	assert.Equal(t, "text", events[0].ContentBlock.Type)
+	assert.Equal(t, "", events[0].ContentBlock.Text)
+	assert.Equal(t, "content_block_stop", events[1].Type)
+	assert.Equal(t, "message_delta", events[2].Type)
+	assert.Equal(t, "end_turn", events[2].Delta.StopReason)
+	assert.Equal(t, "message_stop", events[3].Type)
 }
 
 func TestResponsesToAnthropic_Failed(t *testing.T) {
@@ -635,7 +652,12 @@ func TestAnthropicToResponses_ThinkingEnabled(t *testing.T) {
 	// thinking.type is ignored for effort; default high applies.
 	assert.Equal(t, "high", resp.Reasoning.Effort)
 	assert.Equal(t, "auto", resp.Reasoning.Summary)
-	assert.Contains(t, resp.Include, "reasoning.encrypted_content")
+	// US-027: Include must NOT request reasoning.encrypted_content. Pairing it with
+	// Store=false makes the upstream Codex Responses backend expect each prior
+	// reasoning item to be echoed back, which our converter cannot do — the
+	// upstream then silently returns 0-token assistant messages on follow-up turns.
+	assert.NotContains(t, resp.Include, "reasoning.encrypted_content",
+		"US-027 regression: Include must not contain reasoning.encrypted_content (see docs/approved/openai-codex-as-claude-thinking-continuity.md)")
 	assert.NotContains(t, resp.Include, "reasoning.summary")
 }
 
@@ -1134,4 +1156,65 @@ func TestAnthropicToResponses_ToolWithNilSchema(t *testing.T) {
 	require.NoError(t, json.Unmarshal(resp.Tools[0].Parameters, &params))
 	assert.JSONEq(t, `"object"`, string(params["type"]))
 	assert.JSONEq(t, `{}`, string(params["properties"]))
+}
+
+// ---------------------------------------------------------------------------
+// US-027: streaming empty-content safety net
+// ---------------------------------------------------------------------------
+
+// TestUS027_StreamingTextFlow_SetsEmittedFlag verifies the positive-emit path:
+// a normal text streaming sequence must set state.EmittedAnyContentBlock true
+// when it emits the first content_block_start, so the safety net knows to
+// skip synthesis at finalize time.
+func TestUS027_StreamingTextFlow_SetsEmittedFlag(t *testing.T) {
+	state := NewResponsesEventToAnthropicState()
+	require.False(t, state.EmittedAnyContentBlock)
+
+	ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type: "response.created",
+		Response: &ResponsesResponse{ID: "resp_x", Model: "gpt-5.2"},
+	}, state)
+	assert.False(t, state.EmittedAnyContentBlock, "message_start alone must not flip the flag")
+
+	ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type:  "response.output_text.delta",
+		Delta: "hi",
+	}, state)
+	assert.True(t, state.EmittedAnyContentBlock, "first text content_block_start must flip the flag")
+}
+
+// TestUS027_StreamingFunctionCallFlow_SetsEmittedFlag covers the same positive
+// signal for the function_call branch.
+func TestUS027_StreamingFunctionCallFlow_SetsEmittedFlag(t *testing.T) {
+	state := NewResponsesEventToAnthropicState()
+	require.False(t, state.EmittedAnyContentBlock)
+
+	ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type:        "response.output_item.added",
+		OutputIndex: 0,
+		Item:        &ResponsesOutput{Type: "function_call", CallID: "call_x", Name: "tool"},
+	}, state)
+	assert.True(t, state.EmittedAnyContentBlock)
+}
+
+// TestUS027_AnthropicToResponses_NoEncryptedContentInclude is the regression
+// guard for Part B (root cause fix). When Include=reasoning.encrypted_content
+// is paired with Store=false, the Codex Responses backend silently returns
+// 0-token assistant messages on multi-turn requests whose history contains
+// thinking + tool_result. The Include must be empty for the Anthropic→Responses
+// path. See TestAnthropicToResponses_ThinkingEnabled for the same guard on the
+// thinking-enabled code path; this test covers the default request with no
+// thinking explicitly set.
+func TestUS027_AnthropicToResponses_NoEncryptedContentInclude(t *testing.T) {
+	req := &AnthropicRequest{
+		Model:     "claude-opus-4-6",
+		MaxTokens: 1024,
+		Messages:  []AnthropicMessage{{Role: "user", Content: json.RawMessage(`"ping"`)}},
+	}
+	resp, err := AnthropicToResponses(req)
+	require.NoError(t, err)
+	assert.NotContains(t, resp.Include, "reasoning.encrypted_content",
+		"US-027: Anthropic→Responses must not request reasoning.encrypted_content with Store=false")
+	require.NotNil(t, resp.Store)
+	assert.False(t, *resp.Store, "Store must remain false for stateless conversion")
 }
