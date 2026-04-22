@@ -9,7 +9,57 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 )
+
+// PlatformNewAPI mirrors service.PlatformNewAPI without importing the service
+// package (which would create an import cycle: service -> integration/newapi -> service).
+const PlatformNewAPI = "newapi"
+
+// MaybeResolveMoonshotBaseURLForNewAPI performs the save-time Moonshot regional
+// probe iff the account is a newapi/Moonshot account whose configured base URL
+// targets the official api.moonshot.cn / api.moonshot.ai roots. It returns
+// (resolvedBase, didResolve, err):
+//
+//   - didResolve=true means the caller MUST overwrite credentials["base_url"]
+//     with resolvedBase (no trailing slash) so the relay hot path uses the
+//     correct region without per-request fallback.
+//   - didResolve=false (and err==nil) means the helper intentionally skipped
+//     resolution (non-newapi platform, non-Moonshot channel_type, custom
+//     reverse-proxy host, or empty api key); the caller should not modify
+//     base_url.
+//   - err!=nil means probing failed on every official base; the caller should
+//     surface this to the operator instead of silently saving the account
+//     with a potentially wrong region.
+//
+// This helper exists because moonshot_resolve_save.go's ResolveMoonshotRegional
+// BaseAtSave was previously only wired into the admin "fetch model list" path
+// (fetch_upstream_models.go), so newapi/Moonshot accounts created via the
+// admin UI silently kept whatever base_url the user typed. See Bug B notes in
+// docs/approved/admin-ui-newapi-platform-end-to-end.md.
+func MaybeResolveMoonshotBaseURLForNewAPI(ctx context.Context, platform string, channelType int, baseURL, apiKey string) (resolved string, didResolve bool, err error) {
+	if platform != PlatformNewAPI {
+		return "", false, nil
+	}
+	if channelType != newapiconstant.ChannelTypeMoonshot {
+		return "", false, nil
+	}
+	if !ShouldResolveMoonshotBaseURLAtSave(baseURL) {
+		return "", false, nil
+	}
+	if strings.TrimSpace(apiKey) == "" {
+		// Validation of credential completeness is the caller's responsibility;
+		// we just skip cold probing rather than fail the save with a confusing
+		// "moonshot regional resolve: api key is empty" error.
+		return "", false, nil
+	}
+	r, err := ResolveMoonshotRegionalBaseAtSave(ctx, apiKey)
+	if err != nil {
+		return "", false, err
+	}
+	return r, true, nil
+}
 
 // Moonshot 国内站 (api.moonshot.cn) 与国际站 (api.moonshot.ai) 使用不同密钥体系。
 //

@@ -1192,6 +1192,19 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 				})
 				continue
 			}
+			// US-024: 单条 Create 走 tkValidateNewAPIAccountCreate，BatchCreate 此前漏调，
+			// 导致 newapi 行只能在 service 层被 "channel_type must be > 0" 拦截，错误信息
+			// 不一致；同时 channel_type / load_factor 之前未透传，使 newapi 批量创建在
+			// service 层 100% 失败。这里补齐验证 + 字段透传。
+			if msg := tkValidateNewAPIAccountCreate(item.Platform, item.ChannelType, item.Credentials); msg != "" {
+				failed++
+				results = append(results, gin.H{
+					"name":    item.Name,
+					"success": false,
+					"error":   msg,
+				})
+				continue
+			}
 
 			// base_rpm 输入校验：负值归零，超过 10000 截断
 			sanitizeExtraBaseRPM(item.Extra)
@@ -1208,7 +1221,9 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 				ProxyID:               item.ProxyID,
 				Concurrency:           item.Concurrency,
 				Priority:              item.Priority,
+				ChannelType:           item.ChannelType,
 				RateMultiplier:        item.RateMultiplier,
+				LoadFactor:            item.LoadFactor,
 				GroupIDs:              item.GroupIDs,
 				ExpiresAt:             item.ExpiresAt,
 				AutoPauseOnExpired:    item.AutoPauseOnExpired,
@@ -1892,6 +1907,32 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	if account.Platform == service.PlatformAntigravity {
 		// 直接复用 antigravity.DefaultModels()，与 /v1/models 端点保持同步
 		response.Success(c, antigravity.DefaultModels())
+		return
+	}
+
+	// Handle fifth platform `newapi` accounts.
+	// newapi accounts route OpenAI-compatible payloads through the new-api adaptor
+	// pool, so the model space is whatever the upstream channel exposes. The admin
+	// UI has a dedicated probe (POST /api/v1/admin/channel-types/fetch-upstream-models)
+	// for live model discovery; this endpoint must NOT fall through to the Claude
+	// catalog. We mirror openai's behavior: prefer model_mapping keys when set,
+	// otherwise return an empty list (the UI shows "configure model_mapping" hint).
+	if account.Platform == service.PlatformNewAPI {
+		mapping := account.GetModelMapping()
+		if len(mapping) == 0 {
+			response.Success(c, []openai.Model{})
+			return
+		}
+		models := make([]openai.Model, 0, len(mapping))
+		for requestedModel := range mapping {
+			models = append(models, openai.Model{
+				ID:          requestedModel,
+				Object:      "model",
+				Type:        "model",
+				DisplayName: requestedModel,
+			})
+		}
+		response.Success(c, models)
 		return
 	}
 

@@ -103,3 +103,86 @@ func TestAccountHandlerGetAvailableModels_OpenAIOAuthPassthroughFallsBackToDefau
 	require.NotEmpty(t, resp.Data)
 	require.NotEqual(t, "gpt-5", resp.Data[0].ID)
 }
+
+// TestAccountHandlerGetAvailableModels_NewAPI_DoesNotReturnClaudeCatalog is the
+// regression guard for the audit P1 finding: before fix, GetAvailableModels
+// fell through the Claude branch for fifth-platform `newapi` accounts, returning
+// claude.DefaultModels which is a meaningless model list for OpenAI-compat
+// upstreams. Post-fix it must return mapping keys (or an empty array), never
+// the Claude catalog.
+func TestAccountHandlerGetAvailableModels_NewAPI_ReturnsModelMappingKeys(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:          501,
+			Name:        "newapi-moonshot",
+			Platform:    service.PlatformNewAPI,
+			Type:        service.AccountTypeAPIKey,
+			Status:      service.StatusActive,
+			ChannelType: 25, // moonshot
+			Credentials: map[string]any{
+				"api_key":  "k",
+				"base_url": "https://api.moonshot.ai",
+				"model_mapping": map[string]any{
+					"gpt-4o-mini":  "moonshot-v1-8k",
+					"claude-haiku": "moonshot-v1-32k",
+				},
+			},
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/501/models", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	ids := make(map[string]bool, len(resp.Data))
+	for _, m := range resp.Data {
+		ids[m.ID] = true
+	}
+	require.True(t, ids["gpt-4o-mini"], "expected mapping key gpt-4o-mini in newapi available models, got %v", ids)
+	require.True(t, ids["claude-haiku"], "expected mapping key claude-haiku in newapi available models, got %v", ids)
+	require.False(t, ids["claude-3-5-sonnet-20241022"], "must NOT return Claude default catalog for newapi accounts")
+	require.Len(t, resp.Data, 2)
+}
+
+func TestAccountHandlerGetAvailableModels_NewAPI_NoMappingReturnsEmpty(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:          502,
+			Name:        "newapi-no-mapping",
+			Platform:    service.PlatformNewAPI,
+			Type:        service.AccountTypeAPIKey,
+			Status:      service.StatusActive,
+			ChannelType: 1,
+			Credentials: map[string]any{
+				"api_key":  "k",
+				"base_url": "https://example.com",
+			},
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/502/models", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Empty(t, resp.Data, "no mapping → empty list (UI shows configure hint), NOT Claude catalog")
+}

@@ -39,6 +39,9 @@
           v-model:channelType="newapiChannelType"
           v-model:baseUrl="newapiBaseUrl"
           v-model:apiKey="newapiApiKey"
+          v-model:modelMapping="newapiModelMapping"
+          v-model:statusCodeMapping="newapiStatusCodeMapping"
+          v-model:openaiOrganization="newapiOpenAIOrganization"
           :channel-type-options="newapiChannelTypeOptions"
           :channel-types-loading="newapiChannelTypesLoading"
           :channel-types-error="newapiChannelTypesError"
@@ -1950,6 +1953,13 @@ const editApiKey = ref('')
 const newapiChannelType = ref<number>(0)
 const newapiBaseUrl = ref('')
 const newapiApiKey = ref('')
+// US-019: optional forwarding-affecting credentials for newapi accounts.
+// model_mapping is stored as JSON object (Account.GetModelMapping reads it as
+// map[string]any); status_code_mapping is stored as JSON-string (bridge
+// passes it through as-is); openai_organization is plain string.
+const newapiModelMapping = ref('')
+const newapiStatusCodeMapping = ref('')
+const newapiOpenAIOrganization = ref('')
 const newapiChannelTypes = ref<ChannelTypeInfo[]>([])
 const newapiChannelTypesLoading = ref(false)
 const newapiChannelTypesError = ref<string | null>(null)
@@ -1974,6 +1984,20 @@ const isBedrockAPIKeyMode = computed(() =>
 const modelMappings = ref<ModelMapping[]>([])
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
+
+// US-019 helper. See CreateAccountModal::parseJsonObjectOrNull for shared
+// rationale; duplicated here because both modals are siloed components.
+function parseJsonObjectOrNull(raw: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null
+    }
+    return parsed as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
 const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
 const poolModeEnabled = ref(false)
@@ -2336,6 +2360,27 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       newapiChannelType.value = newAccount.channel_type ?? 0
       newapiBaseUrl.value = (credentials.base_url as string) ?? ''
       newapiApiKey.value = ''
+      // Mirror US-019 forwarding-affecting credentials into the local refs so
+      // the shared field component renders existing values. model_mapping is
+      // stringified for textarea editing; the others are plain strings.
+      const existingModelMapping = credentials.model_mapping
+      if (existingModelMapping && typeof existingModelMapping === 'object') {
+        try {
+          newapiModelMapping.value = JSON.stringify(existingModelMapping, null, 2)
+        } catch {
+          newapiModelMapping.value = ''
+        }
+      } else if (typeof existingModelMapping === 'string') {
+        newapiModelMapping.value = existingModelMapping
+      } else {
+        newapiModelMapping.value = ''
+      }
+      newapiStatusCodeMapping.value = typeof credentials.status_code_mapping === 'string'
+        ? credentials.status_code_mapping
+        : (credentials.status_code_mapping ? JSON.stringify(credentials.status_code_mapping) : '')
+      newapiOpenAIOrganization.value = typeof credentials.openai_organization === 'string'
+        ? credentials.openai_organization
+        : ''
       // Lazy-load the channel-type catalog so the Select shows human names.
       // Errors are surfaced via newapiChannelTypesError; they do not block
       // the user from saving (the channel_type ID is already known).
@@ -2958,6 +3003,16 @@ const handleSubmit = async () => {
           appStore.showError(t('admin.accounts.newApiPlatform.pleaseEnterBaseUrl'))
           return
         }
+        // US-019: validate optional JSON-object credentials before submit so
+        // malformed JSON never reaches the bridge / persistence.
+        if (newapiModelMapping.value.trim() && !parseJsonObjectOrNull(newapiModelMapping.value.trim())) {
+          appStore.showError(t('admin.accounts.newApiPlatform.jsonObjectRequired'))
+          return
+        }
+        if (newapiStatusCodeMapping.value.trim() && !parseJsonObjectOrNull(newapiStatusCodeMapping.value.trim())) {
+          appStore.showError(t('admin.accounts.newApiPlatform.jsonObjectRequired'))
+          return
+        }
         // Surface channel_type at the top level so admin_service.Update
         // picks it up via UpdateAccountInput.ChannelType.
         updatePayload.channel_type = newapiChannelType.value
@@ -2980,7 +3035,31 @@ const handleSubmit = async () => {
       }
 
       // Add model mapping if configured（OpenAI 开启自动透传时保留现有映射，不再编辑）
-      if (shouldApplyModelMapping) {
+      if (isNewAPI) {
+        // newapi-platform model_mapping is owned by AccountNewApiPlatformFields
+        // (US-019), not by the generic model-restriction UI which is hidden
+        // for this platform. Persist as JSON object for Account.GetModelMapping.
+        const mappingTrim = newapiModelMapping.value.trim()
+        if (mappingTrim) {
+          const parsed = parseJsonObjectOrNull(mappingTrim)
+          if (parsed) newCredentials.model_mapping = parsed
+        } else {
+          delete newCredentials.model_mapping
+        }
+        // status_code_mapping is stored as JSON-string; bridge passes through.
+        const statusTrim = newapiStatusCodeMapping.value.trim()
+        if (statusTrim) {
+          newCredentials.status_code_mapping = statusTrim
+        } else {
+          delete newCredentials.status_code_mapping
+        }
+        const orgTrim = newapiOpenAIOrganization.value.trim()
+        if (orgTrim) {
+          newCredentials.openai_organization = orgTrim
+        } else {
+          delete newCredentials.openai_organization
+        }
+      } else if (shouldApplyModelMapping) {
         const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
         if (modelMapping) {
           newCredentials.model_mapping = modelMapping

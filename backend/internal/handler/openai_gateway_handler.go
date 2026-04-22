@@ -299,6 +299,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		if channelMapping.Mapped {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
 		}
+		writerSizeBeforeForward := c.Writer.Size()
 		result, err := h.gatewayService.ForwardAsResponsesDispatched(c.Request.Context(), c, account, forwardBody)
 		forwardDurationMs := time.Since(forwardStart).Milliseconds()
 		if accountReleaseFunc != nil {
@@ -351,6 +352,25 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					zap.Int("max_switches", maxAccountSwitches),
 				)
 				continue
+			}
+			// Preserve upstream NewAPIRelayError detail for newapi accounts (mirrors
+			// embeddings/images/chat-completions): without this branch
+			// ensureForwardErrorResponse would replace the adaptor's structured error
+			// with the generic "Upstream request failed" message and lose the original
+			// status / error body.
+			if TkTryWriteNewAPIRelayErrorJSON(c, err, streamStarted, writerSizeBeforeForward) {
+				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
+				fields := []zap.Field{
+					zap.Int64("account_id", account.ID),
+					zap.Bool("fallback_error_response_written", false),
+					zap.Error(err),
+				}
+				if shouldLogOpenAIForwardFailureAsWarn(c, true) {
+					reqLog.Warn("openai.forward_failed", fields...)
+					return
+				}
+				reqLog.Error("openai.forward_failed", fields...)
+				return
 			}
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
 			wroteFallback := h.ensureForwardErrorResponse(c, streamStarted)

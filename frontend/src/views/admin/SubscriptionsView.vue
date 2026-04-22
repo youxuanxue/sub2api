@@ -747,6 +747,7 @@ import type { SimpleUser } from '@/api/admin/usage'
 import type { Column } from '@/components/common/types'
 import { formatDateOnly } from '@/utils/format'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import { usePlatformOptions } from '@/composables/usePlatformOptions'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
@@ -962,13 +963,13 @@ const groupOptions = computed(() => [
   ...groups.value.map((g) => ({ value: g.id.toString(), label: g.name }))
 ])
 
-const platformFilterOptions = computed(() => [
-  { value: '', label: t('admin.subscriptions.allPlatforms') },
-  { value: 'anthropic', label: 'Anthropic' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'gemini', label: 'Gemini' },
-  { value: 'antigravity', label: 'Antigravity' }
-])
+// US-026: Use canonical usePlatformOptions composable so the fifth platform
+// (newapi) and any future platform auto-propagate to this filter without a
+// manual edit. The previous hardcoded quad silently dropped newapi groups
+// from the filter even though backend `subscription_handler.List` accepts
+// `platform=newapi` as a valid query parameter.
+const { optionsWithAll } = usePlatformOptions()
+const platformFilterOptions = optionsWithAll(() => t('admin.subscriptions.allPlatforms'))
 
 // Group options for assign (only subscription type groups)
 const subscriptionGroupOptions = computed(() =>

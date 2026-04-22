@@ -762,9 +762,12 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 	resetTimestamp := headers.Get("anthropic-ratelimit-unified-reset")
 
 	// 4. 如果响应头没有，尝试从响应体解析（OpenAI usage_limit_reached, Gemini）
+	// 注意：PlatformNewAPI 走 OpenAI-compat 协议（new-api adaptor 返回 OpenAI 风格的 429
+	// 响应体），共享同一份 usage_limit_reached 解析逻辑；不能落入下方默认 5min 分支，否则
+	// 会显著低估 reset 时间，导致重复打满。详见 US-023。
 	if resetTimestamp == "" {
 		switch account.Platform {
-		case PlatformOpenAI:
+		case PlatformOpenAI, PlatformNewAPI:
 			// 尝试解析 OpenAI 的 usage_limit_reached 错误
 			if resetAt := parseOpenAIRateLimitResetTime(responseBody); resetAt != nil {
 				resetTime := time.Unix(*resetAt, 0)

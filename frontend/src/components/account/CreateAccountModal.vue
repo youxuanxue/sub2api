@@ -731,6 +731,9 @@
           v-model:channelType="newapiChannelType"
           v-model:baseUrl="newapiBaseUrl"
           v-model:apiKey="newapiApiKey"
+          v-model:modelMapping="newapiModelMapping"
+          v-model:statusCodeMapping="newapiStatusCodeMapping"
+          v-model:openaiOrganization="newapiOpenAIOrganization"
           :channel-type-options="newapiChannelTypeOptions"
           :channel-types-loading="newapiChannelTypesLoading"
           :channel-types-error="newapiChannelTypesError"
@@ -3155,6 +3158,13 @@ const bedrockApiKeyValue = ref('')
 const newapiChannelType = ref<number>(0)
 const newapiBaseUrl = ref('')
 const newapiApiKey = ref('')
+// US-019: optional forwarding-affecting credentials. Bridge already reads
+// model_mapping; openai_organization and status_code_mapping shipped in the
+// same PR so admins can match the new-api channel UI without falling back to
+// API-only configuration. Empty values are skipped server-side.
+const newapiModelMapping = ref('')
+const newapiStatusCodeMapping = ref('')
+const newapiOpenAIOrganization = ref('')
 const newapiChannelTypes = ref<ChannelTypeInfo[]>([])
 const newapiChannelTypesLoading = ref(false)
 const newapiChannelTypesError = ref<string | null>(null)
@@ -3179,6 +3189,21 @@ function buildAntigravityExtra(): Record<string, unknown> | undefined {
   if (mixedScheduling.value) extra.mixed_scheduling = true
   if (allowOverages.value) extra.allow_overages = true
   return Object.keys(extra).length > 0 ? extra : undefined
+}
+
+// US-019: parses an optional JSON object string. Returns the parsed object on
+// success, or null when the input is not a valid JSON object (arrays / scalars
+// / nulls also return null). Empty string is treated as "not set" by callers.
+function parseJsonObjectOrNull(raw: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null
+    }
+    return parsed as Record<string, unknown>
+  } catch {
+    return null
+  }
 }
 
 const showMixedChannelWarning = ref(false)
@@ -4113,6 +4138,33 @@ const handleSubmit = async () => {
     const credentials: Record<string, unknown> = {
       base_url: baseUrl,
       api_key: newapiApiKey.value.trim()
+    }
+    // US-019: validate optional JSON-object credentials and persist them under
+    // credentials so newapi_bridge_usage::newAPIBridgeChannelInput can read them.
+    // model_mapping is stored as a JSON object because Account.GetModelMapping()
+    // reads credentials["model_mapping"].(map[string]any); status_code_mapping
+    // is stored as a JSON string because the bridge passes it through to the
+    // upstream new-api relay handlers via Gin context as-is.
+    const modelMappingTrim = newapiModelMapping.value.trim()
+    if (modelMappingTrim) {
+      const parsed = parseJsonObjectOrNull(modelMappingTrim)
+      if (!parsed) {
+        appStore.showError(t('admin.accounts.newApiPlatform.jsonObjectRequired'))
+        return
+      }
+      credentials.model_mapping = parsed
+    }
+    const statusCodeMappingTrim = newapiStatusCodeMapping.value.trim()
+    if (statusCodeMappingTrim) {
+      if (!parseJsonObjectOrNull(statusCodeMappingTrim)) {
+        appStore.showError(t('admin.accounts.newApiPlatform.jsonObjectRequired'))
+        return
+      }
+      credentials.status_code_mapping = statusCodeMappingTrim
+    }
+    const openaiOrgTrim = newapiOpenAIOrganization.value.trim()
+    if (openaiOrgTrim) {
+      credentials.openai_organization = openaiOrgTrim
     }
     await doCreateAccount({
       name: form.name,

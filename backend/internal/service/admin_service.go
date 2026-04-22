@@ -1593,6 +1593,12 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		}
 		account.LoadFactor = input.LoadFactor
 	}
+	// Bug B: pin newapi/Moonshot accounts to the regional base URL whose key
+	// actually authenticates, so the relay hot path doesn't need 401 fallback.
+	// See admin_service_tk_newapi_save.go for the full rationale.
+	if err := resolveNewAPIMoonshotBaseURLOnSave(ctx, account); err != nil {
+		return nil, err
+	}
 	if err := s.accountRepo.Create(ctx, account); err != nil {
 		return nil, err
 	}
@@ -1746,6 +1752,17 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 				return nil, err
 			}
 		}
+	}
+
+	// Bug B (UpdateAccount path): re-resolve Moonshot region whenever the
+	// admin saves credential changes. Two save flows hit this path:
+	//   - admin edits api_key → key may now belong to the other region.
+	//   - admin edits base_url → user may have switched between cn/ai roots.
+	// In both cases we want the persisted base_url to match the region whose
+	// key authenticates, mirroring CreateAccount's behavior. See
+	// admin_service_tk_newapi_save.go for the full rationale.
+	if err := resolveNewAPIMoonshotBaseURLOnSave(ctx, account); err != nil {
+		return nil, err
 	}
 
 	if err := s.accountRepo.Update(ctx, account); err != nil {
