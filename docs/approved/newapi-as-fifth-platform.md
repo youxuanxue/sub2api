@@ -422,3 +422,46 @@ PR：[`feature/newapi-fifth-platform → main`](https://github.com/youxuanxue/su
 - [ ] US-008/009/010 status 升 InTest/Done — **未做**，与上一项同 follow-up
 - [ ] `golangci-lint run ./...` 无新问题 — 未在本 PR 验证清单中跑过；merge 前由 reviewer 触发或 CI 自动跑
 - [ ] 旧 openai group 在 prod 镜像里手测三入口仍正常 — **未做**，prod 灰度时的 SSM 操作员自测项
+
+## 12. Sentinel registry（防止"上游合并悄悄删掉"的机械门）
+
+### 12.1 为什么独立成段
+
+§5.1 的 preflight 段 9 只能拦"新加错调用"（drift forward），拦不住"老的对调用被删掉"（drift backward —— 文件/常量/case 分支被一次 upstream merge 静默删除）。后者正是触发本设计的失败模式：第五平台 `newapi` 在合并里被反复覆盖。
+
+把"哪些文件/符号是第五平台不可缺失的载体"显式登记到一个 JSON，由脚本机械验证，从「靠 reviewer 记得」升级到「丢了就 merge 不进来」。这是 OPC 「软规则必须有硬检查」原则的直接落地。
+
+### 12.2 单一事实来源
+
+[`scripts/newapi-sentinels.json`](../../scripts/newapi-sentinels.json) — 列出 10 个载体（6 后端 Go + 2 集成包 + 2 前端 TS），每条带 `path` / `must_contain` / `rationale`。当前覆盖的载体类别：
+
+| 类别 | 代表条目 | 失败时的真实后果 |
+|---|---|---|
+| 平台标识 | `domain/constants.go::PlatformNewAPI` | 整个 5 平台 invariants 链塌方 |
+| 调度池语义 | `service/account_tk_compat_pool.go::IsOpenAICompatPoolMember` | 调度池退化为只 openai；newapi 账号被静默排除（原 P0 回归） |
+| 候选拉取 | `service/openai_gateway_service_tk_newapi_pool.go::listOpenAICompatSchedulableAccounts` | newapi group 拉到空池 |
+| Dispatch 放行 | `service/openai_messages_dispatch_tk_newapi.go::isOpenAICompatPlatformGroup` | newapi group 的 `messages_dispatch_model_config` 被强清 |
+| Admin 保存 | `service/admin_service_tk_newapi_save.go::resolveNewAPIMoonshotBaseURLOnSave` | 创建/更新 newapi/Moonshot 账号时不再把 base_url 钉到正确区域，relay 401 |
+| Bridge 胶水 | `integration/newapi/{channel_types,fusion}.go` | 第五平台桥接整体瓦解 |
+| Endpoint 解析 | `handler/endpoint.go::service.PlatformNewAPI` | `/v1/*` 入口对 newapi group 推不出 endpoint |
+| 前端枚举 | `frontend/src/constants/gatewayPlatforms.ts::'newapi'` + `OPENAI_COMPAT_PLATFORMS` | UI picker / filter / 段控件全部默默丢掉第五平台 |
+| 前端 picker | `frontend/src/composables/usePlatformOptions.ts::newapi:` | 平台标签缺失，下拉/筛选错位 |
+
+### 12.3 双门触发
+
+| 触发点 | 时机 | 失败后果 |
+|---|---|---|
+| `scripts/preflight.sh § 10` | 任何分支的 pre-commit / CI | 提交被拒 |
+| `.github/workflows/upstream-merge-pr-shape.yml` Check 4 | `merge/upstream-*` PR | merge PR 红灯，必须修复才能合 |
+
+两者复用同一个 `scripts/check-newapi-sentinels.py`，行为完全一致；本地绿了 CI 必绿。
+
+### 12.4 演化纪律（添加新载体的正确方式）
+
+- 当新增第五平台不可缺失的文件/符号时，在同一 commit 内向 `scripts/newapi-sentinels.json` 追加条目。
+- 当 sentinel 被有意重命名/搬迁时，更新 registry，不允许"为了通过检查而删掉条目"。Check 4 的报错信息会显式提示这条纪律。
+- 不要把"所有 `*_tk_*.go`"都登记进去——sentinels 列「真实有载荷的接口/符号」，不列「我们为风格写的所有 companion」。冗余清单是漂移源。
+
+### 12.5 Negative-test（行为验证而非存在性测试）
+
+提交前已通过 negative-test（test-philosophy.mdc §6 「运行才算验证」）：临时把 `account_tk_compat_pool.go` 中 `IsOpenAICompatPoolMember` / `OpenAICompatPlatforms` 全文替换为占位符，运行 `python3 scripts/check-newapi-sentinels.py` → exit 1，输出列出缺失符号 + rationale；恢复后 exit 0。证据见 PR 描述。

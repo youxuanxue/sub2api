@@ -284,12 +284,23 @@ section only records sub2api-specific choices.
   contract drift, story/test alignment, docs/approved discipline,
   approved-doc invariants R1-R5, doc-stat drift) are **delegated** to
   `dev-rules/templates/preflight.sh` — the wrapper just invokes it. The
-  wrapper exists ONLY to host **§ 9 sub2api-specific checks**:
-  - § 9  newapi compat-pool drift — guards the P0 regression that triggered
-    `docs/approved/newapi-as-fifth-platform.md`. Any new scheduler/gateway
-    caller must use `IsOpenAICompatPoolMember` / `OpenAICompatPlatforms`
-    instead of bare `PlatformOpenAI` / `IsOpenAI`.
-  When adding a new sub2api-only check, add it as `§ 10`, `§ 11`, … in
+  wrapper exists ONLY to host **sub2api-specific checks**:
+  - § 9  newapi compat-pool drift — guards the **forward-drift** failure mode
+    that triggered `docs/approved/newapi-as-fifth-platform.md`. Any new
+    scheduler/gateway caller must use `IsOpenAICompatPoolMember` /
+    `OpenAICompatPlatforms` instead of bare `PlatformOpenAI` / `IsOpenAI`.
+  - § 10 newapi sentinel registry — guards the **backward-drift** failure
+    mode (a load-bearing fifth-platform file/symbol gets silently deleted
+    by an upstream merge or refactor). Source of truth is
+    `scripts/newapi-sentinels.json` (declarative `path` + `must_contain`
+    list with rationale per entry). `scripts/check-newapi-sentinels.py`
+    reads the registry; the same script is invoked by Check 4 of
+    `.github/workflows/upstream-merge-pr-shape.yml`, so a green local
+    preflight implies a green merge-PR check. Adding a new load-bearing
+    surface for newapi MUST add a sentinel entry in the same commit. See
+    `docs/approved/newapi-as-fifth-platform.md` § 12 for the registry
+    doctrine (categories, double-trigger, evolution discipline).
+  When adding a new sub2api-only check, add it as `§ 11`, `§ 12`, … in
   `scripts/preflight.sh` (NEVER in the dev-rules template — that is shared
   across all consumer projects). If the check turns out to be useful for
   more than just sub2api, lift it into dev-rules and remove the local copy.
