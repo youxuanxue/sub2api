@@ -1171,7 +1171,7 @@ func TestUS027_StreamingTextFlow_SetsEmittedFlag(t *testing.T) {
 	require.False(t, state.EmittedAnyContentBlock)
 
 	ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
-		Type: "response.created",
+		Type:     "response.created",
 		Response: &ResponsesResponse{ID: "resp_x", Model: "gpt-5.2"},
 	}, state)
 	assert.False(t, state.EmittedAnyContentBlock, "message_start alone must not flip the flag")

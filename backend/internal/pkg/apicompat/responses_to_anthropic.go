@@ -127,14 +127,16 @@ type ResponsesEventToAnthropicState struct {
 	ContentBlockOpen  bool
 	CurrentBlockType  string // "text" | "thinking" | "tool_use"
 
-	// EmittedAnyContentBlock records whether any content_block_start event has been
-	// produced for this stream. Used by the empty-stream safety net (US-027): when
-	// the upstream stream ends without emitting a single content block, the gateway
-	// would otherwise send Claude Code a `message_start` immediately followed by
-	// `message_delta` + `message_stop` with zero content — a shape that triggers
-	// session corruption in Claude Code (anthropics/claude-code#24662). The safety
-	// net checks this flag at finalize time and synthesizes content blocks from the
-	// BufferedResponseAccumulator if needed. See
+	// EmittedAnyContentBlock records whether any content_block_start event has
+	// been produced for this stream. Used by the empty-stream schema firewall
+	// (US-027): when the upstream stream ends without emitting a single content
+	// block, the gateway would otherwise send Claude Code a `message_start`
+	// immediately followed by `message_delta` + `message_stop` with zero content
+	// — a shape that triggers session-JSONL corruption in Claude Code
+	// (anthropics/claude-code#24662). resToAnthHandleCompleted and
+	// FinalizeResponsesAnthropicStream both call ensureContentBlockEmittedAsEmptyText
+	// just before message_delta to inject one empty-text content_block_start/_stop
+	// pair when this flag is still false. See
 	// docs/approved/openai-codex-as-claude-thinking-continuity.md §2.1.
 	EmittedAnyContentBlock bool
 
@@ -567,4 +569,3 @@ func closeCurrentBlock(state *ResponsesEventToAnthropicState) []AnthropicStreamE
 		Index: &idx,
 	}}
 }
-
