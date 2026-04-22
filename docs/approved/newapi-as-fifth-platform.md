@@ -433,7 +433,7 @@ PR：[`feature/newapi-fifth-platform → main`](https://github.com/youxuanxue/su
 
 ### 12.2 单一事实来源
 
-[`scripts/newapi-sentinels.json`](../../scripts/newapi-sentinels.json) — 列出 9 个载体（5 后端 Go + 2 集成包 + 2 前端 TS），每条带 `path` / `must_contain` / `rationale`。当前覆盖的载体类别：
+[`scripts/newapi-sentinels.json`](../../scripts/newapi-sentinels.json) — 列出 10 个载体（6 后端 Go + 2 集成包 + 2 前端 TS），每条带 `path` / `must_contain` / `rationale`。当前覆盖的载体类别：
 
 | 类别 | 代表条目 | 失败时的真实后果 |
 |---|---|---|
@@ -441,6 +441,7 @@ PR：[`feature/newapi-fifth-platform → main`](https://github.com/youxuanxue/su
 | 调度池语义 | `service/account_tk_compat_pool.go::IsOpenAICompatPoolMember` | 调度池退化为只 openai；newapi 账号被静默排除（原 P0 回归） |
 | 候选拉取 | `service/openai_gateway_service_tk_newapi_pool.go::listOpenAICompatSchedulableAccounts` | newapi group 拉到空池 |
 | Dispatch 放行 | `service/openai_messages_dispatch_tk_newapi.go::isOpenAICompatPlatformGroup` | newapi group 的 `messages_dispatch_model_config` 被强清 |
+| Admin 保存 | `service/admin_service_tk_newapi_save.go::resolveNewAPIMoonshotBaseURLOnSave` | 创建/更新 newapi/Moonshot 账号时不再把 base_url 钉到正确区域，relay 401 |
 | Bridge 胶水 | `integration/newapi/{channel_types,fusion}.go` | 第五平台桥接整体瓦解 |
 | Endpoint 解析 | `handler/endpoint.go::service.PlatformNewAPI` | `/v1/*` 入口对 newapi group 推不出 endpoint |
 | 前端枚举 | `frontend/src/constants/gatewayPlatforms.ts::'newapi'` + `OPENAI_COMPAT_PLATFORMS` | UI picker / filter / 段控件全部默默丢掉第五平台 |
