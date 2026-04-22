@@ -129,6 +129,10 @@ scripts/*
 !scripts/check_approved_docs.py
 !scripts/newapi-sentinels.json
 !scripts/check-newapi-sentinels.py
+!scripts/error_clustering/
+!scripts/error_clustering/**
+!scripts/build-error-clustering-binary.sh
+!scripts/deploy-error-clustering-binary.sh
 .code-review-state
 #openspec/
 code-reviews/
