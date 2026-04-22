@@ -1,10 +1,10 @@
 ---
 title: "NewAPI 第五平台 — Bug 修复 + UI 暴露 3 个真实影响转发的字段（PR #19 之后）"
-status: pending
-approved_by: pending
+status: shipped
+approved_by: xuejiao (PR #29 squash-merge)
 authors: [agent]
 created: 2026-04-22
-related_prs: []
+related_prs: ["#29"]
 related_stories: [US-019, US-020, US-021, US-022, US-023, US-024, US-025, US-026]
 parent_design: docs/approved/admin-ui-newapi-platform-end-to-end.md
 ---
