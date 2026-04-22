@@ -31,9 +31,13 @@ Parameters:
     Default: "true"
     AllowedValues: ["true", "false"]
     Description: >-
-      Create the GitHub OIDC provider in this account. Set to "false" if the
-      provider was already created (e.g. by another stack); the role will then
-      reference the existing provider ARN derived from this account.
+      Create the GitHub OIDC provider in this account. Set to "false" ONLY on
+      the very first deploy if the provider already exists (e.g. another stack
+      in the account already owns it). DO NOT flip this from "true" to "false"
+      on a subsequent deploy of the same stack: even with the Retain policy
+      below, that drops the provider out of stack management and any future
+      flip back to "true" will fail with "EntityAlreadyExists". Pick a value
+      at first deploy and keep it.
 
 Conditions:
   ShouldCreateOIDC: !Equals [!Ref CreateOIDCProvider, "true"]
@@ -42,6 +46,13 @@ Resources:
   GitHubOIDCProvider:
     Type: AWS::IAM::OIDCProvider
     Condition: ShouldCreateOIDC
+    # Retain on stack delete OR on resource removal from the template (the
+    # CreateOIDCProvider=false path), so we never accidentally tear down the
+    # account-wide GitHub OIDC trust by deploying this stack with the wrong
+    # parameter value. Real teardown must be deliberate (manual aws iam
+    # delete-open-id-connect-provider).
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       Url: https://token.actions.githubusercontent.com
       ClientIdList:
