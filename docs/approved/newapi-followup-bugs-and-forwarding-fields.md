@@ -5,7 +5,7 @@ approved_by: pending
 authors: [agent]
 created: 2026-04-22
 related_prs: []
-related_stories: [US-019, US-020, US-021, US-022, US-023, US-024]
+related_stories: [US-019, US-020, US-021, US-022, US-023, US-024, US-025]
 parent_design: docs/approved/admin-ui-newapi-platform-end-to-end.md
 ---
 
