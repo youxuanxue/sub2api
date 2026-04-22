@@ -5,7 +5,7 @@ approved_by: youxuanxue
 approved_at: 2026-04-21
 created: 2026-04-21
 owners: [tk-platform]
-related_prs: ["#13"]
+related_prs: ["#13", "#30"]
 scope: "QA capture + ErrorToIssue/PR"
 ---
 

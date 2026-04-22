@@ -28,6 +28,14 @@ permissions:
   issues: write
   pull-requests: write
 
+# Serialize runs: cron + manual dispatch overlap would race on /tmp/clustering
+# inside the prod EC2 host (rm -rf + mkdir + write) and could corrupt the
+# in-flight report. cancel-in-progress=false so a long-running manual run
+# isn't killed by the next cron tick.
+concurrency:
+  group: error-clustering-daily
+  cancel-in-progress: false
+
 jobs:
   cluster:
     runs-on: ubuntu-latest
@@ -89,6 +97,8 @@ jobs:
           jq -n --arg sh "$SINCE_HOURS" '{
             commands: [
               "set -euo pipefail",
+              "[ -x /usr/local/bin/error_clustering ] || { echo binary_missing >&2; exit 3; }",
+              "echo binary_sha256=$(sha256sum /usr/local/bin/error_clustering | awk \u0027{print $1}\u0027)",
               "PGPASS=$(sudo grep \u0027^POSTGRES_PASSWORD=\u0027 /var/lib/tokenkey/.env | cut -d= -f2-)",
               "[ -n \"$PGPASS\" ] || { echo no_pg_password >&2; exit 2; }",
               "OUT=/tmp/clustering",
@@ -147,6 +157,18 @@ jobs:
             exit 1
           fi
           jq -r '.summary' report.json
+          # Surface the binary sha256 + record it on the job summary so
+          # operators can spot drift between scripts/error_clustering source
+          # and what's actually installed on the EC2 host.
+          BIN_SHA=$(grep -m1 '^binary_sha256=' stdout.txt | cut -d= -f2- || true)
+          if [ -n "${BIN_SHA:-}" ]; then
+            echo "ec2 binary sha256: $BIN_SHA"
+            {
+              echo "## error_clustering binary"
+              echo "- ec2 sha256: \`$BIN_SHA\`"
+              echo "- to refresh: \`bash scripts/deploy-error-clustering-binary.sh\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
