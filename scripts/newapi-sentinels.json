@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "rationale": "Load-bearing files and symbols that anchor TokenKey's fifth platform `newapi`. The fifth-platform integration was silently regressed multiple times by upstream merges before this guard existed. If any sentinel below is missing, the platform either silently disappears from the UI/scheduling pool or fails at runtime. This file is the single source of truth read by both `scripts/preflight.sh` § 10 (always) and `.github/workflows/upstream-merge-pr-shape.yml` Check 4 (on `merge/upstream-*` PRs). Adding a new load-bearing surface for newapi MUST add a sentinel here in the same commit.",
+  "sentinels": [
+    {
+      "path": "backend/internal/domain/constants.go",
+      "must_contain": ["PlatformNewAPI"],
+      "rationale": "Identity constant for the fifth platform string `newapi`. Removing it collapses every 5-platform invariant in the codebase."
+    },
+    {
+      "path": "backend/internal/service/account_tk_compat_pool.go",
+      "must_contain": ["IsOpenAICompatPoolMember", "OpenAICompatPlatforms"],
+      "rationale": "TK companion that partitions the OpenAI-compat scheduling pool by `group.platform`. Without it, scheduling falls back to bare `IsOpenAI()` and silently excludes all newapi accounts (the original P0 regression that triggered docs/approved/newapi-as-fifth-platform.md)."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service_tk_newapi_pool.go",
+      "must_contain": ["listOpenAICompatSchedulableAccounts", "resolveGroupPlatform"],
+      "rationale": "TK companion that fetches candidate accounts using the group's actual platform instead of hardcoded `PlatformOpenAI`. Without it, `group.platform=newapi` requests get an empty pool."
+    },
+    {
+      "path": "backend/internal/service/openai_messages_dispatch_tk_newapi.go",
+      "must_contain": ["isOpenAICompatPlatformGroup"],
+      "rationale": "TK companion that decides whether `messages_dispatch_model_config` is preserved. Without it, newapi groups have their dispatch config silently wiped on save."
+    },
+    {
+      "path": "backend/internal/service/admin_service_tk_newapi_save.go",
+      "must_contain": ["resolveNewAPIMoonshotBaseURLOnSave"],
+      "rationale": "TK companion invoked from admin_service.go CreateAccount/UpdateAccount that pins newapi/Moonshot accounts to the regional base_url their API key actually accepts. Without it, admins silently save accounts with the wrong region (api.moonshot.cn vs .ai), and the relay hot path 401s every request because it deliberately does not do per-request region fallback. Build-break alone is insufficient: an upstream merge that simultaneously removes the call sites would silently regress this without compile failure."
+    },
+    {
+      "path": "backend/internal/integration/newapi/channel_types.go",
+      "must_contain": ["package newapi"],
+      "rationale": "Channel-type catalog backing the fifth-platform admin UI. The integration package is the entire fifth-platform glue layer; if this file disappears the catalog dropdown is empty and bridge selection breaks."
+    },
+    {
+      "path": "backend/internal/integration/newapi/fusion.go",
+      "must_contain": ["package newapi"],
+      "rationale": "Bridge fusion logic that wires QuantumNous/new-api adaptors into TK's relay. Removing this file disables the entire upstream new-api capability."
+    },
+    {
+      "path": "backend/internal/handler/endpoint.go",
+      "must_contain": ["service.PlatformNewAPI"],
+      "rationale": "Endpoint resolution must list `newapi` in the OpenAI-compat case branch. Without it, gateway endpoint inference for newapi groups returns empty strings and routing fails."
+    },
+    {
+      "path": "frontend/src/constants/gatewayPlatforms.ts",
+      "must_contain": ["'newapi'", "OPENAI_COMPAT_PLATFORMS"],
+      "rationale": "Canonical 5-platform enumeration consumed by every admin UI picker, filter, and segmented control. Dropping `newapi` here silently removes the platform from every selector."
+    },
+    {
+      "path": "frontend/src/composables/usePlatformOptions.ts",
+      "must_contain": ["newapi:"],
+      "rationale": "Shared composable that builds platform option lists for admin pickers/filters. The `newapi:` label entry is what surfaces the fifth platform's display name."
+    }
+  ]
+}

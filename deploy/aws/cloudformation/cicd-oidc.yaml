@@ -1,0 +1,129 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  GitHub Actions OIDC provider + scoped IAM role for the sub2api repository.
+  Lets the Error Clustering Daily workflow (and future ops workflows) call
+  ssm:SendCommand against the prod instance without storing long-lived AWS
+  credentials in GitHub. Trust policy is locked to a single repo + branch
+  pattern; SSM action scope is locked to the prod instance + AWS-RunShellScript
+  document. This stack is independent of the stage0 runtime stack so it can be
+  changed without risking instance replacement.
+
+Parameters:
+  GitHubRepo:
+    Type: String
+    Default: youxuanxue/sub2api
+    AllowedPattern: "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    Description: GitHub <owner>/<repo> allowed to assume the role.
+  AllowedSubjects:
+    Type: CommaDelimitedList
+    Default: "repo:youxuanxue/sub2api:ref:refs/heads/main"
+    Description: >-
+      Full OIDC sub claims (StringLike patterns) allowed to assume the role.
+      Default allows only main. Temporarily add e.g.
+      "repo:youxuanxue/sub2api:ref:refs/heads/feature/clustering-oidc-ssm"
+      while bootstrapping, then narrow back to main after first successful run.
+  TargetInstanceId:
+    Type: AWS::EC2::Instance::Id
+    Default: i-04a8afd18c997b8ac
+    Description: Prod EC2 instance the role is allowed to send SSM commands to.
+  CreateOIDCProvider:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      Create the GitHub OIDC provider in this account. Set to "false" ONLY on
+      the very first deploy if the provider already exists (e.g. another stack
+      in the account already owns it). DO NOT flip this from "true" to "false"
+      on a subsequent deploy of the same stack: even with the Retain policy
+      below, that drops the provider out of stack management and any future
+      flip back to "true" will fail with "EntityAlreadyExists". Pick a value
+      at first deploy and keep it.
+
+Conditions:
+  ShouldCreateOIDC: !Equals [!Ref CreateOIDCProvider, "true"]
+
+Resources:
+  GitHubOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: ShouldCreateOIDC
+    # Retain on stack delete OR on resource removal from the template (the
+    # CreateOIDCProvider=false path), so we never accidentally tear down the
+    # account-wide GitHub OIDC trust by deploying this stack with the wrong
+    # parameter value. Real teardown must be deliberate (manual aws iam
+    # delete-open-id-connect-provider).
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      # Thumbprints are no longer validated by AWS for token.actions.githubusercontent.com,
+      # but the API still requires the field. Use the well-known GitHub root.
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+      Tags:
+        - Key: Project
+          Value: tokenkey
+        - Key: ManagedBy
+          Value: cloudformation
+
+  ClusteringRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "tokenkey-gha-${AWS::Region}-error-clustering"
+      Description: >-
+        Assumed by the Error Clustering Daily GitHub Actions workflow via OIDC
+        to dispatch SSM Run-Command on the prod instance.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - ShouldCreateOIDC
+                - !Ref GitHubOIDCProvider
+                - !Sub "arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+              ForAnyValue:StringLike:
+                "token.actions.githubusercontent.com:sub": !Ref AllowedSubjects
+      Policies:
+        - PolicyName: SsmSendCommandProd
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: SendRunShellScript
+                Effect: Allow
+                Action:
+                  - ssm:SendCommand
+                Resource:
+                  - !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${TargetInstanceId}"
+                  - !Sub "arn:aws:ssm:${AWS::Region}::document/AWS-RunShellScript"
+              - Sid: ReadCommandResult
+                Effect: Allow
+                Action:
+                  - ssm:GetCommandInvocation
+                  - ssm:ListCommandInvocations
+                  - ssm:ListCommands
+                Resource: "*"
+              - Sid: DescribeStackForInstanceLookup
+                Effect: Allow
+                Action:
+                  - cloudformation:DescribeStacks
+                Resource:
+                  - !Sub "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/tokenkey-prod-stage0/*"
+      Tags:
+        - Key: Project
+          Value: tokenkey
+        - Key: ManagedBy
+          Value: cloudformation
+
+Outputs:
+  RoleArn:
+    Description: ARN to set as GitHub repo variable AWS_OIDC_ROLE_ARN.
+    Value: !GetAtt ClusteringRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-RoleArn"

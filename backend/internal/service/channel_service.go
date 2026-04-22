@@ -322,7 +322,8 @@ func populateChannelCache(channels []Channel, groupPlatforms map[int64]string) *
 // invalidateCache 使缓存失效，让下次读取时自然重建
 
 // isPlatformPricingMatch 判断定价条目的平台是否匹配分组平台。
-// 各平台（antigravity / anthropic / gemini / openai）严格独立，不跨平台匹配。
+// 所有 group 平台（antigravity / anthropic / gemini / openai / newapi）严格
+// 独立，不跨平台匹配。
 func isPlatformPricingMatch(groupPlatform, pricingPlatform string) bool {
 	return groupPlatform == pricingPlatform
 }

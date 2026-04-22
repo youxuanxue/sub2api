@@ -32,7 +32,14 @@ func (r *opsRepository) GetOpenAITokenStats(ctx context.Context, filter *service
 	}
 
 	join, where, baseArgs, next := buildUsageWhere(dashboardFilter, dashboardFilter.StartTime, dashboardFilter.EndTime, 1)
-	where += " AND ul.model LIKE 'gpt%'"
+	// 这张表是 OpenAI 协议族的 "model x token speed" 总览，原本写死 gpt% 前缀只显示
+	// OpenAI 官方账号下的 GPT 模型。第五平台 newapi 同样走 OpenAI 协议但下游 model
+	// id 通常不是 gpt 前缀（如 moonshot-v1-32k、claude-shape、自定义渠道名），
+	// platform=newapi 时若沿用 gpt% 过滤会让该卡片几乎永远空表，等价于 newapi
+	// 没有可观测性。仅在 platform=newapi 时跳过该前缀过滤。详见 US-024。
+	if dashboardFilter.Platform != service.PlatformNewAPI {
+		where += " AND ul.model LIKE 'gpt%'"
+	}
 
 	baseCTE := `
 WITH stats AS (

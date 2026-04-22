@@ -72,3 +72,29 @@ func IsOpenAICompatPlatform(platform string) bool {
 	}
 	return false
 }
+
+// AllSchedulingPlatforms returns every platform identifier that the scheduler
+// must enumerate when seeding default buckets or rebuilding group buckets.
+//
+// This list is the **single source of truth** for "which platforms have a
+// scheduling pool"; both `defaultBuckets` and `rebuildByGroupIDs` MUST derive
+// from it instead of hardcoding a slice. Hardcoding has historically been a
+// silent-regression source — `docs/approved/newapi-as-fifth-platform.md`
+// shipped scheduling pool semantics for `newapi`, but `rebuildByGroupIDs`
+// continued to enumerate only the original 4 platforms, leaving newapi
+// buckets stale on every group_change event until the next periodic full
+// rebuild (or app restart).
+//
+// Adding a sixth platform: append it here once, and both call sites pick it
+// up automatically. The preflight § 9 sub2api drift guard treats hardcoded
+// `[anthropic, gemini, openai, antigravity]` slices in scheduler files as
+// regressions to block at commit time.
+func AllSchedulingPlatforms() []string {
+	return []string{
+		PlatformAnthropic,
+		PlatformGemini,
+		PlatformOpenAI,
+		PlatformAntigravity,
+		PlatformNewAPI,
+	}
+}

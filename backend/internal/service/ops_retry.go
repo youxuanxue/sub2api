@@ -390,6 +390,11 @@ func detectOpsRetryType(path string) opsRetryRequestType {
 	switch {
 	case strings.Contains(p, "/responses"):
 		return opsRetryTypeOpenAI
+	// /v1/chat/completions 是 OpenAI-shape 请求体（包含 PlatformOpenAI 与
+	// PlatformNewAPI 两个池）。先前默认归到 Messages 类型，会用 Anthropic 解析
+	// + Anthropic forwarder 重试，对这两个平台必然失败。修复见 US-023。
+	case strings.Contains(p, "/chat/completions"):
+		return opsRetryTypeOpenAI
 	case strings.Contains(p, "/v1beta/"):
 		return opsRetryTypeGeminiV1B
 	default:
@@ -593,6 +598,18 @@ func (s *OpsService) executeWithAccount(ctx context.Context, reqType opsRetryReq
 			}
 			_, err = s.geminiCompatService.Forward(ctx, c, account, body)
 		default:
+			// opsRetryTypeMessages 的 default 分支只能服务 Anthropic-shape 请求体
+			// （/v1/messages）。OpenAI / NewAPI 账号必须经 opsRetryTypeOpenAI 路径，
+			// 由 detectOpsRetryType 负责分流；如果走到这里，要么是分类器漏判，要么是
+			// /v1/messages 被绑定到了 OpenAI-compat 账号（暂不支持 ops 重试，因为
+			// errorLog 里保存的是原始 Anthropic body，需要 bridge 层转换）。两种情况都
+			// 直接失败，避免静默调用错误的 forwarder（防御 US-023 类回归）。
+			if account.Platform == PlatformOpenAI || account.Platform == PlatformNewAPI {
+				return &opsRetryExecution{
+					status:       opsRetryStatusFailed,
+					errorMessage: fmt.Sprintf("ops retry: account platform %q is OpenAI-compat; expected opsRetryTypeOpenAI for path %q", account.Platform, errorLog.RequestPath),
+				}
+			}
 			if s.gatewayService == nil {
 				return &opsRetryExecution{status: opsRetryStatusFailed, errorMessage: "gateway service not available"}
 			}

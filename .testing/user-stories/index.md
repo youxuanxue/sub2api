@@ -21,4 +21,12 @@
 | US-016 | SMTP EHLO host 从 From/Username 推导（修 Google Workspace `auth: EOF`） | Done   | `.testing/user-stories/stories/US-016-smtp-ehlo-host-from-config.md` |
 | US-017 | Turnstile siteverify 失败可观测 + UX 自救引导 | InTest | `.testing/user-stories/stories/US-017-turnstile-observability-and-stale-tab-ux.md` |
 | US-018 | Admin UI 接入第五平台 newapi（端到端可创建组与账号） | Draft  | `.testing/user-stories/stories/US-018-admin-ui-newapi-platform-end-to-end.md` |
+| US-019 | newapi 账号暴露 model_mapping / status_code_mapping / openai_organization 三个真实影响转发的字段 | InTest | `.testing/user-stories/stories/US-019-newapi-forwarding-affecting-fields.md` |
+| US-020 | 调度快照重建必须包含第五平台 newapi（防 PlatformNewAPI 漂移性丢失） | InTest | `.testing/user-stories/stories/US-020-newapi-scheduler-snapshot-includes-fifth-platform.md` |
+| US-021 | newapi 账号保存时自动解析 Moonshot 区域 base URL（.cn vs .ai） | InTest | `.testing/user-stories/stories/US-021-newapi-moonshot-regional-resolve-on-save.md` |
+| US-022 | NewAPI 第五平台 admin/HTTP 生命周期 audit 缺口修复（group binding / simple-mode seed / test-connection / available-models / chat 错误透传） | Done | `.testing/user-stories/stories/US-022-newapi-admin-lifecycle-audit-fixes.md` |
+| US-023 | NewAPI 第五平台 runtime 路径 audit round 2 修复（429 OpenAI body 解析 / ops retry chat-completions 分类 + 守护） | Done | `.testing/user-stories/stories/US-023-newapi-runtime-path-audit-round-2.md` |
+| US-024 | NewAPI 第五平台 round-3 audit 修复（BatchCreate 透传 channel_type/load_factor + ops openai-token-stats gpt% 过滤放行 newapi） | Done | `.testing/user-stories/stories/US-024-newapi-batch-import-and-token-stats-round-3.md` |
+| US-025 | NewAPI 第五平台 round-4 audit 修复（sticky 会话指向已删除账号时主动清理 Redis 绑定） | Done | `.testing/user-stories/stories/US-025-newapi-sticky-session-deleted-account-cleanup.md` |
+| US-026 | NewAPI 第五平台 round-5 audit 修复（admin SubscriptionsView 平台筛选下拉漏掉 newapi） | Done | `.testing/user-stories/stories/US-026-newapi-subscriptions-platform-filter.md` |
 | US-027 | OpenAI Codex 伪装 Claude — Thinking 多轮空响应根治 + 流式空内容护栏 | InTest | `.testing/user-stories/stories/US-027-openai-codex-as-claude-thinking-continuity.md` |

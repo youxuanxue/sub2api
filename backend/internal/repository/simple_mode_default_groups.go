@@ -14,10 +14,16 @@ func ensureSimpleModeDefaultGroups(ctx context.Context, client *dbent.Client) er
 		return fmt.Errorf("nil ent client")
 	}
 
+	// Fifth platform `newapi` participates in simple-mode the same way as
+	// openai/gemini/anthropic (one default group). admin_service.CreateAccount
+	// auto-binds newapi accounts to `newapi-default` when GroupIDs is empty,
+	// so missing this seed silently strands fresh newapi accounts outside
+	// any scheduling pool. Antigravity keeps the historical 2-group seed.
 	requiredByPlatform := map[string]int{
 		service.PlatformAnthropic:   1,
 		service.PlatformOpenAI:      1,
 		service.PlatformGemini:      1,
+		service.PlatformNewAPI:      1,
 		service.PlatformAntigravity: 2,
 	}
 

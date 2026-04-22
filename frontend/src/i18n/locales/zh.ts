@@ -2763,7 +2763,15 @@ export default {
         apiKeyEditHint: '留空表示保留当前密钥',
         pleaseSelectChannelType: '请选择 New API 渠道类型',
         pleaseEnterBaseUrl: '请输入上游 Base URL',
-        pleaseEnterApiKey: '请输入上游 API Key'
+        pleaseEnterApiKey: '请输入上游 API Key',
+        modelMapping: '模型映射（JSON，可选）',
+        modelMappingHint: '在转发前为请求指定的模型名做别名（如 {"gpt-4":"gpt-4-turbo"}）。留空则透传。',
+        statusCodeMapping: '状态码映射（JSON，可选）',
+        statusCodeMappingHint: '将上游 HTTP 状态码改写为另一个值（如 {"404":"500"}）。留空则透传。',
+        openaiOrganization: 'OpenAI Organization（可选）',
+        openaiOrganizationHint: '在出站请求上设置 OpenAI-Organization 请求头。留空则不发送。',
+        jsonInvalid: '不是合法 JSON',
+        jsonObjectRequired: '必须是 JSON 对象'
       },
       // OAuth flow
       oauth: {

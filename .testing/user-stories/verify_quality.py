@@ -65,7 +65,15 @@ REQUIRED_SECTIONS = [
     "## Status",
 ]
 
-LINKED_TEST_RE = re.compile(r"`([^`]+\.go)`::`([A-Za-z0-9_]+)`")
+# Accept Go test references (`path/to/file.go`::`TestFunc`) — Go func names
+# are limited to identifier characters plus `/` (table-driven subtests like
+# `TestSuite/TestCase`) and `*` (wildcard glob like `TestBackendMode*`).
+LINKED_TEST_RE = re.compile(r"`([^`]+\.go)`::`([A-Za-z0-9_/*]+)`")
+# Accept frontend Vitest references (`path/to/file.spec.ts`::`it/describe
+# block name`). Vitest names are quoted strings and may contain spaces,
+# punctuation, and Unicode — match anything inside the second
+# backtick-pair as long as the file extension is `.ts`/`.tsx`.
+LINKED_VITEST_RE = re.compile(r"`([^`]+\.tsx?)`::`([^`]+)`")
 # Accept either list-item ("- 运行命令: ...") or section-header style
 # ("运行命令：" followed by a code fence). Both convey "here is the command
 # you can run to validate this story" — the format is cosmetic, presence
@@ -127,7 +135,7 @@ def parse_story(path: Path) -> dict:
         block = re.split(r"^## ", after, maxsplit=1, flags=re.MULTILINE)[0]
         has_run_cmd = bool(RUN_CMD_RE.search(block))
         for line in block.splitlines():
-            m = LINKED_TEST_RE.search(line)
+            m = LINKED_TEST_RE.search(line) or LINKED_VITEST_RE.search(line)
             if not m:
                 continue
             file_path, func_name = m.group(1), m.group(2)
@@ -168,7 +176,26 @@ def func_exists_in_file(path: Path, func: str) -> bool:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return False
-    pattern = GO_FUNC_RE_TEMPLATE.format(name=re.escape(func))
+    suffix = path.suffix.lower()
+    if suffix in {".ts", ".tsx"}:
+        # Vitest references quote the `it(...)` / `describe(...)` block name.
+        # We do a literal substring match on the quoted text — the test name
+        # is by definition a literal string, not a regex pattern.
+        return func in text
+    # Go: handle two notations beyond the bare identifier:
+    #   - `TestSuite/TestCase` (table-driven subtest) — only the parent
+    #     `func TestSuite(...)` is declared in source; the subtest name is
+    #     a string passed to `t.Run`. Validate the parent exists.
+    #   - `TestPrefix*` (wildcard glob over a family of tests) — validate
+    #     at least one `func TestPrefix...` declaration exists.
+    name = func
+    if "/" in name:
+        name = name.split("/", 1)[0]
+    if name.endswith("*"):
+        prefix = re.escape(name[:-1])
+        pattern = rf"^func\s+{prefix}\w*\s*\("
+    else:
+        pattern = GO_FUNC_RE_TEMPLATE.format(name=re.escape(name))
     return re.search(pattern, text, re.MULTILINE) is not None
 
 

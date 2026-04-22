@@ -1292,7 +1292,15 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 	}
 
 	account, err := s.getSchedulableAccount(ctx, accountID)
-	if err != nil {
+	if err != nil || account == nil {
+		// US-025: 粘性绑定指向的账号已被管理员删除（ErrAccountNotFound）或快照命中
+		// 但记录已不存在 (account == nil)。原实现直接 return nil，导致 Redis 中的
+		// 旧映射在整个 TTL 内继续指向死 ID，每次同 sessionHash 请求都重走一次
+		// snapshot/DB 查询 → 命中 NotFound → 落到 Layer 2 选号。第五平台 newapi 与
+		// openai 共用本 OpenAI-compat 调度池，账号删除属常规生命周期事件，必须自愈。
+		if errors.Is(err, ErrAccountNotFound) || account == nil {
+			_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+		}
 		return nil
 	}
 
@@ -1478,7 +1486,15 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 		accountID := stickyAccountID
 		if accountID > 0 && !isExcluded(accountID) {
 			account, err := s.getSchedulableAccount(ctx, accountID)
-			if err == nil {
+			if err != nil || account == nil {
+				// US-025: 与 tryStickySessionHit 对称——粘性绑定的账号已被删除时，
+				// 必须主动清理 Redis 映射，否则后续同 sessionHash 请求每次都会重做
+				// 一次 NotFound 查询。Layer 2 在成功选号后会重新写入新映射，但仅当
+				// 真的有可用账号时才发生，故清理动作不能依赖 Layer 2。
+				if errors.Is(err, ErrAccountNotFound) || account == nil {
+					_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+				}
+			} else {
 				clearSticky := shouldClearStickySession(account, requestedModel)
 				if clearSticky {
 					_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
