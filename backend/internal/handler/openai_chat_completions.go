@@ -132,7 +132,13 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 				zap.Error(err),
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
+			// Bug B-10: explicit per-branch return so selection failure never
+			// falls through to the `selection == nil` check below, which would
+			// mis-attribute the error as "No available accounts" and lose the
+			// upstream err in logs.
 			if len(failedAccountIDs) == 0 {
+				// First-attempt failure: try default mapped model fallback once,
+				// then surface the err if even the fallback fails.
 				defaultModel := ""
 				if apiKey.Group != nil {
 					defaultModel = apiKey.Group.DefaultMappedModel
@@ -158,6 +164,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable", streamStarted)
 					return
 				}
+				// fallback succeeded: fall through with the new selection.
 			} else {
 				if lastFailoverErr != nil {
 					h.handleFailoverExhausted(c, lastFailoverErr, streamStarted)

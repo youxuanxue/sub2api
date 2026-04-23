@@ -659,19 +659,21 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				zap.Error(err),
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
+			// Bug B-10: explicit per-branch return so selection failure never
+			// falls through to the `selection == nil` check below, which would
+			// mis-attribute the error as "No available accounts" and lose the
+			// upstream err in logs. See
+			// docs/bugs/2026-04-22-newapi-and-bridge-deep-audit.md § B-10.
 			if len(failedAccountIDs) == 0 {
-				if err != nil {
-					h.anthropicStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable", streamStarted)
-					return
-				}
-			} else {
-				if lastFailoverErr != nil {
-					h.handleAnthropicFailoverExhausted(c, lastFailoverErr, streamStarted)
-				} else {
-					h.anthropicStreamingAwareError(c, http.StatusBadGateway, "api_error", "Upstream request failed", streamStarted)
-				}
+				h.anthropicStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable", streamStarted)
 				return
 			}
+			if lastFailoverErr != nil {
+				h.handleAnthropicFailoverExhausted(c, lastFailoverErr, streamStarted)
+			} else {
+				h.anthropicStreamingAwareError(c, http.StatusBadGateway, "api_error", "Upstream request failed", streamStarted)
+			}
+			return
 		}
 		if selection == nil || selection.Account == nil {
 			h.anthropicStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
