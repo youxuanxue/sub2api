@@ -32,3 +32,5 @@
 | US-027 | OpenAI Codex 伪装 Claude — Thinking 多轮空响应根治 + 流式空内容护栏 | InTest | `.testing/user-stories/stories/US-027-openai-codex-as-claude-thinking-continuity.md` |
 | US-028 | NewAPI bridge 错误回灌 RateLimitService + handle401/handle402 跨 OpenAI-compat 平台 + relay-error JSON status 兜底 (Bug B-1 / B-3 / B-11) | InTest | `.testing/user-stories/stories/US-028-newapi-bridge-error-pipeline.md` |
 | US-029 | Admin BulkUpdate 拒绝 newapi credentials + BatchUpdateCredentials 走专用 writer 跳过 Moonshot 探测 (Bug B-4 / B-5) | InTest | `.testing/user-stories/stories/US-029-admin-bulk-and-batch-credentials-newapi.md` |
+| US-030 | tryStickySessionHit 在 bound account 不可调度 / 跨池漂移时主动清理 Redis 绑定 (Bug B-7) | InTest | `.testing/user-stories/stories/US-030-sticky-session-unschedulable-clears.md` |
+| US-031 | NewAPI bridge & handler 契约清理 — sticky 注入器拆分 / 双写防护 / TTL 漏斗 / selection-failure 显式 return (Bug B-2 / B-6 / B-8 / B-10) | InTest | `.testing/user-stories/stories/US-031-newapi-bridge-and-handler-contract-cleanup.md` |
