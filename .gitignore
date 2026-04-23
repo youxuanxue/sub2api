@@ -105,6 +105,11 @@ backend/internal/web/dist/*
 # 后端运行时缓存数据
 backend/data/
 
+# Cloud Agent 拉取的 prod 运行时数据（包含真实日志行 / 错误聚合，禁止入库）
+# 由 scripts/fetch-prod-logs.sh 与 scripts/fetch-prod-error-clusters.sh 生成
+.prod-logs/
+.error-clusters/
+
 # ===================
 # 本地配置文件（包含敏感信息）
 # ===================
