@@ -66,9 +66,11 @@ func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
 		Summary: "auto",
 	}
 
-	// Convert tool_choice
+	// Convert tool_choice. Pass req.Tools so {type:tool, name:X} can be
+	// classified as a built-in (when the matching tool's type is a server
+	// tool like web_search_*) or as a regular function tool.
 	if len(req.ToolChoice) > 0 {
-		tc, err := convertAnthropicToolChoiceToResponses(req.ToolChoice)
+		tc, err := convertAnthropicToolChoiceToResponses(req.ToolChoice, req.Tools)
 		if err != nil {
 			return nil, fmt.Errorf("convert tool_choice: %w", err)
 		}
@@ -80,17 +82,26 @@ func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
 
 // convertAnthropicToolChoiceToResponses maps Anthropic tool_choice to Responses format.
 //
-// The Responses API uses a flat shape (no nested "function" object), and built-in
-// tools (web_search, code_interpreter, ...) are selected by their own type, not by
-// {type:function,name:web_search}. Sending the legacy Chat-Completions nested form
-// produces upstream `400 Unknown parameter: 'tool_choice.function'`.
+// The Responses API uses a FLAT shape (no nested "function" object). Sending
+// the legacy Chat-Completions nested form produces upstream
+// `400 Unknown parameter: 'tool_choice.function'`.
 //
-//	{"type":"auto"}                   → "auto"
-//	{"type":"any"}                    → "required"
-//	{"type":"none"}                   → "none"
-//	{"type":"tool","name":"web_search"} → {"type":"web_search"}   (built-in)
-//	{"type":"tool","name":"X"}          → {"type":"function","name":"X"} (function)
-func convertAnthropicToolChoiceToResponses(raw json.RawMessage) (json.RawMessage, error) {
+// For {type:"tool", name:"X"} the helper looks up X in the tools list:
+//   - if X is a server/built-in tool (Anthropic type prefixed web_search,
+//     resolved via responsesBuiltinTypeForAnthropicTool) → {type:"<builtin>"}
+//   - otherwise → {type:"function", name:"X"}
+//
+// This keeps the classification driven by the tools list (the same source of
+// truth used by convertAnthropicToolsToResponses), so a user-defined custom
+// function whose name happens to collide with a built-in keyword (e.g. a
+// function literally named "web_search") is still routed as a function.
+//
+//	{"type":"auto"}                       → "auto"
+//	{"type":"any"}                        → "required"
+//	{"type":"none"}                       → "none"
+//	{"type":"tool","name":"<builtin>"}    → {"type":"<builtin>"}
+//	{"type":"tool","name":"<func>"}       → {"type":"function","name":"<func>"}
+func convertAnthropicToolChoiceToResponses(raw json.RawMessage, tools []AnthropicTool) (json.RawMessage, error) {
 	var tc struct {
 		Type string `json:"type"`
 		Name string `json:"name"`
@@ -107,8 +118,8 @@ func convertAnthropicToolChoiceToResponses(raw json.RawMessage) (json.RawMessage
 	case "none":
 		return json.Marshal("none")
 	case "tool":
-		if isResponsesBuiltinToolName(tc.Name) {
-			return json.Marshal(map[string]string{"type": tc.Name})
+		if builtin, ok := lookupBuiltinForAnthropicToolName(tc.Name, tools); ok {
+			return json.Marshal(map[string]string{"type": builtin})
 		}
 		return json.Marshal(map[string]string{
 			"type": "function",
@@ -119,18 +130,21 @@ func convertAnthropicToolChoiceToResponses(raw json.RawMessage) (json.RawMessage
 	}
 }
 
-// isResponsesBuiltinToolName reports whether the given tool name corresponds
-// to an OpenAI Responses API built-in tool. Built-in tools are selected via
-// {"type":"<name>"} rather than {"type":"function","name":"<name>"}.
-//
-// Kept aligned with convertAnthropicToolsToResponses, which remaps Anthropic
-// server tools (e.g. web_search_20250305) to their OpenAI built-in type.
-func isResponsesBuiltinToolName(name string) bool {
-	switch name {
-	case "web_search", "code_interpreter", "image_generation", "file_search", "computer_use_preview":
-		return true
+// lookupBuiltinForAnthropicToolName scans tools for a definition with the
+// given name and, if its Anthropic type maps to a Responses built-in, returns
+// that built-in type. Mirrors convertAnthropicToolsToResponses so the two
+// stay aligned without duplicating a separate name list.
+func lookupBuiltinForAnthropicToolName(name string, tools []AnthropicTool) (string, bool) {
+	for _, t := range tools {
+		if t.Name != name {
+			continue
+		}
+		if strings.HasPrefix(t.Type, "web_search") {
+			return "web_search", true
+		}
+		return "", false
 	}
-	return false
+	return "", false
 }
 
 // convertAnthropicToResponsesInput builds the Responses API input items array

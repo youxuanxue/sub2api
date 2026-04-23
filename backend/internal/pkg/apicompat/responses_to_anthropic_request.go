@@ -425,12 +425,16 @@ func normalizeAnthropicInputSchema(schema json.RawMessage) json.RawMessage {
 // convertResponsesToAnthropicToolChoice maps Responses tool_choice to Anthropic format.
 // Reverse of convertAnthropicToolChoiceToResponses.
 //
-//	"auto"                              → {"type":"auto"}
-//	"required"                          → {"type":"any"}
-//	"none"                              → {"type":"none"}
-//	{"type":"function","name":"X"}      → {"type":"tool","name":"X"}    (current flat shape)
-//	{"type":"function","function":{...}}→ {"type":"tool","name":"X"}    (legacy nested shape)
-//	{"type":"web_search"|...}           → {"type":"tool","name":"<bt>"} (built-in tools)
+//	"auto"                               → {"type":"auto"}
+//	"required"                           → {"type":"any"}
+//	"none"                               → {"type":"none"}
+//	{"type":"function","name":"X"}       → {"type":"tool","name":"X"}    (current flat shape)
+//	{"type":"function","function":{...}} → {"type":"tool","name":"X"}    (legacy nested shape, accepted for back-compat)
+//	{"type":"web_search"}                → {"type":"tool","name":"web_search"}
+//
+// The set of built-in types accepted here mirrors what the forward helper
+// emits via lookupBuiltinForAnthropicToolName (see anthropic_to_responses.go).
+// If forward learns a new built-in, add it here too.
 func convertResponsesToAnthropicToolChoice(raw json.RawMessage) (json.RawMessage, error) {
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
@@ -463,8 +467,8 @@ func convertResponsesToAnthropicToolChoice(raw json.RawMessage) (json.RawMessage
 				return json.Marshal(map[string]string{"type": "tool", "name": name})
 			}
 		}
-		if isResponsesBuiltinToolName(tc.Type) {
-			return json.Marshal(map[string]string{"type": "tool", "name": tc.Type})
+		if tc.Type == "web_search" {
+			return json.Marshal(map[string]string{"type": "tool", "name": "web_search"})
 		}
 	}
 

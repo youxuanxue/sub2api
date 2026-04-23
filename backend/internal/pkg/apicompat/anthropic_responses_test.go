@@ -866,10 +866,14 @@ func TestAnthropicToResponses_ToolChoiceSpecific(t *testing.T) {
 }
 
 func TestAnthropicToResponses_ToolChoiceBuiltinWebSearch(t *testing.T) {
-	// Reproduces the prod 400s captured in ops_error_logs:
+	// Reproduces the prod 400s captured in ops_error_logs (request_id
+	// 78e2b164…, 0f67518c…, e78fccb1… on 2026-04-23 02:09:33):
 	//   `upstream error: 400 Unknown parameter: 'tool_choice.function'.`
-	// triggered by Claude Code's WebSearch sub-agent which sets
-	// tool_choice = {"type":"tool","name":"web_search"}.
+	// Triggered by Claude Code's WebSearch sub-agent which sends:
+	//   tools:       [{name:"web_search", type:"web_search_20250305", ...}]
+	//   tool_choice: {type:"tool", name:"web_search"}
+	// Classification must be driven by the tools list (the tool's type prefix
+	// is web_search_*, so it is a built-in), not by the bare name.
 	req := &AnthropicRequest{
 		Model:      "gpt-5.2",
 		MaxTokens:  1024,
@@ -886,6 +890,53 @@ func TestAnthropicToResponses_ToolChoiceBuiltinWebSearch(t *testing.T) {
 	assert.Equal(t, "web_search", tc["type"], "built-in tools select via {type:<tool>}")
 	_, hasName := tc["name"]
 	assert.False(t, hasName, "built-in tool selection must not include 'name'")
+}
+
+func TestAnthropicToResponses_ToolChoiceCustomFunctionNamedWebSearch(t *testing.T) {
+	// Defense against name-only classification: a user-defined custom function
+	// whose name happens to be "web_search" (with type "custom") MUST be
+	// emitted as {type:function, name:web_search}, NOT as a built-in. The
+	// classification must look the name up in the tools list and check the
+	// tool's actual type, not match the name in isolation.
+	req := &AnthropicRequest{
+		Model:     "gpt-5.2",
+		MaxTokens: 1024,
+		Messages:  []AnthropicMessage{{Role: "user", Content: json.RawMessage(`"x"`)}},
+		Tools: []AnthropicTool{{
+			Type:        "custom",
+			Name:        "web_search",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
+		}},
+		ToolChoice: json.RawMessage(`{"type":"tool","name":"web_search"}`),
+	}
+
+	resp, err := AnthropicToResponses(req)
+	require.NoError(t, err)
+
+	var tc map[string]any
+	require.NoError(t, json.Unmarshal(resp.ToolChoice, &tc))
+	assert.Equal(t, "function", tc["type"], "custom function must not be classified as built-in by name")
+	assert.Equal(t, "web_search", tc["name"])
+}
+
+func TestAnthropicToResponses_ToolChoiceUnknownNameFallsBackToFunction(t *testing.T) {
+	// If the named tool isn't in the tools list at all (e.g. tool_choice was
+	// set without a matching tool definition — malformed but should not panic
+	// or misclassify), fall back to the safe default of {type:function, name:X}.
+	req := &AnthropicRequest{
+		Model:      "gpt-5.2",
+		MaxTokens:  1024,
+		Messages:   []AnthropicMessage{{Role: "user", Content: json.RawMessage(`"x"`)}},
+		ToolChoice: json.RawMessage(`{"type":"tool","name":"not_in_tools"}`),
+	}
+
+	resp, err := AnthropicToResponses(req)
+	require.NoError(t, err)
+
+	var tc map[string]any
+	require.NoError(t, json.Unmarshal(resp.ToolChoice, &tc))
+	assert.Equal(t, "function", tc["type"])
+	assert.Equal(t, "not_in_tools", tc["name"])
 }
 
 func TestResponsesToAnthropicRequest_ToolChoice(t *testing.T) {
