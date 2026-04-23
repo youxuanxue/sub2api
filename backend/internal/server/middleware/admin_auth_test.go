@@ -200,3 +200,7 @@ func (s *stubUserRepo) EnableTotp(ctx context.Context, userID int64) error {
 func (s *stubUserRepo) DisableTotp(ctx context.Context, userID int64) error {
 	panic("unexpected DisableTotp call")
 }
+
+func (s *stubUserRepo) MarkOnboardingTourSeen(ctx context.Context, userID int64) error {
+	panic("unexpected MarkOnboardingTourSeen call")
+}

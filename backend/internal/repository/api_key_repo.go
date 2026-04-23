@@ -663,6 +663,7 @@ func userEntityToService(u *dbent.User) *service.User {
 		BalanceNotifyThresholdType: u.BalanceNotifyThresholdType,
 		BalanceNotifyThreshold:     u.BalanceNotifyThreshold,
 		TotalRecharged:             u.TotalRecharged,
+		OnboardingTourSeenAt:       u.OnboardingTourSeenAt,
 		CreatedAt:                  u.CreatedAt,
 		UpdatedAt:                  u.UpdatedAt,
 	}

@@ -63,6 +63,7 @@ func TestAPIContracts(t *testing.T) {
 					"balance_notify_threshold": null,
 					"balance_notify_extra_emails": null,
 					"total_recharged": 0,
+					"onboarding_tour_seen_at": null,
 					"run_mode": "standard"
 				}
 			}`,
@@ -910,6 +911,10 @@ func (r *stubUserRepo) EnableTotp(ctx context.Context, userID int64) error {
 
 func (r *stubUserRepo) DisableTotp(ctx context.Context, userID int64) error {
 	return errors.New("not implemented")
+}
+
+func (r *stubUserRepo) MarkOnboardingTourSeen(ctx context.Context, userID int64) error {
+	return nil
 }
 
 type stubApiKeyCache struct{}
