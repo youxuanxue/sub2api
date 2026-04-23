@@ -129,6 +129,10 @@ export interface PublicSettings {
   balance_low_notify_enabled: boolean
   account_quota_notify_enabled: boolean
   balance_low_notify_threshold: number
+  // TK cold-start: only the public toggle is exposed here so HomeView /
+  // PricingView can hide the entry without authenticating. Bonus / trial
+  // settings remain admin-only.
+  pricing_catalog_public: boolean
 }
 
 export interface AuthResponse {

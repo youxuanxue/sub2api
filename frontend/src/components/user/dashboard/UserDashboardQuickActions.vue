@@ -48,14 +48,46 @@
           class="text-gray-400 transition-colors group-hover:text-amber-500 dark:text-dark-500"
         />
       </button>
+
+      <!-- TK cold-start (US-027): Browse public pricing catalog. Hidden when admin disables the public route. -->
+      <router-link
+        v-if="pricingCatalogPublic"
+        to="/pricing"
+        class="group flex w-full items-center gap-4 rounded-xl bg-gray-50 p-4 text-left transition-all duration-200 hover:bg-gray-100 dark:bg-dark-800/50 dark:hover:bg-dark-800"
+        data-tk="cold-start-quickaction-pricing"
+      >
+        <div class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-sky-100 transition-transform group-hover:scale-105 dark:bg-sky-900/30">
+          <Icon name="creditCard" size="lg" class="text-sky-600 dark:text-sky-400" />
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-medium text-gray-900 dark:text-white">{{ t('pricing.title') }}</p>
+          <p class="text-xs text-gray-500 dark:text-dark-400">{{ t('pricing.subtitle') }}</p>
+        </div>
+        <Icon
+          name="chevronRight"
+          size="md"
+          class="text-gray-400 transition-colors group-hover:text-sky-500 dark:text-dark-500"
+        />
+      </router-link>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
+import { useAppStore } from '@/stores/app'
+
 const router = useRouter()
 const { t } = useI18n()
+
+// TK cold-start (US-027): mirror HomeView/AppHeader visibility logic so the
+// pricing entry stays consistent across the public + signed-in surfaces.
+const appStore = useAppStore()
+const pricingCatalogPublic = computed(() => {
+  const v = appStore.cachedPublicSettings?.pricing_catalog_public
+  return v === undefined ? true : v
+})
 </script>

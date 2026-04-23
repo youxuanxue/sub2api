@@ -51,6 +51,17 @@
           <!-- Language Switcher -->
           <LocaleSwitcher />
 
+          <!-- Pricing Link (TK: docs/approved/user-cold-start.md §2 v1) -->
+          <router-link
+            v-if="pricingCatalogPublic"
+            to="/pricing"
+            class="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white"
+            :title="t('pricing.title')"
+            data-tk="cold-start-pricing-link"
+          >
+            <Icon name="creditCard" size="md" />
+          </router-link>
+
           <!-- Doc Link -->
           <a
             v-if="docUrl"
@@ -437,6 +448,13 @@ const siteLogo = computed(() => appStore.cachedPublicSettings?.site_logo || appS
 const siteSubtitle = computed(() => appStore.cachedPublicSettings?.site_subtitle || 'AI API Gateway Platform')
 const docUrl = computed(() => appStore.cachedPublicSettings?.doc_url || appStore.docUrl || '')
 const homeContent = computed(() => appStore.cachedPublicSettings?.home_content || '')
+// TK cold-start (US-027): public pricing entry visibility. Defaults to true so a
+// brand-new install without the row in DB still surfaces the link; flips off
+// only when an admin explicitly disables `pricing_catalog_public`.
+const pricingCatalogPublic = computed(() => {
+  const v = appStore.cachedPublicSettings?.pricing_catalog_public
+  return v === undefined ? true : v
+})
 
 // Check if homeContent is a URL (for iframe display)
 const isHomeContentUrl = computed(() => {

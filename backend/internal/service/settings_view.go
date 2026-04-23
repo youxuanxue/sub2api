@@ -174,6 +174,11 @@ type PublicSettings struct {
 	AccountQuotaNotifyEnabled   bool
 	BalanceLowNotifyThreshold   float64
 	BalanceLowNotifyRechargeURL string
+
+	// TK cold-start (US-027): only the public catalog gate is exposed publicly
+	// so HomeView / PricingView can hide the entry without first authenticating.
+	// Bonus / trial-key fields stay admin-only.
+	PricingCatalogPublic bool
 }
 
 // StreamTimeoutSettings 流超时处理配置（仅控制超时后的处理方式，超时判定由网关配置控制）

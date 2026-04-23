@@ -64,5 +64,6 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 		AccountQuotaNotifyEnabled:        settings.AccountQuotaNotifyEnabled,
 		BalanceLowNotifyThreshold:        settings.BalanceLowNotifyThreshold,
 		BalanceLowNotifyRechargeURL:      settings.BalanceLowNotifyRechargeURL,
+		PricingCatalogPublic:             settings.PricingCatalogPublic,
 	})
 }
