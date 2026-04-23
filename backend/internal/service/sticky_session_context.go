@@ -44,23 +44,67 @@ func resolveStickyStrategyFromGin(ctx context.Context, c *gin.Context, settingSe
 	return StickyStrategy{GlobalEnabled: enabled, Mode: mode}
 }
 
-// applyStickyToNewAPIBridge derives + injects a sticky key into the body
-// (prompt_cache_key) AND sets X-Session-Id on c.Request.Header so the
-// underlying NewAPI adaptor can forward it to GLM-style upstreams.
+// applyStickyToNewAPIChatBridge derives + injects a sticky key into a
+// /v1/chat/completions request body (writes prompt_cache_key) AND sets
+// X-Session-Id on c.Request.Header so the underlying NewAPI adaptor can
+// forward it to GLM-style upstreams.
 //
-// Returns the (possibly mutated) body. When the strategy disallows
-// injection or no sticky key can be derived, the original body is returned
-// untouched.
+// Returns the (possibly mutated) body. When the strategy disallows injection
+// or no sticky key can be derived, the original body is returned untouched.
 //
 // upstreamModel is optional; when empty, body.model is read for derivation
 // context.
-func applyStickyToNewAPIBridge(
+//
+// Bug B-6: previously a single applyStickyToNewAPIBridge served both
+// /chat/completions and /v1/responses, hardcoded to InjectOpenAIChatCompletionsBody.
+// Today InjectOpenAIChatCompletionsBody == InjectOpenAIResponsesBody by
+// coincidence (both write prompt_cache_key at the body root); any future
+// protocol drift in either direction would silently break the wrong endpoint.
+// Splitting into two call sites localises the protocol per dispatch path.
+// See docs/bugs/2026-04-22-newapi-and-bridge-deep-audit.md § B-6.
+func applyStickyToNewAPIChatBridge(
 	ctx context.Context,
 	c *gin.Context,
 	settingService stickyGlobalEnabledProvider,
 	account *Account,
 	body []byte,
 	upstreamModel string,
+) []byte {
+	return applyStickyToNewAPIBridgeWith(ctx, c, settingService, account, body, upstreamModel, InjectOpenAIChatCompletionsBody)
+}
+
+// applyStickyToNewAPIResponsesBridge mirrors applyStickyToNewAPIChatBridge
+// for the /v1/responses dispatch path, using InjectOpenAIResponsesBody.
+// See applyStickyToNewAPIChatBridge for the rationale (Bug B-6).
+func applyStickyToNewAPIResponsesBridge(
+	ctx context.Context,
+	c *gin.Context,
+	settingService stickyGlobalEnabledProvider,
+	account *Account,
+	body []byte,
+	upstreamModel string,
+) []byte {
+	return applyStickyToNewAPIBridgeWith(ctx, c, settingService, account, body, upstreamModel, InjectOpenAIResponsesBody)
+}
+
+// stickyBodyInjector is the function shape implemented by
+// InjectOpenAIChatCompletionsBody and InjectOpenAIResponsesBody. The local
+// alias avoids exposing the choice at every call site.
+type stickyBodyInjector func(body []byte, key StickyKey, strategy StickyStrategy) ([]byte, bool, error)
+
+// applyStickyToNewAPIBridgeWith is the shared implementation of the per-
+// endpoint sticky helpers. Kept private so the two public wrappers (chat /
+// responses) remain the only documented entry points; an injector pointer
+// dispatched through a single function is a smaller surface than two near-
+// identical copies.
+func applyStickyToNewAPIBridgeWith(
+	ctx context.Context,
+	c *gin.Context,
+	settingService stickyGlobalEnabledProvider,
+	account *Account,
+	body []byte,
+	upstreamModel string,
+	inject stickyBodyInjector,
 ) []byte {
 	model := strings.TrimSpace(upstreamModel)
 	stickyReq := buildStickyInjectionRequestFromGin(ctx, c, settingService, model, StickyAccountNewAPI, false)
@@ -71,7 +115,7 @@ func applyStickyToNewAPIBridge(
 	if key.Value == "" {
 		return body
 	}
-	if injected, mut, err := InjectOpenAIChatCompletionsBody(body, key, stickyReq.Strategy); err == nil && mut {
+	if injected, mut, err := inject(body, key, stickyReq.Strategy); err == nil && mut {
 		body = injected
 	}
 	if c != nil && c.Request != nil {

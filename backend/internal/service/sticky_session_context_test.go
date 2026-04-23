@@ -94,11 +94,11 @@ func TestUS201_BuildStickyInjectionRequestFromGin_PicksUpGroupID(t *testing.T) {
 	require.Equal(t, StickyKeySourceClientSessionID, key.Source)
 }
 
-func TestUS201_ApplyStickyToNewAPIBridge_InjectsBodyAndHeader(t *testing.T) {
+func TestUS201_ApplyStickyToNewAPIChatBridge_InjectsBodyAndHeader(t *testing.T) {
 	headers := http.Header{}
 	c := newGinCtxWithAPIKey(t, &APIKey{ID: 99, Group: &Group{ID: 1}}, headers)
 	body := []byte(`{"model":"glm-4-plus","messages":[{"role":"user","content":"hi"}],"system":"unique-system-for-glm"}`)
-	out := applyStickyToNewAPIBridge(
+	out := applyStickyToNewAPIChatBridge(
 		context.Background(), c,
 		&fakeStickyGlobalProvider{enabled: true},
 		&Account{ID: 1, Type: AccountTypeAPIKey},
@@ -111,13 +111,51 @@ func TestUS201_ApplyStickyToNewAPIBridge_InjectsBodyAndHeader(t *testing.T) {
 	require.Equal(t, pkc, c.Request.Header.Get("X-Session-Id"), "X-Session-Id should mirror prompt_cache_key")
 }
 
-func TestUS201_ApplyStickyToNewAPIBridge_OffStrategyNoOp(t *testing.T) {
+func TestUS201_ApplyStickyToNewAPIResponsesBridge_InjectsBodyAndHeader(t *testing.T) {
+	// Bug B-6: the responses-shape injector currently writes to the same
+	// prompt_cache_key root key as the chat-completions injector; the
+	// observable behaviour must match for now, but the call site is
+	// distinct so future protocol drift stays localised.
+	headers := http.Header{}
+	c := newGinCtxWithAPIKey(t, &APIKey{ID: 99, Group: &Group{ID: 1}}, headers)
+	body := []byte(`{"model":"glm-4-plus","input":[{"role":"user","content":"hi"}]}`)
+	out := applyStickyToNewAPIResponsesBridge(
+		context.Background(), c,
+		&fakeStickyGlobalProvider{enabled: true},
+		&Account{ID: 1, Type: AccountTypeAPIKey},
+		body,
+		"glm-4-plus",
+	)
+
+	pkc := gjson.GetBytes(out, "prompt_cache_key").String()
+	require.NotEmpty(t, pkc, "prompt_cache_key should be injected into body for responses path too")
+	require.Equal(t, pkc, c.Request.Header.Get("X-Session-Id"))
+}
+
+func TestUS201_ApplyStickyToNewAPIChatBridge_OffStrategyNoOp(t *testing.T) {
 	c := newGinCtxWithAPIKey(t, &APIKey{
 		ID:    99,
 		Group: &Group{ID: 1, StickyRoutingMode: string(group.StickyRoutingModeOff)},
 	}, http.Header{})
 	body := []byte(`{"model":"glm-4-plus","messages":[]}`)
-	out := applyStickyToNewAPIBridge(
+	out := applyStickyToNewAPIChatBridge(
+		context.Background(), c,
+		&fakeStickyGlobalProvider{enabled: true},
+		&Account{ID: 1, Type: AccountTypeAPIKey},
+		body,
+		"glm-4-plus",
+	)
+	require.Equal(t, body, out)
+	require.Empty(t, c.Request.Header.Get("X-Session-Id"))
+}
+
+func TestUS201_ApplyStickyToNewAPIResponsesBridge_OffStrategyNoOp(t *testing.T) {
+	c := newGinCtxWithAPIKey(t, &APIKey{
+		ID:    99,
+		Group: &Group{ID: 1, StickyRoutingMode: string(group.StickyRoutingModeOff)},
+	}, http.Header{})
+	body := []byte(`{"model":"glm-4-plus","input":[]}`)
+	out := applyStickyToNewAPIResponsesBridge(
 		context.Background(), c,
 		&fakeStickyGlobalProvider{enabled: true},
 		&Account{ID: 1, Type: AccountTypeAPIKey},
