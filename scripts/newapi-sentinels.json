@@ -33,6 +33,21 @@
       "rationale": "Channel-type catalog backing the fifth-platform admin UI. The integration package is the entire fifth-platform glue layer; if this file disappears the catalog dropdown is empty and bridge selection breaks."
     },
     {
+      "path": "backend/internal/relay/bridge/video_relay.go",
+      "must_contain": ["DispatchVideoSubmit", "DispatchVideoFetch", "IsVideoSupportedChannelType"],
+      "rationale": "Bridge for the asynchronous video task pipeline (POST /v1/video/generations + GET /v1/video/generations/:task_id and the OpenAI-compat /v1/videos aliases) — currently the only newapi pathway for VolcEngine / DoubaoVideo video generation. Without these symbols the gateway routes silently 5xx because no other code drives task adaptors. An upstream merge that drops this file regresses every Volcengine video customer."
+    },
+    {
+      "path": "backend/internal/service/video_task_registry.go",
+      "must_contain": ["VideoTaskRegistry", "VideoTaskRecord", "NewVideoTaskRegistry"],
+      "rationale": "Redis-backed registry that pins a public task_id to its originating account/channel. Required because async video tasks outlive the HTTP submit and TokenKey deliberately does not persist to a model.Task table. Removing this registry breaks GET /v1/video/generations/:task_id polling (404 every time) without any compile error — the tk_video dispatch helper would still exist."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_video.go",
+      "must_contain": ["ForwardAsVideoSubmitDispatched", "ForwardAsVideoFetchDispatched", "TkAccountUsesNewAPIBridgeForVideo"],
+      "rationale": "TK companion that wires the bridge's video submit/fetch into OpenAIGatewayService and extends the BridgeEndpoint switch with video_submit / video_fetch. Without it accountUsesNewAPIAdaptorBridge silently returns false for video endpoints and the handlers degrade to non-existent native paths."
+    },
+    {
       "path": "backend/internal/integration/newapi/fusion.go",
       "must_contain": ["package newapi"],
       "rationale": "Bridge fusion logic that wires QuantumNous/new-api adaptors into TK's relay. Removing this file disables the entire upstream new-api capability."

@@ -83,6 +83,32 @@ func TestShouldDispatchToNewAPIBridge(t *testing.T) {
 			endpoint: BridgeEndpointImages,
 			want:     true,
 		},
+		{
+			// Video submit must dispatch to the bridge for any account
+			// with channel_type > 0 because there is no native sub2api
+			// path for async task generation. Regressing this to false
+			// silently 5xx's the entire /v1/video/generations endpoint.
+			name:     "positive channel type video submit endpoint",
+			account:  &Account{ChannelType: 45},
+			endpoint: BridgeEndpointVideoSubmit,
+			want:     true,
+		},
+		{
+			name:     "positive channel type video fetch endpoint",
+			account:  &Account{ChannelType: 45},
+			endpoint: BridgeEndpointVideoFetch,
+			want:     true,
+		},
+		{
+			// Defensive: video endpoints with channel_type=0 must NOT
+			// dispatch — there's no adaptor and the bridge would panic
+			// (or worse, route to a wrong adaptor if a future channel
+			// type happens to map to 0).
+			name:     "zero channel type video submit endpoint",
+			account:  &Account{ChannelType: 0},
+			endpoint: BridgeEndpointVideoSubmit,
+			want:     false,
+		},
 	}
 
 	for _, tt := range tests {
