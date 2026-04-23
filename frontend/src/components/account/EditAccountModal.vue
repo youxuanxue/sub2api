@@ -42,11 +42,18 @@
           v-model:modelMapping="newapiModelMapping"
           v-model:statusCodeMapping="newapiStatusCodeMapping"
           v-model:openaiOrganization="newapiOpenAIOrganization"
+          v-model:allowedModels="newapiAllowedModels"
+          v-model:modelMappings="newapiModelMappingsList"
+          v-model:restrictionMode="newapiRestrictionMode"
           :channel-type-options="newapiChannelTypeOptions"
           :channel-types-loading="newapiChannelTypesLoading"
           :channel-types-error="newapiChannelTypesError"
           :selected-channel-type-base-url="newapiSelectedBaseUrl"
+          :fetch-models-enabled="newapiFetchEnabled"
+          :fetch-models-disabled="newapiFetchDisabled"
+          :fetch-models-loading="newapiFetchLoading"
           variant="edit"
+          @fetch-models="handleFetchNewapiUpstreamModels"
         />
         <template v-else>
           <div>
@@ -91,8 +98,14 @@
           </div>
         </template>
 
-        <!-- Model Restriction Section (不适用于 Antigravity) -->
-        <div v-if="account.platform !== 'antigravity'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <!--
+          Model Restriction Section (不适用于 Antigravity).
+          D2 (docs/accounts/newapi-add-account-ui-gap-analysis.md): also exclude `newapi`,
+          whose models live inside AccountNewApiPlatformFields above. Without this, the
+          generic block would render a duplicate whitelist/mapping toggle below the
+          NewAPI fields, both targeting credentials.model_mapping.
+        -->
+        <div v-if="account.platform !== 'antigravity' && account.platform !== 'newapi'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
           <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
 
           <div
@@ -1881,7 +1894,8 @@ import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import AccountNewApiPlatformFields from './AccountNewApiPlatformFields.vue'
-import { listChannelTypes, type ChannelTypeInfo } from '@/api/admin/channels'
+import { listChannelTypes, fetchUpstreamModels, type ChannelTypeInfo } from '@/api/admin/channels'
+import { isNewApiUpstreamFetchableChannelType } from '@/constants/newApiUpstreamFetchableChannelTypes'
 import { applyInterceptWarmup } from '@/components/account/credentialsBuilder'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
@@ -1970,6 +1984,69 @@ const newapiSelectedBaseUrl = computed(() => {
   const found = newapiChannelTypes.value.find((c) => c.channel_type === newapiChannelType.value)
   return found?.base_url ?? ''
 })
+
+// D3 + D4 (docs/accounts/newapi-add-account-ui-gap-analysis.md):
+// structured model selection inside the NewAPI fields block. Mirrors the
+// CreateAccountModal pattern; the existing `allowedModels` ref already
+// covers other platforms via the generic apikey block, so we keep newapi
+// in its own ref to avoid "edit-modal cross-platform allowedModels leaks
+// into newapi when account.platform changes between mounts" issues.
+const newapiAllowedModels = ref<string[]>([])
+const newapiModelMappingsList = ref<{ from: string; to: string }[]>([])
+const newapiRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
+const newapiFetchLoading = ref(false)
+const newapiFetchEnabled = computed(
+  () => isNewApiUpstreamFetchableChannelType(newapiChannelType.value)
+)
+const newapiFetchDisabled = computed(() => {
+  const hasBase = (newapiBaseUrl.value.trim() || newapiSelectedBaseUrl.value).length > 0
+  // Edit modal allows the stored api_key fallback (account_id route) when
+  // the api_key field is left blank — backend resolves credentials via
+  // GetAccount(req.AccountID).GetCredential("api_key"). So the button is
+  // enabled when EITHER (api_key in form is non-empty) OR (we have an
+  // account.id and the channel_type matches the persisted one).
+  const hasInputKey = newapiApiKey.value.trim().length > 0
+  const hasStoredKey = !!props.account?.id && (props.account?.channel_type ?? 0) === newapiChannelType.value
+  return !hasBase || (!hasInputKey && !hasStoredKey)
+})
+
+async function handleFetchNewapiUpstreamModels(): Promise<void> {
+  if (!newapiChannelType.value || newapiChannelType.value <= 0) {
+    appStore.showError(t('admin.accounts.newApiPlatform.pleaseSelectChannelType'))
+    return
+  }
+  const base = newapiBaseUrl.value.trim() || newapiSelectedBaseUrl.value
+  const inputKey = newapiApiKey.value.trim()
+  const accountId = props.account?.id
+  const sameChannelType = (props.account?.channel_type ?? 0) === newapiChannelType.value
+  if (!base || (!inputKey && !(accountId && sameChannelType))) {
+    appStore.showError(t('admin.accounts.newApiPlatform.fetchUpstreamModelsNeedUrlKey'))
+    return
+  }
+  newapiFetchLoading.value = true
+  try {
+    const models = await fetchUpstreamModels({
+      base_url: base,
+      channel_type: newapiChannelType.value,
+      api_key: inputKey,
+      ...(inputKey ? {} : { account_id: accountId }),
+    })
+    if (!models.length) {
+      appStore.showInfo(t('admin.accounts.newApiPlatform.fetchUpstreamModelsEmpty'))
+      return
+    }
+    newapiAllowedModels.value = [...models]
+    newapiRestrictionMode.value = 'whitelist'
+    appStore.showSuccess(
+      t('admin.accounts.newApiPlatform.fetchUpstreamModelsSuccess', { count: models.length })
+    )
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    appStore.showError(msg || t('admin.accounts.newApiPlatform.fetchUpstreamModelsFailed'))
+  } finally {
+    newapiFetchLoading.value = false
+  }
+}
 // Bedrock credentials
 const editBedrockAccessKeyId = ref('')
 const editBedrockSecretAccessKey = ref('')
@@ -2360,9 +2437,11 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       newapiChannelType.value = newAccount.channel_type ?? 0
       newapiBaseUrl.value = (credentials.base_url as string) ?? ''
       newapiApiKey.value = ''
-      // Mirror US-019 forwarding-affecting credentials into the local refs so
-      // the shared field component renders existing values. model_mapping is
-      // stringified for textarea editing; the others are plain strings.
+      // Mirror US-019 forwarding-affecting credentials. model_mapping is no
+      // longer rendered as a raw JSON textarea (D3+D4 unified it with the
+      // structured selector below), but we still keep the variable as a v-model
+      // binding for backwards compat and stringify the existing value for
+      // observability if needed.
       const existingModelMapping = credentials.model_mapping
       if (existingModelMapping && typeof existingModelMapping === 'object') {
         try {
@@ -2381,6 +2460,30 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       newapiOpenAIOrganization.value = typeof credentials.openai_organization === 'string'
         ? credentials.openai_organization
         : ''
+      // D3 + D4: populate the structured selector. Detect whitelist vs mapping
+      // mode from credentials.model_mapping the same way the generic apikey
+      // block does (whitelist if all from===to, otherwise mapping).
+      if (existingModelMapping && typeof existingModelMapping === 'object' && !Array.isArray(existingModelMapping)) {
+        const entries = Object.entries(existingModelMapping as Record<string, unknown>)
+          .filter(([, v]) => typeof v === 'string') as Array<[string, string]>
+        if (entries.length === 0) {
+          newapiRestrictionMode.value = 'whitelist'
+          newapiAllowedModels.value = []
+          newapiModelMappingsList.value = []
+        } else if (entries.every(([from, to]) => from === to)) {
+          newapiRestrictionMode.value = 'whitelist'
+          newapiAllowedModels.value = entries.map(([from]) => from)
+          newapiModelMappingsList.value = []
+        } else {
+          newapiRestrictionMode.value = 'mapping'
+          newapiAllowedModels.value = []
+          newapiModelMappingsList.value = entries.map(([from, to]) => ({ from, to }))
+        }
+      } else {
+        newapiRestrictionMode.value = 'whitelist'
+        newapiAllowedModels.value = []
+        newapiModelMappingsList.value = []
+      }
       // Lazy-load the channel-type catalog so the Select shows human names.
       // Errors are surfaced via newapiChannelTypesError; they do not block
       // the user from saving (the channel_type ID is already known).
@@ -3005,10 +3108,9 @@ const handleSubmit = async () => {
         }
         // US-019: validate optional JSON-object credentials before submit so
         // malformed JSON never reaches the bridge / persistence.
-        if (newapiModelMapping.value.trim() && !parseJsonObjectOrNull(newapiModelMapping.value.trim())) {
-          appStore.showError(t('admin.accounts.newApiPlatform.jsonObjectRequired'))
-          return
-        }
+        // (D3+D4: model_mapping is now built from the structured selector
+        //  via buildModelMappingObject below; the raw JSON validation only
+        //  applies to status_code_mapping which is still a textarea.)
         if (newapiStatusCodeMapping.value.trim() && !parseJsonObjectOrNull(newapiStatusCodeMapping.value.trim())) {
           appStore.showError(t('admin.accounts.newApiPlatform.jsonObjectRequired'))
           return
@@ -3036,13 +3138,17 @@ const handleSubmit = async () => {
 
       // Add model mapping if configured（OpenAI 开启自动透传时保留现有映射，不再编辑）
       if (isNewAPI) {
-        // newapi-platform model_mapping is owned by AccountNewApiPlatformFields
-        // (US-019), not by the generic model-restriction UI which is hidden
-        // for this platform. Persist as JSON object for Account.GetModelMapping.
-        const mappingTrim = newapiModelMapping.value.trim()
-        if (mappingTrim) {
-          const parsed = parseJsonObjectOrNull(mappingTrim)
-          if (parsed) newCredentials.model_mapping = parsed
+        // D3 + D4: newapi credentials.model_mapping is built from the same
+        // structured whitelist/mapping selector the create modal uses. This
+        // unifies the previous raw JSON path with native new-api 添加渠道
+        // «模型» semantics (whitelist → {model:model}, mapping → {from:to}).
+        const newapiMapping = buildModelMappingObject(
+          newapiRestrictionMode.value,
+          newapiAllowedModels.value,
+          newapiModelMappingsList.value
+        )
+        if (newapiMapping) {
+          newCredentials.model_mapping = newapiMapping
         } else {
           delete newCredentials.model_mapping
         }
