@@ -734,11 +734,18 @@
           v-model:modelMapping="newapiModelMapping"
           v-model:statusCodeMapping="newapiStatusCodeMapping"
           v-model:openaiOrganization="newapiOpenAIOrganization"
+          v-model:allowedModels="newapiAllowedModels"
+          v-model:modelMappings="newapiModelMappingsList"
+          v-model:restrictionMode="newapiRestrictionMode"
           :channel-type-options="newapiChannelTypeOptions"
           :channel-types-loading="newapiChannelTypesLoading"
           :channel-types-error="newapiChannelTypesError"
           :selected-channel-type-base-url="newapiSelectedBaseUrl"
+          :fetch-models-enabled="newapiFetchEnabled"
+          :fetch-models-disabled="newapiFetchDisabled"
+          :fetch-models-loading="newapiFetchLoading"
           variant="create"
+          @fetch-models="handleFetchNewapiUpstreamModels"
         />
       </div>
 
@@ -886,8 +893,15 @@
         </div>
       </div>
 
-      <!-- API Key input (only for apikey type, excluding Antigravity which has its own fields) -->
-      <div v-if="form.type === 'apikey' && form.platform !== 'antigravity'" class="space-y-4">
+      <!--
+        API Key input (only for apikey type, excluding Antigravity which has its own fields).
+        D2 (docs/accounts/newapi-add-account-ui-gap-analysis.md): also exclude `newapi`,
+        whose base_url + api_key + models live inside AccountNewApiPlatformFields above.
+        Without this short-circuit, switching from OpenAI/Key → NewAPI would render TWO
+        base_url and TWO api_key inputs (the lower one with a misleading anthropic placeholder),
+        only one of which is actually submitted.
+      -->
+      <div v-if="form.type === 'apikey' && form.platform !== 'antigravity' && form.platform !== 'newapi'" class="space-y-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
@@ -2980,7 +2994,8 @@ import {
 } from '@/utils/openaiWsMode'
 import OAuthAuthorizationFlow from './OAuthAuthorizationFlow.vue'
 import AccountNewApiPlatformFields from './AccountNewApiPlatformFields.vue'
-import { listChannelTypes, type ChannelTypeInfo } from '@/api/admin/channels'
+import { listChannelTypes, fetchUpstreamModels, type ChannelTypeInfo } from '@/api/admin/channels'
+import { isNewApiUpstreamFetchableChannelType } from '@/constants/newApiUpstreamFetchableChannelTypes'
 
 // Type for exposed OAuthAuthorizationFlow component
 // Note: defineExpose automatically unwraps refs, so we use the unwrapped types
@@ -3175,6 +3190,63 @@ const newapiSelectedBaseUrl = computed(() => {
   const found = newapiChannelTypes.value.find((c) => c.channel_type === newapiChannelType.value)
   return found?.base_url || ''
 })
+
+// D3 + D4 (docs/accounts/newapi-add-account-ui-gap-analysis.md):
+// structured model selection inside the NewAPI fields block (mirrors native
+// new-api 添加渠道 «模型» multi-select + «获取模型列表» button). The previous
+// raw `newapiModelMapping` JSON textarea also wrote to credentials.model_mapping;
+// it has been removed from the field component to eliminate the dual-source
+// bug. The variable is kept as a v-model passthrough only for parents that may
+// still bind it (the textarea no longer renders).
+const newapiAllowedModels = ref<string[]>([])
+const newapiModelMappingsList = ref<{ from: string; to: string }[]>([])
+const newapiRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
+const newapiFetchLoading = ref(false)
+const newapiLastUpstreamModels = ref<string[] | null>(null)
+const newapiFetchEnabled = computed(
+  () => isNewApiUpstreamFetchableChannelType(newapiChannelType.value)
+)
+const newapiFetchDisabled = computed(() => {
+  const hasBase = (newapiBaseUrl.value.trim() || newapiSelectedBaseUrl.value).length > 0
+  const hasKey = newapiApiKey.value.trim().length > 0
+  return !hasBase || !hasKey
+})
+
+async function handleFetchNewapiUpstreamModels(): Promise<void> {
+  if (!newapiChannelType.value || newapiChannelType.value <= 0) {
+    appStore.showError(t('admin.accounts.newApiPlatform.pleaseSelectChannelType'))
+    return
+  }
+  const base = newapiBaseUrl.value.trim() || newapiSelectedBaseUrl.value
+  const key = newapiApiKey.value.trim()
+  if (!base || !key) {
+    appStore.showError(t('admin.accounts.newApiPlatform.fetchUpstreamModelsNeedUrlKey'))
+    return
+  }
+  newapiFetchLoading.value = true
+  try {
+    const models = await fetchUpstreamModels({
+      base_url: base,
+      channel_type: newapiChannelType.value,
+      api_key: key,
+    })
+    if (!models.length) {
+      appStore.showInfo(t('admin.accounts.newApiPlatform.fetchUpstreamModelsEmpty'))
+      return
+    }
+    newapiLastUpstreamModels.value = [...models]
+    newapiAllowedModels.value = [...models]
+    newapiRestrictionMode.value = 'whitelist'
+    appStore.showSuccess(
+      t('admin.accounts.newApiPlatform.fetchUpstreamModelsSuccess', { count: models.length })
+    )
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    appStore.showError(msg || t('admin.accounts.newApiPlatform.fetchUpstreamModelsFailed'))
+  } finally {
+    newapiFetchLoading.value = false
+  }
+}
 
 const tempUnschedEnabled = ref(false)
 const tempUnschedRules = ref<TempUnschedRuleForm[]>([])
@@ -3486,6 +3558,25 @@ watch(
       antigravityWhitelistModels.value = []
       accountCategory.value = 'oauth-based'
       antigravityAccountType.value = 'oauth'
+    } else if (newPlatform === 'newapi') {
+      // D1 (docs/accounts/newapi-add-account-ui-gap-analysis.md):
+      // newapi is API-key only; align accountCategory so the form.type watcher
+      // flips form.type to 'apikey' and rendering state matches the submit
+      // path (line 4173 hard-codes type:'apikey' for newapi). Without this,
+      // a fresh-open user whose accountCategory defaulted to 'oauth-based'
+      // sees no model section because form.type stays 'oauth'.
+      accountCategory.value = 'apikey'
+      allowOverages.value = false
+      antigravityWhitelistModels.value = []
+      antigravityModelMappings.value = []
+      antigravityModelRestrictionMode.value = 'mapping'
+      // Default newapi model section to whitelist mode (matches native new-api
+      // 添加渠道 «模型» multi-select); user can flip to mapping inside the
+      // AccountNewApiPlatformFields component.
+      newapiRestrictionMode.value = 'whitelist'
+      newapiAllowedModels.value = []
+      newapiModelMappingsList.value = []
+      newapiLastUpstreamModels.value = null
     } else {
       allowOverages.value = false
       antigravityWhitelistModels.value = []
@@ -3533,6 +3624,25 @@ watch(
     if (platform !== 'anthropic' || category !== 'apikey') {
       anthropicPassthroughEnabled.value = false
       webSearchEmulationMode.value = 'default'
+    }
+  }
+)
+
+// D3 (docs/accounts/newapi-add-account-ui-gap-analysis.md):
+// Auto-prefill base_url when the user picks a channel type (mirrors native
+// new-api 添加渠道 behaviour). Only fires when the user has not manually
+// typed a base_url, so admins overriding to a private/proxy base are not
+// clobbered by the catalog default.
+watch(
+  () => newapiChannelType.value,
+  (ct) => {
+    if (form.platform !== 'newapi') return
+    if (!ct) return
+    const found = newapiChannelTypes.value.find((c) => c.channel_type === ct)
+    if (!found) return
+    const trimmed = newapiBaseUrl.value.trim()
+    if (!trimmed) {
+      newapiBaseUrl.value = found.base_url || ''
     }
   }
 )
@@ -3921,6 +4031,18 @@ const resetForm = () => {
   antigravityAccountType.value = 'oauth'
   upstreamBaseUrl.value = ''
   upstreamApiKey.value = ''
+  // newapi (5th platform) state
+  newapiChannelType.value = 0
+  newapiBaseUrl.value = ''
+  newapiApiKey.value = ''
+  newapiModelMapping.value = ''
+  newapiStatusCodeMapping.value = ''
+  newapiOpenAIOrganization.value = ''
+  newapiAllowedModels.value = []
+  newapiModelMappingsList.value = []
+  newapiRestrictionMode.value = 'whitelist'
+  newapiLastUpstreamModels.value = null
+  newapiFetchLoading.value = false
   tempUnschedEnabled.value = false
   tempUnschedRules.value = []
   geminiOAuthType.value = 'code_assist'
@@ -4139,21 +4261,22 @@ const handleSubmit = async () => {
       base_url: baseUrl,
       api_key: newapiApiKey.value.trim()
     }
-    // US-019: validate optional JSON-object credentials and persist them under
-    // credentials so newapi_bridge_usage::newAPIBridgeChannelInput can read them.
-    // model_mapping is stored as a JSON object because Account.GetModelMapping()
-    // reads credentials["model_mapping"].(map[string]any); status_code_mapping
-    // is stored as a JSON string because the bridge passes it through to the
-    // upstream new-api relay handlers via Gin context as-is.
-    const modelMappingTrim = newapiModelMapping.value.trim()
-    if (modelMappingTrim) {
-      const parsed = parseJsonObjectOrNull(modelMappingTrim)
-      if (!parsed) {
-        appStore.showError(t('admin.accounts.newApiPlatform.jsonObjectRequired'))
-        return
-      }
-      credentials.model_mapping = parsed
+    // D3 + D4 (docs/accounts/newapi-add-account-ui-gap-analysis.md):
+    // model_mapping is now derived from the structured selector inside
+    // AccountNewApiPlatformFields (whitelist mode → {model:model}, mapping
+    // mode → {from:to}), unifying the previous raw JSON textarea path
+    // with the same shape Account.GetModelMapping() reads
+    // (credentials["model_mapping"].(map[string]any)).
+    const newapiMapping = buildModelMappingObject(
+      newapiRestrictionMode.value,
+      newapiAllowedModels.value,
+      newapiModelMappingsList.value
+    )
+    if (newapiMapping) {
+      credentials.model_mapping = newapiMapping
     }
+    // status_code_mapping stays a JSON string (bridge passes through as-is);
+    // openai_organization stays a plain string (outbound header).
     const statusCodeMappingTrim = newapiStatusCodeMapping.value.trim()
     if (statusCodeMappingTrim) {
       if (!parseJsonObjectOrNull(statusCodeMappingTrim)) {
