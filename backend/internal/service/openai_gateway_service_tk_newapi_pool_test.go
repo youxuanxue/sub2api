@@ -170,5 +170,86 @@ func TestUS015_Sticky_OpenAIGroup_HitPreserved(t *testing.T) {
 	require.True(t, decision.StickySessionHit)
 }
 
+// ---------------------------------------------------------------------------
+// P0-2 (docs/bugs/2026-04-23-newapi-fifth-platform-audit.md):
+// 修复 tryStickySessionHit 与 SelectAccountWithLoadAwareness Layer-1 在跨平台
+// sticky binding 时不清理 Redis 映射，导致整个 TTL 周期内每次同 sessionHash
+// 请求都重做一次 snapshot 查询并落到 Layer 2。scheduler 路径已修
+// （openai_account_scheduler.go:324），legacy 路径之前漏修。
+// ---------------------------------------------------------------------------
+
+// TestP02_LegacyTryStickyHit_CrossPlatform_ClearsBinding 覆盖
+// SelectAccountWithLoadAwareness 的非 LoadBatch 分支（cfg.LoadBatchEnabled=false）。
+// 该分支走 selectAccountForModelWithExclusions → tryStickySessionHit。
+// 注入：newapi group + 跨平台 (openai) sticky binding → 必须清理。
+func TestP02_LegacyTryStickyHit_CrossPlatform_ClearsBinding(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(83006)
+	stickyDrifted := openAIAccount(83601, 0) // 绑定了 openai 账号，但 group 平台已变成 newapi
+	newapiBackup := newAPIAccount(83602, 5)
+	pool := []*Account{stickyDrifted, newapiBackup}
+	sessionHash := "legacy-sticky-cross-platform"
+	svc := newStickyFixture(t, groupID, PlatformNewAPI, pool, sessionHash, stickyDrifted.ID)
+	// LoadBatchEnabled 默认 false → 走 legacy tryStickySessionHit 路径
+
+	selection, err := svc.SelectAccountWithLoadAwareness(ctx, &groupID, sessionHash, "", nil)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, newapiBackup.ID, selection.Account.ID, "newapi group must fail over to newapi backup, not the cross-platform sticky")
+	require.Equal(t, PlatformNewAPI, selection.Account.Platform)
+
+	cache := svc.cache.(*stubGatewayCache)
+	require.GreaterOrEqual(t, cache.deletedSessions["openai:"+sessionHash], 1,
+		"P0-2: cross-platform sticky binding must be deleted by tryStickySessionHit (was leaking)")
+}
+
+// TestP02_LoadAwareLayer1_CrossPlatform_ClearsBinding 覆盖
+// SelectAccountWithLoadAwareness 的 LoadBatch 分支（cfg.LoadBatchEnabled=true）。
+// 该分支走 inline Layer-1 sticky 块（openai_gateway_service.go:1485-1529）。
+func TestP02_LoadAwareLayer1_CrossPlatform_ClearsBinding(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(83007)
+	stickyDrifted := openAIAccount(83701, 0)
+	newapiBackup := newAPIAccount(83702, 5)
+	pool := []*Account{stickyDrifted, newapiBackup}
+	sessionHash := "loadbatch-sticky-cross-platform"
+	svc := newStickyFixture(t, groupID, PlatformNewAPI, pool, sessionHash, stickyDrifted.ID)
+	// 强制走 Layer-1 inline 块
+	svc.cfg.Gateway.Scheduling.LoadBatchEnabled = true
+
+	selection, err := svc.SelectAccountWithLoadAwareness(ctx, &groupID, sessionHash, "", nil)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, newapiBackup.ID, selection.Account.ID)
+	require.Equal(t, PlatformNewAPI, selection.Account.Platform)
+
+	cache := svc.cache.(*stubGatewayCache)
+	require.GreaterOrEqual(t, cache.deletedSessions["openai:"+sessionHash], 1,
+		"P0-2: Layer-1 cross-platform sticky binding must be deleted (was leaking)")
+}
+
+// TestP02_LegacyTryStickyHit_HealthyAccount_KeepsBinding 回归保护：当 sticky
+// 绑定指向同平台健康账号时，不能误删活映射。
+func TestP02_LegacyTryStickyHit_HealthyAccount_KeepsBinding(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(83008)
+	stickyHealthy := newAPIAccount(83801, 7)
+	pool := []*Account{stickyHealthy, newAPIAccount(83802, 5)}
+	sessionHash := "legacy-sticky-healthy"
+	svc := newStickyFixture(t, groupID, PlatformNewAPI, pool, sessionHash, stickyHealthy.ID)
+
+	selection, err := svc.SelectAccountWithLoadAwareness(ctx, &groupID, sessionHash, "", nil)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, stickyHealthy.ID, selection.Account.ID, "healthy sticky binding must continue to HIT")
+
+	cache := svc.cache.(*stubGatewayCache)
+	require.Equal(t, 0, cache.deletedSessions["openai:"+sessionHash],
+		"P0-2 regression guard: healthy sticky binding must NOT be cleared")
+}
+
 // Compile-time anchor: silence unused imports if a future refactor removes a case.
 var _ = errors.New

@@ -1313,7 +1313,16 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 
 	// 验证账号是否可用于当前请求
 	// Verify account is usable for current request
+	//
+	// P0-2 (docs/bugs/2026-04-23-newapi-fifth-platform-audit.md):
+	// 跨平台 sticky binding（例如 group 之前是 openai，sticky 写入后管理员把
+	// group 改成 newapi）必须主动清理 Redis 映射，否则整个 TTL 周期内每次同
+	// sessionHash 请求都会重做一次 snapshot/DB 查询 → 命中跨平台 → 落到
+	// Layer 2 重新选号，且永远不清理。与同函数 line 1294-1305（账号已删除）和
+	// 1322-1326（recheck 失败）两个分支的行为对称。
+	// scheduler 路径 openai_account_scheduler.go:324 已经清理，这里之前漏了。
 	if !account.IsSchedulable() || !account.IsOpenAICompatPoolMember(groupPlatform) {
+		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 		return nil
 	}
 	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
@@ -1497,6 +1506,13 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 			} else {
 				clearSticky := shouldClearStickySession(account, requestedModel)
 				if clearSticky {
+					_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+				}
+				// P0-2: 跨平台 sticky 也必须主动清理（与 tryStickySessionHit 对称）。
+				// 之前: !IsOpenAICompatPoolMember 时整个 if 块被跳过，stale binding
+				// 在 TTL 内永远不清理。把"跨平台不匹配"提升为与"账号已删除"等价的
+				// 清理触发条件，与同函数 line 1494（NotFound）行为一致。
+				if !clearSticky && (!account.IsSchedulable() || !account.IsOpenAICompatPoolMember(groupPlatform)) {
 					_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 				}
 				if !clearSticky && account.IsSchedulable() && account.IsOpenAICompatPoolMember(groupPlatform) &&
