@@ -734,11 +734,18 @@
           v-model:modelMapping="newapiModelMapping"
           v-model:statusCodeMapping="newapiStatusCodeMapping"
           v-model:openaiOrganization="newapiOpenAIOrganization"
+          v-model:allowedModels="newapiAllowedModels"
+          v-model:modelMappings="newapiModelMappings"
+          v-model:restrictionMode="newapiRestrictionMode"
           :channel-type-options="newapiChannelTypeOptions"
           :channel-types-loading="newapiChannelTypesLoading"
           :channel-types-error="newapiChannelTypesError"
           :selected-channel-type-base-url="newapiSelectedBaseUrl"
+          :fetch-models-enabled="newapiFetchModelsEnabled"
+          :fetch-models-disabled="newapiFetchModelsDisabled"
+          :fetch-models-loading="newapiFetchModelsLoading"
           variant="create"
+          @fetch-models="newapiHandleFetchUpstreamModels"
         />
       </div>
 
@@ -886,8 +893,15 @@
         </div>
       </div>
 
-      <!-- API Key input (only for apikey type, excluding Antigravity which has its own fields) -->
-      <div v-if="form.type === 'apikey' && form.platform !== 'antigravity'" class="space-y-4">
+      <!--
+        API Key input (only for apikey type, excluding Antigravity which has its own fields).
+        D2 (docs/accounts/newapi-add-account-ui-gap-analysis.md): also exclude `newapi`,
+        whose base_url + api_key + models live inside AccountNewApiPlatformFields above.
+        Without this short-circuit, switching from OpenAI/Key → NewAPI would render TWO
+        base_url and TWO api_key inputs (the lower one with a misleading anthropic placeholder),
+        only one of which is actually submitted.
+      -->
+      <div v-if="form.type === 'apikey' && form.platform !== 'antigravity' && form.platform !== 'newapi'" class="space-y-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
@@ -2980,7 +2994,7 @@ import {
 } from '@/utils/openaiWsMode'
 import OAuthAuthorizationFlow from './OAuthAuthorizationFlow.vue'
 import AccountNewApiPlatformFields from './AccountNewApiPlatformFields.vue'
-import { listChannelTypes, type ChannelTypeInfo } from '@/api/admin/channels'
+import { useTkAccountNewApiPlatform } from '@/composables/useTkAccountNewApiPlatform'
 
 // Type for exposed OAuthAuthorizationFlow component
 // Note: defineExpose automatically unwraps refs, so we use the unwrapped types
@@ -3151,29 +3165,32 @@ const bedrockRegion = ref('us-east-1')
 const bedrockForceGlobal = ref(false)
 const bedrockApiKeyValue = ref('')
 
-// New API (5th platform) state. US-017 prototype scope.
-// channel_type catalog comes from GET /api/v1/admin/channel-types (cached for the
-// modal's lifetime); when the user picks a type we prefill base_url from the
-// catalog entry but keep the field editable.
-const newapiChannelType = ref<number>(0)
-const newapiBaseUrl = ref('')
-const newapiApiKey = ref('')
-// US-019: optional forwarding-affecting credentials. Bridge already reads
-// model_mapping; openai_organization and status_code_mapping shipped in the
-// same PR so admins can match the new-api channel UI without falling back to
-// API-only configuration. Empty values are skipped server-side.
-const newapiModelMapping = ref('')
-const newapiStatusCodeMapping = ref('')
-const newapiOpenAIOrganization = ref('')
-const newapiChannelTypes = ref<ChannelTypeInfo[]>([])
-const newapiChannelTypesLoading = ref(false)
-const newapiChannelTypesError = ref<string | null>(null)
-const newapiChannelTypeOptions = computed(() =>
-  newapiChannelTypes.value.map((c) => ({ value: c.channel_type, label: c.name }))
-)
-const newapiSelectedBaseUrl = computed(() => {
-  const found = newapiChannelTypes.value.find((c) => c.channel_type === newapiChannelType.value)
-  return found?.base_url || ''
+// 第五平台 newapi 的全部表单状态 + 副作用（catalog / fetch / 校验 / 提交拼装）
+// 都收口在 composable，让本上游大文件保持「模板 + wiring」形态。
+// 见 docs/accounts/newapi-add-account-ui-gap-analysis.md
+const {
+  channelType: newapiChannelType,
+  baseUrl: newapiBaseUrl,
+  apiKey: newapiApiKey,
+  modelMapping: newapiModelMapping,
+  statusCodeMapping: newapiStatusCodeMapping,
+  openaiOrganization: newapiOpenAIOrganization,
+  allowedModels: newapiAllowedModels,
+  modelMappings: newapiModelMappings,
+  restrictionMode: newapiRestrictionMode,
+  channelTypeOptions: newapiChannelTypeOptions,
+  channelTypesLoading: newapiChannelTypesLoading,
+  channelTypesError: newapiChannelTypesError,
+  selectedChannelTypeBaseUrl: newapiSelectedBaseUrl,
+  fetchModelsEnabled: newapiFetchModelsEnabled,
+  fetchModelsDisabled: newapiFetchModelsDisabled,
+  fetchModelsLoading: newapiFetchModelsLoading,
+  bootstrap: newapiBootstrap,
+  reset: newapiReset,
+  buildSubmitBundle: newapiBuildSubmitBundle,
+  handleFetchUpstreamModels: newapiHandleFetchUpstreamModels,
+} = useTkAccountNewApiPlatform({
+  isNewapi: () => form.platform === 'newapi',
 })
 
 const tempUnschedEnabled = ref(false)
@@ -3189,21 +3206,6 @@ function buildAntigravityExtra(): Record<string, unknown> | undefined {
   if (mixedScheduling.value) extra.mixed_scheduling = true
   if (allowOverages.value) extra.allow_overages = true
   return Object.keys(extra).length > 0 ? extra : undefined
-}
-
-// US-019: parses an optional JSON object string. Returns the parsed object on
-// success, or null when the input is not a valid JSON object (arrays / scalars
-// / nulls also return null). Empty string is treated as "not set" by callers.
-function parseJsonObjectOrNull(raw: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(raw)
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return null
-    }
-    return parsed as Record<string, unknown>
-  } catch {
-    return null
-  }
 }
 
 const showMixedChannelWarning = ref(false)
@@ -3412,16 +3414,8 @@ watch(
         .catch(() => { tlsFingerprintProfiles.value = [] })
       // Modal opened - fill related models
       allowedModels.value = [...getModelsByPlatform(form.platform)]
-      if (newapiChannelTypes.value.length === 0 && !newapiChannelTypesLoading.value) {
-        newapiChannelTypesLoading.value = true
-        newapiChannelTypesError.value = null
-        listChannelTypes()
-          .then((rows) => { newapiChannelTypes.value = rows })
-          .catch(() => {
-            newapiChannelTypesError.value = t('admin.accounts.newApiPlatform.channelTypeLoadFailed')
-          })
-          .finally(() => { newapiChannelTypesLoading.value = false })
-      }
+      // 第五平台 newapi：触发一次（已缓存）的 channel-type catalog 加载
+      newapiBootstrap()
       // Antigravity: 默认使用映射模式并填充默认映射
       if (form.platform === 'antigravity') {
         antigravityModelRestrictionMode.value = 'mapping'
@@ -3486,6 +3480,18 @@ watch(
       antigravityWhitelistModels.value = []
       accountCategory.value = 'oauth-based'
       antigravityAccountType.value = 'oauth'
+    } else if (newPlatform === 'newapi') {
+      // D1: newapi 是 apikey-only，把 accountCategory 翻到 apikey 让 watcher A
+      // 把 form.type 同步成 'apikey'，与 submit 路径硬编码的 type:'apikey'
+      // 对齐；否则路径 1 (fresh open + 直接点 NewAPI) 会因 form.type='oauth'
+      // 隐藏掉模型区。详见 docs/accounts/newapi-add-account-ui-gap-analysis.md
+      accountCategory.value = 'apikey'
+      allowOverages.value = false
+      antigravityWhitelistModels.value = []
+      antigravityModelMappings.value = []
+      antigravityModelRestrictionMode.value = 'mapping'
+      // newapi 自身的字段重置由 composable.reset() 在 resetForm 中负责，
+      // 平台切换不清除已填字段（避免误触切换造成数据丢失）。
     } else {
       allowOverages.value = false
       antigravityWhitelistModels.value = []
@@ -3921,6 +3927,8 @@ const resetForm = () => {
   antigravityAccountType.value = 'oauth'
   upstreamBaseUrl.value = ''
   upstreamApiKey.value = ''
+  // 第五平台 newapi 字段重置由 composable 统一管理
+  newapiReset()
   tempUnschedEnabled.value = false
   tempUnschedRules.value = []
   geminiOAuthType.value = 'code_assist'
@@ -4114,65 +4122,22 @@ const handleSubmit = async () => {
     return
   }
 
-  // For New API (5th platform), create directly with channel_type top-level field.
-  // Backend admin_service.go:1565 enforces channel_type > 0 when platform == 'newapi';
-  // type is 'apikey' (matches antigravity-upstream pattern) — there is no OAuth flow.
+  // 第五平台 newapi：直接走 apikey 路径，channel_type 上浮到顶层（admin_service
+  // 强制 > 0）；表单校验 + credentials 拼装 + JSON 校验都委托给 composable。
   if (form.platform === 'newapi') {
     if (!form.name.trim()) {
       appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
       return
     }
-    if (!newapiChannelType.value || newapiChannelType.value <= 0) {
-      appStore.showError(t('admin.accounts.newApiPlatform.pleaseSelectChannelType'))
-      return
-    }
-    const baseUrl = newapiBaseUrl.value.trim() || newapiSelectedBaseUrl.value
-    if (!baseUrl) {
-      appStore.showError(t('admin.accounts.newApiPlatform.pleaseEnterBaseUrl'))
-      return
-    }
-    if (!newapiApiKey.value.trim()) {
-      appStore.showError(t('admin.accounts.newApiPlatform.pleaseEnterApiKey'))
-      return
-    }
-    const credentials: Record<string, unknown> = {
-      base_url: baseUrl,
-      api_key: newapiApiKey.value.trim()
-    }
-    // US-019: validate optional JSON-object credentials and persist them under
-    // credentials so newapi_bridge_usage::newAPIBridgeChannelInput can read them.
-    // model_mapping is stored as a JSON object because Account.GetModelMapping()
-    // reads credentials["model_mapping"].(map[string]any); status_code_mapping
-    // is stored as a JSON string because the bridge passes it through to the
-    // upstream new-api relay handlers via Gin context as-is.
-    const modelMappingTrim = newapiModelMapping.value.trim()
-    if (modelMappingTrim) {
-      const parsed = parseJsonObjectOrNull(modelMappingTrim)
-      if (!parsed) {
-        appStore.showError(t('admin.accounts.newApiPlatform.jsonObjectRequired'))
-        return
-      }
-      credentials.model_mapping = parsed
-    }
-    const statusCodeMappingTrim = newapiStatusCodeMapping.value.trim()
-    if (statusCodeMappingTrim) {
-      if (!parseJsonObjectOrNull(statusCodeMappingTrim)) {
-        appStore.showError(t('admin.accounts.newApiPlatform.jsonObjectRequired'))
-        return
-      }
-      credentials.status_code_mapping = statusCodeMappingTrim
-    }
-    const openaiOrgTrim = newapiOpenAIOrganization.value.trim()
-    if (openaiOrgTrim) {
-      credentials.openai_organization = openaiOrgTrim
-    }
+    const bundle = newapiBuildSubmitBundle('create')
+    if (!bundle) return
     await doCreateAccount({
       name: form.name,
       notes: form.notes,
       platform: 'newapi',
       type: 'apikey',
-      channel_type: newapiChannelType.value,
-      credentials,
+      channel_type: bundle.channelType,
+      credentials: bundle.credentials,
       proxy_id: form.proxy_id,
       concurrency: form.concurrency,
       load_factor: form.load_factor ?? undefined,
