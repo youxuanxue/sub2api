@@ -231,5 +231,5 @@ verify-rules.sh 现在 <!-- stat:verify-rules-checks -->8<!-- /stat --> 段
 当需要在云端 VM 中执行 `claude -p` 命令（审查、拆解、校准等）时：
 
 1. 先运行 `bash scripts/setup-claude-code.sh` 检查并安装 Claude Code CLI
-2. API Key 通过 Cursor Dashboard → Cloud Agents → Secrets 配置（`ANTHROPIC_API_KEY`）
+2. 凭据通过 Cursor Dashboard → Cloud Agents → Secrets 配置；具体环境变量名以项目自己的 `scripts/setup-claude-code.sh` 为准（典型选择：直连 Anthropic SaaS 用 `ANTHROPIC_API_KEY`；走自建网关用 `ANTHROPIC_AUTH_TOKEN` + `ANTHROPIC_BASE_URL`）
 3. 安装完成后即可执行 `claude -p "..." --max-budget-usd N`

@@ -129,6 +129,7 @@ scripts/*
 !scripts/check_approved_docs.py
 !scripts/newapi-sentinels.json
 !scripts/check-newapi-sentinels.py
+!scripts/setup-claude-code.sh
 !scripts/error_clustering/
 !scripts/error_clustering/**
 !scripts/build-error-clustering-binary.sh
