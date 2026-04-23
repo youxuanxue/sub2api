@@ -215,10 +215,9 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 	}
 	s.assignDefaultSubscriptions(ctx, user.ID)
 
-	// TokenKey US-028 / US-029: best-effort post-Create hooks.
-	// Both swallow errors internally — they MUST NOT break a successful registration.
-	s.logSignupBonusCredited(user.ID, bonusUSD, signupBonusSourceEmail)
-	s.issueTrialKeyIfEnabled(ctx, user.ID)
+	// TokenKey US-028 / US-029: cold-start post-Create hooks (audit log + trial key).
+	// Best-effort and isolated in a single _tk_ helper to keep this file close to upstream.
+	s.tkApplyColdStartPostCreate(ctx, user.ID, bonusUSD, signupBonusSourceEmail)
 
 	// 标记邀请码为已使用（如果使用了邀请码）
 	if invitationRedeemCode != nil {
@@ -625,11 +624,6 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 				Status:       StatusActive,
 			}
 
-			// createdNewUser tracks whether we actually inserted a fresh user
-			// (vs. raced with a concurrent registration that already created one).
-			// The post-create hooks below should fire only on the fresh-user path.
-			createdNewUser := false
-
 			if s.entClient != nil && invitationRedeemCode != nil {
 				tx, err := s.entClient.Tx(ctx)
 				if err != nil {
@@ -659,7 +653,6 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 						return nil, nil, ErrServiceUnavailable
 					}
 					user = newUser
-					createdNewUser = true
 					s.assignDefaultSubscriptions(ctx, user.ID)
 				}
 			} else {
@@ -676,7 +669,6 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 					}
 				} else {
 					user = newUser
-					createdNewUser = true
 					s.assignDefaultSubscriptions(ctx, user.ID)
 					if invitationRedeemCode != nil {
 						if err := s.redeemRepo.Use(ctx, invitationRedeemCode.ID, user.ID); err != nil {
@@ -686,11 +678,13 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 				}
 			}
 
-			// TokenKey US-028 / US-029: best-effort post-Create hooks.
-			// Only fire when we actually created a new user (not on email-conflict races).
-			if createdNewUser && user != nil {
-				s.logSignupBonusCredited(user.ID, bonusUSD, signupBonusSourceOAuth)
-				s.issueTrialKeyIfEnabled(ctx, user.ID)
+			// TokenKey US-028 / US-029: cold-start post-Create hooks (audit log + trial key).
+			// Fire only when this branch actually inserted the user — `user == newUser`
+			// is the established invariant set by both Tx and non-Tx success paths above;
+			// email-conflict races reassign `user` to the existing row, so the pointer
+			// comparison naturally short-circuits without needing a tracking bool.
+			if user == newUser {
+				s.tkApplyColdStartPostCreate(ctx, user.ID, bonusUSD, signupBonusSourceOAuth)
 			}
 		} else {
 			logger.LegacyPrintf("service.auth", "[Auth] Database error during oauth login: %v", err)

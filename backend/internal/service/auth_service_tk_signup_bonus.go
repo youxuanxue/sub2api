@@ -34,6 +34,28 @@ const (
 	signupBonusSourceOAuth = "oauth"
 )
 
+// tkApplyColdStartPostCreate is the single call-site shim invoked from each
+// register path right after a fresh user row is committed. It encapsulates
+// the two cold-start side effects (audit log + trial-key issuance) so the
+// upstream-shaped auth_service.go only carries ONE TK line per register path
+// instead of two — minimizes merge friction (CLAUDE.md §5).
+//
+// Callers must guarantee:
+//   - `userID` belongs to a row that was actually inserted (not an existing
+//     user from an email-conflict race).
+//   - `bonusUSD` is the value previously returned by applySignupBonusUSD for
+//     the same user so the audit log reflects the credited amount.
+//
+// Both downstream operations are best-effort and never error out — they
+// MUST NOT make a successful registration look like a failure to the user.
+func (s *AuthService) tkApplyColdStartPostCreate(ctx context.Context, userID int64, bonusUSD float64, source string) {
+	if s == nil {
+		return
+	}
+	s.logSignupBonusCredited(userID, bonusUSD, source)
+	s.issueTrialKeyIfEnabled(ctx, userID)
+}
+
 // applySignupBonusUSD reads the configured signup bonus and returns
 // (totalBalance, bonusAmount). The caller writes totalBalance into User.Balance
 // at INSERT and then logs bonusAmount post-Create when > 0.
