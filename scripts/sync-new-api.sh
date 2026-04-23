@@ -25,7 +25,17 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 SUB2API_ROOT="$(cd -- "${SCRIPT_DIR}/.." &>/dev/null && pwd)"
 PIN_FILE="${SUB2API_ROOT}/.new-api-ref"
-SIBLING_DIR="$(cd -- "${SUB2API_ROOT}/.." &>/dev/null && pwd)/new-api"
+# Resolve sibling dir without leaking a double-slash when ${SUB2API_ROOT}
+# sits directly under filesystem root (e.g. /workspace on Cursor cloud-agent
+# VMs): `dirname /workspace` → `/`, and `/` + `/new-api` would naively
+# produce `//new-api`, which propagates into every error message and stack
+# trace from this script.
+SIBLING_PARENT="$(dirname -- "${SUB2API_ROOT}")"
+if [ "${SIBLING_PARENT}" = "/" ]; then
+  SIBLING_DIR="/new-api"
+else
+  SIBLING_DIR="${SIBLING_PARENT}/new-api"
+fi
 REMOTE_URL="https://github.com/QuantumNous/new-api.git"
 
 mode="sync"
