@@ -58,6 +58,34 @@ warn() {
 echo "[cloud-agent] initializing dev-rules submodule"
 git submodule update --init --recursive
 
+# scripts/sync-new-api.sh expects to clone QuantumNous/new-api as a *sibling*
+# of this repo (per CLAUDE.md §4 + backend/go.mod's `replace ../../new-api`).
+# On the Cursor cloud-agent VM the workspace lives at /workspace, so the
+# sibling target becomes /new-api — root-owned and not writable by the
+# `ubuntu` agent user. Without preparing it here, sync-new-api.sh fails with
+# `fatal: could not create work tree dir '/new-api': Permission denied` and
+# every later step that needs the new-api code (Go build, preflight § 9/§ 10,
+# `make test`) silently degrades.
+#
+# We don't push this workaround into sync-new-api.sh itself: local developer
+# machines arrange their own sibling layout (typically under ~/Codes/tk/),
+# and giving the sync script implicit `sudo mkdir` powers there would be
+# surprising. The cloud-agent install script is the right layer.
+SIBLING_PARENT="$(dirname -- "$REPO_ROOT")"
+if [ "$SIBLING_PARENT" = "/" ]; then
+  SIBLING_DIR="/new-api"
+else
+  SIBLING_DIR="$SIBLING_PARENT/new-api"
+fi
+if [ ! -d "$SIBLING_DIR/.git" ] && [ ! -w "$SIBLING_PARENT" ]; then
+  echo "[cloud-agent] preparing sibling new-api dir at $SIBLING_DIR (parent $SIBLING_PARENT not writable by $(id -un))"
+  if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    sudo install -d -o "$(id -un)" -g "$(id -gn)" -m 0755 "$SIBLING_DIR"
+  else
+    warn "no passwordless sudo available; sync-new-api.sh will likely fail at git clone"
+  fi
+fi
+
 echo "[cloud-agent] syncing sibling new-api to pinned SHA"
 bash scripts/sync-new-api.sh --check || bash scripts/sync-new-api.sh
 
