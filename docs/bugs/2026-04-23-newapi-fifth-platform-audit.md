@@ -3,9 +3,39 @@ title: 第五平台 newapi / OpenAI-compat 调度链路严重 Bug 审计
 date: 2026-04-23
 auditor: Cloud Agent (Composer)
 scope: backend (newapi 第五平台 + OpenAI-compat 调度池 + Bridge dispatch)
-status: draft  # 等人工 triage
+status: in_progress  # P0/P1-2 已修，P1/P2 余项待人工 triage
 related_design: docs/approved/newapi-as-fifth-platform.md
 upstream_pin: f995a868e4551e3180c7d836561a5a257dae93dc (.new-api-ref)
+fixes:
+  - bug: P0-1 SelectAccountWithScheduler 跳过 channel pricing / 模型限制
+    status: fixed
+    commit: see PR — backend/internal/service/openai_account_scheduler.go +
+      backend/internal/service/openai_account_scheduler_tk_channel_restriction_test.go
+  - bug: P0-2 tryStickySessionHit 跨平台 sticky binding 不清理 Redis
+    status: fixed
+    commit: see PR — backend/internal/service/openai_gateway_service.go +
+      backend/internal/service/openai_gateway_service_tk_newapi_pool_test.go
+  - bug: P0-3 ResolveMoonshotRegionalBaseAtSave errs[0],errs[1] 越界 panic
+    status: fixed
+    commit: see PR — backend/internal/integration/newapi/moonshot_resolve_save.go +
+      backend/internal/integration/newapi/moonshot_resolve_save_test.go
+  - bug: P1-2 selectByLoadBalance 错误信息硬写 OpenAI 字样
+    status: fixed
+    commit: see PR — backend/internal/service/openai_account_scheduler_tk_errors.go
+  - bug: P1-1 BulkUpdateAccounts 跳过 Moonshot 探测
+    status: open
+  - bug: P1-3 newapi bridge kill switch 不区分 endpoint
+    status: open
+  - bug: P1-4 selectBySessionHash cache==nil 守卫不一致
+    status: open
+  - bug: P2-1 isOpenAICompatPlatformGroup 镜像定义
+    status: open
+  - bug: P2-2 tkValidateNewAPIAccountCreate 不校验 api_key 必填
+    status: open
+  - bug: P2-3 embedding_relay 缺 PassThrough
+    status: open
+  - bug: P2-4 channel_types ChannelBaseURLs 裸索引
+    status: open
 ---
 
 # 概述
@@ -20,7 +50,7 @@ upstream_pin: f995a868e4551e3180c7d836561a5a257dae93dc (.new-api-ref)
 
 ---
 
-## P0-1：`SelectAccountWithScheduler` 完全跳过 channel pricing / 模型限制检查
+## P0-1：`SelectAccountWithScheduler` 完全跳过 channel pricing / 模型限制检查 — **FIXED (本 PR)**
 
 **位置**：
 - `backend/internal/service/openai_account_scheduler.go` 226-291（`Select`）
@@ -67,7 +97,7 @@ $ rg 'channelService|isUpstreamModelRestricted|checkChannelPricingRestriction|ne
 
 ---
 
-## P0-2：`tryStickySessionHit` 在「sticky 绑定指向跨平台账号」时不清理 Redis 映射
+## P0-2：`tryStickySessionHit` 在「sticky 绑定指向跨平台账号」时不清理 Redis 映射 — **FIXED (本 PR)**
 
 **位置**：`backend/internal/service/openai_gateway_service.go:1314-1318`
 
@@ -102,7 +132,7 @@ if !account.IsSchedulable() || !account.IsOpenAICompatPoolMember(groupPlatform) 
 
 ---
 
-## P0-3：`ResolveMoonshotRegionalBaseAtSave` 错误格式化越界 panic
+## P0-3：`ResolveMoonshotRegionalBaseAtSave` 错误格式化越界 panic — **FIXED (本 PR)**
 
 **位置**：`backend/internal/integration/newapi/moonshot_resolve_save.go:149`
 
@@ -152,7 +182,7 @@ return "", fmt.Errorf("moonshot regional resolve: %s", strings.Join(joined, "; "
 
 ---
 
-## P1-2：`scheduler.selectByLoadBalance` 错误信息硬写 "no available OpenAI accounts"
+## P1-2：`scheduler.selectByLoadBalance` 错误信息硬写 "no available OpenAI accounts" — **FIXED (本 PR)**
 
 **位置**：`backend/internal/service/openai_account_scheduler.go:577, 617`
 
