@@ -1,14 +1,14 @@
 package handler
 
 // TokenKey: GET /api/v1/public/pricing handler — public model + pricing catalog.
-// Spec: docs/approved/user-cold-start.md §2 v1, US-027.
+// Spec: docs/approved/user-cold-start.md §2 v1, US-028.
 //
 // Behaviors:
 //   - When setting `pricing_catalog_public` is false, respond 404 (route exists
 //     but is intentionally hidden — does NOT use 200 + empty body, which would
 //     leak the route's existence and confuse client-side handling).
 //   - When the catalog source has no usable data, respond 200 with
-//     {object: "list", data: [], updated_at: ...} (US-027 AC-005 — never 500
+//     {object: "list", data: [], updated_at: ...} (US-028 AC-005 — never 500
 //     because of degraded source).
 //   - The response shape intentionally does NOT use the {code,message,data}
 //     envelope used elsewhere in this codebase; it mirrors the OpenAI

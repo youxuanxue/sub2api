@@ -1,6 +1,6 @@
-# US-028-signup-bonus-balance
+# US-029-signup-bonus-balance
 
-- ID: US-028
+- ID: US-029
 - Title: Configurable USD signup bonus credited atomically on registration so new users have spend-able balance immediately
 - Version: V1.5 (cold-start P0-B)
 - Priority: P0
@@ -43,26 +43,26 @@
 
 ## Linked Tests
 
-- `backend/internal/service/us028_signup_bonus_test.go`::`TestUS028_EmailRegister_DefaultBonusOneUSD`
-- `backend/internal/service/us028_signup_bonus_test.go`::`TestUS028_OAuthRegister_WithInvitation_BonusApplied`
-- `backend/internal/service/us028_signup_bonus_test.go`::`TestUS028_OAuthRegister_WithoutInvitation_BonusApplied`
-- `backend/internal/service/us028_signup_bonus_test.go`::`TestUS028_AdminUpdate_TakesEffectImmediately`
-- `backend/internal/service/us028_signup_bonus_test.go`::`TestUS028_DisabledSetting_NoBonusNoLog`
-- `backend/internal/service/us028_signup_bonus_test.go`::`TestUS028_ZeroBalance_NoBonusNoLog`
-- `backend/internal/service/us028_signup_bonus_test.go`::`TestUS028_StructuredAuditLog`
-- `backend/internal/service/us028_signup_bonus_test.go`::`TestUS028_CompatibleWithPromo`
-- `backend/internal/service/us028_signup_bonus_test.go`::`TestUS028_AdminCreateUser_NoAutoBonus`
-- `backend/internal/service/us028_signup_bonus_test.go`::`TestUS028_DeadCodeMarker`
+- `backend/internal/service/us029_signup_bonus_test.go`::`TestUS029_EmailRegister_DefaultBonusOneUSD`
+- `backend/internal/service/us029_signup_bonus_test.go`::`TestUS029_OAuthRegister_WithInvitation_BonusApplied`
+- `backend/internal/service/us029_signup_bonus_test.go`::`TestUS029_OAuthRegister_WithoutInvitation_BonusApplied`
+- `backend/internal/service/us029_signup_bonus_test.go`::`TestUS029_AdminUpdate_TakesEffectImmediately`
+- `backend/internal/service/us029_signup_bonus_test.go`::`TestUS029_DisabledSetting_NoBonusNoLog`
+- `backend/internal/service/us029_signup_bonus_test.go`::`TestUS029_ZeroBalance_NoBonusNoLog`
+- `backend/internal/service/us029_signup_bonus_test.go`::`TestUS029_StructuredAuditLog`
+- `backend/internal/service/us029_signup_bonus_test.go`::`TestUS029_CompatibleWithPromo`
+- `backend/internal/service/us029_signup_bonus_test.go`::`TestUS029_AdminCreateUser_NoAutoBonus`
+- `backend/internal/service/us029_signup_bonus_test.go`::`TestUS029_DeadCodeMarker`
 
 运行命令：
 
 ```bash
-go test -tags=unit -count=1 -v -run 'TestUS028_' ./backend/internal/service/...
+go test -tags=unit -count=1 -v -run 'TestUS029_' ./backend/internal/service/...
 ```
 
 ## Evidence
 
-- 待 PR 1 实现完成后归档到 `.testing/user-stories/attachments/us028-signup-bonus-paths.txt`（含 3 条注册路径的执行 trace 截取）。
+- 待 PR 1 实现完成后归档到 `.testing/user-stories/attachments/us029-signup-bonus-paths.txt`（含 3 条注册路径的执行 trace 截取）。
 
 ## Status
 

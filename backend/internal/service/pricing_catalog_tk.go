@@ -1,6 +1,6 @@
 package service
 
-// TokenKey: public model + pricing catalog (US-027 / docs/approved/user-cold-start.md §2 v1).
+// TokenKey: public model + pricing catalog (US-028 / docs/approved/user-cold-start.md §2 v1).
 //
 // Scope (v1 MVP): a flat list of model_id + vendor + pricing(USD per 1k tokens) +
 // context_window + max_output_tokens + capabilities[]. The richer aggregations
@@ -19,7 +19,7 @@ package service
 // Source resolution:
 //   1) cfg.Pricing.DataDir/model_pricing.json (live data refreshed by PricingService)
 //   2) cfg.Pricing.FallbackFile (bundled at backend/resources/model-pricing/...)
-//   3) Empty list (never 500) — see US-027 AC-005.
+//   3) Empty list (never 500) — see US-028 AC-005.
 
 import (
 	"context"
@@ -88,7 +88,7 @@ type catalogRichEntry struct {
 // CatalogSource returns the raw pricing JSON bytes plus the modification time
 // of the underlying file (or zero when unknown). Returning ok=false signals an
 // empty/degraded source — the catalog will be an empty list (200 OK), never a
-// 500, per US-027 AC-005.
+// 500, per US-028 AC-005.
 type CatalogSource func() (data []byte, modTime time.Time, ok bool)
 
 // PricingCatalogService produces the public catalog DTO and caches the result

@@ -225,7 +225,7 @@
  * Public model + pricing catalog page.
  *
  * Backed by GET /api/v1/public/pricing (no auth required). Renders an empty
- * state when the catalog is unavailable (US-027 AC-005) and a 404 navigation
+ * state when the catalog is unavailable (US-028 AC-005) and a 404 navigation
  * (handled by the API client) when the admin has flipped
  * `pricing_catalog_public = false`.
  *

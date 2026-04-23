@@ -15,7 +15,7 @@ import (
 // upstream merge friction whenever Wei-Shaw/sub2api evolves the auth route table.
 //
 // Currently registers:
-//   - GET /api/v1/public/pricing — public pricing catalog (US-027 / docs/approved/user-cold-start.md §2 v1).
+//   - GET /api/v1/public/pricing — public pricing catalog (US-028 / docs/approved/user-cold-start.md §2 v1).
 //     60 req/min/IP, FailOpen — read-only metadata, must not block on Redis outage.
 func registerTKPublicRoutes(v1 *gin.RouterGroup, h *handler.Handlers, rateLimiter *middleware.RateLimiter) {
 	if v1 == nil || h == nil || h.PricingCatalog == nil || rateLimiter == nil {

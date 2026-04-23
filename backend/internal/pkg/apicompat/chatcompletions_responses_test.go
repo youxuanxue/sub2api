@@ -276,11 +276,19 @@ func TestChatCompletionsToResponses_LegacyFunctions(t *testing.T) {
 	assert.Equal(t, "function", resp.Tools[0].Type)
 	assert.Equal(t, "get_weather", resp.Tools[0].Name)
 
-	// tool_choice should be converted
+	// tool_choice should be converted to the Responses API FLAT shape:
+	//   {"type":"function","name":"X"}
+	// NOT the legacy Chat-Completions nested {"type":"function","function":{"name":"X"}}
+	// shape, which produces upstream `400 Unknown parameter: 'tool_choice.function'`
+	// (same failure mode fixed for the Anthropic path — see
+	// TestAnthropicToResponses_ToolChoiceBuiltinWebSearch).
 	require.NotNil(t, resp.ToolChoice)
 	var tc map[string]any
 	require.NoError(t, json.Unmarshal(resp.ToolChoice, &tc))
 	assert.Equal(t, "function", tc["type"])
+	assert.Equal(t, "get_weather", tc["name"])
+	_, hasNested := tc["function"]
+	assert.False(t, hasNested, "tool_choice must not contain nested 'function' object (Responses API rejects it)")
 }
 
 func TestChatCompletionsToResponses_ServiceTier(t *testing.T) {

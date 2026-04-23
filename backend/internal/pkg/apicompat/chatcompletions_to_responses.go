@@ -418,9 +418,14 @@ func convertChatToolsToResponses(tools []ChatTool, functions []ChatFunction) []R
 // convertChatFunctionCallToToolChoice maps the legacy function_call field to a
 // Responses API tool_choice value.
 //
-//	"auto" → "auto"
-//	"none" → "none"
-//	{"name":"X"} → {"type":"function","function":{"name":"X"}}
+// The Responses API uses the FLAT shape {type:function, name:X}; the legacy
+// nested {type:function, function:{name:X}} shape produces upstream
+// `400 Unknown parameter: 'tool_choice.function'` (same failure mode that
+// broke convertAnthropicToolChoiceToResponses — see anthropic_to_responses.go).
+//
+//	"auto"        → "auto"
+//	"none"        → "none"
+//	{"name":"X"}  → {"type":"function","name":"X"}
 func convertChatFunctionCallToToolChoice(raw json.RawMessage) (json.RawMessage, error) {
 	// Try string first ("auto", "none", etc.) — pass through as-is.
 	var s string
@@ -435,8 +440,8 @@ func convertChatFunctionCallToToolChoice(raw json.RawMessage) (json.RawMessage, 
 	if err := json.Unmarshal(raw, &obj); err != nil {
 		return nil, err
 	}
-	return json.Marshal(map[string]any{
-		"type":     "function",
-		"function": map[string]string{"name": obj.Name},
+	return json.Marshal(map[string]string{
+		"type": "function",
+		"name": obj.Name,
 	})
 }

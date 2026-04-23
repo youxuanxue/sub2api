@@ -333,7 +333,7 @@ func TestAuthService_Register_Success(t *testing.T) {
 	require.Equal(t, "user@test.com", user.Email)
 	require.Equal(t, RoleUser, user.Role)
 	require.Equal(t, StatusActive, user.Status)
-	// US-028: signup bonus is enabled by default at $1.00, baked into the
+	// US-029: signup bonus is enabled by default at $1.00, baked into the
 	// INSERT on top of cfg.Default.UserBalance (3.5 in this fixture).
 	require.InDelta(t, 4.5, user.Balance, 0.0001)
 	require.Equal(t, 2, user.Concurrency)

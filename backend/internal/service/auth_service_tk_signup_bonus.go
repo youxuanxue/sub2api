@@ -9,7 +9,7 @@ import (
 // TokenKey: new-user signup bonus is isolated from auth_service.go to keep
 // upstream merges small.
 //
-// Wiring (US-028):
+// Wiring (US-029):
 //   - applySignupBonusUSD     ← invoked at INSERT-time inside each register path
 //   - logSignupBonusCredited  ← invoked best-effort after a successful Create
 //
@@ -78,7 +78,7 @@ func (s *AuthService) applySignupBonusUSD(ctx context.Context, baseBalance float
 // logSignupBonusCredited writes a best-effort structured audit line.
 // Format is fixed: parsers can split on space-separated key=value tokens.
 // userID and amount go through structured fields (not %s formatting) so a
-// crafted username can never inject log lines (US-028 Risk Focus / 安全问题).
+// crafted username can never inject log lines (US-029 Risk Focus / 安全问题).
 func (s *AuthService) logSignupBonusCredited(userID int64, bonusUSD float64, source string) {
 	if bonusUSD <= 0 {
 		return

@@ -175,7 +175,7 @@ type PublicSettings struct {
 	BalanceLowNotifyThreshold   float64
 	BalanceLowNotifyRechargeURL string
 
-	// TK cold-start (US-027): only the public catalog gate is exposed publicly
+	// TK cold-start (US-028): only the public catalog gate is exposed publicly
 	// so HomeView / PricingView can hide the entry without first authenticating.
 	// Bonus / trial-key fields stay admin-only.
 	PricingCatalogPublic bool

@@ -49,7 +49,7 @@
         />
       </button>
 
-      <!-- TK cold-start (US-027): Browse public pricing catalog. Hidden when admin disables the public route. -->
+      <!-- TK cold-start (US-028): Browse public pricing catalog. Hidden when admin disables the public route. -->
       <router-link
         v-if="pricingCatalogPublic"
         to="/pricing"
@@ -83,7 +83,7 @@ import { useAppStore } from '@/stores/app'
 const router = useRouter()
 const { t } = useI18n()
 
-// TK cold-start (US-027): mirror HomeView/AppHeader visibility logic so the
+// TK cold-start (US-028): mirror HomeView/AppHeader visibility logic so the
 // pricing entry stays consistent across the public + signed-in surfaces.
 const appStore = useAppStore()
 const pricingCatalogPublic = computed(() => {

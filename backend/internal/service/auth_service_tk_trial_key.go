@@ -10,7 +10,7 @@ import (
 // Isolated from auth_service.go so upstream merges only touch the call sites
 // (one line per register path) and the rest of the policy lives here.
 //
-// Wiring (US-029):
+// Wiring (US-030):
 //   - TrialKeyIssuer interface          ← injected via SetTrialKeyIssuer(...)
 //   - apiKeyTrialIssuer                  ← default impl wrapping APIKeyService
 //   - issueTrialKeyIfEnabled             ← invoked best-effort post-Create

@@ -42,7 +42,21 @@ jobs:
           # user.email` linked to the GitHub account; once the maintainer's
           # commits show up with author.user.login = "youxuanxue", remove
           # this entry.
-          allowlist: "dependabot[bot],renovate[bot],bot*,yyy"
+          #
+          # `cursoragent` is the GitHub LOGIN of the Cursor Background Agent
+          # service account (https://github.com/cursoragent). The action's
+          # extractUserFromCommit prefers commit.author.user.login when the
+          # GitHub backend can resolve the commit author email to a real
+          # account. cursoragent <cursoragent@cursor.com> resolves to the
+          # github.com/cursoragent user, so the allowlist must match that
+          # login (case-sensitive), NOT the git author display name
+          # ("Cursor Agent" with a space) which is only the fallback when no
+          # GitHub user is linked. Like `bot*` patterns, this is a non-human
+          # contributor whose commits ultimately get squashed under the
+          # maintainer's authorship at PR merge time, but during the open-PR
+          # phase the CLA bot must accept it as already-signed to avoid
+          # blocking every cloud-agent PR.
+          allowlist: "dependabot[bot],renovate[bot],bot*,yyy,cursoragent"
           lock-pullrequest-aftermerge: false
           custom-notsigned-prcomment: |
             Thank you for your contribution! Before we can merge this PR, we need $you to sign our [Contributor License Agreement (CLA)](https://github.com/Wei-Shaw/sub2api/blob/main/CLA.md).
@@ -67,5 +81,5 @@ jobs:
           path-to-signatures: "cla.json"
           path-to-document: "https://github.com/Wei-Shaw/sub2api/blob/main/CLA.md"
           branch: "cla-signatures"
-          allowlist: "dependabot[bot],renovate[bot],bot*,yyy"
+          allowlist: "dependabot[bot],renovate[bot],bot*,yyy,cursoragent"
           lock-pullrequest-aftermerge: true

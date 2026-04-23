@@ -20,7 +20,7 @@ import (
 //	signup_bonus_enabled              = true
 //	signup_bonus_balance              = 1.00          (USD, same unit as users.balance)
 //	auto_generate_default_token       = true
-//	auto_generate_default_token_name  = "trial"      (NOT "default" — see US-029)
+//	auto_generate_default_token_name  = "trial"      (NOT "default" — see US-030)
 //	pricing_catalog_public            = true
 const (
 	defaultSignupBonusBalanceUSD   = 1.00

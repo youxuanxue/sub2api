@@ -26,7 +26,7 @@
         <!-- Announcement Bell -->
         <AnnouncementBell v-if="user" />
 
-        <!-- Pricing Link (TK cold-start, US-027) -->
+        <!-- Pricing Link (TK cold-start, US-028) -->
         <router-link
           v-if="pricingCatalogPublic"
           to="/pricing"
@@ -243,7 +243,7 @@ const dropdownOpen = ref(false)
 const dropdownRef = ref<HTMLElement | null>(null)
 const contactInfo = computed(() => appStore.contactInfo)
 const docUrl = computed(() => appStore.docUrl)
-// TK cold-start (US-027): mirror HomeView visibility — default ON when the
+// TK cold-start (US-028): mirror HomeView visibility — default ON when the
 // public_settings row is missing, so a fresh install still surfaces /pricing.
 const pricingCatalogPublic = computed(() => {
   const v = appStore.cachedPublicSettings?.pricing_catalog_public

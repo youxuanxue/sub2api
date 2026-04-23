@@ -2,10 +2,10 @@
 
 package handler
 
-// US-027: GET /api/v1/public/pricing — public model + pricing catalog (PR1 v1 MVP).
-// Spec: docs/approved/user-cold-start.md §2 v1; .testing/user-stories/stories/US-027-public-pricing-catalog.md.
+// US-028: GET /api/v1/public/pricing — public model + pricing catalog (PR1 v1 MVP).
+// Spec: docs/approved/user-cold-start.md §2 v1; .testing/user-stories/stories/US-028-public-pricing-catalog.md.
 //
-// Each TestUS027_* function maps 1:1 to one Acceptance Criterion (AC-001 .. AC-005).
+// Each TestUS028_* function maps 1:1 to one Acceptance Criterion (AC-001 .. AC-005).
 // AC-006 (regression of authenticated /v1/models) and AC-007 (whole-suite green) are
 // covered by the existing TestGetAvailableModels_* and the build-tagged unit run.
 
@@ -89,7 +89,7 @@ func sampleCatalog() *service.PublicCatalogResponse {
 }
 
 // AC-001: Unauthenticated GET returns 200 + list shape with non-empty data.
-func TestUS027_UnauthReturnsListShape(t *testing.T) {
+func TestUS028_UnauthReturnsListShape(t *testing.T) {
 	r := newPricingCatalogTestRouter(t,
 		&fakeCatalogGate{enabled: true},
 		&fakeCatalogSource{resp: sampleCatalog()},
@@ -111,7 +111,7 @@ func TestUS027_UnauthReturnsListShape(t *testing.T) {
 }
 
 // AC-002: data[0] entry shape — required and optional fields per design §2 v1.
-func TestUS027_EntryFieldsHaveExpectedShape(t *testing.T) {
+func TestUS028_EntryFieldsHaveExpectedShape(t *testing.T) {
 	r := newPricingCatalogTestRouter(t,
 		&fakeCatalogGate{enabled: true},
 		&fakeCatalogSource{resp: sampleCatalog()},
@@ -138,7 +138,7 @@ func TestUS027_EntryFieldsHaveExpectedShape(t *testing.T) {
 
 // AC-003: With pricing_catalog_public=false, return 404 (route hidden).
 // Body must NOT contain `"object":"list"` — using 200+empty would leak the route's existence.
-func TestUS027_DisabledBySetting404(t *testing.T) {
+func TestUS028_DisabledBySetting404(t *testing.T) {
 	r := newPricingCatalogTestRouter(t,
 		&fakeCatalogGate{enabled: false},
 		&fakeCatalogSource{resp: sampleCatalog()},
@@ -156,7 +156,7 @@ func TestUS027_DisabledBySetting404(t *testing.T) {
 // AC-004: Sensitive fields must never appear in the payload.
 // Defensive: this fires if a future PR ever adds a `cost_per_token` (raw float)
 // or similar internal field to the catalog DTO.
-func TestUS027_NoSensitiveFieldsInPayload(t *testing.T) {
+func TestUS028_NoSensitiveFieldsInPayload(t *testing.T) {
 	r := newPricingCatalogTestRouter(t,
 		&fakeCatalogGate{enabled: true},
 		&fakeCatalogSource{resp: sampleCatalog()},
@@ -184,7 +184,7 @@ func TestUS027_NoSensitiveFieldsInPayload(t *testing.T) {
 
 // AC-005: When the catalog source has no data (startup race / load failure),
 // return 200 + empty list. Never 500.
-func TestUS027_EmptyCatalogReturnsEmptyList(t *testing.T) {
+func TestUS028_EmptyCatalogReturnsEmptyList(t *testing.T) {
 	cases := []struct {
 		name string
 		src  PricingCatalogSource

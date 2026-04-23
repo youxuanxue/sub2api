@@ -102,7 +102,7 @@ func provideCleanup(
 	paymentOrderExpiry *service.PaymentOrderExpiryService,
 	// TokenKey: forces wire to evaluate ProvideTKAuthServiceColdStart so the
 	// trial-key issuer gets wired onto AuthService at startup. The value is
-	// unused — only the dependency edge matters. See US-028 / US-029.
+	// unused — only the dependency edge matters. See US-029 / US-030.
 	_ service.TKAuthServiceColdStartReady,
 ) func() {
 	return func() {

@@ -1,5 +1,5 @@
 export default {
-  // Public Pricing Page (TK cold-start, US-027)
+  // Public Pricing Page (TK cold-start, US-028)
   pricing: {
     title: 'Model Pricing',
     subtitle: 'Pay-as-you-go pricing for every supported model',

@@ -188,7 +188,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyBalanceLowNotifyThreshold,
 		SettingKeyBalanceLowNotifyRechargeURL,
 		SettingKeyAccountQuotaNotifyEnabled,
-		// TK cold-start (US-027): public catalog gate must be readable pre-login
+		// TK cold-start (US-028): public catalog gate must be readable pre-login
 		// so HomeView / PricingView can hide the entry without authenticating.
 		SettingKeyPricingCatalogPublic,
 	}
@@ -267,7 +267,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		AccountQuotaNotifyEnabled:        settings[SettingKeyAccountQuotaNotifyEnabled] == "true",
 		BalanceLowNotifyThreshold:        balanceLowNotifyThreshold,
 		BalanceLowNotifyRechargeURL:      settings[SettingKeyBalanceLowNotifyRechargeURL],
-		// TK cold-start (US-027): default ON when row missing — matches
+		// TK cold-start (US-028): default ON when row missing — matches
 		// setting_service_tk_cold_start.go ColdStartDefaults() so a fresh install
 		// still surfaces the public pricing entry on the landing page.
 		PricingCatalogPublic: !isFalseSettingValue(settings[SettingKeyPricingCatalogPublic]),

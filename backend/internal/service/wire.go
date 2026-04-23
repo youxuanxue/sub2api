@@ -473,7 +473,7 @@ var ProviderSet = wire.NewSet(
 	NewPaymentService,
 	ProvidePaymentOrderExpiryService,
 	ProvideBalanceNotifyService,
-	// TokenKey: cold-start binding (US-028 / US-029) — wires the trial-key
+	// TokenKey: cold-start binding (US-029 / US-030) — wires the trial-key
 	// issuer onto AuthService post-construction. The returned sentinel is
 	// consumed by provideCleanup (cmd/server/wire.go) so wire forces evaluation.
 	ProvideTKAuthServiceColdStart,

@@ -2,8 +2,8 @@
 
 package service
 
-// US-027 service-level coverage for PricingCatalogService.
-// The handler tests (backend/internal/handler/us027_*) cover the HTTP contract;
+// US-028 service-level coverage for PricingCatalogService.
+// The handler tests (backend/internal/handler/us028_*) cover the HTTP contract;
 // these tests cover the parser and mtime-cache behaviors that the handler
 // can't see through its interface seam.
 

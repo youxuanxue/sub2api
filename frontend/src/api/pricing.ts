@@ -36,7 +36,7 @@ export interface PublicCatalogResponse {
 /**
  * Fetch the public pricing catalog. May return an empty `data[]` when the
  * upstream pricing source is unavailable; callers should render the empty
- * state rather than treating it as an error (US-027 AC-005).
+ * state rather than treating it as an error (US-028 AC-005).
  */
 export async function getPublicPricing(): Promise<PublicCatalogResponse> {
   const { data } = await apiClient.get<PublicCatalogResponse>('/public/pricing')

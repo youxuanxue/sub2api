@@ -1,6 +1,6 @@
-# US-027-public-pricing-catalog
+# US-028-public-pricing-catalog
 
-- ID: US-027
+- ID: US-028
 - Title: Public model + pricing catalog reachable without auth so visitors can decide before registering
 - Version: V1.5 (cold-start P0-A)
 - Priority: P0
@@ -40,11 +40,11 @@
 
 ## Linked Tests
 
-- `backend/internal/handler/us027_public_pricing_catalog_test.go`::`TestUS027_UnauthReturnsListShape`
-- `backend/internal/handler/us027_public_pricing_catalog_test.go`::`TestUS027_EntryFieldsHaveExpectedShape`
-- `backend/internal/handler/us027_public_pricing_catalog_test.go`::`TestUS027_DisabledBySetting404`
-- `backend/internal/handler/us027_public_pricing_catalog_test.go`::`TestUS027_NoSensitiveFieldsInPayload`
-- `backend/internal/handler/us027_public_pricing_catalog_test.go`::`TestUS027_EmptyCatalogReturnsEmptyList`
+- `backend/internal/handler/us028_public_pricing_catalog_test.go`::`TestUS028_UnauthReturnsListShape`
+- `backend/internal/handler/us028_public_pricing_catalog_test.go`::`TestUS028_EntryFieldsHaveExpectedShape`
+- `backend/internal/handler/us028_public_pricing_catalog_test.go`::`TestUS028_DisabledBySetting404`
+- `backend/internal/handler/us028_public_pricing_catalog_test.go`::`TestUS028_NoSensitiveFieldsInPayload`
+- `backend/internal/handler/us028_public_pricing_catalog_test.go`::`TestUS028_EmptyCatalogReturnsEmptyList`
 - `backend/internal/service/pricing_catalog_tk_test.go`::`TestPricingCatalogService_ParsesLiteLLMShape`
 - `backend/internal/service/pricing_catalog_tk_test.go`::`TestPricingCatalogService_EmptyOrUnparseableSourceReturnsEmptyList`
 - `backend/internal/service/pricing_catalog_tk_test.go`::`TestPricingCatalogService_CachesByMTime`
@@ -54,14 +54,14 @@
 
 ```bash
 # Handler-level (5 tests, 1:1 with AC-001..AC-005)
-go test -tags=unit -count=1 -v -run 'TestUS027_' ./internal/handler/...
+go test -tags=unit -count=1 -v -run 'TestUS028_' ./internal/handler/...
 # Service-level parser + mtime cache coverage
 go test -tags=unit -count=1 -v -run 'TestPricingCatalogService_' ./internal/service/...
 ```
 
 ## Evidence
 
-- 待 PR 1 实现完成后归档到 `.testing/user-stories/attachments/us027-pricing-response-snapshot.json`（含一次真实请求/响应对照，证明字段集合）。
+- 待 PR 1 实现完成后归档到 `.testing/user-stories/attachments/us028-pricing-response-snapshot.json`（含一次真实请求/响应对照，证明字段集合）。
 
 ## Status
 

@@ -448,7 +448,7 @@ const siteLogo = computed(() => appStore.cachedPublicSettings?.site_logo || appS
 const siteSubtitle = computed(() => appStore.cachedPublicSettings?.site_subtitle || 'AI API Gateway Platform')
 const docUrl = computed(() => appStore.cachedPublicSettings?.doc_url || appStore.docUrl || '')
 const homeContent = computed(() => appStore.cachedPublicSettings?.home_content || '')
-// TK cold-start (US-027): public pricing entry visibility. Defaults to true so a
+// TK cold-start (US-028): public pricing entry visibility. Defaults to true so a
 // brand-new install without the row in DB still surfaces the link; flips off
 // only when an admin explicitly disables `pricing_catalog_public`.
 const pricingCatalogPublic = computed(() => {

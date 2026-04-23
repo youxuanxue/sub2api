@@ -1,5 +1,5 @@
 export default {
-  // Public Pricing Page (TK cold-start, US-027)
+  // Public Pricing Page (TK cold-start, US-028)
   pricing: {
     title: '模型价格',
     subtitle: '所有支持的模型，按调用量计费',

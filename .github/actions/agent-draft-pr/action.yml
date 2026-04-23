@@ -10,9 +10,13 @@ inputs:
   workflow:
     description: Source workflow name
     required: true
-  claude_api_key:
-    description: Claude API key
+  claude_auth_token:
+    description: TokenKey gateway auth token (sk-...) consumed by Claude Code CLI as ANTHROPIC_AUTH_TOKEN
     required: true
+  claude_base_url:
+    description: Claude Code gateway base URL
+    required: false
+    default: "https://api.tokenkey.dev"
   max_budget_usd:
     description: Max budget for a single agent run
     default: "2.00"
@@ -25,6 +29,8 @@ runs:
 
     - name: Install Claude Code CLI
       shell: bash
+      env:
+        ANTHROPIC_AUTH_TOKEN: ${{ inputs.claude_auth_token }}
       run: |
         if [ -x scripts/setup-claude-code.sh ]; then
           bash scripts/setup-claude-code.sh
@@ -92,7 +98,16 @@ runs:
       if: steps.cooldown.outputs.skip == 'false'
       shell: bash
       env:
-        ANTHROPIC_API_KEY: ${{ inputs.claude_api_key }}
+        # TokenKey gateway path — mirrors ~/.claude/settings.json on the
+        # cloud Cursor Agent (see .cursor/cloud-agent-install.sh). Keep this
+        # block in sync with that file so CI and Agent share one config.
+        ANTHROPIC_AUTH_TOKEN: ${{ inputs.claude_auth_token }}
+        ANTHROPIC_BASE_URL: ${{ inputs.claude_base_url }}
+        CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING: "1"
+        MAX_THINKING_TOKENS: "31999"
+        CLAUDE_CODE_DISABLE_1M_CONTEXT: "1"
+        CLAUDE_CODE_AUTO_COMPACT_WINDOW: "200000"
+        CLAUDE_CODE_ATTRIBUTION_HEADER: "0"
       run: |
         claude -p "$(cat /tmp/agent-prompt.txt)" \
           --max-budget-usd "${{ inputs.max_budget_usd }}" \

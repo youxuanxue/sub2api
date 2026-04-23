@@ -1,6 +1,6 @@
-# US-029-auto-first-api-key
+# US-030-auto-first-api-key
 
-- ID: US-029
+- ID: US-030
 - Title: Auto-issue a "trial" API key on registration so new users can curl the gateway in their first session
 - Version: V1.5 (cold-start P0-C)
 - Priority: P0
@@ -10,7 +10,7 @@
 - Trace:
   - 角色 × 能力轴线：新用户 × 「能 curl 一次」——今天首页 stats 全 0、API Keys 列表为空、没有任何 quick start 引导。
   - 实体生命周期轴线：用户创建后 → API Key 创建（`null → StatusActive`），本故事补齐这条隐含但缺失的迁移。
-  - 系统事件轴线：每次邮箱注册 / OAuth 注册成功（与 US-028 同 3 路径）。
+  - 系统事件轴线：每次邮箱注册 / OAuth 注册成功（与 US-029 同 3 路径）。
   - 防御需求轴线：默认 Key 不应绕过任何 quota / rate-limit；admin 可关。
 
 - Risk Focus:
@@ -43,26 +43,26 @@
 
 ## Linked Tests
 
-- `backend/internal/service/us029_auto_first_key_test.go`::`TestUS029_EmailRegisterCreatesTrialKey`
-- `backend/internal/service/us029_auto_first_key_test.go`::`TestUS029_OAuthRegisterCreatesTrialKey`
-- `backend/internal/service/us029_auto_first_key_test.go`::`TestUS029_DisabledSettingNoKey`
-- `backend/internal/service/us029_auto_first_key_test.go`::`TestUS029_OAuthReloginDoesNotDuplicate`
-- `backend/internal/service/us029_auto_first_key_test.go`::`TestUS029_KeyCreationFailureDoesNotBlockSignup`
-- `backend/internal/service/us029_auto_first_key_test.go`::`TestUS029_AutoKeyHonorsQuotaMiddleware`
-- `backend/internal/service/us029_auto_first_key_test.go`::`TestUS029_AdminCustomKeyName`
+- `backend/internal/service/us030_auto_first_key_test.go`::`TestUS030_EmailRegisterCreatesTrialKey`
+- `backend/internal/service/us030_auto_first_key_test.go`::`TestUS030_OAuthRegisterCreatesTrialKey`
+- `backend/internal/service/us030_auto_first_key_test.go`::`TestUS030_DisabledSettingNoKey`
+- `backend/internal/service/us030_auto_first_key_test.go`::`TestUS030_OAuthReloginDoesNotDuplicate`
+- `backend/internal/service/us030_auto_first_key_test.go`::`TestUS030_KeyCreationFailureDoesNotBlockSignup`
+- `backend/internal/service/us030_auto_first_key_test.go`::`TestUS030_AutoKeyHonorsQuotaMiddleware`
+- `backend/internal/service/us030_auto_first_key_test.go`::`TestUS030_AdminCustomKeyName`
 - `frontend/src/__tests__/components/UserDashboardQuickStart.spec.ts`::`shows when first request null and total keys = 1`
 - `frontend/src/__tests__/components/UserDashboardQuickStart.spec.ts`::`hides after first request`
 
 运行命令：
 
 ```bash
-go test -tags=unit -count=1 -v -run 'TestUS029_' ./backend/internal/service/...
+go test -tags=unit -count=1 -v -run 'TestUS030_' ./backend/internal/service/...
 pnpm --filter frontend vitest run __tests__/components/UserDashboardQuickStart
 ```
 
 ## Evidence
 
-- 待 PR 1 实现完成后归档到 `.testing/user-stories/attachments/us029-curl-trace.txt`（含一次"刚注册 → 拷贝 curl → 200 OK"完整 HTTP 抓取）。
+- 待 PR 1 实现完成后归档到 `.testing/user-stories/attachments/us030-curl-trace.txt`（含一次"刚注册 → 拷贝 curl → 200 OK"完整 HTTP 抓取）。
 
 ## Status
 
