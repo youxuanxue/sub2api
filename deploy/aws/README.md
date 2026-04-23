@@ -456,6 +456,38 @@ GitHub Actions 不再用长期 AWS 凭证，**OIDC 临时换 STS** → `ssm:Send
 - Graceful degradation：缺 `AWS_OIDC_ROLE_ARN` / 缺 `qa_records` → 都返回 `summary:"skip:..."` 的空 report 并 exit 0
 - 验证手动跑：`gh workflow run error-clustering-daily.yml -f since_hours=24 -R youxuanxue/sub2api`
 
+### Cloud Agent 拉取 error-clustering 报告
+
+让 **Cursor Cloud Agent** 也能查 prod 错误聚类时，**不要**复制 AWS 凭证到 Agent
+secrets——Cloud Agent 既无 AWS key 也无 GHA OIDC token，复制凭证会扩大长期密钥的攻击面，
+与 §"无长期 AWS 凭证"约束冲突。改用：让 Agent 通过 `gh workflow run` 触发**已有的**
+`error-clustering-daily.yml`，再下载 artifact。AWS OIDC → SSM → EC2 链路完全不动。
+
+**配置（Cursor Dashboard → Cloud Agents → Secrets）**：
+
+| 名称 | 值 | 说明 |
+|---|---|---|
+| `GH_TOKEN` | GitHub PAT（fine-grained） | 仅授权 `youxuanxue/sub2api` 仓库，scopes：`actions:write`（dispatch）、`actions:read`（poll/download）、`contents:read`（`gh run download` 需要）。**不要**勾其他权限——这把 token 永远不接触 AWS。 |
+
+**用法**（在 Cloud Agent 会话里）：
+
+```bash
+bash scripts/fetch-prod-error-clusters.sh                   # 默认 24h，输出到 ./.error-clusters/
+SINCE_HOURS=72 bash scripts/fetch-prod-error-clusters.sh    # 自定义窗口
+bash scripts/fetch-prod-error-clusters.sh --check           # 只校验 env + 工具，不 dispatch
+```
+
+脚本会：dispatch workflow → 轮询新 run id（默认 10 min 超时）→ `gh run watch` 等待完成
+→ `gh run download` 取 artifact → 打印 `report.json` 的 `summary` 字段。`gh` CLI 由
+`.cursor/cloud-agent-install.sh` 在会话引导时 best-effort 安装；缺失时脚本会报错并指出
+安装方式。
+
+**信任面边界**：
+
+- Cloud Agent 拿到的 `GH_TOKEN` 只能 dispatch + 读 artifact，不能改源码/合并 PR/改 Actions secrets/改 IAM。
+- 真正的 AWS 凭证仍由 GHA runner 通过 OIDC 临时换取，1h 自动过期，sub claim 锁 repo+branch。
+- Cloud Agent 异常或 token 泄露 → 攻击者最多能反复触发同一个 read-only workflow，**不能**绕过 OIDC 信任策略去拿 AWS 凭证。
+
 ### 端到端原理
 
 ```

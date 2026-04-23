@@ -19,6 +19,18 @@
 # Required Cursor Cloud Agents secret (Dashboard → Cloud Agents → Secrets):
 #   ANTHROPIC_AUTH_TOKEN   sk-... TokenKey gateway token
 #
+# Optional Cursor Cloud Agents secret (only needed if the agent will pull
+# prod error-clustering reports via `scripts/fetch-prod-error-clusters.sh`):
+#   GH_TOKEN               GitHub PAT (fine-grained, scoped to
+#                          youxuanxue/sub2api with actions:read/write +
+#                          contents:read). Used by `gh` CLI to dispatch
+#                          the existing error-clustering-daily workflow
+#                          and download its artifact. The workflow itself
+#                          handles the AWS OIDC → SSM chain, so the agent
+#                          never needs AWS credentials.
+#                          See deploy/aws/README.md § "Cloud Agent 拉取
+#                          error-clustering 报告" for setup details.
+#
 # Non-secret defaults are baked in here on purpose — they are project
 # policy, not credentials, and changing them deserves a PR diff.
 set -euo pipefail
@@ -54,5 +66,22 @@ cat > "$HOME/.claude/settings.json" <<EOF
 EOF
 
 bash scripts/setup-claude-code.sh
+
+# Best-effort install of GitHub CLI so the agent can run
+# scripts/fetch-prod-error-clusters.sh when GH_TOKEN is configured.
+# Skipped silently if `gh` is already present or if neither apt-get nor
+# brew is available — fetch-prod-error-clusters.sh will give a clear
+# error at runtime if the binary is still missing.
+if ! command -v gh >/dev/null 2>&1; then
+  echo "[cloud-agent] installing GitHub CLI (best-effort)"
+  if command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update -qq && sudo apt-get install -y -qq gh || \
+      echo "[cloud-agent] gh install via apt-get failed; install manually if needed"
+  elif command -v brew >/dev/null 2>&1; then
+    brew install gh || echo "[cloud-agent] gh install via brew failed; install manually if needed"
+  else
+    echo "[cloud-agent] no apt-get/brew available; skipping gh install"
+  fi
+fi
 
 echo "[cloud-agent] install complete"
