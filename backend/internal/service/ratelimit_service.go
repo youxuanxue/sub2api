@@ -161,8 +161,12 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		// 其他 400 错误（如参数问题）不处理，不禁用账号
 	case 401:
 		// OpenAI: token_invalidated / token_revoked 表示 token 被永久作废（非过期），直接标记 error
+		// Bug B-3: PlatformNewAPI 走 OpenAI-compat 协议，new-api adaptor 透传同一组错误码；
+		// 必须用 IsOpenAICompatPlatform 把它纳入永久作废分支，否则 newapi 上被作废的 key 每
+		// 10 分钟就被 oauth-401 cooldown 自动恢复一次（"幽灵账号"）。详见
+		// docs/bugs/2026-04-22-newapi-and-bridge-deep-audit.md § B-3。
 		openai401Code := extractUpstreamErrorCode(responseBody)
-		if account.Platform == PlatformOpenAI && (openai401Code == "token_invalidated" || openai401Code == "token_revoked") {
+		if IsOpenAICompatPlatform(account.Platform) && (openai401Code == "token_invalidated" || openai401Code == "token_revoked") {
 			msg := "Token revoked (401): account authentication permanently revoked"
 			if upstreamMsg != "" {
 				msg = "Token revoked (401): " + upstreamMsg
@@ -172,7 +176,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			break
 		}
 		// OpenAI: {"detail":"Unauthorized"} 表示 token 完全无效（非标准 OpenAI 错误格式），直接标记 error
-		if account.Platform == PlatformOpenAI && gjson.GetBytes(responseBody, "detail").String() == "Unauthorized" {
+		if IsOpenAICompatPlatform(account.Platform) && gjson.GetBytes(responseBody, "detail").String() == "Unauthorized" {
 			msg := "Unauthorized (401): account authentication failed permanently"
 			if upstreamMsg != "" {
 				msg = "Unauthorized (401): " + upstreamMsg
@@ -225,7 +229,8 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		}
 	case 402:
 		// OpenAI: deactivated_workspace 表示工作区已停用，直接标记 error
-		if account.Platform == PlatformOpenAI && gjson.GetBytes(responseBody, "detail.code").String() == "deactivated_workspace" {
+		// Bug B-3: 与 401 处对称，PlatformNewAPI 同样走 OpenAI-compat 协议，必须纳入。
+		if IsOpenAICompatPlatform(account.Platform) && gjson.GetBytes(responseBody, "detail.code").String() == "deactivated_workspace" {
 			msg := "Workspace deactivated (402): workspace has been deactivated"
 			s.handleAuthError(ctx, account, msg)
 			shouldDisable = true

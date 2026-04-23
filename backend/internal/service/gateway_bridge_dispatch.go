@@ -96,6 +96,9 @@ func (s *GatewayService) ForwardAsChatCompletionsDispatched(
 	out, apiErr := bridge.DispatchChatCompletions(ctx, c, in, body)
 	if apiErr != nil {
 		recordBridgeDispatchError()
+		// Bug B-1: feed bridge upstream errors back into RateLimitService.
+		// See newapi_bridge_rate_limit_tk.go and docs/bugs/2026-04-22-...md.
+		s.reportNewAPIBridgeUpstreamError(ctx, account, apiErr)
 		logger.L().Info("gateway.newapi_bridge_dispatch",
 			zap.String("endpoint", BridgeEndpointChatCompletions),
 			zap.Int("channel_type", account.ChannelType),
@@ -146,6 +149,8 @@ func (s *GatewayService) ForwardAsResponsesDispatched(
 	out, apiErr := bridge.DispatchResponses(ctx, c, in, body)
 	if apiErr != nil {
 		recordBridgeDispatchError()
+		// Bug B-1: see ForwardAsChatCompletionsDispatched above.
+		s.reportNewAPIBridgeUpstreamError(ctx, account, apiErr)
 		logger.L().Info("gateway.newapi_bridge_dispatch",
 			zap.String("endpoint", BridgeEndpointResponses),
 			zap.Int("channel_type", account.ChannelType),

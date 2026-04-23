@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"net/http"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -16,7 +17,17 @@ func TkTryWriteNewAPIRelayErrorJSON(c *gin.Context, err error, streamStarted boo
 		return false
 	}
 	if c.Writer.Size() == writerSizeBeforeForward && !streamStarted {
-		c.JSON(nre.Err.StatusCode, gin.H{"error": nre.Err.ToOpenAIError()})
+		// Bug B-11: bridge errors built via certain new-api ErrOption combos can
+		// carry StatusCode == 0 (or other non-HTTP-error values), which would
+		// emit `c.JSON(0, ...)` → an actual HTTP 200 response with a JSON error
+		// body. Clients then mis-interpret a failure as success. Coerce any
+		// out-of-range status to 502 Bad Gateway, mirroring gateway forward
+		// fallbacks. See docs/bugs/2026-04-22-newapi-and-bridge-deep-audit.md § B-11.
+		status := nre.Err.StatusCode
+		if status < 400 || status > 599 {
+			status = http.StatusBadGateway
+		}
+		c.JSON(status, gin.H{"error": nre.Err.ToOpenAIError()})
 	}
 	return true
 }

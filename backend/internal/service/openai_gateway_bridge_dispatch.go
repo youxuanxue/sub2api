@@ -45,6 +45,10 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 	out, apiErr := bridge.DispatchChatCompletions(ctx, c, in, body)
 	if apiErr != nil {
 		recordBridgeDispatchError()
+		// Bug B-1: feed bridge upstream errors back into RateLimitService so
+		// 401/402/429/529/403 trigger SetError / SetRateLimited / SetOverloaded.
+		// See newapi_bridge_rate_limit_tk.go and docs/bugs/2026-04-22-...md.
+		s.reportNewAPIBridgeUpstreamError(ctx, account, apiErr)
 		logger.L().Info("openai_gateway.newapi_bridge_dispatch",
 			zap.String("endpoint", BridgeEndpointChatCompletions),
 			zap.Int("channel_type", account.ChannelType),
@@ -95,6 +99,8 @@ func (s *OpenAIGatewayService) ForwardAsResponsesDispatched(
 	out, apiErr := bridge.DispatchResponses(ctx, c, in, body)
 	if apiErr != nil {
 		recordBridgeDispatchError()
+		// Bug B-1: see ForwardAsChatCompletionsDispatched above.
+		s.reportNewAPIBridgeUpstreamError(ctx, account, apiErr)
 		logger.L().Info("openai_gateway.newapi_bridge_dispatch",
 			zap.String("endpoint", BridgeEndpointResponses),
 			zap.Int("channel_type", account.ChannelType),
@@ -145,6 +151,8 @@ func (s *OpenAIGatewayService) ForwardAsEmbeddingsDispatched(
 	out, apiErr := bridge.DispatchEmbeddings(ctx, c, in, body)
 	if apiErr != nil {
 		recordBridgeDispatchError()
+		// Bug B-1: see ForwardAsChatCompletionsDispatched above.
+		s.reportNewAPIBridgeUpstreamError(ctx, account, apiErr)
 		logger.L().Info("openai_gateway.newapi_bridge_dispatch",
 			zap.String("endpoint", BridgeEndpointEmbeddings),
 			zap.Int("channel_type", account.ChannelType),
@@ -195,6 +203,8 @@ func (s *OpenAIGatewayService) ForwardAsImageGenerationsDispatched(
 	out, apiErr := bridge.DispatchImageGenerations(ctx, c, in, body)
 	if apiErr != nil {
 		recordBridgeDispatchError()
+		// Bug B-1: see ForwardAsChatCompletionsDispatched above.
+		s.reportNewAPIBridgeUpstreamError(ctx, account, apiErr)
 		logger.L().Info("openai_gateway.newapi_bridge_dispatch",
 			zap.String("endpoint", BridgeEndpointImages),
 			zap.Int("channel_type", account.ChannelType),

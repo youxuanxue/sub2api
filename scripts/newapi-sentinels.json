@@ -28,6 +28,11 @@
       "rationale": "TK companion invoked from admin_service.go CreateAccount/UpdateAccount that pins newapi/Moonshot accounts to the regional base_url their API key actually accepts. Without it, admins silently save accounts with the wrong region (api.moonshot.cn vs .ai), and the relay hot path 401s every request because it deliberately does not do per-request region fallback. Build-break alone is insufficient: an upstream merge that simultaneously removes the call sites would silently regress this without compile failure."
     },
     {
+      "path": "backend/internal/service/newapi_bridge_rate_limit_tk.go",
+      "must_contain": ["reportNewAPIBridgeUpstreamError"],
+      "rationale": "TK funnel that feeds bridge-layer apiErr back into RateLimitService.HandleUpstreamError. Without this funnel, newapi accounts hit by 401 / 402 / 429 / 529 / 403 silently bypass the entire account state machine — permanently revoked keys never SetError, rate-limited never SetRateLimited, overloaded never SetOverloaded, and every subsequent scheduling cycle picks the same dead account for 100% failure rate. Re-call sites in openai_gateway_bridge_dispatch{,_tk_anthropic}.go and gateway_bridge_dispatch.go MUST keep invoking this helper inside `if apiErr != nil`. See docs/bugs/2026-04-22-newapi-and-bridge-deep-audit.md § B-1 and the regression-detector test TestUS028_AllBridgeDispatchSitesCallReportHelper."
+    },
+    {
       "path": "backend/internal/integration/newapi/channel_types.go",
       "must_contain": ["package newapi"],
       "rationale": "Channel-type catalog backing the fifth-platform admin UI. The integration package is the entire fifth-platform glue layer; if this file disappears the catalog dropdown is empty and bridge selection breaks."
