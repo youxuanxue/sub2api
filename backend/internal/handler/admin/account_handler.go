@@ -1418,6 +1418,21 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 		return
 	}
 
+	// US-029 Bug B-4: bulk credential edits silently bypass
+	// resolveNewAPIMoonshotBaseURLOnSave, so a batch api_key swap on
+	// Moonshot accounts persists with the wrong region (.cn vs .ai) and
+	// every relay returns 401 with no per-request fallback. Forbid bulk
+	// credentials edits entirely when any target account is on
+	// PlatformNewAPI; force per-account edits which DO go through the
+	// regional resolver. See
+	// docs/bugs/2026-04-22-newapi-and-bridge-deep-audit.md § B-4.
+	if len(req.Credentials) > 0 {
+		if err := h.tkRejectBulkCredentialsForNewAPI(c.Request.Context(), req.AccountIDs); err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+	}
+
 	result, err := h.adminService.BulkUpdateAccounts(c.Request.Context(), &service.BulkUpdateAccountsInput{
 		AccountIDs:            req.AccountIDs,
 		Name:                  req.Name,
