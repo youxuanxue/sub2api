@@ -25,7 +25,11 @@
 #                                                tokenkey-postgres,
 #                                                tokenkey-caddy,
 #                                                tokenkey-redis
-#   GREP_PATTERN       default: ""               ERE; empty = no filter
+#   GREP_PATTERN       default: ""               ERE; empty = no filter.
+#                                                Transported to EC2 via
+#                                                base64 + grep -E -f file,
+#                                                so any byte is preserved
+#                                                (\d, \(, ', ", $, ...).
 #   TAIL_LINES         default: 1000             positive int <= 10000
 #   OUT_DIR            default: ./.prod-logs
 #   POLL_TIMEOUT_S     default: 600
@@ -37,6 +41,9 @@
 # Exit codes (same shape as fetch-prod-error-clusters.sh):
 #   0  logs downloaded (including the case where no lines matched)
 #   1  bad input / missing token / missing tool / workflow run failed
+#      (most common P1: SSM 24KB stdout cap was hit — workflow detects
+#       this and fails with "Tighten GREP_PATTERN, lower TAIL_LINES, or
+#       shorten SINCE". The script propagates that as exit 1.)
 #   2  workflow dispatched but did not start within POLL_TIMEOUT_S
 set -euo pipefail
 

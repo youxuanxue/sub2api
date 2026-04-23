@@ -73,22 +73,51 @@ EOF
 
 bash scripts/setup-claude-code.sh
 
-# Best-effort install of GitHub CLI so the agent can run
-# scripts/fetch-prod-error-clusters.sh when GH_TOKEN is configured.
-# Skipped silently if `gh` is already present or if neither apt-get nor
-# brew is available — fetch-prod-error-clusters.sh will give a clear
-# error at runtime if the binary is still missing.
-if ! command -v gh >/dev/null 2>&1; then
-  echo "[cloud-agent] installing GitHub CLI (best-effort)"
+# Install GitHub CLI so the agent can run scripts/fetch-prod-{logs,
+# error-clusters}.sh when GH_TOKEN is configured. We try in order:
+#   1. already installed → no-op (Cursor's image may bundle gh).
+#   2. simple `apt-get install gh` (works on Ubuntu 22.04+ where gh is
+#      in the universe repo).
+#   3. official GitHub CLI APT source (works on older Ubuntu/Debian
+#      images that don't ship gh in their default repos — without this,
+#      stock Ubuntu 20.04 silently fails the simple install and the
+#      WARNING below would fire on every boot, training operators to
+#      ignore it).
+#   4. brew (macOS / Linuxbrew dev sandboxes).
+# A real failure prints once with the underlying error; we never let an
+# install error abort the whole bootstrap (the self-test below will fire
+# a louder warning if gh is still missing at the end).
+install_gh() {
+  if command -v gh >/dev/null 2>&1; then return 0; fi
+
+  echo "[cloud-agent] installing GitHub CLI"
   if command -v apt-get >/dev/null 2>&1; then
-    sudo apt-get update -qq && sudo apt-get install -y -qq gh || \
-      echo "[cloud-agent] gh install via apt-get failed; install manually if needed"
+    if sudo apt-get update -qq 2>/dev/null && sudo apt-get install -y -qq gh 2>/dev/null; then
+      return 0
+    fi
+    echo "[cloud-agent]   simple apt install failed; adding official GitHub CLI APT source"
+    if command -v curl >/dev/null 2>&1 || sudo apt-get install -y -qq curl 2>/dev/null; then
+      sudo mkdir -p -m 755 /etc/apt/keyrings
+      curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
+        && sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+        && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+            | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+        && sudo apt-get update -qq \
+        && sudo apt-get install -y -qq gh \
+        && return 0
+    fi
+    echo "[cloud-agent] gh install via apt failed; install manually if needed" >&2
+    return 1
   elif command -v brew >/dev/null 2>&1; then
-    brew install gh || echo "[cloud-agent] gh install via brew failed; install manually if needed"
+    brew install gh || { echo "[cloud-agent] gh install via brew failed" >&2; return 1; }
+    return 0
   else
-    echo "[cloud-agent] no apt-get/brew available; skipping gh install"
+    echo "[cloud-agent] no apt-get/brew available; skipping gh install" >&2
+    return 1
   fi
-fi
+}
+install_gh || true
 
 # Self-test for the prod-log fetch path.
 #   - GH_TOKEN unset      → skip silently (the secret is OPTIONAL; not every

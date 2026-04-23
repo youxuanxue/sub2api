@@ -76,9 +76,10 @@ jobs:
 
       - name: Validate inputs
         # Belt-and-braces: the choice-typed `container` input is already
-        # constrained, but `since` and `tail_lines` are free-form strings
-        # and `grep_pattern` ends up shell-quoted by jq below — validate
-        # them here so a bad invocation fails fast with a readable error.
+        # constrained, but `since` and `tail_lines` are free-form strings.
+        # `grep_pattern` is transported via base64 to a temp file on EC2
+        # (see Run step) so it never touches a shell parser — we only
+        # length-cap it here to bound transport size.
         run: |
           set -euo pipefail
           if ! printf '%s' "$INPUT_SINCE" | grep -Eq '^[0-9]+[smhd]$'; then
@@ -97,11 +98,6 @@ jobs:
             echo "::error::tail_lines capped at 10000 to keep artifact size sane, got: $INPUT_TAIL"
             exit 1
           fi
-          # grep_pattern: just length-cap. Quoting safety is handled by jq
-          # in the SSM step (the pattern is passed as a JSON string literal
-          # via --arg, then quoted into the remote command). We do NOT try
-          # to validate regex syntax here — that's grep's job at runtime;
-          # an invalid regex will surface in stderr and fail the step.
           if [ ${#INPUT_GREP} -gt 512 ]; then
             echo "::error::grep_pattern too long (>512 chars)"
             exit 1
@@ -138,35 +134,51 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Build the remote shell command via jq so the user-supplied
-          # grep_pattern survives shell quoting: jq's --arg renders the
-          # value as a JSON string literal, and we wrap the docker logs
-          # invocation around it inside the JSON document. The remote
-          # shell then receives it as a single-quoted argument to grep -E.
-          # Result: the pattern can contain any character except a literal
-          # single quote (which we strip below with a defensive sed).
-          SAFE_GREP=$(printf '%s' "$INPUT_GREP" | tr -d "'\"\\\\")
+          # ---- Transport design (why this looks the way it does) -------------
+          #
+          # 1. grep_pattern carries arbitrary regex bytes (\d, \(, ', ", $, ...).
+          #    We base64-encode it on the runner, ship the base64 (alphanumeric
+          #    + / =, shell-safe), decode into /tmp/prod-log-dump/pattern on
+          #    EC2, then `grep -E -f /tmp/.../pattern`. The pattern never
+          #    touches a shell parser — no character stripping needed.
+          #
+          # 2. container / since / tail_lines passed via jq --arg + @sh, which
+          #    emits a single-quoted shell literal. Combined with the strict
+          #    enum/regex validation above, that's belt-and-braces safe.
+          #
+          # 3. Output goes through gzip before base64 to fit under SSM's 24KB
+          #    StandardOutputContent cap. Typical docker logs compress 5-10x.
+          #    If the END marker is missing in stdout.txt the run was still
+          #    truncated — we surface a clear error instead of returning
+          #    silently-corrupt logs.
+          #
+          # 4. trap on EXIT removes /tmp/prod-log-dump on the EC2 host so
+          #    sensitive log content does not linger between investigations.
+          # --------------------------------------------------------------------
 
-          if [ -n "$SAFE_GREP" ]; then
-            FILTER="| grep -E -- '$SAFE_GREP' || true"
-          else
-            FILTER=""
-          fi
+          GREP_B64=$(printf '%s' "$INPUT_GREP" | base64 -w0 2>/dev/null \
+            || printf '%s' "$INPUT_GREP" | base64 | tr -d '\n')
 
-          REMOTE_CMD="sudo docker logs '$INPUT_CONTAINER' --since '$INPUT_SINCE' --timestamps 2>&1 $FILTER | tail -n $INPUT_TAIL"
-
-          jq -n --arg cmd "$REMOTE_CMD" '{
-            commands: [
-              "set -euo pipefail",
-              "OUT=/tmp/prod-log-dump",
-              "sudo rm -rf \"$OUT\" && sudo mkdir -p \"$OUT\" && sudo chmod 0777 \"$OUT\"",
-              ($cmd + " > \"$OUT/logs.txt\" 2>&1 || true"),
-              "echo ===BEGIN_LOGS===",
-              "base64 -w0 \"$OUT/logs.txt\" 2>/dev/null || base64 \"$OUT/logs.txt\" | tr -d \u0027\\n\u0027",
-              "echo",
-              "echo ===END_LOGS==="
-            ]
-          }' > ssm-params.json
+          jq -n \
+            --arg container "$INPUT_CONTAINER" \
+            --arg since "$INPUT_SINCE" \
+            --arg tail "$INPUT_TAIL" \
+            --arg grep_b64 "$GREP_B64" \
+            '{
+              commands: [
+                "set -euo pipefail",
+                "OUT=/tmp/prod-log-dump",
+                "sudo rm -rf \"$OUT\" && sudo mkdir -p \"$OUT\" && sudo chmod 0777 \"$OUT\"",
+                "trap \u0027sudo rm -rf /tmp/prod-log-dump\u0027 EXIT",
+                ("printf %s " + ($grep_b64 | @sh) + " | base64 -d > \"$OUT/pattern\""),
+                ("sudo docker logs " + ($container | @sh) + " --since " + ($since | @sh) + " --timestamps > \"$OUT/raw\" 2>&1 || true"),
+                ("if [ -s \"$OUT/pattern\" ]; then grep -E --no-messages -f \"$OUT/pattern\" \"$OUT/raw\" | tail -n " + $tail + " > \"$OUT/logs.txt\" || true; else tail -n " + $tail + " \"$OUT/raw\" > \"$OUT/logs.txt\"; fi"),
+                "echo ===BEGIN_LOGS===",
+                "gzip -c \"$OUT/logs.txt\" | (base64 -w0 2>/dev/null || base64 | tr -d \u0027\\n\u0027)",
+                "echo",
+                "echo ===END_LOGS==="
+              ]
+            }' > ssm-params.json
 
           CMD_ID=$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
@@ -200,11 +212,20 @@ jobs:
             exit 1
           fi
 
-          awk '/^===BEGIN_LOGS===$/{f=1;next} /^===END_LOGS===$/{f=0} f' stdout.txt | tr -d '\n' | base64 -d > logs.txt
+          # Truncation detection: SSM caps StandardOutputContent at 24KB.
+          # If the END marker is missing the base64 payload was cut off
+          # mid-stream; gunzip would either fail or emit garbage. Fail
+          # explicitly with actionable guidance instead.
+          if ! grep -q '^===END_LOGS===$' stdout.txt; then
+            BYTES=$(wc -c < stdout.txt)
+            echo "::error::SSM stdout truncated at ${BYTES}B (24KB cap). Tighten GREP_PATTERN, lower TAIL_LINES, or shorten SINCE."
+            exit 1
+          fi
+
+          awk '/^===BEGIN_LOGS===$/{f=1;next} /^===END_LOGS===$/{f=0} f' stdout.txt | tr -d '\n' | base64 -d | gunzip > logs.txt
           if [ ! -s logs.txt ]; then
-            # An empty result is a valid outcome (no matching lines), but
-            # also a useful one to surface — write a one-line marker so
-            # the artifact is never empty (some downloaders trip on 0 bytes).
+            # Empty match is a valid outcome — write a marker so the artifact
+            # is never zero bytes (some downloaders choke on empty files).
             printf '(no log entries for container=%s since=%s grep=%q)\n' "$INPUT_CONTAINER" "$INPUT_SINCE" "$INPUT_GREP" > logs.txt
           fi
 

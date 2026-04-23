@@ -531,9 +531,19 @@ bash scripts/fetch-prod-logs.sh --check
 
 **安全 / 风险增量**：
 
-- 没有新增 IAM 权限。攻击者拿到 `GH_TOKEN` 能做的事和已有 workflow 同：触发预定义流程，**无法注入任意 shell 命令**——`container` 是 enum、`since` / `tail_lines` 是正则/数值校验、`grep_pattern` 在 workflow 内 strip 掉 `'` `"` `\` 后单引号包裹传给 `grep -E --`。
+- 没有新增 IAM 权限。攻击者拿到 `GH_TOKEN` 能做的事和已有 workflow 同：触发预定义流程，**无法注入任意 shell 命令**：
+  - `container` 是 GHA `type: choice` enum
+  - `since` / `tail_lines` 在 script 和 workflow 两处都做正则/数值校验
+  - `grep_pattern` 在 runner 上 base64 编码 → 经 SSM 送到 EC2 → 解码到 `/tmp/prod-log-dump/pattern` → `grep -E -f` 直接读文件，**全程不经过 shell 解析**，因此正则可以包含任意字节（`\d` / `\(` / `'` / `"` / `$` 等），既不需剥离也无注入面
 - workflow 不接受任意 `docker exec` 或任意命令字符串，只暴露"读容器日志 + 可选 grep"这一种行为。
-- 日志内容可能包含敏感信息（user id、prompt 片段、PG 查询参数）——artifact 默认保留 90 天，必要时手动 `gh run delete` 清理。
+- workflow 在 EC2 端用 `trap ... EXIT` 在 SSM 命令结束时清理 `/tmp/prod-log-dump`，敏感日志内容不在主机间投递周期残留。
+- 日志内容可能包含敏感信息（user id、prompt 片段、PG 查询参数）——GHA artifact 默认保留 90 天，必要时手动 `gh run delete` 清理。
+
+**已知限制：SSM 24KB stdout 上限**
+
+AWS SSM `GetCommandInvocation` 返回的 `StandardOutputContent` 硬上限 24000 字符。即使 workflow 已经 gzip + base64 压缩（典型日志压缩比 5-10x），如果实际匹配的行数过多仍会触顶。workflow 检测到末尾 marker 缺失时**显式失败**，提示"Tighten GREP_PATTERN, lower TAIL_LINES, or shorten SINCE"，不会返回静默截断的乱码。
+
+要彻底解开这个上限需要：给 OIDC role 加 `s3:PutObject`、新建/复用一个 ops bucket、改 workflow 用 `--output-s3-bucket-name` + `aws s3 cp` 取全量。这是 CFN/IAM 改动，不在本 PR 范围；当前的 grep + tail 组合对绝大多数事故定位场景已够用。
 
 **信任面边界**：
 
