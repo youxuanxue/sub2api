@@ -6,6 +6,10 @@ approved_at: pending
 created: 2026-04-23
 owners: [tk-platform]
 related_prs: []
+# NOTE: deliberately empty while status=pending to satisfy R3
+# (status=pending + related_prs non-empty would smell like
+# "shipped under pending"). After merge + first successful deploy,
+# flip status=shipped and add ["#53", "<first-deploy-commit>"] here.
 scope: "GHA workflow + IAM scope expansion to let `gh workflow run deploy-stage0.yml` execute the documented生产升级 SOP via OIDC + SSM"
 ---
 
