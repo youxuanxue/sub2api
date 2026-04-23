@@ -31,5 +31,5 @@
 | US-026 | NewAPI 第五平台 round-5 audit 修复（admin SubscriptionsView 平台筛选下拉漏掉 newapi） | Done | `.testing/user-stories/stories/US-026-newapi-subscriptions-platform-filter.md` |
 | US-027 | OpenAI Codex 伪装 Claude — Thinking 多轮空响应根治 + 流式空内容护栏 | InTest | `.testing/user-stories/stories/US-027-openai-codex-as-claude-thinking-continuity.md` |
 | US-028 | 公开模型 + 价格目录页（未登录可访） | InTest | `.testing/user-stories/stories/US-028-public-pricing-catalog.md` |
-| US-029 | 注册赠额（默认 $1.00 USD，admin 可配；3 条注册路径全覆盖） | Draft | `.testing/user-stories/stories/US-029-signup-bonus-balance.md` |
-| US-030 | 注册成功自动签发 trial API Key + Dashboard Quick Start 卡片 | Draft | `.testing/user-stories/stories/US-030-auto-first-api-key.md` |
+| US-029 | 注册赠额（默认 $1.00 USD，admin 可配；3 条注册路径全覆盖） | InTest | `.testing/user-stories/stories/US-029-signup-bonus-balance.md` |
+| US-030 | 注册成功自动签发 trial API Key（Dashboard Quick Start 卡片 v1.5 deferred） | InTest | `.testing/user-stories/stories/US-030-auto-first-api-key.md` |

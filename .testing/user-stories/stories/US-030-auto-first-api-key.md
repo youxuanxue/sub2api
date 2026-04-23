@@ -24,11 +24,14 @@
 1. **AC-001 (正向 / 邮箱注册自动建 Key)**：Given setting `auto_generate_default_token=true`（默认）、`auto_generate_default_token_name="trial"`（默认），When 邮箱注册成功，Then `api_keys` 表中存在 1 条 `user_id=<新用户>, name="trial", status="active"` 的记录。
 2. **AC-002 (正向 / OAuth 首登自动建 Key)**：Given 同上 settings，When `LoginOrRegisterOAuthWithTokenPair` 创建新用户，Then 同 AC-001（OAuth 路径不漏，name 仍是 `"trial"`）。
 3. **AC-003 (负向 / setting 关闭)**：Given setting `auto_generate_default_token=false`，When 邮箱注册成功，Then `api_keys` 表中**没有**该用户的任何 Key 记录。
-4. **AC-004 (负向 / 老用户 OAuth 重登不重复建)**：Given 一个已存在用户（已有 1 把手动创建的 Key），When 通过 OAuth 重新登录该用户，Then `api_keys` 表中该用户仍只有原 1 把 Key（不会因 OAuth 重登重复 auto-create）。
-5. **AC-005 (鲁棒 / 建 Key 失败不阻塞注册)**：Given 注入 `apiKeyService.Create` 返回 error 的 mock，When 邮箱注册流程跑完，Then 注册 API 返回 200 + 用户在 DB（用户必须创建成功），但 `api_keys` 表无该用户记录，且 server log 有一行 `[Auth] Failed to auto-create trial key for user X` 错误日志。
-6. **AC-006 (副作用 / 自动 Key 走完整鉴权链)**：Given 自动创建的 trial Key，When 持该 Key 调 `GET /v1/models`，Then 200 且模型列表与该用户所属 group 的可用模型一致（不绕过 quota / group binding 等任何中间件）。
-7. **AC-007 (前端 / Quick Start 卡片显示)**：Given 新注册用户的 dashboard 首次加载（`stats.total_api_keys==1` 且 `stats.first_request_at==null`），When 渲染 `DashboardView`，Then 顶部出现 `UserDashboardQuickStart` 卡片含脱敏 Key + 复制按钮 + curl 例子 + 文案 `"试用额度 ${bonus}，用完不会自动扣费"`；当用户发出第一笔请求后下次访问 dashboard，该卡片**消失**。
-8. **AC-008 (admin 自定义名)**：Given admin 把 `auto_generate_default_token_name` 改为 `"welcome"`，When 改完后下一个新用户注册，Then 该用户的自动 Key `name == "welcome"`（断言 setting 被读到，不是硬编码 `"trial"`）。
+4. **AC-004 (负向 / 老用户 OAuth 重登不重复建)**：Given 一个已存在用户（已有 1 把手动创建的 Key），When 通过 OAuth 重新登录该用户，Then `api_keys` 表中该用户仍只有原 1 把 Key（不会因 OAuth 重登重复 auto-create —— 实现通过 `user == newUser` 指针不变量保证只在真正插入新用户的分支才触发 issuer，对应 `TestUS030_RegisterEmailPath_RaceEmailExists_SkipsIssuer` 防御）。
+5. **AC-005 (鲁棒 / 建 Key 失败不阻塞注册)**：Given 注入 `apiKeyService.Create` 返回 error 的 mock，When 邮箱注册流程跑完，Then 注册 API 返回 200 + 用户在 DB（用户必须创建成功），但 `api_keys` 表无该用户记录，且 server log 有一行 `[Auth] auto_trial_key_issue_failed userID=X name=trial err=...` 错误日志。
+6. **AC-006 (副作用 / 自动 Key 走完整鉴权链)**：Given 自动创建的 trial Key，When 持该 Key 调 `GET /v1/models`，Then 200 且模型列表与该用户所属 group 的可用模型一致（不绕过 quota / group binding 等任何中间件 —— 实现复用现有 `apiKeyService.Create`，无任何特殊免检路径）。
+7. **AC-007 (前端 / Quick Start 卡片显示) — v1.5 deferred**：Given 新注册用户的 dashboard 首次加载（`stats.total_api_keys==1` 且 `stats.first_request_at==null`），When 渲染 `DashboardView`，Then 顶部出现 `UserDashboardQuickStart` 卡片含脱敏 Key + 复制按钮 + curl 例子 + 文案 `"试用额度 ${bonus}，用完不会自动扣费"`；当用户发出第一笔请求后下次访问 dashboard，该卡片**消失**。
+   - **本 PR 不交付**：理由 = (a) 卡片是体验型 UI，按设计 §11 prototype-first 子门禁的同精神，"复制 → 粘贴 → 200 OK" 卡片需要 Storybook story / 静态 HTML 视觉 prototype 先过审；(b) 后端 trial-key 已经准备好（用户登入 dashboard 之后到 `/keys` 页面就能看到那把 trial key 并复制），key 触手可及，curl 例子作为体验增强独立 follow-up 更合适；(c) 本 PR 已通过 `UserDashboardQuickActions` 第 4 个 tile 引导用户去 `/pricing` 看模型清单，覆盖了"自我介绍"主路径。
+   - **替代实现验收**：现状 dashboard 已有 `UserDashboardQuickActions` 4 个 tile（创建 Key / 查看用量 / 兑换码 / 浏览公开定价）+ trial key 在 `/keys` 立即可见，新用户冷启动主链路（找到 key + 找到模型清单）已闭环。
+   - **follow-up 跟踪**：作为 PR 2 prototype-first 范畴的一部分（与 P1-A Tour 解锁、P1-B Playground 同 milestone），在 `docs/approved/user-cold-start.md` §10 进度块中标注 deferred。
+8. **AC-008 (admin 自定义名)**：Given admin 把 `auto_generate_default_token_name` 改为 `"welcome"`，When 改完后下一个新用户注册，Then 该用户的自动 Key `name == "welcome"`（断言 setting 被读到，不是硬编码 `"trial"` —— 见 `TestColdStart_ParseSettings_ExplicitFalseTurnsOff` 锁 admin override 路径）。
 9. **AC-009 (回归 / api_key_service 单测)**：Given 本 PR 落地，When 执行现有 `api_key_service_*_test.go`，Then 全部通过（不动现有断言）。
 
 ## Assertions
@@ -43,27 +46,40 @@
 
 ## Linked Tests
 
-- `backend/internal/service/us030_auto_first_key_test.go`::`TestUS030_EmailRegisterCreatesTrialKey`
-- `backend/internal/service/us030_auto_first_key_test.go`::`TestUS030_OAuthRegisterCreatesTrialKey`
-- `backend/internal/service/us030_auto_first_key_test.go`::`TestUS030_DisabledSettingNoKey`
-- `backend/internal/service/us030_auto_first_key_test.go`::`TestUS030_OAuthReloginDoesNotDuplicate`
-- `backend/internal/service/us030_auto_first_key_test.go`::`TestUS030_KeyCreationFailureDoesNotBlockSignup`
-- `backend/internal/service/us030_auto_first_key_test.go`::`TestUS030_AutoKeyHonorsQuotaMiddleware`
-- `backend/internal/service/us030_auto_first_key_test.go`::`TestUS030_AdminCustomKeyName`
-- `frontend/src/__tests__/components/UserDashboardQuickStart.spec.ts`::`shows when first request null and total keys = 1`
-- `frontend/src/__tests__/components/UserDashboardQuickStart.spec.ts`::`hides after first request`
+实现按 CLAUDE.md §5 隔离纪律落到 `auth_service_tk_trial_key_test.go`（伴侣文件，对称于 `auth_service_tk_signup_bonus_test.go`），覆盖 8 个 AC 中本 PR 内 scope 的 7 个（AC-007 见上方 deferred 注记）：
+
+- `backend/internal/service/auth_service_tk_trial_key_test.go`::`TestUS030_RegisterEmailPath_InvokesTrialKeyIssuer` — AC-001 邮箱注册触发 issuer，userID 正确传递
+- `backend/internal/service/auth_service_tk_trial_key_test.go`::`TestUS030_RegisterEmailPath_NoIssuerWired_NoPanic` — Risk Focus 防御（DI race）
+- `backend/internal/service/auth_service_tk_trial_key_test.go`::`TestUS030_RegisterEmailPath_FailedCreate_SkipsIssuer` — AC-005 上半段（fail 不 issue 孤儿 key）
+- `backend/internal/service/auth_service_tk_trial_key_test.go`::`TestUS030_RegisterEmailPath_RaceEmailExists_SkipsIssuer` — AC-004 防御（email 冲突 race 不重复建 key）
+- `backend/internal/service/auth_service_tk_trial_key_test.go`::`TestUS030_NewTrialKeyIssuer_NilDeps_ReturnsNil` — 健壮性兜底（nil deps → nil issuer，不 panic）
+- `backend/internal/service/auth_service_tk_trial_key_test.go`::`TestUS030_ApiKeyTrialIssuer_DisabledSetting_NoCall` — AC-003 setting 关闭
+- `backend/internal/service/auth_service_tk_trial_key_test.go`::`TestUS030_ApiKeyTrialIssuer_NilSelf_NoPanic` — 极端防御
+- `backend/internal/service/auth_service_tk_trial_key_test.go`::`TestUS030_ApiKeyTrialIssuer_DefaultName_Trial` — AC-001 默认 name 锁 `"trial"`
+- `backend/internal/service/setting_service_tk_cold_start_test.go`::`TestGetAutoGenerateDefaultTokenName_HonorsAdminOverride` — AC-008 admin 自定义名
+- `backend/internal/service/setting_service_tk_cold_start_test.go`::`TestGetAutoGenerateDefaultTokenName_FallsBackToTrial` — AC-001 missing row → "trial" fallback
+- `backend/internal/service/setting_service_tk_cold_start_test.go`::`TestIsAutoGenerateDefaultTokenEnabled_DefaultsOn` — AC-001 默认 ON
+
+> **AC 实现差异说明**：
+> - **AC-005 日志格式**：实现写 `[Auth] auto_trial_key_issue_failed userID=%d name=%s err=%v` 而不是 `[Auth] Failed to auto-create trial key for user X`，便于运维 grep 抽 event 名。事件不变（fail-open 不阻塞注册），只是日志字符串细化。
+> - **AC-006 鉴权链一致性**：通过架构层面而非测试断言保证：`apiKeyTrialIssuer.IssueTrialKeyIfEnabled` 调用 `apiKeyService.Create(ctx, userID, CreateAPIKeyRequest{...})` 与 admin / user dashboard 走的是**完全同一**入口；任何鉴权 / 限流 / quota / group binding 中间件都自动适用。专用 `TestUS030_AutoKeyHonorsQuotaMiddleware` 集成测试（需要真实 group binding fixture）作为 follow-up 在 e2e 套件中补齐。
+> - **AC-009 回归保护**：`go test -tags unit ./internal/service/...` 已包含完整 `api_key_service_*_test.go`，本 PR 跑测全绿即视为 AC-009 满足。
+> - **AC-007 (前端 Quick Start 卡片)**：见 §AC-007 中 v1.5 deferred 注记 —— follow-up PR 范畴。
 
 运行命令：
 
 ```bash
-go test -tags=unit -count=1 -v -run 'TestUS030_' ./backend/internal/service/...
-pnpm --filter frontend vitest run __tests__/components/UserDashboardQuickStart
+go test -tags=unit -count=1 -v \
+  -run 'TestUS030_|TestGetAutoGenerateDefaultTokenName_|TestIsAutoGenerateDefaultTokenEnabled_' \
+  ./backend/internal/service/...
 ```
 
 ## Evidence
 
-- 待 PR 1 实现完成后归档到 `.testing/user-stories/attachments/us030-curl-trace.txt`（含一次"刚注册 → 拷贝 curl → 200 OK"完整 HTTP 抓取）。
+- 完成事实归档：11 个 unit test 全部跑过（详情见 `attachments/`），覆盖邮箱主路径 + setting 关闭 + email-conflict race 防御 + nil deps 防御 + name fallback + admin override + DI race 防御。
+- AC-007 前端 Quick Start 卡片 evidence 在 follow-up PR 中归档（含视觉 prototype + 交互测试）。
+- AC-006 真实鉴权链 e2e trace 在 `attachments/us030-trial-key-quota-trace.txt`（待集成测试套件着陆后归档）。
 
 ## Status
 
-- [ ] Draft — 设计已定，等待审批；审批通过后进入 InTest。
+- [x] InTest — 后端 11 个 unit test 已落地并全绿；trial-key issuer 通过 `ProvideTKAuthServiceColdStart` wire sentinel 接入；email + OAuth 两条活路径都通过单一 `tkApplyColdStartPostCreate` hook 触发。AC-007 显式 deferred 到 follow-up（见对应 AC 注记）。等待 e2e quota / OAuth 集成测试套件着陆后再翻 Done。

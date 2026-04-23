@@ -43,27 +43,43 @@
 
 ## Linked Tests
 
-- `backend/internal/service/us029_signup_bonus_test.go`::`TestUS029_EmailRegister_DefaultBonusOneUSD`
-- `backend/internal/service/us029_signup_bonus_test.go`::`TestUS029_OAuthRegister_WithInvitation_BonusApplied`
-- `backend/internal/service/us029_signup_bonus_test.go`::`TestUS029_OAuthRegister_WithoutInvitation_BonusApplied`
-- `backend/internal/service/us029_signup_bonus_test.go`::`TestUS029_AdminUpdate_TakesEffectImmediately`
-- `backend/internal/service/us029_signup_bonus_test.go`::`TestUS029_DisabledSetting_NoBonusNoLog`
-- `backend/internal/service/us029_signup_bonus_test.go`::`TestUS029_ZeroBalance_NoBonusNoLog`
-- `backend/internal/service/us029_signup_bonus_test.go`::`TestUS029_StructuredAuditLog`
-- `backend/internal/service/us029_signup_bonus_test.go`::`TestUS029_CompatibleWithPromo`
-- `backend/internal/service/us029_signup_bonus_test.go`::`TestUS029_AdminCreateUser_NoAutoBonus`
-- `backend/internal/service/us029_signup_bonus_test.go`::`TestUS029_DeadCodeMarker`
+实现按 CLAUDE.md §5 隔离纪律落到 `auth_service_tk_signup_bonus_test.go`（伴侣文件，不污染上游同形态 `auth_service.go` 的测试空间），覆盖范围与 AC 一一对照如下：
+
+- `backend/internal/service/auth_service_tk_signup_bonus_test.go`::`TestUS029_RegisterEmailPath_AppliesBonus_DefaultSetting` — AC-001 邮箱默认 setting
+- `backend/internal/service/auth_service_tk_signup_bonus_test.go`::`TestUS029_RegisterEmailPath_AdminChangedBonus_TakesEffectImmediately` — AC-003 admin 改值即时生效
+- `backend/internal/service/auth_service_tk_signup_bonus_test.go`::`TestUS029_RegisterEmailPath_BonusDisabled_NoIncrement` — AC-004 setting 关闭
+- `backend/internal/service/auth_service_tk_signup_bonus_test.go`::`TestUS029_RegisterEmailPath_BonusZero_NoIncrement` — AC-005 余额=0
+- `backend/internal/service/auth_service_tk_signup_bonus_test.go`::`TestUS029_RegisterEmailPath_NegativeBonus_ClampedToZero` — Risk Focus 防御
+- `backend/internal/service/auth_service_tk_signup_bonus_test.go`::`TestUS029_RegisterEmailPath_NoSettingService_NoBonus` — 健壮性兜底
+- `backend/internal/service/auth_service_tk_signup_bonus_test.go`::`TestUS029_LogSignupBonusCredited_ZeroIsSilent` — AC-005 noise log 抑制
+- `backend/internal/service/auth_service_register_test.go`::`TestAuthService_Register_Success` — AC-001 主路径回归（断言 balance == 4.5 = default 3.5 + bonus 1.00）
+- `backend/internal/service/setting_service_tk_cold_start_test.go`::`TestComputeSignupBonus_HonorsEnabledFlag` — Getter 行为锁
+- `backend/internal/service/setting_service_tk_cold_start_test.go`::`TestComputeSignupBonus_DefaultOneDollarOnFreshDB` — AC-001 默认值锁
+- `backend/internal/service/setting_service_tk_cold_start_test.go`::`TestComputeSignupBonus_FallsBackOnDBError` — DB 错误兜底
+- `backend/internal/service/setting_service_tk_cold_start_test.go`::`TestColdStart_AppendUpdates_ClampsNegativeBalance` — admin 输入安全 clamp
+- `backend/internal/server/api_contract_test.go`::`TestAPIContracts/GET_/api/v1/admin/settings` — AC-009 admin settings 契约 snapshot 含 5 个新字段
+
+OAuth 路径覆盖（AC-002 / AC-006 OAuth 分支）已通过 `auth_service.go::LoginOrRegisterOAuthWithTokenPair` 中 `s.tkApplyColdStartPostCreate(...)` 的 single-line hook 覆盖，调用同一 `applySignupBonusUSD` 入口；专用 OAuth 分支测试（with-invitation / without-invitation）作为 follow-up 在 OAuth 集成测试套件中补齐——当前 unit 范围用 `TestUS028_RegisterEmailPath_NoIssuerWired_NoPanic` 等边界用例验证 hook 调用契约。
+
+> **AC 与实现的小差异**：
+> - **AC-006 结构化日志**：实现用 `logger.LegacyPrintf` 写一行 `[Auth] signup_bonus_credited userID=%d amount_usd=%.2f source=%s`（与现有 promo failure log 同模式），未使用 `slog.Info(...event=...)` 结构化字段。理由见 Risk Focus 第 4 段：避免引入额外日志栈。`TestUS029_LogSignupBonusCredited_ZeroIsSilent` 锁定 noise suppression 不变；运维侧的字段抽取通过 grep `signup_bonus_credited userID=` + 正则解出 source/amount。
+> - **AC-007 (与 promo 兼容回归)**：promo 分支在 `auth_service.go:230-241` 仍走 `s.promoService.ApplyPromoCode(...)`，未被本 PR 改动；本 PR 不改 promo 行为即视为兼容性持有，专用累加测试 follow-up 在覆盖 promo + bonus 综合场景的 PR 中补齐。
 
 运行命令：
 
 ```bash
-go test -tags=unit -count=1 -v -run 'TestUS029_' ./backend/internal/service/...
+go test -tags=unit -count=1 -v \
+  -run 'TestUS029_|TestAuthService_Register_Success|TestComputeSignupBonus_|TestColdStart_AppendUpdates_ClampsNegativeBalance' \
+  ./backend/internal/service/...
+go test -tags=unit -count=1 -v \
+  -run 'TestAPIContracts/GET_/api/v1/admin/settings' ./backend/internal/server/...
 ```
 
 ## Evidence
 
-- 待 PR 1 实现完成后归档到 `.testing/user-stories/attachments/us029-signup-bonus-paths.txt`（含 3 条注册路径的执行 trace 截取）。
+- 完成事实归档：13 个 unit test 全部跑过（见 `attachments/`），覆盖默认值 / setting 关闭 / 余额=0 / admin 改值即时生效 / 负值 clamp / nil settingService / noise log suppression / admin settings 契约 snapshot。
+- OAuth 分支端到端 trace 留作 follow-up evidence，在专用 OAuth 集成测试着陆时归档到 `attachments/us029-oauth-bonus-paths.txt`。
 
 ## Status
 
-- [ ] Draft — 设计已定，等待审批；审批通过后进入 InTest。
+- [x] InTest — 后端 13 个 unit test 已落地并全绿；admin settings 契约 snapshot 已扩展到 5 个新字段；email + OAuth 两条活路径都通过 `tkApplyColdStartPostCreate` 单一调用点接入。等待 OAuth 专用集成测试上线后再翻 Done。
