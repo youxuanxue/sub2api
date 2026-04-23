@@ -60,6 +60,13 @@ type AdminService interface {
 	GetAccountsByIDs(ctx context.Context, ids []int64) ([]*Account, error)
 	CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error)
 	UpdateAccount(ctx context.Context, id int64, input *UpdateAccountInput) (*Account, error)
+	// UpdateAccountCredentials writes a credentials map directly without going
+	// through the full UpdateAccount path. Bug B-5: BatchUpdateCredentials only
+	// edits scoped fields (account_uuid / org_uuid / intercept_warmup_requests)
+	// that have no overlap with credentials.api_key / base_url, so going through
+	// UpdateAccount would needlessly trigger Moonshot regional probes,
+	// quota-reset recompute, group-binding validation, etc. on every call.
+	UpdateAccountCredentials(ctx context.Context, id int64, credentials map[string]any) error
 	DeleteAccount(ctx context.Context, id int64) error
 	RefreshAccountCredentials(ctx context.Context, id int64) (*Account, error)
 	ClearAccountError(ctx context.Context, id int64) (*Account, error)
@@ -1900,6 +1907,31 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	}
 
 	return result, nil
+}
+
+// UpdateAccountCredentials writes a credentials map directly to the account
+// without going through the full UpdateAccount path (Bug B-5). Used by
+// BatchUpdateCredentials whose field whitelist (account_uuid / org_uuid /
+// intercept_warmup_requests) has no overlap with credentials.api_key /
+// base_url, so triggering resolveNewAPIMoonshotBaseURLOnSave / quota-reset
+// recompute / group-binding validation per call is wasteful and harmful
+// (would pile N×25s Moonshot probes on a "rename UUIDs" batch operation).
+//
+// See docs/bugs/2026-04-22-newapi-and-bridge-deep-audit.md § B-5.
+func (s *adminServiceImpl) UpdateAccountCredentials(ctx context.Context, id int64, credentials map[string]any) error {
+	if updater, ok := any(s.accountRepo).(accountCredentialsUpdater); ok {
+		return updater.UpdateCredentials(ctx, id, credentials)
+	}
+	// Fallback for repos that have not implemented the optional
+	// UpdateCredentials interface yet — preserve the legacy
+	// "GetByID + Update" shape but skip the Moonshot/quota side effects
+	// that live in UpdateAccount.
+	account, err := s.accountRepo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	account.Credentials = credentials
+	return s.accountRepo.Update(ctx, account)
 }
 
 func (s *adminServiceImpl) DeleteAccount(ctx context.Context, id int64) error {

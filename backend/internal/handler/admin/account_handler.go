@@ -1355,8 +1355,17 @@ func (h *AccountHandler) BatchUpdateCredentials(c *gin.Context) {
 	failedIDs := make([]int64, 0, len(updates))
 	results := make([]gin.H, 0, len(updates))
 	for _, u := range updates {
-		updateInput := &service.UpdateAccountInput{Credentials: u.Credentials}
-		if _, err := h.adminService.UpdateAccount(ctx, u.ID, updateInput); err != nil {
+		// US-029 Bug B-5: the field whitelist
+		// (account_uuid|org_uuid|intercept_warmup_requests) has no overlap
+		// with credentials.api_key / base_url, so going through UpdateAccount
+		// would needlessly trigger Moonshot regional probes
+		// (resolveNewAPIMoonshotBaseURLOnSave) on every newapi/Moonshot
+		// account in the batch — N×25s of fan-out cost for renaming UUIDs.
+		// Use the credentials-only writer instead, which skips the heavy
+		// UpdateAccount side effects (group binding validation,
+		// quota-reset recompute, OAuth privacy goroutine spawn). See
+		// docs/bugs/2026-04-22-newapi-and-bridge-deep-audit.md § B-5.
+		if err := h.adminService.UpdateAccountCredentials(ctx, u.ID, u.Credentials); err != nil {
 			failed++
 			failedIDs = append(failedIDs, u.ID)
 			results = append(results, gin.H{

@@ -18,19 +18,21 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
-// failingAdminService 嵌入 stubAdminService，可配置 UpdateAccount 在指定 ID 时失败。
+// failingAdminService 嵌入 stubAdminService，可配置 UpdateAccountCredentials
+// 在指定 ID 时失败。Bug B-5 之后 BatchUpdateCredentials 改走专用的 credentials-only
+// writer，此 stub 也随之记录到 UpdateAccountCredentials 的 call count。
 type failingAdminService struct {
 	*stubAdminService
 	failOnAccountID int64
 	updateCallCount atomic.Int64
 }
 
-func (f *failingAdminService) UpdateAccount(ctx context.Context, id int64, input *service.UpdateAccountInput) (*service.Account, error) {
+func (f *failingAdminService) UpdateAccountCredentials(ctx context.Context, id int64, credentials map[string]any) error {
 	f.updateCallCount.Add(1)
 	if id == f.failOnAccountID {
-		return nil, errors.New("database error")
+		return errors.New("database error")
 	}
-	return f.stubAdminService.UpdateAccount(ctx, id, input)
+	return nil
 }
 
 func setupAccountHandlerWithService(adminSvc service.AdminService) (*gin.Engine, *AccountHandler) {

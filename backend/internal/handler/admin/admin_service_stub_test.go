@@ -260,6 +260,12 @@ func (s *stubAdminService) UpdateAccount(ctx context.Context, id int64, input *s
 	return &account, nil
 }
 
+// UpdateAccountCredentials is the credentials-only writer (Bug B-5).
+// Tests can override via us029StubAdminService to record invocations.
+func (s *stubAdminService) UpdateAccountCredentials(ctx context.Context, id int64, credentials map[string]any) error {
+	return nil
+}
+
 func (s *stubAdminService) DeleteAccount(ctx context.Context, id int64) error {
 	return nil
 }
