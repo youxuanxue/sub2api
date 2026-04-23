@@ -146,7 +146,20 @@ func ResolveMoonshotRegionalBaseAtSave(ctx context.Context, apiKey string) (stri
 	if winner != "" {
 		return strings.TrimRight(strings.TrimSpace(winner), "/"), nil
 	}
-	return "", fmt.Errorf("moonshot regional resolve: %v; %v", errs[0], errs[1])
+	// 不要硬写 errs[0], errs[1]：bases 的长度由 moonshotProbeBasesForTest 注入决定
+	// （生产是 2，测试可注入 1 或 N）。硬索引会在 len(bases) != 2 时直接 panic 在
+	// admin 保存账号的 HTTP 线程里。聚合所有非空 err，附带触发的 base，便于排查。
+	parts := make([]string, 0, len(errs))
+	for i, e := range errs {
+		if e == nil {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("[%s] %v", bases[i], e))
+	}
+	if len(parts) == 0 {
+		return "", fmt.Errorf("moonshot regional resolve: no winner and no recorded errors (probed %d base(s))", len(bases))
+	}
+	return "", fmt.Errorf("moonshot regional resolve: %s", strings.Join(parts, "; "))
 }
 
 func moonshotProbeModelsOK(ctx context.Context, baseRoot, apiKey string) error {
