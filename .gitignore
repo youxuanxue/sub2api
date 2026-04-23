@@ -154,6 +154,7 @@ docs/*
 !docs/PAYMENT_CN.md
 !docs/approved/
 !docs/accounts/
+!docs/bugs/
 !docs/deploy/
 !docs/flows/
 !docs/preflight-debt.md
