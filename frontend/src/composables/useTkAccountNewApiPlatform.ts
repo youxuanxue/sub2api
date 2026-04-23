@@ -177,8 +177,14 @@ export function useTkAccountNewApiPlatform(options: UseTkAccountNewApiPlatformOp
   /**
    * 把已有 newapi 账号的字段镜像到本 composable 的 ref（EditAccountModal 用）。
    * 自动按 whitelist / mapping 模式推断结构化 selector 的初始模式。
+   *
+   * 同一 modal 实例切换不同账号时（例如先编辑 A 再编辑 B），需要先把
+   * 副作用状态（fetchLoading）清掉，否则 A 的 in-flight 状态会让 B 的
+   * 「获取模型列表」按钮错误地呈 disabled。其他表单字段都被本函数全量
+   * 覆盖，不需要 reset。
    */
   function populateFromAccount(account: TkNewApiAccountSnapshot): void {
+    fetchLoading.value = false
     const credentials = (account.credentials || {}) as Record<string, unknown>
     channelType.value = account.channel_type ?? 0
     baseUrl.value = (credentials.base_url as string) ?? ''
