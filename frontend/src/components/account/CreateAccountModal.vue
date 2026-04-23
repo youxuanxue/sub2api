@@ -735,17 +735,17 @@
           v-model:statusCodeMapping="newapiStatusCodeMapping"
           v-model:openaiOrganization="newapiOpenAIOrganization"
           v-model:allowedModels="newapiAllowedModels"
-          v-model:modelMappings="newapiModelMappingsList"
+          v-model:modelMappings="newapiModelMappings"
           v-model:restrictionMode="newapiRestrictionMode"
           :channel-type-options="newapiChannelTypeOptions"
           :channel-types-loading="newapiChannelTypesLoading"
           :channel-types-error="newapiChannelTypesError"
           :selected-channel-type-base-url="newapiSelectedBaseUrl"
-          :fetch-models-enabled="newapiFetchEnabled"
-          :fetch-models-disabled="newapiFetchDisabled"
-          :fetch-models-loading="newapiFetchLoading"
+          :fetch-models-enabled="newapiFetchModelsEnabled"
+          :fetch-models-disabled="newapiFetchModelsDisabled"
+          :fetch-models-loading="newapiFetchModelsLoading"
           variant="create"
-          @fetch-models="handleFetchNewapiUpstreamModels"
+          @fetch-models="newapiHandleFetchUpstreamModels"
         />
       </div>
 
@@ -2994,8 +2994,7 @@ import {
 } from '@/utils/openaiWsMode'
 import OAuthAuthorizationFlow from './OAuthAuthorizationFlow.vue'
 import AccountNewApiPlatformFields from './AccountNewApiPlatformFields.vue'
-import { listChannelTypes, fetchUpstreamModels, type ChannelTypeInfo } from '@/api/admin/channels'
-import { isNewApiUpstreamFetchableChannelType } from '@/constants/newApiUpstreamFetchableChannelTypes'
+import { useTkAccountNewApiPlatform } from '@/composables/useTkAccountNewApiPlatform'
 
 // Type for exposed OAuthAuthorizationFlow component
 // Note: defineExpose automatically unwraps refs, so we use the unwrapped types
@@ -3166,87 +3165,33 @@ const bedrockRegion = ref('us-east-1')
 const bedrockForceGlobal = ref(false)
 const bedrockApiKeyValue = ref('')
 
-// New API (5th platform) state. US-017 prototype scope.
-// channel_type catalog comes from GET /api/v1/admin/channel-types (cached for the
-// modal's lifetime); when the user picks a type we prefill base_url from the
-// catalog entry but keep the field editable.
-const newapiChannelType = ref<number>(0)
-const newapiBaseUrl = ref('')
-const newapiApiKey = ref('')
-// US-019: optional forwarding-affecting credentials. Bridge already reads
-// model_mapping; openai_organization and status_code_mapping shipped in the
-// same PR so admins can match the new-api channel UI without falling back to
-// API-only configuration. Empty values are skipped server-side.
-const newapiModelMapping = ref('')
-const newapiStatusCodeMapping = ref('')
-const newapiOpenAIOrganization = ref('')
-const newapiChannelTypes = ref<ChannelTypeInfo[]>([])
-const newapiChannelTypesLoading = ref(false)
-const newapiChannelTypesError = ref<string | null>(null)
-const newapiChannelTypeOptions = computed(() =>
-  newapiChannelTypes.value.map((c) => ({ value: c.channel_type, label: c.name }))
-)
-const newapiSelectedBaseUrl = computed(() => {
-  const found = newapiChannelTypes.value.find((c) => c.channel_type === newapiChannelType.value)
-  return found?.base_url || ''
+// 第五平台 newapi 的全部表单状态 + 副作用（catalog / fetch / 校验 / 提交拼装）
+// 都收口在 composable，让本上游大文件保持「模板 + wiring」形态。
+// 见 docs/accounts/newapi-add-account-ui-gap-analysis.md
+const {
+  channelType: newapiChannelType,
+  baseUrl: newapiBaseUrl,
+  apiKey: newapiApiKey,
+  modelMapping: newapiModelMapping,
+  statusCodeMapping: newapiStatusCodeMapping,
+  openaiOrganization: newapiOpenAIOrganization,
+  allowedModels: newapiAllowedModels,
+  modelMappings: newapiModelMappings,
+  restrictionMode: newapiRestrictionMode,
+  channelTypeOptions: newapiChannelTypeOptions,
+  channelTypesLoading: newapiChannelTypesLoading,
+  channelTypesError: newapiChannelTypesError,
+  selectedChannelTypeBaseUrl: newapiSelectedBaseUrl,
+  fetchModelsEnabled: newapiFetchModelsEnabled,
+  fetchModelsDisabled: newapiFetchModelsDisabled,
+  fetchModelsLoading: newapiFetchModelsLoading,
+  bootstrap: newapiBootstrap,
+  reset: newapiReset,
+  buildSubmitBundle: newapiBuildSubmitBundle,
+  handleFetchUpstreamModels: newapiHandleFetchUpstreamModels,
+} = useTkAccountNewApiPlatform({
+  isNewapi: () => form.platform === 'newapi',
 })
-
-// D3 + D4 (docs/accounts/newapi-add-account-ui-gap-analysis.md):
-// structured model selection inside the NewAPI fields block (mirrors native
-// new-api 添加渠道 «模型» multi-select + «获取模型列表» button). The previous
-// raw `newapiModelMapping` JSON textarea also wrote to credentials.model_mapping;
-// it has been removed from the field component to eliminate the dual-source
-// bug. The variable is kept as a v-model passthrough only for parents that may
-// still bind it (the textarea no longer renders).
-const newapiAllowedModels = ref<string[]>([])
-const newapiModelMappingsList = ref<{ from: string; to: string }[]>([])
-const newapiRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
-const newapiFetchLoading = ref(false)
-const newapiLastUpstreamModels = ref<string[] | null>(null)
-const newapiFetchEnabled = computed(
-  () => isNewApiUpstreamFetchableChannelType(newapiChannelType.value)
-)
-const newapiFetchDisabled = computed(() => {
-  const hasBase = (newapiBaseUrl.value.trim() || newapiSelectedBaseUrl.value).length > 0
-  const hasKey = newapiApiKey.value.trim().length > 0
-  return !hasBase || !hasKey
-})
-
-async function handleFetchNewapiUpstreamModels(): Promise<void> {
-  if (!newapiChannelType.value || newapiChannelType.value <= 0) {
-    appStore.showError(t('admin.accounts.newApiPlatform.pleaseSelectChannelType'))
-    return
-  }
-  const base = newapiBaseUrl.value.trim() || newapiSelectedBaseUrl.value
-  const key = newapiApiKey.value.trim()
-  if (!base || !key) {
-    appStore.showError(t('admin.accounts.newApiPlatform.fetchUpstreamModelsNeedUrlKey'))
-    return
-  }
-  newapiFetchLoading.value = true
-  try {
-    const models = await fetchUpstreamModels({
-      base_url: base,
-      channel_type: newapiChannelType.value,
-      api_key: key,
-    })
-    if (!models.length) {
-      appStore.showInfo(t('admin.accounts.newApiPlatform.fetchUpstreamModelsEmpty'))
-      return
-    }
-    newapiLastUpstreamModels.value = [...models]
-    newapiAllowedModels.value = [...models]
-    newapiRestrictionMode.value = 'whitelist'
-    appStore.showSuccess(
-      t('admin.accounts.newApiPlatform.fetchUpstreamModelsSuccess', { count: models.length })
-    )
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e)
-    appStore.showError(msg || t('admin.accounts.newApiPlatform.fetchUpstreamModelsFailed'))
-  } finally {
-    newapiFetchLoading.value = false
-  }
-}
 
 const tempUnschedEnabled = ref(false)
 const tempUnschedRules = ref<TempUnschedRuleForm[]>([])
@@ -3261,21 +3206,6 @@ function buildAntigravityExtra(): Record<string, unknown> | undefined {
   if (mixedScheduling.value) extra.mixed_scheduling = true
   if (allowOverages.value) extra.allow_overages = true
   return Object.keys(extra).length > 0 ? extra : undefined
-}
-
-// US-019: parses an optional JSON object string. Returns the parsed object on
-// success, or null when the input is not a valid JSON object (arrays / scalars
-// / nulls also return null). Empty string is treated as "not set" by callers.
-function parseJsonObjectOrNull(raw: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(raw)
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return null
-    }
-    return parsed as Record<string, unknown>
-  } catch {
-    return null
-  }
 }
 
 const showMixedChannelWarning = ref(false)
@@ -3484,16 +3414,8 @@ watch(
         .catch(() => { tlsFingerprintProfiles.value = [] })
       // Modal opened - fill related models
       allowedModels.value = [...getModelsByPlatform(form.platform)]
-      if (newapiChannelTypes.value.length === 0 && !newapiChannelTypesLoading.value) {
-        newapiChannelTypesLoading.value = true
-        newapiChannelTypesError.value = null
-        listChannelTypes()
-          .then((rows) => { newapiChannelTypes.value = rows })
-          .catch(() => {
-            newapiChannelTypesError.value = t('admin.accounts.newApiPlatform.channelTypeLoadFailed')
-          })
-          .finally(() => { newapiChannelTypesLoading.value = false })
-      }
+      // 第五平台 newapi：触发一次（已缓存）的 channel-type catalog 加载
+      newapiBootstrap()
       // Antigravity: 默认使用映射模式并填充默认映射
       if (form.platform === 'antigravity') {
         antigravityModelRestrictionMode.value = 'mapping'
@@ -3559,24 +3481,17 @@ watch(
       accountCategory.value = 'oauth-based'
       antigravityAccountType.value = 'oauth'
     } else if (newPlatform === 'newapi') {
-      // D1 (docs/accounts/newapi-add-account-ui-gap-analysis.md):
-      // newapi is API-key only; align accountCategory so the form.type watcher
-      // flips form.type to 'apikey' and rendering state matches the submit
-      // path (line 4173 hard-codes type:'apikey' for newapi). Without this,
-      // a fresh-open user whose accountCategory defaulted to 'oauth-based'
-      // sees no model section because form.type stays 'oauth'.
+      // D1: newapi 是 apikey-only，把 accountCategory 翻到 apikey 让 watcher A
+      // 把 form.type 同步成 'apikey'，与 submit 路径硬编码的 type:'apikey'
+      // 对齐；否则路径 1 (fresh open + 直接点 NewAPI) 会因 form.type='oauth'
+      // 隐藏掉模型区。详见 docs/accounts/newapi-add-account-ui-gap-analysis.md
       accountCategory.value = 'apikey'
       allowOverages.value = false
       antigravityWhitelistModels.value = []
       antigravityModelMappings.value = []
       antigravityModelRestrictionMode.value = 'mapping'
-      // Default newapi model section to whitelist mode (matches native new-api
-      // 添加渠道 «模型» multi-select); user can flip to mapping inside the
-      // AccountNewApiPlatformFields component.
-      newapiRestrictionMode.value = 'whitelist'
-      newapiAllowedModels.value = []
-      newapiModelMappingsList.value = []
-      newapiLastUpstreamModels.value = null
+      // newapi 自身的字段重置由 composable.reset() 在 resetForm 中负责，
+      // 平台切换不清除已填字段（避免误触切换造成数据丢失）。
     } else {
       allowOverages.value = false
       antigravityWhitelistModels.value = []
@@ -3624,25 +3539,6 @@ watch(
     if (platform !== 'anthropic' || category !== 'apikey') {
       anthropicPassthroughEnabled.value = false
       webSearchEmulationMode.value = 'default'
-    }
-  }
-)
-
-// D3 (docs/accounts/newapi-add-account-ui-gap-analysis.md):
-// Auto-prefill base_url when the user picks a channel type (mirrors native
-// new-api 添加渠道 behaviour). Only fires when the user has not manually
-// typed a base_url, so admins overriding to a private/proxy base are not
-// clobbered by the catalog default.
-watch(
-  () => newapiChannelType.value,
-  (ct) => {
-    if (form.platform !== 'newapi') return
-    if (!ct) return
-    const found = newapiChannelTypes.value.find((c) => c.channel_type === ct)
-    if (!found) return
-    const trimmed = newapiBaseUrl.value.trim()
-    if (!trimmed) {
-      newapiBaseUrl.value = found.base_url || ''
     }
   }
 )
@@ -4031,18 +3927,8 @@ const resetForm = () => {
   antigravityAccountType.value = 'oauth'
   upstreamBaseUrl.value = ''
   upstreamApiKey.value = ''
-  // newapi (5th platform) state
-  newapiChannelType.value = 0
-  newapiBaseUrl.value = ''
-  newapiApiKey.value = ''
-  newapiModelMapping.value = ''
-  newapiStatusCodeMapping.value = ''
-  newapiOpenAIOrganization.value = ''
-  newapiAllowedModels.value = []
-  newapiModelMappingsList.value = []
-  newapiRestrictionMode.value = 'whitelist'
-  newapiLastUpstreamModels.value = null
-  newapiFetchLoading.value = false
+  // 第五平台 newapi 字段重置由 composable 统一管理
+  newapiReset()
   tempUnschedEnabled.value = false
   tempUnschedRules.value = []
   geminiOAuthType.value = 'code_assist'
@@ -4236,66 +4122,22 @@ const handleSubmit = async () => {
     return
   }
 
-  // For New API (5th platform), create directly with channel_type top-level field.
-  // Backend admin_service.go:1565 enforces channel_type > 0 when platform == 'newapi';
-  // type is 'apikey' (matches antigravity-upstream pattern) — there is no OAuth flow.
+  // 第五平台 newapi：直接走 apikey 路径，channel_type 上浮到顶层（admin_service
+  // 强制 > 0）；表单校验 + credentials 拼装 + JSON 校验都委托给 composable。
   if (form.platform === 'newapi') {
     if (!form.name.trim()) {
       appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
       return
     }
-    if (!newapiChannelType.value || newapiChannelType.value <= 0) {
-      appStore.showError(t('admin.accounts.newApiPlatform.pleaseSelectChannelType'))
-      return
-    }
-    const baseUrl = newapiBaseUrl.value.trim() || newapiSelectedBaseUrl.value
-    if (!baseUrl) {
-      appStore.showError(t('admin.accounts.newApiPlatform.pleaseEnterBaseUrl'))
-      return
-    }
-    if (!newapiApiKey.value.trim()) {
-      appStore.showError(t('admin.accounts.newApiPlatform.pleaseEnterApiKey'))
-      return
-    }
-    const credentials: Record<string, unknown> = {
-      base_url: baseUrl,
-      api_key: newapiApiKey.value.trim()
-    }
-    // D3 + D4 (docs/accounts/newapi-add-account-ui-gap-analysis.md):
-    // model_mapping is now derived from the structured selector inside
-    // AccountNewApiPlatformFields (whitelist mode → {model:model}, mapping
-    // mode → {from:to}), unifying the previous raw JSON textarea path
-    // with the same shape Account.GetModelMapping() reads
-    // (credentials["model_mapping"].(map[string]any)).
-    const newapiMapping = buildModelMappingObject(
-      newapiRestrictionMode.value,
-      newapiAllowedModels.value,
-      newapiModelMappingsList.value
-    )
-    if (newapiMapping) {
-      credentials.model_mapping = newapiMapping
-    }
-    // status_code_mapping stays a JSON string (bridge passes through as-is);
-    // openai_organization stays a plain string (outbound header).
-    const statusCodeMappingTrim = newapiStatusCodeMapping.value.trim()
-    if (statusCodeMappingTrim) {
-      if (!parseJsonObjectOrNull(statusCodeMappingTrim)) {
-        appStore.showError(t('admin.accounts.newApiPlatform.jsonObjectRequired'))
-        return
-      }
-      credentials.status_code_mapping = statusCodeMappingTrim
-    }
-    const openaiOrgTrim = newapiOpenAIOrganization.value.trim()
-    if (openaiOrgTrim) {
-      credentials.openai_organization = openaiOrgTrim
-    }
+    const bundle = newapiBuildSubmitBundle('create')
+    if (!bundle) return
     await doCreateAccount({
       name: form.name,
       notes: form.notes,
       platform: 'newapi',
       type: 'apikey',
-      channel_type: newapiChannelType.value,
-      credentials,
+      channel_type: bundle.channelType,
+      credentials: bundle.credentials,
       proxy_id: form.proxy_id,
       concurrency: form.concurrency,
       load_factor: form.load_factor ?? undefined,
