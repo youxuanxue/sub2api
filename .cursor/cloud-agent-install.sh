@@ -84,4 +84,24 @@ if ! command -v gh >/dev/null 2>&1; then
   fi
 fi
 
+# Self-test for the prod-log fetch path.
+#   - GH_TOKEN unset      → skip silently (the secret is OPTIONAL; not every
+#                           session needs to pull error-clustering reports).
+#   - GH_TOKEN set + OK   → one-line confirmation, install continues.
+#   - GH_TOKEN set + FAIL → loud WARNING with the underlying error, but
+#                           install still exits 0. Rationale: a stale/wrong
+#                           token must not block Claude Code or other agent
+#                           capabilities — operator fixes the token next time
+#                           they look at the bootstrap log.
+if [ -n "${GH_TOKEN:-}" ]; then
+  echo "[cloud-agent] verifying prod-log fetch env (GH_TOKEN is set)"
+  if bash scripts/fetch-prod-error-clusters.sh --check; then
+    echo "[cloud-agent] prod-log fetch env OK — \`bash scripts/fetch-prod-error-clusters.sh\` is ready"
+  else
+    echo "[cloud-agent] WARNING: prod-log fetch self-test FAILED. Fix GH_TOKEN scopes or gh install before relying on scripts/fetch-prod-error-clusters.sh." >&2
+  fi
+else
+  echo "[cloud-agent] GH_TOKEN unset; skipping prod-log fetch self-test (this is fine if this session does not need error-clustering reports)"
+fi
+
 echo "[cloud-agent] install complete"
