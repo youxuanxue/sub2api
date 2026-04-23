@@ -30,3 +30,5 @@
 | US-025 | NewAPI 第五平台 round-4 audit 修复（sticky 会话指向已删除账号时主动清理 Redis 绑定） | Done | `.testing/user-stories/stories/US-025-newapi-sticky-session-deleted-account-cleanup.md` |
 | US-026 | NewAPI 第五平台 round-5 audit 修复（admin SubscriptionsView 平台筛选下拉漏掉 newapi） | Done | `.testing/user-stories/stories/US-026-newapi-subscriptions-platform-filter.md` |
 | US-027 | OpenAI Codex 伪装 Claude — Thinking 多轮空响应根治 + 流式空内容护栏 | InTest | `.testing/user-stories/stories/US-027-openai-codex-as-claude-thinking-continuity.md` |
+| US-028 | NewAPI bridge 错误回灌 RateLimitService + handle401/handle402 跨 OpenAI-compat 平台 + relay-error JSON status 兜底 (Bug B-1 / B-3 / B-11) | InTest | `.testing/user-stories/stories/US-028-newapi-bridge-error-pipeline.md` |
+| US-029 | Admin BulkUpdate 拒绝 newapi credentials + BatchUpdateCredentials 走专用 writer 跳过 Moonshot 探测 (Bug B-4 / B-5) | InTest | `.testing/user-stories/stories/US-029-admin-bulk-and-batch-credentials-newapi.md` |
