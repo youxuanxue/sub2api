@@ -1313,7 +1313,15 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 
 	// 验证账号是否可用于当前请求
 	// Verify account is usable for current request
+	// Bug B-7: when the bound account is no longer schedulable (e.g. SetRateLimited
+	// fired between sticky bind and now) or no longer in the right scheduling pool
+	// (group.platform changed), clear the Redis mapping. Symmetric with
+	// selectBySessionHash in openai_account_scheduler.go — without delete, every
+	// subsequent same-sessionHash request keeps cache-hitting the dead account
+	// and getting filtered, until TTL naturally expires (1h default). See
+	// docs/bugs/2026-04-22-newapi-and-bridge-deep-audit.md § B-7.
 	if !account.IsSchedulable() || !account.IsOpenAICompatPoolMember(groupPlatform) {
+		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 		return nil
 	}
 	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
