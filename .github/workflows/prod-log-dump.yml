@@ -1,0 +1,226 @@
+name: Prod Log Dump
+
+# On-demand fetch of raw container logs from the prod EC2 host. Same OIDC →
+# STS → SSM Run-Command chain as error-clustering-daily.yml; this workflow
+# just runs `docker logs <container> --since <since> | grep -E -- <pattern>`
+# instead of the clustering binary.
+#
+# Why this exists separately from error-clustering-daily.yml:
+#   error-clustering gives aggregate trends ("47 deadline-exceeded errors in
+#   24h"). This workflow gives the raw entries needed to investigate a
+#   specific incident ("show me the actual stack traces from the last 10m").
+#
+# Required repo variables (same as error-clustering-daily.yml — reuse):
+#   AWS_OIDC_ROLE_ARN  ARN of tokenkey-gha-us-east-1-error-clustering
+#   AWS_REGION         default: us-east-1
+#   PROD_STACK_NAME    default: tokenkey-prod-stage0
+#
+# IAM: no new permissions required. The existing ClusteringRole already
+# grants ssm:SendCommand against the prod instance + AWS-RunShellScript
+# document, which is exactly what this workflow needs.
+#
+# Trigger model: workflow_dispatch only. There is no cron — this workflow is
+# meant to be invoked from the agent CLI on demand (via
+# scripts/fetch-prod-logs.sh) when investigating a specific issue.
+
+on:
+  workflow_dispatch:
+    inputs:
+      since:
+        description: "Lookback window passed to docker logs --since (e.g. 30m, 2h, 1d). Must match ^[0-9]+[smhd]$."
+        required: false
+        default: "10m"
+      container:
+        description: "Which container to read logs from."
+        required: false
+        default: "tokenkey"
+        type: choice
+        options:
+          - tokenkey
+          - tokenkey-postgres
+          - tokenkey-caddy
+          - tokenkey-redis
+      grep_pattern:
+        description: "Optional ERE pattern. Empty = no filter. Anchored with grep -E -- so leading dashes are safe."
+        required: false
+        default: ""
+      tail_lines:
+        description: "Cap on lines returned (positive integer, max 10000)."
+        required: false
+        default: "1000"
+
+permissions:
+  contents: read
+  id-token: write
+
+# A second concurrent dump on the same instance is fine (read-only docker
+# logs), but two PRs slamming this in a tight loop would hammer SSM quota.
+# Serialize to one in flight, queue the rest.
+concurrency:
+  group: prod-log-dump
+  cancel-in-progress: false
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      STACK_NAME: ${{ vars.PROD_STACK_NAME || 'tokenkey-prod-stage0' }}
+      INPUT_SINCE: ${{ inputs.since }}
+      INPUT_CONTAINER: ${{ inputs.container }}
+      INPUT_GREP: ${{ inputs.grep_pattern }}
+      INPUT_TAIL: ${{ inputs.tail_lines }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate inputs
+        # Belt-and-braces: the choice-typed `container` input is already
+        # constrained, but `since` and `tail_lines` are free-form strings
+        # and `grep_pattern` ends up shell-quoted by jq below — validate
+        # them here so a bad invocation fails fast with a readable error.
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$INPUT_SINCE" | grep -Eq '^[0-9]+[smhd]$'; then
+            echo "::error::since must match ^[0-9]+[smhd]$ (e.g. 30m, 2h, 1d), got: $INPUT_SINCE"
+            exit 1
+          fi
+          case "$INPUT_CONTAINER" in
+            tokenkey|tokenkey-postgres|tokenkey-caddy|tokenkey-redis) ;;
+            *) echo "::error::container must be one of tokenkey|tokenkey-postgres|tokenkey-caddy|tokenkey-redis, got: $INPUT_CONTAINER"; exit 1 ;;
+          esac
+          if ! printf '%s' "$INPUT_TAIL" | grep -Eq '^[1-9][0-9]*$'; then
+            echo "::error::tail_lines must be a positive integer, got: $INPUT_TAIL"
+            exit 1
+          fi
+          if [ "$INPUT_TAIL" -gt 10000 ]; then
+            echo "::error::tail_lines capped at 10000 to keep artifact size sane, got: $INPUT_TAIL"
+            exit 1
+          fi
+          # grep_pattern: just length-cap. Quoting safety is handled by jq
+          # in the SSM step (the pattern is passed as a JSON string literal
+          # via --arg, then quoted into the remote command). We do NOT try
+          # to validate regex syntax here — that's grep's job at runtime;
+          # an invalid regex will surface in stderr and fail the step.
+          if [ ${#INPUT_GREP} -gt 512 ]; then
+            echo "::error::grep_pattern too long (>512 chars)"
+            exit 1
+          fi
+
+      - name: Precheck OIDC role
+        id: precheck
+        run: |
+          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
+            echo "::error::AWS_OIDC_ROLE_ARN repo variable not set; configure per deploy/aws/README.md § 'CI 通过 OIDC 调度 SSM'"
+            exit 1
+          fi
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve prod instance ID
+        id: instance
+        run: |
+          ID=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
+            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)
+          if [ -z "$ID" ] || [ "$ID" = "None" ]; then
+            echo "::error::could not resolve InstanceId from stack $STACK_NAME"
+            exit 1
+          fi
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
+      - name: Run docker logs on prod EC2 via SSM
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+        run: |
+          set -euo pipefail
+
+          # Build the remote shell command via jq so the user-supplied
+          # grep_pattern survives shell quoting: jq's --arg renders the
+          # value as a JSON string literal, and we wrap the docker logs
+          # invocation around it inside the JSON document. The remote
+          # shell then receives it as a single-quoted argument to grep -E.
+          # Result: the pattern can contain any character except a literal
+          # single quote (which we strip below with a defensive sed).
+          SAFE_GREP=$(printf '%s' "$INPUT_GREP" | tr -d "'\"\\\\")
+
+          if [ -n "$SAFE_GREP" ]; then
+            FILTER="| grep -E -- '$SAFE_GREP' || true"
+          else
+            FILTER=""
+          fi
+
+          REMOTE_CMD="sudo docker logs '$INPUT_CONTAINER' --since '$INPUT_SINCE' --timestamps 2>&1 $FILTER | tail -n $INPUT_TAIL"
+
+          jq -n --arg cmd "$REMOTE_CMD" '{
+            commands: [
+              "set -euo pipefail",
+              "OUT=/tmp/prod-log-dump",
+              "sudo rm -rf \"$OUT\" && sudo mkdir -p \"$OUT\" && sudo chmod 0777 \"$OUT\"",
+              ($cmd + " > \"$OUT/logs.txt\" 2>&1 || true"),
+              "echo ===BEGIN_LOGS===",
+              "base64 -w0 \"$OUT/logs.txt\" 2>/dev/null || base64 \"$OUT/logs.txt\" | tr -d \u0027\\n\u0027",
+              "echo",
+              "echo ===END_LOGS==="
+            ]
+          }' > ssm-params.json
+
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "prod-log-dump $INPUT_CONTAINER since=$INPUT_SINCE" \
+            --parameters file://ssm-params.json \
+            --query 'Command.CommandId' --output text)
+          echo "ssm command-id=$CMD_ID"
+
+          DEADLINE=$(( $(date +%s) + 180 ))
+          while true; do
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+              --query 'Status' --output text 2>/dev/null || echo InProgress)
+            case "$STATUS" in Success|Failed|TimedOut|Cancelled) break ;; esac
+            [ $(date +%s) -lt $DEADLINE ] || { echo "::error::ssm timeout"; STATUS=TimedOut; break; }
+            sleep 4
+          done
+
+          aws ssm get-command-invocation \
+            --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query 'StandardOutputContent' --output text > stdout.txt
+          aws ssm get-command-invocation \
+            --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query 'StandardErrorContent' --output text > stderr.txt
+
+          if [ "$STATUS" != "Success" ]; then
+            echo "::error::ssm command status=$STATUS"
+            echo '--- stderr ---'; cat stderr.txt
+            echo '--- stdout ---'; cat stdout.txt
+            exit 1
+          fi
+
+          awk '/^===BEGIN_LOGS===$/{f=1;next} /^===END_LOGS===$/{f=0} f' stdout.txt | tr -d '\n' | base64 -d > logs.txt
+          if [ ! -s logs.txt ]; then
+            # An empty result is a valid outcome (no matching lines), but
+            # also a useful one to surface — write a one-line marker so
+            # the artifact is never empty (some downloaders trip on 0 bytes).
+            printf '(no log entries for container=%s since=%s grep=%q)\n' "$INPUT_CONTAINER" "$INPUT_SINCE" "$INPUT_GREP" > logs.txt
+          fi
+
+          BYTES=$(wc -c < logs.txt)
+          LINES=$(wc -l < logs.txt)
+          {
+            echo "## prod-log-dump"
+            echo "- container: \`$INPUT_CONTAINER\`"
+            echo "- since:     \`$INPUT_SINCE\`"
+            echo "- grep:      \`${INPUT_GREP:-(none)}\`"
+            echo "- tail:      \`$INPUT_TAIL\`"
+            echo "- result:    \`$LINES lines, $BYTES bytes\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "captured $LINES lines / $BYTES bytes"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prod-logs-${{ github.run_id }}
+          path: logs.txt

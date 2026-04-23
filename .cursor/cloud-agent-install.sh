@@ -20,16 +20,22 @@
 #   ANTHROPIC_AUTH_TOKEN   sk-... TokenKey gateway token
 #
 # Optional Cursor Cloud Agents secret (only needed if the agent will pull
-# prod error-clustering reports via `scripts/fetch-prod-error-clusters.sh`):
+# prod data via gh-workflow-dispatch wrappers):
 #   GH_TOKEN               GitHub PAT (fine-grained, scoped to
 #                          youxuanxue/sub2api with actions:read/write +
 #                          contents:read). Used by `gh` CLI to dispatch
-#                          the existing error-clustering-daily workflow
-#                          and download its artifact. The workflow itself
-#                          handles the AWS OIDC → SSM chain, so the agent
-#                          never needs AWS credentials.
+#                          ops workflows and download their artifacts.
+#                          One token unlocks both:
+#                            - scripts/fetch-prod-error-clusters.sh
+#                                → aggregate clustering reports
+#                            - scripts/fetch-prod-logs.sh
+#                                → raw container logs (tokenkey,
+#                                  postgres, caddy, redis) on demand
+#                          Both workflows handle the AWS OIDC → SSM
+#                          chain, so the agent never needs AWS credentials.
 #                          See deploy/aws/README.md § "Cloud Agent 拉取
-#                          error-clustering 报告" for setup details.
+#                          error-clustering 报告" + § "Cloud Agent 按需
+#                          拉取 prod 容器日志" for setup details.
 #
 # Non-secret defaults are baked in here on purpose — they are project
 # policy, not credentials, and changing them deserves a PR diff.
@@ -94,14 +100,22 @@ fi
 #                           capabilities — operator fixes the token next time
 #                           they look at the bootstrap log.
 if [ -n "${GH_TOKEN:-}" ]; then
-  echo "[cloud-agent] verifying prod-log fetch env (GH_TOKEN is set)"
-  if bash scripts/fetch-prod-error-clusters.sh --check; then
-    echo "[cloud-agent] prod-log fetch env OK — \`bash scripts/fetch-prod-error-clusters.sh\` is ready"
+  echo "[cloud-agent] verifying prod-data fetch env (GH_TOKEN is set)"
+  # Both scripts share the same env (gh + jq + GH_TOKEN + same workflow
+  # repo + same OIDC chain). Running --check on one is sufficient to
+  # validate the other; we still call both so each script's argument-
+  # validation matrix is exercised at bootstrap (e.g. CONTAINER enum,
+  # SINCE regex). Either failure → loud WARNING, install still exits 0.
+  CLUSTER_OK=0; LOGS_OK=0
+  bash scripts/fetch-prod-error-clusters.sh --check && CLUSTER_OK=1
+  bash scripts/fetch-prod-logs.sh             --check && LOGS_OK=1
+  if [ "$CLUSTER_OK" = "1" ] && [ "$LOGS_OK" = "1" ]; then
+    echo "[cloud-agent] prod-data fetch env OK — fetch-prod-error-clusters.sh + fetch-prod-logs.sh are ready"
   else
-    echo "[cloud-agent] WARNING: prod-log fetch self-test FAILED. Fix GH_TOKEN scopes or gh install before relying on scripts/fetch-prod-error-clusters.sh." >&2
+    echo "[cloud-agent] WARNING: prod-data fetch self-test FAILED (clusters=$CLUSTER_OK logs=$LOGS_OK). Fix GH_TOKEN scopes or gh install before relying on the scripts." >&2
   fi
 else
-  echo "[cloud-agent] GH_TOKEN unset; skipping prod-log fetch self-test (this is fine if this session does not need error-clustering reports)"
+  echo "[cloud-agent] GH_TOKEN unset; skipping prod-data fetch self-test (this is fine if this session does not need prod logs / clustering reports)"
 fi
 
 echo "[cloud-agent] install complete"
