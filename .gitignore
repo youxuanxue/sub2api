@@ -134,6 +134,8 @@ scripts/*
 !scripts/error_clustering/**
 !scripts/build-error-clustering-binary.sh
 !scripts/deploy-error-clustering-binary.sh
+!scripts/fetch-prod-error-clusters.sh
+!scripts/fetch-prod-logs.sh
 .code-review-state
 #openspec/
 code-reviews/

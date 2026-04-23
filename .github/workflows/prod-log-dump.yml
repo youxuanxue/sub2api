@@ -1,0 +1,247 @@
+name: Prod Log Dump
+
+# On-demand fetch of raw container logs from the prod EC2 host. Same OIDC →
+# STS → SSM Run-Command chain as error-clustering-daily.yml; this workflow
+# just runs `docker logs <container> --since <since> | grep -E -- <pattern>`
+# instead of the clustering binary.
+#
+# Why this exists separately from error-clustering-daily.yml:
+#   error-clustering gives aggregate trends ("47 deadline-exceeded errors in
+#   24h"). This workflow gives the raw entries needed to investigate a
+#   specific incident ("show me the actual stack traces from the last 10m").
+#
+# Required repo variables (same as error-clustering-daily.yml — reuse):
+#   AWS_OIDC_ROLE_ARN  ARN of tokenkey-gha-us-east-1-error-clustering
+#   AWS_REGION         default: us-east-1
+#   PROD_STACK_NAME    default: tokenkey-prod-stage0
+#
+# IAM: no new permissions required. The existing ClusteringRole already
+# grants ssm:SendCommand against the prod instance + AWS-RunShellScript
+# document, which is exactly what this workflow needs.
+#
+# Trigger model: workflow_dispatch only. There is no cron — this workflow is
+# meant to be invoked from the agent CLI on demand (via
+# scripts/fetch-prod-logs.sh) when investigating a specific issue.
+
+on:
+  workflow_dispatch:
+    inputs:
+      since:
+        description: "Lookback window passed to docker logs --since (e.g. 30m, 2h, 1d). Must match ^[0-9]+[smhd]$."
+        required: false
+        default: "10m"
+      container:
+        description: "Which container to read logs from."
+        required: false
+        default: "tokenkey"
+        type: choice
+        options:
+          - tokenkey
+          - tokenkey-postgres
+          - tokenkey-caddy
+          - tokenkey-redis
+      grep_pattern:
+        description: "Optional ERE pattern. Empty = no filter. Anchored with grep -E -- so leading dashes are safe."
+        required: false
+        default: ""
+      tail_lines:
+        description: "Cap on lines returned (positive integer, max 10000)."
+        required: false
+        default: "1000"
+
+permissions:
+  contents: read
+  id-token: write
+
+# A second concurrent dump on the same instance is fine (read-only docker
+# logs), but two PRs slamming this in a tight loop would hammer SSM quota.
+# Serialize to one in flight, queue the rest.
+concurrency:
+  group: prod-log-dump
+  cancel-in-progress: false
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      STACK_NAME: ${{ vars.PROD_STACK_NAME || 'tokenkey-prod-stage0' }}
+      INPUT_SINCE: ${{ inputs.since }}
+      INPUT_CONTAINER: ${{ inputs.container }}
+      INPUT_GREP: ${{ inputs.grep_pattern }}
+      INPUT_TAIL: ${{ inputs.tail_lines }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate inputs
+        # Belt-and-braces: the choice-typed `container` input is already
+        # constrained, but `since` and `tail_lines` are free-form strings.
+        # `grep_pattern` is transported via base64 to a temp file on EC2
+        # (see Run step) so it never touches a shell parser — we only
+        # length-cap it here to bound transport size.
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$INPUT_SINCE" | grep -Eq '^[0-9]+[smhd]$'; then
+            echo "::error::since must match ^[0-9]+[smhd]$ (e.g. 30m, 2h, 1d), got: $INPUT_SINCE"
+            exit 1
+          fi
+          case "$INPUT_CONTAINER" in
+            tokenkey|tokenkey-postgres|tokenkey-caddy|tokenkey-redis) ;;
+            *) echo "::error::container must be one of tokenkey|tokenkey-postgres|tokenkey-caddy|tokenkey-redis, got: $INPUT_CONTAINER"; exit 1 ;;
+          esac
+          if ! printf '%s' "$INPUT_TAIL" | grep -Eq '^[1-9][0-9]*$'; then
+            echo "::error::tail_lines must be a positive integer, got: $INPUT_TAIL"
+            exit 1
+          fi
+          if [ "$INPUT_TAIL" -gt 10000 ]; then
+            echo "::error::tail_lines capped at 10000 to keep artifact size sane, got: $INPUT_TAIL"
+            exit 1
+          fi
+          if [ ${#INPUT_GREP} -gt 512 ]; then
+            echo "::error::grep_pattern too long (>512 chars)"
+            exit 1
+          fi
+
+      - name: Precheck OIDC role
+        id: precheck
+        run: |
+          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
+            echo "::error::AWS_OIDC_ROLE_ARN repo variable not set; configure per deploy/aws/README.md § 'CI 通过 OIDC 调度 SSM'"
+            exit 1
+          fi
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve prod instance ID
+        id: instance
+        run: |
+          ID=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
+            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)
+          if [ -z "$ID" ] || [ "$ID" = "None" ]; then
+            echo "::error::could not resolve InstanceId from stack $STACK_NAME"
+            exit 1
+          fi
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
+      - name: Run docker logs on prod EC2 via SSM
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+        run: |
+          set -euo pipefail
+
+          # ---- Transport design (why this looks the way it does) -------------
+          #
+          # 1. grep_pattern carries arbitrary regex bytes (\d, \(, ', ", $, ...).
+          #    We base64-encode it on the runner, ship the base64 (alphanumeric
+          #    + / =, shell-safe), decode into /tmp/prod-log-dump/pattern on
+          #    EC2, then `grep -E -f /tmp/.../pattern`. The pattern never
+          #    touches a shell parser — no character stripping needed.
+          #
+          # 2. container / since / tail_lines passed via jq --arg + @sh, which
+          #    emits a single-quoted shell literal. Combined with the strict
+          #    enum/regex validation above, that's belt-and-braces safe.
+          #
+          # 3. Output goes through gzip before base64 to fit under SSM's 24KB
+          #    StandardOutputContent cap. Typical docker logs compress 5-10x.
+          #    If the END marker is missing in stdout.txt the run was still
+          #    truncated — we surface a clear error instead of returning
+          #    silently-corrupt logs.
+          #
+          # 4. trap on EXIT removes /tmp/prod-log-dump on the EC2 host so
+          #    sensitive log content does not linger between investigations.
+          # --------------------------------------------------------------------
+
+          GREP_B64=$(printf '%s' "$INPUT_GREP" | base64 -w0 2>/dev/null \
+            || printf '%s' "$INPUT_GREP" | base64 | tr -d '\n')
+
+          jq -n \
+            --arg container "$INPUT_CONTAINER" \
+            --arg since "$INPUT_SINCE" \
+            --arg tail "$INPUT_TAIL" \
+            --arg grep_b64 "$GREP_B64" \
+            '{
+              commands: [
+                "set -euo pipefail",
+                "OUT=/tmp/prod-log-dump",
+                "sudo rm -rf \"$OUT\" && sudo mkdir -p \"$OUT\" && sudo chmod 0777 \"$OUT\"",
+                "trap \u0027sudo rm -rf /tmp/prod-log-dump\u0027 EXIT",
+                ("printf %s " + ($grep_b64 | @sh) + " | base64 -d > \"$OUT/pattern\""),
+                ("sudo docker logs " + ($container | @sh) + " --since " + ($since | @sh) + " --timestamps > \"$OUT/raw\" 2>&1 || true"),
+                ("if [ -s \"$OUT/pattern\" ]; then grep -E --no-messages -f \"$OUT/pattern\" \"$OUT/raw\" | tail -n " + $tail + " > \"$OUT/logs.txt\" || true; else tail -n " + $tail + " \"$OUT/raw\" > \"$OUT/logs.txt\"; fi"),
+                "echo ===BEGIN_LOGS===",
+                "gzip -c \"$OUT/logs.txt\" | (base64 -w0 2>/dev/null || base64 | tr -d \u0027\\n\u0027)",
+                "echo",
+                "echo ===END_LOGS==="
+              ]
+            }' > ssm-params.json
+
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "prod-log-dump $INPUT_CONTAINER since=$INPUT_SINCE" \
+            --parameters file://ssm-params.json \
+            --query 'Command.CommandId' --output text)
+          echo "ssm command-id=$CMD_ID"
+
+          DEADLINE=$(( $(date +%s) + 180 ))
+          while true; do
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+              --query 'Status' --output text 2>/dev/null || echo InProgress)
+            case "$STATUS" in Success|Failed|TimedOut|Cancelled) break ;; esac
+            [ $(date +%s) -lt $DEADLINE ] || { echo "::error::ssm timeout"; STATUS=TimedOut; break; }
+            sleep 4
+          done
+
+          aws ssm get-command-invocation \
+            --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query 'StandardOutputContent' --output text > stdout.txt
+          aws ssm get-command-invocation \
+            --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query 'StandardErrorContent' --output text > stderr.txt
+
+          if [ "$STATUS" != "Success" ]; then
+            echo "::error::ssm command status=$STATUS"
+            echo '--- stderr ---'; cat stderr.txt
+            echo '--- stdout ---'; cat stdout.txt
+            exit 1
+          fi
+
+          # Truncation detection: SSM caps StandardOutputContent at 24KB.
+          # If the END marker is missing the base64 payload was cut off
+          # mid-stream; gunzip would either fail or emit garbage. Fail
+          # explicitly with actionable guidance instead.
+          if ! grep -q '^===END_LOGS===$' stdout.txt; then
+            BYTES=$(wc -c < stdout.txt)
+            echo "::error::SSM stdout truncated at ${BYTES}B (24KB cap). Tighten GREP_PATTERN, lower TAIL_LINES, or shorten SINCE."
+            exit 1
+          fi
+
+          awk '/^===BEGIN_LOGS===$/{f=1;next} /^===END_LOGS===$/{f=0} f' stdout.txt | tr -d '\n' | base64 -d | gunzip > logs.txt
+          if [ ! -s logs.txt ]; then
+            # Empty match is a valid outcome — write a marker so the artifact
+            # is never zero bytes (some downloaders choke on empty files).
+            printf '(no log entries for container=%s since=%s grep=%q)\n' "$INPUT_CONTAINER" "$INPUT_SINCE" "$INPUT_GREP" > logs.txt
+          fi
+
+          BYTES=$(wc -c < logs.txt)
+          LINES=$(wc -l < logs.txt)
+          {
+            echo "## prod-log-dump"
+            echo "- container: \`$INPUT_CONTAINER\`"
+            echo "- since:     \`$INPUT_SINCE\`"
+            echo "- grep:      \`${INPUT_GREP:-(none)}\`"
+            echo "- tail:      \`$INPUT_TAIL\`"
+            echo "- result:    \`$LINES lines, $BYTES bytes\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "captured $LINES lines / $BYTES bytes"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prod-logs-${{ github.run_id }}
+          path: logs.txt

@@ -456,6 +456,101 @@ GitHub Actions 不再用长期 AWS 凭证，**OIDC 临时换 STS** → `ssm:Send
 - Graceful degradation：缺 `AWS_OIDC_ROLE_ARN` / 缺 `qa_records` → 都返回 `summary:"skip:..."` 的空 report 并 exit 0
 - 验证手动跑：`gh workflow run error-clustering-daily.yml -f since_hours=24 -R youxuanxue/sub2api`
 
+### Cloud Agent 拉取 error-clustering 报告
+
+让 **Cursor Cloud Agent** 也能查 prod 错误聚类时，**不要**复制 AWS 凭证到 Agent
+secrets——Cloud Agent 既无 AWS key 也无 GHA OIDC token，复制凭证会扩大长期密钥的攻击面，
+与 §"无长期 AWS 凭证"约束冲突。改用：让 Agent 通过 `gh workflow run` 触发**已有的**
+`error-clustering-daily.yml`，再下载 artifact。AWS OIDC → SSM → EC2 链路完全不动。
+
+**配置（Cursor Dashboard → Cloud Agents → Secrets）**：
+
+| 名称 | 值 | 说明 |
+|---|---|---|
+| `GH_TOKEN` | GitHub PAT（fine-grained） | 仅授权 `youxuanxue/sub2api` 仓库，scopes：`actions:write`（dispatch）、`actions:read`（poll/download）、`contents:read`（`gh run download` 需要）。**不要**勾其他权限——这把 token 永远不接触 AWS。 |
+
+**用法**（在 Cloud Agent 会话里）：
+
+```bash
+bash scripts/fetch-prod-error-clusters.sh                   # 默认 24h，输出到 ./.error-clusters/
+SINCE_HOURS=72 bash scripts/fetch-prod-error-clusters.sh    # 自定义窗口
+bash scripts/fetch-prod-error-clusters.sh --check           # 只校验 env + 工具，不 dispatch
+```
+
+脚本会：dispatch workflow → 轮询新 run id（默认 10 min 超时）→ `gh run watch` 等待完成
+→ `gh run download` 取 artifact → 打印 `report.json` 的 `summary` 字段。`gh` CLI 由
+`.cursor/cloud-agent-install.sh` 在会话引导时 best-effort 安装；缺失时脚本会报错并指出
+安装方式。
+
+**会话引导自检**：`.cursor/cloud-agent-install.sh` 在每次 Cloud Agent 启动时会检查
+`GH_TOKEN`：未设置 → 静默跳过；已设置 → 同时跑 `fetch-prod-error-clusters.sh --check`
++ `fetch-prod-logs.sh --check` 验证 `gh` + token + 工具链 + 各自的参数校验矩阵。失败时
+打印 `[cloud-agent] WARNING: prod-data fetch self-test FAILED ...` 但**不让 install 失败**
+（避免一个过期 token 把整个 agent 会话堵死）。看到 WARNING 即知该轮换 token 或修 scope。
+
+### Cloud Agent 按需拉取 prod 容器日志
+
+`fetch-prod-error-clusters.sh` 拿的是聚合趋势（24h 内错误聚类）；要查**具体某个事故**
+（"刚才 5 分钟内 user X 报的 500 traceback 是啥？"），用 `fetch-prod-logs.sh` 触发
+`prod-log-dump.yml` workflow 拉**原始** `docker logs`。
+
+两者**复用同一个 `GH_TOKEN` + 同一个 OIDC role + 同一个 SSM 链路**——`prod-log-dump.yml`
+没有要求任何新 IAM 权限，因为 `cicd-oidc.yaml` 里的 `ssm:SendCommand` +
+`AWS-RunShellScript` 已经覆盖。
+
+**用法**：
+
+```bash
+# 默认：tokenkey 容器最近 10 分钟、最多 1000 行、不过滤
+bash scripts/fetch-prod-logs.sh
+
+# 查最近 30 分钟的 5xx / panic / deadline
+SINCE=30m GREP_PATTERN='5[0-9]{2}|panic|deadline' bash scripts/fetch-prod-logs.sh
+
+# 查 PostgreSQL 慢查询
+CONTAINER=tokenkey-postgres SINCE=2h GREP_PATTERN='duration: [0-9]{4,}' \
+  bash scripts/fetch-prod-logs.sh
+
+# 查 Caddy access log 中某个 IP
+CONTAINER=tokenkey-caddy SINCE=1h GREP_PATTERN='1\.2\.3\.4' \
+  bash scripts/fetch-prod-logs.sh
+
+# 仅校验环境，不真正 dispatch
+bash scripts/fetch-prod-logs.sh --check
+```
+
+**输入参数（均为可选 env）**：
+
+| 变量 | 默认 | 约束 |
+|---|---|---|
+| `CONTAINER` | `tokenkey` | enum：`tokenkey` / `tokenkey-postgres` / `tokenkey-caddy` / `tokenkey-redis` |
+| `SINCE` | `10m` | 正则 `^[0-9]+[smhd]$`（直接传给 `docker logs --since`）|
+| `GREP_PATTERN` | `""`（不过滤） | ERE，最长 512 字符；引号 / 反斜杠在 workflow 入口被剥除以防 shell 注入 |
+| `TAIL_LINES` | `1000` | 正整数，硬上限 10000（防止 artifact 过大）|
+| `OUT_DIR` | `./.prod-logs` | artifact 落盘目录 |
+
+**安全 / 风险增量**：
+
+- 没有新增 IAM 权限。攻击者拿到 `GH_TOKEN` 能做的事和已有 workflow 同：触发预定义流程，**无法注入任意 shell 命令**：
+  - `container` 是 GHA `type: choice` enum
+  - `since` / `tail_lines` 在 script 和 workflow 两处都做正则/数值校验
+  - `grep_pattern` 在 runner 上 base64 编码 → 经 SSM 送到 EC2 → 解码到 `/tmp/prod-log-dump/pattern` → `grep -E -f` 直接读文件，**全程不经过 shell 解析**，因此正则可以包含任意字节（`\d` / `\(` / `'` / `"` / `$` 等），既不需剥离也无注入面
+- workflow 不接受任意 `docker exec` 或任意命令字符串，只暴露"读容器日志 + 可选 grep"这一种行为。
+- workflow 在 EC2 端用 `trap ... EXIT` 在 SSM 命令结束时清理 `/tmp/prod-log-dump`，敏感日志内容不在主机间投递周期残留。
+- 日志内容可能包含敏感信息（user id、prompt 片段、PG 查询参数）——GHA artifact 默认保留 90 天，必要时手动 `gh run delete` 清理。
+
+**已知限制：SSM 24KB stdout 上限**
+
+AWS SSM `GetCommandInvocation` 返回的 `StandardOutputContent` 硬上限 24000 字符。即使 workflow 已经 gzip + base64 压缩（典型日志压缩比 5-10x），如果实际匹配的行数过多仍会触顶。workflow 检测到末尾 marker 缺失时**显式失败**，提示"Tighten GREP_PATTERN, lower TAIL_LINES, or shorten SINCE"，不会返回静默截断的乱码。
+
+要彻底解开这个上限需要：给 OIDC role 加 `s3:PutObject`、新建/复用一个 ops bucket、改 workflow 用 `--output-s3-bucket-name` + `aws s3 cp` 取全量。这是 CFN/IAM 改动，不在本 PR 范围；当前的 grep + tail 组合对绝大多数事故定位场景已够用。
+
+**信任面边界**：
+
+- Cloud Agent 拿到的 `GH_TOKEN` 只能 dispatch + 读 artifact，不能改源码/合并 PR/改 Actions secrets/改 IAM。
+- 真正的 AWS 凭证仍由 GHA runner 通过 OIDC 临时换取，1h 自动过期，sub claim 锁 repo+branch。
+- Cloud Agent 异常或 token 泄露 → 攻击者最多能反复触发同一个 read-only workflow，**不能**绕过 OIDC 信任策略去拿 AWS 凭证。
+
 ### 端到端原理
 
 ```
