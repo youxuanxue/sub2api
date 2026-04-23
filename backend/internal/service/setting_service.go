@@ -637,6 +637,7 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 	updates[SettingKeyAccountQuotaNotifyEnabled] = strconv.FormatBool(settings.AccountQuotaNotifyEnabled)
 	updates[SettingKeyAccountQuotaNotifyEmails] = MarshalNotifyEmails(settings.AccountQuotaNotifyEmails)
 	s.tkAppendTokenKeyBridgeSettingUpdates(updates, settings)
+	s.tkAppendColdStartSettingUpdates(updates, settings)
 
 	err = s.settingRepo.SetMultiple(ctx, updates)
 	if err == nil {
@@ -1052,6 +1053,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyBackendModeEnabled: "true",
 	}
 	tkMergeDefaultTokenKeyBridgeSettings(defaults)
+	tkMergeDefaultColdStartSettings(defaults)
 
 	return s.settingRepo.SetMultiple(ctx, defaults)
 }
@@ -1092,6 +1094,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		BackendModeEnabled:               settings[SettingKeyBackendModeEnabled] == "true",
 	}
 	tkApplyTokenKeyBridgeParsed(settings, result)
+	tkApplyColdStartParsed(settings, result)
 	result.TableDefaultPageSize, result.TablePageSizeOptions = parseTablePreferences(
 		settings[SettingKeyTableDefaultPageSize],
 		settings[SettingKeyTablePageSizeOptions],
