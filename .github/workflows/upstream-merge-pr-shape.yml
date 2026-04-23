@@ -129,11 +129,12 @@ jobs:
       - name: Check 4 — newapi sentinels still intact after merge
         run: |
           # Single source of truth: scripts/newapi-sentinels.json. Same script
-          # that scripts/preflight.sh § 10 runs locally, so a green local
-          # preflight implies a green Check 4 here. Failure means the upstream
-          # merge silently dropped a load-bearing fifth-platform surface — fix
-          # the merge to restore the file/symbol, do NOT delete the sentinel
-          # entry to make the check pass.
+          # that scripts/preflight.sh runs locally as the "newapi sentinel
+          # registry" check, so a green local preflight implies a green Check
+          # 4 here. Failure means the upstream merge silently dropped a
+          # load-bearing fifth-platform surface — fix the merge to restore
+          # the file/symbol, do NOT delete the sentinel entry to make the
+          # check pass.
           if [ ! -x ./scripts/check-newapi-sentinels.py ]; then
             echo "::error::scripts/check-newapi-sentinels.py missing or not executable."
             echo "::error::Per CLAUDE.md §5.x, this guard cannot be silently disabled."

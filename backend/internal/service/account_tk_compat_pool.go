@@ -42,7 +42,7 @@ func (a *Account) IsOpenAICompatPoolMember(groupPlatform string) bool {
 // Mirrors the predicate used at the route layer
 // (`isOpenAICompatPlatform` in routes/gateway_tk_openai_compat_handlers.go).
 // When adding a sixth compat platform, BOTH places must be updated; the
-// scripts/preflight.sh § 9 (newapi compat-pool drift) check guards against
+// scripts/preflight.sh "newapi compat-pool drift" check guards against
 // forgetting either side.
 func OpenAICompatPlatforms() []string {
 	return []string{PlatformOpenAI, PlatformNewAPI}
@@ -86,9 +86,9 @@ func IsOpenAICompatPlatform(platform string) bool {
 // rebuild (or app restart).
 //
 // Adding a sixth platform: append it here once, and both call sites pick it
-// up automatically. The preflight § 9 sub2api drift guard treats hardcoded
-// `[anthropic, gemini, openai, antigravity]` slices in scheduler files as
-// regressions to block at commit time.
+// up automatically. The preflight "newapi compat-pool drift" sub2api guard
+// treats hardcoded `[anthropic, gemini, openai, antigravity]` slices in
+// scheduler files as regressions to block at commit time.
 func AllSchedulingPlatforms() []string {
 	return []string{
 		PlatformAnthropic,

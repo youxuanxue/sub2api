@@ -179,7 +179,7 @@ This repo is a fork of `Wei-Shaw/sub2api`, tracked via the `upstream` remote (`u
 
 #### 5.y Forward-looking history & merge discipline
 
-The `main` branch is **immutable history** once pushed. Past 23+ TK-ahead commits include both linear and merge commits and several `vX.Y.Z` tags pointing into them — rewriting history would orphan tags and break PR audit trails. Going forward:
+The `main` branch is **immutable history** once pushed. The TK-ahead commits include both linear and merge commits and several `vX.Y.Z` tags pointing into them — rewriting history would orphan tags and break PR audit trails. Going forward:
 
 - **No history rewrites on `main`.** No `git rebase -i` of pushed commits, no `git push --force` to `main`/`master`, no squash-merge of already-merged feature branches.
 - **Every TK feature lands via PR** with a clear scope (new file or one upstream-file injection point), reviewed against rule §5 above. Small + frequent beats one giant rebase.
@@ -199,7 +199,7 @@ Per dev-rules §"Hard Constraint Wiring" — every soft rule above MUST have an 
 |---|---|---|
 | `scripts/check-upstream-drift.sh` | local, on demand (`bash scripts/check-upstream-drift.sh`) | Auto-adds `upstream` remote if missing, fetches both, prints TK ahead/behind counts + the §5.y procedure when behind. Exit codes: `0` = synced, `1` = behind, `2` = git/network failure. Supports `--json` for CI consumption and `--quiet` for hooks. |
 | `.github/workflows/upstream-drift-monitor.yml` | every Monday 09:00 UTC + manual dispatch | Calls the same script in `--json` mode. When TK is behind, opens (or updates) a single issue labelled `upstream-drift` with the full commit list, files touched, and the exact 7-line procedure. Auto-closes the issue with a comment when the next merge PR brings the fork back in sync. |
-| `.github/workflows/upstream-merge-pr-shape.yml` | any PR whose head branch matches `merge/upstream-*` | Three hard gates that fail the PR if any is violated: (1) PR must contain a merge commit whose second parent is reachable from `upstream/main` — squash and ff merges fail this, (2) PR body must include the literal substring `upstream/main..HEAD` so the §5.y audit cadence is present, (3) no commit in the PR may carry literal `[skip ci]` / `[ci skip]` in its message (those silently disable downstream pipelines — see §9.2 / v1.3.0 incident). |
+| `.github/workflows/upstream-merge-pr-shape.yml` | any PR whose head branch matches `merge/upstream-*` | Hard gates that fail the PR if any is violated: (a) PR must contain a merge commit whose second parent is reachable from `upstream/main` — squash and ff merges fail this, (b) PR body must include the literal substring `upstream/main..HEAD` so the §5.y audit cadence is present, (c) no commit in the PR may carry literal `[skip ci]` / `[ci skip]` in its message (those silently disable downstream pipelines — see §9.2 / v1.3.0 incident), (d) the newapi sentinel registry (`scripts/newapi-sentinels.json`) is intact after the merge — same script `scripts/preflight.sh` runs locally, so a green local preflight implies a green PR-shape check. |
 
 **Branch protection on `main`** SHOULD list `Upstream Merge PR Shape / validate` as a required status check for `merge/upstream-*` PRs. Configure in repo Settings → Branches → main.
 
@@ -280,33 +280,35 @@ a git submodule at `dev-rules/`. The full convention is in
 section only records sub2api-specific choices.
 
 - **`scripts/preflight.sh` is a thin wrapper, not a re-implementation.**
-  Sections 1-8 (branch naming, submodule pointer, .cursor/rules drift, agent
-  contract drift, story/test alignment, docs/approved discipline,
-  approved-doc invariants R1-R5, doc-stat drift) are **delegated** to
-  `dev-rules/templates/preflight.sh` — the wrapper just invokes it. The
-  wrapper exists ONLY to host **sub2api-specific checks**:
-  - § 9  newapi compat-pool drift — guards the **forward-drift** failure mode
-    that triggered `docs/approved/newapi-as-fifth-platform.md`. Any new
-    scheduler/gateway caller must use `IsOpenAICompatPoolMember` /
+  All generic checks (branch naming, submodule pointer, `.cursor/rules`
+  drift, agent contract drift, story/test alignment, `docs/approved`
+  discipline, approved-doc invariants R1-R5, doc-stat drift, cloud-agent
+  env consistency) are **delegated** to `dev-rules/templates/preflight.sh`
+  — the wrapper just invokes it. The wrapper exists ONLY to host
+  **sub2api-specific checks** (numbered after the dev-rules sections so the
+  output keeps a stable order):
+  - **newapi compat-pool drift** — guards the **forward-drift** failure
+    mode that triggered `docs/approved/newapi-as-fifth-platform.md`. Any
+    new scheduler/gateway caller must use `IsOpenAICompatPoolMember` /
     `OpenAICompatPlatforms` instead of bare `PlatformOpenAI` / `IsOpenAI`.
-  - § 10 newapi sentinel registry — guards the **backward-drift** failure
+  - **newapi sentinel registry** — guards the **backward-drift** failure
     mode (a load-bearing fifth-platform file/symbol gets silently deleted
     by an upstream merge or refactor). Source of truth is
     `scripts/newapi-sentinels.json` (declarative `path` + `must_contain`
     list with rationale per entry). `scripts/check-newapi-sentinels.py`
-    reads the registry; the same script is invoked by Check 4 of
+    reads the registry; the same script is invoked by
     `.github/workflows/upstream-merge-pr-shape.yml`, so a green local
     preflight implies a green merge-PR check. Adding a new load-bearing
     surface for newapi MUST add a sentinel entry in the same commit. See
     `docs/approved/newapi-as-fifth-platform.md` § 12 for the registry
     doctrine (categories, double-trigger, evolution discipline).
-  When adding a new sub2api-only check, add it as `§ 11`, `§ 12`, … in
-  `scripts/preflight.sh` (NEVER in the dev-rules template — that is shared
-  across all consumer projects). If the check turns out to be useful for
-  more than just sub2api, lift it into dev-rules and remove the local copy.
-  The git pre-commit hook installed by `dev-rules/templates/install-hooks.sh`
-  prefers `scripts/preflight.sh` when present and falls back to the dev-rules
-  template otherwise.
+  When adding a new sub2api-only check, append it to `scripts/preflight.sh`
+  (NEVER edit the dev-rules template — it is shared across all consumer
+  projects). If the check turns out to be useful for more than just
+  sub2api, lift it into dev-rules and remove the local copy. The git
+  pre-commit hook installed by `dev-rules/templates/install-hooks.sh`
+  prefers `scripts/preflight.sh` when present and falls back to the
+  dev-rules template otherwise.
 - **CI must check out submodules.** All workflow jobs that run
   `dev-rules/...` (preflight, contract drift, etc.) must use
   `actions/checkout@v6` with `submodules: recursive`.
