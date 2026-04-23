@@ -145,6 +145,7 @@ vite.config.js
 docs/*
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
+!docs/accounts/
 !docs/approved/
 !docs/deploy/
 !docs/flows/
