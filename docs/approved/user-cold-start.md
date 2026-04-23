@@ -54,16 +54,30 @@ P2（每日签到）按你的拍板**暂缓**，不在本设计范围。
 ### 路由
 
 ```text
-GET /api/v1/public/pricing
-GET /api/v1/public/pricing?group_id=<id>      # 可选，按 group 过滤
-GET /api/v1/public/pricing?platform=<name>    # 可选，按 platform 过滤
+GET /api/v1/public/pricing                     # PR 1 v1：扁平 catalog
+# v1 deferred（follow-up PR 再做）：
+# GET /api/v1/public/pricing?group_id=<id>     # 按 group 过滤
+# GET /api/v1/public/pricing?platform=<name>   # 按 platform 过滤
 ```
 
 **鉴权**：无（公开路由组，挂在 `routes/auth.go` 同级，不进 `gateway` 也不进 `admin`）。
 
 **速率**：`rateLimiter.LimitWithOptions("public-pricing", 60, time.Minute, FailOpen)`——比 `auth-register` 宽松，因为是只读元数据；对未登录用户做 IP 限流即可，避免被当成爬虫源头。
 
+### v1 实施范围声明（与原设计的偏差，2026-04-22 落地拍板 = A 路径）
+
+实施时核对代码发现：(a) Ent `Group` schema 没有 `visible_in_catalog` 字段；加这个字段需要 schema 变更 + migration + `go generate ./ent`，与本 PR 的「单一意图、不引入 schema 改动」原则冲突；(b) `groups[]` 反查 + `endpoints[]` 推导属于中等复杂度的多源 JOIN，会让 PR 1 的 backend 改动从 ~5 文件膨胀到 ~12+ 文件。
+
+按 Jobs「对一千件事说不」、OPC「先解决核心痛点再延展」哲学，**PR 1 只 ship 扁平 catalog**：
+
+- ✅ **保留**（v1 必交）：`object`、`data[]`、`data[].model_id`、`data[].vendor`、`data[].pricing.{currency, input_per_1k_tokens, output_per_1k_tokens, cache_read_per_1k, cache_write_per_1k}`、`data[].context_window`、`data[].max_output_tokens`、`data[].capabilities[]`、`updated_at`
+- ⏸ **v1 deferred**（follow-up PR 落）：`data[].groups[]`、`data[].endpoints[]`、`data[].platform`、顶层 `vendors[]`/`platforms[]`/`groups[]` 聚合、`?group_id=` / `?platform=` query 过滤、`pricing_catalog_groups_visible` setting、`visible_in_catalog` group 字段
+
+PR 1 的 catalog 已能解决 L 站 `t/topic/1413702` 反映的核心痛点（"看不到模型清单 + 价格"）；高级筛选 / group 维度归属是进阶用户需求，可独立 follow-up。US-027 的 AC 已同步收敛到 v1 形状，原 AC-002 / AC-005（按 group 过滤、disabled group 隔离）已迁移到 follow-up story 的待办区。
+
 ### 响应（DTO 形状）
+
+> **v1 实际响应**：`groups[]`/`endpoints[]`/`platform`/顶层 `vendors`/`platforms`/`groups` 字段在 PR 1 中**不返回**（见上文 v1 范围声明）。下方 JSON 示例保留完整设计形状作为长期目标参考，当前 PR 落地的真实形状以 US-027 AC-001 + AC-002 为准。
 
 ```jsonc
 {
@@ -101,32 +115,44 @@ GET /api/v1/public/pricing?platform=<name>    # 可选，按 platform 过滤
 - `endpoints` 字段直接借鉴 new-api `supported_endpoint`，便于工具识别"这个模型在这个站走 OpenAI 协议还是 Anthropic 协议"。
 - `pricing.currency` 显式写 `"USD"`，给未来切换或多币种留口（虽然短期不打算做）。
 
-### 数据来源
+### 数据来源（v1）
 
 ```text
 backend/resources/model-pricing/*.json   ← 价格 + context window + capability 元数据（litellm shape，单位 USD per token）
-groupRepo.ListPublic()                    ← 仅返回 status=active 且 visible_in_catalog=true 的 group
-gatewayService.GetAvailableModels(g)      ← 按 group 聚合实际可用 model_id（已有）
 ```
 
-新增 setting：
+v1 deferred:
+
+```text
+groupRepo.ListPublic()                    ← v1 deferred（需 visible_in_catalog 字段，要 schema 改动）
+gatewayService.GetAvailableModels(g)      ← v1 deferred（与 group 聚合一起进 follow-up）
+```
+
+新增 setting（v1）：
 
 <!-- prettier-ignore -->
 | Key | 类型 | 默认 | 说明 |
 | --- | --- | --- | --- |
 | `pricing_catalog_public` | bool | `true` | 总开关；若 admin 关闭，路由返回 404 |
-| `pricing_catalog_groups_visible` | string(JSON) | `"all"` | `"all"` 或 `["group_name_1", ...]`，控制哪些 group 暴露到公开页 |
+
+v1 deferred:
+
+<!-- prettier-ignore -->
+| Key | 类型 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `pricing_catalog_groups_visible` | string(JSON) | `"all"` | follow-up PR 引入；与 `visible_in_catalog` group 字段一同落地 |
 
 **不会暴露**的字段：account-level 配置、channel_type 数字（仅 admin 视角）、内部 cost_per_token 原始小数（前端展示按 1k token 单价四舍五入到 4 位有效数字）。
 
-### 前端
+### 前端（v1）
 
 新增 `frontend/src/views/public/PricingView.vue`，路由 `/pricing`：
 
-- 顶栏：vendor 多选 + group 多选 + 协议（`/v1/messages` / `/v1/chat/completions`）下拉
-- 主表：model_id / vendor / groups / 输入价 / 输出价 / 缓存价 / 上下文窗口 / 能力 chips
+- 主表：model_id / vendor / 输入价 / 输出价 / 缓存价 / 上下文窗口 / 能力 chips
 - 顶部 CTA：未登录显示「立即注册即送 ${signup_bonus} USD」按钮（数字从 `/api/v1/public/site-config` 拉，无需写死；前端用 `formatCurrency(bonus, 'USD')` 渲染，与 dashboard 余额显示风格一致）
 - AppHeader 增加一个公开导航 `t('public.pricing')`：「模型与价格」
+
+v1 deferred（follow-up PR 落）：vendor / group 多选筛选条、协议（`/v1/messages` / `/v1/chat/completions`）下拉、表格 `groups` 列。
 
 ## 3. P0-B 注册赠额（默认 $1.00 USD，admin 可配）
 

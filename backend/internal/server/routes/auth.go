@@ -86,6 +86,20 @@ func RegisterAuthRoutes(
 		settings.GET("/public", h.Setting.GetPublicSettings)
 	}
 
+	// 公开模型 + 价格目录（US-027 / docs/approved/user-cold-start.md §2 v1 MVP）。
+	// 60 req/min/IP，FailOpen — 只读元数据，Redis 故障时不阻断。
+	if h.PricingCatalog != nil {
+		public := v1.Group("/public")
+		{
+			public.GET("/pricing",
+				rateLimiter.LimitWithOptions("public-pricing", 60, time.Minute, middleware.RateLimitOptions{
+					FailureMode: middleware.RateLimitFailOpen,
+				}),
+				h.PricingCatalog.GetPublicCatalog,
+			)
+		}
+	}
+
 	// 需要认证的当前用户信息
 	authenticated := v1.Group("")
 	authenticated.Use(gin.HandlerFunc(jwtAuth))
