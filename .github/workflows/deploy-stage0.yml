@@ -1,0 +1,322 @@
+name: Stage0 Deploy
+
+# Cloud-agent-driven tag-and-deploy automation. Wraps the existing manual SOP
+# in deploy/aws/README.md § 生产升级 SOP / § 测试栈推新版镜像 verbatim, gated
+# by:
+#   - GHCR multi-arch manifest precheck (rebuild of §9.1 trap as a hard gate)
+#   - GitHub Environment binding (load-bearing on the AWS side via the
+#     OIDC trust policy: only `environment:prod` and `environment:test`
+#     subjects can assume the role for deploys; see
+#     deploy/aws/cloudformation/cicd-oidc.yaml AllowedSubjects.)
+#
+# Trigger model: workflow_dispatch only. There is no schedule, no auto-fire
+# on tag push. The cloud-agent loop is:
+#
+#   bash scripts/release-tag.sh vX.Y.Z          (existing)
+#   gh run watch <release.yml run>              (existing)
+#   gh workflow run deploy-stage0.yml \         (this workflow)
+#     -f environment=test -f tag=X.Y.Z
+#   gh workflow run deploy-stage0.yml \         (this workflow)
+#     -f environment=prod -f tag=X.Y.Z
+#
+# Required repo variables (same set as error-clustering-daily.yml — reuse):
+#   AWS_OIDC_ROLE_ARN  ARN of tokenkey-gha-us-east-1-error-clustering
+#   AWS_REGION         default: us-east-1
+#   PROD_STACK_NAME    default: tokenkey-prod-stage0
+#   TEST_STACK_NAME    default: tokenkey-test-stage0
+#
+# Setup SOP: docs/approved/deploy-prod-workflow.md § 5.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment. Selects stack name AND binds the OIDC subject."
+        required: true
+        type: choice
+        options:
+          - test
+          - prod
+      tag:
+        description: "Released image tag without leading v (e.g. 1.6.0). Must already exist on GHCR."
+        required: true
+        type: string
+      simple_release_override:
+        description: "⚠️ Allow deploy of a single-arch (amd64-only) :latest manifest. Default false; flip ONLY if every host on this environment is amd64. Both prod + test stacks today run on AWS Graviton t4g (arm64) — flipping this on those stacks WILL crash with exec format error."
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+  packages: read
+
+# Two operators racing the same environment must queue safely; cross-env
+# deploys are independent.
+concurrency:
+  group: deploy-stage0-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # GitHub Environment binding: required for the OIDC subject to match
+    # the trust policy. If the Environment doesn't exist yet, this job
+    # fails fast on AssumeRoleWithWebIdentity (correct behavior — see
+    # docs/approved/deploy-prod-workflow.md §5).
+    environment: ${{ inputs.environment }}
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      INPUT_ENV: ${{ inputs.environment }}
+      INPUT_TAG: ${{ inputs.tag }}
+      INPUT_OVERRIDE: ${{ inputs.simple_release_override }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate inputs
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$INPUT_TAG" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+|-beta\.[0-9]+)?$'; then
+            echo "::error::tag must match X.Y.Z (optionally -rc.N / -beta.N), got: $INPUT_TAG"
+            exit 1
+          fi
+          case "$INPUT_ENV" in
+            test|prod) ;;
+            *) echo "::error::environment must be test or prod, got: $INPUT_ENV"; exit 1 ;;
+          esac
+
+      - name: Resolve stack name
+        id: stack
+        run: |
+          set -euo pipefail
+          if [ "$INPUT_ENV" = "prod" ]; then
+            NAME="${{ vars.PROD_STACK_NAME || 'tokenkey-prod-stage0' }}"
+          else
+            NAME="${{ vars.TEST_STACK_NAME || 'tokenkey-test-stage0' }}"
+          fi
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Precheck OIDC role
+        run: |
+          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
+            echo "::error::AWS_OIDC_ROLE_ARN repo variable not set; configure per docs/approved/deploy-prod-workflow.md §5"
+            exit 1
+          fi
+
+      - name: Verify GHCR multi-arch manifest
+        # Rebuild of §9.1 (release.yml's simple_release default-false) as a
+        # mechanical gate at deploy time. If the :TAG manifest on GHCR is
+        # not a multi-arch index containing both linux/amd64 and linux/arm64,
+        # refuse to deploy — both prod and test stacks run on Graviton t4g
+        # and would crash with `exec format error`. Override only when the
+        # operator has explicitly confirmed every host is amd64.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          REPO_LOWER=$(printf '%s' "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          # GHCR uses a token-flow: first GET a registry token using the
+          # workflow's GITHUB_TOKEN, then GET the manifest with that.
+          REG_TOKEN=$(curl -sSL \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://ghcr.io/token?scope=repository:${REPO_LOWER}:pull" \
+            | jq -r .token)
+          if [ -z "${REG_TOKEN:-}" ] || [ "$REG_TOKEN" = "null" ]; then
+            echo "::error::failed to obtain GHCR registry token"
+            exit 1
+          fi
+          MANIFEST=$(curl -sSL \
+            -H "Authorization: Bearer ${REG_TOKEN}" \
+            -H 'Accept: application/vnd.docker.distribution.manifest.list.v2+json' \
+            -H 'Accept: application/vnd.oci.image.index.v1+json' \
+            -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
+            -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+            "https://ghcr.io/v2/${REPO_LOWER}/manifests/${INPUT_TAG}")
+          if ! printf '%s' "$MANIFEST" | jq empty 2>/dev/null; then
+            echo "::error::GHCR manifest for ${INPUT_TAG} is not valid JSON; image probably does not exist"
+            printf '%s\n' "$MANIFEST" | head -c 500
+            exit 1
+          fi
+          MEDIA=$(printf '%s' "$MANIFEST" | jq -r '.mediaType // empty')
+          AMD64_COUNT=$(printf '%s' "$MANIFEST" | jq '[.manifests[]? | select(.platform.architecture=="amd64" and .platform.os=="linux")] | length')
+          ARM64_COUNT=$(printf '%s' "$MANIFEST" | jq '[.manifests[]? | select(.platform.architecture=="arm64" and .platform.os=="linux")] | length')
+          echo "mediaType=$MEDIA amd64=$AMD64_COUNT arm64=$ARM64_COUNT"
+          IS_MULTIARCH=false
+          case "$MEDIA" in
+            application/vnd.docker.distribution.manifest.list.v2+json|application/vnd.oci.image.index.v1+json)
+              if [ "${AMD64_COUNT:-0}" -ge 1 ] && [ "${ARM64_COUNT:-0}" -ge 1 ]; then
+                IS_MULTIARCH=true
+              fi
+              ;;
+          esac
+          if [ "$IS_MULTIARCH" = "true" ]; then
+            echo "ok: ${INPUT_TAG} is multi-arch (amd64 + arm64)"
+          else
+            if [ "$INPUT_OVERRIDE" = "true" ]; then
+              echo "::warning::${INPUT_TAG} is single-arch but simple_release_override=true was passed; deploying anyway. If the target host is Graviton this WILL crash."
+            else
+              echo "::error::${INPUT_TAG} is not a multi-arch manifest (mediaType=$MEDIA, amd64=$AMD64_COUNT, arm64=$ARM64_COUNT). Re-run release.yml with simple_release=false, or pass simple_release_override=true to dispatch this workflow if you have verified every host is amd64."
+              exit 1
+            fi
+          fi
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve target instance + api domain
+        id: instance
+        env:
+          STACK_NAME: ${{ steps.stack.outputs.name }}
+        run: |
+          set -euo pipefail
+          ID=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
+            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)
+          if [ -z "$ID" ] || [ "$ID" = "None" ]; then
+            echo "::error::could not resolve InstanceId from stack $STACK_NAME"
+            exit 1
+          fi
+          API_URL=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
+            --query 'Stacks[0].Outputs[?OutputKey==`ApiUrl`].OutputValue' --output text)
+          if [ -z "$API_URL" ] || [ "$API_URL" = "None" ]; then
+            echo "::error::could not resolve ApiUrl from stack $STACK_NAME"
+            exit 1
+          fi
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+          echo "api_url=$API_URL" >> "$GITHUB_OUTPUT"
+          echo "deploying ${INPUT_TAG} to instance=$ID api=$API_URL (env=$INPUT_ENV stack=$STACK_NAME)"
+
+      - name: Deploy via SSM Run-Command
+        id: ssm
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+        run: |
+          set -euo pipefail
+
+          # Same shape as deploy/aws/README.md § 生产升级 SOP, transported via
+          # `aws ssm send-command --parameters file://…`. We use jq to build
+          # the JSON so commas/quotes inside docker / sed args don't get
+          # mangled by shell tokenization.
+          jq -n --arg tag "$INPUT_TAG" '{
+            commands: [
+              "set -euo pipefail",
+              ("echo === deploy stage0 to tag=" + $tag + " ==="),
+              ("sudo cp -a /var/lib/tokenkey/.env /var/lib/tokenkey/.env.before-" + $tag),
+              ("sudo sed -i \u0027s|sub2api:[0-9.]*|sub2api:" + $tag + "|\u0027 /var/lib/tokenkey/.env"),
+              "cd /var/lib/tokenkey && sudo docker compose --env-file .env pull tokenkey",
+              "cd /var/lib/tokenkey && sudo docker compose --env-file .env up -d --no-deps tokenkey",
+              "for i in 1 2 3 4 5 6 7 8 9 10 11 12; do s=$(sudo docker inspect tokenkey --format \u0027{{.State.Health.Status}}\u0027 2>/dev/null || echo missing); echo \"try $i: $s\"; [ \"$s\" = healthy ] && break; sleep 5; done",
+              "FINAL=$(sudo docker inspect tokenkey --format \u0027{{.State.Health.Status}}\u0027 2>/dev/null || echo missing)",
+              "if [ \"$FINAL\" != \"healthy\" ]; then echo \"::error::container did not reach healthy state (final=$FINAL)\"; sudo docker logs tokenkey --since 2m 2>&1 | tail -50; exit 1; fi",
+              "cd /var/lib/tokenkey && sudo docker compose ps",
+              "sudo docker logs tokenkey --since 2m 2>&1 | tail -20"
+            ]
+          }' > ssm-params.json
+
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "deploy-stage0 env=$INPUT_ENV tag=$INPUT_TAG" \
+            --parameters file://ssm-params.json \
+            --query 'Command.CommandId' --output text)
+          echo "ssm command-id=$CMD_ID"
+          echo "command_id=$CMD_ID" >> "$GITHUB_OUTPUT"
+
+          # 5 min cap: deploy SOP usually finishes within 60-90s (image
+          # pull dominated); 5 min covers the worst-case `docker compose
+          # pull` over a slow GHCR fetch + the 12*5s health poll.
+          DEADLINE=$(( $(date +%s) + 300 ))
+          while true; do
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+              --query 'Status' --output text 2>/dev/null || echo InProgress)
+            case "$STATUS" in Success|Failed|TimedOut|Cancelled) break ;; esac
+            [ $(date +%s) -lt $DEADLINE ] || { echo "::error::ssm timeout"; STATUS=TimedOut; break; }
+            sleep 5
+          done
+
+          aws ssm get-command-invocation \
+            --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query 'StandardOutputContent' --output text > stdout.txt
+          aws ssm get-command-invocation \
+            --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query 'StandardErrorContent' --output text > stderr.txt
+
+          echo '--- ssm stdout (first 2KB) ---'
+          head -c 2048 stdout.txt
+          echo
+          echo '--- ssm stderr (first 2KB) ---'
+          head -c 2048 stderr.txt
+          echo
+
+          if [ "$STATUS" != "Success" ]; then
+            echo "::error::ssm command status=$STATUS"
+            exit 1
+          fi
+
+      - name: External health check
+        env:
+          API_URL: ${{ steps.instance.outputs.api_url }}
+        run: |
+          set -euo pipefail
+          # Three attempts spaced 10s apart — covers the case where Caddy
+          # reload happened mid-request. Require HTTP 200 AND total time
+          # under 5s (anything slower means the container is starting up,
+          # not serving).
+          OK=false
+          for i in 1 2 3; do
+            RESPONSE=$(curl -sS -o /dev/null -w '%{http_code} %{time_total}\n' "${API_URL}/health" || echo "000 0")
+            CODE=$(echo "$RESPONSE" | awk '{print $1}')
+            TIME=$(echo "$RESPONSE" | awk '{print $2}')
+            echo "try $i: HTTP $CODE ${TIME}s ($API_URL/health)"
+            if [ "$CODE" = "200" ]; then
+              # bash floating-point: compare via awk
+              FAST=$(awk -v t="$TIME" 'BEGIN{print (t < 5.0) ? 1 : 0}')
+              if [ "$FAST" = "1" ]; then
+                OK=true; break
+              fi
+            fi
+            sleep 10
+          done
+          if [ "$OK" != "true" ]; then
+            echo "::error::external health check failed for $API_URL/health"
+            exit 1
+          fi
+          echo "ok: $API_URL/health returned 200 under 5s"
+
+      - name: Job summary
+        if: always()
+        env:
+          API_URL: ${{ steps.instance.outputs.api_url }}
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          STACK_NAME: ${{ steps.stack.outputs.name }}
+          CMD_ID: ${{ steps.ssm.outputs.command_id }}
+        run: |
+          {
+            echo "## deploy-stage0"
+            echo "- environment: \`$INPUT_ENV\`"
+            echo "- tag: \`$INPUT_TAG\`"
+            echo "- stack: \`$STACK_NAME\`"
+            echo "- instance: \`$INSTANCE_ID\`"
+            echo "- api: $API_URL"
+            echo "- ssm command id: \`${CMD_ID:-none}\`"
+            echo
+            echo "Rollback (if needed):"
+            echo
+            echo '```bash'
+            echo "gh workflow run deploy-stage0.yml -f environment=$INPUT_ENV -f tag=<previous>"
+            echo '```'
+            echo
+            echo "Or manually via SSM (per deploy/aws/README.md § 生产升级 SOP rollback block):"
+            echo
+            echo '```bash'
+            echo "aws ssm send-command --region ${AWS_REGION} \\"
+            echo "  --instance-ids $INSTANCE_ID \\"
+            echo "  --document-name AWS-RunShellScript \\"
+            echo "  --parameters \"commands=[\\\"sudo cp -a /var/lib/tokenkey/.env.before-$INPUT_TAG /var/lib/tokenkey/.env\\\",\\\"cd /var/lib/tokenkey && sudo docker compose --env-file .env up -d --no-deps tokenkey\\\"]\""
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

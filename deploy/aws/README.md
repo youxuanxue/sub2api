@@ -87,8 +87,8 @@ curl -sS -o /dev/null -w '%{http_code}\n' "https://${DOMAIN}/health"
 
 | Stack                       | `ImageTag` 来源                            | `ApiDomain`             | 升级方式                                                                                                                                                                                                                                  |
 | --------------------------- | ---------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tokenkey-prod-stage0`      | `.env` 内的 `TOKENKEY_IMAGE`（CFN 参数仅用于初始化） | `api.tokenkey.dev`      | **首选路径：SSM `docker compose pull && up -d tokenkey`**（见下方 §生产升级 SOP），原地热替换、零停机。CFN deploy 改 `ImageTag` 现在**安全**（数据在独立 `DataVolume` 上，instance replace 时 detach + 新 instance attach），但仍有 1–3 min 停机窗口（旧实例 stop → 新实例 boot + bootstrap）。 |
-| `tokenkey-test-stage0`（如存在） | `.env` 同上，初始化用 `latest` 跟随               | `test-api.tokenkey.dev` | 同上 SSM 路径；`latest` 让镜像自动是最新 release，但仍要 SSM 触发 `pull && up -d` 才会真正切换。                                                                                                                                                                |
+| `tokenkey-prod-stage0`      | `.env` 内的 `TOKENKEY_IMAGE`（CFN 参数仅用于初始化） | `api.tokenkey.dev`      | **首选路径：`gh workflow run deploy-stage0.yml -f environment=prod -f tag=X.Y.Z`**（见下方 §升级 SOP），cloud-agent 自闭环 + GitHub Environment 审批门禁；底层等价于 SSM `docker compose pull && up -d tokenkey`。CFN deploy 改 `ImageTag` 现在**安全**（数据在独立 `DataVolume` 上，instance replace 时 detach + 新 instance attach），但仍有 1–3 min 停机窗口（旧实例 stop → 新实例 boot + bootstrap）。 |
+| `tokenkey-test-stage0`（如存在） | `.env` 同上，初始化用 `latest` 跟随               | `test-api.tokenkey.dev` | 同上 dispatch 路径，`-f environment=test`，无审批门禁；底层 SSM `pull && up -d` 等价。                                                                                                                                                                |
 
 
 > 2026-04-21 实测：prod 栈 CFN `ImageTag=1.2.0`，但运行态 `TOKENKEY_IMAGE` 与容器实际镜像均为 `ghcr.io/youxuanxue/sub2api:1.4.1`（SSM 原地升级后形成的受控漂移）。
@@ -239,10 +239,48 @@ gh run watch $(gh run list --workflow=release.yml --limit 1 --json databaseId -q
 > 不要 `git tag vX.Y.Z && git push origin vX.Y.Z` 手敲 —— 跳过 helper 就跳过了 §发版纪律
 > 第 1 条的 mechanical enforcement，v1.3.0 / v1.4.0 两次事故都是这个绕过路径造成的。
 
-### 生产升级 SOP（运维侧 — 拉新版本到 prod 栈）
+### 升级 SOP（首选：cloud agent 自闭环）
 
 Release workflow 全绿后（`gh run list --workflow=release.yml --limit 1` 看 `success`），
-GHCR 已经有 `:X.Y.Z` 多架构镜像。在 prod 实例上：
+GHCR 已经有 `:X.Y.Z` 多架构镜像。**首选路径是 dispatch `deploy-stage0.yml`**——
+工作流封装了下方的 SSM SOP 全流程，并在执行前做 multi-arch manifest 强校验
+（防 §9.1 的 amd64-only 镜像撞 Graviton 崩溃），在执行后做外部 `/health`
+健康验证；prod 环境通过 GitHub Environment 的 Required reviewers 门禁触发
+人工审批。
+
+```bash
+TAG=X.Y.Z
+
+# 测试栈（无审批门禁，直接跑）
+gh workflow run deploy-stage0.yml -f environment=test -f tag=$TAG
+gh run watch $(gh run list --workflow=deploy-stage0.yml --limit 1 --json databaseId -q '.[0].databaseId')
+curl -sS -o /dev/null -w 'HTTP %{http_code} | %{time_total}s\n' https://test-api.tokenkey.dev/health
+
+# 测试通过后再 prod（在 Settings → Environments → prod 配置审批人；点 Approve 后才会跑 SSM）
+gh workflow run deploy-stage0.yml -f environment=prod -f tag=$TAG
+gh run watch $(gh run list --workflow=deploy-stage0.yml --limit 1 --json databaseId -q '.[0].databaseId')
+curl -sS -o /dev/null -w 'HTTP %{http_code} | %{time_total}s\n' https://api.tokenkey.dev/health
+```
+
+设计、IAM 范围扩张、与门禁清单见
+`docs/approved/deploy-prod-workflow.md`。**首次启用前**必须按
+§5 重新部署 `cicd-oidc.yaml`（加 `TestTargetInstanceId` + 加
+`environment:prod` / `environment:test` 两条 OIDC subject）并创建
+GitHub Environments，否则 workflow 在 AssumeRoleWithWebIdentity 阶段就会
+fail-fast。
+
+回滚也走 dispatch：
+
+```bash
+gh workflow run deploy-stage0.yml -f environment=prod -f tag=<上一版本>
+```
+
+### 生产升级 SOP（备用：纯手工 SSM）
+
+> 当 `deploy-stage0.yml` 不可用、或调试 workflow 本身时使用。`deploy-stage0.yml`
+> 的步骤和这一段是 1:1 等价的。
+
+Release workflow 全绿后，GHCR 已经有 `:X.Y.Z` 多架构镜像。在 prod 实例上：
 
 ```bash
 TAG=X.Y.Z   # 不带 v 前缀
