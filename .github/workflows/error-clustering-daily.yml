@@ -209,7 +209,7 @@ jobs:
           report_path: report.md
           report_json: report.json
           workflow: error-clustering
-          claude_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_auth_token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
 
       - name: Notify Feishu
         if: always()
