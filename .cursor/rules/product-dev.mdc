@@ -163,6 +163,7 @@ alwaysApply: true
 - 杂务分支命名：`chore/[描述]`
 - 文档分支命名：`docs/[描述]`
 - 上游合并分支命名：`merge/upstream-YYYY-MM-DD`（消费 fork 的项目使用，受 PR shape 工作流验证）
+- 云端 Coding Agent 会话分支命名：`cursor/<sessionId>` —— 该前缀由托管平台（如 Cursor Background Agent）强制；preflight 接受它，最终落入 `main` 的 commit message 由 squash-merge 时由人类 reviewer 重写为业务前缀（fix(...)/feat(...)）。
 - 提交消息聚焦"为什么"而非"改了什么"，一行说清单个原子变化的原因
 - 每个 PR 只解决一个问题，不混合无关变更
 - 不默认拆出 docs/prototype/dev/release 多个 PR；只有真实决策边界或风险隔离需求，才拆 PR

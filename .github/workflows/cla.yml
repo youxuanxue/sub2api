@@ -42,7 +42,14 @@ jobs:
           # user.email` linked to the GitHub account; once the maintainer's
           # commits show up with author.user.login = "youxuanxue", remove
           # this entry.
-          allowlist: "dependabot[bot],renovate[bot],bot*,yyy"
+          #
+          # `Cursor Agent` is the git author NAME automatically set on commits
+          # made by the Cursor Background Agent (cloud Coding Agent). Like
+          # `bot*` patterns, it is a non-human contributor whose commits
+          # ultimately get squashed under the maintainer's authorship at PR
+          # merge time, but during the open-PR phase the CLA bot must accept
+          # it as already-signed to avoid blocking every cloud-agent PR.
+          allowlist: "dependabot[bot],renovate[bot],bot*,yyy,Cursor Agent"
           lock-pullrequest-aftermerge: false
           custom-notsigned-prcomment: |
             Thank you for your contribution! Before we can merge this PR, we need $you to sign our [Contributor License Agreement (CLA)](https://github.com/Wei-Shaw/sub2api/blob/main/CLA.md).
@@ -67,5 +74,5 @@ jobs:
           path-to-signatures: "cla.json"
           path-to-document: "https://github.com/Wei-Shaw/sub2api/blob/main/CLA.md"
           branch: "cla-signatures"
-          allowlist: "dependabot[bot],renovate[bot],bot*,yyy"
+          allowlist: "dependabot[bot],renovate[bot],bot*,yyy,Cursor Agent"
           lock-pullrequest-aftermerge: true
