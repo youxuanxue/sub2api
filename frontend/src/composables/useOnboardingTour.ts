@@ -5,6 +5,7 @@ import { useAuthStore as useUserStore } from '@/stores/auth'
 import { useOnboardingStore } from '@/stores/onboarding'
 import { useI18n } from 'vue-i18n'
 import { getAdminSteps, getUserSteps } from '@/components/Guide/steps'
+import { userAPI } from '@/api/user'
 
 export interface OnboardingOptions {
   storageKey?: string
@@ -64,14 +65,41 @@ export function useOnboardingTour(options: OnboardingOptions) {
     return `${baseKey}_${userId}_${role}_${storageVersion}`
   }
 
-  const hasSeen = () => {
+  // US-031: server-side memory of "已看过" trumps localStorage. We still keep
+  // the localStorage flag as a fast-path cache (avoids re-launching the tour
+  // mid-session before the next /user/profile refresh lands), but the source
+  // of truth for "should we auto-launch" is the server-side
+  // user.onboarding_tour_seen_at — see auto-start gate in onMounted below.
+  const hasSeenLocal = () => {
     return localStorage.getItem(getStorageKey()) === 'true'
   }
 
-  const markAsSeen = () => {
-    localStorage.setItem(getStorageKey(), 'true')
+  const hasSeenServer = () => {
+    return !!userStore.user?.onboarding_tour_seen_at
   }
 
+  // hasSeen returns true when the user has either (a) been recorded
+  // server-side as having seen the tour, or (b) flagged it locally in this
+  // session. The server flag is the durable one; the local flag is only
+  // useful for the current page lifecycle.
+  const hasSeen = () => hasSeenServer() || hasSeenLocal()
+
+  const markAsSeen = () => {
+    localStorage.setItem(getStorageKey(), 'true')
+    // Best-effort server-side persistence (US-031 AC-005 + AC-006). We do
+    // NOT await this — the UX of closing the tour must not block on a
+    // network round-trip, and a failure simply means the next dashboard
+    // load will re-launch the tour (the user retries naturally).
+    if (userStore.user) {
+      userAPI.markOnboardingTourSeen().catch((err) => {
+        console.error('[Onboarding] mark_seen_failed', err)
+      })
+    }
+  }
+
+  // replayTour clears the LOCAL flag only. The server-side timestamp is
+  // never cleared — it is a permanent record of "they have seen this once",
+  // and clearing it would let "已看过" silently regress on the next reload.
   const clearSeen = () => {
     localStorage.removeItem(getStorageKey())
   }
@@ -531,17 +559,25 @@ export function useOnboardingTour(options: OnboardingOptions) {
       return
     }
 
+    // 没有用户上下文时不启动（防御性：composable 通常挂在认证页面，
+    // 但 ShellLayout 的初始化时序可能在 user fetch 完成前触发 onMounted）。
+    if (!userStore.user) {
+      return
+    }
+
     // 简易模式下禁用新手引导
     if (userStore.isSimpleMode) {
       return
     }
 
-    // 只在管理员+标准模式下自动启动
-    const isAdmin = userStore.user?.role === 'admin'
-    if (!isAdmin) {
-      return
-    }
-
+    // US-031 PR 2 P1-A: tour now auto-launches for BOTH admin and regular
+    // users. The previous `if (!isAdmin) return` gate meant普通 users on
+    // a fresh signup never saw any orientation — they landed on a dashboard
+    // with no obvious next step (L 站 t/topic/1413702 反馈).
+    //
+    // The decision of "已看过 → 不再自动启动" now consults the server-side
+    // `user.onboarding_tour_seen_at` field (durable across devices / cache
+    // clears) plus the legacy localStorage flag as a same-session cache.
     if (!options.autoStart || hasSeen()) return
     autoStartTimer = setTimeout(() => {
       void startTour()

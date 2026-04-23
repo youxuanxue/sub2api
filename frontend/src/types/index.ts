@@ -47,6 +47,8 @@ export interface User {
   balance_notify_threshold: number | null
   balance_notify_extra_emails: NotifyEmailEntry[]
   subscriptions?: UserSubscription[] // User's active subscriptions
+  // US-031: ISO8601 timestamp of first onboarding-tour completion (null = never seen → auto-launch).
+  onboarding_tour_seen_at?: string | null
   created_at: string
   updated_at: string
 }
