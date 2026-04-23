@@ -71,6 +71,10 @@ type AuthService struct {
 	emailQueueService  *EmailQueueService
 	promoService       *PromoService
 	defaultSubAssigner DefaultSubscriptionAssigner
+	// TokenKey: trial-key issuer is wired post-construction via SetTrialKeyIssuer
+	// to avoid a circular ctor dep with APIKeyService. See
+	// auth_service_tk_trial_key.go and US-029.
+	trialKeyIssuer TrialKeyIssuer
 }
 
 type DefaultSubscriptionAssigner interface {
@@ -187,12 +191,16 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 		defaultConcurrency = s.settingService.GetDefaultConcurrency(ctx)
 	}
 
+	// TokenKey US-028: bake signup bonus into INSERT-time balance.
+	// Returns (default+bonus, bonus); bonus is logged best-effort post-Create.
+	totalBalance, bonusUSD := s.applySignupBonusUSD(ctx, defaultBalance)
+
 	// 创建用户
 	user := &User{
 		Email:        email,
 		PasswordHash: hashedPassword,
 		Role:         RoleUser,
-		Balance:      defaultBalance,
+		Balance:      totalBalance,
 		Concurrency:  defaultConcurrency,
 		Status:       StatusActive,
 	}
@@ -206,6 +214,11 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 		return "", nil, ErrServiceUnavailable
 	}
 	s.assignDefaultSubscriptions(ctx, user.ID)
+
+	// TokenKey US-028 / US-029: best-effort post-Create hooks.
+	// Both swallow errors internally — they MUST NOT break a successful registration.
+	s.logSignupBonusCredited(user.ID, bonusUSD, signupBonusSourceEmail)
+	s.issueTrialKeyIfEnabled(ctx, user.ID)
 
 	// 标记邀请码为已使用（如果使用了邀请码）
 	if invitationRedeemCode != nil {
@@ -437,6 +450,14 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 //
 // 注意：该函数用于 LinuxDo OAuth 登录场景（不同于上游账号的 OAuth，例如 Claude/OpenAI/Gemini）。
 // 为了满足现有数据库约束（需要密码哈希），新用户会生成随机密码并进行哈希保存。
+//
+// TK-DEADCODE-NOTE (US-028 / US-029): No active caller — all OAuth handlers
+// (auth_oidc_oauth.go / auth_linuxdo_oauth.go) route through
+// LoginOrRegisterOAuthWithTokenPair, which carries the signup-bonus +
+// trial-key hooks. If you wire this function to a new caller, MUST add the
+// same `applySignupBonusUSD` + `logSignupBonusCredited` +
+// `issueTrialKeyIfEnabled` calls as the WithTokenPair variant, or new users
+// from that path will silently miss bonus + trial key.
 func (s *AuthService) LoginOrRegisterOAuth(ctx context.Context, email, username string) (string, *User, error) {
 	email = strings.TrimSpace(email)
 	if email == "" || len(email) > 255 {
@@ -591,15 +612,23 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 				defaultConcurrency = s.settingService.GetDefaultConcurrency(ctx)
 			}
 
+			// TokenKey US-028: bake signup bonus into INSERT-time balance for OAuth path.
+			totalBalance, bonusUSD := s.applySignupBonusUSD(ctx, defaultBalance)
+
 			newUser := &User{
 				Email:        email,
 				Username:     username,
 				PasswordHash: hashedPassword,
 				Role:         RoleUser,
-				Balance:      defaultBalance,
+				Balance:      totalBalance,
 				Concurrency:  defaultConcurrency,
 				Status:       StatusActive,
 			}
+
+			// createdNewUser tracks whether we actually inserted a fresh user
+			// (vs. raced with a concurrent registration that already created one).
+			// The post-create hooks below should fire only on the fresh-user path.
+			createdNewUser := false
 
 			if s.entClient != nil && invitationRedeemCode != nil {
 				tx, err := s.entClient.Tx(ctx)
@@ -630,6 +659,7 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 						return nil, nil, ErrServiceUnavailable
 					}
 					user = newUser
+					createdNewUser = true
 					s.assignDefaultSubscriptions(ctx, user.ID)
 				}
 			} else {
@@ -646,6 +676,7 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 					}
 				} else {
 					user = newUser
+					createdNewUser = true
 					s.assignDefaultSubscriptions(ctx, user.ID)
 					if invitationRedeemCode != nil {
 						if err := s.redeemRepo.Use(ctx, invitationRedeemCode.ID, user.ID); err != nil {
@@ -653,6 +684,13 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 						}
 					}
 				}
+			}
+
+			// TokenKey US-028 / US-029: best-effort post-Create hooks.
+			// Only fire when we actually created a new user (not on email-conflict races).
+			if createdNewUser && user != nil {
+				s.logSignupBonusCredited(user.ID, bonusUSD, signupBonusSourceOAuth)
+				s.issueTrialKeyIfEnabled(ctx, user.ID)
 			}
 		} else {
 			logger.LegacyPrintf("service.auth", "[Auth] Database error during oauth login: %v", err)

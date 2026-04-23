@@ -472,7 +472,34 @@ var ProviderSet = wire.NewSet(
 	NewPaymentService,
 	ProvidePaymentOrderExpiryService,
 	ProvideBalanceNotifyService,
+	// TokenKey: cold-start binding (US-028 / US-029) — wires the trial-key
+	// issuer onto AuthService post-construction. The returned sentinel is
+	// consumed by provideCleanup (cmd/server/wire.go) so wire forces evaluation.
+	ProvideTKAuthServiceColdStart,
 )
+
+// TKAuthServiceColdStartReady is a wire sentinel: holding it proves that
+// AuthService has had its trial-key issuer wired. provideCleanup takes this
+// type as a parameter purely to force wire to evaluate the side-effect; the
+// value itself carries no runtime data.
+type TKAuthServiceColdStartReady struct{}
+
+// ProvideTKAuthServiceColdStart wires the trial-key issuer onto AuthService
+// after both services are constructed, then returns the sentinel.
+//
+// This wrapper-style provider mirrors the pattern used by
+// ProvideTokenRefreshService / ProvideClaudeTokenProvider in this file —
+// build the underlying service, attach setter-injected deps, return.
+func ProvideTKAuthServiceColdStart(
+	auth *AuthService,
+	api *APIKeyService,
+	settings *SettingService,
+) TKAuthServiceColdStartReady {
+	if auth != nil {
+		auth.SetTrialKeyIssuer(NewTrialKeyIssuer(api, settings))
+	}
+	return TKAuthServiceColdStartReady{}
+}
 
 // ProvidePaymentConfigService wraps NewPaymentConfigService to accept the named
 // payment.EncryptionKey type instead of raw []byte, avoiding Wire ambiguity.

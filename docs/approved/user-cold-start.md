@@ -140,35 +140,53 @@ gatewayService.GetAvailableModels(g)      ← 按 group 聚合实际可用 model
 
 > 命名取舍：用 `signup_bonus_*` 而**不是** new-api 的 `QuotaForNewUser`。原因：(1) TokenKey `users.balance` 用 USD，new-api `quota` 用积分（USD × 内部倍率），单位不同；(2) `signup_bonus` 是行业通用词，新管理员看一眼就懂；(3) 我们**不**承诺 setting key 与 new-api 兼容（CLAUDE.md 规则 5：TK-specific 走自己的 settings），所以命名以本地清晰为先。
 
-### 注入位置（3 个调用方都要改，否则有路径漏赠）
+### 注入位置（**两条活路径** — 注入策略对齐到「INSERT 时 bake-in」）
 
-1. `AuthService.RegisterWithVerification`（邮箱注册，`auth_service.go:182-208`）
-2. `AuthService.LoginOrRegisterOAuth`（旧 OAuth 路径，`auth_service.go:480-505`）
-3. `AuthService.LoginOrRegisterOAuthWithTokenPair`（带邀请码 OAuth，`auth_service.go:594-640`）
-4. （审计盒）`AuthService.assignDefaultSubscriptions` 不变——赠额与默认订阅是**正交**的两件事，都走
+实施前重新核对了代码，发现：
 
-### 落地方式：内联到现有"创建用户"事务
+| 路径 | 状态 | 处理方式 |
+| --- | --- | --- |
+| `AuthService.RegisterWithVerification`（邮箱注册，`auth_service.go:115-237`） | ✅ 活路径 | 注入 |
+| `AuthService.LoginOrRegisterOAuthWithTokenPair`（OAuth 首登，`auth_service.go:534-678`） | ✅ 活路径（含 with/without invitation 两个内部分支） | 注入 |
+| `AuthService.LoginOrRegisterOAuth`（旧 OAuth 路径，`auth_service.go:440-528`） | ⚠️ Dead code（无 handler 引用） | **不**注入；旁加 `// TK-DEADCODE-NOTE: if you wire this, also call ApplySignupBonusUSD per US-028` |
+| `adminServiceImpl.CreateUser`（admin 后台创建用户，`admin_service.go:556-574`） | ❌ Out of scope | **不**自动赠额 — admin 已通过 `req.Balance` 显式选定，自动叠加会越权 |
+
+### 落地方式：INSERT-time bake-in（一条 SQL 自带原子性）+ 结构化 audit log
 
 ```go
-// pseudocode in auth_service.go RegisterWithVerification, around line 200
-bonus := s.computeSignupBonus(ctx)              // 读 setting，二选一返回 0 或值（USD）
-user := &User{ ..., Balance: defaultBalance + bonus }
+// pseudocode in auth_service.go RegisterWithVerification, around line 195
+defaultBalance := s.settingService.GetDefaultBalance(ctx)
+bonusUSD := s.settingService.ComputeSignupBonus(ctx)   // 已在 PR 1 Step 1 落地
+user := &User{
+    ...,
+    Balance: defaultBalance + bonusUSD,                // bonus 直接 bake 进 INSERT
+}
 if err := s.userRepo.Create(ctx, user); err != nil { ... }
-if bonus > 0 {
-    s.systemLogRepo.Create(ctx, &SystemLog{
-        UserID: user.ID,
-        Type:   "signup_bonus",
-        Amount: bonus,
-        Notes:  fmt.Sprintf("signup bonus = $%.2f USD", bonus),
-    })
+if bonusUSD > 0 {
+    // best-effort，与 promo failure log 同模式 —— 失败仅 warn，不阻塞注册
+    logger.LegacyPrintf("service.auth", "[Auth] signup_bonus_credited userID=%d amount_usd=%.2f source=email",
+        user.ID, bonusUSD)
 }
 ```
 
-`computeSignupBonus(ctx)` 读 `signup_bonus_enabled` && `signup_bonus_balance`，二选一返回 0 或值。
+### Atomicity 取舍（**v3 实现细节调整**，产品行为不变）
+
+初稿要求"user + audit_log 强 atomic（一损俱损）"，落地时改为：
+
+- **Bonus 落地 = 强 atomic**：bonus 直接进 `User.Balance` 字段，与 default_balance 一起作为 INSERT 的字段值落库——一条 SQL 完成，无需额外事务管理。
+- **Audit = best-effort**：通过现有结构化日志通道写出（与 promo failure log 同模式），写失败仅 warn，不阻塞注册。
+
+理由：
+
+1. `system_logs` 表当前**不存在** —— 新建会把 PR 1 拖入 schema migration（违反 PR 1 单一意图原则）。
+2. 现有 promo flow 已经是 best-effort（`auth_service.go:218-228`，promo 失败也只 log）—— 强行不对称会让 admin 看到不一致的失败模式。
+3. **产品行为承诺不变**：用户注册成功 ↔ user.balance 包含 bonus，二者必同时成立或同时不成立（因为 INSERT 失败则用户也不存在）。
+
+未来如要把 audit 升级为 DB 表（例如做 admin 视角的"赠额历史"页），单开 PR 引入 `signup_bonus_audit` Ent schema + migration，与本 PR 解耦。
 
 ### 与现有 promo code 的关系
 
-不冲突。流程：`base_balance(default_balance) + signup_bonus + promo_code_bonus`（全部 USD 同口径）。promo 仍走原路径（`auth_service.go:217-228`），互不抵消。
+不冲突。最终余额（USD）= `default_balance(INSERT) + signup_bonus(INSERT) + promo_code_bonus(post-INSERT UpdateBalance)`。promo 仍走原路径（`auth_service.go:217-228`），互不抵消（US-028 AC-007 回归覆盖）。
 
 ## 4. P0-C 注册成功自动建首个 API Key（名为 `trial`）
 

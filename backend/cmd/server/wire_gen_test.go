@@ -73,10 +73,11 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		openAIOAuthSvc,
 		geminiOAuthSvc,
 		antigravityOAuthSvc,
-		nil, // openAIGateway
-		nil, // scheduledTestRunner
-		nil, // backupSvc
-		nil, // paymentOrderExpiry
+		nil,                                   // openAIGateway
+		nil,                                   // scheduledTestRunner
+		nil,                                   // backupSvc
+		nil,                                   // paymentOrderExpiry
+		service.TKAuthServiceColdStartReady{}, // TK: forces SetTrialKeyIssuer wiring
 	)
 
 	require.NotPanics(t, func() {
