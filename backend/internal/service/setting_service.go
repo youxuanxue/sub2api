@@ -188,6 +188,9 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyBalanceLowNotifyThreshold,
 		SettingKeyBalanceLowNotifyRechargeURL,
 		SettingKeyAccountQuotaNotifyEnabled,
+		// TK cold-start (US-028): public catalog gate must be readable pre-login
+		// so HomeView / PricingView can hide the entry without authenticating.
+		SettingKeyPricingCatalogPublic,
 	}
 
 	settings, err := s.settingRepo.GetMultiple(ctx, keys)
@@ -264,6 +267,10 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		AccountQuotaNotifyEnabled:        settings[SettingKeyAccountQuotaNotifyEnabled] == "true",
 		BalanceLowNotifyThreshold:        balanceLowNotifyThreshold,
 		BalanceLowNotifyRechargeURL:      settings[SettingKeyBalanceLowNotifyRechargeURL],
+		// TK cold-start (US-028): default ON when row missing — matches
+		// setting_service_tk_cold_start.go ColdStartDefaults() so a fresh install
+		// still surfaces the public pricing entry on the landing page.
+		PricingCatalogPublic: !isFalseSettingValue(settings[SettingKeyPricingCatalogPublic]),
 	}, nil
 }
 
@@ -637,6 +644,7 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 	updates[SettingKeyAccountQuotaNotifyEnabled] = strconv.FormatBool(settings.AccountQuotaNotifyEnabled)
 	updates[SettingKeyAccountQuotaNotifyEmails] = MarshalNotifyEmails(settings.AccountQuotaNotifyEmails)
 	s.tkAppendTokenKeyBridgeSettingUpdates(updates, settings)
+	s.tkAppendColdStartSettingUpdates(updates, settings)
 
 	err = s.settingRepo.SetMultiple(ctx, updates)
 	if err == nil {
@@ -1052,6 +1060,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyBackendModeEnabled: "true",
 	}
 	tkMergeDefaultTokenKeyBridgeSettings(defaults)
+	tkMergeDefaultColdStartSettings(defaults)
 
 	return s.settingRepo.SetMultiple(ctx, defaults)
 }
@@ -1092,6 +1101,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		BackendModeEnabled:               settings[SettingKeyBackendModeEnabled] == "true",
 	}
 	tkApplyTokenKeyBridgeParsed(settings, result)
+	tkApplyColdStartParsed(settings, result)
 	result.TableDefaultPageSize, result.TablePageSizeOptions = parseTablePreferences(
 		settings[SettingKeyTableDefaultPageSize],
 		settings[SettingKeyTablePageSizeOptions],

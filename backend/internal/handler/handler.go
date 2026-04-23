@@ -53,6 +53,8 @@ type Handlers struct {
 	Payment        *PaymentHandler
 	PaymentWebhook *PaymentWebhookHandler
 	QACapture      *qaobs.Service
+	// TK: public model + pricing catalog (US-028 / docs/approved/user-cold-start.md §2 v1).
+	PricingCatalog *PricingCatalogHandler
 }
 
 // BuildInfo contains build-time information

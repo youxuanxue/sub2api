@@ -100,6 +100,10 @@ func provideCleanup(
 	scheduledTestRunner *service.ScheduledTestRunnerService,
 	backupSvc *service.BackupService,
 	paymentOrderExpiry *service.PaymentOrderExpiryService,
+	// TokenKey: forces wire to evaluate ProvideTKAuthServiceColdStart so the
+	// trial-key issuer gets wired onto AuthService at startup. The value is
+	// unused — only the dependency edge matters. See US-029 / US-030.
+	_ service.TKAuthServiceColdStartReady,
 ) func() {
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

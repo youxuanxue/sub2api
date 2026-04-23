@@ -146,6 +146,13 @@ export interface SystemSettings {
   balance_low_notify_recharge_url: string
   account_quota_notify_enabled: boolean
   account_quota_notify_emails: NotifyEmailEntry[]
+
+  // New-User Cold Start (docs/approved/user-cold-start.md §5)
+  signup_bonus_enabled: boolean
+  signup_bonus_balance: number
+  auto_generate_default_token: boolean
+  auto_generate_default_token_name: string
+  pricing_catalog_public: boolean
 }
 
 export interface UpdateSettingsRequest {
@@ -253,6 +260,13 @@ export interface UpdateSettingsRequest {
   balance_low_notify_recharge_url?: string
   account_quota_notify_enabled?: boolean
   account_quota_notify_emails?: NotifyEmailEntry[]
+
+  // New-User Cold Start (docs/approved/user-cold-start.md §5)
+  signup_bonus_enabled?: boolean
+  signup_bonus_balance?: number
+  auto_generate_default_token?: boolean
+  auto_generate_default_token_name?: string
+  pricing_catalog_public?: boolean
 }
 
 /**

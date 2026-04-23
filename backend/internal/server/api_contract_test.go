@@ -619,7 +619,12 @@ func TestAPIContracts(t *testing.T) {
 					"account_quota_notify_enabled": false,
 					"balance_low_notify_threshold": 0,
 					"balance_low_notify_recharge_url": "",
-					"account_quota_notify_emails": []
+					"account_quota_notify_emails": [],
+					"signup_bonus_enabled": true,
+					"signup_bonus_balance": 1,
+					"auto_generate_default_token": true,
+					"auto_generate_default_token_name": "trial",
+					"pricing_catalog_public": true
 				}
 			}`,
 		},
