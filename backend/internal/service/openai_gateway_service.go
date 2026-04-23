@@ -1187,16 +1187,21 @@ func resolveOpenAIUpstreamOriginator(c *gin.Context, isOfficialClient bool) stri
 	return "opencode"
 }
 
-// BindStickySession sets session -> account binding with standard TTL.
+// BindStickySession sets session -> account binding with the standard sticky TTL.
+//
+// Bug B-8: this used to inline the TTL calculation (read
+// cfg.Gateway.OpenAIWS.StickySessionTTLSeconds with default fallback to
+// openaiStickySessionTTL) instead of calling openAIWSSessionStickyTTL().
+// The two computations are identical today but were drifting in language —
+// any future change to the TTL source (e.g. per-platform TTL, runtime
+// override) would have to be made in two places. Funnel through the helper
+// so refresh / bind / scheduler-Layer-1 / setStickySessionAccountID all read
+// the same value. See docs/bugs/2026-04-22-newapi-and-bridge-deep-audit.md § B-8.
 func (s *OpenAIGatewayService) BindStickySession(ctx context.Context, groupID *int64, sessionHash string, accountID int64) error {
 	if sessionHash == "" || accountID <= 0 {
 		return nil
 	}
-	ttl := openaiStickySessionTTL
-	if s != nil && s.cfg != nil && s.cfg.Gateway.OpenAIWS.StickySessionTTLSeconds > 0 {
-		ttl = time.Duration(s.cfg.Gateway.OpenAIWS.StickySessionTTLSeconds) * time.Second
-	}
-	return s.setStickySessionAccountID(ctx, groupID, sessionHash, accountID, ttl)
+	return s.setStickySessionAccountID(ctx, groupID, sessionHash, accountID, s.openAIWSSessionStickyTTL())
 }
 
 // SelectAccount selects an OpenAI account with sticky session support
