@@ -3,36 +3,53 @@ package service
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 
+	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
-// BridgeEndpointVideoSubmit / BridgeEndpointVideoFetch identify the video
-// submit + fetch task endpoints on the OpenAI-compat / newapi platforms.
-// They participate in the standard accountUsesNewAPIAdaptorBridge gate the
-// same way chat/responses/embeddings/images do (channel_type > 0 + setting
-// kill switch).
+// Video bridge endpoint identifiers. Lives in the TK companion (not in the
+// upstream-shape gateway_bridge_dispatch.go) so adding/removing TK-only
+// endpoints is a single-file change with no upstream merge surface.
+//
+// The canonical accountUsesNewAPIAdaptorBridge gate delegates here via
+// tkBridgeEndpointEnabled — so the upstream-shape file is unaware of which
+// extra endpoints TK has added beyond the four it natively recognizes.
 const (
 	BridgeEndpointVideoSubmit = "video_submit"
 	BridgeEndpointVideoFetch  = "video_fetch"
 )
 
-// VideoSubmitDispatchedResult mirrors OpenAIForwardResult for video task
-// submission. The handler uses Outcome to persist the registry record and
-// build the public response. UpstreamModel may differ from Model when the
-// channel has model_mapping configured.
-type VideoSubmitDispatchedResult struct {
-	Outcome  *bridge.TaskSubmitOutcome
-	Model    string
-	Stream   bool
-	Account  *Account
-	GroupID  int64
-	UserID   int64
-	APIKeyID int64
+// tkBridgeEndpointEnabled reports whether the endpoint name is one of the
+// TK-extended bridge endpoints. The nil-account / channel_type>0 / kill-switch
+// preconditions are already enforced by accountUsesNewAPIAdaptorBridge before
+// this is consulted; we only answer the endpoint-name question.
+func tkBridgeEndpointEnabled(endpoint string) bool {
+	switch endpoint {
+	case BridgeEndpointVideoSubmit, BridgeEndpointVideoFetch:
+		return true
+	default:
+		return false
+	}
+}
+
+// errBridgeVideoUnsupportedChannel returns a precise 400 to the client when
+// the selected account's channel_type has no upstream task adaptor registered
+// (e.g. an OpenAI account asked to do video). This is a configuration error,
+// not a missing-credential error — we do NOT reuse errBridgeMissingCredential
+// because the latter implies the operator forgot to populate something.
+func errBridgeVideoUnsupportedChannel(channelType int) *newapitypes.NewAPIError {
+	return newapitypes.NewErrorWithStatusCode(
+		errors.New("selected account's channel_type does not have a video task adaptor"),
+		newapitypes.ErrorCodeInvalidRequest,
+		http.StatusBadRequest,
+		newapitypes.ErrOptionWithSkipRetry(),
+	)
 }
 
 // ForwardAsVideoSubmitDispatched is the bridge boundary for
@@ -53,7 +70,7 @@ func (s *OpenAIGatewayService) ForwardAsVideoSubmitDispatched(
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("channel_type")}
 	}
 	if !bridge.IsVideoSupportedChannelType(account.ChannelType) {
-		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("video task adaptor")}
+		return nil, &NewAPIRelayError{Err: errBridgeVideoUnsupportedChannel(account.ChannelType)}
 	}
 	recordBridgeDispatch()
 	auth := bridgeAuthFromGin(c)
@@ -97,7 +114,7 @@ func (s *OpenAIGatewayService) ForwardAsVideoFetchDispatched(
 		return nil, errors.New("video fetch requires channel_type and upstream_task_id")
 	}
 	if !bridge.IsVideoSupportedChannelType(in.ChannelType) {
-		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("video task adaptor")}
+		return nil, &NewAPIRelayError{Err: errBridgeVideoUnsupportedChannel(in.ChannelType)}
 	}
 	out, apiErr := bridge.DispatchVideoFetch(ctx, c, in)
 	if apiErr != nil {
@@ -117,24 +134,4 @@ func (s *OpenAIGatewayService) ForwardAsVideoFetchDispatched(
 		zap.String("status", out.Status),
 	)
 	return out, nil
-}
-
-// accountUsesNewAPIAdaptorBridgeVideo extends the existing endpoint switch in
-// gateway_bridge_dispatch.go to recognize the video endpoints. It is wired in
-// via TkAccountUsesNewAPIBridgeForVideo so the canonical
-// accountUsesNewAPIAdaptorBridge keeps a small, easy-to-audit switch; tests
-// for video gating live next to this helper.
-func TkAccountUsesNewAPIBridgeForVideo(settings *SettingService, account *Account, endpoint string) bool {
-	switch endpoint {
-	case BridgeEndpointVideoSubmit, BridgeEndpointVideoFetch:
-	default:
-		return false
-	}
-	if account == nil || account.ChannelType <= 0 {
-		return false
-	}
-	if settings != nil && !settings.IsNewAPIBridgeEnabled(context.Background()) {
-		return false
-	}
-	return true
 }

@@ -97,42 +97,38 @@ func tkOpenAICompatImageGenerationsHandler(h *handler.Handlers) gin.HandlerFunc 
 
 // tkOpenAICompatVideoSubmitHandler routes POST /video/generations and POST /videos
 // for OpenAI-compat (incl. newapi) platform groups only. The async video task
-// pipeline is currently bridge-only (no native sub2api implementation exists),
-// so non-compat groups always 404 here regardless of the underlying platform's
-// capabilities.
+// pipeline is bridge-only (no native sub2api implementation), so non-compat
+// groups always 404 here regardless of the underlying platform's capabilities.
 func tkOpenAICompatVideoSubmitHandler(h *handler.Handlers) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if !isOpenAICompatPlatform(getGroupPlatform(c)) {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": gin.H{
-					"type":    "invalid_request_error",
-					"message": "The video generation API is only available for OpenAI-compatible platform groups",
-				},
-			})
-			return
-		}
-		h.OpenAIGateway.VideoSubmit(c)
-	}
+	return tkOpenAICompatGuard(func(c *gin.Context) { h.OpenAIGateway.VideoSubmit(c) }, videoNotAvailableMessage)
 }
 
 // tkOpenAICompatVideoFetchHandler routes GET /video/generations/:task_id and
-// GET /videos/:task_id for OpenAI-compat platform groups. We deliberately
-// allow the fetch to skip the platform check whenever the registry has the
-// task — a client that submitted under a newapi group but later switches to
-// an openai group should still be able to poll a task they already created
-// (the registry pins routing to the original account anyway). The 404 only
-// fires when the platform is unknown AND the registry has no record.
+// GET /videos/:task_id for OpenAI-compat platform groups. The platform check
+// is on the caller's API key group, NOT on the task's originating platform —
+// since `openai` and `newapi` are both OpenAI-compatible, a key that switches
+// between them within the compat class can still poll. Cross-class polling
+// (e.g. anthropic key polling a newapi task) returns 404 here.
 func tkOpenAICompatVideoFetchHandler(h *handler.Handlers) gin.HandlerFunc {
+	return tkOpenAICompatGuard(func(c *gin.Context) { h.OpenAIGateway.VideoFetch(c) }, videoNotAvailableMessage)
+}
+
+const videoNotAvailableMessage = "The video generation API is only available for OpenAI-compatible platform groups"
+
+// tkOpenAICompatGuard wraps a handler with the standard "OpenAI-compat
+// platform groups only" 404 gate. Centralised so adding a sixth route family
+// is a one-liner instead of six copies of the same anonymous-func/JSON block.
+func tkOpenAICompatGuard(next gin.HandlerFunc, message string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !isOpenAICompatPlatform(getGroupPlatform(c)) {
 			c.JSON(http.StatusNotFound, gin.H{
 				"error": gin.H{
 					"type":    "invalid_request_error",
-					"message": "The video generation API is only available for OpenAI-compatible platform groups",
+					"message": message,
 				},
 			})
 			return
 		}
-		h.OpenAIGateway.VideoFetch(c)
+		next(c)
 	}
 }

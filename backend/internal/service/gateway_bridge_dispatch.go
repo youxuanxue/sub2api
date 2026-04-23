@@ -19,11 +19,6 @@ const (
 	BridgeEndpointResponses       = "responses"
 	BridgeEndpointEmbeddings      = "embeddings"
 	BridgeEndpointImages          = "images"
-	// Video endpoints (BridgeEndpointVideoSubmit / BridgeEndpointVideoFetch)
-	// are declared in openai_gateway_bridge_dispatch_tk_video.go so the
-	// fifth-platform `newapi` async task pipeline lives in a TK companion
-	// per CLAUDE.md §5.x. accountUsesNewAPIAdaptorBridge below delegates to
-	// TkAccountUsesNewAPIBridgeForVideo for those endpoints.
 )
 
 var (
@@ -57,10 +52,8 @@ func accountUsesNewAPIAdaptorBridge(settings *SettingService, account *Account, 
 	switch endpoint {
 	case BridgeEndpointChatCompletions, BridgeEndpointResponses, BridgeEndpointEmbeddings, BridgeEndpointImages:
 		return true
-	case BridgeEndpointVideoSubmit, BridgeEndpointVideoFetch:
-		return TkAccountUsesNewAPIBridgeForVideo(settings, account, endpoint)
 	default:
-		return false
+		return tkBridgeEndpointEnabled(endpoint)
 	}
 }
 

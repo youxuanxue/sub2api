@@ -20,6 +20,15 @@ import (
 	"go.uber.org/zap"
 )
 
+// SetVideoTaskRegistry wires the registry post-construction. Mirrors the
+// `SetSettingService` pattern used elsewhere to keep the upstream-shape
+// NewOpenAIGatewayHandler signature stable across upstream merges
+// (CLAUDE.md §5 — minimal injection point). Nil-safe: VideoSubmit and
+// VideoFetch return 503 if the registry was never wired.
+func (h *OpenAIGatewayHandler) SetVideoTaskRegistry(reg *service.VideoTaskRegistry) {
+	h.videoTaskRegistry = reg
+}
+
 // VideoSubmit handles POST /v1/video/generations and the OpenAI-compat alias
 // POST /v1/videos. It is only available for OpenAI-compat platform groups
 // (the route layer enforces this); within those, the account's channel_type
@@ -124,12 +133,11 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 		return
 	}
 	account := selection.Account
-	if account.ChannelType <= 0 {
-		h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "Selected account does not have a channel_type configured for video tasks", streamStarted)
-		return
-	}
 	if !bridge.IsVideoSupportedChannelType(account.ChannelType) {
-		h.handleStreamingAwareError(c, http.StatusBadRequest, "invalid_request_error", "Selected account's channel_type does not have a video task adaptor", streamStarted)
+		// channel_type=0 (incomplete account) and channel_type with no task
+		// adaptor (e.g. plain OpenAI account asked to do video) collapse into
+		// the same user-facing error: this group is not configured for video.
+		h.handleStreamingAwareError(c, http.StatusBadRequest, "invalid_request_error", "Selected account's channel_type does not support video generation", streamStarted)
 		return
 	}
 	setOpsSelectedAccount(c, account.ID, account.Platform)
@@ -149,8 +157,7 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 			h.handleFailoverExhausted(c, failoverErr, streamStarted)
 			return
 		}
-		writerSizeBeforeForward := 0
-		if TkTryWriteNewAPIRelayErrorJSON(c, err, streamStarted, writerSizeBeforeForward) {
+		if TkTryWriteNewAPIRelayErrorJSON(c, err, streamStarted, 0) {
 			reqLog.Warn("openai_video_submit.forward_failed", zap.Error(err))
 			return
 		}
@@ -159,12 +166,16 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 	}
 
 	publicTaskID := generateVideoTaskID()
+	groupID := int64(0)
+	if apiKey.GroupID != nil {
+		groupID = *apiKey.GroupID
+	}
 	rec := &service.VideoTaskRecord{
 		PublicTaskID:   publicTaskID,
 		UpstreamTaskID: outcome.UpstreamTaskID,
 		AccountID:      account.ID,
 		UserID:         subject.UserID,
-		GroupID:        deref(apiKey.GroupID),
+		GroupID:        groupID,
 		APIKeyID:       apiKey.ID,
 		ChannelType:    account.ChannelType,
 		Platform:       account.Platform,
@@ -229,6 +240,13 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 // we look up the registry to find the upstream account and replay the FetchTask
 // call. When the upstream reports a terminal status we delete the registry
 // entry to bound storage; clients that poll after that will see 404.
+//
+// The route layer's platform check (tkOpenAICompatVideoFetchHandler) gates
+// this on the API key's group platform, NOT on the task's originating
+// platform. A client that submitted a task under a `newapi` group and later
+// switches their key to an `openai` group can still poll because both
+// platforms are OpenAI-compatible; cross-class polling (e.g. anthropic key
+// polling a newapi task) is rejected at the route layer with 404.
 func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 	publicTaskID := strings.TrimSpace(c.Param("task_id"))
 	if publicTaskID == "" {
@@ -255,19 +273,18 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 	}
 	out, err := h.gatewayService.ForwardAsVideoFetchDispatched(c.Request.Context(), c, in)
 	if err != nil {
-		writerSizeBeforeForward := 0
-		if TkTryWriteNewAPIRelayErrorJSON(c, err, false, writerSizeBeforeForward) {
+		if TkTryWriteNewAPIRelayErrorJSON(c, err, false, 0) {
 			return
 		}
 		h.errorResponse(c, http.StatusBadGateway, "api_error", "Video fetch failed")
 		return
 	}
 
-	// Mirror new-api video task wrap: { code: success, data: { ... } } so the
-	// existing /v1/video/generations clients (e.g. doubao SDK) keep working.
-	// If upstream returned a JSON object that does not match new-api's wrap
-	// (e.g. raw volcengine task object), pass it through untouched but expose
-	// a normalized status field for client convenience.
+	// Pass the upstream JSON through untouched so volcengine / doubao SDK
+	// clients see exactly the body shape new-api would have returned for the
+	// same channel type. We deliberately do NOT wrap in {code,success,data}
+	// at this layer — the upstream already does so for the OpenAI-Video API
+	// shape that `/v1/videos/:task_id` clients rely on.
 	c.Header("Content-Type", "application/json")
 	c.Status(http.StatusOK)
 	if len(out.RawResponse) == 0 {
@@ -276,24 +293,17 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 		_, _ = c.Writer.Write(out.RawResponse)
 	}
 
-	// On terminal status we drop the entry; clients that need the URL must
-	// have already consumed the response above.
+	// On terminal status we drop the entry to bound storage; clients that
+	// need the URL must have already consumed the response body above.
 	switch strings.ToLower(out.Status) {
 	case "success", "succeeded", "failure", "failed":
 		h.videoTaskRegistry.Delete(c.Request.Context(), publicTaskID)
 	}
 }
 
+// generateVideoTaskID — `vt_` prefix mirrors OpenAI's `vid_` / `task_`
+// conventions and makes the id obviously a TokenKey artifact (not the
+// upstream's id) when surfaced in logs and dashboards.
 func generateVideoTaskID() string {
-	// 'vt_' prefix mirrors OpenAI's "vid_" / "task_" conventions and makes the
-	// id obviously a TokenKey artifact (not the upstream's id) when surfaced
-	// in logs / dashboards.
 	return "vt_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-}
-
-func deref(p *int64) int64 {
-	if p == nil {
-		return 0
-	}
-	return *p
 }

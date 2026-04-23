@@ -44,8 +44,8 @@
     },
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_video.go",
-      "must_contain": ["ForwardAsVideoSubmitDispatched", "ForwardAsVideoFetchDispatched", "TkAccountUsesNewAPIBridgeForVideo"],
-      "rationale": "TK companion that wires the bridge's video submit/fetch into OpenAIGatewayService and extends the BridgeEndpoint switch with video_submit / video_fetch. Without it accountUsesNewAPIAdaptorBridge silently returns false for video endpoints and the handlers degrade to non-existent native paths."
+      "must_contain": ["ForwardAsVideoSubmitDispatched", "ForwardAsVideoFetchDispatched", "tkBridgeEndpointEnabled", "BridgeEndpointVideoSubmit", "BridgeEndpointVideoFetch"],
+      "rationale": "TK companion that wires the bridge's video submit/fetch into OpenAIGatewayService and supplies the tkBridgeEndpointEnabled hook that accountUsesNewAPIAdaptorBridge consults via its default branch. Without these symbols the bridge gate silently returns false for video endpoints and submits degrade to confusing 5xx errors."
     },
     {
       "path": "backend/internal/integration/newapi/fusion.go",

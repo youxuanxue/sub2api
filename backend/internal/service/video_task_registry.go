@@ -9,7 +9,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/redis/go-redis/v9"
+	"go.uber.org/zap"
 )
 
 // VideoTaskRegistry stores enough metadata about a submitted video-generation
@@ -34,9 +36,6 @@ type VideoTaskRegistry struct {
 // VideoTaskRecord is the minimum bridge needs to call FetchTask later.
 // AccountID + ChannelType pin the routing target; APIKey is captured at
 // submit time because account credentials may rotate before the user polls.
-// The original submit response (RawSubmit) is kept so the OpenAI-compat
-// /v1/videos/:task_id GET can mirror the same body shape that the synchronous
-// alternative would have returned (some clients depend on it).
 type VideoTaskRecord struct {
 	PublicTaskID   string    `json:"public_task_id"`
 	UpstreamTaskID string    `json:"upstream_task_id"`
@@ -69,19 +68,15 @@ func NewVideoTaskRegistry(rdb *redis.Client) *VideoTaskRegistry {
 	}
 }
 
-// SetTTL overrides the persistence window. Used by tests.
-func (r *VideoTaskRegistry) SetTTL(ttl time.Duration) {
-	if ttl <= 0 {
-		return
-	}
-	r.ttl = ttl
-}
-
-// Save persists the record. Redis errors fall back silently to the in-memory
-// store — this is intentional: for a single-replica deployment the gateway
-// must continue serving even if the operator forgot to configure Redis.
-// For multi-replica deployments the operator MUST configure Redis or the
-// /v1/video/generations/:task_id GET will 404 on a different replica.
+// Save persists the record. The in-memory copy is always populated; Redis is
+// best-effort and returns a non-nil error only on marshal failure (a Redis
+// outage logs a warning but does NOT fail the submit, because the upstream
+// task has already been created and quota already recorded — failing here
+// would leave the user with no task_id but a billed task running upstream).
+//
+// Multi-replica deployments must monitor the redisErr path; persistent
+// failures degrade polling reliability since a poll arriving on a different
+// replica will 404.
 func (r *VideoTaskRegistry) Save(ctx context.Context, record *VideoTaskRecord) error {
 	if record == nil || strings.TrimSpace(record.PublicTaskID) == "" {
 		return errors.New("video task record requires public_task_id")
@@ -99,9 +94,11 @@ func (r *VideoTaskRegistry) Save(ctx context.Context, record *VideoTaskRecord) e
 	if err != nil {
 		return fmt.Errorf("marshal video task record: %w", err)
 	}
-	if err := r.rdb.Set(ctx, r.redisKey(record.PublicTaskID), payload, r.ttl).Err(); err != nil {
-		// Soft-fail: the in-memory copy still serves single-replica polling.
-		return nil
+	if redisErr := r.rdb.Set(ctx, r.redisKey(record.PublicTaskID), payload, r.ttl).Err(); redisErr != nil {
+		logger.L().Warn("video_task_registry.redis_set_failed",
+			zap.String("public_task_id", record.PublicTaskID),
+			zap.Error(redisErr),
+		)
 	}
 	return nil
 }

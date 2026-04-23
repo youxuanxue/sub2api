@@ -16,7 +16,6 @@ import (
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	newapirelay "github.com/QuantumNous/new-api/relay"
-	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/types"
@@ -170,14 +169,12 @@ func DispatchVideoSubmit(_ context.Context, c *gin.Context, in ChannelContextInp
 		return nil, types.NewError(errors.New("empty upstream task id"), types.ErrorCodeBadResponseStatusCode, types.ErrOptionWithSkipRetry())
 	}
 
-	upstreamModel := relayInfo.UpstreamModelName
-	if upstreamModel == "" {
-		upstreamModel = req.Model
-	}
-
+	// UpstreamModelName was just set above to req.Model on the freshly
+	// initialised ChannelMeta; an adaptor that legitimately rewrites it
+	// (model_mapping) updates the same field in place. Direct read.
 	return &TaskSubmitOutcome{
 		UpstreamTaskID: upstreamTaskID,
-		UpstreamModel:  upstreamModel,
+		UpstreamModel:  relayInfo.UpstreamModelName,
 		OriginModel:    req.Model,
 		ChannelType:    in.ChannelType,
 		BaseURL:        in.BaseURL,
@@ -277,8 +274,3 @@ func IsVideoSupportedChannelType(channelType int) bool {
 	platform := newapiconstant.TaskPlatform(strconv.Itoa(channelType))
 	return newapirelay.GetTaskAdaptor(platform) != nil
 }
-
-// _ keeps the channel package referenced even when only the registry helpers
-// above are exported — guards against a future refactor accidentally dropping
-// the dependency that downstream task-adaptor type assertions rely on.
-var _ = channel.OpenAIVideoConverter(nil)
