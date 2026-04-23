@@ -854,12 +854,65 @@ func TestAnthropicToResponses_ToolChoiceSpecific(t *testing.T) {
 	resp, err := AnthropicToResponses(req)
 	require.NoError(t, err)
 
+	// Responses API uses the FLAT shape: {"type":"function","name":"X"}.
+	// The legacy nested {"type":"function","function":{"name":"X"}} shape
+	// produces upstream `400 Unknown parameter: 'tool_choice.function'.`
 	var tc map[string]any
 	require.NoError(t, json.Unmarshal(resp.ToolChoice, &tc))
 	assert.Equal(t, "function", tc["type"])
-	fn, ok := tc["function"].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "get_weather", fn["name"])
+	assert.Equal(t, "get_weather", tc["name"])
+	_, hasNested := tc["function"]
+	assert.False(t, hasNested, "tool_choice must not contain nested 'function' object")
+}
+
+func TestAnthropicToResponses_ToolChoiceBuiltinWebSearch(t *testing.T) {
+	// Reproduces the prod 400s captured in ops_error_logs:
+	//   `upstream error: 400 Unknown parameter: 'tool_choice.function'.`
+	// triggered by Claude Code's WebSearch sub-agent which sets
+	// tool_choice = {"type":"tool","name":"web_search"}.
+	req := &AnthropicRequest{
+		Model:      "gpt-5.2",
+		MaxTokens:  1024,
+		Messages:   []AnthropicMessage{{Role: "user", Content: json.RawMessage(`"search"`)}},
+		Tools:      []AnthropicTool{{Type: "web_search_20250305", Name: "web_search"}},
+		ToolChoice: json.RawMessage(`{"type":"tool","name":"web_search"}`),
+	}
+
+	resp, err := AnthropicToResponses(req)
+	require.NoError(t, err)
+
+	var tc map[string]any
+	require.NoError(t, json.Unmarshal(resp.ToolChoice, &tc))
+	assert.Equal(t, "web_search", tc["type"], "built-in tools select via {type:<tool>}")
+	_, hasName := tc["name"]
+	assert.False(t, hasName, "built-in tool selection must not include 'name'")
+}
+
+func TestResponsesToAnthropicRequest_ToolChoice(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"auto", `"auto"`, `{"type":"auto"}`},
+		{"required", `"required"`, `{"type":"any"}`},
+		{"none", `"none"`, `{"type":"none"}`},
+		{"flat function", `{"type":"function","name":"get_weather"}`, `{"name":"get_weather","type":"tool"}`},
+		{"legacy nested function", `{"type":"function","function":{"name":"get_weather"}}`, `{"name":"get_weather","type":"tool"}`},
+		{"builtin web_search", `{"type":"web_search"}`, `{"name":"web_search","type":"tool"}`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := &ResponsesRequest{
+				Model:      "gpt-5.2",
+				Input:      json.RawMessage(`[]`),
+				ToolChoice: json.RawMessage(c.in),
+			}
+			out, err := ResponsesToAnthropicRequest(req)
+			require.NoError(t, err)
+			assert.JSONEq(t, c.want, string(out.ToolChoice))
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------

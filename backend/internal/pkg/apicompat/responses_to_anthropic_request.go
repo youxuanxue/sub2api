@@ -425,12 +425,13 @@ func normalizeAnthropicInputSchema(schema json.RawMessage) json.RawMessage {
 // convertResponsesToAnthropicToolChoice maps Responses tool_choice to Anthropic format.
 // Reverse of convertAnthropicToolChoiceToResponses.
 //
-//	"auto"                                     → {"type":"auto"}
-//	"required"                                 → {"type":"any"}
-//	"none"                                     → {"type":"none"}
-//	{"type":"function","function":{"name":"X"}} → {"type":"tool","name":"X"}
+//	"auto"                              → {"type":"auto"}
+//	"required"                          → {"type":"any"}
+//	"none"                              → {"type":"none"}
+//	{"type":"function","name":"X"}      → {"type":"tool","name":"X"}    (current flat shape)
+//	{"type":"function","function":{...}}→ {"type":"tool","name":"X"}    (legacy nested shape)
+//	{"type":"web_search"|...}           → {"type":"tool","name":"<bt>"} (built-in tools)
 func convertResponsesToAnthropicToolChoice(raw json.RawMessage) (json.RawMessage, error) {
-	// Try as string first
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
 		switch s {
@@ -445,20 +446,27 @@ func convertResponsesToAnthropicToolChoice(raw json.RawMessage) (json.RawMessage
 		}
 	}
 
-	// Try as object with type=function
 	var tc struct {
 		Type     string `json:"type"`
+		Name     string `json:"name"`
 		Function struct {
 			Name string `json:"name"`
 		} `json:"function"`
 	}
-	if err := json.Unmarshal(raw, &tc); err == nil && tc.Type == "function" && tc.Function.Name != "" {
-		return json.Marshal(map[string]string{
-			"type": "tool",
-			"name": tc.Function.Name,
-		})
+	if err := json.Unmarshal(raw, &tc); err == nil {
+		if tc.Type == "function" {
+			name := tc.Name
+			if name == "" {
+				name = tc.Function.Name
+			}
+			if name != "" {
+				return json.Marshal(map[string]string{"type": "tool", "name": name})
+			}
+		}
+		if isResponsesBuiltinToolName(tc.Type) {
+			return json.Marshal(map[string]string{"type": "tool", "name": tc.Type})
+		}
 	}
 
-	// Pass through unknown
 	return raw, nil
 }

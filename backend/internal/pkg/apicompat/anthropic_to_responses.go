@@ -80,10 +80,16 @@ func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
 
 // convertAnthropicToolChoiceToResponses maps Anthropic tool_choice to Responses format.
 //
-//	{"type":"auto"}            → "auto"
-//	{"type":"any"}             → "required"
-//	{"type":"none"}            → "none"
-//	{"type":"tool","name":"X"} → {"type":"function","function":{"name":"X"}}
+// The Responses API uses a flat shape (no nested "function" object), and built-in
+// tools (web_search, code_interpreter, ...) are selected by their own type, not by
+// {type:function,name:web_search}. Sending the legacy Chat-Completions nested form
+// produces upstream `400 Unknown parameter: 'tool_choice.function'`.
+//
+//	{"type":"auto"}                   → "auto"
+//	{"type":"any"}                    → "required"
+//	{"type":"none"}                   → "none"
+//	{"type":"tool","name":"web_search"} → {"type":"web_search"}   (built-in)
+//	{"type":"tool","name":"X"}          → {"type":"function","name":"X"} (function)
 func convertAnthropicToolChoiceToResponses(raw json.RawMessage) (json.RawMessage, error) {
 	var tc struct {
 		Type string `json:"type"`
@@ -101,14 +107,30 @@ func convertAnthropicToolChoiceToResponses(raw json.RawMessage) (json.RawMessage
 	case "none":
 		return json.Marshal("none")
 	case "tool":
-		return json.Marshal(map[string]any{
-			"type":     "function",
-			"function": map[string]string{"name": tc.Name},
+		if isResponsesBuiltinToolName(tc.Name) {
+			return json.Marshal(map[string]string{"type": tc.Name})
+		}
+		return json.Marshal(map[string]string{
+			"type": "function",
+			"name": tc.Name,
 		})
 	default:
-		// Pass through unknown types as-is
 		return raw, nil
 	}
+}
+
+// isResponsesBuiltinToolName reports whether the given tool name corresponds
+// to an OpenAI Responses API built-in tool. Built-in tools are selected via
+// {"type":"<name>"} rather than {"type":"function","name":"<name>"}.
+//
+// Kept aligned with convertAnthropicToolsToResponses, which remaps Anthropic
+// server tools (e.g. web_search_20250305) to their OpenAI built-in type.
+func isResponsesBuiltinToolName(name string) bool {
+	switch name {
+	case "web_search", "code_interpreter", "image_generation", "file_search", "computer_use_preview":
+		return true
+	}
+	return false
 }
 
 // convertAnthropicToResponsesInput builds the Responses API input items array
