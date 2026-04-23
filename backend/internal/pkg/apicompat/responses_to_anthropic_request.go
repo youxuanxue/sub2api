@@ -425,12 +425,17 @@ func normalizeAnthropicInputSchema(schema json.RawMessage) json.RawMessage {
 // convertResponsesToAnthropicToolChoice maps Responses tool_choice to Anthropic format.
 // Reverse of convertAnthropicToolChoiceToResponses.
 //
-//	"auto"                                     → {"type":"auto"}
-//	"required"                                 → {"type":"any"}
-//	"none"                                     → {"type":"none"}
-//	{"type":"function","function":{"name":"X"}} → {"type":"tool","name":"X"}
+//	"auto"                               → {"type":"auto"}
+//	"required"                           → {"type":"any"}
+//	"none"                               → {"type":"none"}
+//	{"type":"function","name":"X"}       → {"type":"tool","name":"X"}    (current flat shape)
+//	{"type":"function","function":{...}} → {"type":"tool","name":"X"}    (legacy nested shape, accepted for back-compat)
+//	{"type":"web_search"}                → {"type":"tool","name":"web_search"}
+//
+// The set of built-in types accepted here mirrors what the forward helper
+// emits via lookupBuiltinForAnthropicToolName (see anthropic_to_responses.go).
+// If forward learns a new built-in, add it here too.
 func convertResponsesToAnthropicToolChoice(raw json.RawMessage) (json.RawMessage, error) {
-	// Try as string first
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
 		switch s {
@@ -445,20 +450,27 @@ func convertResponsesToAnthropicToolChoice(raw json.RawMessage) (json.RawMessage
 		}
 	}
 
-	// Try as object with type=function
 	var tc struct {
 		Type     string `json:"type"`
+		Name     string `json:"name"`
 		Function struct {
 			Name string `json:"name"`
 		} `json:"function"`
 	}
-	if err := json.Unmarshal(raw, &tc); err == nil && tc.Type == "function" && tc.Function.Name != "" {
-		return json.Marshal(map[string]string{
-			"type": "tool",
-			"name": tc.Function.Name,
-		})
+	if err := json.Unmarshal(raw, &tc); err == nil {
+		if tc.Type == "function" {
+			name := tc.Name
+			if name == "" {
+				name = tc.Function.Name
+			}
+			if name != "" {
+				return json.Marshal(map[string]string{"type": "tool", "name": name})
+			}
+		}
+		if tc.Type == "web_search" {
+			return json.Marshal(map[string]string{"type": "tool", "name": "web_search"})
+		}
 	}
 
-	// Pass through unknown
 	return raw, nil
 }
