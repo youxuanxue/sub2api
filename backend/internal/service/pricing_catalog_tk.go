@@ -35,9 +35,9 @@ import (
 
 // PublicCatalogResponse is the top-level shape for GET /api/v1/public/pricing.
 type PublicCatalogResponse struct {
-	Object    string                `json:"object"`
-	Data      []PublicCatalogModel  `json:"data"`
-	UpdatedAt time.Time             `json:"updated_at"`
+	Object    string               `json:"object"`
+	Data      []PublicCatalogModel `json:"data"`
+	UpdatedAt time.Time            `json:"updated_at"`
 }
 
 // PublicCatalogModel is one entry in the public catalog. Field-level omitempty
