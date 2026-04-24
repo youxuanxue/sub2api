@@ -5,6 +5,7 @@ import { useAuthStore as useUserStore } from '@/stores/auth'
 import { useOnboardingStore } from '@/stores/onboarding'
 import { useI18n } from 'vue-i18n'
 import { getAdminSteps, getUserSteps } from '@/components/Guide/steps'
+import { markOnboardingTourSeen } from '@/api/onboarding'
 
 export interface OnboardingOptions {
   storageKey?: string
@@ -64,14 +65,24 @@ export function useOnboardingTour(options: OnboardingOptions) {
     return `${baseKey}_${userId}_${role}_${storageVersion}`
   }
 
-  const hasSeen = () => {
-    return localStorage.getItem(getStorageKey()) === 'true'
-  }
+  // US-031: 服务端 user.onboarding_tour_seen_at 是源真相（跨设备/清缓存生效）；
+  // localStorage 是同会话快进，避免在下次 /user/profile 刷新前重启 Tour。
+  const hasSeen = () =>
+    !!userStore.user?.onboarding_tour_seen_at ||
+    localStorage.getItem(getStorageKey()) === 'true'
 
   const markAsSeen = () => {
     localStorage.setItem(getStorageKey(), 'true')
+    // Best-effort 持久化（AC-005/AC-006）；失败留给下次 mount 重试。
+    if (userStore.user) {
+      markOnboardingTourSeen().catch((err) => {
+        console.error('[Onboarding] mark_seen_failed', err)
+      })
+    }
   }
 
+  // replayTour 只清 localStorage —— 服务端 seen_at 不清，否则人为 replay
+  // 完成后下次刷新又会自动启动一遍，违反 AC-007 幂等意图。
   const clearSeen = () => {
     localStorage.removeItem(getStorageKey())
   }
@@ -536,9 +547,9 @@ export function useOnboardingTour(options: OnboardingOptions) {
       return
     }
 
-    // 只在管理员+标准模式下自动启动
-    const isAdmin = userStore.user?.role === 'admin'
-    if (!isAdmin) {
+    // US-031: 解锁普通用户（删除原 admin-only 门禁），改为只过滤未登录场景；
+    // 已看过的判断下沉到 hasSeen()（服务端 seen_at + localStorage 缓存）。
+    if (!userStore.user) {
       return
     }
 

@@ -113,6 +113,10 @@ func (s *userRepoStub) DisableTotp(ctx context.Context, userID int64) error {
 	panic("unexpected DisableTotp call")
 }
 
+func (s *userRepoStub) MarkOnboardingTourSeen(ctx context.Context, userID int64) error {
+	panic("unexpected MarkOnboardingTourSeen call")
+}
+
 type groupRepoStub struct {
 	affectedUserIDs []int64
 	deleteErr       error

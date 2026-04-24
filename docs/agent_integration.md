@@ -381,6 +381,7 @@ Do not hand-edit this file; run `python3 scripts/export_agent_contract.py`.
 - `POST /user/notify-email/send-code` from `backend/internal/server/routes/user.go`
 - `PUT /user/notify-email/toggle` from `backend/internal/server/routes/user.go`
 - `POST /user/notify-email/verify` from `backend/internal/server/routes/user.go`
+- `POST /user/onboarding-tour-completed` from `backend/internal/server/routes/user.go`
 - `PUT /user/password` from `backend/internal/server/routes/user.go`
 - `GET /user/profile` from `backend/internal/server/routes/user.go`
 - `POST /user/totp/disable` from `backend/internal/server/routes/user.go`

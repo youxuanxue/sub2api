@@ -25,6 +25,9 @@ type User struct {
 	BalanceNotifyExtraEmails   []NotifyEmailEntry `json:"balance_notify_extra_emails"`
 	TotalRecharged             float64            `json:"total_recharged"`
 
+	// US-031: nil = onboarding tour 未看过，dashboard 自动启动；非 nil = 已看过。
+	OnboardingTourSeenAt *time.Time `json:"onboarding_tour_seen_at"`
+
 	APIKeys       []APIKey           `json:"api_keys,omitempty"`
 	Subscriptions []UserSubscription `json:"subscriptions,omitempty"`
 }

@@ -30398,6 +30398,7 @@ type UserMutation struct {
 	balance_notify_extra_emails   *string
 	total_recharged               *float64
 	addtotal_recharged            *float64
+	onboarding_tour_seen_at       *time.Time
 	clearedFields                 map[string]struct{}
 	api_keys                      map[int64]struct{}
 	removedapi_keys               map[int64]struct{}
@@ -31349,6 +31350,55 @@ func (m *UserMutation) ResetTotalRecharged() {
 	m.addtotal_recharged = nil
 }
 
+// SetOnboardingTourSeenAt sets the "onboarding_tour_seen_at" field.
+func (m *UserMutation) SetOnboardingTourSeenAt(t time.Time) {
+	m.onboarding_tour_seen_at = &t
+}
+
+// OnboardingTourSeenAt returns the value of the "onboarding_tour_seen_at" field in the mutation.
+func (m *UserMutation) OnboardingTourSeenAt() (r time.Time, exists bool) {
+	v := m.onboarding_tour_seen_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOnboardingTourSeenAt returns the old "onboarding_tour_seen_at" field's value of the User entity.
+// If the User object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserMutation) OldOnboardingTourSeenAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOnboardingTourSeenAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOnboardingTourSeenAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOnboardingTourSeenAt: %w", err)
+	}
+	return oldValue.OnboardingTourSeenAt, nil
+}
+
+// ClearOnboardingTourSeenAt clears the value of the "onboarding_tour_seen_at" field.
+func (m *UserMutation) ClearOnboardingTourSeenAt() {
+	m.onboarding_tour_seen_at = nil
+	m.clearedFields[user.FieldOnboardingTourSeenAt] = struct{}{}
+}
+
+// OnboardingTourSeenAtCleared returns if the "onboarding_tour_seen_at" field was cleared in this mutation.
+func (m *UserMutation) OnboardingTourSeenAtCleared() bool {
+	_, ok := m.clearedFields[user.FieldOnboardingTourSeenAt]
+	return ok
+}
+
+// ResetOnboardingTourSeenAt resets all changes to the "onboarding_tour_seen_at" field.
+func (m *UserMutation) ResetOnboardingTourSeenAt() {
+	m.onboarding_tour_seen_at = nil
+	delete(m.clearedFields, user.FieldOnboardingTourSeenAt)
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by ids.
 func (m *UserMutation) AddAPIKeyIDs(ids ...int64) {
 	if m.api_keys == nil {
@@ -31923,7 +31973,7 @@ func (m *UserMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UserMutation) Fields() []string {
-	fields := make([]string, 0, 19)
+	fields := make([]string, 0, 20)
 	if m.created_at != nil {
 		fields = append(fields, user.FieldCreatedAt)
 	}
@@ -31981,6 +32031,9 @@ func (m *UserMutation) Fields() []string {
 	if m.total_recharged != nil {
 		fields = append(fields, user.FieldTotalRecharged)
 	}
+	if m.onboarding_tour_seen_at != nil {
+		fields = append(fields, user.FieldOnboardingTourSeenAt)
+	}
 	return fields
 }
 
@@ -32027,6 +32080,8 @@ func (m *UserMutation) Field(name string) (ent.Value, bool) {
 		return m.BalanceNotifyExtraEmails()
 	case user.FieldTotalRecharged:
 		return m.TotalRecharged()
+	case user.FieldOnboardingTourSeenAt:
+		return m.OnboardingTourSeenAt()
 	}
 	return nil, false
 }
@@ -32074,6 +32129,8 @@ func (m *UserMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldBalanceNotifyExtraEmails(ctx)
 	case user.FieldTotalRecharged:
 		return m.OldTotalRecharged(ctx)
+	case user.FieldOnboardingTourSeenAt:
+		return m.OldOnboardingTourSeenAt(ctx)
 	}
 	return nil, fmt.Errorf("unknown User field %s", name)
 }
@@ -32216,6 +32273,13 @@ func (m *UserMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetTotalRecharged(v)
 		return nil
+	case user.FieldOnboardingTourSeenAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOnboardingTourSeenAt(v)
+		return nil
 	}
 	return fmt.Errorf("unknown User field %s", name)
 }
@@ -32309,6 +32373,9 @@ func (m *UserMutation) ClearedFields() []string {
 	if m.FieldCleared(user.FieldBalanceNotifyThreshold) {
 		fields = append(fields, user.FieldBalanceNotifyThreshold)
 	}
+	if m.FieldCleared(user.FieldOnboardingTourSeenAt) {
+		fields = append(fields, user.FieldOnboardingTourSeenAt)
+	}
 	return fields
 }
 
@@ -32334,6 +32401,9 @@ func (m *UserMutation) ClearField(name string) error {
 		return nil
 	case user.FieldBalanceNotifyThreshold:
 		m.ClearBalanceNotifyThreshold()
+		return nil
+	case user.FieldOnboardingTourSeenAt:
+		m.ClearOnboardingTourSeenAt()
 		return nil
 	}
 	return fmt.Errorf("unknown User nullable field %s", name)
@@ -32399,6 +32469,9 @@ func (m *UserMutation) ResetField(name string) error {
 		return nil
 	case user.FieldTotalRecharged:
 		m.ResetTotalRecharged()
+		return nil
+	case user.FieldOnboardingTourSeenAt:
+		m.ResetOnboardingTourSeenAt()
 		return nil
 	}
 	return fmt.Errorf("unknown User field %s", name)

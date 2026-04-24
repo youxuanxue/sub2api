@@ -37,6 +37,11 @@ type User struct {
 	BalanceNotifyExtraEmails   []NotifyEmailEntry
 	TotalRecharged             float64
 
+	// OnboardingTourSeenAt: 用户首次完成 Onboarding Tour 的时间戳。
+	// nil = 从未看过，dashboard 应自动启动 Tour（US-031）。
+	// 非 nil = 已看过，不再自动启动（手动 replay 仍可用）。
+	OnboardingTourSeenAt *time.Time
+
 	APIKeys       []APIKey
 	Subscriptions []UserSubscription
 }

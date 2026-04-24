@@ -28,6 +28,7 @@ func UserFromServiceShallow(u *service.User) *User {
 		BalanceNotifyThreshold:     u.BalanceNotifyThreshold,
 		BalanceNotifyExtraEmails:   NotifyEmailEntriesFromService(u.BalanceNotifyExtraEmails),
 		TotalRecharged:             u.TotalRecharged,
+		OnboardingTourSeenAt:       u.OnboardingTourSeenAt,
 	}
 }
 

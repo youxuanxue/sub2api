@@ -88,6 +88,12 @@ func (User) Fields() []ent.Field {
 		field.Float("total_recharged").
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}).
 			Default(0),
+
+		// Onboarding tour 已看过时间戳。NULL = 从未看过，自动启动；
+		// 非 NULL = 已看过，不再自动启动（手动 replay 仍可用）。见 US-031。
+		field.Time("onboarding_tour_seen_at").
+			Optional().
+			Nillable(),
 	}
 }
 
