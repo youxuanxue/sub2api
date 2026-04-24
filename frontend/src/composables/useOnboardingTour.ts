@@ -77,10 +77,8 @@ export function useOnboardingTour(options: OnboardingOptions) {
 
   const markAsSeen = () => {
     localStorage.setItem(getStorageKey(), 'true')
-    // Best-effort server-side persistence (US-031 AC-005 + AC-006). We do
-    // NOT await this — the UX of closing the tour must not block on a
-    // network round-trip, and a failure simply means the next dashboard
-    // load will re-launch the tour (the user retries naturally).
+    // Fire-and-forget server persistence (US-031 AC-005/AC-006); a failure
+    // simply lets the next dashboard mount re-launch and retry.
     if (userStore.user) {
       onboardingAPI.markOnboardingTourSeen().catch((err) => {
         console.error('[Onboarding] mark_seen_failed', err)
@@ -88,10 +86,8 @@ export function useOnboardingTour(options: OnboardingOptions) {
     }
   }
 
-  // clearSeen wipes only the LOCAL same-session cache (used by replayTour
-  // below). The server-side onboarding_tour_seen_at is intentionally NOT
-  // cleared — it is a permanent record of "they have seen this once", and
-  // clearing it would let `hasSeen()` silently regress on the next reload.
+  // replayTour clears LOCAL only — the server-side seen_at is permanent on
+  // purpose (clearing it would let "已看过" silently regress on next reload).
   const clearSeen = () => {
     localStorage.removeItem(getStorageKey())
   }
@@ -562,14 +558,8 @@ export function useOnboardingTour(options: OnboardingOptions) {
       return
     }
 
-    // US-031 PR 2 P1-A: tour now auto-launches for BOTH admin and regular
-    // users. The previous `if (!isAdmin) return` gate meant普通 users on
-    // a fresh signup never saw any orientation — they landed on a dashboard
-    // with no obvious next step (L 站 t/topic/1413702 反馈).
-    //
-    // The decision of "已看过 → 不再自动启动" now consults the server-side
-    // `user.onboarding_tour_seen_at` field (durable across devices / cache
-    // clears) plus the legacy localStorage flag as a same-session cache.
+    // US-031: auto-launch for BOTH admin and regular users; gate via
+    // hasSeen() (server-side seen_at + localStorage cache, see top of file).
     if (!options.autoStart || hasSeen()) return
     autoStartTimer = setTimeout(() => {
       void startTour()
