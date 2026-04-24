@@ -1,4 +1,4 @@
 {
-  "install": "bash dev-rules/templates/cloud-agent-bootstrap.sh",
+  "install": "bash .cursor/cloud-agent-install.sh",
   "terminals": []
 }
