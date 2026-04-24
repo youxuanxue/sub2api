@@ -198,10 +198,12 @@ func TestUS031_MarkOnboardingTourSeen_Unauthenticated_401(t *testing.T) {
 	require.Empty(t, repo.calls, "repo must not be called without an auth subject")
 }
 
-// Sanity check: the success envelope contains data.ok=true so the frontend
-// can rely on a stable shape. This pins the contract — if a future refactor
-// switches to `response.Success(c, nil)` the spec drifts and the frontend
-// would silently keep working but we'd lose the affirmative signal.
+// Sanity check: the success envelope contains data.success=true (matching
+// the convention already used by totp_handler.go for "no-content
+// acknowledgement" endpoints) so the frontend can rely on a stable shape.
+// This pins the contract — if a future refactor switches to
+// `response.Success(c, nil)` the spec drifts and the frontend would silently
+// keep working but we'd lose the affirmative signal.
 func TestUS031_MarkOnboardingTourSeen_SuccessEnvelopeShape(t *testing.T) {
 	r, _ := newOnboardingTestRouter(t, true, 99)
 
@@ -214,6 +216,6 @@ func TestUS031_MarkOnboardingTourSeen_SuccessEnvelopeShape(t *testing.T) {
 	require.Equal(t, 0, env.Code)
 	dataMap, ok := env.Data.(map[string]any)
 	require.True(t, ok, "data should be a JSON object")
-	require.Equal(t, true, dataMap["ok"])
+	require.Equal(t, true, dataMap["success"])
 }
 

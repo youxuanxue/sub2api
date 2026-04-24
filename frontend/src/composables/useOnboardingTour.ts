@@ -65,23 +65,14 @@ export function useOnboardingTour(options: OnboardingOptions) {
     return `${baseKey}_${userId}_${role}_${storageVersion}`
   }
 
-  // US-031: server-side memory of "已看过" trumps localStorage. We still keep
-  // the localStorage flag as a fast-path cache (avoids re-launching the tour
-  // mid-session before the next /user/profile refresh lands), but the source
-  // of truth for "should we auto-launch" is the server-side
-  // user.onboarding_tour_seen_at — see auto-start gate in onMounted below.
-  const hasSeenLocal = () => {
-    return localStorage.getItem(getStorageKey()) === 'true'
-  }
-
-  const hasSeenServer = () => {
-    return !!userStore.user?.onboarding_tour_seen_at
-  }
-
-  // hasSeen returns true when the user has either (a) been recorded
-  // server-side as having seen the tour, or (b) flagged it locally in this
-  // session. The server flag is the durable one; the local flag is only
-  // useful for the current page lifecycle.
+  // US-031: "已看过" lives in two places — the durable server-side
+  // user.onboarding_tour_seen_at (survives cache clears + device switches)
+  // and a localStorage same-session cache (avoids re-launching mid-session
+  // before the next /user/profile refresh lands). Either signal short-circuits
+  // the auto-launch gate; only the server-side one is treated as authoritative
+  // (markAsSeen + clearSeen below preserve that invariant).
+  const hasSeenLocal = () => localStorage.getItem(getStorageKey()) === 'true'
+  const hasSeenServer = () => !!userStore.user?.onboarding_tour_seen_at
   const hasSeen = () => hasSeenServer() || hasSeenLocal()
 
   const markAsSeen = () => {
@@ -97,9 +88,10 @@ export function useOnboardingTour(options: OnboardingOptions) {
     }
   }
 
-  // replayTour clears the LOCAL flag only. The server-side timestamp is
-  // never cleared — it is a permanent record of "they have seen this once",
-  // and clearing it would let "已看过" silently regress on the next reload.
+  // clearSeen wipes only the LOCAL same-session cache (used by replayTour
+  // below). The server-side onboarding_tour_seen_at is intentionally NOT
+  // cleared — it is a permanent record of "they have seen this once", and
+  // clearing it would let `hasSeen()` silently regress on the next reload.
   const clearSeen = () => {
     localStorage.removeItem(getStorageKey())
   }
