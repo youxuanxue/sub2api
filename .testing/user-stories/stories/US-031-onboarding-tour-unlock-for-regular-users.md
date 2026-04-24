@@ -44,11 +44,13 @@
 
 实现按 CLAUDE.md §5 隔离纪律落到 `*_tk_*` 伴侣文件：
 
-- `backend/internal/handler/user_handler_tk_onboarding_test.go`::`TestUS031_MarkOnboardingTourSeen_FirstCall_WritesTimestamp`
-- `backend/internal/handler/user_handler_tk_onboarding_test.go`::`TestUS031_MarkOnboardingTourSeen_Idempotent_SecondCallNoChange`
-- `backend/internal/handler/user_handler_tk_onboarding_test.go`::`TestUS031_MarkOnboardingTourSeen_Unauthenticated_401`
+- `backend/internal/handler/user_handler_tk_onboarding_test.go`::`TestUS031_MarkOnboardingTourSeen_FirstCall_WritesTimestamp` — AC-005 落地
+- `backend/internal/handler/user_handler_tk_onboarding_test.go`::`TestUS031_MarkOnboardingTourSeen_Idempotent_SecondCallNoChange` — AC-007 幂等
+- `backend/internal/handler/user_handler_tk_onboarding_test.go`::`TestUS031_MarkOnboardingTourSeen_Unauthenticated_401` — 401 兜底
+- `backend/internal/handler/user_handler_tk_onboarding_test.go`::`TestUS031_MarkOnboardingTourSeen_SuccessEnvelopeShape` — 响应契约（`{ok:true}`）锁定
 - `backend/internal/service/user_service_tk_onboarding_test.go`::`TestUS031_MarkOnboardingTourSeen_DelegatesToRepo`
 - `backend/internal/service/user_service_tk_onboarding_test.go`::`TestUS031_MarkOnboardingTourSeen_AlreadySeen_NoUpdate`
+- `backend/internal/service/user_service_tk_onboarding_test.go`::`TestUS031_MarkOnboardingTourSeen_RepoError_PropagatesWrapped`
 - `frontend/src/composables/__tests__/useOnboardingTour.tk.spec.ts`::`US-031 普通用户 Tour 解锁`
   - `frontend/src/composables/__tests__/useOnboardingTour.tk.spec.ts`::`AC-001 普通用户首次自动启动`
   - `frontend/src/composables/__tests__/useOnboardingTour.tk.spec.ts`::`AC-002 admin 首次自动启动`
@@ -71,4 +73,4 @@ cd frontend && pnpm test:run -- useOnboardingTour.tk
 
 ## Status
 
-- [x] InTest — PR 2 已落地；backend 5 个 unit test（service 3 + handler 3）+ frontend 7 个 composable test 全绿；`tk_005_add_users_onboarding_tour_seen_at.sql` 新增 `users.onboarding_tour_seen_at` 列（默认 NULL，不影响存量用户）；`/api/v1/user/onboarding-tour-completed` 路由已接入 JWTAuth + BackendModeUserGuard 链路；`useOnboardingTour.ts` 删除 admin-only gate，改用 `userStore.user?.onboarding_tour_seen_at` 判断；`markAsSeen()` best-effort POST 到服务端（失败不阻塞 UX）。等待 integration / e2e 测试套件着陆后再翻 Done。
+- [x] InTest — PR 2 已落地；backend 7 个 unit test（service 3 + handler 4，**handler 测试驱动的是真正的 `*UserHandler.MarkOnboardingTourSeen`**，不是测试桩）+ frontend 7 个 composable test 全绿；`tk_005_add_users_onboarding_tour_seen_at.sql` 新增 `users.onboarding_tour_seen_at` 列（默认 NULL，不影响存量用户）；`/api/v1/user/onboarding-tour-completed` 路由已接入 JWTAuth + BackendModeUserGuard 链路；`useOnboardingTour.ts` 删除 admin-only gate，改用 `userStore.user?.onboarding_tour_seen_at` 判断；`markAsSeen()` best-effort POST 到服务端（失败不阻塞 UX）。等待 integration / e2e 测试套件着陆后再翻 Done。

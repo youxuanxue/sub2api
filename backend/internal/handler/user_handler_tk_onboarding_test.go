@@ -3,21 +3,26 @@
 package handler
 
 // US-031 PR 2 P1-A — POST /api/v1/user/onboarding-tour-completed handler tests.
-// Spec: docs/approved/user-cold-start.md §5 P1-A; .testing/user-stories/stories/US-031-onboarding-tour-unlock-for-regular-users.md.
 //
-// Each TestUS031_* maps 1:1 to one Acceptance Criterion:
-//   AC-005 → TestUS031_MarkOnboardingTourSeen_FirstCall_WritesTimestamp
-//   AC-007 → TestUS031_MarkOnboardingTourSeen_Idempotent_SecondCallNoChange
-//   Auth   → TestUS031_MarkOnboardingTourSeen_Unauthenticated_401
+// Spec: docs/approved/user-cold-start.md §5 P1-A;
+//       .testing/user-stories/stories/US-031-onboarding-tour-unlock-for-regular-users.md
+//
+// We exercise the REAL `UserHandler.MarkOnboardingTourSeen` against a real
+// `*service.UserService` wired to a stub `service.UserRepository`. This is
+// the only way to verify the production handler — building a parallel
+// "shim handler" in test code would only test the shim, not the real one.
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -25,56 +30,102 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fakeOnboardingUserService captures the (idempotent) MarkOnboardingTourSeen
-// invocations from the handler. We record the timestamp of the *first* call
-// and assert that subsequent calls do not move it (mirroring the repo-level
-// idempotency guarantee, US-031 AC-007).
-type fakeOnboardingUserService struct {
+// onboardingFakeUserRepo records MarkOnboardingTourSeen calls. Every other
+// method panics so any accidental cross-method call from the production
+// path is caught loudly. Idempotency is modeled correctly: a second call
+// with the same userID is a no-op (the production repo does this with a
+// conditional UPDATE WHERE seen_at IS NULL — the fake replicates that
+// observable behavior so the handler's contract is verified, not the
+// repo's SQL).
+type onboardingFakeUserRepo struct {
 	mu        sync.Mutex
+	seenAt    map[int64]time.Time
 	calls     []int64
-	firstSeen time.Time
-	failNext  bool
+	returnErr error
 }
 
-func (f *fakeOnboardingUserService) MarkOnboardingTourSeen(_ context.Context, userID int64) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.failNext {
-		f.failNext = false
-		return service.ErrUserNotFound
+func newOnboardingFakeUserRepo() *onboardingFakeUserRepo {
+	return &onboardingFakeUserRepo{seenAt: make(map[int64]time.Time)}
+}
+
+func (r *onboardingFakeUserRepo) MarkOnboardingTourSeen(_ context.Context, userID int64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls = append(r.calls, userID)
+	if r.returnErr != nil {
+		return r.returnErr
 	}
-	f.calls = append(f.calls, userID)
-	if f.firstSeen.IsZero() {
-		f.firstSeen = time.Now()
+	if _, already := r.seenAt[userID]; !already {
+		r.seenAt[userID] = time.Now()
 	}
 	return nil
 }
 
-// onboardingHandlerOnly is a slim shim that only wires up MarkOnboardingTourSeen.
-// We avoid building the full *UserHandler (which requires UserService +
-// EmailService + EmailCache) because this endpoint is intentionally narrow.
-type onboardingHandlerOnly struct {
-	svc *fakeOnboardingUserService
+// --- panic-on-call defaults for the rest of the interface ---
+
+func (r *onboardingFakeUserRepo) Create(context.Context, *service.User) error {
+	panic("unexpected Create")
+}
+func (r *onboardingFakeUserRepo) GetByID(context.Context, int64) (*service.User, error) {
+	panic("unexpected GetByID")
+}
+func (r *onboardingFakeUserRepo) GetByEmail(context.Context, string) (*service.User, error) {
+	panic("unexpected GetByEmail")
+}
+func (r *onboardingFakeUserRepo) GetFirstAdmin(context.Context) (*service.User, error) {
+	panic("unexpected GetFirstAdmin")
+}
+func (r *onboardingFakeUserRepo) Update(context.Context, *service.User) error {
+	panic("unexpected Update")
+}
+func (r *onboardingFakeUserRepo) Delete(context.Context, int64) error { panic("unexpected Delete") }
+func (r *onboardingFakeUserRepo) List(context.Context, pagination.PaginationParams) ([]service.User, *pagination.PaginationResult, error) {
+	panic("unexpected List")
+}
+func (r *onboardingFakeUserRepo) ListWithFilters(context.Context, pagination.PaginationParams, service.UserListFilters) ([]service.User, *pagination.PaginationResult, error) {
+	panic("unexpected ListWithFilters")
+}
+func (r *onboardingFakeUserRepo) UpdateBalance(context.Context, int64, float64) error {
+	panic("unexpected UpdateBalance")
+}
+func (r *onboardingFakeUserRepo) DeductBalance(context.Context, int64, float64) error {
+	panic("unexpected DeductBalance")
+}
+func (r *onboardingFakeUserRepo) UpdateConcurrency(context.Context, int64, int) error {
+	panic("unexpected UpdateConcurrency")
+}
+func (r *onboardingFakeUserRepo) ExistsByEmail(context.Context, string) (bool, error) {
+	panic("unexpected ExistsByEmail")
+}
+func (r *onboardingFakeUserRepo) RemoveGroupFromAllowedGroups(context.Context, int64) (int64, error) {
+	panic("unexpected RemoveGroupFromAllowedGroups")
+}
+func (r *onboardingFakeUserRepo) AddGroupToAllowedGroups(context.Context, int64, int64) error {
+	panic("unexpected AddGroupToAllowedGroups")
+}
+func (r *onboardingFakeUserRepo) RemoveGroupFromUserAllowedGroups(context.Context, int64, int64) error {
+	panic("unexpected RemoveGroupFromUserAllowedGroups")
+}
+func (r *onboardingFakeUserRepo) UpdateTotpSecret(context.Context, int64, *string) error {
+	panic("unexpected UpdateTotpSecret")
+}
+func (r *onboardingFakeUserRepo) EnableTotp(context.Context, int64) error {
+	panic("unexpected EnableTotp")
+}
+func (r *onboardingFakeUserRepo) DisableTotp(context.Context, int64) error {
+	panic("unexpected DisableTotp")
 }
 
-func (h *onboardingHandlerOnly) Handle(c *gin.Context) {
-	subject, ok := middleware.GetAuthSubjectFromContext(c)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthenticated"})
-		return
-	}
-	if err := h.svc.MarkOnboardingTourSeen(c.Request.Context(), subject.UserID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
-}
-
-func newOnboardingTestRouter(t *testing.T, withAuth bool, userID int64) (*gin.Engine, *fakeOnboardingUserService) {
+// newOnboardingTestRouter wires the REAL UserHandler.MarkOnboardingTourSeen
+// behind a tiny middleware that injects an AuthSubject (mirroring production
+// JWT auth). When withAuth=false the AuthSubject is absent — the handler
+// must reject with 401 itself.
+func newOnboardingTestRouter(t *testing.T, withAuth bool, userID int64) (*gin.Engine, *onboardingFakeUserRepo) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	svc := &fakeOnboardingUserService{}
-	h := &onboardingHandlerOnly{svc: svc}
+	repo := newOnboardingFakeUserRepo()
+	userSvc := service.NewUserService(repo, nil, nil, nil)
+	h := NewUserHandler(userSvc, nil, nil)
 
 	r := gin.New()
 	if withAuth {
@@ -83,58 +134,86 @@ func newOnboardingTestRouter(t *testing.T, withAuth bool, userID int64) (*gin.En
 			c.Next()
 		})
 	}
-	r.POST("/api/v1/user/onboarding-tour-completed", h.Handle)
-	return r, svc
+	r.POST("/api/v1/user/onboarding-tour-completed", h.MarkOnboardingTourSeen)
+	return r, repo
+}
+
+func decodeStandardEnvelope(t *testing.T, body string) response.Response {
+	t.Helper()
+	var env response.Response
+	require.NoError(t, json.Unmarshal([]byte(body), &env))
+	return env
 }
 
 // US-031 AC-005 — first call records the seen-at moment server-side and
-// returns 200 with {"ok": true}.
+// returns 200 with success envelope.
 func TestUS031_MarkOnboardingTourSeen_FirstCall_WritesTimestamp(t *testing.T) {
-	r, svc := newOnboardingTestRouter(t, true, 4242)
+	r, repo := newOnboardingTestRouter(t, true, 4242)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/user/onboarding-tour-completed", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code, "first POST should succeed")
-	require.Equal(t, []int64{4242}, svc.calls,
-		"service must be invoked once with the authenticated user's ID")
-	require.False(t, svc.firstSeen.IsZero(), "first-seen timestamp should be set")
+	require.Equal(t, []int64{4242}, repo.calls,
+		"repo must be invoked once with the authenticated user's ID")
+	require.Contains(t, repo.seenAt, int64(4242),
+		"seen_at must be recorded for user 4242")
 }
 
 // US-031 AC-007 — calling the endpoint a second time is a no-op: still 200,
-// but the recorded "first seen" timestamp does NOT advance. This guards
-// against "user refreshes dashboard, we mistakenly bump their seen-at every
-// time" — the timestamp is supposed to mark the actual first completion.
+// recorded "first seen" timestamp does NOT advance. Guards against
+// "user refreshes dashboard, we mistakenly bump seen_at every time".
 func TestUS031_MarkOnboardingTourSeen_Idempotent_SecondCallNoChange(t *testing.T) {
-	r, svc := newOnboardingTestRouter(t, true, 7)
+	r, repo := newOnboardingTestRouter(t, true, 7)
 
 	for i := 0; i < 3; i++ {
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/user/onboarding-tour-completed", nil)
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
 		require.Equal(t, http.StatusOK, w.Code, "call %d should succeed", i+1)
-		// Sleep tiny bit so a non-idempotent implementation would have moved
-		// the timestamp visibly.
+		// Sleep tiny bit so a non-idempotent fake would have moved the timestamp.
 		time.Sleep(2 * time.Millisecond)
 	}
 
-	require.Equal(t, []int64{7, 7, 7}, svc.calls,
-		"endpoint forwards every call to the service; service+repo guarantee no-op")
-	// firstSeen captured once; subsequent calls in the fake do NOT overwrite.
-	require.False(t, svc.firstSeen.IsZero(), "first seen recorded once")
+	require.Equal(t, []int64{7, 7, 7}, repo.calls,
+		"handler forwards every call to the repo; idempotency lives in the predicate")
+	require.Len(t, repo.seenAt, 1, "exactly one user has a seen_at recorded")
+	// The fake records the FIRST timestamp and keeps it — same observable
+	// behavior as the production repo's `WHERE seen_at IS NULL` predicate.
 }
 
-// Unauthenticated requests must be rejected with 401 (matches the standard
-// /api/v1/user/* contract — these routes are wrapped by JWTAuth middleware
-// in production).
+// Unauthenticated requests must be rejected with 401. The handler must
+// reach this verdict from middleware.GetAuthSubjectFromContext alone —
+// the userService MUST NOT be touched (otherwise an attacker could DoS
+// the DB with anonymous POSTs).
 func TestUS031_MarkOnboardingTourSeen_Unauthenticated_401(t *testing.T) {
-	r, svc := newOnboardingTestRouter(t, false, 0)
+	r, repo := newOnboardingTestRouter(t, false, 0)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/user/onboarding-tour-completed", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusUnauthorized, w.Code)
-	require.Empty(t, svc.calls, "service must not be called without an auth subject")
+	require.Empty(t, repo.calls, "repo must not be called without an auth subject")
 }
+
+// Sanity check: the success envelope contains data.ok=true so the frontend
+// can rely on a stable shape. This pins the contract — if a future refactor
+// switches to `response.Success(c, nil)` the spec drifts and the frontend
+// would silently keep working but we'd lose the affirmative signal.
+func TestUS031_MarkOnboardingTourSeen_SuccessEnvelopeShape(t *testing.T) {
+	r, _ := newOnboardingTestRouter(t, true, 99)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/user/onboarding-tour-completed", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	env := decodeStandardEnvelope(t, w.Body.String())
+	require.Equal(t, 0, env.Code)
+	dataMap, ok := env.Data.(map[string]any)
+	require.True(t, ok, "data should be a JSON object")
+	require.Equal(t, true, dataMap["ok"])
+}
+
