@@ -3,7 +3,6 @@ package service
 import (
 	"container/heap"
 	"context"
-	"errors"
 	"fmt"
 	"hash/fnv"
 	"math"
@@ -234,6 +233,15 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		s.metrics.recordSelect(decision)
 	}()
 
+	// P0-1 (docs/bugs/2026-04-23-newapi-fifth-platform-audit.md):
+	// 与 selectAccountForModelWithExclusions / SelectAccountWithLoadAwareness
+	// 入口对齐——channel pricing 限制属于 group/channel 治理面，必须在选号
+	// 前置拒绝。两个调度入口语义漂移会让运营在排查时彻底失去对账号选择
+	// 行为的预期。
+	if s != nil && s.service != nil && s.service.checkChannelPricingRestriction(ctx, req.GroupID, req.RequestedModel) {
+		return nil, decision, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, req.RequestedModel)
+	}
+
 	previousResponseID := strings.TrimSpace(req.PreviousResponseID)
 	if previousResponseID != "" {
 		selection, err := s.service.SelectAccountByPreviousResponseID(
@@ -334,6 +342,14 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	}
 	account = s.service.recheckSelectedOpenAIAccountFromDB(ctx, account, req.RequestedModel, req.GroupPlatform)
 	if account == nil {
+		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
+		return nil, nil
+	}
+	// P0-1: 与 tryStickySessionHit 对称——upstream 渠道限制（BillingModelSourceUpstream）
+	// 必须在 sticky HIT 后再校验一次；否则上游已对该模型限流的 sticky-bound 账号
+	// 仍会持续被命中。
+	if req.GroupID != nil && s.service.needsUpstreamChannelRestrictionCheck(ctx, req.GroupID) &&
+		s.service.isUpstreamModelRestrictedByChannel(ctx, *req.GroupID, account, req.RequestedModel) {
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
 		return nil, nil
 	}
@@ -574,7 +590,10 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		return nil, 0, 0, 0, err
 	}
 	if len(accounts) == 0 {
-		return nil, 0, 0, 0, errors.New("no available OpenAI accounts")
+		// P1-2 (docs/bugs/...): OpenAI-compat 调度池现在同时承载 openai 与 newapi
+		// 两个平台。错误信息硬写 "OpenAI" 会让 newapi group 触发时运营误诊为
+		// 平台串号。改为带 platform 字面值，保持 OPC 可观测性。
+		return nil, 0, 0, 0, fmt.Errorf("no available accounts for platform %q", openAICompatErrorPlatformLabel(req.GroupPlatform))
 	}
 
 	// require_privacy_set: 获取分组信息
@@ -582,6 +601,12 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 	if req.GroupID != nil && s.service.schedulerSnapshot != nil {
 		schedGroup, _ = s.service.schedulerSnapshot.GetGroupByID(ctx, *req.GroupID)
 	}
+
+	// P0-1: upstream 渠道模型限制（BillingModelSourceUpstream）必须按账号粒度过滤。
+	// 与 SelectAccountWithLoadAwareness 一致：cache 一次 needsUpstreamCheck，
+	// 然后在每个候选过滤循环 + fresh-recheck + WaitPlan 三处都调
+	// isUpstreamModelRestrictedByChannel（见下方对应注释）。
+	needsUpstreamCheck := req.GroupID != nil && s.service.needsUpstreamChannelRestrictionCheck(ctx, req.GroupID)
 
 	filtered := make([]*Account, 0, len(accounts))
 	loadReq := make([]AccountWithConcurrency, 0, len(accounts))
@@ -607,6 +632,9 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		if !s.isAccountTransportCompatible(account, req.RequiredTransport) {
 			continue
 		}
+		if needsUpstreamCheck && s.service.isUpstreamModelRestrictedByChannel(ctx, *req.GroupID, account, req.RequestedModel) {
+			continue
+		}
 		filtered = append(filtered, account)
 		loadReq = append(loadReq, AccountWithConcurrency{
 			ID:             account.ID,
@@ -614,7 +642,8 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		})
 	}
 	if len(filtered) == 0 {
-		return nil, 0, 0, 0, errors.New("no available OpenAI accounts")
+		// P1-2: 同上——所有候选都被过滤掉时，错误信息也按 group platform 区分。
+		return nil, 0, 0, 0, fmt.Errorf("no available accounts for platform %q", openAICompatErrorPlatformLabel(req.GroupPlatform))
 	}
 
 	loadMap := map[int64]*AccountLoadInfo{}
@@ -714,6 +743,11 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		if fresh == nil || !s.isAccountTransportCompatible(fresh, req.RequiredTransport) {
 			continue
 		}
+		// P0-1: upstream 渠道限制可能在 candidate 过滤后才被运营变更（极少数）；
+		// 与 SelectAccountWithLoadAwareness 的 fresh-recheck 路径对齐，再校验一次。
+		if needsUpstreamCheck && s.service.isUpstreamModelRestrictedByChannel(ctx, *req.GroupID, fresh, req.RequestedModel) {
+			continue
+		}
 		result, acquireErr := s.service.tryAcquireAccountSlot(ctx, fresh.ID, fresh.Concurrency)
 		if acquireErr != nil {
 			return nil, len(candidates), topK, loadSkew, acquireErr
@@ -735,6 +769,11 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 	for _, candidate := range selectionOrder {
 		fresh := s.service.resolveFreshSchedulableOpenAIAccount(ctx, candidate.account, req.RequestedModel, req.GroupPlatform)
 		if fresh == nil || !s.isAccountTransportCompatible(fresh, req.RequiredTransport) {
+			continue
+		}
+		// P0-1: WaitPlan 也必须遵守 upstream 渠道限制；否则 fallback wait 会
+		// 把客户端 hold 在一个上游已经禁用该模型的账号上，到超时再失败。
+		if needsUpstreamCheck && s.service.isUpstreamModelRestrictedByChannel(ctx, *req.GroupID, fresh, req.RequestedModel) {
 			continue
 		}
 		return &AccountSelectionResult{
