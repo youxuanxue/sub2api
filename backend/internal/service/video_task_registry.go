@@ -21,14 +21,25 @@ import (
 // inherently asynchronous for video, so the registry must outlive any single
 // HTTP request.
 //
-// Storage: primarily Redis (shared across replicas, TTL-bounded). When Redis
-// is not available (unit tests, broken env), an in-memory map is used so the
-// gateway still functions on a single instance. The in-memory fallback is NOT
-// safe across replicas; production deployments must have Redis configured.
+// Storage model: **Redis is the single source of truth when configured**;
+// the in-memory map is a strict fallback used only when rdb is nil (unit
+// tests, broken env). We intentionally do NOT use the in-memory map as a
+// secondary cache when Redis is present, because doing so would:
+//
+//   - Leak memory in any deployment where users submit but never poll
+//     (no eviction beyond Delete-on-terminal-status).
+//   - Break multi-replica correctness: a Delete on replica B could not
+//     reach replica A's in-memory copy, so A would still serve a stale
+//     "succeeded" status indefinitely.
+//
+// All production deployments configure Redis (see deploy/docker-compose*.yml);
+// the rdb=nil branch exists only for `go test -tags=unit` paths.
 type VideoTaskRegistry struct {
 	rdb *redis.Client
 	ttl time.Duration
 
+	// mem is consulted ONLY when rdb is nil. Touching it when rdb is set
+	// would resurrect the cross-replica leak that motivated this design.
 	mu  sync.RWMutex
 	mem map[string]*VideoTaskRecord
 }
@@ -59,24 +70,33 @@ const (
 )
 
 // NewVideoTaskRegistry constructs a registry. rdb may be nil — in that case
-// only the in-memory fallback is used.
+// only the in-memory fallback is used (single-replica unit tests / broken
+// env). Production deployments always pass a non-nil rdb.
 func NewVideoTaskRegistry(rdb *redis.Client) *VideoTaskRegistry {
-	return &VideoTaskRegistry{
+	r := &VideoTaskRegistry{
 		rdb: rdb,
 		ttl: videoTaskRegistryDefaultTTL,
-		mem: make(map[string]*VideoTaskRecord),
 	}
+	if rdb == nil {
+		r.mem = make(map[string]*VideoTaskRecord)
+	}
+	return r
 }
 
-// Save persists the record. The in-memory copy is always populated; Redis is
-// best-effort and returns a non-nil error only on marshal failure (a Redis
-// outage logs a warning but does NOT fail the submit, because the upstream
-// task has already been created and quota already recorded — failing here
-// would leave the user with no task_id but a billed task running upstream).
+// Save persists the record. Redis is the source of truth when configured;
+// errors there are reported to the caller so the handler can decide whether
+// to fail the submit. We previously soft-failed on Redis errors and kept an
+// in-memory copy, but that had two failure modes:
 //
-// Multi-replica deployments must monitor the redisErr path; persistent
-// failures degrade polling reliability since a poll arriving on a different
-// replica will 404.
+//   - In-memory copy on replica A is invisible to replica B → polling on B
+//     returns 404 even though the task is running upstream.
+//   - In-memory copy never expires (only Delete-on-terminal removes it),
+//     leaking memory for tasks the user never polls.
+//
+// The current code logs and returns nil on Redis errors so the upstream task
+// is not orphaned, mirroring the previous behavior — but multi-replica
+// operators MUST monitor the warn log because a Redis outage now produces
+// 404s on subsequent polls (rather than silently routing to a stale copy).
 func (r *VideoTaskRegistry) Save(ctx context.Context, record *VideoTaskRecord) error {
 	if record == nil || strings.TrimSpace(record.PublicTaskID) == "" {
 		return errors.New("video task record requires public_task_id")
@@ -84,10 +104,10 @@ func (r *VideoTaskRegistry) Save(ctx context.Context, record *VideoTaskRecord) e
 	if record.CreatedAt.IsZero() {
 		record.CreatedAt = time.Now()
 	}
-	r.mu.Lock()
-	r.mem[record.PublicTaskID] = record
-	r.mu.Unlock()
 	if r.rdb == nil {
+		r.mu.Lock()
+		r.mem[record.PublicTaskID] = record
+		r.mu.Unlock()
 		return nil
 	}
 	payload, err := json.Marshal(record)
@@ -103,50 +123,49 @@ func (r *VideoTaskRegistry) Save(ctx context.Context, record *VideoTaskRecord) e
 	return nil
 }
 
-// Lookup returns the record for the given public task id. Redis is consulted
-// first (so a poll arriving on a different replica still works); on miss the
-// in-memory store is checked. A cache-hit from Redis backfills memory for
-// faster subsequent polls.
+// Lookup returns the record for the given public task id. Redis is the single
+// source of truth when configured; on Redis miss / outage we return false (no
+// memory fallback) so the handler 404s and the client knows to retry rather
+// than acting on a stale local copy.
 func (r *VideoTaskRegistry) Lookup(ctx context.Context, publicTaskID string) (*VideoTaskRecord, bool) {
 	publicTaskID = strings.TrimSpace(publicTaskID)
 	if publicTaskID == "" {
 		return nil, false
 	}
-	if r.rdb != nil {
-		raw, err := r.rdb.Get(ctx, r.redisKey(publicTaskID)).Bytes()
-		if err == nil && len(raw) > 0 {
-			var rec VideoTaskRecord
-			if jsonErr := json.Unmarshal(raw, &rec); jsonErr == nil && rec.PublicTaskID == publicTaskID {
-				r.mu.Lock()
-				r.mem[publicTaskID] = &rec
-				r.mu.Unlock()
-				return &rec, true
-			}
+	if r.rdb == nil {
+		r.mu.RLock()
+		rec, ok := r.mem[publicTaskID]
+		r.mu.RUnlock()
+		if !ok {
+			return nil, false
 		}
+		cp := *rec
+		return &cp, true
 	}
-	r.mu.RLock()
-	rec, ok := r.mem[publicTaskID]
-	r.mu.RUnlock()
-	if !ok {
+	raw, err := r.rdb.Get(ctx, r.redisKey(publicTaskID)).Bytes()
+	if err != nil || len(raw) == 0 {
 		return nil, false
 	}
-	cp := *rec
-	return &cp, true
+	var rec VideoTaskRecord
+	if err := json.Unmarshal(raw, &rec); err != nil || rec.PublicTaskID != publicTaskID {
+		return nil, false
+	}
+	return &rec, true
 }
 
-// Delete removes a record. Used when the upstream reports a terminal status
-// and the client has acknowledged it.
+// Delete removes a record. Used when the upstream reports a terminal status.
 func (r *VideoTaskRegistry) Delete(ctx context.Context, publicTaskID string) {
 	publicTaskID = strings.TrimSpace(publicTaskID)
 	if publicTaskID == "" {
 		return
 	}
-	r.mu.Lock()
-	delete(r.mem, publicTaskID)
-	r.mu.Unlock()
-	if r.rdb != nil {
-		_ = r.rdb.Del(ctx, r.redisKey(publicTaskID)).Err()
+	if r.rdb == nil {
+		r.mu.Lock()
+		delete(r.mem, publicTaskID)
+		r.mu.Unlock()
+		return
 	}
+	_ = r.rdb.Del(ctx, r.redisKey(publicTaskID)).Err()
 }
 
 func (r *VideoTaskRegistry) redisKey(publicTaskID string) string {

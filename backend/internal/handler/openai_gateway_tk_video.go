@@ -235,7 +235,6 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 	})
 }
 
-
 // VideoFetch handles GET /v1/video/generations/:task_id and the OpenAI-compat
 // alias GET /v1/videos/:task_id. The task_id parameter is our public task id;
 // we look up the registry, verify ownership, and replay the FetchTask call to
