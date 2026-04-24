@@ -39,8 +39,13 @@
     },
     {
       "path": "backend/internal/service/video_task_registry.go",
-      "must_contain": ["VideoTaskRegistry", "VideoTaskRecord", "NewVideoTaskRegistry"],
-      "rationale": "Redis-backed registry that pins a public task_id to its originating account/channel. Required because async video tasks outlive the HTTP submit and TokenKey deliberately does not persist to a model.Task table. Removing this registry breaks GET /v1/video/generations/:task_id polling (404 every time) without any compile error — the tk_video dispatch helper would still exist."
+      "must_contain": ["VideoTaskCache", "VideoTaskRecord"],
+      "rationale": "Service-side interface (VideoTaskCache) + DTO (VideoTaskRecord) for the video task registry. Concrete impl lives in repository/video_task_cache.go (Redis-backed; depguard forbids service from importing redis directly). Removing this file collapses the entire video-fetch path: handler can't compile, dispatch helper can't compile, registry routing pin disappears."
+    },
+    {
+      "path": "backend/internal/repository/video_task_cache.go",
+      "must_contain": ["NewVideoTaskCache", "videoTaskRedisCache", "videoTaskMemCache"],
+      "rationale": "Repository-side concrete impl of service.VideoTaskCache. Two implementations: redis-backed for production (single source of truth across replicas) and in-memory for unit tests (rdb=nil). NewVideoTaskCache is the constructor wired in repository/wire.go. An upstream merge that drops this file silently 404s every video task GET because no impl is registered."
     },
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_video.go",

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/repository"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -28,8 +29,8 @@ import (
 func TestVideoFetch_CrossUser_Returns404(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	registry := service.NewVideoTaskRegistry(nil)
-	if err := registry.Save(context.Background(), &service.VideoTaskRecord{
+	cache := repository.NewVideoTaskCache(nil)
+	if err := cache.Save(context.Background(), &service.VideoTaskRecord{
 		PublicTaskID:   "vt_owned_by_user_one",
 		UpstreamTaskID: "cgt-owner-task",
 		UserID:         1, // task owner
@@ -39,7 +40,7 @@ func TestVideoFetch_CrossUser_Returns404(t *testing.T) {
 	}
 
 	h := &OpenAIGatewayHandler{}
-	h.SetVideoTaskRegistry(registry)
+	h.SetVideoTaskCache(cache)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -70,13 +71,13 @@ func TestVideoFetch_CrossUser_Returns404(t *testing.T) {
 
 	// The record MUST still be in the registry — a foreign GET should not
 	// expire someone else's task.
-	if _, ok := registry.Lookup(context.Background(), "vt_owned_by_user_one"); !ok {
+	if _, ok := cache.Lookup(context.Background(), "vt_owned_by_user_one"); !ok {
 		t.Fatal("foreign 404 must not delete the record")
 	}
 }
 
 // TestVideoFetch_NilRegistry_Returns503 verifies the nil-safety contract on
-// SetVideoTaskRegistry: a handler constructed by an older Wire path that
+// SetVideoTaskCache: a handler constructed by an older Wire path that
 // does not yet wire the registry (e.g. mid-rollout) MUST 503, not panic.
 func TestVideoFetch_NilRegistry_Returns503(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -96,9 +97,9 @@ func TestVideoFetch_NilRegistry_Returns503(t *testing.T) {
 // scan that returns nil.
 func TestVideoFetch_MissingTaskID_Returns400(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	registry := service.NewVideoTaskRegistry(nil)
+	cache := repository.NewVideoTaskCache(nil)
 	h := &OpenAIGatewayHandler{}
-	h.SetVideoTaskRegistry(registry)
+	h.SetVideoTaskCache(cache)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodGet, "/v1/video/generations/", nil)

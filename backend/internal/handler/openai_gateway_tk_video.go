@@ -19,13 +19,13 @@ import (
 	"go.uber.org/zap"
 )
 
-// SetVideoTaskRegistry wires the registry post-construction. Mirrors the
+// SetVideoTaskCache wires the registry post-construction. Mirrors the
 // `SetSettingService` pattern used elsewhere to keep the upstream-shape
 // NewOpenAIGatewayHandler signature stable across upstream merges
 // (CLAUDE.md §5 — minimal injection point). Nil-safe: VideoSubmit and
-// VideoFetch return 503 if the registry was never wired.
-func (h *OpenAIGatewayHandler) SetVideoTaskRegistry(reg *service.VideoTaskRegistry) {
-	h.videoTaskRegistry = reg
+// VideoFetch return 503 if the cache was never wired.
+func (h *OpenAIGatewayHandler) SetVideoTaskCache(cache service.VideoTaskCache) {
+	h.videoTaskCache = cache
 }
 
 // VideoSubmit handles POST /v1/video/generations and the OpenAI-compat alias
@@ -58,7 +58,7 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 		zap.Int64("api_key_id", apiKey.ID),
 		zap.Any("group_id", apiKey.GroupID),
 	)
-	if h.videoTaskRegistry == nil {
+	if h.videoTaskCache == nil {
 		h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Video task registry is not configured")
 		return
 	}
@@ -191,7 +191,7 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 		UpstreamModel: outcome.UpstreamModel,
 		CreatedAt:     time.Now(),
 	}
-	if err := h.videoTaskRegistry.Save(c.Request.Context(), rec); err != nil {
+	if err := h.videoTaskCache.Save(c.Request.Context(), rec); err != nil {
 		// At this point the bridge has already written the success body
 		// (with publicTaskID) to the client. Failing the registry save
 		// would orphan the upstream task — log and continue so the user
@@ -261,7 +261,7 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "task_id is required")
 		return
 	}
-	if h.videoTaskRegistry == nil {
+	if h.videoTaskCache == nil {
 		h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Video task registry is not configured")
 		return
 	}
@@ -277,7 +277,7 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 	// the two branches keeps the response shape identical from a probe's
 	// perspective — the only signal a non-owner can extract is "doesn't
 	// exist for me", which is also what an owner sees post-expiry.
-	rec, ok := h.videoTaskRegistry.Lookup(c.Request.Context(), publicTaskID)
+	rec, ok := h.videoTaskCache.Lookup(c.Request.Context(), publicTaskID)
 	if !ok || rec.UserID != subject.UserID {
 		h.errorResponse(c, http.StatusNotFound, "not_found_error", "video task not found or expired")
 		return
@@ -315,7 +315,7 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 	// need the URL must have already consumed the response body above.
 	switch strings.ToLower(out.Status) {
 	case "success", "succeeded", "failure", "failed":
-		h.videoTaskRegistry.Delete(c.Request.Context(), publicTaskID)
+		h.videoTaskCache.Delete(c.Request.Context(), publicTaskID)
 	}
 }
 

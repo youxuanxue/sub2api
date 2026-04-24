@@ -72,10 +72,10 @@ type VideoFetchOutcome struct {
 // DispatchVideoSubmit runs the New API task adaptor for POST /v1/video/generations
 // (and the OpenAI-compat alias POST /v1/videos). It performs:
 //
-//   1) populate context keys + body storage
-//   2) parse TaskSubmitReq into Gin context (so adaptor.GetTaskRequest works)
-//   3) resolve the task adaptor by channel_type
-//   4) Init / Validate / BuildRequest / DoRequest / DoResponse
+//  1. populate context keys + body storage
+//  2. parse TaskSubmitReq into Gin context (so adaptor.GetTaskRequest works)
+//  3. resolve the task adaptor by channel_type
+//  4. Init / Validate / BuildRequest / DoRequest / DoResponse
 //
 // It deliberately skips:
 //
