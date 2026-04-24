@@ -87,6 +87,14 @@ type signupGrantPlan struct {
 	Balance       float64
 	Concurrency   int
 	Subscriptions []DefaultSubscriptionSetting
+
+	// AuthSourceGranted is true when admin explicitly enabled auth-source grant
+	// for this signup channel (e.g. SettingKeyAuthSourceDefaultEmailGrantOnSignup=true).
+	// TK uses this flag to suppress the cold-start signup bonus stacking — when
+	// admin has already configured an explicit grant amount, the user-cold-start
+	// bonus would be a surprise extra credit, not the intended UX. See the
+	// 4 failing TestAuthService_Register_*GrantEnabled tests for the expectation.
+	AuthSourceGranted bool
 }
 
 // NewAuthService 创建认证服务实例
@@ -207,9 +215,13 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 	}
 
 	// TokenKey US-029: bake signup bonus into INSERT-time balance.
-	// Bonus stacks ON TOP of the upstream signup grant plan's balance, so an admin
-	// who configures both (legacy default-balance grant + bonus) sees both applied.
-	totalBalance, bonusUSD := s.applySignupBonusUSD(ctx, grantPlan.Balance)
+	// Skip the bonus when admin explicitly enabled per-auth-source grant (the
+	// admin's chosen grant amount already represents the intended welcome
+	// credit; stacking the cold-start default $1 on top would be a surprise).
+	totalBalance, bonusUSD := grantPlan.Balance, 0.0
+	if !grantPlan.AuthSourceGranted {
+		totalBalance, bonusUSD = s.applySignupBonusUSD(ctx, grantPlan.Balance)
+	}
 
 	// 创建用户
 	user := &User{
@@ -631,8 +643,11 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 			}
 
 			// TokenKey US-029: bake signup bonus into INSERT-time balance for OAuth path.
-			// Bonus stacks on top of the upstream signup grant plan's balance.
-			totalBalance, bonusUSD := s.applySignupBonusUSD(ctx, grantPlan.Balance)
+			// Skip the bonus when admin explicitly enabled per-auth-source grant (see Register).
+			totalBalance, bonusUSD := grantPlan.Balance, 0.0
+			if !grantPlan.AuthSourceGranted {
+				totalBalance, bonusUSD = s.applySignupBonusUSD(ctx, grantPlan.Balance)
+			}
 
 			newUser := &User{
 				Email:        email,
@@ -775,6 +790,7 @@ func (s *AuthService) resolveSignupGrantPlan(ctx context.Context, signupSource s
 	plan.Balance = resolved.Balance
 	plan.Concurrency = resolved.Concurrency
 	plan.Subscriptions = resolved.Subscriptions
+	plan.AuthSourceGranted = true
 	return plan
 }
 

@@ -695,6 +695,10 @@ type PublicSettingsInjectionPayload struct {
 	ChannelMonitorEnabled                bool `json:"channel_monitor_enabled"`
 	ChannelMonitorDefaultIntervalSeconds int  `json:"channel_monitor_default_interval_seconds"`
 	AvailableChannelsEnabled             bool `json:"available_channels_enabled"`
+
+	// TK cold-start (US-028): public catalog gate must be readable pre-login
+	// so HomeView / PricingView can hide the entry without authenticating.
+	PricingCatalogPublic bool `json:"pricing_catalog_public"`
 }
 
 // GetPublicSettingsForInjection returns public settings in a format suitable for HTML injection.
@@ -747,6 +751,9 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		ChannelMonitorEnabled:                settings.ChannelMonitorEnabled,
 		ChannelMonitorDefaultIntervalSeconds: settings.ChannelMonitorDefaultIntervalSeconds,
 		AvailableChannelsEnabled:             settings.AvailableChannelsEnabled,
+
+		// TK cold-start (US-028)
+		PricingCatalogPublic: settings.PricingCatalogPublic,
 	}, nil
 }
 

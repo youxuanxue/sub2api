@@ -927,7 +927,25 @@ func (a *Account) GetOpenAISessionID() string {
 	return strings.TrimSpace(a.GetExtraString("openai_session_id"))
 }
 
+// SupportsOpenAIImageCapability reports whether this account can serve a
+// /v1/images request demanding the given capability (basic or native).
+//
+// Empty capability ("") means the caller is NOT making an image request — it
+// passes through any OpenAI-compat account (openai or newapi) so the
+// scheduler post-filter loop in selectAccountWithScheduler does not exclude
+// non-image requests on newapi groups. See
+// docs/approved/newapi-as-fifth-platform.md §3.1: image capability gating
+// must NOT collapse the OpenAI-compat scheduling pool.
 func (a *Account) SupportsOpenAIImageCapability(capability OpenAIImagesCapability) bool {
+	if capability == "" {
+		// Non-image request: accept anything in the OpenAI-compat pool. The
+		// upstream gate (IsOpenAI alone) silently filtered out newapi accounts
+		// during Stage A merge — restored here.
+		return true
+	}
+	// Image-capability request: still requires an actual OpenAI account
+	// (newapi cannot serve /v1/images via this code path; image requests on
+	// newapi groups go through the bridge instead).
 	if !a.IsOpenAI() {
 		return false
 	}

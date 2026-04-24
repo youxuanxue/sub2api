@@ -112,6 +112,7 @@ func (s *userHandlerRepoStub) RemoveGroupFromUserAllowedGroups(context.Context, 
 func (s *userHandlerRepoStub) UpdateTotpSecret(context.Context, int64, *string) error { return nil }
 func (s *userHandlerRepoStub) EnableTotp(context.Context, int64) error                { return nil }
 func (s *userHandlerRepoStub) DisableTotp(context.Context, int64) error               { return nil }
+func (s *userHandlerRepoStub) MarkOnboardingTourSeen(context.Context, int64) error    { return nil }
 func (s *userHandlerRepoStub) ListUserAuthIdentities(context.Context, int64) ([]service.UserAuthIdentityRecord, error) {
 	out := make([]service.UserAuthIdentityRecord, len(s.identities))
 	copy(out, s.identities)

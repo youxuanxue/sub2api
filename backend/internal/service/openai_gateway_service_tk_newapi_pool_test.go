@@ -51,12 +51,22 @@ func newStickyFixture(t *testing.T, groupID int64, groupPlatform string, pool []
 		bindings["openai:"+sessionHash] = stickyAccountID
 	}
 	cache := &stubGatewayCache{sessionBindings: bindings}
+	// Upstream Stage A introduced an `openai_advanced_scheduler_enabled` setting
+	// (default false) that gates whether SelectAccountWithScheduler routes through
+	// the scheduler.Select path (which sets decision.Layer=session_hash on sticky
+	// HIT) or the legacy SelectAccountWithLoadAwareness path (which always sets
+	// decision.Layer=load_balance). Pre-merge TK code unconditionally returned the
+	// scheduler so these tests asserted Layer=session_hash. Re-enable the
+	// scheduler here so the post-merge tests still exercise the layer branch
+	// they were authored for. See newOpenAIAdvancedSchedulerRateLimitService in
+	// openai_account_scheduler_test.go for the canonical pattern.
 	return &OpenAIGatewayService{
 		accountRepo:        stubOpenAIAccountRepo{accounts: repoAccounts},
 		cache:              cache,
 		cfg:                &config.Config{},
 		schedulerSnapshot:  snapshotService,
 		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
+		rateLimitService:   newOpenAIAdvancedSchedulerRateLimitService("true"),
 	}
 }
 

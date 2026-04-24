@@ -2878,6 +2878,12 @@ func (r *oauthPendingFlowUserRepo) DisableTotp(ctx context.Context, userID int64
 		Exec(ctx)
 }
 
+func (r *oauthPendingFlowUserRepo) MarkOnboardingTourSeen(ctx context.Context, userID int64) error {
+	return r.client.User.UpdateOneID(userID).
+		SetOnboardingTourSeenAt(time.Now()).
+		Exec(ctx)
+}
+
 func oauthPendingFlowServiceUser(entity *dbent.User) *service.User {
 	if entity == nil {
 		return nil

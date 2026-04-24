@@ -63,6 +63,13 @@ func newAPISchedFixture(t *testing.T, groupID int64, groupPlatform string, pool 
 		cfg:                &config.Config{},
 		schedulerSnapshot:  snapshotService,
 		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
+		// Upstream Stage A introduced the `openai_advanced_scheduler_enabled`
+		// setting (default false). Pre-merge TK code unconditionally returned
+		// the scheduler. These tests assert the scheduler.Select code path
+		// (e.g. selectByLoadBalance error message format with platform name);
+		// turn the setting ON so the post-merge tests still hit that branch
+		// instead of the legacy SelectAccountWithLoadAwareness fallback.
+		rateLimitService: newOpenAIAdvancedSchedulerRateLimitService("true"),
 	}
 	sched := &defaultOpenAIAccountScheduler{service: svc}
 	return svc, sched

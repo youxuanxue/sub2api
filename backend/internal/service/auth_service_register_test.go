@@ -573,6 +573,10 @@ func TestAuthService_Register_GrantOnSignupFalseFallsBackToGlobalDefaults(t *tes
 		SettingKeyAuthSourceDefaultEmailConcurrency:   "88",
 		SettingKeyAuthSourceDefaultEmailSubscriptions: `[{"group_id":32,"validity_days":9}]`,
 		SettingKeyAuthSourceDefaultEmailGrantOnSignup: "false",
+		// TK cold-start: pin signup_bonus disabled so this upstream-shape test
+		// (asserting plain global default-balance behavior) is not perturbed by
+		// the cold-start $1 bonus that defaults ON when the row is missing.
+		SettingKeySignupBonusEnabled: "false",
 	}, nil)
 	service.defaultSubAssigner = assigner
 

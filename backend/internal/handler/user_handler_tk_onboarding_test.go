@@ -111,6 +111,30 @@ func (r *onboardingFakeUserRepo) EnableTotp(context.Context, int64) error {
 func (r *onboardingFakeUserRepo) DisableTotp(context.Context, int64) error {
 	panic("unexpected DisableTotp")
 }
+func (r *onboardingFakeUserRepo) DeleteUserAvatar(context.Context, int64) error {
+	panic("unexpected DeleteUserAvatar")
+}
+func (r *onboardingFakeUserRepo) GetUserAvatar(context.Context, int64) (*service.UserAvatar, error) {
+	panic("unexpected GetUserAvatar")
+}
+func (r *onboardingFakeUserRepo) UpsertUserAvatar(context.Context, int64, service.UpsertUserAvatarInput) (*service.UserAvatar, error) {
+	panic("unexpected UpsertUserAvatar")
+}
+func (r *onboardingFakeUserRepo) GetLatestUsedAtByUserIDs(context.Context, []int64) (map[int64]*time.Time, error) {
+	panic("unexpected GetLatestUsedAtByUserIDs")
+}
+func (r *onboardingFakeUserRepo) GetLatestUsedAtByUserID(context.Context, int64) (*time.Time, error) {
+	panic("unexpected GetLatestUsedAtByUserID")
+}
+func (r *onboardingFakeUserRepo) UpdateUserLastActiveAt(context.Context, int64, time.Time) error {
+	panic("unexpected UpdateUserLastActiveAt")
+}
+func (r *onboardingFakeUserRepo) ListUserAuthIdentities(context.Context, int64) ([]service.UserAuthIdentityRecord, error) {
+	panic("unexpected ListUserAuthIdentities")
+}
+func (r *onboardingFakeUserRepo) UnbindUserAuthProvider(context.Context, int64, string) error {
+	panic("unexpected UnbindUserAuthProvider")
+}
 
 // newOnboardingTestRouter wires the REAL UserHandler.MarkOnboardingTourSeen
 // behind a tiny middleware that injects an AuthSubject (mirroring production
@@ -121,7 +145,7 @@ func newOnboardingTestRouter(t *testing.T, withAuth bool, userID int64) (*gin.En
 	gin.SetMode(gin.TestMode)
 	repo := newOnboardingFakeUserRepo()
 	userSvc := service.NewUserService(repo, nil, nil, nil)
-	h := NewUserHandler(userSvc, nil, nil)
+	h := NewUserHandler(userSvc, nil, nil, nil)
 
 	r := gin.New()
 	if withAuth {
