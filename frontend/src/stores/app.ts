@@ -49,6 +49,13 @@ export const useAppStore = defineStore('app', () => {
 
   const hasActiveToasts = computed(() => toasts.value.length > 0)
 
+  // TK + upstream: backend_mode_enabled gates whether anonymous public routes
+  // are accessible (when ON, only login/setup/key-usage are reachable without
+  // auth). Default false to mirror the pre-merge behavior of TK's public site.
+  const backendModeEnabled = computed(
+    () => cachedPublicSettings.value?.backend_mode_enabled ?? false,
+  )
+
   const loadingCount = ref<number>(0)
 
   // ==================== Actions ====================
@@ -350,6 +357,7 @@ export const useAppStore = defineStore('app', () => {
         balance_low_notify_enabled: false,
         account_quota_notify_enabled: false,
         balance_low_notify_threshold: 0,
+        backend_mode_enabled: false,
         pricing_catalog_public: true,
         channel_monitor_enabled: true,
         channel_monitor_default_interval_seconds: 60,
@@ -426,6 +434,7 @@ export const useAppStore = defineStore('app', () => {
 
     // Computed
     hasActiveToasts,
+    backendModeEnabled,
 
     // Actions
     toggleSidebar,

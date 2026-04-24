@@ -187,6 +187,8 @@ export interface PublicSettings {
   balance_low_notify_enabled: boolean
   account_quota_notify_enabled: boolean
   balance_low_notify_threshold: number
+  // TK + upstream: backend mode gate (admin-only access). Default false.
+  backend_mode_enabled: boolean
   // TK cold-start: only the public toggle is exposed here so HomeView /
   // PricingView can hide the entry without authenticating. Bonus / trial
   // settings remain admin-only.
