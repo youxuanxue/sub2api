@@ -1,31 +1,8 @@
 name: Stage0 Deploy
 
-# Cloud-agent-driven tag-and-deploy automation. Wraps the existing manual SOP
-# in deploy/aws/README.md § 生产升级 SOP / § 测试栈推新版镜像 verbatim, gated
-# by:
-#   - GHCR multi-arch manifest precheck (rebuild of §9.1 trap as a hard gate)
-#   - GitHub Environment binding (load-bearing on the AWS side via the
-#     OIDC trust policy: only `environment:prod` and `environment:test`
-#     subjects can assume the role for deploys; see
-#     deploy/aws/cloudformation/cicd-oidc.yaml AllowedSubjects.)
-#
-# Trigger model: workflow_dispatch only. There is no schedule, no auto-fire
-# on tag push. The cloud-agent loop is:
-#
-#   bash scripts/release-tag.sh vX.Y.Z          (existing)
-#   gh run watch <release.yml run>              (existing)
-#   gh workflow run deploy-stage0.yml \         (this workflow)
-#     -f environment=test -f tag=X.Y.Z
-#   gh workflow run deploy-stage0.yml \         (this workflow)
-#     -f environment=prod -f tag=X.Y.Z
-#
-# Required repo variables (same set as error-clustering-daily.yml — reuse):
-#   AWS_OIDC_ROLE_ARN  ARN of tokenkey-gha-us-east-1-error-clustering
-#   AWS_REGION         default: us-east-1
-#   PROD_STACK_NAME    default: tokenkey-prod-stage0
-#   TEST_STACK_NAME    default: tokenkey-test-stage0
-#
-# Setup SOP: docs/approved/deploy-stage0-workflow.md § 5.
+# Wraps the SSM SOP in deploy/aws/README.md § 生产升级 SOP so cloud agents
+# can drive deploy end-to-end. Design + IAM + setup: see
+# docs/approved/deploy-stage0-workflow.md.
 
 on:
   workflow_dispatch:

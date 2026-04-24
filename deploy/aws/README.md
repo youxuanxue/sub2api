@@ -85,10 +85,12 @@ curl -sS -o /dev/null -w '%{http_code}\n' "https://${DOMAIN}/health"
 ## 升级 / 发版（生产 + 测试栈共用）
 
 
-| Stack                       | `ImageTag` 来源                            | `ApiDomain`             | 升级方式                                                                                                                                                                                                                                  |
-| --------------------------- | ---------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tokenkey-prod-stage0`      | `.env` 内的 `TOKENKEY_IMAGE`（CFN 参数仅用于初始化） | `api.tokenkey.dev`      | **首选路径：`gh workflow run deploy-stage0.yml -f environment=prod -f tag=X.Y.Z`**（见下方 §升级 SOP），cloud-agent 自闭环 + GitHub Environment 审批门禁；底层等价于 SSM `docker compose pull && up -d tokenkey`。CFN deploy 改 `ImageTag` 现在**安全**（数据在独立 `DataVolume` 上，instance replace 时 detach + 新 instance attach），但仍有 1–3 min 停机窗口（旧实例 stop → 新实例 boot + bootstrap）。 |
-| `tokenkey-test-stage0`（如存在） | `.env` 同上，初始化用 `latest` 跟随               | `test-api.tokenkey.dev` | 同上 dispatch 路径，`-f environment=test`，无审批门禁；底层 SSM `pull && up -d` 等价。                                                                                                                                                                |
+| Stack                       | `ImageTag` 来源                            | `ApiDomain`             |
+| --------------------------- | ---------------------------------------- | ----------------------- |
+| `tokenkey-prod-stage0`      | `.env` 内的 `TOKENKEY_IMAGE`（CFN 参数仅用于初始化） | `api.tokenkey.dev`      |
+| `tokenkey-test-stage0`（如存在） | `.env` 同上，初始化用 `latest` 跟随               | `test-api.tokenkey.dev` |
+
+升级方式见下方 §升级 SOP（首选 `deploy-stage0.yml` dispatch；底层手工 SSM 路径作备用）。CFN deploy 改 `ImageTag` 现在数据可保留（独立 `DataVolume` detach + 新 instance attach），但实例替换仍有 1–3 min 停机窗口，生产默认走 SSM 原地升级。
 
 
 > 2026-04-21 实测：prod 栈 CFN `ImageTag=1.2.0`，但运行态 `TOKENKEY_IMAGE` 与容器实际镜像均为 `ghcr.io/youxuanxue/sub2api:1.4.1`（SSM 原地升级后形成的受控漂移）。
@@ -372,15 +374,7 @@ aws cloudformation describe-stacks --region "${REGION}" \
 # 去 Porkbun 加 A 记录 test-api.tokenkey.dev → <EIP>
 ```
 
-测试栈推新版镜像 — **走与生产相同的 SSM SOP**（见上方 §生产升级 SOP），仅替换 `INSTANCE_ID`：
-
-```bash
-INSTANCE_ID=$(aws cloudformation describe-stacks --region us-east-1 \
-  --stack-name tokenkey-test-stage0 \
-  --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)
-# 之后 aws ssm send-command 与 prod 段完全一致；测试栈 `.env` 默认 `TOKENKEY_IMAGE=...:latest`，
-# pull 即拿到最新；如要 pin 到具体版本，把上方 SOP 的 sed 换成你想要的 tag 即可。
-```
+测试栈推新版镜像 — `gh workflow run deploy-stage0.yml -f environment=test -f tag=X.Y.Z`（见 §升级 SOP）。或走 §生产升级 SOP（备用）的 SSM 路径，仅把 `--stack-name` 换成 `tokenkey-test-stage0`。
 
 测试环境用完销毁（彻底清零，不留 EIP/EBS 计费）：
 
