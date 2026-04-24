@@ -285,8 +285,7 @@ section only records sub2api-specific choices.
   discipline, approved-doc invariants R1-R5, doc-stat drift, cloud-agent
   env consistency) are **delegated** to `dev-rules/templates/preflight.sh`
   — the wrapper just invokes it. The wrapper exists ONLY to host
-  **sub2api-specific checks** (numbered after the dev-rules sections so the
-  output keeps a stable order):
+  **sub2api-specific checks**:
   - **newapi compat-pool drift** — guards the **forward-drift** failure
     mode that triggered `docs/approved/newapi-as-fifth-platform.md`. Any
     new scheduler/gateway caller must use `IsOpenAICompatPoolMember` /

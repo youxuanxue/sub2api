@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           submodules: recursive
-      - name: Run preflight (dev-rules template, 8 sections)
+      - name: Run preflight
         run: |
           if [ -x scripts/preflight.sh ]; then
             ./scripts/preflight.sh
