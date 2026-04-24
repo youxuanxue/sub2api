@@ -45,6 +45,14 @@ func (QARecord) Fields() []ent.Field {
 		field.String("response_sha256").Default(""),
 		field.String("blob_uri").Optional().Nillable(),
 		field.JSON("tags", []string{}).Default([]string{}),
+		// Synthetic-pipeline tagging (issue #59 / docs/projects/auto-traj-from-supply-demand.md §6.1).
+		// All four fields are nullable / have defaults so existing online callers are NOT affected.
+		// Populated by qa.Middleware from request headers X-Synth-Session, X-Synth-Role,
+		// X-Synth-Engineer-Level, X-Synth-Pipeline; absent for normal traffic (non-synth).
+		field.String("synth_session_id").Optional().Nillable(),
+		field.String("synth_role").Optional().Nillable(),
+		field.String("synth_engineer_level").Optional().Nillable(),
+		field.Bool("dialog_synth").Default(false),
 		field.Time("created_at").
 			Default(time.Now).
 			Immutable().
@@ -60,5 +68,11 @@ func (QARecord) Indexes() []ent.Index {
 		index.Fields("api_key_id", "created_at"),
 		index.Fields("user_id", "created_at"),
 		index.Fields("platform", "status_code", "created_at"),
+		// Issue #59: support `WHERE user_id = ? AND synth_session_id = ?` lookup
+		// driven by the M0 dual-CC pipeline. Partial index would be ideal (only
+		// rows where synth_session_id IS NOT NULL) but Ent's portable Indexes()
+		// API does not expose WHERE clauses; the migration SQL adds the partial
+		// variant directly.
+		index.Fields("user_id", "synth_session_id"),
 	}
 }

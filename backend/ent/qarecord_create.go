@@ -298,6 +298,62 @@ func (_c *QARecordCreate) SetTags(v []string) *QARecordCreate {
 	return _c
 }
 
+// SetSynthSessionID sets the "synth_session_id" field.
+func (_c *QARecordCreate) SetSynthSessionID(v string) *QARecordCreate {
+	_c.mutation.SetSynthSessionID(v)
+	return _c
+}
+
+// SetNillableSynthSessionID sets the "synth_session_id" field if the given value is not nil.
+func (_c *QARecordCreate) SetNillableSynthSessionID(v *string) *QARecordCreate {
+	if v != nil {
+		_c.SetSynthSessionID(*v)
+	}
+	return _c
+}
+
+// SetSynthRole sets the "synth_role" field.
+func (_c *QARecordCreate) SetSynthRole(v string) *QARecordCreate {
+	_c.mutation.SetSynthRole(v)
+	return _c
+}
+
+// SetNillableSynthRole sets the "synth_role" field if the given value is not nil.
+func (_c *QARecordCreate) SetNillableSynthRole(v *string) *QARecordCreate {
+	if v != nil {
+		_c.SetSynthRole(*v)
+	}
+	return _c
+}
+
+// SetSynthEngineerLevel sets the "synth_engineer_level" field.
+func (_c *QARecordCreate) SetSynthEngineerLevel(v string) *QARecordCreate {
+	_c.mutation.SetSynthEngineerLevel(v)
+	return _c
+}
+
+// SetNillableSynthEngineerLevel sets the "synth_engineer_level" field if the given value is not nil.
+func (_c *QARecordCreate) SetNillableSynthEngineerLevel(v *string) *QARecordCreate {
+	if v != nil {
+		_c.SetSynthEngineerLevel(*v)
+	}
+	return _c
+}
+
+// SetDialogSynth sets the "dialog_synth" field.
+func (_c *QARecordCreate) SetDialogSynth(v bool) *QARecordCreate {
+	_c.mutation.SetDialogSynth(v)
+	return _c
+}
+
+// SetNillableDialogSynth sets the "dialog_synth" field if the given value is not nil.
+func (_c *QARecordCreate) SetNillableDialogSynth(v *bool) *QARecordCreate {
+	if v != nil {
+		_c.SetDialogSynth(*v)
+	}
+	return _c
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (_c *QARecordCreate) SetCreatedAt(v time.Time) *QARecordCreate {
 	_c.mutation.SetCreatedAt(v)
@@ -409,6 +465,10 @@ func (_c *QARecordCreate) defaults() {
 		v := qarecord.DefaultTags
 		_c.mutation.SetTags(v)
 	}
+	if _, ok := _c.mutation.DialogSynth(); !ok {
+		v := qarecord.DefaultDialogSynth
+		_c.mutation.SetDialogSynth(v)
+	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		v := qarecord.DefaultCreatedAt()
 		_c.mutation.SetCreatedAt(v)
@@ -472,6 +532,9 @@ func (_c *QARecordCreate) check() error {
 	}
 	if _, ok := _c.mutation.Tags(); !ok {
 		return &ValidationError{Name: "tags", err: errors.New(`ent: missing required field "QARecord.tags"`)}
+	}
+	if _, ok := _c.mutation.DialogSynth(); !ok {
+		return &ValidationError{Name: "dialog_synth", err: errors.New(`ent: missing required field "QARecord.dialog_synth"`)}
 	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "QARecord.created_at"`)}
@@ -593,6 +656,22 @@ func (_c *QARecordCreate) createSpec() (*QARecord, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Tags(); ok {
 		_spec.SetField(qarecord.FieldTags, field.TypeJSON, value)
 		_node.Tags = value
+	}
+	if value, ok := _c.mutation.SynthSessionID(); ok {
+		_spec.SetField(qarecord.FieldSynthSessionID, field.TypeString, value)
+		_node.SynthSessionID = &value
+	}
+	if value, ok := _c.mutation.SynthRole(); ok {
+		_spec.SetField(qarecord.FieldSynthRole, field.TypeString, value)
+		_node.SynthRole = &value
+	}
+	if value, ok := _c.mutation.SynthEngineerLevel(); ok {
+		_spec.SetField(qarecord.FieldSynthEngineerLevel, field.TypeString, value)
+		_node.SynthEngineerLevel = &value
+	}
+	if value, ok := _c.mutation.DialogSynth(); ok {
+		_spec.SetField(qarecord.FieldDialogSynth, field.TypeBool, value)
+		_node.DialogSynth = value
 	}
 	if value, ok := _c.mutation.CreatedAt(); ok {
 		_spec.SetField(qarecord.FieldCreatedAt, field.TypeTime, value)
@@ -999,6 +1078,72 @@ func (u *QARecordUpsert) SetTags(v []string) *QARecordUpsert {
 // UpdateTags sets the "tags" field to the value that was provided on create.
 func (u *QARecordUpsert) UpdateTags() *QARecordUpsert {
 	u.SetExcluded(qarecord.FieldTags)
+	return u
+}
+
+// SetSynthSessionID sets the "synth_session_id" field.
+func (u *QARecordUpsert) SetSynthSessionID(v string) *QARecordUpsert {
+	u.Set(qarecord.FieldSynthSessionID, v)
+	return u
+}
+
+// UpdateSynthSessionID sets the "synth_session_id" field to the value that was provided on create.
+func (u *QARecordUpsert) UpdateSynthSessionID() *QARecordUpsert {
+	u.SetExcluded(qarecord.FieldSynthSessionID)
+	return u
+}
+
+// ClearSynthSessionID clears the value of the "synth_session_id" field.
+func (u *QARecordUpsert) ClearSynthSessionID() *QARecordUpsert {
+	u.SetNull(qarecord.FieldSynthSessionID)
+	return u
+}
+
+// SetSynthRole sets the "synth_role" field.
+func (u *QARecordUpsert) SetSynthRole(v string) *QARecordUpsert {
+	u.Set(qarecord.FieldSynthRole, v)
+	return u
+}
+
+// UpdateSynthRole sets the "synth_role" field to the value that was provided on create.
+func (u *QARecordUpsert) UpdateSynthRole() *QARecordUpsert {
+	u.SetExcluded(qarecord.FieldSynthRole)
+	return u
+}
+
+// ClearSynthRole clears the value of the "synth_role" field.
+func (u *QARecordUpsert) ClearSynthRole() *QARecordUpsert {
+	u.SetNull(qarecord.FieldSynthRole)
+	return u
+}
+
+// SetSynthEngineerLevel sets the "synth_engineer_level" field.
+func (u *QARecordUpsert) SetSynthEngineerLevel(v string) *QARecordUpsert {
+	u.Set(qarecord.FieldSynthEngineerLevel, v)
+	return u
+}
+
+// UpdateSynthEngineerLevel sets the "synth_engineer_level" field to the value that was provided on create.
+func (u *QARecordUpsert) UpdateSynthEngineerLevel() *QARecordUpsert {
+	u.SetExcluded(qarecord.FieldSynthEngineerLevel)
+	return u
+}
+
+// ClearSynthEngineerLevel clears the value of the "synth_engineer_level" field.
+func (u *QARecordUpsert) ClearSynthEngineerLevel() *QARecordUpsert {
+	u.SetNull(qarecord.FieldSynthEngineerLevel)
+	return u
+}
+
+// SetDialogSynth sets the "dialog_synth" field.
+func (u *QARecordUpsert) SetDialogSynth(v bool) *QARecordUpsert {
+	u.Set(qarecord.FieldDialogSynth, v)
+	return u
+}
+
+// UpdateDialogSynth sets the "dialog_synth" field to the value that was provided on create.
+func (u *QARecordUpsert) UpdateDialogSynth() *QARecordUpsert {
+	u.SetExcluded(qarecord.FieldDialogSynth)
 	return u
 }
 
@@ -1462,6 +1607,83 @@ func (u *QARecordUpsertOne) SetTags(v []string) *QARecordUpsertOne {
 func (u *QARecordUpsertOne) UpdateTags() *QARecordUpsertOne {
 	return u.Update(func(s *QARecordUpsert) {
 		s.UpdateTags()
+	})
+}
+
+// SetSynthSessionID sets the "synth_session_id" field.
+func (u *QARecordUpsertOne) SetSynthSessionID(v string) *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetSynthSessionID(v)
+	})
+}
+
+// UpdateSynthSessionID sets the "synth_session_id" field to the value that was provided on create.
+func (u *QARecordUpsertOne) UpdateSynthSessionID() *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateSynthSessionID()
+	})
+}
+
+// ClearSynthSessionID clears the value of the "synth_session_id" field.
+func (u *QARecordUpsertOne) ClearSynthSessionID() *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.ClearSynthSessionID()
+	})
+}
+
+// SetSynthRole sets the "synth_role" field.
+func (u *QARecordUpsertOne) SetSynthRole(v string) *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetSynthRole(v)
+	})
+}
+
+// UpdateSynthRole sets the "synth_role" field to the value that was provided on create.
+func (u *QARecordUpsertOne) UpdateSynthRole() *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateSynthRole()
+	})
+}
+
+// ClearSynthRole clears the value of the "synth_role" field.
+func (u *QARecordUpsertOne) ClearSynthRole() *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.ClearSynthRole()
+	})
+}
+
+// SetSynthEngineerLevel sets the "synth_engineer_level" field.
+func (u *QARecordUpsertOne) SetSynthEngineerLevel(v string) *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetSynthEngineerLevel(v)
+	})
+}
+
+// UpdateSynthEngineerLevel sets the "synth_engineer_level" field to the value that was provided on create.
+func (u *QARecordUpsertOne) UpdateSynthEngineerLevel() *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateSynthEngineerLevel()
+	})
+}
+
+// ClearSynthEngineerLevel clears the value of the "synth_engineer_level" field.
+func (u *QARecordUpsertOne) ClearSynthEngineerLevel() *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.ClearSynthEngineerLevel()
+	})
+}
+
+// SetDialogSynth sets the "dialog_synth" field.
+func (u *QARecordUpsertOne) SetDialogSynth(v bool) *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetDialogSynth(v)
+	})
+}
+
+// UpdateDialogSynth sets the "dialog_synth" field to the value that was provided on create.
+func (u *QARecordUpsertOne) UpdateDialogSynth() *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateDialogSynth()
 	})
 }
 
@@ -2093,6 +2315,83 @@ func (u *QARecordUpsertBulk) SetTags(v []string) *QARecordUpsertBulk {
 func (u *QARecordUpsertBulk) UpdateTags() *QARecordUpsertBulk {
 	return u.Update(func(s *QARecordUpsert) {
 		s.UpdateTags()
+	})
+}
+
+// SetSynthSessionID sets the "synth_session_id" field.
+func (u *QARecordUpsertBulk) SetSynthSessionID(v string) *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetSynthSessionID(v)
+	})
+}
+
+// UpdateSynthSessionID sets the "synth_session_id" field to the value that was provided on create.
+func (u *QARecordUpsertBulk) UpdateSynthSessionID() *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateSynthSessionID()
+	})
+}
+
+// ClearSynthSessionID clears the value of the "synth_session_id" field.
+func (u *QARecordUpsertBulk) ClearSynthSessionID() *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.ClearSynthSessionID()
+	})
+}
+
+// SetSynthRole sets the "synth_role" field.
+func (u *QARecordUpsertBulk) SetSynthRole(v string) *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetSynthRole(v)
+	})
+}
+
+// UpdateSynthRole sets the "synth_role" field to the value that was provided on create.
+func (u *QARecordUpsertBulk) UpdateSynthRole() *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateSynthRole()
+	})
+}
+
+// ClearSynthRole clears the value of the "synth_role" field.
+func (u *QARecordUpsertBulk) ClearSynthRole() *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.ClearSynthRole()
+	})
+}
+
+// SetSynthEngineerLevel sets the "synth_engineer_level" field.
+func (u *QARecordUpsertBulk) SetSynthEngineerLevel(v string) *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetSynthEngineerLevel(v)
+	})
+}
+
+// UpdateSynthEngineerLevel sets the "synth_engineer_level" field to the value that was provided on create.
+func (u *QARecordUpsertBulk) UpdateSynthEngineerLevel() *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateSynthEngineerLevel()
+	})
+}
+
+// ClearSynthEngineerLevel clears the value of the "synth_engineer_level" field.
+func (u *QARecordUpsertBulk) ClearSynthEngineerLevel() *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.ClearSynthEngineerLevel()
+	})
+}
+
+// SetDialogSynth sets the "dialog_synth" field.
+func (u *QARecordUpsertBulk) SetDialogSynth(v bool) *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetDialogSynth(v)
+	})
+}
+
+// UpdateDialogSynth sets the "dialog_synth" field to the value that was provided on create.
+func (u *QARecordUpsertBulk) UpdateDialogSynth() *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateDialogSynth()
 	})
 }
 

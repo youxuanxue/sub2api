@@ -19360,47 +19360,51 @@ func (m *ProxyMutation) ResetEdge(name string) error {
 // QARecordMutation represents an operation that mutates the QARecord nodes in the graph.
 type QARecordMutation struct {
 	config
-	op                 Op
-	typ                string
-	id                 *int64
-	request_id         *string
-	user_id            *int64
-	adduser_id         *int64
-	api_key_id         *int64
-	addapi_key_id      *int64
-	account_id         *int64
-	addaccount_id      *int64
-	platform           *string
-	requested_model    *string
-	upstream_model     *string
-	inbound_endpoint   *string
-	upstream_endpoint  *string
-	status_code        *int
-	addstatus_code     *int
-	duration_ms        *int64
-	addduration_ms     *int64
-	first_token_ms     *int64
-	addfirst_token_ms  *int64
-	stream             *bool
-	tool_calls_present *bool
-	multimodal_present *bool
-	input_tokens       *int
-	addinput_tokens    *int
-	output_tokens      *int
-	addoutput_tokens   *int
-	cached_tokens      *int
-	addcached_tokens   *int
-	request_sha256     *string
-	response_sha256    *string
-	blob_uri           *string
-	tags               *[]string
-	appendtags         []string
-	created_at         *time.Time
-	retention_until    *time.Time
-	clearedFields      map[string]struct{}
-	done               bool
-	oldValue           func(context.Context) (*QARecord, error)
-	predicates         []predicate.QARecord
+	op                   Op
+	typ                  string
+	id                   *int64
+	request_id           *string
+	user_id              *int64
+	adduser_id           *int64
+	api_key_id           *int64
+	addapi_key_id        *int64
+	account_id           *int64
+	addaccount_id        *int64
+	platform             *string
+	requested_model      *string
+	upstream_model       *string
+	inbound_endpoint     *string
+	upstream_endpoint    *string
+	status_code          *int
+	addstatus_code       *int
+	duration_ms          *int64
+	addduration_ms       *int64
+	first_token_ms       *int64
+	addfirst_token_ms    *int64
+	stream               *bool
+	tool_calls_present   *bool
+	multimodal_present   *bool
+	input_tokens         *int
+	addinput_tokens      *int
+	output_tokens        *int
+	addoutput_tokens     *int
+	cached_tokens        *int
+	addcached_tokens     *int
+	request_sha256       *string
+	response_sha256      *string
+	blob_uri             *string
+	tags                 *[]string
+	appendtags           []string
+	synth_session_id     *string
+	synth_role           *string
+	synth_engineer_level *string
+	dialog_synth         *bool
+	created_at           *time.Time
+	retention_until      *time.Time
+	clearedFields        map[string]struct{}
+	done                 bool
+	oldValue             func(context.Context) (*QARecord, error)
+	predicates           []predicate.QARecord
 }
 
 var _ ent.Mutation = (*QARecordMutation)(nil)
@@ -20555,6 +20559,189 @@ func (m *QARecordMutation) ResetTags() {
 	m.appendtags = nil
 }
 
+// SetSynthSessionID sets the "synth_session_id" field.
+func (m *QARecordMutation) SetSynthSessionID(s string) {
+	m.synth_session_id = &s
+}
+
+// SynthSessionID returns the value of the "synth_session_id" field in the mutation.
+func (m *QARecordMutation) SynthSessionID() (r string, exists bool) {
+	v := m.synth_session_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSynthSessionID returns the old "synth_session_id" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldSynthSessionID(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSynthSessionID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSynthSessionID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSynthSessionID: %w", err)
+	}
+	return oldValue.SynthSessionID, nil
+}
+
+// ClearSynthSessionID clears the value of the "synth_session_id" field.
+func (m *QARecordMutation) ClearSynthSessionID() {
+	m.synth_session_id = nil
+	m.clearedFields[qarecord.FieldSynthSessionID] = struct{}{}
+}
+
+// SynthSessionIDCleared returns if the "synth_session_id" field was cleared in this mutation.
+func (m *QARecordMutation) SynthSessionIDCleared() bool {
+	_, ok := m.clearedFields[qarecord.FieldSynthSessionID]
+	return ok
+}
+
+// ResetSynthSessionID resets all changes to the "synth_session_id" field.
+func (m *QARecordMutation) ResetSynthSessionID() {
+	m.synth_session_id = nil
+	delete(m.clearedFields, qarecord.FieldSynthSessionID)
+}
+
+// SetSynthRole sets the "synth_role" field.
+func (m *QARecordMutation) SetSynthRole(s string) {
+	m.synth_role = &s
+}
+
+// SynthRole returns the value of the "synth_role" field in the mutation.
+func (m *QARecordMutation) SynthRole() (r string, exists bool) {
+	v := m.synth_role
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSynthRole returns the old "synth_role" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldSynthRole(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSynthRole is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSynthRole requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSynthRole: %w", err)
+	}
+	return oldValue.SynthRole, nil
+}
+
+// ClearSynthRole clears the value of the "synth_role" field.
+func (m *QARecordMutation) ClearSynthRole() {
+	m.synth_role = nil
+	m.clearedFields[qarecord.FieldSynthRole] = struct{}{}
+}
+
+// SynthRoleCleared returns if the "synth_role" field was cleared in this mutation.
+func (m *QARecordMutation) SynthRoleCleared() bool {
+	_, ok := m.clearedFields[qarecord.FieldSynthRole]
+	return ok
+}
+
+// ResetSynthRole resets all changes to the "synth_role" field.
+func (m *QARecordMutation) ResetSynthRole() {
+	m.synth_role = nil
+	delete(m.clearedFields, qarecord.FieldSynthRole)
+}
+
+// SetSynthEngineerLevel sets the "synth_engineer_level" field.
+func (m *QARecordMutation) SetSynthEngineerLevel(s string) {
+	m.synth_engineer_level = &s
+}
+
+// SynthEngineerLevel returns the value of the "synth_engineer_level" field in the mutation.
+func (m *QARecordMutation) SynthEngineerLevel() (r string, exists bool) {
+	v := m.synth_engineer_level
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSynthEngineerLevel returns the old "synth_engineer_level" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldSynthEngineerLevel(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSynthEngineerLevel is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSynthEngineerLevel requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSynthEngineerLevel: %w", err)
+	}
+	return oldValue.SynthEngineerLevel, nil
+}
+
+// ClearSynthEngineerLevel clears the value of the "synth_engineer_level" field.
+func (m *QARecordMutation) ClearSynthEngineerLevel() {
+	m.synth_engineer_level = nil
+	m.clearedFields[qarecord.FieldSynthEngineerLevel] = struct{}{}
+}
+
+// SynthEngineerLevelCleared returns if the "synth_engineer_level" field was cleared in this mutation.
+func (m *QARecordMutation) SynthEngineerLevelCleared() bool {
+	_, ok := m.clearedFields[qarecord.FieldSynthEngineerLevel]
+	return ok
+}
+
+// ResetSynthEngineerLevel resets all changes to the "synth_engineer_level" field.
+func (m *QARecordMutation) ResetSynthEngineerLevel() {
+	m.synth_engineer_level = nil
+	delete(m.clearedFields, qarecord.FieldSynthEngineerLevel)
+}
+
+// SetDialogSynth sets the "dialog_synth" field.
+func (m *QARecordMutation) SetDialogSynth(b bool) {
+	m.dialog_synth = &b
+}
+
+// DialogSynth returns the value of the "dialog_synth" field in the mutation.
+func (m *QARecordMutation) DialogSynth() (r bool, exists bool) {
+	v := m.dialog_synth
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDialogSynth returns the old "dialog_synth" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldDialogSynth(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDialogSynth is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDialogSynth requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDialogSynth: %w", err)
+	}
+	return oldValue.DialogSynth, nil
+}
+
+// ResetDialogSynth resets all changes to the "dialog_synth" field.
+func (m *QARecordMutation) ResetDialogSynth() {
+	m.dialog_synth = nil
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (m *QARecordMutation) SetCreatedAt(t time.Time) {
 	m.created_at = &t
@@ -20661,7 +20848,7 @@ func (m *QARecordMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *QARecordMutation) Fields() []string {
-	fields := make([]string, 0, 24)
+	fields := make([]string, 0, 28)
 	if m.request_id != nil {
 		fields = append(fields, qarecord.FieldRequestID)
 	}
@@ -20728,6 +20915,18 @@ func (m *QARecordMutation) Fields() []string {
 	if m.tags != nil {
 		fields = append(fields, qarecord.FieldTags)
 	}
+	if m.synth_session_id != nil {
+		fields = append(fields, qarecord.FieldSynthSessionID)
+	}
+	if m.synth_role != nil {
+		fields = append(fields, qarecord.FieldSynthRole)
+	}
+	if m.synth_engineer_level != nil {
+		fields = append(fields, qarecord.FieldSynthEngineerLevel)
+	}
+	if m.dialog_synth != nil {
+		fields = append(fields, qarecord.FieldDialogSynth)
+	}
 	if m.created_at != nil {
 		fields = append(fields, qarecord.FieldCreatedAt)
 	}
@@ -20786,6 +20985,14 @@ func (m *QARecordMutation) Field(name string) (ent.Value, bool) {
 		return m.BlobURI()
 	case qarecord.FieldTags:
 		return m.Tags()
+	case qarecord.FieldSynthSessionID:
+		return m.SynthSessionID()
+	case qarecord.FieldSynthRole:
+		return m.SynthRole()
+	case qarecord.FieldSynthEngineerLevel:
+		return m.SynthEngineerLevel()
+	case qarecord.FieldDialogSynth:
+		return m.DialogSynth()
 	case qarecord.FieldCreatedAt:
 		return m.CreatedAt()
 	case qarecord.FieldRetentionUntil:
@@ -20843,6 +21050,14 @@ func (m *QARecordMutation) OldField(ctx context.Context, name string) (ent.Value
 		return m.OldBlobURI(ctx)
 	case qarecord.FieldTags:
 		return m.OldTags(ctx)
+	case qarecord.FieldSynthSessionID:
+		return m.OldSynthSessionID(ctx)
+	case qarecord.FieldSynthRole:
+		return m.OldSynthRole(ctx)
+	case qarecord.FieldSynthEngineerLevel:
+		return m.OldSynthEngineerLevel(ctx)
+	case qarecord.FieldDialogSynth:
+		return m.OldDialogSynth(ctx)
 	case qarecord.FieldCreatedAt:
 		return m.OldCreatedAt(ctx)
 	case qarecord.FieldRetentionUntil:
@@ -21009,6 +21224,34 @@ func (m *QARecordMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetTags(v)
+		return nil
+	case qarecord.FieldSynthSessionID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSynthSessionID(v)
+		return nil
+	case qarecord.FieldSynthRole:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSynthRole(v)
+		return nil
+	case qarecord.FieldSynthEngineerLevel:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSynthEngineerLevel(v)
+		return nil
+	case qarecord.FieldDialogSynth:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDialogSynth(v)
 		return nil
 	case qarecord.FieldCreatedAt:
 		v, ok := value.(time.Time)
@@ -21180,6 +21423,15 @@ func (m *QARecordMutation) ClearedFields() []string {
 	if m.FieldCleared(qarecord.FieldBlobURI) {
 		fields = append(fields, qarecord.FieldBlobURI)
 	}
+	if m.FieldCleared(qarecord.FieldSynthSessionID) {
+		fields = append(fields, qarecord.FieldSynthSessionID)
+	}
+	if m.FieldCleared(qarecord.FieldSynthRole) {
+		fields = append(fields, qarecord.FieldSynthRole)
+	}
+	if m.FieldCleared(qarecord.FieldSynthEngineerLevel) {
+		fields = append(fields, qarecord.FieldSynthEngineerLevel)
+	}
 	return fields
 }
 
@@ -21208,6 +21460,15 @@ func (m *QARecordMutation) ClearField(name string) error {
 		return nil
 	case qarecord.FieldBlobURI:
 		m.ClearBlobURI()
+		return nil
+	case qarecord.FieldSynthSessionID:
+		m.ClearSynthSessionID()
+		return nil
+	case qarecord.FieldSynthRole:
+		m.ClearSynthRole()
+		return nil
+	case qarecord.FieldSynthEngineerLevel:
+		m.ClearSynthEngineerLevel()
 		return nil
 	}
 	return fmt.Errorf("unknown QARecord nullable field %s", name)
@@ -21282,6 +21543,18 @@ func (m *QARecordMutation) ResetField(name string) error {
 		return nil
 	case qarecord.FieldTags:
 		m.ResetTags()
+		return nil
+	case qarecord.FieldSynthSessionID:
+		m.ResetSynthSessionID()
+		return nil
+	case qarecord.FieldSynthRole:
+		m.ResetSynthRole()
+		return nil
+	case qarecord.FieldSynthEngineerLevel:
+		m.ResetSynthEngineerLevel()
+		return nil
+	case qarecord.FieldDialogSynth:
+		m.ResetDialogSynth()
 		return nil
 	case qarecord.FieldCreatedAt:
 		m.ResetCreatedAt()
