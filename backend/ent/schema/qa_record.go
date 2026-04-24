@@ -63,16 +63,16 @@ func (QARecord) Fields() []ent.Field {
 }
 
 func (QARecord) Indexes() []ent.Index {
+	// Issue #59 lookup `WHERE user_id = ? AND synth_session_id = ?` is
+	// served by the partial index in tk_006_add_qa_records_synth_fields.sql
+	// (`WHERE synth_session_id IS NOT NULL`). We deliberately do NOT add
+	// a non-partial copy here so production runs only one synth-session
+	// index (Ent's portable Indexes() API can't express the WHERE clause
+	// and the SQL migration is this repo's source of truth for schema).
 	return []ent.Index{
 		index.Fields("created_at"),
 		index.Fields("api_key_id", "created_at"),
 		index.Fields("user_id", "created_at"),
 		index.Fields("platform", "status_code", "created_at"),
-		// Issue #59: support `WHERE user_id = ? AND synth_session_id = ?` lookup
-		// driven by the M0 dual-CC pipeline. Partial index would be ideal (only
-		// rows where synth_session_id IS NOT NULL) but Ent's portable Indexes()
-		// API does not expose WHERE clauses; the migration SQL adds the partial
-		// variant directly.
-		index.Fields("user_id", "synth_session_id"),
 	}
 }

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"net/http"
 	"strings"
 	"time"
 
@@ -11,51 +12,47 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// QAHandler exposes self-service endpoints over the captured qa_records
-// owned by the authenticated user.
+// defaultQAExportWindow bounds the data set returned when the caller does
+// not narrow by synth_session_id. Picked to cover one M0 run plus
+// generous slack; large enough that a casual user export still works,
+// small enough that "POST /qa/export with empty body" can never become
+// a "give me my entire history" foot-gun.
+const defaultQAExportWindow = 24 * time.Hour
+
+// QAHandler exposes the user-facing self-export endpoint over the
+// qa_records owned by the authenticated user. Issue #59 /
+// docs/approved/ops_xx.md §2 — closes the half-shipped "100% QA
+// Capture" capability where the capture path wrote rows but no
+// user-facing read path existed.
 //
-// Issue #59 / docs/approved/ops_xx.md §2: the "100% QA Capture" capability
-// was approved with capture-side already shipped (Service.ExportUserData was
-// implemented at observability/qa/service.go but never wired to a route).
-// This handler closes that gap. Auth is by user-scope JWT (NOT admin) and
-// every query is scoped to `WHERE user_id = <subject.UserID>` at the
-// service layer, so an authenticated user can never read another user's
-// captures even if they craft `synth_session_id` values.
+// Auth is by user-scope JWT (NOT admin); the service layer always emits
+// `WHERE user_id = subject.UserID` so guessing another user's
+// synth_session_id still returns zero rows.
 type QAHandler struct {
 	service *qa.Service
 }
 
-// NewQAHandler wires the user-facing QA export handler. Returns a handler
-// even when service is nil so the route can advertise a stable error
-// (rather than 404 → operator confusion) when QA capture is disabled in
-// the running environment.
+// NewQAHandler wires the user-facing QA export handler. Tolerates a nil
+// service so the route can return a stable 503 (rather than 404 →
+// operator confusion) when QA capture is disabled in this environment.
 func NewQAHandler(service *qa.Service) *QAHandler {
 	return &QAHandler{service: service}
 }
 
 // ExportSelfRequest is the JSON body accepted by POST
-// /api/v1/users/me/qa/export.
-//
-// The M0 dual-CC client (`m0/runtime/tokenkey.py`) sends:
-//
-//	{"synth_session_id": "m0-...-...", "format": "json"}
-//
-// `format` is reserved for future variants; today we always emit a zip
-// containing `qa_records.jsonl` (one Ent JSON-encoded record per line)
-// because the M0 verifiers stream-decode line-by-line.
+// /api/v1/users/me/qa/export. Matches the M0 dual-CC client contract at
+// `m0/runtime/tokenkey.py::export_user_qa()`. Unknown JSON fields (e.g.
+// the M0 client's `format: "json"`) are silently ignored — today we
+// always emit a zip containing `qa_records.jsonl`.
 type ExportSelfRequest struct {
 	SynthSessionID string `json:"synth_session_id"`
 	SynthRole      string `json:"synth_role"`
-	Format         string `json:"format"`
-	SinceRFC3339   string `json:"since"`
-	UntilRFC3339   string `json:"until"`
 }
 
 // ExportSelfResponse mirrors the contract documented in issue #59.
-// `download_url` is a 24h presigned S3 URL (or `file://` path on
-// localfs blob store, for dev / single-replica ops). `record_count`
-// is a convenience for the caller so they can fail fast when the
-// session id matched no rows (the most common synth-pipeline mistake).
+// `record_count` lets the M0 client distinguish "session not yet
+// captured, retry" from "captured but empty"; without it the only
+// signal would be opening the zip.
 type ExportSelfResponse struct {
 	DownloadURL string    `json:"download_url"`
 	ExpiresAt   time.Time `json:"expires_at"`
@@ -64,10 +61,9 @@ type ExportSelfResponse struct {
 
 // ExportSelf handles POST /api/v1/users/me/qa/export.
 //
-// Defaults when the body is empty: last 24h of the caller's traffic.
-// When `synth_session_id` is provided it overrides the time window
-// (synth sessions can legitimately span the default window if a turn
-// blocks on a long upstream call).
+// Behavior is deliberately minimal (one canonical path):
+//   - synth_session_id set → ignore time window, scope to that session
+//   - synth_session_id empty → trailing defaultQAExportWindow of caller's traffic
 func (h *QAHandler) ExportSelf(c *gin.Context) {
 	subject, ok := middleware2.GetAuthSubjectFromContext(c)
 	if !ok {
@@ -76,14 +72,11 @@ func (h *QAHandler) ExportSelf(c *gin.Context) {
 	}
 
 	if h == nil || h.service == nil || !h.service.Enabled() {
-		response.Error(c, 503, "QA capture is disabled in this environment")
+		response.Error(c, http.StatusServiceUnavailable, "QA capture is disabled in this environment")
 		return
 	}
 
 	req := ExportSelfRequest{}
-	// Body is optional: M0 always sends one, GDPR-style "give me all my
-	// recent data" can POST with no body. ShouldBindJSON returns EOF on
-	// empty bodies which we explicitly accept.
 	if c.Request != nil && c.Request.ContentLength != 0 {
 		if err := c.ShouldBindJSON(&req); err != nil {
 			response.BadRequest(c, "Invalid request: "+err.Error())
@@ -96,37 +89,11 @@ func (h *QAHandler) ExportSelf(c *gin.Context) {
 		SynthRole:      strings.TrimSpace(req.SynthRole),
 	}
 	if filter.SynthSessionID == "" {
-		// Default window: trailing 24h. Bounded to defend against an
-		// authenticated user accidentally exporting their entire history
-		// in one shot (the underlying service supports it for GDPR but
-		// the user-facing endpoint should be cheap by default).
-		until := time.Now().UTC()
-		since := until.Add(-24 * time.Hour)
-		if v := strings.TrimSpace(req.SinceRFC3339); v != "" {
-			parsed, err := time.Parse(time.RFC3339, v)
-			if err != nil {
-				response.BadRequest(c, "Invalid since: must be RFC3339")
-				return
-			}
-			since = parsed
-		}
-		if v := strings.TrimSpace(req.UntilRFC3339); v != "" {
-			parsed, err := time.Parse(time.RFC3339, v)
-			if err != nil {
-				response.BadRequest(c, "Invalid until: must be RFC3339")
-				return
-			}
-			until = parsed
-		}
-		if !until.After(since) {
-			response.BadRequest(c, "until must be after since")
-			return
-		}
-		filter.Since = since
-		filter.Until = until
+		filter.Until = time.Now().UTC()
+		filter.Since = filter.Until.Add(-defaultQAExportWindow)
 	}
 
-	result, err := h.service.ExportUserDataWithFilter(c.Request.Context(), subject.UserID, filter)
+	result, err := h.service.ExportUserData(c.Request.Context(), subject.UserID, filter)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

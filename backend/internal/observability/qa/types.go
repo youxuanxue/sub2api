@@ -34,10 +34,11 @@ type CaptureInput struct {
 	CreatedAt         time.Time
 
 	// issue #59 Gap 2: synthetic-pipeline tagging headers.
+	// X-Synth-Pipeline is only used to compute DialogSynth (no schema
+	// column for the pipeline name itself), so it isn't carried here.
 	SynthSessionID     string
 	SynthRole          string
 	SynthEngineerLevel string
-	SynthPipeline      string
 	DialogSynth        bool
 }
 
@@ -53,6 +54,8 @@ type ExportResult struct {
 // it takes precedence and overrides Since/Until (the M0 client wants the
 // full session even if it spans the default 24h window).
 type ExportFilter struct {
+	// Since / Until are inclusive bounds on created_at. Both zero ⇒
+	// no time bound. Ignored when SynthSessionID is set.
 	Since          time.Time
 	Until          time.Time
 	SynthSessionID string

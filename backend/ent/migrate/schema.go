@@ -806,11 +806,6 @@ var (
 				Unique:  false,
 				Columns: []*schema.Column{QaRecordsColumns[5], QaRecordsColumns[10], QaRecordsColumns[27]},
 			},
-			{
-				Name:    "qarecord_user_id_synth_session_id",
-				Unique:  false,
-				Columns: []*schema.Column{QaRecordsColumns[2], QaRecordsColumns[23]},
-			},
 		},
 	}
 	// RedeemCodesColumns holds the columns for the "redeem_codes" table.

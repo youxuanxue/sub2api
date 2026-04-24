@@ -168,7 +168,7 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 		durationMs = time.Since(tee.startedAt).Milliseconds()
 	}
 
-	synthSession, synthRole, synthLevel, synthPipeline := captureSynthHeaders(c)
+	synthSession, synthRole, synthLevel, dialogSynth := captureSynthHeaders(c)
 	input := CaptureInput{
 		RequestID:          strings.TrimSpace(requestID),
 		UserID:             apiKey.UserID,
@@ -192,8 +192,7 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 		SynthSessionID:     synthSession,
 		SynthRole:          synthRole,
 		SynthEngineerLevel: synthLevel,
-		SynthPipeline:      synthPipeline,
-		DialogSynth:        synthSession != "" || synthPipeline != "",
+		DialogSynth:        dialogSynth,
 	}
 	s.Submit(input)
 }
@@ -258,22 +257,14 @@ func (s *Service) persistCapture(ctx context.Context, input CaptureInput) error 
 	return err
 }
 
-// ExportUserData exports the qa_records owned by userID inside [since, until]
-// (inclusive). Kept for backward compatibility with the GDPR/data-export
-// admin path; new callers should prefer ExportUserDataWithFilter.
-func (s *Service) ExportUserData(ctx context.Context, userID int64, since, until time.Time) (*ExportResult, error) {
-	return s.ExportUserDataWithFilter(ctx, userID, ExportFilter{Since: since, Until: until})
-}
-
-// ExportUserDataWithFilter is the canonical export path for issue #59.
+// ExportUserData is the canonical export path for issue #59.
 // It enforces row-level ownership (`WHERE user_id = ?`) and additionally
 // filters by synth_session_id / synth_role when set, so the M0 dual-CC
 // pipeline can isolate one ~30s session out of densely interleaved
 // traffic. When no time bounds AND no synth filter are supplied the
-// caller would get every record they own, which is intentional for
-// GDPR-style "give me all my data" requests but the HTTP handler MUST
+// caller would get every record they own; the HTTP handler MUST therefore
 // default to a bounded window — see handler.QAHandler.ExportSelf.
-func (s *Service) ExportUserDataWithFilter(ctx context.Context, userID int64, filter ExportFilter) (*ExportResult, error) {
+func (s *Service) ExportUserData(ctx context.Context, userID int64, filter ExportFilter) (*ExportResult, error) {
 	if s == nil || s.client == nil || s.store == nil {
 		return nil, fmt.Errorf("qa export not available: service disabled")
 	}
@@ -554,13 +545,16 @@ func captureStreamFlag(c *gin.Context, chunks []RawSSEChunk) bool {
 }
 
 // captureSynthHeaders extracts the X-Synth-* headers emitted by the M0
-// dual-CC synthetic pipeline (issue #59 / docs/projects/auto-traj-from-supply-demand.md §6.1).
-// Returns (session, role, engineerLevel, pipeline). Empty strings for any
-// missing/blank header. We TrimSpace and bound the length to defend against
-// malicious or accidental abuse — these values are persisted and queried.
-func captureSynthHeaders(c *gin.Context) (session, role, level, pipeline string) {
+// dual-CC synthetic pipeline (issue #59 /
+// docs/projects/auto-traj-from-supply-demand.md §6.1). Returns
+// (session, role, engineerLevel, dialogSynth). dialogSynth is true when
+// EITHER X-Synth-Session OR X-Synth-Pipeline is present — that pair is
+// our "this turn is a synth dialog" signal; the pipeline name itself is
+// not persisted (no schema column). Values are TrimSpace'd and clipped
+// to 256 bytes to defend against oversized header abuse.
+func captureSynthHeaders(c *gin.Context) (session, role, level string, dialogSynth bool) {
 	if c == nil || c.Request == nil {
-		return "", "", "", ""
+		return "", "", "", false
 	}
 	const maxHeader = 256
 	clip := func(v string) string {
@@ -570,10 +564,12 @@ func captureSynthHeaders(c *gin.Context) (session, role, level, pipeline string)
 		}
 		return v
 	}
-	return clip(c.Request.Header.Get("X-Synth-Session")),
-		clip(c.Request.Header.Get("X-Synth-Role")),
-		clip(c.Request.Header.Get("X-Synth-Engineer-Level")),
-		clip(c.Request.Header.Get("X-Synth-Pipeline"))
+	session = clip(c.Request.Header.Get("X-Synth-Session"))
+	role = clip(c.Request.Header.Get("X-Synth-Role"))
+	level = clip(c.Request.Header.Get("X-Synth-Engineer-Level"))
+	pipeline := clip(c.Request.Header.Get("X-Synth-Pipeline"))
+	dialogSynth = session != "" || pipeline != ""
+	return
 }
 
 func captureResponseHeaders(c *gin.Context) map[string]string {

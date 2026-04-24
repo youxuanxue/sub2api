@@ -17,9 +17,11 @@
   - 逻辑错误：`synth_session_id` 过滤未叠加 `user_id` → 跨用户读取；
     时间窗 fallback 缺失 → 用户一键导出全量历史；
     handler 未鉴权 → 匿名 POST 触发 DB/S3 流量
-  - 行为回归：现有 `Service.ExportUserData(userID, since, until)` 签名（GDPR
-    admin 路径）必须保持兼容；`ops_xx.md §2 "100% QA Capture"` 中 capture
-    侧的写入字段不能减；新增字段全部 nullable / 有默认 → 老在线流量不受影响
+  - 行为回归：`Service.ExportUserData` 在 origin/main 上没有任何调用方
+    （只是写好但未挂路由的死代码），所以本 PR 直接把它改成
+    `ExportUserData(ctx, userID, ExportFilter)`，没有"老签名"需要兼容；
+    `ops_xx.md §2 "100% QA Capture"` 中 capture 侧的写入字段不能减；
+    新增字段全部 nullable / 有默认 → 老在线流量不受影响
   - 安全问题：path traversal 不适用（无路径参数）；越权访问通过
     服务层 `qarecord.UserIDEQ(subject.UserID)` 兜底；header 长度封顶 256B
     防止恶意 `synth_session_id` 撑爆行
@@ -58,9 +60,10 @@
    `api_key_id`/`upstream_model` 等字段编码无任何影响（与 `ops_xx.md §2` 兼容
    性规则一致："API changes must not break existing online callers"）。
 
-7. **AC-007 (兼容 / 老签名)**：Given GDPR 批量删除/导出依赖
-   `Service.ExportUserData(ctx, userID, since, until)` 旧签名，When 调用该
-   方法，Then 行为与改造前一致（按时间窗导出，不引入 synth 过滤）。
+7. **AC-007 (单一入口)**：Given 没有现存调用方，When 用 `ExportFilter{Since, Until}`
+   按时间窗导出，Then 与按 session id 导出走完全相同的代码路径（一个 SQL
+   构建器、一段 zip 打包逻辑、一份 ExportResult），不出现 GDPR 与 M0 两条平行
+   分支（Jobs：one canonical path per intent）。
 
 ## Assertions
 
@@ -77,12 +80,13 @@
 
 ## Linked Tests
 
-- `backend/internal/observability/qa/service_export_test.go`::`TestUS059_ExportUserDataWithFilter_OnlyOwnRecords`
-- `backend/internal/observability/qa/service_export_test.go`::`TestUS059_ExportUserDataWithFilter_BySynthSessionID`
-- `backend/internal/observability/qa/service_export_test.go`::`TestUS059_ExportUserDataWithFilter_RoleNarrows`
-- `backend/internal/observability/qa/service_export_test.go`::`TestUS059_LegacyExportUserData_TimeWindowOnly`
-- `backend/internal/observability/qa/service_export_test.go`::`TestUS059_ExportUserDataWithFilter_UnknownSession_EmptyNotError`
+- `backend/internal/observability/qa/service_export_test.go`::`TestUS059_ExportUserData_OnlyOwnRecords`
+- `backend/internal/observability/qa/service_export_test.go`::`TestUS059_ExportUserData_BySynthSessionID`
+- `backend/internal/observability/qa/service_export_test.go`::`TestUS059_ExportUserData_RoleNarrows`
+- `backend/internal/observability/qa/service_export_test.go`::`TestUS059_ExportUserData_TimeWindowOnly`
+- `backend/internal/observability/qa/service_export_test.go`::`TestUS059_ExportUserData_UnknownSession_EmptyNotError`
 - `backend/internal/observability/qa/middleware_synth_test.go`::`TestUS059_CaptureSynthHeaders_AllPresent`
+- `backend/internal/observability/qa/middleware_synth_test.go`::`TestUS059_CaptureSynthHeaders_PipelineAloneFlipsDialogSynth`
 - `backend/internal/observability/qa/middleware_synth_test.go`::`TestUS059_CaptureSynthHeaders_AbsentReturnsEmpty`
 - `backend/internal/observability/qa/middleware_synth_test.go`::`TestUS059_CaptureSynthHeaders_BoundedLength`
 - `backend/internal/handler/qa_handler_test.go`::`TestUS059_ExportSelf_Unauthenticated_401`
@@ -99,6 +103,6 @@
 
 ## Status
 
-- [x] InTest — backend 14 个 unit test（service 5 + middleware 3 + handler 6）
+- [x] InTest — backend 15 个 unit test（service 5 + middleware 4 + handler 6）
   全绿；schema + migration 已落盘；wire 已重生成；M0 端到端待 traj 仓库
   联动验证后翻 Done。

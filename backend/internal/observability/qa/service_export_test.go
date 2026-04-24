@@ -97,34 +97,26 @@ func mustInsertQARecord(t *testing.T, ctx context.Context, client *dbent.Client,
 	if b.synthRole != "" {
 		create = create.SetSynthRole(b.synthRole)
 	}
-	if b.synthLevel != "" {
-		create = create.SetSynthEngineerLevel(b.synthLevel)
-	}
 	if b.dialogSynth {
 		create = create.SetDialogSynth(true)
-	}
-	if b.upstreamModel != "" {
-		create = create.SetUpstreamModel(b.upstreamModel)
 	}
 	_, err := create.Save(ctx)
 	require.NoError(t, err)
 }
 
 type qaRecordBuilder struct {
-	requestID     string
-	userID        int64
-	apiKeyID      int64
-	createdAt     time.Time
-	synthSession  string
-	synthRole     string
-	synthLevel    string
-	dialogSynth   bool
-	upstreamModel string
+	requestID    string
+	userID       int64
+	apiKeyID     int64
+	createdAt    time.Time
+	synthSession string
+	synthRole    string
+	dialogSynth  bool
 }
 
 // ----- US-059 AC-001: row-level ownership is enforced. ------------------
 
-func TestUS059_ExportUserDataWithFilter_OnlyOwnRecords(t *testing.T) {
+func TestUS059_ExportUserData_OnlyOwnRecords(t *testing.T) {
 	svc, client, _ := newQAExportTestService(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -134,7 +126,7 @@ func TestUS059_ExportUserDataWithFilter_OnlyOwnRecords(t *testing.T) {
 	mustInsertQARecord(t, ctx, client, qaRecordBuilder{requestID: "r2", userID: 7, apiKeyID: 1, createdAt: now.Add(-30 * time.Minute)})
 	mustInsertQARecord(t, ctx, client, qaRecordBuilder{requestID: "r3", userID: 8, apiKeyID: 2, createdAt: now.Add(-30 * time.Minute)})
 
-	res, err := svc.ExportUserDataWithFilter(ctx, 7, ExportFilter{Since: now.Add(-2 * time.Hour), Until: now})
+	res, err := svc.ExportUserData(ctx, 7, ExportFilter{Since: now.Add(-2 * time.Hour), Until: now})
 	require.NoError(t, err)
 	require.Equal(t, 2, res.RecordCount, "user 7 should see exactly its own 2 records")
 	require.NotEmpty(t, res.DownloadURL)
@@ -143,7 +135,7 @@ func TestUS059_ExportUserDataWithFilter_OnlyOwnRecords(t *testing.T) {
 
 // ----- US-059 AC-002: synth_session_id filter narrows + overrides window.
 
-func TestUS059_ExportUserDataWithFilter_BySynthSessionID(t *testing.T) {
+func TestUS059_ExportUserData_BySynthSessionID(t *testing.T) {
 	svc, client, store := newQAExportTestService(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -157,7 +149,7 @@ func TestUS059_ExportUserDataWithFilter_BySynthSessionID(t *testing.T) {
 
 	// Session filter without time bounds — must still find m0-AAA records
 	// even though they're 72h old.
-	res, err := svc.ExportUserDataWithFilter(ctx, 7, ExportFilter{SynthSessionID: "m0-AAA"})
+	res, err := svc.ExportUserData(ctx, 7, ExportFilter{SynthSessionID: "m0-AAA"})
 	require.NoError(t, err)
 	require.Equal(t, 2, res.RecordCount, "session filter must not be capped by time window")
 
@@ -191,7 +183,7 @@ func TestUS059_ExportUserDataWithFilter_BySynthSessionID(t *testing.T) {
 
 // ----- US-059 AC-003: synth_role narrows further when both set. ----------
 
-func TestUS059_ExportUserDataWithFilter_RoleNarrows(t *testing.T) {
+func TestUS059_ExportUserData_RoleNarrows(t *testing.T) {
 	svc, client, _ := newQAExportTestService(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -199,15 +191,16 @@ func TestUS059_ExportUserDataWithFilter_RoleNarrows(t *testing.T) {
 	mustInsertQARecord(t, ctx, client, qaRecordBuilder{requestID: "u", userID: 7, apiKeyID: 1, createdAt: now, synthSession: "m0-X", synthRole: "user-simulator", dialogSynth: true})
 	mustInsertQARecord(t, ctx, client, qaRecordBuilder{requestID: "a", userID: 7, apiKeyID: 1, createdAt: now, synthSession: "m0-X", synthRole: "assistant-worker", dialogSynth: true})
 
-	res, err := svc.ExportUserDataWithFilter(ctx, 7, ExportFilter{SynthSessionID: "m0-X", SynthRole: "user-simulator"})
+	res, err := svc.ExportUserData(ctx, 7, ExportFilter{SynthSessionID: "m0-X", SynthRole: "user-simulator"})
 	require.NoError(t, err)
 	require.Equal(t, 1, res.RecordCount)
 }
 
-// ----- US-059 AC-004: legacy ExportUserData(since,until) signature still
-// works (GDPR-style admin path, unchanged contract). ---------------------
+// ----- US-059 AC-004: time-window-only path (GDPR-style "give me my last
+// N hours of data") still works alongside the synth filter — the same
+// method, no separate code path. ---------------------------------------
 
-func TestUS059_LegacyExportUserData_TimeWindowOnly(t *testing.T) {
+func TestUS059_ExportUserData_TimeWindowOnly(t *testing.T) {
 	svc, client, _ := newQAExportTestService(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -215,7 +208,7 @@ func TestUS059_LegacyExportUserData_TimeWindowOnly(t *testing.T) {
 	mustInsertQARecord(t, ctx, client, qaRecordBuilder{requestID: "in", userID: 7, apiKeyID: 1, createdAt: now.Add(-1 * time.Hour)})
 	mustInsertQARecord(t, ctx, client, qaRecordBuilder{requestID: "out-old", userID: 7, apiKeyID: 1, createdAt: now.Add(-48 * time.Hour)})
 
-	res, err := svc.ExportUserData(ctx, 7, now.Add(-24*time.Hour), now)
+	res, err := svc.ExportUserData(ctx, 7, ExportFilter{Since: now.Add(-24 * time.Hour), Until: now})
 	require.NoError(t, err)
 	require.Equal(t, 1, res.RecordCount, "only the in-window record should be exported")
 }
@@ -225,11 +218,11 @@ func TestUS059_LegacyExportUserData_TimeWindowOnly(t *testing.T) {
 // captured, retry" signal; surfacing an error here would block the
 // retry loop. ------------------------------------------------------------
 
-func TestUS059_ExportUserDataWithFilter_UnknownSession_EmptyNotError(t *testing.T) {
+func TestUS059_ExportUserData_UnknownSession_EmptyNotError(t *testing.T) {
 	svc, _, _ := newQAExportTestService(t)
 	ctx := context.Background()
 
-	res, err := svc.ExportUserDataWithFilter(ctx, 7, ExportFilter{SynthSessionID: "m0-NEVER"})
+	res, err := svc.ExportUserData(ctx, 7, ExportFilter{SynthSessionID: "m0-NEVER"})
 	require.NoError(t, err)
 	require.Equal(t, 0, res.RecordCount)
 	require.NotEmpty(t, res.DownloadURL, "even an empty export gets a download URL (zip with empty jsonl)")

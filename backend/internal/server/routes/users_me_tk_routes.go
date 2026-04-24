@@ -7,13 +7,14 @@ import (
 )
 
 // registerTKUsersMeRoutes wires TokenKey-only user-scope endpoints under
-// the REST-conventional `/users/me/*` namespace (alongside the existing
-// `/api/v1/users/me/onboarding-tour-completed` documented in
-// docs/approved/user-cold-start.md §6).
+// the REST-conventional `/users/me/*` namespace. The path shape matches
+// the M0 dual-CC client contract (issue #59) verbatim — keeps the M0
+// side at zero changes and avoids duplicating both `/user/qa/export`
+// and `/users/me/qa/export` for the same intent (one canonical path).
 //
-// Companion file per CLAUDE.md §5 so RegisterUserRoutes only carries one
-// helper call and upstream merges to user.go don't conflict with TK
-// surface additions.
+// Companion file per CLAUDE.md §5 so RegisterUserRoutes only carries
+// one helper call and upstream merges to user.go don't conflict with
+// TK surface additions.
 //
 // Endpoints:
 //   - POST /api/v1/users/me/qa/export — issue #59 Gap 1.

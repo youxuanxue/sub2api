@@ -28,12 +28,25 @@ func TestUS059_CaptureSynthHeaders_AllPresent(t *testing.T) {
 	c.Request.Header.Set("X-Synth-Session", "m0-1777017345-eedcaa")
 	c.Request.Header.Set("X-Synth-Engineer-Level", "P6")
 
-	session, role, level, pipeline := captureSynthHeaders(c)
+	session, role, level, dialogSynth := captureSynthHeaders(c)
 
 	require.Equal(t, "m0-1777017345-eedcaa", session)
 	require.Equal(t, "user-simulator", role)
 	require.Equal(t, "P6", level)
-	require.Equal(t, "dual-cc-supply-demand", pipeline)
+	require.True(t, dialogSynth, "session id present ⇒ dialogSynth must be true")
+}
+
+func TestUS059_CaptureSynthHeaders_PipelineAloneFlipsDialogSynth(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("POST", "/v1/messages", nil)
+	c.Request.Header.Set("X-Synth-Pipeline", "dual-cc-supply-demand")
+
+	session, _, _, dialogSynth := captureSynthHeaders(c)
+	require.Empty(t, session)
+	require.True(t, dialogSynth,
+		"pipeline header alone (no session) is enough to mark the row as synth dialog — "+
+			"matches the issue #59 contract that DialogSynth = (session OR pipeline)")
 }
 
 func TestUS059_CaptureSynthHeaders_AbsentReturnsEmpty(t *testing.T) {
@@ -41,12 +54,12 @@ func TestUS059_CaptureSynthHeaders_AbsentReturnsEmpty(t *testing.T) {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest("POST", "/v1/messages", nil)
 
-	session, role, level, pipeline := captureSynthHeaders(c)
+	session, role, level, dialogSynth := captureSynthHeaders(c)
 
 	require.Empty(t, session)
 	require.Empty(t, role)
 	require.Empty(t, level)
-	require.Empty(t, pipeline)
+	require.False(t, dialogSynth, "no synth headers ⇒ row stays normal-traffic")
 }
 
 // Defense: cap header length to 256 to prevent an attacker from writing
