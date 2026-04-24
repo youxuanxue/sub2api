@@ -44,14 +44,27 @@ check 仍然过），但会让 `group.platform=newapi` 的请求在所有三个 
 任何 merge resolution 都必须让两条机械检查归零，而不是「靠自觉把
 companion 文件加回去」。
 
-按 Jobs 聚焦原则，**本次 merge 应分阶段、按风险隔离**，而不是当作一个
-"248 commits 一把梭" 的大爆炸合并：
+按 Jobs 聚焦原则**反向问**："不合代价是什么？"——只有上游真正解决了
+TK 用户已在踩的具体痛点，才值得付 merge 成本（详见 §3.5 价值分析）。
+
+最小可执行方案（按 ROI 收敛）：
 
 ```
-Stage A (P0 必合)  → auth identity + payment 安全修复 + 关键 bug 修复
-Stage B (P1 应合)  → channel monitor + RPM 限流 + OpenAI 生图
-Stage C (P2 选合)  → available channels view + monitor UI 美化
+真正要合（P0 / 强 ROI）：
+  Stage A    auth identity 重构 + payment provider snapshot + out_trade_no 唯一索引
+             顺手吸收 OpenAI 同步生图（搭车 hot-path resolve，零边际成本）
+  Stage B-1  group/user 维度 RPM 限流（前置验证与 TK 既有 quota 体系不重叠）
+
+默认暂缓（弱 ROI / 待业务确认）：
+  Stage B-2  channel monitor（4 表 + runner，仅当 TK 有渠道健康观测工单才合）
+  Stage B-4  available channels view（仅当做 ToC 转化漏斗才合）
+  Stage C    i18n / UI 微调 / 模型 ID 杂项（默认不合，gpt-5.5 model registry
+             如有用户问可单独 cherry-pick 一行）
 ```
+
+这把 review 重量从 "248 commits / 12 PRs" 收敛到 **2 个 merge PR**，
+每个 PR 解决一个明确的 TK 用户痛点。**§4 的 3-stage 划分是"如果都要合"
+的最大方案，§3.5 是"按真实价值挑"的最小方案——优先采用最小方案**。
 
 ---
 
@@ -243,6 +256,154 @@ view 入口），与 5 平台枚举无关。
 | **F. available channels view**（多个 channels PRs） | 用户端新页面、settings dual-mode | 无（5 平台枚举隔离） | 无 | L | 可与 D 同 PR 或单独 |
 | **G. golangci-lint 36 个 issue 修复**（ef967d8f） | 散落 | 部分覆盖 §2.1 删除 | 无 | M | 不可单独 cherry-pick；upstream 是大杂烩 commit |
 | **H. 杂项 bug 修复**（计费、模型回显、403 冷却） | scheduler/gateway hot path | **强冲突**（同 E） | 无 | M | 与 E 合并 |
+
+---
+
+## 3.5 价值分析（"是否值得合"——Jobs"做最少的事"反向问法）
+
+§3 的风险矩阵回答了"合并要付什么代价"，但没回答"不合代价是什么"。
+按 Jobs 聚焦原则，**默认不合**才是基线，必须由"上游真正解决了 TK 用户某个
+具体痛点"来论证 merge 的必要性。下表对每个 stage 做这件事：
+
+### 3.5.1 Stage A —— auth identity + payment 加固：**值得合，是 P0**
+
+**TK 当前状态**（事实，从 `backend/internal/service/` 与 `backend/ent/schema/user.go` 实测）：
+
+- TK 已有 LinuxDo OAuth (`auth_linuxdo_oauth.go`) + OIDC (`auth_oidc_oauth.go`)
+ + Email 注册 + TOTP 二因素，但**没有**：
+ - `AuthIdentity` 实体（多渠道身份共享一个 user 的统一抽象）
+ - `PendingAuthSession`（OAuth 注册中途收集邮箱 / 绑定流程）
+ - `IdentityAdoptionDecision`（重复登录身份漂移修复）
+ - WeChat OAuth 登录（TK 只有 WxPay 微信支付，没有微信扫码登录）
+- TK 已有 Stripe + Alipay + WxPay + EasyPay 四种 payment provider，
+ 但**没有**：
+ - `payment_orders.provider_key` + `provider_snapshot`（订单创建时
+ 快照支付渠道凭证，防止运营改 secret 后历史订单 webhook 验签失败）
+ - `out_trade_no` 唯一索引（重复 `out_trade_no` 当前可能产生
+ 双重发货）
+
+**上游带来的价值**：
+
+| 上游能力 | TK 缺口 | 实际用户价值 |
+|---|---|---|
+| `auth_identity` 表 + `pending_auth_session` 表 | 多渠道用户被强制按 email 唯一键合并，旧用户用 LinuxDo 注册后改 email 就被打成新人 | 解决重复账号工单（运营手动合并） |
+| OAuth 注册中途绑邮箱（pending oauth flow） | OAuth 第一次登录如果对端没返回 email，TK 直接拒绝 | 直接挽回这部分新用户注册 |
+| `payment_orders.provider_snapshot` | 改 Stripe webhook secret → 老订单 webhook 全部验签失败 → 客服救单 | 减少 P0 支付救单 |
+| `out_trade_no` 唯一索引 | 高并发下 `out_trade_no` 碰撞 → 双重发货 → 运营退款 | 直接消除一类金额损失 |
+| WeChat OAuth 登录 + 双模 wechat（公众号 / 网页授权） | TK 用户来自微信生态但只能用 email 注册 | 直接拓宽注册渠道（取决于 TK 是否做 ToC） |
+| 122_pending_auth_completion_token_cleanup 等 5 条加固 migration | 无 | 防御边界，纯安全负债清理 |
+
+**判断**：**值得**。这些是 TK 用户和运营**已经在踩**的坑（重复账号、支付救单、
+微信生态用户拒之门外），且 TK 自己短期内不会重写一份等价 auth identity
+框架——重写工作量 > 接受 upstream 的工作量。
+
+**不合的代价**：(a) 客服救单成本持续；(b) 越往后 upstream 改动越多，下次
+merge 的解冲突成本指数上升（上游已经在 main 上对 auth_identity 打了
+50+ patch commit，再拖两个月这个数字会翻倍）。
+
+**例外条款**：如果 TK 已经决定走"完全自研身份系统"路线（例如要接企业
+SAML / 飞书 / 钉钉），那 Stage A 应该**只取 payment 修复**部分，
+auth identity 整块用 `*_tk_*.go` companion 自研。需要业务侧确认这个分叉。
+
+### 3.5.2 Stage B —— RPM + channel monitor + 同步生图：**部分值得**
+
+**逐项判断**（不要把 Stage B 当成一个整体接受或拒绝）：
+
+#### B-1 RPM 限流（#1815）—— **值得，但要核对是否与 TK 既有限流重复**
+
+- 上游新增 `Group.rpm_limit` + `User.rpm_limit` 字段。
+- TK 已有 `service/ratelimit_service.go` + `service/model_rate_limit.go`，
+ 当前限流靠 `quota.SharedRPM / FlashRPM / ProRPM`（按订阅档位），
+ **没有 group / user 维度的兜底 RPM**。
+- **价值**：当某个 group 内出现行为异常的 user（比如脚本刷流量），
+ 当前 TK 只能从全局 quota 维度限流，没法精准只压这个 user。
+- **风险**：上游 RPM 限流 schema 与 TK 的 quota 体系是**叠加关系**还是
+ **替代关系**？这必须在 merge 前确认；如果是叠加，可以直接合；如果是
+ 替代，需要写一个 migration 把 quota.SharedRPM 翻译到 user.rpm_limit。
+- **判断**：值得合，但**列为 Stage B 内部第一优先级**，先验证语义。
+
+#### B-2 channel monitor（#1850 + 多个 follow-up）—— **依赖业务场景**
+
+- 上游新增 4 张表（`channel_monitors` / `channel_monitor_history` /
+ `channel_monitor_daily_rollup` / `channel_monitor_request_templates`）+
+ monitor scheduler runner + 用户端 dashboard。
+- 上游 `channel_monitor.provider` enum 只有 `openai / anthropic / gemini`
+ 三个值——**没有 `newapi` 与 `antigravity`**。这是上游对 TK 五平台架构
+ 的盲区。
+- **价值**：给 TK 运营一个"渠道是否健康"的可观测面板，目前 TK 是靠
+ 用户报障 + grafana 间接观察。
+- **风险**：(a) 4 张新表 + 定时 runner，运行时成本不为 0；(b) provider
+ enum 不含 `newapi`，合入后必须立即在 `*_tk_*.go` 扩展或在 schema
+ 外加 column——这是另一笔活；(c) 用户端 dashboard 的 UI 风格与 TK
+ 既有 admin UI 是否冲突需要前端 review。
+- **判断**：**仅当 TK 当前确实有"渠道健康观测"工单**才合；否则推迟到
+ 业务确认。**不要因为"功能炫"就合**——这是典型的 Jobs 反例。
+
+#### B-3 OpenAI 同步生图（#1795 + #1853）—— **值得，且强制要合**
+
+- 上游新增 `/v1/images/generations` + `/v1/images/edits` 端点接入。
+- TK `endpoint_tk.go` 已经有 `EndpointImagesGenerations` 常量与
+ `tkDeriveOpenAITokenKeyUpstream` 派生路径——说明 TK 自己也在做这件事，
+ 但更早期、更简陋（只有 generations，没有 edits；只有 OpenAI，没有
+ codex 走 `/v1/responses` 的桥接）。
+- **价值**：让用户用 OpenAI image API。这是一个真实公开 API，不是
+ 实验性功能。
+- **强制要合的原因**：上游对 scheduler request struct 的改动
+ （`RequiredImageCapability` 字段 + `SupportsOpenAIImageCapability`
+ 谓词）会与 TK 的 `GroupPlatform` 字段同处一个 struct——一旦 Stage A
+ 解了 hot-path 冲突，B-3 几乎是免费搭车。
+- **判断**：值得合，且**作为 Stage A merge 的第二个语义单元**而不是
+ Stage B 独立 PR——它的冲突点已经在 Stage A 解决，独立合反而要再解
+ 一次同样的冲突。
+
+#### B-4 available channels view（多个 channels PRs）—— **可选**
+
+- 上游新增"用户端可用渠道"页面 + settings dual-mode + 平台分组的
+ 渠道聚合视图。
+- TK 的 `gatewayPlatforms.ts` 已经定义了 5 平台枚举；上游这个 view
+ 在 4 平台前提下设计，需要在前端 `*.tk.ts` 扩展加上 `newapi` 平台
+ 段，否则用户端看到的"可用渠道"会缺一块。
+- **价值**：用户端透明度，类似公网 status page。**取决于 TK 是否做 ToC
+ 转化漏斗**。
+- **判断**：**默认不合**；如果 TK 用户增长团队明确要求"让用户看到
+ 可用渠道"再合。
+
+### 3.5.3 Stage C —— i18n / UI polish / 杂项 bug：**默认不合**
+
+- 范围：profile auth bindings i18n 修复、404 计费修复、监控页 UI
+ 微调（OPERATIONAL/DEGRADED 状态文案）、`gpt-5.5` 模型 ID 注册等。
+- **价值**：单独看每条都很小；合在一起也是"小修小补"。
+- **判断**：**默认不合**。等下次有更大主题 merge 时顺便带过来。
+ 单独为这些拉一个 PR + CI 周期的边际成本 > 收益。
+ - **例外**：`a4e329c1 (gpt-5.5 模型新增)` 与 `3fe4fd4c (add model gpt-5.5)`
+ 如果 TK 已有用户问"gpt-5.5 为什么不能用"，可以单独 cherry-pick
+ model registry 那一行（不需要 Stage C 整体）。
+ - **不接受**：3 个 `chore: sync VERSION to 0.1.115/.116/.117 [skip ci]`
+ commits 必须 ours-strategy 拒绝（CLAUDE.md §9.2 + TK 自己的 1.6.0
+ 版本线）。
+
+### 3.5.4 总结：合并 ROI 表
+
+| Stage | 上游内容是否解决 TK 当前真实工单 | TK 自研同等能力的工作量 | 合并工作量 | 推荐 |
+|---|---|---|---|---|
+| A.auth | 是（重复账号 / OAuth 拒注册 / 支付救单 / 双重发货） | 高（重写身份层） | 中（schema + hot path resolve） | **合** |
+| B-1.RPM | 是（user 维度精准限流） | 低（自己加 column 也行） | 低 | **合**（前置验证语义不重叠） |
+| B-2.monitor | 取决于业务（是否有渠道健康观测工单？） | 中 | 中（4 表 + runner + provider enum 扩展） | **暂缓，等业务确认** |
+| B-3.images | 是（用户已用 OpenAI image API） | 低（TK 已自己接了一半） | 低（搭车 Stage A） | **合**（并入 Stage A） |
+| B-4.channels view | 否（除非做 ToC 转化） | 低 | 低 | **暂缓** |
+| C.misc | 否（小修小补） | N/A | 低 | **不合**（单条 cherry-pick 例外） |
+
+**修订后的最小可执行方案**：
+
+1. **真正要合的只有 1.5 个 stage**：Stage A（auth + payment + 顺手把
+ OpenAI images 与 scheduler hot path 一起 resolve）+ Stage B-1（RPM）。
+2. Stage B-2 / B-4 / C 默认推迟；按需在后续业务请求时单独切 PR。
+3. 这把 review 重量从原本的 "248 commits / 12 PRs" 收敛到
+ **2 个 merge PR**，每个 PR 解决一个明确的 TK 用户痛点。
+
+> 这与 §4 的 3-stage 划分**不矛盾**——§4 是按"如果都要合"的最大方案；
+> §3.5 是按"按真实价值挑"的最小方案。**优先采用 §3.5 的最小方案**，
+> §4 作为"如果业务确认 B-2/B-4 也要"的扩展路径。
 
 ---
 
