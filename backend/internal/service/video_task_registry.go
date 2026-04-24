@@ -83,20 +83,23 @@ func NewVideoTaskRegistry(rdb *redis.Client) *VideoTaskRegistry {
 	return r
 }
 
-// Save persists the record. Redis is the source of truth when configured;
-// errors there are reported to the caller so the handler can decide whether
-// to fail the submit. We previously soft-failed on Redis errors and kept an
-// in-memory copy, but that had two failure modes:
+// Save persists the record. Redis is the source of truth when configured.
 //
-//   - In-memory copy on replica A is invisible to replica B → polling on B
-//     returns 404 even though the task is running upstream.
-//   - In-memory copy never expires (only Delete-on-terminal removes it),
-//     leaking memory for tasks the user never polls.
+// Failure semantics: a Redis Set error is logged and swallowed (returns nil),
+// because by the time we reach Save the upstream task has already been
+// created and quota recorded — failing the submit here would orphan a billed
+// task. The downside is that subsequent polls land on Redis miss and return
+// 404; multi-replica operators MUST monitor the
+// `video_task_registry.redis_set_failed` warn log to detect this state.
 //
-// The current code logs and returns nil on Redis errors so the upstream task
-// is not orphaned, mirroring the previous behavior — but multi-replica
-// operators MUST monitor the warn log because a Redis outage now produces
-// 404s on subsequent polls (rather than silently routing to a stale copy).
+// We deliberately do NOT keep a parallel in-memory copy as a safety net,
+// because that re-introduces two old failure modes: cross-replica leak
+// (replica A's mem invisible to B) and unbounded memory growth (entries
+// only removed by Delete-on-terminal). See the type doc for the full
+// rationale.
+//
+// The only non-nil error returned is for invalid input (nil record, empty
+// PublicTaskID) or marshal failure — both indicate caller bugs.
 func (r *VideoTaskRegistry) Save(ctx context.Context, record *VideoTaskRecord) error {
 	if record == nil || strings.TrimSpace(record.PublicTaskID) == "" {
 		return errors.New("video task record requires public_task_id")

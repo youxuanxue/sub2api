@@ -249,6 +249,14 @@ func errUnsupportedChannel(channelType int) *types.NewAPIError {
 
 // taskErrorToNewAPIError converts the new-api dto.TaskError into a NewAPIError
 // shape that the bridge layer expects.
+//
+// taskErr.Error is always non-nil when this is called: every TaskError that
+// reaches an adaptor's DoResponse is built by service.TaskErrorWrapper /
+// TaskErrorWrapperLocal / relaycommon.createTaskError / TaskErrorFromAPIError,
+// and all four constructors call `err.Error()` on a non-nil err during
+// construction. (The two `&dto.TaskError{...}` literals in
+// new-api/controller/relay.go are written via c.JSON directly and never reach
+// our path.) We therefore do not synthesise a fallback error from .Message.
 func taskErrorToNewAPIError(taskErr *dto.TaskError) *types.NewAPIError {
 	if taskErr == nil {
 		return nil
@@ -257,15 +265,11 @@ func taskErrorToNewAPIError(taskErr *dto.TaskError) *types.NewAPIError {
 	if status == 0 {
 		status = http.StatusBadGateway
 	}
-	wrapped := taskErr.Error
-	if wrapped == nil {
-		wrapped = errors.New(taskErr.Message)
-	}
 	code := types.ErrorCodeBadResponseStatusCode
 	if taskErr.Code != "" {
 		code = types.ErrorCode(taskErr.Code)
 	}
-	return types.NewErrorWithStatusCode(wrapped, code, status, types.ErrOptionWithSkipRetry())
+	return types.NewErrorWithStatusCode(taskErr.Error, code, status, types.ErrOptionWithSkipRetry())
 }
 
 // IsVideoSupportedChannelType reports whether new-api's task-adaptor registry

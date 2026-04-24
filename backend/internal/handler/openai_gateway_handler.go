@@ -35,12 +35,7 @@ type OpenAIGatewayHandler struct {
 	concurrencyHelper       *ConcurrencyHelper
 	maxAccountSwitches      int
 	cfg                     *config.Config
-
-	// videoTaskRegistry is wired post-construction via SetVideoTaskRegistry to
-	// keep the upstream-shaped NewOpenAIGatewayHandler signature stable across
-	// upstream merges (CLAUDE.md §5 — "thin injection point" rule). Nil-safe:
-	// VideoSubmit / VideoFetch return 503 if it was never set.
-	videoTaskRegistry *service.VideoTaskRegistry
+	videoTaskRegistry       *service.VideoTaskRegistry // TK; wired via SetVideoTaskRegistry — see openai_gateway_tk_video.go.
 }
 
 func resolveOpenAIForwardDefaultMappedModel(apiKey *service.APIKey, fallbackModel string) string {
