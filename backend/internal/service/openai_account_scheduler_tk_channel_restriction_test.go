@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,10 +19,14 @@ import (
 // P1-2: selectByLoadBalance 错误信息按 GroupPlatform 区分（OpenAI / newapi 等），
 //       不再硬写 "no available OpenAI accounts"。
 
-// newSchedFixtureWithChannel 在 newAPISchedFixture 之上挂一个真实的
-// ChannelService（带 mock repo），用于触发 channel pricing / restriction
-// 路径。channelService==nil 时 checkChannelPricingRestriction /
-// needsUpstreamChannelRestrictionCheck 都直接 return false 短路，无法测试。
+// newSchedFixtureWithChannel 复用 newAPISchedFixture（同包测试 fixture），
+// 在其之上挂一个真实的 ChannelService（带 mock repo），用于触发 channel
+// pricing / restriction 路径。channelService==nil 时
+// checkChannelPricingRestriction / needsUpstreamChannelRestrictionCheck 都直接
+// return false 短路，无法测试。
+//
+// OPC 原则：不复制 newAPISchedFixture 的 30+ 行 setup，只在它之上加 1 行
+// channelService 注入；任何对基础 fixture 的修改都自动传导到这里。
 func newSchedFixtureWithChannel(
 	t *testing.T,
 	groupID int64,
@@ -32,34 +35,10 @@ func newSchedFixtureWithChannel(
 	channel Channel,
 ) (*OpenAIGatewayService, *defaultOpenAIAccountScheduler) {
 	t.Helper()
-	accountsByID := make(map[int64]*Account, len(pool))
-	for _, p := range pool {
-		if p != nil {
-			accountsByID[p.ID] = p
-		}
-	}
-	snapshotCache := &openAISnapshotCacheStub{snapshotAccounts: pool, accountsByID: accountsByID}
-	groupRepo := &stubSchedulerGroupRepo{
-		groupsByID: map[int64]*Group{
-			groupID: {ID: groupID, Platform: groupPlatform},
-		},
-	}
-	snapshotService := &SchedulerSnapshotService{cache: snapshotCache, groupRepo: groupRepo}
-	repoAccounts := make([]Account, 0, len(pool))
-	for _, p := range pool {
-		if p != nil {
-			repoAccounts = append(repoAccounts, *p)
-		}
-	}
-	channelSvc := newTestChannelService(makeStandardRepo(channel, map[int64]string{groupID: groupPlatform}))
-	svc := &OpenAIGatewayService{
-		accountRepo:        stubOpenAIAccountRepo{accounts: repoAccounts},
-		cfg:                &config.Config{},
-		schedulerSnapshot:  snapshotService,
-		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
-		channelService:     channelSvc,
-	}
-	sched := &defaultOpenAIAccountScheduler{service: svc}
+	svc, sched := newAPISchedFixture(t, groupID, groupPlatform, pool)
+	svc.channelService = newTestChannelService(
+		makeStandardRepo(channel, map[int64]string{groupID: groupPlatform}),
+	)
 	return svc, sched
 }
 
