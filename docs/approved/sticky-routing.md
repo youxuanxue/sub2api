@@ -332,7 +332,6 @@ type CacheStats struct {
 合入时同步：
 - `CLAUDE.md`：在 "Current Gateway Flow" 段加一行 sticky routing 说明
 - `docs/agent_integration.md`：由 `scripts/export_agent_contract.py` 自动生成
-- `docs/flows/openai-gateway-flow.md`：补充 sticky key 派生节点
 
 ---
 
