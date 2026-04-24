@@ -71,7 +71,7 @@ func (h *QAHandler) ExportSelf(c *gin.Context) {
 		return
 	}
 
-	if h == nil || h.service == nil || !h.service.Enabled() {
+	if !h.service.Enabled() {
 		response.Error(c, http.StatusServiceUnavailable, "QA capture is disabled in this environment")
 		return
 	}

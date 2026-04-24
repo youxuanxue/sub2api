@@ -20,8 +20,5 @@ import (
 //     user-scope JWT; service layer enforces `WHERE user_id = subject.UserID`.
 func registerTKUserRoutes(authenticated, user *gin.RouterGroup, h *handler.Handlers) {
 	user.POST("/onboarding-tour-completed", h.User.MarkOnboardingTourSeen)
-
-	if h != nil && h.QA != nil {
-		authenticated.POST("/users/me/qa/export", h.QA.ExportSelf)
-	}
+	authenticated.POST("/users/me/qa/export", h.QA.ExportSelf)
 }
