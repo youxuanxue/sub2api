@@ -159,6 +159,26 @@ func BlobURI(v string) predicate.QARecord {
 	return predicate.QARecord(sql.FieldEQ(FieldBlobURI, v))
 }
 
+// SynthSessionID applies equality check predicate on the "synth_session_id" field. It's identical to SynthSessionIDEQ.
+func SynthSessionID(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldSynthSessionID, v))
+}
+
+// SynthRole applies equality check predicate on the "synth_role" field. It's identical to SynthRoleEQ.
+func SynthRole(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldSynthRole, v))
+}
+
+// SynthEngineerLevel applies equality check predicate on the "synth_engineer_level" field. It's identical to SynthEngineerLevelEQ.
+func SynthEngineerLevel(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldSynthEngineerLevel, v))
+}
+
+// DialogSynth applies equality check predicate on the "dialog_synth" field. It's identical to DialogSynthEQ.
+func DialogSynth(v bool) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldDialogSynth, v))
+}
+
 // CreatedAt applies equality check predicate on the "created_at" field. It's identical to CreatedAtEQ.
 func CreatedAt(v time.Time) predicate.QARecord {
 	return predicate.QARecord(sql.FieldEQ(FieldCreatedAt, v))
@@ -1192,6 +1212,241 @@ func BlobURIEqualFold(v string) predicate.QARecord {
 // BlobURIContainsFold applies the ContainsFold predicate on the "blob_uri" field.
 func BlobURIContainsFold(v string) predicate.QARecord {
 	return predicate.QARecord(sql.FieldContainsFold(FieldBlobURI, v))
+}
+
+// SynthSessionIDEQ applies the EQ predicate on the "synth_session_id" field.
+func SynthSessionIDEQ(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldSynthSessionID, v))
+}
+
+// SynthSessionIDNEQ applies the NEQ predicate on the "synth_session_id" field.
+func SynthSessionIDNEQ(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldNEQ(FieldSynthSessionID, v))
+}
+
+// SynthSessionIDIn applies the In predicate on the "synth_session_id" field.
+func SynthSessionIDIn(vs ...string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldIn(FieldSynthSessionID, vs...))
+}
+
+// SynthSessionIDNotIn applies the NotIn predicate on the "synth_session_id" field.
+func SynthSessionIDNotIn(vs ...string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldNotIn(FieldSynthSessionID, vs...))
+}
+
+// SynthSessionIDGT applies the GT predicate on the "synth_session_id" field.
+func SynthSessionIDGT(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldGT(FieldSynthSessionID, v))
+}
+
+// SynthSessionIDGTE applies the GTE predicate on the "synth_session_id" field.
+func SynthSessionIDGTE(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldGTE(FieldSynthSessionID, v))
+}
+
+// SynthSessionIDLT applies the LT predicate on the "synth_session_id" field.
+func SynthSessionIDLT(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldLT(FieldSynthSessionID, v))
+}
+
+// SynthSessionIDLTE applies the LTE predicate on the "synth_session_id" field.
+func SynthSessionIDLTE(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldLTE(FieldSynthSessionID, v))
+}
+
+// SynthSessionIDContains applies the Contains predicate on the "synth_session_id" field.
+func SynthSessionIDContains(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldContains(FieldSynthSessionID, v))
+}
+
+// SynthSessionIDHasPrefix applies the HasPrefix predicate on the "synth_session_id" field.
+func SynthSessionIDHasPrefix(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldHasPrefix(FieldSynthSessionID, v))
+}
+
+// SynthSessionIDHasSuffix applies the HasSuffix predicate on the "synth_session_id" field.
+func SynthSessionIDHasSuffix(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldHasSuffix(FieldSynthSessionID, v))
+}
+
+// SynthSessionIDIsNil applies the IsNil predicate on the "synth_session_id" field.
+func SynthSessionIDIsNil() predicate.QARecord {
+	return predicate.QARecord(sql.FieldIsNull(FieldSynthSessionID))
+}
+
+// SynthSessionIDNotNil applies the NotNil predicate on the "synth_session_id" field.
+func SynthSessionIDNotNil() predicate.QARecord {
+	return predicate.QARecord(sql.FieldNotNull(FieldSynthSessionID))
+}
+
+// SynthSessionIDEqualFold applies the EqualFold predicate on the "synth_session_id" field.
+func SynthSessionIDEqualFold(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEqualFold(FieldSynthSessionID, v))
+}
+
+// SynthSessionIDContainsFold applies the ContainsFold predicate on the "synth_session_id" field.
+func SynthSessionIDContainsFold(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldContainsFold(FieldSynthSessionID, v))
+}
+
+// SynthRoleEQ applies the EQ predicate on the "synth_role" field.
+func SynthRoleEQ(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldSynthRole, v))
+}
+
+// SynthRoleNEQ applies the NEQ predicate on the "synth_role" field.
+func SynthRoleNEQ(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldNEQ(FieldSynthRole, v))
+}
+
+// SynthRoleIn applies the In predicate on the "synth_role" field.
+func SynthRoleIn(vs ...string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldIn(FieldSynthRole, vs...))
+}
+
+// SynthRoleNotIn applies the NotIn predicate on the "synth_role" field.
+func SynthRoleNotIn(vs ...string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldNotIn(FieldSynthRole, vs...))
+}
+
+// SynthRoleGT applies the GT predicate on the "synth_role" field.
+func SynthRoleGT(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldGT(FieldSynthRole, v))
+}
+
+// SynthRoleGTE applies the GTE predicate on the "synth_role" field.
+func SynthRoleGTE(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldGTE(FieldSynthRole, v))
+}
+
+// SynthRoleLT applies the LT predicate on the "synth_role" field.
+func SynthRoleLT(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldLT(FieldSynthRole, v))
+}
+
+// SynthRoleLTE applies the LTE predicate on the "synth_role" field.
+func SynthRoleLTE(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldLTE(FieldSynthRole, v))
+}
+
+// SynthRoleContains applies the Contains predicate on the "synth_role" field.
+func SynthRoleContains(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldContains(FieldSynthRole, v))
+}
+
+// SynthRoleHasPrefix applies the HasPrefix predicate on the "synth_role" field.
+func SynthRoleHasPrefix(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldHasPrefix(FieldSynthRole, v))
+}
+
+// SynthRoleHasSuffix applies the HasSuffix predicate on the "synth_role" field.
+func SynthRoleHasSuffix(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldHasSuffix(FieldSynthRole, v))
+}
+
+// SynthRoleIsNil applies the IsNil predicate on the "synth_role" field.
+func SynthRoleIsNil() predicate.QARecord {
+	return predicate.QARecord(sql.FieldIsNull(FieldSynthRole))
+}
+
+// SynthRoleNotNil applies the NotNil predicate on the "synth_role" field.
+func SynthRoleNotNil() predicate.QARecord {
+	return predicate.QARecord(sql.FieldNotNull(FieldSynthRole))
+}
+
+// SynthRoleEqualFold applies the EqualFold predicate on the "synth_role" field.
+func SynthRoleEqualFold(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEqualFold(FieldSynthRole, v))
+}
+
+// SynthRoleContainsFold applies the ContainsFold predicate on the "synth_role" field.
+func SynthRoleContainsFold(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldContainsFold(FieldSynthRole, v))
+}
+
+// SynthEngineerLevelEQ applies the EQ predicate on the "synth_engineer_level" field.
+func SynthEngineerLevelEQ(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldSynthEngineerLevel, v))
+}
+
+// SynthEngineerLevelNEQ applies the NEQ predicate on the "synth_engineer_level" field.
+func SynthEngineerLevelNEQ(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldNEQ(FieldSynthEngineerLevel, v))
+}
+
+// SynthEngineerLevelIn applies the In predicate on the "synth_engineer_level" field.
+func SynthEngineerLevelIn(vs ...string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldIn(FieldSynthEngineerLevel, vs...))
+}
+
+// SynthEngineerLevelNotIn applies the NotIn predicate on the "synth_engineer_level" field.
+func SynthEngineerLevelNotIn(vs ...string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldNotIn(FieldSynthEngineerLevel, vs...))
+}
+
+// SynthEngineerLevelGT applies the GT predicate on the "synth_engineer_level" field.
+func SynthEngineerLevelGT(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldGT(FieldSynthEngineerLevel, v))
+}
+
+// SynthEngineerLevelGTE applies the GTE predicate on the "synth_engineer_level" field.
+func SynthEngineerLevelGTE(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldGTE(FieldSynthEngineerLevel, v))
+}
+
+// SynthEngineerLevelLT applies the LT predicate on the "synth_engineer_level" field.
+func SynthEngineerLevelLT(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldLT(FieldSynthEngineerLevel, v))
+}
+
+// SynthEngineerLevelLTE applies the LTE predicate on the "synth_engineer_level" field.
+func SynthEngineerLevelLTE(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldLTE(FieldSynthEngineerLevel, v))
+}
+
+// SynthEngineerLevelContains applies the Contains predicate on the "synth_engineer_level" field.
+func SynthEngineerLevelContains(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldContains(FieldSynthEngineerLevel, v))
+}
+
+// SynthEngineerLevelHasPrefix applies the HasPrefix predicate on the "synth_engineer_level" field.
+func SynthEngineerLevelHasPrefix(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldHasPrefix(FieldSynthEngineerLevel, v))
+}
+
+// SynthEngineerLevelHasSuffix applies the HasSuffix predicate on the "synth_engineer_level" field.
+func SynthEngineerLevelHasSuffix(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldHasSuffix(FieldSynthEngineerLevel, v))
+}
+
+// SynthEngineerLevelIsNil applies the IsNil predicate on the "synth_engineer_level" field.
+func SynthEngineerLevelIsNil() predicate.QARecord {
+	return predicate.QARecord(sql.FieldIsNull(FieldSynthEngineerLevel))
+}
+
+// SynthEngineerLevelNotNil applies the NotNil predicate on the "synth_engineer_level" field.
+func SynthEngineerLevelNotNil() predicate.QARecord {
+	return predicate.QARecord(sql.FieldNotNull(FieldSynthEngineerLevel))
+}
+
+// SynthEngineerLevelEqualFold applies the EqualFold predicate on the "synth_engineer_level" field.
+func SynthEngineerLevelEqualFold(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEqualFold(FieldSynthEngineerLevel, v))
+}
+
+// SynthEngineerLevelContainsFold applies the ContainsFold predicate on the "synth_engineer_level" field.
+func SynthEngineerLevelContainsFold(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldContainsFold(FieldSynthEngineerLevel, v))
+}
+
+// DialogSynthEQ applies the EQ predicate on the "dialog_synth" field.
+func DialogSynthEQ(v bool) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldDialogSynth, v))
+}
+
+// DialogSynthNEQ applies the NEQ predicate on the "dialog_synth" field.
+func DialogSynthNEQ(v bool) predicate.QARecord {
+	return predicate.QARecord(sql.FieldNEQ(FieldDialogSynth, v))
 }
 
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.

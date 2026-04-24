@@ -57,6 +57,14 @@ const (
 	FieldBlobURI = "blob_uri"
 	// FieldTags holds the string denoting the tags field in the database.
 	FieldTags = "tags"
+	// FieldSynthSessionID holds the string denoting the synth_session_id field in the database.
+	FieldSynthSessionID = "synth_session_id"
+	// FieldSynthRole holds the string denoting the synth_role field in the database.
+	FieldSynthRole = "synth_role"
+	// FieldSynthEngineerLevel holds the string denoting the synth_engineer_level field in the database.
+	FieldSynthEngineerLevel = "synth_engineer_level"
+	// FieldDialogSynth holds the string denoting the dialog_synth field in the database.
+	FieldDialogSynth = "dialog_synth"
 	// FieldCreatedAt holds the string denoting the created_at field in the database.
 	FieldCreatedAt = "created_at"
 	// FieldRetentionUntil holds the string denoting the retention_until field in the database.
@@ -90,6 +98,10 @@ var Columns = []string{
 	FieldResponseSha256,
 	FieldBlobURI,
 	FieldTags,
+	FieldSynthSessionID,
+	FieldSynthRole,
+	FieldSynthEngineerLevel,
+	FieldDialogSynth,
 	FieldCreatedAt,
 	FieldRetentionUntil,
 }
@@ -135,6 +147,8 @@ var (
 	DefaultResponseSha256 string
 	// DefaultTags holds the default value on creation for the "tags" field.
 	DefaultTags []string
+	// DefaultDialogSynth holds the default value on creation for the "dialog_synth" field.
+	DefaultDialogSynth bool
 	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
 	DefaultCreatedAt func() time.Time
 )
@@ -250,6 +264,26 @@ func ByResponseSha256(opts ...sql.OrderTermOption) OrderOption {
 // ByBlobURI orders the results by the blob_uri field.
 func ByBlobURI(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldBlobURI, opts...).ToFunc()
+}
+
+// BySynthSessionID orders the results by the synth_session_id field.
+func BySynthSessionID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSynthSessionID, opts...).ToFunc()
+}
+
+// BySynthRole orders the results by the synth_role field.
+func BySynthRole(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSynthRole, opts...).ToFunc()
+}
+
+// BySynthEngineerLevel orders the results by the synth_engineer_level field.
+func BySynthEngineerLevel(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSynthEngineerLevel, opts...).ToFunc()
+}
+
+// ByDialogSynth orders the results by the dialog_synth field.
+func ByDialogSynth(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldDialogSynth, opts...).ToFunc()
 }
 
 // ByCreatedAt orders the results by the created_at field.

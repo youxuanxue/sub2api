@@ -62,6 +62,14 @@ type QARecord struct {
 	BlobURI *string `json:"blob_uri,omitempty"`
 	// Tags holds the value of the "tags" field.
 	Tags []string `json:"tags,omitempty"`
+	// SynthSessionID holds the value of the "synth_session_id" field.
+	SynthSessionID *string `json:"synth_session_id,omitempty"`
+	// SynthRole holds the value of the "synth_role" field.
+	SynthRole *string `json:"synth_role,omitempty"`
+	// SynthEngineerLevel holds the value of the "synth_engineer_level" field.
+	SynthEngineerLevel *string `json:"synth_engineer_level,omitempty"`
+	// DialogSynth holds the value of the "dialog_synth" field.
+	DialogSynth bool `json:"dialog_synth,omitempty"`
 	// CreatedAt holds the value of the "created_at" field.
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	// RetentionUntil holds the value of the "retention_until" field.
@@ -76,11 +84,11 @@ func (*QARecord) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case qarecord.FieldTags:
 			values[i] = new([]byte)
-		case qarecord.FieldStream, qarecord.FieldToolCallsPresent, qarecord.FieldMultimodalPresent:
+		case qarecord.FieldStream, qarecord.FieldToolCallsPresent, qarecord.FieldMultimodalPresent, qarecord.FieldDialogSynth:
 			values[i] = new(sql.NullBool)
 		case qarecord.FieldID, qarecord.FieldUserID, qarecord.FieldAPIKeyID, qarecord.FieldAccountID, qarecord.FieldStatusCode, qarecord.FieldDurationMs, qarecord.FieldFirstTokenMs, qarecord.FieldInputTokens, qarecord.FieldOutputTokens, qarecord.FieldCachedTokens:
 			values[i] = new(sql.NullInt64)
-		case qarecord.FieldRequestID, qarecord.FieldPlatform, qarecord.FieldRequestedModel, qarecord.FieldUpstreamModel, qarecord.FieldInboundEndpoint, qarecord.FieldUpstreamEndpoint, qarecord.FieldRequestSha256, qarecord.FieldResponseSha256, qarecord.FieldBlobURI:
+		case qarecord.FieldRequestID, qarecord.FieldPlatform, qarecord.FieldRequestedModel, qarecord.FieldUpstreamModel, qarecord.FieldInboundEndpoint, qarecord.FieldUpstreamEndpoint, qarecord.FieldRequestSha256, qarecord.FieldResponseSha256, qarecord.FieldBlobURI, qarecord.FieldSynthSessionID, qarecord.FieldSynthRole, qarecord.FieldSynthEngineerLevel:
 			values[i] = new(sql.NullString)
 		case qarecord.FieldCreatedAt, qarecord.FieldRetentionUntil:
 			values[i] = new(sql.NullTime)
@@ -244,6 +252,33 @@ func (_m *QARecord) assignValues(columns []string, values []any) error {
 					return fmt.Errorf("unmarshal field tags: %w", err)
 				}
 			}
+		case qarecord.FieldSynthSessionID:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field synth_session_id", values[i])
+			} else if value.Valid {
+				_m.SynthSessionID = new(string)
+				*_m.SynthSessionID = value.String
+			}
+		case qarecord.FieldSynthRole:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field synth_role", values[i])
+			} else if value.Valid {
+				_m.SynthRole = new(string)
+				*_m.SynthRole = value.String
+			}
+		case qarecord.FieldSynthEngineerLevel:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field synth_engineer_level", values[i])
+			} else if value.Valid {
+				_m.SynthEngineerLevel = new(string)
+				*_m.SynthEngineerLevel = value.String
+			}
+		case qarecord.FieldDialogSynth:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field dialog_synth", values[i])
+			} else if value.Valid {
+				_m.DialogSynth = value.Bool
+			}
 		case qarecord.FieldCreatedAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
 				return fmt.Errorf("unexpected type %T for field created_at", values[i])
@@ -367,6 +402,24 @@ func (_m *QARecord) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("tags=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Tags))
+	builder.WriteString(", ")
+	if v := _m.SynthSessionID; v != nil {
+		builder.WriteString("synth_session_id=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.SynthRole; v != nil {
+		builder.WriteString("synth_role=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.SynthEngineerLevel; v != nil {
+		builder.WriteString("synth_engineer_level=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	builder.WriteString("dialog_synth=")
+	builder.WriteString(fmt.Sprintf("%v", _m.DialogSynth))
 	builder.WriteString(", ")
 	builder.WriteString("created_at=")
 	builder.WriteString(_m.CreatedAt.Format(time.ANSIC))

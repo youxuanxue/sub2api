@@ -428,6 +428,80 @@ func (_u *QARecordUpdate) AppendTags(v []string) *QARecordUpdate {
 	return _u
 }
 
+// SetSynthSessionID sets the "synth_session_id" field.
+func (_u *QARecordUpdate) SetSynthSessionID(v string) *QARecordUpdate {
+	_u.mutation.SetSynthSessionID(v)
+	return _u
+}
+
+// SetNillableSynthSessionID sets the "synth_session_id" field if the given value is not nil.
+func (_u *QARecordUpdate) SetNillableSynthSessionID(v *string) *QARecordUpdate {
+	if v != nil {
+		_u.SetSynthSessionID(*v)
+	}
+	return _u
+}
+
+// ClearSynthSessionID clears the value of the "synth_session_id" field.
+func (_u *QARecordUpdate) ClearSynthSessionID() *QARecordUpdate {
+	_u.mutation.ClearSynthSessionID()
+	return _u
+}
+
+// SetSynthRole sets the "synth_role" field.
+func (_u *QARecordUpdate) SetSynthRole(v string) *QARecordUpdate {
+	_u.mutation.SetSynthRole(v)
+	return _u
+}
+
+// SetNillableSynthRole sets the "synth_role" field if the given value is not nil.
+func (_u *QARecordUpdate) SetNillableSynthRole(v *string) *QARecordUpdate {
+	if v != nil {
+		_u.SetSynthRole(*v)
+	}
+	return _u
+}
+
+// ClearSynthRole clears the value of the "synth_role" field.
+func (_u *QARecordUpdate) ClearSynthRole() *QARecordUpdate {
+	_u.mutation.ClearSynthRole()
+	return _u
+}
+
+// SetSynthEngineerLevel sets the "synth_engineer_level" field.
+func (_u *QARecordUpdate) SetSynthEngineerLevel(v string) *QARecordUpdate {
+	_u.mutation.SetSynthEngineerLevel(v)
+	return _u
+}
+
+// SetNillableSynthEngineerLevel sets the "synth_engineer_level" field if the given value is not nil.
+func (_u *QARecordUpdate) SetNillableSynthEngineerLevel(v *string) *QARecordUpdate {
+	if v != nil {
+		_u.SetSynthEngineerLevel(*v)
+	}
+	return _u
+}
+
+// ClearSynthEngineerLevel clears the value of the "synth_engineer_level" field.
+func (_u *QARecordUpdate) ClearSynthEngineerLevel() *QARecordUpdate {
+	_u.mutation.ClearSynthEngineerLevel()
+	return _u
+}
+
+// SetDialogSynth sets the "dialog_synth" field.
+func (_u *QARecordUpdate) SetDialogSynth(v bool) *QARecordUpdate {
+	_u.mutation.SetDialogSynth(v)
+	return _u
+}
+
+// SetNillableDialogSynth sets the "dialog_synth" field if the given value is not nil.
+func (_u *QARecordUpdate) SetNillableDialogSynth(v *bool) *QARecordUpdate {
+	if v != nil {
+		_u.SetDialogSynth(*v)
+	}
+	return _u
+}
+
 // SetRetentionUntil sets the "retention_until" field.
 func (_u *QARecordUpdate) SetRetentionUntil(v time.Time) *QARecordUpdate {
 	_u.mutation.SetRetentionUntil(v)
@@ -608,6 +682,27 @@ func (_u *QARecordUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		_spec.AddModifier(func(u *sql.UpdateBuilder) {
 			sqljson.Append(u, qarecord.FieldTags, value)
 		})
+	}
+	if value, ok := _u.mutation.SynthSessionID(); ok {
+		_spec.SetField(qarecord.FieldSynthSessionID, field.TypeString, value)
+	}
+	if _u.mutation.SynthSessionIDCleared() {
+		_spec.ClearField(qarecord.FieldSynthSessionID, field.TypeString)
+	}
+	if value, ok := _u.mutation.SynthRole(); ok {
+		_spec.SetField(qarecord.FieldSynthRole, field.TypeString, value)
+	}
+	if _u.mutation.SynthRoleCleared() {
+		_spec.ClearField(qarecord.FieldSynthRole, field.TypeString)
+	}
+	if value, ok := _u.mutation.SynthEngineerLevel(); ok {
+		_spec.SetField(qarecord.FieldSynthEngineerLevel, field.TypeString, value)
+	}
+	if _u.mutation.SynthEngineerLevelCleared() {
+		_spec.ClearField(qarecord.FieldSynthEngineerLevel, field.TypeString)
+	}
+	if value, ok := _u.mutation.DialogSynth(); ok {
+		_spec.SetField(qarecord.FieldDialogSynth, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.RetentionUntil(); ok {
 		_spec.SetField(qarecord.FieldRetentionUntil, field.TypeTime, value)
@@ -1031,6 +1126,80 @@ func (_u *QARecordUpdateOne) AppendTags(v []string) *QARecordUpdateOne {
 	return _u
 }
 
+// SetSynthSessionID sets the "synth_session_id" field.
+func (_u *QARecordUpdateOne) SetSynthSessionID(v string) *QARecordUpdateOne {
+	_u.mutation.SetSynthSessionID(v)
+	return _u
+}
+
+// SetNillableSynthSessionID sets the "synth_session_id" field if the given value is not nil.
+func (_u *QARecordUpdateOne) SetNillableSynthSessionID(v *string) *QARecordUpdateOne {
+	if v != nil {
+		_u.SetSynthSessionID(*v)
+	}
+	return _u
+}
+
+// ClearSynthSessionID clears the value of the "synth_session_id" field.
+func (_u *QARecordUpdateOne) ClearSynthSessionID() *QARecordUpdateOne {
+	_u.mutation.ClearSynthSessionID()
+	return _u
+}
+
+// SetSynthRole sets the "synth_role" field.
+func (_u *QARecordUpdateOne) SetSynthRole(v string) *QARecordUpdateOne {
+	_u.mutation.SetSynthRole(v)
+	return _u
+}
+
+// SetNillableSynthRole sets the "synth_role" field if the given value is not nil.
+func (_u *QARecordUpdateOne) SetNillableSynthRole(v *string) *QARecordUpdateOne {
+	if v != nil {
+		_u.SetSynthRole(*v)
+	}
+	return _u
+}
+
+// ClearSynthRole clears the value of the "synth_role" field.
+func (_u *QARecordUpdateOne) ClearSynthRole() *QARecordUpdateOne {
+	_u.mutation.ClearSynthRole()
+	return _u
+}
+
+// SetSynthEngineerLevel sets the "synth_engineer_level" field.
+func (_u *QARecordUpdateOne) SetSynthEngineerLevel(v string) *QARecordUpdateOne {
+	_u.mutation.SetSynthEngineerLevel(v)
+	return _u
+}
+
+// SetNillableSynthEngineerLevel sets the "synth_engineer_level" field if the given value is not nil.
+func (_u *QARecordUpdateOne) SetNillableSynthEngineerLevel(v *string) *QARecordUpdateOne {
+	if v != nil {
+		_u.SetSynthEngineerLevel(*v)
+	}
+	return _u
+}
+
+// ClearSynthEngineerLevel clears the value of the "synth_engineer_level" field.
+func (_u *QARecordUpdateOne) ClearSynthEngineerLevel() *QARecordUpdateOne {
+	_u.mutation.ClearSynthEngineerLevel()
+	return _u
+}
+
+// SetDialogSynth sets the "dialog_synth" field.
+func (_u *QARecordUpdateOne) SetDialogSynth(v bool) *QARecordUpdateOne {
+	_u.mutation.SetDialogSynth(v)
+	return _u
+}
+
+// SetNillableDialogSynth sets the "dialog_synth" field if the given value is not nil.
+func (_u *QARecordUpdateOne) SetNillableDialogSynth(v *bool) *QARecordUpdateOne {
+	if v != nil {
+		_u.SetDialogSynth(*v)
+	}
+	return _u
+}
+
 // SetRetentionUntil sets the "retention_until" field.
 func (_u *QARecordUpdateOne) SetRetentionUntil(v time.Time) *QARecordUpdateOne {
 	_u.mutation.SetRetentionUntil(v)
@@ -1241,6 +1410,27 @@ func (_u *QARecordUpdateOne) sqlSave(ctx context.Context) (_node *QARecord, err 
 		_spec.AddModifier(func(u *sql.UpdateBuilder) {
 			sqljson.Append(u, qarecord.FieldTags, value)
 		})
+	}
+	if value, ok := _u.mutation.SynthSessionID(); ok {
+		_spec.SetField(qarecord.FieldSynthSessionID, field.TypeString, value)
+	}
+	if _u.mutation.SynthSessionIDCleared() {
+		_spec.ClearField(qarecord.FieldSynthSessionID, field.TypeString)
+	}
+	if value, ok := _u.mutation.SynthRole(); ok {
+		_spec.SetField(qarecord.FieldSynthRole, field.TypeString, value)
+	}
+	if _u.mutation.SynthRoleCleared() {
+		_spec.ClearField(qarecord.FieldSynthRole, field.TypeString)
+	}
+	if value, ok := _u.mutation.SynthEngineerLevel(); ok {
+		_spec.SetField(qarecord.FieldSynthEngineerLevel, field.TypeString, value)
+	}
+	if _u.mutation.SynthEngineerLevelCleared() {
+		_spec.ClearField(qarecord.FieldSynthEngineerLevel, field.TypeString)
+	}
+	if value, ok := _u.mutation.DialogSynth(); ok {
+		_spec.SetField(qarecord.FieldDialogSynth, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.RetentionUntil(); ok {
 		_spec.SetField(qarecord.FieldRetentionUntil, field.TypeTime, value)

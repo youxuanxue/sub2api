@@ -773,6 +773,10 @@ var (
 		{Name: "response_sha256", Type: field.TypeString, Default: ""},
 		{Name: "blob_uri", Type: field.TypeString, Nullable: true},
 		{Name: "tags", Type: field.TypeJSON},
+		{Name: "synth_session_id", Type: field.TypeString, Nullable: true},
+		{Name: "synth_role", Type: field.TypeString, Nullable: true},
+		{Name: "synth_engineer_level", Type: field.TypeString, Nullable: true},
+		{Name: "dialog_synth", Type: field.TypeBool, Default: false},
 		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "retention_until", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
 	}
@@ -785,22 +789,22 @@ var (
 			{
 				Name:    "qarecord_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{QaRecordsColumns[23]},
+				Columns: []*schema.Column{QaRecordsColumns[27]},
 			},
 			{
 				Name:    "qarecord_api_key_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{QaRecordsColumns[3], QaRecordsColumns[23]},
+				Columns: []*schema.Column{QaRecordsColumns[3], QaRecordsColumns[27]},
 			},
 			{
 				Name:    "qarecord_user_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{QaRecordsColumns[2], QaRecordsColumns[23]},
+				Columns: []*schema.Column{QaRecordsColumns[2], QaRecordsColumns[27]},
 			},
 			{
 				Name:    "qarecord_platform_status_code_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{QaRecordsColumns[5], QaRecordsColumns[10], QaRecordsColumns[23]},
+				Columns: []*schema.Column{QaRecordsColumns[5], QaRecordsColumns[10], QaRecordsColumns[27]},
 			},
 		},
 	}

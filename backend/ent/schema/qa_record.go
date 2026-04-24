@@ -45,6 +45,14 @@ func (QARecord) Fields() []ent.Field {
 		field.String("response_sha256").Default(""),
 		field.String("blob_uri").Optional().Nillable(),
 		field.JSON("tags", []string{}).Default([]string{}),
+		// Synthetic-pipeline tagging (issue #59 / docs/projects/auto-traj-from-supply-demand.md §6.1).
+		// All four fields are nullable / have defaults so existing online callers are NOT affected.
+		// Populated by qa.Middleware from request headers X-Synth-Session, X-Synth-Role,
+		// X-Synth-Engineer-Level, X-Synth-Pipeline; absent for normal traffic (non-synth).
+		field.String("synth_session_id").Optional().Nillable(),
+		field.String("synth_role").Optional().Nillable(),
+		field.String("synth_engineer_level").Optional().Nillable(),
+		field.Bool("dialog_synth").Default(false),
 		field.Time("created_at").
 			Default(time.Now).
 			Immutable().
@@ -55,6 +63,12 @@ func (QARecord) Fields() []ent.Field {
 }
 
 func (QARecord) Indexes() []ent.Index {
+	// Issue #59 lookup `WHERE user_id = ? AND synth_session_id = ?` is
+	// served by the partial index in tk_006_add_qa_records_synth_fields.sql
+	// (`WHERE synth_session_id IS NOT NULL`). We deliberately do NOT add
+	// a non-partial copy here so production runs only one synth-session
+	// index (Ent's portable Indexes() API can't express the WHERE clause
+	// and the SQL migration is this repo's source of truth for schema).
 	return []ent.Index{
 		index.Fields("created_at"),
 		index.Fields("api_key_id", "created_at"),

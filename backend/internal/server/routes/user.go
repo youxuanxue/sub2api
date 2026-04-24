@@ -26,7 +26,7 @@ func RegisterUserRoutes(
 			user.PUT("/password", h.User.ChangePassword)
 			user.PUT("", h.User.UpdateProfile)
 
-			registerTKUserRoutes(user, h)
+			registerTKUserRoutes(authenticated, user, h)
 
 			// 通知邮箱管理
 			notifyEmail := user.Group("/notify-email")

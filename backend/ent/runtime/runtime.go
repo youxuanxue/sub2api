@@ -890,8 +890,12 @@ func init() {
 	qarecordDescTags := qarecordFields[21].Descriptor()
 	// qarecord.DefaultTags holds the default value on creation for the tags field.
 	qarecord.DefaultTags = qarecordDescTags.Default.([]string)
+	// qarecordDescDialogSynth is the schema descriptor for dialog_synth field.
+	qarecordDescDialogSynth := qarecordFields[25].Descriptor()
+	// qarecord.DefaultDialogSynth holds the default value on creation for the dialog_synth field.
+	qarecord.DefaultDialogSynth = qarecordDescDialogSynth.Default.(bool)
 	// qarecordDescCreatedAt is the schema descriptor for created_at field.
-	qarecordDescCreatedAt := qarecordFields[22].Descriptor()
+	qarecordDescCreatedAt := qarecordFields[26].Descriptor()
 	// qarecord.DefaultCreatedAt holds the default value on creation for the created_at field.
 	qarecord.DefaultCreatedAt = qarecordDescCreatedAt.Default.(func() time.Time)
 	redeemcodeFields := schema.RedeemCode{}.Fields()
