@@ -8,15 +8,13 @@
 # token, secret presence checks) live in the dev-rules template; this
 # file only carries what is actually specific to sub2api:
 #
-#   1. Initialize the dev-rules submodule (preflight depends on it).
-#   2. Ensure /new-api sibling dir exists + sync to the pinned SHA so
+#   1. Ensure /new-api sibling dir exists + sync to the pinned SHA so
 #      backend Go builds resolve `replace ../../new-api` (CLAUDE.md §4).
-#   3. Pull the latest origin/main so cloud sessions start from HEAD.
-#   4. Install frontend dependencies via pnpm.
-#   5. Layer TokenKey's opinionated Claude Code knobs on top of the
+#   2. Install frontend dependencies via pnpm.
+#   3. Layer TokenKey's opinionated Claude Code knobs on top of the
 #      minimal settings.json the dev-rules template wrote.
-#   6. Self-test the prod-data fetch path when GH_TOKEN is set.
-#   7. Non-blocking preflight + make test sanity.
+#   4. Self-test the prod-data fetch path when GH_TOKEN is set.
+#   5. Non-blocking preflight + make test sanity.
 #
 # Intentionally non-fatal: any non-zero exit becomes a warning in the
 # dev-rules bootstrap (so a stale step never locks the agent out of
@@ -28,8 +26,7 @@ cd "$REPO_ROOT"
 
 warn() { echo "[project-hook][warn] $*" >&2; }
 
-echo "[project-hook] initializing dev-rules submodule"
-git submodule update --init --recursive
+echo "[project-hook] using prepared dev-rules submodule from .cursor/cloud-agent-install.sh"
 
 # Sibling new-api setup. On Cursor's cloud-agent VM the workspace lives at
 # /workspace, so the sibling target becomes /new-api — root-owned and not
@@ -52,9 +49,6 @@ fi
 
 echo "[project-hook] syncing sibling new-api to pinned SHA"
 bash scripts/sync-new-api.sh --check || bash scripts/sync-new-api.sh || warn "sync-new-api.sh failed"
-
-echo "[project-hook] pulling origin/main"
-git pull --ff-only origin main || warn "git pull origin main failed; continuing on checked-out revision"
 
 echo "[project-hook] installing frontend dependencies via pnpm"
 if command -v pnpm >/dev/null 2>&1; then
