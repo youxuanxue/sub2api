@@ -25,7 +25,7 @@ name: Stage0 Deploy
 #   PROD_STACK_NAME    default: tokenkey-prod-stage0
 #   TEST_STACK_NAME    default: tokenkey-test-stage0
 #
-# Setup SOP: docs/approved/deploy-prod-workflow.md § 5.
+# Setup SOP: docs/approved/deploy-stage0-workflow.md § 5.
 
 on:
   workflow_dispatch:
@@ -61,10 +61,15 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    # GitHub Environment binding: required for the OIDC subject to match
-    # the trust policy. If the Environment doesn't exist yet, this job
-    # fails fast on AssumeRoleWithWebIdentity (correct behavior — see
-    # docs/approved/deploy-prod-workflow.md §5).
+    # GitHub Environment binding. Two effects:
+    #   1. Adds environment:<name> to the OIDC sub claim, which the IAM
+    #      trust policy in cicd-oidc.yaml requires for AssumeRoleWithWebIdentity.
+    #   2. If the Environment is configured with Required reviewers (manual
+    #      one-time setup, see docs/approved/deploy-stage0-workflow.md §5),
+    #      the job pauses for human approval before any step runs.
+    # GitHub auto-creates the Environment on first reference if it doesn't
+    # exist — so the reviewer gate is opt-in via the Settings UI, not
+    # automatic from this binding alone.
     environment: ${{ inputs.environment }}
     env:
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
@@ -75,35 +80,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate inputs
+      - name: Validate tag + resolve stack name
+        # `environment` is constrained by type: choice; only `tag` needs
+        # validation here. Stack name picks default per environment unless
+        # overridden by repo vars.
+        id: stack
         run: |
           set -euo pipefail
           if ! printf '%s' "$INPUT_TAG" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+|-beta\.[0-9]+)?$'; then
             echo "::error::tag must match X.Y.Z (optionally -rc.N / -beta.N), got: $INPUT_TAG"
             exit 1
           fi
-          case "$INPUT_ENV" in
-            test|prod) ;;
-            *) echo "::error::environment must be test or prod, got: $INPUT_ENV"; exit 1 ;;
-          esac
-
-      - name: Resolve stack name
-        id: stack
-        run: |
-          set -euo pipefail
+          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
+            echo "::error::AWS_OIDC_ROLE_ARN repo variable not set; configure per docs/approved/deploy-stage0-workflow.md §5"
+            exit 1
+          fi
           if [ "$INPUT_ENV" = "prod" ]; then
             NAME="${{ vars.PROD_STACK_NAME || 'tokenkey-prod-stage0' }}"
           else
             NAME="${{ vars.TEST_STACK_NAME || 'tokenkey-test-stage0' }}"
           fi
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
-
-      - name: Precheck OIDC role
-        run: |
-          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
-            echo "::error::AWS_OIDC_ROLE_ARN repo variable not set; configure per docs/approved/deploy-prod-workflow.md §5"
-            exit 1
-          fi
 
       - name: Verify GHCR multi-arch manifest
         # Rebuild of §9.1 (release.yml's simple_release default-false) as a
@@ -305,18 +302,9 @@ jobs:
             echo "- api: $API_URL"
             echo "- ssm command id: \`${CMD_ID:-none}\`"
             echo
-            echo "Rollback (if needed):"
+            echo "Rollback: re-dispatch this workflow with the previous tag."
             echo
             echo '```bash'
             echo "gh workflow run deploy-stage0.yml -f environment=$INPUT_ENV -f tag=<previous>"
-            echo '```'
-            echo
-            echo "Or manually via SSM (per deploy/aws/README.md § 生产升级 SOP rollback block):"
-            echo
-            echo '```bash'
-            echo "aws ssm send-command --region ${AWS_REGION} \\"
-            echo "  --instance-ids $INSTANCE_ID \\"
-            echo "  --document-name AWS-RunShellScript \\"
-            echo "  --parameters \"commands=[\\\"sudo cp -a /var/lib/tokenkey/.env.before-$INPUT_TAG /var/lib/tokenkey/.env\\\",\\\"cd /var/lib/tokenkey && sudo docker compose --env-file .env up -d --no-deps tokenkey\\\"]\""
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

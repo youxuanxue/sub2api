@@ -243,10 +243,9 @@ gh run watch $(gh run list --workflow=release.yml --limit 1 --json databaseId -q
 
 Release workflow 全绿后（`gh run list --workflow=release.yml --limit 1` 看 `success`），
 GHCR 已经有 `:X.Y.Z` 多架构镜像。**首选路径是 dispatch `deploy-stage0.yml`**——
-工作流封装了下方的 SSM SOP 全流程，并在执行前做 multi-arch manifest 强校验
-（防 §9.1 的 amd64-only 镜像撞 Graviton 崩溃），在执行后做外部 `/health`
-健康验证；prod 环境通过 GitHub Environment 的 Required reviewers 门禁触发
-人工审批。
+封装了下方手工 SSM SOP 全流程，跑前做 multi-arch manifest 强校验（防 §9.1
+amd64-only 镜像撞 Graviton 崩溃），跑后做外部 `/health` 验证；prod 环境通过
+GitHub Environment 的 Required reviewers 门禁触发人工审批。
 
 ```bash
 TAG=X.Y.Z
@@ -254,20 +253,16 @@ TAG=X.Y.Z
 # 测试栈（无审批门禁，直接跑）
 gh workflow run deploy-stage0.yml -f environment=test -f tag=$TAG
 gh run watch $(gh run list --workflow=deploy-stage0.yml --limit 1 --json databaseId -q '.[0].databaseId')
-curl -sS -o /dev/null -w 'HTTP %{http_code} | %{time_total}s\n' https://test-api.tokenkey.dev/health
 
-# 测试通过后再 prod（在 Settings → Environments → prod 配置审批人；点 Approve 后才会跑 SSM）
+# 测试通过后再 prod（点 Approve 后才会跑 SSM）
 gh workflow run deploy-stage0.yml -f environment=prod -f tag=$TAG
 gh run watch $(gh run list --workflow=deploy-stage0.yml --limit 1 --json databaseId -q '.[0].databaseId')
-curl -sS -o /dev/null -w 'HTTP %{http_code} | %{time_total}s\n' https://api.tokenkey.dev/health
 ```
 
-设计、IAM 范围扩张、与门禁清单见
-`docs/approved/deploy-prod-workflow.md`。**首次启用前**必须按
-§5 重新部署 `cicd-oidc.yaml`（加 `TestTargetInstanceId` + 加
-`environment:prod` / `environment:test` 两条 OIDC subject）并创建
-GitHub Environments，否则 workflow 在 AssumeRoleWithWebIdentity 阶段就会
-fail-fast。
+设计、IAM 范围扩张、运维启用步骤见 `docs/approved/deploy-stage0-workflow.md`。
+**首次启用前**必须按 §5 重新部署 `cicd-oidc.yaml` 并创建 GitHub Environments
+`prod`（带 Required reviewers）和 `test`，否则 prod deploy 会在没有人工审批的
+情况下直接执行（GitHub 在首次引用 Environment 时会自动创建无门禁的同名 Env）。
 
 回滚也走 dispatch：
 
@@ -277,8 +272,7 @@ gh workflow run deploy-stage0.yml -f environment=prod -f tag=<上一版本>
 
 ### 生产升级 SOP（备用：纯手工 SSM）
 
-> 当 `deploy-stage0.yml` 不可用、或调试 workflow 本身时使用。`deploy-stage0.yml`
-> 的步骤和这一段是 1:1 等价的。
+> 当 `deploy-stage0.yml` 被禁用、或调试 workflow 本身时使用。两段是 1:1 等价的。
 
 Release workflow 全绿后，GHCR 已经有 `:X.Y.Z` 多架构镜像。在 prod 实例上：
 
