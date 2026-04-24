@@ -1,16 +1,18 @@
 ---
 title: Cloud-Agent-Driven Tag-and-Deploy Workflow
-status: pending
+status: shipped
 approved_by: youxuanxue (PR #53 squash-merge)
 approved_at: 2026-04-24
 created: 2026-04-23
+shipped_at: 2026-04-24
 owners: [tk-platform]
-related_prs: []
-# NOTE: deliberately empty while status=pending to satisfy R3.
-# Status flips to `shipped` only after first successful deploy via the
-# new workflow; at that point add ["#53", "<first-deploy-commit>"] here.
-# `approved_by` was flipped at merge time (PR #53) to satisfy R5
-# (main/master禁止 approved_by: pending).
+related_prs: ["#53"]
+# First successful prod deploy via the new workflow:
+#   GHA run https://github.com/youxuanxue/sub2api/actions/runs/24872412714
+#   (env=prod, tag=1.6.0, no-op image hash, external /health 200).
+# Adversarial fail-closed gate also verified:
+#   GHA run https://github.com/youxuanxue/sub2api/actions/runs/24872388875
+#   (tag=99.99.99 → exited at GHCR manifest precheck before any AWS call).
 scope: ".github/workflows/deploy-stage0.yml + IAM scope expansion in deploy/aws/cloudformation/cicd-oidc.yaml"
 ---
 
@@ -194,10 +196,26 @@ Step 6.
 
 ## 9. Status
 
-- [ ] Proposal merged (this PR)
-- [ ] IAM stack redeployed with `TestTargetInstanceId`
-- [ ] GitHub Environments `prod` (with reviewer) + `test` created
-- [ ] First successful test deploy via `gh workflow run`
-- [ ] First successful prod deploy via `gh workflow run`
-- [ ] Status flipped to `shipped` with merge PR + first-deploy commit in
-      `related_prs` / `related_commits`
+- [x] Proposal merged (PR #53, 2026-04-24)
+- [x] IAM stack redeployed (`TestTargetInstanceId` left empty — no test
+      stack today; `AllowedSubjects` updated to include `environment:prod`
+      / `environment:test` subjects)
+- [x] GitHub Environment `prod` created with Required reviewers
+- [x] GitHub Environment `test` created (no protection rules)
+- [ ] First successful test deploy — **deferred**: no `tokenkey-test-stage0`
+      stack provisioned today. When the test stack is created, the path
+      is `gh workflow run deploy-stage0.yml -f environment=test -f tag=…`
+      (workflow currently fails-fast at the stack-resolve step, which is
+      the correct behavior for a missing test stack).
+- [x] First successful prod deploy via `gh workflow run` —
+      [run 24872412714](https://github.com/youxuanxue/sub2api/actions/runs/24872412714)
+      (env=prod, tag=1.6.0, external `/health` HTTP 200)
+- [x] Status flipped to `shipped` (this PR)
+
+### Adversarial gate verified
+
+The fail-closed manifest precheck (Section 4 step 2 / Section 8 acceptance
+#1) was confirmed by
+[run 24872388875](https://github.com/youxuanxue/sub2api/actions/runs/24872388875):
+dispatched with `tag=99.99.99`, exited at the GHCR manifest precheck
+step **before** any AWS credential was configured or SSM command sent.
