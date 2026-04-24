@@ -7,14 +7,14 @@ alwaysApply: true
 
 ## Design Principles (Jobs simplicity + OPC automation)
 
-- **Minimal API surface (Jobs)**: every public endpoint, parameter, and exported symbol must have at least one real consumer. Speculative or "just in case" exports are forbidden — delete them.
-- **One canonical path per intent (Jobs)**: do not provide multiple endpoints/CLI commands that achieve the same outcome. Pick one shape and stick to it.
-- **Contract regeneration is automated (OPC)**: no manual editing of `docs/agent_integration.md` or endpoint tables. Drift is detected and fixed by running the generator, not by hand.
+- **Minimal WebUI/API/CLI/MCP surface (Jobs)**: every public page, endpoint, command, MCP tool, parameter, and exported symbol must have at least one real consumer. Speculative or "just in case" exports are forbidden — delete them.
+- **One canonical path per intent (Jobs)**: do not provide multiple UI flows / endpoints / CLI commands that achieve the same outcome. Pick one shape and stick to it.
+- **Contract regeneration is automated (OPC)**: no manual editing of `docs/agent_integration.md` or contract tables. Drift is detected and fixed by running the generator, not by hand.
 
 ## Enforcement Rules
 
-- Treat `docs/agent_integration.md` as generated from live code; do not hand-edit endpoint inventories.
-- After API/CLI behavior changes, regenerate contract docs and include resulting diffs in the same change.
+- Treat `docs/agent_integration.md` as generated from live code; do not hand-edit contract inventories.
+- After WebUI/API/CLI/MCP behavior changes, regenerate contract docs and include resulting diffs in the same change.
 - Fail the task if implementation and contract docs diverge; fix by updating code or regenerating docs.
 - Keep `AGENTS.md` as navigation only; point to canonical contract docs instead of duplicating tables.
 - Enforce input-safety baseline: validate identifiers before path joins, reject `..` and `/`, and cap request body size.
@@ -24,9 +24,9 @@ alwaysApply: true
 
 ## Required Workflow
 
-Each project must maintain its own `scripts/export_agent_contract.py` tailored to that project's API surface (routes, CLI commands, MCP tools, etc.). If the script does not yet exist in the current repository, **create it first** based on the project's actual code structure before running contract checks. Do not treat a missing script as a blocker — treat it as a task to complete.
+Each project must maintain its own `scripts/export_agent_contract.py` tailored to that project's contract surface (WebUI pages/components, API routes, CLI commands, MCP tools, etc.). If the script does not yet exist in the current repository, **create it first** based on the project's actual code structure before running contract checks. Do not treat a missing script as a blocker — treat it as a task to complete.
 
-1. If `scripts/export_agent_contract.py` does not exist, create it for the current project (scan the codebase for API routes, CLI entry points, and MCP tool definitions; generate a script that extracts and writes contract docs).
+1. If `scripts/export_agent_contract.py` does not exist, create it for the current project (scan the codebase for WebUI pages/components, API routes, CLI entry points, and MCP tool definitions; generate a script that extracts and writes contract docs).
 2. Run `python scripts/export_agent_contract.py`.
 3. Run `python scripts/export_agent_contract.py --check`.
 4. If check fails, resolve drift before any further feature work.

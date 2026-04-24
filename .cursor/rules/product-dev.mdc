@@ -5,17 +5,7 @@ alwaysApply: true
 
 # 产品研发工作流
 
-## 设计哲学（贯穿全流程）
-
-**产品设计遵循乔布斯理念，研发与运维遵循 OPC（One-Person Company）哲学。**
-
-- **聚焦**：对一千件事说不。每个功能必须先回答「它应不应该存在」，再回答「怎么实现」。
-- **简洁**：简洁是复杂的最终形态。API、代码、UI 都应追求「看起来显然没有多余的东西」。
-- **端到端**：用户感知的是完整旅程。不是把各模块做好再拼凑，而是从第一次接触到最终完成任务的一致体验。
-- **精品意识**：宁可少做，做出来的每一个功能都必须达到「可以自豪地展示」的水准。
-- **杠杆最大化**：人只做需要判断力的事（审批门禁 + 架构决策），其余一切交给 Agent 自动化。
-- **流程极简**：每个流程步骤必须挣得自己的位置。不能证明价值的步骤直接去掉。
-- **自动化优先**：能写成脚本/CI 检查/Rule 的，绝不依赖 Agent 每次自觉遵守。完成自检（见下方）就是把"靠记忆"转化为"靠规则"。
+> 哲学基石（Jobs 聚焦/简洁、OPC 杠杆/自动化）见 `digital-clone-research.md §一`。本文件是这两条哲学落到日常 PR / 提交 / 自检上的可执行规则；不在此重述哲学本身。
 
 ## 默认工作流
 
@@ -58,7 +48,7 @@ alwaysApply: true
 
 只有命中以下条件，才进入高风险路径：
 
-- **公共契约变更**：API / CLI / MCP 的对外行为、字段语义、状态码、兼容性
+- **公共契约变更**：WebUI / API / CLI / MCP 的对外行为、字段语义、状态码、兼容性
 - **不可逆状态变更**：数据库 schema、状态机迁移、审批链/计费链等高代价状态
 - **安全边界变更**：鉴权、授权、输入安全、租户隔离、凭证/密钥路径
 - **高回滚成本骨架变更**：核心架构边界、基础设施策略、跨系统集成，且一旦出错不易快速回滚
@@ -163,6 +153,7 @@ alwaysApply: true
 - 杂务分支命名：`chore/[描述]`
 - 文档分支命名：`docs/[描述]`
 - 上游合并分支命名：`merge/upstream-YYYY-MM-DD`（消费 fork 的项目使用，受 PR shape 工作流验证）
+- 云端 Coding Agent 会话分支命名：`cursor/<sessionId>` —— 该前缀由托管平台（如 Cursor Background Agent）强制；preflight 接受它，最终落入 `main` 的 commit message 由 squash-merge 时由人类 reviewer 重写为业务前缀（fix(...)/feat(...)）。
 - 提交消息聚焦"为什么"而非"改了什么"，一行说清单个原子变化的原因
 - 每个 PR 只解决一个问题，不混合无关变更
 - 不默认拆出 docs/prototype/dev/release 多个 PR；只有真实决策边界或风险隔离需求，才拆 PR
@@ -198,13 +189,13 @@ alwaysApply: true
 
 ### 文档数值/事实声明的硬约束
 
-凡在 markdown/mdc 中写"X 段 / X 类 / X 条"等会随实现演进而过期的数字，**必须**用 stat 块包裹：
+**默认：不写**。"X 段 / X 类 / X 条 / N 行" 这类计数型数字——读者不需要它们就能理解段落，写它们只会自找漂移。直接说"verify-rules.sh 检查仓库完整性"，不要说"verify-rules.sh 现在 8 段检查"。
 
-```markdown
-verify-rules.sh 现在 <!-- stat:verify-rules-checks -->8<!-- /stat --> 段
-```
+**例外：当数字本身是设计契约时**（如"WebUI 页面数 ≤ 8" "重试次数 = 3" "预算 ≤ $5"），用 stat 块包裹并在 `dev-rules/.stats.json` 注册 compute 命令，由 `sync-stats.sh --check` 机械核对。
 
-新数字必须在 `dev-rules/.stats.json` 注册 compute 命令；preflight 段 8 会用 `dev-rules/sync-stats.sh --check` 自动核对。这是治"变更必伴漂移"的元解法（机制见 `digital-clone-research.md §六.¾`）。
+**判别公式**：删掉这个数字，段落是否仍然完整传达意图？是 → 删掉数字（首选）；否 → 它是契约 → stat 块（保底）。
+
+机制细节见 `digital-clone-research.md §三`。**禁止用 stat 块包装虚荣计数**——那是把"自己给自己创造问题再解决"包装成纪律。
 
 ### 人工自检（脚本无法机械化的部分）
 
@@ -225,10 +216,22 @@ verify-rules.sh 现在 <!-- stat:verify-rules-checks -->8<!-- /stat --> 段
 
 把"靠自觉"转化为"靠脚本"是 OPC 哲学的硬约束，不是建议。
 
-## 云端 Agent 调用 Claude Code CLI
+## 云端 Agent / 本地 Agent 运行环境一致性
 
-当需要在云端 VM 中执行 `claude -p` 命令（审查、拆解、校准等）时：
+云端 Cursor Agent 跑在临时 VM，本地 Cursor Agent 跑在你的 dev 机器；两边的 `claude` CLI、`gh`、`jq`、相关 secrets 必须保持一致，否则同一段 prompt 在两个环境产生不同行为。
 
-1. 先运行 `bash scripts/setup-claude-code.sh` 检查并安装 Claude Code CLI
-2. API Key 通过 Cursor Dashboard → Cloud Agents → Secrets 配置（`ANTHROPIC_API_KEY`）
-3. 安装完成后即可执行 `claude -p "..." --max-budget-usd N`
+**单一事实来源**：`dev-rules/templates/cloud-agent-bootstrap.sh` 同时承担「云端首次安装」与「本地一致性自检」。项目只需要在 `.cursor/cloud-agent.env` 里声明工具与 secrets 契约（模板见 `dev-rules/templates/cloud-agent.env.example`）。
+
+**典型用法**：
+
+1. 项目根目录创建 `.cursor/cloud-agent.env`（按 `.example` 复制裁剪），声明：
+   - `CLOUD_AGENT_TOOLS`（claude / gh / jq 自动安装；其他工具仅 PATH 检查）
+   - `CLOUD_AGENT_REQUIRED_SECRETS`（缺失即 fail，例如 `ANTHROPIC_API_KEY` 或自建网关用 `ANTHROPIC_AUTH_TOKEN`）
+   - `CLOUD_AGENT_OPTIONAL_SECRETS`（缺失只 warn，例如 `GH_TOKEN`）
+   - `CLOUD_AGENT_CLAUDE_BASE_URL`（用自建网关时设置；留空走 Anthropic SaaS）
+   - `CLOUD_AGENT_PROJECT_HOOK`（项目特异步骤，比如 submodule 同步、frontend deps）
+2. 云端入口 `.cursor/environment.json` 指向 `bash dev-rules/templates/cloud-agent-bootstrap.sh`（默认 install 模式）。
+3. 本地任何时刻可跑 `bash dev-rules/templates/cloud-agent-bootstrap.sh --check`；preflight 段 9 也会自动调用，secrets 未配置 / 工具缺失会被机械拦截。
+4. Cursor Dashboard → Cloud Agents → Secrets 里配置 `CLOUD_AGENT_REQUIRED_SECRETS` 列出的所有变量，`--check` 即归零。
+
+具体调用：`claude -p "..." --max-budget-usd N`。

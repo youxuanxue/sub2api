@@ -60,7 +60,7 @@ log() { echo "[fetch-clusters] $*"; }
 require_tool() {
   local tool="$1"
   if ! command -v "$tool" >/dev/null 2>&1; then
-    err "$tool is not installed (required). On Cursor Cloud Agent, install via .cursor/cloud-agent-install.sh."
+    err "$tool is not installed (required). On Cursor Cloud Agent, install via dev-rules/templates/cloud-agent-bootstrap.sh."
     return 1
   fi
 }

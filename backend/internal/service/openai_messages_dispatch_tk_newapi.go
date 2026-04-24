@@ -18,7 +18,7 @@ package service
 //	| antigravity    | force false           | force clear                 |
 //
 // Adding a sixth compat platform requires updating BOTH this predicate and
-// OpenAICompatPlatforms(); scripts/preflight.sh § 9 (newapi compat-pool drift)
+// OpenAICompatPlatforms(); scripts/preflight.sh "newapi compat-pool drift"
 // guards the consistency.
 func isOpenAICompatPlatformGroup(g *Group) bool {
 	if g == nil {
