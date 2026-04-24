@@ -331,6 +331,10 @@ Do not hand-edit this file; run `python3 scripts/export_agent_contract.py`.
 - `GET /groups/rates` from `backend/internal/server/routes/user.go`
 - `GET /health` from `backend/internal/server/routes/common.go`
 - `POST /images/generations` from `backend/internal/server/routes/gateway.go`
+- `POST /video/generations` from `backend/internal/server/routes/gateway.go`
+- `GET /video/generations/:task_id` from `backend/internal/server/routes/gateway.go`
+- `POST /videos` from `backend/internal/server/routes/gateway.go`
+- `GET /videos/:task_id` from `backend/internal/server/routes/gateway.go`
 - `GET /keys` from `backend/internal/server/routes/user.go`
 - `POST /keys` from `backend/internal/server/routes/user.go`
 - `DELETE /keys/:id` from `backend/internal/server/routes/user.go`
@@ -389,6 +393,10 @@ Do not hand-edit this file; run `python3 scripts/export_agent_contract.py`.
 - `POST /v1/chat/completions` from `backend/internal/server/routes/gateway.go`
 - `POST /v1/embeddings` from `backend/internal/server/routes/gateway.go`
 - `POST /v1/images/generations` from `backend/internal/server/routes/gateway.go`
+- `POST /v1/video/generations` from `backend/internal/server/routes/gateway.go`
+- `GET /v1/video/generations/:task_id` from `backend/internal/server/routes/gateway.go`
+- `POST /v1/videos` from `backend/internal/server/routes/gateway.go`
+- `GET /v1/videos/:task_id` from `backend/internal/server/routes/gateway.go`
 - `POST /v1/messages` from `backend/internal/server/routes/gateway.go`
 - `POST /v1/messages/count_tokens` from `backend/internal/server/routes/gateway.go`
 - `GET /v1/models` from `backend/internal/server/routes/gateway.go`
@@ -455,13 +463,41 @@ contract:
   `isOpenAICompatPlatformGroup` in
   `backend/internal/service/openai_messages_dispatch_tk_newapi.go`.
 
+### Image and video generation (Volcengine and other newapi channels)
+
+`newapi` (and `openai`) groups expose two extra OpenAI-compat surfaces
+that route through the `bridge` package and the upstream new-api
+adapter registry:
+
+- **Image generation** — `POST /v1/images/generations` (and the
+  no-prefix alias `POST /images/generations`). Synchronous: returns the
+  upstream JSON body inline. Volcengine `channel_type = 45` (e.g.
+  `doubao-seedream-4-0-250828`) is supported via the upstream `volcengine`
+  adapter.
+- **Video generation** — `POST /v1/video/generations`,
+  `GET /v1/video/generations/:task_id`, and the OpenAI-compat aliases
+  `POST /v1/videos`, `GET /v1/videos/:task_id` (plus their no-prefix
+  variants). Asynchronous: the POST returns a TokenKey-issued
+  `task_id` (prefix `vt_`); the GET polls upstream for status. Routing
+  is pinned at submit time and stored in the `service.VideoTaskCache` (Redis
+  primary, in-memory fallback for single-replica dev). Currently
+  supported channel types: `45` (VolcEngine — Doubao Seedance) and
+  `54` (DoubaoVideo). The set is auto-derived from
+  `relay.GetTaskAdaptor` so any new task adaptor merged from upstream
+  new-api lights up automatically once the channel type appears in
+  `IsVideoSupportedChannelType`.
+
+The video registry record TTL defaults to 24h. Polls after expiry or
+after a terminal status (`succeeded` / `failed`) return 404.
+
 ## OpenAI-compatible entry-point families
 
 The same handler set under `backend/internal/server/routes/gateway.go`
 (via `tkOpenAICompatChatCompletionsPOST`,
 `tkOpenAICompatMessagesPOST`, `tkOpenAICompatResponsesPOST`,
 `tkOpenAICompatCountTokensPOST`, `tkOpenAICompatEmbeddingsHandler`,
-`tkOpenAICompatImageGenerationsHandler`) serves both `openai` and
+`tkOpenAICompatImageGenerationsHandler`, `tkOpenAICompatVideoSubmitHandler`,
+`tkOpenAICompatVideoFetchHandler`) serves both `openai` and
 `newapi` groups. Agents that key behavior off `group.platform` should
 treat these two values as the OpenAI-compatible class; everything else
 is platform-native.

@@ -35,6 +35,7 @@ type OpenAIGatewayHandler struct {
 	concurrencyHelper       *ConcurrencyHelper
 	maxAccountSwitches      int
 	cfg                     *config.Config
+	videoTaskCache          service.VideoTaskCache // TK; wired via SetVideoTaskCache — see openai_gateway_tk_video.go.
 }
 
 func resolveOpenAIForwardDefaultMappedModel(apiKey *service.APIKey, fallbackModel string) string {

@@ -53,7 +53,7 @@ func accountUsesNewAPIAdaptorBridge(settings *SettingService, account *Account, 
 	case BridgeEndpointChatCompletions, BridgeEndpointResponses, BridgeEndpointEmbeddings, BridgeEndpointImages:
 		return true
 	default:
-		return false
+		return tkBridgeEndpointEnabled(endpoint)
 	}
 }
 

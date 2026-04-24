@@ -33,6 +33,26 @@
       "rationale": "Channel-type catalog backing the fifth-platform admin UI. The integration package is the entire fifth-platform glue layer; if this file disappears the catalog dropdown is empty and bridge selection breaks."
     },
     {
+      "path": "backend/internal/relay/bridge/video_relay.go",
+      "must_contain": ["DispatchVideoSubmit", "DispatchVideoFetch", "IsVideoSupportedChannelType"],
+      "rationale": "Bridge for the asynchronous video task pipeline (POST /v1/video/generations + GET /v1/video/generations/:task_id and the OpenAI-compat /v1/videos aliases) — currently the only newapi pathway for VolcEngine / DoubaoVideo video generation. Without these symbols the gateway routes silently 5xx because no other code drives task adaptors. An upstream merge that drops this file regresses every Volcengine video customer."
+    },
+    {
+      "path": "backend/internal/service/video_task_registry.go",
+      "must_contain": ["VideoTaskCache", "VideoTaskRecord"],
+      "rationale": "Service-side interface (VideoTaskCache) + DTO (VideoTaskRecord) for the video task registry. Concrete impl lives in repository/video_task_cache.go (Redis-backed; depguard forbids service from importing redis directly). Removing this file collapses the entire video-fetch path: handler can't compile, dispatch helper can't compile, registry routing pin disappears."
+    },
+    {
+      "path": "backend/internal/repository/video_task_cache.go",
+      "must_contain": ["NewVideoTaskCache", "videoTaskRedisCache", "videoTaskMemCache"],
+      "rationale": "Repository-side concrete impl of service.VideoTaskCache. Two implementations: redis-backed for production (single source of truth across replicas) and in-memory for unit tests (rdb=nil). NewVideoTaskCache is the constructor wired in repository/wire.go. An upstream merge that drops this file silently 404s every video task GET because no impl is registered."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_video.go",
+      "must_contain": ["ForwardAsVideoSubmitDispatched", "ForwardAsVideoFetchDispatched", "tkBridgeEndpointEnabled", "BridgeEndpointVideoSubmit", "BridgeEndpointVideoFetch"],
+      "rationale": "TK companion that wires the bridge's video submit/fetch into OpenAIGatewayService and supplies the tkBridgeEndpointEnabled hook that accountUsesNewAPIAdaptorBridge consults via its default branch. Without these symbols the bridge gate silently returns false for video endpoints and submits degrade to confusing 5xx errors."
+    },
+    {
       "path": "backend/internal/integration/newapi/fusion.go",
       "must_contain": ["package newapi"],
       "rationale": "Bridge fusion logic that wires QuantumNous/new-api adaptors into TK's relay. Removing this file disables the entire upstream new-api capability."

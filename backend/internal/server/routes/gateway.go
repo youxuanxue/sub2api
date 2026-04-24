@@ -57,6 +57,7 @@ func RegisterGatewayRoutes(
 		gateway.POST("/chat/completions", tkOpenAICompatChatCompletionsPOST(h))
 		gateway.POST("/embeddings", tkOpenAICompatEmbeddingsHandler(h))
 		gateway.POST("/images/generations", tkOpenAICompatImageGenerationsHandler(h))
+		registerTKOpenAICompatVideoRoutes(gateway, h)
 	}
 
 	// Gemini 原生 API 兼容层（Gemini SDK/CLI 直连）
@@ -84,6 +85,7 @@ func RegisterGatewayRoutes(
 	r.POST("/chat/completions", bodyLimit, clientRequestID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatChatCompletionsPOST(h))
 	r.POST("/embeddings", bodyLimit, clientRequestID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatEmbeddingsHandler(h))
 	r.POST("/images/generations", bodyLimit, clientRequestID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatImageGenerationsHandler(h))
+	registerTKOpenAICompatVideoRoutesNoPrefix(r, h, bodyLimit, clientRequestID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic)
 
 	// Antigravity 模型列表
 	r.GET("/antigravity/models", bodyLimit, clientRequestID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.Gateway.AntigravityModels)
