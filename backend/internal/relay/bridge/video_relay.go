@@ -16,6 +16,7 @@ import (
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	newapirelay "github.com/QuantumNous/new-api/relay"
+	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/types"
@@ -24,10 +25,12 @@ import (
 
 // TaskSubmitOutcome is the result of a video task submission via the New API
 // task adaptor. The bridge does NOT touch new-api's GORM model.Task table —
-// upstream task ID + minimal context are returned to the caller, which is
-// responsible for persisting them (e.g. Redis-backed VideoTaskRegistry) so
-// later /v1/video/generations/:task_id fetches can be routed back to the same
-// account.
+// upstream task ID, model names, and the **routing snapshot** (channel_type
+// + base_url + api_key as resolved by the bridge for this submit) are
+// returned to the caller. The routing snapshot lets the caller persist
+// what was actually dispatched to (which may differ from a future
+// re-resolution of the same Account if credentials rotate before the user
+// polls).
 type TaskSubmitOutcome struct {
 	UpstreamTaskID string
 	UpstreamModel  string
@@ -48,30 +51,15 @@ type VideoFetchInput struct {
 	ChannelType    int
 	BaseURL        string
 	APIKey         string
-	OriginModel    string
 }
 
-// VideoFetchOutcome holds the upstream raw response. The handler is responsible
-// for serializing it back to the client; we deliberately avoid materializing
-// it as a typed dto.OpenAIVideo inside the bridge to stay compatible with the
-// New API contract evolution (volcengine etc.).
+// VideoFetchOutcome holds the upstream raw response and the parsed status
+// snapshot the handler needs to decide whether to expire the registry record.
+// The raw bytes pass through to the client untouched so SDKs see the same
+// body shape new-api would have returned for this channel type.
 type VideoFetchOutcome struct {
 	RawResponse []byte
 	Status      string
-	Progress    string
-	URL         string
-	Duration    time.Duration
-	OriginModel string
-}
-
-// errVideoUnsupportedChannel is returned when no New API task adaptor is
-// registered for the account's channel_type.
-type errVideoUnsupportedChannel struct {
-	ChannelType int
-}
-
-func (e *errVideoUnsupportedChannel) Error() string {
-	return fmt.Sprintf("video generation not supported for channel_type=%d", e.ChannelType)
 }
 
 // DispatchVideoSubmit runs the New API task adaptor for POST /v1/video/generations
@@ -120,10 +108,9 @@ func DispatchVideoSubmit(_ context.Context, c *gin.Context, in ChannelContextInp
 		relayInfo.RelayMode = relayconstant.RelayModeVideoSubmit
 	}
 
-	platform := newapiconstant.TaskPlatform(strconv.Itoa(in.ChannelType))
-	adaptor := newapirelay.GetTaskAdaptor(platform)
+	adaptor := taskAdaptorForChannel(in.ChannelType)
 	if adaptor == nil {
-		return nil, types.NewError(&errVideoUnsupportedChannel{ChannelType: in.ChannelType}, types.ErrorCodeInvalidApiType, types.ErrOptionWithSkipRetry())
+		return nil, errUnsupportedChannel(in.ChannelType)
 	}
 	// InitChannelMeta materializes the embedded *ChannelMeta from gin context;
 	// it MUST run before any field on ChannelMeta (UpstreamModelName etc.) is
@@ -187,17 +174,18 @@ func DispatchVideoSubmit(_ context.Context, c *gin.Context, in ChannelContextInp
 
 // DispatchVideoFetch resolves a single video task status by calling the
 // adaptor's FetchTask. It returns the upstream raw bytes plus a coarse status
-// snapshot extracted from ParseTaskResult so the handler can decide whether to
-// 404 / 200 / etc.
+// snapshot extracted from ParseTaskResult so the handler can decide whether
+// to expire the registry entry. baseURL falls back to the channel-type
+// default only when the registry record was saved with an empty base_url
+// (legacy / migrated tasks).
 func DispatchVideoFetch(_ context.Context, _ *gin.Context, in VideoFetchInput) (*VideoFetchOutcome, *types.NewAPIError) {
 	ensureNewAPIDeps()
 	if strings.TrimSpace(in.UpstreamTaskID) == "" {
 		return nil, types.NewError(errors.New("upstream task id is required"), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 	}
-	platform := newapiconstant.TaskPlatform(strconv.Itoa(in.ChannelType))
-	adaptor := newapirelay.GetTaskAdaptor(platform)
+	adaptor := taskAdaptorForChannel(in.ChannelType)
 	if adaptor == nil {
-		return nil, types.NewError(&errVideoUnsupportedChannel{ChannelType: in.ChannelType}, types.ErrorCodeInvalidApiType, types.ErrOptionWithSkipRetry())
+		return nil, errUnsupportedChannel(in.ChannelType)
 	}
 
 	baseURL := in.BaseURL
@@ -205,11 +193,9 @@ func DispatchVideoFetch(_ context.Context, _ *gin.Context, in VideoFetchInput) (
 		baseURL = newapiconstant.ChannelBaseURLs[in.ChannelType]
 	}
 
-	start := time.Now()
 	resp, err := adaptor.FetchTask(baseURL, in.APIKey, map[string]any{
 		"task_id": in.UpstreamTaskID,
 	}, "")
-	dur := time.Since(start)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusBadGateway)
 	}
@@ -230,17 +216,35 @@ func DispatchVideoFetch(_ context.Context, _ *gin.Context, in VideoFetchInput) (
 		)
 	}
 
-	out := &VideoFetchOutcome{
-		RawResponse: body,
-		Duration:    dur,
-		OriginModel: in.OriginModel,
-	}
+	out := &VideoFetchOutcome{RawResponse: body}
 	if info, parseErr := adaptor.ParseTaskResult(body); parseErr == nil && info != nil {
 		out.Status = string(info.Status)
-		out.Progress = info.Progress
-		out.URL = info.Url
 	}
 	return out, nil
+}
+
+// taskAdaptorForChannel returns the new-api task adaptor registered for this
+// channel type, or nil. Centralised so DispatchVideoSubmit, DispatchVideoFetch,
+// and IsVideoSupportedChannelType all derive from the same lookup — adding a
+// sixth supported channel type is then a single registry entry upstream, no
+// TK code change needed.
+func taskAdaptorForChannel(channelType int) channel.TaskAdaptor {
+	if channelType <= 0 {
+		return nil
+	}
+	platform := newapiconstant.TaskPlatform(strconv.Itoa(channelType))
+	return newapirelay.GetTaskAdaptor(platform)
+}
+
+// errUnsupportedChannel is the canonical error for "no task adaptor for this
+// channel type". Inlined as a plain fmt.Errorf because no caller does
+// errors.As on it — the previous typed struct was dead code.
+func errUnsupportedChannel(channelType int) *types.NewAPIError {
+	return types.NewError(
+		fmt.Errorf("video generation not supported for channel_type=%d", channelType),
+		types.ErrorCodeInvalidApiType,
+		types.ErrOptionWithSkipRetry(),
+	)
 }
 
 // taskErrorToNewAPIError converts the new-api dto.TaskError into a NewAPIError
@@ -268,9 +272,5 @@ func taskErrorToNewAPIError(taskErr *dto.TaskError) *types.NewAPIError {
 // has an entry for this channel type. Used by the route layer / settings to
 // pre-flight requests before queuing them.
 func IsVideoSupportedChannelType(channelType int) bool {
-	if channelType <= 0 {
-		return false
-	}
-	platform := newapiconstant.TaskPlatform(strconv.Itoa(channelType))
-	return newapirelay.GetTaskAdaptor(platform) != nil
+	return taskAdaptorForChannel(channelType) != nil
 }

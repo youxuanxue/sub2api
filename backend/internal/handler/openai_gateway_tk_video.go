@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -35,10 +34,11 @@ func (h *OpenAIGatewayHandler) SetVideoTaskRegistry(reg *service.VideoTaskRegist
 // determines which task adaptor is used (e.g. 45 → VolcEngine, 54 →
 // DoubaoVideo). Returns a public task_id that the client can poll via
 // VideoFetch.
+//
+// Video submit is synchronous from the gateway's perspective (no SSE / no
+// streaming response) — we deliberately use errorResponse / JSON 4xx-5xx,
+// NOT the streaming-aware wrappers used by chat / responses handlers.
 func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
-	streamStarted := false
-	defer h.recoverResponsesPanic(c, &streamStarted)
-
 	requestStart := time.Now()
 
 	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
@@ -58,9 +58,6 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 		zap.Int64("api_key_id", apiKey.ID),
 		zap.Any("group_id", apiKey.GroupID),
 	)
-	if !h.ensureResponsesDependencies(c, reqLog) {
-		return
-	}
 	if h.videoTaskRegistry == nil {
 		h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Video task registry is not configured")
 		return
@@ -110,7 +107,7 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription); err != nil {
 		reqLog.Info("openai_video_submit.billing_eligibility_check_failed", zap.Error(err))
 		status, code, message := billingErrorDetails(err)
-		h.handleStreamingAwareError(c, status, code, message, streamStarted)
+		h.errorResponse(c, status, code, message)
 		return
 	}
 
@@ -129,7 +126,7 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 	)
 	if err != nil || selection == nil || selection.Account == nil {
 		reqLog.Warn("openai_video_submit.account_select_failed", zap.Error(err))
-		h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable", streamStarted)
+		h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable")
 		return
 	}
 	account := selection.Account
@@ -137,7 +134,7 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 		// channel_type=0 (incomplete account) and channel_type with no task
 		// adaptor (e.g. plain OpenAI account asked to do video) collapse into
 		// the same user-facing error: this group is not configured for video.
-		h.handleStreamingAwareError(c, http.StatusBadRequest, "invalid_request_error", "Selected account's channel_type does not support video generation", streamStarted)
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Selected account's channel_type does not support video generation")
 		return
 	}
 	setOpsSelectedAccount(c, account.ID, account.Platform)
@@ -152,16 +149,11 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 	service.SetOpsLatencyMs(c, service.OpsResponseLatencyMsKey, forwardDurationMs)
 
 	if err != nil {
-		var failoverErr *service.UpstreamFailoverError
-		if errors.As(err, &failoverErr) {
-			h.handleFailoverExhausted(c, failoverErr, streamStarted)
-			return
-		}
-		if TkTryWriteNewAPIRelayErrorJSON(c, err, streamStarted, 0) {
+		if TkTryWriteNewAPIRelayErrorJSON(c, err, false, 0) {
 			reqLog.Warn("openai_video_submit.forward_failed", zap.Error(err))
 			return
 		}
-		h.handleStreamingAwareError(c, http.StatusBadGateway, "api_error", "Video submit failed", streamStarted)
+		h.errorResponse(c, http.StatusBadGateway, "api_error", "Video submit failed")
 		return
 	}
 
@@ -179,16 +171,24 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 		APIKeyID:       apiKey.ID,
 		ChannelType:    account.ChannelType,
 		Platform:       account.Platform,
-		BaseURL:        outcome.BaseURL,
-		APIKey:         outcome.APIKey,
-		OriginModel:    outcome.OriginModel,
-		UpstreamModel:  outcome.UpstreamModel,
-		Action:         outcome.Action,
-		CreatedAt:      time.Now(),
+		// BaseURL + APIKey snapshot the upstream routing the bridge used at
+		// submit time. We persist the bridge's resolved values (not a fresh
+		// account read) because credentials may rotate before the user polls,
+		// and a fetch must hit the same upstream endpoint that accepted the
+		// submit. The bridge already centralises the resolution chain
+		// (credentials.api_key → openai_api_key fallback, base_url platform
+		// guard) — duplicating it here would be a DRY violation and a source
+		// of subtle drift.
+		BaseURL:       outcome.BaseURL,
+		APIKey:        outcome.APIKey,
+		OriginModel:   outcome.OriginModel,
+		UpstreamModel: outcome.UpstreamModel,
+		Action:        outcome.Action,
+		CreatedAt:     time.Now(),
 	}
 	if err := h.videoTaskRegistry.Save(c.Request.Context(), rec); err != nil {
 		reqLog.Warn("openai_video_submit.registry_save_failed", zap.Error(err))
-		h.handleStreamingAwareError(c, http.StatusInternalServerError, "api_error", "Failed to persist video task", streamStarted)
+		h.errorResponse(c, http.StatusInternalServerError, "api_error", "Failed to persist video task")
 		return
 	}
 
@@ -235,18 +235,23 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 	})
 }
 
+
 // VideoFetch handles GET /v1/video/generations/:task_id and the OpenAI-compat
 // alias GET /v1/videos/:task_id. The task_id parameter is our public task id;
-// we look up the registry to find the upstream account and replay the FetchTask
-// call. When the upstream reports a terminal status we delete the registry
-// entry to bound storage; clients that poll after that will see 404.
+// we look up the registry, verify ownership, and replay the FetchTask call to
+// the upstream account that originally accepted the submit. When the upstream
+// reports a terminal status we delete the registry entry to bound storage;
+// clients that poll after that will see 404.
 //
-// The route layer's platform check (tkOpenAICompatVideoFetchHandler) gates
-// this on the API key's group platform, NOT on the task's originating
-// platform. A client that submitted a task under a `newapi` group and later
-// switches their key to an `openai` group can still poll because both
-// platforms are OpenAI-compatible; cross-class polling (e.g. anthropic key
-// polling a newapi task) is rejected at the route layer with 404.
+// Authorization model:
+//   - Route layer (tkOpenAICompatVideoFetchHandler) gates on the caller's
+//     group.platform being OpenAI-compatible (openai or newapi). Anthropic /
+//     Gemini / Antigravity callers never reach this handler.
+//   - Handler enforces ownership: record.UserID must equal the caller's
+//     subject.UserID. A leaked or guessed task_id from another user surfaces
+//     as 404 (deliberately indistinguishable from "expired" — we do not leak
+//     existence). This is the same invariant the rest of the gateway uses
+//     for per-user resources.
 func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 	publicTaskID := strings.TrimSpace(c.Param("task_id"))
 	if publicTaskID == "" {
@@ -258,8 +263,20 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 		return
 	}
 
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		h.errorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
+		return
+	}
+
 	rec, ok := h.videoTaskRegistry.Lookup(c.Request.Context(), publicTaskID)
 	if !ok {
+		h.errorResponse(c, http.StatusNotFound, "not_found_error", "video task not found or expired")
+		return
+	}
+	if rec.UserID != subject.UserID {
+		// 404 (not 403) so we don't confirm the task_id exists for another
+		// user. The record is intact; only this user lost the lookup.
 		h.errorResponse(c, http.StatusNotFound, "not_found_error", "video task not found or expired")
 		return
 	}
@@ -269,7 +286,6 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 		ChannelType:    rec.ChannelType,
 		BaseURL:        rec.BaseURL,
 		APIKey:         rec.APIKey,
-		OriginModel:    rec.OriginModel,
 	}
 	out, err := h.gatewayService.ForwardAsVideoFetchDispatched(c.Request.Context(), c, in)
 	if err != nil {

@@ -160,11 +160,11 @@ func TestDispatchVideoFetch_VolcEngine_OK(t *testing.T) {
 	if out.Status == "" {
 		t.Fatalf("expected non-empty status, got %q", out.Status)
 	}
-	if !bytes.Contains(out.RawResponse, []byte("video_url")) {
-		t.Fatalf("raw response missing video_url marker: %q", out.RawResponse)
-	}
-	if out.URL != "https://cdn.example.com/video.mp4" {
-		t.Fatalf("expected url to be parsed from upstream, got %q", out.URL)
+	// RawResponse passes the upstream JSON through untouched so the SDK sees
+	// the same body shape it would from new-api directly. The URL/progress
+	// extraction is done client-side from this raw payload.
+	if !bytes.Contains(out.RawResponse, []byte("https://cdn.example.com/video.mp4")) {
+		t.Fatalf("raw response missing video url, got %q", out.RawResponse)
 	}
 }
 

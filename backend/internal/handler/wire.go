@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
 	qaobs "github.com/Wei-Shaw/sub2api/internal/observability/qa"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -79,6 +80,37 @@ func ProvideSettingHandler(settingService *service.SettingService, buildInfo Bui
 	return NewSettingHandler(settingService, buildInfo.Version)
 }
 
+// ProvideOpenAIGatewayHandler wraps the upstream-shape NewOpenAIGatewayHandler
+// constructor with TK-only post-construction wiring. Keeping the signature of
+// NewOpenAIGatewayHandler stable (CLAUDE.md §5 — minimal injection point) and
+// doing post-wiring here means upstream merges of the constructor never touch
+// TK extensions, AND the assignment survives `go run wire` regenerations
+// (the manual edit anti-pattern in wire_gen.go would not).
+//
+// Mirrors the existing `ProvideRateLimitService` shape in service/wire.go.
+func ProvideOpenAIGatewayHandler(
+	gatewayService *service.OpenAIGatewayService,
+	concurrencyService *service.ConcurrencyService,
+	billingCacheService *service.BillingCacheService,
+	apiKeyService *service.APIKeyService,
+	usageRecordWorkerPool *service.UsageRecordWorkerPool,
+	errorPassthroughService *service.ErrorPassthroughService,
+	cfg *config.Config,
+	videoTaskRegistry *service.VideoTaskRegistry,
+) *OpenAIGatewayHandler {
+	h := NewOpenAIGatewayHandler(
+		gatewayService,
+		concurrencyService,
+		billingCacheService,
+		apiKeyService,
+		usageRecordWorkerPool,
+		errorPassthroughService,
+		cfg,
+	)
+	h.SetVideoTaskRegistry(videoTaskRegistry)
+	return h
+}
+
 // ProvideHandlers creates the Handlers struct
 func ProvideHandlers(
 	authHandler *AuthHandler,
@@ -131,7 +163,7 @@ var ProviderSet = wire.NewSet(
 	NewSubscriptionHandler,
 	NewAnnouncementHandler,
 	NewGatewayHandler,
-	NewOpenAIGatewayHandler,
+	ProvideOpenAIGatewayHandler,
 	NewTotpHandler,
 	ProvideSettingHandler,
 	NewPaymentHandler,
