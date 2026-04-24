@@ -1,14 +1,16 @@
 ---
 title: Cloud-Agent-Driven Tag-and-Deploy Workflow
 status: pending
-approved_by: pending
-approved_at: pending
+approved_by: youxuanxue (PR #53 squash-merge)
+approved_at: 2026-04-24
 created: 2026-04-23
 owners: [tk-platform]
 related_prs: []
 # NOTE: deliberately empty while status=pending to satisfy R3.
-# After merge + first successful deploy, flip status=shipped and
-# add ["#53", "<first-deploy-commit>"] here.
+# Status flips to `shipped` only after first successful deploy via the
+# new workflow; at that point add ["#53", "<first-deploy-commit>"] here.
+# `approved_by` was flipped at merge time (PR #53) to satisfy R5
+# (main/master禁止 approved_by: pending).
 scope: ".github/workflows/deploy-stage0.yml + IAM scope expansion in deploy/aws/cloudformation/cicd-oidc.yaml"
 ---
 
