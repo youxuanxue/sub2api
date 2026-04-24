@@ -16,7 +16,7 @@
 - Risk Focus:
   - 逻辑错误：删除 `if (!isAdmin) return` 后必须保证 admin 行为完全不变（admin 仍走 admin steps，不是 user steps）；判断条件从 `localStorage.getItem(...)` 切换到 `userStore.user?.onboarding_tour_seen_at == null`，注意 OAuth 路径 / setToken 路径 / 普通登录路径 user 对象都必须包含该字段（DTO 必须 surface）。
   - 行为回归：现有 `getUserSteps` / `getAdminSteps` 不动；现有 driver.js 步骤顺序 / data-tour selector 不动；只改"何时启动" + "何时停止再启动" 两件事；`replayTour` 方法仍可用（人为复看不需要清服务端）。
-  - 安全问题：`POST /api/v1/user/onboarding-tour-completed` 必须经过 JWTAuth + BackendModeUserGuard 标准链路；不暴露任何敏感字段，仅返回 `{seen_at: <timestamp>}`；幂等（重复调不会改 timestamp 第二次，避免误以为"用户每次刷新 dashboard 都看了一次 Tour"）。
+  - 安全问题：`POST /api/v1/user/onboarding-tour-completed` 必须经过 JWTAuth + BackendModeUserGuard 标准链路；不暴露任何敏感字段，仅返回 `{success: true}`（`gin.H{"success": true}`，与 `totp_handler.go` 系列同 envelope 形态）；幂等（重复调不会改 timestamp 第二次，避免误以为"用户每次刷新 dashboard 都看了一次 Tour"）。
   - 运行时问题：服务端写入失败不阻塞前端 Tour 完成 UX（best-effort + retry on next mount）；migration 必须能在已有 production users 上跑（默认 `NULL`，不影响存量用户的"显示一次 Tour"行为——他们如果已经在 localStorage 标记 seen 就不会再看；如果没有标记就会看一次，符合预期）。
 
 ## Acceptance Criteria
@@ -26,7 +26,7 @@
 3. **AC-003 (负向 / 已看过的不再自动启动)**：Given 用户 `user.onboarding_tour_seen_at != null`，When 进入 dashboard，Then `driverInstance == null` 或 `driverInstance.isActive() === false`（不自动启动），但 `replayTour()` 仍可手动触发。
 4. **AC-004 (负向 / simple mode 不自动启动)**：Given `userStore.isSimpleMode == true`（任意角色），When 进入 dashboard，Then 不自动启动（保持现有 simple-mode 行为不动）。
 5. **AC-005 (副作用 / Tour 完成调服务端)**：Given 用户首次自动启动 Tour 并点完最后一步「完成」，When `markAsSeen()` 被调用，Then `POST /api/v1/user/onboarding-tour-completed` 被请求一次，服务端写 `users.onboarding_tour_seen_at = NOW()`，下次 `GET /api/v1/user/profile` 返回的 user 对象包含该字段；且后续 `replayTour()` 不会清服务端字段（仅清 localStorage）。
-6. **AC-006 (鲁棒 / 服务端写入失败不阻塞 UX)**：Given `POST /onboarding-tour-completed` 返回 500，When 用户点完 Tour，Then Tour 仍正常关闭（UX 无感），但下次进入 dashboard 会再启动一次 Tour（直到服务端写入成功）；server log 有 `[Onboarding] mark_seen_failed userID=X err=...`。
+6. **AC-006 (鲁棒 / 服务端写入失败不阻塞 UX)**：Given `POST /onboarding-tour-completed` 返回 500，When 用户点完 Tour，Then Tour 仍正常关闭（UX 无感），但下次进入 dashboard 会再启动一次 Tour（直到服务端写入成功）；server log 经 `response.ErrorFrom`（`response.go:90`）写出一行 `[ERROR] POST /api/v1/user/onboarding-tour-completed Error: mark onboarding tour seen: <wrapped repo err>`（结构化错误链由 service.go 的 `fmt.Errorf("...: %w", err)` 提供 context；handler 不再单独 slog 以避免双写）。
 7. **AC-007 (幂等)**：Given 用户已 `seen_at = T1`，When 第二次调 `POST /onboarding-tour-completed`（例如人为 replay 后又点完），Then 服务端**不**更新 timestamp（仍是 T1），返回 200；防御"刷新 dashboard 误以为又看了一次"。
 8. **AC-008 (回归 / 现有 admin / user steps 单测)**：Given 本 PR 落地，When 执行现有 `useOnboardingTour` 相关单测，Then 全部通过（不动现有断言）。
 
@@ -47,7 +47,7 @@
 - `backend/internal/handler/user_handler_tk_onboarding_test.go`::`TestUS031_MarkOnboardingTourSeen_FirstCall_WritesTimestamp` — AC-005 落地
 - `backend/internal/handler/user_handler_tk_onboarding_test.go`::`TestUS031_MarkOnboardingTourSeen_Idempotent_SecondCallNoChange` — AC-007 幂等
 - `backend/internal/handler/user_handler_tk_onboarding_test.go`::`TestUS031_MarkOnboardingTourSeen_Unauthenticated_401` — 401 兜底
-- `backend/internal/handler/user_handler_tk_onboarding_test.go`::`TestUS031_MarkOnboardingTourSeen_SuccessEnvelopeShape` — 响应契约（`{ok:true}`）锁定
+- `backend/internal/handler/user_handler_tk_onboarding_test.go`::`TestUS031_MarkOnboardingTourSeen_SuccessEnvelopeShape` — 响应契约（`{success: true}`，与 `totp_handler.go` 系列对齐）锁定
 - `backend/internal/service/user_service_tk_onboarding_test.go`::`TestUS031_MarkOnboardingTourSeen_DelegatesToRepo`
 - `backend/internal/service/user_service_tk_onboarding_test.go`::`TestUS031_MarkOnboardingTourSeen_AlreadySeen_NoUpdate`
 - `backend/internal/service/user_service_tk_onboarding_test.go`::`TestUS031_MarkOnboardingTourSeen_RepoError_PropagatesWrapped`
@@ -61,13 +61,13 @@
 运行命令：
 
 ```bash
-go test -tags=unit -count=1 -v -run 'TestUS031_' ./backend/internal/handler/... ./backend/internal/service/...
-cd frontend && pnpm test:run -- useOnboardingTour.tk
+cd backend && go test -tags=unit -count=1 -v -run 'TestUS031_' ./internal/handler/... ./internal/service/...
+cd frontend && pnpm vitest run src/composables/__tests__/useOnboardingTour.tk.spec.ts
 ```
 
 ## Evidence
 
-- 完成事实归档：后端 5 个 unit test + 前端 4 个 composable test 全绿。
+- 完成事实归档：后端 7 个 unit test（handler 4 + service 3）+ 前端 7 个 composable test（auto-launch gate 5 + markAsSeen 2）全绿。
 - DB 迁移 evidence：`backend/migrations/tk_005_add_users_onboarding_tour_seen_at.sql` 在 fresh schema 与 existing schema 上 `psql -c '\d users'` 输出新增列。
 - 前端 manual smoke：以 `role=user`、`onboarding_tour_seen_at=null` 用户登录 dashboard，driver.js popover 自动出现并完整走完 6 步 user steps；refresh dashboard 不再触发；`localStorage.removeItem(...)` 不会让它再触发（因为服务端字段是源真相）。
 

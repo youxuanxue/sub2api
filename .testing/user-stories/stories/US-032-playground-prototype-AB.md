@@ -35,10 +35,10 @@
 ## Assertions
 
 - `frontend/src/components/playground/PlaygroundPrototype.vue` 存在，导出一个接受 `props: { state: 'empty' | 'typing' | 'responded' | 'error' }` 的组件。
-- `frontend/src/components/playground/__tests__/PlaygroundPrototype.spec.ts` 4 个 `it` 全绿。
+- `frontend/src/components/playground/__tests__/PlaygroundPrototype.spec.ts` 5 个 `it` 全绿（4 state renders + AB parity gate）。
 - `docs/approved/attachments/playground-prototype-2026-04-23.html` 存在；`grep -c 'data-state=' docs/approved/attachments/playground-prototype-2026-04-23.html >= 4`。
 - `docs/approved/attachments/playground-prototype-AB-parity.md` 存在；包含一个对照 markdown table，列 = 状态，行 = (画面要素 / Vue selector / HTML selector / 关键文案)。
-- `frontend/src/router/index.ts` 与 `frontend/src/views/layout/AppSidebar.vue`（或现有 sidebar 文件）**未被本 PR 修改**（`git diff --name-only main..HEAD` 不含这两个文件）。
+- `frontend/src/router/index.ts` 与 `frontend/src/views/layout/AppSidebar.vue`（或现有 sidebar 文件）**未被本 PR 修改**（`git diff --name-only origin/main..HEAD` 不含这两个文件）。
 
 ## Linked Tests
 
@@ -52,7 +52,7 @@
 运行命令：
 
 ```bash
-cd frontend && pnpm test:run -- PlaygroundPrototype
+cd frontend && pnpm vitest run src/components/playground/__tests__/PlaygroundPrototype.spec.ts
 ```
 
 ## Evidence

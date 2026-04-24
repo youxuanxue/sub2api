@@ -19,13 +19,10 @@
       remains stable and can be split into <ChatHistory />, <Composer />, etc.
       at that point.
 
-  Design decisions explicitly answered (US-032 AC-007 — see static HTML
-  bottom block as the canonical source for AB parity):
-    - system prompt: deferred to v2 (kept off-screen for v1 simplicity)
-    - reasoning visibility: hidden in v1 (avoid upstream-schema fragility)
-    - multi-turn context: held in frontend memory only (no server state)
-    - per-call limits: 50 turns / 4096 tokens / 60s timeout
-    - mobile breakpoint: desktop-first; mobile in follow-up
+  Design decisions answering US-032 AC-007 (system prompt / reasoning /
+  multi-turn / per-call limits / mobile breakpoint) live in a single place:
+  the <aside class="design-block"> footer of the B 件 HTML mockup. Do not
+  re-state them here — they would drift independently.
 -->
 <script setup lang="ts">
 import { computed } from 'vue'

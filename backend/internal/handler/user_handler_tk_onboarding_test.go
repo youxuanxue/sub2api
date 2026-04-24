@@ -38,10 +38,9 @@ import (
 // observable behavior so the handler's contract is verified, not the
 // repo's SQL).
 type onboardingFakeUserRepo struct {
-	mu        sync.Mutex
-	seenAt    map[int64]time.Time
-	calls     []int64
-	returnErr error
+	mu     sync.Mutex
+	seenAt map[int64]time.Time
+	calls  []int64
 }
 
 func newOnboardingFakeUserRepo() *onboardingFakeUserRepo {
@@ -52,9 +51,6 @@ func (r *onboardingFakeUserRepo) MarkOnboardingTourSeen(_ context.Context, userI
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.calls = append(r.calls, userID)
-	if r.returnErr != nil {
-		return r.returnErr
-	}
 	if _, already := r.seenAt[userID]; !already {
 		r.seenAt[userID] = time.Now()
 	}
@@ -138,13 +134,6 @@ func newOnboardingTestRouter(t *testing.T, withAuth bool, userID int64) (*gin.En
 	return r, repo
 }
 
-func decodeStandardEnvelope(t *testing.T, body string) response.Response {
-	t.Helper()
-	var env response.Response
-	require.NoError(t, json.Unmarshal([]byte(body), &env))
-	return env
-}
-
 // US-031 AC-005 — first call records the seen-at moment server-side and
 // returns 200 with success envelope.
 func TestUS031_MarkOnboardingTourSeen_FirstCall_WritesTimestamp(t *testing.T) {
@@ -212,7 +201,8 @@ func TestUS031_MarkOnboardingTourSeen_SuccessEnvelopeShape(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
-	env := decodeStandardEnvelope(t, w.Body.String())
+	var env response.Response
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
 	require.Equal(t, 0, env.Code)
 	dataMap, ok := env.Data.(map[string]any)
 	require.True(t, ok, "data should be a JSON object")
