@@ -323,11 +323,16 @@ section only records sub2api-specific choices.
 
 ```
 HTTP Request → Auth (JWT/APIKey) → Account Scheduling (sticky/load-aware)
-  → Platform-specific forwarding (Claude / OpenAI / Gemini / Antigravity / New API fifth platform `newapi`)
-  → Usage recording + quota deduction
+ → Platform-specific forwarding (Claude / OpenAI / Gemini / Antigravity / New API fifth platform `newapi`)
+ → Usage recording + quota deduction
 ```
 
 The fifth platform **`newapi`** is a first-class account/group platform (not an add-on card on the other four): it uses OpenAI-compatible gateway routes and the New API **adaptor** layer in `internal/relay/bridge` when `channel_type > 0`. The `internal/integration/newapi/` package provides the channel-type catalog, affinity helpers, upstream model metadata helpers, and other `newapi`-specific bridge support required by TokenKey's fifth-platform flow.
+
+**Image and video generation surfaces** ride on the same `newapi` (and `openai`) compat-pool routing:
+
+- **Sync image** — `POST /v1/images/generations` (and `POST /images/generations` alias) via `bridge.RunImageRelay` and `bridge.DispatchImageGenerations`. Volcengine `channel_type=45` (Doubao Seedream) is supported through the upstream `volcengine` adapter.
+- **Async video** — `POST /v1/video/generations` + `GET /v1/video/generations/:task_id` (and the OpenAI-compat aliases `POST /v1/videos` + `GET /v1/videos/:task_id`, plus their no-prefix variants). Submit returns a TokenKey-issued `task_id` (prefix `vt_`); subsequent polls hit the upstream task adapter pinned at submit time. Supported channel types are auto-derived from `relay.GetTaskAdaptor` — currently `45` (VolcEngine, Doubao Seedance) and `54` (DoubaoVideo). Routing metadata lives in `service.VideoTaskCache` (Redis primary, in-memory fallback for single-replica dev). Default record TTL is 24h; terminal status (`succeeded`/`failed`) deletes the record. Adding a new task adapter upstream requires no TK code changes — the `IsVideoSupportedChannelType` predicate sees the new channel type as soon as the upstream adapter map registers it.
 
 **Scheduling-pool semantics (per `docs/approved/newapi-as-fifth-platform.md`, shipped):** the OpenAI-compatible pool now partitions strictly by `group.platform`. `openai` groups schedule only `openai` accounts; `newapi` groups schedule only `newapi` accounts (with `channel_type > 0`). The canonical predicate is `account.IsOpenAICompatPoolMember(groupPlatform)` in `backend/internal/service/account_tk_compat_pool.go`, used by load-balance, sticky-session, and recheck paths in `openai_account_scheduler.go` / `openai_gateway_service.go`. Cross-platform fallback is forbidden — an empty pool surfaces an error. Sticky-session bindings whose bound account drifted to the wrong platform (or whose `channel_type` was reset to 0) are invalidated and the request fails over to load-balance. `messages_dispatch_model_config` is preserved for `openai` and `newapi` groups, cleared for `anthropic` / `gemini` / `antigravity` (predicate: `isOpenAICompatPlatformGroup`). Sticky routing (per `docs/approved/sticky-routing.md`, shipped) layers above this pool to optimize prompt-cache hit rates within each platform's bucket.
 
