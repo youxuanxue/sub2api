@@ -65,20 +65,15 @@ export function useOnboardingTour(options: OnboardingOptions) {
     return `${baseKey}_${userId}_${role}_${storageVersion}`
   }
 
-  // US-031: "已看过" lives in two places — the durable server-side
-  // user.onboarding_tour_seen_at (survives cache clears + device switches)
-  // and a localStorage same-session cache (avoids re-launching mid-session
-  // before the next /user/profile refresh lands). Either signal short-circuits
-  // the auto-launch gate; only the server-side one is treated as authoritative
-  // (markAsSeen + clearSeen below preserve that invariant).
-  const hasSeenLocal = () => localStorage.getItem(getStorageKey()) === 'true'
-  const hasSeenServer = () => !!userStore.user?.onboarding_tour_seen_at
-  const hasSeen = () => hasSeenServer() || hasSeenLocal()
+  // US-031: 服务端 user.onboarding_tour_seen_at 是源真相（跨设备/清缓存生效）；
+  // localStorage 是同会话快进，避免在下次 /user/profile 刷新前重启 Tour。
+  const hasSeen = () =>
+    !!userStore.user?.onboarding_tour_seen_at ||
+    localStorage.getItem(getStorageKey()) === 'true'
 
   const markAsSeen = () => {
     localStorage.setItem(getStorageKey(), 'true')
-    // Fire-and-forget server persistence (US-031 AC-005/AC-006); a failure
-    // simply lets the next dashboard mount re-launch and retry.
+    // Best-effort 持久化（AC-005/AC-006）；失败留给下次 mount 重试。
     if (userStore.user) {
       markOnboardingTourSeen().catch((err) => {
         console.error('[Onboarding] mark_seen_failed', err)
@@ -86,8 +81,8 @@ export function useOnboardingTour(options: OnboardingOptions) {
     }
   }
 
-  // replayTour clears LOCAL only — the server-side seen_at is permanent on
-  // purpose (clearing it would let "已看过" silently regress on next reload).
+  // replayTour 只清 localStorage —— 服务端 seen_at 不清，否则人为 replay
+  // 完成后下次刷新又会自动启动一遍，违反 AC-007 幂等意图。
   const clearSeen = () => {
     localStorage.removeItem(getStorageKey())
   }
@@ -547,19 +542,17 @@ export function useOnboardingTour(options: OnboardingOptions) {
       return
     }
 
-    // 没有用户上下文时不启动（防御性：composable 通常挂在认证页面，
-    // 但 ShellLayout 的初始化时序可能在 user fetch 完成前触发 onMounted）。
-    if (!userStore.user) {
-      return
-    }
-
     // 简易模式下禁用新手引导
     if (userStore.isSimpleMode) {
       return
     }
 
-    // US-031: auto-launch for BOTH admin and regular users; gate via
-    // hasSeen() (server-side seen_at + localStorage cache, see top of file).
+    // US-031: 解锁普通用户（删除原 admin-only 门禁），改为只过滤未登录场景；
+    // 已看过的判断下沉到 hasSeen()（服务端 seen_at + localStorage 缓存）。
+    if (!userStore.user) {
+      return
+    }
+
     if (!options.autoStart || hasSeen()) return
     autoStartTimer = setTimeout(() => {
       void startTour()

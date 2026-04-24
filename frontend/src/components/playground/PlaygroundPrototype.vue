@@ -1,28 +1,8 @@
 <!--
-  PlaygroundPrototype.vue — US-032 PR 2 P1-B prototype A 件
-  =========================================================
-
-  Spec: docs/approved/user-cold-start.md §11 Playground prototype-first
-        .testing/user-stories/stories/US-032-playground-prototype-AB.md
-
-  This is the visual baseline for the future Playground experience. It is NOT
-  wired into the router and NOT registered in any sidebar — its only job is to
-  let reviewers see the four states (empty / typing / responded / error)
-  before any backend work begins.
-
-  Why a prop-driven monolith and not separate components?
-    - prototype = "胶片", we want a single mount point that renders any of the
-      four states based on a single prop, mirroring 1:1 the four screens of
-      the static HTML mockup (B 件) for visual parity (US-032 AC-004).
-    - When the production Playground is implemented, this component becomes
-      the visual reference for `PlaygroundView.vue`; the props/state structure
-      remains stable and can be split into <ChatHistory />, <Composer />, etc.
-      at that point.
-
-  Design decisions answering US-032 AC-007 (system prompt / reasoning /
-  multi-turn / per-call limits / mobile breakpoint) live in a single place:
-  the <aside class="design-block"> footer of the B 件 HTML mockup. Do not
-  re-state them here — they would drift independently.
+  PlaygroundPrototype.vue — US-032 P1-B prototype A 件 (no router/sidebar wiring).
+  Spec: docs/approved/user-cold-start.md §11; .testing/user-stories/stories/US-032-playground-prototype-AB.md.
+  Sibling B 件 = docs/approved/attachments/playground-prototype-2026-04-23.html
+  (canonical source for the 5 design decisions in its <aside class="design-block">).
 -->
 <script setup lang="ts">
 import { computed } from 'vue'
