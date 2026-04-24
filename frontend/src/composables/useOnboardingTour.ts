@@ -5,7 +5,7 @@ import { useAuthStore as useUserStore } from '@/stores/auth'
 import { useOnboardingStore } from '@/stores/onboarding'
 import { useI18n } from 'vue-i18n'
 import { getAdminSteps, getUserSteps } from '@/components/Guide/steps'
-import { onboardingAPI } from '@/api/onboarding'
+import { markOnboardingTourSeen } from '@/api/onboarding'
 
 export interface OnboardingOptions {
   storageKey?: string
@@ -80,7 +80,7 @@ export function useOnboardingTour(options: OnboardingOptions) {
     // Fire-and-forget server persistence (US-031 AC-005/AC-006); a failure
     // simply lets the next dashboard mount re-launch and retry.
     if (userStore.user) {
-      onboardingAPI.markOnboardingTourSeen().catch((err) => {
+      markOnboardingTourSeen().catch((err) => {
         console.error('[Onboarding] mark_seen_failed', err)
       })
     }

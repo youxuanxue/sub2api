@@ -8,18 +8,12 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
-// MarkOnboardingTourSeen writes users.onboarding_tour_seen_at = NOW() once.
-//
-// Idempotency lives in the WHERE clause: only rows whose seen_at IS NULL get
-// updated. A repeat call (e.g. user replays tour, completes again) is a no-op
-// because the predicate filters their row out — the canonical "first seen"
-// timestamp is preserved (US-031 AC-007).
-//
-// Caller contract: this is invoked from the POST /user/onboarding-tour-completed
-// handler, which sits behind JWTAuth middleware (jwt_auth.go) that has already
-// validated the user exists in DB this request. We therefore do NOT
-// post-check existence here — `affected == 0` always means "already seen",
-// never "no such user".
+// MarkOnboardingTourSeen writes users.onboarding_tour_seen_at = NOW() exactly
+// once per user. Idempotency lives in the WHERE clause: a repeat call is a
+// no-op because the seen_at IS NULL predicate filters the row out, preserving
+// the canonical first-seen timestamp (US-031 AC-007). Caller (handler) sits
+// behind JWTAuth so we do not post-check existence — `affected == 0` always
+// means "already seen", never "no such user".
 func (r *userRepository) MarkOnboardingTourSeen(ctx context.Context, userID int64) error {
 	client := clientFromContext(ctx, r.client)
 	_, err := client.User.Update().
