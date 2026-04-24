@@ -37,7 +37,7 @@
 - 后端：`GET /user/profile` 返回 JSON 含 `"onboarding_tour_seen_at": <ISO8601 or null>`；admin 路径同样含该字段。
 - 后端：mock UserRepository 必须提供 `MarkOnboardingTourSeen(ctx, userID) error` 方法；`admin_service_delete_test.go` 等 stub 全部实现该方法（接口完备性，CLAUDE.md §6）。
 - 前端：composable 单测 `useOnboardingTour({autoStart: true})` 在 `userStore.user.onboarding_tour_seen_at == null && !isSimpleMode` 时启动 driver；在 `seen_at != null` 时不启动；在 `isSimpleMode == true` 时不启动。
-- 前端：`markAsSeen()` 触发 `userAPI.markOnboardingTourSeen()` 调用一次（mock 验证）。
+- 前端：`markAsSeen()` 触发 `onboardingAPI.markOnboardingTourSeen()` 调用一次（mock 验证）。`onboardingAPI` 落在独立 `frontend/src/api/onboarding.ts`，避免 upstream-shaped `frontend/src/api/user.ts` 出现 TK 编辑（CLAUDE.md §5）。
 - 迁移：`tk_005_add_users_onboarding_tour_seen_at.sql` 在已有 users 表上执行后，所有现有行 `onboarding_tour_seen_at IS NULL`（不影响存量用户行为）。
 
 ## Linked Tests
@@ -56,7 +56,7 @@
   - `frontend/src/composables/__tests__/useOnboardingTour.tk.spec.ts`::`AC-002 admin 首次自动启动`
   - `frontend/src/composables/__tests__/useOnboardingTour.tk.spec.ts`::`AC-003 已看过不再自动启动`
   - `frontend/src/composables/__tests__/useOnboardingTour.tk.spec.ts`::`AC-004 simple mode 不启动`
-  - `frontend/src/composables/__tests__/useOnboardingTour.tk.spec.ts`::`AC-005 调用 userAPI.markOnboardingTourSeen`
+  - `frontend/src/composables/__tests__/useOnboardingTour.tk.spec.ts`::`AC-005 调用 onboardingAPI.markOnboardingTourSeen`
 
 运行命令：
 

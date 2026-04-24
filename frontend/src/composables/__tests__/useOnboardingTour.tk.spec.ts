@@ -46,10 +46,10 @@ vi.mock('@/components/Guide/steps', () => ({
   getUserSteps: vi.fn(() => [{ popover: { title: 'user' } }])
 }))
 
-// ---- Mocks: api/user.markOnboardingTourSeen — spy for AC-005 ----
+// ---- Mocks: api/onboarding.markOnboardingTourSeen — spy for AC-005 ----
 const markSeenSpy = vi.fn(() => Promise.resolve())
-vi.mock('@/api/user', () => ({
-  userAPI: {
+vi.mock('@/api/onboarding', () => ({
+  onboardingAPI: {
     markOnboardingTourSeen: () => markSeenSpy()
   }
 }))
@@ -201,7 +201,7 @@ describe('US-031 markAsSeen 触发服务端持久化 (AC-005)', () => {
 
   // AC-005 — when the tour completion fires markAsSeen we MUST notify the
   // server so the seen_at survives cache clears / device switches.
-  it('AC-005 调用 userAPI.markOnboardingTourSeen() once', async () => {
+  it('AC-005 调用 onboardingAPI.markOnboardingTourSeen() once', async () => {
     fakeUser = { id: 5, role: 'user', onboarding_tour_seen_at: null }
     fakeSimpleMode = false
 

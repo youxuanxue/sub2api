@@ -5,7 +5,7 @@ import { useAuthStore as useUserStore } from '@/stores/auth'
 import { useOnboardingStore } from '@/stores/onboarding'
 import { useI18n } from 'vue-i18n'
 import { getAdminSteps, getUserSteps } from '@/components/Guide/steps'
-import { userAPI } from '@/api/user'
+import { onboardingAPI } from '@/api/onboarding'
 
 export interface OnboardingOptions {
   storageKey?: string
@@ -82,7 +82,7 @@ export function useOnboardingTour(options: OnboardingOptions) {
     // network round-trip, and a failure simply means the next dashboard
     // load will re-launch the tour (the user retries naturally).
     if (userStore.user) {
-      userAPI.markOnboardingTourSeen().catch((err) => {
+      onboardingAPI.markOnboardingTourSeen().catch((err) => {
         console.error('[Onboarding] mark_seen_failed', err)
       })
     }

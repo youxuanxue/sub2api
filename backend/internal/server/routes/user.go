@@ -26,10 +26,7 @@ func RegisterUserRoutes(
 			user.PUT("/password", h.User.ChangePassword)
 			user.PUT("", h.User.UpdateProfile)
 
-			// US-031 (cold-start PR 2 P1-A): persist "seen" marker server-side
-			// so the onboarding tour is not re-shown after a localStorage clear
-			// or on a different device.
-			user.POST("/onboarding-tour-completed", h.User.MarkOnboardingTourSeen)
+			registerTKUserRoutes(user, h)
 
 			// 通知邮箱管理
 			notifyEmail := user.Group("/notify-email")

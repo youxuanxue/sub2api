@@ -83,19 +83,6 @@ export async function toggleNotifyEmail(email: string, disabled: boolean): Promi
   return data
 }
 
-/**
- * Mark the onboarding tour as completed for the current user.
- * Idempotent on the server: a second call after the first does not move
- * the recorded timestamp (US-031 AC-007).
- *
- * Best-effort: if this throws (network error, 5xx, etc.), the dashboard
- * will simply re-launch the tour on the next mount because
- * `user.onboarding_tour_seen_at` will still be `null` from the server.
- */
-export async function markOnboardingTourSeen(): Promise<void> {
-  await apiClient.post('/user/onboarding-tour-completed')
-}
-
 export const userAPI = {
   getProfile,
   updateProfile,
@@ -103,8 +90,7 @@ export const userAPI = {
   sendNotifyEmailCode,
   verifyNotifyEmail,
   removeNotifyEmail,
-  toggleNotifyEmail,
-  markOnboardingTourSeen
+  toggleNotifyEmail
 }
 
 export default userAPI
