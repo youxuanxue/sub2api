@@ -1318,10 +1318,15 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 	// 跨平台 sticky binding（例如 group 之前是 openai，sticky 写入后管理员把
 	// group 改成 newapi）必须主动清理 Redis 映射，否则整个 TTL 周期内每次同
 	// sessionHash 请求都会重做一次 snapshot/DB 查询 → 命中跨平台 → 落到
-	// Layer 2 重新选号，且永远不清理。与同函数 line 1294-1305（账号已删除）和
-	// 1322-1326（recheck 失败）两个分支的行为对称。
-	// scheduler 路径 openai_account_scheduler.go:324 已经清理，这里之前漏了。
-	if !account.IsSchedulable() || !account.IsOpenAICompatPoolMember(groupPlatform) {
+	// Layer 2 重新选号，且永远不清理。与本函数 NotFound 分支（getSchedulableAccount
+	// 失败）和 recheck 分支（recheckSelectedOpenAIAccountFromDB 失败）行为对称。
+	// scheduler 路径（openai_account_scheduler.go::selectBySessionHash）已经清理，
+	// 这里之前漏了。
+	//
+	// 注意：IsSchedulable() 已被上一行 shouldClearStickySession 兜住——它在
+	// !IsSchedulable() 时返回 true，那条分支会先一步删 + return，所以这里只需
+	// 检查跨平台。
+	if !account.IsOpenAICompatPoolMember(groupPlatform) {
 		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 		return nil
 	}
@@ -1509,13 +1514,16 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 					_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 				}
 				// P0-2: 跨平台 sticky 也必须主动清理（与 tryStickySessionHit 对称）。
-				// 之前: !IsOpenAICompatPoolMember 时整个 if 块被跳过，stale binding
+				// 之前 !IsOpenAICompatPoolMember 时整个 if 块被跳过，stale binding
 				// 在 TTL 内永远不清理。把"跨平台不匹配"提升为与"账号已删除"等价的
-				// 清理触发条件，与同函数 line 1494（NotFound）行为一致。
-				if !clearSticky && (!account.IsSchedulable() || !account.IsOpenAICompatPoolMember(groupPlatform)) {
+				// 清理触发条件，与上方 NotFound 分支行为一致。IsSchedulable() 由
+				// clearSticky 兜住（shouldClearStickySession 在 !IsSchedulable 时
+				// 返回 true → 走上面的 if clearSticky 删除 + 不进本块），故无需
+				// 重复检查。
+				if !clearSticky && !account.IsOpenAICompatPoolMember(groupPlatform) {
 					_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 				}
-				if !clearSticky && account.IsSchedulable() && account.IsOpenAICompatPoolMember(groupPlatform) &&
+				if !clearSticky && account.IsOpenAICompatPoolMember(groupPlatform) &&
 					(requestedModel == "" || account.IsModelSupported(requestedModel)) {
 					account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, requestedModel, groupPlatform)
 					if account == nil {
