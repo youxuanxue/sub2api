@@ -53,6 +53,11 @@ pnpm-debug.log*
 .env.*.local
 *.env
 !.env.example
+# .cursor/cloud-agent.env declares the cloud-agent runtime CONTRACT
+# (tool names, secret names, gateway URL) — not secret values themselves.
+# Per dev-rules/templates/cloud-agent.env.example it is meant to be
+# committed so cloud + local sessions resolve the same contract.
+!.cursor/cloud-agent.env
 docker-compose.override.yml
 
 # ===================
