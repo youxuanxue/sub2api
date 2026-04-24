@@ -425,16 +425,16 @@ func (_c *GroupCreate) SetNillableMessagesDispatchModelConfig(v *domain.OpenAIMe
 	return _c
 }
 
-// SetStickyRoutingMode sets the "sticky_routing_mode" field.
-func (_c *GroupCreate) SetStickyRoutingMode(v group.StickyRoutingMode) *GroupCreate {
-	_c.mutation.SetStickyRoutingMode(v)
+// SetRpmLimit sets the "rpm_limit" field.
+func (_c *GroupCreate) SetRpmLimit(v int) *GroupCreate {
+	_c.mutation.SetRpmLimit(v)
 	return _c
 }
 
-// SetNillableStickyRoutingMode sets the "sticky_routing_mode" field if the given value is not nil.
-func (_c *GroupCreate) SetNillableStickyRoutingMode(v *group.StickyRoutingMode) *GroupCreate {
+// SetNillableRpmLimit sets the "rpm_limit" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableRpmLimit(v *int) *GroupCreate {
 	if v != nil {
-		_c.SetStickyRoutingMode(*v)
+		_c.SetRpmLimit(*v)
 	}
 	return _c
 }
@@ -644,9 +644,9 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultMessagesDispatchModelConfig
 		_c.mutation.SetMessagesDispatchModelConfig(v)
 	}
-	if _, ok := _c.mutation.StickyRoutingMode(); !ok {
-		v := group.DefaultStickyRoutingMode
-		_c.mutation.SetStickyRoutingMode(v)
+	if _, ok := _c.mutation.RpmLimit(); !ok {
+		v := group.DefaultRpmLimit
+		_c.mutation.SetRpmLimit(v)
 	}
 	return nil
 }
@@ -735,13 +735,8 @@ func (_c *GroupCreate) check() error {
 	if _, ok := _c.mutation.MessagesDispatchModelConfig(); !ok {
 		return &ValidationError{Name: "messages_dispatch_model_config", err: errors.New(`ent: missing required field "Group.messages_dispatch_model_config"`)}
 	}
-	if _, ok := _c.mutation.StickyRoutingMode(); !ok {
-		return &ValidationError{Name: "sticky_routing_mode", err: errors.New(`ent: missing required field "Group.sticky_routing_mode"`)}
-	}
-	if v, ok := _c.mutation.StickyRoutingMode(); ok {
-		if err := group.StickyRoutingModeValidator(v); err != nil {
-			return &ValidationError{Name: "sticky_routing_mode", err: fmt.Errorf(`ent: validator failed for field "Group.sticky_routing_mode": %w`, err)}
-		}
+	if _, ok := _c.mutation.RpmLimit(); !ok {
+		return &ValidationError{Name: "rpm_limit", err: errors.New(`ent: missing required field "Group.rpm_limit"`)}
 	}
 	return nil
 }
@@ -890,9 +885,9 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 		_spec.SetField(group.FieldMessagesDispatchModelConfig, field.TypeJSON, value)
 		_node.MessagesDispatchModelConfig = value
 	}
-	if value, ok := _c.mutation.StickyRoutingMode(); ok {
-		_spec.SetField(group.FieldStickyRoutingMode, field.TypeEnum, value)
-		_node.StickyRoutingMode = value
+	if value, ok := _c.mutation.RpmLimit(); ok {
+		_spec.SetField(group.FieldRpmLimit, field.TypeInt, value)
+		_node.RpmLimit = value
 	}
 	if nodes := _c.mutation.APIKeysIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
@@ -1530,15 +1525,21 @@ func (u *GroupUpsert) UpdateMessagesDispatchModelConfig() *GroupUpsert {
 	return u
 }
 
-// SetStickyRoutingMode sets the "sticky_routing_mode" field.
-func (u *GroupUpsert) SetStickyRoutingMode(v group.StickyRoutingMode) *GroupUpsert {
-	u.Set(group.FieldStickyRoutingMode, v)
+// SetRpmLimit sets the "rpm_limit" field.
+func (u *GroupUpsert) SetRpmLimit(v int) *GroupUpsert {
+	u.Set(group.FieldRpmLimit, v)
 	return u
 }
 
-// UpdateStickyRoutingMode sets the "sticky_routing_mode" field to the value that was provided on create.
-func (u *GroupUpsert) UpdateStickyRoutingMode() *GroupUpsert {
-	u.SetExcluded(group.FieldStickyRoutingMode)
+// UpdateRpmLimit sets the "rpm_limit" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateRpmLimit() *GroupUpsert {
+	u.SetExcluded(group.FieldRpmLimit)
+	return u
+}
+
+// AddRpmLimit adds v to the "rpm_limit" field.
+func (u *GroupUpsert) AddRpmLimit(v int) *GroupUpsert {
+	u.Add(group.FieldRpmLimit, v)
 	return u
 }
 
@@ -2147,17 +2148,24 @@ func (u *GroupUpsertOne) UpdateMessagesDispatchModelConfig() *GroupUpsertOne {
 	})
 }
 
-// SetStickyRoutingMode sets the "sticky_routing_mode" field.
-func (u *GroupUpsertOne) SetStickyRoutingMode(v group.StickyRoutingMode) *GroupUpsertOne {
+// SetRpmLimit sets the "rpm_limit" field.
+func (u *GroupUpsertOne) SetRpmLimit(v int) *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
-		s.SetStickyRoutingMode(v)
+		s.SetRpmLimit(v)
 	})
 }
 
-// UpdateStickyRoutingMode sets the "sticky_routing_mode" field to the value that was provided on create.
-func (u *GroupUpsertOne) UpdateStickyRoutingMode() *GroupUpsertOne {
+// AddRpmLimit adds v to the "rpm_limit" field.
+func (u *GroupUpsertOne) AddRpmLimit(v int) *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
-		s.UpdateStickyRoutingMode()
+		s.AddRpmLimit(v)
+	})
+}
+
+// UpdateRpmLimit sets the "rpm_limit" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateRpmLimit() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateRpmLimit()
 	})
 }
 
@@ -2932,17 +2940,24 @@ func (u *GroupUpsertBulk) UpdateMessagesDispatchModelConfig() *GroupUpsertBulk {
 	})
 }
 
-// SetStickyRoutingMode sets the "sticky_routing_mode" field.
-func (u *GroupUpsertBulk) SetStickyRoutingMode(v group.StickyRoutingMode) *GroupUpsertBulk {
+// SetRpmLimit sets the "rpm_limit" field.
+func (u *GroupUpsertBulk) SetRpmLimit(v int) *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
-		s.SetStickyRoutingMode(v)
+		s.SetRpmLimit(v)
 	})
 }
 
-// UpdateStickyRoutingMode sets the "sticky_routing_mode" field to the value that was provided on create.
-func (u *GroupUpsertBulk) UpdateStickyRoutingMode() *GroupUpsertBulk {
+// AddRpmLimit adds v to the "rpm_limit" field.
+func (u *GroupUpsertBulk) AddRpmLimit(v int) *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
-		s.UpdateStickyRoutingMode()
+		s.AddRpmLimit(v)
+	})
+}
+
+// UpdateRpmLimit sets the "rpm_limit" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateRpmLimit() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateRpmLimit()
 	})
 }
 

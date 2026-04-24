@@ -567,17 +567,24 @@ func (_u *GroupUpdate) SetNillableMessagesDispatchModelConfig(v *domain.OpenAIMe
 	return _u
 }
 
-// SetStickyRoutingMode sets the "sticky_routing_mode" field.
-func (_u *GroupUpdate) SetStickyRoutingMode(v group.StickyRoutingMode) *GroupUpdate {
-	_u.mutation.SetStickyRoutingMode(v)
+// SetRpmLimit sets the "rpm_limit" field.
+func (_u *GroupUpdate) SetRpmLimit(v int) *GroupUpdate {
+	_u.mutation.ResetRpmLimit()
+	_u.mutation.SetRpmLimit(v)
 	return _u
 }
 
-// SetNillableStickyRoutingMode sets the "sticky_routing_mode" field if the given value is not nil.
-func (_u *GroupUpdate) SetNillableStickyRoutingMode(v *group.StickyRoutingMode) *GroupUpdate {
+// SetNillableRpmLimit sets the "rpm_limit" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableRpmLimit(v *int) *GroupUpdate {
 	if v != nil {
-		_u.SetStickyRoutingMode(*v)
+		_u.SetRpmLimit(*v)
 	}
+	return _u
+}
+
+// AddRpmLimit adds value to the "rpm_limit" field.
+func (_u *GroupUpdate) AddRpmLimit(v int) *GroupUpdate {
+	_u.mutation.AddRpmLimit(v)
 	return _u
 }
 
@@ -871,11 +878,6 @@ func (_u *GroupUpdate) check() error {
 			return &ValidationError{Name: "default_mapped_model", err: fmt.Errorf(`ent: validator failed for field "Group.default_mapped_model": %w`, err)}
 		}
 	}
-	if v, ok := _u.mutation.StickyRoutingMode(); ok {
-		if err := group.StickyRoutingModeValidator(v); err != nil {
-			return &ValidationError{Name: "sticky_routing_mode", err: fmt.Errorf(`ent: validator failed for field "Group.sticky_routing_mode": %w`, err)}
-		}
-	}
 	return nil
 }
 
@@ -1049,8 +1051,11 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.MessagesDispatchModelConfig(); ok {
 		_spec.SetField(group.FieldMessagesDispatchModelConfig, field.TypeJSON, value)
 	}
-	if value, ok := _u.mutation.StickyRoutingMode(); ok {
-		_spec.SetField(group.FieldStickyRoutingMode, field.TypeEnum, value)
+	if value, ok := _u.mutation.RpmLimit(); ok {
+		_spec.SetField(group.FieldRpmLimit, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedRpmLimit(); ok {
+		_spec.AddField(group.FieldRpmLimit, field.TypeInt, value)
 	}
 	if _u.mutation.APIKeysCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -1897,17 +1902,24 @@ func (_u *GroupUpdateOne) SetNillableMessagesDispatchModelConfig(v *domain.OpenA
 	return _u
 }
 
-// SetStickyRoutingMode sets the "sticky_routing_mode" field.
-func (_u *GroupUpdateOne) SetStickyRoutingMode(v group.StickyRoutingMode) *GroupUpdateOne {
-	_u.mutation.SetStickyRoutingMode(v)
+// SetRpmLimit sets the "rpm_limit" field.
+func (_u *GroupUpdateOne) SetRpmLimit(v int) *GroupUpdateOne {
+	_u.mutation.ResetRpmLimit()
+	_u.mutation.SetRpmLimit(v)
 	return _u
 }
 
-// SetNillableStickyRoutingMode sets the "sticky_routing_mode" field if the given value is not nil.
-func (_u *GroupUpdateOne) SetNillableStickyRoutingMode(v *group.StickyRoutingMode) *GroupUpdateOne {
+// SetNillableRpmLimit sets the "rpm_limit" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableRpmLimit(v *int) *GroupUpdateOne {
 	if v != nil {
-		_u.SetStickyRoutingMode(*v)
+		_u.SetRpmLimit(*v)
 	}
+	return _u
+}
+
+// AddRpmLimit adds value to the "rpm_limit" field.
+func (_u *GroupUpdateOne) AddRpmLimit(v int) *GroupUpdateOne {
+	_u.mutation.AddRpmLimit(v)
 	return _u
 }
 
@@ -2214,11 +2226,6 @@ func (_u *GroupUpdateOne) check() error {
 			return &ValidationError{Name: "default_mapped_model", err: fmt.Errorf(`ent: validator failed for field "Group.default_mapped_model": %w`, err)}
 		}
 	}
-	if v, ok := _u.mutation.StickyRoutingMode(); ok {
-		if err := group.StickyRoutingModeValidator(v); err != nil {
-			return &ValidationError{Name: "sticky_routing_mode", err: fmt.Errorf(`ent: validator failed for field "Group.sticky_routing_mode": %w`, err)}
-		}
-	}
 	return nil
 }
 
@@ -2409,8 +2416,11 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	if value, ok := _u.mutation.MessagesDispatchModelConfig(); ok {
 		_spec.SetField(group.FieldMessagesDispatchModelConfig, field.TypeJSON, value)
 	}
-	if value, ok := _u.mutation.StickyRoutingMode(); ok {
-		_spec.SetField(group.FieldStickyRoutingMode, field.TypeEnum, value)
+	if value, ok := _u.mutation.RpmLimit(); ok {
+		_spec.SetField(group.FieldRpmLimit, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedRpmLimit(); ok {
+		_spec.AddField(group.FieldRpmLimit, field.TypeInt, value)
 	}
 	if _u.mutation.APIKeysCleared() {
 		edge := &sqlgraph.EdgeSpec{

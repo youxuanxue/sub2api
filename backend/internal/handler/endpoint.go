@@ -18,9 +18,10 @@ const (
 	EndpointMessages          = "/v1/messages"
 	EndpointChatCompletions   = "/v1/chat/completions"
 	EndpointResponses         = "/v1/responses"
+	EndpointImagesGenerations = "/v1/images/generations"
+	EndpointImagesEdits       = "/v1/images/edits"
 	EndpointGeminiModels      = "/v1beta/models"
 	EndpointEmbeddings        = "/v1/embeddings"
-	EndpointImagesGenerations = "/v1/images/generations"
 )
 
 // gin.Context keys used by the middleware and helpers below.
@@ -49,6 +50,10 @@ func NormalizeInboundEndpoint(path string) string {
 		return EndpointChatCompletions
 	case strings.Contains(path, EndpointMessages):
 		return EndpointMessages
+	case strings.Contains(path, EndpointImagesGenerations) || strings.Contains(path, "/images/generations"):
+		return EndpointImagesGenerations
+	case strings.Contains(path, EndpointImagesEdits) || strings.Contains(path, "/images/edits"):
+		return EndpointImagesEdits
 	case strings.Contains(path, EndpointResponses):
 		return EndpointResponses
 	case strings.Contains(path, EndpointGeminiModels):
@@ -74,6 +79,9 @@ func DeriveUpstreamEndpoint(inbound, rawRequestPath, platform string) string {
 
 	switch platform {
 	case service.PlatformOpenAI, service.PlatformNewAPI:
+		// TK companion: route Embeddings + ImagesGenerations + ImagesEdits to
+		// their own upstream paths instead of /v1/responses (see endpoint_tk.go).
+		// Falls through to the default OpenAI Responses behavior otherwise.
 		if upstream, ok := tkDeriveOpenAITokenKeyUpstream(inbound); ok {
 			return upstream
 		}
