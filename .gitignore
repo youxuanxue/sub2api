@@ -161,6 +161,7 @@ docs/*
 !docs/accounts/
 !docs/bugs/
 !docs/deploy/
+!docs/global/
 !docs/preflight-debt.md
 .serena/
 .codex/
