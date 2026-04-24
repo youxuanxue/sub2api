@@ -129,6 +129,7 @@ func ProvideHandlers(
 	paymentWebhookHandler *PaymentWebhookHandler,
 	qaService *qaobs.Service,
 	pricingCatalogHandler *PricingCatalogHandler,
+	qaHandler *QAHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 ) *Handlers {
@@ -149,6 +150,7 @@ func ProvideHandlers(
 		PaymentWebhook: paymentWebhookHandler,
 		QACapture:      qaService,
 		PricingCatalog: pricingCatalogHandler,
+		QA:             qaHandler,
 	}
 }
 
@@ -169,6 +171,7 @@ var ProviderSet = wire.NewSet(
 	NewPaymentHandler,
 	NewPaymentWebhookHandler,
 	NewPricingCatalogHandler,
+	NewQAHandler,
 
 	// Admin handlers
 	admin.NewDashboardHandler,

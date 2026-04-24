@@ -55,6 +55,8 @@ type Handlers struct {
 	QACapture      *qaobs.Service
 	// TK: public model + pricing catalog (US-028 / docs/approved/user-cold-start.md §2 v1).
 	PricingCatalog *PricingCatalogHandler
+	// TK: user-facing QA export (issue #59 / docs/approved/ops_xx.md §2).
+	QA *QAHandler
 }
 
 // BuildInfo contains build-time information
