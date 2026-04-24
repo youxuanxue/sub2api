@@ -22,7 +22,8 @@ behind: 248
 ## 0. TL;DR（如果只读一行）
 
 **直接 `git merge upstream/main` 会让 TokenKey 第五平台 `newapi` 全面 P0
-回归**。upstream 在过去 248 commits 中两个独立线索同时把
+回归**。upstream 在过去 248 commits（first-parent 25 步：12 个 PR +
+13 个 chore/fix 直推；详见 §1.2 数字校准）中两个独立线索同时把
 `backend/internal/service/openai_account_scheduler.go` 与
 `backend/internal/service/openai_gateway_service.go` 的调度路径**改回**了
 裸 `IsOpenAI()` 调用与无 `GroupPlatform` 字段的请求结构，与
@@ -56,12 +57,23 @@ Stage C (P2 选合)  → available channels view + monitor UI 美化
 
 ## 1. 上游变化盘点（事实，无解释）
 
+### 1.1 数字交叉核对（4 角度）
+
 ```
 $ bash scripts/check-upstream-drift.sh
 Upstream:  Wei-Shaw/sub2api@d162604f
 TK fork:   origin/main@f0757011
 TK ahead:  88 commits
 TK behind: 248 commits
+
+$ git rev-list --left-right --count origin/main...upstream/main   →  88  248
+$ git rev-list --count --merges     origin/main..upstream/main    →  18    (PR merge commits in graph)
+$ git rev-list --count --no-merges  origin/main..upstream/main    →  230   (real-patch commits)
+$ git rev-list --count --first-parent origin/main..upstream/main  →  25    (steps along main's first-parent)
+$ git cherry origin/main upstream/main | awk '{print $1}' | sort -u
++                                                                  →  230   (none "-" → 0 cherry-picked already)
+$ git merge-base origin/main upstream/main
+78f691d2 (2026-04-21 12:13  "chore: update sponsors")
 
 $ git diff --shortstat origin/main...upstream/main
 518 files changed, 133353 insertions(+), 11930 deletions(-)
@@ -71,21 +83,47 @@ $ git diff --stat origin/main...upstream/main -- backend/migrations/ | tail -1
 28 files changed, 1833 insertions(+)
 ```
 
-**首层 PR（first-parent merges）**：13 个，分别是
+### 1.2 248 的含义校准（避免被"248"虚高吓退）
 
-| 上游 PR / merge | 变更主题 | TK 风险 |
+| 视角 | 数字 | 含义 |
 |---|---|---|
-| #1853 codex-image-generation-bridge | 把 codex 生图桥接到 `/v1/responses` | M（动 scheduler request struct） |
-| #1850 channel-insights | 监控页 UI 改造（OPERATIONAL/DEGRADED） | L（纯前端） |
-| #1829 codex-oauth-proxy-message | OAuth 代理错误信息 | L |
-| #1836 account-daily-weekly-quota-cache-invalidation | 配额缓存失效修复 | L |
-| #1815 feat_rpm | **新增** Group/User 级 RPM 限流（schema+migration） | **H（schema 变更）** |
-| #1828 计费问题以及模型回显修复 | bug 修复 | M（动 scheduler hot path） |
-| #1813 fix-openai-image-handling | 图像处理 LimitReader 防 OOM | L |
-| #1810 + #1802 fix/profile-auth-bindings-i18n | 文案修正 | L |
-| #1799 + #1785 **rebuild/auth-identity-foundation** | **完整重构 OAuth/Email 身份模型** | **H（schema + 主流程改动）** |
-| #1795 feat/openai-image-api-sync | OpenAI 同步生图接入 | M（端点扩展） |
+| `rev-list --count` 原始 | **248** | upstream 可达、origin 不可达的全部 commit；与 `check-upstream-drift.sh` 同口径 |
+| 真实带 patch 内容的 commit | 230 | 排除 18 个 merge commit（merge 本身不带 patch） |
+| upstream main first-parent 步数 | 25 | "main 上多走了 25 步"；其他 223 个是 PR 内部 WIP，跟随 PR 一起进 |
+| 实际要 review 的 PR 单元 | **12** | first-parent 中的 merge commit，每个 = 1 个 GitHub PR |
+| 已被 cherry-pick 吸收 | **0** | `git cherry` 全部 `+`，无 `-`，原 fork 没从 upstream cherry-pick 过任何 commit |
 
+所以 review 重量是 **12 个 PR + 13 个 chore/fix 直推**，不是 248。
+
+### 1.3 25 个 first-parent 节点详表
+
+| 类型 | 上游引用 | 主题 | TK 风险 |
+|---|---|---|---|
+| PR | #1853 | codex-image-generation-bridge：把 codex 生图桥接到 `/v1/responses` | M（动 scheduler request struct） |
+| PR | #1850 | channel-insights：监控页 UI 改造（OPERATIONAL/DEGRADED） | L（纯前端） |
+| PR | #1836 | account-daily-weekly-quota-cache-invalidation：配额缓存失效修复 | L |
+| PR | #1829 | codex-oauth-proxy-message：OAuth 代理错误信息 | L |
+| PR | #1828 | wx-11/main：计费问题以及模型回显修复 | M（动 scheduler hot path） |
+| PR | #1815 | **feat_rpm**：新增 Group/User 级 RPM 限流（schema+migration） | **H（schema 变更）** |
+| PR | #1813 | fix-openai-image-handling：图像处理 LimitReader 防 OOM | L |
+| PR | #1810 | fix/profile-auth-bindings-i18n（IanShaw027 第二轮 follow-up） | L |
+| PR | #1802 | fix/profile-auth-bindings-i18n（IanShaw027 第一轮） | L |
+| PR | #1799 | **rebuild/auth-identity-foundation**（IanShaw027 续作） | **H（schema + 主流程改动）** |
+| PR | #1795 | feat/openai-image-api-sync：OpenAI 同步生图接入 | M（端点扩展） |
+| PR | #1785 | **rebuild/auth-identity-foundation**（IanShaw027 主提交） | **H（schema + 主流程改动）** |
+| chore | a4e329c1 | fix: openai 默认模型新增 gpt5.5 | L |
+| chore | ca204ddd | fix(openai): preserve image outputs when text content serialization fails | M（OpenAI handler） |
+| chore | 0a80ec80 / 6449da6c / d162604f | sync VERSION to 0.1.115 / 0.1.116 / 0.1.117 `[skip ci]` | L（**TK 不接受 upstream VERSION**，见 §6） |
+| chore | a22a5b9e | fix docker pull version tag in TG notification | L |
+| chore | 3fe4fd4c | chore: add model gpt-5.5 | L |
+| chore | ef967d8f | **fix: 修复 golangci-lint 报告的 36 个问题** | M（散落，含 §2.1 hot path） |
+| chore | 0b85a8da | fix: add io.LimitReader bounds to prevent OOM in image handling | L |
+| chore | 755c7d50 | chore: revert README files to 78f691d2 version | L |
+| chore | c6d25f69 | chore: 恢复 PAYMENT 系列文件 | L（恢复 PR #1785 重构期间误删的文件） |
+| chore | 45065c23 | fix(ci): run 108a migration before 109 in backfill integration test | L |
+| chore | 4d0483f5 | feat: 补充 gpt 生图模型测试功能 | L |
+
+> 12 个 PR + 13 个 chore = 25 个 first-parent 节点，覆盖全部 248 commits 的语义。
 > 数字遵守 dev-rules"删数字"原则不写入正文，只在表格里给读者一个判断
 > 重量的快速锚点；表格本身是契约（删了表格就是删了体检报告），不需要 stat
 > 块包装。
