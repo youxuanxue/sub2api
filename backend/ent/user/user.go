@@ -59,6 +59,8 @@ const (
 	FieldBalanceNotifyExtraEmails = "balance_notify_extra_emails"
 	// FieldTotalRecharged holds the string denoting the total_recharged field in the database.
 	FieldTotalRecharged = "total_recharged"
+	// FieldOnboardingTourSeenAt holds the string denoting the onboarding_tour_seen_at field in the database.
+	FieldOnboardingTourSeenAt = "onboarding_tour_seen_at"
 	// FieldRpmLimit holds the string denoting the rpm_limit field in the database.
 	FieldRpmLimit = "rpm_limit"
 	// EdgeAPIKeys holds the string denoting the api_keys edge name in mutations.
@@ -205,6 +207,7 @@ var Columns = []string{
 	FieldBalanceNotifyThreshold,
 	FieldBalanceNotifyExtraEmails,
 	FieldTotalRecharged,
+	FieldOnboardingTourSeenAt,
 	FieldRpmLimit,
 }
 
@@ -394,6 +397,11 @@ func ByBalanceNotifyExtraEmails(opts ...sql.OrderTermOption) OrderOption {
 // ByTotalRecharged orders the results by the total_recharged field.
 func ByTotalRecharged(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldTotalRecharged, opts...).ToFunc()
+}
+
+// ByOnboardingTourSeenAt orders the results by the onboarding_tour_seen_at field.
+func ByOnboardingTourSeenAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldOnboardingTourSeenAt, opts...).ToFunc()
 }
 
 // ByRpmLimit orders the results by the rpm_limit field.

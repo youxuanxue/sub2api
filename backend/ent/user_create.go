@@ -325,6 +325,20 @@ func (_c *UserCreate) SetNillableTotalRecharged(v *float64) *UserCreate {
 	return _c
 }
 
+// SetOnboardingTourSeenAt sets the "onboarding_tour_seen_at" field.
+func (_c *UserCreate) SetOnboardingTourSeenAt(v time.Time) *UserCreate {
+	_c.mutation.SetOnboardingTourSeenAt(v)
+	return _c
+}
+
+// SetNillableOnboardingTourSeenAt sets the "onboarding_tour_seen_at" field if the given value is not nil.
+func (_c *UserCreate) SetNillableOnboardingTourSeenAt(v *time.Time) *UserCreate {
+	if v != nil {
+		_c.SetOnboardingTourSeenAt(*v)
+	}
+	return _c
+}
+
 // SetRpmLimit sets the "rpm_limit" field.
 func (_c *UserCreate) SetRpmLimit(v int) *UserCreate {
 	_c.mutation.SetRpmLimit(v)
@@ -822,6 +836,10 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.TotalRecharged(); ok {
 		_spec.SetField(user.FieldTotalRecharged, field.TypeFloat64, value)
 		_node.TotalRecharged = value
+	}
+	if value, ok := _c.mutation.OnboardingTourSeenAt(); ok {
+		_spec.SetField(user.FieldOnboardingTourSeenAt, field.TypeTime, value)
+		_node.OnboardingTourSeenAt = &value
 	}
 	if value, ok := _c.mutation.RpmLimit(); ok {
 		_spec.SetField(user.FieldRpmLimit, field.TypeInt, value)
@@ -1387,6 +1405,24 @@ func (u *UserUpsert) AddTotalRecharged(v float64) *UserUpsert {
 	return u
 }
 
+// SetOnboardingTourSeenAt sets the "onboarding_tour_seen_at" field.
+func (u *UserUpsert) SetOnboardingTourSeenAt(v time.Time) *UserUpsert {
+	u.Set(user.FieldOnboardingTourSeenAt, v)
+	return u
+}
+
+// UpdateOnboardingTourSeenAt sets the "onboarding_tour_seen_at" field to the value that was provided on create.
+func (u *UserUpsert) UpdateOnboardingTourSeenAt() *UserUpsert {
+	u.SetExcluded(user.FieldOnboardingTourSeenAt)
+	return u
+}
+
+// ClearOnboardingTourSeenAt clears the value of the "onboarding_tour_seen_at" field.
+func (u *UserUpsert) ClearOnboardingTourSeenAt() *UserUpsert {
+	u.SetNull(user.FieldOnboardingTourSeenAt)
+	return u
+}
+
 // SetRpmLimit sets the "rpm_limit" field.
 func (u *UserUpsert) SetRpmLimit(v int) *UserUpsert {
 	u.Set(user.FieldRpmLimit, v)
@@ -1811,6 +1847,27 @@ func (u *UserUpsertOne) AddTotalRecharged(v float64) *UserUpsertOne {
 func (u *UserUpsertOne) UpdateTotalRecharged() *UserUpsertOne {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateTotalRecharged()
+	})
+}
+
+// SetOnboardingTourSeenAt sets the "onboarding_tour_seen_at" field.
+func (u *UserUpsertOne) SetOnboardingTourSeenAt(v time.Time) *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.SetOnboardingTourSeenAt(v)
+	})
+}
+
+// UpdateOnboardingTourSeenAt sets the "onboarding_tour_seen_at" field to the value that was provided on create.
+func (u *UserUpsertOne) UpdateOnboardingTourSeenAt() *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateOnboardingTourSeenAt()
+	})
+}
+
+// ClearOnboardingTourSeenAt clears the value of the "onboarding_tour_seen_at" field.
+func (u *UserUpsertOne) ClearOnboardingTourSeenAt() *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.ClearOnboardingTourSeenAt()
 	})
 }
 
@@ -2407,6 +2464,27 @@ func (u *UserUpsertBulk) AddTotalRecharged(v float64) *UserUpsertBulk {
 func (u *UserUpsertBulk) UpdateTotalRecharged() *UserUpsertBulk {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateTotalRecharged()
+	})
+}
+
+// SetOnboardingTourSeenAt sets the "onboarding_tour_seen_at" field.
+func (u *UserUpsertBulk) SetOnboardingTourSeenAt(v time.Time) *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.SetOnboardingTourSeenAt(v)
+	})
+}
+
+// UpdateOnboardingTourSeenAt sets the "onboarding_tour_seen_at" field to the value that was provided on create.
+func (u *UserUpsertBulk) UpdateOnboardingTourSeenAt() *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateOnboardingTourSeenAt()
+	})
+}
+
+// ClearOnboardingTourSeenAt clears the value of the "onboarding_tour_seen_at" field.
+func (u *UserUpsertBulk) ClearOnboardingTourSeenAt() *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.ClearOnboardingTourSeenAt()
 	})
 }
 

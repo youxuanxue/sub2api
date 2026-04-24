@@ -3,6 +3,7 @@
 package group
 
 import (
+	"fmt"
 	"time"
 
 	"entgo.io/ent"
@@ -76,6 +77,8 @@ const (
 	FieldDefaultMappedModel = "default_mapped_model"
 	// FieldMessagesDispatchModelConfig holds the string denoting the messages_dispatch_model_config field in the database.
 	FieldMessagesDispatchModelConfig = "messages_dispatch_model_config"
+	// FieldStickyRoutingMode holds the string denoting the sticky_routing_mode field in the database.
+	FieldStickyRoutingMode = "sticky_routing_mode"
 	// FieldRpmLimit holds the string denoting the rpm_limit field in the database.
 	FieldRpmLimit = "rpm_limit"
 	// EdgeAPIKeys holds the string denoting the api_keys edge name in mutations.
@@ -183,6 +186,7 @@ var Columns = []string{
 	FieldRequirePrivacySet,
 	FieldDefaultMappedModel,
 	FieldMessagesDispatchModelConfig,
+	FieldStickyRoutingMode,
 	FieldRpmLimit,
 }
 
@@ -264,6 +268,33 @@ var (
 	// DefaultRpmLimit holds the default value on creation for the "rpm_limit" field.
 	DefaultRpmLimit int
 )
+
+// StickyRoutingMode defines the type for the "sticky_routing_mode" enum field.
+type StickyRoutingMode string
+
+// StickyRoutingModeAuto is the default value of the StickyRoutingMode enum.
+const DefaultStickyRoutingMode = StickyRoutingModeAuto
+
+// StickyRoutingMode values.
+const (
+	StickyRoutingModeAuto        StickyRoutingMode = "auto"
+	StickyRoutingModePassthrough StickyRoutingMode = "passthrough"
+	StickyRoutingModeOff         StickyRoutingMode = "off"
+)
+
+func (srm StickyRoutingMode) String() string {
+	return string(srm)
+}
+
+// StickyRoutingModeValidator is a validator for the "sticky_routing_mode" field enum values. It is called by the builders before save.
+func StickyRoutingModeValidator(srm StickyRoutingMode) error {
+	switch srm {
+	case StickyRoutingModeAuto, StickyRoutingModePassthrough, StickyRoutingModeOff:
+		return nil
+	default:
+		return fmt.Errorf("group: invalid enum value for sticky_routing_mode field: %q", srm)
+	}
+}
 
 // OrderOption defines the ordering options for the Group queries.
 type OrderOption func(*sql.Selector)
@@ -406,6 +437,11 @@ func ByRequirePrivacySet(opts ...sql.OrderTermOption) OrderOption {
 // ByDefaultMappedModel orders the results by the default_mapped_model field.
 func ByDefaultMappedModel(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldDefaultMappedModel, opts...).ToFunc()
+}
+
+// ByStickyRoutingMode orders the results by the sticky_routing_mode field.
+func ByStickyRoutingMode(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldStickyRoutingMode, opts...).ToFunc()
 }
 
 // ByRpmLimit orders the results by the rpm_limit field.

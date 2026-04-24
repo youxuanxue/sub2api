@@ -80,6 +80,11 @@ func tkOpenAICompatEmbeddingsHandler(h *handler.Handlers) gin.HandlerFunc {
 }
 
 // tkOpenAICompatImageGenerationsHandler routes POST /images/generations for OpenAI-compat platform groups only.
+//
+// Delegates to the upstream-shape Images() handler (added by upstream PR #1795 /
+// #1853 to handle both /v1/images/generations and /v1/images/edits via inbound
+// endpoint introspection); the TK companion only enforces the platform gate so
+// `newapi` groups also reach the handler.
 func tkOpenAICompatImageGenerationsHandler(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !isOpenAICompatPlatform(getGroupPlatform(c)) {
@@ -91,7 +96,24 @@ func tkOpenAICompatImageGenerationsHandler(h *handler.Handlers) gin.HandlerFunc 
 			})
 			return
 		}
-		h.OpenAIGateway.ImageGenerations(c)
+		h.OpenAIGateway.Images(c)
+	}
+}
+
+// tkOpenAICompatImageEditsHandler routes POST /images/edits for OpenAI-compat platform groups only.
+// Same Images() handler as ImageGenerations — the upstream handler dispatches by inbound endpoint.
+func tkOpenAICompatImageEditsHandler(h *handler.Handlers) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !isOpenAICompatPlatform(getGroupPlatform(c)) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": gin.H{
+					"type":    "invalid_request_error",
+					"message": "The images API is only available for OpenAI-compatible platform groups",
+				},
+			})
+			return
+		}
+		h.OpenAIGateway.Images(c)
 	}
 }
 

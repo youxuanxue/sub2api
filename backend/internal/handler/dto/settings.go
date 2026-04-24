@@ -133,6 +133,7 @@ type SystemSettings struct {
 
 	// 分组隔离
 	AllowUngroupedKeyScheduling bool `json:"allow_ungrouped_key_scheduling"`
+	BackendModeEnabled          bool `json:"backend_mode_enabled"`
 
 	// TokenKey
 	NewAPIBridgeEnabled bool `json:"newapi_bridge_enabled"`

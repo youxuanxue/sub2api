@@ -425,6 +425,20 @@ func (_c *GroupCreate) SetNillableMessagesDispatchModelConfig(v *domain.OpenAIMe
 	return _c
 }
 
+// SetStickyRoutingMode sets the "sticky_routing_mode" field.
+func (_c *GroupCreate) SetStickyRoutingMode(v group.StickyRoutingMode) *GroupCreate {
+	_c.mutation.SetStickyRoutingMode(v)
+	return _c
+}
+
+// SetNillableStickyRoutingMode sets the "sticky_routing_mode" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableStickyRoutingMode(v *group.StickyRoutingMode) *GroupCreate {
+	if v != nil {
+		_c.SetStickyRoutingMode(*v)
+	}
+	return _c
+}
+
 // SetRpmLimit sets the "rpm_limit" field.
 func (_c *GroupCreate) SetRpmLimit(v int) *GroupCreate {
 	_c.mutation.SetRpmLimit(v)
@@ -644,6 +658,10 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultMessagesDispatchModelConfig
 		_c.mutation.SetMessagesDispatchModelConfig(v)
 	}
+	if _, ok := _c.mutation.StickyRoutingMode(); !ok {
+		v := group.DefaultStickyRoutingMode
+		_c.mutation.SetStickyRoutingMode(v)
+	}
 	if _, ok := _c.mutation.RpmLimit(); !ok {
 		v := group.DefaultRpmLimit
 		_c.mutation.SetRpmLimit(v)
@@ -734,6 +752,14 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.MessagesDispatchModelConfig(); !ok {
 		return &ValidationError{Name: "messages_dispatch_model_config", err: errors.New(`ent: missing required field "Group.messages_dispatch_model_config"`)}
+	}
+	if _, ok := _c.mutation.StickyRoutingMode(); !ok {
+		return &ValidationError{Name: "sticky_routing_mode", err: errors.New(`ent: missing required field "Group.sticky_routing_mode"`)}
+	}
+	if v, ok := _c.mutation.StickyRoutingMode(); ok {
+		if err := group.StickyRoutingModeValidator(v); err != nil {
+			return &ValidationError{Name: "sticky_routing_mode", err: fmt.Errorf(`ent: validator failed for field "Group.sticky_routing_mode": %w`, err)}
+		}
 	}
 	if _, ok := _c.mutation.RpmLimit(); !ok {
 		return &ValidationError{Name: "rpm_limit", err: errors.New(`ent: missing required field "Group.rpm_limit"`)}
@@ -884,6 +910,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.MessagesDispatchModelConfig(); ok {
 		_spec.SetField(group.FieldMessagesDispatchModelConfig, field.TypeJSON, value)
 		_node.MessagesDispatchModelConfig = value
+	}
+	if value, ok := _c.mutation.StickyRoutingMode(); ok {
+		_spec.SetField(group.FieldStickyRoutingMode, field.TypeEnum, value)
+		_node.StickyRoutingMode = value
 	}
 	if value, ok := _c.mutation.RpmLimit(); ok {
 		_spec.SetField(group.FieldRpmLimit, field.TypeInt, value)
@@ -1525,6 +1555,18 @@ func (u *GroupUpsert) UpdateMessagesDispatchModelConfig() *GroupUpsert {
 	return u
 }
 
+// SetStickyRoutingMode sets the "sticky_routing_mode" field.
+func (u *GroupUpsert) SetStickyRoutingMode(v group.StickyRoutingMode) *GroupUpsert {
+	u.Set(group.FieldStickyRoutingMode, v)
+	return u
+}
+
+// UpdateStickyRoutingMode sets the "sticky_routing_mode" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateStickyRoutingMode() *GroupUpsert {
+	u.SetExcluded(group.FieldStickyRoutingMode)
+	return u
+}
+
 // SetRpmLimit sets the "rpm_limit" field.
 func (u *GroupUpsert) SetRpmLimit(v int) *GroupUpsert {
 	u.Set(group.FieldRpmLimit, v)
@@ -2145,6 +2187,20 @@ func (u *GroupUpsertOne) SetMessagesDispatchModelConfig(v domain.OpenAIMessagesD
 func (u *GroupUpsertOne) UpdateMessagesDispatchModelConfig() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateMessagesDispatchModelConfig()
+	})
+}
+
+// SetStickyRoutingMode sets the "sticky_routing_mode" field.
+func (u *GroupUpsertOne) SetStickyRoutingMode(v group.StickyRoutingMode) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetStickyRoutingMode(v)
+	})
+}
+
+// UpdateStickyRoutingMode sets the "sticky_routing_mode" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateStickyRoutingMode() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateStickyRoutingMode()
 	})
 }
 
@@ -2937,6 +2993,20 @@ func (u *GroupUpsertBulk) SetMessagesDispatchModelConfig(v domain.OpenAIMessages
 func (u *GroupUpsertBulk) UpdateMessagesDispatchModelConfig() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateMessagesDispatchModelConfig()
+	})
+}
+
+// SetStickyRoutingMode sets the "sticky_routing_mode" field.
+func (u *GroupUpsertBulk) SetStickyRoutingMode(v group.StickyRoutingMode) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetStickyRoutingMode(v)
+	})
+}
+
+// UpdateStickyRoutingMode sets the "sticky_routing_mode" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateStickyRoutingMode() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateStickyRoutingMode()
 	})
 }
 

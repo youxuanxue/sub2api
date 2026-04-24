@@ -389,6 +389,26 @@ func (_u *UserUpdate) AddTotalRecharged(v float64) *UserUpdate {
 	return _u
 }
 
+// SetOnboardingTourSeenAt sets the "onboarding_tour_seen_at" field.
+func (_u *UserUpdate) SetOnboardingTourSeenAt(v time.Time) *UserUpdate {
+	_u.mutation.SetOnboardingTourSeenAt(v)
+	return _u
+}
+
+// SetNillableOnboardingTourSeenAt sets the "onboarding_tour_seen_at" field if the given value is not nil.
+func (_u *UserUpdate) SetNillableOnboardingTourSeenAt(v *time.Time) *UserUpdate {
+	if v != nil {
+		_u.SetOnboardingTourSeenAt(*v)
+	}
+	return _u
+}
+
+// ClearOnboardingTourSeenAt clears the value of the "onboarding_tour_seen_at" field.
+func (_u *UserUpdate) ClearOnboardingTourSeenAt() *UserUpdate {
+	_u.mutation.ClearOnboardingTourSeenAt()
+	return _u
+}
+
 // SetRpmLimit sets the "rpm_limit" field.
 func (_u *UserUpdate) SetRpmLimit(v int) *UserUpdate {
 	_u.mutation.ResetRpmLimit()
@@ -1028,6 +1048,12 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.AddedTotalRecharged(); ok {
 		_spec.AddField(user.FieldTotalRecharged, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.OnboardingTourSeenAt(); ok {
+		_spec.SetField(user.FieldOnboardingTourSeenAt, field.TypeTime, value)
+	}
+	if _u.mutation.OnboardingTourSeenAtCleared() {
+		_spec.ClearField(user.FieldOnboardingTourSeenAt, field.TypeTime)
 	}
 	if value, ok := _u.mutation.RpmLimit(); ok {
 		_spec.SetField(user.FieldRpmLimit, field.TypeInt, value)
@@ -1957,6 +1983,26 @@ func (_u *UserUpdateOne) AddTotalRecharged(v float64) *UserUpdateOne {
 	return _u
 }
 
+// SetOnboardingTourSeenAt sets the "onboarding_tour_seen_at" field.
+func (_u *UserUpdateOne) SetOnboardingTourSeenAt(v time.Time) *UserUpdateOne {
+	_u.mutation.SetOnboardingTourSeenAt(v)
+	return _u
+}
+
+// SetNillableOnboardingTourSeenAt sets the "onboarding_tour_seen_at" field if the given value is not nil.
+func (_u *UserUpdateOne) SetNillableOnboardingTourSeenAt(v *time.Time) *UserUpdateOne {
+	if v != nil {
+		_u.SetOnboardingTourSeenAt(*v)
+	}
+	return _u
+}
+
+// ClearOnboardingTourSeenAt clears the value of the "onboarding_tour_seen_at" field.
+func (_u *UserUpdateOne) ClearOnboardingTourSeenAt() *UserUpdateOne {
+	_u.mutation.ClearOnboardingTourSeenAt()
+	return _u
+}
+
 // SetRpmLimit sets the "rpm_limit" field.
 func (_u *UserUpdateOne) SetRpmLimit(v int) *UserUpdateOne {
 	_u.mutation.ResetRpmLimit()
@@ -2626,6 +2672,12 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 	}
 	if value, ok := _u.mutation.AddedTotalRecharged(); ok {
 		_spec.AddField(user.FieldTotalRecharged, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.OnboardingTourSeenAt(); ok {
+		_spec.SetField(user.FieldOnboardingTourSeenAt, field.TypeTime, value)
+	}
+	if _u.mutation.OnboardingTourSeenAtCleared() {
+		_spec.ClearField(user.FieldOnboardingTourSeenAt, field.TypeTime)
 	}
 	if value, ok := _u.mutation.RpmLimit(); ok {
 		_spec.SetField(user.FieldRpmLimit, field.TypeInt, value)

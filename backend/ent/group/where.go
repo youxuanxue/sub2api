@@ -1325,6 +1325,26 @@ func DefaultMappedModelContainsFold(v string) predicate.Group {
 	return predicate.Group(sql.FieldContainsFold(FieldDefaultMappedModel, v))
 }
 
+// StickyRoutingModeEQ applies the EQ predicate on the "sticky_routing_mode" field.
+func StickyRoutingModeEQ(v StickyRoutingMode) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldStickyRoutingMode, v))
+}
+
+// StickyRoutingModeNEQ applies the NEQ predicate on the "sticky_routing_mode" field.
+func StickyRoutingModeNEQ(v StickyRoutingMode) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldStickyRoutingMode, v))
+}
+
+// StickyRoutingModeIn applies the In predicate on the "sticky_routing_mode" field.
+func StickyRoutingModeIn(vs ...StickyRoutingMode) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldStickyRoutingMode, vs...))
+}
+
+// StickyRoutingModeNotIn applies the NotIn predicate on the "sticky_routing_mode" field.
+func StickyRoutingModeNotIn(vs ...StickyRoutingMode) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldStickyRoutingMode, vs...))
+}
+
 // RpmLimitEQ applies the EQ predicate on the "rpm_limit" field.
 func RpmLimitEQ(v int) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldRpmLimit, v))
