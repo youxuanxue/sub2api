@@ -2500,6 +2500,20 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   editApiKey.value = ''
 }
 
+// NOTE: declare loadTLSProfiles BEFORE the watch that references it.
+// `watch(..., { immediate: true })` triggers synchronously during setup() so
+// the callback must not capture a Temporal Dead Zone identifier. Reordering
+// is the canonical fix (Vue docs §reactivity advanced); the alternative
+// (function declaration hoisting) doesn't apply to arrow-assigned const.
+const loadTLSProfiles = async () => {
+  try {
+    const profiles = await adminAPI.tlsFingerprintProfiles.list()
+    tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name }))
+  } catch {
+    tlsFingerprintProfiles.value = []
+  }
+}
+
 watch(
   [() => props.show, () => props.account],
   ([show, newAccount], [wasShow, previousAccount]) => {
@@ -2513,15 +2527,6 @@ watch(
   },
   { immediate: true }
 )
-
-const loadTLSProfiles = async () => {
-  try {
-    const profiles = await adminAPI.tlsFingerprintProfiles.list()
-    tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name }))
-  } catch {
-    tlsFingerprintProfiles.value = []
-  }
-}
 
 // Model mapping helpers
 const addModelMapping = () => {

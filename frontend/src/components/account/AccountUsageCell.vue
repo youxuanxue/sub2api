@@ -450,7 +450,10 @@ import UsageProgressBar from './UsageProgressBar.vue'
 import AccountQuotaInfo from './AccountQuotaInfo.vue'
 
 // Module-level cache shared across all AccountUsageCell instances
-const _usageCache = new Map<number, { data: AccountUsageInfo; ts: number }>()
+// Cache keyed by `${id}|${updated_at}` so the entry is automatically scoped to
+// a particular account version; backend mutations bump updated_at and the next
+// loadUsage() falls through to a fresh fetch instead of serving stale data.
+const _usageCache = new Map<string, { data: AccountUsageInfo; ts: number }>()
 const USAGE_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
 
 const props = withDefaults(
@@ -952,9 +955,13 @@ const isAnthropicOAuthOrSetupToken = computed(() => {
 const loadUsage = async (options?: { source?: 'passive' | 'active'; bypassCache?: boolean }) => {
   if (!shouldFetchUsage.value) return
 
-  // Check cache
+  // Cache key includes updated_at so that any account-row mutation
+  // (backend writes last_used_at on every call → updated_at moves → cache busts).
+  // Pre-merge cache-by-id alone served stale usage when the row changed within
+  // TTL and was the root cause of the AccountUsageCell setProps tests timing out.
+  const cacheKey = `${props.account.id}|${props.account.updated_at ?? ''}`
   if (!options?.bypassCache) {
-    const cached = _usageCache.get(props.account.id)
+    const cached = _usageCache.get(cacheKey)
     if (cached && Date.now() - cached.ts < USAGE_CACHE_TTL) {
       usageInfo.value = cached.data
       loading.value = false
@@ -970,7 +977,7 @@ const loadUsage = async (options?: { source?: 'passive' | 'active'; bypassCache?
     const result = await enqueueUsageRequest(props.account, fetchFn)
     if (!unmounted.value) {
       usageInfo.value = result
-      _usageCache.set(props.account.id, { data: result, ts: Date.now() })
+      _usageCache.set(cacheKey, { data: result, ts: Date.now() })
     }
   } catch (e: any) {
     if (!unmounted.value) {
@@ -1163,7 +1170,13 @@ watch(
     if (!shouldFetchUsage.value) return
 
     const source = isAnthropicOAuthOrSetupToken.value ? 'passive' : undefined
-    _usageCache.delete(props.account.id)
+    // Remove all cached versions of this account (any updated_at suffix)
+    // so stale entries from prior versions don't shadow the bypassCache fetch.
+    for (const key of Array.from(_usageCache.keys())) {
+      if (key === String(props.account.id) || key.startsWith(`${props.account.id}|`)) {
+        _usageCache.delete(key)
+      }
+    }
     loadUsage({ source, bypassCache: true }).catch((e) => {
       console.error('Failed to refresh usage after manual refresh:', e)
     })

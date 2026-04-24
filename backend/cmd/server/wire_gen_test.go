@@ -67,6 +67,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		emailQueueSvc,
 		billingCacheSvc,
 		&service.UsageRecordWorkerPool{},
+		nil, // qaCapture (qa.Service) — added by upstream channel-insights merge
 		&service.SubscriptionService{},
 		oauthSvc,
 		openAIOAuthSvc,
@@ -77,6 +78,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil, // backupSvc
 		nil, // paymentOrderExpiry
 		nil, // channelMonitorRunner
+		service.TKAuthServiceColdStartReady{}, // TK cold-start sentinel — wire force-evaluates
 	)
 
 	require.NotPanics(t, func() {

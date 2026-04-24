@@ -26,6 +26,14 @@ vi.mock('@/api/admin', () => ({
     accounts: {
       update: updateAccountMock,
       checkMixedChannelRisk: checkMixedChannelRiskMock
+    },
+    settings: {
+      // Stubbed because EditAccountModal calls these at setup():
+      //  - getWebSearchEmulationConfig populates webSearchGlobalEnabled
+      //  - getSettings populates useQuotaNotifyState's globalEnabled
+      // Real values irrelevant for the rehydration assertion in this spec.
+      getWebSearchEmulationConfig: vi.fn().mockResolvedValue({ enabled: false, providers: [] }),
+      getSettings: vi.fn().mockResolvedValue({ account_quota_notify_enabled: false })
     }
   }
 }))

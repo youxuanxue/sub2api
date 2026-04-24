@@ -596,7 +596,12 @@ const formatNumber = (value: number): string => {
   return value.toLocaleString()
 }
 
-const formatCost = (value: number): string => {
+const formatCost = (value: number | null | undefined): string => {
+  // Guard against missing fields (e.g. stats payloads where today_account_cost
+  // is omitted before backfill). See ModelDistributionChart.formatCost.
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return '0.0000'
+  }
   if (value >= 1000) {
     return (value / 1000).toFixed(2) + 'K'
   } else if (value >= 1) {
