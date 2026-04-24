@@ -26,7 +26,7 @@ func RegisterUserRoutes(
 			user.PUT("/password", h.User.ChangePassword)
 			user.PUT("", h.User.UpdateProfile)
 
-			registerTKUserRoutes(user, h)
+			registerTKUserRoutes(authenticated, user, h)
 
 			// 通知邮箱管理
 			notifyEmail := user.Group("/notify-email")
@@ -101,10 +101,5 @@ func RegisterUserRoutes(
 			subscriptions.GET("/progress", h.Subscription.GetProgress)
 			subscriptions.GET("/summary", h.Subscription.GetSummary)
 		}
-
-		// TK: user-facing QA self-service (issue #59 / docs/approved/ops_xx.md §2).
-		// Mounted via companion file to keep the upstream-shaped user.go thin
-		// per CLAUDE.md §5 (prefer one helper call over inline route blocks).
-		registerTKUsersMeRoutes(authenticated, h)
 	}
 }

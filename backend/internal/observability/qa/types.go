@@ -43,7 +43,6 @@ type CaptureInput struct {
 }
 
 type ExportResult struct {
-	Key         string    `json:"key"`
 	DownloadURL string    `json:"download_url"`
 	ExpiresAt   time.Time `json:"expires_at"`
 	RecordCount int       `json:"record_count"`

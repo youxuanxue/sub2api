@@ -78,7 +78,7 @@ func newQAExportTestService(t *testing.T) (*Service, *dbent.Client, *memBlobStor
 	t.Cleanup(func() { _ = client.Close() })
 
 	store := newMemBlobStore()
-	svc := NewServiceForTest(client, store, 16*1024, 7)
+	svc := NewServiceForTest(client, store)
 	return svc, client, store
 }
 

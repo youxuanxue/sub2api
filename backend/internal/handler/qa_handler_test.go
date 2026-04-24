@@ -74,7 +74,7 @@ func newQAHandlerTestEnv(t *testing.T, withAuth bool, userID int64) (*gin.Engine
 	// NewService — that constructor expects a real config + S3 driver
 	// or local-fs path. The unexported zero-value Service with a stub
 	// blob store is the cheapest possible fixture.
-	svc := qa.NewServiceForTest(client, &qaMemBlobStore{}, 16*1024, 7)
+	svc := qa.NewServiceForTest(client, &qaMemBlobStore{})
 	h := NewQAHandler(svc)
 
 	r := gin.New()

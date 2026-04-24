@@ -2,6 +2,7 @@ package qa
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -36,17 +37,15 @@ type Service struct {
 	dlqDir        string
 }
 
-// NewServiceForTest constructs a minimal Service usable in unit tests.
-// Production callers MUST use NewService — this constructor bypasses
-// config validation, the worker pool, and the DLQ directory because
-// none of them are exercised by export-path tests.
-func NewServiceForTest(client *ent.Client, store BlobStore, bodyMaxBytes, retentionDays int) *Service {
+// NewServiceForTest constructs a minimal Service usable in cross-package
+// unit tests (the export-path tests in handler/ can't reach unexported
+// fields). Production callers MUST use NewService — this bypasses the
+// worker pool, DLQ directory, and capture-side body limits.
+func NewServiceForTest(client *ent.Client, store BlobStore) *Service {
 	return &Service{
-		client:        client,
-		store:         store,
-		bodyMaxBytes:  bodyMaxBytes,
-		retentionDays: retentionDays,
-		cfg:           config.QACaptureConfig{Enabled: true},
+		client: client,
+		store:  store,
+		cfg:    config.QACaptureConfig{Enabled: true},
 	}
 }
 
@@ -257,6 +256,11 @@ func (s *Service) persistCapture(ctx context.Context, input CaptureInput) error 
 	return err
 }
 
+// presignedURLTTL is how long the export download URL stays valid.
+// Picked to comfortably cover the M0 retry/backoff loop without leaving
+// the link harvestable for days.
+const presignedURLTTL = 24 * time.Hour
+
 // ExportUserData is the canonical export path for issue #59.
 // It enforces row-level ownership (`WHERE user_id = ?`) and additionally
 // filters by synth_session_id / synth_role when set, so the M0 dual-CC
@@ -264,14 +268,12 @@ func (s *Service) persistCapture(ctx context.Context, input CaptureInput) error 
 // traffic. When no time bounds AND no synth filter are supplied the
 // caller would get every record they own; the HTTP handler MUST therefore
 // default to a bounded window — see handler.QAHandler.ExportSelf.
+//
+// Caller MUST gate on Service.Enabled() before invoking — this method
+// does not re-check (one canonical guard, owned by the caller).
 func (s *Service) ExportUserData(ctx context.Context, userID int64, filter ExportFilter) (*ExportResult, error) {
-	if s == nil || s.client == nil || s.store == nil {
-		return nil, fmt.Errorf("qa export not available: service disabled")
-	}
-
 	predicates := []predicate.QARecord{qarecord.UserIDEQ(userID)}
-	synthSession := strings.TrimSpace(filter.SynthSessionID)
-	if synthSession != "" {
+	if synthSession := strings.TrimSpace(filter.SynthSessionID); synthSession != "" {
 		predicates = append(predicates, qarecord.SynthSessionIDEQ(synthSession))
 	} else {
 		// Time bounds only apply when not narrowing by an explicit session;
@@ -295,16 +297,8 @@ func (s *Service) ExportUserData(ctx context.Context, userID int64, filter Expor
 		return nil, err
 	}
 
-	key := fmt.Sprintf("exports/%d/%d.zip", userID, time.Now().UnixNano())
-	tmpFile, err := os.CreateTemp("", "qa-export-*.zip")
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = os.Remove(tmpFile.Name())
-	}()
-
-	zipWriter := zip.NewWriter(tmpFile)
+	var buf bytes.Buffer
+	zipWriter := zip.NewWriter(&buf)
 	indexWriter, err := zipWriter.Create("qa_records.jsonl")
 	if err != nil {
 		return nil, err
@@ -321,25 +315,19 @@ func (s *Service) ExportUserData(ctx context.Context, userID int64, filter Expor
 	if err := zipWriter.Close(); err != nil {
 		return nil, err
 	}
-	if _, err := tmpFile.Seek(0, 0); err != nil {
+
+	key := fmt.Sprintf("exports/%d/%d.zip", userID, time.Now().UnixNano())
+	signedAt := time.Now().UTC()
+	if _, err := s.store.Put(ctx, key, buf.Bytes(), "application/zip"); err != nil {
 		return nil, err
 	}
-	body, err := os.ReadFile(tmpFile.Name())
-	if err != nil {
-		return nil, err
-	}
-	if _, err := s.store.Put(ctx, key, body, "application/zip"); err != nil {
-		return nil, err
-	}
-	expiry := 24 * time.Hour
-	url, err := s.store.PresignURL(ctx, key, expiry)
+	url, err := s.store.PresignURL(ctx, key, presignedURLTTL)
 	if err != nil {
 		return nil, err
 	}
 	return &ExportResult{
-		Key:         key,
 		DownloadURL: url,
-		ExpiresAt:   time.Now().UTC().Add(expiry),
+		ExpiresAt:   signedAt.Add(presignedURLTTL),
 		RecordCount: len(records),
 	}, nil
 }
