@@ -25,21 +25,28 @@ import (
 
 // TaskSubmitOutcome is the result of a video task submission via the New API
 // task adaptor. The bridge does NOT touch new-api's GORM model.Task table —
-// upstream task ID, model names, and the **routing snapshot** (channel_type
-// + base_url + api_key as resolved by the bridge for this submit) are
-// returned to the caller. The routing snapshot lets the caller persist
-// what was actually dispatched to (which may differ from a future
-// re-resolution of the same Account if credentials rotate before the user
-// polls).
+// it returns the upstream task ID + model names + the routing snapshot
+// (channel_type + base_url + api_key as resolved by the bridge for this
+// submit). The routing snapshot lets the caller persist what was actually
+// dispatched to (which may differ from a future re-resolution of the same
+// Account if credentials rotate before the user polls). Duration is exposed
+// so the handler can record latency in usage_logs without timing twice.
+//
+// IMPORTANT response-write ordering: new-api task adaptors (doubao, jimeng,
+// vidu, …) write the OpenAI-Video-shaped JSON response to gin.Context
+// inside DoResponse, embedding `relayInfo.PublicTaskID` as the task id.
+// The handler MUST therefore (a) pre-generate the public task id and pass
+// it into PublicTaskID below so the adaptor stamps it on the wire, and
+// (b) NOT call c.JSON again afterwards — the response is already on
+// the writer when DispatchVideoSubmit returns.
 type TaskSubmitOutcome struct {
+	PublicTaskID   string
 	UpstreamTaskID string
 	UpstreamModel  string
 	OriginModel    string
 	ChannelType    int
 	BaseURL        string
 	APIKey         string
-	Action         string
-	RawResponse    []byte
 	Duration       time.Duration
 }
 
@@ -75,7 +82,16 @@ type VideoFetchOutcome struct {
 //   - PreConsumeBilling / SettleBilling (TokenKey owns billing separately)
 //   - model.GenerateTaskID / model.Task.Insert (TokenKey owns the registry)
 //   - ResolveOriginTask (remix not yet supported in TK)
-func DispatchVideoSubmit(_ context.Context, c *gin.Context, in ChannelContextInput, body []byte) (*TaskSubmitOutcome, *types.NewAPIError) {
+//
+// The adaptor's DoResponse writes the OpenAI-Video JSON to c with
+// `relayInfo.PublicTaskID` as the task id; the caller MUST pass a
+// pre-generated, registry-stable id via publicTaskID so that response
+// matches the registry record. The caller MUST NOT write c.JSON again
+// after this returns — the response body has already been sent.
+func DispatchVideoSubmit(_ context.Context, c *gin.Context, in ChannelContextInput, publicTaskID string, body []byte) (*TaskSubmitOutcome, *types.NewAPIError) {
+	if strings.TrimSpace(publicTaskID) == "" {
+		return nil, types.NewError(errors.New("public task id is required"), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
 	ensureNewAPIDeps()
 	if err := installBodyStorage(c, body); err != nil {
 		return nil, types.NewError(err, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
@@ -117,6 +133,10 @@ func DispatchVideoSubmit(_ context.Context, c *gin.Context, in ChannelContextInp
 	// read or written. Skipping it caused a nil pointer deref in early dev.
 	relayInfo.InitChannelMeta(c)
 	relayInfo.UpstreamModelName = req.Model
+	// Seed the public task id so adaptor.DoResponse stamps it on the wire.
+	// Without this every adaptor would write an empty / random id, making
+	// the GET /v1/videos/:task_id response inconsistent with the POST.
+	relayInfo.PublicTaskID = publicTaskID
 	adaptor.Init(relayInfo)
 
 	if taskErr := adaptor.ValidateRequestAndSetAction(c, relayInfo); taskErr != nil {
@@ -159,15 +179,18 @@ func DispatchVideoSubmit(_ context.Context, c *gin.Context, in ChannelContextInp
 	// UpstreamModelName was just set above to req.Model on the freshly
 	// initialised ChannelMeta; an adaptor that legitimately rewrites it
 	// (model_mapping) updates the same field in place. Direct read.
+	// taskData (raw upstream response) is intentionally discarded — the
+	// adaptor's DoResponse already wrote the OpenAI-Video-shaped JSON
+	// straight to the gin context for the synchronous submit response.
+	_ = taskData
 	return &TaskSubmitOutcome{
+		PublicTaskID:   publicTaskID,
 		UpstreamTaskID: upstreamTaskID,
 		UpstreamModel:  relayInfo.UpstreamModelName,
 		OriginModel:    req.Model,
 		ChannelType:    in.ChannelType,
 		BaseURL:        in.BaseURL,
 		APIKey:         in.APIKey,
-		Action:         relayInfo.Action,
-		RawResponse:    taskData,
 		Duration:       dur,
 	}, nil
 }

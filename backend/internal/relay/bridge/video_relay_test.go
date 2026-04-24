@@ -63,7 +63,8 @@ func TestDispatchVideoSubmit_VolcEngine_OK(t *testing.T) {
 		"prompt": "a cat playing piano",
 	})
 
-	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
 	req := httptest.NewRequest(http.MethodPost, "/v1/video/generations", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	c.Request = req
@@ -75,12 +76,16 @@ func TestDispatchVideoSubmit_VolcEngine_OK(t *testing.T) {
 		APIKey:      "test-volc-key",
 		UserID:      7,
 	}
-	out, apiErr := DispatchVideoSubmit(context.Background(), c, in, body)
+	const publicTaskID = "vt_test_123"
+	out, apiErr := DispatchVideoSubmit(context.Background(), c, in, publicTaskID, body)
 	if apiErr != nil {
 		t.Fatalf("DispatchVideoSubmit returned error: %v", apiErr)
 	}
 	if out == nil {
 		t.Fatal("expected outcome, got nil")
+	}
+	if out.PublicTaskID != publicTaskID {
+		t.Fatalf("public task id not echoed: got %q want %q", out.PublicTaskID, publicTaskID)
 	}
 	if out.UpstreamTaskID != "cgt-volc-test-123" {
 		t.Fatalf("upstream task id mismatch: %q", out.UpstreamTaskID)
@@ -93,6 +98,31 @@ func TestDispatchVideoSubmit_VolcEngine_OK(t *testing.T) {
 	}
 	if !bytes.Contains(upstream.lastSubmitBody, []byte("a cat playing piano")) {
 		t.Fatalf("upstream did not see the prompt; body=%q", upstream.lastSubmitBody)
+	}
+	// The new-api task adaptor's DoResponse writes the OpenAI-Video JSON
+	// to the gin writer with relayInfo.PublicTaskID stamped as the id.
+	// This asserts the bridge passes our publicTaskID through correctly
+	// so the handler does NOT need to write a second c.JSON afterwards.
+	if !bytes.Contains(w.Body.Bytes(), []byte(publicTaskID)) {
+		t.Fatalf("response body missing publicTaskID stamp; body=%q", w.Body.Bytes())
+	}
+	if bytes.Contains(w.Body.Bytes(), []byte("cgt-volc-test-123")) {
+		t.Fatalf("response body MUST NOT leak upstream task id; body=%q", w.Body.Bytes())
+	}
+}
+
+// TestDispatchVideoSubmit_RejectsEmptyPublicTaskID locks in the design
+// invariant that the caller must pre-generate the public task id; without
+// it the adaptor would stamp an empty string into the response body and
+// the GET /v1/videos/:task_id alias would have no key to look up.
+func TestDispatchVideoSubmit_RejectsEmptyPublicTaskID(t *testing.T) {
+	body := mustJSON(t, map[string]any{"model": "x", "prompt": "x"})
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/video/generations", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	in := ChannelContextInput{ChannelType: newapiconstant.ChannelTypeVolcEngine, BaseURL: "http://nowhere", APIKey: "k"}
+	if _, err := DispatchVideoSubmit(context.Background(), c, in, "  ", body); err == nil {
+		t.Fatal("expected error for empty public_task_id, got nil")
 	}
 }
 
@@ -110,7 +140,7 @@ func TestDispatchVideoSubmit_RejectsUnknownChannelType(t *testing.T) {
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	in := ChannelContextInput{ChannelType: 9999, BaseURL: "http://x", APIKey: "k"}
-	if _, err := DispatchVideoSubmit(context.Background(), c, in, body); err == nil {
+	if _, err := DispatchVideoSubmit(context.Background(), c, in, "vt_x", body); err == nil {
 		t.Fatal("expected error for unsupported channel_type, got nil")
 	}
 }
@@ -124,7 +154,7 @@ func TestDispatchVideoSubmit_MissingModel(t *testing.T) {
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	in := ChannelContextInput{ChannelType: newapiconstant.ChannelTypeVolcEngine, BaseURL: "http://nowhere", APIKey: "k"}
-	if _, err := DispatchVideoSubmit(context.Background(), c, in, body); err == nil {
+	if _, err := DispatchVideoSubmit(context.Background(), c, in, "vt_x", body); err == nil {
 		t.Fatal("expected error for missing model, got nil")
 	}
 }

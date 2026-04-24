@@ -60,7 +60,6 @@ type VideoTaskRecord struct {
 	APIKey         string    `json:"api_key"`
 	OriginModel    string    `json:"origin_model"`
 	UpstreamModel  string    `json:"upstream_model"`
-	Action         string    `json:"action"`
 	CreatedAt      time.Time `json:"created_at"`
 }
 

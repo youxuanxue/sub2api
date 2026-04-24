@@ -143,8 +143,15 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 	service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 	forwardStart := time.Now()
 
+	// Generate the public task id BEFORE dispatch so the bridge can stamp it
+	// onto the wire response (the new-api task adaptor's DoResponse writes
+	// the OpenAI-Video JSON to gin.Context inside the bridge call). The
+	// handler does NOT write a second JSON afterwards — that would corrupt
+	// the response stream.
+	publicTaskID := generateVideoTaskID()
+
 	TkSetBridgeGinAuth(c, subject.UserID, groupName)
-	outcome, err := h.gatewayService.ForwardAsVideoSubmitDispatched(c.Request.Context(), c, account, body)
+	outcome, err := h.gatewayService.ForwardAsVideoSubmitDispatched(c.Request.Context(), c, account, publicTaskID, body)
 	forwardDurationMs := time.Since(forwardStart).Milliseconds()
 	service.SetOpsLatencyMs(c, service.OpsResponseLatencyMsKey, forwardDurationMs)
 
@@ -157,7 +164,6 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 		return
 	}
 
-	publicTaskID := generateVideoTaskID()
 	groupID := int64(0)
 	if apiKey.GroupID != nil {
 		groupID = *apiKey.GroupID
@@ -183,13 +189,18 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 		APIKey:        outcome.APIKey,
 		OriginModel:   outcome.OriginModel,
 		UpstreamModel: outcome.UpstreamModel,
-		Action:        outcome.Action,
 		CreatedAt:     time.Now(),
 	}
 	if err := h.videoTaskRegistry.Save(c.Request.Context(), rec); err != nil {
-		reqLog.Warn("openai_video_submit.registry_save_failed", zap.Error(err))
-		h.errorResponse(c, http.StatusInternalServerError, "api_error", "Failed to persist video task")
-		return
+		// At this point the bridge has already written the success body
+		// (with publicTaskID) to the client. Failing the registry save
+		// would orphan the upstream task — log and continue so the user
+		// at least gets a usable task_id back.
+		reqLog.Error("openai_video_submit.registry_save_failed",
+			zap.String("public_task_id", publicTaskID),
+			zap.String("upstream_task_id", outcome.UpstreamTaskID),
+			zap.Error(err),
+		)
 	}
 
 	openAIRecordAffinitySuccess(c, account.ID)
@@ -224,15 +235,8 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 			).Error("openai_video_submit.record_usage_failed", zap.Error(err))
 		}
 	})
-
-	c.JSON(http.StatusOK, gin.H{
-		"id":         publicTaskID,
-		"task_id":    publicTaskID,
-		"object":     "video.task",
-		"created_at": rec.CreatedAt.Unix(),
-		"model":      outcome.OriginModel,
-		"status":     "queued",
-	})
+	// NOTE: no c.JSON here — the bridge already wrote the OpenAI-Video
+	// success body (with publicTaskID stamped) inside DispatchVideoSubmit.
 }
 
 // VideoFetch handles GET /v1/video/generations/:task_id and the OpenAI-compat
@@ -268,14 +272,13 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 		return
 	}
 
+	// Both lookup-miss and cross-user-mismatch surface as 404 (not 403)
+	// so we never confirm a task_id's existence to a non-owner. Merging
+	// the two branches keeps the response shape identical from a probe's
+	// perspective — the only signal a non-owner can extract is "doesn't
+	// exist for me", which is also what an owner sees post-expiry.
 	rec, ok := h.videoTaskRegistry.Lookup(c.Request.Context(), publicTaskID)
-	if !ok {
-		h.errorResponse(c, http.StatusNotFound, "not_found_error", "video task not found or expired")
-		return
-	}
-	if rec.UserID != subject.UserID {
-		// 404 (not 403) so we don't confirm the task_id exists for another
-		// user. The record is intact; only this user lost the lookup.
+	if !ok || rec.UserID != subject.UserID {
 		h.errorResponse(c, http.StatusNotFound, "not_found_error", "video task not found or expired")
 		return
 	}

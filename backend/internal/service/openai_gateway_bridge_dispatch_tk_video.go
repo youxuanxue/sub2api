@@ -60,10 +60,15 @@ func errBridgeVideoUnsupportedChannel(channelType int) *newapitypes.NewAPIError 
 // path). Therefore we hard-fail when the account is not bridge-eligible —
 // silently routing to a non-existent native path would surface as a
 // confusing 5xx.
+//
+// publicTaskID MUST be the registry-stable id the caller will persist; the
+// bridge stamps it onto the wire response so the synchronous POST body
+// matches the registry record (and the GET /v1/videos/:task_id alias).
 func (s *OpenAIGatewayService) ForwardAsVideoSubmitDispatched(
 	ctx context.Context,
 	c *gin.Context,
 	account *Account,
+	publicTaskID string,
 	body []byte,
 ) (*bridge.TaskSubmitOutcome, error) {
 	if !s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointVideoSubmit) {
@@ -80,7 +85,7 @@ func (s *OpenAIGatewayService) ForwardAsVideoSubmitDispatched(
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
 	}
 
-	out, apiErr := bridge.DispatchVideoSubmit(ctx, c, in, body)
+	out, apiErr := bridge.DispatchVideoSubmit(ctx, c, in, publicTaskID, body)
 	if apiErr != nil {
 		recordBridgeDispatchError()
 		logger.L().Info("openai_gateway.newapi_bridge_dispatch",
