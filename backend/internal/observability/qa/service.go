@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/qarecord"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -33,6 +34,20 @@ type Service struct {
 	bodyMaxBytes  int
 	retentionDays int
 	dlqDir        string
+}
+
+// NewServiceForTest constructs a minimal Service usable in unit tests.
+// Production callers MUST use NewService — this constructor bypasses
+// config validation, the worker pool, and the DLQ directory because
+// none of them are exercised by export-path tests.
+func NewServiceForTest(client *ent.Client, store BlobStore, bodyMaxBytes, retentionDays int) *Service {
+	return &Service{
+		client:        client,
+		store:         store,
+		bodyMaxBytes:  bodyMaxBytes,
+		retentionDays: retentionDays,
+		cfg:           config.QACaptureConfig{Enabled: true},
+	}
 }
 
 func NewService(cfg *config.Config, client *ent.Client) (*Service, error) {
@@ -153,26 +168,32 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 		durationMs = time.Since(tee.startedAt).Milliseconds()
 	}
 
+	synthSession, synthRole, synthLevel, synthPipeline := captureSynthHeaders(c)
 	input := CaptureInput{
-		RequestID:         strings.TrimSpace(requestID),
-		UserID:            apiKey.UserID,
-		APIKeyID:          apiKey.ID,
-		AccountID:         accountID,
-		Platform:          strings.TrimSpace(platform),
-		RequestedModel:    captureRequestedModel(requestBody),
-		InboundEndpoint:   captureInboundEndpoint(c),
-		StatusCode:        status,
-		DurationMs:        durationMs,
-		FirstTokenMs:      firstTokenMs,
-		Stream:            captureStreamFlag(c, streamChunks),
-		RequestBody:       requestBody,
-		ResponseBody:      responseBody,
-		ResponseHeaders:   captureResponseHeaders(c),
-		StreamChunks:      streamChunks,
-		ToolCallsPresent:  captureToolCallsPresent(requestBody),
-		MultimodalPresent: captureMultimodalPresent(requestBody),
-		Tags:              captureTags(requestBody, responseBody, status, responseTruncated),
-		CreatedAt:         time.Now().UTC(),
+		RequestID:          strings.TrimSpace(requestID),
+		UserID:             apiKey.UserID,
+		APIKeyID:           apiKey.ID,
+		AccountID:          accountID,
+		Platform:           strings.TrimSpace(platform),
+		RequestedModel:     captureRequestedModel(requestBody),
+		InboundEndpoint:    captureInboundEndpoint(c),
+		StatusCode:         status,
+		DurationMs:         durationMs,
+		FirstTokenMs:       firstTokenMs,
+		Stream:             captureStreamFlag(c, streamChunks),
+		RequestBody:        requestBody,
+		ResponseBody:       responseBody,
+		ResponseHeaders:    captureResponseHeaders(c),
+		StreamChunks:       streamChunks,
+		ToolCallsPresent:   captureToolCallsPresent(requestBody),
+		MultimodalPresent:  captureMultimodalPresent(requestBody),
+		Tags:               captureTags(requestBody, responseBody, status, responseTruncated),
+		CreatedAt:          time.Now().UTC(),
+		SynthSessionID:     synthSession,
+		SynthRole:          synthRole,
+		SynthEngineerLevel: synthLevel,
+		SynthPipeline:      synthPipeline,
+		DialogSynth:        synthSession != "" || synthPipeline != "",
 	}
 	s.Submit(input)
 }
@@ -221,17 +242,62 @@ func (s *Service) persistCapture(ctx context.Context, input CaptureInput) error 
 	if input.FirstTokenMs != nil {
 		create = create.SetFirstTokenMs(*input.FirstTokenMs)
 	}
+	if v := strings.TrimSpace(input.SynthSessionID); v != "" {
+		create = create.SetSynthSessionID(v)
+	}
+	if v := strings.TrimSpace(input.SynthRole); v != "" {
+		create = create.SetSynthRole(v)
+	}
+	if v := strings.TrimSpace(input.SynthEngineerLevel); v != "" {
+		create = create.SetSynthEngineerLevel(v)
+	}
+	if input.DialogSynth {
+		create = create.SetDialogSynth(true)
+	}
 	_, err = create.Save(ctx)
 	return err
 }
 
+// ExportUserData exports the qa_records owned by userID inside [since, until]
+// (inclusive). Kept for backward compatibility with the GDPR/data-export
+// admin path; new callers should prefer ExportUserDataWithFilter.
 func (s *Service) ExportUserData(ctx context.Context, userID int64, since, until time.Time) (*ExportResult, error) {
+	return s.ExportUserDataWithFilter(ctx, userID, ExportFilter{Since: since, Until: until})
+}
+
+// ExportUserDataWithFilter is the canonical export path for issue #59.
+// It enforces row-level ownership (`WHERE user_id = ?`) and additionally
+// filters by synth_session_id / synth_role when set, so the M0 dual-CC
+// pipeline can isolate one ~30s session out of densely interleaved
+// traffic. When no time bounds AND no synth filter are supplied the
+// caller would get every record they own, which is intentional for
+// GDPR-style "give me all my data" requests but the HTTP handler MUST
+// default to a bounded window — see handler.QAHandler.ExportSelf.
+func (s *Service) ExportUserDataWithFilter(ctx context.Context, userID int64, filter ExportFilter) (*ExportResult, error) {
+	if s == nil || s.client == nil || s.store == nil {
+		return nil, fmt.Errorf("qa export not available: service disabled")
+	}
+
+	predicates := []predicate.QARecord{qarecord.UserIDEQ(userID)}
+	synthSession := strings.TrimSpace(filter.SynthSessionID)
+	if synthSession != "" {
+		predicates = append(predicates, qarecord.SynthSessionIDEQ(synthSession))
+	} else {
+		// Time bounds only apply when not narrowing by an explicit session;
+		// a session may legitimately span past the default window.
+		if !filter.Since.IsZero() {
+			predicates = append(predicates, qarecord.CreatedAtGTE(filter.Since))
+		}
+		if !filter.Until.IsZero() {
+			predicates = append(predicates, qarecord.CreatedAtLTE(filter.Until))
+		}
+	}
+	if role := strings.TrimSpace(filter.SynthRole); role != "" {
+		predicates = append(predicates, qarecord.SynthRoleEQ(role))
+	}
+
 	records, err := s.client.QARecord.Query().
-		Where(
-			qarecord.UserIDEQ(userID),
-			qarecord.CreatedAtGTE(since),
-			qarecord.CreatedAtLTE(until),
-		).
+		Where(predicates...).
 		Order(ent.Asc(qarecord.FieldCreatedAt)).
 		All(ctx)
 	if err != nil {
@@ -274,11 +340,17 @@ func (s *Service) ExportUserData(ctx context.Context, userID int64, since, until
 	if _, err := s.store.Put(ctx, key, body, "application/zip"); err != nil {
 		return nil, err
 	}
-	url, err := s.store.PresignURL(ctx, key, 24*time.Hour)
+	expiry := 24 * time.Hour
+	url, err := s.store.PresignURL(ctx, key, expiry)
 	if err != nil {
 		return nil, err
 	}
-	return &ExportResult{Key: key, DownloadURL: url}, nil
+	return &ExportResult{
+		Key:         key,
+		DownloadURL: url,
+		ExpiresAt:   time.Now().UTC().Add(expiry),
+		RecordCount: len(records),
+	}, nil
 }
 
 func (s *Service) DeleteUserData(ctx context.Context, userID int64, before *time.Time) (int, error) {
@@ -479,6 +551,29 @@ func captureStreamFlag(c *gin.Context, chunks []RawSSEChunk) bool {
 		}
 	}
 	return false
+}
+
+// captureSynthHeaders extracts the X-Synth-* headers emitted by the M0
+// dual-CC synthetic pipeline (issue #59 / docs/projects/auto-traj-from-supply-demand.md §6.1).
+// Returns (session, role, engineerLevel, pipeline). Empty strings for any
+// missing/blank header. We TrimSpace and bound the length to defend against
+// malicious or accidental abuse — these values are persisted and queried.
+func captureSynthHeaders(c *gin.Context) (session, role, level, pipeline string) {
+	if c == nil || c.Request == nil {
+		return "", "", "", ""
+	}
+	const maxHeader = 256
+	clip := func(v string) string {
+		v = strings.TrimSpace(v)
+		if len(v) > maxHeader {
+			v = v[:maxHeader]
+		}
+		return v
+	}
+	return clip(c.Request.Header.Get("X-Synth-Session")),
+		clip(c.Request.Header.Get("X-Synth-Role")),
+		clip(c.Request.Header.Get("X-Synth-Engineer-Level")),
+		clip(c.Request.Header.Get("X-Synth-Pipeline"))
 }
 
 func captureResponseHeaders(c *gin.Context) map[string]string {
