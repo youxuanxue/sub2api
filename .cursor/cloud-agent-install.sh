@@ -19,13 +19,13 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 echo "[cloud-agent-install] ensuring dev-rules submodule is initialized"
-git submodule update --init --recursive
+git submodule update --init --recursive dev-rules
 
 BOOTSTRAP="dev-rules/templates/cloud-agent-bootstrap.sh"
-if [ ! -x "$BOOTSTRAP" ]; then
+if [ ! -f "$BOOTSTRAP" ]; then
   echo "[cloud-agent-install] ERROR: missing bootstrap template: $BOOTSTRAP" >&2
   exit 1
 fi
 
 echo "[cloud-agent-install] delegating to $BOOTSTRAP"
-exec bash "$BOOTSTRAP"
+exec bash "$BOOTSTRAP" "$@"
