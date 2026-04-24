@@ -85,10 +85,12 @@ curl -sS -o /dev/null -w '%{http_code}\n' "https://${DOMAIN}/health"
 ## 升级 / 发版（生产 + 测试栈共用）
 
 
-| Stack                       | `ImageTag` 来源                            | `ApiDomain`             | 升级方式                                                                                                                                                                                                                                  |
-| --------------------------- | ---------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tokenkey-prod-stage0`      | `.env` 内的 `TOKENKEY_IMAGE`（CFN 参数仅用于初始化） | `api.tokenkey.dev`      | **首选路径：SSM `docker compose pull && up -d tokenkey`**（见下方 §生产升级 SOP），原地热替换、零停机。CFN deploy 改 `ImageTag` 现在**安全**（数据在独立 `DataVolume` 上，instance replace 时 detach + 新 instance attach），但仍有 1–3 min 停机窗口（旧实例 stop → 新实例 boot + bootstrap）。 |
-| `tokenkey-test-stage0`（如存在） | `.env` 同上，初始化用 `latest` 跟随               | `test-api.tokenkey.dev` | 同上 SSM 路径；`latest` 让镜像自动是最新 release，但仍要 SSM 触发 `pull && up -d` 才会真正切换。                                                                                                                                                                |
+| Stack                       | `ImageTag` 来源                            | `ApiDomain`             |
+| --------------------------- | ---------------------------------------- | ----------------------- |
+| `tokenkey-prod-stage0`      | `.env` 内的 `TOKENKEY_IMAGE`（CFN 参数仅用于初始化） | `api.tokenkey.dev`      |
+| `tokenkey-test-stage0`（如存在） | `.env` 同上，初始化用 `latest` 跟随               | `test-api.tokenkey.dev` |
+
+升级方式见下方 §升级 SOP（首选 `deploy-stage0.yml` dispatch；底层手工 SSM 路径作备用）。CFN deploy 改 `ImageTag` 现在数据可保留（独立 `DataVolume` detach + 新 instance attach），但实例替换仍有 1–3 min 停机窗口，生产默认走 SSM 原地升级。
 
 
 > 2026-04-21 实测：prod 栈 CFN `ImageTag=1.2.0`，但运行态 `TOKENKEY_IMAGE` 与容器实际镜像均为 `ghcr.io/youxuanxue/sub2api:1.4.1`（SSM 原地升级后形成的受控漂移）。
@@ -239,10 +241,42 @@ gh run watch $(gh run list --workflow=release.yml --limit 1 --json databaseId -q
 > 不要 `git tag vX.Y.Z && git push origin vX.Y.Z` 手敲 —— 跳过 helper 就跳过了 §发版纪律
 > 第 1 条的 mechanical enforcement，v1.3.0 / v1.4.0 两次事故都是这个绕过路径造成的。
 
-### 生产升级 SOP（运维侧 — 拉新版本到 prod 栈）
+### 升级 SOP（首选：cloud agent 自闭环）
 
 Release workflow 全绿后（`gh run list --workflow=release.yml --limit 1` 看 `success`），
-GHCR 已经有 `:X.Y.Z` 多架构镜像。在 prod 实例上：
+GHCR 已经有 `:X.Y.Z` 多架构镜像。**首选路径是 dispatch `deploy-stage0.yml`**——
+封装了下方手工 SSM SOP 全流程，跑前做 multi-arch manifest 强校验（防 §9.1
+amd64-only 镜像撞 Graviton 崩溃），跑后做外部 `/health` 验证；prod 环境通过
+GitHub Environment 的 Required reviewers 门禁触发人工审批。
+
+```bash
+TAG=X.Y.Z
+
+# 测试栈（无审批门禁，直接跑）
+gh workflow run deploy-stage0.yml -f environment=test -f tag=$TAG
+gh run watch $(gh run list --workflow=deploy-stage0.yml --limit 1 --json databaseId -q '.[0].databaseId')
+
+# 测试通过后再 prod（点 Approve 后才会跑 SSM）
+gh workflow run deploy-stage0.yml -f environment=prod -f tag=$TAG
+gh run watch $(gh run list --workflow=deploy-stage0.yml --limit 1 --json databaseId -q '.[0].databaseId')
+```
+
+设计、IAM 范围扩张、运维启用步骤见 `docs/approved/deploy-stage0-workflow.md`。
+**首次启用前**必须按 §5 重新部署 `cicd-oidc.yaml` 并创建 GitHub Environments
+`prod`（带 Required reviewers）和 `test`，否则 prod deploy 会在没有人工审批的
+情况下直接执行（GitHub 在首次引用 Environment 时会自动创建无门禁的同名 Env）。
+
+回滚也走 dispatch：
+
+```bash
+gh workflow run deploy-stage0.yml -f environment=prod -f tag=<上一版本>
+```
+
+### 生产升级 SOP（备用：纯手工 SSM）
+
+> 当 `deploy-stage0.yml` 被禁用、或调试 workflow 本身时使用。两段是 1:1 等价的。
+
+Release workflow 全绿后，GHCR 已经有 `:X.Y.Z` 多架构镜像。在 prod 实例上：
 
 ```bash
 TAG=X.Y.Z   # 不带 v 前缀
@@ -340,15 +374,7 @@ aws cloudformation describe-stacks --region "${REGION}" \
 # 去 Porkbun 加 A 记录 test-api.tokenkey.dev → <EIP>
 ```
 
-测试栈推新版镜像 — **走与生产相同的 SSM SOP**（见上方 §生产升级 SOP），仅替换 `INSTANCE_ID`：
-
-```bash
-INSTANCE_ID=$(aws cloudformation describe-stacks --region us-east-1 \
-  --stack-name tokenkey-test-stage0 \
-  --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)
-# 之后 aws ssm send-command 与 prod 段完全一致；测试栈 `.env` 默认 `TOKENKEY_IMAGE=...:latest`，
-# pull 即拿到最新；如要 pin 到具体版本，把上方 SOP 的 sed 换成你想要的 tag 即可。
-```
+测试栈推新版镜像 — `gh workflow run deploy-stage0.yml -f environment=test -f tag=X.Y.Z`（见 §升级 SOP）。或走 §生产升级 SOP（备用）的 SSM 路径，仅把 `--stack-name` 换成 `tokenkey-test-stage0`。
 
 测试环境用完销毁（彻底清零，不留 EIP/EBS 计费）：
 
