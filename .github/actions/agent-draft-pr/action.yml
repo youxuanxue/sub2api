@@ -99,8 +99,9 @@ runs:
       shell: bash
       env:
         # TokenKey gateway path — mirrors ~/.claude/settings.json on the
-        # cloud Cursor Agent (see .cursor/cloud-agent-install.sh). Keep this
-        # block in sync with that file so CI and Agent share one config.
+        # cloud Cursor Agent (written by .cursor/cloud-agent-project-hook.sh
+        # via dev-rules/templates/cloud-agent-bootstrap.sh). Keep this block
+        # in sync with that hook so CI and Agent share one config.
         ANTHROPIC_AUTH_TOKEN: ${{ inputs.claude_auth_token }}
         ANTHROPIC_BASE_URL: ${{ inputs.claude_base_url }}
         CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING: "1"

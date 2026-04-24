@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "rationale": "Load-bearing files and symbols that anchor TokenKey's fifth platform `newapi`. The fifth-platform integration was silently regressed multiple times by upstream merges before this guard existed. If any sentinel below is missing, the platform either silently disappears from the UI/scheduling pool or fails at runtime. This file is the single source of truth read by both `scripts/preflight.sh` § 10 (always) and `.github/workflows/upstream-merge-pr-shape.yml` Check 4 (on `merge/upstream-*` PRs). Adding a new load-bearing surface for newapi MUST add a sentinel here in the same commit.",
+  "rationale": "Load-bearing files and symbols that anchor TokenKey's fifth platform `newapi`. The fifth-platform integration was silently regressed multiple times by upstream merges before this guard existed. If any sentinel below is missing, the platform either silently disappears from the UI/scheduling pool or fails at runtime. This file is the single source of truth read by both `scripts/preflight.sh` (newapi sentinel registry section, always) and `.github/workflows/upstream-merge-pr-shape.yml` (newapi sentinels check, on `merge/upstream-*` PRs). Adding a new load-bearing surface for newapi MUST add a sentinel here in the same commit.",
   "sentinels": [
     {
       "path": "backend/internal/domain/constants.go",

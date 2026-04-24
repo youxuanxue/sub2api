@@ -3,25 +3,23 @@
 # preflight.sh — sub2api project wrapper.
 #
 # Per CLAUDE.md § 10, the dev-rules submodule template
-# (`dev-rules/templates/preflight.sh`, 8 sections) covers everything
-# generic. This wrapper exists ONLY because sub2api has project-
-# specific checks that do not belong in the shared template:
+# (`dev-rules/templates/preflight.sh`) covers all the generic checks
+# (branch naming, submodule pointer, .cursor/rules drift, agent contract
+# drift, story/test alignment, docs/approved discipline, approved-doc
+# invariants R1-R5, doc-stat drift, cloud-agent env consistency). This
+# wrapper exists ONLY because sub2api has project-specific checks that
+# do not belong in the shared template:
 #
-#   § 9  newapi compat-pool drift   — guards the P0 regression that
+#   newapi compat-pool drift     — guards the P0 regression that
 #        triggered docs/approved/newapi-as-fifth-platform.md (any new
 #        scheduler/gateway caller must use IsOpenAICompatPoolMember /
 #        OpenAICompatPlatforms instead of bare PlatformOpenAI / IsOpenAI).
-#   § 10 newapi sentinel registry   — guards the recurring upstream-merge
+#   newapi sentinel registry     — guards the recurring upstream-merge
 #        regression where load-bearing fifth-platform files / symbols get
 #        silently deleted. Driven by `scripts/newapi-sentinels.json`
 #        (single source of truth) via `scripts/check-newapi-sentinels.py`.
 #        The same script is invoked by
-#        `.github/workflows/upstream-merge-pr-shape.yml` Check 4.
-#
-# Sections 1-8 (branch naming, submodule pointer, .cursor/rules drift,
-# agent contract drift, story/test alignment, docs/approved discipline,
-# approved-doc invariants R1-R5, doc-stat drift) are NOT duplicated
-# here — they are run by delegating to the dev-rules template.
+#        `.github/workflows/upstream-merge-pr-shape.yml`.
 #
 # Usage:  ./scripts/preflight.sh [--fix]
 # Exit 0 = all sections passed.  Non-zero = at least one failed.
@@ -44,15 +42,15 @@ if [ "$dev_status" -ne 0 ]; then
     exit "$dev_status"
 fi
 
-# ---- § 9: sub2api-specific newapi compat-pool drift -------------------------
+# ---- sub2api: newapi compat-pool drift --------------------------------------
 # Source of truth: docs/approved/newapi-as-fifth-platform.md §5.1.
 # Both checks deliberately use POSIX `grep -rnE` (not ripgrep) so they work
 # in CI runners without rg installed.
 echo ""
-echo "=== § 9  sub2api: newapi compat-pool drift ==="
+echo "=== sub2api: newapi compat-pool drift ==="
 errors=0
 
-# 9.a — candidate-pool fetch must go through the TK helper
+# Check A — candidate-pool fetch must go through the TK helper
 # (IsOpenAICompatPoolMember / OpenAICompatPlatforms). A new caller passing
 # PlatformOpenAI directly to ListSchedulableAccounts would silently exclude
 # newapi accounts and re-introduce the original P0 regression.
@@ -70,7 +68,7 @@ else
     echo "  ok: no direct PlatformOpenAI ListSchedulableAccounts callers outside TK helpers"
 fi
 
-# 9.b — scheduler/gateway filters must not regress to bare
+# Check B — scheduler/gateway filters must not regress to bare
 # `!account.IsOpenAI()`; the canonical predicate is
 # `!account.IsOpenAICompatPoolMember(groupPlatform)`. The bare form silently
 # rejects newapi accounts even for newapi groups.
@@ -86,7 +84,7 @@ else
     echo "  ok: scheduler / gateway filters use IsOpenAICompatPoolMember predicate"
 fi
 
-# ---- § 10: sub2api-specific newapi sentinel registry ------------------------
+# ---- sub2api: newapi sentinel registry --------------------------------------
 # Source of truth: scripts/newapi-sentinels.json. Verifies that every
 # load-bearing surface of the fifth platform (`newapi`) — TK companion files,
 # canonical predicates, frontend platform enumerations — is still present.
@@ -94,7 +92,7 @@ fi
 # silently dropping a file or a switch-case branch and the regression only
 # surfacing weeks later in production.
 echo ""
-echo "=== § 10 sub2api: newapi sentinel registry ==="
+echo "=== sub2api: newapi sentinel registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read newapi-sentinels.json)"
     errors=$((errors + 1))
@@ -107,9 +105,9 @@ fi
 
 echo ""
 if [ "$errors" -eq 0 ]; then
-    echo "=== preflight (with § 9 + § 10 sub2api): PASS ==="
+    echo "=== preflight (with sub2api checks): PASS ==="
     exit 0
 else
-    echo "=== preflight (with § 9 + § 10 sub2api): FAIL ($errors check(s) failed) ==="
+    echo "=== preflight (with sub2api checks): FAIL ($errors check(s) failed) ==="
     exit 1
 fi

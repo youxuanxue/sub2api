@@ -16,16 +16,34 @@ Parameters:
     Description: GitHub <owner>/<repo> allowed to assume the role.
   AllowedSubjects:
     Type: CommaDelimitedList
-    Default: "repo:youxuanxue/sub2api:ref:refs/heads/main"
+    Default: "repo:youxuanxue/sub2api:ref:refs/heads/main,repo:youxuanxue/sub2api:environment:prod,repo:youxuanxue/sub2api:environment:test"
     Description: >-
       Full OIDC sub claims (StringLike patterns) allowed to assume the role.
-      Default allows only main. Temporarily add e.g.
+      Default allows main (for error-clustering-daily.yml + prod-log-dump.yml)
+      AND environment:prod / environment:test (for deploy-stage0.yml — the
+      Environment binding is what makes the prod reviewer gate load-bearing
+      on the AWS side, not just GitHub UI cosmetic). Temporarily add e.g.
       "repo:youxuanxue/sub2api:ref:refs/heads/feature/clustering-oidc-ssm"
-      while bootstrapping, then narrow back to main after first successful run.
+      while bootstrapping, then narrow back to the defaults afterwards.
   TargetInstanceId:
     Type: AWS::EC2::Instance::Id
     Default: i-04a8afd18c997b8ac
-    Description: Prod EC2 instance the role is allowed to send SSM commands to.
+    Description: >-
+      Prod EC2 instance the role is allowed to send SSM commands to.
+      Back-compat: original single-instance schema preserved verbatim so
+      existing stack updates don't churn this parameter name.
+  TestTargetInstanceId:
+    Type: String
+    Default: ""
+    AllowedPattern: "^(i-[0-9a-f]{8,17})?$"
+    Description: >-
+      Optional test EC2 instance the role may also send SSM commands to.
+      Empty (default) means "no test instance wired yet" — the IAM
+      statement targeting it is suppressed via condition. Set this to
+      the test stack's InstanceId (e.g. i-0123456789abcdef0) when wiring
+      deploy-stage0.yml for test deploys. The workflow chooses which
+      instance to target via inputs.environment; this list of IDs is the
+      IAM cap, not the runtime selector.
   CreateOIDCProvider:
     Type: String
     Default: "true"
@@ -41,6 +59,7 @@ Parameters:
 
 Conditions:
   ShouldCreateOIDC: !Equals [!Ref CreateOIDCProvider, "true"]
+  HasTestInstance: !Not [!Equals [!Ref TestTargetInstanceId, ""]]
 
 Resources:
   GitHubOIDCProvider:
@@ -72,8 +91,11 @@ Resources:
     Properties:
       RoleName: !Sub "tokenkey-gha-${AWS::Region}-error-clustering"
       Description: >-
-        Assumed by the Error Clustering Daily GitHub Actions workflow via OIDC
-        to dispatch SSM Run-Command on the prod instance.
+        Assumed by repo workflows via GitHub OIDC to dispatch SSM Run-Command
+        on the prod (and now optionally test) EC2 instance. Originally scoped
+        to error-clustering only — name retained for back-compat with
+        vars.AWS_OIDC_ROLE_ARN consumers; current consumers include
+        error-clustering-daily.yml, prod-log-dump.yml, and deploy-stage0.yml.
       MaxSessionDuration: 3600
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -91,17 +113,27 @@ Resources:
               ForAnyValue:StringLike:
                 "token.actions.githubusercontent.com:sub": !Ref AllowedSubjects
       Policies:
-        - PolicyName: SsmSendCommandProd
+        - PolicyName: SsmSendCommandStage0
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              - Sid: SendRunShellScript
+              - Sid: SendRunShellScriptProd
                 Effect: Allow
                 Action:
                   - ssm:SendCommand
                 Resource:
                   - !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${TargetInstanceId}"
                   - !Sub "arn:aws:ssm:${AWS::Region}::document/AWS-RunShellScript"
+              - !If
+                - HasTestInstance
+                - Sid: SendRunShellScriptTest
+                  Effect: Allow
+                  Action:
+                    - ssm:SendCommand
+                  Resource:
+                    - !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${TestTargetInstanceId}"
+                    - !Sub "arn:aws:ssm:${AWS::Region}::document/AWS-RunShellScript"
+                - !Ref AWS::NoValue
               - Sid: ReadCommandResult
                 Effect: Allow
                 Action:
@@ -115,6 +147,7 @@ Resources:
                   - cloudformation:DescribeStacks
                 Resource:
                   - !Sub "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/tokenkey-prod-stage0/*"
+                  - !Sub "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/tokenkey-test-stage0/*"
       Tags:
         - Key: Project
           Value: tokenkey
