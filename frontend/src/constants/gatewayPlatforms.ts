@@ -11,7 +11,7 @@ export const GATEWAY_PLATFORMS = ['anthropic', 'openai', 'gemini', 'antigravity'
  * Mirrors `service.OpenAICompatPlatforms()` in the Go backend
  * (`backend/internal/service/account_tk_compat_pool.go`). When adding a sixth
  * compat platform, BOTH places must be updated in lockstep — `scripts/preflight.sh`
- * § 9 (newapi compat-pool drift) catches the backend half; the frontend half is
+ * "newapi compat-pool drift" catches the backend half; the frontend half is
  * covered by the `useModelWhitelist` and `usePlatformOptions` test suites.
  */
 export const OPENAI_COMPAT_PLATFORMS: readonly AccountPlatform[] = ['openai', 'newapi'] as const
