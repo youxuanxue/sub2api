@@ -108,8 +108,8 @@ func (s *OpenAIGatewayService) ForwardAsVideoSubmitDispatched(
 
 // ForwardAsVideoFetchDispatched is the bridge boundary for
 // GET /v1/video/generations/:task_id (and the OpenAI-compat alias).
-// Inputs come from a registry lookup (VideoTaskRegistry); the dispatch is
-// account-agnostic because the registry already knows where to route.
+// Inputs come from a registry lookup (service.VideoTaskCache); the dispatch
+// is account-agnostic because the registry already knows where to route.
 func (s *OpenAIGatewayService) ForwardAsVideoFetchDispatched(
 	ctx context.Context,
 	c *gin.Context,

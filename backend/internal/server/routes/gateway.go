@@ -57,14 +57,7 @@ func RegisterGatewayRoutes(
 		gateway.POST("/chat/completions", tkOpenAICompatChatCompletionsPOST(h))
 		gateway.POST("/embeddings", tkOpenAICompatEmbeddingsHandler(h))
 		gateway.POST("/images/generations", tkOpenAICompatImageGenerationsHandler(h))
-		// Async video generation — supported channel types are auto-derived
-		// from new-api's task-adaptor registry (currently VolcEngine + DoubaoVideo).
-		// `/video/generations` is the new-api idiom; `/videos` is the OpenAI Video
-		// API alias (both routes accept the same JSON request shape).
-		gateway.POST("/video/generations", tkOpenAICompatVideoSubmitHandler(h))
-		gateway.GET("/video/generations/:task_id", tkOpenAICompatVideoFetchHandler(h))
-		gateway.POST("/videos", tkOpenAICompatVideoSubmitHandler(h))
-		gateway.GET("/videos/:task_id", tkOpenAICompatVideoFetchHandler(h))
+		registerTKOpenAICompatVideoRoutes(gateway, h)
 	}
 
 	// Gemini 原生 API 兼容层（Gemini SDK/CLI 直连）
@@ -92,11 +85,7 @@ func RegisterGatewayRoutes(
 	r.POST("/chat/completions", bodyLimit, clientRequestID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatChatCompletionsPOST(h))
 	r.POST("/embeddings", bodyLimit, clientRequestID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatEmbeddingsHandler(h))
 	r.POST("/images/generations", bodyLimit, clientRequestID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatImageGenerationsHandler(h))
-	// Video generation aliases without /v1 prefix — same handler set as the /v1 group.
-	r.POST("/video/generations", bodyLimit, clientRequestID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatVideoSubmitHandler(h))
-	r.GET("/video/generations/:task_id", bodyLimit, clientRequestID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatVideoFetchHandler(h))
-	r.POST("/videos", bodyLimit, clientRequestID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatVideoSubmitHandler(h))
-	r.GET("/videos/:task_id", bodyLimit, clientRequestID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatVideoFetchHandler(h))
+	registerTKOpenAICompatVideoRoutesNoPrefix(r, h, bodyLimit, clientRequestID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic)
 
 	// Antigravity 模型列表
 	r.GET("/antigravity/models", bodyLimit, clientRequestID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.Gateway.AntigravityModels)

@@ -478,7 +478,7 @@ adapter registry:
   `POST /v1/videos`, `GET /v1/videos/:task_id` (plus their no-prefix
   variants). Asynchronous: the POST returns a TokenKey-issued
   `task_id` (prefix `vt_`); the GET polls upstream for status. Routing
-  is pinned at submit time and stored in the `VideoTaskRegistry` (Redis
+  is pinned at submit time and stored in the `service.VideoTaskCache` (Redis
   primary, in-memory fallback for single-replica dev). Currently
   supported channel types: `45` (VolcEngine — Doubao Seedance) and
   `54` (DoubaoVideo). The set is auto-derived from
