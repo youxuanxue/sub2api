@@ -253,13 +253,13 @@ scheduler 路径 `cache == nil` 时直接 return nil；旧路径 `tryStickySessi
 
 服务层已经有 `IsOpenAICompatPlatform`（导出版）作为 single source of truth，但服务层包内又定义了一个 `isOpenAICompatPlatformGroup(g *Group)`，路由层又有一个 `isOpenAICompatPlatform(string)` wrapper。这是 §3 类的"funnel 漂移源"——加第六平台时容易遗漏其中之一。
 
-`scripts/preflight.sh § 9` 的 grep 模式 `!\s*account\.IsOpenAI\(\)` 不能覆盖到 `g.Platform == PlatformOpenAI` 这种 group-level 写法。
+`scripts/preflight.sh` 的 `newapi compat-pool drift` 段 grep 模式 `!\s*account\.IsOpenAI\(\)` 不能覆盖到 `g.Platform == PlatformOpenAI` 这种 group-level 写法。
 
 **为什么是 P2**：当前没有错，preflight 已经在保护账号侧的回归。group 侧未来加平台时如果忘记更新 `isOpenAICompatPlatformGroup`，单测 `TestUS009_Sanitize_*` 会立即捕获，所以风险窗口窄。
 
 **修复方向**：
 - 删除 `isOpenAICompatPlatformGroup`，让 `sanitizeGroupMessagesDispatchFields` 直接调用 `IsOpenAICompatPlatform(g.Platform)`。
-- preflight § 9 增加一段：`g.Platform == PlatformOpenAI` 形态在 service 包外的出现都视为 drift。
+- preflight `newapi compat-pool drift` 段增加：`g.Platform == PlatformOpenAI` 形态在 service 包外的出现都视为 drift。
 
 ---
 
@@ -342,7 +342,7 @@ if model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSe
 
 ## 跨 bug 共通模式
 
-- **funnel 漂移**：`SelectAccountWithLoadAwareness` 与 `SelectAccountWithScheduler` 两个调度入口在 channel restriction、sticky cleanup、cache nil 守卫上行为不一致 → P0-1 / P0-2 / P1-4 都属于这一类。建议统一由 `defaultOpenAIAccountScheduler` 调用 `OpenAIGatewayService` 的同一组 helper（preflight § 9 的现有 grep 不足以拦截这种"调用图缺失"型漂移）。
+- **funnel 漂移**：`SelectAccountWithLoadAwareness` 与 `SelectAccountWithScheduler` 两个调度入口在 channel restriction、sticky cleanup、cache nil 守卫上行为不一致 → P0-1 / P0-2 / P1-4 都属于这一类。建议统一由 `defaultOpenAIAccountScheduler` 调用 `OpenAIGatewayService` 的同一组 helper（preflight `newapi compat-pool drift` 的现有 grep 不足以拦截这种"调用图缺失"型漂移）。
 - **save-time 探测漂移**：`CreateAccount` / `UpdateAccount` 都接入了 `resolveNewAPIMoonshotBaseURLOnSave`，但 `BulkUpdateAccounts` 没有 → P1-1。所有"账号写入路径"都应该走同一个 funnel。建议把"凡是改 credentials 的 admin 写入"封装成一个 `accountSaveHook`。
 - **错误信息品牌漂移**：`no available OpenAI accounts`（P1-2）、kill switch 名字（P1-3）等还在用 OpenAI 字样。这是品牌（TokenKey）和上游（sub2api）混在一起的可见面，建议在 §6 之后做一轮文本审计。
 - **空切片越界**：`ResolveMoonshotRegionalBaseAtSave`（P0-3）、`tkValidateNewAPIAccountCreate` 不校验 api_key（P2-2）都属于"接口契约和实现不对齐"类，应在 contract 层（`scripts/export_agent_contract.py`）加一条断言。

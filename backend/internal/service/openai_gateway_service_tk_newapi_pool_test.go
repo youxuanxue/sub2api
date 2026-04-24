@@ -174,8 +174,8 @@ func TestUS015_Sticky_OpenAIGroup_HitPreserved(t *testing.T) {
 // P0-2 (docs/bugs/2026-04-23-newapi-fifth-platform-audit.md):
 // 修复 tryStickySessionHit 与 SelectAccountWithLoadAwareness Layer-1 在跨平台
 // sticky binding 时不清理 Redis 映射，导致整个 TTL 周期内每次同 sessionHash
-// 请求都重做一次 snapshot 查询并落到 Layer 2。scheduler 路径已修
-// （openai_account_scheduler.go:324），legacy 路径之前漏修。
+// 请求都重做一次 snapshot 查询并落到 Layer 2。scheduler 路径
+// （openai_account_scheduler.go::selectBySessionHash）已修，legacy 路径之前漏修。
 // ---------------------------------------------------------------------------
 
 // TestP02_LegacyTryStickyHit_CrossPlatform_ClearsBinding 覆盖
@@ -206,7 +206,8 @@ func TestP02_LegacyTryStickyHit_CrossPlatform_ClearsBinding(t *testing.T) {
 
 // TestP02_LoadAwareLayer1_CrossPlatform_ClearsBinding 覆盖
 // SelectAccountWithLoadAwareness 的 LoadBatch 分支（cfg.LoadBatchEnabled=true）。
-// 该分支走 inline Layer-1 sticky 块（openai_gateway_service.go:1485-1529）。
+// 该分支走 inline Layer-1 sticky 块（SelectAccountWithLoadAwareness 内的
+// "// ============ Layer 1: Sticky session ============" 块）。
 func TestP02_LoadAwareLayer1_CrossPlatform_ClearsBinding(t *testing.T) {
 	ctx := context.Background()
 	groupID := int64(83007)

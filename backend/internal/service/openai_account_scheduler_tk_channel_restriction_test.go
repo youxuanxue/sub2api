@@ -44,7 +44,8 @@ func newSchedFixtureWithChannel(
 
 // TestP01_Scheduler_ChannelPricingRestriction_Blocks 验证调度入口前置拒绝：
 // 请求的模型不在渠道定价表内时，必须返回 ErrNoAvailableAccounts，绝不进入
-// 选号流程。与 SelectAccountWithLoadAwareness:1421-1426 行为对齐。
+// 选号流程。与 SelectAccountWithLoadAwareness 入口的 checkChannelPricingRestriction
+// 行为对齐。
 func TestP01_Scheduler_ChannelPricingRestriction_Blocks(t *testing.T) {
 	ctx := context.Background()
 	groupID := int64(91001)

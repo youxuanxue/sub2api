@@ -603,8 +603,9 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 	}
 
 	// P0-1: upstream 渠道模型限制（BillingModelSourceUpstream）必须按账号粒度过滤。
-	// 与 SelectAccountWithLoadAwareness:1433+1547 对齐——cache 一次 needsUpstreamCheck，
-	// 然后在每个候选过滤循环里调 isUpstreamModelRestrictedByChannel。
+	// 与 SelectAccountWithLoadAwareness 一致：cache 一次 needsUpstreamCheck，
+	// 然后在每个候选过滤循环 + fresh-recheck + WaitPlan 三处都调
+	// isUpstreamModelRestrictedByChannel（见下方对应注释）。
 	needsUpstreamCheck := req.GroupID != nil && s.service.needsUpstreamChannelRestrictionCheck(ctx, req.GroupID)
 
 	filtered := make([]*Account, 0, len(accounts))
@@ -743,7 +744,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 			continue
 		}
 		// P0-1: upstream 渠道限制可能在 candidate 过滤后才被运营变更（极少数）；
-		// 与 SelectAccountWithLoadAwareness:1574 对齐，再校验一次。
+		// 与 SelectAccountWithLoadAwareness 的 fresh-recheck 路径对齐，再校验一次。
 		if needsUpstreamCheck && s.service.isUpstreamModelRestrictedByChannel(ctx, *req.GroupID, fresh, req.RequestedModel) {
 			continue
 		}
