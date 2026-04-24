@@ -21,7 +21,7 @@ import (
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
-	_ "modernc.org/sqlite"
+	_ "github.com/glebarez/go-sqlite"
 )
 
 type emailBindDefaultSubAssignerStub struct {
@@ -787,6 +787,9 @@ func (s *emailBindUserRepoStub) UpsertUserAvatar(context.Context, int64, service
 
 func (s *emailBindUserRepoStub) DeleteUserAvatar(context.Context, int64) error {
 	panic("unexpected DeleteUserAvatar call")
+}
+func (s *emailBindUserRepoStub) MarkOnboardingTourSeen(context.Context, int64) error {
+	return nil
 }
 
 func (s *emailBindUserRepoStub) List(context.Context, pagination.PaginationParams) ([]service.User, *pagination.PaginationResult, error) {

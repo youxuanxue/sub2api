@@ -29,7 +29,7 @@ import (
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
-	_ "modernc.org/sqlite"
+	_ "github.com/glebarez/go-sqlite"
 )
 
 func TestWeChatOAuthStartRedirectsAndSetsPendingCookies(t *testing.T) {
