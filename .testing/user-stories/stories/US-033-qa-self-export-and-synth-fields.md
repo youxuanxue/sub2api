@@ -22,9 +22,9 @@
     `ExportUserData(ctx, userID, ExportFilter)`，没有"老签名"需要兼容；
     `ops_xx.md §2 "100% QA Capture"` 中 capture 侧的写入字段不能减；
     新增字段全部 nullable / 有默认 → 老在线流量不受影响
-  - 安全问题：path traversal 不适用（无路径参数）；越权访问通过
-    服务层 `qarecord.UserIDEQ(subject.UserID)` 兜底；header 长度封顶 256B
-    防止恶意 `synth_session_id` 撑爆行
+  - 安全问题：下载代理路径必须拒绝跨用户 key 与 `..`/反斜杠逃逸；
+    导出查询越权访问通过服务层 `qarecord.UserIDEQ(subject.UserID)` 兜底；
+    header 长度封顶 256B 防止恶意 `synth_session_id` 撑爆行
   - 运行时问题：QA capture 在某环境关闭时端点必须返回 503 而非 500（M0 客户端
     通过状态码判断"环境不就绪 → 跳过"，500 会被当作 bug 上报）
 
@@ -34,7 +34,8 @@
    `synth_session_id="m0-XYZ"` 的 1 条 qa_record，When user 7 的 JWT 调
    `POST /api/v1/users/me/qa/export {"synth_session_id":"m0-XYZ"}`，Then
    返回 200 + `{download_url, expires_at, record_count: 1}`，下载 URL 是
-   24h 过期的 presigned URL（localfs 模式下为 `file://`）。
+   外部 SDK/CI 可直接 GET 的 HTTP(S) URL（localfs 模式下为同源下载代理，
+   S3 模式下为 24h 过期的 presigned URL）。
 
 2. **AC-002 (正向 / 默认窗口)**：Given user 9 名下有 1 小时前 1 条 + 48 小时前 1 条
    非 synth-tagged 记录，When user 9 调 `POST /api/v1/users/me/qa/export`（空 body），
@@ -65,12 +66,23 @@
    构建器、一段 zip 打包逻辑、一份 ExportResult），不出现 GDPR 与 M0 两条平行
    分支（Jobs：one canonical path per intent）。
 
+8. **AC-008 (回归 / 外部下载可达)**：Given localfs storage driver 生成的 export zip，
+   When 外部 SDK 使用 `data.download_url` 发起 GET，Then 服务端经
+   `GET /api/v1/users/me/qa/exports/*key` 返回 `application/zip`，且 zip 内
+   `qa_records.jsonl` 仍包含 M0 D6 依赖的 snake_case 字段。
+
+9. **AC-009 (负向 / 下载越权与过期)**：Given user 7 已认证，When 请求
+   `/api/v1/users/me/qa/exports/exports/8/123.zip` 或包含 `..` 的 key，
+   Then 返回 403，且不读取 storage；When 请求 key 内时间戳已超过 24h 的
+   export zip，Then 返回 404，不让 localfs 的 `expires_at` 成为假信号。
+
 ## Assertions
 
 - HTTP 状态码：401（无 auth）、503（service disabled）、400（坏 JSON）、
-  200（正常）、200 + record_count=0（越权失败）。
+  403（下载 key 越权 / 路径逃逸）、200（正常）、200 + record_count=0（越权失败）。
 - Response envelope 形态：`{code:0, message:"success", data:{download_url,
-  expires_at, record_count}}`，`expires_at` 为 24h 后的 UTC RFC3339 时间。
+  expires_at, record_count}}`，`expires_at` 为 24h 后的 UTC RFC3339 时间；
+  `download_url` 对外部客户端为 HTTP(S)，不暴露容器内 `file://` 路径。
 - DB 行为：导出 SQL 始终带 `user_id = ?`；`synth_session_id` 设置时
   覆盖时间窗（M0 session 可能跨默认 24h）。
 - 字段完整性：导出 zip 内 `qa_records.jsonl` 单行记录包含
@@ -95,6 +107,8 @@
 - `backend/internal/handler/qa_handler_test.go`::`TestUS059_ExportSelf_DefaultsTo24hWindow`
 - `backend/internal/handler/qa_handler_test.go`::`TestUS059_ExportSelf_BadRequest_InvalidJSON`
 - `backend/internal/handler/qa_handler_test.go`::`TestUS059_ExportSelf_CannotEscapeUserScope`
+- `backend/internal/handler/qa_handler_test.go`::`TestUS033_ExportSelf_LocalFSDownloadURLIsHTTPReachable`
+- `backend/internal/handler/qa_handler_test.go`::`TestUS033_DownloadSelfExport_RejectsCrossUserAndTraversalKeys`
 - 运行命令：`cd backend && go test -tags=unit -timeout 120s ./internal/observability/qa/... ./internal/handler/...`
 
 ## Evidence
@@ -103,6 +117,6 @@
 
 ## Status
 
-- [x] InTest — backend 15 个 unit test（service 5 + middleware 4 + handler 6）
-  全绿；schema + migration 已落盘；wire 已重生成；M0 端到端待 traj 仓库
-  联动验证后翻 Done。
+- [x] InTest — backend unit tests cover service export, synth capture, handler
+  envelope, localfs HTTP download proxy, and download key authorization. M0
+  端到端待 traj 仓库联动验证后翻 Done。

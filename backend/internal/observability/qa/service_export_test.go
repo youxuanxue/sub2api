@@ -21,7 +21,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"io"
+	"io/fs"
 	"strings"
 	"testing"
 	"time"
@@ -179,6 +181,10 @@ func TestUS059_ExportUserData_BySynthSessionID(t *testing.T) {
 	require.Equal(t, "s1-a", first["request_id"], "rows must be ASC by created_at")
 	require.Equal(t, "m0-AAA", first["synth_session_id"], "synth_session_id must be present in the exported jsonl (so M0 verify_c2_keys.py can read it)")
 	require.Equal(t, "user-simulator", first["synth_role"])
+	for _, field := range []string{"api_key_id", "upstream_model", "input_tokens", "output_tokens", "synth_session_id"} {
+		require.Contains(t, first, field, "M0 D6 requires exported qa_records.jsonl to keep ent snake_case JSON fields")
+	}
+	require.Nil(t, first["upstream_model"], "nil optional fields must remain present as JSON null")
 }
 
 // ----- US-059 AC-003: synth_role narrows further when both set. ----------
@@ -226,4 +232,33 @@ func TestUS059_ExportUserData_UnknownSession_EmptyNotError(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 0, res.RecordCount)
 	require.NotEmpty(t, res.DownloadURL, "even an empty export gets a download URL (zip with empty jsonl)")
+}
+
+func TestUS033_DownloadUserExport_OwnedKeyOnly(t *testing.T) {
+	svc, client, store := newQAExportTestService(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	mustInsertQARecord(t, ctx, client, qaRecordBuilder{requestID: "owned", userID: 7, apiKeyID: 1, createdAt: now})
+
+	res, err := svc.ExportUserData(ctx, 7, ExportFilter{Since: now.Add(-1 * time.Hour), Until: now})
+	require.NoError(t, err)
+	require.NotEmpty(t, res.StorageKey)
+
+	body, err := svc.DownloadUserExport(ctx, 7, res.StorageKey)
+	require.NoError(t, err)
+	require.Equal(t, store.objects[res.StorageKey], body)
+
+	_, err = svc.DownloadUserExport(ctx, 8, res.StorageKey)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, fs.ErrPermission))
+
+	_, err = svc.DownloadUserExport(ctx, 7, "../7/"+res.StorageKey)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, fs.ErrPermission))
+
+	expiredKey := "exports/7/1.zip"
+	store.objects[expiredKey] = []byte("expired")
+	_, err = svc.DownloadUserExport(ctx, 7, expiredKey)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, fs.ErrNotExist))
 }
