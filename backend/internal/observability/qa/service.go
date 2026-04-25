@@ -177,6 +177,7 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 		AccountID:          accountID,
 		Platform:           strings.TrimSpace(platform),
 		RequestedModel:     captureRequestedModel(requestBody),
+		UpstreamModel:      captureUpstreamModel(c),
 		InboundEndpoint:    captureInboundEndpoint(c),
 		StatusCode:         status,
 		DurationMs:         durationMs,
@@ -554,6 +555,18 @@ func sanitizeQABytes(raw []byte, maxBytes int) any {
 
 func captureRequestedModel(body []byte) string {
 	return strings.TrimSpace(gjson.GetBytes(body, "model").String())
+}
+
+func captureUpstreamModel(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	if value, ok := c.Get("ops_upstream_model"); ok {
+		if model, ok := value.(string); ok {
+			return strings.TrimSpace(model)
+		}
+	}
+	return ""
 }
 
 func captureToolCallsPresent(body []byte) bool {

@@ -249,6 +249,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		}
 
 		// 6. Record usage
+		setOpsForwardResultContext(c, result.UpstreamModel, reqModel)
 		userAgent := c.GetHeader("User-Agent")
 		clientIP := ip.GetClientIP(c)
 		requestPayloadHash := service.HashUsageRequestPayload(body)

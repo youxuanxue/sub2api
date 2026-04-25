@@ -203,6 +203,7 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 		)
 	}
 
+	setOpsForwardResultContext(c, outcome.UpstreamModel, reqModel)
 	openAIRecordAffinitySuccess(c, account.ID)
 
 	userAgent := c.GetHeader("User-Agent")

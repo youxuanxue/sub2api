@@ -234,6 +234,28 @@ func TestUS059_ExportUserData_UnknownSession_EmptyNotError(t *testing.T) {
 	require.NotEmpty(t, res.DownloadURL, "even an empty export gets a download URL (zip with empty jsonl)")
 }
 
+func TestUS070_PersistCapture_WritesUpstreamModel(t *testing.T) {
+	svc, client, _ := newQAExportTestService(t)
+	ctx := context.Background()
+
+	err := svc.persistCapture(ctx, CaptureInput{
+		RequestID:      "capture-upstream-model",
+		UserID:         7,
+		APIKeyID:       1,
+		Platform:       "anthropic",
+		RequestedModel: "claude-sonnet-4-5",
+		UpstreamModel:  "claude-sonnet-4-5-20250929",
+		StatusCode:     200,
+		CreatedAt:      time.Now().UTC(),
+	})
+	require.NoError(t, err)
+
+	record, err := client.QARecord.Query().Only(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, record.UpstreamModel)
+	require.Equal(t, "claude-sonnet-4-5-20250929", *record.UpstreamModel)
+}
+
 func TestUS033_DownloadUserExport_OwnedKeyOnly(t *testing.T) {
 	svc, client, store := newQAExportTestService(t)
 	ctx := context.Background()

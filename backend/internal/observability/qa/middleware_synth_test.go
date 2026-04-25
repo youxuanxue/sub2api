@@ -11,10 +11,15 @@ package qa
 // docs/projects/auto-traj-from-supply-demand.md §6.1).
 
 import (
+	"context"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -72,4 +77,39 @@ func TestUS059_CaptureSynthHeaders_BoundedLength(t *testing.T) {
 
 	session, _, _, _ := captureSynthHeaders(c)
 	require.Len(t, session, 256)
+}
+
+func TestUS070_MiddlewarePersistsUpstreamModelFromOpsContext(t *testing.T) {
+	svc, client, _ := newQAExportTestService(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{
+			ID:     5,
+			UserID: 7,
+			User:   &service.User{ID: 7},
+			Group:  &service.Group{Platform: service.PlatformAnthropic},
+		})
+		c.Set("ops_upstream_model", "claude-sonnet-4-5")
+		c.Next()
+	})
+	r.Use(svc.Middleware())
+	r.POST("/v1/messages", func(c *gin.Context) {
+		c.JSON(200, gin.H{"ok": true})
+	})
+
+	ctx := context.WithValue(context.Background(), ctxkey.RequestID, "us070-upstream-model")
+	req := httptest.NewRequest("POST", "/v1/messages", strings.NewReader(`{"model":"claude-sonnet-4-5"}`)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, 200, w.Code)
+	require.Eventually(t, func() bool {
+		record, err := client.QARecord.Query().Only(req.Context())
+		if err != nil {
+			return false
+		}
+		return record.UpstreamModel != nil && *record.UpstreamModel == "claude-sonnet-4-5"
+	}, 2*time.Second, 10*time.Millisecond)
 }

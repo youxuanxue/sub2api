@@ -354,10 +354,24 @@ func setOpsEndpointContext(c *gin.Context, upstreamModel string, requestType int
 	if c == nil {
 		return
 	}
+	setOpsUpstreamModelContext(c, upstreamModel)
+	c.Set(opsRequestTypeKey, requestType)
+}
+
+func setOpsUpstreamModelContext(c *gin.Context, upstreamModel string) {
+	if c == nil {
+		return
+	}
 	if upstreamModel = strings.TrimSpace(upstreamModel); upstreamModel != "" {
 		c.Set(opsUpstreamModelKey, upstreamModel)
 	}
-	c.Set(opsRequestTypeKey, requestType)
+}
+
+func setOpsForwardResultContext(c *gin.Context, upstreamModel, requestedModel string) {
+	if strings.TrimSpace(upstreamModel) == "" {
+		upstreamModel = requestedModel
+	}
+	setOpsUpstreamModelContext(c, upstreamModel)
 }
 
 func attachOpsRequestBodyToEntry(c *gin.Context, entry *service.OpsInsertErrorLogInput) {

@@ -76,6 +76,11 @@
    Then 返回 403，且不读取 storage；When 请求 key 内时间戳已超过 24h 的
    export zip，Then 返回 404，不让 localfs 的 `expires_at` 成为假信号。
 
+10. **AC-010 (回归 / 上游模型落库)**：Given gateway 完成 channel/model mapping
+    并得到真实 upstream model，When QA capture middleware 持久化 `qa_records`，
+    Then `upstream_model` 非空；若 mapping 后模型与请求模型相同，也写入请求模型，
+    避免 M0 C1/C3/C5 把 null 当作无法计价模型。
+
 ## Assertions
 
 - HTTP 状态码：401（无 auth）、503（service disabled）、400（坏 JSON）、
@@ -85,6 +90,8 @@
   `download_url` 对外部客户端为 HTTP(S)，不暴露容器内 `file://` 路径。
 - DB 行为：导出 SQL 始终带 `user_id = ?`；`synth_session_id` 设置时
   覆盖时间窗（M0 session 可能跨默认 24h）。
+- Capture 行为：gateway 成功转发后把实际 upstream model 回填到 ops/QA context，
+  QA middleware 从同一 context 写入 `qa_records.upstream_model`。
 - 字段完整性：导出 zip 内 `qa_records.jsonl` 单行记录包含
   `synth_session_id`、`synth_role`（与 ent JSON tag 一致），M0 端
   `verify_c2_keys.py` 读 `api_key_id`、`verify_c3_model.py` 读
@@ -101,6 +108,8 @@
 - `backend/internal/observability/qa/middleware_synth_test.go`::`TestUS059_CaptureSynthHeaders_PipelineAloneFlipsDialogSynth`
 - `backend/internal/observability/qa/middleware_synth_test.go`::`TestUS059_CaptureSynthHeaders_AbsentReturnsEmpty`
 - `backend/internal/observability/qa/middleware_synth_test.go`::`TestUS059_CaptureSynthHeaders_BoundedLength`
+- `backend/internal/observability/qa/middleware_synth_test.go`::`TestUS070_MiddlewarePersistsUpstreamModelFromOpsContext`
+- `backend/internal/observability/qa/service_export_test.go`::`TestUS070_PersistCapture_WritesUpstreamModel`
 - `backend/internal/handler/qa_handler_test.go`::`TestUS059_ExportSelf_Unauthenticated_401`
 - `backend/internal/handler/qa_handler_test.go`::`TestUS059_ExportSelf_DisabledService_503`
 - `backend/internal/handler/qa_handler_test.go`::`TestUS059_ExportSelf_BySynthSessionID_200`

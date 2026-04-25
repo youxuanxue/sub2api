@@ -259,6 +259,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 			return
 		}
 		if result != nil {
+			setOpsForwardResultContext(c, result.UpstreamModel, reqModel)
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, result.FirstTokenMs)
 		} else {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, nil)
@@ -547,6 +548,7 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 			return
 		}
 		if result != nil {
+			setOpsForwardResultContext(c, result.UpstreamModel, reqModel)
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, result.FirstTokenMs)
 		} else {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, nil)
