@@ -457,6 +457,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					reqLog.Warn("gateway.rpm_increment_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 				}
 			}
+			setOpsForwardResultContext(c, result.UpstreamModel, reqModel)
+			setOpsClaudeUsageContext(c, result.Usage)
 
 			// 捕获请求信息（用于异步记录，避免在 goroutine 中访问 gin.Context）
 			userAgent := c.GetHeader("User-Agent")
@@ -799,6 +801,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					reqLog.Warn("gateway.rpm_increment_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 				}
 			}
+			setOpsForwardResultContext(c, result.UpstreamModel, reqModel)
+			setOpsClaudeUsageContext(c, result.Usage)
 
 			// 捕获请求信息（用于异步记录，避免在 goroutine 中访问 gin.Context）
 			userAgent := c.GetHeader("User-Agent")

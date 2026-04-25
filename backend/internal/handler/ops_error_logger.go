@@ -29,6 +29,9 @@ const (
 
 	opsUpstreamModelKey = "ops_upstream_model"
 	opsRequestTypeKey   = "ops_request_type"
+	opsInputTokensKey   = "ops_input_tokens"
+	opsOutputTokensKey  = "ops_output_tokens"
+	opsCachedTokensKey  = "ops_cached_tokens"
 
 	// 错误过滤匹配常量 — shouldSkipOpsErrorLog 和错误分类共用
 	opsErrContextCanceled            = "context canceled"
@@ -354,10 +357,41 @@ func setOpsEndpointContext(c *gin.Context, upstreamModel string, requestType int
 	if c == nil {
 		return
 	}
+	setOpsUpstreamModelContext(c, upstreamModel)
+	c.Set(opsRequestTypeKey, requestType)
+}
+
+func setOpsUpstreamModelContext(c *gin.Context, upstreamModel string) {
+	if c == nil {
+		return
+	}
 	if upstreamModel = strings.TrimSpace(upstreamModel); upstreamModel != "" {
 		c.Set(opsUpstreamModelKey, upstreamModel)
 	}
-	c.Set(opsRequestTypeKey, requestType)
+}
+
+func setOpsForwardResultContext(c *gin.Context, upstreamModel, requestedModel string) {
+	if strings.TrimSpace(upstreamModel) == "" {
+		upstreamModel = requestedModel
+	}
+	setOpsUpstreamModelContext(c, upstreamModel)
+}
+
+func setOpsTokenUsageContext(c *gin.Context, inputTokens, outputTokens, cachedTokens int) {
+	if c == nil {
+		return
+	}
+	c.Set(opsInputTokensKey, inputTokens)
+	c.Set(opsOutputTokensKey, outputTokens)
+	c.Set(opsCachedTokensKey, cachedTokens)
+}
+
+func setOpsClaudeUsageContext(c *gin.Context, usage service.ClaudeUsage) {
+	setOpsTokenUsageContext(c, usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens)
+}
+
+func setOpsOpenAIUsageContext(c *gin.Context, usage service.OpenAIUsage) {
+	setOpsTokenUsageContext(c, usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens)
 }
 
 func attachOpsRequestBodyToEntry(c *gin.Context, entry *service.OpsInsertErrorLogInput) {

@@ -234,6 +234,70 @@ func TestUS059_ExportUserData_UnknownSession_EmptyNotError(t *testing.T) {
 	require.NotEmpty(t, res.DownloadURL, "even an empty export gets a download URL (zip with empty jsonl)")
 }
 
+func TestUS070_PersistCapture_WritesUpstreamModel(t *testing.T) {
+	svc, client, _ := newQAExportTestService(t)
+	ctx := context.Background()
+	const (
+		sentinelInputTokens  = 123
+		sentinelOutputTokens = 45
+		sentinelCachedTokens = 6
+	)
+
+	err := svc.persistCapture(ctx, CaptureInput{
+		RequestID:      "capture-upstream-model",
+		UserID:         7,
+		APIKeyID:       1,
+		Platform:       "anthropic",
+		RequestedModel: "claude-sonnet-4-5",
+		UpstreamModel:  "claude-sonnet-4-5-20250929",
+		StatusCode:     200,
+		// Sentinel values prove persistCapture stores caller-provided usage
+		// exactly; production callers populate them from forward result usage.
+		InputTokens:  sentinelInputTokens,
+		OutputTokens: sentinelOutputTokens,
+		CachedTokens: sentinelCachedTokens,
+		CreatedAt:    time.Now().UTC(),
+	})
+	require.NoError(t, err)
+
+	record, err := client.QARecord.Query().Only(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, record.UpstreamModel)
+	require.Equal(t, "claude-sonnet-4-5-20250929", *record.UpstreamModel)
+	require.Equal(t, sentinelInputTokens, record.InputTokens)
+	require.Equal(t, sentinelOutputTokens, record.OutputTokens)
+	require.Equal(t, sentinelCachedTokens, record.CachedTokens)
+}
+
+func TestUS074_ExportUserData_FillsDefaultValuedFields(t *testing.T) {
+	svc, client, store := newQAExportTestService(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	mustInsertQARecord(t, ctx, client, qaRecordBuilder{requestID: "defaults", userID: 7, apiKeyID: 1, createdAt: now})
+
+	_, err := svc.ExportUserData(ctx, 7, ExportFilter{Since: now.Add(-1 * time.Hour), Until: now})
+	require.NoError(t, err)
+
+	var blob []byte
+	for _, v := range store.objects {
+		blob = v
+	}
+	zr, err := zip.NewReader(bytes.NewReader(blob), int64(len(blob)))
+	require.NoError(t, err)
+	rc, err := zr.File[0].Open()
+	require.NoError(t, err)
+	defer func() { _ = rc.Close() }()
+	raw, err := io.ReadAll(rc)
+	require.NoError(t, err)
+
+	var row map[string]any
+	require.NoError(t, json.Unmarshal(bytes.TrimSpace(raw), &row))
+	require.Equal(t, float64(0), row["cached_tokens"])
+	require.Equal(t, false, row["tool_calls_present"])
+	require.Equal(t, false, row["multimodal_present"])
+	require.Equal(t, []any{}, row["tags"])
+}
+
 func TestUS033_DownloadUserExport_OwnedKeyOnly(t *testing.T) {
 	svc, client, store := newQAExportTestService(t)
 	ctx := context.Background()

@@ -268,6 +268,8 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			return
 		}
 		if result != nil {
+			setOpsForwardResultContext(c, result.UpstreamModel, reqModel)
+			setOpsOpenAIUsageContext(c, result.Usage)
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, result.FirstTokenMs)
 		} else {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, nil)
