@@ -81,6 +81,16 @@
     Then `upstream_model` 非空；若 mapping 后模型与请求模型相同，也写入请求模型，
     避免 M0 C1/C3/C5 把 null 当作无法计价模型。
 
+11. **AC-011 (回归 / usage 与平台分类)**：Given gateway 成功 forward 后已有 usage
+    token 与 inbound endpoint，When QA capture middleware 持久化 `qa_records`，
+    Then `input_tokens` / `output_tokens` / `cached_tokens` 来自 usage context，
+    且 `/v1/messages` 归类为 `anthropic` 而非默认 `openai`。
+
+12. **AC-012 (回归 / 导出默认值归一化)**：Given ent schema 声明默认值的字段
+    在导出行里是零值，When `ExportUserData` 写 `qa_records.jsonl`，Then
+    `cached_tokens` / `tool_calls_present` / `multimodal_present` / `tags`
+    均存在且为 `0` / `false` / `[]`，不向外部消费者暴露 null/missing。
+
 ## Assertions
 
 - HTTP 状态码：401（无 auth）、503（service disabled）、400（坏 JSON）、
@@ -90,12 +100,14 @@
   `download_url` 对外部客户端为 HTTP(S)，不暴露容器内 `file://` 路径。
 - DB 行为：导出 SQL 始终带 `user_id = ?`；`synth_session_id` 设置时
   覆盖时间窗（M0 session 可能跨默认 24h）。
-- Capture 行为：gateway 成功转发后把实际 upstream model 回填到 ops/QA context，
-  QA middleware 从同一 context 写入 `qa_records.upstream_model`。
+- Capture 行为：gateway 成功转发后把实际 upstream model 与 usage tokens
+  回填到 ops/QA context，QA middleware 从同一 context 写入
+  `qa_records.upstream_model` / token 字段，并按 inbound endpoint 归类 platform。
 - 字段完整性：导出 zip 内 `qa_records.jsonl` 单行记录包含
-  `synth_session_id`、`synth_role`（与 ent JSON tag 一致），M0 端
-  `verify_c2_keys.py` 读 `api_key_id`、`verify_c3_model.py` 读
-  `upstream_model` 不需要适配。
+  `synth_session_id`、`synth_role`（与 ent JSON tag 一致）；ent 默认字段
+  `cached_tokens` / `tool_calls_present` / `multimodal_present` / `tags`
+  对外稳定为非 null 默认值；M0 端 `verify_c2_keys.py` 读 `api_key_id`、
+  `verify_c3_model.py` 读 `upstream_model` 不需要适配。
 
 ## Linked Tests
 
@@ -110,6 +122,7 @@
 - `backend/internal/observability/qa/middleware_synth_test.go`::`TestUS059_CaptureSynthHeaders_BoundedLength`
 - `backend/internal/observability/qa/middleware_synth_test.go`::`TestUS070_MiddlewarePersistsUpstreamModelFromOpsContext`
 - `backend/internal/observability/qa/service_export_test.go`::`TestUS070_PersistCapture_WritesUpstreamModel`
+- `backend/internal/observability/qa/service_export_test.go`::`TestUS074_ExportUserData_FillsDefaultValuedFields`
 - `backend/internal/handler/qa_handler_test.go`::`TestUS059_ExportSelf_Unauthenticated_401`
 - `backend/internal/handler/qa_handler_test.go`::`TestUS059_ExportSelf_DisabledService_503`
 - `backend/internal/handler/qa_handler_test.go`::`TestUS059_ExportSelf_BySynthSessionID_200`

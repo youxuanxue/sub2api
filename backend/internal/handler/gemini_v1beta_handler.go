@@ -492,6 +492,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		}
 
 		setOpsForwardResultContext(c, result.UpstreamModel, reqModel)
+		setOpsClaudeUsageContext(c, result.Usage)
 
 		// 捕获请求信息（用于异步记录，避免在 goroutine 中访问 gin.Context）
 		userAgent := c.GetHeader("User-Agent")

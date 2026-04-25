@@ -91,6 +91,9 @@ func TestUS070_MiddlewarePersistsUpstreamModelFromOpsContext(t *testing.T) {
 			Group:  &service.Group{Platform: service.PlatformAnthropic},
 		})
 		c.Set("ops_upstream_model", "claude-sonnet-4-5")
+		c.Set("ops_input_tokens", 123)
+		c.Set("ops_output_tokens", 45)
+		c.Set("ops_cached_tokens", 6)
 		c.Next()
 	})
 	r.Use(svc.Middleware())
@@ -110,6 +113,11 @@ func TestUS070_MiddlewarePersistsUpstreamModelFromOpsContext(t *testing.T) {
 		if err != nil {
 			return false
 		}
-		return record.UpstreamModel != nil && *record.UpstreamModel == "claude-sonnet-4-5"
+		return record.UpstreamModel != nil &&
+			*record.UpstreamModel == "claude-sonnet-4-5" &&
+			record.InputTokens == 123 &&
+			record.OutputTokens == 45 &&
+			record.CachedTokens == 6 &&
+			record.Platform == "anthropic"
 	}, 2*time.Second, 10*time.Millisecond)
 }

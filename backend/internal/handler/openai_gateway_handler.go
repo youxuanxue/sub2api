@@ -389,6 +389,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		}
 		if result != nil {
 			setOpsForwardResultContext(c, result.UpstreamModel, reqModel)
+			setOpsOpenAIUsageContext(c, result.Usage)
 			if account.Type == service.AccountTypeOAuth {
 				h.gatewayService.UpdateCodexUsageSnapshotFromHeaders(c.Request.Context(), account.ID, result.ResponseHeaders)
 			}
@@ -764,6 +765,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		}
 		if result != nil {
 			setOpsForwardResultContext(c, result.UpstreamModel, reqModel)
+			setOpsOpenAIUsageContext(c, result.Usage)
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, result.FirstTokenMs)
 		} else {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, nil)
@@ -1274,6 +1276,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				return
 			}
 			setOpsForwardResultContext(c, result.UpstreamModel, reqModel)
+			setOpsOpenAIUsageContext(c, result.Usage)
 			if account.Type == service.AccountTypeOAuth {
 				h.gatewayService.UpdateCodexUsageSnapshotFromHeaders(ctx, account.ID, result.ResponseHeaders)
 			}

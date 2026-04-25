@@ -205,6 +205,8 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 
 	setOpsForwardResultContext(c, outcome.UpstreamModel, reqModel)
 	openAIRecordAffinitySuccess(c, account.ID)
+	setOpsOpenAIUsageContext(c, service.OpenAIUsage{})
+	setOpsForwardResultContext(c, outcome.UpstreamModel, reqModel)
 
 	userAgent := c.GetHeader("User-Agent")
 	clientIP := ip.GetClientIP(c)

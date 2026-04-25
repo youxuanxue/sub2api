@@ -159,10 +159,12 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 		}
 	}
 
+	inboundEndpoint := captureInboundEndpoint(c)
 	platform, _ := c.Request.Context().Value(ctxkey.Platform).(string)
 	if platform == "" && apiKey.Group != nil {
 		platform = apiKey.Group.Platform
 	}
+	platform = capturePlatform(platform, inboundEndpoint)
 	status := c.Writer.Status()
 	durationMs := int64(0)
 	if tee != nil {
@@ -170,6 +172,7 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 	}
 
 	synthSession, synthRole, synthLevel, dialogSynth := captureSynthHeaders(c)
+	inputTokens, outputTokens, cachedTokens := captureTokenUsage(c)
 	input := CaptureInput{
 		RequestID:          strings.TrimSpace(requestID),
 		UserID:             apiKey.UserID,
@@ -178,7 +181,7 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 		Platform:           strings.TrimSpace(platform),
 		RequestedModel:     captureRequestedModel(requestBody),
 		UpstreamModel:      captureUpstreamModel(c),
-		InboundEndpoint:    captureInboundEndpoint(c),
+		InboundEndpoint:    inboundEndpoint,
 		StatusCode:         status,
 		DurationMs:         durationMs,
 		FirstTokenMs:       firstTokenMs,
@@ -187,6 +190,9 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 		ResponseBody:       responseBody,
 		ResponseHeaders:    captureResponseHeaders(c),
 		StreamChunks:       streamChunks,
+		InputTokens:        inputTokens,
+		OutputTokens:       outputTokens,
+		CachedTokens:       cachedTokens,
 		ToolCallsPresent:   captureToolCallsPresent(requestBody),
 		MultimodalPresent:  captureMultimodalPresent(requestBody),
 		Tags:               captureTags(requestBody, responseBody, status, responseTruncated),
@@ -348,6 +354,14 @@ func exportQARecordRow(record *ent.QARecord) map[string]any {
 	row["upstream_model"] = record.UpstreamModel
 	row["input_tokens"] = record.InputTokens
 	row["output_tokens"] = record.OutputTokens
+	row["cached_tokens"] = record.CachedTokens
+	row["tool_calls_present"] = record.ToolCallsPresent
+	row["multimodal_present"] = record.MultimodalPresent
+	if record.Tags == nil {
+		row["tags"] = []string{}
+	} else {
+		row["tags"] = record.Tags
+	}
 	row["synth_session_id"] = record.SynthSessionID
 	return row
 }
@@ -569,6 +583,32 @@ func captureUpstreamModel(c *gin.Context) string {
 	return ""
 }
 
+func captureTokenUsage(c *gin.Context) (int, int, int) {
+	if c == nil {
+		return 0, 0, 0
+	}
+	return captureIntContextValue(c, "ops_input_tokens"),
+		captureIntContextValue(c, "ops_output_tokens"),
+		captureIntContextValue(c, "ops_cached_tokens")
+}
+
+func captureIntContextValue(c *gin.Context, key string) int {
+	value, ok := c.Get(key)
+	if !ok {
+		return 0
+	}
+	switch v := value.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	default:
+		return 0
+	}
+}
+
 func captureToolCallsPresent(body []byte) bool {
 	if len(body) == 0 {
 		return false
@@ -590,6 +630,29 @@ func captureInboundEndpoint(c *gin.Context) string {
 		return ""
 	}
 	return c.Request.URL.Path
+}
+
+func capturePlatform(current, inboundEndpoint string) string {
+	current = strings.TrimSpace(current)
+	switch {
+	case inboundEndpoint == "/v1/messages":
+		return "anthropic"
+	case strings.HasPrefix(inboundEndpoint, "/v1beta/models/"):
+		return "gemini"
+	case strings.HasPrefix(inboundEndpoint, "/antigravity/"):
+		return "antigravity"
+	case strings.HasPrefix(inboundEndpoint, "/v1/chat/completions"),
+		strings.HasPrefix(inboundEndpoint, "/v1/responses"),
+		strings.HasPrefix(inboundEndpoint, "/v1/embeddings"),
+		strings.HasPrefix(inboundEndpoint, "/v1/images/"),
+		strings.HasPrefix(inboundEndpoint, "/v1/video/"),
+		strings.HasPrefix(inboundEndpoint, "/v1/videos"):
+		return "openai"
+	}
+	if current != "" {
+		return current
+	}
+	return "unknown"
 }
 
 func captureStreamFlag(c *gin.Context, chunks []RawSSEChunk) bool {
