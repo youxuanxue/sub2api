@@ -1,6 +1,10 @@
 package handler
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io/fs"
 	"net/http"
 	"strings"
 	"time"
@@ -100,8 +104,86 @@ func (h *QAHandler) ExportSelf(c *gin.Context) {
 	}
 
 	response.Success(c, ExportSelfResponse{
-		DownloadURL: result.DownloadURL,
+		DownloadURL: h.clientDownloadURL(c, result),
 		ExpiresAt:   result.ExpiresAt,
 		RecordCount: result.RecordCount,
 	})
+}
+
+// DownloadSelfExport serves localfs-backed export zips over HTTP for external
+// SDK/CI callers. S3 deployments keep using direct presigned URLs and do not
+// hit this path.
+func (h *QAHandler) DownloadSelfExport(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	if !h.service.Enabled() {
+		response.Error(c, http.StatusServiceUnavailable, "QA capture is disabled in this environment")
+		return
+	}
+
+	key := strings.TrimPrefix(c.Param("key"), "/")
+	body, err := h.service.DownloadUserExport(c.Request.Context(), subject.UserID, key)
+	if err != nil {
+		switch {
+		case errors.Is(err, fs.ErrPermission):
+			response.Forbidden(c, "Export not owned by authenticated user")
+		case errors.Is(err, fs.ErrNotExist):
+			response.NotFound(c, "Export not found or expired")
+		default:
+			response.ErrorFrom(c, err)
+		}
+		return
+	}
+
+	filename := "qa_export.zip"
+	parts := strings.Split(strings.TrimRight(key, "/"), "/")
+	if len(parts) > 0 && strings.HasSuffix(parts[len(parts)-1], ".zip") {
+		filename = parts[len(parts)-1]
+	}
+	c.DataFromReader(http.StatusOK, int64(len(body)), "application/zip", bytes.NewReader(body), map[string]string{
+		"Content-Disposition": fmt.Sprintf(`attachment; filename="%s"`, filename),
+	})
+}
+
+func (h *QAHandler) clientDownloadURL(c *gin.Context, result *qa.ExportResult) string {
+	if result == nil {
+		return ""
+	}
+	if !strings.HasPrefix(result.DownloadURL, "file://") || result.StorageKey == "" {
+		return result.DownloadURL
+	}
+	return absoluteRequestURL(c, "/api/v1/users/me/qa/exports/"+result.StorageKey)
+}
+
+func absoluteRequestURL(c *gin.Context, path string) string {
+	scheme := "http"
+	if c.Request != nil && c.Request.TLS != nil {
+		scheme = "https"
+	}
+	if xfProto := firstForwardedHeaderValue(c.GetHeader("X-Forwarded-Proto")); xfProto != "" {
+		scheme = xfProto
+	}
+
+	host := ""
+	if c.Request != nil {
+		host = strings.TrimSpace(c.Request.Host)
+	}
+	if xfHost := firstForwardedHeaderValue(c.GetHeader("X-Forwarded-Host")); xfHost != "" {
+		host = xfHost
+	}
+	if host == "" {
+		return path
+	}
+	return scheme + "://" + host + path
+}
+
+func firstForwardedHeaderValue(value string) string {
+	if value == "" {
+		return ""
+	}
+	return strings.TrimSpace(strings.Split(value, ",")[0])
 }

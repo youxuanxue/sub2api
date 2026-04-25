@@ -46,6 +46,7 @@ type ExportResult struct {
 	DownloadURL string    `json:"download_url"`
 	ExpiresAt   time.Time `json:"expires_at"`
 	RecordCount int       `json:"record_count"`
+	StorageKey  string    `json:"-"`
 }
 
 // ExportFilter narrows the qa_records covered by an export run. Zero-value

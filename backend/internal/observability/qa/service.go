@@ -9,8 +9,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -304,7 +306,7 @@ func (s *Service) ExportUserData(ctx context.Context, userID int64, filter Expor
 		return nil, err
 	}
 	for _, record := range records {
-		row, err := json.Marshal(record)
+		row, err := json.Marshal(exportQARecordRow(record))
 		if err != nil {
 			return nil, err
 		}
@@ -329,7 +331,67 @@ func (s *Service) ExportUserData(ctx context.Context, userID int64, filter Expor
 		DownloadURL: url,
 		ExpiresAt:   signedAt.Add(presignedURLTTL),
 		RecordCount: len(records),
+		StorageKey:  key,
 	}, nil
+}
+
+func exportQARecordRow(record *ent.QARecord) map[string]any {
+	row := map[string]any{}
+	raw, err := json.Marshal(record)
+	if err == nil {
+		_ = json.Unmarshal(raw, &row)
+	}
+	// Ent's generated JSON tags use omitempty, but M0's external consumer
+	// contract needs stable snake_case keys even when a value is nil/zero.
+	row["api_key_id"] = record.APIKeyID
+	row["upstream_model"] = record.UpstreamModel
+	row["input_tokens"] = record.InputTokens
+	row["output_tokens"] = record.OutputTokens
+	row["synth_session_id"] = record.SynthSessionID
+	return row
+}
+
+// DownloadUserExport reads a previously generated export zip after checking
+// that the storage key belongs to the authenticated user. This is the localfs
+// HTTP download proxy used by external SDK/CI clients; S3 users still receive
+// direct presigned URLs from ExportUserData.
+func (s *Service) DownloadUserExport(ctx context.Context, userID int64, key string) ([]byte, error) {
+	key = strings.TrimSpace(key)
+	prefix := fmt.Sprintf("exports/%d/", userID)
+	if key == "" || !strings.HasPrefix(key, prefix) || !strings.HasSuffix(key, ".zip") {
+		return nil, fs.ErrPermission
+	}
+	if strings.Contains(key, "\\") || strings.HasPrefix(key, "/") || hasUnsafePathSegment(key) {
+		return nil, fs.ErrPermission
+	}
+	if exportKeyExpired(key, time.Now().UTC()) {
+		return nil, fs.ErrNotExist
+	}
+	body, err := s.store.Get(ctx, key)
+	if err != nil && os.IsNotExist(err) {
+		return nil, fs.ErrNotExist
+	}
+	return body, err
+}
+
+func hasUnsafePathSegment(path string) bool {
+	for _, segment := range strings.Split(path, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return true
+		}
+	}
+	return false
+}
+
+func exportKeyExpired(key string, now time.Time) bool {
+	filename := filepath.Base(key)
+	stamp := strings.TrimSuffix(filename, ".zip")
+	nanos, err := strconv.ParseInt(stamp, 10, 64)
+	if err != nil {
+		return false
+	}
+	expiresAt := time.Unix(0, nanos).UTC().Add(presignedURLTTL)
+	return !now.Before(expiresAt)
 }
 
 func (s *Service) DeleteUserData(ctx context.Context, userID int64, before *time.Time) (int, error) {

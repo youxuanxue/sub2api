@@ -19,12 +19,16 @@ package handler
 //     filter (verified by record_count delta)
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
+	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -51,10 +55,24 @@ func (m *qaMemBlobStore) Put(_ context.Context, key string, body []byte, _ strin
 	m.objects[key] = cp
 	return "mem://" + key, nil
 }
-func (m *qaMemBlobStore) Get(_ context.Context, _ string) ([]byte, error)         { return nil, nil }
-func (m *qaMemBlobStore) Delete(_ context.Context, _ string) error                { return nil }
+func (m *qaMemBlobStore) Get(_ context.Context, key string) ([]byte, error) {
+	v, ok := m.objects[key]
+	if !ok {
+		return nil, fs.ErrNotExist
+	}
+	cp := make([]byte, len(v))
+	copy(cp, v)
+	return cp, nil
+}
+func (m *qaMemBlobStore) Delete(_ context.Context, _ string) error { return nil }
 func (m *qaMemBlobStore) PresignURL(_ context.Context, key string, _ time.Duration) (string, error) {
 	return "https://mem.example/" + key, nil
+}
+
+type qaLocalFSLikeBlobStore struct{ qaMemBlobStore }
+
+func (m *qaLocalFSLikeBlobStore) PresignURL(_ context.Context, key string, _ time.Duration) (string, error) {
+	return "file:///app/data/qa_blobs/" + key, nil
 }
 
 func newQAHandlerTestEnv(t *testing.T, withAuth bool, userID int64) (*gin.Engine, *dbent.Client, *QAHandler) {
@@ -70,11 +88,21 @@ func newQAHandlerTestEnv(t *testing.T, withAuth bool, userID int64) (*gin.Engine
 	client := enttest.NewClient(t, enttest.WithOptions(dbent.Driver(drv)))
 	t.Cleanup(func() { _ = client.Close() })
 
+	store := &qaMemBlobStore{}
+	r, h := newQAHandlerRouterWithStore(userID, withAuth, client, store)
+	return r, client, h
+}
+
+func newQAHandlerRouterWithStore(
+	userID int64,
+	withAuth bool,
+	client *dbent.Client,
+	store qa.BlobStore,
+) (*gin.Engine, *QAHandler) {
 	// NOTE: we hand-build the qa.Service here instead of going through
 	// NewService — that constructor expects a real config + S3 driver
-	// or local-fs path. The unexported zero-value Service with a stub
-	// blob store is the cheapest possible fixture.
-	svc := qa.NewServiceForTest(client, &qaMemBlobStore{})
+	// or local-fs path. A stub blob store is the cheapest possible fixture.
+	svc := qa.NewServiceForTest(client, store)
 	h := NewQAHandler(svc)
 
 	r := gin.New()
@@ -85,7 +113,8 @@ func newQAHandlerTestEnv(t *testing.T, withAuth bool, userID int64) (*gin.Engine
 		})
 	}
 	r.POST("/api/v1/users/me/qa/export", h.ExportSelf)
-	return r, client, h
+	r.GET("/api/v1/users/me/qa/exports/*key", h.DownloadSelfExport)
+	return r, h
 }
 
 func TestUS059_ExportSelf_Unauthenticated_401(t *testing.T) {
@@ -245,4 +274,90 @@ func TestUS059_ExportSelf_CannotEscapeUserScope(t *testing.T) {
 	dataMap := env.Data.(map[string]any)
 	require.Equal(t, float64(0), dataMap["record_count"],
 		"attacker (user 100) must NOT see another user's records even with the right synth_session_id")
+}
+
+func TestUS033_ExportSelf_LocalFSDownloadURLIsHTTPReachable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := sql.Open("sqlite", "file:qa_handler_localfs_test?mode=memory&cache=shared")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	_, err = db.Exec("PRAGMA foreign_keys = ON")
+	require.NoError(t, err)
+	drv := entsql.OpenDB(dialect.SQLite, db)
+	client := enttest.NewClient(t, enttest.WithOptions(dbent.Driver(drv)))
+	t.Cleanup(func() { _ = client.Close() })
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	_, err = client.QARecord.Create().
+		SetRequestID("localfs-row").
+		SetUserID(7).
+		SetAPIKeyID(1).
+		SetPlatform("anthropic").
+		SetSynthSessionID("m0-HTTP").
+		SetSynthRole("user-simulator").
+		SetRequestedModel("claude-sonnet").
+		SetUpstreamModel("claude-sonnet-4-5").
+		SetInputTokens(3).
+		SetOutputTokens(5).
+		SetCreatedAt(now).
+		SetRetentionUntil(now.Add(7 * 24 * time.Hour)).
+		Save(ctx)
+	require.NoError(t, err)
+
+	store := &qaLocalFSLikeBlobStore{qaMemBlobStore{objects: map[string][]byte{}}}
+	r, _ := newQAHandlerRouterWithStore(7, true, client, store)
+
+	body := bytes.NewBufferString(`{"synth_session_id":"m0-HTTP"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/qa/export", body)
+	req.Host = "api.tokenkey.test"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+	var env response.Response
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	dataMap := env.Data.(map[string]any)
+	downloadURL, ok := dataMap["download_url"].(string)
+	require.True(t, ok)
+	require.True(t, strings.HasPrefix(downloadURL, "https://api.tokenkey.test/api/v1/users/me/qa/exports/"))
+	require.NotContains(t, downloadURL, "file://", "external SDK clients must receive an HTTP(S) URL")
+
+	downloadPath := strings.TrimPrefix(downloadURL, "https://api.tokenkey.test")
+	downloadReq := httptest.NewRequest(http.MethodGet, downloadPath, nil)
+	downloadW := httptest.NewRecorder()
+	r.ServeHTTP(downloadW, downloadReq)
+
+	require.Equal(t, http.StatusOK, downloadW.Code, "body=%s", downloadW.Body.String())
+	require.Equal(t, "application/zip", downloadW.Header().Get("Content-Type"))
+	zr, err := zip.NewReader(bytes.NewReader(downloadW.Body.Bytes()), int64(downloadW.Body.Len()))
+	require.NoError(t, err)
+	require.Len(t, zr.File, 1)
+	rc, err := zr.File[0].Open()
+	require.NoError(t, err)
+	defer func() { _ = rc.Close() }()
+	raw, err := io.ReadAll(rc)
+	require.NoError(t, err)
+	var row map[string]any
+	require.NoError(t, json.Unmarshal(bytes.TrimSpace(raw), &row))
+	for _, field := range []string{"api_key_id", "upstream_model", "input_tokens", "output_tokens", "synth_session_id"} {
+		require.Contains(t, row, field, "M0 D6-required export field must stay snake_case")
+	}
+	require.Equal(t, "m0-HTTP", row["synth_session_id"])
+}
+
+func TestUS033_DownloadSelfExport_RejectsCrossUserAndTraversalKeys(t *testing.T) {
+	r, _, _ := newQAHandlerTestEnv(t, true, 7)
+
+	for _, path := range []string{
+		"/api/v1/users/me/qa/exports/exports/8/123.zip",
+		"/api/v1/users/me/qa/exports/exports/7/../8/123.zip",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		require.Equal(t, http.StatusForbidden, w.Code, "path=%s body=%s", path, w.Body.String())
+	}
 }

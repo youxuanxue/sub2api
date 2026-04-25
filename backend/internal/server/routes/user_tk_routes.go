@@ -38,6 +38,7 @@ func registerTKUserRoutes(authenticated, user *gin.RouterGroup, h *handler.Handl
 //
 // Endpoints (JWT OR API-key):
 //   - POST /api/v1/users/me/qa/export — issue #59 + #63.
+//   - GET /api/v1/users/me/qa/exports/*key — issue #67 + #68 localfs download.
 func registerTKUserDualAuthRoutes(
 	v1 *gin.RouterGroup,
 	h *handler.Handlers,
@@ -49,5 +50,6 @@ func registerTKUserDualAuthRoutes(
 	dualAuth.Use(middleware.BackendModeUserGuard(settingService))
 	{
 		dualAuth.POST("/users/me/qa/export", h.QA.ExportSelf)
+		dualAuth.GET("/users/me/qa/exports/*key", h.QA.DownloadSelfExport)
 	}
 }
