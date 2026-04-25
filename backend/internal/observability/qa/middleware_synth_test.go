@@ -80,6 +80,11 @@ func TestUS059_CaptureSynthHeaders_BoundedLength(t *testing.T) {
 }
 
 func TestUS070_MiddlewarePersistsUpstreamModelFromOpsContext(t *testing.T) {
+	const (
+		sentinelInputTokens  = 123
+		sentinelOutputTokens = 45
+		sentinelCachedTokens = 6
+	)
 	svc, client, _ := newQAExportTestService(t)
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -91,9 +96,11 @@ func TestUS070_MiddlewarePersistsUpstreamModelFromOpsContext(t *testing.T) {
 			Group:  &service.Group{Platform: service.PlatformAnthropic},
 		})
 		c.Set("ops_upstream_model", "claude-sonnet-4-5")
-		c.Set("ops_input_tokens", 123)
-		c.Set("ops_output_tokens", 45)
-		c.Set("ops_cached_tokens", 6)
+		// Sentinel values prove QA capture propagates usage from ops context
+		// unchanged. Production sets these from the gateway forward result.
+		c.Set("ops_input_tokens", sentinelInputTokens)
+		c.Set("ops_output_tokens", sentinelOutputTokens)
+		c.Set("ops_cached_tokens", sentinelCachedTokens)
 		c.Next()
 	})
 	r.Use(svc.Middleware())
@@ -115,9 +122,9 @@ func TestUS070_MiddlewarePersistsUpstreamModelFromOpsContext(t *testing.T) {
 		}
 		return record.UpstreamModel != nil &&
 			*record.UpstreamModel == "claude-sonnet-4-5" &&
-			record.InputTokens == 123 &&
-			record.OutputTokens == 45 &&
-			record.CachedTokens == 6 &&
+			record.InputTokens == sentinelInputTokens &&
+			record.OutputTokens == sentinelOutputTokens &&
+			record.CachedTokens == sentinelCachedTokens &&
 			record.Platform == "anthropic"
 	}, 2*time.Second, 10*time.Millisecond)
 }

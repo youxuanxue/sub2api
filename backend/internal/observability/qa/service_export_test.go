@@ -237,6 +237,11 @@ func TestUS059_ExportUserData_UnknownSession_EmptyNotError(t *testing.T) {
 func TestUS070_PersistCapture_WritesUpstreamModel(t *testing.T) {
 	svc, client, _ := newQAExportTestService(t)
 	ctx := context.Background()
+	const (
+		sentinelInputTokens  = 123
+		sentinelOutputTokens = 45
+		sentinelCachedTokens = 6
+	)
 
 	err := svc.persistCapture(ctx, CaptureInput{
 		RequestID:      "capture-upstream-model",
@@ -246,10 +251,12 @@ func TestUS070_PersistCapture_WritesUpstreamModel(t *testing.T) {
 		RequestedModel: "claude-sonnet-4-5",
 		UpstreamModel:  "claude-sonnet-4-5-20250929",
 		StatusCode:     200,
-		InputTokens:    123,
-		OutputTokens:   45,
-		CachedTokens:   6,
-		CreatedAt:      time.Now().UTC(),
+		// Sentinel values prove persistCapture stores caller-provided usage
+		// exactly; production callers populate them from forward result usage.
+		InputTokens:  sentinelInputTokens,
+		OutputTokens: sentinelOutputTokens,
+		CachedTokens: sentinelCachedTokens,
+		CreatedAt:    time.Now().UTC(),
 	})
 	require.NoError(t, err)
 
@@ -257,9 +264,9 @@ func TestUS070_PersistCapture_WritesUpstreamModel(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, record.UpstreamModel)
 	require.Equal(t, "claude-sonnet-4-5-20250929", *record.UpstreamModel)
-	require.Equal(t, 123, record.InputTokens)
-	require.Equal(t, 45, record.OutputTokens)
-	require.Equal(t, 6, record.CachedTokens)
+	require.Equal(t, sentinelInputTokens, record.InputTokens)
+	require.Equal(t, sentinelOutputTokens, record.OutputTokens)
+	require.Equal(t, sentinelCachedTokens, record.CachedTokens)
 }
 
 func TestUS074_ExportUserData_FillsDefaultValuedFields(t *testing.T) {
