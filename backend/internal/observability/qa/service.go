@@ -92,7 +92,7 @@ func (s *Service) Enabled() bool {
 
 func (s *Service) BodyMaxBytes() int {
 	if s == nil || s.bodyMaxBytes <= 0 {
-		return 256 * 1024
+		return 1024 * 1024
 	}
 	return s.bodyMaxBytes
 }

@@ -1376,7 +1376,7 @@ func setDefaults() {
 
 	// QA capture
 	viper.SetDefault("qa_capture.enabled", true)
-	viper.SetDefault("qa_capture.body_max_bytes", 256*1024)
+	viper.SetDefault("qa_capture.body_max_bytes", 1024*1024)
 	viper.SetDefault("qa_capture.retention_days", 60)
 	viper.SetDefault("qa_capture.worker_count", 8)
 	viper.SetDefault("qa_capture.queue_size", 2048)
