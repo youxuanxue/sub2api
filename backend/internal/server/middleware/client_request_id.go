@@ -34,3 +34,25 @@ func ClientRequestID() gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// TrajectoryID ensures every request has a stable trajectory_id in request.Context().
+func TrajectoryID() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.Request == nil {
+			c.Next()
+			return
+		}
+
+		if v := c.Request.Context().Value(ctxkey.TrajectoryID); v != nil {
+			c.Next()
+			return
+		}
+
+		id := uuid.New().String()
+		ctx := context.WithValue(c.Request.Context(), ctxkey.TrajectoryID, id)
+		requestLogger := logger.FromContext(ctx).With(zap.String("trajectory_id", strings.TrimSpace(id)))
+		ctx = logger.IntoContext(ctx, requestLogger)
+		c.Request = c.Request.WithContext(ctx)
+		c.Next()
+	}
+}

@@ -15,6 +15,8 @@ const (
 	FieldID = "id"
 	// FieldRequestID holds the string denoting the request_id field in the database.
 	FieldRequestID = "request_id"
+	// FieldTrajectoryID holds the string denoting the trajectory_id field in the database.
+	FieldTrajectoryID = "trajectory_id"
 	// FieldUserID holds the string denoting the user_id field in the database.
 	FieldUserID = "user_id"
 	// FieldAPIKeyID holds the string denoting the api_key_id field in the database.
@@ -77,6 +79,7 @@ const (
 var Columns = []string{
 	FieldID,
 	FieldRequestID,
+	FieldTrajectoryID,
 	FieldUserID,
 	FieldAPIKeyID,
 	FieldAccountID,
@@ -164,6 +167,11 @@ func ByID(opts ...sql.OrderTermOption) OrderOption {
 // ByRequestID orders the results by the request_id field.
 func ByRequestID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldRequestID, opts...).ToFunc()
+}
+
+// ByTrajectoryID orders the results by the trajectory_id field.
+func ByTrajectoryID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTrajectoryID, opts...).ToFunc()
 }
 
 // ByUserID orders the results by the user_id field.

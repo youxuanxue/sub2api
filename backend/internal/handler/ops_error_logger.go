@@ -202,8 +202,8 @@ func enqueueOpsErrorLog(ops *service.OpsService, entry *service.OpsInsertErrorLo
 	opsErrorLogOnce.Do(startOpsErrorLogWorkers)
 
 	opsErrorLogMu.RLock()
-	defer opsErrorLogMu.RUnlock()
 	if opsErrorLogStopping || opsErrorLogQueue == nil {
+		opsErrorLogMu.RUnlock()
 		return
 	}
 
@@ -211,10 +211,14 @@ func enqueueOpsErrorLog(ops *service.OpsService, entry *service.OpsInsertErrorLo
 	case opsErrorLogQueue <- opsErrorLogJob{ops: ops, entry: entry}:
 		opsErrorLogQueueLen.Add(1)
 		opsErrorLogEnqueued.Add(1)
+		opsErrorLogMu.RUnlock()
 	default:
-		// Queue is full; drop to avoid blocking request handling.
+		opsErrorLogMu.RUnlock()
 		opsErrorLogDropped.Add(1)
 		maybeLogOpsErrorLogDrop()
+		ctx, cancel := context.WithTimeout(context.Background(), opsErrorLogTimeout)
+		_ = ops.PrepareErrorFallback(ctx, entry, nil, "ops_error_log_queue_full")
+		cancel()
 	}
 }
 
@@ -555,6 +559,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 
 			apiKey, _ := middleware2.GetAPIKeyFromContext(c)
 			clientRequestID, _ := c.Request.Context().Value(ctxkey.ClientRequestID).(string)
+			trajectoryID, _ := c.Request.Context().Value(ctxkey.TrajectoryID).(string)
 
 			model, _ := c.Get(opsModelKey)
 			streamV, _ := c.Get(opsStreamKey)
@@ -667,6 +672,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			entry := &service.OpsInsertErrorLogInput{
 				RequestID:       requestID,
 				ClientRequestID: clientRequestID,
+				TrajectoryID:    trajectoryID,
 
 				AccountID: accountID,
 				Platform:  platform,
@@ -781,6 +787,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		apiKey, _ := middleware2.GetAPIKeyFromContext(c)
 
 		clientRequestID, _ := c.Request.Context().Value(ctxkey.ClientRequestID).(string)
+		trajectoryID, _ := c.Request.Context().Value(ctxkey.TrajectoryID).(string)
 
 		model, _ := c.Get(opsModelKey)
 		streamV, _ := c.Get(opsStreamKey)
@@ -818,6 +825,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		entry := &service.OpsInsertErrorLogInput{
 			RequestID:       requestID,
 			ClientRequestID: clientRequestID,
+			TrajectoryID:    trajectoryID,
 
 			AccountID: accountID,
 			Platform:  platform,

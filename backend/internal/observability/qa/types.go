@@ -9,6 +9,7 @@ type RawSSEChunk struct {
 
 type CaptureInput struct {
 	RequestID         string
+	TrajectoryID      string
 	UserID            int64
 	APIKeyID          int64
 	AccountID         *int64

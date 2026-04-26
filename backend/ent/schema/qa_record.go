@@ -24,6 +24,7 @@ func (QARecord) Annotations() []schema.Annotation {
 func (QARecord) Fields() []ent.Field {
 	return []ent.Field{
 		field.String("request_id").Unique().NotEmpty(),
+		field.String("trajectory_id").Optional().Nillable(),
 		field.Int64("user_id"),
 		field.Int64("api_key_id"),
 		field.Int64("account_id").Optional().Nillable(),

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	newapitypes "github.com/QuantumNous/new-api/types"
+	"github.com/Wei-Shaw/sub2api/internal/engine"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
 	"github.com/gin-gonic/gin"
@@ -16,27 +17,10 @@ import (
 // Video bridge endpoint identifiers. Lives in the TK companion (not in the
 // upstream-shape gateway_bridge_dispatch.go) so adding/removing TK-only
 // endpoints is a single-file change with no upstream merge surface.
-//
-// The canonical accountUsesNewAPIAdaptorBridge gate delegates here via
-// tkBridgeEndpointEnabled — so the upstream-shape file is unaware of which
-// extra endpoints TK has added beyond the four it natively recognizes.
 const (
-	BridgeEndpointVideoSubmit = "video_submit"
-	BridgeEndpointVideoFetch  = "video_fetch"
+	BridgeEndpointVideoSubmit = engine.BridgeEndpointVideoSubmit
+	BridgeEndpointVideoFetch  = engine.BridgeEndpointVideoFetch
 )
-
-// tkBridgeEndpointEnabled reports whether the endpoint name is one of the
-// TK-extended bridge endpoints. The nil-account / channel_type>0 / kill-switch
-// preconditions are already enforced by accountUsesNewAPIAdaptorBridge before
-// this is consulted; we only answer the endpoint-name question.
-func tkBridgeEndpointEnabled(endpoint string) bool {
-	switch endpoint {
-	case BridgeEndpointVideoSubmit, BridgeEndpointVideoFetch:
-		return true
-	default:
-		return false
-	}
-}
 
 // errBridgeVideoUnsupportedChannel returns a precise 400 to the client when
 // the selected account's channel_type has no upstream task adaptor registered

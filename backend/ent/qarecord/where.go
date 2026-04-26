@@ -59,6 +59,11 @@ func RequestID(v string) predicate.QARecord {
 	return predicate.QARecord(sql.FieldEQ(FieldRequestID, v))
 }
 
+// TrajectoryID applies equality check predicate on the "trajectory_id" field. It's identical to TrajectoryIDEQ.
+func TrajectoryID(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldTrajectoryID, v))
+}
+
 // UserID applies equality check predicate on the "user_id" field. It's identical to UserIDEQ.
 func UserID(v int64) predicate.QARecord {
 	return predicate.QARecord(sql.FieldEQ(FieldUserID, v))
@@ -252,6 +257,81 @@ func RequestIDEqualFold(v string) predicate.QARecord {
 // RequestIDContainsFold applies the ContainsFold predicate on the "request_id" field.
 func RequestIDContainsFold(v string) predicate.QARecord {
 	return predicate.QARecord(sql.FieldContainsFold(FieldRequestID, v))
+}
+
+// TrajectoryIDEQ applies the EQ predicate on the "trajectory_id" field.
+func TrajectoryIDEQ(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldTrajectoryID, v))
+}
+
+// TrajectoryIDNEQ applies the NEQ predicate on the "trajectory_id" field.
+func TrajectoryIDNEQ(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldNEQ(FieldTrajectoryID, v))
+}
+
+// TrajectoryIDIn applies the In predicate on the "trajectory_id" field.
+func TrajectoryIDIn(vs ...string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldIn(FieldTrajectoryID, vs...))
+}
+
+// TrajectoryIDNotIn applies the NotIn predicate on the "trajectory_id" field.
+func TrajectoryIDNotIn(vs ...string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldNotIn(FieldTrajectoryID, vs...))
+}
+
+// TrajectoryIDGT applies the GT predicate on the "trajectory_id" field.
+func TrajectoryIDGT(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldGT(FieldTrajectoryID, v))
+}
+
+// TrajectoryIDGTE applies the GTE predicate on the "trajectory_id" field.
+func TrajectoryIDGTE(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldGTE(FieldTrajectoryID, v))
+}
+
+// TrajectoryIDLT applies the LT predicate on the "trajectory_id" field.
+func TrajectoryIDLT(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldLT(FieldTrajectoryID, v))
+}
+
+// TrajectoryIDLTE applies the LTE predicate on the "trajectory_id" field.
+func TrajectoryIDLTE(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldLTE(FieldTrajectoryID, v))
+}
+
+// TrajectoryIDContains applies the Contains predicate on the "trajectory_id" field.
+func TrajectoryIDContains(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldContains(FieldTrajectoryID, v))
+}
+
+// TrajectoryIDHasPrefix applies the HasPrefix predicate on the "trajectory_id" field.
+func TrajectoryIDHasPrefix(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldHasPrefix(FieldTrajectoryID, v))
+}
+
+// TrajectoryIDHasSuffix applies the HasSuffix predicate on the "trajectory_id" field.
+func TrajectoryIDHasSuffix(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldHasSuffix(FieldTrajectoryID, v))
+}
+
+// TrajectoryIDIsNil applies the IsNil predicate on the "trajectory_id" field.
+func TrajectoryIDIsNil() predicate.QARecord {
+	return predicate.QARecord(sql.FieldIsNull(FieldTrajectoryID))
+}
+
+// TrajectoryIDNotNil applies the NotNil predicate on the "trajectory_id" field.
+func TrajectoryIDNotNil() predicate.QARecord {
+	return predicate.QARecord(sql.FieldNotNull(FieldTrajectoryID))
+}
+
+// TrajectoryIDEqualFold applies the EqualFold predicate on the "trajectory_id" field.
+func TrajectoryIDEqualFold(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEqualFold(FieldTrajectoryID, v))
+}
+
+// TrajectoryIDContainsFold applies the ContainsFold predicate on the "trajectory_id" field.
+func TrajectoryIDContainsFold(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldContainsFold(FieldTrajectoryID, v))
 }
 
 // UserIDEQ applies the EQ predicate on the "user_id" field.

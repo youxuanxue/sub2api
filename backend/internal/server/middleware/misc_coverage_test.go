@@ -55,6 +55,45 @@ func TestClientRequestID_PreservesExisting(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 }
 
+func TestTrajectoryID_GeneratesWhenMissing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	r := gin.New()
+	r.Use(TrajectoryID())
+	r.GET("/t", func(c *gin.Context) {
+		v := c.Request.Context().Value(ctxkey.TrajectoryID)
+		require.NotNil(t, v)
+		id, ok := v.(string)
+		require.True(t, ok)
+		require.NotEmpty(t, id)
+		c.Status(http.StatusOK)
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/t", nil)
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestTrajectoryID_PreservesExisting(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	r := gin.New()
+	r.Use(TrajectoryID())
+	r.GET("/t", func(c *gin.Context) {
+		id, ok := c.Request.Context().Value(ctxkey.TrajectoryID).(string)
+		require.True(t, ok)
+		require.Equal(t, "traj-keep", id)
+		c.Status(http.StatusOK)
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/t", nil)
+	req = req.WithContext(context.WithValue(req.Context(), ctxkey.TrajectoryID, "traj-keep"))
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+}
+
 func TestRequestBodyLimit_LimitsBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

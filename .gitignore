@@ -139,6 +139,8 @@ scripts/*
 !scripts/check_approved_docs.py
 !scripts/newapi-sentinels.json
 !scripts/check-newapi-sentinels.py
+!scripts/brand-sentinels.json
+!scripts/check-brand-sentinels.py
 !scripts/setup-claude-code.sh
 !scripts/error_clustering/
 !scripts/error_clustering/**

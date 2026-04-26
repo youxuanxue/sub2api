@@ -752,6 +752,7 @@ var (
 	QaRecordsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
 		{Name: "request_id", Type: field.TypeString, Unique: true},
+		{Name: "trajectory_id", Type: field.TypeString, Nullable: true},
 		{Name: "user_id", Type: field.TypeInt64},
 		{Name: "api_key_id", Type: field.TypeInt64},
 		{Name: "account_id", Type: field.TypeInt64, Nullable: true},
@@ -789,22 +790,22 @@ var (
 			{
 				Name:    "qarecord_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{QaRecordsColumns[27]},
+				Columns: []*schema.Column{QaRecordsColumns[28]},
 			},
 			{
 				Name:    "qarecord_api_key_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{QaRecordsColumns[3], QaRecordsColumns[27]},
+				Columns: []*schema.Column{QaRecordsColumns[4], QaRecordsColumns[28]},
 			},
 			{
 				Name:    "qarecord_user_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{QaRecordsColumns[2], QaRecordsColumns[27]},
+				Columns: []*schema.Column{QaRecordsColumns[3], QaRecordsColumns[28]},
 			},
 			{
 				Name:    "qarecord_platform_status_code_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{QaRecordsColumns[5], QaRecordsColumns[10], QaRecordsColumns[27]},
+				Columns: []*schema.Column{QaRecordsColumns[6], QaRecordsColumns[11], QaRecordsColumns[28]},
 			},
 		},
 	}

@@ -29,10 +29,10 @@ function mountBadge(platform: AccountPlatform | string, type: AccountType = 'api
 }
 
 describe('PlatformTypeBadge (US-017 — fifth platform newapi must not be mislabeled as Gemini)', () => {
-  it('renders newapi as "New API" with cyan styling (the bug we are fixing)', () => {
+  it('renders newapi as "Extension Engine" with cyan styling (the bug we are fixing)', () => {
     const wrapper = mountBadge('newapi')
 
-    expect(wrapper.text()).toContain('New API')
+    expect(wrapper.text()).toContain('Extension Engine')
     expect(wrapper.text()).not.toContain('Gemini')
     expect(wrapper.html()).toContain('bg-cyan-100')
     expect(wrapper.html()).not.toContain('bg-blue-100') // would indicate Gemini-fallback regression

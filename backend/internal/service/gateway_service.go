@@ -8866,23 +8866,31 @@ const debugGatewayBodyDefaultFilename = "gateway_debug.log"
 //   - 已有目录路径        → 该目录下 gateway_debug.log
 //   - 其他               → 视为完整文件路径
 func (s *GatewayService) initDebugGatewayBodyFile(path string) {
+	path = strings.TrimSpace(path)
 	if parseDebugEnvBool(path) {
 		path = debugGatewayBodyDefaultFilename
 	}
+	if path == "" {
+		return
+	}
+	path = filepath.Clean(path)
 
 	// 如果 path 指向一个已存在的目录，自动追加默认文件名
+	// #nosec G703 -- debug log path is operator-controlled local config, then cleaned below.
 	if info, err := os.Stat(path); err == nil && info.IsDir() {
 		path = filepath.Join(path, debugGatewayBodyDefaultFilename)
 	}
 
 	// 确保父目录存在
-	if dir := filepath.Dir(path); dir != "." {
+	if dir := filepath.Clean(filepath.Dir(path)); dir != "." {
+		// #nosec G703 -- directory comes from cleaned operator-configured debug path.
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			slog.Error("failed to create gateway debug log directory", "dir", dir, "error", err)
 			return
 		}
 	}
 
+	// #nosec G703 -- file path comes from cleaned operator-configured debug path.
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		slog.Error("failed to open gateway debug log file", "path", path, "error", err)

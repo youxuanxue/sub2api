@@ -12,7 +12,7 @@ export const PLATFORM_LABELS: Record<AccountPlatform, string> = {
   openai: 'OpenAI',
   gemini: 'Gemini',
   antigravity: 'Antigravity',
-  newapi: 'New API',
+  newapi: 'Extension Engine',
 }
 
 export interface PlatformOption {

@@ -19364,6 +19364,7 @@ type QARecordMutation struct {
 	typ                  string
 	id                   *int64
 	request_id           *string
+	trajectory_id        *string
 	user_id              *int64
 	adduser_id           *int64
 	api_key_id           *int64
@@ -19539,6 +19540,55 @@ func (m *QARecordMutation) OldRequestID(ctx context.Context) (v string, err erro
 // ResetRequestID resets all changes to the "request_id" field.
 func (m *QARecordMutation) ResetRequestID() {
 	m.request_id = nil
+}
+
+// SetTrajectoryID sets the "trajectory_id" field.
+func (m *QARecordMutation) SetTrajectoryID(s string) {
+	m.trajectory_id = &s
+}
+
+// TrajectoryID returns the value of the "trajectory_id" field in the mutation.
+func (m *QARecordMutation) TrajectoryID() (r string, exists bool) {
+	v := m.trajectory_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTrajectoryID returns the old "trajectory_id" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldTrajectoryID(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTrajectoryID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTrajectoryID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTrajectoryID: %w", err)
+	}
+	return oldValue.TrajectoryID, nil
+}
+
+// ClearTrajectoryID clears the value of the "trajectory_id" field.
+func (m *QARecordMutation) ClearTrajectoryID() {
+	m.trajectory_id = nil
+	m.clearedFields[qarecord.FieldTrajectoryID] = struct{}{}
+}
+
+// TrajectoryIDCleared returns if the "trajectory_id" field was cleared in this mutation.
+func (m *QARecordMutation) TrajectoryIDCleared() bool {
+	_, ok := m.clearedFields[qarecord.FieldTrajectoryID]
+	return ok
+}
+
+// ResetTrajectoryID resets all changes to the "trajectory_id" field.
+func (m *QARecordMutation) ResetTrajectoryID() {
+	m.trajectory_id = nil
+	delete(m.clearedFields, qarecord.FieldTrajectoryID)
 }
 
 // SetUserID sets the "user_id" field.
@@ -20848,9 +20898,12 @@ func (m *QARecordMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *QARecordMutation) Fields() []string {
-	fields := make([]string, 0, 28)
+	fields := make([]string, 0, 29)
 	if m.request_id != nil {
 		fields = append(fields, qarecord.FieldRequestID)
+	}
+	if m.trajectory_id != nil {
+		fields = append(fields, qarecord.FieldTrajectoryID)
 	}
 	if m.user_id != nil {
 		fields = append(fields, qarecord.FieldUserID)
@@ -20943,6 +20996,8 @@ func (m *QARecordMutation) Field(name string) (ent.Value, bool) {
 	switch name {
 	case qarecord.FieldRequestID:
 		return m.RequestID()
+	case qarecord.FieldTrajectoryID:
+		return m.TrajectoryID()
 	case qarecord.FieldUserID:
 		return m.UserID()
 	case qarecord.FieldAPIKeyID:
@@ -21008,6 +21063,8 @@ func (m *QARecordMutation) OldField(ctx context.Context, name string) (ent.Value
 	switch name {
 	case qarecord.FieldRequestID:
 		return m.OldRequestID(ctx)
+	case qarecord.FieldTrajectoryID:
+		return m.OldTrajectoryID(ctx)
 	case qarecord.FieldUserID:
 		return m.OldUserID(ctx)
 	case qarecord.FieldAPIKeyID:
@@ -21077,6 +21134,13 @@ func (m *QARecordMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetRequestID(v)
+		return nil
+	case qarecord.FieldTrajectoryID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTrajectoryID(v)
 		return nil
 	case qarecord.FieldUserID:
 		v, ok := value.(int64)
@@ -21408,6 +21472,9 @@ func (m *QARecordMutation) AddField(name string, value ent.Value) error {
 // mutation.
 func (m *QARecordMutation) ClearedFields() []string {
 	var fields []string
+	if m.FieldCleared(qarecord.FieldTrajectoryID) {
+		fields = append(fields, qarecord.FieldTrajectoryID)
+	}
 	if m.FieldCleared(qarecord.FieldAccountID) {
 		fields = append(fields, qarecord.FieldAccountID)
 	}
@@ -21446,6 +21513,9 @@ func (m *QARecordMutation) FieldCleared(name string) bool {
 // error if the field is not defined in the schema.
 func (m *QARecordMutation) ClearField(name string) error {
 	switch name {
+	case qarecord.FieldTrajectoryID:
+		m.ClearTrajectoryID()
+		return nil
 	case qarecord.FieldAccountID:
 		m.ClearAccountID()
 		return nil
@@ -21480,6 +21550,9 @@ func (m *QARecordMutation) ResetField(name string) error {
 	switch name {
 	case qarecord.FieldRequestID:
 		m.ResetRequestID()
+		return nil
+	case qarecord.FieldTrajectoryID:
+		m.ResetTrajectoryID()
 		return nil
 	case qarecord.FieldUserID:
 		m.ResetUserID()

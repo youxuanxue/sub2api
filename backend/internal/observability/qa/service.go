@@ -4,9 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -20,6 +18,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/qarecord"
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/observability/trajectory"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
@@ -125,6 +124,7 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 	}
 
 	requestID, _ := c.Request.Context().Value(ctxkey.RequestID).(string)
+	trajectoryID, _ := c.Request.Context().Value(ctxkey.TrajectoryID).(string)
 	requestBytes, _ := c.Get(contextKeyRequestBytes)
 	teeValue, _ := c.Get(contextKeyTeeWriter)
 	tee, _ := teeValue.(*teeResponseWriter)
@@ -175,6 +175,7 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 	inputTokens, outputTokens, cachedTokens := captureTokenUsage(c)
 	input := CaptureInput{
 		RequestID:          strings.TrimSpace(requestID),
+		TrajectoryID:       strings.TrimSpace(trajectoryID),
 		UserID:             apiKey.UserID,
 		APIKeyID:           apiKey.ID,
 		AccountID:          accountID,
@@ -210,8 +211,8 @@ func (s *Service) persistCapture(ctx context.Context, input CaptureInput) error 
 	if err != nil {
 		return err
 	}
-	key := s.blobKey(input.CreatedAt, input.RequestID)
-	blobURI, err := s.writeBlob(ctx, key, payload, input.RequestID)
+	key := trajectory.BlobKey(input.CreatedAt.Year(), int(input.CreatedAt.Month()), input.CreatedAt.Day(), input.RequestID)
+	blobURI, err := trajectory.NewWriter(s.store, s.dlqDir).Write(ctx, key, payload, input.RequestID)
 	if err != nil {
 		return err
 	}
@@ -237,6 +238,9 @@ func (s *Service) persistCapture(ctx context.Context, input CaptureInput) error 
 		SetTags(tags).
 		SetCreatedAt(input.CreatedAt).
 		SetRetentionUntil(input.CreatedAt.Add(time.Duration(s.retentionDays) * 24 * time.Hour))
+	if v := strings.TrimSpace(input.TrajectoryID); v != "" {
+		create = create.SetTrajectoryID(v)
+	}
 	if input.AccountID != nil {
 		create = create.SetAccountID(*input.AccountID)
 	}
@@ -460,8 +464,9 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 	}
 
 	payload := map[string]any{
-		"request_id":  input.RequestID,
-		"captured_at": input.CreatedAt.Format(time.RFC3339),
+		"request_id":    input.RequestID,
+		"trajectory_id": strings.TrimSpace(input.TrajectoryID),
+		"captured_at":   input.CreatedAt.Format(time.RFC3339),
 		"request": map[string]any{
 			"path": input.InboundEndpoint,
 			"body": requestValue,
@@ -485,34 +490,9 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 		return nil, "", "", nil, err
 	}
 	compressed := enc.EncodeAll(raw, make([]byte, 0, len(raw)))
-	requestSHA := sha256Hex(requestValue)
-	responseSHA := sha256Hex(responseValue)
+	requestSHA := trajectory.SHA256Hex(requestValue)
+	responseSHA := trajectory.SHA256Hex(responseValue)
 	return compressed, requestSHA, responseSHA, dedupeTags(input.Tags), nil
-}
-
-func (s *Service) writeBlob(ctx context.Context, key string, payload []byte, requestID string) (string, error) {
-	blobURI, err := s.store.Put(ctx, key, payload, "application/zstd")
-	if err == nil {
-		return blobURI, nil
-	}
-	if dlqErr := os.MkdirAll(s.dlqDir, 0o755); dlqErr != nil {
-		return "", err
-	}
-	dlqPath := filepath.Join(s.dlqDir, requestID+".json.zst")
-	if writeErr := os.WriteFile(dlqPath, payload, 0o644); writeErr != nil {
-		return "", err
-	}
-	return "dlq://" + dlqPath, nil
-}
-
-func (s *Service) blobKey(createdAt time.Time, requestID string) string {
-	return fmt.Sprintf("%04d/%02d/%02d/%s/%s.json.zst",
-		createdAt.Year(),
-		int(createdAt.Month()),
-		createdAt.Day(),
-		requestIDPrefix(requestID),
-		requestID,
-	)
 }
 
 func (s *Service) keyFromBlobURI(blobURI string) string {
@@ -526,25 +506,6 @@ func (s *Service) keyFromBlobURI(blobURI string) string {
 		return strings.TrimPrefix(blobURI, "file://")
 	}
 	return ""
-}
-
-func requestIDPrefix(requestID string) string {
-	if len(requestID) < 2 {
-		return "00"
-	}
-	return requestID[:2]
-}
-
-func sha256Hex(value any) string {
-	switch v := value.(type) {
-	case string:
-		sum := sha256.Sum256([]byte(v))
-		return hex.EncodeToString(sum[:])
-	default:
-		raw, _ := json.Marshal(v)
-		sum := sha256.Sum256(raw)
-		return hex.EncodeToString(sum[:])
-	}
 }
 
 func sanitizeQABytes(raw []byte, maxBytes int) any {
