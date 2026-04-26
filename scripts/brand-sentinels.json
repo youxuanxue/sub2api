@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "rationale": "Outward TokenKey brand surfaces that must stay converged: default SPA title, public README product heading, SPA document-title fallback, and the fifth-platform admin label (internal key remains `newapi`; user-facing copy is Extension Engine per docs/global/tokenkey-opc-transformation-plan.md §7.2). This registry intentionally does NOT ban `sub2api` / `newapi` where they are compatibility or routing identifiers.",
+  "sentinels": [
+    {
+      "path": "frontend/index.html",
+      "must_contain": ["<title>TokenKey"],
+      "rationale": "Default embedded SPA browser tab title before JS runs; regressing to Sub2API breaks the single-product narrative for every fresh load."
+    },
+    {
+      "path": "README.md",
+      "must_contain": ["# TokenKey", "TokenKey is an AI"],
+      "rationale": "Public English README is the primary outbound product boundary; the H1 and overview sentence anchor the TokenKey brand for operators and integrators."
+    },
+    {
+      "path": "README_CN.md",
+      "must_contain": ["# TokenKey"],
+      "rationale": "Chinese README H1 must stay aligned with the English product brand."
+    },
+    {
+      "path": "README_JA.md",
+      "must_contain": ["# TokenKey"],
+      "rationale": "Japanese README H1 must stay aligned with the English product brand."
+    },
+    {
+      "path": "frontend/src/router/title.ts",
+      "must_contain": ["'TokenKey'"],
+      "rationale": "SPA `document.title` fallback when site_name is unset; drifting back to Sub2API re-splits admin tab branding from the embedded index.html default."
+    },
+    {
+      "path": "frontend/src/composables/usePlatformOptions.ts",
+      "must_contain": ["newapi: 'Extension Engine'"],
+      "rationale": "Fifth platform admin display label: degrades `newapi` from an external product name to Extension Engine while keeping the platform key `newapi` for routing/API."
+    }
+  ]
+}
