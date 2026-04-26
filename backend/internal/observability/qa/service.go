@@ -29,6 +29,10 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+// QAExportFormatVersion is the manifest + zip layout revision for self-contained
+// synth-session exports (issue #79). Bump when changing manifest or jsonl fields.
+const QAExportFormatVersion = "qa_export_v1"
+
 type Service struct {
 	client        *ent.Client
 	cfg           config.QACaptureConfig
@@ -300,34 +304,24 @@ func (s *Service) ExportUserData(ctx context.Context, userID int64, filter Expor
 
 	records, err := s.client.QARecord.Query().
 		Where(predicates...).
-		Order(ent.Asc(qarecord.FieldCreatedAt)).
+		Order(
+			ent.Asc(qarecord.FieldCreatedAt),
+			ent.Asc(qarecord.FieldRequestID),
+		).
 		All(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	var buf bytes.Buffer
-	zipWriter := zip.NewWriter(&buf)
-	indexWriter, err := zipWriter.Create("qa_records.jsonl")
+	selfContained := strings.TrimSpace(filter.SynthSessionID) != ""
+	zipBytes, exportIncomplete, err := s.buildExportZip(ctx, records, selfContained)
 	if err != nil {
-		return nil, err
-	}
-	for _, record := range records {
-		row, err := json.Marshal(exportQARecordRow(record))
-		if err != nil {
-			return nil, err
-		}
-		if _, err := indexWriter.Write(append(row, '\n')); err != nil {
-			return nil, err
-		}
-	}
-	if err := zipWriter.Close(); err != nil {
 		return nil, err
 	}
 
 	key := fmt.Sprintf("exports/%d/%d.zip", userID, time.Now().UnixNano())
 	signedAt := time.Now().UTC()
-	if _, err := s.store.Put(ctx, key, buf.Bytes(), "application/zip"); err != nil {
+	if _, err := s.store.Put(ctx, key, zipBytes, "application/zip"); err != nil {
 		return nil, err
 	}
 	url, err := s.store.PresignURL(ctx, key, presignedURLTTL)
@@ -335,11 +329,147 @@ func (s *Service) ExportUserData(ctx context.Context, userID int64, filter Expor
 		return nil, err
 	}
 	return &ExportResult{
-		DownloadURL: url,
-		ExpiresAt:   signedAt.Add(presignedURLTTL),
-		RecordCount: len(records),
-		StorageKey:  key,
+		DownloadURL:         url,
+		ExpiresAt:           signedAt.Add(presignedURLTTL),
+		RecordCount:         len(records),
+		StorageKey:          key,
+		ExportFormatVersion: QAExportFormatVersion,
+		ExportIncomplete:    exportIncomplete,
 	}, nil
+}
+
+// buildExportZip writes qa_records.jsonl, optional per-record blobs under blobs/,
+// and manifest.json. When requireSelfContainedBlobs is true (synth_session_id export),
+// any missing blob, fetch error, or body_truncated tag fails the whole export (issue #79 E5).
+func (s *Service) buildExportZip(ctx context.Context, records []*ent.QARecord, requireSelfContainedBlobs bool) ([]byte, bool, error) {
+	var buf bytes.Buffer
+	zipWriter := zip.NewWriter(&buf)
+
+	manifestIncomplete := false
+	type rowBlob struct {
+		row  map[string]any
+		blob []byte
+		path string
+	}
+	prepared := make([]rowBlob, 0, len(records))
+
+	for _, record := range records {
+		if qaRecordHasTag(record, "body_truncated") {
+			manifestIncomplete = true
+			if requireSelfContainedBlobs {
+				_ = zipWriter.Close()
+				return nil, false, fmt.Errorf("qa export: incomplete capture (body_truncated) for request_id=%s", record.RequestID)
+			}
+		}
+
+		row := exportQARecordRow(record)
+		rb := rowBlob{row: row}
+
+		if requireSelfContainedBlobs {
+			uri := ""
+			if record.BlobURI != nil {
+				uri = strings.TrimSpace(*record.BlobURI)
+			}
+			key := s.keyFromBlobURI(uri)
+			if key == "" {
+				_ = zipWriter.Close()
+				return nil, false, fmt.Errorf("qa export: record %s has no fetchable blob_uri for self-contained export", record.RequestID)
+			}
+			blobBytes, err := s.store.Get(ctx, key)
+			if err != nil {
+				_ = zipWriter.Close()
+				return nil, false, fmt.Errorf("qa export: cannot read blob for request_id=%s: %w", record.RequestID, err)
+			}
+			rb.blob = blobBytes
+			rb.path = qaExportBlobZipPath(record.RequestID)
+			row["capture_archive_path"] = rb.path
+			row["capture_encoding"] = "application/zstd+json"
+			// Offline consumers use capture_archive_path; drop remote-only pointer.
+			delete(row, "blob_uri")
+		}
+
+		prepared = append(prepared, rb)
+	}
+
+	indexWriter, err := zipWriter.Create("qa_records.jsonl")
+	if err != nil {
+		_ = zipWriter.Close()
+		return nil, false, err
+	}
+	for _, rb := range prepared {
+		line, err := json.Marshal(rb.row)
+		if err != nil {
+			_ = zipWriter.Close()
+			return nil, false, err
+		}
+		if _, err := indexWriter.Write(append(line, '\n')); err != nil {
+			_ = zipWriter.Close()
+			return nil, false, err
+		}
+	}
+
+	if requireSelfContainedBlobs {
+		for _, rb := range prepared {
+			if rb.path == "" || len(rb.blob) == 0 {
+				_ = zipWriter.Close()
+				return nil, false, fmt.Errorf("qa export: internal error: missing blob payload for zip entry")
+			}
+			w, err := zipWriter.Create(rb.path)
+			if err != nil {
+				_ = zipWriter.Close()
+				return nil, false, err
+			}
+			if _, err := w.Write(rb.blob); err != nil {
+				_ = zipWriter.Close()
+				return nil, false, err
+			}
+		}
+	}
+
+	manifest := map[string]any{
+		"export_format_version": QAExportFormatVersion,
+		"includes_blobs":        requireSelfContainedBlobs,
+		"record_count":          len(records),
+		"incomplete":            manifestIncomplete,
+	}
+	mw, err := zipWriter.Create("manifest.json")
+	if err != nil {
+		_ = zipWriter.Close()
+		return nil, false, err
+	}
+	enc := json.NewEncoder(mw)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(manifest); err != nil {
+		_ = zipWriter.Close()
+		return nil, false, err
+	}
+
+	if err := zipWriter.Close(); err != nil {
+		return nil, false, err
+	}
+	return buf.Bytes(), manifestIncomplete, nil
+}
+
+func qaRecordHasTag(record *ent.QARecord, want string) bool {
+	if record == nil {
+		return false
+	}
+	for _, t := range record.Tags {
+		if strings.TrimSpace(t) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func qaExportBlobZipPath(requestID string) string {
+	id := strings.TrimSpace(requestID)
+	id = strings.ReplaceAll(id, "/", "_")
+	id = strings.ReplaceAll(id, "\\", "_")
+	if id == "" || id == "." || id == ".." {
+		id = "unknown"
+	}
+	return "blobs/" + id + ".json.zst"
 }
 
 func exportQARecordRow(record *ent.QARecord) map[string]any {
@@ -524,6 +654,10 @@ func (s *Service) keyFromBlobURI(blobURI string) string {
 		}
 	case strings.HasPrefix(blobURI, "file://"):
 		return strings.TrimPrefix(blobURI, "file://")
+	case strings.HasPrefix(blobURI, "mem://"):
+		return strings.TrimPrefix(blobURI, "mem://")
+	case strings.HasPrefix(blobURI, "dlq://"):
+		return strings.TrimPrefix(blobURI, "dlq://")
 	}
 	return ""
 }

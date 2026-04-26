@@ -24,6 +24,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -41,6 +42,7 @@ import (
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
 	"github.com/gin-gonic/gin"
+	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/require"
 )
 
@@ -76,6 +78,11 @@ func (m *qaLocalFSLikeBlobStore) PresignURL(_ context.Context, key string, _ tim
 }
 
 func newQAHandlerTestEnv(t *testing.T, withAuth bool, userID int64) (*gin.Engine, *dbent.Client, *QAHandler) {
+	r, client, h, _ := newQAHandlerTestEnvWithStore(t, withAuth, userID)
+	return r, client, h
+}
+
+func newQAHandlerTestEnvWithStore(t *testing.T, withAuth bool, userID int64) (*gin.Engine, *dbent.Client, *QAHandler, *qaMemBlobStore) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 
@@ -90,7 +97,47 @@ func newQAHandlerTestEnv(t *testing.T, withAuth bool, userID int64) (*gin.Engine
 
 	store := &qaMemBlobStore{}
 	r, h := newQAHandlerRouterWithStore(userID, withAuth, client, store)
-	return r, client, h
+	return r, client, h, store
+}
+
+func readHandlerZipFile(t *testing.T, zr *zip.Reader, name string) []byte {
+	t.Helper()
+	for _, f := range zr.File {
+		if f.Name == name {
+			rc, err := f.Open()
+			require.NoError(t, err)
+			b, err := io.ReadAll(rc)
+			_ = rc.Close()
+			require.NoError(t, err)
+			return b
+		}
+	}
+	t.Fatalf("zip missing %q", name)
+	return nil
+}
+
+func qaBlobStoreKeyForRequestID(createdAt time.Time, requestID string) string {
+	prefix := "00"
+	if len(requestID) >= 2 {
+		prefix = requestID[:2]
+	}
+	return fmt.Sprintf("%04d/%02d/%02d/%s/%s.json.zst",
+		createdAt.Year(), int(createdAt.Month()), createdAt.Day(), prefix, requestID)
+}
+
+func putQAZstdBlob(t *testing.T, store *qaMemBlobStore, createdAt time.Time, requestID string) string {
+	t.Helper()
+	if store.objects == nil {
+		store.objects = map[string][]byte{}
+	}
+	enc, err := zstd.NewWriter(nil)
+	require.NoError(t, err)
+	payload := []byte(`{"request_id":"` + requestID + `","captured_at":"` + createdAt.UTC().Format(time.RFC3339) + `","request":{"path":"/v1/messages","body":{}},"response":{"status_code":200,"headers":{},"body":{}},"stream":{"chunks":[]},"redactions":["logredact"]}`)
+	zst := enc.EncodeAll(payload, nil)
+	_ = enc.Close()
+	key := qaBlobStoreKeyForRequestID(createdAt, requestID)
+	store.objects[key] = zst
+	return "mem://" + key
 }
 
 func newQAHandlerRouterWithStore(
@@ -145,12 +192,11 @@ func TestUS059_ExportSelf_DisabledService_503(t *testing.T) {
 }
 
 func TestUS059_ExportSelf_BySynthSessionID_200(t *testing.T) {
-	r, client, _ := newQAHandlerTestEnv(t, true, 7)
+	r, client, _, store := newQAHandlerTestEnvWithStore(t, true, 7)
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	// One record under user 7 in the target session, plus one un-tagged
-	// record (must NOT be exported).
+	blobURI := putQAZstdBlob(t, store, now, "r1")
 	_, err := client.QARecord.Create().
 		SetRequestID("r1").
 		SetUserID(7).
@@ -159,6 +205,7 @@ func TestUS059_ExportSelf_BySynthSessionID_200(t *testing.T) {
 		SetSynthSessionID("m0-XYZ").
 		SetSynthRole("user-simulator").
 		SetDialogSynth(true).
+		SetBlobURI(blobURI).
 		SetCreatedAt(now).
 		SetRetentionUntil(now.Add(7 * 24 * time.Hour)).
 		Save(ctx)
@@ -246,17 +293,18 @@ func TestUS059_ExportSelf_BadRequest_InvalidJSON(t *testing.T) {
 // belonging to a different user, the service-layer `WHERE user_id =`
 // predicate must return zero records (and the handler must not 500).
 func TestUS059_ExportSelf_CannotEscapeUserScope(t *testing.T) {
-	r, client, _ := newQAHandlerTestEnv(t, true, 100)
+	r, client, _, store := newQAHandlerTestEnvWithStore(t, true, 100)
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	// Record owned by user 200, NOT 100.
+	// Victim row would be exportable if user scope were wrong — it must not surface to user 100.
 	_, err := client.QARecord.Create().
 		SetRequestID("victim").
 		SetUserID(200).
 		SetAPIKeyID(2).
 		SetPlatform("anthropic").
 		SetSynthSessionID("m0-VICTIM").
+		SetBlobURI(putQAZstdBlob(t, store, now, "victim")).
 		SetCreatedAt(now).
 		SetRetentionUntil(now.Add(7 * 24 * time.Hour)).
 		Save(ctx)
@@ -289,6 +337,8 @@ func TestUS033_ExportSelf_LocalFSDownloadURLIsHTTPReachable(t *testing.T) {
 
 	ctx := context.Background()
 	now := time.Now().UTC()
+	store := &qaLocalFSLikeBlobStore{qaMemBlobStore{objects: map[string][]byte{}}}
+	blobURI := putQAZstdBlob(t, &store.qaMemBlobStore, now, "localfs-row")
 	_, err = client.QARecord.Create().
 		SetRequestID("localfs-row").
 		SetUserID(7).
@@ -300,12 +350,12 @@ func TestUS033_ExportSelf_LocalFSDownloadURLIsHTTPReachable(t *testing.T) {
 		SetUpstreamModel("claude-sonnet-4-5").
 		SetInputTokens(3).
 		SetOutputTokens(5).
+		SetBlobURI(blobURI).
 		SetCreatedAt(now).
 		SetRetentionUntil(now.Add(7 * 24 * time.Hour)).
 		Save(ctx)
 	require.NoError(t, err)
 
-	store := &qaLocalFSLikeBlobStore{qaMemBlobStore{objects: map[string][]byte{}}}
 	r, _ := newQAHandlerRouterWithStore(7, true, client, store)
 
 	body := bytes.NewBufferString(`{"synth_session_id":"m0-HTTP"}`)
@@ -334,12 +384,8 @@ func TestUS033_ExportSelf_LocalFSDownloadURLIsHTTPReachable(t *testing.T) {
 	require.Equal(t, "application/zip", downloadW.Header().Get("Content-Type"))
 	zr, err := zip.NewReader(bytes.NewReader(downloadW.Body.Bytes()), int64(downloadW.Body.Len()))
 	require.NoError(t, err)
-	require.Len(t, zr.File, 1)
-	rc, err := zr.File[0].Open()
-	require.NoError(t, err)
-	defer func() { _ = rc.Close() }()
-	raw, err := io.ReadAll(rc)
-	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(zr.File), 3, "manifest + jsonl + blob")
+	raw := readHandlerZipFile(t, zr, "qa_records.jsonl")
 	var row map[string]any
 	require.NoError(t, json.Unmarshal(bytes.TrimSpace(raw), &row))
 	for _, field := range []string{"api_key_id", "upstream_model", "input_tokens", "output_tokens", "synth_session_id"} {

@@ -61,6 +61,10 @@ type ExportSelfResponse struct {
 	DownloadURL string    `json:"download_url"`
 	ExpiresAt   time.Time `json:"expires_at"`
 	RecordCount int       `json:"record_count"`
+	// ExportFormatVersion matches manifest.json when present (issue #79); empty for legacy-only zips.
+	ExportFormatVersion string `json:"export_format_version,omitempty"`
+	// ExportIncomplete is true when manifest.incomplete is true (time-window exports); omitted when false.
+	ExportIncomplete bool `json:"export_incomplete,omitempty"`
 }
 
 // ExportSelf handles POST /api/v1/users/me/qa/export.
@@ -104,9 +108,11 @@ func (h *QAHandler) ExportSelf(c *gin.Context) {
 	}
 
 	response.Success(c, ExportSelfResponse{
-		DownloadURL: h.clientDownloadURL(c, result),
-		ExpiresAt:   result.ExpiresAt,
-		RecordCount: result.RecordCount,
+		DownloadURL:         h.clientDownloadURL(c, result),
+		ExpiresAt:           result.ExpiresAt,
+		RecordCount:         result.RecordCount,
+		ExportFormatVersion: result.ExportFormatVersion,
+		ExportIncomplete:    result.ExportIncomplete,
 	})
 }
 

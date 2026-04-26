@@ -162,6 +162,7 @@ docs/*
 !docs/bugs/
 !docs/deploy/
 !docs/preflight-debt.md
+!docs/qa_export_contract.md
 .serena/
 .codex/
 frontend/coverage/

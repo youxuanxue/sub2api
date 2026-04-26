@@ -47,6 +47,10 @@ type ExportResult struct {
 	ExpiresAt   time.Time `json:"expires_at"`
 	RecordCount int       `json:"record_count"`
 	StorageKey  string    `json:"-"`
+	// ExportFormatVersion is set when the zip includes manifest.json (issue #79).
+	ExportFormatVersion string `json:"-"`
+	// ExportIncomplete is true when any included row lost blob payload or is tagged body_truncated.
+	ExportIncomplete bool `json:"-"`
 }
 
 // ExportFilter narrows the qa_records covered by an export run. Zero-value
