@@ -2,10 +2,15 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/observability/trajectory"
+	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/require"
 )
 
@@ -96,6 +101,73 @@ func TestOpsServiceRecordErrorBatch_FallsBackToSingleInsert(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, batchCalls)
 	require.Equal(t, 2, singleCalls)
+}
+
+func TestOpsServiceRecordError_FallsBackWhenRepoUnavailable(t *testing.T) {
+	t.Setenv("DATA_DIR", t.TempDir())
+	before := trajectory.DLQWrites()
+	svc := NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+
+	err := svc.RecordError(context.Background(), &OpsInsertErrorLogInput{
+		RequestID:    "req_repo_unavailable",
+		TrajectoryID: "traj_repo_unavailable",
+		ErrorPhase:   "upstream",
+		ErrorType:    "upstream_error",
+		ErrorMessage: "failed",
+	}, nil)
+	require.NoError(t, err)
+	require.Equal(t, before+1, trajectory.DLQWrites())
+	payload := readOpsFallbackPayload(t, filepath.Join(os.Getenv("DATA_DIR"), "ops_dlq", "req_repo_unavailable.json.zst"))
+	require.Equal(t, "ops_error_fallback", payload["kind"])
+	require.Equal(t, "ops_repo_unavailable", payload["fallback_for"])
+	entryPayload, ok := payload["entry"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "req_repo_unavailable", entryPayload["RequestID"])
+	require.Equal(t, "traj_repo_unavailable", entryPayload["TrajectoryID"])
+}
+
+func TestOpsServiceRecordError_FallsBackWhenInsertFails(t *testing.T) {
+	t.Setenv("DATA_DIR", t.TempDir())
+	before := trajectory.DLQWrites()
+	repo := &opsRepoMock{
+		InsertErrorLogFn: func(ctx context.Context, input *OpsInsertErrorLogInput) (int64, error) {
+			return 0, errors.New("insert failed")
+		},
+	}
+	svc := NewOpsService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+
+	err := svc.RecordError(context.Background(), &OpsInsertErrorLogInput{
+		RequestID:    "req_insert_failed",
+		TrajectoryID: "traj_insert_failed",
+		ErrorPhase:   "upstream",
+		ErrorType:    "upstream_error",
+		ErrorMessage: "failed",
+	}, nil)
+	require.Error(t, err)
+	require.Equal(t, before+1, trajectory.DLQWrites())
+	payload := readOpsFallbackPayload(t, filepath.Join(os.Getenv("DATA_DIR"), "ops_dlq", "req_insert_failed.json.zst"))
+	require.Equal(t, "ops_error_fallback", payload["kind"])
+	require.Equal(t, "ops_insert_failed", payload["fallback_for"])
+	entryPayload, ok := payload["entry"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "req_insert_failed", entryPayload["RequestID"])
+	require.Equal(t, "traj_insert_failed", entryPayload["TrajectoryID"])
+}
+
+func readOpsFallbackPayload(t *testing.T, path string) map[string]any {
+	t.Helper()
+
+	// #nosec G304,G703 -- path is a test-controlled temp file created within this test.
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	dec, err := zstd.NewReader(nil)
+	require.NoError(t, err)
+	decoded, err := dec.DecodeAll(raw, nil)
+	require.NoError(t, err)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(decoded, &payload))
+	return payload
 }
 
 func strPtr(v string) *string {

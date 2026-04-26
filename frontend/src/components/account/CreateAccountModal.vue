@@ -163,7 +163,7 @@
             ]"
           >
             <Icon name="server" size="sm" />
-            New API
+            Extension Engine
           </button>
         </div>
       </div>

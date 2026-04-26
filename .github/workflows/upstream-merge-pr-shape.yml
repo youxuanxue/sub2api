@@ -1,7 +1,7 @@
 name: Upstream Merge PR Shape
 
 # Mechanical enforcement of CLAUDE.md §5.y for any PR whose head branch
-# matches `merge/upstream-*`. Validates four things:
+# matches `merge/upstream-*`. Validates five things:
 #
 #   1. The PR contains at least one merge commit whose second parent is
 #      reachable from upstream/main. This is what `git merge --no-ff
@@ -18,6 +18,10 @@ name: Upstream Merge PR Shape
 #      docs/approved/newapi-as-fifth-platform.md: an upstream merge
 #      silently drops a TK companion file or a `case PlatformNewAPI`
 #      branch and the regression is only noticed weeks later.
+#   5. Every outward TokenKey brand surface listed in
+#      `scripts/brand-sentinels.json` is still intact after the merge,
+#      so upstream churn cannot silently revert default title / README /
+#      fifth-platform display labels back into split branding.
 #
 # A green check here is a hard prerequisite for merging. Branch protection
 # on `main` should require this workflow status for `merge/upstream-*` PRs.
@@ -147,7 +151,26 @@ jobs:
             exit 1
           fi
 
+      - name: Check 5 — brand sentinels still intact after merge
+        run: |
+          # Single source of truth: scripts/brand-sentinels.json. This stays
+          # intentionally separate from the newapi semantic guard: compat
+          # identities like `sub2api` / `newapi` are still valid in internal
+          # route / image / repo identities; this check only protects outward
+          # TokenKey brand surfaces from drifting apart again.
+          if [ ! -x ./scripts/check-brand-sentinels.py ]; then
+            echo "::error::scripts/check-brand-sentinels.py missing or not executable."
+            echo "::error::Per the TokenKey OPC baseline, this guard cannot be silently disabled."
+            exit 1
+          fi
+          if ! python3 ./scripts/check-brand-sentinels.py; then
+            echo "::error::Upstream merge regressed at least one outward brand sentinel."
+            echo "::error::Restore the dropped / reverted brand surface in this merge PR."
+            echo "::error::Do NOT 'fix' by deleting the brand sentinel entry."
+            exit 1
+          fi
+
       - name: Summary
         run: |
-          echo "All four §5.y / §5.x checks passed for merge/upstream-* PR."
+          echo "All five §5.y / §5.x checks passed for merge/upstream-* PR."
           echo "Reviewer reminder: pick GitHub 'Create a merge commit' (not Squash)."

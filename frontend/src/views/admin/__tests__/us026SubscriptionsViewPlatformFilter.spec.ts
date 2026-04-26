@@ -4,12 +4,6 @@ import { flushPromises, mount } from '@vue/test-utils'
 import SubscriptionsView from '../SubscriptionsView.vue'
 
 const { listSubscriptions, getAllGroups, searchUsers } = vi.hoisted(() => {
-  vi.stubGlobal('localStorage', {
-    getItem: vi.fn(() => null),
-    setItem: vi.fn(),
-    removeItem: vi.fn(),
-  })
-
   return {
     listSubscriptions: vi.fn(),
     getAllGroups: vi.fn(),
@@ -138,7 +132,7 @@ describe('US-026: SubscriptionsView platform filter must include the fifth platf
     expect(values).toContain('')
 
     const newapiOption = platformSelect!.options.find((o) => o.value === 'newapi')
-    expect(newapiOption?.label).toBe('New API')
+    expect(newapiOption?.label).toBe('Extension Engine')
   })
 
   it('exposes exactly the 5 canonical platforms + sentinel "all" entry (no extras, no missing)', async () => {

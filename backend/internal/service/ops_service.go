@@ -129,10 +129,20 @@ func (s *OpsService) RecordError(ctx context.Context, entry *OpsInsertErrorLogIn
 	if !ok {
 		return nil
 	}
+	if s.opsRepo == nil {
+		if fallbackErr := s.persistPreparedErrorFallback(ctx, prepared, "ops_repo_unavailable"); fallbackErr != nil {
+			log.Printf("[Ops] RecordError fallback failed: %v", fallbackErr)
+			return fallbackErr
+		}
+		return nil
+	}
 
 	if _, err := s.opsRepo.InsertErrorLog(ctx, prepared); err != nil {
 		// Never bubble up to gateway; best-effort logging.
 		log.Printf("[Ops] RecordError failed: %v", err)
+		if fallbackErr := s.persistPreparedErrorFallback(ctx, prepared, "ops_insert_failed"); fallbackErr != nil {
+			log.Printf("[Ops] RecordError fallback failed: %v", fallbackErr)
+		}
 		return err
 	}
 	return nil
@@ -156,10 +166,25 @@ func (s *OpsService) RecordErrorBatch(ctx context.Context, entries []*OpsInsertE
 	if len(prepared) == 0 {
 		return nil
 	}
+	if s.opsRepo == nil {
+		var firstErr error
+		for _, entry := range prepared {
+			if fallbackErr := s.persistPreparedErrorFallback(ctx, entry, "ops_repo_unavailable"); fallbackErr != nil {
+				log.Printf("[Ops] RecordErrorBatch repo-unavailable fallback failed: %v", fallbackErr)
+				if firstErr == nil {
+					firstErr = fallbackErr
+				}
+			}
+		}
+		return firstErr
+	}
 	if len(prepared) == 1 {
 		_, err := s.opsRepo.InsertErrorLog(ctx, prepared[0])
 		if err != nil {
 			log.Printf("[Ops] RecordErrorBatch single insert failed: %v", err)
+			if fallbackErr := s.persistPreparedErrorFallback(ctx, prepared[0], "ops_insert_failed"); fallbackErr != nil {
+				log.Printf("[Ops] RecordErrorBatch single fallback failed: %v", fallbackErr)
+			}
 		}
 		return err
 	}
@@ -170,6 +195,9 @@ func (s *OpsService) RecordErrorBatch(ctx context.Context, entries []*OpsInsertE
 		for _, entry := range prepared {
 			if _, insertErr := s.opsRepo.InsertErrorLog(ctx, entry); insertErr != nil {
 				log.Printf("[Ops] RecordErrorBatch fallback insert failed: %v", insertErr)
+				if fallbackErr := s.persistPreparedErrorFallback(ctx, entry, "ops_insert_failed"); fallbackErr != nil {
+					log.Printf("[Ops] RecordErrorBatch fallback persistence failed: %v", fallbackErr)
+				}
 				if firstErr == nil {
 					firstErr = insertErr
 				}
@@ -180,14 +208,19 @@ func (s *OpsService) RecordErrorBatch(ctx context.Context, entries []*OpsInsertE
 	return nil
 }
 
+func (s *OpsService) PrepareErrorFallback(ctx context.Context, entry *OpsInsertErrorLogInput, rawRequestBody []byte, reason string) error {
+	prepared, ok, err := s.prepareErrorLogInput(ctx, entry, rawRequestBody)
+	if err != nil || !ok {
+		return err
+	}
+	return s.persistPreparedErrorFallback(ctx, prepared, reason)
+}
+
 func (s *OpsService) prepareErrorLogInput(ctx context.Context, entry *OpsInsertErrorLogInput, rawRequestBody []byte) (*OpsInsertErrorLogInput, bool, error) {
 	if entry == nil {
 		return nil, false, nil
 	}
 	if !s.IsMonitoringEnabled(ctx) {
-		return nil, false, nil
-	}
-	if s.opsRepo == nil {
 		return nil, false, nil
 	}
 

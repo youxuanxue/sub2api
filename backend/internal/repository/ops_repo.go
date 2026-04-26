@@ -20,6 +20,7 @@ const insertOpsErrorLogSQL = `
 INSERT INTO ops_error_logs (
   request_id,
   client_request_id,
+  trajectory_id,
   user_id,
   api_key_id,
   account_id,
@@ -62,7 +63,7 @@ INSERT INTO ops_error_logs (
   retry_count,
   created_at
 ) VALUES (
-  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43
+  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44
 )`
 
 func NewOpsRepository(db *sql.DB) service.OpsRepository {
@@ -136,6 +137,7 @@ func opsInsertErrorLogArgs(input *service.OpsInsertErrorLogInput) []any {
 	return []any{
 		opsNullString(input.RequestID),
 		opsNullString(input.ClientRequestID),
+		opsNullString(input.TrajectoryID),
 		opsNullInt64(input.UserID),
 		opsNullInt64(input.APIKeyID),
 		opsNullInt64(input.AccountID),

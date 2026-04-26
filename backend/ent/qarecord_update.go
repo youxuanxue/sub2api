@@ -43,6 +43,26 @@ func (_u *QARecordUpdate) SetNillableRequestID(v *string) *QARecordUpdate {
 	return _u
 }
 
+// SetTrajectoryID sets the "trajectory_id" field.
+func (_u *QARecordUpdate) SetTrajectoryID(v string) *QARecordUpdate {
+	_u.mutation.SetTrajectoryID(v)
+	return _u
+}
+
+// SetNillableTrajectoryID sets the "trajectory_id" field if the given value is not nil.
+func (_u *QARecordUpdate) SetNillableTrajectoryID(v *string) *QARecordUpdate {
+	if v != nil {
+		_u.SetTrajectoryID(*v)
+	}
+	return _u
+}
+
+// ClearTrajectoryID clears the value of the "trajectory_id" field.
+func (_u *QARecordUpdate) ClearTrajectoryID() *QARecordUpdate {
+	_u.mutation.ClearTrajectoryID()
+	return _u
+}
+
 // SetUserID sets the "user_id" field.
 func (_u *QARecordUpdate) SetUserID(v int64) *QARecordUpdate {
 	_u.mutation.ResetUserID()
@@ -573,6 +593,12 @@ func (_u *QARecordUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.RequestID(); ok {
 		_spec.SetField(qarecord.FieldRequestID, field.TypeString, value)
 	}
+	if value, ok := _u.mutation.TrajectoryID(); ok {
+		_spec.SetField(qarecord.FieldTrajectoryID, field.TypeString, value)
+	}
+	if _u.mutation.TrajectoryIDCleared() {
+		_spec.ClearField(qarecord.FieldTrajectoryID, field.TypeString)
+	}
 	if value, ok := _u.mutation.UserID(); ok {
 		_spec.SetField(qarecord.FieldUserID, field.TypeInt64, value)
 	}
@@ -738,6 +764,26 @@ func (_u *QARecordUpdateOne) SetNillableRequestID(v *string) *QARecordUpdateOne 
 	if v != nil {
 		_u.SetRequestID(*v)
 	}
+	return _u
+}
+
+// SetTrajectoryID sets the "trajectory_id" field.
+func (_u *QARecordUpdateOne) SetTrajectoryID(v string) *QARecordUpdateOne {
+	_u.mutation.SetTrajectoryID(v)
+	return _u
+}
+
+// SetNillableTrajectoryID sets the "trajectory_id" field if the given value is not nil.
+func (_u *QARecordUpdateOne) SetNillableTrajectoryID(v *string) *QARecordUpdateOne {
+	if v != nil {
+		_u.SetTrajectoryID(*v)
+	}
+	return _u
+}
+
+// ClearTrajectoryID clears the value of the "trajectory_id" field.
+func (_u *QARecordUpdateOne) ClearTrajectoryID() *QARecordUpdateOne {
+	_u.mutation.ClearTrajectoryID()
 	return _u
 }
 
@@ -1300,6 +1346,12 @@ func (_u *QARecordUpdateOne) sqlSave(ctx context.Context) (_node *QARecord, err 
 	}
 	if value, ok := _u.mutation.RequestID(); ok {
 		_spec.SetField(qarecord.FieldRequestID, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.TrajectoryID(); ok {
+		_spec.SetField(qarecord.FieldTrajectoryID, field.TypeString, value)
+	}
+	if _u.mutation.TrajectoryIDCleared() {
+		_spec.ClearField(qarecord.FieldTrajectoryID, field.TypeString)
 	}
 	if value, ok := _u.mutation.UserID(); ok {
 		_spec.SetField(qarecord.FieldUserID, field.TypeInt64, value)

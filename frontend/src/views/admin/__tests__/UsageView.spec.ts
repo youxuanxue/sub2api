@@ -4,12 +4,6 @@ import { flushPromises, mount } from '@vue/test-utils'
 import UsageView from '../UsageView.vue'
 
 const { list, getStats, getSnapshotV2, getById } = vi.hoisted(() => {
-  vi.stubGlobal('localStorage', {
-    getItem: vi.fn(() => null),
-    setItem: vi.fn(),
-    removeItem: vi.fn(),
-  })
-
   return {
     list: vi.fn(),
     getStats: vi.fn(),

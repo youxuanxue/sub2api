@@ -20,6 +20,8 @@ type QARecord struct {
 	ID int64 `json:"id,omitempty"`
 	// RequestID holds the value of the "request_id" field.
 	RequestID string `json:"request_id,omitempty"`
+	// TrajectoryID holds the value of the "trajectory_id" field.
+	TrajectoryID *string `json:"trajectory_id,omitempty"`
 	// UserID holds the value of the "user_id" field.
 	UserID int64 `json:"user_id,omitempty"`
 	// APIKeyID holds the value of the "api_key_id" field.
@@ -88,7 +90,7 @@ func (*QARecord) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case qarecord.FieldID, qarecord.FieldUserID, qarecord.FieldAPIKeyID, qarecord.FieldAccountID, qarecord.FieldStatusCode, qarecord.FieldDurationMs, qarecord.FieldFirstTokenMs, qarecord.FieldInputTokens, qarecord.FieldOutputTokens, qarecord.FieldCachedTokens:
 			values[i] = new(sql.NullInt64)
-		case qarecord.FieldRequestID, qarecord.FieldPlatform, qarecord.FieldRequestedModel, qarecord.FieldUpstreamModel, qarecord.FieldInboundEndpoint, qarecord.FieldUpstreamEndpoint, qarecord.FieldRequestSha256, qarecord.FieldResponseSha256, qarecord.FieldBlobURI, qarecord.FieldSynthSessionID, qarecord.FieldSynthRole, qarecord.FieldSynthEngineerLevel:
+		case qarecord.FieldRequestID, qarecord.FieldTrajectoryID, qarecord.FieldPlatform, qarecord.FieldRequestedModel, qarecord.FieldUpstreamModel, qarecord.FieldInboundEndpoint, qarecord.FieldUpstreamEndpoint, qarecord.FieldRequestSha256, qarecord.FieldResponseSha256, qarecord.FieldBlobURI, qarecord.FieldSynthSessionID, qarecord.FieldSynthRole, qarecord.FieldSynthEngineerLevel:
 			values[i] = new(sql.NullString)
 		case qarecord.FieldCreatedAt, qarecord.FieldRetentionUntil:
 			values[i] = new(sql.NullTime)
@@ -118,6 +120,13 @@ func (_m *QARecord) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field request_id", values[i])
 			} else if value.Valid {
 				_m.RequestID = value.String
+			}
+		case qarecord.FieldTrajectoryID:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field trajectory_id", values[i])
+			} else if value.Valid {
+				_m.TrajectoryID = new(string)
+				*_m.TrajectoryID = value.String
 			}
 		case qarecord.FieldUserID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -329,6 +338,11 @@ func (_m *QARecord) String() string {
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
 	builder.WriteString("request_id=")
 	builder.WriteString(_m.RequestID)
+	builder.WriteString(", ")
+	if v := _m.TrajectoryID; v != nil {
+		builder.WriteString("trajectory_id=")
+		builder.WriteString(*v)
+	}
 	builder.WriteString(", ")
 	builder.WriteString("user_id=")
 	builder.WriteString(fmt.Sprintf("%v", _m.UserID))

@@ -94,15 +94,7 @@ describe('AccountTestModal', () => {
       { id: 'gemini-3.1-flash-image', display_name: 'Gemini 3.1 Flash Image' }
     ])
     copyToClipboard.mockReset()
-    Object.defineProperty(globalThis, 'localStorage', {
-      value: {
-        getItem: vi.fn((key: string) => (key === 'auth_token' ? 'test-token' : null)),
-        setItem: vi.fn(),
-        removeItem: vi.fn(),
-        clear: vi.fn()
-      },
-      configurable: true
-    })
+    localStorage.setItem('auth_token', 'test-token')
     global.fetch = vi.fn().mockResolvedValue(
       createStreamResponse([
         'data: {"type":"test_start","model":"gemini-2.5-flash-image"}\n',

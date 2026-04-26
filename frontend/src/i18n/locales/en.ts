@@ -126,7 +126,7 @@ export default {
       claude: 'Claude',
       gemini: 'Gemini',
       antigravity: 'Antigravity',
-      newapi: 'New API',
+      newapi: 'Extension Engine',
       more: 'More'
     },
     // CTA section
@@ -1716,7 +1716,7 @@ export default {
         openai: 'OpenAI',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
-        newapi: 'New API',
+        newapi: 'Extension Engine',
       },
       deleteConfirm:
         "Are you sure you want to delete '{name}'? All associated API keys will no longer belong to any group.",
@@ -2150,7 +2150,7 @@ export default {
         openai: 'OpenAI',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
-        newapi: 'New API',
+        newapi: 'Extension Engine',
       },
       types: {
         oauth: 'OAuth',
@@ -2640,14 +2640,14 @@ export default {
       },
       newApiPlatform: {
         channelType: 'Channel Type',
-        channelTypePlaceholder: 'Select a New API channel type',
+        channelTypePlaceholder: 'Select an Extension Engine channel type',
         channelTypeLoadFailed: 'Failed to load channel types, please retry',
         baseUrl: 'Base URL',
         baseUrlHint: 'Upstream endpoint, e.g. https://api.deepseek.com',
         apiKey: 'API Key',
         apiKeyPlaceholder: 'sk-...',
         apiKeyEditHint: 'Leave empty to keep current key',
-        pleaseSelectChannelType: 'Please select a New API channel type',
+        pleaseSelectChannelType: 'Please select an Extension Engine channel type',
         pleaseEnterBaseUrl: 'Please enter upstream Base URL',
         pleaseEnterApiKey: 'Please enter upstream API Key',
         models: 'Models',

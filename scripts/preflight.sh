@@ -20,7 +20,12 @@
 #        (single source of truth) via `scripts/check-newapi-sentinels.py`.
 #        The same script is invoked by
 #        `.github/workflows/upstream-merge-pr-shape.yml`.
-#
+#   brand sentinel registry      — guards outward TokenKey brand surfaces
+#        (browser title, README product brand, fifth-platform display label)
+#        from drifting back apart. Driven by `scripts/brand-sentinels.json`
+#        via `scripts/check-brand-sentinels.py`; intentionally separate from
+#        `newapi` semantics / routing truth.
+##
 # Usage:  ./scripts/preflight.sh [--fix]
 # Exit 0 = all sections passed.  Non-zero = at least one failed.
 #
@@ -101,6 +106,23 @@ elif ! python3 ./scripts/check-newapi-sentinels.py --quiet; then
     errors=$((errors + 1))
 else
     echo "  ok: all newapi sentinels intact"
+fi
+
+# ---- sub2api: brand sentinel registry ---------------------------------------
+# Source of truth: scripts/brand-sentinels.json. Verifies that outward TokenKey
+# brand surfaces (default title, public README brand boundary, fifth-platform
+# display label) stay converged without turning compat identities like
+# `sub2api` / `newapi` into banned strings across the repo.
+echo ""
+echo "=== sub2api: brand sentinel registry ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required to read brand-sentinels.json)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/check-brand-sentinels.py --quiet; then
+    # check-brand-sentinels.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: all brand sentinels intact"
 fi
 
 echo ""

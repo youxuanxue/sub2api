@@ -28,6 +28,20 @@ func (_c *QARecordCreate) SetRequestID(v string) *QARecordCreate {
 	return _c
 }
 
+// SetTrajectoryID sets the "trajectory_id" field.
+func (_c *QARecordCreate) SetTrajectoryID(v string) *QARecordCreate {
+	_c.mutation.SetTrajectoryID(v)
+	return _c
+}
+
+// SetNillableTrajectoryID sets the "trajectory_id" field if the given value is not nil.
+func (_c *QARecordCreate) SetNillableTrajectoryID(v *string) *QARecordCreate {
+	if v != nil {
+		_c.SetTrajectoryID(*v)
+	}
+	return _c
+}
+
 // SetUserID sets the "user_id" field.
 func (_c *QARecordCreate) SetUserID(v int64) *QARecordCreate {
 	_c.mutation.SetUserID(v)
@@ -573,6 +587,10 @@ func (_c *QARecordCreate) createSpec() (*QARecord, *sqlgraph.CreateSpec) {
 		_spec.SetField(qarecord.FieldRequestID, field.TypeString, value)
 		_node.RequestID = value
 	}
+	if value, ok := _c.mutation.TrajectoryID(); ok {
+		_spec.SetField(qarecord.FieldTrajectoryID, field.TypeString, value)
+		_node.TrajectoryID = &value
+	}
 	if value, ok := _c.mutation.UserID(); ok {
 		_spec.SetField(qarecord.FieldUserID, field.TypeInt64, value)
 		_node.UserID = value
@@ -742,6 +760,24 @@ func (u *QARecordUpsert) SetRequestID(v string) *QARecordUpsert {
 // UpdateRequestID sets the "request_id" field to the value that was provided on create.
 func (u *QARecordUpsert) UpdateRequestID() *QARecordUpsert {
 	u.SetExcluded(qarecord.FieldRequestID)
+	return u
+}
+
+// SetTrajectoryID sets the "trajectory_id" field.
+func (u *QARecordUpsert) SetTrajectoryID(v string) *QARecordUpsert {
+	u.Set(qarecord.FieldTrajectoryID, v)
+	return u
+}
+
+// UpdateTrajectoryID sets the "trajectory_id" field to the value that was provided on create.
+func (u *QARecordUpsert) UpdateTrajectoryID() *QARecordUpsert {
+	u.SetExcluded(qarecord.FieldTrajectoryID)
+	return u
+}
+
+// ClearTrajectoryID clears the value of the "trajectory_id" field.
+func (u *QARecordUpsert) ClearTrajectoryID() *QARecordUpsert {
+	u.SetNull(qarecord.FieldTrajectoryID)
 	return u
 }
 
@@ -1215,6 +1251,27 @@ func (u *QARecordUpsertOne) SetRequestID(v string) *QARecordUpsertOne {
 func (u *QARecordUpsertOne) UpdateRequestID() *QARecordUpsertOne {
 	return u.Update(func(s *QARecordUpsert) {
 		s.UpdateRequestID()
+	})
+}
+
+// SetTrajectoryID sets the "trajectory_id" field.
+func (u *QARecordUpsertOne) SetTrajectoryID(v string) *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetTrajectoryID(v)
+	})
+}
+
+// UpdateTrajectoryID sets the "trajectory_id" field to the value that was provided on create.
+func (u *QARecordUpsertOne) UpdateTrajectoryID() *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateTrajectoryID()
+	})
+}
+
+// ClearTrajectoryID clears the value of the "trajectory_id" field.
+func (u *QARecordUpsertOne) ClearTrajectoryID() *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.ClearTrajectoryID()
 	})
 }
 
@@ -1923,6 +1980,27 @@ func (u *QARecordUpsertBulk) SetRequestID(v string) *QARecordUpsertBulk {
 func (u *QARecordUpsertBulk) UpdateRequestID() *QARecordUpsertBulk {
 	return u.Update(func(s *QARecordUpsert) {
 		s.UpdateRequestID()
+	})
+}
+
+// SetTrajectoryID sets the "trajectory_id" field.
+func (u *QARecordUpsertBulk) SetTrajectoryID(v string) *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetTrajectoryID(v)
+	})
+}
+
+// UpdateTrajectoryID sets the "trajectory_id" field to the value that was provided on create.
+func (u *QARecordUpsertBulk) UpdateTrajectoryID() *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateTrajectoryID()
+	})
+}
+
+// ClearTrajectoryID clears the value of the "trajectory_id" field.
+func (u *QARecordUpsertBulk) ClearTrajectoryID() *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.ClearTrajectoryID()
 	})
 }
 

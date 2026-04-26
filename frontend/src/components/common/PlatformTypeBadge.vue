@@ -80,7 +80,7 @@ const platformLabel = computed(() => {
     case 'openai': return 'OpenAI'
     case 'gemini': return 'Gemini'
     case 'antigravity': return 'Antigravity'
-    case 'newapi': return 'New API'
+    case 'newapi': return 'Extension Engine'
     default: return props.platform
   }
 })

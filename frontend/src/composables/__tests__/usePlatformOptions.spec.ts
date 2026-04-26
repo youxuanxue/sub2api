@@ -19,7 +19,7 @@ describe('usePlatformOptions (US-018 regression — fifth platform newapi must s
     const values = options.value.map((o) => o.value)
 
     expect(values).toContain('newapi')
-    expect(options.value.find((o) => o.value === 'newapi')?.label).toBe('New API')
+    expect(options.value.find((o) => o.value === 'newapi')?.label).toBe('Extension Engine')
   })
 
   it('labels every platform with its brand name (no untranslated key leakage)', () => {

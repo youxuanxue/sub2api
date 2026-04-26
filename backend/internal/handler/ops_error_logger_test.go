@@ -1,14 +1,19 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/observability/trajectory"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/require"
 )
 
@@ -87,10 +92,12 @@ func TestAttachOpsRequestBodyToEntry_InvalidJSONKeepsSize(t *testing.T) {
 	require.Equal(t, int64(1), OpsErrorLogSanitizedTotal())
 }
 
-func TestEnqueueOpsErrorLog_QueueFullDrop(t *testing.T) {
+func TestEnqueueOpsErrorLog_QueueFullFallsBackToDLQ(t *testing.T) {
 	resetOpsErrorLoggerStateForTest(t)
+	dataDir := t.TempDir()
+	t.Setenv("DATA_DIR", dataDir)
+	before := trajectory.DLQWrites()
 
-	// 禁止 enqueueOpsErrorLog 触发 workers，使用测试队列验证满队列降级。
 	opsErrorLogOnce.Do(func() {})
 
 	opsErrorLogMu.Lock()
@@ -98,7 +105,13 @@ func TestEnqueueOpsErrorLog_QueueFullDrop(t *testing.T) {
 	opsErrorLogMu.Unlock()
 
 	ops := service.NewOpsService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	entry := &service.OpsInsertErrorLogInput{ErrorPhase: "upstream", ErrorType: "upstream_error"}
+	entry := &service.OpsInsertErrorLogInput{
+		RequestID:    "req_queue_full",
+		TrajectoryID: "traj_queue_full",
+		ErrorPhase:   "upstream",
+		ErrorType:    "upstream_error",
+		ErrorMessage: "failed",
+	}
 
 	enqueueOpsErrorLog(ops, entry)
 	enqueueOpsErrorLog(ops, entry)
@@ -106,6 +119,15 @@ func TestEnqueueOpsErrorLog_QueueFullDrop(t *testing.T) {
 	require.Equal(t, int64(1), OpsErrorLogEnqueuedTotal())
 	require.Equal(t, int64(1), OpsErrorLogDroppedTotal())
 	require.Equal(t, int64(1), OpsErrorLogQueueLength())
+	require.Equal(t, before+1, trajectory.DLQWrites())
+
+	payload := readZstdJSONFile(t, filepath.Join(dataDir, "ops_dlq", "req_queue_full.json.zst"))
+	require.Equal(t, "ops_error_fallback", payload["kind"])
+	require.Equal(t, "ops_error_log_queue_full", payload["fallback_for"])
+	entryPayload, ok := payload["entry"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "req_queue_full", entryPayload["RequestID"])
+	require.Equal(t, "traj_queue_full", entryPayload["TrajectoryID"])
 }
 
 func TestAttachOpsRequestBodyToEntry_EarlyReturnBranches(t *testing.T) {
@@ -173,6 +195,21 @@ func TestEnqueueOpsErrorLog_EarlyReturnBranches(t *testing.T) {
 	opsErrorLogMu.Unlock()
 	enqueueOpsErrorLog(ops, entry)
 	require.Equal(t, int64(0), OpsErrorLogEnqueuedTotal())
+}
+
+func readZstdJSONFile(t *testing.T, path string) map[string]any {
+	t.Helper()
+
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	dec, err := zstd.NewReader(nil)
+	require.NoError(t, err)
+	decoded, err := dec.DecodeAll(raw, nil)
+	require.NoError(t, err)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(decoded, &payload))
+	return payload
 }
 
 func TestOpsCaptureWriterPool_ResetOnRelease(t *testing.T) {

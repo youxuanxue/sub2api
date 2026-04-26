@@ -1,5 +1,7 @@
 package service
 
+import "github.com/Wei-Shaw/sub2api/internal/engine"
+
 // IsOpenAICompatPoolMember reports whether this account is eligible for the
 // scheduling pool of an OpenAI-compatible gateway group whose Group.Platform
 // equals groupPlatform.
@@ -24,16 +26,10 @@ package service
 //     not as "openai pool" — that protects against accidental mixing if a new
 //     platform shows up before this helper is updated.
 func (a *Account) IsOpenAICompatPoolMember(groupPlatform string) bool {
-	if a == nil || groupPlatform == "" {
+	if a == nil {
 		return false
 	}
-	if a.Platform != groupPlatform {
-		return false
-	}
-	if groupPlatform == PlatformNewAPI {
-		return a.ChannelType > 0
-	}
-	return true
+	return engine.IsOpenAICompatPoolMember(a.Platform, a.ChannelType, groupPlatform)
 }
 
 // OpenAICompatPlatforms returns the platform identifiers eligible for the
@@ -45,7 +41,7 @@ func (a *Account) IsOpenAICompatPoolMember(groupPlatform string) bool {
 // scripts/preflight.sh "newapi compat-pool drift" check guards against
 // forgetting either side.
 func OpenAICompatPlatforms() []string {
-	return []string{PlatformOpenAI, PlatformNewAPI}
+	return engine.OpenAICompatPlatforms()
 }
 
 // IsOpenAICompatPlatform reports whether the given platform identifier
@@ -62,15 +58,7 @@ func OpenAICompatPlatforms() []string {
 // platform requires updating OpenAICompatPlatforms() above; this helper
 // derives from that list automatically.
 func IsOpenAICompatPlatform(platform string) bool {
-	if platform == "" {
-		return false
-	}
-	for _, p := range OpenAICompatPlatforms() {
-		if platform == p {
-			return true
-		}
-	}
-	return false
+	return engine.IsOpenAICompatPlatform(platform)
 }
 
 // AllSchedulingPlatforms returns every platform identifier that the scheduler
@@ -90,11 +78,5 @@ func IsOpenAICompatPlatform(platform string) bool {
 // treats hardcoded `[anthropic, gemini, openai, antigravity]` slices in
 // scheduler files as regressions to block at commit time.
 func AllSchedulingPlatforms() []string {
-	return []string{
-		PlatformAnthropic,
-		PlatformGemini,
-		PlatformOpenAI,
-		PlatformAntigravity,
-		PlatformNewAPI,
-	}
+	return engine.AllSchedulingPlatforms()
 }

@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	newapitypes "github.com/QuantumNous/new-api/types"
+	"github.com/Wei-Shaw/sub2api/internal/engine"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
 	"github.com/gin-gonic/gin"
@@ -15,10 +16,10 @@ import (
 )
 
 const (
-	BridgeEndpointChatCompletions = "chat_completions"
-	BridgeEndpointResponses       = "responses"
-	BridgeEndpointEmbeddings      = "embeddings"
-	BridgeEndpointImages          = "images"
+	BridgeEndpointChatCompletions = engine.BridgeEndpointChatCompletions
+	BridgeEndpointResponses       = engine.BridgeEndpointResponses
+	BridgeEndpointEmbeddings      = engine.BridgeEndpointEmbeddings
+	BridgeEndpointImages          = engine.BridgeEndpointImages
 )
 
 var (
@@ -43,18 +44,23 @@ func recordBridgeDispatchError() {
 // platform `newapi` and optional on legacy four-platform accounts—and the endpoint is
 // supported, and the runtime kill switch allows it.
 func accountUsesNewAPIAdaptorBridge(settings *SettingService, account *Account, endpoint string) bool {
-	if account == nil || account.ChannelType <= 0 {
-		return false
+	bridgeEnabled := true
+	if settings != nil {
+		bridgeEnabled = settings.IsNewAPIBridgeEnabled(context.Background())
 	}
-	if settings != nil && !settings.IsNewAPIBridgeEnabled(context.Background()) {
-		return false
+	channelType := 0
+	accountPlatform := ""
+	if account != nil {
+		channelType = account.ChannelType
+		accountPlatform = account.Platform
 	}
-	switch endpoint {
-	case BridgeEndpointChatCompletions, BridgeEndpointResponses, BridgeEndpointEmbeddings, BridgeEndpointImages:
-		return true
-	default:
-		return tkBridgeEndpointEnabled(endpoint)
-	}
+	plan := engine.BuildDispatchPlan(engine.BridgeDispatchInput{
+		AccountPlatform: accountPlatform,
+		ChannelType:     channelType,
+		Endpoint:        endpoint,
+		BridgeEnabled:   bridgeEnabled,
+	})
+	return plan.UsesNewAPIBridge()
 }
 
 // ShouldDispatchToNewAPIBridge reports whether this request should enter the New API adaptor path.

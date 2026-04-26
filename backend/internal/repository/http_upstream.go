@@ -139,6 +139,7 @@ func (s *httpUpstreamService) Do(req *http.Request, proxyURL string, accountID i
 	}
 
 	// 执行请求
+	// #nosec G704 -- req host is validated by validateRequestHost before dispatch.
 	resp, err := entry.client.Do(req)
 	if err != nil {
 		// 请求失败，立即减少计数
@@ -189,6 +190,7 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 		return nil, err
 	}
 
+	// #nosec G704 -- req host is validated by validateRequestHost before dispatch.
 	resp, err := entry.client.Do(req)
 	if err != nil {
 		atomic.AddInt64(&entry.inFlight, -1)

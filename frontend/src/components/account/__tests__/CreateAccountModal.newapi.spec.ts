@@ -17,11 +17,13 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { defineComponent, nextTick } from 'vue'
 import { mount } from '@vue/test-utils'
 
-const { listChannelTypesMock, fetchUpstreamModelsMock, createAccountMock } = vi.hoisted(() => ({
-  listChannelTypesMock: vi.fn(),
-  fetchUpstreamModelsMock: vi.fn(),
-  createAccountMock: vi.fn()
-}))
+const { listChannelTypesMock, fetchUpstreamModelsMock, createAccountMock } = vi.hoisted(() => {
+  return {
+    listChannelTypesMock: vi.fn(),
+    fetchUpstreamModelsMock: vi.fn(),
+    createAccountMock: vi.fn()
+  }
+})
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
@@ -151,7 +153,7 @@ describe('CreateAccountModal — NewAPI (5th platform)', () => {
     expect(wrapper.find('[data-testid="model-whitelist-selector"]').exists()).toBe(false)
 
     // Switch to NewAPI.
-    await clickPlatform(wrapper, 'New API')
+    await clickPlatform(wrapper, 'Extension Engine')
     await nextTick()
     await nextTick()
 
@@ -181,7 +183,7 @@ describe('CreateAccountModal — NewAPI (5th platform)', () => {
     await nextTick()
 
     // Now switch to NewAPI.
-    await clickPlatform(wrapper, 'New API')
+    await clickPlatform(wrapper, 'Extension Engine')
     await nextTick()
     await nextTick()
 
