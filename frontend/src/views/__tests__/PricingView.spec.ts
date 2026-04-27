@@ -34,14 +34,45 @@ vi.mock('@/stores/app', () => ({
 
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
+  /** Minimal EN strings so assertions match production UI text, not raw keys. */
+  const pricingEn: Record<string, string> = {
+    'pricing.columns.maxOutput': 'Max output',
+    'pricing.footer.total': '{count} models listed',
+    'pricing.footer.filtered': 'Showing {shown} of {total} models',
+    'pricing.nav.aria': 'Leave pricing page',
+    'pricing.nav.home': 'Home',
+    'pricing.nav.console': 'Console',
+    'pricing.nav.consoleTitleGuest': '',
+    'pricing.nav.consoleTitleAuthed': '',
+    'pricing.title': 'Model Pricing',
+    'pricing.subtitle': '',
+    'pricing.description': '',
+    'pricing.columns.model': 'Model',
+    'pricing.columns.vendor': 'Vendor',
+    'pricing.columns.input': 'Input',
+    'pricing.columns.output': 'Output',
+    'pricing.columns.contextWindow': 'Context window',
+    'pricing.columns.capabilities': 'Capabilities',
+    'pricing.perThousandTokens': '/ 1K tokens',
+    'pricing.updatedAt': 'Last updated {time}',
+    'pricing.search.placeholder': '',
+    'pricing.search.modeLabel': '',
+    'pricing.search.modeFuzzy': '',
+    'pricing.search.modeExact': '',
+    'pricing.tableHint': '',
+    'pricing.search.noMatches': '',
+    'common.loading': 'Loading'
+  }
   return {
     ...actual,
     useI18n: () => ({
       t: (key: string, params?: Record<string, unknown>) => {
-        if (key === 'pricing.footer.total' && params && typeof params.count === 'number') {
-          return `${params.count} models`
-        }
-        return key
+        let base = pricingEn[key] ?? key
+        base = base.replace(/\{count\}/g, String(params?.count ?? ''))
+        base = base.replace(/\{shown\}/g, String(params?.shown ?? ''))
+        base = base.replace(/\{total\}/g, String(params?.total ?? ''))
+        base = base.replace(/\{time\}/g, String(params?.time ?? ''))
+        return base
       },
     }),
   }
@@ -84,7 +115,7 @@ describe('PricingView', () => {
     })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('pricing.columns.maxOutput')
+    expect(wrapper.text()).toContain('Max output')
     expect(wrapper.text()).toContain('16,384')
   })
 

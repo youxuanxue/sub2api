@@ -308,12 +308,12 @@
                 {{
                   t('pricing.footer.filtered', {
                     shown: filteredCatalogRows.length,
-                    total: catalog?.data.length ?? 0
+                    total: catalogRowTotal
                   })
                 }}
               </template>
               <template v-else>
-                {{ t('pricing.footer.total', { count: catalog?.data.length ?? 0 }) }}
+                {{ t('pricing.footer.total', { count: catalogRowTotal }) }}
               </template>
             </p>
             <p class="text-left sm:text-right">
@@ -413,6 +413,9 @@ const hasMaxOutputColumn = computed(() => {
   if (!catalog.value) return false
   return catalog.value.data.some((m) => (m.max_output_tokens ?? 0) > 0)
 })
+
+/** Footer total row count (full catalog, not filtered). */
+const catalogRowTotal = computed(() => catalog.value?.data.length ?? 0)
 
 const formattedUpdatedAt = computed(() => {
   if (!catalog.value?.updated_at) return ''
