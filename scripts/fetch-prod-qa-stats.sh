@@ -11,15 +11,22 @@
 #   GH_REPO           default: youxuanxue/sub2api
 #   OUT_DIR           default: ./.prod-qa-stats
 #   POLL_TIMEOUT_S    default: 600
-#   WORKFLOW_REF      git ref to run workflow from (default: empty = repo default branch).
-#                     Use 'cursor/.../branch-name' before the workflow is merged to main.
+#
+# Note: GitHub only registers workflow_dispatch files that exist on the repo default
+# branch. After merging `.github/workflows/prod-qa-stats.yml` to main, this script works
+# without extra flags.
 #
 set -euo pipefail
 
 GH_REPO="${GH_REPO:-youxuanxue/sub2api}"
 OUT_DIR="${OUT_DIR:-./.prod-qa-stats}"
 POLL_TIMEOUT_S="${POLL_TIMEOUT_S:-600}"
-WORKFLOW="prod-qa-stats.yml"
+WORKFLOW_FILE="prod-qa-stats.yml"
+
+latest_prod_qa_run_id() {
+  gh run list --repo "$GH_REPO" --workflow="$WORKFLOW_FILE" --limit 1 \
+    --json databaseId --jq '.[0].databaseId // 0' 2>/dev/null || echo 0
+}
 
 MODE="run"
 if [ "${1:-}" = "--check" ]; then
@@ -59,25 +66,22 @@ fi
 
 mkdir -p "$OUT_DIR"
 
-log "snapshotting last run id on $GH_REPO/$WORKFLOW"
-PREV_ID=$(gh run list --workflow="$WORKFLOW" --repo "$GH_REPO" --limit 1 \
-  --json databaseId --jq '.[0].databaseId // 0')
+log "snapshotting last prod-qa-stats run id"
+PREV_ID=$(latest_prod_qa_run_id)
 log "previous run id: $PREV_ID"
 
-DISPATCH_ARGS=(workflow run "$WORKFLOW" --repo "$GH_REPO")
-if [ -n "${WORKFLOW_REF:-}" ]; then
-  DISPATCH_ARGS+=(--ref "$WORKFLOW_REF")
+if ! gh workflow run "$WORKFLOW_FILE" --repo "$GH_REPO" 2>/dev/null; then
+  err "dispatch failed — is $WORKFLOW_FILE merged to the default branch yet?"
+  err "Until then, run the SQL / du commands in deploy/aws/README.md (Prod QA stats) on the EC2 host."
+  exit 1
 fi
-log "dispatching $WORKFLOW${WORKFLOW_REF:+ (ref=$WORKFLOW_REF)}"
-gh "${DISPATCH_ARGS[@]}"
 
 log "polling for new run id (timeout ${POLL_TIMEOUT_S}s)"
 DEADLINE=$(( $(date +%s) + POLL_TIMEOUT_S ))
 RUN_ID="$PREV_ID"
 while [ "$RUN_ID" = "$PREV_ID" ] || [ "$RUN_ID" = "0" ]; do
   sleep 4
-  RUN_ID=$(gh run list --workflow="$WORKFLOW" --repo "$GH_REPO" --limit 1 \
-    --json databaseId --jq '.[0].databaseId // 0')
+  RUN_ID=$(latest_prod_qa_run_id)
   if [ "$(date +%s)" -ge "$DEADLINE" ]; then
     err "timed out waiting for workflow to start"
     exit 2

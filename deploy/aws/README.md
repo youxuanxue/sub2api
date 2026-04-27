@@ -503,12 +503,20 @@ SINCE_HOURS=72 bash scripts/fetch-prod-error-clusters.sh    # 自定义窗口
 bash scripts/fetch-prod-error-clusters.sh --check           # 只校验 env + 工具，不 dispatch
 ```
 
-**QA 采集体量（总条数 / 近 24h 插入 / `qa_blobs` 磁盘）**：dispatch `prod-qa-stats.yml`，artifact `qa-stats.json`。
+**QA 采集体量（总条数 / 近 24h 插入 / `qa_blobs` 磁盘）**：合并 `prod-qa-stats.yml` 到默认分支后，artifact `qa-stats.json`。
 
 ```bash
-bash scripts/fetch-prod-qa-stats.sh                         # 输出到 ./.prod-qa-stats/
-WORKFLOW_REF=cursor/branch-name bash scripts/fetch-prod-qa-stats.sh   # workflow 尚未合入 main 时指定 ref
+bash scripts/fetch-prod-qa-stats.sh           # → ./.prod-qa-stats/qa-stats.json
 bash scripts/fetch-prod-qa-stats.sh --check
+```
+
+在 workflow 尚未出现在 `main` 之前，或需要当场核对时，SSM 进 prod 实例执行（只读）：
+
+```bash
+sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -t -A -c "SELECT count(*) FROM qa_records;"
+sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -t -A -c "SELECT count(*) FROM qa_records WHERE created_at >= now() - interval '24 hours';"
+sudo du -sh /var/lib/tokenkey/app/qa_blobs 2>/dev/null || echo '(no qa_blobs dir)'
+sudo find /var/lib/tokenkey/app/qa_blobs -type f 2>/dev/null | wc -l
 ```
 
 `fetch-prod-error-clusters.sh`：`gh run download` → 打印 `report.json` 的 `summary`。  
