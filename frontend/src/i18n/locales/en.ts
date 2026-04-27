@@ -19,8 +19,15 @@ export default {
       output: 'Output',
       cacheRead: 'Cache Read',
       cacheWrite: 'Cache Write',
-      contextWindow: 'Context Window',
+      contextWindow: 'Context window',
+      maxOutput: 'Max output',
       capabilities: 'Capabilities'
+    },
+    tableHint:
+      'Swipe horizontally or scroll below to see all columns. Model names wrap in the left column.',
+    footer: {
+      total: '{count} models listed',
+      filtered: 'Showing {shown} of {total} models'
     },
     perThousandTokens: '/ 1K tokens',
     contextTokens: '{count} tokens',
