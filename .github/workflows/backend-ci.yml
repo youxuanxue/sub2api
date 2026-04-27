@@ -16,6 +16,9 @@ jobs:
       - uses: actions/checkout@v6
         with:
           submodules: recursive
+      # Preflight runs `go test` for traj dataset validation; backend/go.mod
+      # replaces new-api with ../../new-api — same sibling checkout as test/lint jobs.
+      - uses: ./.github/actions/checkout-new-api
       - name: Run preflight
         run: |
           if [ -x scripts/preflight.sh ]; then
@@ -63,5 +66,5 @@ jobs:
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.9
-          args: --timeout=30m
+          args: --concurrency=4 --timeout=15m
           working-directory: backend

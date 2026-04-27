@@ -11,14 +11,18 @@ type CaptureInput struct {
 	RequestID         string
 	TrajectoryID      string
 	UserID            int64
+	GroupID           *int64
 	APIKeyID          int64
 	AccountID         *int64
 	Platform          string
+	Provider          string
+	ChannelType       *int
 	RequestedModel    string
 	UpstreamModel     string
 	InboundEndpoint   string
 	UpstreamEndpoint  string
 	StatusCode        int
+	Success           bool
 	DurationMs        int64
 	FirstTokenMs      *int64
 	Stream            bool
@@ -31,6 +35,11 @@ type CaptureInput struct {
 	CachedTokens      int
 	ToolCallsPresent  bool
 	MultimodalPresent bool
+	RequestBlobURI    string
+	ResponseBlobURI   string
+	StreamBlobURI     string
+	RedactionVersion  string
+	CaptureStatus     string
 	Tags              []string
 	CreatedAt         time.Time
 

@@ -88,7 +88,7 @@
           >
             <span
               class="inline-block rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
-            >{{ acc.platform }} / {{ acc.type }}</span>
+            >{{ getPlatformLabel(acc.platform) }} / {{ acc.type }}</span>
             <span class="truncate">{{ acc.name }}</span>
           </div>
         </div>
@@ -130,7 +130,7 @@
             />
             <span
               class="inline-block rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400"
-            >{{ acc.platform }} / {{ acc.type }}</span>
+            >{{ getPlatformLabel(acc.platform) }} / {{ acc.type }}</span>
             <span class="truncate text-sm text-gray-700 dark:text-dark-300">{{ acc.name }}</span>
           </label>
         </div>
@@ -243,6 +243,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { getPlatformLabel } from '@/composables/usePlatformOptions'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'

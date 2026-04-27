@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "rationale": "Snapshot of the gateway trajectory / QA capture hook contract. Main gateway surfaces must keep both trajectory_id assignment and QA capture middleware, and the QA middleware must still terminate in Service.CaptureFromContext so request evidence remains on by default.",
+  "route_source": "backend/internal/server/routes/gateway.go",
+  "capture_source": "backend/internal/observability/qa/sse_tee.go",
+  "required_route_hooks": [
+    "trajectoryID := middleware.TrajectoryID()",
+    "qaCapture = h.QACapture.Middleware()",
+    "gateway.Use(trajectoryID)",
+    "gateway.Use(qaCapture)",
+    "gemini.Use(trajectoryID)",
+    "gemini.Use(qaCapture)",
+    "trajectoryID, qaCapture",
+    "registerTKOpenAICompatVideoRoutesNoPrefix(r, h, bodyLimit, clientRequestID, trajectoryID, qaCapture",
+    "antigravityV1.Use(trajectoryID)",
+    "antigravityV1.Use(qaCapture)",
+    "antigravityV1Beta.Use(trajectoryID)",
+    "antigravityV1Beta.Use(qaCapture)"
+  ],
+  "required_capture_hooks": [
+    "func Middleware(svc *Service) gin.HandlerFunc {",
+    "c.Set(contextKeyTeeWriter, tee)",
+    "svc.CaptureFromContext(c)"
+  ]
+}

@@ -19367,17 +19367,23 @@ type QARecordMutation struct {
 	trajectory_id        *string
 	user_id              *int64
 	adduser_id           *int64
+	group_id             *int64
+	addgroup_id          *int64
 	api_key_id           *int64
 	addapi_key_id        *int64
 	account_id           *int64
 	addaccount_id        *int64
 	platform             *string
+	provider             *string
+	channel_type         *int
+	addchannel_type      *int
 	requested_model      *string
 	upstream_model       *string
 	inbound_endpoint     *string
 	upstream_endpoint    *string
 	status_code          *int
 	addstatus_code       *int
+	success              *bool
 	duration_ms          *int64
 	addduration_ms       *int64
 	first_token_ms       *int64
@@ -19394,6 +19400,11 @@ type QARecordMutation struct {
 	request_sha256       *string
 	response_sha256      *string
 	blob_uri             *string
+	request_blob_uri     *string
+	response_blob_uri    *string
+	stream_blob_uri      *string
+	redaction_version    *string
+	capture_status       *string
 	tags                 *[]string
 	appendtags           []string
 	synth_session_id     *string
@@ -19647,6 +19658,76 @@ func (m *QARecordMutation) ResetUserID() {
 	m.adduser_id = nil
 }
 
+// SetGroupID sets the "group_id" field.
+func (m *QARecordMutation) SetGroupID(i int64) {
+	m.group_id = &i
+	m.addgroup_id = nil
+}
+
+// GroupID returns the value of the "group_id" field in the mutation.
+func (m *QARecordMutation) GroupID() (r int64, exists bool) {
+	v := m.group_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldGroupID returns the old "group_id" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldGroupID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldGroupID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldGroupID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldGroupID: %w", err)
+	}
+	return oldValue.GroupID, nil
+}
+
+// AddGroupID adds i to the "group_id" field.
+func (m *QARecordMutation) AddGroupID(i int64) {
+	if m.addgroup_id != nil {
+		*m.addgroup_id += i
+	} else {
+		m.addgroup_id = &i
+	}
+}
+
+// AddedGroupID returns the value that was added to the "group_id" field in this mutation.
+func (m *QARecordMutation) AddedGroupID() (r int64, exists bool) {
+	v := m.addgroup_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (m *QARecordMutation) ClearGroupID() {
+	m.group_id = nil
+	m.addgroup_id = nil
+	m.clearedFields[qarecord.FieldGroupID] = struct{}{}
+}
+
+// GroupIDCleared returns if the "group_id" field was cleared in this mutation.
+func (m *QARecordMutation) GroupIDCleared() bool {
+	_, ok := m.clearedFields[qarecord.FieldGroupID]
+	return ok
+}
+
+// ResetGroupID resets all changes to the "group_id" field.
+func (m *QARecordMutation) ResetGroupID() {
+	m.group_id = nil
+	m.addgroup_id = nil
+	delete(m.clearedFields, qarecord.FieldGroupID)
+}
+
 // SetAPIKeyID sets the "api_key_id" field.
 func (m *QARecordMutation) SetAPIKeyID(i int64) {
 	m.api_key_id = &i
@@ -19807,6 +19888,125 @@ func (m *QARecordMutation) OldPlatform(ctx context.Context) (v string, err error
 // ResetPlatform resets all changes to the "platform" field.
 func (m *QARecordMutation) ResetPlatform() {
 	m.platform = nil
+}
+
+// SetProvider sets the "provider" field.
+func (m *QARecordMutation) SetProvider(s string) {
+	m.provider = &s
+}
+
+// Provider returns the value of the "provider" field in the mutation.
+func (m *QARecordMutation) Provider() (r string, exists bool) {
+	v := m.provider
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProvider returns the old "provider" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldProvider(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProvider is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProvider requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProvider: %w", err)
+	}
+	return oldValue.Provider, nil
+}
+
+// ClearProvider clears the value of the "provider" field.
+func (m *QARecordMutation) ClearProvider() {
+	m.provider = nil
+	m.clearedFields[qarecord.FieldProvider] = struct{}{}
+}
+
+// ProviderCleared returns if the "provider" field was cleared in this mutation.
+func (m *QARecordMutation) ProviderCleared() bool {
+	_, ok := m.clearedFields[qarecord.FieldProvider]
+	return ok
+}
+
+// ResetProvider resets all changes to the "provider" field.
+func (m *QARecordMutation) ResetProvider() {
+	m.provider = nil
+	delete(m.clearedFields, qarecord.FieldProvider)
+}
+
+// SetChannelType sets the "channel_type" field.
+func (m *QARecordMutation) SetChannelType(i int) {
+	m.channel_type = &i
+	m.addchannel_type = nil
+}
+
+// ChannelType returns the value of the "channel_type" field in the mutation.
+func (m *QARecordMutation) ChannelType() (r int, exists bool) {
+	v := m.channel_type
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldChannelType returns the old "channel_type" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldChannelType(ctx context.Context) (v *int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldChannelType is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldChannelType requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldChannelType: %w", err)
+	}
+	return oldValue.ChannelType, nil
+}
+
+// AddChannelType adds i to the "channel_type" field.
+func (m *QARecordMutation) AddChannelType(i int) {
+	if m.addchannel_type != nil {
+		*m.addchannel_type += i
+	} else {
+		m.addchannel_type = &i
+	}
+}
+
+// AddedChannelType returns the value that was added to the "channel_type" field in this mutation.
+func (m *QARecordMutation) AddedChannelType() (r int, exists bool) {
+	v := m.addchannel_type
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearChannelType clears the value of the "channel_type" field.
+func (m *QARecordMutation) ClearChannelType() {
+	m.channel_type = nil
+	m.addchannel_type = nil
+	m.clearedFields[qarecord.FieldChannelType] = struct{}{}
+}
+
+// ChannelTypeCleared returns if the "channel_type" field was cleared in this mutation.
+func (m *QARecordMutation) ChannelTypeCleared() bool {
+	_, ok := m.clearedFields[qarecord.FieldChannelType]
+	return ok
+}
+
+// ResetChannelType resets all changes to the "channel_type" field.
+func (m *QARecordMutation) ResetChannelType() {
+	m.channel_type = nil
+	m.addchannel_type = nil
+	delete(m.clearedFields, qarecord.FieldChannelType)
 }
 
 // SetRequestedModel sets the "requested_model" field.
@@ -20033,6 +20233,42 @@ func (m *QARecordMutation) AddedStatusCode() (r int, exists bool) {
 func (m *QARecordMutation) ResetStatusCode() {
 	m.status_code = nil
 	m.addstatus_code = nil
+}
+
+// SetSuccess sets the "success" field.
+func (m *QARecordMutation) SetSuccess(b bool) {
+	m.success = &b
+}
+
+// Success returns the value of the "success" field in the mutation.
+func (m *QARecordMutation) Success() (r bool, exists bool) {
+	v := m.success
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSuccess returns the old "success" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldSuccess(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSuccess is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSuccess requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSuccess: %w", err)
+	}
+	return oldValue.Success, nil
+}
+
+// ResetSuccess resets all changes to the "success" field.
+func (m *QARecordMutation) ResetSuccess() {
+	m.success = nil
 }
 
 // SetDurationMs sets the "duration_ms" field.
@@ -20558,6 +20794,225 @@ func (m *QARecordMutation) ResetBlobURI() {
 	delete(m.clearedFields, qarecord.FieldBlobURI)
 }
 
+// SetRequestBlobURI sets the "request_blob_uri" field.
+func (m *QARecordMutation) SetRequestBlobURI(s string) {
+	m.request_blob_uri = &s
+}
+
+// RequestBlobURI returns the value of the "request_blob_uri" field in the mutation.
+func (m *QARecordMutation) RequestBlobURI() (r string, exists bool) {
+	v := m.request_blob_uri
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRequestBlobURI returns the old "request_blob_uri" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldRequestBlobURI(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRequestBlobURI is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRequestBlobURI requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRequestBlobURI: %w", err)
+	}
+	return oldValue.RequestBlobURI, nil
+}
+
+// ClearRequestBlobURI clears the value of the "request_blob_uri" field.
+func (m *QARecordMutation) ClearRequestBlobURI() {
+	m.request_blob_uri = nil
+	m.clearedFields[qarecord.FieldRequestBlobURI] = struct{}{}
+}
+
+// RequestBlobURICleared returns if the "request_blob_uri" field was cleared in this mutation.
+func (m *QARecordMutation) RequestBlobURICleared() bool {
+	_, ok := m.clearedFields[qarecord.FieldRequestBlobURI]
+	return ok
+}
+
+// ResetRequestBlobURI resets all changes to the "request_blob_uri" field.
+func (m *QARecordMutation) ResetRequestBlobURI() {
+	m.request_blob_uri = nil
+	delete(m.clearedFields, qarecord.FieldRequestBlobURI)
+}
+
+// SetResponseBlobURI sets the "response_blob_uri" field.
+func (m *QARecordMutation) SetResponseBlobURI(s string) {
+	m.response_blob_uri = &s
+}
+
+// ResponseBlobURI returns the value of the "response_blob_uri" field in the mutation.
+func (m *QARecordMutation) ResponseBlobURI() (r string, exists bool) {
+	v := m.response_blob_uri
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldResponseBlobURI returns the old "response_blob_uri" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldResponseBlobURI(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldResponseBlobURI is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldResponseBlobURI requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldResponseBlobURI: %w", err)
+	}
+	return oldValue.ResponseBlobURI, nil
+}
+
+// ClearResponseBlobURI clears the value of the "response_blob_uri" field.
+func (m *QARecordMutation) ClearResponseBlobURI() {
+	m.response_blob_uri = nil
+	m.clearedFields[qarecord.FieldResponseBlobURI] = struct{}{}
+}
+
+// ResponseBlobURICleared returns if the "response_blob_uri" field was cleared in this mutation.
+func (m *QARecordMutation) ResponseBlobURICleared() bool {
+	_, ok := m.clearedFields[qarecord.FieldResponseBlobURI]
+	return ok
+}
+
+// ResetResponseBlobURI resets all changes to the "response_blob_uri" field.
+func (m *QARecordMutation) ResetResponseBlobURI() {
+	m.response_blob_uri = nil
+	delete(m.clearedFields, qarecord.FieldResponseBlobURI)
+}
+
+// SetStreamBlobURI sets the "stream_blob_uri" field.
+func (m *QARecordMutation) SetStreamBlobURI(s string) {
+	m.stream_blob_uri = &s
+}
+
+// StreamBlobURI returns the value of the "stream_blob_uri" field in the mutation.
+func (m *QARecordMutation) StreamBlobURI() (r string, exists bool) {
+	v := m.stream_blob_uri
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStreamBlobURI returns the old "stream_blob_uri" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldStreamBlobURI(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStreamBlobURI is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStreamBlobURI requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStreamBlobURI: %w", err)
+	}
+	return oldValue.StreamBlobURI, nil
+}
+
+// ClearStreamBlobURI clears the value of the "stream_blob_uri" field.
+func (m *QARecordMutation) ClearStreamBlobURI() {
+	m.stream_blob_uri = nil
+	m.clearedFields[qarecord.FieldStreamBlobURI] = struct{}{}
+}
+
+// StreamBlobURICleared returns if the "stream_blob_uri" field was cleared in this mutation.
+func (m *QARecordMutation) StreamBlobURICleared() bool {
+	_, ok := m.clearedFields[qarecord.FieldStreamBlobURI]
+	return ok
+}
+
+// ResetStreamBlobURI resets all changes to the "stream_blob_uri" field.
+func (m *QARecordMutation) ResetStreamBlobURI() {
+	m.stream_blob_uri = nil
+	delete(m.clearedFields, qarecord.FieldStreamBlobURI)
+}
+
+// SetRedactionVersion sets the "redaction_version" field.
+func (m *QARecordMutation) SetRedactionVersion(s string) {
+	m.redaction_version = &s
+}
+
+// RedactionVersion returns the value of the "redaction_version" field in the mutation.
+func (m *QARecordMutation) RedactionVersion() (r string, exists bool) {
+	v := m.redaction_version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRedactionVersion returns the old "redaction_version" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldRedactionVersion(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRedactionVersion is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRedactionVersion requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRedactionVersion: %w", err)
+	}
+	return oldValue.RedactionVersion, nil
+}
+
+// ResetRedactionVersion resets all changes to the "redaction_version" field.
+func (m *QARecordMutation) ResetRedactionVersion() {
+	m.redaction_version = nil
+}
+
+// SetCaptureStatus sets the "capture_status" field.
+func (m *QARecordMutation) SetCaptureStatus(s string) {
+	m.capture_status = &s
+}
+
+// CaptureStatus returns the value of the "capture_status" field in the mutation.
+func (m *QARecordMutation) CaptureStatus() (r string, exists bool) {
+	v := m.capture_status
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCaptureStatus returns the old "capture_status" field's value of the QARecord entity.
+// If the QARecord object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *QARecordMutation) OldCaptureStatus(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCaptureStatus is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCaptureStatus requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCaptureStatus: %w", err)
+	}
+	return oldValue.CaptureStatus, nil
+}
+
+// ResetCaptureStatus resets all changes to the "capture_status" field.
+func (m *QARecordMutation) ResetCaptureStatus() {
+	m.capture_status = nil
+}
+
 // SetTags sets the "tags" field.
 func (m *QARecordMutation) SetTags(s []string) {
 	m.tags = &s
@@ -20898,7 +21353,7 @@ func (m *QARecordMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *QARecordMutation) Fields() []string {
-	fields := make([]string, 0, 29)
+	fields := make([]string, 0, 38)
 	if m.request_id != nil {
 		fields = append(fields, qarecord.FieldRequestID)
 	}
@@ -20908,6 +21363,9 @@ func (m *QARecordMutation) Fields() []string {
 	if m.user_id != nil {
 		fields = append(fields, qarecord.FieldUserID)
 	}
+	if m.group_id != nil {
+		fields = append(fields, qarecord.FieldGroupID)
+	}
 	if m.api_key_id != nil {
 		fields = append(fields, qarecord.FieldAPIKeyID)
 	}
@@ -20916,6 +21374,12 @@ func (m *QARecordMutation) Fields() []string {
 	}
 	if m.platform != nil {
 		fields = append(fields, qarecord.FieldPlatform)
+	}
+	if m.provider != nil {
+		fields = append(fields, qarecord.FieldProvider)
+	}
+	if m.channel_type != nil {
+		fields = append(fields, qarecord.FieldChannelType)
 	}
 	if m.requested_model != nil {
 		fields = append(fields, qarecord.FieldRequestedModel)
@@ -20931,6 +21395,9 @@ func (m *QARecordMutation) Fields() []string {
 	}
 	if m.status_code != nil {
 		fields = append(fields, qarecord.FieldStatusCode)
+	}
+	if m.success != nil {
+		fields = append(fields, qarecord.FieldSuccess)
 	}
 	if m.duration_ms != nil {
 		fields = append(fields, qarecord.FieldDurationMs)
@@ -20964,6 +21431,21 @@ func (m *QARecordMutation) Fields() []string {
 	}
 	if m.blob_uri != nil {
 		fields = append(fields, qarecord.FieldBlobURI)
+	}
+	if m.request_blob_uri != nil {
+		fields = append(fields, qarecord.FieldRequestBlobURI)
+	}
+	if m.response_blob_uri != nil {
+		fields = append(fields, qarecord.FieldResponseBlobURI)
+	}
+	if m.stream_blob_uri != nil {
+		fields = append(fields, qarecord.FieldStreamBlobURI)
+	}
+	if m.redaction_version != nil {
+		fields = append(fields, qarecord.FieldRedactionVersion)
+	}
+	if m.capture_status != nil {
+		fields = append(fields, qarecord.FieldCaptureStatus)
 	}
 	if m.tags != nil {
 		fields = append(fields, qarecord.FieldTags)
@@ -21000,12 +21482,18 @@ func (m *QARecordMutation) Field(name string) (ent.Value, bool) {
 		return m.TrajectoryID()
 	case qarecord.FieldUserID:
 		return m.UserID()
+	case qarecord.FieldGroupID:
+		return m.GroupID()
 	case qarecord.FieldAPIKeyID:
 		return m.APIKeyID()
 	case qarecord.FieldAccountID:
 		return m.AccountID()
 	case qarecord.FieldPlatform:
 		return m.Platform()
+	case qarecord.FieldProvider:
+		return m.Provider()
+	case qarecord.FieldChannelType:
+		return m.ChannelType()
 	case qarecord.FieldRequestedModel:
 		return m.RequestedModel()
 	case qarecord.FieldUpstreamModel:
@@ -21016,6 +21504,8 @@ func (m *QARecordMutation) Field(name string) (ent.Value, bool) {
 		return m.UpstreamEndpoint()
 	case qarecord.FieldStatusCode:
 		return m.StatusCode()
+	case qarecord.FieldSuccess:
+		return m.Success()
 	case qarecord.FieldDurationMs:
 		return m.DurationMs()
 	case qarecord.FieldFirstTokenMs:
@@ -21038,6 +21528,16 @@ func (m *QARecordMutation) Field(name string) (ent.Value, bool) {
 		return m.ResponseSha256()
 	case qarecord.FieldBlobURI:
 		return m.BlobURI()
+	case qarecord.FieldRequestBlobURI:
+		return m.RequestBlobURI()
+	case qarecord.FieldResponseBlobURI:
+		return m.ResponseBlobURI()
+	case qarecord.FieldStreamBlobURI:
+		return m.StreamBlobURI()
+	case qarecord.FieldRedactionVersion:
+		return m.RedactionVersion()
+	case qarecord.FieldCaptureStatus:
+		return m.CaptureStatus()
 	case qarecord.FieldTags:
 		return m.Tags()
 	case qarecord.FieldSynthSessionID:
@@ -21067,12 +21567,18 @@ func (m *QARecordMutation) OldField(ctx context.Context, name string) (ent.Value
 		return m.OldTrajectoryID(ctx)
 	case qarecord.FieldUserID:
 		return m.OldUserID(ctx)
+	case qarecord.FieldGroupID:
+		return m.OldGroupID(ctx)
 	case qarecord.FieldAPIKeyID:
 		return m.OldAPIKeyID(ctx)
 	case qarecord.FieldAccountID:
 		return m.OldAccountID(ctx)
 	case qarecord.FieldPlatform:
 		return m.OldPlatform(ctx)
+	case qarecord.FieldProvider:
+		return m.OldProvider(ctx)
+	case qarecord.FieldChannelType:
+		return m.OldChannelType(ctx)
 	case qarecord.FieldRequestedModel:
 		return m.OldRequestedModel(ctx)
 	case qarecord.FieldUpstreamModel:
@@ -21083,6 +21589,8 @@ func (m *QARecordMutation) OldField(ctx context.Context, name string) (ent.Value
 		return m.OldUpstreamEndpoint(ctx)
 	case qarecord.FieldStatusCode:
 		return m.OldStatusCode(ctx)
+	case qarecord.FieldSuccess:
+		return m.OldSuccess(ctx)
 	case qarecord.FieldDurationMs:
 		return m.OldDurationMs(ctx)
 	case qarecord.FieldFirstTokenMs:
@@ -21105,6 +21613,16 @@ func (m *QARecordMutation) OldField(ctx context.Context, name string) (ent.Value
 		return m.OldResponseSha256(ctx)
 	case qarecord.FieldBlobURI:
 		return m.OldBlobURI(ctx)
+	case qarecord.FieldRequestBlobURI:
+		return m.OldRequestBlobURI(ctx)
+	case qarecord.FieldResponseBlobURI:
+		return m.OldResponseBlobURI(ctx)
+	case qarecord.FieldStreamBlobURI:
+		return m.OldStreamBlobURI(ctx)
+	case qarecord.FieldRedactionVersion:
+		return m.OldRedactionVersion(ctx)
+	case qarecord.FieldCaptureStatus:
+		return m.OldCaptureStatus(ctx)
 	case qarecord.FieldTags:
 		return m.OldTags(ctx)
 	case qarecord.FieldSynthSessionID:
@@ -21149,6 +21667,13 @@ func (m *QARecordMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetUserID(v)
 		return nil
+	case qarecord.FieldGroupID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetGroupID(v)
+		return nil
 	case qarecord.FieldAPIKeyID:
 		v, ok := value.(int64)
 		if !ok {
@@ -21169,6 +21694,20 @@ func (m *QARecordMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetPlatform(v)
+		return nil
+	case qarecord.FieldProvider:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProvider(v)
+		return nil
+	case qarecord.FieldChannelType:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetChannelType(v)
 		return nil
 	case qarecord.FieldRequestedModel:
 		v, ok := value.(string)
@@ -21204,6 +21743,13 @@ func (m *QARecordMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetStatusCode(v)
+		return nil
+	case qarecord.FieldSuccess:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSuccess(v)
 		return nil
 	case qarecord.FieldDurationMs:
 		v, ok := value.(int64)
@@ -21282,6 +21828,41 @@ func (m *QARecordMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetBlobURI(v)
 		return nil
+	case qarecord.FieldRequestBlobURI:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRequestBlobURI(v)
+		return nil
+	case qarecord.FieldResponseBlobURI:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetResponseBlobURI(v)
+		return nil
+	case qarecord.FieldStreamBlobURI:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStreamBlobURI(v)
+		return nil
+	case qarecord.FieldRedactionVersion:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRedactionVersion(v)
+		return nil
+	case qarecord.FieldCaptureStatus:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCaptureStatus(v)
+		return nil
 	case qarecord.FieldTags:
 		v, ok := value.([]string)
 		if !ok {
@@ -21342,11 +21923,17 @@ func (m *QARecordMutation) AddedFields() []string {
 	if m.adduser_id != nil {
 		fields = append(fields, qarecord.FieldUserID)
 	}
+	if m.addgroup_id != nil {
+		fields = append(fields, qarecord.FieldGroupID)
+	}
 	if m.addapi_key_id != nil {
 		fields = append(fields, qarecord.FieldAPIKeyID)
 	}
 	if m.addaccount_id != nil {
 		fields = append(fields, qarecord.FieldAccountID)
+	}
+	if m.addchannel_type != nil {
+		fields = append(fields, qarecord.FieldChannelType)
 	}
 	if m.addstatus_code != nil {
 		fields = append(fields, qarecord.FieldStatusCode)
@@ -21376,10 +21963,14 @@ func (m *QARecordMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
 	case qarecord.FieldUserID:
 		return m.AddedUserID()
+	case qarecord.FieldGroupID:
+		return m.AddedGroupID()
 	case qarecord.FieldAPIKeyID:
 		return m.AddedAPIKeyID()
 	case qarecord.FieldAccountID:
 		return m.AddedAccountID()
+	case qarecord.FieldChannelType:
+		return m.AddedChannelType()
 	case qarecord.FieldStatusCode:
 		return m.AddedStatusCode()
 	case qarecord.FieldDurationMs:
@@ -21408,6 +21999,13 @@ func (m *QARecordMutation) AddField(name string, value ent.Value) error {
 		}
 		m.AddUserID(v)
 		return nil
+	case qarecord.FieldGroupID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddGroupID(v)
+		return nil
 	case qarecord.FieldAPIKeyID:
 		v, ok := value.(int64)
 		if !ok {
@@ -21421,6 +22019,13 @@ func (m *QARecordMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddAccountID(v)
+		return nil
+	case qarecord.FieldChannelType:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddChannelType(v)
 		return nil
 	case qarecord.FieldStatusCode:
 		v, ok := value.(int)
@@ -21475,8 +22080,17 @@ func (m *QARecordMutation) ClearedFields() []string {
 	if m.FieldCleared(qarecord.FieldTrajectoryID) {
 		fields = append(fields, qarecord.FieldTrajectoryID)
 	}
+	if m.FieldCleared(qarecord.FieldGroupID) {
+		fields = append(fields, qarecord.FieldGroupID)
+	}
 	if m.FieldCleared(qarecord.FieldAccountID) {
 		fields = append(fields, qarecord.FieldAccountID)
+	}
+	if m.FieldCleared(qarecord.FieldProvider) {
+		fields = append(fields, qarecord.FieldProvider)
+	}
+	if m.FieldCleared(qarecord.FieldChannelType) {
+		fields = append(fields, qarecord.FieldChannelType)
 	}
 	if m.FieldCleared(qarecord.FieldUpstreamModel) {
 		fields = append(fields, qarecord.FieldUpstreamModel)
@@ -21489,6 +22103,15 @@ func (m *QARecordMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(qarecord.FieldBlobURI) {
 		fields = append(fields, qarecord.FieldBlobURI)
+	}
+	if m.FieldCleared(qarecord.FieldRequestBlobURI) {
+		fields = append(fields, qarecord.FieldRequestBlobURI)
+	}
+	if m.FieldCleared(qarecord.FieldResponseBlobURI) {
+		fields = append(fields, qarecord.FieldResponseBlobURI)
+	}
+	if m.FieldCleared(qarecord.FieldStreamBlobURI) {
+		fields = append(fields, qarecord.FieldStreamBlobURI)
 	}
 	if m.FieldCleared(qarecord.FieldSynthSessionID) {
 		fields = append(fields, qarecord.FieldSynthSessionID)
@@ -21516,8 +22139,17 @@ func (m *QARecordMutation) ClearField(name string) error {
 	case qarecord.FieldTrajectoryID:
 		m.ClearTrajectoryID()
 		return nil
+	case qarecord.FieldGroupID:
+		m.ClearGroupID()
+		return nil
 	case qarecord.FieldAccountID:
 		m.ClearAccountID()
+		return nil
+	case qarecord.FieldProvider:
+		m.ClearProvider()
+		return nil
+	case qarecord.FieldChannelType:
+		m.ClearChannelType()
 		return nil
 	case qarecord.FieldUpstreamModel:
 		m.ClearUpstreamModel()
@@ -21530,6 +22162,15 @@ func (m *QARecordMutation) ClearField(name string) error {
 		return nil
 	case qarecord.FieldBlobURI:
 		m.ClearBlobURI()
+		return nil
+	case qarecord.FieldRequestBlobURI:
+		m.ClearRequestBlobURI()
+		return nil
+	case qarecord.FieldResponseBlobURI:
+		m.ClearResponseBlobURI()
+		return nil
+	case qarecord.FieldStreamBlobURI:
+		m.ClearStreamBlobURI()
 		return nil
 	case qarecord.FieldSynthSessionID:
 		m.ClearSynthSessionID()
@@ -21557,6 +22198,9 @@ func (m *QARecordMutation) ResetField(name string) error {
 	case qarecord.FieldUserID:
 		m.ResetUserID()
 		return nil
+	case qarecord.FieldGroupID:
+		m.ResetGroupID()
+		return nil
 	case qarecord.FieldAPIKeyID:
 		m.ResetAPIKeyID()
 		return nil
@@ -21565,6 +22209,12 @@ func (m *QARecordMutation) ResetField(name string) error {
 		return nil
 	case qarecord.FieldPlatform:
 		m.ResetPlatform()
+		return nil
+	case qarecord.FieldProvider:
+		m.ResetProvider()
+		return nil
+	case qarecord.FieldChannelType:
+		m.ResetChannelType()
 		return nil
 	case qarecord.FieldRequestedModel:
 		m.ResetRequestedModel()
@@ -21580,6 +22230,9 @@ func (m *QARecordMutation) ResetField(name string) error {
 		return nil
 	case qarecord.FieldStatusCode:
 		m.ResetStatusCode()
+		return nil
+	case qarecord.FieldSuccess:
+		m.ResetSuccess()
 		return nil
 	case qarecord.FieldDurationMs:
 		m.ResetDurationMs()
@@ -21613,6 +22266,21 @@ func (m *QARecordMutation) ResetField(name string) error {
 		return nil
 	case qarecord.FieldBlobURI:
 		m.ResetBlobURI()
+		return nil
+	case qarecord.FieldRequestBlobURI:
+		m.ResetRequestBlobURI()
+		return nil
+	case qarecord.FieldResponseBlobURI:
+		m.ResetResponseBlobURI()
+		return nil
+	case qarecord.FieldStreamBlobURI:
+		m.ResetStreamBlobURI()
+		return nil
+	case qarecord.FieldRedactionVersion:
+		m.ResetRedactionVersion()
+		return nil
+	case qarecord.FieldCaptureStatus:
+		m.ResetCaptureStatus()
 		return nil
 	case qarecord.FieldTags:
 		m.ResetTags()

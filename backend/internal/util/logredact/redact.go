@@ -23,14 +23,14 @@ var defaultSensitiveKeys = map[string]struct{}{
 }
 
 var defaultSensitiveKeyList = []string{
+	"access_token",
 	"authorization_code",
+	"client_secret",
 	"code",
 	"code_verifier",
-	"access_token",
-	"refresh_token",
 	"id_token",
-	"client_secret",
 	"password",
+	"refresh_token",
 }
 
 type textRedactPatterns struct {

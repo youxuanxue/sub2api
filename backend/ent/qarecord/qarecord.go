@@ -19,12 +19,18 @@ const (
 	FieldTrajectoryID = "trajectory_id"
 	// FieldUserID holds the string denoting the user_id field in the database.
 	FieldUserID = "user_id"
+	// FieldGroupID holds the string denoting the group_id field in the database.
+	FieldGroupID = "group_id"
 	// FieldAPIKeyID holds the string denoting the api_key_id field in the database.
 	FieldAPIKeyID = "api_key_id"
 	// FieldAccountID holds the string denoting the account_id field in the database.
 	FieldAccountID = "account_id"
 	// FieldPlatform holds the string denoting the platform field in the database.
 	FieldPlatform = "platform"
+	// FieldProvider holds the string denoting the provider field in the database.
+	FieldProvider = "provider"
+	// FieldChannelType holds the string denoting the channel_type field in the database.
+	FieldChannelType = "channel_type"
 	// FieldRequestedModel holds the string denoting the requested_model field in the database.
 	FieldRequestedModel = "requested_model"
 	// FieldUpstreamModel holds the string denoting the upstream_model field in the database.
@@ -35,6 +41,8 @@ const (
 	FieldUpstreamEndpoint = "upstream_endpoint"
 	// FieldStatusCode holds the string denoting the status_code field in the database.
 	FieldStatusCode = "status_code"
+	// FieldSuccess holds the string denoting the success field in the database.
+	FieldSuccess = "success"
 	// FieldDurationMs holds the string denoting the duration_ms field in the database.
 	FieldDurationMs = "duration_ms"
 	// FieldFirstTokenMs holds the string denoting the first_token_ms field in the database.
@@ -57,6 +65,16 @@ const (
 	FieldResponseSha256 = "response_sha256"
 	// FieldBlobURI holds the string denoting the blob_uri field in the database.
 	FieldBlobURI = "blob_uri"
+	// FieldRequestBlobURI holds the string denoting the request_blob_uri field in the database.
+	FieldRequestBlobURI = "request_blob_uri"
+	// FieldResponseBlobURI holds the string denoting the response_blob_uri field in the database.
+	FieldResponseBlobURI = "response_blob_uri"
+	// FieldStreamBlobURI holds the string denoting the stream_blob_uri field in the database.
+	FieldStreamBlobURI = "stream_blob_uri"
+	// FieldRedactionVersion holds the string denoting the redaction_version field in the database.
+	FieldRedactionVersion = "redaction_version"
+	// FieldCaptureStatus holds the string denoting the capture_status field in the database.
+	FieldCaptureStatus = "capture_status"
 	// FieldTags holds the string denoting the tags field in the database.
 	FieldTags = "tags"
 	// FieldSynthSessionID holds the string denoting the synth_session_id field in the database.
@@ -81,14 +99,18 @@ var Columns = []string{
 	FieldRequestID,
 	FieldTrajectoryID,
 	FieldUserID,
+	FieldGroupID,
 	FieldAPIKeyID,
 	FieldAccountID,
 	FieldPlatform,
+	FieldProvider,
+	FieldChannelType,
 	FieldRequestedModel,
 	FieldUpstreamModel,
 	FieldInboundEndpoint,
 	FieldUpstreamEndpoint,
 	FieldStatusCode,
+	FieldSuccess,
 	FieldDurationMs,
 	FieldFirstTokenMs,
 	FieldStream,
@@ -100,6 +122,11 @@ var Columns = []string{
 	FieldRequestSha256,
 	FieldResponseSha256,
 	FieldBlobURI,
+	FieldRequestBlobURI,
+	FieldResponseBlobURI,
+	FieldStreamBlobURI,
+	FieldRedactionVersion,
+	FieldCaptureStatus,
 	FieldTags,
 	FieldSynthSessionID,
 	FieldSynthRole,
@@ -130,6 +157,8 @@ var (
 	DefaultInboundEndpoint string
 	// DefaultStatusCode holds the default value on creation for the "status_code" field.
 	DefaultStatusCode int
+	// DefaultSuccess holds the default value on creation for the "success" field.
+	DefaultSuccess bool
 	// DefaultDurationMs holds the default value on creation for the "duration_ms" field.
 	DefaultDurationMs int64
 	// DefaultStream holds the default value on creation for the "stream" field.
@@ -148,6 +177,10 @@ var (
 	DefaultRequestSha256 string
 	// DefaultResponseSha256 holds the default value on creation for the "response_sha256" field.
 	DefaultResponseSha256 string
+	// DefaultRedactionVersion holds the default value on creation for the "redaction_version" field.
+	DefaultRedactionVersion string
+	// DefaultCaptureStatus holds the default value on creation for the "capture_status" field.
+	DefaultCaptureStatus string
 	// DefaultTags holds the default value on creation for the "tags" field.
 	DefaultTags []string
 	// DefaultDialogSynth holds the default value on creation for the "dialog_synth" field.
@@ -179,6 +212,11 @@ func ByUserID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUserID, opts...).ToFunc()
 }
 
+// ByGroupID orders the results by the group_id field.
+func ByGroupID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldGroupID, opts...).ToFunc()
+}
+
 // ByAPIKeyID orders the results by the api_key_id field.
 func ByAPIKeyID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldAPIKeyID, opts...).ToFunc()
@@ -192,6 +230,16 @@ func ByAccountID(opts ...sql.OrderTermOption) OrderOption {
 // ByPlatform orders the results by the platform field.
 func ByPlatform(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldPlatform, opts...).ToFunc()
+}
+
+// ByProvider orders the results by the provider field.
+func ByProvider(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldProvider, opts...).ToFunc()
+}
+
+// ByChannelType orders the results by the channel_type field.
+func ByChannelType(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldChannelType, opts...).ToFunc()
 }
 
 // ByRequestedModel orders the results by the requested_model field.
@@ -217,6 +265,11 @@ func ByUpstreamEndpoint(opts ...sql.OrderTermOption) OrderOption {
 // ByStatusCode orders the results by the status_code field.
 func ByStatusCode(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldStatusCode, opts...).ToFunc()
+}
+
+// BySuccess orders the results by the success field.
+func BySuccess(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSuccess, opts...).ToFunc()
 }
 
 // ByDurationMs orders the results by the duration_ms field.
@@ -272,6 +325,31 @@ func ByResponseSha256(opts ...sql.OrderTermOption) OrderOption {
 // ByBlobURI orders the results by the blob_uri field.
 func ByBlobURI(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldBlobURI, opts...).ToFunc()
+}
+
+// ByRequestBlobURI orders the results by the request_blob_uri field.
+func ByRequestBlobURI(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRequestBlobURI, opts...).ToFunc()
+}
+
+// ByResponseBlobURI orders the results by the response_blob_uri field.
+func ByResponseBlobURI(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldResponseBlobURI, opts...).ToFunc()
+}
+
+// ByStreamBlobURI orders the results by the stream_blob_uri field.
+func ByStreamBlobURI(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldStreamBlobURI, opts...).ToFunc()
+}
+
+// ByRedactionVersion orders the results by the redaction_version field.
+func ByRedactionVersion(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRedactionVersion, opts...).ToFunc()
+}
+
+// ByCaptureStatus orders the results by the capture_status field.
+func ByCaptureStatus(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCaptureStatus, opts...).ToFunc()
 }
 
 // BySynthSessionID orders the results by the synth_session_id field.

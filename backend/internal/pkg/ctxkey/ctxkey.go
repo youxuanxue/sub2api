@@ -26,6 +26,9 @@ const (
 	// AccountID 当前请求最终命中的账号 ID（用于统一请求链路日志字段）。
 	AccountID Key = "ctx_account_id"
 
+	// ChannelType 当前请求最终命中的上游 channel_type（用于统一证据/排障链路字段）。
+	ChannelType Key = "ctx_channel_type"
+
 	// RetryCount 表示当前请求在网关层的重试次数（用于 Ops 记录与排障）。
 	RetryCount Key = "ctx_retry_count"
 

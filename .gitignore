@@ -1,5 +1,3 @@
-docs/claude-relay-service/
-
 # ===================
 # Go 后端
 # ===================
@@ -115,6 +113,10 @@ backend/data/
 .prod-logs/
 .error-clusters/
 
+# 本地/机器生成数据（原 docs/auto-reports/ 已迁至仓库根 .auto-reports/）
+.auto-reports/
+.dump_trajs/
+
 # ===================
 # 本地配置文件（包含敏感信息）
 # ===================
@@ -126,29 +128,14 @@ backend/.installed
 # 其他
 # ===================
 tests
-CLAUDE.md
 .claude
-# scripts/ defaults to ignored (local helpers, ad-hoc tooling) but tracked
-# scripts that the repo / CI / CLAUDE.md depend on are explicitly allow-listed:
-scripts/*
-!scripts/sync-new-api.sh
-!scripts/export_agent_contract.py
-!scripts/check-upstream-drift.sh
-!scripts/release-tag.sh
-!scripts/preflight.sh
-!scripts/tk_gateway_smoke.sh
-!scripts/check_approved_docs.py
-!scripts/newapi-sentinels.json
-!scripts/check-newapi-sentinels.py
-!scripts/brand-sentinels.json
-!scripts/check-brand-sentinels.py
-!scripts/setup-claude-code.sh
-!scripts/error_clustering/
-!scripts/error_clustering/**
-!scripts/build-error-clustering-binary.sh
-!scripts/deploy-error-clustering-binary.sh
-!scripts/fetch-prod-error-clusters.sh
-!scripts/fetch-prod-logs.sh
+# docs/ — keep fully tracked (no subtree ignore here). Generated or local-only
+# material belongs under paths already ignored (.auto-reports/, output/, etc.).
+#
+# scripts/ — keep fully tracked (CI, preflight, contracts, sentinels). One-off or
+# machine-local helpers do not belong in this directory; use a path outside the repo.
+#
+# CLAUDE.md at repo root is tracked (do not add a *.md or CLAUDE rule that drops it).
 .code-review-state
 #openspec/
 code-reviews/
@@ -157,15 +144,6 @@ backend/cmd/server/server
 deploy/docker-compose.override.yml
 .gocache/
 vite.config.js
-docs/*
-!docs/PAYMENT.md
-!docs/PAYMENT_CN.md
-!docs/approved/
-!docs/accounts/
-!docs/bugs/
-!docs/deploy/
-!docs/preflight-debt.md
-.serena/
 .codex/
 frontend/coverage/
 aicodex

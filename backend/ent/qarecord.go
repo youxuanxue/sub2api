@@ -24,12 +24,18 @@ type QARecord struct {
 	TrajectoryID *string `json:"trajectory_id,omitempty"`
 	// UserID holds the value of the "user_id" field.
 	UserID int64 `json:"user_id,omitempty"`
+	// GroupID holds the value of the "group_id" field.
+	GroupID *int64 `json:"group_id,omitempty"`
 	// APIKeyID holds the value of the "api_key_id" field.
 	APIKeyID int64 `json:"api_key_id,omitempty"`
 	// AccountID holds the value of the "account_id" field.
 	AccountID *int64 `json:"account_id,omitempty"`
 	// Platform holds the value of the "platform" field.
 	Platform string `json:"platform,omitempty"`
+	// Provider holds the value of the "provider" field.
+	Provider *string `json:"provider,omitempty"`
+	// ChannelType holds the value of the "channel_type" field.
+	ChannelType *int `json:"channel_type,omitempty"`
 	// RequestedModel holds the value of the "requested_model" field.
 	RequestedModel string `json:"requested_model,omitempty"`
 	// UpstreamModel holds the value of the "upstream_model" field.
@@ -40,6 +46,8 @@ type QARecord struct {
 	UpstreamEndpoint *string `json:"upstream_endpoint,omitempty"`
 	// StatusCode holds the value of the "status_code" field.
 	StatusCode int `json:"status_code,omitempty"`
+	// Success holds the value of the "success" field.
+	Success bool `json:"success,omitempty"`
 	// DurationMs holds the value of the "duration_ms" field.
 	DurationMs int64 `json:"duration_ms,omitempty"`
 	// FirstTokenMs holds the value of the "first_token_ms" field.
@@ -62,6 +70,16 @@ type QARecord struct {
 	ResponseSha256 string `json:"response_sha256,omitempty"`
 	// BlobURI holds the value of the "blob_uri" field.
 	BlobURI *string `json:"blob_uri,omitempty"`
+	// RequestBlobURI holds the value of the "request_blob_uri" field.
+	RequestBlobURI *string `json:"request_blob_uri,omitempty"`
+	// ResponseBlobURI holds the value of the "response_blob_uri" field.
+	ResponseBlobURI *string `json:"response_blob_uri,omitempty"`
+	// StreamBlobURI holds the value of the "stream_blob_uri" field.
+	StreamBlobURI *string `json:"stream_blob_uri,omitempty"`
+	// RedactionVersion holds the value of the "redaction_version" field.
+	RedactionVersion string `json:"redaction_version,omitempty"`
+	// CaptureStatus holds the value of the "capture_status" field.
+	CaptureStatus string `json:"capture_status,omitempty"`
 	// Tags holds the value of the "tags" field.
 	Tags []string `json:"tags,omitempty"`
 	// SynthSessionID holds the value of the "synth_session_id" field.
@@ -86,11 +104,11 @@ func (*QARecord) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case qarecord.FieldTags:
 			values[i] = new([]byte)
-		case qarecord.FieldStream, qarecord.FieldToolCallsPresent, qarecord.FieldMultimodalPresent, qarecord.FieldDialogSynth:
+		case qarecord.FieldSuccess, qarecord.FieldStream, qarecord.FieldToolCallsPresent, qarecord.FieldMultimodalPresent, qarecord.FieldDialogSynth:
 			values[i] = new(sql.NullBool)
-		case qarecord.FieldID, qarecord.FieldUserID, qarecord.FieldAPIKeyID, qarecord.FieldAccountID, qarecord.FieldStatusCode, qarecord.FieldDurationMs, qarecord.FieldFirstTokenMs, qarecord.FieldInputTokens, qarecord.FieldOutputTokens, qarecord.FieldCachedTokens:
+		case qarecord.FieldID, qarecord.FieldUserID, qarecord.FieldGroupID, qarecord.FieldAPIKeyID, qarecord.FieldAccountID, qarecord.FieldChannelType, qarecord.FieldStatusCode, qarecord.FieldDurationMs, qarecord.FieldFirstTokenMs, qarecord.FieldInputTokens, qarecord.FieldOutputTokens, qarecord.FieldCachedTokens:
 			values[i] = new(sql.NullInt64)
-		case qarecord.FieldRequestID, qarecord.FieldTrajectoryID, qarecord.FieldPlatform, qarecord.FieldRequestedModel, qarecord.FieldUpstreamModel, qarecord.FieldInboundEndpoint, qarecord.FieldUpstreamEndpoint, qarecord.FieldRequestSha256, qarecord.FieldResponseSha256, qarecord.FieldBlobURI, qarecord.FieldSynthSessionID, qarecord.FieldSynthRole, qarecord.FieldSynthEngineerLevel:
+		case qarecord.FieldRequestID, qarecord.FieldTrajectoryID, qarecord.FieldPlatform, qarecord.FieldProvider, qarecord.FieldRequestedModel, qarecord.FieldUpstreamModel, qarecord.FieldInboundEndpoint, qarecord.FieldUpstreamEndpoint, qarecord.FieldRequestSha256, qarecord.FieldResponseSha256, qarecord.FieldBlobURI, qarecord.FieldRequestBlobURI, qarecord.FieldResponseBlobURI, qarecord.FieldStreamBlobURI, qarecord.FieldRedactionVersion, qarecord.FieldCaptureStatus, qarecord.FieldSynthSessionID, qarecord.FieldSynthRole, qarecord.FieldSynthEngineerLevel:
 			values[i] = new(sql.NullString)
 		case qarecord.FieldCreatedAt, qarecord.FieldRetentionUntil:
 			values[i] = new(sql.NullTime)
@@ -134,6 +152,13 @@ func (_m *QARecord) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.UserID = value.Int64
 			}
+		case qarecord.FieldGroupID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field group_id", values[i])
+			} else if value.Valid {
+				_m.GroupID = new(int64)
+				*_m.GroupID = value.Int64
+			}
 		case qarecord.FieldAPIKeyID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for field api_key_id", values[i])
@@ -152,6 +177,20 @@ func (_m *QARecord) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field platform", values[i])
 			} else if value.Valid {
 				_m.Platform = value.String
+			}
+		case qarecord.FieldProvider:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field provider", values[i])
+			} else if value.Valid {
+				_m.Provider = new(string)
+				*_m.Provider = value.String
+			}
+		case qarecord.FieldChannelType:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field channel_type", values[i])
+			} else if value.Valid {
+				_m.ChannelType = new(int)
+				*_m.ChannelType = int(value.Int64)
 			}
 		case qarecord.FieldRequestedModel:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -184,6 +223,12 @@ func (_m *QARecord) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field status_code", values[i])
 			} else if value.Valid {
 				_m.StatusCode = int(value.Int64)
+			}
+		case qarecord.FieldSuccess:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field success", values[i])
+			} else if value.Valid {
+				_m.Success = value.Bool
 			}
 		case qarecord.FieldDurationMs:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -252,6 +297,39 @@ func (_m *QARecord) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.BlobURI = new(string)
 				*_m.BlobURI = value.String
+			}
+		case qarecord.FieldRequestBlobURI:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field request_blob_uri", values[i])
+			} else if value.Valid {
+				_m.RequestBlobURI = new(string)
+				*_m.RequestBlobURI = value.String
+			}
+		case qarecord.FieldResponseBlobURI:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field response_blob_uri", values[i])
+			} else if value.Valid {
+				_m.ResponseBlobURI = new(string)
+				*_m.ResponseBlobURI = value.String
+			}
+		case qarecord.FieldStreamBlobURI:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field stream_blob_uri", values[i])
+			} else if value.Valid {
+				_m.StreamBlobURI = new(string)
+				*_m.StreamBlobURI = value.String
+			}
+		case qarecord.FieldRedactionVersion:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field redaction_version", values[i])
+			} else if value.Valid {
+				_m.RedactionVersion = value.String
+			}
+		case qarecord.FieldCaptureStatus:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field capture_status", values[i])
+			} else if value.Valid {
+				_m.CaptureStatus = value.String
 			}
 		case qarecord.FieldTags:
 			if value, ok := values[i].(*[]byte); !ok {
@@ -347,6 +425,11 @@ func (_m *QARecord) String() string {
 	builder.WriteString("user_id=")
 	builder.WriteString(fmt.Sprintf("%v", _m.UserID))
 	builder.WriteString(", ")
+	if v := _m.GroupID; v != nil {
+		builder.WriteString("group_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
 	builder.WriteString("api_key_id=")
 	builder.WriteString(fmt.Sprintf("%v", _m.APIKeyID))
 	builder.WriteString(", ")
@@ -357,6 +440,16 @@ func (_m *QARecord) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("platform=")
 	builder.WriteString(_m.Platform)
+	builder.WriteString(", ")
+	if v := _m.Provider; v != nil {
+		builder.WriteString("provider=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.ChannelType; v != nil {
+		builder.WriteString("channel_type=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
 	builder.WriteString(", ")
 	builder.WriteString("requested_model=")
 	builder.WriteString(_m.RequestedModel)
@@ -376,6 +469,9 @@ func (_m *QARecord) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("status_code=")
 	builder.WriteString(fmt.Sprintf("%v", _m.StatusCode))
+	builder.WriteString(", ")
+	builder.WriteString("success=")
+	builder.WriteString(fmt.Sprintf("%v", _m.Success))
 	builder.WriteString(", ")
 	builder.WriteString("duration_ms=")
 	builder.WriteString(fmt.Sprintf("%v", _m.DurationMs))
@@ -413,6 +509,27 @@ func (_m *QARecord) String() string {
 		builder.WriteString("blob_uri=")
 		builder.WriteString(*v)
 	}
+	builder.WriteString(", ")
+	if v := _m.RequestBlobURI; v != nil {
+		builder.WriteString("request_blob_uri=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.ResponseBlobURI; v != nil {
+		builder.WriteString("response_blob_uri=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.StreamBlobURI; v != nil {
+		builder.WriteString("stream_blob_uri=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	builder.WriteString("redaction_version=")
+	builder.WriteString(_m.RedactionVersion)
+	builder.WriteString(", ")
+	builder.WriteString("capture_status=")
+	builder.WriteString(_m.CaptureStatus)
 	builder.WriteString(", ")
 	builder.WriteString("tags=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Tags))

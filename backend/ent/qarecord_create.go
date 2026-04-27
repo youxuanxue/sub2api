@@ -48,6 +48,20 @@ func (_c *QARecordCreate) SetUserID(v int64) *QARecordCreate {
 	return _c
 }
 
+// SetGroupID sets the "group_id" field.
+func (_c *QARecordCreate) SetGroupID(v int64) *QARecordCreate {
+	_c.mutation.SetGroupID(v)
+	return _c
+}
+
+// SetNillableGroupID sets the "group_id" field if the given value is not nil.
+func (_c *QARecordCreate) SetNillableGroupID(v *int64) *QARecordCreate {
+	if v != nil {
+		_c.SetGroupID(*v)
+	}
+	return _c
+}
+
 // SetAPIKeyID sets the "api_key_id" field.
 func (_c *QARecordCreate) SetAPIKeyID(v int64) *QARecordCreate {
 	_c.mutation.SetAPIKeyID(v)
@@ -78,6 +92,34 @@ func (_c *QARecordCreate) SetPlatform(v string) *QARecordCreate {
 func (_c *QARecordCreate) SetNillablePlatform(v *string) *QARecordCreate {
 	if v != nil {
 		_c.SetPlatform(*v)
+	}
+	return _c
+}
+
+// SetProvider sets the "provider" field.
+func (_c *QARecordCreate) SetProvider(v string) *QARecordCreate {
+	_c.mutation.SetProvider(v)
+	return _c
+}
+
+// SetNillableProvider sets the "provider" field if the given value is not nil.
+func (_c *QARecordCreate) SetNillableProvider(v *string) *QARecordCreate {
+	if v != nil {
+		_c.SetProvider(*v)
+	}
+	return _c
+}
+
+// SetChannelType sets the "channel_type" field.
+func (_c *QARecordCreate) SetChannelType(v int) *QARecordCreate {
+	_c.mutation.SetChannelType(v)
+	return _c
+}
+
+// SetNillableChannelType sets the "channel_type" field if the given value is not nil.
+func (_c *QARecordCreate) SetNillableChannelType(v *int) *QARecordCreate {
+	if v != nil {
+		_c.SetChannelType(*v)
 	}
 	return _c
 }
@@ -148,6 +190,20 @@ func (_c *QARecordCreate) SetStatusCode(v int) *QARecordCreate {
 func (_c *QARecordCreate) SetNillableStatusCode(v *int) *QARecordCreate {
 	if v != nil {
 		_c.SetStatusCode(*v)
+	}
+	return _c
+}
+
+// SetSuccess sets the "success" field.
+func (_c *QARecordCreate) SetSuccess(v bool) *QARecordCreate {
+	_c.mutation.SetSuccess(v)
+	return _c
+}
+
+// SetNillableSuccess sets the "success" field if the given value is not nil.
+func (_c *QARecordCreate) SetNillableSuccess(v *bool) *QARecordCreate {
+	if v != nil {
+		_c.SetSuccess(*v)
 	}
 	return _c
 }
@@ -306,6 +362,76 @@ func (_c *QARecordCreate) SetNillableBlobURI(v *string) *QARecordCreate {
 	return _c
 }
 
+// SetRequestBlobURI sets the "request_blob_uri" field.
+func (_c *QARecordCreate) SetRequestBlobURI(v string) *QARecordCreate {
+	_c.mutation.SetRequestBlobURI(v)
+	return _c
+}
+
+// SetNillableRequestBlobURI sets the "request_blob_uri" field if the given value is not nil.
+func (_c *QARecordCreate) SetNillableRequestBlobURI(v *string) *QARecordCreate {
+	if v != nil {
+		_c.SetRequestBlobURI(*v)
+	}
+	return _c
+}
+
+// SetResponseBlobURI sets the "response_blob_uri" field.
+func (_c *QARecordCreate) SetResponseBlobURI(v string) *QARecordCreate {
+	_c.mutation.SetResponseBlobURI(v)
+	return _c
+}
+
+// SetNillableResponseBlobURI sets the "response_blob_uri" field if the given value is not nil.
+func (_c *QARecordCreate) SetNillableResponseBlobURI(v *string) *QARecordCreate {
+	if v != nil {
+		_c.SetResponseBlobURI(*v)
+	}
+	return _c
+}
+
+// SetStreamBlobURI sets the "stream_blob_uri" field.
+func (_c *QARecordCreate) SetStreamBlobURI(v string) *QARecordCreate {
+	_c.mutation.SetStreamBlobURI(v)
+	return _c
+}
+
+// SetNillableStreamBlobURI sets the "stream_blob_uri" field if the given value is not nil.
+func (_c *QARecordCreate) SetNillableStreamBlobURI(v *string) *QARecordCreate {
+	if v != nil {
+		_c.SetStreamBlobURI(*v)
+	}
+	return _c
+}
+
+// SetRedactionVersion sets the "redaction_version" field.
+func (_c *QARecordCreate) SetRedactionVersion(v string) *QARecordCreate {
+	_c.mutation.SetRedactionVersion(v)
+	return _c
+}
+
+// SetNillableRedactionVersion sets the "redaction_version" field if the given value is not nil.
+func (_c *QARecordCreate) SetNillableRedactionVersion(v *string) *QARecordCreate {
+	if v != nil {
+		_c.SetRedactionVersion(*v)
+	}
+	return _c
+}
+
+// SetCaptureStatus sets the "capture_status" field.
+func (_c *QARecordCreate) SetCaptureStatus(v string) *QARecordCreate {
+	_c.mutation.SetCaptureStatus(v)
+	return _c
+}
+
+// SetNillableCaptureStatus sets the "capture_status" field if the given value is not nil.
+func (_c *QARecordCreate) SetNillableCaptureStatus(v *string) *QARecordCreate {
+	if v != nil {
+		_c.SetCaptureStatus(*v)
+	}
+	return _c
+}
+
 // SetTags sets the "tags" field.
 func (_c *QARecordCreate) SetTags(v []string) *QARecordCreate {
 	_c.mutation.SetTags(v)
@@ -439,6 +565,10 @@ func (_c *QARecordCreate) defaults() {
 		v := qarecord.DefaultStatusCode
 		_c.mutation.SetStatusCode(v)
 	}
+	if _, ok := _c.mutation.Success(); !ok {
+		v := qarecord.DefaultSuccess
+		_c.mutation.SetSuccess(v)
+	}
 	if _, ok := _c.mutation.DurationMs(); !ok {
 		v := qarecord.DefaultDurationMs
 		_c.mutation.SetDurationMs(v)
@@ -474,6 +604,14 @@ func (_c *QARecordCreate) defaults() {
 	if _, ok := _c.mutation.ResponseSha256(); !ok {
 		v := qarecord.DefaultResponseSha256
 		_c.mutation.SetResponseSha256(v)
+	}
+	if _, ok := _c.mutation.RedactionVersion(); !ok {
+		v := qarecord.DefaultRedactionVersion
+		_c.mutation.SetRedactionVersion(v)
+	}
+	if _, ok := _c.mutation.CaptureStatus(); !ok {
+		v := qarecord.DefaultCaptureStatus
+		_c.mutation.SetCaptureStatus(v)
 	}
 	if _, ok := _c.mutation.Tags(); !ok {
 		v := qarecord.DefaultTags
@@ -517,6 +655,9 @@ func (_c *QARecordCreate) check() error {
 	if _, ok := _c.mutation.StatusCode(); !ok {
 		return &ValidationError{Name: "status_code", err: errors.New(`ent: missing required field "QARecord.status_code"`)}
 	}
+	if _, ok := _c.mutation.Success(); !ok {
+		return &ValidationError{Name: "success", err: errors.New(`ent: missing required field "QARecord.success"`)}
+	}
 	if _, ok := _c.mutation.DurationMs(); !ok {
 		return &ValidationError{Name: "duration_ms", err: errors.New(`ent: missing required field "QARecord.duration_ms"`)}
 	}
@@ -543,6 +684,12 @@ func (_c *QARecordCreate) check() error {
 	}
 	if _, ok := _c.mutation.ResponseSha256(); !ok {
 		return &ValidationError{Name: "response_sha256", err: errors.New(`ent: missing required field "QARecord.response_sha256"`)}
+	}
+	if _, ok := _c.mutation.RedactionVersion(); !ok {
+		return &ValidationError{Name: "redaction_version", err: errors.New(`ent: missing required field "QARecord.redaction_version"`)}
+	}
+	if _, ok := _c.mutation.CaptureStatus(); !ok {
+		return &ValidationError{Name: "capture_status", err: errors.New(`ent: missing required field "QARecord.capture_status"`)}
 	}
 	if _, ok := _c.mutation.Tags(); !ok {
 		return &ValidationError{Name: "tags", err: errors.New(`ent: missing required field "QARecord.tags"`)}
@@ -595,6 +742,10 @@ func (_c *QARecordCreate) createSpec() (*QARecord, *sqlgraph.CreateSpec) {
 		_spec.SetField(qarecord.FieldUserID, field.TypeInt64, value)
 		_node.UserID = value
 	}
+	if value, ok := _c.mutation.GroupID(); ok {
+		_spec.SetField(qarecord.FieldGroupID, field.TypeInt64, value)
+		_node.GroupID = &value
+	}
 	if value, ok := _c.mutation.APIKeyID(); ok {
 		_spec.SetField(qarecord.FieldAPIKeyID, field.TypeInt64, value)
 		_node.APIKeyID = value
@@ -606,6 +757,14 @@ func (_c *QARecordCreate) createSpec() (*QARecord, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Platform(); ok {
 		_spec.SetField(qarecord.FieldPlatform, field.TypeString, value)
 		_node.Platform = value
+	}
+	if value, ok := _c.mutation.Provider(); ok {
+		_spec.SetField(qarecord.FieldProvider, field.TypeString, value)
+		_node.Provider = &value
+	}
+	if value, ok := _c.mutation.ChannelType(); ok {
+		_spec.SetField(qarecord.FieldChannelType, field.TypeInt, value)
+		_node.ChannelType = &value
 	}
 	if value, ok := _c.mutation.RequestedModel(); ok {
 		_spec.SetField(qarecord.FieldRequestedModel, field.TypeString, value)
@@ -626,6 +785,10 @@ func (_c *QARecordCreate) createSpec() (*QARecord, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.StatusCode(); ok {
 		_spec.SetField(qarecord.FieldStatusCode, field.TypeInt, value)
 		_node.StatusCode = value
+	}
+	if value, ok := _c.mutation.Success(); ok {
+		_spec.SetField(qarecord.FieldSuccess, field.TypeBool, value)
+		_node.Success = value
 	}
 	if value, ok := _c.mutation.DurationMs(); ok {
 		_spec.SetField(qarecord.FieldDurationMs, field.TypeInt64, value)
@@ -670,6 +833,26 @@ func (_c *QARecordCreate) createSpec() (*QARecord, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.BlobURI(); ok {
 		_spec.SetField(qarecord.FieldBlobURI, field.TypeString, value)
 		_node.BlobURI = &value
+	}
+	if value, ok := _c.mutation.RequestBlobURI(); ok {
+		_spec.SetField(qarecord.FieldRequestBlobURI, field.TypeString, value)
+		_node.RequestBlobURI = &value
+	}
+	if value, ok := _c.mutation.ResponseBlobURI(); ok {
+		_spec.SetField(qarecord.FieldResponseBlobURI, field.TypeString, value)
+		_node.ResponseBlobURI = &value
+	}
+	if value, ok := _c.mutation.StreamBlobURI(); ok {
+		_spec.SetField(qarecord.FieldStreamBlobURI, field.TypeString, value)
+		_node.StreamBlobURI = &value
+	}
+	if value, ok := _c.mutation.RedactionVersion(); ok {
+		_spec.SetField(qarecord.FieldRedactionVersion, field.TypeString, value)
+		_node.RedactionVersion = value
+	}
+	if value, ok := _c.mutation.CaptureStatus(); ok {
+		_spec.SetField(qarecord.FieldCaptureStatus, field.TypeString, value)
+		_node.CaptureStatus = value
 	}
 	if value, ok := _c.mutation.Tags(); ok {
 		_spec.SetField(qarecord.FieldTags, field.TypeJSON, value)
@@ -799,6 +982,30 @@ func (u *QARecordUpsert) AddUserID(v int64) *QARecordUpsert {
 	return u
 }
 
+// SetGroupID sets the "group_id" field.
+func (u *QARecordUpsert) SetGroupID(v int64) *QARecordUpsert {
+	u.Set(qarecord.FieldGroupID, v)
+	return u
+}
+
+// UpdateGroupID sets the "group_id" field to the value that was provided on create.
+func (u *QARecordUpsert) UpdateGroupID() *QARecordUpsert {
+	u.SetExcluded(qarecord.FieldGroupID)
+	return u
+}
+
+// AddGroupID adds v to the "group_id" field.
+func (u *QARecordUpsert) AddGroupID(v int64) *QARecordUpsert {
+	u.Add(qarecord.FieldGroupID, v)
+	return u
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (u *QARecordUpsert) ClearGroupID() *QARecordUpsert {
+	u.SetNull(qarecord.FieldGroupID)
+	return u
+}
+
 // SetAPIKeyID sets the "api_key_id" field.
 func (u *QARecordUpsert) SetAPIKeyID(v int64) *QARecordUpsert {
 	u.Set(qarecord.FieldAPIKeyID, v)
@@ -850,6 +1057,48 @@ func (u *QARecordUpsert) SetPlatform(v string) *QARecordUpsert {
 // UpdatePlatform sets the "platform" field to the value that was provided on create.
 func (u *QARecordUpsert) UpdatePlatform() *QARecordUpsert {
 	u.SetExcluded(qarecord.FieldPlatform)
+	return u
+}
+
+// SetProvider sets the "provider" field.
+func (u *QARecordUpsert) SetProvider(v string) *QARecordUpsert {
+	u.Set(qarecord.FieldProvider, v)
+	return u
+}
+
+// UpdateProvider sets the "provider" field to the value that was provided on create.
+func (u *QARecordUpsert) UpdateProvider() *QARecordUpsert {
+	u.SetExcluded(qarecord.FieldProvider)
+	return u
+}
+
+// ClearProvider clears the value of the "provider" field.
+func (u *QARecordUpsert) ClearProvider() *QARecordUpsert {
+	u.SetNull(qarecord.FieldProvider)
+	return u
+}
+
+// SetChannelType sets the "channel_type" field.
+func (u *QARecordUpsert) SetChannelType(v int) *QARecordUpsert {
+	u.Set(qarecord.FieldChannelType, v)
+	return u
+}
+
+// UpdateChannelType sets the "channel_type" field to the value that was provided on create.
+func (u *QARecordUpsert) UpdateChannelType() *QARecordUpsert {
+	u.SetExcluded(qarecord.FieldChannelType)
+	return u
+}
+
+// AddChannelType adds v to the "channel_type" field.
+func (u *QARecordUpsert) AddChannelType(v int) *QARecordUpsert {
+	u.Add(qarecord.FieldChannelType, v)
+	return u
+}
+
+// ClearChannelType clears the value of the "channel_type" field.
+func (u *QARecordUpsert) ClearChannelType() *QARecordUpsert {
+	u.SetNull(qarecord.FieldChannelType)
 	return u
 }
 
@@ -928,6 +1177,18 @@ func (u *QARecordUpsert) UpdateStatusCode() *QARecordUpsert {
 // AddStatusCode adds v to the "status_code" field.
 func (u *QARecordUpsert) AddStatusCode(v int) *QARecordUpsert {
 	u.Add(qarecord.FieldStatusCode, v)
+	return u
+}
+
+// SetSuccess sets the "success" field.
+func (u *QARecordUpsert) SetSuccess(v bool) *QARecordUpsert {
+	u.Set(qarecord.FieldSuccess, v)
+	return u
+}
+
+// UpdateSuccess sets the "success" field to the value that was provided on create.
+func (u *QARecordUpsert) UpdateSuccess() *QARecordUpsert {
+	u.SetExcluded(qarecord.FieldSuccess)
 	return u
 }
 
@@ -1102,6 +1363,84 @@ func (u *QARecordUpsert) UpdateBlobURI() *QARecordUpsert {
 // ClearBlobURI clears the value of the "blob_uri" field.
 func (u *QARecordUpsert) ClearBlobURI() *QARecordUpsert {
 	u.SetNull(qarecord.FieldBlobURI)
+	return u
+}
+
+// SetRequestBlobURI sets the "request_blob_uri" field.
+func (u *QARecordUpsert) SetRequestBlobURI(v string) *QARecordUpsert {
+	u.Set(qarecord.FieldRequestBlobURI, v)
+	return u
+}
+
+// UpdateRequestBlobURI sets the "request_blob_uri" field to the value that was provided on create.
+func (u *QARecordUpsert) UpdateRequestBlobURI() *QARecordUpsert {
+	u.SetExcluded(qarecord.FieldRequestBlobURI)
+	return u
+}
+
+// ClearRequestBlobURI clears the value of the "request_blob_uri" field.
+func (u *QARecordUpsert) ClearRequestBlobURI() *QARecordUpsert {
+	u.SetNull(qarecord.FieldRequestBlobURI)
+	return u
+}
+
+// SetResponseBlobURI sets the "response_blob_uri" field.
+func (u *QARecordUpsert) SetResponseBlobURI(v string) *QARecordUpsert {
+	u.Set(qarecord.FieldResponseBlobURI, v)
+	return u
+}
+
+// UpdateResponseBlobURI sets the "response_blob_uri" field to the value that was provided on create.
+func (u *QARecordUpsert) UpdateResponseBlobURI() *QARecordUpsert {
+	u.SetExcluded(qarecord.FieldResponseBlobURI)
+	return u
+}
+
+// ClearResponseBlobURI clears the value of the "response_blob_uri" field.
+func (u *QARecordUpsert) ClearResponseBlobURI() *QARecordUpsert {
+	u.SetNull(qarecord.FieldResponseBlobURI)
+	return u
+}
+
+// SetStreamBlobURI sets the "stream_blob_uri" field.
+func (u *QARecordUpsert) SetStreamBlobURI(v string) *QARecordUpsert {
+	u.Set(qarecord.FieldStreamBlobURI, v)
+	return u
+}
+
+// UpdateStreamBlobURI sets the "stream_blob_uri" field to the value that was provided on create.
+func (u *QARecordUpsert) UpdateStreamBlobURI() *QARecordUpsert {
+	u.SetExcluded(qarecord.FieldStreamBlobURI)
+	return u
+}
+
+// ClearStreamBlobURI clears the value of the "stream_blob_uri" field.
+func (u *QARecordUpsert) ClearStreamBlobURI() *QARecordUpsert {
+	u.SetNull(qarecord.FieldStreamBlobURI)
+	return u
+}
+
+// SetRedactionVersion sets the "redaction_version" field.
+func (u *QARecordUpsert) SetRedactionVersion(v string) *QARecordUpsert {
+	u.Set(qarecord.FieldRedactionVersion, v)
+	return u
+}
+
+// UpdateRedactionVersion sets the "redaction_version" field to the value that was provided on create.
+func (u *QARecordUpsert) UpdateRedactionVersion() *QARecordUpsert {
+	u.SetExcluded(qarecord.FieldRedactionVersion)
+	return u
+}
+
+// SetCaptureStatus sets the "capture_status" field.
+func (u *QARecordUpsert) SetCaptureStatus(v string) *QARecordUpsert {
+	u.Set(qarecord.FieldCaptureStatus, v)
+	return u
+}
+
+// UpdateCaptureStatus sets the "capture_status" field to the value that was provided on create.
+func (u *QARecordUpsert) UpdateCaptureStatus() *QARecordUpsert {
+	u.SetExcluded(qarecord.FieldCaptureStatus)
 	return u
 }
 
@@ -1296,6 +1635,34 @@ func (u *QARecordUpsertOne) UpdateUserID() *QARecordUpsertOne {
 	})
 }
 
+// SetGroupID sets the "group_id" field.
+func (u *QARecordUpsertOne) SetGroupID(v int64) *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetGroupID(v)
+	})
+}
+
+// AddGroupID adds v to the "group_id" field.
+func (u *QARecordUpsertOne) AddGroupID(v int64) *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.AddGroupID(v)
+	})
+}
+
+// UpdateGroupID sets the "group_id" field to the value that was provided on create.
+func (u *QARecordUpsertOne) UpdateGroupID() *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateGroupID()
+	})
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (u *QARecordUpsertOne) ClearGroupID() *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.ClearGroupID()
+	})
+}
+
 // SetAPIKeyID sets the "api_key_id" field.
 func (u *QARecordUpsertOne) SetAPIKeyID(v int64) *QARecordUpsertOne {
 	return u.Update(func(s *QARecordUpsert) {
@@ -1356,6 +1723,55 @@ func (u *QARecordUpsertOne) SetPlatform(v string) *QARecordUpsertOne {
 func (u *QARecordUpsertOne) UpdatePlatform() *QARecordUpsertOne {
 	return u.Update(func(s *QARecordUpsert) {
 		s.UpdatePlatform()
+	})
+}
+
+// SetProvider sets the "provider" field.
+func (u *QARecordUpsertOne) SetProvider(v string) *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetProvider(v)
+	})
+}
+
+// UpdateProvider sets the "provider" field to the value that was provided on create.
+func (u *QARecordUpsertOne) UpdateProvider() *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateProvider()
+	})
+}
+
+// ClearProvider clears the value of the "provider" field.
+func (u *QARecordUpsertOne) ClearProvider() *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.ClearProvider()
+	})
+}
+
+// SetChannelType sets the "channel_type" field.
+func (u *QARecordUpsertOne) SetChannelType(v int) *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetChannelType(v)
+	})
+}
+
+// AddChannelType adds v to the "channel_type" field.
+func (u *QARecordUpsertOne) AddChannelType(v int) *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.AddChannelType(v)
+	})
+}
+
+// UpdateChannelType sets the "channel_type" field to the value that was provided on create.
+func (u *QARecordUpsertOne) UpdateChannelType() *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateChannelType()
+	})
+}
+
+// ClearChannelType clears the value of the "channel_type" field.
+func (u *QARecordUpsertOne) ClearChannelType() *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.ClearChannelType()
 	})
 }
 
@@ -1447,6 +1863,20 @@ func (u *QARecordUpsertOne) AddStatusCode(v int) *QARecordUpsertOne {
 func (u *QARecordUpsertOne) UpdateStatusCode() *QARecordUpsertOne {
 	return u.Update(func(s *QARecordUpsert) {
 		s.UpdateStatusCode()
+	})
+}
+
+// SetSuccess sets the "success" field.
+func (u *QARecordUpsertOne) SetSuccess(v bool) *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetSuccess(v)
+	})
+}
+
+// UpdateSuccess sets the "success" field to the value that was provided on create.
+func (u *QARecordUpsertOne) UpdateSuccess() *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateSuccess()
 	})
 }
 
@@ -1650,6 +2080,97 @@ func (u *QARecordUpsertOne) UpdateBlobURI() *QARecordUpsertOne {
 func (u *QARecordUpsertOne) ClearBlobURI() *QARecordUpsertOne {
 	return u.Update(func(s *QARecordUpsert) {
 		s.ClearBlobURI()
+	})
+}
+
+// SetRequestBlobURI sets the "request_blob_uri" field.
+func (u *QARecordUpsertOne) SetRequestBlobURI(v string) *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetRequestBlobURI(v)
+	})
+}
+
+// UpdateRequestBlobURI sets the "request_blob_uri" field to the value that was provided on create.
+func (u *QARecordUpsertOne) UpdateRequestBlobURI() *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateRequestBlobURI()
+	})
+}
+
+// ClearRequestBlobURI clears the value of the "request_blob_uri" field.
+func (u *QARecordUpsertOne) ClearRequestBlobURI() *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.ClearRequestBlobURI()
+	})
+}
+
+// SetResponseBlobURI sets the "response_blob_uri" field.
+func (u *QARecordUpsertOne) SetResponseBlobURI(v string) *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetResponseBlobURI(v)
+	})
+}
+
+// UpdateResponseBlobURI sets the "response_blob_uri" field to the value that was provided on create.
+func (u *QARecordUpsertOne) UpdateResponseBlobURI() *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateResponseBlobURI()
+	})
+}
+
+// ClearResponseBlobURI clears the value of the "response_blob_uri" field.
+func (u *QARecordUpsertOne) ClearResponseBlobURI() *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.ClearResponseBlobURI()
+	})
+}
+
+// SetStreamBlobURI sets the "stream_blob_uri" field.
+func (u *QARecordUpsertOne) SetStreamBlobURI(v string) *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetStreamBlobURI(v)
+	})
+}
+
+// UpdateStreamBlobURI sets the "stream_blob_uri" field to the value that was provided on create.
+func (u *QARecordUpsertOne) UpdateStreamBlobURI() *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateStreamBlobURI()
+	})
+}
+
+// ClearStreamBlobURI clears the value of the "stream_blob_uri" field.
+func (u *QARecordUpsertOne) ClearStreamBlobURI() *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.ClearStreamBlobURI()
+	})
+}
+
+// SetRedactionVersion sets the "redaction_version" field.
+func (u *QARecordUpsertOne) SetRedactionVersion(v string) *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetRedactionVersion(v)
+	})
+}
+
+// UpdateRedactionVersion sets the "redaction_version" field to the value that was provided on create.
+func (u *QARecordUpsertOne) UpdateRedactionVersion() *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateRedactionVersion()
+	})
+}
+
+// SetCaptureStatus sets the "capture_status" field.
+func (u *QARecordUpsertOne) SetCaptureStatus(v string) *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetCaptureStatus(v)
+	})
+}
+
+// UpdateCaptureStatus sets the "capture_status" field to the value that was provided on create.
+func (u *QARecordUpsertOne) UpdateCaptureStatus() *QARecordUpsertOne {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateCaptureStatus()
 	})
 }
 
@@ -2025,6 +2546,34 @@ func (u *QARecordUpsertBulk) UpdateUserID() *QARecordUpsertBulk {
 	})
 }
 
+// SetGroupID sets the "group_id" field.
+func (u *QARecordUpsertBulk) SetGroupID(v int64) *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetGroupID(v)
+	})
+}
+
+// AddGroupID adds v to the "group_id" field.
+func (u *QARecordUpsertBulk) AddGroupID(v int64) *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.AddGroupID(v)
+	})
+}
+
+// UpdateGroupID sets the "group_id" field to the value that was provided on create.
+func (u *QARecordUpsertBulk) UpdateGroupID() *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateGroupID()
+	})
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (u *QARecordUpsertBulk) ClearGroupID() *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.ClearGroupID()
+	})
+}
+
 // SetAPIKeyID sets the "api_key_id" field.
 func (u *QARecordUpsertBulk) SetAPIKeyID(v int64) *QARecordUpsertBulk {
 	return u.Update(func(s *QARecordUpsert) {
@@ -2085,6 +2634,55 @@ func (u *QARecordUpsertBulk) SetPlatform(v string) *QARecordUpsertBulk {
 func (u *QARecordUpsertBulk) UpdatePlatform() *QARecordUpsertBulk {
 	return u.Update(func(s *QARecordUpsert) {
 		s.UpdatePlatform()
+	})
+}
+
+// SetProvider sets the "provider" field.
+func (u *QARecordUpsertBulk) SetProvider(v string) *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetProvider(v)
+	})
+}
+
+// UpdateProvider sets the "provider" field to the value that was provided on create.
+func (u *QARecordUpsertBulk) UpdateProvider() *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateProvider()
+	})
+}
+
+// ClearProvider clears the value of the "provider" field.
+func (u *QARecordUpsertBulk) ClearProvider() *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.ClearProvider()
+	})
+}
+
+// SetChannelType sets the "channel_type" field.
+func (u *QARecordUpsertBulk) SetChannelType(v int) *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetChannelType(v)
+	})
+}
+
+// AddChannelType adds v to the "channel_type" field.
+func (u *QARecordUpsertBulk) AddChannelType(v int) *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.AddChannelType(v)
+	})
+}
+
+// UpdateChannelType sets the "channel_type" field to the value that was provided on create.
+func (u *QARecordUpsertBulk) UpdateChannelType() *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateChannelType()
+	})
+}
+
+// ClearChannelType clears the value of the "channel_type" field.
+func (u *QARecordUpsertBulk) ClearChannelType() *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.ClearChannelType()
 	})
 }
 
@@ -2176,6 +2774,20 @@ func (u *QARecordUpsertBulk) AddStatusCode(v int) *QARecordUpsertBulk {
 func (u *QARecordUpsertBulk) UpdateStatusCode() *QARecordUpsertBulk {
 	return u.Update(func(s *QARecordUpsert) {
 		s.UpdateStatusCode()
+	})
+}
+
+// SetSuccess sets the "success" field.
+func (u *QARecordUpsertBulk) SetSuccess(v bool) *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetSuccess(v)
+	})
+}
+
+// UpdateSuccess sets the "success" field to the value that was provided on create.
+func (u *QARecordUpsertBulk) UpdateSuccess() *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateSuccess()
 	})
 }
 
@@ -2379,6 +2991,97 @@ func (u *QARecordUpsertBulk) UpdateBlobURI() *QARecordUpsertBulk {
 func (u *QARecordUpsertBulk) ClearBlobURI() *QARecordUpsertBulk {
 	return u.Update(func(s *QARecordUpsert) {
 		s.ClearBlobURI()
+	})
+}
+
+// SetRequestBlobURI sets the "request_blob_uri" field.
+func (u *QARecordUpsertBulk) SetRequestBlobURI(v string) *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetRequestBlobURI(v)
+	})
+}
+
+// UpdateRequestBlobURI sets the "request_blob_uri" field to the value that was provided on create.
+func (u *QARecordUpsertBulk) UpdateRequestBlobURI() *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateRequestBlobURI()
+	})
+}
+
+// ClearRequestBlobURI clears the value of the "request_blob_uri" field.
+func (u *QARecordUpsertBulk) ClearRequestBlobURI() *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.ClearRequestBlobURI()
+	})
+}
+
+// SetResponseBlobURI sets the "response_blob_uri" field.
+func (u *QARecordUpsertBulk) SetResponseBlobURI(v string) *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetResponseBlobURI(v)
+	})
+}
+
+// UpdateResponseBlobURI sets the "response_blob_uri" field to the value that was provided on create.
+func (u *QARecordUpsertBulk) UpdateResponseBlobURI() *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateResponseBlobURI()
+	})
+}
+
+// ClearResponseBlobURI clears the value of the "response_blob_uri" field.
+func (u *QARecordUpsertBulk) ClearResponseBlobURI() *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.ClearResponseBlobURI()
+	})
+}
+
+// SetStreamBlobURI sets the "stream_blob_uri" field.
+func (u *QARecordUpsertBulk) SetStreamBlobURI(v string) *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetStreamBlobURI(v)
+	})
+}
+
+// UpdateStreamBlobURI sets the "stream_blob_uri" field to the value that was provided on create.
+func (u *QARecordUpsertBulk) UpdateStreamBlobURI() *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateStreamBlobURI()
+	})
+}
+
+// ClearStreamBlobURI clears the value of the "stream_blob_uri" field.
+func (u *QARecordUpsertBulk) ClearStreamBlobURI() *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.ClearStreamBlobURI()
+	})
+}
+
+// SetRedactionVersion sets the "redaction_version" field.
+func (u *QARecordUpsertBulk) SetRedactionVersion(v string) *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetRedactionVersion(v)
+	})
+}
+
+// UpdateRedactionVersion sets the "redaction_version" field to the value that was provided on create.
+func (u *QARecordUpsertBulk) UpdateRedactionVersion() *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateRedactionVersion()
+	})
+}
+
+// SetCaptureStatus sets the "capture_status" field.
+func (u *QARecordUpsertBulk) SetCaptureStatus(v string) *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.SetCaptureStatus(v)
+	})
+}
+
+// UpdateCaptureStatus sets the "capture_status" field to the value that was provided on create.
+func (u *QARecordUpsertBulk) UpdateCaptureStatus() *QARecordUpsertBulk {
+	return u.Update(func(s *QARecordUpsert) {
+		s.UpdateCaptureStatus()
 	})
 }
 

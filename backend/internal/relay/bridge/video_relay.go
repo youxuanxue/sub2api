@@ -20,6 +20,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/types"
+	"github.com/Wei-Shaw/sub2api/internal/engine"
 	"github.com/gin-gonic/gin"
 )
 
@@ -247,16 +248,21 @@ func DispatchVideoFetch(_ context.Context, _ *gin.Context, in VideoFetchInput) (
 }
 
 // taskAdaptorForChannel returns the new-api task adaptor registered for this
-// channel type, or nil. Centralised so DispatchVideoSubmit, DispatchVideoFetch,
-// and IsVideoSupportedChannelType all derive from the same lookup — adding a
-// sixth supported channel type is then a single registry entry upstream, no
-// TK code change needed.
+// channel type, or nil. DispatchVideoSubmit and DispatchVideoFetch own the
+// bridge-local lookup; external preflight callers MUST use engine-level truth
+// so capability semantics stay centralized outside the bridge package.
 func taskAdaptorForChannel(channelType int) channel.TaskAdaptor {
 	if channelType <= 0 {
 		return nil
 	}
 	platform := newapiconstant.TaskPlatform(strconv.Itoa(channelType))
 	return newapirelay.GetTaskAdaptor(platform)
+}
+
+// IsVideoSupportedChannelType preserves the bridge's load-bearing exported
+// surface while delegating capability truth to the engine registry.
+func IsVideoSupportedChannelType(channelType int) bool {
+	return engine.IsVideoSupportedChannelType(channelType)
 }
 
 // errUnsupportedChannel is the canonical error for "no task adaptor for this
@@ -293,11 +299,4 @@ func taskErrorToNewAPIError(taskErr *dto.TaskError) *types.NewAPIError {
 		code = types.ErrorCode(taskErr.Code)
 	}
 	return types.NewErrorWithStatusCode(taskErr.Error, code, status, types.ErrOptionWithSkipRetry())
-}
-
-// IsVideoSupportedChannelType reports whether new-api's task-adaptor registry
-// has an entry for this channel type. Used by the route layer / settings to
-// pre-flight requests before queuing them.
-func IsVideoSupportedChannelType(channelType int) bool {
-	return taskAdaptorForChannel(channelType) != nil
 }

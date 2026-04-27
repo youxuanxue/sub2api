@@ -12,20 +12,24 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/qarecord"
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/engine"
 	"github.com/Wei-Shaw/sub2api/internal/observability/trajectory"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 	"github.com/alitto/pond/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/klauspost/compress/zstd"
 	"github.com/tidwall/gjson"
+	"go.uber.org/zap"
 )
 
 type Service struct {
@@ -37,6 +41,31 @@ type Service struct {
 	retentionDays int
 	dlqDir        string
 }
+
+var (
+	qaCaptureSubmittedCount     atomic.Int64
+	qaCaptureAsyncAcceptedCount atomic.Int64
+	qaCaptureSyncFallbackCount  atomic.Int64
+	qaCapturePersistedCount     atomic.Int64
+	qaCaptureDegradedDLQCount   atomic.Int64
+	qaCapturePersistFailedCount atomic.Int64
+)
+
+const (
+	qaRedactionVersion               = "logredact"
+	captureStatusCaptured            = "captured"
+	qaCaptureStatusCapturedToDLQ     = "captured_dlq"
+	qaCapturePersistModeAsync        = "async"
+	qaCapturePersistModeSyncFallback = "sync_fallback"
+	qaEndpointChatCompletions        = "/v1/chat/completions"
+	qaEndpointMessages               = "/v1/messages"
+	qaEndpointResponses              = "/v1/responses"
+	qaEndpointGeminiModels           = "/v1beta/models"
+	qaEndpointEmbeddings             = "/v1/embeddings"
+	qaEndpointImagesGenerations      = "/v1/images/generations"
+	qaEndpointVideoGenerations       = "/v1/video/generations"
+	qaEndpointVideoGenerationsTask   = "/v1/video/generations/:task_id"
+)
 
 // NewServiceForTest constructs a minimal Service usable in cross-package
 // unit tests (the export-path tests in handler/ can't reach unexported
@@ -103,15 +132,18 @@ func (s *Service) Submit(input CaptureInput) {
 	if input.CreatedAt.IsZero() {
 		input.CreatedAt = time.Now().UTC()
 	}
+	qaCaptureSubmittedCount.Add(1)
 	if s.pool != nil {
 		_, ok := s.pool.TrySubmit(func() {
-			_ = s.persistCapture(context.Background(), input)
+			s.persistCaptureWithObservability(context.Background(), input, qaCapturePersistModeAsync)
 		})
 		if ok {
+			qaCaptureAsyncAcceptedCount.Add(1)
 			return
 		}
 	}
-	_ = s.persistCapture(context.Background(), input)
+	qaCaptureSyncFallbackCount.Add(1)
+	s.persistCaptureWithObservability(context.Background(), input, qaCapturePersistModeSyncFallback)
 }
 
 func (s *Service) CaptureFromContext(c *gin.Context) {
@@ -158,6 +190,8 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 			accountID = &tmp
 		}
 	}
+	groupID := apiKey.GroupID
+	channelType := captureChannelType(c)
 
 	inboundEndpoint := captureInboundEndpoint(c)
 	platform, _ := c.Request.Context().Value(ctxkey.Platform).(string)
@@ -165,6 +199,8 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 		platform = apiKey.Group.Platform
 	}
 	platform = capturePlatform(platform, inboundEndpoint)
+	upstreamEndpoint := captureUpstreamEndpoint(inboundEndpoint, platform, c)
+	provider := captureProvider(platform, inboundEndpoint, channelType)
 	status := c.Writer.Status()
 	durationMs := int64(0)
 	if tee != nil {
@@ -177,13 +213,18 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 		RequestID:          strings.TrimSpace(requestID),
 		TrajectoryID:       strings.TrimSpace(trajectoryID),
 		UserID:             apiKey.UserID,
+		GroupID:            groupID,
 		APIKeyID:           apiKey.ID,
 		AccountID:          accountID,
 		Platform:           strings.TrimSpace(platform),
+		Provider:           provider,
+		ChannelType:        channelType,
 		RequestedModel:     captureRequestedModel(requestBody),
 		UpstreamModel:      captureUpstreamModel(c),
 		InboundEndpoint:    inboundEndpoint,
+		UpstreamEndpoint:   upstreamEndpoint,
 		StatusCode:         status,
+		Success:            status >= 200 && status < 400,
 		DurationMs:         durationMs,
 		FirstTokenMs:       firstTokenMs,
 		Stream:             captureStreamFlag(c, streamChunks),
@@ -196,6 +237,8 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 		CachedTokens:       cachedTokens,
 		ToolCallsPresent:   captureToolCallsPresent(requestBody),
 		MultimodalPresent:  captureMultimodalPresent(requestBody),
+		RedactionVersion:   qaRedactionVersion,
+		CaptureStatus:      captureStatusCaptured,
 		Tags:               captureTags(requestBody, responseBody, status, responseTruncated),
 		CreatedAt:          time.Now().UTC(),
 		SynthSessionID:     synthSession,
@@ -204,6 +247,25 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 		DialogSynth:        dialogSynth,
 	}
 	s.Submit(input)
+}
+
+func (s *Service) persistCaptureWithObservability(ctx context.Context, input CaptureInput, mode string) {
+	err := s.persistCapture(ctx, input)
+	if err == nil {
+		qaCapturePersistedCount.Add(1)
+		return
+	}
+	qaCapturePersistFailedCount.Add(1)
+	logger.L().Warn("qa capture persist failed",
+		zap.String("request_id", strings.TrimSpace(input.RequestID)),
+		zap.String("trajectory_id", strings.TrimSpace(input.TrajectoryID)),
+		zap.String("mode", strings.TrimSpace(mode)),
+		zap.Error(err),
+	)
+}
+
+func isDLQBlobURI(blobURI string) bool {
+	return strings.HasPrefix(strings.TrimSpace(blobURI), "dlq://")
 }
 
 func (s *Service) persistCapture(ctx context.Context, input CaptureInput) error {
@@ -216,6 +278,13 @@ func (s *Service) persistCapture(ctx context.Context, input CaptureInput) error 
 	if err != nil {
 		return err
 	}
+	if isDLQBlobURI(blobURI) && strings.TrimSpace(input.CaptureStatus) == captureStatusCaptured {
+		input.CaptureStatus = qaCaptureStatusCapturedToDLQ
+		qaCaptureDegradedDLQCount.Add(1)
+	}
+	requestBlobURI := captureDefault(input.RequestBlobURI, blobURI)
+	responseBlobURI := captureDefault(input.ResponseBlobURI, blobURI)
+	streamBlobURI := captureDefault(input.StreamBlobURI, blobURI)
 
 	create := s.client.QARecord.Create().
 		SetRequestID(input.RequestID).
@@ -241,8 +310,17 @@ func (s *Service) persistCapture(ctx context.Context, input CaptureInput) error 
 	if v := strings.TrimSpace(input.TrajectoryID); v != "" {
 		create = create.SetTrajectoryID(v)
 	}
+	if input.GroupID != nil {
+		create = create.SetGroupID(*input.GroupID)
+	}
 	if input.AccountID != nil {
 		create = create.SetAccountID(*input.AccountID)
+	}
+	if v := strings.TrimSpace(input.Provider); v != "" {
+		create = create.SetProvider(v)
+	}
+	if input.ChannelType != nil {
+		create = create.SetChannelType(*input.ChannelType)
 	}
 	if strings.TrimSpace(input.UpstreamModel) != "" {
 		create = create.SetUpstreamModel(strings.TrimSpace(input.UpstreamModel))
@@ -250,8 +328,26 @@ func (s *Service) persistCapture(ctx context.Context, input CaptureInput) error 
 	if strings.TrimSpace(input.UpstreamEndpoint) != "" {
 		create = create.SetUpstreamEndpoint(strings.TrimSpace(input.UpstreamEndpoint))
 	}
+	if input.Success {
+		create = create.SetSuccess(true)
+	}
 	if input.FirstTokenMs != nil {
 		create = create.SetFirstTokenMs(*input.FirstTokenMs)
+	}
+	if requestBlobURI != "" {
+		create = create.SetRequestBlobURI(requestBlobURI)
+	}
+	if responseBlobURI != "" {
+		create = create.SetResponseBlobURI(responseBlobURI)
+	}
+	if streamBlobURI != "" {
+		create = create.SetStreamBlobURI(streamBlobURI)
+	}
+	if v := strings.TrimSpace(input.RedactionVersion); v != "" {
+		create = create.SetRedactionVersion(v)
+	}
+	if v := strings.TrimSpace(input.CaptureStatus); v != "" {
+		create = create.SetCaptureStatus(v)
 	}
 	if v := strings.TrimSpace(input.SynthSessionID); v != "" {
 		create = create.SetSynthSessionID(v)
@@ -285,27 +381,7 @@ const presignedURLTTL = 24 * time.Hour
 // Caller MUST gate on Service.Enabled() before invoking — this method
 // does not re-check (one canonical guard, owned by the caller).
 func (s *Service) ExportUserData(ctx context.Context, userID int64, filter ExportFilter) (*ExportResult, error) {
-	predicates := []predicate.QARecord{qarecord.UserIDEQ(userID)}
-	if synthSession := strings.TrimSpace(filter.SynthSessionID); synthSession != "" {
-		predicates = append(predicates, qarecord.SynthSessionIDEQ(synthSession))
-	} else {
-		// Time bounds only apply when not narrowing by an explicit session;
-		// a session may legitimately span past the default window.
-		if !filter.Since.IsZero() {
-			predicates = append(predicates, qarecord.CreatedAtGTE(filter.Since))
-		}
-		if !filter.Until.IsZero() {
-			predicates = append(predicates, qarecord.CreatedAtLTE(filter.Until))
-		}
-	}
-	if role := strings.TrimSpace(filter.SynthRole); role != "" {
-		predicates = append(predicates, qarecord.SynthRoleEQ(role))
-	}
-
-	records, err := s.client.QARecord.Query().
-		Where(predicates...).
-		Order(ent.Asc(qarecord.FieldCreatedAt)).
-		All(ctx)
+	records, err := s.queryExportRecords(ctx, userID, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -532,6 +608,29 @@ func captureRequestedModel(body []byte) string {
 	return strings.TrimSpace(gjson.GetBytes(body, "model").String())
 }
 
+func captureChannelType(c *gin.Context) *int {
+	if c == nil {
+		return nil
+	}
+	if value, ok := c.Request.Context().Value(ctxkey.ChannelType).(int); ok && value > 0 {
+		return &value
+	}
+	if value, ok := c.Get("ops_channel_type"); ok {
+		switch v := value.(type) {
+		case int:
+			if v > 0 {
+				return &v
+			}
+		case int64:
+			if v > 0 {
+				tmp := int(v)
+				return &tmp
+			}
+		}
+	}
+	return nil
+}
+
 func captureUpstreamModel(c *gin.Context) string {
 	if c == nil {
 		return ""
@@ -590,30 +689,147 @@ func captureInboundEndpoint(c *gin.Context) string {
 	if c == nil || c.Request == nil || c.Request.URL == nil {
 		return ""
 	}
-	return c.Request.URL.Path
+	return normalizeInboundEndpoint(c.Request.URL.Path)
+}
+
+func normalizeInboundEndpoint(path string) string {
+	path = strings.TrimSpace(path)
+	switch {
+	case path == "/embeddings":
+		return qaEndpointEmbeddings
+	case path == "/images/generations", strings.Contains(path, qaEndpointImagesGenerations):
+		return qaEndpointImagesGenerations
+	case strings.Contains(path, qaEndpointEmbeddings):
+		return qaEndpointEmbeddings
+	case strings.Contains(path, qaEndpointChatCompletions):
+		return qaEndpointChatCompletions
+	case strings.Contains(path, qaEndpointMessages):
+		return qaEndpointMessages
+	case strings.Contains(path, qaEndpointResponses):
+		return qaEndpointResponses
+	case strings.Contains(path, qaEndpointGeminiModels):
+		return qaEndpointGeminiModels
+	case strings.Contains(path, qaEndpointVideoGenerations):
+		return qaEndpointVideoGenerations
+	case strings.Contains(path, "/v1/videos/"):
+		return qaEndpointVideoGenerationsTask
+	case strings.HasSuffix(path, "/v1/videos"), path == "/v1/videos":
+		return qaEndpointVideoGenerations
+	default:
+		return path
+	}
 }
 
 func capturePlatform(current, inboundEndpoint string) string {
 	current = strings.TrimSpace(current)
-	switch {
-	case inboundEndpoint == "/v1/messages":
-		return "anthropic"
-	case strings.HasPrefix(inboundEndpoint, "/v1beta/models/"):
-		return "gemini"
-	case strings.HasPrefix(inboundEndpoint, "/antigravity/"):
-		return "antigravity"
-	case strings.HasPrefix(inboundEndpoint, "/v1/chat/completions"),
-		strings.HasPrefix(inboundEndpoint, "/v1/responses"),
-		strings.HasPrefix(inboundEndpoint, "/v1/embeddings"),
-		strings.HasPrefix(inboundEndpoint, "/v1/images/"),
-		strings.HasPrefix(inboundEndpoint, "/v1/video/"),
-		strings.HasPrefix(inboundEndpoint, "/v1/videos"):
-		return "openai"
-	}
 	if current != "" {
 		return current
 	}
-	return "unknown"
+	switch inboundEndpoint {
+	case qaEndpointMessages:
+		return domain.PlatformAnthropic
+	case qaEndpointGeminiModels:
+		return domain.PlatformGemini
+	}
+	switch {
+	case strings.HasPrefix(inboundEndpoint, "/antigravity/"):
+		return domain.PlatformAntigravity
+	case strings.HasPrefix(inboundEndpoint, qaEndpointChatCompletions),
+		strings.HasPrefix(inboundEndpoint, qaEndpointResponses),
+		strings.HasPrefix(inboundEndpoint, qaEndpointEmbeddings),
+		strings.HasPrefix(inboundEndpoint, qaEndpointImagesGenerations),
+		strings.HasPrefix(inboundEndpoint, qaEndpointVideoGenerations):
+		return domain.PlatformOpenAI
+	default:
+		return "unknown"
+	}
+}
+
+func captureUpstreamEndpoint(inboundEndpoint, platform string, c *gin.Context) string {
+	inboundEndpoint = strings.TrimSpace(inboundEndpoint)
+	rawPath := ""
+	if c != nil && c.Request != nil && c.Request.URL != nil {
+		rawPath = c.Request.URL.Path
+	}
+	if engine.IsOpenAICompatPlatform(platform) {
+		switch inboundEndpoint {
+		case qaEndpointEmbeddings:
+			return qaEndpointEmbeddings
+		case qaEndpointImagesGenerations:
+			return qaEndpointImagesGenerations
+		case qaEndpointVideoGenerations, qaEndpointVideoGenerationsTask:
+			if strings.Contains(rawPath, "/v1/videos/") {
+				return qaEndpointVideoGenerationsTask
+			}
+			return qaEndpointVideoGenerations
+		default:
+			if suffix := captureResponsesSubpathSuffix(rawPath); suffix != "" {
+				return qaEndpointResponses + suffix
+			}
+			return qaEndpointResponses
+		}
+	}
+	switch platform {
+	case domain.PlatformAnthropic:
+		return qaEndpointMessages
+	case domain.PlatformGemini:
+		return qaEndpointGeminiModels
+	case domain.PlatformAntigravity:
+		if inboundEndpoint == qaEndpointGeminiModels {
+			return qaEndpointGeminiModels
+		}
+		return qaEndpointMessages
+	default:
+		return inboundEndpoint
+	}
+}
+
+func captureResponsesSubpathSuffix(rawPath string) string {
+	trimmed := strings.TrimRight(strings.TrimSpace(rawPath), "/")
+	idx := strings.LastIndex(trimmed, "/responses")
+	if idx < 0 {
+		return ""
+	}
+	suffix := trimmed[idx+len("/responses"):]
+	if suffix == "" || suffix == "/" {
+		return ""
+	}
+	if !strings.HasPrefix(suffix, "/") {
+		return ""
+	}
+	return suffix
+}
+
+func captureProvider(platform, inboundEndpoint string, channelType *int) string {
+	if channelType == nil || *channelType <= 0 {
+		return engine.ProviderNative
+	}
+	plan := engine.BuildDispatchPlan(engine.BridgeDispatchInput{
+		AccountPlatform: platform,
+		ChannelType:     *channelType,
+		Endpoint:        bridgeEndpointForInbound(inboundEndpoint),
+		BridgeEnabled:   true,
+	})
+	return plan.Provider
+}
+
+func bridgeEndpointForInbound(inboundEndpoint string) string {
+	switch inboundEndpoint {
+	case qaEndpointChatCompletions:
+		return engine.BridgeEndpointChatCompletions
+	case qaEndpointResponses:
+		return engine.BridgeEndpointResponses
+	case qaEndpointEmbeddings:
+		return engine.BridgeEndpointEmbeddings
+	case qaEndpointImagesGenerations:
+		return engine.BridgeEndpointImages
+	case qaEndpointVideoGenerations:
+		return engine.BridgeEndpointVideoSubmit
+	case qaEndpointVideoGenerationsTask:
+		return engine.BridgeEndpointVideoFetch
+	default:
+		return inboundEndpoint
+	}
 }
 
 func captureStreamFlag(c *gin.Context, chunks []RawSSEChunk) bool {

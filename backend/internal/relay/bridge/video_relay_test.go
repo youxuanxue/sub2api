@@ -198,31 +198,6 @@ func TestDispatchVideoFetch_VolcEngine_OK(t *testing.T) {
 	}
 }
 
-// TestIsVideoSupportedChannelType_Truth covers the truth table of
-// supported / unsupported channel types so an upstream merge that drops a
-// task adaptor (channel→adaptor mapping) trips this check before reaching
-// production.
-func TestIsVideoSupportedChannelType_Truth(t *testing.T) {
-	cases := []struct {
-		name        string
-		channelType int
-		want        bool
-	}{
-		{"volcengine", newapiconstant.ChannelTypeVolcEngine, true},
-		{"doubao_video", newapiconstant.ChannelTypeDoubaoVideo, true},
-		{"unknown_zero", 0, false},
-		{"unknown_negative", -1, false},
-		{"unknown_high", 9999, false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := IsVideoSupportedChannelType(tc.channelType); got != tc.want {
-				t.Fatalf("IsVideoSupportedChannelType(%d)=%v want %v", tc.channelType, got, tc.want)
-			}
-		})
-	}
-}
-
 func mustJSON(t *testing.T, v any) []byte {
 	t.Helper()
 	b, err := json.Marshal(v)

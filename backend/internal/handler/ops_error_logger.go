@@ -26,6 +26,7 @@ const (
 	opsStreamKey      = "ops_stream"
 	opsRequestBodyKey = "ops_request_body"
 	opsAccountIDKey   = "ops_account_id"
+	opsChannelTypeKey = "ops_channel_type"
 
 	opsUpstreamModelKey = "ops_upstream_model"
 	opsRequestTypeKey   = "ops_request_type"
@@ -415,12 +416,22 @@ func attachOpsRequestBodyToEntry(c *gin.Context, entry *service.OpsInsertErrorLo
 }
 
 func setOpsSelectedAccount(c *gin.Context, accountID int64, platform ...string) {
+	setOpsSelectedAccountWithChannelType(c, accountID, 0, platform...)
+}
+
+func setOpsSelectedAccountWithChannelType(c *gin.Context, accountID int64, channelType int, platform ...string) {
 	if c == nil || accountID <= 0 {
 		return
 	}
 	c.Set(opsAccountIDKey, accountID)
+	if channelType > 0 {
+		c.Set(opsChannelTypeKey, channelType)
+	}
 	if c.Request != nil {
 		ctx := context.WithValue(c.Request.Context(), ctxkey.AccountID, accountID)
+		if channelType > 0 {
+			ctx = context.WithValue(ctx, ctxkey.ChannelType, channelType)
+		}
 		if len(platform) > 0 {
 			p := strings.TrimSpace(platform[0])
 			if p != "" {

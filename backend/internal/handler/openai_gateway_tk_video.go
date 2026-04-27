@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/engine"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -130,7 +131,7 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 		return
 	}
 	account := selection.Account
-	if !bridge.IsVideoSupportedChannelType(account.ChannelType) {
+	if !engine.IsVideoSupportedChannelType(account.ChannelType) {
 		// channel_type=0 (incomplete account) and channel_type with no task
 		// adaptor (e.g. plain OpenAI account asked to do video) collapse into
 		// the same user-facing error: this group is not configured for video.

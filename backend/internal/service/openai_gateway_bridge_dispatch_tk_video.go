@@ -58,7 +58,7 @@ func (s *OpenAIGatewayService) ForwardAsVideoSubmitDispatched(
 	if !s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointVideoSubmit) {
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("channel_type")}
 	}
-	if !bridge.IsVideoSupportedChannelType(account.ChannelType) {
+	if !engine.IsVideoSupportedChannelType(account.ChannelType) {
 		return nil, &NewAPIRelayError{Err: errBridgeVideoUnsupportedChannel(account.ChannelType)}
 	}
 	recordBridgeDispatch()
@@ -102,7 +102,7 @@ func (s *OpenAIGatewayService) ForwardAsVideoFetchDispatched(
 	if in.ChannelType <= 0 || strings.TrimSpace(in.UpstreamTaskID) == "" {
 		return nil, errors.New("video fetch requires channel_type and upstream_task_id")
 	}
-	if !bridge.IsVideoSupportedChannelType(in.ChannelType) {
+	if !engine.IsVideoSupportedChannelType(in.ChannelType) {
 		return nil, &NewAPIRelayError{Err: errBridgeVideoUnsupportedChannel(in.ChannelType)}
 	}
 	out, apiErr := bridge.DispatchVideoFetch(ctx, c, in)

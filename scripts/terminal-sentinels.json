@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "rationale": "Snapshot of the Evidence Spine terminal-event contract. Main gateway stream paths must keep stable terminal markers so QA capture can observe request completion semantics instead of silently drifting into non-terminating or unparseable tails.",
+  "checks": [
+    {
+      "name": "openai_terminal_helper",
+      "source": "backend/internal/service/gateway_service.go",
+      "required_literals": [
+        "func openAIStreamEventIsTerminal(data string) bool {",
+        "if trimmed == \"[DONE]\" {",
+        "case \"response.completed\", \"response.done\", \"response.failed\":"
+      ]
+    },
+    {
+      "name": "anthropic_terminal_helper",
+      "source": "backend/internal/service/gateway_service.go",
+      "required_literals": [
+        "func anthropicStreamEventIsTerminal(eventName, data string) bool {",
+        "if strings.EqualFold(strings.TrimSpace(eventName), \"message_stop\") {",
+        "return gjson.Get(trimmed, \"type\").String() == \"message_stop\""
+      ]
+    },
+    {
+      "name": "chat_completions_done_writer",
+      "source": "backend/internal/service/gateway_forward_as_chat_completions.go",
+      "required_literals": [
+        "// Write [DONE] marker",
+        "fmt.Fprint(c.Writer, \"data: [DONE]\\n\\n\")"
+      ]
+    },
+    {
+      "name": "chat_completions_terminal_test",
+      "source": "backend/internal/service/gateway_forward_as_chat_completions_test.go",
+      "required_literals": [
+        "event: message_stop",
+        "require.Contains(t, rec.Body.String(), `[DONE]`)"
+      ]
+    },
+    {
+      "name": "responses_terminal_test",
+      "source": "backend/internal/service/gateway_forward_as_responses_test.go",
+      "required_literals": [
+        "event: message_stop",
+        "require.Contains(t, rec.Body.String(), `response.completed`)"
+      ]
+    }
+  ]
+}
