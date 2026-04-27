@@ -330,6 +330,7 @@ export const useAppStore = defineStore('app', () => {
         home_content: '',
         hide_ccs_import_button: false,
         payment_enabled: false,
+        backend_mode_enabled: false,
         table_default_page_size: 20,
         table_page_size_options: [10, 20, 50, 100],
         custom_menu_items: [],
@@ -342,6 +343,8 @@ export const useAppStore = defineStore('app', () => {
         account_quota_notify_enabled: false,
         balance_low_notify_threshold: 0,
         pricing_catalog_public: true,
+        signup_bonus_enabled: false,
+        signup_bonus_balance_usd: 0,
       }
     }
 

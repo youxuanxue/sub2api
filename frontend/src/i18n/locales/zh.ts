@@ -5,7 +5,13 @@ export default {
     subtitle: '所有支持的模型，按调用量计费',
     description:
       '价格以美元 (USD) 计价，单位为每 1,000 tokens。Cache Read / Write 仅对单独计费缓存的模型生效；能力标签来自上游声明（视觉、工具调用等）。',
-    backHome: '返回首页',
+    nav: {
+      aria: '离开价格页',
+      home: '首页',
+      console: '控制台',
+      consoleTitleAuthed: '前往您的控制台',
+      consoleTitleGuest: '登录后进入控制台'
+    },
     columns: {
       model: '模型',
       vendor: '厂商',
@@ -14,7 +20,13 @@ export default {
       cacheRead: '缓存读取',
       cacheWrite: '缓存写入',
       contextWindow: '上下文窗口',
+      maxOutput: '最大输出',
       capabilities: '能力'
+    },
+    tableHint: '可左右滑动或横向滚动查看全部列；左侧模型名称支持换行显示。',
+    footer: {
+      total: '共 {count} 个模型',
+      filtered: '显示 {shown} / {total} 个模型'
     },
     perThousandTokens: '/ 1K tokens',
     contextTokens: '{count} tokens',
@@ -25,7 +37,46 @@ export default {
     },
     errorTitle: '加载价格失败',
     errorHint: '请刷新页面或稍后重试。',
-    retry: '重试'
+    retry: '重试',
+    search: {
+      placeholder: '按模型名称搜索…',
+      modeLabel: '匹配方式',
+      modeFuzzy: '模糊（包含）',
+      modeExact: '精准（全名）',
+      resultCount: '{count} 个模型',
+      noMatches: '没有匹配的模型。可切换到模糊搜索或缩短关键词。'
+    },
+    ctaBonus: '立即注册 · 获赠 {amount} 试用额度',
+    ctaBonusHint: '当本站开启注册赠额时显示此提示。'
+  },
+
+  playground: {
+    title: 'Playground',
+    subtitle: '使用您的 API Key 试用对话补全；请求直达 /v1/chat/completions，无额外后端路由。',
+    model: '模型',
+    temperature: '温度',
+    maxTokens: 'Max tokens',
+    systemPrompt: '系统提示词（可选）',
+    inputPlaceholder: '输入消息…（Enter 发送）',
+    send: '发送',
+    sending: '发送中…',
+    cancel: '取消',
+    clear: '清空会话',
+    emptyHint: '发送一条消息，助手回复将显示在此。',
+    manageKeys: '管理 API 密钥',
+    noApiKey: '未找到可用的 API 密钥，请先在「API 密钥」页面创建。',
+    noModels: '未返回可用模型，请检查分组路由或更换密钥。',
+    loadFailed: '无法加载 Playground。',
+    pickModelPlaceholder: '请选择模型…',
+    roleUser: '你',
+    roleAssistant: '助手',
+    limitsHint: '浏览器内最多保留 {turns} 轮对话；单次输出上限 {maxTok} tokens；单次请求超时 60 秒。',
+    lastUsage: '上次响应用量',
+    promptTokens: '输入 tokens',
+    completionTokens: '输出 tokens',
+    totalTokens: '总计 tokens',
+    cancelled: '请求已取消。',
+    requestFailed: '请求失败。'
   },
 
   // Home Page
@@ -392,7 +443,8 @@ export default {
     orderManagement: '订单管理',
     paymentDashboard: '支付概览',
     paymentConfig: '支付配置',
-    paymentPlans: '订阅套餐'
+    paymentPlans: '订阅套餐',
+    playground: 'Playground'
   },
 
   // Auth

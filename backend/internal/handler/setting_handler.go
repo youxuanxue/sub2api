@@ -59,11 +59,14 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 		OIDCOAuthEnabled:                 settings.OIDCOAuthEnabled,
 		OIDCOAuthProviderName:            settings.OIDCOAuthProviderName,
 		PaymentEnabled:                   settings.PaymentEnabled,
+		BackendModeEnabled:               settings.BackendModeEnabled,
 		Version:                          h.version,
 		BalanceLowNotifyEnabled:          settings.BalanceLowNotifyEnabled,
 		AccountQuotaNotifyEnabled:        settings.AccountQuotaNotifyEnabled,
 		BalanceLowNotifyThreshold:        settings.BalanceLowNotifyThreshold,
 		BalanceLowNotifyRechargeURL:      settings.BalanceLowNotifyRechargeURL,
 		PricingCatalogPublic:             settings.PricingCatalogPublic,
+		SignupBonusEnabled:               settings.SignupBonusEnabled,
+		SignupBonusBalanceDisplayUSD:     settings.SignupBonusBalanceDisplayUSD,
 	})
 }
