@@ -20,7 +20,13 @@ export default {
       cacheRead: '缓存读取',
       cacheWrite: '缓存写入',
       contextWindow: '上下文窗口',
+      maxOutput: '最大输出',
       capabilities: '能力'
+    },
+    tableHint: '可左右滑动或横向滚动查看全部列；左侧模型名称支持换行显示。',
+    footer: {
+      total: '共 {count} 个模型',
+      filtered: '显示 {shown} / {total} 个模型'
     },
     perThousandTokens: '/ 1K tokens',
     contextTokens: '{count} tokens',
