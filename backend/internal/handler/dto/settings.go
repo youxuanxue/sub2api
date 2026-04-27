@@ -213,7 +213,7 @@ type PublicSettings struct {
 	// TK cold-start
 	PricingCatalogPublic bool `json:"pricing_catalog_public"`
 	// Effective signup bonus (USD) for marketing copy on /pricing; 0 when disabled.
-	SignupBonusEnabled          bool    `json:"signup_bonus_enabled"`
+	SignupBonusEnabled           bool    `json:"signup_bonus_enabled"`
 	SignupBonusBalanceDisplayUSD float64 `json:"signup_bonus_balance_usd"`
 }
 
