@@ -35,6 +35,9 @@ services:
     container_name: tokenkey
     pull_policy: always
     restart: unless-stopped
+    # Same file systemd uses (--env-file); passes optional QA_CAPTURE_* / overrides into the container.
+    env_file:
+      - .env
     ulimits:
       nofile:
         soft: 100000
@@ -44,6 +47,8 @@ services:
     volumes:
       - /var/lib/tokenkey/app:/app/data
     environment:
+      # Matches bind mount; QA blobs + DLQ live under /app/data/qa_blobs and /app/data/qa_dlq (localfs driver).
+      - DATA_DIR=/app/data
       - AUTO_SETUP=true
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=8080

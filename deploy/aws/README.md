@@ -95,6 +95,12 @@ curl -sS -o /dev/null -w '%{http_code}\n' "https://${DOMAIN}/health"
 
 > 2026-04-21 实测：prod 栈 CFN `ImageTag=1.2.0`，但运行态 `TOKENKEY_IMAGE` 与容器实际镜像均为 `ghcr.io/youxuanxue/sub2api:1.4.1`（SSM 原地升级后形成的受控漂移）。
 
+### QA capture（prod / test 一致约定）
+
+- **应用默认**（未在 `/var/lib/tokenkey/.env` 中写 `QA_CAPTURE_*` 时）：`qa_capture` 开启；`storage.driver=localfs`；大对象在容器内目录 `/app/data/qa_blobs`（**即** 宿主机 `/var/lib/tokenkey/app/qa_blobs`），与 EBS 数据卷同盘、随快照/备份走；元数据在 PostgreSQL 表 `qa_records`（与 `docs/approved/ops_xx.md`「100% QA capture」 aligned）。
+- **Compose**：`DATA_DIR=/app/data` 显式固定；可选的 `QA_CAPTURE_*` 通过 **`env_file: .env`** 传入容器（与 systemd 使用的同一文件），避免只靠隐式默认值、也方便以后在 `.env` 追加 S3 driver 而不改 YAML。
+- **核验（SSM 进 prod 实例）**：`sudo docker compose -f /var/lib/tokenkey/docker-compose.yml exec tokenkey wget -qO- http://127.0.0.1:8080/health`；若需确认采集是否写入，可看 `sudo ls /var/lib/tokenkey/app/qa_blobs | head`，并在 PG 内 `SELECT count(*) FROM qa_records`（需 `docker exec tokenkey-postgres psql ...`）。
+
 > **数据持久化（preflight-debt §9.b / issue #8 已修，2026-04-20）**：
 > `stage0-single-ec2.yaml` 现在创建独立的 `AWS::EC2::Volume`（资源名 `DataVolume`，参数
 > `DataVolumeSizeGiB`，默认 30 GiB），带 `DeletionPolicy: Retain` + `UpdateReplacePolicy: Retain`，
