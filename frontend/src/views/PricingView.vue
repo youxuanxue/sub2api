@@ -8,27 +8,12 @@
         :aria-label="t('pricing.nav.aria')"
       >
         <div class="flex flex-wrap items-center gap-2">
-          <router-link
-            to="/home"
-            class="group inline-flex items-center gap-2 rounded-xl border border-gray-200/80 bg-white/90 px-3.5 py-2 text-sm font-medium text-gray-700 shadow-sm backdrop-blur transition-colors hover:border-primary-200 hover:bg-primary-50/80 hover:text-primary-800 dark:border-dark-700 dark:bg-dark-900/70 dark:text-dark-200 dark:hover:border-primary-700/60 dark:hover:bg-primary-950/40 dark:hover:text-primary-200"
-          >
-            <Icon
-              name="home"
-              size="sm"
-              class="text-gray-500 transition-colors group-hover:text-primary-600 dark:text-dark-400 dark:group-hover:text-primary-300"
-            />
+          <router-link to="/home" :class="NAV_LINK_CLASS">
+            <Icon name="home" size="sm" :class="NAV_ICON_CLASS" />
             <span>{{ t('pricing.nav.home') }}</span>
           </router-link>
-          <router-link
-            :to="consolePath"
-            class="group inline-flex items-center gap-2 rounded-xl border border-gray-200/80 bg-white/90 px-3.5 py-2 text-sm font-medium text-gray-700 shadow-sm backdrop-blur transition-colors hover:border-primary-200 hover:bg-primary-50/80 hover:text-primary-800 dark:border-dark-700 dark:bg-dark-900/70 dark:text-dark-200 dark:hover:border-primary-700/60 dark:hover:bg-primary-950/40 dark:hover:text-primary-200"
-            :title="consoleLinkTitle"
-          >
-            <Icon
-              name="grid"
-              size="sm"
-              class="text-gray-500 transition-colors group-hover:text-primary-600 dark:text-dark-400 dark:group-hover:text-primary-300"
-            />
+          <router-link :to="consolePath" :class="NAV_LINK_CLASS" :title="consoleLinkTitle">
+            <Icon name="grid" size="sm" :class="NAV_ICON_CLASS" />
             <span>{{ t('pricing.nav.console') }}</span>
           </router-link>
         </div>
@@ -313,6 +298,12 @@ import {
 
 const { t } = useI18n()
 const authStore = useAuthStore()
+
+/** Shared nav pill styles — single source to reduce churn vs upstream-style pages. */
+const NAV_LINK_CLASS =
+  'group inline-flex items-center gap-2 rounded-xl border border-gray-200/80 bg-white/90 px-3.5 py-2 text-sm font-medium text-gray-700 shadow-sm backdrop-blur transition-colors hover:border-primary-200 hover:bg-primary-50/80 hover:text-primary-800 dark:border-dark-700 dark:bg-dark-900/70 dark:text-dark-200 dark:hover:border-primary-700/60 dark:hover:bg-primary-950/40 dark:hover:text-primary-200'
+const NAV_ICON_CLASS =
+  'text-gray-500 transition-colors group-hover:text-primary-600 dark:text-dark-400 dark:group-hover:text-primary-300'
 
 const consolePath = computed(() => {
   if (!authStore.isAuthenticated) {
