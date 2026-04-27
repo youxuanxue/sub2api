@@ -503,9 +503,18 @@ SINCE_HOURS=72 bash scripts/fetch-prod-error-clusters.sh    # 自定义窗口
 bash scripts/fetch-prod-error-clusters.sh --check           # 只校验 env + 工具，不 dispatch
 ```
 
-脚本会：dispatch workflow → 轮询新 run id（默认 10 min 超时）→ `gh run watch` 等待完成
-→ `gh run download` 取 artifact → 打印 `report.json` 的 `summary` 字段。`gh` CLI 由
-`dev-rules/templates/cloud-agent-bootstrap.sh`（`.cursor/cloud-agent.env` 把它列在
+**QA 采集体量（总条数 / 近 24h 插入 / `qa_blobs` 磁盘）**：dispatch `prod-qa-stats.yml`，artifact `qa-stats.json`。
+
+```bash
+bash scripts/fetch-prod-qa-stats.sh                         # 输出到 ./.prod-qa-stats/
+WORKFLOW_REF=cursor/branch-name bash scripts/fetch-prod-qa-stats.sh   # workflow 尚未合入 main 时指定 ref
+bash scripts/fetch-prod-qa-stats.sh --check
+```
+
+`fetch-prod-error-clusters.sh`：`gh run download` → 打印 `report.json` 的 `summary`。  
+`fetch-prod-qa-stats.sh`：`gh run download` → 打印 `qa-stats.json`（`qa_records_total`、`qa_records_last_24h`、`inserts_per_hour_last_24h_avg`、`qa_blobs_bytes`、`qa_blobs_file_count`）。
+
+`gh` CLI 由 `dev-rules/templates/cloud-agent-bootstrap.sh`（`.cursor/cloud-agent.env` 把它列在
 `CLOUD_AGENT_TOOLS` 里）在会话引导时 best-effort 安装；缺失时脚本会报错并指出安装方式。
 
 **会话引导自检**：`.cursor/cloud-agent-project-hook.sh` 在每次 Cloud Agent 启动时会检查

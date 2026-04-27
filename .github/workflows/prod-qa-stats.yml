@@ -1,0 +1,143 @@
+name: Prod QA Stats
+
+# Read-only QA capture footprint on prod EC2: qa_records counts + qa_blobs disk use.
+# Same transport as error-clustering-daily / prod-log-dump: OIDC → SSM Run-Command.
+#
+# Repo variables (same as other prod SSM workflows):
+#   AWS_OIDC_ROLE_ARN
+#   AWS_REGION          (optional, default us-east-1)
+#   PROD_STACK_NAME     (optional, default tokenkey-prod-stage0)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: prod-qa-stats
+  cancel-in-progress: false
+
+jobs:
+  stats:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      STACK_NAME: ${{ vars.PROD_STACK_NAME || 'tokenkey-prod-stage0' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Precheck OIDC role
+        id: precheck
+        run: |
+          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
+            echo "::error::AWS_OIDC_ROLE_ARN repo variable is not set"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure AWS credentials via OIDC
+        if: steps.precheck.outputs.skip == 'false'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve prod instance ID
+        if: steps.precheck.outputs.skip == 'false'
+        id: instance
+        run: |
+          ID=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
+            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)
+          if [ -z "$ID" ] || [ "$ID" = "None" ]; then
+            echo "could not resolve InstanceId from stack $STACK_NAME" >&2
+            exit 1
+          fi
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
+      - name: Collect qa_records + qa_blobs stats via SSM
+        if: steps.precheck.outputs.skip == 'false'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+        run: |
+          set -euo pipefail
+          REMOTE_SCRIPT=$(cat <<'EOS'
+          set -euo pipefail
+          TOTAL=$(sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -t -A -c "SELECT count(*) FROM qa_records;" | tr -d ' \t\r\n')
+          LAST24=$(sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -t -A -c "SELECT count(*) FROM qa_records WHERE created_at >= now() - interval '24 hours';" | tr -d ' \t\r\n')
+          BLOB_ROOT=/var/lib/tokenkey/app/qa_blobs
+          if [ -d "$BLOB_ROOT" ]; then
+            BYTES=$(sudo du -sb "$BLOB_ROOT" | awk '{print $1}')
+            FILES=$(sudo find "$BLOB_ROOT" -type f 2>/dev/null | wc -l)
+          else
+            BYTES=0
+            FILES=0
+          fi
+          RATE=$(awk -v n="$LAST24" 'BEGIN{nn=n+0; if (nn<0) nn=0; printf "%.6f", nn/24}')
+          JSON=$(printf '{"qa_records_total":%s,"qa_records_last_24h":%s,"qa_blobs_bytes":%s,"qa_blobs_file_count":%s,"qa_blobs_host_path":"/var/lib/tokenkey/app/qa_blobs","inserts_per_hour_last_24h_avg":%s}' "$TOTAL" "$LAST24" "$BYTES" "$FILES" "$RATE")
+          echo ===BEGIN_QA_STATS_JSON===
+          printf '%s' "$JSON" | base64 -w0 2>/dev/null || printf '%s' "$JSON" | base64 | tr -d '\n'
+          echo
+          echo ===END_QA_STATS_JSON===
+          EOS
+          )
+          REMOTE_B64=$(printf '%s' "$REMOTE_SCRIPT" | base64 -w0 2>/dev/null || printf '%s' "$REMOTE_SCRIPT" | base64 | tr -d '\n')
+          jq -n --arg b64 "$REMOTE_B64" '{commands:["set -euo pipefail",("echo " + $b64 + " | base64 -d | bash")]}' > ssm-params.json
+
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "prod qa capture stats read-only" \
+            --parameters file://ssm-params.json \
+            --query 'Command.CommandId' --output text)
+          echo "ssm command-id=$CMD_ID"
+
+          DEADLINE=$(( $(date +%s) + 180 ))
+          while true; do
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+              --query 'Status' --output text 2>/dev/null || echo InProgress)
+            case "$STATUS" in Success|Failed|TimedOut|Cancelled) break ;; esac
+            [ "$(date +%s)" -lt "$DEADLINE" ] || { STATUS=TimedOut; break; }
+            sleep 5
+          done
+
+          aws ssm get-command-invocation \
+            --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query 'StandardOutputContent' --output text > stdout.txt
+          aws ssm get-command-invocation \
+            --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query 'StandardErrorContent' --output text > stderr.txt
+
+          if [ "$STATUS" != "Success" ]; then
+            echo "::error::ssm command status=$STATUS"
+            cat stderr.txt
+            cat stdout.txt
+            exit 1
+          fi
+
+          awk '/^===BEGIN_QA_STATS_JSON===$/{f=1;next} /^===END_QA_STATS_JSON===$/{f=0} f' stdout.txt | tr -d '\n' | base64 -d > qa-stats.json
+
+          if ! jq empty qa-stats.json 2>/dev/null; then
+            echo "::error::qa-stats.json is not valid JSON"
+            cat stdout.txt
+            exit 1
+          fi
+          jq . qa-stats.json
+          echo "## Prod QA capture stats" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          jq . qa-stats.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Write skip artifact
+        if: steps.precheck.outputs.skip == 'true'
+        run: |
+          echo '{"error":"AWS_OIDC_ROLE_ARN not configured"}' > qa-stats.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prod-qa-stats-${{ github.run_id }}
+          path: qa-stats.json
