@@ -203,16 +203,18 @@ type PublicSettings struct {
 	OIDCOAuthProviderName            string           `json:"oidc_oauth_provider_name"`
 	SoraClientEnabled                bool             `json:"sora_client_enabled"`
 	PaymentEnabled                   bool             `json:"payment_enabled"`
+	BackendModeEnabled               bool             `json:"backend_mode_enabled"`
 	Version                          string           `json:"version"`
 	BalanceLowNotifyEnabled          bool             `json:"balance_low_notify_enabled"`
 	AccountQuotaNotifyEnabled        bool             `json:"account_quota_notify_enabled"`
 	BalanceLowNotifyThreshold        float64          `json:"balance_low_notify_threshold"`
 	BalanceLowNotifyRechargeURL      string           `json:"balance_low_notify_recharge_url"`
 
-	// TK cold-start: only `pricing_catalog_public` is exposed publicly so the
-	// pre-login HomeView and the public /pricing route can show/hide the entry
-	// without first authenticating. Bonus / trial-key fields stay admin-only.
+	// TK cold-start
 	PricingCatalogPublic bool `json:"pricing_catalog_public"`
+	// Effective signup bonus (USD) for marketing copy on /pricing; 0 when disabled.
+	SignupBonusEnabled           bool    `json:"signup_bonus_enabled"`
+	SignupBonusBalanceDisplayUSD float64 `json:"signup_bonus_balance_usd"`
 }
 
 // OverloadCooldownSettings 529过载冷却配置 DTO

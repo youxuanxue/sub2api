@@ -39,7 +39,38 @@ export default {
       modeExact: 'Exact name',
       resultCount: '{count} models',
       noMatches: 'No models match your search. Try fuzzy mode or a shorter query.'
-    }
+    },
+    ctaBonus: 'Register — get {amount} trial credit',
+    ctaBonusHint: 'Shown when signup bonus is enabled for this site.'
+  },
+
+  playground: {
+    title: 'Playground',
+    subtitle: 'Try chat completions with your API key. No extra backend route — calls go to /v1/chat/completions.',
+    model: 'Model',
+    temperature: 'Temperature',
+    maxTokens: 'Max tokens',
+    systemPrompt: 'System prompt (optional)',
+    inputPlaceholder: 'Type a message… (Enter to send)',
+    send: 'Send',
+    sending: 'Sending…',
+    cancel: 'Cancel',
+    clear: 'Clear chat',
+    emptyHint: 'Send a message to see the assistant reply here.',
+    manageKeys: 'Manage API keys',
+    noApiKey: 'No active API key found. Create one under API Keys.',
+    noModels: 'No models returned for your key. Check group routing or try another key.',
+    loadFailed: 'Could not load playground.',
+    pickModelPlaceholder: 'Select a model…',
+    roleUser: 'You',
+    roleAssistant: 'Assistant',
+    limitsHint: 'Up to {turns} turns in memory; max output tokens capped at {maxTok}; 60s timeout per request.',
+    lastUsage: 'Last response usage',
+    promptTokens: 'Prompt tokens',
+    completionTokens: 'Completion tokens',
+    totalTokens: 'Total tokens',
+    cancelled: 'Request cancelled.',
+    requestFailed: 'Request failed.'
   },
 
   // Home Page
@@ -406,7 +437,8 @@ export default {
     orderManagement: 'Orders',
     paymentDashboard: 'Payment Dashboard',
     paymentConfig: 'Payment Config',
-    paymentPlans: 'Plans'
+    paymentPlans: 'Plans',
+    playground: 'Playground'
   },
 
   // Auth

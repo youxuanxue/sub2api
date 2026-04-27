@@ -234,7 +234,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		balanceLowNotifyThreshold = v
 	}
 
-	return &PublicSettings{
+	pub := &PublicSettings{
 		RegistrationEnabled:              settings[SettingKeyRegistrationEnabled] == "true",
 		EmailVerifyEnabled:               emailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist: registrationEmailSuffixWhitelist,
@@ -271,7 +271,10 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		// setting_service_tk_cold_start.go ColdStartDefaults() so a fresh install
 		// still surfaces the public pricing entry on the landing page.
 		PricingCatalogPublic: !isFalseSettingValue(settings[SettingKeyPricingCatalogPublic]),
-	}, nil
+	}
+	pub.SignupBonusEnabled = s.IsSignupBonusEnabled(ctx)
+	pub.SignupBonusBalanceDisplayUSD = s.ComputeSignupBonus(ctx)
+	return pub, nil
 }
 
 // SetOnUpdateCallback sets a callback function to be called when settings are updated
@@ -328,6 +331,9 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		AccountQuotaNotifyEnabled        bool            `json:"account_quota_notify_enabled"`
 		BalanceLowNotifyThreshold        float64         `json:"balance_low_notify_threshold"`
 		BalanceLowNotifyRechargeURL      string          `json:"balance_low_notify_recharge_url"`
+		PricingCatalogPublic             bool            `json:"pricing_catalog_public"`
+		SignupBonusEnabled               bool            `json:"signup_bonus_enabled"`
+		SignupBonusBalanceDisplayUSD     float64         `json:"signup_bonus_balance_usd"`
 	}{
 		RegistrationEnabled:              settings.RegistrationEnabled,
 		EmailVerifyEnabled:               settings.EmailVerifyEnabled,
@@ -362,6 +368,9 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		AccountQuotaNotifyEnabled:        settings.AccountQuotaNotifyEnabled,
 		BalanceLowNotifyThreshold:        settings.BalanceLowNotifyThreshold,
 		BalanceLowNotifyRechargeURL:      settings.BalanceLowNotifyRechargeURL,
+		PricingCatalogPublic:             settings.PricingCatalogPublic,
+		SignupBonusEnabled:               settings.SignupBonusEnabled,
+		SignupBonusBalanceDisplayUSD:     settings.SignupBonusBalanceDisplayUSD,
 	}, nil
 }
 

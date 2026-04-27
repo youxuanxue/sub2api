@@ -136,6 +136,7 @@ scripts/*
 !scripts/check-upstream-drift.sh
 !scripts/release-tag.sh
 !scripts/preflight.sh
+!scripts/tk_gateway_smoke.sh
 !scripts/check_approved_docs.py
 !scripts/newapi-sentinels.json
 !scripts/check-newapi-sentinels.py

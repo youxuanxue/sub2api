@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -19,7 +20,12 @@ func (s *settingPublicRepoStub) Get(ctx context.Context, key string) (*Setting, 
 }
 
 func (s *settingPublicRepoStub) GetValue(ctx context.Context, key string) (string, error) {
-	panic("unexpected GetValue call")
+	if s.values != nil {
+		if v, ok := s.values[key]; ok {
+			return v, nil
+		}
+	}
+	return "", errors.New("missing setting")
 }
 
 func (s *settingPublicRepoStub) Set(ctx context.Context, key, value string) error {
@@ -61,6 +67,37 @@ func TestSettingService_GetPublicSettings_ExposesRegistrationEmailSuffixWhitelis
 	settings, err := svc.GetPublicSettings(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, []string{"@example.com", "@foo.bar"}, settings.RegistrationEmailSuffixWhitelist)
+}
+
+func TestSettingService_GetPublicSettings_SignupBonusPreviewMatchesComputeSignupBonus(t *testing.T) {
+	repo := &settingPublicRepoStub{
+		values: map[string]string{
+			SettingKeySignupBonusEnabled: "true",
+			SettingKeySignupBonusBalance: "2.50",
+		},
+	}
+	svc := NewSettingService(repo, &config.Config{})
+
+	got, err := svc.GetPublicSettings(context.Background())
+	require.NoError(t, err)
+	require.True(t, got.SignupBonusEnabled)
+	require.InDelta(t, 2.50, got.SignupBonusBalanceDisplayUSD, 1e-9)
+	require.InDelta(t, svc.ComputeSignupBonus(context.Background()), got.SignupBonusBalanceDisplayUSD, 1e-9)
+}
+
+func TestSettingService_GetPublicSettings_SignupBonusPreviewZeroWhenDisabled(t *testing.T) {
+	repo := &settingPublicRepoStub{
+		values: map[string]string{
+			SettingKeySignupBonusEnabled: "false",
+			SettingKeySignupBonusBalance: "99.00",
+		},
+	}
+	svc := NewSettingService(repo, &config.Config{})
+
+	got, err := svc.GetPublicSettings(context.Background())
+	require.NoError(t, err)
+	require.False(t, got.SignupBonusEnabled)
+	require.InDelta(t, 0, got.SignupBonusBalanceDisplayUSD, 1e-9)
 }
 
 func TestSettingService_GetPublicSettings_ExposesTablePreferences(t *testing.T) {
