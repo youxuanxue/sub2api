@@ -25,6 +25,28 @@
 #        from drifting back apart. Driven by `scripts/brand-sentinels.json`
 #        via `scripts/check-brand-sentinels.py`; intentionally separate from
 #        `newapi` semantics / routing truth.
+#   redaction version contract   — guards Evidence Spine contract drift:
+#        changing the default sensitive-key set in logredact must bump the
+#        outward QA `redaction_version` contract in the same commit. Driven by
+#        `scripts/redaction-sentinels.json` via `scripts/check-redaction-version.py`.
+#   trajectory hook registry     — guards the request-evidence hook contract:
+#        main gateway scopes must keep `trajectory_id` + `qaCapture` wiring, and
+#        the QA middleware must still terminate in `CaptureFromContext`. Driven by
+#        `scripts/trajectory-sentinels.json` via `scripts/check-trajectory-hooks.py`.
+#   terminal event registry      — guards stream terminal semantics: OpenAI /
+#        Anthropic terminal helpers, `[DONE]` emission, and focused terminal-path
+#        assertions must remain intact so evidence capture keeps stable completion
+#        signals. Driven by `scripts/terminal-sentinels.json` via
+#        `scripts/check-terminal-events.py`.
+#   engine facade registry      — guards Engine Spine dispatch semantics: key
+#        gateway dispatch paths must keep routing bridge eligibility through
+#        shared engine facade helpers instead of drifting back into hotspot
+#        service files. Driven by `scripts/engine-facade-sentinels.json` via
+#        `scripts/check-engine-facade-hooks.py`.
+#   traj dataset validator       — guards the exported trajectory dataset contract:
+#        exported `trajectory.jsonl` artifacts must keep H1/H2/H3/D1 and structural
+#        acceptance semantics reachable through the standalone validator script,
+#        so projection/export drift is caught mechanically instead of by eyeballing.
 ##
 # Usage:  ./scripts/preflight.sh [--fix]
 # Exit 0 = all sections passed.  Non-zero = at least one failed.
@@ -89,6 +111,67 @@ else
     echo "  ok: scheduler / gateway filters use IsOpenAICompatPoolMember predicate"
 fi
 
+# ---- sub2api: engine dispatch / capability sentinels -------------------------
+# Source of truth: backend/internal/engine/*. Capability truth should live in
+# the engine registry, and non-bridge callers must not preflight video support
+# against bridge-local helpers. Direct bridge.Dispatch* calls are only allowed
+# in the approved service boundary files that funnel requests through the
+# engine/service gate first.
+echo ""
+echo "=== sub2api: engine dispatch / capability sentinels ==="
+
+# Check C — external callers must use engine.IsVideoSupportedChannelType rather
+# than bridge-local truth. Otherwise capability semantics drift back into the
+# relay layer and the Engine spine becomes nominal only.
+drift3_hits="$(grep -rnE 'bridge\.IsVideoSupportedChannelType\(' \
+    backend/internal/handler \
+    backend/internal/service \
+    --include='*.go' \
+    --exclude='*_test.go' 2>/dev/null || true)"
+if [ -n "$drift3_hits" ]; then
+    echo "  FAIL: external callers still use bridge.IsVideoSupportedChannelType()"
+    echo "        — switch to engine.IsVideoSupportedChannelType():"
+    echo "$drift3_hits" | sed 's/^/    /'
+    errors=$((errors + 1))
+else
+    echo "  ok: external video capability callers use engine truth"
+fi
+
+# Check D — endpoint capability truth must not regress to duplicate
+# BridgeEndpointEnabled definitions outside engine/capability.go.
+drift4_hits="$(grep -rnE '^func BridgeEndpointEnabled\(' \
+    backend/internal/engine \
+    --include='*.go' \
+    --exclude='capability.go' 2>/dev/null || true)"
+if [ -n "$drift4_hits" ]; then
+    echo "  FAIL: duplicate BridgeEndpointEnabled truth source detected"
+    echo "        — keep endpoint capability truth only in backend/internal/engine/capability.go:"
+    echo "$drift4_hits" | sed 's/^/    /'
+    errors=$((errors + 1))
+else
+    echo "  ok: endpoint capability truth is centralized in engine/capability.go"
+fi
+
+# Check E — direct bridge.Dispatch* calls must stay confined to the approved
+# service bridge-boundary files, not spread into handlers or unrelated helpers.
+drift5_hits="$(grep -rnE 'bridge\.Dispatch(ChatCompletions|Responses|Embeddings|ImageGenerations|VideoSubmit|VideoFetch)\(' \
+    backend/internal/handler \
+    backend/internal/service \
+    --include='*.go' \
+    --exclude='*_test.go' \
+    --exclude='gateway_bridge_dispatch.go' \
+    --exclude='openai_gateway_bridge_dispatch.go' \
+    --exclude='openai_gateway_bridge_dispatch_tk_video.go' \
+    --exclude='openai_gateway_bridge_dispatch_tk_anthropic.go' 2>/dev/null || true)"
+if [ -n "$drift5_hits" ]; then
+    echo "  FAIL: direct bridge.Dispatch* call escaped approved service boundary files"
+    echo "        — route dispatch through the service/engine boundary instead:"
+    echo "$drift5_hits" | sed 's/^/    /'
+    errors=$((errors + 1))
+else
+    echo "  ok: direct bridge.Dispatch* calls stay inside approved boundary files"
+fi
+
 # ---- sub2api: newapi sentinel registry --------------------------------------
 # Source of truth: scripts/newapi-sentinels.json. Verifies that every
 # load-bearing surface of the fifth platform (`newapi`) — TK companion files,
@@ -124,6 +207,92 @@ elif ! python3 ./scripts/check-brand-sentinels.py --quiet; then
 else
     echo "  ok: all brand sentinels intact"
 fi
+
+# ---- sub2api: redaction version contract ------------------------------------
+# Source of truth: scripts/redaction-sentinels.json. Verifies that the default
+# sensitive-key set in logredact and the outward QA redaction_version literals
+# move together, so a changed evidence redaction policy cannot silently keep the
+# old version string.
+echo ""
+echo "=== sub2api: redaction version contract ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required to read redaction-sentinels.json)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/check-redaction-version.py --quiet; then
+    # check-redaction-version.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: redaction key snapshot and version sources are aligned"
+fi
+
+# ---- sub2api: trajectory hook registry --------------------------------------
+# Source of truth: scripts/trajectory-sentinels.json. Verifies that the main
+# gateway route scopes still carry trajectory_id + qaCapture wiring, and that
+# the QA middleware still terminates in CaptureFromContext after teeing request /
+# response bodies.
+echo ""
+echo "=== sub2api: trajectory hook registry ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required to read trajectory-sentinels.json)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/check-trajectory-hooks.py --quiet; then
+    # check-trajectory-hooks.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: gateway trajectory hooks and QA terminal capture are aligned"
+fi
+
+# ---- sub2api: terminal event registry ---------------------------------------
+# Source of truth: scripts/terminal-sentinels.json. Verifies that the stable
+# terminal-event helpers, `[DONE]` emission, and focused terminal assertions stay
+# intact so evidence capture keeps reliable completion markers.
+echo ""
+echo "=== sub2api: terminal event registry ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required to read terminal-sentinels.json)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/check-terminal-events.py --quiet; then
+    # check-terminal-events.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: terminal-event helpers and focused assertions are aligned"
+fi
+
+# ---- sub2api: engine facade registry -----------------------------------------
+# Source of truth: scripts/engine-facade-sentinels.json. Verifies that the key
+# gateway dispatch paths still route bridge eligibility through the shared
+# Engine facade helpers instead of reintroducing local provider branching.
+echo ""
+echo "=== sub2api: engine facade registry ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required to read engine-facade-sentinels.json)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/check-engine-facade-hooks.py --quiet; then
+    # check-engine-facade-hooks.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: key dispatch paths still route through Engine facade truth"
+fi
+
+# ---- sub2api: traj dataset validator ----------------------------------------
+# Source of truth: scripts/check-traj-dataset.py. Verifies that the standalone
+# trajectory dataset gate remains executable from repo root and the regression
+# tests covering pass/fail fixtures stay green, so projection/export acceptance
+# thresholds remain mechanically enforced.
+echo ""
+echo "=== sub2api: traj dataset validator ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required to run check-traj-dataset.py)"
+    errors=$((errors + 1))
+elif ! command -v go >/dev/null 2>&1; then
+    echo "  FAIL: go not on PATH (required to run trajectory dataset regression tests)"
+    errors=$((errors + 1))
+elif ! (cd backend && go test -tags=unit ./internal/observability/qa -run 'TestUS077_TrajectoryDatasetCheck_' -count=1); then
+    errors=$((errors + 1))
+else
+    echo "  ok: traj dataset validator accepts/rejects covered fixtures as expected"
+fi
+
 
 echo ""
 if [ "$errors" -eq 0 ]; then

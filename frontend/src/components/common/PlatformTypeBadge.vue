@@ -55,6 +55,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { getPlatformLabel } from '@/composables/usePlatformOptions'
 import type { AccountPlatform, AccountType } from '@/types'
 import PlatformIcon from './PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -74,16 +75,7 @@ const props = defineProps<Props>()
 // US-017: explicit map per canonical GATEWAY_PLATFORMS. Earlier code defaulted
 // every unknown platform to "Gemini" with blue styling — that mislabeled `newapi`
 // (5th platform) accounts as Gemini after the backend started returning them.
-const platformLabel = computed(() => {
-  switch (props.platform) {
-    case 'anthropic': return 'Anthropic'
-    case 'openai': return 'OpenAI'
-    case 'gemini': return 'Gemini'
-    case 'antigravity': return 'Antigravity'
-    case 'newapi': return 'Extension Engine'
-    default: return props.platform
-  }
-})
+const platformLabel = computed(() => getPlatformLabel(props.platform))
 
 const typeLabel = computed(() => {
   switch (props.type) {

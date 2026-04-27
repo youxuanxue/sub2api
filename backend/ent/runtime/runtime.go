@@ -835,67 +835,79 @@ func init() {
 	// qarecord.RequestIDValidator is a validator for the "request_id" field. It is called by the builders before save.
 	qarecord.RequestIDValidator = qarecordDescRequestID.Validators[0].(func(string) error)
 	// qarecordDescPlatform is the schema descriptor for platform field.
-	qarecordDescPlatform := qarecordFields[5].Descriptor()
+	qarecordDescPlatform := qarecordFields[6].Descriptor()
 	// qarecord.DefaultPlatform holds the default value on creation for the platform field.
 	qarecord.DefaultPlatform = qarecordDescPlatform.Default.(string)
 	// qarecordDescRequestedModel is the schema descriptor for requested_model field.
-	qarecordDescRequestedModel := qarecordFields[6].Descriptor()
+	qarecordDescRequestedModel := qarecordFields[9].Descriptor()
 	// qarecord.DefaultRequestedModel holds the default value on creation for the requested_model field.
 	qarecord.DefaultRequestedModel = qarecordDescRequestedModel.Default.(string)
 	// qarecordDescInboundEndpoint is the schema descriptor for inbound_endpoint field.
-	qarecordDescInboundEndpoint := qarecordFields[8].Descriptor()
+	qarecordDescInboundEndpoint := qarecordFields[11].Descriptor()
 	// qarecord.DefaultInboundEndpoint holds the default value on creation for the inbound_endpoint field.
 	qarecord.DefaultInboundEndpoint = qarecordDescInboundEndpoint.Default.(string)
 	// qarecordDescStatusCode is the schema descriptor for status_code field.
-	qarecordDescStatusCode := qarecordFields[10].Descriptor()
+	qarecordDescStatusCode := qarecordFields[13].Descriptor()
 	// qarecord.DefaultStatusCode holds the default value on creation for the status_code field.
 	qarecord.DefaultStatusCode = qarecordDescStatusCode.Default.(int)
+	// qarecordDescSuccess is the schema descriptor for success field.
+	qarecordDescSuccess := qarecordFields[14].Descriptor()
+	// qarecord.DefaultSuccess holds the default value on creation for the success field.
+	qarecord.DefaultSuccess = qarecordDescSuccess.Default.(bool)
 	// qarecordDescDurationMs is the schema descriptor for duration_ms field.
-	qarecordDescDurationMs := qarecordFields[11].Descriptor()
+	qarecordDescDurationMs := qarecordFields[15].Descriptor()
 	// qarecord.DefaultDurationMs holds the default value on creation for the duration_ms field.
 	qarecord.DefaultDurationMs = qarecordDescDurationMs.Default.(int64)
 	// qarecordDescStream is the schema descriptor for stream field.
-	qarecordDescStream := qarecordFields[13].Descriptor()
+	qarecordDescStream := qarecordFields[17].Descriptor()
 	// qarecord.DefaultStream holds the default value on creation for the stream field.
 	qarecord.DefaultStream = qarecordDescStream.Default.(bool)
 	// qarecordDescToolCallsPresent is the schema descriptor for tool_calls_present field.
-	qarecordDescToolCallsPresent := qarecordFields[14].Descriptor()
+	qarecordDescToolCallsPresent := qarecordFields[18].Descriptor()
 	// qarecord.DefaultToolCallsPresent holds the default value on creation for the tool_calls_present field.
 	qarecord.DefaultToolCallsPresent = qarecordDescToolCallsPresent.Default.(bool)
 	// qarecordDescMultimodalPresent is the schema descriptor for multimodal_present field.
-	qarecordDescMultimodalPresent := qarecordFields[15].Descriptor()
+	qarecordDescMultimodalPresent := qarecordFields[19].Descriptor()
 	// qarecord.DefaultMultimodalPresent holds the default value on creation for the multimodal_present field.
 	qarecord.DefaultMultimodalPresent = qarecordDescMultimodalPresent.Default.(bool)
 	// qarecordDescInputTokens is the schema descriptor for input_tokens field.
-	qarecordDescInputTokens := qarecordFields[16].Descriptor()
+	qarecordDescInputTokens := qarecordFields[20].Descriptor()
 	// qarecord.DefaultInputTokens holds the default value on creation for the input_tokens field.
 	qarecord.DefaultInputTokens = qarecordDescInputTokens.Default.(int)
 	// qarecordDescOutputTokens is the schema descriptor for output_tokens field.
-	qarecordDescOutputTokens := qarecordFields[17].Descriptor()
+	qarecordDescOutputTokens := qarecordFields[21].Descriptor()
 	// qarecord.DefaultOutputTokens holds the default value on creation for the output_tokens field.
 	qarecord.DefaultOutputTokens = qarecordDescOutputTokens.Default.(int)
 	// qarecordDescCachedTokens is the schema descriptor for cached_tokens field.
-	qarecordDescCachedTokens := qarecordFields[18].Descriptor()
+	qarecordDescCachedTokens := qarecordFields[22].Descriptor()
 	// qarecord.DefaultCachedTokens holds the default value on creation for the cached_tokens field.
 	qarecord.DefaultCachedTokens = qarecordDescCachedTokens.Default.(int)
 	// qarecordDescRequestSha256 is the schema descriptor for request_sha256 field.
-	qarecordDescRequestSha256 := qarecordFields[19].Descriptor()
+	qarecordDescRequestSha256 := qarecordFields[23].Descriptor()
 	// qarecord.DefaultRequestSha256 holds the default value on creation for the request_sha256 field.
 	qarecord.DefaultRequestSha256 = qarecordDescRequestSha256.Default.(string)
 	// qarecordDescResponseSha256 is the schema descriptor for response_sha256 field.
-	qarecordDescResponseSha256 := qarecordFields[20].Descriptor()
+	qarecordDescResponseSha256 := qarecordFields[24].Descriptor()
 	// qarecord.DefaultResponseSha256 holds the default value on creation for the response_sha256 field.
 	qarecord.DefaultResponseSha256 = qarecordDescResponseSha256.Default.(string)
+	// qarecordDescRedactionVersion is the schema descriptor for redaction_version field.
+	qarecordDescRedactionVersion := qarecordFields[29].Descriptor()
+	// qarecord.DefaultRedactionVersion holds the default value on creation for the redaction_version field.
+	qarecord.DefaultRedactionVersion = qarecordDescRedactionVersion.Default.(string)
+	// qarecordDescCaptureStatus is the schema descriptor for capture_status field.
+	qarecordDescCaptureStatus := qarecordFields[30].Descriptor()
+	// qarecord.DefaultCaptureStatus holds the default value on creation for the capture_status field.
+	qarecord.DefaultCaptureStatus = qarecordDescCaptureStatus.Default.(string)
 	// qarecordDescTags is the schema descriptor for tags field.
-	qarecordDescTags := qarecordFields[22].Descriptor()
+	qarecordDescTags := qarecordFields[31].Descriptor()
 	// qarecord.DefaultTags holds the default value on creation for the tags field.
 	qarecord.DefaultTags = qarecordDescTags.Default.([]string)
 	// qarecordDescDialogSynth is the schema descriptor for dialog_synth field.
-	qarecordDescDialogSynth := qarecordFields[26].Descriptor()
+	qarecordDescDialogSynth := qarecordFields[35].Descriptor()
 	// qarecord.DefaultDialogSynth holds the default value on creation for the dialog_synth field.
 	qarecord.DefaultDialogSynth = qarecordDescDialogSynth.Default.(bool)
 	// qarecordDescCreatedAt is the schema descriptor for created_at field.
-	qarecordDescCreatedAt := qarecordFields[27].Descriptor()
+	qarecordDescCreatedAt := qarecordFields[36].Descriptor()
 	// qarecord.DefaultCreatedAt holds the default value on creation for the created_at field.
 	qarecord.DefaultCreatedAt = qarecordDescCreatedAt.Default.(func() time.Time)
 	redeemcodeFields := schema.RedeemCode{}.Fields()

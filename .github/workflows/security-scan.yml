@@ -3,6 +3,7 @@ name: Security Scan
 on:
   push:
   pull_request:
+  workflow_dispatch:
   schedule:
     - cron: '0 3 * * 1'
 
@@ -21,10 +22,15 @@ jobs:
         with:
           go-version-file: backend/go.mod
           check-latest: false
+          cache: true
           cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
           go version | grep -q 'go1.26.2'
+      - name: Run gosec lint
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        working-directory: backend
+        run: make lint-security
       - name: Run govulncheck
         working-directory: backend
         run: |

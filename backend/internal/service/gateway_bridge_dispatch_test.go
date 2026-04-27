@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"testing"
+
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
 type bridgeToggleSettingRepo struct {
@@ -55,6 +57,7 @@ func TestShouldDispatchToNewAPIBridge(t *testing.T) {
 			name: "positive channel type known endpoint",
 			account: &Account{
 				ChannelType: 5,
+				Platform:    domain.PlatformNewAPI,
 			},
 			endpoint: BridgeEndpointResponses,
 			want:     true,
@@ -71,6 +74,7 @@ func TestShouldDispatchToNewAPIBridge(t *testing.T) {
 			name: "positive channel type embeddings endpoint",
 			account: &Account{
 				ChannelType: 9,
+				Platform:    domain.PlatformNewAPI,
 			},
 			endpoint: BridgeEndpointEmbeddings,
 			want:     true,
@@ -79,6 +83,7 @@ func TestShouldDispatchToNewAPIBridge(t *testing.T) {
 			name: "positive channel type images endpoint",
 			account: &Account{
 				ChannelType: 9,
+				Platform:    domain.PlatformNewAPI,
 			},
 			endpoint: BridgeEndpointImages,
 			want:     true,
@@ -89,13 +94,13 @@ func TestShouldDispatchToNewAPIBridge(t *testing.T) {
 			// path for async task generation. Regressing this to false
 			// silently 5xx's the entire /v1/video/generations endpoint.
 			name:     "positive channel type video submit endpoint",
-			account:  &Account{ChannelType: 45},
+			account:  &Account{ChannelType: 45, Platform: domain.PlatformNewAPI},
 			endpoint: BridgeEndpointVideoSubmit,
 			want:     true,
 		},
 		{
 			name:     "positive channel type video fetch endpoint",
-			account:  &Account{ChannelType: 45},
+			account:  &Account{ChannelType: 45, Platform: domain.PlatformNewAPI},
 			endpoint: BridgeEndpointVideoFetch,
 			want:     true,
 		},
@@ -131,7 +136,7 @@ func TestShouldDispatchToNewAPIBridge_RespectsKillSwitch(t *testing.T) {
 			},
 		},
 	}
-	account := &Account{ChannelType: 7}
+	account := &Account{ChannelType: 7, Platform: domain.PlatformNewAPI}
 	if svc.ShouldDispatchToNewAPIBridge(account, BridgeEndpointResponses) {
 		t.Fatalf("expected bridge dispatch disabled by setting")
 	}

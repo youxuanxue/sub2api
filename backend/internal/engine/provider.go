@@ -54,13 +54,3 @@ func AllSchedulingPlatforms() []string {
 		domain.PlatformNewAPI,
 	}
 }
-
-func BridgeEndpointEnabled(endpoint string) bool {
-	switch endpoint {
-	case BridgeEndpointChatCompletions, BridgeEndpointResponses, BridgeEndpointEmbeddings, BridgeEndpointImages,
-		BridgeEndpointVideoSubmit, BridgeEndpointVideoFetch:
-		return true
-	default:
-		return false
-	}
-}

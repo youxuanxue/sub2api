@@ -170,3 +170,5 @@ frontend/coverage/
 aicodex
 output/
 exports/
+
+.dump_trajs/

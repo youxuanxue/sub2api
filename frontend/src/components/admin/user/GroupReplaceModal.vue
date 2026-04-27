@@ -45,7 +45,7 @@
           </div>
           <div class="flex-1">
             <span class="font-medium text-gray-900 dark:text-white">{{ group.name }}</span>
-            <span class="ml-2 text-xs text-gray-400">{{ group.platform }}</span>
+            <span class="ml-2 text-xs text-gray-400">{{ getPlatformLabel(group.platform) }}</span>
           </div>
         </label>
       </div>
@@ -78,6 +78,7 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { getPlatformLabel } from '@/composables/usePlatformOptions'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
 import type { AdminUser, AdminGroup } from '@/types'

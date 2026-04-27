@@ -63,5 +63,5 @@ jobs:
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.9
-          args: --timeout=30m
+          args: --concurrency=4 --timeout=15m
           working-directory: backend

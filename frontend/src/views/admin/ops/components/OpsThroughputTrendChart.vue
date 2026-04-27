@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { getPlatformLabel } from '@/composables/usePlatformOptions'
 import { Chart as ChartJS, CategoryScale, Filler, Legend, LineElement, LinearScale, PointElement, Title, Tooltip } from 'chart.js'
 import { Line } from 'vue-chartjs'
 import type { ChartComponentRef } from 'vue-chartjs'
@@ -239,7 +240,7 @@ function downloadChart() {
         class="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1 text-[11px] font-semibold text-gray-700 hover:bg-gray-50 dark:border-dark-700 dark:bg-dark-900 dark:text-gray-200 dark:hover:bg-dark-800"
         @click="emit('selectPlatform', p.platform)"
       >
-        <span class="uppercase">{{ p.platform }}</span>
+        <span>{{ getPlatformLabel(p.platform) }}</span>
         <span class="text-gray-400 dark:text-gray-500">{{ formatNumber(p.request_count) }}</span>
       </button>
     </div>

@@ -1,6 +1,6 @@
-# Sub2API Docker Image
+# TokenKey Docker Image
 
-Sub2API is an AI API Gateway Platform for distributing and managing AI product subscription API quotas.
+TokenKey is an AI API Gateway Platform for distributing and managing AI product subscription API quotas.
 
 ## Quick Start
 

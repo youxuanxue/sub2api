@@ -1683,83 +1683,11 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 	return nil, ErrNoAvailableAccounts
 }
 
-// listSchedulableAccounts is the legacy entrypoint preserved for callers that
-// have not (yet) been threaded with groupPlatform. New code paths SHOULD call
-// listOpenAICompatSchedulableAccounts directly with the resolved platform —
-// see docs/approved/newapi-as-fifth-platform.md §3.1 U1 / §3.2.
-func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64, groupPlatform string) ([]Account, error) {
-	accounts, err := s.listOpenAICompatSchedulableAccounts(ctx, groupID, groupPlatform)
-	if err != nil {
-		return nil, fmt.Errorf("query accounts failed: %w", err)
-	}
-	return accounts, nil
-}
-
 func (s *OpenAIGatewayService) tryAcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int) (*AcquireResult, error) {
 	if s.concurrencyService == nil {
 		return &AcquireResult{Acquired: true, ReleaseFunc: func() {}}, nil
 	}
 	return s.concurrencyService.AcquireAccountSlot(ctx, accountID, maxConcurrency)
-}
-
-// resolveFreshSchedulableOpenAIAccount re-validates a candidate account against
-// the OpenAI-compatible scheduling pool of the given groupPlatform. Empty
-// groupPlatform falls back to PlatformOpenAI for backward compatibility.
-// See docs/approved/newapi-as-fifth-platform.md §3.1 U6.
-func (s *OpenAIGatewayService) resolveFreshSchedulableOpenAIAccount(ctx context.Context, account *Account, requestedModel string, groupPlatform string) *Account {
-	if account == nil {
-		return nil
-	}
-	if groupPlatform == "" {
-		groupPlatform = PlatformOpenAI
-	}
-
-	fresh := account
-	if s.schedulerSnapshot != nil {
-		current, err := s.getSchedulableAccount(ctx, account.ID)
-		if err != nil || current == nil {
-			return nil
-		}
-		fresh = current
-	}
-
-	if !fresh.IsSchedulable() || !fresh.IsOpenAICompatPoolMember(groupPlatform) {
-		return nil
-	}
-	if requestedModel != "" && !fresh.IsModelSupported(requestedModel) {
-		return nil
-	}
-	return fresh
-}
-
-// recheckSelectedOpenAIAccountFromDB re-reads the account from PG and validates
-// it against the OpenAI-compatible scheduling pool of groupPlatform. Empty
-// groupPlatform falls back to PlatformOpenAI for backward compatibility.
-// See docs/approved/newapi-as-fifth-platform.md §3.1 U6 (extension: design
-// originally only listed resolveFresh, but recheck performs the symmetric
-// IsOpenAI() filter and was a design oversight — both must move together).
-func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDB(ctx context.Context, account *Account, requestedModel string, groupPlatform string) *Account {
-	if account == nil {
-		return nil
-	}
-	if s.schedulerSnapshot == nil || s.accountRepo == nil {
-		return account
-	}
-	if groupPlatform == "" {
-		groupPlatform = PlatformOpenAI
-	}
-
-	latest, err := s.accountRepo.GetByID(ctx, account.ID)
-	if err != nil || latest == nil {
-		return nil
-	}
-	if !latest.IsSchedulable() || !latest.IsOpenAICompatPoolMember(groupPlatform) {
-		return nil
-	}
-	if requestedModel != "" && !latest.IsModelSupported(requestedModel) {
-		return nil
-	}
-	return latest
 }
 
 func (s *OpenAIGatewayService) getSchedulableAccount(ctx context.Context, accountID int64) (*Account, error) {

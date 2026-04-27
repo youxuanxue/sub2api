@@ -69,6 +69,11 @@ func UserID(v int64) predicate.QARecord {
 	return predicate.QARecord(sql.FieldEQ(FieldUserID, v))
 }
 
+// GroupID applies equality check predicate on the "group_id" field. It's identical to GroupIDEQ.
+func GroupID(v int64) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldGroupID, v))
+}
+
 // APIKeyID applies equality check predicate on the "api_key_id" field. It's identical to APIKeyIDEQ.
 func APIKeyID(v int64) predicate.QARecord {
 	return predicate.QARecord(sql.FieldEQ(FieldAPIKeyID, v))
@@ -82,6 +87,16 @@ func AccountID(v int64) predicate.QARecord {
 // Platform applies equality check predicate on the "platform" field. It's identical to PlatformEQ.
 func Platform(v string) predicate.QARecord {
 	return predicate.QARecord(sql.FieldEQ(FieldPlatform, v))
+}
+
+// Provider applies equality check predicate on the "provider" field. It's identical to ProviderEQ.
+func Provider(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldProvider, v))
+}
+
+// ChannelType applies equality check predicate on the "channel_type" field. It's identical to ChannelTypeEQ.
+func ChannelType(v int) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldChannelType, v))
 }
 
 // RequestedModel applies equality check predicate on the "requested_model" field. It's identical to RequestedModelEQ.
@@ -107,6 +122,11 @@ func UpstreamEndpoint(v string) predicate.QARecord {
 // StatusCode applies equality check predicate on the "status_code" field. It's identical to StatusCodeEQ.
 func StatusCode(v int) predicate.QARecord {
 	return predicate.QARecord(sql.FieldEQ(FieldStatusCode, v))
+}
+
+// Success applies equality check predicate on the "success" field. It's identical to SuccessEQ.
+func Success(v bool) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldSuccess, v))
 }
 
 // DurationMs applies equality check predicate on the "duration_ms" field. It's identical to DurationMsEQ.
@@ -162,6 +182,31 @@ func ResponseSha256(v string) predicate.QARecord {
 // BlobURI applies equality check predicate on the "blob_uri" field. It's identical to BlobURIEQ.
 func BlobURI(v string) predicate.QARecord {
 	return predicate.QARecord(sql.FieldEQ(FieldBlobURI, v))
+}
+
+// RequestBlobURI applies equality check predicate on the "request_blob_uri" field. It's identical to RequestBlobURIEQ.
+func RequestBlobURI(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldRequestBlobURI, v))
+}
+
+// ResponseBlobURI applies equality check predicate on the "response_blob_uri" field. It's identical to ResponseBlobURIEQ.
+func ResponseBlobURI(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldResponseBlobURI, v))
+}
+
+// StreamBlobURI applies equality check predicate on the "stream_blob_uri" field. It's identical to StreamBlobURIEQ.
+func StreamBlobURI(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldStreamBlobURI, v))
+}
+
+// RedactionVersion applies equality check predicate on the "redaction_version" field. It's identical to RedactionVersionEQ.
+func RedactionVersion(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldRedactionVersion, v))
+}
+
+// CaptureStatus applies equality check predicate on the "capture_status" field. It's identical to CaptureStatusEQ.
+func CaptureStatus(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldCaptureStatus, v))
 }
 
 // SynthSessionID applies equality check predicate on the "synth_session_id" field. It's identical to SynthSessionIDEQ.
@@ -374,6 +419,56 @@ func UserIDLTE(v int64) predicate.QARecord {
 	return predicate.QARecord(sql.FieldLTE(FieldUserID, v))
 }
 
+// GroupIDEQ applies the EQ predicate on the "group_id" field.
+func GroupIDEQ(v int64) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldGroupID, v))
+}
+
+// GroupIDNEQ applies the NEQ predicate on the "group_id" field.
+func GroupIDNEQ(v int64) predicate.QARecord {
+	return predicate.QARecord(sql.FieldNEQ(FieldGroupID, v))
+}
+
+// GroupIDIn applies the In predicate on the "group_id" field.
+func GroupIDIn(vs ...int64) predicate.QARecord {
+	return predicate.QARecord(sql.FieldIn(FieldGroupID, vs...))
+}
+
+// GroupIDNotIn applies the NotIn predicate on the "group_id" field.
+func GroupIDNotIn(vs ...int64) predicate.QARecord {
+	return predicate.QARecord(sql.FieldNotIn(FieldGroupID, vs...))
+}
+
+// GroupIDGT applies the GT predicate on the "group_id" field.
+func GroupIDGT(v int64) predicate.QARecord {
+	return predicate.QARecord(sql.FieldGT(FieldGroupID, v))
+}
+
+// GroupIDGTE applies the GTE predicate on the "group_id" field.
+func GroupIDGTE(v int64) predicate.QARecord {
+	return predicate.QARecord(sql.FieldGTE(FieldGroupID, v))
+}
+
+// GroupIDLT applies the LT predicate on the "group_id" field.
+func GroupIDLT(v int64) predicate.QARecord {
+	return predicate.QARecord(sql.FieldLT(FieldGroupID, v))
+}
+
+// GroupIDLTE applies the LTE predicate on the "group_id" field.
+func GroupIDLTE(v int64) predicate.QARecord {
+	return predicate.QARecord(sql.FieldLTE(FieldGroupID, v))
+}
+
+// GroupIDIsNil applies the IsNil predicate on the "group_id" field.
+func GroupIDIsNil() predicate.QARecord {
+	return predicate.QARecord(sql.FieldIsNull(FieldGroupID))
+}
+
+// GroupIDNotNil applies the NotNil predicate on the "group_id" field.
+func GroupIDNotNil() predicate.QARecord {
+	return predicate.QARecord(sql.FieldNotNull(FieldGroupID))
+}
+
 // APIKeyIDEQ applies the EQ predicate on the "api_key_id" field.
 func APIKeyIDEQ(v int64) predicate.QARecord {
 	return predicate.QARecord(sql.FieldEQ(FieldAPIKeyID, v))
@@ -527,6 +622,131 @@ func PlatformEqualFold(v string) predicate.QARecord {
 // PlatformContainsFold applies the ContainsFold predicate on the "platform" field.
 func PlatformContainsFold(v string) predicate.QARecord {
 	return predicate.QARecord(sql.FieldContainsFold(FieldPlatform, v))
+}
+
+// ProviderEQ applies the EQ predicate on the "provider" field.
+func ProviderEQ(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldProvider, v))
+}
+
+// ProviderNEQ applies the NEQ predicate on the "provider" field.
+func ProviderNEQ(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldNEQ(FieldProvider, v))
+}
+
+// ProviderIn applies the In predicate on the "provider" field.
+func ProviderIn(vs ...string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldIn(FieldProvider, vs...))
+}
+
+// ProviderNotIn applies the NotIn predicate on the "provider" field.
+func ProviderNotIn(vs ...string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldNotIn(FieldProvider, vs...))
+}
+
+// ProviderGT applies the GT predicate on the "provider" field.
+func ProviderGT(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldGT(FieldProvider, v))
+}
+
+// ProviderGTE applies the GTE predicate on the "provider" field.
+func ProviderGTE(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldGTE(FieldProvider, v))
+}
+
+// ProviderLT applies the LT predicate on the "provider" field.
+func ProviderLT(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldLT(FieldProvider, v))
+}
+
+// ProviderLTE applies the LTE predicate on the "provider" field.
+func ProviderLTE(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldLTE(FieldProvider, v))
+}
+
+// ProviderContains applies the Contains predicate on the "provider" field.
+func ProviderContains(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldContains(FieldProvider, v))
+}
+
+// ProviderHasPrefix applies the HasPrefix predicate on the "provider" field.
+func ProviderHasPrefix(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldHasPrefix(FieldProvider, v))
+}
+
+// ProviderHasSuffix applies the HasSuffix predicate on the "provider" field.
+func ProviderHasSuffix(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldHasSuffix(FieldProvider, v))
+}
+
+// ProviderIsNil applies the IsNil predicate on the "provider" field.
+func ProviderIsNil() predicate.QARecord {
+	return predicate.QARecord(sql.FieldIsNull(FieldProvider))
+}
+
+// ProviderNotNil applies the NotNil predicate on the "provider" field.
+func ProviderNotNil() predicate.QARecord {
+	return predicate.QARecord(sql.FieldNotNull(FieldProvider))
+}
+
+// ProviderEqualFold applies the EqualFold predicate on the "provider" field.
+func ProviderEqualFold(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEqualFold(FieldProvider, v))
+}
+
+// ProviderContainsFold applies the ContainsFold predicate on the "provider" field.
+func ProviderContainsFold(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldContainsFold(FieldProvider, v))
+}
+
+// ChannelTypeEQ applies the EQ predicate on the "channel_type" field.
+func ChannelTypeEQ(v int) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldChannelType, v))
+}
+
+// ChannelTypeNEQ applies the NEQ predicate on the "channel_type" field.
+func ChannelTypeNEQ(v int) predicate.QARecord {
+	return predicate.QARecord(sql.FieldNEQ(FieldChannelType, v))
+}
+
+// ChannelTypeIn applies the In predicate on the "channel_type" field.
+func ChannelTypeIn(vs ...int) predicate.QARecord {
+	return predicate.QARecord(sql.FieldIn(FieldChannelType, vs...))
+}
+
+// ChannelTypeNotIn applies the NotIn predicate on the "channel_type" field.
+func ChannelTypeNotIn(vs ...int) predicate.QARecord {
+	return predicate.QARecord(sql.FieldNotIn(FieldChannelType, vs...))
+}
+
+// ChannelTypeGT applies the GT predicate on the "channel_type" field.
+func ChannelTypeGT(v int) predicate.QARecord {
+	return predicate.QARecord(sql.FieldGT(FieldChannelType, v))
+}
+
+// ChannelTypeGTE applies the GTE predicate on the "channel_type" field.
+func ChannelTypeGTE(v int) predicate.QARecord {
+	return predicate.QARecord(sql.FieldGTE(FieldChannelType, v))
+}
+
+// ChannelTypeLT applies the LT predicate on the "channel_type" field.
+func ChannelTypeLT(v int) predicate.QARecord {
+	return predicate.QARecord(sql.FieldLT(FieldChannelType, v))
+}
+
+// ChannelTypeLTE applies the LTE predicate on the "channel_type" field.
+func ChannelTypeLTE(v int) predicate.QARecord {
+	return predicate.QARecord(sql.FieldLTE(FieldChannelType, v))
+}
+
+// ChannelTypeIsNil applies the IsNil predicate on the "channel_type" field.
+func ChannelTypeIsNil() predicate.QARecord {
+	return predicate.QARecord(sql.FieldIsNull(FieldChannelType))
+}
+
+// ChannelTypeNotNil applies the NotNil predicate on the "channel_type" field.
+func ChannelTypeNotNil() predicate.QARecord {
+	return predicate.QARecord(sql.FieldNotNull(FieldChannelType))
 }
 
 // RequestedModelEQ applies the EQ predicate on the "requested_model" field.
@@ -847,6 +1067,16 @@ func StatusCodeLT(v int) predicate.QARecord {
 // StatusCodeLTE applies the LTE predicate on the "status_code" field.
 func StatusCodeLTE(v int) predicate.QARecord {
 	return predicate.QARecord(sql.FieldLTE(FieldStatusCode, v))
+}
+
+// SuccessEQ applies the EQ predicate on the "success" field.
+func SuccessEQ(v bool) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldSuccess, v))
+}
+
+// SuccessNEQ applies the NEQ predicate on the "success" field.
+func SuccessNEQ(v bool) predicate.QARecord {
+	return predicate.QARecord(sql.FieldNEQ(FieldSuccess, v))
 }
 
 // DurationMsEQ applies the EQ predicate on the "duration_ms" field.
@@ -1292,6 +1522,361 @@ func BlobURIEqualFold(v string) predicate.QARecord {
 // BlobURIContainsFold applies the ContainsFold predicate on the "blob_uri" field.
 func BlobURIContainsFold(v string) predicate.QARecord {
 	return predicate.QARecord(sql.FieldContainsFold(FieldBlobURI, v))
+}
+
+// RequestBlobURIEQ applies the EQ predicate on the "request_blob_uri" field.
+func RequestBlobURIEQ(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldRequestBlobURI, v))
+}
+
+// RequestBlobURINEQ applies the NEQ predicate on the "request_blob_uri" field.
+func RequestBlobURINEQ(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldNEQ(FieldRequestBlobURI, v))
+}
+
+// RequestBlobURIIn applies the In predicate on the "request_blob_uri" field.
+func RequestBlobURIIn(vs ...string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldIn(FieldRequestBlobURI, vs...))
+}
+
+// RequestBlobURINotIn applies the NotIn predicate on the "request_blob_uri" field.
+func RequestBlobURINotIn(vs ...string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldNotIn(FieldRequestBlobURI, vs...))
+}
+
+// RequestBlobURIGT applies the GT predicate on the "request_blob_uri" field.
+func RequestBlobURIGT(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldGT(FieldRequestBlobURI, v))
+}
+
+// RequestBlobURIGTE applies the GTE predicate on the "request_blob_uri" field.
+func RequestBlobURIGTE(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldGTE(FieldRequestBlobURI, v))
+}
+
+// RequestBlobURILT applies the LT predicate on the "request_blob_uri" field.
+func RequestBlobURILT(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldLT(FieldRequestBlobURI, v))
+}
+
+// RequestBlobURILTE applies the LTE predicate on the "request_blob_uri" field.
+func RequestBlobURILTE(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldLTE(FieldRequestBlobURI, v))
+}
+
+// RequestBlobURIContains applies the Contains predicate on the "request_blob_uri" field.
+func RequestBlobURIContains(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldContains(FieldRequestBlobURI, v))
+}
+
+// RequestBlobURIHasPrefix applies the HasPrefix predicate on the "request_blob_uri" field.
+func RequestBlobURIHasPrefix(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldHasPrefix(FieldRequestBlobURI, v))
+}
+
+// RequestBlobURIHasSuffix applies the HasSuffix predicate on the "request_blob_uri" field.
+func RequestBlobURIHasSuffix(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldHasSuffix(FieldRequestBlobURI, v))
+}
+
+// RequestBlobURIIsNil applies the IsNil predicate on the "request_blob_uri" field.
+func RequestBlobURIIsNil() predicate.QARecord {
+	return predicate.QARecord(sql.FieldIsNull(FieldRequestBlobURI))
+}
+
+// RequestBlobURINotNil applies the NotNil predicate on the "request_blob_uri" field.
+func RequestBlobURINotNil() predicate.QARecord {
+	return predicate.QARecord(sql.FieldNotNull(FieldRequestBlobURI))
+}
+
+// RequestBlobURIEqualFold applies the EqualFold predicate on the "request_blob_uri" field.
+func RequestBlobURIEqualFold(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEqualFold(FieldRequestBlobURI, v))
+}
+
+// RequestBlobURIContainsFold applies the ContainsFold predicate on the "request_blob_uri" field.
+func RequestBlobURIContainsFold(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldContainsFold(FieldRequestBlobURI, v))
+}
+
+// ResponseBlobURIEQ applies the EQ predicate on the "response_blob_uri" field.
+func ResponseBlobURIEQ(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldResponseBlobURI, v))
+}
+
+// ResponseBlobURINEQ applies the NEQ predicate on the "response_blob_uri" field.
+func ResponseBlobURINEQ(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldNEQ(FieldResponseBlobURI, v))
+}
+
+// ResponseBlobURIIn applies the In predicate on the "response_blob_uri" field.
+func ResponseBlobURIIn(vs ...string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldIn(FieldResponseBlobURI, vs...))
+}
+
+// ResponseBlobURINotIn applies the NotIn predicate on the "response_blob_uri" field.
+func ResponseBlobURINotIn(vs ...string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldNotIn(FieldResponseBlobURI, vs...))
+}
+
+// ResponseBlobURIGT applies the GT predicate on the "response_blob_uri" field.
+func ResponseBlobURIGT(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldGT(FieldResponseBlobURI, v))
+}
+
+// ResponseBlobURIGTE applies the GTE predicate on the "response_blob_uri" field.
+func ResponseBlobURIGTE(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldGTE(FieldResponseBlobURI, v))
+}
+
+// ResponseBlobURILT applies the LT predicate on the "response_blob_uri" field.
+func ResponseBlobURILT(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldLT(FieldResponseBlobURI, v))
+}
+
+// ResponseBlobURILTE applies the LTE predicate on the "response_blob_uri" field.
+func ResponseBlobURILTE(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldLTE(FieldResponseBlobURI, v))
+}
+
+// ResponseBlobURIContains applies the Contains predicate on the "response_blob_uri" field.
+func ResponseBlobURIContains(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldContains(FieldResponseBlobURI, v))
+}
+
+// ResponseBlobURIHasPrefix applies the HasPrefix predicate on the "response_blob_uri" field.
+func ResponseBlobURIHasPrefix(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldHasPrefix(FieldResponseBlobURI, v))
+}
+
+// ResponseBlobURIHasSuffix applies the HasSuffix predicate on the "response_blob_uri" field.
+func ResponseBlobURIHasSuffix(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldHasSuffix(FieldResponseBlobURI, v))
+}
+
+// ResponseBlobURIIsNil applies the IsNil predicate on the "response_blob_uri" field.
+func ResponseBlobURIIsNil() predicate.QARecord {
+	return predicate.QARecord(sql.FieldIsNull(FieldResponseBlobURI))
+}
+
+// ResponseBlobURINotNil applies the NotNil predicate on the "response_blob_uri" field.
+func ResponseBlobURINotNil() predicate.QARecord {
+	return predicate.QARecord(sql.FieldNotNull(FieldResponseBlobURI))
+}
+
+// ResponseBlobURIEqualFold applies the EqualFold predicate on the "response_blob_uri" field.
+func ResponseBlobURIEqualFold(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEqualFold(FieldResponseBlobURI, v))
+}
+
+// ResponseBlobURIContainsFold applies the ContainsFold predicate on the "response_blob_uri" field.
+func ResponseBlobURIContainsFold(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldContainsFold(FieldResponseBlobURI, v))
+}
+
+// StreamBlobURIEQ applies the EQ predicate on the "stream_blob_uri" field.
+func StreamBlobURIEQ(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldStreamBlobURI, v))
+}
+
+// StreamBlobURINEQ applies the NEQ predicate on the "stream_blob_uri" field.
+func StreamBlobURINEQ(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldNEQ(FieldStreamBlobURI, v))
+}
+
+// StreamBlobURIIn applies the In predicate on the "stream_blob_uri" field.
+func StreamBlobURIIn(vs ...string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldIn(FieldStreamBlobURI, vs...))
+}
+
+// StreamBlobURINotIn applies the NotIn predicate on the "stream_blob_uri" field.
+func StreamBlobURINotIn(vs ...string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldNotIn(FieldStreamBlobURI, vs...))
+}
+
+// StreamBlobURIGT applies the GT predicate on the "stream_blob_uri" field.
+func StreamBlobURIGT(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldGT(FieldStreamBlobURI, v))
+}
+
+// StreamBlobURIGTE applies the GTE predicate on the "stream_blob_uri" field.
+func StreamBlobURIGTE(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldGTE(FieldStreamBlobURI, v))
+}
+
+// StreamBlobURILT applies the LT predicate on the "stream_blob_uri" field.
+func StreamBlobURILT(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldLT(FieldStreamBlobURI, v))
+}
+
+// StreamBlobURILTE applies the LTE predicate on the "stream_blob_uri" field.
+func StreamBlobURILTE(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldLTE(FieldStreamBlobURI, v))
+}
+
+// StreamBlobURIContains applies the Contains predicate on the "stream_blob_uri" field.
+func StreamBlobURIContains(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldContains(FieldStreamBlobURI, v))
+}
+
+// StreamBlobURIHasPrefix applies the HasPrefix predicate on the "stream_blob_uri" field.
+func StreamBlobURIHasPrefix(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldHasPrefix(FieldStreamBlobURI, v))
+}
+
+// StreamBlobURIHasSuffix applies the HasSuffix predicate on the "stream_blob_uri" field.
+func StreamBlobURIHasSuffix(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldHasSuffix(FieldStreamBlobURI, v))
+}
+
+// StreamBlobURIIsNil applies the IsNil predicate on the "stream_blob_uri" field.
+func StreamBlobURIIsNil() predicate.QARecord {
+	return predicate.QARecord(sql.FieldIsNull(FieldStreamBlobURI))
+}
+
+// StreamBlobURINotNil applies the NotNil predicate on the "stream_blob_uri" field.
+func StreamBlobURINotNil() predicate.QARecord {
+	return predicate.QARecord(sql.FieldNotNull(FieldStreamBlobURI))
+}
+
+// StreamBlobURIEqualFold applies the EqualFold predicate on the "stream_blob_uri" field.
+func StreamBlobURIEqualFold(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEqualFold(FieldStreamBlobURI, v))
+}
+
+// StreamBlobURIContainsFold applies the ContainsFold predicate on the "stream_blob_uri" field.
+func StreamBlobURIContainsFold(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldContainsFold(FieldStreamBlobURI, v))
+}
+
+// RedactionVersionEQ applies the EQ predicate on the "redaction_version" field.
+func RedactionVersionEQ(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldRedactionVersion, v))
+}
+
+// RedactionVersionNEQ applies the NEQ predicate on the "redaction_version" field.
+func RedactionVersionNEQ(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldNEQ(FieldRedactionVersion, v))
+}
+
+// RedactionVersionIn applies the In predicate on the "redaction_version" field.
+func RedactionVersionIn(vs ...string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldIn(FieldRedactionVersion, vs...))
+}
+
+// RedactionVersionNotIn applies the NotIn predicate on the "redaction_version" field.
+func RedactionVersionNotIn(vs ...string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldNotIn(FieldRedactionVersion, vs...))
+}
+
+// RedactionVersionGT applies the GT predicate on the "redaction_version" field.
+func RedactionVersionGT(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldGT(FieldRedactionVersion, v))
+}
+
+// RedactionVersionGTE applies the GTE predicate on the "redaction_version" field.
+func RedactionVersionGTE(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldGTE(FieldRedactionVersion, v))
+}
+
+// RedactionVersionLT applies the LT predicate on the "redaction_version" field.
+func RedactionVersionLT(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldLT(FieldRedactionVersion, v))
+}
+
+// RedactionVersionLTE applies the LTE predicate on the "redaction_version" field.
+func RedactionVersionLTE(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldLTE(FieldRedactionVersion, v))
+}
+
+// RedactionVersionContains applies the Contains predicate on the "redaction_version" field.
+func RedactionVersionContains(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldContains(FieldRedactionVersion, v))
+}
+
+// RedactionVersionHasPrefix applies the HasPrefix predicate on the "redaction_version" field.
+func RedactionVersionHasPrefix(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldHasPrefix(FieldRedactionVersion, v))
+}
+
+// RedactionVersionHasSuffix applies the HasSuffix predicate on the "redaction_version" field.
+func RedactionVersionHasSuffix(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldHasSuffix(FieldRedactionVersion, v))
+}
+
+// RedactionVersionEqualFold applies the EqualFold predicate on the "redaction_version" field.
+func RedactionVersionEqualFold(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEqualFold(FieldRedactionVersion, v))
+}
+
+// RedactionVersionContainsFold applies the ContainsFold predicate on the "redaction_version" field.
+func RedactionVersionContainsFold(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldContainsFold(FieldRedactionVersion, v))
+}
+
+// CaptureStatusEQ applies the EQ predicate on the "capture_status" field.
+func CaptureStatusEQ(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEQ(FieldCaptureStatus, v))
+}
+
+// CaptureStatusNEQ applies the NEQ predicate on the "capture_status" field.
+func CaptureStatusNEQ(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldNEQ(FieldCaptureStatus, v))
+}
+
+// CaptureStatusIn applies the In predicate on the "capture_status" field.
+func CaptureStatusIn(vs ...string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldIn(FieldCaptureStatus, vs...))
+}
+
+// CaptureStatusNotIn applies the NotIn predicate on the "capture_status" field.
+func CaptureStatusNotIn(vs ...string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldNotIn(FieldCaptureStatus, vs...))
+}
+
+// CaptureStatusGT applies the GT predicate on the "capture_status" field.
+func CaptureStatusGT(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldGT(FieldCaptureStatus, v))
+}
+
+// CaptureStatusGTE applies the GTE predicate on the "capture_status" field.
+func CaptureStatusGTE(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldGTE(FieldCaptureStatus, v))
+}
+
+// CaptureStatusLT applies the LT predicate on the "capture_status" field.
+func CaptureStatusLT(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldLT(FieldCaptureStatus, v))
+}
+
+// CaptureStatusLTE applies the LTE predicate on the "capture_status" field.
+func CaptureStatusLTE(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldLTE(FieldCaptureStatus, v))
+}
+
+// CaptureStatusContains applies the Contains predicate on the "capture_status" field.
+func CaptureStatusContains(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldContains(FieldCaptureStatus, v))
+}
+
+// CaptureStatusHasPrefix applies the HasPrefix predicate on the "capture_status" field.
+func CaptureStatusHasPrefix(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldHasPrefix(FieldCaptureStatus, v))
+}
+
+// CaptureStatusHasSuffix applies the HasSuffix predicate on the "capture_status" field.
+func CaptureStatusHasSuffix(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldHasSuffix(FieldCaptureStatus, v))
+}
+
+// CaptureStatusEqualFold applies the EqualFold predicate on the "capture_status" field.
+func CaptureStatusEqualFold(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldEqualFold(FieldCaptureStatus, v))
+}
+
+// CaptureStatusContainsFold applies the ContainsFold predicate on the "capture_status" field.
+func CaptureStatusContainsFold(v string) predicate.QARecord {
+	return predicate.QARecord(sql.FieldContainsFold(FieldCaptureStatus, v))
 }
 
 // SynthSessionIDEQ applies the EQ predicate on the "synth_session_id" field.

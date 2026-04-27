@@ -84,6 +84,33 @@ func (_u *QARecordUpdate) AddUserID(v int64) *QARecordUpdate {
 	return _u
 }
 
+// SetGroupID sets the "group_id" field.
+func (_u *QARecordUpdate) SetGroupID(v int64) *QARecordUpdate {
+	_u.mutation.ResetGroupID()
+	_u.mutation.SetGroupID(v)
+	return _u
+}
+
+// SetNillableGroupID sets the "group_id" field if the given value is not nil.
+func (_u *QARecordUpdate) SetNillableGroupID(v *int64) *QARecordUpdate {
+	if v != nil {
+		_u.SetGroupID(*v)
+	}
+	return _u
+}
+
+// AddGroupID adds value to the "group_id" field.
+func (_u *QARecordUpdate) AddGroupID(v int64) *QARecordUpdate {
+	_u.mutation.AddGroupID(v)
+	return _u
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (_u *QARecordUpdate) ClearGroupID() *QARecordUpdate {
+	_u.mutation.ClearGroupID()
+	return _u
+}
+
 // SetAPIKeyID sets the "api_key_id" field.
 func (_u *QARecordUpdate) SetAPIKeyID(v int64) *QARecordUpdate {
 	_u.mutation.ResetAPIKeyID()
@@ -143,6 +170,53 @@ func (_u *QARecordUpdate) SetNillablePlatform(v *string) *QARecordUpdate {
 	if v != nil {
 		_u.SetPlatform(*v)
 	}
+	return _u
+}
+
+// SetProvider sets the "provider" field.
+func (_u *QARecordUpdate) SetProvider(v string) *QARecordUpdate {
+	_u.mutation.SetProvider(v)
+	return _u
+}
+
+// SetNillableProvider sets the "provider" field if the given value is not nil.
+func (_u *QARecordUpdate) SetNillableProvider(v *string) *QARecordUpdate {
+	if v != nil {
+		_u.SetProvider(*v)
+	}
+	return _u
+}
+
+// ClearProvider clears the value of the "provider" field.
+func (_u *QARecordUpdate) ClearProvider() *QARecordUpdate {
+	_u.mutation.ClearProvider()
+	return _u
+}
+
+// SetChannelType sets the "channel_type" field.
+func (_u *QARecordUpdate) SetChannelType(v int) *QARecordUpdate {
+	_u.mutation.ResetChannelType()
+	_u.mutation.SetChannelType(v)
+	return _u
+}
+
+// SetNillableChannelType sets the "channel_type" field if the given value is not nil.
+func (_u *QARecordUpdate) SetNillableChannelType(v *int) *QARecordUpdate {
+	if v != nil {
+		_u.SetChannelType(*v)
+	}
+	return _u
+}
+
+// AddChannelType adds value to the "channel_type" field.
+func (_u *QARecordUpdate) AddChannelType(v int) *QARecordUpdate {
+	_u.mutation.AddChannelType(v)
+	return _u
+}
+
+// ClearChannelType clears the value of the "channel_type" field.
+func (_u *QARecordUpdate) ClearChannelType() *QARecordUpdate {
+	_u.mutation.ClearChannelType()
 	return _u
 }
 
@@ -232,6 +306,20 @@ func (_u *QARecordUpdate) SetNillableStatusCode(v *int) *QARecordUpdate {
 // AddStatusCode adds value to the "status_code" field.
 func (_u *QARecordUpdate) AddStatusCode(v int) *QARecordUpdate {
 	_u.mutation.AddStatusCode(v)
+	return _u
+}
+
+// SetSuccess sets the "success" field.
+func (_u *QARecordUpdate) SetSuccess(v bool) *QARecordUpdate {
+	_u.mutation.SetSuccess(v)
+	return _u
+}
+
+// SetNillableSuccess sets the "success" field if the given value is not nil.
+func (_u *QARecordUpdate) SetNillableSuccess(v *bool) *QARecordUpdate {
+	if v != nil {
+		_u.SetSuccess(*v)
+	}
 	return _u
 }
 
@@ -436,6 +524,94 @@ func (_u *QARecordUpdate) ClearBlobURI() *QARecordUpdate {
 	return _u
 }
 
+// SetRequestBlobURI sets the "request_blob_uri" field.
+func (_u *QARecordUpdate) SetRequestBlobURI(v string) *QARecordUpdate {
+	_u.mutation.SetRequestBlobURI(v)
+	return _u
+}
+
+// SetNillableRequestBlobURI sets the "request_blob_uri" field if the given value is not nil.
+func (_u *QARecordUpdate) SetNillableRequestBlobURI(v *string) *QARecordUpdate {
+	if v != nil {
+		_u.SetRequestBlobURI(*v)
+	}
+	return _u
+}
+
+// ClearRequestBlobURI clears the value of the "request_blob_uri" field.
+func (_u *QARecordUpdate) ClearRequestBlobURI() *QARecordUpdate {
+	_u.mutation.ClearRequestBlobURI()
+	return _u
+}
+
+// SetResponseBlobURI sets the "response_blob_uri" field.
+func (_u *QARecordUpdate) SetResponseBlobURI(v string) *QARecordUpdate {
+	_u.mutation.SetResponseBlobURI(v)
+	return _u
+}
+
+// SetNillableResponseBlobURI sets the "response_blob_uri" field if the given value is not nil.
+func (_u *QARecordUpdate) SetNillableResponseBlobURI(v *string) *QARecordUpdate {
+	if v != nil {
+		_u.SetResponseBlobURI(*v)
+	}
+	return _u
+}
+
+// ClearResponseBlobURI clears the value of the "response_blob_uri" field.
+func (_u *QARecordUpdate) ClearResponseBlobURI() *QARecordUpdate {
+	_u.mutation.ClearResponseBlobURI()
+	return _u
+}
+
+// SetStreamBlobURI sets the "stream_blob_uri" field.
+func (_u *QARecordUpdate) SetStreamBlobURI(v string) *QARecordUpdate {
+	_u.mutation.SetStreamBlobURI(v)
+	return _u
+}
+
+// SetNillableStreamBlobURI sets the "stream_blob_uri" field if the given value is not nil.
+func (_u *QARecordUpdate) SetNillableStreamBlobURI(v *string) *QARecordUpdate {
+	if v != nil {
+		_u.SetStreamBlobURI(*v)
+	}
+	return _u
+}
+
+// ClearStreamBlobURI clears the value of the "stream_blob_uri" field.
+func (_u *QARecordUpdate) ClearStreamBlobURI() *QARecordUpdate {
+	_u.mutation.ClearStreamBlobURI()
+	return _u
+}
+
+// SetRedactionVersion sets the "redaction_version" field.
+func (_u *QARecordUpdate) SetRedactionVersion(v string) *QARecordUpdate {
+	_u.mutation.SetRedactionVersion(v)
+	return _u
+}
+
+// SetNillableRedactionVersion sets the "redaction_version" field if the given value is not nil.
+func (_u *QARecordUpdate) SetNillableRedactionVersion(v *string) *QARecordUpdate {
+	if v != nil {
+		_u.SetRedactionVersion(*v)
+	}
+	return _u
+}
+
+// SetCaptureStatus sets the "capture_status" field.
+func (_u *QARecordUpdate) SetCaptureStatus(v string) *QARecordUpdate {
+	_u.mutation.SetCaptureStatus(v)
+	return _u
+}
+
+// SetNillableCaptureStatus sets the "capture_status" field if the given value is not nil.
+func (_u *QARecordUpdate) SetNillableCaptureStatus(v *string) *QARecordUpdate {
+	if v != nil {
+		_u.SetCaptureStatus(*v)
+	}
+	return _u
+}
+
 // SetTags sets the "tags" field.
 func (_u *QARecordUpdate) SetTags(v []string) *QARecordUpdate {
 	_u.mutation.SetTags(v)
@@ -605,6 +781,15 @@ func (_u *QARecordUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.AddedUserID(); ok {
 		_spec.AddField(qarecord.FieldUserID, field.TypeInt64, value)
 	}
+	if value, ok := _u.mutation.GroupID(); ok {
+		_spec.SetField(qarecord.FieldGroupID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedGroupID(); ok {
+		_spec.AddField(qarecord.FieldGroupID, field.TypeInt64, value)
+	}
+	if _u.mutation.GroupIDCleared() {
+		_spec.ClearField(qarecord.FieldGroupID, field.TypeInt64)
+	}
 	if value, ok := _u.mutation.APIKeyID(); ok {
 		_spec.SetField(qarecord.FieldAPIKeyID, field.TypeInt64, value)
 	}
@@ -622,6 +807,21 @@ func (_u *QARecordUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.Platform(); ok {
 		_spec.SetField(qarecord.FieldPlatform, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.Provider(); ok {
+		_spec.SetField(qarecord.FieldProvider, field.TypeString, value)
+	}
+	if _u.mutation.ProviderCleared() {
+		_spec.ClearField(qarecord.FieldProvider, field.TypeString)
+	}
+	if value, ok := _u.mutation.ChannelType(); ok {
+		_spec.SetField(qarecord.FieldChannelType, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedChannelType(); ok {
+		_spec.AddField(qarecord.FieldChannelType, field.TypeInt, value)
+	}
+	if _u.mutation.ChannelTypeCleared() {
+		_spec.ClearField(qarecord.FieldChannelType, field.TypeInt)
 	}
 	if value, ok := _u.mutation.RequestedModel(); ok {
 		_spec.SetField(qarecord.FieldRequestedModel, field.TypeString, value)
@@ -646,6 +846,9 @@ func (_u *QARecordUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.AddedStatusCode(); ok {
 		_spec.AddField(qarecord.FieldStatusCode, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.Success(); ok {
+		_spec.SetField(qarecord.FieldSuccess, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.DurationMs(); ok {
 		_spec.SetField(qarecord.FieldDurationMs, field.TypeInt64, value)
@@ -700,6 +903,30 @@ func (_u *QARecordUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.BlobURICleared() {
 		_spec.ClearField(qarecord.FieldBlobURI, field.TypeString)
+	}
+	if value, ok := _u.mutation.RequestBlobURI(); ok {
+		_spec.SetField(qarecord.FieldRequestBlobURI, field.TypeString, value)
+	}
+	if _u.mutation.RequestBlobURICleared() {
+		_spec.ClearField(qarecord.FieldRequestBlobURI, field.TypeString)
+	}
+	if value, ok := _u.mutation.ResponseBlobURI(); ok {
+		_spec.SetField(qarecord.FieldResponseBlobURI, field.TypeString, value)
+	}
+	if _u.mutation.ResponseBlobURICleared() {
+		_spec.ClearField(qarecord.FieldResponseBlobURI, field.TypeString)
+	}
+	if value, ok := _u.mutation.StreamBlobURI(); ok {
+		_spec.SetField(qarecord.FieldStreamBlobURI, field.TypeString, value)
+	}
+	if _u.mutation.StreamBlobURICleared() {
+		_spec.ClearField(qarecord.FieldStreamBlobURI, field.TypeString)
+	}
+	if value, ok := _u.mutation.RedactionVersion(); ok {
+		_spec.SetField(qarecord.FieldRedactionVersion, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.CaptureStatus(); ok {
+		_spec.SetField(qarecord.FieldCaptureStatus, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.Tags(); ok {
 		_spec.SetField(qarecord.FieldTags, field.TypeJSON, value)
@@ -808,6 +1035,33 @@ func (_u *QARecordUpdateOne) AddUserID(v int64) *QARecordUpdateOne {
 	return _u
 }
 
+// SetGroupID sets the "group_id" field.
+func (_u *QARecordUpdateOne) SetGroupID(v int64) *QARecordUpdateOne {
+	_u.mutation.ResetGroupID()
+	_u.mutation.SetGroupID(v)
+	return _u
+}
+
+// SetNillableGroupID sets the "group_id" field if the given value is not nil.
+func (_u *QARecordUpdateOne) SetNillableGroupID(v *int64) *QARecordUpdateOne {
+	if v != nil {
+		_u.SetGroupID(*v)
+	}
+	return _u
+}
+
+// AddGroupID adds value to the "group_id" field.
+func (_u *QARecordUpdateOne) AddGroupID(v int64) *QARecordUpdateOne {
+	_u.mutation.AddGroupID(v)
+	return _u
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (_u *QARecordUpdateOne) ClearGroupID() *QARecordUpdateOne {
+	_u.mutation.ClearGroupID()
+	return _u
+}
+
 // SetAPIKeyID sets the "api_key_id" field.
 func (_u *QARecordUpdateOne) SetAPIKeyID(v int64) *QARecordUpdateOne {
 	_u.mutation.ResetAPIKeyID()
@@ -867,6 +1121,53 @@ func (_u *QARecordUpdateOne) SetNillablePlatform(v *string) *QARecordUpdateOne {
 	if v != nil {
 		_u.SetPlatform(*v)
 	}
+	return _u
+}
+
+// SetProvider sets the "provider" field.
+func (_u *QARecordUpdateOne) SetProvider(v string) *QARecordUpdateOne {
+	_u.mutation.SetProvider(v)
+	return _u
+}
+
+// SetNillableProvider sets the "provider" field if the given value is not nil.
+func (_u *QARecordUpdateOne) SetNillableProvider(v *string) *QARecordUpdateOne {
+	if v != nil {
+		_u.SetProvider(*v)
+	}
+	return _u
+}
+
+// ClearProvider clears the value of the "provider" field.
+func (_u *QARecordUpdateOne) ClearProvider() *QARecordUpdateOne {
+	_u.mutation.ClearProvider()
+	return _u
+}
+
+// SetChannelType sets the "channel_type" field.
+func (_u *QARecordUpdateOne) SetChannelType(v int) *QARecordUpdateOne {
+	_u.mutation.ResetChannelType()
+	_u.mutation.SetChannelType(v)
+	return _u
+}
+
+// SetNillableChannelType sets the "channel_type" field if the given value is not nil.
+func (_u *QARecordUpdateOne) SetNillableChannelType(v *int) *QARecordUpdateOne {
+	if v != nil {
+		_u.SetChannelType(*v)
+	}
+	return _u
+}
+
+// AddChannelType adds value to the "channel_type" field.
+func (_u *QARecordUpdateOne) AddChannelType(v int) *QARecordUpdateOne {
+	_u.mutation.AddChannelType(v)
+	return _u
+}
+
+// ClearChannelType clears the value of the "channel_type" field.
+func (_u *QARecordUpdateOne) ClearChannelType() *QARecordUpdateOne {
+	_u.mutation.ClearChannelType()
 	return _u
 }
 
@@ -956,6 +1257,20 @@ func (_u *QARecordUpdateOne) SetNillableStatusCode(v *int) *QARecordUpdateOne {
 // AddStatusCode adds value to the "status_code" field.
 func (_u *QARecordUpdateOne) AddStatusCode(v int) *QARecordUpdateOne {
 	_u.mutation.AddStatusCode(v)
+	return _u
+}
+
+// SetSuccess sets the "success" field.
+func (_u *QARecordUpdateOne) SetSuccess(v bool) *QARecordUpdateOne {
+	_u.mutation.SetSuccess(v)
+	return _u
+}
+
+// SetNillableSuccess sets the "success" field if the given value is not nil.
+func (_u *QARecordUpdateOne) SetNillableSuccess(v *bool) *QARecordUpdateOne {
+	if v != nil {
+		_u.SetSuccess(*v)
+	}
 	return _u
 }
 
@@ -1160,6 +1475,94 @@ func (_u *QARecordUpdateOne) ClearBlobURI() *QARecordUpdateOne {
 	return _u
 }
 
+// SetRequestBlobURI sets the "request_blob_uri" field.
+func (_u *QARecordUpdateOne) SetRequestBlobURI(v string) *QARecordUpdateOne {
+	_u.mutation.SetRequestBlobURI(v)
+	return _u
+}
+
+// SetNillableRequestBlobURI sets the "request_blob_uri" field if the given value is not nil.
+func (_u *QARecordUpdateOne) SetNillableRequestBlobURI(v *string) *QARecordUpdateOne {
+	if v != nil {
+		_u.SetRequestBlobURI(*v)
+	}
+	return _u
+}
+
+// ClearRequestBlobURI clears the value of the "request_blob_uri" field.
+func (_u *QARecordUpdateOne) ClearRequestBlobURI() *QARecordUpdateOne {
+	_u.mutation.ClearRequestBlobURI()
+	return _u
+}
+
+// SetResponseBlobURI sets the "response_blob_uri" field.
+func (_u *QARecordUpdateOne) SetResponseBlobURI(v string) *QARecordUpdateOne {
+	_u.mutation.SetResponseBlobURI(v)
+	return _u
+}
+
+// SetNillableResponseBlobURI sets the "response_blob_uri" field if the given value is not nil.
+func (_u *QARecordUpdateOne) SetNillableResponseBlobURI(v *string) *QARecordUpdateOne {
+	if v != nil {
+		_u.SetResponseBlobURI(*v)
+	}
+	return _u
+}
+
+// ClearResponseBlobURI clears the value of the "response_blob_uri" field.
+func (_u *QARecordUpdateOne) ClearResponseBlobURI() *QARecordUpdateOne {
+	_u.mutation.ClearResponseBlobURI()
+	return _u
+}
+
+// SetStreamBlobURI sets the "stream_blob_uri" field.
+func (_u *QARecordUpdateOne) SetStreamBlobURI(v string) *QARecordUpdateOne {
+	_u.mutation.SetStreamBlobURI(v)
+	return _u
+}
+
+// SetNillableStreamBlobURI sets the "stream_blob_uri" field if the given value is not nil.
+func (_u *QARecordUpdateOne) SetNillableStreamBlobURI(v *string) *QARecordUpdateOne {
+	if v != nil {
+		_u.SetStreamBlobURI(*v)
+	}
+	return _u
+}
+
+// ClearStreamBlobURI clears the value of the "stream_blob_uri" field.
+func (_u *QARecordUpdateOne) ClearStreamBlobURI() *QARecordUpdateOne {
+	_u.mutation.ClearStreamBlobURI()
+	return _u
+}
+
+// SetRedactionVersion sets the "redaction_version" field.
+func (_u *QARecordUpdateOne) SetRedactionVersion(v string) *QARecordUpdateOne {
+	_u.mutation.SetRedactionVersion(v)
+	return _u
+}
+
+// SetNillableRedactionVersion sets the "redaction_version" field if the given value is not nil.
+func (_u *QARecordUpdateOne) SetNillableRedactionVersion(v *string) *QARecordUpdateOne {
+	if v != nil {
+		_u.SetRedactionVersion(*v)
+	}
+	return _u
+}
+
+// SetCaptureStatus sets the "capture_status" field.
+func (_u *QARecordUpdateOne) SetCaptureStatus(v string) *QARecordUpdateOne {
+	_u.mutation.SetCaptureStatus(v)
+	return _u
+}
+
+// SetNillableCaptureStatus sets the "capture_status" field if the given value is not nil.
+func (_u *QARecordUpdateOne) SetNillableCaptureStatus(v *string) *QARecordUpdateOne {
+	if v != nil {
+		_u.SetCaptureStatus(*v)
+	}
+	return _u
+}
+
 // SetTags sets the "tags" field.
 func (_u *QARecordUpdateOne) SetTags(v []string) *QARecordUpdateOne {
 	_u.mutation.SetTags(v)
@@ -1359,6 +1762,15 @@ func (_u *QARecordUpdateOne) sqlSave(ctx context.Context) (_node *QARecord, err 
 	if value, ok := _u.mutation.AddedUserID(); ok {
 		_spec.AddField(qarecord.FieldUserID, field.TypeInt64, value)
 	}
+	if value, ok := _u.mutation.GroupID(); ok {
+		_spec.SetField(qarecord.FieldGroupID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedGroupID(); ok {
+		_spec.AddField(qarecord.FieldGroupID, field.TypeInt64, value)
+	}
+	if _u.mutation.GroupIDCleared() {
+		_spec.ClearField(qarecord.FieldGroupID, field.TypeInt64)
+	}
 	if value, ok := _u.mutation.APIKeyID(); ok {
 		_spec.SetField(qarecord.FieldAPIKeyID, field.TypeInt64, value)
 	}
@@ -1376,6 +1788,21 @@ func (_u *QARecordUpdateOne) sqlSave(ctx context.Context) (_node *QARecord, err 
 	}
 	if value, ok := _u.mutation.Platform(); ok {
 		_spec.SetField(qarecord.FieldPlatform, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.Provider(); ok {
+		_spec.SetField(qarecord.FieldProvider, field.TypeString, value)
+	}
+	if _u.mutation.ProviderCleared() {
+		_spec.ClearField(qarecord.FieldProvider, field.TypeString)
+	}
+	if value, ok := _u.mutation.ChannelType(); ok {
+		_spec.SetField(qarecord.FieldChannelType, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedChannelType(); ok {
+		_spec.AddField(qarecord.FieldChannelType, field.TypeInt, value)
+	}
+	if _u.mutation.ChannelTypeCleared() {
+		_spec.ClearField(qarecord.FieldChannelType, field.TypeInt)
 	}
 	if value, ok := _u.mutation.RequestedModel(); ok {
 		_spec.SetField(qarecord.FieldRequestedModel, field.TypeString, value)
@@ -1400,6 +1827,9 @@ func (_u *QARecordUpdateOne) sqlSave(ctx context.Context) (_node *QARecord, err 
 	}
 	if value, ok := _u.mutation.AddedStatusCode(); ok {
 		_spec.AddField(qarecord.FieldStatusCode, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.Success(); ok {
+		_spec.SetField(qarecord.FieldSuccess, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.DurationMs(); ok {
 		_spec.SetField(qarecord.FieldDurationMs, field.TypeInt64, value)
@@ -1454,6 +1884,30 @@ func (_u *QARecordUpdateOne) sqlSave(ctx context.Context) (_node *QARecord, err 
 	}
 	if _u.mutation.BlobURICleared() {
 		_spec.ClearField(qarecord.FieldBlobURI, field.TypeString)
+	}
+	if value, ok := _u.mutation.RequestBlobURI(); ok {
+		_spec.SetField(qarecord.FieldRequestBlobURI, field.TypeString, value)
+	}
+	if _u.mutation.RequestBlobURICleared() {
+		_spec.ClearField(qarecord.FieldRequestBlobURI, field.TypeString)
+	}
+	if value, ok := _u.mutation.ResponseBlobURI(); ok {
+		_spec.SetField(qarecord.FieldResponseBlobURI, field.TypeString, value)
+	}
+	if _u.mutation.ResponseBlobURICleared() {
+		_spec.ClearField(qarecord.FieldResponseBlobURI, field.TypeString)
+	}
+	if value, ok := _u.mutation.StreamBlobURI(); ok {
+		_spec.SetField(qarecord.FieldStreamBlobURI, field.TypeString, value)
+	}
+	if _u.mutation.StreamBlobURICleared() {
+		_spec.ClearField(qarecord.FieldStreamBlobURI, field.TypeString)
+	}
+	if value, ok := _u.mutation.RedactionVersion(); ok {
+		_spec.SetField(qarecord.FieldRedactionVersion, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.CaptureStatus(); ok {
+		_spec.SetField(qarecord.FieldCaptureStatus, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.Tags(); ok {
 		_spec.SetField(qarecord.FieldTags, field.TypeJSON, value)

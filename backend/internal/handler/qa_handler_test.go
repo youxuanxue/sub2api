@@ -37,12 +37,14 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
+	"github.com/klauspost/compress/zstd"
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
 
 type qaMemBlobStore struct{ objects map[string][]byte }
 
@@ -114,6 +116,8 @@ func newQAHandlerRouterWithStore(
 	}
 	r.POST("/api/v1/users/me/qa/export", h.ExportSelf)
 	r.GET("/api/v1/users/me/qa/exports/*key", h.DownloadSelfExport)
+	r.POST("/api/v1/users/me/qa/traj/export", h.ExportSelfTrajectory)
+	r.GET("/api/v1/users/me/qa/traj/exports/*key", h.DownloadSelfTrajectoryExport)
 	return r, h
 }
 
@@ -348,12 +352,136 @@ func TestUS033_ExportSelf_LocalFSDownloadURLIsHTTPReachable(t *testing.T) {
 	require.Equal(t, "m0-HTTP", row["synth_session_id"])
 }
 
+func TestUS077_ExportSelfTrajectory_BySynthSessionID_200(t *testing.T) {
+	r, client, _ := newQAHandlerTestEnv(t, true, 7)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	store := &qaMemBlobStore{objects: map[string][]byte{}}
+	blob := bytes.Buffer{}
+	enc, err := zstd.NewWriter(&blob)
+	require.NoError(t, err)
+	_, err = enc.Write([]byte(`{"request":{"path":"/v1/messages","body":{"messages":[{"role":"user","content":"hello"}],"tools":[{"name":"lookup_weather","input_schema":{"type":"object"}}]}},"response":{"status_code":200,"headers":{},"body":{"content":[{"type":"text","text":"done"}],"tool_calls":[{"id":"call_1","name":"lookup_weather","arguments":{"city":"Paris"}}]}},"stream":{"chunks":[]}}`))
+	require.NoError(t, err)
+	require.NoError(t, enc.Close())
+	store.objects["evidence/traj-handler.zst"] = blob.Bytes()
+
+	_, err = client.QARecord.Create().
+		SetRequestID("traj-handler").
+		SetUserID(7).
+		SetAPIKeyID(1).
+		SetPlatform("anthropic").
+		SetSynthSessionID("m0-TRAJ-H").
+		SetSynthRole("user-simulator").
+		SetDialogSynth(true).
+		SetBlobURI("mem://evidence/traj-handler.zst").
+		SetCreatedAt(now).
+		SetRetentionUntil(now.Add(7 * 24 * time.Hour)).
+		Save(ctx)
+	require.NoError(t, err)
+
+	r, _ = newQAHandlerRouterWithStore(7, true, client, store)
+	body := bytes.NewBufferString(`{"synth_session_id":"m0-TRAJ-H"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/qa/traj/export", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+	var env response.Response
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	dataMap, ok := env.Data.(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, float64(4), dataMap["record_count"])
+	require.Contains(t, dataMap, "download_url")
+}
+
+func TestUS077_ExportSelfTrajectory_LocalFSDownloadURLIsHTTPReachable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := sql.Open("sqlite", "file:qa_handler_traj_localfs_test?mode=memory&cache=shared")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	_, err = db.Exec("PRAGMA foreign_keys = ON")
+	require.NoError(t, err)
+	drv := entsql.OpenDB(dialect.SQLite, db)
+	client := enttest.NewClient(t, enttest.WithOptions(dbent.Driver(drv)))
+	t.Cleanup(func() { _ = client.Close() })
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	blob := bytes.Buffer{}
+	enc, err := zstd.NewWriter(&blob)
+	require.NoError(t, err)
+	_, err = enc.Write([]byte(`{"request":{"path":"/v1/messages","body":{"messages":[{"role":"user","content":"hello"}],"tools":[{"name":"lookup_weather","input_schema":{"type":"object"}}]}},"response":{"status_code":200,"headers":{},"body":{"content":[{"type":"text","text":"done"}],"tool_calls":[{"id":"call_1","name":"lookup_weather","arguments":{"city":"Paris"}}]}},"stream":{"chunks":[]}}`))
+	require.NoError(t, err)
+	require.NoError(t, enc.Close())
+
+	_, err = client.QARecord.Create().
+		SetRequestID("traj-localfs").
+		SetUserID(7).
+		SetAPIKeyID(1).
+		SetPlatform("anthropic").
+		SetSynthSessionID("m0-TRAJ-HTTP").
+		SetSynthRole("user-simulator").
+		SetDialogSynth(true).
+		SetBlobURI("mem://evidence/traj-localfs.zst").
+		SetCreatedAt(now).
+		SetRetentionUntil(now.Add(7 * 24 * time.Hour)).
+		Save(ctx)
+	require.NoError(t, err)
+
+	store := &qaLocalFSLikeBlobStore{qaMemBlobStore{objects: map[string][]byte{"evidence/traj-localfs.zst": blob.Bytes()}}}
+	r, _ := newQAHandlerRouterWithStore(7, true, client, store)
+
+	body := bytes.NewBufferString(`{"synth_session_id":"m0-TRAJ-HTTP"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/qa/traj/export", body)
+	req.Host = "api.tokenkey.test"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+	var env response.Response
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	dataMap := env.Data.(map[string]any)
+	downloadURL, ok := dataMap["download_url"].(string)
+	require.True(t, ok)
+	require.True(t, strings.HasPrefix(downloadURL, "https://api.tokenkey.test/api/v1/users/me/qa/traj/exports/"))
+	require.NotContains(t, downloadURL, "file://")
+
+	downloadPath := strings.TrimPrefix(downloadURL, "https://api.tokenkey.test")
+	downloadReq := httptest.NewRequest(http.MethodGet, downloadPath, nil)
+	downloadW := httptest.NewRecorder()
+	r.ServeHTTP(downloadW, downloadReq)
+
+	require.Equal(t, http.StatusOK, downloadW.Code, "body=%s", downloadW.Body.String())
+	zr, err := zip.NewReader(bytes.NewReader(downloadW.Body.Bytes()), int64(downloadW.Body.Len()))
+	require.NoError(t, err)
+	require.Len(t, zr.File, 1)
+	require.Equal(t, "trajectory.jsonl", zr.File[0].Name)
+}
+
 func TestUS033_DownloadSelfExport_RejectsCrossUserAndTraversalKeys(t *testing.T) {
 	r, _, _ := newQAHandlerTestEnv(t, true, 7)
 
 	for _, path := range []string{
 		"/api/v1/users/me/qa/exports/exports/8/123.zip",
 		"/api/v1/users/me/qa/exports/exports/7/../8/123.zip",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		require.Equal(t, http.StatusForbidden, w.Code, "path=%s body=%s", path, w.Body.String())
+	}
+}
+
+func TestUS077_DownloadSelfTrajectoryExport_RejectsCrossUserAndTraversalKeys(t *testing.T) {
+	r, _, _ := newQAHandlerTestEnv(t, true, 7)
+
+	for _, path := range []string{
+		"/api/v1/users/me/qa/traj/exports/traj-exports/8/123.zip",
+		"/api/v1/users/me/qa/traj/exports/traj-exports/7/../8/123.zip",
 	} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		w := httptest.NewRecorder()

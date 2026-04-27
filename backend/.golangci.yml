@@ -5,11 +5,16 @@ linters:
   enable:
     - depguard
     - errcheck
-    - gosec
     - govet
     - ineffassign
     - staticcheck
     - unused
+
+  exclusions:
+    generated: strict
+    paths:
+      - ent/.*
+      - cmd/server/wire_gen(_test)?\.go
 
   settings:
     depguard:
@@ -124,6 +129,11 @@ linters:
 formatters:
   enable:
     - gofmt
+  exclusions:
+    generated: strict
+    paths:
+      - ent/.*
+      - cmd/server/wire_gen(_test)?\.go
   settings:
     gofmt:
       # Simplify code: gofmt with `-s` option.

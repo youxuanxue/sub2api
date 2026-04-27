@@ -1,6 +1,10 @@
 package service
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/Wei-Shaw/sub2api/internal/domain"
+)
 
 func TestOpenAIShouldDispatchToNewAPIBridge(t *testing.T) {
 	svc := &OpenAIGatewayService{}
@@ -29,6 +33,7 @@ func TestOpenAIShouldDispatchToNewAPIBridge(t *testing.T) {
 			name: "positive channel type responses endpoint",
 			account: &Account{
 				ChannelType: 3,
+				Platform:    domain.PlatformOpenAI,
 			},
 			endpoint: BridgeEndpointResponses,
 			want:     true,
@@ -37,6 +42,7 @@ func TestOpenAIShouldDispatchToNewAPIBridge(t *testing.T) {
 			name: "positive channel type chat endpoint",
 			account: &Account{
 				ChannelType: 2,
+				Platform:    domain.PlatformOpenAI,
 			},
 			endpoint: BridgeEndpointChatCompletions,
 			want:     true,
@@ -45,6 +51,7 @@ func TestOpenAIShouldDispatchToNewAPIBridge(t *testing.T) {
 			name: "positive channel type unknown endpoint",
 			account: &Account{
 				ChannelType: 2,
+				Platform:    domain.PlatformOpenAI,
 			},
 			endpoint: "unknown",
 			want:     false,
@@ -71,7 +78,7 @@ func TestOpenAIShouldDispatchToNewAPIBridge_RespectsKillSwitch(t *testing.T) {
 			},
 		},
 	}
-	account := &Account{ChannelType: 3}
+	account := &Account{ChannelType: 3, Platform: domain.PlatformOpenAI}
 	if svc.ShouldDispatchToNewAPIBridge(account, BridgeEndpointChatCompletions) {
 		t.Fatalf("expected bridge dispatch disabled by setting")
 	}
