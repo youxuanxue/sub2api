@@ -107,7 +107,7 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription); err != nil {
 		reqLog.Info("openai_video_submit.billing_eligibility_check_failed", zap.Error(err))
-		status, code, message := billingErrorDetails(err)
+		status, code, message, _ := billingErrorDetails(err)
 		h.errorResponse(c, status, code, message)
 		return
 	}
@@ -124,6 +124,7 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 		reqModel,
 		map[int64]struct{}{},
 		service.OpenAIUpstreamTransportAny,
+		false,
 	)
 	if err != nil || selection == nil || selection.Account == nil {
 		reqLog.Warn("openai_video_submit.account_select_failed", zap.Error(err))

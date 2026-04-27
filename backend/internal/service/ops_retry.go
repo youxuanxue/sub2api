@@ -388,7 +388,7 @@ func (s *OpsService) executeRetry(ctx context.Context, errorLog *OpsErrorLogDeta
 func detectOpsRetryType(path string) opsRetryRequestType {
 	p := strings.ToLower(strings.TrimSpace(path))
 	switch {
-	case strings.Contains(p, "/responses"):
+	case strings.Contains(p, "/responses"), strings.Contains(p, "/images/"):
 		return opsRetryTypeOpenAI
 	// /v1/chat/completions 是 OpenAI-shape 请求体（包含 PlatformOpenAI 与
 	// PlatformNewAPI 两个池）。先前默认归到 Messages 类型，会用 Anthropic 解析

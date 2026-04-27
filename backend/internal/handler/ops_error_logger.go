@@ -1133,7 +1133,8 @@ func guessPlatformFromPath(path string) string {
 	case strings.Contains(p, "/responses"),
 		strings.Contains(p, "/chat/completions"),
 		strings.Contains(p, "/embeddings"),
-		strings.Contains(p, "/completions"):
+		strings.Contains(p, "/completions"),
+		strings.Contains(p, "/images/"):
 		return service.PlatformOpenAI
 	default:
 		return ""

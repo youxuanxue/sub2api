@@ -81,6 +81,8 @@ type Group struct {
 	MessagesDispatchModelConfig domain.OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config,omitempty"`
 	// Sticky routing strategy: auto | passthrough | off
 	StickyRoutingMode group.StickyRoutingMode `json:"sticky_routing_mode,omitempty"`
+	// 分组 RPM 上限，0 表示不限制；设置后接管该分组用户的限流
+	RpmLimit int `json:"rpm_limit,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the GroupQuery when eager-loading is set.
 	Edges        GroupEdges `json:"edges"`
@@ -193,7 +195,7 @@ func (*Group) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case group.FieldRateMultiplier, group.FieldDailyLimitUsd, group.FieldWeeklyLimitUsd, group.FieldMonthlyLimitUsd, group.FieldImagePrice1k, group.FieldImagePrice2k, group.FieldImagePrice4k:
 			values[i] = new(sql.NullFloat64)
-		case group.FieldID, group.FieldDefaultValidityDays, group.FieldFallbackGroupID, group.FieldFallbackGroupIDOnInvalidRequest, group.FieldSortOrder:
+		case group.FieldID, group.FieldDefaultValidityDays, group.FieldFallbackGroupID, group.FieldFallbackGroupIDOnInvalidRequest, group.FieldSortOrder, group.FieldRpmLimit:
 			values[i] = new(sql.NullInt64)
 		case group.FieldName, group.FieldDescription, group.FieldStatus, group.FieldPlatform, group.FieldSubscriptionType, group.FieldDefaultMappedModel, group.FieldStickyRoutingMode:
 			values[i] = new(sql.NullString)
@@ -422,6 +424,12 @@ func (_m *Group) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.StickyRoutingMode = group.StickyRoutingMode(value.String)
 			}
+		case group.FieldRpmLimit:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field rpm_limit", values[i])
+			} else if value.Valid {
+				_m.RpmLimit = int(value.Int64)
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -610,6 +618,9 @@ func (_m *Group) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("sticky_routing_mode=")
 	builder.WriteString(fmt.Sprintf("%v", _m.StickyRoutingMode))
+	builder.WriteString(", ")
+	builder.WriteString("rpm_limit=")
+	builder.WriteString(fmt.Sprintf("%v", _m.RpmLimit))
 	builder.WriteByte(')')
 	return builder.String()
 }
