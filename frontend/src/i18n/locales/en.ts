@@ -25,7 +25,15 @@ export default {
     },
     errorTitle: 'Failed to load pricing',
     errorHint: 'Please refresh the page or try again later.',
-    retry: 'Retry'
+    retry: 'Retry',
+    search: {
+      placeholder: 'Search by model name…',
+      modeLabel: 'Match mode',
+      modeFuzzy: 'Contains',
+      modeExact: 'Exact name',
+      resultCount: '{count} models',
+      noMatches: 'No models match your search. Try fuzzy mode or a shorter query.'
+    }
   },
 
   // Home Page

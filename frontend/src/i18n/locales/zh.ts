@@ -25,7 +25,15 @@ export default {
     },
     errorTitle: '加载价格失败',
     errorHint: '请刷新页面或稍后重试。',
-    retry: '重试'
+    retry: '重试',
+    search: {
+      placeholder: '按模型名称搜索…',
+      modeLabel: '匹配方式',
+      modeFuzzy: '模糊（包含）',
+      modeExact: '精准（全名）',
+      resultCount: '{count} 个模型',
+      noMatches: '没有匹配的模型。可切换到模糊搜索或缩短关键词。'
+    }
   },
 
   // Home Page

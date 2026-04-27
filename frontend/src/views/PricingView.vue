@@ -81,7 +81,55 @@
           class="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-dark-800 dark:bg-dark-900"
           data-tk="cold-start-pricing-table"
         >
-          <div class="overflow-x-auto">
+          <div
+            class="flex flex-col gap-3 border-b border-gray-100 bg-gray-50/80 px-4 py-3 dark:border-dark-800 dark:bg-dark-800/40 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <label class="sr-only" for="pricing-model-search">{{ t('pricing.search.placeholder') }}</label>
+            <div class="relative min-w-0 flex-1 sm:max-w-md">
+              <Icon
+                name="search"
+                size="sm"
+                class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-dark-500"
+              />
+              <input
+                id="pricing-model-search"
+                v-model="modelSearchQuery"
+                type="search"
+                autocomplete="off"
+                :placeholder="t('pricing.search.placeholder')"
+                class="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-dark-700 dark:bg-dark-900 dark:text-white dark:placeholder:text-dark-500"
+              />
+            </div>
+            <div class="flex shrink-0 flex-wrap items-center gap-4">
+              <fieldset class="flex items-center gap-3 text-xs">
+                <legend class="sr-only">{{ t('pricing.search.modeLabel') }}</legend>
+                <label class="inline-flex cursor-pointer items-center gap-1.5 text-gray-700 dark:text-dark-200">
+                  <input v-model="modelSearchMode" type="radio" value="fuzzy" class="text-primary-600" />
+                  {{ t('pricing.search.modeFuzzy') }}
+                </label>
+                <label class="inline-flex cursor-pointer items-center gap-1.5 text-gray-700 dark:text-dark-200">
+                  <input v-model="modelSearchMode" type="radio" value="exact" class="text-primary-600" />
+                  {{ t('pricing.search.modeExact') }}
+                </label>
+              </fieldset>
+              <span
+                v-if="modelSearchQuery.trim()"
+                class="text-xs tabular-nums text-gray-500 dark:text-dark-400"
+              >
+                {{ t('pricing.search.resultCount', { count: filteredCatalogRows.length }) }}
+              </span>
+            </div>
+          </div>
+          <div
+            v-if="filteredCatalogRows.length === 0 && modelSearchQuery.trim()"
+            class="border-t border-gray-100 px-4 py-12 text-center dark:border-dark-800"
+          >
+            <Icon name="inbox" size="xl" class="mx-auto text-gray-400 dark:text-dark-500" />
+            <p class="mt-3 text-sm font-medium text-gray-700 dark:text-dark-200">
+              {{ t('pricing.search.noMatches') }}
+            </p>
+          </div>
+          <div v-else class="overflow-x-auto">
             <table class="min-w-full divide-y divide-gray-200 dark:divide-dark-800">
               <thead class="bg-gray-50 dark:bg-dark-800/60">
                 <tr>
@@ -141,7 +189,7 @@
                 class="divide-y divide-gray-100 bg-white dark:divide-dark-800/60 dark:bg-dark-900"
               >
                 <tr
-                  v-for="model in catalog.data"
+                  v-for="model in filteredCatalogRows"
                   :key="model.model_id"
                   class="hover:bg-primary-50/30 dark:hover:bg-dark-800/40"
                 >
@@ -236,12 +284,27 @@ import { useI18n } from 'vue-i18n'
 import { getPublicPricing, type PublicCatalogResponse } from '@/api/pricing'
 import Icon from '@/components/icons/Icon.vue'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
+import {
+  filterPricingCatalogByModel,
+  type PricingCatalogSearchMode
+} from '@/utils/pricingCatalogSearch'
 
 const { t } = useI18n()
 
 const catalog = ref<PublicCatalogResponse | null>(null)
 const loading = ref(true)
 const errorMessage = ref('')
+const modelSearchQuery = ref('')
+const modelSearchMode = ref<PricingCatalogSearchMode>('fuzzy')
+
+const filteredCatalogRows = computed(() => {
+  if (!catalog.value) return []
+  return filterPricingCatalogByModel(
+    catalog.value.data,
+    modelSearchQuery.value,
+    modelSearchMode.value
+  )
+})
 
 const hasCacheColumns = computed(() => {
   if (!catalog.value) return false
