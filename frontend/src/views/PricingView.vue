@@ -35,6 +35,18 @@
           <p class="mx-auto mt-4 max-w-3xl text-sm text-gray-500 dark:text-dark-400">
             {{ t('pricing.description') }}
           </p>
+          <div
+            v-if="bonusCtaVisible"
+            class="mx-auto mt-8 flex max-w-lg flex-col items-center gap-3 rounded-2xl border border-primary-200/70 bg-primary-50/90 px-6 py-5 text-center shadow-sm dark:border-primary-900/40 dark:bg-primary-950/40"
+          >
+            <router-link
+              to="/register"
+              class="inline-flex items-center justify-center rounded-xl bg-primary-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600"
+            >
+              {{ t('pricing.ctaBonus', { amount: signupBonusFormatted }) }}
+            </router-link>
+            <p class="text-xs text-gray-600 dark:text-dark-400">{{ t('pricing.ctaBonusHint') }}</p>
+          </div>
         </div>
 
         <div
@@ -291,6 +303,8 @@ import { getPublicPricing, type PublicCatalogResponse } from '@/api/pricing'
 import Icon from '@/components/icons/Icon.vue'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import { useAuthStore } from '@/stores/auth'
+import { useAppStore } from '@/stores/app'
+import { formatCurrency } from '@/utils/format'
 import {
   filterPricingCatalogByModel,
   type PricingCatalogSearchMode
@@ -298,6 +312,20 @@ import {
 
 const { t } = useI18n()
 const authStore = useAuthStore()
+const appStore = useAppStore()
+
+const signupBonusFormatted = computed(() =>
+  formatCurrency(appStore.cachedPublicSettings?.signup_bonus_balance_usd ?? 0, 'USD')
+)
+
+const bonusCtaVisible = computed(() => {
+  const s = appStore.cachedPublicSettings
+  if (!s?.registration_enabled) return false
+  if (s.backend_mode_enabled) return false
+  if (!s.signup_bonus_enabled) return false
+  const amt = s.signup_bonus_balance_usd ?? 0
+  return amt > 0 && !authStore.isAuthenticated
+})
 
 /** Shared nav pill styles — single source to reduce churn vs upstream-style pages. */
 const NAV_LINK_CLASS =
@@ -382,5 +410,6 @@ async function loadCatalog(): Promise<void> {
 
 onMounted(() => {
   loadCatalog()
+  void appStore.fetchPublicSettings()
 })
 </script>

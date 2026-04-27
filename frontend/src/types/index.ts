@@ -120,6 +120,7 @@ export interface PublicSettings {
   home_content: string
   hide_ccs_import_button: boolean
   payment_enabled: boolean
+  backend_mode_enabled?: boolean
   table_default_page_size: number
   table_page_size_options: number[]
   custom_menu_items: CustomMenuItem[]
@@ -131,10 +132,10 @@ export interface PublicSettings {
   balance_low_notify_enabled: boolean
   account_quota_notify_enabled: boolean
   balance_low_notify_threshold: number
-  // TK cold-start: only the public toggle is exposed here so HomeView /
-  // PricingView can hide the entry without authenticating. Bonus / trial
-  // settings remain admin-only.
   pricing_catalog_public: boolean
+  /** TK cold-start: signup bonus preview for anonymous pages (USD). */
+  signup_bonus_enabled?: boolean
+  signup_bonus_balance_usd?: number
 }
 
 export interface AuthResponse {
