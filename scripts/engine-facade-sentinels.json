@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "rationale": "Snapshot of the Engine Spine facade contract. Key gateway dispatch paths must keep routing bridge eligibility through the shared engine facade so provider selection truth does not drift back into hotspot service files.",
+  "checks": [
+    {
+      "name": "gateway_bridge_dispatch_gate",
+      "source": "backend/internal/service/gateway_bridge_dispatch.go",
+      "required_literals": [
+        "func accountUsesNewAPIAdaptorBridge(settings *SettingService, account *Account, endpoint string) bool {",
+        "plan := engine.BuildDispatchPlan(engine.BridgeDispatchInput{",
+        "return plan.UsesNewAPIBridge()",
+        "func (s *GatewayService) ShouldDispatchToNewAPIBridge(account *Account, endpoint string) bool {",
+        "return accountUsesNewAPIAdaptorBridge(st, account, endpoint)"
+      ]
+    },
+    {
+      "name": "openai_gateway_bridge_dispatch_gate",
+      "source": "backend/internal/service/openai_gateway_bridge_dispatch.go",
+      "required_literals": [
+        "func (s *OpenAIGatewayService) ShouldDispatchToNewAPIBridge(account *Account, endpoint string) bool {",
+        "return accountUsesNewAPIAdaptorBridge(st, account, endpoint)",
+        "if !s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointChatCompletions) {",
+        "if !s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointResponses) {",
+        "if !s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointEmbeddings) {",
+        "if !s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointImages) {"
+      ]
+    },
+    {
+      "name": "openai_gateway_bridge_dispatch_video_gate",
+      "source": "backend/internal/service/openai_gateway_bridge_dispatch_tk_video.go",
+      "required_literals": [
+        "if !s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointVideoSubmit) {",
+        "if !engine.IsVideoSupportedChannelType(account.ChannelType) {",
+        "if !engine.IsVideoSupportedChannelType(in.ChannelType) {"
+      ]
+    },
+    {
+      "name": "openai_gateway_bridge_dispatch_anthropic_gate",
+      "source": "backend/internal/service/openai_gateway_bridge_dispatch_tk_anthropic.go",
+      "required_literals": [
+        "if !s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointChatCompletions) {",
+        "out, apiErr = bridge.DispatchChatCompletions(ctx, c, in, chatBody)"
+      ]
+    },
+    {
+      "name": "engine_facade_entrypoint",
+      "source": "backend/internal/engine/facade.go",
+      "required_literals": [
+        "func BuildDispatchPlan(in BridgeDispatchInput) DispatchPlan {",
+        "capability, ok := CapabilityForEndpoint(in.Endpoint)",
+        "if !capability.SupportsSchedulingPlatform(in.AccountPlatform) {",
+        "if capability.RequiresChannelType && in.ChannelType <= 0 {",
+        "if capability.RequiresTaskAdaptor && !IsVideoSupportedChannelType(in.ChannelType) {",
+        "return DispatchPlan{Provider: capability.Provider, Endpoint: in.Endpoint}"
+      ]
+    }
+  ]
+}

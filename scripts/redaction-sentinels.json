@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "rationale": "Snapshot of the default sensitive-key set plus the outward redaction version contract. If the sensitive-key set changes, bump redaction_version in the evidence-writing path and schema default in the same commit so existing QA records remain interpretable.",
+  "redaction_version": "logredact",
+  "keys_source": "backend/internal/util/logredact/redact.go",
+  "version_sources": [
+    "backend/internal/observability/qa/service.go",
+    "backend/ent/schema/qa_record.go"
+  ],
+  "sensitive_keys": [
+    "access_token",
+    "authorization_code",
+    "client_secret",
+    "code",
+    "code_verifier",
+    "id_token",
+    "password",
+    "refresh_token"
+  ]
+}
