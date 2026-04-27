@@ -5,7 +5,13 @@ export default {
     subtitle: '所有支持的模型，按调用量计费',
     description:
       '价格以美元 (USD) 计价，单位为每 1,000 tokens。Cache Read / Write 仅对单独计费缓存的模型生效；能力标签来自上游声明（视觉、工具调用等）。',
-    backHome: '返回首页',
+    nav: {
+      aria: '离开价格页',
+      home: '首页',
+      console: '控制台',
+      consoleTitleAuthed: '前往您的控制台',
+      consoleTitleGuest: '登录后进入控制台'
+    },
     columns: {
       model: '模型',
       vendor: '厂商',

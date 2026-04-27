@@ -5,7 +5,13 @@ export default {
     subtitle: 'Pay-as-you-go pricing for every supported model',
     description:
       'Prices are per 1,000 tokens, in USD. Cache Read / Write columns apply only to models that bill cached tokens separately. Capabilities reflect upstream-declared features (vision, tools, …).',
-    backHome: 'Back to home',
+    nav: {
+      aria: 'Leave pricing page',
+      home: 'Home',
+      console: 'Console',
+      consoleTitleAuthed: 'Go to your dashboard',
+      consoleTitleGuest: 'Sign in to open the console'
+    },
     columns: {
       model: 'Model',
       vendor: 'Vendor',

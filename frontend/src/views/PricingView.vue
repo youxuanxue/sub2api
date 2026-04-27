@@ -3,14 +3,35 @@
     class="relative flex min-h-screen flex-col bg-gradient-to-br from-gray-50 via-primary-50/30 to-gray-100 dark:from-dark-950 dark:via-dark-900 dark:to-dark-950"
   >
     <header class="relative z-20 px-6 py-4">
-      <nav class="mx-auto flex max-w-6xl items-center justify-between">
-        <router-link
-          to="/home"
-          class="flex items-center gap-2 text-gray-700 transition-colors hover:text-primary-600 dark:text-dark-300 dark:hover:text-primary-300"
-        >
-          <Icon name="arrowLeft" size="sm" />
-          <span class="text-sm font-medium">{{ t('pricing.backHome') }}</span>
-        </router-link>
+      <nav
+        class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4"
+        :aria-label="t('pricing.nav.aria')"
+      >
+        <div class="flex flex-wrap items-center gap-2">
+          <router-link
+            to="/home"
+            class="group inline-flex items-center gap-2 rounded-xl border border-gray-200/80 bg-white/90 px-3.5 py-2 text-sm font-medium text-gray-700 shadow-sm backdrop-blur transition-colors hover:border-primary-200 hover:bg-primary-50/80 hover:text-primary-800 dark:border-dark-700 dark:bg-dark-900/70 dark:text-dark-200 dark:hover:border-primary-700/60 dark:hover:bg-primary-950/40 dark:hover:text-primary-200"
+          >
+            <Icon
+              name="home"
+              size="sm"
+              class="text-gray-500 transition-colors group-hover:text-primary-600 dark:text-dark-400 dark:group-hover:text-primary-300"
+            />
+            <span>{{ t('pricing.nav.home') }}</span>
+          </router-link>
+          <router-link
+            :to="consolePath"
+            class="group inline-flex items-center gap-2 rounded-xl border border-gray-200/80 bg-white/90 px-3.5 py-2 text-sm font-medium text-gray-700 shadow-sm backdrop-blur transition-colors hover:border-primary-200 hover:bg-primary-50/80 hover:text-primary-800 dark:border-dark-700 dark:bg-dark-900/70 dark:text-dark-200 dark:hover:border-primary-700/60 dark:hover:bg-primary-950/40 dark:hover:text-primary-200"
+            :title="consoleLinkTitle"
+          >
+            <Icon
+              name="grid"
+              size="sm"
+              class="text-gray-500 transition-colors group-hover:text-primary-600 dark:text-dark-400 dark:group-hover:text-primary-300"
+            />
+            <span>{{ t('pricing.nav.console') }}</span>
+          </router-link>
+        </div>
         <LocaleSwitcher />
       </nav>
     </header>
@@ -284,12 +305,25 @@ import { useI18n } from 'vue-i18n'
 import { getPublicPricing, type PublicCatalogResponse } from '@/api/pricing'
 import Icon from '@/components/icons/Icon.vue'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
+import { useAuthStore } from '@/stores/auth'
 import {
   filterPricingCatalogByModel,
   type PricingCatalogSearchMode
 } from '@/utils/pricingCatalogSearch'
 
 const { t } = useI18n()
+const authStore = useAuthStore()
+
+const consolePath = computed(() => {
+  if (!authStore.isAuthenticated) {
+    return { path: '/login', query: { redirect: '/dashboard' } }
+  }
+  return authStore.isAdmin ? '/admin/dashboard' : '/dashboard'
+})
+
+const consoleLinkTitle = computed(() =>
+  authStore.isAuthenticated ? t('pricing.nav.consoleTitleAuthed') : t('pricing.nav.consoleTitleGuest')
+)
 
 const catalog = ref<PublicCatalogResponse | null>(null)
 const loading = ref(true)
