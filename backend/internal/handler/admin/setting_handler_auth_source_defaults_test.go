@@ -95,8 +95,12 @@ func (s *failingAuthSourceSettingsRepoStub) GetMultiple(ctx context.Context, key
 }
 
 func (s *failingAuthSourceSettingsRepoStub) SetMultiple(ctx context.Context, settings map[string]string) error {
-	if _, ok := settings[service.SettingKeyAuthSourceDefaultEmailBalance]; ok {
-		return s.err
+	// Simulate atomic SetMultiple: production merges system + auth-source updates into one map.
+	// If this batch touches auth-source defaults, fail before mutating anything.
+	for key := range settings {
+		if _, ok := authSourceDefaultSettingKeys[key]; ok {
+			return s.err
+		}
 	}
 	for key, value := range settings {
 		if s.values == nil {
@@ -105,6 +109,31 @@ func (s *failingAuthSourceSettingsRepoStub) SetMultiple(ctx context.Context, set
 		s.values[key] = value
 	}
 	return nil
+}
+
+// authSourceDefaultSettingKeys matches keys written by buildAuthSourceDefaultUpdates.
+var authSourceDefaultSettingKeys = map[string]struct{}{
+	service.SettingKeyAuthSourceDefaultEmailBalance:            {},
+	service.SettingKeyAuthSourceDefaultEmailConcurrency:        {},
+	service.SettingKeyAuthSourceDefaultEmailSubscriptions:      {},
+	service.SettingKeyAuthSourceDefaultEmailGrantOnSignup:      {},
+	service.SettingKeyAuthSourceDefaultEmailGrantOnFirstBind:   {},
+	service.SettingKeyAuthSourceDefaultLinuxDoBalance:          {},
+	service.SettingKeyAuthSourceDefaultLinuxDoConcurrency:      {},
+	service.SettingKeyAuthSourceDefaultLinuxDoSubscriptions:    {},
+	service.SettingKeyAuthSourceDefaultLinuxDoGrantOnSignup:    {},
+	service.SettingKeyAuthSourceDefaultLinuxDoGrantOnFirstBind: {},
+	service.SettingKeyAuthSourceDefaultOIDCBalance:             {},
+	service.SettingKeyAuthSourceDefaultOIDCConcurrency:         {},
+	service.SettingKeyAuthSourceDefaultOIDCSubscriptions:       {},
+	service.SettingKeyAuthSourceDefaultOIDCGrantOnSignup:       {},
+	service.SettingKeyAuthSourceDefaultOIDCGrantOnFirstBind:    {},
+	service.SettingKeyAuthSourceDefaultWeChatBalance:           {},
+	service.SettingKeyAuthSourceDefaultWeChatConcurrency:       {},
+	service.SettingKeyAuthSourceDefaultWeChatSubscriptions:     {},
+	service.SettingKeyAuthSourceDefaultWeChatGrantOnSignup:     {},
+	service.SettingKeyAuthSourceDefaultWeChatGrantOnFirstBind:  {},
+	service.SettingKeyForceEmailOnThirdPartySignup:             {},
 }
 
 func (s *failingAuthSourceSettingsRepoStub) GetAll(ctx context.Context) (map[string]string, error) {

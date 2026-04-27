@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/stretchr/testify/require"
@@ -14,7 +15,7 @@ import (
 // Minimal stub focused on MarkOnboardingTourSeen — every other method panics
 // so accidental usage from another path is caught loudly.
 type onboardingUserRepoStub struct {
-	calls    []int64
+	calls     []int64
 	returnErr error
 }
 
@@ -72,6 +73,30 @@ func (s *onboardingUserRepoStub) EnableTotp(context.Context, int64) error {
 }
 func (s *onboardingUserRepoStub) DisableTotp(context.Context, int64) error {
 	panic("unexpected DisableTotp")
+}
+func (s *onboardingUserRepoStub) GetUserAvatar(context.Context, int64) (*UserAvatar, error) {
+	panic("unexpected GetUserAvatar")
+}
+func (s *onboardingUserRepoStub) UpsertUserAvatar(context.Context, int64, UpsertUserAvatarInput) (*UserAvatar, error) {
+	panic("unexpected UpsertUserAvatar")
+}
+func (s *onboardingUserRepoStub) DeleteUserAvatar(context.Context, int64) error {
+	panic("unexpected DeleteUserAvatar")
+}
+func (s *onboardingUserRepoStub) GetLatestUsedAtByUserIDs(context.Context, []int64) (map[int64]*time.Time, error) {
+	panic("unexpected GetLatestUsedAtByUserIDs")
+}
+func (s *onboardingUserRepoStub) GetLatestUsedAtByUserID(context.Context, int64) (*time.Time, error) {
+	panic("unexpected GetLatestUsedAtByUserID")
+}
+func (s *onboardingUserRepoStub) UpdateUserLastActiveAt(context.Context, int64, time.Time) error {
+	panic("unexpected UpdateUserLastActiveAt")
+}
+func (s *onboardingUserRepoStub) ListUserAuthIdentities(context.Context, int64) ([]UserAuthIdentityRecord, error) {
+	panic("unexpected ListUserAuthIdentities")
+}
+func (s *onboardingUserRepoStub) UnbindUserAuthProvider(context.Context, int64, string) error {
+	panic("unexpected UnbindUserAuthProvider")
 }
 
 // US-031 AC-005 + service-layer wiring contract:

@@ -546,6 +546,8 @@ func TestAuthService_Register_UsesEmailAuthSourceDefaultsWhenGrantEnabled(t *tes
 	assigner := &defaultSubscriptionAssignerStub{}
 	service := newAuthService(repo, map[string]string{
 		SettingKeyRegistrationEnabled:                 "true",
+		SettingKeySignupBonusEnabled:                  "false",
+		SettingKeySignupBonusBalance:                  "0",
 		SettingKeyDefaultSubscriptions:                `[{"group_id":91,"validity_days":3}]`,
 		SettingKeyAuthSourceDefaultEmailBalance:       "12.5",
 		SettingKeyAuthSourceDefaultEmailConcurrency:   "7",
@@ -569,6 +571,8 @@ func TestAuthService_Register_GrantOnSignupFalseFallsBackToGlobalDefaults(t *tes
 	assigner := &defaultSubscriptionAssignerStub{}
 	service := newAuthService(repo, map[string]string{
 		SettingKeyRegistrationEnabled:                 "true",
+		SettingKeySignupBonusEnabled:                  "false",
+		SettingKeySignupBonusBalance:                  "0",
 		SettingKeyDefaultSubscriptions:                `[{"group_id":31,"validity_days":5}]`,
 		SettingKeyAuthSourceDefaultEmailBalance:       "99",
 		SettingKeyAuthSourceDefaultEmailConcurrency:   "88",
@@ -592,6 +596,8 @@ func TestAuthService_Register_GrantOnSignupMergesSourceOverridesWithGlobalDefaul
 	assigner := &defaultSubscriptionAssignerStub{}
 	service := newAuthService(repo, map[string]string{
 		SettingKeyRegistrationEnabled:                 "true",
+		SettingKeySignupBonusEnabled:                  "false",
+		SettingKeySignupBonusBalance:                  "0",
 		SettingKeyDefaultSubscriptions:                `[{"group_id":31,"validity_days":5}]`,
 		SettingKeyAuthSourceDefaultEmailBalance:       "9.5",
 		SettingKeyAuthSourceDefaultEmailConcurrency:   "5",
@@ -615,6 +621,8 @@ func TestAuthService_LoginOrRegisterOAuthWithTokenPair_UsesLinuxDoAuthSourceDefa
 	assigner := &defaultSubscriptionAssignerStub{}
 	service := newAuthService(repo, map[string]string{
 		SettingKeyRegistrationEnabled:                   "true",
+		SettingKeySignupBonusEnabled:                    "false",
+		SettingKeySignupBonusBalance:                    "0",
 		SettingKeyDefaultSubscriptions:                  `[{"group_id":81,"validity_days":1}]`,
 		SettingKeyAuthSourceDefaultLinuxDoBalance:       "21.75",
 		SettingKeyAuthSourceDefaultLinuxDoConcurrency:   "9",

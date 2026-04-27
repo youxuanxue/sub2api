@@ -16,7 +16,6 @@ import (
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
-	_ "modernc.org/sqlite"
 )
 
 func newAdminServiceAuthIdentityBindingTestClient(t *testing.T) *dbent.Client {

@@ -545,7 +545,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		// TK cold-start (US-028): default ON when row missing — matches
 		// setting_service_tk_cold_start.go ColdStartDefaults() so a fresh install
 		// still surfaces the public pricing entry on the landing page.
-		PricingCatalogPublic: !isFalseSettingValue(settings[SettingKeyPricingCatalogPublic]),
+		PricingCatalogPublic:                 !isFalseSettingValue(settings[SettingKeyPricingCatalogPublic]),
 		ChannelMonitorEnabled:                !isFalseSettingValue(settings[SettingKeyChannelMonitorEnabled]),
 		ChannelMonitorDefaultIntervalSeconds: parseChannelMonitorInterval(settings[SettingKeyChannelMonitorDefaultIntervalSeconds]),
 		AvailableChannelsEnabled:             settings[SettingKeyAvailableChannelsEnabled] == "true",
@@ -1276,42 +1276,8 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	s.tkAppendTokenKeyBridgeSettingUpdates(updates, settings)
 	s.tkAppendColdStartSettingUpdates(updates, settings)
 
-	err = s.settingRepo.SetMultiple(ctx, updates)
-	if err != nil {
-		return nil, err
-	}
-	// 先使 inflight singleflight 失效，再刷新缓存，缩小旧值覆盖新值的竞态窗口
-	versionBoundsSF.Forget("version_bounds")
-	versionBoundsCache.Store(&cachedVersionBounds{
-		min:       settings.MinClaudeCodeVersion,
-		max:       settings.MaxClaudeCodeVersion,
-		expiresAt: time.Now().Add(versionBoundsCacheTTL).UnixNano(),
-	})
-	backendModeSF.Forget("backend_mode")
-	backendModeCache.Store(&cachedBackendMode{
-		value:     settings.BackendModeEnabled,
-		expiresAt: time.Now().Add(backendModeCacheTTL).UnixNano(),
-	})
-	gatewayForwardingSF.Forget("gateway_forwarding")
-	gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
-		fingerprintUnification: settings.EnableFingerprintUnification,
-		metadataPassthrough:    settings.EnableMetadataPassthrough,
-		cchSigning:             settings.EnableCCHSigning,
-		expiresAt:              time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
-	})
-	stickyRoutingSF.Forget("sticky_routing_enabled")
-	stickyRoutingCache.Store(&stickyRoutingCacheEntry{
-		enabled:   settings.StickyRoutingEnabled,
-		expiresAt: time.Now().Add(stickyRoutingCacheTTL).UnixNano(),
-	})
-	openAIAdvancedSchedulerSettingSF.Forget(openAIAdvancedSchedulerSettingKey)
-	openAIAdvancedSchedulerSettingCache.Store(&cachedOpenAIAdvancedSchedulerSetting{
-		enabled:   settings.OpenAIAdvancedSchedulerEnabled,
-		expiresAt: time.Now().Add(openAIAdvancedSchedulerSettingCacheTTL).UnixNano(),
-	})
-	if s.onUpdate != nil {
-		s.onUpdate() // Invalidate cache after settings update
-	}
+	// Do not persist here: callers (UpdateSettings / UpdateSettingsWithAuthSourceDefaults)
+	// must perform a single SetMultiple so auth-source merges stay atomic with system keys.
 	return updates, nil
 }
 

@@ -615,7 +615,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		if req.GroupPlatform != "" && req.GroupPlatform != PlatformOpenAI {
 			return nil, 0, 0, 0, fmt.Errorf("no available accounts for platform %q", openAICompatErrorPlatformLabel(req.GroupPlatform))
 		}
-		return nil, 0, 0, 0, noAvailableOpenAISelectionError(req.RequestedModel, false)
+		return nil, 0, 0, 0, noAvailableOpenAISelectionError(req.RequestedModel, false, req.GroupPlatform)
 	}
 
 	// require_privacy_set: 获取分组信息
@@ -667,7 +667,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		if req.GroupPlatform != "" && req.GroupPlatform != PlatformOpenAI {
 			return nil, 0, 0, 0, fmt.Errorf("no available accounts for platform %q", openAICompatErrorPlatformLabel(req.GroupPlatform))
 		}
-		return nil, 0, 0, 0, noAvailableOpenAISelectionError(req.RequestedModel, false)
+		return nil, 0, 0, 0, noAvailableOpenAISelectionError(req.RequestedModel, false, req.GroupPlatform)
 	}
 
 	loadMap := map[int64]*AccountLoadInfo{}
@@ -848,7 +848,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		selectionOrder = buildSelectionOrder(candidates)
 	}
 	if len(selectionOrder) == 0 {
-		return nil, candidateCount, topK, loadSkew, noAvailableOpenAISelectionError(req.RequestedModel, req.RequireCompact && len(allCandidates) > 0)
+		return nil, candidateCount, topK, loadSkew, noAvailableOpenAISelectionError(req.RequestedModel, req.RequireCompact && len(allCandidates) > 0, req.GroupPlatform)
 	}
 
 	compactBlocked := false
@@ -918,7 +918,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		}, candidateCount, topK, loadSkew, nil
 	}
 
-	return nil, candidateCount, topK, loadSkew, noAvailableOpenAISelectionError(req.RequestedModel, compactBlocked)
+	return nil, candidateCount, topK, loadSkew, noAvailableOpenAISelectionError(req.RequestedModel, compactBlocked, req.GroupPlatform)
 }
 
 func (s *defaultOpenAIAccountScheduler) isAccountTransportCompatible(account *Account, requiredTransport OpenAIUpstreamTransport) bool {
@@ -1099,6 +1099,10 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	if scheduler == nil {
 		decision.Layer = openAIAccountScheduleLayerLoadBalance
 		if requiredTransport == OpenAIUpstreamTransportAny || requiredTransport == OpenAIUpstreamTransportHTTPSSE {
+			if requiredImageCapability == "" {
+				selection, err := s.selectAccountWithLoadAwareness(ctx, groupID, sessionHash, requestedModel, excludedIDs, requireCompact)
+				return selection, decision, err
+			}
 			effectiveExcludedIDs := cloneExcludedAccountIDs(excludedIDs)
 			for {
 				selection, err := s.selectAccountWithLoadAwareness(ctx, groupID, sessionHash, requestedModel, effectiveExcludedIDs, requireCompact)

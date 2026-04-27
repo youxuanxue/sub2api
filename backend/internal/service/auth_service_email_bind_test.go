@@ -21,7 +21,6 @@ import (
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
-	_ "modernc.org/sqlite"
 )
 
 type emailBindDefaultSubAssignerStub struct {
@@ -810,8 +809,8 @@ func (s *emailBindUserRepoStub) UpdateUserLastActiveAt(context.Context, int64, t
 }
 
 func (s *emailBindUserRepoStub) UpdateBalance(context.Context, int64, float64) error { return nil }
-func (s *emailBindUserRepoStub) DeductBalance(context.Context, int64, float64) error  { return nil }
-func (s *emailBindUserRepoStub) UpdateConcurrency(context.Context, int64, int) error   { return nil }
+func (s *emailBindUserRepoStub) DeductBalance(context.Context, int64, float64) error { return nil }
+func (s *emailBindUserRepoStub) UpdateConcurrency(context.Context, int64, int) error { return nil }
 
 func (s *emailBindUserRepoStub) ExistsByEmail(_ context.Context, email string) (bool, error) {
 	s.mu.Lock()
@@ -843,6 +842,8 @@ func (s *emailBindUserRepoStub) UnbindUserAuthProvider(context.Context, int64, s
 func (s *emailBindUserRepoStub) UpdateTotpSecret(context.Context, int64, *string) error { return nil }
 func (s *emailBindUserRepoStub) EnableTotp(context.Context, int64) error                { return nil }
 func (s *emailBindUserRepoStub) DisableTotp(context.Context, int64) error               { return nil }
+
+func (s *emailBindUserRepoStub) MarkOnboardingTourSeen(context.Context, int64) error { return nil }
 
 func cloneEmailBindUser(user *service.User) *service.User {
 	if user == nil {

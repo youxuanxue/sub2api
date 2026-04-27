@@ -131,6 +131,8 @@ func (s *emailSyncRepoStub) EnableTotp(context.Context, int64) error { return ni
 
 func (s *emailSyncRepoStub) DisableTotp(context.Context, int64) error { return nil }
 
+func (s *emailSyncRepoStub) MarkOnboardingTourSeen(context.Context, int64) error { return nil }
+
 func (s *emailSyncRepoStub) EnsureEmailAuthIdentity(_ context.Context, userID int64, email string) error {
 	s.ensureCalls = append(s.ensureCalls, ensureEmailCall{userID: userID, email: email})
 	return s.ensureErr

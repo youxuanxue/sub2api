@@ -456,12 +456,14 @@ func TestStreamingCachedTokensUseAnthropicInputSemantics(t *testing.T) {
 		},
 	}, state)
 
-	require.Len(t, events, 2)
-	assert.Equal(t, "message_delta", events[0].Type)
-	assert.Equal(t, 3318, events[0].Usage.InputTokens)
-	assert.Equal(t, 50688, events[0].Usage.CacheReadInputTokens)
-	assert.Equal(t, 123, events[0].Usage.OutputTokens)
-	assert.Equal(t, "message_stop", events[1].Type)
+	require.Len(t, events, 4)
+	assert.Equal(t, "content_block_start", events[0].Type)
+	assert.Equal(t, "content_block_stop", events[1].Type)
+	assert.Equal(t, "message_delta", events[2].Type)
+	assert.Equal(t, 3318, events[2].Usage.InputTokens)
+	assert.Equal(t, 50688, events[2].Usage.CacheReadInputTokens)
+	assert.Equal(t, 123, events[2].Usage.OutputTokens)
+	assert.Equal(t, "message_stop", events[3].Type)
 }
 
 func TestStreamingToolCall(t *testing.T) {

@@ -40,7 +40,7 @@ func newEitherAuthTestEnv(
 	cfg.JWT.AccessTokenExpireMinutes = 60
 
 	userRepo := &stubJWTUserRepo{users: users}
-	authSvc := service.NewAuthService(nil, userRepo, nil, nil, cfg, nil, nil, nil, nil, nil, nil)
+	authSvc := service.NewAuthService(nil, userRepo, nil, nil, cfg, nil, nil, nil, nil, nil, nil, nil)
 	userSvc := service.NewUserService(userRepo, nil, nil, nil)
 	jwtMW := NewJWTAuthMiddleware(authSvc, userSvc)
 

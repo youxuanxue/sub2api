@@ -17,6 +17,9 @@ type openAISnapshotCacheStub struct {
 	SchedulerCache
 	snapshotAccounts []*Account
 	accountsByID     map[int64]*Account
+	// When non-empty, GetSnapshot only returns accounts matching this platform
+	// (mirrors real scheduler buckets). Leave empty for legacy mixed-pool tests.
+	filterPlatform string
 }
 
 type schedulerTestOpenAIAccountRepo struct {
@@ -222,6 +225,12 @@ func (s *openAISnapshotCacheStub) GetSnapshot(ctx context.Context, bucket Schedu
 	out := make([]*Account, 0, len(s.snapshotAccounts))
 	for _, account := range s.snapshotAccounts {
 		if account == nil {
+			continue
+		}
+		if s.filterPlatform != "" && account.Platform != s.filterPlatform {
+			continue
+		}
+		if bucket.Platform != "" && account.Platform != bucket.Platform {
 			continue
 		}
 		cloned := *account

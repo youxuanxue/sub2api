@@ -35,6 +35,8 @@ func newSchedFixtureWithChannel(
 	channel Channel,
 ) (*OpenAIGatewayService, *defaultOpenAIAccountScheduler) {
 	t.Helper()
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+
 	svc, sched := newAPISchedFixture(t, groupID, groupPlatform, pool)
 	svc.channelService = newTestChannelService(
 		makeStandardRepo(channel, map[int64]string{groupID: groupPlatform}),
@@ -63,7 +65,7 @@ func TestP01_Scheduler_ChannelPricingRestriction_Blocks(t *testing.T) {
 	}
 	svc, _ := newSchedFixtureWithChannel(t, groupID, PlatformNewAPI, pool, channel)
 
-	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "gpt-restricted", nil, OpenAIUpstreamTransportAny)
+	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "gpt-restricted", nil, OpenAIUpstreamTransportAny, false)
 	require.Error(t, err, "P0-1: scheduler must block requests for models outside channel pricing whitelist")
 	require.True(t, selection == nil || selection.Account == nil, "no account may be selected when model is restricted")
 	require.Contains(t, strings.ToLower(err.Error()), "channel pricing restriction",
@@ -88,7 +90,7 @@ func TestP01_Scheduler_ChannelPricingRestriction_AllowsListedModel(t *testing.T)
 	}
 	svc, _ := newSchedFixtureWithChannel(t, groupID, PlatformNewAPI, pool, channel)
 
-	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "gpt-5.4", nil, OpenAIUpstreamTransportAny)
+	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "gpt-5.4", nil, OpenAIUpstreamTransportAny, false)
 	require.NoError(t, err, "whitelisted model must be allowed through the new restriction gate")
 	require.NotNil(t, selection)
 	require.NotNil(t, selection.Account)
@@ -104,7 +106,7 @@ func TestP01_Scheduler_NoChannelService_NoRegression(t *testing.T) {
 	svc, _ := newAPISchedFixture(t, groupID, PlatformNewAPI, pool)
 	require.Nil(t, svc.channelService, "fixture sanity: channelService must be nil here")
 
-	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "any-model", nil, OpenAIUpstreamTransportAny)
+	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "any-model", nil, OpenAIUpstreamTransportAny, false)
 	require.NoError(t, err)
 	require.NotNil(t, selection)
 	require.NotNil(t, selection.Account)
@@ -122,7 +124,7 @@ func TestP12_Scheduler_EmptyPool_ErrorIsPlatformAware(t *testing.T) {
 	pool := []*Account{openAIAccount(91401, 0)}
 	svc, _ := newAPISchedFixture(t, groupID, PlatformNewAPI, pool)
 
-	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "", nil, OpenAIUpstreamTransportAny)
+	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "", nil, OpenAIUpstreamTransportAny, false)
 	require.Error(t, err)
 	require.True(t, selection == nil || selection.Account == nil)
 	msg := strings.ToLower(err.Error())
@@ -134,7 +136,7 @@ func TestP12_Scheduler_EmptyPool_ErrorIsPlatformAware(t *testing.T) {
 	poolOA := []*Account{newAPIAccount(91501, 7)}
 	svcOA, _ := newAPISchedFixture(t, groupIDOA, PlatformOpenAI, poolOA)
 
-	_, _, errOA := svcOA.SelectAccountWithScheduler(ctx, &groupIDOA, "", "", "", nil, OpenAIUpstreamTransportAny)
+	_, _, errOA := svcOA.SelectAccountWithScheduler(ctx, &groupIDOA, "", "", "", nil, OpenAIUpstreamTransportAny, false)
 	require.Error(t, errOA)
 	require.Contains(t, strings.ToLower(errOA.Error()), "openai",
 		"P1-2: empty openai pool error must still mention 'openai' (got %q)", errOA.Error())

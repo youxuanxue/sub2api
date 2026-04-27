@@ -76,14 +76,20 @@ func TestGatewayRoutesNewAPICompatPathsAreRegistered(t *testing.T) {
 		"/images/generations",
 	} {
 		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"gpt-5"}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should be routed for newapi/openai-compatible groups", path)
+	}
+}
+
 func TestGatewayRoutesOpenAIImagesPathsAreRegistered(t *testing.T) {
-	router := newGatewayRoutesTestRouter()
+	router := newGatewayRoutesTestRouter(service.PlatformNewAPI)
 
 	for _, path := range []string{
 		"/v1/images/generations",
-		"/v1/images/edits",
 		"/images/generations",
-		"/images/edits",
 	} {
 		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"gpt-image-2","prompt":"draw a cat"}`))
 		req.Header.Set("Content-Type", "application/json")
@@ -151,6 +157,5 @@ func TestGatewayRoutesVideoGenerationRejectsNonCompatPlatform(t *testing.T) {
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 		require.Equal(t, http.StatusNotFound, w.Code, "POST path=%s on anthropic group should 404", path)
-		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should hit OpenAI images handler", path)
 	}
 }

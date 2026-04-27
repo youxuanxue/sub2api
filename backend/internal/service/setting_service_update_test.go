@@ -225,7 +225,6 @@ func TestSettingService_UpdateSettings_TablePreferences(t *testing.T) {
 }
 
 func TestSettingService_UpdateSettings_TokenKeyBridge(t *testing.T) {
-func TestSettingService_UpdateSettings_PaymentVisibleMethodsAndAdvancedScheduler(t *testing.T) {
 	repo := &settingUpdateRepoStub{}
 	svc := NewSettingService(repo, &config.Config{})
 
@@ -236,14 +235,11 @@ func TestSettingService_UpdateSettings_PaymentVisibleMethodsAndAdvancedScheduler
 	require.Equal(t, "false", repo.updates[SettingKeyNewAPIBridgeEnabled])
 }
 
-func TestSettingService_ParseSettings_TokenKeyBridge(t *testing.T) {
-	svc := NewSettingService(&settingUpdateRepoStub{}, &config.Config{})
+func TestSettingService_UpdateSettings_PaymentVisibleMethodsAndAdvancedScheduler(t *testing.T) {
+	repo := &settingUpdateRepoStub{}
+	svc := NewSettingService(repo, &config.Config{})
 
-	got := svc.parseSettings(map[string]string{
-		SettingKeyNewAPIBridgeEnabled: "false",
-	})
-
-	require.False(t, got.NewAPIBridgeEnabled)
+	err := svc.UpdateSettings(context.Background(), &SystemSettings{
 		PaymentVisibleMethodAlipaySource:  "alipay",
 		PaymentVisibleMethodWxpaySource:   "easypay",
 		PaymentVisibleMethodAlipayEnabled: true,
@@ -256,6 +252,16 @@ func TestSettingService_ParseSettings_TokenKeyBridge(t *testing.T) {
 	require.Equal(t, "true", repo.updates[SettingPaymentVisibleMethodAlipayEnabled])
 	require.Equal(t, "false", repo.updates[SettingPaymentVisibleMethodWxpayEnabled])
 	require.Equal(t, "true", repo.updates[openAIAdvancedSchedulerSettingKey])
+}
+
+func TestSettingService_ParseSettings_TokenKeyBridge(t *testing.T) {
+	svc := NewSettingService(&settingUpdateRepoStub{}, &config.Config{})
+
+	got := svc.parseSettings(map[string]string{
+		SettingKeyNewAPIBridgeEnabled: "false",
+	})
+
+	require.False(t, got.NewAPIBridgeEnabled)
 }
 
 func TestSettingService_UpdateSettings_RejectsInvalidPaymentVisibleMethodSource(t *testing.T) {

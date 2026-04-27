@@ -1049,7 +1049,8 @@ func (a *Account) GetOpenAISessionID() string {
 }
 
 func (a *Account) SupportsOpenAIImageCapability(capability OpenAIImagesCapability) bool {
-	if !a.IsOpenAI() {
+	// newapi 走 OpenAI 协议与同一套 image 能力；与 IsOpenAICompatPoolMember 一致
+	if !a.IsOpenAI() && a.Platform != PlatformNewAPI {
 		return false
 	}
 	switch capability {

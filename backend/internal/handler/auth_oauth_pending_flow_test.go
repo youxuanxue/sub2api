@@ -27,7 +27,6 @@ import (
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
-	_ "modernc.org/sqlite"
 )
 
 func TestApplySuggestedProfileToCompletionResponse(t *testing.T) {
@@ -2889,25 +2888,25 @@ func oauthPendingFlowServiceUser(entity *dbent.User) *service.User {
 		return nil
 	}
 	return &service.User{
-		ID:                  entity.ID,
+		ID:                   entity.ID,
 		OnboardingTourSeenAt: entity.OnboardingTourSeenAt,
-		Email:               entity.Email,
-		Username:            entity.Username,
-		Notes:               entity.Notes,
-		PasswordHash:        entity.PasswordHash,
-		Role:                entity.Role,
-		Balance:             entity.Balance,
-		Concurrency:         entity.Concurrency,
-		Status:              entity.Status,
-		SignupSource:        entity.SignupSource,
-		LastLoginAt:         entity.LastLoginAt,
-		LastActiveAt:        entity.LastActiveAt,
-		TotpSecretEncrypted: entity.TotpSecretEncrypted,
-		TotpEnabled:         entity.TotpEnabled,
-		TotpEnabledAt:       entity.TotpEnabledAt,
-		TotalRecharged:      entity.TotalRecharged,
-		CreatedAt:           entity.CreatedAt,
-		UpdatedAt:           entity.UpdatedAt,
+		Email:                entity.Email,
+		Username:             entity.Username,
+		Notes:                entity.Notes,
+		PasswordHash:         entity.PasswordHash,
+		Role:                 entity.Role,
+		Balance:              entity.Balance,
+		Concurrency:          entity.Concurrency,
+		Status:               entity.Status,
+		SignupSource:         entity.SignupSource,
+		LastLoginAt:          entity.LastLoginAt,
+		LastActiveAt:         entity.LastActiveAt,
+		TotpSecretEncrypted:  entity.TotpSecretEncrypted,
+		TotpEnabled:          entity.TotpEnabled,
+		TotpEnabledAt:        entity.TotpEnabledAt,
+		TotalRecharged:       entity.TotalRecharged,
+		CreatedAt:            entity.CreatedAt,
+		UpdatedAt:            entity.UpdatedAt,
 	}
 }
 

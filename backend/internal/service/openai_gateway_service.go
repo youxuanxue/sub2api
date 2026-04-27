@@ -1246,14 +1246,19 @@ func (s *OpenAIGatewayService) SelectAccountForModelWithExclusions(ctx context.C
 
 // noAvailableOpenAISelectionError builds the standard "no account available" error
 // while preserving the compact-specific error when applicable.
-func noAvailableOpenAISelectionError(requestedModel string, compactBlocked bool) error {
+func noAvailableOpenAISelectionError(requestedModel string, compactBlocked bool, groupPlatform string) error {
 	if compactBlocked {
 		return ErrNoAvailableCompactAccounts
 	}
-	if requestedModel != "" {
-		return fmt.Errorf("no available OpenAI accounts supporting model: %s", requestedModel)
+	p := openAICompatErrorPlatformLabel(groupPlatform)
+	display := p
+	if p == "" || p == PlatformOpenAI {
+		display = "OpenAI"
 	}
-	return errors.New("no available OpenAI accounts")
+	if requestedModel != "" {
+		return fmt.Errorf("no available %s accounts supporting model: %s", display, requestedModel)
+	}
+	return fmt.Errorf("no available %s accounts", display)
 }
 
 // openAICompactSupportTier classifies an OpenAI account by compact capability.
@@ -1365,7 +1370,7 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 	selected, compactBlocked := s.selectBestAccount(ctx, groupID, accounts, requestedModel, excludedIDs, groupPlatform, requireCompact)
 
 	if selected == nil {
-		return nil, noAvailableOpenAISelectionError(requestedModel, compactBlocked)
+		return nil, noAvailableOpenAISelectionError(requestedModel, compactBlocked, groupPlatform)
 	}
 
 	// 4. 设置粘性会话绑定
@@ -1479,6 +1484,11 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 
 		fresh := s.resolveFreshOpenAICompatAccount(ctx, acc, requestedModel, groupPlatform, requireCompact)
 		if fresh == nil {
+			if requireCompact {
+				if alt := s.resolveFreshOpenAICompatAccount(ctx, acc, requestedModel, groupPlatform, false); alt != nil && openAICompactSupportTier(alt) == 0 {
+					compactBlocked = true
+				}
+			}
 			continue
 		}
 		fresh = s.recheckOpenAICompatAccountFromDB(ctx, fresh, requestedModel, groupPlatform, requireCompact)
