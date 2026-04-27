@@ -3,14 +3,20 @@
     class="relative flex min-h-screen flex-col bg-gradient-to-br from-gray-50 via-primary-50/30 to-gray-100 dark:from-dark-950 dark:via-dark-900 dark:to-dark-950"
   >
     <header class="relative z-20 px-6 py-4">
-      <nav class="mx-auto flex max-w-6xl items-center justify-between">
-        <router-link
-          to="/home"
-          class="flex items-center gap-2 text-gray-700 transition-colors hover:text-primary-600 dark:text-dark-300 dark:hover:text-primary-300"
-        >
-          <Icon name="arrowLeft" size="sm" />
-          <span class="text-sm font-medium">{{ t('pricing.backHome') }}</span>
-        </router-link>
+      <nav
+        class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4"
+        :aria-label="t('pricing.nav.aria')"
+      >
+        <div class="flex flex-wrap items-center gap-2">
+          <router-link to="/home" :class="NAV_LINK_CLASS">
+            <Icon name="home" size="sm" :class="NAV_ICON_CLASS" />
+            <span>{{ t('pricing.nav.home') }}</span>
+          </router-link>
+          <router-link :to="consolePath" :class="NAV_LINK_CLASS" :title="consoleLinkTitle">
+            <Icon name="grid" size="sm" :class="NAV_ICON_CLASS" />
+            <span>{{ t('pricing.nav.console') }}</span>
+          </router-link>
+        </div>
         <LocaleSwitcher />
       </nav>
     </header>
@@ -81,7 +87,55 @@
           class="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-dark-800 dark:bg-dark-900"
           data-tk="cold-start-pricing-table"
         >
-          <div class="overflow-x-auto">
+          <div
+            class="flex flex-col gap-3 border-b border-gray-100 bg-gray-50/80 px-4 py-3 dark:border-dark-800 dark:bg-dark-800/40 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <label class="sr-only" for="pricing-model-search">{{ t('pricing.search.placeholder') }}</label>
+            <div class="relative min-w-0 flex-1 sm:max-w-md">
+              <Icon
+                name="search"
+                size="sm"
+                class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-dark-500"
+              />
+              <input
+                id="pricing-model-search"
+                v-model="modelSearchQuery"
+                type="search"
+                autocomplete="off"
+                :placeholder="t('pricing.search.placeholder')"
+                class="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-dark-700 dark:bg-dark-900 dark:text-white dark:placeholder:text-dark-500"
+              />
+            </div>
+            <div class="flex shrink-0 flex-wrap items-center gap-4">
+              <fieldset class="flex items-center gap-3 text-xs">
+                <legend class="sr-only">{{ t('pricing.search.modeLabel') }}</legend>
+                <label class="inline-flex cursor-pointer items-center gap-1.5 text-gray-700 dark:text-dark-200">
+                  <input v-model="modelSearchMode" type="radio" value="fuzzy" class="text-primary-600" />
+                  {{ t('pricing.search.modeFuzzy') }}
+                </label>
+                <label class="inline-flex cursor-pointer items-center gap-1.5 text-gray-700 dark:text-dark-200">
+                  <input v-model="modelSearchMode" type="radio" value="exact" class="text-primary-600" />
+                  {{ t('pricing.search.modeExact') }}
+                </label>
+              </fieldset>
+              <span
+                v-if="modelSearchQuery.trim()"
+                class="text-xs tabular-nums text-gray-500 dark:text-dark-400"
+              >
+                {{ t('pricing.search.resultCount', { count: filteredCatalogRows.length }) }}
+              </span>
+            </div>
+          </div>
+          <div
+            v-if="filteredCatalogRows.length === 0 && modelSearchQuery.trim()"
+            class="border-t border-gray-100 px-4 py-12 text-center dark:border-dark-800"
+          >
+            <Icon name="inbox" size="xl" class="mx-auto text-gray-400 dark:text-dark-500" />
+            <p class="mt-3 text-sm font-medium text-gray-700 dark:text-dark-200">
+              {{ t('pricing.search.noMatches') }}
+            </p>
+          </div>
+          <div v-else class="overflow-x-auto">
             <table class="min-w-full divide-y divide-gray-200 dark:divide-dark-800">
               <thead class="bg-gray-50 dark:bg-dark-800/60">
                 <tr>
@@ -141,7 +195,7 @@
                 class="divide-y divide-gray-100 bg-white dark:divide-dark-800/60 dark:bg-dark-900"
               >
                 <tr
-                  v-for="model in catalog.data"
+                  v-for="model in filteredCatalogRows"
                   :key="model.model_id"
                   class="hover:bg-primary-50/30 dark:hover:bg-dark-800/40"
                 >
@@ -236,12 +290,46 @@ import { useI18n } from 'vue-i18n'
 import { getPublicPricing, type PublicCatalogResponse } from '@/api/pricing'
 import Icon from '@/components/icons/Icon.vue'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
+import { useAuthStore } from '@/stores/auth'
+import {
+  filterPricingCatalogByModel,
+  type PricingCatalogSearchMode
+} from '@/utils/pricingCatalogSearch'
 
 const { t } = useI18n()
+const authStore = useAuthStore()
+
+/** Shared nav pill styles — single source to reduce churn vs upstream-style pages. */
+const NAV_LINK_CLASS =
+  'group inline-flex items-center gap-2 rounded-xl border border-gray-200/80 bg-white/90 px-3.5 py-2 text-sm font-medium text-gray-700 shadow-sm backdrop-blur transition-colors hover:border-primary-200 hover:bg-primary-50/80 hover:text-primary-800 dark:border-dark-700 dark:bg-dark-900/70 dark:text-dark-200 dark:hover:border-primary-700/60 dark:hover:bg-primary-950/40 dark:hover:text-primary-200'
+const NAV_ICON_CLASS =
+  'text-gray-500 transition-colors group-hover:text-primary-600 dark:text-dark-400 dark:group-hover:text-primary-300'
+
+const consolePath = computed(() => {
+  if (!authStore.isAuthenticated) {
+    return { path: '/login', query: { redirect: '/dashboard' } }
+  }
+  return authStore.isAdmin ? '/admin/dashboard' : '/dashboard'
+})
+
+const consoleLinkTitle = computed(() =>
+  authStore.isAuthenticated ? t('pricing.nav.consoleTitleAuthed') : t('pricing.nav.consoleTitleGuest')
+)
 
 const catalog = ref<PublicCatalogResponse | null>(null)
 const loading = ref(true)
 const errorMessage = ref('')
+const modelSearchQuery = ref('')
+const modelSearchMode = ref<PricingCatalogSearchMode>('fuzzy')
+
+const filteredCatalogRows = computed(() => {
+  if (!catalog.value) return []
+  return filterPricingCatalogByModel(
+    catalog.value.data,
+    modelSearchQuery.value,
+    modelSearchMode.value
+  )
+})
 
 const hasCacheColumns = computed(() => {
   if (!catalog.value) return false

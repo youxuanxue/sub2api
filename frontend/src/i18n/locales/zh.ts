@@ -5,7 +5,13 @@ export default {
     subtitle: '所有支持的模型，按调用量计费',
     description:
       '价格以美元 (USD) 计价，单位为每 1,000 tokens。Cache Read / Write 仅对单独计费缓存的模型生效；能力标签来自上游声明（视觉、工具调用等）。',
-    backHome: '返回首页',
+    nav: {
+      aria: '离开价格页',
+      home: '首页',
+      console: '控制台',
+      consoleTitleAuthed: '前往您的控制台',
+      consoleTitleGuest: '登录后进入控制台'
+    },
     columns: {
       model: '模型',
       vendor: '厂商',
@@ -25,7 +31,15 @@ export default {
     },
     errorTitle: '加载价格失败',
     errorHint: '请刷新页面或稍后重试。',
-    retry: '重试'
+    retry: '重试',
+    search: {
+      placeholder: '按模型名称搜索…',
+      modeLabel: '匹配方式',
+      modeFuzzy: '模糊（包含）',
+      modeExact: '精准（全名）',
+      resultCount: '{count} 个模型',
+      noMatches: '没有匹配的模型。可切换到模糊搜索或缩短关键词。'
+    }
   },
 
   // Home Page

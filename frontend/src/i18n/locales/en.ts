@@ -5,7 +5,13 @@ export default {
     subtitle: 'Pay-as-you-go pricing for every supported model',
     description:
       'Prices are per 1,000 tokens, in USD. Cache Read / Write columns apply only to models that bill cached tokens separately. Capabilities reflect upstream-declared features (vision, tools, …).',
-    backHome: 'Back to home',
+    nav: {
+      aria: 'Leave pricing page',
+      home: 'Home',
+      console: 'Console',
+      consoleTitleAuthed: 'Go to your dashboard',
+      consoleTitleGuest: 'Sign in to open the console'
+    },
     columns: {
       model: 'Model',
       vendor: 'Vendor',
@@ -25,7 +31,15 @@ export default {
     },
     errorTitle: 'Failed to load pricing',
     errorHint: 'Please refresh the page or try again later.',
-    retry: 'Retry'
+    retry: 'Retry',
+    search: {
+      placeholder: 'Search by model name…',
+      modeLabel: 'Match mode',
+      modeFuzzy: 'Contains',
+      modeExact: 'Exact name',
+      resultCount: '{count} models',
+      noMatches: 'No models match your search. Try fuzzy mode or a shorter query.'
+    }
   },
 
   // Home Page
