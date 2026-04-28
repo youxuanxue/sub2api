@@ -1,10 +1,15 @@
 <template>
   <div
-    class="relative flex min-h-screen flex-col bg-gradient-to-br from-gray-50 via-primary-50/30 to-gray-100 dark:from-dark-950 dark:via-dark-900 dark:to-dark-950"
+    class="relative flex flex-col bg-gradient-to-br from-gray-50 via-primary-50/30 to-gray-100 dark:from-dark-950 dark:via-dark-900 dark:to-dark-950"
+    :class="
+      pricingCatalogScrollMode
+        ? 'h-[100dvh] max-h-[100dvh] overflow-hidden'
+        : 'min-h-screen'
+    "
   >
     <main
-      class="relative z-10 flex flex-1 flex-col px-4 pb-16 pt-8 sm:px-6"
-      :class="pricingCatalogScrollMode ? 'min-h-0 overflow-hidden' : ''"
+      class="relative z-10 flex min-h-0 flex-1 flex-col px-4 pt-8 sm:px-6"
+      :class="pricingCatalogScrollMode ? 'overflow-hidden pb-4' : 'pb-16'"
     >
       <!-- Sticky chrome: nav + hero (when catalog table is shown, only tbody scrolls) -->
       <div class="mx-auto w-full max-w-[90rem] shrink-0 pb-4">
@@ -160,7 +165,7 @@
           </div>
           <div v-else class="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div
-              class="min-h-0 flex-1 overflow-x-auto overflow-y-auto [-webkit-overflow-scrolling:touch]"
+              class="min-h-0 flex-1 overflow-x-auto overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]"
             >
               <table class="min-w-[72rem] w-full border-collapse divide-y divide-gray-200 dark:divide-dark-800">
                 <thead class="bg-gray-50 dark:bg-dark-800/60">
