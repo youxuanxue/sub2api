@@ -97,13 +97,17 @@ func ProjectRecords(sources []SourceRecord) ([]ExportRow, ExportSummary, error) 
 		}
 		requestBody := normalizeProjectionValue(source.Blob.Request.Body)
 		responseBody := normalizeProjectionValue(source.Blob.Response.Body)
+		trajectoryID := strings.TrimSpace(derefString(source.Record.TrajectoryID))
+		if trajectoryID == "" {
+			trajectoryID = sessionID
+		}
 		base := ExportRow{
 			SessionID:    sessionID,
 			TurnIndex:    turnIndex,
 			Model:        model,
 			Timestamp:    source.Record.CreatedAt.UTC(),
 			RequestID:    strings.TrimSpace(source.Record.RequestID),
-			TrajectoryID: strings.TrimSpace(derefString(source.Record.TrajectoryID)),
+			TrajectoryID: trajectoryID,
 		}
 
 		rows = append(rows, exportRowWith(base, "user", "request", ExportRow{

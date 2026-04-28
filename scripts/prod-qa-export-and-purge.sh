@@ -119,6 +119,7 @@ if [[ -n "$QA_RECORDS_SHA256" ]]; then
     exit 1
   fi
 fi
+# blob_uri ↔ local qa_blobs validation already ran in fetch-prod-qa-dump.sh (manifest includes counts)
 if [[ -n "$TARBALL_SHA256" && -f "$OUT_DIR/$TARBALL" ]]; then
   ACTUAL_TARBALL_SHA256="$(sha256_file "$OUT_DIR/$TARBALL")"
   if [[ "$ACTUAL_TARBALL_SHA256" != "$TARBALL_SHA256" ]]; then

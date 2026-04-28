@@ -92,6 +92,7 @@ def validate_rows(lines: list[str]) -> tuple[list[dict[str, Any]], list[str]]:
 
         session_id = str(row.get("session_id", "")).strip()
         request_id = str(row.get("request_id", "")).strip()
+        trajectory_id = str(row.get("trajectory_id", "")).strip()
         role = str(row.get("role", "")).strip()
         message_kind = str(row.get("message_kind", "")).strip()
         turn_index = normalize_int(row.get("turn_index"))
@@ -100,6 +101,8 @@ def validate_rows(lines: list[str]) -> tuple[list[dict[str, Any]], list[str]]:
             failures.append(f"session assembly check: line {index} missing non-empty session_id")
         if not request_id:
             failures.append(f"session assembly check: line {index} missing non-empty request_id")
+        if not trajectory_id:
+            failures.append(f"session assembly check: line {index} missing non-empty trajectory_id")
         if turn_index is None or turn_index < 1:
             failures.append(f"session assembly check: line {index} has invalid turn_index={row.get('turn_index')!r}")
         if role not in VALID_ROLES:
@@ -188,6 +191,12 @@ def analyze_rows(rows: list[dict[str, Any]]) -> tuple[dict[str, Any], list[str]]
         if "" in request_ids or len(request_ids) != 1:
             failures.append(
                 f"session assembly check: session {session_id!r} turn {turn_index} must contain a single stable request_id"
+            )
+
+        trajectory_ids = {str(row.get("trajectory_id", "")).strip() for row in turn_rows}
+        if "" in trajectory_ids or len(trajectory_ids) != 1:
+            failures.append(
+                f"session assembly check: session {session_id!r} turn {turn_index} must contain a single stable trajectory_id"
             )
 
         call_rows = [row for row in turn_rows if row.get("message_kind") == "tool_call"]
