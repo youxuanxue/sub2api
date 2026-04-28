@@ -18,6 +18,7 @@ alwaysApply: true
 - 默认一个 PR 只承载一个用户意图，不按阶段机械拆 PR
 - 默认直接做生产级实现，不先做“为了走流程而存在”的原型 PR
 - 默认用最少的文档承载必要判断，不把 PR、comment、文档写成四份重复说明
+- 行为变更必须有与风险匹配的意图载体：低风险靠任务说明与测试即可；常规风险只有在 PR summary 说不清时才补最小 spec delta；高风险进入 `docs/approved/` 审批基线
 
 只有命中**高风险变更**时，才升级到原型 + 审批路径。
 
@@ -62,6 +63,21 @@ alwaysApply: true
 - PR 评论看起来很长
 
 如果对风险等级拿不准，默认按**常规风险**处理，并先补一个最小澄清问题；只有明确命中高风险条件，或存在安全/数据损失级不确定性时，才升级为高风险。
+
+### 常规风险意图载体
+
+常规风险不默认写文档。只有当行为变化复杂到 PR summary 无法说清，或 reviewer 需要先理解 intent 再看 code 时，才使用最小 spec delta。
+
+建议位置：`docs/spec-delta-<slug>.md`。
+
+内容只保留四块：
+
+1. Background：为什么改
+2. Delta：ADDED / MODIFIED / REMOVED 的行为变化
+3. Scenarios：核心正向、核心负向或关键回归场景
+4. Validation：测试命令、运行结果或 evidence
+
+spec delta 是意图载体，不是审批基线；若命中高风险条件，必须升级到 `docs/approved/`。
 
 ## 高风险路径（例外，而非默认）
 
