@@ -57,6 +57,7 @@ else
   warn "pnpm not on PATH — install Node.js+pnpm in the cloud agent image, then re-run"
 fi
 
+
 # TokenKey-opinionated Claude Code settings. The dev-rules template already
 # wrote a minimal ~/.claude/settings.json with ANTHROPIC_BASE_URL +
 # ANTHROPIC_AUTH_TOKEN. Layer on the project's preferred runtime knobs
@@ -103,6 +104,10 @@ fi
 
 echo "[project-hook] running consistency checks (non-blocking)"
 bash scripts/preflight.sh || warn "preflight failed; see logs above"
-make test || warn "make test failed; investigate before merge"
+# Full `make test` runs golangci-lint via backend/Makefile; cloud images often lack
+# a Go toolchain new enough to build/run golangci-lint against go 1.26 in go.mod.
+# Sanity-check unit + frontend tests only here (lint stays in CI / local dev).
+echo "[project-hook] backend unit tests + frontend checks (skipping golangci-lint)"
+(make -C backend test-unit && make test-frontend) || warn "sanity tests failed; investigate before merge"
 
 echo "[project-hook] complete"

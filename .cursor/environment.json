@@ -1,4 +1,5 @@
 {
   "install": "bash .cursor/cloud-agent-install.sh",
+  "update": "bash .cursor/cloud-agent-update.sh",
   "terminals": []
 }
