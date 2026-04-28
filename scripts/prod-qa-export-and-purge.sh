@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Export prod qa_records + qa_blobs to local (same as fetch-prod-qa-dump.sh), verify,
-# then purge PostgreSQL qa_records and local blob/export files on the EC2 host, and
-# remove the S3 staging object — so EBS + S3 do not retain QA payload after a good pull.
+# Export prod qa_records + qa_blobs to local (same as fetch-prod-qa-dump.sh), verify
+# manifest counts/checksums, then purge PostgreSQL qa_records and local blob/export files
+# on the EC2 host, and remove the S3 staging object — so EBS + S3 do not retain QA
+# payload after a good pull.
 #
 # Online impact (intentionally limited):
 # - TRUNCATE qa_records briefly locks that table; capture traffic may block for a moment.
@@ -49,6 +50,18 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 err() { echo "[prod-qa-export-and-purge] error: $*" >&2; }
 log() { echo "[prod-qa-export-and-purge] $*"; }
+sha256_file() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+    return
+  fi
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+    return
+  fi
+  err "shasum or sha256sum missing"
+  exit 1
+}
 
 DRY_RUN=0
 if [[ "${1:-}" == "--dry-run" ]]; then
@@ -95,8 +108,24 @@ S3_KEY="$(jq -r .s3_key "$MANIFEST")"
 BUCKET="$(jq -r .bucket "$MANIFEST")"
 INSTANCE_ID="$(jq -r .instance_id "$MANIFEST")"
 TARBALL="$(jq -r .tarball "$MANIFEST")"
+TARBALL_SHA256="$(jq -r '.tarball_sha256 // empty' "$MANIFEST")"
+QA_RECORDS_SHA256="$(jq -r '.qa_records_sha256 // empty' "$MANIFEST")"
 
 log "local verify: qa_records_lines=$LINES local_qa_blob_files=$BLOBS"
+if [[ -n "$QA_RECORDS_SHA256" ]]; then
+  ACTUAL_QA_RECORDS_SHA256="$(sha256_file "$OUT_DIR/metadata/qa_records.jsonl")"
+  if [[ "$ACTUAL_QA_RECORDS_SHA256" != "$QA_RECORDS_SHA256" ]]; then
+    err "refusing purge: qa_records.jsonl checksum mismatch"
+    exit 1
+  fi
+fi
+if [[ -n "$TARBALL_SHA256" && -f "$OUT_DIR/$TARBALL" ]]; then
+  ACTUAL_TARBALL_SHA256="$(sha256_file "$OUT_DIR/$TARBALL")"
+  if [[ "$ACTUAL_TARBALL_SHA256" != "$TARBALL_SHA256" ]]; then
+    err "refusing purge: local tarball checksum mismatch"
+    exit 1
+  fi
+fi
 if [[ "$LINES" -lt 1 && "${ALLOW_PURGE_EMPTY_QA_EXPORT:-0}" != "1" ]]; then
   err "refusing purge: qa_records_lines=$LINES (set ALLOW_PURGE_EMPTY_QA_EXPORT=1 to override)"
   exit 1

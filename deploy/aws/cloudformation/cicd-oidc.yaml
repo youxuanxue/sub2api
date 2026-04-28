@@ -94,7 +94,7 @@ Resources:
       Description: >-
         Assumed by repo workflows via GitHub OIDC to dispatch SSM Run-Command
         on the prod (and now optionally test) EC2 instance. Originally scoped
-        to error-clustering only — name retained for back-compat with
+        to error-clustering only - name retained for back-compat with
         vars.AWS_OIDC_ROLE_ARN consumers; current consumers include
         error-clustering-daily.yml, prod-log-dump.yml, and deploy-stage0.yml.
       MaxSessionDuration: 3600
