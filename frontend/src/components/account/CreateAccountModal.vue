@@ -168,6 +168,34 @@
         </div>
       </div>
 
+      <!--
+        Extension Engine (5th platform): keep channel type + credentials directly under
+        the platform row so operators see them without scrolling past long sections for
+        other platforms (Gemini OAuth tiers, Antigravity, etc.).
+      -->
+      <div v-if="form.platform === 'newapi'" class="space-y-4">
+        <AccountNewApiPlatformFields
+          v-model:channelType="newapiChannelType"
+          v-model:baseUrl="newapiBaseUrl"
+          v-model:apiKey="newapiApiKey"
+          v-model:modelMapping="newapiModelMapping"
+          v-model:statusCodeMapping="newapiStatusCodeMapping"
+          v-model:openaiOrganization="newapiOpenAIOrganization"
+          v-model:allowedModels="newapiAllowedModels"
+          v-model:modelMappings="newapiModelMappings"
+          v-model:restrictionMode="newapiRestrictionMode"
+          :channel-type-options="newapiChannelTypeOptions"
+          :channel-types-loading="newapiChannelTypesLoading"
+          :channel-types-error="newapiChannelTypesError"
+          :selected-channel-type-base-url="newapiSelectedBaseUrl"
+          :fetch-models-enabled="newapiFetchModelsEnabled"
+          :fetch-models-disabled="newapiFetchModelsDisabled"
+          :fetch-models-loading="newapiFetchModelsLoading"
+          variant="create"
+          @fetch-models="newapiHandleFetchUpstreamModels"
+        />
+      </div>
+
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
@@ -719,34 +747,6 @@
             </div>
           </button>
         </div>
-      </div>
-
-      <!--
-        New API (5th platform) account fields. US-017 prototype scope.
-        AccountNewApiPlatformFields was already shipped with the design but never
-        wired in until now; component handles channel-type catalog + base_url + api_key.
-      -->
-      <div v-if="form.platform === 'newapi'" class="space-y-4">
-        <AccountNewApiPlatformFields
-          v-model:channelType="newapiChannelType"
-          v-model:baseUrl="newapiBaseUrl"
-          v-model:apiKey="newapiApiKey"
-          v-model:modelMapping="newapiModelMapping"
-          v-model:statusCodeMapping="newapiStatusCodeMapping"
-          v-model:openaiOrganization="newapiOpenAIOrganization"
-          v-model:allowedModels="newapiAllowedModels"
-          v-model:modelMappings="newapiModelMappings"
-          v-model:restrictionMode="newapiRestrictionMode"
-          :channel-type-options="newapiChannelTypeOptions"
-          :channel-types-loading="newapiChannelTypesLoading"
-          :channel-types-error="newapiChannelTypesError"
-          :selected-channel-type-base-url="newapiSelectedBaseUrl"
-          :fetch-models-enabled="newapiFetchModelsEnabled"
-          :fetch-models-disabled="newapiFetchModelsDisabled"
-          :fetch-models-loading="newapiFetchModelsLoading"
-          variant="create"
-          @fetch-models="newapiHandleFetchUpstreamModels"
-        />
       </div>
 
       <!-- Upstream config (only for Antigravity upstream type) -->

@@ -157,6 +157,9 @@ describe('CreateAccountModal — NewAPI (5th platform)', () => {
     await nextTick()
     await nextTick()
 
+    // Channel type selector must be present immediately (placed directly under the platform row).
+    expect(wrapper.html()).toContain('admin.accounts.newApiPlatform.channelType')
+
     // The NewAPI fields block must render the structured model selector
     // (D4) — proves D1 succeeded (accountCategory was flipped → form.type='apikey'
     // → the structured selector inside AccountNewApiPlatformFields shows up
