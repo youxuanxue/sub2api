@@ -14,9 +14,15 @@ permissions:
 
 jobs:
   cla-check:
+    # Upstream merge PRs (`merge/upstream-*`) aggregate hundreds of third-party
+    # commits from Wei-Shaw/sub2api; CLA Assistant cannot mechanically verify
+    # every upstream author. Those PRs are gated by `upstream-merge-pr-shape.yml`
+    # instead; skip CLA here to avoid a permanently red check.
     if: |
       github.event_name == 'issue_comment' ||
-      (github.event_name == 'pull_request_target' && github.event.action != 'closed')
+      (github.event_name == 'pull_request_target' &&
+       github.event.action != 'closed' &&
+       !startsWith(github.head_ref, 'merge/upstream-'))
     runs-on: ubuntu-latest
     steps:
       - name: "CLA Assistant"
