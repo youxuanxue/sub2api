@@ -130,7 +130,7 @@ func (dlqOnlyBlobStore) Put(_ context.Context, _ string, _ []byte, _ string) (st
 	return "", errors.New("primary store unavailable")
 }
 func (dlqOnlyBlobStore) Get(_ context.Context, _ string) ([]byte, error) { return nil, io.EOF }
-func (dlqOnlyBlobStore) Delete(_ context.Context, _ string) error       { return nil }
+func (dlqOnlyBlobStore) Delete(_ context.Context, _ string) error        { return nil }
 func (dlqOnlyBlobStore) PresignURL(_ context.Context, _ string, _ time.Duration) (string, error) {
 	return "", nil
 }
@@ -537,7 +537,7 @@ func TestUS077_ExportUserTrajectoryData_ProjectsSessionTurnAndTools(t *testing.T
 		},
 		"response": map[string]any{
 			"status_code": 200,
-			"headers": map[string]any{},
+			"headers":     map[string]any{},
 			"body": map[string]any{
 				"content": []any{map[string]any{"type": "text", "text": "done"}},
 				"tool_calls": []any{
@@ -754,14 +754,14 @@ func TestUS077_DownloadUserTrajectoryExport_OwnedKeyOnly(t *testing.T) {
 	require.True(t, errors.Is(err, fs.ErrNotExist))
 }
 
-func TestUS077_ExportUserTrajectoryData_UnknownSession_EmptyNotError(t *testing.T) {
+func TestUS077_ExportUserTrajectoryData_UnknownSession_EmptyFails(t *testing.T) {
 	svc, _, _ := newQAExportTestService(t)
 	ctx := context.Background()
 
 	res, err := svc.ExportUserTrajectoryData(ctx, 7, ExportFilter{SynthSessionID: "m0-NEVER"})
-	require.NoError(t, err)
-	require.Equal(t, 0, res.RecordCount)
-	require.NotEmpty(t, res.DownloadURL)
+	require.Error(t, err)
+	require.Nil(t, res)
+	require.Contains(t, err.Error(), "trajectory export has no rows")
 }
 
 func TestUS033_DownloadUserExport_OwnedKeyOnly(t *testing.T) {

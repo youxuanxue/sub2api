@@ -38,6 +38,8 @@ PRESIGN_TTL="${PRESIGN_TTL_SEC:-7200}"
 WAIT_MAX="${AWS_SSM_WAIT_MAX:-900}"
 RM_LOCAL_TAR="${RM_LOCAL_TAR_AFTER_EXTRACT:-0}"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 err() { echo "[fetch-prod-qa-dump] error: $*" >&2; }
 log() { echo "[fetch-prod-qa-dump] $*"; }
 sha256_file() {
@@ -179,6 +181,12 @@ RECORDS_LINES="$(wc -l < "$OUT_DIR/metadata/qa_records.jsonl" | tr -d ' ')"
 BLOB_FILES="$(find "$OUT_DIR/qa_blobs" -type f 2>/dev/null | wc -l | tr -d ' ')"
 TARBALL_SHA256="$(sha256_file "$LOCAL_TAR")"
 QA_RECORDS_SHA256="$(sha256_file "$OUT_DIR/metadata/qa_records.jsonl")"
+log "validating qa_records blob_uri references"
+python3 "$SCRIPT_DIR/check-qa-blob-references.py" "$OUT_DIR/metadata/qa_records.jsonl" "$OUT_DIR/qa_blobs"
+BLOB_REFERENCE_REPORT="$(python3 "$SCRIPT_DIR/check-qa-blob-references.py" --json "$OUT_DIR/metadata/qa_records.jsonl" "$OUT_DIR/qa_blobs")"
+BLOB_REFERENCED_URIS="$(jq -r '.referenced_blob_uris' <<<"$BLOB_REFERENCE_REPORT")"
+BLOB_CHECKED_LOCAL_URIS="$(jq -r '.checked_local_blob_uris' <<<"$BLOB_REFERENCE_REPORT")"
+
 jq -n \
   --arg stamp "$STAMP" \
   --arg s3_key "$S3_KEY" \
@@ -192,6 +200,8 @@ jq -n \
   --arg exported_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --argjson qa_records_lines "$RECORDS_LINES" \
   --argjson local_qa_blob_files "$BLOB_FILES" \
+  --argjson referenced_blob_uris "$BLOB_REFERENCED_URIS" \
+  --argjson checked_local_blob_uris "$BLOB_CHECKED_LOCAL_URIS" \
   '{
     stamp: $stamp,
     s3_key: $s3_key,
@@ -204,7 +214,9 @@ jq -n \
     instance_id: $instance_id,
     exported_at_utc: $exported_at,
     qa_records_lines: $qa_records_lines,
-    local_qa_blob_files: $local_qa_blob_files
+    local_qa_blob_files: $local_qa_blob_files,
+    referenced_blob_uris: $referenced_blob_uris,
+    checked_local_blob_uris: $checked_local_blob_uris
   }' > "$OUT_DIR/.last-prod-qa-export.json"
 
 if [[ "$RM_LOCAL_TAR" == "1" || "$RM_LOCAL_TAR" == "true" ]]; then

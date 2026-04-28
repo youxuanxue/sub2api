@@ -50,6 +50,10 @@ func (s *Service) ExportUserTrajectoryData(ctx context.Context, userID int64, fi
 		return nil, err
 	}
 
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("trajectory export has no rows")
+	}
+
 	var buf bytes.Buffer
 	zipWriter := zip.NewWriter(&buf)
 	indexWriter, err := zipWriter.Create(trajectoryExportFilename)

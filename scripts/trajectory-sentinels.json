@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "rationale": "Snapshot of the gateway trajectory / QA capture hook contract. Main gateway surfaces must keep both trajectory_id assignment and QA capture middleware, and the QA middleware must still terminate in Service.CaptureFromContext so request evidence remains on by default.",
   "route_source": "backend/internal/server/routes/gateway.go",
   "capture_source": "backend/internal/observability/qa/sse_tee.go",
@@ -21,5 +21,19 @@
     "func Middleware(svc *Service) gin.HandlerFunc {",
     "c.Set(contextKeyTeeWriter, tee)",
     "svc.CaptureFromContext(c)"
+  ],
+  "semantic_route_contracts": [
+    {
+      "source": "backend/internal/server/routes/gateway.go",
+      "required_calls": [
+        { "name": "gateway.POST", "args": ["/messages"] },
+        { "name": "gateway.POST", "args": ["/chat/completions"] },
+        { "name": "gateway.POST", "args": ["/responses"] },
+        { "name": "gemini.POST", "args": ["/models/*modelAction"] },
+        { "name": "codexDirect.POST", "args": ["/responses"] },
+        { "name": "antigravityV1.POST", "args": ["/messages"] },
+        { "name": "antigravityV1Beta.POST", "args": ["/models/*modelAction"] }
+      ]
+    }
   ]
 }

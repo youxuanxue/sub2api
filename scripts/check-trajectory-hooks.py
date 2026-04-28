@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -58,6 +59,39 @@ def check_required_literals(source: str, required: list[str]) -> list[str]:
     return failures
 
 
+def check_route_contracts(contracts: list[dict[str, object]]) -> list[str]:
+    failures: list[str] = []
+    for contract in contracts:
+        source = str(contract.get("source", ""))
+        file_path = REPO_ROOT / source
+        if not source or not file_path.is_file():
+            failures.append(f"route contract source missing: {source}")
+            continue
+        content = file_path.read_text(encoding="utf-8", errors="replace")
+        compact = re.sub(r"\s+", "", content)
+
+        required = contract.get("required_calls", [])
+        if not isinstance(required, list):
+            failures.append(f"route contract in {source} has invalid required_calls")
+            continue
+
+        for item in required:
+            if not isinstance(item, dict):
+                failures.append(f"route contract in {source} has invalid required_calls item")
+                continue
+            name = str(item.get("name", ""))
+            args = item.get("args", [])
+            if not isinstance(args, list) or not all(isinstance(v, str) for v in args):
+                failures.append(f"route contract {name} in {source} has invalid args")
+                continue
+            receiver, method = name.split(".", 1) if "." in name else ("", name)
+            literal_args = ",".join(json.dumps(arg, ensure_ascii=False) for arg in args)
+            needle = f"{receiver}.{method}({literal_args}"
+            if needle not in compact:
+                failures.append(f"missing route contract in {source}: {name}({', '.join(args)})")
+    return failures
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--quiet", action="store_true", help="only print failures")
@@ -70,6 +104,8 @@ def main() -> int:
     required_route_hooks = registry.get("required_route_hooks")
     required_capture_hooks = registry.get("required_capture_hooks")
 
+    semantic_route_contracts = registry.get("semantic_route_contracts", [])
+
     if not isinstance(route_source, str) or not route_source.strip():
         fatal("registry missing non-empty string field 'route_source'")
     if not isinstance(capture_source, str) or not capture_source.strip():
@@ -78,17 +114,20 @@ def main() -> int:
         fatal("registry missing string array field 'required_route_hooks'")
     if not isinstance(required_capture_hooks, list) or not all(isinstance(v, str) for v in required_capture_hooks):
         fatal("registry missing string array field 'required_capture_hooks'")
+    if not isinstance(semantic_route_contracts, list):
+        fatal("registry field 'semantic_route_contracts' must be an array when present")
 
     failures: list[str] = []
     failures.extend(check_required_literals(route_source, required_route_hooks))
     failures.extend(check_required_literals(capture_source, required_capture_hooks))
+    failures.extend(check_route_contracts(semantic_route_contracts))
 
     report = {
         "registry": str(REGISTRY_PATH.relative_to(REPO_ROOT)),
         "route_source": route_source,
         "capture_source": capture_source,
         "required_route_hooks": required_route_hooks,
-        "required_capture_hooks": required_capture_hooks,
+        "semantic_route_contracts": semantic_route_contracts,
         "failures": failures,
     }
 
