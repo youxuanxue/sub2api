@@ -62,6 +62,9 @@ def check_required_literals(source: str, required: list[str]) -> list[str]:
 def check_route_contracts(contracts: list[dict[str, object]]) -> list[str]:
     failures: list[str] = []
     for contract in contracts:
+        if not isinstance(contract, dict):
+            failures.append("semantic_route_contracts entry must be an object/dict")
+            continue
         source = str(contract.get("source", ""))
         file_path = REPO_ROOT / source
         if not source or not file_path.is_file():
@@ -127,6 +130,7 @@ def main() -> int:
         "route_source": route_source,
         "capture_source": capture_source,
         "required_route_hooks": required_route_hooks,
+        "required_capture_hooks": required_capture_hooks,
         "semantic_route_contracts": semantic_route_contracts,
         "failures": failures,
     }

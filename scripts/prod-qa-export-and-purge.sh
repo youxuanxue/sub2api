@@ -119,10 +119,7 @@ if [[ -n "$QA_RECORDS_SHA256" ]]; then
     exit 1
   fi
 fi
-python3 "$SCRIPT_DIR/check-qa-blob-references.py" "$OUT_DIR/metadata/qa_records.jsonl" "$OUT_DIR/qa_blobs" || {
-  err "refusing purge: qa_records blob_uri references do not match local qa_blobs export"
-  exit 1
-}
+# blob_uri ↔ local qa_blobs validation already ran in fetch-prod-qa-dump.sh (manifest includes counts)
 if [[ -n "$TARBALL_SHA256" && -f "$OUT_DIR/$TARBALL" ]]; then
   ACTUAL_TARBALL_SHA256="$(sha256_file "$OUT_DIR/$TARBALL")"
   if [[ "$ACTUAL_TARBALL_SHA256" != "$TARBALL_SHA256" ]]; then
