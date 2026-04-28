@@ -11,8 +11,7 @@
         </p>
       </div>
 
-  <div v-if="linuxdoOAuthEnabled || oidcOAuthEnabled" class="space-y-4">
-  <div v-if="!backendModeEnabled && (linuxdoOAuthEnabled || wechatOAuthEnabled || oidcOAuthEnabled)" class="space-y-4">
+      <div v-if="!backendModeEnabled && (linuxdoOAuthEnabled || wechatOAuthEnabled || oidcOAuthEnabled)" class="space-y-4">
         <LinuxDoOAuthSection
           v-if="linuxdoOAuthEnabled"
           :disabled="isLoading"
@@ -262,10 +261,10 @@ onMounted(async () => {
     turnstileSiteKey.value = settings.turnstile_site_key || ''
     linuxdoOAuthEnabled.value = settings.linuxdo_oauth_enabled
     wechatOAuthEnabled.value = isWeChatWebOAuthEnabled(settings)
-    backendModeEnabled.value = settings.backend_mode_enabled
+    backendModeEnabled.value = !!settings.backend_mode_enabled
     oidcOAuthEnabled.value = settings.oidc_oauth_enabled
     oidcOAuthProviderName.value = settings.oidc_oauth_provider_name || 'OIDC'
-    passwordResetEnabled.value = settings.password_reset_enabled
+    passwordResetEnabled.value = !!settings.password_reset_enabled
   } catch (error) {
     console.error('Failed to load public settings:', error)
   }

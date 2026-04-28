@@ -337,18 +337,6 @@ export interface SystemSettings {
   auth_source_default_wechat_grant_on_first_bind?: boolean;
   force_email_on_third_party_signup?: boolean;
   // OEM settings
-  site_name: string
-  site_logo: string
-  site_subtitle: string
-  api_base_url: string
-  contact_info: string
-  doc_url: string
-  home_content: string
-  hide_ccs_import_button: boolean
-  table_default_page_size: number
-  table_page_size_options: number[]
-  custom_menu_items: CustomMenuItem[]
-  custom_endpoints: CustomEndpoint[]
   site_name: string;
   site_logo: string;
   site_subtitle: string;
@@ -448,16 +436,12 @@ export interface SystemSettings {
   allow_ungrouped_key_scheduling: boolean;
 
   // Gateway forwarding behavior
-  enable_fingerprint_unification: boolean
-  enable_metadata_passthrough: boolean
-  enable_cch_signing: boolean
-  // Sticky routing kill switch (default true).
-  // See docs/approved/sticky-routing.md.
-  sticky_routing_enabled: boolean
-  web_search_emulation_enabled?: boolean
   enable_fingerprint_unification: boolean;
   enable_metadata_passthrough: boolean;
   enable_cch_signing: boolean;
+  // Sticky routing kill switch (default true).
+  // See docs/approved/sticky-routing.md.
+  sticky_routing_enabled: boolean;
   web_search_emulation_enabled?: boolean;
 
   // Payment configuration
@@ -488,103 +472,18 @@ export interface SystemSettings {
   openai_advanced_scheduler_enabled?: boolean;
 
   // Balance & quota notification
-  balance_low_notify_enabled: boolean
-  balance_low_notify_threshold: number
-  balance_low_notify_recharge_url: string
-  account_quota_notify_enabled: boolean
-  account_quota_notify_emails: NotifyEmailEntry[]
-
-  // New-User Cold Start (docs/approved/user-cold-start.md §5)
-  signup_bonus_enabled: boolean
-  signup_bonus_balance: number
-  auto_generate_default_token: boolean
-  auto_generate_default_token_name: string
-  pricing_catalog_public: boolean
-}
-
-export interface UpdateSettingsRequest {
-  registration_enabled?: boolean
-  email_verify_enabled?: boolean
-  registration_email_suffix_whitelist?: string[]
-  promo_code_enabled?: boolean
-  password_reset_enabled?: boolean
-  frontend_url?: string
-  invitation_code_enabled?: boolean
-  totp_enabled?: boolean // TOTP 双因素认证
-  default_balance?: number
-  default_concurrency?: number
-  default_subscriptions?: DefaultSubscriptionSetting[]
-  site_name?: string
-  site_logo?: string
-  site_subtitle?: string
-  api_base_url?: string
-  contact_info?: string
-  doc_url?: string
-  home_content?: string
-  hide_ccs_import_button?: boolean
-  table_default_page_size?: number
-  table_page_size_options?: number[]
-  custom_menu_items?: CustomMenuItem[]
-  custom_endpoints?: CustomEndpoint[]
-  smtp_host?: string
-  smtp_port?: number
-  smtp_username?: string
-  smtp_password?: string
-  smtp_from_email?: string
-  smtp_from_name?: string
-  smtp_use_tls?: boolean
-  turnstile_enabled?: boolean
-  turnstile_site_key?: string
-  turnstile_secret_key?: string
-  linuxdo_connect_enabled?: boolean
-  linuxdo_connect_client_id?: string
-  linuxdo_connect_client_secret?: string
-  linuxdo_connect_redirect_url?: string
-  oidc_connect_enabled?: boolean
-  oidc_connect_provider_name?: string
-  oidc_connect_client_id?: string
-  oidc_connect_client_secret?: string
-  oidc_connect_issuer_url?: string
-  oidc_connect_discovery_url?: string
-  oidc_connect_authorize_url?: string
-  oidc_connect_token_url?: string
-  oidc_connect_userinfo_url?: string
-  oidc_connect_jwks_url?: string
-  oidc_connect_scopes?: string
-  oidc_connect_redirect_url?: string
-  oidc_connect_frontend_redirect_url?: string
-  oidc_connect_token_auth_method?: string
-  oidc_connect_use_pkce?: boolean
-  oidc_connect_validate_id_token?: boolean
-  oidc_connect_allowed_signing_algs?: string
-  oidc_connect_clock_skew_seconds?: number
-  oidc_connect_require_email_verified?: boolean
-  oidc_connect_userinfo_email_path?: string
-  oidc_connect_userinfo_id_path?: string
-  oidc_connect_userinfo_username_path?: string
-  enable_model_fallback?: boolean
-  fallback_model_anthropic?: string
-  fallback_model_openai?: string
-  fallback_model_gemini?: string
-  fallback_model_antigravity?: string
-  enable_identity_patch?: boolean
-  identity_patch_prompt?: string
-  ops_monitoring_enabled?: boolean
-  ops_realtime_monitoring_enabled?: boolean
-  ops_query_mode_default?: 'auto' | 'raw' | 'preagg' | string
-  ops_metrics_interval_seconds?: number
-  min_claude_code_version?: string
-  max_claude_code_version?: string
-  allow_ungrouped_key_scheduling?: boolean
-  enable_fingerprint_unification?: boolean
-  enable_metadata_passthrough?: boolean
-  enable_cch_signing?: boolean
-  sticky_routing_enabled?: boolean
   balance_low_notify_enabled: boolean;
   balance_low_notify_threshold: number;
   balance_low_notify_recharge_url: string;
   account_quota_notify_enabled: boolean;
   account_quota_notify_emails: NotifyEmailEntry[];
+
+  // New-User Cold Start (docs/approved/user-cold-start.md §5)
+  signup_bonus_enabled: boolean;
+  signup_bonus_balance: number;
+  auto_generate_default_token: boolean;
+  auto_generate_default_token_name: string;
+  pricing_catalog_public: boolean;
 
   // Channel Monitor feature switch
   channel_monitor_enabled: boolean;
@@ -717,6 +616,8 @@ export interface UpdateSettingsRequest {
   enable_fingerprint_unification?: boolean;
   enable_metadata_passthrough?: boolean;
   enable_cch_signing?: boolean;
+  sticky_routing_enabled?: boolean;
+  web_search_emulation_enabled?: boolean;
   // Payment configuration
   payment_enabled?: boolean;
   payment_min_amount?: number;
@@ -751,16 +652,11 @@ export interface UpdateSettingsRequest {
   account_quota_notify_emails?: NotifyEmailEntry[]
 
   // New-User Cold Start (docs/approved/user-cold-start.md §5)
-  signup_bonus_enabled?: boolean
-  signup_bonus_balance?: number
-  auto_generate_default_token?: boolean
-  auto_generate_default_token_name?: string
-  pricing_catalog_public?: boolean
-  balance_low_notify_enabled?: boolean;
-  balance_low_notify_threshold?: number;
-  balance_low_notify_recharge_url?: string;
-  account_quota_notify_enabled?: boolean;
-  account_quota_notify_emails?: NotifyEmailEntry[];
+  signup_bonus_enabled?: boolean;
+  signup_bonus_balance?: number;
+  auto_generate_default_token?: boolean;
+  auto_generate_default_token_name?: string;
+  pricing_catalog_public?: boolean;
 
   // Channel Monitor feature switch
   channel_monitor_enabled?: boolean;

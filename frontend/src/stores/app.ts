@@ -49,6 +49,11 @@ export const useAppStore = defineStore('app', () => {
 
   const hasActiveToasts = computed(() => toasts.value.length > 0)
 
+  /** True when backend-only mode is active (from public settings). */
+  const backendModeEnabled = computed(
+    () => !!cachedPublicSettings.value?.backend_mode_enabled,
+  )
+
   const loadingCount = ref<number>(0)
 
   // ==================== Actions ====================
@@ -430,6 +435,7 @@ export const useAppStore = defineStore('app', () => {
 
     // Computed
     hasActiveToasts,
+    backendModeEnabled,
 
     // Actions
     toggleSidebar,
