@@ -9,6 +9,7 @@ alwaysApply: true
 
 - 默认路径：先补核心测试，优先证明行为正确
 - 完整 Story 路径：只有命中触发条件时，才进入 Story → 用例 → 对齐门禁的完整闭环
+- 若常规风险变更使用了 `docs/spec-delta-*.md`，其中的核心 scenario 必须至少映射到测试、手动验证步骤或明确的「未验证」说明；spec delta 不是测试替代品
 
 三层保障只在完整 Story 路径中展开：测什么不漏（故事覆盖）→ 怎么测够深（用例覆盖）→ Story 与 Test 不漂移（对齐门禁）。
 
@@ -35,6 +36,16 @@ alwaysApply: true
 - 无公共 API 变化的依赖升级
 - 无公共行为变化的内部重构（但已有测试必须原样通过）
 - 范围清晰的小型行为修复，且可由聚焦测试直接覆盖
+
+### Spec / Scenario → Test 链路
+
+当变更存在 `docs/spec-delta-*.md`、`docs/approved/` 或 `.testing/user-stories/` 时，验证应从意图出发，而不是从实现反推：
+
+1. spec delta 的关键 scenario → 至少有对应测试、手动验证步骤或明确「未验证」说明。
+2. `docs/approved/` 的审批基线 → 高风险实现必须有测试或 evidence 覆盖核心流程与风险点。
+3. 完整 Story 路径 → AC 必须追到 Linked Tests，并由 `verify_quality.py`（如项目启用）检查漂移。
+
+不要为了补链路而生成空泛 Story；低风险和清晰小修复仍按默认最小测试动作执行。
 
 ### 进入完整 Story 路径的变更
 

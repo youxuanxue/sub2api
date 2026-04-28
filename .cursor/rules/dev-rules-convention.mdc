@@ -28,7 +28,8 @@ alwaysApply: true
 
 ```bash
 cd 项目根目录
-git submodule add git@github.com:youxuanxue/dev-rules.git dev-rules
+DEV_RULES_REMOTE_URL="${DEV_RULES_REMOTE_URL:?set DEV_RULES_REMOTE_URL}"
+git submodule add "$DEV_RULES_REMOTE_URL" dev-rules
 dev-rules/sync.sh --local                   # 复制规则 + 自动 register 该项目
 git add .cursor/rules/ .gitmodules dev-rules
 git commit -m "chore: add dev-rules submodule and sync rules"
@@ -37,12 +38,17 @@ git commit -m "chore: add dev-rules submodule and sync rules"
 **首次在本机使用**（仅一次）：
 
 ```bash
-git clone git@github.com:youxuanxue/dev-rules.git ~/Codes/dev-rules
+DEV_RULES_REMOTE_URL="${DEV_RULES_REMOTE_URL:?set DEV_RULES_REMOTE_URL}"
+git clone "$DEV_RULES_REMOTE_URL" ~/Codes/dev-rules
 ~/Codes/dev-rules/sync.sh                                          # 创建 home symlinks
 bash ~/Codes/dev-rules/templates/install-launchagent.sh            # 注册跨机器同步 agent
 ```
 
-之后在任意项目里 `sync.sh --local` 就会自动把项目 `(name, git remote URL)` 写进 `~/Codes/dev-rules/.registered-projects`（git-tracked，跨机器共享），并把 `(git URL, 本机绝对路径)` 写进 `.local-projects`（per-machine，gitignored）。下一次 `--push` / `--pull` / LaunchAgent 会按本机实际落地的项目自动 fan-out。换机器只需要重新 `--local` 一次，本机映射即重建。
+之后在任意项目里 `sync.sh --local` 就会自动把项目 `(name, git remote URL)` 写进 `~/Codes/dev-rules/.registered-projects`（git-tracked，跨机器共享），并把 `(git URL, 本机绝对路径)` 写进 `.local-projects`（per-machine，gitignored）。下一次 `--push` / `--pull` / LaunchAgent 会按本机实际落地的项目自动 fan-out。
+
+fan-out 使用 `.registered-projects` 与 `.local-projects` 的并集：跨机器登记项目在本机有路径会同步；只存在于 `.local-projects` 的本机项目也会同步。后者适合 zw-brain 这类不希望在项目仓库暴露 dev-rules 远端 URL、但仍希望从 `~/Codes/dev-rules` 获得规则副本的项目。
+
+换机器时，跨机器项目重新 `--local` 一次即可重建本机映射；本机-only 项目需要在该机器写入 `.local-projects` 或手动执行 `sync.sh --project /path/to/project`。
 
 ## 编辑与提交规则
 
