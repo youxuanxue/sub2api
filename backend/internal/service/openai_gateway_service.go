@@ -1264,8 +1264,9 @@ func noAvailableOpenAISelectionError(requestedModel string, compactBlocked bool,
 // openAICompactSupportTier classifies an OpenAI account by compact capability.
 // 0 = explicitly unsupported, 1 = unknown / not yet probed, 2 = explicitly supported.
 func openAICompactSupportTier(account *Account) int {
-	// Compact probing applies to native OpenAI + newapi bridge accounts — not legacy IsOpenAI() alone.
-	if account == nil || !(account.IsOpenAI() || account.Platform == PlatformNewAPI) {
+	// Compact probing applies only to OpenAI-compat platforms (native OpenAI + newapi bridge).
+	// Use IsOpenAICompatPlatform — avoid bare IsOpenAI() filters (preflight drift guard).
+	if account == nil || !IsOpenAICompatPlatform(account.Platform) {
 		return 0
 	}
 	supported, known := account.OpenAICompactSupportKnown()

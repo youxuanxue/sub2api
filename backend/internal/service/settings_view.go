@@ -219,16 +219,16 @@ type PublicSettings struct {
 	CustomMenuItems             string // JSON array of custom menu items
 	CustomEndpoints             string // JSON array of custom endpoints
 
-	LinuxDoOAuthEnabled   bool
+	LinuxDoOAuthEnabled      bool
 	WeChatOAuthEnabled       bool
 	WeChatOAuthOpenEnabled   bool
 	WeChatOAuthMPEnabled     bool
 	WeChatOAuthMobileEnabled bool
-	PaymentEnabled        bool
-	OIDCOAuthEnabled      bool
-	OIDCOAuthProviderName string
-	BackendModeEnabled    bool // 透出给前端：关闭则隐藏注册/自助等入口
-	Version               string
+	PaymentEnabled           bool
+	OIDCOAuthEnabled         bool
+	OIDCOAuthProviderName    string
+	BackendModeEnabled       bool // 透出给前端：关闭则隐藏注册/自助等入口
+	Version                  string
 
 	BalanceLowNotifyEnabled     bool
 	AccountQuotaNotifyEnabled   bool

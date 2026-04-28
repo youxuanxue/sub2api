@@ -79,4 +79,3 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 	}
 	return accounts, nil
 }
-
