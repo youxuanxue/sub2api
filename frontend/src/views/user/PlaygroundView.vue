@@ -87,7 +87,7 @@
                 "
                 aria-hidden="true"
               >
-                {{ msg.role === 'user' ? '我' : 'AI' }}
+                {{ msg.role === 'user' ? t('playground.avatarUser') : t('playground.avatarAssistant') }}
               </div>
               <div
                 :class="[

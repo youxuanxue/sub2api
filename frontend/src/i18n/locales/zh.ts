@@ -70,6 +70,8 @@ export default {
     pickModelPlaceholder: '请选择模型…',
     roleUser: '你',
     roleAssistant: '助手',
+    avatarUser: '我',
+    avatarAssistant: 'AI',
     limitsHint: '浏览器内最多保留 {turns} 轮对话；单次输出上限 {maxTok} tokens；单次请求超时 60 秒。',
     lastUsage: '上次响应用量',
     promptTokens: '输入 tokens',
