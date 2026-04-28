@@ -3,7 +3,7 @@
 #
 # Flow: SSM builds a tarball on the instance (metadata/qa_records.jsonl + qa_blobs/),
 # uploads it with curl + S3 presigned PUT (no EC2 instance S3 IAM required), then
-# downloads and extracts locally.
+# downloads, extracts locally, and writes a manifest with line/file counts plus checksums.
 #
 # Requires (operator IAM):
 #   - ssm:SendCommand, ssm:GetCommandInvocation on the prod instance
@@ -40,12 +40,25 @@ RM_LOCAL_TAR="${RM_LOCAL_TAR_AFTER_EXTRACT:-0}"
 
 err() { echo "[fetch-prod-qa-dump] error: $*" >&2; }
 log() { echo "[fetch-prod-qa-dump] $*"; }
+sha256_file() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+    return
+  fi
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+    return
+  fi
+  err "shasum or sha256sum missing"
+  exit 1
+}
 
 if [[ "${1:-}" == "--check" ]]; then
   command -v aws >/dev/null 2>&1 || { err "aws CLI missing"; exit 1; }
   command -v jq >/dev/null 2>&1 || { err "jq missing"; exit 1; }
   command -v curl >/dev/null 2>&1 || { err "curl missing"; exit 1; }
   command -v python3 >/dev/null 2>&1 || { err "python3 missing (for venv + boto3 presign)"; exit 1; }
+  command -v shasum >/dev/null 2>&1 || command -v sha256sum >/dev/null 2>&1 || { err "shasum or sha256sum missing"; exit 1; }
   [[ -n "${QA_DUMP_S3_BUCKET:-}" ]] || { err "set QA_DUMP_S3_BUCKET"; exit 1; }
   log "OK (tools + QA_DUMP_S3_BUCKET)"
   exit 0
@@ -164,11 +177,15 @@ tar xzf "$LOCAL_TAR" -C "$OUT_DIR"
 
 RECORDS_LINES="$(wc -l < "$OUT_DIR/metadata/qa_records.jsonl" | tr -d ' ')"
 BLOB_FILES="$(find "$OUT_DIR/qa_blobs" -type f 2>/dev/null | wc -l | tr -d ' ')"
+TARBALL_SHA256="$(sha256_file "$LOCAL_TAR")"
+QA_RECORDS_SHA256="$(sha256_file "$OUT_DIR/metadata/qa_records.jsonl")"
 jq -n \
   --arg stamp "$STAMP" \
   --arg s3_key "$S3_KEY" \
   --arg bucket "$BUCKET" \
   --arg tarball "$TARBALL_NAME" \
+  --arg tarball_sha256 "$TARBALL_SHA256" \
+  --arg qa_records_sha256 "$QA_RECORDS_SHA256" \
   --arg region "$REGION" \
   --arg stack "$STACK" \
   --arg instance_id "$INSTANCE_ID" \
@@ -180,6 +197,8 @@ jq -n \
     s3_key: $s3_key,
     bucket: $bucket,
     tarball: $tarball,
+    tarball_sha256: $tarball_sha256,
+    qa_records_sha256: $qa_records_sha256,
     region: $region,
     stack: $stack,
     instance_id: $instance_id,

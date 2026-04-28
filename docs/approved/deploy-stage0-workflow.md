@@ -13,7 +13,7 @@ related_prs: ["#53"]
 # Adversarial fail-closed gate also verified:
 #   GHA run https://github.com/youxuanxue/sub2api/actions/runs/24872388875
 #   (tag=99.99.99 → exited at GHCR manifest precheck before any AWS call).
-scope: ".github/workflows/deploy-stage0.yml + IAM scope expansion in deploy/aws/cloudformation/cicd-oidc.yaml"
+scope: ".github/workflows/deploy-stage0.yml + scripts/tk_post_deploy_smoke.sh + IAM scope expansion in deploy/aws/cloudformation/cicd-oidc.yaml"
 ---
 
 # Cloud-Agent-Driven Tag-and-Deploy Workflow
@@ -114,7 +114,13 @@ Steps:
    not reach `healthy`.
 6. **External health-check** — `curl ${ApiUrl}/health`, three attempts
    spaced 10 s apart, require HTTP 200 within 5 s.
-7. **Job summary** — write the deployed tag, the SSM command id, and a
+7. **Post-deploy gateway smoke** — `scripts/tk_post_deploy_smoke.sh` against
+   `${ApiUrl}`: public settings, authenticated `/v1/models`,
+   `/v1/chat/completions`, and `/v1/messages` (Claude Code-style `x-api-key`).
+   Requires repository secret `POST_DEPLOY_SMOKE_API_KEY` (a user `sk-...`
+   valid on that stack). Fail-closed if the secret is missing or any step
+   returns non-200 / unexpected body markers.
+8. **Job summary** — write the deployed tag, the SSM command id, and a
    one-liner re-dispatch command for rollback. No auto-rollback (would
    mask transient failures).
 
@@ -149,6 +155,12 @@ After this PR merges, before the first dispatch:
 
 3. **(Optional) Override repo variables** if defaults don't fit:
    `vars.PROD_STACK_NAME`, `vars.TEST_STACK_NAME`, `vars.AWS_REGION`.
+
+4. **Repository secret `POST_DEPLOY_SMOKE_API_KEY`** — a TokenKey user API key
+   (`sk-...`) that can authenticate to the gateway at the stack's `ApiUrl`
+   (same class of credential as Claude Code's `ANTHROPIC_AUTH_TOKEN`). The
+   deploy workflow fails if this secret is unset. See `deploy/aws/README.md`
+   (deploy-stage0 发版后网关烟测).
 
 ## 6. Explicitly out of scope
 

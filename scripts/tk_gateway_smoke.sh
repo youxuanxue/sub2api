@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # TokenKey smoke tests against TOKENKEY_BASE_URL (never prints API keys).
 #
+# For deploy-stage0's mandatory gate (incl. /v1/messages), use
+# scripts/tk_post_deploy_smoke.sh instead.
+#
 # 1) GET /api/v1/settings/public — no auth (validates cold-start public fields).
 # 2) GET/POST /v1/* — requires a **user API key** (sk-...): TK_TOKEN or TOKENKEY_API_KEY.
 #    Do **not** use ANTHROPIC_AUTH_TOKEN here — it is for Claude CLI / balance auth,

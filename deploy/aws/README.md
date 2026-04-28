@@ -246,8 +246,10 @@ gh run watch $(gh run list --workflow=release.yml --limit 1 --json databaseId -q
 Release workflow 全绿后（`gh run list --workflow=release.yml --limit 1` 看 `success`），
 GHCR 已经有 `:X.Y.Z` 多架构镜像。**首选路径是 dispatch `deploy-stage0.yml`**——
 封装了下方手工 SSM SOP 全流程，跑前做 multi-arch manifest 强校验（防 §9.1
-amd64-only 镜像撞 Graviton 崩溃），跑后做外部 `/health` 验证；prod 环境通过
-GitHub Environment 的 Required reviewers 门禁触发人工审批。
+amd64-only 镜像撞 Graviton 崩溃），跑后做外部 `/health` 验证，并**强制**跑
+`scripts/tk_post_deploy_smoke.sh`（public 配置、`/v1/models`、`/v1/chat/completions`、
+`/v1/messages` / Claude Code 路径）；prod 环境通过 GitHub Environment 的
+Required reviewers 门禁触发人工审批。
 
 ```bash
 TAG=X.Y.Z
@@ -259,6 +261,23 @@ gh run watch $(gh run list --workflow=deploy-stage0.yml --limit 1 --json databas
 # 测试通过后再 prod（点 Approve 后才会跑 SSM）
 gh workflow run deploy-stage0.yml -f environment=prod -f tag=$TAG
 gh run watch $(gh run list --workflow=deploy-stage0.yml --limit 1 --json databaseId -q '.[0].databaseId')
+```
+
+#### deploy-stage0 发版后网关烟测（强制）
+
+Workflow 在 `/health` 之后会执行 `scripts/tk_post_deploy_smoke.sh`。必须在仓库
+**Settings → Secrets and variables → Actions** 中配置 **`POST_DEPLOY_SMOKE_API_KEY`**
+（值为在该栈 `ApiUrl` 下有效的用户 API Key，`sk-...`，与 Claude Code 使用的
+`ANTHROPIC_AUTH_TOKEN` 同类）。未配置则 deploy **失败**（避免容器健康但网关路径已坏仍显示成功）。
+
+测试栈与生产若租户隔离，应使用各自环境下能过鉴权的 Key（同一 secret 在两边各能访问对应网关即可，或拆成两个 workflow 再扩展；当前为单一 repo secret，通常填**两边均有效**的运维用 Key）。
+
+本地复现：
+
+```bash
+export TOKENKEY_BASE_URL=https://api.tokenkey.dev   # 或测试栈域名
+export POST_DEPLOY_SMOKE_API_KEY=sk-...
+bash scripts/tk_post_deploy_smoke.sh
 ```
 
 设计、IAM 范围扩张、运维启用步骤见 `docs/approved/deploy-stage0-workflow.md`。
@@ -289,7 +308,7 @@ aws ssm send-command --region us-east-1 \
   --document-name AWS-RunShellScript \
   --parameters "commands=[
     \"sudo cp -a /var/lib/tokenkey/.env /var/lib/tokenkey/.env.before-${TAG}\",
-    \"sudo sed -i 's|sub2api:[0-9.]*|sub2api:${TAG}|' /var/lib/tokenkey/.env\",
+    \"sudo sed -i 's|sub2api:[^[:space:]]*|sub2api:${TAG}|' /var/lib/tokenkey/.env\",
     \"cd /var/lib/tokenkey && sudo docker compose --env-file .env pull tokenkey\",
     \"cd /var/lib/tokenkey && sudo docker compose --env-file .env up -d --no-deps tokenkey\",
     \"for i in 1 2 3 4 5 6 7 8 9 10 11 12; do s=\\$(sudo docker inspect tokenkey --format '{{.State.Health.Status}}'); echo \\\"try \\$i: \\$s\\\"; [ \\\"\\$s\\\" = healthy ] && break; sleep 5; done\",
@@ -412,7 +431,7 @@ aws cloudformation delete-stack --region us-east-1 --stack-name <旧栈名>
 
 ### Prod QA 全量导出与清理（operator IAM）
 
-用于把 **Stage-0 单机上** 的 `qa_records`（PostgreSQL 分区表）与 **`/var/lib/tokenkey/app/qa_blobs`**（含用户自助导出的 `exports/` 树）一次性拉到本地 `./.dump_trajs/`，在**本地校验非空**之后，再 **TRUNCATE 表 + 清空 blob 目录 + 删除 S3 暂存 tar**，避免 EBS 与 staging bucket 长期堆积。
+用于把 **Stage-0 单机上** 的 `qa_records`（PostgreSQL 分区表）与 **`/var/lib/tokenkey/app/qa_blobs`**（含用户自助导出的 `exports/` 树）一次性拉到本地 `./.dump_trajs/`，在**本地校验非空、manifest 计数与 checksum** 之后，再 **TRUNCATE 表 + 清空 blob 目录 + 删除 S3 暂存 tar**，避免 EBS 与 staging bucket 长期堆积。
 
 - **脚本**：`scripts/fetch-prod-qa-dump.sh`（仅导出）；`scripts/prod-qa-export-and-purge.sh`（导出 + 清理）。
 - **凭证**：与 `deploy-error-clustering-binary.sh` 同类 — 操作员 IAM 需 `ssm:SendCommand` / `GetCommandInvocation`，以及 staging bucket 的 `s3:PutObject`（预签名 PUT 由本机 boto3 生成）、`s3:GetObject`（下载）、`s3:DeleteObject`（清理暂存对象）。
