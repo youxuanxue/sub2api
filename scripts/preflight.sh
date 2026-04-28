@@ -293,6 +293,15 @@ else
     echo "  ok: traj dataset validator accepts/rejects covered fixtures as expected"
 fi
 
+# ---- sub2api: post-deploy smoke script (syntax only; no live HTTP) ----------
+echo ""
+echo "=== sub2api: post-deploy smoke script syntax ==="
+if ! bash -n ./scripts/tk_post_deploy_smoke.sh; then
+    echo "  FAIL: scripts/tk_post_deploy_smoke.sh has bash syntax errors"
+    errors=$((errors + 1))
+else
+    echo "  ok: tk_post_deploy_smoke.sh parses"
+fi
 
 echo ""
 if [ "$errors" -eq 0 ]; then
