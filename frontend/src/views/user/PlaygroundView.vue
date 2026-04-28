@@ -74,8 +74,9 @@
               v-for="(msg, idx) in displayMessages"
               :key="idx"
               :class="[
-                'flex gap-2.5',
-                msg.role === 'user' ? 'flex-row-reverse justify-end' : 'flex-row justify-start'
+                'flex w-full gap-2.5',
+                /* row-reverse: main-start is right; justify-start packs user turn to the right (chat convention) */
+                msg.role === 'user' ? 'flex-row-reverse justify-start' : 'flex-row justify-start'
               ]"
             >
               <div
