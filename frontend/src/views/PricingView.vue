@@ -2,28 +2,32 @@
   <div
     class="relative flex min-h-screen flex-col bg-gradient-to-br from-gray-50 via-primary-50/30 to-gray-100 dark:from-dark-950 dark:via-dark-900 dark:to-dark-950"
   >
-    <header class="relative z-20 px-4 py-4 sm:px-6">
-      <nav
-        class="mx-auto flex max-w-[90rem] flex-wrap items-center justify-between gap-4"
-        :aria-label="t('pricing.nav.aria')"
-      >
-        <div class="flex flex-wrap items-center gap-2">
-          <router-link to="/home" :class="NAV_LINK_CLASS">
-            <Icon name="home" size="sm" :class="NAV_ICON_CLASS" />
-            <span>{{ t('pricing.nav.home') }}</span>
-          </router-link>
-          <router-link :to="consolePath" :class="NAV_LINK_CLASS" :title="consoleLinkTitle">
-            <Icon name="grid" size="sm" :class="NAV_ICON_CLASS" />
-            <span>{{ t('pricing.nav.console') }}</span>
-          </router-link>
-        </div>
-        <LocaleSwitcher />
-      </nav>
-    </header>
+    <main
+      class="relative z-10 flex flex-1 flex-col px-4 pb-16 pt-8 sm:px-6"
+      :class="pricingCatalogScrollMode ? 'min-h-0 overflow-hidden' : ''"
+    >
+      <!-- Sticky chrome: nav + hero (when catalog table is shown, only tbody scrolls) -->
+      <div class="mx-auto w-full max-w-[90rem] shrink-0 pb-4">
+        <header class="relative z-20 py-4 sm:py-0">
+          <nav
+            class="mx-auto flex max-w-[90rem] flex-wrap items-center justify-between gap-4"
+            :aria-label="t('pricing.nav.aria')"
+          >
+            <div class="flex flex-wrap items-center gap-2">
+              <router-link to="/home" :class="NAV_LINK_CLASS">
+                <Icon name="home" size="sm" :class="NAV_ICON_CLASS" />
+                <span>{{ t('pricing.nav.home') }}</span>
+              </router-link>
+              <router-link :to="consolePath" :class="NAV_LINK_CLASS" :title="consoleLinkTitle">
+                <Icon name="grid" size="sm" :class="NAV_ICON_CLASS" />
+                <span>{{ t('pricing.nav.console') }}</span>
+              </router-link>
+            </div>
+            <LocaleSwitcher />
+          </nav>
+        </header>
 
-    <main class="relative z-10 flex-1 px-4 pb-16 pt-8 sm:px-6">
-      <div class="mx-auto max-w-[90rem]">
-        <div class="mb-8 text-center">
+        <div class="mt-6 text-center sm:mt-8">
           <h1
             class="text-3xl font-bold tracking-tight text-gray-900 dark:text-white sm:text-4xl"
           >
@@ -48,7 +52,9 @@
             <p class="text-xs text-gray-600 dark:text-dark-400">{{ t('pricing.ctaBonusHint') }}</p>
           </div>
         </div>
+      </div>
 
+      <div class="mx-auto flex min-h-0 w-full max-w-[90rem] flex-1 flex-col">
         <div
           v-if="loading"
           class="flex items-center justify-center rounded-2xl bg-white/80 py-24 shadow-sm backdrop-blur dark:bg-dark-900/60"
@@ -96,11 +102,11 @@
 
         <div
           v-else
-          class="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-dark-800 dark:bg-dark-900"
+          class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-dark-800 dark:bg-dark-900"
           data-tk="cold-start-pricing-table"
         >
           <div
-            class="flex flex-col gap-3 border-b border-gray-100 bg-gray-50/80 px-4 py-3 dark:border-dark-800 dark:bg-dark-800/40 sm:flex-row sm:items-center sm:justify-between"
+            class="flex shrink-0 flex-col gap-3 border-b border-gray-100 bg-gray-50/80 px-4 py-3 dark:border-dark-800 dark:bg-dark-800/40 sm:flex-row sm:items-center sm:justify-between"
           >
             <label class="sr-only" for="pricing-model-search">{{ t('pricing.search.placeholder') }}</label>
             <div class="relative min-w-0 flex-1 xl:max-w-xl">
@@ -139,7 +145,7 @@
             </div>
           </div>
           <p
-            class="border-b border-gray-100 bg-gray-50/50 px-4 py-2 text-xs text-gray-500 dark:border-dark-800 dark:bg-dark-800/30 dark:text-dark-400 lg:hidden"
+            class="shrink-0 border-b border-gray-100 bg-gray-50/50 px-4 py-2 text-xs text-gray-500 dark:border-dark-800 dark:bg-dark-800/30 dark:text-dark-400 lg:hidden"
           >
             {{ t('pricing.tableHint') }}
           </p>
@@ -152,173 +158,177 @@
               {{ t('pricing.search.noMatches') }}
             </p>
           </div>
-          <div v-else class="overflow-x-auto [-webkit-overflow-scrolling:touch]">
-            <table class="min-w-[72rem] w-full divide-y divide-gray-200 dark:divide-dark-800">
-              <thead class="bg-gray-50 dark:bg-dark-800/60">
-                <tr>
-                  <th
-                    scope="col"
-                    class="sticky left-0 z-20 min-w-[14rem] max-w-[28rem] border-r border-gray-200 bg-gray-50 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 shadow-[4px_0_12px_-8px_rgba(0,0,0,0.15)] dark:border-dark-700 dark:bg-dark-800/60 dark:text-dark-300 dark:shadow-[4px_0_12px_-8px_rgba(0,0,0,0.4)]"
-                  >
-                    {{ t('pricing.columns.model') }}
-                  </th>
-                  <th
-                    scope="col"
-                    class="min-w-[7rem] px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-dark-300"
-                  >
-                    {{ t('pricing.columns.vendor') }}
-                  </th>
-                  <th
-                    scope="col"
-                    class="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-dark-300"
-                  >
-                    {{ t('pricing.columns.input') }}
-                  </th>
-                  <th
-                    scope="col"
-                    class="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-dark-300"
-                  >
-                    {{ t('pricing.columns.output') }}
-                  </th>
-                  <th
-                    v-if="hasCacheColumns"
-                    scope="col"
-                    class="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-dark-300"
-                  >
-                    {{ t('pricing.columns.cacheRead') }}
-                  </th>
-                  <th
-                    v-if="hasCacheColumns"
-                    scope="col"
-                    class="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-dark-300"
-                  >
-                    {{ t('pricing.columns.cacheWrite') }}
-                  </th>
-                  <th
-                    scope="col"
-                    class="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-dark-300"
-                  >
-                    {{ t('pricing.columns.contextWindow') }}
-                  </th>
-                  <th
-                    v-if="hasMaxOutputColumn"
-                    scope="col"
-                    class="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-dark-300"
-                  >
-                    {{ t('pricing.columns.maxOutput') }}
-                  </th>
-                  <th
-                    scope="col"
-                    class="min-w-[10rem] px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-dark-300"
-                  >
-                    {{ t('pricing.columns.capabilities') }}
-                  </th>
-                </tr>
-              </thead>
-              <tbody
-                class="divide-y divide-gray-100 bg-white dark:divide-dark-800/60 dark:bg-dark-900"
-              >
-                <tr
-                  v-for="model in filteredCatalogRows"
-                  :key="model.model_id"
-                  class="group hover:bg-primary-50/30 dark:hover:bg-dark-800/40"
+          <div v-else class="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div
+              class="min-h-0 flex-1 overflow-x-auto overflow-y-auto [-webkit-overflow-scrolling:touch]"
+            >
+              <table class="min-w-[72rem] w-full border-collapse divide-y divide-gray-200 dark:divide-dark-800">
+                <thead class="bg-gray-50 dark:bg-dark-800/60">
+                  <tr>
+                    <th
+                      scope="col"
+                      class="sticky left-0 top-0 z-[45] min-w-[14rem] max-w-[28rem] border-r border-gray-200 bg-gray-50 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 shadow-[4px_0_12px_-8px_rgba(0,0,0,0.15)] dark:border-dark-700 dark:bg-dark-800/60 dark:text-dark-300 dark:shadow-[4px_0_12px_-8px_rgba(0,0,0,0.4)]"
+                    >
+                      {{ t('pricing.columns.model') }}
+                    </th>
+                    <th
+                      scope="col"
+                      class="sticky top-0 z-40 min-w-[7rem] bg-gray-50 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:bg-dark-800/60 dark:text-dark-300"
+                    >
+                      {{ t('pricing.columns.vendor') }}
+                    </th>
+                    <th
+                      scope="col"
+                      class="sticky top-0 z-40 bg-gray-50 px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:bg-dark-800/60 dark:text-dark-300"
+                    >
+                      {{ t('pricing.columns.input') }}
+                    </th>
+                    <th
+                      scope="col"
+                      class="sticky top-0 z-40 bg-gray-50 px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:bg-dark-800/60 dark:text-dark-300"
+                    >
+                      {{ t('pricing.columns.output') }}
+                    </th>
+                    <th
+                      v-if="hasCacheColumns"
+                      scope="col"
+                      class="sticky top-0 z-40 bg-gray-50 px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:bg-dark-800/60 dark:text-dark-300"
+                    >
+                      {{ t('pricing.columns.cacheRead') }}
+                    </th>
+                    <th
+                      v-if="hasCacheColumns"
+                      scope="col"
+                      class="sticky top-0 z-40 bg-gray-50 px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:bg-dark-800/60 dark:text-dark-300"
+                    >
+                      {{ t('pricing.columns.cacheWrite') }}
+                    </th>
+                    <th
+                      scope="col"
+                      class="sticky top-0 z-40 bg-gray-50 px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:bg-dark-800/60 dark:text-dark-300"
+                    >
+                      {{ t('pricing.columns.contextWindow') }}
+                    </th>
+                    <th
+                      v-if="hasMaxOutputColumn"
+                      scope="col"
+                      class="sticky top-0 z-40 bg-gray-50 px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:bg-dark-800/60 dark:text-dark-300"
+                    >
+                      {{ t('pricing.columns.maxOutput') }}
+                    </th>
+                    <th
+                      scope="col"
+                      class="sticky top-0 z-40 min-w-[10rem] bg-gray-50 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:bg-dark-800/60 dark:text-dark-300"
+                    >
+                      {{ t('pricing.columns.capabilities') }}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody
+                  class="divide-y divide-gray-100 bg-white dark:divide-dark-800/60 dark:bg-dark-900"
                 >
-                  <td
-                    class="sticky left-0 z-10 min-w-[14rem] max-w-[28rem] border-r border-gray-200 bg-white px-3 py-3 align-top font-mono text-sm leading-snug text-gray-900 shadow-[4px_0_12px_-8px_rgba(0,0,0,0.12)] break-words group-hover:bg-primary-50/30 dark:border-dark-700 dark:bg-dark-900 dark:text-white dark:shadow-[4px_0_12px_-8px_rgba(0,0,0,0.45)] dark:group-hover:bg-dark-800/40"
+                  <tr
+                    v-for="model in filteredCatalogRows"
+                    :key="model.model_id"
+                    class="group hover:bg-primary-50/30 dark:hover:bg-dark-800/40"
                   >
-                    {{ model.model_id }}
-                  </td>
-                  <td
-                    class="min-w-[7rem] px-3 py-3 align-top text-sm leading-snug text-gray-600 break-words dark:text-dark-300"
-                  >
-                    {{ model.vendor || '—' }}
-                  </td>
-                  <td class="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-gray-900 dark:text-white">
-                    {{ formatPrice(model.pricing.input_per_1k_tokens) }}
-                    <span class="ml-0.5 text-xs text-gray-400">{{
-                      t('pricing.perThousandTokens')
-                    }}</span>
-                  </td>
-                  <td class="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-gray-900 dark:text-white">
-                    {{ formatPrice(model.pricing.output_per_1k_tokens) }}
-                    <span class="ml-0.5 text-xs text-gray-400">{{
-                      t('pricing.perThousandTokens')
-                    }}</span>
-                  </td>
-                  <td
-                    v-if="hasCacheColumns"
-                    class="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-gray-700 dark:text-dark-200"
-                  >
-                    {{
-                      model.pricing.cache_read_per_1k != null
-                        ? formatPrice(model.pricing.cache_read_per_1k)
-                        : '—'
-                    }}
-                  </td>
-                  <td
-                    v-if="hasCacheColumns"
-                    class="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-gray-700 dark:text-dark-200"
-                  >
-                    {{
-                      model.pricing.cache_write_per_1k != null
-                        ? formatPrice(model.pricing.cache_write_per_1k)
-                        : '—'
-                    }}
-                  </td>
-                  <td class="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-gray-600 dark:text-dark-300">
-                    <template v-if="model.context_window && model.context_window > 0">
-                      {{ formatNumber(model.context_window) }}
-                    </template>
-                    <template v-else>—</template>
-                  </td>
-                  <td
-                    v-if="hasMaxOutputColumn"
-                    class="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-gray-600 dark:text-dark-300"
-                  >
-                    <template v-if="model.max_output_tokens && model.max_output_tokens > 0">
-                      {{ formatNumber(model.max_output_tokens) }}
-                    </template>
-                    <template v-else>—</template>
-                  </td>
-                  <td class="px-3 py-3 align-top">
-                    <div class="flex flex-wrap gap-1">
-                      <span
-                        v-for="cap in model.capabilities"
-                        :key="cap"
-                        class="inline-flex items-center rounded-full bg-primary-50 px-2 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
-                      >
-                        {{ cap }}
-                      </span>
-                      <span
-                        v-if="!model.capabilities || model.capabilities.length === 0"
-                        class="text-xs text-gray-400"
-                        >—</span
-                      >
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <div
-            class="flex flex-col gap-2 border-t border-gray-100 bg-gray-50/60 px-4 py-3 text-xs text-gray-500 sm:flex-row sm:items-center sm:justify-between dark:border-dark-800 dark:bg-dark-800/40 dark:text-dark-400"
-          >
-            <p class="text-left tabular-nums">
-              <template v-if="modelSearchQuery.trim()">
-                {{
-                  t('pricing.footer.filtered', {
-                    shown: filteredCatalogRows.length,
-                    total: catalogRowTotal
-                  })
-                }}
-              </template>
-              <template v-else>
-                {{ t('pricing.footer.total', { count: catalogRowTotal }) }}
-              </template>
-            </p>
-            <p class="text-left sm:text-right">
-              {{ t('pricing.updatedAt', { time: formattedUpdatedAt }) }}
-            </p>
+                    <td
+                      class="sticky left-0 z-10 min-w-[14rem] max-w-[28rem] border-r border-gray-200 bg-white px-3 py-3 align-top font-mono text-sm leading-snug text-gray-900 shadow-[4px_0_12px_-8px_rgba(0,0,0,0.12)] break-words group-hover:bg-primary-50/30 dark:border-dark-700 dark:bg-dark-900 dark:text-white dark:shadow-[4px_0_12px_-8px_rgba(0,0,0,0.45)] dark:group-hover:bg-dark-800/40"
+                    >
+                      {{ model.model_id }}
+                    </td>
+                    <td
+                      class="min-w-[7rem] px-3 py-3 align-top text-sm leading-snug text-gray-600 break-words dark:text-dark-300"
+                    >
+                      {{ model.vendor || '—' }}
+                    </td>
+                    <td class="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-gray-900 dark:text-white">
+                      {{ formatPrice(model.pricing.input_per_1k_tokens) }}
+                      <span class="ml-0.5 text-xs text-gray-400">{{
+                        t('pricing.perThousandTokens')
+                      }}</span>
+                    </td>
+                    <td class="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-gray-900 dark:text-white">
+                      {{ formatPrice(model.pricing.output_per_1k_tokens) }}
+                      <span class="ml-0.5 text-xs text-gray-400">{{
+                        t('pricing.perThousandTokens')
+                      }}</span>
+                    </td>
+                    <td
+                      v-if="hasCacheColumns"
+                      class="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-gray-700 dark:text-dark-200"
+                    >
+                      {{
+                        model.pricing.cache_read_per_1k != null
+                          ? formatPrice(model.pricing.cache_read_per_1k)
+                          : '—'
+                      }}
+                    </td>
+                    <td
+                      v-if="hasCacheColumns"
+                      class="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-gray-700 dark:text-dark-200"
+                    >
+                      {{
+                        model.pricing.cache_write_per_1k != null
+                          ? formatPrice(model.pricing.cache_write_per_1k)
+                          : '—'
+                      }}
+                    </td>
+                    <td class="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-gray-600 dark:text-dark-300">
+                      <template v-if="model.context_window && model.context_window > 0">
+                        {{ formatNumber(model.context_window) }}
+                      </template>
+                      <template v-else>—</template>
+                    </td>
+                    <td
+                      v-if="hasMaxOutputColumn"
+                      class="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-gray-600 dark:text-dark-300"
+                    >
+                      <template v-if="model.max_output_tokens && model.max_output_tokens > 0">
+                        {{ formatNumber(model.max_output_tokens) }}
+                      </template>
+                      <template v-else>—</template>
+                    </td>
+                    <td class="px-3 py-3 align-top">
+                      <div class="flex flex-wrap gap-1">
+                        <span
+                          v-for="cap in model.capabilities"
+                          :key="cap"
+                          class="inline-flex items-center rounded-full bg-primary-50 px-2 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
+                        >
+                          {{ cap }}
+                        </span>
+                        <span
+                          v-if="!model.capabilities || model.capabilities.length === 0"
+                          class="text-xs text-gray-400"
+                          >—</span
+                        >
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div
+              class="flex shrink-0 flex-col gap-2 border-t border-gray-100 bg-gray-50/60 px-4 py-3 text-xs text-gray-500 sm:flex-row sm:items-center sm:justify-between dark:border-dark-800 dark:bg-dark-800/40 dark:text-dark-400"
+            >
+              <p class="text-left tabular-nums">
+                <template v-if="modelSearchQuery.trim()">
+                  {{
+                    t('pricing.footer.filtered', {
+                      shown: filteredCatalogRows.length,
+                      total: catalogRowTotal
+                    })
+                  }}
+                </template>
+                <template v-else>
+                  {{ t('pricing.footer.total', { count: catalogRowTotal }) }}
+                </template>
+              </p>
+              <p class="text-left sm:text-right">
+                {{ t('pricing.updatedAt', { time: formattedUpdatedAt }) }}
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -424,6 +434,12 @@ const formattedUpdatedAt = computed(() => {
   } catch {
     return catalog.value.updated_at
   }
+})
+
+/** Lock main to viewport height when the catalog table is shown so nav + hero stay fixed and only the grid scrolls. */
+const pricingCatalogScrollMode = computed(() => {
+  if (loading.value || errorMessage.value) return false
+  return Boolean(catalog.value && catalog.value.data.length > 0)
 })
 
 function formatPrice(value: number): string {

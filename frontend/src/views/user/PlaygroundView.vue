@@ -69,14 +69,53 @@
             <div v-if="!displayMessages.length" class="py-16 text-center text-sm text-gray-500 dark:text-dark-400">
               {{ t('playground.emptyHint') }}
             </div>
-            <div v-for="(msg, idx) in displayMessages" :key="idx" class="space-y-1">
-              <div class="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-dark-500">
-                {{ roleLabel(msg.role) }}
+            <!-- WeChat-style: assistant left + user right, with side avatars -->
+            <div
+              v-for="(msg, idx) in displayMessages"
+              :key="idx"
+              :class="[
+                'flex gap-2.5',
+                msg.role === 'user' ? 'flex-row-reverse justify-end' : 'flex-row justify-start'
+              ]"
+            >
+              <div
+                class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white shadow-sm"
+                :class="
+                  msg.role === 'user'
+                    ? 'bg-primary-600 dark:bg-primary-500'
+                    : 'bg-dark-600 dark:bg-dark-500'
+                "
+                aria-hidden="true"
+              >
+                {{ msg.role === 'user' ? '我' : 'AI' }}
               </div>
               <div
-                class="max-w-none whitespace-pre-wrap break-words rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:bg-dark-800 dark:text-dark-100"
-                v-html="msg.role === 'assistant' ? renderMarkdown(msg.content) : escapeHtml(msg.content)"
-              />
+                :class="[
+                  'flex min-w-0 max-w-[min(85%,28rem)] flex-col gap-0.5',
+                  msg.role === 'user' ? 'items-end text-right' : 'items-start text-left'
+                ]"
+              >
+                <div
+                  class="text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-dark-500"
+                >
+                  {{ roleLabel(msg.role) }}
+                </div>
+                <div
+                  class="max-w-none whitespace-pre-wrap break-words px-3.5 py-2.5 text-sm shadow-sm"
+                  :class="
+                    msg.role === 'user'
+                      ? 'rounded-2xl rounded-tr-md bg-primary-600 text-white dark:bg-primary-600'
+                      : 'rounded-2xl rounded-tl-md bg-gray-50 text-gray-900 dark:bg-dark-800 dark:text-dark-100'
+                  "
+                >
+                  <div
+                    v-if="msg.role === 'assistant'"
+                    class="prose prose-sm max-w-none dark:prose-invert prose-p:my-1 prose-pre:my-2 [&_a]:text-primary-600 dark:[&_a]:text-primary-300"
+                    v-html="renderMarkdown(msg.content)"
+                  />
+                  <span v-else>{{ escapeHtml(msg.content) }}</span>
+                </div>
+              </div>
             </div>
           </div>
           <div class="border-t border-gray-100 p-4 dark:border-dark-700">
