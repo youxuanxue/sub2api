@@ -63,6 +63,10 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           submodules: recursive
 
+      # Check 10 runs `go test` in backend/; `backend/go.mod` replaces new-api with
+      # ../../new-api — same sibling checkout as CI `test` / `preflight` jobs.
+      - uses: ./.github/actions/checkout-new-api
+
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
