@@ -71,6 +71,8 @@ export default {
     pickModelPlaceholder: 'Select a model…',
     roleUser: 'You',
     roleAssistant: 'Assistant',
+    avatarUser: 'Me',
+    avatarAssistant: 'AI',
     limitsHint: 'Up to {turns} turns in memory; max output tokens capped at {maxTok}; 60s timeout per request.',
     lastUsage: 'Last response usage',
     promptTokens: 'Prompt tokens',
