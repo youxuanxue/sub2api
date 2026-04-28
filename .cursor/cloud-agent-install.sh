@@ -28,4 +28,15 @@ if [ ! -f "$BOOTSTRAP" ]; then
 fi
 
 echo "[cloud-agent-install] delegating to $BOOTSTRAP"
-exec bash "$BOOTSTRAP" "$@"
+# Cursor Cloud treats a non-zero exit from the install hook as a failed environment.
+# Bootstrap may exit 1 when optional-for-coding-agent secrets (e.g. ANTHROPIC_AUTH_TOKEN)
+# are not injected yet, or when preflight differs from cloud VM layout — the repo is
+# still usable. Run bootstrap without exec so we always return 0 after logging status.
+set +e
+bash "$BOOTSTRAP" "$@"
+bootstrap_exit=$?
+set -e
+if [ "$bootstrap_exit" -ne 0 ]; then
+  echo "[cloud-agent-install] WARN: bootstrap exited $bootstrap_exit — session continues; fix secrets/tools if Claude/gh/jq features are needed" >&2
+fi
+exit 0
