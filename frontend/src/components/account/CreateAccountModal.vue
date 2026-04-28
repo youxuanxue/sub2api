@@ -168,11 +168,7 @@
         </div>
       </div>
 
-      <!--
-        Extension Engine (5th platform): keep channel type + credentials directly under
-        the platform row so operators see them without scrolling past long sections for
-        other platforms (Gemini OAuth tiers, Antigravity, etc.).
-      -->
+      <!-- newapi: channel fields directly under platform picker (avoid scrolling past other platforms). -->
       <div v-if="form.platform === 'newapi'" class="space-y-4">
         <AccountNewApiPlatformFields
           v-model:channelType="newapiChannelType"
