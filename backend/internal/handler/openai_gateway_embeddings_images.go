@@ -97,7 +97,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription); err != nil {
 		reqLog.Info("openai_embeddings.billing_eligibility_check_failed", zap.Error(err))
-		status, code, message := billingErrorDetails(err)
+		status, code, message, _ := billingErrorDetails(err)
 		h.handleStreamingAwareError(c, status, code, message, streamStarted)
 		return
 	}
@@ -122,6 +122,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 			reqModel,
 			failedAccountIDs,
 			service.OpenAIUpstreamTransportAny,
+			false,
 		)
 		if err != nil {
 			reqLog.Warn("openai_embeddings.account_select_failed",
@@ -145,6 +146,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 						defaultModel,
 						failedAccountIDs,
 						service.OpenAIUpstreamTransportAny,
+						false,
 					)
 					if err == nil && selection != nil {
 						c.Set("openai_v1_json_fallback_model", defaultModel)
@@ -387,7 +389,7 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription); err != nil {
 		reqLog.Info("openai_images_generations.billing_eligibility_check_failed", zap.Error(err))
-		status, code, message := billingErrorDetails(err)
+		status, code, message, _ := billingErrorDetails(err)
 		h.handleStreamingAwareError(c, status, code, message, streamStarted)
 		return
 	}
@@ -412,6 +414,7 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 			reqModel,
 			failedAccountIDs,
 			service.OpenAIUpstreamTransportAny,
+			false,
 		)
 		if err != nil {
 			reqLog.Warn("openai_images_generations.account_select_failed",
@@ -435,6 +438,7 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 						defaultModel,
 						failedAccountIDs,
 						service.OpenAIUpstreamTransportAny,
+						false,
 					)
 					if err == nil && selection != nil {
 						c.Set("openai_v1_json_fallback_model", defaultModel)

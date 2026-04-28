@@ -1,5 +1,16 @@
 package service
 
+import "strings"
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
 type SystemSettings struct {
 	RegistrationEnabled              bool
 	EmailVerifyEnabled               bool
@@ -30,6 +41,28 @@ type SystemSettings struct {
 	LinuxDoConnectClientSecret           string
 	LinuxDoConnectClientSecretConfigured bool
 	LinuxDoConnectRedirectURL            string
+
+	// WeChat Connect OAuth 登录
+	WeChatConnectEnabled                   bool
+	WeChatConnectAppID                     string
+	WeChatConnectAppSecret                 string
+	WeChatConnectAppSecretConfigured       bool
+	WeChatConnectOpenAppID                 string
+	WeChatConnectOpenAppSecret             string
+	WeChatConnectOpenAppSecretConfigured   bool
+	WeChatConnectMPAppID                   string
+	WeChatConnectMPAppSecret               string
+	WeChatConnectMPAppSecretConfigured     bool
+	WeChatConnectMobileAppID               string
+	WeChatConnectMobileAppSecret           string
+	WeChatConnectMobileAppSecretConfigured bool
+	WeChatConnectOpenEnabled               bool
+	WeChatConnectMPEnabled                 bool
+	WeChatConnectMobileEnabled             bool
+	WeChatConnectMode                      string
+	WeChatConnectScopes                    string
+	WeChatConnectRedirectURL               string
+	WeChatConnectFrontendRedirectURL       string
 
 	// Generic OIDC OAuth 登录
 	OIDCConnectEnabled                bool
@@ -71,9 +104,15 @@ type SystemSettings struct {
 	CustomMenuItems             string // JSON array of custom menu items
 	CustomEndpoints             string // JSON array of custom endpoints
 
-	DefaultConcurrency   int
-	DefaultBalance       float64
-	DefaultSubscriptions []DefaultSubscriptionSetting
+	DefaultConcurrency           int
+	DefaultBalance               float64
+	AffiliateEnabled             bool
+	AffiliateRebateRate          float64
+	AffiliateRebateFreezeHours   int
+	AffiliateRebateDurationDays  int
+	AffiliateRebatePerInviteeCap float64
+	DefaultUserRPMLimit          int
+	DefaultSubscriptions         []DefaultSubscriptionSetting
 
 	// Model fallback configuration
 	EnableModelFallback      bool   `json:"enable_model_fallback"`
@@ -92,6 +131,13 @@ type SystemSettings struct {
 	OpsQueryModeDefault          string
 	OpsMetricsIntervalSeconds    int
 
+	// Channel Monitor feature
+	ChannelMonitorEnabled                bool `json:"channel_monitor_enabled"`
+	ChannelMonitorDefaultIntervalSeconds int  `json:"channel_monitor_default_interval_seconds"`
+
+	// Available Channels feature (user-facing aggregate view)
+	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
+
 	// Claude Code version check
 	MinClaudeCodeVersion string
 	MaxClaudeCodeVersion string
@@ -107,6 +153,15 @@ type SystemSettings struct {
 
 	// Web Search Emulation
 	WebSearchEmulationEnabled bool // 是否启用 web search 模拟
+
+	// Payment visible method routing
+	PaymentVisibleMethodAlipaySource  string
+	PaymentVisibleMethodWxpaySource   string
+	PaymentVisibleMethodAlipayEnabled bool
+	PaymentVisibleMethodWxpayEnabled  bool
+
+	// OpenAI account scheduling
+	OpenAIAdvancedSchedulerEnabled bool
 
 	// Balance low notification
 	BalanceLowNotifyEnabled     bool
@@ -140,6 +195,7 @@ type DefaultSubscriptionSetting struct {
 type PublicSettings struct {
 	RegistrationEnabled              bool
 	EmailVerifyEnabled               bool
+	ForceEmailOnThirdPartySignup     bool
 	RegistrationEmailSuffixWhitelist []string
 	PromoCodeEnabled                 bool
 	PasswordResetEnabled             bool
@@ -163,12 +219,16 @@ type PublicSettings struct {
 	CustomMenuItems             string // JSON array of custom menu items
 	CustomEndpoints             string // JSON array of custom endpoints
 
-	LinuxDoOAuthEnabled   bool
-	PaymentEnabled        bool
-	OIDCOAuthEnabled      bool
-	OIDCOAuthProviderName string
-	BackendModeEnabled    bool // 透出给前端：关闭则隐藏注册/自助等入口
-	Version               string
+	LinuxDoOAuthEnabled      bool
+	WeChatOAuthEnabled       bool
+	WeChatOAuthOpenEnabled   bool
+	WeChatOAuthMPEnabled     bool
+	WeChatOAuthMobileEnabled bool
+	PaymentEnabled           bool
+	OIDCOAuthEnabled         bool
+	OIDCOAuthProviderName    string
+	BackendModeEnabled       bool // 透出给前端：关闭则隐藏注册/自助等入口
+	Version                  string
 
 	BalanceLowNotifyEnabled     bool
 	AccountQuotaNotifyEnabled   bool
@@ -182,6 +242,75 @@ type PublicSettings struct {
 	// mirrors ComputeSignupBonus; zero when disabled).
 	SignupBonusEnabled           bool
 	SignupBonusBalanceDisplayUSD float64 `json:"signup_bonus_balance_usd"`
+	// Channel Monitor feature
+	ChannelMonitorEnabled                bool `json:"channel_monitor_enabled"`
+	ChannelMonitorDefaultIntervalSeconds int  `json:"channel_monitor_default_interval_seconds"`
+
+	// Available Channels feature (user-facing aggregate view)
+	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
+
+	// Affiliate (邀请返利) feature toggle
+	AffiliateEnabled bool `json:"affiliate_enabled"`
+}
+
+type WeChatConnectOAuthConfig struct {
+	Enabled             bool
+	LegacyAppID         string
+	LegacyAppSecret     string
+	OpenAppID           string
+	OpenAppSecret       string
+	MPAppID             string
+	MPAppSecret         string
+	MobileAppID         string
+	MobileAppSecret     string
+	OpenEnabled         bool
+	MPEnabled           bool
+	MobileEnabled       bool
+	Mode                string
+	Scopes              string
+	RedirectURL         string
+	FrontendRedirectURL string
+}
+
+func (cfg WeChatConnectOAuthConfig) SupportsMode(mode string) bool {
+	switch normalizeWeChatConnectModeSetting(mode) {
+	case "mp":
+		return cfg.MPEnabled
+	case "mobile":
+		return cfg.MobileEnabled
+	default:
+		return cfg.OpenEnabled
+	}
+}
+
+func (cfg WeChatConnectOAuthConfig) ScopeForMode(mode string) string {
+	switch normalizeWeChatConnectModeSetting(mode) {
+	case "mp":
+		return normalizeWeChatConnectScopeSetting(cfg.Scopes, "mp")
+	case "mobile":
+		return ""
+	}
+	return defaultWeChatConnectScopeForMode("open")
+}
+
+func (cfg WeChatConnectOAuthConfig) AppIDForMode(mode string) string {
+	switch normalizeWeChatConnectModeSetting(mode) {
+	case "mp":
+		return strings.TrimSpace(firstNonEmpty(cfg.MPAppID, cfg.LegacyAppID))
+	case "mobile":
+		return strings.TrimSpace(firstNonEmpty(cfg.MobileAppID, cfg.LegacyAppID))
+	}
+	return strings.TrimSpace(firstNonEmpty(cfg.OpenAppID, cfg.LegacyAppID))
+}
+
+func (cfg WeChatConnectOAuthConfig) AppSecretForMode(mode string) string {
+	switch normalizeWeChatConnectModeSetting(mode) {
+	case "mp":
+		return strings.TrimSpace(firstNonEmpty(cfg.MPAppSecret, cfg.LegacyAppSecret))
+	case "mobile":
+		return strings.TrimSpace(firstNonEmpty(cfg.MobileAppSecret, cfg.LegacyAppSecret))
+	}
+	return strings.TrimSpace(firstNonEmpty(cfg.OpenAppSecret, cfg.LegacyAppSecret))
 }
 
 // StreamTimeoutSettings 流超时处理配置（仅控制超时后的处理方式，超时判定由网关配置控制）

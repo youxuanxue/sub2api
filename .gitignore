@@ -1,3 +1,5 @@
+docs/claude-relay-service/
+
 # ===================
 # Go 后端
 # ===================
@@ -129,6 +131,7 @@ backend/.installed
 # ===================
 tests
 .claude
+.codex
 # docs/ — keep fully tracked (no subtree ignore here). Generated or local-only
 # material belongs under paths already ignored (.auto-reports/, output/, etc.).
 #

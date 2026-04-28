@@ -25,13 +25,15 @@ import (
 
 func newStickyFixture(t *testing.T, groupID int64, groupPlatform string, pool []*Account, sessionHash string, stickyAccountID int64) *OpenAIGatewayService {
 	t.Helper()
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+
 	accountsByID := make(map[int64]*Account, len(pool))
 	for _, p := range pool {
 		if p != nil {
 			accountsByID[p.ID] = p
 		}
 	}
-	snapshotCache := &openAISnapshotCacheStub{snapshotAccounts: pool, accountsByID: accountsByID}
+	snapshotCache := &openAISnapshotCacheStub{snapshotAccounts: pool, accountsByID: accountsByID, filterPlatform: groupPlatform}
 	groupRepo := &stubSchedulerGroupRepo{
 		groupsByID: map[int64]*Group{
 			groupID: {ID: groupID, Platform: groupPlatform},
@@ -51,12 +53,19 @@ func newStickyFixture(t *testing.T, groupID int64, groupPlatform string, pool []
 		bindings["openai:"+sessionHash] = stickyAccountID
 	}
 	cache := &stubGatewayCache{sessionBindings: bindings}
+	cfg := &config.Config{}
+	cfg.RunMode = config.RunModeStandard
+	cfg.Gateway.Scheduling.LoadBatchEnabled = false
+
 	return &OpenAIGatewayService{
 		accountRepo:        stubOpenAIAccountRepo{accounts: repoAccounts},
 		cache:              cache,
-		cfg:                &config.Config{},
+		cfg:                cfg,
 		schedulerSnapshot:  snapshotService,
 		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
+		// Sticky-layer assertions read OpenAIAccountScheduleDecision from scheduler.Select;
+		// enable the advanced scheduler path (same helper as openai_account_scheduler_test.go).
+		rateLimitService: newOpenAIAdvancedSchedulerRateLimitService("true"),
 	}
 }
 
@@ -69,7 +78,7 @@ func TestUS013_Sticky_NewAPIGroup_HitsBoundAccount(t *testing.T) {
 	pool := []*Account{stickyAccount, newAPIAccount(83102, 5)}
 	svc := newStickyFixture(t, groupID, PlatformNewAPI, pool, "session-hash-newapi-ok", 83101)
 
-	selection, decision, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "session-hash-newapi-ok", "", nil, OpenAIUpstreamTransportAny)
+	selection, decision, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "session-hash-newapi-ok", "", nil, OpenAIUpstreamTransportAny, false)
 	require.NoError(t, err)
 	require.NotNil(t, selection)
 	require.NotNil(t, selection.Account)
@@ -95,7 +104,7 @@ func TestUS011_Sticky_FailsOver_WhenAccountChangedPlatform(t *testing.T) {
 	pool := []*Account{stickyDrifted, openaiBackup}
 	svc := newStickyFixture(t, groupID, PlatformOpenAI, pool, "session-hash-openai-drifted", 83201)
 
-	selection, decision, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "session-hash-openai-drifted", "", nil, OpenAIUpstreamTransportAny)
+	selection, decision, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "session-hash-openai-drifted", "", nil, OpenAIUpstreamTransportAny, false)
 	require.NoError(t, err)
 	require.NotNil(t, selection)
 	require.NotNil(t, selection.Account)
@@ -120,7 +129,7 @@ func TestUS013_Sticky_NewAPIGroup_FailsOver_WhenStickyAccountIsOpenAI(t *testing
 	pool := []*Account{stickyDrifted, newapiBackup}
 	svc := newStickyFixture(t, groupID, PlatformNewAPI, pool, "session-hash-newapi-drifted", 83301)
 
-	selection, decision, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "session-hash-newapi-drifted", "", nil, OpenAIUpstreamTransportAny)
+	selection, decision, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "session-hash-newapi-drifted", "", nil, OpenAIUpstreamTransportAny, false)
 	require.NoError(t, err)
 	require.NotNil(t, selection)
 	require.NotNil(t, selection.Account)
@@ -142,7 +151,7 @@ func TestUS013_Sticky_NewAPIGroup_FailsOver_WhenChannelTypeReset(t *testing.T) {
 	pool := []*Account{stickyBroken, newapiBackup}
 	svc := newStickyFixture(t, groupID, PlatformNewAPI, pool, "session-hash-newapi-channel-zero", 83401)
 
-	selection, decision, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "session-hash-newapi-channel-zero", "", nil, OpenAIUpstreamTransportAny)
+	selection, decision, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "session-hash-newapi-channel-zero", "", nil, OpenAIUpstreamTransportAny, false)
 	require.NoError(t, err)
 	require.NotNil(t, selection)
 	require.NotNil(t, selection.Account)
@@ -161,7 +170,7 @@ func TestUS015_Sticky_OpenAIGroup_HitPreserved(t *testing.T) {
 	pool := []*Account{stickyAccount, openAIAccount(83502, 5)}
 	svc := newStickyFixture(t, groupID, PlatformOpenAI, pool, "session-hash-openai-ok", 83501)
 
-	selection, decision, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "session-hash-openai-ok", "", nil, OpenAIUpstreamTransportAny)
+	selection, decision, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "session-hash-openai-ok", "", nil, OpenAIUpstreamTransportAny, false)
 	require.NoError(t, err)
 	require.NotNil(t, selection)
 	require.NotNil(t, selection.Account)

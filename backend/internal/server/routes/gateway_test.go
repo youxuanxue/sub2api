@@ -46,7 +46,12 @@ func newGatewayRoutesTestRouter(platform string) *gin.Engine {
 func TestGatewayRoutesOpenAIResponsesCompactPathIsRegistered(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
 
-	for _, path := range []string{"/v1/responses/compact", "/responses/compact"} {
+	for _, path := range []string{
+		"/v1/responses/compact",
+		"/responses/compact",
+		"/backend-api/codex/responses",
+		"/backend-api/codex/responses/compact",
+	} {
 		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"gpt-5"}`))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
@@ -71,6 +76,22 @@ func TestGatewayRoutesNewAPICompatPathsAreRegistered(t *testing.T) {
 		"/images/generations",
 	} {
 		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"gpt-5"}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should be routed for newapi/openai-compatible groups", path)
+	}
+}
+
+func TestGatewayRoutesOpenAIImagesPathsAreRegistered(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformNewAPI)
+
+	for _, path := range []string{
+		"/v1/images/generations",
+		"/images/generations",
+	} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"gpt-image-2","prompt":"draw a cat"}`))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 

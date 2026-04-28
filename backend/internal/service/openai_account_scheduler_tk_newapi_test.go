@@ -39,13 +39,15 @@ func (r *stubSchedulerGroupRepo) GetByID(ctx context.Context, id int64) (*Group,
 // safety filter, or a single-platform pool for happy-path coverage.
 func newAPISchedFixture(t *testing.T, groupID int64, groupPlatform string, pool []*Account) (*OpenAIGatewayService, *defaultOpenAIAccountScheduler) {
 	t.Helper()
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+
 	accountsByID := make(map[int64]*Account, len(pool))
 	for _, p := range pool {
 		if p != nil {
 			accountsByID[p.ID] = p
 		}
 	}
-	snapshotCache := &openAISnapshotCacheStub{snapshotAccounts: pool, accountsByID: accountsByID}
+	snapshotCache := &openAISnapshotCacheStub{snapshotAccounts: pool, accountsByID: accountsByID, filterPlatform: groupPlatform}
 	groupRepo := &stubSchedulerGroupRepo{
 		groupsByID: map[int64]*Group{
 			groupID: {ID: groupID, Platform: groupPlatform},
@@ -58,9 +60,13 @@ func newAPISchedFixture(t *testing.T, groupID int64, groupPlatform string, pool 
 			repoAccounts = append(repoAccounts, *p)
 		}
 	}
+	cfg := &config.Config{}
+	cfg.RunMode = config.RunModeStandard
+	cfg.Gateway.Scheduling.LoadBatchEnabled = false // exercise selectAccountForModelWithExclusions path in unit tests
+
 	svc := &OpenAIGatewayService{
 		accountRepo:        stubOpenAIAccountRepo{accounts: repoAccounts},
-		cfg:                &config.Config{},
+		cfg:                cfg,
 		schedulerSnapshot:  snapshotService,
 		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
 	}
@@ -105,7 +111,7 @@ func TestUS008_NewAPIGroup_Scheduler_PicksNewAPIAccount(t *testing.T) {
 	pool := []*Account{newAPIAccount(80101, 7)}
 	svc, _ := newAPISchedFixture(t, groupID, PlatformNewAPI, pool)
 
-	selection, decision, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "", nil, OpenAIUpstreamTransportAny)
+	selection, decision, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "", nil, OpenAIUpstreamTransportAny, false)
 	require.NoError(t, err)
 	require.NotNil(t, selection)
 	require.NotNil(t, selection.Account)
@@ -129,12 +135,13 @@ func TestUS008_NewAPIGroup_PoolEmpty_NoFallback(t *testing.T) {
 	// in repo but MUST NOT be selected for a newapi group.
 	svc, _ := newAPISchedFixture(t, groupID, PlatformNewAPI, []*Account{openAIAccount(80201, 0)})
 
-	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "", nil, OpenAIUpstreamTransportAny)
+	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "", nil, OpenAIUpstreamTransportAny, false)
 	require.Error(t, err, "empty newapi pool must surface an error, never silently fall back to openai")
 	require.True(t, selection == nil || selection.Account == nil, "no account may be selected when newapi pool is empty")
+	msg := strings.ToLower(err.Error())
 	require.True(t,
-		strings.Contains(strings.ToLower(err.Error()), "no available openai accounts") ||
-			strings.Contains(strings.ToLower(err.Error()), "no available accounts"),
+		strings.Contains(msg, "no available") &&
+			(strings.Contains(msg, "newapi") || strings.Contains(msg, "openai") || strings.Contains(msg, "accounts")),
 		"error message should clearly say no available accounts, got: %v", err)
 }
 
@@ -147,7 +154,7 @@ func TestUS008_OpenAIGroup_SchedulerSelect_Unchanged(t *testing.T) {
 	pool := []*Account{openAIAccount(80301, 0), openAIAccount(80302, 5)}
 	svc, _ := newAPISchedFixture(t, groupID, PlatformOpenAI, pool)
 
-	selection, decision, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "", nil, OpenAIUpstreamTransportAny)
+	selection, decision, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "", nil, OpenAIUpstreamTransportAny, false)
 	require.NoError(t, err)
 	require.NotNil(t, selection)
 	require.NotNil(t, selection.Account)
@@ -173,7 +180,7 @@ func TestUS011_LoadBalance_FiltersOutNewAPIFromOpenAIGroup(t *testing.T) {
 	pool := []*Account{openaiOK, newapiPoison}
 	svc, _ := newAPISchedFixture(t, groupID, PlatformOpenAI, pool)
 
-	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "", nil, OpenAIUpstreamTransportAny)
+	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "", nil, OpenAIUpstreamTransportAny, false)
 	require.NoError(t, err)
 	require.NotNil(t, selection)
 	require.NotNil(t, selection.Account)
@@ -194,7 +201,7 @@ func TestUS011_LoadBalance_FiltersOutOpenAIFromNewAPIGroup(t *testing.T) {
 	pool := []*Account{newapiOK, openaiPoison}
 	svc, _ := newAPISchedFixture(t, groupID, PlatformNewAPI, pool)
 
-	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "", nil, OpenAIUpstreamTransportAny)
+	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "", nil, OpenAIUpstreamTransportAny, false)
 	require.NoError(t, err)
 	require.NotNil(t, selection)
 	require.NotNil(t, selection.Account)
@@ -214,7 +221,7 @@ func TestUS012_LoadBalance_ExcludesNewAPIChannelTypeZero(t *testing.T) {
 	pool := []*Account{bad, good}
 	svc, _ := newAPISchedFixture(t, groupID, PlatformNewAPI, pool)
 
-	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "", nil, OpenAIUpstreamTransportAny)
+	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "", nil, OpenAIUpstreamTransportAny, false)
 	require.NoError(t, err)
 	require.NotNil(t, selection)
 	require.NotNil(t, selection.Account)
@@ -231,7 +238,7 @@ func TestUS012_NewAPIGroup_AllChannelTypeZero_PoolEmpty(t *testing.T) {
 	pool := []*Account{bad}
 	svc, _ := newAPISchedFixture(t, groupID, PlatformNewAPI, pool)
 
-	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "", nil, OpenAIUpstreamTransportAny)
+	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "", nil, OpenAIUpstreamTransportAny, false)
 	require.Error(t, err, "all-channel_type=0 newapi pool must be treated as empty")
 	require.True(t, selection == nil || selection.Account == nil)
 }
