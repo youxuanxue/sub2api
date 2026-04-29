@@ -3343,7 +3343,7 @@ export default {
         fetchUpstreamModelsSuccess: '已获取 {count} 个上游模型',
         fetchUpstreamModelsFailed: '获取上游模型列表失败',
         statusCodeMapping: '状态码映射（JSON，可选）',
-        statusCodeMappingHint: '将上游 HTTP 状态码改写为另一个值（如 {"404":"500"}）。留空则透传。',
+        statusCodeMappingHint: '将上游 HTTP 状态码改写为另一个值，例如 404 改为 500。留空则透传。',
         openaiOrganization: 'OpenAI Organization（可选）',
         openaiOrganizationHint: '在出站请求上设置 OpenAI-Organization 请求头。留空则不发送。',
         jsonInvalid: '不是合法 JSON',
