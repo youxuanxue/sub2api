@@ -10,7 +10,7 @@ api.sub2api.com {
 		path /favicon.ico
 	}
 	header @static {
-		Cache-Control "public, max-age=31536000, immutable"
+		?Cache-Control "public, max-age=31536000, immutable"
 		# 移除可能干扰缓存的头
 		-Pragma
 		-Expires

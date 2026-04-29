@@ -62,6 +62,25 @@ if [[ "${POST_DEPLOY_SMOKE_SKIP_FRONTEND:-}" != "1" ]]; then
     echo "tk_post_deploy_smoke: missing check-frontend-release-assets.py" >&2
     exit 1
   fi
+
+  missing_asset_headers="$tmpdir/missing-asset.headers"
+  missing_asset_body="$tmpdir/missing-asset.body"
+  missing_asset_http=$(curl -sS -o "$missing_asset_body" -D "$missing_asset_headers" -w "%{http_code}" \
+    "${BASE}/assets/TokenKeyMissingAsset-smoke.js")
+  echo "tk_post_deploy_smoke: GET .../assets/TokenKeyMissingAsset-smoke.js -> HTTP ${missing_asset_http}"
+  if [[ "${missing_asset_http}" != "404" ]]; then
+    echo "tk_post_deploy_smoke: missing static asset should return HTTP 404" >&2
+    exit 1
+  fi
+  if ! grep -i '^cache-control:.*no-store' "$missing_asset_headers" >/dev/null; then
+    echo "tk_post_deploy_smoke: missing static asset should return Cache-Control: no-store" >&2
+    cat "$missing_asset_headers" >&2
+    exit 1
+  fi
+  if grep -iq '<!doctype html' "$missing_asset_body"; then
+    echo "tk_post_deploy_smoke: missing static asset returned index.html" >&2
+    exit 1
+  fi
 fi
 
 # --- 3) Model list ---
