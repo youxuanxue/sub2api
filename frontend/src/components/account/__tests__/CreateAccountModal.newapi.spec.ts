@@ -157,8 +157,14 @@ describe('CreateAccountModal — NewAPI (5th platform)', () => {
     await nextTick()
     await nextTick()
 
-    // Channel type selector must be present immediately (placed directly under the platform row).
-    expect(wrapper.html()).toContain('admin.accounts.newApiPlatform.channelType')
+    // Channel type selector must be present immediately after the platform row, before other platform blocks.
+    const html = wrapper.html()
+    const platformIdx = html.indexOf('Extension Engine')
+    const channelTypeIdx = html.indexOf('admin.accounts.newApiPlatform.channelType', platformIdx)
+    const accountTypeIdx = html.indexOf('admin.accounts.accountType', platformIdx)
+    expect(platformIdx).toBeGreaterThanOrEqual(0)
+    expect(channelTypeIdx).toBeGreaterThan(platformIdx)
+    expect(accountTypeIdx === -1 || channelTypeIdx < accountTypeIdx).toBe(true)
 
     // The NewAPI fields block must render the structured model selector
     // (D4) — proves D1 succeeded (accountCategory was flipped → form.type='apikey'

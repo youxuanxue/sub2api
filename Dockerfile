@@ -37,8 +37,8 @@ FROM ${NODE_IMAGE} AS frontend-builder
 
 WORKDIR /build/sub2api/frontend
 
-# Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# Install pnpm and Python used by the frontend freshness manifest step
+RUN apk add --no-cache python3 && corepack enable && corepack prepare pnpm@latest --activate
 
 # Install dependencies first (better caching)
 COPY sub2api/frontend/package.json sub2api/frontend/pnpm-lock.yaml ./
@@ -46,6 +46,7 @@ RUN pnpm install --frozen-lockfile
 
 # Copy frontend source and build
 COPY sub2api/frontend/ ./
+COPY sub2api/scripts/check-frontend-dist-freshness.py /build/sub2api/scripts/check-frontend-dist-freshness.py
 RUN pnpm run build
 
 # -----------------------------------------------------------------------------

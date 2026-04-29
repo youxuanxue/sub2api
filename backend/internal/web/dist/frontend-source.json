@@ -1,0 +1,7 @@
+{
+  "algorithm": "sha256(path,size,content)",
+  "file_count": 410,
+  "hash": "6894aa2777296379449609003733a2b52281383b673d7767f37c6eda18cde804",
+  "schema": 1,
+  "source": "frontend/"
+}

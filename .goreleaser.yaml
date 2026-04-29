@@ -4,6 +4,8 @@ project_name: sub2api
 
 before:
   hooks:
+    - python3 scripts/check-frontend-dist-freshness.py --check backend/internal/web/dist
+    - python3 scripts/check-frontend-release-assets.py --dist backend/internal/web/dist
     - go mod tidy -C backend
 
 builds:
