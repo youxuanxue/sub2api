@@ -34,6 +34,22 @@ def account_assets_from_index(index_html: str) -> list[str]:
     return re.findall(r'src="(/assets/AccountsView-[^"]+\.js)"', index_html)
 
 
+def vite_entry_script_from_index(index_html: str) -> str | None:
+    m = re.search(r'src="(/assets/index-[^"]+\.js)"', index_html)
+    return m.group(1) if m else None
+
+
+def account_assets_from_vite_entry(entry_js: str) -> list[str]:
+    """Resolve AccountsView chunk paths embedded in the main Vite bundle (mapDeps, imports)."""
+    paths = re.findall(r'assets/(AccountsView-[^"\'\\]+\.js)', entry_js)
+    seen: list[str] = []
+    for name in paths:
+        path = "/assets/" + name
+        if path not in seen:
+            seen.append(path)
+    return seen
+
+
 def check_account_asset(asset: str, source: str) -> list[str]:
     errors: list[str] = []
     platform_idx = asset.find("Extension Engine")
@@ -97,7 +113,17 @@ def check_url(base_url: str) -> list[str]:
     index = read_url(base)
     assets = account_assets_from_index(index)
     if not assets:
-        return [f"{base}: index.html does not reference an AccountsView asset"]
+        entry_rel = vite_entry_script_from_index(index)
+        if not entry_rel:
+            return [f"{base}: index.html has no direct AccountsView script and no /assets/index-*.js entry"]
+        entry_url = urljoin(base, entry_rel.lstrip("/"))
+        try:
+            entry_js = read_url(entry_url)
+        except RuntimeError as exc:
+            return [f"{base}: could not load Vite entry for AccountsView discovery: {exc}"]
+        assets = account_assets_from_vite_entry(entry_js)
+        if not assets:
+            return [f"{base}: Vite entry {entry_rel} does not reference an AccountsView chunk"]
 
     errors: list[str] = []
     for asset_path in assets:
