@@ -103,7 +103,7 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.inputs.tag || github.ref }}
 
-      - uses: ./.github/actions/checkout-new-api
+      - uses: ./.github/actions/cache-and-checkout-new-api
 
       - name: Download VERSION artifact
         uses: actions/download-artifact@v8

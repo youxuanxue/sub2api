@@ -65,7 +65,7 @@ jobs:
 
       # Check 10 runs `go test` in backend/; `backend/go.mod` replaces new-api with
       # ../../new-api — same sibling checkout as CI `test` / `preflight` jobs.
-      - uses: ./.github/actions/checkout-new-api
+      - uses: ./.github/actions/cache-and-checkout-new-api
 
       - name: Set up Go
         uses: actions/setup-go@v6

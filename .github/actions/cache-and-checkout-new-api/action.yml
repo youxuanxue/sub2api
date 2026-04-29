@@ -1,0 +1,19 @@
+# Restore sibling ../new-api from GitHub Actions cache (keyed by .new-api-ref SHA),
+# then run checkout-new-api to ensure exact pinned commit. Speeds CI when pin unchanged.
+name: Cache and checkout new-api sibling
+description: Restore cached QuantumNous/new-api clone next to workspace, then sync to .new-api-ref.
+
+runs:
+  using: composite
+  steps:
+    - id: new-api-pin
+      shell: bash
+      run: echo "sha=$(tr -d '[:space:]' < "${GITHUB_WORKSPACE}/.new-api-ref")" >> "$GITHUB_OUTPUT"
+
+    - name: Restore cached new-api sibling
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/../new-api
+        key: new-api-${{ steps.new-api-pin.outputs.sha }}
+
+    - uses: ./.github/actions/checkout-new-api

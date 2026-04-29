@@ -8,6 +8,9 @@
 #   exact commit in .new-api-ref so release / CI / local-dev stay bit-identical
 #   (scripts/sync-new-api.sh writes the same pin).
 #
+# When CI restores actions/cache into ../new-api, this action reuses that repo:
+# fetch + checkout to NEW_API_REF instead of always cloning from scratch.
+#
 # Usage in a workflow job:
 #   steps:
 #     - uses: actions/checkout@v6
@@ -21,13 +24,26 @@ description: Clone QuantumNous/new-api at the commit pinned in .new-api-ref next
 runs:
   using: composite
   steps:
-    - name: Clone new-api at pinned commit
+    - name: Clone or reuse new-api at pinned commit
       shell: bash
       run: |
         set -euxo pipefail
-        NEW_API_REF="$(tr -d '[:space:]' < .new-api-ref)"
+        NEW_API_REF="$(tr -d '[:space:]' < "${GITHUB_WORKSPACE}/.new-api-ref")"
         [ -n "${NEW_API_REF}" ] || { echo "ERROR: .new-api-ref is empty" >&2; exit 1; }
         target="${GITHUB_WORKSPACE}/../new-api"
+
+        if [ -d "${target}/.git" ]; then
+          git -C "$target" fetch --filter=blob:none origin "${NEW_API_REF}" 2>/dev/null || \
+            git -C "$target" fetch origin "${NEW_API_REF}" 2>/dev/null || true
+          if git -C "$target" rev-parse "${NEW_API_REF}^{commit}" >/dev/null 2>&1; then
+            git -C "$target" checkout -q "${NEW_API_REF}"
+            ls "$target/go.mod"
+            exit 0
+          fi
+          echo "WARN: cached new-api repo missing SHA ${NEW_API_REF}; recloning"
+          rm -rf "$target"
+        fi
+
         git clone --filter=blob:none https://github.com/QuantumNous/new-api.git "$target"
         git -C "$target" fetch --filter=blob:none origin "${NEW_API_REF}" || true
         git -C "$target" checkout "${NEW_API_REF}"
