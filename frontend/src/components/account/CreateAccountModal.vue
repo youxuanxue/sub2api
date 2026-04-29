@@ -168,28 +168,39 @@
         </div>
       </div>
 
-      <!-- newapi: channel fields directly under platform picker (avoid scrolling past other platforms). -->
-      <div v-if="form.platform === 'newapi'" class="space-y-4">
-        <AccountNewApiPlatformFields
-          v-model:channelType="newapiChannelType"
-          v-model:baseUrl="newapiBaseUrl"
-          v-model:apiKey="newapiApiKey"
-          v-model:modelMapping="newapiModelMapping"
-          v-model:statusCodeMapping="newapiStatusCodeMapping"
-          v-model:openaiOrganization="newapiOpenAIOrganization"
-          v-model:allowedModels="newapiAllowedModels"
-          v-model:modelMappings="newapiModelMappings"
-          v-model:restrictionMode="newapiRestrictionMode"
-          :channel-type-options="newapiChannelTypeOptions"
-          :channel-types-loading="newapiChannelTypesLoading"
-          :channel-types-error="newapiChannelTypesError"
-          :selected-channel-type-base-url="newapiSelectedBaseUrl"
-          :fetch-models-enabled="newapiFetchModelsEnabled"
-          :fetch-models-disabled="newapiFetchModelsDisabled"
-          :fetch-models-loading="newapiFetchModelsLoading"
-          variant="create"
-          @fetch-models="newapiHandleFetchUpstreamModels"
-        />
+      <!--
+        newapi: channel fields directly under platform picker (PR #97).
+        The block is tall (channel + URL + key + models + advanced). Without a local
+        scroll region, the first viewport can end at «配额控制» and look like the
+        credential fields vanished — regression seen on 1.7.x short viewports.
+      -->
+      <div
+        v-if="form.platform === 'newapi'"
+        class="max-h-[min(55vh,28rem)] overflow-y-auto overflow-x-hidden rounded-lg border border-cyan-200/60 bg-cyan-50/30 p-3 pr-2 dark:border-cyan-500/20 dark:bg-cyan-950/20"
+        data-testid="newapi-create-account-fields"
+      >
+        <div class="space-y-4 pr-1">
+          <AccountNewApiPlatformFields
+            v-model:channelType="newapiChannelType"
+            v-model:baseUrl="newapiBaseUrl"
+            v-model:apiKey="newapiApiKey"
+            v-model:modelMapping="newapiModelMapping"
+            v-model:statusCodeMapping="newapiStatusCodeMapping"
+            v-model:openaiOrganization="newapiOpenAIOrganization"
+            v-model:allowedModels="newapiAllowedModels"
+            v-model:modelMappings="newapiModelMappings"
+            v-model:restrictionMode="newapiRestrictionMode"
+            :channel-type-options="newapiChannelTypeOptions"
+            :channel-types-loading="newapiChannelTypesLoading"
+            :channel-types-error="newapiChannelTypesError"
+            :selected-channel-type-base-url="newapiSelectedBaseUrl"
+            :fetch-models-enabled="newapiFetchModelsEnabled"
+            :fetch-models-disabled="newapiFetchModelsDisabled"
+            :fetch-models-loading="newapiFetchModelsLoading"
+            variant="create"
+            @fetch-models="newapiHandleFetchUpstreamModels"
+          />
+        </div>
       </div>
 
       <!-- Account Type Selection (Anthropic) -->

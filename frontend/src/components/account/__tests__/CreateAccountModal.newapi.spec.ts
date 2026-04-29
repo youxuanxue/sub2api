@@ -160,6 +160,12 @@ describe('CreateAccountModal — NewAPI (5th platform)', () => {
     // Channel type selector must be present immediately (placed directly under the platform row).
     expect(wrapper.html()).toContain('admin.accounts.newApiPlatform.channelType')
 
+    // PR #97 follow-up: tall newapi block is wrapped in a scroll region so short viewports
+    // do not push credentials below the fold (looks like "no API key fields").
+    const scrollRegion = wrapper.find('[data-testid="newapi-create-account-fields"]')
+    expect(scrollRegion.exists()).toBe(true)
+    expect(scrollRegion.classes().join(' ')).toMatch(/overflow-y-auto/)
+
     // The NewAPI fields block must render the structured model selector
     // (D4) — proves D1 succeeded (accountCategory was flipped → form.type='apikey'
     // → the structured selector inside AccountNewApiPlatformFields shows up
