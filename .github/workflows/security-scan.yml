@@ -10,13 +10,17 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   backend-security:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
-      - uses: ./.github/actions/checkout-new-api
+      - uses: ./.github/actions/cache-and-checkout-new-api
       - name: Set up Go
         uses: actions/setup-go@v6
         with:

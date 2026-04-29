@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   preflight:
     # Mechanical gate for process / quality rules from dev-rules submodule.
@@ -18,7 +22,7 @@ jobs:
           submodules: recursive
       # Preflight runs `go test` for traj dataset validation; backend/go.mod
       # replaces new-api with ../../new-api — same sibling checkout as test/lint jobs.
-      - uses: ./.github/actions/checkout-new-api
+      - uses: ./.github/actions/cache-and-checkout-new-api
       - name: Run preflight
         run: |
           if [ -x scripts/preflight.sh ]; then
@@ -27,11 +31,11 @@ jobs:
             ./dev-rules/templates/preflight.sh
           fi
 
-  test:
+  test-unit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: ./.github/actions/checkout-new-api
+      - uses: ./.github/actions/cache-and-checkout-new-api
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
@@ -44,6 +48,21 @@ jobs:
       - name: Unit tests
         working-directory: backend
         run: make test-unit
+
+  test-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/cache-and-checkout-new-api
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache: true
+          cache-dependency-path: backend/go.sum
+      - name: Verify Go version
+        run: |
+          go version | grep -q 'go1.26.2'
       - name: Integration tests
         working-directory: backend
         run: make test-integration
@@ -69,10 +88,13 @@ jobs:
         run: make test-frontend
 
   golangci-lint:
+    permissions:
+      contents: read
+      pull-requests: read
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: ./.github/actions/checkout-new-api
+      - uses: ./.github/actions/cache-and-checkout-new-api
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
@@ -82,9 +104,11 @@ jobs:
       - name: Verify Go version
         run: |
           go version | grep -q 'go1.26.2'
+      # PR: only-new-issues (GitHub API diff). Push/workflow_dispatch: full ./... lint on backend.
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.9
           args: --concurrency=4 --timeout=30m
           working-directory: backend
+          only-new-issues: ${{ github.event_name == 'pull_request' }}
