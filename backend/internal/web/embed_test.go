@@ -573,6 +573,13 @@ func TestNewFrontendServer(t *testing.T) {
 	})
 }
 
+func TestEmbeddedFrontendDistFreshnessManifest(t *testing.T) {
+	manifest, err := frontendFS.ReadFile("dist/frontend-source.json")
+	require.NoError(t, err)
+	assert.Contains(t, string(manifest), `"source": "frontend/"`)
+	assert.Contains(t, string(manifest), `"algorithm": "sha256(git-ls-files:path,size,content)"`)
+}
+
 func TestHasEmbeddedFrontend(t *testing.T) {
 	t.Run("returns_true_when_frontend_embedded", func(t *testing.T) {
 		result := HasEmbeddedFrontend()

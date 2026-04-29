@@ -2,7 +2,7 @@
 # tk_post_deploy_smoke.sh — mandatory post-deploy gateway checks (Stage0).
 #
 # Exercises the same paths Claude Code uses against TokenKey:
-#   public settings, /v1/models, /v1/chat/completions, /v1/messages.
+#   public settings, frontend release assets, /v1/models, /v1/chat/completions, /v1/messages.
 #
 # Usage:
 #   TOKENKEY_BASE_URL=https://api.example.com \
@@ -53,7 +53,18 @@ if [[ "${pub_code}" != "0" ]]; then
   exit 1
 fi
 
-# --- 2) Model list ---
+# --- 2) Frontend release asset shape ---
+if [[ "${POST_DEPLOY_SMOKE_SKIP_FRONTEND:-}" != "1" ]]; then
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  if [[ -x "${script_dir}/check-frontend-release-assets.py" || -f "${script_dir}/check-frontend-release-assets.py" ]]; then
+    python3 "${script_dir}/check-frontend-release-assets.py" --url "${BASE}"
+  else
+    echo "tk_post_deploy_smoke: missing check-frontend-release-assets.py" >&2
+    exit 1
+  fi
+fi
+
+# --- 3) Model list ---
 models_http=$(curl -sS -o "$tmpdir/models.json" -w "%{http_code}" \
   -H "Authorization: Bearer ${API_KEY}" \
   -H "Accept: application/json" \
@@ -73,7 +84,7 @@ if [[ -z "${model}" ]] || [[ "${model}" == "null" ]]; then
 fi
 echo "tk_post_deploy_smoke: using model=${model}"
 
-# --- 3) OpenAI-compat chat ---
+# --- 4) OpenAI-compat chat ---
 expect_openai="E2E-OPENAI-OK"
 payload="$(jq -n \
   --arg m "${model}" \
@@ -99,7 +110,7 @@ if ! printf '%s' "${chat_body}" | grep -Fq "${expect_openai}"; then
   exit 1
 fi
 
-# --- 4) Anthropic Messages shape (Claude Code / x-api-key path) ---
+# --- 5) Anthropic Messages shape (Claude Code / x-api-key path) ---
 expect_anthropic="E2E-ANTHROPIC-OK"
 apayload="$(jq -n \
   --arg m "${model}" \
