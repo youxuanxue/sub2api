@@ -783,7 +783,7 @@ export default {
       },
       claudeCode: {
         envHint:
-          'Recommended: disables adaptive thinking (avoids silent down-grading), pins thinking budget to 31999 tokens, auto-compacts at 200k context. The commented NONESSENTIAL_TRAFFIC flag should only be enabled when routing directly to Anthropic OAuth — otherwise upstream prompt cache TTL drops from 1h to 5min and token cost spikes.',
+          'Recommended: model opus[1m]; disables adaptive thinking (avoids silent down-grading); pins thinking budget to 31999 tokens; triggers auto-compact at ~60% context use (CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE). The commented NONESSENTIAL_TRAFFIC flag should only be enabled when routing directly to Anthropic OAuth — otherwise upstream prompt cache TTL drops from 1h to 5min and token cost spikes.',
         vscodeHint:
           'Claude Code settings.json with effortLevel=high and all recommended env vars. Replace the file to apply.',
       },

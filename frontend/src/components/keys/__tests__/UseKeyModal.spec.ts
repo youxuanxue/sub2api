@@ -85,9 +85,9 @@ describe('UseKeyModal', () => {
     expect(joined).toContain('CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING')
     expect(joined).toContain('MAX_THINKING_TOKENS')
     expect(joined).toContain('31999')
-    expect(joined).toContain('CLAUDE_CODE_DISABLE_1M_CONTEXT')
-    expect(joined).toContain('CLAUDE_CODE_AUTO_COMPACT_WINDOW')
-    expect(joined).toContain('200000')
+    expect(joined).toContain('CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE')
+    expect(joined).toContain('60')
+    expect(joined).toContain('opus[1m]')
     expect(joined).toContain('"effortLevel": "high"')
 
     const activeBlocks = codeBlocks.filter((s) => /^\s*export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1\s*$/m.test(s))

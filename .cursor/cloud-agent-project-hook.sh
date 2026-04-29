@@ -61,23 +61,24 @@ fi
 # TokenKey-opinionated Claude Code settings. The dev-rules template already
 # wrote a minimal ~/.claude/settings.json with ANTHROPIC_BASE_URL +
 # ANTHROPIC_AUTH_TOKEN. Layer on the project's preferred runtime knobs
-# (high effort, large thinking budget, no adaptive thinking, no auto-1M
-# context, no upstream attribution header). Keeping these here — not in
-# dev-rules — means dev-rules doesn't bake any one project's opinions in.
+# (high effort, opus[1m], fixed thinking budget, no adaptive thinking,
+# earlier auto-compact via CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE, no upstream
+# attribution header). Keeping these here — not in dev-rules — means
+# dev-rules doesn't bake any one project's opinions in.
 SETTINGS="$HOME/.claude/settings.json"
 if [ -s "$SETTINGS" ] && [ -n "${ANTHROPIC_AUTH_TOKEN:-}" ]; then
   echo "[project-hook] writing TokenKey-opinionated $SETTINGS"
   umask 077
   cat > "$SETTINGS" <<EOF
 {
+  "model": "opus[1m]",
   "effortLevel": "high",
   "env": {
     "ANTHROPIC_BASE_URL": "https://api.tokenkey.dev",
     "ANTHROPIC_AUTH_TOKEN": "${ANTHROPIC_AUTH_TOKEN}",
     "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1",
     "MAX_THINKING_TOKENS": "31999",
-    "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1",
-    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "200000",
+    "CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE": "60",
     "CLAUDE_CODE_ATTRIBUTION_HEADER": "0"
   }
 }
