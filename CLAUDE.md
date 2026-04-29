@@ -317,6 +317,10 @@ section only records sub2api-specific choices.
   The "submodule first" order is enforced by preflight § 2 (warns on offline,
   fails if SHA missing locally) and by `dev-rules/rules/dev-rules-convention.mdc`.
 
+## Agent skill: prod release + AWS Stage0 deploy
+
+Full checklist (**同步 main → VERSION bump / 打 tag → `release.yml` → `deploy-stage0` prod → 真实烟测**) lives in [.cursor/skills/tokenkey-prod-release-deploy/SKILL.md](.cursor/skills/tokenkey-prod-release-deploy/SKILL.md). The same file is symlinked at `.claude/skills/tokenkey-prod-release-deploy/SKILL.md` so **Claude Code** picks it up as a project skill alongside **Cursor** (`.cursor/skills/…`).
+
 ## Key Reference
 
 ### Current Gateway Flow
