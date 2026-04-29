@@ -798,7 +798,7 @@ router.onError((error) => {
       console.warn('Chunk load error detected, reloading page to fetch latest version...')
       window.location.reload()
     } else {
-      useAppStore().showError(i18n.global.t('common.chunkLoadFailed'), 0)
+      useAppStore().showToast('error', i18n.global.t('common.chunkLoadFailed'))
       console.error('Chunk load error persists after reload. Please clear browser cache.')
     }
   }
