@@ -473,9 +473,9 @@ const currentFiles = computed((): FileConfig[] => {
 })
 
 function generateAnthropicFiles(baseUrl: string, apiKey: string): FileConfig[] {
-  // Recommended defaults (see docs/approved/sticky-routing.md §「Claude Code 推荐配置」):
-  //   - DISABLE_ADAPTIVE_THINKING + fixed MAX_THINKING_TOKENS: 防止 Anthropic 动态降智
-  //   - DISABLE_1M_CONTEXT + AUTO_COMPACT_WINDOW=200k: 长任务上下文不爆 + 性能不跳水
+  // Recommended defaults (TokenKey + Claude Code; see code.claude.com env docs):
+  //   - model opus[1m] + DISABLE_ADAPTIVE_THINKING + fixed MAX_THINKING_TOKENS: 稳定思考预算
+  //   - CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE=60: 约 60% 上下文占用时触发自动压缩（1M 窗口下更稳）
   //   - 不默认开 DISABLE_NONESSENTIAL_TRAFFIC: 直连 Anthropic 时它会把 cache TTL 从 1h 砍到 5min
   let path: string
   let content: string
@@ -485,12 +485,12 @@ function generateAnthropicFiles(baseUrl: string, apiKey: string): FileConfig[] {
       path = 'Terminal'
       content = `export ANTHROPIC_BASE_URL="${baseUrl}"
 export ANTHROPIC_AUTH_TOKEN="${apiKey}"
+export ANTHROPIC_MODEL="opus[1m]"
 
 # 防降智 + 控成本（详见 hint）
 export CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1
 export MAX_THINKING_TOKENS=31999
-export CLAUDE_CODE_DISABLE_1M_CONTEXT=1
-export CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000
+export CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE=60
 
 # 仅当上游为 Anthropic OAuth 且确实不想上传 telemetry 时再开（会损害 cache TTL）：
 # export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
@@ -501,11 +501,11 @@ export CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000
       path = 'Command Prompt'
       content = `set ANTHROPIC_BASE_URL=${baseUrl}
 set ANTHROPIC_AUTH_TOKEN=${apiKey}
+set ANTHROPIC_MODEL=opus[1m]
 
 set CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1
 set MAX_THINKING_TOKENS=31999
-set CLAUDE_CODE_DISABLE_1M_CONTEXT=1
-set CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000
+set CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE=60
 
 REM 仅当上游为 Anthropic OAuth 时再开（会损害 cache TTL）：
 REM set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
@@ -516,11 +516,11 @@ REM set CLAUDE_CODE_MAKE_NO_MISTAKES=1`
       path = 'PowerShell'
       content = `$env:ANTHROPIC_BASE_URL="${baseUrl}"
 $env:ANTHROPIC_AUTH_TOKEN="${apiKey}"
+$env:ANTHROPIC_MODEL="opus[1m]"
 
 $env:CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING="1"
 $env:MAX_THINKING_TOKENS="31999"
-$env:CLAUDE_CODE_DISABLE_1M_CONTEXT="1"
-$env:CLAUDE_CODE_AUTO_COMPACT_WINDOW="200000"
+$env:CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE="60"
 
 # 仅当上游为 Anthropic OAuth 时再开（会损害 cache TTL）：
 # $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1"
@@ -537,14 +537,14 @@ $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW="200000"
     : '%userprofile%\\.claude\\settings.json'
 
   const vscodeContent = `{
+  "model": "opus[1m]",
   "effortLevel": "high",
   "env": {
     "ANTHROPIC_BASE_URL": "${baseUrl}",
     "ANTHROPIC_AUTH_TOKEN": "${apiKey}",
     "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1",
     "MAX_THINKING_TOKENS": "31999",
-    "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1",
-    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "200000",
+    "CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE": "60",
     "CLAUDE_CODE_ATTRIBUTION_HEADER": "0"
   }
 }`

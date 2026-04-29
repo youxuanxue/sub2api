@@ -106,11 +106,12 @@ runs:
         ANTHROPIC_BASE_URL: ${{ inputs.claude_base_url }}
         CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING: "1"
         MAX_THINKING_TOKENS: "31999"
-        CLAUDE_CODE_DISABLE_1M_CONTEXT: "1"
-        CLAUDE_CODE_AUTO_COMPACT_WINDOW: "200000"
+        CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE: "60"
         CLAUDE_CODE_ATTRIBUTION_HEADER: "0"
+        ANTHROPIC_MODEL: "opus[1m]"
       run: |
         claude -p "$(cat /tmp/agent-prompt.txt)" \
+          --model "opus[1m]" \
           --max-budget-usd "${{ inputs.max_budget_usd }}" \
           --output /tmp/agent-output.txt
 

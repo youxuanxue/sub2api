@@ -782,7 +782,7 @@ export default {
       },
       claudeCode: {
         envHint:
-          '推荐配置：禁用动态思考(防降智)+固定 31999 tokens 思考预算+200k 上下文自动压缩。注释掉的 NONESSENTIAL_TRAFFIC 标志仅在直连 Anthropic OAuth 时才考虑开启，否则会让上游 prompt cache TTL 从 1h 降到 5min，token 消耗暴涨。',
+          '推荐配置：模型 opus[1m]；禁用动态思考(防降智)；固定 31999 tokens 思考预算；约 60% 上下文占用时自动压缩（CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE）。注释掉的 NONESSENTIAL_TRAFFIC 标志仅在直连 Anthropic OAuth 时才考虑开启，否则会让上游 prompt cache TTL 从 1h 降到 5min，token 消耗暴涨。',
         vscodeHint:
           'Claude Code settings.json：包含 effortLevel=high 与全部推荐 env，覆盖即可生效。'
       },
@@ -3343,7 +3343,7 @@ export default {
         fetchUpstreamModelsSuccess: '已获取 {count} 个上游模型',
         fetchUpstreamModelsFailed: '获取上游模型列表失败',
         statusCodeMapping: '状态码映射（JSON，可选）',
-        statusCodeMappingHint: '将上游 HTTP 状态码改写为另一个值（如 {"404":"500"}）。留空则透传。',
+        statusCodeMappingHint: '将上游 HTTP 状态码改写为另一个值，例如 404 改为 500。留空则透传。',
         openaiOrganization: 'OpenAI Organization（可选）',
         openaiOrganizationHint: '在出站请求上设置 OpenAI-Organization 请求头。留空则不发送。',
         jsonInvalid: '不是合法 JSON',
