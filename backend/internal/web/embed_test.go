@@ -577,7 +577,7 @@ func TestEmbeddedFrontendDistFreshnessManifest(t *testing.T) {
 	manifest, err := frontendFS.ReadFile("dist/frontend-source.json")
 	require.NoError(t, err)
 	assert.Contains(t, string(manifest), `"source": "frontend/"`)
-	assert.Contains(t, string(manifest), `"algorithm": "sha256(path,size,content)"`)
+	assert.Contains(t, string(manifest), `"algorithm": "sha256(git-ls-files:path,size,content)"`)
 }
 
 func TestHasEmbeddedFrontend(t *testing.T) {

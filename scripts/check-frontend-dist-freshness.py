@@ -6,24 +6,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import subprocess
 import sys
 from pathlib import Path
-from typing import Iterable
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_ROOT = REPO_ROOT / "frontend"
 MANIFEST_NAME = "frontend-source.json"
-EXCLUDED_DIRS = {
-    ".git",
-    ".vite",
-    "__tests__",
-    "coverage",
-    "dist",
-    "node_modules",
-}
-EXCLUDED_FILES = {
-    ".DS_Store",
-}
 EXCLUDED_SUFFIXES = (
     ".spec.ts",
     ".spec.tsx",
@@ -32,23 +21,38 @@ EXCLUDED_SUFFIXES = (
 )
 
 
-def iter_frontend_inputs() -> Iterable[Path]:
-    for path in sorted(FRONTEND_ROOT.rglob("*")):
-        rel = path.relative_to(FRONTEND_ROOT)
-        if any(part in EXCLUDED_DIRS for part in rel.parts):
+def iter_frontend_input_paths() -> list[Path]:
+    if (REPO_ROOT / ".git").exists():
+        result = subprocess.run(
+            ["git", "ls-files", "frontend"],
+            cwd=REPO_ROOT,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        )
+        return filter_input_paths(REPO_ROOT / line for line in result.stdout.splitlines())
+
+    return filter_input_paths(path for path in FRONTEND_ROOT.rglob("*") if path.is_file())
+
+
+def filter_input_paths(paths) -> list[Path]:
+    filtered: list[Path] = []
+    for path in paths:
+        rel = path.relative_to(REPO_ROOT)
+        if any(part in {"node_modules", "dist", "coverage", "__tests__", ".vite"} for part in rel.parts):
             continue
-        if path.name in EXCLUDED_FILES:
+        if rel.name.endswith(EXCLUDED_SUFFIXES):
             continue
-        if path.name.endswith(EXCLUDED_SUFFIXES):
+        if rel.name in {".DS_Store"}:
             continue
-        if path.is_file():
-            yield path
+        filtered.append(path)
+    return sorted(filtered)
 
 
 def compute_digest() -> tuple[str, int]:
     h = hashlib.sha256()
     count = 0
-    for path in iter_frontend_inputs():
+    for path in iter_frontend_input_paths():
         rel = path.relative_to(REPO_ROOT).as_posix()
         data = path.read_bytes()
         h.update(rel.encode("utf-8"))
@@ -66,7 +70,7 @@ def manifest_payload() -> dict[str, object]:
     return {
         "schema": 1,
         "source": "frontend/",
-        "algorithm": "sha256(path,size,content)",
+        "algorithm": "sha256(git-ls-files:path,size,content)",
         "hash": digest,
         "file_count": count,
     }
