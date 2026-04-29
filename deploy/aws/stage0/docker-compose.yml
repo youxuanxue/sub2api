@@ -66,7 +66,7 @@ services:
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@tokenkey.local}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required (openssl rand -hex 32)}
-      - JWT_EXPIRE_HOUR=${JWT_EXPIRE_HOUR:-24}
+      - JWT_EXPIRE_HOUR=${JWT_EXPIRE_HOUR:-1}
       - TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY:?TOTP_ENCRYPTION_KEY is required (openssl rand -hex 32)}
       - TZ=${TZ:-UTC}
     depends_on:

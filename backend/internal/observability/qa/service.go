@@ -52,7 +52,7 @@ var (
 )
 
 const (
-	qaRedactionVersion               = "logredact"
+	qaRedactionVersion               = "logredact-v2"
 	captureStatusCaptured            = "captured"
 	qaCaptureStatusCapturedToDLQ     = "captured_dlq"
 	qaCapturePersistModeAsync        = "async"
@@ -555,7 +555,7 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 		"stream": map[string]any{
 			"chunks": chunks,
 		},
-		"redactions": []string{"logredact"},
+		"redactions": []string{"logredact-v2"},
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {

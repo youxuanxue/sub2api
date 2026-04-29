@@ -407,7 +407,7 @@ func TestUS070_PersistCapture_WritesExtendedMetadata(t *testing.T) {
 		RequestBlobURI:   "",
 		ResponseBlobURI:  "",
 		StreamBlobURI:    "",
-		RedactionVersion: "logredact",
+		RedactionVersion: "logredact-v2",
 		CaptureStatus:    "captured",
 		CreatedAt:        createdAt,
 	})
@@ -431,7 +431,7 @@ func TestUS070_PersistCapture_WritesExtendedMetadata(t *testing.T) {
 	require.True(t, record.Success)
 	require.NotNil(t, record.FirstTokenMs)
 	require.Equal(t, firstTokenMs, *record.FirstTokenMs)
-	require.Equal(t, "logredact", record.RedactionVersion)
+	require.Equal(t, "logredact-v2", record.RedactionVersion)
 	require.Equal(t, "captured", record.CaptureStatus)
 	require.NotNil(t, record.BlobURI)
 	require.NotNil(t, record.RequestBlobURI)

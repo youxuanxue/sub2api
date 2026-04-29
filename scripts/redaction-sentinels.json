@@ -1,7 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "rationale": "Snapshot of the default sensitive-key set plus the outward redaction version contract. If the sensitive-key set changes, bump redaction_version in the evidence-writing path and schema default in the same commit so existing QA records remain interpretable.",
-  "redaction_version": "logredact",
+  "redaction_version": "logredact-v2",
   "keys_source": "backend/internal/util/logredact/redact.go",
   "version_sources": [
     "backend/internal/observability/qa/service.go",
@@ -9,12 +9,35 @@
   ],
   "sensitive_keys": [
     "access_token",
+    "accesskeyid",
+    "api-key",
+    "api_key",
+    "apikey",
+    "authorization",
     "authorization_code",
+    "aws_access_key_id",
+    "aws_secret_access_key",
+    "bearer_token",
     "client_secret",
     "code",
     "code_verifier",
+    "cookie",
+    "credential",
+    "credentials",
     "id_token",
+    "jwt",
+    "passphrase",
+    "passwd",
     "password",
-    "refresh_token"
+    "private_key",
+    "proxy-authorization",
+    "refresh_token",
+    "secret",
+    "secretaccesskey",
+    "session_token",
+    "set-cookie",
+    "signature",
+    "token",
+    "x-api-key"
   ]
 }

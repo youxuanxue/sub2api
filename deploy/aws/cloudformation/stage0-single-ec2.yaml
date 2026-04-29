@@ -439,7 +439,7 @@ Resources:
           ADMIN_EMAIL=${!ADMIN_EMAIL}
           ADMIN_PASSWORD=
           JWT_SECRET=${!JWT_SECRET}
-          JWT_EXPIRE_HOUR=24
+          JWT_EXPIRE_HOUR=1
           TOTP_ENCRYPTION_KEY=${!TOTP_ENCRYPTION_KEY}
           ENVEOF
           chmod 0600 /var/lib/tokenkey/.env
