@@ -92,7 +92,7 @@ services:
       # will be generated on each startup.
       # Generate a secure secret: openssl rand -hex 32
       - JWT_SECRET=${JWT_SECRET:-}
-      - JWT_EXPIRE_HOUR=${JWT_EXPIRE_HOUR:-24}
+      - JWT_EXPIRE_HOUR=${JWT_EXPIRE_HOUR:-1}
 
       # =======================================================================
       # TOTP (2FA) Configuration

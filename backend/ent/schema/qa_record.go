@@ -52,7 +52,7 @@ func (QARecord) Fields() []ent.Field {
 		field.String("request_blob_uri").Optional().Nillable(),
 		field.String("response_blob_uri").Optional().Nillable(),
 		field.String("stream_blob_uri").Optional().Nillable(),
-		field.String("redaction_version").Default("logredact"),
+		field.String("redaction_version").Default("logredact-v2"),
 		field.String("capture_status").Default("captured"),
 		field.JSON("tags", []string{}).Default([]string{}),
 		// Synthetic-pipeline tagging (issue #59 / docs/projects/auto-traj-from-supply-demand.md §6.1).

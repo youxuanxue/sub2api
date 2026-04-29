@@ -12,25 +12,111 @@ import (
 const maxRedactDepth = 32
 
 var defaultSensitiveKeys = map[string]struct{}{
-	"authorization_code": {},
-	"code":               {},
-	"code_verifier":      {},
-	"access_token":       {},
-	"refresh_token":      {},
-	"id_token":           {},
-	"client_secret":      {},
-	"password":           {},
+	"authorization":         {},
+	"proxy-authorization":   {},
+	"x-api-key":             {},
+	"api-key":               {},
+	"api_key":               {},
+	"apikey":                {},
+	"authorization_code":    {},
+	"code":                  {},
+	"code_verifier":         {},
+	"access_token":          {},
+	"refresh_token":         {},
+	"id_token":              {},
+	"session_token":         {},
+	"bearer_token":          {},
+	"token":                 {},
+	"jwt":                   {},
+	"password":              {},
+	"passwd":                {},
+	"passphrase":            {},
+	"secret":                {},
+	"client_secret":         {},
+	"private_key":           {},
+	"accesskeyid":           {},
+	"secretaccesskey":       {},
+	"aws_access_key_id":     {},
+	"aws_secret_access_key": {},
+	"cookie":                {},
+	"set-cookie":            {},
+	"credential":            {},
+	"credentials":           {},
+	"signature":             {},
 }
 
 var defaultSensitiveKeyList = []string{
 	"access_token",
+	"accesskeyid",
+	"api-key",
+	"api_key",
+	"apikey",
+	"authorization",
 	"authorization_code",
+	"aws_access_key_id",
+	"aws_secret_access_key",
+	"bearer_token",
 	"client_secret",
 	"code",
 	"code_verifier",
+	"cookie",
+	"credential",
+	"credentials",
 	"id_token",
+	"jwt",
+	"passphrase",
+	"passwd",
 	"password",
+	"private_key",
+	"proxy-authorization",
 	"refresh_token",
+	"secret",
+	"secretaccesskey",
+	"session_token",
+	"set-cookie",
+	"signature",
+	"token",
+	"x-api-key",
+}
+
+var defaultSensitiveKeySuffixes = []string{
+	"_api_key",
+	"-api-key",
+	"_secret",
+	"-secret",
+	"_token",
+	"-token",
+	"_password",
+	"-password",
+	"_passwd",
+	"-passwd",
+	"_passphrase",
+	"-passphrase",
+	"_private_key",
+	"-private-key",
+	"_credential",
+	"-credential",
+	"_credentials",
+	"-credentials",
+	"_signature",
+	"-signature",
+}
+
+var defaultNonCredentialKeys = map[string]struct{}{
+	"max_tokens":                  {},
+	"max_output_tokens":           {},
+	"max_input_tokens":            {},
+	"max_completion_tokens":       {},
+	"max_tokens_to_sample":        {},
+	"budget_tokens":               {},
+	"prompt_tokens":               {},
+	"completion_tokens":           {},
+	"input_tokens":                {},
+	"output_tokens":               {},
+	"total_tokens":                {},
+	"token_count":                 {},
+	"cache_creation_input_tokens": {},
+	"cache_read_input_tokens":     {},
 }
 
 type textRedactPatterns struct {
@@ -223,8 +309,19 @@ func redactValueWithDepth(value any, keys map[string]struct{}, depth int) any {
 }
 
 func isSensitiveKey(key string, keys map[string]struct{}) bool {
-	_, ok := keys[normalizeKey(key)]
-	return ok
+	normalized := normalizeKey(key)
+	if _, ok := defaultNonCredentialKeys[normalized]; ok {
+		return false
+	}
+	if _, ok := keys[normalized]; ok {
+		return true
+	}
+	for _, suffix := range defaultSensitiveKeySuffixes {
+		if strings.HasSuffix(normalized, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeKey(key string) string {

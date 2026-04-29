@@ -67,6 +67,32 @@ func TestRedactText_DefaultPathDoesNotUseExtraCache(t *testing.T) {
 	}
 }
 
+func TestRedactJSON_CredentialKeys(t *testing.T) {
+	in := []byte(`{"authorization":"Bearer sk-live","x-api-key":"tk-key","cookie":"sid=abc","tool":{"name":"web_search","arguments":{"query":"token pricing","api_key":"secret"}},"usage":{"prompt_tokens":12,"completion_tokens":3}}`)
+	out := RedactJSON(in)
+
+	for _, leaked := range []string{"sk-live", "tk-key", "sid=abc", "secret"} {
+		if strings.Contains(out, leaked) {
+			t.Fatalf("expected %q redacted, got %q", leaked, out)
+		}
+	}
+	for _, preserved := range []string{"web_search", "token pricing", `"prompt_tokens":12`, `"completion_tokens":3`} {
+		if !strings.Contains(out, preserved) {
+			t.Fatalf("expected %q preserved, got %q", preserved, out)
+		}
+	}
+}
+
+func TestRedactJSON_SuffixKeys(t *testing.T) {
+	out := RedactJSON([]byte(`{"stripe_signature":"sig-value","customer_password":"pw-value","max_tokens":1024}`))
+	if strings.Contains(out, "sig-value") || strings.Contains(out, "pw-value") {
+		t.Fatalf("expected suffix credential keys redacted, got %q", out)
+	}
+	if !strings.Contains(out, `"max_tokens":1024`) {
+		t.Fatalf("expected max_tokens preserved, got %q", out)
+	}
+}
+
 func clearExtraTextPatternCache() {
 	extraTextPatternCache.Range(func(key, value any) bool {
 		extraTextPatternCache.Delete(key)

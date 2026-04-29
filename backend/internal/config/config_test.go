@@ -332,8 +332,8 @@ func TestLoadDefaultJWTAccessTokenExpireMinutes(t *testing.T) {
 		t.Fatalf("Load() error: %v", err)
 	}
 
-	if cfg.JWT.ExpireHour != 24 {
-		t.Fatalf("JWT.ExpireHour = %d, want 24", cfg.JWT.ExpireHour)
+	if cfg.JWT.ExpireHour != 1 {
+		t.Fatalf("JWT.ExpireHour = %d, want 1", cfg.JWT.ExpireHour)
 	}
 	if cfg.JWT.AccessTokenExpireMinutes != 0 {
 		t.Fatalf("JWT.AccessTokenExpireMinutes = %d, want 0", cfg.JWT.AccessTokenExpireMinutes)

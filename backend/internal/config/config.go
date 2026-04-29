@@ -1555,7 +1555,7 @@ func setDefaults() {
 
 	// JWT
 	viper.SetDefault("jwt.secret", "")
-	viper.SetDefault("jwt.expire_hour", 24)
+	viper.SetDefault("jwt.expire_hour", 1)
 	viper.SetDefault("jwt.access_token_expire_minutes", 0) // 0 表示回退到 expire_hour
 	viper.SetDefault("jwt.refresh_token_expire_days", 30)  // 30天Refresh Token有效期
 	viper.SetDefault("jwt.refresh_window_minutes", 2)      // 过期前2分钟开始允许刷新

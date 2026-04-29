@@ -799,7 +799,7 @@ jwt:
   secret: "change-this-to-a-secure-random-string"
   # Token expiration time in hours (max 168)
   # 令牌过期时间（小时，最大 168）
-  expire_hour: 24
+  expire_hour: 1
   # Access Token 过期时间（分钟）
   # 优先级说明：
   # - >0: 按分钟生效（优先于 expire_hour）
