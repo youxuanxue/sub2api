@@ -301,16 +301,16 @@ if ! command -v python3 >/dev/null 2>&1; then
     errors=$((errors + 1))
 elif ! python3 -m py_compile ./scripts/check-frontend-release-assets.py ./scripts/check-frontend-dist-freshness.py; then
     errors=$((errors + 1))
+elif ! python3 ./scripts/check-frontend-dist-freshness.py --check ./backend/internal/web/dist; then
+    errors=$((errors + 1))
 elif [ -f ./backend/internal/web/dist/index.html ] && ls ./backend/internal/web/dist/assets/AccountsView-*.js >/dev/null 2>&1; then
-    if ! python3 ./scripts/check-frontend-dist-freshness.py --check ./backend/internal/web/dist; then
-        errors=$((errors + 1))
-    elif ! python3 ./scripts/check-frontend-release-assets.py --dist ./backend/internal/web/dist; then
+    if ! python3 ./scripts/check-frontend-release-assets.py --dist ./backend/internal/web/dist; then
         errors=$((errors + 1))
     else
         echo "  ok: embedded frontend dist is fresh and carries critical account-modal UI contracts"
     fi
 else
-    echo "  ok: embedded frontend dist not present; release workflow rebuilds and verifies it"
+    echo "  ok: embedded frontend source manifest is fresh; release workflow rebuilds full dist assets"
 fi
 
 # ---- sub2api: post-deploy smoke script (syntax only; no live HTTP) ----------
