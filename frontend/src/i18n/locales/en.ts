@@ -392,6 +392,7 @@ export default {
     saving: 'Saving...',
     selectedCount: '({count} selected)',
     refresh: 'Refresh',
+    chunkLoadFailed: 'The page assets are still out of date after refresh. Please clear the browser cache and reload this page.',
     autoRefresh: {
       title: 'Auto Refresh',
       enable: 'Enable auto refresh',

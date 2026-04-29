@@ -10,6 +10,7 @@ import { useAdminSettingsStore } from '@/stores/adminSettings'
 import { useNavigationLoadingState } from '@/composables/useNavigationLoading'
 import { useRoutePrefetch } from '@/composables/useRoutePrefetch'
 import { resolveDocumentTitle } from './title'
+import { i18n } from '@/i18n'
 
 /**
  * Route definitions with lazy loading
@@ -797,6 +798,7 @@ router.onError((error) => {
       console.warn('Chunk load error detected, reloading page to fetch latest version...')
       window.location.reload()
     } else {
+      useAppStore().showError(i18n.global.t('common.chunkLoadFailed'), 0)
       console.error('Chunk load error persists after reload. Please clear browser cache.')
     }
   }

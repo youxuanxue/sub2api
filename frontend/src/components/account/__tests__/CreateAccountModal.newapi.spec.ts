@@ -129,6 +129,30 @@ function mountModal() {
   })
 }
 
+function mountModalWithRealNewApiChildren() {
+  listChannelTypesMock.mockResolvedValue([
+    { channel_type: 1, name: 'OpenAI', api_type: 0, has_adaptor: true, base_url: 'https://api.openai.com' },
+    { channel_type: 14, name: 'DeepSeek', api_type: 0, has_adaptor: true, base_url: 'https://api.deepseek.com' }
+  ])
+  return mount(CreateAccountModal, {
+    props: {
+      show: true,
+      proxies: [],
+      groups: []
+    },
+    global: {
+      stubs: {
+        BaseDialog: BaseDialogStub,
+        ProxySelector: true,
+        GroupSelector: true,
+        OAuthAuthorizationFlow: true,
+        QuotaLimitCard: true,
+        ConfirmDialog: true
+      }
+    }
+  })
+}
+
 describe('CreateAccountModal — NewAPI (5th platform)', () => {
   beforeEach(() => {
     listChannelTypesMock.mockReset()
@@ -157,14 +181,21 @@ describe('CreateAccountModal — NewAPI (5th platform)', () => {
     await nextTick()
     await nextTick()
 
-    // Channel type selector must be present immediately after the platform row, before other platform blocks.
+    // Channel type / Base URL / API Key must be present immediately after the platform row,
+    // before other platform/account blocks and before quota controls.
     const html = wrapper.html()
     const platformIdx = html.indexOf('Extension Engine')
     const channelTypeIdx = html.indexOf('admin.accounts.newApiPlatform.channelType', platformIdx)
+    const baseUrlIdx = html.indexOf('admin.accounts.newApiPlatform.baseUrl', platformIdx)
+    const apiKeyIdx = html.indexOf('admin.accounts.newApiPlatform.apiKey', platformIdx)
     const accountTypeIdx = html.indexOf('admin.accounts.accountType', platformIdx)
+    const quotaControlIdx = html.indexOf('admin.accounts.quotaControl.title', platformIdx)
     expect(platformIdx).toBeGreaterThanOrEqual(0)
     expect(channelTypeIdx).toBeGreaterThan(platformIdx)
+    expect(baseUrlIdx).toBeGreaterThan(channelTypeIdx)
+    expect(apiKeyIdx).toBeGreaterThan(baseUrlIdx)
     expect(accountTypeIdx === -1 || channelTypeIdx < accountTypeIdx).toBe(true)
+    expect(quotaControlIdx === -1 || apiKeyIdx < quotaControlIdx).toBe(true)
 
     // The NewAPI fields block must render the structured model selector
     // (D4) — proves D1 succeeded (accountCategory was flipped → form.type='apikey'
@@ -172,6 +203,32 @@ describe('CreateAccountModal — NewAPI (5th platform)', () => {
     // because the component is mounted and its default mode is 'whitelist').
     const selectors = wrapper.findAll('[data-testid="model-whitelist-selector"]')
     expect(selectors.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('renders NewAPI credential fields with the real shared field subtree', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const wrapper = mountModalWithRealNewApiChildren()
+    await nextTick()
+
+    await clickPlatform(wrapper, 'Extension Engine')
+    await nextTick()
+    await nextTick()
+
+    const html = wrapper.html()
+    const platformIdx = html.indexOf('Extension Engine')
+    const channelTypeIdx = html.indexOf('admin.accounts.newApiPlatform.channelType', platformIdx)
+    const baseUrlIdx = html.indexOf('admin.accounts.newApiPlatform.baseUrl', platformIdx)
+    const apiKeyIdx = html.indexOf('admin.accounts.newApiPlatform.apiKey', platformIdx)
+    const quotaControlIdx = html.indexOf('admin.accounts.quotaControl.title', platformIdx)
+
+    expect(channelTypeIdx).toBeGreaterThan(platformIdx)
+    expect(baseUrlIdx).toBeGreaterThan(channelTypeIdx)
+    expect(apiKeyIdx).toBeGreaterThan(baseUrlIdx)
+    expect(quotaControlIdx === -1 || apiKeyIdx < quotaControlIdx).toBe(true)
+    expect(wrapper.find('input[type="password"]').exists()).toBe(true)
+    expect(errorSpy).not.toHaveBeenCalled()
+
+    errorSpy.mockRestore()
   })
 
   it('AC-D2: switching OpenAI/API Key → NewAPI does NOT render a duplicate generic apikey block', async () => {

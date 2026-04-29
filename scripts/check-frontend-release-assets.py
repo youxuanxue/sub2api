@@ -74,17 +74,32 @@ def check_account_asset(asset: str, source: str) -> list[str]:
     if missing:
         errors.append(f"{source}: create-mode Extension Engine field mount is missing props: {', '.join(missing)}")
 
+    required_labels = [
+        "newApiPlatform.channelType",
+        "newApiPlatform.baseUrl",
+        "newApiPlatform.apiKey",
+    ]
+    label_positions = {label: asset.find(label) for label in required_labels}
+    missing_labels = [label for label, idx in label_positions.items() if idx < 0]
+    if missing_labels:
+        errors.append(f"{source}: shared NewAPI field component is missing labels: {', '.join(missing_labels)}")
+
+    ordered_labels = [label_positions[label] for label in required_labels]
+    if all(idx >= 0 for idx in ordered_labels) and ordered_labels != sorted(ordered_labels):
+        errors.append(f"{source}: shared NewAPI channel/base-url/api-key labels are out of order")
+
     account_type_idx = asset.find("admin.accounts.accountType", platform_idx)
     if account_type_idx >= 0 and account_type_idx < create_mount_idx:
         errors.append(f"{source}: account-type block appears before create-mode Extension Engine field mount")
+
+    quota_idx = asset.find("quotaControl.title", platform_idx)
+    if quota_idx >= 0 and quota_idx < create_mount_idx:
+        errors.append(f"{source}: quota controls appear before create-mode Extension Engine field mount")
 
     if create_mount_idx - platform_idx > 5000:
         errors.append(
             f"{source}: create-mode Extension Engine field mount is too far from platform picker ({create_mount_idx - platform_idx} bytes)"
         )
-
-    if "newApiPlatform.channelType" not in asset:
-        errors.append(f"{source}: shared NewAPI field component lacks channel-type label")
 
     return errors
 

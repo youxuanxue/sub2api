@@ -391,6 +391,7 @@ export default {
     saving: '保存中...',
     selectedCount: '（已选 {count} 个）',
     refresh: '刷新',
+    chunkLoadFailed: '页面资源刷新后仍然过期，请清理浏览器缓存后重新加载本页面。',
     autoRefresh: {
       title: '自动刷新',
       enable: '启用自动刷新',

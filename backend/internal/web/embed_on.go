@@ -97,6 +97,13 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 			cleanPath = "index.html"
 		}
 
+		// Static asset URLs are content-hashed. A missing asset means the client is
+		// running a stale entry/chunk reference, not a SPA route.
+		if isStaticAssetPath(cleanPath) && !s.fileExists(cleanPath) {
+			serveMissingStaticAsset(c)
+			return
+		}
+
 		// For index.html or SPA routes, serve with injected settings
 		if cleanPath == "index.html" || !s.fileExists(cleanPath) {
 			s.serveIndexHTML(c)
@@ -277,6 +284,11 @@ func ServeEmbeddedFrontend() gin.HandlerFunc {
 			return
 		}
 
+		if isStaticAssetPath(cleanPath) {
+			serveMissingStaticAsset(c)
+			return
+		}
+
 		serveIndexHTML(c, distFS)
 	}
 }
@@ -294,6 +306,18 @@ func tryServeOverrideFile(c *gin.Context, overrideDir, cleanPath string) bool {
 	c.File(filePath)
 	c.Abort()
 	return true
+}
+
+func serveMissingStaticAsset(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	c.String(http.StatusNotFound, "static asset not found")
+	c.Abort()
+}
+
+func isStaticAssetPath(path string) bool {
+	return path == "favicon.ico" ||
+		path == "logo.png" ||
+		strings.HasPrefix(path, "assets/")
 }
 
 func shouldBypassEmbeddedFrontend(path string) bool {
