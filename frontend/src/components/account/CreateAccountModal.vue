@@ -73,7 +73,7 @@
         <div class="mt-2 flex rounded-lg bg-gray-100 p-1 dark:bg-dark-700" data-tour="account-form-platform">
           <button
             type="button"
-            @click="form.platform = 'anthropic'"
+            @click="selectCreateAccountPlatform(GATEWAY_PLATFORMS[0])"
             :class="[
               'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
               form.platform === 'anthropic'
@@ -86,7 +86,7 @@
           </button>
           <button
             type="button"
-            @click="form.platform = 'openai'"
+            @click="selectCreateAccountPlatform(GATEWAY_PLATFORMS[1])"
             :class="[
               'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
               form.platform === 'openai'
@@ -111,7 +111,7 @@
           </button>
           <button
             type="button"
-            @click="form.platform = 'gemini'"
+            @click="selectCreateAccountPlatform(GATEWAY_PLATFORMS[2])"
             :class="[
               'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
               form.platform === 'gemini'
@@ -136,7 +136,7 @@
           </button>
           <button
             type="button"
-            @click="form.platform = 'antigravity'"
+            @click="selectCreateAccountPlatform(GATEWAY_PLATFORMS[3])"
             :class="[
               'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
               form.platform === 'antigravity'
@@ -154,7 +154,7 @@
           -->
           <button
             type="button"
-            @click="form.platform = 'newapi'"
+            @click="selectCreateAccountPlatform(GATEWAY_PLATFORMS[4])"
             :class="[
               'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
               form.platform === 'newapi'
@@ -168,18 +168,16 @@
         </div>
       </div>
 
-      <!--
-        newapi: channel fields directly under platform picker (PR #97).
-        The block is tall (channel + URL + key + models + advanced). Without a local
-        scroll region, the first viewport can end at «配额控制» and look like the
-        credential fields vanished — regression seen on 1.7.x short viewports.
-      -->
+      <!-- newapi: channel fields directly under platform picker (PR #97 + hardening). -->
       <div
-        v-if="form.platform === 'newapi'"
-        class="max-h-[min(55vh,28rem)] overflow-y-auto overflow-x-hidden rounded-lg border border-cyan-200/60 bg-cyan-50/30 p-3 pr-2 dark:border-cyan-500/20 dark:bg-cyan-950/20"
+        v-if="isExtensionEngineSelected"
+        class="min-h-[12rem] rounded-lg border border-cyan-200/60 bg-cyan-50/30 p-3 dark:border-cyan-500/20 dark:bg-cyan-950/20"
         data-testid="newapi-create-account-fields"
       >
-        <div class="space-y-4 pr-1">
+        <h3 class="mb-2 text-sm font-semibold text-cyan-800 dark:text-cyan-200">
+          {{ t('admin.accounts.newApiPlatform.credentialsSectionTitle') }}
+        </h3>
+        <div class="space-y-4">
           <AccountNewApiPlatformFields
             v-model:channelType="newapiChannelType"
             v-model:baseUrl="newapiBaseUrl"
@@ -3042,6 +3040,7 @@ import {
 import OAuthAuthorizationFlow from './OAuthAuthorizationFlow.vue'
 import AccountNewApiPlatformFields from './AccountNewApiPlatformFields.vue'
 import { useTkAccountNewApiPlatform } from '@/composables/useTkAccountNewApiPlatform'
+import { GATEWAY_PLATFORMS } from '@/constants/gatewayPlatforms'
 
 // Type for exposed OAuthAuthorizationFlow component
 // Note: defineExpose automatically unwraps refs, so we use the unwrapped types
@@ -3418,6 +3417,14 @@ const form = reactive({
   group_ids: [] as number[],
   expires_at: null as number | null
 })
+
+/** Single write path for platform selection — keeps `form.platform` aligned with `AccountPlatform`. */
+function selectCreateAccountPlatform(platform: AccountPlatform) {
+  form.platform = platform
+}
+
+/** v-if for Extension Engine block (alias for readability + one place to extend if needed). */
+const isExtensionEngineSelected = computed(() => form.platform === 'newapi')
 
 // Helper to check if current type needs OAuth flow
 const isOAuthFlow = computed(() => {

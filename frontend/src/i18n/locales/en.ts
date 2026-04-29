@@ -3182,6 +3182,8 @@ export default {
         pleaseEnterApiKey: 'Please enter upstream API Key'
       },
       newApiPlatform: {
+        /** Create-account modal: section heading above channel/base URL/api key (must stay visible on all viewports). */
+        credentialsSectionTitle: 'Extension Engine — channel & credentials',
         channelType: 'Channel Type',
         channelTypePlaceholder: 'Select an Extension Engine channel type',
         channelTypeLoadFailed: 'Failed to load channel types, please retry',

@@ -3322,6 +3322,8 @@ export default {
         pleaseEnterApiKey: '请输入上游 API Key'
       },
       newApiPlatform: {
+        /** Create-account modal: section heading above channel/base URL/api key (must stay visible on all viewports). */
+        credentialsSectionTitle: '扩展引擎 — 渠道与凭据',
         channelType: '渠道类型',
         channelTypePlaceholder: '请选择扩展引擎渠道类型',
         channelTypeLoadFailed: '加载渠道类型失败，请重试',
