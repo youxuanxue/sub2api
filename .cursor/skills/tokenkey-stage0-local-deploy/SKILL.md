@@ -4,8 +4,8 @@ description: >-
   Local Docker stack matching deploy/aws Stage 0 (Caddy + app + Postgres + Redis): export
   $HOME-pinned paths, write .cache override + .env + Caddyfile, docker compose config/pull/up
   with long timeouts for first pull/up, verify A curl via :8088, B bypass Caddy, optional C
-  tk_post_deploy_smoke when API key exists, then compose down + optional rm cache. Mirrors
-  tokenkey-prod-release-deploy posture (ordered flow, explicit verification, teardown).
+  tk_post_deploy_smoke when API key exists; compose down keeps bind-mounted DB/Redis by default.
+  Optional rm only for intentional reset. Mirrors prod skill posture (order, verify, teardown).
 ---
 
 # TokenKey：本地模拟 `deploy/aws` Stage 0（Compose + 验证 + 销毁）
@@ -14,10 +14,11 @@ description: >-
 
 ## 一次性跑完（原则）
 
-- **顺序做完**：`export` 路径变量 → §1 目录 → §2 `.env`（含密钥）→ §3 `Caddyfile` → §4 `docker-compose.override.yml` → **`docker compose … config --quiet`** → **`pull`** → **`up -d`** → **`docker compose ps` 等服务 healthy** → **本节「真实测试」A → B →（有网关 key 时再 C）** → 再结束会话。**不要**在 `up -d` 刚返回就认为成功，也不管 health 就收工。
+- **顺序做完（首次冷启动）**：`export` 路径变量 → §1 目录 → §2 `.env`（含密钥）→ §3 `Caddyfile` → §4 `docker-compose.override.yml` → **`docker compose … config --quiet`** → **`pull`** → **`up -d`** → **`docker compose ps` 等服务 healthy** → **本节「真实测试」A → B →（有网关 key 时再 C）** → 结束或 **§7a `down`**。**日常增量测**：见「日常复用」，往往只需 §5 **`up -d`**，停栈用 §7a，勿默认 `rm -rf`。**不要**在 `up -d` 刚返回就认为成功，须 **`docker compose ps`** 等服务 healthy。
 - **`docker compose pull` / 首次拉起 tokenkey**：镜像层下载与数据库初始化可能各占 **数分钟量级**；Agent **须给 Shell 命令足够超时**（与 prod 技能的 `gh run watch` 同级思路），**避免**默认短时中断把 pull/up 误判为失败。
 - **健康检查**：执行 **`docker compose ps`**，确认 **`tokenkey` / `postgres` / `redis` / `caddy`**（与 `deploy/aws/stage0/docker-compose.yml` 中 `container_name` 一致）状态与健康就绪；`tokenkey` 依赖 postgres/redis healthy，首轮 **30–90s** 属常见。必要时 **`docker logs tokenkey`** / **`docker logs tokenkey-postgres`**。
-- **`rm -rf "${TOKENKEY_STAGE0_LOCAL_ROOT}"`**：仅在为 **空置栈**收尾且 **确认变量指向 `.cache/tokenkey-stage0-local`**（或自定目录）后再做；破坏性操作不要对错误的父路径执行。
+- **数据要「跨多次本地测试」保留**：override 把 PG/Redis/app 绑到宿主机 **`${TOKENKEY_STAGE0_LOCAL_ROOT}/{postgres,redis,app}`**。**`docker compose … down`（不带 `-v`）只删容器，不删这些目录**，账号、订阅、网关 key 等会一直在。**不要**把每次跑本 skill 都当成要执行 §7 的 **`rm -rf`**——那是**有意清盘**才做。日常循环：§5 **`up -d`** ↔ §7a **`down`**，固定同一个 `TOKENKEY_STAGE0_LOCAL_ROOT`。
+- **`rm -rf "${TOKENKEY_STAGE0_LOCAL_ROOT}"`**：仅 **§7b 有意清空**时用，且 **确认路径**（默认 `.cache/tokenkey-stage0-local`）；勿对错误父目录执行。
 - **私有 GHCR**：`docker compose pull` tokenkey 镜像前应先在本机 **`docker login ghcr.io`**；Agent 若在沙箱里无法访问 daemon 或未继承登录态，需在可访问 Docker 的环境里执行 compose。
 - **`tk_post_deploy_smoke.sh`（与 prod 同款）**：见下文 **C**；需要 **可用的用户侧网关 API Key**（`POST_DEPLOY_SMOKE_API_KEY` 等）。纯 **AUTO_SETUP** 新栈往往还没有 key——此时 **只做 A+B 或再加管理员登录**即可，不要为了跑 C 而停下向人要 prod key。
 
@@ -67,6 +68,14 @@ export TOKENKEY_IMAGE_DEFAULT="ghcr.io/youxuanxue/sub2api:latest"
 
 - **`REPO_ROOT` / `TOKENKEY_NEWAPI_PARENT` / `TOKENKEY_STAGE0_LOCAL_ROOT`**：见上节；凡运行 **`docker compose`** 的同一会话里都 **`export TOKENKEY_STAGE0_LOCAL_ROOT`**，否则 override 里 **`${TOKENKEY_STAGE0_LOCAL_ROOT}`** 卷路径为空或错位。
 
+## 日常复用（同一套本地数据）
+
+固定 **`TOKENKEY_STAGE0_LOCAL_ROOT`**（不要每次换一个目录），则：
+
+- **第二次及以后**：可 **跳过 §1–§4**（目录、`.env`、Caddyfile、override 已就绪），直接 **§5** `config` →（镜像有变再 `pull`）→ **`up -d`**。
+- **`.env` 与已有 Postgres 数据必须一致**：`POSTGRES_PASSWORD`（以及库名/用户）在 **首次 init** 时写入数据目录；若你 **重新跑 §2 随机生成新密码** 但 **没有删 `postgres/`**，新 `.env` 与旧库 **不匹配**，Postgres 会认证失败。**想保留数据** → 保留原 `.env`，只改 `TOKENKEY_IMAGE` 等非 PG 字段；**想换一套库** → 走 §7b 删掉 `postgres/`（或整目录）后再 §2。
+- **`AUTO_SETUP`**：库已存在时通常不会重复造管理员；继续用原 **`ADMIN_EMAIL` / `ADMIN_PASSWORD`**（见 §2 当时写入的 `.env`）。
+
 ## 1) 准备目录
 
 ```bash
@@ -76,6 +85,8 @@ mkdir -p "${TOKENKEY_STAGE0_LOCAL_ROOT}"/{caddy,app,postgres,pgdump,redis}
 ```
 
 ## 2) 生成秘密并写入 `.env`
+
+**何时跑本节**：**首次建站**或 **§7b 清空数据后**。**若 Postgres 数据目录已存在且要保留账号/业务数据**：**不要**整张覆盖 `.env` 或至少 **勿改 `POSTGRES_*`**（否则见「日常复用」与故障速查「password authentication failed」）。
 
 用新随机值（**勿复用示例或会话里出现过的十六进制串**）：
 
@@ -287,7 +298,11 @@ curl -sS -H 'Content-Type: application/json' \
   "http://127.0.0.1:8088/api/v1/auth/login"
 ```
 
-## 7) 销毁（停栈 + 删数据）
+## 7) 停栈 / 重置
+
+### 7a) 停栈，**保留** Postgres / Redis / app 数据（默认）
+
+释放端口与容器，**下次 `up -d` 数据仍在**：
 
 ```bash
 # 若未导出：见上文
@@ -297,10 +312,22 @@ docker compose \
   -f "${TOKENKEY_STAGE0_LOCAL_ROOT}/docker-compose.override.yml" \
   --env-file "${TOKENKEY_STAGE0_LOCAL_ROOT}/.env" \
   down
+```
 
-# 删除状态（按需；确认路径后再执行）
+**不要**在本机日常测试末尾自动加 **`rm -rf`**。本栈使用 **bind mount**，**`down` 默认不会删** `${TOKENKEY_STAGE0_LOCAL_ROOT}/postgres` 等目录（与「具名卷 + `down -v`」不同）。
+
+### 7b) **有意清空**（删库 / 回到「全新栈」）
+
+确认 **`TOKENKEY_STAGE0_LOCAL_ROOT`** 指向正确后：
+
+1. 先按 **7a** `down`（避免删目录时容器仍占用文件）。
+2. 再删状态目录，例如：
+
+```bash
 rm -rf "${TOKENKEY_STAGE0_LOCAL_ROOT}"
 ```
+
+之后从 **§1** 起重建；**§2** 会生成新密钥与 **新** `POSTGRES_PASSWORD`，与空数据目录一致。
 
 若曾 `docker build` 本地标签且不再使用：`docker rmi tokenkey-local:dev`（替换成实际 tag）。
 
@@ -315,6 +342,7 @@ rm -rf "${TOKENKEY_STAGE0_LOCAL_ROOT}"
 | --- | --- |
 | Agent / 工具 **`docker compose pull` 或 `up` 超时** | 拉长超时或与用户说明网络慢；可拆成先 `pull` 再 `up`；未完成不要当失败退出。 |
 | `docker compose ps` 长期 non-healthy | 看 **`docker logs tokenkey`** / **`docker logs tokenkey-postgres`** / **`docker logs tokenkey-redis`**；等资源初始化或修 `.env` 密钥。 |
+| **Postgres 起不来 / `password authentication failed`** | 多为 **§2 重写了 `POSTGRES_PASSWORD`** 但 **`postgres/` 数据目录仍是旧库**：恢复与旧库一致的 `.env`，或 **§7b** 删 `postgres/`（或整 `${TOKENKEY_STAGE0_LOCAL_ROOT}`）后重建。 |
 | `exec format error` | 镜像架构与主机不一致；Apple Silicon 拉取 **arm64** 或 **`docker build --platform linux/arm64`**。 |
 | Caddy **503**、应用容器已起 | **`docker logs tokenkey-caddy`**；本节 **B** 直连 `localhost:8080`；核对 Caddyfile 站点是否为 **`:80`**。 |
 | GHCR pull **403** | `docker login ghcr.io`；PAT 权限与镜像 owner；Agent 若在沙箱无登录态须在用户 shell 登录。 |
