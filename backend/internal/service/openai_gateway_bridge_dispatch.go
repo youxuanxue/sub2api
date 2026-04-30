@@ -74,6 +74,28 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 	}, nil
 }
 
+// dispatchNewAPIAccountTestChatCompletions is the admin account-test probe for newapi; it must
+// stay in this file so preflight’s bridge.Dispatch* boundary rule remains satisfied.
+func dispatchNewAPIAccountTestChatCompletions(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	body []byte,
+) error {
+	recordBridgeDispatch()
+	in := newAPIBridgeChannelInput(account, 0, "")
+	if strings.TrimSpace(in.APIKey) == "" {
+		recordBridgeDispatchError()
+		return &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
+	}
+	_, apiErr := bridge.DispatchChatCompletions(ctx, c, in, body)
+	if apiErr != nil {
+		recordBridgeDispatchError()
+		return &NewAPIRelayError{Err: apiErr}
+	}
+	return nil
+}
+
 // ForwardAsResponsesDispatched is the Tier1 bridge boundary for /responses in OpenAI gateway.
 func (s *OpenAIGatewayService) ForwardAsResponsesDispatched(
 	ctx context.Context,

@@ -17,7 +17,7 @@ import (
 // UpstreamModelFetchAllowed matches new-api web MODEL_FETCHABLE_CHANNEL_TYPES (channel.constants.js).
 func UpstreamModelFetchAllowed(channelType int) bool {
 	switch channelType {
-	case 1, 4, 14, 34, 17, 26, 27, 24, 47, 25, 20, 23, 31, 40, 42, 48, 43, 45:
+	case 1, 4, 14, 34, 17, 26, 27, 24, 47, 25, 20, 23, 31, 40, 42, 48, 43, 45, 54:
 		return true
 	default:
 		return false
@@ -54,6 +54,7 @@ func FetchUpstreamModelList(ctx context.Context, baseURL string, channelType int
 		base = newapiconstant.ChannelBaseURLs[channelType]
 	}
 	base = strings.TrimRight(base, "/")
+	base = NormalizeArkChannelBaseURL(channelType, base)
 	// OpenAI-compat bases are host roots; users sometimes paste .../v1 — avoid /v1/v1/models.
 	if strings.HasSuffix(base, "/v1") {
 		base = strings.TrimRight(strings.TrimSuffix(base, "/v1"), "/")
@@ -63,7 +64,7 @@ func FetchUpstreamModelList(ctx context.Context, baseURL string, channelType int
 	}
 
 	switch channelType {
-	case newapiconstant.ChannelTypeVolcEngine:
+	case newapiconstant.ChannelTypeVolcEngine, newapiconstant.ChannelTypeDoubaoVideo:
 		return fetchOpenAICompatModels(ctx, base+"/api/v3/models", key)
 	case newapiconstant.ChannelTypeOllama:
 		models, err := ollama.FetchOllamaModels(base, key)
