@@ -64,7 +64,6 @@ func (s *AccountTestService) testNewAPIAccountConnectionTK(c *gin.Context, accou
 	rec := httptest.NewRecorder()
 	probeCtx, _ := gin.CreateTestContext(rec)
 	probeCtx.Request = httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
-	probeCtx.Request.Header = c.Request.Header.Clone()
 	probeCtx.Request.Header.Set("Content-Type", "application/json")
 	probeCtx.Request.ContentLength = int64(len(body))
 

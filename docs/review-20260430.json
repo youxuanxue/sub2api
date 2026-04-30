@@ -1,6 +1,6 @@
 {
   "review_date": "2026-04-30",
-  "scope": "PR #106 (main...fix/newapi-account-test-chat-probe)",
+  "scope": "PR #106 (main...fix/newapi-account-test-chat-probe), second pass",
   "risk_level": "normal",
   "review_mode": "concise",
   "decision": "merge-ready",
@@ -20,7 +20,8 @@
     "trip_reason": null
   },
   "notes": [
-    "Fixed during review: removed unrelated Playwright/template-contract dependency and files from the PR to keep scope and upstream conflict surface minimal.",
-    "Fixed during review: OpenAI chat-completions SSE parser now treats EOF before [DONE]/finish_reason as an error; added a regression test for truncated parser input."
+    "Fixed during first review: removed unrelated Playwright/template-contract dependency and files from the PR to keep scope and upstream conflict surface minimal.",
+    "Fixed during first review: OpenAI chat-completions SSE parser now treats EOF before [DONE]/finish_reason as an error; added a regression test for truncated parser input.",
+    "Fixed during second review: internal NewAPI account-test probe no longer clones outer admin request headers into the upstream probe context; added regression assertions for admin-only header isolation."
   ]
 }

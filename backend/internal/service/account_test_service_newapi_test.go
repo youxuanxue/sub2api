@@ -25,6 +25,18 @@ func TestAccountTestService_NewAPI_RoutesToChatCompletions(t *testing.T) {
 		require.Equal(t, http.MethodPost, r.Method)
 		require.Equal(t, "/v1/chat/completions", r.URL.Path)
 		require.Equal(t, "Bearer probe-key", r.Header.Get("Authorization"))
+		if got := r.Header.Get("X-Admin-Only"); got != "" {
+			t.Fatalf("admin request header leaked to upstream probe: %q", got)
+		}
+		if got := r.Header.Get("X-Forwarded-User"); got != "" {
+			t.Fatalf("forwarded user header leaked to upstream probe: %q", got)
+		}
+		if got := r.Header.Get("Accept"); got == "application/x-admin-stream" {
+			t.Fatalf("admin Accept header leaked to upstream probe: %q", got)
+		}
+		if got := r.Header.Get("Content-Type"); got != "application/json" {
+			t.Fatalf("Content-Type = %q, want application/json", got)
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"hello from upstream\"}}]}\n\n")
@@ -35,6 +47,9 @@ func TestAccountTestService_NewAPI_RoutesToChatCompletions(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/1/test", nil)
+	c.Request.Header.Set("X-Admin-Only", "do-not-forward")
+	c.Request.Header.Set("X-Forwarded-User", "admin")
+	c.Request.Header.Set("Accept", "application/x-admin-stream")
 
 	svc := &AccountTestService{}
 	account := &Account{
