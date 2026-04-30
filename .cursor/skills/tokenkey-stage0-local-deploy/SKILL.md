@@ -1,15 +1,25 @@
 ---
 name: tokenkey-stage0-local-deploy
 description: >-
-  Local Docker stack matching deploy/aws Stage 0 (Caddy + app + Postgres + Redis). Skill
-  body pins this clone: REPO_ROOT under $HOME/Codes/token/tk/sub2api, new-api sibling parent,
-  state under REPO_ROOT/.cache/tokenkey-stage0-local. Use for deploy/aws simulation on
-  laptop, port 8088 smoke, AUTO_SETUP admin login, compose down + rm state.
+  Local Docker stack matching deploy/aws Stage 0 (Caddy + app + Postgres + Redis): export
+  $HOME-pinned paths, write .cache override + .env + Caddyfile, docker compose config/pull/up
+  with long timeouts for first pull/up, verify A curl via :8088, B bypass Caddy, optional C
+  tk_post_deploy_smoke when API key exists, then compose down + optional rm cache. Mirrors
+  tokenkey-prod-release-deploy posture (ordered flow, explicit verification, teardown).
 ---
 
 # TokenKey：本地模拟 `deploy/aws` Stage 0（Compose + 验证 + 销毁）
 
-与 `deploy/aws` 相同方式在笔记本起栈、验证后销毁。权威栈定义见 `deploy/aws/stage0/docker-compose.yml` 与 `deploy/aws/README.md`。
+适用于本仓库（TokenKey fork of sub2api）。栈定义见 `deploy/aws/stage0/docker-compose.yml`、`deploy/aws/README.md`；发版与真机 Stage0 路径见 **`tokenkey-prod-release-deploy`**。根目录 **`CLAUDE.md`** 仍为纪律来源（ARM、`new-api` sibling、pnpm 等）。
+
+## 一次性跑完（原则）
+
+- **顺序做完**：`export` 路径变量 → §1 目录 → §2 `.env`（含密钥）→ §3 `Caddyfile` → §4 `docker-compose.override.yml` → **`docker compose … config --quiet`** → **`pull`** → **`up -d`** → **`docker compose ps` 等服务 healthy** → **本节「真实测试」A → B →（有网关 key 时再 C）** → 再结束会话。**不要**在 `up -d` 刚返回就认为成功，也不管 health 就收工。
+- **`docker compose pull` / 首次拉起 tokenkey**：镜像层下载与数据库初始化可能各占 **数分钟量级**；Agent **须给 Shell 命令足够超时**（与 prod 技能的 `gh run watch` 同级思路），**避免**默认短时中断把 pull/up 误判为失败。
+- **健康检查**：执行 **`docker compose ps`**，确认 **`tokenkey` / `postgres` / `redis` / `caddy`**（与 `deploy/aws/stage0/docker-compose.yml` 中 `container_name` 一致）状态与健康就绪；`tokenkey` 依赖 postgres/redis healthy，首轮 **30–90s** 属常见。必要时 **`docker logs tokenkey`** / **`docker logs tokenkey-postgres`**。
+- **`rm -rf "${TOKENKEY_STAGE0_LOCAL_ROOT}"`**：仅在为 **空置栈**收尾且 **确认变量指向 `.cache/tokenkey-stage0-local`**（或自定目录）后再做；破坏性操作不要对错误的父路径执行。
+- **私有 GHCR**：`docker compose pull` tokenkey 镜像前应先在本机 **`docker login ghcr.io`**；Agent 若在沙箱里无法访问 daemon 或未继承登录态，需在可访问 Docker 的环境里执行 compose。
+- **`tk_post_deploy_smoke.sh`（与 prod 同款）**：见下文 **C**；需要 **可用的用户侧网关 API Key**（`POST_DEPLOY_SMOKE_API_KEY` 等）。纯 **AUTO_SETUP** 新栈往往还没有 key——此时 **只做 A+B 或再加管理员登录**即可，不要为了跑 C 而停下向人要 prod key。
 
 ## 本项目路径约定（本仓库克隆）
 
@@ -25,7 +35,9 @@ export TOKENKEY_STAGE0_LOCAL_ROOT="$HOME/Codes/token/tk/sub2api/.cache/tokenkey-
 
 - `REPO_ROOT`：本 git 仓库根（含 `backend/`、`deploy/aws/stage0/docker-compose.yml`）。
 - `TOKENKEY_NEWAPI_PARENT`：`Dockerfile` 要求的 **父目录**（与 `CLAUDE.md`「Sibling dependency: New API」一致）。
-- `TOKENKEY_STAGE0_LOCAL_ROOT`：本地 override、`.env`、Caddyfile、PG/Redis 数据落盘处；位于 `REPO_ROOT/.cache/...`，仓库已 `.gitignore` `.cache/`。
+- `TOKENKEY_STAGE0_LOCAL_ROOT`：本地 override、`.env`、Caddyfile、PG/Redis 数据落盘处；位于 `REPO_ROOT/.cache/...`，仓库根 `.gitignore` 已忽略 `.cache/`。
+
+为方便「单节复制粘贴」，**§2 / §5 / §7 / 部分自检**可能在代码块里重复写出 `export`。若你已在 **`本项目路径约定`** 或 **§1** 导出过 `REPO_ROOT` 与 `TOKENKEY_STAGE0_LOCAL_ROOT`，可跳过这些重复行。**§4 写 override 时仍须在当前 shell `export TOKENKEY_STAGE0_LOCAL_ROOT`**，否则 `${TOKENKEY_STAGE0_LOCAL_ROOT}` 在 YAML 挂载路径中会为空。
 
 默认 **GHCR 镜像坐标** 使用 **`:latest`**，避免与 `VERSION` 文件不同步导致拉取失败；需要与某次发版逐位对照时再显式改为 `ghcr.io/youxuanxue/sub2api:<VERSION>` 或 `sha-…`：
 
@@ -46,13 +58,14 @@ export TOKENKEY_IMAGE_DEFAULT="ghcr.io/youxuanxue/sub2api:latest"
 
 ## 前置条件
 
-- 仓库根目录；已安装 Docker 与 `docker compose`。
-- **private GHCR**：先 `docker login ghcr.io`（PAT 需 `read:packages`）。
-- 走**本地构建**镜像时：Docker 构建上下文必须是 **sub2api 与 new-api 同级目录**，见根目录 `Dockerfile` 头注释与 `CLAUDE.md`（`replace github.com/QuantumNous/new-api => ../../new-api`）。
+- Docker 与本机 **`docker compose`** 可用（Agent 须有权限与 daemon 通信）。
+- **`curl`**：`docker exec tokenkey wget`（镜像内）；宿主机也需 `curl` 做 `:8088` 探活。**可选完整烟测 C** 时需 **`jq` + `python3`**（`scripts/tk_post_deploy_smoke.sh` 依赖）。
+- **private GHCR**：先 `docker login ghcr.io`（PAT 需 `read:packages`），再拉 `ghcr.io/youxuanxue/sub2api:…`。
+- **本地镜像构建**：上下文必须是 **`TOKENKEY_NEWAPI_PARENT`**（`sub2api` + `new-api` 同级），见根目录 `Dockerfile` 头注释与 `CLAUDE.md`（`replace … => ../../new-api`）。
 
 ## 环境变量约定
 
-上一节 **`REPO_ROOT` / `TOKENKEY_NEWAPI_PARENT` / `TOKENKEY_STAGE0_LOCAL_ROOT`** 为项目级默认值；Compose 还要求在运行命令的 shell 里 **export `TOKENKEY_STAGE0_LOCAL_ROOT`**，以便 override YAML 展开卷路径。
+- **`REPO_ROOT` / `TOKENKEY_NEWAPI_PARENT` / `TOKENKEY_STAGE0_LOCAL_ROOT`**：见上节；凡运行 **`docker compose`** 的同一会话里都 **`export TOKENKEY_STAGE0_LOCAL_ROOT`**，否则 override 里 **`${TOKENKEY_STAGE0_LOCAL_ROOT}`** 卷路径为空或错位。
 
 ## 1) 准备目录
 
@@ -67,8 +80,7 @@ mkdir -p "${TOKENKEY_STAGE0_LOCAL_ROOT}"/{caddy,app,postgres,pgdump,redis}
 用新随机值（**勿复用示例或会话里出现过的十六进制串**）：
 
 ```bash
-export REPO_ROOT="$HOME/Codes/token/tk/sub2api"
-export TOKENKEY_STAGE0_LOCAL_ROOT="$HOME/Codes/token/tk/sub2api/.cache/tokenkey-stage0-local"
+# 若未导出：见上文「本项目路径约定」或 §1
 ADMIN_PASSWORD="$(openssl rand -hex 16)"
 POSTGRES_PASSWORD="$(openssl rand -hex 12)"
 JWT_SECRET="$(openssl rand -hex 32)"
@@ -193,8 +205,7 @@ services:
 ## 5) 校验配置、拉依赖、启动
 
 ```bash
-export REPO_ROOT="$HOME/Codes/token/tk/sub2api"
-export TOKENKEY_STAGE0_LOCAL_ROOT="$HOME/Codes/token/tk/sub2api/.cache/tokenkey-stage0-local"
+# 若未导出 REPO_ROOT / TOKENKEY_STAGE0_LOCAL_ROOT：见「本项目路径约定」或 §1
 
 docker compose \
   -f "${REPO_ROOT}/deploy/aws/stage0/docker-compose.yml" \
@@ -206,7 +217,7 @@ docker compose \
   -f "${REPO_ROOT}/deploy/aws/stage0/docker-compose.yml" \
   -f "${TOKENKEY_STAGE0_LOCAL_ROOT}/docker-compose.override.yml" \
   --env-file "${TOKENKEY_STAGE0_LOCAL_ROOT}/.env" \
-  pull caddy postgres redis
+  pull
 
 docker compose \
   -f "${REPO_ROOT}/deploy/aws/stage0/docker-compose.yml" \
@@ -214,6 +225,9 @@ docker compose \
   --env-file "${TOKENKEY_STAGE0_LOCAL_ROOT}/.env" \
   up -d
 ```
+
+**本地镜像、`pull_policy: never`**：`docker compose … pull` 可能因 **tokenkey** 仅存在本机 tag 而失败（仍会去 registry 解析）。可改为只拉基础镜像：  
+**`docker compose … pull caddy postgres redis`**，再 **`up -d`**（`tokenkey` 使用本地 `TOKENKEY_IMAGE`）。
 
 可选本地构建（父目录需含 `sub2api` + `new-api`）：
 
@@ -225,25 +239,46 @@ docker build -f sub2api/Dockerfile -t tokenkey-local:dev .
 
 然后在 `.env` 中设置 `TOKENKEY_IMAGE=tokenkey-local:dev` 且 override 里 `pull_policy: never`。
 
-## 6) 验证
+## 6) 真实测试（会话里尽量做完）
 
-**经 Caddy（与会话一致）**：
+`compose up -d` 成功只代表容器调度成功；Agent **仍需**按下面顺序自检（对齐 prod 技能的 **部署后还须本地验收**，只是探针改为本机 `:8088`）。
+
+### A — 经 Caddy 快速探活（无需网关 API Key）
 
 ```bash
 curl -sS -o /dev/null -w '%{http_code}\n' "http://127.0.0.1:8088/health"
 curl -sS -o /dev/null -w '%{http_code}\n' "http://127.0.0.1:8088/api/v1/settings/public"
 ```
 
-**绕开 Caddy**（排查 503）：
+期望均为 **HTTP 200**。若要对 public 接口更严：`curl -sS "http://127.0.0.1:8088/api/v1/settings/public" | jq -e '.code == 0' >/dev/null`（需本机 **`jq`**）。
+
+### B — 绕开 Caddy（应用本体 / 503 排查）
+
+确认 tokenkey 容器内直连 **8080** 正常：
 
 ```bash
 docker exec tokenkey wget -q -T 5 -O - http://localhost:8080/health
 ```
 
-**管理员登录**（不要把真实密码贴进聊天记录；口令仅取自本机 `.env`）：
+### C — 本地完整网关烟测（可选，与 prod 同款脚本）
+
+与 **`tokenkey-prod-release-deploy`** 中 **C** 使用同一 **`scripts/tk_post_deploy_smoke.sh`**，仅 **`TOKENKEY_BASE_URL`** 指向本机反代：
 
 ```bash
-export TOKENKEY_STAGE0_LOCAL_ROOT="$HOME/Codes/token/tk/sub2api/.cache/tokenkey-stage0-local"
+cd "${REPO_ROOT}" # 须在含 scripts/ 的仓库根；未导出 REPO_ROOT 时见「本项目路径约定」
+export TOKENKEY_BASE_URL=http://127.0.0.1:8088
+# 密钥解析顺序与 prod 相同：POST_DEPLOY_SMOKE_API_KEY → ANTHROPIC_AUTH_TOKEN → TK_TOKEN → TOKENKEY_API_KEY
+bash scripts/tk_post_deploy_smoke.sh
+```
+
+**前提**：须已有 **可用的用户侧网关 API Key**（新 AUTO_SETUP 栈通常没有——先在管理后台创建订阅用户与 key，或使用你专用于本地的测试 key）。**不得**打印完整 key；脚本只输出 `key_hint`。若缺 key：**不要卡住会话**，验收 **A+B**（及下方管理员登录）即可。
+
+### 管理员会话（常与 A/B 一起做，≠ C 的网关 key）
+
+用于验证 **AUTO_SETUP** 账密（**勿把密码粘贴到聊天**；只从本机 `.env` 引用）：
+
+```bash
+# TOKENKEY_STAGE0_LOCAL_ROOT 未导出时：见「本项目路径约定」或 §1
 set -a
 source "${TOKENKEY_STAGE0_LOCAL_ROOT}/.env"
 set +a
@@ -255,8 +290,7 @@ curl -sS -H 'Content-Type: application/json' \
 ## 7) 销毁（停栈 + 删数据）
 
 ```bash
-export REPO_ROOT="$HOME/Codes/token/tk/sub2api"
-export TOKENKEY_STAGE0_LOCAL_ROOT="$HOME/Codes/token/tk/sub2api/.cache/tokenkey-stage0-local"
+# 若未导出：见上文
 
 docker compose \
   -f "${REPO_ROOT}/deploy/aws/stage0/docker-compose.yml" \
@@ -270,16 +304,27 @@ rm -rf "${TOKENKEY_STAGE0_LOCAL_ROOT}"
 
 若曾 `docker build` 本地标签且不再使用：`docker rmi tokenkey-local:dev`（替换成实际 tag）。
 
+## 收尾备忘
+
+- **`${TOKENKEY_STAGE0_LOCAL_ROOT}`**（默认 `REPO_ROOT/.cache/tokenkey-stage0-local`）：勿将 `.env`、`docker-compose.override.yml`、PG/Redis 数据卷产物提交 git；路径在 `.gitignore` 的 `.cache/` 之下。**勿**把该目录当作仓库制品归档进 git。
+- 与 **`tokenkey-prod-release-deploy`** 不同：本地栈**无** `release.yml` 回写 **`VERSION`/sync-version`，流程末尾不必为这个栈再 **`git fetch`/`pull`**（除非仓库本身有其他变更）。
+
 ## 故障速查
 
 | 现象 | 处理 |
 | --- | --- |
-| `exec format error` | 镜像架构与主机不一致；Apple Silicon 拉取 **arm64** 或构建时指定 `--platform linux/arm64`。 |
-| Caddy 503、应用 healthy | 看 `docker logs tokenkey-caddy`；用容器内 `wget` 直连 `tokenkey:8080`；检查 Caddyfile 站点是否为 `:80`。 |
-| GHCR pull 403 | `docker login ghcr.io`；PAT 权限与镜像 owner。 |
-| 构建极慢 | 与会话相同：可改用具已推送到 GHCR 的 tag，跳本地多阶段构建。 |
+| Agent / 工具 **`docker compose pull` 或 `up` 超时** | 拉长超时或与用户说明网络慢；可拆成先 `pull` 再 `up`；未完成不要当失败退出。 |
+| `docker compose ps` 长期 non-healthy | 看 **`docker logs tokenkey`** / **`docker logs tokenkey-postgres`** / **`docker logs tokenkey-redis`**；等资源初始化或修 `.env` 密钥。 |
+| `exec format error` | 镜像架构与主机不一致；Apple Silicon 拉取 **arm64** 或 **`docker build --platform linux/arm64`**。 |
+| Caddy **503**、应用容器已起 | **`docker logs tokenkey-caddy`**；本节 **B** 直连 `localhost:8080`；核对 Caddyfile 站点是否为 **`:80`**。 |
+| GHCR pull **403** | `docker login ghcr.io`；PAT 权限与镜像 owner；Agent 若在沙箱无登录态须在用户 shell 登录。 |
+| **`tk_post_deploy_smoke.sh` 报缺 KEY** | 正常：新栈尚无用户 API key。**只做 A+B** 或先做管理员登录，再在后台发证后重跑 **C**。 |
+| **全量 `pull` 在 tokenkey 上失败（仅本地 tag）** | `.env` 用本地 build 且 override `pull_policy: never`：按上文改为 **`pull caddy postgres redis`** 后 **`up -d`**。 |
 
 ## 扩展阅读
 
-- `deploy/aws/README.md` — Stage 0 总览与生产升级 SOP  
-- `tokenkey-prod-release-deploy` — 打 tag、GHCR、`deploy-stage0` 真机发布
+- [tokenkey-prod-release-deploy](../tokenkey-prod-release-deploy/SKILL.md) — main / tag / `release.yml` / `deploy-stage0` / prod 烟测
+- `deploy/aws/README.md` — Stage 0 总览与 EC2 升级 SOP  
+- `.github/workflows/deploy-stage0.yml` — 真机 `tag` 形参（无 `v` 前缀）  
+- `scripts/tk_post_deploy_smoke.sh` — 与 prod **C** 相同的网关烟测脚本，改 `TOKENKEY_BASE_URL` 即可打本地 `:8088`  
+- `scripts/release-tag.sh` — 仅 prod 打 tag；本地默认不调用
