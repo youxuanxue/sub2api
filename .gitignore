@@ -135,10 +135,9 @@ backend/.installed
 # 其他
 # ===================
 tests
-# Ignore local Claude Code state; keep tracked project skills for CLI discovery.
+# Ignore local Claude Code state; `.claude/skills` is a tracked symlink → `.cursor/skills`.
 .claude/*
-!.claude/skills/
-!.claude/skills/**
+!.claude/skills
 .codex
 # docs/ — keep fully tracked (no subtree ignore here). Generated or local-only
 # material belongs under paths already ignored (.auto-reports/, output/, etc.).

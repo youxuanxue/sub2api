@@ -317,9 +317,12 @@ section only records sub2api-specific choices.
   The "submodule first" order is enforced by preflight § 2 (warns on offline,
   fails if SHA missing locally) and by `dev-rules/rules/dev-rules-convention.mdc`.
 
-## Agent skill: prod release + AWS Stage0 deploy
+## Agent skills（Cursor / Claude Code）
 
-Full checklist (**同步 main → VERSION bump / 打 tag → `release.yml` → `deploy-stage0` prod → 真实烟测**) lives in [.cursor/skills/tokenkey-prod-release-deploy/SKILL.md](.cursor/skills/tokenkey-prod-release-deploy/SKILL.md). The same file is symlinked at `.claude/skills/tokenkey-prod-release-deploy/SKILL.md` so **Claude Code** picks it up as a project skill alongside **Cursor** (`.cursor/skills/…`).
+技能正文只在 [.cursor/skills/](.cursor/skills/) 下各目录的 `SKILL.md`。仓库根的 `.claude/skills` **仅为**指向 `.cursor/skills` 的 symlink（不要在 `.claude/skills/` 下创建真实文件或副本）。全局禁令见 **`dev-rules/global/CLAUDE.md`** §4「Agent Skills」。
+
+- **Prod 发布与 AWS Stage0：** [.cursor/skills/tokenkey-prod-release-deploy/SKILL.md](.cursor/skills/tokenkey-prod-release-deploy/SKILL.md) — `main` → VERSION/tag → `release.yml` → `deploy-stage0` prod → 烟测。
+- **本机 Stage0 Docker：** [.cursor/skills/tokenkey-stage0-local-deploy/SKILL.md](.cursor/skills/tokenkey-stage0-local-deploy/SKILL.md) — 与 `deploy/aws/stage0` 对齐的 compose、`AUTO_SETUP`、默认 `REPO_ROOT` / sibling `new-api` / `.cache` 路径见该 skill。
 
 ## Key Reference
 
