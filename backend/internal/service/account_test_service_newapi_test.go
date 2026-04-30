@@ -96,9 +96,24 @@ func TestAccountTestService_NewAPI_ReportsUpstreamFailure(t *testing.T) {
 	require.NotContains(t, body, `"success":true`)
 }
 
-// TestAccountTestService_NewAPI_RejectsMissingChannelType ensures that a
-// newapi account created without a channel_type (mis-configuration) gets a
-// clear admin-facing error instead of a misleading probe.
+func TestAccountTestService_NewAPI_ReportsTruncatedChatStream(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/1/test", nil)
+
+	svc := &AccountTestService{}
+	err := svc.processOpenAIChatCompletionsStream(c, strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n"))
+	require.Error(t, err)
+
+	body := rec.Body.String()
+	require.Contains(t, body, "partial")
+	require.Contains(t, body, `"type":"error"`)
+	require.Contains(t, body, "Stream ended before chat completion finished")
+	require.NotContains(t, body, `"success":true`)
+}
+
 func TestAccountTestService_NewAPI_RejectsMissingChannelType(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

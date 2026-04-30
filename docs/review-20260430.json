@@ -1,0 +1,26 @@
+{
+  "review_date": "2026-04-30",
+  "scope": "PR #106 (main...fix/newapi-account-test-chat-probe)",
+  "risk_level": "normal",
+  "review_mode": "concise",
+  "decision": "merge-ready",
+  "approved_artifacts_referenced": [],
+  "validation_gaps": [],
+  "summary": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 0
+  },
+  "findings": [],
+  "circuit_breaker": {
+    "max_autofixes": 3,
+    "budget_usd_used": 0,
+    "tripped": false,
+    "trip_reason": null
+  },
+  "notes": [
+    "Fixed during review: removed unrelated Playwright/template-contract dependency and files from the PR to keep scope and upstream conflict surface minimal.",
+    "Fixed during review: OpenAI chat-completions SSE parser now treats EOF before [DONE]/finish_reason as an error; added a regression test for truncated parser input."
+  ]
+}
