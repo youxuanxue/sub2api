@@ -74,6 +74,8 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 	}, nil
 }
 
+// dispatchNewAPIAccountTestChatCompletions is the admin account-test probe for newapi; it must
+// stay in this file so preflight’s bridge.Dispatch* boundary rule remains satisfied.
 func dispatchNewAPIAccountTestChatCompletions(
 	ctx context.Context,
 	c *gin.Context,
