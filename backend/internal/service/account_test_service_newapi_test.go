@@ -3,31 +3,32 @@
 package service
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
-// TestAccountTestService_NewAPI_RoutesToUpstreamModelsProbe verifies that the
-// fifth-platform `newapi` test connection no longer falls through to the
-// Claude/Anthropic path (which would have sent claude.DefaultHeaders to an
-// arbitrary OpenAI-compat upstream). It must call the upstream
-// GET /v1/models endpoint and report success when the upstream returns 200.
-func TestAccountTestService_NewAPI_RoutesToUpstreamModelsProbe(t *testing.T) {
+// TestAccountTestService_NewAPI_RoutesToChatCompletions verifies that the
+// fifth-platform `newapi` test connection sends the user's prompt to the
+// upstream chat-completions adaptor path instead of only probing /models.
+func TestAccountTestService_NewAPI_RoutesToChatCompletions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	hits := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits++
-		require.Equal(t, http.MethodGet, r.Method, "newapi probe must be GET, claude/anthropic path would POST")
-		require.Equal(t, "/v1/models", r.URL.Path, "newapi probe must hit /v1/models, not /v1/messages")
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/v1/chat/completions", r.URL.Path)
 		require.Equal(t, "Bearer probe-key", r.Header.Get("Authorization"))
-		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"data":[{"id":"upstream-model-a"},{"id":"upstream-model-b"}]}`))
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"hello from upstream\"}}]}\n\n")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"finish_reason\":\"stop\"}]}\n\n")
 	}))
 	defer srv.Close()
 
@@ -40,7 +41,7 @@ func TestAccountTestService_NewAPI_RoutesToUpstreamModelsProbe(t *testing.T) {
 		ID:          901,
 		Platform:    PlatformNewAPI,
 		Type:        AccountTypeAPIKey,
-		ChannelType: 1, // OpenAI-compat default
+		ChannelType: 1,
 		Concurrency: 1,
 		Credentials: map[string]any{
 			"api_key":  "probe-key",
@@ -48,19 +49,20 @@ func TestAccountTestService_NewAPI_RoutesToUpstreamModelsProbe(t *testing.T) {
 		},
 	}
 
-	err := svc.testNewAPIAccountConnection(c, account)
+	err := svc.testNewAPIAccountConnection(c, account, "upstream-model-a", "hi")
 	require.NoError(t, err)
-	require.Equal(t, 1, hits, "must probe upstream exactly once")
+	require.Equal(t, 1, hits, "must send one chat completion probe")
 	body := rec.Body.String()
 	require.Contains(t, body, `"type":"test_start"`)
-	require.Contains(t, body, `"type":"test_end"`)
+	require.Contains(t, body, `"type":"content"`)
+	require.Contains(t, body, "hello from upstream")
+	require.Contains(t, body, `"type":"test_complete"`)
 	require.Contains(t, body, `"success":true`)
-	require.Contains(t, body, "upstream-model-a")
 }
 
 // TestAccountTestService_NewAPI_ReportsUpstreamFailure verifies that an
 // authentication failure or unreachable upstream surfaces a structured SSE
-// error event (non-zero exit at the handler level) — not a silent success.
+// error event — not a silent success.
 func TestAccountTestService_NewAPI_ReportsUpstreamFailure(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -87,18 +89,16 @@ func TestAccountTestService_NewAPI_ReportsUpstreamFailure(t *testing.T) {
 		},
 	}
 
-	_ = svc.testNewAPIAccountConnection(c, account)
+	_ = svc.testNewAPIAccountConnection(c, account, "upstream-model-a", "hi")
 	body := rec.Body.String()
-	// sendErrorAndEnd writes a single SSE event with type=error carrying the
-	// upstream message; surface upstream auth failure rather than silent success.
 	require.Contains(t, body, `"type":"error"`)
-	require.Contains(t, body, "Upstream probe failed")
+	require.True(t, strings.Contains(body, "bad key") || strings.Contains(body, "API returned 401"), body)
 	require.NotContains(t, body, `"success":true`)
 }
 
 // TestAccountTestService_NewAPI_RejectsMissingChannelType ensures that a
 // newapi account created without a channel_type (mis-configuration) gets a
-// clear admin-facing error instead of a misleading "Claude" probe.
+// clear admin-facing error instead of a misleading probe.
 func TestAccountTestService_NewAPI_RejectsMissingChannelType(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -111,11 +111,11 @@ func TestAccountTestService_NewAPI_RejectsMissingChannelType(t *testing.T) {
 		ID:          903,
 		Platform:    PlatformNewAPI,
 		Type:        AccountTypeAPIKey,
-		ChannelType: 0, // missing
+		ChannelType: 0,
 		Credentials: map[string]any{"api_key": "k", "base_url": "https://example.invalid"},
 	}
 
-	_ = svc.testNewAPIAccountConnection(c, account)
+	_ = svc.testNewAPIAccountConnection(c, account, "upstream-model-a", "hi")
 	body := rec.Body.String()
 	require.Contains(t, body, "channel_type")
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/dto"
 	newapitypes "github.com/QuantumNous/new-api/types"
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
 )
 
@@ -65,6 +66,7 @@ func newAPIBridgeChannelInput(account *Account, userID int64, groupLabel string)
 		}
 	}
 	baseURL := strings.TrimSpace(account.GetBaseURL())
+	baseURL = newapiintegration.NormalizeArkChannelBaseURL(account.ChannelType, baseURL)
 	// Fifth platform `newapi`: OpenAI base URL fallback does not apply; credentials.base_url is required at create time.
 	if baseURL == "" && account.Platform != PlatformNewAPI {
 		baseURL = strings.TrimSpace(account.GetOpenAIBaseURL())

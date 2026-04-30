@@ -529,6 +529,9 @@ const handleEvent = (event: {
         addLine(streamingContent.value, 'text-green-300')
         streamingContent.value = ''
       }
+      if (event.text) {
+        addLine(event.text, 'text-green-300')
+      }
       if (event.success) {
         status.value = 'success'
       } else {

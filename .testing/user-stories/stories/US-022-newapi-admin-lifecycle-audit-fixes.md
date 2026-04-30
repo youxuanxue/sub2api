@@ -31,11 +31,11 @@
    Then 自动创建 `newapi-default` 分组（platform=newapi）。
 4. AC-004 (正向 — admin 测试连接): Given 一个 platform=newapi、
    channel_type>0、api_key 非空的账号，When 管理员触发 "测试连接"，
-   Then 服务调用 `FetchUpstreamModelList` 探测上游 `/v1/models`，SSE
-   返回 `test_end / status=success` 与模型预览。
+   Then 服务通过 New API chat-completions adaptor 路径发送用户选择的 model/prompt，
+   SSE 返回 `test_complete / success=true` 与上游内容。
 5. AC-005 (负向 — admin 测试连接): Given 上述账号但 api_key 被上游拒绝，
    When 管理员触发 "测试连接"，Then SSE 返回 `type=error` 且文案包含
-   "Upstream probe failed"，**不**走 Claude 测试路径。
+   上游错误或 `API returned 401`，**不**走 Claude 测试路径。
 6. AC-006 (负向 — admin 测试连接): Given platform=newapi 但
    channel_type<=0 的账号，When 管理员触发 "测试连接"，Then 立即
    返回 error "missing channel_type"，不发起任何上游请求。
@@ -62,8 +62,8 @@
   错误对象 nil / non-nil。
 - AC-003 用 PG testcontainer 跑实仓 `EnsureSimpleModeDefaultGroups`，
   断言 `newapi-default` 出现在 `groups` 表。
-- AC-004 / AC-005 / AC-006 通过 `httptest` server 模拟上游 `/v1/models`
-  返回 200/401/超时，断言 SSE 流的 `event` JSON `type` 与 `success` 字段。
+- AC-004 / AC-005 / AC-006 通过 `httptest` server 模拟上游 `/v1/chat/completions`
+  返回 200 SSE/401/超时，断言 SSE 流的 `event` JSON `type` 与 `success` 字段。
 - AC-007 / AC-008 mock account repo 返回带/不带 `model_mapping` 的
   account，断言响应 `data` 长度与 ID 集合。
 - AC-009 用 `httptest` 触发上游 NewAPIRelayError，断言 response body
@@ -76,7 +76,7 @@
 - `backend/internal/handler/admin/group_handler_platform_binding_test.go`::`TestUpdateGroupRequest_AcceptsNewAPIPlatform`
 - `backend/internal/handler/admin/account_handler_available_models_test.go`::`TestAccountHandlerGetAvailableModels_NewAPI_ReturnsModelMappingKeys`
 - `backend/internal/handler/admin/account_handler_available_models_test.go`::`TestAccountHandlerGetAvailableModels_NewAPI_NoMappingReturnsEmpty`
-- `backend/internal/service/account_test_service_newapi_test.go`::`TestAccountTestService_NewAPI_RoutesToUpstreamModelsProbe`
+- `backend/internal/service/account_test_service_newapi_test.go`::`TestAccountTestService_NewAPI_RoutesToChatCompletions`
 - `backend/internal/service/account_test_service_newapi_test.go`::`TestAccountTestService_NewAPI_ReportsUpstreamFailure`
 - `backend/internal/service/account_test_service_newapi_test.go`::`TestAccountTestService_NewAPI_RejectsMissingChannelType`
 - `backend/internal/repository/simple_mode_default_groups_integration_test.go`::`TestEnsureSimpleModeDefaultGroups_CreatesMissingDefaults`

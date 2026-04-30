@@ -153,16 +153,33 @@ WATCH_RC=0
 gh run watch "$RUN_ID" --repo "$GH_REPO" --exit-status || WATCH_RC=$?
 
 ART_NAME="prod-logs-$RUN_ID"
-log "downloading artifact $ART_NAME → $OUT_DIR"
-if ! gh run download "$RUN_ID" --repo "$GH_REPO" --name "$ART_NAME" --dir "$OUT_DIR"; then
+# gh unpacks the zip into --dir; an existing logs.txt causes "file exists". Use a
+# temp dir then replace atomically.
+DL_DIR=$(mktemp -d "${TMPDIR:-/tmp}/fetch-prod-logs.$RUN_ID.XXXXXX")
+cleanup_dl() { rm -rf "$DL_DIR"; }
+trap cleanup_dl EXIT
+
+log "downloading artifact $ART_NAME → $DL_DIR (will move to $OUT_DIR/logs.txt)"
+if ! gh run download "$RUN_ID" --repo "$GH_REPO" --name "$ART_NAME" --dir "$DL_DIR"; then
   err "artifact download failed (run conclusion exit=$WATCH_RC). Check 'gh run view $RUN_ID --repo $GH_REPO --log'."
   exit 1
 fi
+
+mkdir -p "$OUT_DIR"
+if [ ! -f "$DL_DIR/logs.txt" ]; then
+  err "artifact missing logs.txt after download (unexpected layout). List: $(ls -la "$DL_DIR" 2>/dev/null || true)"
+  exit 1
+fi
+mv -f "$DL_DIR/logs.txt" "$OUT_DIR/logs.txt"
+trap - EXIT
+cleanup_dl
 
 if [ -s "$OUT_DIR/logs.txt" ]; then
   LINES=$(wc -l < "$OUT_DIR/logs.txt")
   BYTES=$(wc -c < "$OUT_DIR/logs.txt")
   log "captured $LINES lines / $BYTES bytes → $OUT_DIR/logs.txt"
+  log "analyze (grep): grep -nE 'accounts/[0-9]+/test|Upstream probe|/api/v3/|ark\\.|volc|newapi|ERROR|panic|timeout' '$OUT_DIR/logs.txt' | head -80"
+  log "analyze (rg, optional): rg -n 'accounts/[0-9]+/test|Upstream probe|/api/v3/|ark\\.|volc|newapi|ERROR|panic|timeout' '$OUT_DIR/logs.txt' | head -80"
 else
   log "no log entries returned (empty artifact). Try widening SINCE or removing GREP_PATTERN."
 fi
