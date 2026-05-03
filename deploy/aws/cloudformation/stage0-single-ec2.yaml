@@ -255,6 +255,16 @@ Resources:
                 Resource: '*'
               - Effect: Allow
                 Action:
+                  - ec2:DescribeVolumes
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ec2:AttachVolume
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*'
+                  - !Sub 'arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*'
+              - Effect: Allow
+                Action:
                   - ssm:GetParameter
                 Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectName}/${Environment}/stage0/*'
       Tags:
@@ -311,6 +321,7 @@ Resources:
     Type: AWS::EC2::Instance
     DependsOn:
       - IGWAttach
+      - DataVolume
       - TokenkeyStage0ComposeGzipB64Parameter
       - TokenkeyStage0CaddyGzipB64Parameter
       - TokenkeyQaStaleCleanupScriptB64Parameter
@@ -376,12 +387,58 @@ Resources:
           chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
           usermod -aG docker ec2-user
 
-          # --- 2a. mount persistent data volume (preflight-debt §9.b) ----------
-          # The CFN DataVolume resource is attached at /dev/sdf; on AL2023 NVMe
-          # this surfaces as /dev/nvme1n1 (or /dev/nvme2n1 if root happens to be
-          # nvme2). Wait up to 90s for the kernel to enumerate it before failing
-          # — VolumeAttachment creates concurrently with the instance and may
-          # take a few seconds to appear after first boot.
+          # --- 2a. attach + mount persistent data volume (preflight-debt §9.b) -
+          # Attach is done here instead of AWS::EC2::VolumeAttachment. During
+          # instance replacement CloudFormation creates the new instance before
+          # deleting the old attachment; a separate VolumeAttachment resource
+          # therefore races with the still-attached EBS volume and fails with
+          # AlreadyExists. UserData can wait until the old instance releases it.
+          DATA_VOLUME_ID='${DataVolume}'
+          DATA_DEVICE='/dev/sdf'
+          IMDS_TOKEN="$(curl -fsS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")"
+          INSTANCE_ID="$(curl -fsS -H "X-aws-ec2-metadata-token: ${!IMDS_TOKEN}" http://169.254.169.254/latest/meta-data/instance-id)"
+          ATTACHED_TO=""
+          ATTACH_STATE=""
+          for attempt in $(seq 1 90); do
+            read -r ATTACHED_TO ATTACH_STATE < <(aws ec2 describe-volumes \
+              --region "${!REGION}" \
+              --volume-ids "${!DATA_VOLUME_ID}" \
+              --query 'Volumes[0].Attachments[0].[InstanceId,State]' \
+              --output text 2>/dev/null || echo "None None")
+            if [ "${!ATTACHED_TO}" = "${!INSTANCE_ID}" ]; then
+              echo "tokenkey data volume ${!DATA_VOLUME_ID} already attached to this instance (${!ATTACH_STATE})"
+              break
+            fi
+            if [ -z "${!ATTACHED_TO}" ] || [ "${!ATTACHED_TO}" = "None" ]; then
+              echo "attaching tokenkey data volume ${!DATA_VOLUME_ID} to ${!INSTANCE_ID}"
+              aws ec2 attach-volume \
+                --region "${!REGION}" \
+                --volume-id "${!DATA_VOLUME_ID}" \
+                --instance-id "${!INSTANCE_ID}" \
+                --device "${!DATA_DEVICE}"
+              break
+            fi
+            echo "waiting for tokenkey data volume ${!DATA_VOLUME_ID}; currently ${!ATTACH_STATE} on ${!ATTACHED_TO}"
+            sleep 10
+          done
+          if [ "${!ATTACHED_TO}" != "${!INSTANCE_ID}" ]; then
+            for attempt in $(seq 1 60); do
+              read -r ATTACHED_TO ATTACH_STATE < <(aws ec2 describe-volumes \
+                --region "${!REGION}" \
+                --volume-ids "${!DATA_VOLUME_ID}" \
+                --query 'Volumes[0].Attachments[0].[InstanceId,State]' \
+                --output text 2>/dev/null || echo "None None")
+              [ "${!ATTACHED_TO}" = "${!INSTANCE_ID}" ] && break
+              sleep 5
+            done
+          fi
+          if [ "${!ATTACHED_TO}" != "${!INSTANCE_ID}" ]; then
+            echo "FATAL: tokenkey data volume ${!DATA_VOLUME_ID} did not attach to ${!INSTANCE_ID}" >&2
+            exit 1
+          fi
+
+          # On AL2023 NVMe, /dev/sdf surfaces as /dev/nvme1n1 (or another
+          # non-root nvme device). Wait for the kernel to enumerate it.
           DATA_DEV=""
           for attempt in 1 2 3 4 5 6 7 8 9; do
             for cand in /dev/nvme1n1 /dev/nvme2n1 /dev/nvme3n1 /dev/xvdf /dev/sdf; do
@@ -476,15 +533,27 @@ Resources:
           # we ever got the order wrong.
           SECRET_FILE=/var/lib/tokenkey/.env.secret
           if [ ! -f "${!SECRET_FILE}" ]; then
-            echo "Generating new persistent secrets at ${!SECRET_FILE} (first boot of data volume)"
-            gen_secret() { openssl rand -hex 32; }
-            gen_pwd()    { openssl rand -hex 24; }
             umask 077
-            cat > "${!SECRET_FILE}" <<SECEOF
+            if [ -f /var/lib/tokenkey/.env ] \
+              && grep -q '^POSTGRES_PASSWORD=' /var/lib/tokenkey/.env \
+              && grep -q '^JWT_SECRET=' /var/lib/tokenkey/.env \
+              && grep -q '^TOTP_ENCRYPTION_KEY=' /var/lib/tokenkey/.env; then
+              echo "Seeding ${!SECRET_FILE} from legacy /var/lib/tokenkey/.env"
+              {
+                grep -m1 '^POSTGRES_PASSWORD=' /var/lib/tokenkey/.env
+                grep -m1 '^JWT_SECRET=' /var/lib/tokenkey/.env
+                grep -m1 '^TOTP_ENCRYPTION_KEY=' /var/lib/tokenkey/.env
+              } > "${!SECRET_FILE}"
+            else
+              echo "Generating new persistent secrets at ${!SECRET_FILE} (first boot of data volume)"
+              gen_secret() { openssl rand -hex 32; }
+              gen_pwd()    { openssl rand -hex 24; }
+              cat > "${!SECRET_FILE}" <<SECEOF
           POSTGRES_PASSWORD=$(gen_pwd)
           JWT_SECRET=$(gen_secret)
           TOTP_ENCRYPTION_KEY=$(gen_secret)
           SECEOF
+            fi
             chmod 0600 "${!SECRET_FILE}"
             chown root:root "${!SECRET_FILE}"
           else
@@ -719,11 +788,11 @@ Resources:
   #                              one is created (operator must reconcile).
   # AvailabilityZone — must equal the instance's AZ; both are pinned to the
   #                    first AZ via !Select [0, !GetAZs ''].
-  # The mount is performed by UserData (see "data volume" section). All
-  # /var/lib/tokenkey/{postgres,redis,caddy,app,pgdump,.env.secret} state lives
-  # here, so that EC2 instance replacement (e.g. ImageTag CFN parameter change
-  # → UserData re-substitution → BlockDeviceMappings churn → root EBS thrown
-  # away) NO LONGER destroys application data.
+  # The attach + mount is performed by UserData (see "data volume" section).
+  # All /var/lib/tokenkey/{postgres,redis,caddy,app,pgdump,.env.secret} state
+  # lives here, so that EC2 instance replacement (e.g. ImageTag CFN parameter
+  # change → UserData re-substitution → BlockDeviceMappings churn → root EBS
+  # thrown away) NO LONGER destroys application data.
   DataVolume:
     Type: AWS::EC2::Volume
     DeletionPolicy: Retain
@@ -739,13 +808,6 @@ Resources:
         - {Key: Environment, Value: !Ref Environment}
         - {Key: Backup, Value: stage0}
         - {Key: Purpose, Value: 'tokenkey-state-postgres-redis-caddy'}
-
-  DataVolumeAttachment:
-    Type: AWS::EC2::VolumeAttachment
-    Properties:
-      Device: /dev/sdf
-      InstanceId: !Ref Instance
-      VolumeId: !Ref DataVolume
 
   EIPAssoc:
     Type: AWS::EC2::EIPAssociation
