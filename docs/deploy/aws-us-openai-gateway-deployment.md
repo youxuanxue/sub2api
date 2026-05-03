@@ -176,8 +176,8 @@ aws cloudformation deploy \
     GhcrPullUser="${GHCR_OWNER}"
 ```
 
-> **CFN 模板自包含**：`docker-compose.yml` 与 `Caddyfile` 已 gzip+base64 内嵌在 UserData。
-> 编辑这两个文件后**必须** `bash deploy/aws/stage0/build-cfn.sh` 重新刷新 base64 段，
+> **CFN 模板自包含**：`docker-compose.yml`、`Caddyfile`、`deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh` 已 gzip+base64 内嵌在 UserData。
+> 编辑这些文件后**必须** `bash deploy/aws/stage0/build-cfn.sh` 重新刷新 base64 段，
 > 否则上线的会是旧版。CI 上加 `bash deploy/aws/stage0/build-cfn.sh --check` 兜底。
 
 ##### 全部参数总表（18 个）
@@ -304,6 +304,7 @@ sudo bash -lc "
 |---|---|---|---|---|---|
 | **整盘快照** | DLM → EBS Snapshot | 每天 1 次 03:00 UTC | 7 份 | crash-consistent | 实例丢失 / 整机回滚 |
 | **逻辑备份** | systemd timer + `pg_dump` | **每小时 1 次** | **36 份（约 1.5 天）** | application-consistent | 想回到近小时点 / 迁移到 RDS；更长窗口靠 EBS 快照 |
+| **QA 按天清理** | `tokenkey-qa-stale-cleanup.timer` | **每天 ~04:15 UTC（±30 min）** | 由参数 **`QaStaleRetentionDays`**（默认 **3**） | 与 `prod-qa-export-and-purge.sh` 同范围：`qa_records` + `app/qa_blobs` + `app/qa_dlq` | 防运营未按时导出时盘被 QA 占满；**0**=关闭定时器 |
 
 #### 「每日快照 → 每小时快照」的影响
 

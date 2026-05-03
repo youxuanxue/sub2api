@@ -4,6 +4,11 @@
 # on the EC2 host, and remove the S3 staging object — so EBS + S3 do not retain QA
 # payload after a good pull.
 #
+# Stage-0 EC2 also runs a daily *safety-net* timer (tokenkey-qa-stale-cleanup) that
+# DELETEs qa_records older than QaStaleRetentionDays and prunes old files under
+# qa_blobs/ and qa_dlq/ — same on-disk tree as the SSM purge below, but age-based.
+# Run this script when you need a verified export + full TRUNCATE, not just TTL.
+#
 # Online impact (intentionally limited):
 # - TRUNCATE qa_records briefly locks that table; capture traffic may block for a moment.
 # - User self-service QA zip downloads under qa_blobs/exports/ are removed with the tree.
