@@ -16,7 +16,7 @@
 deploy/aws/
 ├── README.md                         本文件（quick start）
 ├── cloudformation/
-│   └── stage0-single-ec2.yaml        Stage 0 CFN：自包含（compose+Caddyfile+QA cleanup 脚本 gzip+base64 内嵌 UserData）
+│   └── stage0-single-ec2.yaml        Stage 0 CFN：compose+Caddyfile gzip+base64 内嵌 UserData；QA cleanup 脚本 base64 存 SSM（引导期拉取）
 └── stage0/
     ├── docker-compose.yml            源真：Caddy + tokenkey + PostgreSQL + Redis
     ├── Caddyfile                     源真：LE 自动签证书 + 反代到 tokenkey:8080
