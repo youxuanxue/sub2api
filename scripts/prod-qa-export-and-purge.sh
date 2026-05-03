@@ -5,7 +5,8 @@
 # payload after a good pull.
 #
 # Stage-0 EC2 also runs a daily *safety-net* timer (tokenkey-qa-stale-cleanup) that
-# DELETEs qa_records older than QaStaleRetentionDays and prunes old files under
+# DELETEs qa_records older than QaStaleRetentionDays (fractional days OK, CFN default 1.5)
+# and prunes old files under
 # qa_blobs/ and qa_dlq/ — same on-disk tree as the SSM purge below, but age-based.
 # Run this script when you need a verified export + full TRUNCATE, not just TTL.
 #

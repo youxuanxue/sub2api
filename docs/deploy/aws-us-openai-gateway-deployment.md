@@ -304,7 +304,7 @@ sudo bash -lc "
 |---|---|---|---|---|---|
 | **整盘快照** | DLM → EBS Snapshot | 每天 1 次 03:00 UTC | 7 份 | crash-consistent | 实例丢失 / 整机回滚 |
 | **逻辑备份** | systemd timer + `pg_dump` | **每小时 1 次** | **36 份（约 1.5 天）** | application-consistent | 想回到近小时点 / 迁移到 RDS；更长窗口靠 EBS 快照 |
-| **QA 按天清理** | `tokenkey-qa-stale-cleanup.timer` | **每天 ~04:15 UTC（±30 min）** | 由参数 **`QaStaleRetentionDays`**（默认 **3**） | 与 `prod-qa-export-and-purge.sh` 同范围：`qa_records` + `app/qa_blobs` + `app/qa_dlq` | 防运营未按时导出时盘被 QA 占满；**0**=关闭定时器 |
+| **QA 按天清理** | `tokenkey-qa-stale-cleanup.timer` | **每天 ~04:15 UTC（±30 min）** | 由参数 **`QaStaleRetentionDays`**（默认 **1.5** 天，可为小数） | 与 `prod-qa-export-and-purge.sh` 同范围：`qa_records` + `app/qa_blobs` + `app/qa_dlq` | 防运营未按时导出时盘被 QA 占满；**0**=关闭定时器 |
 
 #### 「每日快照 → 每小时快照」的影响
 
