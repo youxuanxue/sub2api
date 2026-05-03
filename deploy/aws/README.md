@@ -16,21 +16,21 @@
 deploy/aws/
 ├── README.md                         本文件（quick start）
 ├── cloudformation/
-│   └── stage0-single-ec2.yaml        Stage 0 CFN：自包含（compose+Caddyfile 已 gzip+base64 内嵌进 UserData）
+│   └── stage0-single-ec2.yaml        Stage 0 CFN：自包含（compose+Caddyfile+QA cleanup 脚本 gzip+base64 内嵌 UserData）
 └── stage0/
     ├── docker-compose.yml            源真：Caddy + tokenkey + PostgreSQL + Redis
     ├── Caddyfile                     源真：LE 自动签证书 + 反代到 tokenkey:8080
     ├── .env.example                  环境变量模板（生产 .env 由 Cloud-Init 自动生成；本地调试可复制使用）
-    └── build-cfn.sh                  把 docker-compose.yml + Caddyfile gzip+base64 注入 CFN 模板
+    └── build-cfn.sh                  把 docker-compose.yml + Caddyfile + tokenkey-qa-stale-cleanup.sh 注入 CFN 模板
 ```
 
 > EC2 引导逻辑直接 inline 在 CFN 模板的 UserData 段（`stage0-single-ec2.yaml`）。无需独立的 `cloud-init.sh`；如需「不走 CFN」紧急 bootstrap，从 UserData 段 copy 出来本地化即可。
 
 ## CFN 自包含特性
 
-CFN 模板已把 `docker-compose.yml` 与 `Caddyfile` 以 gzip+base64 内嵌进 UserData，部署时 EC2 不再外网拉这两个文件，**仓库可保持 GitHub 私仓 / 不公开**。
+CFN 模板已把 `docker-compose.yml`、`Caddyfile`、`deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh` 以 gzip+base64 内嵌进 UserData，部署时 EC2 不再外网拉这些文件，**仓库可保持 GitHub 私仓 / 不公开**。
 
-> **必须遵守的规则：** 编辑 `docker-compose.yml` 或 `Caddyfile` 之后，运行：
+> **必须遵守的规则：** 编辑 `docker-compose.yml`、`Caddyfile` 或 `tokenkey-qa-stale-cleanup.sh` 之后，运行：
 >
 > ```bash
 > bash deploy/aws/stage0/build-cfn.sh
@@ -417,7 +417,11 @@ sudo systemctl status tokenkey
 sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env ps
 sudo journalctl -u tokenkey -n 200 --no-pager
 sudo systemctl list-timers tokenkey-pgdump.timer
+sudo systemctl list-timers tokenkey-disk-metrics.timer   # → CloudWatch tokenkey/EC2 DataVolumeUsedPercent
+sudo systemctl list-timers tokenkey-qa-stale-cleanup.timer
 ls -lh /var/lib/tokenkey/pgdump/ 2>/dev/null || echo '(no dumps yet — first dump runs ~1h after boot)'
+# hourly pg_dump 默认保留 36 份；卷使用率告警见 CFN DataVolumeDiskAlarm / 主文档 §3.8
+# QA：`QaStaleRetentionDays`（默认 1.5 天）每日清理旧 qa_records + qa_blobs/qa_dlq；与 scripts/prod-qa-export-and-purge.sh 范围对齐，0=关闭
 sudo cat /var/lib/tokenkey/.env                           # 含明文密码，慎查
 ```
 
