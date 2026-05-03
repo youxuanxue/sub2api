@@ -1,15 +1,12 @@
 #!/usr/bin/env bash
 # =============================================================================
-# build-cfn.sh — refresh the embedded compose / Caddyfile / QA cleanup script
-# blocks in the tokenkey Stage 0 CloudFormation template so the stack stays
-# self-contained.
+# build-cfn.sh — refresh Stage 0 gzip|base64 blobs for docker-compose + Caddy,
+# plus raw base64 for tokenkey-qa-stale-cleanup.sh, into AWS::SSM::Parameter
+# Values in deploy/aws/cloudformation/stage0-single-ec2.yaml.
 #
-# Why:  UserData embeds docker-compose.yml + Caddyfile as gzip+base64. The QA
-#       cleanup script is too large to also embed without exceeding EC2's 16 KiB
-#       UserData limit, so its base64 lives in an AWS Systems Manager Parameter
-#       (Standard tier); UserData only runs aws ssm get-parameter + base64 -d.
-#       Whenever you edit those files, run this script to refresh the markers in
-#       deploy/aws/cloudformation/stage0-single-ec2.yaml.
+# Why: EC2 UserData is capped at 16384 bytes. Embedding large base64 strings in
+# UserData exceeds the limit; bootstrap reads three Standard SSM Parameters under
+# /${ProjectName}/${Environment}/stage0/* instead.
 #
 # Usage:
 #   bash deploy/aws/stage0/build-cfn.sh                    # in-place rewrite
@@ -43,36 +40,35 @@ encode_gzb64() {
 COMPOSE_GZB64="$(encode_gzb64 "${COMPOSE_SRC}")"
 CADDY_GZB64="$(encode_gzb64 "${CADDY_SRC}")"
 encode_qa_b64() {
-  # Raw base64 only (no gzip): shorter than gzip+b64 for ~2 KiB shell scripts.
   base64 <"$1" | tr -d '\n'
 }
 QA_CLEANUP_B64="$(encode_qa_b64 "${QA_CLEANUP_SRC}")"
-if [[ "${#QA_CLEANUP_B64}" -gt 4096 ]]; then
-  echo "QA cleanup base64 (${#QA_CLEANUP_B64} chars) exceeds SSM Standard Parameter limit (4096)." >&2
+
+if [[ "${#COMPOSE_GZB64}" -gt 4096 ]] || [[ "${#CADDY_GZB64}" -gt 4096 ]] || [[ "${#QA_CLEANUP_B64}" -gt 4096 ]]; then
+  echo "One or more SSM Parameter values exceed Standard tier limit (4096 chars):" >&2
+  echo "  compose: ${#COMPOSE_GZB64}  caddy: ${#CADDY_GZB64}  qa: ${#QA_CLEANUP_B64}" >&2
   exit 1
 fi
 
-# UserData embed lines use 10-space indent; SSM Parameter Value uses 6 spaces.
-INDENT='          '
 INDENT_SSM_VAL='      '
 
-new_compose_line="${INDENT}COMPOSE_GZB64='${COMPOSE_GZB64}'"
-new_caddy_line="${INDENT}CADDY_GZB64='${CADDY_GZB64}'"
+new_compose_ssm_line="${INDENT_SSM_VAL}Value: '${COMPOSE_GZB64}'"
+new_caddy_ssm_line="${INDENT_SSM_VAL}Value: '${CADDY_GZB64}'"
 new_qa_ssm_value_line="${INDENT_SSM_VAL}Value: '${QA_CLEANUP_B64}'"
 
 tmp="$(mktemp)"
 trap 'rm -f "${tmp}"' EXIT
 
-awk -v new_compose="${new_compose_line}" \
-    -v new_caddy="${new_caddy_line}" \
+awk -v new_compose_ssm="${new_compose_ssm_line}" \
+    -v new_caddy_ssm="${new_caddy_ssm_line}" \
     -v new_qa_ssm="${new_qa_ssm_value_line}" '
-  BEGIN { skip = 0; section = "" }
-  />>> COMPOSE_GZB64 START/ { print; print new_compose; skip = 1; section = "compose"; next }
-  />>> COMPOSE_GZB64 END/   { skip = 0; section = ""; print; next }
-  />>> CADDY_GZB64 START/   { print; print new_caddy; skip = 1; section = "caddy"; next }
-  />>> CADDY_GZB64 END/     { skip = 0; section = ""; print; next }
-  />>> QA_CLEANUP_B64_PARAM START/ { print; print new_qa_ssm; skip = 1; section = "qa_ssm"; next }
-  />>> QA_CLEANUP_B64_PARAM END/   { skip = 0; section = ""; print; next }
+  BEGIN { skip = 0 }
+  />>> COMPOSE_GZB64_SSM START/ { print; print new_compose_ssm; skip = 1; next }
+  />>> COMPOSE_GZB64_SSM END/   { skip = 0; print; next }
+  />>> CADDY_GZB64_SSM START/   { print; print new_caddy_ssm; skip = 1; next }
+  />>> CADDY_GZB64_SSM END/     { skip = 0; print; next }
+  />>> QA_CLEANUP_B64_PARAM START/ { print; print new_qa_ssm; skip = 1; next }
+  />>> QA_CLEANUP_B64_PARAM END/   { skip = 0; print; next }
   { if (!skip) print }
 ' "${CFN_FILE}" > "${tmp}"
 
@@ -90,19 +86,16 @@ fi
 mv "${tmp}" "${CFN_FILE}"
 trap - EXIT
 
-# size sanity check — UserData hard limit is 16384 bytes after CFN renders it.
-# We can only estimate locally; the actual size depends on substitution. Warn
-# above 14000 bytes of raw UserData body to keep headroom.
 body_bytes=$(awk '
   /UserData:/        { in_userdata = 1; next }
   /^  [A-Z]/         { if (in_userdata) exit }
   { if (in_userdata) print }
 ' "${CFN_FILE}" | wc -c | awk '{print $1}')
 echo "stage0 CFN refreshed."
-echo "  compose gzip+base64: ${#COMPOSE_GZB64} bytes"
-echo "  caddy   gzip+base64: ${#CADDY_GZB64} bytes"
-echo "  qa cleanup base64 (SSM Parameter Value): ${#QA_CLEANUP_B64} chars"
-echo "  UserData body (raw, pre-substitution): ${body_bytes} bytes  (EC2 limit 16384 after substitution)"
+echo "  compose gzip+base64 (SSM): ${#COMPOSE_GZB64} chars"
+echo "  caddy   gzip+base64 (SSM): ${#CADDY_GZB64} chars"
+echo "  qa cleanup base64 (SSM): ${#QA_CLEANUP_B64} chars"
+echo "  UserData body (raw, rough awk span): ${body_bytes} bytes  (EC2 limit 16384 after substitution)"
 if (( body_bytes > 14000 )); then
-  echo "WARNING: UserData body is close to the 16384-byte EC2 limit." >&2
+  echo "WARNING: UserData body may still be close to the 16384-byte EC2 limit." >&2
 fi
