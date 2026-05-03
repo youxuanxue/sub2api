@@ -214,8 +214,12 @@ func (s *OpsCleanupService) runCleanupOnce(ctx context.Context) (opsCleanupDelet
 			return out, err
 		}
 		out.alertEvents = n
+	}
 
-		n, err = deleteOldRowsByID(ctx, s.db, "ops_system_logs", "created_at", cutoff, batchSize, false)
+	// System/audit logs are high-volume diagnostics and can use a shorter retention.
+	if days := s.cfg.Ops.Cleanup.SystemLogRetentionDays; days > 0 {
+		cutoff := now.AddDate(0, 0, -days)
+		n, err := deleteOldRowsByID(ctx, s.db, "ops_system_logs", "created_at", cutoff, batchSize, false)
 		if err != nil {
 			return out, err
 		}

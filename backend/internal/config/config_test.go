@@ -870,6 +870,27 @@ func TestValidateOpsCleanupScheduleRequired(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultOpsCleanupRetentionConfig(t *testing.T) {
+	resetViperWithJWTSecret(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.Ops.Cleanup.SystemLogRetentionDays != 7 {
+		t.Fatalf("SystemLogRetentionDays = %d, want 7", cfg.Ops.Cleanup.SystemLogRetentionDays)
+	}
+	if cfg.Ops.Cleanup.ErrorLogRetentionDays != 14 {
+		t.Fatalf("ErrorLogRetentionDays = %d, want 14", cfg.Ops.Cleanup.ErrorLogRetentionDays)
+	}
+	if cfg.Ops.Cleanup.MinuteMetricsRetentionDays != 30 {
+		t.Fatalf("MinuteMetricsRetentionDays = %d, want 30", cfg.Ops.Cleanup.MinuteMetricsRetentionDays)
+	}
+	if cfg.Ops.Cleanup.HourlyMetricsRetentionDays != 30 {
+		t.Fatalf("HourlyMetricsRetentionDays = %d, want 30", cfg.Ops.Cleanup.HourlyMetricsRetentionDays)
+	}
+}
+
 func TestValidateConcurrencyPingInterval(t *testing.T) {
 	resetViperWithJWTSecret(t)
 
@@ -1433,6 +1454,11 @@ func TestValidateConfigErrors(t *testing.T) {
 			name:    "ops cleanup retention",
 			mutate:  func(c *Config) { c.Ops.Cleanup.ErrorLogRetentionDays = -1 },
 			wantErr: "ops.cleanup.error_log_retention_days",
+		},
+		{
+			name:    "ops cleanup system retention",
+			mutate:  func(c *Config) { c.Ops.Cleanup.SystemLogRetentionDays = -1 },
+			wantErr: "ops.cleanup.system_log_retention_days",
 		},
 		{
 			name:    "ops cleanup minute retention",
