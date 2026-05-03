@@ -192,7 +192,7 @@ aws cloudformation deploy \
 | | `ImageTag` | `latest` | | **生产**固定到具体版本（如 `1.1.0`）实现可复现部署；**测试**保持 `latest` 自动跟最新 release。Release workflow 仅在 `tags: v*` 触发，`main` 不构建镜像，故 `:main` 不存在。 |
 | | `SnapshotSchedule` | `daily` | | 改 `hourly` 把整机 RPO 从 24h 压到 1h（每月加 \$1–4），见 §3.7 |
 | | `InstanceType` | `t4g.small` | | 改 `t4g.medium`（\$24/月）/ `t4g.large` 应对扩容；见 §3.3 |
-| | `RootVolumeSizeGiB` | `30` | | PG 数据 + pg_dump 接近 75% 时扩 |
+| | `RootVolumeSizeGiB` | `30` | | 根卷；DataVolume 使用率见 `DataVolumeDiskAlarm`（默认 >90%） |
 | | `Timezone` | `UTC` | | 一般不动 |
 | | `AdminCidr` | `0.0.0.0/0` | | 改 `127.0.0.1/32` 彻底关 SSH 22 端口（推荐用 SSM 替代） |
 | | `GhcrPatSsmName` | `/tokenkey/ghcr/pat` | | 多环境共用栈时改路径，例如 `/tokenkey/ghcr/pat-prod` |
@@ -303,7 +303,7 @@ sudo bash -lc "
 | 类型 | 工具 | 默认频率 | 保留 | 一致性 | 用途 |
 |---|---|---|---|---|---|
 | **整盘快照** | DLM → EBS Snapshot | 每天 1 次 03:00 UTC | 7 份 | crash-consistent | 实例丢失 / 整机回滚 |
-| **逻辑备份** | systemd timer + `pg_dump` | **每小时 1 次** | **168 份（7 天）** | application-consistent | 想回到任一小时 / 迁移到 RDS |
+| **逻辑备份** | systemd timer + `pg_dump` | **每小时 1 次** | **36 份（约 1.5 天）** | application-consistent | 想回到近小时点 / 迁移到 RDS；更长窗口靠 EBS 快照 |
 
 #### 「每日快照 → 每小时快照」的影响
 
@@ -328,13 +328,13 @@ sudo bash -lc "
 
 ### 3.8 监控与告警（基础四项）
 
-Stage 0 不上 SNS 也不上专门告警栈，只用 CloudWatch Agent 已经在采集的指标 + AWS 控制台告警：
+默认：**CloudWatch Agent** 采集内存与磁盘（含 `/`、`/var/lib/tokenkey`）；CFN 另创建 **`tokenkey/EC2` · `DataVolumeUsedPercent`**（systemd timer `tokenkey-disk-metrics` 每 5 min `df` + `PutMetricData`，避免磁盘维度漂移）及 **`DataVolumeDiskAlarm`**（**> 90%**，连续 **5 min×2**，少打扰、指向立刻处置）。可选参数 **`AlarmSnsTopicArn`** 接到 SNS；留空则只在控制台告警。
 
 | 指标 | 阈值（建议初始） | 处理 |
 |---|---|---|
 | EC2 `CPUUtilization` 5min P95 | > 60% 持续 1 周 | 触发 **Stage 1→2 升级评估** |
 | EC2 内存 `mem_used_percent`（CW Agent） | > 70% 持续 30 min | 同上 |
-| `/var/lib/tokenkey` 磁盘 `used_percent` | > 75% | 扩 gp3 卷（在线扩容） |
+| DataVolume `DataVolumeUsedPercent`（CFN 告警）或 CW Agent `disk_used_percent`（path=`/var/lib/tokenkey`） | **> 90%**（CFN `Threshold`，可调） | 立即处置：占用来源、`pgdump`/日志或在线扩 `DataVolumeSizeGiB`（默认 **30 GiB**）；其它目录按自有运维策略 |
 | `https://api.tokenkey.dev/health` | 5 min 内 ≥ 3 次失败 | P1：实例可能挂了 |
 
 业务类（OAuth refresh、上游 4xx/429）暂不建专门告警，靠每天扫一次容器日志（`docker logs tokenkey --since 24h | grep -iE 'oauth|429|401|403'`）兜底。Stage 2/3 再上完整 CloudWatch Alarms + SNS。

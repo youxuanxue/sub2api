@@ -417,7 +417,9 @@ sudo systemctl status tokenkey
 sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env ps
 sudo journalctl -u tokenkey -n 200 --no-pager
 sudo systemctl list-timers tokenkey-pgdump.timer
+sudo systemctl list-timers tokenkey-disk-metrics.timer   # → CloudWatch tokenkey/EC2 DataVolumeUsedPercent
 ls -lh /var/lib/tokenkey/pgdump/ 2>/dev/null || echo '(no dumps yet — first dump runs ~1h after boot)'
+# hourly pg_dump 默认保留 36 份；卷使用率告警见 CFN DataVolumeDiskAlarm / 主文档 §3.8
 sudo cat /var/lib/tokenkey/.env                           # 含明文密码，慎查
 ```
 

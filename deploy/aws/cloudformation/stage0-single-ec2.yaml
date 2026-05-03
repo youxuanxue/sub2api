@@ -122,8 +122,16 @@ Parameters:
     AllowedValues: [daily, hourly]
     Description: EBS snapshot cadence (daily=1x/day keep 7; hourly=1x/hour keep 168 = 7 days).
 
+  AlarmSnsTopicArn:
+    Type: String
+    Default: ''
+    Description: >-
+      Optional SNS topic ARN subscribed to DataVolumeDiskAlarm (email/Slack).
+      Leave empty to create the alarm without notifications.
+
 Conditions:
   IsHourlySnapshots: !Equals [!Ref SnapshotSchedule, hourly]
+  AlarmTopicProvided: !Not [!Equals [!Ref AlarmSnsTopicArn, '']]
 
 Resources:
   VPC:
@@ -226,6 +234,10 @@ Resources:
                 Condition:
                   StringEquals:
                     'kms:ViaService': !Sub 'ssm.${AWS::Region}.amazonaws.com'
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: '*'
       Tags:
         - {Key: Project, Value: !Ref ProjectName}
 
@@ -478,13 +490,73 @@ Resources:
           cat > /usr/local/bin/tokenkey-pgdump.sh <<'PGEOF'
           #!/bin/bash
           set -euo pipefail
+          DUMP_DIR=/var/lib/tokenkey/pgdump
           TS=$(date -u +%Y%m%dT%H%M%SZ)
-          OUT="/var/lib/tokenkey/pgdump/tokenkey-${!TS}.sql.gz"
-          docker exec tokenkey-postgres pg_dump -U tokenkey -d tokenkey --format=plain --no-owner \
-            | gzip -9 > "${!OUT}"
-          ls -1t /var/lib/tokenkey/pgdump/tokenkey-*.sql.gz | tail -n +169 | xargs -r rm -f
+          OUT="${!DUMP_DIR}/tokenkey-${!TS}.sql.gz"
+          PART="${!OUT}.part"
+          rm -f "${!PART}"
+
+          # Remove bogus sub-kib dumps from failed runs (e.g. disk full).
+          find "${!DUMP_DIR}" -maxdepth 1 -type f -name 'tokenkey-*.sql.gz' -size -2k -delete 2>/dev/null || true
+
+          set -o pipefail
+          if ! docker exec tokenkey-postgres pg_dump -U tokenkey -d tokenkey --format=plain --no-owner \
+              | gzip -9 > "${!PART}"; then
+            rm -f "${!PART}"
+            exit 1
+          fi
+
+          SZ=$(wc -c < "${!PART}")
+          if [ "${!SZ}" -lt 2048 ]; then
+            rm -f "${!PART}"
+            exit 1
+          fi
+
+          mv -f "${!PART}" "${!OUT}"
+
+          # Keep 36 hourly dumps (~1.5 days) — balances RPO vs 30 GiB DataVolume headroom.
+          ls -1t "${!DUMP_DIR}"/tokenkey-*.sql.gz 2>/dev/null | tail -n +37 | xargs -r rm -f
           PGEOF
           chmod +x /usr/local/bin/tokenkey-pgdump.sh
+
+          cat > /usr/local/bin/tokenkey-disk-metrics.sh <<'DISKEOF'
+          #!/bin/bash
+          set -euo pipefail
+          IMDS_TOKEN="$(curl -fsS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")"
+          REGION="$(curl -fsS -H "X-aws-ec2-metadata-token: ${!IMDS_TOKEN}" http://169.254.169.254/latest/meta-data/placement/region)"
+          IID="$(curl -fsS -H "X-aws-ec2-metadata-token: ${!IMDS_TOKEN}" http://169.254.169.254/latest/meta-data/instance-id)"
+          USED="$(df -P /var/lib/tokenkey 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5}')"
+          [ -z "${!USED}" ] && exit 0
+          aws cloudwatch put-metric-data --region "${!REGION}" \
+            --namespace tokenkey/EC2 \
+            --metric-data "MetricName=DataVolumeUsedPercent,Value=${!USED},Unit=Percent,Dimensions=[{Name=InstanceId,Value=${!IID}}]"
+          DISKEOF
+          chmod +x /usr/local/bin/tokenkey-disk-metrics.sh
+
+          cat > /etc/systemd/system/tokenkey-disk-metrics.service <<'DMSEOF'
+          [Unit]
+          Description=Publish tokenkey DataVolume used_percent to CloudWatch
+          After=network-online.target tokenkey.service
+          Wants=network-online.target
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/bin/tokenkey-disk-metrics.sh
+          DMSEOF
+
+          cat > /etc/systemd/system/tokenkey-disk-metrics.timer <<'DMTEOF'
+          [Unit]
+          Description=Publish DataVolume disk metric every 5 minutes
+
+          [Timer]
+          OnBootSec=3min
+          OnUnitActiveSec=5min
+          RandomizedDelaySec=30
+          Persistent=true
+
+          [Install]
+          WantedBy=timers.target
+          DMTEOF
 
           cat > /etc/systemd/system/tokenkey-pgdump.service <<'PSEOF'
           [Unit]
@@ -537,6 +609,7 @@ Resources:
           systemctl daemon-reload
           systemctl enable --now tokenkey.service
           systemctl enable --now tokenkey-pgdump.timer
+          systemctl enable --now tokenkey-disk-metrics.timer
           if [ -x /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl ]; then
             /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
               -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/tokenkey.json -s || true
@@ -627,6 +700,27 @@ Resources:
             RetainRule:
               Count: !If [IsHourlySnapshots, 168, 7]
 
+  DataVolumeDiskAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-data-volume-used'
+      AlarmDescription: >-
+        tokenkey DataVolume (/var/lib/tokenkey) critical — act immediately (trim pgdump/logs or expand vol).
+      Namespace: tokenkey/EC2
+      MetricName: DataVolumeUsedPercent
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      # High threshold = few false positives; pair with 36 pg_dump retention + metrics timer.
+      Threshold: 90
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref Instance
+      AlarmActions: !If [AlarmTopicProvided, [!Ref AlarmSnsTopicArn], !Ref AWS::NoValue]
+
 Outputs:
   PublicIP:
     Description: Elastic IP - set this as the A record for ApiDomain
@@ -652,3 +746,6 @@ Outputs:
   ResolvedImage:
     Description: Image reference that the EC2 instance will pull from GHCR
     Value: !Sub 'ghcr.io/${GhcrOwner}/${GhcrImageName}:${ImageTag}'
+  DataVolumeDiskAlarmName:
+    Description: CloudWatch alarm for DataVolume utilization (tokenkey/EC2 DataVolumeUsedPercent)
+    Value: !Ref DataVolumeDiskAlarm
