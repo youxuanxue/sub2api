@@ -73,3 +73,20 @@ func ResolveResponsesSupport(extra map[string]any) AccountResponsesSupport {
 func ShouldUseResponsesAPI(extra map[string]any) bool {
 	return ResolveResponsesSupport(extra) != ResponsesSupportNo
 }
+
+// ResponsesEndpointSupportedByStatus 根据探测响应的 HTTP 状态码判定上游
+// 是否暴露 /v1/responses 端点。
+//
+// 第三方 OpenAI 兼容上游对未知端点通常返回 404 或 405；而 OpenAI 官方或已实现
+// Responses 的上游，即使请求体最简，也会返回 2xx、400、401、422 或 5xx 等
+// "端点存在但请求不可用/服务异常"的响应。
+//
+// 因此仅 404 和 405 视为端点不存在。5xx 也视为端点存在，避免把偶发上游故障误判
+// 为不支持 Responses。
+func ResponsesEndpointSupportedByStatus(status int) bool {
+	switch status {
+	case 404, 405:
+		return false
+	}
+	return true
+}

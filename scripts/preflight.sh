@@ -43,6 +43,9 @@
 #        shared engine facade helpers instead of drifting back into hotspot
 #        service files. Driven by `scripts/engine-facade-sentinels.json` via
 #        `scripts/check-engine-facade-hooks.py`.
+#   OpenAI upstream capability truth — guards Responses probe status semantics:
+#        probe call sites must use `internal/pkg/openai_compat` as the owner
+#        instead of reintroducing local status-code truth in service files.
 #   traj dataset validator       — guards the exported trajectory dataset contract:
 #        exported `trajectory.jsonl` artifacts must keep H1/H2/H3/D1 and structural
 #        acceptance semantics reachable through the standalone validator script,
@@ -170,6 +173,30 @@ if [ -n "$drift5_hits" ]; then
     errors=$((errors + 1))
 else
     echo "  ok: direct bridge.Dispatch* calls stay inside approved boundary files"
+fi
+
+# ---- sub2api: OpenAI upstream capability truth -------------------------------
+# Source of truth: backend/internal/pkg/openai_compat/upstream_capability.go.
+# Responses endpoint probe status semantics belong in openai_compat so account
+# creation, gateway routing, and tests cannot grow parallel interpretations.
+echo ""
+echo "=== sub2api: OpenAI upstream capability truth ==="
+probe_owner_hits="$(grep -rnE '^func isResponsesEndpointSupportedByStatus\(' \
+    backend/internal \
+    --include='*.go' 2>/dev/null || true)"
+if [ -n "$probe_owner_hits" ]; then
+    echo "  FAIL: local Responses probe status truth detected"
+    echo "        — use openai_compat.ResponsesEndpointSupportedByStatus instead:"
+    echo "$probe_owner_hits" | sed 's/^/    /'
+    errors=$((errors + 1))
+elif ! grep -q 'openai_compat.ResponsesEndpointSupportedByStatus(resp.StatusCode)' backend/internal/service/openai_apikey_responses_probe.go; then
+    echo "  FAIL: OpenAI API key probe no longer uses openai_compat status truth"
+    errors=$((errors + 1))
+elif ! grep -q 'func ResponsesEndpointSupportedByStatus(status int) bool {' backend/internal/pkg/openai_compat/upstream_capability.go; then
+    echo "  FAIL: openai_compat Responses endpoint status owner is missing"
+    errors=$((errors + 1))
+else
+    echo "  ok: Responses probe status truth is centralized in openai_compat"
 fi
 
 # ---- sub2api: newapi sentinel registry --------------------------------------

@@ -1,6 +1,9 @@
 package openai_compat
 
-import "testing"
+import (
+	"net/http"
+	"testing"
+)
 
 func TestResolveResponsesSupport(t *testing.T) {
 	tests := []struct {
@@ -49,6 +52,31 @@ func TestShouldUseResponsesAPI(t *testing.T) {
 			got := ShouldUseResponsesAPI(tc.extra)
 			if got != tc.want {
 				t.Errorf("ShouldUseResponsesAPI(%v) = %v, want %v", tc.extra, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestResponsesEndpointSupportedByStatus(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		want   bool
+	}{
+		{"ok", http.StatusOK, true},
+		{"bad request still means endpoint exists", http.StatusBadRequest, true},
+		{"unauthorized still means endpoint exists", http.StatusUnauthorized, true},
+		{"unprocessable still means endpoint exists", http.StatusUnprocessableEntity, true},
+		{"server error does not erase endpoint capability", http.StatusInternalServerError, true},
+		{"not found means endpoint absent", http.StatusNotFound, false},
+		{"method not allowed means endpoint absent", http.StatusMethodNotAllowed, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ResponsesEndpointSupportedByStatus(tc.status)
+			if got != tc.want {
+				t.Errorf("ResponsesEndpointSupportedByStatus(%d) = %v, want %v", tc.status, got, tc.want)
 			}
 		})
 	}

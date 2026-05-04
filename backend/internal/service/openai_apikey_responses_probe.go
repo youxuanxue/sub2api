@@ -115,7 +115,7 @@ func (s *AccountTestService) ProbeOpenAIAPIKeyResponsesSupport(ctx context.Conte
 		_ = resp.Body.Close()
 	}()
 
-	supported := isResponsesEndpointSupportedByStatus(resp.StatusCode)
+	supported := openai_compat.ResponsesEndpointSupportedByStatus(resp.StatusCode)
 
 	if err := s.accountRepo.UpdateExtra(ctx, accountID, map[string]any{
 		openai_compat.ExtraKeyResponsesSupported: supported,
@@ -128,22 +128,4 @@ func (s *AccountTestService) ProbeOpenAIAPIKeyResponsesSupport(ctx context.Conte
 		"probe_done: account_id=%d base_url=%s status=%d supported=%v",
 		accountID, normalizedBaseURL, resp.StatusCode, supported,
 	)
-}
-
-// isResponsesEndpointSupportedByStatus 根据探测响应的 HTTP 状态码判定上游
-// 是否暴露 /v1/responses 端点。
-//
-// 关键观察：第三方 OpenAI 兼容上游（DeepSeek/Kimi 等）对未知端点统一返回 404
-// 或 405；而 OpenAI 官方/有 Responses 实现的上游会因为请求体最简（缺字段）
-// 返回 400/422 等业务错误，但端点本身存在。
-//
-// 因此：仅 404 和 405 视为"端点不存在"，其他 status 视为"端点存在"。
-//
-// 5xx 也视为"端点存在"——上游偶发故障不应误判为不支持。
-func isResponsesEndpointSupportedByStatus(status int) bool {
-	switch status {
-	case http.StatusNotFound, http.StatusMethodNotAllowed:
-		return false
-	}
-	return true
 }
