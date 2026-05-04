@@ -10,7 +10,7 @@
 
 ## 0. 先给结论
 
-当前 TokenKey 已经不是“等待开始 OPC 改造”的状态。PR #110 之后，本仓库已经具备一组可执行的 OPC 基线：
+当前 TokenKey 已经不是“等待开始 OPC 改造”的状态。本仓库在 upstream 合并迭代（含 PR #110）下，已具备一组可执行的 OPC 基线（对照 §1.3：基线是准入下限与演进起点，不是长期目标的完成声明）：
 
 1. **产品基线**：对外默认心智收敛为 TokenKey；`newapi` 保留为内部 identity，不作为第二套产品心智外显。
 2. **控制面基线**：用户、分组、账号、配额、支付、后台、网关入口继续以本仓库为唯一控制面；不新建第二控制面 repo。
@@ -269,8 +269,8 @@ Evidence Spine 的硬边界：
 当前已实现：
 
 - outward TokenKey brand surfaces 有 `scripts/brand-sentinels.json` 与 checker 保护。
-- 管理端平台展示已区分内部 key 与展示词。
-- PR #110 已修复 payment docs / UI 中的 Sub2API product leaks。
+- 管理端平台展示已区分内部 key 与展示词；新增策略块（如 OpenAI Fast/Flex）已抽到 dedicated component，避免热点 view 继续堆叠。
+- 支付文档在「从 Sub2ApiPay 迁移」等段落仍引用第三方项目历史名，属于迁移指称而非 TokenKey 主产品心智；新增 outward 文案须同步纳入 brand sentinel。
 
 准入标准：
 

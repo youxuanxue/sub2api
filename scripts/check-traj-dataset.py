@@ -3,8 +3,9 @@
 check-traj-dataset.py — validate trajectory export dataset quality gates.
 
 Accepts either a trajectory export zip (containing trajectory.jsonl) or a raw
-JSONL file. It enforces the Phase-C5 acceptance gates from
-`docs/global/tokenkey-opc-next-step-plan.md`:
+JSONL file. It enforces trajectory export quality gates aligned with
+`docs/global/tokenkey-opc-transformation-plan.md` (Evidence / traj：§5、§8.1) —
+Phase-C5 style checks retained as mechanical validators:
 - H1: effective turns >= 2
 - H2: structured tool calls >= 1
 - H3: tool pairing ratio > 0.3
