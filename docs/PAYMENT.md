@@ -270,17 +270,17 @@ If you previously used [Sub2ApiPay](https://github.com/touwaeriol/sub2apipay) as
 
 | Aspect | Sub2ApiPay | Built-in Payment |
 |--------|-----------|-----------------|
-| Deployment | Separate service (Next.js + PostgreSQL) | Built into TokenKey, no extra deployment |
+| Deployment | Separate service (Next.js + PostgreSQL) | Built into Sub2API, no extra deployment |
 | Payment Methods | EasyPay, Alipay, WeChat, Stripe | Same |
-| Configuration | Environment variables + separate admin UI | Unified in TokenKey admin dashboard |
+| Configuration | Environment variables + separate admin UI | Unified in Sub2API admin dashboard |
 | Top-up Integration | Via Admin API callback | Internal processing, more reliable |
 | Subscription Plans | Supported | Not yet (planned) |
-| Order Management | Separate admin interface | Integrated in TokenKey admin dashboard |
+| Order Management | Separate admin interface | Integrated in Sub2API admin dashboard |
 
 ### Migration Steps
 
-1. Enable payment in TokenKey admin dashboard and configure providers (use the same payment credentials)
-2. Update webhook callback URLs to TokenKey's callback endpoints
+1. Enable payment in Sub2API admin dashboard and configure providers (use the same payment credentials)
+2. Update webhook callback URLs to Sub2API's callback endpoints
 3. Verify that new orders are processed correctly via built-in payment
 4. Decommission the Sub2ApiPay service
 

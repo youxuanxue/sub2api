@@ -9,9 +9,10 @@ name: Upstream Merge PR Shape
 #   2. The PR body includes the required §5.y audit cadence reference
 #      (the literal string `upstream/main..HEAD`, which appears in both
 #      mandated commands).
-#   3. No commit in the PR carries `[skip ci]` / `[ci skip]` literally,
-#      which would silently disable the release pipeline for the merge
-#      commit (we burned 30 min on this with v1.3.0 — never again).
+#   3. No first-parent commit introduced by the PR carries `[skip ci]` /
+#      `[ci skip]` literally, which would silently disable the release
+#      pipeline if that PR's landing commit is later tagged. Imported upstream
+#      history is allowed to keep upstream's own release-sync messages.
 #   4. Every load-bearing surface of the fifth platform `newapi` listed
 #      in `scripts/newapi-sentinels.json` is still present after the
 #      merge. This catches the recurring failure mode that motivated
@@ -140,27 +141,28 @@ jobs:
           fi
           echo "OK: PR body references §5.y audit cadence."
 
-      - name: Check 3 — No '[skip ci]' / '[ci skip]' in any commit
+      - name: Check 3 — No '[skip ci]' / '[ci skip]' in PR first-parent commits
         run: |
           BASE='${{ github.event.pull_request.base.sha }}'
           HEAD='${{ github.event.pull_request.head.sha }}'
 
           # GitHub's [skip ci] detector matches the literal substring anywhere in
-          # the commit message, ignoring context. A merge PR carrying [skip ci]
-          # would silently disable release.yml for the merge commit when later
-          # tagged. Only release.yml's own sync-version-file writeback may use it
-          # (rule §9.2), and that commit never appears in a merge PR.
-          OFFENDERS=$(git log --format='%H %s' "$BASE".."$HEAD" | \
+          # the message of the commit being tagged, ignoring context. For an
+          # upstream merge PR, the release risk is the PR's first-parent landing
+          # chain: local gate-fix commits plus the upstream merge commit. Imported
+          # upstream history may legitimately contain upstream release-sync
+          # messages, and rewriting those commits would violate §5.y.
+          OFFENDERS=$(git log --first-parent --format='%H %s' "$BASE".."$HEAD" | \
             grep -E '\[skip ci\]|\[ci skip\]' || true)
 
           if [ -n "$OFFENDERS" ]; then
-            echo "::error::Found commits with literal '[skip ci]' / '[ci skip]':"
+            echo "::error::Found first-parent commits with literal '[skip ci]' / '[ci skip]':"
             echo "$OFFENDERS" | while read line; do echo "::error::  $line"; done
-            echo "::error::Per §9.2, only release.yml's sync-version-file writeback may carry [skip ci]."
+            echo "::error::Per §9.2, a commit that may later be tagged must not carry [skip ci]."
             echo "::error::Rewrite the offending commit messages (use e.g. 'skip-ci' or remove entirely)."
             exit 1
           fi
-          echo "OK: no commits carry literal [skip ci] / [ci skip]."
+          echo "OK: no PR first-parent commits carry literal [skip ci] / [ci skip]."
 
       - name: Check 4 — newapi sentinels still intact after merge
         run: |

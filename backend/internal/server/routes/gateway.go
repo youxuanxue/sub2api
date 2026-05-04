@@ -59,6 +59,7 @@ func RegisterGatewayRoutes(
 		gateway.POST("/chat/completions", tkOpenAICompatChatCompletionsPOST(h))
 		gateway.POST("/embeddings", tkOpenAICompatEmbeddingsHandler(h))
 		gateway.POST("/images/generations", tkOpenAICompatImageGenerationsHandler(h))
+		gateway.POST("/images/edits", tkOpenAICompatImageEditsHandler(h))
 		registerTKOpenAICompatVideoRoutes(gateway, h)
 	}
 
@@ -94,6 +95,7 @@ func RegisterGatewayRoutes(
 	r.POST("/chat/completions", bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatChatCompletionsPOST(h))
 	r.POST("/embeddings", bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatEmbeddingsHandler(h))
 	r.POST("/images/generations", bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatImageGenerationsHandler(h))
+	r.POST("/images/edits", bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatImageEditsHandler(h))
 	registerTKOpenAICompatVideoRoutesNoPrefix(r, h, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic)
 	codexDirect := r.Group("/backend-api/codex")
 	codexDirect.Use(bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic)

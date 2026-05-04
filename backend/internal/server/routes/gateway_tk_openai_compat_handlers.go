@@ -95,6 +95,22 @@ func tkOpenAICompatImageGenerationsHandler(h *handler.Handlers) gin.HandlerFunc 
 	}
 }
 
+// tkOpenAICompatImageEditsHandler routes POST /images/edits for native OpenAI groups.
+func tkOpenAICompatImageEditsHandler(h *handler.Handlers) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if getGroupPlatform(c) != service.PlatformOpenAI {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": gin.H{
+					"type":    "invalid_request_error",
+					"message": "The image edits API is only available for OpenAI platform groups",
+				},
+			})
+			return
+		}
+		h.OpenAIGateway.Images(c)
+	}
+}
+
 // tkOpenAICompatVideoSubmitHandler routes POST /video/generations and POST
 // /videos for OpenAI-compat (incl. newapi) platform groups only. The async
 // video task pipeline is bridge-only (no native sub2api implementation), so

@@ -287,8 +287,7 @@ func TestChatCompletionsToResponses_LegacyFunctions(t *testing.T) {
 	require.NoError(t, json.Unmarshal(resp.ToolChoice, &tc))
 	assert.Equal(t, "function", tc["type"])
 	assert.Equal(t, "get_weather", tc["name"])
-	_, hasNested := tc["function"]
-	assert.False(t, hasNested, "tool_choice must not contain nested 'function' object (Responses API rejects it)")
+	assert.NotContains(t, tc, "function")
 }
 
 func TestChatCompletionsToResponses_ServiceTier(t *testing.T) {
@@ -724,6 +723,49 @@ func TestResponsesEventToChatChunks_Completed(t *testing.T) {
 	assert.Equal(t, 70, chunks[1].Usage.TotalTokens)
 	require.NotNil(t, chunks[1].Usage.PromptTokensDetails)
 	assert.Equal(t, 30, chunks[1].Usage.PromptTokensDetails.CachedTokens)
+}
+
+func TestResponsesEventToChatChunks_ResponseDone(t *testing.T) {
+	state := NewResponsesEventToChatState()
+	state.Model = "gpt-4o"
+	state.IncludeUsage = true
+
+	chunks := ResponsesEventToChatChunks(&ResponsesStreamEvent{
+		Type: "response.done",
+		Response: &ResponsesResponse{
+			Status: "completed",
+			Usage:  &ResponsesUsage{InputTokens: 13, OutputTokens: 7},
+		},
+	}, state)
+	require.Len(t, chunks, 2)
+	require.NotNil(t, chunks[0].Choices[0].FinishReason)
+	assert.Equal(t, "stop", *chunks[0].Choices[0].FinishReason)
+	require.NotNil(t, chunks[1].Usage)
+	assert.Equal(t, 13, chunks[1].Usage.PromptTokens)
+	assert.Equal(t, 7, chunks[1].Usage.CompletionTokens)
+	assert.Nil(t, FinalizeResponsesChatStream(state))
+}
+
+func TestResponsesEventToChatChunks_ResponseDoneIncomplete(t *testing.T) {
+	state := NewResponsesEventToChatState()
+	state.Model = "gpt-4o"
+	state.IncludeUsage = true
+
+	chunks := ResponsesEventToChatChunks(&ResponsesStreamEvent{
+		Type: "response.done",
+		Response: &ResponsesResponse{
+			Status:            "incomplete",
+			IncompleteDetails: &ResponsesIncompleteDetails{Reason: "max_output_tokens"},
+			Usage:             &ResponsesUsage{InputTokens: 13, OutputTokens: 7},
+		},
+	}, state)
+	require.Len(t, chunks, 2)
+	require.NotNil(t, chunks[0].Choices[0].FinishReason)
+	assert.Equal(t, "length", *chunks[0].Choices[0].FinishReason)
+	require.NotNil(t, chunks[1].Usage)
+	assert.Equal(t, 13, chunks[1].Usage.PromptTokens)
+	assert.Equal(t, 7, chunks[1].Usage.CompletionTokens)
+	assert.Nil(t, FinalizeResponsesChatStream(state))
 }
 
 func TestResponsesEventToChatChunks_CompletedWithToolCalls(t *testing.T) {
