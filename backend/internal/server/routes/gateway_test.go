@@ -31,6 +31,7 @@ func newGatewayRoutesTestRouter(platform string) *gin.Engine {
 				GroupID: &groupID,
 				Group:   &service.Group{ID: groupID, Platform: platform},
 			})
+			c.Set(string(servermiddleware.ContextKeyUser), servermiddleware.AuthSubject{UserID: 1})
 			c.Next()
 		}),
 		nil,
@@ -74,6 +75,8 @@ func TestGatewayRoutesNewAPICompatPathsAreRegistered(t *testing.T) {
 		"/chat/completions",
 		"/embeddings",
 		"/images/generations",
+		"/backend-api/codex/responses",
+		"/backend-api/codex/responses/compact",
 	} {
 		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"gpt-5"}`))
 		req.Header.Set("Content-Type", "application/json")
