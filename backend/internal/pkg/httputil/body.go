@@ -52,7 +52,7 @@ func ReadRequestBodyWithPrealloc(req *http.Request) ([]byte, error) {
 		return raw, nil
 	}
 
-	decoded, err := decompressRequestBody(enc, raw)
+	decoded, err := DecodeContentEncodedBody(enc, raw)
 	if err != nil {
 		return nil, fmt.Errorf("decode Content-Encoding %q: %w", enc, err)
 	}
@@ -64,7 +64,10 @@ func ReadRequestBodyWithPrealloc(req *http.Request) ([]byte, error) {
 	return decoded, nil
 }
 
-func decompressRequestBody(encoding string, raw []byte) ([]byte, error) {
+// DecodeContentEncodedBody decodes a raw request body for a supported
+// Content-Encoding value. It is shared by handlers and QA capture so evidence is
+// sanitized from the same semantic bytes that gateway handlers process.
+func DecodeContentEncodedBody(encoding string, raw []byte) ([]byte, error) {
 	switch encoding {
 	case "zstd":
 		dec, err := zstd.NewReader(bytes.NewReader(raw))
