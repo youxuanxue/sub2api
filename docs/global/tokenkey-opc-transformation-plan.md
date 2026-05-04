@@ -328,6 +328,75 @@ Evidence Spine 只负责统一完成：
 
 ---
 
+## 6.5 上游合并适应层：merge 不是债务登记，而是收敛演练
+
+本方案不是只服务“从零重构”的完成态路线图，也必须指导每一次 upstream merge。
+
+上游合并最容易把系统带回反 OPC 状态：热点文件变胖、truth table 变多、品牌词回退、证据入口绕开主链路。处理方式不能是“先合进去，记 follow-up”。对 OPC 而言，follow-up checklist 本身就是人工债务。
+
+### 6.5.1 三类准入标准
+
+#### Invariant：任何 PR 都不能破坏
+
+以下不因“这是 upstream merge”而放宽：
+
+- raw secret 不进入持久层或结构化日志
+- 对外产品心智不从 TokenKey 回退到 Sub2API / New API
+- `newapi` 不恢复成默认外部产品名，只保留为内部 identity
+- 新主流量 endpoint 必须接入既有 trajectory / QA capture / redaction hooks
+- 新 capability / routing truth 不得只靠散点 if/else 存在
+
+#### Merge Harness：冲突解决 commit 的职责
+
+上游 merge commit 只负责：
+
+- 保留 upstream 能力，不 silent-delete
+- 解决编译、生成代码、基础测试问题
+- 把新增高风险入口先接入现有 canonical hooks
+- 保证 preflight、sentinel、PR shape gate 能正常运行
+
+它不负责把 TokenKey 的架构一次性重写好，也不应该把 TokenKey 私有重构混进冲突解决里。
+
+#### OPC Refactor Commit：同一 PR 内的收敛 commit
+
+当 upstream merge 引入或触碰后显著增厚分叉面，必须在同一个 PR 内用独立 commit 收敛，而不是记 follow-up：
+
+- 热点文件新增的 TokenKey 分叉，迁到既有 companion / facade / 最小 Engine Spine
+- 平行 truth table，收敛到单一代码 owner
+- 大型 UI 文件新增的策略面板，抽到专用 component / composable
+- 新 sentinel 不是“字还在”，而是验证关键行为仍被关键路径调用
+
+边界也必须收紧：只处理本次 merge 引入或触碰后显著增厚的分叉面；历史债务不借 merge PR 扩张。
+
+### 6.5.2 决策矩阵
+
+| upstream 带来的变化 | merge commit 动作 | OPC refactor commit 动作 | 必要门禁 |
+|---|---|---|---|
+| 新主流量 endpoint | 接入现有 auth / body limit / trajectory / QA hooks | 若出现重复 route predicate，迁到 canonical helper | route / trajectory sentinel |
+| 热点文件新增 TokenKey 分支 | 保真解决冲突 | 移入 companion / facade，仅留薄调用点 | semantic call-site check |
+| 新 capability / probe truth | 保留能力与测试 | 收敛到单一代码 owner | owner + sentinel |
+| 新 operator UI 策略块 | 保留可用 UI | 抽 component / composable，主 view 只 wiring | frontend test / lint |
+| 品牌或内部术语外泄 | 当场修复 | 必要时补 brand sentinel | brand drift check |
+
+### 6.5.3 PR #110 作为演练基线
+
+PR #110 不只是一次 upstream merge，也是这套纪律的第一次演练：
+
+- **Merge Harness commit**：保留 upstream 新增能力与历史审计链，只做语义保真、冲突解决、编译与基础测试修复。
+- **Invariant commits**：修复不可退让项，例如 Responses canonical route、TokenKey 支付心智、QA compressed / multipart evidence、locale key migration、raw sticky debug logs 移除、`AGENTS.md` 可追踪性。
+- **OPC Refactor commits**：只处理本次 merge 引入或触碰后显著增厚的分叉面，例如 gateway / OpenAI capability truth、Settings fast/flex policy UI、Vertex location truth 的 owner 判定。
+
+PR #110 的边界也必须明确：
+
+- 不把历史上所有 hotspot debt 都塞进这次 merge PR。
+- 不把“未来会重构”写成全局长期债务来替代当前可收敛的分叉。
+- 不把 upstream 能力删除来换取简单；正确动作是保留能力，再把 TokenKey 分叉迁回最小 owner。
+- 不把 mechanical gate 写成文档愿望；owner 必须体现为代码入口与 semantic sentinel。
+
+这让“上游合并”本身成为持续降低 merge tax 的机制，而不是制造新债务的入口。
+
+---
+
 ## 7. 对本仓库的实操改造方案
 
 ## 7.1 改造一：建立最小 Engine Spine，而不是宏大 Engine Framework
@@ -506,14 +575,37 @@ backend/internal/engine/catalog/
 - `logredact.RedactJSON / RedactText`
 - `OpsService.RecordError` 的脱敏裁剪路径
 - `observability/qa/service.go` 的 request / response / blob / zstd / export 能力
+- PR #81 之后，主 gateway 路径已经具备 `trajectory_id` 分配、request / response / SSE chunk capture、脱敏 blob 写入、`qa_records` 元数据与用户侧基础导出
+
+### PR #81 之后的关键边界
+
+当前系统已经向统一证据面推进了一步，但落盘本质仍是：
+
+**一条请求，对应一条脱敏后的请求级 evidence record。**
+
+它服务事故排查、用户自助导出、主路径可观测性，也是后续 Evidence Spine 的事实源。
+
+它还不是：
+
+- 一个 session 主实体
+- 一个 turn 序列
+- 一个结构化 tool-use 数据集
+- `traj 标准 v1.0` 要求的 session / turn / tool-use JSONL
+
+因此必须保持两层：
+
+1. **请求级 Evidence Spine**：生产事实源，负责主路径捕获、脱敏、request / response / stream 持久化、fail-open + DLQ + metrics。
+2. **session 级 traj Projection**：派生视图，从 evidence 记录组装 session、提取 turn、结构化 tool schema / call / result，并执行 H1/H2/H3/D1 验收。
+
+不能为了追求 `traj 标准 v1.0` 一次到位，把主写路径改成大 session 文档，也不能在 gateway 热点 service 中维护 session 状态。
 
 ### 当前真正缺口
 
-- 成功请求未形成统一 capture 主链路
-- 流式 chunk 采集没有全局 contract
-- QA / ops / gateway 仍然是并行证据体系
+- 请求级 evidence 还未完全升级为统一 trajectory record schema
+- QA / ops / gateway 仍然是并行证据体系，尚未全部关联到唯一 evidence spine
 - capture 完整率不是系统级指标
 - redaction policy 还未成为版本化契约
+- session 级 traj projection 尚未具备默认 `session_id`、turn 结构、tool-use 三件套、标准导出与验收门禁
 
 ### 目标状态
 
@@ -635,6 +727,15 @@ trajectory.CaptureFinish(...)
 - 主请求路径：**异步写入，fail-open**
 - 写入失败：进入 DLQ + 计数器 + 结构化错误日志
 - 定时任务：补偿 DLQ、统计 capture completeness、输出告警阈值
+
+### traj projection 策略
+
+`traj 标准 v1.0` 需要的数据集结构只从 evidence 派生，不反向驱动主路径变胖：
+
+- `session_id` 不依赖特定 synth pipeline 才存在
+- session / turn / tool-use 组装逻辑落在 projection / exporter 层
+- `system prompt`、tool schema / call / result 是数据集字段，不代表要新增 prompt 平台或 Agent runtime
+- H1/H2/H3/D1 验收由 exporter / CI 负责，不进入 gateway 热点路径
 
 ### 为什么这符合乔布斯 / OPC
 
@@ -793,6 +894,13 @@ scripts/bump-new-api.sh
 
 把“100% 脱敏后持久化”从原则变成系统默认事实。
 
+### 两段式边界
+
+主线 C 不直接把生产主路径改造成 session 数据集写入器：
+
+- **C-1 请求级 Evidence Spine**：生产事实源，保证所有主路径请求先脱敏、再持久化、可追踪、可补偿。
+- **C-2 session 级 traj Projection**：从 evidence 派生符合 `traj 标准 v1.0` 的 session / turn / tool-use 数据集。
+
 ### 必做产出
 
 1. `trajectoryrecord` Ent schema
@@ -802,12 +910,15 @@ scripts/bump-new-api.sh
 5. redaction version 机制
 6. 异步 writer + DLQ + 基础 metrics
 7. 后续逐步把 QA export / ops_error_logs 关联到 unified evidence
+8. traj projection / exporter / H1-H2-H3-D1 验收门禁
 
 ### 明确不做
 
 - 不要求第一版就统一所有后台查询页面
 - 不要求第一版就把全部历史导出视图重做
 - 不要求第一版就构建复杂 retention 产品能力
+- 不在 gateway / service 热点文件中维护 session 状态
+- 不让 `traj 标准 v1.0` 的字段要求反向制造新的产品概念
 
 ### 验收标准
 
@@ -815,6 +926,7 @@ scripts/bump-new-api.sh
 - 持久化 payload 全部为脱敏后内容
 - capture 失败不会阻断主请求，但一定留下 DLQ、计数和日志
 - operator 在真实事故中能从统一入口拿到完整证据
+- traj 导出能从 evidence 派生出可解析的 session / turn / tool-use 数据集
 
 ---
 
@@ -851,12 +963,17 @@ scripts/bump-new-api.sh
 - streaming chunk capture tests
 - fail-open + DLQ tests
 - export authorization tests
+- session assembly tests
+- tool schema / call / result pairing tests
+- traj JSONL parse tests
+- H1/H2/H3/D1 acceptance tests
 
 必须新增门禁：
 
 - `trajectory hook check`：新 endpoint 未接入 capture 直接 fail
 - `redaction version check`：敏感键集合变化必须带版本更新
 - `terminal event check`：主路径必须有 terminal capture call
+- `traj projection check`：session / turn / tool-use 导出不满足验收阈值直接 fail
 
 ---
 
@@ -931,9 +1048,10 @@ scripts/bump-new-api.sh
 
 1. **先做品牌与自动化主线**：让产品叙事和 fork 维护先变简单
 2. **紧接着做最小 Engine Spine**：让双上游差异从热点文件里退出
-3. **然后做唯一 Evidence Spine**：让脱敏轨迹成为系统默认行为
+3. **然后做请求级 Evidence Spine**：让脱敏请求证据成为系统默认事实源
+4. **最后做 session 级 traj Projection**：从 evidence 派生符合 `traj 标准 v1.0` 的数据集
 
-只有这三条主线稳定之后，才考虑：
+只有这些主线稳定之后，才考虑：
 
 - catalog 视图
 - 更完整的 operator 证据产品面
@@ -1006,11 +1124,32 @@ scripts/bump-new-api.sh
 - 让 `ops_error_logs` 关联 `trajectory_id`
 - 为后续 export / query / retention 打基础
 
+### PR-C4：Session / Turn Projection
+
+- 从请求级 evidence 组装 session
+- 生成默认 `session_id`
+- 提取 turn / role / message kind
+- 不在 gateway 热点文件维护 session 状态
+
+### PR-C5：traj 标准导出器
+
+- 输出符合 `traj 标准 v1.0` 的 JSONL
+- 结构化 tool schema / call / result 三件套
+- 支持 single-call 数据分组与去重
+
+### PR-C6：traj 验收与门禁
+
+- H1：有效轮次 ≥ 2
+- H2：结构化工具调用 ≥ 1
+- H3：工具配对率 > 0.3
+- D1：精确+子集去重率 < 20%
+- JSONL / JSON parse、session 完整性、tool 命名规范检查
+
 ---
 
 ## 14. 成功标准
 
-当以下 7 条同时满足时，可以认为 TokenKey 已从“高维护 fork”升级为“乔布斯 / OPC 风格的可持续产品骨架”：
+当以下条件同时满足时，可以认为 TokenKey 已从“高维护 fork”升级为“乔布斯 / OPC 风格的可持续产品骨架”：
 
 1. 对外默认品牌只剩 **TokenKey**。
 2. 用户与大多数 operator 不需要理解 `sub2api` / `new-api` 才能使用系统。
@@ -1018,10 +1157,12 @@ scripts/bump-new-api.sh
 4. `new-api` bump 有固定脚本 + smoke，不再依赖人工经验。
 5. 主路径请求都能查到对应 `trajectory_id` 与脱敏后的 evidence blob。
 6. evidence capture 失败不会阻断主流量，但会留下 DLQ、指标与告警。
-7. 新增 provider / endpoint 时，主要改动集中在 facade / registry / capture，而不是十几个 service 文件散改。
+7. traj 导出不是 `qa_records.jsonl` 的薄包装，而是具备 `session_id / turn / tool-use` 的派生投影。
+8. traj 数据集可通过 H1/H2/H3/D1 验收。
+9. 新增 provider / endpoint 时，主要改动集中在 facade / registry / capture / exporter，而不是十几个 service 文件散改。
 
 ---
 
 如果把整份方案压缩成一句话，那就是：
 
-**让 TokenKey 成为唯一产品，让 sub2api 成为控制面基座，让 new-api 成为能力来源，让脱敏轨迹成为系统默认行为。**
+**让 TokenKey 成为唯一产品，让 sub2api 成为控制面基座，让 new-api 成为能力来源，让请求级脱敏 evidence 成为事实源，并从它派生标准化 traj 数据。**
