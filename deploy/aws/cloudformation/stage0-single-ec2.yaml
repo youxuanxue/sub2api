@@ -644,8 +644,8 @@ Resources:
 
           mv -f "${!PART}" "${!OUT}"
 
-          # Keep 36 hourly dumps (~1.5 days) — balances RPO vs 30 GiB DataVolume headroom.
-          ls -1t "${!DUMP_DIR}"/tokenkey-*.sql.gz 2>/dev/null | tail -n +37 | xargs -r rm -f
+          # Keep only dumps from the past 24 hours.
+          find "${!DUMP_DIR}" -maxdepth 1 -type f -name 'tokenkey-*.sql.gz' -mmin +1440 -delete 2>/dev/null || true
           PGEOF
           chmod +x /usr/local/bin/tokenkey-pgdump.sh
 
