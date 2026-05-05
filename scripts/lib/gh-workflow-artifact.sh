@@ -34,15 +34,24 @@ dispatch_workflow_and_download_artifact() {
   local out_dir="$5"
   shift 5
 
-  mkdir -p "$out_dir"
+  if ! mkdir -p "$out_dir"; then
+    err "failed to create output directory: $out_dir"
+    return 1
+  fi
 
   log "snapshotting last run id on $repo/$workflow"
   local prev_id
-  prev_id=$(gh run list --workflow="$workflow" --repo "$repo" --limit 1 \
-    --json databaseId --jq '.[0].databaseId // 0')
+  if ! prev_id=$(gh run list --workflow="$workflow" --repo "$repo" --limit 1 \
+    --json databaseId --jq '.[0].databaseId // 0'); then
+    err "failed to list previous run for $repo/$workflow"
+    return 1
+  fi
   log "previous run id: $prev_id"
 
-  gh workflow run "$workflow" --repo "$repo" "$@"
+  if ! gh workflow run "$workflow" --repo "$repo" "$@"; then
+    err "failed to dispatch workflow $workflow on $repo"
+    return 1
+  fi
 
   log "polling for new run id (timeout ${poll_timeout_s}s)"
   local deadline run_id
@@ -50,8 +59,11 @@ dispatch_workflow_and_download_artifact() {
   run_id="$prev_id"
   while [ "$run_id" = "$prev_id" ] || [ "$run_id" = "0" ]; do
     sleep 4
-    run_id=$(gh run list --workflow="$workflow" --repo "$repo" --limit 1 \
-      --json databaseId --jq '.[0].databaseId // 0')
+    if ! run_id=$(gh run list --workflow="$workflow" --repo "$repo" --limit 1 \
+      --json databaseId --jq '.[0].databaseId // 0'); then
+      err "failed to poll latest run for $repo/$workflow"
+      return 1
+    fi
     if [ "$(date +%s)" -ge "$deadline" ]; then
       err "timed out waiting for workflow to start (still seeing previous run id $prev_id)"
       return 2

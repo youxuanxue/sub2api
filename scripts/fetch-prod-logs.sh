@@ -120,7 +120,7 @@ dispatch_workflow_and_download_artifact \
   -f "since=$SINCE" \
   -f "container=$CONTAINER" \
   -f "grep_pattern=$GREP_PATTERN" \
-  -f "tail_lines=$TAIL_LINES" || exit $?
+  -f "tail_lines=$TAIL_LINES"
 
 if [ -s "$OUT_DIR/logs.txt" ]; then
   LINES=$(wc -l < "$OUT_DIR/logs.txt")

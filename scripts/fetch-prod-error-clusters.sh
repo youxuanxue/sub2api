@@ -89,7 +89,7 @@ dispatch_workflow_and_download_artifact \
   "$POLL_TIMEOUT_S" \
   'error-clustering-{run_id}' \
   "$OUT_DIR" \
-  -f "since_hours=$SINCE_HOURS" || exit $?
+  -f "since_hours=$SINCE_HOURS"
 
 if [ -s "$OUT_DIR/report.json" ]; then
   SUMMARY=$(jq -r '.summary // "(no summary field)"' "$OUT_DIR/report.json" 2>/dev/null || echo "(report.json not parseable)")
