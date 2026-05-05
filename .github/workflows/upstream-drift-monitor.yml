@@ -17,6 +17,7 @@ on:
 permissions:
   contents: read
   issues: write
+  pull-requests: read
 
 jobs:
   check:
@@ -63,8 +64,55 @@ jobs:
             } >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Find open upstream merge PR
+        id: upstream_pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          EXISTING="$(gh pr list \
+            --state open \
+            --base main \
+            --json number,headRefName,url \
+            --jq '[.[] | select(.headRefName | startswith("merge/upstream-"))][0] // empty')"
+          if [ -n "$EXISTING" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "number=$(jq -r '.number' <<<"$EXISTING")" >> "$GITHUB_OUTPUT"
+            echo "url=$(jq -r '.url' <<<"$EXISTING")" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Close drift issue when an upstream merge PR is already open
+        if: steps.drift.outputs.behind != '0' && steps.upstream_pr.outputs.exists == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prUrl = '${{ steps.upstream_pr.outputs.url }}';
+            const prNumber = '${{ steps.upstream_pr.outputs.number }}';
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'upstream-drift',
+              state: 'open',
+            });
+            for (const issue of issues) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `Open upstream merge PR #${prNumber} is already tracking this drift: ${prUrl}`,
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: 'closed',
+              });
+              console.log(`Closed drift issue #${issue.number} because PR #${prNumber} exists`);
+            }
+
       - name: Open or update upstream-drift tracking issue
-        if: steps.drift.outputs.behind != '0'
+        if: steps.drift.outputs.behind != '0' && steps.upstream_pr.outputs.exists != 'true'
         uses: actions/github-script@v7
         with:
           script: |

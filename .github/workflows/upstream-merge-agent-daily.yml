@@ -1,0 +1,172 @@
+name: Daily Upstream Merge Agent
+
+# Dedicated upstream merge automation.
+# - upstream-drift-monitor.yml only opens/updates a tracking issue.
+# - agent-draft-pr is for small report-driven draft remediations and is not used
+#   here because upstream merge PRs need a real --no-ff merge commit, broader
+#   validation, and possible conflict resolution.
+
+on:
+  schedule:
+    # 04:00 Asia/Shanghai. GitHub cron is UTC.
+    - cron: '0 20 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: read
+
+concurrency:
+  group: daily-upstream-merge-agent
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Check required secrets
+        env:
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          UPSTREAM_MERGE_GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+        run: |
+          missing=0
+          if [ -z "${ANTHROPIC_AUTH_TOKEN:-}" ]; then
+            echo "::error::Missing required secret ANTHROPIC_AUTH_TOKEN for Claude Code CLI."
+            missing=1
+          fi
+          if [ -z "${UPSTREAM_MERGE_GH_TOKEN:-}" ]; then
+            echo "::error::Missing required secret UPSTREAM_MERGE_GH_TOKEN. Use a PAT or GitHub App token so pushed PR branches trigger normal PR checks."
+            missing=1
+          fi
+          exit "$missing"
+
+      - name: Configure authenticated origin
+        env:
+          UPSTREAM_MERGE_GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+        run: git remote set-url origin "https://x-access-token:${UPSTREAM_MERGE_GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+      - uses: ./.github/actions/cache-and-checkout-new-api
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: frontend
+
+      - name: Install Claude Code CLI
+        env:
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+        run: bash scripts/setup-claude-code.sh
+
+      - name: Configure git identity
+        run: |
+          git config user.name "tk-upstream-agent[bot]"
+          git config user.email "upstream-agent@tokenkey.dev"
+
+      - name: Find existing upstream merge PR
+        id: upstream_pr
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+        run: |
+          EXISTING="$(gh pr list \
+            --state open \
+            --base main \
+            --json number,headRefName,url \
+            --jq '[.[] | select(.headRefName | startswith("merge/upstream-"))][0] // empty')"
+          if [ -n "$EXISTING" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "number=$(jq -r '.number' <<<"$EXISTING")" >> "$GITHUB_OUTPUT"
+            echo "branch=$(jq -r '.headRefName' <<<"$EXISTING")" >> "$GITHUB_OUTPUT"
+            echo "url=$(jq -r '.url' <<<"$EXISTING")" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "branch=merge/upstream-$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build upstream merge prompt
+        env:
+          EXISTING_PR: ${{ steps.upstream_pr.outputs.exists }}
+          PR_NUMBER: ${{ steps.upstream_pr.outputs.number }}
+          PR_URL: ${{ steps.upstream_pr.outputs.url }}
+          BRANCH: ${{ steps.upstream_pr.outputs.branch }}
+        run: |
+          cat > /tmp/upstream-merge-agent-prompt.txt <<EOF
+          You are running the TokenKey upstream merge skill in headless CI. Follow this skill SOP exactly:
+
+          EOF
+          cat .cursor/skills/tokenkey-upstream-merge/SKILL.md >> /tmp/upstream-merge-agent-prompt.txt
+          cat >> /tmp/upstream-merge-agent-prompt.txt <<EOF
+
+          ## Daily automation task
+
+          Run the TokenKey upstream merge workflow unattended for the daily 04:00 Asia/Shanghai automation.
+
+          Required behavior:
+          - Target branch: $BRANCH.
+          - If an open upstream merge PR already exists, update that PR branch instead of creating a new PR. Existing PR: ${PR_URL:-none} (#${PR_NUMBER:-none}).
+          - If no open upstream merge PR exists, create branch $BRANCH from current origin/main and open a PR to main.
+          - Fetch origin and upstream first.
+          - If origin/main already contains upstream/main and there is no open upstream merge PR to update, make no code changes and do not open a PR.
+          - The PR must contain a git merge --no-ff upstream/main merge commit when upstream is behind/ahead as required by the project PR-shape workflow.
+          - Preserve upstream features by default; do not silent-delete upstream-owned files/routes/methods.
+          - Keep TokenKey-only fixes behind companion/facade/component boundaries where possible.
+          - Run appropriate focused checks and ./scripts/preflight.sh when changes are produced.
+          - Write the final PR body to /tmp/upstream-merge-pr-body.md, including the literal upstream/main..HEAD audit cadence and validation run.
+          - Push the branch and create or update the GitHub PR using gh.
+          - If conflicts cannot be resolved safely, push the conflicted/update branch only if it is in a clean, committed state; otherwise leave no partial commit and open/update a PR comment explaining the blocker.
+
+          GitHub auth is available through GH_TOKEN. Do not merge the PR.
+          EOF
+
+      - name: Run Claude upstream merge agent
+        env:
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          ANTHROPIC_BASE_URL: https://api.tokenkey.dev
+          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+          CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING: "1"
+          MAX_THINKING_TOKENS: "31999"
+          CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE: "60"
+          CLAUDE_CODE_ATTRIBUTION_HEADER: "0"
+          ANTHROPIC_MODEL: "opus[1m]"
+        run: |
+          claude -p "$(cat /tmp/upstream-merge-agent-prompt.txt)" \
+            --model "opus[1m]" \
+            --max-budget-usd "8.00" \
+            --output /tmp/upstream-merge-agent-output.txt
+
+      - name: Upload agent output
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: upstream-merge-agent-output
+          path: |
+            /tmp/upstream-merge-agent-output.txt
+            /tmp/upstream-merge-pr-body.md
+          if-no-files-found: ignore
