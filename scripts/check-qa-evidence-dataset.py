@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-check-traj-dataset.py — validate trajectory export dataset quality gates.
+check-qa-evidence-dataset.py — validate QA evidence export quality gates.
 
-Accepts either a trajectory export zip (containing trajectory.jsonl) or a raw
-JSONL file. It enforces trajectory export quality gates aligned with
-`docs/global/tokenkey-opc-transformation-plan.md` (Evidence / traj：§5、§8.1) —
-Phase-C5 style checks retained as mechanical validators:
+Accepts either a legacy trajectory export zip (containing trajectory.jsonl) or a raw
+JSONL file. It enforces QA evidence export checks aligned with
+`docs/global/tokenkey-opc-transformation-plan.md` Evidence Spine goals. The legacy
+artifact names remain part of the on-disk compatibility contract; they do not make
+an external traj standard a product goal. Mechanical gates retained:
 - H1: effective turns >= 2
 - H2: structured tool calls >= 1
 - H3: tool pairing ratio > 0.3
@@ -261,7 +262,7 @@ def render_human(report: dict[str, Any], quiet: bool) -> None:
     if quiet and not report["failures"]:
         return
     if not quiet:
-        print(f"traj dataset check: {report['input']}")
+        print(f"QA evidence dataset check: {report['input']}")
         print(f"  artifact: {report['artifact_kind']}:{report['artifact_member']}")
         print("  metrics:")
         for key, value in report["metrics"].items():
@@ -270,16 +271,16 @@ def render_human(report: dict[str, Any], quiet: bool) -> None:
             else:
                 print(f"    - {key}: {value}")
     if report["failures"]:
-        print("  FAIL: trajectory dataset gate failed")
+        print("  FAIL: QA evidence dataset gate failed")
         for failure in report["failures"]:
             print(f"        - {failure}")
     elif not quiet:
-        print("  ok: trajectory dataset passed H1/H2/H3/D1 and structural checks")
+        print("  ok: QA evidence dataset passed H1/H2/H3/D1 and structural checks")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("path", help="path to trajectory export zip or raw JSONL")
+    parser.add_argument("path", help="path to legacy trajectory export zip or raw QA evidence JSONL")
     parser.add_argument("--json", action="store_true", help="emit machine-readable JSON report")
     parser.add_argument("--quiet", action="store_true", help="only print failures")
     args = parser.parse_args()

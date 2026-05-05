@@ -47,7 +47,7 @@ set -euo pipefail
 
 REGION="${AWS_REGION:-us-east-1}"
 STACK="${STACK:-tokenkey-prod-stage0}"
-OUT_DIR="${OUT_DIR:-./.dump_trajs}"
+OUT_DIR="${OUT_DIR:-./.dump_qa}"
 PURGE_WAIT="${PURGE_SSM_WAIT_MAX:-900}"
 KEEP_TAR="${KEEP_LOCAL_TAR_AFTER_PURGE:-0}"
 

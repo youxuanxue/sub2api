@@ -597,9 +597,9 @@ func writeTrajectoryExportFixture(t *testing.T, zipBody []byte) string {
 	return path
 }
 
-func runTrajectoryDatasetCheck(t *testing.T, datasetPath string, args ...string) (int, string) {
+func runQAEvidenceDatasetCheck(t *testing.T, datasetPath string, args ...string) (int, string) {
 	t.Helper()
-	commandArgs := append([]string{"scripts/check-traj-dataset.py", datasetPath}, args...)
+	commandArgs := append([]string{"scripts/check-qa-evidence-dataset.py", datasetPath}, args...)
 	cmd := exec.Command("python3", commandArgs...)
 	cmd.Dir = filepath.Join("..", "..", "..", "..")
 	output, err := cmd.CombinedOutput()
@@ -611,7 +611,7 @@ func runTrajectoryDatasetCheck(t *testing.T, datasetPath string, args ...string)
 	return exitErr.ExitCode(), string(output)
 }
 
-func TestUS077_TrajectoryDatasetCheck_AcceptsProjectedExportZip(t *testing.T) {
+func TestUS077_QAEvidenceDatasetCheck_AcceptsProjectedExportZip(t *testing.T) {
 	svc, client, store := newQAExportTestService(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -687,12 +687,12 @@ func TestUS077_TrajectoryDatasetCheck_AcceptsProjectedExportZip(t *testing.T) {
 	require.NoError(t, err)
 	zipPath := writeTrajectoryExportFixture(t, store.objects[res.StorageKey])
 
-	exitCode, output := runTrajectoryDatasetCheck(t, zipPath)
+	exitCode, output := runQAEvidenceDatasetCheck(t, zipPath)
 	require.Equal(t, 0, exitCode, output)
-	require.Contains(t, output, "ok: trajectory dataset passed H1/H2/H3/D1 and structural checks")
+	require.Contains(t, output, "ok: QA evidence dataset passed H1/H2/H3/D1 and structural checks")
 }
 
-func TestUS077_TrajectoryDatasetCheck_RejectsDuplicateTurnDataset(t *testing.T) {
+func TestUS077_QAEvidenceDatasetCheck_RejectsDuplicateTurnDataset(t *testing.T) {
 	datasetPath := filepath.Join(t.TempDir(), "duplicate-trajectory.jsonl")
 	rows := []map[string]any{
 		{"session_id": "m0-DUP", "turn_index": 1, "role": "user", "message_kind": "request", "content_json": []any{"hello"}, "request_id": "req-1"},
@@ -709,7 +709,7 @@ func TestUS077_TrajectoryDatasetCheck_RejectsDuplicateTurnDataset(t *testing.T) 
 	}
 	require.NoError(t, os.WriteFile(datasetPath, []byte(strings.Join(lines, "\n")+"\n"), 0o600))
 
-	exitCode, output := runTrajectoryDatasetCheck(t, datasetPath)
+	exitCode, output := runQAEvidenceDatasetCheck(t, datasetPath)
 	require.Equal(t, 1, exitCode, output)
 	require.Contains(t, output, "D1 failed")
 }
