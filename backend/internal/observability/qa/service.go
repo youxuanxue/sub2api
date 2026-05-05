@@ -435,6 +435,7 @@ func exportQARecordRow(record *ent.QARecord) map[string]any {
 	row["input_tokens"] = record.InputTokens
 	row["output_tokens"] = record.OutputTokens
 	row["cached_tokens"] = record.CachedTokens
+	row["stream"] = record.Stream
 	row["tool_calls_present"] = record.ToolCallsPresent
 	row["multimodal_present"] = record.MultimodalPresent
 	if record.Tags == nil {

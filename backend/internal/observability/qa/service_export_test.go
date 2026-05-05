@@ -466,6 +466,7 @@ func TestUS074_ExportUserData_FillsDefaultValuedFields(t *testing.T) {
 	var row map[string]any
 	require.NoError(t, json.Unmarshal(bytes.TrimSpace(raw), &row))
 	require.Equal(t, float64(0), row["cached_tokens"])
+	require.Equal(t, false, row["stream"])
 	require.Equal(t, false, row["tool_calls_present"])
 	require.Equal(t, false, row["multimodal_present"])
 	require.Equal(t, []any{}, row["tags"])
