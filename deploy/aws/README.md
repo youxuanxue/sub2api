@@ -435,7 +435,7 @@ aws cloudformation delete-stack --region us-east-1 --stack-name <旧栈名>
 
 ### Prod QA 全量导出与清理（operator IAM）
 
-用于把 **Stage-0 单机上** 的 `qa_records`（PostgreSQL 分区表）与 **`/var/lib/tokenkey/app/qa_blobs`**（含用户自助导出的 `exports/` 树）一次性拉到本地 `./.dump_trajs/`，在**本地校验非空、manifest 计数与 checksum** 之后，再 **TRUNCATE 表 + 清空 blob 目录 + 删除 S3 暂存 tar**，避免 EBS 与 staging bucket 长期堆积。
+用于把 **Stage-0 单机上** 的 `qa_records`（PostgreSQL 分区表）与 **`/var/lib/tokenkey/app/qa_blobs`**（含用户自助导出的 `exports/` 树）一次性拉到本地 `./.dump_qa/`，在**本地校验非空、manifest 计数与 checksum** 之后，再 **TRUNCATE 表 + 清空 blob 目录 + 删除 S3 暂存 tar**，避免 EBS 与 staging bucket 长期堆积。
 
 - **脚本**：`scripts/fetch-prod-qa-dump.sh`（仅导出）；`scripts/prod-qa-export-and-purge.sh`（导出 + 清理）。
 - **凭证**：与 `deploy-error-clustering-binary.sh` 同类 — 操作员 IAM 需 `ssm:SendCommand` / `GetCommandInvocation`，以及 staging bucket 的 `s3:PutObject`（预签名 PUT 由本机 boto3 生成）、`s3:GetObject`（下载）、`s3:DeleteObject`（清理暂存对象）。
@@ -454,7 +454,7 @@ QA_DUMP_S3_BUCKET=<staging-bucket> \
   bash scripts/prod-qa-export-and-purge.sh
 ```
 
-**定期自动（本机一条链路）**：在常用开发机上用 `cron` / `LaunchAgent` 调用上述脚本即可（数据直接进 `./.dump_trajs`，不经 GitHub）。示例：`RM_LOCAL_TAR_AFTER_EXTRACT=1` 可在解压后删掉本机 `.tar.gz`；用 `flock` 避免与上一次运行重叠。
+**定期自动（本机一条链路）**：在常用开发机上用 `cron` / `LaunchAgent` 调用上述脚本即可（数据直接进 `./.dump_qa`，不经 GitHub）。示例：`RM_LOCAL_TAR_AFTER_EXTRACT=1` 可在解压后删掉本机 `.tar.gz`；用 `flock` 避免与上一次运行重叠。
 
 ```bash
 # crontab 示例：每周日 05:00（机器本地时区）

@@ -18,7 +18,6 @@
 
 set -euo pipefail
 
-UPSTREAM_URL="https://github.com/Wei-Shaw/sub2api.git"
 MODE="prepare"
 BRANCH="merge/upstream-$(date -u +%Y-%m-%d)"
 PR_TITLE=""
@@ -49,23 +48,21 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/upstream-drift.sh
+source "$SCRIPT_DIR/lib/upstream-drift.sh"
+
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "ERROR: must run inside the git repository" >&2
   exit 2
 fi
 
-if ! git remote get-url upstream >/dev/null 2>&1; then
-  echo "Adding upstream remote: ${UPSTREAM_URL}"
-  git remote add upstream "${UPSTREAM_URL}"
+if ! fetch_and_load_upstream_drift_snapshot; then
+  exit 2
 fi
 
-git fetch upstream main --quiet 2>/dev/null || { echo "ERROR: failed to fetch upstream/main" >&2; exit 2; }
-git fetch origin main --quiet 2>/dev/null || { echo "ERROR: failed to fetch origin/main" >&2; exit 2; }
-
-BEHIND=$(git rev-list --count origin/main..upstream/main)
-AHEAD=$(git rev-list --count upstream/main..origin/main)
-UPSTREAM_HEAD=$(git rev-parse --short upstream/main)
-ORIGIN_HEAD=$(git rev-parse --short origin/main)
+BEHIND="$TK_BEHIND"
+AHEAD="$TK_AHEAD"
 PR_TITLE="chore: merge upstream/main (${BEHIND} commits) into TK fork"
 
 printf 'Upstream:  Wei-Shaw/sub2api@%s\n' "$UPSTREAM_HEAD"

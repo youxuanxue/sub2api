@@ -20,7 +20,6 @@
 
 set -euo pipefail
 
-UPSTREAM_URL="https://github.com/Wei-Shaw/sub2api.git"
 MODE="human"
 
 for arg in "$@"; do
@@ -38,26 +37,17 @@ done
 log() { [ "$MODE" = "quiet" ] && return; [ "$MODE" = "json" ] && return; echo "$@"; }
 err() { echo "$@" >&2; }
 
-# Ensure the upstream remote exists; auto-add in CI / fresh clones.
-if ! git remote get-url upstream >/dev/null 2>&1; then
-  log "Adding upstream remote: $UPSTREAM_URL"
-  git remote add upstream "$UPSTREAM_URL"
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/upstream-drift.sh
+source "$SCRIPT_DIR/lib/upstream-drift.sh"
 
 # Fetch both, fail loudly on network/auth errors.
-if ! git fetch upstream main --quiet 2>/dev/null; then
-  err "ERROR: failed to fetch upstream/main"
-  exit 2
-fi
-if ! git fetch origin main --quiet 2>/dev/null; then
-  err "ERROR: failed to fetch origin/main"
+if ! fetch_and_load_upstream_drift_snapshot; then
   exit 2
 fi
 
-BEHIND=$(git rev-list --count origin/main..upstream/main)
-AHEAD=$(git rev-list --count upstream/main..origin/main)
-UPSTREAM_HEAD=$(git rev-parse --short upstream/main)
-ORIGIN_HEAD=$(git rev-parse --short origin/main)
+BEHIND="$TK_BEHIND"
+AHEAD="$TK_AHEAD"
 
 if [ "$MODE" = "json" ]; then
   printf '{"behind":%d,"ahead":%d,"upstream_head":"%s","origin_head":"%s","in_sync":%s}\n' \

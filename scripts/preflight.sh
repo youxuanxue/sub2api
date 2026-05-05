@@ -46,7 +46,7 @@
 #   OpenAI upstream capability truth — guards Responses probe status semantics:
 #        probe call sites must use `internal/pkg/openai_compat` as the owner
 #        instead of reintroducing local status-code truth in service files.
-#   traj dataset validator       — guards the exported trajectory dataset contract:
+#   QA evidence dataset validator — guards the exported QA evidence dataset contract:
 #        exported `trajectory.jsonl` artifacts must keep H1/H2/H3/D1 and structural
 #        acceptance semantics reachable through the standalone validator script,
 #        so projection/export drift is caught mechanically instead of by eyeballing.
@@ -301,23 +301,23 @@ else
     echo "  ok: key dispatch paths still route through Engine facade truth"
 fi
 
-# ---- sub2api: traj dataset validator ----------------------------------------
-# Source of truth: scripts/check-traj-dataset.py. Verifies that the standalone
-# trajectory dataset gate remains executable from repo root and the regression
+# ---- sub2api: QA evidence dataset validator ----------------------------------------
+# Source of truth: scripts/check-qa-evidence-dataset.py. Verifies that the standalone
+# QA evidence dataset gate remains executable from repo root and the regression
 # tests covering pass/fail fixtures stay green, so projection/export acceptance
 # thresholds remain mechanically enforced.
 echo ""
-echo "=== sub2api: traj dataset validator ==="
+echo "=== sub2api: QA evidence dataset validator ==="
 if ! command -v python3 >/dev/null 2>&1; then
-    echo "  FAIL: python3 not on PATH (required to run check-traj-dataset.py)"
+    echo "  FAIL: python3 not on PATH (required to run check-qa-evidence-dataset.py)"
     errors=$((errors + 1))
 elif ! command -v go >/dev/null 2>&1; then
-    echo "  FAIL: go not on PATH (required to run trajectory dataset regression tests)"
+    echo "  FAIL: go not on PATH (required to run QA evidence dataset regression tests)"
     errors=$((errors + 1))
-elif ! (cd backend && go test -tags=unit ./internal/observability/qa -run 'TestUS077_TrajectoryDatasetCheck_' -count=1); then
+elif ! (cd backend && go test -tags=unit ./internal/observability/qa -run 'TestUS077_QAEvidenceDatasetCheck_' -count=1); then
     errors=$((errors + 1))
 else
-    echo "  ok: traj dataset validator accepts/rejects covered fixtures as expected"
+    echo "  ok: QA evidence dataset validator accepts/rejects covered fixtures as expected"
 fi
 
 # ---- sub2api: frontend release asset contract -------------------------------

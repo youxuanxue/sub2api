@@ -30,8 +30,8 @@
 ```bash
 export AWS_REGION=us-east-1
 export QA_DUMP_S3_BUCKET="<由团队提供的 staging 桶名>"
-# 可选：导出落盘目录（默认 ./.dump_trajs），建议带日期便于区分
-export OUT_DIR="./.dump_trajs/prod-export-$(date -u +%Y%m%d)"
+# 可选：导出落盘目录（默认 ./.dump_qa），建议带日期便于区分
+export OUT_DIR="./.dump_qa/prod-export-$(date -u +%Y%m%d)"
 ```
 
 ---
@@ -82,7 +82,7 @@ bash scripts/prod-qa-export-and-purge.sh --dry-run
 unset PROD_QA_PURGE_DRY_RUN
 export PROD_QA_PURGE_CONFIRM=yes-delete-prod-qa-data
 export QA_DUMP_S3_BUCKET="<staging 桶>"
-export OUT_DIR="./.dump_trajs/prod-export-$(date -u +%Y%m%d)"
+export OUT_DIR="./.dump_qa/prod-export-$(date -u +%Y%m%d)"
 export PURGE_MAX_EXTRA_ROWS=0
 # 若希望保留解压后同目录下的 .tar.gz 副本：
 export KEEP_LOCAL_TAR_AFTER_PURGE=1
@@ -96,7 +96,7 @@ bash scripts/prod-qa-export-and-purge.sh
 
 ## 本地导出目录里有什么
 
-以 **`$OUT_DIR`** 为根目录（例如 `.dump_trajs/prod-export-20260428/`）。
+以 **`$OUT_DIR`** 为根目录（例如 `.dump_qa/prod-export-20260428/`）。
 
 | 路径 / 文件 | 含义 |
 |---------------|------|

@@ -64,24 +64,13 @@ fi
 err() { echo "[fetch-prod-logs] error: $*" >&2; }
 log() { echo "[fetch-prod-logs] $*"; }
 
-require_tool() {
-  local tool="$1"
-  if ! command -v "$tool" >/dev/null 2>&1; then
-    err "$tool is not installed (required). On Cursor Cloud Agent, install via dev-rules/templates/cloud-agent-bootstrap.sh."
-    return 1
-  fi
-}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/gh-workflow-artifact.sh
+source "$SCRIPT_DIR/lib/gh-workflow-artifact.sh"
 
 validate_env() {
   local ok=0
-  require_tool gh || ok=1
-  require_tool jq || ok=1
-
-  if [ -z "${GH_TOKEN:-}" ]; then
-    err "GH_TOKEN is not set. Add it in Cursor Dashboard → Cloud Agents → Secrets."
-    err "  Required scopes on $GH_REPO: actions:write, actions:read, contents:read."
-    ok=1
-  fi
+  validate_gh_workflow_env "$GH_REPO" || ok=1
 
   if ! printf '%s' "$SINCE" | grep -Eq '^[0-9]+[smhd]$'; then
     err "SINCE must match ^[0-9]+[smhd]\$ (e.g. 30m, 2h, 1d), got: '$SINCE'"
@@ -121,43 +110,17 @@ if [ "$MODE" = "check" ]; then
   exit 0
 fi
 
-mkdir -p "$OUT_DIR"
-
-log "snapshotting last run id on $GH_REPO/$WORKFLOW"
-PREV_ID=$(gh run list --workflow="$WORKFLOW" --repo "$GH_REPO" --limit 1 \
-  --json databaseId --jq '.[0].databaseId // 0')
-log "previous run id: $PREV_ID"
-
 log "dispatching $WORKFLOW (container=$CONTAINER since=$SINCE tail=$TAIL_LINES grep=${GREP_PATTERN:-(none)})"
-gh workflow run "$WORKFLOW" --repo "$GH_REPO" \
+dispatch_workflow_and_download_artifact \
+  "$GH_REPO" \
+  "$WORKFLOW" \
+  "$POLL_TIMEOUT_S" \
+  'prod-logs-{run_id}' \
+  "$OUT_DIR" \
   -f "since=$SINCE" \
   -f "container=$CONTAINER" \
   -f "grep_pattern=$GREP_PATTERN" \
-  -f "tail_lines=$TAIL_LINES"
-
-log "polling for new run id (timeout ${POLL_TIMEOUT_S}s)"
-DEADLINE=$(( $(date +%s) + POLL_TIMEOUT_S ))
-RUN_ID="$PREV_ID"
-while [ "$RUN_ID" = "$PREV_ID" ] || [ "$RUN_ID" = "0" ]; do
-  sleep 4
-  RUN_ID=$(gh run list --workflow="$WORKFLOW" --repo "$GH_REPO" --limit 1 \
-    --json databaseId --jq '.[0].databaseId // 0')
-  if [ "$(date +%s)" -ge "$DEADLINE" ]; then
-    err "timed out waiting for workflow to start (still seeing previous run id $PREV_ID)"
-    exit 2
-  fi
-done
-log "new run id: $RUN_ID"
-
-WATCH_RC=0
-gh run watch "$RUN_ID" --repo "$GH_REPO" --exit-status || WATCH_RC=$?
-
-ART_NAME="prod-logs-$RUN_ID"
-log "downloading artifact $ART_NAME → $OUT_DIR"
-if ! gh run download "$RUN_ID" --repo "$GH_REPO" --name "$ART_NAME" --dir "$OUT_DIR"; then
-  err "artifact download failed (run conclusion exit=$WATCH_RC). Check 'gh run view $RUN_ID --repo $GH_REPO --log'."
-  exit 1
-fi
+  -f "tail_lines=$TAIL_LINES" || exit $?
 
 if [ -s "$OUT_DIR/logs.txt" ]; then
   LINES=$(wc -l < "$OUT_DIR/logs.txt")
@@ -167,7 +130,7 @@ else
   log "no log entries returned (empty artifact). Try widening SINCE or removing GREP_PATTERN."
 fi
 
-if [ "$WATCH_RC" -ne 0 ]; then
-  err "workflow run $RUN_ID did not succeed (exit=$WATCH_RC), but artifact was downloaded if available."
+if [ "$GH_WORKFLOW_WATCH_RC" -ne 0 ]; then
+  err "workflow run $GH_WORKFLOW_RUN_ID did not succeed (exit=$GH_WORKFLOW_WATCH_RC), but artifact was downloaded if available."
   exit 1
 fi
