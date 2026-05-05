@@ -13,7 +13,7 @@ TokenKey has a built-in payment system that enables user self-service top-up wit
 - [Provider Instance Management](#provider-instance-management)
 - [Webhook Configuration](#webhook-configuration)
 - [Payment Flow](#payment-flow)
-- [Migrating from an external payment service](#migrating-from-an-external-payment-service)
+- [Migrating from Sub2ApiPay](#migrating-from-sub2apipay)
 
 ---
 
@@ -28,9 +28,12 @@ TokenKey has a built-in payment system that enables user self-service top-up wit
 
 > Alipay/WeChat Pay direct and EasyPay can both exist as backend provider instances, but the frontend always exposes only two visible buttons: `Alipay` and `WeChat Pay`. Admins choose exactly one source for each visible method: direct or EasyPay. Direct channels connect to payment APIs directly with lower fees; EasyPay aggregates through third-party platforms with easier setup.
 
-> **EasyPay Provider Selection**: EasyPay is a third-party aggregation protocol. Choose a provider based on the funding channel, settlement currency, compliance requirements, and operational risk you can accept. TokenKey does not endorse a specific aggregator.
+> **EasyPay Provider Recommendations**: Both options below are third-party aggregators compatible with the EasyPay protocol. Pick based on the funding channel and settlement currency you need:
 >
-> Please evaluate the security, reliability, fees, settlement terms, and compliance of any third-party payment provider on your own — this project does not guarantee them.
+> - **Domestic channel / CNY settlement** — [ZPay](https://z-pay.cn/?uid=23808) (`https://z-pay.cn/?uid=23808`): direct integration with official Alipay / WeChat Pay APIs, fee **1.6%**; funds go straight to the merchant account with **T+1 automatic settlement**. Supports **individual users** (no business license required) with up to 10,000 CNY daily transactions; business-licensed accounts have no limit. Link contains the referral code of [Sub2ApiPay](https://github.com/touwaeriol/sub2apipay) original author [@touwaeriol](https://github.com/touwaeriol) — feel free to remove it.
+> - **International channel / USDT or USD settlement** — [Kyren Topup](https://kyren.top/?code=SUB2API) (`https://kyren.top/?code=SUB2API`): a ready-to-launch global payment stack for AI startups with WeChat Pay and Alipay support, local-currency checkout, and USD settlement. Fees: WeChat 2%, Alipay 2.5%; withdrawal 0.1% (min $40, max $150), settled in **USDT or USD**. No qualification review required — sign up and use immediately, making it the lowest barrier to entry. Withdrawal threshold is relatively high, recommended for users **who do not use domestic Chinese payment channels, cannot tolerate Stripe's 6%+ fees, have high transaction volume, and have USD or USDT channels to receive withdrawn funds**. Kyren Topup charges a $200 account opening fee; signing up via this link (which contains Sub2Api author [@Wei-Shaw](https://github.com/Wei-Shaw)'s referral code) **waives the opening fee**. Feel free to remove it if you prefer.
+>
+> Please evaluate the security, reliability, and compliance of any third-party payment provider on your own — this project does not endorse or guarantee any of them.
 
 ---
 
@@ -259,26 +262,26 @@ User selects amount and payment method
 
 ---
 
-## Migrating from an external payment service
+## Migrating from Sub2ApiPay
 
-If you previously used an external payment service, migrate to the built-in payment system:
+If you previously used [Sub2ApiPay](https://github.com/touwaeriol/sub2apipay) as an external payment system, you can migrate to the built-in payment system:
 
 ### Key Differences
 
-| Aspect | External Payment Service | Built-in Payment |
-|--------|--------------------------|-----------------|
-| Deployment | Separate service and database | Built into TokenKey, no extra deployment |
-| Payment Methods | Depends on the external service | EasyPay, Alipay, WeChat Pay, Stripe |
-| Configuration | External service settings and callbacks | Unified in TokenKey admin dashboard |
+| Aspect | Sub2ApiPay | Built-in Payment |
+|--------|-----------|-----------------|
+| Deployment | Separate service (Next.js + PostgreSQL) | Built into TokenKey, no extra deployment |
+| Payment Methods | EasyPay, Alipay, WeChat, Stripe | Same |
+| Configuration | Environment variables + separate admin UI | Unified in TokenKey admin dashboard |
 | Top-up Integration | Via Admin API callback | Internal processing, more reliable |
-| Subscription Plans | Depends on the external service | Not yet (planned) |
+| Subscription Plans | Supported | Not yet (planned) |
 | Order Management | Separate admin interface | Integrated in TokenKey admin dashboard |
 
 ### Migration Steps
 
-1. Enable payment in TokenKey admin dashboard and configure providers
+1. Enable payment in TokenKey admin dashboard and configure providers (use the same payment credentials)
 2. Update webhook callback URLs to TokenKey's callback endpoints
 3. Verify that new orders are processed correctly via built-in payment
-4. Decommission the external payment service after retaining any historical records you still need
+4. Decommission the Sub2ApiPay service
 
-> **Note**: Historical order data from external payment services will not be automatically migrated.
+> **Note**: Historical order data from Sub2ApiPay will not be automatically migrated. Keep Sub2ApiPay running for a while to access historical records.
