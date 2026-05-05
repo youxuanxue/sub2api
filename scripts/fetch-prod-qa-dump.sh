@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Export all prod qa_records (JSONL) + qa_blobs tree from AWS Stage-0 EC2 to ./.dump_trajs/
+# Export all prod qa_records (JSONL) + qa_blobs tree from AWS Stage-0 EC2 to ./.dump_qa/
 #
 # Flow: SSM builds a tarball on the instance (metadata/qa_records.jsonl + qa_blobs/),
 # uploads it with curl + S3 presigned PUT (no EC2 instance S3 IAM required), then
@@ -16,7 +16,7 @@
 #   AWS_REGION          default: us-east-1
 #   STACK               default: tokenkey-prod-stage0
 #   QA_DUMP_S3_PREFIX   default: tokenkey/prod-qa-dump  (no leading/trailing slash)
-#   OUT_DIR             default: ./.dump_trajs
+#   OUT_DIR             default: ./.dump_qa
 #   PRESIGN_TTL_SEC     default: 7200
 #   AWS_SSM_WAIT_MAX    default: 900
 #   RM_LOCAL_TAR_AFTER_EXTRACT=1  delete the .tar.gz after successful extract (saves ~1× blob size on disk)
@@ -32,7 +32,7 @@ set -euo pipefail
 
 REGION="${AWS_REGION:-us-east-1}"
 STACK="${STACK:-tokenkey-prod-stage0}"
-OUT_DIR="${OUT_DIR:-./.dump_trajs}"
+OUT_DIR="${OUT_DIR:-./.dump_qa}"
 PREFIX="${QA_DUMP_S3_PREFIX:-tokenkey/prod-qa-dump}"
 PRESIGN_TTL="${PRESIGN_TTL_SEC:-7200}"
 WAIT_MAX="${AWS_SSM_WAIT_MAX:-900}"

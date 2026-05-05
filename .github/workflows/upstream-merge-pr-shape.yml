@@ -37,7 +37,7 @@ name: Upstream Merge PR Shape
 #   9. The Engine Spine facade contract stays aligned: key dispatch paths must
 #      keep routing bridge eligibility through the shared engine facade so
 #      provider selection truth does not drift back into hotspot service files.
-#  10. The exported trajectory dataset contract stays aligned: the standalone
+#  10. The exported QA evidence dataset contract stays aligned: the standalone
 #      validator plus its focused regression tests must keep H1/H2/H3/D1 and
 #      structural acceptance gates executable after the merge.
 #
@@ -283,15 +283,15 @@ jobs:
             exit 1
           fi
 
-      - name: Check 10 — trajectory dataset validator stays executable after merge
+      - name: Check 10 — QA evidence dataset validator stays executable after merge
         run: |
-          # Single source of truth: scripts/check-traj-dataset.py plus the focused
-          # TestUS077_TrajectoryDatasetCheck_* regressions. Same target that
+          # Single source of truth: scripts/check-qa-evidence-dataset.py plus the focused
+          # TestUS077_QAEvidenceDatasetCheck_* regressions. Same target that
           # scripts/preflight.sh runs locally, so a green local preflight implies
           # a green Check 10 here. Failure means the export artifact or standalone
           # validator drifted and the H1/H2/H3/D1 / structural contract is no
           # longer mechanically enforced.
-          (cd backend && go test -tags=unit ./internal/observability/qa -run 'TestUS077_TrajectoryDatasetCheck_' -count=1)
+          (cd backend && go test -tags=unit ./internal/observability/qa -run 'TestUS077_QAEvidenceDatasetCheck_' -count=1)
 
       - name: Summary
         run: |

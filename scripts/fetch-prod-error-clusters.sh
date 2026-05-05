@@ -57,24 +57,13 @@ fi
 err() { echo "[fetch-clusters] error: $*" >&2; }
 log() { echo "[fetch-clusters] $*"; }
 
-require_tool() {
-  local tool="$1"
-  if ! command -v "$tool" >/dev/null 2>&1; then
-    err "$tool is not installed (required). On Cursor Cloud Agent, install via dev-rules/templates/cloud-agent-bootstrap.sh."
-    return 1
-  fi
-}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/gh-workflow-artifact.sh
+source "$SCRIPT_DIR/lib/gh-workflow-artifact.sh"
 
 validate_env() {
   local ok=0
-  require_tool gh || ok=1
-  require_tool jq || ok=1
-
-  if [ -z "${GH_TOKEN:-}" ]; then
-    err "GH_TOKEN is not set. Add it in Cursor Dashboard → Cloud Agents → Secrets."
-    err "  Required scopes on $GH_REPO: actions:write, actions:read, contents:read."
-    ok=1
-  fi
+  validate_gh_workflow_env "$GH_REPO" || ok=1
 
   if ! printf '%s' "$SINCE_HOURS" | grep -Eq '^[1-9][0-9]*$'; then
     err "SINCE_HOURS must be a positive integer, got: '$SINCE_HOURS'"
@@ -93,51 +82,22 @@ if [ "$MODE" = "check" ]; then
   exit 0
 fi
 
-mkdir -p "$OUT_DIR"
-
-log "snapshotting last run id on $GH_REPO/$WORKFLOW"
-PREV_ID=$(gh run list --workflow="$WORKFLOW" --repo "$GH_REPO" --limit 1 \
-  --json databaseId --jq '.[0].databaseId // 0')
-log "previous run id: $PREV_ID"
-
 log "dispatching $WORKFLOW (since_hours=$SINCE_HOURS)"
-gh workflow run "$WORKFLOW" --repo "$GH_REPO" -f "since_hours=$SINCE_HOURS"
-
-log "polling for new run id (timeout ${POLL_TIMEOUT_S}s)"
-DEADLINE=$(( $(date +%s) + POLL_TIMEOUT_S ))
-RUN_ID="$PREV_ID"
-while [ "$RUN_ID" = "$PREV_ID" ] || [ "$RUN_ID" = "0" ]; do
-  sleep 4
-  RUN_ID=$(gh run list --workflow="$WORKFLOW" --repo "$GH_REPO" --limit 1 \
-    --json databaseId --jq '.[0].databaseId // 0')
-  if [ "$(date +%s)" -ge "$DEADLINE" ]; then
-    err "timed out waiting for workflow to start (still seeing previous run id $PREV_ID)"
-    exit 2
-  fi
-done
-log "new run id: $RUN_ID"
-
-# `gh run watch --exit-status` returns the run's conclusion as exit code.
-# We capture it but still try to download the artifact — the precheck
-# step may have produced a 'skip:' report.json that's useful even on
-# non-success conclusions.
-WATCH_RC=0
-gh run watch "$RUN_ID" --repo "$GH_REPO" --exit-status || WATCH_RC=$?
-
-ART_NAME="error-clustering-$RUN_ID"
-log "downloading artifact $ART_NAME → $OUT_DIR"
-if ! gh run download "$RUN_ID" --repo "$GH_REPO" --name "$ART_NAME" --dir "$OUT_DIR"; then
-  err "artifact download failed (run conclusion exit=$WATCH_RC). Check 'gh run view $RUN_ID --repo $GH_REPO --log'."
-  exit 1
-fi
+dispatch_workflow_and_download_artifact \
+  "$GH_REPO" \
+  "$WORKFLOW" \
+  "$POLL_TIMEOUT_S" \
+  'error-clustering-{run_id}' \
+  "$OUT_DIR" \
+  -f "since_hours=$SINCE_HOURS"
 
 if [ -s "$OUT_DIR/report.json" ]; then
   SUMMARY=$(jq -r '.summary // "(no summary field)"' "$OUT_DIR/report.json" 2>/dev/null || echo "(report.json not parseable)")
   log "summary: $SUMMARY"
 fi
 
-if [ "$WATCH_RC" -ne 0 ]; then
-  err "workflow run $RUN_ID did not succeed (exit=$WATCH_RC), but report files were downloaded."
+if [ "$GH_WORKFLOW_WATCH_RC" -ne 0 ]; then
+  err "workflow run $GH_WORKFLOW_RUN_ID did not succeed (exit=$GH_WORKFLOW_WATCH_RC), but report files were downloaded."
   exit 1
 fi
 

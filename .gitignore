@@ -123,6 +123,7 @@ backend/data/
 
 # 本地/机器生成数据（原 docs/auto-reports/ 已迁至仓库根 .auto-reports/）
 .auto-reports/
+.dump_qa/
 .dump_trajs/
 
 # ===================
