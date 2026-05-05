@@ -166,18 +166,8 @@ type ResponsesEventToAnthropicState struct {
 	CurrentBlockType  string // "text" | "thinking" | "tool_use"
 	CurrentToolName   string
 	CurrentToolArgs   string
-
-	// EmittedAnyContentBlock records whether any content_block_start event has
-	// been produced for this stream. Used by the empty-stream schema firewall
-	// (US-027): when the upstream stream ends without emitting a single content
-	// block, the gateway would otherwise send Claude Code a `message_start`
-	// immediately followed by `message_delta` + `message_stop` with zero content
-	// — a shape that triggers session-JSONL corruption in Claude Code
-	// (anthropics/claude-code#24662). resToAnthHandleCompleted and
-	// FinalizeResponsesAnthropicStream both call ensureContentBlockEmittedAsEmptyText
-	// just before message_delta to inject one empty-text content_block_start/_stop
-	// pair when this flag is still false. See
-	// docs/approved/openai-codex-as-claude-thinking-continuity.md §2.1.
+	// EmittedAnyContentBlock protects Anthropic SSE clients from streams that
+	// terminate without at least one content block.
 	EmittedAnyContentBlock bool
 
 	// OutputIndexToBlockIdx maps Responses output_index → Anthropic content block index.
@@ -225,7 +215,9 @@ func ResponsesEventToAnthropicEvents(
 		return resToAnthHandleReasoningDelta(evt, state)
 	case "response.reasoning_summary_text.done":
 		return resToAnthHandleBlockDone(state)
-	case "response.completed", "response.incomplete", "response.failed":
+	// response.done 是 Realtime/WS 与项目透传路径使用的终止别名；
+	// 普通 Responses HTTP SSE 的公开终止事件仍以 response.completed 为主。
+	case "response.completed", "response.done", "response.incomplete", "response.failed":
 		return resToAnthHandleCompleted(evt, state)
 	default:
 		return nil
@@ -346,9 +338,9 @@ func resToAnthHandleOutputItemAdded(evt *ResponsesStreamEvent, state *ResponsesE
 		state.OutputIndexToBlockIdx[evt.OutputIndex] = idx
 		state.ContentBlockOpen = true
 		state.CurrentBlockType = "tool_use"
-		state.EmittedAnyContentBlock = true
 		state.CurrentToolName = evt.Item.Name
 		state.CurrentToolArgs = ""
+		state.EmittedAnyContentBlock = true
 
 		events = append(events, AnthropicStreamEvent{
 			Type:  "content_block_start",

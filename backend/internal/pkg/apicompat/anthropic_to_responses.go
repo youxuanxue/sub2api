@@ -82,25 +82,10 @@ func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
 
 // convertAnthropicToolChoiceToResponses maps Anthropic tool_choice to Responses format.
 //
-// The Responses API uses a FLAT shape (no nested "function" object). Sending
-// the legacy Chat-Completions nested form produces upstream
-// `400 Unknown parameter: 'tool_choice.function'`.
-//
-// For {type:"tool", name:"X"} the helper looks up X in the tools list:
-//   - if X is a server/built-in tool (Anthropic type prefixed web_search,
-//     resolved via responsesBuiltinTypeForAnthropicTool) → {type:"<builtin>"}
-//   - otherwise → {type:"function", name:"X"}
-//
-// This keeps the classification driven by the tools list (the same source of
-// truth used by convertAnthropicToolsToResponses), so a user-defined custom
-// function whose name happens to collide with a built-in keyword (e.g. a
-// function literally named "web_search") is still routed as a function.
-//
-//	{"type":"auto"}                       → "auto"
-//	{"type":"any"}                        → "required"
-//	{"type":"none"}                       → "none"
-//	{"type":"tool","name":"<builtin>"}    → {"type":"<builtin>"}
-//	{"type":"tool","name":"<func>"}       → {"type":"function","name":"<func>"}
+//	{"type":"auto"}            → "auto"
+//	{"type":"any"}             → "required"
+//	{"type":"none"}            → "none"
+//	{"type":"tool","name":"X"} → {"type":"function","name":"X"} or built-in tool_choice
 func convertAnthropicToolChoiceToResponses(raw json.RawMessage, tools []AnthropicTool) (json.RawMessage, error) {
 	var tc struct {
 		Type string `json:"type"`
@@ -118,10 +103,12 @@ func convertAnthropicToolChoiceToResponses(raw json.RawMessage, tools []Anthropi
 	case "none":
 		return json.Marshal("none")
 	case "tool":
-		if builtin, ok := lookupBuiltinForAnthropicToolName(tc.Name, tools); ok {
-			return json.Marshal(map[string]string{"type": builtin})
+		if builtinType, ok := lookupBuiltinForAnthropicToolName(tc.Name, tools); ok {
+			return json.Marshal(map[string]any{
+				"type": builtinType,
+			})
 		}
-		return json.Marshal(map[string]string{
+		return json.Marshal(map[string]any{
 			"type": "function",
 			"name": tc.Name,
 		})

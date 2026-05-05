@@ -2,7 +2,7 @@
 /**
  * ChannelTypeBadge — surfaces the upstream channel name (e.g. "Moonshot",
  * "Deepseek") for newapi (5th platform) accounts in lists. PlatformTypeBadge
- * renders the abstract platform ("New API"); this badge sits next to it so
+ * renders the product-facing platform ("Extension Engine"); this badge sits next to it so
  * operators can tell a Moonshot account apart from a Deepseek account at a
  * glance instead of opening Edit modal to find out.
  *

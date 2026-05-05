@@ -439,10 +439,12 @@ export interface SystemSettings {
   enable_fingerprint_unification: boolean;
   enable_metadata_passthrough: boolean;
   enable_cch_signing: boolean;
+  enable_anthropic_cache_ttl_1h_injection: boolean;
   // Sticky routing kill switch (default true).
   // See docs/approved/sticky-routing.md.
   sticky_routing_enabled: boolean;
   web_search_emulation_enabled?: boolean;
+  openai_fast_policy_settings?: OpenAIFastPolicySettings;
 
   // Payment configuration
   payment_enabled: boolean;
@@ -616,8 +618,10 @@ export interface UpdateSettingsRequest {
   enable_fingerprint_unification?: boolean;
   enable_metadata_passthrough?: boolean;
   enable_cch_signing?: boolean;
+  enable_anthropic_cache_ttl_1h_injection?: boolean;
   sticky_routing_enabled?: boolean;
   web_search_emulation_enabled?: boolean;
+  openai_fast_policy_settings?: OpenAIFastPolicySettings;
   // Payment configuration
   payment_enabled?: boolean;
   payment_min_amount?: number;
@@ -892,6 +896,29 @@ export async function updateRectifierSettings(
     settings,
   );
   return data;
+}
+
+// ==================== OpenAI Fast Policy Settings ====================
+
+/**
+ * OpenAI fast/flex policy rule interface.
+ * Matches backend dto.OpenAIFastPolicyRule.
+ */
+export interface OpenAIFastPolicyRule {
+  service_tier: "all" | "priority" | "flex";
+  action: "pass" | "filter" | "block";
+  scope: "all" | "oauth" | "apikey" | "bedrock";
+  error_message?: string;
+  model_whitelist?: string[];
+  fallback_action?: "pass" | "filter" | "block";
+  fallback_error_message?: string;
+}
+
+/**
+ * OpenAI fast/flex policy settings interface.
+ */
+export interface OpenAIFastPolicySettings {
+  rules: OpenAIFastPolicyRule[];
 }
 
 // ==================== Beta Policy Settings ====================

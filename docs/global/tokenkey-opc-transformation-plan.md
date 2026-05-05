@@ -1,1027 +1,511 @@
-# TokenKey 面向 OPC 的实操改造方案（乔布斯 / OPC 收敛版）
+# TokenKey 当前 OPC 架构基线与演进准入标准
 
-> 适用仓库：`tokenkey/sub2api`（本仓库）
+> 适用仓库：`tokenkey/sub2api`
 >
-> 相关现状基线：2026-04-25
+> 当前定位：这不是待执行的大重构计划，而是以现有代码为事实来源的 OPC 架构基线、上游合并准入标准与后续演进边界。
 >
-> 目标：在**继续以 sub2api 为控制面基座、继续通过 Go module 引入 sibling `new-api` 能力**的前提下，把 TokenKey 演进成一个**统一品牌、统一用户体系、统一控制面、统一证据面**的 OPC 产品，并显著降低 `sub2api upstream` / `new-api upstream` 双上游带来的长期合并税。
+> 核心目标：对外只有 TokenKey，一个控制面、一条最小 Engine Spine、一个请求级 Evidence Spine；对内用机械门禁持续减少 `sub2api upstream` 与 sibling `new-api` 双上游带来的长期合并税。
 
 ---
 
 ## 0. 先给结论
 
-这份方案经过再次反思后的结论更简单，也更苛刻：
+当前 TokenKey 已经不是“等待开始 OPC 改造”的状态。本仓库在 upstream 合并迭代（含 PR #110）下，已具备一组可执行的 OPC 基线（对照 §1.3：基线是准入下限与演进起点，不是长期目标的完成声明）：
 
-**TokenKey 不该继续演化成一个“功能越来越多的大 Fork”，而该收敛成一个“对外只有一个产品、对内只有一条主骨架”的系统。**
+1. **产品基线**：对外默认心智收敛为 TokenKey；`newapi` 保留为内部 identity，不作为第二套产品心智外显。
+2. **控制面基线**：用户、分组、账号、配额、支付、后台、网关入口继续以本仓库为唯一控制面；不新建第二控制面 repo。
+3. **Engine Spine 基线**：桥接能力与 endpoint/provider 判定已有 `backend/internal/engine/` 作为 owner；热点 service 文件只能保留薄调用点。
+4. **Evidence Spine 基线**：请求级证据事实源是现有 `qa_records`，不是另起一个 `trajectory_records`。`qa_records` 已承载 `trajectory_id`、脱敏 blob URI、redaction version、capture status 与导出所需元数据。
+5. **Merge Doctrine 基线**：上游合并不再只是冲突解决；每个 merge PR 都必须按 `Merge Harness + Invariant Commit + OPC Refactor Commit` 收敛本次合并带来的新增分叉面。
+6. **机械门禁基线**：preflight、sentinel、PR shape、frontend dist、traj dataset validator 等已经是合并准入的一部分；不接受“靠文档记住”的软规则。
 
-如果用乔布斯和 OPC 的标准来判断，这个仓库未来应该只坚定做三件事：
+因此，后续判断不再问“这个方案未来要不要做”，而是问：
 
-1. **一个产品**：对外只有 TokenKey，没有“sub2api 产品 + new-api 产品”的双重心智。
-2. **一条主骨架**：所有引擎路由决策逐步收口到 TokenKey 自己的最小编排层，而不是散落在热点 service 文件里。
-3. **一个默认证据面**：所有请求轨迹都默认进入同一条“先脱敏、再持久化”的证据链路，而不是 error log / QA export / 局部 sanitize 三套并存。
-
-这意味着我们不是去做“更多层”，而是去做**更少的概念、更少的判断点、更少的人工维护面**。
-
----
-
-## 1. 乔布斯 / OPC 视角下，这份方案真正要解决什么
-
-### 1.1 不是“怎么继续加功能”，而是“怎么让系统重新变简单”
-
-如果按乔布斯的标准审视当前仓库，真正的问题不是功能不够，而是：
-
-- 同一个产品背后已经有两套快速演化的上游
-- 同一种路由判断分散在多个热点文件里
-- 同一种证据需求被拆成多套半重叠实现
-- 对内的技术实现细节仍在泄漏成对外产品心智
-
-这会直接导致最反 OPC 的后果：
-
-- 一件事要在多处修改
-- 一次上游变化要重新判断很多次
-- 一个事故发生后还要先判断“日志到底在哪”
-- 一个产品却要靠解释才能让人理解
-
-### 1.2 乔布斯哲学要求：先消灭复杂度，再谈扩展性
-
-这意味着本方案不能以“抽象得更完整”为目标，而必须以“把复杂度从主路径拿掉”为目标。
-
-所以这份方案的核心不是：
-
-- 做一个宏大的平台中台
-- 做一个覆盖一切的 catalog 系统
-- 做一个到处都能接入的新框架
-
-而是：
-
-- 把 TokenKey 特有判断从 upstream 热点文件搬出去
-- 把 `newapi` 从外部产品概念降级为内部实现细节
-- 把证据采集从散点能力升级成系统默认行为
-
-### 1.3 OPC 哲学要求：减少重复判断，把经验固化成门禁
-
-OPC 不是“一个人扛更多复杂度”，而是“系统替人消灭重复判断”。
-
-所以每一个已经反复踩过的坑，都应该被重新表达成：
-
-- 一个 source of truth
-- 一个 facade / registry
-- 一个 preflight check
-- 一个 CI gate
-- 一个 fail-open 但可观测的默认行为
+> **这次变更是否保持了现有 owner，是否减少了热点分叉，是否让证据更靠近唯一事实源，是否有机械门禁防止回退。**
 
 ---
 
-## 2. 先明确：TokenKey 不是什么
+## 1. 文档职责与事实来源
 
-为了收敛方案，先明确不做什么。
+### 1.1 文档职责
 
-### 2.1 TokenKey 不是 `new-api` 的 UI 套壳
+本文只承担四件事：
 
-TokenKey 的核心资产是控制面：
+- 描述当前已经成立的 OPC 架构基线。
+- 明确不能被当前实现稀释的产品与运维目标。
+- 定义后续变更必须遵守的准入标准。
+- 列出仍未完成的演进缺口，并明确哪些缺口不应在普通 upstream merge PR 中扩张。
 
-- 用户体系
-- 分组与账号
-- 配额与调度
-- 支付与运营
-- 管理端与统一品牌
+本文不再维护一份脱离代码状态的 PR-A/B/C 大路线图。路线图如果不能被代码 owner、测试或 preflight gate 支撑，就不是 OPC 基线，只能算设计草稿。
 
-如果未来产品叙事退化成“一个包着 `new-api` 的壳”，那就是战略后退。
+### 1.2 事实来源优先级
 
-### 2.2 TokenKey 不是两个产品的拼接说明书
+当文档与代码冲突时，以以下顺序判定事实：
 
-用户不应该理解：
+1. 生产代码与 Ent schema。
+2. `scripts/preflight.sh` 与其调用的 checker / sentinel registry。
+3. CI workflow，尤其 upstream merge PR shape 与 weekly automation smoke。
+4. 本文档。
 
-- 哪些能力来自 `sub2api`
-- 哪些能力来自 `new-api`
-- 哪些路径叫 compat，哪些路径叫 bridge
+文档不能把“建议新增”写成已经存在，也不能把已经实现的 owner 写回未来计划。例如：当前请求级 Evidence Spine 的 schema owner 是 `qa_records`，因此本文不再把 `trajectory_records` 写成必须新增的默认目标。
 
-这些都应该是内部实现事实，不应成为主要产品心智。
+### 1.3 不可降级目标
 
-### 2.3 TokenKey 不是一个越来越厚的定制 Fork
+代码事实只能说明“现在系统怎样工作”，不能自动变成“架构目标已经完成”。TokenKey 后续演进必须同时服务三类不可降级目标：
 
-只要 TokenKey 特有逻辑继续堆进：
+- **乔布斯产品目标**：用户只理解一个 TokenKey 产品；内部 provider、bridge、compat、newapi 等实现细节不能泄漏成第二套产品心智。
+- **OPC 运营目标**：重复判断必须被收敛成 owner、facade、sentinel、preflight 或 CI gate；事故排查路径必须越来越短，而不是靠更多人工 checklist。
+- **最小 upstream 冲突面目标**：每次 upstream merge 后，热点文件中的 TokenKey-only 逻辑应该更薄、更靠近 companion / facade / component，而不是被“代码事实”合理化为长期形态。
 
-- `backend/internal/service/openai_gateway_service.go`
-- `backend/internal/service/openai_account_scheduler.go`
-- `backend/internal/service/gateway_bridge_dispatch.go`
-
-那么每次 upstream 合并都会继续为过去的结构买单。
-
-### 2.4 TokenKey 也不是一个“先原样记下来，以后再脱敏”的可观测系统
-
-“100% 脱敏后持久化”的真实含义不是“先抓全，再处理”，而是：
-
-- raw secret 不进入持久层
-- raw secret 不进入结构化日志
-- 持久化层只允许出现脱敏后的证据
-
-这条不能退让。
+因此，本文说“当前已实现基线”时，只表示它是继续演进的起点和准入下限，不表示完整目标已经达成。
 
 ---
 
-## 3. 本方案必须同时满足的硬约束
+## 2. 不变原则
 
-### 3.1 产品与业务约束
+### 2.1 一个产品
 
-1. **继续以 sub2api 为控制面基座，继续使用同一套用户体系。**
-2. **sub2api upstream 继续提供 openai / anthropic / gemini / antigravity 四平台原生引擎。**
-3. **new-api upstream 继续提供更广的扩展模型引擎，但不暴露为第二套独立产品。**
-4. **对外统一为 TokenKey：统一品牌、统一入口、统一导出、统一运营心智。**
-5. **所有请求轨迹必须在“完全脱敏之后”才能进入持久化层。**
-6. **所有改造都必须服务于减少维护面，而不是增加概念数。**
+对外默认只有 TokenKey：
 
-### 3.2 仓库与实现约束
+- UI、README、支付说明、默认站点名等 outward surfaces 使用 TokenKey 心智。
+- `newapi` 是内部 provider / platform identity，不是默认展示给用户的第二产品名。
+- “Extension Engine / 扩展引擎”是 UI 展示词；不得反向重命名协议 identity。
 
-1. **控制面留在本仓库，不新开第二控制面 repo。**
-2. **不在 sibling `new-api` 仓库中打 TokenKey 私有补丁来解决本仓库问题。**
-3. **继续遵守当前 `CLAUDE.md` 的 merge discipline、preflight、sentinel、upstream merge shape 规则。**
-4. **数据库仍然是 PostgreSQL only；Ent schema 仍然是数据模型事实源。**
-5. **前端仍然使用 pnpm。**
-6. **默认以单 PR、可回滚、可验证方式推进，不做一次性超大改造。**
+禁止为了品牌统一改动：
 
----
+- `group.platform = newapi`
+- `PlatformNewAPI`
+- `channel_type`
+- bridge adaptor identity
 
-## 4. 当前仓库真正的优势，不要浪费
+### 2.2 一个控制面
 
-这份方案不是推倒重来，而是基于当前已经做对的东西继续收敛。
-
-### 4.1 控制面仍然在本仓库手里
-
-当前用户、分组、账号、调度、网关、支付、后台都由本仓库控制，这一点是方向正确的。
-
-关键落点：
-
-- `backend/internal/server/routes/gateway_tk_openai_compat_handlers.go`
-- `backend/internal/service/account_tk_compat_pool.go`
-- `backend/internal/service/openai_gateway_service_tk_newapi_pool.go`
-- `backend/internal/relay/bridge/*`
-
-### 4.2 `new-api` 已经被放进了正确边界
-
-当前整合方式已经具备继续收敛的基础：
-
-- `backend/go.mod` 使用 sibling replace
-- `.new-api-ref` 固定 commit pin
-- `scripts/sync-new-api.sh` 负责 sync / check / bump
-- `backend/internal/integration/newapi/*` 与 `backend/internal/relay/bridge/*` 已形成边界
-
-这说明现在最需要做的不是换方向，而是**把边界再变硬**。
-
-### 4.3 仓库已经有 OPC 风格的机械护栏文化
-
-关键机制已经存在：
-
-- `scripts/check-upstream-drift.sh`
-- `scripts/newapi-sentinels.json`
-- `scripts/check-newapi-sentinels.py`
-- `scripts/preflight.sh`
-- `.github/workflows/upstream-merge-pr-shape.yml`
-
-这很重要，因为说明本仓库适合继续把“靠记忆”的规则升级成“靠脚本”的规则。
-
-### 4.4 已经有证据面的好积木
-
-现有基础不是零：
-
-- `backend/internal/util/logredact/redact.go`
-- `backend/internal/service/ops_service.go`
-- `backend/internal/observability/qa/service.go`
-
-所以未来不是“新造一个 observability 产品”，而是把这些能力收口成一条主链路。
-
----
-
-## 5. 收敛后的目标形态：不是三层大架构，而是一条产品主骨架
-
-上一版把它表达成 `Control Plane / Engine Plane / Evidence Plane` 三层；这个表达仍然成立，但从乔布斯 / OPC 的角度，更准确的说法应该是：
-
-> **TokenKey 只有一个产品骨架：Control Plane 负责产品控制，Engine Spine 负责路由编排，Evidence Spine 负责证据闭环。**
-
-这里把 “Plane” 换成 “Spine”，目的是提醒自己：
-
-- 不是新造三套系统
-- 不是给系统再加一层组织结构
-- 而是把最关键的主路径重新收束成一条骨架
-
-### 5.1 Control Plane：继续做唯一产品入口
-
-Control Plane 继续承载：
+TokenKey 控制面继续留在本仓库：
 
 - 用户体系
 - API Key / JWT / 权限
-- 分组与账号管理
-- 调度策略与配额
-- 计费 / 支付 / 后台运营
-- TokenKey 对外品牌与前后台 UI
+- 分组与账号
+- 调度与配额
+- 支付与运营
+- 管理端与用户端 UI
 
-**原则：用户永远只进入 TokenKey 控制面。**
+不得为了接入 sibling `new-api` 能力而新建第二控制面或在 `new-api` 仓库中打 TokenKey 私有补丁。
 
-### 5.2 Engine Spine：只负责“该走谁、能不能走、怎么保持真值唯一”
+### 2.3 一个最小 Engine Spine
 
-Engine Spine 只负责统一回答以下问题：
+Engine Spine 的职责是回答“该走谁、能不能走、truth 在哪里”，不是吞并所有 gateway/service 逻辑。
 
-- 这个请求属于哪个逻辑平台
-- 当前 endpoint 应该走 native 还是 bridge
-- 哪些 `channel_type`、协议形态、endpoint 是合法组合
-- 哪些平台 / endpoint / provider 能力是真值表，而不是散点 if/else
+当前代码 owner：
 
-它**不负责**吞并全部 service 逻辑，不负责重写网关，不负责追求抽象完美。
+- `backend/internal/engine/facade.go`
+- `backend/internal/engine/dispatch_plan.go`
+- `backend/internal/engine/provider.go`
+- `backend/internal/engine/capability.go`
+- `backend/internal/engine/registry.go`
 
-### 5.3 Evidence Spine：只负责“默认留下脱敏后的完整证据”
+当前已集中在 Engine Spine 的事实：
 
-Evidence Spine 只负责统一完成：
+- bridge endpoint 是否启用。
+- endpoint 的 provider。
+- endpoint 支持的 scheduling platform。
+- endpoint 是否要求 `channel_type`。
+- video submit/fetch 是否要求 task adaptor。
+- video channel type 是否由 upstream task adaptor registry 支持。
 
-- 轨迹 ID 分配
-- request / response / upstream event envelope
-- payload 脱敏
-- blob 写入
-- metadata 存储
-- 查询 / 导出 / retention / DLQ
+当前明确不由 Engine Spine 承担的内容：
 
-它的原则不是“哪里需要哪里记”，而是：
+- 全部账号调度算法。
+- 全部 request/response transform。
+- 完整 operator catalog。
+- 完整 model pricing/catalog 展示层。
 
-**所有主路径请求默认留下脱敏证据；写入失败不阻断流量，但绝不 silent-loss。**
+### 2.4 一个请求级 Evidence Spine
 
----
+当前请求级 Evidence Spine 的事实源是 `qa_records`。这句话的边界很重要：`qa_records` 足以承担请求级 evidence metadata，不等于 session / turn / tool-use / ops correlation 的完整 trajectory 目标已经完成。
 
-## 6. 设计原则：用更少的概念，解决更多的事
+`backend/ent/schema/qa_record.go` 已经包含请求证据需要的核心字段：
 
-### 总裁判原则
-
-> **任何改造，只有在它同时减少产品心智分裂、减少热点文件分叉、减少证据入口分裂、减少人工判断点时，才值得进入主线。**
-
-如果一个设计只是“更完整”“更灵活”“更方便以后扩展”，但没有同时减少这四类复杂度，就不应进入主线。
-
-### 原则 1：一个产品，多个能力来源，但不能有多个产品心智
-
-- `newapi` 可以是内部 provider key
-- 但 TokenKey 不能对外看起来像“第五个平台产品”
-- 对外应该呈现统一能力入口，而不是底层来源说明
-- `newapi` 不是一个要被解释给用户听的平台名，而只是内部能力来源标识
-
-### 原则 2：热点文件只允许存在薄注入点，不允许继续长出业务主干
-
-以下文件未来应该越来越薄：
-
-- `backend/internal/service/openai_gateway_service.go`
-- `backend/internal/service/openai_account_scheduler.go`
-- `backend/internal/service/gateway_bridge_dispatch.go`
-
-允许存在：
-
-- facade 调用点
-- 必要字段扩展
-- 最小兼容注入
-
-不应继续增长：
-
-- TokenKey 特有真值表
-- provider-specific fallback 规则
-- operator-facing 解释与策略分支
-
-### 原则 3：同一类事实必须只有一个 source of truth
-
-以下事实必须被集中定义：
-
-- compat 平台集合
-- 调度池成员资格
-- endpoint 到 provider 的判定规则
-- capability truth table
-- redaction key set / redaction policy version
-- 默认品牌与展示词
-
-进一步写死：
-
-- 后端关于 `platform / endpoint / provider / channel_type` 的组合真值，只允许定义在统一 registry
-- 前端不再自行定义业务真值，只允许消费后端投影或稳定枚举
-- bridge / scheduler / route helper 不得再各自持有一份平台真值副本
-
-### 原则 4：所有高频错误，都要变成机械门禁
-
-凡是已经重复踩过的坑，都不再只留在文档和 review 里：
-
-- 要么进入 `scripts/preflight.sh`
-- 要么进入 CI workflow
-- 要么进入 semantic checker / sentinel
-
-### 原则 5：默认简单，扩展延后
-
-如果某个设计能解决当前问题，但同时引入新的概念层、新的配置源、新的 operator 面板，那默认先不做。
-
-先问三个问题：
-
-1. 不做它，当前主问题能不能先解决？
-2. 它是否让维护面增加而不是减少？
-3. 它是否让一个人未来每周要做更多判断？
-
-只要有一条答案不对，就延后。
-
-### 原则 6：端到端体验优先于局部工程优雅
-
-判断方案是否成立，不看它抽象得多漂亮，而看它是否让下面这些体验变简单：
-
-- 用户是否更少感知底层实现
-- operator 是否更少切换多个排障入口
-- 开发者是否更少在 merge 时解决重复冲突
-- 出问题时是否更快拿到完整证据
-
----
-
-## 7. 对本仓库的实操改造方案
-
-## 7.1 改造一：建立最小 Engine Spine，而不是宏大 Engine Framework
-
-### 目标
-
-把“native 四平台 + new-api 扩展能力”的路由与能力差异，统一收口到 TokenKey 自己的最小编排骨架，而不是散在多个 gateway / service 文件里。
-
-### 核心反思
-
-上一版里最容易继续膨胀的点，是把 Engine Plane 做成一个过度完整的引擎层。这个方向不够乔布斯，也不够 OPC。
-
-**真正应该做的是最小 Engine Spine：只先解决“该走谁”和“真值表在哪”。**
-
-### 建议新增目录
-
-```text
-backend/internal/engine/
-├── facade.go
-├── provider.go
-└── dispatch_plan.go
-```
-
-第一阶段不预先承诺 `capability.go` / `registry.go` / `errors.go`。原因不是这些文件永远不需要，而是目录一旦先写全，执行时就会自然滑向“把框架补完整”，而不是先把主路径收口。
-
-### 第一阶段只做这三件事
-
-1. 新增 `facade.go`
-2. 新增 `dispatch_plan.go`
-3. 把最主要的 provider 选择路径迁到 facade
-
-优先落点：
-
-- `backend/internal/service/gateway_bridge_dispatch.go`
-- `backend/internal/service/openai_gateway_bridge_dispatch.go`
-- `backend/internal/service/openai_gateway_service.go`
-
-目标不是重写逻辑，而是把这些文件里的 TokenKey 分叉判断变成：
-
-```go
-plan := engineFacade.ResolvePlan(...)
-return engineFacade.Execute(ctx, plan)
-```
-
-### 第二阶段再做 capability truth table 集中化
-
-在 facade 稳定后，再新增：
-
-```text
-backend/internal/engine/
-├── capability.go
-└── registry.go
-```
-
-用来逐步收口这些散点事实：
-
-- OpenAI-compatible 平台集合
-- endpoint 是否走 native / bridge
-- image / video / task fetch 与 `channel_type` 的关系
-
-当前这些事实分散在：
-
-- `backend/internal/service/account_tk_compat_pool.go`
-- `backend/internal/server/routes/gateway_tk_openai_compat_handlers.go`
-- `backend/internal/relay/bridge/video_relay.go`
-- `backend/internal/service/openai_gateway_bridge_dispatch_tk_video.go`
-- `backend/internal/integration/newapi/channel_types.go`
-
-### 为什么这更符合乔布斯 / OPC
-
-因为它不追求“架构完整”，只追求“主路径冲突面更小”。
-
-这是真正的聚焦。
-
----
-
-## 7.2 改造二：把 `newapi` 从外部产品词降级为内部实现词
-
-### 目标
-
-满足“统一平台、统一视觉、统一形象”，但不破坏现有 routing identity。
-
-### 边界
-
-- **内部保留**：`group.platform = newapi`、`PlatformNewAPI`、`channel_type`、bridge adaptor 等术语
-- **外部默认不主打**：`newapi` 不再作为最终用户或多数 operator 的主展示词
-
-### 建议改法
-
-#### A. 先完成 TokenKey 默认品牌替换
-
-按已有 `docs/ui/tokenkey-brand-replacement-plan.md` 执行，并补齐这些位置：
-
-- `frontend/src/stores/app.ts`
-- `frontend/src/router/title.ts`
-- `frontend/src/i18n/locales/en.ts`
-- `frontend/src/i18n/locales/zh.ts`
-- `frontend/index.html`
-- `backend/internal/web/frontend_spa.go`
-- `backend/internal/service/setting_service.go`
-- `README.md` / `README_CN.md` / `README_JA.md`
-
-#### B. admin UI 中把平台展示分成“产品词”和“技术词”两层
-
-建议：
-
-- internal key 仍然是 `newapi`
-- 默认 UI label 改为：
-  - 中文：`扩展引擎`
-  - 英文：`Extension Engine`
-- 仅在高级 tooltip / debug / operator 深层信息中显示底层 provider 为 `newapi`
-
-优先修改：
-
-- `frontend/src/constants/gatewayPlatforms.ts`
-- `frontend/src/composables/usePlatformOptions.ts`
-- 所有平台下拉 / segmented control / badge 的 label 来源
-
-### 品牌层的硬边界
-
-- 品牌替换只发生在展示层
-- 不得为了 UI 统一去重命名路由 identity、平台常量、`group.platform` 存量语义
-- 展示层收口是低风险品牌动作；协议层、调度层、路由层 identity 变更是另一类高风险改造，不能混做
-
-
----
-
-## 7.3 改造三：先做 Capability Truth Table，再考虑 Catalog
-
-### 为什么要再收紧
-
-上一版把 catalog 提得还是偏前。按乔布斯 / OPC 判断，这仍然太早。
-
-现在更清晰的结论是：
-
-- **先做内部真值表**
-- **后做对外展示目录**
-
-如果内部 capability source of truth 还没稳定，就不应该过早做大 catalog。
-
-### 第一阶段：内部 capability truth table
-
-建议由 `backend/internal/engine/capability.go` 与 `registry.go` 统一输出至少这些事实：
-
-- model / endpoint 对应的逻辑平台
-- backing provider（native / bridge）
-- protocol shape
-- supported endpoints
-- 是否依赖 `channel_type`
-- 是否支持 image / video / task fetch
-
-### 第二阶段：如有必要，再做 catalog 视图
-
-如果未来 operator / UI 确实需要统一展示，再新增：
-
-```text
-backend/internal/engine/catalog/
-├── model_catalog.go
-├── provider_catalog.go
-├── sync.go
-└── snapshot.json   # 可选
-```
-
-但注意：
-
-**Catalog 不是主线，只是主线稳定后的视图层。**
-
----
-
-## 7.4 改造四：把“100% 脱敏后持久化”变成唯一默认路径
-
-这是整份方案里最不能妥协的一块。
-
-### 当前已有基础
-
-- `logredact.RedactJSON / RedactText`
-- `OpsService.RecordError` 的脱敏裁剪路径
-- `observability/qa/service.go` 的 request / response / blob / zstd / export 能力
-
-### 当前真正缺口
-
-- 成功请求未形成统一 capture 主链路
-- 流式 chunk 采集没有全局 contract
-- QA / ops / gateway 仍然是并行证据体系
-- capture 完整率不是系统级指标
-- redaction policy 还未成为版本化契约
-
-### 目标状态
-
-所有进入 TokenKey 的请求，不论：
-
-- 成功 / 失败
-- 流式 / 非流式
-- native / bridge
-- OpenAI-compatible / Anthropic-compatible
-
-都形成同一条 trajectory，并且：
-
-**只有脱敏后的证据可以进入持久化层。**
-
-### 建议新增目录
-
-```text
-backend/internal/observability/trajectory/
-├── capture.go
-├── redaction.go
-├── writer.go
-└── metrics.go
-```
-
-第一阶段不预先承诺 `blob_store.go` / `dlq.go` / `export.go` / `envelope.go`。这些能力可能会需要，但不应在 M1 一开始就把 Evidence Spine 写成完整产品面。
-
-如果按第一阶段的目标收口，M1 只需要先证明三件事：
-
-1. 每个主路径请求都有 `trajectory_id`
-2. request / response 在脱敏后可被稳定持久化
-3. capture 失败可追、可计数、不可 silent-loss
-
-### 建议新增数据模型（Ent schema）
-
-```text
-backend/ent/schema/trajectoryrecord.go
-backend/ent/schema/trajectoryevent.go   # 可选
-```
-
-### `trajectory_records` 建议字段
-
-- `trajectory_id`
 - `request_id`
+- `trajectory_id`
 - `user_id`
 - `group_id`
 - `api_key_id`
+- `account_id`
 - `platform`
 - `provider`
-- `account_id`
 - `channel_type`
-- `endpoint`
-- `model`
+- `requested_model`
+- `upstream_model`
+- `inbound_endpoint`
+- `upstream_endpoint`
 - `status_code`
 - `success`
-- `streaming`
-- `request_sha`
-- `response_sha`
+- `duration_ms`
+- `first_token_ms`
+- `stream`
+- token usage
+- `request_sha256`
+- `response_sha256`
+- `blob_uri`
 - `request_blob_uri`
 - `response_blob_uri`
 - `stream_blob_uri`
 - `redaction_version`
 - `capture_status`
-- `created_at`
+- `tags`
+- synthetic pipeline tagging fields
+- `retention_until`
 
-### payload 持久化策略
+因此，本文不再把请求级 `trajectory_records` 作为当前必须新增的 schema。只有当 `qa_records` 无法承载查询、retention、事件粒度、ops 关联或跨请求 session 事实源需求时，才允许提出新表；提出新表必须包含迁移计划、双写/回填策略、回滚策略和 preflight gate，不能只因为名字更准确而新增。
 
-- 元数据入 PostgreSQL，便于筛选、聚合与导出鉴权
-- 大块 payload 入对象存储或本地 blob 存储，统一 zstd 压缩
-- blob 内容永远是**脱敏后的 payload**
-- `redaction_version` 必须随记录一起保存，确保以后能审计
+### 2.5 先脱敏，再持久化
 
-### 统一 capture 入口建议
+Evidence Spine 的硬边界：
 
-#### A. 入口 middleware 只建立上下文
-
-新增：
-
-- `backend/internal/middleware/trajectory_context.go`
-
-职责：
-
-- 生成 `trajectory_id`
-- 把 user / group / key / endpoint 基础上下文写入 gin context
-
-#### B. 各 gateway service 统一调用 capture API
-
-统一调用：
-
-```go
-trajectory.CaptureStart(...)
-trajectory.CaptureSelectedAccount(...)
-trajectory.CaptureUpstreamEvent(...)
-trajectory.CaptureFinish(...)
-```
-
-这样：
-
-- `GatewayService`
-- `OpenAIGatewayService`
-- `GeminiMessagesCompatService`
-- `AntigravityGatewayService`
-- newapi bridge 路径
-
-都走同一条证据骨架。
-
-#### C. 流式块统一 capture
-
-对 SSE / streaming response：
-
-- 记录 chunk 接收时间
-- 对 chunk 做脱敏
-- 聚合或流式写 blob
-- 最终绑定到同一 `trajectory_id`
-
-这里可以借鉴 `observability/qa/service.go` 的 blob 与 chunk 思路，但必须升级成通用主链路，而不是 QA 私有实现。
-
-### 运行策略
-
-- 主请求路径：**异步写入，fail-open**
-- 写入失败：进入 DLQ + 计数器 + 结构化错误日志
-- 定时任务：补偿 DLQ、统计 capture completeness、输出告警阈值
-
-### 为什么这符合乔布斯 / OPC
-
-因为它做的不是“更多日志能力”，而是“唯一默认路径”。
-
-一个系统是否简单，不看它有没有很多工具，而看它遇到真实问题时，大家是否本能地知道该去哪里找证据。
+- raw secret 不进入持久层。
+- raw secret 不进入结构化日志。
+- blob 内容必须是脱敏后的 evidence。
+- redaction policy 变化必须同步更新版本契约。
+- capture 写入 fail-open，但不能 silent-loss；失败必须进入 DLQ、计数器或结构化错误日志。
 
 ---
 
-## 7.5 改造五：把上游 merge / bump 动作彻底产品化
+## 3. 当前已实现基线
 
-### 目标
+### 3.1 Upstream Merge Doctrine
 
-让 fork 维护不再主要依赖操作者经验。
+当前已实现：
 
-### 建议新增脚本 1：上游合并助手
+- `scripts/prepare-upstream-merge.sh`：上游合并准备脚本。
+- `.github/workflows/upstream-merge-pr-shape.yml`：merge PR shape gate。
+- `scripts/check-upstream-drift.sh` 与 `.github/workflows/upstream-drift-monitor.yml`：上游漂移监测。
+- PR #110 已按 merge rehearsal 执行并通过 CI。
 
-```text
-scripts/prepare-upstream-merge.sh
-```
+后续 upstream merge PR 必须分清三类 commit。
 
-职责：
+#### Merge Harness Commit
 
-- 自动运行 `git fetch upstream origin`
-- 输出 ahead / behind
-- 自动创建 `merge/upstream-YYYYMMDD`
-- 跑 `git merge-tree upstream/main HEAD`
-- 生成 PR body 草稿到临时文件，包含：
-  - `git log --oneline upstream/main..HEAD | wc -l`
-  - `git diff --stat upstream/main..HEAD -- backend/ | head -5`
-  - conflict hotspots
-  - sentinel / checklist
+只负责：
 
-### 建议新增脚本 2：new-api bump 助手
+- 保留 upstream 能力与审计链。
+- 解决冲突、编译、生成代码、基础测试。
+- 把新增高风险入口先接入现有 canonical hooks。
+- 保证 preflight / sentinel / PR shape gate 能运行。
 
-```text
-scripts/bump-new-api.sh
-```
+#### Invariant Commit
 
-职责：
+只修不可退让项：
 
-- 接收目标 SHA
-- 调用 `scripts/sync-new-api.sh --bump <sha>`
-- 自动跑最小 smoke：
-  - `go build ./...`
-  - compat provider registry tests
-  - bridge image / video tests
-- 输出 bump 摘要
+- 品牌回退。
+- raw secret 泄漏。
+- route canonical 破坏。
+- trajectory / QA capture hook 缺失。
+- redaction version contract 漂移。
+- `AGENTS.md` / contract docs 可追踪性回退。
 
-### 建议新增 CI 任务
+#### OPC Refactor Commit
 
-#### A. Weekly upstream dry-run merge
+只收敛本次 merge 引入或触碰后显著增厚的分叉面：
 
-目的不是立即合并，而是提前暴露冲突热点和 sentinel 漏洞。
+- 热点文件新增 TokenKey 分支迁回 companion / facade / owner。
+- 平行 truth table 收敛到单一 owner。
+- 大型 UI 文件新增策略块抽为 component / composable。
+- 新增 owner 必须有 test 或 semantic sentinel。
 
-#### B. Weekly new-api pin drift compile check
+历史债务不得借 upstream merge PR 扩张。
 
-目的不是自动 bump，而是提前知道最近的 `new-api` upstream 变化会不会打断 bridge。
+### 3.2 Engine Spine
 
-### 建议升级 sentinel：从 token presence 走向 semantic call-site
+当前已实现：
 
-下一步必须补上的不是更多 token，而是更多语义约束：
+- `BuildDispatchPlan` 通过 `CapabilityForEndpoint` 输出 bridge/native plan。
+- `CapabilityForEndpoint` 是 bridge endpoint capability truth 的 owner。
+- `BridgeEndpointEnabled` 不允许在 engine 外复制。
+- video channel support 使用 `engine.IsVideoSupportedChannelType`，不允许外部调用 bridge-local truth。
+- direct `bridge.Dispatch*` 调用被限制在 approved service boundary files。
+- `scripts/engine-facade-sentinels.json` 与 `scripts/check-engine-facade-hooks.py` 保护关键路径。
+- `scripts/preflight.sh` 额外检查 engine dispatch / capability drift。
 
-- 某 helper 不仅存在，而且仍被关键路径调用
-- 某 route helper 不仅定义，而且仍被注册
-- 某 capture hook 不仅存在，而且仍接入 terminal path
+当前未承诺：
 
-这才真正符合 OPC：
+- Engine Spine 不负责重写所有 provider service。
+- Engine Spine 不负责对外 catalog。
+- Engine Spine 不负责替代 Ent、repository、setting service。
 
-**系统关心的不是“字还在不在”，而是“行为还在不在”。**
+### 3.3 OpenAI Upstream Capability Truth
 
-### 建议新增门禁对象
+当前已实现：
 
-不是“helper 还在”就算通过，而是必须开始检查关键行为是否仍然接入主路径：
+- `backend/internal/pkg/openai_compat/upstream_capability.go` 是 OpenAI-compatible upstream capability 的 owner。
+- `ShouldUseResponsesAPI` 决定 OpenAI APIKey 是否走 Responses。
+- `ResponsesEndpointSupportedByStatus` 决定探测状态码语义。
+- `backend/internal/service/openai_apikey_responses_probe.go` 调用 `openai_compat` owner，不再本地维护状态码 truth。
+- `scripts/preflight.sh` 禁止 `isResponsesEndpointSupportedByStatus` 重新散落到 service 文件。
 
-- `gateway_bridge_dispatch.go` 必须调用 facade
-- `openai_gateway_bridge_dispatch.go` 必须调用 facade
-- `openai_gateway_service.go` 的主要 provider 选择路径必须调用 facade
-- 关键 gateway terminal path 必须存在 `CaptureFinish`
-- 新 endpoint 若进入主流量路径但未建立 `trajectory_id`，preflight / CI 直接失败
-- redaction key set 变化若未同步 bump `redaction_version`，直接失败
+准入标准：
 
-这类检查的目标不是证明“字还在”，而是证明“行为还在”。
+- 新增 OpenAI-compatible upstream capability 判定时，优先进入 `openai_compat` 或 Engine owner。
+- 不允许在 gateway/service 热点文件中新增独立 truth table。
 
----
+### 3.4 New API 作为内部能力来源
 
-## 8. 实施顺序再收敛：只保留 3 条主线，不再让路线图发散
+当前已实现：
 
-上一版的 4 个阶段还是有点像“功能目录”。
+- `.new-api-ref` 是 sibling `new-api` pin 的事实源。
+- `scripts/sync-new-api.sh` 负责 sync / check / bump。
+- `scripts/bump-new-api.sh` 是 bump wrapper。
+- `backend/internal/integration/newapi/*` 与 `backend/internal/relay/bridge/*` 是集成边界。
+- `scripts/newapi-sentinels.json` 与 `scripts/check-newapi-sentinels.py` 保护 load-bearing surfaces。
+- scheduler/gateway filters 必须使用 `IsOpenAICompatPoolMember` / `OpenAICompatPlatforms`，preflight 阻止 bare `PlatformOpenAI` 回退。
 
-按照乔布斯 / OPC 的标准，现在更推荐把它收敛成 **3 条主线**：
+准入标准：
 
-## 主线 A：品牌与自动化基线（先做）
+- 上游新增 adaptor 能力时，先判断是否进入 Engine capability owner。
+- 不在 sibling `new-api` 中打 TokenKey 私有补丁。
+- 不把 `newapi` 恢复成默认外部产品词。
 
-### 目标
+### 3.5 Brand / Product Surface
 
-先把产品叙事和 fork 维护方式收紧，不碰主流量语义。
+当前已实现：
 
-### 必做产出
+- outward TokenKey brand surfaces 有 `scripts/brand-sentinels.json` 与 checker 保护。
+- 管理端平台展示已区分内部 key 与展示词；新增策略块（如 OpenAI Fast/Flex）已抽到 dedicated component，避免热点 view 继续堆叠。
+- 支付文档在「从 Sub2ApiPay 迁移」等段落仍引用第三方项目历史名，属于迁移指称而非 TokenKey 主产品心智；新增 outward 文案须同步纳入 brand sentinel。
 
-1. `Sub2API -> TokenKey` 默认品牌替换
-2. `newapi -> 扩展引擎 / Extension Engine` 的默认展示降级
-3. `scripts/prepare-upstream-merge.sh`
-4. `scripts/bump-new-api.sh`
-5. weekly upstream dry-run / weekly new-api compile-smoke CI
-6. brand drift check
+准入标准：
 
-### 明确不做
+- 展示层可以使用 TokenKey / Extension Engine。
+- 协议层 identity 不因展示词变化而改名。
+- 新 outward surface 如果承载产品心智，必须同步补 brand sentinel。
 
-- 不改动调度语义
-- 不改动 gateway dispatch 行为
-- 不做 Ent schema 变化
+### 3.6 Request-level Evidence Spine
 
-### 验收标准
+当前已实现：
 
-- 默认 UI / README / title / setting 文案不再出现 `Sub2API`
-- operator 默认界面不再把 `newapi` 当外部产品名展示
-- merge / bump 有固定脚本与固定 smoke
+- `qa_records` 是请求级 evidence metadata owner。
+- `backend/internal/observability/qa/service.go` 捕获 request/response/SSE chunk，异步写入，队列满时同步 fallback。
+- `backend/internal/observability/trajectory/writer.go` 支持 blob store 写入与 DLQ fallback。
+- `backend/internal/observability/qa/sse_tee.go` 负责 response/SSE tee。
+- `backend/internal/observability/qa/service_traj_export.go` 从 `qa_records` 与 blob 派生 `trajectory.jsonl` export。
+- `backend/internal/observability/trajectory/projection.go` 从 request-level evidence 派生 session/turn/tool-use 行。
+- `scripts/trajectory-sentinels.json` 与 checker 保护 route hook。
+- `scripts/terminal-sentinels.json` 与 checker 保护 stream terminal semantics。
+- redaction version contract 有 `scripts/redaction-sentinels.json` 与 checker。
 
----
+准入标准：
 
-## 主线 B：最小 Engine Spine（第二优先级）
-
-### 目标
-
-先降低双上游合并税，而不是先追求大而全的抽象架构。
-
-### 必做产出
-
-1. 新增 `backend/internal/engine/facade.go`
-2. 新增 `backend/internal/engine/provider.go`
-3. 新增 `backend/internal/engine/dispatch_plan.go`
-4. `gateway_bridge_dispatch.go` 改走 facade
-5. `openai_gateway_bridge_dispatch.go` 改走 facade
-6. `openai_gateway_service.go` 中最主要的 provider 选择路径改走 facade
-7. semantic sentinel 第一版
-
-### 明确不做
-
-- 不重写全部 scheduler / gateway service
-- 不建设完整 catalog 系统
-- 不做过度抽象的统一 runtime
-
-### 验收标准
-
-- provider 选择由 facade 统一完成
-- 热点 upstream 文件新增 TokenKey 分叉逻辑显著减少
-- newapi image / video / chat / responses 路径无回归
-- sentinel 能检查关键 helper 仍被关键路径调用
+- 新主流量 endpoint 必须接入 `trajectory_id` 与 QA capture。
+- 新 capture payload 必须先脱敏再持久化。
+- 敏感字段集合变化必须同步更新 redaction version contract。
+- capture 失败必须可观测，不能 silent-loss。
 
 ---
 
-## 主线 C：Evidence Spine（第三优先级，但战略价值最高）
+## 4. `qa_records` 与 `trajectory_records` 的结论
 
-### 目标
+### 4.1 当前结论
 
-把“100% 脱敏后持久化”从原则变成系统默认事实。
+`qa_records` 已经基本承担了文档旧版设想中“请求级 `trajectory_records`”的 evidence metadata 职责。当前不应再把同职责的新表写成必做项。
 
-### 必做产出
+更准确的表达是：
 
-1. `trajectoryrecord` Ent schema
-2. `backend/internal/observability/trajectory/*`
-3. 网关入口统一分配 `trajectory_id`
-4. 先覆盖 OpenAI-compatible 主路径
-5. redaction version 机制
-6. 异步 writer + DLQ + 基础 metrics
-7. 后续逐步把 QA export / ops_error_logs 关联到 unified evidence
+> `qa_records` 是当前请求级 Evidence Spine 的事实源；`trajectory` package 是 projection / writer / redaction helper；`trajectory.jsonl` 是从 `qa_records` + blob 派生出的数据集视图。完整 trajectory 目标仍然包含 session grouping、turn 结构、tool-use 配对、ops error correlation 与验收闭环，不能因为请求级表已经存在就宣告完成。
 
-### 明确不做
+### 4.2 为什么不立刻新增 `trajectory_records`
 
-- 不要求第一版就统一所有后台查询页面
-- 不要求第一版就把全部历史导出视图重做
-- 不要求第一版就构建复杂 retention 产品能力
+新增 `trajectory_records` 会带来新的复杂度：
 
-### 验收标准
+- 与 `qa_records` 双写或迁移。
+- 历史数据回填。
+- retention 与 export query 双 owner。
+- preflight / tests / docs 全部新增漂移面。
+- 上游 merge PR 中产生非必要 schema churn。
 
-- 抽样主路径请求 100% 能追到 trajectory
-- 持久化 payload 全部为脱敏后内容
-- capture 失败不会阻断主请求，但一定留下 DLQ、计数和日志
-- operator 在真实事故中能从统一入口拿到完整证据
+这不符合当前 OPC 目标。当前真正的缺口不是“表名不够准确”，而是 session 级 projection、ops 关联、tool-use 配对和验收闭环还需要继续加强。
 
----
+### 4.3 什么时候才允许提出新表
 
-## 9. 每一条主线都必须补上的测试与门禁
+只有出现以下至少一种情况，才允许重新讨论 `trajectory_records` 或 `trajectory_events`：
 
-## 9.1 品牌与自动化主线
+- `qa_records` 的字段语义无法表达多事件 timeline。
+- retention / query / export 性能无法通过索引或 projection 解决。
+- 需要跨请求 session 级事实源，而不是导出时 projection。
+- 需要把 QA product surface 与 Evidence Spine storage 明确拆库/拆权限。
+- 需要把 `ops_error_logs`、QA capture、traj export 统一到同一条可查询的 evidence correlation 语义，而 request-level projection 已经不足。
 
-必须新增：
+提出时必须同时给出：
 
-- brand drift check
-- merge helper smoke check
-- new-api bump helper smoke check
-
-## 9.2 Engine Spine 主线
-
-必须新增：
-
-- provider registry 单测
-- dispatch plan truth-table 单测
-- newapi / native provider smoke tests
-- semantic sentinel call-site tests
-
-必须新增门禁：
-
-- `engine hook check`：主 dispatch path 必须走 facade
-- `compat truth-source check`：OpenAI-compatible truth table 不得回退为散点定义
-
-## 9.3 Evidence Spine 主线
-
-必须新增：
-
-- redaction property tests
-- request / response / blob roundtrip tests
-- streaming chunk capture tests
-- fail-open + DLQ tests
-- export authorization tests
-
-必须新增门禁：
-
-- `trajectory hook check`：新 endpoint 未接入 capture 直接 fail
-- `redaction version check`：敏感键集合变化必须带版本更新
-- `terminal event check`：主路径必须有 terminal capture call
+- schema diff。
+- migration / backfill。
+- 双写或 cutover 策略。
+- 回滚策略。
+- focused tests。
+- preflight or sentinel。
 
 ---
 
-## 10. 这套方案为什么现在更符合乔布斯和 OPC
+## 5. Session 级 traj Projection：当前状态与缺口
 
-### 10.1 它更聚焦了
+### 5.1 当前已具备
 
-从“很多方向都想做”收敛成了三条真正主线：
+当前 `trajectory.ProjectRecords` 已能从 `qa_records` + evidence blob 派生：
 
-- 品牌与自动化
-- 最小 Engine Spine
-- 唯一 Evidence Spine
+- `session_id`
+- `turn_index`
+- `role`
+- `message_kind`
+- `tool_name`
+- `tool_call_id`
+- `tool_schema_json`
+- `tool_call_json`
+- `tool_result_json`
+- `content_json`
+- `model`
+- `timestamp`
+- `request_id`
+- `trajectory_id`
 
-不是把事情做多，而是把主问题做穿。
+`ExportUserTrajectoryData` 已能导出 `trajectory.jsonl` zip。
 
-### 10.2 它更端到端了
+### 5.2 当前仍未完全成立
 
-这份方案现在不是按“模块列表”组织，而是按真实产品体验组织：
+以下不应被文档误写成已完全完成：
 
-- 用户看到什么
-- operator 如何理解系统
-- 开发者如何 merge
-- 出事故时如何找到证据
+- 默认 session 语义仍主要由 `synth_session_id`、`trajectory_id`、`request_id` fallback 派生，不是全局一等 session runtime。
+- turn 划分是 projection 逻辑，不是生产主路径持久化实体。
+- tool schema / call / result 是 best-effort extraction，不等于所有 provider 都有完整结构化配对。
+- H1/H2/H3/D1 validator 已有回归测试与 preflight 入口，但真实生产导出质量仍依赖采样与数据覆盖。
 
-这更接近乔布斯式思维：从整体体验回推系统形态。
+### 5.3 后续演进边界
 
-### 10.3 它更像 OPC 了
+后续要增强 traj projection，应优先做：
 
-因为它持续在做同一件事：
+- projection extraction tests 覆盖更多 provider payload。
+- dataset validator 对真实 export fixture 的回归样本。
+- session grouping policy 的显式 contract。
+- tool pairing summary metrics。
 
-**把每周都会重复发生的人类判断，变成更少的判断点和更多的机械门禁。**
+不要做：
 
-### 10.4 它更少自我感动式抽象了
-
-现在明确把以下东西降级为“后续视图层”，而不是主线：
-
-- 大 catalog 系统
-- 复杂 operator 产品面
-- 一开始就追求完美的引擎抽象
-
-这能显著降低方案变胖的风险。
-
----
-
-## 11. 明确不建议做的事
-
-### 不建议 1：把 TokenKey 变成 `new-api` 的 UI 套壳
-
-这是战略倒退。
-
-### 不建议 2：继续把大量 TokenKey 语义直接塞进 upstream 主文件
-
-这是把未来每一次 merge 的痛苦继续固化。
-
-### 不建议 3：把“全量脱敏落盘”继续拆散在 error log / QA / 某个 handler patch 中
-
-这样永远得不到唯一证据入口。
-
-### 不建议 4：在 sibling `new-api` 中直接打 TokenKey 定制补丁
-
-这样会把双上游问题升级成三处同步维护。
-
-### 不建议 5：把 catalog、operator 视图、抽象完美感，放在主骨架之前
-
-任何会让主线变慢、概念变多、判断点变多的东西，都应该延后。
+- 把 gateway 主路径改成 session runtime。
+- 为了数据集字段新增一个 Agent 产品层。
+- 为了命名洁癖新增 `trajectory_records` 双表。
 
 ---
 
-## 12. 最终推荐：实际推进顺序
+## 6. Upstream Merge 准入矩阵
 
-如果只给一个落地建议，我的建议是：
-
-1. **先做品牌与自动化主线**：让产品叙事和 fork 维护先变简单
-2. **紧接着做最小 Engine Spine**：让双上游差异从热点文件里退出
-3. **然后做唯一 Evidence Spine**：让脱敏轨迹成为系统默认行为
-
-只有这三条主线稳定之后，才考虑：
-
-- catalog 视图
-- 更完整的 operator 证据产品面
-- 更丰富的能力展示层
-
-因为对 OPC 来说，**先把骨架做对，胜过把外围做满。**
+| upstream 带来的变化 | 必须保持的 owner | PR 内动作 | 机械门禁 |
+|---|---|---|---|
+| 新主流量 endpoint | route + QA capture + trajectory hook | 接入现有 hook；必要时补 route helper | trajectory / terminal sentinel |
+| 新 bridge endpoint | `backend/internal/engine/capability.go` | 增加 capability；热点文件只调用 facade | engine facade / capability preflight |
+| 新 OpenAI upstream capability | `internal/pkg/openai_compat` 或 `engine` | 收敛到 owner；补 focused test | OpenAI capability truth check |
+| 新 `newapi` load-bearing surface | `internal/integration/newapi` / bridge boundary | 保留 upstream 能力；补 sentinel | newapi sentinel registry |
+| 新 product-facing 文案 | brand/i18n owner | 展示 TokenKey/Extension Engine；不改协议 identity | brand sentinel |
+| 新 sensitive payload | `logredact` + QA redaction version | 先脱敏再持久化；bump contract | redaction version check |
+| 新 admin 策略 UI | dedicated component/composable | 主 view 只保留 wiring | frontend lint/typecheck/tests |
 
 ---
 
-## 13. 可以直接开干的首批 PR 清单
+## 7. 热点文件规则
 
-### PR-A1：默认品牌替换
+以下文件是 merge-tax 高风险区：
 
-- 完成默认品牌替换为 TokenKey
-- 覆盖 UI title / setting / README 等默认产品词
-- 不触碰平台 identity、路由 identity、调度语义
+- `backend/internal/service/openai_gateway_service.go`
+- `backend/internal/service/openai_account_scheduler.go`
+- `backend/internal/service/gateway_bridge_dispatch.go`
+- `backend/internal/server/routes/gateway.go`
+- `frontend/src/views/admin/SettingsView.vue`
 
-### PR-A2：`newapi` 外显降级
+允许：
 
-- admin UI 中将 `newapi` 默认展示为“扩展引擎 / Extension Engine”
-- tooltip / debug / 深层 operator 信息中仍可显示底层 provider 为 `newapi`
-- 不修改 `PlatformNewAPI`、`group.platform`、`channel_type`、bridge identity
+- 薄调用点。
+- upstream 语义保真 conflict resolution。
+- DTO 字段拼接。
+- 调用 companion / facade / component。
 
-### PR-A3：merge / bump 自动化基线
+“薄调用点”的判定标准：
 
-- 新增 `scripts/prepare-upstream-merge.sh`
-- 新增 `scripts/bump-new-api.sh`
-- 新增 weekly dry-run / compile-smoke CI
-- 新增 brand drift check
+- 只做参数组装、owner 调用、错误返回和少量上下文绑定。
+- 不新增本地 truth table。
+- 不新增 provider/platform 分支树。
+- 不复制已有 owner 的判断逻辑。
+- 如果新增 TokenKey-only 分支超过一个局部判断，必须说明为什么不能进入 companion / facade / component，并优先补 semantic sentinel。
 
-### PR-B1：Engine Facade 引入
+不允许：
 
-- 新增 `backend/internal/engine/facade.go`
-- 新增 `backend/internal/engine/provider.go`
-- 新增 `backend/internal/engine/dispatch_plan.go`
-- 暂不引入 capability registry
+- 新增 TokenKey-only truth table。
+- 新增 provider-specific 大分支。
+- 重复复制 capability / route / platform predicate。
+- 在大型 Vue view 中继续堆策略 UI 细节。
 
-### PR-B2：关键 dispatch path 接入 facade
+如果 upstream merge 触碰这些文件并导致 TokenKey 分叉增厚，必须在同一个 PR 里用 OPC Refactor Commit 收敛本次新增分叉。
 
-- `gateway_bridge_dispatch.go` 改走 facade
-- `openai_gateway_bridge_dispatch.go` 改走 facade
-- `openai_gateway_service.go` 的主要 provider 选择路径改走 facade
-- 补关键路径单测
-
-### PR-B3：Capability truth table 收口
-
-- 新增 `backend/internal/engine/capability.go`
-- 新增 `backend/internal/engine/registry.go`
-- 收口 compat 平台集合、endpoint/provider 判定、image/video/task fetch 与 `channel_type` 真值
-- 新增 semantic sentinel 第一版
-
-### PR-C1：Trajectory M1 最小落地
-
-- 新增 `trajectoryrecord` Ent schema
-- 网关入口分配 `trajectory_id`
-- 先覆盖 OpenAI-compatible 主路径
-- 持久化脱敏后的 request / response 元数据与最小 payload 证据
-
-### PR-C2：Capture fail-open 护栏
-
-- 补 async writer
-- 补 DLQ 最小实现
-- 补基础 metrics
-- 建立 capture failure 可追踪、可计数、不可 silent-loss 的最小闭环
-
-### PR-C3：Streaming 与统一证据收口
-
-- 补 streaming chunk capture
-- 让 QA export 逐步复用 unified evidence schema
-- 让 `ops_error_logs` 关联 `trajectory_id`
-- 为后续 export / query / retention 打基础
+最小 upstream 冲突面不是“少改代码”，而是让长期冲突集中在少数薄注入点。为了短期少改而把新分支留在热点文件，属于把当前代码事实误当成目标。
 
 ---
 
-## 14. 成功标准
+## 8. 当前未完成项
 
-当以下 7 条同时满足时，可以认为 TokenKey 已从“高维护 fork”升级为“乔布斯 / OPC 风格的可持续产品骨架”：
+这些是明确未完成或未完全完成的演进方向；它们不是 PR #110 的遗留 bug，也不应自动塞进每个 upstream merge PR。
 
-1. 对外默认品牌只剩 **TokenKey**。
-2. 用户与大多数 operator 不需要理解 `sub2api` / `new-api` 才能使用系统。
-3. `sub2api upstream` 合并时，热点冲突文件数量显著下降。
-4. `new-api` bump 有固定脚本 + smoke，不再依赖人工经验。
-5. 主路径请求都能查到对应 `trajectory_id` 与脱敏后的 evidence blob。
-6. evidence capture 失败不会阻断主流量，但会留下 DLQ、指标与告警。
-7. 新增 provider / endpoint 时，主要改动集中在 facade / registry / capture，而不是十几个 service 文件散改。
+### 8.1 Evidence / traj
+
+- session grouping policy 需要更明确的 contract，不能长期依赖 `synth_session_id` / `trajectory_id` / `request_id` fallback 的隐式优先级。
+- tool-use extraction 需要更多真实 provider fixture，并产出 pairing summary metrics。
+- H1/H2/H3/D1 需要更多真实 export 样本覆盖，不能只靠结构 validator 证明数据质量。
+- QA / ops / evidence 查询入口仍需统一到同一条 correlation 语义；`ops_error_logs.trajectory_id` 与 `qa_records.trajectory_id` 的关联应成为排障路径，而不是两个相邻字段。
+
+### 8.2 Engine
+
+- Engine Spine 已有最小 owner，但还不是完整 provider catalog。
+- 部分 provider 细节仍留在 service/bridge boundary，这是当前接受的边界。
+- 如果新增 endpoint/provider，应优先补 capability owner 与 sentinel，而不是建设完整 catalog。
+
+### 8.3 Frontend
+
+- `SettingsView.vue` 已对 PR #110 新增 Fast/Flex 策略抽组件，但整页仍很大。
+- 后续只在被新变更触碰且增厚时继续抽 dedicated component/composable。
+- 不做为了“看起来更干净”的一次性大拆分。
+
+### 8.4 Automation
+
+- 现有 preflight 已覆盖核心漂移，但若 review 中反复发现同类人工遗漏，必须转成 checker。
+- 不新增只报告不阻断的软 gate。
 
 ---
 
-如果把整份方案压缩成一句话，那就是：
+## 9. 成功标准
 
-**让 TokenKey 成为唯一产品，让 sub2api 成为控制面基座，让 new-api 成为能力来源，让脱敏轨迹成为系统默认行为。**
+成功标准分两层：单次变更准入，和长期架构结果。前者防止回退，后者防止把当前最小实现包装成完成态。
+
+### 9.1 单次变更准入
+
+一项变更符合当前 OPC 基线，需要同时满足：
+
+1. 对外产品心智仍是 TokenKey。
+2. 协议 identity 没有为展示词让路。
+3. 新 route / endpoint / provider 能找到单一 owner。
+4. 新请求证据仍落到 `qa_records` + 脱敏 blob，不新增平行事实源。
+5. 新 session/traj 需求优先落在 projection/export 层；若必须进入持久层，需要说明为什么 `qa_records` + projection 不足。
+6. 热点文件只保留薄调用点。
+7. 上游能力被保留，不 silent-delete。
+8. 关键不变量有 test、preflight 或 sentinel。
+9. `./scripts/preflight.sh` 通过。
+
+### 9.2 长期架构结果
+
+当以下结果持续成立时，才能说 TokenKey 更接近乔布斯 / OPC 风格的可持续产品骨架：
+
+1. 用户看到的是一个 TokenKey 产品，而不是 sub2api、new-api、compat、bridge 的组合说明书。
+2. 运维排障可以从一个 request / trajectory correlation 进入 QA capture、ops error、stream terminal 与导出数据，而不是在多个日志面手动拼接。
+3. 上游合并时，热点文件里的 TokenKey-only 分支越来越薄，冲突更集中在 companion / facade / component 的边界。
+4. Engine Spine 继续保持最小，但新增 endpoint/provider capability 不再散落到 gateway/service 文件。
+5. Evidence Spine 继续以 `qa_records` 为请求级事实源，但 session/turn/tool-use/ops correlation 的质量由 projection tests、真实 fixture 和 validator 持续约束。
+6. 高频 review 争议会被转成 checker，而不是沉淀成“以后记得”的人工规则。
+
+---
+
+## 10. 一句话
+
+**当前 TokenKey OPC 的事实基线是：控制面在本仓库，Engine truth 进 `backend/internal/engine`，请求级 evidence truth 进 `qa_records`，traj 数据集从 evidence 派生；但完整目标仍是更简单的产品心智、更短的运维排障路径和更小的 upstream 冲突面，每次 upstream merge 都必须让本次新增分叉收敛，而不是把当前实现包装成完成态。**

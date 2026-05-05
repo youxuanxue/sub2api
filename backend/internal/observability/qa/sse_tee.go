@@ -2,8 +2,14 @@ package qa
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
+	"mime"
+	"net/http"
+	"strings"
 	"time"
+
+	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 
 	"github.com/gin-gonic/gin"
 )
@@ -91,7 +97,7 @@ func Middleware(svc *Service) gin.HandlerFunc {
 			raw, err := io.ReadAll(c.Request.Body)
 			if err == nil {
 				c.Request.Body = io.NopCloser(bytes.NewReader(raw))
-				c.Set(contextKeyRequestBytes, raw)
+				c.Set(contextKeyRequestBytes, qaRequestCaptureBytes(c.Request, raw))
 			}
 		}
 
@@ -101,4 +107,45 @@ func Middleware(svc *Service) gin.HandlerFunc {
 		c.Next()
 		svc.CaptureFromContext(c)
 	}
+}
+
+func qaRequestCaptureBytes(req *http.Request, raw []byte) []byte {
+	if req == nil || len(raw) == 0 {
+		return raw
+	}
+	contentType, _, _ := mime.ParseMediaType(req.Header.Get("Content-Type"))
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(contentType)), "multipart/") {
+		return qaOmittedBodyBytes("multipart_body_omitted", map[string]string{
+			"content_type": contentType,
+		})
+	}
+
+	encoding := strings.ToLower(strings.TrimSpace(req.Header.Get("Content-Encoding")))
+	if encoding == "" || encoding == "identity" {
+		return raw
+	}
+	decoded, err := pkghttputil.DecodeContentEncodedBody(encoding, raw)
+	if err != nil {
+		return qaOmittedBodyBytes("content_encoding_decode_failed", map[string]string{
+			"content_encoding": encoding,
+		})
+	}
+	return decoded
+}
+
+func qaOmittedBodyBytes(reason string, extra map[string]string) []byte {
+	payload := map[string]any{
+		"_qa_body_omitted": true,
+		"reason":           reason,
+	}
+	for key, value := range extra {
+		if strings.TrimSpace(value) != "" {
+			payload[key] = value
+		}
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return []byte(`{"_qa_body_omitted":true,"reason":"capture_metadata_unavailable"}`)
+	}
+	return raw
 }

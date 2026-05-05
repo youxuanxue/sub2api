@@ -833,6 +833,17 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			setOpsForwardResultContext(c, result.UpstreamModel, reqModel)
 			setOpsClaudeUsageContext(c, result.Usage)
 
+			// 绑定粘性会话（成功转发后绑定/刷新）
+			// - 无现有绑定（首次请求）：创建绑定
+			// - 选中账号与粘性账号一致：刷新 TTL
+			// - 粘性账号因负载/RPM 被跳过、选中了其他账号：不覆盖原绑定，
+			//   下次请求粘性账号恢复后仍可命中
+			if sessionKey != "" && (sessionBoundAccountID == 0 || sessionBoundAccountID == account.ID) {
+				if err := h.gatewayService.BindStickySession(c.Request.Context(), currentAPIKey.GroupID, sessionKey, account.ID); err != nil {
+					reqLog.Warn("gateway.bind_sticky_session_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+				}
+			}
+
 			// 捕获请求信息（用于异步记录，避免在 goroutine 中访问 gin.Context）
 			userAgent := c.GetHeader("User-Agent")
 			clientIP := ip.GetClientIP(c)

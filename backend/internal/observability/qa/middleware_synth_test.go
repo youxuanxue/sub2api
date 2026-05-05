@@ -11,7 +11,10 @@ package qa
 // docs/projects/auto-traj-from-supply-demand.md §6.1).
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
+	"encoding/json"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -127,4 +130,34 @@ func TestUS070_MiddlewarePersistsUpstreamModelFromOpsContext(t *testing.T) {
 			record.CachedTokens == sentinelCachedTokens &&
 			record.Platform == "anthropic"
 	}, 2*time.Second, 10*time.Millisecond)
+}
+
+func TestQARequestCaptureBytes_DecodesCompressedJSONBeforeRedaction(t *testing.T) {
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	_, err := gw.Write([]byte(`{"model":"gpt-5","api_key":"sk-secret-value"}`))
+	require.NoError(t, err)
+	require.NoError(t, gw.Close())
+
+	req := httptest.NewRequest("POST", "/v1/responses", bytes.NewReader(buf.Bytes()))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Encoding", "gzip")
+
+	captured := qaRequestCaptureBytes(req, buf.Bytes())
+	require.JSONEq(t, `{"model":"gpt-5","api_key":"sk-secret-value"}`, string(captured))
+
+	sanitized, err := json.Marshal(sanitizeQABytes(captured, 1<<20))
+	require.NoError(t, err)
+	require.NotContains(t, string(sanitized), "sk-secret-value")
+	require.Contains(t, string(sanitized), "gpt-5")
+}
+
+func TestQARequestCaptureBytes_OmitsMultipartBodies(t *testing.T) {
+	raw := []byte("--boundary\r\nContent-Disposition: form-data; name=\"image\"; filename=\"secret.png\"\r\n\r\nraw-image-bytes\r\n--boundary--")
+	req := httptest.NewRequest("POST", "/v1/images/edits", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=boundary")
+
+	captured := qaRequestCaptureBytes(req, raw)
+	require.NotContains(t, string(captured), "raw-image-bytes")
+	require.JSONEq(t, `{"_qa_body_omitted":true,"reason":"multipart_body_omitted","content_type":"multipart/form-data"}`, string(captured))
 }

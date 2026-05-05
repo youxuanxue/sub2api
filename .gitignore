@@ -1,4 +1,5 @@
 docs/claude-relay-service/
+.codex
 
 # ===================
 # Go 后端
@@ -149,6 +150,8 @@ tests
 .code-review-state
 #openspec/
 code-reviews/
+# AGENTS.md is tracked navigation for agent-facing docs when present.
+# Do not ignore it; generated contract inventories belong in docs/agent_integration.md.
 #AGENTS.md
 backend/cmd/server/server
 deploy/docker-compose.override.yml
