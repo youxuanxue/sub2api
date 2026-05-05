@@ -1,5 +1,7 @@
 # TokenKey Deployment Files
 
+> TokenKey deployment documentation lives under `deploy/*`. Keep root `README*.md` and other upstream-owned root files aligned with upstream unless a build/release contract truly requires a root-level change.
+
 This directory contains files for deploying TokenKey on Linux servers.
 
 ## Deployment Methods
