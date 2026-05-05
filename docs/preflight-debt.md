@@ -22,7 +22,7 @@
 
 ### D-003 US-008/009/010 e2e 缺口
 
-- 状态：**Open**
+- 状态：**Open / Overdue since 2026-05-03**
 - 现状：US-008/009/010 仍是 `Draft`，缺 testcontainer 端到端验证。
 - 原因：需要真实 PG migration + newapi upstream stub，工作量约 0.5-1d。
 - 退出条件：

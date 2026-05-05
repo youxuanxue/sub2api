@@ -1,12 +1,12 @@
 ---
 title: OpenAI Codex 伪装 Claude — Thinking 多轮连续性修复
-status: approved
+status: shipped
 approved_by: xuejiao (design review 2026-04-22)
 approved_at: 2026-04-22
 authors: [agent]
 created: 2026-04-22
-related_prs: []
-related_commits: []
+related_prs: ["#31"]
+related_commits: [922dd169]
 related_stories: [US-027]
 ---
 
@@ -24,7 +24,7 @@ related_stories: [US-027]
 
 **修复**：分两步。
 
-- **Part A（兜底）**：流式路径 `handleAnthropicStreamingResponse` 镜像非流式路径在 commit `a1e299a3` 已加的 `BufferedResponseAccumulator` 兜底 —— 当上游真的吐出 deltas 但没产出 `content_block`_* 时，从累加器重建文本。
+- **Part A（护栏）**：流式 Responses→Anthropic 转换路径保证 terminal event 前至少发出一个 `content_block`。最终实现采用常数空间的 emit flag + 空 text block schema firewall，而不是早期方案里的流式 `BufferedResponseAccumulator`。
 - **Part B（根治）**：去掉 `Include=["reasoning.encrypted_content"]`，让 Codex 不再产生加密 reasoning 状态、也不再要求回放。每轮重新思考的代价（多花 reasoning token、首 token 略慢）显著小于"空响应让用户狂按继续"。
 
 > **范围**：本设计**只**修复"OpenAI 平台账号承接 Anthropic 协议请求"这一条复合路径。**不**改原生 Anthropic 平台 (`platform=anthropic`)、**不**改 Chat Completions compat 路径、**不**做 `previous_response_id` 状态化转发（会引入会话级映射存储，超出当前修复半径）。
@@ -241,15 +241,11 @@ on stream end / response.completed / response.done:
 5. `make test` 全绿；`./scripts/preflight.sh` 全绿。
 6. 提交 PR：`fix: prevent empty Codex responses on Claude thinking + tool_result rounds`。
 
-## 9. 实施完成后的状态翻转
+## 9. 当前实施状态
 
-PR 合并后：
-
-- 把本文 frontmatter `status: pending` 改成 `status: shipped`；
-- 填入 `related_prs: [#xx]` 与 `related_commits: [<sha>]`；
-- 把 `approved_by: pending` 翻成审批人 + 日期。
-
-`scripts/preflight.sh § 7` 的 R3/R4 不变量会自动校验这两步同时完成（防止 "shipped under pending" / 审计链断裂）。
+- 已 shipped：PR #31 / commit `922dd169` 落地根因摘除与流式空内容 schema firewall。
+- 当前 Story：`US-027-openai-codex-as-claude-thinking-continuity.md` 仍处于 InTest，记录本地单测证据与 prod 部署证据待补。
+- 当前实现偏差：§2.1 的早期 `BufferedResponseAccumulator` 流式兜底设计已收敛为常数空间的 emit flag + 空 text block 护栏；非流式 buffered accumulator 仍保留在 Responses→Chat Completions 路径。
 
 ## 10. 同类项目实践借鉴（决策依据）
 

@@ -25,7 +25,7 @@ const defaultQAExportWindow = 24 * time.Hour
 
 // QAHandler exposes the user-facing self-export endpoint over the
 // qa_records owned by the authenticated user. Issue #59 /
-// docs/approved/ops_xx.md §2 — closes the half-shipped "100% QA
+// docs/approved/ops-unified-contract.md §2 — closes the half-shipped "100% QA
 // Capture" capability where the capture path wrote rows but no
 // user-facing read path existed.
 //

@@ -1,6 +1,6 @@
 # TokenKey 生产环境 QA 全量导出与清理（运营合伙人简版）
 
-适用对象：需在 **AWS prod（Stage-0）** 做 **QA  trajectory 数据** 全量备份、随后在云上 **释放 PG 与磁盘占用** 的 TokenKey 运营合伙人。  
+适用对象：需在 **AWS prod（Stage-0）** 做 **QA evidence 数据** 全量备份、随后在云上 **释放 PG 与磁盘占用** 的 TokenKey 运营合伙人。
 技术细节与风险见 `deploy/aws/README.md` 中「Prod QA 全量导出与清理」一节。
 
 ---
@@ -104,7 +104,7 @@ bash scripts/prod-qa-export-and-purge.sh
 | **`metadata/qa_records.jsonl`** | 每张表行一条 JSON；含 `request_id`、`inbound_endpoint`、`tool_calls_present`、各类 **`*_blob_uri`** 等。**不含**完整对话正文（正文在 blob）。 |
 | **`qa_blobs/YYYY/MM/DD/<2 字符>/<request_id>.json.zst`** | **线上自动捕获写入的 blob**：路径按「捕获日期 + request_id」组织；内容为 **zstd 压缩 JSON**。 |
 | **`qa_blobs/exports/<user_id>/<nanos>.zip`** | **用户自助导出**生成的 zip（与上面「按日上链式」的捕获 **不是同一批文件的两种摆法**）。 |
-| **`qa_blobs/traj-exports/...`** | **轨迹专项导出** zip（若存在）。 |
+| **`qa_blobs/traj-exports/...`** | **历史专项导出** zip（若存在；保留路径名兼容旧导出，不代表当前目标追随外部 traj 标准）。 |
 
 ---
 

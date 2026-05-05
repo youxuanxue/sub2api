@@ -6,7 +6,7 @@ name: Error Clustering Daily
 #   tokenkey_default + /usr/local/bin/error_clustering → reports back via stdout
 # No long-lived AWS credentials, no PostgreSQL port exposure to the internet.
 #
-# Graceful degradation contract (from docs/approved/ops_xx.md):
+# Graceful degradation contract (from docs/approved/ops-unified-contract.md):
 # - If AWS_OIDC_ROLE_ARN repo variable is empty, the job emits a "skip:"
 #   report and exits 0. Same shape as the previous PG_DSN-missing skip path.
 # - If qa_records is missing on the target environment, the binary itself

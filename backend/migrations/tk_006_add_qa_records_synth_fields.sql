@@ -3,7 +3,7 @@
 -- M0 dual-CC client (X-Synth-Session, X-Synth-Role, X-Synth-Engineer-Level,
 -- X-Synth-Pipeline). All four columns are nullable / default so the change
 -- is backward-compatible with online traffic that never sets the headers
--- (per ops_xx.md §2 "API changes must not break existing online callers").
+-- (per ops-unified-contract.md §2 "API changes must not break existing online callers").
 ALTER TABLE qa_records
     ADD COLUMN IF NOT EXISTS synth_session_id text NULL,
     ADD COLUMN IF NOT EXISTS synth_role text NULL,

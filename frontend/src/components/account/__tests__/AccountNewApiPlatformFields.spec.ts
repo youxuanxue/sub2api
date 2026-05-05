@@ -1,5 +1,5 @@
 // Unit tests for the NewAPI (5th platform) shared field component.
-// Covers the D3 + D4 scope from docs/accounts/newapi-add-account-ui-gap-analysis.md:
+// Covers the structured NewAPI account fields:
 //   AC-1 — structured 模型 selector renders (whitelist mode is default).
 //   AC-2 — 获取模型列表 button renders only when channel_type is in the
 //          fetchable set (mirrors new-api MODEL_FETCHABLE_CHANNEL_TYPES).

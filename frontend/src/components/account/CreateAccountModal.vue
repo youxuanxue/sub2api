@@ -1052,8 +1052,7 @@
 
       <!--
         API Key input (only for apikey type, excluding Antigravity which has its own fields).
-        D2 (docs/accounts/newapi-add-account-ui-gap-analysis.md): also exclude `newapi`,
-        whose base_url + api_key + models live inside AccountNewApiPlatformFields above.
+        For newapi, base_url + api_key + models live inside AccountNewApiPlatformFields above.
         Without this short-circuit, switching from OpenAI/Key → NewAPI would render TWO
         base_url and TWO api_key inputs (the lower one with a misleading anthropic placeholder),
         only one of which is actually submitted.
@@ -3373,7 +3372,6 @@ const vertexServiceAccountDragActive = ref(false)
 
 // 第五平台 newapi 的全部表单状态 + 副作用（catalog / fetch / 校验 / 提交拼装）
 // 都收口在 composable，让本上游大文件保持「模板 + wiring」形态。
-// 见 docs/accounts/newapi-add-account-ui-gap-analysis.md
 const {
   channelType: newapiChannelType,
   baseUrl: newapiBaseUrl,
@@ -3701,7 +3699,7 @@ watch(
       // D1: newapi 是 apikey-only，把 accountCategory 翻到 apikey 让 watcher A
       // 把 form.type 同步成 'apikey'，与 submit 路径硬编码的 type:'apikey'
       // 对齐；否则路径 1 (fresh open + 直接点 NewAPI) 会因 form.type='oauth'
-      // 隐藏掉模型区。详见 docs/accounts/newapi-add-account-ui-gap-analysis.md
+      // 隐藏掉模型区。
       accountCategory.value = 'apikey'
       allowOverages.value = false
       antigravityWhitelistModels.value = []

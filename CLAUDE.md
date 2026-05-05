@@ -157,7 +157,7 @@ This repo is a fork of `Wei-Shaw/sub2api`, tracked via the `upstream` remote (`u
 - For Vue/admin UI, prefer `*.tk.ts` modules under `frontend/src/constants/` (or composables) for TokenKey-only styling and options; keep upstream-shaped `.vue` files to thin template + import + call.
 - When modifying upstream files, prefer **appending** code (new imports + calls) over rewriting existing functions.
 - Merge upstream: `git fetch upstream && git merge upstream/main` → resolve → `make test`.
-- See `docs/tokenkey_upstream_convergence_plan.md` for the full upstream merge guide and what NOT to modify.
+- See `docs/global/tokenkey-opc-transformation-plan.md` for the upstream convergence boundary and what NOT to modify.
 
 #### 5.x Deletion discipline — default = keep, override; never silent-delete
 
