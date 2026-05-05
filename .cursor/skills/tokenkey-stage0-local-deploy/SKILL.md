@@ -284,6 +284,16 @@ bash scripts/tk_post_deploy_smoke.sh
 
 **前提**：须已有 **可用的用户侧网关 API Key**（新 AUTO_SETUP 栈通常没有——先在管理后台创建订阅用户与 key，或使用你专用于本地的测试 key）。**不得**打印完整 key；脚本只输出 `key_hint`。若缺 key：**不要卡住会话**，验收 **A+B**（及下方管理员登录）即可。
 
+**结构化验收要求**：C 不是“看到文本返回”就结束。至少确认：
+
+- `/v1/models`：HTTP 200，`object=list`，`data` 非空。
+- `/v1/chat/completions`：HTTP 200，`object=chat.completion`，`choices[0].message.content` 命中测试短句，`finish_reason` 合理，`usage` 存在（若上游返回）。
+- `/v1/messages`：HTTP 200，`type=message`，`role=assistant`，`content[]` 有文本，`stop_reason` 合理，`usage` 字段结构正确。
+- `/v1/responses`：HTTP 200，`object=response`，`status=completed`（或有明确可解释的非失败终态），`output[]` / `output_text` 含测试短句，`usage` 字段结构正确，且没有 `error`。
+- 若验证多个分组 / 多个 key，按 key 分别记录 `key_hint`、group platform、命中的 `account_id/platform/model` 日志证据；不要把一个 key 的通过误当成全部通过。
+
+本地 Caddy 开启压缩时，`tk_post_deploy_smoke.sh` 可能只输出启动行后等待连接关闭。若脚本卡住，不要降低验收标准：停止脚本后用同一 key 重跑等价请求，并显式加 `Accept-Encoding: identity`，仍按上面的结构化要求判定。
+
 ### 管理员会话（常与 A/B 一起做，≠ C 的网关 key）
 
 用于验证 **AUTO_SETUP** 账密（**勿把密码粘贴到聊天**；只从本机 `.env` 引用）：

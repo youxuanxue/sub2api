@@ -58,6 +58,8 @@ description: >-
 
 与 `https://api.tokenkey.dev` 真机交互，依赖仓库 secret `POST_DEPLOY_SMOKE_API_KEY` 等。在 **本次** `deploy-stage0` run log 里搜索 **`tk_post_deploy_smoke: OK`**，并确认 `GET .../v1/models`、`POST .../v1/chat/completions`、`POST .../v1/messages` 等为预期 HTTP。
 
+**不要只看脚本 OK 或文本 marker。** 生产验收必须确认响应结构：`/v1/models` 为 `object=list` 且 `data` 非空；`/v1/chat/completions` 为 `object=chat.completion`、`choices[]` 非空、`finish_reason` 合理、`usage` 存在（若上游返回）；`/v1/messages` 为 `type=message`、`role=assistant`、`content[]` 有文本、`stop_reason` 合理、`usage` 字段结构正确。若 CI 脚本未打印足够结构信息，按 C 在本地用同一 key 补测并记录结构字段。
+
 ### B — 本地快速探活（无密钥）
 
 ```bash
@@ -84,6 +86,8 @@ bash scripts/tk_post_deploy_smoke.sh
 不得打印完整 key；脚本只输出 `key_hint`。
 
 **Agent 注意**：若在沙箱里跑导致读不到用户环境变量，改用可继承本机环境的执行方式（例如非 sandbox / `all`），否则 C 会因缺 key 退出。
+
+**C 的通过标准**：`tk_post_deploy_smoke.sh` 覆盖 public settings、frontend assets、`/v1/models`、`/v1/chat/completions`、`/v1/messages`；通过时仍需确认结构字段，而不是只看 marker 文本。若本次发布触达 Responses/OpenAI-compat/Engine/Evidence 相关路径，或脚本当前未覆盖 `/v1/responses`，必须追加一次 `/v1/responses` 结构化请求：HTTP 200，`object=response`，`status=completed`（或有明确可解释的非失败终态），`output[]` / `output_text` 含测试短句，`usage` 字段结构正确，且没有 `error`。多个 key/group 验收时，分别记录 `key_hint`、group platform、以及日志里的 `account_id/platform/model`，不得用一个 key 的通过替代全部分组。
 
 ## release 之后 main 是否还有提交
 

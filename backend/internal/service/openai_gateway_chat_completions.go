@@ -570,7 +570,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 				continue
 			}
 			if strings.TrimSpace(payload) == "[DONE]" {
-				return missingTerminalErr()
+				return finalizeStream()
 			}
 			if processDataLine(payload) {
 				return finalizeStream()
@@ -642,7 +642,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 				continue
 			}
 			if strings.TrimSpace(payload) == "[DONE]" {
-				return missingTerminalErr()
+				return finalizeStream()
 			}
 			if processDataLine(payload) {
 				return finalizeStream()
