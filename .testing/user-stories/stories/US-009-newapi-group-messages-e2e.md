@@ -38,13 +38,13 @@ Sanitize predicate (this PR, unit, behavioral):
 - `backend/internal/service/openai_messages_dispatch_tk_newapi_test.go`::`TestUS009_Sanitize_OpenAIGroup_Preserves`
 - 运行命令: `cd backend && go test -tags=unit -v -run 'TestUS009_' ./internal/service/`
 
-HTTP+PG end-to-end (follow-up PR, see `docs/preflight-debt.md` §4):
+HTTP+PG end-to-end (follow-up PR; tracked by this story remaining Draft until covered):
 
 - `backend/internal/handler/openai_messages_tk_newapi_integration_test.go`::`TestUS009_HTTP_NewAPIGroup_Messages_E2E` *(planned)*
 
 ## Evidence
 
-- `.testing/user-stories/attachments/us-newapi-unit-run-2026-04-19.txt`
+- CI/preflight 中对应 unit test 输出
 
 ## Status
 

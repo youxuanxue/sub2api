@@ -16,7 +16,7 @@ import (
 // Covers the AC subset of US-008/US-011/US-012/US-015 that can be exercised at
 // the scheduler boundary without standing up PostgreSQL — the truly end-to-end
 // HTTP+PG+upstream cases (US-008/US-009/US-010 e2e) are the testcontainer
-// follow-up tracked in docs/preflight-debt.md.
+// follow-up remains tracked by the Draft US-008/009/010 stories.
 
 // stubSchedulerGroupRepo is the minimal GroupRepository stub the
 // SchedulerSnapshotService.GetGroupByID path needs. It returns Group rows

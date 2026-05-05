@@ -67,7 +67,7 @@ cd frontend && pnpm vitest run src/composables/__tests__/useOnboardingTour.tk.sp
 
 ## Evidence
 
-- 完成事实归档：后端 7 个 unit test（handler 4 + service 3）+ 前端 7 个 composable test（auto-launch gate 5 + markAsSeen 2）全绿。
+- 完成事实：后端 7 个 unit test（handler 4 + service 3）+ 前端 7 个 composable test（auto-launch gate 5 + markAsSeen 2）全绿；以 Linked Tests 命令和 CI/preflight 输出为准。
 - DB 迁移 evidence：`backend/migrations/tk_005_add_users_onboarding_tour_seen_at.sql` 在 fresh schema 与 existing schema 上 `psql -c '\d users'` 输出新增列。
 - 前端 manual smoke：以 `role=user`、`onboarding_tour_seen_at=null` 用户登录 dashboard，driver.js popover 自动出现并完整走完 6 步 user steps；refresh dashboard 不再触发；`localStorage.removeItem(...)` 不会让它再触发（因为服务端字段是源真相）。
 

@@ -21,8 +21,8 @@ Doing prefix resolution properly requires either:
   2. A runtime route dump from `gin.Engine.Routes()` after wiring the
      real handlers — needs Wire DI + stubs for every dependency.
 
-Both are larger tasks than this PR is scoped for, and are tracked in
-`docs/preflight-debt.md` (M7 follow-up: Go AST or runtime route dump).
+Both are larger tasks than this script is scoped for; if route churn makes
+the soft count warning noisy, implement a Go AST walker or runtime route dump.
 
 # What this script DOES enforce today
 
@@ -147,7 +147,7 @@ def main() -> int:
         sys.stderr.write(
             f"WARN: doc/source route-count drift = {delta_pct:.1f}% "
             f"(>{COUNT_TOLERANCE*100:.0f}% tolerance). The Go-AST or runtime "
-            f"route-dump generator (see docs/preflight-debt.md M7 follow-up) "
+            f"route-dump generator follow-up "
             f"would resolve this — for now, audit by hand if you added or "
             f"removed routes.\n"
         )

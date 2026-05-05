@@ -77,8 +77,8 @@ go test -tags=unit -count=1 -v \
 
 ## Evidence
 
-- 完成事实归档：13 个 unit test 全部跑过（见 `attachments/`），覆盖默认值 / setting 关闭 / 余额=0 / admin 改值即时生效 / 负值 clamp / nil settingService / noise log suppression / admin settings 契约 snapshot。
-- OAuth 分支端到端 trace 留作 follow-up evidence，在专用 OAuth 集成测试着陆时归档到 `attachments/us029-oauth-bonus-paths.txt`。
+- 完成事实：13 个 unit test 覆盖默认值 / setting 关闭 / 余额=0 / admin 改值即时生效 / 负值 clamp / nil settingService / noise log suppression / admin settings 契约 snapshot；以 Linked Tests 命令和 CI/preflight 输出为准。
+- OAuth 分支端到端 trace 留作 follow-up；专用 OAuth 集成测试着陆后以测试断言和 CI 输出为准。
 
 ## Status
 

@@ -35,13 +35,13 @@ Scheduler-tier (this PR, unit, mocked snapshot/cache/group repo):
 - `backend/internal/service/openai_account_scheduler_tk_newapi_test.go`::`TestUS008_OpenAIGroup_SchedulerSelect_Unchanged`
 - 运行命令: `cd backend && go test -tags=unit -v -run 'TestUS008_' ./internal/service/`
 
-HTTP+PG end-to-end (follow-up PR `feature/newapi-fifth-platform-e2e`, see `docs/preflight-debt.md` §4):
+HTTP+PG end-to-end (follow-up PR `feature/newapi-fifth-platform-e2e`; tracked by this story remaining Draft until covered):
 
 - `backend/internal/handler/openai_chat_completions_tk_newapi_integration_test.go`::`TestUS008_HTTP_NewAPIGroup_ChatCompletions_E2E` *(planned)*
 
 ## Evidence
 
-- `.testing/user-stories/attachments/us-newapi-unit-run-2026-04-19.txt`
+- CI/preflight 中对应 unit test 输出
 
 ## Status
 

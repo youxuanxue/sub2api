@@ -46,7 +46,7 @@ strictly additive for openai groups):
 
 ## Evidence
 
-- `.testing/user-stories/attachments/us-newapi-unit-run-2026-04-19.txt`
+- CI/preflight 中对应 unit test 输出
 
 ## Status
 

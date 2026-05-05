@@ -40,7 +40,7 @@
 
 ## Evidence
 
-- `.testing/user-stories/attachments/us-021-moonshot-resolve-save-go-test-2026-04-22.txt`（待补）
+- CI/preflight 中对应 Go test 输出
 
 ## Status
 

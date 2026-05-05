@@ -116,7 +116,7 @@ Moonshot 默认域且 API key 非空且 platform=newapi"四道短路条件，命
 - **PR2 — 项目级机械约束（A）**：preflight §9 扩展、sentinel 文件清单、
 upstream 合并 PR-shape 加门。本 PR 合并后独立开。
 - **US-008/009/010 完整 e2e（HTTP + PG testcontainer）**：仍然是 0.5-1 day
-的工作量，由 `docs/preflight-debt.md` 的 D-003 跟踪，截止 2026-05-03。
+的工作量，由 US-008/009/010 继续保持 Draft 状态承接；完成对应 HTTP+PG e2e 后再升 InTest。
 - **批量改 `channel_type` 守卫**：`BulkEditAccountModal` 对 newapi
 channel_type 的批量切换是破坏性操作，需独立 UX review。
 - **品牌名 i18n 化**：5 个平台标签都还是英文硬编码，等项目 i18n 统一

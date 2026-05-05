@@ -61,7 +61,7 @@ go test -tags=unit -count=1 -v -run 'TestPricingCatalogService_' ./internal/serv
 
 ## Evidence
 
-- 待 PR 1 实现完成后归档到 `.testing/user-stories/attachments/us028-pricing-response-snapshot.json`（含一次真实请求/响应对照，证明字段集合）。
+- 不再归档响应快照；以 pricing endpoint 测试和 CI/preflight 输出为准。
 
 ## Status
 

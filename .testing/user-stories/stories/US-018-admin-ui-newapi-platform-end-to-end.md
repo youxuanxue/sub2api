@@ -66,7 +66,7 @@ Stage-4 review surfaces a regression.
 
 ## Evidence
 
-- `.testing/user-stories/attachments/us-018-admin-ui-newapi-vitest-2026-04-20.txt`（待 stage 4 测试运行后归档）
+- CI/preflight 中对应 frontend test 输出
 
 ## Status
 
