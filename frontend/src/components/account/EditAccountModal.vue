@@ -100,9 +100,8 @@
 
         <!--
           Model Restriction Section (不适用于 Antigravity).
-          D2 (docs/accounts/newapi-add-account-ui-gap-analysis.md): also exclude `newapi`,
-          whose models live inside AccountNewApiPlatformFields above. Without this, the
-          generic block would render a duplicate whitelist/mapping toggle below the
+          Also exclude `newapi`, whose models live inside AccountNewApiPlatformFields above.
+          Without this, the generic block would render a duplicate whitelist/mapping toggle below the
           NewAPI fields, both targeting credentials.model_mapping.
         -->
         <div v-if="account.platform !== 'antigravity' && account.platform !== 'newapi'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
@@ -2233,9 +2232,8 @@ interface TempUnschedRuleForm {
 const submitting = ref(false)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
-// 第五平台 newapi：表单状态 + 副作用统一收口在 composable
-// （docs/accounts/newapi-add-account-ui-gap-analysis.md）。EditModal 多传一个
-// storedAccount，让「获取模型列表」在用户没重新输入 api_key 时走 stored
+// 第五平台 newapi：表单状态 + 副作用统一收口在 composable。
+// EditModal 多传一个 storedAccount，让「获取模型列表」在用户没重新输入 api_key 时走 stored
 // credential 路径——与上游 new-api 的 channel 编辑体验一致。
 const {
   channelType: newapiChannelType,

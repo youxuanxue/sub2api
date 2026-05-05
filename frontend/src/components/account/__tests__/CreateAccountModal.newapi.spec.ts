@@ -1,5 +1,5 @@
 // Integration tests for CreateAccountModal's NewAPI (5th platform) path.
-// Covers D1 + D2 from docs/accounts/newapi-add-account-ui-gap-analysis.md:
+// Covers the NewAPI account category and duplicate generic API-key field regressions:
 //   AC-D1 — fresh open → click NewAPI immediately → accountCategory auto-flips
 //           to 'apikey' so form.type becomes 'apikey' (matches the submit-side
 //           hard-coded type:'apikey' for newapi). Without this, the model

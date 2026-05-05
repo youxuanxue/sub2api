@@ -11,8 +11,7 @@ import { unknownToErrorMessage } from '@/utils/authError'
 // 状态 + 副作用都收口在本 composable，让 CreateAccountModal / EditAccountModal
 // 只剩「调用 + 透传 v-model」。
 //
-// 见 docs/accounts/newapi-add-account-ui-gap-analysis.md 与
-// CLAUDE.md §5.x 「最小侵入 + composable 收口」。
+// 见 CLAUDE.md §5.x 「最小侵入 + composable 收口」。
 
 export interface UseTkAccountNewApiPlatformOptions {
   /**

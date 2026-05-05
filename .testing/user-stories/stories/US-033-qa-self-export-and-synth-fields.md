@@ -20,7 +20,7 @@
   - 行为回归：`Service.ExportUserData` 在 origin/main 上没有任何调用方
     （只是写好但未挂路由的死代码），所以本 PR 直接把它改成
     `ExportUserData(ctx, userID, ExportFilter)`，没有"老签名"需要兼容；
-    `ops_xx.md §2 "100% QA Capture"` 中 capture 侧的写入字段不能减；
+    `ops-unified-contract.md §2 "100% QA Capture"` 中 capture 侧的写入字段不能减；
     新增字段全部 nullable / 有默认 → 老在线流量不受影响
   - 安全问题：下载代理路径必须拒绝跨用户 key 与 `..`/反斜杠逃逸；
     导出查询越权访问通过服务层 `qarecord.UserIDEQ(subject.UserID)` 兜底；
@@ -58,7 +58,7 @@
 
 6. **AC-006 (回归)**：Given 在线流量从未发送 `X-Synth-*` 头，When 写入 qa_records，
    Then 4 个新字段保持 NULL / false 默认值，对原有 `request_id`/`user_id`/
-   `api_key_id`/`upstream_model` 等字段编码无任何影响（与 `ops_xx.md §2` 兼容
+   `api_key_id`/`upstream_model` 等字段编码无任何影响（与 `ops-unified-contract.md §2` 兼容
    性规则一致："API changes must not break existing online callers"）。
 
 7. **AC-007 (单一入口)**：Given 没有现存调用方，When 用 `ExportFilter{Since, Until}`
