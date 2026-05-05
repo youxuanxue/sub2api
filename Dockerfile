@@ -6,21 +6,9 @@
 # Stage 3: Final minimal image
 # =============================================================================
 #
-# Build context MUST be the parent directory of this repo — the folder that
-# contains BOTH:
-#   sub2api/     (this application)
-#   new-api/     (github.com/QuantumNous/new-api; matches backend/go.mod replace)
-#
-# Example:
-#   tk/
-#     sub2api/    ← you are here (this Dockerfile)
-#     new-api/
-#
-#   cd tk
-#   docker build -f sub2api/Dockerfile -t sub2api:local .
-#
-# From sub2api/deploy:
-#   docker compose -f docker-compose.dev.yml build
+# Build context: run this Dockerfile from the parent directory that contains both
+# `sub2api/` and sibling `new-api/`, so backend/go.mod `replace ../../new-api`
+# resolves inside the image build. Deployment/runbook details live in deploy/.
 # =============================================================================
 
 ARG NODE_IMAGE=node:24-alpine
