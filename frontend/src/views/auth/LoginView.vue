@@ -104,21 +104,10 @@
           </div>
         </div>
 
-        <!-- Turnstile Widget -->
-        <div v-if="turnstileEnabled && turnstileSiteKey">
-          <TurnstileWidget
-            ref="turnstileRef"
-            :site-key="turnstileSiteKey"
-            @verify="onTurnstileVerify"
-            @expire="onTurnstileExpire"
-            @error="onTurnstileError"
-          />
-        </div>
-
         <!-- Submit Button -->
         <button
           type="submit"
-          :disabled="isLoading || (turnstileEnabled && !turnstileToken)"
+          :disabled="isLoading"
           class="btn btn-primary w-full"
         >
           <svg
@@ -182,7 +171,6 @@ import OidcOAuthSection from '@/components/auth/OidcOAuthSection.vue'
 import WechatOAuthSection from '@/components/auth/WechatOAuthSection.vue'
 import TotpLoginModal from '@/components/auth/TotpLoginModal.vue'
 import Icon from '@/components/icons/Icon.vue'
-import TurnstileWidget from '@/components/TurnstileWidget.vue'
 import { useAuthStore, useAppStore } from '@/stores'
 import { getPublicSettings, isTotp2FARequired, isWeChatWebOAuthEnabled } from '@/api/auth'
 import type { TotpLoginResponse } from '@/types'
@@ -204,18 +192,12 @@ const errorMessage = ref<string>('')
 const showPassword = ref<boolean>(false)
 
 // Public settings
-const turnstileEnabled = ref<boolean>(false)
-const turnstileSiteKey = ref<string>('')
 const linuxdoOAuthEnabled = ref<boolean>(false)
 const wechatOAuthEnabled = ref<boolean>(false)
 const backendModeEnabled = ref<boolean>(false)
 const oidcOAuthEnabled = ref<boolean>(false)
 const oidcOAuthProviderName = ref<string>('OIDC')
 const passwordResetEnabled = ref<boolean>(false)
-
-// Turnstile
-const turnstileRef = ref<InstanceType<typeof TurnstileWidget> | null>(null)
-const turnstileToken = ref<string>('')
 
 // 2FA state
 const show2FAModal = ref<boolean>(false)
@@ -230,13 +212,10 @@ const formData = reactive({
 
 const errors = reactive({
   email: '',
-  password: '',
-  turnstile: ''
+  password: ''
 })
 
-const validationToastMessage = computed(
-  () => errors.email || errors.password || errors.turnstile || ''
-)
+const validationToastMessage = computed(() => errors.email || errors.password || '')
 
 watch(validationToastMessage, (value, previousValue) => {
   if (value && value !== previousValue) {
@@ -257,8 +236,6 @@ onMounted(async () => {
 
   try {
     const settings = await getPublicSettings()
-    turnstileEnabled.value = settings.turnstile_enabled
-    turnstileSiteKey.value = settings.turnstile_site_key || ''
     linuxdoOAuthEnabled.value = settings.linuxdo_oauth_enabled
     wechatOAuthEnabled.value = isWeChatWebOAuthEnabled(settings)
     backendModeEnabled.value = !!settings.backend_mode_enabled
@@ -270,30 +247,12 @@ onMounted(async () => {
   }
 })
 
-// ==================== Turnstile Handlers ====================
-
-function onTurnstileVerify(token: string): void {
-  turnstileToken.value = token
-  errors.turnstile = ''
-}
-
-function onTurnstileExpire(): void {
-  turnstileToken.value = ''
-  errors.turnstile = t('auth.turnstileExpired')
-}
-
-function onTurnstileError(): void {
-  turnstileToken.value = ''
-  errors.turnstile = t('auth.turnstileFailed')
-}
-
 // ==================== Validation ====================
 
 function validateForm(): boolean {
   // Reset errors
   errors.email = ''
   errors.password = ''
-  errors.turnstile = ''
 
   let isValid = true
 
@@ -312,12 +271,6 @@ function validateForm(): boolean {
     isValid = false
   } else if (formData.password.length < 6) {
     errors.password = t('auth.passwordMinLength')
-    isValid = false
-  }
-
-  // Turnstile validation
-  if (turnstileEnabled.value && !turnstileToken.value) {
-    errors.turnstile = t('auth.completeVerification')
     isValid = false
   }
 
@@ -341,8 +294,7 @@ async function handleLogin(): Promise<void> {
     // Call auth store login
     const response = await authStore.login({
       email: formData.email,
-      password: formData.password,
-      turnstile_token: turnstileEnabled.value ? turnstileToken.value : undefined
+      password: formData.password
     })
 
     // Check if 2FA is required
@@ -363,20 +315,8 @@ async function handleLogin(): Promise<void> {
     const redirectTo = (router.currentRoute.value.query.redirect as string) || '/dashboard'
     await router.push(redirectTo)
   } catch (error: unknown) {
-    // Reset Turnstile on error
-    if (turnstileRef.value) {
-      turnstileRef.value.reset()
-      turnstileToken.value = ''
-    }
-
-    // 后端 reason=TURNSTILE_VERIFICATION_FAILED 的真实根因绝大多数是 stale browser
-    // tab：widget 在页面里活了太久，challenge 实例已被 Cloudflare 滚动掉，下一次
-    // 提交的 token 就被 invalid-input-response。直接给出自救建议，比通用文案省事。
     errorMessage.value = buildAuthErrorMessage(error, {
-      fallback: t('auth.loginFailed'),
-      reasonOverrides: {
-        TURNSTILE_VERIFICATION_FAILED: t('auth.turnstileFailedRefresh')
-      }
+      fallback: t('auth.loginFailed')
     })
 
     appStore.showError(errorMessage.value)
