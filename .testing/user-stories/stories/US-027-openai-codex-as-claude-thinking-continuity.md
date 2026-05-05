@@ -80,7 +80,7 @@ cd backend && go test -tags=unit -count=1 ./internal/pkg/apicompat/... ./interna
   - `go test -tags=unit -count=1 ./internal/pkg/apicompat/... ./internal/service/...` → `ok ... 0.526s` + `ok ... 80.163s`，全部 PASS。
   - `TestStreamingEmptyResponse` / `TestStreamingFailedNoOutput` 旧断言（2 事件序列）已同步更新为 4 事件序列并标注 US-027 schema firewall 注释，避免未来误把 4→2 当成 bug 修回去。
 - Claude Code 客户端联动：CC #24662 issue 描述与本故事的 prod 现象同构（empty content block → session JSONL corruption → 必须 `--resume` 重开）；本护栏即使在 Part B 漏网时也能避免客户端崩溃。
-- Prod 部署证据：**待补**（PR 合并 + tag 发布后回填 image SHA + click-test 截图）。
+- Prod 部署证据以后续 release/deploy smoke 输出为准，不在 story 中回填截图或运行日志。
 
 ## Status
 

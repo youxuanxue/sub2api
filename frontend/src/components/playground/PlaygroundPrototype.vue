@@ -1,8 +1,6 @@
 <!--
   PlaygroundPrototype.vue — US-032 P1-B prototype A 件 (no router/sidebar wiring).
   Spec: docs/approved/user-cold-start.md §11; .testing/user-stories/stories/US-032-playground-prototype-AB.md.
-  Sibling B 件 = docs/approved/attachments/playground-prototype-2026-04-23.html
-  (canonical source for the 5 design decisions in its <aside class="design-block">).
 -->
 <script setup lang="ts">
 import { computed } from 'vue'
@@ -20,9 +18,6 @@ const isTyping = computed(() => props.state === 'typing')
 const isResponded = computed(() => props.state === 'responded')
 const isError = computed(() => props.state === 'error')
 
-// Hard-coded fixtures kept identical to the static HTML mockup. Any change
-// here MUST be mirrored in docs/approved/attachments/playground-prototype-2026-04-23.html
-// and the parity table (US-032 AC-004).
 const FIXTURE = {
   groupName: 'claude-pool-default',
   modelId: 'claude-sonnet-4.5',

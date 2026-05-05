@@ -79,7 +79,7 @@ Parameters:
       Caddy state, and bootstrap secrets across instance replacement
       (DeletionPolicy: Retain + UpdateReplacePolicy: Retain). When the EC2
       instance is replaced (e.g. by an ImageTag CFN change — see issue #8 +
-      preflight-debt §9.b), this volume detaches and re-attaches to the new
+      persistent data volume hardening), this volume detaches and re-attaches to the new
       instance with all data intact, instead of being thrown away with the
       old root EBS. Default 30 GiB matches the prior root-EBS data layout.
   AmazonLinux2023Arm64Ami:
@@ -387,7 +387,7 @@ Resources:
           chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
           usermod -aG docker ec2-user
 
-          # --- 2a. attach + mount persistent data volume (preflight-debt §9.b) -
+          # --- 2a. attach + mount persistent data volume (persistent data volume hardening) -
           # Attach is done here instead of AWS::EC2::VolumeAttachment. During
           # instance replacement CloudFormation creates the new instance before
           # deleting the old attachment; a separate VolumeAttachment resource
@@ -512,7 +512,7 @@ Resources:
           chmod +x /usr/local/bin/tokenkey-qa-stale-cleanup.sh
 
           # --- 4. secrets + .env (split: persistent vs per-boot) ----------------
-          # Two-file strategy (preflight-debt §9.b / issue #8):
+          # Two-file strategy (persistent data volume hardening / issue #8):
           #
           #   /var/lib/tokenkey/.env.secret  → POSTGRES_PASSWORD, JWT_SECRET,
           #                                    TOTP_ENCRYPTION_KEY. Generated
@@ -780,7 +780,7 @@ Resources:
           echo "BOOTSTRAP_DONE $(date -u +%FT%TZ)" >> /var/log/tokenkey-bootstrap.log
 
   # ---------------------------------------------------------------------------
-  # Persistent data volume (preflight-debt §9.b / issue #8)
+  # Persistent data volume (persistent data volume hardening / issue #8)
   # ---------------------------------------------------------------------------
   # DeletionPolicy: Retain   — preserved if the stack is deleted (manual cleanup)
   # UpdateReplacePolicy: Retain — preserved if a property change forces volume
@@ -884,7 +884,7 @@ Outputs:
     Description: |
       Persistent EBS data volume (DeletionPolicy: Retain). Snapshot this for
       backup, and reference it when migrating an existing root-volume stack to
-      the new layout (preflight-debt §9.b runbook).
+      the new layout (persistent data volume hardening runbook).
     Value: !Ref DataVolume
   ApiUrl:
     Description: After DNS A-record propagation + LE issuance

@@ -335,11 +335,11 @@ go test -tags=integration -run 'TestUS00[89]_|TestUS01[0-5]_' ./backend/internal
 - [x] §3.1 全部 upstream 注入点完成且每处 ≤ 5 行 — 4 文件，diff ≈ +98/-46 in upstream-shaped files (commit `6e0c0fce`)
 - [x] §3.2 全部 companion 文件 + 单元测试 — `account_tk_compat_pool.go`、`openai_gateway_service_tk_newapi_pool.go`、`openai_messages_dispatch_tk_newapi.go` + 三个 `*_test.go`（commits `0211c2b7`, `6e0c0fce`）
 - [x] US-011..US-015 从 Draft → InTest（5 个故事的核心 AC 由 mock 单测真断言）
-- [ ] **US-008/009/010 仍是 Draft（acknowledged gap）**：3 个端到端故事的核心 AC 是「真 HTTP→Auth→bridge→newapi upstream 走通」，本 PR 未交付任何 e2e 测试。按 `test-philosophy.mdc §6`「阅读代码 ≠ 验证」纪律，故事 status 不能升 InTest。详细诚实承认见 `docs/preflight-debt.md` §4，3 个 story 文件各自 "Honest status note" 段
+- [ ] **US-008/009/010 仍是 Draft（acknowledged gap）**：3 个端到端故事的核心 AC 是「真 HTTP→Auth→bridge→newapi upstream 走通」，本 PR 未交付任何 e2e 测试。按 `test-philosophy.mdc §6`「阅读代码 ≠ 验证」纪律，故事 status 不能升 InTest。详细诚实承认保留在 US-008/009/010 story 的 "Honest status note" 段
 - [x] §5.1 preflight 段（newapi compat-pool drift，sub2api-specific）加入 `scripts/preflight.sh § 9` 并行为验证可 fail（commit `4441b642`，merge PR #11 后 wrapper 重构为 `dev-rules/templates/preflight.sh § 1-8 + § 9 sub2api`）
-- [ ] §5.2 集成测试 testcontainer 化 — **acknowledged gap，延期到 follow-up PR `feature/newapi-fifth-platform-e2e`**（见 `docs/preflight-debt.md` §4 重写后的诚实理由，2026-05-03 截止）；当下 34 个 mock 单测**仅**覆盖 US-011~015 的核心 AC（分布见 §11.2），US-008/009/010 的端到端 AC **未覆盖**
-- [x] §5.3 `scripts/export_agent_contract.py --check` 由 `dev-rules/templates/preflight.sh § 4 (agent contract drift)` 自动接入，本 PR 仅 audit 模式（routes/*.go ↔ doc 计数 + Notes 段平台覆盖），完整 prefix-resolving generator 见 preflight-debt §3（commit `ab39ddbb`）
-- [x] `go test -tags=unit ./internal/service/...` 全绿 — 82.8s（M5a 验证日志：`.testing/user-stories/attachments/us-newapi-unit-run-2026-04-19.txt`）
+- [ ] §5.2 集成测试 testcontainer 化 — **acknowledged gap，延期到 follow-up PR `feature/newapi-fifth-platform-e2e`**（由 US-008/009/010 Draft 状态继续承接）；当下 34 个 mock 单测**仅**覆盖 US-011~015 的核心 AC（分布见 §11.2），US-008/009/010 的端到端 AC **未覆盖**
+- [x] §5.3 `scripts/export_agent_contract.py --check` 由 `dev-rules/templates/preflight.sh § 4 (agent contract drift)` 自动接入，本 PR 仅 audit 模式（routes/*.go ↔ doc 计数 + Notes 段平台覆盖），完整 prefix-resolving generator 后续仅在 route churn 让软告警失真时再做（commit `ab39ddbb`）
+- [x] `go test -tags=unit ./internal/service/...` 全绿 — 82.8s（M5a 当时验证；后续以 CI/preflight 输出为准）
 - [x] CLAUDE.md "Current Gateway Flow" 段补 newapi 调度池语义（M8，commit `90d5d90c`）
 
 ## 10. 设计前后对比
@@ -362,10 +362,10 @@ PR：[`feature/newapi-fifth-platform → main`](https://github.com/youxuanxue/su
 | M3 companion (part 1) | `0211c2b7` | `account_tk_compat_pool.go` + `account_tk_compat_pool_test.go` + `openai_messages_dispatch_tk_newapi.go` |
 | US 编号对齐 | `c5130c29` | design doc §4.1 / §4.2 / §5.2 用全局 ID（US-008..015）替换设计期 alias `US-NEWAPI-001..008` |
 | M3-补 + M4 | `6e0c0fce` | §3.1 upstream U1-U7 注入点（`scheduler.go` + `gateway_service.go` + `messages_dispatch.go` + `ws_forwarder.go`，4 文件 +98/-46）+ companion `openai_gateway_service_tk_newapi_pool.go` + 漏补的 `openai_messages_dispatch_tk_newapi_test.go` |
-| M5a | `bf784cab` | scheduler-tier 行为单测 8 case（`openai_account_scheduler_tk_newapi_test.go`）+ gateway-tier sticky 单测 5 case（`openai_gateway_service_tk_newapi_pool_test.go`）+ 8 故事 status → InTest + Linked Tests 回填 + evidence 归档 + preflight-debt §4 记录 M5b 延期 |
+| M5a | `bf784cab` | scheduler-tier 行为单测 8 case（`openai_account_scheduler_tk_newapi_test.go`）+ gateway-tier sticky 单测 5 case（`openai_gateway_service_tk_newapi_pool_test.go`）+ 8 故事 status → InTest + Linked Tests 回填 + Linked Tests 回填 + story Draft 状态记录 M5b 延期 |
 | M6 | `4441b642` | `scripts/preflight.sh § 2` 段（两条 drift check：直接 `PlatformOpenAI` bucket / 裸 `!account.IsOpenAI()`），POSIX grep + 行为验证可 fail（merge PR #11 后由 `scripts/preflight.sh § 9` 承担，语义不变） |
-| M7 | `ab39ddbb` | `scripts/export_agent_contract.py`（audit 模式）+ 项目级 `preflight § 3` 接入 + `docs/agent_integration.md` Notes 段 5 平台 + newapi 三入口契约 + preflight-debt §3 更新（merge PR #11 后由 `dev-rules/templates/preflight.sh § 4 (agent contract drift)` 自动调用，无需项目级段） |
-| M8 | `90d5d90c` | CLAUDE.md "Current Gateway Flow" 补 newapi 调度池语义 + design doc §9 验收清单勾选 + frontmatter shipped + §11 实施情况 + preflight-debt §2 closed |
+| M7 | `ab39ddbb` | `scripts/export_agent_contract.py`（audit 模式）+ 项目级 `preflight § 3` 接入 + `docs/agent_integration.md` Notes 段 5 平台 + newapi 三入口契约 + agent contract audit 说明更新（merge PR #11 后由 `dev-rules/templates/preflight.sh § 4 (agent contract drift)` 自动调用，无需项目级段） |
+| M8 | `90d5d90c` | CLAUDE.md "Current Gateway Flow" 补 newapi 调度池语义 + design doc §9 验收清单勾选 + frontmatter shipped + §11 实施情况 + shipped 状态对齐 |
 | Merge `origin/main` (PR #11) | `d13b2646` | 接入 dev-rules submodule（删除项目级 `scripts/preflight.sh` + `scripts/check_approved_docs.py`）→ 重建 `scripts/preflight.sh` 为 wrapper（dev-rules 模板 § 1-8 + sub2api § 9）、同步对齐文档 § 编号引用、CLAUDE.md §10 描述更新为"thin wrapper" |
 
 ### 11.2 单测覆盖（34 case，覆盖 US-008..015）
@@ -404,8 +404,8 @@ PR：[`feature/newapi-fifth-platform → main`](https://github.com/youxuanxue/su
 
 | 项 | 范围 | 截止 |
 |---|---|---|
-| §5.2 e2e（HTTP+PG+upstream） | US-008/009/010 三入口端到端，testcontainer 化 | 2026-05-03（preflight-debt §4） |
-| §5.3 完整 prefix-resolving contract generator | Go AST walker 或 runtime route dump，重生成 393 routes 的完整列表 | 下次 routes 重构前（preflight-debt §3） |
+| §5.2 e2e（HTTP+PG+upstream） | US-008/009/010 三入口端到端，testcontainer 化 | 由 Draft story 状态承接 |
+| §5.3 完整 prefix-resolving contract generator | Go AST walker 或 runtime route dump，重生成 393 routes 的完整列表 | 仅在 route churn 让现有软告警失真时再做 |
 | §9 §5.2 验收勾选 | 由 e2e PR 完成时补打 | 同上 |
 
 ### 11.4 已建立的合规门禁（防止下次"shipped under pending"）
@@ -418,7 +418,7 @@ PR：[`feature/newapi-fifth-platform → main`](https://github.com/youxuanxue/su
 
 ### 11.5 本 PR 未闭环的事项（acknowledged gaps，由 follow-up 关闭）
 
-- [ ] `go test -tags=integration -run 'TestUS00[89]_HTTP_|TestUS010_HTTP_' ./internal/handler/...` 全绿 — **未做**，由 `feature/newapi-fifth-platform-e2e` 关闭（2026-05-03，见 preflight-debt §4）
+- [ ] `go test -tags=integration -run 'TestUS00[89]_HTTP_|TestUS010_HTTP_' ./internal/handler/...` 全绿 — **未做**，由 `feature/newapi-fifth-platform-e2e` 或等价 HTTP+PG e2e PR 关闭
 - [ ] US-008/009/010 status 升 InTest/Done — **未做**，与上一项同 follow-up
 - [ ] `golangci-lint run ./...` 无新问题 — 未在本 PR 验证清单中跑过；merge 前由 reviewer 触发或 CI 自动跑
 - [ ] 旧 openai group 在 prod 镜像里手测三入口仍正常 — **未做**，prod 灰度时的 SSM 操作员自测项

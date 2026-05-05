@@ -34,13 +34,13 @@ In-memory sanitize round-trip (this PR):
 - `backend/internal/service/openai_messages_dispatch_tk_newapi_test.go`::`TestUS014_OpenAIGroup_MessagesDispatchConfig_Preserved`
 - 运行命令: `cd backend && go test -tags=unit -v -run 'TestUS014_' ./internal/service/`
 
-PG persistence (follow-up PR, see `docs/preflight-debt.md` §4):
+PG persistence (follow-up PR; tracked by this story remaining Draft until covered):
 
 - `backend/internal/repository/group_repo_messages_dispatch_tk_newapi_integration_test.go`::`TestUS014_NewAPIGroup_MessagesDispatchConfig_PGRoundTrip` *(planned)*
 
 ## Evidence
 
-- `.testing/user-stories/attachments/us-newapi-unit-run-2026-04-19.txt`
+- CI/preflight 中对应 unit test 输出
 
 ## Status
 

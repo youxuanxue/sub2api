@@ -76,9 +76,9 @@ go test -tags=unit -count=1 -v \
 
 ## Evidence
 
-- 完成事实归档：11 个 unit test 全部跑过（详情见 `attachments/`），覆盖邮箱主路径 + setting 关闭 + email-conflict race 防御 + nil deps 防御 + name fallback + admin override + DI race 防御。
-- AC-007 前端 Quick Start 卡片 evidence 在 follow-up PR 中归档（含视觉 prototype + 交互测试）。
-- AC-006 真实鉴权链 e2e trace 在 `attachments/us030-trial-key-quota-trace.txt`（待集成测试套件着陆后归档）。
+- 完成事实：11 个 unit test 覆盖邮箱主路径 + setting 关闭 + email-conflict race 防御 + nil deps 防御 + name fallback + admin override + DI race 防御；以 Linked Tests 命令和 CI/preflight 输出为准。
+- AC-007 前端 Quick Start 卡片 evidence 以后续交互测试和 CI 输出为准。
+- AC-006 真实鉴权链 e2e trace 待集成测试套件着陆后由测试断言和 CI 输出承接。
 
 ## Status
 

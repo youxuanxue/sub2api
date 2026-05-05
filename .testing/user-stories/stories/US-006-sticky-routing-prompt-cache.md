@@ -53,7 +53,7 @@
 
 ## Evidence
 
-- `.testing/user-stories/attachments/us006-sticky-routing-run.txt`（实施完成后归档全量 `go test -v` 输出）
+- 不再归档运行日志；以 Linked Tests 中的可重复命令和 CI/preflight 输出为准
 
 ## Status
 

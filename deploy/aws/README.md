@@ -95,7 +95,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' "https://${DOMAIN}/health"
 
 > 2026-04-21 实测：prod 栈 CFN `ImageTag=1.2.0`，但运行态 `TOKENKEY_IMAGE` 与容器实际镜像均为 `ghcr.io/youxuanxue/sub2api:1.4.1`（SSM 原地升级后形成的受控漂移）。
 
-> **数据持久化（preflight-debt §9.b / issue #8 已修，2026-04-20）**：
+> **数据持久化（persistent data volume hardening / issue #8 已修，2026-04-20）**：
 > `stage0-single-ec2.yaml` 现在创建独立的 `AWS::EC2::Volume`（资源名 `DataVolume`，参数
 > `DataVolumeSizeGiB`，默认 30 GiB），带 `DeletionPolicy: Retain` + `UpdateReplacePolicy: Retain`，
 > 通过 `AWS::EC2::VolumeAttachment` 挂到 `/dev/sdf`，`UserData` 检测 `/dev/nvme1n1` 等候选块设备、

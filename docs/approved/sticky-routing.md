@@ -279,7 +279,7 @@ type CacheStats struct {
 
 > **实施实情（2026-04-19 事后盘点）**：本表是设计当时拟定的"理想 8-PR 切分"。
 > 代码实际以**单提交 `a68dee5b`**（2026-04-18）一次性落地（schema + injector + 6 处接入点 + 单测 + UI），未拆 PR。
-> 这违反了 `product-dev.mdc` §阶段 2 → 审批 → §阶段 3 顺序，详见 §11 实施情况与 `docs/preflight-debt.md`。
+> 这违反了 `product-dev.mdc` §阶段 2 → 审批 → §阶段 3 顺序，详见 §11 实施情况。
 > 下次同等规模特性必须按本表切分。
 
 | 顺序 | 内容 | PR 标题 | 可独立 review |
@@ -355,7 +355,7 @@ type CacheStats struct {
 
 ### 11.2 已知漂移（process debt，登记不修）
 
-1. **测试函数命名**：本文 §6、`US-006-sticky-routing-prompt-cache.md` 与 `backend/internal/service/sticky_session_*_test.go` 中的实际测试函数三方一致使用 `TestUS201_*` 前缀（共 22 个函数：`sticky_session_injector_test.go` 14 个 + `sticky_session_context_test.go` 8 个）；与故事 ID `US-006` 不匹配（前缀来源于早期"功能编号 201"的草拟阶段）。已登记到 `docs/preflight-debt.md` §1。**注**：本条 2026-04-20 修正：早期版本的描述错误声称"实际代码中为 `TestUS006_*` / `TestStickySessionInjector_*`"，与现实不符——三方一致，无 doc-vs-code 漂移，仅有"前缀 ↔ 故事 ID"的命名约定漂移。
+1. **测试函数命名**：本文 §6、`US-006-sticky-routing-prompt-cache.md` 与 `backend/internal/service/sticky_session_*_test.go` 中的实际测试函数三方一致使用 `TestUS201_*` 前缀（共 22 个函数：`sticky_session_injector_test.go` 14 个 + `sticky_session_context_test.go` 8 个）；与故事 ID `US-006` 不匹配（前缀来源于早期"功能编号 201"的草拟阶段）。作为历史命名漂移记录在本节。**注**：本条 2026-04-20 修正：早期版本的描述错误声称"实际代码中为 `TestUS006_*` / `TestStickySessionInjector_*`"，与现实不符——三方一致，无 doc-vs-code 漂移，仅有"前缀 ↔ 故事 ID"的命名约定漂移。
 2. **migration 编号**：本文未指定。实际为 `tk_002_add_groups_sticky_routing_mode.sql`（TK 私有命名空间，不与上游 `0XX_*.sql` 冲突，符合 §5 fork 隔离）。
 3. **PR 切分背离**：§7 拟定 8-PR 顺序，实际单提交 `a68dee5b` 落地。代价：发版回滚粒度变粗。
 4. **审批门禁缺位**：本文 status=pending 状态下代码 merge，违反 `product-dev.mdc` §阶段 2→审批→§阶段 3 顺序。
@@ -363,7 +363,7 @@ type CacheStats struct {
 ### 11.3 后续不做（聚焦 / Jobs 原则）
 
 - **不补回 8-PR 拆分**：代码已上线、回滚链路验证过，补拆纯增 churn。
-- **不重命名 `TestUS201_*` → `TestUS006_*`**：rename ~10 函数 + 跑全套测试，与"消除真实风险"的 ROI 不匹配；登记在 `docs/preflight-debt.md` 即可，新增测试遵循 US-006 命名。
+- **不重命名 `TestUS201_*` → `TestUS006_*`**：rename ~10 函数 + 跑全套测试，与"消除真实风险"的 ROI 不匹配；保留在本节说明即可，新增测试遵循 US-006 命名。
 
 ### 11.4 已落地的 OPC 机械门禁（防再发）
 
@@ -375,5 +375,4 @@ type CacheStats struct {
   - R3/R4: `status: approved` 或 `shipped` 但 `related_prs` 与 `related_commits` 都为空 → **失败**
   - R5: main/master 分支上禁止 `approved_by: pending`（其他分支允许）
 - **执行链**：`dev-rules/templates/preflight.sh § 7` 调用上述脚本；`scripts/preflight.sh`（项目 wrapper）→ dev-rules 模板 → § 7；`pre-commit` hook 与 CI（`.github/workflows/backend-ci.yml` `preflight` job）同步运行。
-- **演进路径**：本机制 2026-04-19 由 sub2api 项目级实现上提到 dev-rules submodule，详见 `docs/preflight-debt.md` 历史事件「2026-04-19: 接入 dev-rules submodule」。
-- 历史事件登记：`docs/preflight-debt.md`。
+- **演进路径**：本机制 2026-04-19 由 sub2api 项目级实现上提到 dev-rules submodule。

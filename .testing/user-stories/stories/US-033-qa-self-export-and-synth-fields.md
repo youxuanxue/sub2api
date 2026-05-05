@@ -135,7 +135,7 @@
 
 ## Evidence
 
-- `.testing/user-stories/attachments/us033-test-output.txt`（待 PR CI 落产物）
+- CI/preflight 中对应 QA export 测试输出
 
 ## Status
 
