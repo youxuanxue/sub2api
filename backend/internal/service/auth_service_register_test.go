@@ -216,6 +216,30 @@ func newAuthService(repo *userRepoStub, settings map[string]string, emailCache E
 	)
 }
 
+func TestAuthService_Login_DoesNotRequireTurnstileToken(t *testing.T) {
+	repo := &userRepoStub{}
+	service := newAuthService(repo, map[string]string{
+		SettingKeyTurnstileEnabled:   "true",
+		SettingKeyTurnstileSecretKey: "secret",
+	}, nil)
+
+	passwordHash, err := service.HashPassword("password123")
+	require.NoError(t, err)
+	repo.user = &User{
+		ID:           10,
+		Email:        "user@example.com",
+		PasswordHash: passwordHash,
+		Role:         RoleUser,
+		Status:       StatusActive,
+		TokenVersion: 1,
+	}
+
+	token, user, err := service.Login(context.Background(), "user@example.com", "password123")
+	require.NoError(t, err)
+	require.NotEmpty(t, token)
+	require.Equal(t, int64(10), user.ID)
+}
+
 func TestAuthService_Register_Disabled(t *testing.T) {
 	repo := &userRepoStub{}
 	service := newAuthService(repo, map[string]string{
