@@ -161,4 +161,22 @@ func TestIsMigrationChecksumCompatible(t *testing.T) {
 		)
 		require.False(t, ok)
 	})
+
+	t.Run("tk_006生产已应用checksum与注释更新后可兼容", func(t *testing.T) {
+		ok := isMigrationChecksumCompatible(
+			"tk_006_add_qa_records_synth_fields.sql",
+			"913563b6ed60214ea05e3d2ee2f50aeddfb015b2ade7669a62d602630b0c1a50",
+			"06fed3407eaa878b73f7fd0d5bd00be5c9852eb58a0c7682b49a03d36be3391e",
+		)
+		require.True(t, ok)
+	})
+
+	t.Run("tk_006反向配对也可兼容", func(t *testing.T) {
+		ok := isMigrationChecksumCompatible(
+			"tk_006_add_qa_records_synth_fields.sql",
+			"06fed3407eaa878b73f7fd0d5bd00be5c9852eb58a0c7682b49a03d36be3391e",
+			"913563b6ed60214ea05e3d2ee2f50aeddfb015b2ade7669a62d602630b0c1a50",
+		)
+		require.True(t, ok)
+	})
 }
