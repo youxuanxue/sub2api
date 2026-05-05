@@ -420,7 +420,8 @@ sudo systemctl list-timers tokenkey-pgdump.timer
 sudo systemctl list-timers tokenkey-disk-metrics.timer   # → CloudWatch tokenkey/EC2 DataVolumeUsedPercent
 sudo systemctl list-timers tokenkey-qa-stale-cleanup.timer
 ls -lh /var/lib/tokenkey/pgdump/ 2>/dev/null || echo '(no dumps yet — first dump runs ~1h after boot)'
-# hourly pg_dump 默认保留 36 份；卷使用率告警见 CFN DataVolumeDiskAlarm / 主文档 §3.8
+# hourly pg_dump 默认保留 24 小时（约 24 份）；卷使用率告警见 CFN DataVolumeDiskAlarm / 主文档 §3.8
+# 旧版手工/迁移快照 `pre-*.dump` 属存量文件；确认不需回滚后可删除，新模板的 pgdump timer 也会清理。
 # QA：`QaStaleRetentionDays`（默认 1.5 天）每日清理旧 qa_records + qa_blobs/qa_dlq；与 scripts/prod-qa-export-and-purge.sh 范围对齐，0=关闭
 sudo cat /var/lib/tokenkey/.env                           # 含明文密码，慎查
 ```

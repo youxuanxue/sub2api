@@ -1,0 +1,273 @@
+name: PR Repair Agent
+
+# Claude Code CLI repair loop for TokenKey PRs. Normal PRs are repaired against
+# CLAUDE.md and the failed logs; merge/upstream-* PRs additionally load the
+# upstream merge skill SOP because they require a real --no-ff merge commit and
+# stricter merge-hygiene constraints.
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+      - Upstream Merge PR Shape
+      - Security Scan
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Open PR number to repair
+        required: true
+        type: string
+      failed_run_id:
+        description: Optional failed run id whose logs should be included
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: read
+
+concurrency:
+  group: pr-repair-${{ github.event.workflow_run.pull_requests[0].number || inputs.pr_number || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'timed_out' || github.event.workflow_run.conclusion == 'cancelled')
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check required secrets
+        env:
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          UPSTREAM_MERGE_GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+        run: |
+          missing=0
+          if [ -z "${ANTHROPIC_AUTH_TOKEN:-}" ]; then
+            echo "::error::Missing required secret ANTHROPIC_AUTH_TOKEN for Claude Code CLI."
+            missing=1
+          fi
+          if [ -z "${UPSTREAM_MERGE_GH_TOKEN:-}" ]; then
+            echo "::error::Missing required secret UPSTREAM_MERGE_GH_TOKEN for branch updates and PR comments."
+            missing=1
+          fi
+          exit "$missing"
+
+      - name: Resolve target PR
+        id: target
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+          MANUAL_PR: ${{ inputs.pr_number }}
+          MANUAL_RUN_ID: ${{ inputs.failed_run_id }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            PR_NUMBER="$MANUAL_PR"
+            FAILED_RUN_ID="${MANUAL_RUN_ID:-}"
+            WORKFLOW_NAME="manual-dispatch"
+            RUN_URL=""
+          else
+            PR_NUMBER="$(jq -r '.workflow_run.pull_requests[0].number // empty' "$GITHUB_EVENT_PATH")"
+            FAILED_RUN_ID="$(jq -r '.workflow_run.id' "$GITHUB_EVENT_PATH")"
+            WORKFLOW_NAME="$(jq -r '.workflow_run.name' "$GITHUB_EVENT_PATH")"
+            RUN_URL="$(jq -r '.workflow_run.html_url' "$GITHUB_EVENT_PATH")"
+          fi
+
+          if [ -z "$PR_NUMBER" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "reason=failed run is not associated with a PR" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          PR_JSON="$(gh pr view "$PR_NUMBER" --json number,state,baseRefName,headRefName,headRepositoryOwner,url,title)"
+          STATE="$(jq -r '.state' <<<"$PR_JSON")"
+          BASE="$(jq -r '.baseRefName' <<<"$PR_JSON")"
+          BRANCH="$(jq -r '.headRefName' <<<"$PR_JSON")"
+          OWNER="$(jq -r '.headRepositoryOwner.login' <<<"$PR_JSON")"
+          URL="$(jq -r '.url' <<<"$PR_JSON")"
+          TITLE="$(jq -r '.title' <<<"$PR_JSON")"
+
+          if [ "$STATE" != "OPEN" ] || [ "$BASE" != "main" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "reason=PR #$PR_NUMBER is not an open PR to main" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$OWNER" != "${GITHUB_REPOSITORY_OWNER}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "reason=PR #$PR_NUMBER head repository owner is $OWNER, not ${GITHUB_REPOSITORY_OWNER}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          IS_UPSTREAM=false
+          if [[ "$BRANCH" == merge/upstream-* ]]; then
+            IS_UPSTREAM=true
+          fi
+          echo "is_upstream=$IS_UPSTREAM" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "title=$TITLE" >> "$GITHUB_OUTPUT"
+          echo "failed_run_id=$FAILED_RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "workflow_name=$WORKFLOW_NAME" >> "$GITHUB_OUTPUT"
+          echo "run_url=$RUN_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Stop when event does not target a repairable PR
+        if: steps.target.outputs.skip == 'true'
+        run: echo "${{ steps.target.outputs.reason }}"
+
+      - uses: actions/checkout@v6
+        if: steps.target.outputs.skip != 'true'
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          ref: ${{ steps.target.outputs.branch }}
+          persist-credentials: false
+
+      - name: Configure authenticated origin
+        if: steps.target.outputs.skip != 'true'
+        env:
+          UPSTREAM_MERGE_GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+        run: git remote set-url origin "https://x-access-token:${UPSTREAM_MERGE_GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+      - uses: ./.github/actions/cache-and-checkout-new-api
+        if: steps.target.outputs.skip != 'true'
+
+      - name: Set up Go
+        if: steps.target.outputs.skip != 'true'
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Setup pnpm
+        if: steps.target.outputs.skip != 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        if: steps.target.outputs.skip != 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        if: steps.target.outputs.skip != 'true'
+        run: pnpm install --frozen-lockfile
+        working-directory: frontend
+
+      - name: Install Claude Code CLI
+        if: steps.target.outputs.skip != 'true'
+        env:
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+        run: bash scripts/setup-claude-code.sh
+
+      - name: Configure git identity
+        if: steps.target.outputs.skip != 'true'
+        run: |
+          git config user.name "tk-pr-repair-agent[bot]"
+          git config user.email "pr-repair-agent@tokenkey.dev"
+
+      - name: Collect failed run logs
+        if: steps.target.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+          FAILED_RUN_ID: ${{ steps.target.outputs.failed_run_id }}
+        run: |
+          mkdir -p /tmp/pr-repair
+          if [ -n "${FAILED_RUN_ID:-}" ]; then
+            gh run view "$FAILED_RUN_ID" --log-failed > /tmp/pr-repair/failed-run.log 2>&1 || \
+              gh run view "$FAILED_RUN_ID" --log > /tmp/pr-repair/failed-run.log 2>&1 || true
+          else
+            echo "No failed run id supplied; inspect current PR checks via gh." > /tmp/pr-repair/failed-run.log
+          fi
+          if [ -s /tmp/pr-repair/failed-run.log ]; then
+            tail -n 1200 /tmp/pr-repair/failed-run.log > /tmp/pr-repair/failed-run-tail.log
+          fi
+
+      - name: Build repair prompt
+        if: steps.target.outputs.skip != 'true'
+        env:
+          PR_NUMBER: ${{ steps.target.outputs.pr_number }}
+          PR_URL: ${{ steps.target.outputs.url }}
+          BRANCH: ${{ steps.target.outputs.branch }}
+          WORKFLOW_NAME: ${{ steps.target.outputs.workflow_name }}
+          RUN_URL: ${{ steps.target.outputs.run_url }}
+          IS_UPSTREAM: ${{ steps.target.outputs.is_upstream }}
+        run: |
+          cat > /tmp/pr-repair-prompt.txt <<EOF
+          You are repairing a TokenKey PR with Claude Code CLI.
+
+          Repository rules:
+          - Follow CLAUDE.md and project instructions exactly.
+          - Fix only what is needed for the failed checks and TokenKey principles.
+          - Do not merge the PR.
+          - Do not bypass hooks or skip validation.
+          - Run focused validation for changed areas plus ./scripts/preflight.sh when feasible.
+          - If you changed files, commit and push back to branch $BRANCH.
+          - If you cannot safely fix the issue, leave the working tree clean and comment on PR #$PR_NUMBER with the blocker and the exact logs/decision needed.
+
+          EOF
+          if [ "$IS_UPSTREAM" = "true" ]; then
+            cat >> /tmp/pr-repair-prompt.txt <<EOF
+          This is a merge/upstream-* PR, so additionally follow this upstream merge skill SOP exactly:
+
+          EOF
+            cat .cursor/skills/tokenkey-upstream-merge/SKILL.md >> /tmp/pr-repair-prompt.txt
+          fi
+          cat >> /tmp/pr-repair-prompt.txt <<EOF
+
+          ## Repair task
+
+          Repair PR #$PR_NUMBER on branch $BRANCH: $PR_URL
+          Failed workflow: $WORKFLOW_NAME
+          Failed run: ${RUN_URL:-not provided}
+          Is upstream merge PR: $IS_UPSTREAM
+
+          Required behavior:
+          - Diagnose the failed check logs below.
+          - Keep the fix scoped to this PR's intent.
+          - For normal TokenKey feature/fix PRs, do not introduce upstream-merge-specific changes.
+          - For merge/upstream-* PRs, preserve upstream features by default and keep TokenKey-only fixes behind companion/facade/component boundaries where possible.
+
+          ## Failed logs tail
+
+          EOF
+          cat /tmp/pr-repair/failed-run-tail.log >> /tmp/pr-repair-prompt.txt
+
+      - name: Run Claude repair agent
+        if: steps.target.outputs.skip != 'true'
+        env:
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          ANTHROPIC_BASE_URL: https://api.tokenkey.dev
+          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+          CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING: "1"
+          MAX_THINKING_TOKENS: "31999"
+          CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE: "60"
+          CLAUDE_CODE_ATTRIBUTION_HEADER: "0"
+          ANTHROPIC_MODEL: "opus[1m]"
+        run: |
+          claude -p "$(cat /tmp/pr-repair-prompt.txt)" \
+            --model "opus[1m]" \
+            --max-budget-usd "8.00" \
+            --output /tmp/pr-repair-agent-output.txt
+
+      - name: Upload repair artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pr-repair-agent-output
+          path: |
+            /tmp/pr-repair-agent-output.txt
+            /tmp/pr-repair-prompt.txt
+            /tmp/pr-repair/failed-run-tail.log
+          if-no-files-found: ignore

@@ -9,15 +9,6 @@ permissions:
   contents: read
 
 jobs:
-  upstream-merge-dry-run:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - name: Dry-run upstream merge preparation
-        run: bash scripts/prepare-upstream-merge.sh --dry-run
-
   new-api-bump-smoke:
     runs-on: ubuntu-latest
     steps:

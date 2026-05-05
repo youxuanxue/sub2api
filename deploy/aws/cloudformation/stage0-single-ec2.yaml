@@ -628,6 +628,8 @@ Resources:
 
           # Remove bogus sub-kib dumps from failed runs (e.g. disk full).
           find "${!DUMP_DIR}" -maxdepth 1 -type f -name 'tokenkey-*.sql.gz' -size -2k -delete 2>/dev/null || true
+          # Remove legacy pre-*.dump files left by older manual pre-migration snapshots.
+          find "${!DUMP_DIR}" -maxdepth 1 -type f -name 'pre-*.dump' -delete 2>/dev/null || true
 
           set -o pipefail
           if ! docker exec tokenkey-postgres pg_dump -U tokenkey -d tokenkey --format=plain --no-owner \
@@ -644,7 +646,7 @@ Resources:
 
           mv -f "${!PART}" "${!OUT}"
 
-          # Keep only dumps from the past 24 hours.
+          # Keep only tokenkey dumps from the past 24 hours, normally about 24 hourly copies.
           find "${!DUMP_DIR}" -maxdepth 1 -type f -name 'tokenkey-*.sql.gz' -mmin +1440 -delete 2>/dev/null || true
           PGEOF
           chmod +x /usr/local/bin/tokenkey-pgdump.sh
@@ -864,7 +866,7 @@ Resources:
       Period: 300
       EvaluationPeriods: 2
       DatapointsToAlarm: 2
-      # High threshold = few false positives; pair with 36 pg_dump retention + metrics timer.
+      # High threshold = few false positives; pair with 24h pg_dump retention + metrics timer.
       Threshold: 90
       ComparisonOperator: GreaterThanThreshold
       TreatMissingData: notBreaching
