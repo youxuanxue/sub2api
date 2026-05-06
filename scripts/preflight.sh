@@ -350,6 +350,25 @@ else
     echo "  ok: tk_post_deploy_smoke.sh parses"
 fi
 
+# ---- sub2api: workflow job-level if env-context drift -----------------------
+# GitHub Actions does NOT allow env references in jobs.<name>.if expressions
+# (env evaluates AFTER if). Such references make the entire workflow file
+# fail to parse with HTTP 422 "Unrecognized named-value: 'env'", silently
+# breaking every tag-push / workflow_dispatch trigger that depends on it.
+# 2026-05-06 v1.7.17 prod release was blocked exactly this way (PR #120
+# introduced; PR #122 fixed). This guard prevents recurrence.
+echo ""
+echo "=== sub2api: workflow job-level if env-context ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required to parse .github/workflows/*.yml)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/check-workflow-job-if-env.py --quiet; then
+    # check-workflow-job-if-env.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: no env references in job-level if expressions"
+fi
+
 echo ""
 if [ "$errors" -eq 0 ]; then
     echo "=== preflight (with sub2api checks): PASS ==="

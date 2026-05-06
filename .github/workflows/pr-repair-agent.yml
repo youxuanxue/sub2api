@@ -256,10 +256,15 @@ jobs:
           CLAUDE_CODE_ATTRIBUTION_HEADER: "0"
           ANTHROPIC_MODEL: "opus[1m]"
         run: |
+          # claude CLI has no --output flag — pipe stdout instead. tee keeps
+          # CI logs live (helpful for long agent runs); pipefail propagates
+          # claude's exit code through the pipeline so the step actually
+          # fails when the agent fails.
+          set -o pipefail
           claude -p "$(cat /tmp/pr-repair-prompt.txt)" \
             --model "opus[1m]" \
             --max-budget-usd "8.00" \
-            --output /tmp/pr-repair-agent-output.txt
+            2>&1 | tee /tmp/pr-repair-agent-output.txt
 
       - name: Upload repair artifacts
         if: always()
