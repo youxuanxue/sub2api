@@ -120,12 +120,20 @@ runs:
         # defaults to interactive `default` permission mode and rejects
         # every tool call with "This command requires approval". Whitelist
         # the work toolkit explicitly per global CLAUDE.md §5.
+        # scripts/redact-agent-stream.py scrubs secrets out of the stream
+        # before tee writes the artifact — Actions log masking does NOT
+        # apply to bytes that hit disk via tee, so without this filter
+        # the artifact can leak the gateway auth token / github.token.
+        # The composite action's own checkout (above) brings the script
+        # in from the calling workflow's ref, which is normally main.
         set -o pipefail
         claude -p "$(cat /tmp/agent-prompt.txt)" \
           --model "opus[1m]" \
           --max-budget-usd "${{ inputs.max_budget_usd }}" \
           --allowedTools "Bash Read Write Edit Grep Glob" \
-          2>&1 | tee /tmp/agent-output.txt
+          2>&1 \
+          | python3 scripts/redact-agent-stream.py \
+          | tee /tmp/agent-output.txt
 
     - name: Guard diff scope
       if: steps.cooldown.outputs.skip == 'false'

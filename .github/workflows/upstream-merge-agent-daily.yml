@@ -167,12 +167,19 @@ jobs:
           # (run 25415454229 / job 74548660906, 2026-05-06). Whitelist the
           # work toolkit explicitly per global CLAUDE.md §5 ("严格遵守
           # --allowedTools 限制"); WebFetch/WebSearch/Skill stay denied.
+          # scripts/redact-agent-stream.py scrubs secrets from the stream
+          # before tee writes the artifact: Actions log masking does NOT
+          # apply to bytes that hit disk via tee, so without this filter
+          # the public artifact can leak ANTHROPIC_AUTH_TOKEN / GH_TOKEN
+          # if the agent ever echoes them (e.g. an accidental `printenv`).
           set -o pipefail
           claude -p "$(cat /tmp/upstream-merge-agent-prompt.txt)" \
             --model "opus[1m]" \
             --max-budget-usd "8.00" \
             --allowedTools "Bash Read Write Edit Grep Glob" \
-            2>&1 | tee /tmp/upstream-merge-agent-output.txt
+            2>&1 \
+            | python3 scripts/redact-agent-stream.py \
+            | tee /tmp/upstream-merge-agent-output.txt
 
       - name: Upload agent output
         if: always()
