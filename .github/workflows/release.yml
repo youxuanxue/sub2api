@@ -305,7 +305,13 @@ jobs:
 
   queue-prod-deploy:
     needs: [release]
-    if: ${{ needs.release.result == 'success' && env.SIMPLE_RELEASE != 'true' }}
+    # NOTE: GitHub Actions 禁止在 job-level if 里引用 env 上下文
+    # (https://docs.github.com/en/actions/learn-github-actions/contexts —
+    # env is unavailable when GitHub evaluates if for jobs).
+    # 引用了会让工作流文件直接解析失败 (HTTP 422 "Unrecognized named-value: 'env'")，
+    # tag-push 与 workflow_dispatch 双双被拒；2026-05-06 v1.7.17 实事故。
+    # 这里展开 workflow-level env 的两个底层来源 vars + inputs，效果一致。
+    if: ${{ needs.release.result == 'success' && vars.SIMPLE_RELEASE != 'true' && github.event.inputs.simple_release != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Queue prod Stage0 deploy
