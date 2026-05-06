@@ -224,11 +224,11 @@ jobs:
             --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
             --query 'StandardErrorContent' --output text > stderr.txt
 
-          echo '--- ssm stdout (first 2KB) ---'
-          head -c 2048 stdout.txt
+          echo '--- ssm stdout (last 8KB) ---'
+          tail -c 8192 stdout.txt
           echo
-          echo '--- ssm stderr (first 2KB) ---'
-          head -c 2048 stderr.txt
+          echo '--- ssm stderr (last 8KB) ---'
+          tail -c 8192 stderr.txt
           echo
 
           if [ "$STATUS" != "Success" ]; then

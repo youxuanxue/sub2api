@@ -95,6 +95,16 @@ if [[ "${models_http}" != "200" ]]; then
   exit 1
 fi
 
+models_object="$(jq -r '.object // empty' "$tmpdir/models.json")"
+models_count="$(jq -r '(.data // []) | length' "$tmpdir/models.json")"
+if [[ "${models_object}" != "list" ]] || [[ "${models_count}" -lt 1 ]]; then
+  echo "tk_post_deploy_smoke: /v1/models shape invalid (object=${models_object:-missing} count=${models_count})" >&2
+  jq . "$tmpdir/models.json" >&2 || true
+  exit 1
+fi
+
+echo "tk_post_deploy_smoke: /v1/models shape object=${models_object} count=${models_count}"
+
 model="$(jq -r '(.data // []) as $d | ($d | map(select(.id|test("claude";"i"))) | .[0].id) // $d[0].id // empty' "$tmpdir/models.json")"
 if [[ -z "${model}" ]] || [[ "${model}" == "null" ]]; then
   echo "tk_post_deploy_smoke: no model id in /v1/models" >&2
@@ -122,6 +132,18 @@ if [[ "${chat_http}" != "200" ]]; then
   jq . "$tmpdir/chat.json" >&2 2>/dev/null || cat "$tmpdir/chat.json" >&2
   exit 1
 fi
+chat_object="$(jq -r '.object // empty' "$tmpdir/chat.json")"
+chat_choices="$(jq -r '(.choices // []) | length' "$tmpdir/chat.json")"
+chat_finish="$(jq -r '.choices[0].finish_reason // empty' "$tmpdir/chat.json")"
+chat_usage_keys="$(jq -r 'if (.usage? | type) == "object" then (.usage | keys | join(",")) else "missing" end' "$tmpdir/chat.json")"
+if [[ "${chat_object}" != "chat.completion" ]] || [[ "${chat_choices}" -lt 1 ]] || [[ -z "${chat_finish}" ]] || [[ "${chat_usage_keys}" == "missing" ]]; then
+  echo "tk_post_deploy_smoke: /v1/chat/completions shape invalid (object=${chat_object:-missing} choices=${chat_choices} finish_reason=${chat_finish:-missing} usage=${chat_usage_keys})" >&2
+  jq . "$tmpdir/chat.json" >&2 || true
+  exit 1
+fi
+
+echo "tk_post_deploy_smoke: /v1/chat/completions shape object=${chat_object} choices=${chat_choices} finish_reason=${chat_finish} usage_keys=${chat_usage_keys}"
+
 chat_body="$(jq -r '.choices[0].message.content // empty' "$tmpdir/chat.json")"
 if ! printf '%s' "${chat_body}" | grep -Fq "${expect_openai}"; then
   echo "tk_post_deploy_smoke: chat response missing expected marker '${expect_openai}' (body below)" >&2
@@ -148,6 +170,19 @@ if [[ "${msg_http}" != "200" ]]; then
   jq . "$tmpdir/msg.json" >&2 2>/dev/null || cat "$tmpdir/msg.json" >&2
   exit 1
 fi
+msg_type="$(jq -r '.type // empty' "$tmpdir/msg.json")"
+msg_role="$(jq -r '.role // empty' "$tmpdir/msg.json")"
+msg_content_count="$(jq -r '(.content // []) | length' "$tmpdir/msg.json")"
+msg_stop="$(jq -r '.stop_reason // empty' "$tmpdir/msg.json")"
+msg_usage_keys="$(jq -r 'if (.usage? | type) == "object" then (.usage | keys | join(",")) else "missing" end' "$tmpdir/msg.json")"
+if [[ "${msg_type}" != "message" ]] || [[ "${msg_role}" != "assistant" ]] || [[ "${msg_content_count}" -lt 1 ]] || [[ -z "${msg_stop}" ]] || [[ "${msg_usage_keys}" == "missing" ]]; then
+  echo "tk_post_deploy_smoke: /v1/messages shape invalid (type=${msg_type:-missing} role=${msg_role:-missing} content=${msg_content_count} stop_reason=${msg_stop:-missing} usage=${msg_usage_keys})" >&2
+  jq . "$tmpdir/msg.json" >&2 || true
+  exit 1
+fi
+
+echo "tk_post_deploy_smoke: /v1/messages shape type=${msg_type} role=${msg_role} content=${msg_content_count} stop_reason=${msg_stop} usage_keys=${msg_usage_keys}"
+
 msg_text="$(jq -r '[.content[]? | select(.type == "text") | .text] | add // empty' "$tmpdir/msg.json")"
 if ! printf '%s' "${msg_text}" | grep -Fq "${expect_anthropic}"; then
   echo "tk_post_deploy_smoke: messages response missing expected marker '${expect_anthropic}' (text below)" >&2

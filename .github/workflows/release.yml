@@ -28,6 +28,7 @@ env:
 permissions:
   contents: write
   packages: write
+  actions: write
 
 jobs:
   # Update VERSION file with tag version
@@ -301,6 +302,29 @@ jobs:
                 parse_mode: "Markdown",
                 disable_web_page_preview: true
               }')"
+
+  queue-prod-deploy:
+    needs: [release]
+    if: ${{ needs.release.result == 'success' && env.SIMPLE_RELEASE != 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Queue prod Stage0 deploy
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG_NAME=${{ github.event.inputs.tag }}
+          else
+            TAG_NAME=${GITHUB_REF#refs/tags/}
+          fi
+          VERSION=${TAG_NAME#v}
+          gh workflow run deploy-stage0.yml \
+            --repo "$REPO" \
+            -f environment=prod \
+            -f tag="$VERSION"
+          echo "queued prod deploy for ${VERSION}; prod Environment approval is still required before deploy steps run"
 
   sync-version-file:
     needs: [release]
