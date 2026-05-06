@@ -3376,6 +3376,9 @@ func isClaudeWebSearchToolMap(tool map[string]any) bool {
 }
 
 // cleanToolSchema 清理工具的 JSON Schema，移除 Gemini 不支持的字段
+// Gemini 的 Schema 是 OpenAPI 3.0 的受限子集（见 ai.google.dev/api/caching#Schema），
+// 任何 Draft 2020 / OpenAPI 3.1 引入的关键字（propertyNames、const、
+// exclusiveMinimum/Maximum 等）一旦透传都会被上游 400 拒掉。
 func cleanToolSchema(schema any) any {
 	if schema == nil {
 		return nil
@@ -3388,7 +3391,9 @@ func cleanToolSchema(schema any) any {
 			// 跳过不支持的字段
 			if key == "$schema" || key == "$id" || key == "$ref" ||
 				key == "additionalProperties" || key == "patternProperties" || key == "minLength" ||
-				key == "maxLength" || key == "minItems" || key == "maxItems" {
+				key == "maxLength" || key == "minItems" || key == "maxItems" ||
+				key == "propertyNames" || key == "const" ||
+				key == "exclusiveMinimum" || key == "exclusiveMaximum" {
 				continue
 			}
 			// 递归清理嵌套对象

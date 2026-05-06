@@ -193,6 +193,54 @@ func TestConvertClaudeToolsToGeminiTools_PreservesWebSearchAlongsideFunctions(t 
 	require.Empty(t, googleSearch)
 }
 
+// TestCleanToolSchema_StripsDraft2020Keywords 钉住一次 prod 事故：Anthropic→Gemini
+// 桥接如果不剥掉 Draft 2020 / OpenAPI 3.1 的 propertyNames / const /
+// exclusiveMinimum / exclusiveMaximum，Google 上游会直接 400
+// "Invalid JSON payload received. Unknown name ...: Cannot find field."。
+// 已支持的 minimum / maximum / required 必须保留。
+func TestCleanToolSchema_StripsDraft2020Keywords(t *testing.T) {
+	in := map[string]any{
+		"type":     "object",
+		"required": []any{"name"},
+		"properties": map[string]any{
+			"name": map[string]any{
+				"type":  "string",
+				"const": "auto",
+			},
+			"limit": map[string]any{
+				"type":             "integer",
+				"minimum":          1,
+				"exclusiveMinimum": 0,
+				"exclusiveMaximum": 100,
+			},
+			"tags": map[string]any{
+				"type":          "object",
+				"propertyNames": map[string]any{"pattern": "^[a-z]+$"},
+			},
+		},
+	}
+
+	out, ok := cleanToolSchema(in).(map[string]any)
+	require.True(t, ok)
+
+	props, ok := out["properties"].(map[string]any)
+	require.True(t, ok)
+
+	name, _ := props["name"].(map[string]any)
+	require.NotContains(t, name, "const", "const must be stripped")
+	require.Equal(t, "STRING", name["type"], "type 仍需大写化为 Gemini Type 枚举")
+
+	limit, _ := props["limit"].(map[string]any)
+	require.NotContains(t, limit, "exclusiveMinimum", "exclusiveMinimum must be stripped")
+	require.NotContains(t, limit, "exclusiveMaximum", "exclusiveMaximum must be stripped")
+	require.Equal(t, 1, limit["minimum"], "supported keywords must survive cleaning")
+
+	tags, _ := props["tags"].(map[string]any)
+	require.NotContains(t, tags, "propertyNames", "propertyNames must be stripped")
+
+	require.Contains(t, out, "required", "required 必须保留")
+}
+
 func TestGeminiHandleNativeNonStreamingResponse_DebugDisabledDoesNotEmitHeaderLogs(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	logSink, restore := captureStructuredLog(t)
