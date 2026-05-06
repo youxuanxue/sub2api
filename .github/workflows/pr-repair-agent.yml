@@ -260,10 +260,16 @@ jobs:
           # CI logs live (helpful for long agent runs); pipefail propagates
           # claude's exit code through the pipeline so the step actually
           # fails when the agent fails.
+          # --allowedTools is required in headless: without it `claude -p`
+          # defaults to interactive `default` permission mode and rejects
+          # every tool call with "This command requires approval" (same
+          # failure mode the upstream merge agent hit on 2026-05-06).
+          # Whitelist the work toolkit explicitly per global CLAUDE.md §5.
           set -o pipefail
           claude -p "$(cat /tmp/pr-repair-prompt.txt)" \
             --model "opus[1m]" \
             --max-budget-usd "8.00" \
+            --allowedTools "Bash Read Write Edit Grep Glob" \
             2>&1 | tee /tmp/pr-repair-agent-output.txt
 
       - name: Upload repair artifacts

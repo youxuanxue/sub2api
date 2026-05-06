@@ -160,10 +160,18 @@ jobs:
           # CI logs live (helpful for long agent runs); pipefail propagates
           # claude's exit code through the pipeline so the step actually
           # fails when the agent fails.
+          # --allowedTools is required in headless: without it `claude -p`
+          # defaults to interactive `default` permission mode and rejects
+          # every tool call with "This command requires approval", so the
+          # agent runs the SOP read-only and never produces a PR
+          # (run 25415454229 / job 74548660906, 2026-05-06). Whitelist the
+          # work toolkit explicitly per global CLAUDE.md §5 ("严格遵守
+          # --allowedTools 限制"); WebFetch/WebSearch/Skill stay denied.
           set -o pipefail
           claude -p "$(cat /tmp/upstream-merge-agent-prompt.txt)" \
             --model "opus[1m]" \
             --max-budget-usd "8.00" \
+            --allowedTools "Bash Read Write Edit Grep Glob" \
             2>&1 | tee /tmp/upstream-merge-agent-output.txt
 
       - name: Upload agent output
