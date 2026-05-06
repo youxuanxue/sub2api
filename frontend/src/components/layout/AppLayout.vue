@@ -9,7 +9,7 @@
     <!-- Main Content Area -->
     <div
       class="relative min-h-screen transition-all duration-300"
-      :class="[sidebarCollapsed ? 'lg:ml-[72px]' : 'lg:ml-44']"
+      :class="[sidebarCollapsed ? 'lg:ml-[72px]' : TK_SIDEBAR_MAIN_MARGIN_CLASS]"
     >
       <!-- Header -->
       <AppHeader />
@@ -31,6 +31,7 @@ import { useOnboardingTour } from '@/composables/useOnboardingTour'
 import { useOnboardingStore } from '@/stores/onboarding'
 import AppSidebar from './AppSidebar.vue'
 import AppHeader from './AppHeader.vue'
+import { TK_SIDEBAR_MAIN_MARGIN_CLASS } from '@/constants/layout'
 
 const appStore = useAppStore()
 const authStore = useAuthStore()

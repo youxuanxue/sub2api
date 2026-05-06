@@ -517,9 +517,11 @@
   }
 
   /* ============ 侧边栏 ============ */
+  /* width is applied dynamically by AppSidebar.vue via TK_SIDEBAR_WIDTH_CLASS
+     in @/constants/layout — keep this rule width-free so the two do not race. */
   .sidebar {
     @apply fixed inset-y-0 left-0 z-40;
-    @apply w-44 bg-white dark:bg-dark-900;
+    @apply bg-white dark:bg-dark-900;
     @apply border-r border-gray-200 dark:border-dark-800;
     @apply flex flex-col;
     @apply transition-transform duration-300;

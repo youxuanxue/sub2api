@@ -378,6 +378,7 @@ import ErrorPassthroughRulesModal from '@/components/admin/ErrorPassthroughRules
 import TLSFingerprintProfilesModal from '@/components/admin/TLSFingerprintProfilesModal.vue'
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
+import { migrateAccountTimestampColumnsVisibleOnce } from './migrateAccountColumnsTs'
 import type { Account, AccountPlatform, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel } from '@/types'
 
 const { t } = useI18n()
@@ -461,8 +462,6 @@ const columnDropdownRef = ref<HTMLElement | null>(null)
 const hiddenColumns = reactive<Set<string>>(new Set())
 const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'proxy', 'notes', 'priority', 'rate_multiplier']
 const HIDDEN_COLUMNS_KEY = 'account-hidden-columns'
-/** One-shot migration: ensure last-used / expiry columns are visible by default */
-const ACCOUNT_COLUMNS_TS_DEFAULT_VISIBLE_KEY = 'account-columns-ts-default-visible-v1'
 
 // Sorting settings
 const ACCOUNT_SORT_STORAGE_KEY = 'account-table-sort'
@@ -608,14 +607,8 @@ const saveColumnsToStorage = () => {
 }
 
 const migrateTimestampColumnsVisibleOnce = () => {
-  try {
-    if (localStorage.getItem(ACCOUNT_COLUMNS_TS_DEFAULT_VISIBLE_KEY)) return
-    hiddenColumns.delete('last_used_at')
-    hiddenColumns.delete('expires_at')
-    localStorage.setItem(ACCOUNT_COLUMNS_TS_DEFAULT_VISIBLE_KEY, '1')
+  if (migrateAccountTimestampColumnsVisibleOnce(hiddenColumns)) {
     saveColumnsToStorage()
-  } catch (e) {
-    console.error('Failed to migrate account column visibility:', e)
   }
 }
 
