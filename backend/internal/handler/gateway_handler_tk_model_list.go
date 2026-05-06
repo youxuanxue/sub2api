@@ -2,8 +2,11 @@ package handler
 
 import (
 	"context"
+	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/gemini"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
@@ -77,4 +80,60 @@ func (h *GatewayHandler) tkClaudeDefaultModelIDs(ctx context.Context, platform s
 		}
 	}
 	return out
+}
+
+// tkAntigravityDefaultModels filters antigravity.DefaultModels() by pricing +
+// availability and returns []antigravity.ClaudeModel preserving the original
+// response shape. platform is always service.PlatformAntigravity.
+//
+// Fixes review finding R-001: AntigravityModels must keep []ClaudeModel shape
+// and must not substitute the full cross-platform catalog for the antigravity-
+// only candidate set.
+func (h *GatewayHandler) tkAntigravityDefaultModels(ctx context.Context) []antigravity.ClaudeModel {
+	defaults := antigravity.DefaultModels()
+	ids := make([]string, len(defaults))
+	for i, m := range defaults {
+		ids[i] = m.ID
+	}
+	filtered := h.tkFilterModelIDs(ctx, service.PlatformAntigravity, ids)
+	filtSet := make(map[string]bool, len(filtered))
+	for _, id := range filtered {
+		filtSet[id] = true
+	}
+	out := make([]antigravity.ClaudeModel, 0, len(filtered))
+	for _, m := range defaults {
+		if filtSet[m.ID] {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// tkGeminiFallbackModelsList filters gemini.DefaultModels() by pricing +
+// availability and returns a gemini.ModelsListResponse preserving the original
+// response shape. Used by GeminiV1BetaListModels fallback paths.
+//
+// Fixes review finding CF-001: GeminiV1BetaListModels fallback paths must have
+// a thin filter injection per design doc §2.5.
+//
+// Note: gemini.Model.Name uses the "models/<id>" prefix; we strip the prefix
+// for pricing/availability lookup and restore it in the output.
+func (h *GatewayHandler) tkGeminiFallbackModelsList(ctx context.Context) gemini.ModelsListResponse {
+	defaults := gemini.DefaultModels()
+	ids := make([]string, len(defaults))
+	for i, m := range defaults {
+		ids[i] = strings.TrimPrefix(m.Name, "models/")
+	}
+	filtered := h.tkFilterModelIDs(ctx, service.PlatformGemini, ids)
+	filtSet := make(map[string]bool, len(filtered))
+	for _, id := range filtered {
+		filtSet[id] = true
+	}
+	out := make([]gemini.Model, 0, len(filtered))
+	for _, m := range defaults {
+		if filtSet[strings.TrimPrefix(m.Name, "models/")] {
+			out = append(out, m)
+		}
+	}
+	return gemini.ModelsListResponse{Models: out}
 }

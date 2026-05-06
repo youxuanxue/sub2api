@@ -14,7 +14,6 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	pkgerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -966,20 +965,13 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 // AntigravityModels 返回 Antigravity 支持的全部模型
 // GET /antigravity/models
 func (h *GatewayHandler) AntigravityModels(c *gin.Context) {
-	// TK: §5.x override-default — priced catalog as primary source; fallback to
-	// static DefaultModels() when catalog is empty / filter not wired (Goal 2, R-003).
-	if h.tkModelListFilter != nil {
-		if priced := h.tkModelListFilter.PricedCandidates(); len(priced) > 0 {
-			c.JSON(http.StatusOK, gin.H{
-				"object": "list",
-				"data":   priced,
-			})
-			return
-		}
-	}
+	// TK: §5.x override-default — filter antigravity.DefaultModels() by pricing +
+	// availability. Candidate set is always the antigravity-specific list (not the
+	// full cross-platform catalog). Response shape is always []antigravity.ClaudeModel.
+	// Goal 2 / R-003; shape/scope regression fix from review-20260507 R-001/R-002.
 	c.JSON(http.StatusOK, gin.H{
 		"object": "list",
-		"data":   antigravity.DefaultModels(),
+		"data":   h.tkAntigravityDefaultModels(c.Request.Context()),
 	})
 }
 

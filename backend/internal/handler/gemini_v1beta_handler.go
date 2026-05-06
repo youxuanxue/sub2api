@@ -57,8 +57,8 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		// 没有 gemini 账户，检查是否有 antigravity 账户可用
 		hasAntigravity, _ := h.geminiCompatService.HasAntigravityAccounts(c.Request.Context(), apiKey.GroupID)
 		if hasAntigravity {
-			// antigravity 账户使用静态模型列表
-			c.JSON(http.StatusOK, gemini.FallbackModelsList())
+			// antigravity 账户使用静态模型列表，TK: 过滤至 priced ∩ ¬unreachable (CF-001)
+			c.JSON(http.StatusOK, h.tkGeminiFallbackModelsList(c.Request.Context()))
 			return
 		}
 		googleError(c, http.StatusServiceUnavailable, "No available Gemini accounts: "+err.Error())
@@ -71,7 +71,8 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		return
 	}
 	if shouldFallbackGeminiModels(res) {
-		c.JSON(http.StatusOK, gemini.FallbackModelsList())
+		// TK: 过滤至 priced ∩ ¬unreachable (CF-001)
+		c.JSON(http.StatusOK, h.tkGeminiFallbackModelsList(c.Request.Context()))
 		return
 	}
 	writeUpstreamResponse(c, res)
