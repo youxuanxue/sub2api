@@ -10,7 +10,6 @@ import (
 	"time"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/relay/channel/gemini"
 	"github.com/QuantumNous/new-api/relay/channel/ollama"
 )
 
@@ -31,7 +30,15 @@ func IsKnownChannelType(t int) bool {
 
 // FetchUpstreamModelList mirrors new-api controller.FetchModels for admin "获取模型列表"
 // (OpenRouter and other OpenAI-compatible bases use GET /v1/models).
-func FetchUpstreamModelList(ctx context.Context, baseURL string, channelType int, apiKey string) ([]string, error) {
+//
+// Returns []rawDiscoveredModel — each entry carries the upstream id plus a
+// ProviderUnavailable flag set when the provider metadata explicitly marks the
+// model as deprecated/disabled/embedding-only. Caller (typically
+// DiscoveryFilter.Apply) is responsible for the model_availability table check
+// + pricing_status tagging.
+//
+// Per docs/approved/pricing-availability-source-of-truth.md §2.4 (Goal 1).
+func FetchUpstreamModelList(ctx context.Context, baseURL string, channelType int, apiKey string) ([]rawDiscoveredModel, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -67,21 +74,23 @@ func FetchUpstreamModelList(ctx context.Context, baseURL string, channelType int
 	case newapiconstant.ChannelTypeVolcEngine, newapiconstant.ChannelTypeDoubaoVideo:
 		return fetchOpenAICompatModels(ctx, base+"/api/v3/models", key)
 	case newapiconstant.ChannelTypeOllama:
+		// Ollama local API doesn't expose the same metadata; we keep the upstream
+		// helper output and let the DiscoveryFilter rely on availability table +
+		// pricing intersection only.
 		models, err := ollama.FetchOllamaModels(base, key)
 		if err != nil {
 			return nil, fmt.Errorf("ollama: %w", err)
 		}
-		names := make([]string, 0, len(models))
+		out := make([]rawDiscoveredModel, 0, len(models))
 		for _, m := range models {
-			names = append(names, m.Name)
+			out = append(out, rawDiscoveredModel{ID: m.Name})
 		}
-		return names, nil
+		return out, nil
 	case newapiconstant.ChannelTypeGemini:
-		models, err := gemini.FetchGeminiModels(base, key, "")
-		if err != nil {
-			return nil, fmt.Errorf("gemini: %w", err)
-		}
-		return models, nil
+		// TK fetcher (not the upstream FetchGeminiModels) so we retain
+		// supportedGenerationMethods and can mark models without
+		// generateContent as ProviderUnavailable.
+		return fetchGeminiModelsWithMetadata(ctx, base, key)
 	default:
 		// Moonshot 国内/国际密钥不互通：在保存账号时已解析并固化 base_url（moonshot_resolve_save.go）。
 		// 此处若用户仍填官方 cn/ai 根（或空），再并行探测一次，避免管理员「获取模型列表」走错区域；非官方 host 不探测。
@@ -96,8 +105,22 @@ func FetchUpstreamModelList(ctx context.Context, baseURL string, channelType int
 	}
 }
 
-// fetchOpenAICompatModels fetches model IDs from an OpenAI-compatible GET /models endpoint.
-func fetchOpenAICompatModels(ctx context.Context, url, apiKey string) ([]string, error) {
+// openAICompatModelEntry mirrors the OpenAI /v1/models response shape with the
+// metadata fields that signal "explicitly unavailable". Most OpenAI-compatible
+// providers omit these fields, in which case ProviderUnavailable=false (no-op
+// at step [1] of DiscoveryFilter.Apply).
+type openAICompatModelEntry struct {
+	ID         string `json:"id"`
+	Deprecated bool   `json:"deprecated"`
+	Permission []struct {
+		Status string `json:"status"`
+	} `json:"permission"`
+}
+
+// fetchOpenAICompatModels fetches model IDs from an OpenAI-compatible
+// GET /models endpoint AND captures explicit-unavailable signals when the
+// provider populates them.
+func fetchOpenAICompatModels(ctx context.Context, url, apiKey string) ([]rawDiscoveredModel, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -116,18 +139,127 @@ func fetchOpenAICompatModels(ctx context.Context, url, apiKey string) ([]string,
 	}
 
 	var result struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
+		Data []openAICompatModelEntry `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decode models json: %w", err)
 	}
-	out := make([]string, 0, len(result.Data))
+	out := make([]rawDiscoveredModel, 0, len(result.Data))
 	for _, m := range result.Data {
-		if id := strings.TrimSpace(m.ID); id != "" {
-			out = append(out, id)
+		id := strings.TrimSpace(m.ID)
+		if id == "" {
+			continue
 		}
+		entry := rawDiscoveredModel{ID: id}
+		// Provider-marked deprecated → unavailable.
+		if m.Deprecated {
+			entry.ProviderUnavailable = true
+		}
+		// Permission[].status="deprecated"/"disabled"/"retired" → unavailable.
+		// (OpenAI's documented schema; most compat providers leave this empty.)
+		for _, p := range m.Permission {
+			s := strings.ToLower(strings.TrimSpace(p.Status))
+			if s == "deprecated" || s == "disabled" || s == "retired" {
+				entry.ProviderUnavailable = true
+				break
+			}
+		}
+		out = append(out, entry)
 	}
 	return out, nil
+}
+
+// geminiV1BetaModelsResponse mirrors the subset of fields we need from
+// Gemini's /v1beta/models. Avoids importing the upstream relay/channel/gemini
+// helper because it strips supportedGenerationMethods before returning.
+type geminiV1BetaModelsResponse struct {
+	Models []struct {
+		Name                       string   `json:"name"`
+		SupportedGenerationMethods []string `json:"supportedGenerationMethods"`
+	} `json:"models"`
+	NextPageToken string `json:"nextPageToken"`
+}
+
+// fetchGeminiModelsWithMetadata is a TK-only Gemini fetcher that retains
+// supportedGenerationMethods so we can mark embedding-only models (no
+// generateContent) as ProviderUnavailable. The pagination loop mirrors the
+// upstream helper but with a richer DTO; the safety bounds (100 pages, 30s
+// per-request timeout) are kept.
+func fetchGeminiModelsWithMetadata(ctx context.Context, baseURL, apiKey string) ([]rawDiscoveredModel, error) {
+	const maxPages = 100
+	out := make([]rawDiscoveredModel, 0, 64)
+	nextPageToken := ""
+
+	for page := 0; page < maxPages; page++ {
+		url := baseURL + "/v1beta/models"
+		if nextPageToken != "" {
+			url += "?pageToken=" + nextPageToken
+		}
+
+		pageCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		req, err := http.NewRequestWithContext(pageCtx, http.MethodGet, url, nil)
+		if err != nil {
+			cancel()
+			return nil, fmt.Errorf("gemini: new request: %w", err)
+		}
+		req.Header.Set("x-goog-api-key", apiKey)
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			cancel()
+			return nil, fmt.Errorf("gemini: request failed: %w", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+			_ = resp.Body.Close()
+			cancel()
+			return nil, fmt.Errorf("gemini: upstream returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+
+		var pageResp geminiV1BetaModelsResponse
+		if err := json.NewDecoder(resp.Body).Decode(&pageResp); err != nil {
+			_ = resp.Body.Close()
+			cancel()
+			return nil, fmt.Errorf("gemini: decode: %w", err)
+		}
+		_ = resp.Body.Close()
+		cancel()
+
+		for _, m := range pageResp.Models {
+			id := strings.TrimPrefix(strings.TrimSpace(m.Name), "models/")
+			if id == "" {
+				continue
+			}
+			entry := rawDiscoveredModel{ID: id}
+			// supportedGenerationMethods missing generateContent →
+			// embedding-only / unavailable for the use case TokenKey routes.
+			if !geminiSupportsGenerateContent(m.SupportedGenerationMethods) {
+				entry.ProviderUnavailable = true
+			}
+			out = append(out, entry)
+		}
+
+		if pageResp.NextPageToken == "" {
+			break
+		}
+		nextPageToken = pageResp.NextPageToken
+	}
+	return out, nil
+}
+
+// geminiSupportsGenerateContent returns true when the model exposes the
+// generateContent method (or when the field is absent — defensive against
+// schema drift). Embedding-only models that only list "embedContent" return
+// false.
+func geminiSupportsGenerateContent(methods []string) bool {
+	if len(methods) == 0 {
+		// Defensive: field absent → don't strip; let availability table decide.
+		return true
+	}
+	for _, m := range methods {
+		if strings.EqualFold(strings.TrimSpace(m), "generateContent") {
+			return true
+		}
+	}
+	return false
 }

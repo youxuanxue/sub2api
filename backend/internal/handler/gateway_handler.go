@@ -21,7 +21,6 @@ import (
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -51,6 +50,9 @@ type GatewayHandler struct {
 	maxAccountSwitchesGemini  int
 	cfg                       *config.Config
 	settingService            *service.SettingService
+	// TK: client model-list filter — see gateway_handler_tk_model_list.go.
+	// Injected post-construction via SetModelListFilter; nil = fail-open.
+	tkModelListFilter *service.ModelListFilter
 }
 
 // NewGatewayHandler creates a new GatewayHandler
@@ -463,8 +465,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					forwardFailedFields = append(forwardFailedFields, zap.Int64p("proxy_id", account.ProxyID))
 				}
 				reqLog.Error("gateway.forward_failed", forwardFailedFields...)
-				// TK: passive availability failure tap
-				h.gatewayService.TKRecordForwardFailure(c.Request.Context(), account.Platform, reqModel, account.ID, 0, err.Error(), false)
+				// TK: passive availability failure tap (R-004 — extracts upstream HTTP status from UpstreamFailoverError)
+				TkRecordFailureFromErr(h.gatewayService, c.Request.Context(), account.Platform, reqModel, account.ID, err)
 				return
 			}
 
@@ -824,8 +826,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					forwardFailedFields = append(forwardFailedFields, zap.Int64p("proxy_id", account.ProxyID))
 				}
 				reqLog.Error("gateway.forward_failed", forwardFailedFields...)
-				// TK: passive availability failure tap
-				h.gatewayService.TKRecordForwardFailure(c.Request.Context(), account.Platform, reqModel, account.ID, 0, err.Error(), false)
+				// TK: passive availability failure tap (R-004 — extracts upstream HTTP status from UpstreamFailoverError)
+				TkRecordFailureFromErr(h.gatewayService, c.Request.Context(), account.Platform, reqModel, account.ID, err)
 				return
 			}
 
@@ -918,6 +920,8 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 
 	// Get available models from account configurations (without platform filter)
 	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, "")
+	// TK: filter to priced ∩ ¬unreachable (Goal 2, R-003). Nil-safe fail-open.
+	availableModels = h.tkFilterModelIDs(c.Request.Context(), platform, availableModels)
 
 	if len(availableModels) > 0 {
 		// Build model list from whitelist
@@ -948,20 +952,31 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	if service.IsOpenAICompatPlatform(platform) {
 		c.JSON(http.StatusOK, gin.H{
 			"object": "list",
-			"data":   openai.DefaultModels,
+			"data":   h.tkOpenAIDefaultModelIDs(c.Request.Context(), platform),
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"object": "list",
-		"data":   claude.DefaultModels,
+		"data":   h.tkClaudeDefaultModelIDs(c.Request.Context(), platform),
 	})
 }
 
 // AntigravityModels 返回 Antigravity 支持的全部模型
 // GET /antigravity/models
 func (h *GatewayHandler) AntigravityModels(c *gin.Context) {
+	// TK: §5.x override-default — priced catalog as primary source; fallback to
+	// static DefaultModels() when catalog is empty / filter not wired (Goal 2, R-003).
+	if h.tkModelListFilter != nil {
+		if priced := h.tkModelListFilter.PricedCandidates(); len(priced) > 0 {
+			c.JSON(http.StatusOK, gin.H{
+				"object": "list",
+				"data":   priced,
+			})
+			return
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"object": "list",
 		"data":   antigravity.DefaultModels(),

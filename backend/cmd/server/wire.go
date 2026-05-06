@@ -105,6 +105,16 @@ func provideCleanup(
 	// trial-key issuer gets wired onto AuthService at startup. The value is
 	// unused — only the dependency edge matters. See US-029 / US-030.
 	_ service.TKAuthServiceColdStartReady,
+	// TokenKey: forces wire to evaluate ProvideTKGatewayPricingAvailability so
+	// GatewayService.SetPricingAvailabilityService is called at startup. The
+	// handler-side wiring is forced via ProvideTKPricingCatalogHandler being
+	// the constructor used by handler ProviderSet. See R-001 of
+	// docs/approved/pricing-availability-source-of-truth.md.
+	_ service.TKGatewayPricingAvailabilityReady,
+	// TokenKey: forces wire to evaluate ProvideTKGatewayHandlerModelList so
+	// GatewayHandler.SetModelListFilter is called at startup. See R-003 /
+	// Goal 2 of docs/approved/pricing-availability-source-of-truth.md.
+	_ handler.TKGatewayHandlerModelListReady,
 ) func() {
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

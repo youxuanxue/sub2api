@@ -60,6 +60,12 @@ func (h *PricingCatalogHandler) SetAvailabilityService(svc *service.PricingAvail
 	}
 }
 
+// HasAvailabilityService returns true once the availability service is wired.
+// Used by wire_assertion_tk_test.go to prove production DI executed the setter.
+func (h *PricingCatalogHandler) HasAvailabilityService() bool {
+	return h != nil && h.availability != nil
+}
+
 // GetPublicCatalog serves GET /api/v1/public/pricing.
 func (h *PricingCatalogHandler) GetPublicCatalog(c *gin.Context) {
 	ctx := c.Request.Context()

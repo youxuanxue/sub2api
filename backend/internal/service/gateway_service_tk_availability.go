@@ -15,6 +15,13 @@ func (s *GatewayService) SetPricingAvailabilityService(svc *PricingAvailabilityS
 	}
 }
 
+// HasPricingAvailabilityService returns true once the availability service is
+// wired. Used by wire_assertion_tk_test.go and other production-DI smoke tests
+// to prove the post-construction setter actually ran (vs. silently dropped).
+func (s *GatewayService) HasPricingAvailabilityService() bool {
+	return s != nil && s.tkPricingAvailability != nil
+}
+
 // TKRecordForwardFailure records a gateway failure outcome into the pricing
 // availability store. Called from the 3 handler error branches:
 //   - handler/gateway_handler_chat_completions.go (non-2xx from Forward)

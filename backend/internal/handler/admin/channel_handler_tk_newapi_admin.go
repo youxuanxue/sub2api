@@ -16,15 +16,28 @@ import (
 
 // TKChannelAdminHandler wires TokenKey New API admin endpoints without modifying upstream-shaped ChannelHandler.
 type TKChannelAdminHandler struct {
-	gatewayService *service.GatewayService
-	adminService   service.AdminService
+	gatewayService  *service.GatewayService
+	adminService    service.AdminService
+	discoveryFilter *newapifusion.DiscoveryFilter
 }
 
 // NewTKChannelAdminHandler constructs TokenKey-only admin channel helpers.
-func NewTKChannelAdminHandler(gatewayService *service.GatewayService, adminService service.AdminService) *TKChannelAdminHandler {
+//
+// pricingCatalog and availabilitySvc are wired into a DiscoveryFilter so the
+// "fetch upstream models" admin endpoint can tag pricing_status and drop
+// explicitly-unavailable models per docs/approved/pricing-availability-source-of-truth.md
+// §2.4 (Goal 1, R-002). Both may be nil — see DiscoveryFilter for nil-safety
+// semantics.
+func NewTKChannelAdminHandler(
+	gatewayService *service.GatewayService,
+	adminService service.AdminService,
+	pricingCatalog *service.PricingCatalogService,
+	availabilitySvc *service.PricingAvailabilityService,
+) *TKChannelAdminHandler {
 	return &TKChannelAdminHandler{
-		gatewayService: gatewayService,
-		adminService:   adminService,
+		gatewayService:  gatewayService,
+		adminService:    adminService,
+		discoveryFilter: newapifusion.NewDiscoveryFilter(pricingCatalog, availabilitySvc),
 	}
 }
 
@@ -187,10 +200,15 @@ func (h *TKChannelAdminHandler) FetchUpstreamModels(c *gin.Context) {
 		return
 	}
 
-	models, err := newapifusion.FetchUpstreamModelList(c.Request.Context(), base, req.ChannelType, apiKey)
+	rawModels, err := newapifusion.FetchUpstreamModelList(c.Request.Context(), base, req.ChannelType, apiKey)
 	if err != nil {
 		response.Error(c, http.StatusBadGateway, "failed to fetch upstream models")
 		return
 	}
+	// Pipeline: drop provider-marked unavailable + drop unreachable cells +
+	// tag pricing_status. Per docs/approved/pricing-availability-source-of-truth.md §2.4.
+	// Platform is "newapi" — the channel-type accounts always belong to the
+	// fifth platform (per CLAUDE.md fifth-platform doctrine).
+	models := h.discoveryFilter.Apply(c.Request.Context(), service.PlatformNewAPI, rawModels)
 	response.Success(c, gin.H{"models": models})
 }

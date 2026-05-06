@@ -86,6 +86,43 @@ func ProvideSettingHandler(settingService *service.SettingService, buildInfo Bui
 	return NewSettingHandler(settingService, buildInfo.Version)
 }
 
+// TKGatewayHandlerModelListReady is a wire sentinel: holding it proves
+// GatewayHandler.SetModelListFilter has been called with the production
+// ModelListFilter. provideCleanup (cmd/server/wire.go) takes this type as an
+// unused parameter to force wire to evaluate the side-effect.
+type TKGatewayHandlerModelListReady struct{}
+
+// ProvideTKGatewayHandlerModelList wires the model-list filter onto
+// GatewayHandler post-construction. Mirrors ProvideTKGatewayPricingAvailability
+// in shape; SetModelListFilter is nil-safe (degraded → fail-open).
+func ProvideTKGatewayHandlerModelList(
+	h *GatewayHandler,
+	f *service.ModelListFilter,
+) TKGatewayHandlerModelListReady {
+	if h != nil {
+		h.SetModelListFilter(f)
+	}
+	return TKGatewayHandlerModelListReady{}
+}
+
+// ProvideTKPricingCatalogHandler wraps the upstream-shape NewPricingCatalogHandler
+// constructor with TK-only post-construction wiring for the pricing-availability
+// observability service. Keeping NewPricingCatalogHandler's signature stable
+// (CLAUDE.md §5 — minimal injection point) lets upstream merges of the
+// constructor not touch TK extensions, AND the assignment survives `go run wire`
+// regenerations (a manual edit in wire_gen.go would not).
+//
+// Mirrors ProvideOpenAIGatewayHandler in shape.
+func ProvideTKPricingCatalogHandler(
+	catalog *service.PricingCatalogService,
+	gate *service.SettingService,
+	avail *service.PricingAvailabilityService,
+) *PricingCatalogHandler {
+	h := NewPricingCatalogHandler(catalog, gate)
+	h.SetAvailabilityService(avail)
+	return h
+}
+
 // ProvideOpenAIGatewayHandler wraps the upstream-shape NewOpenAIGatewayHandler
 // constructor with TK-only post-construction wiring. Keeping the signature of
 // NewOpenAIGatewayHandler stable (CLAUDE.md §5 — minimal injection point) and
@@ -182,7 +219,9 @@ var ProviderSet = wire.NewSet(
 	NewPaymentHandler,
 	NewPaymentWebhookHandler,
 	NewAvailableChannelHandler,
-	NewPricingCatalogHandler,
+	// TK: pricing-availability observability — see docs/approved/pricing-availability-source-of-truth.md
+	ProvideTKPricingCatalogHandler,
+	ProvideTKGatewayHandlerModelList,
 	NewQAHandler,
 
 	// Admin handlers
