@@ -84,8 +84,12 @@ onUnmounted(() => {
   @apply gap-4;
 }
 
+/* Fluid mode: no horizontal scrollbar when content fits, but fall back to
+   `overflow-x: auto` rather than `overflow-x: hidden` so narrow viewports
+   (e.g. 100% browser zoom on a laptop) don't silently clip the rightmost
+   columns with no scrollbar affordance. See sibling rule in DataTable.vue. */
 .table-page-layout--fluid .table-scroll-container :deep(.table-wrapper) {
-  @apply overflow-x-hidden overflow-y-auto;
+  @apply overflow-x-auto overflow-y-auto;
   scrollbar-gutter: auto;
 }
 

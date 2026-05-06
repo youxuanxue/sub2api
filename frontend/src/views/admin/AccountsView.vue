@@ -1043,28 +1043,41 @@ function getAntigravityTierClass(row: any): string {
 }
 
 // All available columns
+//
+// Wrap-first column policy under DataTable's fluid mode:
+//   - `nowrap` is reserved for cells whose contents are atomic UI primitives
+//     that visually break when wrapped (single checkbox, toggle switch,
+//     row of action buttons that must stay together).
+//   - All other columns get `min-w-0` so the browser's table-auto algorithm
+//     can compress them below their natural min-content width, letting cell
+//     contents wrap (text → multi-line, badge groups → multi-row via the
+//     existing `flex flex-wrap` containers). This is what keeps the table
+//     fitting the viewport at 100% browser zoom without a horizontal
+//     scrollbar — the alternative (more aggressive nowrap) silently clips
+//     the rightmost columns under fluid mode (overflow-x: hidden).
+const nowrap = 'whitespace-nowrap align-middle'
+const wrap = 'min-w-0 align-top'
 const allColumns = computed(() => {
-  const nowrap = 'whitespace-nowrap align-middle'
   const c = [
     { key: 'select', label: '', sortable: false, class: nowrap },
-    { key: 'name', label: t('admin.accounts.columns.name'), sortable: true, class: 'min-w-0 max-w-[14rem]' },
-    { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false },
-    { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false, class: nowrap },
-    { key: 'status', label: t('admin.accounts.columns.status'), sortable: true, class: nowrap },
+    { key: 'name', label: t('admin.accounts.columns.name'), sortable: true, class: 'min-w-0 max-w-[12rem] break-words' },
+    { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false, class: wrap },
+    { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false, class: wrap },
+    { key: 'status', label: t('admin.accounts.columns.status'), sortable: true, class: wrap },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true, class: nowrap },
-    { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false }
+    { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false, class: wrap }
   ]
   if (!authStore.isSimpleMode) {
-    c.push({ key: 'groups', label: t('admin.accounts.columns.groups'), sortable: false })
+    c.push({ key: 'groups', label: t('admin.accounts.columns.groups'), sortable: false, class: wrap })
   }
   c.push(
-    { key: 'usage', label: t('admin.accounts.columns.usageWindows'), sortable: false },
-    { key: 'proxy', label: t('admin.accounts.columns.proxy'), sortable: false },
-    { key: 'priority', label: t('admin.accounts.columns.priority'), sortable: true, class: nowrap },
-    { key: 'rate_multiplier', label: t('admin.accounts.columns.billingRateMultiplier'), sortable: true, class: nowrap },
-    { key: 'last_used_at', label: t('admin.accounts.columns.lastUsed'), sortable: true, class: nowrap },
-    { key: 'expires_at', label: t('admin.accounts.columns.expiresAt'), sortable: true, class: 'min-w-0 align-top' },
-    { key: 'notes', label: t('admin.accounts.columns.notes'), sortable: false },
+    { key: 'usage', label: t('admin.accounts.columns.usageWindows'), sortable: false, class: wrap },
+    { key: 'proxy', label: t('admin.accounts.columns.proxy'), sortable: false, class: wrap },
+    { key: 'priority', label: t('admin.accounts.columns.priority'), sortable: true, class: wrap },
+    { key: 'rate_multiplier', label: t('admin.accounts.columns.billingRateMultiplier'), sortable: true, class: wrap },
+    { key: 'last_used_at', label: t('admin.accounts.columns.lastUsed'), sortable: true, class: wrap },
+    { key: 'expires_at', label: t('admin.accounts.columns.expiresAt'), sortable: true, class: wrap },
+    { key: 'notes', label: t('admin.accounts.columns.notes'), sortable: false, class: wrap },
     { key: 'actions', label: t('admin.accounts.columns.actions'), sortable: false, class: nowrap }
   )
   return c

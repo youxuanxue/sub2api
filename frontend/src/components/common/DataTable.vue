@@ -733,8 +733,14 @@ defineExpose({
   isolation: isolate;
 }
 
+/* Fluid mode: no horizontal scroll when content fits the viewport
+   (typical wide-monitor / zoomed-out case), but fall back to a horizontal
+   scrollbar instead of clipping the rightmost columns when the sum of
+   nowrap-column min-widths exceeds the container — clipping silently would
+   hide data with no UI affordance to discover it (e.g. at 100% browser zoom
+   on a 14-15" laptop). */
 .table-wrapper.table-wrapper--fluid {
-  overflow-x: hidden;
+  overflow-x: auto;
 }
 
 /* 表头容器，确保在滚动时覆盖表体内容 */
