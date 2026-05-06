@@ -2826,6 +2826,13 @@ func (s *GeminiMessagesCompatService) handleGeminiUpstreamError(ctx context.Cont
 	projectID := strings.TrimSpace(account.GetCredential("project_id"))
 	isCodeAssist := account.IsGeminiCodeAssist()
 
+	// TK: per-model rate limit for Code Assist 429s carrying ErrorInfo.metadata.model
+	// (e.g. MODEL_CAPACITY_EXHAUSTED on a single model). See
+	// gemini_messages_compat_service_tk_model_rate_limit.go for rationale.
+	if s.tryGeminiCodeAssistApplyModelRateLimit(ctx, account, body) {
+		return
+	}
+
 	resetAt := ParseGeminiRateLimitResetTime(body)
 	if resetAt == nil {
 		// 根据账号类型使用不同的默认重置时间

@@ -110,10 +110,42 @@ runs:
         CLAUDE_CODE_ATTRIBUTION_HEADER: "0"
         ANTHROPIC_MODEL: "opus[1m]"
       run: |
+        # claude CLI has no --output flag — pipe stdout instead. tee keeps
+        # CI logs live (helpful for long agent runs); pipefail propagates
+        # claude's exit code through the pipeline so the step actually
+        # fails when the agent fails. (PR #123 fixed the same dead --output
+        # in upstream-merge-agent-daily.yml + pr-repair-agent.yml but
+        # missed this composite action.)
+        # --allowedTools is required in headless: without it `claude -p`
+        # defaults to interactive `default` permission mode and rejects
+        # every tool call with "This command requires approval". Whitelist
+        # the work toolkit explicitly per global CLAUDE.md §5.
+        # scripts/redact-agent-stream.py scrubs secrets out of the stream
+        # before tee writes the artifact — Actions log masking does NOT
+        # apply to bytes that hit disk via tee, so without this filter
+        # the artifact can leak the gateway auth token / github.token.
+        # The composite action's own checkout (above) brings the script
+        # in from the calling workflow's ref, which is normally main.
+        # --output-format stream-json + --verbose makes the agent
+        # transcript (tool calls, results, final cost / errors /
+        # permission denials) land in the artifact as JSONL — without
+        # it `claude -p` only writes the final reply text and a
+        # mid-remediation failure leaves the artifact empty.
+        # --exclude-dynamic-system-prompt-sections keeps the system
+        # prompt prefix stable across runs so the 1h ephemeral prompt
+        # cache can be hit by manual re-dispatches and other agents
+        # that share the prefix. See upstream-merge-agent-daily.yml for
+        # full rationale.
+        set -o pipefail
         claude -p "$(cat /tmp/agent-prompt.txt)" \
           --model "opus[1m]" \
           --max-budget-usd "${{ inputs.max_budget_usd }}" \
-          --output /tmp/agent-output.txt
+          --output-format stream-json --verbose \
+          --exclude-dynamic-system-prompt-sections \
+          --allowedTools "Bash Read Write Edit Grep Glob" \
+          2>&1 \
+          | python3 scripts/redact-agent-stream.py \
+          | tee /tmp/agent-output.txt
 
     - name: Guard diff scope
       if: steps.cooldown.outputs.skip == 'false'
