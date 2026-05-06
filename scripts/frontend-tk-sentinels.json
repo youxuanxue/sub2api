@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "rationale": "Load-bearing TokenKey-only frontend surfaces that anchor admin-UI behavior diverging from upstream defaults — sidebar geometry (TK uses a narrower w-44 rail vs upstream w-64), the fluid table mode used on /admin/accounts (no horizontal scroll, cells wrap), and the per-page sticky-edge-hints opt-out. These are the kinds of small TK changes that get silently reverted by upstream merges precisely because they're small and local; the registry upgrades the rule from `agent must remember` to `merge will fail`. Source-of-truth read by both `scripts/preflight.sh` (frontend TK sentinel registry section, always) and `.github/workflows/upstream-merge-pr-shape.yml` (frontend TK sentinels check, on `merge/upstream-*` PRs). Adding a new TK-only frontend surface that must survive upstream merges MUST add a sentinel here in the same commit. Sibling registries: `newapi-sentinels.json` (fifth-platform integration), `brand-sentinels.json` (outward TK brand surfaces).",
+  "sentinels": [
+    {
+      "path": "frontend/src/constants/layout.ts",
+      "must_contain": [
+        "TK_SIDEBAR_WIDTH_CLASS",
+        "TK_SIDEBAR_MAIN_MARGIN_CLASS"
+      ],
+      "rationale": "Single source of truth for TK sidebar geometry. AppSidebar.vue / AppLayout.vue import these so upstream-shaped layout files stay close to upstream; if either constant disappears, the import sites fail to compile (loud). The sentinel adds a second layer in case an upstream merge replaces the entire constants file."
+    },
+    {
+      "path": "frontend/src/components/layout/AppSidebar.vue",
+      "must_contain": [
+        "TK_SIDEBAR_WIDTH_CLASS"
+      ],
+      "rationale": "AppSidebar's expanded-rail width must reference the TK constant. Without this reference an upstream merge could silently restore the literal `w-64` and the sidebar visually reverts to upstream — compiles fine, no runtime error, just wrong-looking UI."
+    },
+    {
+      "path": "frontend/src/components/layout/AppLayout.vue",
+      "must_contain": [
+        "TK_SIDEBAR_MAIN_MARGIN_CLASS"
+      ],
+      "rationale": "Same as AppSidebar but for the main content area's left margin (must move in lockstep with the sidebar width)."
+    },
+    {
+      "path": "frontend/src/components/common/DataTable.vue",
+      "must_contain": [
+        "fluid?: boolean",
+        "stickyEdgeHints?: boolean",
+        "table-wrapper--fluid",
+        ".table-wrapper.table-wrapper--fluid {\n  overflow-x: auto"
+      ],
+      "rationale": "DataTable's `fluid` mode + `stickyEdgeHints` opt-out are how the admin accounts page fits the viewport without horizontal scroll. The fluid rule body must keep `overflow-x: auto` (not `hidden`) so narrow viewports get a scrollbar fallback rather than silently clipping the rightmost columns — the bug observed at 100% browser zoom on a 14-15\" laptop before that fix landed. Symbol-only sentinels (the prop names + modifier class) would let an upstream merge revert the rule body to `hidden` while keeping the symbols intact, so the multi-line literal anchors the rule body content too."
+    },
+    {
+      "path": "frontend/src/components/layout/TablePageLayout.vue",
+      "must_contain": [
+        "fluid?: boolean",
+        "table-page-layout--fluid",
+        ".table-page-layout--fluid .table-scroll-container :deep(.table-wrapper) {\n  @apply overflow-x-auto"
+      ],
+      "rationale": "TablePageLayout's `fluid` prop and matching modifier-scoped CSS rules. The fluid wrapper rule must keep `overflow-x-auto` (not `overflow-x-hidden`) so a narrow viewport falls back to a scrollbar instead of clipping rightmost columns. Sibling guard to the DataTable.vue fluid-overflow sentinel above — both paths must move in lockstep."
+    },
+    {
+      "path": "frontend/src/views/admin/AccountsView.vue",
+      "must_contain": [
+        "<TablePageLayout fluid>",
+        ":sticky-edge-hints=\"false\"",
+        "Wrap-first column policy",
+        "const wrap = (maxW: string) =>",
+        "wrap('max-w-[15rem]')"
+      ],
+      "rationale": "The TK callsite for fluid+stickyEdgeHints opt-outs (first two literals), the wrap-first column-class policy comment (third literal), and the per-column max-width discipline (fourth + fifth literals). `wrap` as a function (not a plain string constant) means every column carries an explicit cap — an upstream merge that flattens it back to a bare string would silently drop the caps and the table overflows again at 100% browser zoom. The fifth literal anchors the usage column at 15rem (the widest cap), chosen because it is uniquely wide and unlikely to clash with any upstream string. Without the max-width caps, `min-w-0 align-top` alone is insufficient: browser table-auto still sizes columns to their natural max-content width when there is no explicit upper bound."
+    }
+  ]
+}

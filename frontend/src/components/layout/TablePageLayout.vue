@@ -1,5 +1,8 @@
 <template>
-  <div class="table-page-layout" :class="{ 'mobile-mode': isMobile }">
+  <div
+    class="table-page-layout"
+    :class="{ 'mobile-mode': isMobile, 'table-page-layout--fluid': fluid }"
+  >
     <!-- 固定区域：操作按钮 -->
     <div v-if="$slots.actions" class="layout-section-fixed">
       <slot name="actions" />
@@ -26,6 +29,14 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
+
+withDefaults(
+  defineProps<{
+    /** Fit table to viewport width; hide horizontal scroll (use with DataTable fluid). */
+    fluid?: boolean
+  }>(),
+  { fluid: false }
+)
 
 const isMobile = ref(false)
 
@@ -69,6 +80,25 @@ onUnmounted(() => {
   scrollbar-gutter: stable;
 }
 
+.table-page-layout--fluid.table-page-layout:not(.mobile-mode) {
+  @apply gap-4;
+}
+
+/* Fluid mode: no horizontal scrollbar when content fits, but fall back to
+   `overflow-x: auto` rather than `overflow-x: hidden` so narrow viewports
+   (e.g. 100% browser zoom on a laptop) don't silently clip the rightmost
+   columns with no scrollbar affordance. See sibling rule in DataTable.vue. */
+.table-page-layout--fluid .table-scroll-container :deep(.table-wrapper) {
+  @apply overflow-x-auto overflow-y-auto;
+  scrollbar-gutter: auto;
+}
+
+.table-page-layout--fluid .table-scroll-container :deep(table) {
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
+}
+
 .table-scroll-container :deep(table) {
   @apply w-full;
   min-width: max-content; /* 关键：确保表格宽度根据内容撑开，从而触发横向滚动 */
@@ -89,6 +119,11 @@ onUnmounted(() => {
 
 .table-scroll-container :deep(td) {
   @apply px-5 py-4 text-sm text-gray-700 dark:text-gray-300 border-b border-gray-100 dark:border-dark-800;
+}
+
+.table-page-layout--fluid:not(.mobile-mode) .table-scroll-container :deep(th),
+.table-page-layout--fluid:not(.mobile-mode) .table-scroll-container :deep(td) {
+  @apply px-3 py-2;
 }
 
 /* 移动端：恢复正常滚动 */

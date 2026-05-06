@@ -112,21 +112,38 @@ func anthropicUsageFromResponsesUsage(usage *ResponsesUsage) AnthropicUsage {
 	}
 }
 
+// details is retained in the signature so callers need not change; the reason
+// value no longer drives dispatch — every "incomplete" maps to "max_tokens".
 func responsesStatusToAnthropicStopReason(status string, details *ResponsesIncompleteDetails, blocks []AnthropicContentBlock) string {
 	switch status {
 	case "incomplete":
-		if details != nil && details.Reason == "max_output_tokens" {
-			return "max_tokens"
-		}
-		return "end_turn"
+		// Any "incomplete" terminal means the upstream cut us off — whether the
+		// reason is max_output_tokens, content_filter, server_error, or anything
+		// else. Mapping the non-budget reasons to "end_turn" used to make Claude
+		// Code's agentic loop think the task finished naturally and stop, even
+		// though there is more work to do. "max_tokens" is the only Anthropic
+		// stop reason that signals "cut off, continue is sensible" — use it for
+		// every incomplete case so the client can recover. The original reason
+		// (content_filter, server_error, …) is surfaced via the gateway's
+		// access log instead.
+		return "max_tokens"
 	case "completed":
-		if len(blocks) > 0 && blocks[len(blocks)-1].Type == "tool_use" {
+		if containsAnthropicToolUseBlock(blocks) {
 			return "tool_use"
 		}
 		return "end_turn"
 	default:
 		return "end_turn"
 	}
+}
+
+func containsAnthropicToolUseBlock(blocks []AnthropicContentBlock) bool {
+	for _, block := range blocks {
+		if block.Type == "tool_use" {
+			return true
+		}
+	}
+	return false
 }
 
 func sanitizeAnthropicToolUseInput(name string, raw string) json.RawMessage {
@@ -161,11 +178,13 @@ type ResponsesEventToAnthropicState struct {
 	MessageStartSent bool
 	MessageStopSent  bool
 
-	ContentBlockIndex int
-	ContentBlockOpen  bool
-	CurrentBlockType  string // "text" | "thinking" | "tool_use"
-	CurrentToolName   string
-	CurrentToolArgs   string
+	ContentBlockIndex   int
+	ContentBlockOpen    bool
+	CurrentBlockType    string // "text" | "thinking" | "tool_use"
+	CurrentToolName     string
+	CurrentToolArgs     string
+	CurrentToolHadDelta bool
+	HasToolCall         bool
 	// EmittedAnyContentBlock protects Anthropic SSE clients from streams that
 	// terminate without at least one content block.
 	EmittedAnyContentBlock bool
@@ -180,6 +199,17 @@ type ResponsesEventToAnthropicState struct {
 	ResponseID string
 	Model      string
 	Created    int64
+
+	// StopReason is the Anthropic-shaped stop reason emitted by the most recent
+	// terminal event (response.completed / response.incomplete / etc.). The
+	// gateway forwards this value to the access log so we can verify the
+	// stop_reason mapping fix is behaving as designed.
+	StopReason string
+	// IncompleteReason mirrors the upstream incomplete_details.reason verbatim
+	// (max_output_tokens, content_filter, server_error, …) so we can tell
+	// which kind of cutoff produced a "max_tokens" stop_reason. Empty when the
+	// response did not terminate as incomplete.
+	IncompleteReason string
 }
 
 // NewResponsesEventToAnthropicState returns an initialised stream state.
@@ -238,11 +268,16 @@ func FinalizeResponsesAnthropicStream(state *ResponsesEventToAnthropicState) []A
 	// event).
 	events = append(events, ensureContentBlockEmittedAsEmptyText(state)...)
 
+	stopReason := "end_turn"
+	if state.HasToolCall {
+		stopReason = "tool_use"
+	}
+
 	events = append(events,
 		AnthropicStreamEvent{
 			Type: "message_delta",
 			Delta: &AnthropicDelta{
-				StopReason: "end_turn",
+				StopReason: stopReason,
 			},
 			Usage: &AnthropicUsage{
 				InputTokens:          state.InputTokens,
@@ -341,6 +376,8 @@ func resToAnthHandleOutputItemAdded(evt *ResponsesStreamEvent, state *ResponsesE
 		state.CurrentToolName = evt.Item.Name
 		state.CurrentToolArgs = ""
 		state.EmittedAnyContentBlock = true
+		state.CurrentToolHadDelta = false
+		state.HasToolCall = true
 
 		events = append(events, AnthropicStreamEvent{
 			Type:  "content_block_start",
@@ -427,6 +464,9 @@ func resToAnthHandleFuncArgsDelta(evt *ResponsesStreamEvent, state *ResponsesEve
 		state.CurrentToolArgs += evt.Delta
 		return nil
 	}
+	if state.CurrentBlockType == "tool_use" {
+		state.CurrentToolHadDelta = true
+	}
 
 	blockIdx, ok := state.OutputIndexToBlockIdx[evt.OutputIndex]
 	if !ok {
@@ -444,7 +484,7 @@ func resToAnthHandleFuncArgsDelta(evt *ResponsesStreamEvent, state *ResponsesEve
 }
 
 func resToAnthHandleFuncArgsDone(evt *ResponsesStreamEvent, state *ResponsesEventToAnthropicState) []AnthropicStreamEvent {
-	if state.CurrentBlockType != "tool_use" || state.CurrentToolName != "Read" {
+	if state.CurrentBlockType != "tool_use" {
 		return resToAnthHandleBlockDone(state)
 	}
 
@@ -452,9 +492,15 @@ func resToAnthHandleFuncArgsDone(evt *ResponsesStreamEvent, state *ResponsesEven
 	if raw == "" {
 		raw = state.CurrentToolArgs
 	}
-	sanitized := sanitizeAnthropicToolUseInput(state.CurrentToolName, raw)
-	if len(sanitized) == 0 {
+	if raw == "" || state.CurrentToolHadDelta {
 		return closeCurrentBlock(state)
+	}
+	if state.CurrentToolName == "Read" {
+		sanitized := sanitizeAnthropicToolUseInput(state.CurrentToolName, raw)
+		if len(sanitized) == 0 {
+			return closeCurrentBlock(state)
+		}
+		raw = string(sanitized)
 	}
 
 	idx := state.ContentBlockIndex
@@ -463,7 +509,7 @@ func resToAnthHandleFuncArgsDone(evt *ResponsesStreamEvent, state *ResponsesEven
 		Index: &idx,
 		Delta: &AnthropicDelta{
 			Type:        "input_json_delta",
-			PartialJSON: string(sanitized),
+			PartialJSON: raw,
 		},
 	}}
 	events = append(events, closeCurrentBlock(state)...)
@@ -594,14 +640,21 @@ func resToAnthHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 		}
 		switch evt.Response.Status {
 		case "incomplete":
-			if evt.Response.IncompleteDetails != nil && evt.Response.IncompleteDetails.Reason == "max_output_tokens" {
-				stopReason = "max_tokens"
+			// Mirror the non-streaming branch in responsesStatusToAnthropicStopReason:
+			// every "incomplete" terminal is a cutoff (max_output_tokens, content_filter,
+			// server_error, …). All of them map to "max_tokens" so Claude Code's
+			// agentic loop knows the turn was cut short and continuation is sensible.
+			// Returning "end_turn" here used to make CC stop after non-budget cutoffs.
+			stopReason = "max_tokens"
+			if evt.Response.IncompleteDetails != nil {
+				state.IncompleteReason = evt.Response.IncompleteDetails.Reason
 			}
 		case "completed":
-			if state.ContentBlockIndex > 0 && state.CurrentBlockType == "tool_use" {
+			if state.HasToolCall {
 				stopReason = "tool_use"
 			}
 		}
+		state.StopReason = stopReason
 	}
 
 	events = append(events,
@@ -631,6 +684,7 @@ func closeCurrentBlock(state *ResponsesEventToAnthropicState) []AnthropicStreamE
 	state.ContentBlockIndex++
 	state.CurrentToolName = ""
 	state.CurrentToolArgs = ""
+	state.CurrentToolHadDelta = false
 	return []AnthropicStreamEvent{{
 		Type:  "content_block_stop",
 		Index: &idx,

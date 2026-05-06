@@ -65,7 +65,7 @@ jobs:
           cache-dependency-path: backend/go.sum
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 9
 
@@ -154,17 +154,60 @@ jobs:
           MAX_THINKING_TOKENS: "31999"
           CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE: "60"
           CLAUDE_CODE_ATTRIBUTION_HEADER: "0"
-          ANTHROPIC_MODEL: "opus[1m]"
+          ANTHROPIC_MODEL: "claude-sonnet-4-6"
         run: |
           # claude CLI has no --output flag — pipe stdout instead. tee keeps
           # CI logs live (helpful for long agent runs); pipefail propagates
           # claude's exit code through the pipeline so the step actually
           # fails when the agent fails.
+          # --allowedTools is required in headless: without it `claude -p`
+          # defaults to interactive `default` permission mode and rejects
+          # every tool call with "This command requires approval", so the
+          # agent runs the SOP read-only and never produces a PR
+          # (run 25415454229 / job 74548660906, 2026-05-06). Whitelist the
+          # work toolkit explicitly per global CLAUDE.md §5 ("严格遵守
+          # --allowedTools 限制"); WebFetch/WebSearch/Skill stay denied.
+          # scripts/redact-agent-stream.py scrubs secrets from the stream
+          # before tee writes the artifact: Actions log masking does NOT
+          # apply to bytes that hit disk via tee, so without this filter
+          # the public artifact can leak ANTHROPIC_AUTH_TOKEN / GH_TOKEN
+          # if the agent ever echoes them (e.g. an accidental `printenv`).
+          # Model+budget retuning (run 25417602884, 2026-05-06): the agent
+          # under opus[1m] burned its $8 cap in 16 min and hit
+          # `Exceeded USD budget` mid-SOP without producing a PR. The
+          # cache-creation fee for a single fresh `claude -p` is ~$0.75
+          # at opus[1m] (40k-token system prompt × ~$18.75/M write rate),
+          # so $8 left only ~$7 for actual work. Sonnet 4.6 is roughly
+          # 5× cheaper, and $20 gives the SOP enough headroom to fetch
+          # upstream, run preflight, resolve conflicts, push, and open a
+          # PR even on a busy upstream day.
+          # --output-format stream-json + --verbose makes the agent
+          # transcript (every tool_use, tool_result, thinking block, and
+          # the final result with total_cost_usd / errors / permission
+          # denials) land in the artifact as JSONL. Without it, `claude
+          # -p` only writes the final reply text — on `Exceeded USD
+          # budget` failures the artifact contains a single line and
+          # debugging is impossible. The redactor still scrubs token
+          # patterns inside JSON strings line-by-line.
+          # --exclude-dynamic-system-prompt-sections hoists per-machine
+          # bits (cwd, env info, memory paths, git status) out of the
+          # system prompt into the first user message, keeping the
+          # system prompt prefix stable across runs. Within the 1h
+          # ephemeral cache TTL this lets re-dispatches and chained
+          # workflow_run agents hit the prompt cache instead of paying
+          # the ~$0.15 / 40k-token cache-creation fee. Daily cron runs
+          # are 24h apart so cache is already cold for them, but the
+          # flag is harmless on miss.
           set -o pipefail
           claude -p "$(cat /tmp/upstream-merge-agent-prompt.txt)" \
-            --model "opus[1m]" \
-            --max-budget-usd "8.00" \
-            2>&1 | tee /tmp/upstream-merge-agent-output.txt
+            --model "claude-sonnet-4-6" \
+            --max-budget-usd "20.00" \
+            --output-format stream-json --verbose \
+            --exclude-dynamic-system-prompt-sections \
+            --allowedTools "Bash Read Write Edit Grep Glob" \
+            2>&1 \
+            | python3 scripts/redact-agent-stream.py \
+            | tee /tmp/upstream-merge-agent-output.txt
 
       - name: Upload agent output
         if: always()

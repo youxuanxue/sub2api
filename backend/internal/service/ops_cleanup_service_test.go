@@ -41,23 +41,26 @@ func TestOpsCleanupServiceRunCleanupOnceUsesSeparateLogRetentions(t *testing.T) 
 	}
 	defer func() { _ = db.Close() }()
 
+	// After upstream refactor (d218b6c2): all log tables (error + system) share
+	// ErrorLogRetentionDays. SystemLogRetentionDays is kept in config for backwards compat
+	// but not used by the cleanup executor. days < 0 → skip (days == 0 → TRUNCATE).
 	cfg := &config.Config{
 		Ops: config.OpsConfig{
 			Cleanup: config.OpsCleanupConfig{
-				SystemLogRetentionDays:     7,
 				ErrorLogRetentionDays:      14,
-				MinuteMetricsRetentionDays: 0,
-				HourlyMetricsRetentionDays: 0,
+				MinuteMetricsRetentionDays: -1,
+				HourlyMetricsRetentionDays: -1,
 			},
 		},
 	}
-	svc := NewOpsCleanupService(&opsRepoMock{}, db, nil, cfg, nil)
+	svc := NewOpsCleanupService(&opsRepoMock{}, db, nil, cfg, nil, nil)
+	svc.refreshEffectiveBeforeRun(context.Background())
 
 	expectCleanupTable(t, mock, "ops_error_logs", 14, 3)
 	expectCleanupTable(t, mock, "ops_retry_attempts", 14, 2)
 	expectCleanupTable(t, mock, "ops_alert_events", 14, 1)
-	expectCleanupTable(t, mock, "ops_system_logs", 7, 5)
-	expectCleanupTable(t, mock, "ops_system_log_cleanup_audits", 7, 4)
+	expectCleanupTable(t, mock, "ops_system_logs", 14, 5)
+	expectCleanupTable(t, mock, "ops_system_log_cleanup_audits", 14, 4)
 
 	counts, err := svc.runCleanupOnce(context.Background())
 	if err != nil {

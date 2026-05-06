@@ -2,7 +2,7 @@
   <aside
     class="sidebar"
     :class="[
-      sidebarCollapsed ? 'w-[72px]' : 'w-64',
+      sidebarCollapsed ? 'w-[72px]' : TK_SIDEBAR_WIDTH_CLASS,
       { '-translate-x-full lg:translate-x-0': !mobileOpen }
     ]"
   >
@@ -187,6 +187,7 @@ import { useAdminSettingsStore, useAppStore, useAuthStore, useOnboardingStore } 
 import VersionBadge from '@/components/common/VersionBadge.vue'
 import { sanitizeSvg } from '@/utils/sanitize'
 import { FeatureFlags, makeSidebarFlag } from '@/utils/featureFlags'
+import { TK_SIDEBAR_WIDTH_CLASS } from '@/constants/layout'
 
 interface NavItem {
   path: string

@@ -66,10 +66,14 @@
     class="table-wrapper"
     :class="{
       'actions-expanded': actionsExpanded,
-      'is-scrollable': isScrollable
+      'is-scrollable': isScrollable && stickyEdgeHints,
+      'table-wrapper--fluid': fluid
     }"
   >
-    <table class="w-full min-w-max divide-y divide-gray-200 dark:divide-dark-700">
+    <table
+      class="divide-y divide-gray-200 dark:divide-dark-700"
+      :class="fluid ? 'w-full min-w-0 max-w-full table-auto' : 'w-full min-w-max'"
+    >
       <thead class="table-header bg-gray-50 dark:bg-dark-800">
         <tr>
           <th
@@ -77,7 +81,8 @@
             :key="column.key"
             scope="col"
             :class="[
-              'sticky-header-cell py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400',
+              'sticky-header-cell text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400',
+              fluid ? 'whitespace-normal break-words min-w-0 py-2' : 'py-3',
               getAdaptivePaddingClass(),
               { 'cursor-pointer hover:bg-gray-100 dark:hover:bg-dark-700': column.sortable },
               getStickyColumnClass(column, index),
@@ -121,7 +126,7 @@
       <tbody class="table-body divide-y divide-gray-200 bg-white dark:divide-dark-700 dark:bg-dark-900">
         <!-- Loading skeleton -->
         <tr v-if="loading" v-for="i in 5" :key="i">
-          <td v-for="column in columns" :key="column.key" :class="['whitespace-nowrap py-4', getAdaptivePaddingClass()]">
+          <td v-for="column in columns" :key="column.key" :class="[fluid ? 'py-2 whitespace-normal min-w-0 break-words align-top' : 'whitespace-nowrap py-4', getAdaptivePaddingClass()]">
             <div class="animate-pulse">
               <div class="h-4 w-3/4 rounded bg-gray-200 dark:bg-dark-700"></div>
             </div>
@@ -168,7 +173,9 @@
               v-for="(column, colIndex) in columns"
               :key="column.key"
               :class="[
-                'whitespace-nowrap py-4 text-sm text-gray-900 dark:text-gray-100',
+                fluid
+                  ? 'py-2 align-top text-sm text-gray-900 dark:text-gray-100 min-w-0 break-words whitespace-normal'
+                  : 'whitespace-nowrap py-4 text-sm text-gray-900 dark:text-gray-100',
                 getAdaptivePaddingClass(),
                 getStickyColumnClass(column, colIndex),
                 column.class
@@ -361,6 +368,14 @@ interface Props {
   estimateRowHeight?: number
   /** Number of rows to render beyond the visible area (default 5) */
   overscan?: number
+  /**
+   * When false, sticky columns stay pinned but edge fade cues are hidden (no ::before/::after gradients).
+   */
+  stickyEdgeHints?: boolean
+  /**
+   * Fit table to container width; suppress horizontal scroll (cells wrap unless column uses nowrap).
+   */
+  fluid?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -369,7 +384,9 @@ const props = withDefaults(defineProps<Props>(), {
   stickyActionsColumn: true,
   expandableActions: true,
   defaultSortOrder: 'asc',
-  serverSideSort: false
+  serverSideSort: false,
+  stickyEdgeHints: true,
+  fluid: false
 })
 
 const sortKey = ref<string>('')
@@ -714,6 +731,16 @@ defineExpose({
   flex: 1;
   min-height: 0;
   isolation: isolate;
+}
+
+/* Fluid mode: no horizontal scroll when content fits the viewport
+   (typical wide-monitor / zoomed-out case), but fall back to a horizontal
+   scrollbar instead of clipping the rightmost columns when the sum of
+   nowrap-column min-widths exceeds the container — clipping silently would
+   hide data with no UI affordance to discover it (e.g. at 100% browser zoom
+   on a 14-15" laptop). */
+.table-wrapper.table-wrapper--fluid {
+  overflow-x: auto;
 }
 
 /* 表头容器，确保在滚动时覆盖表体内容 */

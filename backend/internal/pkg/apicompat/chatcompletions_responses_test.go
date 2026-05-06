@@ -561,6 +561,33 @@ func TestResponsesToChatCompletions_CachedTokens(t *testing.T) {
 	require.NotNil(t, chat.Usage)
 	require.NotNil(t, chat.Usage.PromptTokensDetails)
 	assert.Equal(t, 80, chat.Usage.PromptTokensDetails.CachedTokens)
+	assert.Nil(t, chat.Usage.CompletionTokensDetails, "no reasoning tokens upstream → omit details")
+}
+
+func TestResponsesToChatCompletions_ReasoningTokens(t *testing.T) {
+	resp := &ResponsesResponse{
+		ID:     "resp_reasoning_usage",
+		Status: "completed",
+		Output: []ResponsesOutput{
+			{
+				Type:    "message",
+				Content: []ResponsesContentPart{{Type: "output_text", Text: "answer"}},
+			},
+		},
+		Usage: &ResponsesUsage{
+			InputTokens:  20,
+			OutputTokens: 200,
+			TotalTokens:  220,
+			OutputTokensDetails: &ResponsesOutputTokensDetails{
+				ReasoningTokens: 150,
+			},
+		},
+	}
+
+	chat := ResponsesToChatCompletions(resp, "gpt-5.4")
+	require.NotNil(t, chat.Usage)
+	require.NotNil(t, chat.Usage.CompletionTokensDetails)
+	assert.Equal(t, 150, chat.Usage.CompletionTokensDetails.ReasoningTokens)
 }
 
 func TestResponsesToChatCompletions_WebSearch(t *testing.T) {
@@ -723,6 +750,33 @@ func TestResponsesEventToChatChunks_Completed(t *testing.T) {
 	assert.Equal(t, 70, chunks[1].Usage.TotalTokens)
 	require.NotNil(t, chunks[1].Usage.PromptTokensDetails)
 	assert.Equal(t, 30, chunks[1].Usage.PromptTokensDetails.CachedTokens)
+	assert.Nil(t, chunks[1].Usage.CompletionTokensDetails, "no reasoning tokens upstream → omit details")
+}
+
+func TestResponsesEventToChatChunks_CompletedWithReasoningTokens(t *testing.T) {
+	state := NewResponsesEventToChatState()
+	state.Model = "gpt-5.4"
+	state.IncludeUsage = true
+
+	chunks := ResponsesEventToChatChunks(&ResponsesStreamEvent{
+		Type: "response.completed",
+		Response: &ResponsesResponse{
+			Status: "completed",
+			Usage: &ResponsesUsage{
+				InputTokens:  10,
+				OutputTokens: 300,
+				TotalTokens:  310,
+				OutputTokensDetails: &ResponsesOutputTokensDetails{
+					ReasoningTokens: 256,
+				},
+			},
+		},
+	}, state)
+	require.Len(t, chunks, 2)
+
+	require.NotNil(t, chunks[1].Usage)
+	require.NotNil(t, chunks[1].Usage.CompletionTokensDetails)
+	assert.Equal(t, 256, chunks[1].Usage.CompletionTokensDetails.ReasoningTokens)
 }
 
 func TestResponsesEventToChatChunks_ResponseDone(t *testing.T) {

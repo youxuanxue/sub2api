@@ -182,7 +182,11 @@ func (s *OpenAIGatewayService) forwardOpenAIV1JSON(
 		return nil, err
 	}
 	if usage == nil {
-		usage = &OpenAIUsage{}
+		usage = &openaiNonStreamingResult{OpenAIUsage: &OpenAIUsage{}}
+	}
+	var openAIUsage OpenAIUsage
+	if usage.OpenAIUsage != nil {
+		openAIUsage = *usage.OpenAIUsage
 	}
 
 	if account.Type == AccountTypeOAuth {
@@ -193,7 +197,8 @@ func (s *OpenAIGatewayService) forwardOpenAIV1JSON(
 
 	return &OpenAIForwardResult{
 		RequestID:     resp.Header.Get("x-request-id"),
-		Usage:         *usage,
+		Usage:         openAIUsage,
+		ImageCount:    usage.imageCount,
 		Model:         originalModel,
 		BillingModel:  billingModel,
 		UpstreamModel: upstreamModel,

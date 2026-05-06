@@ -25,6 +25,12 @@
 #        fifth-platform display label) from drifting back apart. Driven by
 #        `scripts/brand-sentinels.json` via `scripts/check-brand-sentinels.py`;
 #        intentionally separate from `newapi` semantics / routing truth.
+#   frontend TK sentinel registry — guards load-bearing TokenKey-only frontend
+#        surfaces (sidebar geometry, fluid admin-accounts table mode, sticky
+#        edge-hints opt-out) from being silently reverted by upstream merges
+#        on common Vue components. Driven by `scripts/frontend-tk-sentinels.json`
+#        via `scripts/check-frontend-tk-sentinels.py`. The same script is
+#        invoked by `.github/workflows/upstream-merge-pr-shape.yml`.
 #   redaction version contract   — guards Evidence Spine contract drift:
 #        changing the default sensitive-key set in logredact must bump the
 #        outward QA `redaction_version` contract in the same commit. Driven by
@@ -255,6 +261,25 @@ else
     echo "  ok: all pricing-availability sentinels intact"
 fi
 
+# ---- sub2api: frontend TK sentinel registry ---------------------------------
+# Source of truth: scripts/frontend-tk-sentinels.json. Verifies that load-bearing
+# TokenKey-only frontend surfaces (sidebar geometry, fluid table mode, sticky
+# edge-hints opt-out on the admin accounts page) are still present. These are
+# small, additive divergences from upstream that compile cleanly with or
+# without the TK touches, so without a literal-content guard a bad upstream
+# merge can silently revert them and the regression only shows up visually.
+echo ""
+echo "=== sub2api: frontend TK sentinel registry ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required to read frontend-tk-sentinels.json)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/check-frontend-tk-sentinels.py --quiet; then
+    # check-frontend-tk-sentinels.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: all frontend TK sentinels intact"
+fi
+
 # ---- sub2api: redaction version contract ------------------------------------
 # Source of truth: scripts/redaction-sentinels.json. Verifies that the default
 # sensitive-key set in logredact and the outward QA redaction_version literals
@@ -387,6 +412,25 @@ elif ! python3 ./scripts/check-workflow-job-if-env.py --quiet; then
     errors=$((errors + 1))
 else
     echo "  ok: no env references in job-level if expressions"
+fi
+
+# Headless agent stream redactor: scripts/redact-agent-stream.py sits between
+# `claude -p` and `tee` in upstream-merge-agent-daily.yml / pr-repair-agent.yml
+# /agent-draft-pr/action.yml, scrubbing secrets out of the agent's stdout
+# before the bytes hit the artifact file. GitHub Actions live-log masking
+# does NOT apply to bytes a step writes to disk via tee, so the artifact
+# can leak secrets that the rendered log hides. Guard the redactor itself
+# with a self-test so a bad refactor cannot silently disarm it.
+echo ""
+echo "=== sub2api: agent stream redactor self-test ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by redact-agent-stream.py)"
+    errors=$((errors + 1))
+elif ! bash ./scripts/redact-agent-stream_test.sh >/dev/null; then
+    echo "  FAIL: scripts/redact-agent-stream_test.sh failed (re-run for details)"
+    errors=$((errors + 1))
+else
+    echo "  ok: agent stream redactor self-test"
 fi
 
 echo ""

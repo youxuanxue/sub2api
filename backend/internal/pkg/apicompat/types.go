@@ -53,6 +53,8 @@ type AnthropicMessage struct {
 type AnthropicContentBlock struct {
 	Type string `json:"type"`
 
+	CacheControl *AnthropicCacheControl `json:"cache_control,omitempty"`
+
 	// type=text
 	Text string `json:"text,omitempty"`
 
@@ -165,19 +167,23 @@ type AnthropicDelta struct {
 
 // ResponsesRequest is the request body for POST /v1/responses.
 type ResponsesRequest struct {
-	Model           string              `json:"model"`
-	Instructions    string              `json:"instructions,omitempty"`
-	Input           json.RawMessage     `json:"input"` // string or []ResponsesInputItem
-	MaxOutputTokens *int                `json:"max_output_tokens,omitempty"`
-	Temperature     *float64            `json:"temperature,omitempty"`
-	TopP            *float64            `json:"top_p,omitempty"`
-	Stream          bool                `json:"stream,omitempty"`
-	Tools           []ResponsesTool     `json:"tools,omitempty"`
-	Include         []string            `json:"include,omitempty"`
-	Store           *bool               `json:"store,omitempty"`
-	Reasoning       *ResponsesReasoning `json:"reasoning,omitempty"`
-	ToolChoice      json.RawMessage     `json:"tool_choice,omitempty"`
-	ServiceTier     string              `json:"service_tier,omitempty"`
+	Model              string              `json:"model"`
+	Instructions       string              `json:"instructions,omitempty"`
+	Input              json.RawMessage     `json:"input"` // string or []ResponsesInputItem
+	MaxOutputTokens    *int                `json:"max_output_tokens,omitempty"`
+	Temperature        *float64            `json:"temperature,omitempty"`
+	TopP               *float64            `json:"top_p,omitempty"`
+	Stream             bool                `json:"stream,omitempty"`
+	Tools              []ResponsesTool     `json:"tools,omitempty"`
+	Include            []string            `json:"include,omitempty"`
+	Store              *bool               `json:"store,omitempty"`
+	ParallelToolCalls  *bool               `json:"parallel_tool_calls,omitempty"`
+	Reasoning          *ResponsesReasoning `json:"reasoning,omitempty"`
+	Text               *ResponsesText      `json:"text,omitempty"`
+	ToolChoice         json.RawMessage     `json:"tool_choice,omitempty"`
+	ServiceTier        string              `json:"service_tier,omitempty"`
+	PromptCacheKey     string              `json:"prompt_cache_key,omitempty"`
+	PreviousResponseID string              `json:"previous_response_id,omitempty"`
 }
 
 // ResponsesReasoning configures reasoning effort in the Responses API.
@@ -186,13 +192,18 @@ type ResponsesReasoning struct {
 	Summary string `json:"summary,omitempty"` // "auto" | "concise" | "detailed"
 }
 
+// ResponsesText configures text output options in the Responses API.
+type ResponsesText struct {
+	Verbosity string `json:"verbosity,omitempty"` // "low" | "medium" | "high"
+}
+
 // ResponsesInputItem is one item in the Responses API input array.
 // The Type field determines which other fields are populated.
 type ResponsesInputItem struct {
 	// Common
 	Type string `json:"type,omitempty"` // "" for role-based messages
 
-	// Role-based messages (system/user/assistant)
+	// Role-based messages (developer/system/user/assistant)
 	Role    string          `json:"role,omitempty"`
 	Content json.RawMessage `json:"content,omitempty"` // string or []ResponsesContentPart
 
@@ -451,15 +462,25 @@ type ChatChoice struct {
 
 // ChatUsage holds token counts in Chat Completions format.
 type ChatUsage struct {
-	PromptTokens        int               `json:"prompt_tokens"`
-	CompletionTokens    int               `json:"completion_tokens"`
-	TotalTokens         int               `json:"total_tokens"`
-	PromptTokensDetails *ChatTokenDetails `json:"prompt_tokens_details,omitempty"`
+	PromptTokens            int                         `json:"prompt_tokens"`
+	CompletionTokens        int                         `json:"completion_tokens"`
+	TotalTokens             int                         `json:"total_tokens"`
+	PromptTokensDetails     *ChatTokenDetails           `json:"prompt_tokens_details,omitempty"`
+	CompletionTokensDetails *ChatCompletionTokenDetails `json:"completion_tokens_details,omitempty"`
 }
 
-// ChatTokenDetails provides a breakdown of token usage.
+// ChatTokenDetails provides a breakdown of prompt token usage.
 type ChatTokenDetails struct {
 	CachedTokens int `json:"cached_tokens,omitempty"`
+}
+
+// ChatCompletionTokenDetails breaks down completion token usage. Mirrors
+// OpenAI's `usage.completion_tokens_details` shape so that clients reading
+// the public spec can probe `reasoning_tokens` directly. Only fields the
+// upstream actually populates are wired today; add others (audio, accepted
+// /rejected predictions) as they become observable on the bridge path.
+type ChatCompletionTokenDetails struct {
+	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
 }
 
 // ChatCompletionsChunk is a single streaming chunk from POST /v1/chat/completions.
