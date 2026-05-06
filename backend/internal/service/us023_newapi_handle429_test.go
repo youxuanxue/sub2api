@@ -87,7 +87,8 @@ func TestUS023_NewAPI_Handle429_FallsBackTo5MinWhenBodyHasNoResetTime(t *testing
 	account := &Account{ID: 4243, Platform: PlatformNewAPI, ChannelType: 1, Type: AccountTypeAPIKey}
 
 	// usage_limit_reached but no resets_at / resets_in_seconds → parser returns
-	// nil, handler should still set rate-limited with default 5min.
+	// nil, handler should still set rate-limited with default cooldown (5s per upstream
+	// commit 11ae6f21 — was 5min before, now configurable via GetRateLimit429CooldownSettings).
 	body := []byte(`{"error":{"type":"some_other_error","message":"oops"}}`)
 	headers := http.Header{}
 
@@ -98,10 +99,10 @@ func TestUS023_NewAPI_Handle429_FallsBackTo5MinWhenBodyHasNoResetTime(t *testing
 	if repo.rateLimitedCalls != 1 {
 		t.Fatalf("expected SetRateLimited called once, got %d", repo.rateLimitedCalls)
 	}
-	wantMin := before.Add(5 * time.Minute).Add(-1 * time.Second)
-	wantMax := after.Add(5 * time.Minute).Add(1 * time.Second)
+	wantMin := before.Add(5 * time.Second).Add(-1 * time.Second)
+	wantMax := after.Add(5 * time.Second).Add(1 * time.Second)
 	if repo.rateLimitedAt.Before(wantMin) || repo.rateLimitedAt.After(wantMax) {
-		t.Fatalf("rateLimitedAt = %v, want ~5min from now (window [%v,%v])",
+		t.Fatalf("rateLimitedAt = %v, want ~5s from now (window [%v,%v])",
 			repo.rateLimitedAt, wantMin, wantMax)
 	}
 }
