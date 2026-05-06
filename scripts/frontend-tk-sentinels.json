@@ -29,25 +29,28 @@
       "must_contain": [
         "fluid?: boolean",
         "stickyEdgeHints?: boolean",
-        "table-wrapper--fluid"
+        "table-wrapper--fluid",
+        ".table-wrapper.table-wrapper--fluid {\n  overflow-x: auto"
       ],
-      "rationale": "DataTable's `fluid` mode + `stickyEdgeHints` opt-out are how the admin accounts page fits the viewport without horizontal scroll. Both props default to behavior-preserving values for non-TK callers, so an upstream merge that refactors DataTable can remove them without compile failures elsewhere — and the accounts page silently reverts."
+      "rationale": "DataTable's `fluid` mode + `stickyEdgeHints` opt-out are how the admin accounts page fits the viewport without horizontal scroll. The fluid rule body must keep `overflow-x: auto` (not `hidden`) so narrow viewports get a scrollbar fallback rather than silently clipping the rightmost columns — the bug observed at 100% browser zoom on a 14-15\" laptop before that fix landed. Symbol-only sentinels (the prop names + modifier class) would let an upstream merge revert the rule body to `hidden` while keeping the symbols intact, so the multi-line literal anchors the rule body content too."
     },
     {
       "path": "frontend/src/components/layout/TablePageLayout.vue",
       "must_contain": [
         "fluid?: boolean",
-        "table-page-layout--fluid"
+        "table-page-layout--fluid",
+        ".table-page-layout--fluid .table-scroll-container :deep(.table-wrapper) {\n  @apply overflow-x-auto"
       ],
-      "rationale": "TablePageLayout's `fluid` prop and matching modifier-scoped CSS rules. AccountsView.vue's `<TablePageLayout fluid>` would compile cleanly even if the prop / CSS class were removed, but the table would lose its no-horizontal-scroll behavior."
+      "rationale": "TablePageLayout's `fluid` prop and matching modifier-scoped CSS rules. The fluid wrapper rule must keep `overflow-x-auto` (not `overflow-x-hidden`) so a narrow viewport falls back to a scrollbar instead of clipping rightmost columns. Sibling guard to the DataTable.vue fluid-overflow sentinel above — both paths must move in lockstep."
     },
     {
       "path": "frontend/src/views/admin/AccountsView.vue",
       "must_contain": [
         "<TablePageLayout fluid>",
-        ":sticky-edge-hints=\"false\""
+        ":sticky-edge-hints=\"false\"",
+        "Wrap-first column policy"
       ],
-      "rationale": "The TK callsite for both fluid+stickyEdgeHints opt-outs. If an upstream merge ever restructures the admin accounts page these two attributes are the most likely casualties; the sentinel ensures they're caught before the merge PR can pass CI."
+      "rationale": "The TK callsite for fluid+stickyEdgeHints opt-outs (first two literals) and the wrap-first column-class policy (third literal — anchors the comment that documents which columns may carry `whitespace-nowrap` and which must let `table-auto` compress them). Without the wrap policy the fluid table re-overflows under 100% browser zoom even with the auto-fallback CSS in place, since too many nowrap columns prevent the table from compressing in the first place."
     }
   ]
 }
