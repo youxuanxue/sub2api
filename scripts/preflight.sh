@@ -369,6 +369,25 @@ else
     echo "  ok: no env references in job-level if expressions"
 fi
 
+# Headless agent stream redactor: scripts/redact-agent-stream.py sits between
+# `claude -p` and `tee` in upstream-merge-agent-daily.yml / pr-repair-agent.yml
+# /agent-draft-pr/action.yml, scrubbing secrets out of the agent's stdout
+# before the bytes hit the artifact file. GitHub Actions live-log masking
+# does NOT apply to bytes a step writes to disk via tee, so the artifact
+# can leak secrets that the rendered log hides. Guard the redactor itself
+# with a self-test so a bad refactor cannot silently disarm it.
+echo ""
+echo "=== sub2api: agent stream redactor self-test ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by redact-agent-stream.py)"
+    errors=$((errors + 1))
+elif ! bash ./scripts/redact-agent-stream_test.sh >/dev/null; then
+    echo "  FAIL: scripts/redact-agent-stream_test.sh failed (re-run for details)"
+    errors=$((errors + 1))
+else
+    echo "  ok: agent stream redactor self-test"
+fi
+
 echo ""
 if [ "$errors" -eq 0 ]; then
     echo "=== preflight (with sub2api checks): PASS ==="

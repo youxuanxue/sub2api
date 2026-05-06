@@ -177,6 +177,31 @@ jobs:
           git config user.name "tk-pr-repair-agent[bot]"
           git config user.email "pr-repair-agent@tokenkey.dev"
 
+      - name: Stage agent stream redactor from origin/main
+        if: steps.target.outputs.skip != 'true'
+        run: |
+          # PR branches can predate the redactor commit on main. Pull the
+          # current redactor to /tmp/ (NOT into the PR branch worktree, so
+          # it cannot leak into the agent's `git add -A`) and use it from
+          # there. If origin/main also lacks the file, fall back to a
+          # passthrough so the step doesn't hard-fail an otherwise valid
+          # repair run — but in that fallback the artifact is unfiltered
+          # and the warning is loud.
+          set -euo pipefail
+          git fetch origin main --depth=1 >/dev/null 2>&1 || true
+          if git show origin/main:scripts/redact-agent-stream.py > /tmp/redact-agent-stream.py 2>/dev/null; then
+            chmod +x /tmp/redact-agent-stream.py
+            echo "ok: staged scripts/redact-agent-stream.py from origin/main"
+          else
+            echo "::warning::scripts/redact-agent-stream.py missing on origin/main — agent artifact will be unfiltered"
+            cat > /tmp/redact-agent-stream.py <<'PYEOF'
+          import sys
+          for line in sys.stdin:
+              sys.stdout.write(line)
+              sys.stdout.flush()
+          PYEOF
+          fi
+
       - name: Collect failed run logs
         if: steps.target.outputs.skip != 'true'
         env:
@@ -260,11 +285,36 @@ jobs:
           # CI logs live (helpful for long agent runs); pipefail propagates
           # claude's exit code through the pipeline so the step actually
           # fails when the agent fails.
+          # --allowedTools is required in headless: without it `claude -p`
+          # defaults to interactive `default` permission mode and rejects
+          # every tool call with "This command requires approval" (same
+          # failure mode the upstream merge agent hit on 2026-05-06).
+          # Whitelist the work toolkit explicitly per global CLAUDE.md §5.
+          # /tmp/redact-agent-stream.py was staged from origin/main above;
+          # it scrubs secrets out of the stream so the artifact uploaded
+          # to GitHub Actions cannot leak ANTHROPIC_AUTH_TOKEN / GH_TOKEN
+          # even if the agent echoes them. Live-log masking does NOT
+          # apply to bytes that hit disk via tee.
+          # --output-format stream-json + --verbose makes the agent
+          # transcript (tool calls, results, final cost / errors /
+          # permission denials) land in the artifact as JSONL — without
+          # it `claude -p` only writes the final reply text and a
+          # mid-SOP failure leaves the artifact empty.
+          # --exclude-dynamic-system-prompt-sections keeps the system
+          # prompt prefix stable across runs so the 1h ephemeral prompt
+          # cache can be hit by chained workflow_run repairs and manual
+          # re-dispatches. See upstream-merge-agent-daily.yml for full
+          # rationale.
           set -o pipefail
           claude -p "$(cat /tmp/pr-repair-prompt.txt)" \
             --model "opus[1m]" \
             --max-budget-usd "8.00" \
-            2>&1 | tee /tmp/pr-repair-agent-output.txt
+            --output-format stream-json --verbose \
+            --exclude-dynamic-system-prompt-sections \
+            --allowedTools "Bash Read Write Edit Grep Glob" \
+            2>&1 \
+            | python3 /tmp/redact-agent-stream.py \
+            | tee /tmp/pr-repair-agent-output.txt
 
       - name: Upload repair artifacts
         if: always()
