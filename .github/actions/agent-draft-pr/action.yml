@@ -126,10 +126,16 @@ runs:
         # the artifact can leak the gateway auth token / github.token.
         # The composite action's own checkout (above) brings the script
         # in from the calling workflow's ref, which is normally main.
+        # --output-format stream-json + --verbose makes the agent
+        # transcript (tool calls, results, final cost / errors /
+        # permission denials) land in the artifact as JSONL — without
+        # it `claude -p` only writes the final reply text and a
+        # mid-remediation failure leaves the artifact empty.
         set -o pipefail
         claude -p "$(cat /tmp/agent-prompt.txt)" \
           --model "opus[1m]" \
           --max-budget-usd "${{ inputs.max_budget_usd }}" \
+          --output-format stream-json --verbose \
           --allowedTools "Bash Read Write Edit Grep Glob" \
           2>&1 \
           | python3 scripts/redact-agent-stream.py \

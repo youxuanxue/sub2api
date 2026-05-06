@@ -154,7 +154,7 @@ jobs:
           MAX_THINKING_TOKENS: "31999"
           CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE: "60"
           CLAUDE_CODE_ATTRIBUTION_HEADER: "0"
-          ANTHROPIC_MODEL: "opus[1m]"
+          ANTHROPIC_MODEL: "claude-sonnet-4-6"
         run: |
           # claude CLI has no --output flag — pipe stdout instead. tee keeps
           # CI logs live (helpful for long agent runs); pipefail propagates
@@ -172,10 +172,28 @@ jobs:
           # apply to bytes that hit disk via tee, so without this filter
           # the public artifact can leak ANTHROPIC_AUTH_TOKEN / GH_TOKEN
           # if the agent ever echoes them (e.g. an accidental `printenv`).
+          # Model+budget retuning (run 25417602884, 2026-05-06): the agent
+          # under opus[1m] burned its $8 cap in 16 min and hit
+          # `Exceeded USD budget` mid-SOP without producing a PR. The
+          # cache-creation fee for a single fresh `claude -p` is ~$0.75
+          # at opus[1m] (40k-token system prompt × ~$18.75/M write rate),
+          # so $8 left only ~$7 for actual work. Sonnet 4.6 is roughly
+          # 5× cheaper, and $20 gives the SOP enough headroom to fetch
+          # upstream, run preflight, resolve conflicts, push, and open a
+          # PR even on a busy upstream day.
+          # --output-format stream-json + --verbose makes the agent
+          # transcript (every tool_use, tool_result, thinking block, and
+          # the final result with total_cost_usd / errors / permission
+          # denials) land in the artifact as JSONL. Without it, `claude
+          # -p` only writes the final reply text — on `Exceeded USD
+          # budget` failures the artifact contains a single line and
+          # debugging is impossible. The redactor still scrubs token
+          # patterns inside JSON strings line-by-line.
           set -o pipefail
           claude -p "$(cat /tmp/upstream-merge-agent-prompt.txt)" \
-            --model "opus[1m]" \
-            --max-budget-usd "8.00" \
+            --model "claude-sonnet-4-6" \
+            --max-budget-usd "20.00" \
+            --output-format stream-json --verbose \
             --allowedTools "Bash Read Write Edit Grep Glob" \
             2>&1 \
             | python3 scripts/redact-agent-stream.py \

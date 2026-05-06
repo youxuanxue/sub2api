@@ -295,10 +295,16 @@ jobs:
           # to GitHub Actions cannot leak ANTHROPIC_AUTH_TOKEN / GH_TOKEN
           # even if the agent echoes them. Live-log masking does NOT
           # apply to bytes that hit disk via tee.
+          # --output-format stream-json + --verbose makes the agent
+          # transcript (tool calls, results, final cost / errors /
+          # permission denials) land in the artifact as JSONL — without
+          # it `claude -p` only writes the final reply text and a
+          # mid-SOP failure leaves the artifact empty.
           set -o pipefail
           claude -p "$(cat /tmp/pr-repair-prompt.txt)" \
             --model "opus[1m]" \
             --max-budget-usd "8.00" \
+            --output-format stream-json --verbose \
             --allowedTools "Bash Read Write Edit Grep Glob" \
             2>&1 \
             | python3 /tmp/redact-agent-stream.py \
