@@ -58,13 +58,13 @@ type AvailabilityOutcome struct {
 // FailureKind values are the canonical taxonomy. Any new kind requires
 // updating §1.3 of the approved doc.
 const (
-	FailureKindModelNotFound  = "model_not_found"
-	FailureKindNotFound       = "not_found"
-	FailureKindRateLimited    = "rate_limited"
-	FailureKindAuthFailure    = "auth_failure"
-	FailureKindUpstream5xx    = "upstream_5xx"
-	FailureKindNetworkError   = "network_error"
-	FailureKindBadRespShape   = "bad_response_shape"
+	FailureKindModelNotFound = "model_not_found"
+	FailureKindNotFound      = "not_found"
+	FailureKindRateLimited   = "rate_limited"
+	FailureKindAuthFailure   = "auth_failure"
+	FailureKindUpstream5xx   = "upstream_5xx"
+	FailureKindNetworkError  = "network_error"
+	FailureKindBadRespShape  = "bad_response_shape"
 )
 
 // AvailabilityStatus is the canonical 4-value enum mirrored in the DB.
@@ -116,18 +116,18 @@ type ModelAvailabilityRepository interface {
 // Mirrors the ent ModelAvailability fields. Pointers are used for nullable
 // timestamps; a fresh state has Status="" (untested has not been written yet).
 type AvailabilityState struct {
-	Platform                string
-	ModelID                 string
-	Status                  string
-	LastSeenOKAt            *time.Time
-	LastFailureAt           *time.Time
-	LastFailureKind         string
-	UpstreamStatusCodeLast  *int
-	LastCheckedAt           *time.Time
-	SampleOK24h             int
-	SampleTotal24h          int
-	RollingWindowStartedAt  *time.Time
-	LastAccountID           *int64
+	Platform               string
+	ModelID                string
+	Status                 string
+	LastSeenOKAt           *time.Time
+	LastFailureAt          *time.Time
+	LastFailureKind        string
+	UpstreamStatusCodeLast *int
+	LastCheckedAt          *time.Time
+	SampleOK24h            int
+	SampleTotal24h         int
+	RollingWindowStartedAt *time.Time
+	LastAccountID          *int64
 }
 
 // RecordOutcome is the single write API. Both passive taps (handlers /
@@ -276,7 +276,7 @@ func classifyFailureKind(o AvailabilityOutcome) string {
 	case o.UpstreamStatusCode == 401 || o.UpstreamStatusCode == 403:
 		return FailureKindAuthFailure
 	case o.UpstreamStatusCode >= 400 && o.UpstreamStatusCode < 500 &&
-		(// Google Code Assist / generativelanguage 标准 model-not-found body
+		( // Google Code Assist / generativelanguage 标准 model-not-found body
 		strings.Contains(body, "requested entity was not found") ||
 			// Anthropic / OpenAI 风格 explicit not_found markers
 			strings.Contains(body, "not_found_error") ||

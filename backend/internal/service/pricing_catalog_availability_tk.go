@@ -86,4 +86,3 @@ func roundRate(r float64) float64 {
 	const factor = 1e4
 	return float64(int(r*factor+0.5)) / factor
 }
-

@@ -166,11 +166,11 @@ func entRowToState(row *dbent.ModelAvailability) service.AvailabilityState {
 		SampleOK24h:            row.SampleOk24h,
 		SampleTotal24h:         row.SampleTotal24h,
 		LastSeenOKAt:           row.LastSeenOkAt,           // already *time.Time
-		LastFailureAt:          row.LastFailureAt,           // already *time.Time
-		LastCheckedAt:          row.LastCheckedAt,           // already *time.Time
+		LastFailureAt:          row.LastFailureAt,          // already *time.Time
+		LastCheckedAt:          row.LastCheckedAt,          // already *time.Time
 		UpstreamStatusCodeLast: row.UpstreamStatusCodeLast, // already *int
 		RollingWindowStartedAt: row.RollingWindowStartedAt, // already *time.Time
-		LastAccountID:          row.LastAccountID,           // already *int64
+		LastAccountID:          row.LastAccountID,          // already *int64
 	}
 }
 
