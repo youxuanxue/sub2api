@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "rationale": "Load-bearing TokenKey-only frontend surfaces that anchor admin-UI behavior diverging from upstream defaults — sidebar geometry (TK uses a narrower w-44 rail vs upstream w-64), the fluid table mode used on /admin/accounts (no horizontal scroll, cells wrap), and the per-page sticky-edge-hints opt-out. These are the kinds of small TK changes that get silently reverted by upstream merges precisely because they're small and local; the registry upgrades the rule from `agent must remember` to `merge will fail`. Source-of-truth read by both `scripts/preflight.sh` (frontend TK sentinel registry section, always) and `.github/workflows/upstream-merge-pr-shape.yml` (frontend TK sentinels check, on `merge/upstream-*` PRs). Adding a new TK-only frontend surface that must survive upstream merges MUST add a sentinel here in the same commit. Sibling registries: `newapi-sentinels.json` (fifth-platform integration), `brand-sentinels.json` (outward TK brand surfaces).",
+  "sentinels": [
+    {
+      "path": "frontend/src/constants/layout.ts",
+      "must_contain": [
+        "TK_SIDEBAR_WIDTH_CLASS",
+        "TK_SIDEBAR_MAIN_MARGIN_CLASS"
+      ],
+      "rationale": "Single source of truth for TK sidebar geometry. AppSidebar.vue / AppLayout.vue import these so upstream-shaped layout files stay close to upstream; if either constant disappears, the import sites fail to compile (loud). The sentinel adds a second layer in case an upstream merge replaces the entire constants file."
+    },
+    {
+      "path": "frontend/src/components/layout/AppSidebar.vue",
+      "must_contain": [
+        "TK_SIDEBAR_WIDTH_CLASS"
+      ],
+      "rationale": "AppSidebar's expanded-rail width must reference the TK constant. Without this reference an upstream merge could silently restore the literal `w-64` and the sidebar visually reverts to upstream — compiles fine, no runtime error, just wrong-looking UI."
+    },
+    {
+      "path": "frontend/src/components/layout/AppLayout.vue",
+      "must_contain": [
+        "TK_SIDEBAR_MAIN_MARGIN_CLASS"
+      ],
+      "rationale": "Same as AppSidebar but for the main content area's left margin (must move in lockstep with the sidebar width)."
+    },
+    {
+      "path": "frontend/src/components/common/DataTable.vue",
+      "must_contain": [
+        "fluid?: boolean",
+        "stickyEdgeHints?: boolean",
+        "table-wrapper--fluid"
+      ],
+      "rationale": "DataTable's `fluid` mode + `stickyEdgeHints` opt-out are how the admin accounts page fits the viewport without horizontal scroll. Both props default to behavior-preserving values for non-TK callers, so an upstream merge that refactors DataTable can remove them without compile failures elsewhere — and the accounts page silently reverts."
+    },
+    {
+      "path": "frontend/src/components/layout/TablePageLayout.vue",
+      "must_contain": [
+        "fluid?: boolean",
+        "table-page-layout--fluid"
+      ],
+      "rationale": "TablePageLayout's `fluid` prop and matching modifier-scoped CSS rules. AccountsView.vue's `<TablePageLayout fluid>` would compile cleanly even if the prop / CSS class were removed, but the table would lose its no-horizontal-scroll behavior."
+    },
+    {
+      "path": "frontend/src/views/admin/AccountsView.vue",
+      "must_contain": [
+        "<TablePageLayout fluid>",
+        ":sticky-edge-hints=\"false\""
+      ],
+      "rationale": "The TK callsite for both fluid+stickyEdgeHints opt-outs. If an upstream merge ever restructures the admin accounts page these two attributes are the most likely casualties; the sentinel ensures they're caught before the merge PR can pass CI."
+    }
+  ]
+}

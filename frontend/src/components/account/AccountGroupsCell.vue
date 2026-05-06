@@ -1,5 +1,5 @@
 <template>
-  <div v-if="groups && groups.length > 0" class="relative max-w-56">
+  <div v-if="groups && groups.length > 0" class="relative max-w-full">
     <!-- 分组容器：固定最大宽度，最多显示2行 -->
     <div class="flex flex-wrap gap-1 max-h-14 overflow-hidden">
       <GroupBadge

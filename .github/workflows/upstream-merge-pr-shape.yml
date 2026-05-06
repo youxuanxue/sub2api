@@ -23,6 +23,11 @@ name: Upstream Merge PR Shape
 #      `scripts/brand-sentinels.json` is still intact after the merge,
 #      so upstream churn cannot silently revert default title / README /
 #      fifth-platform display labels back into split branding.
+#   5b. Every load-bearing TokenKey-only frontend surface listed in
+#      `scripts/frontend-tk-sentinels.json` is still intact after the
+#      merge — small UI divergences (sidebar geometry, fluid admin-accounts
+#      table mode, sticky-edge-hints opt-out) compile cleanly even if
+#      silently reverted, so a literal-content guard is the only catch.
 #   6. The QA evidence redaction contract stays aligned: if logredact's
 #      default sensitive-key set changes, `scripts/redaction-sentinels.json`
 #      and every outward `redaction_version` literal must move in the same
@@ -201,6 +206,26 @@ jobs:
             echo "::error::Upstream merge regressed at least one outward brand sentinel."
             echo "::error::Restore the dropped / reverted brand surface in this merge PR."
             echo "::error::Do NOT 'fix' by deleting the brand sentinel entry."
+            exit 1
+          fi
+
+      - name: Check 5b — frontend TK sentinels still intact after merge
+        run: |
+          # Single source of truth: scripts/frontend-tk-sentinels.json. Same
+          # script that scripts/preflight.sh runs locally, so a green local
+          # preflight implies a green check here. Guards small TK frontend
+          # divergences (sidebar geometry, fluid table mode, sticky-edge-hints
+          # opt-out) that would otherwise compile cleanly even if reverted —
+          # the regression only surfaces visually.
+          if [ ! -x ./scripts/check-frontend-tk-sentinels.py ]; then
+            echo "::error::scripts/check-frontend-tk-sentinels.py missing or not executable."
+            echo "::error::Per CLAUDE.md §5 minimum-invasion guidance, this guard cannot be silently disabled."
+            exit 1
+          fi
+          if ! python3 ./scripts/check-frontend-tk-sentinels.py; then
+            echo "::error::Upstream merge regressed at least one frontend TK sentinel."
+            echo "::error::Restore the dropped / reverted TK frontend surface in this merge PR."
+            echo "::error::Do NOT 'fix' by deleting the sentinel entry."
             exit 1
           fi
 

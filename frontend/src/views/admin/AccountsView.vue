@@ -1,6 +1,6 @@
 <template>
   <AppLayout>
-    <TablePageLayout>
+    <TablePageLayout fluid>
       <template #filters>
         <div class="flex flex-wrap-reverse items-start justify-between gap-3">
           <AccountTableFilters
@@ -155,16 +155,18 @@
         <div ref="accountTableRef" class="flex min-h-0 flex-1 flex-col overflow-hidden">
         <DataTable
           ref="dataTableRef"
+          fluid
           :columns="cols"
           :data="accounts"
           :loading="loading"
           row-key="id"
           :server-side-sort="true"
+          :sticky-edge-hints="false"
           @sort="handleSort"
           default-sort-key="name"
           default-sort-order="asc"
           :sort-storage-key="ACCOUNT_SORT_STORAGE_KEY"
-          :estimate-row-height="72"
+          :estimate-row-height="76"
           :overscan="5"
         >
           <template #header-select>
@@ -199,13 +201,6 @@
             <div class="flex flex-wrap items-center gap-1">
               <PlatformTypeBadge :platform="row.platform" :type="row.type" :plan-type="row.credentials?.plan_type" :privacy-mode="row.extra?.privacy_mode" :subscription-expires-at="row.credentials?.subscription_expires_at" />
               <ChannelTypeBadge :platform="row.platform" :channel-type="row.channel_type" />
-              <span
-                v-if="getOpenAICompactLabel(row)"
-                :class="['inline-block rounded px-1.5 py-0.5 text-[10px] font-medium', getOpenAICompactClass(row)]"
-                :title="getOpenAICompactTitle(row)"
-              >
-                {{ getOpenAICompactLabel(row) }}
-              </span>
               <span
                 v-if="getOpenAICompactLabel(row)"
                 :class="['inline-block rounded px-1.5 py-0.5 text-[10px] font-medium', getOpenAICompactClass(row)]"
@@ -383,6 +378,7 @@ import ErrorPassthroughRulesModal from '@/components/admin/ErrorPassthroughRules
 import TLSFingerprintProfilesModal from '@/components/admin/TLSFingerprintProfilesModal.vue'
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
+import { migrateAccountTimestampColumnsVisibleOnce } from './migrateAccountColumnsTs'
 import type { Account, AccountPlatform, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel } from '@/types'
 
 const { t } = useI18n()
@@ -610,6 +606,12 @@ const saveColumnsToStorage = () => {
   }
 }
 
+const migrateTimestampColumnsVisibleOnce = () => {
+  if (migrateAccountTimestampColumnsVisibleOnce(hiddenColumns)) {
+    saveColumnsToStorage()
+  }
+}
+
 const loadSavedAutoRefresh = () => {
   try {
     const saved = localStorage.getItem(AUTO_REFRESH_STORAGE_KEY)
@@ -641,6 +643,7 @@ const saveAutoRefreshToStorage = () => {
 
 if (typeof window !== 'undefined') {
   loadSavedColumns()
+  migrateTimestampColumnsVisibleOnce()
   loadSavedAutoRefresh()
 }
 
@@ -1041,13 +1044,14 @@ function getAntigravityTierClass(row: any): string {
 
 // All available columns
 const allColumns = computed(() => {
+  const nowrap = 'whitespace-nowrap align-middle'
   const c = [
-    { key: 'select', label: '', sortable: false },
-    { key: 'name', label: t('admin.accounts.columns.name'), sortable: true },
+    { key: 'select', label: '', sortable: false, class: nowrap },
+    { key: 'name', label: t('admin.accounts.columns.name'), sortable: true, class: 'min-w-0 max-w-[14rem]' },
     { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false },
-    { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
-    { key: 'status', label: t('admin.accounts.columns.status'), sortable: true },
-    { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
+    { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false, class: nowrap },
+    { key: 'status', label: t('admin.accounts.columns.status'), sortable: true, class: nowrap },
+    { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true, class: nowrap },
     { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false }
   ]
   if (!authStore.isSimpleMode) {
@@ -1056,12 +1060,12 @@ const allColumns = computed(() => {
   c.push(
     { key: 'usage', label: t('admin.accounts.columns.usageWindows'), sortable: false },
     { key: 'proxy', label: t('admin.accounts.columns.proxy'), sortable: false },
-    { key: 'priority', label: t('admin.accounts.columns.priority'), sortable: true },
-    { key: 'rate_multiplier', label: t('admin.accounts.columns.billingRateMultiplier'), sortable: true },
-    { key: 'last_used_at', label: t('admin.accounts.columns.lastUsed'), sortable: true },
-    { key: 'expires_at', label: t('admin.accounts.columns.expiresAt'), sortable: true },
+    { key: 'priority', label: t('admin.accounts.columns.priority'), sortable: true, class: nowrap },
+    { key: 'rate_multiplier', label: t('admin.accounts.columns.billingRateMultiplier'), sortable: true, class: nowrap },
+    { key: 'last_used_at', label: t('admin.accounts.columns.lastUsed'), sortable: true, class: nowrap },
+    { key: 'expires_at', label: t('admin.accounts.columns.expiresAt'), sortable: true, class: 'min-w-0 align-top' },
     { key: 'notes', label: t('admin.accounts.columns.notes'), sortable: false },
-    { key: 'actions', label: t('admin.accounts.columns.actions'), sortable: false }
+    { key: 'actions', label: t('admin.accounts.columns.actions'), sortable: false, class: nowrap }
   )
   return c
 })
