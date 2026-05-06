@@ -236,12 +236,18 @@ const formatScopeName = (scope: string): string => {
     'gemini-2.5-flash-thinking': 'G25FT',
     'gemini-2.5-pro': 'G25P',
     'gemini-2.5-flash-image': 'G25I',
+    'gemini-2.5-flash-image-preview': 'G25IP',
     // Gemini 3 系列
     'gemini-3-flash': 'G3F',
+    'gemini-3-flash-preview': 'G3FP',
+    'gemini-3-pro-preview': 'G3PP',
     'gemini-3.1-pro-high': 'G3PH',
     'gemini-3.1-pro-low': 'G3PL',
+    'gemini-3.1-pro-preview': 'G31PP',
     'gemini-3-pro-image': 'G3PI',
+    'gemini-3-pro-image-preview': 'G3PIP',
     'gemini-3.1-flash-image': 'G31FI',
+    'gemini-3.1-flash-image-preview': 'G31FIP',
     // 其他
     'gpt-oss-120b-medium': 'GPT120',
     'tab_flash_lite_preview': 'TabFL',
