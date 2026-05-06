@@ -66,10 +66,14 @@
     class="table-wrapper"
     :class="{
       'actions-expanded': actionsExpanded,
-      'is-scrollable': isScrollable
+      'is-scrollable': isScrollable,
+      'table-wrapper--fluid': fluid
     }"
   >
-    <table class="w-full min-w-max divide-y divide-gray-200 dark:divide-dark-700">
+    <table
+      class="w-full divide-y divide-gray-200 dark:divide-dark-700"
+      :class="fluid ? 'min-w-0 max-w-full' : 'min-w-max'"
+    >
       <thead class="table-header bg-gray-50 dark:bg-dark-800">
         <tr>
           <th
@@ -77,7 +81,8 @@
             :key="column.key"
             scope="col"
             :class="[
-              'sticky-header-cell py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400',
+              'sticky-header-cell text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400',
+              fluid ? 'py-2 whitespace-normal break-words min-w-0 align-top' : 'py-3',
               getAdaptivePaddingClass(),
               { 'cursor-pointer hover:bg-gray-100 dark:hover:bg-dark-700': column.sortable },
               getStickyColumnClass(column, index),
@@ -121,7 +126,15 @@
       <tbody class="table-body divide-y divide-gray-200 bg-white dark:divide-dark-700 dark:bg-dark-900">
         <!-- Loading skeleton -->
         <tr v-if="loading" v-for="i in 5" :key="i">
-          <td v-for="column in columns" :key="column.key" :class="['whitespace-nowrap py-4', getAdaptivePaddingClass()]">
+          <td
+            v-for="column in columns"
+            :key="column.key"
+            :class="[
+              fluid ? 'whitespace-normal break-words min-w-0 align-top' : 'whitespace-nowrap',
+              fluid ? 'py-2' : 'py-4',
+              getAdaptivePaddingClass()
+            ]"
+          >
             <div class="animate-pulse">
               <div class="h-4 w-3/4 rounded bg-gray-200 dark:bg-dark-700"></div>
             </div>
@@ -168,7 +181,8 @@
               v-for="(column, colIndex) in columns"
               :key="column.key"
               :class="[
-                'whitespace-nowrap py-4 text-sm text-gray-900 dark:text-gray-100',
+                'text-sm text-gray-900 dark:text-gray-100',
+                fluid ? 'whitespace-normal break-words min-w-0 align-top py-2' : 'whitespace-nowrap py-4',
                 getAdaptivePaddingClass(),
                 getStickyColumnClass(column, colIndex),
                 column.class
@@ -361,6 +375,10 @@ interface Props {
   estimateRowHeight?: number
   /** Number of rows to render beyond the visible area (default 5) */
   overscan?: number
+  /**
+   * Fit table to viewport width: wrap cell text and avoid horizontal scroll (account admin).
+   */
+  fluid?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -369,7 +387,8 @@ const props = withDefaults(defineProps<Props>(), {
   stickyActionsColumn: true,
   expandableActions: true,
   defaultSortOrder: 'asc',
-  serverSideSort: false
+  serverSideSort: false,
+  fluid: false
 })
 
 const sortKey = ref<string>('')

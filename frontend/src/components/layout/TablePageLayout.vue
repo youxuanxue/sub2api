@@ -1,5 +1,5 @@
 <template>
-  <div class="table-page-layout" :class="{ 'mobile-mode': isMobile }">
+  <div class="table-page-layout" :class="{ 'mobile-mode': isMobile, 'table-page-layout--fluid': fluid }">
     <!-- 固定区域：操作按钮 -->
     <div v-if="$slots.actions" class="layout-section-fixed">
       <slot name="actions" />
@@ -12,7 +12,7 @@
 
     <!-- 滚动区域：表格 -->
     <div class="layout-section-scrollable">
-      <div class="card table-scroll-container">
+      <div class="card table-scroll-container" :class="{ 'table-scroll-container--fluid': fluid }">
         <slot name="table" />
       </div>
     </div>
@@ -26,6 +26,14 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
+
+withDefaults(
+  defineProps<{
+    /** Table fills viewport width; hide horizontal scrollbar (with DataTable fluid). */
+    fluid?: boolean
+  }>(),
+  { fluid: false }
+)
 
 const isMobile = ref(false)
 
@@ -89,6 +97,20 @@ onUnmounted(() => {
 
 .table-scroll-container :deep(td) {
   @apply px-5 py-4 text-sm text-gray-700 dark:text-gray-300 border-b border-gray-100 dark:border-dark-800;
+}
+
+.table-scroll-container--fluid :deep(.table-wrapper) {
+  @apply overflow-x-hidden overflow-y-auto;
+}
+
+.table-scroll-container--fluid :deep(table) {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.table-page-layout--fluid:not(.mobile-mode) {
+  @apply gap-4;
 }
 
 /* 移动端：恢复正常滚动 */
