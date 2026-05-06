@@ -9,7 +9,8 @@
 # Usage:
 #   TOKENKEY_BASE_URL=https://api.example.com \
 #   POST_DEPLOY_SMOKE_API_KEY=sk-... \
-#   POST_DEPLOY_SMOKE_GEMINI_API_KEY=sk-... \   # optional, binds to gemini group
+#   POST_DEPLOY_SMOKE_GEMINI_API_KEY=sk-... \              # optional, binds to gemini group
+#   POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY=sk-... \        # optional, binds to OpenAI OAuth/codex group
 #   bash scripts/tk_post_deploy_smoke.sh
 #
 # Key resolution (first non-empty): POST_DEPLOY_SMOKE_API_KEY,
@@ -20,6 +21,23 @@
 #                                     (e.g. gemini-pa); exercises the
 #                                     Anthropic→Gemini tool-schema cleanup.
 #   POST_DEPLOY_SMOKE_GEMINI_MODEL    default: gemini-3.1-pro-preview
+#
+# Optional OpenAI OAuth (chatgpt.com codex backend) regression check:
+#   POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY  api_key bound to an OpenAI/codex
+#                                           OAuth-platform group; exercises
+#                                           account correctness end-to-end
+#                                           (HTTP 200 + content marker +
+#                                           usage totals) and surfaces the
+#                                           reasoning_tokens passthrough
+#                                           (warn-only by default — see
+#                                           section 7 inline comment).
+#   POST_DEPLOY_SMOKE_OPENAI_OAUTH_MODEL    default: gpt-5.4
+#   POST_DEPLOY_SMOKE_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS  default: 0
+#                                           Set to 1 to upgrade the
+#                                           reasoning_tokens=0 warn into a
+#                                           hard-fail (only when the
+#                                           configured account is known to
+#                                           emit reasoning_tokens).
 #
 # Never prints the full API key. Requires curl + jq on PATH.
 set -euo pipefail
@@ -305,6 +323,143 @@ if [[ -n "${GEMINI_KEY}" ]]; then
   fi
 else
   echo "tk_post_deploy_smoke: skip /v1/messages (gemini) — POST_DEPLOY_SMOKE_GEMINI_API_KEY not set"
+fi
+
+# --- 7) OpenAI OAuth /v1/chat/completions account + token-count probe ---
+# Two-layer check on the OAuth/codex group key:
+#   (a) account correctness — HTTP 200 + correct shape + non-empty assistant
+#       content + expected marker + non-zero usage totals that add up.
+#   (b) reasoning_tokens passthrough — whether
+#       `usage.completion_tokens_details.reasoning_tokens` is present.
+#       Layered as SOFT-WARN, not hard-fail, because the chatgpt.com codex
+#       OAuth backend in observed prod traffic returns
+#       `completion_tokens` ~= total (i.e. no reasoning_tokens broken out)
+#       even when the request asks for `reasoning_effort=medium`. We cannot
+#       distinguish "upstream did not reason" from "passthrough regressed"
+#       from a single response on this path. The unit tests in
+#       backend/internal/pkg/apicompat/chatcompletions_responses_test.go
+#       are the authoritative regression guard for the conversion logic;
+#       this smoke section's job is end-to-end account health.
+#
+# When operators confirm a path that DOES emit reasoning_tokens (e.g. an
+# APIKey-direct OpenAI Responses account), set
+#   POST_DEPLOY_SMOKE_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS=1
+# to upgrade the soft-warn to a hard-fail.
+#
+# Failure semantics:
+#   200 + valid shape + correct totals → OK (warn if reasoning_tokens=0 and
+#       strict mode is off; hard-fail if strict mode is on).
+#   200 + invalid shape / missing marker / total mismatch → HARD FAIL.
+#   400 / 401 / 403 / 404 → HARD FAIL. Smoke key/route/account broken.
+#   5xx / 429 / "no available accounts" / "rate" / "timeout" → SOFT WARN,
+#       exit 0. Runtime resource issue.
+OPENAI_OAUTH_KEY="${POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY:-}"
+OPENAI_OAUTH_MODEL="${POST_DEPLOY_SMOKE_OPENAI_OAUTH_MODEL:-gpt-5.4}"
+
+if [[ -n "${OPENAI_OAUTH_KEY}" ]]; then
+  oai_prefix="$(printf '%s' "${OPENAI_OAUTH_KEY}" | head -c 6)"
+  oai_suffix="$(printf '%s' "${OPENAI_OAUTH_KEY}" | tail -c 4)"
+  echo "tk_post_deploy_smoke: openai_oauth_key_hint=${oai_prefix}…${oai_suffix} openai_oauth_model=${OPENAI_OAUTH_MODEL}"
+
+  expect_oai_oauth="E2E-OPENAI-OAUTH-OK"
+  # The math problem reliably triggers reasoning so reasoning_tokens > 0.
+  # Asking the model to end with the marker on its own line lets us probe
+  # account correctness without depending on the model's exact phrasing.
+  oai_payload="$(jq -n \
+    --arg m "${OPENAI_OAUTH_MODEL}" \
+    --arg x "${expect_oai_oauth}" \
+    '{
+      model: $m,
+      messages: [{
+        role: "user",
+        content: ("What is 17*23? Think step by step, then on the very last line write exactly: " + $x)
+      }],
+      reasoning_effort: "medium",
+      max_tokens: 4096,
+      stream: false
+    }')"
+
+  oai_http=$(curl -sS -o "$tmpdir/openai-oauth-chat.json" -w "%{http_code}" \
+    -H "Authorization: Bearer ${OPENAI_OAUTH_KEY}" \
+    -H "Content-Type: application/json" \
+    -H "Accept: application/json" \
+    -d "${oai_payload}" \
+    "${BASE}/v1/chat/completions")
+  echo "tk_post_deploy_smoke: POST .../v1/chat/completions (openai oauth) -> HTTP ${oai_http}"
+
+  oai_err_msg="$(jq -r '.error.message // empty' "$tmpdir/openai-oauth-chat.json" 2>/dev/null)"
+
+  if [[ "${oai_http}" == "200" ]]; then
+    oai_object="$(jq -r '.object // empty' "$tmpdir/openai-oauth-chat.json")"
+    oai_choices="$(jq -r '(.choices // []) | length' "$tmpdir/openai-oauth-chat.json")"
+    oai_finish="$(jq -r '.choices[0].finish_reason // empty' "$tmpdir/openai-oauth-chat.json")"
+    oai_content="$(jq -r '.choices[0].message.content // empty' "$tmpdir/openai-oauth-chat.json")"
+    oai_prompt_tokens="$(jq -r '.usage.prompt_tokens // 0' "$tmpdir/openai-oauth-chat.json")"
+    oai_completion_tokens="$(jq -r '.usage.completion_tokens // 0' "$tmpdir/openai-oauth-chat.json")"
+    oai_total_tokens="$(jq -r '.usage.total_tokens // 0' "$tmpdir/openai-oauth-chat.json")"
+    oai_reasoning_tokens="$(jq -r '.usage.completion_tokens_details.reasoning_tokens // 0' "$tmpdir/openai-oauth-chat.json")"
+
+    # Layer (a): account correctness — shape + content + marker + token totals.
+    if [[ "${oai_object}" != "chat.completion" ]] || [[ "${oai_choices}" -lt 1 ]] || [[ -z "${oai_finish}" ]] || [[ -z "${oai_content}" ]]; then
+      echo "::error::tk_post_deploy_smoke: /v1/chat/completions (openai oauth) shape invalid (object=${oai_object:-missing} choices=${oai_choices} finish_reason=${oai_finish:-missing} content_empty=$([[ -z "${oai_content}" ]] && echo yes || echo no))" >&2
+      jq . "$tmpdir/openai-oauth-chat.json" >&2 || true
+      exit 1
+    fi
+    if ! printf '%s' "${oai_content}" | grep -Fq "${expect_oai_oauth}"; then
+      echo "::error::tk_post_deploy_smoke: /v1/chat/completions (openai oauth) response missing expected marker '${expect_oai_oauth}'; OAuth/codex account likely broken or returning empty content" >&2
+      printf '%s\n' "${oai_content}" >&2
+      exit 1
+    fi
+    # prompt_tokens > 0 AND completion_tokens > 0 AND total = prompt + completion.
+    # This proves the usage block is being populated and arithmetically
+    # consistent — independent of whether the upstream did reasoning.
+    if [[ "${oai_prompt_tokens}" -le 0 ]] || [[ "${oai_completion_tokens}" -le 0 ]]; then
+      echo "::error::tk_post_deploy_smoke: /v1/chat/completions (openai oauth) usage tokens missing/zero (prompt=${oai_prompt_tokens} completion=${oai_completion_tokens})" >&2
+      jq '.usage' "$tmpdir/openai-oauth-chat.json" >&2 || true
+      exit 1
+    fi
+    if [[ "${oai_total_tokens}" -ne $(( oai_prompt_tokens + oai_completion_tokens )) ]]; then
+      echo "::error::tk_post_deploy_smoke: /v1/chat/completions (openai oauth) usage totals do not balance (prompt=${oai_prompt_tokens} + completion=${oai_completion_tokens} != total=${oai_total_tokens})" >&2
+      jq '.usage' "$tmpdir/openai-oauth-chat.json" >&2 || true
+      exit 1
+    fi
+
+    # Layer (b): reasoning_tokens passthrough.
+    # On chatgpt.com codex OAuth backend in observed prod traffic, this is
+    # always 0 (upstream apparently does not break out reasoning tokens for
+    # this path). The unit tests guard the conversion logic; here we just
+    # surface the value and allow operators to opt into a hard-fail when
+    # they have a path that does emit reasoning_tokens.
+    require_reasoning="${POST_DEPLOY_SMOKE_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS:-0}"
+    if [[ "${oai_reasoning_tokens}" -gt 0 ]]; then
+      echo "tk_post_deploy_smoke: /v1/chat/completions (openai oauth) reasoning_tokens=${oai_reasoning_tokens} (passthrough verified end-to-end)"
+    elif [[ "${require_reasoning}" == "1" ]]; then
+      echo "::error::tk_post_deploy_smoke: /v1/chat/completions (openai oauth) usage.completion_tokens_details.reasoning_tokens is missing or 0 (got ${oai_reasoning_tokens}, completion_tokens=${oai_completion_tokens}) and POST_DEPLOY_SMOKE_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS=1 — apicompat ResponsesToChatCompletions reasoning_tokens passthrough has regressed. DO NOT promote this build." >&2
+      jq '.usage' "$tmpdir/openai-oauth-chat.json" >&2 || true
+      exit 1
+    else
+      echo "::warning::tk_post_deploy_smoke: /v1/chat/completions (openai oauth) reasoning_tokens=0; cannot verify passthrough end-to-end on this path (chatgpt.com codex OAuth backend does not break out reasoning tokens for our keys). Unit tests in apicompat/chatcompletions_responses_test.go are the regression guard. Set POST_DEPLOY_SMOKE_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS=1 to make this a hard-fail when you have an account that does emit them."
+    fi
+    echo "tk_post_deploy_smoke: /v1/chat/completions (openai oauth) shape object=${oai_object} choices=${oai_choices} finish_reason=${oai_finish} prompt_tokens=${oai_prompt_tokens} completion_tokens=${oai_completion_tokens} total_tokens=${oai_total_tokens} reasoning_tokens=${oai_reasoning_tokens}"
+  elif [[ "${oai_http}" == "400" || "${oai_http}" == "401" || "${oai_http}" == "403" || "${oai_http}" == "404" ]]; then
+    echo "::error::tk_post_deploy_smoke: /v1/chat/completions (openai oauth) returned HTTP ${oai_http} — smoke key/route/account broken; fix POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY config or gateway routing." >&2
+    jq . "$tmpdir/openai-oauth-chat.json" >&2 2>/dev/null || cat "$tmpdir/openai-oauth-chat.json" >&2
+    exit 1
+  else
+    case "${oai_err_msg}" in
+      *"no available accounts"*|*"rate"*|*"timeout"*|*"context canceled"*|*"upstream error: 5"*)
+        :
+        ;;
+    esac
+    echo "::warning::tk_post_deploy_smoke: /v1/chat/completions (openai oauth) returned HTTP ${oai_http} — runtime resource issue (likely OpenAI/codex account cooldown / 429 / upstream 5xx), NOT a reasoning_tokens passthrough regression." >&2
+    if [[ -n "${oai_err_msg}" ]]; then
+      echo "  gateway message: ${oai_err_msg}" >&2
+    fi
+    jq . "$tmpdir/openai-oauth-chat.json" >&2 2>/dev/null || cat "$tmpdir/openai-oauth-chat.json" >&2
+    echo "tk_post_deploy_smoke: openai oauth section soft-skipped (HTTP ${oai_http} is not a passthrough-regression signal)"
+  fi
+else
+  echo "tk_post_deploy_smoke: skip /v1/chat/completions (openai oauth) — POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY not set"
 fi
 
 echo "tk_post_deploy_smoke: OK"

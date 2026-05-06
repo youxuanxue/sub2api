@@ -275,6 +275,12 @@ jobs:
           # cleanup against real Google upstream; silently skipped when unset.
           POST_DEPLOY_SMOKE_GEMINI_API_KEY: ${{ secrets.POST_DEPLOY_SMOKE_GEMINI_API_KEY }}
           POST_DEPLOY_SMOKE_GEMINI_MODEL: ${{ vars.POST_DEPLOY_SMOKE_GEMINI_MODEL }}
+          # Optional: api_key bound to an OpenAI OAuth/codex-platform group.
+          # When set, smoke step 7 exercises the apicompat reasoning_tokens
+          # passthrough on /v1/chat/completions (Responses → ChatCompletions
+          # usage.completion_tokens_details); silently skipped when unset.
+          POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY: ${{ secrets.POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY }}
+          POST_DEPLOY_SMOKE_OPENAI_OAUTH_MODEL: ${{ vars.POST_DEPLOY_SMOKE_OPENAI_OAUTH_MODEL }}
         run: |
           set -euo pipefail
           if [ -z "${POST_DEPLOY_SMOKE_API_KEY:-}" ]; then
