@@ -11,7 +11,7 @@ runs:
       run: echo "sha=$(tr -d '[:space:]' < "${GITHUB_WORKSPACE}/.new-api-ref")" >> "$GITHUB_OUTPUT"
 
     - name: Restore cached new-api sibling
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ${{ github.workspace }}/../new-api
         key: new-api-${{ steps.new-api-pin.outputs.sha }}

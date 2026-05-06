@@ -112,13 +112,21 @@ func anthropicUsageFromResponsesUsage(usage *ResponsesUsage) AnthropicUsage {
 	}
 }
 
+// details is retained in the signature so callers need not change; the reason
+// value no longer drives dispatch — every "incomplete" maps to "max_tokens".
 func responsesStatusToAnthropicStopReason(status string, details *ResponsesIncompleteDetails, blocks []AnthropicContentBlock) string {
 	switch status {
 	case "incomplete":
-		if details != nil && details.Reason == "max_output_tokens" {
-			return "max_tokens"
-		}
-		return "end_turn"
+		// Any "incomplete" terminal means the upstream cut us off — whether the
+		// reason is max_output_tokens, content_filter, server_error, or anything
+		// else. Mapping the non-budget reasons to "end_turn" used to make Claude
+		// Code's agentic loop think the task finished naturally and stop, even
+		// though there is more work to do. "max_tokens" is the only Anthropic
+		// stop reason that signals "cut off, continue is sensible" — use it for
+		// every incomplete case so the client can recover. The original reason
+		// (content_filter, server_error, …) is surfaced via the gateway's
+		// access log instead.
+		return "max_tokens"
 	case "completed":
 		if containsAnthropicToolUseBlock(blocks) {
 			return "tool_use"
@@ -191,6 +199,17 @@ type ResponsesEventToAnthropicState struct {
 	ResponseID string
 	Model      string
 	Created    int64
+
+	// StopReason is the Anthropic-shaped stop reason emitted by the most recent
+	// terminal event (response.completed / response.incomplete / etc.). The
+	// gateway forwards this value to the access log so we can verify the
+	// stop_reason mapping fix is behaving as designed.
+	StopReason string
+	// IncompleteReason mirrors the upstream incomplete_details.reason verbatim
+	// (max_output_tokens, content_filter, server_error, …) so we can tell
+	// which kind of cutoff produced a "max_tokens" stop_reason. Empty when the
+	// response did not terminate as incomplete.
+	IncompleteReason string
 }
 
 // NewResponsesEventToAnthropicState returns an initialised stream state.
@@ -621,14 +640,21 @@ func resToAnthHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 		}
 		switch evt.Response.Status {
 		case "incomplete":
-			if evt.Response.IncompleteDetails != nil && evt.Response.IncompleteDetails.Reason == "max_output_tokens" {
-				stopReason = "max_tokens"
+			// Mirror the non-streaming branch in responsesStatusToAnthropicStopReason:
+			// every "incomplete" terminal is a cutoff (max_output_tokens, content_filter,
+			// server_error, …). All of them map to "max_tokens" so Claude Code's
+			// agentic loop knows the turn was cut short and continuation is sensible.
+			// Returning "end_turn" here used to make CC stop after non-budget cutoffs.
+			stopReason = "max_tokens"
+			if evt.Response.IncompleteDetails != nil {
+				state.IncompleteReason = evt.Response.IncompleteDetails.Reason
 			}
 		case "completed":
 			if state.HasToolCall {
 				stopReason = "tool_use"
 			}
 		}
+		state.StopReason = stopReason
 	}
 
 	events = append(events,

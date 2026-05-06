@@ -414,6 +414,85 @@ func TestResponsesToAnthropic_Incomplete(t *testing.T) {
 	assert.Equal(t, "max_tokens", anth.StopReason)
 }
 
+// TestResponsesToAnthropic_IncompleteNonBudgetReason verifies that any
+// "incomplete" upstream terminal — content_filter, server_error, an empty
+// reason, anything — surfaces as Anthropic stop_reason="max_tokens" instead
+// of "end_turn". Mapping non-budget cutoffs to "end_turn" used to make Claude
+// Code's agentic loop think the task finished naturally and stop.
+func TestResponsesToAnthropic_IncompleteNonBudgetReason(t *testing.T) {
+	cases := []struct {
+		name   string
+		reason string
+	}{
+		{"content_filter", "content_filter"},
+		{"server_error", "server_error"},
+		{"unknown_reason", "something_new_from_upstream"},
+		{"empty_reason", ""},
+		{"nil_details", "<nil>"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := &ResponsesResponse{
+				ID:     "resp_inc",
+				Model:  "gpt-5.2",
+				Status: "incomplete",
+				Output: []ResponsesOutput{
+					{
+						Type:    "message",
+						Content: []ResponsesContentPart{{Type: "output_text", Text: "Partial..."}},
+					},
+				},
+			}
+			if tc.reason != "<nil>" {
+				resp.IncompleteDetails = &ResponsesIncompleteDetails{Reason: tc.reason}
+			}
+
+			anth := ResponsesToAnthropic(resp, "claude-opus-4-6")
+			assert.Equal(t, "max_tokens", anth.StopReason,
+				"every incomplete reason must map to max_tokens so Claude Code can recover")
+		})
+	}
+}
+
+// TestStreamingIncompleteNonBudgetReason mirrors the non-streaming test for
+// the SSE path. The streaming converter computes stop_reason in
+// resToAnthHandleCompleted and stores it on state so the gateway can record
+// it on the access log.
+func TestStreamingIncompleteNonBudgetReason(t *testing.T) {
+	state := NewResponsesEventToAnthropicState()
+
+	// message_start
+	_ = ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type:     "response.created",
+		Response: &ResponsesResponse{ID: "resp_inc_stream", Model: "gpt-5.2"},
+	}, state)
+
+	// terminal: incomplete + content_filter
+	events := ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type: "response.incomplete",
+		Response: &ResponsesResponse{
+			ID:                "resp_inc_stream",
+			Status:            "incomplete",
+			IncompleteDetails: &ResponsesIncompleteDetails{Reason: "content_filter"},
+		},
+	}, state)
+
+	// Find the message_delta event with the stop_reason.
+	var stopReason string
+	for _, evt := range events {
+		if evt.Type == "message_delta" && evt.Delta != nil {
+			stopReason = evt.Delta.StopReason
+			break
+		}
+	}
+	assert.Equal(t, "max_tokens", stopReason,
+		"streaming path: content_filter incomplete must surface as max_tokens")
+	assert.Equal(t, "max_tokens", state.StopReason,
+		"state.StopReason must be plumbed for the access log")
+	assert.Equal(t, "content_filter", state.IncompleteReason,
+		"state.IncompleteReason must preserve the upstream reason verbatim")
+}
+
 func TestResponsesToAnthropic_EmptyOutput(t *testing.T) {
 	resp := &ResponsesResponse{
 		ID:     "resp_empty",
@@ -1009,7 +1088,9 @@ func TestAnthropicToResponses_ThinkingEnabled(t *testing.T) {
 	resp, err := AnthropicToResponses(req)
 	require.NoError(t, err)
 	require.NotNil(t, resp.Reasoning)
-	// thinking.type is ignored for effort; Codex bridge default medium applies.
+	// thinking.type is ignored for effort; default medium applies.
+	// (Reduced from high to leave more of max_output_tokens for visible
+	// output — see anthropic_to_responses.go for rationale.)
 	assert.Equal(t, "medium", resp.Reasoning.Effort)
 	assert.Equal(t, "auto", resp.Reasoning.Summary)
 	// US-027: Include must NOT request reasoning.encrypted_content. Pairing it with
@@ -1032,7 +1113,7 @@ func TestAnthropicToResponses_ThinkingAdaptive(t *testing.T) {
 	resp, err := AnthropicToResponses(req)
 	require.NoError(t, err)
 	require.NotNil(t, resp.Reasoning)
-	// thinking.type is ignored for effort; Codex bridge default medium applies.
+	// thinking.type is ignored for effort; default medium applies.
 	assert.Equal(t, "medium", resp.Reasoning.Effort)
 	assert.Equal(t, "auto", resp.Reasoning.Summary)
 	assert.NotContains(t, resp.Include, "reasoning.summary")
@@ -1063,6 +1144,7 @@ func TestAnthropicToResponses_NoThinking(t *testing.T) {
 	resp, err := AnthropicToResponses(req)
 	require.NoError(t, err)
 	// Default effort applies (medium) when no thinking/output_config is set.
+	// This matters most for Claude Code CLI, which never sets output_config.effort.
 	require.NotNil(t, resp.Reasoning)
 	assert.Equal(t, "medium", resp.Reasoning.Effort)
 }

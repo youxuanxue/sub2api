@@ -57,9 +57,18 @@ func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
 	}
 
 	// Determine reasoning effort: only output_config.effort controls the
-	// level; thinking.type is ignored. Default follows Codex CLI / airgate's
-	// Anthropic bridge shape, which uses medium when unset.
+	// level; thinking.type is ignored.
 	// Anthropic levels map 1:1 to OpenAI: low→low, medium→medium, high→high, max→xhigh.
+	//
+	// Why default = medium (not high): Claude Code CLI does not set
+	// output_config.effort, so without an override we send effort=high to the
+	// OpenAI Responses upstream. effort=high spends a large slice of the
+	// shared max_output_tokens budget on reasoning, leaving too few tokens for
+	// the visible output and triggering response.incomplete on multi-tool
+	// agentic turns. The native Anthropic path doesn't share this budget the
+	// same way, which is why the default group "feels" much more complete.
+	// medium preserves reasoning visibility (summary=auto) while leaving room
+	// for the model's actual output.
 	effort := "medium"
 	if req.OutputConfig != nil && req.OutputConfig.Effort != "" {
 		effort = req.OutputConfig.Effort
