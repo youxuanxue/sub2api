@@ -88,3 +88,21 @@ func TestOpenAICompatContinuationEnabled(t *testing.T) {
 		})
 	}
 }
+
+func TestOpenAICompatContinuationAllowedAccountType(t *testing.T) {
+	assert.True(t, openAICompatContinuationAllowedAccountType(&Account{Type: AccountTypeAPIKey}))
+	assert.True(t, openAICompatContinuationAllowedAccountType(&Account{Type: AccountTypeOAuth}))
+	assert.False(t, openAICompatContinuationAllowedAccountType(nil))
+	assert.False(t, openAICompatContinuationAllowedAccountType(&Account{Type: "anthropic"}))
+	assert.False(t, openAICompatContinuationAllowedAccountType(&Account{Type: "newapi"}))
+}
+
+func TestOpenAICompatShouldTrimForContinuation(t *testing.T) {
+	// Only APIKey accounts get input trimmed: OpenAI Platform retains full history.
+	assert.True(t, openAICompatShouldTrimForContinuation(&Account{Type: AccountTypeAPIKey}))
+	// OAuth must NOT trim: full replay keeps system-prompt in input[0] so the
+	// codex transform can extract it into the instructions field.
+	assert.False(t, openAICompatShouldTrimForContinuation(&Account{Type: AccountTypeOAuth}))
+	assert.False(t, openAICompatShouldTrimForContinuation(nil))
+	assert.False(t, openAICompatShouldTrimForContinuation(&Account{Type: "anthropic"}))
+}

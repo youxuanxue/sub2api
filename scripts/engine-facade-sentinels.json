@@ -60,7 +60,8 @@
       "required_literals": [
         "compatContinuationEnabled := openAICompatContinuationEnabled(account, upstreamModel)",
         "previousResponseID = s.getOpenAICompatSessionResponseID(ctx, c, account, promptCacheKey)",
-        "s.bindOpenAICompatSessionResponseID(ctx, c, account, promptCacheKey, result.ResponseID)"
+        "s.bindOpenAICompatSessionResponseID(ctx, c, account, promptCacheKey, result.ResponseID)",
+        "openAICompatShouldTrimForContinuation(account)"
       ]
     },
     {
@@ -68,8 +69,18 @@
       "source": "backend/internal/service/openai_messages_continuation.go",
       "required_literals": [
         "func openAICompatContinuationEnabled(",
+        "openAICompatContinuationAllowedAccountType(account)",
         "func (s *OpenAIGatewayService) getOpenAICompatSessionResponseID(",
         "func (s *OpenAIGatewayService) bindOpenAICompatSessionResponseID("
+      ]
+    },
+    {
+      "name": "openai_compat_continuation_tk_oauth",
+      "source": "backend/internal/service/openai_messages_continuation_tk_oauth.go",
+      "required_literals": [
+        "func openAICompatContinuationAllowedAccountType(",
+        "func openAICompatShouldTrimForContinuation(",
+        "account.Type == AccountTypeOAuth"
       ]
     }
   ]

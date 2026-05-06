@@ -21,15 +21,7 @@ type openAICompatSessionResponseBinding struct {
 }
 
 func openAICompatContinuationEnabled(account *Account, model string) bool {
-	if account == nil {
-		return false
-	}
-	// OAuth (claude.ai subscription) and APIKey accounts both route through the
-	// Codex/GPT-5 Responses API endpoint and support previous_response_id
-	// continuation. If the upstream rejects it (400 / "unsupported parameter"),
-	// ForwardAsAnthropic falls back via disableOpenAICompatSessionContinuation
-	// so the degradation is safe.
-	if account.Type != AccountTypeAPIKey && account.Type != AccountTypeOAuth {
+	if !openAICompatContinuationAllowedAccountType(account) {
 		return false
 	}
 	return shouldAutoInjectPromptCacheKeyForCompat(model)

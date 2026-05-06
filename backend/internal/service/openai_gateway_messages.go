@@ -106,7 +106,13 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	responsesReq.Model = upstreamModel
 	if previousResponseID != "" {
 		responsesReq.PreviousResponseID = previousResponseID
-		trimAnthropicCompatResponsesInputToLatestTurn(responsesReq)
+		// Only trim for APIKey accounts: OpenAI Platform keeps full history in
+		// session state so only the new turn is needed. For OAuth (ChatGPT Codex),
+		// trimming strips the role=system item and breaks system-prompt delivery
+		// to the transform — keep full replay (same rationale as line 111 above).
+		if openAICompatShouldTrimForContinuation(account) {
+			trimAnthropicCompatResponsesInputToLatestTurn(responsesReq)
+		}
 	}
 	if compatReplayGuardEnabled && account.Type != AccountTypeOAuth {
 		appendOpenAICompatClaudeCodeTodoGuard(responsesReq)
@@ -271,6 +277,11 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	if account.Type == AccountTypeOAuth && promptCacheKey != "" && strings.TrimSpace(c.GetHeader("conversation_id")) == "" {
 		upstreamReq.Header.Del("conversation_id")
 	}
+	// Note: OAuth accounts with continuation enabled may send BOTH
+	// previous_response_id (body) and x-codex-turn-state (header) simultaneously.
+	// If the upstream rejects the combination, isOpenAICompatPreviousResponseUnsupported
+	// (line ~308) catches the 400 and disableOpenAICompatSessionContinuation reverts
+	// the session to turn-state-only — one failed turn, then automatic recovery.
 	if compatTurnState != "" && upstreamReq.Header.Get("x-codex-turn-state") == "" {
 		upstreamReq.Header.Set("x-codex-turn-state", compatTurnState)
 	}
