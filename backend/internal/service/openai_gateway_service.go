@@ -235,6 +235,17 @@ type OpenAIForwardResult struct {
 	FirstTokenMs    *int
 	ImageCount      int
 	ImageSize       string
+	// StopReason is the Anthropic-shaped stop reason returned to the client
+	// ("end_turn" / "max_tokens" / "tool_use"). Recorded for the access log
+	// so we can verify that "incomplete" upstream responses surface as
+	// "max_tokens" (and not silently as "end_turn", which used to make
+	// Claude Code's agentic loop stop short).
+	StopReason string
+	// IncompleteReason carries the upstream incomplete_details.reason verbatim
+	// when the response terminated as incomplete (max_output_tokens,
+	// content_filter, server_error, …). Empty otherwise. Used only for
+	// observability — does not change response shape.
+	IncompleteReason string
 }
 
 type OpenAIWSRetryMetricsSnapshot struct {
