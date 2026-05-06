@@ -34,10 +34,18 @@ DEFAULT_ENV_VARS = (
     "UPSTREAM_MERGE_GH_TOKEN",
 )
 
+# Pattern thresholds tightened after run 25419117708 (2026-05-06) leaked
+# `github_pat_11ABMYKSY` (9 chars after prefix) into a public artifact:
+# the agent printed a TRUNCATED prefix while debugging a PAT permission
+# issue, so neither exact-value match (full token != truncated) nor the
+# previous `{20,}` regex caught it. Lowered thresholds for distinctive
+# prefixes (`github_pat_*`, `ghp_*`, `gho_*`, `ghs_*`, `ghu_*`, `ghr_*`)
+# so even a short suffix is redacted. `sk-` keeps a higher floor since
+# the prefix is more ambiguous (test fixtures, doc strings).
 TOKEN_PATTERNS = (
-    re.compile(r"sk-[A-Za-z0-9_\-]{16,}"),
-    re.compile(r"\b(?:ghp|gho|ghs|ghu|ghr)_[A-Za-z0-9]{20,}"),
-    re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"),
+    re.compile(r"sk-[A-Za-z0-9_\-]{8,}"),
+    re.compile(r"\b(?:ghp|gho|ghs|ghu|ghr)_[A-Za-z0-9]+"),
+    re.compile(r"\bgithub_pat_[A-Za-z0-9_]*"),
 )
 
 REPLACEMENT = "***REDACTED***"
