@@ -50,4 +50,3 @@ func (s *PricingCatalogService) IsModelPriced(modelID, platform string) bool {
 	}
 	return false
 }
-

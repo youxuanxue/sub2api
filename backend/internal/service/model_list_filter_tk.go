@@ -55,4 +55,3 @@ func (f *ModelListFilter) FilterClientFacing(ctx context.Context, platform strin
 	}
 	return out
 }
-
