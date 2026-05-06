@@ -19,7 +19,8 @@ import (
 // Tests for gateway_handler_tk_model_list.go helpers.
 //
 // These pin the shape/scope fixes from review-20260507 R-001 (AntigravityModels
-// shape regression) and R-002 (PricedCandidates cross-platform scope regression)
+// shape regression) and R-002 (cross-platform scope regression — candidate set
+// must be antigravity.DefaultModels(), not the full pricing catalog)
 // and CF-001 (GeminiV1BetaListModels fallback filter).
 
 // --- tkAntigravityDefaultModels ---

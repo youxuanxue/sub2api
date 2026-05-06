@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Tests for pricing_catalog_membership_tk.go (IsModelPriced, PricedModels).
+// Tests for pricing_catalog_membership_tk.go (IsModelPriced).
 //
 // These predicates are load-bearing for the upstream-discovery filter (Goal 1)
 // and the client model-list filter (Goal 2). Low-severity review finding R-003
@@ -61,29 +61,3 @@ func TestIsModelPriced_WithFixtureData(t *testing.T) {
 		"model absent from catalog must return false")
 }
 
-func TestPricedModels_NilReceiver(t *testing.T) {
-	var s *PricingCatalogService
-	result := s.PricedModels()
-	require.NotNil(t, result, "nil receiver must return non-nil slice (never nil)")
-	require.Empty(t, result)
-}
-
-func TestPricedModels_ColdCatalog(t *testing.T) {
-	svc := NewPricingCatalogService(nil)
-	require.Empty(t, svc.PricedModels())
-}
-
-func TestPricedModels_WithFixtureData(t *testing.T) {
-	svc := NewPricingCatalogService(nil)
-	svc.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-		return []byte(`{
-			"model-a": {"input_cost_per_token": 0.001, "output_cost_per_token": 0.002, "litellm_provider": "test"},
-			"model-b": {"input_cost_per_token": 0.003, "output_cost_per_token": 0.004, "litellm_provider": "test"}
-		}`), time.Now(), true
-	})
-
-	models := svc.PricedModels()
-	require.Len(t, models, 2)
-	require.Contains(t, models, "model-a")
-	require.Contains(t, models, "model-b")
-}

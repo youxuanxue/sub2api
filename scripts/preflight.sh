@@ -235,6 +235,26 @@ else
     echo "  ok: all brand sentinels intact"
 fi
 
+# ---- sub2api: pricing-availability sentinel registry ------------------------
+# Source of truth: scripts/pricing-availability-sentinels.json. Verifies that
+# the 1-line TK availability-tap injections in upstream-shaped handler and
+# service files (TkRecordFailureFromErr call sites, RecordOutcome hook) are
+# still present after any upstream merge. Without these taps the model_availability
+# table receives no data and the /pricing availability decoration silently stops
+# working. See docs/approved/pricing-availability-source-of-truth.md §4 and
+# CLAUDE.md §「升级原则」.
+echo ""
+echo "=== sub2api: pricing-availability sentinel registry ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required to read pricing-availability-sentinels.json)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/check-pricing-availability-sentinels.py --quiet; then
+    # check-pricing-availability-sentinels.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: all pricing-availability sentinels intact"
+fi
+
 # ---- sub2api: redaction version contract ------------------------------------
 # Source of truth: scripts/redaction-sentinels.json. Verifies that the default
 # sensitive-key set in logredact and the outward QA redaction_version literals

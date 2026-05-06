@@ -51,24 +51,3 @@ func (s *PricingCatalogService) IsModelPriced(modelID, platform string) bool {
 	return false
 }
 
-// PricedModels returns the catalog's full priced model_id set as a sorted slice.
-// Used by AntigravityModels handler when the candidate pool is empty (catalog
-// becomes the override-default source per §5.x).
-//
-// Behavior:
-//   - nil receiver / empty catalog → empty slice (never nil; preserves
-//     downstream JSON serialization stability).
-func (s *PricingCatalogService) PricedModels() []string {
-	if s == nil {
-		return []string{}
-	}
-	resp := s.BuildPublicCatalog(context.Background())
-	if resp == nil || len(resp.Data) == 0 {
-		return []string{}
-	}
-	out := make([]string, 0, len(resp.Data))
-	for i := range resp.Data {
-		out = append(out, resp.Data[i].ModelID)
-	}
-	return out
-}

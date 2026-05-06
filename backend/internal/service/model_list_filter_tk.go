@@ -10,8 +10,8 @@ package service
 //
 // Client-facing contract: only emit models that are (a) priced AND
 // (b) not currently unreachable per the availability table. Fail-open when
-// either service is nil so that cold-start or degraded wiring never produces
-// an empty model-list that would break an SDK.
+// pricing is nil so that cold-start or degraded wiring never produces an
+// empty model-list that would break an SDK.
 
 import "context"
 
@@ -56,15 +56,3 @@ func (f *ModelListFilter) FilterClientFacing(ctx context.Context, platform strin
 	return out
 }
 
-// PricedCandidates returns all priced model IDs from the catalog, suitable as
-// the initial candidate set for platforms that don't derive candidates from
-// account model_mappings (e.g. AntigravityModels).
-//
-// Returns nil when pricing is unavailable, allowing callers to fall back to
-// static defaults (§5.x override-default policy).
-func (f *ModelListFilter) PricedCandidates() []string {
-	if f == nil || f.pricing == nil {
-		return nil
-	}
-	return f.pricing.PricedModels()
-}
