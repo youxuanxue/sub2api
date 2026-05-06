@@ -44,17 +44,17 @@ type PublicCatalogResponse struct {
 // is used for context_window / max_output_tokens / capabilities so partial
 // metadata still produces a clean response.
 type PublicCatalogModel struct {
-	ModelID         string                    `json:"model_id"`
-	Vendor          string                    `json:"vendor,omitempty"`
-	Pricing         PublicCatalogPricing      `json:"pricing"`
-	ContextWindow   int                       `json:"context_window,omitempty"`
-	MaxOutputTokens int                       `json:"max_output_tokens,omitempty"`
-	Capabilities    []string                  `json:"capabilities"`
+	ModelID         string               `json:"model_id"`
+	Vendor          string               `json:"vendor,omitempty"`
+	Pricing         PublicCatalogPricing `json:"pricing"`
+	ContextWindow   int                  `json:"context_window,omitempty"`
+	MaxOutputTokens int                  `json:"max_output_tokens,omitempty"`
+	Capabilities    []string             `json:"capabilities"`
 	// Availability is injected post-build by DecorateWithAvailability when
 	// the PricingAvailabilityService is wired (Phase 2 / Phase 3). nil = not
 	// yet available / feature flag off. Clients that pre-date this field see
 	// no change (omitempty).
-	Availability    *PublicCatalogAvailability `json:"availability,omitempty"`
+	Availability *PublicCatalogAvailability `json:"availability,omitempty"`
 }
 
 // PublicCatalogAvailability is the per-(platform, model) verified-availability
@@ -66,14 +66,14 @@ type PublicCatalogAvailability struct {
 	//   stale       — verified but >StaleAfter ago, OR success rate 80-95%
 	//   unreachable — model_not_found or rate < 80%
 	//   untested    — no samples yet (gray dot in UI)
-	Status          string     `json:"status"`
-	LastVerifiedAt  *time.Time `json:"last_verified_at,omitempty"`
-	LastCheckedAt   *time.Time `json:"last_checked_at,omitempty"`
-	SampleCount24h  int        `json:"sample_count_24h"`
-	SuccessRate24h  float64    `json:"success_rate_24h"`
+	Status         string     `json:"status"`
+	LastVerifiedAt *time.Time `json:"last_verified_at,omitempty"`
+	LastCheckedAt  *time.Time `json:"last_checked_at,omitempty"`
+	SampleCount24h int        `json:"sample_count_24h"`
+	SuccessRate24h float64    `json:"success_rate_24h"`
 	// LastFailureKind is the reason for the last failure (empty when ok).
 	// Values match FailureKind* constants in pricing_availability_service_tk.go.
-	LastFailureKind string     `json:"last_failure_kind,omitempty"`
+	LastFailureKind string `json:"last_failure_kind,omitempty"`
 }
 
 // PublicCatalogPricing exposes prices in USD per 1k tokens. Currency is always
