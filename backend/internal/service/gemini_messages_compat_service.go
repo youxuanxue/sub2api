@@ -582,6 +582,14 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	}
 
 	originalModel := req.Model
+	// TK: 分组级 Claude→Gemini 模型映射 (gemini_messages_dispatch_tk.go)。
+	// handler 通过 gin.Context 透传 *Group；resolver 仅当 group 非空且
+	// 配置了映射规则、且 req.Model 不是 gemini-* 形态时才改写 req.Model。
+	if g := tkGroupFromGinContext(c); g != nil {
+		if mapped := g.TKResolveGeminiDispatchModel(req.Model); mapped != "" {
+			req.Model = mapped
+		}
+	}
 	mappedModel := req.Model
 	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
 		mappedModel = account.GetMappedModel(req.Model)

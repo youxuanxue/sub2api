@@ -8,8 +8,12 @@ import (
 
 // Tests for docs/approved/newapi-as-fifth-platform.md §3.1 U7 / US-009 / US-014 / US-015.
 // Covers the pure-function contract of sanitizeGroupMessagesDispatchFields:
-// the openai-compat platforms (openai, newapi) preserve all messages_dispatch
-// fields; non-compat platforms (anthropic, gemini, antigravity) clear them.
+// the predicate tkGroupKeepsDispatchConfig decides per-platform retention.
+//
+// 2026-05-06 update: gemini was added to the keep-set so platform=gemini
+// groups can use the same Claude→upstream mapping form as openai/newapi
+// (see openai_messages_dispatch_tk_newapi.go tkGroupKeepsDispatchConfig
+// docstring). Anthropic and antigravity remain in the clear-set.
 
 func nonzeroDispatchConfig() OpenAIMessagesDispatchModelConfig {
 	return OpenAIMessagesDispatchModelConfig{
@@ -79,10 +83,16 @@ func TestUS009_Sanitize_AnthropicGroup_Cleared(t *testing.T) {
 	assertDispatchCleared(t, g)
 }
 
-func TestUS009_Sanitize_GeminiGroup_Cleared(t *testing.T) {
+// 2026-05-06: gemini groups now PRESERVE dispatch config so the same
+// Claude→upstream mapping mechanism powers gemini-pa style groups.
+// Behavior change is gated on tkGroupKeepsDispatchConfig (see
+// openai_messages_dispatch_tk_newapi.go). Originally US-009 AC-002 required
+// the gemini path to be cleared; that AC is superseded by the new
+// gemini-platform group dispatch feature.
+func TestSanitize_GeminiGroup_Preserved(t *testing.T) {
 	g := newGroupWithDispatchConfig(PlatformGemini)
 	sanitizeGroupMessagesDispatchFields(g)
-	assertDispatchCleared(t, g)
+	assertDispatchPreserved(t, g)
 }
 
 func TestUS009_Sanitize_AntigravityGroup_Cleared(t *testing.T) {
@@ -168,6 +178,34 @@ func TestIsOpenAICompatPlatformGroup_Truth(t *testing.T) {
 			got := isOpenAICompatPlatformGroup(tc.group)
 			if got != tc.expected {
 				t.Fatalf("isOpenAICompatPlatformGroup(%v) = %v, want %v", tc.group, got, tc.expected)
+			}
+		})
+	}
+}
+
+// TestTkGroupKeepsDispatchConfig_Truth pins down the predicate that decides
+// which platforms keep their MessagesDispatchModelConfig at sanitize time.
+// Differs from isOpenAICompatPlatformGroup in that gemini is also true.
+func TestTkGroupKeepsDispatchConfig_Truth(t *testing.T) {
+	cases := []struct {
+		name     string
+		group    *Group
+		expected bool
+	}{
+		{"nil", nil, false},
+		{"openai", &Group{Platform: PlatformOpenAI}, true},
+		{"newapi", &Group{Platform: PlatformNewAPI}, true},
+		{"gemini", &Group{Platform: PlatformGemini}, true},
+		{"anthropic", &Group{Platform: PlatformAnthropic}, false},
+		{"antigravity", &Group{Platform: PlatformAntigravity}, false},
+		{"empty", &Group{Platform: ""}, false},
+		{"unknown", &Group{Platform: "wrybar"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tkGroupKeepsDispatchConfig(tc.group)
+			if got != tc.expected {
+				t.Fatalf("tkGroupKeepsDispatchConfig(%v) = %v, want %v", tc.group, got, tc.expected)
 			}
 		})
 	}

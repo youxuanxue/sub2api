@@ -417,6 +417,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			if account.Platform == service.PlatformAntigravity {
 				result, err = h.antigravityGatewayService.ForwardGemini(requestCtx, c, account, reqModel, "generateContent", reqStream, body, hasBoundSession)
 			} else {
+				// TK: 让 GeminiMessagesCompatService.Forward 能拿到 *Group 做
+				// 分组级 Claude→Gemini 映射 (gin_gemini_dispatch_tk.go)。
+				c.Set(service.TKGeminiDispatchGroupContextKey, apiKey.Group)
 				result, err = h.geminiCompatService.Forward(requestCtx, c, account, body)
 			}
 			if accountReleaseFunc != nil {
