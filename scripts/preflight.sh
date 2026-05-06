@@ -25,6 +25,12 @@
 #        fifth-platform display label) from drifting back apart. Driven by
 #        `scripts/brand-sentinels.json` via `scripts/check-brand-sentinels.py`;
 #        intentionally separate from `newapi` semantics / routing truth.
+#   frontend TK sentinel registry — guards load-bearing TokenKey-only frontend
+#        surfaces (sidebar geometry, fluid admin-accounts table mode, sticky
+#        edge-hints opt-out) from being silently reverted by upstream merges
+#        on common Vue components. Driven by `scripts/frontend-tk-sentinels.json`
+#        via `scripts/check-frontend-tk-sentinels.py`. The same script is
+#        invoked by `.github/workflows/upstream-merge-pr-shape.yml`.
 #   redaction version contract   — guards Evidence Spine contract drift:
 #        changing the default sensitive-key set in logredact must bump the
 #        outward QA `redaction_version` contract in the same commit. Driven by
@@ -233,6 +239,25 @@ elif ! python3 ./scripts/check-brand-sentinels.py --quiet; then
     errors=$((errors + 1))
 else
     echo "  ok: all brand sentinels intact"
+fi
+
+# ---- sub2api: frontend TK sentinel registry ---------------------------------
+# Source of truth: scripts/frontend-tk-sentinels.json. Verifies that load-bearing
+# TokenKey-only frontend surfaces (sidebar geometry, fluid table mode, sticky
+# edge-hints opt-out on the admin accounts page) are still present. These are
+# small, additive divergences from upstream that compile cleanly with or
+# without the TK touches, so without a literal-content guard a bad upstream
+# merge can silently revert them and the regression only shows up visually.
+echo ""
+echo "=== sub2api: frontend TK sentinel registry ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required to read frontend-tk-sentinels.json)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/check-frontend-tk-sentinels.py --quiet; then
+    # check-frontend-tk-sentinels.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: all frontend TK sentinels intact"
 fi
 
 # ---- sub2api: redaction version contract ------------------------------------
