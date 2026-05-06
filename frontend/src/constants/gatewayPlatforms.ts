@@ -22,6 +22,28 @@ export function isOpenAICompatPlatform(platform: string | null | undefined): boo
   return (OPENAI_COMPAT_PLATFORMS as readonly string[]).includes(platform)
 }
 
+/**
+ * Platforms that have a per-group `messages_dispatch_model_config`
+ * (Claude→upstream model mapping form). Wider than {@link OPENAI_COMPAT_PLATFORMS}
+ * because gemini-platform groups also use the SAME JSON column to map
+ * `claude-*` family/exact requests to gemini model IDs (e.g. gemini-2.5-pro).
+ *
+ * Mirrors backend predicate `tkGroupKeepsDispatchConfig` in
+ * `backend/internal/service/openai_messages_dispatch_tk_newapi.go`. Both lists
+ * must move in lockstep; backend sanitizer would otherwise wipe the column on
+ * save and the frontend form's value would silently disappear.
+ *
+ * Differs from {@link isOpenAICompatPlatform} which gates "OpenAI HTTP shape"
+ * UI branches (e.g. /v1/chat/completions allowance). Those two questions
+ * intentionally do not coincide for gemini.
+ */
+export const GROUP_DISPATCH_CONFIG_PLATFORMS: readonly AccountPlatform[] = ['openai', 'newapi', 'gemini'] as const
+
+export function hasMessagesDispatchConfig(platform: string | null | undefined): boolean {
+  if (!platform) return false
+  return (GROUP_DISPATCH_CONFIG_PLATFORMS as readonly string[]).includes(platform)
+}
+
 /** Tailwind active-state classes for the create-account platform segmented control (order follows {@link GATEWAY_PLATFORMS}). */
 export const CREATE_ACCOUNT_PLATFORM_SEGMENT_ACTIVE: Record<AccountPlatform, string> = {
   anthropic:

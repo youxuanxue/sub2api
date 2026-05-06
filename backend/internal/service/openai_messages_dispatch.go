@@ -91,7 +91,7 @@ func (g *Group) ResolveMessagesDispatchModel(requestedModel string) string {
 }
 
 func sanitizeGroupMessagesDispatchFields(g *Group) {
-	if g == nil || isOpenAICompatPlatformGroup(g) {
+	if g == nil || tkGroupKeepsDispatchConfig(g) {
 		return
 	}
 	g.AllowMessagesDispatch = false
