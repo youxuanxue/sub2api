@@ -492,6 +492,8 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			}
 			// ForwardNative already wrote the response
 			reqLog.Error("gemini.forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+			// TK: passive availability failure tap (modelName = actual Gemini model ID sent to Google)
+			h.gatewayService.TKRecordForwardFailure(c.Request.Context(), account.Platform, modelName, account.ID, 0, err.Error(), false)
 			return
 		}
 

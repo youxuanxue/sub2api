@@ -268,6 +268,34 @@ func (_u *ChannelMonitorUpdate) ClearBodyOverride() *ChannelMonitorUpdate {
 	return _u
 }
 
+// SetKind sets the "kind" field.
+func (_u *ChannelMonitorUpdate) SetKind(v channelmonitor.Kind) *ChannelMonitorUpdate {
+	_u.mutation.SetKind(v)
+	return _u
+}
+
+// SetNillableKind sets the "kind" field if the given value is not nil.
+func (_u *ChannelMonitorUpdate) SetNillableKind(v *channelmonitor.Kind) *ChannelMonitorUpdate {
+	if v != nil {
+		_u.SetKind(*v)
+	}
+	return _u
+}
+
+// SetSeedSource sets the "seed_source" field.
+func (_u *ChannelMonitorUpdate) SetSeedSource(v string) *ChannelMonitorUpdate {
+	_u.mutation.SetSeedSource(v)
+	return _u
+}
+
+// SetNillableSeedSource sets the "seed_source" field if the given value is not nil.
+func (_u *ChannelMonitorUpdate) SetNillableSeedSource(v *string) *ChannelMonitorUpdate {
+	if v != nil {
+		_u.SetSeedSource(*v)
+	}
+	return _u
+}
+
 // AddHistoryIDs adds the "history" edge to the ChannelMonitorHistory entity by IDs.
 func (_u *ChannelMonitorUpdate) AddHistoryIDs(ids ...int64) *ChannelMonitorUpdate {
 	_u.mutation.AddHistoryIDs(ids...)
@@ -448,6 +476,16 @@ func (_u *ChannelMonitorUpdate) check() error {
 			return &ValidationError{Name: "body_override_mode", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.body_override_mode": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.Kind(); ok {
+		if err := channelmonitor.KindValidator(v); err != nil {
+			return &ValidationError{Name: "kind", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.kind": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.SeedSource(); ok {
+		if err := channelmonitor.SeedSourceValidator(v); err != nil {
+			return &ValidationError{Name: "seed_source", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.seed_source": %w`, err)}
+		}
+	}
 	return nil
 }
 
@@ -527,6 +565,12 @@ func (_u *ChannelMonitorUpdate) sqlSave(ctx context.Context) (_node int, err err
 	}
 	if _u.mutation.BodyOverrideCleared() {
 		_spec.ClearField(channelmonitor.FieldBodyOverride, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.Kind(); ok {
+		_spec.SetField(channelmonitor.FieldKind, field.TypeEnum, value)
+	}
+	if value, ok := _u.mutation.SeedSource(); ok {
+		_spec.SetField(channelmonitor.FieldSeedSource, field.TypeString, value)
 	}
 	if _u.mutation.HistoryCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -903,6 +947,34 @@ func (_u *ChannelMonitorUpdateOne) ClearBodyOverride() *ChannelMonitorUpdateOne 
 	return _u
 }
 
+// SetKind sets the "kind" field.
+func (_u *ChannelMonitorUpdateOne) SetKind(v channelmonitor.Kind) *ChannelMonitorUpdateOne {
+	_u.mutation.SetKind(v)
+	return _u
+}
+
+// SetNillableKind sets the "kind" field if the given value is not nil.
+func (_u *ChannelMonitorUpdateOne) SetNillableKind(v *channelmonitor.Kind) *ChannelMonitorUpdateOne {
+	if v != nil {
+		_u.SetKind(*v)
+	}
+	return _u
+}
+
+// SetSeedSource sets the "seed_source" field.
+func (_u *ChannelMonitorUpdateOne) SetSeedSource(v string) *ChannelMonitorUpdateOne {
+	_u.mutation.SetSeedSource(v)
+	return _u
+}
+
+// SetNillableSeedSource sets the "seed_source" field if the given value is not nil.
+func (_u *ChannelMonitorUpdateOne) SetNillableSeedSource(v *string) *ChannelMonitorUpdateOne {
+	if v != nil {
+		_u.SetSeedSource(*v)
+	}
+	return _u
+}
+
 // AddHistoryIDs adds the "history" edge to the ChannelMonitorHistory entity by IDs.
 func (_u *ChannelMonitorUpdateOne) AddHistoryIDs(ids ...int64) *ChannelMonitorUpdateOne {
 	_u.mutation.AddHistoryIDs(ids...)
@@ -1096,6 +1168,16 @@ func (_u *ChannelMonitorUpdateOne) check() error {
 			return &ValidationError{Name: "body_override_mode", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.body_override_mode": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.Kind(); ok {
+		if err := channelmonitor.KindValidator(v); err != nil {
+			return &ValidationError{Name: "kind", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.kind": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.SeedSource(); ok {
+		if err := channelmonitor.SeedSourceValidator(v); err != nil {
+			return &ValidationError{Name: "seed_source", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.seed_source": %w`, err)}
+		}
+	}
 	return nil
 }
 
@@ -1192,6 +1274,12 @@ func (_u *ChannelMonitorUpdateOne) sqlSave(ctx context.Context) (_node *ChannelM
 	}
 	if _u.mutation.BodyOverrideCleared() {
 		_spec.ClearField(channelmonitor.FieldBodyOverride, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.Kind(); ok {
+		_spec.SetField(channelmonitor.FieldKind, field.TypeEnum, value)
+	}
+	if value, ok := _u.mutation.SeedSource(); ok {
+		_spec.SetField(channelmonitor.FieldSeedSource, field.TypeString, value)
 	}
 	if _u.mutation.HistoryCleared() {
 		edge := &sqlgraph.EdgeSpec{

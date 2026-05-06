@@ -27,6 +27,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
 	"github.com/Wei-Shaw/sub2api/ent/identityadoptiondecision"
+	"github.com/Wei-Shaw/sub2api/ent/modelavailability"
 	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
 	"github.com/Wei-Shaw/sub2api/ent/paymentproviderinstance"
@@ -75,6 +76,7 @@ const (
 	TypeGroup                         = "Group"
 	TypeIdempotencyRecord             = "IdempotencyRecord"
 	TypeIdentityAdoptionDecision      = "IdentityAdoptionDecision"
+	TypeModelAvailability             = "ModelAvailability"
 	TypePaymentAuditLog               = "PaymentAuditLog"
 	TypePaymentOrder                  = "PaymentOrder"
 	TypePaymentProviderInstance       = "PaymentProviderInstance"
@@ -8856,6 +8858,8 @@ type ChannelMonitorMutation struct {
 	extra_headers           *map[string]string
 	body_override_mode      *string
 	body_override           *map[string]interface{}
+	kind                    *channelmonitor.Kind
+	seed_source             *string
 	clearedFields           map[string]struct{}
 	history                 map[int64]struct{}
 	removedhistory          map[int64]struct{}
@@ -9687,6 +9691,78 @@ func (m *ChannelMonitorMutation) ResetBodyOverride() {
 	delete(m.clearedFields, channelmonitor.FieldBodyOverride)
 }
 
+// SetKind sets the "kind" field.
+func (m *ChannelMonitorMutation) SetKind(c channelmonitor.Kind) {
+	m.kind = &c
+}
+
+// Kind returns the value of the "kind" field in the mutation.
+func (m *ChannelMonitorMutation) Kind() (r channelmonitor.Kind, exists bool) {
+	v := m.kind
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldKind returns the old "kind" field's value of the ChannelMonitor entity.
+// If the ChannelMonitor object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelMonitorMutation) OldKind(ctx context.Context) (v channelmonitor.Kind, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldKind is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldKind requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldKind: %w", err)
+	}
+	return oldValue.Kind, nil
+}
+
+// ResetKind resets all changes to the "kind" field.
+func (m *ChannelMonitorMutation) ResetKind() {
+	m.kind = nil
+}
+
+// SetSeedSource sets the "seed_source" field.
+func (m *ChannelMonitorMutation) SetSeedSource(s string) {
+	m.seed_source = &s
+}
+
+// SeedSource returns the value of the "seed_source" field in the mutation.
+func (m *ChannelMonitorMutation) SeedSource() (r string, exists bool) {
+	v := m.seed_source
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSeedSource returns the old "seed_source" field's value of the ChannelMonitor entity.
+// If the ChannelMonitor object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelMonitorMutation) OldSeedSource(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSeedSource is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSeedSource requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSeedSource: %w", err)
+	}
+	return oldValue.SeedSource, nil
+}
+
+// ResetSeedSource resets all changes to the "seed_source" field.
+func (m *ChannelMonitorMutation) ResetSeedSource() {
+	m.seed_source = nil
+}
+
 // AddHistoryIDs adds the "history" edge to the ChannelMonitorHistory entity by ids.
 func (m *ChannelMonitorMutation) AddHistoryIDs(ids ...int64) {
 	if m.history == nil {
@@ -9869,7 +9945,7 @@ func (m *ChannelMonitorMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *ChannelMonitorMutation) Fields() []string {
-	fields := make([]string, 0, 17)
+	fields := make([]string, 0, 19)
 	if m.created_at != nil {
 		fields = append(fields, channelmonitor.FieldCreatedAt)
 	}
@@ -9921,6 +9997,12 @@ func (m *ChannelMonitorMutation) Fields() []string {
 	if m.body_override != nil {
 		fields = append(fields, channelmonitor.FieldBodyOverride)
 	}
+	if m.kind != nil {
+		fields = append(fields, channelmonitor.FieldKind)
+	}
+	if m.seed_source != nil {
+		fields = append(fields, channelmonitor.FieldSeedSource)
+	}
 	return fields
 }
 
@@ -9963,6 +10045,10 @@ func (m *ChannelMonitorMutation) Field(name string) (ent.Value, bool) {
 		return m.BodyOverrideMode()
 	case channelmonitor.FieldBodyOverride:
 		return m.BodyOverride()
+	case channelmonitor.FieldKind:
+		return m.Kind()
+	case channelmonitor.FieldSeedSource:
+		return m.SeedSource()
 	}
 	return nil, false
 }
@@ -10006,6 +10092,10 @@ func (m *ChannelMonitorMutation) OldField(ctx context.Context, name string) (ent
 		return m.OldBodyOverrideMode(ctx)
 	case channelmonitor.FieldBodyOverride:
 		return m.OldBodyOverride(ctx)
+	case channelmonitor.FieldKind:
+		return m.OldKind(ctx)
+	case channelmonitor.FieldSeedSource:
+		return m.OldSeedSource(ctx)
 	}
 	return nil, fmt.Errorf("unknown ChannelMonitor field %s", name)
 }
@@ -10133,6 +10223,20 @@ func (m *ChannelMonitorMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetBodyOverride(v)
+		return nil
+	case channelmonitor.FieldKind:
+		v, ok := value.(channelmonitor.Kind)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetKind(v)
+		return nil
+	case channelmonitor.FieldSeedSource:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSeedSource(v)
 		return nil
 	}
 	return fmt.Errorf("unknown ChannelMonitor field %s", name)
@@ -10287,6 +10391,12 @@ func (m *ChannelMonitorMutation) ResetField(name string) error {
 		return nil
 	case channelmonitor.FieldBodyOverride:
 		m.ResetBodyOverride()
+		return nil
+	case channelmonitor.FieldKind:
+		m.ResetKind()
+		return nil
+	case channelmonitor.FieldSeedSource:
+		m.ResetSeedSource()
 		return nil
 	}
 	return fmt.Errorf("unknown ChannelMonitor field %s", name)
@@ -19726,6 +19836,1288 @@ func (m *IdentityAdoptionDecisionMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown IdentityAdoptionDecision edge %s", name)
+}
+
+// ModelAvailabilityMutation represents an operation that mutates the ModelAvailability nodes in the graph.
+type ModelAvailabilityMutation struct {
+	config
+	op                           Op
+	typ                          string
+	id                           *int64
+	created_at                   *time.Time
+	updated_at                   *time.Time
+	platform                     *modelavailability.Platform
+	model_id                     *string
+	status                       *modelavailability.Status
+	last_seen_ok_at              *time.Time
+	last_failure_at              *time.Time
+	last_failure_kind            *string
+	upstream_status_code_last    *int
+	addupstream_status_code_last *int
+	last_checked_at              *time.Time
+	sample_ok_24h                *int
+	addsample_ok_24h             *int
+	sample_total_24h             *int
+	addsample_total_24h          *int
+	rolling_window_started_at    *time.Time
+	last_account_id              *int64
+	addlast_account_id           *int64
+	clearedFields                map[string]struct{}
+	done                         bool
+	oldValue                     func(context.Context) (*ModelAvailability, error)
+	predicates                   []predicate.ModelAvailability
+}
+
+var _ ent.Mutation = (*ModelAvailabilityMutation)(nil)
+
+// modelavailabilityOption allows management of the mutation configuration using functional options.
+type modelavailabilityOption func(*ModelAvailabilityMutation)
+
+// newModelAvailabilityMutation creates new mutation for the ModelAvailability entity.
+func newModelAvailabilityMutation(c config, op Op, opts ...modelavailabilityOption) *ModelAvailabilityMutation {
+	m := &ModelAvailabilityMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeModelAvailability,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withModelAvailabilityID sets the ID field of the mutation.
+func withModelAvailabilityID(id int64) modelavailabilityOption {
+	return func(m *ModelAvailabilityMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *ModelAvailability
+		)
+		m.oldValue = func(ctx context.Context) (*ModelAvailability, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().ModelAvailability.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withModelAvailability sets the old ModelAvailability of the mutation.
+func withModelAvailability(node *ModelAvailability) modelavailabilityOption {
+	return func(m *ModelAvailabilityMutation) {
+		m.oldValue = func(context.Context) (*ModelAvailability, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m ModelAvailabilityMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m ModelAvailabilityMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *ModelAvailabilityMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *ModelAvailabilityMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().ModelAvailability.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *ModelAvailabilityMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *ModelAvailabilityMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the ModelAvailability entity.
+// If the ModelAvailability object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAvailabilityMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *ModelAvailabilityMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *ModelAvailabilityMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *ModelAvailabilityMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the ModelAvailability entity.
+// If the ModelAvailability object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAvailabilityMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *ModelAvailabilityMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetPlatform sets the "platform" field.
+func (m *ModelAvailabilityMutation) SetPlatform(value modelavailability.Platform) {
+	m.platform = &value
+}
+
+// Platform returns the value of the "platform" field in the mutation.
+func (m *ModelAvailabilityMutation) Platform() (r modelavailability.Platform, exists bool) {
+	v := m.platform
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPlatform returns the old "platform" field's value of the ModelAvailability entity.
+// If the ModelAvailability object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAvailabilityMutation) OldPlatform(ctx context.Context) (v modelavailability.Platform, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPlatform is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPlatform requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPlatform: %w", err)
+	}
+	return oldValue.Platform, nil
+}
+
+// ResetPlatform resets all changes to the "platform" field.
+func (m *ModelAvailabilityMutation) ResetPlatform() {
+	m.platform = nil
+}
+
+// SetModelID sets the "model_id" field.
+func (m *ModelAvailabilityMutation) SetModelID(s string) {
+	m.model_id = &s
+}
+
+// ModelID returns the value of the "model_id" field in the mutation.
+func (m *ModelAvailabilityMutation) ModelID() (r string, exists bool) {
+	v := m.model_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldModelID returns the old "model_id" field's value of the ModelAvailability entity.
+// If the ModelAvailability object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAvailabilityMutation) OldModelID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldModelID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldModelID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldModelID: %w", err)
+	}
+	return oldValue.ModelID, nil
+}
+
+// ResetModelID resets all changes to the "model_id" field.
+func (m *ModelAvailabilityMutation) ResetModelID() {
+	m.model_id = nil
+}
+
+// SetStatus sets the "status" field.
+func (m *ModelAvailabilityMutation) SetStatus(value modelavailability.Status) {
+	m.status = &value
+}
+
+// Status returns the value of the "status" field in the mutation.
+func (m *ModelAvailabilityMutation) Status() (r modelavailability.Status, exists bool) {
+	v := m.status
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStatus returns the old "status" field's value of the ModelAvailability entity.
+// If the ModelAvailability object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAvailabilityMutation) OldStatus(ctx context.Context) (v modelavailability.Status, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStatus is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStatus requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStatus: %w", err)
+	}
+	return oldValue.Status, nil
+}
+
+// ResetStatus resets all changes to the "status" field.
+func (m *ModelAvailabilityMutation) ResetStatus() {
+	m.status = nil
+}
+
+// SetLastSeenOkAt sets the "last_seen_ok_at" field.
+func (m *ModelAvailabilityMutation) SetLastSeenOkAt(t time.Time) {
+	m.last_seen_ok_at = &t
+}
+
+// LastSeenOkAt returns the value of the "last_seen_ok_at" field in the mutation.
+func (m *ModelAvailabilityMutation) LastSeenOkAt() (r time.Time, exists bool) {
+	v := m.last_seen_ok_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastSeenOkAt returns the old "last_seen_ok_at" field's value of the ModelAvailability entity.
+// If the ModelAvailability object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAvailabilityMutation) OldLastSeenOkAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastSeenOkAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastSeenOkAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastSeenOkAt: %w", err)
+	}
+	return oldValue.LastSeenOkAt, nil
+}
+
+// ClearLastSeenOkAt clears the value of the "last_seen_ok_at" field.
+func (m *ModelAvailabilityMutation) ClearLastSeenOkAt() {
+	m.last_seen_ok_at = nil
+	m.clearedFields[modelavailability.FieldLastSeenOkAt] = struct{}{}
+}
+
+// LastSeenOkAtCleared returns if the "last_seen_ok_at" field was cleared in this mutation.
+func (m *ModelAvailabilityMutation) LastSeenOkAtCleared() bool {
+	_, ok := m.clearedFields[modelavailability.FieldLastSeenOkAt]
+	return ok
+}
+
+// ResetLastSeenOkAt resets all changes to the "last_seen_ok_at" field.
+func (m *ModelAvailabilityMutation) ResetLastSeenOkAt() {
+	m.last_seen_ok_at = nil
+	delete(m.clearedFields, modelavailability.FieldLastSeenOkAt)
+}
+
+// SetLastFailureAt sets the "last_failure_at" field.
+func (m *ModelAvailabilityMutation) SetLastFailureAt(t time.Time) {
+	m.last_failure_at = &t
+}
+
+// LastFailureAt returns the value of the "last_failure_at" field in the mutation.
+func (m *ModelAvailabilityMutation) LastFailureAt() (r time.Time, exists bool) {
+	v := m.last_failure_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastFailureAt returns the old "last_failure_at" field's value of the ModelAvailability entity.
+// If the ModelAvailability object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAvailabilityMutation) OldLastFailureAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastFailureAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastFailureAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastFailureAt: %w", err)
+	}
+	return oldValue.LastFailureAt, nil
+}
+
+// ClearLastFailureAt clears the value of the "last_failure_at" field.
+func (m *ModelAvailabilityMutation) ClearLastFailureAt() {
+	m.last_failure_at = nil
+	m.clearedFields[modelavailability.FieldLastFailureAt] = struct{}{}
+}
+
+// LastFailureAtCleared returns if the "last_failure_at" field was cleared in this mutation.
+func (m *ModelAvailabilityMutation) LastFailureAtCleared() bool {
+	_, ok := m.clearedFields[modelavailability.FieldLastFailureAt]
+	return ok
+}
+
+// ResetLastFailureAt resets all changes to the "last_failure_at" field.
+func (m *ModelAvailabilityMutation) ResetLastFailureAt() {
+	m.last_failure_at = nil
+	delete(m.clearedFields, modelavailability.FieldLastFailureAt)
+}
+
+// SetLastFailureKind sets the "last_failure_kind" field.
+func (m *ModelAvailabilityMutation) SetLastFailureKind(s string) {
+	m.last_failure_kind = &s
+}
+
+// LastFailureKind returns the value of the "last_failure_kind" field in the mutation.
+func (m *ModelAvailabilityMutation) LastFailureKind() (r string, exists bool) {
+	v := m.last_failure_kind
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastFailureKind returns the old "last_failure_kind" field's value of the ModelAvailability entity.
+// If the ModelAvailability object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAvailabilityMutation) OldLastFailureKind(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastFailureKind is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastFailureKind requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastFailureKind: %w", err)
+	}
+	return oldValue.LastFailureKind, nil
+}
+
+// ResetLastFailureKind resets all changes to the "last_failure_kind" field.
+func (m *ModelAvailabilityMutation) ResetLastFailureKind() {
+	m.last_failure_kind = nil
+}
+
+// SetUpstreamStatusCodeLast sets the "upstream_status_code_last" field.
+func (m *ModelAvailabilityMutation) SetUpstreamStatusCodeLast(i int) {
+	m.upstream_status_code_last = &i
+	m.addupstream_status_code_last = nil
+}
+
+// UpstreamStatusCodeLast returns the value of the "upstream_status_code_last" field in the mutation.
+func (m *ModelAvailabilityMutation) UpstreamStatusCodeLast() (r int, exists bool) {
+	v := m.upstream_status_code_last
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpstreamStatusCodeLast returns the old "upstream_status_code_last" field's value of the ModelAvailability entity.
+// If the ModelAvailability object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAvailabilityMutation) OldUpstreamStatusCodeLast(ctx context.Context) (v *int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpstreamStatusCodeLast is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpstreamStatusCodeLast requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpstreamStatusCodeLast: %w", err)
+	}
+	return oldValue.UpstreamStatusCodeLast, nil
+}
+
+// AddUpstreamStatusCodeLast adds i to the "upstream_status_code_last" field.
+func (m *ModelAvailabilityMutation) AddUpstreamStatusCodeLast(i int) {
+	if m.addupstream_status_code_last != nil {
+		*m.addupstream_status_code_last += i
+	} else {
+		m.addupstream_status_code_last = &i
+	}
+}
+
+// AddedUpstreamStatusCodeLast returns the value that was added to the "upstream_status_code_last" field in this mutation.
+func (m *ModelAvailabilityMutation) AddedUpstreamStatusCodeLast() (r int, exists bool) {
+	v := m.addupstream_status_code_last
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearUpstreamStatusCodeLast clears the value of the "upstream_status_code_last" field.
+func (m *ModelAvailabilityMutation) ClearUpstreamStatusCodeLast() {
+	m.upstream_status_code_last = nil
+	m.addupstream_status_code_last = nil
+	m.clearedFields[modelavailability.FieldUpstreamStatusCodeLast] = struct{}{}
+}
+
+// UpstreamStatusCodeLastCleared returns if the "upstream_status_code_last" field was cleared in this mutation.
+func (m *ModelAvailabilityMutation) UpstreamStatusCodeLastCleared() bool {
+	_, ok := m.clearedFields[modelavailability.FieldUpstreamStatusCodeLast]
+	return ok
+}
+
+// ResetUpstreamStatusCodeLast resets all changes to the "upstream_status_code_last" field.
+func (m *ModelAvailabilityMutation) ResetUpstreamStatusCodeLast() {
+	m.upstream_status_code_last = nil
+	m.addupstream_status_code_last = nil
+	delete(m.clearedFields, modelavailability.FieldUpstreamStatusCodeLast)
+}
+
+// SetLastCheckedAt sets the "last_checked_at" field.
+func (m *ModelAvailabilityMutation) SetLastCheckedAt(t time.Time) {
+	m.last_checked_at = &t
+}
+
+// LastCheckedAt returns the value of the "last_checked_at" field in the mutation.
+func (m *ModelAvailabilityMutation) LastCheckedAt() (r time.Time, exists bool) {
+	v := m.last_checked_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastCheckedAt returns the old "last_checked_at" field's value of the ModelAvailability entity.
+// If the ModelAvailability object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAvailabilityMutation) OldLastCheckedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastCheckedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastCheckedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastCheckedAt: %w", err)
+	}
+	return oldValue.LastCheckedAt, nil
+}
+
+// ClearLastCheckedAt clears the value of the "last_checked_at" field.
+func (m *ModelAvailabilityMutation) ClearLastCheckedAt() {
+	m.last_checked_at = nil
+	m.clearedFields[modelavailability.FieldLastCheckedAt] = struct{}{}
+}
+
+// LastCheckedAtCleared returns if the "last_checked_at" field was cleared in this mutation.
+func (m *ModelAvailabilityMutation) LastCheckedAtCleared() bool {
+	_, ok := m.clearedFields[modelavailability.FieldLastCheckedAt]
+	return ok
+}
+
+// ResetLastCheckedAt resets all changes to the "last_checked_at" field.
+func (m *ModelAvailabilityMutation) ResetLastCheckedAt() {
+	m.last_checked_at = nil
+	delete(m.clearedFields, modelavailability.FieldLastCheckedAt)
+}
+
+// SetSampleOk24h sets the "sample_ok_24h" field.
+func (m *ModelAvailabilityMutation) SetSampleOk24h(i int) {
+	m.sample_ok_24h = &i
+	m.addsample_ok_24h = nil
+}
+
+// SampleOk24h returns the value of the "sample_ok_24h" field in the mutation.
+func (m *ModelAvailabilityMutation) SampleOk24h() (r int, exists bool) {
+	v := m.sample_ok_24h
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSampleOk24h returns the old "sample_ok_24h" field's value of the ModelAvailability entity.
+// If the ModelAvailability object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAvailabilityMutation) OldSampleOk24h(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSampleOk24h is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSampleOk24h requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSampleOk24h: %w", err)
+	}
+	return oldValue.SampleOk24h, nil
+}
+
+// AddSampleOk24h adds i to the "sample_ok_24h" field.
+func (m *ModelAvailabilityMutation) AddSampleOk24h(i int) {
+	if m.addsample_ok_24h != nil {
+		*m.addsample_ok_24h += i
+	} else {
+		m.addsample_ok_24h = &i
+	}
+}
+
+// AddedSampleOk24h returns the value that was added to the "sample_ok_24h" field in this mutation.
+func (m *ModelAvailabilityMutation) AddedSampleOk24h() (r int, exists bool) {
+	v := m.addsample_ok_24h
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetSampleOk24h resets all changes to the "sample_ok_24h" field.
+func (m *ModelAvailabilityMutation) ResetSampleOk24h() {
+	m.sample_ok_24h = nil
+	m.addsample_ok_24h = nil
+}
+
+// SetSampleTotal24h sets the "sample_total_24h" field.
+func (m *ModelAvailabilityMutation) SetSampleTotal24h(i int) {
+	m.sample_total_24h = &i
+	m.addsample_total_24h = nil
+}
+
+// SampleTotal24h returns the value of the "sample_total_24h" field in the mutation.
+func (m *ModelAvailabilityMutation) SampleTotal24h() (r int, exists bool) {
+	v := m.sample_total_24h
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSampleTotal24h returns the old "sample_total_24h" field's value of the ModelAvailability entity.
+// If the ModelAvailability object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAvailabilityMutation) OldSampleTotal24h(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSampleTotal24h is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSampleTotal24h requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSampleTotal24h: %w", err)
+	}
+	return oldValue.SampleTotal24h, nil
+}
+
+// AddSampleTotal24h adds i to the "sample_total_24h" field.
+func (m *ModelAvailabilityMutation) AddSampleTotal24h(i int) {
+	if m.addsample_total_24h != nil {
+		*m.addsample_total_24h += i
+	} else {
+		m.addsample_total_24h = &i
+	}
+}
+
+// AddedSampleTotal24h returns the value that was added to the "sample_total_24h" field in this mutation.
+func (m *ModelAvailabilityMutation) AddedSampleTotal24h() (r int, exists bool) {
+	v := m.addsample_total_24h
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetSampleTotal24h resets all changes to the "sample_total_24h" field.
+func (m *ModelAvailabilityMutation) ResetSampleTotal24h() {
+	m.sample_total_24h = nil
+	m.addsample_total_24h = nil
+}
+
+// SetRollingWindowStartedAt sets the "rolling_window_started_at" field.
+func (m *ModelAvailabilityMutation) SetRollingWindowStartedAt(t time.Time) {
+	m.rolling_window_started_at = &t
+}
+
+// RollingWindowStartedAt returns the value of the "rolling_window_started_at" field in the mutation.
+func (m *ModelAvailabilityMutation) RollingWindowStartedAt() (r time.Time, exists bool) {
+	v := m.rolling_window_started_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRollingWindowStartedAt returns the old "rolling_window_started_at" field's value of the ModelAvailability entity.
+// If the ModelAvailability object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAvailabilityMutation) OldRollingWindowStartedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRollingWindowStartedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRollingWindowStartedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRollingWindowStartedAt: %w", err)
+	}
+	return oldValue.RollingWindowStartedAt, nil
+}
+
+// ClearRollingWindowStartedAt clears the value of the "rolling_window_started_at" field.
+func (m *ModelAvailabilityMutation) ClearRollingWindowStartedAt() {
+	m.rolling_window_started_at = nil
+	m.clearedFields[modelavailability.FieldRollingWindowStartedAt] = struct{}{}
+}
+
+// RollingWindowStartedAtCleared returns if the "rolling_window_started_at" field was cleared in this mutation.
+func (m *ModelAvailabilityMutation) RollingWindowStartedAtCleared() bool {
+	_, ok := m.clearedFields[modelavailability.FieldRollingWindowStartedAt]
+	return ok
+}
+
+// ResetRollingWindowStartedAt resets all changes to the "rolling_window_started_at" field.
+func (m *ModelAvailabilityMutation) ResetRollingWindowStartedAt() {
+	m.rolling_window_started_at = nil
+	delete(m.clearedFields, modelavailability.FieldRollingWindowStartedAt)
+}
+
+// SetLastAccountID sets the "last_account_id" field.
+func (m *ModelAvailabilityMutation) SetLastAccountID(i int64) {
+	m.last_account_id = &i
+	m.addlast_account_id = nil
+}
+
+// LastAccountID returns the value of the "last_account_id" field in the mutation.
+func (m *ModelAvailabilityMutation) LastAccountID() (r int64, exists bool) {
+	v := m.last_account_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastAccountID returns the old "last_account_id" field's value of the ModelAvailability entity.
+// If the ModelAvailability object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAvailabilityMutation) OldLastAccountID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastAccountID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastAccountID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastAccountID: %w", err)
+	}
+	return oldValue.LastAccountID, nil
+}
+
+// AddLastAccountID adds i to the "last_account_id" field.
+func (m *ModelAvailabilityMutation) AddLastAccountID(i int64) {
+	if m.addlast_account_id != nil {
+		*m.addlast_account_id += i
+	} else {
+		m.addlast_account_id = &i
+	}
+}
+
+// AddedLastAccountID returns the value that was added to the "last_account_id" field in this mutation.
+func (m *ModelAvailabilityMutation) AddedLastAccountID() (r int64, exists bool) {
+	v := m.addlast_account_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearLastAccountID clears the value of the "last_account_id" field.
+func (m *ModelAvailabilityMutation) ClearLastAccountID() {
+	m.last_account_id = nil
+	m.addlast_account_id = nil
+	m.clearedFields[modelavailability.FieldLastAccountID] = struct{}{}
+}
+
+// LastAccountIDCleared returns if the "last_account_id" field was cleared in this mutation.
+func (m *ModelAvailabilityMutation) LastAccountIDCleared() bool {
+	_, ok := m.clearedFields[modelavailability.FieldLastAccountID]
+	return ok
+}
+
+// ResetLastAccountID resets all changes to the "last_account_id" field.
+func (m *ModelAvailabilityMutation) ResetLastAccountID() {
+	m.last_account_id = nil
+	m.addlast_account_id = nil
+	delete(m.clearedFields, modelavailability.FieldLastAccountID)
+}
+
+// Where appends a list predicates to the ModelAvailabilityMutation builder.
+func (m *ModelAvailabilityMutation) Where(ps ...predicate.ModelAvailability) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the ModelAvailabilityMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *ModelAvailabilityMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.ModelAvailability, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *ModelAvailabilityMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *ModelAvailabilityMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (ModelAvailability).
+func (m *ModelAvailabilityMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *ModelAvailabilityMutation) Fields() []string {
+	fields := make([]string, 0, 14)
+	if m.created_at != nil {
+		fields = append(fields, modelavailability.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, modelavailability.FieldUpdatedAt)
+	}
+	if m.platform != nil {
+		fields = append(fields, modelavailability.FieldPlatform)
+	}
+	if m.model_id != nil {
+		fields = append(fields, modelavailability.FieldModelID)
+	}
+	if m.status != nil {
+		fields = append(fields, modelavailability.FieldStatus)
+	}
+	if m.last_seen_ok_at != nil {
+		fields = append(fields, modelavailability.FieldLastSeenOkAt)
+	}
+	if m.last_failure_at != nil {
+		fields = append(fields, modelavailability.FieldLastFailureAt)
+	}
+	if m.last_failure_kind != nil {
+		fields = append(fields, modelavailability.FieldLastFailureKind)
+	}
+	if m.upstream_status_code_last != nil {
+		fields = append(fields, modelavailability.FieldUpstreamStatusCodeLast)
+	}
+	if m.last_checked_at != nil {
+		fields = append(fields, modelavailability.FieldLastCheckedAt)
+	}
+	if m.sample_ok_24h != nil {
+		fields = append(fields, modelavailability.FieldSampleOk24h)
+	}
+	if m.sample_total_24h != nil {
+		fields = append(fields, modelavailability.FieldSampleTotal24h)
+	}
+	if m.rolling_window_started_at != nil {
+		fields = append(fields, modelavailability.FieldRollingWindowStartedAt)
+	}
+	if m.last_account_id != nil {
+		fields = append(fields, modelavailability.FieldLastAccountID)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *ModelAvailabilityMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case modelavailability.FieldCreatedAt:
+		return m.CreatedAt()
+	case modelavailability.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case modelavailability.FieldPlatform:
+		return m.Platform()
+	case modelavailability.FieldModelID:
+		return m.ModelID()
+	case modelavailability.FieldStatus:
+		return m.Status()
+	case modelavailability.FieldLastSeenOkAt:
+		return m.LastSeenOkAt()
+	case modelavailability.FieldLastFailureAt:
+		return m.LastFailureAt()
+	case modelavailability.FieldLastFailureKind:
+		return m.LastFailureKind()
+	case modelavailability.FieldUpstreamStatusCodeLast:
+		return m.UpstreamStatusCodeLast()
+	case modelavailability.FieldLastCheckedAt:
+		return m.LastCheckedAt()
+	case modelavailability.FieldSampleOk24h:
+		return m.SampleOk24h()
+	case modelavailability.FieldSampleTotal24h:
+		return m.SampleTotal24h()
+	case modelavailability.FieldRollingWindowStartedAt:
+		return m.RollingWindowStartedAt()
+	case modelavailability.FieldLastAccountID:
+		return m.LastAccountID()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *ModelAvailabilityMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case modelavailability.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case modelavailability.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case modelavailability.FieldPlatform:
+		return m.OldPlatform(ctx)
+	case modelavailability.FieldModelID:
+		return m.OldModelID(ctx)
+	case modelavailability.FieldStatus:
+		return m.OldStatus(ctx)
+	case modelavailability.FieldLastSeenOkAt:
+		return m.OldLastSeenOkAt(ctx)
+	case modelavailability.FieldLastFailureAt:
+		return m.OldLastFailureAt(ctx)
+	case modelavailability.FieldLastFailureKind:
+		return m.OldLastFailureKind(ctx)
+	case modelavailability.FieldUpstreamStatusCodeLast:
+		return m.OldUpstreamStatusCodeLast(ctx)
+	case modelavailability.FieldLastCheckedAt:
+		return m.OldLastCheckedAt(ctx)
+	case modelavailability.FieldSampleOk24h:
+		return m.OldSampleOk24h(ctx)
+	case modelavailability.FieldSampleTotal24h:
+		return m.OldSampleTotal24h(ctx)
+	case modelavailability.FieldRollingWindowStartedAt:
+		return m.OldRollingWindowStartedAt(ctx)
+	case modelavailability.FieldLastAccountID:
+		return m.OldLastAccountID(ctx)
+	}
+	return nil, fmt.Errorf("unknown ModelAvailability field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ModelAvailabilityMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case modelavailability.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case modelavailability.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case modelavailability.FieldPlatform:
+		v, ok := value.(modelavailability.Platform)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPlatform(v)
+		return nil
+	case modelavailability.FieldModelID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetModelID(v)
+		return nil
+	case modelavailability.FieldStatus:
+		v, ok := value.(modelavailability.Status)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStatus(v)
+		return nil
+	case modelavailability.FieldLastSeenOkAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastSeenOkAt(v)
+		return nil
+	case modelavailability.FieldLastFailureAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastFailureAt(v)
+		return nil
+	case modelavailability.FieldLastFailureKind:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastFailureKind(v)
+		return nil
+	case modelavailability.FieldUpstreamStatusCodeLast:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpstreamStatusCodeLast(v)
+		return nil
+	case modelavailability.FieldLastCheckedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastCheckedAt(v)
+		return nil
+	case modelavailability.FieldSampleOk24h:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSampleOk24h(v)
+		return nil
+	case modelavailability.FieldSampleTotal24h:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSampleTotal24h(v)
+		return nil
+	case modelavailability.FieldRollingWindowStartedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRollingWindowStartedAt(v)
+		return nil
+	case modelavailability.FieldLastAccountID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastAccountID(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ModelAvailability field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *ModelAvailabilityMutation) AddedFields() []string {
+	var fields []string
+	if m.addupstream_status_code_last != nil {
+		fields = append(fields, modelavailability.FieldUpstreamStatusCodeLast)
+	}
+	if m.addsample_ok_24h != nil {
+		fields = append(fields, modelavailability.FieldSampleOk24h)
+	}
+	if m.addsample_total_24h != nil {
+		fields = append(fields, modelavailability.FieldSampleTotal24h)
+	}
+	if m.addlast_account_id != nil {
+		fields = append(fields, modelavailability.FieldLastAccountID)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *ModelAvailabilityMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case modelavailability.FieldUpstreamStatusCodeLast:
+		return m.AddedUpstreamStatusCodeLast()
+	case modelavailability.FieldSampleOk24h:
+		return m.AddedSampleOk24h()
+	case modelavailability.FieldSampleTotal24h:
+		return m.AddedSampleTotal24h()
+	case modelavailability.FieldLastAccountID:
+		return m.AddedLastAccountID()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ModelAvailabilityMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case modelavailability.FieldUpstreamStatusCodeLast:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddUpstreamStatusCodeLast(v)
+		return nil
+	case modelavailability.FieldSampleOk24h:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddSampleOk24h(v)
+		return nil
+	case modelavailability.FieldSampleTotal24h:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddSampleTotal24h(v)
+		return nil
+	case modelavailability.FieldLastAccountID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddLastAccountID(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ModelAvailability numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *ModelAvailabilityMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(modelavailability.FieldLastSeenOkAt) {
+		fields = append(fields, modelavailability.FieldLastSeenOkAt)
+	}
+	if m.FieldCleared(modelavailability.FieldLastFailureAt) {
+		fields = append(fields, modelavailability.FieldLastFailureAt)
+	}
+	if m.FieldCleared(modelavailability.FieldUpstreamStatusCodeLast) {
+		fields = append(fields, modelavailability.FieldUpstreamStatusCodeLast)
+	}
+	if m.FieldCleared(modelavailability.FieldLastCheckedAt) {
+		fields = append(fields, modelavailability.FieldLastCheckedAt)
+	}
+	if m.FieldCleared(modelavailability.FieldRollingWindowStartedAt) {
+		fields = append(fields, modelavailability.FieldRollingWindowStartedAt)
+	}
+	if m.FieldCleared(modelavailability.FieldLastAccountID) {
+		fields = append(fields, modelavailability.FieldLastAccountID)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *ModelAvailabilityMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *ModelAvailabilityMutation) ClearField(name string) error {
+	switch name {
+	case modelavailability.FieldLastSeenOkAt:
+		m.ClearLastSeenOkAt()
+		return nil
+	case modelavailability.FieldLastFailureAt:
+		m.ClearLastFailureAt()
+		return nil
+	case modelavailability.FieldUpstreamStatusCodeLast:
+		m.ClearUpstreamStatusCodeLast()
+		return nil
+	case modelavailability.FieldLastCheckedAt:
+		m.ClearLastCheckedAt()
+		return nil
+	case modelavailability.FieldRollingWindowStartedAt:
+		m.ClearRollingWindowStartedAt()
+		return nil
+	case modelavailability.FieldLastAccountID:
+		m.ClearLastAccountID()
+		return nil
+	}
+	return fmt.Errorf("unknown ModelAvailability nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *ModelAvailabilityMutation) ResetField(name string) error {
+	switch name {
+	case modelavailability.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case modelavailability.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case modelavailability.FieldPlatform:
+		m.ResetPlatform()
+		return nil
+	case modelavailability.FieldModelID:
+		m.ResetModelID()
+		return nil
+	case modelavailability.FieldStatus:
+		m.ResetStatus()
+		return nil
+	case modelavailability.FieldLastSeenOkAt:
+		m.ResetLastSeenOkAt()
+		return nil
+	case modelavailability.FieldLastFailureAt:
+		m.ResetLastFailureAt()
+		return nil
+	case modelavailability.FieldLastFailureKind:
+		m.ResetLastFailureKind()
+		return nil
+	case modelavailability.FieldUpstreamStatusCodeLast:
+		m.ResetUpstreamStatusCodeLast()
+		return nil
+	case modelavailability.FieldLastCheckedAt:
+		m.ResetLastCheckedAt()
+		return nil
+	case modelavailability.FieldSampleOk24h:
+		m.ResetSampleOk24h()
+		return nil
+	case modelavailability.FieldSampleTotal24h:
+		m.ResetSampleTotal24h()
+		return nil
+	case modelavailability.FieldRollingWindowStartedAt:
+		m.ResetRollingWindowStartedAt()
+		return nil
+	case modelavailability.FieldLastAccountID:
+		m.ResetLastAccountID()
+		return nil
+	}
+	return fmt.Errorf("unknown ModelAvailability field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *ModelAvailabilityMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *ModelAvailabilityMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *ModelAvailabilityMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *ModelAvailabilityMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *ModelAvailabilityMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *ModelAvailabilityMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *ModelAvailabilityMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown ModelAvailability unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *ModelAvailabilityMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown ModelAvailability edge %s", name)
 }
 
 // PaymentAuditLogMutation represents an operation that mutates the PaymentAuditLog nodes in the graph.

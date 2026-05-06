@@ -183,6 +183,34 @@ func (_c *ChannelMonitorCreate) SetBodyOverride(v map[string]interface{}) *Chann
 	return _c
 }
 
+// SetKind sets the "kind" field.
+func (_c *ChannelMonitorCreate) SetKind(v channelmonitor.Kind) *ChannelMonitorCreate {
+	_c.mutation.SetKind(v)
+	return _c
+}
+
+// SetNillableKind sets the "kind" field if the given value is not nil.
+func (_c *ChannelMonitorCreate) SetNillableKind(v *channelmonitor.Kind) *ChannelMonitorCreate {
+	if v != nil {
+		_c.SetKind(*v)
+	}
+	return _c
+}
+
+// SetSeedSource sets the "seed_source" field.
+func (_c *ChannelMonitorCreate) SetSeedSource(v string) *ChannelMonitorCreate {
+	_c.mutation.SetSeedSource(v)
+	return _c
+}
+
+// SetNillableSeedSource sets the "seed_source" field if the given value is not nil.
+func (_c *ChannelMonitorCreate) SetNillableSeedSource(v *string) *ChannelMonitorCreate {
+	if v != nil {
+		_c.SetSeedSource(*v)
+	}
+	return _c
+}
+
 // AddHistoryIDs adds the "history" edge to the ChannelMonitorHistory entity by IDs.
 func (_c *ChannelMonitorCreate) AddHistoryIDs(ids ...int64) *ChannelMonitorCreate {
 	_c.mutation.AddHistoryIDs(ids...)
@@ -295,6 +323,14 @@ func (_c *ChannelMonitorCreate) defaults() {
 		v := channelmonitor.DefaultBodyOverrideMode
 		_c.mutation.SetBodyOverrideMode(v)
 	}
+	if _, ok := _c.mutation.Kind(); !ok {
+		v := channelmonitor.DefaultKind
+		_c.mutation.SetKind(v)
+	}
+	if _, ok := _c.mutation.SeedSource(); !ok {
+		v := channelmonitor.DefaultSeedSource
+		_c.mutation.SetSeedSource(v)
+	}
 }
 
 // check runs all checks and user-defined validators on the builder.
@@ -376,6 +412,22 @@ func (_c *ChannelMonitorCreate) check() error {
 	if v, ok := _c.mutation.BodyOverrideMode(); ok {
 		if err := channelmonitor.BodyOverrideModeValidator(v); err != nil {
 			return &ValidationError{Name: "body_override_mode", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.body_override_mode": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.Kind(); !ok {
+		return &ValidationError{Name: "kind", err: errors.New(`ent: missing required field "ChannelMonitor.kind"`)}
+	}
+	if v, ok := _c.mutation.Kind(); ok {
+		if err := channelmonitor.KindValidator(v); err != nil {
+			return &ValidationError{Name: "kind", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.kind": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.SeedSource(); !ok {
+		return &ValidationError{Name: "seed_source", err: errors.New(`ent: missing required field "ChannelMonitor.seed_source"`)}
+	}
+	if v, ok := _c.mutation.SeedSource(); ok {
+		if err := channelmonitor.SeedSourceValidator(v); err != nil {
+			return &ValidationError{Name: "seed_source", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitor.seed_source": %w`, err)}
 		}
 	}
 	return nil
@@ -468,6 +520,14 @@ func (_c *ChannelMonitorCreate) createSpec() (*ChannelMonitor, *sqlgraph.CreateS
 	if value, ok := _c.mutation.BodyOverride(); ok {
 		_spec.SetField(channelmonitor.FieldBodyOverride, field.TypeJSON, value)
 		_node.BodyOverride = value
+	}
+	if value, ok := _c.mutation.Kind(); ok {
+		_spec.SetField(channelmonitor.FieldKind, field.TypeEnum, value)
+		_node.Kind = value
+	}
+	if value, ok := _c.mutation.SeedSource(); ok {
+		_spec.SetField(channelmonitor.FieldSeedSource, field.TypeString, value)
+		_node.SeedSource = value
 	}
 	if nodes := _c.mutation.HistoryIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
@@ -798,6 +858,30 @@ func (u *ChannelMonitorUpsert) ClearBodyOverride() *ChannelMonitorUpsert {
 	return u
 }
 
+// SetKind sets the "kind" field.
+func (u *ChannelMonitorUpsert) SetKind(v channelmonitor.Kind) *ChannelMonitorUpsert {
+	u.Set(channelmonitor.FieldKind, v)
+	return u
+}
+
+// UpdateKind sets the "kind" field to the value that was provided on create.
+func (u *ChannelMonitorUpsert) UpdateKind() *ChannelMonitorUpsert {
+	u.SetExcluded(channelmonitor.FieldKind)
+	return u
+}
+
+// SetSeedSource sets the "seed_source" field.
+func (u *ChannelMonitorUpsert) SetSeedSource(v string) *ChannelMonitorUpsert {
+	u.Set(channelmonitor.FieldSeedSource, v)
+	return u
+}
+
+// UpdateSeedSource sets the "seed_source" field to the value that was provided on create.
+func (u *ChannelMonitorUpsert) UpdateSeedSource() *ChannelMonitorUpsert {
+	u.SetExcluded(channelmonitor.FieldSeedSource)
+	return u
+}
+
 // UpdateNewValues updates the mutable fields using the new values that were set on create.
 // Using this option is equivalent to using:
 //
@@ -1106,6 +1190,34 @@ func (u *ChannelMonitorUpsertOne) UpdateBodyOverride() *ChannelMonitorUpsertOne 
 func (u *ChannelMonitorUpsertOne) ClearBodyOverride() *ChannelMonitorUpsertOne {
 	return u.Update(func(s *ChannelMonitorUpsert) {
 		s.ClearBodyOverride()
+	})
+}
+
+// SetKind sets the "kind" field.
+func (u *ChannelMonitorUpsertOne) SetKind(v channelmonitor.Kind) *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetKind(v)
+	})
+}
+
+// UpdateKind sets the "kind" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertOne) UpdateKind() *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateKind()
+	})
+}
+
+// SetSeedSource sets the "seed_source" field.
+func (u *ChannelMonitorUpsertOne) SetSeedSource(v string) *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetSeedSource(v)
+	})
+}
+
+// UpdateSeedSource sets the "seed_source" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertOne) UpdateSeedSource() *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateSeedSource()
 	})
 }
 
@@ -1583,6 +1695,34 @@ func (u *ChannelMonitorUpsertBulk) UpdateBodyOverride() *ChannelMonitorUpsertBul
 func (u *ChannelMonitorUpsertBulk) ClearBodyOverride() *ChannelMonitorUpsertBulk {
 	return u.Update(func(s *ChannelMonitorUpsert) {
 		s.ClearBodyOverride()
+	})
+}
+
+// SetKind sets the "kind" field.
+func (u *ChannelMonitorUpsertBulk) SetKind(v channelmonitor.Kind) *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetKind(v)
+	})
+}
+
+// UpdateKind sets the "kind" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertBulk) UpdateKind() *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateKind()
+	})
+}
+
+// SetSeedSource sets the "seed_source" field.
+func (u *ChannelMonitorUpsertBulk) SetSeedSource(v string) *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetSeedSource(v)
+	})
+}
+
+// UpdateSeedSource sets the "seed_source" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertBulk) UpdateSeedSource() *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateSeedSource()
 	})
 }
 

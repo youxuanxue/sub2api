@@ -243,6 +243,8 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 				zap.Int64("account_id", account.ID),
 				zap.Error(err),
 			)
+			// TK: passive availability failure tap — error string carries upstream body
+			h.gatewayService.TKRecordForwardFailure(c.Request.Context(), account.Platform, reqModel, account.ID, 0, err.Error(), false)
 			return
 		}
 

@@ -463,6 +463,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					forwardFailedFields = append(forwardFailedFields, zap.Int64p("proxy_id", account.ProxyID))
 				}
 				reqLog.Error("gateway.forward_failed", forwardFailedFields...)
+				// TK: passive availability failure tap
+				h.gatewayService.TKRecordForwardFailure(c.Request.Context(), account.Platform, reqModel, account.ID, 0, err.Error(), false)
 				return
 			}
 
@@ -822,6 +824,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					forwardFailedFields = append(forwardFailedFields, zap.Int64p("proxy_id", account.ProxyID))
 				}
 				reqLog.Error("gateway.forward_failed", forwardFailedFields...)
+				// TK: passive availability failure tap
+				h.gatewayService.TKRecordForwardFailure(c.Request.Context(), account.Platform, reqModel, account.ID, 0, err.Error(), false)
 				return
 			}
 
