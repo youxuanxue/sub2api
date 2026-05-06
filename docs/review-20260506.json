@@ -1,0 +1,82 @@
+{
+  "review_date": "2026-05-06",
+  "scope": "PR #135 (fix/openai-compat-cc-quality) — commit 0ad0345e, 5 files / 214 insertions / 36 deletions, branched off main@afc2c503",
+  "risk_level": "normal",
+  "review_mode": "full_conformance",
+  "decision": "merge-ready",
+  "approved_artifacts_referenced": [
+    "docs/approved/openai-codex-as-claude-thinking-continuity.md",
+    "CLAUDE.md"
+  ],
+  "validation_gaps": [
+    "No service-layer end-to-end test verifies that OpenAIForwardResult.StopReason / IncompleteReason are populated correctly along the buffered (non-streaming) path; only apicompat-level state.StopReason is asserted (TestStreamingIncompleteNonBudgetReason).",
+    "No service-layer test verifies the openai_messages.completed access log fields (zap.Info output is not captured by any zaptest observer in this PR)."
+  ],
+  "summary": {
+    "critical": 0,
+    "high": 0,
+    "medium": 2,
+    "low": 2
+  },
+  "conformance_summary": {
+    "total_findings": 0,
+    "artifacts_checked": [
+      "docs/approved/openai-codex-as-claude-thinking-continuity.md",
+      "CLAUDE.md#5-upstream-isolation",
+      "CLAUDE.md#9-release-discipline-arm--tag-triggers",
+      "CLAUDE.md#pr-checklist"
+    ],
+    "by_artifact": {
+      "docs/approved/openai-codex-as-claude-thinking-continuity.md": 0,
+      "CLAUDE.md#5-upstream-isolation": 0,
+      "CLAUDE.md#9-release-discipline-arm--tag-triggers": 0,
+      "CLAUDE.md#pr-checklist": 0
+    }
+  },
+  "findings": [
+    {
+      "severity": "medium",
+      "category": "design-quality",
+      "automatable": false,
+      "file": "backend/internal/pkg/apicompat/responses_to_anthropic.go",
+      "line": 115,
+      "description": "stop_reason mapping fix lives in an upstream-shaped file (apicompat package was introduced by upstream commit ff1f1149 by alfadb). The change is a clear protocol-correctness bug fix (every 'incomplete' upstream terminal must surface as Anthropic stop_reason='max_tokens', not silently 'end_turn'), not a TokenKey-only feature, so it is a strong candidate for an upstream PR back to Wei-Shaw/sub2api. Without sending it upstream, every future upstream merge will replay the original buggy logic and we'll have to re-apply the fix (or worse, lose it during a merge conflict resolution). Same situation as the US-027 family of fixes (922dd169, b14be823, 9f5e37ac).",
+      "reference": null,
+      "suggested_fix": "After this PR lands, open a sibling PR against Wei-Shaw/sub2api with just the responsesStatusToAnthropicStopReason + resToAnthHandleCompleted change; track the upstream PR URL in a follow-up issue so we can close the divergence loop on the next merge/upstream-* PR.",
+      "human_verdict": {}
+    },
+    {
+      "severity": "medium",
+      "category": "test-coverage",
+      "automatable": false,
+      "file": "backend/internal/service/openai_gateway_messages.go",
+      "line": 540,
+      "description": "OpenAIForwardResult gained two new fields (StopReason, IncompleteReason) populated in two places: handleAnthropicBufferedStreamingResponse (line ~330) and handleAnthropicStreamingResponse (line ~552). Only the streaming path's apicompat-level state is unit-tested (TestStreamingIncompleteNonBudgetReason). The plumbing 'state.StopReason → result.StopReason' in the streaming path and 'finalResponse.IncompleteDetails → result.IncompleteReason' in the buffered path have no test. If a future refactor flips one of those wires (e.g. buffered path forgets to propagate IncompleteReason), prod will silently lose the very signal this PR adds.",
+      "reference": null,
+      "suggested_fix": "Add a service-level test using existing openai_gateway_record_usage_test.go scaffolding (mock httptest.Server returning an SSE stream that ends with response.incomplete + content_filter, plus a buffered-path equivalent). Assert the returned *OpenAIForwardResult has StopReason='max_tokens' and IncompleteReason='content_filter' on both paths. Costs ~50 LOC and closes the validation gap.",
+      "human_verdict": {}
+    },
+    {
+      "severity": "low",
+      "category": "code-quality",
+      "automatable": true,
+      "file": "backend/internal/pkg/apicompat/responses_to_anthropic.go",
+      "line": 116,
+      "description": "`_ = details` is redundant in Go — unused function parameters do not produce compile errors or default lint warnings (only unused locals do). The line was added defensively when the reason-based dispatch was removed, but it does not buy anything and may confuse the next reader into thinking there's a hidden side-effect being suppressed.",
+      "reference": null,
+      "suggested_fix": "Delete the `_ = details` line. Optionally replace with a comment like `// details no longer drives dispatch — every incomplete maps to max_tokens — but the parameter is kept so callers (and the streaming counterpart) keep their existing signature.` if the next reader could misread the intent.",
+      "human_verdict": {}
+    },
+    {
+      "severity": "low",
+      "category": "code-quality",
+      "automatable": true,
+      "file": "backend/internal/service/openai_gateway_messages.go",
+      "line": 287,
+      "description": "The new openai_messages.completed access log unconditionally emits `incomplete_reason:\"\"` for every successful (non-incomplete) request. Most lines on prod will carry the empty value, adding visual noise to `docker logs tokenkey | grep openai_messages.completed` and slightly bloating log volume. Same applies to `reasoning_effort` when ReasoningEffort is nil — it emits empty string.",
+      "reference": null,
+      "suggested_fix": "Wrap both fields in `if v := …; v != \"\" { fields = append(fields, zap.String(\"incomplete_reason\", v)) }`. Keeps the happy-path log line tighter while preserving the diagnostic signal on cutoffs.",
+      "human_verdict": {}
+    }
+  ]
+}

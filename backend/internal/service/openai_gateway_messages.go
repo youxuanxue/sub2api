@@ -284,14 +284,19 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 			zap.String("original_model", originalModel),
 			zap.String("billing_model", result.BillingModel),
 			zap.String("upstream_model", result.UpstreamModel),
-			zap.String("reasoning_effort", derefOpenAIForwardString(result.ReasoningEffort)),
 			zap.Bool("stream", result.Stream),
 			zap.Int("input_tokens", result.Usage.InputTokens),
 			zap.Int("output_tokens", result.Usage.OutputTokens),
 			zap.Int("cache_read_input_tokens", result.Usage.CacheReadInputTokens),
 			zap.String("stop_reason", result.StopReason),
-			zap.String("incomplete_reason", result.IncompleteReason),
 			zap.Int64("duration_ms", result.Duration.Milliseconds()),
+		}
+		// Emit optional fields only when non-empty so happy-path log lines stay compact.
+		if effort := derefOpenAIForwardString(result.ReasoningEffort); effort != "" {
+			fields = append(fields, zap.String("reasoning_effort", effort))
+		}
+		if result.IncompleteReason != "" {
+			fields = append(fields, zap.String("incomplete_reason", result.IncompleteReason))
 		}
 		if result.FirstTokenMs != nil {
 			fields = append(fields, zap.Int("first_token_ms", *result.FirstTokenMs))

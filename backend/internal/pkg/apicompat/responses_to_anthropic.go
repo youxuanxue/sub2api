@@ -112,8 +112,9 @@ func anthropicUsageFromResponsesUsage(usage *ResponsesUsage) AnthropicUsage {
 	}
 }
 
+// details is retained in the signature so callers need not change; the reason
+// value no longer drives dispatch — every "incomplete" maps to "max_tokens".
 func responsesStatusToAnthropicStopReason(status string, details *ResponsesIncompleteDetails, blocks []AnthropicContentBlock) string {
-	_ = details
 	switch status {
 	case "incomplete":
 		// Any "incomplete" terminal means the upstream cut us off — whether the
