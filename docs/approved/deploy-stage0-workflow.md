@@ -120,6 +120,10 @@ Steps:
    Requires repository secret `POST_DEPLOY_SMOKE_API_KEY` (a user `sk-...`
    valid on that stack). Fail-closed if the secret is missing or any step
    returns non-200 / unexpected body markers.
+   Optional add-on secrets (silently skipped when unset, do NOT fail deploy):
+   `POST_DEPLOY_SMOKE_GEMINI_API_KEY` covers the Anthropic→Gemini tool-schema
+   cleanup; `POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY` covers the OpenAI
+   OAuth/codex `usage.completion_tokens_details.reasoning_tokens` passthrough.
 8. **Job summary** — write the deployed tag, the SSM command id, and a
    one-liner re-dispatch command for rollback. No auto-rollback (would
    mask transient failures).

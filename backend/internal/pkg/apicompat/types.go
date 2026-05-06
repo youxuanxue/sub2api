@@ -451,15 +451,25 @@ type ChatChoice struct {
 
 // ChatUsage holds token counts in Chat Completions format.
 type ChatUsage struct {
-	PromptTokens        int               `json:"prompt_tokens"`
-	CompletionTokens    int               `json:"completion_tokens"`
-	TotalTokens         int               `json:"total_tokens"`
-	PromptTokensDetails *ChatTokenDetails `json:"prompt_tokens_details,omitempty"`
+	PromptTokens            int                         `json:"prompt_tokens"`
+	CompletionTokens        int                         `json:"completion_tokens"`
+	TotalTokens             int                         `json:"total_tokens"`
+	PromptTokensDetails     *ChatTokenDetails           `json:"prompt_tokens_details,omitempty"`
+	CompletionTokensDetails *ChatCompletionTokenDetails `json:"completion_tokens_details,omitempty"`
 }
 
-// ChatTokenDetails provides a breakdown of token usage.
+// ChatTokenDetails provides a breakdown of prompt token usage.
 type ChatTokenDetails struct {
 	CachedTokens int `json:"cached_tokens,omitempty"`
+}
+
+// ChatCompletionTokenDetails breaks down completion token usage. Mirrors
+// OpenAI's `usage.completion_tokens_details` shape so that clients reading
+// the public spec can probe `reasoning_tokens` directly. Only fields the
+// upstream actually populates are wired today; add others (audio, accepted
+// /rejected predictions) as they become observable on the bridge path.
+type ChatCompletionTokenDetails struct {
+	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
 }
 
 // ChatCompletionsChunk is a single streaming chunk from POST /v1/chat/completions.
