@@ -270,6 +270,11 @@ jobs:
         env:
           TOKENKEY_BASE_URL: ${{ steps.instance.outputs.api_url }}
           POST_DEPLOY_SMOKE_API_KEY: ${{ secrets.POST_DEPLOY_SMOKE_API_KEY }}
+          # Optional: api_key bound to a gemini-platform group (e.g. gemini-pa).
+          # When set, smoke step 6 exercises the Anthropic→Gemini tool-schema
+          # cleanup against real Google upstream; silently skipped when unset.
+          POST_DEPLOY_SMOKE_GEMINI_API_KEY: ${{ secrets.POST_DEPLOY_SMOKE_GEMINI_API_KEY }}
+          POST_DEPLOY_SMOKE_GEMINI_MODEL: ${{ vars.POST_DEPLOY_SMOKE_GEMINI_MODEL }}
         run: |
           set -euo pipefail
           if [ -z "${POST_DEPLOY_SMOKE_API_KEY:-}" ]; then
