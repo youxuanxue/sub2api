@@ -48,9 +48,11 @@
       "must_contain": [
         "<TablePageLayout fluid>",
         ":sticky-edge-hints=\"false\"",
-        "Wrap-first column policy"
+        "Wrap-first column policy",
+        "const wrap = (maxW: string) =>",
+        "wrap('max-w-[15rem]')"
       ],
-      "rationale": "The TK callsite for fluid+stickyEdgeHints opt-outs (first two literals) and the wrap-first column-class policy (third literal — anchors the comment that documents which columns may carry `whitespace-nowrap` and which must let `table-auto` compress them). Without the wrap policy the fluid table re-overflows under 100% browser zoom even with the auto-fallback CSS in place, since too many nowrap columns prevent the table from compressing in the first place."
+      "rationale": "The TK callsite for fluid+stickyEdgeHints opt-outs (first two literals), the wrap-first column-class policy comment (third literal), and the per-column max-width discipline (fourth + fifth literals). `wrap` as a function (not a plain string constant) means every column carries an explicit cap — an upstream merge that flattens it back to a bare string would silently drop the caps and the table overflows again at 100% browser zoom. The fifth literal anchors the usage column at 15rem (the widest cap), chosen because it is uniquely wide and unlikely to clash with any upstream string. Without the max-width caps, `min-w-0 align-top` alone is insufficient: browser table-auto still sizes columns to their natural max-content width when there is no explicit upper bound."
     }
   ]
 }
