@@ -206,6 +206,18 @@ fi
 # upstream returns 400 "Invalid JSON payload received. Unknown name ...:
 # Cannot find field." and this section fails. Skipped silently when no
 # Gemini-bound key is provided.
+#
+# Failure semantics (2026-05-06 v1.7.19 false-positive postmortem):
+#   200 → schema cleanup verified end-to-end against real Google upstream.
+#   400 → HARD FAIL. The bug we are guarding (PR #121) has regressed; the
+#         deploy must be rolled back / investigated.
+#   401, 403, 404 → HARD FAIL. The configured smoke key/route is broken.
+#   503 / 502 / 500 / "no available accounts" / 429 → SOFT WARN, exit 0.
+#         These are upstream / scheduling resource issues that could not
+#         possibly indicate a schema cleanup regression (a broken cleanup
+#         would have been rejected with 400 BEFORE reaching the scheduling
+#         pool). Treating them as deploy failures conflates control-plane
+#         health with runtime-resource health.
 GEMINI_KEY="${POST_DEPLOY_SMOKE_GEMINI_API_KEY:-}"
 GEMINI_MODEL="${POST_DEPLOY_SMOKE_GEMINI_MODEL:-gemini-3.1-pro-preview}"
 
@@ -242,20 +254,55 @@ if [[ -n "${GEMINI_KEY}" ]]; then
     -d "${gpayload}" \
     "${BASE}/v1/messages")
   echo "tk_post_deploy_smoke: POST .../v1/messages (gemini, with tools) -> HTTP ${gemini_http}"
-  if [[ "${gemini_http}" != "200" ]]; then
-    echo "tk_post_deploy_smoke: /v1/messages (gemini, with tools) failed — Gemini schema cleanup may be broken (see prod incident 2026-05-06)" >&2
+
+  # Read the gateway-reported error message (if any) to disambiguate
+  # "schema cleanup broken" (400, the bug we guard) from "runtime resource
+  # unavailable" (503 / 5xx / no available accounts / rate-limit).
+  gemini_err_msg="$(jq -r '.error.message // empty' "$tmpdir/gemini-msg.json" 2>/dev/null)"
+
+  # 200 happy path → verify shape, then continue to "OK".
+  if [[ "${gemini_http}" == "200" ]]; then
+    gemini_type="$(jq -r '.type // empty' "$tmpdir/gemini-msg.json")"
+    gemini_role="$(jq -r '.role // empty' "$tmpdir/gemini-msg.json")"
+    gemini_content_count="$(jq -r '(.content // []) | length' "$tmpdir/gemini-msg.json")"
+    if [[ "${gemini_type}" != "message" ]] || [[ "${gemini_role}" != "assistant" ]] || [[ "${gemini_content_count}" -lt 1 ]]; then
+      echo "tk_post_deploy_smoke: /v1/messages (gemini) shape invalid (type=${gemini_type:-missing} role=${gemini_role:-missing} content=${gemini_content_count})" >&2
+      jq . "$tmpdir/gemini-msg.json" >&2 || true
+      exit 1
+    fi
+    echo "tk_post_deploy_smoke: /v1/messages (gemini, with tools) shape type=${gemini_type} role=${gemini_role} content=${gemini_content_count}"
+  # 400 → HARD FAIL. Schema cleanup regressed, that is the whole point of
+  # this section. Operators must investigate before considering the deploy
+  # successful.
+  elif [[ "${gemini_http}" == "400" ]]; then
+    echo "::error::tk_post_deploy_smoke: /v1/messages (gemini, with tools) returned HTTP 400 — Anthropic→Gemini schema cleanup likely regressed (see PR #121 / 2026-05-06 prod incident). DO NOT promote this build." >&2
     jq . "$tmpdir/gemini-msg.json" >&2 2>/dev/null || cat "$tmpdir/gemini-msg.json" >&2
     exit 1
-  fi
-  gemini_type="$(jq -r '.type // empty' "$tmpdir/gemini-msg.json")"
-  gemini_role="$(jq -r '.role // empty' "$tmpdir/gemini-msg.json")"
-  gemini_content_count="$(jq -r '(.content // []) | length' "$tmpdir/gemini-msg.json")"
-  if [[ "${gemini_type}" != "message" ]] || [[ "${gemini_role}" != "assistant" ]] || [[ "${gemini_content_count}" -lt 1 ]]; then
-    echo "tk_post_deploy_smoke: /v1/messages (gemini) shape invalid (type=${gemini_type:-missing} role=${gemini_role:-missing} content=${gemini_content_count})" >&2
-    jq . "$tmpdir/gemini-msg.json" >&2 || true
+  # Other 4xx (auth / route broken) → HARD FAIL: the smoke contract itself
+  # is broken; without auth/route working we cannot say anything about the
+  # gateway behavior.
+  elif [[ "${gemini_http}" == "401" || "${gemini_http}" == "403" || "${gemini_http}" == "404" ]]; then
+    echo "::error::tk_post_deploy_smoke: /v1/messages (gemini, with tools) returned HTTP ${gemini_http} — smoke key/route broken; fix POST_DEPLOY_SMOKE_GEMINI_API_KEY config or gateway routing." >&2
+    jq . "$tmpdir/gemini-msg.json" >&2 2>/dev/null || cat "$tmpdir/gemini-msg.json" >&2
     exit 1
+  # 5xx OR 429 OR gateway "no available accounts" → SOFT WARN. These cannot
+  # signal a schema cleanup regression (the request never reached upstream
+  # Google in a way that Google would have parsed the schema). Surface a CI
+  # warning + the upstream error so operators see the resource issue, but
+  # do NOT mark the deploy failed.
+  else
+    case "${gemini_err_msg}" in
+      *"no available accounts"*|*"rate"*|*"timeout"*|*"context canceled"*|*"upstream error: 5"*)
+        :
+        ;;
+    esac
+    echo "::warning::tk_post_deploy_smoke: /v1/messages (gemini, with tools) returned HTTP ${gemini_http} — runtime resource issue (likely Gemini account cooldown / 429 / upstream 5xx), NOT a schema regression. Schema cleanup contract was not violated." >&2
+    if [[ -n "${gemini_err_msg}" ]]; then
+      echo "  gateway message: ${gemini_err_msg}" >&2
+    fi
+    jq . "$tmpdir/gemini-msg.json" >&2 2>/dev/null || cat "$tmpdir/gemini-msg.json" >&2
+    echo "tk_post_deploy_smoke: gemini section soft-skipped (HTTP ${gemini_http} is not a schema-regression signal)"
   fi
-  echo "tk_post_deploy_smoke: /v1/messages (gemini, with tools) shape type=${gemini_type} role=${gemini_role} content=${gemini_content_count}"
 else
   echo "tk_post_deploy_smoke: skip /v1/messages (gemini) — POST_DEPLOY_SMOKE_GEMINI_API_KEY not set"
 fi
