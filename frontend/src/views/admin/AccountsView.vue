@@ -1056,28 +1056,28 @@ function getAntigravityTierClass(row: any): string {
 //     scrollbar — the alternative (more aggressive nowrap) silently clips
 //     the rightmost columns under fluid mode (overflow-x: hidden).
 const nowrap = 'whitespace-nowrap align-middle'
-const wrap = 'min-w-0 align-top'
+const wrap = (maxW: string) => `min-w-0 align-top ${maxW}`
 const allColumns = computed(() => {
   const c = [
     { key: 'select', label: '', sortable: false, class: nowrap },
-    { key: 'name', label: t('admin.accounts.columns.name'), sortable: true, class: 'min-w-0 max-w-[12rem] break-words' },
-    { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false, class: wrap },
-    { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false, class: wrap },
-    { key: 'status', label: t('admin.accounts.columns.status'), sortable: true, class: wrap },
+    { key: 'name', label: t('admin.accounts.columns.name'), sortable: true, class: 'min-w-0 max-w-[10rem] break-words align-top' },
+    { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false, class: wrap('max-w-[9rem]') },
+    { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false, class: wrap('max-w-[9rem]') },
+    { key: 'status', label: t('admin.accounts.columns.status'), sortable: true, class: wrap('max-w-[8rem]') },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true, class: nowrap },
-    { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false, class: wrap }
+    { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false, class: wrap('max-w-[9rem]') }
   ]
   if (!authStore.isSimpleMode) {
-    c.push({ key: 'groups', label: t('admin.accounts.columns.groups'), sortable: false, class: wrap })
+    c.push({ key: 'groups', label: t('admin.accounts.columns.groups'), sortable: false, class: wrap('max-w-[8rem]') })
   }
   c.push(
-    { key: 'usage', label: t('admin.accounts.columns.usageWindows'), sortable: false, class: wrap },
-    { key: 'proxy', label: t('admin.accounts.columns.proxy'), sortable: false, class: wrap },
-    { key: 'priority', label: t('admin.accounts.columns.priority'), sortable: true, class: wrap },
-    { key: 'rate_multiplier', label: t('admin.accounts.columns.billingRateMultiplier'), sortable: true, class: wrap },
-    { key: 'last_used_at', label: t('admin.accounts.columns.lastUsed'), sortable: true, class: wrap },
-    { key: 'expires_at', label: t('admin.accounts.columns.expiresAt'), sortable: true, class: wrap },
-    { key: 'notes', label: t('admin.accounts.columns.notes'), sortable: false, class: wrap },
+    { key: 'usage', label: t('admin.accounts.columns.usageWindows'), sortable: false, class: wrap('max-w-[15rem]') },
+    { key: 'proxy', label: t('admin.accounts.columns.proxy'), sortable: false, class: wrap('max-w-[7rem]') },
+    { key: 'priority', label: t('admin.accounts.columns.priority'), sortable: true, class: nowrap },
+    { key: 'rate_multiplier', label: t('admin.accounts.columns.billingRateMultiplier'), sortable: true, class: nowrap },
+    { key: 'last_used_at', label: t('admin.accounts.columns.lastUsed'), sortable: true, class: wrap('max-w-[5rem]') },
+    { key: 'expires_at', label: t('admin.accounts.columns.expiresAt'), sortable: true, class: wrap('max-w-[5rem]') },
+    { key: 'notes', label: t('admin.accounts.columns.notes'), sortable: false, class: wrap('max-w-[8rem]') },
     { key: 'actions', label: t('admin.accounts.columns.actions'), sortable: false, class: nowrap }
   )
   return c
