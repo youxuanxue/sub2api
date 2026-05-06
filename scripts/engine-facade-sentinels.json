@@ -53,6 +53,24 @@
         "if capability.RequiresTaskAdaptor && !IsVideoSupportedChannelType(in.ChannelType) {",
         "return DispatchPlan{Provider: capability.Provider, Endpoint: in.Endpoint}"
       ]
+    },
+    {
+      "name": "openai_compat_continuation_injection",
+      "source": "backend/internal/service/openai_gateway_messages.go",
+      "required_literals": [
+        "compatContinuationEnabled := openAICompatContinuationEnabled(account, upstreamModel)",
+        "previousResponseID = s.getOpenAICompatSessionResponseID(ctx, c, account, promptCacheKey)",
+        "s.bindOpenAICompatSessionResponseID(ctx, c, account, promptCacheKey, result.ResponseID)"
+      ]
+    },
+    {
+      "name": "openai_compat_continuation_companion",
+      "source": "backend/internal/service/openai_messages_continuation.go",
+      "required_literals": [
+        "func openAICompatContinuationEnabled(",
+        "func (s *OpenAIGatewayService) getOpenAICompatSessionResponseID(",
+        "func (s *OpenAIGatewayService) bindOpenAICompatSessionResponseID("
+      ]
     }
   ]
 }
