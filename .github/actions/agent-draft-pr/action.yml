@@ -131,11 +131,17 @@ runs:
         # permission denials) land in the artifact as JSONL — without
         # it `claude -p` only writes the final reply text and a
         # mid-remediation failure leaves the artifact empty.
+        # --exclude-dynamic-system-prompt-sections keeps the system
+        # prompt prefix stable across runs so the 1h ephemeral prompt
+        # cache can be hit by manual re-dispatches and other agents
+        # that share the prefix. See upstream-merge-agent-daily.yml for
+        # full rationale.
         set -o pipefail
         claude -p "$(cat /tmp/agent-prompt.txt)" \
           --model "opus[1m]" \
           --max-budget-usd "${{ inputs.max_budget_usd }}" \
           --output-format stream-json --verbose \
+          --exclude-dynamic-system-prompt-sections \
           --allowedTools "Bash Read Write Edit Grep Glob" \
           2>&1 \
           | python3 scripts/redact-agent-stream.py \
