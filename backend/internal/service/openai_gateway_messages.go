@@ -270,7 +270,54 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		}
 	}
 
+	// Access log for the OpenAI-compat → Anthropic Messages bridge. Surfaces
+	// the fields that are easy to read on prod (`docker logs tokenkey | grep
+	// openai_messages.completed`) but expensive to derive after the fact:
+	// stop_reason, incomplete_reason, reasoning_effort, output_tokens. Used to
+	// verify the stop_reason mapping and reasoning effort fixes.
+	if result != nil {
+		fields := []zap.Field{
+			zap.String("request_id", result.RequestID),
+			zap.Int64("account_id", account.ID),
+			zap.String("account_name", account.Name),
+			zap.String("platform", account.Platform),
+			zap.String("original_model", originalModel),
+			zap.String("billing_model", result.BillingModel),
+			zap.String("upstream_model", result.UpstreamModel),
+			zap.Bool("stream", result.Stream),
+			zap.Int("input_tokens", result.Usage.InputTokens),
+			zap.Int("output_tokens", result.Usage.OutputTokens),
+			zap.Int("cache_read_input_tokens", result.Usage.CacheReadInputTokens),
+			zap.String("stop_reason", result.StopReason),
+			zap.Int64("duration_ms", result.Duration.Milliseconds()),
+		}
+		// Emit optional fields only when non-empty so happy-path log lines stay compact.
+		if effort := derefOpenAIForwardString(result.ReasoningEffort); effort != "" {
+			fields = append(fields, zap.String("reasoning_effort", effort))
+		}
+		if result.IncompleteReason != "" {
+			fields = append(fields, zap.String("incomplete_reason", result.IncompleteReason))
+		}
+		if result.FirstTokenMs != nil {
+			fields = append(fields, zap.Int("first_token_ms", *result.FirstTokenMs))
+		}
+		if handleErr != nil {
+			fields = append(fields, zap.NamedError("handle_error", handleErr))
+		}
+		logger.L().Info("openai_messages.completed", fields...)
+	}
+
 	return result, handleErr
+}
+
+// derefOpenAIForwardString returns the string pointed to by p, or "" if p is
+// nil. Used by the openai_messages.completed access log to render optional
+// pointer fields (ReasoningEffort, ServiceTier) without crashing on nil.
+func derefOpenAIForwardString(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 // handleAnthropicErrorResponse reads an upstream error and returns it in
@@ -320,14 +367,21 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 	}
 	c.JSON(http.StatusOK, anthropicResp)
 
+	incompleteReason := ""
+	if finalResponse.IncompleteDetails != nil {
+		incompleteReason = finalResponse.IncompleteDetails.Reason
+	}
+
 	return &OpenAIForwardResult{
-		RequestID:     requestID,
-		Usage:         usage,
-		Model:         originalModel,
-		BillingModel:  billingModel,
-		UpstreamModel: upstreamModel,
-		Stream:        false,
-		Duration:      time.Since(startTime),
+		RequestID:        requestID,
+		Usage:            usage,
+		Model:            originalModel,
+		BillingModel:     billingModel,
+		UpstreamModel:    upstreamModel,
+		Stream:           false,
+		Duration:         time.Since(startTime),
+		StopReason:       anthropicResp.StopReason,
+		IncompleteReason: incompleteReason,
 	}, nil
 }
 
@@ -533,14 +587,16 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	// resultWithUsage builds the final result snapshot.
 	resultWithUsage := func() *OpenAIForwardResult {
 		return &OpenAIForwardResult{
-			RequestID:     requestID,
-			Usage:         usage,
-			Model:         originalModel,
-			BillingModel:  billingModel,
-			UpstreamModel: upstreamModel,
-			Stream:        true,
-			Duration:      time.Since(startTime),
-			FirstTokenMs:  firstTokenMs,
+			RequestID:        requestID,
+			Usage:            usage,
+			Model:            originalModel,
+			BillingModel:     billingModel,
+			UpstreamModel:    upstreamModel,
+			Stream:           true,
+			Duration:         time.Since(startTime),
+			FirstTokenMs:     firstTokenMs,
+			StopReason:       state.StopReason,
+			IncompleteReason: state.IncompleteReason,
 		}
 	}
 
