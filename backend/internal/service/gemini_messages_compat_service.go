@@ -3294,7 +3294,7 @@ func convertClaudeToolsToGeminiTools(tools any) []any {
 			}
 		}
 		// 清理 JSON Schema
-		cleanedParams := cleanToolSchema(params)
+		cleanedParams := tkCleanToolSchema(params)
 
 		funcDecls = append(funcDecls, map[string]any{
 			"name":        name,

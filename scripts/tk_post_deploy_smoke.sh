@@ -2,15 +2,24 @@
 # tk_post_deploy_smoke.sh — mandatory post-deploy gateway checks (Stage0).
 #
 # Exercises the same paths Claude Code uses against TokenKey:
-#   public settings, frontend release assets, /v1/models, /v1/chat/completions, /v1/messages.
+#   public settings, frontend release assets, /v1/models, /v1/chat/completions,
+#   /v1/messages, and (when configured) /v1/messages-with-tools through the
+#   Gemini bridge to catch tool-schema cleanup regressions.
 #
 # Usage:
 #   TOKENKEY_BASE_URL=https://api.example.com \
 #   POST_DEPLOY_SMOKE_API_KEY=sk-... \
+#   POST_DEPLOY_SMOKE_GEMINI_API_KEY=sk-... \   # optional, binds to gemini group
 #   bash scripts/tk_post_deploy_smoke.sh
 #
 # Key resolution (first non-empty): POST_DEPLOY_SMOKE_API_KEY,
 # ANTHROPIC_AUTH_TOKEN, TK_TOKEN, TOKENKEY_API_KEY.
+#
+# Optional Gemini regression check (skipped silently if unset):
+#   POST_DEPLOY_SMOKE_GEMINI_API_KEY  api_key bound to a gemini-platform group
+#                                     (e.g. gemini-pa); exercises the
+#                                     Anthropic→Gemini tool-schema cleanup.
+#   POST_DEPLOY_SMOKE_GEMINI_MODEL    default: gemini-3.1-pro-preview
 #
 # Never prints the full API key. Requires curl + jq on PATH.
 set -euo pipefail
@@ -188,6 +197,67 @@ if ! printf '%s' "${msg_text}" | grep -Fq "${expect_anthropic}"; then
   echo "tk_post_deploy_smoke: messages response missing expected marker '${expect_anthropic}' (text below)" >&2
   printf '%s\n' "${msg_text}" >&2
   exit 1
+fi
+
+# --- 6) Gemini /v1/messages with tools (Anthropic→Gemini schema cleanup regression) ---
+# Validates tkCleanToolSchema strips Draft 2020 / OpenAPI 3.1 keywords that
+# Gemini's restricted OpenAPI 3.0 schema dialect rejects (propertyNames /
+# const / exclusiveMinimum / exclusiveMaximum). If cleanup regresses, Google
+# upstream returns 400 "Invalid JSON payload received. Unknown name ...:
+# Cannot find field." and this section fails. Skipped silently when no
+# Gemini-bound key is provided.
+GEMINI_KEY="${POST_DEPLOY_SMOKE_GEMINI_API_KEY:-}"
+GEMINI_MODEL="${POST_DEPLOY_SMOKE_GEMINI_MODEL:-gemini-3.1-pro-preview}"
+
+if [[ -n "${GEMINI_KEY}" ]]; then
+  gemini_prefix="$(printf '%s' "${GEMINI_KEY}" | head -c 6)"
+  gemini_suffix="$(printf '%s' "${GEMINI_KEY}" | tail -c 4)"
+  echo "tk_post_deploy_smoke: gemini_key_hint=${gemini_prefix}…${gemini_suffix} gemini_model=${GEMINI_MODEL}"
+
+  gpayload="$(jq -n \
+    --arg m "${GEMINI_MODEL}" \
+    '{
+      model: $m,
+      max_tokens: 96,
+      messages: [{role:"user",content:"Reply with one short sentence."}],
+      tools: [{
+        name: "tk_smoke_schema_probe",
+        description: "Schema sanitize probe. Do not call.",
+        input_schema: {
+          type: "object",
+          required: ["mode"],
+          properties: {
+            mode:  {type:"string",  const: "auto"},
+            limit: {type:"integer", minimum: 1, exclusiveMinimum: 0, exclusiveMaximum: 100},
+            tags:  {type:"object",  propertyNames: {pattern: "^[a-z]+$"}}
+          }
+        }
+      }]
+    }')"
+
+  gemini_http=$(curl -sS -o "$tmpdir/gemini-msg.json" -w "%{http_code}" \
+    -H "x-api-key: ${GEMINI_KEY}" \
+    -H "anthropic-version: 2023-06-01" \
+    -H "Content-Type: application/json" \
+    -d "${gpayload}" \
+    "${BASE}/v1/messages")
+  echo "tk_post_deploy_smoke: POST .../v1/messages (gemini, with tools) -> HTTP ${gemini_http}"
+  if [[ "${gemini_http}" != "200" ]]; then
+    echo "tk_post_deploy_smoke: /v1/messages (gemini, with tools) failed — Gemini schema cleanup may be broken (see prod incident 2026-05-06)" >&2
+    jq . "$tmpdir/gemini-msg.json" >&2 2>/dev/null || cat "$tmpdir/gemini-msg.json" >&2
+    exit 1
+  fi
+  gemini_type="$(jq -r '.type // empty' "$tmpdir/gemini-msg.json")"
+  gemini_role="$(jq -r '.role // empty' "$tmpdir/gemini-msg.json")"
+  gemini_content_count="$(jq -r '(.content // []) | length' "$tmpdir/gemini-msg.json")"
+  if [[ "${gemini_type}" != "message" ]] || [[ "${gemini_role}" != "assistant" ]] || [[ "${gemini_content_count}" -lt 1 ]]; then
+    echo "tk_post_deploy_smoke: /v1/messages (gemini) shape invalid (type=${gemini_type:-missing} role=${gemini_role:-missing} content=${gemini_content_count})" >&2
+    jq . "$tmpdir/gemini-msg.json" >&2 || true
+    exit 1
+  fi
+  echo "tk_post_deploy_smoke: /v1/messages (gemini, with tools) shape type=${gemini_type} role=${gemini_role} content=${gemini_content_count}"
+else
+  echo "tk_post_deploy_smoke: skip /v1/messages (gemini) — POST_DEPLOY_SMOKE_GEMINI_API_KEY not set"
 fi
 
 echo "tk_post_deploy_smoke: OK"
