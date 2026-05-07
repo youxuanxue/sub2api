@@ -270,15 +270,15 @@ jobs:
         env:
           TOKENKEY_BASE_URL: ${{ steps.instance.outputs.api_url }}
           POST_DEPLOY_SMOKE_API_KEY: ${{ secrets.POST_DEPLOY_SMOKE_API_KEY }}
-          # Optional: api_key bound to a gemini-platform group (e.g. gemini-pa).
-          # When set, smoke step 6 exercises the Anthropic→Gemini tool-schema
-          # cleanup against real Google upstream; silently skipped when unset.
+          # Required: api_key bound to a gemini-platform group (e.g. gemini-pa).
+          # Exercises the Anthropic→Gemini tool-schema cleanup against real Google
+          # upstream (const/propertyNames/exclusiveMinimum Draft 2020 keywords).
           POST_DEPLOY_SMOKE_GEMINI_API_KEY: ${{ secrets.POST_DEPLOY_SMOKE_GEMINI_API_KEY }}
           POST_DEPLOY_SMOKE_GEMINI_MODEL: ${{ vars.POST_DEPLOY_SMOKE_GEMINI_MODEL }}
-          # Optional: api_key bound to an OpenAI OAuth/codex-platform group.
-          # When set, smoke step 7 exercises the apicompat reasoning_tokens
-          # passthrough on /v1/chat/completions (Responses → ChatCompletions
-          # usage.completion_tokens_details); silently skipped when unset.
+          # Required: api_key bound to an OpenAI OAuth/codex-platform group.
+          # Exercises the apicompat reasoning_tokens passthrough on
+          # /v1/chat/completions (Responses → ChatCompletions
+          # usage.completion_tokens_details).
           POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY: ${{ secrets.POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY }}
           POST_DEPLOY_SMOKE_OPENAI_OAUTH_MODEL: ${{ vars.POST_DEPLOY_SMOKE_OPENAI_OAUTH_MODEL }}
         run: |
@@ -286,6 +286,20 @@ jobs:
           if [ -z "${POST_DEPLOY_SMOKE_API_KEY:-}" ]; then
             echo "::error::POST_DEPLOY_SMOKE_API_KEY repository secret is not set."
             echo "Add a TokenKey user API key (sk-...) that is valid for this stack's gateway."
+            echo "See deploy/aws/README.md (post-deploy smoke) and docs/approved/deploy-stage0-workflow.md §5."
+            exit 1
+          fi
+          if [ -z "${POST_DEPLOY_SMOKE_GEMINI_API_KEY:-}" ]; then
+            echo "::error::POST_DEPLOY_SMOKE_GEMINI_API_KEY repository secret is not set."
+            echo "Add a TokenKey API key bound to a gemini-platform group (e.g. gemini-pa) on this stack's gateway."
+            echo "This probe guards the Anthropic→Gemini tool-schema cleanup regression."
+            echo "See deploy/aws/README.md (post-deploy smoke) and docs/approved/deploy-stage0-workflow.md §5."
+            exit 1
+          fi
+          if [ -z "${POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY:-}" ]; then
+            echo "::error::POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY repository secret is not set."
+            echo "Add a TokenKey API key bound to an OpenAI OAuth/codex-platform group on this stack's gateway."
+            echo "This probe guards the reasoning_tokens passthrough regression."
             echo "See deploy/aws/README.md (post-deploy smoke) and docs/approved/deploy-stage0-workflow.md §5."
             exit 1
           fi

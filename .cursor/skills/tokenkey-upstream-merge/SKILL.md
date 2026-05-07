@@ -58,7 +58,7 @@ description: >-
 - route canonical 破坏。
 - QA/trajectory capture hook 缺失。
 - redaction contract 漂移。
-- newapi / engine / brand / terminal sentinel 漏洞。
+- newapi / engine / brand / terminal sentinel 漏洞（包括 `engine-facade-sentinels.json` 门禁：dispatch 路径须经 `engine.BuildDispatchPlan`，Gemini 思考块过滤器须保持 `shouldDropGeminiInternalText` / `normalizeGeminiFunctionArgs` 调用链）。
 - release workflow ARM/tag/skip-ci 纪律回退。
 
 ### C. OPC Refactor Commit
@@ -98,7 +98,7 @@ PR 前必须完成：
 - `pnpm --dir frontend lint:check && pnpm --dir frontend typecheck`（如 frontend 触达）。
 - `pnpm --dir frontend run build`（如 frontend dist 或 embedded web 触达）。
 - `python3 scripts/export_agent_contract.py --check`（如 agent contract 相关触达）。
-- `./scripts/preflight.sh`。
+- `./scripts/preflight.sh`（覆盖所有 sub2api sentinel 检查；`upstream-merge-pr-shape.yml` CI 独立跑其中 newapi、engine-facade、frontend-tk 三组）。
 
 不得跳过 hook 或用 `--no-verify`。
 
@@ -122,7 +122,62 @@ PR 前必须完成：
 - Backend stat top files: `<git diff --stat upstream/main..HEAD -- backend/ | head -5>`
 ```
 
-## 6. Red flags
+## 6. 完成后：本次 upstream merge 变更摘要
+
+PR 全部检查通过、准备合并（或刚完成合并）后，运行以下命令，然后向用户输出结构化摘要。
+
+```bash
+# 先确保 upstream 已 fetch（未 fetch 时 merge-base 会出错）
+git fetch upstream --quiet
+
+# 1. upstream 本次带入了哪些提交
+MERGE_BASE=$(git merge-base HEAD upstream/main)
+echo "upstream 新带入提交："
+git log "${MERGE_BASE}..upstream/main" --oneline --no-merges | head -30
+
+# 2. upstream 触达的文件统计（backend 最关键）
+echo "upstream backend diff stat："
+git diff --stat "${MERGE_BASE}" upstream/main -- backend/ | tail -10
+
+# 3. TK ahead 数量（PR body 审计数据）
+echo "TK ahead commits: $(git log --oneline upstream/main..HEAD | wc -l | tr -d ' ')"
+
+# 4. 本次 PR 中 TK invariant / OPC 提交
+echo "本次 PR TK 提交（非 merge commit）："
+git log --oneline upstream/main..HEAD --no-merges | head -20
+
+# 5. sentinel 文件有无改动
+git diff --name-only upstream/main..HEAD -- scripts/ | grep 'sentinels' || \
+  echo "(no sentinel changes)"
+
+# 6. 是否删除了 upstream backend 文件（风险点）
+git diff --diff-filter=D --name-only upstream/main..HEAD -- backend/ || echo "(no upstream file deletions)"
+```
+
+基于输出，向用户呈现以下结构：
+
+**upstream merge 范围：`<merge_base_short>` → `upstream/main`（N 个上游提交）**
+
+**上游带入**：按影响维度分类（handler / service / frontend / schema / CI），每类列 1–3 行关键提交。
+
+**TK invariant 修复**（B 类 commit）：列出修复的不可退让项及改动文件。
+
+**TK OPC 收敛**（C 类 commit，如有）：列出从热点文件抽取到 companion 的内容。
+
+**需要在 prod smoke / 本地测试中重点验证**（根据实际变更填写）：
+
+| 触达路径 | 验证方式 |
+|---|---|
+| Gemini 路径 | Gemini tool-schema 探针（必须设 `POST_DEPLOY_SMOKE_GEMINI_API_KEY`）；HTTP 400=硬失败需回查 |
+| OpenAI-compat / Responses | OpenAI OAuth 探针（必须设 `POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY`）；`reasoning_tokens` 是否透传 |
+| pricing / model-list | `/v1/models` 数量与可用性标记 |
+| frontend 组件 | frontend release asset 探针 + 浏览器关键页 |
+| 新增 sentinel | 列出 `*-sentinels.json` 文件名，说明守卫的回归场景 |
+| upstream 删除文件（如有） | 逐一确认 PR description 有 (a)/(b)/(c) 回归说明 |
+
+**后续建议**：是否需要立即 bump VERSION 发版，或等待下一批 TK 功能合入。
+
+## 7. Red flags
 
 Stop and fix before PR if any is true:
 
@@ -131,3 +186,5 @@ Stop and fix before PR if any is true:
 - Sensitive payload persists without redaction version contract.
 - New upstream file/route/service was deleted or disabled without explicit regression justification.
 - PR shape check would fail: no upstream merge commit, missing `upstream/main..HEAD`, or first-parent commit contains skip-ci markers.
+- Direct `bridge.Dispatch*` call added outside the approved service boundary files (`gateway_bridge_dispatch.go` / `openai_gateway_bridge_dispatch*.go`) — engine dispatch eligibility must route through `engine.BuildDispatchPlan`; `engine-facade-sentinels.json` will flag this mechanically.
+- New Gemini response path processes `internalThought`/`executableCode` blocks without calling `shouldDropGeminiInternalText` / `normalizeGeminiFunctionArgs` — thinking-block filter or tool-arg normalizer has drifted; `engine-facade-sentinels.json` `gemini_thinking_filter_*` entries will fail.

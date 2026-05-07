@@ -85,25 +85,24 @@ curl -sS -o /dev/null -w '%{http_code}\n' 'https://api.tokenkey.dev/api/v1/setti
 ```bash
 cd /path/to/sub2api
 export TOKENKEY_BASE_URL=https://api.tokenkey.dev    # 或 TK_GATEWAY_URL（脚本两个都识别）
+# 以下三个 key 必须全部导出后再运行；任一缺失均不得视为验收通过
 # POST_DEPLOY_SMOKE_API_KEY 已在 Cursor / shell 中导出即可
-# 可选回归探针（见下文）：
-#   POST_DEPLOY_SMOKE_GEMINI_API_KEY=sk-...           # Gemini tool-schema 清理回归探针
-#   POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY=sk-...     # OpenAI OAuth reasoning_tokens 端到端探针
+# POST_DEPLOY_SMOKE_GEMINI_API_KEY=sk-...     # 绑定 gemini 分组，验证 tool-schema 清理
+# POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY=sk-... # 绑定 OpenAI OAuth/codex 分组，验证 reasoning_tokens 透传
 bash scripts/tk_post_deploy_smoke.sh
 ```
 
 **主 key 解析顺序**（摘自脚本）：`POST_DEPLOY_SMOKE_API_KEY` → `ANTHROPIC_AUTH_TOKEN` → `TK_TOKEN` → `TOKENKEY_API_KEY`，任一非空即可。
 
-**可选探针（提供对应 key 时自动启用，未设则跳过）**：
+**烟测 key 一览（三个均为必填）**：
 
-| 环境变量 | 默认值 | 用途 |
-|---|---|---|
-| `POST_DEPLOY_SMOKE_GEMINI_API_KEY` | — | 绑定 gemini 分组，探针：Anthropic→Gemini tool-schema 清理（`const`/`propertyNames`/`exclusiveMinimum` 等 Draft 2020 关键词）|
-| `POST_DEPLOY_SMOKE_GEMINI_MODEL` | 见脚本注释 | Gemini 探针使用的模型 |
-| `POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY` | — | 绑定 OpenAI OAuth/codex 分组，探针：账号正确性 + `reasoning_tokens` 透传 |
-| `POST_DEPLOY_SMOKE_OPENAI_OAUTH_MODEL` | 见脚本注释 | OpenAI OAuth 探针使用的模型 |
-| `POST_DEPLOY_SMOKE_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS` | `0` | 设 `1` 将 `reasoning_tokens=0` 警告升级为硬失败（需确认该账号确实会返回 reasoning tokens） |
-| `POST_DEPLOY_SMOKE_SKIP_FRONTEND` | `0` | 设 `1` 跳过 frontend release asset 检查（仅本地调试；CI / 正式验收不得跳过）|
+| 环境变量 | 用途 |
+|---|---|
+| `POST_DEPLOY_SMOKE_API_KEY`（或链式备选） | 主路由：public settings / models / chat / messages |
+| `POST_DEPLOY_SMOKE_GEMINI_API_KEY` | 绑定 gemini 分组，验证 Anthropic→Gemini tool-schema 清理（`const`/`propertyNames`/`exclusiveMinimum` 等 Draft 2020 关键词）|
+| `POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY` | 绑定 OpenAI OAuth/codex 分组，验证账号正确性 + `reasoning_tokens` 透传 |
+
+调节项（非必填）：`POST_DEPLOY_SMOKE_GEMINI_MODEL`、`POST_DEPLOY_SMOKE_OPENAI_OAUTH_MODEL`（默认见脚本注释）；`POST_DEPLOY_SMOKE_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS=1` 可将 `reasoning_tokens=0` 升为硬失败；`POST_DEPLOY_SMOKE_SKIP_FRONTEND=1` 仅供本地调试，正式验收不得使用。
 
 仅在无法注入环境时再临时：`POST_DEPLOY_SMOKE_API_KEY='sk-…' bash scripts/tk_post_deploy_smoke.sh`。  
 不得打印完整 key；脚本只输出 `key_hint`。
@@ -117,10 +116,10 @@ bash scripts/tk_post_deploy_smoke.sh
 - **`/v1/models`** — HTTP 200，`object=list`，`data` 非空。
 - **`/v1/chat/completions`** — HTTP 200，`object=chat.completion`，`choices[0].message.content` 含预期 marker，`finish_reason` 合理，`usage` 存在。
 - **`/v1/messages`** — HTTP 200，`type=message`，`role=assistant`，`content[]` 有文本，`stop_reason` 合理，`usage` 存在。
-- **Gemini tool-schema 探针（可选，需 `POST_DEPLOY_SMOKE_GEMINI_API_KEY`）** — HTTP 400 = **硬失败**（schema 清理回归，必须回滚）；HTTP 401/403/404 = **硬失败**（key/路由配置错误）；HTTP 5xx/429/"no available accounts" = **软警告** exit 0（运行时资源问题，非 schema 回归）。
-- **OpenAI OAuth 探针（可选，需 `POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY`）** — HTTP 200 + 正确 shape + 含预期 marker + `prompt_tokens`/`completion_tokens` 非零且 `total` 自洽；`reasoning_tokens=0` 默认软警告，设 `REQUIRE=1` 升为硬失败；HTTP 4xx = **硬失败**；HTTP 5xx/429 = **软警告**。
+- **Gemini tool-schema 探针** — HTTP 400 = **硬失败**（schema 清理回归，必须回滚）；HTTP 401/403/404 = **硬失败**（key/路由配置错误）；HTTP 5xx/429/"no available accounts" = **软警告** exit 0（运行时资源问题，非 schema 回归）。**`POST_DEPLOY_SMOKE_GEMINI_API_KEY` 未设 = 阻塞，不得视为通过。**
+- **OpenAI OAuth 探针** — HTTP 200 + 正确 shape + 含预期 marker + `prompt_tokens`/`completion_tokens` 非零且 `total` 自洽；`reasoning_tokens=0` 默认软警告，设 `REQUIRE=1` 升为硬失败；HTTP 4xx = **硬失败**；HTTP 5xx/429 = **软警告**。**`POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY` 未设 = 阻塞，不得视为通过。**
 
-通过时仍需确认结构字段，不能只看 marker 文本。若本次发布触达 Responses 路径而以上可选探针未覆盖，可追加一次手动 `/v1/responses` 探针：HTTP 200，`object=response`，`status=completed`，`output[]`/`output_text` 含测试短句，`usage` 结构正确，无 `error`。多分组验收时，按 key 分别记录 `key_hint`、group platform、日志 `account_id/platform/model`；不得以一个 key 的通过代替全部分组。
+通过时仍需确认结构字段，不能只看 marker 文本。若本次发布触达 Responses 路径而以上探针未覆盖，可追加一次手动 `/v1/responses` 探针：HTTP 200，`object=response`，`status=completed`，`output[]`/`output_text` 含测试短句，`usage` 结构正确，无 `error`。多分组验收时，按 key 分别记录 `key_hint`、group platform、日志 `account_id/platform/model`；不得以一个 key 的通过代替全部分组。
 
 ## 完成后：本次发版变更摘要
 
@@ -160,8 +159,8 @@ git diff --diff-filter=D --name-only "${PREV_TAG}..${NEW_TAG}" -- backend/ || tr
 
 **影响面与验证重点**（根据实际变更填写，无则省略）：
 
-- **Gemini 路径触达** → 是否提供了 `POST_DEPLOY_SMOKE_GEMINI_API_KEY`；Gemini tool-schema 探针结果（HTTP 200 为通过，400 为硬失败）
-- **OpenAI-compat / Responses 路径** → OpenAI OAuth 探针结果；`reasoning_tokens` 是否透传
+- **Gemini tool-schema 探针结果** — HTTP 200 为通过，400 为硬失败（schema 清理回归）
+- **OpenAI OAuth 探针结果** — shape/marker/token totals；`reasoning_tokens` 是否透传
 - **pricing / model-list** → `/v1/models` 返回数量与可用性标记是否符合预期
 - **frontend 变更** → frontend release asset shape 探针结果
 - **新增 / 修改的 sentinel** → 说明守卫的回归场景；upstream merge 时需重点确认

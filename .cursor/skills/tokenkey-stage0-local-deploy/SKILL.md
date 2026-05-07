@@ -276,21 +276,19 @@ docker exec tokenkey wget -q -T 5 -O - http://localhost:8080/health
 与 **`tokenkey-prod-release-deploy`** 中 **C** 使用同一 **`scripts/tk_post_deploy_smoke.sh`**，仅 **`TOKENKEY_BASE_URL`** 指向本机反代：
 
 ```bash
-cd "${REPO_ROOT}" # 须在含 scripts/ 的仓库根；未导出 REPO_ROOT 时见「本项目路径约定」
-export TOKENKEY_BASE_URL=http://127.0.0.1:8088
-# 密钥解析顺序与 prod 相同：POST_DEPLOY_SMOKE_API_KEY → ANTHROPIC_AUTH_TOKEN → TK_TOKEN → TOKENKEY_API_KEY
+cd “${REPO_ROOT}” # 须在含 scripts/ 的仓库根；未导出 REPO_ROOT 时见「本项目路径约定」
+export TOKENKEY_BASE_URL=http://127.0.0.1:8088    # 或 TK_GATEWAY_URL（脚本两个都识别）
+# 主 key：POST_DEPLOY_SMOKE_API_KEY → ANTHROPIC_AUTH_TOKEN → TK_TOKEN → TOKENKEY_API_KEY
+# 可选 Gemini 探针：POST_DEPLOY_SMOKE_GEMINI_API_KEY=sk-...
+# 可选 OpenAI OAuth 探针：POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY=sk-...
 bash scripts/tk_post_deploy_smoke.sh
 ```
 
 **前提**：须已有 **可用的用户侧网关 API Key**（新 AUTO_SETUP 栈通常没有——先在管理后台创建订阅用户与 key，或使用你专用于本地的测试 key）。**不得**打印完整 key；脚本只输出 `key_hint`。若缺 key：**不要卡住会话**，验收 **A+B**（及下方管理员登录）即可。
 
-**结构化验收要求**：C 不是“看到文本返回”就结束。至少确认：
+**烟测 key**：与 prod skill § C 要求完全一致——`POST_DEPLOY_SMOKE_API_KEY`、`POST_DEPLOY_SMOKE_GEMINI_API_KEY`、`POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY` 三个均须导出，任一缺失不得视为验收通过。
 
-- `/v1/models`：HTTP 200，`object=list`，`data` 非空。
-- `/v1/chat/completions`：HTTP 200，`object=chat.completion`，`choices[0].message.content` 命中测试短句，`finish_reason` 合理，`usage` 存在（若上游返回）。
-- `/v1/messages`：HTTP 200，`type=message`，`role=assistant`，`content[]` 有文本，`stop_reason` 合理，`usage` 字段结构正确。
-- `/v1/responses`：HTTP 200，`object=response`，`status=completed`（或有明确可解释的非失败终态），`output[]` / `output_text` 含测试短句，`usage` 字段结构正确，且没有 `error`。
-- 若验证多个分组 / 多个 key，按 key 分别记录 `key_hint`、group platform、命中的 `account_id/platform/model` 日志证据；不要把一个 key 的通过误当成全部通过。
+**结构化验收要求**：与 prod skill § C 完全一致，以该节为准。唯一差异是 `TOKENKEY_BASE_URL=http://127.0.0.1:8088`（本地反代端口）。若有多个分组/key，按 key 分别记录 `key_hint`、group platform、`account_id/platform/model`；不要把一个 key 的通过误当成全部通过。
 
 本地 Caddy 开启压缩时，`tk_post_deploy_smoke.sh` 可能只输出启动行后等待连接关闭。若脚本卡住，不要降低验收标准：停止脚本后用同一 key 重跑等价请求，并显式加 `Accept-Encoding: identity`，仍按上面的结构化要求判定。
 
@@ -307,6 +305,39 @@ curl -sS -H 'Content-Type: application/json' \
   -d "$(printf '{"email":"%s","password":"%s"}' "${ADMIN_EMAIL}" "${ADMIN_PASSWORD}")" \
   "http://127.0.0.1:8088/api/v1/auth/login"
 ```
+
+## 完成后：当前代码与上一 tag 的变更摘要
+
+本地栈验证通过后（A+B，或 A+B+C），运行以下命令，向用户呈现"当前工作区相对上一个正式发版的差异"。目的是在本地测试阶段就识别高风险变更，不要等到发版才发现。
+
+```bash
+LAST_TAG=$(git tag --sort=-version:refname | grep '^v[0-9]' | head -1)
+BASE="${LAST_TAG:-origin/main}"
+echo "base: ${BASE}  head: $(git rev-parse --short HEAD)"
+
+# 尚未发版的提交（排除 VERSION bump）
+git log "${BASE}..HEAD" --oneline --no-merges \
+  | grep -v 'chore: bump VERSION' | grep -v '\[skip ci\]'
+
+# 变更文件统计
+git diff --stat "${BASE}..HEAD" -- backend/ frontend/src/ | tail -10
+
+# sentinel 文件有无改动
+git diff --name-only "${BASE}..HEAD" -- scripts/ | grep 'sentinels' || true
+```
+
+基于输出，向用户呈现（无变更则跳过对应行）：
+
+**当前代码领先 `${LAST_TAG}` N 个提交，运行于本地栈 `:8088`**
+
+- **feat / fix 提交**：列出关键条目及影响模块（gateway / scheduler / frontend / sentinel）
+- **高风险路径**（根据 diff 判断）：
+  - Gemini 路径改动 → 本地 C 节有无跑 Gemini 探针；tool-schema 清理是否已验证
+  - OpenAI-compat / Responses 改动 → chat completions shape 与 reasoning_tokens 是否正常
+  - pricing / model-list → `/v1/models` 返回与预期是否一致
+  - frontend 改动 → 浏览器打开 `http://127.0.0.1:8088` 手动验证关键页面
+  - sentinel 新增 → 列出文件名，后续 upstream merge 时 CI 会联检
+- **尚未覆盖的验证**：若本次本地测试未跑 C 节（缺 API key），建议在发版前用 prod smoke 补全
 
 ## 7) 停栈 / 重置
 
