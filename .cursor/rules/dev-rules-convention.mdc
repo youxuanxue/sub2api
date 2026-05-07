@@ -87,7 +87,7 @@ LaunchAgent `local.dev-rules.sync` 每 30 分钟跑 `sync.sh --pull`，把其他
 3. **CI 同步运行**：在 GitHub Actions / GitLab CI 中追加一步 `./scripts/preflight.sh`（若存在）或 `./dev-rules/templates/preflight.sh`。
 4. **dev-rules 子模块自身**：源仓库内置 `scripts/preflight.sh`（调用 `./verify-rules.sh` + `./sync-stats.sh --check`），首次克隆后跑一次 `bash templates/install-hooks.sh` 即可让 pre-commit 自动拦截违例提交。**不要靠记忆手动跑 verify-rules.sh**——这条规则正是 OPC「自动化优先」要消灭的"自觉履约"。
 
-接入完成后，违反任何一条强约束的提交都会被 hook 拦截，违反者的 CI 会 fail。`/user:calibrate` 在汇总指标前会用 `dev-rules/schemas/review.schema.json` 校验所有 `docs/review-*.json`。
+接入完成后，违反任何一条强约束的提交都会被 hook 拦截，违反者的 CI 会 fail。`/user:calibrate` 在汇总指标前会用 `dev-rules/schemas/review.schema.json` 校验所有 `.reviews/review-*.json`。
 
 如果某项检查段在该项目尚不可自动化（例如还没有 API 时跳过 contract drift），必须把缺口记入 `docs/preflight-debt.md` 并设定截止日期，**禁止悄悄降级为"靠自觉"**。
 
