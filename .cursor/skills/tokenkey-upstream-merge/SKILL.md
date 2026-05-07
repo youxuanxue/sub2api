@@ -122,7 +122,7 @@ PR 前必须完成：
 - Backend stat top files: `<git diff --stat upstream/main..HEAD -- backend/ | head -5>`
 ```
 
-## 7. 完成后：本次 upstream merge 变更摘要
+## 6. 完成后：本次 upstream merge 变更摘要
 
 PR 全部检查通过、准备合并（或刚完成合并）后，运行以下命令，然后向用户输出结构化摘要。
 
@@ -177,7 +177,7 @@ git diff --diff-filter=D --name-only upstream/main..HEAD -- backend/ || echo "(n
 
 **后续建议**：是否需要立即 bump VERSION 发版，或等待下一批 TK 功能合入。
 
-## 6. Red flags
+## 7. Red flags
 
 Stop and fix before PR if any is true:
 

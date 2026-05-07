@@ -291,14 +291,16 @@ jobs:
           fi
           if [ -z "${POST_DEPLOY_SMOKE_GEMINI_API_KEY:-}" ]; then
             echo "::error::POST_DEPLOY_SMOKE_GEMINI_API_KEY repository secret is not set."
-            echo "Add a TokenKey API key bound to a gemini-platform group (e.g. gemini-pa)."
+            echo "Add a TokenKey API key bound to a gemini-platform group (e.g. gemini-pa) on this stack's gateway."
             echo "This probe guards the Anthropic→Gemini tool-schema cleanup regression."
+            echo "See deploy/aws/README.md (post-deploy smoke) and docs/approved/deploy-stage0-workflow.md §5."
             exit 1
           fi
           if [ -z "${POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY:-}" ]; then
             echo "::error::POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY repository secret is not set."
-            echo "Add a TokenKey API key bound to an OpenAI OAuth/codex-platform group."
+            echo "Add a TokenKey API key bound to an OpenAI OAuth/codex-platform group on this stack's gateway."
             echo "This probe guards the reasoning_tokens passthrough regression."
+            echo "See deploy/aws/README.md (post-deploy smoke) and docs/approved/deploy-stage0-workflow.md §5."
             exit 1
           fi
           bash scripts/tk_post_deploy_smoke.sh
