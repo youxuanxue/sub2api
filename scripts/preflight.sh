@@ -93,11 +93,18 @@ if [ -z "$template_base" ]; then
     done
 fi
 
-if [ -n "$template_base" ]; then
-    PREFLIGHT_BASE="$template_base" PREFLIGHT_REPO_ROOT="$REPO_ROOT" ./dev-rules/templates/preflight.sh "$@"
-else
-    PREFLIGHT_REPO_ROOT="$REPO_ROOT" ./dev-rules/templates/preflight.sh "$@"
+if [ -z "$template_base" ] && [ -n "${CI:-}" ] && [ -n "${GITHUB_BASE_REF:-}" ]; then
+    if git fetch --no-tags --depth=1 origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}" >/dev/null 2>&1 && \
+       git rev-parse --verify "origin/${GITHUB_BASE_REF}" >/dev/null 2>&1; then
+        template_base="origin/${GITHUB_BASE_REF}"
+    fi
 fi
+
+if [ -z "$template_base" ] && git rev-parse --verify HEAD >/dev/null 2>&1; then
+    template_base="HEAD"
+fi
+
+PREFLIGHT_BASE="$template_base" PREFLIGHT_REPO_ROOT="$REPO_ROOT" ./dev-rules/templates/preflight.sh "$@"
 dev_status=$?
 if [ "$dev_status" -ne 0 ]; then
     exit "$dev_status"
