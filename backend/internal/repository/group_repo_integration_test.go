@@ -140,6 +140,30 @@ func (s *GroupRepoSuite) TestGetByID_PreservesMessagesDispatchModelConfig() {
 	s.Require().Equal(group.MessagesDispatchModelConfig, got.MessagesDispatchModelConfig)
 }
 
+func (s *GroupRepoSuite) TestGetByID_PreservesMessagesCompactionPolicy() {
+	enabled := true
+	threshold := 220000
+	group := &service.Group{
+		Name:                                   "openai-compaction",
+		Platform:                               service.PlatformOpenAI,
+		RateMultiplier:                         1.0,
+		IsExclusive:                            false,
+		Status:                                 service.StatusActive,
+		SubscriptionType:                       service.SubscriptionTypeStandard,
+		MessagesCompactionEnabled:              &enabled,
+		MessagesCompactionInputTokensThreshold: &threshold,
+	}
+
+	s.Require().NoError(s.repo.Create(s.ctx, group))
+
+	got, err := s.repo.GetByID(s.ctx, group.ID)
+	s.Require().NoError(err)
+	s.Require().NotNil(got.MessagesCompactionEnabled)
+	s.Require().NotNil(got.MessagesCompactionInputTokensThreshold)
+	s.Require().Equal(enabled, *got.MessagesCompactionEnabled)
+	s.Require().Equal(threshold, *got.MessagesCompactionInputTokensThreshold)
+}
+
 func (s *GroupRepoSuite) TestDelete() {
 	group := &service.Group{
 		Name:             "to-delete",

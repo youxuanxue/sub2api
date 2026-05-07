@@ -14941,80 +14941,83 @@ func (m *ErrorPassthroughRuleMutation) ResetEdge(name string) error {
 // GroupMutation represents an operation that mutates the Group nodes in the graph.
 type GroupMutation struct {
 	config
-	op                                      Op
-	typ                                     string
-	id                                      *int64
-	created_at                              *time.Time
-	updated_at                              *time.Time
-	deleted_at                              *time.Time
-	name                                    *string
-	description                             *string
-	rate_multiplier                         *float64
-	addrate_multiplier                      *float64
-	is_exclusive                            *bool
-	status                                  *string
-	platform                                *string
-	subscription_type                       *string
-	daily_limit_usd                         *float64
-	adddaily_limit_usd                      *float64
-	weekly_limit_usd                        *float64
-	addweekly_limit_usd                     *float64
-	monthly_limit_usd                       *float64
-	addmonthly_limit_usd                    *float64
-	default_validity_days                   *int
-	adddefault_validity_days                *int
-	allow_image_generation                  *bool
-	image_rate_independent                  *bool
-	image_rate_multiplier                   *float64
-	addimage_rate_multiplier                *float64
-	image_price_1k                          *float64
-	addimage_price_1k                       *float64
-	image_price_2k                          *float64
-	addimage_price_2k                       *float64
-	image_price_4k                          *float64
-	addimage_price_4k                       *float64
-	claude_code_only                        *bool
-	fallback_group_id                       *int64
-	addfallback_group_id                    *int64
-	fallback_group_id_on_invalid_request    *int64
-	addfallback_group_id_on_invalid_request *int64
-	model_routing                           *map[string][]int64
-	model_routing_enabled                   *bool
-	mcp_xml_inject                          *bool
-	supported_model_scopes                  *[]string
-	appendsupported_model_scopes            []string
-	sort_order                              *int
-	addsort_order                           *int
-	allow_messages_dispatch                 *bool
-	require_oauth_only                      *bool
-	require_privacy_set                     *bool
-	default_mapped_model                    *string
-	messages_dispatch_model_config          *domain.OpenAIMessagesDispatchModelConfig
-	sticky_routing_mode                     *group.StickyRoutingMode
-	rpm_limit                               *int
-	addrpm_limit                            *int
-	clearedFields                           map[string]struct{}
-	api_keys                                map[int64]struct{}
-	removedapi_keys                         map[int64]struct{}
-	clearedapi_keys                         bool
-	redeem_codes                            map[int64]struct{}
-	removedredeem_codes                     map[int64]struct{}
-	clearedredeem_codes                     bool
-	subscriptions                           map[int64]struct{}
-	removedsubscriptions                    map[int64]struct{}
-	clearedsubscriptions                    bool
-	usage_logs                              map[int64]struct{}
-	removedusage_logs                       map[int64]struct{}
-	clearedusage_logs                       bool
-	accounts                                map[int64]struct{}
-	removedaccounts                         map[int64]struct{}
-	clearedaccounts                         bool
-	allowed_users                           map[int64]struct{}
-	removedallowed_users                    map[int64]struct{}
-	clearedallowed_users                    bool
-	done                                    bool
-	oldValue                                func(context.Context) (*Group, error)
-	predicates                              []predicate.Group
+	op                                            Op
+	typ                                           string
+	id                                            *int64
+	created_at                                    *time.Time
+	updated_at                                    *time.Time
+	deleted_at                                    *time.Time
+	name                                          *string
+	description                                   *string
+	rate_multiplier                               *float64
+	addrate_multiplier                            *float64
+	is_exclusive                                  *bool
+	status                                        *string
+	platform                                      *string
+	subscription_type                             *string
+	daily_limit_usd                               *float64
+	adddaily_limit_usd                            *float64
+	weekly_limit_usd                              *float64
+	addweekly_limit_usd                           *float64
+	monthly_limit_usd                             *float64
+	addmonthly_limit_usd                          *float64
+	default_validity_days                         *int
+	adddefault_validity_days                      *int
+	allow_image_generation                        *bool
+	image_rate_independent                        *bool
+	image_rate_multiplier                         *float64
+	addimage_rate_multiplier                      *float64
+	image_price_1k                                *float64
+	addimage_price_1k                             *float64
+	image_price_2k                                *float64
+	addimage_price_2k                             *float64
+	image_price_4k                                *float64
+	addimage_price_4k                             *float64
+	claude_code_only                              *bool
+	fallback_group_id                             *int64
+	addfallback_group_id                          *int64
+	fallback_group_id_on_invalid_request          *int64
+	addfallback_group_id_on_invalid_request       *int64
+	model_routing                                 *map[string][]int64
+	model_routing_enabled                         *bool
+	mcp_xml_inject                                *bool
+	supported_model_scopes                        *[]string
+	appendsupported_model_scopes                  []string
+	sort_order                                    *int
+	addsort_order                                 *int
+	allow_messages_dispatch                       *bool
+	require_oauth_only                            *bool
+	require_privacy_set                           *bool
+	default_mapped_model                          *string
+	messages_dispatch_model_config                *domain.OpenAIMessagesDispatchModelConfig
+	sticky_routing_mode                           *group.StickyRoutingMode
+	rpm_limit                                     *int
+	addrpm_limit                                  *int
+	messages_compaction_enabled                   *bool
+	messages_compaction_input_tokens_threshold    *int
+	addmessages_compaction_input_tokens_threshold *int
+	clearedFields                                 map[string]struct{}
+	api_keys                                      map[int64]struct{}
+	removedapi_keys                               map[int64]struct{}
+	clearedapi_keys                               bool
+	redeem_codes                                  map[int64]struct{}
+	removedredeem_codes                           map[int64]struct{}
+	clearedredeem_codes                           bool
+	subscriptions                                 map[int64]struct{}
+	removedsubscriptions                          map[int64]struct{}
+	clearedsubscriptions                          bool
+	usage_logs                                    map[int64]struct{}
+	removedusage_logs                             map[int64]struct{}
+	clearedusage_logs                             bool
+	accounts                                      map[int64]struct{}
+	removedaccounts                               map[int64]struct{}
+	clearedaccounts                               bool
+	allowed_users                                 map[int64]struct{}
+	removedallowed_users                          map[int64]struct{}
+	clearedallowed_users                          bool
+	done                                          bool
+	oldValue                                      func(context.Context) (*Group, error)
+	predicates                                    []predicate.Group
 }
 
 var _ ent.Mutation = (*GroupMutation)(nil)
@@ -16801,6 +16804,125 @@ func (m *GroupMutation) ResetRpmLimit() {
 	m.addrpm_limit = nil
 }
 
+// SetMessagesCompactionEnabled sets the "messages_compaction_enabled" field.
+func (m *GroupMutation) SetMessagesCompactionEnabled(b bool) {
+	m.messages_compaction_enabled = &b
+}
+
+// MessagesCompactionEnabled returns the value of the "messages_compaction_enabled" field in the mutation.
+func (m *GroupMutation) MessagesCompactionEnabled() (r bool, exists bool) {
+	v := m.messages_compaction_enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMessagesCompactionEnabled returns the old "messages_compaction_enabled" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldMessagesCompactionEnabled(ctx context.Context) (v *bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMessagesCompactionEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMessagesCompactionEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMessagesCompactionEnabled: %w", err)
+	}
+	return oldValue.MessagesCompactionEnabled, nil
+}
+
+// ClearMessagesCompactionEnabled clears the value of the "messages_compaction_enabled" field.
+func (m *GroupMutation) ClearMessagesCompactionEnabled() {
+	m.messages_compaction_enabled = nil
+	m.clearedFields[group.FieldMessagesCompactionEnabled] = struct{}{}
+}
+
+// MessagesCompactionEnabledCleared returns if the "messages_compaction_enabled" field was cleared in this mutation.
+func (m *GroupMutation) MessagesCompactionEnabledCleared() bool {
+	_, ok := m.clearedFields[group.FieldMessagesCompactionEnabled]
+	return ok
+}
+
+// ResetMessagesCompactionEnabled resets all changes to the "messages_compaction_enabled" field.
+func (m *GroupMutation) ResetMessagesCompactionEnabled() {
+	m.messages_compaction_enabled = nil
+	delete(m.clearedFields, group.FieldMessagesCompactionEnabled)
+}
+
+// SetMessagesCompactionInputTokensThreshold sets the "messages_compaction_input_tokens_threshold" field.
+func (m *GroupMutation) SetMessagesCompactionInputTokensThreshold(i int) {
+	m.messages_compaction_input_tokens_threshold = &i
+	m.addmessages_compaction_input_tokens_threshold = nil
+}
+
+// MessagesCompactionInputTokensThreshold returns the value of the "messages_compaction_input_tokens_threshold" field in the mutation.
+func (m *GroupMutation) MessagesCompactionInputTokensThreshold() (r int, exists bool) {
+	v := m.messages_compaction_input_tokens_threshold
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMessagesCompactionInputTokensThreshold returns the old "messages_compaction_input_tokens_threshold" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldMessagesCompactionInputTokensThreshold(ctx context.Context) (v *int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMessagesCompactionInputTokensThreshold is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMessagesCompactionInputTokensThreshold requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMessagesCompactionInputTokensThreshold: %w", err)
+	}
+	return oldValue.MessagesCompactionInputTokensThreshold, nil
+}
+
+// AddMessagesCompactionInputTokensThreshold adds i to the "messages_compaction_input_tokens_threshold" field.
+func (m *GroupMutation) AddMessagesCompactionInputTokensThreshold(i int) {
+	if m.addmessages_compaction_input_tokens_threshold != nil {
+		*m.addmessages_compaction_input_tokens_threshold += i
+	} else {
+		m.addmessages_compaction_input_tokens_threshold = &i
+	}
+}
+
+// AddedMessagesCompactionInputTokensThreshold returns the value that was added to the "messages_compaction_input_tokens_threshold" field in this mutation.
+func (m *GroupMutation) AddedMessagesCompactionInputTokensThreshold() (r int, exists bool) {
+	v := m.addmessages_compaction_input_tokens_threshold
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearMessagesCompactionInputTokensThreshold clears the value of the "messages_compaction_input_tokens_threshold" field.
+func (m *GroupMutation) ClearMessagesCompactionInputTokensThreshold() {
+	m.messages_compaction_input_tokens_threshold = nil
+	m.addmessages_compaction_input_tokens_threshold = nil
+	m.clearedFields[group.FieldMessagesCompactionInputTokensThreshold] = struct{}{}
+}
+
+// MessagesCompactionInputTokensThresholdCleared returns if the "messages_compaction_input_tokens_threshold" field was cleared in this mutation.
+func (m *GroupMutation) MessagesCompactionInputTokensThresholdCleared() bool {
+	_, ok := m.clearedFields[group.FieldMessagesCompactionInputTokensThreshold]
+	return ok
+}
+
+// ResetMessagesCompactionInputTokensThreshold resets all changes to the "messages_compaction_input_tokens_threshold" field.
+func (m *GroupMutation) ResetMessagesCompactionInputTokensThreshold() {
+	m.messages_compaction_input_tokens_threshold = nil
+	m.addmessages_compaction_input_tokens_threshold = nil
+	delete(m.clearedFields, group.FieldMessagesCompactionInputTokensThreshold)
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by ids.
 func (m *GroupMutation) AddAPIKeyIDs(ids ...int64) {
 	if m.api_keys == nil {
@@ -17159,7 +17281,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 32)
+	fields := make([]string, 0, 37)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -17265,6 +17387,12 @@ func (m *GroupMutation) Fields() []string {
 	if m.rpm_limit != nil {
 		fields = append(fields, group.FieldRpmLimit)
 	}
+	if m.messages_compaction_enabled != nil {
+		fields = append(fields, group.FieldMessagesCompactionEnabled)
+	}
+	if m.messages_compaction_input_tokens_threshold != nil {
+		fields = append(fields, group.FieldMessagesCompactionInputTokensThreshold)
+	}
 	return fields
 }
 
@@ -17343,6 +17471,10 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.StickyRoutingMode()
 	case group.FieldRpmLimit:
 		return m.RpmLimit()
+	case group.FieldMessagesCompactionEnabled:
+		return m.MessagesCompactionEnabled()
+	case group.FieldMessagesCompactionInputTokensThreshold:
+		return m.MessagesCompactionInputTokensThreshold()
 	}
 	return nil, false
 }
@@ -17422,6 +17554,10 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldStickyRoutingMode(ctx)
 	case group.FieldRpmLimit:
 		return m.OldRpmLimit(ctx)
+	case group.FieldMessagesCompactionEnabled:
+		return m.OldMessagesCompactionEnabled(ctx)
+	case group.FieldMessagesCompactionInputTokensThreshold:
+		return m.OldMessagesCompactionInputTokensThreshold(ctx)
 	}
 	return nil, fmt.Errorf("unknown Group field %s", name)
 }
@@ -17676,6 +17812,20 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetRpmLimit(v)
 		return nil
+	case group.FieldMessagesCompactionEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMessagesCompactionEnabled(v)
+		return nil
+	case group.FieldMessagesCompactionInputTokensThreshold:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMessagesCompactionInputTokensThreshold(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Group field %s", name)
 }
@@ -17723,6 +17873,9 @@ func (m *GroupMutation) AddedFields() []string {
 	if m.addrpm_limit != nil {
 		fields = append(fields, group.FieldRpmLimit)
 	}
+	if m.addmessages_compaction_input_tokens_threshold != nil {
+		fields = append(fields, group.FieldMessagesCompactionInputTokensThreshold)
+	}
 	return fields
 }
 
@@ -17757,6 +17910,8 @@ func (m *GroupMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedSortOrder()
 	case group.FieldRpmLimit:
 		return m.AddedRpmLimit()
+	case group.FieldMessagesCompactionInputTokensThreshold:
+		return m.AddedMessagesCompactionInputTokensThreshold()
 	}
 	return nil, false
 }
@@ -17857,6 +18012,13 @@ func (m *GroupMutation) AddField(name string, value ent.Value) error {
 		}
 		m.AddRpmLimit(v)
 		return nil
+	case group.FieldMessagesCompactionInputTokensThreshold:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddMessagesCompactionInputTokensThreshold(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Group numeric field %s", name)
 }
@@ -17897,6 +18059,12 @@ func (m *GroupMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(group.FieldModelRouting) {
 		fields = append(fields, group.FieldModelRouting)
+	}
+	if m.FieldCleared(group.FieldMessagesCompactionEnabled) {
+		fields = append(fields, group.FieldMessagesCompactionEnabled)
+	}
+	if m.FieldCleared(group.FieldMessagesCompactionInputTokensThreshold) {
+		fields = append(fields, group.FieldMessagesCompactionInputTokensThreshold)
 	}
 	return fields
 }
@@ -17944,6 +18112,12 @@ func (m *GroupMutation) ClearField(name string) error {
 		return nil
 	case group.FieldModelRouting:
 		m.ClearModelRouting()
+		return nil
+	case group.FieldMessagesCompactionEnabled:
+		m.ClearMessagesCompactionEnabled()
+		return nil
+	case group.FieldMessagesCompactionInputTokensThreshold:
+		m.ClearMessagesCompactionInputTokensThreshold()
 		return nil
 	}
 	return fmt.Errorf("unknown Group nullable field %s", name)
@@ -18057,6 +18231,12 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldRpmLimit:
 		m.ResetRpmLimit()
+		return nil
+	case group.FieldMessagesCompactionEnabled:
+		m.ResetMessagesCompactionEnabled()
+		return nil
+	case group.FieldMessagesCompactionInputTokensThreshold:
+		m.ResetMessagesCompactionInputTokensThreshold()
 		return nil
 	}
 	return fmt.Errorf("unknown Group field %s", name)

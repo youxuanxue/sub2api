@@ -117,6 +117,9 @@ type CreateGroupRequest struct {
 	StickyRoutingMode string `json:"sticky_routing_mode" binding:"omitempty,oneof=auto passthrough off"`
 	// 分组 RPM 上限（0 = 不限制）
 	RPMLimit int `json:"rpm_limit"`
+	// OpenAI /v1/messages 自动压缩策略（nil = 未配置）
+	MessagesCompactionEnabled              *bool `json:"messages_compaction_enabled"`
+	MessagesCompactionInputTokensThreshold *int  `json:"messages_compaction_input_tokens_threshold"`
 	// 从指定分组复制账号（创建后自动绑定）
 	CopyAccountsFromGroupIDs []int64 `json:"copy_accounts_from_group_ids"`
 }
@@ -159,6 +162,9 @@ type UpdateGroupRequest struct {
 	StickyRoutingMode *string `json:"sticky_routing_mode" binding:"omitempty,oneof=auto passthrough off"`
 	// 分组 RPM 上限（0 = 不限制）；nil 表示未提供不改动
 	RPMLimit *int `json:"rpm_limit"`
+	// OpenAI /v1/messages 自动压缩策略（nil = 未提供不改动）
+	MessagesCompactionEnabled              *bool `json:"messages_compaction_enabled"`
+	MessagesCompactionInputTokensThreshold *int  `json:"messages_compaction_input_tokens_threshold"`
 	// 从指定分组复制账号（同步操作：先清空当前分组的账号绑定，再绑定源分组的账号）
 	CopyAccountsFromGroupIDs []int64 `json:"copy_accounts_from_group_ids"`
 }
@@ -252,36 +258,38 @@ func (h *GroupHandler) Create(c *gin.Context) {
 	}
 
 	group, err := h.adminService.CreateGroup(c.Request.Context(), &service.CreateGroupInput{
-		Name:                            req.Name,
-		Description:                     req.Description,
-		Platform:                        req.Platform,
-		RateMultiplier:                  req.RateMultiplier,
-		IsExclusive:                     req.IsExclusive,
-		SubscriptionType:                req.SubscriptionType,
-		DailyLimitUSD:                   req.DailyLimitUSD.ToServiceInput(),
-		WeeklyLimitUSD:                  req.WeeklyLimitUSD.ToServiceInput(),
-		MonthlyLimitUSD:                 req.MonthlyLimitUSD.ToServiceInput(),
-		AllowImageGeneration:            req.AllowImageGeneration,
-		ImageRateIndependent:            req.ImageRateIndependent,
-		ImageRateMultiplier:             req.ImageRateMultiplier,
-		ImagePrice1K:                    req.ImagePrice1K,
-		ImagePrice2K:                    req.ImagePrice2K,
-		ImagePrice4K:                    req.ImagePrice4K,
-		ClaudeCodeOnly:                  req.ClaudeCodeOnly,
-		FallbackGroupID:                 req.FallbackGroupID,
-		FallbackGroupIDOnInvalidRequest: req.FallbackGroupIDOnInvalidRequest,
-		ModelRouting:                    req.ModelRouting,
-		ModelRoutingEnabled:             req.ModelRoutingEnabled,
-		MCPXMLInject:                    req.MCPXMLInject,
-		SupportedModelScopes:            req.SupportedModelScopes,
-		AllowMessagesDispatch:           req.AllowMessagesDispatch,
-		RequireOAuthOnly:                req.RequireOAuthOnly,
-		RequirePrivacySet:               req.RequirePrivacySet,
-		DefaultMappedModel:              req.DefaultMappedModel,
-		MessagesDispatchModelConfig:     req.MessagesDispatchModelConfig,
-		StickyRoutingMode:               req.StickyRoutingMode,
-		RPMLimit:                        req.RPMLimit,
-		CopyAccountsFromGroupIDs:        req.CopyAccountsFromGroupIDs,
+		Name:                                   req.Name,
+		Description:                            req.Description,
+		Platform:                               req.Platform,
+		RateMultiplier:                         req.RateMultiplier,
+		IsExclusive:                            req.IsExclusive,
+		SubscriptionType:                       req.SubscriptionType,
+		DailyLimitUSD:                          req.DailyLimitUSD.ToServiceInput(),
+		WeeklyLimitUSD:                         req.WeeklyLimitUSD.ToServiceInput(),
+		MonthlyLimitUSD:                        req.MonthlyLimitUSD.ToServiceInput(),
+		AllowImageGeneration:                   req.AllowImageGeneration,
+		ImageRateIndependent:                   req.ImageRateIndependent,
+		ImageRateMultiplier:                    req.ImageRateMultiplier,
+		ImagePrice1K:                           req.ImagePrice1K,
+		ImagePrice2K:                           req.ImagePrice2K,
+		ImagePrice4K:                           req.ImagePrice4K,
+		ClaudeCodeOnly:                         req.ClaudeCodeOnly,
+		FallbackGroupID:                        req.FallbackGroupID,
+		FallbackGroupIDOnInvalidRequest:        req.FallbackGroupIDOnInvalidRequest,
+		ModelRouting:                           req.ModelRouting,
+		ModelRoutingEnabled:                    req.ModelRoutingEnabled,
+		MCPXMLInject:                           req.MCPXMLInject,
+		SupportedModelScopes:                   req.SupportedModelScopes,
+		AllowMessagesDispatch:                  req.AllowMessagesDispatch,
+		RequireOAuthOnly:                       req.RequireOAuthOnly,
+		RequirePrivacySet:                      req.RequirePrivacySet,
+		DefaultMappedModel:                     req.DefaultMappedModel,
+		MessagesDispatchModelConfig:            req.MessagesDispatchModelConfig,
+		StickyRoutingMode:                      req.StickyRoutingMode,
+		RPMLimit:                               req.RPMLimit,
+		MessagesCompactionEnabled:              req.MessagesCompactionEnabled,
+		MessagesCompactionInputTokensThreshold: req.MessagesCompactionInputTokensThreshold,
+		CopyAccountsFromGroupIDs:               req.CopyAccountsFromGroupIDs,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -307,37 +315,39 @@ func (h *GroupHandler) Update(c *gin.Context) {
 	}
 
 	group, err := h.adminService.UpdateGroup(c.Request.Context(), groupID, &service.UpdateGroupInput{
-		Name:                            req.Name,
-		Description:                     req.Description,
-		Platform:                        req.Platform,
-		RateMultiplier:                  req.RateMultiplier,
-		IsExclusive:                     req.IsExclusive,
-		Status:                          req.Status,
-		SubscriptionType:                req.SubscriptionType,
-		DailyLimitUSD:                   req.DailyLimitUSD.ToServiceInput(),
-		WeeklyLimitUSD:                  req.WeeklyLimitUSD.ToServiceInput(),
-		MonthlyLimitUSD:                 req.MonthlyLimitUSD.ToServiceInput(),
-		AllowImageGeneration:            req.AllowImageGeneration,
-		ImageRateIndependent:            req.ImageRateIndependent,
-		ImageRateMultiplier:             req.ImageRateMultiplier,
-		ImagePrice1K:                    req.ImagePrice1K,
-		ImagePrice2K:                    req.ImagePrice2K,
-		ImagePrice4K:                    req.ImagePrice4K,
-		ClaudeCodeOnly:                  req.ClaudeCodeOnly,
-		FallbackGroupID:                 req.FallbackGroupID,
-		FallbackGroupIDOnInvalidRequest: req.FallbackGroupIDOnInvalidRequest,
-		ModelRouting:                    req.ModelRouting,
-		ModelRoutingEnabled:             req.ModelRoutingEnabled,
-		MCPXMLInject:                    req.MCPXMLInject,
-		SupportedModelScopes:            req.SupportedModelScopes,
-		AllowMessagesDispatch:           req.AllowMessagesDispatch,
-		RequireOAuthOnly:                req.RequireOAuthOnly,
-		RequirePrivacySet:               req.RequirePrivacySet,
-		DefaultMappedModel:              req.DefaultMappedModel,
-		MessagesDispatchModelConfig:     req.MessagesDispatchModelConfig,
-		StickyRoutingMode:               req.StickyRoutingMode,
-		RPMLimit:                        req.RPMLimit,
-		CopyAccountsFromGroupIDs:        req.CopyAccountsFromGroupIDs,
+		Name:                                   req.Name,
+		Description:                            req.Description,
+		Platform:                               req.Platform,
+		RateMultiplier:                         req.RateMultiplier,
+		IsExclusive:                            req.IsExclusive,
+		Status:                                 req.Status,
+		SubscriptionType:                       req.SubscriptionType,
+		DailyLimitUSD:                          req.DailyLimitUSD.ToServiceInput(),
+		WeeklyLimitUSD:                         req.WeeklyLimitUSD.ToServiceInput(),
+		MonthlyLimitUSD:                        req.MonthlyLimitUSD.ToServiceInput(),
+		AllowImageGeneration:                   req.AllowImageGeneration,
+		ImageRateIndependent:                   req.ImageRateIndependent,
+		ImageRateMultiplier:                    req.ImageRateMultiplier,
+		ImagePrice1K:                           req.ImagePrice1K,
+		ImagePrice2K:                           req.ImagePrice2K,
+		ImagePrice4K:                           req.ImagePrice4K,
+		ClaudeCodeOnly:                         req.ClaudeCodeOnly,
+		FallbackGroupID:                        req.FallbackGroupID,
+		FallbackGroupIDOnInvalidRequest:        req.FallbackGroupIDOnInvalidRequest,
+		ModelRouting:                           req.ModelRouting,
+		ModelRoutingEnabled:                    req.ModelRoutingEnabled,
+		MCPXMLInject:                           req.MCPXMLInject,
+		SupportedModelScopes:                   req.SupportedModelScopes,
+		AllowMessagesDispatch:                  req.AllowMessagesDispatch,
+		RequireOAuthOnly:                       req.RequireOAuthOnly,
+		RequirePrivacySet:                      req.RequirePrivacySet,
+		DefaultMappedModel:                     req.DefaultMappedModel,
+		MessagesDispatchModelConfig:            req.MessagesDispatchModelConfig,
+		StickyRoutingMode:                      req.StickyRoutingMode,
+		RPMLimit:                               req.RPMLimit,
+		MessagesCompactionEnabled:              req.MessagesCompactionEnabled,
+		MessagesCompactionInputTokensThreshold: req.MessagesCompactionInputTokensThreshold,
+		CopyAccountsFromGroupIDs:               req.CopyAccountsFromGroupIDs,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)

@@ -215,6 +215,9 @@ type CreateGroupInput struct {
 	StickyRoutingMode string
 	// RPMLimit 分组 RPM 上限（0 = 不限制）
 	RPMLimit int
+	// OpenAI /v1/messages 自动压缩策略（nil = 未配置）
+	MessagesCompactionEnabled              *bool
+	MessagesCompactionInputTokensThreshold *int
 	// 从指定分组复制账号（创建分组后在同一事务内绑定）
 	CopyAccountsFromGroupIDs []int64
 }
@@ -257,6 +260,9 @@ type UpdateGroupInput struct {
 	StickyRoutingMode *string
 	// RPMLimit 分组 RPM 上限（0 = 不限制），nil 表示未提供不改动。
 	RPMLimit *int
+	// OpenAI /v1/messages 自动压缩策略（nil = 未提供不改动）
+	MessagesCompactionEnabled              *bool
+	MessagesCompactionInputTokensThreshold *int
 	// 从指定分组复制账号（同步操作：先清空当前分组的账号绑定，再绑定源分组的账号）
 	CopyAccountsFromGroupIDs []int64
 }
@@ -1633,35 +1639,37 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	}
 
 	group := &Group{
-		Name:                            input.Name,
-		Description:                     input.Description,
-		Platform:                        platform,
-		RateMultiplier:                  input.RateMultiplier,
-		IsExclusive:                     input.IsExclusive,
-		Status:                          StatusActive,
-		SubscriptionType:                subscriptionType,
-		DailyLimitUSD:                   dailyLimit,
-		WeeklyLimitUSD:                  weeklyLimit,
-		MonthlyLimitUSD:                 monthlyLimit,
-		AllowImageGeneration:            input.AllowImageGeneration,
-		ImageRateIndependent:            input.ImageRateIndependent,
-		ImageRateMultiplier:             imageRateMultiplier,
-		ImagePrice1K:                    imagePrice1K,
-		ImagePrice2K:                    imagePrice2K,
-		ImagePrice4K:                    imagePrice4K,
-		ClaudeCodeOnly:                  input.ClaudeCodeOnly,
-		FallbackGroupID:                 input.FallbackGroupID,
-		FallbackGroupIDOnInvalidRequest: fallbackOnInvalidRequest,
-		ModelRouting:                    input.ModelRouting,
-		MCPXMLInject:                    mcpXMLInject,
-		SupportedModelScopes:            input.SupportedModelScopes,
-		AllowMessagesDispatch:           input.AllowMessagesDispatch,
-		RequireOAuthOnly:                input.RequireOAuthOnly,
-		RequirePrivacySet:               input.RequirePrivacySet,
-		DefaultMappedModel:              input.DefaultMappedModel,
-		MessagesDispatchModelConfig:     normalizeOpenAIMessagesDispatchModelConfig(input.MessagesDispatchModelConfig),
-		StickyRoutingMode:               input.StickyRoutingMode,
-		RPMLimit:                        input.RPMLimit,
+		Name:                                   input.Name,
+		Description:                            input.Description,
+		Platform:                               platform,
+		RateMultiplier:                         input.RateMultiplier,
+		IsExclusive:                            input.IsExclusive,
+		Status:                                 StatusActive,
+		SubscriptionType:                       subscriptionType,
+		DailyLimitUSD:                          dailyLimit,
+		WeeklyLimitUSD:                         weeklyLimit,
+		MonthlyLimitUSD:                        monthlyLimit,
+		AllowImageGeneration:                   input.AllowImageGeneration,
+		ImageRateIndependent:                   input.ImageRateIndependent,
+		ImageRateMultiplier:                    imageRateMultiplier,
+		ImagePrice1K:                           imagePrice1K,
+		ImagePrice2K:                           imagePrice2K,
+		ImagePrice4K:                           imagePrice4K,
+		ClaudeCodeOnly:                         input.ClaudeCodeOnly,
+		FallbackGroupID:                        input.FallbackGroupID,
+		FallbackGroupIDOnInvalidRequest:        fallbackOnInvalidRequest,
+		ModelRouting:                           input.ModelRouting,
+		MCPXMLInject:                           mcpXMLInject,
+		SupportedModelScopes:                   input.SupportedModelScopes,
+		AllowMessagesDispatch:                  input.AllowMessagesDispatch,
+		RequireOAuthOnly:                       input.RequireOAuthOnly,
+		RequirePrivacySet:                      input.RequirePrivacySet,
+		DefaultMappedModel:                     input.DefaultMappedModel,
+		MessagesDispatchModelConfig:            normalizeOpenAIMessagesDispatchModelConfig(input.MessagesDispatchModelConfig),
+		StickyRoutingMode:                      input.StickyRoutingMode,
+		RPMLimit:                               input.RPMLimit,
+		MessagesCompactionEnabled:              input.MessagesCompactionEnabled,
+		MessagesCompactionInputTokensThreshold: input.MessagesCompactionInputTokensThreshold,
 	}
 	sanitizeGroupMessagesDispatchFields(group)
 	if err := s.groupRepo.Create(ctx, group); err != nil {
@@ -1913,6 +1921,12 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 	if input.RPMLimit != nil {
 		group.RPMLimit = *input.RPMLimit
+	}
+	if input.MessagesCompactionEnabled != nil {
+		group.MessagesCompactionEnabled = input.MessagesCompactionEnabled
+	}
+	if input.MessagesCompactionInputTokensThreshold != nil {
+		group.MessagesCompactionInputTokensThreshold = input.MessagesCompactionInputTokensThreshold
 	}
 	sanitizeGroupMessagesDispatchFields(group)
 
