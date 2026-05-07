@@ -655,7 +655,7 @@ func TestForwardAsAnthropic_APIKeyMetadataSessionSurvivesChangingCacheControlAnc
 	require.Equal(t, "message-15", gjson.GetBytes(upstream.bodies[1], "input.16.content.0.text").String())
 }
 
-func TestForwardAsAnthropic_DoesNotAttachPreviousResponseIDForOAuthCompat(t *testing.T) {
+func TestForwardAsAnthropic_AttachesPreviousResponseIDForOAuthCompat(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
@@ -686,7 +686,8 @@ func TestForwardAsAnthropic_DoesNotAttachPreviousResponseIDForOAuthCompat(t *tes
 	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "stable-cache-key", "gpt-5.4")
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.False(t, gjson.GetBytes(upstream.lastBody, "previous_response_id").Exists())
+	// OAuth continuation is now enabled: previous_response_id should be attached.
+	require.Equal(t, "resp_oauth_prev", gjson.GetBytes(upstream.lastBody, "previous_response_id").String())
 }
 
 func TestForwardAsAnthropic_ReusesOAuthCodexTurnState(t *testing.T) {
@@ -743,7 +744,8 @@ func TestForwardAsAnthropic_ReusesOAuthCodexTurnState(t *testing.T) {
 	require.Empty(t, upstream.requests[1].Header.Get("OpenAI-Beta"))
 	require.Empty(t, upstream.requests[1].Header.Get("originator"))
 	require.False(t, gjson.GetBytes(upstream.bodies[1], "prompt_cache_key").Exists())
-	require.False(t, gjson.GetBytes(upstream.bodies[1], "previous_response_id").Exists())
+	// OAuth continuation is now enabled: previous_response_id from turn 1 is attached on turn 2.
+	require.Equal(t, "resp_oauth_first", gjson.GetBytes(upstream.bodies[1], "previous_response_id").String())
 }
 
 func TestForwardAsAnthropic_OAuthDigestFallbackReusesTurnStateWithoutExplicitKey(t *testing.T) {
@@ -799,7 +801,8 @@ func TestForwardAsAnthropic_OAuthDigestFallbackReusesTurnStateWithoutExplicitKey
 	require.Equal(t, "turn_state_digest_first", upstream.requests[1].Header.Get("x-codex-turn-state"))
 	require.Empty(t, upstream.requests[1].Header.Get("conversation_id"))
 	require.False(t, gjson.GetBytes(upstream.bodies[1], "prompt_cache_key").Exists())
-	require.False(t, gjson.GetBytes(upstream.bodies[1], "previous_response_id").Exists())
+	// OAuth continuation is now enabled: previous_response_id from turn 1 is attached via digest prefix match.
+	require.Equal(t, "resp_oauth_digest_first", gjson.GetBytes(upstream.bodies[1], "previous_response_id").String())
 }
 
 func TestForwardAsAnthropic_OAuthMetadataSessionSurvivesDigestPrefixRewrite(t *testing.T) {
@@ -856,7 +859,8 @@ func TestForwardAsAnthropic_OAuthMetadataSessionSurvivesDigestPrefixRewrite(t *t
 	require.Equal(t, "turn_state_metadata_first", upstream.requests[1].Header.Get("x-codex-turn-state"))
 	require.Empty(t, upstream.requests[1].Header.Get("conversation_id"))
 	require.False(t, gjson.GetBytes(upstream.bodies[1], "prompt_cache_key").Exists())
-	require.False(t, gjson.GetBytes(upstream.bodies[1], "previous_response_id").Exists())
+	// OAuth continuation is now enabled: previous_response_id from turn 1 is attached via stable metadata session key.
+	require.Equal(t, "resp_oauth_metadata_first", gjson.GetBytes(upstream.bodies[1], "previous_response_id").String())
 }
 
 func TestForwardAsAnthropic_OAuthMetadataSessionSurvivesChangingCacheControlAnchor(t *testing.T) {
@@ -913,7 +917,8 @@ func TestForwardAsAnthropic_OAuthMetadataSessionSurvivesChangingCacheControlAnch
 	require.Equal(t, "turn_state_cache_anchor_first", upstream.requests[1].Header.Get("x-codex-turn-state"))
 	require.Empty(t, upstream.requests[1].Header.Get("conversation_id"))
 	require.False(t, gjson.GetBytes(upstream.bodies[1], "prompt_cache_key").Exists())
-	require.False(t, gjson.GetBytes(upstream.bodies[1], "previous_response_id").Exists())
+	// OAuth continuation is now enabled: previous_response_id from turn 1 is attached via stable metadata session key.
+	require.Equal(t, "resp_oauth_cache_anchor_first", gjson.GetBytes(upstream.bodies[1], "previous_response_id").String())
 }
 
 func TestForwardAsAnthropic_OAuthKeepsSystemAsDeveloperInput(t *testing.T) {
