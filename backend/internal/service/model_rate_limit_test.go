@@ -177,6 +177,39 @@ func TestIsModelRateLimited(t *testing.T) {
 	}
 }
 
+func TestIsModelRateLimited_GeminiDispatchMappingAffectsModelKey(t *testing.T) {
+	now := time.Now()
+	future := now.Add(10 * time.Minute).Format(time.RFC3339)
+
+	account := &Account{
+		Platform: PlatformGemini,
+		Extra: map[string]any{
+			modelRateLimitsKey: map[string]any{
+				"gemini-3.1-pro-preview": map[string]any{
+					"rate_limit_reset_at": future,
+				},
+			},
+		},
+	}
+	group := &Group{
+		ID:       8,
+		Platform: PlatformGemini,
+		Status:   StatusActive,
+		Hydrated: true,
+		MessagesDispatchModelConfig: OpenAIMessagesDispatchModelConfig{
+			OpusMappedModel: "gemini-3.1-pro-preview",
+		},
+	}
+	ctx := context.WithValue(context.Background(), ctxkey.Group, group)
+
+	if !account.isModelRateLimitedWithContext(ctx, "claude-opus-4-7") {
+		t.Errorf("expected Gemini dispatch mapping to hit upstream model rate limit")
+	}
+	if account.isModelRateLimitedWithContext(context.Background(), "claude-opus-4-7") {
+		t.Errorf("expected no hit without Gemini group context")
+	}
+}
+
 func TestIsModelRateLimited_Antigravity_ThinkingAffectsModelKey(t *testing.T) {
 	now := time.Now()
 	future := now.Add(10 * time.Minute).Format(time.RFC3339)
