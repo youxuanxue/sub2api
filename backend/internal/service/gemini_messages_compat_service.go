@@ -1059,9 +1059,12 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		firstTokenMs = streamRes.firstTokenMs
 	} else {
 		if useUpstreamStream {
-			collected, usageObj, err := collectGeminiSSE(resp.Body, true)
+			collected, usageObj, internalThinkingBlocks, err := collectGeminiSSE(resp.Body, true)
 			if err != nil {
 				return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Failed to read upstream stream")
+			}
+			if len(internalThinkingBlocks) > 0 {
+				c.Set("ops_gemini_internal_thinking_blocks", internalThinkingBlocks)
 			}
 			collectedBytes, _ := json.Marshal(collected)
 			claudeResp, usageObj2 := convertGeminiToClaudeMessage(collected, originalModel, collectedBytes)
@@ -1586,9 +1589,12 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		firstTokenMs = streamRes.firstTokenMs
 	} else {
 		if useUpstreamStream {
-			collected, usageObj, err := collectGeminiSSE(resp.Body, isOAuth)
+			collected, usageObj, internalThinkingBlocks, err := collectGeminiSSE(resp.Body, isOAuth)
 			if err != nil {
 				return nil, s.writeGoogleError(c, http.StatusBadGateway, "Failed to read upstream stream")
+			}
+			if len(internalThinkingBlocks) > 0 {
+				c.Set("ops_gemini_internal_thinking_blocks", internalThinkingBlocks)
 			}
 			b, _ := json.Marshal(collected)
 			c.Data(http.StatusOK, "application/json", b)
@@ -1957,6 +1963,10 @@ func (s *GeminiMessagesCompatService) handleNonStreamingResponse(c *gin.Context,
 		return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Failed to parse upstream response")
 	}
 
+	internalThinkingBlocks := extractGeminiInternalThinkingBlocks(geminiResp)
+	if len(internalThinkingBlocks) > 0 {
+		c.Set("ops_gemini_internal_thinking_blocks", internalThinkingBlocks)
+	}
 	claudeResp, usage := convertGeminiToClaudeMessage(geminiResp, originalModel, unwrappedBody)
 	c.JSON(http.StatusOK, claudeResp)
 
@@ -2008,6 +2018,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 	openToolID := ""
 	openToolName := ""
 	seenToolJSON := ""
+	var internalThinkingBlocks []string
 
 	reader := bufio.NewReader(resp.Body)
 	for {
@@ -2047,6 +2058,10 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 		parts := extractGeminiParts(geminiResp)
 		for _, part := range parts {
 			if text, ok := part["text"].(string); ok && text != "" {
+				if shouldDropGeminiInternalText(text) {
+					internalThinkingBlocks = append(internalThinkingBlocks, strings.TrimSpace(text))
+					continue
+				}
 				delta, newSeen := computeGeminiTextDelta(seenText, text)
 				seenText = newSeen
 				if delta == "" {
@@ -2136,19 +2151,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 					})
 				}
 
-				argsJSONText := "{}"
-				switch v := args.(type) {
-				case nil:
-					// keep default "{}"
-				case string:
-					if strings.TrimSpace(v) != "" {
-						argsJSONText = v
-					}
-				default:
-					if b, err := json.Marshal(args); err == nil && len(b) > 0 {
-						argsJSONText = string(b)
-					}
-				}
+				argsJSONText := normalizeGeminiFunctionArgsJSON(args)
 
 				delta, newSeen := computeGeminiTextDelta(seenToolJSON, argsJSONText)
 				seenToolJSON = newSeen
@@ -2212,6 +2215,9 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 		"type": "message_stop",
 	})
 	flusher.Flush()
+	if len(internalThinkingBlocks) > 0 {
+		c.Set("ops_gemini_internal_thinking_blocks", internalThinkingBlocks)
+	}
 
 	return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
 }
@@ -2260,12 +2266,13 @@ func unwrapIfNeeded(isOAuth bool, raw []byte) []byte {
 	return inner
 }
 
-func collectGeminiSSE(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsage, error) {
+func collectGeminiSSE(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsage, []string, error) {
 	reader := bufio.NewReader(body)
 
 	var last map[string]any
 	var lastWithParts map[string]any
 	var collectedTextParts []string // Collect all text parts for aggregation
+	var internalThinkingBlocks []string
 	usage := &ClaudeUsage{}
 
 	for {
@@ -2277,7 +2284,7 @@ func collectGeminiSSE(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsag
 				switch payload {
 				case "", "[DONE]":
 					if payload == "[DONE]" {
-						return mergeCollectedTextParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts), usage, nil
+						return mergeCollectedTextParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts), usage, internalThinkingBlocks, nil
 					}
 				default:
 					var parsed map[string]any
@@ -2302,6 +2309,10 @@ func collectGeminiSSE(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsag
 							// Collect text from each part for aggregation
 							for _, part := range parts {
 								if text, ok := part["text"].(string); ok && text != "" {
+									if shouldDropGeminiInternalText(text) {
+										internalThinkingBlocks = append(internalThinkingBlocks, strings.TrimSpace(text))
+										continue
+									}
 									collectedTextParts = append(collectedTextParts, text)
 								}
 							}
@@ -2315,11 +2326,11 @@ func collectGeminiSSE(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsag
 			break
 		}
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 	}
 
-	return mergeCollectedTextParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts), usage, nil
+	return mergeCollectedTextParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts), usage, internalThinkingBlocks, nil
 }
 
 func pickGeminiCollectResult(last map[string]any, lastWithParts map[string]any) map[string]any {
@@ -2709,6 +2720,9 @@ func convertGeminiToClaudeMessage(geminiResp map[string]any, originalModel strin
 							continue
 						}
 						if text, ok := pm["text"].(string); ok && text != "" {
+							if shouldDropGeminiInternalText(text) {
+								continue
+							}
 							contentBlocks = append(contentBlocks, map[string]any{
 								"type": "text",
 								"text": text,
@@ -2725,7 +2739,7 @@ func convertGeminiToClaudeMessage(geminiResp map[string]any, originalModel strin
 								"type":  "tool_use",
 								"id":    "toolu_" + randomHex(8),
 								"name":  name,
-								"input": args,
+								"input": normalizeGeminiFunctionArgs(args),
 							})
 						}
 					}
@@ -3007,6 +3021,95 @@ func extractGeminiParts(geminiResp map[string]any) []map[string]any {
 	return nil
 }
 
+func extractGeminiInternalThinkingBlocks(geminiResp map[string]any) []string {
+	parts := extractGeminiParts(geminiResp)
+	if len(parts) == 0 {
+		return nil
+	}
+	blocks := make([]string, 0, len(parts))
+	for _, part := range parts {
+		text, ok := part["text"].(string)
+		if !ok || text == "" {
+			continue
+		}
+		if !shouldDropGeminiInternalText(text) {
+			continue
+		}
+		blocks = append(blocks, strings.TrimSpace(text))
+	}
+	if len(blocks) == 0 {
+		return nil
+	}
+	return blocks
+}
+
+func shouldDropGeminiInternalText(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return false
+	}
+	if !strings.HasPrefix(trimmed, "{") || !strings.HasSuffix(trimmed, "}") {
+		return false
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
+		return false
+	}
+	typeVal, _ := payload["type"].(string)
+	typeVal = strings.TrimSpace(strings.ToLower(typeVal))
+	if typeVal != "thinking" {
+		return false
+	}
+	_, hasSignature := payload["signature"]
+	return hasSignature
+}
+
+func normalizeGeminiFunctionArgs(args any) map[string]any {
+	switch v := args.(type) {
+	case nil:
+		return map[string]any{}
+	case map[string]any:
+		return v
+	case string:
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
+			return map[string]any{}
+		}
+		var parsed any
+		if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil {
+			return map[string]any{}
+		}
+		obj, ok := parsed.(map[string]any)
+		if !ok {
+			return map[string]any{}
+		}
+		return obj
+	default:
+		b, err := json.Marshal(v)
+		if err != nil || len(b) == 0 {
+			return map[string]any{}
+		}
+		var parsed any
+		if err := json.Unmarshal(b, &parsed); err != nil {
+			return map[string]any{}
+		}
+		obj, ok := parsed.(map[string]any)
+		if !ok {
+			return map[string]any{}
+		}
+		return obj
+	}
+}
+
+func normalizeGeminiFunctionArgsJSON(args any) string {
+	normalized := normalizeGeminiFunctionArgs(args)
+	b, err := json.Marshal(normalized)
+	if err != nil || len(b) == 0 {
+		return "{}"
+	}
+	return string(b)
+}
+
 func computeGeminiTextDelta(seen, incoming string) (delta, newSeen string) {
 	incoming = strings.TrimSuffix(incoming, "\u0000")
 	if incoming == "" {
@@ -3215,6 +3318,11 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 							}
 						}
 					}
+				case "thinking":
+					// Drop Claude thinking blocks — Gemini does not consume Claude's
+					// thinking format. The default: path would serialize them as JSON
+					// text, which Gemini echoes back verbatim in its response, producing
+					// {"type":"thinking","signature":"..."} text visible to the caller.
 				default:
 					// best-effort: preserve unknown blocks as text
 					if b, err := json.Marshal(bm); err == nil {

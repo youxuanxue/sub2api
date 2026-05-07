@@ -82,6 +82,41 @@
         "func openAICompatShouldTrimForContinuation(",
         "account.Type == AccountTypeOAuth"
       ]
+    },
+    {
+      "name": "gemini_thinking_filter_helpers",
+      "source": "backend/internal/service/gemini_messages_compat_service.go",
+      "required_literals": [
+        "func shouldDropGeminiInternalText(",
+        "func normalizeGeminiFunctionArgs(",
+        "func normalizeGeminiFunctionArgsJSON(",
+        "func extractGeminiInternalThinkingBlocks("
+      ]
+    },
+    {
+      "name": "gemini_thinking_filter_call_sites",
+      "source": "backend/internal/service/gemini_messages_compat_service.go",
+      "required_literals": [
+        "// Drop Claude thinking blocks — Gemini does not consume Claude's",
+        "normalizeGeminiFunctionArgsJSON(args)",
+        "extractGeminiInternalThinkingBlocks(geminiResp)",
+        "internalThinkingBlocks, err := collectGeminiSSE("
+      ]
+    },
+    {
+      "name": "anthropic_to_responses_tool_input_guard",
+      "source": "backend/internal/pkg/apicompat/anthropic_to_responses.go",
+      "required_literals": [
+        "candidate := strings.TrimSpace(string(b.Input))",
+        "if _, ok := parsed.(map[string]any); ok {"
+      ]
+    },
+    {
+      "name": "chatcompletions_to_responses_tool_args_guard",
+      "source": "backend/internal/pkg/apicompat/chatcompletions_to_responses.go",
+      "required_literals": [
+        "if _, ok := parsed.(map[string]any); !ok {"
+      ]
     }
   ]
 }

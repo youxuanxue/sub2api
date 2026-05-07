@@ -328,7 +328,15 @@ func anthropicAssistantToResponses(raw json.RawMessage) ([]ResponsesInputItem, e
 		}
 		args := "{}"
 		if len(b.Input) > 0 {
-			args = string(b.Input)
+			candidate := strings.TrimSpace(string(b.Input))
+			if candidate != "" {
+				var parsed any
+				if err := json.Unmarshal([]byte(candidate), &parsed); err == nil {
+					if _, ok := parsed.(map[string]any); ok {
+						args = candidate
+					}
+				}
+			}
 		}
 		fcID := toResponsesCallID(b.ID)
 		items = append(items, ResponsesInputItem{
