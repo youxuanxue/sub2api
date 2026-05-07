@@ -793,3 +793,37 @@ func TestUS033_DownloadUserExport_OwnedKeyOnly(t *testing.T) {
 	require.Error(t, err)
 	require.True(t, errors.Is(err, fs.ErrNotExist))
 }
+
+func TestBuildBlob_IncludesInternalThinkingBlocks(t *testing.T) {
+	svc := &Service{bodyMaxBytes: 256}
+	input := CaptureInput{
+		RequestID:                  "req-thinking-1",
+		InboundEndpoint:            "/v1/messages",
+		StatusCode:                 200,
+		CreatedAt:                  time.Now().UTC(),
+		RequestBody:                []byte(`{"model":"claude-sonnet-4-6"}`),
+		ResponseBody:               []byte(`{"type":"message","content":[{"type":"text","text":"ok"}]}`),
+		InternalThinkingBlocksJSON: []string{`{"type":"thinking","signature":"abc","thinking":"internal chain"}`},
+	}
+
+	compressed, _, _, _, err := svc.buildBlob(input)
+	require.NoError(t, err)
+
+	dec, err := zstd.NewReader(nil)
+	require.NoError(t, err)
+	raw, err := dec.DecodeAll(compressed, nil)
+	require.NoError(t, err)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(raw, &payload))
+
+	resp, ok := payload["response"].(map[string]any)
+	require.True(t, ok)
+	blocks, ok := resp["internal_thinking_blocks"].([]any)
+	require.True(t, ok)
+	require.Len(t, blocks, 1)
+	blockText, ok := blocks[0].(string)
+	require.True(t, ok)
+	require.Contains(t, blockText, "signature")
+	require.Contains(t, blockText, "thinking")
+}

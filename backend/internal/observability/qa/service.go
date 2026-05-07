@@ -210,41 +210,42 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 	synthSession, synthRole, synthLevel, dialogSynth := captureSynthHeaders(c)
 	inputTokens, outputTokens, cachedTokens := captureTokenUsage(c)
 	input := CaptureInput{
-		RequestID:          strings.TrimSpace(requestID),
-		TrajectoryID:       strings.TrimSpace(trajectoryID),
-		UserID:             apiKey.UserID,
-		GroupID:            groupID,
-		APIKeyID:           apiKey.ID,
-		AccountID:          accountID,
-		Platform:           strings.TrimSpace(platform),
-		Provider:           provider,
-		ChannelType:        channelType,
-		RequestedModel:     captureRequestedModel(requestBody),
-		UpstreamModel:      captureUpstreamModel(c),
-		InboundEndpoint:    inboundEndpoint,
-		UpstreamEndpoint:   upstreamEndpoint,
-		StatusCode:         status,
-		Success:            status >= 200 && status < 400,
-		DurationMs:         durationMs,
-		FirstTokenMs:       firstTokenMs,
-		Stream:             captureStreamFlag(c, streamChunks),
-		RequestBody:        requestBody,
-		ResponseBody:       responseBody,
-		ResponseHeaders:    captureResponseHeaders(c),
-		StreamChunks:       streamChunks,
-		InputTokens:        inputTokens,
-		OutputTokens:       outputTokens,
-		CachedTokens:       cachedTokens,
-		ToolCallsPresent:   captureToolCallsPresent(requestBody),
-		MultimodalPresent:  captureMultimodalPresent(requestBody),
-		RedactionVersion:   qaRedactionVersion,
-		CaptureStatus:      captureStatusCaptured,
-		Tags:               captureTags(requestBody, responseBody, status, responseTruncated),
-		CreatedAt:          time.Now().UTC(),
-		SynthSessionID:     synthSession,
-		SynthRole:          synthRole,
-		SynthEngineerLevel: synthLevel,
-		DialogSynth:        dialogSynth,
+		RequestID:                  strings.TrimSpace(requestID),
+		TrajectoryID:               strings.TrimSpace(trajectoryID),
+		UserID:                     apiKey.UserID,
+		GroupID:                    groupID,
+		APIKeyID:                   apiKey.ID,
+		AccountID:                  accountID,
+		Platform:                   strings.TrimSpace(platform),
+		Provider:                   provider,
+		ChannelType:                channelType,
+		RequestedModel:             captureRequestedModel(requestBody),
+		UpstreamModel:              captureUpstreamModel(c),
+		InboundEndpoint:            inboundEndpoint,
+		UpstreamEndpoint:           upstreamEndpoint,
+		StatusCode:                 status,
+		Success:                    status >= 200 && status < 400,
+		DurationMs:                 durationMs,
+		FirstTokenMs:               firstTokenMs,
+		Stream:                     captureStreamFlag(c, streamChunks),
+		RequestBody:                requestBody,
+		ResponseBody:               responseBody,
+		ResponseHeaders:            captureResponseHeaders(c),
+		StreamChunks:               streamChunks,
+		InputTokens:                inputTokens,
+		OutputTokens:               outputTokens,
+		CachedTokens:               cachedTokens,
+		ToolCallsPresent:           captureToolCallsPresent(requestBody),
+		MultimodalPresent:          captureMultimodalPresent(requestBody),
+		RedactionVersion:           qaRedactionVersion,
+		CaptureStatus:              captureStatusCaptured,
+		Tags:                       captureTags(requestBody, responseBody, status, responseTruncated),
+		CreatedAt:                  time.Now().UTC(),
+		InternalThinkingBlocksJSON: captureInternalThinkingBlocks(c),
+		SynthSessionID:             synthSession,
+		SynthRole:                  synthRole,
+		SynthEngineerLevel:         synthLevel,
+		DialogSynth:                dialogSynth,
 	}
 	s.Submit(input)
 }
@@ -557,6 +558,11 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 			"chunks": chunks,
 		},
 		"redactions": []string{"logredact-v2"},
+	}
+	if len(input.InternalThinkingBlocksJSON) > 0 {
+		if resp, ok := payload["response"].(map[string]any); ok {
+			resp["internal_thinking_blocks"] = input.InternalThinkingBlocksJSON
+		}
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -887,6 +893,32 @@ func captureResponseHeaders(c *gin.Context) map[string]string {
 		}
 	}
 	return headers
+}
+
+func captureInternalThinkingBlocks(c *gin.Context) []string {
+	if c == nil {
+		return nil
+	}
+	value, ok := c.Get("ops_gemini_internal_thinking_blocks")
+	if !ok {
+		return nil
+	}
+	raw, ok := value.([]string)
+	if !ok || len(raw) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for _, block := range raw {
+		trimmed := strings.TrimSpace(block)
+		if trimmed == "" {
+			continue
+		}
+		out = append(out, logredact.RedactText(trimmed))
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func captureTags(requestBody, responseBody []byte, status int, truncated bool) []string {

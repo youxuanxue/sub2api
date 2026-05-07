@@ -113,6 +113,35 @@ func TestChatCompletionsToResponses_ToolCalls(t *testing.T) {
 	assert.Equal(t, "ping", resp.Tools[0].Name)
 }
 
+func TestChatCompletionsToResponses_ToolCallArgumentsInvalidFallbackToEmptyObject(t *testing.T) {
+	req := &ChatCompletionsRequest{
+		Model: "gpt-4o",
+		Messages: []ChatMessage{
+			{Role: "user", Content: json.RawMessage(`"Call tool"`)},
+			{
+				Role: "assistant",
+				ToolCalls: []ChatToolCall{
+					{ID: "call_bad", Type: "function", Function: ChatFunctionCall{Name: "ping", Arguments: "not-json"}},
+					{ID: "call_arr", Type: "function", Function: ChatFunctionCall{Name: "ping", Arguments: "[1,2]"}},
+					{ID: "call_ok", Type: "function", Function: ChatFunctionCall{Name: "ping", Arguments: `{"host":"example.com"}`}},
+				},
+			},
+		},
+	}
+
+	resp, err := ChatCompletionsToResponses(req)
+	require.NoError(t, err)
+	var items []ResponsesInputItem
+	require.NoError(t, json.Unmarshal(resp.Input, &items))
+	require.Len(t, items, 4)
+
+	require.Equal(t, "function_call", items[1].Type)
+	require.Equal(t, "{}", items[1].Arguments)
+	require.Equal(t, "function_call", items[2].Type)
+	require.Equal(t, "{}", items[2].Arguments)
+	require.Equal(t, "function_call", items[3].Type)
+	require.JSONEq(t, `{"host":"example.com"}`, items[3].Arguments)
+}
 func TestChatCompletionsToResponses_MaxTokens(t *testing.T) {
 	t.Run("max_tokens", func(t *testing.T) {
 		maxTokens := 100

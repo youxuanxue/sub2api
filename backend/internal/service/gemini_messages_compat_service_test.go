@@ -703,3 +703,68 @@ func TestParseGeminiRateLimitResetTime(t *testing.T) {
 		})
 	}
 }
+
+func TestShouldDropGeminiInternalText(t *testing.T) {
+	require.True(t, shouldDropGeminiInternalText(`{"signature":"abc","type":"thinking"}`))
+	require.True(t, shouldDropGeminiInternalText(` {"type":"thinking","signature":"x","thinking":"..."} `))
+	require.False(t, shouldDropGeminiInternalText(`{"type":"text","signature":"abc"}`))
+	require.False(t, shouldDropGeminiInternalText(`{"type":"thinking"}`)) // no signature → not filtered
+	require.False(t, shouldDropGeminiInternalText("normal visible text"))
+	require.False(t, shouldDropGeminiInternalText(""))
+}
+
+func TestConvertClaudeMessagesToGeminiContents_DropsThinkingBlocks(t *testing.T) {
+	messages := []any{
+		map[string]any{
+			"role": "assistant",
+			"content": []any{
+				map[string]any{"type": "thinking", "thinking": "internal chain", "signature": "abc"},
+				map[string]any{"type": "text", "text": "visible answer"},
+			},
+		},
+	}
+	toolUseIDToName := map[string]string{}
+	parts, err := convertClaudeMessagesToGeminiContents(messages, toolUseIDToName)
+	require.NoError(t, err)
+	require.Len(t, parts, 1)
+
+	gParts, ok := parts[0].(map[string]any)["parts"].([]any)
+	require.True(t, ok)
+	// Only the text block survives; thinking block is dropped.
+	require.Len(t, gParts, 1)
+	txt, _ := gParts[0].(map[string]any)["text"].(string)
+	require.Equal(t, "visible answer", txt)
+}
+
+func TestConvertGeminiToClaudeMessage_FiltersInternalThinkingAndNormalizesToolArgs(t *testing.T) {
+	geminiResp := map[string]any{
+		"candidates": []any{map[string]any{
+			"finishReason": "STOP",
+			"content": map[string]any{
+				"parts": []any{
+					map[string]any{"text": `{"signature":"abc","type":"thinking"}`},
+					map[string]any{"text": "visible answer"},
+					map[string]any{"functionCall": map[string]any{"name": "Read", "args": "not-json"}},
+				},
+			},
+		}},
+	}
+
+	resp, usage := convertGeminiToClaudeMessage(geminiResp, "claude-sonnet-4-6", []byte(`{"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":1}}`))
+	require.NotNil(t, usage)
+	content, ok := resp["content"].([]any)
+	require.True(t, ok)
+	require.Len(t, content, 2)
+
+	textBlock, ok := content[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "text", textBlock["type"])
+	require.Equal(t, "visible answer", textBlock["text"])
+
+	toolBlock, ok := content[1].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "tool_use", toolBlock["type"])
+	input, ok := toolBlock["input"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, 0, len(input))
+}

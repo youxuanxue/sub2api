@@ -8,40 +8,41 @@ type RawSSEChunk struct {
 }
 
 type CaptureInput struct {
-	RequestID         string
-	TrajectoryID      string
-	UserID            int64
-	GroupID           *int64
-	APIKeyID          int64
-	AccountID         *int64
-	Platform          string
-	Provider          string
-	ChannelType       *int
-	RequestedModel    string
-	UpstreamModel     string
-	InboundEndpoint   string
-	UpstreamEndpoint  string
-	StatusCode        int
-	Success           bool
-	DurationMs        int64
-	FirstTokenMs      *int64
-	Stream            bool
-	RequestBody       []byte
-	ResponseBody      []byte
-	ResponseHeaders   map[string]string
-	StreamChunks      []RawSSEChunk
-	InputTokens       int
-	OutputTokens      int
-	CachedTokens      int
-	ToolCallsPresent  bool
-	MultimodalPresent bool
-	RequestBlobURI    string
-	ResponseBlobURI   string
-	StreamBlobURI     string
-	RedactionVersion  string
-	CaptureStatus     string
-	Tags              []string
-	CreatedAt         time.Time
+	RequestID                  string
+	TrajectoryID               string
+	UserID                     int64
+	GroupID                    *int64
+	APIKeyID                   int64
+	AccountID                  *int64
+	Platform                   string
+	Provider                   string
+	ChannelType                *int
+	RequestedModel             string
+	UpstreamModel              string
+	InboundEndpoint            string
+	UpstreamEndpoint           string
+	StatusCode                 int
+	Success                    bool
+	DurationMs                 int64
+	FirstTokenMs               *int64
+	Stream                     bool
+	RequestBody                []byte
+	ResponseBody               []byte
+	ResponseHeaders            map[string]string
+	StreamChunks               []RawSSEChunk
+	InputTokens                int
+	OutputTokens               int
+	CachedTokens               int
+	ToolCallsPresent           bool
+	MultimodalPresent          bool
+	RequestBlobURI             string
+	ResponseBlobURI            string
+	StreamBlobURI              string
+	RedactionVersion           string
+	CaptureStatus              string
+	Tags                       []string
+	CreatedAt                  time.Time
+	InternalThinkingBlocksJSON []string
 
 	// issue #59 Gap 2: synthetic-pipeline tagging headers.
 	// X-Synth-Pipeline is only used to compute DialogSynth (no schema

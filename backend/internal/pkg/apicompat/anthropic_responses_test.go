@@ -1694,3 +1694,30 @@ func TestUS027_AnthropicToResponses_NoEncryptedContentInclude(t *testing.T) {
 	require.NotNil(t, resp.Store)
 	assert.False(t, *resp.Store, "Store must remain false for stateless conversion")
 }
+
+func TestAnthropicToResponses_ToolUseInputMustBeJSONObject(t *testing.T) {
+	req := &AnthropicRequest{
+		Model:     "claude-opus-4-6",
+		MaxTokens: 256,
+		Messages: []AnthropicMessage{
+			{Role: "assistant", Content: json.RawMessage(`[
+				{"type":"tool_use","id":"toolu_bad","name":"Read","input":"not-object"},
+				{"type":"tool_use","id":"toolu_arr","name":"Read","input":[1,2]},
+				{"type":"tool_use","id":"toolu_ok","name":"Read","input":{"file_path":"/tmp/a.txt"}}
+			]`)},
+		},
+	}
+
+	resp, err := AnthropicToResponses(req)
+	require.NoError(t, err)
+	var items []ResponsesInputItem
+	require.NoError(t, json.Unmarshal(resp.Input, &items))
+	require.Len(t, items, 3)
+
+	require.Equal(t, "function_call", items[0].Type)
+	require.Equal(t, "{}", items[0].Arguments)
+	require.Equal(t, "function_call", items[1].Type)
+	require.Equal(t, "{}", items[1].Arguments)
+	require.Equal(t, "function_call", items[2].Type)
+	require.JSONEq(t, `{"file_path":"/tmp/a.txt"}`, items[2].Arguments)
+}

@@ -169,9 +169,18 @@ func chatAssistantToResponses(m ChatMessage) ([]ResponsesInputItem, error) {
 
 	// Emit one function_call item per tool_call.
 	for _, tc := range m.ToolCalls {
-		args := tc.Function.Arguments
+		args := strings.TrimSpace(tc.Function.Arguments)
 		if args == "" {
 			args = "{}"
+		} else {
+			var parsed any
+			if err := json.Unmarshal([]byte(args), &parsed); err != nil {
+				args = "{}"
+			} else {
+				if _, ok := parsed.(map[string]any); !ok {
+					args = "{}"
+				}
+			}
 		}
 		items = append(items, ResponsesInputItem{
 			Type:      "function_call",
