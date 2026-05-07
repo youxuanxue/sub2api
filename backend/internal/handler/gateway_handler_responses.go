@@ -249,6 +249,8 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 				zap.Int64("account_id", account.ID),
 				zap.Error(err),
 			)
+			// TK: passive availability failure tap (R-004 — extracts upstream HTTP status from UpstreamFailoverError)
+			TkRecordFailureFromErr(h.gatewayService, c.Request.Context(), account.Platform, reqModel, account.ID, err)
 			return
 		}
 

@@ -189,6 +189,18 @@ func (f IdentityAdoptionDecisionFunc) Mutate(ctx context.Context, m ent.Mutation
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.IdentityAdoptionDecisionMutation", m)
 }
 
+// The ModelAvailabilityFunc type is an adapter to allow the use of ordinary
+// function as ModelAvailability mutator.
+type ModelAvailabilityFunc func(context.Context, *ent.ModelAvailabilityMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f ModelAvailabilityFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.ModelAvailabilityMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ModelAvailabilityMutation", m)
+}
+
 // The PaymentAuditLogFunc type is an adapter to allow the use of ordinary
 // function as PaymentAuditLog mutator.
 type PaymentAuditLogFunc func(context.Context, *ent.PaymentAuditLogMutation) (ent.Value, error)

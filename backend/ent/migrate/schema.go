@@ -441,6 +441,8 @@ var (
 		{Name: "extra_headers", Type: field.TypeJSON},
 		{Name: "body_override_mode", Type: field.TypeString, Size: 10, Default: "off"},
 		{Name: "body_override", Type: field.TypeJSON, Nullable: true},
+		{Name: "kind", Type: field.TypeEnum, Enums: []string{"user", "system_availability"}, Default: "user"},
+		{Name: "seed_source", Type: field.TypeString, Size: 64, Default: ""},
 		{Name: "template_id", Type: field.TypeInt64, Nullable: true},
 	}
 	// ChannelMonitorsTable holds the schema information for the "channel_monitors" table.
@@ -451,7 +453,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "channel_monitors_channel_monitor_request_templates_request_template",
-				Columns:    []*schema.Column{ChannelMonitorsColumns[17]},
+				Columns:    []*schema.Column{ChannelMonitorsColumns[19]},
 				RefColumns: []*schema.Column{ChannelMonitorRequestTemplatesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
@@ -474,6 +476,11 @@ var (
 			},
 			{
 				Name:    "channelmonitor_template_id",
+				Unique:  false,
+				Columns: []*schema.Column{ChannelMonitorsColumns[19]},
+			},
+			{
+				Name:    "channelmonitor_kind",
 				Unique:  false,
 				Columns: []*schema.Column{ChannelMonitorsColumns[17]},
 			},
@@ -777,6 +784,42 @@ var (
 				Name:    "identityadoptiondecision_identity_id",
 				Unique:  false,
 				Columns: []*schema.Column{IdentityAdoptionDecisionsColumns[6]},
+			},
+		},
+	}
+	// ModelAvailabilityColumns holds the columns for the "model_availability" table.
+	ModelAvailabilityColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "platform", Type: field.TypeEnum, Enums: []string{"openai", "anthropic", "gemini", "antigravity", "newapi"}},
+		{Name: "model_id", Type: field.TypeString, Size: 200},
+		{Name: "status", Type: field.TypeEnum, Enums: []string{"ok", "stale", "unreachable", "untested"}, Default: "untested"},
+		{Name: "last_seen_ok_at", Type: field.TypeTime, Nullable: true},
+		{Name: "last_failure_at", Type: field.TypeTime, Nullable: true},
+		{Name: "last_failure_kind", Type: field.TypeString, Size: 50, Default: ""},
+		{Name: "upstream_status_code_last", Type: field.TypeInt, Nullable: true},
+		{Name: "last_checked_at", Type: field.TypeTime, Nullable: true},
+		{Name: "sample_ok_24h", Type: field.TypeInt, Default: 0},
+		{Name: "sample_total_24h", Type: field.TypeInt, Default: 0},
+		{Name: "rolling_window_started_at", Type: field.TypeTime, Nullable: true},
+		{Name: "last_account_id", Type: field.TypeInt64, Nullable: true},
+	}
+	// ModelAvailabilityTable holds the schema information for the "model_availability" table.
+	ModelAvailabilityTable = &schema.Table{
+		Name:       "model_availability",
+		Columns:    ModelAvailabilityColumns,
+		PrimaryKey: []*schema.Column{ModelAvailabilityColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "modelavailability_platform_model_id",
+				Unique:  true,
+				Columns: []*schema.Column{ModelAvailabilityColumns[3], ModelAvailabilityColumns[4]},
+			},
+			{
+				Name:    "modelavailability_status_last_checked_at",
+				Unique:  false,
+				Columns: []*schema.Column{ModelAvailabilityColumns[5], ModelAvailabilityColumns[10]},
 			},
 		},
 	}
@@ -1769,6 +1812,7 @@ var (
 		GroupsTable,
 		IdempotencyRecordsTable,
 		IdentityAdoptionDecisionsTable,
+		ModelAvailabilityTable,
 		PaymentAuditLogsTable,
 		PaymentOrdersTable,
 		PaymentProviderInstancesTable,
@@ -1851,6 +1895,9 @@ func init() {
 	IdentityAdoptionDecisionsTable.ForeignKeys[1].RefTable = PendingAuthSessionsTable
 	IdentityAdoptionDecisionsTable.Annotation = &entsql.Annotation{
 		Table: "identity_adoption_decisions",
+	}
+	ModelAvailabilityTable.Annotation = &entsql.Annotation{
+		Table: "model_availability",
 	}
 	PaymentAuditLogsTable.Annotation = &entsql.Annotation{
 		Table: "payment_audit_logs",

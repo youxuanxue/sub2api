@@ -49,6 +49,10 @@ const (
 	FieldBodyOverrideMode = "body_override_mode"
 	// FieldBodyOverride holds the string denoting the body_override field in the database.
 	FieldBodyOverride = "body_override"
+	// FieldKind holds the string denoting the kind field in the database.
+	FieldKind = "kind"
+	// FieldSeedSource holds the string denoting the seed_source field in the database.
+	FieldSeedSource = "seed_source"
 	// EdgeHistory holds the string denoting the history edge name in mutations.
 	EdgeHistory = "history"
 	// EdgeDailyRollups holds the string denoting the daily_rollups edge name in mutations.
@@ -100,6 +104,8 @@ var Columns = []string{
 	FieldExtraHeaders,
 	FieldBodyOverrideMode,
 	FieldBodyOverride,
+	FieldKind,
+	FieldSeedSource,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -143,6 +149,10 @@ var (
 	DefaultBodyOverrideMode string
 	// BodyOverrideModeValidator is a validator for the "body_override_mode" field. It is called by the builders before save.
 	BodyOverrideModeValidator func(string) error
+	// DefaultSeedSource holds the default value on creation for the "seed_source" field.
+	DefaultSeedSource string
+	// SeedSourceValidator is a validator for the "seed_source" field. It is called by the builders before save.
+	SeedSourceValidator func(string) error
 )
 
 // Provider defines the type for the "provider" enum field.
@@ -166,6 +176,32 @@ func ProviderValidator(pr Provider) error {
 		return nil
 	default:
 		return fmt.Errorf("channelmonitor: invalid enum value for provider field: %q", pr)
+	}
+}
+
+// Kind defines the type for the "kind" enum field.
+type Kind string
+
+// KindUser is the default value of the Kind enum.
+const DefaultKind = KindUser
+
+// Kind values.
+const (
+	KindUser               Kind = "user"
+	KindSystemAvailability Kind = "system_availability"
+)
+
+func (k Kind) String() string {
+	return string(k)
+}
+
+// KindValidator is a validator for the "kind" field enum values. It is called by the builders before save.
+func KindValidator(k Kind) error {
+	switch k {
+	case KindUser, KindSystemAvailability:
+		return nil
+	default:
+		return fmt.Errorf("channelmonitor: invalid enum value for kind field: %q", k)
 	}
 }
 
@@ -245,6 +281,16 @@ func ByTemplateID(opts ...sql.OrderTermOption) OrderOption {
 // ByBodyOverrideMode orders the results by the body_override_mode field.
 func ByBodyOverrideMode(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldBodyOverrideMode, opts...).ToFunc()
+}
+
+// ByKind orders the results by the kind field.
+func ByKind(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldKind, opts...).ToFunc()
+}
+
+// BySeedSource orders the results by the seed_source field.
+func BySeedSource(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSeedSource, opts...).ToFunc()
 }
 
 // ByHistoryCount orders the results by history count.

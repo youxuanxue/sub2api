@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "rationale": "Load-bearing tap injection points and companion files that anchor the pricing-availability passive observability system (docs/approved/pricing-availability-source-of-truth.md). Each entry is a 1-line TK injection in an upstream-shaped file that could be silently dropped by a future `git merge upstream/main`. Without these taps the model_availability table receives no data, availability status stays 'untested' forever, and the /pricing endpoint never decorates responses with real availability. This file is the single source of truth read by both scripts/preflight.sh and the upstream-merge-pr-shape workflow.",
+  "sentinels": [
+    {
+      "path": "backend/internal/handler/gateway_handler.go",
+      "must_contain": ["TkRecordFailureFromErr", "tkFilterModelIDs", "tkAntigravityDefaultModels"],
+      "rationale": "gateway_handler.go has three TK injection points: (1) two failure taps at the Anthropic /v1/messages + Gemini /v1/messages error paths (TkRecordFailureFromErr), (2) the priced-and-available filter on the model-list whitelist path (tkFilterModelIDs), and (3) the shape-preserving antigravity model filter (tkAntigravityDefaultModels). An upstream merge touching the forward-failed error handlers or the Models/AntigravityModels methods could silently drop any of these. If TkRecordFailureFromErr is lost, model_not_found failures from Anthropic and Gemini platforms stop being classified, and the single-sample→unreachable invariant (§1.3 of the design doc) silently regresses."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_chat_completions.go",
+      "must_contain": ["TkRecordFailureFromErr"],
+      "rationale": "The OpenAI chat completions forward-failure path (line ~247) records upstream 404/model_not_found errors. Without this tap, model_not_found failures from OpenAI-compat and newapi platform accounts are never classified, and those models stay 'untested' or 'stale' in the availability table instead of flipping to 'unreachable'. The test TestTkRecordFailureFromErr_ExtractsAndClassifies verifies the logic works but does NOT verify the tap call-site still exists in this handler."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_responses.go",
+      "must_contain": ["TkRecordFailureFromErr"],
+      "rationale": "The Responses API forward-failure path records upstream errors for the /v1/responses endpoint. Without this tap, model failures on the Responses pathway are invisible to the availability system. Same regression risk as chat_completions: upstream could refactor the error path and silently drop the TK line."
+    },
+    {
+      "path": "backend/internal/handler/gemini_v1beta_handler.go",
+      "must_contain": ["TkRecordFailureFromErr", "tkGeminiFallbackModelsList"],
+      "rationale": "gemini_v1beta_handler.go has two TK injection points: (1) the failure tap on the /v1beta forward path that detects Google's 'Requested entity was not found' responses (TkRecordFailureFromErr), and (2) the filtered Gemini fallback model list for the two static-fallback response paths (tkGeminiFallbackModelsList). The Gemini handler is large and frequently touched by upstream; the tap and the fallback filter are both 1-line additions in error/fallback branches that are easy to lose in a merge conflict resolution."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": ["tkPricingAvailability", "RecordOutcome"],
+      "rationale": "gateway_service.go carries the success-path availability tap inside recordUsageCore (the 100%-hit path for all platform forwards). This is the primary signal source: every successful request records a 'ok' sample. The TK field declaration (tkPricingAvailability) and the RecordOutcome call are both in this large upstream-shaped file (~9600 lines). An upstream merge that restructures recordUsageCore could silently remove the RecordOutcome hook, collapsing the success-rate metric and causing all models to appear 'stale' after 24h."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_forward_error.go",
+      "must_contain": ["TkRecordFailureFromErr", "UpstreamFailoverError"],
+      "rationale": "This TK companion file is the single implementation of TkRecordFailureFromErr — the helper that extracts upstream HTTP status from UpstreamFailoverError and forwards it to the availability classifier. If this file is lost (e.g. an upstream merge that removes all untracked files), all 5 tap call sites compile against a missing function and the build fails. The file also contains the UpstreamFailoverError unwrap logic that makes model_not_found classification work correctly (R-004 fix from review-20260506)."
+    }
+  ]
+}

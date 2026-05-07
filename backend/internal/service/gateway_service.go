@@ -572,6 +572,10 @@ type GatewayService struct {
 	debugGatewayBodyFile  atomic.Pointer[os.File] // non-nil when SUB2API_DEBUG_GATEWAY_BODY is set
 	tlsFPProfileService   *TLSFingerprintProfileService
 	balanceNotifyService  *BalanceNotifyService
+	// TK: passive availability observability (see docs/approved/pricing-availability-source-of-truth.md).
+	// Injected via GatewayService.SetPricingAvailabilityService (TK companion) so the upstream
+	// constructor signature stays unchanged. nil = feature disabled / not wired yet.
+	tkPricingAvailability *PricingAvailabilityService
 }
 
 // NewGatewayService creates a new GatewayService
@@ -8443,6 +8447,18 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		logger.LegacyPrintf("service.gateway", "[SIMPLE MODE] Usage recorded (not billed): user=%d, tokens=%d", usageLog.UserID, usageLog.TotalTokens())
 		s.deferredService.ScheduleLastUsedUpdate(account.ID)
 		return nil
+	}
+
+	// TK: passive availability observability — record successful forward outcome.
+	// RecordOutcome is nil-safe; absent wiring or disabled feature is no-op.
+	if s.tkPricingAvailability != nil {
+		s.tkPricingAvailability.RecordOutcome(ctx, AvailabilityOutcome{
+			Platform:           account.Platform,
+			ModelID:            result.UpstreamModel,
+			AccountID:          account.ID,
+			Success:            true,
+			UpstreamStatusCode: 200,
+		})
 	}
 
 	requestID := usageLog.RequestID

@@ -46,8 +46,11 @@ func TestFetchUpstreamModelList_TrimsTrailingV1FromBase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FetchUpstreamModelList: %v", err)
 	}
-	if len(models) != 1 || models[0] != "m1" {
+	if len(models) != 1 || models[0].ID != "m1" {
 		t.Fatalf("models = %#v", models)
+	}
+	if models[0].ProviderUnavailable {
+		t.Fatalf("default provider response must not flag unavailable: %#v", models[0])
 	}
 }
 

@@ -522,6 +522,15 @@ var ProviderSet = wire.NewSet(
 	// issuer onto AuthService post-construction. The returned sentinel is
 	// consumed by provideCleanup (cmd/server/wire.go) so wire forces evaluation.
 	ProvideTKAuthServiceColdStart,
+	// TokenKey: pricing-availability single-source-of-truth (R-001 of
+	// docs/approved/pricing-availability-source-of-truth.md). Builds the
+	// availability service and wires it onto GatewayService post-construction.
+	// Handler-side wiring lives in handler/wire.go (ProvideTKPricingCatalogHandler).
+	ProvidePricingAvailabilityService,
+	ProvideTKGatewayPricingAvailability,
+	// TokenKey: client model-list filter (R-003 / Goal 2) — gates /v1/models
+	// /v1beta/models /antigravity/models to priced ∩ ¬unreachable.
+	NewModelListFilter,
 )
 
 // TKAuthServiceColdStartReady is a wire sentinel: holding it proves that
@@ -551,6 +560,37 @@ func ProvideTKAuthServiceColdStart(
 // payment.EncryptionKey type instead of raw []byte, avoiding Wire ambiguity.
 func ProvidePaymentConfigService(entClient *dbent.Client, settingRepo SettingRepository, key payment.EncryptionKey) *PaymentConfigService {
 	return NewPaymentConfigService(entClient, settingRepo, []byte(key))
+}
+
+// ProvidePricingAvailabilityService wraps NewPricingAvailabilityService for
+// wire — the production binding pins clock to time.Now (tests inject their own
+// clock via NewPricingAvailabilityService directly). The repository comes from
+// repository.NewModelAvailabilityRepository, registered in repository/wire.go.
+func ProvidePricingAvailabilityService(repo ModelAvailabilityRepository) *PricingAvailabilityService {
+	return NewPricingAvailabilityService(repo, time.Now)
+}
+
+// TKGatewayPricingAvailabilityReady is a wire sentinel: holding it proves
+// GatewayService.SetPricingAvailabilityService has been called with the
+// production availability service. provideCleanup (cmd/server/wire.go) takes
+// this type as an unused parameter to force wire to evaluate the side-effect.
+type TKGatewayPricingAvailabilityReady struct{}
+
+// ProvideTKGatewayPricingAvailability wires the availability service onto
+// GatewayService post-construction. Mirrors ProvideTKAuthServiceColdStart in
+// shape — keep upstream NewGatewayService signature stable, attach setter-only
+// dependencies in TK companion glue.
+//
+// Setter is nil-safe; if avail is nil (e.g. degraded test wiring) the service
+// remains in feature-flag-off state.
+func ProvideTKGatewayPricingAvailability(
+	gw *GatewayService,
+	avail *PricingAvailabilityService,
+) TKGatewayPricingAvailabilityReady {
+	if gw != nil {
+		gw.SetPricingAvailabilityService(avail)
+	}
+	return TKGatewayPricingAvailabilityReady{}
 }
 
 // ProvideBalanceNotifyService creates BalanceNotifyService

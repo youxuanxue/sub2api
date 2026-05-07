@@ -38,8 +38,9 @@ type PricingCatalogGate interface {
 
 // PricingCatalogHandler exposes the public pricing catalog endpoint.
 type PricingCatalogHandler struct {
-	catalog PricingCatalogSource
-	gate    PricingCatalogGate
+	catalog      PricingCatalogSource
+	gate         PricingCatalogGate
+	availability *service.PricingAvailabilityService // optional; nil = feature flag off
 }
 
 // NewPricingCatalogHandler is the production constructor. Either dependency
@@ -48,6 +49,21 @@ type PricingCatalogHandler struct {
 // startup races.
 func NewPricingCatalogHandler(catalog *service.PricingCatalogService, gate *service.SettingService) *PricingCatalogHandler {
 	return &PricingCatalogHandler{catalog: catalog, gate: gate}
+}
+
+// SetAvailabilityService wires the optional pricing-availability observability
+// service. When nil (default / Phase 1), GetPublicCatalog returns the base
+// catalog without `availability` field. In Phase 2+ wire this to enable badges.
+func (h *PricingCatalogHandler) SetAvailabilityService(svc *service.PricingAvailabilityService) {
+	if h != nil {
+		h.availability = svc
+	}
+}
+
+// HasAvailabilityService returns true once the availability service is wired.
+// Used by wire_assertion_tk_test.go to prove production DI executed the setter.
+func (h *PricingCatalogHandler) HasAvailabilityService() bool {
+	return h != nil && h.availability != nil
 }
 
 // GetPublicCatalog serves GET /api/v1/public/pricing.
@@ -75,5 +91,8 @@ func (h *PricingCatalogHandler) GetPublicCatalog(c *gin.Context) {
 		})
 		return
 	}
+	// DecorateWithAvailability is nil-safe; when availability == nil (Phase 1
+	// with flag off) returns resp unchanged.
+	resp = service.DecorateWithAvailability(ctx, resp, h.availability)
 	c.JSON(http.StatusOK, resp)
 }

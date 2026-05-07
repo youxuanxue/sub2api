@@ -1,0 +1,77 @@
+{
+  "review_date": "2026-05-07",
+  "scope": "PR #128 main...feature/pricing-availability-tap",
+  "risk_level": "high",
+  "review_mode": "full_conformance",
+  "decision": "needs-fix",
+  "approved_artifacts_referenced": [
+    "docs/approved/pricing-availability-source-of-truth.md"
+  ],
+  "validation_gaps": [
+    "No test covers /antigravity/models response shape ([]ClaudeModel vs []string regression).",
+    "No test covers PricedCandidates() scope — returns all-platform catalog instead of antigravity-only set.",
+    "No test covers GeminiV1BetaListModels FilterClientFacing call path (design §2.5 not implemented).",
+    "pricing_catalog_membership_tk.go and pricing_availability_predicate_tk.go lack isolated unit tests for nil-safety and boundary conditions."
+  ],
+  "summary": {
+    "critical": 0,
+    "high": 2,
+    "medium": 1,
+    "low": 1
+  },
+  "conformance_summary": {
+    "total_findings": 3,
+    "artifacts_checked": [
+      "docs/approved/pricing-availability-source-of-truth.md"
+    ],
+    "by_artifact": {
+      "docs/approved/pricing-availability-source-of-truth.md": 3
+    }
+  },
+  "findings": [
+    {
+      "severity": "high",
+      "category": "conformance",
+      "automatable": false,
+      "file": "backend/internal/handler/gateway_handler.go",
+      "line": 972,
+      "description": "AntigravityModels() now returns data: []string when PricedCandidates() is non-empty, but the established contract (and the fallback path) returns data: []ClaudeModel{id, type, display_name, created_at}. This is a breaking response-shape change on GET /antigravity/models — any client that parses the model-list as an object array will receive bare strings instead. The two code paths diverge: the new path serializes as [\"model-id\", ...] while the fallback still serializes as [{\"id\":\"...\",\"type\":\"model\",...}]. This was not described as a contract change in the design doc.",
+      "reference": "docs/approved/pricing-availability-source-of-truth.md#5.2",
+      "suggested_fix": "Wrap PricedCandidates() output into []antigravity.ClaudeModel before responding, matching the existing shape:\n  priced := h.tkModelListFilter.PricedCandidates()\n  models := make([]antigravity.ClaudeModel, 0, len(priced))\n  for _, id := range priced {\n    models = append(models, antigravity.ClaudeModel{ID: id, Type: \"model\", DisplayName: id, CreatedAt: \"2024-01-01T00:00:00Z\"})\n  }\n  c.JSON(http.StatusOK, gin.H{\"object\": \"list\", \"data\": models})\nThis preserves the response shape contract while still applying the pricing filter.",
+      "human_verdict": {}
+    },
+    {
+      "severity": "high",
+      "category": "conformance",
+      "automatable": false,
+      "file": "backend/internal/service/model_list_filter_tk.go",
+      "line": 65,
+      "description": "PricedCandidates() calls PricedModels() which returns the entire pricing catalog (all platforms: claude, openai, gemini, newapi, antigravity models). When AntigravityModels() calls PricedCandidates() it receives models like 'gpt-4o', 'gemini-2.5-flash', etc. — not only the antigravity-compatible subset. The endpoint is supposed to return models Antigravity can serve. Returning a mixed cross-platform catalog to a Claude SDK client that is routing through Antigravity is semantically incorrect and would cause downstream scheduling failures when a client picks a non-antigravity model from the list.",
+      "reference": "docs/approved/pricing-availability-source-of-truth.md#2.5",
+      "suggested_fix": "PricedCandidates() should accept a platform parameter so callers can scope it:\n  func (f *ModelListFilter) PricedCandidates(platform string) []string\nThen AntigravityModels() passes the correct platform (\"antigravity\" or a predicate that covers both claude + gemini via antigravity). Alternatively, filter the candidates through antigravity.DefaultModels() IDs first (intersect instead of replace).",
+      "human_verdict": {}
+    },
+    {
+      "severity": "medium",
+      "category": "conformance",
+      "automatable": false,
+      "file": "backend/internal/handler/gemini_v1beta_handler.go",
+      "line": 36,
+      "description": "Design doc §2.5 explicitly calls for GeminiV1BetaListModels to receive a thin 1-line FilterClientFacing injection. The current implementation has zero filter calls: (1) the upstream proxy path returns writeUpstreamResponse(c, res) unfiltered, (2) the FallbackModelsList() paths (lines 61, 74) are returned unfiltered. Both the antigravity-mode path (FallbackGeminiModelsList) and the no-account fallback (FallbackModelsList) are unfiltered. The design doc's statement that 'FallbackModelsList 路径不动' only exempts the fallback from going away, not from being filtered.",
+      "reference": "docs/approved/pricing-availability-source-of-truth.md#2.5",
+      "suggested_fix": "For the proxy path: filtering the raw Gemini response is non-trivial (structured Gemini model format); acceptable to defer. For the fallback paths, extract model IDs from FallbackModelsList(), run FilterClientFacing, then rebuild the Gemini model struct slice — same pattern as tkClaudeDefaultModelIDs in gateway_handler_tk_model_list.go. This is low-effort (3–5 lines) and brings the implementation in line with the design doc.",
+      "human_verdict": {}
+    },
+    {
+      "severity": "low",
+      "category": "validation",
+      "automatable": false,
+      "file": "backend/internal/service/pricing_catalog_membership_tk.go",
+      "line": 1,
+      "description": "pricing_catalog_membership_tk.go (IsModelPriced, PricedModels) and pricing_availability_predicate_tk.go (IsUnreachable) have no dedicated unit tests. Both are load-bearing predicates used by DiscoveryFilter.Apply and FilterClientFacing. IsModelPriced's nil-receiver path, empty-modelID guard, and cold-catalog (no models) behavior are untested in isolation. IsUnreachable's nil-repo and PG-error fail-open behaviors are similarly untested. They are covered indirectly via discover_filter_tk_test.go stubs, but isolation tests would catch regressions in the predicate logic itself.",
+      "reference": null,
+      "suggested_fix": "Add pricing_catalog_membership_tk_test.go covering: nil receiver → false, empty modelID → false, cold catalog → false, priced model → true. Add pricing_availability_predicate_tk_test.go covering: nil receiver → false, repo error → false (fail-open), unreachable status → true, ok status → false.",
+      "human_verdict": {}
+    }
+  ]
+}

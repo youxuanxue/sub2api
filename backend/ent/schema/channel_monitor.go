@@ -82,6 +82,20 @@ func (ChannelMonitor) Fields() []ent.Field {
 		// body_override: 同 ChannelMonitorRequestTemplate.body_override
 		field.JSON("body_override", map[string]any{}).
 			Optional(),
+
+		// kind: 区分用户配置的监控（默认）与系统 pricing-availability seeder
+		// 自动维护的监控。系统监控由 pricing_availability_seeder_tk.go 生成，
+		// 周期性探测 catalog 内 cold-tail 模型可达性，复用 ChannelMonitorRunner
+		// 的 ticker / pond 调度基础设施而不新建 scheduler。详见
+		// docs/approved/pricing-availability-source-of-truth.md §1.1 / §5.
+		field.Enum("kind").
+			Values("user", "system_availability").
+			Default("user"),
+		// seed_source: 系统监控的来源标记（如 "pricing_catalog"），便于运维
+		// 区分一组 system_availability 行从哪里 seed 出来。user kind 下为空。
+		field.String("seed_source").
+			Default("").
+			MaxLen(64),
 	}
 }
 
@@ -106,5 +120,7 @@ func (ChannelMonitor) Indexes() []ent.Index {
 		index.Fields("provider"),
 		index.Fields("group_name"),
 		index.Fields("template_id"),
+		// seeder 选择性 enable/disable kind=system_availability 时按 kind 列扫表
+		index.Fields("kind"),
 	}
 }

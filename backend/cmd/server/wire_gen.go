@@ -233,7 +233,10 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	channelMonitorRequestTemplateHandler := admin.NewChannelMonitorRequestTemplateHandler(channelMonitorRequestTemplateService)
 	paymentHandler := admin.NewPaymentHandler(paymentService, paymentConfigService)
 	affiliateHandler := admin.NewAffiliateHandler(affiliateService, adminService)
-	tkChannelAdminHandler := admin.NewTKChannelAdminHandler(gatewayService, adminService)
+	pricingCatalogService := service.NewPricingCatalogService(configConfig)
+	modelAvailabilityRepository := repository.NewModelAvailabilityRepository(client)
+	pricingAvailabilityService := service.ProvidePricingAvailabilityService(modelAvailabilityRepository)
+	tkChannelAdminHandler := admin.NewTKChannelAdminHandler(gatewayService, adminService, pricingCatalogService, pricingAvailabilityService)
 	adminHandlers := handler.ProvideAdminHandlers(dashboardHandler, adminUserHandler, groupHandler, accountHandler, adminAnnouncementHandler, dataManagementHandler, backupHandler, oAuthHandler, openAIOAuthHandler, geminiOAuthHandler, antigravityOAuthHandler, proxyHandler, adminRedeemHandler, promoHandler, settingHandler, opsHandler, systemHandler, adminSubscriptionHandler, adminUsageHandler, userAttributeHandler, errorPassthroughHandler, tlsFingerprintProfileHandler, adminAPIKeyHandler, scheduledTestHandler, channelHandler, channelMonitorHandler, channelMonitorRequestTemplateHandler, paymentHandler, affiliateHandler, tkChannelAdminHandler)
 	usageRecordWorkerPool := service.NewUsageRecordWorkerPool(configConfig)
 	userMsgQueueCache := repository.NewUserMsgQueueCache(redisClient)
@@ -250,8 +253,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	if err != nil {
 		return nil, err
 	}
-	pricingCatalogService := service.NewPricingCatalogService(configConfig)
-	pricingCatalogHandler := handler.NewPricingCatalogHandler(pricingCatalogService, settingService)
+	pricingCatalogHandler := handler.ProvideTKPricingCatalogHandler(pricingCatalogService, settingService, pricingAvailabilityService)
 	qaHandler := handler.NewQAHandler(qaService)
 	idempotencyCoordinator := service.ProvideIdempotencyCoordinator(idempotencyRepository, configConfig)
 	idempotencyCleanupService := service.ProvideIdempotencyCleanupService(idempotencyRepository, configConfig)
@@ -274,7 +276,10 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	paymentOrderExpiryService := service.ProvidePaymentOrderExpiryService(paymentService)
 	channelMonitorRunner := service.ProvideChannelMonitorRunner(channelMonitorService, settingService)
 	tkAuthServiceColdStartReady := service.ProvideTKAuthServiceColdStart(authService, apiKeyService, settingService)
-	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, schedulerSnapshotService, tokenRefreshService, accountExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, qaService, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, channelMonitorRunner, tkAuthServiceColdStartReady)
+	tkGatewayPricingAvailabilityReady := service.ProvideTKGatewayPricingAvailability(gatewayService, pricingAvailabilityService)
+	modelListFilter := service.NewModelListFilter(pricingCatalogService, pricingAvailabilityService)
+	tkGatewayHandlerModelListReady := handler.ProvideTKGatewayHandlerModelList(gatewayHandler, modelListFilter)
+	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, schedulerSnapshotService, tokenRefreshService, accountExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, qaService, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, channelMonitorRunner, tkAuthServiceColdStartReady, tkGatewayPricingAvailabilityReady, tkGatewayHandlerModelListReady)
 	application := &Application{
 		Server:  httpServer,
 		Cleanup: v,
@@ -332,6 +337,10 @@ func provideCleanup(
 	channelMonitorRunner *service.ChannelMonitorRunner,
 
 	_ service.TKAuthServiceColdStartReady,
+
+	_ service.TKGatewayPricingAvailabilityReady,
+
+	_ handler.TKGatewayHandlerModelListReady,
 ) func() {
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

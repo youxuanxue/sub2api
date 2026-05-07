@@ -120,6 +120,11 @@ func BodyOverrideMode(v string) predicate.ChannelMonitor {
 	return predicate.ChannelMonitor(sql.FieldEQ(FieldBodyOverrideMode, v))
 }
 
+// SeedSource applies equality check predicate on the "seed_source" field. It's identical to SeedSourceEQ.
+func SeedSource(v string) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldEQ(FieldSeedSource, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.ChannelMonitor {
 	return predicate.ChannelMonitor(sql.FieldEQ(FieldCreatedAt, v))
@@ -798,6 +803,91 @@ func BodyOverrideIsNil() predicate.ChannelMonitor {
 // BodyOverrideNotNil applies the NotNil predicate on the "body_override" field.
 func BodyOverrideNotNil() predicate.ChannelMonitor {
 	return predicate.ChannelMonitor(sql.FieldNotNull(FieldBodyOverride))
+}
+
+// KindEQ applies the EQ predicate on the "kind" field.
+func KindEQ(v Kind) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldEQ(FieldKind, v))
+}
+
+// KindNEQ applies the NEQ predicate on the "kind" field.
+func KindNEQ(v Kind) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldNEQ(FieldKind, v))
+}
+
+// KindIn applies the In predicate on the "kind" field.
+func KindIn(vs ...Kind) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldIn(FieldKind, vs...))
+}
+
+// KindNotIn applies the NotIn predicate on the "kind" field.
+func KindNotIn(vs ...Kind) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldNotIn(FieldKind, vs...))
+}
+
+// SeedSourceEQ applies the EQ predicate on the "seed_source" field.
+func SeedSourceEQ(v string) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldEQ(FieldSeedSource, v))
+}
+
+// SeedSourceNEQ applies the NEQ predicate on the "seed_source" field.
+func SeedSourceNEQ(v string) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldNEQ(FieldSeedSource, v))
+}
+
+// SeedSourceIn applies the In predicate on the "seed_source" field.
+func SeedSourceIn(vs ...string) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldIn(FieldSeedSource, vs...))
+}
+
+// SeedSourceNotIn applies the NotIn predicate on the "seed_source" field.
+func SeedSourceNotIn(vs ...string) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldNotIn(FieldSeedSource, vs...))
+}
+
+// SeedSourceGT applies the GT predicate on the "seed_source" field.
+func SeedSourceGT(v string) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldGT(FieldSeedSource, v))
+}
+
+// SeedSourceGTE applies the GTE predicate on the "seed_source" field.
+func SeedSourceGTE(v string) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldGTE(FieldSeedSource, v))
+}
+
+// SeedSourceLT applies the LT predicate on the "seed_source" field.
+func SeedSourceLT(v string) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldLT(FieldSeedSource, v))
+}
+
+// SeedSourceLTE applies the LTE predicate on the "seed_source" field.
+func SeedSourceLTE(v string) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldLTE(FieldSeedSource, v))
+}
+
+// SeedSourceContains applies the Contains predicate on the "seed_source" field.
+func SeedSourceContains(v string) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldContains(FieldSeedSource, v))
+}
+
+// SeedSourceHasPrefix applies the HasPrefix predicate on the "seed_source" field.
+func SeedSourceHasPrefix(v string) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldHasPrefix(FieldSeedSource, v))
+}
+
+// SeedSourceHasSuffix applies the HasSuffix predicate on the "seed_source" field.
+func SeedSourceHasSuffix(v string) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldHasSuffix(FieldSeedSource, v))
+}
+
+// SeedSourceEqualFold applies the EqualFold predicate on the "seed_source" field.
+func SeedSourceEqualFold(v string) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldEqualFold(FieldSeedSource, v))
+}
+
+// SeedSourceContainsFold applies the ContainsFold predicate on the "seed_source" field.
+func SeedSourceContainsFold(v string) predicate.ChannelMonitor {
+	return predicate.ChannelMonitor(sql.FieldContainsFold(FieldSeedSource, v))
 }
 
 // HasHistory applies the HasEdge predicate on the "history" edge.

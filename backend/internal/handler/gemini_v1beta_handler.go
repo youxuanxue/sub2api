@@ -57,8 +57,8 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		// 没有 gemini 账户，检查是否有 antigravity 账户可用
 		hasAntigravity, _ := h.geminiCompatService.HasAntigravityAccounts(c.Request.Context(), apiKey.GroupID)
 		if hasAntigravity {
-			// antigravity 账户使用静态模型列表
-			c.JSON(http.StatusOK, gemini.FallbackModelsList())
+			// antigravity 账户使用静态模型列表，TK: 过滤至 priced ∩ ¬unreachable (CF-001)
+			c.JSON(http.StatusOK, h.tkGeminiFallbackModelsList(c.Request.Context()))
 			return
 		}
 		googleError(c, http.StatusServiceUnavailable, "No available Gemini accounts: "+err.Error())
@@ -71,7 +71,8 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		return
 	}
 	if shouldFallbackGeminiModels(res) {
-		c.JSON(http.StatusOK, gemini.FallbackModelsList())
+		// TK: 过滤至 priced ∩ ¬unreachable (CF-001)
+		c.JSON(http.StatusOK, h.tkGeminiFallbackModelsList(c.Request.Context()))
 		return
 	}
 	writeUpstreamResponse(c, res)
@@ -492,6 +493,8 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			}
 			// ForwardNative already wrote the response
 			reqLog.Error("gemini.forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+			// TK: passive availability failure tap (R-004 — extracts upstream HTTP status from UpstreamFailoverError)
+			TkRecordFailureFromErr(h.gatewayService, c.Request.Context(), account.Platform, modelName, account.ID, err)
 			return
 		}
 

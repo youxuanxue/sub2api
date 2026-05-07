@@ -20,6 +20,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
 	"github.com/Wei-Shaw/sub2api/ent/identityadoptiondecision"
+	"github.com/Wei-Shaw/sub2api/ent/modelavailability"
 	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
 	"github.com/Wei-Shaw/sub2api/ent/paymentproviderinstance"
@@ -537,6 +538,12 @@ func init() {
 	channelmonitor.DefaultBodyOverrideMode = channelmonitorDescBodyOverrideMode.Default.(string)
 	// channelmonitor.BodyOverrideModeValidator is a validator for the "body_override_mode" field. It is called by the builders before save.
 	channelmonitor.BodyOverrideModeValidator = channelmonitorDescBodyOverrideMode.Validators[0].(func(string) error)
+	// channelmonitorDescSeedSource is the schema descriptor for seed_source field.
+	channelmonitorDescSeedSource := channelmonitorFields[16].Descriptor()
+	// channelmonitor.DefaultSeedSource holds the default value on creation for the seed_source field.
+	channelmonitor.DefaultSeedSource = channelmonitorDescSeedSource.Default.(string)
+	// channelmonitor.SeedSourceValidator is a validator for the "seed_source" field. It is called by the builders before save.
+	channelmonitor.SeedSourceValidator = channelmonitorDescSeedSource.Validators[0].(func(string) error)
 	channelmonitordailyrollupFields := schema.ChannelMonitorDailyRollup{}.Fields()
 	_ = channelmonitordailyrollupFields
 	// channelmonitordailyrollupDescModel is the schema descriptor for model field.
@@ -928,6 +935,53 @@ func init() {
 	identityadoptiondecisionDescDecidedAt := identityadoptiondecisionFields[4].Descriptor()
 	// identityadoptiondecision.DefaultDecidedAt holds the default value on creation for the decided_at field.
 	identityadoptiondecision.DefaultDecidedAt = identityadoptiondecisionDescDecidedAt.Default.(func() time.Time)
+	modelavailabilityMixin := schema.ModelAvailability{}.Mixin()
+	modelavailabilityMixinFields0 := modelavailabilityMixin[0].Fields()
+	_ = modelavailabilityMixinFields0
+	modelavailabilityFields := schema.ModelAvailability{}.Fields()
+	_ = modelavailabilityFields
+	// modelavailabilityDescCreatedAt is the schema descriptor for created_at field.
+	modelavailabilityDescCreatedAt := modelavailabilityMixinFields0[0].Descriptor()
+	// modelavailability.DefaultCreatedAt holds the default value on creation for the created_at field.
+	modelavailability.DefaultCreatedAt = modelavailabilityDescCreatedAt.Default.(func() time.Time)
+	// modelavailabilityDescUpdatedAt is the schema descriptor for updated_at field.
+	modelavailabilityDescUpdatedAt := modelavailabilityMixinFields0[1].Descriptor()
+	// modelavailability.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	modelavailability.DefaultUpdatedAt = modelavailabilityDescUpdatedAt.Default.(func() time.Time)
+	// modelavailability.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	modelavailability.UpdateDefaultUpdatedAt = modelavailabilityDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// modelavailabilityDescModelID is the schema descriptor for model_id field.
+	modelavailabilityDescModelID := modelavailabilityFields[1].Descriptor()
+	// modelavailability.ModelIDValidator is a validator for the "model_id" field. It is called by the builders before save.
+	modelavailability.ModelIDValidator = func() func(string) error {
+		validators := modelavailabilityDescModelID.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(model_id string) error {
+			for _, fn := range fns {
+				if err := fn(model_id); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// modelavailabilityDescLastFailureKind is the schema descriptor for last_failure_kind field.
+	modelavailabilityDescLastFailureKind := modelavailabilityFields[5].Descriptor()
+	// modelavailability.DefaultLastFailureKind holds the default value on creation for the last_failure_kind field.
+	modelavailability.DefaultLastFailureKind = modelavailabilityDescLastFailureKind.Default.(string)
+	// modelavailability.LastFailureKindValidator is a validator for the "last_failure_kind" field. It is called by the builders before save.
+	modelavailability.LastFailureKindValidator = modelavailabilityDescLastFailureKind.Validators[0].(func(string) error)
+	// modelavailabilityDescSampleOk24h is the schema descriptor for sample_ok_24h field.
+	modelavailabilityDescSampleOk24h := modelavailabilityFields[8].Descriptor()
+	// modelavailability.DefaultSampleOk24h holds the default value on creation for the sample_ok_24h field.
+	modelavailability.DefaultSampleOk24h = modelavailabilityDescSampleOk24h.Default.(int)
+	// modelavailabilityDescSampleTotal24h is the schema descriptor for sample_total_24h field.
+	modelavailabilityDescSampleTotal24h := modelavailabilityFields[9].Descriptor()
+	// modelavailability.DefaultSampleTotal24h holds the default value on creation for the sample_total_24h field.
+	modelavailability.DefaultSampleTotal24h = modelavailabilityDescSampleTotal24h.Default.(int)
 	paymentauditlogFields := schema.PaymentAuditLog{}.Fields()
 	_ = paymentauditlogFields
 	// paymentauditlogDescOrderID is the schema descriptor for order_id field.
