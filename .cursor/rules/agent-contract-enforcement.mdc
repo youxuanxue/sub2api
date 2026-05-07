@@ -21,6 +21,7 @@ alwaysApply: true
 - Enforce state-file safety baseline: full JSON/config overwrites must use temp file then atomic replace.
 - Keep module imports side-effect free: no module-level `load_dotenv`, monkey-patch, or scheduler startup.
 - Preserve layered dependencies: entry -> command -> domain -> shared; no reverse references.
+- Public contract deletion requires explicit notice token in commit history; silent deletion is forbidden.
 
 ## Required Workflow
 
@@ -35,7 +36,9 @@ Each project must maintain its own `scripts/export_agent_contract.py` tailored t
 
 Every rule above must have a mechanical gate. The canonical wiring is:
 
-- `scripts/export_agent_contract.py --check` is invoked by `scripts/preflight.sh` (template at `dev-rules/templates/preflight.sh`, check section 4).
+- `scripts/export_agent_contract.py --check` is invoked by `scripts/preflight.sh` (template at `dev-rules/templates/preflight.sh`, agent contract export check).
+- `dev-rules/scripts/check_contract_deletion_notice.py` is invoked by preflight `contract deletion notice` check.
+- `dev-rules/scripts/check_layer_dependency_inversion.py` is invoked by preflight `layer dependency inversion` check when `.preflight/layer-deps.json` exists.
 - `scripts/preflight.sh` runs in pre-commit and CI; failure blocks merge.
 - Layered-dependency, input-safety, and state-file safety rules above must be encoded as project-level lint or test cases; describing them here without a check is forbidden.
 - When a project cannot yet automate one of these checks, record it in the project's `docs/preflight-debt.md` with a deadline; do not silently downgrade to "honor system".

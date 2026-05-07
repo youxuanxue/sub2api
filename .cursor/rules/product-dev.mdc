@@ -175,6 +175,9 @@ spec delta 是意图载体，不是审批基线；若命中高风险条件，必
 - 不默认拆出 docs/prototype/dev/release 多个 PR；只有真实决策边界或风险隔离需求，才拆 PR
 - PR 描述默认只保留 `Summary`、`Risk`、`Validation`；只有高风险变更才展开 `Design` / `Contract` / `Migration`
 - review comment 默认只报阻塞问题、真实风险、缺失验证；不输出大而全的审计散文
+- 公共契约删除必须在 commit subject/body 显式声明删除说明锚点（如 `contract-deletion-notice`），禁止静默删约。
+- 命中高风险路径的改动必须绑定审批锚点（`docs/approved/*` 或等价 anchor token），不允许无锚点直改。
+- release 敏感分支/语境下提交消息禁止出现 `[skip ci]` / `[ci skip]`，避免流水线静默跳过。
 
 ## 代码质量门禁
 
@@ -202,6 +205,12 @@ spec delta 是意图载体，不是审批基线；若命中高风险条件，必
 ```
 
 任何检查段失败都必须修复后重跑，**禁止带未通过的 preflight 提交**。preflight 分为默认必跑检查与高风险条件触发检查；不要把所有项目、所有任务都按最高负担执行。
+
+其中新增红线由模板 preflight 机械化落地：
+- contract deletion notice：公共契约删除必须有显式 deletion notice。
+- layer dependency inversion：分层依赖不可反转（项目提供 `.preflight/layer-deps.json` 时启用）。
+- high-risk approval anchor：高风险改动必须绑定审批锚点。
+- release skip-ci safety：release 语境禁止 skip-ci marker。
 
 ### 文档数值/事实声明的硬约束
 
@@ -247,7 +256,7 @@ spec delta 是意图载体，不是审批基线；若命中高风险条件，必
    - `CLOUD_AGENT_CLAUDE_BASE_URL`（用自建网关时设置；留空走 Anthropic SaaS）
    - `CLOUD_AGENT_PROJECT_HOOK`（项目特异步骤，比如 submodule 同步、frontend deps）
 2. 云端入口 `.cursor/environment.json` 指向 `bash dev-rules/templates/cloud-agent-bootstrap.sh`（默认 install 模式）。
-3. 本地任何时刻可跑 `bash dev-rules/templates/cloud-agent-bootstrap.sh --check`；preflight 段 9 也会自动调用，secrets 未配置 / 工具缺失会被机械拦截。
+3. 本地任何时刻可跑 `bash dev-rules/templates/cloud-agent-bootstrap.sh --check`；preflight 的 cloud-agent consistency 检查也会自动调用，secrets 未配置 / 工具缺失会被机械拦截。
 4. Cursor Dashboard → Cloud Agents → Secrets 里配置 `CLOUD_AGENT_REQUIRED_SECRETS` 列出的所有变量，`--check` 即归零。
 
 具体调用：`claude -p "..." --max-budget-usd N`。

@@ -77,7 +77,43 @@ if [ ! -x ./dev-rules/templates/preflight.sh ]; then
     exit 1
 fi
 
-PREFLIGHT_REPO_ROOT="$REPO_ROOT" ./dev-rules/templates/preflight.sh "$@"
+has_merge_base_with_head() {
+    local ref="$1"
+    git rev-parse --verify "$ref" >/dev/null 2>&1 && git merge-base "$ref" HEAD >/dev/null 2>&1
+}
+
+template_base="${PREFLIGHT_BASE:-}"
+if [ -n "$template_base" ] && ! has_merge_base_with_head "$template_base"; then
+    template_base=""
+fi
+
+if [ -z "$template_base" ]; then
+    for candidate in \
+        "origin/main" \
+        "main" \
+        "origin/${GITHUB_BASE_REF:-}" \
+        "${GITHUB_BASE_REF:-}" \
+        "HEAD^1" \
+        "HEAD^"; do
+        if [ -n "$candidate" ] && has_merge_base_with_head "$candidate"; then
+            template_base="$candidate"
+            break
+        fi
+    done
+fi
+
+if [ -z "$template_base" ] && [ -n "${CI:-}" ] && [ -n "${GITHUB_BASE_REF:-}" ]; then
+    if git fetch --no-tags --depth=64 origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}" >/dev/null 2>&1 && \
+       has_merge_base_with_head "origin/${GITHUB_BASE_REF}"; then
+        template_base="origin/${GITHUB_BASE_REF}"
+    fi
+fi
+
+if [ -z "$template_base" ] && has_merge_base_with_head HEAD; then
+    template_base="HEAD"
+fi
+
+PREFLIGHT_BASE="$template_base" PREFLIGHT_REPO_ROOT="$REPO_ROOT" ./dev-rules/templates/preflight.sh "$@"
 dev_status=$?
 if [ "$dev_status" -ne 0 ]; then
     exit "$dev_status"
