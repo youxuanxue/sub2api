@@ -36,3 +36,4 @@
 | US-031 | Onboarding Tour 对普通用户开放（服务端字段记忆已看过） | InTest | `.testing/user-stories/stories/US-031-onboarding-tour-unlock-for-regular-users.md` |
 | US-032 | Playground prototype-first（Vue 组件，4 状态对齐） | InTest | `.testing/user-stories/stories/US-032-playground-prototype-AB.md` |
 | US-033 | 用户自助导出 qa_records（issue #59 双 Gap：HTTP endpoint + synth_* 字段） | InTest | `.testing/user-stories/stories/US-033-qa-self-export-and-synth-fields.md` |
+| US-034 | OpenAI-compat `/v1/messages` 大输入自动压缩（账号优先、分组兜底） | InTest | `.testing/user-stories/stories/US-034-messages-compaction-policy.md` |

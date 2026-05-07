@@ -80,6 +80,7 @@
       "required_literals": [
         "func openAICompatContinuationAllowedAccountType(",
         "func openAICompatShouldTrimForContinuation(",
+        "func openAICompatShouldDisableContinuationOnPreviousResponseNotFound(",
         "account.Type == AccountTypeOAuth"
       ]
     },
