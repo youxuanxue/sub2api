@@ -560,7 +560,9 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 		"redactions": []string{"logredact-v2"},
 	}
 	if len(input.InternalThinkingBlocksJSON) > 0 {
-		payload["response"].(map[string]any)["internal_thinking_blocks"] = input.InternalThinkingBlocksJSON
+		if resp, ok := payload["response"].(map[string]any); ok {
+			resp["internal_thinking_blocks"] = input.InternalThinkingBlocksJSON
+		}
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {

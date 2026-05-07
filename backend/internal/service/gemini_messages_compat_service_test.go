@@ -704,7 +704,6 @@ func TestParseGeminiRateLimitResetTime(t *testing.T) {
 	}
 }
 
-
 func TestShouldDropGeminiInternalText(t *testing.T) {
 	require.True(t, shouldDropGeminiInternalText(`{"signature":"abc","type":"thinking"}`))
 	require.True(t, shouldDropGeminiInternalText(` {"type":"thinking","signature":"x","thinking":"..."} `))
