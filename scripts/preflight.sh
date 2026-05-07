@@ -77,7 +77,27 @@ if [ ! -x ./dev-rules/templates/preflight.sh ]; then
     exit 1
 fi
 
-PREFLIGHT_REPO_ROOT="$REPO_ROOT" ./dev-rules/templates/preflight.sh "$@"
+template_base="${PREFLIGHT_BASE:-}"
+if [ -z "$template_base" ]; then
+    for candidate in \
+        "origin/main" \
+        "main" \
+        "origin/${GITHUB_BASE_REF:-}" \
+        "${GITHUB_BASE_REF:-}" \
+        "HEAD^1" \
+        "HEAD^"; do
+        if [ -n "$candidate" ] && git rev-parse --verify "$candidate" >/dev/null 2>&1; then
+            template_base="$candidate"
+            break
+        fi
+    done
+fi
+
+if [ -n "$template_base" ]; then
+    PREFLIGHT_BASE="$template_base" PREFLIGHT_REPO_ROOT="$REPO_ROOT" ./dev-rules/templates/preflight.sh "$@"
+else
+    PREFLIGHT_REPO_ROOT="$REPO_ROOT" ./dev-rules/templates/preflight.sh "$@"
+fi
 dev_status=$?
 if [ "$dev_status" -ne 0 ]; then
     exit "$dev_status"
