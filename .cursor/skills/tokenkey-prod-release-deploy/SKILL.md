@@ -17,7 +17,7 @@ description: >-
 
 ## 一次性跑完（原则）
 
-- **顺序做完**：同步 → 决策 VERSION/tag →（按需 bump+push）→ `release-tag.sh` → **watch 到 release 成功** → dispatch deploy → **watch 到 deploy 成功** → **再做本地验收（B + 尽量 C）**。不要在 deploy 绿灯后就结束会话。
+- **顺序做完**：同步 → 决策 VERSION/tag →（按需 bump+push）→ `release-tag.sh` → **watch 到 release 成功** → **先检查 Bot 是否已自动触发 deploy，无则手动 dispatch** → **watch 到 deploy 成功** → **再做本地验收（B + 尽量 C）**。不要在 deploy 绿灯后就结束会话。
 - **读 VERSION 前必须先** `fetch` + `pull --ff-only` **后的** `origin/main` 为准；在未更新的本地分支上读 `VERSION` 会与远端 tag 错位，误判「要不要 bump」。
 - **`gh run watch` 要给够时间**：多架构 `release.yml` 常见 **十余分钟量级**；Agent 应用 `--exit-status` 跟跑到结束，不要用默认几十秒的 command 超时提前杀掉。
 - **`prod` Environment**：run 卡在 `waiting` 时需有人在 GitHub Actions 里批准；批准后继续 watch，勿当作失败退出。
@@ -48,7 +48,16 @@ description: >-
    `bash scripts/release-tag.sh vX.Y.Z`  
    不要手打 `git tag`；脚本校验 `[skip ci]`、VERSION 一致、分支与同步。
 4. **等待镜像**：`gh run list --workflow=release.yml --limit 1` → 取 **刚触发、与本次 tag 对应** 的 run（可看 `headBranch` / 标题）→ `gh run watch <id> --exit-status`，直到 **success**。多架构构建可能需 **十余分钟**。
-5. **部署 prod**：镜像 tag **不带 `v`**：`gh workflow run deploy-stage0.yml -f environment=prod -f tag=X.Y.Z`。记下输出的 run URL，对该 run `gh run watch <id> --exit-status` 直至 success（停在 **waiting** 时在 GitHub **Environment `prod`** 批准后继续）。**不要**设 `simple_release_override=true`（prod/test 为 **ARM**；单架构 manifest 会 `exec format error`）。
+5. **部署 prod**：`release.yml` 成功后会**自动** dispatch `deploy-stage0.yml`（由 `github-actions[bot]` 触发）。**先检查**是否已自动触发，再决定是否手动 dispatch：
+
+   ```bash
+   gh run list --workflow=deploy-stage0.yml --limit 1 --json databaseId,actor,createdAt,status
+   ```
+
+   - **Bot 已自动触发**（`actor.login=github-actions` 且 `createdAt` 在 release 完成后数秒内）→ 直接 watch 该 run：`gh run watch <id> --exit-status`
+   - **未自动触发**（异常情况）→ 手动 dispatch（tag **不带 `v`**）：`gh workflow run deploy-stage0.yml -f environment=prod -f tag=X.Y.Z`，然后 watch
+
+   **禁止**在不检查的情况下直接手动 dispatch——会产生两个并行 deploy run，需手动取消多余的一个。run 卡在 **waiting** 时在 GitHub **Environment `prod`** 批准后继续。**不要**设 `simple_release_override=true`（prod/test 为 **ARM**；单架构 manifest 会 `exec format error`）。
 
 ## 真实测试（必须做）
 
@@ -75,19 +84,88 @@ curl -sS -o /dev/null -w '%{http_code}\n' 'https://api.tokenkey.dev/api/v1/setti
 
 ```bash
 cd /path/to/sub2api
-export TOKENKEY_BASE_URL=https://api.tokenkey.dev
+export TOKENKEY_BASE_URL=https://api.tokenkey.dev    # 或 TK_GATEWAY_URL（脚本两个都识别）
 # POST_DEPLOY_SMOKE_API_KEY 已在 Cursor / shell 中导出即可
+# 可选回归探针（见下文）：
+#   POST_DEPLOY_SMOKE_GEMINI_API_KEY=sk-...           # Gemini tool-schema 清理回归探针
+#   POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY=sk-...     # OpenAI OAuth reasoning_tokens 端到端探针
 bash scripts/tk_post_deploy_smoke.sh
 ```
 
-脚本内解析顺序（摘自 `scripts/tk_post_deploy_smoke.sh`）：`POST_DEPLOY_SMOKE_API_KEY` → `ANTHROPIC_AUTH_TOKEN` → `TK_TOKEN` → `TOKENKEY_API_KEY`。任一为非空即可。
+**主 key 解析顺序**（摘自脚本）：`POST_DEPLOY_SMOKE_API_KEY` → `ANTHROPIC_AUTH_TOKEN` → `TK_TOKEN` → `TOKENKEY_API_KEY`，任一非空即可。
+
+**可选探针（提供对应 key 时自动启用，未设则跳过）**：
+
+| 环境变量 | 默认值 | 用途 |
+|---|---|---|
+| `POST_DEPLOY_SMOKE_GEMINI_API_KEY` | — | 绑定 gemini 分组，探针：Anthropic→Gemini tool-schema 清理（`const`/`propertyNames`/`exclusiveMinimum` 等 Draft 2020 关键词）|
+| `POST_DEPLOY_SMOKE_GEMINI_MODEL` | 见脚本注释 | Gemini 探针使用的模型 |
+| `POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY` | — | 绑定 OpenAI OAuth/codex 分组，探针：账号正确性 + `reasoning_tokens` 透传 |
+| `POST_DEPLOY_SMOKE_OPENAI_OAUTH_MODEL` | 见脚本注释 | OpenAI OAuth 探针使用的模型 |
+| `POST_DEPLOY_SMOKE_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS` | `0` | 设 `1` 将 `reasoning_tokens=0` 警告升级为硬失败（需确认该账号确实会返回 reasoning tokens） |
+| `POST_DEPLOY_SMOKE_SKIP_FRONTEND` | `0` | 设 `1` 跳过 frontend release asset 检查（仅本地调试；CI / 正式验收不得跳过）|
 
 仅在无法注入环境时再临时：`POST_DEPLOY_SMOKE_API_KEY='sk-…' bash scripts/tk_post_deploy_smoke.sh`。  
 不得打印完整 key；脚本只输出 `key_hint`。
 
 **Agent 注意**：若在沙箱里跑导致读不到用户环境变量，改用可继承本机环境的执行方式（例如非 sandbox / `all`），否则 C 会因缺 key 退出。
 
-**C 的通过标准**：`tk_post_deploy_smoke.sh` 覆盖 public settings、frontend assets、`/v1/models`、`/v1/chat/completions`、`/v1/messages`；通过时仍需确认结构字段，而不是只看 marker 文本。若本次发布触达 Responses/OpenAI-compat/Engine/Evidence 相关路径，或脚本当前未覆盖 `/v1/responses`，必须追加一次 `/v1/responses` 结构化请求：HTTP 200，`object=response`，`status=completed`（或有明确可解释的非失败终态），`output[]` / `output_text` 含测试短句，`usage` 字段结构正确，且没有 `error`。多个 key/group 验收时，分别记录 `key_hint`、group platform、以及日志里的 `account_id/platform/model`，不得用一个 key 的通过替代全部分组。
+**C 的通过标准**：
+
+- **public settings** — HTTP 200，JSON `code=0`。
+- **frontend release asset shape** — `check-frontend-release-assets.py` 通过；缺失 asset 返回 HTTP 404 + `Cache-Control: no-store`，不得 fallback 成 `index.html`。
+- **`/v1/models`** — HTTP 200，`object=list`，`data` 非空。
+- **`/v1/chat/completions`** — HTTP 200，`object=chat.completion`，`choices[0].message.content` 含预期 marker，`finish_reason` 合理，`usage` 存在。
+- **`/v1/messages`** — HTTP 200，`type=message`，`role=assistant`，`content[]` 有文本，`stop_reason` 合理，`usage` 存在。
+- **Gemini tool-schema 探针（可选，需 `POST_DEPLOY_SMOKE_GEMINI_API_KEY`）** — HTTP 400 = **硬失败**（schema 清理回归，必须回滚）；HTTP 401/403/404 = **硬失败**（key/路由配置错误）；HTTP 5xx/429/"no available accounts" = **软警告** exit 0（运行时资源问题，非 schema 回归）。
+- **OpenAI OAuth 探针（可选，需 `POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY`）** — HTTP 200 + 正确 shape + 含预期 marker + `prompt_tokens`/`completion_tokens` 非零且 `total` 自洽；`reasoning_tokens=0` 默认软警告，设 `REQUIRE=1` 升为硬失败；HTTP 4xx = **硬失败**；HTTP 5xx/429 = **软警告**。
+
+通过时仍需确认结构字段，不能只看 marker 文本。若本次发布触达 Responses 路径而以上可选探针未覆盖，可追加一次手动 `/v1/responses` 探针：HTTP 200，`object=response`，`status=completed`，`output[]`/`output_text` 含测试短句，`usage` 结构正确，无 `error`。多分组验收时，按 key 分别记录 `key_hint`、group platform、日志 `account_id/platform/model`；不得以一个 key 的通过代替全部分组。
+
+## 完成后：本次发版变更摘要
+
+烟测全部通过后，运行以下命令，然后向用户输出结构化摘要。
+
+```bash
+# 找到本次与上一个 tag
+NEW_TAG=$(git tag --sort=-version:refname | grep '^v[0-9]' | head -1)
+PREV_TAG=$(git tag --sort=-version:refname | grep '^v[0-9]' | sed -n '2p')
+echo "range: ${PREV_TAG} → ${NEW_TAG}"
+
+# 1. 有效提交（排除 merge commit 和 VERSION bump）
+git log "${PREV_TAG}..${NEW_TAG}" --oneline --no-merges \
+  | grep -v 'chore: bump VERSION' | grep -v '\[skip ci\]'
+
+# 2. 变更文件统计（backend + frontend）
+git diff --stat "${PREV_TAG}..${NEW_TAG}" -- backend/ frontend/src/ \
+  | tail -10
+
+# 3. sentinel 文件新增 / 改动
+git diff --name-only "${PREV_TAG}..${NEW_TAG}" -- 'scripts/*-sentinels.json' 2>/dev/null || \
+  git diff --name-only "${PREV_TAG}..${NEW_TAG}" -- scripts/ | grep 'sentinels'
+
+# 4. upstream 文件是否有删除（风险点）
+git diff --diff-filter=D --name-only "${PREV_TAG}..${NEW_TAG}" -- backend/ || true
+```
+
+基于输出，向用户呈现以下结构（不要省略任何非空部分）：
+
+**本次发版：`${PREV_TAG}` → `${NEW_TAG}`**
+
+| 类别 | 提交 / 文件 | 说明 |
+|---|---|---|
+| feat | … | 新功能及影响的网关 / 调度 / frontend 模块 |
+| fix | … | 修复内容及触达路径 |
+| chore/ci | … | 基础设施、CI、sentinel 变更 |
+
+**影响面与验证重点**（根据实际变更填写，无则省略）：
+
+- **Gemini 路径触达** → 是否提供了 `POST_DEPLOY_SMOKE_GEMINI_API_KEY`；Gemini tool-schema 探针结果（HTTP 200 为通过，400 为硬失败）
+- **OpenAI-compat / Responses 路径** → OpenAI OAuth 探针结果；`reasoning_tokens` 是否透传
+- **pricing / model-list** → `/v1/models` 返回数量与可用性标记是否符合预期
+- **frontend 变更** → frontend release asset shape 探针结果
+- **新增 / 修改的 sentinel** → 说明守卫的回归场景；upstream merge 时需重点确认
+- **upstream 文件删除（如有）** → 列出文件，说明是否有 PR description 中的 (a)/(b)/(c) 回归说明
 
 ## release 之后 main 是否还有提交
 
@@ -102,6 +180,7 @@ bash scripts/tk_post_deploy_smoke.sh
 | deploy 报单架构 manifest | 重新跑 `release.yml` 且 **`simple_release=false`**；prod 不要 override |
 | smoke 失败 | 看 deploy run log；查 Caddy/容器日志与网关路由（`deploy/aws/README.md`、 `docs/approved/deploy-stage0-workflow.md`） |
 | `gh run watch` 被工具超时打断 | 用同一 run id 再执行 `gh run watch <id> --exit-status` 接到终态 |
+| 出现两个并行 deploy run（Bot + 手动） | `release.yml` 已自动触发，不要再手动 dispatch；`gh run cancel <手动触发的 run id>` 取消多余的，watch Bot run |
 
 ## 扩展阅读（按需打开）
 
