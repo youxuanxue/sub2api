@@ -39,6 +39,21 @@ import (
 // 如果 upstream 把 per-model rate limit 内化（不太可能：upstream 没有
 // SetModelRateLimit 抽象），可以删掉本文件并将 call-site 还原。
 
+type geminiCodeAssistMappedModelContextKey struct{}
+
+func withGeminiCodeAssistMappedModel(ctx context.Context, model string) context.Context {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, geminiCodeAssistMappedModelContextKey{}, model)
+}
+
+func geminiCodeAssistMappedModelFromContext(ctx context.Context) string {
+	model, _ := ctx.Value(geminiCodeAssistMappedModelContextKey{}).(string)
+	return strings.TrimSpace(model)
+}
+
 // tryGeminiCodeAssistApplyModelRateLimit attempts to set a per-model rate limit
 // when a Gemini Code Assist 429 carries a model-specific signal.
 //
@@ -53,7 +68,7 @@ import (
 // On false (including non-Code-Assist accounts or no model key), the caller
 // continues with the existing account-level path.
 func (s *GeminiMessagesCompatService) tryGeminiCodeAssistApplyModelRateLimit(
-	ctx context.Context, account *Account, body []byte, fallbackModel string,
+	ctx context.Context, account *Account, body []byte,
 ) bool {
 	if account == nil || !account.IsGeminiCodeAssist() {
 		return false
@@ -61,7 +76,7 @@ func (s *GeminiMessagesCompatService) tryGeminiCodeAssistApplyModelRateLimit(
 
 	modelName := extractGeminiCodeAssistRateLimitedModel(body)
 	if modelName == "" {
-		fallbackModel = strings.TrimSpace(fallbackModel)
+		fallbackModel := geminiCodeAssistMappedModelFromContext(ctx)
 		modelScoped := isGeminiCodeAssistModelScopedRateLimit(body)
 		if fallbackModel == "" || !modelScoped {
 			logger.LegacyPrintf("service.gemini_messages_compat",

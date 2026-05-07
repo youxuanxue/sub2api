@@ -124,7 +124,7 @@ func TestTryGeminiCodeAssistApplyModelRateLimit_RecordsPerModel(t *testing.T) {
 		}
 	}`)
 
-	require.True(t, svc.tryGeminiCodeAssistApplyModelRateLimit(context.Background(), account, body, ""))
+	require.True(t, svc.tryGeminiCodeAssistApplyModelRateLimit(context.Background(), account, body))
 	require.Empty(t, repo.rateCalls, "must not set account-level rate limit when model is identified")
 	require.Len(t, repo.modelRateLimitCalls, 1)
 	require.Equal(t, int64(42), repo.modelRateLimitCalls[0].accountID)
@@ -147,7 +147,7 @@ func TestTryGeminiCodeAssistApplyModelRateLimit_SkipsForNonCodeAssist(t *testing
 	}
 	body := []byte(`{"error":{"status":"RESOURCE_EXHAUSTED","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"MODEL_CAPACITY_EXHAUSTED","metadata":{"model":"gemini-3.1-pro-preview"}}]}}`)
 
-	require.False(t, svc.tryGeminiCodeAssistApplyModelRateLimit(context.Background(), aiStudio, body, "gemini-3.1-pro-preview"))
+	require.False(t, svc.tryGeminiCodeAssistApplyModelRateLimit(withGeminiCodeAssistMappedModel(context.Background(), "gemini-3.1-pro-preview"), aiStudio, body))
 	require.Empty(t, repo.modelRateLimitCalls, "AI Studio OAuth must not get per-model rate limit via this path")
 	require.Empty(t, repo.rateCalls, "this helper never writes account-level — caller's fallback handles that")
 
@@ -157,7 +157,7 @@ func TestTryGeminiCodeAssistApplyModelRateLimit_SkipsForNonCodeAssist(t *testing
 		Platform: PlatformGemini,
 		Type:     AccountTypeAPIKey,
 	}
-	require.False(t, svc.tryGeminiCodeAssistApplyModelRateLimit(context.Background(), apiKey, body, "gemini-3.1-pro-preview"))
+	require.False(t, svc.tryGeminiCodeAssistApplyModelRateLimit(withGeminiCodeAssistMappedModel(context.Background(), "gemini-3.1-pro-preview"), apiKey, body))
 	require.Empty(t, repo.modelRateLimitCalls)
 }
 
@@ -178,7 +178,7 @@ func TestTryGeminiCodeAssistApplyModelRateLimit_FallsBackWhenNoModel(t *testing.
 		}
 	}`)
 
-	require.False(t, svc.tryGeminiCodeAssistApplyModelRateLimit(context.Background(), account, body, ""))
+	require.False(t, svc.tryGeminiCodeAssistApplyModelRateLimit(context.Background(), account, body))
 	require.Empty(t, repo.modelRateLimitCalls)
 }
 
@@ -199,7 +199,7 @@ func TestTryGeminiCodeAssistApplyModelRateLimit_UsesFallbackModelForModelScoped4
 		}
 	}`)
 
-	require.True(t, svc.tryGeminiCodeAssistApplyModelRateLimit(context.Background(), account, body, "gemini-3.1-pro-preview"))
+	require.True(t, svc.tryGeminiCodeAssistApplyModelRateLimit(withGeminiCodeAssistMappedModel(context.Background(), "gemini-3.1-pro-preview"), account, body))
 	require.Empty(t, repo.rateCalls)
 	require.Len(t, repo.modelRateLimitCalls, 1)
 	require.Equal(t, "gemini-3.1-pro-preview", repo.modelRateLimitCalls[0].modelKey)
@@ -218,7 +218,7 @@ func TestTryGeminiCodeAssistApplyModelRateLimit_DoesNotUseFallbackForAccountWide
 		}
 	}`)
 
-	require.False(t, svc.tryGeminiCodeAssistApplyModelRateLimit(context.Background(), account, body, "gemini-3.1-pro-preview"))
+	require.False(t, svc.tryGeminiCodeAssistApplyModelRateLimit(withGeminiCodeAssistMappedModel(context.Background(), "gemini-3.1-pro-preview"), account, body))
 	require.Empty(t, repo.modelRateLimitCalls)
 }
 
@@ -245,7 +245,7 @@ func TestTryGeminiCodeAssistApplyModelRateLimit_RespectsParsedRetryDelay(t *test
 	}`)
 
 	before := time.Now()
-	require.True(t, svc.tryGeminiCodeAssistApplyModelRateLimit(context.Background(), account, body, ""))
+	require.True(t, svc.tryGeminiCodeAssistApplyModelRateLimit(context.Background(), account, body))
 	require.Len(t, repo.modelRateLimitCalls, 1)
 	resetAt := repo.modelRateLimitCalls[0].resetAt
 	// 30s ± clock drift (allow up to 5s slack).
@@ -276,7 +276,7 @@ func TestHandleGeminiUpstreamError_CodeAssist429RoutesToPerModel(t *testing.T) {
 		}
 	}`)
 
-	svc.handleGeminiUpstreamError(context.Background(), account, http.StatusTooManyRequests, http.Header{}, body, "")
+	svc.handleGeminiUpstreamError(context.Background(), account, http.StatusTooManyRequests, http.Header{}, body)
 
 	require.Empty(t, repo.rateCalls, "Code Assist 429 with model metadata must NOT set account-level rate limit")
 	require.Len(t, repo.modelRateLimitCalls, 1)
@@ -290,7 +290,8 @@ func TestHandleGeminiUpstreamError_CodeAssist429FallbackModelRoutesToPerModel(t 
 
 	body := []byte(`{"error":{"code":429,"status":"RESOURCE_EXHAUSTED","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"MODEL_CAPACITY_EXHAUSTED"}]}}`)
 
-	svc.handleGeminiUpstreamError(context.Background(), account, http.StatusTooManyRequests, http.Header{}, body, "gemini-3.1-pro-preview")
+	ctx := withGeminiCodeAssistMappedModel(context.Background(), "gemini-3.1-pro-preview")
+	svc.handleGeminiUpstreamError(ctx, account, http.StatusTooManyRequests, http.Header{}, body)
 
 	require.Empty(t, repo.rateCalls, "model-scoped fallback must not set account-level rate limit")
 	require.Len(t, repo.modelRateLimitCalls, 1)
@@ -307,7 +308,7 @@ func TestHandleGeminiUpstreamError_CodeAssist429AccountWideStillFalls(t *testing
 
 	body := []byte(`{"error":{"code":429,"status":"RESOURCE_EXHAUSTED","message":"Quota exceeded"}}`)
 
-	svc.handleGeminiUpstreamError(context.Background(), account, http.StatusTooManyRequests, http.Header{}, body, "")
+	svc.handleGeminiUpstreamError(context.Background(), account, http.StatusTooManyRequests, http.Header{}, body)
 
 	require.Empty(t, repo.modelRateLimitCalls, "no per-model signal → no per-model write")
 	require.Len(t, repo.rateCalls, 1, "account-level fallback must still fire")

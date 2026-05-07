@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
+  "sentinels": [
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": ["withGeminiCodeAssistMappedModel(ctx, mappedModel)", "tryGeminiCodeAssistApplyModelRateLimit(ctx, account, body)"],
+      "rationale": "Code Assist 429 fallback-model protection depends on exactly two upstream-file hooks: forwarding stores the resolved upstream Gemini model in context, and handleGeminiUpstreamError delegates to the TK companion before account-level SetRateLimited. Dropping either hook brings back whole-account cooldowns for single-model capacity errors."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service_tk_model_rate_limit.go",
+      "must_contain": ["withGeminiCodeAssistMappedModel", "geminiCodeAssistMappedModelFromContext", "isGeminiCodeAssistModelScopedRateLimit", "SetModelRateLimit"],
+      "rationale": "TK companion that keeps Gemini Code Assist MODEL_CAPACITY_EXHAUSTED scoped to the affected upstream model, including the production case where Google omits ErrorInfo.metadata.model."
+    },
+    {
+      "path": "backend/internal/service/model_rate_limit.go",
+      "must_contain": ["resolveFinalGeminiModelKey", "TKResolveGeminiDispatchModel", "PlatformGemini"],
+      "rationale": "Scheduling must read model_rate_limits through the same Gemini group-level Claude→Gemini mapping used by forwarding; otherwise writes use gemini-* keys while subsequent /v1/messages reads probe claude-* keys."
+    },
+    {
+      "path": "backend/internal/service/model_rate_limit_test.go",
+      "must_contain": ["TestIsModelRateLimited_GeminiDispatchMappingAffectsModelKey"],
+      "rationale": "Focused regression proving Gemini dispatch mapping affects model-level rate-limit reads."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service_tk_model_rate_limit_test.go",
+      "must_contain": ["TestTryGeminiCodeAssistApplyModelRateLimit_UsesFallbackModelForModelScoped429", "TestHandleGeminiUpstreamError_CodeAssist429FallbackModelRoutesToPerModel"],
+      "rationale": "Focused regressions proving model-scoped Code Assist 429s without metadata.model do not fall back to account-level cooldown."
+    }
+  ]
+}
