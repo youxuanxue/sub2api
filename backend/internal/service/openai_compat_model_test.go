@@ -365,6 +365,10 @@ func TestForwardAsAnthropic_TrimsFullReplayOnlyForCodexCompatModels(t *testing.T
 				"api_key":  "sk-test",
 				"base_url": "https://api.openai.com/v1",
 			},
+			Extra: map[string]any{
+				"messages_compaction_enabled":                true,
+				"messages_compaction_input_tokens_threshold": 1,
+			},
 		}
 
 		result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", mappedModel)
