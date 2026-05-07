@@ -1,12 +1,12 @@
 ---
 title: OpenAI-compat Messages 自动压缩策略（账号/分组）
-status: pending
-approved_by: pending
-approved_at: pending
+status: shipped
+approved_by: xuejiao (release gate approval 2026-05-07)
+approved_at: 2026-05-07
 authors: [agent]
 created: 2026-05-07
 related_prs: []
-related_commits: []
+related_commits: [aa68310a, 08d2ebc8, f9cfe5c5]
 related_stories: [US-034]
 ---
 
