@@ -39,17 +39,33 @@ import (
 // 如果 upstream 把 per-model rate limit 内化（不太可能：upstream 没有
 // SetModelRateLimit 抽象），可以删掉本文件并将 call-site 还原。
 
+type geminiCodeAssistMappedModelContextKey struct{}
+
+func withGeminiCodeAssistMappedModel(ctx context.Context, model string) context.Context {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, geminiCodeAssistMappedModelContextKey{}, model)
+}
+
+func geminiCodeAssistMappedModelFromContext(ctx context.Context) string {
+	model, _ := ctx.Value(geminiCodeAssistMappedModelContextKey{}).(string)
+	return strings.TrimSpace(model)
+}
+
 // tryGeminiCodeAssistApplyModelRateLimit attempts to set a per-model rate limit
 // when a Gemini Code Assist 429 carries a model-specific signal.
 //
 // Returns true iff:
 //   - account is platform=gemini Code Assist OAuth (cloudcode-pa upstream), and
 //   - body parses as a Google RPC error containing an ErrorInfo with a
-//     non-empty metadata.model, and
+//     non-empty metadata.model, or the caller provides a non-empty fallback
+//     upstream model, and
 //   - SetModelRateLimit succeeds.
 //
 // On true, the caller MUST skip its own account-level rate-limit fallback.
-// On false (including parse failure or non-Code-Assist accounts), the caller
+// On false (including non-Code-Assist accounts or no model key), the caller
 // continues with the existing account-level path.
 func (s *GeminiMessagesCompatService) tryGeminiCodeAssistApplyModelRateLimit(
 	ctx context.Context, account *Account, body []byte,
@@ -60,7 +76,15 @@ func (s *GeminiMessagesCompatService) tryGeminiCodeAssistApplyModelRateLimit(
 
 	modelName := extractGeminiCodeAssistRateLimitedModel(body)
 	if modelName == "" {
-		return false
+		fallbackModel := geminiCodeAssistMappedModelFromContext(ctx)
+		modelScoped := isGeminiCodeAssistModelScopedRateLimit(body)
+		if fallbackModel == "" || !modelScoped {
+			logger.LegacyPrintf("service.gemini_messages_compat",
+				"[Gemini 429] tk_model_rate_limit_no_model account=%d fallback_model=%s model_scoped=%v (falling back to account-level)",
+				account.ID, fallbackModel, modelScoped)
+			return false
+		}
+		modelName = fallbackModel
 	}
 
 	// Reset time: prefer the upstream signal (quotaResetDelay / retryDelay),
@@ -100,23 +124,11 @@ func (s *GeminiMessagesCompatService) tryGeminiCodeAssistApplyModelRateLimit(
 // is the **presence** of metadata.model. Account-wide quota errors (daily
 // quota, account suspended, …) do not carry a model name.
 func extractGeminiCodeAssistRateLimitedModel(body []byte) string {
-	var parsed map[string]any
-	if err := json.Unmarshal(body, &parsed); err != nil {
+	details := geminiErrorDetails(body)
+	if len(details) == 0 {
 		return ""
 	}
-	errObj, ok := parsed["error"].(map[string]any)
-	if !ok {
-		return ""
-	}
-	details, ok := errObj["details"].([]any)
-	if !ok {
-		return ""
-	}
-	for _, d := range details {
-		dm, ok := d.(map[string]any)
-		if !ok {
-			continue
-		}
+	for _, dm := range details {
 		atType, _ := dm["@type"].(string)
 		if atType != googleRPCTypeErrorInfo {
 			continue
@@ -132,4 +144,45 @@ func extractGeminiCodeAssistRateLimitedModel(body []byte) string {
 		}
 	}
 	return ""
+}
+
+func isGeminiCodeAssistModelScopedRateLimit(body []byte) bool {
+	details := geminiErrorDetails(body)
+	if len(details) == 0 {
+		return false
+	}
+	for _, dm := range details {
+		atType, _ := dm["@type"].(string)
+		if atType != googleRPCTypeErrorInfo {
+			continue
+		}
+		reason, _ := dm["reason"].(string)
+		if strings.TrimSpace(reason) == googleRPCReasonModelCapacityExhausted {
+			return true
+		}
+	}
+	return false
+}
+
+func geminiErrorDetails(body []byte) []map[string]any {
+	var parsed map[string]any
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil
+	}
+	errObj, ok := parsed["error"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	details, ok := errObj["details"].([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(details))
+	for _, d := range details {
+		dm, ok := d.(map[string]any)
+		if ok {
+			out = append(out, dm)
+		}
+	}
+	return out
 }

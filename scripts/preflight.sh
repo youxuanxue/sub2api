@@ -31,6 +31,11 @@
 #        on common Vue components. Driven by `scripts/frontend-tk-sentinels.json`
 #        via `scripts/check-frontend-tk-sentinels.py`. The same script is
 #        invoked by `.github/workflows/upstream-merge-pr-shape.yml`.
+#   gateway TK sentinel registry — guards small TokenKey-only gateway/service
+#        hooks in upstream-shaped hotspot files from being silently reverted by
+#        upstream merges. Driven by `scripts/gateway-tk-sentinels.json` via
+#        `scripts/check-gateway-tk-sentinels.py`. The same script is invoked by
+#        `.github/workflows/upstream-merge-pr-shape.yml`.
 #   redaction version contract   — guards Evidence Spine contract drift:
 #        changing the default sensitive-key set in logredact must bump the
 #        outward QA `redaction_version` contract in the same commit. Driven by
@@ -278,6 +283,23 @@ elif ! python3 ./scripts/check-frontend-tk-sentinels.py --quiet; then
     errors=$((errors + 1))
 else
     echo "  ok: all frontend TK sentinels intact"
+fi
+
+# ---- sub2api: gateway TK sentinel registry ----------------------------------
+# Source of truth: scripts/gateway-tk-sentinels.json. Verifies that small
+# TokenKey-only gateway/service injections in upstream-shaped hotspot files are
+# still present after merges. These hooks compile cleanly if dropped but cause
+# production routing / rate-limit regressions later.
+echo ""
+echo "=== sub2api: gateway TK sentinel registry ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required to read gateway-tk-sentinels.json)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/check-gateway-tk-sentinels.py --quiet; then
+    # check-gateway-tk-sentinels.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: all gateway TK sentinels intact"
 fi
 
 # ---- sub2api: redaction version contract ------------------------------------

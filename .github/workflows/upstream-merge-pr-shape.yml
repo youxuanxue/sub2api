@@ -28,6 +28,10 @@ name: Upstream Merge PR Shape
 #      merge — small UI divergences (sidebar geometry, fluid admin-accounts
 #      table mode, sticky-edge-hints opt-out) compile cleanly even if
 #      silently reverted, so a literal-content guard is the only catch.
+#   5c. Every load-bearing TokenKey-only gateway/service hook listed in
+#      `scripts/gateway-tk-sentinels.json` is still intact after the merge;
+#      these are small upstream-hotspot injections that otherwise compile
+#      cleanly when silently reverted.
 #   6. The QA evidence redaction contract stays aligned: if logredact's
 #      default sensitive-key set changes, `scripts/redaction-sentinels.json`
 #      and every outward `redaction_version` literal must move in the same
@@ -225,6 +229,25 @@ jobs:
           if ! python3 ./scripts/check-frontend-tk-sentinels.py; then
             echo "::error::Upstream merge regressed at least one frontend TK sentinel."
             echo "::error::Restore the dropped / reverted TK frontend surface in this merge PR."
+            echo "::error::Do NOT 'fix' by deleting the sentinel entry."
+            exit 1
+          fi
+
+      - name: Check 5c — gateway TK sentinels still intact after merge
+        run: |
+          # Single source of truth: scripts/gateway-tk-sentinels.json. Same
+          # script that scripts/preflight.sh runs locally, so a green local
+          # preflight implies a green check here. Guards small TK gateway/service
+          # hooks in upstream-shaped hotspot files that compile cleanly even if
+          # reverted, with regressions only surfacing in production behavior.
+          if [ ! -x ./scripts/check-gateway-tk-sentinels.py ]; then
+            echo "::error::scripts/check-gateway-tk-sentinels.py missing or not executable."
+            echo "::error::Per CLAUDE.md §5 minimum-invasion guidance, this guard cannot be silently disabled."
+            exit 1
+          fi
+          if ! python3 ./scripts/check-gateway-tk-sentinels.py; then
+            echo "::error::Upstream merge regressed at least one gateway TK sentinel."
+            echo "::error::Restore the dropped / reverted TK gateway hook in this merge PR."
             echo "::error::Do NOT 'fix' by deleting the sentinel entry."
             exit 1
           fi

@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 )
 
 const modelRateLimitsKey = "model_rate_limits"
@@ -35,6 +37,8 @@ func (a *Account) isModelRateLimitedWithContext(ctx context.Context, requestedMo
 	modelKey := a.GetMappedModel(requestedModel)
 	if a.Platform == PlatformAntigravity {
 		modelKey = resolveFinalAntigravityModelKey(ctx, a, requestedModel)
+	} else if a.Platform == PlatformGemini {
+		modelKey = resolveFinalGeminiModelKey(ctx, requestedModel)
 	}
 	modelKey = strings.TrimSpace(modelKey)
 	if modelKey == "" {
@@ -57,6 +61,8 @@ func (a *Account) GetModelRateLimitRemainingTimeWithContext(ctx context.Context,
 	modelKey := a.GetMappedModel(requestedModel)
 	if a.Platform == PlatformAntigravity {
 		modelKey = resolveFinalAntigravityModelKey(ctx, a, requestedModel)
+	} else if a.Platform == PlatformGemini {
+		modelKey = resolveFinalGeminiModelKey(ctx, requestedModel)
 	}
 	modelKey = strings.TrimSpace(modelKey)
 	if modelKey == "" {
@@ -73,6 +79,21 @@ func resolveFinalAntigravityModelKey(ctx context.Context, account *Account, requ
 	// thinking 会影响 Antigravity 最终模型名（例如 claude-sonnet-4-5 -> claude-sonnet-4-5-thinking）
 	if enabled, ok := ThinkingEnabledFromContext(ctx); ok {
 		modelKey = applyThinkingModelSuffix(modelKey, enabled)
+	}
+	return modelKey
+}
+
+func resolveFinalGeminiModelKey(ctx context.Context, requestedModel string) string {
+	modelKey := strings.TrimSpace(requestedModel)
+	if modelKey == "" {
+		return ""
+	}
+	group, ok := ctx.Value(ctxkey.Group).(*Group)
+	if !ok || !IsGroupContextValid(group) || group.Platform != PlatformGemini {
+		return modelKey
+	}
+	if mapped := group.TKResolveGeminiDispatchModel(modelKey); mapped != "" {
+		return mapped
 	}
 	return modelKey
 }
