@@ -667,6 +667,8 @@ var (
 		{Name: "messages_dispatch_model_config", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
 		{Name: "sticky_routing_mode", Type: field.TypeEnum, Enums: []string{"auto", "passthrough", "off"}, Default: "auto"},
 		{Name: "rpm_limit", Type: field.TypeInt, Default: 0},
+		{Name: "messages_compaction_enabled", Type: field.TypeBool, Nullable: true},
+		{Name: "messages_compaction_input_tokens_threshold", Type: field.TypeInt, Nullable: true},
 	}
 	// GroupsTable holds the schema information for the "groups" table.
 	GroupsTable = &schema.Table{

@@ -651,6 +651,53 @@ func (_u *GroupUpdate) AddRpmLimit(v int) *GroupUpdate {
 	return _u
 }
 
+// SetMessagesCompactionEnabled sets the "messages_compaction_enabled" field.
+func (_u *GroupUpdate) SetMessagesCompactionEnabled(v bool) *GroupUpdate {
+	_u.mutation.SetMessagesCompactionEnabled(v)
+	return _u
+}
+
+// SetNillableMessagesCompactionEnabled sets the "messages_compaction_enabled" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableMessagesCompactionEnabled(v *bool) *GroupUpdate {
+	if v != nil {
+		_u.SetMessagesCompactionEnabled(*v)
+	}
+	return _u
+}
+
+// ClearMessagesCompactionEnabled clears the value of the "messages_compaction_enabled" field.
+func (_u *GroupUpdate) ClearMessagesCompactionEnabled() *GroupUpdate {
+	_u.mutation.ClearMessagesCompactionEnabled()
+	return _u
+}
+
+// SetMessagesCompactionInputTokensThreshold sets the "messages_compaction_input_tokens_threshold" field.
+func (_u *GroupUpdate) SetMessagesCompactionInputTokensThreshold(v int) *GroupUpdate {
+	_u.mutation.ResetMessagesCompactionInputTokensThreshold()
+	_u.mutation.SetMessagesCompactionInputTokensThreshold(v)
+	return _u
+}
+
+// SetNillableMessagesCompactionInputTokensThreshold sets the "messages_compaction_input_tokens_threshold" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableMessagesCompactionInputTokensThreshold(v *int) *GroupUpdate {
+	if v != nil {
+		_u.SetMessagesCompactionInputTokensThreshold(*v)
+	}
+	return _u
+}
+
+// AddMessagesCompactionInputTokensThreshold adds value to the "messages_compaction_input_tokens_threshold" field.
+func (_u *GroupUpdate) AddMessagesCompactionInputTokensThreshold(v int) *GroupUpdate {
+	_u.mutation.AddMessagesCompactionInputTokensThreshold(v)
+	return _u
+}
+
+// ClearMessagesCompactionInputTokensThreshold clears the value of the "messages_compaction_input_tokens_threshold" field.
+func (_u *GroupUpdate) ClearMessagesCompactionInputTokensThreshold() *GroupUpdate {
+	_u.mutation.ClearMessagesCompactionInputTokensThreshold()
+	return _u
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by IDs.
 func (_u *GroupUpdate) AddAPIKeyIDs(ids ...int64) *GroupUpdate {
 	_u.mutation.AddAPIKeyIDs(ids...)
@@ -1139,6 +1186,21 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.AddedRpmLimit(); ok {
 		_spec.AddField(group.FieldRpmLimit, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.MessagesCompactionEnabled(); ok {
+		_spec.SetField(group.FieldMessagesCompactionEnabled, field.TypeBool, value)
+	}
+	if _u.mutation.MessagesCompactionEnabledCleared() {
+		_spec.ClearField(group.FieldMessagesCompactionEnabled, field.TypeBool)
+	}
+	if value, ok := _u.mutation.MessagesCompactionInputTokensThreshold(); ok {
+		_spec.SetField(group.FieldMessagesCompactionInputTokensThreshold, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedMessagesCompactionInputTokensThreshold(); ok {
+		_spec.AddField(group.FieldMessagesCompactionInputTokensThreshold, field.TypeInt, value)
+	}
+	if _u.mutation.MessagesCompactionInputTokensThresholdCleared() {
+		_spec.ClearField(group.FieldMessagesCompactionInputTokensThreshold, field.TypeInt)
 	}
 	if _u.mutation.APIKeysCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -2069,6 +2131,53 @@ func (_u *GroupUpdateOne) AddRpmLimit(v int) *GroupUpdateOne {
 	return _u
 }
 
+// SetMessagesCompactionEnabled sets the "messages_compaction_enabled" field.
+func (_u *GroupUpdateOne) SetMessagesCompactionEnabled(v bool) *GroupUpdateOne {
+	_u.mutation.SetMessagesCompactionEnabled(v)
+	return _u
+}
+
+// SetNillableMessagesCompactionEnabled sets the "messages_compaction_enabled" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableMessagesCompactionEnabled(v *bool) *GroupUpdateOne {
+	if v != nil {
+		_u.SetMessagesCompactionEnabled(*v)
+	}
+	return _u
+}
+
+// ClearMessagesCompactionEnabled clears the value of the "messages_compaction_enabled" field.
+func (_u *GroupUpdateOne) ClearMessagesCompactionEnabled() *GroupUpdateOne {
+	_u.mutation.ClearMessagesCompactionEnabled()
+	return _u
+}
+
+// SetMessagesCompactionInputTokensThreshold sets the "messages_compaction_input_tokens_threshold" field.
+func (_u *GroupUpdateOne) SetMessagesCompactionInputTokensThreshold(v int) *GroupUpdateOne {
+	_u.mutation.ResetMessagesCompactionInputTokensThreshold()
+	_u.mutation.SetMessagesCompactionInputTokensThreshold(v)
+	return _u
+}
+
+// SetNillableMessagesCompactionInputTokensThreshold sets the "messages_compaction_input_tokens_threshold" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableMessagesCompactionInputTokensThreshold(v *int) *GroupUpdateOne {
+	if v != nil {
+		_u.SetMessagesCompactionInputTokensThreshold(*v)
+	}
+	return _u
+}
+
+// AddMessagesCompactionInputTokensThreshold adds value to the "messages_compaction_input_tokens_threshold" field.
+func (_u *GroupUpdateOne) AddMessagesCompactionInputTokensThreshold(v int) *GroupUpdateOne {
+	_u.mutation.AddMessagesCompactionInputTokensThreshold(v)
+	return _u
+}
+
+// ClearMessagesCompactionInputTokensThreshold clears the value of the "messages_compaction_input_tokens_threshold" field.
+func (_u *GroupUpdateOne) ClearMessagesCompactionInputTokensThreshold() *GroupUpdateOne {
+	_u.mutation.ClearMessagesCompactionInputTokensThreshold()
+	return _u
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by IDs.
 func (_u *GroupUpdateOne) AddAPIKeyIDs(ids ...int64) *GroupUpdateOne {
 	_u.mutation.AddAPIKeyIDs(ids...)
@@ -2587,6 +2696,21 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if value, ok := _u.mutation.AddedRpmLimit(); ok {
 		_spec.AddField(group.FieldRpmLimit, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.MessagesCompactionEnabled(); ok {
+		_spec.SetField(group.FieldMessagesCompactionEnabled, field.TypeBool, value)
+	}
+	if _u.mutation.MessagesCompactionEnabledCleared() {
+		_spec.ClearField(group.FieldMessagesCompactionEnabled, field.TypeBool)
+	}
+	if value, ok := _u.mutation.MessagesCompactionInputTokensThreshold(); ok {
+		_spec.SetField(group.FieldMessagesCompactionInputTokensThreshold, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedMessagesCompactionInputTokensThreshold(); ok {
+		_spec.AddField(group.FieldMessagesCompactionInputTokensThreshold, field.TypeInt, value)
+	}
+	if _u.mutation.MessagesCompactionInputTokensThresholdCleared() {
+		_spec.ClearField(group.FieldMessagesCompactionInputTokensThreshold, field.TypeInt)
 	}
 	if _u.mutation.APIKeysCleared() {
 		edge := &sqlgraph.EdgeSpec{

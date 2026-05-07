@@ -118,6 +118,9 @@ type Group struct {
 
 	// RPMLimit 分组级每分钟请求数上限（0 = 不限制），设置后覆盖用户级 rpm_limit。
 	RPMLimit int `json:"rpm_limit"`
+	// OpenAI /v1/messages 自动压缩策略（nil = 未配置）。
+	MessagesCompactionEnabled              *bool `json:"messages_compaction_enabled"`
+	MessagesCompactionInputTokensThreshold *int  `json:"messages_compaction_input_tokens_threshold"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

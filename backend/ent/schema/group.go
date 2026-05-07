@@ -168,6 +168,14 @@ func (Group) Fields() []ent.Field {
 		field.Int("rpm_limit").
 			Default(0).
 			Comment("分组 RPM 上限，0 表示不限制；设置后接管该分组用户的限流"),
+		field.Bool("messages_compaction_enabled").
+			Optional().
+			Nillable().
+			Comment("OpenAI /v1/messages 自动压缩开关；NULL 表示未配置"),
+		field.Int("messages_compaction_input_tokens_threshold").
+			Optional().
+			Nillable().
+			Comment("OpenAI /v1/messages 自动压缩输入 token 阈值；NULL 表示未配置"),
 	}
 }
 

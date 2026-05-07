@@ -87,6 +87,10 @@ const (
 	FieldStickyRoutingMode = "sticky_routing_mode"
 	// FieldRpmLimit holds the string denoting the rpm_limit field in the database.
 	FieldRpmLimit = "rpm_limit"
+	// FieldMessagesCompactionEnabled holds the string denoting the messages_compaction_enabled field in the database.
+	FieldMessagesCompactionEnabled = "messages_compaction_enabled"
+	// FieldMessagesCompactionInputTokensThreshold holds the string denoting the messages_compaction_input_tokens_threshold field in the database.
+	FieldMessagesCompactionInputTokensThreshold = "messages_compaction_input_tokens_threshold"
 	// EdgeAPIKeys holds the string denoting the api_keys edge name in mutations.
 	EdgeAPIKeys = "api_keys"
 	// EdgeRedeemCodes holds the string denoting the redeem_codes edge name in mutations.
@@ -197,6 +201,8 @@ var Columns = []string{
 	FieldMessagesDispatchModelConfig,
 	FieldStickyRoutingMode,
 	FieldRpmLimit,
+	FieldMessagesCompactionEnabled,
+	FieldMessagesCompactionInputTokensThreshold,
 }
 
 var (
@@ -477,6 +483,16 @@ func ByStickyRoutingMode(opts ...sql.OrderTermOption) OrderOption {
 // ByRpmLimit orders the results by the rpm_limit field.
 func ByRpmLimit(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldRpmLimit, opts...).ToFunc()
+}
+
+// ByMessagesCompactionEnabled orders the results by the messages_compaction_enabled field.
+func ByMessagesCompactionEnabled(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldMessagesCompactionEnabled, opts...).ToFunc()
+}
+
+// ByMessagesCompactionInputTokensThreshold orders the results by the messages_compaction_input_tokens_threshold field.
+func ByMessagesCompactionInputTokensThreshold(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldMessagesCompactionInputTokensThreshold, opts...).ToFunc()
 }
 
 // ByAPIKeysCount orders the results by api_keys count.

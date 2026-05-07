@@ -34,3 +34,14 @@ func openAICompatContinuationAllowedAccountType(account *Account) bool {
 func openAICompatShouldTrimForContinuation(account *Account) bool {
 	return account != nil && account.Type == AccountTypeAPIKey
 }
+
+// openAICompatShouldDisableContinuationOnPreviousResponseNotFound returns true
+// when a previous_response_not_found fallback should permanently disable
+// previous_response_id continuation for the current sticky window.
+//
+// OAuth (ChatGPT Codex) sessions can reject older response IDs even when
+// x-codex-turn-state remains valid. Keeping previous_response_id enabled would
+// then trigger the same not_found retry on every turn.
+func openAICompatShouldDisableContinuationOnPreviousResponseNotFound(account *Account) bool {
+	return account != nil && account.Type == AccountTypeOAuth
+}

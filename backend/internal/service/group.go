@@ -69,6 +69,10 @@ type Group struct {
 	// 一旦设置即接管该分组用户的限流（覆盖用户级 rpm_limit），可被 user-group rpm_override 进一步覆盖。
 	RPMLimit int
 
+	// OpenAI /v1/messages 兼容路径自动压缩策略（nil = 未配置，不触发）。
+	MessagesCompactionEnabled              *bool
+	MessagesCompactionInputTokensThreshold *int
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 

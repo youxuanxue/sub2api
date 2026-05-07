@@ -71,7 +71,9 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		compatPromptCacheInjected = promptCacheKey != ""
 	}
 	compatReplayTrimmed := false
+	compatReplayTrimmedByPolicy := false
 	compatReplayGuardEnabled := shouldAutoInjectPromptCacheKeyForCompat(upstreamModel)
+	compatCompactionPolicy := resolveOpenAICompatMessagesCompactionPolicy(account, apiKeyGroup(getAPIKeyFromContext(c)))
 	compatContinuationEnabled := openAICompatContinuationEnabled(account, upstreamModel)
 	previousResponseID := ""
 	if compatContinuationEnabled {
@@ -84,7 +86,10 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	// sliding 12-message window makes the cached prefix stall at system/tools.
 	// Keep full replay there so upstream prompt caching can grow turn by turn.
 	if compatReplayGuardEnabled && account.Type != AccountTypeOAuth && previousResponseID == "" && !compatContinuationDisabled {
-		compatReplayTrimmed = applyAnthropicCompatFullReplayGuard(&anthropicReq)
+		if shouldApplyOpenAICompatMessagesCompaction(compatCompactionPolicy, &anthropicReq) {
+			compatReplayTrimmed = applyOpenAICompatMessagesCompaction(&anthropicReq)
+			compatReplayTrimmedByPolicy = compatReplayTrimmed
+		}
 	}
 
 	// 3. Convert Anthropic → Responses after compatibility-only replay guard.
@@ -136,6 +141,12 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		logFields = append(logFields,
 			zap.Bool("compat_full_replay_trimmed", true),
 			zap.Int("compat_messages_after_trim", len(anthropicReq.Messages)),
+		)
+	}
+	if compatReplayTrimmedByPolicy {
+		logFields = append(logFields,
+			zap.Bool("compat_messages_compaction_applied", true),
+			zap.Int("compat_messages_compaction_input_tokens_threshold", compatCompactionPolicy.inputTokenLimit),
 		)
 	}
 	if previousResponseID != "" {
@@ -316,17 +327,42 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
-		if previousResponseID != "" && (isOpenAICompatPreviousResponseNotFound(resp.StatusCode, upstreamMsg, respBody) || isOpenAICompatPreviousResponseUnsupported(resp.StatusCode, upstreamMsg, respBody)) {
-			if isOpenAICompatPreviousResponseUnsupported(resp.StatusCode, upstreamMsg, respBody) {
+		previousResponseNotFound := isOpenAICompatPreviousResponseNotFound(resp.StatusCode, upstreamMsg, respBody)
+		previousResponseUnsupported := isOpenAICompatPreviousResponseUnsupported(resp.StatusCode, upstreamMsg, respBody)
+		if previousResponseID != "" && (previousResponseNotFound || previousResponseUnsupported) {
+			fallbackReason := "not_found"
+			continuationDisabledAfterFallback := false
+			continuationDisableReason := ""
+			if previousResponseUnsupported {
+				fallbackReason = "unsupported"
+				continuationDisableReason = "unsupported"
 				s.disableOpenAICompatSessionContinuation(ctx, c, account, promptCacheKey)
+				continuationDisabledAfterFallback = true
+			} else if openAICompatShouldDisableContinuationOnPreviousResponseNotFound(account) {
+				continuationDisableReason = "oauth_not_found_persistent"
+				s.disableOpenAICompatSessionContinuation(ctx, c, account, promptCacheKey)
+				continuationDisabledAfterFallback = true
 			} else {
 				s.deleteOpenAICompatSessionResponseID(ctx, c, account, promptCacheKey)
 			}
-			logger.L().Info("openai messages: previous_response_id unavailable, retrying without continuation",
+			logFields := []zap.Field{
 				zap.Int64("account_id", account.ID),
+				zap.String("account_type", account.Type),
 				zap.String("previous_response_id", truncateOpenAIWSLogValue(previousResponseID, openAIWSIDValueMaxLen)),
 				zap.String("upstream_model", upstreamModel),
-			)
+				zap.String("compat_previous_response_fallback_reason", fallbackReason),
+				zap.Bool("compat_turn_state_present", strings.TrimSpace(compatTurnState) != ""),
+				zap.Bool("compat_continuation_disabled_after_fallback", continuationDisabledAfterFallback),
+				zap.Bool("compat_previous_response_retry_without_continuation", true),
+				zap.Int("compat_retry_attempt", 1),
+			}
+			if continuationDisableReason != "" {
+				logFields = append(logFields, zap.String("compat_continuation_disable_reason", continuationDisableReason))
+			}
+			if promptCacheKey != "" {
+				logFields = append(logFields, zap.String("compat_prompt_cache_key_sha256", hashSensitiveValueForLog(promptCacheKey)))
+			}
+			logger.L().Info("openai messages: previous_response_id unavailable, retrying without continuation", logFields...)
 			return s.ForwardAsAnthropic(ctx, c, account, body, promptCacheKey, defaultMappedModel)
 		}
 		if s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMsg, respBody) {

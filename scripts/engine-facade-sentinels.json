@@ -80,7 +80,30 @@
       "required_literals": [
         "func openAICompatContinuationAllowedAccountType(",
         "func openAICompatShouldTrimForContinuation(",
+        "func openAICompatShouldDisableContinuationOnPreviousResponseNotFound(",
         "account.Type == AccountTypeOAuth"
+      ]
+    },
+    {
+      "name": "openai_compat_messages_compaction_injection",
+      "source": "backend/internal/service/openai_gateway_messages.go",
+      "required_literals": [
+        "compatCompactionPolicy := resolveOpenAICompatMessagesCompactionPolicy(account, apiKeyGroup(getAPIKeyFromContext(c)))",
+        "if shouldApplyOpenAICompatMessagesCompaction(compatCompactionPolicy, &anthropicReq) {",
+        "compatReplayTrimmed = applyOpenAICompatMessagesCompaction(&anthropicReq)",
+        "zap.Bool(\"compat_messages_compaction_applied\", true)",
+        "zap.Int(\"compat_messages_compaction_input_tokens_threshold\", compatCompactionPolicy.inputTokenLimit)"
+      ]
+    },
+    {
+      "name": "openai_compat_messages_compaction_companion",
+      "source": "backend/internal/service/openai_messages_compaction_tk.go",
+      "required_literals": [
+        "func resolveOpenAICompatMessagesCompactionPolicy(account *Account, group *Group) openAICompatMessagesCompactionPolicy",
+        "func shouldApplyOpenAICompatMessagesCompaction(policy openAICompatMessagesCompactionPolicy, req *apicompat.AnthropicRequest) bool",
+        "func applyOpenAICompatMessagesCompaction(req *apicompat.AnthropicRequest) bool",
+        "return applyAnthropicCompatFullReplayGuard(req)",
+        "messages_compaction_input_tokens_threshold"
       ]
     },
     {

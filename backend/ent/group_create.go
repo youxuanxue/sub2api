@@ -495,6 +495,34 @@ func (_c *GroupCreate) SetNillableRpmLimit(v *int) *GroupCreate {
 	return _c
 }
 
+// SetMessagesCompactionEnabled sets the "messages_compaction_enabled" field.
+func (_c *GroupCreate) SetMessagesCompactionEnabled(v bool) *GroupCreate {
+	_c.mutation.SetMessagesCompactionEnabled(v)
+	return _c
+}
+
+// SetNillableMessagesCompactionEnabled sets the "messages_compaction_enabled" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableMessagesCompactionEnabled(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetMessagesCompactionEnabled(*v)
+	}
+	return _c
+}
+
+// SetMessagesCompactionInputTokensThreshold sets the "messages_compaction_input_tokens_threshold" field.
+func (_c *GroupCreate) SetMessagesCompactionInputTokensThreshold(v int) *GroupCreate {
+	_c.mutation.SetMessagesCompactionInputTokensThreshold(v)
+	return _c
+}
+
+// SetNillableMessagesCompactionInputTokensThreshold sets the "messages_compaction_input_tokens_threshold" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableMessagesCompactionInputTokensThreshold(v *int) *GroupCreate {
+	if v != nil {
+		_c.SetMessagesCompactionInputTokensThreshold(*v)
+	}
+	return _c
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by IDs.
 func (_c *GroupCreate) AddAPIKeyIDs(ids ...int64) *GroupCreate {
 	_c.mutation.AddAPIKeyIDs(ids...)
@@ -993,6 +1021,14 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.RpmLimit(); ok {
 		_spec.SetField(group.FieldRpmLimit, field.TypeInt, value)
 		_node.RpmLimit = value
+	}
+	if value, ok := _c.mutation.MessagesCompactionEnabled(); ok {
+		_spec.SetField(group.FieldMessagesCompactionEnabled, field.TypeBool, value)
+		_node.MessagesCompactionEnabled = &value
+	}
+	if value, ok := _c.mutation.MessagesCompactionInputTokensThreshold(); ok {
+		_spec.SetField(group.FieldMessagesCompactionInputTokensThreshold, field.TypeInt, value)
+		_node.MessagesCompactionInputTokensThreshold = &value
 	}
 	if nodes := _c.mutation.APIKeysIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
@@ -1702,6 +1738,48 @@ func (u *GroupUpsert) AddRpmLimit(v int) *GroupUpsert {
 	return u
 }
 
+// SetMessagesCompactionEnabled sets the "messages_compaction_enabled" field.
+func (u *GroupUpsert) SetMessagesCompactionEnabled(v bool) *GroupUpsert {
+	u.Set(group.FieldMessagesCompactionEnabled, v)
+	return u
+}
+
+// UpdateMessagesCompactionEnabled sets the "messages_compaction_enabled" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateMessagesCompactionEnabled() *GroupUpsert {
+	u.SetExcluded(group.FieldMessagesCompactionEnabled)
+	return u
+}
+
+// ClearMessagesCompactionEnabled clears the value of the "messages_compaction_enabled" field.
+func (u *GroupUpsert) ClearMessagesCompactionEnabled() *GroupUpsert {
+	u.SetNull(group.FieldMessagesCompactionEnabled)
+	return u
+}
+
+// SetMessagesCompactionInputTokensThreshold sets the "messages_compaction_input_tokens_threshold" field.
+func (u *GroupUpsert) SetMessagesCompactionInputTokensThreshold(v int) *GroupUpsert {
+	u.Set(group.FieldMessagesCompactionInputTokensThreshold, v)
+	return u
+}
+
+// UpdateMessagesCompactionInputTokensThreshold sets the "messages_compaction_input_tokens_threshold" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateMessagesCompactionInputTokensThreshold() *GroupUpsert {
+	u.SetExcluded(group.FieldMessagesCompactionInputTokensThreshold)
+	return u
+}
+
+// AddMessagesCompactionInputTokensThreshold adds v to the "messages_compaction_input_tokens_threshold" field.
+func (u *GroupUpsert) AddMessagesCompactionInputTokensThreshold(v int) *GroupUpsert {
+	u.Add(group.FieldMessagesCompactionInputTokensThreshold, v)
+	return u
+}
+
+// ClearMessagesCompactionInputTokensThreshold clears the value of the "messages_compaction_input_tokens_threshold" field.
+func (u *GroupUpsert) ClearMessagesCompactionInputTokensThreshold() *GroupUpsert {
+	u.SetNull(group.FieldMessagesCompactionInputTokensThreshold)
+	return u
+}
+
 // UpdateNewValues updates the mutable fields using the new values that were set on create.
 // Using this option is equivalent to using:
 //
@@ -2388,6 +2466,55 @@ func (u *GroupUpsertOne) AddRpmLimit(v int) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateRpmLimit() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateRpmLimit()
+	})
+}
+
+// SetMessagesCompactionEnabled sets the "messages_compaction_enabled" field.
+func (u *GroupUpsertOne) SetMessagesCompactionEnabled(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetMessagesCompactionEnabled(v)
+	})
+}
+
+// UpdateMessagesCompactionEnabled sets the "messages_compaction_enabled" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateMessagesCompactionEnabled() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateMessagesCompactionEnabled()
+	})
+}
+
+// ClearMessagesCompactionEnabled clears the value of the "messages_compaction_enabled" field.
+func (u *GroupUpsertOne) ClearMessagesCompactionEnabled() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearMessagesCompactionEnabled()
+	})
+}
+
+// SetMessagesCompactionInputTokensThreshold sets the "messages_compaction_input_tokens_threshold" field.
+func (u *GroupUpsertOne) SetMessagesCompactionInputTokensThreshold(v int) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetMessagesCompactionInputTokensThreshold(v)
+	})
+}
+
+// AddMessagesCompactionInputTokensThreshold adds v to the "messages_compaction_input_tokens_threshold" field.
+func (u *GroupUpsertOne) AddMessagesCompactionInputTokensThreshold(v int) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddMessagesCompactionInputTokensThreshold(v)
+	})
+}
+
+// UpdateMessagesCompactionInputTokensThreshold sets the "messages_compaction_input_tokens_threshold" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateMessagesCompactionInputTokensThreshold() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateMessagesCompactionInputTokensThreshold()
+	})
+}
+
+// ClearMessagesCompactionInputTokensThreshold clears the value of the "messages_compaction_input_tokens_threshold" field.
+func (u *GroupUpsertOne) ClearMessagesCompactionInputTokensThreshold() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearMessagesCompactionInputTokensThreshold()
 	})
 }
 
@@ -3243,6 +3370,55 @@ func (u *GroupUpsertBulk) AddRpmLimit(v int) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateRpmLimit() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateRpmLimit()
+	})
+}
+
+// SetMessagesCompactionEnabled sets the "messages_compaction_enabled" field.
+func (u *GroupUpsertBulk) SetMessagesCompactionEnabled(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetMessagesCompactionEnabled(v)
+	})
+}
+
+// UpdateMessagesCompactionEnabled sets the "messages_compaction_enabled" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateMessagesCompactionEnabled() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateMessagesCompactionEnabled()
+	})
+}
+
+// ClearMessagesCompactionEnabled clears the value of the "messages_compaction_enabled" field.
+func (u *GroupUpsertBulk) ClearMessagesCompactionEnabled() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearMessagesCompactionEnabled()
+	})
+}
+
+// SetMessagesCompactionInputTokensThreshold sets the "messages_compaction_input_tokens_threshold" field.
+func (u *GroupUpsertBulk) SetMessagesCompactionInputTokensThreshold(v int) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetMessagesCompactionInputTokensThreshold(v)
+	})
+}
+
+// AddMessagesCompactionInputTokensThreshold adds v to the "messages_compaction_input_tokens_threshold" field.
+func (u *GroupUpsertBulk) AddMessagesCompactionInputTokensThreshold(v int) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddMessagesCompactionInputTokensThreshold(v)
+	})
+}
+
+// UpdateMessagesCompactionInputTokensThreshold sets the "messages_compaction_input_tokens_threshold" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateMessagesCompactionInputTokensThreshold() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateMessagesCompactionInputTokensThreshold()
+	})
+}
+
+// ClearMessagesCompactionInputTokensThreshold clears the value of the "messages_compaction_input_tokens_threshold" field.
+func (u *GroupUpsertBulk) ClearMessagesCompactionInputTokensThreshold() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearMessagesCompactionInputTokensThreshold()
 	})
 }
 

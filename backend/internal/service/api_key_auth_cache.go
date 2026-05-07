@@ -89,6 +89,9 @@ type APIKeyAuthGroupSnapshot struct {
 
 	// RPMLimit 分组级每分钟请求数上限（0 = 不限制）；用于 billing_cache_service.checkRPM 级联判断。
 	RPMLimit int `json:"rpm_limit"`
+	// OpenAI /v1/messages 自动压缩策略（nil = 未配置）。
+	MessagesCompactionEnabled              *bool `json:"messages_compaction_enabled,omitempty"`
+	MessagesCompactionInputTokensThreshold *int  `json:"messages_compaction_input_tokens_threshold,omitempty"`
 }
 
 // APIKeyAuthCacheEntry 缓存条目，支持负缓存
