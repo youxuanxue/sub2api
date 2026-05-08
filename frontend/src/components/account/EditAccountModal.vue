@@ -1580,6 +1580,44 @@
             {{ formatDateTime(new Date(String(account.extra.openai_compact_checked_at))) }}
           </span>
         </div>
+        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+          <div class="flex items-center justify-between">
+            <div>
+              <label class="input-label mb-0">{{ t('admin.accounts.openai.messagesCompactionEnabled') }}</label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.openai.messagesCompactionEnabledDesc') }}
+              </p>
+            </div>
+            <button
+              type="button"
+              @click="openAIMessagesCompactionEnabled = !openAIMessagesCompactionEnabled"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                openAIMessagesCompactionEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  openAIMessagesCompactionEnabled ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+          <div v-if="openAIMessagesCompactionEnabled" class="mt-3">
+            <label class="input-label">{{ t('admin.accounts.openai.messagesCompactionThreshold') }}</label>
+            <input
+              v-model.number="openAIMessagesCompactionInputTokensThreshold"
+              type="number"
+              min="1"
+              step="1"
+              class="input"
+              :placeholder="t('admin.accounts.openai.messagesCompactionThresholdPlaceholder')"
+            />
+            <p class="input-hint">{{ t('admin.accounts.openai.messagesCompactionThresholdHint') }}</p>
+          </div>
+        </div>
+
         <div>
           <label class="input-label">{{ t('admin.accounts.openai.compactModelMapping') }}</label>
           <p class="input-hint">{{ t('admin.accounts.openai.compactModelMappingDesc') }}</p>
@@ -2337,6 +2375,8 @@ const customBaseUrl = ref('')
 // OpenAI 自动透传开关（OAuth/API Key）
 const openaiPassthroughEnabled = ref(false)
 const openAICompactMode = ref<OpenAICompactMode>('auto')
+const openAIMessagesCompactionEnabled = ref(false)
+const openAIMessagesCompactionInputTokensThreshold = ref<number | null>(null)
 const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const codexCLIOnlyEnabled = ref(false)
@@ -2395,6 +2435,30 @@ const openAICompactModeOptions = computed(() => [
   { value: 'force_on', label: t('admin.accounts.openai.compactModeForceOn') },
   { value: 'force_off', label: t('admin.accounts.openai.compactModeForceOff') }
 ])
+
+const normalizeOpenAIMessagesCompactionThreshold = (): number | null => {
+  const value = openAIMessagesCompactionInputTokensThreshold.value
+  if (value === null || value === undefined || value === 0 || Number.isNaN(value)) {
+    return null
+  }
+  const normalized = Math.trunc(Number(value))
+  return normalized >= 1 ? normalized : null
+}
+
+const validateOpenAIMessagesCompactionForm = (): boolean => {
+  if (props.account?.platform !== 'openai') {
+    return true
+  }
+  if (!openAIMessagesCompactionEnabled.value) {
+    return true
+  }
+  if (normalizeOpenAIMessagesCompactionThreshold() === null) {
+    appStore.showError(t('admin.accounts.openai.messagesCompactionThresholdRequired'))
+    return false
+  }
+  return true
+}
+
 const isOpenAIModelRestrictionDisabled = computed(() =>
   props.account?.platform === 'openai' && openaiPassthroughEnabled.value
 )
@@ -2544,6 +2608,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   // Load OpenAI passthrough toggle (OpenAI OAuth/API Key)
   openaiPassthroughEnabled.value = false
   openAICompactMode.value = 'auto'
+  openAIMessagesCompactionEnabled.value = false
+  openAIMessagesCompactionInputTokensThreshold.value = null
   openAICompactModelMappings.value = []
   openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
@@ -2553,6 +2619,12 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   if (newAccount.platform === 'openai' && (newAccount.type === 'oauth' || newAccount.type === 'apikey')) {
     openaiPassthroughEnabled.value = extra?.openai_passthrough === true || extra?.openai_oauth_passthrough === true
     openAICompactMode.value = (extra?.openai_compact_mode as OpenAICompactMode) || 'auto'
+    openAIMessagesCompactionEnabled.value = extra?.messages_compaction_enabled === true
+    const compactionThreshold = Number(extra?.messages_compaction_input_tokens_threshold)
+    openAIMessagesCompactionInputTokensThreshold.value =
+      Number.isFinite(compactionThreshold) && compactionThreshold >= 1
+        ? Math.trunc(compactionThreshold)
+        : null
     openaiOAuthResponsesWebSocketV2Mode.value = resolveOpenAIWSModeFromExtra(extra, {
       modeKey: 'openai_oauth_responses_websockets_v2_mode',
       enabledKey: 'openai_oauth_responses_websockets_v2_enabled',
@@ -3272,6 +3344,10 @@ const handleSubmit = async () => {
   if (!props.account) return
   const accountID = props.account.id
 
+  if (!validateOpenAIMessagesCompactionForm()) {
+    return
+  }
+
   if (form.status !== 'active' && form.status !== 'inactive' && form.status !== 'error') {
     appStore.showError(t('admin.accounts.pleaseSelectStatus'))
     return
@@ -3710,6 +3786,16 @@ const handleSubmit = async () => {
         delete newExtra.openai_compact_mode
       } else {
         newExtra.openai_compact_mode = openAICompactMode.value
+      }
+      if (openAIMessagesCompactionEnabled.value) {
+        const threshold = normalizeOpenAIMessagesCompactionThreshold()
+        if (threshold !== null) {
+          newExtra.messages_compaction_enabled = true
+          newExtra.messages_compaction_input_tokens_threshold = threshold
+        }
+      } else {
+        delete newExtra.messages_compaction_enabled
+        delete newExtra.messages_compaction_input_tokens_threshold
       }
 
       if (props.account.type === 'oauth') {

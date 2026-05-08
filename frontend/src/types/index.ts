@@ -513,6 +513,8 @@ export interface Group {
   allow_messages_dispatch?: boolean
   default_mapped_model?: string
   messages_dispatch_model_config?: OpenAIMessagesDispatchModelConfig
+  messages_compaction_enabled?: boolean | null
+  messages_compaction_input_tokens_threshold?: number | null
   require_oauth_only: boolean
   require_privacy_set: boolean
   // 上游 prompt cache 粘性路由策略 (auto | passthrough | off)
@@ -625,6 +627,8 @@ export interface CreateGroupRequest {
   fallback_group_id_on_invalid_request?: number | null
   mcp_xml_inject?: boolean
   supported_model_scopes?: string[]
+  messages_compaction_enabled?: boolean | null
+  messages_compaction_input_tokens_threshold?: number | null
   require_oauth_only?: boolean
   require_privacy_set?: boolean
   // 上游 prompt cache 粘性路由策略 (auto | passthrough | off)
@@ -655,6 +659,8 @@ export interface UpdateGroupRequest {
   fallback_group_id_on_invalid_request?: number | null
   mcp_xml_inject?: boolean
   supported_model_scopes?: string[]
+  messages_compaction_enabled?: boolean | null
+  messages_compaction_input_tokens_threshold?: number | null
   require_oauth_only?: boolean
   require_privacy_set?: boolean
   sticky_routing_mode?: 'auto' | 'passthrough' | 'off'
