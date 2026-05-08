@@ -48,6 +48,7 @@ export interface PlatformSection {
   model_mapping: Record<string, string>
   model_pricing: PricingFormEntry[]
   web_search_emulation: boolean
+  codex_image_generation_bridge: boolean
   account_stats_pricing_rules: FormPricingRule[]
 }
 
@@ -130,6 +131,12 @@ export function apiToFormSections(
       | undefined
     const webSearchEnabled = wsEmulation?.[platform] === true
 
+    const codexImageGenerationBridge = fc?.codex_image_generation_bridge as
+      | Record<string, boolean>
+      | undefined
+    const codexImageGenerationBridgeEnabled =
+      codexImageGenerationBridge?.[platform] === true
+
     sections.push({
       platform,
       enabled: true,
@@ -138,6 +145,7 @@ export function apiToFormSections(
       model_mapping: { ...mapping },
       model_pricing: pricing,
       web_search_emulation: webSearchEnabled,
+      codex_image_generation_bridge: codexImageGenerationBridgeEnabled,
       account_stats_pricing_rules: [],
     })
   }
@@ -206,6 +214,20 @@ export function formSectionsToApi(
     featuresConfig.web_search_emulation = wsEmulation
   } else {
     delete featuresConfig.web_search_emulation
+  }
+
+  const codexImageGenerationBridge: Record<string, boolean> = {}
+  for (const section of sections) {
+    if (!section.enabled) continue
+    if (section.platform === 'openai') {
+      codexImageGenerationBridge[section.platform] =
+        !!section.codex_image_generation_bridge
+    }
+  }
+  if (Object.keys(codexImageGenerationBridge).length > 0) {
+    featuresConfig.codex_image_generation_bridge = codexImageGenerationBridge
+  } else {
+    delete featuresConfig.codex_image_generation_bridge
   }
 
   return { group_ids, model_pricing, model_mapping, features_config: featuresConfig }
