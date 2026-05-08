@@ -339,21 +339,6 @@
               </div>
             </div>
 
-            <!-- Codex Image Generation Bridge (OpenAI only) -->
-            <div v-if="section.platform === 'openai'" class="border-t border-gray-200 pt-3 dark:border-dark-600">
-              <div class="flex items-center justify-between gap-4">
-                <div>
-                  <label class="text-xs font-medium text-gray-700 dark:text-gray-300">
-                    {{ t('admin.channels.form.codexImageGenerationBridge') }}
-                  </label>
-                  <p class="mt-0.5 text-[11px] text-amber-600 dark:text-amber-400">
-                    {{ t('admin.channels.form.codexImageGenerationBridgeHint') }}
-                  </p>
-                </div>
-                <Toggle v-model="section.codex_image_generation_bridge" />
-              </div>
-            </div>
-
             <!-- Model Mapping -->
             <div>
               <div class="mb-1 flex items-center justify-between">

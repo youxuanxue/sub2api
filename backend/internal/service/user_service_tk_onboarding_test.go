@@ -53,11 +53,11 @@ func (s *onboardingUserRepoStub) DeductBalance(context.Context, int64, float64) 
 func (s *onboardingUserRepoStub) UpdateConcurrency(context.Context, int64, int) error {
 	panic("unexpected UpdateConcurrency")
 }
-func (s *onboardingUserRepoStub) BatchSetConcurrency(context.Context, []int64, int) (int, error) {
-	panic("unexpected BatchSetConcurrency")
-}
 func (s *onboardingUserRepoStub) BatchAddConcurrency(context.Context, []int64, int) (int, error) {
 	panic("unexpected BatchAddConcurrency")
+}
+func (s *onboardingUserRepoStub) BatchSetConcurrency(context.Context, []int64, int) (int, error) {
+	panic("unexpected BatchSetConcurrency")
 }
 func (s *onboardingUserRepoStub) ExistsByEmail(context.Context, string) (bool, error) {
 	panic("unexpected ExistsByEmail")

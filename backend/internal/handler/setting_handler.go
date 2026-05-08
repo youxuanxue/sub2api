@@ -40,11 +40,6 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 		PasswordResetEnabled:             settings.PasswordResetEnabled,
 		InvitationCodeEnabled:            settings.InvitationCodeEnabled,
 		TotpEnabled:                      settings.TotpEnabled,
-		LoginAgreementEnabled:            settings.LoginAgreementEnabled,
-		LoginAgreementMode:               settings.LoginAgreementMode,
-		LoginAgreementUpdatedAt:          settings.LoginAgreementUpdatedAt,
-		LoginAgreementRevision:           settings.LoginAgreementRevision,
-		LoginAgreementDocuments:          publicLoginAgreementDocumentsToDTO(settings.LoginAgreementDocuments),
 		TurnstileEnabled:                 settings.TurnstileEnabled,
 		TurnstileSiteKey:                 settings.TurnstileSiteKey,
 		SiteName:                         settings.SiteName,
@@ -68,8 +63,6 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 		WeChatOAuthMobileEnabled:         settings.WeChatOAuthMobileEnabled,
 		OIDCOAuthEnabled:                 settings.OIDCOAuthEnabled,
 		OIDCOAuthProviderName:            settings.OIDCOAuthProviderName,
-		GitHubOAuthEnabled:               settings.GitHubOAuthEnabled,
-		GoogleOAuthEnabled:               settings.GoogleOAuthEnabled,
 		PaymentEnabled:                   settings.PaymentEnabled,
 		BackendModeEnabled:               settings.BackendModeEnabled,
 		Version:                          h.version,
@@ -87,19 +80,5 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 		AvailableChannelsEnabled: settings.AvailableChannelsEnabled,
 
 		AffiliateEnabled: settings.AffiliateEnabled,
-
-		RiskControlEnabled: settings.RiskControlEnabled,
 	})
-}
-
-func publicLoginAgreementDocumentsToDTO(items []service.LoginAgreementDocument) []dto.LoginAgreementDocument {
-	result := make([]dto.LoginAgreementDocument, 0, len(items))
-	for _, item := range items {
-		result = append(result, dto.LoginAgreementDocument{
-			ID:        item.ID,
-			Title:     item.Title,
-			ContentMD: item.ContentMD,
-		})
-	}
-	return result
 }
