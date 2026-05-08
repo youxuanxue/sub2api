@@ -17,9 +17,9 @@ on:
         required: false
         type: string
       auto_retry_count:
-        description: "Internal auto-retry counter for merge-conflict resume loop"
+        description: "Internal auto-retry counter for recoverable-failure resume loop"
         required: false
-        default: "3"
+        default: "0"
         type: string
 
 permissions:
@@ -461,10 +461,10 @@ jobs:
             exit 0
           fi
 
-          # Mirror what review/CI will execute against. -B reset is destructive
-          # to local working state, but we only ever touch state read-only after
-          # this step, so it's safe.
-          if ! git checkout -B preflight-target FETCH_HEAD 2>/tmp/upstream-merge-preflight-checkout.log; then
+          # Mirror what review/CI will execute against. Detached HEAD avoids
+          # tripping dev-rules branch naming checks with an internal helper
+          # branch name; `HEAD` is explicitly accepted by preflight.
+          if ! git checkout --detach FETCH_HEAD 2>/tmp/upstream-merge-preflight-checkout.log; then
             # If we can't switch to the agent's branch, do NOT silently run
             # preflight against whatever HEAD happens to be — that would
             # report main's preflight result as the merge branch's.
@@ -598,7 +598,7 @@ jobs:
           # audit cadence). Only fall through to grep heuristics when the
           # contract eval itself signaled CONTRACT_FAIL or returned empty,
           # since those are the cases where the agent's stdout contains the
-          # most specific clue (merge conflict markers, budget exhaustion).
+          # most specific clue (permission scope, merge conflicts, budget).
           structured_codes_re='^(PREFLIGHT_FAIL|PR_BODY_INCOMPLETE|NO_DRIFT)$'
 
           if [ "$DRIFT_STATUS" = "infra_error" ]; then
@@ -610,10 +610,10 @@ jobs:
           elif [[ "$eval_reason_code" =~ $structured_codes_re ]]; then
             reason_code="$eval_reason_code"
           else
-            if grep -q "CONFLICT (content)" /tmp/upstream-merge-agent-output.txt 2>/dev/null; then
-              reason_code="MERGE_CONFLICT_UNRESOLVED"
-            elif grep -q "Resource not accessible by personal access token (createPullRequest)" /tmp/upstream-merge-agent-output.txt 2>/dev/null; then
+            if grep -q "Resource not accessible by personal access token (createPullRequest)" /tmp/upstream-merge-agent-output.txt 2>/dev/null; then
               reason_code="AUTH_TOKEN_SCOPE"
+            elif grep -q "CONFLICT (content)" /tmp/upstream-merge-agent-output.txt 2>/dev/null; then
+              reason_code="MERGE_CONFLICT_UNRESOLVED"
             elif grep -q "File has not been read yet. Read it first before writing to it." /tmp/upstream-merge-agent-output.txt 2>/dev/null; then
               reason_code="TOOL_GUARD"
             elif grep -q "Exceeded USD budget" /tmp/upstream-merge-agent-output.txt 2>/dev/null; then
