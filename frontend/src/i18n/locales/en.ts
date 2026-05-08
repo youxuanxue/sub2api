@@ -2187,13 +2187,7 @@ export default {
         claudeModelPlaceholder: 'e.g., claude-sonnet-4-5-20250929',
         targetModel: 'Target Model',
         targetModelPlaceholder: 'e.g., gpt-5.4',
-        removeExactMapping: 'Remove Exact Mapping',
-        compactionEnabled: 'Enable auto compaction',
-        compactionEnabledHint: 'When estimated input tokens exceed the threshold, /v1/messages compaction is applied automatically.',
-        compactionThreshold: 'Input token threshold',
-        compactionThresholdPlaceholder: 'e.g., 900000',
-        compactionThresholdHint: 'Must be >= 1. Choose a value based on model context window.',
-        compactionThresholdRequired: 'Please enter a valid compaction threshold (>= 1)'
+        removeExactMapping: 'Remove Exact Mapping'
       },
       invalidRequestFallback: {
         title: 'Invalid Request Fallback Group',
@@ -3039,13 +3033,6 @@ export default {
         compactMode: 'Compact mode',
         compactModeDesc:
           'Controls how this account participates in /responses/compact routing. Auto follows probe results, Force On always allows, Force Off always excludes.',
-        messagesCompactionEnabled: 'Enable account-level /v1/messages auto compaction',
-        messagesCompactionEnabledDesc:
-          'When enabled, this account uses its own input token compaction threshold; when disabled, group policy applies.',
-        messagesCompactionThreshold: 'Account input token threshold',
-        messagesCompactionThresholdPlaceholder: 'e.g., 900000',
-        messagesCompactionThresholdHint: 'Must be >= 1. Compaction runs automatically when threshold is exceeded.',
-        messagesCompactionThresholdRequired: 'Please enter a valid account compaction threshold (>= 1)',
         compactModeAuto: 'Auto',
         compactModeForceOn: 'Force On',
         compactModeForceOff: 'Force Off',

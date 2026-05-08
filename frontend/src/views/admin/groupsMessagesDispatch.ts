@@ -11,8 +11,6 @@ export interface MessagesDispatchFormState {
   sonnet_mapped_model: string;
   haiku_mapped_model: string;
   exact_model_mappings: MessagesDispatchMappingRow[];
-  messages_compaction_enabled?: boolean;
-  messages_compaction_input_tokens_threshold?: number | null;
 }
 
 export function createDefaultMessagesDispatchFormState(): MessagesDispatchFormState {
@@ -22,8 +20,6 @@ export function createDefaultMessagesDispatchFormState(): MessagesDispatchFormSt
     sonnet_mapped_model: "gpt-5.3-codex",
     haiku_mapped_model: "gpt-5.4-mini",
     exact_model_mappings: [],
-    messages_compaction_enabled: false,
-    messages_compaction_input_tokens_threshold: null,
   };
 }
 
@@ -44,9 +40,6 @@ export function messagesDispatchConfigToFormState(
     haiku_mapped_model:
       config?.haiku_mapped_model?.trim() || defaults.haiku_mapped_model,
     exact_model_mappings: exactMappings,
-    messages_compaction_enabled: defaults.messages_compaction_enabled,
-    messages_compaction_input_tokens_threshold:
-      defaults.messages_compaction_input_tokens_threshold,
   };
 }
 
@@ -76,7 +69,4 @@ export function resetMessagesDispatchFormState(
   target.sonnet_mapped_model = defaults.sonnet_mapped_model;
   target.haiku_mapped_model = defaults.haiku_mapped_model;
   target.exact_model_mappings = [];
-  target.messages_compaction_enabled = defaults.messages_compaction_enabled;
-  target.messages_compaction_input_tokens_threshold =
-    defaults.messages_compaction_input_tokens_threshold;
 }
