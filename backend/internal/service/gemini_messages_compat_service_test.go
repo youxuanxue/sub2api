@@ -651,6 +651,18 @@ func TestParseGeminiRateLimitResetTime(t *testing.T) {
 			wantNil: true,
 		},
 		{
+			name:        "RetryInfo.retryDelay 结构化解析",
+			input:       `{"error":{"details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"30s"}]}}`,
+			wantNil:     false,
+			approxDelta: 30,
+		},
+		{
+			name:        "metadata.retryDelay 结构化解析",
+			input:       `{"error":{"details":[{"metadata":{"retryDelay":"9.4s"}}]}}`,
+			wantNil:     false,
+			approxDelta: 10,
+		},
+		{
 			name:        "regex 回退匹配",
 			input:       `Please retry in 30s`,
 			wantNil:     false,

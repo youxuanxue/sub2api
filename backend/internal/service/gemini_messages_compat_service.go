@@ -2893,19 +2893,29 @@ func ParseGeminiRateLimitResetTime(body []byte) *int64 {
 		}
 	}
 
-	// 遍历 error.details 查找 quotaResetDelay
+	// 遍历 error.details 查找 reset delay。
+	// Google 错误体常见两种位置：
+	//  1) ErrorInfo.metadata.quotaResetDelay
+	//  2) RetryInfo.retryDelay（部分代理会放到 metadata.retryDelay）
 	var found *int64
 	gjson.GetBytes(body, "error.details").ForEach(func(_, detail gjson.Result) bool {
-		v := detail.Get("metadata.quotaResetDelay").String()
-		if v == "" {
-			return true
+		candidates := []string{
+			detail.Get("metadata.quotaResetDelay").String(),
+			detail.Get("retryDelay").String(),
+			detail.Get("metadata.retryDelay").String(),
 		}
-		if dur, err := time.ParseDuration(v); err == nil {
-			// Use ceil to avoid undercounting fractional seconds (e.g. 10.1s should not become 10s),
-			// which can affect scheduling decisions around thresholds (like 10s).
-			ts := time.Now().Unix() + int64(math.Ceil(dur.Seconds()))
-			found = &ts
-			return false
+		for _, v := range candidates {
+			v = strings.TrimSpace(v)
+			if v == "" {
+				continue
+			}
+			if dur, err := time.ParseDuration(v); err == nil {
+				// Use ceil to avoid undercounting fractional seconds (e.g. 10.1s should not become 10s),
+				// which can affect scheduling decisions around thresholds (like 10s).
+				ts := time.Now().Unix() + int64(math.Ceil(dur.Seconds()))
+				found = &ts
+				return false
+			}
 		}
 		return true
 	})
