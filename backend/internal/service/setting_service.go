@@ -2438,7 +2438,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyMaxClaudeCodeVersion: "",
 
 		// 分组隔离（默认不允许未分组 Key 调度）
-		SettingKeyAllowUngroupedKeyScheduling: "false",
+		SettingKeyAllowUngroupedKeyScheduling:    "false",
 		SettingPaymentVisibleMethodAlipaySource:  "",
 		SettingPaymentVisibleMethodWxpaySource:   "",
 		SettingPaymentVisibleMethodAlipayEnabled: "false",
