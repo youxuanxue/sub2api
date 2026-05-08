@@ -298,6 +298,39 @@ func TestHandleGeminiUpstreamError_CodeAssist429FallbackModelRoutesToPerModel(t 
 	require.Equal(t, "gemini-3.1-pro-preview", repo.modelRateLimitCalls[0].modelKey)
 }
 
+func TestHandleGeminiUpstreamError_CodeAssist429RetryDelayRoutesToPerModel(t *testing.T) {
+	repo := &stubGeminiTKAccountRepo{}
+	svc := &GeminiMessagesCompatService{accountRepo: repo}
+	account := newGeminiCodeAssistAccount(126)
+
+	body := []byte(`{
+		"error": {
+			"code": 429,
+			"status": "RESOURCE_EXHAUSTED",
+			"details": [
+				{
+					"@type": "type.googleapis.com/google.rpc.ErrorInfo",
+					"reason": "MODEL_CAPACITY_EXHAUSTED",
+					"metadata": {"model": "gemini-3.1-pro-preview"}
+				},
+				{
+					"@type": "type.googleapis.com/google.rpc.RetryInfo",
+					"retryDelay": "30s"
+				}
+			]
+		}
+	}`)
+
+	before := time.Now()
+	svc.handleGeminiUpstreamError(context.Background(), account, http.StatusTooManyRequests, http.Header{}, body)
+
+	require.Empty(t, repo.rateCalls, "model-scoped 429 must not set account-level rate limit")
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	require.Equal(t, "gemini-3.1-pro-preview", repo.modelRateLimitCalls[0].modelKey)
+	require.WithinDuration(t, before.Add(30*time.Second), repo.modelRateLimitCalls[0].resetAt, 5*time.Second,
+		"RetryInfo.retryDelay should drive model-level resetAt instead of tier cooldown")
+}
+
 // TestHandleGeminiUpstreamError_CodeAssist429AccountWideStillFalls asserts the
 // other half: when the body has no model metadata, we still fall back to the
 // account-level rate limit (existing behavior unchanged).
