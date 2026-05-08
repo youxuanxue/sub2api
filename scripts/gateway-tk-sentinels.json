@@ -4,8 +4,8 @@
   "sentinels": [
     {
       "path": "backend/internal/service/gemini_messages_compat_service.go",
-      "must_contain": ["withGeminiCodeAssistMappedModel(ctx, mappedModel)", "tryGeminiCodeAssistApplyModelRateLimit(ctx, account, body)"],
-      "rationale": "Code Assist 429 fallback-model protection depends on exactly two upstream-file hooks: forwarding stores the resolved upstream Gemini model in context, and handleGeminiUpstreamError delegates to the TK companion before account-level SetRateLimited. Dropping either hook brings back whole-account cooldowns for single-model capacity errors."
+      "must_contain": ["withGeminiCodeAssistMappedModel(ctx, mappedModel)", "tryGeminiCodeAssistApplyModelRateLimit(ctx, account, body)", "detail.Get(\"retryDelay\").String()", "detail.Get(\"metadata.retryDelay\").String()"],
+      "rationale": "Code Assist 429 fallback-model protection depends on upstream-file hooks plus precise reset-delay extraction. Forwarding must store resolved upstream Gemini model in context, upstream 429 handling must delegate to the TK companion before account-level SetRateLimited, and ParseGeminiRateLimitResetTime must keep structured RetryInfo retryDelay parsing. Dropping any of these reintroduces whole-account long cooldown when upstream already provides a short retry window."
     },
     {
       "path": "backend/internal/service/gemini_messages_compat_service_tk_model_rate_limit.go",
@@ -24,8 +24,8 @@
     },
     {
       "path": "backend/internal/service/gemini_messages_compat_service_tk_model_rate_limit_test.go",
-      "must_contain": ["TestTryGeminiCodeAssistApplyModelRateLimit_UsesFallbackModelForModelScoped429", "TestHandleGeminiUpstreamError_CodeAssist429FallbackModelRoutesToPerModel"],
-      "rationale": "Focused regressions proving model-scoped Code Assist 429s without metadata.model do not fall back to account-level cooldown."
+      "must_contain": ["TestTryGeminiCodeAssistApplyModelRateLimit_UsesFallbackModelForModelScoped429", "TestHandleGeminiUpstreamError_CodeAssist429FallbackModelRoutesToPerModel", "TestHandleGeminiUpstreamError_CodeAssist429RetryDelayRoutesToPerModel"],
+      "rationale": "Focused regressions proving model-scoped Code Assist 429s without metadata.model and with RetryInfo retryDelay both stay per-model and do not fall back to account-level cooldown."
     }
   ]
 }
