@@ -224,7 +224,7 @@ update_preflight_checkpoint() {
     --arg result "$result" \
     --arg reason "$reason" \
     --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    --argjson error_count "${error_count:-(-1)}" \
+    --argjson error_count "${error_count:--1}" \
     '.preflight = {ok:$result, error_count:$error_count, reason:$reason} | .updated_at_utc=$ts'
 }
 
