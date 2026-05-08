@@ -16,6 +16,11 @@ on:
         description: "Optional prior run ID to resume from its checkpoint artifact"
         required: false
         type: string
+      auto_retry_count:
+        description: "Internal auto-retry counter for merge-conflict resume loop"
+        required: false
+        default: "0"
+        type: string
 
 permissions:
   contents: write
@@ -450,7 +455,9 @@ jobs:
               reason_code="SUCCESS"
             fi
           else
-            if grep -q "Resource not accessible by personal access token (createPullRequest)" /tmp/upstream-merge-agent-output.txt 2>/dev/null; then
+            if grep -q "CONFLICT (content)" /tmp/upstream-merge-agent-output.txt 2>/dev/null; then
+              reason_code="MERGE_CONFLICT_UNRESOLVED"
+            elif grep -q "Resource not accessible by personal access token (createPullRequest)" /tmp/upstream-merge-agent-output.txt 2>/dev/null; then
               reason_code="AUTH_TOKEN_SCOPE"
             elif grep -q "File has not been read yet. Read it first before writing to it." /tmp/upstream-merge-agent-output.txt 2>/dev/null; then
               reason_code="TOOL_GUARD"
@@ -504,6 +511,35 @@ jobs:
           bash scripts/upstream-merge-state.sh update-agent-attempt 2 "${ATTEMPT2_EXIT_CODE:-}"
           bash scripts/upstream-merge-state.sh update-contract-checkpoint final "$(cat /tmp/upstream-merge-contract-final.json)"
 
+      - name: Auto-dispatch retry for unresolved merge conflicts
+        id: auto_retry_conflict
+        if: always() && github.ref_name == 'main' && steps.contract_final.outputs.contract_ok != 'true' && steps.reason_code.outputs.reason_code == 'MERGE_CONFLICT_UNRESOLVED'
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+          AUTO_RETRY_COUNT: ${{ github.event.inputs.auto_retry_count || '0' }}
+        run: |
+          set -euo pipefail
+          current="${AUTO_RETRY_COUNT:-0}"
+          if ! [[ "$current" =~ ^[0-9]+$ ]]; then
+            current=0
+          fi
+
+          max_retry=2
+          if [ "$current" -ge "$max_retry" ]; then
+            echo "auto_retry_triggered=false" >> "$GITHUB_OUTPUT"
+            echo "auto_retry_next_count=$current" >> "$GITHUB_OUTPUT"
+            echo "Auto-retry cap reached ($current/$max_retry); no further auto-dispatch."
+            exit 0
+          fi
+
+          next=$((current + 1))
+          gh workflow run upstream-merge-agent-daily.yml --ref main \
+            -f resume_run_id="$GITHUB_RUN_ID" \
+            -f auto_retry_count="$next"
+
+          echo "auto_retry_triggered=true" >> "$GITHUB_OUTPUT"
+          echo "auto_retry_next_count=$next" >> "$GITHUB_OUTPUT"
+
       - name: Open or update upstream-merge-agent tracking issue
         if: always() && steps.contract_final.outputs.contract_ok != 'true'
         uses: actions/github-script@v7
@@ -532,6 +568,8 @@ jobs:
               '',
               '- Fix blocker indicated by reason_code.',
               '- Re-run this workflow via workflow_dispatch (optionally with resume_run_id).',
+              '- auto_retry_triggered: ${{ steps.auto_retry_conflict.outputs.auto_retry_triggered || "false" }}',
+              '- auto_retry_next_count: ${{ steps.auto_retry_conflict.outputs.auto_retry_next_count || "n/a" }}',
             ].join('\n');
 
             const { data: issues } = await github.rest.issues.listForRepo({
