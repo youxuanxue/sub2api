@@ -66,6 +66,7 @@ const openaiOrganization = defineModel<string>('openaiOrganization', { default: 
 const allowedModels = defineModel<string[]>('allowedModels', { default: () => [] })
 const modelMappings = defineModel<{ from: string; to: string }[]>('modelMappings', { default: () => [] })
 const restrictionMode = defineModel<'whitelist' | 'mapping'>('restrictionMode', { default: 'whitelist' })
+const pricingStatusByModel = defineModel<Record<string, 'priced' | 'missing' | undefined>>('pricingStatusByModel', { default: () => ({}) })
 
 const { t } = useI18n()
 
@@ -178,7 +179,7 @@ function removeMapping(index: number): void {
       </div>
 
       <div v-if="restrictionMode === 'whitelist'">
-        <ModelWhitelistSelector v-model="allowedModels" platform="newapi" />
+        <ModelWhitelistSelector v-model="allowedModels" platform="newapi" :pricing-status-by-model="pricingStatusByModel" />
         <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
           {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
           <span v-if="allowedModels.length === 0">{{ t('admin.accounts.supportsAllModels') }}</span>

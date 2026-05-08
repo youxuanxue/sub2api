@@ -1,7 +1,7 @@
 import { ref, computed, watch, type Ref, type ComputedRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
-import { fetchUpstreamModels } from '@/api/admin/channels'
+import { fetchUpstreamModels, type FetchedUpstreamModel } from '@/api/admin/channels'
 import { useNewApiChannelTypes } from '@/composables/useNewApiChannelTypes'
 import { isNewApiUpstreamFetchableChannelType } from '@/constants/newApiUpstreamFetchableChannelTypes'
 import { buildModelMappingObject } from '@/composables/useModelWhitelist'
@@ -69,6 +69,7 @@ export function useTkAccountNewApiPlatform(options: UseTkAccountNewApiPlatformOp
   const statusCodeMapping = ref('')
   const openaiOrganization = ref('')
   const allowedModels = ref<string[]>([])
+  const upstreamModelPricingStatus = ref<Record<string, FetchedUpstreamModel['pricing_status']>>({})
   const modelMappings = ref<Array<{ from: string; to: string }>>([])
   const restrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
   const fetchLoading = ref(false)
@@ -135,7 +136,8 @@ export function useTkAccountNewApiPlatform(options: UseTkAccountNewApiPlatformOp
       }
       // 拉到 N 个模型 → 强制切回 whitelist 模式；如果留在 mapping 模式会
       // 把 N 个模型变成 N 行无意义的 X→X 配对，淹没用户原本想填的特殊重命名。
-      allowedModels.value = [...models]
+      allowedModels.value = models.map((model) => model.id)
+      upstreamModelPricingStatus.value = buildPricingStatusMap(models)
       restrictionMode.value = 'whitelist'
       appStore.showSuccess(
         t('admin.accounts.newApiPlatform.fetchUpstreamModelsSuccess', { count: models.length })
@@ -168,6 +170,7 @@ export function useTkAccountNewApiPlatform(options: UseTkAccountNewApiPlatformOp
     statusCodeMapping.value = ''
     openaiOrganization.value = ''
     allowedModels.value = []
+    upstreamModelPricingStatus.value = {}
     modelMappings.value = []
     restrictionMode.value = 'whitelist'
     fetchLoading.value = false
@@ -207,20 +210,24 @@ export function useTkAccountNewApiPlatform(options: UseTkAccountNewApiPlatformOp
       if (entries.length === 0) {
         restrictionMode.value = 'whitelist'
         allowedModels.value = []
+        upstreamModelPricingStatus.value = {}
         modelMappings.value = []
       } else if (entries.every(([from, to]) => from === to)) {
         restrictionMode.value = 'whitelist'
         allowedModels.value = entries.map(([from]) => from)
+        upstreamModelPricingStatus.value = {}
         modelMappings.value = []
       } else {
         restrictionMode.value = 'mapping'
         allowedModels.value = []
+        upstreamModelPricingStatus.value = {}
         modelMappings.value = entries.map(([from, to]) => ({ from, to }))
       }
     } else {
       modelMapping.value = typeof existing === 'string' ? existing : ''
       restrictionMode.value = 'whitelist'
       allowedModels.value = []
+      upstreamModelPricingStatus.value = {}
       modelMappings.value = []
     }
   }
@@ -290,6 +297,7 @@ export function useTkAccountNewApiPlatform(options: UseTkAccountNewApiPlatformOp
     statusCodeMapping,
     openaiOrganization,
     allowedModels,
+    upstreamModelPricingStatus,
     modelMappings,
     restrictionMode,
     // computed props for AccountNewApiPlatformFields
@@ -318,4 +326,12 @@ function isValidJsonObject(raw: string): boolean {
   } catch {
     return false
   }
+}
+
+function buildPricingStatusMap(models: FetchedUpstreamModel[]): Record<string, FetchedUpstreamModel['pricing_status']> {
+  const out: Record<string, FetchedUpstreamModel['pricing_status']> = {}
+  for (const model of models) {
+    if (model.pricing_status) out[model.id] = model.pricing_status
+  }
+  return out
 }
