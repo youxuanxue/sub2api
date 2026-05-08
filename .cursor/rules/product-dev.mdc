@@ -176,6 +176,7 @@ spec delta 是意图载体，不是审批基线；若命中高风险条件，必
 - PR 描述默认只保留 `Summary`、`Risk`、`Validation`；只有高风险变更才展开 `Design` / `Contract` / `Migration`
 - review comment 默认只报阻塞问题、真实风险、缺失验证；不输出大而全的审计散文
 - 公共契约删除必须在 commit subject/body 显式声明删除说明锚点（如 `contract-deletion-notice`），禁止静默删约。
+- 有 Web surface 的仓库中，后端服务/业务逻辑改动必须同 PR 对齐对应 Web 页面、配置、契约或 Story；确无影响时必须在 commit message 中写明 `no-web-impact` / `Web impact: none`，让 preflight 可机械验证。
 - 命中高风险路径的改动必须绑定审批锚点（`docs/approved/*` 或等价 anchor token），不允许无锚点直改。
 - release 敏感分支/语境下提交消息禁止出现 `[skip ci]` / `[ci skip]`，避免流水线静默跳过。
 
@@ -208,6 +209,7 @@ spec delta 是意图载体，不是审批基线；若命中高风险条件，必
 
 其中新增红线由模板 preflight 机械化落地：
 - contract deletion notice：公共契约删除必须有显式 deletion notice。
+- web surface alignment：后端/业务逻辑改动必须有 Web/config/contract 对齐证据或 no-web-impact 说明。
 - layer dependency inversion：分层依赖不可反转（项目提供 `.preflight/layer-deps.json` 时启用）。
 - high-risk approval anchor：高风险改动必须绑定审批锚点。
 - release skip-ci safety：release 语境禁止 skip-ci marker。
