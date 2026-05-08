@@ -277,7 +277,11 @@ describe('useTkAccountNewApiPlatform', () => {
 
   describe('handleFetchUpstreamModels', () => {
     it('成功 → 写入 allowedModels + 强制切回 whitelist 模式 + showSuccess', async () => {
-      fetchUpstreamModelsMock.mockResolvedValue(['m1', 'm2', 'm3'])
+      fetchUpstreamModelsMock.mockResolvedValue([
+        { id: 'm1', pricing_status: 'priced' },
+        { id: 'm2', pricing_status: 'priced' },
+        { id: 'm3', pricing_status: 'missing' },
+      ])
       const hook = useTkAccountNewApiPlatform({ isNewapi: () => true })
       hook.channelType.value = 14
       hook.baseUrl.value = 'https://api.deepseek.com'
@@ -285,10 +289,30 @@ describe('useTkAccountNewApiPlatform', () => {
       hook.restrictionMode.value = 'mapping' // 起点是 mapping
       await hook.handleFetchUpstreamModels()
       expect(hook.allowedModels.value).toEqual(['m1', 'm2', 'm3'])
+      expect(hook.upstreamModelPricingStatus.value).toEqual({
+        m1: 'priced',
+        m2: 'priced',
+        m3: 'missing',
+      })
       expect(hook.restrictionMode.value).toBe('whitelist') // 强制切回
       expect(showSuccessMock).toHaveBeenCalledWith(
         expect.stringContaining('admin.accounts.newApiPlatform.fetchUpstreamModelsSuccess')
       )
+    })
+
+    it('兼容 #128 的对象响应，只把 id 写入 allowedModels', async () => {
+      fetchUpstreamModelsMock.mockResolvedValue([
+        { id: 'claude-opus-4-6', pricing_status: 'priced' },
+        { id: 'claude-sonnet-4-6', pricing_status: 'missing' },
+      ])
+      const hook = useTkAccountNewApiPlatform({ isNewapi: () => true })
+      hook.channelType.value = 14
+      hook.baseUrl.value = 'https://api.deepseek.com'
+      hook.apiKey.value = 'sk-test'
+
+      await hook.handleFetchUpstreamModels()
+
+      expect(hook.allowedModels.value).toEqual(['claude-opus-4-6', 'claude-sonnet-4-6'])
     })
 
     it('上游返回空 → showInfo 且不污染 allowedModels', async () => {

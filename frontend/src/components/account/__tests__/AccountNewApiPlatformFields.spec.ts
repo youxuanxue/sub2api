@@ -32,12 +32,14 @@ import AccountNewApiPlatformFields from '../AccountNewApiPlatformFields.vue'
 const ModelWhitelistSelectorStub = defineComponent({
   name: 'ModelWhitelistSelector',
   props: {
-    modelValue: { type: Array, default: () => [] }
+    modelValue: { type: Array, default: () => [] },
+    pricingStatusByModel: { type: Object, default: () => ({}) }
   },
   emits: ['update:modelValue'],
   template: `
     <div data-testid="newapi-models-selector">
       <span data-testid="newapi-models-value">{{ Array.isArray(modelValue) ? modelValue.join(',') : '' }}</span>
+      <span data-testid="newapi-pricing-status">{{ pricingStatusByModel?.['claude-opus-4-6'] || '' }}</span>
     </div>
   `
 })
@@ -93,6 +95,15 @@ describe('AccountNewApiPlatformFields', () => {
     // 文本区里不再渲染原来的 modelMapping JSON 输入框（D3+D4 单一事实源）
     const labels = wrapper.findAll('label').map((l) => l.text())
     expect(labels.some((l) => l.includes('admin.accounts.newApiPlatform.modelMapping'))).toBe(false)
+  })
+
+  it('passes #128 pricing_status metadata to the model selector', () => {
+    const wrapper = mountFields({
+      allowedModels: ['claude-opus-4-6'],
+      pricingStatusByModel: { 'claude-opus-4-6': 'priced' }
+    })
+
+    expect(wrapper.find('[data-testid="newapi-pricing-status"]').text()).toBe('priced')
   })
 
   it('hides the 获取模型列表 button when fetch_models_enabled is false (D3 — non-fetchable channel type)', () => {

@@ -160,6 +160,12 @@ describe('CreateAccountModal — NewAPI (5th platform)', () => {
     createAccountMock.mockReset()
   })
 
+  it('disables native form validation so Vue submit validation always shows a toast', () => {
+    const wrapper = mountModal()
+
+    expect(wrapper.find('form#create-account-form').attributes('novalidate')).toBeDefined()
+  })
+
   // Helper: locate the platform segment buttons by their label text.
   function clickPlatform(wrapper: ReturnType<typeof mountModal>, label: string) {
     const btn = wrapper.findAll('button').find((b) => b.text().trim() === label)

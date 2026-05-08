@@ -191,9 +191,42 @@ export interface FetchUpstreamModelsRequest {
   account_id?: number
 }
 
-export async function fetchUpstreamModels(req: FetchUpstreamModelsRequest): Promise<string[]> {
-  const { data } = await apiClient.post<{ models: string[] }>('/admin/channel-types/fetch-upstream-models', req)
-  return Array.isArray(data?.models) ? data.models : []
+export type FetchedUpstreamModelPricingStatus = 'priced' | 'missing'
+
+export interface FetchedUpstreamModel {
+  id: string
+  pricing_status?: FetchedUpstreamModelPricingStatus
+}
+
+type RawFetchedUpstreamModel = string | Partial<FetchedUpstreamModel> | Record<string, unknown>
+
+function normalizeFetchedUpstreamModel(item: RawFetchedUpstreamModel): FetchedUpstreamModel | null {
+  if (typeof item === 'string') {
+    const id = item.trim()
+    return id ? { id } : null
+  }
+  if (!item || typeof item !== 'object') return null
+  const raw = (item as Record<string, unknown>).id ?? (item as Record<string, unknown>).model_id ?? (item as Record<string, unknown>).model
+  if (typeof raw !== 'string') return null
+  const id = raw.trim()
+  if (!id) return null
+  const pricingStatus = (item as Record<string, unknown>).pricing_status
+  return pricingStatus === 'priced' || pricingStatus === 'missing'
+    ? { id, pricing_status: pricingStatus }
+    : { id }
+}
+
+export async function fetchUpstreamModels(req: FetchUpstreamModelsRequest): Promise<FetchedUpstreamModel[]> {
+  const { data } = await apiClient.post<{ models: RawFetchedUpstreamModel[] }>('/admin/channel-types/fetch-upstream-models', req)
+  if (!Array.isArray(data?.models)) return []
+  const seen = new Set<string>()
+  return data.models
+    .map(normalizeFetchedUpstreamModel)
+    .filter((model): model is FetchedUpstreamModel => {
+      if (!model || seen.has(model.id)) return false
+      seen.add(model.id)
+      return true
+    })
 }
 
 export async function aggregatedGroupModels(params: {

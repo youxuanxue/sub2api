@@ -426,6 +426,15 @@ export function getPresetMappingsByPlatform(platform: string) {
 // 构建模型映射对象（用于 API）
 // =====================
 
+function normalizeModelID(value: unknown): string {
+  if (typeof value === 'string') return value.trim()
+  if (value && typeof value === 'object') {
+    const raw = (value as Record<string, unknown>).id
+    return typeof raw === 'string' ? raw.trim() : ''
+  }
+  return ''
+}
+
 // isValidWildcardPattern 校验通配符格式：* 只能放在末尾
 // 导出供表单组件使用实时校验
 export function isValidWildcardPattern(pattern: string): boolean {
@@ -437,13 +446,15 @@ export function isValidWildcardPattern(pattern: string): boolean {
 
 export function buildModelMappingObject(
   mode: 'whitelist' | 'mapping',
-  allowedModels: string[],
+  allowedModels: unknown[],
   modelMappings: { from: string; to: string }[]
 ): Record<string, string> | null {
   const mapping: Record<string, string> = {}
 
   if (mode === 'whitelist') {
-    for (const model of allowedModels) {
+    for (const item of allowedModels) {
+      const model = normalizeModelID(item)
+      if (!model) continue
       // whitelist 模式的本意是"精确模型列表"，如果用户输入了通配符（如 claude-*），
       // 写入 model_mapping 会导致 GetMappedModel() 把真实模型映射成 "claude-*"，从而转发失败。
       // 因此这里跳过包含通配符的条目。
