@@ -464,9 +464,22 @@ jobs:
           # Mirror what review/CI will execute against. -B reset is destructive
           # to local working state, but we only ever touch state read-only after
           # this step, so it's safe.
-          git checkout -B preflight-target FETCH_HEAD
+          if ! git checkout -B preflight-target FETCH_HEAD 2>/tmp/upstream-merge-preflight-checkout.log; then
+            # If we can't switch to the agent's branch, do NOT silently run
+            # preflight against whatever HEAD happens to be — that would
+            # report main's preflight result as the merge branch's.
+            echo "preflight_ok=skip" >> "$GITHUB_OUTPUT"
+            echo "error_count=-1" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=checkout_failed" >> "$GITHUB_OUTPUT"
+            bash "$STATE_HELPER" update-preflight-checkpoint skip -1 checkout_failed || true
+            echo "::warning::preflight skipped: git checkout of $TARGET_BRANCH failed"
+            cat /tmp/upstream-merge-preflight-checkout.log >&2 || true
+            exit 0
+          fi
           # Submodule pointer may have moved across the merge; re-init so
-          # dev-rules/templates/preflight.sh exists at the right SHA.
+          # dev-rules/templates/preflight.sh exists at the right SHA. If this
+          # fails preflight will likely flag drift below — that surfaces in
+          # the preflight tail block, no need to fail the step here.
           git submodule update --init --recursive 2>/dev/null || true
 
           bash scripts/preflight.sh > /tmp/upstream-merge-preflight.log 2>&1
