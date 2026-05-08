@@ -53,6 +53,33 @@
         "wrap('max-w-[15rem]')"
       ],
       "rationale": "The TK callsite for fluid+stickyEdgeHints opt-outs (first two literals), the wrap-first column-class policy comment (third literal), and the per-column max-width discipline (fourth + fifth literals). `wrap` as a function (not a plain string constant) means every column carries an explicit cap — an upstream merge that flattens it back to a bare string would silently drop the caps and the table overflows again at 100% browser zoom. The fifth literal anchors the usage column at 15rem (the widest cap), chosen because it is uniquely wide and unlikely to clash with any upstream string. Without the max-width caps, `min-w-0 align-top` alone is insufficient: browser table-auto still sizes columns to their natural max-content width when there is no explicit upper bound."
+    },
+    {
+      "path": "frontend/src/views/admin/GroupsView.vue",
+      "must_contain": [
+        "normalizeCompactionThreshold",
+        "messages_compaction_input_tokens_threshold",
+        "admin.groups.openaiMessages.compactionThresholdRequired"
+      ],
+      "rationale": "Group-level messages compaction threshold wiring is a TK-only admin surface shipped with #142 follow-up. It is easy for upstream merges on large upstream-shaped GroupsView.vue to keep compile green while dropping either threshold normalization, payload field wiring, or the validation guard. These three literals pin all three layers."
+    },
+    {
+      "path": "frontend/src/components/account/CreateAccountModal.vue",
+      "must_contain": [
+        "openAIMessagesCompactionEnabled",
+        "openAIMessagesCompactionInputTokensThreshold",
+        "messages_compaction_input_tokens_threshold"
+      ],
+      "rationale": "Create-account modal must persist account-level compaction policy in extra fields. This path is a large upstream hotspot and prone to silent overwrite during merges; sentinel keeps toggle state, threshold state, and payload key wiring together."
+    },
+    {
+      "path": "frontend/src/components/account/EditAccountModal.vue",
+      "must_contain": [
+        "openAIMessagesCompactionEnabled",
+        "openAIMessagesCompactionInputTokensThreshold",
+        "messages_compaction_input_tokens_threshold"
+      ],
+      "rationale": "Edit-account modal must load and update account-level compaction policy from extra. Compile still passes if only one half (read/write) is dropped; these literals pin the load/edit/persist chain for upstream-merge safety."
     }
   ]
 }
