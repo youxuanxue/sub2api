@@ -312,12 +312,11 @@ onMounted(async () => {
     turnstileSiteKey.value = settings.turnstile_site_key || ''
     linuxdoOAuthEnabled.value = settings.linuxdo_oauth_enabled
     wechatOAuthEnabled.value = isWeChatWebOAuthEnabled(settings)
-    backendModeEnabled.value = settings.backend_mode_enabled
+    backendModeEnabled.value = settings.backend_mode_enabled === true
     oidcOAuthEnabled.value = settings.oidc_oauth_enabled
     oidcOAuthProviderName.value = settings.oidc_oauth_provider_name || 'OIDC'
-    githubOAuthEnabled.value = settings.github_oauth_enabled
-    googleOAuthEnabled.value = settings.google_oauth_enabled
-    backendModeEnabled.value = settings.backend_mode_enabled
+    githubOAuthEnabled.value = settings.github_oauth_enabled === true
+    googleOAuthEnabled.value = settings.google_oauth_enabled === true
     passwordResetEnabled.value = settings.password_reset_enabled
     applyLoginAgreementSettings(settings)
   } catch (error) {
