@@ -221,6 +221,9 @@ jobs:
           - Write the final PR body to /tmp/upstream-merge-pr-body.md, including the literal upstream/main..HEAD audit cadence and validation run.
           - Push the branch and create or update the GitHub PR using gh.
           - If conflicts cannot be resolved safely, push the conflicted/update branch only if it is in a clean, committed state; otherwise leave no partial commit and open/update a PR comment explaining the blocker.
+          - This is headless CI. Do not ask for user confirmation, approval, or preference; choose the safe default and continue autonomously.
+          - Default policy for merge choices: preserve TokenKey-facing defaults (for example site_name=TokenKey and existing TK backend-mode defaults) unless doing so would break hard constraints or contract gates.
+          - Return only when output contract is satisfied or a concrete blocker has been recorded via PR/issue evidence.
 
           GitHub auth is available through GH_TOKEN. Do not merge the PR.
           EOF
@@ -364,6 +367,8 @@ jobs:
           - Run focused checks and ./scripts/preflight.sh when changes are produced.
           - Update /tmp/upstream-merge-pr-body.md with validation and audit cadence including literal upstream/main..HEAD.
           - Do not leave partial conflicted index/worktree at finish.
+          - This is headless CI. Do not ask for user confirmation, approval, or preference; choose the safe default and continue autonomously.
+          - Default policy for merge choices: preserve TokenKey-facing defaults (for example site_name=TokenKey and existing TK backend-mode defaults) unless doing so would break hard constraints or contract gates.
 
           Return only after one of these outcomes is true:
           1) open upstream merge PR exists for target branch; or
