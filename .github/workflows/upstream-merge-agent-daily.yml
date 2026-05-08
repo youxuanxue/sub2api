@@ -19,7 +19,7 @@ on:
       auto_retry_count:
         description: "Internal auto-retry counter for merge-conflict resume loop"
         required: false
-        default: "0"
+        default: "3"
         type: string
 
 permissions:
@@ -568,8 +568,8 @@ jobs:
               '',
               '- Fix blocker indicated by reason_code.',
               '- Re-run this workflow via workflow_dispatch (optionally with resume_run_id).',
-              '- auto_retry_triggered: ${{ steps.auto_retry_conflict.outputs.auto_retry_triggered || "false" }}',
-              '- auto_retry_next_count: ${{ steps.auto_retry_conflict.outputs.auto_retry_next_count || "n/a" }}',
+              '- auto_retry_triggered: ${{ steps.auto_retry_conflict.outputs.auto_retry_triggered || 'false' }}',
+              '- auto_retry_next_count: ${{ steps.auto_retry_conflict.outputs.auto_retry_next_count || 'n/a' }}',
             ].join('\n');
 
             const { data: issues } = await github.rest.issues.listForRepo({
