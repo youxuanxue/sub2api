@@ -645,11 +645,22 @@ func TestAPIContracts(t *testing.T) {
 				"message": "success",
 				"data": {
 					"registration_enabled": true,
+					"risk_control_enabled": false,
 					"email_verify_enabled": false,
 					"registration_email_suffix_whitelist": [],
 					"promo_code_enabled": true,
 					"password_reset_enabled": false,
 					"frontend_url": "",
+					"github_oauth_enabled": false,
+					"github_oauth_client_id": "",
+					"github_oauth_client_secret_configured": false,
+					"github_oauth_redirect_url": "",
+					"github_oauth_frontend_redirect_url": "",
+					"google_oauth_enabled": false,
+					"google_oauth_client_id": "",
+					"google_oauth_client_secret_configured": false,
+					"google_oauth_redirect_url": "",
+					"google_oauth_frontend_redirect_url": "",
 					"totp_enabled": false,
 					"totp_encryption_key_configured": false,
 					"smtp_host": "smtp.example.com",
@@ -667,6 +678,10 @@ func TestAPIContracts(t *testing.T) {
 						"linuxdo_connect_client_id": "",
 						"linuxdo_connect_client_secret_configured": false,
 						"linuxdo_connect_redirect_url": "",
+						"login_agreement_enabled": false,
+						"login_agreement_mode": "",
+						"login_agreement_documents": [],
+						"login_agreement_updated_at": "",
 						"oidc_connect_enabled": false,
 						"oidc_connect_provider_name": "OIDC",
 						"oidc_connect_client_id": "",
@@ -704,6 +719,16 @@ func TestAPIContracts(t *testing.T) {
 					"auth_source_default_email_subscriptions": [],
 					"auth_source_default_email_grant_on_signup": false,
 					"auth_source_default_email_grant_on_first_bind": false,
+					"auth_source_default_github_balance": 0,
+					"auth_source_default_github_concurrency": 5,
+					"auth_source_default_github_subscriptions": [],
+					"auth_source_default_github_grant_on_signup": false,
+					"auth_source_default_github_grant_on_first_bind": false,
+					"auth_source_default_google_balance": 0,
+					"auth_source_default_google_concurrency": 5,
+					"auth_source_default_google_subscriptions": [],
+					"auth_source_default_google_grant_on_signup": false,
+					"auth_source_default_google_grant_on_first_bind": false,
 					"auth_source_default_linuxdo_balance": 0,
 					"auth_source_default_linuxdo_concurrency": 5,
 					"auth_source_default_linuxdo_subscriptions": [],
@@ -864,11 +889,22 @@ func TestAPIContracts(t *testing.T) {
 				"message": "success",
 				"data": {
 					"registration_enabled": true,
+					"risk_control_enabled": false,
 					"email_verify_enabled": false,
 					"registration_email_suffix_whitelist": [],
 					"promo_code_enabled": true,
 					"password_reset_enabled": false,
 					"frontend_url": "",
+					"github_oauth_enabled": false,
+					"github_oauth_client_id": "",
+					"github_oauth_client_secret_configured": false,
+					"github_oauth_redirect_url": "",
+					"github_oauth_frontend_redirect_url": "",
+					"google_oauth_enabled": false,
+					"google_oauth_client_id": "",
+					"google_oauth_client_secret_configured": false,
+					"google_oauth_redirect_url": "",
+					"google_oauth_frontend_redirect_url": "",
 					"invitation_code_enabled": false,
 					"totp_enabled": false,
 					"totp_encryption_key_configured": false,
@@ -886,6 +922,10 @@ func TestAPIContracts(t *testing.T) {
 					"linuxdo_connect_client_id": "",
 					"linuxdo_connect_client_secret_configured": false,
 					"linuxdo_connect_redirect_url": "",
+					"login_agreement_enabled": false,
+					"login_agreement_mode": "",
+					"login_agreement_documents": [],
+					"login_agreement_updated_at": "",
 					"oidc_connect_enabled": true,
 					"oidc_connect_provider_name": "ConfigOIDC",
 					"oidc_connect_client_id": "oidc-config-client",
@@ -1022,6 +1062,16 @@ func TestAPIContracts(t *testing.T) {
 					"auth_source_default_email_subscriptions": [],
 					"auth_source_default_email_grant_on_signup": false,
 					"auth_source_default_email_grant_on_first_bind": false,
+					"auth_source_default_github_balance": 0,
+					"auth_source_default_github_concurrency": 5,
+					"auth_source_default_github_subscriptions": [],
+					"auth_source_default_github_grant_on_signup": false,
+					"auth_source_default_github_grant_on_first_bind": false,
+					"auth_source_default_google_balance": 0,
+					"auth_source_default_google_concurrency": 5,
+					"auth_source_default_google_subscriptions": [],
+					"auth_source_default_google_grant_on_signup": false,
+					"auth_source_default_google_grant_on_first_bind": false,
 					"auth_source_default_linuxdo_balance": 0,
 					"auth_source_default_linuxdo_concurrency": 5,
 					"auth_source_default_linuxdo_subscriptions": [],
@@ -1140,7 +1190,7 @@ func newContractDeps(t *testing.T) *contractDeps {
 	subscriptionService := service.NewSubscriptionService(groupRepo, userSubRepo, nil, nil, cfg)
 	subscriptionHandler := handler.NewSubscriptionHandler(subscriptionService)
 
-	redeemService := service.NewRedeemService(redeemRepo, userRepo, subscriptionService, nil, nil, nil, nil)
+	redeemService := service.NewRedeemService(redeemRepo, userRepo, subscriptionService, nil, nil, nil, nil, nil)
 	redeemHandler := handler.NewRedeemHandler(redeemService)
 
 	settingRepo := newStubSettingRepo()
@@ -1309,6 +1359,14 @@ func (r *stubUserRepo) DeductBalance(ctx context.Context, id int64, amount float
 
 func (r *stubUserRepo) UpdateConcurrency(ctx context.Context, id int64, amount int) error {
 	return errors.New("not implemented")
+}
+
+func (r *stubUserRepo) BatchAddConcurrency(ctx context.Context, userIDs []int64, amount int) (int, error) {
+	return 0, errors.New("not implemented")
+}
+
+func (r *stubUserRepo) BatchSetConcurrency(ctx context.Context, userIDs []int64, value int) (int, error) {
+	return 0, errors.New("not implemented")
 }
 
 func (r *stubUserRepo) ExistsByEmail(ctx context.Context, email string) (bool, error) {

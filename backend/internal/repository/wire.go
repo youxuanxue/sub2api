@@ -91,6 +91,7 @@ var ProviderSet = wire.NewSet(
 	NewChannelRepository,
 	NewChannelMonitorRepository,
 	NewChannelMonitorRequestTemplateRepository,
+	NewContentModerationRepository,
 	NewAffiliateRepository,
 	// TK: pricing availability persistence — see docs/approved/pricing-availability-source-of-truth.md
 	NewModelAvailabilityRepository,
@@ -121,6 +122,7 @@ var ProviderSet = wire.NewSet(
 	NewRefreshTokenCache,
 	NewErrorPassthroughCache,
 	NewTLSFingerprintProfileCache,
+	NewContentModerationHashCache,
 
 	// Encryptors
 	NewAESEncryptor,

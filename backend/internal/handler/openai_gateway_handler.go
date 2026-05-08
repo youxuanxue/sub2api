@@ -32,6 +32,7 @@ type OpenAIGatewayHandler struct {
 	apiKeyService           *service.APIKeyService
 	usageRecordWorkerPool   *service.UsageRecordWorkerPool
 	errorPassthroughService *service.ErrorPassthroughService
+	contentModerationService *service.ContentModerationService
 	concurrencyHelper       *ConcurrencyHelper
 	imageLimiter            *imageConcurrencyLimiter
 	maxAccountSwitches      int
@@ -54,6 +55,7 @@ func NewOpenAIGatewayHandler(
 	apiKeyService *service.APIKeyService,
 	usageRecordWorkerPool *service.UsageRecordWorkerPool,
 	errorPassthroughService *service.ErrorPassthroughService,
+	contentModerationService *service.ContentModerationService,
 	cfg *config.Config,
 ) *OpenAIGatewayHandler {
 	pingInterval := time.Duration(0)
@@ -65,15 +67,16 @@ func NewOpenAIGatewayHandler(
 		}
 	}
 	return &OpenAIGatewayHandler{
-		gatewayService:          gatewayService,
-		billingCacheService:     billingCacheService,
-		apiKeyService:           apiKeyService,
-		usageRecordWorkerPool:   usageRecordWorkerPool,
-		errorPassthroughService: errorPassthroughService,
-		concurrencyHelper:       NewConcurrencyHelper(concurrencyService, SSEPingFormatComment, pingInterval),
-		imageLimiter:            &imageConcurrencyLimiter{},
-		maxAccountSwitches:      maxAccountSwitches,
-		cfg:                     cfg,
+		gatewayService:           gatewayService,
+		billingCacheService:      billingCacheService,
+		apiKeyService:            apiKeyService,
+		usageRecordWorkerPool:    usageRecordWorkerPool,
+		errorPassthroughService:  errorPassthroughService,
+		contentModerationService: contentModerationService,
+		concurrencyHelper:        NewConcurrencyHelper(concurrencyService, SSEPingFormatComment, pingInterval),
+		imageLimiter:             &imageConcurrencyLimiter{},
+		maxAccountSwitches:       maxAccountSwitches,
+		cfg:                      cfg,
 	}
 }
 
@@ -1180,6 +1183,15 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 
 	if service.IsImageGenerationIntent("/v1/responses", reqModel, firstMessage) && !service.GroupAllowsImageGeneration(apiKey.Group) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, service.ImageGenerationPermissionMessage())
+		return
+	}
+
+	if decision := h.checkContentModeration(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIResponses, reqModel, firstMessage); decision != nil && decision.Blocked {
+		reason := strings.TrimSpace(decision.Message)
+		if reason == "" {
+			reason = "content policy violation"
+		}
+		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, reason)
 		return
 	}
 
