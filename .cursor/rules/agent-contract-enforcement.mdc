@@ -15,6 +15,7 @@ alwaysApply: true
 
 - Treat `docs/agent_integration.md` as generated from live code; do not hand-edit contract inventories.
 - After WebUI/API/CLI/MCP behavior changes, regenerate contract docs and include resulting diffs in the same change.
+- When backend services or business logic change in a repo with a Web surface, the same PR must include the matching Web page/config/contract/story update, or an explicit `no-web-impact` / `Web impact: none` justification in the commit message so preflight can verify it.
 - Fail the task if implementation and contract docs diverge; fix by updating code or regenerating docs.
 - Keep `AGENTS.md` as navigation only; point to canonical contract docs instead of duplicating tables.
 - Enforce input-safety baseline: validate identifiers before path joins, reject `..` and `/`, and cap request body size.
@@ -37,6 +38,7 @@ Each project must maintain its own `scripts/export_agent_contract.py` tailored t
 Every rule above must have a mechanical gate. The canonical wiring is:
 
 - `scripts/export_agent_contract.py --check` is invoked by `scripts/preflight.sh` (template at `dev-rules/templates/preflight.sh`, agent contract export check).
+- `dev-rules/scripts/check_web_surface_alignment.py` is invoked by preflight `web surface alignment` check.
 - `dev-rules/scripts/check_contract_deletion_notice.py` is invoked by preflight `contract deletion notice` check.
 - `dev-rules/scripts/check_layer_dependency_inversion.py` is invoked by preflight `layer dependency inversion` check when `.preflight/layer-deps.json` exists.
 - `scripts/preflight.sh` runs in pre-commit and CI; failure blocks merge.
