@@ -69,10 +69,10 @@ const enabled = computed(() =>
 const localEnabled = ref(enabled.value)
 const collapsed = ref(false)
 
-// Sync when props change externally
+// Sync when props change externally (immediate: true to handle edit modal populate)
 watch(enabled, (val) => {
   localEnabled.value = val
-})
+}, { immediate: true })
 
 // When toggle is turned off, clear all values and expand
 watch(localEnabled, (val) => {
