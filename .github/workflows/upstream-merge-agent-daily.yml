@@ -11,6 +11,16 @@ on:
     # 04:00 Asia/Shanghai. GitHub cron is UTC.
     - cron: '0 20 * * *'
   workflow_dispatch:
+    inputs:
+      resume_run_id:
+        description: "Optional prior run ID to resume from its checkpoint artifact"
+        required: false
+        type: string
+      auto_retry_count:
+        description: "Internal auto-retry counter for merge-conflict resume loop"
+        required: false
+        default: "3"
+        type: string
 
 permissions:
   contents: write
@@ -90,8 +100,87 @@ jobs:
           git config user.name "tk-upstream-agent[bot]"
           git config user.email "upstream-agent@tokenkey.dev"
 
+      - name: Initialize state checkpoint
+        id: state_init
+        env:
+          RESUME_RUN_ID: ${{ github.event.inputs.resume_run_id }}
+        run: |
+          set -euo pipefail
+          if [ -n "${RESUME_RUN_ID:-}" ]; then
+            echo "resume_run_id=$RESUME_RUN_ID" >> "$GITHUB_OUTPUT"
+          else
+            echo "resume_run_id=" >> "$GITHUB_OUTPUT"
+          fi
+
+          cat > /tmp/upstream-merge-state.json <<EOF
+          {
+            "schema_version": 1,
+            "workflow": "upstream-merge-agent-daily",
+            "run_id": "${GITHUB_RUN_ID}",
+            "run_attempt": "${GITHUB_RUN_ATTEMPT}",
+            "resume_run_id": "${RESUME_RUN_ID:-}",
+            "state": "INIT",
+            "state_code": 0,
+            "status": "in_progress",
+            "reason_code": "",
+            "target_branch": "",
+            "existing_pr": {
+              "exists": false,
+              "number": "",
+              "url": ""
+            },
+            "agent": {
+              "attempt1_exit_code": "",
+              "attempt2_exit_code": ""
+            },
+            "contract": {
+              "after_attempt1_ok": "",
+              "after_attempt1_reason": "",
+              "final_ok": "",
+              "final_reason": ""
+            },
+            "updated_at_utc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+
+      - name: Pin state helper into immutable path
+        run: |
+          set -euo pipefail
+          STATE_HELPER_DIR="/tmp/upstream-merge-scripts"
+          rm -rf "$STATE_HELPER_DIR"
+          mkdir -p "$STATE_HELPER_DIR"
+          cp scripts/upstream-merge-state.sh "$STATE_HELPER_DIR/upstream-merge-state.sh"
+          cp -R scripts/lib "$STATE_HELPER_DIR/lib"
+          chmod +x "$STATE_HELPER_DIR/upstream-merge-state.sh"
+          echo "STATE_HELPER=$STATE_HELPER_DIR/upstream-merge-state.sh" >> "$GITHUB_ENV"
+
+      - name: Restore checkpoint from prior run (optional)
+        if: ${{ github.event.inputs.resume_run_id != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+          RESUME_RUN_ID: ${{ github.event.inputs.resume_run_id }}
+        run: |
+          set -euo pipefail
+          if bash "$STATE_HELPER" restore-state "$RESUME_RUN_ID"; then
+            echo "Restored checkpoint from run $RESUME_RUN_ID"
+          else
+            echo "::warning::No checkpoint artifact found for run $RESUME_RUN_ID; continuing from fresh INIT state"
+          fi
+
+      - name: Drift check snapshot
+        id: drift_check
+        run: |
+          set -euo pipefail
+          drift_json="$(bash "$STATE_HELPER" drift-check-json)"
+          echo "$drift_json" > /tmp/upstream-merge-drift.json
+          bash "$STATE_HELPER" apply-drift-checkpoint "$drift_json"
+          echo "status=$(jq -r '.status' /tmp/upstream-merge-drift.json)" >> "$GITHUB_OUTPUT"
+          echo "behind=$(jq -r '.behind // 0' /tmp/upstream-merge-drift.json)" >> "$GITHUB_OUTPUT"
+          echo "ahead=$(jq -r '.ahead // 0' /tmp/upstream-merge-drift.json)" >> "$GITHUB_OUTPUT"
+
       - name: Find existing upstream merge PR
         id: upstream_pr
+        if: steps.drift_check.outputs.status == 'need_merge'
         env:
           GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
         run: |
@@ -110,7 +199,14 @@ jobs:
             echo "branch=merge/upstream-$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Mark no-drift as completed
+        if: steps.drift_check.outputs.status == 'no_drift'
+        run: |
+          set -euo pipefail
+          echo "No upstream drift; skipping merge-agent execution."
+
       - name: Build upstream merge prompt
+        if: steps.drift_check.outputs.status == 'need_merge'
         env:
           EXISTING_PR: ${{ steps.upstream_pr.outputs.exists }}
           PR_NUMBER: ${{ steps.upstream_pr.outputs.number }}
@@ -141,11 +237,26 @@ jobs:
           - Write the final PR body to /tmp/upstream-merge-pr-body.md, including the literal upstream/main..HEAD audit cadence and validation run.
           - Push the branch and create or update the GitHub PR using gh.
           - If conflicts cannot be resolved safely, push the conflicted/update branch only if it is in a clean, committed state; otherwise leave no partial commit and open/update a PR comment explaining the blocker.
+          - This is headless CI. Do not ask for user confirmation, approval, or preference; choose the safe default and continue autonomously.
+          - Default policy for merge choices: preserve TokenKey-facing defaults (for example site_name=TokenKey and existing TK backend-mode defaults) unless doing so would break hard constraints or contract gates.
+          - Return only when output contract is satisfied or a concrete blocker has been recorded via PR/issue evidence.
 
           GitHub auth is available through GH_TOKEN. Do not merge the PR.
           EOF
 
+      - name: Update checkpoint after branch discovery
+        if: steps.drift_check.outputs.status == 'need_merge'
+        env:
+          EXISTS: ${{ steps.upstream_pr.outputs.exists }}
+          PR_NUMBER: ${{ steps.upstream_pr.outputs.number }}
+          PR_URL: ${{ steps.upstream_pr.outputs.url }}
+          BRANCH: ${{ steps.upstream_pr.outputs.branch }}
+        run: |
+          set -euo pipefail
+          bash "$STATE_HELPER" prepare-branch-checkpoint "$EXISTS" "${PR_NUMBER:-}" "${PR_URL:-}" "$BRANCH"
+
       - name: Run Claude upstream merge agent (attempt 1)
+        if: steps.drift_check.outputs.status == 'need_merge'
         id: agent_attempt_1
         env:
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
@@ -215,52 +326,56 @@ jobs:
           echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
           cp /tmp/upstream-merge-agent-output-attempt1.txt /tmp/upstream-merge-agent-output.txt
 
+      - name: Update checkpoint after attempt 1
+        if: always() && steps.drift_check.outputs.status == 'need_merge'
+        env:
+          EXIT_CODE: ${{ steps.agent_attempt_1.outputs.exit_code }}
+        run: |
+          set -euo pipefail
+          bash "$STATE_HELPER" update-agent-attempt 1 "${EXIT_CODE:-}"
+
       - name: Validate merge output contract (after attempt 1)
         id: contract_after_attempt_1
+        if: steps.drift_check.outputs.status == 'need_merge'
         env:
           GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
           TARGET_BRANCH: ${{ steps.upstream_pr.outputs.branch }}
           HAD_EXISTING_PR: ${{ steps.upstream_pr.outputs.exists }}
         run: |
           set -euo pipefail
-          git fetch origin main
-          if ! git remote get-url upstream >/dev/null 2>&1; then
-            git remote add upstream "https://github.com/Wei-Shaw/sub2api.git"
-          fi
-          git fetch upstream main
+          eval_json=""
+          set +e
+          eval_json="$(bash "$STATE_HELPER" contract-eval-json "$TARGET_BRANCH" "$HAD_EXISTING_PR")"
+          eval_rc=$?
+          set -e
 
-          contract_ok=false
-          reason=""
-
-          open_upstream_pr_json="$(gh pr list --state open --base main --json number,headRefName,url --jq '[.[] | select(.headRefName | startswith("merge/upstream-"))]')"
-          matching_pr_count="$(jq --arg branch "$TARGET_BRANCH" '[.[] | select(.headRefName == $branch)] | length' <<<"$open_upstream_pr_json")"
-          any_open_upstream_pr_count="$(jq 'length' <<<"$open_upstream_pr_json")"
-
-          if [ "$matching_pr_count" -gt 0 ]; then
-            contract_ok=true
-            reason="open PR exists for target branch $TARGET_BRANCH"
-          elif [ "$HAD_EXISTING_PR" = "true" ] && [ "$any_open_upstream_pr_count" -gt 0 ]; then
-            contract_ok=true
-            reason="existing upstream PR still open after update path"
-          elif git merge-base --is-ancestor upstream/main origin/main && [ "$any_open_upstream_pr_count" -eq 0 ]; then
-            contract_ok=true
-            reason="no-drift path: origin/main already contains upstream/main and no upstream merge PR is open"
+          if [ "$eval_rc" -ne 0 ] || [ -z "$eval_json" ]; then
+            jq -n '{contract_ok:"false", reason:"contract eval failed after attempt1", reason_code:"CONTRACT_EVAL_ERROR", matching_pr_count:0, any_open_upstream_pr_count:0}' > /tmp/upstream-merge-contract-attempt1.json
           else
-            reason="contract unmet: no merge/upstream-* PR and no validated no-drift state"
+            echo "$eval_json" > /tmp/upstream-merge-contract-attempt1.json
           fi
 
-          echo "contract_ok=$contract_ok" >> "$GITHUB_OUTPUT"
-          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+          echo "contract_ok=$(jq -r '.contract_ok // "false"' /tmp/upstream-merge-contract-attempt1.json)" >> "$GITHUB_OUTPUT"
+          echo "reason=$(jq -r '.reason // "contract eval failed after attempt1"' /tmp/upstream-merge-contract-attempt1.json)" >> "$GITHUB_OUTPUT"
           {
-            echo "contract_ok=$contract_ok"
-            echo "reason=$reason"
-            echo "any_open_upstream_pr_count=$any_open_upstream_pr_count"
-            echo "matching_pr_count=$matching_pr_count"
+            echo "contract_ok=$(jq -r '.contract_ok // "false"' /tmp/upstream-merge-contract-attempt1.json)"
+            echo "reason=$(jq -r '.reason // "contract eval failed after attempt1"' /tmp/upstream-merge-contract-attempt1.json)"
+            echo "any_open_upstream_pr_count=$(jq -r '.any_open_upstream_pr_count // 0' /tmp/upstream-merge-contract-attempt1.json)"
+            echo "matching_pr_count=$(jq -r '.matching_pr_count // 0' /tmp/upstream-merge-contract-attempt1.json)"
             echo "attempt1_exit_code=${{ steps.agent_attempt_1.outputs.exit_code }}"
           } > /tmp/upstream-merge-contract-attempt1.txt
 
+      - name: Update checkpoint after contract attempt 1
+        if: always() && steps.drift_check.outputs.status == 'need_merge'
+        run: |
+          set -euo pipefail
+          if [ ! -s /tmp/upstream-merge-contract-attempt1.json ]; then
+            jq -n '{contract_ok:"false", reason:"missing attempt1 contract artifact", reason_code:"MISSING_CONTRACT_ARTIFACT", matching_pr_count:0, any_open_upstream_pr_count:0}' > /tmp/upstream-merge-contract-attempt1.json
+          fi
+          bash "$STATE_HELPER" update-contract-checkpoint after_attempt1 "$(cat /tmp/upstream-merge-contract-attempt1.json)"
+
       - name: Build retry prompt for unresolved merge
-        if: always() && (steps.contract_after_attempt_1.outcome != 'success' || steps.contract_after_attempt_1.outputs.contract_ok != 'true')
+        if: always() && steps.drift_check.outputs.status == 'need_merge' && (steps.contract_after_attempt_1.outcome != 'success' || steps.contract_after_attempt_1.outputs.contract_ok != 'true')
         env:
           TARGET_BRANCH: ${{ steps.upstream_pr.outputs.branch }}
           CONTRACT_REASON: ${{ steps.contract_after_attempt_1.outputs.reason }}
@@ -281,6 +396,8 @@ jobs:
           - Run focused checks and ./scripts/preflight.sh when changes are produced.
           - Update /tmp/upstream-merge-pr-body.md with validation and audit cadence including literal upstream/main..HEAD.
           - Do not leave partial conflicted index/worktree at finish.
+          - This is headless CI. Do not ask for user confirmation, approval, or preference; choose the safe default and continue autonomously.
+          - Default policy for merge choices: preserve TokenKey-facing defaults (for example site_name=TokenKey and existing TK backend-mode defaults) unless doing so would break hard constraints or contract gates.
 
           Return only after one of these outcomes is true:
           1) open upstream merge PR exists for target branch; or
@@ -288,7 +405,7 @@ jobs:
           EOF
 
       - name: Run Claude upstream merge agent (attempt 2)
-        if: always() && (steps.contract_after_attempt_1.outcome != 'success' || steps.contract_after_attempt_1.outputs.contract_ok != 'true')
+        if: always() && steps.drift_check.outputs.status == 'need_merge' && (steps.contract_after_attempt_1.outcome != 'success' || steps.contract_after_attempt_1.outputs.contract_ok != 'true')
         id: agent_attempt_2
         env:
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
@@ -323,45 +440,236 @@ jobs:
           GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
           TARGET_BRANCH: ${{ steps.upstream_pr.outputs.branch }}
           HAD_EXISTING_PR: ${{ steps.upstream_pr.outputs.exists }}
+          DRIFT_STATUS: ${{ steps.drift_check.outputs.status }}
         run: |
           set -euo pipefail
-          git fetch origin main
-          if ! git remote get-url upstream >/dev/null 2>&1; then
-            git remote add upstream "https://github.com/Wei-Shaw/sub2api.git"
-          fi
-          git fetch upstream main
-
-          contract_ok=false
-          reason=""
-
-          open_upstream_pr_json="$(gh pr list --state open --base main --json number,headRefName,url --jq '[.[] | select(.headRefName | startswith("merge/upstream-"))]')"
-          matching_pr_count="$(jq --arg branch "$TARGET_BRANCH" '[.[] | select(.headRefName == $branch)] | length' <<<"$open_upstream_pr_json")"
-          any_open_upstream_pr_count="$(jq 'length' <<<"$open_upstream_pr_json")"
-
-          if [ "$matching_pr_count" -gt 0 ]; then
-            contract_ok=true
-            reason="open PR exists for target branch $TARGET_BRANCH"
-          elif [ "$HAD_EXISTING_PR" = "true" ] && [ "$any_open_upstream_pr_count" -gt 0 ]; then
-            contract_ok=true
-            reason="existing upstream PR still open after update path"
-          elif git merge-base --is-ancestor upstream/main origin/main && [ "$any_open_upstream_pr_count" -eq 0 ]; then
-            contract_ok=true
-            reason="no-drift path: origin/main already contains upstream/main and no upstream merge PR is open"
+          if [ "$DRIFT_STATUS" = "no_drift" ]; then
+            jq -n '{contract_ok:"true", reason:"no-drift path: origin/main already contains upstream/main and no upstream merge PR is open", reason_code:"NO_DRIFT", matching_pr_count:0, any_open_upstream_pr_count:0}' > /tmp/upstream-merge-contract-final.json
           else
-            reason="final contract unmet: no merge/upstream-* PR and no validated no-drift state"
+            set +e
+            bash "$STATE_HELPER" contract-eval-json "$TARGET_BRANCH" "$HAD_EXISTING_PR" > /tmp/upstream-merge-contract-final.json
+            eval_rc=$?
+            set -e
+            if [ "$eval_rc" -ne 0 ] || [ ! -s /tmp/upstream-merge-contract-final.json ]; then
+              jq -n '{contract_ok:"false", reason:"contract eval failed at final gate", reason_code:"CONTRACT_EVAL_ERROR", matching_pr_count:0, any_open_upstream_pr_count:0}' > /tmp/upstream-merge-contract-final.json
+            fi
           fi
 
-          echo "contract_ok=$contract_ok" >> "$GITHUB_OUTPUT"
-          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+          echo "contract_ok=$(jq -r '.contract_ok // "false"' /tmp/upstream-merge-contract-final.json)" >> "$GITHUB_OUTPUT"
+          echo "reason=$(jq -r '.reason // "contract eval failed at final gate"' /tmp/upstream-merge-contract-final.json)" >> "$GITHUB_OUTPUT"
 
           {
-            echo "contract_ok=$contract_ok"
-            echo "reason=$reason"
-            echo "any_open_upstream_pr_count=$any_open_upstream_pr_count"
-            echo "matching_pr_count=$matching_pr_count"
+            echo "contract_ok=$(jq -r '.contract_ok // "false"' /tmp/upstream-merge-contract-final.json)"
+            echo "reason=$(jq -r '.reason // "contract eval failed at final gate"' /tmp/upstream-merge-contract-final.json)"
+            echo "reason_code=$(jq -r '.reason_code // ""' /tmp/upstream-merge-contract-final.json)"
+            echo "any_open_upstream_pr_count=$(jq -r '.any_open_upstream_pr_count // 0' /tmp/upstream-merge-contract-final.json)"
+            echo "matching_pr_count=$(jq -r '.matching_pr_count // 0' /tmp/upstream-merge-contract-final.json)"
             echo "attempt1_exit_code=${{ steps.agent_attempt_1.outputs.exit_code }}"
             echo "attempt2_exit_code=${{ steps.agent_attempt_2.outputs.exit_code || 'not-run' }}"
           } > /tmp/upstream-merge-contract-final.txt
+
+      - name: Classify final reason code
+        id: reason_code
+        if: always()
+        env:
+          DRIFT_STATUS: ${{ steps.drift_check.outputs.status }}
+          CONTRACT_OK: ${{ steps.contract_final.outputs.contract_ok }}
+        run: |
+          set -euo pipefail
+          if [ ! -s /tmp/upstream-merge-contract-final.json ]; then
+            jq -n '{contract_ok:"false", reason:"missing final contract artifact", reason_code:"MISSING_CONTRACT_ARTIFACT", matching_pr_count:0, any_open_upstream_pr_count:0}' > /tmp/upstream-merge-contract-final.json
+          fi
+
+          reason_code="$(jq -r '.reason_code // ""' /tmp/upstream-merge-contract-final.json)"
+
+          if [ "$DRIFT_STATUS" = "infra_error" ]; then
+            reason_code="DRIFT_CHECK_INFRA"
+          elif [ "$CONTRACT_OK" = "true" ]; then
+            if [ -z "$reason_code" ]; then
+              reason_code="SUCCESS"
+            fi
+          else
+            if grep -q "CONFLICT (content)" /tmp/upstream-merge-agent-output.txt 2>/dev/null; then
+              reason_code="MERGE_CONFLICT_UNRESOLVED"
+            elif grep -q "Resource not accessible by personal access token (createPullRequest)" /tmp/upstream-merge-agent-output.txt 2>/dev/null; then
+              reason_code="AUTH_TOKEN_SCOPE"
+            elif grep -q "File has not been read yet. Read it first before writing to it." /tmp/upstream-merge-agent-output.txt 2>/dev/null; then
+              reason_code="TOOL_GUARD"
+            elif grep -q "Exceeded USD budget" /tmp/upstream-merge-agent-output.txt 2>/dev/null; then
+              reason_code="AGENT_BUDGET_EXCEEDED"
+            elif grep -q "contract_unmet" /tmp/upstream-merge-contract-final.json 2>/dev/null; then
+              reason_code="CONTRACT_FAIL"
+            elif [ -z "$reason_code" ]; then
+              reason_code="UNKNOWN_FAILURE"
+            fi
+          fi
+
+          echo "reason_code=$reason_code" >> "$GITHUB_OUTPUT"
+          bash "$STATE_HELPER" set-reason-code "$reason_code"
+
+          {
+            echo "reason_code=$reason_code"
+          } >> /tmp/upstream-merge-contract-final.txt
+
+      - name: Write job summary
+        if: always()
+        env:
+          DRIFT_STATUS: ${{ steps.drift_check.outputs.status }}
+          CONTRACT_OK: ${{ steps.contract_final.outputs.contract_ok }}
+          CONTRACT_REASON: ${{ steps.contract_final.outputs.reason }}
+          REASON_CODE: ${{ steps.reason_code.outputs.reason_code }}
+          TARGET_BRANCH: ${{ steps.upstream_pr.outputs.branch }}
+          ATTEMPT1_EXIT_CODE: ${{ steps.agent_attempt_1.outputs.exit_code || 'not-run' }}
+          ATTEMPT2_EXIT_CODE: ${{ steps.agent_attempt_2.outputs.exit_code || 'not-run' }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Upstream Merge Agent Result"
+            echo ""
+            echo "- run_id: $GITHUB_RUN_ID"
+            echo "- drift_status: ${DRIFT_STATUS:-unknown}"
+            echo "- contract_ok: ${CONTRACT_OK:-unknown}"
+            echo "- reason_code: ${REASON_CODE:-unknown}"
+            echo "- reason: ${CONTRACT_REASON:-n/a}"
+            echo "- target_branch: ${TARGET_BRANCH:-n/a}"
+            echo "- attempt1_exit_code: ${ATTEMPT1_EXIT_CODE}"
+            echo "- attempt2_exit_code: ${ATTEMPT2_EXIT_CODE}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Update checkpoint after final contract
+        if: always()
+        env:
+          ATTEMPT2_EXIT_CODE: ${{ steps.agent_attempt_2.outputs.exit_code || 'not-run' }}
+        run: |
+          set -euo pipefail
+          if [ ! -s /tmp/upstream-merge-contract-final.json ]; then
+            jq -n '{contract_ok:"false", reason:"missing final contract artifact before checkpoint write", reason_code:"MISSING_CONTRACT_ARTIFACT", matching_pr_count:0, any_open_upstream_pr_count:0}' > /tmp/upstream-merge-contract-final.json
+          fi
+          bash "$STATE_HELPER" update-agent-attempt 2 "${ATTEMPT2_EXIT_CODE:-}"
+          bash "$STATE_HELPER" update-contract-checkpoint final "$(cat /tmp/upstream-merge-contract-final.json)"
+
+      - name: Auto-dispatch retry for unresolved merge conflicts
+        id: auto_retry_conflict
+        if: always() && github.ref_name == 'main' && steps.contract_final.outputs.contract_ok != 'true' && steps.reason_code.outputs.reason_code == 'MERGE_CONFLICT_UNRESOLVED'
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+          AUTO_RETRY_COUNT: ${{ github.event.inputs.auto_retry_count || '0' }}
+        run: |
+          set -euo pipefail
+          current="${AUTO_RETRY_COUNT:-0}"
+          if ! [[ "$current" =~ ^[0-9]+$ ]]; then
+            current=0
+          fi
+
+          max_retry=3
+          if [ "$current" -ge "$max_retry" ]; then
+            echo "auto_retry_triggered=false" >> "$GITHUB_OUTPUT"
+            echo "auto_retry_next_count=$current" >> "$GITHUB_OUTPUT"
+            echo "Auto-retry cap reached ($current/$max_retry); no further auto-dispatch."
+            exit 0
+          fi
+
+          next=$((current + 1))
+          gh workflow run upstream-merge-agent-daily.yml --ref main \
+            -f resume_run_id="$GITHUB_RUN_ID" \
+            -f auto_retry_count="$next"
+
+          echo "auto_retry_triggered=true" >> "$GITHUB_OUTPUT"
+          echo "auto_retry_next_count=$next" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update upstream-merge-agent tracking issue
+        if: always() && steps.contract_final.outputs.contract_ok != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const reasonCode = '${{ steps.reason_code.outputs.reason_code }}' || 'UNKNOWN_FAILURE';
+            const reason = '${{ steps.contract_final.outputs.reason }}' || 'contract_unmet';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const title = `Upstream merge agent blocked: ${reasonCode}`;
+            const body = [
+              `> Auto-generated by \`.github/workflows/upstream-merge-agent-daily.yml\`.`,
+              '',
+              '## Result',
+              '',
+              `- reason_code: \`${reasonCode}\``,
+              `- reason: ${reason}`,
+              `- run: ${runUrl}`,
+              `- run_id: ${context.runId}`,
+              `- run_attempt: ${context.runAttempt}`,
+              `- drift_status: ${{ steps.drift_check.outputs.status }}`,
+              `- target_branch: ${{ steps.upstream_pr.outputs.branch || 'n/a' }}`,
+              `- attempt1_exit_code: ${{ steps.agent_attempt_1.outputs.exit_code || 'not-run' }}`,
+              `- attempt2_exit_code: ${{ steps.agent_attempt_2.outputs.exit_code || 'not-run' }}`,
+              '',
+              '## Recovery',
+              '',
+              '- Fix blocker indicated by reason_code.',
+              '- Re-run this workflow via workflow_dispatch (optionally with resume_run_id).',
+              '- auto_retry_triggered: ${{ steps.auto_retry_conflict.outputs.auto_retry_triggered || 'false' }}',
+              '- auto_retry_next_count: ${{ steps.auto_retry_conflict.outputs.auto_retry_next_count || 'n/a' }}',
+            ].join('\n');
+
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'upstream-merge-agent',
+              state: 'open',
+            });
+
+            if (issues.length > 0) {
+              const issue = issues[0];
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                title,
+                body,
+              });
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `Updated by run ${runUrl} (reason_code: \`${reasonCode}\`).`,
+              });
+              core.info(`Updated existing tracking issue #${issue.number}`);
+            } else {
+              const { data: created } = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['upstream-merge-agent'],
+              });
+              core.info(`Opened new tracking issue #${created.number}`);
+            }
+
+      - name: Close upstream-merge-agent tracking issue on success
+        if: always() && steps.contract_final.outputs.contract_ok == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'upstream-merge-agent',
+              state: 'open',
+            });
+            for (const issue of issues) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `Upstream merge agent recovered successfully: ${runUrl}. Closing this tracker.`,
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: 'closed',
+              });
+              core.info(`Closed tracking issue #${issue.number}`);
+            }
 
       - name: Enforce output contract
         if: always()
@@ -380,4 +688,13 @@ jobs:
           path: |
             /tmp/upstream-merge-agent-output.txt
             /tmp/upstream-merge-pr-body.md
+            /tmp/upstream-merge-state.json
           if-no-files-found: ignore
+
+      - name: Upload state checkpoint artifact
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: upstream-merge-state-${{ github.run_id }}
+          path: /tmp/upstream-merge-state.json
+          if-no-files-found: error
