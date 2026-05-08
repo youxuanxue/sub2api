@@ -145,7 +145,8 @@ jobs:
           GitHub auth is available through GH_TOKEN. Do not merge the PR.
           EOF
 
-      - name: Run Claude upstream merge agent
+      - name: Run Claude upstream merge agent (attempt 1)
+        id: agent_attempt_1
         env:
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
           ANTHROPIC_BASE_URL: https://api.tokenkey.dev
@@ -199,6 +200,7 @@ jobs:
           # are 24h apart so cache is already cold for them, but the
           # flag is harmless on miss.
           set -o pipefail
+          set +e
           claude -p "$(cat /tmp/upstream-merge-agent-prompt.txt)" \
             --model "claude-sonnet-4-6" \
             --max-budget-usd "20.00" \
@@ -207,7 +209,162 @@ jobs:
             --allowedTools "Bash Read Write Edit Grep Glob" \
             2>&1 \
             | python3 scripts/redact-agent-stream.py \
-            | tee /tmp/upstream-merge-agent-output.txt
+            | tee /tmp/upstream-merge-agent-output-attempt1.txt
+          exit_code=${PIPESTATUS[0]}
+          set -e
+          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
+          cp /tmp/upstream-merge-agent-output-attempt1.txt /tmp/upstream-merge-agent-output.txt
+
+      - name: Validate merge output contract (after attempt 1)
+        id: contract_after_attempt_1
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+          TARGET_BRANCH: ${{ steps.upstream_pr.outputs.branch }}
+          HAD_EXISTING_PR: ${{ steps.upstream_pr.outputs.exists }}
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git fetch upstream main
+
+          contract_ok=false
+          reason=""
+
+          open_upstream_pr_json="$(gh pr list --state open --base main --json number,headRefName,url --jq '[.[] | select(.headRefName | startswith("merge/upstream-"))]')"
+          matching_pr_count="$(jq --arg branch "$TARGET_BRANCH" '[.[] | select(.headRefName == $branch)] | length' <<<"$open_upstream_pr_json")"
+          any_open_upstream_pr_count="$(jq 'length' <<<"$open_upstream_pr_json")"
+
+          if [ "$matching_pr_count" -gt 0 ]; then
+            contract_ok=true
+            reason="open PR exists for target branch $TARGET_BRANCH"
+          elif [ "$HAD_EXISTING_PR" = "true" ] && [ "$any_open_upstream_pr_count" -gt 0 ]; then
+            contract_ok=true
+            reason="existing upstream PR still open after update path"
+          elif git merge-base --is-ancestor upstream/main origin/main && [ "$any_open_upstream_pr_count" -eq 0 ]; then
+            contract_ok=true
+            reason="no-drift path: origin/main already contains upstream/main and no upstream merge PR is open"
+          else
+            reason="contract unmet: no merge/upstream-* PR and no validated no-drift state"
+          fi
+
+          echo "contract_ok=$contract_ok" >> "$GITHUB_OUTPUT"
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+          {
+            echo "contract_ok=$contract_ok"
+            echo "reason=$reason"
+            echo "any_open_upstream_pr_count=$any_open_upstream_pr_count"
+            echo "matching_pr_count=$matching_pr_count"
+            echo "attempt1_exit_code=${{ steps.agent_attempt_1.outputs.exit_code }}"
+          } > /tmp/upstream-merge-contract-attempt1.txt
+
+      - name: Build retry prompt for unresolved merge
+        if: steps.contract_after_attempt_1.outputs.contract_ok != 'true'
+        env:
+          TARGET_BRANCH: ${{ steps.upstream_pr.outputs.branch }}
+          CONTRACT_REASON: ${{ steps.contract_after_attempt_1.outputs.reason }}
+        run: |
+          cat > /tmp/upstream-merge-agent-retry-prompt.txt <<EOF
+          Attempt 1 did not satisfy the upstream merge output contract.
+
+          Contract failure reason: $CONTRACT_REASON
+          Target branch: $TARGET_BRANCH
+
+          Continue from the current repository state and finish the job.
+
+          Required behavior:
+          - Continue resolving merge conflicts safely until the branch is in a clean committed state.
+          - Prefer preserving upstream functionality by default; use TokenKey companion/facade boundaries for overrides.
+          - Ensure there is an open PR to main from the target branch (create if missing, update if present).
+          - If no code changes are needed because origin/main already contains upstream/main, verify and report that explicitly.
+          - Run focused checks and ./scripts/preflight.sh when changes are produced.
+          - Update /tmp/upstream-merge-pr-body.md with validation and audit cadence including literal upstream/main..HEAD.
+          - Do not leave partial conflicted index/worktree at finish.
+
+          Return only after one of these outcomes is true:
+          1) open upstream merge PR exists for target branch; or
+          2) origin/main already contains upstream/main and no upstream merge PR is needed.
+          EOF
+
+      - name: Run Claude upstream merge agent (attempt 2)
+        if: steps.contract_after_attempt_1.outputs.contract_ok != 'true'
+        id: agent_attempt_2
+        env:
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          ANTHROPIC_BASE_URL: https://api.tokenkey.dev
+          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+          CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING: "1"
+          MAX_THINKING_TOKENS: "31999"
+          CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE: "60"
+          CLAUDE_CODE_ATTRIBUTION_HEADER: "0"
+          ANTHROPIC_MODEL: "claude-sonnet-4-6"
+        run: |
+          set -o pipefail
+          set +e
+          claude -p "$(cat /tmp/upstream-merge-agent-retry-prompt.txt)" \
+            --model "claude-sonnet-4-6" \
+            --max-budget-usd "20.00" \
+            --output-format stream-json --verbose \
+            --exclude-dynamic-system-prompt-sections \
+            --allowedTools "Bash Read Write Edit Grep Glob" \
+            2>&1 \
+            | python3 scripts/redact-agent-stream.py \
+            | tee /tmp/upstream-merge-agent-output-attempt2.txt
+          exit_code=${PIPESTATUS[0]}
+          set -e
+          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
+          cat /tmp/upstream-merge-agent-output-attempt2.txt >> /tmp/upstream-merge-agent-output.txt
+
+      - name: Validate merge output contract (final)
+        id: contract_final
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+          TARGET_BRANCH: ${{ steps.upstream_pr.outputs.branch }}
+          HAD_EXISTING_PR: ${{ steps.upstream_pr.outputs.exists }}
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git fetch upstream main
+
+          contract_ok=false
+          reason=""
+
+          open_upstream_pr_json="$(gh pr list --state open --base main --json number,headRefName,url --jq '[.[] | select(.headRefName | startswith("merge/upstream-"))]')"
+          matching_pr_count="$(jq --arg branch "$TARGET_BRANCH" '[.[] | select(.headRefName == $branch)] | length' <<<"$open_upstream_pr_json")"
+          any_open_upstream_pr_count="$(jq 'length' <<<"$open_upstream_pr_json")"
+
+          if [ "$matching_pr_count" -gt 0 ]; then
+            contract_ok=true
+            reason="open PR exists for target branch $TARGET_BRANCH"
+          elif [ "$HAD_EXISTING_PR" = "true" ] && [ "$any_open_upstream_pr_count" -gt 0 ]; then
+            contract_ok=true
+            reason="existing upstream PR still open after update path"
+          elif git merge-base --is-ancestor upstream/main origin/main && [ "$any_open_upstream_pr_count" -eq 0 ]; then
+            contract_ok=true
+            reason="no-drift path: origin/main already contains upstream/main and no upstream merge PR is open"
+          else
+            reason="final contract unmet: no merge/upstream-* PR and no validated no-drift state"
+          fi
+
+          echo "contract_ok=$contract_ok" >> "$GITHUB_OUTPUT"
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "contract_ok=$contract_ok"
+            echo "reason=$reason"
+            echo "any_open_upstream_pr_count=$any_open_upstream_pr_count"
+            echo "matching_pr_count=$matching_pr_count"
+            echo "attempt1_exit_code=${{ steps.agent_attempt_1.outputs.exit_code }}"
+            echo "attempt2_exit_code=${{ steps.agent_attempt_2.outputs.exit_code || 'not-run' }}"
+          } > /tmp/upstream-merge-contract-final.txt
+
+      - name: Enforce output contract
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.contract_final.outputs.contract_ok }}" != "true" ]; then
+            echo "::error::Upstream merge output contract failed: ${{ steps.contract_final.outputs.reason }}"
+            exit 1
+          fi
 
       - name: Upload agent output
         if: always()
