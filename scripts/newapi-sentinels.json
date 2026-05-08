@@ -71,6 +71,61 @@
       "path": "frontend/src/composables/usePlatformOptions.ts",
       "must_contain": ["newapi:"],
       "rationale": "Shared composable that builds platform option lists for admin pickers/filters. The `newapi:` label entry is what surfaces the fifth platform's display name."
+    },
+    {
+      "path": "frontend/src/api/admin/channels.ts",
+      "must_contain": [
+        "FetchedUpstreamModelPricingStatus",
+        "normalizeFetchedUpstreamModel",
+        "pricing_status",
+        "Promise<FetchedUpstreamModel[]>"
+      ],
+      "rationale": "NewAPI upstream model discovery changed in #128 from string[] to object records that carry pricing_status. The frontend API wrapper must normalize both old and new response shapes and preserve pricing status metadata; otherwise fetched objects flow into account forms and crash string-only UI paths before create/update reaches the backend."
+    },
+    {
+      "path": "frontend/src/composables/useTkAccountNewApiPlatform.ts",
+      "must_contain": [
+        "upstreamModelPricingStatus",
+        "models.map((model) => model.id)",
+        "buildPricingStatusMap"
+      ],
+      "rationale": "The NewAPI account composable is the contract boundary between #128's object response and the account submit payload. It must split fetched models into string IDs for allowedModels/model_mapping and a separate pricing-status map for display-only metadata; if an upstream merge reverts this, create/edit silently breaks with object values in string-only code."
+    },
+    {
+      "path": "frontend/src/components/account/AccountNewApiPlatformFields.vue",
+      "must_contain": [
+        "pricingStatusByModel",
+        ":pricing-status-by-model=\"pricingStatusByModel\""
+      ],
+      "rationale": "The shared NewAPI field component must pass #128 pricing_status metadata into the whitelist selector without changing submit semantics. Dropping this binding compiles cleanly but regresses the pricing-source-of-truth UI contract."
+    },
+    {
+      "path": "frontend/src/components/account/ModelWhitelistSelector.vue",
+      "must_contain": [
+        "modelValue: unknown[]",
+        "const modelID = (value: unknown): string",
+        "selectedModels",
+        "pricingStatusByModel"
+      ],
+      "rationale": "The selector is the UI crash point from the production incident: object-shaped model entries from #128 must be normalized to IDs before includes/render paths, while pricing_status remains badge metadata only. Upstream merges touching this shared component can revert to string[] assumptions without compile failures."
+    },
+    {
+      "path": "frontend/src/components/common/ModelIcon.vue",
+      "must_contain": [
+        "model: unknown",
+        "modelText.value.toLowerCase()",
+        "fallbackText"
+      ],
+      "rationale": "ModelIcon was one of the observed crash sites (`model.toLowerCase is not a function`). It must tolerate object-shaped model values and derive icon matching from a normalized string, because upstream/shared UI changes can reintroduce direct string assumptions while TypeScript still compiles at call sites."
+    },
+    {
+      "path": "frontend/src/composables/useModelWhitelist.ts",
+      "must_contain": [
+        "function normalizeModelID(value: unknown): string",
+        "allowedModels: unknown[]",
+        "const model = normalizeModelID(item)"
+      ],
+      "rationale": "buildModelMappingObject must tolerate stale object entries and emit only string-to-string model_mapping pairs. Without this normalization, the submit path can hit `includes is not a function` or persist invalid object-shaped model mappings after #128 responses."
     }
   ]
 }
