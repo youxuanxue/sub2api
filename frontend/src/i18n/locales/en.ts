@@ -3527,6 +3527,8 @@ export default {
         fetchUpstreamModelsEmpty: 'Upstream returned no models',
         fetchUpstreamModelsSuccess: 'Fetched {count} models from upstream',
         fetchUpstreamModelsFailed: 'Failed to fetch upstream model list',
+        pricingStatusPriced: 'Priced',
+        pricingStatusMissing: 'Missing price',
         statusCodeMapping: 'Status Code Mapping (JSON, optional)',
         statusCodeMappingHint: 'Remaps upstream HTTP status codes, for example 404 to 500. Leave empty to pass through.',
         openaiOrganization: 'OpenAI Organization (optional)',

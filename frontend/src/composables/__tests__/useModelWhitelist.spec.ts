@@ -58,6 +58,18 @@ describe('useModelWhitelist', () => {
     })
   })
 
+  it('whitelist 模式兼容 #128 的对象模型项，只提取 id', () => {
+    const mapping = buildModelMappingObject('whitelist', [
+      { id: 'claude-opus-4-6', pricing_status: 'priced' },
+      { id: 'claude-sonnet-4-6', pricing_status: 'missing' },
+    ], [])
+
+    expect(mapping).toEqual({
+      'claude-opus-4-6': 'claude-opus-4-6',
+      'claude-sonnet-4-6': 'claude-sonnet-4-6',
+    })
+  })
+
   it('whitelist 模式会保留 GPT-5.4 官方快照的精确映射', () => {
     const mapping = buildModelMappingObject('whitelist', ['gpt-5.4-2026-03-05'], [])
 

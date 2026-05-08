@@ -20,7 +20,7 @@
 import { computed } from 'vue'
 
 const props = withDefaults(defineProps<{
-  model: string
+  model: unknown
   size?: string
 }>(), {
   size: '18px'
@@ -157,10 +157,19 @@ const iconData: Record<string, IconData> = {
   }
 }
 
-const fallbackText = computed(() => props.model.charAt(0).toUpperCase())
+const modelText = computed(() => {
+  if (typeof props.model === 'string') return props.model
+  if (props.model && typeof props.model === 'object') {
+    const raw = (props.model as Record<string, unknown>).id
+    if (typeof raw === 'string') return raw
+  }
+  return ''
+})
+
+const fallbackText = computed(() => (modelText.value.charAt(0) || '?').toUpperCase())
 
 const iconKey = computed(() => {
-  const modelLower = props.model.toLowerCase()
+  const modelLower = modelText.value.toLowerCase()
 
   // OpenAI models
   if (modelLower.startsWith('gpt') || modelLower.startsWith('o1') ||

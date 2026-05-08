@@ -42,6 +42,7 @@
     <form
       v-if="step === 1"
       id="create-account-form"
+      novalidate
       @submit.prevent="handleSubmit"
       class="space-y-5"
     >
@@ -178,6 +179,7 @@
           v-model:statusCodeMapping="newapiStatusCodeMapping"
           v-model:openaiOrganization="newapiOpenAIOrganization"
           v-model:allowedModels="newapiAllowedModels"
+          v-model:pricingStatusByModel="newapiUpstreamModelPricingStatus"
           v-model:modelMappings="newapiModelMappings"
           v-model:restrictionMode="newapiRestrictionMode"
           :channel-type-options="newapiChannelTypeOptions"
@@ -3425,6 +3427,7 @@ const {
   statusCodeMapping: newapiStatusCodeMapping,
   openaiOrganization: newapiOpenAIOrganization,
   allowedModels: newapiAllowedModels,
+  upstreamModelPricingStatus: newapiUpstreamModelPricingStatus,
   modelMappings: newapiModelMappings,
   restrictionMode: newapiRestrictionMode,
   channelTypeOptions: newapiChannelTypeOptions,
