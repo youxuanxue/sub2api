@@ -198,6 +198,14 @@ export function useTkAccountNewApiPlatform(options: UseTkAccountNewApiPlatformOp
       ? credentials.openai_organization
       : ''
 
+    // Restore model_pricing_status from credentials (fix: 编辑时 pricing_status 丢失)
+    const storedPricingStatus = credentials.model_pricing_status as Record<string, FetchedUpstreamModel['pricing_status']> | undefined
+    if (storedPricingStatus && typeof storedPricingStatus === 'object') {
+      upstreamModelPricingStatus.value = { ...storedPricingStatus }
+    } else {
+      upstreamModelPricingStatus.value = {}
+    }
+
     const existing = credentials.model_mapping
     if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
       try {
@@ -210,24 +218,20 @@ export function useTkAccountNewApiPlatform(options: UseTkAccountNewApiPlatformOp
       if (entries.length === 0) {
         restrictionMode.value = 'whitelist'
         allowedModels.value = []
-        upstreamModelPricingStatus.value = {}
         modelMappings.value = []
       } else if (entries.every(([from, to]) => from === to)) {
         restrictionMode.value = 'whitelist'
         allowedModels.value = entries.map(([from]) => from)
-        upstreamModelPricingStatus.value = {}
         modelMappings.value = []
       } else {
         restrictionMode.value = 'mapping'
         allowedModels.value = []
-        upstreamModelPricingStatus.value = {}
         modelMappings.value = entries.map(([from, to]) => ({ from, to }))
       }
     } else {
       modelMapping.value = typeof existing === 'string' ? existing : ''
       restrictionMode.value = 'whitelist'
       allowedModels.value = []
-      upstreamModelPricingStatus.value = {}
       modelMappings.value = []
     }
   }
@@ -269,6 +273,11 @@ export function useTkAccountNewApiPlatform(options: UseTkAccountNewApiPlatformOp
     )
     if (mapping) {
       credentials.model_mapping = mapping
+    }
+
+    // Persist model_pricing_status alongside model_mapping (fix: 编辑时 pricing_status 丢失)
+    if (Object.keys(upstreamModelPricingStatus.value).length > 0) {
+      credentials.model_pricing_status = { ...upstreamModelPricingStatus.value }
     }
 
     const statusTrim = statusCodeMapping.value.trim()
