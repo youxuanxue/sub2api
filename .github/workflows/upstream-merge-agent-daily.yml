@@ -147,9 +147,10 @@ jobs:
         run: |
           set -euo pipefail
           STATE_HELPER_DIR="/tmp/upstream-merge-scripts"
-          mkdir -p "$STATE_HELPER_DIR/lib"
+          rm -rf "$STATE_HELPER_DIR"
+          mkdir -p "$STATE_HELPER_DIR"
           cp scripts/upstream-merge-state.sh "$STATE_HELPER_DIR/upstream-merge-state.sh"
-          cp scripts/lib/upstream-drift.sh "$STATE_HELPER_DIR/lib/upstream-drift.sh"
+          cp -R scripts/lib "$STATE_HELPER_DIR/lib"
           chmod +x "$STATE_HELPER_DIR/upstream-merge-state.sh"
           echo "STATE_HELPER=$STATE_HELPER_DIR/upstream-merge-state.sh" >> "$GITHUB_ENV"
 
@@ -560,7 +561,7 @@ jobs:
             current=0
           fi
 
-          max_retry=2
+          max_retry=3
           if [ "$current" -ge "$max_retry" ]; then
             echo "auto_retry_triggered=false" >> "$GITHUB_OUTPUT"
             echo "auto_retry_next_count=$current" >> "$GITHUB_OUTPUT"
