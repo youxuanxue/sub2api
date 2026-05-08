@@ -163,6 +163,11 @@ jobs:
           set -euo pipefail
           if bash "$STATE_HELPER" restore-state "$RESUME_RUN_ID"; then
             echo "Restored checkpoint from run $RESUME_RUN_ID"
+            # Freeze a copy of the prior run's checkpoint so the auto-retry
+            # progress gate can compare the previous run's preflight error
+            # count against this run's. Without this snapshot, the live state
+            # file gets clobbered as this run progresses.
+            cp /tmp/upstream-merge-state.json /tmp/upstream-merge-prior-state.json
           else
             echo "::warning::No checkpoint artifact found for run $RESUME_RUN_ID; continuing from fresh INIT state"
           fi
@@ -433,6 +438,91 @@ jobs:
           echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
           cat /tmp/upstream-merge-agent-output-attempt2.txt >> /tmp/upstream-merge-agent-output.txt
 
+      - name: Verify preflight on target branch (final)
+        id: preflight_final
+        # Skill §4 requires preflight green before the PR is considered done.
+        # We run it here against the agent's pushed branch (not local HEAD) so
+        # contract-eval reflects what review/CI will actually see.
+        if: always() && steps.drift_check.outputs.status == 'need_merge'
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+          TARGET_BRANCH: ${{ steps.upstream_pr.outputs.branch }}
+        run: |
+          set -euo pipefail
+          set +e
+          # Fetch the agent-pushed branch. If this fails the agent never got
+          # far enough to push, and the contract gate will surface that
+          # separately as missing-PR; we just record skip here.
+          if ! git fetch origin "$TARGET_BRANCH" 2>/tmp/upstream-merge-preflight-fetch.log; then
+            echo "preflight_ok=skip" >> "$GITHUB_OUTPUT"
+            echo "error_count=-1" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=remote_branch_missing" >> "$GITHUB_OUTPUT"
+            bash "$STATE_HELPER" update-preflight-checkpoint skip -1 remote_branch_missing || true
+            exit 0
+          fi
+
+          # Mirror what review/CI will execute against. -B reset is destructive
+          # to local working state, but we only ever touch state read-only after
+          # this step, so it's safe.
+          git checkout -B preflight-target FETCH_HEAD
+          # Submodule pointer may have moved across the merge; re-init so
+          # dev-rules/templates/preflight.sh exists at the right SHA.
+          git submodule update --init --recursive 2>/dev/null || true
+
+          bash scripts/preflight.sh > /tmp/upstream-merge-preflight.log 2>&1
+          rc=$?
+          set -e
+
+          if [ "$rc" -eq 0 ]; then
+            echo "preflight_ok=true" >> "$GITHUB_OUTPUT"
+            echo "error_count=0" >> "$GITHUB_OUTPUT"
+            bash "$STATE_HELPER" update-preflight-checkpoint true 0 ok || true
+          else
+            # Format from scripts/preflight.sh tail line:
+            #   === preflight (with sub2api checks): FAIL (N check(s) failed) ===
+            count="$(grep -oE '[0-9]+ check\(s\) failed' /tmp/upstream-merge-preflight.log | head -1 | grep -oE '^[0-9]+' || echo 1)"
+            echo "preflight_ok=false" >> "$GITHUB_OUTPUT"
+            echo "error_count=$count" >> "$GITHUB_OUTPUT"
+            bash "$STATE_HELPER" update-preflight-checkpoint false "$count" "preflight failed with $count check(s)" || true
+            # Surface a compact failure block in the workflow log so reviewers
+            # don't have to download the artifact for the common case.
+            echo "::group::preflight tail (last 80 lines)"
+            tail -n 80 /tmp/upstream-merge-preflight.log || true
+            echo "::endgroup::"
+          fi
+
+      - name: Audit PR body for upstream cadence (final)
+        id: pr_body_audit_final
+        # Skill §5 mandates the PR body contains literal `upstream/main..HEAD`.
+        # The shape workflow enforces it at PR-merge time, but we also gate it
+        # in the agent contract so the daily run flips to red on its own
+        # instead of declaring success and letting branch protection catch it.
+        if: always() && steps.drift_check.outputs.status == 'need_merge'
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+          TARGET_BRANCH: ${{ steps.upstream_pr.outputs.branch }}
+          KNOWN_PR_NUMBER: ${{ steps.upstream_pr.outputs.number }}
+        run: |
+          set -euo pipefail
+          pr_number="${KNOWN_PR_NUMBER:-}"
+          if [ -z "$pr_number" ]; then
+            pr_number="$(gh pr list --state open --base main --head "$TARGET_BRANCH" --json number --jq '.[0].number // empty' || true)"
+          fi
+
+          if [ -z "$pr_number" ]; then
+            echo "pr_body_audit_ok=skip" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=no_pr" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          body="$(gh pr view "$pr_number" --json body --jq '.body' || echo '')"
+          if printf '%s' "$body" | grep -qF 'upstream/main..HEAD'; then
+            echo "pr_body_audit_ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "pr_body_audit_ok=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::PR #$pr_number body is missing literal 'upstream/main..HEAD' audit cadence (skill §5)"
+          fi
+
       - name: Validate merge output contract (final)
         id: contract_final
         if: always()
@@ -441,27 +531,34 @@ jobs:
           TARGET_BRANCH: ${{ steps.upstream_pr.outputs.branch }}
           HAD_EXISTING_PR: ${{ steps.upstream_pr.outputs.exists }}
           DRIFT_STATUS: ${{ steps.drift_check.outputs.status }}
+          PREFLIGHT_OK: ${{ steps.preflight_final.outputs.preflight_ok || 'skip' }}
+          PR_BODY_AUDIT_OK: ${{ steps.pr_body_audit_final.outputs.pr_body_audit_ok || 'skip' }}
         run: |
           set -euo pipefail
           if [ "$DRIFT_STATUS" = "no_drift" ]; then
-            jq -n '{contract_ok:"true", reason:"no-drift path: origin/main already contains upstream/main and no upstream merge PR is open", reason_code:"NO_DRIFT", matching_pr_count:0, any_open_upstream_pr_count:0}' > /tmp/upstream-merge-contract-final.json
+            jq -n '{contract_ok:"true", reason:"no-drift path: origin/main already contains upstream/main and no upstream merge PR is open", reason_code:"NO_DRIFT", preflight_ok:"skip", pr_body_audit_ok:"skip", matching_pr_count:0, any_open_upstream_pr_count:0}' > /tmp/upstream-merge-contract-final.json
           else
             set +e
-            bash "$STATE_HELPER" contract-eval-json "$TARGET_BRANCH" "$HAD_EXISTING_PR" > /tmp/upstream-merge-contract-final.json
+            bash "$STATE_HELPER" contract-eval-json "$TARGET_BRANCH" "$HAD_EXISTING_PR" "$PREFLIGHT_OK" "$PR_BODY_AUDIT_OK" > /tmp/upstream-merge-contract-final.json
             eval_rc=$?
             set -e
             if [ "$eval_rc" -ne 0 ] || [ ! -s /tmp/upstream-merge-contract-final.json ]; then
-              jq -n '{contract_ok:"false", reason:"contract eval failed at final gate", reason_code:"CONTRACT_EVAL_ERROR", matching_pr_count:0, any_open_upstream_pr_count:0}' > /tmp/upstream-merge-contract-final.json
+              jq -n '{contract_ok:"false", reason:"contract eval failed at final gate", reason_code:"CONTRACT_EVAL_ERROR", preflight_ok:"skip", pr_body_audit_ok:"skip", matching_pr_count:0, any_open_upstream_pr_count:0}' > /tmp/upstream-merge-contract-final.json
             fi
           fi
 
           echo "contract_ok=$(jq -r '.contract_ok // "false"' /tmp/upstream-merge-contract-final.json)" >> "$GITHUB_OUTPUT"
           echo "reason=$(jq -r '.reason // "contract eval failed at final gate"' /tmp/upstream-merge-contract-final.json)" >> "$GITHUB_OUTPUT"
+          echo "eval_reason_code=$(jq -r '.reason_code // ""' /tmp/upstream-merge-contract-final.json)" >> "$GITHUB_OUTPUT"
+          echo "preflight_ok=$(jq -r '.preflight_ok // "skip"' /tmp/upstream-merge-contract-final.json)" >> "$GITHUB_OUTPUT"
+          echo "pr_body_audit_ok=$(jq -r '.pr_body_audit_ok // "skip"' /tmp/upstream-merge-contract-final.json)" >> "$GITHUB_OUTPUT"
 
           {
             echo "contract_ok=$(jq -r '.contract_ok // "false"' /tmp/upstream-merge-contract-final.json)"
             echo "reason=$(jq -r '.reason // "contract eval failed at final gate"' /tmp/upstream-merge-contract-final.json)"
             echo "reason_code=$(jq -r '.reason_code // ""' /tmp/upstream-merge-contract-final.json)"
+            echo "preflight_ok=$(jq -r '.preflight_ok // "skip"' /tmp/upstream-merge-contract-final.json)"
+            echo "pr_body_audit_ok=$(jq -r '.pr_body_audit_ok // "skip"' /tmp/upstream-merge-contract-final.json)"
             echo "any_open_upstream_pr_count=$(jq -r '.any_open_upstream_pr_count // 0' /tmp/upstream-merge-contract-final.json)"
             echo "matching_pr_count=$(jq -r '.matching_pr_count // 0' /tmp/upstream-merge-contract-final.json)"
             echo "attempt1_exit_code=${{ steps.agent_attempt_1.outputs.exit_code }}"
@@ -480,7 +577,16 @@ jobs:
             jq -n '{contract_ok:"false", reason:"missing final contract artifact", reason_code:"MISSING_CONTRACT_ARTIFACT", matching_pr_count:0, any_open_upstream_pr_count:0}' > /tmp/upstream-merge-contract-final.json
           fi
 
-          reason_code="$(jq -r '.reason_code // ""' /tmp/upstream-merge-contract-final.json)"
+          eval_reason_code="$(jq -r '.reason_code // ""' /tmp/upstream-merge-contract-final.json)"
+          reason_code="$eval_reason_code"
+
+          # Structured codes from contract_eval_pure are authoritative — they
+          # correspond to actionable failures (preflight red, PR body missing
+          # audit cadence). Only fall through to grep heuristics when the
+          # contract eval itself signaled CONTRACT_FAIL or returned empty,
+          # since those are the cases where the agent's stdout contains the
+          # most specific clue (merge conflict markers, budget exhaustion).
+          structured_codes_re='^(PREFLIGHT_FAIL|PR_BODY_INCOMPLETE|NO_DRIFT)$'
 
           if [ "$DRIFT_STATUS" = "infra_error" ]; then
             reason_code="DRIFT_CHECK_INFRA"
@@ -488,6 +594,8 @@ jobs:
             if [ -z "$reason_code" ]; then
               reason_code="SUCCESS"
             fi
+          elif [[ "$eval_reason_code" =~ $structured_codes_re ]]; then
+            reason_code="$eval_reason_code"
           else
             if grep -q "CONFLICT (content)" /tmp/upstream-merge-agent-output.txt 2>/dev/null; then
               reason_code="MERGE_CONFLICT_UNRESOLVED"
@@ -521,6 +629,9 @@ jobs:
           TARGET_BRANCH: ${{ steps.upstream_pr.outputs.branch }}
           ATTEMPT1_EXIT_CODE: ${{ steps.agent_attempt_1.outputs.exit_code || 'not-run' }}
           ATTEMPT2_EXIT_CODE: ${{ steps.agent_attempt_2.outputs.exit_code || 'not-run' }}
+          PREFLIGHT_OK: ${{ steps.preflight_final.outputs.preflight_ok || 'skip' }}
+          PREFLIGHT_ERROR_COUNT: ${{ steps.preflight_final.outputs.error_count || '-1' }}
+          PR_BODY_AUDIT_OK: ${{ steps.pr_body_audit_final.outputs.pr_body_audit_ok || 'skip' }}
         run: |
           set -euo pipefail
           {
@@ -534,6 +645,9 @@ jobs:
             echo "- target_branch: ${TARGET_BRANCH:-n/a}"
             echo "- attempt1_exit_code: ${ATTEMPT1_EXIT_CODE}"
             echo "- attempt2_exit_code: ${ATTEMPT2_EXIT_CODE}"
+            echo "- preflight_ok: ${PREFLIGHT_OK}"
+            echo "- preflight_error_count: ${PREFLIGHT_ERROR_COUNT}"
+            echo "- pr_body_audit_ok: ${PR_BODY_AUDIT_OK}"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Update checkpoint after final contract
@@ -548,12 +662,25 @@ jobs:
           bash "$STATE_HELPER" update-agent-attempt 2 "${ATTEMPT2_EXIT_CODE:-}"
           bash "$STATE_HELPER" update-contract-checkpoint final "$(cat /tmp/upstream-merge-contract-final.json)"
 
-      - name: Auto-dispatch retry for unresolved merge conflicts
+      - name: Auto-dispatch retry for recoverable failures
         id: auto_retry_conflict
-        if: always() && github.ref_name == 'main' && steps.contract_final.outputs.contract_ok != 'true' && steps.reason_code.outputs.reason_code == 'MERGE_CONFLICT_UNRESOLVED'
+        # Trigger set covers every reason_code where another agent run can
+        # plausibly fix things on its own:
+        #  - MERGE_CONFLICT_UNRESOLVED: agent left CONFLICT markers
+        #  - PREFLIGHT_FAIL:            interface/type drift, missing stubs
+        #  - PR_BODY_INCOMPLETE:        missing audit cadence in PR body
+        #  - CONTRACT_FAIL:             generic miss; one more attempt allowed
+        # AUTH_TOKEN_SCOPE / TOOL_GUARD / AGENT_BUDGET_EXCEEDED are intentionally
+        # excluded — they need human-side fixes (token scope, prompt, budget).
+        if: >-
+          always()
+          && github.ref_name == 'main'
+          && steps.contract_final.outputs.contract_ok != 'true'
+          && contains(fromJSON('["MERGE_CONFLICT_UNRESOLVED","PREFLIGHT_FAIL","PR_BODY_INCOMPLETE","CONTRACT_FAIL"]'), steps.reason_code.outputs.reason_code)
         env:
           GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
           AUTO_RETRY_COUNT: ${{ github.event.inputs.auto_retry_count || '0' }}
+          REASON_CODE: ${{ steps.reason_code.outputs.reason_code }}
         run: |
           set -euo pipefail
           current="${AUTO_RETRY_COUNT:-0}"
@@ -565,8 +692,30 @@ jobs:
           if [ "$current" -ge "$max_retry" ]; then
             echo "auto_retry_triggered=false" >> "$GITHUB_OUTPUT"
             echo "auto_retry_next_count=$current" >> "$GITHUB_OUTPUT"
+            echo "auto_retry_decline_reason=cap_reached" >> "$GITHUB_OUTPUT"
             echo "Auto-retry cap reached ($current/$max_retry); no further auto-dispatch."
             exit 0
+          fi
+
+          # Progress gate: for PREFLIGHT_FAIL chains, refuse to dispatch a new
+          # run if the previous run had >= as many preflight errors. This keeps
+          # the chain from burning $20/run × 3 in a stable failure state — if
+          # the agent isn't making progress it never will.
+          # The prior run's snapshot exists only when this run was itself a
+          # resume of an earlier auto-dispatched run; on the first failure of
+          # a fresh chain there is no prior snapshot and the gate is skipped.
+          if [ "$REASON_CODE" = "PREFLIGHT_FAIL" ] && [ -f /tmp/upstream-merge-prior-state.json ]; then
+            prior_count="$(jq -r '.preflight.error_count // -1' /tmp/upstream-merge-prior-state.json 2>/dev/null || echo -1)"
+            current_count="$(jq -r '.preflight.error_count // -1' /tmp/upstream-merge-state.json 2>/dev/null || echo -1)"
+            if [ "$prior_count" -gt 0 ] && [ "$current_count" -ge "$prior_count" ]; then
+              echo "::warning::Auto-retry declined: preflight error count not decreasing ($prior_count → $current_count)"
+              echo "auto_retry_triggered=false" >> "$GITHUB_OUTPUT"
+              echo "auto_retry_next_count=$current" >> "$GITHUB_OUTPUT"
+              echo "auto_retry_decline_reason=no_progress" >> "$GITHUB_OUTPUT"
+              echo "auto_retry_prior_count=$prior_count" >> "$GITHUB_OUTPUT"
+              echo "auto_retry_current_count=$current_count" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
 
           next=$((current + 1))
@@ -600,6 +749,9 @@ jobs:
               `- target_branch: ${{ steps.upstream_pr.outputs.branch || 'n/a' }}`,
               `- attempt1_exit_code: ${{ steps.agent_attempt_1.outputs.exit_code || 'not-run' }}`,
               `- attempt2_exit_code: ${{ steps.agent_attempt_2.outputs.exit_code || 'not-run' }}`,
+              `- preflight_ok: ${{ steps.preflight_final.outputs.preflight_ok || 'skip' }}`,
+              `- preflight_error_count: ${{ steps.preflight_final.outputs.error_count || '-1' }}`,
+              `- pr_body_audit_ok: ${{ steps.pr_body_audit_final.outputs.pr_body_audit_ok || 'skip' }}`,
               '',
               '## Recovery',
               '',
@@ -607,6 +759,7 @@ jobs:
               '- Re-run this workflow via workflow_dispatch (optionally with resume_run_id).',
               '- auto_retry_triggered: ${{ steps.auto_retry_conflict.outputs.auto_retry_triggered || 'false' }}',
               '- auto_retry_next_count: ${{ steps.auto_retry_conflict.outputs.auto_retry_next_count || 'n/a' }}',
+              '- auto_retry_decline_reason: ${{ steps.auto_retry_conflict.outputs.auto_retry_decline_reason || 'n/a' }}',
             ].join('\n');
 
             const { data: issues } = await github.rest.issues.listForRepo({
@@ -689,6 +842,9 @@ jobs:
             /tmp/upstream-merge-agent-output.txt
             /tmp/upstream-merge-pr-body.md
             /tmp/upstream-merge-state.json
+            /tmp/upstream-merge-preflight.log
+            /tmp/upstream-merge-contract-final.json
+            /tmp/upstream-merge-contract-final.txt
           if-no-files-found: ignore
 
       - name: Upload state checkpoint artifact
