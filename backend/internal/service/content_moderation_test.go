@@ -219,6 +219,10 @@ func (r *contentModerationTestUserRepo) UnbindUserAuthProvider(ctx context.Conte
 	panic("unexpected UnbindUserAuthProvider call")
 }
 
+func (r *contentModerationTestUserRepo) MarkOnboardingTourSeen(ctx context.Context, userID int64) error {
+	panic("unexpected MarkOnboardingTourSeen call")
+}
+
 func (r *contentModerationTestUserRepo) UpdateTotpSecret(ctx context.Context, userID int64, encryptedSecret *string) error {
 	panic("unexpected UpdateTotpSecret call")
 }
