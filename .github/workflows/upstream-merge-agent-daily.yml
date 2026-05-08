@@ -224,6 +224,9 @@ jobs:
         run: |
           set -euo pipefail
           git fetch origin main
+          if ! git remote get-url upstream >/dev/null 2>&1; then
+            git remote add upstream "https://github.com/Wei-Shaw/sub2api.git"
+          fi
           git fetch upstream main
 
           contract_ok=false
@@ -257,7 +260,7 @@ jobs:
           } > /tmp/upstream-merge-contract-attempt1.txt
 
       - name: Build retry prompt for unresolved merge
-        if: steps.contract_after_attempt_1.outputs.contract_ok != 'true'
+        if: always() && (steps.contract_after_attempt_1.outcome != 'success' || steps.contract_after_attempt_1.outputs.contract_ok != 'true')
         env:
           TARGET_BRANCH: ${{ steps.upstream_pr.outputs.branch }}
           CONTRACT_REASON: ${{ steps.contract_after_attempt_1.outputs.reason }}
@@ -285,7 +288,7 @@ jobs:
           EOF
 
       - name: Run Claude upstream merge agent (attempt 2)
-        if: steps.contract_after_attempt_1.outputs.contract_ok != 'true'
+        if: always() && (steps.contract_after_attempt_1.outcome != 'success' || steps.contract_after_attempt_1.outputs.contract_ok != 'true')
         id: agent_attempt_2
         env:
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
@@ -323,6 +326,9 @@ jobs:
         run: |
           set -euo pipefail
           git fetch origin main
+          if ! git remote get-url upstream >/dev/null 2>&1; then
+            git remote add upstream "https://github.com/Wei-Shaw/sub2api.git"
+          fi
           git fetch upstream main
 
           contract_ok=false
