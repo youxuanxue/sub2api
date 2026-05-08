@@ -1003,6 +1003,59 @@
             {{ t("admin.groups.openaiMessages.allowDispatchHint") }}
           </p>
 
+          <div class="mt-4 rounded-xl border border-gray-200 p-4 dark:border-dark-600">
+            <div class="flex items-center justify-between">
+              <div>
+                <label class="text-sm text-gray-600 dark:text-gray-400">{{
+                  t("admin.groups.openaiMessages.compactionEnabled")
+                }}</label>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  {{ t("admin.groups.openaiMessages.compactionEnabledHint") }}
+                </p>
+              </div>
+              <button
+                type="button"
+                @click="
+                  createForm.messages_compaction_enabled =
+                    !createForm.messages_compaction_enabled
+                "
+                class="relative inline-flex h-6 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
+                :class="
+                  createForm.messages_compaction_enabled
+                    ? 'bg-primary-500'
+                    : 'bg-gray-300 dark:bg-dark-600'
+                "
+              >
+                <span
+                  class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+                  :class="
+                    createForm.messages_compaction_enabled
+                      ? 'translate-x-6'
+                      : 'translate-x-1'
+                  "
+                />
+              </button>
+            </div>
+            <div v-if="createForm.messages_compaction_enabled" class="mt-3">
+              <label class="input-label">{{
+                t("admin.groups.openaiMessages.compactionThreshold")
+              }}</label>
+              <input
+                v-model.number="createForm.messages_compaction_input_tokens_threshold"
+                type="number"
+                min="1"
+                step="1"
+                class="input"
+                :placeholder="
+                  t('admin.groups.openaiMessages.compactionThresholdPlaceholder')
+                "
+              />
+              <p class="input-hint">
+                {{ t("admin.groups.openaiMessages.compactionThresholdHint") }}
+              </p>
+            </div>
+          </div>
+
           <div v-if="createForm.allow_messages_dispatch" class="mt-3">
             <div
               class="relative overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-dark-600 dark:bg-dark-800"
@@ -2201,6 +2254,59 @@
             {{ t("admin.groups.openaiMessages.allowDispatchHint") }}
           </p>
 
+          <div class="mt-4 rounded-xl border border-gray-200 p-4 dark:border-dark-600">
+            <div class="flex items-center justify-between">
+              <div>
+                <label class="text-sm text-gray-600 dark:text-gray-400">{{
+                  t("admin.groups.openaiMessages.compactionEnabled")
+                }}</label>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  {{ t("admin.groups.openaiMessages.compactionEnabledHint") }}
+                </p>
+              </div>
+              <button
+                type="button"
+                @click="
+                  editForm.messages_compaction_enabled =
+                    !editForm.messages_compaction_enabled
+                "
+                class="relative inline-flex h-6 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
+                :class="
+                  editForm.messages_compaction_enabled
+                    ? 'bg-primary-500'
+                    : 'bg-gray-300 dark:bg-dark-600'
+                "
+              >
+                <span
+                  class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+                  :class="
+                    editForm.messages_compaction_enabled
+                      ? 'translate-x-6'
+                      : 'translate-x-1'
+                  "
+                />
+              </button>
+            </div>
+            <div v-if="editForm.messages_compaction_enabled" class="mt-3">
+              <label class="input-label">{{
+                t("admin.groups.openaiMessages.compactionThreshold")
+              }}</label>
+              <input
+                v-model.number="editForm.messages_compaction_input_tokens_threshold"
+                type="number"
+                min="1"
+                step="1"
+                class="input"
+                :placeholder="
+                  t('admin.groups.openaiMessages.compactionThresholdPlaceholder')
+                "
+              />
+              <p class="input-hint">
+                {{ t("admin.groups.openaiMessages.compactionThresholdHint") }}
+              </p>
+            </div>
+          </div>
+
           <div v-if="editForm.allow_messages_dispatch" class="mt-3">
             <div
               class="relative overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-dark-600 dark:bg-dark-800"
@@ -3166,6 +3272,8 @@ const createForm = reactive({
   sonnet_mapped_model: createMessagesDispatchDefaults.sonnet_mapped_model,
   haiku_mapped_model: createMessagesDispatchDefaults.haiku_mapped_model,
   exact_model_mappings: [] as MessagesDispatchMappingRow[],
+  messages_compaction_enabled: false,
+  messages_compaction_input_tokens_threshold: null as number | null,
   // 账号过滤控制（OpenAI/Antigravity 平台）
   require_oauth_only: false,
   require_privacy_set: false,
@@ -3455,6 +3563,8 @@ const editForm = reactive({
   sonnet_mapped_model: editMessagesDispatchDefaults.sonnet_mapped_model,
   haiku_mapped_model: editMessagesDispatchDefaults.haiku_mapped_model,
   exact_model_mappings: [] as MessagesDispatchMappingRow[],
+  messages_compaction_enabled: false,
+  messages_compaction_input_tokens_threshold: null as number | null,
   // 账号过滤控制（OpenAI/Antigravity 平台）
   require_oauth_only: false,
   require_privacy_set: false,
@@ -3724,6 +3834,20 @@ const normalizeOptionalLimit = (
   return Number.isFinite(value) && value > 0 ? value : null;
 };
 
+const normalizeCompactionThreshold = (
+  value: number | string | null | undefined,
+): number | null => {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  const normalized = Math.trunc(parsed);
+  return normalized >= 1 ? normalized : null;
+};
+
 const normalizeImageRateMultiplier = (
   value: number | string | null | undefined,
 ): number => {
@@ -3742,6 +3866,14 @@ const handleCreateGroup = async () => {
   submitting.value = true;
   try {
     // 构建请求数据，包含模型路由配置
+    const compactionThreshold = normalizeCompactionThreshold(
+      createForm.messages_compaction_input_tokens_threshold,
+    );
+    if (createForm.messages_compaction_enabled && compactionThreshold === null) {
+      appStore.showError(t("admin.groups.openaiMessages.compactionThresholdRequired"));
+      return;
+    }
+
     const requestData = {
       ...createForm,
       daily_limit_usd: normalizeOptionalLimit(
@@ -3766,6 +3898,14 @@ const handleCreateGroup = async () => {
               exact_model_mappings: createForm.exact_model_mappings,
             })
           : undefined,
+      messages_compaction_enabled: hasMessagesDispatchConfig(createForm.platform)
+        ? createForm.messages_compaction_enabled
+        : null,
+      messages_compaction_input_tokens_threshold:
+        hasMessagesDispatchConfig(createForm.platform) &&
+        createForm.messages_compaction_enabled
+          ? compactionThreshold
+          : null,
     };
     // v-model.number 清空输入框时产生 ""，转为 null 让后端设为无限制
     const emptyToNull = (v: any) => (v === "" ? null : v);
@@ -3827,6 +3967,10 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.haiku_mapped_model = messagesDispatchFormState.haiku_mapped_model;
   editForm.exact_model_mappings =
     messagesDispatchFormState.exact_model_mappings;
+  editForm.messages_compaction_enabled =
+    group.messages_compaction_enabled ?? false;
+  editForm.messages_compaction_input_tokens_threshold =
+    group.messages_compaction_input_tokens_threshold ?? null;
   editForm.require_oauth_only = group.require_oauth_only ?? false;
   editForm.require_privacy_set = group.require_privacy_set ?? false;
   editForm.model_routing_enabled = group.model_routing_enabled || false;
@@ -3868,6 +4012,14 @@ const handleUpdateGroup = async () => {
   submitting.value = true;
   try {
     // 转换 fallback_group_id: null -> 0 (后端使用 0 表示清除)
+    const compactionThreshold = normalizeCompactionThreshold(
+      editForm.messages_compaction_input_tokens_threshold,
+    );
+    if (editForm.messages_compaction_enabled && compactionThreshold === null) {
+      appStore.showError(t("admin.groups.openaiMessages.compactionThresholdRequired"));
+      return;
+    }
+
     const payload = {
       ...editForm,
       daily_limit_usd: normalizeOptionalLimit(
@@ -3898,6 +4050,14 @@ const handleUpdateGroup = async () => {
               exact_model_mappings: editForm.exact_model_mappings,
             })
           : undefined,
+      messages_compaction_enabled: hasMessagesDispatchConfig(editForm.platform)
+        ? editForm.messages_compaction_enabled
+        : null,
+      messages_compaction_input_tokens_threshold:
+        hasMessagesDispatchConfig(editForm.platform) &&
+        editForm.messages_compaction_enabled
+          ? compactionThreshold
+          : null,
     };
     // v-model.number 清空输入框时产生 ""，转为 null 让后端设为无限制
     const emptyToNull = (v: any) => (v === "" ? null : v);
