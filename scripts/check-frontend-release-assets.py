@@ -50,11 +50,21 @@ def account_assets_from_vite_entry(entry_js: str) -> list[str]:
     return seen
 
 
+def find_newapi_platform_anchor(asset: str) -> int:
+    anchors = [
+        "Extension Engine",
+        'name:"server",size:"sm"',
+        "text-cyan-600",
+    ]
+    positions = [idx for marker in anchors if (idx := asset.find(marker)) >= 0]
+    return min(positions) if positions else -1
+
+
 def check_account_asset(asset: str, source: str) -> list[str]:
     errors: list[str] = []
-    platform_idx = asset.find("Extension Engine")
+    platform_idx = find_newapi_platform_anchor(asset)
     if platform_idx < 0:
-        errors.append(f"{source}: missing Extension Engine platform label")
+        errors.append(f"{source}: missing Extension Engine/newapi platform button anchor")
         return errors
 
     create_mount_idx = asset.find("variant:\"create\"", platform_idx)
@@ -113,13 +123,13 @@ def check_dist(dist: Path) -> list[str]:
     checked = 0
     for path in accounts_assets:
         asset = read_file(path)
-        if "Extension Engine" not in asset:
+        if find_newapi_platform_anchor(asset) < 0:
             continue
         checked += 1
         errors.extend(check_account_asset(asset, str(path)))
 
     if checked == 0:
-        errors.append(f"{dist}: no AccountsView asset contains Extension Engine")
+        errors.append(f"{dist}: no AccountsView asset contains Extension Engine/newapi platform anchor")
     return errors
 
 
@@ -144,12 +154,12 @@ def check_url(base_url: str) -> list[str]:
     for asset_path in assets:
         asset_url = urljoin(base, asset_path.lstrip("/"))
         asset = read_url(asset_url)
-        if "Extension Engine" not in asset:
+        if find_newapi_platform_anchor(asset) < 0:
             continue
         errors.extend(check_account_asset(asset, asset_url))
         return errors
 
-    errors.append(f"{base}: referenced AccountsView assets do not contain Extension Engine")
+    errors.append(f"{base}: referenced AccountsView assets do not contain Extension Engine/newapi platform anchor")
     return errors
 
 

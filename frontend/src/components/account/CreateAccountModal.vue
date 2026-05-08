@@ -163,7 +163,7 @@
             ]"
           >
             <Icon name="server" size="sm" />
-            Extension Engine
+            {{ PLATFORM_LABELS.newapi }}
           </button>
         </div>
       </div>
@@ -3233,6 +3233,7 @@ import {
 import OAuthAuthorizationFlow from './OAuthAuthorizationFlow.vue'
 import AccountNewApiPlatformFields from './AccountNewApiPlatformFields.vue'
 import { useTkAccountNewApiPlatform } from '@/composables/useTkAccountNewApiPlatform'
+import { PLATFORM_LABELS } from '@/composables/usePlatformOptions'
 
 // Type for exposed OAuthAuthorizationFlow component
 // Note: defineExpose automatically unwraps refs, so we use the unwrapped types
