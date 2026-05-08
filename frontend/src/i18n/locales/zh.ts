@@ -2270,7 +2270,13 @@ export default {
         claudeModelPlaceholder: '例如: claude-sonnet-4-5-20250929',
         targetModel: '目标模型',
         targetModelPlaceholder: '例如: gpt-5.4',
-        removeExactMapping: '删除精确映射'
+        removeExactMapping: '删除精确映射',
+        compactionEnabled: '启用自动压缩',
+        compactionEnabledHint: '输入 token 估算超过阈值时，自动触发 /v1/messages 压缩。',
+        compactionThreshold: '输入 token 阈值',
+        compactionThresholdPlaceholder: '例如: 900000',
+        compactionThresholdHint: '必须大于等于 1，建议按模型上下文窗口设置。',
+        compactionThresholdRequired: '请填写有效的压缩阈值（>= 1）'
       },
       invalidRequestFallback: {
         title: '无效请求兜底分组',
@@ -3177,6 +3183,13 @@ export default {
         compactMode: 'Compact 模式',
         compactModeDesc:
           '控制本账号在 /responses/compact 调度中的参与方式。Auto 跟随探测结果，Force On 强制允许，Force Off 强制排除。',
+        messagesCompactionEnabled: '启用账号级 /v1/messages 自动压缩',
+        messagesCompactionEnabledDesc:
+          '开启后，当前账号可单独设置输入 token 压缩阈值；关闭则回退到分组策略。',
+        messagesCompactionThreshold: '账号级输入 token 阈值',
+        messagesCompactionThresholdPlaceholder: '例如: 900000',
+        messagesCompactionThresholdHint: '必须大于等于 1，超过阈值后自动执行压缩。',
+        messagesCompactionThresholdRequired: '请填写有效的账号级压缩阈值（>= 1）',
         compactModeAuto: '自动',
         compactModeForceOn: '强制开启',
         compactModeForceOff: '强制关闭',
