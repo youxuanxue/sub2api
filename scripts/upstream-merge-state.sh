@@ -163,15 +163,23 @@ update_contract_checkpoint() {
       --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
       '.state="CONTRACT_VERIFY" | .state_code=40 | .contract.after_attempt1_ok=$ok | .contract.after_attempt1_reason=$reason | .updated_at_utc=$ts'
   else
-    update_state \
-      --arg ok "$ok" \
-      --arg reason "$reason" \
-      --arg reason_code "$reason_code" \
-      --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      '.state="CONTRACT_VERIFY" | .state_code=40 | .contract.final_ok=$ok | .contract.final_reason=$reason | .reason_code=$reason_code | .updated_at_utc=$ts'
+    if [ -n "$reason_code" ]; then
+      update_state \
+        --arg ok "$ok" \
+        --arg reason "$reason" \
+        --arg reason_code "$reason_code" \
+        --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        '.state="CONTRACT_VERIFY" | .state_code=40 | .contract.final_ok=$ok | .contract.final_reason=$reason | .reason_code=$reason_code | .updated_at_utc=$ts'
+    else
+      update_state \
+        --arg ok "$ok" \
+        --arg reason "$reason" \
+        --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        '.state="CONTRACT_VERIFY" | .state_code=40 | .contract.final_ok=$ok | .contract.final_reason=$reason | .updated_at_utc=$ts'
+    fi
 
     if [ "$ok" = "true" ]; then
-      update_state '.state="DONE" | .state_code=90 | .status="completed" | .reason_code="" | .updated_at_utc="'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"'
+      update_state '.state="DONE" | .state_code=90 | .status="completed" | .updated_at_utc="'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"'
     else
       update_state '.state="FAILED" | .state_code=99 | .status="failed" | .updated_at_utc="'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"'
     fi
