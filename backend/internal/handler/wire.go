@@ -38,6 +38,7 @@ func ProvideAdminHandlers(
 	channelHandler *admin.ChannelHandler,
 	channelMonitorHandler *admin.ChannelMonitorHandler,
 	channelMonitorTemplateHandler *admin.ChannelMonitorRequestTemplateHandler,
+	contentModerationHandler *admin.ContentModerationHandler,
 	paymentHandler *admin.PaymentHandler,
 	affiliateHandler *admin.AffiliateHandler,
 	tkChannelHandler *admin.TKChannelAdminHandler,
@@ -70,6 +71,7 @@ func ProvideAdminHandlers(
 		Channel:                channelHandler,
 		ChannelMonitor:         channelMonitorHandler,
 		ChannelMonitorTemplate: channelMonitorTemplateHandler,
+		ContentModeration:      contentModerationHandler,
 		Payment:                paymentHandler,
 		Affiliate:              affiliateHandler,
 		TKChannel:              tkChannelHandler,
@@ -138,6 +140,7 @@ func ProvideOpenAIGatewayHandler(
 	apiKeyService *service.APIKeyService,
 	usageRecordWorkerPool *service.UsageRecordWorkerPool,
 	errorPassthroughService *service.ErrorPassthroughService,
+	contentModerationService *service.ContentModerationService,
 	cfg *config.Config,
 	videoTaskCache service.VideoTaskCache,
 ) *OpenAIGatewayHandler {
@@ -148,6 +151,7 @@ func ProvideOpenAIGatewayHandler(
 		apiKeyService,
 		usageRecordWorkerPool,
 		errorPassthroughService,
+		contentModerationService,
 		cfg,
 	)
 	h.SetVideoTaskCache(videoTaskCache)
@@ -252,6 +256,7 @@ var ProviderSet = wire.NewSet(
 	admin.NewChannelHandler,
 	admin.NewChannelMonitorHandler,
 	admin.NewChannelMonitorRequestTemplateHandler,
+	admin.NewContentModerationHandler,
 	admin.NewTKChannelAdminHandler,
 	admin.NewPaymentHandler,
 	admin.NewAffiliateHandler,

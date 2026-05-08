@@ -9,8 +9,8 @@
     },
     {
       "path": "frontend/src/router/title.ts",
-      "must_contain": ["'TokenKey'"],
-      "rationale": "SPA `document.title` fallback when site_name is unset; drifting back to Sub2API re-splits admin tab branding from the embedded index.html default."
+      "must_contain": ["'TokenKey'", "trimmed.toLowerCase() === 'sub2api'"],
+      "rationale": "SPA `document.title` fallback when site_name is unset or upstream's default site_name leaks through; drifting back to Sub2API re-splits admin tab branding from the embedded index.html default."
     },
     {
       "path": "frontend/src/composables/usePlatformOptions.ts",

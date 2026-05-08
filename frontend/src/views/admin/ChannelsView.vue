@@ -737,6 +737,7 @@ function addPlatformSection(platform: GroupPlatform) {
     model_mapping: {},
     model_pricing: [],
     web_search_emulation: false,
+    codex_image_generation_bridge: false,
     account_stats_pricing_rules: [],
   })
 }
