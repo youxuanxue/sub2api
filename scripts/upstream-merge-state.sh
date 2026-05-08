@@ -103,14 +103,91 @@ update_agent_attempt_checkpoint() {
     '.state="AGENT_RUN" | .state_code=30 | .agent[$key]=$exit_code | .updated_at_utc=$ts'
 }
 
+contract_eval_pure() {
+  # Pure assembler: given facts, produce the contract JSON. Unit-testable
+  # without git/gh — used directly by tests. The I/O wrapper is contract_eval_json.
+  local pr_exists="$1"            # "true"|"false"
+  local had_existing_pr="$2"      # "true"|"false"
+  local any_open_pr_count="$3"    # integer
+  local matching_pr_count="$4"    # integer
+  local upstream_in_main="$5"     # "true"|"false"
+  local preflight_ok="${6:-skip}"      # "true"|"false"|"skip"
+  local pr_body_audit_ok="${7:-skip}"  # "true"|"false"|"skip"
+
+  local contract_ok="false"
+  local reason="contract_unmet"
+  local reason_code="CONTRACT_FAIL"
+
+  # First gate: PR existence (or no-drift fallthrough).
+  local pr_status="missing"
+  if [ "$pr_exists" = "true" ]; then
+    pr_status="present_matching"
+  elif [ "$had_existing_pr" = "true" ] && [ "$any_open_pr_count" -gt 0 ]; then
+    pr_status="present_existing"
+  elif [ "$upstream_in_main" = "true" ] && [ "$any_open_pr_count" -eq 0 ]; then
+    pr_status="no_drift"
+  fi
+
+  case "$pr_status" in
+    no_drift)
+      contract_ok="true"
+      reason="no-drift path: origin/main already contains upstream/main and no upstream merge PR is open"
+      reason_code="NO_DRIFT"
+      ;;
+    present_matching|present_existing)
+      # PR exists; evaluate secondary gates. Order matters — most actionable first.
+      if [ "$preflight_ok" = "false" ]; then
+        contract_ok="false"
+        reason="preflight failed on target branch"
+        reason_code="PREFLIGHT_FAIL"
+      elif [ "$pr_body_audit_ok" = "false" ]; then
+        contract_ok="false"
+        reason="PR body missing required upstream/main..HEAD audit cadence"
+        reason_code="PR_BODY_INCOMPLETE"
+      else
+        contract_ok="true"
+        if [ "$pr_status" = "present_matching" ]; then
+          reason="open PR exists for target branch"
+        else
+          reason="existing upstream PR still open after update path"
+        fi
+        reason_code=""
+      fi
+      ;;
+    missing)
+      contract_ok="false"
+      reason="contract_unmet: no upstream merge PR open and origin/main lags upstream"
+      reason_code="CONTRACT_FAIL"
+      ;;
+  esac
+
+  jq -n \
+    --arg contract_ok "$contract_ok" \
+    --arg reason "$reason" \
+    --arg reason_code "$reason_code" \
+    --arg preflight_ok "$preflight_ok" \
+    --arg pr_body_audit_ok "$pr_body_audit_ok" \
+    --argjson matching_pr_count "$matching_pr_count" \
+    --argjson any_open_upstream_pr_count "$any_open_pr_count" \
+    '{
+      contract_ok:$contract_ok,
+      reason:$reason,
+      reason_code:$reason_code,
+      preflight_ok:$preflight_ok,
+      pr_body_audit_ok:$pr_body_audit_ok,
+      matching_pr_count:$matching_pr_count,
+      any_open_upstream_pr_count:$any_open_upstream_pr_count
+    }'
+}
+
 contract_eval_json() {
   local target_branch="$1"
   local had_existing_pr="$2"
+  local preflight_ok="${3:-skip}"
+  local pr_body_audit_ok="${4:-skip}"
 
   git fetch origin main >/dev/null
-  if ! git remote get-url upstream >/dev/null 2>&1; then
-    git remote add upstream "$UPSTREAM_URL"
-  fi
+  ensure_upstream_remote
   git fetch upstream main >/dev/null
 
   local open_upstream_pr_json
@@ -120,31 +197,35 @@ contract_eval_json() {
   matching_pr_count="$(jq --arg branch "$target_branch" '[.[] | select(.headRefName == $branch)] | length' <<<"$open_upstream_pr_json")"
   any_open_upstream_pr_count="$(jq 'length' <<<"$open_upstream_pr_json")"
 
-  local contract_ok="false"
-  local reason="contract_unmet"
-  local reason_code="CONTRACT_FAIL"
+  local pr_exists="false"
+  [ "$matching_pr_count" -gt 0 ] && pr_exists="true"
 
-  if [ "$matching_pr_count" -gt 0 ]; then
-    contract_ok="true"
-    reason="open PR exists for target branch $target_branch"
-    reason_code=""
-  elif [ "$had_existing_pr" = "true" ] && [ "$any_open_upstream_pr_count" -gt 0 ]; then
-    contract_ok="true"
-    reason="existing upstream PR still open after update path"
-    reason_code=""
-  elif git merge-base --is-ancestor upstream/main origin/main && [ "$any_open_upstream_pr_count" -eq 0 ]; then
-    contract_ok="true"
-    reason="no-drift path: origin/main already contains upstream/main and no upstream merge PR is open"
-    reason_code="NO_DRIFT"
+  local upstream_in_main="false"
+  if git merge-base --is-ancestor upstream/main origin/main 2>/dev/null; then
+    upstream_in_main="true"
   fi
 
-  jq -n \
-    --arg contract_ok "$contract_ok" \
+  contract_eval_pure \
+    "$pr_exists" \
+    "$had_existing_pr" \
+    "$any_open_upstream_pr_count" \
+    "$matching_pr_count" \
+    "$upstream_in_main" \
+    "$preflight_ok" \
+    "$pr_body_audit_ok"
+}
+
+update_preflight_checkpoint() {
+  local result="$1"        # "true"|"false"|"skip"
+  local error_count="$2"   # integer or "-1" when unknown
+  local reason="${3:-}"
+
+  update_state \
+    --arg result "$result" \
     --arg reason "$reason" \
-    --arg reason_code "$reason_code" \
-    --argjson matching_pr_count "$matching_pr_count" \
-    --argjson any_open_upstream_pr_count "$any_open_upstream_pr_count" \
-    '{contract_ok:$contract_ok, reason:$reason, reason_code:$reason_code, matching_pr_count:$matching_pr_count, any_open_upstream_pr_count:$any_open_upstream_pr_count}'
+    --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --argjson error_count "${error_count:-(-1)}" \
+    '.preflight = {ok:$result, error_count:$error_count, reason:$reason} | .updated_at_utc=$ts'
 }
 
 update_contract_checkpoint() {
@@ -217,10 +298,18 @@ case "$cmd" in
     update_agent_attempt_checkpoint "$2" "$3"
     ;;
   contract-eval-json)
-    contract_eval_json "$2" "$3"
+    contract_eval_json "$2" "$3" "${4:-skip}" "${5:-skip}"
+    ;;
+  contract-eval-pure)
+    # Direct pure-assembler entrypoint: facts → JSON, no git/gh I/O. Used by
+    # unit tests in scripts/upstream-merge-state_test.sh.
+    contract_eval_pure "$2" "$3" "$4" "$5" "$6" "${7:-skip}" "${8:-skip}"
     ;;
   update-contract-checkpoint)
     update_contract_checkpoint "$2" "$3"
+    ;;
+  update-preflight-checkpoint)
+    update_preflight_checkpoint "$2" "$3" "${4:-}"
     ;;
   restore-state)
     restore_state_from_artifact "${2:-}"
