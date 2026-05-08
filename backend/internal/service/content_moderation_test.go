@@ -235,10 +235,6 @@ func (r *contentModerationTestUserRepo) DisableTotp(ctx context.Context, userID 
 	panic("unexpected DisableTotp call")
 }
 
-func (r *contentModerationTestUserRepo) MarkOnboardingTourSeen(ctx context.Context, userID int64) error {
-	panic("unexpected MarkOnboardingTourSeen call")
-}
-
 type contentModerationTestAuthCacheInvalidator struct {
 	userIDs []int64
 }
