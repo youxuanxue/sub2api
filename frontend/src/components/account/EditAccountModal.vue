@@ -2296,6 +2296,7 @@ const {
   populateFromAccount: newapiPopulateFromAccount,
   buildSubmitBundle: newapiBuildSubmitBundle,
   handleFetchUpstreamModels: newapiHandleFetchUpstreamModels,
+  refreshStoredPricingStatus: newapiRefreshStoredPricingStatus,
 } = useTkAccountNewApiPlatform({
   isNewapi: () => props.account?.platform === 'newapi',
   storedAccount: () => (props.account ? { id: props.account.id, channel_type: props.account.channel_type } : null),
@@ -2747,6 +2748,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
         credentials,
       })
       newapiBootstrap()
+      if (!credentials.model_pricing_status) {
+        void newapiRefreshStoredPricingStatus()
+      }
     }
 
     // Load model mappings and detect mode

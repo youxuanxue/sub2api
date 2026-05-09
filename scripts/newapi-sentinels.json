@@ -87,9 +87,32 @@
       "must_contain": [
         "upstreamModelPricingStatus",
         "models.map((model) => model.id)",
-        "buildPricingStatusMap"
+        "buildPricingStatusMap",
+        "credentials.model_pricing_status",
+        "refreshStoredPricingStatus",
+        "fetchAndApplyUpstreamModels('pricing-only', false)",
+        "mode === 'replace'"
       ],
-      "rationale": "The NewAPI account composable is the contract boundary between #128's object response and the account submit payload. It must split fetched models into string IDs for allowedModels/model_mapping and a separate pricing-status map for display-only metadata; if an upstream merge reverts this, create/edit silently breaks with object values in string-only code."
+      "rationale": "The NewAPI account composable is the contract boundary between #128's object response and the account submit payload. It must split fetched models into string IDs for allowedModels/model_mapping and a separate pricing-status map for display-only metadata; if an upstream merge reverts this, create/edit silently breaks with object values in string-only code. PR #160 also fixed two silent data-loss paths: model_pricing_status must be persisted in credentials, and old accounts that lack it must be able to refresh pricing-only metadata without replacing their saved whitelist/model_mapping."
+    },
+    {
+      "path": "frontend/src/components/account/CreateAccountModal.vue",
+      "must_contain": [
+        "buildAPIKeyOrBedrockExtra",
+        "quota_limit",
+        "extra: buildAPIKeyOrBedrockExtra()",
+        "platform: 'newapi'"
+      ],
+      "rationale": "The NewAPI create branch is a direct doCreateAccount path rather than the generic createAccountAndFinish helper. PR #160 fixed a production data-loss bug where newapi account creation dropped apikey quota extra, leaving tokensea-1/2 with extra={}. These literals keep the direct newapi payload wired to the same quota-extra builder as other apikey/bedrock creates."
+    },
+    {
+      "path": "frontend/src/components/account/EditAccountModal.vue",
+      "must_contain": [
+        "refreshStoredPricingStatus: newapiRefreshStoredPricingStatus",
+        "!credentials.model_pricing_status",
+        "void newapiRefreshStoredPricingStatus()"
+      ],
+      "rationale": "Existing NewAPI accounts created before model_pricing_status persistence have no pricing metadata in credentials. EditAccountModal must silently refresh pricing-only metadata from stored credentials so badges render without overwriting the saved whitelist/model_mapping. This is easy to lose in upstream modal rewrites because the form still compiles and saves without it."
     },
     {
       "path": "frontend/src/components/account/AccountNewApiPlatformFields.vue",

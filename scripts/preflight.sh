@@ -338,6 +338,23 @@ else
     echo "  ok: all gateway TK sentinels intact"
 fi
 
+# ---- sub2api: sentinel registry update gate ---------------------------------
+# Existing sentinel checks prove current guarded literals still exist. This gate
+# proves PRs that modify guarded/hotspot files also update the matching registry,
+# turning the recurring review ask "补充必要的 upstream merge 覆写防护门禁" into
+# a hard preflight failure instead of human memory.
+echo ""
+echo "=== sub2api: sentinel registry update gate ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for sentinel registry update gate)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/check-sentinel-registry-update-gate.py --quiet; then
+    # check-sentinel-registry-update-gate.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: guarded hotspot changes update their sentinel registries"
+fi
+
 # ---- sub2api: redaction version contract ------------------------------------
 # Source of truth: scripts/redaction-sentinels.json. Verifies that the default
 # sensitive-key set in logredact and the outward QA redaction_version literals
