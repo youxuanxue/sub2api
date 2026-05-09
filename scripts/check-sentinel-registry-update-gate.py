@@ -42,6 +42,7 @@ HOTSPOT_PATTERNS: dict[str, list[str]] = {
     "frontend/src/composables/useModelWhitelist.ts": ["scripts/newapi-sentinels.json"],
     "frontend/src/constants/gatewayPlatforms.ts": ["scripts/newapi-sentinels.json"],
     "frontend/src/composables/usePlatformOptions.ts": ["scripts/newapi-sentinels.json"],
+    "backend/internal/integration/newapi/*.go": ["scripts/newapi-sentinels.json"],
     "backend/internal/integration/newapi/**/*.go": ["scripts/newapi-sentinels.json"],
     "backend/internal/**/*_tk_*.go": ["scripts/newapi-sentinels.json", "scripts/gateway-tk-sentinels.json"],
     "backend/internal/relay/bridge/*.go": ["scripts/newapi-sentinels.json"],
