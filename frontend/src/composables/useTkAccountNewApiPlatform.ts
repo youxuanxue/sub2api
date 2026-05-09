@@ -110,8 +110,19 @@ export function useTkAccountNewApiPlatform(options: UseTkAccountNewApiPlatformOp
 
   // ---- 副作用：获取上游模型列表 ------------------------------------------
   async function handleFetchUpstreamModels(): Promise<void> {
+    await fetchAndApplyUpstreamModels('replace')
+  }
+
+  async function refreshStoredPricingStatus(): Promise<void> {
+    await fetchAndApplyUpstreamModels('pricing-only', false)
+  }
+
+  async function fetchAndApplyUpstreamModels(
+    mode: 'replace' | 'pricing-only',
+    notify = true
+  ): Promise<void> {
     if (!channelType.value || channelType.value <= 0) {
-      appStore.showError(t('admin.accounts.newApiPlatform.pleaseSelectChannelType'))
+      if (notify) appStore.showError(t('admin.accounts.newApiPlatform.pleaseSelectChannelType'))
       return
     }
     const base = baseUrl.value.trim() || selectedChannelTypeBaseUrl.value
@@ -119,7 +130,7 @@ export function useTkAccountNewApiPlatform(options: UseTkAccountNewApiPlatformOp
     const stored = options.storedAccount?.()
     const canUseStoredKey = !!stored?.id && stored?.channel_type === channelType.value
     if (!base || (!inputKey && !canUseStoredKey)) {
-      appStore.showError(t('admin.accounts.newApiPlatform.fetchUpstreamModelsNeedUrlKey'))
+      if (notify) appStore.showError(t('admin.accounts.newApiPlatform.fetchUpstreamModelsNeedUrlKey'))
       return
     }
     fetchLoading.value = true
@@ -131,21 +142,28 @@ export function useTkAccountNewApiPlatform(options: UseTkAccountNewApiPlatformOp
         ...(inputKey ? {} : { account_id: stored?.id }),
       })
       if (!models.length) {
-        appStore.showInfo(t('admin.accounts.newApiPlatform.fetchUpstreamModelsEmpty'))
+        if (notify) appStore.showInfo(t('admin.accounts.newApiPlatform.fetchUpstreamModelsEmpty'))
         return
       }
-      // 拉到 N 个模型 → 强制切回 whitelist 模式；如果留在 mapping 模式会
-      // 把 N 个模型变成 N 行无意义的 X→X 配对，淹没用户原本想填的特殊重命名。
-      allowedModels.value = models.map((model) => model.id)
-      upstreamModelPricingStatus.value = buildPricingStatusMap(models)
-      restrictionMode.value = 'whitelist'
-      appStore.showSuccess(
-        t('admin.accounts.newApiPlatform.fetchUpstreamModelsSuccess', { count: models.length })
-      )
+      const pricingStatus = buildPricingStatusMap(models)
+      upstreamModelPricingStatus.value = pricingStatus
+      if (mode === 'replace') {
+        // 拉到 N 个模型 → 强制切回 whitelist 模式；如果留在 mapping 模式会
+        // 把 N 个模型变成 N 行无意义的 X→X 配对，淹没用户原本想填的特殊重命名。
+        allowedModels.value = models.map((model) => model.id)
+        restrictionMode.value = 'whitelist'
+      }
+      if (notify) {
+        appStore.showSuccess(
+          t('admin.accounts.newApiPlatform.fetchUpstreamModelsSuccess', { count: models.length })
+        )
+      }
     } catch (e: unknown) {
-      appStore.showError(
-        unknownToErrorMessage(e, t('admin.accounts.newApiPlatform.fetchUpstreamModelsFailed'))
-      )
+      if (notify) {
+        appStore.showError(
+          unknownToErrorMessage(e, t('admin.accounts.newApiPlatform.fetchUpstreamModelsFailed'))
+        )
+      }
     } finally {
       fetchLoading.value = false
     }
@@ -323,6 +341,7 @@ export function useTkAccountNewApiPlatform(options: UseTkAccountNewApiPlatformOp
     populateFromAccount,
     buildSubmitBundle,
     handleFetchUpstreamModels,
+    refreshStoredPricingStatus,
   }
 }
 

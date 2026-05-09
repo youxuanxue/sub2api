@@ -4327,6 +4327,33 @@ const buildAnthropicExtra = (base?: Record<string, unknown>): Record<string, unk
   return Object.keys(extra).length > 0 ? extra : undefined
 }
 
+const buildAPIKeyOrBedrockExtra = (base?: Record<string, unknown>): Record<string, unknown> | undefined => {
+  const extra: Record<string, unknown> = { ...(base || {}) }
+  if (editQuotaLimit.value != null && editQuotaLimit.value > 0) {
+    extra.quota_limit = editQuotaLimit.value
+  }
+  if (editQuotaDailyLimit.value != null && editQuotaDailyLimit.value > 0) {
+    extra.quota_daily_limit = editQuotaDailyLimit.value
+  }
+  if (editQuotaWeeklyLimit.value != null && editQuotaWeeklyLimit.value > 0) {
+    extra.quota_weekly_limit = editQuotaWeeklyLimit.value
+  }
+  if (editDailyResetMode.value === 'fixed') {
+    extra.quota_daily_reset_mode = 'fixed'
+    extra.quota_daily_reset_hour = editDailyResetHour.value ?? 0
+  }
+  if (editWeeklyResetMode.value === 'fixed') {
+    extra.quota_weekly_reset_mode = 'fixed'
+    extra.quota_weekly_reset_day = editWeeklyResetDay.value ?? 1
+    extra.quota_weekly_reset_hour = editWeeklyResetHour.value ?? 0
+  }
+  if (editDailyResetMode.value === 'fixed' || editWeeklyResetMode.value === 'fixed') {
+    extra.quota_reset_timezone = editResetTimezone.value || 'UTC'
+  }
+  writeQuotaNotifyToExtra(extra, 'create')
+  return Object.keys(extra).length > 0 ? extra : undefined
+}
+
 // Helper function to create account with mixed channel warning handling
 const doCreateAccount = async (payload: CreateAccountRequest) => {
   const canContinue = await ensureAntigravityMixedChannelConfirmed(async () => {
@@ -4516,6 +4543,7 @@ const handleSubmit = async () => {
       type: 'apikey',
       channel_type: bundle.channelType,
       credentials: bundle.credentials,
+      extra: buildAPIKeyOrBedrockExtra(),
       proxy_id: form.proxy_id,
       concurrency: form.concurrency,
       load_factor: form.load_factor ?? undefined,
@@ -4706,37 +4734,9 @@ const createAccountAndFinish = async (
     return
   }
   // Inject quota limits for apikey/bedrock accounts
-  let finalExtra = extra
-  if (type === 'apikey' || type === 'bedrock') {
-    const quotaExtra: Record<string, unknown> = { ...(extra || {}) }
-    if (editQuotaLimit.value != null && editQuotaLimit.value > 0) {
-      quotaExtra.quota_limit = editQuotaLimit.value
-    }
-    if (editQuotaDailyLimit.value != null && editQuotaDailyLimit.value > 0) {
-      quotaExtra.quota_daily_limit = editQuotaDailyLimit.value
-    }
-    if (editQuotaWeeklyLimit.value != null && editQuotaWeeklyLimit.value > 0) {
-      quotaExtra.quota_weekly_limit = editQuotaWeeklyLimit.value
-    }
-    // Quota reset mode config
-    if (editDailyResetMode.value === 'fixed') {
-      quotaExtra.quota_daily_reset_mode = 'fixed'
-      quotaExtra.quota_daily_reset_hour = editDailyResetHour.value ?? 0
-    }
-    if (editWeeklyResetMode.value === 'fixed') {
-      quotaExtra.quota_weekly_reset_mode = 'fixed'
-      quotaExtra.quota_weekly_reset_day = editWeeklyResetDay.value ?? 1
-      quotaExtra.quota_weekly_reset_hour = editWeeklyResetHour.value ?? 0
-    }
-    if (editDailyResetMode.value === 'fixed' || editWeeklyResetMode.value === 'fixed') {
-      quotaExtra.quota_reset_timezone = editResetTimezone.value || 'UTC'
-    }
-    // Quota notify config
-    writeQuotaNotifyToExtra(quotaExtra, 'create')
-    if (Object.keys(quotaExtra).length > 0) {
-      finalExtra = quotaExtra
-    }
-  }
+  const finalExtra = (type === 'apikey' || type === 'bedrock')
+    ? buildAPIKeyOrBedrockExtra(extra)
+    : extra
   if (platform === 'openai') {
     const compactModelMapping = buildOpenAICompactModelMapping()
     if (compactModelMapping) {
