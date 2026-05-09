@@ -143,6 +143,20 @@ describe('useSubscriptionStore', () => {
 
       await expect(store.fetchActiveSubscriptions()).rejects.toThrow('Network error')
     })
+
+    it('浏览器离线时返回当前缓存且不请求 API', async () => {
+      const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+
+      try {
+        const store = useSubscriptionStore()
+        const result = await store.fetchActiveSubscriptions(true)
+
+        expect(result).toEqual([])
+        expect(mockGetActiveSubscriptions).not.toHaveBeenCalled()
+      } finally {
+        onLine.mockRestore()
+      }
+    })
   })
 
   // --- hasActiveSubscriptions ---

@@ -82,6 +82,42 @@
       "rationale": "Edit-account modal must load and update account-level compaction policy from extra. Compile still passes if only one half (read/write) is dropped; these literals pin the load/edit/persist chain for upstream-merge safety."
     },
     {
+      "path": "frontend/src/api/client.tk.ts",
+      "must_contain": [
+        "NETWORK_ERROR",
+        "ERR_INTERNET_DISCONNECTED",
+        "networkErrorFromAxios"
+      ],
+      "rationale": "TK preserves the authenticated session across browser offline/network-change failures and turns Axios no-response failures into an explicit NETWORK_ERROR contract. This companion keeps the upstream-shaped client.ts to thin injection points; if an upstream merge removes this file or the contract literals, offline users can be logged out or background refresh can resume console/request storms."
+    },
+    {
+      "path": "frontend/src/api/client.ts",
+      "must_contain": [
+        "./client.tk",
+        "networkErrorFromAxios(error)",
+        "onTokenRefreshed('', networkError)"
+      ],
+      "rationale": "The upstream-shaped Axios client must keep only the TK injection points for network-error normalization and refresh-token network failure propagation. Without these literals, the companion module can remain present while the runtime silently falls back to clearing auth on transient network failures."
+    },
+    {
+      "path": "frontend/src/stores/auth.ts",
+      "must_contain": [
+        "isBrowserOffline()",
+        "window.addEventListener('online', handleOnline)",
+        "activeOnlineRefreshHandler"
+      ],
+      "rationale": "Auth background refresh must short-circuit while offline, refresh once when the browser comes back online, and keep a single active online listener across store re-initialization. These anchors guard the user-session preservation fix against upstream store rewrites that still compile but reintroduce refresh storms or listener leaks."
+    },
+    {
+      "path": "frontend/src/stores/subscriptions.ts",
+      "must_contain": [
+        "isBrowserOffline()",
+        "isNetworkError(error)",
+        "return activeSubscriptions.value"
+      ],
+      "rationale": "Subscription polling must return cached data while offline and suppress expected network-error logging. Otherwise a browser network transition causes repeated /subscriptions/active failures and noisy console output without changing UI state."
+    },
+    {
       "path": "frontend/src/api/admin/ops.ts",
       "must_contain": [
         "feishu: {",

@@ -182,6 +182,38 @@ describe('API Client', () => {
         writable: true,
       })
     })
+
+    it('refresh_token 请求遇到网络错误时保留 localStorage', async () => {
+      localStorage.setItem('auth_token', 'expired-token')
+      localStorage.setItem('refresh_token', 'refresh-token')
+      vi.spyOn(axios, 'post').mockRejectedValue({
+        code: 'ERR_NETWORK',
+        message: 'Network Error',
+        config: { url: '/auth/refresh' },
+      })
+
+      const adapter = vi.fn().mockRejectedValue({
+        response: {
+          status: 401,
+          data: { code: 'TOKEN_EXPIRED', message: 'Token expired' },
+        },
+        config: {
+          url: '/test',
+          headers: { Authorization: 'Bearer expired-token' },
+        },
+        code: 'ERR_BAD_REQUEST',
+      })
+      apiClient.defaults.adapter = adapter
+
+      await expect(apiClient.get('/test')).rejects.toEqual(
+        expect.objectContaining({
+          status: 0,
+          code: 'NETWORK_ERROR',
+        })
+      )
+      expect(localStorage.getItem('auth_token')).toBe('expired-token')
+      expect(localStorage.getItem('refresh_token')).toBe('refresh-token')
+    })
   })
 
   // --- 网络错误 ---

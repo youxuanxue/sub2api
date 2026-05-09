@@ -5,6 +5,8 @@
 
 // Re-export the HTTP client
 export { apiClient } from './client'
+export { isBrowserOffline, isNetworkError } from './client.tk'
+export type { ApiNetworkError } from './client.tk'
 
 // Auth API
 export { authAPI, isTotp2FARequired, type LoginResponse } from './auth'
