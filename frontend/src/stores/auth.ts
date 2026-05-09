@@ -261,7 +261,7 @@ export const useAuthStore = defineStore('auth', () => {
       }
     })
 
-    if (refreshTokenValue.value && tokenExpiresAt.value !== null) {
+    if (refreshTokenValue.value && tokenExpiresAt.value !== null && tokenRefreshTimeoutId === null) {
       scheduleTokenRefreshAt(tokenExpiresAt.value)
     }
   }
