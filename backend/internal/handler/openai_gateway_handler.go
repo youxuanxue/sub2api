@@ -27,17 +27,17 @@ import (
 
 // OpenAIGatewayHandler handles OpenAI API gateway requests
 type OpenAIGatewayHandler struct {
-	gatewayService          *service.OpenAIGatewayService
-	billingCacheService     *service.BillingCacheService
-	apiKeyService           *service.APIKeyService
-	usageRecordWorkerPool   *service.UsageRecordWorkerPool
-	errorPassthroughService *service.ErrorPassthroughService
+	gatewayService           *service.OpenAIGatewayService
+	billingCacheService      *service.BillingCacheService
+	apiKeyService            *service.APIKeyService
+	usageRecordWorkerPool    *service.UsageRecordWorkerPool
+	errorPassthroughService  *service.ErrorPassthroughService
 	contentModerationService *service.ContentModerationService
-	concurrencyHelper       *ConcurrencyHelper
-	imageLimiter            *imageConcurrencyLimiter
-	maxAccountSwitches      int
-	cfg                     *config.Config
-	videoTaskCache          service.VideoTaskCache // TK; wired via SetVideoTaskCache — see openai_gateway_tk_video.go.
+	concurrencyHelper        *ConcurrencyHelper
+	imageLimiter             *imageConcurrencyLimiter
+	maxAccountSwitches       int
+	cfg                      *config.Config
+	videoTaskCache           service.VideoTaskCache // TK; wired via SetVideoTaskCache — see openai_gateway_tk_video.go.
 }
 
 func resolveOpenAIMessagesDispatchMappedModel(apiKey *service.APIKey, requestedModel string) string {

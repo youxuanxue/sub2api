@@ -35,9 +35,10 @@ func (a *Account) isModelRateLimitedWithContext(ctx context.Context, requestedMo
 	}
 
 	modelKey := a.GetMappedModel(requestedModel)
-	if a.Platform == PlatformAntigravity {
+	switch a.Platform {
+	case PlatformAntigravity:
 		modelKey = resolveFinalAntigravityModelKey(ctx, a, requestedModel)
-	} else if a.Platform == PlatformGemini {
+	case PlatformGemini:
 		modelKey = resolveFinalGeminiModelKey(ctx, requestedModel)
 	}
 	modelKey = strings.TrimSpace(modelKey)
@@ -59,9 +60,10 @@ func (a *Account) GetModelRateLimitRemainingTimeWithContext(ctx context.Context,
 	}
 
 	modelKey := a.GetMappedModel(requestedModel)
-	if a.Platform == PlatformAntigravity {
+	switch a.Platform {
+	case PlatformAntigravity:
 		modelKey = resolveFinalAntigravityModelKey(ctx, a, requestedModel)
-	} else if a.Platform == PlatformGemini {
+	case PlatformGemini:
 		modelKey = resolveFinalGeminiModelKey(ctx, requestedModel)
 	}
 	modelKey = strings.TrimSpace(modelKey)
