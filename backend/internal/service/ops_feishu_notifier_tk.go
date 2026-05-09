@@ -64,7 +64,9 @@ func (n *opsFeishuNotifier) sendAlert(ctx context.Context, cfg OpsFeishuAlertCon
 	if err != nil {
 		return fmt.Errorf("send feishu request: %s", sanitizeFeishuWebhookError(err, endpoint))
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
