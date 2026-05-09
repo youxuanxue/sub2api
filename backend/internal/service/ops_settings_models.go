@@ -5,6 +5,7 @@ package service
 type OpsEmailNotificationConfig struct {
 	Alert  OpsEmailAlertConfig  `json:"alert"`
 	Report OpsEmailReportConfig `json:"report"`
+	Feishu OpsFeishuAlertConfig `json:"feishu"`
 }
 
 type OpsEmailAlertConfig struct {
@@ -31,11 +32,22 @@ type OpsEmailReportConfig struct {
 	AccountHealthErrorRateThreshold float64  `json:"account_health_error_rate_threshold"`
 }
 
+type OpsFeishuAlertConfig struct {
+	Enabled                 bool   `json:"enabled"`
+	WebhookURL              string `json:"webhook_url,omitempty"`
+	WebhookURLConfigured    bool   `json:"webhook_url_configured"`
+	SigningSecret           string `json:"signing_secret,omitempty"`
+	SigningSecretConfigured bool   `json:"signing_secret_configured"`
+	RateLimitPerHour        int    `json:"rate_limit_per_hour"`
+	CooldownSeconds         int    `json:"cooldown_seconds"`
+}
+
 // OpsEmailNotificationConfigUpdateRequest allows partial updates, while the
 // frontend can still send the full config shape.
 type OpsEmailNotificationConfigUpdateRequest struct {
 	Alert  *OpsEmailAlertConfig  `json:"alert"`
 	Report *OpsEmailReportConfig `json:"report"`
+	Feishu *OpsFeishuAlertConfig `json:"feishu"`
 }
 
 type OpsDistributedLockSettings struct {

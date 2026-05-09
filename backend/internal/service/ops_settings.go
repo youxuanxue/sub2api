@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -12,6 +13,8 @@ import (
 const (
 	opsAlertEvaluatorLeaderLockKeyDefault = "ops:alert:evaluator:leader"
 	opsAlertEvaluatorLeaderLockTTLDefault = 30 * time.Second
+	opsFeishuAlertRateLimitPerHourDefault = 3
+	opsFeishuAlertCooldownSecondsDefault  = 3600
 )
 
 // =========================
@@ -92,6 +95,10 @@ func (s *OpsService) UpdateEmailNotificationConfig(ctx context.Context, req *Ops
 		cfg.Report.AccountHealthErrorRateThreshold = req.Report.AccountHealthErrorRateThreshold
 	}
 
+	if req.Feishu != nil {
+		updateOpsFeishuAlertConfig(&cfg.Feishu, req.Feishu)
+	}
+
 	if err := validateOpsEmailNotificationConfig(cfg); err != nil {
 		return nil, err
 	}
@@ -131,6 +138,7 @@ func defaultOpsEmailNotificationConfig() *OpsEmailNotificationConfig {
 			AccountHealthSchedule:           "0 9 * * *",
 			AccountHealthErrorRateThreshold: 10.0,
 		},
+		Feishu: defaultOpsFeishuAlertConfig(),
 	}
 }
 
@@ -150,6 +158,7 @@ func normalizeOpsEmailNotificationConfig(cfg *OpsEmailNotificationConfig) {
 	cfg.Report.WeeklySummarySchedule = strings.TrimSpace(cfg.Report.WeeklySummarySchedule)
 	cfg.Report.ErrorDigestSchedule = strings.TrimSpace(cfg.Report.ErrorDigestSchedule)
 	cfg.Report.AccountHealthSchedule = strings.TrimSpace(cfg.Report.AccountHealthSchedule)
+	normalizeOpsFeishuAlertConfig(&cfg.Feishu)
 
 	// Fill missing schedules with defaults to avoid breaking cron logic if clients send empty strings.
 	if cfg.Report.DailySummarySchedule == "" {
@@ -171,6 +180,8 @@ func validateOpsEmailNotificationConfig(cfg *OpsEmailNotificationConfig) error {
 		return errors.New("invalid config")
 	}
 
+	normalizeOpsEmailNotificationConfig(cfg)
+
 	if cfg.Alert.RateLimitPerHour < 0 {
 		return errors.New("alert.rate_limit_per_hour must be >= 0")
 	}
@@ -189,7 +200,85 @@ func validateOpsEmailNotificationConfig(cfg *OpsEmailNotificationConfig) error {
 	if cfg.Report.AccountHealthErrorRateThreshold < 0 || cfg.Report.AccountHealthErrorRateThreshold > 100 {
 		return errors.New("report.account_health_error_rate_threshold must be between 0 and 100")
 	}
+	if err := validateOpsFeishuAlertConfig(cfg.Feishu); err != nil {
+		return err
+	}
 	return nil
+}
+
+func defaultOpsFeishuAlertConfig() OpsFeishuAlertConfig {
+	return OpsFeishuAlertConfig{
+		Enabled:          false,
+		RateLimitPerHour: opsFeishuAlertRateLimitPerHourDefault,
+		CooldownSeconds:  opsFeishuAlertCooldownSecondsDefault,
+	}
+}
+
+func updateOpsFeishuAlertConfig(dst *OpsFeishuAlertConfig, req *OpsFeishuAlertConfig) {
+	if dst == nil || req == nil {
+		return
+	}
+	dst.Enabled = req.Enabled
+	if strings.TrimSpace(req.WebhookURL) != "" {
+		dst.WebhookURL = strings.TrimSpace(req.WebhookURL)
+	}
+	if strings.TrimSpace(req.SigningSecret) != "" {
+		dst.SigningSecret = strings.TrimSpace(req.SigningSecret)
+	}
+	dst.RateLimitPerHour = req.RateLimitPerHour
+	dst.CooldownSeconds = req.CooldownSeconds
+}
+
+func normalizeOpsFeishuAlertConfig(cfg *OpsFeishuAlertConfig) {
+	if cfg == nil {
+		return
+	}
+	cfg.WebhookURL = strings.TrimSpace(cfg.WebhookURL)
+	cfg.SigningSecret = strings.TrimSpace(cfg.SigningSecret)
+	cfg.WebhookURLConfigured = cfg.WebhookURL != ""
+	cfg.SigningSecretConfigured = cfg.SigningSecret != ""
+	if cfg.RateLimitPerHour == 0 {
+		cfg.RateLimitPerHour = opsFeishuAlertRateLimitPerHourDefault
+	}
+	if cfg.CooldownSeconds == 0 {
+		cfg.CooldownSeconds = opsFeishuAlertCooldownSecondsDefault
+	}
+}
+
+func validateOpsFeishuAlertConfig(cfg OpsFeishuAlertConfig) error {
+	if cfg.Enabled && strings.TrimSpace(cfg.WebhookURL) == "" {
+		return errors.New("feishu.webhook_url must be configured when feishu alerts are enabled")
+	}
+	if cfg.WebhookURL != "" && !isValidOpsFeishuWebhookURL(cfg.WebhookURL) {
+		return errors.New("feishu.webhook_url must be an https URL")
+	}
+	if cfg.RateLimitPerHour < 1 || cfg.RateLimitPerHour > 24 {
+		return errors.New("feishu.rate_limit_per_hour must be between 1 and 24")
+	}
+	if cfg.CooldownSeconds < 60 || cfg.CooldownSeconds > 86400 {
+		return errors.New("feishu.cooldown_seconds must be between 60 and 86400")
+	}
+	return nil
+}
+
+func isValidOpsFeishuWebhookURL(raw string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return false
+	}
+	return parsed.Scheme == "https" && parsed.Host != ""
+}
+
+func (c *OpsEmailNotificationConfig) ForResponse() *OpsEmailNotificationConfig {
+	if c == nil {
+		return nil
+	}
+	out := *c
+	out.Feishu.WebhookURLConfigured = strings.TrimSpace(out.Feishu.WebhookURL) != "" || out.Feishu.WebhookURLConfigured
+	out.Feishu.SigningSecretConfigured = strings.TrimSpace(out.Feishu.SigningSecret) != "" || out.Feishu.SigningSecretConfigured
+	out.Feishu.WebhookURL = ""
+	out.Feishu.SigningSecret = ""
+	return &out
 }
 
 // =========================

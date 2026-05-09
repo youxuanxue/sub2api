@@ -26,6 +26,26 @@
       "path": "backend/internal/service/gemini_messages_compat_service_tk_model_rate_limit_test.go",
       "must_contain": ["TestTryGeminiCodeAssistApplyModelRateLimit_UsesFallbackModelForModelScoped429", "TestHandleGeminiUpstreamError_CodeAssist429FallbackModelRoutesToPerModel", "TestHandleGeminiUpstreamError_CodeAssist429RetryDelayRoutesToPerModel"],
       "rationale": "Focused regressions proving model-scoped Code Assist 429s without metadata.model and with RetryInfo retryDelay both stay per-model and do not fall back to account-level cooldown."
+    },
+    {
+      "path": "backend/internal/service/ops_alert_evaluator_service.go",
+      "must_contain": ["maybeSendAlertNotifications", "feishu_sent"],
+      "rationale": "Ops alert evaluator must call the TK companion notification fanout and report Feishu sends in the heartbeat. If an upstream merge restores the old email-only call, P0 Feishu delivery silently stops while alert event creation still works."
+    },
+    {
+      "path": "backend/internal/service/ops_alert_notifications_tk_feishu.go",
+      "must_contain": ["maybeSendAlertFeishu", "strings.EqualFold(strings.TrimSpace(rule.Severity), \"P0\")", "rule.NotifyEmail", "opsFeishuDedupeKey", "s.limiter.SetLimit(cfg.RateLimitPerHour)"],
+      "rationale": "TK companion that keeps Feishu alerting P0-only, tied to the existing external-notification opt-in, and protected by per-rule/dimension cooldown plus global hourly rate limiting. Dropping any anchor turns a low-noise OPC pager into either silence or chat noise."
+    },
+    {
+      "path": "backend/internal/service/ops_feishu_notifier_tk.go",
+      "must_contain": ["sanitizeFeishuWebhook", "sanitizeFeishuWebhookError", "signFeishuWebhook", "SigningSecret"],
+      "rationale": "Feishu webhook delivery must keep secrets out of logs/errors and support the optional bot signing secret. These are safety properties that compile cleanly if accidentally removed."
+    },
+    {
+      "path": "backend/internal/service/ops_settings_models.go",
+      "must_contain": ["OpsFeishuAlertConfig", "WebhookURLConfigured", "SigningSecretConfigured"],
+      "rationale": "Ops email notification config JSON must preserve the Feishu write-only webhook/secret state without a DB migration. If this model shape is overwritten, frontend saves can drop Feishu config or leak secret fields."
     }
   ]
 }

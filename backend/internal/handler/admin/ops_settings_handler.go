@@ -26,7 +26,7 @@ func (h *OpsHandler) GetEmailNotificationConfig(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, "Failed to get email notification config")
 		return
 	}
-	response.Success(c, cfg)
+	response.Success(c, cfg.ForResponse())
 }
 
 // UpdateEmailNotificationConfig updates Ops email notification config (DB-backed).
@@ -53,7 +53,7 @@ func (h *OpsHandler) UpdateEmailNotificationConfig(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	response.Success(c, updated)
+	response.Success(c, updated.ForResponse())
 }
 
 // GetAlertRuntimeSettings returns Ops alert evaluator runtime settings (DB-backed).
