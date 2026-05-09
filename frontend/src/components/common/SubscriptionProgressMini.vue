@@ -182,6 +182,7 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import { useSubscriptionStore } from '@/stores'
+import { isNetworkError } from '@/api/client.tk'
 import type { UserSubscription } from '@/types'
 
 const { t } = useI18n()
@@ -297,7 +298,9 @@ onMounted(() => {
   // Trigger initial fetch if not already loaded
   // The actual data loading is handled by App.vue globally
   subscriptionStore.fetchActiveSubscriptions().catch((error) => {
-    console.error('Failed to load subscriptions in SubscriptionProgressMini:', error)
+    if (!isNetworkError(error)) {
+      console.error('Failed to load subscriptions in SubscriptionProgressMini:', error)
+    }
   })
 })
 

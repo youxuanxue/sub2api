@@ -6,6 +6,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, readonly } from 'vue'
 import { authAPI, isTotp2FARequired, type LoginResponse } from '@/api'
+import { isBrowserOffline, isNetworkError } from '@/api/client.tk'
 import type { User, LoginRequest, RegisterRequest, AuthResponse } from '@/types'
 
 const AUTH_TOKEN_KEY = 'auth_token'
@@ -15,6 +16,8 @@ const TOKEN_EXPIRES_AT_KEY = 'token_expires_at' // 存储过期时间戳而非�
 const PENDING_AUTH_SESSION_KEY = 'pending_auth_session'
 const AUTO_REFRESH_INTERVAL = 60 * 1000 // 60 seconds for user data refresh
 const TOKEN_REFRESH_BUFFER = 120 * 1000 // 120 seconds before expiry to refresh token
+
+let activeOnlineRefreshHandler: (() => void) | null = null
 
 type PendingAuthTokenField = 'pending_auth_token' | 'pending_oauth_token'
 
@@ -115,9 +118,13 @@ export const useAuthStore = defineStore('auth', () => {
         tokenExpiresAt.value = savedExpiresAt ? parseInt(savedExpiresAt, 10) : null
 
         // Immediately refresh user data from backend (async, don't block)
-        refreshUser().catch((error) => {
-          console.error('Failed to refresh user on init:', error)
-        })
+        if (!isBrowserOffline()) {
+          refreshUser().catch((error) => {
+            if (!isNetworkError(error)) {
+              console.error('Failed to refresh user on init:', error)
+            }
+          })
+        }
 
         // Start auto-refresh interval for user data
         startAutoRefresh()
@@ -141,11 +148,14 @@ export const useAuthStore = defineStore('auth', () => {
   function startAutoRefresh(): void {
     // Clear existing interval if any
     stopAutoRefresh()
+    registerOnlineRefreshHandler()
 
     refreshIntervalId = setInterval(() => {
-      if (token.value) {
+      if (token.value && !isBrowserOffline()) {
         refreshUser().catch((error) => {
-          console.error('Auto-refresh user failed:', error)
+          if (!isNetworkError(error)) {
+            console.error('Auto-refresh user failed:', error)
+          }
         })
       }
     }, AUTO_REFRESH_INTERVAL)
@@ -171,6 +181,7 @@ export const useAuthStore = defineStore('auth', () => {
       clearTimeout(tokenRefreshTimeoutId)
       tokenRefreshTimeoutId = null
     }
+    registerOnlineRefreshHandler()
 
     // Calculate remaining time until refresh (buffer time before expiry)
     const now = Date.now()
@@ -202,7 +213,7 @@ export const useAuthStore = defineStore('auth', () => {
    * Perform the actual token refresh
    */
   async function performTokenRefresh(): Promise<void> {
-    if (!refreshTokenValue.value) {
+    if (!refreshTokenValue.value || isBrowserOffline()) {
       return
     }
 
@@ -216,8 +227,42 @@ export const useAuthStore = defineStore('auth', () => {
       // Schedule next refresh (this also updates tokenExpiresAt and localStorage)
       scheduleTokenRefresh(response.expires_in)
     } catch (error) {
-      console.error('Token refresh failed:', error)
+      if (!isNetworkError(error)) {
+        console.error('Token refresh failed:', error)
+      }
       // Don't clear auth here - the interceptor will handle 401 errors
+    }
+  }
+
+  function registerOnlineRefreshHandler(): void {
+    if (typeof window === 'undefined') return
+    if (activeOnlineRefreshHandler === handleOnline) return
+    if (activeOnlineRefreshHandler) {
+      window.removeEventListener('online', activeOnlineRefreshHandler)
+    }
+
+    window.addEventListener('online', handleOnline)
+    activeOnlineRefreshHandler = handleOnline
+  }
+
+  function unregisterOnlineRefreshHandler(): void {
+    if (typeof window === 'undefined' || activeOnlineRefreshHandler !== handleOnline) return
+
+    window.removeEventListener('online', handleOnline)
+    activeOnlineRefreshHandler = null
+  }
+
+  function handleOnline(): void {
+    if (!token.value) return
+
+    refreshUser().catch((error) => {
+      if (!isNetworkError(error)) {
+        console.error('Auto-refresh user failed:', error)
+      }
+    })
+
+    if (refreshTokenValue.value && tokenExpiresAt.value !== null) {
+      scheduleTokenRefreshAt(tokenExpiresAt.value)
     }
   }
 
@@ -445,6 +490,7 @@ export const useAuthStore = defineStore('auth', () => {
     stopAutoRefresh()
     // Stop token refresh
     stopTokenRefresh()
+    unregisterOnlineRefreshHandler()
 
     token.value = null
     refreshTokenValue.value = null

@@ -6,6 +6,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import subscriptionsAPI from '@/api/subscriptions'
+import { isBrowserOffline, isNetworkError } from '@/api/client.tk'
 import type { UserSubscription } from '@/types'
 
 // Cache TTL: 60 seconds
@@ -37,6 +38,10 @@ export const useSubscriptionStore = defineStore('subscriptions', () => {
   async function fetchActiveSubscriptions(force = false): Promise<UserSubscription[]> {
     const now = Date.now()
 
+    if (isBrowserOffline()) {
+      return activeSubscriptions.value
+    }
+
     // Return cached data if valid
     if (
       !force &&
@@ -67,7 +72,9 @@ export const useSubscriptionStore = defineStore('subscriptions', () => {
         return data
       })
       .catch((error) => {
-        console.error('Failed to fetch active subscriptions:', error)
+        if (!isNetworkError(error)) {
+          console.error('Failed to fetch active subscriptions:', error)
+        }
         throw error
       })
       .finally(() => {
@@ -89,8 +96,12 @@ export const useSubscriptionStore = defineStore('subscriptions', () => {
     if (pollerInterval) return
 
     pollerInterval = setInterval(() => {
+      if (isBrowserOffline()) return
+
       fetchActiveSubscriptions(true).catch((error) => {
-        console.error('Subscription polling failed:', error)
+        if (!isNetworkError(error)) {
+          console.error('Subscription polling failed:', error)
+        }
       })
     }, 5 * 60 * 1000)
   }

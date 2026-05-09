@@ -212,6 +212,45 @@ describe('useAuthStore', () => {
       expect(store.isAuthenticated).toBe(true)
     })
 
+    it('离线恢复会保留本地会话且不立即请求用户接口', () => {
+      localStorage.setItem('auth_token', 'saved-token')
+      localStorage.setItem('auth_user', JSON.stringify(fakeUser))
+      const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+
+      try {
+        const store = useAuthStore()
+        store.checkAuth()
+
+        expect(store.isAuthenticated).toBe(true)
+        expect(mockGetCurrentUser).not.toHaveBeenCalled()
+      } finally {
+        onLine.mockRestore()
+      }
+    })
+
+    it('离线恢复后上线会刷新用户数据', async () => {
+      localStorage.setItem('auth_token', 'saved-token')
+      localStorage.setItem('auth_user', JSON.stringify(fakeUser))
+      const onLine = vi.spyOn(navigator, 'onLine', 'get')
+      onLine.mockReturnValue(false)
+      const updatedUser = { ...fakeUser, username: 'online-user' }
+      mockGetCurrentUser.mockResolvedValue({ data: updatedUser })
+
+      try {
+        const store = useAuthStore()
+        store.checkAuth()
+        onLine.mockReturnValue(true)
+        mockGetCurrentUser.mockClear()
+        window.dispatchEvent(new Event('online'))
+        await Promise.resolve()
+
+        expect(mockGetCurrentUser).toHaveBeenCalledTimes(1)
+        expect(store.user).toEqual(updatedUser)
+      } finally {
+        onLine.mockRestore()
+      }
+    })
+
     it('恢复持久化 pending auth session', () => {
       localStorage.setItem(
         'pending_auth_session',
