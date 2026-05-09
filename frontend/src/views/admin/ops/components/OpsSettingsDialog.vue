@@ -279,6 +279,27 @@ async function saveAllSettings() {
         </div>
       </div>
 
+      <!-- 飞书 P0 告警 -->
+      <div class="rounded-2xl bg-gray-50 p-4 dark:bg-dark-700/50">
+        <h4 class="mb-2 text-sm font-semibold text-gray-900 dark:text-white">{{ t('admin.ops.email.feishuTitle') }}</h4>
+        <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.ops.email.feishuP0OnlyHint') }}</p>
+        <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div class="text-xs text-gray-600 dark:text-gray-300">
+            {{ t('common.enabled') }}:
+            <span class="ml-1 font-medium text-gray-900 dark:text-white">
+              {{ emailConfig.feishu.enabled ? t('common.enabled') : t('common.disabled') }}
+            </span>
+          </div>
+          <div class="text-xs text-gray-600 dark:text-gray-300">
+            {{ t('admin.ops.email.feishuWebhook') }}:
+            <span class="ml-1 font-medium text-gray-900 dark:text-white">
+              {{ emailConfig.feishu.webhook_url_configured ? t('admin.ops.email.configured') : t('admin.ops.email.notConfigured') }}
+            </span>
+          </div>
+        </div>
+        <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.ops.settings.feishuEditHint') }}</p>
+      </div>
+
       <!-- 评估报告配置 -->
       <div class="rounded-2xl bg-gray-50 p-4 dark:bg-dark-700/50">
         <h4 class="mb-3 text-sm font-semibold text-gray-900 dark:text-white">{{ t('admin.ops.settings.reportConfig') }}</h4>

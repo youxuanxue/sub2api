@@ -12,7 +12,7 @@ alwaysApply: true
 默认路径不是把 docs、prototype、开发、上线拆成多个 PR，而是：
 
 ```text
-单 PR → 实现/测试 → preflight → review → 人工确认
+单 PR → 实现/测试 → preflight → review → 人工确认 → merge → CI 监控至全绿
 ```
 
 - 默认一个 PR 只承载一个用户意图，不按阶段机械拆 PR
@@ -179,6 +179,7 @@ spec delta 是意图载体，不是审批基线；若命中高风险条件，必
 - 有 Web surface 的仓库中，后端服务/业务逻辑改动必须同 PR 对齐对应 Web 页面、配置、契约或 Story；确无影响时必须在 commit message 中写明 `no-web-impact` / `Web impact: none`，让 preflight 可机械验证。
 - 命中高风险路径的改动必须绑定审批锚点（`docs/approved/*` 或等价 anchor token），不允许无锚点直改。
 - release 敏感分支/语境下提交消息禁止出现 `[skip ci]` / `[ci skip]`，避免流水线静默跳过。
+- PR 合并后必须继续监控目标分支 CI 状态，直到合并 commit / merge queue 关联检查全绿；若出现失败、取消或长时间 pending，立即报告并进入修复或人工决策。
 
 ## 代码质量门禁
 

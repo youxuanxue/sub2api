@@ -80,6 +80,25 @@
         "messages_compaction_input_tokens_threshold"
       ],
       "rationale": "Edit-account modal must load and update account-level compaction policy from extra. Compile still passes if only one half (read/write) is dropped; these literals pin the load/edit/persist chain for upstream-merge safety."
+    },
+    {
+      "path": "frontend/src/api/admin/ops.ts",
+      "must_contain": [
+        "feishu: {",
+        "webhook_url_configured",
+        "signing_secret_configured"
+      ],
+      "rationale": "EmailNotificationConfig must carry the Feishu write-only config flags. Without this type shape, frontend edits to email/report settings can silently omit Feishu fields or regress masking semantics."
+    },
+    {
+      "path": "frontend/src/views/admin/ops/components/OpsEmailNotificationCard.vue",
+      "must_contain": [
+        "draft.feishu.enabled",
+        "admin.ops.email.feishuP0OnlyHint",
+        "admin.ops.email.feishuWebhookKeepPlaceholder",
+        "data-testid=\"ops-feishu-webhook-input\""
+      ],
+      "rationale": "The Ops notification card is the single edit surface for Feishu P0 alerts. The anchors pin the enabled toggle, P0-only/no-resolved/no-@all operator warning, write-only webhook placeholder, and focused test hook so upstream UI merges cannot silently remove the low-noise Feishu config."
     }
   ]
 }

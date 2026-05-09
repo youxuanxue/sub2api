@@ -49,6 +49,7 @@ type OpsAlertEvaluatorService struct {
 	ruleStates map[int64]*opsAlertRuleState
 
 	emailLimiter *slidingWindowLimiter
+	feishuState  *opsFeishuNotificationState
 
 	skipLogMu sync.Mutex
 	skipLogAt time.Time
@@ -77,6 +78,7 @@ func NewOpsAlertEvaluatorService(
 		instanceID:   uuid.NewString(),
 		ruleStates:   map[int64]*opsAlertRuleState{},
 		emailLimiter: newSlidingWindowLimiter(0, time.Hour),
+		feishuState:  newOpsFeishuNotificationState(),
 	}
 }
 
@@ -196,6 +198,7 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 	eventsCreated := 0
 	eventsResolved := 0
 	emailsSent := 0
+	feishuSent := 0
 
 	now := time.Now().UTC()
 	safeEnd := now.Truncate(time.Minute)
@@ -289,8 +292,12 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 
 			eventsCreated++
 			if created != nil && created.ID > 0 {
-				if s.maybeSendAlertEmail(ctx, runtimeCfg, rule, created) {
+				notifications := s.maybeSendAlertNotifications(ctx, runtimeCfg, rule, created)
+				if notifications.EmailSent {
 					emailsSent++
+				}
+				if notifications.FeishuSent {
+					feishuSent++
 				}
 			}
 			continue
@@ -307,7 +314,7 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 		}
 	}
 
-	result := truncateString(fmt.Sprintf("rules=%d enabled=%d evaluated=%d created=%d resolved=%d emails_sent=%d", rulesTotal, rulesEnabled, rulesEvaluated, eventsCreated, eventsResolved, emailsSent), 2048)
+	result := truncateString(fmt.Sprintf("rules=%d enabled=%d evaluated=%d created=%d resolved=%d emails_sent=%d feishu_sent=%d", rulesTotal, rulesEnabled, rulesEvaluated, eventsCreated, eventsResolved, emailsSent, feishuSent), 2048)
 	s.recordHeartbeatSuccess(runAt, time.Since(startedAt), result)
 }
 

@@ -85,6 +85,15 @@ function validateCronField(enabled: boolean, cron: string): string | null {
   return null
 }
 
+function isValidHttpsUrl(raw: string): boolean {
+  try {
+    const parsed = new URL(raw.trim())
+    return parsed.protocol === 'https:' && parsed.hostname.length > 0
+  } catch {
+    return false
+  }
+}
+
 const editorValidation = computed(() => {
   const errors: string[] = []
   if (!draft.value) return { valid: true, errors }
@@ -140,6 +149,22 @@ const editorValidation = computed(() => {
   const thr = draft.value.report.account_health_error_rate_threshold
   if (!(typeof thr === 'number' && Number.isFinite(thr) && thr >= 0 && thr <= 100)) {
     errors.push(t('admin.ops.email.validation.accountHealthThresholdRange'))
+  }
+
+  if (draft.value.feishu.enabled) {
+    const webhook = (draft.value.feishu.webhook_url || '').trim()
+    if (!webhook && !draft.value.feishu.webhook_url_configured) {
+      errors.push(t('admin.ops.email.validation.feishuWebhookRequired'))
+    }
+    if (webhook && !isValidHttpsUrl(webhook)) {
+      errors.push(t('admin.ops.email.validation.feishuWebhookHttps'))
+    }
+  }
+  if (!(typeof draft.value.feishu.rate_limit_per_hour === 'number' && Number.isFinite(draft.value.feishu.rate_limit_per_hour) && draft.value.feishu.rate_limit_per_hour >= 1 && draft.value.feishu.rate_limit_per_hour <= 24)) {
+    errors.push(t('admin.ops.email.validation.feishuRateLimitRange'))
+  }
+  if (!(typeof draft.value.feishu.cooldown_seconds === 'number' && Number.isFinite(draft.value.feishu.cooldown_seconds) && draft.value.feishu.cooldown_seconds >= 60 && draft.value.feishu.cooldown_seconds <= 86400)) {
+    errors.push(t('admin.ops.email.validation.feishuCooldownRange'))
   }
 
   return { valid: errors.length === 0, errors }
@@ -230,6 +255,33 @@ onMounted(() => {
           <div class="text-xs text-gray-600 dark:text-gray-300">
             {{ t('admin.ops.email.rateLimitPerHour') }}:
             <span class="ml-1 font-medium text-gray-900 dark:text-white">{{ config.alert.rate_limit_per_hour }}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="rounded-2xl bg-gray-50 p-4 dark:bg-dark-700/50">
+        <h4 class="mb-2 text-sm font-semibold text-gray-900 dark:text-white">{{ t('admin.ops.email.feishuTitle') }}</h4>
+        <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.ops.email.feishuP0OnlyHint') }}</p>
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div class="text-xs text-gray-600 dark:text-gray-300">
+            {{ t('common.enabled') }}:
+            <span class="ml-1 font-medium text-gray-900 dark:text-white">
+              {{ config.feishu.enabled ? t('common.enabled') : t('common.disabled') }}
+            </span>
+          </div>
+          <div class="text-xs text-gray-600 dark:text-gray-300">
+            {{ t('admin.ops.email.feishuWebhook') }}:
+            <span class="ml-1 font-medium text-gray-900 dark:text-white">
+              {{ config.feishu.webhook_url_configured ? t('admin.ops.email.configured') : t('admin.ops.email.notConfigured') }}
+            </span>
+          </div>
+          <div class="text-xs text-gray-600 dark:text-gray-300">
+            {{ t('admin.ops.email.rateLimitPerHour') }}:
+            <span class="ml-1 font-medium text-gray-900 dark:text-white">{{ config.feishu.rate_limit_per_hour }}</span>
+          </div>
+          <div class="text-xs text-gray-600 dark:text-gray-300">
+            {{ t('admin.ops.email.feishuCooldownSeconds') }}:
+            <span class="ml-1 font-medium text-gray-900 dark:text-white">{{ config.feishu.cooldown_seconds }}</span>
           </div>
         </div>
       </div>
@@ -329,6 +381,56 @@ onMounted(() => {
               <input v-model="draft.alert.include_resolved_alerts" type="checkbox" class="h-4 w-4 rounded border-gray-300" />
               <span>{{ draft.alert.include_resolved_alerts ? t('common.enabled') : t('common.disabled') }}</span>
             </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="rounded-2xl bg-gray-50 p-4 dark:bg-dark-700/50">
+        <h4 class="mb-3 text-sm font-semibold text-gray-900 dark:text-white">{{ t('admin.ops.email.feishuTitle') }}</h4>
+        <p class="mb-4 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.ops.email.feishuP0OnlyHint') }}</p>
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div>
+            <div class="mb-1 text-xs font-medium text-gray-600 dark:text-gray-300">{{ t('common.enabled') }}</div>
+            <label class="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <input v-model="draft.feishu.enabled" data-testid="ops-feishu-enabled-toggle" type="checkbox" class="h-4 w-4 rounded border-gray-300" />
+              <span>{{ draft.feishu.enabled ? t('common.enabled') : t('common.disabled') }}</span>
+            </label>
+          </div>
+          <div>
+            <div class="mb-1 text-xs font-medium text-gray-600 dark:text-gray-300">{{ t('admin.ops.email.feishuWebhook') }}</div>
+            <input
+              v-model="draft.feishu.webhook_url"
+              data-testid="ops-feishu-webhook-input"
+              type="password"
+              autocomplete="off"
+              class="input"
+              :placeholder="draft.feishu.webhook_url_configured ? t('admin.ops.email.feishuWebhookKeepPlaceholder') : 'https://'"
+            />
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ draft.feishu.webhook_url_configured ? t('admin.ops.email.feishuWebhookConfiguredHint') : t('admin.ops.email.feishuWebhookHint') }}
+            </p>
+          </div>
+          <div>
+            <div class="mb-1 text-xs font-medium text-gray-600 dark:text-gray-300">{{ t('admin.ops.email.feishuSigningSecret') }}</div>
+            <input
+              v-model="draft.feishu.signing_secret"
+              data-testid="ops-feishu-signing-secret-input"
+              type="password"
+              autocomplete="off"
+              class="input"
+              :placeholder="draft.feishu.signing_secret_configured ? t('admin.ops.email.feishuSecretKeepPlaceholder') : t('admin.ops.email.feishuSecretOptional')"
+            />
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ draft.feishu.signing_secret_configured ? t('admin.ops.email.feishuSecretConfiguredHint') : t('admin.ops.email.feishuSecretOptional') }}
+            </p>
+          </div>
+          <div>
+            <div class="mb-1 text-xs font-medium text-gray-600 dark:text-gray-300">{{ t('admin.ops.email.rateLimitPerHour') }}</div>
+            <input v-model.number="draft.feishu.rate_limit_per_hour" data-testid="ops-feishu-rate-limit-input" type="number" min="1" max="24" class="input" />
+          </div>
+          <div>
+            <div class="mb-1 text-xs font-medium text-gray-600 dark:text-gray-300">{{ t('admin.ops.email.feishuCooldownSeconds') }}</div>
+            <input v-model.number="draft.feishu.cooldown_seconds" data-testid="ops-feishu-cooldown-input" type="number" min="60" max="86400" class="input" />
           </div>
         </div>
       </div>
