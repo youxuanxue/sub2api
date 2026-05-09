@@ -20,6 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          fetch-depth: 0
           submodules: recursive
       # Preflight runs `go test` for QA evidence dataset validation; backend/go.mod
       # replaces new-api with ../../new-api — same sibling checkout as test/lint jobs.
