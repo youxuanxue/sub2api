@@ -6736,6 +6736,14 @@ func (s *GatewayService) isThinkingBlockSignatureError(respBody []byte) bool {
 		return true
 	}
 
+	// 检测空 thinking 字段错误（OpenAI-compat 历史回放到 Anthropic 原生路由时会触发）。
+	// 例如: "messages.11.content.0.thinking: each thinking block must contain thinking"
+	if strings.Contains(msg, "must contain thinking") ||
+		strings.Contains(msg, "thinking block must contain") {
+		logger.LegacyPrintf("service.gateway", "[SignatureCheck] Detected empty thinking field error")
+		return true
+	}
+
 	return false
 }
 
