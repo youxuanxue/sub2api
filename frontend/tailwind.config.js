@@ -4,6 +4,18 @@ export default {
   darkMode: 'class',
   theme: {
     extend: {
+      fontSize: {
+        xs: ['0.6875rem', { lineHeight: '0.9375rem' }],
+        sm: ['0.8125rem', { lineHeight: '1.125rem' }],
+        base: ['0.9375rem', { lineHeight: '1.375rem' }],
+        lg: ['1.0625rem', { lineHeight: '1.625rem' }],
+        xl: ['1.1875rem', { lineHeight: '1.625rem' }],
+        '2xl': ['1.375rem', { lineHeight: '1.875rem' }],
+        '3xl': ['1.75rem', { lineHeight: '2.125rem' }],
+        '4xl': ['2.125rem', { lineHeight: '2.375rem' }],
+        '5xl': ['2.75rem', { lineHeight: '1' }],
+        '6xl': ['3.5rem', { lineHeight: '1' }]
+      },
       colors: {
         // 主色调 - Teal/Cyan 青色系
         primary: {
