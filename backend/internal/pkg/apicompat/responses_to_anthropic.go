@@ -392,24 +392,8 @@ func resToAnthHandleOutputItemAdded(evt *ResponsesStreamEvent, state *ResponsesE
 		return events
 
 	case "reasoning":
-		var events []AnthropicStreamEvent
-		events = append(events, closeCurrentBlock(state)...)
-
-		idx := state.ContentBlockIndex
-		state.OutputIndexToBlockIdx[evt.OutputIndex] = idx
-		state.ContentBlockOpen = true
-		state.CurrentBlockType = "thinking"
-		state.EmittedAnyContentBlock = true
-
-		events = append(events, AnthropicStreamEvent{
-			Type:  "content_block_start",
-			Index: &idx,
-			ContentBlock: &AnthropicContentBlock{
-				Type:     "thinking",
-				Thinking: "",
-			},
-		})
-		return events
+		// Open the thinking block only after a non-empty summary delta arrives.
+		return nil
 
 	case "message":
 		return nil
@@ -521,19 +505,38 @@ func resToAnthHandleReasoningDelta(evt *ResponsesStreamEvent, state *ResponsesEv
 		return nil
 	}
 
+	var events []AnthropicStreamEvent
+
+	// Avoid emitting empty thinking blocks when upstream has no summary text.
 	blockIdx, ok := state.OutputIndexToBlockIdx[evt.OutputIndex]
 	if !ok {
-		return nil
+		events = append(events, closeCurrentBlock(state)...)
+
+		blockIdx = state.ContentBlockIndex
+		state.OutputIndexToBlockIdx[evt.OutputIndex] = blockIdx
+		state.ContentBlockOpen = true
+		state.CurrentBlockType = "thinking"
+		state.EmittedAnyContentBlock = true
+
+		events = append(events, AnthropicStreamEvent{
+			Type:  "content_block_start",
+			Index: &blockIdx,
+			ContentBlock: &AnthropicContentBlock{
+				Type:     "thinking",
+				Thinking: "",
+			},
+		})
 	}
 
-	return []AnthropicStreamEvent{{
+	events = append(events, AnthropicStreamEvent{
 		Type:  "content_block_delta",
 		Index: &blockIdx,
 		Delta: &AnthropicDelta{
 			Type:     "thinking_delta",
 			Thinking: evt.Delta,
 		},
-	}}
+	})
+	return events
 }
 
 func resToAnthHandleBlockDone(state *ResponsesEventToAnthropicState) []AnthropicStreamEvent {

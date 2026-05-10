@@ -819,33 +819,104 @@ func TestStreamingReasoning(t *testing.T) {
 		Response: &ResponsesResponse{ID: "resp_3", Model: "gpt-5.2"},
 	}, state)
 
-	// reasoning item added
 	events := ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
 		Type:        "response.output_item.added",
 		OutputIndex: 0,
 		Item:        &ResponsesOutput{Type: "reasoning"},
 	}, state)
-	require.Len(t, events, 1)
-	assert.Equal(t, "content_block_start", events[0].Type)
-	assert.Equal(t, "thinking", events[0].ContentBlock.Type)
+	require.Len(t, events, 0)
 
-	// reasoning text delta
 	events = ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
 		Type:        "response.reasoning_summary_text.delta",
 		OutputIndex: 0,
 		Delta:       "Let me think...",
 	}, state)
+	require.Len(t, events, 2)
+	assert.Equal(t, "content_block_start", events[0].Type)
+	assert.Equal(t, "thinking", events[0].ContentBlock.Type)
+	assert.Equal(t, "", events[0].ContentBlock.Thinking)
+	assert.Equal(t, "content_block_delta", events[1].Type)
+	assert.Equal(t, "thinking_delta", events[1].Delta.Type)
+	assert.Equal(t, "Let me think...", events[1].Delta.Thinking)
+
+	events = ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type:        "response.reasoning_summary_text.delta",
+		OutputIndex: 0,
+		Delta:       " more.",
+	}, state)
 	require.Len(t, events, 1)
 	assert.Equal(t, "content_block_delta", events[0].Type)
 	assert.Equal(t, "thinking_delta", events[0].Delta.Type)
-	assert.Equal(t, "Let me think...", events[0].Delta.Thinking)
+	assert.Equal(t, " more.", events[0].Delta.Thinking)
 
-	// reasoning done
 	events = ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
 		Type: "response.reasoning_summary_text.done",
 	}, state)
 	require.Len(t, events, 1)
 	assert.Equal(t, "content_block_stop", events[0].Type)
+}
+
+func TestStreamingReasoning_NoSummaryText(t *testing.T) {
+	state := NewResponsesEventToAnthropicState()
+
+	ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type:     "response.created",
+		Response: &ResponsesResponse{ID: "resp_empty_reasoning", Model: "gpt-5.2"},
+	}, state)
+
+	events := ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type:        "response.output_item.added",
+		OutputIndex: 0,
+		Item:        &ResponsesOutput{Type: "reasoning"},
+	}, state)
+	require.Len(t, events, 0)
+
+	events = ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type: "response.reasoning_summary_text.done",
+	}, state)
+	require.Len(t, events, 0)
+
+	events = ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type:        "response.output_item.done",
+		OutputIndex: 0,
+		Item:        &ResponsesOutput{Type: "reasoning"},
+	}, state)
+	require.Len(t, events, 0)
+
+	events = ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type:        "response.output_text.delta",
+		OutputIndex: 1,
+		Delta:       "hello",
+	}, state)
+	require.Len(t, events, 2)
+	assert.Equal(t, "content_block_start", events[0].Type)
+	assert.Equal(t, "text", events[0].ContentBlock.Type)
+	assert.Equal(t, 0, *events[0].Index)
+	assert.Equal(t, "content_block_delta", events[1].Type)
+}
+
+func TestStreamingReasoning_EmptyDeltasOnly(t *testing.T) {
+	state := NewResponsesEventToAnthropicState()
+
+	ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type:     "response.created",
+		Response: &ResponsesResponse{ID: "resp_empty_deltas", Model: "gpt-5.2"},
+	}, state)
+
+	ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type:        "response.output_item.added",
+		OutputIndex: 0,
+		Item:        &ResponsesOutput{Type: "reasoning"},
+	}, state)
+
+	events := ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type:        "response.reasoning_summary_text.delta",
+		OutputIndex: 0,
+		Delta:       "",
+	}, state)
+	require.Len(t, events, 0)
+	assert.False(t, state.ContentBlockOpen)
+	assert.False(t, state.EmittedAnyContentBlock)
 }
 
 func TestStreamingIncomplete(t *testing.T) {
