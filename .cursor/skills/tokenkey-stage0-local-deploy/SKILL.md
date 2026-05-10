@@ -10,7 +10,7 @@ description: >-
 
 # TokenKey：本地模拟 `deploy/aws` Stage 0（Compose + 验证 + 销毁）
 
-适用于本仓库（TokenKey fork of sub2api）。栈定义见 `deploy/aws/stage0/docker-compose.yml`、`deploy/aws/README.md`；发版与真机 Stage0 路径见 **`tokenkey-prod-release-deploy`**。根目录 **`CLAUDE.md`** 仍为纪律来源（ARM、`new-api` sibling、pnpm 等）。
+适用于本仓库（TokenKey fork of sub2api）。栈定义见 `deploy/aws/stage0/docker-compose.yml`、`deploy/aws/README.md`；发版与真机 Stage0 路径见 **`tokenkey-stage0-release-rollout`**。根目录 **`CLAUDE.md`** 仍为纪律来源（ARM、`new-api` sibling、pnpm 等）。
 
 ## 一次性跑完（原则）
 
@@ -273,7 +273,7 @@ docker exec tokenkey wget -q -T 5 -O - http://localhost:8080/health
 
 ### C — 本地完整网关烟测（可选，与 prod 同款脚本）
 
-与 **`tokenkey-prod-release-deploy`** 中 **C** 使用同一 **`scripts/tk_post_deploy_smoke.sh`**，仅 **`TOKENKEY_BASE_URL`** 指向本机反代：
+与 **`tokenkey-stage0-release-rollout`** 中 **C** 使用同一 **`scripts/tk_post_deploy_smoke.sh`**，仅 **`TOKENKEY_BASE_URL`** 指向本机反代：
 
 ```bash
 cd “${REPO_ROOT}” # 须在含 scripts/ 的仓库根；未导出 REPO_ROOT 时见「本项目路径约定」
@@ -375,7 +375,7 @@ rm -rf "${TOKENKEY_STAGE0_LOCAL_ROOT}"
 ## 收尾备忘
 
 - **`${TOKENKEY_STAGE0_LOCAL_ROOT}`**（默认 `REPO_ROOT/.cache/tokenkey-stage0-local`）：勿将 `.env`、`docker-compose.override.yml`、PG/Redis 数据卷产物提交 git；路径在 `.gitignore` 的 `.cache/` 之下。**勿**把该目录当作仓库制品归档进 git。
-- 与 **`tokenkey-prod-release-deploy`** 不同：本地栈**无** `release.yml` 回写 **`VERSION`/sync-version`，流程末尾不必为这个栈再 **`git fetch`/`pull`**（除非仓库本身有其他变更）。
+- 与 **`tokenkey-stage0-release-rollout`** 不同：本地栈**无** `release.yml` 回写 **`VERSION`/sync-version`，流程末尾不必为这个栈再 **`git fetch`/`pull`**（除非仓库本身有其他变更）。
 
 ## 故障速查
 
@@ -392,7 +392,7 @@ rm -rf "${TOKENKEY_STAGE0_LOCAL_ROOT}"
 
 ## 扩展阅读
 
-- [tokenkey-prod-release-deploy](../tokenkey-prod-release-deploy/SKILL.md) — main / tag / `release.yml` / `deploy-stage0` / prod 烟测
+- [tokenkey-stage0-release-rollout](../tokenkey-stage0-release-rollout/SKILL.md) — main / tag / `release.yml` / `deploy-stage0` / prod 烟测
 - `deploy/aws/README.md` — Stage 0 总览与 EC2 升级 SOP  
 - `.github/workflows/deploy-stage0.yml` — 真机 `tag` 形参（无 `v` 前缀）  
 - `scripts/tk_post_deploy_smoke.sh` — 与 prod **C** 相同的网关烟测脚本，改 `TOKENKEY_BASE_URL` 即可打本地 `:8088`  
