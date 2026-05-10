@@ -1,9 +1,13 @@
 # TokenKey 生产环境 AWS 配置快照
 
-> 查询日期：2026-05-10  
-> 环境：Production / Stage0  
-> 区域：AWS `us-east-1`  
-> 来源：CloudFormation、EC2、SSM、EBS、CloudWatch 只读查询结果  
+> 查询日期：2026-05-10
+>
+> 环境：Production / Stage0
+>
+> 区域：AWS `us-east-1`
+>
+> 来源：CloudFormation、EC2、SSM、EBS、CloudWatch 只读查询结果
+>
 > 说明：本文包含基础设施标识符，适合与合作伙伴定向同步，不建议公开传播。
 
 ## 1. 总览
