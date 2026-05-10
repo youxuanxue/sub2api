@@ -1,7 +1,7 @@
 name: Daily Upstream Merge Agent
 
 # Dedicated upstream merge automation.
-# - upstream-drift-monitor.yml only opens/updates a tracking issue.
+# - This is the single periodic path for upstream sync (detect -> merge -> validate).
 # - agent-draft-pr is for small report-driven draft remediations and is not used
 #   here because upstream merge PRs need a real --no-ff merge commit, broader
 #   validation, and possible conflict resolution.
@@ -204,11 +204,11 @@ jobs:
             echo "branch=merge/upstream-$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Mark no-drift as completed
-        if: steps.drift_check.outputs.status == 'no_drift'
+      - name: Mark already-synced path as completed
+        if: steps.drift_check.outputs.status == 'up_to_date'
         run: |
           set -euo pipefail
-          echo "No upstream drift; skipping merge-agent execution."
+          echo "Upstream already synced; skipping merge-agent execution."
 
       - name: Build upstream merge prompt
         if: steps.drift_check.outputs.status == 'need_merge'
@@ -548,8 +548,8 @@ jobs:
           PR_BODY_AUDIT_OK: ${{ steps.pr_body_audit_final.outputs.pr_body_audit_ok || 'skip' }}
         run: |
           set -euo pipefail
-          if [ "$DRIFT_STATUS" = "no_drift" ]; then
-            jq -n '{contract_ok:"true", reason:"no-drift path: origin/main already contains upstream/main and no upstream merge PR is open", reason_code:"NO_DRIFT", preflight_ok:"skip", pr_body_audit_ok:"skip", matching_pr_count:0, any_open_upstream_pr_count:0}' > /tmp/upstream-merge-contract-final.json
+          if [ "$DRIFT_STATUS" = "up_to_date" ]; then
+            jq -n '{contract_ok:"true", reason:"already-synced path: origin/main already contains upstream/main and no upstream merge PR is open", reason_code:"ALREADY_SYNCED", preflight_ok:"skip", pr_body_audit_ok:"skip", matching_pr_count:0, any_open_upstream_pr_count:0}' > /tmp/upstream-merge-contract-final.json
           else
             set +e
             bash "$STATE_HELPER" contract-eval-json "$TARGET_BRANCH" "$HAD_EXISTING_PR" "$PREFLIGHT_OK" "$PR_BODY_AUDIT_OK" > /tmp/upstream-merge-contract-final.json
@@ -599,7 +599,7 @@ jobs:
           # contract eval itself signaled CONTRACT_FAIL or returned empty,
           # since those are the cases where the agent's stdout contains the
           # most specific clue (permission scope, merge conflicts, budget).
-          structured_codes_re='^(PREFLIGHT_FAIL|PR_BODY_INCOMPLETE|NO_DRIFT)$'
+          structured_codes_re='^(PREFLIGHT_FAIL|PR_BODY_INCOMPLETE|ALREADY_SYNCED)$'
 
           if [ "$DRIFT_STATUS" = "infra_error" ]; then
             reason_code="DRIFT_CHECK_INFRA"

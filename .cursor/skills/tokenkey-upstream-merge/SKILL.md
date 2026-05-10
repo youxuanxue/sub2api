@@ -13,7 +13,13 @@ description: >-
 
 适用于 `merge/upstream-*` 分支。权威纪律仍以根目录 `CLAUDE.md` 与 `docs/global/tokenkey-opc-transformation-plan.md` 为准。
 
-## 0. 不可逾越原则
+## 0. 流程心智（单入口）
+
+upstream 融合采用单入口自动化：周期任务统一由 `upstream-merge-agent-daily.yml` 驱动；
+已同步（up-to-date）与需合并（need-merge）都属于同一执行流结果，不再拆分独立 drift-only 模式。
+人工仅在 PR review 门禁做判断，技术门禁由 `upstream-merge-pr-shape.yml` 强制执行。
+
+## 1. 不可逾越原则
 
 每次 upstream merge 都必须同时保持：
 
