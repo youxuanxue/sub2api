@@ -54,8 +54,8 @@ fi
 
 ssm_commands=(
   "set -euo pipefail"
-  "curl -sS -o /dev/null -w 'localhost health HTTP %{http_code}\\n' http://localhost:8080/health"
   "sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env ps"
+  "sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env exec -T tokenkey wget -qO- http://localhost:8080/health"
 )
 
 if [[ "${EDGE_SELF_SMOKE_MODE}" == "api" ]]; then
