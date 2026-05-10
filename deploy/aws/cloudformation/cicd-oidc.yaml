@@ -186,6 +186,7 @@ Resources:
                 Action:
                   - cloudformation:DescribeStacks
                 Resource:
+                  - !Sub "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/tokenkey-cicd-oidc/*"
                   - !Sub "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/tokenkey-prod-stage0/*"
                   - !Sub "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/tokenkey-test-stage0/*"
                   - !Sub "arn:aws:cloudformation:${EdgeUk1Region}:${AWS::AccountId}:stack/tokenkey-edge-uk1-stage0/*"
