@@ -242,6 +242,7 @@ Resources:
                   - ec2:DetachInternetGateway
                   - ec2:CreateSubnet
                   - ec2:DeleteSubnet
+                  - ec2:ModifySubnetAttribute
                   - ec2:CreateRouteTable
                   - ec2:DeleteRouteTable
                   - ec2:CreateRoute
@@ -258,6 +259,13 @@ Resources:
                   - ec2:DisassociateAddress
                   - ec2:RunInstances
                   - ec2:TerminateInstances
+                  - ec2:StartInstances
+                  - ec2:StopInstances
+                  - ec2:CreateVolume
+                  - ec2:DeleteVolume
+                  - ec2:AttachVolume
+                  - ec2:DetachVolume
+                  - ec2:ModifyInstanceAttribute
                   - ec2:CreateTags
                   - ec2:DeleteTags
                   - ec2:Describe*
@@ -273,15 +281,19 @@ Resources:
                   - iam:DeleteRolePolicy
                   - iam:CreateInstanceProfile
                   - iam:DeleteInstanceProfile
+                  - iam:TagInstanceProfile
+                  - iam:UntagInstanceProfile
                   - iam:AddRoleToInstanceProfile
                   - iam:RemoveRoleFromInstanceProfile
                   - iam:GetInstanceProfile
+                  - iam:ListInstanceProfilesForRole
                   - ssm:PutParameter
                   - ssm:DeleteParameter
                   - ssm:GetParameter
                   - ssm:GetParameters
                   - cloudwatch:PutMetricAlarm
                   - cloudwatch:DeleteAlarms
+                  - cloudwatch:DescribeAlarms
                 Resource: "*"
       Tags:
         - Key: Project
