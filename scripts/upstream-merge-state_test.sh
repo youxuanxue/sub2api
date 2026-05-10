@@ -63,10 +63,10 @@ out="$(call_pure false true 1 0 false true true)"
 expect_field "existing-PR fallback" contract_ok "true" "$out"
 expect_field "existing-PR fallback" reason_code ""     "$out"
 
-# 6) No PR but origin already contains upstream → NO_DRIFT success
+# 6) No PR but origin already contains upstream → ALREADY_SYNCED success
 out="$(call_pure false false 0 0 true skip skip)"
-expect_field "no_drift" contract_ok "true"     "$out"
-expect_field "no_drift" reason_code "NO_DRIFT" "$out"
+expect_field "up_to_date" contract_ok "true"            "$out"
+expect_field "up_to_date" reason_code "ALREADY_SYNCED" "$out"
 
 # 7) No PR, origin lags upstream → CONTRACT_FAIL
 out="$(call_pure false false 0 0 false skip skip)"

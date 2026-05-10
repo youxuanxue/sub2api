@@ -40,7 +40,7 @@ drift_check_json() {
 
   local status="need_merge"
   if [ "${TK_BEHIND}" -eq 0 ]; then
-    status="no_drift"
+    status="up_to_date"
   fi
 
   jq -n \
@@ -67,8 +67,8 @@ apply_drift_checkpoint() {
     '.state="DRIFT_CHECK" | .state_code=10 | .drift={status:$status, behind:$behind, ahead:$ahead, upstream_head:$upstream_head, origin_head:$origin_head} | .updated_at_utc=$ts'
 
   case "$status" in
-    no_drift)
-      update_state '.state="NO_DRIFT" | .state_code=91 | .status="completed" | .reason_code="NO_DRIFT" | .updated_at_utc="'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"'
+    up_to_date)
+      update_state '.state="DONE" | .state_code=90 | .status="completed" | .reason_code="ALREADY_SYNCED" | .updated_at_utc="'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"'
       ;;
     infra_error)
       update_state '.state="FAILED" | .state_code=99 | .status="failed" | .reason_code="DRIFT_CHECK_INFRA" | .updated_at_utc="'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"'
@@ -118,21 +118,21 @@ contract_eval_pure() {
   local reason="contract_unmet"
   local reason_code="CONTRACT_FAIL"
 
-  # First gate: PR existence (or no-drift fallthrough).
+  # First gate: PR existence (or already-synced fallthrough).
   local pr_status="missing"
   if [ "$pr_exists" = "true" ]; then
     pr_status="present_matching"
   elif [ "$had_existing_pr" = "true" ] && [ "$any_open_pr_count" -gt 0 ]; then
     pr_status="present_existing"
   elif [ "$upstream_in_main" = "true" ] && [ "$any_open_pr_count" -eq 0 ]; then
-    pr_status="no_drift"
+    pr_status="up_to_date"
   fi
 
   case "$pr_status" in
-    no_drift)
+    up_to_date)
       contract_ok="true"
-      reason="no-drift path: origin/main already contains upstream/main and no upstream merge PR is open"
-      reason_code="NO_DRIFT"
+      reason="already-synced path: origin/main already contains upstream/main and no upstream merge PR is open"
+      reason_code="ALREADY_SYNCED"
       ;;
     present_matching|present_existing)
       # PR exists; evaluate secondary gates. Order matters — most actionable first.
