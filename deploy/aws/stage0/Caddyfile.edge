@@ -1,6 +1,6 @@
 # tokenkey · AWS Edge Stage 0 · Caddyfile
 # Cloud-Init uses envsubst for ${API_DOMAIN}, ${ACME_EMAIL}, and
-# ${MAIN_GATEWAY_ALLOWED_CIDR}. API paths are not public user entry points.
+# ${MAIN_GATEWAY_ALLOWED_CIDR}. Relay paths are not public user entry points.
 
 {
 	email ${ACME_EMAIL}
@@ -21,24 +21,22 @@ ${API_DOMAIN} {
 		protocols tls1.2 tls1.3
 	}
 
-	@api_paths {
+	@relay_paths {
 		path /v1/*
-		path /api/*
 		path /images/*
 		path /video/*
 		path /videos/*
 	}
 
-	@allowed_api {
+	@allowed_relay {
 		path /v1/*
-		path /api/*
 		path /images/*
 		path /video/*
 		path /videos/*
 		remote_ip ${MAIN_GATEWAY_ALLOWED_CIDR}
 	}
 
-	handle @allowed_api {
+	handle @allowed_relay {
 		reverse_proxy tokenkey:8080 {
 			health_uri /health
 			health_interval 30s
@@ -55,8 +53,8 @@ ${API_DOMAIN} {
 		}
 	}
 
-	handle @api_paths {
-		respond "edge api path is restricted" 403
+	handle @relay_paths {
+		respond "edge relay path is restricted" 403
 	}
 
 	handle {
