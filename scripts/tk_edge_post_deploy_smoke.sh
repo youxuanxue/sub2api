@@ -65,7 +65,7 @@ if [[ "${EDGE_SELF_SMOKE_MODE}" == "api" ]]; then
   fi
   ssm_commands+=(
     "EDGE_KEY=\$(aws ssm get-parameter --name '${EDGE_SSM_PREFIX}/smoke/api-key' --with-decryption --query Parameter.Value --output text)"
-    "TOKENKEY_BASE_URL=http://localhost:8080 POST_DEPLOY_SMOKE_SKIP_FRONTEND=1 POST_DEPLOY_SMOKE_API_KEY=\"\$EDGE_KEY\" bash /var/lib/tokenkey/scripts/tk_post_deploy_smoke.sh"
+    "sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env exec -T -e TOKENKEY_BASE_URL=http://localhost:8080 -e POST_DEPLOY_SMOKE_SKIP_FRONTEND=1 -e POST_DEPLOY_SMOKE_API_KEY=\"\$EDGE_KEY\" tokenkey bash /app/scripts/tk_post_deploy_smoke.sh"
   )
 else
   echo "tk_edge_post_deploy_smoke: edge API self-smoke skipped (set EDGE_SELF_SMOKE_MODE=api after Edge upstream/key setup)"
