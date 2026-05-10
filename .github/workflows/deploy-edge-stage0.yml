@@ -1,0 +1,241 @@
+name: Edge Stage0 Deploy
+
+# Edge-specific orchestration only. Image manifest checks and SSM upgrade logic
+# are shared with deploy-stage0.yml via scripts/stage0_*.sh so prod/test and
+# Edge cannot drift into separate deployment semantics.
+
+on:
+  workflow_dispatch:
+    inputs:
+      edge_id:
+        description: "Edge target id. uk1 is the only deployable target until its PoC/gray gate passes."
+        required: true
+        type: choice
+        options:
+          - uk1
+          - us1
+          - sg1
+          - fra1
+      operation:
+        description: "Operation to run. provision creates/updates CFN; upgrade only changes image tag via SSM; smoke verifies."
+        required: true
+        type: choice
+        options:
+          - provision
+          - upgrade
+          - smoke
+          - rollback
+      tag:
+        description: "Released image tag without leading v. Required for provision/upgrade/rollback."
+        required: false
+        type: string
+      confirm_stack:
+        description: "Must exactly match the target stack name, e.g. tokenkey-edge-uk1-stage0."
+        required: true
+        type: string
+      simple_release_override:
+        description: "⚠️ Allow deploy of a single-arch manifest. Default false; Edge hosts are Graviton arm64."
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+  packages: read
+
+concurrency:
+  group: deploy-edge-stage0-${{ inputs.edge_id }}
+  cancel-in-progress: false
+
+jobs:
+  edge:
+    runs-on: ubuntu-latest
+    environment: edge-uk1
+    env:
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      INPUT_EDGE_ID: ${{ inputs.edge_id }}
+      INPUT_OPERATION: ${{ inputs.operation }}
+      INPUT_TAG: ${{ inputs.tag }}
+      INPUT_CONFIRM_STACK: ${{ inputs.confirm_stack }}
+      INPUT_OVERRIDE: ${{ inputs.simple_release_override }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve edge target
+        id: edge
+        run: |
+          set -euo pipefail
+          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
+            echo "::error::AWS_OIDC_ROLE_ARN repo variable not set"
+            exit 1
+          fi
+          python3 deploy/aws/stage0/resolve-edge-target.py \
+            --edge-id "$INPUT_EDGE_ID" \
+            --confirm-stack "$INPUT_CONFIRM_STACK" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Validate operation inputs
+        run: |
+          set -euo pipefail
+          case "$INPUT_OPERATION" in
+            provision|upgrade|rollback)
+              if [ -z "${INPUT_TAG:-}" ]; then
+                echo "::error::tag is required for operation=$INPUT_OPERATION"
+                exit 1
+              fi
+              if ! printf '%s' "$INPUT_TAG" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+|-beta\.[0-9]+)?$'; then
+                echo "::error::tag must match X.Y.Z (optionally -rc.N / -beta.N), got: $INPUT_TAG"
+                exit 1
+              fi
+              ;;
+            smoke)
+              ;;
+            *)
+              echo "::error::unsupported operation=$INPUT_OPERATION"
+              exit 1
+              ;;
+          esac
+
+      - name: Verify GHCR multi-arch manifest
+        if: inputs.operation == 'provision' || inputs.operation == 'upgrade' || inputs.operation == 'rollback'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/stage0_verify_ghcr_manifest.sh "$INPUT_TAG" "$INPUT_OVERRIDE"
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ steps.edge.outputs.region }}
+
+      - name: Provision or update Edge stack
+        if: inputs.operation == 'provision'
+        env:
+          STACK_NAME: ${{ steps.edge.outputs.stack }}
+          EDGE_ID: ${{ steps.edge.outputs.edge_id }}
+          PROFILE: ${{ steps.edge.outputs.profile }}
+          API_DOMAIN: ${{ steps.edge.outputs.domain }}
+          INSTANCE_TYPE: ${{ steps.edge.outputs.instance_type }}
+          ROOT_VOLUME_GIB: ${{ steps.edge.outputs.root_volume_gib }}
+          SWAP_GIB: ${{ steps.edge.outputs.swap_gib }}
+          MONTHLY_BUDGET_USD: ${{ steps.edge.outputs.monthly_budget_usd }}
+          GHCR_OWNER: ${{ github.repository_owner }}
+          GHCR_PULL_USER: ${{ github.repository_owner }}
+          ACME_EMAIL: ${{ vars.EDGE_ACME_EMAIL }}
+          MAIN_GATEWAY_ALLOWED_CIDR: ${{ vars.EDGE_MAIN_GATEWAY_ALLOWED_CIDR }}
+          GHCR_PAT_SSM_NAME: ${{ vars.EDGE_UK1_GHCR_PAT_SSM_NAME }}
+          AWS_OIDC_STACK_NAME: ${{ vars.AWS_OIDC_STACK_NAME }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ACME_EMAIL:-}" ]; then
+            echo "::error::EDGE_ACME_EMAIL repo/environment variable is required for provision"
+            exit 1
+          fi
+          MAIN_GATEWAY_ALLOWED_CIDR="${MAIN_GATEWAY_ALLOWED_CIDR:-34.194.234.88/32}"
+          GHCR_PAT_SSM_NAME="${GHCR_PAT_SSM_NAME:-/tokenkey/edge/uk1/ghcr/pat}"
+          AWS_OIDC_STACK_NAME="${AWS_OIDC_STACK_NAME:-tokenkey-cicd-oidc}"
+          CFN_EXECUTION_ROLE_ARN=$(aws cloudformation describe-stacks --stack-name "$AWS_OIDC_STACK_NAME" \
+            --query 'Stacks[0].Outputs[?OutputKey==`EdgeUk1CloudFormationExecutionRoleArn`].OutputValue' --output text)
+          if [ -z "${CFN_EXECUTION_ROLE_ARN:-}" ] || [ "$CFN_EXECUTION_ROLE_ARN" = "None" ]; then
+            echo "::error::could not resolve EdgeUk1CloudFormationExecutionRoleArn from cicd OIDC stack"
+            exit 1
+          fi
+          aws cloudformation deploy \
+            --stack-name "$STACK_NAME" \
+            --template-file deploy/aws/cloudformation/stage0-edge-ec2.yaml \
+            --role-arn "$CFN_EXECUTION_ROLE_ARN" \
+            --capabilities CAPABILITY_IAM \
+            --parameter-overrides \
+              EdgeId="$EDGE_ID" \
+              Profile="$PROFILE" \
+              ApiDomain="$API_DOMAIN" \
+              AcmeEmail="$ACME_EMAIL" \
+              MainGatewayAllowedCidr="$MAIN_GATEWAY_ALLOWED_CIDR" \
+              InstanceType="$INSTANCE_TYPE" \
+              RootVolumeSizeGiB="$ROOT_VOLUME_GIB" \
+              SwapSizeGiB="$SWAP_GIB" \
+              MonthlyBudgetUsd="$MONTHLY_BUDGET_USD" \
+              GhcrOwner="$GHCR_OWNER" \
+              GhcrPullUser="$GHCR_PULL_USER" \
+              GhcrPatSsmName="$GHCR_PAT_SSM_NAME" \
+              ImageTag="$INPUT_TAG"
+
+      - name: Resolve Edge instance + API URL
+        id: instance
+        if: inputs.operation != 'provision' || success()
+        env:
+          STACK_NAME: ${{ steps.edge.outputs.stack }}
+        run: |
+          set -euo pipefail
+          ID=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
+            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)
+          if [ -z "$ID" ] || [ "$ID" = "None" ]; then
+            echo "::error::could not resolve InstanceId from stack $STACK_NAME"
+            exit 1
+          fi
+          API_URL=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
+            --query 'Stacks[0].Outputs[?OutputKey==`ApiUrl`].OutputValue' --output text)
+          if [ -z "$API_URL" ] || [ "$API_URL" = "None" ]; then
+            echo "::error::could not resolve ApiUrl from stack $STACK_NAME"
+            exit 1
+          fi
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+          echo "api_url=$API_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Upgrade or rollback Edge via shared SSM deploy primitive
+        id: ssm
+        if: inputs.operation == 'upgrade' || inputs.operation == 'rollback'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          STAGE0_SSM_OUTPUT_DIR: .
+        run: bash scripts/stage0_deploy_via_ssm.sh "$INPUT_TAG" "$INSTANCE_ID" "deploy-edge-stage0 edge=$INPUT_EDGE_ID op=$INPUT_OPERATION"
+
+      - name: External Edge health check
+        if: inputs.operation == 'upgrade' || inputs.operation == 'rollback' || inputs.operation == 'smoke'
+        env:
+          API_URL: ${{ steps.instance.outputs.api_url }}
+        run: bash scripts/stage0_external_health.sh "$API_URL"
+
+      - name: Edge smoke
+        if: inputs.operation == 'smoke' || inputs.operation == 'upgrade' || inputs.operation == 'rollback'
+        env:
+          EDGE_ID: ${{ steps.edge.outputs.edge_id }}
+          EDGE_API_URL: ${{ steps.instance.outputs.api_url }}
+          EDGE_INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          EDGE_SSM_PREFIX: ${{ steps.edge.outputs.ssm_prefix }}
+          MAIN_GATEWAY_BASE_URL: ${{ vars.EDGE_MAIN_GATEWAY_BASE_URL }}
+          MAIN_GATEWAY_EDGE_SMOKE_API_KEY: ${{ secrets.MAIN_GATEWAY_EDGE_SMOKE_API_KEY }}
+        run: bash scripts/tk_edge_post_deploy_smoke.sh
+
+      - name: Job summary
+        if: always()
+        env:
+          EDGE_ID: ${{ steps.edge.outputs.edge_id }}
+          REGION: ${{ steps.edge.outputs.region }}
+          DOMAIN: ${{ steps.edge.outputs.domain }}
+          STACK_NAME: ${{ steps.edge.outputs.stack }}
+          PROFILE: ${{ steps.edge.outputs.profile }}
+          BUDGET: ${{ steps.edge.outputs.monthly_budget_usd }}
+          INSTANCE_TYPE: ${{ steps.edge.outputs.instance_type }}
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          API_URL: ${{ steps.instance.outputs.api_url }}
+          CMD_ID: ${{ steps.ssm.outputs.command_id }}
+        run: |
+          {
+            echo "## deploy-edge-stage0"
+            echo "- edge_id: \`${EDGE_ID:-unknown}\`"
+            echo "- operation: \`$INPUT_OPERATION\`"
+            echo "- tag: \`${INPUT_TAG:-none}\`"
+            echo "- region: \`${REGION:-unknown}\`"
+            echo "- domain: \`${DOMAIN:-unknown}\`"
+            echo "- stack: \`${STACK_NAME:-unknown}\`"
+            echo "- profile: \`${PROFILE:-unknown}\`"
+            echo "- monthly_budget_usd: \`${BUDGET:-unknown}\`"
+            echo "- instance_type: \`${INSTANCE_TYPE:-unknown}\`"
+            echo "- instance: \`${INSTANCE_ID:-none}\`"
+            echo "- api: ${API_URL:-none}"
+            echo "- ssm command id: \`${CMD_ID:-none}\`"
+            echo
+            echo "Rollback: dispatch operation=rollback with the previous tag. Destroy is intentionally not available in this workflow."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,601 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  tokenkey Edge Stage 0: low-cost single EC2 (Graviton) in one region with EIP,
+  Caddy path allowlist, tokenkey, PostgreSQL, and Redis via the shared Stage0
+  docker-compose.yml. The runtime image and SSM upgrade primitive are shared
+  with prod/test Stage0; edge differences are profile parameters and Caddy API
+  path restrictions.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: tokenkey
+  Environment:
+    Type: String
+    Default: edge
+    AllowedPattern: '^[a-z0-9-]+$'
+  EdgeId:
+    Type: String
+    Default: uk1
+    AllowedPattern: '^[a-z]{2,4}[0-9]+$'
+  Profile:
+    Type: String
+    Default: edge-minimal
+    AllowedValues: [edge-minimal]
+  VpcCidr:
+    Type: String
+    Default: 10.10.0.0/16
+  PublicSubnetCidr:
+    Type: String
+    Default: 10.10.1.0/24
+
+  ApiDomain:
+    Type: String
+    AllowedPattern: '^[a-z0-9.-]+\.[a-z]{2,}$'
+    Description: Edge hostname, for example api-uk1.tokenkey.dev.
+  AcmeEmail:
+    Type: String
+    AllowedPattern: '^[^@\s]+@[^@\s]+\.[^@\s]+$'
+  AdminEmail:
+    Type: String
+    Default: ''
+  Timezone:
+    Type: String
+    Default: UTC
+  MainGatewayAllowedCidr:
+    Type: String
+    Default: 34.194.234.88/32
+    Description: CIDR allowed by Caddy to access Edge API paths.
+
+  InstanceType:
+    Type: String
+    Default: t4g.micro
+    AllowedValues:
+      - t4g.nano
+      - t4g.micro
+      - t4g.small
+    Description: Edge-minimal Graviton/ARM instance type.
+  RootVolumeSizeGiB:
+    Type: Number
+    Default: 20
+    MinValue: 20
+    MaxValue: 80
+  SwapSizeGiB:
+    Type: Number
+    Default: 2
+    MinValue: 0
+    MaxValue: 4
+  AmazonLinux2023Arm64Ami:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+
+  AdminCidr:
+    Type: String
+    Default: 127.0.0.1/32
+    Description: CIDR allowed to reach SSH. Prefer SSM Session Manager.
+
+  GhcrOwner:
+    Type: String
+    AllowedPattern: '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}[A-Za-z0-9])?$'
+  GhcrImageName:
+    Type: String
+    Default: sub2api
+  ImageTag:
+    Type: String
+    Default: latest
+  GhcrPullUser:
+    Type: String
+    AllowedPattern: '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}[A-Za-z0-9])?$'
+  GhcrPatSsmName:
+    Type: String
+    Default: /tokenkey/edge/uk1/ghcr/pat
+
+  MonthlyBudgetUsd:
+    Type: Number
+    Default: 16
+    MinValue: 1
+    MaxValue: 16
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-${EdgeId}-vpc'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: EdgeId, Value: !Ref EdgeId}
+        - {Key: Profile, Value: !Ref Profile}
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-${EdgeId}-igw'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: EdgeId, Value: !Ref EdgeId}
+
+  IGWAttach:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Ref PublicSubnetCidr
+      MapPublicIpOnLaunch: true
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-${EdgeId}-public'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: EdgeId, Value: !Ref EdgeId}
+        - {Key: Tier, Value: public}
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-${EdgeId}-public-rt'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: EdgeId, Value: !Ref EdgeId}
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: IGWAttach
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet
+
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: tokenkey Edge Stage0 - public 80/443; SSH from AdminCidr only
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0, Description: HTTP (LE HTTP-01 + redirect)}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: HTTPS}
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref AdminCidr
+          Description: SSH (prefer SSM Session Manager)
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-${EdgeId}-sg'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: EdgeId, Value: !Ref EdgeId}
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+      Policies:
+        - PolicyName: ReadEdgeBootstrapParameters
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${GhcrPatSsmName}'
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectName}/edge/${EdgeId}/*'
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    'kms:ViaService': !Sub 'ssm.${AWS::Region}.amazonaws.com'
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: '*'
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: EdgeId, Value: !Ref EdgeId}
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref InstanceRole]
+
+  TokenkeyEdgeComposeGzipB64Parameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/edge/${EdgeId}/stage0/docker-compose.gzip.b64'
+      Type: String
+      Tier: Standard
+      Description: !Sub '${ProjectName} Edge Stage0 gzip|base64(shared docker-compose.yml)'
+      # >>> COMPOSE_GZB64_SSM START (regenerated by build-cfn.sh) <<<
+      Value: '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'
+      # >>> COMPOSE_GZB64_SSM END <<<
+
+  TokenkeyEdgeCaddyGzipB64Parameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/edge/${EdgeId}/stage0/caddyfile.template.gzip.b64'
+      Type: String
+      Tier: Standard
+      Description: !Sub '${ProjectName} Edge Stage0 gzip|base64(Caddyfile.edge)'
+      # >>> CADDY_GZB64_SSM START (regenerated by build-cfn.sh) <<<
+      Value: 'H4sIAAAAAAACA+1UTW8TMRA9Z3/FKO0JNZtNU6qqEoKQBojUL7VIhZPlrCeJqdc2tnfbNMrv4s4vY7wLaVKkigPixGXX87Fv3syb9Q4Ec4v6Fhfw/RsMbq5hJGYI14HTM4u+IRdiMZUKkx0YKlOKzljLAKVHD6grX058gKlxsLscXI7ZycXZYHy+2ovm8GzERmSeksm1IIDdZYyy94OPo5vBZzY4Pb24GZ2w4fjkapUCfQ+Wh7kH7hC0CWDLiZJ5LOaoWHALsEbq4NMkWSYtLLhU24WS1g7wvECWc5iHYP1xtxvtjqeOpJ51qmw/5VamCoNHnbuFDalxs66QDvNg3CJZJclWKxAr6dwIhAcfBMwepE2S1htCDMSNoq1IGrrcewLtvlg7lJmZ1OrZ2jHllcyNTumRtIjrHLmgzn5BvR7yfI6doaFOjYJ20/0eFPy+Q3q86vde9g+zLNsDWRRl4BOFbWISlG9YOBNMbsgiTy/db179WInoUtOsGe4j46q3wZYSNixZUMXNZiop0Dy164QGXilzh4IRyl8v0HJYmIBM2mcXqGEyp01TCL8Rclih88hoSveL9dYfH2VHWR2PYqgwZ6WT0G3OG15aOnQVV9DP/IY7yAJNGaC39pKerLTwqXNFGZ3xJSx/kp8bH1ZPk94Zd8edQBFPf5p6GXWGpaddKfCZvA8EA8s1WHBce2tcqH+MpufWLaLlSlYIvf2mh0cXkzRIRvuqPRwe1LHcFNah99JoMNNp9EXsp6PfWjXKt0YLaGO8WaIctb7SA0WCk3lA0YaDrL8F8l+yfyKZw68lqcAmRixqfLprmJcPBJ5lZ2+bJLrH6hiNzdLk6BKkE9l06xc8wBdvNFmK1FIwPn93Eb9aJT8A+qyimlsGAAA='
+      # >>> CADDY_GZB64_SSM END <<<
+
+  TokenkeyQaStaleCleanupScriptB64Parameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/edge/${EdgeId}/stage0/qa-stale-cleanup.b64'
+      Type: String
+      Tier: Standard
+      Description: !Sub '${ProjectName} Edge Stage0 tokenkey-qa-stale-cleanup.sh as base64; refresh via build-cfn.sh'
+      # >>> QA_CLEANUP_B64_PARAM START (regenerated by build-cfn.sh) <<<
+      Value: 'IyEvYmluL2Jhc2gKIyBSZWdlbmVyYXRlZCBpbnRvIHN0YWdlMC1zaW5nbGUtZWMyLnlhbWwgYnk6IGRlcGxveS9hd3Mvc3RhZ2UwL2J1aWxkLWNmbi5zaAojIFJldGVudGlvbiBpcyBzZXQgYXQgYm9vdCB2aWEgL2V0Yy90b2tlbmtleS9xYS1zdGFsZS1yZXRlbnRpb24uZW52IChRYVN0YWxlUmV0ZW50aW9uRGF5cykuCnNldCAtZXVvIHBpcGVmYWlsClJFVEVOVElPTl9EQVlTPSIke1RPS0VOS0VZX1FBX1NUQUxFX1JFVEVOVElPTl9EQVlTOi0xLjV9IgppZiAhIFtbICIke1JFVEVOVElPTl9EQVlTfSIgPX4gXigwfFsxLTldWzAtOV0qKShcLlswLTldKyk/JCBdXTsgdGhlbgogIGxvZ2dlciAtdCB0b2tlbmtleS1xYS1zdGFsZS1jbGVhbnVwICJpbnZhbGlkIFRPS0VOS0VZX1FBX1NUQUxFX1JFVEVOVElPTl9EQVlTPSR7VE9LRU5LRVlfUUFfU1RBTEVfUkVURU5USU9OX0RBWVM6LX0iCiAgZXhpdCAxCmZpCmlmIGF3ayAtdiBkPSIke1JFVEVOVElPTl9EQVlTfSIgJ0JFR0lOIHsgZXhpdCAhKGQgPT0gMCkgfSc7IHRoZW4KICBsb2dnZXIgLXQgdG9rZW5rZXktcWEtc3RhbGUtY2xlYW51cCAic2tpcCBkaXNhYmxlZCBRYVN0YWxlUmV0ZW50aW9uRGF5cz0wIgogIGV4aXQgMApmaQppZiAhIHN1ZG8gZG9ja2VyIHBzIC0tZm9ybWF0ICd7ey5OYW1lc319JyB8IGdyZXAgLXF4IHRva2Vua2V5LXBvc3RncmVzOyB0aGVuCiAgbG9nZ2VyIC10IHRva2Vua2V5LXFhLXN0YWxlLWNsZWFudXAgInNraXAgdG9rZW5rZXktcG9zdGdyZXMgbm90IHJ1bm5pbmciCiAgZXhpdCAwCmZpCmluc3RhbGwgLWQgLW0gMDc1NSAvdmFyL2xpYi90b2tlbmtleS9hcHAvcWFfYmxvYnMgL3Zhci9saWIvdG9rZW5rZXkvYXBwL3FhX2RscSAyPi9kZXYvbnVsbCB8fCB0cnVlCgpQR1BBU1M9IiQoc3VkbyBncmVwICdeUE9TVEdSRVNfUEFTU1dPUkQ9JyAvdmFyL2xpYi90b2tlbmtleS8uZW52IHwgY3V0IC1kPSAtZjItKSIKaWYgWyAteiAiJHtQR1BBU1N9IiBdOyB0aGVuCiAgbG9nZ2VyIC10IHRva2Vua2V5LXFhLXN0YWxlLWNsZWFudXAgInNraXAgbm8gUE9TVEdSRVNfUEFTU1dPUkQiCiAgZXhpdCAwCmZpCk5FVD0iJChzdWRvIGRvY2tlciBpbnNwZWN0IHRva2Vua2V5LXBvc3RncmVzIC0tZm9ybWF0ICd7e3JhbmdlICRrLCR2IDo9IC5OZXR3b3JrU2V0dGluZ3MuTmV0d29ya3N9fXt7JGt9fXt7ZW5kfX0nKSIKCmxvZ2dlciAtdCB0b2tlbmtleS1xYS1zdGFsZS1jbGVhbnVwICJxYV9yZWNvcmRzX2RlbGV0ZV9zdGFydCByZXRlbnRpb25fZGF5cz0ke1JFVEVOVElPTl9EQVlTfSIKaWYgISBzdWRvIGRvY2tlciBydW4gLS1ybSAtLW5ldHdvcmsgIiR7TkVUfSIgLWUgUEdQQVNTV09SRD0iJHtQR1BBU1N9IiBwb3N0Z3JlczoxNi1hbHBpbmUgXAogIHBzcWwgLWggdG9rZW5rZXktcG9zdGdyZXMgLVUgdG9rZW5rZXkgLWQgdG9rZW5rZXkgLXYgT05fRVJST1JfU1RPUD0xIFwKICAtYyAiREVMRVRFIEZST00gcWFfcmVjb3JkcyBXSEVSRSBjcmVhdGVkX2F0IDwgTk9XKCkgLSAoJyR7UkVURU5USU9OX0RBWVN9Jzo6bnVtZXJpYyAqIGludGVydmFsICcxIGRheScpOyI7IHRoZW4KICBsb2dnZXIgLXQgdG9rZW5rZXktcWEtc3RhbGUtY2xlYW51cCAicWFfcmVjb3Jkc19kZWxldGVfZmFpbGVkIgogIGV4aXQgMQpmaQoKIyBBbGlnbiBmaWxlIHBydW5pbmcgd2l0aCBmcmFjdGlvbmFsIGRheXMgKGZpbmQgLW10aW1lIGlzIHdob2xlIGRheXMgb25seSkuClBSVU5FX01JTlVURVM9IiQoYXdrIC12IGQ9IiR7UkVURU5USU9OX0RBWVN9IiAnQkVHSU4geyBwcmludGYgIiVkIiwgZCAqIDI0ICogNjAgKyAwLjUgfScpIgpzdWRvIGZpbmQgL3Zhci9saWIvdG9rZW5rZXkvYXBwL3FhX2Jsb2JzIC92YXIvbGliL3Rva2Vua2V5L2FwcC9xYV9kbHEgLW1pbmRlcHRoIDEgLXR5cGUgZiBcCiAgLW1taW4gKyIke1BSVU5FX01JTlVURVN9IiAtZGVsZXRlIDI+L2Rldi9udWxsIHx8IHRydWUKc3VkbyBmaW5kIC92YXIvbGliL3Rva2Vua2V5L2FwcC9xYV9ibG9icyAvdmFyL2xpYi90b2tlbmtleS9hcHAvcWFfZGxxIC1kZXB0aCAtbWluZGVwdGggMSAtdHlwZSBkIFwKICAtZW1wdHkgLWRlbGV0ZSAyPi9kZXYvbnVsbCB8fCB0cnVlCgpsb2dnZXIgLXQgdG9rZW5rZXktcWEtc3RhbGUtY2xlYW51cCAiY2xlYW51cF9kb25lIgo='
+      # >>> QA_CLEANUP_B64_PARAM END <<<
+
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    DependsOn: IGWAttach
+    Properties:
+      Domain: vpc
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-${EdgeId}-eip'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: EdgeId, Value: !Ref EdgeId}
+        - {Key: Profile, Value: !Ref Profile}
+        - {Key: MonthlyBudgetUsd, Value: !Ref MonthlyBudgetUsd}
+
+  Instance:
+    Type: AWS::EC2::Instance
+    DependsOn:
+      - IGWAttach
+      - TokenkeyEdgeComposeGzipB64Parameter
+      - TokenkeyEdgeCaddyGzipB64Parameter
+      - TokenkeyQaStaleCleanupScriptB64Parameter
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref AmazonLinux2023Arm64Ami
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds: [!Ref AppSecurityGroup]
+      IamInstanceProfile: !Ref InstanceProfile
+      MetadataOptions:
+        HttpTokens: required
+        HttpEndpoint: enabled
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeType: gp3
+            VolumeSize: !Ref RootVolumeSizeGiB
+            DeleteOnTermination: true
+            Encrypted: true
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-edge-${EdgeId}-app'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: EdgeId, Value: !Ref EdgeId}
+        - {Key: Profile, Value: !Ref Profile}
+        - {Key: Role, Value: edge-stage0}
+        - {Key: MonthlyBudgetUsd, Value: !Ref MonthlyBudgetUsd}
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          exec > >(tee -a /var/log/tokenkey-edge-bootstrap.log) 2>&1
+
+          API_DOMAIN='${ApiDomain}'
+          ACME_EMAIL='${AcmeEmail}'
+          ADMIN_EMAIL='${AdminEmail}'
+          [ -z "${!ADMIN_EMAIL}" ] && ADMIN_EMAIL="admin@${!API_DOMAIN}"
+          TZ_VALUE='${Timezone}'
+          MAIN_GATEWAY_ALLOWED_CIDR='${MainGatewayAllowedCidr}'
+          REGION='${AWS::Region}'
+          PROJECT_NAME='${ProjectName}'
+          EDGE_ID='${EdgeId}'
+          GHCR_OWNER='${GhcrOwner}'
+          GHCR_IMAGE_NAME='${GhcrImageName}'
+          IMAGE_TAG='${ImageTag}'
+          GHCR_PULL_USER='${GhcrPullUser}'
+          GHCR_PAT_SSM_NAME='${GhcrPatSsmName}'
+          SWAP_SIZE_GIB='${SwapSizeGiB}'
+          TOKENKEY_IMAGE="ghcr.io/${!GHCR_OWNER}/${!GHCR_IMAGE_NAME}:${!IMAGE_TAG}"
+
+          dnf -y update
+          dnf -y install docker git jq gettext openssl
+          ARCH="$(uname -m)"
+          case "${!ARCH}" in
+            aarch64) CWA_ARCH="arm64" ;;
+            x86_64) CWA_ARCH="amd64" ;;
+            *) echo "unsupported arch ${!ARCH}" >&2; exit 1 ;;
+          esac
+          dnf -y install "https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/${!CWA_ARCH}/latest/amazon-cloudwatch-agent.rpm" || true
+          systemctl enable --now docker
+
+          DOCKER_COMPOSE_VERSION="v2.29.7"
+          mkdir -p /usr/local/lib/docker/cli-plugins
+          curl -fsSL "https://github.com/docker/compose/releases/download/${!DOCKER_COMPOSE_VERSION}/docker-compose-linux-$(uname -m)" \
+            -o /usr/local/lib/docker/cli-plugins/docker-compose
+          chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+          usermod -aG docker ec2-user
+
+          if [ "${!SWAP_SIZE_GIB}" -gt 0 ] && [ ! -f /swapfile ]; then
+            fallocate -l "${!SWAP_SIZE_GIB}G" /swapfile
+            chmod 0600 /swapfile
+            mkswap /swapfile
+            swapon /swapfile
+            echo '/swapfile none swap sw 0 0' >> /etc/fstab
+          fi
+
+          install -d -m 0755 /var/lib/tokenkey/app
+          install -d -m 0700 /var/lib/tokenkey/postgres
+          install -d -m 0755 /var/lib/tokenkey/redis
+          install -d -m 0755 /var/lib/tokenkey/pgdump
+          install -d -m 0755 /var/lib/tokenkey/caddy
+          install -d -m 0755 /var/lib/tokenkey/caddy/data
+          install -d -m 0755 /var/lib/tokenkey/caddy/config
+          install -d -m 0755 /var/lib/tokenkey/logs
+          cd /var/lib/tokenkey
+
+          COMPOSE_PARAM="/${ProjectName}/edge/${EdgeId}/stage0/docker-compose.gzip.b64"
+          CADDY_PARAM="/${ProjectName}/edge/${EdgeId}/stage0/caddyfile.template.gzip.b64"
+          COMPOSE_B64="$(aws ssm get-parameter --name "${!COMPOSE_PARAM}" --region "${!REGION}" --query Parameter.Value --output text)"
+          CADDY_B64="$(aws ssm get-parameter --name "${!CADDY_PARAM}" --region "${!REGION}" --query Parameter.Value --output text)"
+          printf '%s' "${!COMPOSE_B64}" | base64 -d | gunzip > docker-compose.yml
+          printf '%s' "${!CADDY_B64}" | base64 -d | gunzip > caddy/Caddyfile.template
+          API_DOMAIN="${!API_DOMAIN}" ACME_EMAIL="${!ACME_EMAIL}" MAIN_GATEWAY_ALLOWED_CIDR="${!MAIN_GATEWAY_ALLOWED_CIDR}" \
+            envsubst '${!API_DOMAIN} ${!ACME_EMAIL} ${!MAIN_GATEWAY_ALLOWED_CIDR}' \
+            < caddy/Caddyfile.template > caddy/Caddyfile
+
+          install -d -m 0755 /etc/tokenkey
+          printf 'TOKENKEY_QA_STALE_RETENTION_DAYS=%s\n' '1.5' > /etc/tokenkey/qa-stale-retention.env
+          QA_B64_PARAM_NAME="/${ProjectName}/edge/${EdgeId}/stage0/qa-stale-cleanup.b64"
+          RAW="$(aws ssm get-parameter --name "${!QA_B64_PARAM_NAME}" --region "${!REGION}" --query Parameter.Value --output text)"
+          printf '%s' "${!RAW}" | base64 -d > /usr/local/bin/tokenkey-qa-stale-cleanup.sh
+          chmod +x /usr/local/bin/tokenkey-qa-stale-cleanup.sh
+
+          SECRET_FILE=/var/lib/tokenkey/.env.secret
+          if [ ! -f "${!SECRET_FILE}" ]; then
+            umask 077
+            gen_secret() { openssl rand -hex 32; }
+            gen_pwd() { openssl rand -hex 24; }
+            cat > "${!SECRET_FILE}" <<SECEOF
+          POSTGRES_PASSWORD=$(gen_pwd)
+          JWT_SECRET=$(gen_secret)
+          TOTP_ENCRYPTION_KEY=$(gen_secret)
+          SECEOF
+            chmod 0600 "${!SECRET_FILE}"
+            chown root:root "${!SECRET_FILE}"
+          fi
+          set -a; . "${!SECRET_FILE}"; set +a
+
+          cat > /var/lib/tokenkey/.env <<ENVEOF
+          API_DOMAIN=${!API_DOMAIN}
+          ACME_EMAIL=${!ACME_EMAIL}
+          TZ=${!TZ_VALUE}
+          SERVER_MODE=release
+          RUN_MODE=standard
+          TOKENKEY_IMAGE=${!TOKENKEY_IMAGE}
+          POSTGRES_USER=tokenkey
+          POSTGRES_PASSWORD=${!POSTGRES_PASSWORD}
+          POSTGRES_DB=tokenkey
+          DATABASE_MAX_OPEN_CONNS=10
+          DATABASE_MAX_IDLE_CONNS=2
+          REDIS_PASSWORD=
+          REDIS_DB=0
+          REDIS_POOL_SIZE=64
+          REDIS_MIN_IDLE_CONNS=2
+          ADMIN_EMAIL=${!ADMIN_EMAIL}
+          ADMIN_PASSWORD=
+          JWT_SECRET=${!JWT_SECRET}
+          JWT_EXPIRE_HOUR=1
+          TOTP_ENCRYPTION_KEY=${!TOTP_ENCRYPTION_KEY}
+          ENVEOF
+          chmod 0600 /var/lib/tokenkey/.env
+
+          GHCR_PAT="$(aws --region "${!REGION}" ssm get-parameter \
+            --name "${!GHCR_PAT_SSM_NAME}" --with-decryption \
+            --query Parameter.Value --output text)"
+          echo "${!GHCR_PAT}" | docker login ghcr.io -u "${!GHCR_PULL_USER}" --password-stdin
+          unset GHCR_PAT
+
+          cat > /etc/systemd/system/tokenkey.service <<'UNITEOF'
+          [Unit]
+          Description=tokenkey edge stack (docker compose)
+          Requires=docker.service
+          After=docker.service network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          WorkingDirectory=/var/lib/tokenkey
+          EnvironmentFile=/var/lib/tokenkey/.env
+          ExecStartPre=/usr/bin/docker compose --env-file /var/lib/tokenkey/.env pull
+          ExecStart=/usr/bin/docker compose --env-file /var/lib/tokenkey/.env up -d --remove-orphans
+          ExecStop=/usr/bin/docker compose --env-file /var/lib/tokenkey/.env down
+          TimeoutStartSec=10min
+
+          [Install]
+          WantedBy=multi-user.target
+          UNITEOF
+
+          cat > /usr/local/bin/tokenkey-edge-disk-metrics.sh <<'DISKEOF'
+          #!/bin/bash
+          set -euo pipefail
+          IMDS_TOKEN="$(curl -fsS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")"
+          REGION="$(curl -fsS -H "X-aws-ec2-metadata-token: ${!IMDS_TOKEN}" http://169.254.169.254/latest/meta-data/placement/region)"
+          IID="$(curl -fsS -H "X-aws-ec2-metadata-token: ${!IMDS_TOKEN}" http://169.254.169.254/latest/meta-data/instance-id)"
+          USED="$(df -P /var/lib/tokenkey 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5}')"
+          [ -z "${!USED}" ] && exit 0
+          aws cloudwatch put-metric-data --region "${!REGION}" \
+            --namespace tokenkey/EC2 \
+            --metric-data "MetricName=EdgeRootUsedPercent,Value=${!USED},Unit=Percent,Dimensions=[{Name=InstanceId,Value=${!IID}}]"
+          DISKEOF
+          chmod +x /usr/local/bin/tokenkey-edge-disk-metrics.sh
+
+          cat > /etc/systemd/system/tokenkey-edge-disk-metrics.service <<'DMSEOF'
+          [Unit]
+          Description=Publish tokenkey Edge root used_percent to CloudWatch
+          After=network-online.target tokenkey.service
+          Wants=network-online.target
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/bin/tokenkey-edge-disk-metrics.sh
+          DMSEOF
+
+          cat > /etc/systemd/system/tokenkey-edge-disk-metrics.timer <<'DMTEOF'
+          [Unit]
+          Description=Publish Edge root disk metric every 5 minutes
+
+          [Timer]
+          OnBootSec=3min
+          OnUnitActiveSec=5min
+          RandomizedDelaySec=30
+          Persistent=true
+
+          [Install]
+          WantedBy=timers.target
+          DMTEOF
+
+          cat > /etc/systemd/system/tokenkey-qa-stale-cleanup.service <<'QASVEOF'
+          [Unit]
+          Description=Prune QA records and blob trees older than retention
+          After=network-online.target tokenkey.service
+          Wants=network-online.target
+          Requires=tokenkey.service
+
+          [Service]
+          Type=oneshot
+          EnvironmentFile=-/etc/tokenkey/qa-stale-retention.env
+          ExecStart=/usr/local/bin/tokenkey-qa-stale-cleanup.sh
+          QASVEOF
+
+          cat > /etc/systemd/system/tokenkey-qa-stale-cleanup.timer <<'QATIMEOF'
+          [Unit]
+          Description=Daily QA stale cleanup (low-traffic window)
+
+          [Timer]
+          OnCalendar=*-*-* 04:15:00
+          RandomizedDelaySec=30min
+          Persistent=true
+
+          [Install]
+          WantedBy=timers.target
+          QATIMEOF
+
+          cat > /opt/aws/amazon-cloudwatch-agent/etc/tokenkey.json <<'CWEOF'
+          {
+            "logs": {
+              "logs_collected": {
+                "files": {
+                  "collect_list": [
+                    {"file_path": "/var/log/tokenkey-edge-bootstrap.log", "log_group_name": "/tokenkey/edge/bootstrap", "log_stream_name": "{instance_id}"},
+                    {"file_path": "/var/log/cloud-init-output.log", "log_group_name": "/tokenkey/edge/cloud-init", "log_stream_name": "{instance_id}"}
+                  ]
+                }
+              }
+            },
+            "metrics": {
+              "namespace": "tokenkey/EC2",
+              "append_dimensions": {"InstanceId": "${!aws:InstanceId}"},
+              "metrics_collected": {
+                "mem": {"measurement": ["mem_used_percent"]},
+                "swap": {"measurement": ["swap_used_percent"]},
+                "disk": {"measurement": ["used_percent"], "resources": ["/", "/var/lib/tokenkey"]}
+              }
+            }
+          }
+          CWEOF
+
+          systemctl daemon-reload
+          systemctl enable --now tokenkey.service
+          systemctl enable --now tokenkey-edge-disk-metrics.timer
+          systemctl enable --now tokenkey-qa-stale-cleanup.timer
+          if [ -x /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl ]; then
+            /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+              -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/tokenkey.json -s || true
+          fi
+
+          sleep 30
+          ( docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env ps || true ) \
+            >> /var/log/tokenkey-edge-bootstrap.log 2>&1
+          echo "EDGE_BOOTSTRAP_DONE $(date -u +%FT%TZ)" >> /var/log/tokenkey-edge-bootstrap.log
+
+  EIPAssoc:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt ElasticIP.AllocationId
+      InstanceId: !Ref Instance
+
+  EdgeRootDiskAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${EdgeId}-root-used'
+      AlarmDescription: !Sub 'tokenkey Edge ${EdgeId} root volume (/var/lib/tokenkey) critical — trim logs or snapshot/resize.'
+      Namespace: tokenkey/EC2
+      MetricName: EdgeRootUsedPercent
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      Threshold: 90
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref Instance
+
+Outputs:
+  EdgeId:
+    Description: Edge identifier
+    Value: !Ref EdgeId
+  Profile:
+    Description: Edge deployment profile
+    Value: !Ref Profile
+  PublicIP:
+    Description: Elastic IP - set this as the A record for ApiDomain
+    Value: !Ref ElasticIP
+  InstanceId:
+    Description: EC2 instance ID
+    Value: !Ref Instance
+  ApiUrl:
+    Description: After DNS A-record propagation + LE issuance
+    Value: !Sub 'https://${ApiDomain}'
+  SsmStartSession:
+    Description: Open shell without SSH key
+    Value: !Sub 'aws ssm start-session --region ${AWS::Region} --target ${Instance}'
+  ResolvedImage:
+    Description: Image reference that the EC2 instance will pull from GHCR
+    Value: !Sub 'ghcr.io/${GhcrOwner}/${GhcrImageName}:${ImageTag}'
+  InstanceType:
+    Description: EC2 instance type
+    Value: !Ref InstanceType
+  MonthlyBudgetUsd:
+    Description: Budget guardrail carried by the edge target matrix
+    Value: !Ref MonthlyBudgetUsd
+  EdgeRootDiskAlarmName:
+    Description: CloudWatch alarm for Edge root utilization
+    Value: !Ref EdgeRootDiskAlarm

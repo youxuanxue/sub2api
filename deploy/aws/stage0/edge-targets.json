@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "default_profile": "edge-minimal",
+  "max_monthly_budget_usd": 16,
+  "targets": {
+    "uk1": {
+      "deployable": true,
+      "profile": "edge-minimal",
+      "region": "eu-west-2",
+      "domain": "api-uk1.tokenkey.dev",
+      "stack": "tokenkey-edge-uk1-stage0",
+      "instance_type": "t4g.micro",
+      "root_volume_gib": 20,
+      "data_volume_gib": 0,
+      "swap_gib": 2,
+      "snapshot_schedule": "none",
+      "monthly_budget_usd": 16,
+      "ssm_prefix": "/tokenkey/edge/uk1",
+      "purpose": "uk-egress-sample"
+    },
+    "us1": {
+      "deployable": false,
+      "profile": "edge-minimal",
+      "region": "us-west-2",
+      "domain": "api-us1.tokenkey.dev",
+      "stack": "tokenkey-edge-us1-stage0",
+      "instance_type": "t4g.micro",
+      "root_volume_gib": 20,
+      "data_volume_gib": 0,
+      "swap_gib": 2,
+      "snapshot_schedule": "none",
+      "monthly_budget_usd": 16,
+      "ssm_prefix": "/tokenkey/edge/us1",
+      "purpose": "clean-us-egress-planned"
+    },
+    "sg1": {
+      "deployable": false,
+      "profile": "edge-minimal",
+      "region": "ap-southeast-1",
+      "domain": "api-sg1.tokenkey.dev",
+      "stack": "tokenkey-edge-sg1-stage0",
+      "instance_type": "t4g.micro",
+      "root_volume_gib": 20,
+      "data_volume_gib": 0,
+      "swap_gib": 2,
+      "snapshot_schedule": "none",
+      "monthly_budget_usd": 16,
+      "ssm_prefix": "/tokenkey/edge/sg1",
+      "purpose": "sg-egress-planned"
+    },
+    "fra1": {
+      "deployable": false,
+      "profile": "edge-minimal",
+      "region": "eu-central-1",
+      "domain": "api-fra1.tokenkey.dev",
+      "stack": "tokenkey-edge-fra1-stage0",
+      "instance_type": "t4g.micro",
+      "root_volume_gib": 20,
+      "data_volume_gib": 0,
+      "swap_gib": 2,
+      "snapshot_schedule": "none",
+      "monthly_budget_usd": 16,
+      "ssm_prefix": "/tokenkey/edge/fra1",
+      "purpose": "eu-mainland-egress-planned"
+    }
+  }
+}

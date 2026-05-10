@@ -1,0 +1,88 @@
+# tokenkey · AWS Edge Stage 0 · Caddyfile
+# Cloud-Init uses envsubst for ${API_DOMAIN}, ${ACME_EMAIL}, and
+# ${MAIN_GATEWAY_ALLOWED_CIDR}. API paths are not public user entry points.
+
+{
+	email ${ACME_EMAIL}
+	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+${API_DOMAIN} {
+	encode zstd gzip
+
+	@static {
+		path /assets/*
+		path /logo.png
+		path /favicon.ico
+	}
+	header @static ?Cache-Control "public, max-age=31536000, immutable"
+
+	tls {
+		protocols tls1.2 tls1.3
+	}
+
+	@api_paths {
+		path /v1/*
+		path /api/*
+		path /images/*
+		path /video/*
+		path /videos/*
+	}
+
+	@allowed_api {
+		path /v1/*
+		path /api/*
+		path /images/*
+		path /video/*
+		path /videos/*
+		remote_ip ${MAIN_GATEWAY_ALLOWED_CIDR}
+	}
+
+	handle @allowed_api {
+		reverse_proxy tokenkey:8080 {
+			health_uri /health
+			health_interval 30s
+			health_timeout 10s
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Host {host}
+			transport http {
+				keepalive 120s
+				keepalive_idle_conns 64
+				compression off
+			}
+		}
+	}
+
+	handle @api_paths {
+		respond "edge api path is restricted" 403
+	}
+
+	handle {
+		reverse_proxy tokenkey:8080 {
+			health_uri /health
+			health_interval 30s
+			health_timeout 10s
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Host {host}
+			transport http {
+				keepalive 120s
+				keepalive_idle_conns 64
+				compression off
+			}
+		}
+	}
+
+	request_body {
+		max_size 100MB
+	}
+
+	log {
+		output stdout
+		format json
+		level INFO
+	}
+}

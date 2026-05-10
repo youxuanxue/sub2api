@@ -489,6 +489,25 @@ else
     echo "  ok: no env references in job-level if expressions"
 fi
 
+echo ""
+echo "=== sub2api: Stage0 deployment primitive sharing ==="
+if [ -f .github/workflows/deploy-edge-stage0.yml ]; then
+    if ! grep -q 'scripts/stage0_deploy_via_ssm.sh' .github/workflows/deploy-stage0.yml; then
+        echo "  FAIL: deploy-stage0.yml must use scripts/stage0_deploy_via_ssm.sh"
+        errors=$((errors + 1))
+    elif ! grep -q 'scripts/stage0_deploy_via_ssm.sh' .github/workflows/deploy-edge-stage0.yml; then
+        echo "  FAIL: deploy-edge-stage0.yml must use scripts/stage0_deploy_via_ssm.sh"
+        errors=$((errors + 1))
+    elif grep -q 'docker compose --env-file .* up -d --no-deps tokenkey' .github/workflows/deploy-stage0.yml .github/workflows/deploy-edge-stage0.yml; then
+        echo "  FAIL: Stage0 workflows must not inline tokenkey SSM deploy commands; use scripts/stage0_deploy_via_ssm.sh"
+        errors=$((errors + 1))
+    else
+        echo "  ok: prod/test and Edge workflows share the Stage0 SSM deploy primitive"
+    fi
+else
+    echo "  ok: no Edge Stage0 workflow present"
+fi
+
 # Headless agent stream redactor: scripts/redact-agent-stream.py sits between
 # `claude -p` and `tee` in upstream-merge-agent-daily.yml / pr-repair-agent.yml
 # /agent-draft-pr/action.yml, scrubbing secrets out of the agent's stdout

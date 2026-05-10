@@ -80,61 +80,11 @@ jobs:
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
 
       - name: Verify GHCR multi-arch manifest
-        # Rebuild of §9.1 (release.yml's simple_release default-false) as a
-        # mechanical gate at deploy time. If the :TAG manifest on GHCR is
-        # not a multi-arch index containing both linux/amd64 and linux/arm64,
-        # refuse to deploy — both prod and test stacks run on Graviton t4g
-        # and would crash with `exec format error`. Override only when the
-        # operator has explicitly confirmed every host is amd64.
+        # Shared with deploy-edge-stage0.yml so prod/test and Edge never grow
+        # divergent image-architecture gates.
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          REPO_LOWER=$(printf '%s' "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          # GHCR uses a token-flow: first GET a registry token using the
-          # workflow's GITHUB_TOKEN, then GET the manifest with that.
-          REG_TOKEN=$(curl -sSL \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            "https://ghcr.io/token?scope=repository:${REPO_LOWER}:pull" \
-            | jq -r .token)
-          if [ -z "${REG_TOKEN:-}" ] || [ "$REG_TOKEN" = "null" ]; then
-            echo "::error::failed to obtain GHCR registry token"
-            exit 1
-          fi
-          MANIFEST=$(curl -sSL \
-            -H "Authorization: Bearer ${REG_TOKEN}" \
-            -H 'Accept: application/vnd.docker.distribution.manifest.list.v2+json' \
-            -H 'Accept: application/vnd.oci.image.index.v1+json' \
-            -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
-            -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
-            "https://ghcr.io/v2/${REPO_LOWER}/manifests/${INPUT_TAG}")
-          if ! printf '%s' "$MANIFEST" | jq empty 2>/dev/null; then
-            echo "::error::GHCR manifest for ${INPUT_TAG} is not valid JSON; image probably does not exist"
-            printf '%s\n' "$MANIFEST" | head -c 500
-            exit 1
-          fi
-          MEDIA=$(printf '%s' "$MANIFEST" | jq -r '.mediaType // empty')
-          AMD64_COUNT=$(printf '%s' "$MANIFEST" | jq '[.manifests[]? | select(.platform.architecture=="amd64" and .platform.os=="linux")] | length')
-          ARM64_COUNT=$(printf '%s' "$MANIFEST" | jq '[.manifests[]? | select(.platform.architecture=="arm64" and .platform.os=="linux")] | length')
-          echo "mediaType=$MEDIA amd64=$AMD64_COUNT arm64=$ARM64_COUNT"
-          IS_MULTIARCH=false
-          case "$MEDIA" in
-            application/vnd.docker.distribution.manifest.list.v2+json|application/vnd.oci.image.index.v1+json)
-              if [ "${AMD64_COUNT:-0}" -ge 1 ] && [ "${ARM64_COUNT:-0}" -ge 1 ]; then
-                IS_MULTIARCH=true
-              fi
-              ;;
-          esac
-          if [ "$IS_MULTIARCH" = "true" ]; then
-            echo "ok: ${INPUT_TAG} is multi-arch (amd64 + arm64)"
-          else
-            if [ "$INPUT_OVERRIDE" = "true" ]; then
-              echo "::warning::${INPUT_TAG} is single-arch but simple_release_override=true was passed; deploying anyway. If the target host is Graviton this WILL crash."
-            else
-              echo "::error::${INPUT_TAG} is not a multi-arch manifest (mediaType=$MEDIA, amd64=$AMD64_COUNT, arm64=$ARM64_COUNT). Re-run release.yml with simple_release=false, or pass simple_release_override=true to dispatch this workflow if you have verified every host is amd64."
-              exit 1
-            fi
-          fi
+        run: bash scripts/stage0_verify_ghcr_manifest.sh "$INPUT_TAG" "$INPUT_OVERRIDE"
 
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
@@ -168,103 +118,13 @@ jobs:
         id: ssm
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
-        run: |
-          set -euo pipefail
-
-          # Same shape as deploy/aws/README.md § 生产升级 SOP, transported via
-          # `aws ssm send-command --parameters file://…`. We use jq to build
-          # the JSON so commas/quotes inside docker / sed args don't get
-          # mangled by shell tokenization.
-          jq -n --arg tag "$INPUT_TAG" '{
-            commands: [
-              "set -euo pipefail",
-              ("echo === deploy stage0 to tag=" + $tag + " ==="),
-              ("BACKUP=/var/lib/tokenkey/.env.before-" + $tag),
-              "sudo cp -a /var/lib/tokenkey/.env \"$BACKUP\"",
-              "rollback() { rc=$?; echo \"::warning::deploy failed; restoring previous tokenkey image\"; if [ -f \"$BACKUP\" ]; then sudo cp -a \"$BACKUP\" /var/lib/tokenkey/.env; cd /var/lib/tokenkey && sudo docker compose --env-file .env up -d --no-deps tokenkey || true; for i in 1 2 3 4 5 6 7 8 9 10 11 12; do s=$(sudo docker inspect tokenkey --format \u0027{{.State.Health.Status}}\u0027 2>/dev/null || echo missing); echo \"rollback try $i: $s\"; [ \"$s\" = healthy ] && break; sleep 5; done; sudo docker logs tokenkey --since 2m 2>&1 | tail -50 || true; fi; exit $rc; }",
-              "trap rollback ERR",
-              ("sudo sed -i \u0027s|sub2api:[^[:space:]]*|sub2api:" + $tag + "|\u0027 /var/lib/tokenkey/.env"),
-              "cd /var/lib/tokenkey && sudo docker compose --env-file .env pull tokenkey",
-              "cd /var/lib/tokenkey && sudo docker compose --env-file .env up -d --no-deps tokenkey",
-              "for i in 1 2 3 4 5 6 7 8 9 10 11 12; do s=$(sudo docker inspect tokenkey --format \u0027{{.State.Health.Status}}\u0027 2>/dev/null || echo missing); echo \"try $i: $s\"; [ \"$s\" = healthy ] && break; sleep 5; done",
-              "FINAL=$(sudo docker inspect tokenkey --format \u0027{{.State.Health.Status}}\u0027 2>/dev/null || echo missing)",
-              "if [ \"$FINAL\" != \"healthy\" ]; then echo \"::error::container did not reach healthy state (final=$FINAL)\"; sudo docker logs tokenkey --since 2m 2>&1 | tail -50; exit 1; fi",
-              "trap - ERR",
-              "cd /var/lib/tokenkey && sudo docker compose ps",
-              "sudo docker logs tokenkey --since 2m 2>&1 | tail -20"
-            ]
-          }' > ssm-params.json
-
-          CMD_ID=$(aws ssm send-command \
-            --instance-ids "$INSTANCE_ID" \
-            --document-name AWS-RunShellScript \
-            --comment "deploy-stage0 env=$INPUT_ENV tag=$INPUT_TAG" \
-            --parameters file://ssm-params.json \
-            --query 'Command.CommandId' --output text)
-          echo "ssm command-id=$CMD_ID"
-          echo "command_id=$CMD_ID" >> "$GITHUB_OUTPUT"
-
-          # 5 min cap: deploy SOP usually finishes within 60-90s (image
-          # pull dominated); 5 min covers the worst-case `docker compose
-          # pull` over a slow GHCR fetch + the 12*5s health poll.
-          DEADLINE=$(( $(date +%s) + 300 ))
-          while true; do
-            STATUS=$(aws ssm get-command-invocation \
-              --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
-              --query 'Status' --output text 2>/dev/null || echo InProgress)
-            case "$STATUS" in Success|Failed|TimedOut|Cancelled) break ;; esac
-            [ $(date +%s) -lt $DEADLINE ] || { echo "::error::ssm timeout"; STATUS=TimedOut; break; }
-            sleep 5
-          done
-
-          aws ssm get-command-invocation \
-            --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
-            --query 'StandardOutputContent' --output text > stdout.txt
-          aws ssm get-command-invocation \
-            --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
-            --query 'StandardErrorContent' --output text > stderr.txt
-
-          echo '--- ssm stdout (last 8KB) ---'
-          tail -c 8192 stdout.txt
-          echo
-          echo '--- ssm stderr (last 8KB) ---'
-          tail -c 8192 stderr.txt
-          echo
-
-          if [ "$STATUS" != "Success" ]; then
-            echo "::error::ssm command status=$STATUS"
-            exit 1
-          fi
+          STAGE0_SSM_OUTPUT_DIR: .
+        run: bash scripts/stage0_deploy_via_ssm.sh "$INPUT_TAG" "$INSTANCE_ID" "deploy-stage0 env=$INPUT_ENV"
 
       - name: External health check
         env:
           API_URL: ${{ steps.instance.outputs.api_url }}
-        run: |
-          set -euo pipefail
-          # Three attempts spaced 10s apart — covers the case where Caddy
-          # reload happened mid-request. Require HTTP 200 AND total time
-          # under 5s (anything slower means the container is starting up,
-          # not serving).
-          OK=false
-          for i in 1 2 3; do
-            RESPONSE=$(curl -sS -o /dev/null -w '%{http_code} %{time_total}\n' "${API_URL}/health" || echo "000 0")
-            CODE=$(echo "$RESPONSE" | awk '{print $1}')
-            TIME=$(echo "$RESPONSE" | awk '{print $2}')
-            echo "try $i: HTTP $CODE ${TIME}s ($API_URL/health)"
-            if [ "$CODE" = "200" ]; then
-              # bash floating-point: compare via awk
-              FAST=$(awk -v t="$TIME" 'BEGIN{print (t < 5.0) ? 1 : 0}')
-              if [ "$FAST" = "1" ]; then
-                OK=true; break
-              fi
-            fi
-            sleep 10
-          done
-          if [ "$OK" != "true" ]; then
-            echo "::error::external health check failed for $API_URL/health"
-            exit 1
-          fi
-          echo "ok: $API_URL/health returned 200 under 5s"
+        run: bash scripts/stage0_external_health.sh "$API_URL"
 
       - name: Post-deploy gateway smoke (API + Claude paths)
         env:

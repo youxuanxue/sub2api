@@ -16,12 +16,17 @@
 deploy/aws/
 ├── README.md                         本文件（quick start）
 ├── cloudformation/
-│   └── stage0-single-ec2.yaml        Stage 0 CFN：compose+Caddyfile gzip+base64 内嵌 UserData；QA cleanup 脚本 base64 存 SSM（引导期拉取）
+│   ├── stage0-single-ec2.yaml        主站/test Stage 0 CFN：compose+Caddyfile gzip+base64 内嵌 UserData
+│   ├── stage0-edge-ec2.yaml          Edge Stage 0 CFN：共享 compose，Edge Caddy API path allowlist
+│   └── cicd-oidc.yaml                GitHub Actions OIDC + SSM/CFN 最小权限
 └── stage0/
-    ├── docker-compose.yml            源真：Caddy + tokenkey + PostgreSQL + Redis
-    ├── Caddyfile                     源真：LE 自动签证书 + 反代到 tokenkey:8080
+    ├── docker-compose.yml            源真：Caddy + tokenkey + PostgreSQL + Redis（主站与 Edge 共用）
+    ├── Caddyfile                     主站/test Caddy：LE 自动签证书 + 反代到 tokenkey:8080
+    ├── Caddyfile.edge                Edge Caddy：/v1/*、/api/* 默认只允许主网关 EIP
+    ├── edge-targets.json             Edge 矩阵：uk1 deployable，us1/sg1/fra1 planned
+    ├── resolve-edge-target.py        workflow 解析 Edge 目标并 fail-before-AWS
     ├── .env.example                  环境变量模板（生产 .env 由 Cloud-Init 自动生成；本地调试可复制使用）
-    └── build-cfn.sh                  把 docker-compose.yml + Caddyfile + tokenkey-qa-stale-cleanup.sh 注入 CFN 模板
+    └── build-cfn.sh                  把 docker-compose.yml + Caddyfile(.edge) + tokenkey-qa-stale-cleanup.sh 注入 CFN 模板
 ```
 
 > EC2 引导逻辑直接 inline 在 CFN 模板的 UserData 段（`stage0-single-ec2.yaml`）。无需独立的 `cloud-init.sh`；如需「不走 CFN」紧急 bootstrap，从 UserData 段 copy 出来本地化即可。
@@ -81,6 +86,75 @@ aws cloudformation describe-stacks --region "${REGION}" \
 curl -sS -o /dev/null -w '%{http_code}\n' "https://${DOMAIN}/health"
 # 期望 200；首次若 503 是 LE 还在签证书，等 1–2 min
 ```
+
+## Edge Stage 0（uk1 样板）
+
+Edge 子网关不是第二个用户入口。`api-uk1.tokenkey.dev` 只作为 `api.tokenkey.dev` 背后的区域资源节点，默认 API 路径只允许主网关 EIP 访问。
+
+首批 Edge 矩阵在 `deploy/aws/stage0/edge-targets.json`，当前只有 `uk1` 是 `deployable=true`：
+
+```text
+uk1 -> eu-west-2 -> api-uk1.tokenkey.dev -> tokenkey-edge-uk1-stage0 -> edge-minimal
+```
+
+Edge workflow 使用独立入口 `.github/workflows/deploy-edge-stage0.yml`，但不是第二套部署逻辑：prod/test 和 Edge 都调用同一批共享脚本：
+
+```text
+scripts/stage0_verify_ghcr_manifest.sh
+scripts/stage0_deploy_via_ssm.sh
+scripts/stage0_external_health.sh
+```
+
+这保证主网关和 Edge 后续都部署同一个 GHCR image 产物、同一份 `deploy/aws/stage0/docker-compose.yml` 基线、同一套 SSM 原地升级/rollback primitive；差异只来自 Edge target 参数、EC2 profile 和 `Caddyfile.edge` 的 API path allowlist。
+
+uk1 初次创建顺序：
+
+```bash
+TAG=X.Y.Z
+
+# 0) 前置：eu-west-2 写入 GHCR PAT，路径默认 /tokenkey/edge/uk1/ghcr/pat
+aws ssm put-parameter --region eu-west-2 \
+  --name /tokenkey/edge/uk1/ghcr/pat --type SecureString \
+  --value 'ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+
+# 1) GitHub Environment edge-uk1 配置 Required reviewer；仓库/环境变量配置：
+#    EDGE_ACME_EMAIL=ops@tokenkey.dev
+#    EDGE_MAIN_GATEWAY_ALLOWED_CIDR=34.194.234.88/32   # apply 前确认仍是主网关固定出口
+
+# 2) 先更新 OIDC/IAM stack：允许 edge-uk1 Environment，并创建 CloudFormation execution role。
+#    provision 完成拿到 uk1 InstanceId 后，再回填 EdgeUk1TargetInstanceId 才能跑 upgrade/smoke/rollback 的 SSM 命令。
+aws cloudformation deploy --region eu-west-2 \
+  --stack-name tokenkey-cicd-oidc \
+  --template-file deploy/aws/cloudformation/cicd-oidc.yaml \
+  --capabilities CAPABILITY_NAMED_IAM
+
+# 3) Dispatch Edge provision；confirm_stack 必须精确匹配，避免误点错栈。
+#    provision 只创建/更新 stack，不跑外部 health/smoke，因为 DNS A 记录此时还未指向新 EIP。
+gh workflow run deploy-edge-stage0.yml \
+  -f edge_id=uk1 \
+  -f operation=provision \
+  -f tag=$TAG \
+  -f confirm_stack=tokenkey-edge-uk1-stage0
+
+# 3) 从 workflow summary / CFN output 取 PublicIP，手工把 api-uk1.tokenkey.dev A 记录指向该 EIP。
+# 4) DNS 生效后 dispatch smoke；默认先跑 external health + infra smoke + API path block 检查。
+gh workflow run deploy-edge-stage0.yml \
+  -f edge_id=uk1 \
+  -f operation=smoke \
+  -f confirm_stack=tokenkey-edge-uk1-stage0
+```
+
+后续升级 uk1 不改 CFN 参数，走同一 SSM 原地升级 primitive：
+
+```bash
+gh workflow run deploy-edge-stage0.yml \
+  -f edge_id=uk1 \
+  -f operation=upgrade \
+  -f tag=$TAG \
+  -f confirm_stack=tokenkey-edge-uk1-stage0
+```
+
+`us1/sg1/fra1` 已在矩阵中保留，但在 uk1 PoC + 7 天游灰度通过前保持 `deployable=false`，workflow 会 fail before AWS。
 
 ## 升级 / 发版（生产 + 测试栈共用）
 
