@@ -42,6 +42,8 @@ HOTSPOT_PATTERNS: dict[str, list[str]] = {
     "frontend/src/composables/useModelWhitelist.ts": ["scripts/newapi-sentinels.json"],
     "frontend/src/constants/gatewayPlatforms.ts": ["scripts/newapi-sentinels.json"],
     "frontend/src/composables/usePlatformOptions.ts": ["scripts/newapi-sentinels.json"],
+    "frontend/tailwind.config.js": ["scripts/frontend-tk-sentinels.json"],
+    "frontend/src/style.css": ["scripts/frontend-tk-sentinels.json"],
     "backend/internal/integration/newapi/*.go": ["scripts/newapi-sentinels.json"],
     "backend/internal/integration/newapi/**/*.go": ["scripts/newapi-sentinels.json"],
     "backend/internal/**/*_tk_*.go": ["scripts/newapi-sentinels.json", "scripts/gateway-tk-sentinels.json"],
@@ -90,6 +92,14 @@ def resolve_base(explicit_base: str | None) -> str | None:
 def changed_files(base: str, head: str) -> set[str]:
     proc = run_git(["diff", "--name-only", "--diff-filter=ACMRTUXB", f"{base}...{head}"])
     return {line.strip() for line in proc.stdout.splitlines() if line.strip()}
+
+
+def working_tree_changed_files() -> set[str]:
+    changed: set[str] = set()
+    for args in (["diff", "--name-only", "--diff-filter=ACMRTUXB"], ["diff", "--cached", "--name-only", "--diff-filter=ACMRTUXB"]):
+        proc = run_git(args)
+        changed.update(line.strip() for line in proc.stdout.splitlines() if line.strip())
+    return changed
 
 
 def registry_paths() -> list[Path]:
@@ -154,6 +164,7 @@ def main() -> int:
         return 2
 
     changed = changed_files(base, args.head)
+    changed.update(working_tree_changed_files())
     if not changed:
         if not args.quiet:
             print(f"sentinel registry update gate: no changes vs {base}...{args.head}")
