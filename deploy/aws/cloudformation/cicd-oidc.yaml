@@ -27,12 +27,13 @@ Parameters:
       "repo:youxuanxue/sub2api:ref:refs/heads/feature/clustering-oidc-ssm"
       while bootstrapping, then narrow back to the defaults afterwards.
   TargetInstanceId:
-    Type: AWS::EC2::Instance::Id
-    Default: i-04a8afd18c997b8ac
+    Type: String
+    Default: ""
+    AllowedPattern: "^(i-[0-9a-f]{8,17})?$"
     Description: >-
-      Prod EC2 instance the role is allowed to send SSM commands to.
-      Back-compat: original single-instance schema preserved verbatim so
-      existing stack updates don't churn this parameter name.
+      Optional prod EC2 instance the role is allowed to send SSM commands to.
+      Empty suppresses the prod SSM statement, which lets a regional OIDC stack
+      bootstrap before the target Stage0 instance exists.
   TestTargetInstanceId:
     Type: String
     Default: ""
@@ -75,6 +76,7 @@ Parameters:
 
 Conditions:
   ShouldCreateOIDC: !Equals [!Ref CreateOIDCProvider, "true"]
+  HasProdInstance: !Not [!Equals [!Ref TargetInstanceId, ""]]
   HasTestInstance: !Not [!Equals [!Ref TestTargetInstanceId, ""]]
   HasEdgeUk1Instance: !Not [!Equals [!Ref EdgeUk1TargetInstanceId, ""]]
 
@@ -142,13 +144,16 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              - Sid: SendRunShellScriptProd
-                Effect: Allow
-                Action:
-                  - ssm:SendCommand
-                Resource:
-                  - !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${TargetInstanceId}"
-                  - !Sub "arn:aws:ssm:${AWS::Region}::document/AWS-RunShellScript"
+              - !If
+                - HasProdInstance
+                - Sid: SendRunShellScriptProd
+                  Effect: Allow
+                  Action:
+                    - ssm:SendCommand
+                  Resource:
+                    - !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${TargetInstanceId}"
+                    - !Sub "arn:aws:ssm:${AWS::Region}::document/AWS-RunShellScript"
+                - !Ref AWS::NoValue
               - !If
                 - HasTestInstance
                 - Sid: SendRunShellScriptTest
