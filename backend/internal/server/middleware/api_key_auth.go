@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -16,6 +17,18 @@ import (
 // NewAPIKeyAuthMiddleware 创建 API Key 认证中间件
 func NewAPIKeyAuthMiddleware(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config) APIKeyAuthMiddleware {
 	return APIKeyAuthMiddleware(apiKeyAuthWithSubscription(apiKeyService, subscriptionService, cfg))
+}
+
+func skipsBillingEnforcement(method, path string) bool {
+	if method != http.MethodGet {
+		return false
+	}
+	switch path {
+	case "/v1/models", "/v1/usage", "/v1beta/models", "/antigravity/models", "/antigravity/v1/models", "/antigravity/v1/usage", "/antigravity/v1beta/models":
+		return true
+	default:
+		return false
+	}
 }
 
 // apiKeyAuthWithSubscription API Key认证中间件（支持订阅验证）
@@ -126,8 +139,8 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 
 		// ── 5. 加载订阅（订阅模式时始终加载） ───────────────────────
 
-		// skipBilling: /v1/usage 只需鉴权，跳过所有计费执行
-		skipBilling := c.Request.URL.Path == "/v1/usage"
+		// skipBilling: read-only metadata endpoints only need authentication.
+		skipBilling := skipsBillingEnforcement(c.Request.Method, c.Request.URL.Path)
 
 		var subscription *service.UserSubscription
 		isSubscriptionType := apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
