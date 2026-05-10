@@ -465,6 +465,67 @@ func TestApiKeyAuthWithSubscriptionGoogle_InsufficientBalance(t *testing.T) {
 	require.Equal(t, "PERMISSION_DENIED", resp.Error.Status)
 }
 
+func TestApiKeyAuthWithSubscriptionGoogle_SkipsBillingForModelList(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	group := &service.Group{
+		ID:               77,
+		Name:             "gemini-sub",
+		Status:           service.StatusActive,
+		Platform:         service.PlatformGemini,
+		Hydrated:         true,
+		SubscriptionType: service.SubscriptionTypeSubscription,
+	}
+	user := &service.User{
+		ID:          999,
+		Role:        service.RoleUser,
+		Status:      service.StatusActive,
+		Balance:     0,
+		Concurrency: 3,
+	}
+	apiKey := &service.APIKey{
+		ID:     501,
+		UserID: user.ID,
+		Key:    "google-model-list",
+		Status: service.StatusActive,
+		User:   user,
+		Group:  group,
+	}
+	apiKey.GroupID = &group.ID
+
+	apiKeyService := newTestAPIKeyService(fakeAPIKeyRepo{
+		getByKey: func(ctx context.Context, key string) (*service.APIKey, error) {
+			if key != apiKey.Key {
+				return nil, service.ErrAPIKeyNotFound
+			}
+			clone := *apiKey
+			return &clone, nil
+		},
+	})
+	subscriptionService := service.NewSubscriptionService(nil, fakeGoogleSubscriptionRepo{
+		getActive: func(ctx context.Context, userID, groupID int64) (*service.UserSubscription, error) {
+			return nil, service.ErrSubscriptionNotFound
+		},
+	}, nil, nil, &config.Config{RunMode: config.RunModeStandard})
+
+	r := gin.New()
+	r.Use(APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, &config.Config{RunMode: config.RunModeStandard}))
+	r.GET("/v1beta/models", func(c *gin.Context) { c.JSON(200, gin.H{"ok": true}) })
+	r.POST("/v1beta/models/:model", func(c *gin.Context) { c.JSON(200, gin.H{"ok": true}) })
+
+	req := httptest.NewRequest(http.MethodGet, "/v1beta/models", nil)
+	req.Header.Set("x-goog-api-key", apiKey.Key)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	req = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini:generateContent", nil)
+	req.Header.Set("x-goog-api-key", apiKey.Key)
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusForbidden, rec.Code)
+}
+
 func TestApiKeyAuthWithSubscriptionGoogle_TouchesLastUsedOnSuccess(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

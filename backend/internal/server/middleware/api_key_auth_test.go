@@ -177,6 +177,67 @@ func TestSimpleModeBypassesQuotaCheck(t *testing.T) {
 	})
 }
 
+func TestAPIKeyAuthSkipsBillingForModelList(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	group := &service.Group{
+		ID:               42,
+		Name:             "sub",
+		Status:           service.StatusActive,
+		Hydrated:         true,
+		SubscriptionType: service.SubscriptionTypeSubscription,
+	}
+	user := &service.User{
+		ID:          7,
+		Role:        service.RoleUser,
+		Status:      service.StatusActive,
+		Balance:     0,
+		Concurrency: 3,
+	}
+	apiKey := &service.APIKey{
+		ID:     100,
+		UserID: user.ID,
+		Key:    "model-list-key",
+		Status: service.StatusActive,
+		User:   user,
+		Group:  group,
+	}
+	apiKey.GroupID = &group.ID
+
+	apiKeyRepo := &stubApiKeyRepo{
+		getByKey: func(ctx context.Context, key string) (*service.APIKey, error) {
+			if key != apiKey.Key {
+				return nil, service.ErrAPIKeyNotFound
+			}
+			clone := *apiKey
+			return &clone, nil
+		},
+	}
+	apiKeyService := service.NewAPIKeyService(apiKeyRepo, nil, nil, nil, nil, nil, &config.Config{RunMode: config.RunModeStandard})
+	subscriptionService := service.NewSubscriptionService(nil, &stubUserSubscriptionRepo{
+		getActive: func(ctx context.Context, userID, groupID int64) (*service.UserSubscription, error) {
+			return nil, service.ErrSubscriptionNotFound
+		},
+	}, nil, nil, &config.Config{RunMode: config.RunModeStandard})
+
+	router := gin.New()
+	router.Use(gin.HandlerFunc(NewAPIKeyAuthMiddleware(apiKeyService, subscriptionService, &config.Config{RunMode: config.RunModeStandard})))
+	router.GET("/v1/models", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
+	router.POST("/v1/messages", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	req.Header.Set("x-api-key", apiKey.Key)
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req.Header.Set("x-api-key", apiKey.Key)
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusForbidden, w.Code)
+}
+
 func TestAPIKeyAuthSetsGroupContext(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
