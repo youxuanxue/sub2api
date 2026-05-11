@@ -156,8 +156,11 @@ jobs:
           go version | grep -q 'go1.26.3'
       - name: Run gosec lint
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-        working-directory: backend
-        run: make lint-security
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.9
+          args: --enable-only gosec --concurrency=4 --timeout=30m
+          working-directory: backend
       - name: Run govulncheck
         working-directory: backend
         run: |
