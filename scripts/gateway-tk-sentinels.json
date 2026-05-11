@@ -46,6 +46,16 @@
       "path": "backend/internal/service/ops_settings_models.go",
       "must_contain": ["OpsFeishuAlertConfig", "WebhookURLConfigured", "SigningSecretConfigured"],
       "rationale": "Ops email notification config JSON must preserve the Feishu write-only webhook/secret state without a DB migration. If this model shape is overwritten, frontend saves can drop Feishu config or leak secret fields."
+    },
+    {
+      "path": "backend/internal/service/openai_messages_compaction_tk.go",
+      "must_contain": ["shouldEvaluateOpenAICompatMessagesCompactionForAccount", "applyOpenAICompatMessagesCompaction(account *Account", "applyOpenAICompatOAuthMessagesCompaction"],
+      "rationale": "OpenAI OAuth /v1/messages compaction is a TK policy companion: OAuth must opt into threshold-based compaction through the shared replay compaction engine's anchor+tail profile. Dropping these hooks silently makes GPT专线 OAuth accounts ignore configured compaction thresholds."
+    },
+    {
+      "path": "backend/internal/service/openai_messages_compaction_tk_test.go",
+      "must_contain": ["TestShouldEvaluateOpenAICompatMessagesCompactionForAccount", "TestApplyOpenAICompatMessagesCompaction_UsesAnchorAndTailProfileForOAuth", "TestApplyOpenAICompatMessagesCompaction_UsesTailOnlyProfileForAPIKey"],
+      "rationale": "Focused regressions proving OAuth configured compaction uses the shared engine's anchor+tail profile while APIKey compaction keeps the existing continuation gate and tail-only profile."
     }
   ]
 }

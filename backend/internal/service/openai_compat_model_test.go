@@ -389,7 +389,7 @@ func TestForwardAsAnthropic_TrimsFullReplayOnlyForCodexCompatModels(t *testing.T
 	require.Equal(t, "message-00", gjson.GetBytes(nonCompatBody, "input.0.content.0.text").String())
 }
 
-func TestForwardAsAnthropic_OAuthCompatKeepsFullReplayForCacheGrowth(t *testing.T) {
+func TestForwardAsAnthropic_OAuthCompatKeepsFullReplayByDefaultForCacheGrowth(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
@@ -429,6 +429,60 @@ func TestForwardAsAnthropic_OAuthCompatKeepsFullReplayForCacheGrowth(t *testing.
 	require.Contains(t, gjson.GetBytes(upstream.lastBody, "input.0.content.0.text").String(), "<sub2api-claude-code-todo-guard>")
 	require.Equal(t, "message-00", gjson.GetBytes(upstream.lastBody, "input.1.content.0.text").String())
 	require.Equal(t, "message-14", gjson.GetBytes(upstream.lastBody, "input.15.content.0.text").String())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "prompt_cache_key").Exists())
+}
+
+func TestForwardAsAnthropic_OAuthCompatCompactionKeepsAnchorsAndTailWhenConfigured(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	messageCount := openAICompatOAuthReplayAnchorMessages + openAICompatAnthropicReplayMaxTailMessages + 4
+	messages := make([]string, 0, messageCount)
+	for i := 0; i < messageCount; i++ {
+		messages = append(messages, `{"role":"user","content":"message-`+fmt.Sprintf("%02d", i)+`"}`)
+	}
+	body := []byte(`{"model":"claude-sonnet-4-5","max_tokens":16,"system":"project instructions","messages":[` + strings.Join(messages, ",") + `],"stream":false}`)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: openAICompatSSECompletedResponse("resp_oauth_compaction", "gpt-5.4")}
+	svc := &OpenAIGatewayService{
+		httpUpstream: upstream,
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	}
+	account := &Account{
+		ID:          1,
+		Name:        "openai-oauth",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token":       "oauth-token",
+			"chatgpt_account_id": "chatgpt-acc",
+		},
+		Extra: map[string]any{
+			"messages_compaction_enabled":                true,
+			"messages_compaction_input_tokens_threshold": 1,
+		},
+	}
+
+	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "gpt-5.4")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, int64(openAICompatOAuthReplayAnchorMessages+openAICompatAnthropicReplayMaxTailMessages+2), gjson.GetBytes(upstream.lastBody, "input.#").Int())
+	require.Equal(t, "developer", gjson.GetBytes(upstream.lastBody, "input.0.role").String())
+	require.Equal(t, "project instructions", gjson.GetBytes(upstream.lastBody, "input.0.content.0.text").String())
+	require.Equal(t, "developer", gjson.GetBytes(upstream.lastBody, "input.1.role").String())
+	require.Contains(t, gjson.GetBytes(upstream.lastBody, "input.1.content.0.text").String(), "<sub2api-claude-code-todo-guard>")
+	require.Equal(t, "message-00", gjson.GetBytes(upstream.lastBody, "input.2.content.0.text").String())
+	require.Equal(t, "message-01", gjson.GetBytes(upstream.lastBody, "input.3.content.0.text").String())
+	require.Equal(t, "message-06", gjson.GetBytes(upstream.lastBody, "input.4.content.0.text").String())
+	require.Equal(t, "message-17", gjson.GetBytes(upstream.lastBody, "input.15.content.0.text").String())
+	require.NotContains(t, string(upstream.lastBody), "message-02")
+	require.NotContains(t, string(upstream.lastBody), "message-05")
 	require.False(t, gjson.GetBytes(upstream.lastBody, "prompt_cache_key").Exists())
 }
 
