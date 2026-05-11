@@ -514,11 +514,7 @@ func (s *PaymentService) buildPaymentSubject(plan *dbent.SubscriptionPlan, limit
 	if pf != "" || sf != "" {
 		return strings.TrimSpace(pf + " " + amountStr + " " + sf)
 	}
-<<<<<<< HEAD
-	return "TokenKey " + amountStr + " CNY"
-=======
 	return "TokenKey " + amountStr + " " + currency
->>>>>>> upstream/main
 }
 
 func (s *PaymentService) maybeBuildWeChatOAuthRequiredResponse(ctx context.Context, req CreateOrderRequest, amount, payAmount, feeRate float64) (*CreateOrderResponse, error) {
