@@ -55,6 +55,13 @@ func TestParseGatewayRequest_MaxTokensNonIntegralIgnored(t *testing.T) {
 	require.Equal(t, 0, parsed.MaxTokens)
 }
 
+func TestParseGatewayRequest_PromptCacheKey(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-4-5","prompt_cache_key":" pcache-edge-session-1 ","messages":[{"content":"hi"}]}`)
+	parsed, err := ParseGatewayRequest(body, domain.PlatformAnthropic)
+	require.NoError(t, err)
+	require.Equal(t, "pcache-edge-session-1", parsed.PromptCacheKey)
+}
+
 func TestParseGatewayRequest_SystemNull(t *testing.T) {
 	body := []byte(`{"model":"claude-3","system":null}`)
 	parsed, err := ParseGatewayRequest(body, "")

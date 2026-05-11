@@ -104,12 +104,14 @@ type StickyKey struct {
 
 // StickyKey provenance tags. Pure metadata; safe to log.
 const (
-	StickyKeySourceClientSessionID      = "client_session_id"
-	StickyKeySourceClientConversationID = "client_conversation_id"
-	StickyKeySourceClientMetadataUserID = "client_metadata_user_id"
-	StickyKeySourceClientPromptCacheKey = "client_prompt_cache_key"
-	StickyKeySourceDerivedContentHash   = "derived_content_hash"
-	StickyKeySourceNone                 = ""
+	StickyKeySourceClientSessionID           = "client_session_id"
+	StickyKeySourceClientConversationID      = "client_conversation_id"
+	StickyKeySourceClientClaudeCodeSessionID = "client_claude_code_session_id"
+	StickyKeySourceClientXSessionID          = "client_x_session_id"
+	StickyKeySourceClientMetadataUserID      = "client_metadata_user_id"
+	StickyKeySourceClientPromptCacheKey      = "client_prompt_cache_key"
+	StickyKeySourceDerivedContentHash        = "derived_content_hash"
+	StickyKeySourceNone                      = ""
 )
 
 // StickyDerivedKeyPrefix is prepended to all gateway-derived sticky keys so
@@ -142,7 +144,7 @@ type StickyInjectionRequest struct {
 // DeriveStickyKey returns the sticky key the gateway should use for this
 // request. It walks a fixed priority order:
 //
-//  1. headers["session_id"] / headers["conversation_id"]
+//  1. headers["session_id"] / headers["conversation_id"] / headers["X-Claude-Code-Session-Id"] / headers["X-Session-Id"]
 //  2. body.metadata.user_id (parsed; prefer the inner session_id when present)
 //  3. body.prompt_cache_key
 //  4. (only if Strategy.AllowsDerivation) hash(api_key_id || system_first_2k || tools_signature)
@@ -153,13 +155,8 @@ func DeriveStickyKey(req StickyInjectionRequest, body []byte) StickyKey {
 		return StickyKey{Source: StickyKeySourceNone}
 	}
 
-	if req.Headers != nil {
-		if v := strings.TrimSpace(req.Headers.Get("session_id")); v != "" {
-			return StickyKey{Value: v, Source: StickyKeySourceClientSessionID}
-		}
-		if v := strings.TrimSpace(req.Headers.Get("conversation_id")); v != "" {
-			return StickyKey{Value: v, Source: StickyKeySourceClientConversationID}
-		}
+	if key := StickyKeyFromClientHeaders(req.Headers); key.Value != "" {
+		return key
 	}
 
 	if len(body) > 0 {
@@ -183,6 +180,26 @@ func DeriveStickyKey(req StickyInjectionRequest, body []byte) StickyKey {
 		return StickyKey{Source: StickyKeySourceNone}
 	}
 	return StickyKey{Value: derived, Source: StickyKeySourceDerivedContentHash}
+}
+
+// StickyKeyFromClientHeaders returns the first explicit sticky header in ingress priority order.
+func StickyKeyFromClientHeaders(headers http.Header) StickyKey {
+	if headers == nil {
+		return StickyKey{Source: StickyKeySourceNone}
+	}
+	if v := strings.TrimSpace(headers.Get("session_id")); v != "" {
+		return StickyKey{Value: v, Source: StickyKeySourceClientSessionID}
+	}
+	if v := strings.TrimSpace(headers.Get("conversation_id")); v != "" {
+		return StickyKey{Value: v, Source: StickyKeySourceClientConversationID}
+	}
+	if v := strings.TrimSpace(headers.Get("X-Claude-Code-Session-Id")); v != "" {
+		return StickyKey{Value: v, Source: StickyKeySourceClientClaudeCodeSessionID}
+	}
+	if v := strings.TrimSpace(headers.Get("X-Session-Id")); v != "" {
+		return StickyKey{Value: v, Source: StickyKeySourceClientXSessionID}
+	}
+	return StickyKey{Source: StickyKeySourceNone}
 }
 
 // deriveStickyContentHash builds a stable identifier from
@@ -349,7 +366,7 @@ func InjectAnthropicMessagesBody(body []byte, key StickyKey, req StickyInjection
 	if !req.Strategy.AllowsInjection() || key.Value == "" || len(body) == 0 {
 		return body, false, nil
 	}
-	if req.IsClaudeCodeUA {
+	if req.IsClaudeCodeUA || key.Source == StickyKeySourceClientClaudeCodeSessionID {
 		return body, false, nil
 	}
 	if existing := gjson.GetBytes(body, "metadata.user_id"); existing.Exists() && strings.TrimSpace(existing.String()) != "" {

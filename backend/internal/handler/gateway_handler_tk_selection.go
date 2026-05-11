@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -29,4 +30,18 @@ func TkGatewayAnthropicCompatAffinitySelectionCtx(c *gin.Context, h *GatewayHand
 	groupName := TkAPIKeyGroupName(apiKey)
 	selectionCtx := TkChatCompletionsWithAffinityPrefetch(c, h, c.Request.Context(), reqModel, groupName, apiKey.GroupID)
 	return selectionCtx, groupName
+}
+
+// TkPrepareParsedRequestSessionInputs sets shared sticky-session inputs before account selection.
+func TkPrepareParsedRequestSessionInputs(c *gin.Context, apiKey *service.APIKey, parsedReq *service.ParsedRequest) {
+	if c == nil || c.Request == nil || apiKey == nil || parsedReq == nil {
+		return
+	}
+	parsedReq.GroupID = apiKey.GroupID
+	parsedReq.ExplicitStickyKey = service.StickyKeyFromClientHeaders(c.Request.Header)
+	parsedReq.SessionContext = &service.SessionContext{
+		ClientIP:  ip.GetClientIP(c),
+		UserAgent: c.GetHeader("User-Agent"),
+		APIKeyID:  apiKey.ID,
+	}
 }

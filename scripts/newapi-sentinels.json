@@ -18,6 +18,26 @@
       "rationale": "TK companion that fetches candidate accounts using the group's actual platform instead of hardcoded `PlatformOpenAI`. Without it, `group.platform=newapi` requests get an empty pool."
     },
     {
+      "path": "backend/internal/service/sticky_session_injector.go",
+      "must_contain": ["StickyKeyFromClientHeaders", "StickyKeySourceClientXSessionID", "X-Session-Id"],
+      "rationale": "Shared sticky-key ingress parser for prod-to-edge NewAPI/Anthropic forwarding. Without this helper, prod-injected X-Session-Id can drift from DeriveStickyKey priority and edge falls back to volatile message-content hashes."
+    },
+    {
+      "path": "backend/internal/service/gateway_request.go",
+      "must_contain": ["ExplicitStickyKey", "PromptCacheKey", "prompt_cache_key"],
+      "rationale": "ParsedRequest must preserve explicit sticky identity and top-level prompt_cache_key so the Anthropic edge ingress can consume prod-forwarded sticky signals without reparsing or falling back to message content."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": ["parsed.ExplicitStickyKey.Value", "StickyKeySourceClientPromptCacheKey", "message_content_fallback"],
+      "rationale": "Anthropic GenerateSessionHash must prefer metadata.user_id, then explicit headers, then prompt_cache_key before the message-content fallback. Losing this priority recreates the max_sessions exhaustion incident on edge OAuth accounts."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_selection.go",
+      "must_contain": ["TkPrepareParsedRequestSessionInputs", "StickyKeyFromClientHeaders", "SessionContext"],
+      "rationale": "Anthropic handlers share this TK companion to populate group, explicit sticky headers, and context before account selection. Without the shared hook, /v1/messages or count_tokens can skip the prod-forwarded sticky identity."
+    },
+    {
       "path": "backend/internal/service/openai_messages_dispatch_tk_newapi.go",
       "must_contain": ["isOpenAICompatPlatformGroup"],
       "rationale": "TK companion that decides whether `messages_dispatch_model_config` is preserved. Without it, newapi groups have their dispatch config silently wiped on save."

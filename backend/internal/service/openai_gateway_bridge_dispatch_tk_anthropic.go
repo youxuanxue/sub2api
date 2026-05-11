@@ -197,6 +197,9 @@ func anthropicToChatCompletionsBody(req *apicompat.AnthropicRequest, upstreamMod
 		"messages": messages,
 		"stream":   true,
 	}
+	if len(req.Metadata) > 0 && string(req.Metadata) != "null" {
+		chatReq["metadata"] = json.RawMessage(req.Metadata)
+	}
 	if req.MaxTokens > 0 {
 		chatReq["max_tokens"] = req.MaxTokens
 	}
