@@ -42,8 +42,8 @@ description: >-
 
 1. 同步事实：`git fetch origin main --tags`，确认当前分支、HEAD、`origin/main`、工作区状态；如工作区有未提交改动，必须在报告中标出，不能把它当作已发布事实。
 2. 决定范围：
-   - `NEW_REF=${tag:+v$tag}`，未给则 `HEAD`。
-   - `PREV_TAG=${previous_tag:+v$previous_tag}`，未给则取 `NEW_REF` 前一个 `v*` release tag；若当前 VERSION 对应 tag 已存在且 `origin/main` 在其后，范围应是该 tag 到 `origin/main/HEAD`。
+   - `NEW_REF=${tag:+v$tag}` 后检查为空则设为 `HEAD`；也可以直接用 `NEW_REF=${tag:+v$tag}; NEW_REF=${NEW_REF:-HEAD}`。
+   - `PREV_TAG=${previous_tag:+v$previous_tag}`，未给则取 `NEW_REF` 前一个 `v*` release tag；若当前 VERSION 对应 tag 已存在且 `origin/main` 在其后，范围应是该 tag 到 `origin/main`（或当前本地 `HEAD`，取决于本次待检查对象）。
 3. 盘点提交和文件：
    - `git log --oneline --decorate ${PREV_TAG}..${NEW_REF}`。
    - `git diff --stat ${PREV_TAG}..${NEW_REF}`。
