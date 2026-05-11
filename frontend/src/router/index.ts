@@ -145,6 +145,16 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/pricing',
+    name: 'Pricing',
+    component: () => import('@/views/PricingView.vue'),
+    meta: {
+      requiresAuth: false,
+      title: 'Pricing',
+      titleKey: 'pricing.title'
+    }
+  },
+  {
     path: '/legal/:documentId',
     name: 'LegalDocument',
     component: () => import('@/views/public/LegalDocumentView.vue'),
@@ -169,6 +179,18 @@ const routes: RouteRecordRaw[] = [
       title: 'Dashboard',
       titleKey: 'dashboard.title',
       descriptionKey: 'dashboard.welcomeMessage'
+    }
+  },
+  {
+    path: '/playground',
+    name: 'Playground',
+    component: () => import('@/views/user/PlaygroundView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Playground',
+      titleKey: 'playground.title',
+      descriptionKey: 'playground.description'
     }
   },
   {
