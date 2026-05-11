@@ -110,11 +110,13 @@
       ]
     },
     {
-      "name": "openai_compat_oauth_messages_compaction_guard",
+      "name": "openai_compat_replay_compaction_engine",
       "source": "backend/internal/service/openai_messages_replay_guard.go",
       "required_literals": [
-        "func applyOpenAICompatOAuthMessagesCompaction(req *apicompat.AnthropicRequest) bool",
-        "openAICompatOAuthReplayAnchorMessages",
+        "type openAICompatReplayCompactionProfile struct",
+        "func applyOpenAICompatReplayCompaction(req *apicompat.AnthropicRequest, profile openAICompatReplayCompactionProfile) bool",
+        "prefixMessages: openAICompatOAuthReplayAnchorMessages",
+        "tailMessages: openAICompatAnthropicReplayMaxTailMessages",
         "func expandAnthropicCompatPrefixBoundary(messages []apicompat.AnthropicMessage, end int) int",
         "expandAnthropicCompatTrimBoundary(req.Messages, tailStart)"
       ]

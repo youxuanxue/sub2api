@@ -39,7 +39,7 @@
 - `backend/internal/service/openai_messages_compaction_tk_test.go`::`TestShouldApplyOpenAICompatMessagesCompaction`
 - `backend/internal/service/openai_compat_model_test.go`::`TestForwardAsAnthropic_ReplaysWithoutContinuationWhenPreviousResponseMissing`
 - `backend/internal/service/openai_compat_model_test.go`::`TestForwardAsAnthropic_OAuthDisablesContinuationAfterPreviousResponseNotFound`
-- `backend/internal/service/openai_messages_replay_guard_test.go`::`TestApplyAnthropicCompatFullReplayGuard_KeepsToolBoundaryIntact`
+- `backend/internal/service/openai_messages_replay_guard_test.go`::`TestApplyOpenAICompatReplayCompaction_TailOnlyProfileKeepsToolBoundaryIntact`
 - `backend/internal/service/admin_service_group_test.go`::`TestAdminService_CreateGroup_NormalizesMessagesDispatchModelConfig`
 - `backend/internal/service/api_key_service_cache_test.go`::`TestAPIKeyService_SnapshotRoundTrip_PreservesMessagesDispatchModelConfig`
 - `backend/internal/server/api_contract_test.go`::`TestAPIContracts`

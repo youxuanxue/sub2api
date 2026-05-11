@@ -80,7 +80,7 @@ func TestShouldEvaluateOpenAICompatMessagesCompactionForAccount(t *testing.T) {
 	require.True(t, shouldEvaluateOpenAICompatMessagesCompactionForAccount(&Account{Type: AccountTypeOAuth}, "resp_1", true))
 }
 
-func TestApplyOpenAICompatMessagesCompaction_UsesOAuthSafeGuardForOAuth(t *testing.T) {
+func TestApplyOpenAICompatMessagesCompaction_UsesAnchorAndTailProfileForOAuth(t *testing.T) {
 	messageCount := openAICompatOAuthReplayAnchorMessages + openAICompatAnthropicReplayMaxTailMessages + 4
 	req := &apicompat.AnthropicRequest{Messages: make([]apicompat.AnthropicMessage, 0, messageCount)}
 	for i := 0; i < messageCount; i++ {
@@ -96,7 +96,7 @@ func TestApplyOpenAICompatMessagesCompaction_UsesOAuthSafeGuardForOAuth(t *testi
 	require.Len(t, req.Messages, openAICompatOAuthReplayAnchorMessages+openAICompatAnthropicReplayMaxTailMessages)
 }
 
-func TestApplyOpenAICompatMessagesCompaction_UsesTailGuardForAPIKey(t *testing.T) {
+func TestApplyOpenAICompatMessagesCompaction_UsesTailOnlyProfileForAPIKey(t *testing.T) {
 	messageCount := openAICompatAnthropicReplayMaxTailMessages + 4
 	req := &apicompat.AnthropicRequest{Messages: make([]apicompat.AnthropicMessage, 0, messageCount)}
 	for i := 0; i < messageCount; i++ {

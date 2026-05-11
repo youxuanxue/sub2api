@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestApplyAnthropicCompatFullReplayGuard_TrimsOldMessages(t *testing.T) {
+func TestApplyOpenAICompatReplayCompaction_TailOnlyProfileTrimsOldMessages(t *testing.T) {
 	t.Parallel()
 
 	req := &apicompat.AnthropicRequest{Messages: make([]apicompat.AnthropicMessage, 0, openAICompatAnthropicReplayMaxTailMessages+3)}
@@ -20,7 +20,7 @@ func TestApplyAnthropicCompatFullReplayGuard_TrimsOldMessages(t *testing.T) {
 		})
 	}
 
-	trimmed := applyAnthropicCompatFullReplayGuard(req)
+	trimmed := applyOpenAICompatReplayCompaction(req, openAICompatReplayCompactionProfile{tailMessages: openAICompatAnthropicReplayMaxTailMessages})
 
 	require.True(t, trimmed)
 	require.Len(t, req.Messages, openAICompatAnthropicReplayMaxTailMessages)
@@ -28,7 +28,7 @@ func TestApplyAnthropicCompatFullReplayGuard_TrimsOldMessages(t *testing.T) {
 	require.JSONEq(t, `"message-14"`, string(req.Messages[len(req.Messages)-1].Content))
 }
 
-func TestApplyAnthropicCompatFullReplayGuard_KeepsToolBoundaryIntact(t *testing.T) {
+func TestApplyOpenAICompatReplayCompaction_TailOnlyProfileKeepsToolBoundaryIntact(t *testing.T) {
 	t.Parallel()
 
 	req := &apicompat.AnthropicRequest{Messages: make([]apicompat.AnthropicMessage, 0, openAICompatAnthropicReplayMaxTailMessages+3)}
@@ -48,7 +48,7 @@ func TestApplyAnthropicCompatFullReplayGuard_KeepsToolBoundaryIntact(t *testing.
 		})
 	}
 
-	trimmed := applyAnthropicCompatFullReplayGuard(req)
+	trimmed := applyOpenAICompatReplayCompaction(req, openAICompatReplayCompactionProfile{tailMessages: openAICompatAnthropicReplayMaxTailMessages})
 
 	require.True(t, trimmed)
 	require.Len(t, req.Messages, openAICompatAnthropicReplayMaxTailMessages+2)
@@ -57,7 +57,7 @@ func TestApplyAnthropicCompatFullReplayGuard_KeepsToolBoundaryIntact(t *testing.
 	require.Contains(t, string(req.Messages[2].Content), `"tool_result"`)
 }
 
-func TestApplyOpenAICompatOAuthMessagesCompaction_KeepsPrefixAndTail(t *testing.T) {
+func TestApplyOpenAICompatReplayCompaction_AnchorAndTailProfileKeepsPrefixAndTail(t *testing.T) {
 	t.Parallel()
 
 	messageCount := openAICompatOAuthReplayAnchorMessages + openAICompatAnthropicReplayMaxTailMessages + 4
@@ -69,7 +69,7 @@ func TestApplyOpenAICompatOAuthMessagesCompaction_KeepsPrefixAndTail(t *testing.
 		})
 	}
 
-	trimmed := applyOpenAICompatOAuthMessagesCompaction(req)
+	trimmed := applyOpenAICompatReplayCompaction(req, openAICompatReplayCompactionProfile{prefixMessages: openAICompatOAuthReplayAnchorMessages, tailMessages: openAICompatAnthropicReplayMaxTailMessages})
 
 	require.True(t, trimmed)
 	require.Len(t, req.Messages, openAICompatOAuthReplayAnchorMessages+openAICompatAnthropicReplayMaxTailMessages)
@@ -79,7 +79,7 @@ func TestApplyOpenAICompatOAuthMessagesCompaction_KeepsPrefixAndTail(t *testing.
 	require.JSONEq(t, `"message-17"`, string(req.Messages[len(req.Messages)-1].Content))
 }
 
-func TestApplyOpenAICompatOAuthMessagesCompaction_KeepsPrefixToolBoundaryIntact(t *testing.T) {
+func TestApplyOpenAICompatReplayCompaction_AnchorAndTailProfileKeepsPrefixToolBoundaryIntact(t *testing.T) {
 	t.Parallel()
 
 	messageCount := openAICompatOAuthReplayAnchorMessages + openAICompatAnthropicReplayMaxTailMessages + 4
@@ -100,7 +100,7 @@ func TestApplyOpenAICompatOAuthMessagesCompaction_KeepsPrefixToolBoundaryIntact(
 		})
 	}
 
-	trimmed := applyOpenAICompatOAuthMessagesCompaction(req)
+	trimmed := applyOpenAICompatReplayCompaction(req, openAICompatReplayCompactionProfile{prefixMessages: openAICompatOAuthReplayAnchorMessages, tailMessages: openAICompatAnthropicReplayMaxTailMessages})
 
 	require.True(t, trimmed)
 	require.Len(t, req.Messages, openAICompatOAuthReplayAnchorMessages+openAICompatAnthropicReplayMaxTailMessages+1)

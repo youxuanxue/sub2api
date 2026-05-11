@@ -11,33 +11,31 @@ const (
 	openAICompatOAuthReplayAnchorMessages      = 2
 )
 
+type openAICompatReplayCompactionProfile struct {
+	prefixMessages int
+	tailMessages   int
+}
+
 func applyAnthropicCompatFullReplayGuard(req *apicompat.AnthropicRequest) bool {
-	if req == nil || len(req.Messages) <= openAICompatAnthropicReplayMaxTailMessages {
-		return false
-	}
-
-	start := len(req.Messages) - openAICompatAnthropicReplayMaxTailMessages
-	start = expandAnthropicCompatTrimBoundary(req.Messages, start)
-	if start <= 0 {
-		return false
-	}
-
-	req.Messages = append([]apicompat.AnthropicMessage(nil), req.Messages[start:]...)
-	return true
+	return applyOpenAICompatReplayCompaction(req, openAICompatReplayCompactionProfile{tailMessages: openAICompatAnthropicReplayMaxTailMessages})
 }
 
 func applyOpenAICompatOAuthMessagesCompaction(req *apicompat.AnthropicRequest) bool {
-	if req == nil || len(req.Messages) <= openAICompatOAuthReplayAnchorMessages+openAICompatAnthropicReplayMaxTailMessages {
+	return applyOpenAICompatReplayCompaction(req, openAICompatReplayCompactionProfile{prefixMessages: openAICompatOAuthReplayAnchorMessages, tailMessages: openAICompatAnthropicReplayMaxTailMessages})
+}
+
+func applyOpenAICompatReplayCompaction(req *apicompat.AnthropicRequest, profile openAICompatReplayCompactionProfile) bool {
+	if req == nil || profile.tailMessages <= 0 || len(req.Messages) <= profile.prefixMessages+profile.tailMessages {
 		return false
 	}
 
-	prefixEnd := openAICompatOAuthReplayAnchorMessages
+	prefixEnd := profile.prefixMessages
 	if prefixEnd > len(req.Messages) {
 		prefixEnd = len(req.Messages)
 	}
 	prefixEnd = expandAnthropicCompatPrefixBoundary(req.Messages, prefixEnd)
 
-	tailStart := len(req.Messages) - openAICompatAnthropicReplayMaxTailMessages
+	tailStart := len(req.Messages) - profile.tailMessages
 	tailStart = expandAnthropicCompatTrimBoundary(req.Messages, tailStart)
 	if tailStart <= prefixEnd {
 		return false
