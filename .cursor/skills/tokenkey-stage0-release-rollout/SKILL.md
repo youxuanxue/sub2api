@@ -4,9 +4,10 @@ description: >-
   Drives TokenKey AWS Stage0 release and rollout across prod/test and Edge targets:
   sync main, decide VERSION/tag, run scripts/release-tag.sh, watch release.yml,
   deploy prod/test via deploy-stage0.yml, deploy/smoke edge-uk1 via
-  deploy-edge-stage0.yml, and report structured smoke results. Use when the user
-  asks to release, deploy, smoke, rollback, or roll out to prod, test, edge-uk1,
-  or all Stage0 targets.
+  deploy-edge-stage0.yml, report structured smoke results, or run a pre-release
+  check of code facts and production impact risk. Use when the user asks to
+  release, deploy, smoke, rollback, check release risk, or roll out to prod,
+  test, edge-uk1, or all Stage0 targets.
 ---
 
 # TokenKey：Stage0 release → prod/test/Edge rollout → 真实测试
@@ -18,17 +19,50 @@ description: >-
 本 skill 默认按用户语义解析；用户未写完整参数时，先按下面语义补全，仍有歧义再问。
 
 ```text
-/tokenkey-stage0-release-rollout target=<prod|test|edge-uk1|all> [tag=X.Y.Z] [operation=<release|deploy|smoke|rollback>] [previous_tag=X.Y.Z]
+/tokenkey-stage0-release-rollout target=<prod|test|edge-uk1|all> [tag=X.Y.Z] [operation=<check|release|deploy|smoke|rollback>] [previous_tag=X.Y.Z]
 ```
 
 | 参数 | 语义 |
 |---|---|
+| `operation=check` | 只做预发布风险检查：对比上一个 release tag 到待发布 HEAD 的代码事实，判断上线 prod/Edge 的潜在影响；不 bump、不 tag、不 dispatch deploy。 |
 | `target=prod` | release（必要时 bump/tag/build）→ `deploy-stage0.yml environment=prod` → prod smoke。 |
 | `target=test` | 使用已有 tag 或新 release → `deploy-stage0.yml environment=test` → test smoke。 |
 | `target=edge-uk1` | 默认 tag 已存在：`deploy-edge-stage0.yml operation=upgrade` → Edge smoke；`operation=smoke` 只 smoke；`operation=rollback` 用 `previous_tag`。 |
 | `target=all` | release 一次 → edge-uk1 canary upgrade/smoke → prod deploy/smoke → main-gateway-via-edge smoke → 未来 deployable Edge 顺序 rollout。 |
 
-如果用户只说“发版 / deploy 最新 / ship production”，默认 `target=prod operation=release`。如果用户说“全部 / 所有网关 / prod + edge / all”，默认 `target=all operation=release`。
+如果用户只说“发版 / deploy 最新 / ship production”，默认 `target=prod operation=release`。如果用户说“全部 / 所有网关 / prod + edge / all”，默认 `target=all operation=release`。如果用户说“检查 / 预判 / 评估上线影响 / release check”，默认 `operation=check target=all`。
+
+## check 模式：预发布生产影响评估
+
+`operation=check` 是只读门禁，用来回答“如果这些变更现在上线 prod / edge-uk1，会不会影响线上服务”。它**不修改文件、不 bump VERSION、不创建 tag、不 dispatch workflow**。
+
+默认范围：从最新已发布 tag 到当前待发布 HEAD。用户给 `previous_tag` 时用该 tag；用户给 `tag` 时用该 tag 作为目标，否则用 `HEAD`。
+
+执行步骤：
+
+1. 同步事实：`git fetch origin main --tags`，确认当前分支、HEAD、`origin/main`、工作区状态；如工作区有未提交改动，必须在报告中标出，不能把它当作已发布事实。
+2. 决定范围：
+   - `NEW_REF=${tag:+v$tag}`，未给则 `HEAD`。
+   - `PREV_TAG=${previous_tag:+v$previous_tag}`，未给则取 `NEW_REF` 前一个 `v*` release tag；若当前 VERSION 对应 tag 已存在且 `origin/main` 在其后，范围应是该 tag 到 `origin/main/HEAD`。
+3. 盘点提交和文件：
+   - `git log --oneline --decorate ${PREV_TAG}..${NEW_REF}`。
+   - `git diff --stat ${PREV_TAG}..${NEW_REF}`。
+   - `git diff --name-status ${PREV_TAG}..${NEW_REF}`。
+4. 单独确认发布/部署契约是否变化：检查 `release.yml`、`deploy-stage0.yml`、`deploy-edge-stage0.yml`、Dockerfile、`backend/go.mod` / `go.sum`、`frontend/package.json` / lockfile、`backend/cmd/server/VERSION`、`deploy/` 是否有 diff。
+5. 按运行时影响面读代码事实，而不是只看提交标题：
+   - 后端请求路径：gateway、auth、rate limit、scheduler、quota/billing、model-list/pricing、newapi bridge、middleware。
+   - 前端线上路径：登录/注册、admin settings、API client、嵌入 dist freshness。
+   - 数据层：Ent schema、migrations、repository、默认设置初始化。
+   - 运维面：release/deploy workflow、Stage0 SSM primitive、Caddy/compose、smoke scripts、ops workflow。
+   - 上游隔离：是否删除 upstream-owned 文件/route/method，是否触发 sentinel registry。
+6. 跑本地门禁：执行 `bash scripts/preflight.sh`；失败必须进入风险结论，不能给出“可放心发布”的结论。
+7. 输出中文结论，必须包含：
+   - `范围`：`${PREV_TAG}..${NEW_REF}`、commit 数、主要提交。
+   - `发布契约`：release/deploy/Docker/deps/VERSION 是否变化。
+   - `运行时影响`：逐项说明哪些路径会变，引用 `file:line` 代码事实。
+   - `线上风险等级`：低 / 中 / 高，并说明原因。
+   - `建议`：是否建议发布；若建议，列出 edge/prod smoke 重点；若不建议，列出阻塞项。
+   - `未覆盖/假设`：例如缺少线上密钥、本地无法实际 UI 验证、某些行为只在配置开启时触发。
 
 ## Jobs / OPC 默认部署顺序
 
