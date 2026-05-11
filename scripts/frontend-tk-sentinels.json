@@ -131,7 +131,7 @@
       "must_contain": [
         "@apply bg-gray-50 text-base text-gray-900 dark:bg-dark-950 dark:text-gray-100;"
       ],
-      "rationale": "The compact Tailwind scale must apply to default body copy, not only explicit text-* utilities. Without body text-base, unclassed prose and third-party/default text remain at browser 16px while classed UI shrinks, producing inconsistent density after upstream merges that still compile."
+      "rationale": "The compact Tailwind scale must apply to default body copy, not only explicit text-* utilities. Without body text-base, unclassed prose and third-party/default text remain at browser 16px while classed UI shrinks, producing inconsistent density after upstream merges that still compile. Keep this anchor explicit whenever upstream updates touch frontend/src/style.css so merge-shape checks cannot treat global typography drift as a silent cosmetic change."
     },
     {
       "path": "frontend/src/views/auth/LoginView.vue",
