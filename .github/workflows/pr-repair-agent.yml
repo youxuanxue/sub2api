@@ -10,7 +10,6 @@ on:
     workflows:
       - CI
       - Upstream Merge PR Shape
-      - Security Scan
     types: [completed]
   workflow_dispatch:
     inputs:

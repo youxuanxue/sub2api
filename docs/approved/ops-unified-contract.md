@@ -45,7 +45,7 @@ Compatibility rule:
 
 Required outcomes:
 
-- Daily clustering (`error-clustering-daily`) can create/update issue signals.
+- Daily clustering (`Prod Ops` / `operation=error_clustering`) can create/update issue signals.
 - Agent action can draft PRs from persistent clusters.
 
 Hard guardrails:

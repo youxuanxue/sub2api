@@ -47,8 +47,7 @@ npm install -g pnpm
 
 | Workflow | 触发条件 | 检查内容 |
 |----------|----------|----------|
-| **backend-ci.yml** | push, pull_request | 单元测试 + 集成测试 + golangci-lint v2.7 |
-| **security-scan.yml** | push, pull_request, 每周一 | govulncheck + gosec + pnpm audit |
+| **backend-ci.yml** | push, pull_request, 每周, 手动 | preflight + 单元测试 + 集成测试 + frontend + golangci-lint + security scan + weekly smoke |
 | **release.yml** | tag `v*` | 构建发布（PR 不触发） |
 
 ### CI 要求

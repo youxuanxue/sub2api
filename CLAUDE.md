@@ -14,7 +14,7 @@ TokenKey (TK): AI API gateway for subscription quota distribution. Fork of [Wei-
 | Frontend | Vue 3, Vite 5, TypeScript, Pinia, TailwindCSS 3, **pnpm** | `frontend/` |
 | DB | PostgreSQL 16+ only | |
 | Cache | Redis 7+ | |
-| CI | GitHub Actions (`backend-ci`, `security-scan`, `release`) | `.github/workflows/` |
+| CI | GitHub Actions (`backend-ci`, `release`) | `.github/workflows/` |
 | Lint | golangci-lint v2 | `backend/.golangci.yml` |
 | Deploy | Docker Compose (4 variants) | `deploy/` |
 
@@ -129,7 +129,7 @@ replace github.com/QuantumNous/new-api => ../../new-api
 
 **Pinned commit (`.new-api-ref` is the single source of truth):**
 
-The repo-root file `.new-api-ref` records the exact `QuantumNous/new-api` commit SHA used by both local dev and CI. `scripts/sync-new-api.sh` and the three workflows (`release.yml`, `backend-ci.yml`, `security-scan.yml`) all read it, so the release Docker image is bit-identical to what is tested locally.
+The repo-root file `.new-api-ref` records the exact `QuantumNous/new-api` commit SHA used by both local dev and CI. `scripts/sync-new-api.sh` and the two workflows (`release.yml`, `backend-ci.yml`) both read it, so the release Docker image is bit-identical to what is tested locally.
 
 ```bash
 bash scripts/sync-new-api.sh           # pull sibling clone to the pinned SHA

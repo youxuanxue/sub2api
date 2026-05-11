@@ -8,9 +8,9 @@
 #     ├── sub2api/   <- this repo
 #     └── new-api/   <- QuantumNous/new-api clone (resolved via go.mod replace)
 #
-# Both local dev and CI (.github/workflows/{release,backend-ci,security-scan}.yml)
-# read .new-api-ref so the sibling clone, the release Docker image, and the
-# CI test/lint runs all use the *exact same* new-api commit.
+# Both local dev and CI (.github/workflows/{release,backend-ci}.yml) read
+# .new-api-ref so the sibling clone, the release Docker image, and the CI
+# test/lint/security runs all use the *exact same* new-api commit.
 #
 # Usage:
 #   bash scripts/sync-new-api.sh                # default: pin from .new-api-ref

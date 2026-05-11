@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
 # scripts/fetch-prod-error-clusters.sh — Cloud-Agent-friendly wrapper that
-# triggers the `error-clustering-daily.yml` workflow on GitHub and downloads
-# its artifact (`report.json` + `report.md`) to a local directory.
+# triggers the `prod-ops.yml` workflow on GitHub and downloads its error
+# clustering artifact (`report.json` + `report.md`) to a local directory.
 #
 # Why this exists (path 2 of "let Cloud Agent read prod logs"):
 #   Cursor Cloud Agent has no AWS credentials and no GitHub Actions OIDC
@@ -47,7 +47,7 @@ GH_REPO="${GH_REPO:-youxuanxue/sub2api}"
 SINCE_HOURS="${SINCE_HOURS:-24}"
 OUT_DIR="${OUT_DIR:-./.error-clusters}"
 POLL_TIMEOUT_S="${POLL_TIMEOUT_S:-600}"
-WORKFLOW="error-clustering-daily.yml"
+WORKFLOW="prod-ops.yml"
 
 MODE="run"
 if [ "${1:-}" = "--check" ]; then
@@ -89,6 +89,7 @@ dispatch_workflow_and_download_artifact \
   "$POLL_TIMEOUT_S" \
   'error-clustering-{run_id}' \
   "$OUT_DIR" \
+  -f "operation=error_clustering" \
   -f "since_hours=$SINCE_HOURS"
 
 if [ -s "$OUT_DIR/report.json" ]; then
