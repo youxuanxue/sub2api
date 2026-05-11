@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -58,7 +59,10 @@ const geminiPrecheckCacheTTL = time.Minute
 const (
 	defaultRateLimit429CooldownSeconds = 5
 	maxRateLimit429CooldownSeconds     = 7200
+	anthropic404ModelCooldown          = 24 * time.Hour
 )
+
+var anthropicNotFoundModelPattern = regexp.MustCompile(`(?i)model:\s*([A-Za-z0-9._:/-]+)`)
 
 const (
 	openAI403CooldownMinutesDefault = 10
@@ -270,6 +274,8 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			truncateForLog(responseBody, 1024),
 		)
 		shouldDisable = s.handle403(ctx, account, upstreamMsg, responseBody)
+	case 404:
+		shouldDisable = s.handle404(ctx, account, upstreamMsg, responseBody)
 	case 429:
 		s.handle429(ctx, account, headers, responseBody)
 		shouldDisable = false
@@ -817,6 +823,60 @@ func (s *RateLimitService) handleCustomErrorCode(ctx context.Context, account *A
 		return
 	}
 	slog.Warn("account_disabled_custom_error", "account_id", account.ID, "status_code", statusCode, "error", errorMsg)
+}
+
+func (s *RateLimitService) handle404(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
+	if account.Platform != PlatformAnthropic {
+		return false
+	}
+	if !isAnthropicModelNotFound404(responseBody, upstreamMsg) {
+		return false
+	}
+	modelName := extractAnthropicNotFoundModel(responseBody, upstreamMsg)
+	if modelName == "" {
+		slog.Warn("anthropic_404_model_not_found_without_model", "account_id", account.ID, "upstream_msg", upstreamMsg)
+		return false
+	}
+	resetAt := time.Now().Add(anthropic404ModelCooldown)
+	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, modelName, resetAt); err != nil {
+		slog.Warn("anthropic_404_model_rate_limit_failed", "account_id", account.ID, "model", modelName, "error", err)
+		return false
+	}
+	slog.Warn("anthropic_404_model_rate_limited", "account_id", account.ID, "model", modelName, "reset_at", resetAt)
+	return true
+}
+
+func isAnthropicModelNotFound404(responseBody []byte, upstreamMsg string) bool {
+	errorType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(responseBody, "error.type").String()))
+	if errorType == "not_found_error" {
+		return true
+	}
+	bodyLower := strings.ToLower(string(responseBody))
+	msgLower := strings.ToLower(strings.TrimSpace(upstreamMsg))
+	return strings.Contains(bodyLower, "not_found_error") ||
+		(strings.Contains(msgLower, "model:") && strings.Contains(msgLower, "not found")) ||
+		(strings.Contains(bodyLower, "model:") && strings.Contains(bodyLower, "not found"))
+}
+
+func extractAnthropicNotFoundModel(responseBody []byte, upstreamMsg string) string {
+	if model := strings.TrimSpace(gjson.GetBytes(responseBody, "model").String()); model != "" {
+		return model
+	}
+	if model := strings.TrimSpace(gjson.GetBytes(responseBody, "error.model").String()); model != "" {
+		return model
+	}
+	if model := findAnthropicNotFoundModel(upstreamMsg); model != "" {
+		return model
+	}
+	return findAnthropicNotFoundModel(string(responseBody))
+}
+
+func findAnthropicNotFoundModel(text string) string {
+	match := anthropicNotFoundModelPattern.FindStringSubmatch(text)
+	if len(match) < 2 {
+		return ""
+	}
+	return strings.Trim(match[1], " .,'\"`)")
 }
 
 // handle429 处理429限流错误

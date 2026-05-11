@@ -3140,6 +3140,21 @@
                 <Toggle v-model="form.enable_metadata_passthrough" />
               </div>
 
+              <!-- Sticky Routing -->
+              <div class="flex items-center justify-between">
+                <div>
+                  <label
+                    class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.gatewayForwarding.stickyRouting") }}
+                  </label>
+                  <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.gatewayForwarding.stickyRoutingHint") }}
+                  </p>
+                </div>
+                <Toggle v-model="form.sticky_routing_enabled" />
+              </div>
+
               <!-- CCH Signing -->
               <div class="flex items-center justify-between">
                 <div>

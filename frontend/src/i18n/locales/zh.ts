@@ -5670,7 +5670,10 @@ export default {
         cchSigningHint: '对转发请求的 billing header 进行 CCH 哈希签名。关闭时保留原始占位符。',
         stickyRouting: 'Prompt Cache 粘性路由',
         stickyRoutingHint:
-          '默认开启：网关派生稳定的 prompt_cache_key / metadata.user_id / X-Session-Id 注入到上游，以提高 prompt cache 命中率。关闭后所有分组退化为透传客户端已发送的字段，不再派生。详见 docs/approved/sticky-routing.md。'
+          '默认开启：网关派生稳定的 prompt_cache_key / metadata.user_id / X-Session-Id 注入到上游，以提高 prompt cache 命中率。关闭后所有分组退化为透传客户端已发送的字段，不再派生。详见 docs/approved/sticky-routing.md。',
+        anthropicCacheTTL1hInjection: 'Anthropic Cache TTL 1h 注入',
+        anthropicCacheTTL1hInjectionHint:
+          '开启后在支持的 Anthropic 转发路径中注入 1h cache_control TTL，用于提升长上下文 prompt cache 命中率。关闭后保持默认缓存 TTL 行为。'
       },
       webSearchEmulation: {
         title: 'Web Search 模拟',
