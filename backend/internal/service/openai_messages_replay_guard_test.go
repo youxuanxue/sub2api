@@ -56,3 +56,57 @@ func TestApplyAnthropicCompatFullReplayGuard_KeepsToolBoundaryIntact(t *testing.
 	require.Contains(t, string(req.Messages[0].Content), `"toolu_keep"`)
 	require.Contains(t, string(req.Messages[2].Content), `"tool_result"`)
 }
+
+func TestApplyOpenAICompatOAuthMessagesCompaction_KeepsPrefixAndTail(t *testing.T) {
+	t.Parallel()
+
+	messageCount := openAICompatOAuthReplayAnchorMessages + openAICompatAnthropicReplayMaxTailMessages + 4
+	req := &apicompat.AnthropicRequest{Messages: make([]apicompat.AnthropicMessage, 0, messageCount)}
+	for i := 0; i < messageCount; i++ {
+		req.Messages = append(req.Messages, apicompat.AnthropicMessage{
+			Role:    "user",
+			Content: json.RawMessage(fmt.Sprintf(`"message-%02d"`, i)),
+		})
+	}
+
+	trimmed := applyOpenAICompatOAuthMessagesCompaction(req)
+
+	require.True(t, trimmed)
+	require.Len(t, req.Messages, openAICompatOAuthReplayAnchorMessages+openAICompatAnthropicReplayMaxTailMessages)
+	require.JSONEq(t, `"message-00"`, string(req.Messages[0].Content))
+	require.JSONEq(t, `"message-01"`, string(req.Messages[1].Content))
+	require.JSONEq(t, `"message-06"`, string(req.Messages[2].Content))
+	require.JSONEq(t, `"message-17"`, string(req.Messages[len(req.Messages)-1].Content))
+}
+
+func TestApplyOpenAICompatOAuthMessagesCompaction_KeepsPrefixToolBoundaryIntact(t *testing.T) {
+	t.Parallel()
+
+	messageCount := openAICompatOAuthReplayAnchorMessages + openAICompatAnthropicReplayMaxTailMessages + 4
+	req := &apicompat.AnthropicRequest{Messages: make([]apicompat.AnthropicMessage, 0, messageCount)}
+	for i := 0; i < messageCount; i++ {
+		role := "user"
+		content := json.RawMessage(fmt.Sprintf(`"message-%02d"`, i))
+		if i == 1 {
+			role = "assistant"
+			content = json.RawMessage(`[{"type":"tool_use","id":"toolu_prefix","name":"Read","input":{"file_path":"main.go"}}]`)
+		}
+		if i == 2 {
+			content = json.RawMessage(`[{"type":"tool_result","tool_use_id":"toolu_prefix","content":"ok"}]`)
+		}
+		req.Messages = append(req.Messages, apicompat.AnthropicMessage{
+			Role:    role,
+			Content: content,
+		})
+	}
+
+	trimmed := applyOpenAICompatOAuthMessagesCompaction(req)
+
+	require.True(t, trimmed)
+	require.Len(t, req.Messages, openAICompatOAuthReplayAnchorMessages+openAICompatAnthropicReplayMaxTailMessages+1)
+	require.JSONEq(t, `"message-00"`, string(req.Messages[0].Content))
+	require.Contains(t, string(req.Messages[1].Content), `"toolu_prefix"`)
+	require.Contains(t, string(req.Messages[2].Content), `"tool_result"`)
+	require.JSONEq(t, `"message-06"`, string(req.Messages[3].Content))
+	require.JSONEq(t, `"message-17"`, string(req.Messages[len(req.Messages)-1].Content))
+}

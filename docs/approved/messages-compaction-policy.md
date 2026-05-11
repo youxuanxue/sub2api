@@ -19,6 +19,7 @@ related_stories: [US-034]
 - 优先级：`account.extra > group`；
 - 仅当策略显式启用且 `input_tokens` 达阈值时触发；
 - 无账号/分组配置时保持现状（不压缩）；
+- OpenAI OAuth/Plus/Codex 账号显式启用后使用 OAuth-safe anchor+tail 裁剪；
 - 在 `previous_response_id` 回退路径新增结构化观测，区分 `not_found` 与 `unsupported`。
 
 ## 1. 背景与问题
@@ -29,7 +30,7 @@ related_stories: [US-034]
 
 1. 在不引入全局配置项的前提下，提供最小可控压缩开关；
 2. 保持 upstream 主文件最小侵入：策略逻辑下沉到 TK companion；
-3. 压缩逻辑复用现有 guard/trim，不新增第二套裁剪算法；
+3. APIKey 继续复用现有 guard/trim；OAuth 使用保留 system、首轮 anchor、尾部窗口和 tool 边界的安全裁剪；
 4. 回退路径产出结构化指标，便于区分兼容问题类型；
 5. 行为默认不变：未配置即不生效。
 
@@ -45,9 +46,10 @@ related_stories: [US-034]
 ### 3.2 非目标
 
 - 不新增全局 config 字段；
-- 不改变 OAuth 路径语义；
+- 不改变 OAuth 默认未配置行为；
 - 不引入会话级持久化 continuation 映射；
-- 不改变公共 API 路由或状态码契约。
+- 不改变公共 API 路由或状态码契约；
+- 不改变 `/responses/compact` 端点能力探测/调度路径，本策略仅作用于 `/v1/messages` 自动阈值裁剪。
 
 ## 4. 数据模型 / Schema（高风险项）
 
@@ -84,7 +86,9 @@ related_stories: [US-034]
 
 - 仅在 compat replay guard 场景命中时评估；
 - `input_tokens >= threshold` 才执行压缩；
-- 压缩执行复用已有 replay guard 裁剪路径。
+- APIKey 压缩复用已有 replay guard 裁剪路径；
+- OAuth 压缩保留 `system`、前 2 条业务 messages、尾部 12 条 messages，并扩展 tool_use/tool_result 边界；
+- OAuth 默认未配置时仍保持 full replay；显式配置后即使存在 `previous_response_id` 也允许进入阈值判定。
 
 ## 6. 回退路径可观测性
 
@@ -117,7 +121,7 @@ related_stories: [US-034]
 ## 8. 风险与控制
 
 1. 压缩过度造成上下文丢失
-   - 控制：复用既有 guard/trim，保证 tool 边界不破坏。
+   - 控制：APIKey 复用既有 guard/trim；OAuth 保留 system、首轮 anchor、尾部窗口和 tool 边界。
 2. continuation 回退行为回归
    - 控制：仅增强观测字段，不改状态机语义。
 3. 配置透传断链

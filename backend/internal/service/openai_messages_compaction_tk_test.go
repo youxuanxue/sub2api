@@ -69,5 +69,45 @@ func TestShouldApplyOpenAICompatMessagesCompaction(t *testing.T) {
 		},
 	}
 	require.True(t, shouldApplyOpenAICompatMessagesCompaction(policy, req))
+	require.True(t, shouldApplyOpenAICompatMessagesCompaction(openAICompatMessagesCompactionPolicy{enabled: true, inputTokenLimit: estimateAnthropicRequestInputTokens(req)}, req))
 	require.False(t, shouldApplyOpenAICompatMessagesCompaction(openAICompatMessagesCompactionPolicy{}, req))
+}
+
+func TestShouldEvaluateOpenAICompatMessagesCompactionForAccount(t *testing.T) {
+	require.True(t, shouldEvaluateOpenAICompatMessagesCompactionForAccount(&Account{Type: AccountTypeAPIKey}, "", false))
+	require.False(t, shouldEvaluateOpenAICompatMessagesCompactionForAccount(&Account{Type: AccountTypeAPIKey}, "resp_1", false))
+	require.False(t, shouldEvaluateOpenAICompatMessagesCompactionForAccount(&Account{Type: AccountTypeAPIKey}, "", true))
+	require.True(t, shouldEvaluateOpenAICompatMessagesCompactionForAccount(&Account{Type: AccountTypeOAuth}, "resp_1", true))
+}
+
+func TestApplyOpenAICompatMessagesCompaction_UsesOAuthSafeGuardForOAuth(t *testing.T) {
+	messageCount := openAICompatOAuthReplayAnchorMessages + openAICompatAnthropicReplayMaxTailMessages + 4
+	req := &apicompat.AnthropicRequest{Messages: make([]apicompat.AnthropicMessage, 0, messageCount)}
+	for i := 0; i < messageCount; i++ {
+		req.Messages = append(req.Messages, apicompat.AnthropicMessage{
+			Role:    "user",
+			Content: []byte(`"message"`),
+		})
+	}
+
+	trimmed := applyOpenAICompatMessagesCompaction(&Account{Type: AccountTypeOAuth}, req)
+
+	require.True(t, trimmed)
+	require.Len(t, req.Messages, openAICompatOAuthReplayAnchorMessages+openAICompatAnthropicReplayMaxTailMessages)
+}
+
+func TestApplyOpenAICompatMessagesCompaction_UsesTailGuardForAPIKey(t *testing.T) {
+	messageCount := openAICompatAnthropicReplayMaxTailMessages + 4
+	req := &apicompat.AnthropicRequest{Messages: make([]apicompat.AnthropicMessage, 0, messageCount)}
+	for i := 0; i < messageCount; i++ {
+		req.Messages = append(req.Messages, apicompat.AnthropicMessage{
+			Role:    "user",
+			Content: []byte(`"message"`),
+		})
+	}
+
+	trimmed := applyOpenAICompatMessagesCompaction(&Account{Type: AccountTypeAPIKey}, req)
+
+	require.True(t, trimmed)
+	require.Len(t, req.Messages, openAICompatAnthropicReplayMaxTailMessages)
 }

@@ -46,12 +46,22 @@ func shouldApplyOpenAICompatMessagesCompaction(policy openAICompatMessagesCompac
 	if !policy.enabled || policy.inputTokenLimit < openAICompatMinCompactionInputTokensThreshold || req == nil {
 		return false
 	}
-	return estimateAnthropicRequestInputTokens(req) > policy.inputTokenLimit
+	return estimateAnthropicRequestInputTokens(req) >= policy.inputTokenLimit
 }
 
-func applyOpenAICompatMessagesCompaction(req *apicompat.AnthropicRequest) bool {
+func shouldEvaluateOpenAICompatMessagesCompactionForAccount(account *Account, previousResponseID string, compatContinuationDisabled bool) bool {
+	if account != nil && account.Type == AccountTypeOAuth {
+		return true
+	}
+	return previousResponseID == "" && !compatContinuationDisabled
+}
+
+func applyOpenAICompatMessagesCompaction(account *Account, req *apicompat.AnthropicRequest) bool {
 	if req == nil {
 		return false
+	}
+	if account != nil && account.Type == AccountTypeOAuth {
+		return applyOpenAICompatOAuthMessagesCompaction(req)
 	}
 	return applyAnthropicCompatFullReplayGuard(req)
 }
