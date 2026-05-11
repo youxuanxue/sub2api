@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "rationale": "Load-bearing TokenKey-only frontend surfaces that anchor admin-UI behavior diverging from upstream defaults — sidebar geometry (TK uses a narrower w-44 rail vs upstream w-64), the fluid table mode used on /admin/accounts (no horizontal scroll, cells wrap), and the per-page sticky-edge-hints opt-out. These are the kinds of small TK changes that get silently reverted by upstream merges precisely because they're small and local; the registry upgrades the rule from `agent must remember` to `merge will fail`. Source-of-truth read by both `scripts/preflight.sh` (frontend TK sentinel registry section, always) and `.github/workflows/upstream-merge-pr-shape.yml` (frontend TK sentinels check, on `merge/upstream-*` PRs). Adding a new TK-only frontend surface that must survive upstream merges MUST add a sentinel here in the same commit. Sibling registries: `newapi-sentinels.json` (fifth-platform integration), `brand-sentinels.json` (outward TK brand surfaces).",
+  "rationale": "Load-bearing TokenKey-only frontend surfaces that anchor admin-UI behavior diverging from upstream defaults — sidebar geometry (TK uses a narrower w-44 rail vs upstream w-64), the fluid table mode used on /admin/accounts (no horizontal scroll, cells wrap), per-page sticky-edge-hints opt-out, and the control-plane login policy that does not depend on Turnstile. These are the kinds of small TK changes that get silently reverted by upstream merges precisely because they're small and local; the registry upgrades the rule from `agent must remember` to `merge will fail`. Source-of-truth read by both `scripts/preflight.sh` (frontend TK sentinel registry section, always) and `.github/workflows/upstream-merge-pr-shape.yml` (frontend TK sentinels check, on `merge/upstream-*` PRs). Adding a new TK-only frontend surface that must survive upstream merges MUST add a sentinel here in the same commit. Sibling registries: `newapi-sentinels.json` (fifth-platform integration), `brand-sentinels.json` (outward TK brand surfaces).",
   "sentinels": [
     {
       "path": "frontend/src/constants/layout.ts",
@@ -132,6 +132,21 @@
         "@apply bg-gray-50 text-base text-gray-900 dark:bg-dark-950 dark:text-gray-100;"
       ],
       "rationale": "The compact Tailwind scale must apply to default body copy, not only explicit text-* utilities. Without body text-base, unclassed prose and third-party/default text remain at browser 16px while classed UI shrinks, producing inconsistent density after upstream merges that still compile."
+    },
+    {
+      "path": "frontend/src/views/auth/LoginView.vue",
+      "must_contain": [
+        "authStore.login({",
+        "email: formData.email",
+        "password: formData.password"
+      ],
+      "must_not_contain": [
+        "TurnstileWidget",
+        "turnstile_token",
+        "turnstileEnabled",
+        "turnstileToken"
+      ],
+      "rationale": "Normal control-plane login is intentionally not gated on Cloudflare Turnstile; PR #119 kept Turnstile on registration, verification-code, and password-recovery flows while relying on login rate limiting for this path. Upstream-shaped LoginView.vue repeatedly brings back the widget/token wiring during merges and compiles cleanly, so this negative sentinel fails preflight/merge-shape if login once again renders, waits for, or submits a Turnstile token."
     },
     {
       "path": "frontend/src/api/admin/ops.ts",
