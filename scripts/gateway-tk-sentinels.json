@@ -56,6 +56,16 @@
       "path": "backend/internal/service/openai_messages_compaction_tk_test.go",
       "must_contain": ["TestShouldEvaluateOpenAICompatMessagesCompactionForAccount", "TestApplyOpenAICompatMessagesCompaction_UsesAnchorAndTailProfileForOAuth", "TestApplyOpenAICompatMessagesCompaction_UsesTailOnlyProfileForAPIKey"],
       "rationale": "Focused regressions proving OAuth configured compaction uses the shared engine's anchor+tail profile while APIKey compaction keeps the existing continuation gate and tail-only profile."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": ["case 404:", "s.handle404(ctx, account, upstreamMsg, responseBody)", "anthropic404ModelCooldown", "isAnthropicModelNotFound404", "SetModelRateLimit(ctx, account.ID, modelName, resetAt)"],
+      "rationale": "Anthropic model-not-found 404s must stay model-scoped instead of falling through as an unprotected upstream error or disabling the whole OAuth account. Upstream merges in this large service file can compile cleanly while dropping the 404 branch or the model-rate-limit write, which would reintroduce repeated bad-model retries against Anthropic."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_404_model_not_found_test.go",
+      "must_contain": ["TestHandleUpstreamError_Anthropic404ModelNotFoundSetsModelRateLimit", "TestHandleUpstreamError_Anthropic404WithoutModelDoesNotDisableAccount", "TestHandleUpstreamError_NonAnthropic404DoesNotUseAnthropicModelProtection"],
+      "rationale": "Focused regressions proving only Anthropic model-not-found 404s write model_rate_limits, while generic 404s and non-Anthropic 404s do not disable accounts. Dropping these tests lets the upstream-error policy silently drift during future merges."
     }
   ]
 }
