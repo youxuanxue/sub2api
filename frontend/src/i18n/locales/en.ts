@@ -5514,7 +5514,10 @@ export default {
         cchSigningHint: 'Sign the billing header in forwarded requests with CCH hash. When disabled, the placeholder is preserved.',
         stickyRouting: 'Prompt Cache Sticky Routing',
         stickyRoutingHint:
-          'Enabled by default. Derives stable prompt_cache_key / metadata.user_id / X-Session-Id and injects them upstream to maximize prompt cache hits. When disabled, every group falls back to passthrough — only forwarding sticky fields the client already sent. See docs/approved/sticky-routing.md.'
+          'Enabled by default. Derives stable prompt_cache_key / metadata.user_id / X-Session-Id and injects them upstream to maximize prompt cache hits. When disabled, every group falls back to passthrough — only forwarding sticky fields the client already sent. See docs/approved/sticky-routing.md.',
+        anthropicCacheTTL1hInjection: 'Anthropic Cache TTL 1h Injection',
+        anthropicCacheTTL1hInjectionHint:
+          'Inject 1h cache_control TTL on supported Anthropic forwarding paths to improve long-context prompt cache hits. Disable to keep the default cache TTL behavior.'
       },
       webSearchEmulation: {
         title: 'Web Search Emulation',

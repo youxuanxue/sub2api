@@ -166,6 +166,32 @@
         "data-testid=\"ops-feishu-webhook-input\""
       ],
       "rationale": "The Ops notification card is the single edit surface for Feishu P0 alerts. The anchors pin the enabled toggle, P0-only/no-resolved/no-@all operator warning, write-only webhook placeholder, and focused test hook so upstream UI merges cannot silently remove the low-noise Feishu config."
+    },
+    {
+      "path": "frontend/src/views/admin/SettingsView.vue",
+      "must_contain": [
+        "admin.settings.gatewayForwarding.stickyRouting",
+        "form.sticky_routing_enabled",
+        "admin.settings.gatewayForwarding.anthropicCacheTTL1hInjection",
+        "form.enable_anthropic_cache_ttl_1h_injection"
+      ],
+      "rationale": "The request-forwarding settings card is a large upstream-shaped admin page. Global prompt-cache sticky routing and Anthropic Cache TTL 1h injection both compile cleanly if their toggles are dropped from the template while the backend settings still exist, leaving operators unable to configure the account-safety/cache controls from the UI."
+    },
+    {
+      "path": "frontend/src/i18n/locales/zh.ts",
+      "must_contain": [
+        "stickyRouting: 'Prompt Cache 粘性路由'",
+        "anthropicCacheTTL1hInjection: 'Anthropic Cache TTL 1h 注入'"
+      ],
+      "rationale": "Chinese admin settings labels must keep the global sticky and Anthropic Cache TTL 1h controls discoverable. Missing locale keys render raw i18n paths in the operator UI and made this control appear broken in the edge-uk1 mitigation workflow."
+    },
+    {
+      "path": "frontend/src/i18n/locales/en.ts",
+      "must_contain": [
+        "stickyRouting: 'Prompt Cache Sticky Routing'",
+        "anthropicCacheTTL1hInjection: 'Anthropic Cache TTL 1h Injection'"
+      ],
+      "rationale": "English admin settings labels must stay in sync with the global sticky and Anthropic Cache TTL 1h controls so upstream locale merges cannot silently regress one language while the template still compiles."
     }
   ]
 }
