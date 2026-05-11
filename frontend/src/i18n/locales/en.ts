@@ -5515,7 +5515,7 @@ export default {
         stickyRouting: 'Prompt Cache Sticky Routing',
         stickyRoutingHint:
           'Enabled by default. Derives stable prompt_cache_key / metadata.user_id / X-Session-Id and injects them upstream to maximize prompt cache hits. When disabled, every group falls back to passthrough — only forwarding sticky fields the client already sent. See docs/approved/sticky-routing.md.',
-        anthropicCacheTTL1hInjection: 'Anthropic Cache TTL Injection',
+        anthropicCacheTTL1hInjection: 'Anthropic Cache TTL 1h Injection',
         anthropicCacheTTL1hInjectionHint: 'When enabled, existing ephemeral cache_control blocks in Anthropic OAuth/Setup Token request bodies are forced to 1h; response usage is billed back as 5m by default, with account-level TTL billing override taking priority.',
         rewriteMessageCacheControl: 'Rewrite Message Cache Breakpoints',
         rewriteMessageCacheControlHint: 'Default off: preserve client cache_control on message content blocks. When enabled, client breakpoints are stripped and proxy breakpoints are injected for clients that do not manage caching themselves.',

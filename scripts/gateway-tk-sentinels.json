@@ -60,7 +60,7 @@
     {
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": ["case 404:", "s.handle404(ctx, account, upstreamMsg, responseBody)", "anthropic404ModelCooldown", "isAnthropicModelNotFound404", "SetModelRateLimit(ctx, account.ID, modelName, resetAt)"],
-      "rationale": "Anthropic model-not-found 404s must stay model-scoped instead of falling through as an unprotected upstream error or disabling the whole OAuth account. Upstream merges in this large service file can compile cleanly while dropping the 404 branch or the model-rate-limit write, which would reintroduce repeated bad-model retries against Anthropic."
+      "rationale": "Anthropic model-not-found 404s must stay model-scoped instead of falling through as an unprotected upstream error or disabling the whole OAuth account. Upstream merges in this large service file can compile cleanly while dropping the 404 branch or the model-rate-limit write, which would reintroduce repeated bad-model retries against Anthropic. This merge also updates adjacent upstream error-shaping paths in the same hotspot file; keeping this sentinel rationale refreshed records that the 404 protection anchors were explicitly re-validated while resolving conflicts."
     },
     {
       "path": "backend/internal/service/ratelimit_404_model_not_found_test.go",
