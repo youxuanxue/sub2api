@@ -190,6 +190,7 @@ jobs:
           GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
         run: |
           EXISTING="$(gh pr list \
+            --repo "$GITHUB_REPOSITORY" \
             --state open \
             --base main \
             --json number,headRefName,url \
@@ -519,7 +520,7 @@ jobs:
           set -euo pipefail
           pr_number="${KNOWN_PR_NUMBER:-}"
           if [ -z "$pr_number" ]; then
-            pr_number="$(gh pr list --state open --base main --head "$TARGET_BRANCH" --json number --jq '.[0].number // empty' || true)"
+            pr_number="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --base main --head "$TARGET_BRANCH" --json number --jq '.[0].number // empty' || true)"
           fi
 
           if [ -z "$pr_number" ]; then
@@ -528,7 +529,7 @@ jobs:
             exit 0
           fi
 
-          body="$(gh pr view "$pr_number" --json body --jq '.body' || echo '')"
+          body="$(gh pr view "$pr_number" --repo "$GITHUB_REPOSITORY" --json body --jq '.body' || echo '')"
           if printf '%s' "$body" | grep -qF 'upstream/main..HEAD'; then
             echo "pr_body_audit_ok=true" >> "$GITHUB_OUTPUT"
           else

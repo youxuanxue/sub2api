@@ -85,6 +85,41 @@ expect_field "5-arg compat: pr_body_audit_ok" pr_body_audit_ok "skip" "$out"
 out="$(call_pure true false 1 1 false skip skip)"
 expect_field "skip is permissive" contract_ok "true" "$out"
 
+# 10) I/O wrapper pins gh PR lookups to GH_REPO/GITHUB_REPOSITORY so detached
+#     checkouts or sibling repo operations cannot make contract eval inspect the
+#     wrong repository.
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+cat > "$tmpdir/gh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" > "${GH_STUB_ARGS:?}"
+printf '[]\n'
+EOF
+cat > "$tmpdir/git" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  fetch|remote)
+    exit 0
+    ;;
+  merge-base)
+    exit 1
+    ;;
+  *)
+    command git "$@"
+    ;;
+esac
+EOF
+chmod +x "$tmpdir/gh" "$tmpdir/git"
+GH_STUB_ARGS="$tmpdir/gh-args" GH_REPO="youxuanxue/sub2api" PATH="$tmpdir:$PATH" \
+  bash "$HELPER" contract-eval-json merge/upstream-test false >/dev/null
+if grep -q -- '--repo youxuanxue/sub2api' "$tmpdir/gh-args"; then
+  pass=$((pass + 1))
+else
+  fail=$((fail + 1))
+  echo "FAIL: contract_eval_json pins gh pr list to GH_REPO" >&2
+  echo "  args: $(cat "$tmpdir/gh-args" 2>/dev/null || true)" >&2
+fi
+
 echo ""
 if [ "$fail" -eq 0 ]; then
   echo "=== upstream-merge-state pure assembler: PASS ($pass assertions) ==="

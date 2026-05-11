@@ -190,8 +190,14 @@ contract_eval_json() {
   ensure_upstream_remote
   git fetch upstream main >/dev/null
 
+  local gh_repo="${GH_REPO:-${GITHUB_REPOSITORY:-}}"
+  local gh_repo_args=()
+  if [ -n "$gh_repo" ]; then
+    gh_repo_args=(--repo "$gh_repo")
+  fi
+
   local open_upstream_pr_json
-  open_upstream_pr_json="$(gh pr list --state open --base main --json number,headRefName,url --jq '[.[] | select(.headRefName | startswith("merge/upstream-"))]')"
+  open_upstream_pr_json="$(gh pr list "${gh_repo_args[@]}" --state open --base main --json number,headRefName,url --jq '[.[] | select(.headRefName | startswith("merge/upstream-"))]')"
 
   local matching_pr_count any_open_upstream_pr_count
   matching_pr_count="$(jq --arg branch "$target_branch" '[.[] | select(.headRefName == $branch)] | length' <<<"$open_upstream_pr_json")"
