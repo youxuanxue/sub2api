@@ -210,10 +210,7 @@ func fetchCapturedFingerprint(t *testing.T, captureURL string, profile *Profile)
 	req.Header.Set("Authorization", "Bearer test-token")
 
 	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-		return nil
-	}
+	skipIfExternalServiceUnavailable(t, err)
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
