@@ -480,6 +480,8 @@ export interface SystemSettings {
   // Sticky routing kill switch (default true).
   // See docs/approved/sticky-routing.md.
   sticky_routing_enabled: boolean;
+  rewrite_message_cache_control: boolean;
+  antigravity_user_agent_version: string;
   web_search_emulation_enabled?: boolean;
   openai_fast_policy_settings?: OpenAIFastPolicySettings;
 
@@ -682,6 +684,8 @@ export interface UpdateSettingsRequest {
   enable_cch_signing?: boolean;
   enable_anthropic_cache_ttl_1h_injection?: boolean;
   sticky_routing_enabled?: boolean;
+  rewrite_message_cache_control?: boolean;
+  antigravity_user_agent_version?: string;
   web_search_emulation_enabled?: boolean;
   openai_fast_policy_settings?: OpenAIFastPolicySettings;
   // Payment configuration

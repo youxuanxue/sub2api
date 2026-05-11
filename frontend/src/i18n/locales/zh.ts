@@ -5671,9 +5671,13 @@ export default {
         stickyRouting: 'Prompt Cache 粘性路由',
         stickyRoutingHint:
           '默认开启：网关派生稳定的 prompt_cache_key / metadata.user_id / X-Session-Id 注入到上游，以提高 prompt cache 命中率。关闭后所有分组退化为透传客户端已发送的字段，不再派生。详见 docs/approved/sticky-routing.md。',
-        anthropicCacheTTL1hInjection: 'Anthropic Cache TTL 1h 注入',
-        anthropicCacheTTL1hInjectionHint:
-          '开启后在支持的 Anthropic 转发路径中注入 1h cache_control TTL，用于提升长上下文 prompt cache 命中率。关闭后保持默认缓存 TTL 行为。'
+        anthropicCacheTTL1hInjection: 'Anthropic 缓存 TTL 注入',
+        anthropicCacheTTL1hInjectionHint: '开启后，对 Anthropic OAuth/Setup Token 请求体中已有的 ephemeral 缓存块强制写入 1h；响应 usage 默认按 5m 回写计费，账号级 TTL 计费设置优先。',
+        rewriteMessageCacheControl: '改写消息缓存断点',
+        rewriteMessageCacheControlHint: '默认关闭，保留客户端在 messages 内容块中的 cache_control。开启后会清除客户端断点并注入代理断点，适合不自行管理缓存策略的客户端。',
+        antigravityUserAgentVersion: 'Antigravity UA 版本',
+        antigravityUserAgentVersionPlaceholder: '1.23.2',
+        antigravityUserAgentVersionHint: '留空时使用 ANTIGRAVITY_USER_AGENT_VERSION 或内置默认值 1.23.2；填写后后台设置优先。',
       },
       webSearchEmulation: {
         title: 'Web Search 模拟',
