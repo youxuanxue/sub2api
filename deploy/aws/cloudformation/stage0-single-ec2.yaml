@@ -108,7 +108,6 @@ Parameters:
       and `:<MAJOR.MINOR.PATCH>` on every `git tag vX.Y.Z` push.
       Recommended:
         - tokenkey-prod stack: pin to an immutable semver tag in CFN (for reproducible stack state).
-        - tokenkey-test stack: use `latest` (auto-tracks newest release, no CFN update needed).
       `main` is NOT a valid tag — Release workflow only fires on `tags: v*`, not on main branch pushes.
   GhcrPullUser:
     Type: String

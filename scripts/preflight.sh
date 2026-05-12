@@ -502,7 +502,7 @@ if [ -f .github/workflows/deploy-edge-stage0.yml ]; then
         echo "  FAIL: Stage0 workflows must not inline tokenkey SSM deploy commands; use scripts/stage0_deploy_via_ssm.sh"
         errors=$((errors + 1))
     else
-        echo "  ok: prod/test and Edge workflows share the Stage0 SSM deploy primitive"
+        echo "  ok: prod deploy-stage0 and Edge workflows share the Stage0 SSM deploy primitive"
     fi
 else
     echo "  ok: no Edge Stage0 workflow present"

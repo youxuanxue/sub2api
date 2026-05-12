@@ -328,7 +328,6 @@ jobs:
           VERSION=${TAG_NAME#v}
           gh workflow run deploy-stage0.yml \
             --repo "$REPO" \
-            -f environment=prod \
             -f tag="$VERSION"
           echo "queued prod deploy for ${VERSION}; prod Environment approval is still required before deploy steps run"
 

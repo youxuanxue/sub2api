@@ -1,16 +1,16 @@
 ---
 name: tokenkey-stage0-release-rollout
 description: >-
-  Drives TokenKey AWS Stage0 release and rollout across prod/test and Edge targets:
+  Drives TokenKey AWS Stage0 release and rollout across prod and Edge targets:
   sync main, decide VERSION/tag, run scripts/release-tag.sh, watch release.yml,
-  deploy prod/test via deploy-stage0.yml, deploy/smoke edge-uk1 via
-  deploy-edge-stage0.yml, report structured smoke results, or run a pre-release
-  check of code facts and production impact risk. Use when the user asks to
-  release, deploy, smoke, rollback, check release risk, or roll out to prod,
-  test, edge-uk1, or all Stage0 targets.
+  deploy prod via deploy-stage0.yml, deploy/smoke deployable Edge targets
+  (edge-uk1 / edge-fra1) via deploy-edge-stage0.yml, report structured smoke
+  results, or run a pre-release check of code facts and production impact risk.
+  Use when the user asks to release, deploy, smoke, rollback, check release
+  risk, or roll out to prod, Edge regions, or all Stage0 targets.
 ---
 
-# TokenKey：Stage0 release → prod/test/Edge rollout → 真实测试
+# TokenKey：Stage0 release → prod/Edge rollout → 真实测试
 
 适用于本仓库（TokenKey fork of sub2api）。权威纪律见根目录 `CLAUDE.md`（发版、ARM、`new-api` 路径）。
 
@@ -19,22 +19,22 @@ description: >-
 本 skill 默认按用户语义解析；用户未写完整参数时，先按下面语义补全，仍有歧义再问。
 
 ```text
-/tokenkey-stage0-release-rollout target=<prod|test|edge-uk1|all> [tag=X.Y.Z] [operation=<check|release|deploy|smoke|rollback>] [previous_tag=X.Y.Z]
+/tokenkey-stage0-release-rollout target=<prod|edge-uk1|edge-fra1|all> [tag=X.Y.Z] [operation=<check|release|deploy|smoke|rollback>] [previous_tag=X.Y.Z]
 ```
 
 | 参数 | 语义 |
 |---|---|
 | `operation=check` | 只做预发布风险检查：对比上一个 release tag 到待发布 HEAD 的代码事实，判断上线 prod/Edge 的潜在影响；不 bump、不 tag、不 dispatch deploy。 |
-| `target=prod` | release（必要时 bump/tag/build）→ `deploy-stage0.yml environment=prod` → prod smoke。 |
-| `target=test` | 使用已有 tag 或新 release → `deploy-stage0.yml environment=test` → test smoke。 |
-| `target=edge-uk1` | 默认 tag 已存在：`deploy-edge-stage0.yml operation=upgrade` → Edge smoke；`operation=smoke` 只 smoke；`operation=rollback` 用 `previous_tag`。 |
-| `target=all` | release 一次 → edge-uk1 canary upgrade/smoke → prod deploy/smoke → main-gateway-via-edge smoke → 未来 deployable Edge 顺序 rollout。 |
+| `target=prod` | release（必要时 bump/tag/build）→ `deploy-stage0.yml -f tag=…`（绑定 **`prod`** Environment）→ prod smoke。 |
+| `target=edge-uk1` | 默认 tag 已存在：`deploy-edge-stage0.yml edge_id=uk1 operation=upgrade` → Edge smoke；`operation=smoke` 只 smoke；`operation=rollback` 用 `previous_tag`。 |
+| `target=edge-fra1` | 同上，`edge_id=fra1` / `confirm_stack=tokenkey-edge-fra1-stage0`（法国巴黎 `eu-west-3`）。 |
+| `target=all` | release 一次 → deployable Edge 按矩阵顺序 canary（当前 uk1 → fra1）upgrade/smoke → prod deploy/smoke → main-gateway-via-edge smoke → 其余 Edge 类推。 |
 
 如果用户只说“发版 / deploy 最新 / ship production”，默认 `target=prod operation=release`。如果用户说“全部 / 所有网关 / prod + edge / all”，默认 `target=all operation=release`。如果用户说“检查 / 预判 / 评估上线影响 / release check”，默认 `operation=check target=all`。
 
 ## check 模式：预发布生产影响评估
 
-`operation=check` 是只读门禁，用来回答“如果这些变更现在上线 prod / edge-uk1，会不会影响线上服务”。它**不修改文件、不 bump VERSION、不创建 tag、不 dispatch workflow**。
+`operation=check` 是只读门禁，用来回答“如果这些变更现在上线 prod / Edge（uk1、fra1）会不会影响线上服务”。它**不修改文件、不 bump VERSION、不创建 tag、不 dispatch workflow**。
 
 默认范围：从最新已发布 tag 到当前待发布 HEAD。用户给 `previous_tag` 时用该 tag；用户给 `tag` 时用该 tag 作为目标，否则用 `HEAD`。
 
@@ -69,15 +69,15 @@ description: >-
 `all` 不是并行全量推送。默认采用顺序化 canary rollout：
 
 1. **release build 一次**：只构建一个 multi-arch GHCR tag，所有目标复用同一 image，避免两套产物。
-2. **Edge canary：`edge-uk1` upgrade + Edge infra smoke**：先在低成本、非用户入口的资源节点验证镜像能在 Graviton/Stage0/共享 compose 上启动，并验证 `/health`、Caddy allowlist、Edge self-smoke。
+2. **Edge canary：deployable Edge 逐个 upgrade + infra smoke**（矩阵顺序，当前 uk1 → fra1）：先在低成本、非用户入口的资源节点验证镜像能在 Graviton/Stage0/共享 compose 上启动，并验证 `/health`、Caddy allowlist、Edge self-smoke。
 3. **prod 主网关 upgrade + 完整 prod smoke**：主网关是唯一用户入口、计量计费面和体验中心；Edge canary 过后再升级 prod。
 4. **main gateway via Edge smoke**：prod 升级后再跑主网关经 uk1 的业务 smoke，确认 `api.tokenkey.dev` 调度到 Edge 的真实链路。
-5. **剩余 deployable Edge 顺序 rollout**：未来 `us1/sg1/fra1` 变为 `deployable=true` 后，按 `deploy/aws/stage0/edge-targets.json` 顺序逐个 upgrade + smoke，失败即停。
+5. **剩余 deployable Edge 顺序 rollout**：未来 `us1/sg1` 等变为 `deployable=true` 后，按 `deploy/aws/stage0/edge-targets.json` 顺序逐个 upgrade + smoke，失败即停。
 
 例外：
 
 - `target=prod`：只发版/部署 prod，不自动部署 Edge。
-- `target=edge-uk1`：只升级/烟测 uk1，不发新 release，除非用户显式要求先 release。
+- `target=edge-uk1` / `edge-fra1`：只升级/烟测对应 Edge，不发新 release，除非用户显式要求先 release。
 - 用户强指定“prod 先”时照做，但在摘要中标出与默认 canary 顺序的差异。
 
 ## 一次性跑完（原则）
@@ -85,15 +85,15 @@ description: >-
 - **顺序做完**：同步 → 决策 VERSION/tag →（按需 bump+push）→ `release-tag.sh` → **watch 到 release 成功** → 根据 `target` dispatch 对应 deploy workflow → **watch 到 deploy/smoke 成功** → **再做本地/日志验收**。不要在 workflow 绿灯后就结束会话。
 - **读 VERSION 前必须先** `fetch` + `pull --ff-only` **后的** `origin/main` 为准；在未更新的本地分支上读 `VERSION` 会与远端 tag 错位。
 - **`gh run watch` 要给够时间**：多架构 `release.yml` 常见十余分钟量级；Agent 应用 `--exit-status` 跟跑到结束，不要用默认短超时提前杀掉。
-- **Environment approval 不是失败**：`prod` / `test` / `edge-uk1` run 卡在 `waiting` 时，需要人在 GitHub Actions 批准；批准后继续 watch。
-- **完整烟测密钥**：优先使用环境里已有的 smoke key，避免停下来向用户索要 key；详见 prod/test smoke 与 Edge smoke 章节。
-- **禁止 `simple_release_override=true`**：prod/test/Edge 当前都跑 AWS Graviton arm64；单架构 manifest 会导致 `exec format error`。
+- **Environment approval 不是失败**：`prod` / `edge-uk1` / `edge-fra1` run 卡在 `waiting` 时，需要人在 GitHub Actions 批准；批准后继续 watch。
+- **完整烟测密钥**：优先使用环境里已有的 smoke key，避免停下来向用户索要 key；详见 prod smoke 与 Edge smoke 章节。
+- **禁止 `simple_release_override=true`**：prod / Edge 当前都跑 AWS Graviton arm64；单架构 manifest 会导致 `exec format error`。
 
 ## 前置条件
 
 - 工作目录：仓库根目录（含 `backend/`、`scripts/release-tag.sh`）。
 - 网络、`git`、`gh` 已认证且对远端可写；`gh` 能 dispatch `release.yml`、`deploy-stage0.yml`、`deploy-edge-stage0.yml`。
-- GitHub Environment：`prod`、`test`、`edge-uk1`（若有 Required reviewers，需人工批准）。
+- GitHub Environment：**`prod`**、各 Edge 的 `edge-<edge_id>`（如 `edge-uk1`、`edge-fra1`；若有 Required reviewers，需人工批准）。**`edge-fra1` 的 Variables/Secrets 可与 `edge-uk1` 逐项相同**，详见 `deploy/aws/README.md` Edge 小节（`EDGE_GHCR_PAT_SSM_NAME` 勿抄 uk1 路径）。
 - **禁止**：VERSION bump / 发版 commit 的正文里出现字面量 `[skip ci]` 或 `[ci skip]`（任意位置都不行）。
 
 ## 决策：要不要升 patch 版本
@@ -118,13 +118,13 @@ description: >-
    不要手打 `git tag`；脚本校验 skip-ci、VERSION 一致、分支与同步。
 
 4. **等待镜像**：`gh run list --workflow=release.yml --limit 1` → 取刚触发、与本次 tag 对应的 run → `gh run watch <id> --exit-status`，直到 success。
-5. 记录 `TARGET_TAG=X.Y.Z`（tag 不带 `v`），后续 prod/test/Edge deploy 都用这一份 image。
+5. 记录 `TARGET_TAG=X.Y.Z`（tag 不带 `v`），后续 prod / Edge deploy 都用这一份 image。
 
 ## 部署目标矩阵
 
 ### prod：主网关
 
-`release.yml` 成功后会自动 dispatch `deploy-stage0.yml environment=prod`（由 `github-actions[bot]` 触发）。先检查，避免重复 dispatch：
+`release.yml` 成功后会自动 dispatch `deploy-stage0.yml -f tag=<VERSION>`（由 `github-actions[bot]` 触发；job 固定绑定 **`prod`** Environment）。先检查，避免重复 dispatch：
 
 ```bash
 gh run list --workflow=deploy-stage0.yml --limit 3 --json databaseId,actor,createdAt,status,displayTitle
@@ -135,28 +135,17 @@ gh run list --workflow=deploy-stage0.yml --limit 3 --json databaseId,actor,creat
 
 ```bash
 gh workflow run deploy-stage0.yml \
-  -f environment=prod \
   -f tag="$TARGET_TAG"
 ```
 
-**target=all 注意**：如果 release 已自动 queue prod，而 Edge canary 尚未完成，不取消 prod run；若它卡在 `prod` Environment approval，先不要批准，等 edge-uk1 canary 成功后再批准。若 prod 已开始，继续完成，不强行中断，并在摘要标记“prod 已先行”。
+**target=all 注意**：如果 release 已自动 queue prod，而 Edge canary 尚未完成，不取消 prod run；若它卡在 `prod` Environment approval，先不要批准，等当前 batch 的 Edge canary（uk1 → fra1 …）成功后再批准。若 prod 已开始，继续完成，不强行中断，并在摘要标记“prod 已先行”。
 
-### test：测试主栈
+### edge-uk1 / edge-fra1：Edge 资源节点
 
-```bash
-gh workflow run deploy-stage0.yml \
-  -f environment=test \
-  -f tag="$TARGET_TAG"
-```
-
-watch 对应 run 到终态；`test` Environment 若有 reviewer gate，同样等待人工批准。
-
-### edge-uk1：Edge 资源节点
-
-当前只有 `uk1` 是 `deployable=true`。`us1/sg1/fra1` 保留在矩阵中但仍 planned；除非 `deploy/aws/stage0/edge-targets.json` 中 `deployable=true`，不得尝试部署。
+以 `deploy/aws/stage0/edge-targets.json` 为准：`uk1`、`fra1`（法国巴黎 `eu-west-3`）当前 `deployable=true`。`us1/sg1` 仍为 planned。
 
 ```bash
-# Edge upgrade
+# Edge upgrade（uk1 示例；fra1 将 edge_id / confirm_stack 换成 fra1 / tokenkey-edge-fra1-stage0）
 TARGET_TAG=X.Y.Z
 gh workflow run deploy-edge-stage0.yml \
   -f edge_id=uk1 \
@@ -183,14 +172,14 @@ gh workflow run deploy-edge-stage0.yml \
 ## target=all 的执行顺序
 
 1. 完成“标准流程：release 新镜像”，得到 `TARGET_TAG`。
-2. Dispatch `edge-uk1 operation=upgrade tag=$TARGET_TAG`，watch 到 success。
-3. 检查 Edge smoke 结果：external health、public runner relay path block、SSM self-smoke；若失败，停，不推进 prod，除非用户明确 override。
+2. 对每个 deployable Edge（矩阵顺序，当前 uk1 然后 fra1）：dispatch `deploy-edge-stage0.yml operation=upgrade tag=$TARGET_TAG`，watch 到 success。
+3. 检查每场 Edge smoke 结果：external health、public runner relay path block、SSM self-smoke；若失败，停，不推进 prod，除非用户明确 override。
 4. 推进 prod deploy：优先使用 release 自动 queue 的 prod run；没有则手动 dispatch。watch 到 success。
 5. 做 prod 完整 smoke（见下文）。
-6. Dispatch `edge-uk1 operation=smoke`，用于 prod 升级后的 main-gateway-via-edge 验证；若缺 `MAIN_GATEWAY_EDGE_SMOKE_API_KEY`，只可标记“infra smoke 通过，主网关经 Edge 业务 smoke 未覆盖”。
-7. 未来如多个 Edge `deployable=true`，逐个 Edge upgrade + smoke；失败即停。
+6. 对用于主网关链路的 Edge（例如 uk1）再 dispatch `operation=smoke`，做 prod 升级后的 main-gateway-via-edge 验证；若缺 `MAIN_GATEWAY_EDGE_SMOKE_API_KEY`，只可标记“infra smoke 通过，主网关经 Edge 业务 smoke 未覆盖”。其它 Edge 按需 smoke。
+7. 未来新增 deployable Edge 时，仍按矩阵顺序逐个 upgrade + smoke；失败即停。
 
-## prod/test 真实测试
+## prod 真实测试
 
 部署 workflow 成功只说明流水线过了；Agent 仍需做验收（除非用户明确只要 CI）。
 
@@ -211,9 +200,9 @@ curl -sS -o /dev/null -w '%{http_code}\n' 'https://api.tokenkey.dev/health'
 curl -sS -o /dev/null -w '%{http_code}\n' 'https://api.tokenkey.dev/api/v1/settings/public'
 ```
 
-期望 200；若目标是 test，把 base URL 换成 test stack 的 `ApiUrl`。
+期望 200。
 
-### C — 本地完整烟测（prod/test API key）
+### C — 本地完整烟测（prod API key）
 
 ```bash
 export TOKENKEY_BASE_URL=https://api.tokenkey.dev
@@ -225,7 +214,7 @@ bash scripts/tk_post_deploy_smoke.sh
 
 主 key 解析顺序：`POST_DEPLOY_SMOKE_API_KEY` → `ANTHROPIC_AUTH_TOKEN` → `TK_TOKEN` → `TOKENKEY_API_KEY`。不得打印完整 key；脚本只输出 `key_hint`。
 
-正式验收中三个 smoke key 均为必填；任一缺失不得视为 prod/test 完整验收通过。
+正式验收中三个 smoke key 均为必填；任一缺失不得视为 prod 完整验收通过。
 
 通过标准：
 
@@ -245,20 +234,19 @@ bash scripts/tk_post_deploy_smoke.sh
 - public runner `GET <EDGE_API_URL>/v1/models` 为 403，证明 Caddy relay path allowlist 生效。
 - SSM self-smoke 成功：容器 `docker compose ps` 正常，容器内 `http://localhost:8080/health` 成功。
 - 若 `EDGE_SELF_SMOKE_MODE=api` 且 Edge 本地 smoke key 配好，确认 Edge API self-smoke 成功。
-- 若 `MAIN_GATEWAY_EDGE_SMOKE_API_KEY` 已配置，确认 main gateway via Edge smoke 成功，并通过 uk1 Caddy/tokenkey 日志证明请求实际命中 Edge。
+- 若 `MAIN_GATEWAY_EDGE_SMOKE_API_KEY` 已配置，确认 main gateway via Edge smoke 成功，并通过对应 Edge 的 Caddy/tokenkey 日志证明请求实际命中该节点。
 - 若 `MAIN_GATEWAY_EDGE_SMOKE_API_KEY` 未配置，只能声明“Edge infra smoke 通过”；不得声称主网关经 Edge 业务链路已验收。
 
 ## rollback
 
-- prod/test rollback：dispatch `deploy-stage0.yml` 到 previous tag。
+- prod rollback：dispatch `deploy-stage0.yml` 到 previous tag。
 
 ```bash
 gh workflow run deploy-stage0.yml \
-  -f environment=prod \
   -f tag="$PREVIOUS_TAG"
 ```
 
-- edge-uk1 rollback：dispatch `deploy-edge-stage0.yml operation=rollback`。
+- Edge rollback：`deploy-edge-stage0.yml operation=rollback`（按目标换 `edge_id` / `confirm_stack`）。
 
 ```bash
 gh workflow run deploy-edge-stage0.yml \
@@ -266,6 +254,7 @@ gh workflow run deploy-edge-stage0.yml \
   -f operation=rollback \
   -f tag="$PREVIOUS_TAG" \
   -f confirm_stack=tokenkey-edge-uk1-stage0
+# fra1：edge_id=fra1，confirm_stack=tokenkey-edge-fra1-stage0
 ```
 
 prod smoke 失败：停，优先 rollback prod；不要继续 Edge rollout。Edge canary 失败：停，不批准/推进 prod，除非用户明确 override。
@@ -294,14 +283,14 @@ git diff --diff-filter=D --name-only "${PREV_TAG}..${NEW_TAG}" -- backend/ || tr
 | target | workflow | run id | tag | status | smoke |
 |---|---|---:|---|---|---|
 | edge-uk1-canary | deploy-edge-stage0 | ... | X.Y.Z | success/fail/skipped | infra / main-via-edge |
+| edge-fra1-canary | deploy-edge-stage0 | ... | X.Y.Z | success/fail/skipped | infra（按需） |
 | prod | deploy-stage0 | ... | X.Y.Z | success/fail/skipped | full/partial |
-| test | deploy-stage0 | ... | X.Y.Z | success/fail/skipped | full/partial |
 
 并补充：
 
 - **有效提交**：feat/fix/chore 分类。
 - **影响面与验证重点**：Gemini、OpenAI OAuth、pricing/model-list、frontend、sentinel、upstream 删除等按实际变更列出。
-- **未部署或未覆盖目标**：例如 `us1/sg1/fra1 planned deployable=false`、用户只要求 prod、缺少 main-gateway-via-edge smoke secret、等待人工审批等。
+- **未部署或未覆盖目标**：例如 `us1/sg1` 仍为 planned、用户只要求 prod、缺少 main-gateway-via-edge smoke secret、等待人工审批等。
 
 ## release 之后 main 是否还有提交
 
@@ -313,7 +302,7 @@ git diff --diff-filter=D --name-only "${PREV_TAG}..${NEW_TAG}" -- backend/ || tr
 |------|------|
 | `release-tag.sh` 报 HEAD 含 skip-ci 标记 | 修改触发打 tag 的最近一次提交说明后重试，或按 `CLAUDE.md` 用 `gh workflow dispatch` 触发 `release.yml`。 |
 | `tag already exists on origin` | 升 `VERSION` 再打新 tag，或仅 dispatch deploy 已有 tag。 |
-| deploy 报单架构 manifest | 重新跑 `release.yml` 且 `simple_release=false`；prod/test/Edge 都不要 override。 |
+| deploy 报单架构 manifest | 重新跑 `release.yml` 且 `simple_release=false`；prod / Edge 都不要 override。 |
 | 出现两个并行 prod deploy run | `release.yml` 已自动触发，不要再手动 dispatch；取消多余手动 run，watch Bot run。 |
 | target=all 但 prod run 已自动 queue | 若在 Environment waiting，先等 Edge canary 成功再批准；若已开始，不中断，完成后摘要标记 prod 先行。 |
 | Edge `confirm_stack` mismatch | 停止；检查 `deploy/aws/stage0/edge-targets.json`，不要手改成别的栈名绕过。 |
@@ -324,8 +313,8 @@ git diff --diff-filter=D --name-only "${PREV_TAG}..${NEW_TAG}" -- backend/ || tr
 
 - `scripts/release-tag.sh` — tag 门禁。
 - `.github/workflows/release.yml` — multi-arch image build 与 prod auto-dispatch。
-- `.github/workflows/deploy-stage0.yml` — prod/test deploy。
+- `.github/workflows/deploy-stage0.yml` — prod deploy。
 - `.github/workflows/deploy-edge-stage0.yml` — Edge upgrade/smoke/rollback。
-- `scripts/tk_post_deploy_smoke.sh` — prod/test 完整 smoke。
+- `scripts/tk_post_deploy_smoke.sh` — prod 完整 smoke。
 - `scripts/tk_edge_post_deploy_smoke.sh` — Edge smoke wrapper。
-- `deploy/aws/README.md` — Stage0、Edge uk1、升级 SOP。
+- `deploy/aws/README.md` — Stage0、Edge（uk1 / fra1）、升级 SOP。

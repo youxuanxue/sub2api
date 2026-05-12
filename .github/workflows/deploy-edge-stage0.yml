@@ -1,14 +1,14 @@
 name: Edge Stage0 Deploy
 
 # Edge-specific orchestration only. Image manifest checks and SSM upgrade logic
-# are shared with deploy-stage0.yml via scripts/stage0_*.sh so prod/test and
+# are shared with deploy-stage0.yml via scripts/stage0_*.sh so prod and
 # Edge cannot drift into separate deployment semantics.
 
 on:
   workflow_dispatch:
     inputs:
       edge_id:
-        description: "Edge target id. uk1 is the only deployable target until its PoC/gray gate passes."
+        description: "Edge target id from deploy/aws/stage0/edge-targets.json (deployable=true only)."
         required: true
         type: choice
         options:
@@ -30,7 +30,7 @@ on:
         required: false
         type: string
       confirm_stack:
-        description: "Must exactly match the target stack name, e.g. tokenkey-edge-uk1-stage0."
+        description: "Must exactly match the target stack name from the matrix (e.g. tokenkey-edge-uk1-stage0)."
         required: true
         type: string
       simple_release_override:
@@ -51,7 +51,7 @@ concurrency:
 jobs:
   edge:
     runs-on: ubuntu-latest
-    environment: edge-uk1
+    environment: edge-${{ inputs.edge_id }}
     env:
       OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
       INPUT_EDGE_ID: ${{ inputs.edge_id }}
@@ -114,6 +114,7 @@ jobs:
         env:
           STACK_NAME: ${{ steps.edge.outputs.stack }}
           EDGE_ID: ${{ steps.edge.outputs.edge_id }}
+          SSM_PREFIX: ${{ steps.edge.outputs.ssm_prefix }}
           PROFILE: ${{ steps.edge.outputs.profile }}
           API_DOMAIN: ${{ steps.edge.outputs.domain }}
           INSTANCE_TYPE: ${{ steps.edge.outputs.instance_type }}
@@ -124,8 +125,9 @@ jobs:
           GHCR_PULL_USER: ${{ github.repository_owner }}
           ACME_EMAIL: ${{ vars.EDGE_ACME_EMAIL }}
           MAIN_GATEWAY_ALLOWED_CIDR: ${{ vars.EDGE_MAIN_GATEWAY_ALLOWED_CIDR }}
-          GHCR_PAT_SSM_NAME: ${{ vars.EDGE_UK1_GHCR_PAT_SSM_NAME }}
+          GHCR_PAT_SSM_NAME_OVERRIDE: ${{ vars.EDGE_GHCR_PAT_SSM_NAME }}
           AWS_OIDC_STACK_NAME: ${{ vars.AWS_OIDC_STACK_NAME }}
+          AWS_OIDC_STACK_REGION: ${{ vars.AWS_OIDC_STACK_REGION || vars.AWS_REGION || 'us-east-1' }}
         run: |
           set -euo pipefail
           if [ -z "${ACME_EMAIL:-}" ]; then
@@ -133,12 +135,25 @@ jobs:
             exit 1
           fi
           MAIN_GATEWAY_ALLOWED_CIDR="${MAIN_GATEWAY_ALLOWED_CIDR:-34.194.234.88/32}"
-          GHCR_PAT_SSM_NAME="${GHCR_PAT_SSM_NAME:-/tokenkey/edge/uk1/ghcr/pat}"
+          if [ -n "${GHCR_PAT_SSM_NAME_OVERRIDE:-}" ]; then
+            GHCR_PAT_SSM_NAME="$GHCR_PAT_SSM_NAME_OVERRIDE"
+          else
+            GHCR_PAT_SSM_NAME="${SSM_PREFIX}/ghcr/pat"
+          fi
           AWS_OIDC_STACK_NAME="${AWS_OIDC_STACK_NAME:-tokenkey-cicd-oidc}"
-          CFN_EXECUTION_ROLE_ARN=$(aws cloudformation describe-stacks --stack-name "$AWS_OIDC_STACK_NAME" \
-            --query 'Stacks[0].Outputs[?OutputKey==`EdgeUk1CloudFormationExecutionRoleArn`].OutputValue' --output text)
+          case "${EDGE_ID}" in
+            uk1) CFN_ROLE_OUTPUT_KEY=EdgeUk1CloudFormationExecutionRoleArn ;;
+            fra1) CFN_ROLE_OUTPUT_KEY=EdgeFra1CloudFormationExecutionRoleArn ;;
+            *)
+              echo "::error::edge_id ${EDGE_ID} has no CloudFormation execution role mapping in deploy-edge-stage0.yml"
+              exit 1
+              ;;
+          esac
+          CFN_EXECUTION_ROLE_ARN=$(aws cloudformation describe-stacks --region "${AWS_OIDC_STACK_REGION}" \
+            --stack-name "$AWS_OIDC_STACK_NAME" \
+            --query "Stacks[0].Outputs[?OutputKey==\`${CFN_ROLE_OUTPUT_KEY}\`].OutputValue" --output text)
           if [ -z "${CFN_EXECUTION_ROLE_ARN:-}" ] || [ "$CFN_EXECUTION_ROLE_ARN" = "None" ]; then
-            echo "::error::could not resolve EdgeUk1CloudFormationExecutionRoleArn from cicd OIDC stack"
+            echo "::error::could not resolve ${CFN_ROLE_OUTPUT_KEY} from cicd OIDC stack ${AWS_OIDC_STACK_NAME} (region ${AWS_OIDC_STACK_REGION})"
             exit 1
           fi
           aws cloudformation deploy \

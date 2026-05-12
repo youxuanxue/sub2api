@@ -241,14 +241,14 @@ handler → service → repository → ent
 
 ### 9. Release Discipline (ARM + Tag Triggers)
 
-Both production (`api.tokenkey.dev`) and the test stack (`test-api.tokenkey.dev`) run on **AWS Graviton (`t4g.small`, `arm64`)**, and Release workflow is triggered by `tags: v*`. Two pitfalls have already broken prod once each — both are now **hard rules**:
+Production deployment (`api.tokenkey.dev`) runs on **AWS Graviton (`t4g.small`, `arm64`)**, and Release workflow is triggered by `tags: v*`. Two pitfalls have already broken prod once each — both are now **hard rules**:
 
 #### 9.1 `simple_release` MUST stay `false`
 
 `.github/workflows/release.yml` exposes a `workflow_dispatch` input `simple_release`. **DEFAULT MUST REMAIN `false`.**
 
 - `simple_release=true` → GoReleaser builds **`linux/amd64` only**, then **overwrites the shared tags** `:latest`, `:X`, `:X.Y`, `:X.Y.Z` with that single-arch image.
-- Any ARM host pulling `:latest` (or any overwritten tag) will crash immediately with `exec format error` on `docker compose up`. **Both our hosts are ARM** — this is a guaranteed prod outage.
+- Any ARM host pulling `:latest` (or any overwritten tag) will crash immediately with `exec format error` on `docker compose up`. **Prod and Edge Stage0 hosts today are ARM** — this is a guaranteed outage for those stacks.
 - **NEVER** flip the default to `true`, **NEVER** dispatch with `simple_release=true` unless every consumer has been verified amd64.
 - If accidentally dispatched: re-dispatch the **same** tag with `simple_release=false` immediately to rewrite the multi-arch manifest.
 
@@ -264,7 +264,7 @@ git tag vX.Y.Z
 git push origin main vX.Y.Z                              # release.yml is silently SKIPPED
 ```
 
-→ No image is built, prod/test deploys go stale, and the only recovery is a manual `gh workflow run release.yml -f tag=vX.Y.Z`.
+→ No image is built, prod deploy goes stale, and the only recovery is a manual `gh workflow run release.yml -f tag=vX.Y.Z`.
 
 **Rule:** when bumping `backend/cmd/server/VERSION` by hand for a release, the commit message MUST NOT contain `[skip ci]` / `[ci skip]`. **The trap goes further than the literal commit body**: the v1.3.0 release was silently broken because the squash-merge commit body contained the explanatory phrase _"this commit deliberately omits `[skip ci]`"_ — GitHub matched the literal substring inside the explanation and skipped `release.yml` anyway. Discussing the marker in commit text counts as carrying it. The **only** commits in this repo that may include `[skip ci]` are the auto-generated **`sync-version-file` writeback commits** produced by `release.yml` itself (those need `[skip ci]` to break the release → sync → release loop).
 
@@ -321,7 +321,7 @@ section only records sub2api-specific choices.
 
 技能正文只在 [.cursor/skills/](.cursor/skills/) 下各目录的 `SKILL.md`。仓库根的 `.claude/skills` **仅为**指向 `.cursor/skills` 的 symlink（不要在 `.claude/skills/` 下创建真实文件或副本）。全局禁令见 **`dev-rules/global/CLAUDE.md`** §4「Agent Skills」。
 
-- **Stage0 发布与 rollout：** [.cursor/skills/tokenkey-stage0-release-rollout/SKILL.md](.cursor/skills/tokenkey-stage0-release-rollout/SKILL.md) — `main` → VERSION/tag → `release.yml` → `deploy-stage0` prod/test 与 `deploy-edge-stage0` Edge rollout → 烟测。
+- **Stage0 发布与 rollout：** [.cursor/skills/tokenkey-stage0-release-rollout/SKILL.md](.cursor/skills/tokenkey-stage0-release-rollout/SKILL.md) — `main` → VERSION/tag → `release.yml` → `deploy-stage0` prod 与 `deploy-edge-stage0` Edge rollout → 烟测。
 - **本机 Stage0 Docker：** [.cursor/skills/tokenkey-stage0-local-deploy/SKILL.md](.cursor/skills/tokenkey-stage0-local-deploy/SKILL.md) — 与 `deploy/aws/stage0` 对齐的 compose、`AUTO_SETUP`、默认 `REPO_ROOT` / sibling `new-api` / `.cache` 路径见该 skill。
 
 ## Key Reference

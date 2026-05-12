@@ -3,7 +3,7 @@ Description: >
   tokenkey Edge Stage 0: low-cost single EC2 (Graviton) in one region with EIP,
   Caddy path allowlist, tokenkey, PostgreSQL, and Redis via the shared Stage0
   docker-compose.yml. The runtime image and SSM upgrade primitive are shared
-  with prod/test Stage0; edge differences are profile parameters and Caddy API
+  with prod Stage0; edge differences are profile parameters and Caddy API
   path restrictions.
 
 Parameters:
