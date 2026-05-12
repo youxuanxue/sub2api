@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/klauspost/compress/zstd"
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
