@@ -200,7 +200,10 @@ gh workflow run deploy-edge-stage0.yml \
   -f confirm_stack=tokenkey-edge-fra1-stage0
 ```
 
-`us1/sg1` 仍在矩阵中保留 `deployable=false`，workflow 会 fail before AWS。
+`us1/sg1` 仍在 `edge-targets.json` 中保留为 planned（`deployable=false`）。`deploy-edge-stage0.yml`
+的 dispatch **choice** 仅列出当前已接通 OIDC / CFN 的 **`uk1` / `fra1`**；启用其它 Edge 时先在矩阵设
+`deployable=true`，扩展 **`tokenkey-cicd-oidc`**（trust `environment:edge-<id>` + CFN execution role output）、
+GitHub **Environment**，并把该 `edge_id` 加入 workflow **choice** 与本仓库 provision 步骤里的 CFN role **case**。
 
 ## 升级 / 发版（生产 Stage0）
 

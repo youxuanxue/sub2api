@@ -40,7 +40,9 @@ jobs:
       INPUT_TAG: ${{ inputs.tag }}
       INPUT_OVERRIDE: ${{ inputs.simple_release_override }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
 
       - name: Validate tag + resolve stack name
         id: stack

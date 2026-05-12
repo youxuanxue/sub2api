@@ -12,9 +12,9 @@ on:
         required: true
         type: choice
         options:
+          # Keep in sync with cicd-oidc AllowedSubjects (environment:edge-*) + CFN execution role mapping below.
+          # Planned edges (us1/sg1) remain in edge-targets.json until bootstrap widens IAM + adds GitHub Environments.
           - uk1
-          - us1
-          - sg1
           - fra1
       operation:
         description: "Operation to run. provision creates/updates CFN; upgrade only changes image tag via SSM; smoke verifies."
@@ -60,7 +60,9 @@ jobs:
       INPUT_CONFIRM_STACK: ${{ inputs.confirm_stack }}
       INPUT_OVERRIDE: ${{ inputs.simple_release_override }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
 
       - name: Resolve edge target
         id: edge
