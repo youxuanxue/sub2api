@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/andybalholm/brotli"
+	"github.com/klauspost/compress/zstd"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyurl"
@@ -887,6 +888,12 @@ func decompressResponseBody(resp *http.Response) {
 			return // 解压失败，保持原样
 		}
 		reader = gr
+	case "zstd":
+		zr, err := zstd.NewReader(resp.Body)
+		if err != nil {
+			return // 解压失败，保持原样
+		}
+		reader = zr
 	case "br":
 		reader = brotli.NewReader(resp.Body)
 	case "deflate":
