@@ -78,6 +78,56 @@ func TestUS201_DerivePrefersHeaderSessionID(t *testing.T) {
 	require.Equal(t, StickyKeySourceClientSessionID, k.Source)
 }
 
+func TestUS201_DeriveReadsXSessionIDHeader(t *testing.T) {
+	body := []byte(`{"prompt_cache_key":"body-key","instructions":"sys","input":[]}`)
+	headers := http.Header{}
+	headers.Set("X-Session-Id", "x-session-1")
+	req := StickyInjectionRequest{
+		APIKeyID: 1, UpstreamModel: "gpt-5.4", Strategy: newAutoStrategy(), Headers: headers,
+	}
+	k := DeriveStickyKey(req, body)
+	require.Equal(t, "x-session-1", k.Value)
+	require.Equal(t, StickyKeySourceClientXSessionID, k.Source)
+}
+
+func TestUS201_DeriveSessionIDPrecedesXSessionIDHeader(t *testing.T) {
+	body := []byte(`{"prompt_cache_key":"body-key","instructions":"sys","input":[]}`)
+	headers := http.Header{}
+	headers.Set("session_id", "header-sess")
+	headers.Set("X-Session-Id", "x-session-1")
+	req := StickyInjectionRequest{
+		APIKeyID: 1, UpstreamModel: "gpt-5.4", Strategy: newAutoStrategy(), Headers: headers,
+	}
+	k := DeriveStickyKey(req, body)
+	require.Equal(t, "header-sess", k.Value)
+	require.Equal(t, StickyKeySourceClientSessionID, k.Source)
+}
+
+func TestUS201_DeriveReadsClaudeCodeSessionIDHeader(t *testing.T) {
+	body := []byte(`{"prompt_cache_key":"body-key","instructions":"sys","input":[]}`)
+	headers := http.Header{}
+	headers.Set("X-Claude-Code-Session-Id", "cc-session-1")
+	req := StickyInjectionRequest{
+		APIKeyID: 1, UpstreamModel: "claude-sonnet-4-20250514", Strategy: newAutoStrategy(), Headers: headers,
+	}
+	k := DeriveStickyKey(req, body)
+	require.Equal(t, "cc-session-1", k.Value)
+	require.Equal(t, StickyKeySourceClientClaudeCodeSessionID, k.Source)
+}
+
+func TestUS201_DeriveClaudeCodeSessionIDPrecedesXSessionIDHeader(t *testing.T) {
+	body := []byte(`{"prompt_cache_key":"body-key","instructions":"sys","input":[]}`)
+	headers := http.Header{}
+	headers.Set("X-Claude-Code-Session-Id", "cc-session-1")
+	headers.Set("X-Session-Id", "x-session-1")
+	req := StickyInjectionRequest{
+		APIKeyID: 1, UpstreamModel: "claude-sonnet-4-20250514", Strategy: newAutoStrategy(), Headers: headers,
+	}
+	k := DeriveStickyKey(req, body)
+	require.Equal(t, "cc-session-1", k.Value)
+	require.Equal(t, StickyKeySourceClientClaudeCodeSessionID, k.Source)
+}
+
 // US-201 AC-002: Anthropic mimic — body has metadata.user_id with session_id
 // → prefer the inner session_id over hashing.
 func TestUS201_DeriveExtractsSessionIDFromMetadata(t *testing.T) {
@@ -147,6 +197,18 @@ func TestUS201_InjectAnthropicMessages_SkipsRealClaudeCode(t *testing.T) {
 		Strategy:       newAutoStrategy(),
 	}
 	out, mut, err := InjectAnthropicMessagesBody(body, StickyKey{Value: "tk_abc"}, req)
+	require.NoError(t, err)
+	require.False(t, mut)
+	require.False(t, gjson.GetBytes(out, "metadata.user_id").Exists())
+}
+
+func TestUS201_InjectAnthropicMessages_SkipsClaudeCodeSessionHeaderKey(t *testing.T) {
+	body := []byte(`{"model":"claude-3-5","messages":[]}`)
+	req := StickyInjectionRequest{
+		AccountKind: StickyAccountAnthropicAPIKey,
+		Strategy:    newAutoStrategy(),
+	}
+	out, mut, err := InjectAnthropicMessagesBody(body, StickyKey{Value: "cc-session-1", Source: StickyKeySourceClientClaudeCodeSessionID}, req)
 	require.NoError(t, err)
 	require.False(t, mut)
 	require.False(t, gjson.GetBytes(out, "metadata.user_id").Exists())

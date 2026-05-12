@@ -63,17 +63,19 @@ type SessionContext struct {
 // 2. 将解析结果 ParsedRequest 传递给 Service 层
 // 3. 避免重复 json.Unmarshal，减少 CPU 和内存开销
 type ParsedRequest struct {
-	Body            []byte          // 原始请求体（保留用于转发）
-	Model           string          // 请求的模型名称
-	Stream          bool            // 是否为流式请求
-	MetadataUserID  string          // metadata.user_id（用于会话亲和）
-	System          any             // system 字段内容
-	Messages        []any           // messages 数组
-	HasSystem       bool            // 是否包含 system 字段（包含 null 也视为显式传入）
-	ThinkingEnabled bool            // 是否开启 thinking（部分平台会影响最终模型名）
-	OutputEffort    string          // output_config.effort（Claude API 的推理强度控制）
-	MaxTokens       int             // max_tokens 值（用于探测请求拦截）
-	SessionContext  *SessionContext // 可选：请求上下文区分因子（nil 时行为不变）
+	Body              []byte          // 原始请求体（保留用于转发）
+	Model             string          // 请求的模型名称
+	Stream            bool            // 是否为流式请求
+	MetadataUserID    string          // metadata.user_id（用于会话亲和）
+	ExplicitStickyKey StickyKey       // 显式 header 粘性身份（用于会话亲和）
+	PromptCacheKey    string          // 顶层 prompt_cache_key（用于会话亲和）
+	System            any             // system 字段内容
+	Messages          []any           // messages 数组
+	HasSystem         bool            // 是否包含 system 字段（包含 null 也视为显式传入）
+	ThinkingEnabled   bool            // 是否开启 thinking（部分平台会影响最终模型名）
+	OutputEffort      string          // output_config.effort（Claude API 的推理强度控制）
+	MaxTokens         int             // max_tokens 值（用于探测请求拦截）
+	SessionContext    *SessionContext // 可选：请求上下文区分因子（nil 时行为不变）
 
 	// GroupID 请求所属分组 ID（来自 API Key）
 	GroupID *int64
@@ -165,8 +167,9 @@ func ParseGatewayRequest(body []byte, protocol string) (*ParsedRequest, error) {
 		parsed.Stream = streamResult.Bool()
 	}
 
-	// metadata.user_id: 直接路径提取，不需要严格类型校验
-	parsed.MetadataUserID = gjson.Get(jsonStr, "metadata.user_id").String()
+	// metadata.user_id / prompt_cache_key: 直接路径提取，不需要严格类型校验
+	parsed.MetadataUserID = strings.TrimSpace(gjson.Get(jsonStr, "metadata.user_id").String())
+	parsed.PromptCacheKey = strings.TrimSpace(gjson.Get(jsonStr, "prompt_cache_key").String())
 
 	// thinking.type: enabled/adaptive 都视为开启
 	thinkingType := gjson.Get(jsonStr, "thinking.type").String()

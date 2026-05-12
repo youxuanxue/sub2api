@@ -66,6 +66,73 @@
       "path": "backend/internal/service/ratelimit_404_model_not_found_test.go",
       "must_contain": ["TestHandleUpstreamError_Anthropic404ModelNotFoundSetsModelRateLimit", "TestHandleUpstreamError_Anthropic404WithoutModelDoesNotDisableAccount", "TestHandleUpstreamError_NonAnthropic404DoesNotUseAnthropicModelProtection"],
       "rationale": "Focused regressions proving only Anthropic model-not-found 404s write model_rate_limits, while generic 404s and non-Anthropic 404s do not disable accounts. Dropping these tests lets the upstream-error policy silently drift during future merges."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_sticky.go",
+      "must_contain": [
+        "const ClaudeCodeParsedRequestGinKey",
+        "func tkSyncClaudeCodeSessionHeaderFromBody(headers http.Header",
+        "func tkEnsureClaudeCodeSessionHeader(headers http.Header",
+        "c.Get(ClaudeCodeParsedRequestGinKey)"
+      ],
+      "rationale": "Prod→sibling gateway hops rely on syncing X-Claude-Code-Session-Id after body transforms plus a ParsedRequest Gin fallback when metadata.user_id is no longer readable from the outbound JSON; dropping this TK module makes Edge regress to message_content_fallback sticky hashing and exhausts sibling max_sessions silently."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_sticky_test.go",
+      "must_contain": [
+        "TestTkEnsureClaudeCodeSessionHeader_IngressParsedRequestFallback",
+        "TestTkEnsureClaudeCodeSessionHeader_BodyOverridesIngressFallback"
+      ],
+      "rationale": "Regression anchors for ParsedRequest Gin fallback precedence over broken-out body metadata drift."
+    },
+    {
+      "path": "backend/internal/service/sticky_session_injector.go",
+      "must_contain": [
+        "StickyKeySourceClientClaudeCodeSessionID",
+        "headers.Get(\"X-Claude-Code-Session-Id\")",
+        "req.IsClaudeCodeUA || key.Source == StickyKeySourceClientClaudeCodeSessionID",
+        "//  1. headers[\"session_id\"] / headers[\"conversation_id\"] / headers[\"X-Claude-Code-Session-Id\"] / headers[\"X-Session-Id\"]"
+      ],
+      "rationale": "Claude Code session header must participate in sticky derivation before X-Session-Id and must not trigger synthetic metadata.user_id injection (which would collide with ingress-only sibling routing). Small upstream-shape file compiles cleanly if reverted."
+    },
+    {
+      "path": "backend/internal/service/sticky_session_injector_test.go",
+      "must_contain": [
+        "TestUS201_DeriveReadsClaudeCodeSessionIDHeader",
+        "TestUS201_DeriveClaudeCodeSessionIDPrecedesXSessionIDHeader",
+        "TestUS201_InjectAnthropicMessages_SkipsClaudeCodeSessionHeaderKey"
+      ],
+      "rationale": "Focused regressions for header precedence and inject suppression when sticky key originates from X-Claude-Code-Session-Id."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "tkEnsureClaudeCodeSessionHeader(req.Header, body, c)"
+      ],
+      "rationale": "Main gateway upstream builders must invoke unified TK Claude session-header sync after API-key passthrough, OAuth forward, and count_tokens forward paths diverge upstream merge conflicts."
+    },
+    {
+      "path": "backend/internal/handler/gateway_helper.go",
+      "must_contain": [
+        "c.Set(service.ClaudeCodeParsedRequestGinKey, parsedReq)",
+        "c.Get(service.ClaudeCodeParsedRequestGinKey)"
+      ],
+      "rationale": "Claude Code parsed request snapshot must remain on the canonical Gin key so service-layer tkEnsure can recover session UUID when outbound serialization loses metadata.user_id."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_selection.go",
+      "must_contain": [
+        "TkPrepareParsedRequestSessionInputs",
+        "ExplicitStickyKey = service.StickyKeyFromClientHeaders(c.Request.Header)"
+      ],
+      "rationale": "/v1/messages and compat ingress must populate ExplicitStickyKey from whitelist headers including X-Claude-Code-Session-Id forwarded from an upstream sibling before GenerateSessionHash; dropping this TK helper route breaks sticky without compile errors."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_anthropic.go",
+      "must_contain": [
+        "chatReq[\"metadata\"] = json.RawMessage(req.Metadata)"
+      ],
+      "rationale": "Anthropic-shaped requests converted to Chat Completions must preserve metadata blobs so Claude Code identities survive OpenAI-compat bridge paths during scheduling."
     }
   ]
 }

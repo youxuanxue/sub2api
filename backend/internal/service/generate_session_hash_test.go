@@ -228,6 +228,59 @@ func TestGenerateSessionHash_MetadataJSON_HasHighestPriority(t *testing.T) {
 	require.Equal(t, "c72554f2-1234-5678-abcd-123456789abc", hash, "JSON format metadata session_id should have highest priority")
 }
 
+func TestGenerateSessionHash_ExplicitStickyKeyStableAcrossMessages(t *testing.T) {
+	svc := &GatewayService{}
+
+	mk := func(content string) *ParsedRequest {
+		return &ParsedRequest{
+			ExplicitStickyKey: StickyKey{Value: "edge-session-1", Source: StickyKeySourceClientXSessionID},
+			Messages: []any{
+				map[string]any{"role": "user", "content": content},
+			},
+		}
+	}
+
+	h1 := svc.GenerateSessionHash(mk("first turn"))
+	h2 := svc.GenerateSessionHash(mk("second turn with different content"))
+	require.NotEmpty(t, h1)
+	require.Equal(t, h1, h2)
+	require.Equal(t, DeriveSessionHashFromSeed("edge-session-1"), h1)
+}
+
+func TestGenerateSessionHash_MetadataOverridesExplicitStickyKey(t *testing.T) {
+	svc := &GatewayService{}
+
+	parsed := &ParsedRequest{
+		MetadataUserID:    "user_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2_account__session_123e4567-e89b-12d3-a456-426614174000",
+		ExplicitStickyKey: StickyKey{Value: "edge-session-1", Source: StickyKeySourceClientXSessionID},
+		Messages: []any{
+			map[string]any{"role": "user", "content": "hello"},
+		},
+	}
+
+	hash := svc.GenerateSessionHash(parsed)
+	require.Equal(t, "123e4567-e89b-12d3-a456-426614174000", hash)
+}
+
+func TestGenerateSessionHash_PromptCacheKeyStableAcrossMessages(t *testing.T) {
+	svc := &GatewayService{}
+
+	mk := func(content string) *ParsedRequest {
+		return &ParsedRequest{
+			PromptCacheKey: "pcache-edge-session-1",
+			Messages: []any{
+				map[string]any{"role": "user", "content": content},
+			},
+		}
+	}
+
+	h1 := svc.GenerateSessionHash(mk("first turn"))
+	h2 := svc.GenerateSessionHash(mk("second turn with different content"))
+	require.NotEmpty(t, h1)
+	require.Equal(t, h1, h2)
+	require.Equal(t, DeriveSessionHashFromSeed("pcache-edge-session-1"), h1)
+}
+
 func TestGenerateSessionHash_NilSessionContextBackwardCompatible(t *testing.T) {
 	svc := &GatewayService{}
 

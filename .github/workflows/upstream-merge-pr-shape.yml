@@ -31,7 +31,8 @@ name: Upstream Merge PR Shape
 #   5c. Every load-bearing TokenKey-only gateway/service hook listed in
 #      `scripts/gateway-tk-sentinels.json` is still intact after the merge;
 #      these are small upstream-hotspot injections that otherwise compile
-#      cleanly when silently reverted.
+#      cleanly when silently reverted (incl. prod-to-sibling Claude sticky
+#      session header + ParsedRequest Gin fallback, and bridge metadata).
 #   6. The QA evidence redaction contract stays aligned: if logredact's
 #      default sensitive-key set changes, `scripts/redaction-sentinels.json`
 #      and every outward `redaction_version` literal must move in the same

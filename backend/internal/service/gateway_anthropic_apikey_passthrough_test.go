@@ -634,6 +634,40 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_CountTokens404PassthroughNotE
 	}
 }
 
+func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardsClaudeCodeSessionHeader(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	c.Request.Header.Set("X-Claude-Code-Session-Id", "cc-session-1")
+
+	svc := &GatewayService{
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	}
+	account := newAnthropicAPIKeyAccountForTest()
+
+	req, err := svc.buildUpstreamRequestAnthropicAPIKeyPassthrough(context.Background(), c, account, []byte(`{"model":"claude-sonnet-4-20250514","messages":[]}`), "k")
+	require.NoError(t, err)
+	require.Equal(t, "cc-session-1", getHeaderRaw(req.Header, "X-Claude-Code-Session-Id"))
+}
+
+func TestGatewayService_AnthropicAPIKeyPassthrough_SyncsClaudeCodeSessionHeaderFromMetadata(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	svc := &GatewayService{
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	}
+	account := newAnthropicAPIKeyAccountForTest()
+	body := []byte(`{"model":"claude-sonnet-4-20250514","metadata":{"user_id":"{\"device_id\":\"device-1\",\"account_uuid\":\"account-1\",\"session_id\":\"11111111-2222-3333-4444-555555555555\"}"},"messages":[]}`)
+
+	req, err := svc.buildUpstreamRequestAnthropicAPIKeyPassthrough(context.Background(), c, account, body, "k")
+	require.NoError(t, err)
+	require.Equal(t, "11111111-2222-3333-4444-555555555555", getHeaderRaw(req.Header, "X-Claude-Code-Session-Id"))
+}
+
 func TestGatewayService_AnthropicAPIKeyPassthrough_BuildRequestRejectsInvalidBaseURL(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()

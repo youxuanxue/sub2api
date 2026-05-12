@@ -18,8 +18,6 @@ import (
 // claudeCodeValidator is a singleton validator for Claude Code client detection
 var claudeCodeValidator = service.NewClaudeCodeValidator()
 
-const claudeCodeParsedRequestContextKey = "claude_code_parsed_request"
-
 // SetClaudeCodeClientContext 检查请求是否来自 Claude Code 客户端，并设置到 context 中
 // 返回更新后的 context
 func SetClaudeCodeClientContext(c *gin.Context, body []byte, parsedReq *service.ParsedRequest) {
@@ -27,7 +25,7 @@ func SetClaudeCodeClientContext(c *gin.Context, body []byte, parsedReq *service.
 		return
 	}
 	if parsedReq != nil {
-		c.Set(claudeCodeParsedRequestContextKey, parsedReq)
+		c.Set(service.ClaudeCodeParsedRequestGinKey, parsedReq)
 	}
 
 	ua := c.GetHeader("User-Agent")
@@ -92,7 +90,7 @@ func claudeCodeBodyMapFromContextCache(c *gin.Context) map[string]any {
 			return bodyMap
 		}
 	}
-	if cached, ok := c.Get(claudeCodeParsedRequestContextKey); ok {
+	if cached, ok := c.Get(service.ClaudeCodeParsedRequestGinKey); ok {
 		switch v := cached.(type) {
 		case *service.ParsedRequest:
 			return claudeCodeBodyMapFromParsedRequest(v)

@@ -663,7 +663,7 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 		return ""
 	}
 
-	// 1. 最高优先级：从 metadata.user_id 提取 session_xxx
+	// Anthropic ingress keeps real client metadata.user_id above gateway-forwarded sticky headers.
 	if parsed.MetadataUserID != "" {
 		uid := ParseMetadataUserID(parsed.MetadataUserID)
 		if uid != nil && uid.SessionID != "" {
@@ -679,6 +679,24 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 			"metadata_user_id", parsed.MetadataUserID,
 			"parsed_nil", uid == nil,
 		)
+	}
+
+	if parsed.ExplicitStickyKey.Value != "" {
+		hash := DeriveSessionHashFromSeed(parsed.ExplicitStickyKey.Value)
+		slog.Info("sticky.hash_source",
+			"source", parsed.ExplicitStickyKey.Source,
+			"hash", hash,
+		)
+		return hash
+	}
+
+	if parsed.PromptCacheKey != "" {
+		hash := DeriveSessionHashFromSeed(parsed.PromptCacheKey)
+		slog.Info("sticky.hash_source",
+			"source", StickyKeySourceClientPromptCacheKey,
+			"hash", hash,
+		)
+		return hash
 	}
 
 	// 2. 提取带 cache_control: {type: "ephemeral"} 的内容
@@ -5262,6 +5280,7 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 	if getHeaderRaw(req.Header, "anthropic-version") == "" {
 		setHeaderRaw(req.Header, "anthropic-version", "2023-06-01")
 	}
+	tkEnsureClaudeCodeSessionHeader(req.Header, body, c)
 
 	return req, nil
 }
@@ -6121,14 +6140,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 		}
 	}
 
-	// 同步 X-Claude-Code-Session-Id 头：取 body 中已处理的 metadata.user_id 的 session_id 覆盖
-	if sessionHeader := getHeaderRaw(req.Header, "X-Claude-Code-Session-Id"); sessionHeader != "" {
-		if uid := gjson.GetBytes(body, "metadata.user_id").String(); uid != "" {
-			if parsed := ParseMetadataUserID(uid); parsed != nil {
-				setHeaderRaw(req.Header, "X-Claude-Code-Session-Id", parsed.SessionID)
-			}
-		}
-	}
+	tkEnsureClaudeCodeSessionHeader(req.Header, body, c)
 
 	// === DEBUG: 打印上游转发请求（headers + body 摘要），与 CLIENT_ORIGINAL 对比 ===
 	s.debugLogGatewaySnapshot("UPSTREAM_FORWARD", req.Header, body, map[string]string{
@@ -9323,14 +9335,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 		}
 	}
 
-	// 同步 X-Claude-Code-Session-Id 头：取 body 中已处理的 metadata.user_id 的 session_id 覆盖
-	if sessionHeader := getHeaderRaw(req.Header, "X-Claude-Code-Session-Id"); sessionHeader != "" {
-		if uid := gjson.GetBytes(body, "metadata.user_id").String(); uid != "" {
-			if parsed := ParseMetadataUserID(uid); parsed != nil {
-				setHeaderRaw(req.Header, "X-Claude-Code-Session-Id", parsed.SessionID)
-			}
-		}
-	}
+	tkEnsureClaudeCodeSessionHeader(req.Header, body, c)
 
 	if c != nil && tokenType == "oauth" {
 		c.Set(claudeMimicDebugInfoKey, buildClaudeMimicDebugLine(req, body, account, tokenType, mimicClaudeCode))
