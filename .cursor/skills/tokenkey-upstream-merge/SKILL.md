@@ -104,7 +104,7 @@ PR 前必须完成：
 - `pnpm --dir frontend lint:check && pnpm --dir frontend typecheck`（如 frontend 触达）。
 - `pnpm --dir frontend run build`（如 frontend dist 或 embedded web 触达）。
 - `python3 scripts/export_agent_contract.py --check`（如 agent contract 相关触达）。
-- `./scripts/preflight.sh`（覆盖所有 sub2api sentinel 检查；`upstream-merge-pr-shape.yml` CI 独立跑其中 newapi、engine-facade、frontend-tk 三组）。
+- `./scripts/preflight.sh`（覆盖所有 sub2api sentinel 检查；`upstream-merge-pr-shape.yml` 对 merge/upstream-* PR 在 CI 中复跑与 preflight **对齐**的门禁，含 newapi、brand、frontend-tk、gateway-tk、redaction、trajectory、terminal、engine、QA 数据集、**pricing-availability** 与 **sentinel 注册表更新门闸（覆写防护）**；完整清单见该 workflow 文件头注释。）
 
 不得跳过 hook 或用 `--no-verify`。
 
