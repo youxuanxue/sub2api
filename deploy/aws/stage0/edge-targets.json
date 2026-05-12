@@ -49,9 +49,9 @@
       "purpose": "sg-egress-planned"
     },
     "fra1": {
-      "deployable": false,
+      "deployable": true,
       "profile": "edge-minimal",
-      "region": "eu-central-1",
+      "region": "eu-west-3",
       "domain": "api-fra1.tokenkey.dev",
       "stack": "tokenkey-edge-fra1-stage0",
       "instance_type": "t4g.micro",
@@ -61,7 +61,7 @@
       "snapshot_schedule": "none",
       "monthly_budget_usd": 16,
       "ssm_prefix": "/tokenkey/edge/fra1",
-      "purpose": "eu-mainland-egress-planned"
+      "purpose": "fr-paris-egress"
     }
   }
 }

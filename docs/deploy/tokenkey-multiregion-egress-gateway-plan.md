@@ -395,7 +395,7 @@ monthly_budget_usd=16
 
 ### 6.3 deploy-stage0 参数化要求
 
-当前 `deploy-stage0` 主要服务 prod/test Stage 0。多 Edge 方案要求它支持 profile 化：
+当前 `deploy-stage0` 仅服务 prod Stage 0。多 Edge 方案要求它支持 profile 化：
 
 ```text
 environment=edge

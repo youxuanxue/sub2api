@@ -41,7 +41,10 @@ def main() -> int:
 
     deployable = bool(target.get("deployable"))
     if not deployable and not args.allow_planned:
-        fail(f"edge_id {args.edge_id} is planned but not deployable; validate uk1 first")
+        fail(
+            f"edge_id {args.edge_id} is planned but not deployable; "
+            "set deployable=true in deploy/aws/stage0/edge-targets.json when ready"
+        )
 
     profile = str(target.get("profile") or "")
     requested_profile = args.profile.strip()

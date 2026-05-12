@@ -13,7 +13,7 @@ related_prs: ["#53"]
 # Adversarial fail-closed gate also verified:
 #   GHA run https://github.com/youxuanxue/sub2api/actions/runs/24872388875
 #   (tag=99.99.99 → exited at GHCR manifest precheck before any AWS call).
-scope: ".github/workflows/deploy-stage0.yml + scripts/tk_post_deploy_smoke.sh + IAM scope expansion in deploy/aws/cloudformation/cicd-oidc.yaml"
+scope: ".github/workflows/deploy-stage0.yml (prod-only) + scripts/tk_post_deploy_smoke.sh + IAM in deploy/aws/cloudformation/cicd-oidc.yaml"
 ---
 
 # Cloud-Agent-Driven Tag-and-Deploy Workflow
@@ -33,8 +33,7 @@ that wraps that SOP. The cloud-agent loop becomes:
 
 ```
 bash scripts/release-tag.sh vX.Y.Z                                 # existing
-gh workflow run deploy-stage0.yml -f environment=test -f tag=X.Y.Z # NEW
-gh workflow run deploy-stage0.yml -f environment=prod -f tag=X.Y.Z # NEW (gated by Environment reviewer)
+gh workflow run deploy-stage0.yml -f tag=X.Y.Z                     # NEW (gated by prod Environment reviewer)
 ```
 
 The workflow only **automates the keystrokes** the operator already runs
@@ -47,9 +46,8 @@ Per `product-dev.mdc` §高风险 — prod-touching automation that:
 
 - **Mutates durable host state**: rewrites `/var/lib/tokenkey/.env` and
   restarts the prod `tokenkey` container.
-- **Expands a security boundary** (Section 3): adds an optional test
-  instance + the `environment:prod` / `environment:test` OIDC subjects to
-  the existing role.
+- **Expands a security boundary** (Section 3): adds the `environment:prod`
+  OIDC subject to the existing role (prod Stage0 deploy only).
 - **Has high blast radius**: a wrong tag, an arch-mismatched image
   (`simple_release=true` amd64-only on Graviton), or an unhealthy
   container after restart all surface as immediate API outage on
@@ -65,10 +63,9 @@ gate, not a convention.
 
 | Field | Before | After |
 |---|---|---|
-| `AllowedSubjects` default | `repo:youxuanxue/sub2api:ref:refs/heads/main` | adds `environment:prod` and `environment:test` |
+| `AllowedSubjects` default | `repo:youxuanxue/sub2api:ref:refs/heads/main` | adds `environment:prod` (and Edge subjects when present in template) |
 | `TargetInstanceId` (prod) | scalar, default `i-04a8afd18c997b8ac` | unchanged |
-| `TestTargetInstanceId` (test) | absent | new optional scalar; empty default suppresses the test IAM statement via `HasTestInstance` condition |
-| `cloudformation:DescribeStacks` resource | `tokenkey-prod-stage0/*` | adds `tokenkey-test-stage0/*` |
+| `cloudformation:DescribeStacks` resource | `tokenkey-prod-stage0/*` | unchanged for prod-only deploy |
 | `ssm:SendCommand` resource | `AWS-RunShellScript` only | unchanged (still no `ec2:`, `iam:`, `s3:`) |
 | Role name | `tokenkey-gha-${AWS::Region}-error-clustering` | unchanged (back-compat with `vars.AWS_OIDC_ROLE_ARN` consumers) |
 
@@ -84,25 +81,24 @@ Inputs:
 
 | Name | Type | Default | Notes |
 |---|---|---|---|
-| `environment` | choice `test|prod` | required | selects stack name **and** binds the OIDC subject |
 | `tag` | string | required | image tag without leading `v`; must match `^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+|-beta\.[0-9]+)?$` |
 | `simple_release_override` | bool | `false` | flip only when the target host is amd64 (default-deny against the §9.1 Graviton trap) |
 
+The job always binds GitHub Environment **`prod`** (OIDC subject `environment:prod`).
+
 Steps:
 
-1. **Validate `tag` regex + resolve stack name** (defaults
-   `tokenkey-{prod,test}-stage0`, overridable via repo vars
-   `PROD_STACK_NAME` / `TEST_STACK_NAME`).
+1. **Validate `tag` regex + resolve stack name** (default
+   `tokenkey-prod-stage0`, overridable via repo var `PROD_STACK_NAME`).
 2. **GHCR multi-arch manifest precheck** — fetch
    `https://ghcr.io/v2/${repo}/manifests/${tag}`, require a manifest list
    containing both `linux/amd64` and `linux/arm64` descriptors. Fail-closed
    unless `simple_release_override=true`. This is the §9.1 trap rebuilt as
    a hard gate at deploy time.
 3. **Configure AWS credentials via OIDC** — `aws-actions/configure-aws-credentials@v4`,
-   role from `vars.AWS_OIDC_ROLE_ARN`. The job-level
-   `environment: ${{ inputs.environment }}` binding (a) adds the subject
-   the IAM trust requires, (b) pauses for any reviewer rule configured on
-   that Environment (Section 5).
+   role from `vars.AWS_OIDC_ROLE_ARN`. The job-level **`environment: prod`**
+   binding (a) adds the subject the IAM trust requires, (b) pauses for any
+   reviewer rule configured on the prod Environment (Section 5).
 4. **Resolve target instance + api domain** from the stack's
    `InstanceId` / `ApiUrl` outputs.
 5. **Deploy via SSM Run-Command** — same commands as
@@ -128,7 +124,7 @@ Steps:
    one-liner re-dispatch command for rollback. No auto-rollback (would
    mask transient failures).
 
-Concurrency `group: deploy-stage0-${{ inputs.environment }}`,
+Concurrency `group: deploy-stage0-prod`,
 `cancel-in-progress: false`. Permissions `contents: read`,
 `id-token: write`, `packages: read`. No `contents: write`.
 
@@ -136,29 +132,27 @@ Concurrency `group: deploy-stage0-${{ inputs.environment }}`,
 
 After this PR merges, before the first dispatch:
 
-1. **Update the IAM stack**:
+1. **Update the IAM stack** (drop any legacy `TestTargetInstanceId` overrides from older templates):
+
    ```bash
    aws cloudformation deploy --region us-east-1 \
      --stack-name tokenkey-cicd-oidc \
      --template-file deploy/aws/cloudformation/cicd-oidc.yaml \
-     --capabilities CAPABILITY_NAMED_IAM \
-     --parameter-overrides TestTargetInstanceId=<test-instance-id>
+     --capabilities CAPABILITY_NAMED_IAM
    ```
-   `AllowedSubjects` already defaults to the broader set; no override
-   needed. Pass `TestTargetInstanceId=` empty if test deploys are not
-   wanted yet.
 
-2. **Create GitHub Environments** in repo Settings → Environments:
-   - `prod`: enable **Required reviewers** (yourself) + a small **Wait
-     timer** (e.g. 60 s).
-   - `test`: no protection rules needed.
+   `AllowedSubjects` defaults include `environment:prod` and Edge environments as shipped in the template.
+
+2. **Create GitHub Environment** in repo Settings → Environments:
+
+   - `prod`: enable **Required reviewers** (yourself) + a small **Wait timer** (e.g. 60 s).
 
    GitHub auto-creates Environments on first reference — so this step is
    what *adds the reviewer gate*, not what makes the workflow runnable.
    **Skipping it means prod deploys run unattended.**
 
 3. **(Optional) Override repo variables** if defaults don't fit:
-   `vars.PROD_STACK_NAME`, `vars.TEST_STACK_NAME`, `vars.AWS_REGION`.
+   `vars.PROD_STACK_NAME`, `vars.AWS_REGION`.
 
 4. **Repository secret `POST_DEPLOY_SMOKE_API_KEY`** — a TokenKey user API key
    (`sk-...`) that can authenticate to the gateway at the stack's `ApiUrl`
@@ -173,8 +167,8 @@ To stay on "automate the existing manual SOP" and nothing else:
 - **No DB migrations / schema bumps** — only restarts the `tokenkey`
   container; PostgreSQL / Redis / Caddy are untouched.
 - **No multi-region** — role scoped to one `AWS::Region`.
-- **No automatic test → prod promotion** — operator (or cloud agent on
-  operator instructions) explicitly dispatches each environment.
+- **No separate staging promotion gate inside Actions** — `deploy-stage0.yml`
+  upgrades **`prod` only**; smoke probes target that stack's `ApiUrl`.
 - **No auto-rollback** — re-dispatch the workflow with the previous tag.
 - **No CFN `ImageTag` parameter mutation** — drift between the CFN
   parameter and runtime `TOKENKEY_IMAGE` remains the accepted trade-off
@@ -187,8 +181,8 @@ If the workflow misbehaves after merge:
 - **Disable**: Settings → Actions → "Stage0 Deploy" → Disable. Operators
   fall back to the manual SOP in `deploy/aws/README.md` §生产升级 SOP
   (kept intact for this case).
-- **Revert IAM**: re-deploy `cicd-oidc.yaml` with `TestTargetInstanceId=""`
-  and `AllowedSubjects="repo:youxuanxue/sub2api:ref:refs/heads/main"`.
+- **Revert IAM**: re-deploy `cicd-oidc.yaml` from this repo revision or tighten
+  `AllowedSubjects="repo:youxuanxue/sub2api:ref:refs/heads/main"` if needed.
   Role ARN does not change, so `prod-ops.yml` diagnostics are unaffected.
 - **No data migration** — nothing in this PR writes durable state.
 
@@ -212,16 +206,8 @@ Step 6.
 ## 9. Status
 
 - [x] Proposal merged (PR #53, 2026-04-24)
-- [x] IAM stack redeployed (`TestTargetInstanceId` left empty — no test
-      stack today; `AllowedSubjects` updated to include `environment:prod`
-      / `environment:test` subjects)
 - [x] GitHub Environment `prod` created with Required reviewers
-- [x] GitHub Environment `test` created (no protection rules)
-- [ ] First successful test deploy — **deferred**: no `tokenkey-test-stage0`
-      stack provisioned today. When the test stack is created, the path
-      is `gh workflow run deploy-stage0.yml -f environment=test -f tag=…`
-      (workflow currently fails-fast at the stack-resolve step, which is
-      the correct behavior for a missing test stack).
+- [x] **`deploy-stage0.yml` prod-only** — GitHub `environment=test` path removed (template defaults dropped `environment:test` OIDC subject and test-instance IAM stub).
 - [x] First successful prod deploy via `gh workflow run` —
       [run 24872412714](https://github.com/youxuanxue/sub2api/actions/runs/24872412714)
       (env=prod, tag=1.6.0, external `/health` HTTP 200)

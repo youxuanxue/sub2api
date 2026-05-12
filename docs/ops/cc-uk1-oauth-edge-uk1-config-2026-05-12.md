@@ -106,4 +106,4 @@ edge 上的分组配置对称：`platform=anthropic`、`sticky_routing_mode=auto
 
 - 代码层调用链 / 函数 / sentinel 细节 → [审计文档](./cc-uk1-oauth-edge-uk1-sticky-audit-2026-05-12.md)
 - new-api / OpenAI / Gemini 等其他平台的分组配置
-- edge-us1 / sg1 / fra1（当前未部署）
+- edge-us1 / sg1（当前未部署）；fra1（法国巴黎，`api-fra1.tokenkey.dev`）见 `deploy/aws/README.md` Edge 小节
