@@ -206,6 +206,7 @@ jobs:
           EDGE_SSM_PREFIX: ${{ steps.edge.outputs.ssm_prefix }}
           MAIN_GATEWAY_BASE_URL: ${{ vars.EDGE_MAIN_GATEWAY_BASE_URL }}
           MAIN_GATEWAY_EDGE_SMOKE_API_KEY: ${{ secrets.MAIN_GATEWAY_EDGE_SMOKE_API_KEY }}
+          POST_DEPLOY_SMOKE_CHAT_MODEL: ${{ vars.POST_DEPLOY_SMOKE_CHAT_MODEL || 'claude-sonnet-4-6' }}
         run: bash scripts/tk_edge_post_deploy_smoke.sh
 
       - name: Job summary

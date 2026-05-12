@@ -39,6 +39,12 @@
 #                                           configured account is known to
 #                                           emit reasoning_tokens).
 #
+# Main Anthropic-compat probes (/v1/chat/completions + /v1/messages):
+#   POST_DEPLOY_SMOKE_CHAT_MODEL  if set: must equal some .data[].id from
+#                                 GET /v1/models under the smoke API key.
+#                                 Overrides the default heuristic (prefer a
+#                                 model id matching /claude/i, else first list id).
+#
 # Never prints the full API key. Requires curl + jq on PATH.
 set -euo pipefail
 
@@ -137,6 +143,16 @@ if [[ -z "${model}" ]] || [[ "${model}" == "null" ]]; then
   echo "tk_post_deploy_smoke: no model id in /v1/models" >&2
   jq . "$tmpdir/models.json" >&2 || true
   exit 1
+fi
+
+chat_model_override="${POST_DEPLOY_SMOKE_CHAT_MODEL:-}"
+if [[ -n "${chat_model_override}" ]]; then
+  if ! jq -e --arg m "${chat_model_override}" '(.data // []) | any(.id == $m)' "$tmpdir/models.json" >/dev/null 2>&1; then
+    echo "tk_post_deploy_smoke: POST_DEPLOY_SMOKE_CHAT_MODEL='${chat_model_override}' not listed in GET /v1/models for this key" >&2
+    jq -r '(.data // [])[] | .id' "$tmpdir/models.json" >&2 || true
+    exit 1
+  fi
+  model="${chat_model_override}"
 fi
 echo "tk_post_deploy_smoke: using model=${model}"
 

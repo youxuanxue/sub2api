@@ -130,6 +130,9 @@ jobs:
         env:
           TOKENKEY_BASE_URL: ${{ steps.instance.outputs.api_url }}
           POST_DEPLOY_SMOKE_API_KEY: ${{ secrets.POST_DEPLOY_SMOKE_API_KEY }}
+          # Fixed model for Claude chat + Messages probes (must appear in smoke key GET /v1/models).
+          # Override repo Actions variable POST_DEPLOY_SMOKE_CHAT_MODEL; default aligns with prod smoke posture.
+          POST_DEPLOY_SMOKE_CHAT_MODEL: ${{ vars.POST_DEPLOY_SMOKE_CHAT_MODEL || 'claude-sonnet-4-6' }}
           # Required: api_key bound to a gemini-platform group (e.g. gemini-pa).
           # Exercises the Anthropic→Gemini tool-schema cleanup against real Google
           # upstream (const/propertyNames/exclusiveMinimum Draft 2020 keywords).

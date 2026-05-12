@@ -125,6 +125,7 @@ start_epoch="$(date -u +%s)"
 TOKENKEY_BASE_URL="${MAIN_GATEWAY_BASE_URL}" \
 POST_DEPLOY_SMOKE_SKIP_FRONTEND=1 \
 POST_DEPLOY_SMOKE_API_KEY="${MAIN_GATEWAY_EDGE_SMOKE_API_KEY}" \
+POST_DEPLOY_SMOKE_CHAT_MODEL="${POST_DEPLOY_SMOKE_CHAT_MODEL:-}" \
 bash scripts/tk_post_deploy_smoke.sh
 
 log_cmd="sudo docker logs tokenkey-caddy --since 5m 2>&1 | tail -200 || true; sudo docker logs tokenkey --since 5m 2>&1 | tail -200 || true; echo smoke_start_epoch=${start_epoch}"
