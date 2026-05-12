@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "rationale": "Load-bearing TokenKey-only frontend surfaces that anchor admin-UI behavior diverging from upstream defaults — sidebar geometry (TK uses a narrower w-44 rail vs upstream w-64), the fluid table mode used on /admin/accounts (no horizontal scroll, cells wrap), per-page sticky-edge-hints opt-out, and the control-plane login policy that does not depend on Turnstile. These are the kinds of small TK changes that get silently reverted by upstream merges precisely because they're small and local; the registry upgrades the rule from `agent must remember` to `merge will fail`. Source-of-truth read by both `scripts/preflight.sh` (frontend TK sentinel registry section, always) and `.github/workflows/upstream-merge-pr-shape.yml` (frontend TK sentinels check, on `merge/upstream-*` PRs). Adding a new TK-only frontend surface that must survive upstream merges MUST add a sentinel here in the same commit. Sibling registries: `newapi-sentinels.json` (fifth-platform integration), `brand-sentinels.json` (outward TK brand surfaces).",
+  "rationale": "Load-bearing TokenKey-only frontend surfaces that anchor admin-UI behavior diverging from upstream defaults — sidebar geometry (TK uses a narrower w-44 rail vs upstream w-64), the fluid table mode used on /admin/accounts (no horizontal scroll, cells wrap), per-page sticky-edge-hints opt-out, and the control-plane login policy that does not depend on Turnstile. These are the kinds of small TK changes that get silently reverted by upstream merges precisely because they're small and local; the registry upgrades the rule from `agent must remember` to `merge will fail`. Source-of-truth read by both `scripts/preflight.sh` (frontend TK sentinel registry section, always) and `.github/workflows/upstream-merge-pr-shape.yml` (frontend TK sentinels check, on `merge/upstream-*` PRs). Adding a new TK-only frontend surface that must survive upstream merges MUST add a sentinel here in the same commit. Sibling registries: `newapi-sentinels.json` (fifth-platform integration), `brand-sentinels.json` (outward TK brand surfaces). This file now also guards upstream payment-surface carry-ins that touch shared admin/i18n/style hotspots during upstream merges; updating those hotspots in merge PRs requires explicit sentinel-registry rationale refresh to keep the gate mechanical.",
   "sentinels": [
     {
       "path": "frontend/src/constants/layout.ts",
@@ -129,9 +129,11 @@
     {
       "path": "frontend/src/style.css",
       "must_contain": [
-        "@apply bg-gray-50 text-base text-gray-900 dark:bg-dark-950 dark:text-gray-100;"
+        "@apply bg-gray-50 text-base text-gray-900 dark:bg-dark-950 dark:text-gray-100;",
+        ".btn-airwallex",
+        "@apply dark:bg-[#7AF0C4] dark:text-gray-950"
       ],
-      "rationale": "The compact Tailwind scale must apply to default body copy, not only explicit text-* utilities. Without body text-base, unclassed prose and third-party/default text remain at browser 16px while classed UI shrinks, producing inconsistent density after upstream merges that still compile."
+      "rationale": "The compact Tailwind scale must apply to default body copy, not only explicit text-* utilities. Without body text-base, unclassed prose and third-party/default text remain at browser 16px while classed UI shrinks, producing inconsistent density after upstream merges that still compile. This file now also anchors the Airwallex CTA visual contract (dark-mode high-contrast variant) used by the new payment flow; missing these literals compiles but silently regresses operator/user affordance."
     },
     {
       "path": "frontend/src/views/auth/LoginView.vue",
@@ -173,25 +175,33 @@
         "admin.settings.gatewayForwarding.stickyRouting",
         "form.sticky_routing_enabled",
         "admin.settings.gatewayForwarding.anthropicCacheTTL1hInjection",
-        "form.enable_anthropic_cache_ttl_1h_injection"
+        "form.enable_anthropic_cache_ttl_1h_injection",
+        "settingsTabKeyboardActions",
+        "handleSettingsTabKeydown",
+        "value: \"airwallex\"",
+        "providerAirwallex"
       ],
-      "rationale": "The request-forwarding settings card is a large upstream-shaped admin page. Global prompt-cache sticky routing and Anthropic Cache TTL 1h injection both compile cleanly if their toggles are dropped from the template while the backend settings still exist, leaving operators unable to configure the account-safety/cache controls from the UI."
+      "rationale": "The request-forwarding settings card is a large upstream-shaped admin page. Global prompt-cache sticky routing and Anthropic Cache TTL 1h injection both compile cleanly if their toggles are dropped from the template while the backend settings still exist, leaving operators unable to configure the account-safety/cache controls from the UI. This file now also carries two additional load-bearing TokenKey surfaces from the upstream merge: keyboard-accessible tab navigation (ARIA + arrow/home/end handlers) and Airwallex provider wiring in the payment-provider option lists; both can be silently reverted by template/script overwrites while keeping builds green."
     },
     {
       "path": "frontend/src/i18n/locales/zh.ts",
       "must_contain": [
         "stickyRouting: 'Prompt Cache 粘性路由'",
-        "anthropicCacheTTL1hInjection: 'Anthropic Cache TTL 1h 注入'"
+        "anthropicCacheTTL1hInjection: 'Anthropic Cache TTL 1h 注入'",
+        "providerAirwallex: 'Airwallex'",
+        "airwallex: 'Airwallex'"
       ],
-      "rationale": "Chinese admin settings labels must keep the global sticky and Anthropic Cache TTL 1h controls discoverable. Missing locale keys render raw i18n paths in the operator UI and made this control appear broken in the edge-uk1 mitigation workflow."
+      "rationale": "Chinese admin settings labels must keep the global sticky and Anthropic Cache TTL 1h controls discoverable. Missing locale keys render raw i18n paths in the operator UI and made this control appear broken in the edge-uk1 mitigation workflow. The Airwallex provider/method labels are also load-bearing for operator payment configuration and user recharge selection; upstream locale merges can drop them silently while code still compiles."
     },
     {
       "path": "frontend/src/i18n/locales/en.ts",
       "must_contain": [
         "stickyRouting: 'Prompt Cache Sticky Routing'",
-        "anthropicCacheTTL1hInjection: 'Anthropic Cache TTL 1h Injection'"
+        "anthropicCacheTTL1hInjection: 'Anthropic Cache TTL 1h Injection'",
+        "providerAirwallex: 'Airwallex'",
+        "airwallex: 'Airwallex'"
       ],
-      "rationale": "English admin settings labels must stay in sync with the global sticky and Anthropic Cache TTL 1h controls so upstream locale merges cannot silently regress one language while the template still compiles."
+      "rationale": "English admin settings labels must stay in sync with the global sticky and Anthropic Cache TTL 1h controls so upstream locale merges cannot silently regress one language while the template still compiles. The Airwallex provider/method labels are likewise load-bearing for admin payment setup and frontend method rendering."
     }
   ]
 }
