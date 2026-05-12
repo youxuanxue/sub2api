@@ -107,9 +107,11 @@
     {
       "path": "backend/internal/service/gateway_service.go",
       "must_contain": [
-        "tkEnsureClaudeCodeSessionHeader(req.Header, body, c)"
+        "tkEnsureClaudeCodeSessionHeader(req.Header, body, c)",
+        "logger.WriteSinkEvent(\"info\", \"http.access.sticky\", \"sticky.hash_source\"",
+        "\"session_hash_short\": shortSessionHash(sessionHash)"
       ],
-      "rationale": "Main gateway upstream builders must invoke unified TK Claude session-header sync after API-key passthrough, OAuth forward, and count_tokens forward paths diverge upstream merge conflicts."
+      "rationale": "Main gateway upstream builders must invoke unified TK Claude session-header sync after API-key passthrough, OAuth forward, and count_tokens forward paths diverge upstream merge conflicts. Sticky-source sink event emission is also load-bearing for prod request_id/client_request_id evidence correlation."
     },
     {
       "path": "backend/internal/handler/gateway_helper.go",
@@ -123,9 +125,11 @@
       "path": "backend/internal/handler/gateway_handler_tk_selection.go",
       "must_contain": [
         "TkPrepareParsedRequestSessionInputs",
-        "ExplicitStickyKey = service.StickyKeyFromClientHeaders(c.Request.Header)"
+        "ExplicitStickyKey = service.StickyKeyFromClientHeaders(c.Request.Header)",
+        "parsedReq.RequestID = strings.TrimSpace(requestID)",
+        "parsedReq.ClientRequestID = strings.TrimSpace(clientRequestID)"
       ],
-      "rationale": "/v1/messages and compat ingress must populate ExplicitStickyKey from whitelist headers including X-Claude-Code-Session-Id forwarded from an upstream sibling before GenerateSessionHash; dropping this TK helper route breaks sticky without compile errors."
+      "rationale": "/v1/messages and compat ingress must populate ExplicitStickyKey from whitelist headers including X-Claude-Code-Session-Id forwarded from an upstream sibling before GenerateSessionHash; it must also copy request_id/client_request_id into ParsedRequest so sticky-source sink events can be correlated in ops_system_logs."
     },
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_anthropic.go",

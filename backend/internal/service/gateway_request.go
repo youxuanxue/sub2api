@@ -76,6 +76,8 @@ type ParsedRequest struct {
 	OutputEffort      string          // output_config.effort（Claude API 的推理强度控制）
 	MaxTokens         int             // max_tokens 值（用于探测请求拦截）
 	SessionContext    *SessionContext // 可选：请求上下文区分因子（nil 时行为不变）
+	RequestID         string
+	ClientRequestID   string
 
 	// GroupID 请求所属分组 ID（来自 API Key）
 	GroupID *int64

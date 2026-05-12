@@ -313,9 +313,8 @@ jobs:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
         run: |
           set -euo pipefail
-          GREP_B64=$(printf '%s' "$INPUT_GREP" | base64 -w0 2>/dev/null \
-            || printf '%s' "$INPUT_GREP" | base64 | tr -d '\n')
-          export GREP_B64
+          export GREP_B64="$(printf '%s' "$INPUT_GREP" | base64 -w0 2>/dev/null \
+            || printf '%s' "$INPUT_GREP" | base64 | tr -d '\n')"
 
           python3 - <<'PY' > ssm-params.json
           import json

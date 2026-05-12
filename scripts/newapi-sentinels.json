@@ -24,18 +24,18 @@
     },
     {
       "path": "backend/internal/service/gateway_request.go",
-      "must_contain": ["ExplicitStickyKey", "PromptCacheKey", "prompt_cache_key"],
-      "rationale": "ParsedRequest must preserve explicit sticky identity and top-level prompt_cache_key so the Anthropic edge ingress can consume prod-forwarded sticky signals without reparsing or falling back to message content."
+      "must_contain": ["ExplicitStickyKey", "PromptCacheKey", "prompt_cache_key", "RequestID", "ClientRequestID"],
+      "rationale": "ParsedRequest must preserve explicit sticky identity and top-level prompt_cache_key so the Anthropic edge ingress can consume prod-forwarded sticky signals without reparsing or falling back to message content; request correlation IDs are also load-bearing inputs for sticky-source evidence indexing."
     },
     {
       "path": "backend/internal/service/gateway_service.go",
-      "must_contain": ["parsed.ExplicitStickyKey.Value", "StickyKeySourceClientPromptCacheKey", "message_content_fallback"],
-      "rationale": "Anthropic GenerateSessionHash must prefer metadata.user_id, then explicit headers, then prompt_cache_key before the message-content fallback. Losing this priority recreates the max_sessions exhaustion incident on edge OAuth accounts."
+      "must_contain": ["parsed.ExplicitStickyKey.Value", "StickyKeySourceClientPromptCacheKey", "message_content_fallback", "logger.WriteSinkEvent(\"info\", \"http.access.sticky\", \"sticky.hash_source\"", "\"client_request_id\":  parsed.ClientRequestID"],
+      "rationale": "Anthropic GenerateSessionHash must prefer metadata.user_id, then explicit headers, then prompt_cache_key before the message-content fallback. Losing this priority recreates the max_sessions exhaustion incident on edge OAuth accounts. The sticky-source sink event emission is also load-bearing for request-id based production debugging."
     },
     {
       "path": "backend/internal/handler/gateway_handler_tk_selection.go",
-      "must_contain": ["TkPrepareParsedRequestSessionInputs", "StickyKeyFromClientHeaders", "SessionContext"],
-      "rationale": "Anthropic handlers share this TK companion to populate group, explicit sticky headers, and context before account selection. Without the shared hook, /v1/messages or count_tokens can skip the prod-forwarded sticky identity."
+      "must_contain": ["TkPrepareParsedRequestSessionInputs", "StickyKeyFromClientHeaders", "SessionContext", "parsedReq.RequestID = strings.TrimSpace(requestID)", "parsedReq.ClientRequestID = strings.TrimSpace(clientRequestID)"],
+      "rationale": "Anthropic handlers share this TK companion to populate group, explicit sticky headers, and context before account selection. Without the shared hook, /v1/messages or count_tokens can skip the prod-forwarded sticky identity. Request correlation IDs are part of the same load-bearing contract for sticky-source observability evidence."
     },
     {
       "path": "backend/internal/service/openai_messages_dispatch_tk_newapi.go",
