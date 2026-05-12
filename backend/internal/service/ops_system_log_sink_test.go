@@ -60,6 +60,20 @@ func TestOpsSystemLogSink_ShouldIndex(t *testing.T) {
 			want: true,
 		},
 		{
+			name:  "sticky access component",
+			event: &logger.LogEvent{Level: "info", Component: "http.access.sticky"},
+			want:  true,
+		},
+		{
+			name: "sticky access component from fields",
+			event: &logger.LogEvent{
+				Level:     "info",
+				Component: "service.gateway",
+				Fields:    map[string]any{"component": "http.access.sticky"},
+			},
+			want: true,
+		},
+		{
 			name:  "plain info",
 			event: &logger.LogEvent{Level: "info", Component: "app"},
 			want:  false,

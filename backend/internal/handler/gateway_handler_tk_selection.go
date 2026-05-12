@@ -2,7 +2,9 @@ package handler
 
 import (
 	"context"
+	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -43,5 +45,11 @@ func TkPrepareParsedRequestSessionInputs(c *gin.Context, apiKey *service.APIKey,
 		ClientIP:  ip.GetClientIP(c),
 		UserAgent: c.GetHeader("User-Agent"),
 		APIKeyID:  apiKey.ID,
+	}
+	if requestID, _ := c.Request.Context().Value(ctxkey.RequestID).(string); strings.TrimSpace(requestID) != "" {
+		parsedReq.RequestID = strings.TrimSpace(requestID)
+	}
+	if clientRequestID, _ := c.Request.Context().Value(ctxkey.ClientRequestID).(string); strings.TrimSpace(clientRequestID) != "" {
+		parsedReq.ClientRequestID = strings.TrimSpace(clientRequestID)
 	}
 }

@@ -663,6 +663,15 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 		return ""
 	}
 
+	recordStickyHashSource := func(source string, sessionHash string) {
+		logger.WriteSinkEvent("info", "http.access.sticky", "sticky.hash_source", map[string]any{
+			"request_id":         parsed.RequestID,
+			"client_request_id":  parsed.ClientRequestID,
+			"source":             source,
+			"session_hash_short": shortSessionHash(sessionHash),
+		})
+	}
+
 	// Anthropic ingress keeps real client metadata.user_id above gateway-forwarded sticky headers.
 	if parsed.MetadataUserID != "" {
 		uid := ParseMetadataUserID(parsed.MetadataUserID)
@@ -673,6 +682,7 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 				"device_id", uid.DeviceID,
 				"is_new_format", uid.IsNewFormat,
 			)
+			recordStickyHashSource("metadata_user_id", uid.SessionID)
 			return uid.SessionID
 		}
 		slog.Info("sticky.hash_metadata_parse_failed",
@@ -687,6 +697,7 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 			"source", parsed.ExplicitStickyKey.Source,
 			"hash", hash,
 		)
+		recordStickyHashSource(parsed.ExplicitStickyKey.Source, hash)
 		return hash
 	}
 
@@ -696,6 +707,7 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 			"source", StickyKeySourceClientPromptCacheKey,
 			"hash", hash,
 		)
+		recordStickyHashSource(StickyKeySourceClientPromptCacheKey, hash)
 		return hash
 	}
 
@@ -707,6 +719,7 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 			"source", "cacheable_content",
 			"hash", hash,
 		)
+		recordStickyHashSource("cacheable_content", hash)
 		return hash
 	}
 
@@ -753,6 +766,7 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 			"hash", hash,
 			"content_len", combined.Len(),
 		)
+		recordStickyHashSource("message_content_fallback", hash)
 		return hash
 	}
 
