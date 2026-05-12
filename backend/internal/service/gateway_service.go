@@ -1705,6 +1705,11 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 									if s.debugModelRoutingEnabled() {
 										logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] routed sticky hit: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), stickyAccountID)
 									}
+									if s.cache != nil {
+										// 与 Layer 1.5 无 routing 路径（line ~1905）对称，命中即刷 TTL，
+										// 避免长 session 跨 1h 静默过期导致 prompt cache 击穿。
+										_ = s.cache.RefreshSessionTTL(ctx, derefGroupID(groupID), sessionHash, stickySessionTTL)
+									}
 									return s.newSelectionResult(ctx, stickyAccount, true, result.ReleaseFunc, nil)
 								}
 							}
@@ -3065,6 +3070,8 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 							if s.debugModelRoutingEnabled() {
 								logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] legacy routed sticky hit: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), accountID)
 							}
+							// sticky hit 刷 TTL，对齐 Layer 1.5 路径，避免长 session 静默过期。
+							_ = s.cache.RefreshSessionTTL(ctx, derefGroupID(groupID), sessionHash, stickySessionTTL)
 							return account, nil
 						}
 					}
@@ -3181,6 +3188,8 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 						_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 					}
 					if !clearSticky && s.isAccountInGroup(account, groupID) && account.Platform == platform && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) {
+						// sticky hit 刷 TTL，对齐 Layer 1.5 路径，避免长 session 静默过期。
+						_ = s.cache.RefreshSessionTTL(ctx, derefGroupID(groupID), sessionHash, stickySessionTTL)
 						return account, nil
 					}
 				}
@@ -3324,6 +3333,8 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 								if s.debugModelRoutingEnabled() {
 									logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] legacy mixed routed sticky hit: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), accountID)
 								}
+								// sticky hit 刷 TTL，对齐 Layer 1.5 路径，避免长 session 静默过期。
+								_ = s.cache.RefreshSessionTTL(ctx, derefGroupID(groupID), sessionHash, stickySessionTTL)
 								return account, nil
 							}
 						}
@@ -3442,6 +3453,8 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 					}
 					if !clearSticky && s.isAccountInGroup(account, groupID) && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) && !s.isStickyAccountUpstreamRestricted(ctx, groupID, account, requestedModel) {
 						if account.Platform == nativePlatform || (account.Platform == PlatformAntigravity && account.IsMixedSchedulingEnabled()) {
+							// sticky hit 刷 TTL，对齐 Layer 1.5 路径，避免长 session 静默过期。
+							_ = s.cache.RefreshSessionTTL(ctx, derefGroupID(groupID), sessionHash, stickySessionTTL)
 							return account, nil
 						}
 					}
@@ -6244,6 +6257,11 @@ func (s *GatewayService) buildUpstreamRequestAnthropicVertex(
 	req.Header.Del("anthropic-version")
 	setHeaderRaw(req.Header, "authorization", "Bearer "+token)
 	setHeaderRaw(req.Header, "content-type", "application/json")
+
+	// 与 buildUpstreamRequest / API-Key passthrough / count_tokens 路径一致：
+	// 保持多跳 sticky 身份（X-Claude-Code-Session-Id）。即使 Vertex 后端不识别此 header，
+	// 也能让 prod→sibling-gateway 形态下的下一跳保留稳定 sticky key。
+	tkEnsureClaudeCodeSessionHeader(req.Header, vertexBody, c)
 
 	s.debugLogGatewaySnapshot("UPSTREAM_FORWARD_VERTEX_ANTHROPIC", req.Header, vertexBody, map[string]string{
 		"url":        req.URL.String(),

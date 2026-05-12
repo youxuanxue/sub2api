@@ -108,10 +108,11 @@
       "path": "backend/internal/service/gateway_service.go",
       "must_contain": [
         "tkEnsureClaudeCodeSessionHeader(req.Header, body, c)",
+        "tkEnsureClaudeCodeSessionHeader(req.Header, vertexBody, c)",
         "logger.WriteSinkEvent(\"info\", \"http.access.sticky\", \"sticky.hash_source\"",
         "\"session_hash_short\": shortSessionHash(sessionHash)"
       ],
-      "rationale": "Main gateway upstream builders must invoke unified TK Claude session-header sync after API-key passthrough, OAuth forward, and count_tokens forward paths diverge upstream merge conflicts. Sticky-source sink event emission is also load-bearing for prod request_id/client_request_id evidence correlation."
+      "rationale": "Main gateway upstream builders must invoke unified TK Claude session-header sync after API-key passthrough, OAuth forward, count_tokens forward, and Vertex Anthropic forward paths diverge upstream merge conflicts. Sticky-source sink event emission is also load-bearing for prod request_id/client_request_id evidence correlation."
     },
     {
       "path": "backend/internal/handler/gateway_helper.go",
