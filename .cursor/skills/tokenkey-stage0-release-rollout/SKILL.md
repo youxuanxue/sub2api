@@ -87,6 +87,7 @@ description: >-
 - **`gh run watch` 要给够时间**：多架构 `release.yml` 常见十余分钟量级；Agent 应用 `--exit-status` 跟跑到结束，不要用默认短超时提前杀掉。
 - **Environment approval 不是失败**：`prod` / `edge-<edge_id>` run 卡在 `waiting` 时，需要人在 GitHub Actions 批准；批准后继续 watch。
 - **完整烟测密钥**：优先使用环境里已有的 smoke key，避免停下来向用户索要 key；详见 prod smoke 与 Edge smoke 章节。
+- **部署前先校验 OIDC 目标实例**：`tokenkey-cicd-oidc` 的 `TargetInstanceId` 必须等于 `tokenkey-prod-stage0` 当前 `InstanceId`；不一致会在 `Deploy via SSM Run-Command` 直接 `AccessDenied(ssm:SendCommand)`。
 - **禁止 `simple_release_override=true`**：prod / Edge 当前都跑 AWS Graviton arm64；单架构 manifest 会导致 `exec format error`。
 
 ## 前置条件
@@ -180,9 +181,9 @@ gh workflow run deploy-edge-stage0.yml \
 3. 取矩阵第一个 deployable Edge 作为 canary：dispatch `deploy-edge-stage0.yml operation=upgrade tag=$TARGET_TAG`，watch 到 success。
 4. 检查 canary Edge smoke 结果：external health、public runner relay path block、SSM self-smoke；若失败，停，不推进 prod，除非用户明确 override。
 5. 推进 prod deploy：优先使用 release 自动 queue 的 prod run；没有则手动 dispatch。watch 到 success。
-6. 做 prod 完整 smoke（见下文）。
+6. 做 prod 完整 smoke（见下文）；若仅因 `POST_DEPLOY_SMOKE_CHAT_MODEL` 不在当前 key 的 `/v1/models` 可见列表而失败，先把对应 Environment 变量改到可见模型（如 `gpt-5.5`）再重跑，不要误判为发布回归。
 7. 对 canary Edge 再 dispatch `operation=smoke`，做 prod 升级后的 main-gateway-via-edge 验证；若缺 `MAIN_GATEWAY_EDGE_SMOKE_API_KEY`，只可标记“infra smoke 通过，主网关经 Edge 业务 smoke 未覆盖”。
-8. 其余 deployable Edge 顺序 upgrade + smoke；失败即停。
+8. 其余 deployable Edge 顺序 upgrade + smoke；默认优先 `claude-sonnet-4-6`，若该 edge/key 不可见则切到该 key 的可见模型并重跑一次；失败即停。
 
 ## prod 真实测试
 
@@ -312,6 +313,8 @@ git diff --diff-filter=D --name-only "${PREV_TAG}..${NEW_TAG}" -- backend/ || tr
 | Edge `confirm_stack` mismatch | 停止；检查 `deploy/aws/stage0/edge-targets.json`，不要手改成别的栈名绕过。 |
 | Edge smoke 403 | public runner 访问 `/v1/models` 403 是预期；主网关来源 403 才查 `EDGE_MAIN_GATEWAY_ALLOWED_CIDR` 与 prod EIP。 |
 | `gh run watch` 被工具超时打断 | 用同一 run id 再执行 `gh run watch <id> --exit-status` 接到终态。 |
+| prod `Deploy via SSM Run-Command` 报 `AccessDenied(ssm:SendCommand)` | 先核对 `tokenkey-cicd-oidc` 的 `TargetInstanceId` 是否等于 `tokenkey-prod-stage0` 当前 `InstanceId`；不一致先更新 OIDC 栈参数再重跑 deploy。 |
+| prod smoke 报 `POST_DEPLOY_SMOKE_CHAT_MODEL not listed in GET /v1/models` | 不是代码回归，改 `prod` Environment 的 `POST_DEPLOY_SMOKE_CHAT_MODEL` 为该 key 可见模型（如 `gpt-5.5`）后重跑。 |
 
 ## 扩展阅读（按需打开）
 
