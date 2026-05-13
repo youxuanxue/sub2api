@@ -167,7 +167,7 @@ Resources:
                     - ssm:SendCommand
                   Resource:
                     - !Sub "arn:aws:ec2:${EdgeUk1Region}:${AWS::AccountId}:instance/${EdgeUk1TargetInstanceId}"
-                    - !Sub "arn:aws:ssm:${AWS::Region}::document/AWS-RunShellScript"
+                    - !Sub "arn:aws:ssm:${EdgeUk1Region}::document/AWS-RunShellScript"
                 - !Ref AWS::NoValue
               - !If
                 - HasEdgeFra1Instance
@@ -177,7 +177,7 @@ Resources:
                     - ssm:SendCommand
                   Resource:
                     - !Sub "arn:aws:ec2:${EdgeFra1Region}:${AWS::AccountId}:instance/${EdgeFra1TargetInstanceId}"
-                    - !Sub "arn:aws:ssm:${AWS::Region}::document/AWS-RunShellScript"
+                    - !Sub "arn:aws:ssm:${EdgeFra1Region}::document/AWS-RunShellScript"
                 - !Ref AWS::NoValue
               - Sid: ReadCommandResult
                 Effect: Allow
