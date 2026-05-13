@@ -184,6 +184,10 @@ gh workflow run deploy-edge-stage0.yml \
 6. 做 prod 完整 smoke（见下文）；若仅因 `POST_DEPLOY_SMOKE_CHAT_MODEL` 不在当前 key 的 `/v1/models` 可见列表而失败，先把对应 Environment 变量改到可见模型（如 `gpt-5.5`）再重跑，不要误判为发布回归。
 7. 对 canary Edge 再 dispatch `operation=smoke`，做 prod 升级后的 main-gateway-via-edge 验证；若缺 `MAIN_GATEWAY_EDGE_SMOKE_API_KEY`，只可标记“infra smoke 通过，主网关经 Edge 业务 smoke 未覆盖”。
 8. 其余 deployable Edge 顺序 upgrade + smoke；默认优先 `claude-sonnet-4-6`，若该 edge/key 不可见则切到该 key 的可见模型并重跑一次；失败即停。
+9. **自动轻量 Diagnostics（all 默认搭配）**：all rollout 完成后自动 dispatch `.github/workflows/post-release-light-diagnostics.yml`（默认 `target_selector=all`），该 workflow 会按固定节奏触发两次 `ops-daily-diagnostics.yml operation=diagnostics`：
+   - 第一次：+5min，`diagnostics_log_since=20m`（覆盖发版前后）。
+   - 第二次：+1h，`diagnostics_log_since=2h`（覆盖发版前后）。
+   - 两次都用 `diagnostics_include_error_clustering=false`，仅做 runtime/health 轻量巡检。
 
 ## prod 真实测试
 
@@ -265,6 +269,22 @@ gh workflow run deploy-edge-stage0.yml \
 
 prod smoke 失败：停，优先 rollback prod；不要继续 Edge rollout。Edge canary 失败：停，不批准/推进 prod，除非用户明确 override。
 
+### 触发 all 后置轻量 Diagnostics（自动）
+
+all rollout 验收完成后执行：
+
+```bash
+gh workflow run post-release-light-diagnostics.yml \
+  -f target_selector=all
+```
+
+该 workflow 默认：
+
+- +5min dispatch 一次轻量 diagnostics（`diagnostics_log_since=20m`）
+- +1h dispatch 一次轻量 diagnostics（`diagnostics_log_since=2h`）
+
+如需自定义延时/窗口，可覆写：`first_delay_minutes`、`first_window`、`second_delay_minutes`、`second_window`。
+
 ## 完成后：rollout 摘要
 
 烟测全部完成后，运行以下命令，整理本次 release 变更：
@@ -322,6 +342,7 @@ git diff --diff-filter=D --name-only "${PREV_TAG}..${NEW_TAG}" -- backend/ || tr
 - `.github/workflows/release.yml` — multi-arch image build 与 prod auto-dispatch。
 - `.github/workflows/deploy-stage0.yml` — prod deploy。
 - `.github/workflows/deploy-edge-stage0.yml` — Edge upgrade/smoke/rollback。
+- `.github/workflows/post-release-light-diagnostics.yml` — all rollout 后 +5min/+1h 自动 dispatch 轻量 diagnostics。
 - `scripts/tk_post_deploy_smoke.sh` — prod 完整 smoke。
 - `scripts/tk_edge_post_deploy_smoke.sh` — Edge smoke wrapper。
 - `deploy/aws/README.md` — Stage0、Edge、多区域升级 SOP。
