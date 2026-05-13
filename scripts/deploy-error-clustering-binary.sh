@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the error_clustering binary inside a transient golang:1.26-alpine
 # container on the prod EC2 host (Graviton arm64), then install it to
-# /usr/local/bin/error_clustering. The Prod Ops error clustering job then
+# /usr/local/bin/error_clustering. The Ops Daily Diagnostics error clustering job then
 # invokes it via SSM + a transient docker container attached to the
 # tokenkey_default network.
 #

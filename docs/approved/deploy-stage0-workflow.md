@@ -69,7 +69,7 @@ gate, not a convention.
 | `ssm:SendCommand` resource | `AWS-RunShellScript` only | unchanged (still no `ec2:`, `iam:`, `s3:`) |
 | Role name | `tokenkey-gha-${AWS::Region}-error-clustering` | unchanged (back-compat with `vars.AWS_OIDC_ROLE_ARN` consumers) |
 
-`prod-ops.yml` continues to cover both error clustering and prod log dump
+`ops-daily-diagnostics.yml` continues to cover both error clustering and prod log dump
 because the `main` branch subject is preserved.
 
 ## 4. Workflow shape
@@ -183,7 +183,7 @@ If the workflow misbehaves after merge:
   (kept intact for this case).
 - **Revert IAM**: re-deploy `cicd-oidc.yaml` from this repo revision or tighten
   `AllowedSubjects="repo:youxuanxue/sub2api:ref:refs/heads/main"` if needed.
-  Role ARN does not change, so `prod-ops.yml` diagnostics are unaffected.
+  Role ARN does not change, so `ops-daily-diagnostics.yml` diagnostics are unaffected.
 - **No data migration** — nothing in this PR writes durable state.
 
 ## 8. Acceptance criteria
@@ -195,7 +195,7 @@ gates fire correctly and the regression check holds:
    non-existent `tag` (e.g. `99.99.99`), or with a single-arch tag from a
    `simple_release=true` build, exits the run **before** any SSM command
    is sent.
-2. **Existing OIDC consumers unaffected**: `prod-ops.yml` error clustering
+2. **Existing OIDC consumers unaffected**: `ops-daily-diagnostics.yml` error clustering
    and log dump runs after the IAM stack update succeed (regression check on
    the trust expansion).
 

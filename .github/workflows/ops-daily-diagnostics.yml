@@ -1,4 +1,4 @@
-name: Prod Ops
+name: Ops Daily Diagnostics
 
 # Canonical production and Edge diagnostics entry point.
 # Read-only diagnostics may reach prod/Edge through GHA → AWS STS (OIDC) → SSM.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # scripts/fetch-prod-logs.sh — Cloud-Agent-friendly wrapper that triggers
-# the `prod-ops.yml` workflow on GitHub and downloads the resulting log dump
+# the `ops-daily-diagnostics.yml` workflow on GitHub and downloads the resulting log dump
 # `logs.txt` artifact.
 #
 # Companion to scripts/fetch-prod-error-clusters.sh. Same architecture
@@ -54,7 +54,7 @@ GREP_PATTERN="${GREP_PATTERN:-}"
 TAIL_LINES="${TAIL_LINES:-1000}"
 OUT_DIR="${OUT_DIR:-./.prod-logs}"
 POLL_TIMEOUT_S="${POLL_TIMEOUT_S:-600}"
-WORKFLOW="prod-ops.yml"
+WORKFLOW="ops-daily-diagnostics.yml"
 
 MODE="run"
 if [ "${1:-}" = "--check" ]; then

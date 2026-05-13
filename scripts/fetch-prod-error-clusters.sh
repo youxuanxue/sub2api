@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # scripts/fetch-prod-error-clusters.sh — Cloud-Agent-friendly wrapper that
-# triggers the `prod-ops.yml` workflow on GitHub and downloads its error
+# triggers the `ops-daily-diagnostics.yml` workflow on GitHub and downloads its error
 # clustering artifact (`report.json` + `report.md`) to a local directory.
 #
 # Why this exists (path 2 of "let Cloud Agent read prod logs"):
@@ -47,7 +47,7 @@ GH_REPO="${GH_REPO:-youxuanxue/sub2api}"
 SINCE_HOURS="${SINCE_HOURS:-24}"
 OUT_DIR="${OUT_DIR:-./.error-clusters}"
 POLL_TIMEOUT_S="${POLL_TIMEOUT_S:-600}"
-WORKFLOW="prod-ops.yml"
+WORKFLOW="ops-daily-diagnostics.yml"
 
 MODE="run"
 if [ "${1:-}" = "--check" ]; then
