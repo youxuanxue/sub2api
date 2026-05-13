@@ -16,12 +16,12 @@ Parameters:
     Description: GitHub <owner>/<repo> allowed to assume the role.
   AllowedSubjects:
     Type: CommaDelimitedList
-    Default: "repo:youxuanxue/sub2api:ref:refs/heads/main,repo:youxuanxue/sub2api:environment:prod,repo:youxuanxue/sub2api:environment:edge-uk1,repo:youxuanxue/sub2api:environment:edge-fra1"
+    Default: "repo:youxuanxue/sub2api:ref:refs/heads/main,repo:youxuanxue/sub2api:environment:prod,repo:youxuanxue/sub2api:environment:edge-uk1,repo:youxuanxue/sub2api:environment:edge-fra1,repo:youxuanxue/sub2api:environment:edge-us1"
     Description: >-
       Full OIDC sub claims (StringLike patterns) allowed to assume the role.
       Default allows main (for ops-daily-diagnostics.yml),
       environment:prod (for deploy-stage0.yml), and
-      environment:edge-uk1 / environment:edge-fra1 (Edge Stage0). The Environment
+      environment:edge-uk1 / environment:edge-fra1 / environment:edge-us1 (Edge Stage0). The Environment
       binding is what makes reviewer gates load-bearing on the AWS side, not
       just GitHub UI cosmetic. Temporarily add e.g.
       "repo:youxuanxue/sub2api:ref:refs/heads/feature/clustering-oidc-ssm"
@@ -64,6 +64,21 @@ Parameters:
       statement; fill this with the stack output InstanceId before running
       deploy-edge-stage0 upgrade/smoke/rollback for fra1.
 
+  EdgeUs1Region:
+    Type: String
+    Default: us-west-2
+    AllowedPattern: "^[a-z]{2}-[a-z]+-[0-9]+$"
+    Description: AWS region for the us1 Edge Stage0 stack.
+  EdgeUs1TargetInstanceId:
+    Type: String
+    Default: ""
+    AllowedPattern: "^(i-[0-9a-f]{8,17})?$"
+    Description: >-
+      Optional us1 Edge EC2 instance the role may send SSM commands to after
+      tokenkey-edge-us1-stage0 is provisioned. Empty suppresses the us1 SSM
+      statement; fill this with the stack output InstanceId before running
+      deploy-edge-stage0 upgrade/smoke/rollback for us1.
+
   CreateOIDCProvider:
     Type: String
     Default: "true"
@@ -82,6 +97,7 @@ Conditions:
   HasProdInstance: !Not [!Equals [!Ref TargetInstanceId, ""]]
   HasEdgeUk1Instance: !Not [!Equals [!Ref EdgeUk1TargetInstanceId, ""]]
   HasEdgeFra1Instance: !Not [!Equals [!Ref EdgeFra1TargetInstanceId, ""]]
+  HasEdgeUs1Instance: !Not [!Equals [!Ref EdgeUs1TargetInstanceId, ""]]
 
 Resources:
   GitHubOIDCProvider:
@@ -145,6 +161,7 @@ Resources:
                 Resource:
                   - !GetAtt EdgeUk1CloudFormationExecutionRole.Arn
                   - !GetAtt EdgeFra1CloudFormationExecutionRole.Arn
+                  - !GetAtt EdgeUs1CloudFormationExecutionRole.Arn
         - PolicyName: SsmSendCommandStage0
           PolicyDocument:
             Version: "2012-10-17"
@@ -179,6 +196,16 @@ Resources:
                     - !Sub "arn:aws:ec2:${EdgeFra1Region}:${AWS::AccountId}:instance/${EdgeFra1TargetInstanceId}"
                     - !Sub "arn:aws:ssm:${EdgeFra1Region}::document/AWS-RunShellScript"
                 - !Ref AWS::NoValue
+              - !If
+                - HasEdgeUs1Instance
+                - Sid: SendRunShellScriptEdgeUs1
+                  Effect: Allow
+                  Action:
+                    - ssm:SendCommand
+                  Resource:
+                    - !Sub "arn:aws:ec2:${EdgeUs1Region}:${AWS::AccountId}:instance/${EdgeUs1TargetInstanceId}"
+                    - !Sub "arn:aws:ssm:${EdgeUs1Region}::document/AWS-RunShellScript"
+                - !Ref AWS::NoValue
               - Sid: ReadCommandResult
                 Effect: Allow
                 Action:
@@ -195,6 +222,7 @@ Resources:
                   - !Sub "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/tokenkey-prod-stage0/*"
                   - !Sub "arn:aws:cloudformation:${EdgeUk1Region}:${AWS::AccountId}:stack/tokenkey-edge-uk1-stage0/*"
                   - !Sub "arn:aws:cloudformation:${EdgeFra1Region}:${AWS::AccountId}:stack/tokenkey-edge-fra1-stage0/*"
+                  - !Sub "arn:aws:cloudformation:${EdgeUs1Region}:${AWS::AccountId}:stack/tokenkey-edge-us1-stage0/*"
               - Sid: DeployEdgeUk1Stack
                 Effect: Allow
                 Action:
@@ -215,6 +243,16 @@ Resources:
                   - cloudformation:GetTemplateSummary
                 Resource:
                   - !Sub "arn:aws:cloudformation:${EdgeFra1Region}:${AWS::AccountId}:stack/tokenkey-edge-fra1-stage0/*"
+              - Sid: DeployEdgeUs1Stack
+                Effect: Allow
+                Action:
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:GetTemplateSummary
+                Resource:
+                  - !Sub "arn:aws:cloudformation:${EdgeUs1Region}:${AWS::AccountId}:stack/tokenkey-edge-us1-stage0/*"
               - Sid: PassEdgeCloudFormationExecutionRoles
                 Effect: Allow
                 Action:
@@ -222,6 +260,7 @@ Resources:
                 Resource:
                   - !GetAtt EdgeUk1CloudFormationExecutionRole.Arn
                   - !GetAtt EdgeFra1CloudFormationExecutionRole.Arn
+                  - !GetAtt EdgeUs1CloudFormationExecutionRole.Arn
       Tags:
         - Key: Project
           Value: tokenkey
@@ -412,6 +451,98 @@ Resources:
         - Key: EdgeId
           Value: fra1
 
+  EdgeUs1CloudFormationExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "tokenkey-cfn-${EdgeUs1Region}-edge-us1-stage0"
+      Description: >-
+        CloudFormation execution role for tokenkey-edge-us1-stage0. GitHub
+        Actions may pass this role, but does not receive direct EC2/IAM
+        provisioning permissions.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ProvisionEdgeUs1Resources
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:CreateVpc
+                  - ec2:DeleteVpc
+                  - ec2:ModifyVpcAttribute
+                  - ec2:CreateInternetGateway
+                  - ec2:DeleteInternetGateway
+                  - ec2:AttachInternetGateway
+                  - ec2:DetachInternetGateway
+                  - ec2:CreateSubnet
+                  - ec2:DeleteSubnet
+                  - ec2:ModifySubnetAttribute
+                  - ec2:CreateRouteTable
+                  - ec2:DeleteRouteTable
+                  - ec2:CreateRoute
+                  - ec2:DeleteRoute
+                  - ec2:AssociateRouteTable
+                  - ec2:DisassociateRouteTable
+                  - ec2:CreateSecurityGroup
+                  - ec2:DeleteSecurityGroup
+                  - ec2:AuthorizeSecurityGroupIngress
+                  - ec2:RevokeSecurityGroupIngress
+                  - ec2:AllocateAddress
+                  - ec2:ReleaseAddress
+                  - ec2:AssociateAddress
+                  - ec2:DisassociateAddress
+                  - ec2:RunInstances
+                  - ec2:TerminateInstances
+                  - ec2:StartInstances
+                  - ec2:StopInstances
+                  - ec2:CreateVolume
+                  - ec2:DeleteVolume
+                  - ec2:AttachVolume
+                  - ec2:DetachVolume
+                  - ec2:ModifyInstanceAttribute
+                  - ec2:CreateTags
+                  - ec2:DeleteTags
+                  - ec2:Describe*
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:GetRole
+                  - iam:TagRole
+                  - iam:UntagRole
+                  - iam:PassRole
+                  - iam:AttachRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:PutRolePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:CreateInstanceProfile
+                  - iam:DeleteInstanceProfile
+                  - iam:TagInstanceProfile
+                  - iam:UntagInstanceProfile
+                  - iam:AddRoleToInstanceProfile
+                  - iam:RemoveRoleFromInstanceProfile
+                  - iam:GetInstanceProfile
+                  - iam:ListInstanceProfilesForRole
+                  - ssm:PutParameter
+                  - ssm:DeleteParameter
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                  - cloudwatch:PutMetricAlarm
+                  - cloudwatch:DeleteAlarms
+                  - cloudwatch:DescribeAlarms
+                Resource: "*"
+      Tags:
+        - Key: Project
+          Value: tokenkey
+        - Key: ManagedBy
+          Value: cloudformation
+        - Key: EdgeId
+          Value: us1
+
 Outputs:
   RoleArn:
     Description: ARN to set as GitHub repo variable AWS_OIDC_ROLE_ARN.
@@ -428,3 +559,8 @@ Outputs:
     Value: !GetAtt EdgeFra1CloudFormationExecutionRole.Arn
     Export:
       Name: !Sub "${AWS::StackName}-EdgeFra1CloudFormationExecutionRoleArn"
+  EdgeUs1CloudFormationExecutionRoleArn:
+    Description: CloudFormation execution role for tokenkey-edge-us1-stage0.
+    Value: !GetAtt EdgeUs1CloudFormationExecutionRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-EdgeUs1CloudFormationExecutionRoleArn"

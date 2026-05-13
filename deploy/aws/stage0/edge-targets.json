@@ -19,7 +19,7 @@
       "purpose": "uk-egress-sample"
     },
     "us1": {
-      "deployable": false,
+      "deployable": true,
       "profile": "edge-minimal",
       "region": "us-west-2",
       "domain": "api-us1.tokenkey.dev",

@@ -13,9 +13,10 @@ on:
         type: choice
         options:
           # Keep in sync with cicd-oidc AllowedSubjects (environment:edge-*) + CFN execution role mapping below.
-          # Planned edges (us1/sg1) remain in edge-targets.json until bootstrap widens IAM + adds GitHub Environments.
+          # Planned edges remain in edge-targets.json until bootstrap widens IAM + adds GitHub Environments.
           - uk1
           - fra1
+          - us1
       operation:
         description: "Operation to run. provision creates/updates CFN; upgrade only changes image tag via SSM; smoke verifies."
         required: true
@@ -146,6 +147,7 @@ jobs:
           case "${EDGE_ID}" in
             uk1) CFN_ROLE_OUTPUT_KEY=EdgeUk1CloudFormationExecutionRoleArn ;;
             fra1) CFN_ROLE_OUTPUT_KEY=EdgeFra1CloudFormationExecutionRoleArn ;;
+            us1) CFN_ROLE_OUTPUT_KEY=EdgeUs1CloudFormationExecutionRoleArn ;;
             *)
               echo "::error::edge_id ${EDGE_ID} has no CloudFormation execution role mapping in deploy-edge-stage0.yml"
               exit 1
