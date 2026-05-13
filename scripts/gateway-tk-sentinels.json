@@ -135,9 +135,10 @@
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_anthropic.go",
       "must_contain": [
-        "chatReq[\"metadata\"] = json.RawMessage(req.Metadata)"
+        "chatReq[\"metadata\"] = json.RawMessage(req.Metadata)",
+        "chatBody = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, chatBody, upstreamModel)"
       ],
-      "rationale": "Anthropic-shaped requests converted to Chat Completions must preserve metadata blobs so Claude Code identities survive OpenAI-compat bridge paths during scheduling."
+      "rationale": "Anthropic-shaped requests converted to Chat Completions must preserve metadata blobs and apply unified sticky injection so Claude Code identities and session affinity survive OpenAI-compat bridge paths during scheduling."
     }
   ]
 }

@@ -93,6 +93,7 @@ func (s *GatewayService) ForwardAsChatCompletionsDispatched(
 		return s.ForwardAsChatCompletions(ctx, c, account, body, parsed)
 	}
 	recordBridgeDispatch()
+	body = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, body, "")
 	auth := bridgeAuthFromGin(c)
 	in := newAPIBridgeChannelInput(account, auth.UserID, auth.GroupName)
 	if strings.TrimSpace(in.APIKey) == "" {
@@ -143,6 +144,7 @@ func (s *GatewayService) ForwardAsResponsesDispatched(
 		return s.ForwardAsResponses(ctx, c, account, body, parsed)
 	}
 	recordBridgeDispatch()
+	body = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, body, "")
 	auth := bridgeAuthFromGin(c)
 	in := newAPIBridgeChannelInput(account, auth.UserID, auth.GroupName)
 	if strings.TrimSpace(in.APIKey) == "" {
