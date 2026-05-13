@@ -19,7 +19,7 @@ Parameters:
     Default: "repo:youxuanxue/sub2api:ref:refs/heads/main,repo:youxuanxue/sub2api:environment:prod,repo:youxuanxue/sub2api:environment:edge-uk1,repo:youxuanxue/sub2api:environment:edge-fra1"
     Description: >-
       Full OIDC sub claims (StringLike patterns) allowed to assume the role.
-      Default allows main (for error-clustering-daily.yml + prod-log-dump.yml),
+      Default allows main (for ops-daily-diagnostics.yml),
       environment:prod (for deploy-stage0.yml), and
       environment:edge-uk1 / environment:edge-fra1 (Edge Stage0). The Environment
       binding is what makes reviewer gates load-bearing on the AWS side, not
@@ -117,7 +117,7 @@ Resources:
         on the prod EC2 instance. Originally scoped
         to error-clustering only - name retained for back-compat with
         vars.AWS_OIDC_ROLE_ARN consumers; current consumers include
-        error-clustering-daily.yml, prod-log-dump.yml, and deploy-stage0.yml.
+        ops-daily-diagnostics.yml and deploy-stage0.yml.
       MaxSessionDuration: 3600
       AssumeRolePolicyDocument:
         Version: "2012-10-17"

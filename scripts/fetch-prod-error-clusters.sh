@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # scripts/fetch-prod-error-clusters.sh — Cloud-Agent-friendly wrapper that
-# triggers the `prod-ops.yml` workflow on GitHub and downloads its error
+# triggers the `ops-daily-diagnostics.yml` workflow on GitHub and downloads its error
 # clustering artifact (`report.json` + `report.md`) to a local directory.
 #
 # Why this exists (path 2 of "let Cloud Agent read prod logs"):
@@ -47,7 +47,7 @@ GH_REPO="${GH_REPO:-youxuanxue/sub2api}"
 SINCE_HOURS="${SINCE_HOURS:-24}"
 OUT_DIR="${OUT_DIR:-./.error-clusters}"
 POLL_TIMEOUT_S="${POLL_TIMEOUT_S:-600}"
-WORKFLOW="prod-ops.yml"
+WORKFLOW="ops-daily-diagnostics.yml"
 
 MODE="run"
 if [ "${1:-}" = "--check" ]; then
@@ -87,14 +87,16 @@ dispatch_workflow_and_download_artifact \
   "$GH_REPO" \
   "$WORKFLOW" \
   "$POLL_TIMEOUT_S" \
-  'error-clustering-{run_id}' \
+  'prod-ops-report-{run_id}' \
   "$OUT_DIR" \
   -f "operation=error_clustering" \
+  -f "target_selector=prod" \
   -f "since_hours=$SINCE_HOURS"
 
-if [ -s "$OUT_DIR/report.json" ]; then
-  SUMMARY=$(jq -r '.summary // "(no summary field)"' "$OUT_DIR/report.json" 2>/dev/null || echo "(report.json not parseable)")
+if [ -s "$OUT_DIR/ops-report.json" ]; then
+  SUMMARY=$(jq -r '.summary // "(no summary field)"' "$OUT_DIR/ops-report.json" 2>/dev/null || echo "(ops-report.json not parseable)")
   log "summary: $SUMMARY"
+  jq -r '.findings[]? | select(.kind | test("error_cluster|error_clustering")) | "[\(.status)] \(.target_id): \(.summary)"' "$OUT_DIR/ops-report.json" 2>/dev/null || true
 fi
 
 if [ "$GH_WORKFLOW_WATCH_RC" -ne 0 ]; then
