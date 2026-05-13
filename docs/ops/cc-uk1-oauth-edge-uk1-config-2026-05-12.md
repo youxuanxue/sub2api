@@ -77,10 +77,18 @@ edge 上挂的账号（如 `cc-en-ld-ec2-16-1-a`）是真要把流量送到 Anth
 |---|---|
 | 账号类型 | **Anthropic OAuth**（真 OAuth，不是 API Key） |
 | Session ID Masking | ✅ 勾上 |
-| Fingerprint | ✅ 勾上 |
+| TLS 指纹伪装 | ✅ 勾上 |
+| TLS 指纹模板 | **固定模板**（优先 `claude_cli_v2` 或内置默认），❌ 不选随机模板 |
+| Concurrency | **1**（最多 2） |
+| Max Sessions | **1**（最多 2） |
+| Base RPM | **3～4** |
+| RPM Sticky Buffer | **1** |
+| User Message Queue Mode | `serialize`（串行） |
+| Session Idle Timeout Minutes | `8`（可保持默认） |
+
+> 目标是“更像普通程序员使用 Claude Code CLI”：TLS 模板负责网络握手形态；`Concurrency / Sessions / RPM / serialize` 决定请求节奏。
 
 edge 上的分组配置对称：`platform=anthropic`、`sticky_routing_mode=auto`、`claude_code_only=true`、`model_routing_enabled=false`。
-
 ## ⑤ 验证
 
 用一台装了 claude code CLI 的机器，配置 base URL 指向 `https://api.tokenkey.dev` + 你的 `tk_xxx` key，跑一个简单对话：
