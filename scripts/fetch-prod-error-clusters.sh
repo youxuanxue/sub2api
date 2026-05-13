@@ -87,14 +87,16 @@ dispatch_workflow_and_download_artifact \
   "$GH_REPO" \
   "$WORKFLOW" \
   "$POLL_TIMEOUT_S" \
-  'error-clustering-{run_id}' \
+  'prod-ops-report-{run_id}' \
   "$OUT_DIR" \
   -f "operation=error_clustering" \
+  -f "target_selector=prod" \
   -f "since_hours=$SINCE_HOURS"
 
-if [ -s "$OUT_DIR/report.json" ]; then
-  SUMMARY=$(jq -r '.summary // "(no summary field)"' "$OUT_DIR/report.json" 2>/dev/null || echo "(report.json not parseable)")
+if [ -s "$OUT_DIR/ops-report.json" ]; then
+  SUMMARY=$(jq -r '.summary // "(no summary field)"' "$OUT_DIR/ops-report.json" 2>/dev/null || echo "(ops-report.json not parseable)")
   log "summary: $SUMMARY"
+  jq -r '.findings[]? | select(.kind | test("error_cluster|error_clustering")) | "[\(.status)] \(.target_id): \(.summary)"' "$OUT_DIR/ops-report.json" 2>/dev/null || true
 fi
 
 if [ "$GH_WORKFLOW_WATCH_RC" -ne 0 ]; then

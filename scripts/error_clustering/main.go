@@ -47,8 +47,8 @@ type report struct {
 
 func main() {
 	var (
-		sinceHours int
-		outputPath string
+		sinceHours   int
+		outputPath   string
 		markdownPath string
 	)
 	flag.IntVar(&sinceHours, "since-hours", 24, "lookback window in hours")
@@ -89,6 +89,16 @@ func main() {
 		LIMIT 20
 	`, since, until.Add(-7*24*time.Hour))
 	if err != nil {
+		if isMissingQARecords(err) {
+			rep := emptyReport(until, since, fmt.Sprintf("skip: qa_records missing (%dh window)", sinceHours))
+			if writeErr := writeJSON(outputPath, rep); writeErr != nil {
+				exitf("write json: %v", writeErr)
+			}
+			if writeErr := writeMarkdown(markdownPath, rep); writeErr != nil {
+				exitf("write markdown: %v", writeErr)
+			}
+			return
+		}
 		exitf("query qa_records: %v", err)
 	}
 	defer rows.Close()
@@ -135,6 +145,20 @@ func main() {
 	if err := writeMarkdown(markdownPath, rep); err != nil {
 		exitf("write markdown: %v", err)
 	}
+}
+
+func emptyReport(until time.Time, since time.Time, summary string) report {
+	rep := report{}
+	rep.ReportPeriod.Since = since.Format(time.RFC3339)
+	rep.ReportPeriod.Until = until.Format(time.RFC3339)
+	rep.Summary = summary
+	return rep
+}
+
+func isMissingQARecords(err error) bool {
+	message := err.Error()
+	return strings.Contains(message, `relation "qa_records" does not exist`) ||
+		strings.Contains(message, `relation "public.qa_records" does not exist`)
 }
 
 func writeJSON(path string, value any) error {

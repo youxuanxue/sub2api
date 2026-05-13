@@ -1,7 +1,9 @@
 name: Prod Ops
 
-# Canonical production diagnostics entry point. Both operations use the same
-# GHA → AWS STS (OIDC) → SSM Run-Command → prod EC2 path.
+# Canonical production and Edge diagnostics entry point.
+# Read-only diagnostics may reach prod/Edge through GHA → AWS STS (OIDC) → SSM.
+# Issue creation is isolated from AWS credentials; this workflow never deploys,
+# rolls back, edits secrets, writes code, pushes branches, or creates PRs.
 
 on:
   schedule:
@@ -11,11 +13,16 @@ on:
       operation:
         description: Which prod operation to run
         required: true
-        default: error_clustering
+        default: diagnostics
         type: choice
         options:
+          - diagnostics
           - error_clustering
           - log_dump
+      target_selector:
+        description: "Diagnostics target selector: all, prod, edge:*, or edge:<id>. log_dump supports prod only."
+        required: false
+        default: all
       since_hours:
         description: Error clustering lookback window in hours
         required: false
@@ -43,39 +50,103 @@ on:
         required: false
         default: "1000"
 
+permissions:
+  contents: read
+
 jobs:
-  error-clustering:
-    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'error_clustering')
+  discover-targets:
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.operation != 'log_dump')
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      id-token: write
-      issues: write
-      pull-requests: write
+      contents: read
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      excluded: ${{ steps.matrix.outputs.excluded }}
+      has_targets: ${{ steps.matrix.outputs.has_targets }}
     env:
-      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
-      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
-      STACK_NAME: ${{ vars.PROD_STACK_NAME || 'tokenkey-prod-stage0' }}
-    concurrency:
-      group: prod-ops-error-clustering
-      cancel-in-progress: false
+      TARGET_SELECTOR: ${{ inputs.target_selector || 'all' }}
+      PROD_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      PROD_STACK: ${{ vars.PROD_STACK_NAME || 'tokenkey-prod-stage0' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+
+      - name: Build diagnostics target matrix
+        id: matrix
+        run: |
+          set -euo pipefail
+          python3 deploy/aws/stage0/resolve-edge-target.py \
+            --prod-ops-matrix \
+            --target-selector "$TARGET_SELECTOR" \
+            --prod-region "$PROD_REGION" \
+            --prod-stack "$PROD_STACK" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Target summary
+        run: |
+          {
+            echo "## Prod Ops targets"
+            echo
+            echo '- selector: `${{ env.TARGET_SELECTOR }}`'
+            echo '- matrix: `${{ steps.matrix.outputs.matrix }}`'
+            echo '- excluded: `${{ steps.matrix.outputs.excluded }}`'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  diagnose-targets:
+    needs: discover-targets
+    if: needs.discover-targets.outputs.has_targets == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.discover-targets.outputs.matrix) }}
+    env:
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      SINCE_HOURS: ${{ inputs.since_hours || '24' }}
+      TARGET_ID: ${{ matrix.target_id }}
+      TARGET_KIND: ${{ matrix.target_kind }}
+      EDGE_ID: ${{ matrix.edge_id }}
+      TARGET_REGION: ${{ matrix.region }}
+      STACK_NAME: ${{ matrix.stack }}
+      TARGET_DOMAIN: ${{ matrix.domain }}
+      SSM_PREFIX: ${{ matrix.ssm_prefix }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Prepare target report directory
+        run: |
+          set -euo pipefail
+          mkdir -p "prod-ops-targets/$TARGET_ID"
+          jq -n \
+            --arg target_id "$TARGET_ID" \
+            --arg target_kind "$TARGET_KIND" \
+            --arg edge_id "$EDGE_ID" \
+            --arg region "$TARGET_REGION" \
+            --arg stack "$STACK_NAME" \
+            --arg domain "$TARGET_DOMAIN" \
+            --arg ssm_prefix "$SSM_PREFIX" \
+            '{target_id:$target_id,target_kind:$target_kind,edge_id:$edge_id,region:$region,stack:$stack,domain:$domain,ssm_prefix:$ssm_prefix}' \
+            > "prod-ops-targets/$TARGET_ID/target.json"
+          : > "prod-ops-targets/$TARGET_ID/findings.jsonl"
+          : > "prod-ops-targets/$TARGET_ID/stdout.txt"
+          : > "prod-ops-targets/$TARGET_ID/stderr.txt"
 
       - name: Precheck OIDC role
         id: precheck
         run: |
+          set -euo pipefail
           if [ -z "${OIDC_ROLE_ARN:-}" ]; then
-            echo "AWS_OIDC_ROLE_ARN repo variable not set; skipping clustering run"
-            cat > report.json <<'EOF'
-          {"summary":"skip: AWS_OIDC_ROLE_ARN missing","clusters":[],"persistent_clusters":[]}
-          EOF
-            cat > report.md <<'EOF'
-          # Error Clustering
-
-          skipped: AWS_OIDC_ROLE_ARN repo variable is not configured
-          EOF
             echo "skip=true" >> "$GITHUB_OUTPUT"
+            jq -n \
+              --arg target_id "$TARGET_ID" \
+              --arg kind "missing_oidc_role" \
+              --arg status "skip" \
+              --arg severity "info" \
+              --arg title "AWS_OIDC_ROLE_ARN is not configured" \
+              --arg summary "Skipping diagnostics because AWS_OIDC_ROLE_ARN repo variable is empty." \
+              '{target_id:$target_id,kind:$kind,status:$status,severity:$severity,title:$title,summary:$summary,signature:$kind}' \
+              >> "prod-ops-targets/$TARGET_ID/findings.jsonl"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
@@ -85,35 +156,140 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ env.OIDC_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: ${{ env.TARGET_REGION }}
 
-      - name: Resolve prod instance ID
-        if: steps.precheck.outputs.skip == 'false'
-        id: instance
-        run: |
-          ID=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
-            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)
-          if [ -z "$ID" ] || [ "$ID" = "None" ]; then
-            echo "could not resolve InstanceId from stack $STACK_NAME" >&2
-            exit 1
-          fi
-          echo "id=$ID" >> "$GITHUB_OUTPUT"
-
-      - name: Run clustering on prod EC2 via SSM
+      - name: Run target diagnostics
         if: steps.precheck.outputs.skip == 'false'
         env:
-          INSTANCE_ID: ${{ steps.instance.outputs.id }}
-          SINCE_HOURS: ${{ inputs.since_hours || '24' }}
+          AWS_REGION: ${{ matrix.region }}
         run: |
           set -euo pipefail
-          if ! printf '%s' "$SINCE_HOURS" | grep -Eq '^[0-9]+$'; then
-            echo "::error::since_hours must be a positive integer, got: $SINCE_HOURS"
-            exit 1
+          OUT="prod-ops-targets/$TARGET_ID"
+          FINDINGS="$OUT/findings.jsonl"
+          STDOUT="$OUT/stdout.txt"
+          STDERR="$OUT/stderr.txt"
+
+          add_finding() {
+            local kind="$1" status="$2" severity="$3" title="$4" summary="$5" signature="${6:-$1}"
+            jq -n \
+              --arg target_id "$TARGET_ID" \
+              --arg kind "$kind" \
+              --arg status "$status" \
+              --arg severity "$severity" \
+              --arg title "$title" \
+              --arg summary "$summary" \
+              --arg signature "$signature" \
+              '{target_id:$target_id,kind:$kind,status:$status,severity:$severity,title:$title,summary:$summary,signature:$signature}' \
+              >> "$FINDINGS"
+          }
+
+          run_aws_text() {
+            local query="$1"
+            aws cloudformation describe-stacks --region "$TARGET_REGION" --stack-name "$STACK_NAME" \
+              --query "$query" --output text 2>>"$STDERR"
+          }
+
+          API_URL=""
+          INSTANCE_ID=""
+          if ! INSTANCE_ID="$(run_aws_text 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue')"; then
+            add_finding "cloudformation_describe" "manual_ops" "error" "Could not describe stack $STACK_NAME" "CloudFormation describe-stacks failed in $TARGET_REGION for $STACK_NAME." "cloudformation|$STACK_NAME"
+          elif [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
+            add_finding "cloudformation_outputs" "manual_ops" "error" "Stack $STACK_NAME has no InstanceId output" "CloudFormation stack is present but InstanceId output is empty." "cloudformation-output|$STACK_NAME|InstanceId"
+          else
+            jq --arg instance_id "$INSTANCE_ID" '. + {instance_id:$instance_id}' "$OUT/target.json" > "$OUT/target.tmp" && mv "$OUT/target.tmp" "$OUT/target.json"
+            if API_URL="$(run_aws_text 'Stacks[0].Outputs[?OutputKey==`ApiUrl`].OutputValue')" && [ -n "$API_URL" ] && [ "$API_URL" != "None" ]; then
+              jq --arg api_url "$API_URL" '. + {api_url:$api_url}' "$OUT/target.json" > "$OUT/target.tmp" && mv "$OUT/target.tmp" "$OUT/target.json"
+            else
+              API_URL="https://$TARGET_DOMAIN"
+              jq --arg api_url "$API_URL" '. + {api_url:$api_url, api_url_source:"domain_fallback"}' "$OUT/target.json" > "$OUT/target.tmp" && mv "$OUT/target.tmp" "$OUT/target.json"
+              add_finding "cloudformation_api_url" "warning" "warning" "Stack $STACK_NAME has no ApiUrl output" "Falling back to https://$TARGET_DOMAIN for external health." "cloudformation-output|$STACK_NAME|ApiUrl"
+            fi
           fi
-          python3 - <<'PY' > ssm-params.json
+
+          if [ -n "$API_URL" ]; then
+            if bash scripts/stage0_external_health.sh "$API_URL" >>"$STDOUT" 2>>"$STDERR"; then
+              add_finding "external_health" "ok" "info" "External health passed for $TARGET_ID" "$API_URL/health returned 200 under 5s." "external-health|$TARGET_ID"
+            else
+              add_finding "external_health" "issue_candidate" "error" "External health failed for $TARGET_ID" "$API_URL/health did not pass the Stage0 external health check." "external-health|$TARGET_ID"
+            fi
+          fi
+
+          if [ "$TARGET_KIND" = "edge" ] && [ -n "$API_URL" ]; then
+            BLOCKED_CODE="$(curl -sS -o "$OUT/edge-blocked.json" -w '%{http_code}' -H 'Authorization: Bearer tk_edge_smoke_should_not_work' "$API_URL/v1/models" 2>>"$STDERR" || echo 000)"
+            if [ "$BLOCKED_CODE" = "403" ]; then
+              add_finding "edge_public_api_block" "ok" "info" "Edge public API block passed for $TARGET_ID" "Public runner /v1/models probe returned HTTP 403." "edge-public-block|$TARGET_ID"
+            else
+              add_finding "edge_public_api_block" "issue_candidate" "error" "Edge public API block failed for $TARGET_ID" "Public runner /v1/models probe returned HTTP $BLOCKED_CODE instead of 403." "edge-public-block|$TARGET_ID|$BLOCKED_CODE"
+            fi
+          fi
+
+          if [ -n "$INSTANCE_ID" ] && [ "$INSTANCE_ID" != "None" ]; then
+            python3 - <<'PY' > "$OUT/runtime-params.json"
+          import json
+          commands = [
+              "set -euo pipefail",
+              "echo ===DOCKER_PS===",
+              "sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env ps || true",
+              "echo ===CONTAINER_HEALTH===",
+              "sudo docker inspect tokenkey --format 'tokenkey_status={{.State.Status}} tokenkey_health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' 2>/dev/null || true",
+              "sudo docker inspect tokenkey-postgres --format 'postgres_status={{.State.Status}}' 2>/dev/null || true",
+              "sudo docker inspect tokenkey-redis --format 'redis_status={{.State.Status}}' 2>/dev/null || true",
+              "sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env exec -T tokenkey wget -qO- http://localhost:8080/health",
+              "echo ===RECENT_ERRORS===",
+              "sudo docker logs tokenkey --since 30m --tail 300 2>&1 | grep -Ei 'panic|fatal|error|traceback|failed|timeout|refused|denied| 5[0-9][0-9] | 429 ' | tail -80 || true",
+          ]
+          print(json.dumps({"commands": commands}))
+          PY
+            if CMD_ID="$(aws ssm send-command --region "$TARGET_REGION" --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript --comment "prod-ops runtime diagnostics target=$TARGET_ID" --parameters "file://$OUT/runtime-params.json" --query 'Command.CommandId' --output text 2>>"$STDERR")"; then
+              echo "runtime ssm command-id=$CMD_ID" >> "$STDOUT"
+              DEADLINE=$(( $(date +%s) + 180 ))
+              STATUS="InProgress"
+              while true; do
+                STATUS="$(aws ssm get-command-invocation --region "$TARGET_REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'Status' --output text 2>/dev/null || echo InProgress)"
+                case "$STATUS" in Success|Failed|TimedOut|Cancelled) break ;; esac
+                [ $(date +%s) -lt $DEADLINE ] || { STATUS=TimedOut; break; }
+                sleep 5
+              done
+              aws ssm get-command-invocation --region "$TARGET_REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'StandardOutputContent' --output text > "$OUT/runtime-stdout.txt" 2>>"$STDERR" || true
+              aws ssm get-command-invocation --region "$TARGET_REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'StandardErrorContent' --output text > "$OUT/runtime-stderr.txt" 2>>"$STDERR" || true
+              tail -c 8192 "$OUT/runtime-stdout.txt" >> "$STDOUT" || true
+              tail -c 4096 "$OUT/runtime-stderr.txt" >> "$STDERR" || true
+              if [ "$STATUS" = "Success" ]; then
+                add_finding "ssm_runtime" "ok" "info" "SSM runtime diagnostics passed for $TARGET_ID" "Docker runtime diagnostics completed on $INSTANCE_ID." "ssm-runtime|$TARGET_ID"
+              else
+                add_finding "ssm_runtime" "manual_ops" "error" "SSM runtime diagnostics failed for $TARGET_ID" "SSM runtime diagnostics finished with status=$STATUS on $INSTANCE_ID." "ssm-runtime|$TARGET_ID|$STATUS"
+              fi
+            else
+              add_finding "ssm_send_command" "manual_ops" "error" "Could not send SSM command for $TARGET_ID" "SSM SendCommand failed for $INSTANCE_ID in $TARGET_REGION." "ssm-send|$TARGET_ID"
+            fi
+
+            if ! printf '%s' "$SINCE_HOURS" | grep -Eq '^[0-9]+$'; then
+              add_finding "error_clustering_input" "manual_ops" "error" "Invalid since_hours input" "since_hours must be a positive integer, got: $SINCE_HOURS" "error-clustering-input|$SINCE_HOURS"
+            else
+              if ! CMD_ID="$(aws ssm send-command --region "$TARGET_REGION" --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript --comment "check error_clustering binary target=$TARGET_ID" --parameters '{"commands":["test -x /usr/local/bin/error_clustering"]}' --query 'Command.CommandId' --output text 2>>"$STDERR")"; then
+                add_finding "error_clustering_binary_check" "manual_ops" "error" "Could not check error_clustering binary for $TARGET_ID" "SSM SendCommand failed while checking /usr/local/bin/error_clustering." "error-clustering-binary-check|$TARGET_ID"
+              else
+                DEADLINE=$(( $(date +%s) + 60 ))
+                BIN_STATUS="InProgress"
+                while true; do
+                  BIN_STATUS="$(aws ssm get-command-invocation --region "$TARGET_REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'Status' --output text 2>/dev/null || echo InProgress)"
+                  case "$BIN_STATUS" in Success|Failed|TimedOut|Cancelled) break ;; esac
+                  [ $(date +%s) -lt $DEADLINE ] || { BIN_STATUS=TimedOut; break; }
+                  sleep 3
+                done
+                if [ "$BIN_STATUS" != "Success" ]; then
+                  echo "error_clustering binary missing or not executable on $TARGET_ID (status=$BIN_STATUS); installing" >> "$STDOUT"
+                  if STACK="$STACK_NAME" AWS_REGION="$TARGET_REGION" AWS_SSM_WAIT_MAX=600 bash scripts/deploy-error-clustering-binary.sh >>"$STDOUT" 2>>"$STDERR"; then
+                    add_finding "error_clustering_binary" "ok" "info" "Installed error_clustering binary for $TARGET_ID" "Diagnostic binary was missing and was installed successfully." "error-clustering-binary|$TARGET_ID"
+                  else
+                    add_finding "error_clustering_binary" "manual_ops" "error" "Could not install error_clustering binary for $TARGET_ID" "scripts/deploy-error-clustering-binary.sh failed for $STACK_NAME in $TARGET_REGION." "error-clustering-binary|$TARGET_ID|install-failed"
+                  fi
+                fi
+              fi
+
+              python3 - <<'PY' > "$OUT/error-clustering-params.json"
           import json
           import os
-
           since_hours = os.environ["SINCE_HOURS"]
           commands = [
               "set -euo pipefail",
@@ -136,109 +312,427 @@ jobs:
           ]
           print(json.dumps({"commands": commands}))
           PY
-
-          CMD_ID=$(aws ssm send-command \
-            --instance-ids "$INSTANCE_ID" \
-            --document-name AWS-RunShellScript \
-            --comment "error-clustering daily run ${SINCE_HOURS}h" \
-            --parameters file://ssm-params.json \
-            --query 'Command.CommandId' --output text)
-          echo "ssm command-id=$CMD_ID"
-
-          DEADLINE=$(( $(date +%s) + 240 ))
-          while true; do
-            STATUS=$(aws ssm get-command-invocation \
-              --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
-              --query 'Status' --output text 2>/dev/null || echo InProgress)
-            case "$STATUS" in Success|Failed|TimedOut|Cancelled) break ;; esac
-            [ $(date +%s) -lt $DEADLINE ] || { echo "ssm timeout" >&2; STATUS=TimedOut; break; }
-            sleep 6
-          done
-
-          aws ssm get-command-invocation \
-            --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
-            --query 'StandardOutputContent' --output text > stdout.txt
-          aws ssm get-command-invocation \
-            --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
-            --query 'StandardErrorContent' --output text > stderr.txt
-
-          if [ "$STATUS" != "Success" ]; then
-            echo "::error::ssm command status=$STATUS"
-            echo '--- stderr ---'; cat stderr.txt
-            echo '--- stdout ---'; cat stdout.txt
-            exit 1
+              if CMD_ID="$(aws ssm send-command --region "$TARGET_REGION" --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript --comment "error-clustering target=$TARGET_ID ${SINCE_HOURS}h" --parameters "file://$OUT/error-clustering-params.json" --query 'Command.CommandId' --output text 2>>"$STDERR")"; then
+                echo "error_clustering ssm command-id=$CMD_ID" >> "$STDOUT"
+                DEADLINE=$(( $(date +%s) + 240 ))
+                CLUSTER_STATUS="InProgress"
+                while true; do
+                  CLUSTER_STATUS="$(aws ssm get-command-invocation --region "$TARGET_REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'Status' --output text 2>/dev/null || echo InProgress)"
+                  case "$CLUSTER_STATUS" in Success|Failed|TimedOut|Cancelled) break ;; esac
+                  [ $(date +%s) -lt $DEADLINE ] || { CLUSTER_STATUS=TimedOut; break; }
+                  sleep 6
+                done
+                aws ssm get-command-invocation --region "$TARGET_REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'StandardOutputContent' --output text > "$OUT/error-clustering-stdout.txt" 2>>"$STDERR" || true
+                aws ssm get-command-invocation --region "$TARGET_REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'StandardErrorContent' --output text > "$OUT/error-clustering-stderr.txt" 2>>"$STDERR" || true
+                tail -c 4096 "$OUT/error-clustering-stderr.txt" >> "$STDERR" || true
+                if [ "$CLUSTER_STATUS" != "Success" ]; then
+                  add_finding "error_clustering_run" "manual_ops" "error" "Error clustering failed for $TARGET_ID" "SSM error clustering finished with status=$CLUSTER_STATUS." "error-clustering|$TARGET_ID|$CLUSTER_STATUS"
+                elif ! grep -q '^===END_REPORT_JSON===$' "$OUT/error-clustering-stdout.txt" || ! grep -q '^===END_REPORT_MD===$' "$OUT/error-clustering-stdout.txt"; then
+                  BYTES="$(wc -c < "$OUT/error-clustering-stdout.txt")"
+                  add_finding "error_clustering_markers" "issue_candidate" "error" "Error clustering output was truncated for $TARGET_ID" "SSM stdout did not contain complete report markers (${BYTES} bytes)." "error-clustering-markers|$TARGET_ID"
+                else
+                  DECODE_OK=true
+                  if ! awk '/^===BEGIN_REPORT_JSON===$/{f=1;next} /^===END_REPORT_JSON===$/{f=0} f' "$OUT/error-clustering-stdout.txt" | tr -d '\n' | base64 -d > "$OUT/error-report.json"; then
+                    add_finding "error_clustering_decode" "issue_candidate" "error" "Error clustering JSON decode failed for $TARGET_ID" "Decoded report.json base64 payload is invalid." "error-clustering-decode-json|$TARGET_ID"
+                    DECODE_OK=false
+                  fi
+                  if [ "$DECODE_OK" = "true" ] && ! awk '/^===BEGIN_REPORT_MD===$/{f=1;next} /^===END_REPORT_MD===$/{f=0} f' "$OUT/error-clustering-stdout.txt" | tr -d '\n' | base64 -d > "$OUT/error-report.md"; then
+                    add_finding "error_clustering_decode" "issue_candidate" "error" "Error clustering markdown decode failed for $TARGET_ID" "Decoded report.md base64 payload is invalid." "error-clustering-decode-md|$TARGET_ID"
+                    DECODE_OK=false
+                  fi
+                  if [ "$DECODE_OK" = "true" ]; then
+                    if ! jq empty "$OUT/error-report.json" 2>/dev/null; then
+                      add_finding "error_clustering_json" "issue_candidate" "error" "Error clustering returned invalid JSON for $TARGET_ID" "Decoded report.json is not valid JSON." "error-clustering-json|$TARGET_ID"
+                    else
+                      SUMMARY="$(jq -r '.summary // ""' "$OUT/error-report.json")"
+                      PERSISTENT="$(jq '.persistent_clusters | length' "$OUT/error-report.json")"
+                      if printf '%s' "$SUMMARY" | grep -q '^skip:'; then
+                        add_finding "error_clustering" "skip" "info" "Error clustering skipped for $TARGET_ID" "$SUMMARY" "error-clustering|$TARGET_ID|skip"
+                      elif [ "${PERSISTENT:-0}" -gt 0 ]; then
+                        SIG="$(jq -r '.persistent_clusters[0].signature // .clusters[0].signature // "no-sig"' "$OUT/error-report.json")"
+                        add_finding "error_cluster" "issue_candidate" "error" "Persistent error cluster detected for $TARGET_ID" "$SUMMARY" "error-cluster|$TARGET_ID|$SIG"
+                      else
+                        add_finding "error_clustering" "ok" "info" "No persistent error cluster for $TARGET_ID" "$SUMMARY" "error-clustering|$TARGET_ID|ok"
+                      fi
+                    fi
+                  fi
+                fi
+              else
+                add_finding "error_clustering_send" "manual_ops" "error" "Could not start error clustering for $TARGET_ID" "SSM SendCommand failed for error clustering on $INSTANCE_ID." "error-clustering-send|$TARGET_ID"
+              fi
+            fi
           fi
 
-          awk '/^===BEGIN_REPORT_JSON===$/{f=1;next} /^===END_REPORT_JSON===$/{f=0} f' stdout.txt | tr -d '\n' | base64 -d > report.json
-          awk '/^===BEGIN_REPORT_MD===$/{f=1;next} /^===END_REPORT_MD===$/{f=0} f' stdout.txt | tr -d '\n' | base64 -d > report.md
+      - name: Finalize target report
+        if: always()
+        run: |
+          set -euo pipefail
+          OUT="prod-ops-targets/$TARGET_ID"
+          python3 - <<'PY'
+          import json
+          import pathlib
+          import os
 
-          if ! jq empty report.json 2>/dev/null; then
-            echo "::error::report.json is not valid JSON"
-            cat stdout.txt
-            exit 1
-          fi
-          jq -r '.summary' report.json
-          BIN_SHA=$(grep -m1 '^binary_sha256=' stdout.txt | cut -d= -f2- || true)
-          if [ -n "${BIN_SHA:-}" ]; then
-            echo "ec2 binary sha256: $BIN_SHA"
-            {
-              echo "## error_clustering binary"
-              echo "- ec2 sha256: \`$BIN_SHA\`"
-              echo "- to refresh: \`bash scripts/deploy-error-clustering-binary.sh\`"
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
+          target_id = os.environ["TARGET_ID"]
+          out = pathlib.Path("prod-ops-targets") / target_id
+          target = json.loads((out / "target.json").read_text(encoding="utf-8"))
+          findings = []
+          findings_path = out / "findings.jsonl"
+          if findings_path.exists():
+              for line in findings_path.read_text(encoding="utf-8").splitlines():
+                  line = line.strip()
+                  if line:
+                      findings.append(json.loads(line))
+          if not findings:
+              findings.append({
+                  "target_id": target_id,
+                  "kind": "diagnostics_empty",
+                  "status": "warning",
+                  "severity": "warning",
+                  "title": f"No diagnostics findings were produced for {target_id}",
+                  "summary": "The target diagnostics job did not emit any finding.",
+                  "signature": f"diagnostics-empty|{target_id}",
+              })
+          priority = {"manual_ops": 4, "issue_candidate": 3, "warning": 2, "skip": 1, "ok": 0}
+          overall = max(findings, key=lambda item: priority.get(item.get("status", "warning"), 2)).get("status", "warning")
+          report = {
+              "schema_version": 1,
+              "target": target,
+              "status": overall,
+              "findings": findings,
+          }
+          (out / "target-report.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          lines = [f"# Prod Ops Target Report: {target_id}", "", f"- status: `{overall}`", f"- stack: `{target.get('stack', '')}`", f"- region: `{target.get('region', '')}`", "", "## Findings", ""]
+          for finding in findings:
+              lines.append(f"- **{finding.get('status')}** `{finding.get('kind')}` — {finding.get('title')}")
+              summary = finding.get("summary") or ""
+              if summary:
+                  lines.append(f"  - {summary}")
+          (out / "target-report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY
+          cat "$OUT/target-report.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: prod-ops-target-${{ matrix.target_id }}-${{ github.run_id }}
+          path: prod-ops-targets/${{ matrix.target_id }}/
+
+  aggregate-report:
+    needs:
+      - discover-targets
+      - diagnose-targets
+    if: always() && needs.discover-targets.result != 'skipped'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      needs_issue: ${{ steps.aggregate.outputs.needs_issue }}
+      issue_count: ${{ steps.aggregate.outputs.issue_count }}
+    env:
+      EXCLUDED_TARGETS: ${{ needs.discover-targets.outputs.excluded || '[]' }}
+    steps:
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: prod-ops-target-*-${{ github.run_id }}
+          path: target-artifacts
+
+      - name: Aggregate target reports
+        id: aggregate
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+
+          root = pathlib.Path("target-artifacts")
+          reports = []
+          for path in sorted(root.glob("*/target-report.json")):
+              reports.append(json.loads(path.read_text(encoding="utf-8")))
+          excluded = json.loads(os.environ.get("EXCLUDED_TARGETS") or "[]")
+          findings = []
+          for report in reports:
+              findings.extend(report.get("findings") or [])
+          if not reports:
+              findings.append({
+                  "target_id": "prod-ops",
+                  "kind": "missing_target_reports",
+                  "status": "manual_ops",
+                  "severity": "error",
+                  "title": "Prod Ops did not produce target reports",
+                  "summary": "No target-report.json artifacts were found for this run.",
+                  "signature": "missing-target-reports",
+              })
+          issue_findings = [f for f in findings if f.get("status") in ("issue_candidate", "manual_ops")]
+          skips = [f for f in findings if f.get("status") == "skip"]
+          report = {
+              "schema_version": 1,
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "run_url": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+              "targets": [r.get("target") for r in reports],
+              "excluded_targets": excluded,
+              "findings": findings,
+              "manual_ops": [f for f in findings if f.get("status") == "manual_ops"],
+              "skips": skips,
+              "issue_candidates": issue_findings,
+              "summary": f"{len(reports)} targets, {len(issue_findings)} issue-worthy findings, {len(skips)} skips",
+          }
+          pathlib.Path("ops-report.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          lines = ["# Prod Ops Report", "", f"- Run: {report['run_url']}", f"- Summary: {report['summary']}", ""]
+          if excluded:
+              lines += ["## Excluded targets", ""]
+              for item in excluded:
+                  lines.append(f"- `{item.get('target_id')}` — {item.get('reason')}")
+              lines.append("")
+          lines += ["## Findings", ""]
+          for finding in findings:
+              lines.append(f"- **{finding.get('status')}** `{finding.get('target_id')}` `{finding.get('kind')}` — {finding.get('title')}")
+              summary = finding.get("summary") or ""
+              if summary:
+                  lines.append(f"  - {summary}")
+          pathlib.Path("ops-report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"needs_issue={'true' if issue_findings else 'false'}\n")
+              fh.write(f"issue_count={len(issue_findings)}\n")
+          PY
+          cat ops-report.md >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: error-clustering-${{ github.run_id }}
+          name: prod-ops-report-${{ github.run_id }}
           path: |
-            report.json
-            report.md
+            ops-report.json
+            ops-report.md
 
-      - name: Decide downstream action
-        id: decide
+  claude-issue-diagnosis:
+    needs: aggregate-report
+    if: needs.aggregate-report.outputs.needs_issue == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: prod-ops-report-${{ github.run_id }}
+          path: .
+
+      - name: Check Claude token
+        id: claude_token
+        env:
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
         run: |
-          NEED="$(jq '.persistent_clusters | length' report.json 2>/dev/null || echo 0)"
-          echo "need_action=$([ "${NEED:-0}" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          if [ -n "${ANTHROPIC_AUTH_TOKEN:-}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            cat > issue-diagnosis.md <<'EOF'
+          # Claude Issue Diagnosis
 
-      - name: Open or update issue (Stage 2A)
-        if: steps.decide.outputs.need_action == 'true' && vars.STAGE_2A_ISSUE_ONLY == 'true'
+          skipped: ANTHROPIC_AUTH_TOKEN is not configured; using deterministic issue bodies.
+          EOF
+            jq -n '{status:"skipped", reason:"ANTHROPIC_AUTH_TOKEN missing", findings:[]}' > issue-diagnosis.json
+            : > claude-issue-diagnosis.jsonl
+          fi
+
+      - name: Install Claude Code CLI
+        if: steps.claude_token.outputs.present == 'true'
+        env:
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+        run: bash scripts/setup-claude-code.sh
+
+      - name: Build read-only diagnosis prompt
+        if: steps.claude_token.outputs.present == 'true'
+        run: |
+          cat > /tmp/claude-issue-prompt.txt <<'EOF'
+          你是 TokenKey Prod Ops 只读诊断助手。基于下面的 Prod Ops 结构化报告和当前仓库文件，生成更准确的 GitHub issue 诊断建议。
+
+          硬约束：
+          - 只做诊断和归因，不修改文件，不创建 PR，不运行命令，不访问 AWS，不 dispatch workflow。
+          - 不要求历史兼容；只基于当前已合并机制和当前仓库事实。
+          - 对每个 issue-worthy finding 输出：root_cause_hypothesis、evidence、suggested_owner_action、confidence、issue_title、issue_body。
+          - 如果证据不足，明确写 confidence=low 和需要人工确认的点。
+          - 输出 Markdown，便于直接放进 GitHub Issue。
+          EOF
+          printf '\n## ops-report.md\n\n' >> /tmp/claude-issue-prompt.txt
+          cat ops-report.md >> /tmp/claude-issue-prompt.txt
+          printf '\n\n## ops-report.json\n\n```json\n' >> /tmp/claude-issue-prompt.txt
+          cat ops-report.json >> /tmp/claude-issue-prompt.txt
+          printf '\n```\n' >> /tmp/claude-issue-prompt.txt
+
+      - name: Run Claude read-only diagnosis
+        if: steps.claude_token.outputs.present == 'true'
+        id: claude_run
+        continue-on-error: true
+        env:
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          ANTHROPIC_BASE_URL: https://api.tokenkey.dev
+          CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING: "1"
+          MAX_THINKING_TOKENS: "16000"
+          CLAUDE_CODE_ATTRIBUTION_HEADER: "0"
+          ANTHROPIC_MODEL: opus[1m]
+        run: |
+          set -o pipefail
+          claude -p "$(cat /tmp/claude-issue-prompt.txt)" \
+            --model "opus[1m]" \
+            --max-budget-usd "1.00" \
+            --output-format stream-json --verbose \
+            --exclude-dynamic-system-prompt-sections \
+            --allowedTools "Read Grep Glob" \
+            2>&1 \
+            | python3 scripts/redact-agent-stream.py \
+            | tee claude-issue-diagnosis.jsonl
+
+      - name: Extract Claude diagnosis
+        if: steps.claude_token.outputs.present == 'true'
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import pathlib
+
+          stream = pathlib.Path('claude-issue-diagnosis.jsonl')
+          texts = []
+          if stream.exists():
+              for line in stream.read_text(encoding='utf-8', errors='replace').splitlines():
+                  try:
+                      item = json.loads(line)
+                  except json.JSONDecodeError:
+                      continue
+                  if isinstance(item.get('result'), str):
+                      texts.append(item['result'])
+                  message = item.get('message')
+                  if isinstance(message, dict):
+                      for block in message.get('content') or []:
+                          if isinstance(block, dict) and block.get('type') == 'text':
+                              texts.append(block.get('text') or '')
+          body = '\n\n'.join(text for text in texts if text.strip()).strip()
+          if not body:
+              body = 'Claude diagnosis did not produce parseable final text; use deterministic issue bodies.'
+          pathlib.Path('issue-diagnosis.md').write_text('# Claude Issue Diagnosis\n\n' + body + '\n', encoding='utf-8')
+          pathlib.Path('issue-diagnosis.json').write_text(json.dumps({'status':'ok' if body else 'empty', 'markdown': body}, indent=2) + '\n', encoding='utf-8')
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: prod-ops-claude-diagnosis-${{ github.run_id }}
+          path: |
+            issue-diagnosis.json
+            issue-diagnosis.md
+            claude-issue-diagnosis.jsonl
+
+  decision-and-issue:
+    needs:
+      - aggregate-report
+      - claude-issue-diagnosis
+    if: always() && needs.aggregate-report.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: prod-ops-report-${{ github.run_id }}
+          path: .
+
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: prod-ops-claude-diagnosis-${{ github.run_id }}
+          path: claude-diagnosis
+
+      - name: Open or update issues
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          SIG="$(jq -r '.persistent_clusters[0].signature // .clusters[0].signature // "no-sig"' report.json)"
-          SIG_SHORT="$(printf '%s' "$SIG" | shasum -a 256 | cut -c1-12)"
-          LABEL="cluster-sig:$SIG_SHORT"
-          gh label create "$LABEL" --color BFD4F2 --description "cluster signature for cooldown" 2>/dev/null || true
-          EXISTING="$(gh issue list --label "$LABEL" --state open --json number --limit 1 | jq -r '.[0].number // empty')"
-          if [ -n "$EXISTING" ]; then
-            gh issue comment "$EXISTING" --body-file report.md
-          else
-            gh issue create \
-              --title "[cluster] $(jq -r '.summary // "persistent cluster detected"' report.json)" \
-              --body-file report.md \
-              --label "cluster-detected,needs-triage,automated,$LABEL"
-          fi
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import re
+          import subprocess
 
-      - name: Trigger draft PR (Stage 2B)
-        if: steps.decide.outputs.need_action == 'true' && vars.STAGE_2A_ISSUE_ONLY != 'true'
-        uses: ./.github/actions/agent-draft-pr
-        with:
-          report_path: report.md
-          report_json: report.json
-          workflow: error-clustering
-          claude_auth_token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          report = json.loads(pathlib.Path('ops-report.json').read_text(encoding='utf-8'))
+          diagnosis_path = pathlib.Path('claude-diagnosis/issue-diagnosis.md')
+          diagnosis = diagnosis_path.read_text(encoding='utf-8') if diagnosis_path.exists() else ''
+          findings = report.get('issue_candidates') or []
+          if not findings:
+              print('No issue-worthy findings.')
+              raise SystemExit(0)
 
-      - name: Notify Feishu
-        if: always()
-        env:
-          FEISHU_OPS_WEBHOOK: ${{ secrets.FEISHU_OPS_WEBHOOK }}
-        run: |
-          [ -n "${FEISHU_OPS_WEBHOOK:-}" ] || exit 0
-          MSG="$(jq -r '.summary // "error clustering finished"' report.json 2>/dev/null)"
-          curl -sS -X POST "$FEISHU_OPS_WEBHOOK" \
-            -H "Content-Type: application/json" \
-            -d "$(jq -n --arg t "[error-clustering] $MSG" '{msg_type:"text",content:{text:$t}}')" || true
+          def sh(args, **kwargs):
+              return subprocess.run(args, text=True, check=True, capture_output=True, **kwargs)
+
+          def label_safe(value: str) -> str:
+              value = re.sub(r'[^A-Za-z0-9_.:-]+', '-', value)[:50]
+              return value or 'unknown'
+
+          def ensure_label(name: str, color: str, description: str) -> None:
+              subprocess.run(['gh', 'label', 'create', name, '--color', color, '--description', description[:100]], text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+          ensure_label('automated', 'C5DEF5', 'Automated signal')
+          ensure_label('needs-triage', 'FBCA04', 'Needs human triage')
+          ensure_label('prod-ops', 'BFD4F2', 'Prod Ops signal')
+
+          for index, finding in enumerate(findings, 1):
+              target_id = finding.get('target_id') or 'unknown'
+              kind = finding.get('kind') or 'unknown'
+              signature = finding.get('signature') or f'{target_id}|{kind}|{finding.get("title", "")}'
+              sig_short = hashlib.sha256(signature.encode()).hexdigest()[:12]
+              ops_label = f'ops-sig:{sig_short}'
+              target_label = f'target:{label_safe(target_id)}'
+              finding_label = f'finding:{label_safe(kind)}'
+              ensure_label(ops_label, 'BFD4F2', 'Prod Ops finding signature')
+              ensure_label(target_label, 'D4C5F9', 'Prod Ops target')
+              ensure_label(finding_label, 'F9D0C4', 'Prod Ops finding kind')
+              legacy_cluster_label = ''
+              if kind == 'error_cluster':
+                  cluster_short = hashlib.sha256(signature.encode()).hexdigest()[:12]
+                  legacy_cluster_label = f'cluster-sig:{cluster_short}'
+                  ensure_label(legacy_cluster_label, 'BFD4F2', 'cluster signature for cooldown')
+              labels = ['prod-ops', 'automated', 'needs-triage', ops_label, target_label, finding_label]
+              if legacy_cluster_label:
+                  labels.append(legacy_cluster_label)
+
+              title = f"[prod-ops] {target_id} {kind}: {finding.get('title', 'finding')}"[:250]
+              body_lines = [
+                  '## Prod Ops finding',
+                  '',
+                  f"- Run: {report.get('run_url')}",
+                  f"- Target: `{target_id}`",
+                  f"- Kind: `{kind}`",
+                  f"- Status: `{finding.get('status')}`",
+                  f"- Severity: `{finding.get('severity')}`",
+                  f"- Signature: `{signature}`",
+                  '',
+                  '## Summary',
+                  '',
+                  finding.get('summary') or finding.get('title') or 'No summary.',
+                  '',
+                  '## Evidence',
+                  '',
+                  f"See artifact `prod-ops-report-{report.get('run_id')}` for `ops-report.json` and per-target reports.",
+              ]
+              if diagnosis:
+                  body_lines += ['', '## Claude read-only diagnosis', '', diagnosis]
+              body = '\n'.join(body_lines) + '\n'
+              body_file = pathlib.Path(f'issue-{index}.md')
+              body_file.write_text(body, encoding='utf-8')
+
+              existing = sh(['gh', 'issue', 'list', '--label', ops_label, '--state', 'open', '--json', 'number', '--limit', '1', '--jq', '.[0].number // empty']).stdout.strip()
+              if existing:
+                  sh(['gh', 'issue', 'comment', existing, '--body-file', str(body_file)])
+                  print(f'updated issue #{existing} for {ops_label}')
+              else:
+                  sh(['gh', 'issue', 'create', '--title', title, '--body-file', str(body_file), '--label', ','.join(labels)])
+                  print(f'created issue for {ops_label}')
+          PY
 
   log-dump:
     if: github.event_name == 'workflow_dispatch' && inputs.operation == 'log_dump'
@@ -250,6 +744,7 @@ jobs:
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
       OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
       STACK_NAME: ${{ vars.PROD_STACK_NAME || 'tokenkey-prod-stage0' }}
+      INPUT_TARGET_SELECTOR: ${{ inputs.target_selector || 'prod' }}
       INPUT_SINCE: ${{ inputs.since }}
       INPUT_CONTAINER: ${{ inputs.container }}
       INPUT_GREP: ${{ inputs.grep_pattern }}
@@ -258,11 +753,14 @@ jobs:
       group: prod-ops-log-dump
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Validate inputs
         run: |
           set -euo pipefail
+          case "$INPUT_TARGET_SELECTOR" in prod|all) ;;
+            *) echo "::error::log_dump currently supports prod only; got target_selector=$INPUT_TARGET_SELECTOR"; exit 1 ;;
+          esac
           if ! printf '%s' "$INPUT_SINCE" | grep -Eq '^[0-9]+[smhd]$'; then
             echo "::error::since must match ^[0-9]+[smhd]$ (e.g. 30m, 2h, 1d), got: $INPUT_SINCE"
             exit 1

@@ -41,34 +41,29 @@ Compatibility rule:
 
 - API changes must not break existing online callers.
 
-## 3. Core Capability B: ErrorToIssue/PR
+## 3. Core Capability B: Prod/Edge OpsToIssue
 
 Required outcomes:
 
-- Daily clustering (`Prod Ops` / `operation=error_clustering`) can create/update issue signals.
-- Agent action can draft PRs from persistent clusters.
+- `Prod Ops` runs daily diagnostics for prod plus every deployable Edge target from `deploy/aws/stage0/edge-targets.json`.
+- Runtime findings are normalized into `ops-report.{json,md}` and can create/update GitHub issue signals.
+- Optional Claude diagnosis may read the aggregate report and repository files to improve issue quality; it must not write files, run shell commands, access AWS, create branches, or create PRs.
 
 Hard guardrails:
 
-- Draft PR only (never auto-merge).
-- Signature cooldown to avoid duplicate churn.
-- Protected-path diff guard before PR creation.
-- `./scripts/preflight.sh` must pass before draft PR creation.
+- Issue only: no automatic PR creation from `Prod Ops`.
+- Signature cooldown / dedupe labels (`ops-sig:*`, plus `cluster-sig:*` for error clusters) avoid duplicate churn.
+- AWS diagnostics jobs have `id-token: write` but no repo write permissions.
+- Issue/Claude jobs have no AWS OIDC permission.
+- Missing optional secret / missing required table => clean skip or deterministic fallback, not a brittle cron failure.
 
-Transport (since 2026-04-22):
+Transport (since 2026-05-13):
 
-- Workflow runs the clustering binary on the prod EC2 host via AWS SSM
-  Run-Command, authenticated by GitHub OIDC. PostgreSQL is **not** exposed
-  to the public internet; the binary connects to `tokenkey-postgres` via the
-  `tokenkey_default` docker network from a transient `alpine:3.21` container.
-- IAM trust scope: single role per repo+branch (default `main` only),
-  permitted only `ssm:SendCommand` against the prod EC2 instance and the
-  `AWS-RunShellScript` document.
+- Workflow discovers targets as prod + deployable Edge matrix entries. Planned Edge targets remain excluded until `deployable=true` and IAM/SSM setup are complete.
+- Per-target diagnostics use GitHub OIDC → AWS STS → SSM Run-Command. PostgreSQL is **not** exposed to the public internet; error clustering still connects to `tokenkey-postgres` via the target's docker network from a transient `alpine:3.21` container.
 - IaC: `deploy/aws/cloudformation/cicd-oidc.yaml`. Setup SOP:
   `deploy/aws/README.md` § "CI 通过 OIDC 调度 SSM".
-- Graceful skip path now keys on `vars.AWS_OIDC_ROLE_ARN` instead of the
-  legacy `secrets.PROD_PG_READONLY_DSN`; same shape (empty → exit 0 with
-  `skip:` summary), no behavior regression for environments not yet wired.
+- Graceful skip path keys on `vars.AWS_OIDC_ROLE_ARN` and runtime table availability. `qa_records` absence returns a `skip:` report and does not fail the run.
 
 ## 4. Merge-Safe Alignment Rules
 
@@ -94,4 +89,4 @@ Branch is aligned when:
 
 - Existing online/upstream capabilities remain available.
 - QA workflows degrade safely when `qa_records` is absent.
-- Error clustering can flow to issue/draft-PR with guardrails intact.
+- Prod/Edge diagnostics can flow to issue signals with AWS/issue permissions separated.
