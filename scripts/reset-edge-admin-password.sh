@@ -16,7 +16,8 @@ Behavior:
   - Reads InstanceId from CloudFormation stack outputs
   - Reads ADMIN_EMAIL from /var/lib/tokenkey/.env on the instance
   - Resets admin password to a random 32-hex string via PostgreSQL (pgcrypto bcrypt)
-  - Prints ADMIN_EMAIL and NEW_PASSWORD
+  - Saves email/password to /Users/xuejiao/Codes/keys/tokenkey-<id>-admin-password.txt
+  - Prints only status and the credential file path, never the password
 EOF
 }
 
@@ -71,6 +72,13 @@ if [[ -z "$INSTANCE_ID" || "$INSTANCE_ID" == "None" ]]; then
 fi
 
 NEW_PASSWORD="$(openssl rand -hex 16)"
+KEYS_DIR="/Users/xuejiao/Codes/keys"
+CREDENTIAL_FILE="$KEYS_DIR/tokenkey-$EDGE_ID-admin-password.txt"
+
+if [[ ! -d "$KEYS_DIR" ]]; then
+  echo "[error] keys directory not found: $KEYS_DIR" >&2
+  exit 1
+fi
 
 echo "[info] edge_id=$EDGE_ID region=$REGION stack=$STACK instance_id=$INSTANCE_ID"
 echo "[info] resetting admin password via SSM..."
@@ -156,11 +164,18 @@ if [[ -z "$ADMIN_EMAIL" || "$ADMIN_EMAIL" == "$ADMIN_EMAIL_LINE" ]]; then
   exit 1
 fi
 
+umask 077
+{
+  printf 'email=%s\n' "$ADMIN_EMAIL"
+  printf 'password=%s\n' "$NEW_PASSWORD"
+} >"$CREDENTIAL_FILE"
+chmod 600 "$CREDENTIAL_FILE"
+
 echo ""
 echo "[ok] edge admin password reset complete"
 echo "EDGE_ID=$EDGE_ID"
 echo "REGION=$REGION"
 echo "STACK=$STACK"
 echo "INSTANCE_ID=$INSTANCE_ID"
-echo "ADMIN_EMAIL=$ADMIN_EMAIL"
-echo "NEW_PASSWORD=$NEW_PASSWORD"
+echo "CREDENTIAL_FILE=$CREDENTIAL_FILE"
+echo "[ok] admin credentials saved; password was not printed"

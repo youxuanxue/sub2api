@@ -150,18 +150,23 @@ gh run watch <run-id> --exit-status
 - `EDGE_GHCR_PAT_SSM_NAME` 是否存在于目标 region
 - cloud-init 是否执行完成（`/var/lib/cloud/instance/scripts/part-001`）
 
-## 3) 初始 admin 账密获取（首次初始化后立即执行）
+## 3) 初始 admin 账密保存（首次初始化后立即执行）
 
-### 3.1 默认账号来源
+### 3.1 默认账号与保存位置
 
 - 默认邮箱：`admin@<api-domain>`（若 CFN 未显式传 `AdminEmail`）。
 - `AUTO_SETUP` 首次创建 admin 时，若 `ADMIN_PASSWORD` 为空，会生成一次性随机密码并写入日志。
+- 初始和重置 admin 账密必须保存到 `/Users/xuejiao/Codes/keys/tokenkey-<edge_id>-admin-password.txt`，格式与 `tokenkey-uk1-admin-password.txt` 一致：`email=...`、`password=...`。
+- 禁止在终端、PR、issue、日志摘要或聊天中打印密码；只报告保存路径和状态。
 
-### 3.2 线上日志获取（优先）
+### 3.2 线上日志保存（优先）
 
 ```bash
+EDGE_ID=<edge_id>
 REGION=<edge-region>
 STACK=tokenkey-edge-<edge_id>-stage0
+KEYS_DIR=/Users/xuejiao/Codes/keys
+CREDENTIAL_FILE="$KEYS_DIR/tokenkey-$EDGE_ID-admin-password.txt"
 INSTANCE_ID=$(aws cloudformation describe-stacks \
   --region "$REGION" \
   --stack-name "$STACK" \
@@ -174,22 +179,38 @@ CMD_ID=$(aws ssm send-command \
   --document-name AWS-RunShellScript \
   --parameters 'commands=[
     "set -euo pipefail",
-    "echo === ADMIN_EMAIL ===",
-    "sudo grep -n \"^ADMIN_EMAIL=\" /var/lib/tokenkey/.env || true",
-    "echo === DOCKER LOGS ===",
-    "sudo docker logs tokenkey 2>&1 | grep -nE \"Generated admin password|Admin user created|Auto setup\" || true",
-    "echo === JOURNAL ===",
-    "sudo journalctl -u tokenkey.service --no-pager | grep -nE \"Generated admin password|Admin user created|Auto setup\" || true",
-    "echo === BOOTSTRAP LOG ===",
-    "sudo grep -nE \"Generated admin password|Admin user created|Auto setup|ADMIN_EMAIL\" /var/log/tokenkey-edge-bootstrap.log || true"
+    "sudo grep \"^ADMIN_EMAIL=\" /var/lib/tokenkey/.env || true",
+    "sudo docker logs tokenkey 2>&1 | grep -E \"Generated admin password\" || true",
+    "sudo journalctl -u tokenkey.service --no-pager | grep -E \"Generated admin password\" || true",
+    "sudo grep -E \"Generated admin password|ADMIN_EMAIL\" /var/log/tokenkey-edge-bootstrap.log || true"
   ]' \
   --query 'Command.CommandId' --output text)
 
-aws ssm get-command-invocation \
+aws ssm wait command-executed \
+  --region "$REGION" \
+  --command-id "$CMD_ID" \
+  --instance-id "$INSTANCE_ID" || true
+
+RAW_OUTPUT=$(aws ssm get-command-invocation \
   --region "$REGION" \
   --command-id "$CMD_ID" \
   --instance-id "$INSTANCE_ID" \
-  --query 'StandardOutputContent' --output text
+  --query 'StandardOutputContent' --output text)
+
+ADMIN_EMAIL=$(printf '%s\n' "$RAW_OUTPUT" | grep -Eo 'ADMIN_EMAIL=[^[:space:]]+' | tail -n 1 | cut -d= -f2-)
+ADMIN_PASSWORD=$(printf '%s\n' "$RAW_OUTPUT" | sed -nE 's/.*Generated admin password \(one-time\): ([^[:space:]]+).*/\1/p' | tail -n 1)
+if [ -z "$ADMIN_EMAIL" ] || [ -z "$ADMIN_PASSWORD" ]; then
+  echo "[warn] initial admin credential not found in logs; run reset script instead" >&2
+else
+  umask 077
+  {
+    printf 'email=%s\n' "$ADMIN_EMAIL"
+    printf 'password=%s\n' "$ADMIN_PASSWORD"
+  } >"$CREDENTIAL_FILE"
+  chmod 600 "$CREDENTIAL_FILE"
+  echo "[ok] admin credentials saved to $CREDENTIAL_FILE"
+fi
+unset RAW_OUTPUT ADMIN_PASSWORD
 ```
 
 ### 3.3 若查不到初始密码（常见）
@@ -200,7 +221,7 @@ aws ssm get-command-invocation \
 bash scripts/reset-edge-admin-password.sh edge-<edge_id>
 ```
 
-脚本会打印 `ADMIN_EMAIL` 与 `NEW_PASSWORD`。登录后立即改为长期密码。
+脚本只打印状态和 `CREDENTIAL_FILE`，不会打印密码。登录后立即改为长期密码。
 
 ## 4) DNS
 
@@ -315,6 +336,7 @@ bash scripts/reset-edge-admin-password.sh fra1
 - 自动从 stack 输出解析 `InstanceId`
 - 通过 SSM 在实例上读取 `ADMIN_EMAIL`
 - 随机生成新密码并重置 admin（bcrypt/pgcrypto）
-- 最终打印：`ADMIN_EMAIL` 与 `NEW_PASSWORD`
+- 保存 `email=...` / `password=...` 到 `/Users/xuejiao/Codes/keys/tokenkey-<edge_id>-admin-password.txt`
+- 最终只打印状态与 `CREDENTIAL_FILE`，不打印密码
 
-注意：脚本会在终端明文打印新密码，执行后请立即登录并改成你的长期密码。
+注意：该脚本禁止明文打印新密码；执行后从本地 keys 文件读取并登录，再立即改成你的长期密码。
