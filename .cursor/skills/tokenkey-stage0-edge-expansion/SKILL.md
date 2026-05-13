@@ -156,7 +156,7 @@ gh run watch <run-id> --exit-status
 
 - 默认邮箱：`admin@<api-domain>`（若 CFN 未显式传 `AdminEmail`）。
 - `AUTO_SETUP` 首次创建 admin 时，若 `ADMIN_PASSWORD` 为空，会生成一次性随机密码并写入日志。
-- 初始和重置 admin 账密必须保存到 `/Users/xuejiao/Codes/keys/tokenkey-<edge_id>-admin-password.txt`，格式与 `tokenkey-uk1-admin-password.txt` 一致：`email=...`、`password=...`。
+- 初始和重置 admin 账密必须保存到 `$HOME/Codes/keys/tokenkey-<edge_id>-admin-password.txt`，格式与 `tokenkey-uk1-admin-password.txt` 一致：`email=...`、`password=...`。
 - 禁止在终端、PR、issue、日志摘要或聊天中打印密码；只报告保存路径和状态。
 
 ### 3.2 线上日志保存（优先）
@@ -165,7 +165,7 @@ gh run watch <run-id> --exit-status
 EDGE_ID=<edge_id>
 REGION=<edge-region>
 STACK=tokenkey-edge-<edge_id>-stage0
-KEYS_DIR=/Users/xuejiao/Codes/keys
+KEYS_DIR=$HOME/Codes/keys
 CREDENTIAL_FILE="$KEYS_DIR/tokenkey-$EDGE_ID-admin-password.txt"
 INSTANCE_ID=$(aws cloudformation describe-stacks \
   --region "$REGION" \
@@ -336,7 +336,7 @@ bash scripts/reset-edge-admin-password.sh fra1
 - 自动从 stack 输出解析 `InstanceId`
 - 通过 SSM 在实例上读取 `ADMIN_EMAIL`
 - 随机生成新密码并重置 admin（bcrypt/pgcrypto）
-- 保存 `email=...` / `password=...` 到 `/Users/xuejiao/Codes/keys/tokenkey-<edge_id>-admin-password.txt`
+- 保存 `email=...` / `password=...` 到 `$HOME/Codes/keys/tokenkey-<edge_id>-admin-password.txt`
 - 最终只打印状态与 `CREDENTIAL_FILE`，不打印密码
 
 注意：该脚本禁止明文打印新密码；执行后从本地 keys 文件读取并登录，再立即改成你的长期密码。

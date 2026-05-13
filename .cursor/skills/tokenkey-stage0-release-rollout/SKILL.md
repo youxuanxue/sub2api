@@ -69,9 +69,9 @@ description: >-
 `all` 不是并行全量推送。默认采用顺序化 canary rollout：
 
 1. **release build 一次**：只构建一个 multi-arch GHCR tag，所有目标复用同一 image，避免两套产物。
-2. **Edge canary：deployable Edge 逐个 upgrade + infra smoke**（矩阵顺序由 `deploy/aws/stage0/edge-targets.json` 决定）：先在低成本、非用户入口的资源节点验证镜像能在 Graviton/Stage0/共享 compose 上启动，并验证 `/health`、Caddy allowlist、Edge self-smoke。
+2. **Edge canary：只取 deployable 矩阵第一个 Edge upgrade + infra smoke**：先在低成本、非用户入口的资源节点验证镜像能在 Graviton/Stage0/共享 compose 上启动，并验证 `/health`、Caddy allowlist、Edge self-smoke。
 3. **prod 主网关 upgrade + 完整 prod smoke**：主网关是唯一用户入口、计量计费面和体验中心；Edge canary 过后再升级 prod。
-4. **main gateway via Edge smoke**：prod 升级后再跑主网关经一个已通过 canary 的 Edge（默认矩阵第一个）业务 smoke，确认 `api.tokenkey.dev` 调度到 Edge 的真实链路。
+4. **main gateway via Edge smoke**：prod 升级后再跑主网关经这个已通过 canary 的 Edge 业务 smoke，确认 `api.tokenkey.dev` 调度到 Edge 的真实链路。
 5. **其余 deployable Edge 顺序 rollout**：按 `deploy/aws/stage0/edge-targets.json` 顺序逐个 upgrade + smoke，失败即停。
 
 例外：
@@ -138,7 +138,7 @@ gh workflow run deploy-stage0.yml \
   -f tag="$TARGET_TAG"
 ```
 
-**target=all 注意**：如果 release 已自动 queue prod，而 Edge canary 尚未完成，不取消 prod run；若它卡在 `prod` Environment approval，先不要批准，等当前 batch 的 Edge canary（按 deployable 矩阵顺序）成功后再批准。若 prod 已开始，继续完成，不强行中断，并在摘要标记“prod 已先行”。
+**target=all 注意**：如果 release 已自动 queue prod，而 Edge canary 尚未完成，不取消 prod run；若它卡在 `prod` Environment approval，先不要批准，等第一个 deployable Edge canary 成功后再批准。若 prod 已开始，继续完成，不强行中断，并在摘要标记“prod 已先行”。
 
 ### edge-<edge_id>：Edge 资源节点
 
@@ -177,12 +177,12 @@ gh workflow run deploy-edge-stage0.yml \
 1. 完成“标准流程：release 新镜像”，得到 `TARGET_TAG`。
 2. 读取 deployable 矩阵（按 `deploy/aws/stage0/edge-targets.json` 顺序）：
    `python3 - <<'PY'\nimport json\nfrom pathlib import Path\np=Path('deploy/aws/stage0/edge-targets.json')\nd=json.loads(p.read_text())\nfor k,v in (d.get('targets') or {}).items():\n    if v.get('deployable'): print(k)\nPY`
-3. 对每个 deployable Edge：dispatch `deploy-edge-stage0.yml operation=upgrade tag=$TARGET_TAG`，watch 到 success。
-4. 检查每场 Edge smoke 结果：external health、public runner relay path block、SSM self-smoke；若失败，停，不推进 prod，除非用户明确 override。
+3. 取矩阵第一个 deployable Edge 作为 canary：dispatch `deploy-edge-stage0.yml operation=upgrade tag=$TARGET_TAG`，watch 到 success。
+4. 检查 canary Edge smoke 结果：external health、public runner relay path block、SSM self-smoke；若失败，停，不推进 prod，除非用户明确 override。
 5. 推进 prod deploy：优先使用 release 自动 queue 的 prod run；没有则手动 dispatch。watch 到 success。
 6. 做 prod 完整 smoke（见下文）。
-7. 对用于主网关链路的 Edge（默认取 deployable 矩阵第一个）再 dispatch `operation=smoke`，做 prod 升级后的 main-gateway-via-edge 验证；若缺 `MAIN_GATEWAY_EDGE_SMOKE_API_KEY`，只可标记“infra smoke 通过，主网关经 Edge 业务 smoke 未覆盖”。
-8. 其余 deployable Edge 按需 smoke；失败即停。
+7. 对 canary Edge 再 dispatch `operation=smoke`，做 prod 升级后的 main-gateway-via-edge 验证；若缺 `MAIN_GATEWAY_EDGE_SMOKE_API_KEY`，只可标记“infra smoke 通过，主网关经 Edge 业务 smoke 未覆盖”。
+8. 其余 deployable Edge 顺序 upgrade + smoke；失败即停。
 
 ## prod 真实测试
 

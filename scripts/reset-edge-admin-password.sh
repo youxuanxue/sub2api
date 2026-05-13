@@ -16,7 +16,7 @@ Behavior:
   - Reads InstanceId from CloudFormation stack outputs
   - Reads ADMIN_EMAIL from /var/lib/tokenkey/.env on the instance
   - Resets admin password to a random 32-hex string via PostgreSQL (pgcrypto bcrypt)
-  - Saves email/password to /Users/xuejiao/Codes/keys/tokenkey-<id>-admin-password.txt
+  - Saves email/password to $HOME/Codes/keys/tokenkey-<id>-admin-password.txt
   - Prints only status and the credential file path, never the password
 EOF
 }
@@ -28,6 +28,11 @@ fi
 
 INPUT_TARGET="$1"
 EDGE_ID="${INPUT_TARGET#edge-}"
+
+if [[ ! "$EDGE_ID" =~ ^[a-z]{2,4}[0-9]+$ ]]; then
+  echo "[error] edge id must match ^[a-z]{2,4}[0-9]+$: $EDGE_ID" >&2
+  exit 1
+fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MATRIX_PATH="$REPO_ROOT/deploy/aws/stage0/edge-targets.json"
@@ -72,7 +77,7 @@ if [[ -z "$INSTANCE_ID" || "$INSTANCE_ID" == "None" ]]; then
 fi
 
 NEW_PASSWORD="$(openssl rand -hex 16)"
-KEYS_DIR="/Users/xuejiao/Codes/keys"
+KEYS_DIR="$HOME/Codes/keys"
 CREDENTIAL_FILE="$KEYS_DIR/tokenkey-$EDGE_ID-admin-password.txt"
 
 if [[ ! -d "$KEYS_DIR" ]]; then
@@ -93,8 +98,8 @@ commands = [
     "ADMIN_EMAIL=$(sudo grep '^ADMIN_EMAIL=' /var/lib/tokenkey/.env | cut -d= -f2)",
     "if [ -z \"${ADMIN_EMAIL:-}\" ]; then echo '[error] ADMIN_EMAIL not found in /var/lib/tokenkey/.env' >&2; exit 1; fi",
     "sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto;' >/dev/null",
-    f"sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -c \"UPDATE users SET password_hash = crypt('{new_password}', gen_salt('bf', 10)), updated_at = NOW() WHERE email = '${{ADMIN_EMAIL}}' AND role = 'admin';\"",
-    "UPDATED_COUNT=$(sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -tA -c \"SELECT COUNT(1) FROM users WHERE email = '${ADMIN_EMAIL}' AND role = 'admin';\" | tr -d '[:space:]')",
+    f"sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -v ON_ERROR_STOP=1 -v new_password={new_password} -v admin_email=\"${{ADMIN_EMAIL}}\" -c \"UPDATE users SET password_hash = crypt(:'new_password', gen_salt('bf', 10)), updated_at = NOW() WHERE email = :'admin_email' AND role = 'admin';\"",
+    "UPDATED_COUNT=$(sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -v ON_ERROR_STOP=1 -v admin_email=\"${ADMIN_EMAIL}\" -tA -c \"SELECT COUNT(1) FROM users WHERE email = :'admin_email' AND role = 'admin';\" | tr -d '[:space:]')",
     "if [ \"${UPDATED_COUNT}\" != \"1\" ]; then echo \"[error] expected exactly 1 admin row for ${ADMIN_EMAIL}, got ${UPDATED_COUNT}\" >&2; exit 1; fi",
     "echo ADMIN_EMAIL=$ADMIN_EMAIL",
     "echo RESET_OK=1",
