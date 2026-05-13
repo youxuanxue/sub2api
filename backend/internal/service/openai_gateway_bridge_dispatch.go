@@ -158,6 +158,7 @@ func (s *OpenAIGatewayService) ForwardAsEmbeddingsDispatched(
 		return s.ForwardAsEmbeddings(ctx, c, account, body, defaultMappedModel)
 	}
 	recordBridgeDispatch()
+	body = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, body, "")
 	auth := bridgeAuthFromGin(c)
 	in := newAPIBridgeChannelInput(account, auth.UserID, auth.GroupName)
 	if strings.TrimSpace(in.APIKey) == "" {
@@ -208,6 +209,7 @@ func (s *OpenAIGatewayService) ForwardAsImageGenerationsDispatched(
 		return s.ForwardAsImageGenerations(ctx, c, account, body, defaultMappedModel)
 	}
 	recordBridgeDispatch()
+	body = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, body, "")
 	auth := bridgeAuthFromGin(c)
 	in := newAPIBridgeChannelInput(account, auth.UserID, auth.GroupName)
 	if strings.TrimSpace(in.APIKey) == "" {

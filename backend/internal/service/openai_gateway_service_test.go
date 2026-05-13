@@ -180,8 +180,9 @@ func TestOpenAIGatewayService_GenerateSessionHash_Priority(t *testing.T) {
 		t.Fatalf("expected different hashes for different keys")
 	}
 
-	// 3) prompt_cache_key used when both headers absent
+	// 3) X-Claude-Code-Session-Id used when session_id/conversation_id absent
 	c.Request.Header.Del("conversation_id")
+	c.Request.Header.Set("X-Claude-Code-Session-Id", "cc-789")
 	h3 := svc.GenerateSessionHash(c, bodyWithKey)
 	if h3 == "" {
 		t.Fatalf("expected non-empty hash")
@@ -190,9 +191,30 @@ func TestOpenAIGatewayService_GenerateSessionHash_Priority(t *testing.T) {
 		t.Fatalf("expected different hashes for different keys")
 	}
 
-	// 4) empty when no signals
-	h4 := svc.GenerateSessionHash(c, []byte(`{}`))
-	if h4 != "" {
+	// 4) X-Session-Id used when cc header absent
+	c.Request.Header.Del("X-Claude-Code-Session-Id")
+	c.Request.Header.Set("X-Session-Id", "x-999")
+	h4 := svc.GenerateSessionHash(c, bodyWithKey)
+	if h4 == "" {
+		t.Fatalf("expected non-empty hash")
+	}
+	if h3 == h4 {
+		t.Fatalf("expected different hashes for different keys")
+	}
+
+	// 5) prompt_cache_key used when all headers absent
+	c.Request.Header.Del("X-Session-Id")
+	h5 := svc.GenerateSessionHash(c, bodyWithKey)
+	if h5 == "" {
+		t.Fatalf("expected non-empty hash")
+	}
+	if h4 == h5 {
+		t.Fatalf("expected different hashes for different keys")
+	}
+
+	// 6) empty when no signals
+	h6 := svc.GenerateSessionHash(c, []byte(`{}`))
+	if h6 != "" {
 		t.Fatalf("expected empty hash when no signals")
 	}
 }
