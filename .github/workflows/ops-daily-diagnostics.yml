@@ -27,6 +27,18 @@ on:
         description: Error clustering lookback window in hours
         required: false
         default: "24"
+      diagnostics_log_since:
+        description: Diagnostics runtime log lookback (docker logs --since), e.g. 20m, 2h, 1d
+        required: false
+        default: "30m"
+      diagnostics_include_error_clustering:
+        description: Include error clustering in diagnostics (false = lightweight runtime/health only)
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
       since:
         description: Log dump lookback window passed to docker logs --since (e.g. 30m, 2h, 1d)
         required: false
@@ -104,6 +116,8 @@ jobs:
     env:
       OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
       SINCE_HOURS: ${{ inputs.since_hours || '24' }}
+      DIAGNOSTICS_LOG_SINCE: ${{ inputs.diagnostics_log_since || '30m' }}
+      INCLUDE_ERROR_CLUSTERING: ${{ inputs.diagnostics_include_error_clustering || 'true' }}
       TARGET_ID: ${{ matrix.target_id }}
       TARGET_KIND: ${{ matrix.target_kind }}
       EDGE_ID: ${{ matrix.edge_id }}
@@ -224,8 +238,15 @@ jobs:
           fi
 
           if [ -n "$INSTANCE_ID" ] && [ "$INSTANCE_ID" != "None" ]; then
+            if ! printf '%s' "$DIAGNOSTICS_LOG_SINCE" | grep -Eq '^[0-9]+[smhd]$'; then
+              add_finding "diagnostics_log_since_input" "manual_ops" "error" "Invalid diagnostics_log_since input" "diagnostics_log_since must match ^[0-9]+[smhd]$ (e.g. 20m, 2h, 1d), got: $DIAGNOSTICS_LOG_SINCE" "diagnostics-log-since-input|$DIAGNOSTICS_LOG_SINCE"
+            fi
+
             python3 - <<'PY' > "$OUT/runtime-params.json"
           import json
+          import os
+          import shlex
+          log_since = os.environ["DIAGNOSTICS_LOG_SINCE"]
           commands = [
               "set -euo pipefail",
               "echo ===DOCKER_PS===",
@@ -236,7 +257,7 @@ jobs:
               "sudo docker inspect tokenkey-redis --format 'redis_status={{.State.Status}}' 2>/dev/null || true",
               "sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env exec -T tokenkey wget -qO- http://localhost:8080/health",
               "echo ===RECENT_ERRORS===",
-              "sudo docker logs tokenkey --since 30m --tail 300 2>&1 | grep -Ei 'panic|fatal|error|traceback|failed|timeout|refused|denied| 5[0-9][0-9] | 429 ' | tail -80 || true",
+              "sudo docker logs tokenkey --since " + shlex.quote(log_since) + " --tail 300 2>&1 | grep -Ei 'panic|fatal|error|traceback|failed|timeout|refused|denied| 5[0-9][0-9] | 429 ' | tail -80 || true",
           ]
           print(json.dumps({"commands": commands}))
           PY
@@ -263,7 +284,9 @@ jobs:
               add_finding "ssm_send_command" "manual_ops" "error" "Could not send SSM command for $TARGET_ID" "SSM SendCommand failed for $INSTANCE_ID in $TARGET_REGION." "ssm-send|$TARGET_ID"
             fi
 
-            if ! printf '%s' "$SINCE_HOURS" | grep -Eq '^[0-9]+$'; then
+            if [ "$INCLUDE_ERROR_CLUSTERING" != "true" ]; then
+              add_finding "error_clustering" "skip" "info" "Error clustering skipped for $TARGET_ID" "diagnostics_include_error_clustering=false; runtime/health-only lightweight diagnostics." "error-clustering|$TARGET_ID|lightweight-skip"
+            elif ! printf '%s' "$SINCE_HOURS" | grep -Eq '^[0-9]+$'; then
               add_finding "error_clustering_input" "manual_ops" "error" "Invalid since_hours input" "since_hours must be a positive integer, got: $SINCE_HOURS" "error-clustering-input|$SINCE_HOURS"
             else
               if ! CMD_ID="$(aws ssm send-command --region "$TARGET_REGION" --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript --comment "check error_clustering binary target=$TARGET_ID" --parameters '{"commands":["test -x /usr/local/bin/error_clustering"]}' --query 'Command.CommandId' --output text 2>>"$STDERR")"; then

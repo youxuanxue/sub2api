@@ -1,0 +1,99 @@
+name: Post-release Light Diagnostics
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_selector:
+        description: "Diagnostics target selector (default all for rollout-all)."
+        required: false
+        default: all
+      first_delay_minutes:
+        description: "Delay before first diagnostics dispatch (minutes)."
+        required: false
+        default: "5"
+      first_window:
+        description: "First diagnostics runtime log window (docker logs --since)."
+        required: false
+        default: "20m"
+      second_delay_minutes:
+        description: "Delay before second diagnostics dispatch after first run (minutes)."
+        required: false
+        default: "55"
+      second_window:
+        description: "Second diagnostics runtime log window (docker logs --since)."
+        required: false
+        default: "2h"
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    env:
+      TARGET_SELECTOR: ${{ inputs.target_selector || 'all' }}
+      FIRST_DELAY_MINUTES: ${{ inputs.first_delay_minutes || '5' }}
+      FIRST_WINDOW: ${{ inputs.first_window || '20m' }}
+      SECOND_DELAY_MINUTES: ${{ inputs.second_delay_minutes || '55' }}
+      SECOND_WINDOW: ${{ inputs.second_window || '2h' }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Validate inputs
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$FIRST_DELAY_MINUTES" | grep -Eq '^[0-9]+$'; then
+            echo "::error::first_delay_minutes must be a non-negative integer, got: $FIRST_DELAY_MINUTES"
+            exit 1
+          fi
+          if ! printf '%s' "$SECOND_DELAY_MINUTES" | grep -Eq '^[0-9]+$'; then
+            echo "::error::second_delay_minutes must be a non-negative integer, got: $SECOND_DELAY_MINUTES"
+            exit 1
+          fi
+          if ! printf '%s' "$FIRST_WINDOW" | grep -Eq '^[0-9]+[smhd]$'; then
+            echo "::error::first_window must match ^[0-9]+[smhd]$, got: $FIRST_WINDOW"
+            exit 1
+          fi
+          if ! printf '%s' "$SECOND_WINDOW" | grep -Eq '^[0-9]+[smhd]$'; then
+            echo "::error::second_window must match ^[0-9]+[smhd]$, got: $SECOND_WINDOW"
+            exit 1
+          fi
+
+      - name: Wait before first diagnostics
+        run: |
+          set -euo pipefail
+          sleep "$(( FIRST_DELAY_MINUTES * 60 ))"
+
+      - name: Dispatch first lightweight diagnostics
+        run: |
+          set -euo pipefail
+          gh workflow run ops-daily-diagnostics.yml \
+            -f operation=diagnostics \
+            -f target_selector="$TARGET_SELECTOR" \
+            -f diagnostics_log_since="$FIRST_WINDOW" \
+            -f diagnostics_include_error_clustering=false
+          {
+            echo "## First light diagnostics"
+            echo "- target_selector: \\`$TARGET_SELECTOR\\`"
+            echo "- diagnostics_log_since: \\`$FIRST_WINDOW\\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Wait before second diagnostics
+        run: |
+          set -euo pipefail
+          sleep "$(( SECOND_DELAY_MINUTES * 60 ))"
+
+      - name: Dispatch second lightweight diagnostics
+        run: |
+          set -euo pipefail
+          gh workflow run ops-daily-diagnostics.yml \
+            -f operation=diagnostics \
+            -f target_selector="$TARGET_SELECTOR" \
+            -f diagnostics_log_since="$SECOND_WINDOW" \
+            -f diagnostics_include_error_clustering=false
+          {
+            echo "## Second light diagnostics"
+            echo "- target_selector: \\`$TARGET_SELECTOR\\`"
+            echo "- diagnostics_log_since: \\`$SECOND_WINDOW\\`"
+            echo "- note: this run dispatches diagnostics only; inspect ops-daily-diagnostics workflow runs for results."
+          } >> "$GITHUB_STEP_SUMMARY"
