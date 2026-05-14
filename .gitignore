@@ -142,8 +142,12 @@ backend/.installed
 # ===================
 tests
 # Ignore local Claude Code state; `.claude/skills` is a tracked symlink → `.cursor/skills`.
+# `.claude/hooks/` and `.claude/settings.json` are tracked so Claude Code on the
+# web (and any cloned local agent) gets the SessionStart bootstrap automatically.
 .claude/*
 !.claude/skills
+!.claude/hooks
+!.claude/settings.json
 .codex
 # docs/ — keep fully tracked (no subtree ignore here). Generated or local-only
 # material belongs under paths already ignored (.auto-reports/, output/, etc.).

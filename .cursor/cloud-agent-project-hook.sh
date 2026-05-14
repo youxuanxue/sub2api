@@ -28,6 +28,53 @@ warn() { echo "[project-hook][warn] $*" >&2; }
 
 echo "[project-hook] using prepared dev-rules submodule from .cursor/cloud-agent-install.sh"
 
+# AWS CLI install. dev-rules/templates/cloud-agent-bootstrap.sh intentionally
+# excludes awscli from install_tool() (see comment at line ~179 of that file:
+# "heavy, distro-coupled, or contradict OPC's 'least credentials' stance"), so
+# we install it here. Used by scripts/stage0_deploy_via_ssm.sh,
+# scripts/reset-edge-admin-password.sh, deploy-error-clustering-binary.sh,
+# fetch-prod-qa-dump.sh, tk_edge_post_deploy_smoke.sh.
+#
+# Strategy: prefer the official AWS CLI v2 zip on x86_64/arm64 (matches
+# production GHA runners); fall back to `apt install awscli` (v1, sufficient
+# for the ssm + cloudformation calls our scripts use) when the zip path fails.
+if ! command -v aws >/dev/null 2>&1; then
+  echo "[project-hook] installing AWS CLI"
+  AWS_INSTALLED=0
+  if command -v curl >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1; then
+    AWS_ARCH="$(uname -m)"
+    case "$AWS_ARCH" in
+      x86_64|amd64) AWS_ZIP_ARCH="x86_64" ;;
+      aarch64|arm64) AWS_ZIP_ARCH="aarch64" ;;
+      *) AWS_ZIP_ARCH="" ;;
+    esac
+    if [ -n "$AWS_ZIP_ARCH" ]; then
+      AWS_TMP="$(mktemp -d)"
+      if curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-${AWS_ZIP_ARCH}.zip" -o "$AWS_TMP/awscliv2.zip" \
+         && unzip -q "$AWS_TMP/awscliv2.zip" -d "$AWS_TMP"; then
+        if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+          sudo "$AWS_TMP/aws/install" --update >/dev/null 2>&1 && AWS_INSTALLED=1
+        else
+          "$AWS_TMP/aws/install" --bin-dir "$HOME/.local/bin" --install-dir "$HOME/.local/aws-cli" --update >/dev/null 2>&1 && AWS_INSTALLED=1
+          export PATH="$HOME/.local/bin:$PATH"
+        fi
+      fi
+      rm -rf "$AWS_TMP"
+    fi
+  fi
+  if [ "$AWS_INSTALLED" = "0" ] && command -v apt-get >/dev/null 2>&1 \
+     && command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    echo "[project-hook] official AWS CLI v2 install failed; falling back to apt awscli (v1)"
+    sudo apt-get update -qq 2>/dev/null || true
+    sudo apt-get install -y -qq awscli 2>/dev/null && AWS_INSTALLED=1
+  fi
+  if [ "$AWS_INSTALLED" = "1" ] && command -v aws >/dev/null 2>&1; then
+    echo "[project-hook] aws ready ($(aws --version 2>&1 | head -1))"
+  else
+    warn "AWS CLI install failed; scripts/stage0_deploy_via_ssm.sh and edge admin scripts will not work this session"
+  fi
+fi
+
 # Sibling new-api setup. On Cursor's cloud-agent VM the workspace lives at
 # /workspace, so the sibling target becomes /new-api — root-owned and not
 # writable by the `ubuntu` agent user. Local dev machines arrange their own
