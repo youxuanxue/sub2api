@@ -6,6 +6,17 @@ name: Inspect Account Snapshot
 # docs/accounts/snapshots/<target>-<account>.json so downstream agents (and
 # the docs/accounts comparison) can consume it without ad-hoc paste.
 #
+# Two trigger paths:
+#   1. workflow_dispatch — humans click "Run workflow" in the Actions UI.
+#   2. push to refs matching `dispatch/inspect-account/<target>/<account>` —
+#      automated agents (Claude Code on the Web, etc.) that have repo write
+#      via the GitHub MCP server but no `workflow_dispatch` MCP tool can
+#      still trigger this workflow by calling `create_branch` with that
+#      naming convention. The branch carries no commits — its name encodes
+#      the parameters; the workflow self-deletes the trigger ref at the end
+#      to keep the branch list clean. Trust boundary is identical to
+#      workflow_dispatch (both require repo write).
+#
 # Read-only by design:
 #   - SQL is a single SELECT that EXCLUDES the `credentials` column (never
 #     reads OAuth tokens / API keys into the workflow log).
@@ -43,9 +54,16 @@ on:
         required: false
         type: string
         default: claude/account-snapshots
+  push:
+    # Implicit dispatch via branch creation. The branch name is the contract:
+    #   dispatch/inspect-account/<target>/<account_name>
+    # No commits required — `git push` of the new ref alone (which is what
+    # the GitHub MCP `create_branch` tool produces) fires this trigger.
+    branches:
+      - 'dispatch/inspect-account/**'
 
 permissions:
-  contents: write    # push snapshot to output_branch
+  contents: write    # push snapshot to output_branch + delete trigger branch
   id-token: write    # OIDC for AWS
 
 jobs:
@@ -53,16 +71,51 @@ jobs:
     runs-on: ubuntu-latest
     env:
       OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
-      TARGET: ${{ inputs.target }}
-      ACCOUNT_NAME: ${{ inputs.account_name }}
-      OUTPUT_BRANCH: ${{ inputs.output_branch }}
     steps:
-      - name: Checkout
+      - name: Resolve trigger inputs
+        id: inputs
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME:   ${{ github.ref_name }}
+          IN_TARGET:  ${{ inputs.target }}
+          IN_ACCOUNT: ${{ inputs.account_name }}
+          IN_BRANCH:  ${{ inputs.output_branch }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "push" ]; then
+            # ref_name = dispatch/inspect-account/<target>/<account_name>
+            # github.ref_name strips the `refs/heads/` prefix already.
+            REST="${REF_NAME#dispatch/inspect-account/}"
+            if [ "$REST" = "$REF_NAME" ] || [ "$REST" = "" ]; then
+              echo "::error::push trigger ref '$REF_NAME' is not under dispatch/inspect-account/"
+              exit 1
+            fi
+            TARGET="${REST%%/*}"
+            ACCOUNT_NAME="${REST#*/}"
+            if [ -z "$TARGET" ] || [ -z "$ACCOUNT_NAME" ] || [ "$ACCOUNT_NAME" = "$REST" ]; then
+              echo "::error::push trigger ref '$REF_NAME' must encode dispatch/inspect-account/<target>/<account_name>"
+              exit 1
+            fi
+            OUTPUT_BRANCH="claude/account-snapshots"
+          else
+            TARGET="$IN_TARGET"
+            ACCOUNT_NAME="$IN_ACCOUNT"
+            OUTPUT_BRANCH="${IN_BRANCH:-claude/account-snapshots}"
+          fi
+          echo "target=$TARGET"               >> "$GITHUB_OUTPUT"
+          echo "account_name=$ACCOUNT_NAME"   >> "$GITHUB_OUTPUT"
+          echo "output_branch=$OUTPUT_BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout (default branch)
         uses: actions/checkout@v6
         with:
+          ref: main
           fetch-depth: 0
 
       - name: Validate inputs
+        env:
+          TARGET:       ${{ steps.inputs.outputs.target }}
+          ACCOUNT_NAME: ${{ steps.inputs.outputs.account_name }}
         run: |
           set -euo pipefail
           if ! printf '%s' "$ACCOUNT_NAME" | grep -Eq '^[A-Za-z0-9._-]+$'; then
@@ -73,9 +126,21 @@ jobs:
             echo "::error::vars.AWS_OIDC_ROLE_ARN is not configured on this repo"
             exit 1
           fi
+          # Cross-check target against the same metadata the resolution step uses.
+          case "$TARGET" in
+            prod) ;;
+            *)
+              if ! jq -e --arg t "$TARGET" '.targets[$t]' deploy/aws/stage0/edge-targets.json >/dev/null; then
+                echo "::error::Unknown target '$TARGET' (not in deploy/aws/stage0/edge-targets.json and not 'prod')"
+                exit 1
+              fi
+              ;;
+          esac
 
       - name: Resolve target metadata
         id: target
+        env:
+          TARGET: ${{ steps.inputs.outputs.target }}
         run: |
           set -euo pipefail
           if [ "$TARGET" = "prod" ]; then
@@ -125,8 +190,11 @@ jobs:
       - name: Run SELECT via SSM (excludes credentials column)
         id: query
         env:
-          REGION:      ${{ steps.target.outputs.region }}
-          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          REGION:       ${{ steps.target.outputs.region }}
+          INSTANCE_ID:  ${{ steps.instance.outputs.id }}
+          TARGET:       ${{ steps.inputs.outputs.target }}
+          ACCOUNT_NAME: ${{ steps.inputs.outputs.account_name }}
+          OUTPUT_BRANCH: ${{ steps.inputs.outputs.output_branch }}
         run: |
           set -euo pipefail
 
@@ -232,25 +300,29 @@ jobs:
 
       - name: Commit snapshot to output_branch
         env:
-          OUT: ${{ steps.query.outputs.out }}
+          OUT:           ${{ steps.query.outputs.out }}
+          TARGET:        ${{ steps.inputs.outputs.target }}
+          ACCOUNT_NAME:  ${{ steps.inputs.outputs.account_name }}
+          OUTPUT_BRANCH: ${{ steps.inputs.outputs.output_branch }}
         run: |
           set -euo pipefail
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Reuse existing output_branch if it exists, otherwise branch from main.
+          # Stash the freshly-built snapshot somewhere outside the worktree,
+          # then switch refs without losing it.
+          STASH=$(mktemp -d)
+          cp -f "$OUT" "$STASH/$(basename "$OUT")"
+
+          # Reuse existing output_branch if it exists, otherwise create it as
+          # an orphan branch so it stays a thin layer above main.
           if git ls-remote --exit-code --heads origin "$OUTPUT_BRANCH" >/dev/null 2>&1; then
             git fetch origin "$OUTPUT_BRANCH"
             git checkout -B "$OUTPUT_BRANCH" "origin/$OUTPUT_BRANCH"
-            # Re-apply just the new snapshot file (we may already have it as untracked)
-            mkdir -p docs/accounts/snapshots
-            cp -f "$OUT" "$OUT"
           else
             git checkout --orphan "$OUTPUT_BRANCH"
             git rm -rf . >/dev/null 2>&1 || true
-            git clean -fdx -- ':!docs/accounts/snapshots' >/dev/null 2>&1 || true
-            mkdir -p docs/accounts/snapshots
-            cp -f "$OUT" "$OUT"
+            git clean -fdx >/dev/null 2>&1 || true
             cat > .gitignore <<'EOF'
           # Branch dedicated to account snapshots produced by
           # .github/workflows/inspect-account.yml. Anything outside
@@ -266,6 +338,9 @@ jobs:
           EOF
           fi
 
+          mkdir -p docs/accounts/snapshots
+          cp -f "$STASH/$(basename "$OUT")" "$OUT"
+
           git add docs/accounts/snapshots/ .gitignore 2>/dev/null || git add docs/accounts/snapshots/
           if git diff --cached --quiet; then
             echo "snapshot unchanged; nothing to commit"
@@ -274,9 +349,30 @@ jobs:
           git commit -m "snapshot(${TARGET}): ${ACCOUNT_NAME} ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
           git push -u origin "$OUTPUT_BRANCH"
 
+      - name: Cleanup trigger branch
+        # Delete the dispatch/inspect-account/* ref that fired this run so the
+        # branch list stays clean. Skipped for workflow_dispatch (no trigger
+        # branch to delete) and for failed runs (keep the ref as a hint).
+        if: ${{ success() && github.event_name == 'push' && startsWith(github.ref_name, 'dispatch/inspect-account/') }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # Branch path may contain slashes (intentional); url-encode them.
+          ENCODED=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$REF_NAME")
+          gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/$ENCODED" \
+            && echo "deleted trigger ref: $REF_NAME" \
+            || echo "::warning::failed to delete trigger ref $REF_NAME (manual cleanup required)"
+
       - name: Report final status
         if: always()
+        env:
+          TARGET:        ${{ steps.inputs.outputs.target }}
+          ACCOUNT_NAME:  ${{ steps.inputs.outputs.account_name }}
+          OUTPUT_BRANCH: ${{ steps.inputs.outputs.output_branch }}
         run: |
           echo "target=$TARGET account_name=$ACCOUNT_NAME"
           echo "output branch: $OUTPUT_BRANCH"
           echo "snapshot path: docs/accounts/snapshots/${TARGET}-${ACCOUNT_NAME}.json"
+
