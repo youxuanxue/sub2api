@@ -53,7 +53,7 @@ python3 scripts/check-edge-anthropic-oauth-stability.py \
 | `platform` | `anthropic` | 固定 Anthropic 原生网关链路。 |
 | `type` | `oauth` | 固定 OAuth 账号类型。 |
 | `proxy_id` | `null` | Edge 本身作为出口，不叠加二级代理。 |
-| `concurrency` | `3` | 保守并发上限。 |
+| `concurrency` | `2` | 更保守并发上限，优先保护账号。 |
 | `load_factor` | `null` | 空值时按并发作为负载因子。 |
 | `priority` | `1` | 单 edge 主账号优先级。 |
 | `rate_multiplier` | `1.0` | 默认账号倍率。 |
@@ -66,24 +66,24 @@ python3 scripts/check-edge-anthropic-oauth-stability.py \
 |---|---:|---|
 | `intercept_warmup_requests` | `true` | 减少 warmup 对上游账号的噪音。 |
 | `temp_unschedulable_enabled` | `true` | 启用可恢复错误的临时暂停。 |
-| `temp_unschedulable_rules` | 429 + `rate limit`/`too many requests` 暂停 30 分钟 | 避免限流后继续打流。 |
+| `temp_unschedulable_rules` | 429(`rate limit`/`too many requests`) 30 分钟；529(`overloaded`/`capacity`) 15 分钟；401(`invalid_token`/`expired`) 30 分钟；403(`account_disabled_auth_error`/`organization disabled`) 6 小时 | 对可恢复过载、凭据异常、账号禁用做分层熔断，避免持续打流。 |
 
 ### Extra 配置字段
 
 | 字段 | 基线 | 作用 |
 |---|---:|---|
 | `enable_tls_fingerprint` | `true` | 启用出站 TLS ClientHello 模拟。 |
-| `base_rpm` | `8` | 基础 RPM 绿区。 |
+| `base_rpm` | `5` | 更早进入控流区，优先保护账号。 |
 | `rpm_strategy` | `tiered` | 绿区、sticky-only、红区三段保护。 |
-| `rpm_sticky_buffer` | `3` | 超过 base_rpm 后的 sticky 缓冲。会话连续性优先时可人工评估升到 `5`。 |
+| `rpm_sticky_buffer` | `3` | 超过 base_rpm 后的 sticky 缓冲，保持当前会话连续性与保护平衡。 |
 | `user_msg_queue_mode` | `serialize` | 同一用户消息串行，减少突刺和乱序。 |
-| `max_sessions` | `8` | 保守会话数上限。 |
+| `max_sessions` | `4` | 收紧会话数上限，降低账号压力。 |
 | `session_idle_timeout_minutes` | `8` | 降低过快 session churn。 |
 | `session_id_masking_enabled` | `true` | 稳定 `metadata.user_id` 的 session 部分。 |
 | `cache_ttl_override_enabled` | `true` | 统一 cache creation TTL。 |
 | `cache_ttl_override_target` | `1h` | 对 Claude Code 长上下文更稳定。 |
-| `window_cost_limit` | `150` | 比旧线上样本的 `200` 更早进入保护。 |
-| `window_cost_sticky_reserve` | `10` | 超过窗口阈值后保留 sticky 连续性。 |
+| `window_cost_limit` | `150` | 保持当前阈值，兼顾保护与可用性。 |
+| `window_cost_sticky_reserve` | `3` | 收紧窗口超阈值后的 sticky 保留配额。 |
 | `custom_base_url_enabled` | `false` | 禁止 Anthropic OAuth 账号绕过本 Edge 出口改走自定义 relay。 |
 | `custom_base_url` | 不存在 / 空 | 关闭自定义 relay 后不保留出站 URL 残留。 |
 
