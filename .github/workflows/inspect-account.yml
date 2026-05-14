@@ -85,7 +85,7 @@ jobs:
               REGION=$(jq -r '.region // empty' deploy/aws/stage0/prod-target.json)
               STACK=$(jq -r '.stack // empty' deploy/aws/stage0/prod-target.json)
             fi
-            REGION="${REGION:-ap-east-1}"
+            REGION="${REGION:-us-east-1}"
             STACK="${STACK:-tokenkey-prod-stage0}"
           else
             REGION=$(jq -r --arg t "$TARGET" '.targets[$t].region // empty' deploy/aws/stage0/edge-targets.json)
