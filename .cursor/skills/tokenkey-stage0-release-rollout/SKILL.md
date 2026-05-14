@@ -89,6 +89,8 @@ description: >-
 - **完整烟测密钥**：优先使用环境里已有的 smoke key，避免停下来向用户索要 key；详见 prod smoke 与 Edge smoke 章节。
 - **部署前先校验 OIDC 目标实例**：`tokenkey-cicd-oidc` 的 `TargetInstanceId` 必须等于 `tokenkey-prod-stage0` 当前 `InstanceId`；不一致会在 `Deploy via SSM Run-Command` 直接 `AccessDenied(ssm:SendCommand)`。
 - **禁止 `simple_release_override=true`**：prod / Edge 当前都跑 AWS Graviton arm64；单架构 manifest 会导致 `exec format error`。
+- **`gh` 连接抖动先做无代理重试**：若连续出现 `read ... 127.0.0.1:7890: connection reset by peer`，用一次性环境变量重试：`env -u HTTPS_PROXY -u https_proxy -u HTTP_PROXY -u http_proxy gh ...`，恢复后再继续 watch/dispatch。
+- **无代理模式要校验 gh 身份**：去掉 `GH_TOKEN` 或 proxy 后，`gh` 可能切到别的账号；dispatch 前必须 `gh auth status` 确认 active account 是目标仓库有权限的账号，避免 `HTTP 403 Must have admin rights to Repository`。
 
 ## 前置条件
 
@@ -335,6 +337,9 @@ git diff --diff-filter=D --name-only "${PREV_TAG}..${NEW_TAG}" -- backend/ || tr
 | `gh run watch` 被工具超时打断 | 用同一 run id 再执行 `gh run watch <id> --exit-status` 接到终态。 |
 | prod `Deploy via SSM Run-Command` 报 `AccessDenied(ssm:SendCommand)` | 先核对 `tokenkey-cicd-oidc` 的 `TargetInstanceId` 是否等于 `tokenkey-prod-stage0` 当前 `InstanceId`；不一致先更新 OIDC 栈参数再重跑 deploy。 |
 | prod smoke 报 `POST_DEPLOY_SMOKE_CHAT_MODEL not listed in GET /v1/models` | 不是代码回归，改 `prod` Environment 的 `POST_DEPLOY_SMOKE_CHAT_MODEL` 为该 key 可见模型（如 `gpt-5.5`）后重跑。 |
+| `gh` 请求持续报 `read ... 127.0.0.1:7890: connection reset by peer` | 先用 `env -u HTTPS_PROXY -u https_proxy -u HTTP_PROXY -u http_proxy gh <cmd>` 做无代理重试；恢复后再继续 watch。 |
+| 无代理后 dispatch 报 `HTTP 403 Must have admin rights to Repository` | `gh` 可能切到另一个账号；先 `env -u GH_TOKEN ... gh auth status`，必要时 `gh auth switch -u <repo-owner>` 后重试 dispatch。 |
+| `post-release-light-diagnostics` 在 `Dispatch first lightweight diagnostics` 失败且日志含 `failed to run git: ... not a git repository` | 视为 workflow 缺陷：先手动 dispatch 一次 `ops-daily-diagnostics.yml operation=diagnostics` 兜底，再记录 run id 并提修复 PR（定位该 workflow 对 `gh workflow run` 的调用上下文）。 |
 
 ## 扩展阅读（按需打开）
 
