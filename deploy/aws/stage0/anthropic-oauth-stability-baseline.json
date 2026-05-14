@@ -40,8 +40,12 @@
       "cache_ttl_override_enabled": true,
       "cache_ttl_override_target": "1h",
       "window_cost_limit": 150,
-      "window_cost_sticky_reserve": 10
+      "window_cost_sticky_reserve": 10,
+      "custom_base_url_enabled": false
     },
+    "extra_absent": [
+      "custom_base_url"
+    ],
     "tls_profile": {
       "name": "claude_cli_nodejs24_fixed",
       "description": "Fixed Claude CLI / Node.js 24.x ClientHello profile for Anthropic OAuth stability.",

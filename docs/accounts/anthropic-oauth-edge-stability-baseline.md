@@ -84,6 +84,8 @@ python3 scripts/check-edge-anthropic-oauth-stability.py \
 | `cache_ttl_override_target` | `1h` | 对 Claude Code 长上下文更稳定。 |
 | `window_cost_limit` | `150` | 比旧线上样本的 `200` 更早进入保护。 |
 | `window_cost_sticky_reserve` | `10` | 超过窗口阈值后保留 sticky 连续性。 |
+| `custom_base_url_enabled` | `false` | 禁止 Anthropic OAuth 账号绕过本 Edge 出口改走自定义 relay。 |
+| `custom_base_url` | 不存在 / 空 | 关闭自定义 relay 后不保留出站 URL 残留。 |
 
 ### TLS profile
 
@@ -170,7 +172,8 @@ python3 scripts/check-edge-anthropic-oauth-stability.py \
 
 - 只接受 `edge-targets.json` 中存在且 `deployable=true` 的 edge。
 - 线上查询只读取 `platform='anthropic' AND type='oauth' AND deleted_at IS NULL` 的账号。
+- 会把 `custom_base_url_enabled=true` 或残留 `custom_base_url` 判为 drift，避免账号改走非 Edge 出站路径。
 - 不回显 OAuth token、邮箱、account UUID 或 org UUID。
-- `--emit-sql` 只写本地 SQL 文件，不执行。
+- `--emit-sql` 只写本地 SQL 文件，不执行；生成内容会关闭自定义 base URL 并移除残留 URL。
 - `--update-stable-list` 只更新 repo 内 JSON，必须显式确认。
 - 首版没有线上 `--apply`，避免把生产数据库写入和清单维护混在一个低门槛命令里。

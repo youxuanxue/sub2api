@@ -271,11 +271,26 @@ def diff_dict(section: str, expected: dict[str, Any], actual: dict[str, Any] | N
     diffs: list[dict[str, Any]] = []
     for key, expected_value in expected.items():
         actual_value = actual.get(key)
+        if actual_value is None and expected_value is False:
+            actual_value = False
         if normalize_value(actual_value) != normalize_value(expected_value):
             diffs.append({
                 "path": f"/{section}/{key}",
                 "expected": expected_value,
-                "actual": actual_value,
+                "actual": actual.get(key),
+            })
+    return diffs
+
+
+def diff_absent(section: str, absent_keys: list[str], actual: dict[str, Any] | None) -> list[dict[str, Any]]:
+    actual = actual or {}
+    diffs: list[dict[str, Any]] = []
+    for key in absent_keys:
+        if key in actual and actual[key] not in (None, ""):
+            diffs.append({
+                "path": f"/{section}/{key}",
+                "expected": "absent",
+                "actual": actual[key],
             })
     return diffs
 
@@ -288,6 +303,7 @@ def compare_live_to_baseline(live: dict[str, Any], baseline: dict[str, Any]) -> 
     diffs.extend(diff_dict("account", base.get("account") or {}, live.get("account") or {}))
     diffs.extend(diff_dict("credentials", base.get("credentials") or {}, live.get("credentials") or {}))
     diffs.extend(diff_dict("extra", base.get("extra") or {}, live.get("extra") or {}))
+    diffs.extend(diff_absent("extra", base.get("extra_absent") or [], live.get("extra") or {}))
     diffs.extend(diff_dict("tls_profile", base.get("tls_profile") or {}, live.get("tls_profile") or {}))
     return diffs
 
@@ -305,6 +321,7 @@ def generate_sql(edge: dict[str, Any], account_name: str, baseline: dict[str, An
     account = base.get("account") or {}
     credentials = base.get("credentials") or {}
     extra = dict(base.get("extra") or {})
+    extra_absent = base.get("extra_absent") or []
     profile = base.get("tls_profile") or {}
     generated_at = dt.datetime.now(dt.UTC).replace(microsecond=0).isoformat()
 
@@ -385,7 +402,10 @@ def generate_sql(edge: dict[str, Any], account_name: str, baseline: dict[str, An
     ]
     set_lines = [f"      {item}" for item in account_sets]
     set_lines.append(f"      credentials = COALESCE(a.credentials, '{{}}'::jsonb) || {pg_json(credentials)}")
-    set_lines.append(f"      extra = COALESCE(a.extra, '{{}}'::jsonb) || {extra_object}")
+    extra_base = "COALESCE(a.extra, '{}')::jsonb"
+    for key in extra_absent:
+        extra_base += f" - {sql_literal(str(key))}"
+    set_lines.append(f"      extra = {extra_base} || {extra_object}")
     set_lines.append("      updated_at = NOW()")
     statements.append(",\n".join(set_lines))
     statements.extend([
