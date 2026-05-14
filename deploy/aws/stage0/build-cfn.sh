@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
 # build-cfn.sh — refresh Stage 0 gzip|base64 blobs for docker-compose + Caddy,
-# plus raw base64 for tokenkey-qa-stale-cleanup.sh, into CloudFormation SSM
-# Parameter values.
+# plus raw base64 for tokenkey-qa-stale-cleanup.sh and tokenkey-prune-ghcr-app-tags.sh,
+# into CloudFormation SSM Parameter values.
 #
 # Usage:
 #   bash deploy/aws/stage0/build-cfn.sh                    # in-place rewrite
@@ -16,6 +16,7 @@ COMPOSE_SRC="${HERE}/docker-compose.yml"
 CADDY_SRC="${HERE}/Caddyfile"
 EDGE_CADDY_SRC="${HERE}/Caddyfile.edge"
 QA_CLEANUP_SRC="${HERE}/tokenkey-qa-stale-cleanup.sh"
+PRUNE_SRC="${HERE}/tokenkey-prune-ghcr-app-tags.sh"
 CFN_FILE="${REPO_ROOT}/deploy/aws/cloudformation/stage0-single-ec2.yaml"
 EDGE_CFN_FILE="${REPO_ROOT}/deploy/aws/cloudformation/stage0-edge-ec2.yaml"
 
@@ -28,6 +29,7 @@ fi
 [[ -f "${CADDY_SRC}" ]] || { echo "missing ${CADDY_SRC}" >&2; exit 1; }
 [[ -f "${EDGE_CADDY_SRC}" ]] || { echo "missing ${EDGE_CADDY_SRC}" >&2; exit 1; }
 [[ -f "${QA_CLEANUP_SRC}" ]] || { echo "missing ${QA_CLEANUP_SRC}" >&2; exit 1; }
+[[ -f "${PRUNE_SRC}" ]] || { echo "missing ${PRUNE_SRC}" >&2; exit 1; }
 [[ -f "${CFN_FILE}" ]] || { echo "missing ${CFN_FILE}" >&2; exit 1; }
 [[ -f "${EDGE_CFN_FILE}" ]] || { echo "missing ${EDGE_CFN_FILE}" >&2; exit 1; }
 
@@ -43,10 +45,11 @@ COMPOSE_GZB64="$(encode_gzb64 "${COMPOSE_SRC}")"
 CADDY_GZB64="$(encode_gzb64 "${CADDY_SRC}")"
 EDGE_CADDY_GZB64="$(encode_gzb64 "${EDGE_CADDY_SRC}")"
 QA_CLEANUP_B64="$(encode_b64 "${QA_CLEANUP_SRC}")"
+PRUNE_B64="$(encode_b64 "${PRUNE_SRC}")"
 
-if [[ "${#COMPOSE_GZB64}" -gt 4096 ]] || [[ "${#CADDY_GZB64}" -gt 4096 ]] || [[ "${#EDGE_CADDY_GZB64}" -gt 4096 ]] || [[ "${#QA_CLEANUP_B64}" -gt 4096 ]]; then
+if [[ "${#COMPOSE_GZB64}" -gt 4096 ]] || [[ "${#CADDY_GZB64}" -gt 4096 ]] || [[ "${#EDGE_CADDY_GZB64}" -gt 4096 ]] || [[ "${#QA_CLEANUP_B64}" -gt 4096 ]] || [[ "${#PRUNE_B64}" -gt 4096 ]]; then
   echo "One or more SSM Parameter values exceed Standard tier limit (4096 chars):" >&2
-  echo "  compose: ${#COMPOSE_GZB64}  caddy: ${#CADDY_GZB64}  edge_caddy: ${#EDGE_CADDY_GZB64}  qa: ${#QA_CLEANUP_B64}" >&2
+  echo "  compose: ${#COMPOSE_GZB64}  caddy: ${#CADDY_GZB64}  edge_caddy: ${#EDGE_CADDY_GZB64}  qa: ${#QA_CLEANUP_B64}  prune: ${#PRUNE_B64}" >&2
   exit 1
 fi
 
@@ -58,10 +61,12 @@ refresh_template() {
   local new_compose="${indent}Value: '${COMPOSE_GZB64}'"
   local new_caddy="${indent}Value: '${caddy_blob}'"
   local new_qa="${indent}Value: '${QA_CLEANUP_B64}'"
+  local new_prune="${indent}Value: '${PRUNE_B64}'"
 
   awk -v new_compose_ssm="${new_compose}" \
       -v new_caddy_ssm="${new_caddy}" \
-      -v new_qa_ssm="${new_qa}" '
+      -v new_qa_ssm="${new_qa}" \
+      -v new_prune_ssm="${new_prune}" '
     BEGIN { skip = 0 }
     />>> COMPOSE_GZB64_SSM START/ { print; print new_compose_ssm; skip = 1; next }
     />>> COMPOSE_GZB64_SSM END/ { skip = 0; print; next }
@@ -69,6 +74,8 @@ refresh_template() {
     />>> CADDY_GZB64_SSM END/ { skip = 0; print; next }
     />>> QA_CLEANUP_B64_PARAM START/ { print; print new_qa_ssm; skip = 1; next }
     />>> QA_CLEANUP_B64_PARAM END/ { skip = 0; print; next }
+    />>> GHCR_PRUNE_B64_PARAM START/ { print; print new_prune_ssm; skip = 1; next }
+    />>> GHCR_PRUNE_B64_PARAM END/ { skip = 0; print; next }
     { if (!skip) print }
   ' "${src}" > "${dst}"
 }
@@ -118,6 +125,7 @@ echo "  compose gzip+base64 (SSM): ${#COMPOSE_GZB64} chars"
 echo "  caddy gzip+base64 (SSM): ${#CADDY_GZB64} chars"
 echo "  edge caddy gzip+base64 (SSM): ${#EDGE_CADDY_GZB64} chars"
 echo "  qa cleanup base64 (SSM): ${#QA_CLEANUP_B64} chars"
+echo "  ghcr prune base64 (SSM): ${#PRUNE_B64} chars"
 echo "  main UserData body (raw, rough awk span): ${body_bytes} bytes  (EC2 limit 16384 after substitution)"
 echo "  edge UserData body (raw, rough awk span): ${edge_body_bytes} bytes  (EC2 limit 16384 after substitution)"
 if (( body_bytes > 14000 )) || (( edge_body_bytes > 14000 )); then

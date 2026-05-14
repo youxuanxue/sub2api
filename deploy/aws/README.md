@@ -26,16 +26,16 @@ deploy/aws/
     ├── edge-targets.json             Edge 矩阵：uk1 / fra1 deployable；us1 / sg1 planned
     ├── resolve-edge-target.py        workflow 解析 Edge 目标并 fail-before-AWS
     ├── .env.example                  环境变量模板（生产 .env 由 Cloud-Init 自动生成；本地调试可复制使用）
-    └── build-cfn.sh                  把 docker-compose.yml + Caddyfile(.edge) + tokenkey-qa-stale-cleanup.sh 注入 CFN 模板
+    └── build-cfn.sh                  把 docker-compose.yml + Caddyfile(.edge) + QA 清理 / GHCR prune 等脚本注入 CFN（含 SSM 段）
 ```
 
 > EC2 引导逻辑直接 inline 在 CFN 模板的 UserData 段（`stage0-single-ec2.yaml`）。无需独立的 `cloud-init.sh`；如需「不走 CFN」紧急 bootstrap，从 UserData 段 copy 出来本地化即可。
 
 ## CFN 自包含特性
 
-CFN 模板已把 `docker-compose.yml`、`Caddyfile`、`deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh` 以 gzip+base64 内嵌进 UserData，部署时 EC2 不再外网拉这些文件，**仓库可保持 GitHub 私仓 / 不公开**。
+CFN 模板已把 `docker-compose.yml`、`Caddyfile`、`deploy/aws/stage0/tokenkey-qa-stale-cleanup.sh`、`deploy/aws/stage0/tokenkey-prune-ghcr-app-tags.sh`（经 SSM 下 base64 参数）注入部署路径，EC2 不再外网拉这些文件，**仓库可保持 GitHub 私仓 / 不公开**。
 
-> **必须遵守的规则：** 编辑 `docker-compose.yml`、`Caddyfile` 或 `tokenkey-qa-stale-cleanup.sh` 之后，运行：
+> **必须遵守的规则：** 编辑 `docker-compose.yml`、`Caddyfile`、`tokenkey-qa-stale-cleanup.sh` 或 `tokenkey-prune-ghcr-app-tags.sh` 之后，运行：
 >
 > ```bash
 > bash deploy/aws/stage0/build-cfn.sh

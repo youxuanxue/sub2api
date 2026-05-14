@@ -278,7 +278,7 @@ jobs:
           # CI logs live (helpful for long agent runs); pipefail propagates
           # claude's exit code through the pipeline so the step actually
           # fails when the agent fails.
-          # --allowedTools is required in headless: without it `claude -p`
+          # --allowedTools is required in headless: without it Claude prompt-mode run
           # defaults to interactive `default` permission mode and rejects
           # every tool call with "This command requires approval", so the
           # agent runs the SOP read-only and never produces a PR
@@ -293,7 +293,7 @@ jobs:
           # Model+budget retuning (run 25417602884, 2026-05-06): the agent
           # under opus[1m] burned its $8 cap in 16 min and hit
           # `Exceeded USD budget` mid-SOP without producing a PR. The
-          # cache-creation fee for a single fresh `claude -p` is ~$0.75
+          # cache-creation fee for a single fresh Claude prompt-mode run is ~$0.75
           # at opus[1m] (40k-token system prompt × ~$18.75/M write rate),
           # so $8 left only ~$7 for actual work. Sonnet 4.6 is roughly
           # 5× cheaper, and $20 gives the SOP enough headroom to fetch
@@ -318,12 +318,11 @@ jobs:
           # flag is harmless on miss.
           set -o pipefail
           set +e
-          claude -p "$(cat /tmp/upstream-merge-agent-prompt.txt)" \
+          claude -p "$(cat /tmp/upstream-merge-agent-prompt.txt)" --allowedTools "Bash Read Write Edit Grep Glob" \
             --model "claude-sonnet-4-6" \
             --max-budget-usd "20.00" \
             --output-format stream-json --verbose \
             --exclude-dynamic-system-prompt-sections \
-            --allowedTools "Bash Read Write Edit Grep Glob" \
             2>&1 \
             | python3 scripts/redact-agent-stream.py \
             | tee /tmp/upstream-merge-agent-output-attempt1.txt
@@ -425,12 +424,11 @@ jobs:
         run: |
           set -o pipefail
           set +e
-          claude -p "$(cat /tmp/upstream-merge-agent-retry-prompt.txt)" \
+          claude -p "$(cat /tmp/upstream-merge-agent-retry-prompt.txt)" --allowedTools "Bash Read Write Edit Grep Glob" \
             --model "claude-sonnet-4-6" \
             --max-budget-usd "20.00" \
             --output-format stream-json --verbose \
             --exclude-dynamic-system-prompt-sections \
-            --allowedTools "Bash Read Write Edit Grep Glob" \
             2>&1 \
             | python3 scripts/redact-agent-stream.py \
             | tee /tmp/upstream-merge-agent-output-attempt2.txt
