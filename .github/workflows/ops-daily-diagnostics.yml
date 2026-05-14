@@ -30,7 +30,7 @@ on:
       diagnostics_log_since:
         description: Diagnostics runtime log lookback (docker logs --since), e.g. 20m, 2h, 1d
         required: false
-        default: "30m"
+        default: "24h"
       diagnostics_include_error_clustering:
         description: Include error clustering in diagnostics (false = lightweight runtime/health only)
         required: false
@@ -116,7 +116,7 @@ jobs:
     env:
       OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
       SINCE_HOURS: ${{ inputs.since_hours || '24' }}
-      DIAGNOSTICS_LOG_SINCE: ${{ inputs.diagnostics_log_since || '30m' }}
+      DIAGNOSTICS_LOG_SINCE: ${{ inputs.diagnostics_log_since || '24h' }}
       INCLUDE_ERROR_CLUSTERING: ${{ inputs.diagnostics_include_error_clustering || 'true' }}
       TARGET_ID: ${{ matrix.target_id }}
       TARGET_KIND: ${{ matrix.target_kind }}
@@ -247,6 +247,7 @@ jobs:
           import os
           import shlex
           log_since = os.environ["DIAGNOSTICS_LOG_SINCE"]
+          quoted_since = shlex.quote(log_since)
           commands = [
               "set -euo pipefail",
               "echo ===DOCKER_PS===",
@@ -256,8 +257,23 @@ jobs:
               "sudo docker inspect tokenkey-postgres --format 'postgres_status={{.State.Status}}' 2>/dev/null || true",
               "sudo docker inspect tokenkey-redis --format 'redis_status={{.State.Status}}' 2>/dev/null || true",
               "sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env exec -T tokenkey wget -qO- http://localhost:8080/health",
+              "SIG_OUT=/tmp/prod-ops-runtime-signals",
+              "sudo rm -rf \"$SIG_OUT\" && sudo mkdir -p \"$SIG_OUT\" && sudo chmod 0777 \"$SIG_OUT\"",
+              "sudo docker logs tokenkey --since " + quoted_since + " > \"$SIG_OUT/tokenkey.log\" 2>&1 || true",
+              "sudo docker logs tokenkey-caddy --since " + quoted_since + " > \"$SIG_OUT/caddy.log\" 2>&1 || true",
+              "count_fixed_file() { local file=\"$1\" pattern=\"$2\"; awk -v p=\"$pattern\" 'index($0,p)>0{c++} END{print c+0}' \"$file\"; }",
+              "count_both_file() { local file=\"$1\" p1=\"$2\" p2=\"$3\"; awk -v p1=\"$p1\" -v p2=\"$p2\" 'index($0,p1)>0 && index($0,p2)>0{c++} END{print c+0}' \"$file\"; }",
+              "gemini_drive_scope_403=$(count_fixed_file \"$SIG_OUT/tokenkey.log\" '[GeminiOAuth] Drive API scope not available (403)')",
+              "openai_previous_response_fallback=$(count_fixed_file \"$SIG_OUT/tokenkey.log\" 'previous_response_id unavailable, retrying without continuation')",
+              "rate_limit_429_no_reset=$(count_fixed_file \"$SIG_OUT/tokenkey.log\" 'rate_limit_429_no_reset_time_skipped')",
+              "caddy_incomplete_response=$(count_fixed_file \"$SIG_OUT/caddy.log\" 'aborting with incomplete response')",
+              "caddy_access_error=$(count_both_file \"$SIG_OUT/caddy.log\" '\"level\":\"error\"' 'http.log.access')",
+              "echo ===LOG_SIGNAL_COUNTS===",
+              "printf '{\"gemini_drive_scope_403\":%s,\"openai_previous_response_fallback\":%s,\"rate_limit_429_no_reset\":%s,\"caddy_incomplete_response\":%s,\"caddy_access_error\":%s}\\n' \"$gemini_drive_scope_403\" \"$openai_previous_response_fallback\" \"$rate_limit_429_no_reset\" \"$caddy_incomplete_response\" \"$caddy_access_error\"",
+              "echo ===END_LOG_SIGNAL_COUNTS===",
               "echo ===RECENT_ERRORS===",
-              "sudo docker logs tokenkey --since " + shlex.quote(log_since) + " --tail 300 2>&1 | grep -Ei 'panic|fatal|error|traceback|failed|timeout|refused|denied| 5[0-9][0-9] | 429 ' | tail -80 || true",
+              "grep -Ei 'panic|fatal|error|traceback|failed|timeout|refused|denied| 5[0-9][0-9] | 429 ' \"$SIG_OUT/tokenkey.log\" | tail -60 || true",
+              "sudo rm -rf \"$SIG_OUT\" || true",
           ]
           print(json.dumps({"commands": commands}))
           PY
@@ -275,6 +291,65 @@ jobs:
               aws ssm get-command-invocation --region "$TARGET_REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'StandardErrorContent' --output text > "$OUT/runtime-stderr.txt" 2>>"$STDERR" || true
               tail -c 8192 "$OUT/runtime-stdout.txt" >> "$STDOUT" || true
               tail -c 4096 "$OUT/runtime-stderr.txt" >> "$STDERR" || true
+              if grep -q '^===END_LOG_SIGNAL_COUNTS===$' "$OUT/runtime-stdout.txt"; then
+                awk '/^===LOG_SIGNAL_COUNTS===$/{f=1;next} /^===END_LOG_SIGNAL_COUNTS===$/{f=0} f' "$OUT/runtime-stdout.txt" > "$OUT/log-signal-counts.json" || true
+                python3 - <<'PY' "$OUT/log-signal-counts.json" "$FINDINGS" "$TARGET_ID" "$DIAGNOSTICS_LOG_SINCE"
+          import json
+          import pathlib
+          import sys
+
+          counts_path = pathlib.Path(sys.argv[1])
+          findings_path = pathlib.Path(sys.argv[2])
+          target_id = sys.argv[3]
+          window = sys.argv[4]
+          try:
+              counts = json.loads(counts_path.read_text(encoding="utf-8"))
+          except Exception:
+              counts = {}
+
+          def as_int(key):
+              return int(counts.get(key) or 0)
+
+          findings = []
+          rules = [
+              ("gemini_drive_scope_403", 10, "error", "Gemini OAuth Drive API scope missing on {target_id}", "Gemini OAuth Drive API scope 403 appeared {count} times in tokenkey logs over {window}.", "log-signal|{target_id}|gemini-drive-scope-403"),
+              ("openai_previous_response_fallback", 50, "warning", "OpenAI-compatible previous_response fallback is frequent on {target_id}", "previous_response_id fallback appeared {count} times in tokenkey logs over {window}.", "log-signal|{target_id}|openai-previous-response-fallback"),
+              ("rate_limit_429_no_reset", 1, "warning", "429 cooldown skipped because reset time is missing on {target_id}", "rate_limit_429_no_reset_time_skipped appeared {count} times in tokenkey logs over {window}.", "log-signal|{target_id}|rate-limit-429-no-reset"),
+          ]
+          for kind, threshold, severity, title_template, summary_template, signature_template in rules:
+              count = as_int(kind)
+              if count < threshold:
+                  continue
+              findings.append({
+                  "target_id": target_id,
+                  "kind": kind,
+                  "status": "issue_candidate",
+                  "severity": severity,
+                  "title": title_template.format(target_id=target_id),
+                  "summary": summary_template.format(count=count, window=window),
+                  "signature": signature_template.format(target_id=target_id),
+              })
+
+          caddy_incomplete = as_int("caddy_incomplete_response")
+          caddy_access_error = as_int("caddy_access_error")
+          if caddy_incomplete >= 20 or caddy_access_error >= 1:
+              findings.append({
+                  "target_id": target_id,
+                  "kind": "caddy_incomplete_response",
+                  "status": "issue_candidate",
+                  "severity": "warning",
+                  "title": f"Caddy reverse proxy anomalies on {target_id}",
+                  "summary": f"Caddy logged {caddy_incomplete} incomplete responses and {caddy_access_error} error-level access entries over {window}.",
+                  "signature": f"log-signal|{target_id}|caddy-incomplete-response",
+              })
+
+          with findings_path.open("a", encoding="utf-8") as fh:
+              for finding in findings:
+                  fh.write(json.dumps(finding, separators=(",", ":")) + "\n")
+          PY
+              else
+                add_finding "log_signal_counts" "warning" "warning" "Runtime log signal counts missing for $TARGET_ID" "SSM runtime diagnostics did not emit complete log signal count markers." "log-signal-counts|$TARGET_ID"
+              fi
               if [ "$STATUS" = "Success" ]; then
                 add_finding "ssm_runtime" "ok" "info" "SSM runtime diagnostics passed for $TARGET_ID" "Docker runtime diagnostics completed on $INSTANCE_ID." "ssm-runtime|$TARGET_ID"
               else
@@ -664,7 +739,7 @@ jobs:
           path: .
 
       - uses: actions/download-artifact@v4
-        continue-on-error: true
+        if: needs.claude-issue-diagnosis.result == 'success'
         with:
           name: prod-ops-claude-diagnosis-${{ github.run_id }}
           path: claude-diagnosis
