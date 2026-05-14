@@ -108,6 +108,8 @@ scripts/stage0_external_health.sh
 
 这保证主网关和 Edge 后续都部署同一个 GHCR image 产物、同一份 `deploy/aws/stage0/docker-compose.yml` 基线、同一套 SSM 原地升级/rollback primitive；差异只来自 Edge target 参数、EC2 profile 和 `Caddyfile.edge` 的 API path allowlist。
 
+**Anthropic OAuth 稳定基线**：新增 Edge 账号时，先按 [`docs/accounts/anthropic-oauth-edge-stability-baseline.md`](../../docs/accounts/anthropic-oauth-edge-stability-baseline.md) 收敛账号行为配置，再用只读检查命令比对线上状态：`python3 scripts/check-edge-anthropic-oauth-stability.py --edge-id <edge_id> --account-name <account_name>`。机器可读基线在 `deploy/aws/stage0/anthropic-oauth-stability-baseline.json`；脚本默认不修改线上，`--emit-sql` 只生成审阅用 SQL。
+
 **GitHub**：每种 Edge 绑定 Environment `edge-<edge_id>`（例如 `edge-uk1`、`edge-fra1`），请在仓库 Settings → Environments 里按需配置 Required reviewer。**`edge-fra1` 的 Variables / Secrets 可与 `edge-uk1` 逐项相同复制**（`EDGE_ACME_EMAIL`、`EDGE_MAIN_GATEWAY_ALLOWED_CIDR`、`EDGE_MAIN_GATEWAY_BASE_URL`、`POST_DEPLOY_SMOKE_CHAT_MODEL`、`MAIN_GATEWAY_EDGE_SMOKE_API_KEY` 等）；**例外**：不要在 fra1 复制一条指向 uk1 路径的 **`EDGE_GHCR_PAT_SSM_NAME`**——该项若在 uk1 里设为 `/tokenkey/edge/uk1/ghcr/pat`，fra1 Environment 应**不设**该变量（workflow 会按矩阵自动用 `/tokenkey/edge/fra1/ghcr/pat`）。仓库级 **`AWS_OIDC_ROLE_ARN`**、**`AWS_OIDC_STACK_REGION`/`AWS_REGION`** 仍与各 Edge 共用，无需按 Environment 重复。
 
 **IAM**：更新 `deploy/aws/cloudformation/cicd-oidc.yaml` 并重部署 **`tokenkey-cicd-oidc`**（部署区域须与仓库变量 **`AWS_OIDC_STACK_REGION`** 一致；未设置时 workflow 使用 `vars.AWS_REGION`，再没有则用 `us-east-1`，与 `docs/approved/deploy-stage0-workflow.md` 默认一致）。模板会为 uk1 / fra1 各输出一个 Edge CloudFormation execution role；Edge workload 仍在各自 `region`（矩阵字段）。
