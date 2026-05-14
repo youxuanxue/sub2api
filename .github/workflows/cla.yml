@@ -63,16 +63,22 @@ jobs:
           # phase the CLA bot must accept it as already-signed to avoid
           # blocking every cloud-agent PR.
           #
-          # `Claude` is the git author NAME used by Claude Code on the Web /
-          # the Claude Agent SDK when it commits on behalf of the maintainer
-          # (commit.author = "Claude <noreply@anthropic.com>"). The
-          # noreply@anthropic.com address is not linked to a GitHub account,
-          # so extractUserFromCommit falls back to commit.author.name, exactly
-          # like the `yyy` case above. Same rationale as `cursoragent`: this
-          # is a non-human contributor whose work is squashed under the
-          # maintainer's authorship at merge time; the CLA bot must accept it
-          # as already-signed to avoid blocking every Claude-authored PR.
-          allowlist: "dependabot[bot],renovate[bot],bot*,yyy,cursoragent,Claude"
+          # `claude` is the GitHub LOGIN that Anthropic's Claude Code on the
+          # Web / Claude Agent SDK resolves to when it commits as
+          # "Claude <noreply@anthropic.com>". Contrary to the `yyy` case
+          # above, GitHub *does* successfully resolve the
+          # `noreply@anthropic.com` author email to a real account
+          # (github.com/claude, user id 81847), so extractUserFromCommit
+          # returns commit.author.user.login = "claude" — NOT the git author
+          # display name "Claude". Same case-sensitivity pitfall as
+          # `cursoragent`: the allowlist must match the LOWERCASE login, not
+          # the capitalized display name; a previous attempt to allowlist
+          # "Claude" had no effect because the matcher never reached the
+          # name fallback. Like `cursoragent`, this is a non-human
+          # contributor whose commits are squashed under the maintainer's
+          # authorship at merge time; the CLA bot must accept it as
+          # already-signed to avoid blocking every Claude-authored PR.
+          allowlist: "dependabot[bot],renovate[bot],bot*,yyy,cursoragent,claude"
           lock-pullrequest-aftermerge: false
           custom-notsigned-prcomment: |
             Thank you for your contribution! Before we can merge this PR, we need $you to sign our [Contributor License Agreement (CLA)](https://github.com/Wei-Shaw/sub2api/blob/main/CLA.md).
@@ -97,5 +103,5 @@ jobs:
           path-to-signatures: "cla.json"
           path-to-document: "https://github.com/Wei-Shaw/sub2api/blob/main/CLA.md"
           branch: "cla-signatures"
-          allowlist: "dependabot[bot],renovate[bot],bot*,yyy,cursoragent,Claude"
+          allowlist: "dependabot[bot],renovate[bot],bot*,yyy,cursoragent,claude"
           lock-pullrequest-aftermerge: true
