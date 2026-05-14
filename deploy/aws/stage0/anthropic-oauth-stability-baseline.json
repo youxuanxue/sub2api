@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "description": "Stable Anthropic OAuth account baseline for TokenKey Edge Stage0.",
+  "baseline": {
+    "account": {
+      "platform": "anthropic",
+      "type": "oauth",
+      "proxy_id": null,
+      "concurrency": 3,
+      "load_factor": null,
+      "priority": 1,
+      "rate_multiplier": 1.0,
+      "auto_pause_on_expired": true,
+      "channel_type": 0
+    },
+    "credentials": {
+      "intercept_warmup_requests": true,
+      "temp_unschedulable_enabled": true,
+      "temp_unschedulable_rules": [
+        {
+          "error_code": 429,
+          "keywords": [
+            "rate limit",
+            "too many requests"
+          ],
+          "duration_minutes": 30,
+          "description": "触发限流 - 暂停 30 分钟"
+        }
+      ]
+    },
+    "extra": {
+      "enable_tls_fingerprint": true,
+      "base_rpm": 8,
+      "rpm_strategy": "tiered",
+      "rpm_sticky_buffer": 3,
+      "user_msg_queue_mode": "serialize",
+      "max_sessions": 8,
+      "session_idle_timeout_minutes": 8,
+      "session_id_masking_enabled": true,
+      "cache_ttl_override_enabled": true,
+      "cache_ttl_override_target": "1h",
+      "window_cost_limit": 150,
+      "window_cost_sticky_reserve": 10
+    },
+    "tls_profile": {
+      "name": "claude_cli_nodejs24_fixed",
+      "description": "Fixed Claude CLI / Node.js 24.x ClientHello profile for Anthropic OAuth stability.",
+      "enable_grease": false,
+      "cipher_suites": [
+        4865,
+        4866,
+        4867,
+        49195,
+        49199,
+        49196,
+        49200,
+        52393,
+        52392,
+        49161,
+        49171,
+        49162,
+        49172,
+        156,
+        157,
+        47,
+        53
+      ],
+      "curves": [
+        29,
+        23,
+        24
+      ],
+      "point_formats": [
+        0
+      ],
+      "signature_algorithms": [
+        1027,
+        2052,
+        1025,
+        1283,
+        2053,
+        1281,
+        2054,
+        1537,
+        513
+      ],
+      "alpn_protocols": [
+        "http/1.1"
+      ],
+      "supported_versions": [
+        772,
+        771
+      ],
+      "key_share_groups": [
+        29
+      ],
+      "psk_modes": [
+        1
+      ],
+      "extensions": [
+        0,
+        65037,
+        23,
+        65281,
+        10,
+        11,
+        35,
+        16,
+        5,
+        13,
+        18,
+        51,
+        45,
+        43
+      ]
+    }
+  },
+  "stable_accounts": []
+}
