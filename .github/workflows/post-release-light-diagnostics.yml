@@ -38,6 +38,7 @@ jobs:
       SECOND_DELAY_MINUTES: ${{ inputs.second_delay_minutes || '55' }}
       SECOND_WINDOW: ${{ inputs.second_window || '2h' }}
       GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
     steps:
       - name: Validate inputs
         run: |
@@ -67,7 +68,7 @@ jobs:
       - name: Dispatch first lightweight diagnostics
         run: |
           set -euo pipefail
-          gh workflow run ops-daily-diagnostics.yml \
+          gh workflow run ops-daily-diagnostics.yml -R "$GH_REPO" \
             -f operation=diagnostics \
             -f target_selector="$TARGET_SELECTOR" \
             -f diagnostics_log_since="$FIRST_WINDOW" \
@@ -86,7 +87,7 @@ jobs:
       - name: Dispatch second lightweight diagnostics
         run: |
           set -euo pipefail
-          gh workflow run ops-daily-diagnostics.yml \
+          gh workflow run ops-daily-diagnostics.yml -R "$GH_REPO" \
             -f operation=diagnostics \
             -f target_selector="$TARGET_SELECTOR" \
             -f diagnostics_log_since="$SECOND_WINDOW" \
