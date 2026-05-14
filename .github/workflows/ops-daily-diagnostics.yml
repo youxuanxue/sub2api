@@ -152,7 +152,7 @@ jobs:
           set -euo pipefail
           if [ -z "${OIDC_ROLE_ARN:-}" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            jq -n \
+            jq -cn \
               --arg target_id "$TARGET_ID" \
               --arg kind "missing_oidc_role" \
               --arg status "skip" \
@@ -185,7 +185,7 @@ jobs:
 
           add_finding() {
             local kind="$1" status="$2" severity="$3" title="$4" summary="$5" signature="${6:-$1}"
-            jq -n \
+            jq -cn \
               --arg target_id "$TARGET_ID" \
               --arg kind "$kind" \
               --arg status "$status" \
