@@ -1,0 +1,282 @@
+name: Inspect Account Snapshot
+
+# On-demand read-only snapshot of a single accounts row from a prod or edge
+# database, via OIDC -> SSM -> docker exec psql. Output JSON is committed to
+# the `claude/account-snapshots` branch under
+# docs/accounts/snapshots/<target>-<account>.json so downstream agents (and
+# the docs/accounts comparison) can consume it without ad-hoc paste.
+#
+# Read-only by design:
+#   - SQL is a single SELECT that EXCLUDES the `credentials` column (never
+#     reads OAuth tokens / API keys into the workflow log).
+#   - account_name is validated against ^[A-Za-z0-9._-]+$ before being
+#     embedded into SQL (defense in depth on top of psql single-quoting).
+#   - Workflow grants no AWS write permissions beyond what
+#     `vars.AWS_OIDC_ROLE_ARN` already allows (same role as
+#     ops-daily-diagnostics; SSM SendCommand is read-flavoured here).
+#
+# Output:
+#   - JSON committed to branch `claude/account-snapshots`, path
+#     `docs/accounts/snapshots/<target>-<account_name>.json`.
+#   - Same JSON also printed to $GITHUB_STEP_SUMMARY for human review.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Target id: prod | uk1 | fra1 | us1 | sg1 (must exist in edge-targets.json or be 'prod')"
+        required: true
+        type: choice
+        default: uk1
+        options:
+          - prod
+          - uk1
+          - fra1
+          - us1
+          - sg1
+      account_name:
+        description: "Exact accounts.name to snapshot (e.g. cc-en-ld-ec2-16-1-a). Validated against ^[A-Za-z0-9._-]+$."
+        required: true
+        type: string
+      output_branch:
+        description: "Branch to commit the snapshot JSON to."
+        required: false
+        type: string
+        default: claude/account-snapshots
+
+permissions:
+  contents: write    # push snapshot to output_branch
+  id-token: write    # OIDC for AWS
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    env:
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      TARGET: ${{ inputs.target }}
+      ACCOUNT_NAME: ${{ inputs.account_name }}
+      OUTPUT_BRANCH: ${{ inputs.output_branch }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate inputs
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$ACCOUNT_NAME" | grep -Eq '^[A-Za-z0-9._-]+$'; then
+            echo "::error::account_name must match ^[A-Za-z0-9._-]+$ (got: '$ACCOUNT_NAME')"
+            exit 1
+          fi
+          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
+            echo "::error::vars.AWS_OIDC_ROLE_ARN is not configured on this repo"
+            exit 1
+          fi
+
+      - name: Resolve target metadata
+        id: target
+        run: |
+          set -euo pipefail
+          if [ "$TARGET" = "prod" ]; then
+            # Prod stack/region lives in deploy/aws/stage0/prod-target.json if it exists;
+            # otherwise default to the canonical prod values used by deploy-stage0.yml.
+            if [ -f deploy/aws/stage0/prod-target.json ]; then
+              REGION=$(jq -r '.region // empty' deploy/aws/stage0/prod-target.json)
+              STACK=$(jq -r '.stack // empty' deploy/aws/stage0/prod-target.json)
+            fi
+            REGION="${REGION:-ap-east-1}"
+            STACK="${STACK:-tokenkey-prod-stage0}"
+          else
+            REGION=$(jq -r --arg t "$TARGET" '.targets[$t].region // empty' deploy/aws/stage0/edge-targets.json)
+            STACK=$(jq -r --arg t "$TARGET" '.targets[$t].stack // empty' deploy/aws/stage0/edge-targets.json)
+          fi
+          if [ -z "$REGION" ] || [ -z "$STACK" ]; then
+            echo "::error::Unknown target '$TARGET' (no region/stack resolved)"
+            exit 1
+          fi
+          echo "region=$REGION" >> "$GITHUB_OUTPUT"
+          echo "stack=$STACK"   >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ steps.target.outputs.region }}
+
+      - name: Resolve instance id from CloudFormation
+        id: instance
+        env:
+          REGION: ${{ steps.target.outputs.region }}
+          STACK:  ${{ steps.target.outputs.stack }}
+        run: |
+          set -euo pipefail
+          INSTANCE_ID=$(aws cloudformation describe-stacks \
+            --region "$REGION" \
+            --stack-name "$STACK" \
+            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' \
+            --output text)
+          if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
+            echo "::error::Stack $STACK has no InstanceId output"
+            exit 1
+          fi
+          echo "id=$INSTANCE_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Run SELECT via SSM (excludes credentials column)
+        id: query
+        env:
+          REGION:      ${{ steps.target.outputs.region }}
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+        run: |
+          set -euo pipefail
+
+          # Build SSM parameters JSON; account_name is already regex-validated.
+          # SQL excludes `credentials` so OAuth tokens never reach workflow logs.
+          python3 - <<'PY' > /tmp/ssm-params.json
+          import json, os, shlex
+          name = os.environ["ACCOUNT_NAME"]
+          # Single-quote escape (defense in depth on top of the regex allowlist).
+          escaped = name.replace("'", "''")
+          sql = (
+            "SELECT row_to_json(t) FROM ("
+            "  SELECT id, name, platform, type, status, error_message,"
+            "         concurrency, priority, schedulable, load_factor,"
+            "         rate_multiplier, rate_limited_at, rate_limit_reset_at,"
+            "         overload_until, temp_unschedulable_until,"
+            "         temp_unschedulable_reason, session_window_start,"
+            "         session_window_end, session_window_status,"
+            "         channel_type, expires_at, auto_pause_on_expired,"
+            "         last_used_at, created_at, updated_at, extra"
+            f"  FROM accounts WHERE name = '{escaped}'"
+            ") t;"
+          )
+          # NOTE: docker exec ... psql command is single-quoted; psql -A -t = unaligned tuples-only.
+          cmd = (
+            "set -euo pipefail; "
+            "docker exec tokenkey-postgres psql -U postgres -d tokenkey -A -t -c "
+            + shlex.quote(sql)
+          )
+          print(json.dumps({"commands": [cmd]}))
+          PY
+
+          CMD_ID=$(aws ssm send-command \
+            --region "$REGION" \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "inspect-account snapshot ${TARGET}/${ACCOUNT_NAME}" \
+            --parameters "file:///tmp/ssm-params.json" \
+            --query 'Command.CommandId' --output text)
+          echo "ssm command id=$CMD_ID"
+
+          DEADLINE=$(( $(date +%s) + 90 ))
+          STATUS=InProgress
+          while true; do
+            STATUS=$(aws ssm get-command-invocation \
+              --region "$REGION" \
+              --command-id "$CMD_ID" \
+              --instance-id "$INSTANCE_ID" \
+              --query 'Status' --output text 2>/dev/null || echo InProgress)
+            case "$STATUS" in Success|Failed|TimedOut|Cancelled) break ;; esac
+            [ $(date +%s) -lt $DEADLINE ] || { STATUS=TimedOut; break; }
+            sleep 3
+          done
+
+          aws ssm get-command-invocation \
+            --region "$REGION" \
+            --command-id "$CMD_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --query 'StandardOutputContent' --output text > /tmp/stdout.txt || true
+          aws ssm get-command-invocation \
+            --region "$REGION" \
+            --command-id "$CMD_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --query 'StandardErrorContent' --output text > /tmp/stderr.txt || true
+
+          if [ "$STATUS" != "Success" ]; then
+            echo "::error::SSM command finished with status=$STATUS"
+            echo "----- stdout -----"; cat /tmp/stdout.txt || true
+            echo "----- stderr -----"; cat /tmp/stderr.txt || true
+            exit 1
+          fi
+
+          # psql output: single JSON object on a line; trim trailing whitespace.
+          ROW="$(sed -n '/^{/{p;q}' /tmp/stdout.txt || true)"
+          if [ -z "$ROW" ]; then
+            echo "::error::No row returned for account_name='$ACCOUNT_NAME'"
+            cat /tmp/stdout.txt
+            exit 1
+          fi
+
+          mkdir -p docs/accounts/snapshots
+          OUT="docs/accounts/snapshots/${TARGET}-${ACCOUNT_NAME}.json"
+          jq -S \
+            --arg captured_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg target "$TARGET" \
+            --arg account_name "$ACCOUNT_NAME" \
+            '{captured_at:$captured_at, target:$target, account_name:$account_name, row:.}' \
+            <<<"$ROW" > "$OUT"
+
+          echo "out=$OUT" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Account snapshot: \`$TARGET / $ACCOUNT_NAME\`"
+            echo
+            echo "- captured_at: \`$(date -u +%Y-%m-%dT%H:%M:%SZ)\`"
+            echo "- region / stack: \`$REGION\` / \`${{ steps.target.outputs.stack }}\`"
+            echo "- output: \`$OUT\` (also committed to \`$OUTPUT_BRANCH\`)"
+            echo
+            echo '```json'
+            jq '.' "$OUT"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit snapshot to output_branch
+        env:
+          OUT: ${{ steps.query.outputs.out }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Reuse existing output_branch if it exists, otherwise branch from main.
+          if git ls-remote --exit-code --heads origin "$OUTPUT_BRANCH" >/dev/null 2>&1; then
+            git fetch origin "$OUTPUT_BRANCH"
+            git checkout -B "$OUTPUT_BRANCH" "origin/$OUTPUT_BRANCH"
+            # Re-apply just the new snapshot file (we may already have it as untracked)
+            mkdir -p docs/accounts/snapshots
+            cp -f "$OUT" "$OUT"
+          else
+            git checkout --orphan "$OUTPUT_BRANCH"
+            git rm -rf . >/dev/null 2>&1 || true
+            git clean -fdx -- ':!docs/accounts/snapshots' >/dev/null 2>&1 || true
+            mkdir -p docs/accounts/snapshots
+            cp -f "$OUT" "$OUT"
+            cat > .gitignore <<'EOF'
+          # Branch dedicated to account snapshots produced by
+          # .github/workflows/inspect-account.yml. Anything outside
+          # docs/accounts/snapshots/ is intentionally ignored to keep
+          # this branch a thin orthogonal layer over main.
+          /*
+          !docs/
+          !.gitignore
+          docs/*
+          !docs/accounts/
+          docs/accounts/*
+          !docs/accounts/snapshots/
+          EOF
+          fi
+
+          git add docs/accounts/snapshots/ .gitignore 2>/dev/null || git add docs/accounts/snapshots/
+          if git diff --cached --quiet; then
+            echo "snapshot unchanged; nothing to commit"
+            exit 0
+          fi
+          git commit -m "snapshot(${TARGET}): ${ACCOUNT_NAME} ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
+          git push -u origin "$OUTPUT_BRANCH"
+
+      - name: Report final status
+        if: always()
+        run: |
+          echo "target=$TARGET account_name=$ACCOUNT_NAME"
+          echo "output branch: $OUTPUT_BRANCH"
+          echo "snapshot path: docs/accounts/snapshots/${TARGET}-${ACCOUNT_NAME}.json"
