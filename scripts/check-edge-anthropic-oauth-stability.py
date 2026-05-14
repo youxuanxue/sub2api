@@ -74,7 +74,25 @@ def resolve_edge(matrix: dict[str, Any], edge_id: str, *, allow_planned: bool = 
         "stack": target["stack"],
         "domain": target["domain"],
         "ssm_prefix": target["ssm_prefix"],
+        "deployable": bool(target.get("deployable")),
     }
+
+
+def resolve_edges(matrix: dict[str, Any], edge_id: str, *, allow_planned: bool = False) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    if edge_id != "all":
+        return [resolve_edge(matrix, edge_id, allow_planned=allow_planned)], []
+
+    targets = matrix.get("targets") or {}
+    edges: list[dict[str, Any]] = []
+    excluded: list[dict[str, str]] = []
+    for candidate in sorted(targets):
+        target = targets[candidate] or {}
+        deployable = bool(target.get("deployable"))
+        if not deployable and not allow_planned:
+            excluded.append({"edge_id": candidate, "reason": "deployable=false"})
+            continue
+        edges.append(resolve_edge(matrix, candidate, allow_planned=True))
+    return edges, excluded
 
 
 def resolve_instance_id(edge: dict[str, Any], instance_id: str) -> str:
@@ -100,6 +118,16 @@ def resolve_instance_id(edge: dict[str, Any], instance_id: str) -> str:
 
 def sql_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
+
+
+def build_account_names_query() -> str:
+    return """
+SELECT COALESCE(jsonb_agg(name ORDER BY name), '[]'::jsonb)
+FROM accounts
+WHERE platform = 'anthropic'
+  AND type = 'oauth'
+  AND deleted_at IS NULL;
+""".strip()
 
 
 def build_live_query(account_name: str) -> str:
@@ -194,9 +222,9 @@ SELECT jsonb_pretty(jsonb_build_object(
 """.strip()
 
 
-def read_live_account(edge: dict[str, Any], instance_id: str, account_name: str) -> dict[str, Any]:
+def run_remote_query(edge: dict[str, Any], instance_id: str, sql: str, *, comment: str) -> tuple[str, str]:
     remote = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -t -A -v ON_ERROR_STOP=1"
-    command = f"set -euo pipefail\n{remote} <<'SQL'\n{build_live_query(account_name)}\nSQL"
+    command = f"set -euo pipefail\n{remote} <<'SQL'\n{sql}\nSQL"
     params = json.dumps({"commands": [command]}, ensure_ascii=False)
     cmd_id = run_cmd([
         "aws",
@@ -209,7 +237,7 @@ def read_live_account(edge: dict[str, Any], instance_id: str, account_name: str)
         "--document-name",
         "AWS-RunShellScript",
         "--comment",
-        f"check Anthropic OAuth stability edge={edge['edge_id']} account={account_name}",
+        comment,
         "--parameters",
         params,
         "--query",
@@ -244,6 +272,33 @@ def read_live_account(edge: dict[str, Any], instance_id: str, account_name: str)
         "--output",
         "text",
     ]).strip()
+    return cmd_id, stdout
+
+
+def read_live_account_names(edge: dict[str, Any], instance_id: str) -> tuple[list[str], str]:
+    cmd_id, stdout = run_remote_query(
+        edge,
+        instance_id,
+        build_account_names_query(),
+        comment=f"list Anthropic OAuth accounts edge={edge['edge_id']}",
+    )
+    try:
+        data = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        fail(f"failed to parse account list JSON from SSM command {cmd_id}: {exc}\n{stdout[:1000]}")
+    if not isinstance(data, list):
+        fail(f"unexpected account list payload from SSM command {cmd_id}: {type(data).__name__}")
+    names = [str(item) for item in data]
+    return names, cmd_id
+
+
+def read_live_account(edge: dict[str, Any], instance_id: str, account_name: str) -> dict[str, Any]:
+    cmd_id, stdout = run_remote_query(
+        edge,
+        instance_id,
+        build_live_query(account_name),
+        comment=f"check Anthropic OAuth stability edge={edge['edge_id']} account={account_name}",
+    )
     try:
         data = json.loads(stdout)
     except json.JSONDecodeError as exc:
@@ -467,11 +522,22 @@ def main() -> int:
     if args.json and args.quiet:
         fail("--json and --quiet are mutually exclusive")
 
+    is_edge_all = args.edge_id == "all"
+    is_account_all = args.account_name == "all"
+    is_batch = is_edge_all or is_account_all
+
+    if args.emit_sql and is_batch:
+        fail("--emit-sql only supports single edge + single account (no all)")
+    if args.update_stable_list and is_batch:
+        fail("--update-stable-list only supports single edge + single account (no all)")
+    if args.instance_id and is_edge_all:
+        fail("--instance-id cannot be used with --edge-id all")
+
     matrix_path = pathlib.Path(args.matrix)
     baseline_path = pathlib.Path(args.baseline)
     matrix = load_json(matrix_path)
     baseline = load_json(baseline_path)
-    edge = resolve_edge(matrix, args.edge_id, allow_planned=args.allow_planned)
+    edges, excluded_edges = resolve_edges(matrix, args.edge_id, allow_planned=args.allow_planned)
 
     if args.update_stable_list:
         if args.confirm != CONFIRM_UPDATE:
@@ -480,41 +546,163 @@ def main() -> int:
         log(f"updated stable_accounts in {baseline_path}: edge={args.edge_id} account={args.account_name}", quiet=args.quiet)
         return 0
 
-    instance_id = resolve_instance_id(edge, args.instance_id)
-    live = read_live_account(edge, instance_id, args.account_name)
-    diffs = compare_live_to_baseline(live, baseline)
+    items: list[dict[str, Any]] = []
+    error_count = 0
 
-    if args.emit_sql:
-        sql_path = pathlib.Path(args.emit_sql)
-        sql_path.write_text(generate_sql(edge, args.account_name, baseline), encoding="utf-8")
+    for edge in edges:
+        try:
+            instance_id = resolve_instance_id(edge, args.instance_id)
+        except SystemExit as exc:
+            if not is_batch:
+                raise
+            items.append({
+                "edge": {**edge, "instance_id": None},
+                "account_name": args.account_name,
+                "status": "error",
+                "diff_count": 0,
+                "diffs": [],
+                "error_message": str(exc),
+                "sql_path": None,
+            })
+            error_count += 1
+            continue
 
-    result = {
-        "edge": {**edge, "instance_id": instance_id},
-        "account_name": args.account_name,
-        "ssm_command_id": live.get("ssm_command_id"),
-        "status": "ok" if not diffs else "drift",
-        "diff_count": len(diffs),
-        "diffs": diffs,
-        "sql_path": args.emit_sql or None,
+        if is_account_all:
+            try:
+                names, list_cmd_id = read_live_account_names(edge, instance_id)
+            except SystemExit as exc:
+                if not is_batch:
+                    raise
+                items.append({
+                    "edge": {**edge, "instance_id": instance_id},
+                    "account_name": "all",
+                    "status": "error",
+                    "diff_count": 0,
+                    "diffs": [],
+                    "error_message": str(exc),
+                    "sql_path": None,
+                })
+                error_count += 1
+                continue
+            if not names:
+                items.append({
+                    "edge": {**edge, "instance_id": instance_id},
+                    "account_name": "all",
+                    "status": "ok",
+                    "diff_count": 0,
+                    "diffs": [],
+                    "ssm_command_id": list_cmd_id,
+                    "accounts_found": 0,
+                    "sql_path": None,
+                })
+                continue
+            account_names = names
+        else:
+            account_names = [args.account_name]
+
+        for account_name in account_names:
+            try:
+                live = read_live_account(edge, instance_id, account_name)
+                diffs = compare_live_to_baseline(live, baseline)
+                item = {
+                    "edge": {**edge, "instance_id": instance_id},
+                    "account_name": account_name,
+                    "ssm_command_id": live.get("ssm_command_id"),
+                    "status": "ok" if not diffs else "drift",
+                    "diff_count": len(diffs),
+                    "diffs": diffs,
+                    "sql_path": args.emit_sql or None,
+                }
+                if args.emit_sql:
+                    sql_path = pathlib.Path(args.emit_sql)
+                    sql_path.write_text(generate_sql(edge, account_name, baseline), encoding="utf-8")
+                items.append(item)
+            except SystemExit as exc:
+                if not is_batch:
+                    raise
+                items.append({
+                    "edge": {**edge, "instance_id": instance_id},
+                    "account_name": account_name,
+                    "status": "error",
+                    "diff_count": 0,
+                    "diffs": [],
+                    "error_message": str(exc),
+                    "sql_path": None,
+                })
+                error_count += 1
+
+    drift_count = sum(1 for item in items if item.get("status") == "drift")
+    ok_count = sum(1 for item in items if item.get("status") == "ok")
+    has_failures = drift_count > 0 or error_count > 0
+
+    if not is_batch and len(items) == 1:
+        result = items[0]
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+        elif not args.quiet:
+            edge = result["edge"]
+            print(f"edge_id={edge['edge_id']}")
+            print(f"account_name={result['account_name']}")
+            print(f"region={edge['region']}")
+            print(f"instance_id={edge['instance_id']}")
+            print(f"ssm_command_id={result.get('ssm_command_id')}")
+            print(f"status={result['status']}")
+            print(f"diff_count={result['diff_count']}")
+            if result["diffs"]:
+                print("\nDiff:")
+                print(format_diff(result["diffs"]))
+            if result.get("sql_path"):
+                print(f"\nsql_path={result['sql_path']}")
+        return 1 if has_failures else 0
+
+    summary = {
+        "edge_total": len(edges),
+        "excluded_edge_total": len(excluded_edges),
+        "account_result_total": len(items),
+        "ok_count": ok_count,
+        "drift_count": drift_count,
+        "error_count": error_count,
+    }
+    batch_result = {
+        "mode": "batch",
+        "selector": {
+            "edge_id": args.edge_id,
+            "account_name": args.account_name,
+            "allow_planned": args.allow_planned,
+        },
+        "summary": summary,
+        "excluded_edges": excluded_edges,
+        "items": items,
     }
 
     if args.json:
-        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+        print(json.dumps(batch_result, ensure_ascii=False, indent=2, sort_keys=True))
     elif not args.quiet:
-        print(f"edge_id={args.edge_id}")
-        print(f"account_name={args.account_name}")
-        print(f"region={edge['region']}")
-        print(f"instance_id={instance_id}")
-        print(f"ssm_command_id={live.get('ssm_command_id')}")
-        print(f"status={result['status']}")
-        print(f"diff_count={len(diffs)}")
-        if diffs:
-            print("\nDiff:")
-            print(format_diff(diffs))
-        if args.emit_sql:
-            print(f"\nsql_path={args.emit_sql}")
+        print(f"mode=batch")
+        print(f"edge_selector={args.edge_id}")
+        print(f"account_selector={args.account_name}")
+        print(f"edge_total={summary['edge_total']}")
+        print(f"excluded_edge_total={summary['excluded_edge_total']}")
+        print(f"account_result_total={summary['account_result_total']}")
+        print(f"ok_count={summary['ok_count']}")
+        print(f"drift_count={summary['drift_count']}")
+        print(f"error_count={summary['error_count']}")
+        if drift_count:
+            print("\nDrift items:")
+            for item in items:
+                if item.get("status") != "drift":
+                    continue
+                edge = item["edge"]
+                print(f"- {edge['edge_id']}/{item['account_name']} diff_count={item['diff_count']}")
+        if error_count:
+            print("\nError items:")
+            for item in items:
+                if item.get("status") != "error":
+                    continue
+                edge = item["edge"]
+                print(f"- {edge['edge_id']}/{item['account_name']}: {item.get('error_message', 'unknown error')}")
 
-    return 1 if diffs else 0
+    return 1 if has_failures else 0
 
 
 if __name__ == "__main__":
