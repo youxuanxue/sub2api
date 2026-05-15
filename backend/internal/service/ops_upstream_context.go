@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 )
 
@@ -20,6 +21,9 @@ const (
 	// retry the specific upstream attempt (not just the client request).
 	// This value is sanitized+trimmed before being persisted.
 	OpsUpstreamRequestBodyKey = "ops_upstream_request_body"
+
+	OpsTLSFingerprintProfileIDKey   = "ops_tls_fingerprint_profile_id"
+	OpsTLSFingerprintProfileNameKey = "ops_tls_fingerprint_profile_name"
 
 	// Optional stage latencies (milliseconds) for troubleshooting and alerting.
 	OpsAuthLatencyMsKey      = "ops_auth_latency_ms"
@@ -51,6 +55,27 @@ func SetOpsLatencyMs(c *gin.Context, key string, value int64) {
 		return
 	}
 	c.Set(key, value)
+}
+
+func setOpsTLSFingerprintProfile(c *gin.Context, account *Account, profile *tlsfingerprint.Profile) {
+	if c == nil || account == nil || profile == nil {
+		return
+	}
+	if id := account.GetTLSFingerprintProfileID(); id > 0 {
+		c.Set(OpsTLSFingerprintProfileIDKey, id)
+	}
+	if name := strings.TrimSpace(profile.Name); name != "" {
+		c.Set(OpsTLSFingerprintProfileNameKey, name)
+	}
+}
+
+func resolveOpsTLSFingerprintProfile(c *gin.Context, svc *TLSFingerprintProfileService, account *Account) *tlsfingerprint.Profile {
+	if svc == nil {
+		return nil
+	}
+	profile := svc.ResolveTLSProfile(account)
+	setOpsTLSFingerprintProfile(c, account, profile)
+	return profile
 }
 
 // SetOpsUpstreamError is the exported wrapper for setOpsUpstreamError, used by
@@ -85,9 +110,11 @@ type OpsUpstreamErrorEvent struct {
 	Passthrough bool `json:"passthrough,omitempty"`
 
 	// Context
-	Platform    string `json:"platform,omitempty"`
-	AccountID   int64  `json:"account_id,omitempty"`
-	AccountName string `json:"account_name,omitempty"`
+	Platform                  string `json:"platform,omitempty"`
+	AccountID                 int64  `json:"account_id,omitempty"`
+	AccountName               string `json:"account_name,omitempty"`
+	TLSFingerprintProfileID   int64  `json:"tls_fingerprint_profile_id,omitempty"`
+	TLSFingerprintProfileName string `json:"tls_fingerprint_profile_name,omitempty"`
 
 	// Outcome
 	UpstreamStatusCode int    `json:"upstream_status_code,omitempty"`
@@ -119,6 +146,26 @@ func appendOpsUpstreamError(c *gin.Context, ev OpsUpstreamErrorEvent) {
 		ev.AtUnixMs = time.Now().UnixMilli()
 	}
 	ev.Platform = strings.TrimSpace(ev.Platform)
+	ev.TLSFingerprintProfileName = strings.TrimSpace(ev.TLSFingerprintProfileName)
+	if ev.TLSFingerprintProfileID <= 0 {
+		if v, ok := c.Get(OpsTLSFingerprintProfileIDKey); ok {
+			switch t := v.(type) {
+			case int64:
+				ev.TLSFingerprintProfileID = t
+			case int:
+				ev.TLSFingerprintProfileID = int64(t)
+			case float64:
+				ev.TLSFingerprintProfileID = int64(t)
+			}
+		}
+	}
+	if ev.TLSFingerprintProfileName == "" {
+		if v, ok := c.Get(OpsTLSFingerprintProfileNameKey); ok {
+			if s, ok := v.(string); ok {
+				ev.TLSFingerprintProfileName = strings.TrimSpace(s)
+			}
+		}
+	}
 	ev.UpstreamRequestID = strings.TrimSpace(ev.UpstreamRequestID)
 	ev.UpstreamRequestBody = strings.TrimSpace(ev.UpstreamRequestBody)
 	ev.UpstreamResponseBody = strings.TrimSpace(ev.UpstreamResponseBody)
