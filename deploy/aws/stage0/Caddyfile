@@ -25,6 +25,7 @@ ${API_DOMAIN} {
 	}
 
 	reverse_proxy tokenkey:8080 {
+		flush_interval -1
 		health_uri /health
 		health_interval 30s
 		health_timeout 10s

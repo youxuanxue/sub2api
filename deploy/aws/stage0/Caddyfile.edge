@@ -38,6 +38,7 @@ ${API_DOMAIN} {
 
 	handle @allowed_relay {
 		reverse_proxy tokenkey:8080 {
+			flush_interval -1
 			health_uri /health
 			health_interval 30s
 			health_timeout 10s
@@ -59,6 +60,7 @@ ${API_DOMAIN} {
 
 	handle {
 		reverse_proxy tokenkey:8080 {
+			flush_interval -1
 			health_uri /health
 			health_interval 30s
 			health_timeout 10s

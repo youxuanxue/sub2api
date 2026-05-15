@@ -873,6 +873,9 @@ func (h *OpenAIGatewayHandler) anthropicErrorResponse(c *gin.Context, status int
 // using Anthropic SSE error format.
 func (h *OpenAIGatewayHandler) anthropicStreamingAwareError(c *gin.Context, status int, errType, message string, streamStarted bool) {
 	if streamStarted {
+		if shouldSkipStreamingErrorWrite(c) {
+			return
+		}
 		flusher, ok := c.Writer.(http.Flusher)
 		if ok {
 			errPayload, _ := json.Marshal(gin.H{
@@ -1648,6 +1651,13 @@ func (h *OpenAIGatewayHandler) handleFailoverExhaustedSimple(c *gin.Context, sta
 	h.handleStreamingAwareError(c, status, errType, errMsg, streamStarted)
 }
 
+func shouldSkipStreamingErrorWrite(c *gin.Context) bool {
+	if c == nil || c.Request == nil {
+		return false
+	}
+	return errors.Is(c.Request.Context().Err(), context.Canceled)
+}
+
 func (h *OpenAIGatewayHandler) mapUpstreamError(statusCode int) (int, string, string) {
 	switch statusCode {
 	case 401:
@@ -1668,6 +1678,9 @@ func (h *OpenAIGatewayHandler) mapUpstreamError(statusCode int) (int, string, st
 // handleStreamingAwareError handles errors that may occur after streaming has started
 func (h *OpenAIGatewayHandler) handleStreamingAwareError(c *gin.Context, status int, errType, message string, streamStarted bool) {
 	if streamStarted {
+		if shouldSkipStreamingErrorWrite(c) {
+			return
+		}
 		// Stream already started, send error as SSE event then close
 		flusher, ok := c.Writer.(http.Flusher)
 		if ok {
