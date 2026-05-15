@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
@@ -156,6 +157,8 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		logFields = append(logFields, zap.Bool("compat_turn_state_attached", true))
 	}
 	logger.L().Debug("openai messages: model mapping applied", logFields...)
+
+	compactCandidate := openAICompatMessagesCompactCandidate(&anthropicReq)
 
 	// 4. Marshal Responses request body, then apply OAuth codex transform
 	responsesBody, err := json.Marshal(responsesReq)
@@ -410,6 +413,9 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		// Client wants JSON: buffer the streaming response and assemble a JSON reply.
 		result, handleErr = s.handleAnthropicBufferedStreamingResponse(resp, c, originalModel, billingModel, upstreamModel, startTime)
 	}
+	if result != nil {
+		result.CompactCandidate = compactCandidate
+	}
 
 	// Propagate ServiceTier and ReasoningEffort to result for billing
 	if handleErr == nil && result != nil {
@@ -455,6 +461,8 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 			zap.Int("output_tokens", result.Usage.OutputTokens),
 			zap.Int("cache_read_input_tokens", result.Usage.CacheReadInputTokens),
 			zap.String("stop_reason", result.StopReason),
+			zap.Int("content_text_len", result.ContentTextLen),
+			zap.Bool("compact_candidate", result.CompactCandidate),
 			zap.Int64("duration_ms", result.Duration.Milliseconds()),
 		}
 		// Emit optional fields only when non-empty so happy-path log lines stay compact.
@@ -562,6 +570,7 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 		Duration:         time.Since(startTime),
 		StopReason:       anthropicResp.StopReason,
 		IncompleteReason: incompleteReason,
+		ContentTextLen:   anthropicResponseContentTextLen(anthropicResp),
 	}, nil
 }
 
@@ -740,6 +749,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	state.Model = originalModel
 	var usage OpenAIUsage
 	responseID := ""
+	contentTextLen := 0
 	var firstTokenMs *int
 	firstChunk := true
 	clientDisconnected := false
@@ -779,6 +789,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			FirstTokenMs:     firstTokenMs,
 			StopReason:       state.StopReason,
 			IncompleteReason: state.IncompleteReason,
+			ContentTextLen:   contentTextLen,
 		}
 	}
 
@@ -800,6 +811,10 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 		}
 
 		// 仅按兼容转换器支持的终止事件提取 usage，避免无意扩大事件语义。
+		if event.Type == "response.output_text.delta" && event.Delta != "" {
+			contentTextLen += utf8.RuneCountInString(event.Delta)
+		}
+
 		isTerminalEvent := isOpenAICompatResponsesTerminalEvent(event.Type)
 		if isTerminalEvent && event.Response != nil {
 			if id := strings.TrimSpace(event.Response.ID); id != "" {

@@ -247,6 +247,8 @@ type OpenAIForwardResult struct {
 	// content_filter, server_error, …). Empty otherwise. Used only for
 	// observability — does not change response shape.
 	IncompleteReason string
+	ContentTextLen   int
+	CompactCandidate bool
 }
 
 type OpenAIWSRetryMetricsSnapshot struct {
