@@ -532,6 +532,36 @@ func (s *UserSubscriptionRepoSuite) TestExistsByUserIDAndGroupID() {
 	s.Require().False(notExists)
 }
 
+// TestExistsByUserIDAndGroupID_IgnoresExpiredAndNonActive asserts upstream
+// #2478: expired (or otherwise non-active) subscriptions must NOT count as
+// "exists" — otherwise reassignment is blocked with a 409 validity_days_mismatch
+// even though the previous subscription is functionally dead.
+func (s *UserSubscriptionRepoSuite) TestExistsByUserIDAndGroupID_IgnoresExpiredAndNonActive() {
+	user := s.mustCreateUser("exists-expired@test.com", service.RoleUser)
+	groupExpiredByDate := s.mustCreateGroup("g-expired-by-date")
+	groupExpiredByStatus := s.mustCreateGroup("g-expired-by-status")
+	groupSuspended := s.mustCreateGroup("g-suspended")
+
+	// active row whose ExpiresAt is in the past — should not block reassignment.
+	s.mustCreateSubscription(user.ID, groupExpiredByDate.ID, func(c *dbent.UserSubscriptionCreate) {
+		c.SetExpiresAt(time.Now().Add(-24 * time.Hour))
+	})
+	// status=expired row — should not block reassignment.
+	s.mustCreateSubscription(user.ID, groupExpiredByStatus.ID, func(c *dbent.UserSubscriptionCreate) {
+		c.SetStatus(service.SubscriptionStatusExpired)
+	})
+	// status=suspended row — should not block reassignment.
+	s.mustCreateSubscription(user.ID, groupSuspended.ID, func(c *dbent.UserSubscriptionCreate) {
+		c.SetStatus(service.SubscriptionStatusSuspended)
+	})
+
+	for _, gid := range []int64{groupExpiredByDate.ID, groupExpiredByStatus.ID, groupSuspended.ID} {
+		exists, err := s.repo.ExistsByUserIDAndGroupID(s.ctx, user.ID, gid)
+		s.Require().NoError(err, "ExistsByUserIDAndGroupID gid=%d", gid)
+		s.Require().False(exists, "non-active or expired subscription must not count as existing (gid=%d)", gid)
+	}
+}
+
 // --- CountByGroupID / CountActiveByGroupID ---
 
 func (s *UserSubscriptionRepoSuite) TestCountByGroupID() {
