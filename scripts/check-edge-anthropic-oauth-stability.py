@@ -15,9 +15,13 @@ DEFAULT_BASELINE = REPO_ROOT / "deploy/aws/stage0/anthropic-oauth-stability-base
 CONFIRM_UPDATE = "yes-update-anthropic-stable-list"
 
 
+class CheckError(Exception):
+    pass
+
+
 def fail(message: str) -> None:
     print(f"::error::{message}", file=sys.stderr)
-    raise SystemExit(2)
+    raise CheckError(message)
 
 
 def log(message: str, *, quiet: bool = False) -> None:
@@ -552,7 +556,7 @@ def main() -> int:
     for edge in edges:
         try:
             instance_id = resolve_instance_id(edge, args.instance_id)
-        except SystemExit as exc:
+        except CheckError as exc:
             if not is_batch:
                 raise
             items.append({
@@ -570,7 +574,7 @@ def main() -> int:
         if is_account_all:
             try:
                 names, list_cmd_id = read_live_account_names(edge, instance_id)
-            except SystemExit as exc:
+            except CheckError as exc:
                 if not is_batch:
                     raise
                 items.append({
@@ -579,7 +583,7 @@ def main() -> int:
                     "status": "error",
                     "diff_count": 0,
                     "diffs": [],
-                    "error_message": str(exc),
+                    "error_message": exc.args[0] if exc.args else "unknown error",
                     "sql_path": None,
                 })
                 error_count += 1
@@ -617,7 +621,7 @@ def main() -> int:
                     sql_path = pathlib.Path(args.emit_sql)
                     sql_path.write_text(generate_sql(edge, account_name, baseline), encoding="utf-8")
                 items.append(item)
-            except SystemExit as exc:
+            except CheckError as exc:
                 if not is_batch:
                     raise
                 items.append({
@@ -626,7 +630,7 @@ def main() -> int:
                     "status": "error",
                     "diff_count": 0,
                     "diffs": [],
-                    "error_message": str(exc),
+                    "error_message": exc.args[0] if exc.args else "unknown error",
                     "sql_path": None,
                 })
                 error_count += 1
@@ -706,4 +710,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except CheckError:
+        raise SystemExit(2)

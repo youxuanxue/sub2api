@@ -31,13 +31,6 @@
         "window_cost_limit := base_rpm * 30 = 600"
       ]
     },
-    "tier_factors": {
-      "l1_novice": 0.1,
-      "l2_junior": 0.3,
-      "l3_mid": 0.5,
-      "l4_senior": 0.6,
-      "l5_ultra": 0.7
-    },
     "rounding": {
       "integer_fields": "floor",
       "float_fields": "round(2)",
