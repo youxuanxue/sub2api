@@ -651,7 +651,7 @@ Resources:
           WantedBy=multi-user.target
           UNITEOF
 
-          # hourly pg_dump (application-consistent backup)
+          # pg_dump every 2h (application-consistent backup); keep rolling 24h + max 12 files.
           cat > /usr/local/bin/tokenkey-pgdump.sh <<'PGEOF'
           #!/bin/bash
           set -euo pipefail
@@ -681,8 +681,13 @@ Resources:
 
           mv -f "${!PART}" "${!OUT}"
 
-          # Keep only tokenkey dumps from the past 24 hours, normally about 24 hourly copies.
+          # Past 24h by mtime, and at most 12 rolling tokenkey-*.sql.gz (2h cadence).
           find "${!DUMP_DIR}" -maxdepth 1 -type f -name 'tokenkey-*.sql.gz' -mmin +1440 -delete 2>/dev/null || true
+          while IFS= read -r _oldf; do
+            [ -z "${!_oldf}" ] && continue
+            rm -f "${!_oldf}"
+          done < <(find "${!DUMP_DIR}" -maxdepth 1 -type f -name 'tokenkey-*.sql.gz' -printf '%T@\t%p\n' 2>/dev/null \
+            | sort -nr | tail -n +13 | cut -f2-)
           PGEOF
           chmod +x /usr/local/bin/tokenkey-pgdump.sh
 
@@ -727,7 +732,7 @@ Resources:
 
           cat > /etc/systemd/system/tokenkey-pgdump.service <<'PSEOF'
           [Unit]
-          Description=tokenkey hourly pg_dump
+          Description=tokenkey pg_dump (every 2 hours)
           After=tokenkey.service
           Requires=tokenkey.service
 
@@ -738,10 +743,10 @@ Resources:
 
           cat > /etc/systemd/system/tokenkey-pgdump.timer <<'PTEOF'
           [Unit]
-          Description=Run tokenkey-pgdump every hour
+          Description=Run tokenkey-pgdump every 2 hours
 
           [Timer]
-          OnCalendar=hourly
+          OnCalendar=*-*-* 00,02,04,06,08,10,12,14,16,18,20,22:00:00
           Persistent=true
           RandomizedDelaySec=2min
 

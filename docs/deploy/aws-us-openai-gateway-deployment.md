@@ -74,7 +74,7 @@ flowchart TD
 
     APP -- HTTPS --> OAI[auth.openai.com / chatgpt.com]
     EC2 -. 每天/每小时 .-> EBS_SNAP[(EBS Snapshot via DLM)]
-    PG -. 每小时 .-> PGDUMP[(/var/lib/tokenkey/pgdump)]
+    PG -. 每 2 小时 .-> PGDUMP[(/var/lib/tokenkey/pgdump)]
 ```
 
 | 项 | 值 |
@@ -85,7 +85,7 @@ flowchart TD
 | 出口 | 直连 OpenAI（**无 NAT GW**；EC2 自带公网 IP） |
 | TLS | Let's Encrypt（Caddy ACME HTTP-01，自动续签） |
 | 数据栈 | 同机 docker-compose：tokenkey 应用 / PostgreSQL 18 / Redis 8 / Caddy 2 |
-| 备份 | 每日 EBS 整盘快照（DLM）+ 每小时 `pg_dump`（systemd timer） |
+| 备份 | 每日 EBS 整盘快照（DLM）+ 每 2 小时 `pg_dump`（systemd timer，滚动保留 12 份 / ~24h） |
 | 登录 | **AWS SSM Session Manager**（不开 SSH 密钥，免维护跳板机） |
 | 日志 | 容器 stdout → `journald`；CloudWatch Agent 采集 cloud-init 日志与基础内存/磁盘指标 |
 
@@ -303,7 +303,7 @@ sudo bash -lc "
 | 类型 | 工具 | 默认频率 | 保留 | 一致性 | 用途 |
 |---|---|---|---|---|---|
 | **整盘快照** | DLM → EBS Snapshot | 每天 1 次 03:00 UTC | 7 份 | crash-consistent | 实例丢失 / 整机回滚 |
-| **逻辑备份** | systemd timer + `pg_dump` | **每小时 1 次** | **36 份（约 1.5 天）** | application-consistent | 想回到近小时点 / 迁移到 RDS；更长窗口靠 EBS 快照 |
+| **逻辑备份** | systemd timer + `pg_dump` | **每 2 小时 1 次** | **12 份（滚动约 24 小时）** | application-consistent | 想回到较近时间点 / 迁移到 RDS；更长窗口靠 EBS 快照 |
 | **QA 按天清理** | `tokenkey-qa-stale-cleanup.timer` | **每天 ~04:15 UTC（±30 min）** | 由参数 **`QaStaleRetentionDays`**（默认 **1.5** 天，可为小数） | 与 `prod-qa-export-and-purge.sh` 同范围：`qa_records` + `app/qa_blobs` + `app/qa_dlq` | 防运营未按时导出时盘被 QA 占满；**0**=关闭定时器 |
 
 #### 「每日快照 → 每小时快照」的影响
@@ -316,10 +316,10 @@ sudo bash -lc "
 | **额外存储成本** | EBS 快照按**增量块**计费（\$0.05/GiB-month）。30 GiB 卷在轻写场景，每天增量通常仅几百 MB。每日 7 份 ≈ \$0.1–0.3/月；每小时 168 份 ≈ **\$1–4/月**。重写多的卷会拉高，需 Cost Explorer 复核。 |
 | **API 调用** | 每实例每小时 1 次，远低于 EBS 快照速率上限 |
 | **RTO** | 不变（10–30 min 创建新卷 + 改 EIP 关联） |
-| **应用一致性** | 不变。EBS 快照本身始终是 crash-consistent；想「应用一致地回到任一小时」要用 `pg_dump` 那条线（已默认每小时 1 份） |
+| **应用一致性** | 不变。EBS 快照本身始终是 crash-consistent；想「应用一致地回到较近状态」要用 `pg_dump` 那条线（默认每 2 小时 1 份、保留 12 份） |
 | **前台 IO 影响** | 几乎可忽略，EBS 快照后台异步、写时复制 |
 
-**结论：** 默认 `daily` 已经足够（pg_dump 已经每小时一份覆盖应用一致需求）；如果你愿意每月多花 \$1–4 把「整机 RPO」也压到 1 小时，把参数改 `hourly` 即可。
+**结论：** 默认 `daily` 已经足够（`pg_dump` 已每 2 小时一份覆盖近期应用一致需求）；如果你愿意每月多花 \$1–4 把「整机 RPO」也压到 1 小时，把参数改 `hourly` 即可。
 
 #### 恢复演练（每季度 1 次）
 
