@@ -3,6 +3,109 @@
   "rationale": "TokenKey-local registry of upstream Wei-Shaw/sub2api issues that this fork has already addressed. Use this when triaging upstream open issues so already-fixed upstream reports are not repeatedly selected for TokenKey work.",
   "issues": [
     {
+      "upstream": "Wei-Shaw/sub2api#580",
+      "tokenkey_pr": "youxuanxue/sub2api#223",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/claude_mimicry_headers_test.go",
+        "scripts/gateway-tk-sentinels.json"
+      ],
+      "summary": "Preserved captured real Claude CLI User-Agent and X-Stainless fingerprint values when applying mimicry defaults, avoiding version downgrade churn."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1925",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/account_test_service.go",
+        "backend/internal/service/account_test_service_openai_test.go"
+      ],
+      "summary": "OpenAI /responses account testing requires a terminal response.completed/response.done event; early EOF before completion fails the account test."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2055",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/ratelimit_service.go",
+        "backend/internal/service/ratelimit_service_clear_test.go"
+      ],
+      "summary": "Manual/successful recovery clears account rate-limit state, model rate limits, temporary unschedulable state, and OpenAI 403 counters."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2168",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service.go",
+        "backend/internal/service/openai_gateway_record_usage_test.go"
+      ],
+      "summary": "Streaming usage billing continues on detached/drained upstream paths when clients disconnect early, preventing zero-cost early-disconnect abuse."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2211",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/repository/account_repo.go",
+        "backend/internal/service/openai_account_scheduler.go"
+      ],
+      "summary": "OpenAI scheduling now queries account_groups for the requested group, so grouped balance traffic should not select ungrouped accounts."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2293",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/billing_service.go",
+        "backend/internal/service/billing_service_test.go"
+      ],
+      "summary": "GPT-5.4/5.5 long-context billing includes cache_read tokens in the threshold and applies the long-context multiplier to cache_read cost."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2310",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_images_responses.go",
+        "backend/internal/service/gateway_service.go"
+      ],
+      "summary": "OpenAI OAuth image generation uses a detached upstream context, so long non-stream image jobs are not tied to client disconnect/cancel."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2337",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_codex_transform.go",
+        "backend/internal/service/openai_tool_continuation.go",
+        "backend/internal/service/openai_compat_model_test.go"
+      ],
+      "summary": "Anthropic-to-OpenAI multi-turn tool call conversion preserves tool-call/call-id continuity for tool_result history."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2383",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service.go",
+        "backend/internal/service/openai_gateway_record_usage_test.go"
+      ],
+      "summary": "OpenAI usage recording tracks billing-model candidates and source selection so mapped and unmapped model billing paths are covered."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2411",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/sticky_session_injector.go",
+        "backend/internal/service/sticky_session_strategy.go",
+        "backend/internal/service/openai_account_scheduler.go"
+      ],
+      "summary": "Sticky-session scheduling has dedicated hash, strategy, TTL refresh, and invalidation logic for OpenAI-compatible account selection."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2487",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_codex_transform.go",
+        "backend/internal/service/openai_gateway_chat_completions.go"
+      ],
+      "summary": "Codex OAuth forwarding strips temperature and other ChatGPT-internal unsupported parameters before dispatch."
+    },
+    {
       "upstream": "Wei-Shaw/sub2api#2489",
       "tokenkey_pr": "youxuanxue/sub2api#223",
       "status": "fixed_in_tokenkey",
@@ -15,15 +118,14 @@
       "summary": "Stopped emitting or forwarding x-stainless-helper-method on Claude Code OAuth mimicry paths."
     },
     {
-      "upstream": "Wei-Shaw/sub2api#580",
-      "tokenkey_pr": "youxuanxue/sub2api#223",
+      "upstream": "Wei-Shaw/sub2api#2490",
       "status": "fixed_in_tokenkey",
       "fixed_by": [
-        "backend/internal/service/gateway_service.go",
-        "backend/internal/service/claude_mimicry_headers_test.go",
-        "scripts/gateway-tk-sentinels.json"
+        "backend/internal/handler/openai_gateway_handler.go",
+        "backend/internal/service/openai_gateway_service.go",
+        "backend/internal/service/openai_gateway_chat_completions.go"
       ],
-      "summary": "Preserved captured real Claude CLI User-Agent and X-Stainless fingerprint values when applying mimicry defaults, avoiding version downgrade churn."
+      "summary": "OpenAI /compact route handling and request-body normalization are implemented, with compact_not_supported when no compatible account is available."
     }
   ]
 }
