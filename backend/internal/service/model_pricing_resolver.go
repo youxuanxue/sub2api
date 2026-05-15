@@ -133,18 +133,17 @@ func (r *ModelPricingResolver) applyChannelOverrides(ctx context.Context, groupI
 	}
 }
 
-// applyTokenOverrides 应用 token 模式的渠道覆盖
+// applyTokenOverrides 应用 token 模式的渠道覆盖。
+//
+// 渠道的"flat"字段（InputPrice / OutputPrice / Cache* / ImageOutputPrice）始终被
+// 应用到 BasePricing；当区间定价命中失败（请求落在所有 interval 之外）时，
+// GetIntervalPricing 会回退到 BasePricing，这里 flat 字段就是渠道运营者
+// 显式配置的"区间外默认价"。早期实现在 len(validIntervals) > 0 时直接 return，
+// 导致区间外的请求回退到 LiteLLM 目录价或 nil（自定义模型直接按 0 计费）。
+// 详见 upstream #2107。
 func (r *ModelPricingResolver) applyTokenOverrides(chPricing *ChannelModelPricing, resolved *ResolvedPricing) {
-	// 过滤掉所有价格字段都为空的无效 interval
-	validIntervals := filterValidIntervals(chPricing.Intervals)
+	resolved.Intervals = filterValidIntervals(chPricing.Intervals)
 
-	// 如果有有效的区间定价，使用区间
-	if len(validIntervals) > 0 {
-		resolved.Intervals = validIntervals
-		return
-	}
-
-	// 否则用 flat 字段覆盖 BasePricing
 	if resolved.BasePricing == nil {
 		resolved.BasePricing = &ModelPricing{}
 	}
