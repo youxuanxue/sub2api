@@ -24,7 +24,6 @@ var headerWireCasing = map[string]string{
 	"x-stainless-arch":            "X-Stainless-Arch",
 	"x-stainless-runtime":         "X-Stainless-Runtime",
 	"x-stainless-runtime-version": "X-Stainless-Runtime-Version",
-	"x-stainless-helper-method":   "x-stainless-helper-method",
 
 	// Anthropic SDK 自身设置的 header，全小写
 	"anthropic-dangerous-direct-browser-access": "anthropic-dangerous-direct-browser-access",
@@ -68,7 +67,6 @@ var headerWireOrder = []string{
 	"sec-fetch-mode",
 	"accept-encoding",
 	"content-length",
-	"x-stainless-helper-method",
 }
 
 // headerWireOrderSet 用于快速判断某个 key 是否在 headerWireOrder 中（按 lowercase 匹配）。

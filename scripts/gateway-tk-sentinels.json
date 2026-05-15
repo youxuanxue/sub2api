@@ -110,9 +110,11 @@
         "tkEnsureClaudeCodeSessionHeader(req.Header, body, c)",
         "tkEnsureClaudeCodeSessionHeader(req.Header, vertexBody, c)",
         "logger.WriteSinkEvent(\"info\", \"http.access.sticky\", \"sticky.hash_source\"",
-        "\"session_hash_short\": shortSessionHash(sessionHash)"
+        "\"session_hash_short\": shortSessionHash(sessionHash)",
+        "applyClaudeCodeMimicHeaders(req *http.Request, _ bool)",
+        "getHeaderRaw(req.Header, key) != \"\""
       ],
-      "rationale": "Main gateway upstream builders must invoke unified TK Claude session-header sync after API-key passthrough, OAuth forward, count_tokens forward, and Vertex Anthropic forward paths diverge upstream merge conflicts. Sticky-source sink event emission is also load-bearing for prod request_id/client_request_id evidence correlation."
+      "rationale": "Main gateway upstream builders must invoke unified TK Claude session-header sync after API-key passthrough, OAuth forward, count_tokens forward, and Vertex Anthropic forward paths diverge upstream merge conflicts. Sticky-source sink event emission is also load-bearing for prod request_id/client_request_id evidence correlation. Claude Code OAuth mimicry must preserve captured real CLI User-Agent/X-Stainless fingerprint values and only fill missing defaults; reverting to unconditional defaults reintroduces version downgrade/header fingerprint drift."
     },
     {
       "path": "backend/internal/handler/gateway_helper.go",
