@@ -1073,20 +1073,16 @@ func calculateOpenAI429ResetTime(headers http.Header) *time.Time {
 		return &resetAt
 	}
 
-	// 都未达到100%但收到429，使用较长的重置时间
-	var maxResetSecs int
-	if normalized.Reset7dSeconds != nil && *normalized.Reset7dSeconds > maxResetSecs {
-		maxResetSecs = *normalized.Reset7dSeconds
-	}
-	if normalized.Reset5hSeconds != nil && *normalized.Reset5hSeconds > maxResetSecs {
-		maxResetSecs = *normalized.Reset5hSeconds
-	}
-	if maxResetSecs > 0 {
-		resetAt := now.Add(time.Duration(maxResetSecs) * time.Second)
-		slog.Info("openai_429_using_max_reset", "max_reset_seconds", maxResetSecs, "reset_at", resetAt)
-		return &resetAt
-	}
-
+	// 都未达到100%但收到429：这是 burst/throttle 限流（瞬时突发），不是 5h/7d 窗口
+	// 用尽。x-codex-*-reset-after-seconds 描述的是窗口完整重置时间（可能是数天），
+	// 直接套用会把短暂突发变成数日 503。返回 nil 让 handle429 走可配置的短 fallback
+	// cooldown（默认 5s），与 Anthropic 无 reset 头的处理一致。详见 upstream #2258。
+	slog.Info("openai_429_burst_below_window_limits",
+		"used_5h_percent", normalized.Used5hPercent,
+		"used_7d_percent", normalized.Used7dPercent,
+		"reset_5h_seconds", normalized.Reset5hSeconds,
+		"reset_7d_seconds", normalized.Reset7dSeconds,
+	)
 	return nil
 }
 

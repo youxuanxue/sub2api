@@ -73,10 +73,14 @@ func TestCalculateOpenAI429ResetTime_5hExhausted(t *testing.T) {
 	}
 }
 
-func TestCalculateOpenAI429ResetTime_NeitherExhausted_UsesMax(t *testing.T) {
+func TestCalculateOpenAI429ResetTime_NeitherExhausted_ReturnsNilForBurst(t *testing.T) {
+	// upstream #2258: when neither 5h nor 7d window is at 100% but we still got
+	// a 429, this is a burst/throttle limit — not window exhaustion. The reset
+	// headers describe full-window reset (potentially days), so applying them
+	// would turn a transient burst into a multi-day 503 window. Expect nil so
+	// handle429 falls back to the short configurable cooldown.
 	svc := &RateLimitService{}
 
-	// Neither limit at 100%, should use the longer reset time
 	headers := http.Header{}
 	headers.Set("x-codex-primary-used-percent", "80")
 	headers.Set("x-codex-primary-reset-after-seconds", "100000")
@@ -85,21 +89,10 @@ func TestCalculateOpenAI429ResetTime_NeitherExhausted_UsesMax(t *testing.T) {
 	headers.Set("x-codex-secondary-reset-after-seconds", "5000")
 	headers.Set("x-codex-secondary-window-minutes", "300")
 
-	before := time.Now()
 	resetAt := svc.calculateOpenAI429ResetTime(headers)
-	after := time.Now()
 
-	if resetAt == nil {
-		t.Fatal("expected non-nil resetAt")
-	}
-
-	// Should use the max (100000 seconds from 7d window)
-	expectedDuration := 100000 * time.Second
-	minExpected := before.Add(expectedDuration)
-	maxExpected := after.Add(expectedDuration)
-
-	if resetAt.Before(minExpected) || resetAt.After(maxExpected) {
-		t.Errorf("resetAt %v not in expected range [%v, %v]", resetAt, minExpected, maxExpected)
+	if resetAt != nil {
+		t.Errorf("expected nil for burst 429 (neither window exhausted), got %v", resetAt)
 	}
 }
 

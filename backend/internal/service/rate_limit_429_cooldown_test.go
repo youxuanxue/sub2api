@@ -135,3 +135,33 @@ func TestHandle429_AnthropicExtraUsageNoResetSkipsFallbackCooldown(t *testing.T)
 
 	require.Zero(t, accountRepo.rateLimitCalls)
 }
+
+// TestHandle429_OpenAIBurstUsesFallbackCooldownNotLongReset asserts upstream #2258:
+// a burst 429 from OpenAI (Codex headers present, but neither 5h nor 7d window at
+// 100%) must apply the short fallback cooldown, NOT the multi-hour/day reset header
+// value. Previously the code took max(reset5h, reset7d), turning transient bursts
+// into long 503 windows for users.
+func TestHandle429_OpenAIBurstUsesFallbackCooldownNotLongReset(t *testing.T) {
+	accountRepo := &rateLimit429AccountRepoStub{}
+	svc := NewRateLimitService(accountRepo, nil, &config.Config{}, nil, nil)
+
+	headers := http.Header{}
+	headers.Set("x-codex-primary-used-percent", "80")
+	headers.Set("x-codex-primary-reset-after-seconds", "100000")
+	headers.Set("x-codex-primary-window-minutes", "10080")
+	headers.Set("x-codex-secondary-used-percent", "90")
+	headers.Set("x-codex-secondary-reset-after-seconds", "5000")
+	headers.Set("x-codex-secondary-window-minutes", "300")
+
+	account := &Account{ID: 47, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	before := time.Now()
+	svc.handle429(context.Background(), account, headers, []byte(`{"error":{"type":"rate_limit_error","message":"slow down"}}`))
+	after := time.Now()
+
+	require.Equal(t, 1, accountRepo.rateLimitCalls)
+	require.Equal(t, int64(47), accountRepo.lastRateLimitID)
+	// Default fallback is 5s; must NOT be the 100000s / 5000s reset values.
+	require.True(t, !accountRepo.lastRateLimitReset.Before(before.Add(5*time.Second)) && !accountRepo.lastRateLimitReset.After(after.Add(5*time.Second)),
+		"expected ~5s fallback cooldown for burst 429, got reset_at=%v (before+5s=%v, after+5s=%v)",
+		accountRepo.lastRateLimitReset, before.Add(5*time.Second), after.Add(5*time.Second))
+}
