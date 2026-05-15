@@ -1,0 +1,268 @@
+{
+  "schema_version": 1,
+  "description": "Tiered Anthropic OAuth stability baselines for single-account safe operation.",
+  "policy": {
+    "single_account_scope": true,
+    "max_traffic_ratio": 0.7,
+    "rate_multiplier_fixed": 1.0,
+    "full_source": {
+      "type": "official-estimate",
+      "reference": "Anthropic API rate limits",
+      "url": "https://platform.claude.com/docs/en/api/rate-limits",
+      "note": "Use Tier 3 (credit purchase threshold $200) as the full reference level; tiered baselines are capped at <=70% of full."
+    },
+    "official_facts": {
+      "tier_3_credit_purchase_usd": 200,
+      "tier_3_monthly_spend_limit_usd": 1000,
+      "tier_3_sonnet_4x_rpm": 2000,
+      "tier_3_sonnet_4x_itpm": 800000,
+      "tier_3_sonnet_4x_otpm": 160000
+    },
+    "tokenkey_full_estimate": {
+      "concurrency": 12,
+      "base_rpm": 20,
+      "max_sessions": 12,
+      "window_cost_limit": 600,
+      "rate_multiplier": 1.0,
+      "derivation": [
+        "base_rpm := floor(official_rpm * 0.01) = floor(2000 * 0.01) = 20",
+        "concurrency := floor(base_rpm * 0.6) = 12",
+        "max_sessions := concurrency = 12",
+        "window_cost_limit := base_rpm * 30 = 600"
+      ]
+    },
+    "rounding": {
+      "integer_fields": "floor",
+      "float_fields": "round(2)",
+      "hard_cap": "never exceed full * 0.70"
+    }
+  },
+  "shared_baseline": {
+    "account": {
+      "platform": "anthropic",
+      "type": "oauth",
+      "proxy_id": null,
+      "load_factor": null,
+      "auto_pause_on_expired": true,
+      "channel_type": 0
+    },
+    "credentials": {
+      "intercept_warmup_requests": true,
+      "temp_unschedulable_enabled": true,
+      "temp_unschedulable_rules": [
+        {
+          "error_code": 429,
+          "keywords": [
+            "rate limit",
+            "too many requests"
+          ],
+          "duration_minutes": 30,
+          "description": "触发限流 - 暂停 30 分钟"
+        },
+        {
+          "error_code": 529,
+          "keywords": [
+            "overloaded",
+            "capacity"
+          ],
+          "duration_minutes": 15,
+          "description": "上游过载 - 暂停 15 分钟"
+        },
+        {
+          "error_code": 401,
+          "keywords": [
+            "invalid_token",
+            "expired"
+          ],
+          "duration_minutes": 30,
+          "description": "凭据异常 - 暂停 30 分钟"
+        },
+        {
+          "error_code": 403,
+          "keywords": [
+            "account_disabled_auth_error",
+            "organization disabled"
+          ],
+          "duration_minutes": 360,
+          "description": "账号或组织禁用 - 暂停 6 小时"
+        }
+      ]
+    },
+    "extra": {
+      "enable_tls_fingerprint": true,
+      "rpm_strategy": "tiered",
+      "user_msg_queue_mode": "serialize",
+      "session_id_masking_enabled": true,
+      "cache_ttl_override_enabled": true,
+      "cache_ttl_override_target": "1h",
+      "custom_base_url_enabled": false
+    },
+    "extra_absent": [
+      "custom_base_url"
+    ],
+    "tls_profile": {
+      "name": "claude_cli_nodejs24_fixed",
+      "description": "Fixed Claude CLI / Node.js 24.x ClientHello profile for Anthropic OAuth stability.",
+      "enable_grease": false,
+      "cipher_suites": [
+        4865,
+        4866,
+        4867,
+        49195,
+        49199,
+        49196,
+        49200,
+        52393,
+        52392,
+        49161,
+        49171,
+        49162,
+        49172,
+        156,
+        157,
+        47,
+        53
+      ],
+      "curves": [
+        29,
+        23,
+        24
+      ],
+      "point_formats": [
+        0
+      ],
+      "signature_algorithms": [
+        1027,
+        2052,
+        1025,
+        1283,
+        2053,
+        1281,
+        2054,
+        1537,
+        513
+      ],
+      "alpn_protocols": [
+        "http/1.1"
+      ],
+      "supported_versions": [
+        772,
+        771
+      ],
+      "key_share_groups": [
+        29
+      ],
+      "psk_modes": [
+        1
+      ],
+      "extensions": [
+        0,
+        65037,
+        23,
+        65281,
+        10,
+        11,
+        35,
+        16,
+        5,
+        13,
+        18,
+        51,
+        45,
+        43
+      ]
+    }
+  },
+  "tiers": {
+    "l1_novice": {
+      "factor": 0.15,
+      "baseline": {
+        "account": {
+          "concurrency": 2,
+          "priority": 100,
+          "rate_multiplier": 1.0
+        },
+        "extra": {
+          "base_rpm": 3,
+          "rpm_sticky_buffer": 1,
+          "max_sessions": 2,
+          "session_idle_timeout_minutes": 6,
+          "window_cost_limit": 90,
+          "window_cost_sticky_reserve": 1
+        }
+      }
+    },
+    "l2_junior": {
+      "factor": 0.3,
+      "baseline": {
+        "account": {
+          "concurrency": 3,
+          "priority": 80,
+          "rate_multiplier": 1.0
+        },
+        "extra": {
+          "base_rpm": 6,
+          "rpm_sticky_buffer": 2,
+          "max_sessions": 3,
+          "session_idle_timeout_minutes": 8,
+          "window_cost_limit": 180,
+          "window_cost_sticky_reserve": 2
+        }
+      }
+    },
+    "l3_mid": {
+      "factor": 0.5,
+      "baseline": {
+        "account": {
+          "concurrency": 6,
+          "priority": 40,
+          "rate_multiplier": 1.0
+        },
+        "extra": {
+          "base_rpm": 10,
+          "rpm_sticky_buffer": 3,
+          "max_sessions": 6,
+          "session_idle_timeout_minutes": 10,
+          "window_cost_limit": 300,
+          "window_cost_sticky_reserve": 3
+        }
+      }
+    },
+    "l4_senior": {
+      "factor": 0.6,
+      "baseline": {
+        "account": {
+          "concurrency": 7,
+          "priority": 20,
+          "rate_multiplier": 1.0
+        },
+        "extra": {
+          "base_rpm": 12,
+          "rpm_sticky_buffer": 4,
+          "max_sessions": 7,
+          "session_idle_timeout_minutes": 11,
+          "window_cost_limit": 360,
+          "window_cost_sticky_reserve": 4
+        }
+      }
+    },
+    "l5_ultra": {
+      "factor": 0.7,
+      "baseline": {
+        "account": {
+          "concurrency": 8,
+          "priority": 10,
+          "rate_multiplier": 1.0
+        },
+        "extra": {
+          "base_rpm": 14,
+          "rpm_sticky_buffer": 5,
+          "max_sessions": 8,
+          "session_idle_timeout_minutes": 12,
+          "window_cost_limit": 420,
+          "window_cost_sticky_reserve": 5
+        }
+      }
+    }
+  }
+}

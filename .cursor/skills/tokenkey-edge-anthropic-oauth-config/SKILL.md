@@ -1,0 +1,302 @@
+---
+name: tokenkey-edge-anthropic-oauth-config
+description: >-
+  Query and update edge Anthropic OAuth account stability config (including
+  account fields and group bindings) with default read-only check, explicit
+  apply confirmation, mixed-channel risk precheck, and post-change verification.
+---
+
+# TokenKey：Edge Anthropic OAuth 配置查询与更新（含账号与分组）
+
+适用于本仓库（TokenKey fork of sub2api）。目标是把“查询漂移 → 计划变更 → 显式确认后更新 → 复核”固化为可复用流程。
+
+权威纪律以仓库根 `CLAUDE.md` 为准。
+
+## 调用参数
+
+```text
+/tokenkey-edge-anthropic-oauth-config edge_id=<id> operation=<check|plan-apply|apply> [account_name=<name>|all] [target_scope=account|group] [target_group_id=<id>] [target_group_name=<name>] [group_ids=1,2] [confirm_apply=yes-apply-edge-anthropic-oauth] [allow_planned=true|false] [update_stable_list=true|false]
+```
+
+| 参数 | 语义 |
+|---|---|
+| `edge_id` | 目标 edge，如 `us1` / `uk1` / `fra1`；支持 `all` 自动枚举所有 edge（默认仅 deployable）。 |
+| `target_scope` | 目标范围：`account`（默认）或 `group`。 |
+| `account_name` | `target_scope=account` 时必填；目标账号名（`accounts.name`）；`check` 支持 `all` 自动枚举每个 edge 下全部 anthropic oauth 账号。 |
+| `target_group_id` | `target_scope=group` 时可选；目标分组 ID（与 `target_group_name` 二选一，优先 ID）。 |
+| `target_group_name` | `target_scope=group` 时可选；目标分组名（与 `target_group_id` 二选一）。 |
+| `account.extra.stability_tier` | 分级基线选择键（`l1_novice/l2_junior/l3_mid/l4_senior/l5_ultra`），`check` 会按该字段选择 tier baseline。 |
+| `operation=check` | 默认模式，只读检查当前配置与基准差异；`target_scope=group` 时输出分组聚合结果与成员账号明细。 |
+| `operation=plan-apply` | 生成更新计划与请求 payload 预览，不写入。 |
+| `operation=apply` | 执行更新（账号字段 + 可选分组绑定）；`target_scope=group` 时对分组内可用账号逐一执行，必须显式确认。 |
+| `group_ids` | 可选分组 ID 列表（逗号分隔）。在 `target_scope=account` 时表示该账号分组重绑；在 `target_scope=group` 时默认不改绑定，除非显式提供。 |
+| `confirm_apply` | 仅 `apply` 使用，必须精确为 `yes-apply-edge-anthropic-oauth`。 |
+| `allow_planned` | 是否允许在 planned edge 上执行检查，默认 `false`。 |
+| `update_stable_list` | 可选；仅在人工确认稳定后才更新 baseline stable_accounts。 |
+
+默认行为：
+- 用户只说“查配置/看漂移” → `operation=check`
+- 用户只说“更新/对齐” → 先执行 `check` + `plan-apply`，拿到确认后再 `apply`
+- 未声明 `target_scope` 时默认 `target_scope=account`
+- `target_scope=group` 时，`check`/`plan-apply` 可用分组名或分组 ID 定位目标；`apply` 仅允许单 edge + 单分组
+- `edge_id=all` 默认只巡检 deployable edge；如需包含 planned，显式加 `allow_planned=true`
+
+## 一次性跑完（原则）
+
+- 默认只读，先 `check`。
+- 任何写入前都先给出 `plan-apply` 预览。
+- `apply` 无固定确认口令则拒绝执行。
+- 失败先停并报告，不做隐式重试覆盖。
+- 输出禁止包含 token/secret 明文。
+
+## 分组口径与聚合规则（target_scope=group）
+
+仅统计“分组下可用账号”（建议口径：`deleted_at IS NULL`、平台=`anthropic`、类型=`oauth`、未被临时/永久禁用，且通过当前调度可用性判定）。
+
+聚合字段建议口径：
+- `group_agg.available_account_count` = 可用账号数量
+- `group_agg.total_base_rpm` = Σ(每个可用账号 `extra.base_rpm`)
+- `group_agg.total_max_sessions` = Σ(每个可用账号 `extra.max_sessions`)
+- `group_agg.total_window_cost_limit` = Σ(每个可用账号 `extra.window_cost_limit`)
+- `group_agg.effective_concurrency` = Σ(每个可用账号 `account.concurrency`)
+- `group_agg.min_priority` / `max_priority` = 分组内优先级范围（数值越小优先级越高）
+- `group_agg.tier_distribution` = 各 tier 账号计数（L1~L5）
+
+`check` 输出应同时包含：
+1) 分组聚合结果（group_agg）；
+2) 成员账号明细（每个账号的 tier、diff_count、关键字段）；
+3) 分组是否存在“混合 tier / 混合 channel”风险标记。
+
+## 1) Read-only 检查（operation=check）
+
+复用脚本：`scripts/check-edge-anthropic-oauth-stability.py`
+
+### 1.1 账号模式（target_scope=account）
+
+标准命令形态：
+
+```bash
+python3 scripts/check-edge-anthropic-oauth-stability.py \
+  --edge-id "$EDGE_ID" \
+  --account-name "$ACCOUNT_NAME" \
+  --json
+```
+
+如果需要 planned edge：追加 `--allow-planned`。
+
+重点读取输出字段：
+- `status`（`ok` / `drift` / `error`）
+- `account_stability_tier`（账号当前标记）
+- `baseline_tier`（实际对比使用的等级）
+- `baseline_factor`
+- `diff_count`
+- `diffs`
+- `ssm_command_id`
+
+若 `diff_count>0`，可选生成 SQL（仅供审阅，不建议直接落库改账号）：
+
+> 注意：`--emit-sql` 只支持单 edge + 单账号；任一参数为 `all` 时会被拒绝。
+
+```bash
+python3 scripts/check-edge-anthropic-oauth-stability.py \
+  --edge-id "$EDGE_ID" \
+  --account-name "$ACCOUNT_NAME" \
+  --emit-sql /tmp/${EDGE_ID}-${ACCOUNT_NAME}.sql \
+  --json || true
+```
+
+### 1.2 分组模式（target_scope=group）
+
+先解析目标分组（`target_group_id` 或 `target_group_name`），枚举该分组下全部可用 anthropic oauth 账号，然后对每个账号执行账号模式 `check`，最终汇总为分组结果。
+
+重点读取输出字段：
+- `group_status`（`ok` / `drift` / `error`）
+- `group_agg.available_account_count`
+- `group_agg.total_base_rpm`（分组可用账号 rpm 之和）
+- `group_agg.total_max_sessions`
+- `group_agg.total_window_cost_limit`
+- `group_agg.effective_concurrency`
+- `group_agg.tier_distribution`
+- `member_results[]`（每个账号的 `status` / `diff_count` / `baseline_tier`）
+
+## 2) 变更预览（operation=plan-apply）
+
+`plan-apply` 只做两件事：
+1. 基于 `check` 结果列出待更新字段；
+2. 生成 admin API 请求 payload 预览。
+
+### 2.1 账号模式（target_scope=account）
+
+安全限制：
+- `plan-apply` 不允许 `account_name=all`（避免批量账号预览被误当可执行清单）。
+
+`group_ids` 语义必须与后端一致：
+- **不传 `group_ids`**：不改分组绑定；
+- **传空数组 `[]`**：清空分组绑定；
+- **传非空数组 `[1,2]`**：重绑分组。
+
+### 2.2 分组模式（target_scope=group）
+
+- 基于分组内 `member_results[]` 生成“逐账号变更清单”（账号 ID、字段 diff、tier、预估影响）。
+- 生成“分组聚合前后对比预览”：
+  - `total_base_rpm_before/after`
+  - `total_max_sessions_before/after`
+  - `total_window_cost_limit_before/after`
+  - `effective_concurrency_before/after`
+- 默认不允许 `target_group_id=all` 或 `target_group_name=all` 的 apply 级预览；如需批量分组操作，应拆分为多个单分组执行。
+
+## 3) 执行更新（operation=apply）
+
+### 3.1 强制确认
+
+必须提供：
+
+```text
+confirm_apply=yes-apply-edge-anthropic-oauth
+```
+
+缺失或不匹配则拒绝执行。
+
+### 3.2 账号模式（target_scope=account）
+
+安全限制：
+- `apply` 仅允许单 edge + 单账号；
+- 出现 `edge_id=all` 或 `account_name=all` 一律拒绝执行。
+
+预检 mixed-channel 风险（涉及 `group_ids` 时）：
+- 先调用 `POST /api/v1/admin/accounts/check-mixed-channel`
+- 若预检返回风险且未明确确认，停止执行。
+
+调用更新接口：
+- `PUT /api/v1/admin/accounts/:id`
+
+请求体包含：
+- 需要对齐的账号字段（如 `concurrency`、`priority`、`rate_multiplier`、`auto_pause_on_expired` 等）
+- 可选 `group_ids`
+
+### 3.3 分组模式（target_scope=group）
+
+安全限制：
+- `apply` 仅允许单 edge + 单分组；
+- 出现 `edge_id=all`、`target_group_id=all`、`target_group_name=all` 一律拒绝执行。
+
+执行策略：
+1. 固定成员快照：先锁定分组内可用账号清单（执行期不允许隐式扩容）；
+2. 逐账号预检：若涉及分组重绑，逐账号做 mixed-channel 预检；
+3. 逐账号更新：对每个成员调用 `PUT /api/v1/admin/accounts/:id`；
+4. 失败即停：任一账号更新失败立即停止，并输出已成功列表与待处理列表。
+
+幂等要求：
+- 对已收敛账号重复 apply 不应产生额外副作用；
+- 结果输出必须包含 `applied_count` / `skipped_count` / `failed_count`。
+
+## 4) 变更后复核
+
+`apply` 完成后必须自动复核：
+
+1. 再跑一次 `operation=check`；
+2. 对比前后 `diff_count` 与 `diffs`；
+3. 输出结构化结果。
+
+账号模式输出：
+- `edge_id`
+- `account_name`
+- 更新字段列表
+- 分组变更（若有）
+- 复核状态（是否收敛到 `diff_count=0`）
+
+分组模式输出：
+- `edge_id`
+- `target_group_id` / `target_group_name`
+- `member_total` / `applied_count` / `failed_count`
+- `group_agg_before` / `group_agg_after`（含 total_base_rpm 等）
+- `remaining_drift_accounts[]`
+- 复核状态（是否全成员收敛）
+
+## 5) 可选：更新 stable_accounts（仅人工确认后）
+
+仅在人工确认“该账号已稳定且应纳入基线名单”时执行：
+
+```bash
+python3 scripts/check-edge-anthropic-oauth-stability.py \
+  --edge-id "$EDGE_ID" \
+  --account-name "$ACCOUNT_NAME" \
+  --update-stable-list \
+  --confirm yes-update-anthropic-stable-list
+```
+
+禁止在未确认稳定前更新 stable list。
+
+## 6) 失败处理与回滚
+
+- mixed-channel 预检失败：停止，不写入。
+- 更新 API 非 2xx：停止并报告响应摘要，不继续后续动作。
+- 复核仍有漂移：输出残余差异，进入人工判断（再次 apply 或回滚）。
+- 回滚策略：使用同一更新 API 按变更前快照反向写回（账号字段 + group_ids）。
+
+## 7) 输出模板（建议）
+
+单目标模式（账号）：
+
+```text
+target_scope=account
+edge_id=<id>
+account_name=<name>
+operation=<check|plan-apply|apply>
+status=<ok|drift|applied|failed>
+diff_count_before=<n>
+diff_count_after=<n>
+updated_fields=<...>
+group_ids_change=<unchanged|cleared|rebinding:...>
+notes=<risk/precheck/rollback info>
+```
+
+单目标模式（分组）：
+
+```text
+target_scope=group
+edge_id=<id>
+target_group_id=<id>
+target_group_name=<name>
+operation=<check|plan-apply|apply>
+status=<ok|drift|applied|failed>
+member_total=<n>
+applied_count=<n>
+failed_count=<n>
+group_agg.total_base_rpm=<sum>
+group_agg.total_max_sessions=<sum>
+group_agg.total_window_cost_limit=<sum>
+notes=<risk/precheck/rollback info>
+```
+
+批量模式（任一参数为 `all`）：
+
+```text
+mode=batch
+selector.edge_id=<id|all>
+selector.account_name=<name|all>
+summary.edge_total=<n>
+summary.account_result_total=<n>
+summary.ok_count=<n>
+summary.drift_count=<n>
+summary.error_count=<n>
+```
+
+## 8) 故障速查
+
+| 现象 | 根因 | 处理 |
+|---|---|---|
+| check 失败且无结果 | edge 目标元数据缺失或 SSM 查询失败 | 先校验 `edge-targets.json`、区域与栈、OIDC/SSM 权限 |
+| apply 被拒绝 | 未提供固定确认口令 | 传入 `confirm_apply=yes-apply-edge-anthropic-oauth` |
+| 分组更新失败 | `group_ids` 含不存在分组或 mixed-channel 风险未通过 | 先调用 mixed-channel 预检并修正分组 |
+| apply 成功但仍有漂移 | 仅更新了部分字段或存在额外策略字段 | 对照 `diffs` 补齐字段后重试 |
+| 稳定名单更新失败 | 缺确认口令 | 使用 `--confirm yes-update-anthropic-stable-list` |
+
+## 扩展阅读
+
+- `scripts/check-edge-anthropic-oauth-stability.py`
+- `deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json`
+- `backend/internal/handler/admin/account_handler.go`
+- `backend/internal/service/admin_service.go`
+- `backend/internal/repository/account_repo.go`
+- `backend/internal/server/routes/admin.go`
