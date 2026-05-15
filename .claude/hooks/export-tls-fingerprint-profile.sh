@@ -15,7 +15,7 @@ emit() {
   printf '%s\n' "$1"
 }
 
-if [ "${CLAUDE_CODE_REMOTE:-}" = "true" ]; then
+if [ "${CLAUDE_CODE_REMOTE:-}" = "true" ] || [ "${TOKENKEY_TLS_PROFILE_CAPTURE_ACTIVE:-}" = "1" ]; then
   emit '{"suppressOutput":true}'
   exit 0
 fi
@@ -63,6 +63,7 @@ env -i \
   ANTHROPIC_BASE_URL="$COLLECTOR_ORIGIN:8090" \
   ANTHROPIC_API_KEY="$TOKEN" \
   ANTHROPIC_AUTH_TOKEN="$TOKEN" \
+  TOKENKEY_TLS_PROFILE_CAPTURE_ACTIVE=1 \
   NODE_TLS_REJECT_UNAUTHORIZED=0 \
   claude --bare -p 'test' --model "$MODEL" --allowedTools '' --max-budget-usd 1 \
   >"$CLAUDE_OUTPUT" 2>&1 || true
