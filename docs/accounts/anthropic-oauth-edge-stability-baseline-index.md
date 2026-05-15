@@ -11,8 +11,9 @@ Anthropic OAuth 分级基线已改为 JSON 管理，不再使用 L1-L4 markdown 
 
 ## 基线文件
 
-- 现有稳定基线（单套）：`deploy/aws/stage0/anthropic-oauth-stability-baseline.json`
-- 分级基线（L1-L5）：`deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json`
+唯一机器可读事实来源：`deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json`。
+
+旧单套基线 `deploy/aws/stage0/anthropic-oauth-stability-baseline.json` 已删除，避免与 L1-L5 分级基线形成双事实源。
 
 ## 操作流程
 
