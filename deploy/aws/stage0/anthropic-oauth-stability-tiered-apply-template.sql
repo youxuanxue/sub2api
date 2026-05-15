@@ -60,8 +60,8 @@ profile AS (
     alpn_protocols, supported_versions, key_share_groups, psk_modes, extensions,
     created_at, updated_at
   ) VALUES (
-    'claude_cli_nodejs24_fixed',
-    'Fixed Claude CLI / Node.js 24.x ClientHello profile for Anthropic OAuth stability.',
+    'claude_cli_2_1_142_node24_20260515',
+    'Captured from real Claude Code CLI 2.1.142 request to https://tls.sub2api.org:8090 on 2026-05-15. runtime=node v24.3.0 darwin/arm64. ja3_hash=d871d02cecbde59abbf8f4806134addf. ja4=t13d1714h1_5b57614c22b0_43ade6aba3df.',
     false,
     '[4865,4866,4867,49195,49199,49196,49200,52393,52392,49161,49171,49162,49172,156,157,47,53]'::jsonb,
     '[29,23,24]'::jsonb,
@@ -71,7 +71,7 @@ profile AS (
     '[772,771]'::jsonb,
     '[29]'::jsonb,
     '[1]'::jsonb,
-    '[0,65037,23,65281,10,11,35,16,5,13,18,51,45,43]'::jsonb,
+    '[0,23,65281,10,11,35,16,5,13,18,51,45,43,21]'::jsonb,
     NOW(), NOW()
   )
   ON CONFLICT (name) DO UPDATE SET

@@ -74,8 +74,8 @@
       "custom_base_url"
     ],
     "tls_profile": {
-      "name": "claude_cli_nodejs24_fixed",
-      "description": "Fixed Claude CLI / Node.js 24.x ClientHello profile for Anthropic OAuth stability.",
+      "name": "claude_cli_2_1_142_node24_20260515",
+      "description": "Captured from real Claude Code CLI 2.1.142 request to https://tls.sub2api.org:8090 on 2026-05-15. runtime=node v24.3.0 darwin/arm64. ja3_hash=d871d02cecbde59abbf8f4806134addf. ja4=t13d1714h1_5b57614c22b0_43ade6aba3df.",
       "enable_grease": false,
       "cipher_suites": [
         4865,
@@ -130,7 +130,6 @@
       ],
       "extensions": [
         0,
-        65037,
         23,
         65281,
         10,
@@ -142,7 +141,8 @@
         18,
         51,
         45,
-        43
+        43,
+        21
       ]
     }
   },
