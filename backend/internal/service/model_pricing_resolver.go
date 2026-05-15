@@ -135,39 +135,13 @@ func (r *ModelPricingResolver) applyChannelOverrides(ctx context.Context, groupI
 
 // applyTokenOverrides 应用 token 模式的渠道覆盖。
 //
-// 渠道的"flat"字段（InputPrice / OutputPrice / Cache* / ImageOutputPrice）始终被
-// 应用到 BasePricing；当区间定价命中失败（请求落在所有 interval 之外）时，
-// GetIntervalPricing 会回退到 BasePricing，这里 flat 字段就是渠道运营者
-// 显式配置的"区间外默认价"。早期实现在 len(validIntervals) > 0 时直接 return，
-// 导致区间外的请求回退到 LiteLLM 目录价或 nil（自定义模型直接按 0 计费）。
-// 详见 upstream #2107。
+// TK policy (upstream #2107): operator-configured flat fields always also
+// land on BasePricing as the "out-of-range fallback" — see TK companion
+// tkApplyChannelFlatOverridesAsFallback in
+// model_pricing_resolver_tk_channel_flat_fallback.go.
 func (r *ModelPricingResolver) applyTokenOverrides(chPricing *ChannelModelPricing, resolved *ResolvedPricing) {
 	resolved.Intervals = filterValidIntervals(chPricing.Intervals)
-
-	if resolved.BasePricing == nil {
-		resolved.BasePricing = &ModelPricing{}
-	}
-
-	if chPricing.InputPrice != nil {
-		resolved.BasePricing.InputPricePerToken = *chPricing.InputPrice
-		resolved.BasePricing.InputPricePerTokenPriority = *chPricing.InputPrice
-	}
-	if chPricing.OutputPrice != nil {
-		resolved.BasePricing.OutputPricePerToken = *chPricing.OutputPrice
-		resolved.BasePricing.OutputPricePerTokenPriority = *chPricing.OutputPrice
-	}
-	if chPricing.CacheWritePrice != nil {
-		resolved.BasePricing.CacheCreationPricePerToken = *chPricing.CacheWritePrice
-		resolved.BasePricing.CacheCreation5mPrice = *chPricing.CacheWritePrice
-		resolved.BasePricing.CacheCreation1hPrice = *chPricing.CacheWritePrice
-	}
-	if chPricing.CacheReadPrice != nil {
-		resolved.BasePricing.CacheReadPricePerToken = *chPricing.CacheReadPrice
-		resolved.BasePricing.CacheReadPricePerTokenPriority = *chPricing.CacheReadPrice
-	}
-	if chPricing.ImageOutputPrice != nil {
-		resolved.BasePricing.ImageOutputPricePerToken = *chPricing.ImageOutputPrice
-	}
+	tkApplyChannelFlatOverridesAsFallback(chPricing, resolved)
 }
 
 // applyRequestTierOverrides 应用按次/图片模式的渠道覆盖

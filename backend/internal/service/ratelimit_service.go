@@ -1073,16 +1073,12 @@ func calculateOpenAI429ResetTime(headers http.Header) *time.Time {
 		return &resetAt
 	}
 
-	// 都未达到100%但收到429：这是 burst/throttle 限流（瞬时突发），不是 5h/7d 窗口
-	// 用尽。x-codex-*-reset-after-seconds 描述的是窗口完整重置时间（可能是数天），
-	// 直接套用会把短暂突发变成数日 503。返回 nil 让 handle429 走可配置的短 fallback
-	// cooldown（默认 5s），与 Anthropic 无 reset 头的处理一致。详见 upstream #2258。
-	slog.Info("openai_429_burst_below_window_limits",
-		"used_5h_percent", normalized.Used5hPercent,
-		"used_7d_percent", normalized.Used7dPercent,
-		"reset_5h_seconds", normalized.Reset5hSeconds,
-		"reset_7d_seconds", normalized.Reset7dSeconds,
-	)
+	// TK policy (upstream #2258): neither 5h nor 7d window has both
+	// `used >= 100` AND a reset value. Treat as burst/throttle 429 and let
+	// handle429 fall through to the configurable short cooldown. The policy
+	// + log live in ratelimit_service_tk_openai_burst.go; this file only
+	// records the decision.
+	TkRecordOpenAI429BurstFallthrough(normalized)
 	return nil
 }
 
