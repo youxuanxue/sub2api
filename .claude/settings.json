@@ -10,6 +10,18 @@
           }
         ]
       }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/export-tls-fingerprint-profile.sh\"",
+            "timeout": 20,
+            "statusMessage": "Capturing TokenKey TLS fingerprint profile"
+          }
+        ]
+      }
     ]
   }
 }
