@@ -66,3 +66,29 @@ func TestAppendOpsUpstreamError_UsesRequestBodyStringFromContext(t *testing.T) {
 	require.Len(t, events, 1)
 	require.Equal(t, `{"model":"gpt-4"}`, events[0].UpstreamRequestBody)
 }
+
+func TestAppendOpsUpstreamError_UsesTLSFingerprintProfileFromContext(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	c.Set(OpsTLSFingerprintProfileIDKey, int64(42))
+	c.Set(OpsTLSFingerprintProfileNameKey, "claude_cli_nodejs25_observed_candidate")
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		Kind:    "request_error",
+		Message: "tls handshake failed",
+	})
+
+	v, ok := c.Get(OpsUpstreamErrorsKey)
+	require.True(t, ok)
+	events, ok := v.([]*OpsUpstreamErrorEvent)
+	require.True(t, ok)
+	require.Len(t, events, 1)
+	require.Equal(t, int64(42), events[0].TLSFingerprintProfileID)
+	require.Equal(t, "claude_cli_nodejs25_observed_candidate", events[0].TLSFingerprintProfileName)
+
+	raw := marshalOpsUpstreamErrors(events)
+	require.NotNil(t, raw)
+	require.Contains(t, *raw, `"tls_fingerprint_profile_id":42`)
+	require.Contains(t, *raw, `"tls_fingerprint_profile_name":"claude_cli_nodejs25_observed_candidate"`)
+}

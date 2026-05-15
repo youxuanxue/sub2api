@@ -210,6 +210,20 @@ async function main() {
     try { hookInput = JSON.parse(hookInputRaw) } catch {}
   }
 
+  const sessionShort = safeSessionId(hookInput)
+  const sessionMarkerPath = hookInput.session_id
+    ? path.join(outDir, `${sessionShort}.captured-session.json`)
+    : null
+
+  fs.mkdirSync(outDir, { recursive: true })
+  if (sessionMarkerPath && fs.existsSync(sessionMarkerPath)) {
+    emit({
+      systemMessage: `TokenKey TLS profile capture skipped: ${sessionShort} already captured`,
+      suppressOutput: true
+    })
+    return
+  }
+
   const payload = await requestJson(captureUrl)
   const tls = payload.tls || {}
   if (!tls.ja3) throw new Error('collector response missing tls.ja3')
@@ -219,13 +233,12 @@ async function main() {
   const stamp = capturedAt.replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')
   const ja3Hash = String(tls.ja3_hash || 'noja3hash')
   const shortJa3 = ja3Hash.replace(/[^a-fA-F0-9]/g, '').slice(0, 12) || 'noja3hash'
-  const sessionShort = safeSessionId(hookInput)
   const name = `claude_code_cli_${stamp.slice(0, 8)}_${shortJa3}`.slice(0, 100)
 
   const profile = {
     name,
     description: [
-      `Captured by Claude Code SessionEnd hook at ${capturedAt}.`,
+      `Captured by Claude Code hook at ${capturedAt}.`,
       `runtime=node ${process.version} ${process.platform}/${process.arch}.`,
       `ja3_hash=${tls.ja3_hash || ''}.`,
       `ja4=${tls.ja4 || ''}.`,
@@ -247,7 +260,6 @@ async function main() {
     extensions: ja3.extensions
   }
 
-  fs.mkdirSync(outDir, { recursive: true })
   const base = `${stamp}_${sessionShort}_${shortJa3}`
   const profilePath = path.join(outDir, `${base}.tokenkey-profile.json`)
   const yamlPath = path.join(outDir, `${base}.tokenkey-profile.yaml`)
@@ -281,6 +293,16 @@ async function main() {
     },
     tokenkey_profile: profile
   }, null, 2) + '\n')
+
+  if (sessionMarkerPath) {
+    fs.writeFileSync(sessionMarkerPath, JSON.stringify({
+      schema_version: 1,
+      session_id: hookInput.session_id,
+      captured_at: capturedAt,
+      profile_path: path.relative(outDir, profilePath),
+      capture_path: path.relative(outDir, capturePath)
+    }, null, 2) + '\n')
+  }
 
   emit({
     systemMessage: `TokenKey TLS profile captured: ${path.relative(repoRoot, profilePath)}`,
