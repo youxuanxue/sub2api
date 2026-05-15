@@ -277,7 +277,6 @@ func buildClaudeMimicDebugLine(req *http.Request, body []byte, account *Account,
 		"x-api-key",
 		"content-type",
 		"accept",
-		"x-stainless-helper-method",
 	}
 
 	h := make([]string, 0, len(interesting))
@@ -368,7 +367,6 @@ var allowedHeaders = map[string]bool{
 	"x-stainless-arch":                          true,
 	"x-stainless-runtime":                       true,
 	"x-stainless-runtime-version":               true,
-	"x-stainless-helper-method":                 true,
 	"anthropic-dangerous-direct-browser-access": true,
 	"anthropic-version":                         true,
 	"x-app":                                     true,
@@ -6670,30 +6668,20 @@ func buildBetaTokenSet(tokens []string) map[string]struct{} {
 
 var defaultDroppedBetasSet = buildBetaTokenSet(claude.DroppedBetas)
 
-// applyClaudeCodeMimicHeaders forces "Claude Code-like" request headers.
-// This mirrors opencode-anthropic-auth behavior: do not trust downstream
-// headers when using Claude Code-scoped OAuth credentials.
-func applyClaudeCodeMimicHeaders(req *http.Request, isStream bool) {
+// applyClaudeCodeMimicHeaders forces Claude Code-only headers while preserving
+// previously captured real CLI fingerprint fields.
+func applyClaudeCodeMimicHeaders(req *http.Request, _ bool) {
 	if req == nil {
 		return
 	}
-	// Start with the standard defaults (fill missing).
 	applyClaudeOAuthHeaderDefaults(req)
-	// Then force key headers to match Claude Code fingerprint regardless of what the client sent.
-	// 使用 resolveWireCasing 确保 key 与真实 wire format 一致（如 "x-app" 而非 "X-App"）
 	for key, value := range claude.DefaultHeaders {
-		if value == "" {
+		if value == "" || getHeaderRaw(req.Header, key) != "" {
 			continue
 		}
 		setHeaderRaw(req.Header, resolveWireCasing(key), value)
 	}
-	// Real Claude CLI uses Accept: application/json (even for streaming).
 	setHeaderRaw(req.Header, "Accept", "application/json")
-	if isStream {
-		setHeaderRaw(req.Header, "x-stainless-helper-method", "stream")
-	}
-	// Real Claude CLI 每个请求都会生成一个新的 UUID 放在 x-client-request-id。
-	// 上游会以此作为会话/请求指纹的一部分，缺失或重复都可能触发第三方判定。
 	if getHeaderRaw(req.Header, "x-client-request-id") == "" {
 		setHeaderRaw(req.Header, "x-client-request-id", uuid.NewString())
 	}

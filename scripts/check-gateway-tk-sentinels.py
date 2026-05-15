@@ -6,6 +6,7 @@ Reads `scripts/gateway-tk-sentinels.json` and for each entry verifies:
 
   1. The file at `path` exists.
   2. Every literal string in `must_contain` appears at least once in the file.
+  3. Every literal string in `must_not_contain` is absent from the file.
 
 Exit codes:
   0  — all sentinels intact.
@@ -60,6 +61,9 @@ def check_sentinel(entry: dict) -> tuple[bool, list[str]]:
     for needle in must_contain:
         if needle not in content:
             failures.append(f"missing literal `{needle}` in {path_str}")
+    for needle in entry.get("must_not_contain") or []:
+        if needle in content:
+            failures.append(f"forbidden literal `{needle}` still present in {path_str}")
     return (len(failures) == 0), failures
 
 

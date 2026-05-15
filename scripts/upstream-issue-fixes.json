@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "rationale": "TokenKey-local registry of upstream Wei-Shaw/sub2api issues that this fork has already addressed. Use this when triaging upstream open issues so already-fixed upstream reports are not repeatedly selected for TokenKey work.",
+  "issues": [
+    {
+      "upstream": "Wei-Shaw/sub2api#2489",
+      "tokenkey_pr": "youxuanxue/sub2api#223",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/header_util.go",
+        "backend/internal/service/claude_mimicry_headers_test.go",
+        "scripts/gateway-tk-sentinels.json"
+      ],
+      "summary": "Stopped emitting or forwarding x-stainless-helper-method on Claude Code OAuth mimicry paths."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#580",
+      "tokenkey_pr": "youxuanxue/sub2api#223",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/claude_mimicry_headers_test.go",
+        "scripts/gateway-tk-sentinels.json"
+      ],
+      "summary": "Preserved captured real Claude CLI User-Agent and X-Stainless fingerprint values when applying mimicry defaults, avoiding version downgrade churn."
+    }
+  ]
+}
