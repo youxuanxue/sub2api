@@ -7,30 +7,12 @@
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
+          },
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/export-tls-fingerprint-profile.sh\"",
-            "timeout": 20,
-            "statusMessage": "Capturing TokenKey TLS fingerprint profile"
-          }
-        ]
-      }
-    ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/export-tls-fingerprint-profile.sh\"",
-            "timeout": 20,
-            "statusMessage": "Capturing TokenKey TLS fingerprint profile"
+            "timeout": 60,
+            "statusMessage": "Capturing daily TokenKey TLS fingerprint profile"
           }
         ]
       }

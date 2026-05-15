@@ -20,6 +20,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	utls "github.com/refraction-networking/utls"
 )
 
 // TestDialerBasicConnection tests that the dialer can establish TLS connections.
@@ -261,6 +263,18 @@ func TestBuildClientHelloSpec(t *testing.T) {
 
 	if len(spec.CipherSuites) != 2 {
 		t.Errorf("expected 2 cipher suites, got %d", len(spec.CipherSuites))
+	}
+
+	paddingProfile := &Profile{
+		Name:       "Padding",
+		Extensions: []uint16{0, 21},
+	}
+	spec = buildClientHelloSpecFromProfile(paddingProfile)
+	if len(spec.Extensions) != 2 {
+		t.Fatalf("expected 2 extensions, got %d", len(spec.Extensions))
+	}
+	if _, ok := spec.Extensions[1].(*utls.UtlsPaddingExtension); !ok {
+		t.Fatalf("extension 21 should build UtlsPaddingExtension, got %T", spec.Extensions[1])
 	}
 }
 
