@@ -11,7 +11,7 @@ from typing import Any
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEFAULT_MATRIX = REPO_ROOT / "deploy/aws/stage0/edge-targets.json"
-DEFAULT_BASELINE = REPO_ROOT / "deploy/aws/stage0/anthropic-oauth-stability-baseline.json"
+DEFAULT_BASELINE = REPO_ROOT / "deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json"
 CONFIRM_UPDATE = "yes-update-anthropic-stable-list"
 
 
@@ -157,6 +157,7 @@ WITH target AS (
     'rate_multiplier', max(rate_multiplier),
     'auto_pause_on_expired', bool_or(auto_pause_on_expired),
     'channel_type', max(channel_type),
+    'stability_tier', max(NULLIF(extra->>'stability_tier', '')),
     'status', max(status),
     'error_message', max(error_message),
     'last_used_at', max(last_used_at)
@@ -352,6 +353,42 @@ def diff_absent(section: str, absent_keys: list[str], actual: dict[str, Any] | N
                 "actual": actual[key],
             })
     return diffs
+
+
+def resolve_effective_baseline(baseline: dict[str, Any], live: dict[str, Any], *, edge_id: str, account_name: str) -> dict[str, Any]:
+    if not baseline.get("tiers"):
+        return {"baseline": baseline.get("baseline") or {}}
+
+    account = live.get("account") or {}
+    tier_key = str(account.get("stability_tier") or "").strip().lower()
+    if not tier_key:
+        fail(
+            f"account {account_name} on edge {edge_id} missing account.extra.stability_tier; "
+            "expected one of l1_novice/l2_junior/l3_mid/l4_senior/l5_ultra"
+        )
+
+    tiers = baseline.get("tiers") or {}
+    tier_cfg = tiers.get(tier_key)
+    if not isinstance(tier_cfg, dict):
+        fail(
+            f"account {account_name} on edge {edge_id} has unsupported stability_tier={tier_key}; "
+            f"known tiers: {', '.join(sorted(tiers))}"
+        )
+
+    shared = baseline.get("shared_baseline") or {}
+    tier_base = tier_cfg.get("baseline") or {}
+    effective = {
+        "account": {**(shared.get("account") or {}), **(tier_base.get("account") or {})},
+        "credentials": {**(shared.get("credentials") or {}), **(tier_base.get("credentials") or {})},
+        "extra": {**(shared.get("extra") or {}), **(tier_base.get("extra") or {})},
+        "extra_absent": list(shared.get("extra_absent") or []),
+        "tls_profile": {**(shared.get("tls_profile") or {}), **(tier_base.get("tls_profile") or {})},
+    }
+    return {
+        "baseline": effective,
+        "selected_tier": tier_key,
+        "selected_factor": tier_cfg.get("factor"),
+    }
 
 
 def compare_live_to_baseline(live: dict[str, Any], baseline: dict[str, Any]) -> list[dict[str, Any]]:
@@ -565,7 +602,7 @@ def main() -> int:
                 "status": "error",
                 "diff_count": 0,
                 "diffs": [],
-                "error_message": str(exc),
+                "error_message": exc.args[0] if exc.args else "unknown error",
                 "sql_path": None,
             })
             error_count += 1
@@ -607,10 +644,19 @@ def main() -> int:
         for account_name in account_names:
             try:
                 live = read_live_account(edge, instance_id, account_name)
-                diffs = compare_live_to_baseline(live, baseline)
+                effective_baseline = resolve_effective_baseline(
+                    baseline,
+                    live,
+                    edge_id=edge["edge_id"],
+                    account_name=account_name,
+                )
+                diffs = compare_live_to_baseline(live, effective_baseline)
                 item = {
                     "edge": {**edge, "instance_id": instance_id},
                     "account_name": account_name,
+                    "account_stability_tier": (live.get("account") or {}).get("stability_tier"),
+                    "baseline_tier": effective_baseline.get("selected_tier"),
+                    "baseline_factor": effective_baseline.get("selected_factor"),
                     "ssm_command_id": live.get("ssm_command_id"),
                     "status": "ok" if not diffs else "drift",
                     "diff_count": len(diffs),
@@ -619,7 +665,7 @@ def main() -> int:
                 }
                 if args.emit_sql:
                     sql_path = pathlib.Path(args.emit_sql)
-                    sql_path.write_text(generate_sql(edge, account_name, baseline), encoding="utf-8")
+                    sql_path.write_text(generate_sql(edge, account_name, effective_baseline), encoding="utf-8")
                 items.append(item)
             except CheckError as exc:
                 if not is_batch:
@@ -651,6 +697,8 @@ def main() -> int:
             print(f"instance_id={edge['instance_id']}")
             print(f"ssm_command_id={result.get('ssm_command_id')}")
             print(f"status={result['status']}")
+            if result.get("baseline_tier"):
+                print(f"baseline_tier={result['baseline_tier']}")
             print(f"diff_count={result['diff_count']}")
             if result["diffs"]:
                 print("\nDiff:")

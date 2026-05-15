@@ -175,43 +175,43 @@
   },
   "tiers": {
     "l1_novice": {
-      "factor": 0.25,
+      "factor": 0.15,
       "baseline": {
         "account": {
-          "concurrency": 3,
-          "priority": 10,
+          "concurrency": 2,
+          "priority": 100,
           "rate_multiplier": 1.0
         },
         "extra": {
-          "base_rpm": 5,
-          "rpm_sticky_buffer": 2,
-          "max_sessions": 3,
+          "base_rpm": 3,
+          "rpm_sticky_buffer": 1,
+          "max_sessions": 2,
           "session_idle_timeout_minutes": 6,
-          "window_cost_limit": 150,
-          "window_cost_sticky_reserve": 2
+          "window_cost_limit": 90,
+          "window_cost_sticky_reserve": 1
         }
       }
     },
     "l2_junior": {
-      "factor": 0.4,
+      "factor": 0.3,
       "baseline": {
         "account": {
-          "concurrency": 4,
-          "priority": 20,
+          "concurrency": 3,
+          "priority": 80,
           "rate_multiplier": 1.0
         },
         "extra": {
-          "base_rpm": 8,
-          "rpm_sticky_buffer": 3,
-          "max_sessions": 4,
+          "base_rpm": 6,
+          "rpm_sticky_buffer": 2,
+          "max_sessions": 3,
           "session_idle_timeout_minutes": 8,
-          "window_cost_limit": 240,
-          "window_cost_sticky_reserve": 3
+          "window_cost_limit": 180,
+          "window_cost_sticky_reserve": 2
         }
       }
     },
     "l3_mid": {
-      "factor": 0.55,
+      "factor": 0.5,
       "baseline": {
         "account": {
           "concurrency": 6,
@@ -219,12 +219,12 @@
           "rate_multiplier": 1.0
         },
         "extra": {
-          "base_rpm": 11,
-          "rpm_sticky_buffer": 4,
+          "base_rpm": 10,
+          "rpm_sticky_buffer": 3,
           "max_sessions": 6,
           "session_idle_timeout_minutes": 10,
-          "window_cost_limit": 330,
-          "window_cost_sticky_reserve": 4
+          "window_cost_limit": 300,
+          "window_cost_sticky_reserve": 3
         }
       }
     },
@@ -233,16 +233,16 @@
       "baseline": {
         "account": {
           "concurrency": 7,
-          "priority": 80,
+          "priority": 20,
           "rate_multiplier": 1.0
         },
         "extra": {
           "base_rpm": 12,
-          "rpm_sticky_buffer": 5,
+          "rpm_sticky_buffer": 4,
           "max_sessions": 7,
           "session_idle_timeout_minutes": 11,
           "window_cost_limit": 360,
-          "window_cost_sticky_reserve": 5
+          "window_cost_sticky_reserve": 4
         }
       }
     },
@@ -251,16 +251,16 @@
       "baseline": {
         "account": {
           "concurrency": 8,
-          "priority": 100,
+          "priority": 10,
           "rate_multiplier": 1.0
         },
         "extra": {
           "base_rpm": 14,
-          "rpm_sticky_buffer": 6,
+          "rpm_sticky_buffer": 5,
           "max_sessions": 8,
           "session_idle_timeout_minutes": 12,
           "window_cost_limit": 420,
-          "window_cost_sticky_reserve": 6
+          "window_cost_sticky_reserve": 5
         }
       }
     }

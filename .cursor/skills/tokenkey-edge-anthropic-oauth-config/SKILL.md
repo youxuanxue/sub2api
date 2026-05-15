@@ -22,6 +22,7 @@ description: >-
 |---|---|
 | `edge_id` | 目标 edge，如 `us1` / `uk1` / `fra1`；支持 `all` 自动枚举所有 edge（默认仅 deployable）。 |
 | `account_name` | 目标账号名（`accounts.name`）；支持 `all` 自动枚举每个 edge 下全部 anthropic oauth 账号。 |
+| `account.extra.stability_tier` | 分级基线选择键（`l1_novice/l2_junior/l3_mid/l4_senior/l5_ultra`），`check` 会按该字段选择 tier baseline。 |
 | `operation=check` | 默认模式，只读检查当前配置与基准差异。 |
 | `operation=plan-apply` | 生成更新计划与请求 payload 预览，不写入。 |
 | `operation=apply` | 执行更新（账号字段 + 可选分组绑定），必须显式确认。 |
@@ -59,7 +60,10 @@ python3 scripts/check-edge-anthropic-oauth-stability.py \
 如果需要 planned edge：追加 `--allow-planned`。
 
 重点读取输出字段：
-- `status`（`ok` / `drift`）
+- `status`（`ok` / `drift` / `error`）
+- `account_stability_tier`（账号当前标记）
+- `baseline_tier`（实际对比使用的等级）
+- `baseline_factor`
 - `diff_count`
 - `diffs`
 - `ssm_command_id`
@@ -202,7 +206,7 @@ summary.error_count=<n>
 ## 扩展阅读
 
 - `scripts/check-edge-anthropic-oauth-stability.py`
-- `deploy/aws/stage0/anthropic-oauth-stability-baseline.json`
+- `deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json`
 - `backend/internal/handler/admin/account_handler.go`
 - `backend/internal/service/admin_service.go`
 - `backend/internal/repository/account_repo.go`
