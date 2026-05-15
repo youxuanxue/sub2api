@@ -32,10 +32,11 @@
       ]
     },
     "tier_factors": {
-      "l1_novice": 0.25,
-      "l2_junior": 0.4,
-      "l3_mid": 0.55,
-      "l4_senior": 0.7
+      "l1_novice": 0.1,
+      "l2_junior": 0.3,
+      "l3_mid": 0.5,
+      "l4_senior": 0.6,
+      "l5_ultra": 0.7
     },
     "rounding": {
       "integer_fields": "floor",
@@ -235,11 +236,29 @@
       }
     },
     "l4_senior": {
+      "factor": 0.6,
+      "baseline": {
+        "account": {
+          "concurrency": 7,
+          "priority": 80,
+          "rate_multiplier": 1.0
+        },
+        "extra": {
+          "base_rpm": 12,
+          "rpm_sticky_buffer": 5,
+          "max_sessions": 7,
+          "session_idle_timeout_minutes": 11,
+          "window_cost_limit": 360,
+          "window_cost_sticky_reserve": 5
+        }
+      }
+    },
+    "l5_ultra": {
       "factor": 0.7,
       "baseline": {
         "account": {
           "concurrency": 8,
-          "priority": 80,
+          "priority": 100,
           "rate_multiplier": 1.0
         },
         "extra": {
