@@ -355,12 +355,21 @@ def diff_absent(section: str, absent_keys: list[str], actual: dict[str, Any] | N
     return diffs
 
 
-def resolve_effective_baseline(baseline: dict[str, Any], live: dict[str, Any], *, edge_id: str, account_name: str) -> dict[str, Any]:
+def resolve_effective_baseline(
+    baseline: dict[str, Any],
+    live: dict[str, Any],
+    *,
+    edge_id: str,
+    account_name: str,
+    default_tier: str,
+) -> dict[str, Any]:
     if not baseline.get("tiers"):
         return {"baseline": baseline.get("baseline") or {}}
 
     account = live.get("account") or {}
     tier_key = str(account.get("stability_tier") or "").strip().lower()
+    if not tier_key and default_tier:
+        tier_key = default_tier
     if not tier_key:
         fail(
             f"account {account_name} on edge {edge_id} missing account.extra.stability_tier; "
@@ -388,6 +397,7 @@ def resolve_effective_baseline(baseline: dict[str, Any], live: dict[str, Any], *
         "baseline": effective,
         "selected_tier": tier_key,
         "selected_factor": tier_cfg.get("factor"),
+        "tier_source": "account.extra.stability_tier" if (live.get("account") or {}).get("stability_tier") else "default_tier",
     }
 
 
@@ -417,6 +427,9 @@ def generate_sql(edge: dict[str, Any], account_name: str, baseline: dict[str, An
     account = base.get("account") or {}
     credentials = base.get("credentials") or {}
     extra = dict(base.get("extra") or {})
+    selected_tier = str(baseline.get("selected_tier") or "").strip().lower()
+    if selected_tier:
+        extra["stability_tier"] = selected_tier
     extra_absent = base.get("extra_absent") or []
     profile = base.get("tls_profile") or {}
     generated_at = dt.datetime.now(dt.UTC).replace(microsecond=0).isoformat()
@@ -558,6 +571,7 @@ def main() -> int:
     parser.add_argument("--emit-sql", default="")
     parser.add_argument("--update-stable-list", action="store_true")
     parser.add_argument("--confirm", default="")
+    parser.add_argument("--default-tier", default="")
     args = parser.parse_args()
 
     if args.json and args.quiet:
@@ -574,10 +588,13 @@ def main() -> int:
     if args.instance_id and is_edge_all:
         fail("--instance-id cannot be used with --edge-id all")
 
+    default_tier = str(args.default_tier or "").strip().lower()
     matrix_path = pathlib.Path(args.matrix)
     baseline_path = pathlib.Path(args.baseline)
     matrix = load_json(matrix_path)
     baseline = load_json(baseline_path)
+    if default_tier and default_tier not in (baseline.get("tiers") or {}):
+        fail(f"--default-tier={default_tier} not found in baseline tiers")
     edges, excluded_edges = resolve_edges(matrix, args.edge_id, allow_planned=args.allow_planned)
 
     if args.update_stable_list:
@@ -649,6 +666,7 @@ def main() -> int:
                     live,
                     edge_id=edge["edge_id"],
                     account_name=account_name,
+                    default_tier=default_tier,
                 )
                 diffs = compare_live_to_baseline(live, effective_baseline)
                 item = {
@@ -657,6 +675,7 @@ def main() -> int:
                     "account_stability_tier": (live.get("account") or {}).get("stability_tier"),
                     "baseline_tier": effective_baseline.get("selected_tier"),
                     "baseline_factor": effective_baseline.get("selected_factor"),
+                    "tier_source": effective_baseline.get("tier_source"),
                     "ssm_command_id": live.get("ssm_command_id"),
                     "status": "ok" if not diffs else "drift",
                     "diff_count": len(diffs),
