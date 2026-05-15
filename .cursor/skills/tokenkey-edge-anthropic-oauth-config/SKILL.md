@@ -165,7 +165,7 @@ confirm_apply=yes-apply-edge-anthropic-oauth
 - 账号 tier/stability/TLS baseline 更新：复制 `deploy/aws/stage0/anthropic-oauth-stability-tiered-apply-template.sql`
 - 分组聚合 rpm 更新：复制 `deploy/aws/stage0/anthropic-oauth-group-aggregate-apply-template.sql`
 
-推荐落点：`$CLAUDE_JOB_DIR/<edge>-<target>-apply.sql`，不要改原模板来执行单次任务。复制后必须保留模板里的 profile、tier、聚合口径和事务结构；只允许改 `\set account_name`、`\set stability_tier`、`\set group_name` 等执行变量，或把变量替换为本次确认过的字面值。若需求确实要求模板未覆盖的新字段，先更新模板和本 skill，再执行 apply，避免 checker、模板和人工 SQL 分叉。
+推荐落点：`$CLAUDE_JOB_DIR/<edge>-<target>-apply.sql`，不要改原模板来执行单次任务。复制后必须生成**自包含 SQL**：把模板正文复制进该文件，并在文件顶部写入本次 `\set account_name`、`\set stability_tier`、`\set group_name` 等变量；远端 edge 不保证存在仓库 checkout，所以禁止让 SSM/psql 执行依赖远端文件路径的 `\i deploy/aws/stage0/...`。复制后必须保留模板里的 profile、tier、聚合口径和事务结构；只允许改执行变量或经 `plan-apply` 确认过的字面值。若需求确实要求模板未覆盖的新字段，先更新模板和本 skill，再执行 apply，避免 checker、模板和人工 SQL 分叉。
 
 ### 3.3 账号模式（target_scope=account）
 
@@ -178,10 +178,10 @@ confirm_apply=yes-apply-edge-anthropic-oauth
 - 若预检返回风险且未明确确认，停止执行。
 
 执行策略：
-1. 从 `anthropic-oauth-stability-tiered-apply-template.sql` 复制本次 SQL；
-2. 写入本次 `account_name` 与 `stability_tier`；
-3. 如需改分组绑定，先完成 mixed-channel 预检，再在同一份复制 SQL 中加入经确认的绑定变更；
-4. 通过 SSM/psql 在目标 edge 执行该复制 SQL。
+1. 从 `anthropic-oauth-stability-tiered-apply-template.sql` 复制模板正文，生成自包含本次 SQL；
+2. 在本次 SQL 顶部写入 `account_name` 与 `stability_tier`；
+3. 如需改分组绑定，先完成 mixed-channel 预检，再在同一份自包含 SQL 中加入经确认的绑定变更；
+4. 通过 SSM 把该自包含 SQL 作为 heredoc 传给目标 edge 的 `tokenkey-postgres` 容器执行，不依赖远端目录。
 
 ### 3.4 分组模式（target_scope=group）
 
@@ -192,8 +192,8 @@ confirm_apply=yes-apply-edge-anthropic-oauth
 执行策略：
 1. 固定成员快照：先锁定分组内可用账号清单（执行期不允许隐式扩容）；
 2. 逐账号预检：若涉及分组重绑，逐账号做 mixed-channel 预检；
-3. 对每个需要收敛的成员账号，复制并执行 `anthropic-oauth-stability-tiered-apply-template.sql`；
-4. 成员账号全部收敛后，复制并执行 `anthropic-oauth-group-aggregate-apply-template.sql` 更新分组聚合 rpm；
+3. 对每个需要收敛的成员账号，基于 `anthropic-oauth-stability-tiered-apply-template.sql` 生成自包含 SQL 并执行；
+4. 成员账号全部收敛后，基于 `anthropic-oauth-group-aggregate-apply-template.sql` 生成自包含 SQL 更新分组聚合 rpm；
 5. 失败即停：任一账号或分组聚合更新失败立即停止，并输出已成功列表与待处理列表。
 
 幂等要求：
