@@ -489,6 +489,21 @@ else
     echo "  ok: no env references in job-level if expressions"
 fi
 
+# ---- sub2api: Caddyfile syntax gate ------------------------------------------
+# Stage0 deploy path treats deploy/aws/stage0/Caddyfile(.edge) as source of
+# truth for CloudFormation-embedded payloads. Parse failures here should block
+# before merge rather than surfacing during deploy.
+echo ""
+echo "=== sub2api: Caddyfile syntax gate ==="
+if [ ! -x ./scripts/check-caddyfile-syntax.sh ]; then
+    echo "  FAIL: scripts/check-caddyfile-syntax.sh missing or not executable"
+    errors=$((errors + 1))
+elif ! ./scripts/check-caddyfile-syntax.sh; then
+    errors=$((errors + 1))
+else
+    echo "  ok: Caddyfile syntax gate"
+fi
+
 echo ""
 echo "=== sub2api: Stage0 deployment primitive sharing ==="
 if [ -f .github/workflows/deploy-edge-stage0.yml ]; then
