@@ -31,6 +31,7 @@ api.sub2api.com {
 	# 反向代理配置
 	# =========================================================================
 	reverse_proxy localhost:8080 {
+		flush_interval -1
 		# 健康检查
 		health_uri /health
 		health_interval 30s
