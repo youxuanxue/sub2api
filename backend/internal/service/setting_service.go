@@ -3690,12 +3690,12 @@ func (s *SettingService) GetRectifierSettings(ctx context.Context) (*RectifierSe
 		return DefaultRectifierSettings(), nil
 	}
 
-	var settings RectifierSettings
-	if err := json.Unmarshal([]byte(value), &settings); err != nil {
+	settings := DefaultRectifierSettings()
+	if err := json.Unmarshal([]byte(value), settings); err != nil {
 		return DefaultRectifierSettings(), nil
 	}
 
-	return &settings, nil
+	return settings, nil
 }
 
 // SetRectifierSettings 设置请求整流器配置
