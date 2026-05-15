@@ -49,9 +49,26 @@ CAPTURE_WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/tk-claude-tls.XXXXXX")"
 cleanup() { rm -rf "$CAPTURE_WORKDIR"; }
 trap cleanup EXIT
 
-# Claude Code 2.1.x honors CLAUDE_CODE_API_BASE_URL for API endpoint override.
-# ANTHROPIC_BASE_URL is kept for older/newer variants that may still read it.
+# Claude Code can load ANTHROPIC_BASE_URL from global settings even under env -i.
+# Pass an explicit minimal settings file so the child request always hits the collector.
 CLAUDE_OUTPUT="$CAPTURE_WORKDIR/claude.out"
+CLAUDE_SETTINGS="$CAPTURE_WORKDIR/settings.json"
+jq -n \
+  --arg api_base "$COLLECTOR_ORIGIN:8090" \
+  --arg token "$TOKEN" \
+  '{
+    env: {
+      CLAUDE_CODE_API_BASE_URL: $api_base,
+      ANTHROPIC_BASE_URL: $api_base,
+      ANTHROPIC_API_KEY: $token,
+      ANTHROPIC_AUTH_TOKEN: $token,
+      TOKENKEY_TLS_PROFILE_CAPTURE_ACTIVE: "1",
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
+    },
+    hooks: {SessionStart: []},
+    permissions: {allow: [], deny: []}
+  }' > "$CLAUDE_SETTINGS"
+
 env -i \
   PATH="$PATH" \
   HOME="$CAPTURE_WORKDIR/home" \
@@ -65,7 +82,7 @@ env -i \
   ANTHROPIC_AUTH_TOKEN="$TOKEN" \
   TOKENKEY_TLS_PROFILE_CAPTURE_ACTIVE=1 \
   NODE_TLS_REJECT_UNAUTHORIZED=0 \
-  claude --bare -p 'test' --model "$MODEL" --allowedTools '' --max-budget-usd 1 \
+  claude --bare --setting-sources local --settings "$CLAUDE_SETTINGS" -p 'test' --model "$MODEL" --allowedTools '' --max-budget-usd 1 \
   >"$CLAUDE_OUTPUT" 2>&1 || true
 
 LATEST_URL="$COLLECTOR_API_ORIGIN/api/latest?token=$TOKEN"
