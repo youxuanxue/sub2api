@@ -28,6 +28,17 @@ type anthropicHTTPUpstreamRecorder struct {
 	err      error
 }
 
+type anthropicHTTPUpstreamSequenceRecorder struct {
+	reqs   []*http.Request
+	bodies [][]byte
+	resps  []*http.Response
+	err    error
+}
+
+type anthropicPassthroughSettingRepoStub struct {
+	values map[string]string
+}
+
 func newAnthropicAPIKeyAccountForTest() *Account {
 	return &Account{
 		ID:          201,
@@ -63,6 +74,66 @@ func (u *anthropicHTTPUpstreamRecorder) Do(req *http.Request, proxyURL string, a
 
 func (u *anthropicHTTPUpstreamRecorder) DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, profile *tlsfingerprint.Profile) (*http.Response, error) {
 	return u.Do(req, proxyURL, accountID, accountConcurrency)
+}
+
+func (u *anthropicHTTPUpstreamSequenceRecorder) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
+	u.reqs = append(u.reqs, req)
+	if req != nil && req.Body != nil {
+		b, _ := io.ReadAll(req.Body)
+		u.bodies = append(u.bodies, b)
+		_ = req.Body.Close()
+		req.Body = io.NopCloser(bytes.NewReader(b))
+	}
+	if u.err != nil {
+		return nil, u.err
+	}
+	if len(u.resps) == 0 {
+		return nil, nil
+	}
+	resp := u.resps[0]
+	u.resps = u.resps[1:]
+	return resp, nil
+}
+
+func (u *anthropicHTTPUpstreamSequenceRecorder) DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, profile *tlsfingerprint.Profile) (*http.Response, error) {
+	return u.Do(req, proxyURL, accountID, accountConcurrency)
+}
+
+func (s *anthropicPassthroughSettingRepoStub) Get(ctx context.Context, key string) (*Setting, error) {
+	panic("unexpected Get call")
+}
+
+func (s *anthropicPassthroughSettingRepoStub) GetValue(ctx context.Context, key string) (string, error) {
+	if v, ok := s.values[key]; ok {
+		return v, nil
+	}
+	return "", ErrSettingNotFound
+}
+
+func (s *anthropicPassthroughSettingRepoStub) Set(ctx context.Context, key, value string) error {
+	panic("unexpected Set call")
+}
+
+func (s *anthropicPassthroughSettingRepoStub) GetMultiple(ctx context.Context, keys []string) (map[string]string, error) {
+	result := make(map[string]string, len(keys))
+	for _, key := range keys {
+		if v, ok := s.values[key]; ok {
+			result[key] = v
+		}
+	}
+	return result, nil
+}
+
+func (s *anthropicPassthroughSettingRepoStub) SetMultiple(ctx context.Context, settings map[string]string) error {
+	panic("unexpected SetMultiple call")
+}
+
+func (s *anthropicPassthroughSettingRepoStub) GetAll(ctx context.Context) (map[string]string, error) {
+	panic("unexpected GetAll call")
+}
+
+func (s *anthropicPassthroughSettingRepoStub) Delete(ctx context.Context, key string) error {
+	panic("unexpected Delete call")
 }
 
 type streamReadCloser struct {
@@ -923,6 +994,51 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_NonStreamingSuc
 	require.Equal(t, 5, result.Usage.CacheCreationInputTokens)
 	require.Equal(t, 4, result.Usage.CacheReadInputTokens)
 	require.Equal(t, upstreamJSON, rec.Body.String())
+}
+
+func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_Signature400RetriesWithFilteredThinking(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	body := []byte(`{"model":"claude-opus-4-7","thinking":{"type":"adaptive"},"messages":[{"role":"user","content":[{"type":"text","text":"hello"}]},{"role":"assistant","content":[{"type":"thinking","thinking":"cached thought","signature":"sig_from_previous_group"},{"type":"text","text":"answer"}]},{"role":"user","content":[{"type":"text","text":"continue"}]}]}`)
+	upstreamJSON := `{"id":"msg_retry_ok","type":"message","usage":{"input_tokens":3,"output_tokens":2}}`
+	upstream := &anthropicHTTPUpstreamSequenceRecorder{resps: []*http.Response{
+		{
+			StatusCode: http.StatusBadRequest,
+			Header: http.Header{
+				"Content-Type": []string{"application/json"},
+				"x-request-id": []string{"rid-signature-bad"},
+			},
+			Body: io.NopCloser(strings.NewReader(`{"type":"error","error":{"type":"invalid_request_error","message":"messages.1.content.0: Invalid signature in thinking block"},"request_id":"req_bad_sig"}`)),
+		},
+		{
+			StatusCode: http.StatusOK,
+			Header: http.Header{
+				"Content-Type": []string{"application/json"},
+				"x-request-id": []string{"rid-signature-retry-ok"},
+			},
+			Body: io.NopCloser(strings.NewReader(upstreamJSON)),
+		},
+	}}
+	settingSvc := NewSettingService(&anthropicPassthroughSettingRepoStub{values: map[string]string{}}, &config.Config{})
+	svc := &GatewayService{
+		cfg:              &config.Config{},
+		httpUpstream:     upstream,
+		rateLimitService: &RateLimitService{},
+		settingService:   settingSvc,
+	}
+
+	result, err := svc.forwardAnthropicAPIKeyPassthrough(context.Background(), c, newAnthropicAPIKeyAccountForTest(), body, "claude-opus-4-7", "claude-opus-4-7", false, time.Now())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, upstreamJSON, rec.Body.String())
+	require.Len(t, upstream.bodies, 2)
+	require.True(t, gjson.GetBytes(upstream.bodies[0], "thinking").Exists(), "first passthrough attempt should preserve the client body")
+	require.False(t, gjson.GetBytes(upstream.bodies[1], "thinking").Exists(), "signature retry must disable top-level thinking")
+	require.Equal(t, "text", gjson.GetBytes(upstream.bodies[1], "messages.1.content.0.type").String())
+	require.Equal(t, "cached thought", gjson.GetBytes(upstream.bodies[1], "messages.1.content.0.text").String())
 }
 
 func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_InvalidTokenType(t *testing.T) {

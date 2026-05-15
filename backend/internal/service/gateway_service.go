@@ -5088,6 +5088,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 
 	var resp *http.Response
 	retryStart := time.Now()
+	signatureRetryAttempted := false
 	for attempt := 1; attempt <= maxRetryAttempts; attempt++ {
 		upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, input.RequestStream)
 		upstreamReq, err := s.buildUpstreamRequestAnthropicAPIKeyPassthrough(upstreamCtx, c, account, input.Body, token)
@@ -5123,7 +5124,39 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 			return nil, fmt.Errorf("upstream request failed: %s", safeErr)
 		}
 
-		// 透传分支禁止 400 请求体降级重试（该重试会改写请求体）
+		if resp.StatusCode == 400 {
+			respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+			if readErr == nil {
+				_ = resp.Body.Close()
+				if !signatureRetryAttempted && attempt < maxRetryAttempts && time.Since(retryStart) < maxRetryElapsed && s.shouldRectifySignatureError(ctx, account, respBody) {
+					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+						Platform:           account.Platform,
+						AccountID:          account.ID,
+						AccountName:        account.Name,
+						UpstreamStatusCode: resp.StatusCode,
+						UpstreamRequestID:  resp.Header.Get("x-request-id"),
+						UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
+						Passthrough:        true,
+						Kind:               "signature_error",
+						Message:            extractUpstreamErrorMessage(respBody),
+						Detail: func() string {
+							if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+								return truncateString(string(respBody), s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes)
+							}
+							return ""
+						}(),
+					})
+					signatureRetryAttempted = true
+					input.Body = FilterThinkingBlocksForRetry(input.Body)
+					setOpsUpstreamRequestBody(c, input.Body)
+					logger.LegacyPrintf("service.gateway", "Anthropic passthrough account %d: thinking blocks have invalid signature, retrying with filtered blocks", account.ID)
+					continue
+				}
+				resp.Body = io.NopCloser(bytes.NewReader(respBody))
+			}
+		}
+
+		// 透传分支禁止普通 400 请求体降级重试（该重试会改写请求体）
 		if resp.StatusCode >= 400 && resp.StatusCode != 400 && s.shouldRetryUpstreamError(account, resp.StatusCode) {
 			if attempt < maxRetryAttempts {
 				elapsed := time.Since(retryStart)

@@ -113,12 +113,15 @@
         "\"session_hash_short\": shortSessionHash(sessionHash)",
         "resolveOpsTLSFingerprintProfile(c, s.tlsFPProfileService, account)",
         "applyClaudeCodeMimicHeaders(req *http.Request, _ bool)",
-        "getHeaderRaw(req.Header, key) != \"\""
+        "getHeaderRaw(req.Header, key) != \"\"",
+        "signatureRetryAttempted := false",
+        "FilterThinkingBlocksForRetry(input.Body)",
+        "Passthrough:        true,"
       ],
       "must_not_contain": [
         "x-stainless-helper-method"
       ],
-      "rationale": "Main gateway upstream builders must invoke unified TK Claude session-header sync after API-key passthrough, OAuth forward, count_tokens forward, and Vertex Anthropic forward paths diverge upstream merge conflicts. Sticky-source sink event emission is also load-bearing for prod request_id/client_request_id evidence correlation. TLS fingerprint profile resolution must pass through the ops helper so upstream_errors JSON records the profile id/name used by failed Anthropic OAuth attempts; otherwise Node24/Node25 candidate canaries cannot be attributed after a profile switch. Claude Code OAuth mimicry must preserve captured real CLI User-Agent/X-Stainless fingerprint values and only fill missing defaults; reverting to unconditional defaults reintroduces version downgrade/header fingerprint drift. The obsolete x-stainless-helper-method header must stay absent because current real Claude Code traffic does not emit it and reintroducing it increases OAuth fingerprint risk."
+      "rationale": "Main gateway upstream builders must invoke unified TK Claude session-header sync after API-key passthrough, OAuth forward, count_tokens forward, and Vertex Anthropic forward paths diverge upstream merge conflicts. Sticky-source sink event emission is also load-bearing for prod request_id/client_request_id evidence correlation. TLS fingerprint profile resolution must pass through the ops helper so upstream_errors JSON records the profile id/name used by failed Anthropic OAuth attempts; otherwise Node24/Node25 candidate canaries cannot be attributed after a profile switch. Claude Code OAuth mimicry must preserve captured real CLI User-Agent/X-Stainless fingerprint values and only fill missing defaults; reverting to unconditional defaults reintroduces version downgrade/header fingerprint drift. API Key passthrough must keep a single guarded thinking-signature 400 retry that records passthrough ops evidence and downgrades stale cross-upstream thinking blocks before surfacing the error; dropping this makes GPT专线 → cc-edges group switches expose invalid thinking signatures to clients. The obsolete x-stainless-helper-method header must stay absent because current real Claude Code traffic does not emit it and reintroducing it increases OAuth fingerprint risk."
     },
     {
       "path": "backend/internal/service/header_util.go",
