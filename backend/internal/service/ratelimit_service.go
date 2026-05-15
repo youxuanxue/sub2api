@@ -950,17 +950,14 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 			}
 		}
 
-		// Anthropic 平台：没有限流重置时间的 429 可能是非真实限流（如 Extra usage required），
-		// 不标记账号限流状态，直接透传错误给客户端
-		if account.Platform == PlatformAnthropic {
+		if account.Platform == PlatformAnthropic && isAnthropicExtraUsage429(responseBody) {
 			slog.Warn("rate_limit_429_no_reset_time_skipped",
 				"account_id", account.ID,
 				"platform", account.Platform,
-				"reason", "no rate limit reset time in headers, likely not a real rate limit")
+				"reason", "anthropic extra usage error without rate limit reset time")
 			return
 		}
 
-		// 其他平台：没有重置时间，使用可配置的秒级默认回避，避免误伤长时间不可调度。
 		s.apply429FallbackRateLimit(ctx, account, "no_reset_time")
 		return
 	}
@@ -989,6 +986,18 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 	}
 
 	slog.Info("account_rate_limited", "account_id", account.ID, "reset_at", resetAt)
+}
+
+func isAnthropicExtraUsage429(responseBody []byte) bool {
+	message := strings.ToLower(strings.TrimSpace(gjson.GetBytes(responseBody, "error.message").String()))
+	if message == "" {
+		message = strings.ToLower(strings.TrimSpace(gjson.GetBytes(responseBody, "message").String()))
+	}
+	if message == "" {
+		message = strings.ToLower(string(responseBody))
+	}
+
+	return strings.Contains(message, "extra usage") || strings.Contains(message, "third-party apps now draw")
 }
 
 func (s *RateLimitService) apply429FallbackRateLimit(ctx context.Context, account *Account, reason string) {
