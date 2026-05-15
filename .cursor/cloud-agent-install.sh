@@ -18,7 +18,19 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# Cloud containers ship without ssh; rewrite SSH github URLs to HTTPS so
+# .gitmodules can keep canonical SSH form for local devs. GH_TOKEN unlocks
+# private repos; anonymous HTTPS works for the public dev-rules submodule.
+if ! command -v ssh >/dev/null 2>&1; then
+  if [ -n "${GH_TOKEN:-}" ]; then
+    git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "git@github.com:"
+  else
+    git config --global url."https://github.com/".insteadOf "git@github.com:"
+  fi
+fi
+
 echo "[cloud-agent-install] ensuring dev-rules submodule is initialized"
+git submodule sync --recursive dev-rules >/dev/null
 git submodule update --init --recursive dev-rules
 
 BOOTSTRAP="dev-rules/templates/cloud-agent-bootstrap.sh"
