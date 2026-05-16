@@ -2,7 +2,7 @@
 -- Source of truth: deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json
 -- Usage (psql):
 --   \set account_name 'your-account-name'
---   \set stability_tier 'l1_novice'  -- l1_novice|l2_junior|l3_mid|l4_senior|l5_ultra
+--   \set stability_tier 'l1'  -- l1|l2|l3
 --   \i deploy/aws/stage0/anthropic-oauth-stability-tiered-apply-template.sql
 
 -- Helper for explicit failure (session-scoped, no persistent schema changes).
@@ -23,11 +23,9 @@ WITH input AS (
 tier_cfg AS (
   SELECT *
   FROM (VALUES
-    ('l1_novice'::text, 2::int, 100::int, 3::int, 1::int, 2::int, 6::int, 90::int, 1::int),
-    ('l2_junior'::text, 3::int, 80::int, 6::int, 2::int, 3::int, 8::int, 180::int, 2::int),
-    ('l3_mid'::text, 6::int, 40::int, 10::int, 3::int, 6::int, 10::int, 300::int, 3::int),
-    ('l4_senior'::text, 7::int, 20::int, 12::int, 4::int, 7::int, 11::int, 360::int, 4::int),
-    ('l5_ultra'::text, 8::int, 10::int, 14::int, 5::int, 8::int, 12::int, 420::int, 5::int)
+    ('l1'::text, 1::int, 10::int, 6::int, 2::int, 3::int, 8::int, 180::int, 0::int),
+    ('l2'::text, 2::int, 20::int, 8::int, 4::int, 4::int, 8::int, 330::int, 0::int),
+    ('l3'::text, 3::int, 30::int, 10::int, 6::int, 5::int, 8::int, 480::int, 0::int)
   ) AS v(
     stability_tier,
     concurrency,
@@ -49,7 +47,7 @@ validate AS (
   SELECT
     CASE
       WHEN NOT EXISTS (SELECT 1 FROM selected) THEN
-        pg_temp.pg_raise('invalid stability_tier=%s (expected l1_novice/l2_junior/l3_mid/l4_senior/l5_ultra)', (SELECT stability_tier FROM input))
+        pg_temp.pg_raise('invalid stability_tier=%s (expected l1/l2/l3)', (SELECT stability_tier FROM input))
       ELSE 'ok'
     END AS ok
 ),

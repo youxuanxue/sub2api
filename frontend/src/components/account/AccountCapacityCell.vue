@@ -77,7 +77,7 @@ const windowCostClass = computed(() => {
   if (!showWindowCost.value) return ''
   const current = currentWindowCost.value
   const limit = props.account.window_cost_limit || 0
-  const reserve = props.account.window_cost_sticky_reserve || 10
+  const reserve = props.account.window_cost_sticky_reserve ?? 10
   if (current >= limit + reserve) return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
   if (current >= limit) return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
   if (current >= limit * 0.8) return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
@@ -88,7 +88,7 @@ const windowCostTooltip = computed(() => {
   if (!showWindowCost.value) return ''
   const current = currentWindowCost.value
   const limit = props.account.window_cost_limit || 0
-  const reserve = props.account.window_cost_sticky_reserve || 10
+  const reserve = props.account.window_cost_sticky_reserve ?? 10
   if (current >= limit + reserve) return t('admin.accounts.capacity.windowCost.blocked')
   if (current >= limit) return t('admin.accounts.capacity.windowCost.stickyOnly')
   return t('admin.accounts.capacity.windowCost.normal')
