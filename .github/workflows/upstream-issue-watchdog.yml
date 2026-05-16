@@ -1,0 +1,515 @@
+name: Upstream Issue Watchdog
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'scripts/upstream-issue-*.json'
+      - 'scripts/upstream-issue-*.py'
+      - '.github/workflows/upstream-issue-watchdog.yml'
+  schedule:
+    # 05:20 Asia/Shanghai. GitHub cron is UTC. Runs after the daily upstream merge agent.
+    - cron: '20 21 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "scan only, or scan and open one high-risk fix PR"
+        required: false
+        default: scan
+        type: choice
+        options:
+          - scan
+          - fix
+      upstream_issue:
+        description: "Optional Wei-Shaw/sub2api issue number to force-review/fix"
+        required: false
+        type: string
+  workflow_run:
+    workflows:
+      - Daily Upstream Merge Agent
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: read
+
+concurrency:
+  group: upstream-issue-watchdog
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      has_high_unresolved: ${{ steps.watchdog.outputs.has_high_unresolved }}
+      selected_issue: ${{ steps.watchdog.outputs.selected_issue }}
+      selected_upstream: ${{ steps.watchdog.outputs.selected_upstream }}
+      high_unresolved_count: ${{ steps.watchdog.outputs.high_unresolved_count }}
+      cache_changed: ${{ steps.watchdog.outputs.cache_changed }}
+      cache_pr_url: ${{ steps.cache_pr.outputs.cache_pr_url }}
+    steps:
+      - name: Check required token
+        env:
+          UPSTREAM_MERGE_GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+        run: |
+          if [ -z "${UPSTREAM_MERGE_GH_TOKEN:-}" ]; then
+            echo "::error::Missing required secret UPSTREAM_MERGE_GH_TOKEN for issue updates and PR branches."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Configure authenticated origin
+        env:
+          UPSTREAM_MERGE_GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+        run: git remote set-url origin "https://x-access-token:${UPSTREAM_MERGE_GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+      - name: Configure git identity
+        run: |
+          git config user.name "tk-upstream-issue-watchdog[bot]"
+          git config user.email "upstream-issue-watchdog@tokenkey.dev"
+
+      - name: Fetch upstream issue snapshots
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p .cache/upstream-issue-watchdog
+          gh api --paginate 'repos/Wei-Shaw/sub2api/issues?state=all&per_page=100' \
+            --jq '.[] | select(.pull_request|not) | @json' \
+            > .cache/upstream-issue-watchdog/upstream-issues.jsonl
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          src = Path('.cache/upstream-issue-watchdog/upstream-issues.jsonl')
+          dst = Path('.cache/upstream-issue-watchdog/upstream-open-issues.jsonl')
+          with src.open(encoding='utf-8') as f, dst.open('w', encoding='utf-8') as out:
+              for line in f:
+                  if not line.strip():
+                      continue
+                  issue = json.loads(line)
+                  if issue.get('state') == 'open':
+                      out.write(json.dumps(issue, ensure_ascii=False) + '\n')
+          PY
+          printf 'all_count=' && wc -l < .cache/upstream-issue-watchdog/upstream-issues.jsonl
+          printf 'open_count=' && wc -l < .cache/upstream-issue-watchdog/upstream-open-issues.jsonl
+
+      - name: Refresh triage cache and run watchdog
+        id: watchdog
+        env:
+          FORCE_UPSTREAM_ISSUE: ${{ inputs.upstream_issue || '' }}
+        run: |
+          set -euo pipefail
+          python3 scripts/upstream-issue-triage-generate.py \
+            .cache/upstream-issue-watchdog/upstream-open-issues.jsonl \
+            scripts/upstream-issue-triage.json
+          python3 scripts/upstream-issue-watchdog.py \
+            --upstream-issues .cache/upstream-issue-watchdog/upstream-issues.jsonl \
+            --triage scripts/upstream-issue-triage.json \
+            --fixes scripts/upstream-issue-fixes.json \
+            --fact-checks scripts/upstream-issue-fact-checks.json \
+            --report-json .cache/upstream-issue-watchdog/report.json \
+            --report-md .cache/upstream-issue-watchdog/report.md \
+            --force-upstream-issue "${FORCE_UPSTREAM_ISSUE:-}"
+          python3 -m json.tool scripts/upstream-issue-triage.json >/dev/null
+          python3 -m json.tool scripts/upstream-issue-fixes.json >/dev/null
+          python3 -m json.tool .cache/upstream-issue-watchdog/report.json >/dev/null
+          if git diff --quiet -- scripts/upstream-issue-triage.json scripts/upstream-issue-fixes.json; then
+            echo "cache_changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "cache_changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open, update, or close tracking issues
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import pathlib
+          import re
+          import subprocess
+
+          report = json.loads(pathlib.Path('.cache/upstream-issue-watchdog/report.json').read_text(encoding='utf-8'))
+
+          def sh(args, **kwargs):
+              return subprocess.run(args, text=True, check=True, capture_output=True, **kwargs)
+
+          def label_safe(value: str) -> str:
+              return re.sub(r'[^A-Za-z0-9_.:-]+', '-', value)[:50] or 'unknown'
+
+          def ensure_label(name: str, color: str, description: str) -> None:
+              subprocess.run(['gh', 'label', 'create', name, '--color', color, '--description', description[:100]], text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+          base_labels = {
+              'automated': ('C5DEF5', 'Automated signal'),
+              'needs-triage': ('FBCA04', 'Needs human triage'),
+              'upstream-issue-watchdog': ('BFD4F2', 'Upstream issue watchdog signal'),
+              'upstream-status:needs-tokenkey-fix': ('D73A4A', 'Upstream issue still needs TokenKey fix'),
+              'upstream-status:fixed-in-tokenkey': ('0E8A16', 'Upstream issue is fixed in TokenKey'),
+              'upstream-risk:high': ('B60205', 'High-risk upstream issue'),
+              'upstream-risk:critical': ('8B0000', 'Critical upstream issue'),
+          }
+          for name, (color, desc) in base_labels.items():
+              ensure_label(name, color, desc)
+
+          for item in report.get('high_unresolved') or []:
+              number = str(item['number'])
+              signature = item['signature']
+              number_label = f'upstream-issue:{label_safe(number)}'
+              sig_label = f'upstream-sig:{signature}'
+              risk_label = f"upstream-risk:{label_safe(item.get('impact') or 'high')}"
+              ensure_label(number_label, 'BFD4F2', f'Wei-Shaw/sub2api issue {number}')
+              ensure_label(sig_label, 'BFD4F2', 'Upstream issue watchdog signature')
+              ensure_label(risk_label, 'B60205', 'Upstream issue risk level')
+
+              title = f"[upstream-issue] {item['upstream']} {item.get('title') or 'needs TokenKey review'}"[:250]
+              body = '\n'.join([
+                  '## Upstream issue watchdog finding',
+                  '',
+                  f"- Upstream: {item['url']}",
+                  f"- TokenKey status: `{item.get('tokenkey_status')}`",
+                  f"- Impact: `{item.get('impact')}`",
+                  f"- Watchdog run: {report.get('run_url') or 'n/a'}",
+                  f"- Signature: `{signature}`",
+                  '',
+                  '## Rationale',
+                  '',
+                  item.get('rationale') or 'No rationale recorded.',
+                  '',
+                  '## Expected automation',
+                  '',
+                  f"The upstream issue watchdog will attempt one scoped PR on branch `fix/upstream-issue-{number}` when fix mode is enabled.",
+              ]) + '\n'
+              body_path = pathlib.Path(f'.cache/upstream-issue-watchdog/issue-{number}.md')
+              body_path.write_text(body, encoding='utf-8')
+
+              existing = sh(['gh', 'issue', 'list', '--state', 'open', '--label', sig_label, '--json', 'number', '--limit', '1', '--jq', '.[0].number // empty']).stdout.strip()
+              labels = ','.join(['upstream-issue-watchdog', 'automated', 'needs-triage', 'upstream-status:needs-tokenkey-fix', risk_label, number_label, sig_label])
+              if existing:
+                  sh(['gh', 'issue', 'comment', existing, '--body-file', str(body_path)])
+                  sh(['gh', 'issue', 'edit', existing, '--add-label', labels])
+                  print(f'updated tracking issue #{existing} for {item["upstream"]}')
+              else:
+                  sh(['gh', 'issue', 'create', '--title', title, '--body-file', str(body_path), '--label', labels])
+                  print(f'created tracking issue for {item["upstream"]}')
+
+          for item in report.get('fixed_verified') or []:
+              upstream = item.get('upstream') or ''
+              if '#' not in upstream:
+                  continue
+              number = upstream.rsplit('#', 1)[1]
+              number_label = f'upstream-issue:{label_safe(number)}'
+              ensure_label(number_label, 'BFD4F2', f'Wei-Shaw/sub2api issue {number}')
+              existing = sh(['gh', 'issue', 'list', '--state', 'open', '--label', number_label, '--json', 'number', '--limit', '1', '--jq', '.[0].number // empty']).stdout.strip()
+              if not existing:
+                  continue
+              comment = '\n'.join([
+                  'Watchdog verified this upstream issue as `fixed_in_tokenkey` on current `main`.',
+                  '',
+                  f"- Upstream: {upstream}",
+                  f"- TokenKey PR: {item.get('tokenkey_pr') or 'n/a'}",
+                  f"- Watchdog run: {report.get('run_url') or 'n/a'}",
+              ]) + '\n'
+              sh(['gh', 'issue', 'comment', existing, '--body', comment])
+              subprocess.run(['gh', 'issue', 'edit', existing, '--add-label', 'upstream-status:fixed-in-tokenkey', '--remove-label', 'upstream-status:needs-tokenkey-fix'], text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+              sh(['gh', 'issue', 'close', existing, '--comment', 'Closing because current main now verifies the TokenKey fixed facts.'])
+              print(f'closed tracking issue #{existing} for {upstream}')
+          PY
+
+      - name: Create or update cache refresh PR
+        id: cache_pr
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "cache_pr_url=" >> "$GITHUB_OUTPUT"
+          if git diff --quiet -- scripts/upstream-issue-triage-generate.py scripts/upstream-issue-triage.json scripts/upstream-issue-fixes.json scripts/upstream-issue-fact-checks.json scripts/upstream-issue-watchdog.py .github/workflows/upstream-issue-watchdog.yml; then
+            echo "No upstream issue cache changes to propose."
+            exit 0
+          fi
+
+          BRANCH="chore/upstream-issue-cache"
+          git checkout -B "$BRANCH"
+          git add scripts/upstream-issue-triage-generate.py scripts/upstream-issue-triage.json scripts/upstream-issue-fixes.json scripts/upstream-issue-fact-checks.json scripts/upstream-issue-watchdog.py .github/workflows/upstream-issue-watchdog.yml
+          git commit -m "chore: refresh upstream issue cache"
+          git push --force-with-lease origin "$BRANCH"
+
+          cat > .cache/upstream-issue-watchdog/cache-pr-body.md <<'EOF'
+          ## Summary
+          - Refresh `scripts/upstream-issue-triage.json` from the latest Wei-Shaw/sub2api issues.
+          - Update `scripts/upstream-issue-fixes.json` from current TokenKey main fact checks.
+          - Keep watchdog workflow/script/fact-check metadata in sync with the refreshed cache.
+
+          ## Watchdog report
+          EOF
+          cat .cache/upstream-issue-watchdog/report.md >> .cache/upstream-issue-watchdog/cache-pr-body.md
+          cat >> .cache/upstream-issue-watchdog/cache-pr-body.md <<'EOF'
+
+          ## Test plan
+          - [x] `python3 -m json.tool scripts/upstream-issue-triage.json`
+          - [x] `python3 -m json.tool scripts/upstream-issue-fixes.json`
+          - [x] `python3 -m json.tool scripts/upstream-issue-fact-checks.json`
+          - [x] `python3 -m py_compile scripts/upstream-issue-watchdog.py`
+          - [x] `python3 -m json.tool .cache/upstream-issue-watchdog/report.json`
+          EOF
+
+          EXISTING="$(gh pr list --state open --base main --head "$BRANCH" --json number,url --jq '.[0] // empty')"
+          if [ -n "$EXISTING" ]; then
+            NUMBER="$(jq -r '.number' <<<"$EXISTING")"
+            URL="$(jq -r '.url' <<<"$EXISTING")"
+            gh pr edit "$NUMBER" --title "chore: refresh upstream issue cache" --body-file .cache/upstream-issue-watchdog/cache-pr-body.md
+          else
+            URL="$(gh pr create --base main --head "$BRANCH" --title "chore: refresh upstream issue cache" --body-file .cache/upstream-issue-watchdog/cache-pr-body.md)"
+          fi
+          echo "cache_pr_url=$URL" >> "$GITHUB_OUTPUT"
+          echo "cache PR: $URL"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: upstream-issue-watchdog-scan-${{ github.run_id }}
+          path: |
+            .cache/upstream-issue-watchdog/upstream-issues.jsonl
+            .cache/upstream-issue-watchdog/upstream-open-issues.jsonl
+            .cache/upstream-issue-watchdog/report.json
+            .cache/upstream-issue-watchdog/report.md
+          if-no-files-found: ignore
+
+  fix-high-risk:
+    needs: scan
+    if: needs.scan.outputs.has_high_unresolved == 'true' && (github.event_name != 'workflow_dispatch' || inputs.mode == 'fix')
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check required secrets
+        env:
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          UPSTREAM_MERGE_GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+        run: |
+          missing=0
+          if [ -z "${ANTHROPIC_AUTH_TOKEN:-}" ]; then
+            echo "::error::Missing required secret ANTHROPIC_AUTH_TOKEN for Claude Code CLI."
+            missing=1
+          fi
+          if [ -z "${UPSTREAM_MERGE_GH_TOKEN:-}" ]; then
+            echo "::error::Missing required secret UPSTREAM_MERGE_GH_TOKEN for branch updates and PR comments."
+            missing=1
+          fi
+          exit "$missing"
+
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Configure authenticated origin
+        env:
+          UPSTREAM_MERGE_GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+        run: git remote set-url origin "https://x-access-token:${UPSTREAM_MERGE_GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+      - uses: ./.github/actions/cache-and-checkout-new-api
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: frontend
+
+      - name: Install Claude Code CLI
+        env:
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+        run: bash scripts/setup-claude-code.sh
+
+      - name: Configure git identity
+        run: |
+          git config user.name "tk-upstream-issue-fix-agent[bot]"
+          git config user.email "upstream-issue-fix-agent@tokenkey.dev"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: upstream-issue-watchdog-scan-${{ github.run_id }}
+          path: .cache/upstream-issue-watchdog
+
+      - name: Build fix prompt
+        env:
+          SELECTED_ISSUE: ${{ needs.scan.outputs.selected_issue }}
+          SELECTED_UPSTREAM: ${{ needs.scan.outputs.selected_upstream }}
+        run: |
+          set -euo pipefail
+          BRANCH="fix/upstream-issue-${SELECTED_ISSUE}"
+          cat > /tmp/upstream-issue-fix-prompt.txt <<EOF
+          You are running TokenKey's upstream issue watchdog fix agent in headless CI.
+
+          Target upstream issue: ${SELECTED_UPSTREAM}
+          Target branch: ${BRANCH}
+
+          Required behavior:
+          - Fix only ${SELECTED_UPSTREAM}. Do not bundle unrelated upstream issues.
+          - Start from current origin/main and create or update branch ${BRANCH}.
+          - If an open PR from ${BRANCH} to main already exists, update that branch and PR instead of creating a duplicate.
+          - Read .cache/upstream-issue-watchdog/report.md and report.json for triage context.
+          - Verify the current TokenKey code fact before editing; do not rely only on the upstream issue text.
+          - Preserve upstream-owned functionality by default. Prefer TokenKey companion/facade/helper boundaries over large rewrites of upstream-shaped files.
+          - Add or update the smallest regression test that proves the fix.
+          - Update scripts/upstream-issue-triage-generate.py, scripts/upstream-issue-triage.json, scripts/upstream-issue-fixes.json, and scripts/upstream-issue-fact-checks.json so ${SELECTED_UPSTREAM} becomes fixed_in_tokenkey only after stable code facts prove the fix.
+          - Add fact-check needles that will still pass on a fresh main checkout after the PR is merged.
+          - Run focused tests for the changed area and bash scripts/preflight.sh before declaring the PR ready.
+          - Commit and push the branch, then create or update a GitHub PR to main.
+          - Do not merge the PR.
+          - If the fix cannot be made safely, leave the working tree clean and comment on the matching upstream-issue-watchdog tracking issue with the blocker.
+          - This is headless CI. Do not ask for confirmation; choose the safe default and continue autonomously.
+
+          The PR body must include:
+          - ${SELECTED_UPSTREAM}
+          - changed code facts
+          - scripts/upstream-issue-triage-generate.py
+          - scripts/upstream-issue-triage.json
+          - scripts/upstream-issue-fixes.json
+          - scripts/upstream-issue-fact-checks.json
+          - focused tests and preflight result
+          EOF
+          printf '\n## Watchdog report\n\n' >> /tmp/upstream-issue-fix-prompt.txt
+          cat .cache/upstream-issue-watchdog/report.md >> /tmp/upstream-issue-fix-prompt.txt
+          printf '\n## Watchdog report JSON\n\n```json\n' >> /tmp/upstream-issue-fix-prompt.txt
+          cat .cache/upstream-issue-watchdog/report.json >> /tmp/upstream-issue-fix-prompt.txt
+          printf '\n```\n' >> /tmp/upstream-issue-fix-prompt.txt
+
+      - name: Run Claude upstream issue fix agent
+        env:
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          ANTHROPIC_BASE_URL: https://api.tokenkey.dev
+          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+          CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING: "1"
+          MAX_THINKING_TOKENS: "31999"
+          CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE: "60"
+          CLAUDE_CODE_ATTRIBUTION_HEADER: "0"
+          ANTHROPIC_MODEL: "claude-sonnet-4-6"
+        run: |
+          set -o pipefail
+          claude -p "$(cat /tmp/upstream-issue-fix-prompt.txt)" --allowedTools "Bash Read Write Edit Grep Glob" \
+            --model "claude-sonnet-4-6" \
+            --max-budget-usd "20.00" \
+            --output-format stream-json --verbose \
+            --exclude-dynamic-system-prompt-sections \
+            2>&1 \
+            | python3 scripts/redact-agent-stream.py \
+            | tee /tmp/upstream-issue-fix-agent-output.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: upstream-issue-fix-agent-output-${{ github.run_id }}
+          path: |
+            /tmp/upstream-issue-fix-prompt.txt
+            /tmp/upstream-issue-fix-agent-output.txt
+          if-no-files-found: ignore
+
+  contract:
+    needs:
+      - scan
+      - fix-high-risk
+    if: always() && needs.scan.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: No fix PR required
+        if: needs.scan.outputs.has_high_unresolved != 'true' || (github.event_name == 'workflow_dispatch' && inputs.mode != 'fix')
+        run: |
+          echo "No high-risk fix PR was required by this watchdog run."
+          echo "high_unresolved_count=${{ needs.scan.outputs.high_unresolved_count }}"
+          echo "cache_pr_url=${{ needs.scan.outputs.cache_pr_url }}"
+
+      - uses: actions/checkout@v6
+        if: needs.scan.outputs.has_high_unresolved == 'true' && (github.event_name != 'workflow_dispatch' || inputs.mode == 'fix')
+        with:
+          ref: main
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Validate fix PR contract
+        if: needs.scan.outputs.has_high_unresolved == 'true' && (github.event_name != 'workflow_dispatch' || inputs.mode == 'fix')
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+          SELECTED_ISSUE: ${{ needs.scan.outputs.selected_issue }}
+          SELECTED_UPSTREAM: ${{ needs.scan.outputs.selected_upstream }}
+        run: |
+          set -euo pipefail
+          BRANCH="fix/upstream-issue-${SELECTED_ISSUE}"
+          PR_NUMBER="$(gh pr list --state open --base main --head "$BRANCH" --json number --jq '.[0].number // empty')"
+          if [ -z "$PR_NUMBER" ]; then
+            echo "::error::Expected an open PR from $BRANCH to main for $SELECTED_UPSTREAM."
+            exit 1
+          fi
+          gh pr view "$PR_NUMBER" --json body,url,title > /tmp/upstream-issue-fix-pr.json
+          URL="$(jq -r '.url' /tmp/upstream-issue-fix-pr.json)"
+          BODY="$(jq -r '.body // ""' /tmp/upstream-issue-fix-pr.json)"
+          for needle in "$SELECTED_UPSTREAM" "scripts/upstream-issue-triage-generate.py" "scripts/upstream-issue-triage.json" "scripts/upstream-issue-fixes.json" "scripts/upstream-issue-fact-checks.json"; do
+            if ! grep -q "$needle" <<<"$BODY"; then
+              echo "::error::PR #$PR_NUMBER body is missing required text: $needle"
+              exit 1
+            fi
+          done
+          echo "Validated PR body for $URL"
+
+          git fetch origin "$BRANCH"
+          git checkout --detach FETCH_HEAD
+          git submodule update --init --recursive
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          issue = os.environ['SELECTED_UPSTREAM']
+          triage = json.loads(Path('scripts/upstream-issue-triage.json').read_text(encoding='utf-8'))
+          fixes = json.loads(Path('scripts/upstream-issue-fixes.json').read_text(encoding='utf-8'))
+          fact_checks = json.loads(Path('scripts/upstream-issue-fact-checks.json').read_text(encoding='utf-8'))
+          triage_entry = next((item for item in triage.get('issues', []) if item.get('upstream') == issue), None)
+          if not triage_entry:
+              raise SystemExit(f'{issue} missing from scripts/upstream-issue-triage.json')
+          if triage_entry.get('tokenkey_status') != 'fixed_in_tokenkey':
+              raise SystemExit(f'{issue} triage status is {triage_entry.get("tokenkey_status")}, expected fixed_in_tokenkey')
+          fix_entry = next((item for item in fixes.get('issues', []) if item.get('upstream') == issue), None)
+          if not fix_entry:
+              raise SystemExit(f'{issue} missing from scripts/upstream-issue-fixes.json')
+          if fix_entry.get('status') != 'fixed_in_tokenkey':
+              raise SystemExit(f'{issue} fix status is {fix_entry.get("status")}, expected fixed_in_tokenkey')
+          fact_entry = next((item for item in fact_checks.get('checks', []) if item.get('upstream') == issue), None)
+          if not fact_entry:
+              raise SystemExit(f'{issue} missing from scripts/upstream-issue-fact-checks.json')
+          if not fact_entry.get('fixed_if_all_present'):
+              raise SystemExit(f'{issue} fact-check entry has no fixed_if_all_present needles')
+          print(f'{issue} cache contract ok')
+          PY
+          bash scripts/preflight.sh

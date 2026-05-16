@@ -4,73 +4,15 @@
   "generated_from": "GitHub REST API issues?state=open; pull requests excluded",
   "rationale": "TokenKey-local triage cache for upstream open issues. Use this file before re-triaging upstream issues; update entries when TokenKey fixes, dismisses, or reclassifies an issue.",
   "counts": {
-    "high": 4,
-    "needs_review": 343,
+    "needs_review": 346,
     "needs_prod_validation": 8,
     "medium": 114,
-    "fixed": 13,
+    "fixed": 17,
     "not_applicable": 1,
     "low": 94,
     "unknown_low_signal": 393
   },
   "issues": [
-    {
-      "upstream": "Wei-Shaw/sub2api#2107",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2107",
-      "title": "Bug: 渠道定价配置了区间定价后，默认价格(flat)不生效，导致费用为 0",
-      "impact": "high",
-      "categories": [
-        "billing_usage",
-        "security",
-        "ops_observability"
-      ],
-      "tokenkey_status": "unresolved_in_tokenkey",
-      "rationale": "Channel token interval pricing still returns before applying flat defaults; out-of-range intervals fall back to catalog/base pricing and can charge 0.",
-      "updated_at": "2026-04-29T15:47:22Z"
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#2159",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2159",
-      "title": "Bug: 禁用的代理仍被用于请求转发 & 代理认证信息静默丢失",
-      "impact": "high",
-      "categories": [
-        "ops_observability",
-        "enhancement"
-      ],
-      "tokenkey_status": "unresolved_in_tokenkey",
-      "rationale": "Disabled proxies are still loaded by ID without status filtering, so linked accounts may keep using disabled proxy routes.",
-      "updated_at": "2026-05-02T06:59:45Z"
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#2258",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2258",
-      "title": "紧急: OpenAI 账号 429 冷却时间误判（瞬时突发限流被当成用量限流），导致长时间 503",
-      "impact": "high",
-      "categories": [
-        "rate_limit_cooldown",
-        "billing_usage",
-        "account_pool_health",
-        "security",
-        "admin_ui",
-        "enhancement"
-      ],
-      "tokenkey_status": "unresolved_in_tokenkey",
-      "rationale": "OpenAI 429 burst still uses the larger Codex reset header when 5h/7d usage windows are below 100%, causing long 503 windows.",
-      "updated_at": "2026-05-07T16:54:09Z"
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#2478",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2478",
-      "title": "【bug反馈】 已过期但未软删的订阅会永久阻塞同一 (user, group) 的再分配，返回 409 `validity_days_mismatch`",
-      "impact": "high",
-      "categories": [
-        "billing_usage",
-        "enhancement"
-      ],
-      "tokenkey_status": "unresolved_in_tokenkey",
-      "rationale": "Expired non-soft-deleted subscriptions still satisfy ExistsByUserIDAndGroupID and can return validity_days_mismatch on reassignment.",
-      "updated_at": "2026-05-15T01:33:33Z"
-    },
     {
       "upstream": "Wei-Shaw/sub2api#1033",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/1033",
@@ -385,7 +327,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-05-07T12:38:41Z"
+      "updated_at": "2026-05-15T12:00:37Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#1312",
@@ -3155,7 +3097,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-05-13T15:28:48Z"
+      "updated_at": "2026-05-15T20:30:48Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2445",
@@ -3167,7 +3109,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-05-14T02:30:02Z"
+      "updated_at": "2026-05-15T14:58:31Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#245",
@@ -3231,6 +3173,46 @@
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
       "updated_at": "2026-05-15T02:27:22Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2500",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2500",
+      "title": "OAuth/codex transform produces malformed tool-call ids (`fc<nanoid>` missing underscore) → 502",
+      "impact": "needs_review",
+      "categories": [
+        "rate_limit_cooldown",
+        "image_oauth"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-05-15T15:31:05Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2503",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2503",
+      "title": "在OpenAI Fast/Flex 策略中增加强制开启fast档位",
+      "impact": "needs_review",
+      "categories": [
+        "claude_mimicry"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-05-15T16:53:58Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2506",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2506",
+      "title": "[Bug] Haiku 4.5 + thinking.type=enabled triggers Anthropic 400 because normalizeClaudeOAuthRequestBody auto-injects context_management without a Haiku model guard | Haiku 4.5 在 thinking 启用时被 normalizeClaudeOAuthRequestBody 无差别注入 context_management，Anthropic 上游返回 400",
+      "impact": "needs_review",
+      "categories": [
+        "claude_mimicry",
+        "rate_limit_cooldown",
+        "image_oauth",
+        "security"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-05-15T21:05:14Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#263",
@@ -5887,6 +5869,33 @@
       "updated_at": "2026-04-28T09:17:25Z"
     },
     {
+      "upstream": "Wei-Shaw/sub2api#2107",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2107",
+      "title": "Bug: 渠道定价配置了区间定价后，默认价格(flat)不生效，导致费用为 0",
+      "impact": "fixed",
+      "categories": [
+        "billing_usage",
+        "security",
+        "ops_observability"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Channel interval pricing applies flat channel defaults as the explicit out-of-range fallback, preventing custom-model requests from billing at zero. Fixed by youxuanxue/sub2api#232.",
+      "updated_at": "2026-04-29T15:47:22Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2159",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2159",
+      "title": "Bug: 禁用的代理仍被用于请求转发 & 代理认证信息静默丢失",
+      "impact": "fixed",
+      "categories": [
+        "ops_observability",
+        "enhancement"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Disabled proxies are filtered out of account preload and WithProxy edge loads while preserving account ProxyID bindings for admin visibility. Fixed by youxuanxue/sub2api#232.",
+      "updated_at": "2026-05-02T06:59:45Z"
+    },
+    {
       "upstream": "Wei-Shaw/sub2api#2168",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/2168",
       "title": "[Bug] 计费漏洞，提前断流的请求不会被计为使用",
@@ -5911,6 +5920,23 @@
       "tokenkey_status": "fixed_in_tokenkey",
       "rationale": "Account scheduling now queries the account_groups join table for the requested group; balance-group requests should not schedule ungrouped accounts.",
       "updated_at": "2026-05-05T18:45:31Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2258",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2258",
+      "title": "紧急: OpenAI 账号 429 冷却时间误判（瞬时突发限流被当成用量限流），导致长时间 503",
+      "impact": "fixed",
+      "categories": [
+        "rate_limit_cooldown",
+        "billing_usage",
+        "account_pool_health",
+        "security",
+        "admin_ui",
+        "enhancement"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "OpenAI burst 429s below Codex usage-window limits use the short fallback cooldown instead of multi-hour or multi-day reset headers. Fixed by youxuanxue/sub2api#232.",
+      "updated_at": "2026-05-07T16:54:09Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2293",
@@ -5983,6 +6009,19 @@
       "tokenkey_status": "fixed_in_tokenkey",
       "rationale": "Sticky-session scheduling has dedicated hash, mode, and invalidation logic.",
       "updated_at": "2026-05-12T10:22:18Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2478",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2478",
+      "title": "【bug反馈】 已过期但未软删的订阅会永久阻塞同一 (user, group) 的再分配，返回 409 `validity_days_mismatch`",
+      "impact": "fixed",
+      "categories": [
+        "billing_usage",
+        "enhancement"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Expired and non-active subscriptions are ignored by reassignment existence checks, preventing stale rows from causing validity_days_mismatch conflicts. Fixed by youxuanxue/sub2api#232.",
+      "updated_at": "2026-05-15T01:33:33Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2487",
@@ -6952,7 +6991,7 @@
       ],
       "tokenkey_status": "not_prioritized",
       "rationale": "Appears to be enhancement/docs/UI request rather than severe online service risk.",
-      "updated_at": "2026-05-15T04:23:08Z"
+      "updated_at": "2026-05-15T11:27:12Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2468",

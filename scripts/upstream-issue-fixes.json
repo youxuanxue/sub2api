@@ -32,6 +32,27 @@
       "summary": "Manual/successful recovery clears account rate-limit state, model rate limits, temporary unschedulable state, and OpenAI 403 counters."
     },
     {
+      "upstream": "Wei-Shaw/sub2api#2107",
+      "tokenkey_pr": "youxuanxue/sub2api#232",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/model_pricing_resolver.go",
+        "backend/internal/service/model_pricing_resolver_tk_channel_flat_fallback.go",
+        "backend/internal/service/model_pricing_resolver_test.go"
+      ],
+      "summary": "Channel interval pricing applies flat channel defaults as the explicit out-of-range fallback, preventing custom-model requests from billing at zero."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2159",
+      "tokenkey_pr": "youxuanxue/sub2api#232",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/repository/account_repo.go",
+        "backend/internal/repository/account_repo_integration_test.go"
+      ],
+      "summary": "Disabled proxies are filtered out of account preload and WithProxy edge loads while preserving account ProxyID bindings for admin visibility."
+    },
+    {
       "upstream": "Wei-Shaw/sub2api#2168",
       "status": "fixed_in_tokenkey",
       "fixed_by": [
@@ -48,6 +69,18 @@
         "backend/internal/service/openai_account_scheduler.go"
       ],
       "summary": "OpenAI scheduling now queries account_groups for the requested group, so grouped balance traffic should not select ungrouped accounts."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2258",
+      "tokenkey_pr": "youxuanxue/sub2api#232",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/ratelimit_service.go",
+        "backend/internal/service/ratelimit_service_tk_openai_burst.go",
+        "backend/internal/service/ratelimit_service_tk_openai_burst_test.go",
+        "backend/internal/service/rate_limit_429_cooldown_test.go"
+      ],
+      "summary": "OpenAI burst 429s below Codex usage-window limits use the short fallback cooldown instead of multi-hour or multi-day reset headers."
     },
     {
       "upstream": "Wei-Shaw/sub2api#2293",
@@ -95,6 +128,16 @@
         "backend/internal/service/openai_account_scheduler.go"
       ],
       "summary": "Sticky-session scheduling has dedicated hash, strategy, TTL refresh, and invalidation logic for OpenAI-compatible account selection."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2478",
+      "tokenkey_pr": "youxuanxue/sub2api#232",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/repository/user_subscription_repo.go",
+        "backend/internal/repository/user_subscription_repo_integration_test.go"
+      ],
+      "summary": "Expired and non-active subscriptions are ignored by reassignment existence checks, preventing stale rows from causing validity_days_mismatch conflicts."
     },
     {
       "upstream": "Wei-Shaw/sub2api#2487",
