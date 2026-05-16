@@ -192,6 +192,32 @@ def updated_desc_key(value: str) -> float:
         return 0
 
 
+def agent_input(report: dict[str, Any]) -> dict[str, Any]:
+    selected = report.get("selected_issue")
+    if not selected:
+        return {"schema_version": 1, "selected_issue": None, "fixed_verified": []}
+    return {
+        "schema_version": 1,
+        "selected_issue": {
+            "upstream": selected.get("upstream"),
+            "number": selected.get("number"),
+            "url": selected.get("url"),
+            "title": selected.get("title"),
+            "impact": selected.get("impact"),
+            "tokenkey_status": selected.get("tokenkey_status"),
+            "rationale": selected.get("rationale"),
+        },
+        "fixed_verified": [
+            {
+                "upstream": item.get("upstream"),
+                "tokenkey_pr": item.get("tokenkey_pr"),
+                "severity": item.get("severity"),
+            }
+            for item in report.get("fixed_verified", [])
+        ],
+    }
+
+
 def report_markdown(report: dict[str, Any]) -> str:
     lines = [
         "# Upstream Issue Watchdog Report",
@@ -255,6 +281,7 @@ def main() -> int:
     parser.add_argument("--fact-checks", required=True, type=Path)
     parser.add_argument("--report-json", required=True, type=Path)
     parser.add_argument("--report-md", required=True, type=Path)
+    parser.add_argument("--agent-input-json", type=Path)
     parser.add_argument("--force-upstream-issue", default="")
     args = parser.parse_args()
 
@@ -327,6 +354,8 @@ def main() -> int:
     }
     write_json(args.report_json, report)
     args.report_md.write_text(report_markdown(report), encoding="utf-8")
+    if args.agent_input_json:
+        write_json(args.agent_input_json, agent_input(report))
 
     set_output("has_high_unresolved", "true" if high_unresolved else "false")
     set_output("selected_issue", str(selected["number"]) if selected else "")
