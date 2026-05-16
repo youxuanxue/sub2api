@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -61,4 +62,61 @@ func TestRateLimitService_HandleUpstreamError_OpenAI403ThresholdDisables(t *test
 	require.Equal(t, 0, repo.tempCalls)
 	require.Contains(t, repo.lastErrorMsg, "workspace forbidden by policy")
 	require.Contains(t, repo.lastErrorMsg, "consecutive_403=3/3")
+}
+
+func TestRateLimitService_HandleUpstreamError_Anthropic403ThresholdTempUnschedulable(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	counter := &anthropicUpstreamErrorCounterCacheStub{counts: []int64{1, 2, 3}}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetAnthropicUpstreamErrorCounterCache(counter)
+	account := &Account{
+		ID:       401,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeOAuth,
+	}
+
+	body := []byte(`{"type":"error","error":{"type":"permission_error","message":"OAuth token lacks required scopes"}}`)
+	for i := 0; i < 3; i++ {
+		shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusForbidden, http.Header{}, body)
+		require.True(t, shouldDisable)
+	}
+
+	require.Equal(t, 0, repo.setErrorCalls)
+	require.Equal(t, 1, repo.tempCalls)
+	require.Equal(t, []int64{401, 401, 401}, counter.incrementIDs)
+	require.Equal(t, []int{anthropicUpstreamErrorWindowMinutes, anthropicUpstreamErrorWindowMinutes, anthropicUpstreamErrorWindowMinutes}, counter.windowMinutes)
+
+	var state TempUnschedState
+	require.NoError(t, json.Unmarshal([]byte(repo.lastTempReason), &state))
+	require.Equal(t, http.StatusForbidden, state.StatusCode)
+	require.Equal(t, "anthropic_upstream_error", state.MatchedKeyword)
+	require.Contains(t, state.ErrorMessage, "OAuth token lacks required scopes")
+}
+
+func TestRateLimitService_HandleUpstreamError_AnthropicPoolModeStillCounts(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	counter := &anthropicUpstreamErrorCounterCacheStub{counts: []int64{3}}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetAnthropicUpstreamErrorCounterCache(counter)
+	account := &Account{
+		ID:       402,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"pool_mode": true,
+		},
+	}
+
+	shouldDisable := service.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusBadGateway,
+		http.Header{},
+		[]byte(`{"error":{"message":"upstream edge failed"}}`),
+	)
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 0, repo.setErrorCalls)
+	require.Equal(t, 1, repo.tempCalls)
+	require.Equal(t, []int64{402}, counter.incrementIDs)
 }
