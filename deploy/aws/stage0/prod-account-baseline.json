@@ -1,0 +1,2025 @@
+{
+  "schema_version": 1,
+  "description": "TokenKey prod account baseline for non-secret account/group scheduling configuration. Generated from read-only prod Stage0 audit and modeled after anthropic-oauth-stability-baselines-tiered.json.",
+  "captured_at_utc": "2026-05-15T23:41:38Z",
+  "target": {
+    "environment": "prod",
+    "aws_region": "us-east-1",
+    "stack": "tokenkey-prod-stage0",
+    "database": "tokenkey"
+  },
+  "policy": {
+    "secret_handling": {
+      "credentials_values": "excluded",
+      "credential_key_inventory": "safe keys only; token/api_key/secret/session_key/password values are never stored",
+      "base_url_values": "excluded; only key presence is tracked"
+    },
+    "comparison_scope": {
+      "stable_account_fields": [
+        "name",
+        "platform",
+        "type",
+        "status",
+        "schedulable",
+        "concurrency",
+        "priority",
+        "load_factor",
+        "rate_multiplier",
+        "channel_type",
+        "auto_pause_on_expired"
+      ],
+      "runtime_state_fields": [
+        "rate_limited_at",
+        "rate_limit_reset_at",
+        "overload_until",
+        "temp_unschedulable_until",
+        "session_window_*",
+        "last_used_at"
+      ],
+      "runtime_state_default": "observe-only; do not fail drift check unless explicitly requested",
+      "group_binding_fields": [
+        "group_id",
+        "group_name",
+        "group_platform",
+        "link_priority"
+      ]
+    },
+    "prod_invariants": [
+      "active groups with active API keys must have at least one currently schedulable account",
+      "group.platform must match account.platform for all schedulable bindings",
+      "newapi accounts must keep channel_type > 0",
+      "rate_multiplier remains 1.0 unless intentionally changing billing semantics",
+      "credential values must never be committed to this baseline"
+    ]
+  },
+  "summary": {
+    "group_count": 11,
+    "account_count": 18,
+    "membership_count": 26,
+    "account_by_platform_type_status": {
+      "anthropic/apikey/active": 3,
+      "gemini/oauth/active": 6,
+      "newapi/apikey/active": 3,
+      "openai/apikey/active": 1,
+      "openai/oauth/active": 5
+    }
+  },
+  "shared_baseline": {
+    "all_accounts": {
+      "rate_multiplier": 1.0,
+      "auto_pause_on_expired": true,
+      "load_factor": null
+    },
+    "openai_oauth": {
+      "channel_type": 0,
+      "required_credential_keys": [
+        "_token_version",
+        "chatgpt_account_id",
+        "chatgpt_user_id",
+        "client_id",
+        "email",
+        "expires_at",
+        "organization_id",
+        "plan_type"
+      ],
+      "recommended_extra_keys": [
+        "privacy_mode"
+      ]
+    },
+    "openai_apikey": {
+      "channel_type": 0,
+      "required_credential_keys": [
+        "base_url",
+        "model_mapping"
+      ]
+    },
+    "newapi_apikey": {
+      "required_credential_keys": [
+        "base_url",
+        "model_mapping"
+      ],
+      "channel_type_policy": "must be > 0; channel_type selects upstream new-api adaptor"
+    },
+    "gemini_oauth": {
+      "channel_type": 0,
+      "required_credential_keys": [
+        "_token_version",
+        "expires_at",
+        "oauth_type",
+        "project_id",
+        "scope",
+        "tier_id",
+        "token_type"
+      ]
+    },
+    "anthropic_apikey": {
+      "channel_type": 0,
+      "required_credential_keys": [
+        "base_url",
+        "model_mapping"
+      ],
+      "naming_note": "Current prod account names include oauth suffix but account.type is apikey."
+    }
+  },
+  "tiers": {
+    "openai_oauth": {
+      "small": {
+        "concurrency": 10,
+        "accounts": [
+          "GPT-A0",
+          "GPT-A1"
+        ]
+      },
+      "large": {
+        "concurrency": 110,
+        "accounts": [
+          "GPT-A2",
+          "GPT-A3",
+          "GPT-pro1"
+        ]
+      }
+    },
+    "newapi_apikey": {
+      "tokensea": {
+        "channel_type": 14,
+        "concurrency": 10,
+        "accounts": [
+          "tokensea-1",
+          "tokensea-2"
+        ]
+      },
+      "volcengine": {
+        "channel_type": 45,
+        "concurrency": 100,
+        "accounts": [
+          "volcengine"
+        ]
+      }
+    },
+    "gemini_oauth": {
+      "single": {
+        "concurrency": 1,
+        "accounts": [
+          "gemini-am-g2",
+          "gemini-am-g3",
+          "gemini-am-g5",
+          "gemini-c1-g1",
+          "gemini-eng-g2"
+        ]
+      },
+      "free": {
+        "concurrency": 2,
+        "accounts": [
+          "Gemini-free-1"
+        ]
+      }
+    },
+    "anthropic_apikey_edge": {
+      "edge": {
+        "concurrency": 3,
+        "accounts": [
+          "cc-fra1-oauth",
+          "cc-uk1-oauth",
+          "cc-us1-oauth"
+        ]
+      }
+    }
+  },
+  "global_settings_baseline": {
+    "LOAD_BALANCE_STRATEGY": "round-robin",
+    "backend_mode_enabled": false,
+    "enable_model_fallback": false,
+    "max_claude_code_version": "",
+    "min_claude_code_version": "",
+    "newapi_bridge_enabled": true,
+    "openai_advanced_scheduler_enabled": false,
+    "ops_query_mode_default": "auto",
+    "payment_enabled": false
+  },
+  "groups": [
+    {
+      "id": 2,
+      "name": "GPT专线",
+      "platform": "openai",
+      "status": "active",
+      "subscription_type": "standard",
+      "is_exclusive": false,
+      "sort_order": 0,
+      "rate_multiplier": 1.0,
+      "limits_usd": {
+        "daily": 0.0,
+        "weekly": 0.0,
+        "monthly": 0.0
+      },
+      "default_validity_days": 0,
+      "claude_code_only": false,
+      "model_routing_enabled": false,
+      "model_routing_keys": [],
+      "sticky_routing_mode": "auto",
+      "rpm_limit": 0,
+      "messages_dispatch": {
+        "allow": true,
+        "require_oauth_only": true,
+        "require_privacy_set": true,
+        "default_mapped_model": "",
+        "config_keys": [
+          "haiku_mapped_model",
+          "opus_mapped_model",
+          "sonnet_mapped_model"
+        ]
+      },
+      "messages_compaction": {
+        "enabled": true,
+        "input_tokens_threshold": 180000
+      },
+      "image_generation": {
+        "allow": true,
+        "rate_independent": false,
+        "rate_multiplier": 1.0
+      },
+      "observed_capacity": {
+        "account_count": 5,
+        "currently_schedulable_count": 3,
+        "active_schedulable_concurrency": 350,
+        "anthropic_oauth_total_base_rpm": 0,
+        "platform_mismatch_count": 0,
+        "newapi_zero_channel_count": 0,
+        "non_active_count": 0,
+        "manually_unschedulable_count": 0,
+        "rate_limited_now_count": 2,
+        "overloaded_now_count": 0,
+        "temp_unschedulable_now_count": 0,
+        "distinct_account_platforms": 1,
+        "distinct_account_types": 1,
+        "anthropic_oauth_tier_distribution": {}
+      },
+      "observed_usage": {
+        "active_api_key_count": 66,
+        "active_subscription_count": 0,
+        "unused_redeem_code_count": 0,
+        "usage_24h_count": 11722,
+        "usage_7d_count": 67610
+      }
+    },
+    {
+      "id": 4,
+      "name": "free-tier",
+      "platform": "openai",
+      "status": "active",
+      "subscription_type": "standard",
+      "is_exclusive": true,
+      "sort_order": 0,
+      "rate_multiplier": 1.0,
+      "limits_usd": {
+        "daily": 0.0,
+        "weekly": 0.0,
+        "monthly": 0.0
+      },
+      "default_validity_days": 0,
+      "claude_code_only": false,
+      "model_routing_enabled": false,
+      "model_routing_keys": [],
+      "sticky_routing_mode": "auto",
+      "rpm_limit": 0,
+      "messages_dispatch": {
+        "allow": true,
+        "require_oauth_only": true,
+        "require_privacy_set": true,
+        "default_mapped_model": "",
+        "config_keys": [
+          "haiku_mapped_model",
+          "opus_mapped_model",
+          "sonnet_mapped_model"
+        ]
+      },
+      "messages_compaction": {
+        "enabled": false
+      },
+      "image_generation": {
+        "allow": true,
+        "rate_independent": false,
+        "rate_multiplier": 1.0
+      },
+      "observed_capacity": {
+        "account_count": 5,
+        "currently_schedulable_count": 3,
+        "active_schedulable_concurrency": 350,
+        "anthropic_oauth_total_base_rpm": 0,
+        "platform_mismatch_count": 0,
+        "newapi_zero_channel_count": 0,
+        "non_active_count": 0,
+        "manually_unschedulable_count": 0,
+        "rate_limited_now_count": 2,
+        "overloaded_now_count": 0,
+        "temp_unschedulable_now_count": 0,
+        "distinct_account_platforms": 1,
+        "distinct_account_types": 1,
+        "anthropic_oauth_tier_distribution": {}
+      },
+      "observed_usage": {
+        "active_api_key_count": 0,
+        "active_subscription_count": 0,
+        "unused_redeem_code_count": 0,
+        "usage_24h_count": 0,
+        "usage_7d_count": 0
+      }
+    },
+    {
+      "id": 5,
+      "name": "volcengine",
+      "platform": "newapi",
+      "status": "active",
+      "subscription_type": "standard",
+      "is_exclusive": false,
+      "sort_order": 0,
+      "rate_multiplier": 1.0,
+      "limits_usd": {
+        "daily": 0.0,
+        "weekly": 0.0,
+        "monthly": 0.0
+      },
+      "default_validity_days": 0,
+      "claude_code_only": false,
+      "model_routing_enabled": false,
+      "model_routing_keys": [],
+      "sticky_routing_mode": "auto",
+      "rpm_limit": 0,
+      "messages_dispatch": {
+        "allow": true,
+        "require_oauth_only": false,
+        "require_privacy_set": false,
+        "default_mapped_model": "",
+        "config_keys": [
+          "haiku_mapped_model",
+          "opus_mapped_model",
+          "sonnet_mapped_model"
+        ]
+      },
+      "messages_compaction": {},
+      "image_generation": {
+        "allow": false,
+        "rate_independent": false,
+        "rate_multiplier": 1.0
+      },
+      "observed_capacity": {
+        "account_count": 1,
+        "currently_schedulable_count": 1,
+        "active_schedulable_concurrency": 100,
+        "anthropic_oauth_total_base_rpm": 0,
+        "platform_mismatch_count": 0,
+        "newapi_zero_channel_count": 0,
+        "non_active_count": 0,
+        "manually_unschedulable_count": 0,
+        "rate_limited_now_count": 0,
+        "overloaded_now_count": 0,
+        "temp_unschedulable_now_count": 0,
+        "distinct_account_platforms": 1,
+        "distinct_account_types": 1,
+        "anthropic_oauth_tier_distribution": {}
+      },
+      "observed_usage": {
+        "active_api_key_count": 2,
+        "active_subscription_count": 0,
+        "unused_redeem_code_count": 0,
+        "usage_24h_count": 0,
+        "usage_7d_count": 4
+      }
+    },
+    {
+      "id": 6,
+      "name": "GPT-pro",
+      "platform": "openai",
+      "status": "active",
+      "subscription_type": "standard",
+      "is_exclusive": false,
+      "sort_order": 0,
+      "rate_multiplier": 1.0,
+      "limits_usd": {
+        "daily": 0.0,
+        "weekly": 0.0,
+        "monthly": 0.0
+      },
+      "default_validity_days": 0,
+      "claude_code_only": false,
+      "model_routing_enabled": false,
+      "model_routing_keys": [],
+      "sticky_routing_mode": "auto",
+      "rpm_limit": 0,
+      "messages_dispatch": {
+        "allow": true,
+        "require_oauth_only": true,
+        "require_privacy_set": true,
+        "default_mapped_model": "",
+        "config_keys": [
+          "exact_model_mappings",
+          "haiku_mapped_model",
+          "opus_mapped_model",
+          "sonnet_mapped_model"
+        ]
+      },
+      "messages_compaction": {},
+      "image_generation": {
+        "allow": true,
+        "rate_independent": false,
+        "rate_multiplier": 1.0
+      },
+      "observed_capacity": {
+        "account_count": 3,
+        "currently_schedulable_count": 3,
+        "active_schedulable_concurrency": 330,
+        "anthropic_oauth_total_base_rpm": 0,
+        "platform_mismatch_count": 0,
+        "newapi_zero_channel_count": 0,
+        "non_active_count": 0,
+        "manually_unschedulable_count": 0,
+        "rate_limited_now_count": 0,
+        "overloaded_now_count": 0,
+        "temp_unschedulable_now_count": 0,
+        "distinct_account_platforms": 1,
+        "distinct_account_types": 1,
+        "anthropic_oauth_tier_distribution": {}
+      },
+      "observed_usage": {
+        "active_api_key_count": 3,
+        "active_subscription_count": 0,
+        "unused_redeem_code_count": 0,
+        "usage_24h_count": 5847,
+        "usage_7d_count": 9196
+      }
+    },
+    {
+      "id": 7,
+      "name": "airouter",
+      "platform": "newapi",
+      "status": "active",
+      "subscription_type": "standard",
+      "is_exclusive": false,
+      "sort_order": 0,
+      "rate_multiplier": 1.0,
+      "limits_usd": {
+        "daily": 0.0,
+        "weekly": 0.0,
+        "monthly": 0.0
+      },
+      "default_validity_days": 0,
+      "claude_code_only": false,
+      "model_routing_enabled": false,
+      "model_routing_keys": [],
+      "sticky_routing_mode": "auto",
+      "rpm_limit": 0,
+      "messages_dispatch": {
+        "allow": false,
+        "require_oauth_only": false,
+        "require_privacy_set": false,
+        "default_mapped_model": "",
+        "config_keys": [
+          "haiku_mapped_model",
+          "opus_mapped_model",
+          "sonnet_mapped_model"
+        ]
+      },
+      "messages_compaction": {},
+      "image_generation": {
+        "allow": false,
+        "rate_independent": false,
+        "rate_multiplier": 1.0
+      },
+      "observed_capacity": {
+        "account_count": 0,
+        "currently_schedulable_count": 0,
+        "active_schedulable_concurrency": 0,
+        "anthropic_oauth_total_base_rpm": 0,
+        "platform_mismatch_count": 0,
+        "newapi_zero_channel_count": 0,
+        "non_active_count": 0,
+        "manually_unschedulable_count": 1,
+        "rate_limited_now_count": 0,
+        "overloaded_now_count": 0,
+        "temp_unschedulable_now_count": 0,
+        "distinct_account_platforms": 0,
+        "distinct_account_types": 0,
+        "anthropic_oauth_tier_distribution": {}
+      },
+      "observed_usage": {
+        "active_api_key_count": 0,
+        "active_subscription_count": 0,
+        "unused_redeem_code_count": 0,
+        "usage_24h_count": 0,
+        "usage_7d_count": 0
+      }
+    },
+    {
+      "id": 8,
+      "name": "Gemini-PA",
+      "platform": "gemini",
+      "status": "active",
+      "subscription_type": "standard",
+      "is_exclusive": false,
+      "sort_order": 0,
+      "rate_multiplier": 1.0,
+      "limits_usd": {
+        "daily": 0.0,
+        "weekly": 0.0,
+        "monthly": 0.0
+      },
+      "default_validity_days": 0,
+      "claude_code_only": false,
+      "model_routing_enabled": false,
+      "model_routing_keys": [],
+      "sticky_routing_mode": "auto",
+      "rpm_limit": 0,
+      "messages_dispatch": {
+        "allow": true,
+        "require_oauth_only": true,
+        "require_privacy_set": true,
+        "default_mapped_model": "",
+        "config_keys": [
+          "haiku_mapped_model",
+          "opus_mapped_model",
+          "sonnet_mapped_model"
+        ]
+      },
+      "messages_compaction": {},
+      "image_generation": {
+        "allow": true,
+        "rate_independent": false,
+        "rate_multiplier": 1.0
+      },
+      "observed_capacity": {
+        "account_count": 6,
+        "currently_schedulable_count": 3,
+        "active_schedulable_concurrency": 3,
+        "anthropic_oauth_total_base_rpm": 0,
+        "platform_mismatch_count": 0,
+        "newapi_zero_channel_count": 0,
+        "non_active_count": 0,
+        "manually_unschedulable_count": 3,
+        "rate_limited_now_count": 0,
+        "overloaded_now_count": 0,
+        "temp_unschedulable_now_count": 0,
+        "distinct_account_platforms": 1,
+        "distinct_account_types": 1,
+        "anthropic_oauth_tier_distribution": {}
+      },
+      "observed_usage": {
+        "active_api_key_count": 2,
+        "active_subscription_count": 0,
+        "unused_redeem_code_count": 0,
+        "usage_24h_count": 3,
+        "usage_7d_count": 10
+      }
+    },
+    {
+      "id": 9,
+      "name": "cc-tokensea",
+      "platform": "newapi",
+      "status": "active",
+      "subscription_type": "standard",
+      "is_exclusive": false,
+      "sort_order": 0,
+      "rate_multiplier": 1.0,
+      "limits_usd": {
+        "daily": 0.0,
+        "weekly": 0.0,
+        "monthly": 0.0
+      },
+      "default_validity_days": 0,
+      "claude_code_only": false,
+      "model_routing_enabled": false,
+      "model_routing_keys": [],
+      "sticky_routing_mode": "auto",
+      "rpm_limit": 0,
+      "messages_dispatch": {
+        "allow": true,
+        "require_oauth_only": false,
+        "require_privacy_set": false,
+        "default_mapped_model": "",
+        "config_keys": [
+          "haiku_mapped_model",
+          "opus_mapped_model",
+          "sonnet_mapped_model"
+        ]
+      },
+      "messages_compaction": {
+        "enabled": false
+      },
+      "image_generation": {
+        "allow": false,
+        "rate_independent": false,
+        "rate_multiplier": 1.0
+      },
+      "observed_capacity": {
+        "account_count": 2,
+        "currently_schedulable_count": 2,
+        "active_schedulable_concurrency": 20,
+        "anthropic_oauth_total_base_rpm": 0,
+        "platform_mismatch_count": 0,
+        "newapi_zero_channel_count": 0,
+        "non_active_count": 0,
+        "manually_unschedulable_count": 0,
+        "rate_limited_now_count": 0,
+        "overloaded_now_count": 0,
+        "temp_unschedulable_now_count": 0,
+        "distinct_account_platforms": 1,
+        "distinct_account_types": 1,
+        "anthropic_oauth_tier_distribution": {}
+      },
+      "observed_usage": {
+        "active_api_key_count": 1,
+        "active_subscription_count": 0,
+        "unused_redeem_code_count": 0,
+        "usage_24h_count": 53,
+        "usage_7d_count": 187
+      }
+    },
+    {
+      "id": 10,
+      "name": "edges",
+      "platform": "newapi",
+      "status": "disabled",
+      "subscription_type": "standard",
+      "is_exclusive": false,
+      "sort_order": 0,
+      "rate_multiplier": 1.0,
+      "limits_usd": {
+        "daily": 0.0,
+        "weekly": 0.0,
+        "monthly": 0.0
+      },
+      "default_validity_days": 0,
+      "claude_code_only": false,
+      "model_routing_enabled": false,
+      "model_routing_keys": [],
+      "sticky_routing_mode": "auto",
+      "rpm_limit": 10,
+      "messages_dispatch": {
+        "allow": true,
+        "require_oauth_only": false,
+        "require_privacy_set": false,
+        "default_mapped_model": "",
+        "config_keys": [
+          "haiku_mapped_model",
+          "opus_mapped_model",
+          "sonnet_mapped_model"
+        ]
+      },
+      "messages_compaction": {
+        "enabled": false
+      },
+      "image_generation": {
+        "allow": false,
+        "rate_independent": false,
+        "rate_multiplier": 1.0
+      },
+      "observed_capacity": {
+        "account_count": 0,
+        "currently_schedulable_count": 0,
+        "active_schedulable_concurrency": 0,
+        "anthropic_oauth_total_base_rpm": 0,
+        "platform_mismatch_count": 0,
+        "newapi_zero_channel_count": 0,
+        "non_active_count": 0,
+        "manually_unschedulable_count": 1,
+        "rate_limited_now_count": 0,
+        "overloaded_now_count": 0,
+        "temp_unschedulable_now_count": 0,
+        "distinct_account_platforms": 0,
+        "distinct_account_types": 0,
+        "anthropic_oauth_tier_distribution": {}
+      },
+      "observed_usage": {
+        "active_api_key_count": 1,
+        "active_subscription_count": 0,
+        "unused_redeem_code_count": 0,
+        "usage_24h_count": 0,
+        "usage_7d_count": 388
+      }
+    },
+    {
+      "id": 11,
+      "name": "deepseek",
+      "platform": "openai",
+      "status": "active",
+      "subscription_type": "standard",
+      "is_exclusive": false,
+      "sort_order": 0,
+      "rate_multiplier": 1.0,
+      "limits_usd": {
+        "daily": 0.0,
+        "weekly": 0.0,
+        "monthly": 0.0
+      },
+      "default_validity_days": 0,
+      "claude_code_only": false,
+      "model_routing_enabled": false,
+      "model_routing_keys": [],
+      "sticky_routing_mode": "auto",
+      "rpm_limit": 0,
+      "messages_dispatch": {
+        "allow": false,
+        "require_oauth_only": false,
+        "require_privacy_set": false,
+        "default_mapped_model": "",
+        "config_keys": [
+          "haiku_mapped_model",
+          "opus_mapped_model",
+          "sonnet_mapped_model"
+        ]
+      },
+      "messages_compaction": {
+        "enabled": false
+      },
+      "image_generation": {
+        "allow": false,
+        "rate_independent": false,
+        "rate_multiplier": 1.0
+      },
+      "observed_capacity": {
+        "account_count": 1,
+        "currently_schedulable_count": 1,
+        "active_schedulable_concurrency": 10,
+        "anthropic_oauth_total_base_rpm": 0,
+        "platform_mismatch_count": 0,
+        "newapi_zero_channel_count": 0,
+        "non_active_count": 0,
+        "manually_unschedulable_count": 0,
+        "rate_limited_now_count": 0,
+        "overloaded_now_count": 0,
+        "temp_unschedulable_now_count": 0,
+        "distinct_account_platforms": 1,
+        "distinct_account_types": 1,
+        "anthropic_oauth_tier_distribution": {}
+      },
+      "observed_usage": {
+        "active_api_key_count": 1,
+        "active_subscription_count": 0,
+        "unused_redeem_code_count": 0,
+        "usage_24h_count": 0,
+        "usage_7d_count": 2
+      }
+    },
+    {
+      "id": 15,
+      "name": "cc-edges",
+      "platform": "anthropic",
+      "status": "active",
+      "subscription_type": "standard",
+      "is_exclusive": false,
+      "sort_order": 0,
+      "rate_multiplier": 1.0,
+      "limits_usd": {
+        "daily": 0.0,
+        "weekly": 0.0,
+        "monthly": 0.0
+      },
+      "default_validity_days": 0,
+      "claude_code_only": false,
+      "model_routing_enabled": false,
+      "model_routing_keys": [],
+      "sticky_routing_mode": "auto",
+      "rpm_limit": 8,
+      "messages_dispatch": {
+        "allow": false,
+        "require_oauth_only": false,
+        "require_privacy_set": false,
+        "default_mapped_model": "",
+        "config_keys": []
+      },
+      "messages_compaction": {},
+      "image_generation": {
+        "allow": false,
+        "rate_independent": false,
+        "rate_multiplier": 1.0
+      },
+      "observed_capacity": {
+        "account_count": 3,
+        "currently_schedulable_count": 1,
+        "active_schedulable_concurrency": 3,
+        "anthropic_oauth_total_base_rpm": 0,
+        "platform_mismatch_count": 0,
+        "newapi_zero_channel_count": 0,
+        "non_active_count": 0,
+        "manually_unschedulable_count": 2,
+        "rate_limited_now_count": 0,
+        "overloaded_now_count": 0,
+        "temp_unschedulable_now_count": 0,
+        "distinct_account_platforms": 1,
+        "distinct_account_types": 1,
+        "anthropic_oauth_tier_distribution": {}
+      },
+      "observed_usage": {
+        "active_api_key_count": 3,
+        "active_subscription_count": 0,
+        "unused_redeem_code_count": 0,
+        "usage_24h_count": 157,
+        "usage_7d_count": 979
+      }
+    },
+    {
+      "id": 1,
+      "name": "default",
+      "platform": "anthropic",
+      "status": "active",
+      "subscription_type": "standard",
+      "is_exclusive": false,
+      "sort_order": 1,
+      "rate_multiplier": 1.0,
+      "limits_usd": {},
+      "default_validity_days": 30,
+      "claude_code_only": false,
+      "model_routing_enabled": false,
+      "model_routing_keys": [],
+      "sticky_routing_mode": "auto",
+      "rpm_limit": 0,
+      "messages_dispatch": {
+        "allow": false,
+        "require_oauth_only": false,
+        "require_privacy_set": false,
+        "default_mapped_model": "",
+        "config_keys": []
+      },
+      "messages_compaction": {},
+      "image_generation": {
+        "allow": false,
+        "rate_independent": false,
+        "rate_multiplier": 1.0
+      },
+      "observed_capacity": {
+        "account_count": 0,
+        "currently_schedulable_count": 0,
+        "active_schedulable_concurrency": 0,
+        "anthropic_oauth_total_base_rpm": 0,
+        "platform_mismatch_count": 0,
+        "newapi_zero_channel_count": 0,
+        "non_active_count": 0,
+        "manually_unschedulable_count": 1,
+        "rate_limited_now_count": 0,
+        "overloaded_now_count": 0,
+        "temp_unschedulable_now_count": 0,
+        "distinct_account_platforms": 0,
+        "distinct_account_types": 0,
+        "anthropic_oauth_tier_distribution": {}
+      },
+      "observed_usage": {
+        "active_api_key_count": 0,
+        "active_subscription_count": 0,
+        "unused_redeem_code_count": 0,
+        "usage_24h_count": 0,
+        "usage_7d_count": 159
+      }
+    }
+  ],
+  "accounts": [
+    {
+      "id": 41,
+      "name": "cc-fra1-oauth",
+      "platform": "anthropic",
+      "type": "apikey",
+      "status": "active",
+      "schedulable": false,
+      "concurrency": 3,
+      "priority": 1,
+      "rate_multiplier": 1.0,
+      "channel_type": 0,
+      "auto_pause_on_expired": true,
+      "runtime_state": {
+        "last_used_at": "2026-05-13 10:03:35.261193+00"
+      },
+      "groups": [
+        {
+          "group_id": 15,
+          "group_name": "cc-edges",
+          "group_platform": "anthropic",
+          "link_priority": 1
+        }
+      ],
+      "extra_baseline": {
+        "base_rpm": 0,
+        "rpm_sticky_buffer": 0,
+        "max_sessions": 0,
+        "session_idle_timeout_minutes": 0,
+        "window_cost_limit": 0,
+        "window_cost_sticky_reserve": 0,
+        "enable_tls_fingerprint": false,
+        "cache_ttl_override_enabled": false,
+        "session_id_masking_enabled": false,
+        "custom_base_url_enabled": false,
+        "has_custom_base_url": false,
+        "privacy_set": false
+      },
+      "credentials_baseline_safe": {
+        "has_model_mapping": true,
+        "has_temp_unschedulable_rules": false,
+        "temp_unschedulable_enabled": false,
+        "intercept_warmup_requests": false,
+        "temp_unschedulable_error_codes": [],
+        "safe_key_inventory": [
+          "base_url",
+          "model_mapping"
+        ]
+      },
+      "extra_key_inventory": []
+    },
+    {
+      "id": 40,
+      "name": "cc-uk1-oauth",
+      "platform": "anthropic",
+      "type": "apikey",
+      "status": "active",
+      "schedulable": false,
+      "concurrency": 3,
+      "priority": 1,
+      "rate_multiplier": 1.0,
+      "channel_type": 0,
+      "auto_pause_on_expired": true,
+      "runtime_state": {
+        "last_used_at": "2026-05-12 10:27:10.028868+00"
+      },
+      "groups": [
+        {
+          "group_id": 15,
+          "group_name": "cc-edges",
+          "group_platform": "anthropic",
+          "link_priority": 1
+        }
+      ],
+      "extra_baseline": {
+        "base_rpm": 0,
+        "rpm_sticky_buffer": 0,
+        "max_sessions": 0,
+        "session_idle_timeout_minutes": 0,
+        "window_cost_limit": 0,
+        "window_cost_sticky_reserve": 0,
+        "enable_tls_fingerprint": false,
+        "cache_ttl_override_enabled": false,
+        "session_id_masking_enabled": false,
+        "custom_base_url_enabled": false,
+        "has_custom_base_url": false,
+        "privacy_set": false
+      },
+      "credentials_baseline_safe": {
+        "has_model_mapping": true,
+        "has_temp_unschedulable_rules": false,
+        "temp_unschedulable_enabled": false,
+        "intercept_warmup_requests": false,
+        "temp_unschedulable_error_codes": [],
+        "safe_key_inventory": [
+          "base_url",
+          "model_mapping"
+        ]
+      },
+      "extra_key_inventory": []
+    },
+    {
+      "id": 42,
+      "name": "cc-us1-oauth",
+      "platform": "anthropic",
+      "type": "apikey",
+      "status": "active",
+      "schedulable": true,
+      "concurrency": 3,
+      "priority": 1,
+      "rate_multiplier": 1.0,
+      "channel_type": 0,
+      "auto_pause_on_expired": true,
+      "runtime_state": {
+        "rate_limited_at": "2026-05-15 15:14:20.917263+00",
+        "rate_limit_reset_at": "2026-05-15 15:14:25.917205+00",
+        "last_used_at": "2026-05-15 15:15:57.280385+00"
+      },
+      "groups": [
+        {
+          "group_id": 15,
+          "group_name": "cc-edges",
+          "group_platform": "anthropic",
+          "link_priority": 1
+        }
+      ],
+      "extra_baseline": {
+        "base_rpm": 0,
+        "rpm_sticky_buffer": 0,
+        "max_sessions": 0,
+        "session_idle_timeout_minutes": 0,
+        "window_cost_limit": 0,
+        "window_cost_sticky_reserve": 0,
+        "enable_tls_fingerprint": false,
+        "cache_ttl_override_enabled": false,
+        "session_id_masking_enabled": false,
+        "custom_base_url_enabled": false,
+        "has_custom_base_url": false,
+        "privacy_set": false
+      },
+      "credentials_baseline_safe": {
+        "has_model_mapping": true,
+        "has_temp_unschedulable_rules": false,
+        "temp_unschedulable_enabled": false,
+        "intercept_warmup_requests": false,
+        "temp_unschedulable_error_codes": [],
+        "safe_key_inventory": [
+          "base_url",
+          "model_mapping"
+        ]
+      },
+      "extra_key_inventory": []
+    },
+    {
+      "id": 12,
+      "name": "Gemini-free-1",
+      "platform": "gemini",
+      "type": "oauth",
+      "status": "active",
+      "schedulable": false,
+      "concurrency": 2,
+      "priority": 1,
+      "rate_multiplier": 1.0,
+      "channel_type": 0,
+      "auto_pause_on_expired": true,
+      "runtime_state": {
+        "rate_limited_at": "2026-05-06 03:51:46.46482+00",
+        "rate_limit_reset_at": "2026-05-07 00:42:05+00",
+        "last_used_at": "2026-05-06 01:19:30.739673+00"
+      },
+      "groups": [
+        {
+          "group_id": 8,
+          "group_name": "Gemini-PA",
+          "group_platform": "gemini",
+          "link_priority": 1
+        }
+      ],
+      "extra_baseline": {
+        "base_rpm": 0,
+        "rpm_sticky_buffer": 0,
+        "max_sessions": 0,
+        "session_idle_timeout_minutes": 0,
+        "window_cost_limit": 0,
+        "window_cost_sticky_reserve": 0,
+        "enable_tls_fingerprint": false,
+        "cache_ttl_override_enabled": false,
+        "session_id_masking_enabled": false,
+        "custom_base_url_enabled": false,
+        "has_custom_base_url": false,
+        "privacy_set": false
+      },
+      "credentials_baseline_safe": {
+        "has_model_mapping": false,
+        "has_temp_unschedulable_rules": false,
+        "temp_unschedulable_enabled": false,
+        "intercept_warmup_requests": false,
+        "temp_unschedulable_error_codes": [],
+        "safe_key_inventory": [
+          "_token_version",
+          "expires_at",
+          "oauth_type",
+          "project_id",
+          "scope",
+          "tier_id",
+          "token_type"
+        ]
+      },
+      "extra_key_inventory": []
+    },
+    {
+      "id": 24,
+      "name": "gemini-am-g2",
+      "platform": "gemini",
+      "type": "oauth",
+      "status": "active",
+      "schedulable": true,
+      "concurrency": 1,
+      "priority": 1,
+      "rate_multiplier": 1.0,
+      "channel_type": 0,
+      "auto_pause_on_expired": true,
+      "runtime_state": {
+        "rate_limited_at": "2026-05-14 10:32:27.535457+00",
+        "rate_limit_reset_at": "2026-05-15 07:00:00+00",
+        "last_used_at": "2026-05-15 12:48:25.500509+00"
+      },
+      "groups": [
+        {
+          "group_id": 8,
+          "group_name": "Gemini-PA",
+          "group_platform": "gemini",
+          "link_priority": 1
+        }
+      ],
+      "extra_baseline": {
+        "base_rpm": 0,
+        "rpm_sticky_buffer": 0,
+        "max_sessions": 0,
+        "session_idle_timeout_minutes": 0,
+        "window_cost_limit": 0,
+        "window_cost_sticky_reserve": 0,
+        "enable_tls_fingerprint": false,
+        "cache_ttl_override_enabled": false,
+        "session_id_masking_enabled": false,
+        "custom_base_url_enabled": false,
+        "has_custom_base_url": false,
+        "privacy_set": false
+      },
+      "credentials_baseline_safe": {
+        "has_model_mapping": false,
+        "has_temp_unschedulable_rules": true,
+        "temp_unschedulable_enabled": true,
+        "intercept_warmup_requests": false,
+        "temp_unschedulable_error_codes": [
+          429
+        ],
+        "safe_key_inventory": [
+          "_token_version",
+          "expires_at",
+          "oauth_type",
+          "project_id",
+          "scope",
+          "temp_unschedulable_enabled",
+          "temp_unschedulable_rules",
+          "tier_id",
+          "token_type"
+        ]
+      },
+      "extra_key_inventory": []
+    },
+    {
+      "id": 20,
+      "name": "gemini-am-g3",
+      "platform": "gemini",
+      "type": "oauth",
+      "status": "active",
+      "schedulable": false,
+      "concurrency": 1,
+      "priority": 1,
+      "rate_multiplier": 1.0,
+      "channel_type": 0,
+      "auto_pause_on_expired": true,
+      "runtime_state": {
+        "last_used_at": "2026-05-09 00:19:08.113297+00"
+      },
+      "groups": [
+        {
+          "group_id": 8,
+          "group_name": "Gemini-PA",
+          "group_platform": "gemini",
+          "link_priority": 1
+        }
+      ],
+      "extra_baseline": {
+        "base_rpm": 0,
+        "rpm_sticky_buffer": 0,
+        "max_sessions": 0,
+        "session_idle_timeout_minutes": 0,
+        "window_cost_limit": 0,
+        "window_cost_sticky_reserve": 0,
+        "enable_tls_fingerprint": false,
+        "cache_ttl_override_enabled": false,
+        "session_id_masking_enabled": false,
+        "custom_base_url_enabled": false,
+        "has_custom_base_url": false,
+        "privacy_set": false
+      },
+      "credentials_baseline_safe": {
+        "has_model_mapping": false,
+        "has_temp_unschedulable_rules": true,
+        "temp_unschedulable_enabled": true,
+        "intercept_warmup_requests": false,
+        "temp_unschedulable_error_codes": [
+          429
+        ],
+        "safe_key_inventory": [
+          "_token_version",
+          "expires_at",
+          "oauth_type",
+          "project_id",
+          "scope",
+          "temp_unschedulable_enabled",
+          "temp_unschedulable_rules",
+          "tier_id",
+          "token_type"
+        ]
+      },
+      "extra_key_inventory": []
+    },
+    {
+      "id": 19,
+      "name": "gemini-am-g5",
+      "platform": "gemini",
+      "type": "oauth",
+      "status": "active",
+      "schedulable": true,
+      "concurrency": 1,
+      "priority": 1,
+      "rate_multiplier": 1.0,
+      "channel_type": 0,
+      "auto_pause_on_expired": true,
+      "runtime_state": {
+        "last_used_at": "2026-05-15 10:02:03.336835+00"
+      },
+      "groups": [
+        {
+          "group_id": 8,
+          "group_name": "Gemini-PA",
+          "group_platform": "gemini",
+          "link_priority": 1
+        }
+      ],
+      "extra_baseline": {
+        "base_rpm": 0,
+        "rpm_sticky_buffer": 0,
+        "max_sessions": 0,
+        "session_idle_timeout_minutes": 0,
+        "window_cost_limit": 0,
+        "window_cost_sticky_reserve": 0,
+        "enable_tls_fingerprint": false,
+        "cache_ttl_override_enabled": false,
+        "session_id_masking_enabled": false,
+        "custom_base_url_enabled": false,
+        "has_custom_base_url": false,
+        "privacy_set": false
+      },
+      "credentials_baseline_safe": {
+        "has_model_mapping": false,
+        "has_temp_unschedulable_rules": true,
+        "temp_unschedulable_enabled": true,
+        "intercept_warmup_requests": false,
+        "temp_unschedulable_error_codes": [
+          429
+        ],
+        "safe_key_inventory": [
+          "_token_version",
+          "expires_at",
+          "oauth_type",
+          "project_id",
+          "scope",
+          "temp_unschedulable_enabled",
+          "temp_unschedulable_rules",
+          "tier_id",
+          "token_type"
+        ]
+      },
+      "extra_key_inventory": []
+    },
+    {
+      "id": 13,
+      "name": "gemini-c1-g1",
+      "platform": "gemini",
+      "type": "oauth",
+      "status": "active",
+      "schedulable": false,
+      "concurrency": 1,
+      "priority": 1,
+      "rate_multiplier": 1.0,
+      "channel_type": 0,
+      "auto_pause_on_expired": true,
+      "runtime_state": {},
+      "groups": [
+        {
+          "group_id": 8,
+          "group_name": "Gemini-PA",
+          "group_platform": "gemini",
+          "link_priority": 1
+        }
+      ],
+      "extra_baseline": {
+        "base_rpm": 0,
+        "rpm_sticky_buffer": 0,
+        "max_sessions": 0,
+        "session_idle_timeout_minutes": 0,
+        "window_cost_limit": 0,
+        "window_cost_sticky_reserve": 0,
+        "enable_tls_fingerprint": false,
+        "cache_ttl_override_enabled": false,
+        "session_id_masking_enabled": false,
+        "custom_base_url_enabled": false,
+        "has_custom_base_url": false,
+        "privacy_set": false
+      },
+      "credentials_baseline_safe": {
+        "has_model_mapping": false,
+        "has_temp_unschedulable_rules": false,
+        "temp_unschedulable_enabled": false,
+        "intercept_warmup_requests": false,
+        "temp_unschedulable_error_codes": [],
+        "safe_key_inventory": [
+          "_token_version",
+          "expires_at",
+          "oauth_type",
+          "project_id",
+          "scope",
+          "tier_id",
+          "token_type"
+        ]
+      },
+      "extra_key_inventory": []
+    },
+    {
+      "id": 22,
+      "name": "gemini-eng-g2",
+      "platform": "gemini",
+      "type": "oauth",
+      "status": "active",
+      "schedulable": true,
+      "concurrency": 1,
+      "priority": 1,
+      "rate_multiplier": 1.0,
+      "channel_type": 0,
+      "auto_pause_on_expired": true,
+      "runtime_state": {
+        "last_used_at": "2026-05-15 10:08:04.894456+00"
+      },
+      "groups": [
+        {
+          "group_id": 8,
+          "group_name": "Gemini-PA",
+          "group_platform": "gemini",
+          "link_priority": 1
+        }
+      ],
+      "extra_baseline": {
+        "base_rpm": 0,
+        "rpm_sticky_buffer": 0,
+        "max_sessions": 0,
+        "session_idle_timeout_minutes": 0,
+        "window_cost_limit": 0,
+        "window_cost_sticky_reserve": 0,
+        "enable_tls_fingerprint": false,
+        "cache_ttl_override_enabled": false,
+        "session_id_masking_enabled": false,
+        "custom_base_url_enabled": false,
+        "has_custom_base_url": false,
+        "privacy_set": false
+      },
+      "credentials_baseline_safe": {
+        "has_model_mapping": false,
+        "has_temp_unschedulable_rules": true,
+        "temp_unschedulable_enabled": true,
+        "intercept_warmup_requests": false,
+        "temp_unschedulable_error_codes": [
+          429
+        ],
+        "safe_key_inventory": [
+          "_token_version",
+          "expires_at",
+          "oauth_type",
+          "project_id",
+          "scope",
+          "temp_unschedulable_enabled",
+          "temp_unschedulable_rules",
+          "tier_id",
+          "token_type"
+        ]
+      },
+      "extra_key_inventory": []
+    },
+    {
+      "id": 33,
+      "name": "tokensea-1",
+      "platform": "newapi",
+      "type": "apikey",
+      "status": "active",
+      "schedulable": true,
+      "concurrency": 10,
+      "priority": 1,
+      "rate_multiplier": 1.0,
+      "channel_type": 14,
+      "auto_pause_on_expired": true,
+      "runtime_state": {
+        "last_used_at": "2026-05-15 09:39:00.434118+00"
+      },
+      "groups": [
+        {
+          "group_id": 9,
+          "group_name": "cc-tokensea",
+          "group_platform": "newapi",
+          "link_priority": 1
+        }
+      ],
+      "extra_baseline": {
+        "base_rpm": 0,
+        "rpm_sticky_buffer": 0,
+        "max_sessions": 0,
+        "session_idle_timeout_minutes": 0,
+        "window_cost_limit": 0,
+        "window_cost_sticky_reserve": 0,
+        "enable_tls_fingerprint": false,
+        "cache_ttl_override_enabled": false,
+        "session_id_masking_enabled": false,
+        "custom_base_url_enabled": false,
+        "has_custom_base_url": false,
+        "privacy_set": false
+      },
+      "credentials_baseline_safe": {
+        "has_model_mapping": true,
+        "has_temp_unschedulable_rules": false,
+        "temp_unschedulable_enabled": false,
+        "intercept_warmup_requests": false,
+        "temp_unschedulable_error_codes": [],
+        "safe_key_inventory": [
+          "base_url",
+          "model_mapping"
+        ]
+      },
+      "extra_key_inventory": []
+    },
+    {
+      "id": 34,
+      "name": "tokensea-2",
+      "platform": "newapi",
+      "type": "apikey",
+      "status": "active",
+      "schedulable": true,
+      "concurrency": 10,
+      "priority": 1,
+      "rate_multiplier": 1.0,
+      "channel_type": 14,
+      "auto_pause_on_expired": true,
+      "runtime_state": {
+        "last_used_at": "2026-05-15 10:09:19.46831+00"
+      },
+      "groups": [
+        {
+          "group_id": 9,
+          "group_name": "cc-tokensea",
+          "group_platform": "newapi",
+          "link_priority": 1
+        }
+      ],
+      "extra_baseline": {
+        "base_rpm": 0,
+        "rpm_sticky_buffer": 0,
+        "max_sessions": 0,
+        "session_idle_timeout_minutes": 0,
+        "window_cost_limit": 0,
+        "window_cost_sticky_reserve": 0,
+        "enable_tls_fingerprint": false,
+        "cache_ttl_override_enabled": false,
+        "session_id_masking_enabled": false,
+        "custom_base_url_enabled": false,
+        "has_custom_base_url": false,
+        "privacy_set": false
+      },
+      "credentials_baseline_safe": {
+        "has_model_mapping": true,
+        "has_temp_unschedulable_rules": false,
+        "temp_unschedulable_enabled": false,
+        "intercept_warmup_requests": false,
+        "temp_unschedulable_error_codes": [],
+        "safe_key_inventory": [
+          "base_url",
+          "model_mapping"
+        ]
+      },
+      "extra_key_inventory": []
+    },
+    {
+      "id": 7,
+      "name": "volcengine",
+      "platform": "newapi",
+      "type": "apikey",
+      "status": "active",
+      "schedulable": true,
+      "concurrency": 100,
+      "priority": 1,
+      "rate_multiplier": 1.0,
+      "channel_type": 45,
+      "auto_pause_on_expired": true,
+      "runtime_state": {
+        "last_used_at": "2026-05-14 08:56:27.95601+00"
+      },
+      "groups": [
+        {
+          "group_id": 5,
+          "group_name": "volcengine",
+          "group_platform": "newapi",
+          "link_priority": 1
+        }
+      ],
+      "extra_baseline": {
+        "base_rpm": 0,
+        "rpm_sticky_buffer": 0,
+        "max_sessions": 0,
+        "session_idle_timeout_minutes": 0,
+        "window_cost_limit": 0,
+        "window_cost_sticky_reserve": 0,
+        "enable_tls_fingerprint": false,
+        "cache_ttl_override_enabled": false,
+        "session_id_masking_enabled": false,
+        "custom_base_url_enabled": false,
+        "has_custom_base_url": false,
+        "privacy_set": false
+      },
+      "credentials_baseline_safe": {
+        "has_model_mapping": true,
+        "has_temp_unschedulable_rules": false,
+        "temp_unschedulable_enabled": false,
+        "intercept_warmup_requests": false,
+        "temp_unschedulable_error_codes": [],
+        "safe_key_inventory": [
+          "base_url",
+          "model_mapping"
+        ]
+      },
+      "extra_key_inventory": []
+    },
+    {
+      "id": 39,
+      "name": "ds-官",
+      "platform": "openai",
+      "type": "apikey",
+      "status": "active",
+      "schedulable": true,
+      "concurrency": 10,
+      "priority": 1,
+      "rate_multiplier": 1.0,
+      "channel_type": 0,
+      "auto_pause_on_expired": true,
+      "runtime_state": {
+        "last_used_at": "2026-05-12 02:06:46.48039+00"
+      },
+      "groups": [
+        {
+          "group_id": 11,
+          "group_name": "deepseek",
+          "group_platform": "openai",
+          "link_priority": 1
+        }
+      ],
+      "extra_baseline": {
+        "base_rpm": 0,
+        "rpm_sticky_buffer": 0,
+        "max_sessions": 0,
+        "session_idle_timeout_minutes": 0,
+        "window_cost_limit": 0,
+        "window_cost_sticky_reserve": 0,
+        "enable_tls_fingerprint": false,
+        "cache_ttl_override_enabled": false,
+        "session_id_masking_enabled": false,
+        "custom_base_url_enabled": false,
+        "has_custom_base_url": false,
+        "privacy_set": false
+      },
+      "credentials_baseline_safe": {
+        "has_model_mapping": true,
+        "has_temp_unschedulable_rules": false,
+        "temp_unschedulable_enabled": false,
+        "intercept_warmup_requests": false,
+        "temp_unschedulable_error_codes": [],
+        "safe_key_inventory": [
+          "base_url",
+          "model_mapping"
+        ]
+      },
+      "extra_key_inventory": [
+        "openai_apikey_responses_websockets_v2_enabled",
+        "openai_apikey_responses_websockets_v2_mode",
+        "openai_responses_supported"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "GPT-A0",
+      "platform": "openai",
+      "type": "oauth",
+      "status": "active",
+      "schedulable": true,
+      "concurrency": 10,
+      "priority": 1,
+      "rate_multiplier": 1.0,
+      "channel_type": 0,
+      "auto_pause_on_expired": true,
+      "runtime_state": {
+        "rate_limited_at": "2026-05-14 02:55:02.463225+00",
+        "rate_limit_reset_at": "2026-05-19 06:17:46.461902+00",
+        "last_used_at": "2026-05-14 02:52:12.235772+00"
+      },
+      "groups": [
+        {
+          "group_id": 2,
+          "group_name": "GPT专线",
+          "group_platform": "openai",
+          "link_priority": 1
+        },
+        {
+          "group_id": 4,
+          "group_name": "free-tier",
+          "group_platform": "openai",
+          "link_priority": 2
+        }
+      ],
+      "extra_baseline": {
+        "base_rpm": 0,
+        "rpm_sticky_buffer": 0,
+        "max_sessions": 0,
+        "session_idle_timeout_minutes": 0,
+        "window_cost_limit": 0,
+        "window_cost_sticky_reserve": 0,
+        "enable_tls_fingerprint": false,
+        "cache_ttl_override_enabled": false,
+        "session_id_masking_enabled": false,
+        "custom_base_url_enabled": false,
+        "has_custom_base_url": false,
+        "privacy_set": false
+      },
+      "credentials_baseline_safe": {
+        "has_model_mapping": false,
+        "has_temp_unschedulable_rules": false,
+        "temp_unschedulable_enabled": false,
+        "intercept_warmup_requests": false,
+        "temp_unschedulable_error_codes": [],
+        "safe_key_inventory": [
+          "_token_version",
+          "chatgpt_account_id",
+          "chatgpt_user_id",
+          "client_id",
+          "email",
+          "expires_at",
+          "organization_id",
+          "plan_type"
+        ]
+      },
+      "extra_key_inventory": [
+        "codex_5h_reset_after_seconds",
+        "codex_5h_reset_at",
+        "codex_5h_used_percent",
+        "codex_5h_window_minutes",
+        "codex_7d_reset_after_seconds",
+        "codex_7d_reset_at",
+        "codex_7d_used_percent",
+        "codex_7d_window_minutes",
+        "codex_primary_over_secondary_percent",
+        "codex_primary_reset_after_seconds",
+        "codex_primary_used_percent",
+        "codex_primary_window_minutes",
+        "codex_secondary_reset_after_seconds",
+        "codex_secondary_used_percent",
+        "codex_secondary_window_minutes",
+        "codex_usage_updated_at",
+        "email",
+        "openai_oauth_responses_websockets_v2_enabled",
+        "openai_oauth_responses_websockets_v2_mode",
+        "privacy_mode"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "GPT-A1",
+      "platform": "openai",
+      "type": "oauth",
+      "status": "active",
+      "schedulable": true,
+      "concurrency": 10,
+      "priority": 1,
+      "rate_multiplier": 1.0,
+      "channel_type": 0,
+      "auto_pause_on_expired": true,
+      "runtime_state": {
+        "rate_limited_at": "2026-05-14 05:52:57.434295+00",
+        "rate_limit_reset_at": "2026-05-19 14:16:30.433536+00",
+        "temp_unschedulable_until": "2026-05-07 10:29:17.164062+00",
+        "temp_unschedulable_reason": "OpenAI 403 temporary cooldown (1/3): Access forbidden (403): You are not allowed to generate embeddings from this model",
+        "last_used_at": "2026-05-14 05:52:56.361605+00"
+      },
+      "groups": [
+        {
+          "group_id": 2,
+          "group_name": "GPT专线",
+          "group_platform": "openai",
+          "link_priority": 2
+        },
+        {
+          "group_id": 4,
+          "group_name": "free-tier",
+          "group_platform": "openai",
+          "link_priority": 1
+        }
+      ],
+      "extra_baseline": {
+        "base_rpm": 0,
+        "rpm_sticky_buffer": 0,
+        "max_sessions": 0,
+        "session_idle_timeout_minutes": 0,
+        "window_cost_limit": 0,
+        "window_cost_sticky_reserve": 0,
+        "enable_tls_fingerprint": false,
+        "cache_ttl_override_enabled": false,
+        "session_id_masking_enabled": false,
+        "custom_base_url_enabled": false,
+        "has_custom_base_url": false,
+        "privacy_set": false
+      },
+      "credentials_baseline_safe": {
+        "has_model_mapping": false,
+        "has_temp_unschedulable_rules": true,
+        "temp_unschedulable_enabled": true,
+        "intercept_warmup_requests": false,
+        "temp_unschedulable_error_codes": [
+          429
+        ],
+        "safe_key_inventory": [
+          "_token_version",
+          "chatgpt_account_id",
+          "chatgpt_user_id",
+          "client_id",
+          "email",
+          "expires_at",
+          "organization_id",
+          "plan_type",
+          "temp_unschedulable_enabled",
+          "temp_unschedulable_rules"
+        ]
+      },
+      "extra_key_inventory": [
+        "codex_5h_reset_after_seconds",
+        "codex_5h_reset_at",
+        "codex_5h_used_percent",
+        "codex_5h_window_minutes",
+        "codex_7d_reset_after_seconds",
+        "codex_7d_reset_at",
+        "codex_7d_used_percent",
+        "codex_7d_window_minutes",
+        "codex_primary_over_secondary_percent",
+        "codex_primary_reset_after_seconds",
+        "codex_primary_used_percent",
+        "codex_primary_window_minutes",
+        "codex_secondary_reset_after_seconds",
+        "codex_secondary_used_percent",
+        "codex_secondary_window_minutes",
+        "codex_usage_updated_at",
+        "email",
+        "openai_oauth_responses_websockets_v2_enabled",
+        "openai_oauth_responses_websockets_v2_mode",
+        "privacy_mode"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "GPT-A2",
+      "platform": "openai",
+      "type": "oauth",
+      "status": "active",
+      "schedulable": true,
+      "concurrency": 110,
+      "priority": 1,
+      "rate_multiplier": 1.0,
+      "channel_type": 0,
+      "auto_pause_on_expired": true,
+      "runtime_state": {
+        "last_used_at": "2026-05-15 23:25:52.975742+00"
+      },
+      "groups": [
+        {
+          "group_id": 6,
+          "group_name": "GPT-pro",
+          "group_platform": "openai",
+          "link_priority": 3
+        },
+        {
+          "group_id": 2,
+          "group_name": "GPT专线",
+          "group_platform": "openai",
+          "link_priority": 1
+        },
+        {
+          "group_id": 4,
+          "group_name": "free-tier",
+          "group_platform": "openai",
+          "link_priority": 2
+        }
+      ],
+      "extra_baseline": {
+        "base_rpm": 0,
+        "rpm_sticky_buffer": 0,
+        "max_sessions": 0,
+        "session_idle_timeout_minutes": 0,
+        "window_cost_limit": 0,
+        "window_cost_sticky_reserve": 0,
+        "enable_tls_fingerprint": false,
+        "cache_ttl_override_enabled": false,
+        "session_id_masking_enabled": false,
+        "custom_base_url_enabled": false,
+        "has_custom_base_url": false,
+        "privacy_set": false
+      },
+      "credentials_baseline_safe": {
+        "has_model_mapping": false,
+        "has_temp_unschedulable_rules": false,
+        "temp_unschedulable_enabled": false,
+        "intercept_warmup_requests": false,
+        "temp_unschedulable_error_codes": [],
+        "safe_key_inventory": [
+          "_token_version",
+          "chatgpt_account_id",
+          "chatgpt_user_id",
+          "client_id",
+          "email",
+          "expires_at",
+          "organization_id",
+          "plan_type"
+        ]
+      },
+      "extra_key_inventory": [
+        "codex_5h_reset_after_seconds",
+        "codex_5h_reset_at",
+        "codex_5h_used_percent",
+        "codex_5h_window_minutes",
+        "codex_7d_reset_after_seconds",
+        "codex_7d_reset_at",
+        "codex_7d_used_percent",
+        "codex_7d_window_minutes",
+        "codex_primary_over_secondary_percent",
+        "codex_primary_reset_after_seconds",
+        "codex_primary_used_percent",
+        "codex_primary_window_minutes",
+        "codex_secondary_reset_after_seconds",
+        "codex_secondary_used_percent",
+        "codex_secondary_window_minutes",
+        "codex_usage_updated_at",
+        "email",
+        "openai_oauth_responses_websockets_v2_enabled",
+        "openai_oauth_responses_websockets_v2_mode",
+        "privacy_mode"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "GPT-A3",
+      "platform": "openai",
+      "type": "oauth",
+      "status": "active",
+      "schedulable": true,
+      "concurrency": 110,
+      "priority": 1,
+      "rate_multiplier": 1.0,
+      "channel_type": 0,
+      "auto_pause_on_expired": true,
+      "runtime_state": {
+        "rate_limited_at": "2026-05-03 13:14:45.977364+00",
+        "rate_limit_reset_at": "2026-05-03 13:19:45.977266+00",
+        "last_used_at": "2026-05-15 23:19:01.892621+00"
+      },
+      "groups": [
+        {
+          "group_id": 6,
+          "group_name": "GPT-pro",
+          "group_platform": "openai",
+          "link_priority": 3
+        },
+        {
+          "group_id": 2,
+          "group_name": "GPT专线",
+          "group_platform": "openai",
+          "link_priority": 1
+        },
+        {
+          "group_id": 4,
+          "group_name": "free-tier",
+          "group_platform": "openai",
+          "link_priority": 2
+        }
+      ],
+      "extra_baseline": {
+        "base_rpm": 0,
+        "rpm_sticky_buffer": 0,
+        "max_sessions": 0,
+        "session_idle_timeout_minutes": 0,
+        "window_cost_limit": 0,
+        "window_cost_sticky_reserve": 0,
+        "enable_tls_fingerprint": false,
+        "cache_ttl_override_enabled": false,
+        "session_id_masking_enabled": false,
+        "custom_base_url_enabled": false,
+        "has_custom_base_url": false,
+        "privacy_set": false
+      },
+      "credentials_baseline_safe": {
+        "has_model_mapping": false,
+        "has_temp_unschedulable_rules": false,
+        "temp_unschedulable_enabled": false,
+        "intercept_warmup_requests": false,
+        "temp_unschedulable_error_codes": [],
+        "safe_key_inventory": [
+          "_token_version",
+          "chatgpt_account_id",
+          "chatgpt_user_id",
+          "client_id",
+          "email",
+          "expires_at",
+          "organization_id",
+          "plan_type"
+        ]
+      },
+      "extra_key_inventory": [
+        "codex_5h_reset_after_seconds",
+        "codex_5h_reset_at",
+        "codex_5h_used_percent",
+        "codex_5h_window_minutes",
+        "codex_7d_reset_after_seconds",
+        "codex_7d_reset_at",
+        "codex_7d_used_percent",
+        "codex_7d_window_minutes",
+        "codex_primary_over_secondary_percent",
+        "codex_primary_reset_after_seconds",
+        "codex_primary_used_percent",
+        "codex_primary_window_minutes",
+        "codex_secondary_reset_after_seconds",
+        "codex_secondary_used_percent",
+        "codex_secondary_window_minutes",
+        "codex_usage_updated_at",
+        "email",
+        "openai_oauth_responses_websockets_v2_enabled",
+        "openai_oauth_responses_websockets_v2_mode",
+        "privacy_mode"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "GPT-pro1",
+      "platform": "openai",
+      "type": "oauth",
+      "status": "active",
+      "schedulable": true,
+      "concurrency": 110,
+      "priority": 1,
+      "rate_multiplier": 1.0,
+      "channel_type": 0,
+      "auto_pause_on_expired": true,
+      "runtime_state": {
+        "rate_limited_at": "2026-05-03 13:17:36.167976+00",
+        "rate_limit_reset_at": "2026-05-03 13:22:36.16786+00",
+        "last_used_at": "2026-05-15 23:25:41.743634+00"
+      },
+      "groups": [
+        {
+          "group_id": 6,
+          "group_name": "GPT-pro",
+          "group_platform": "openai",
+          "link_priority": 1
+        },
+        {
+          "group_id": 2,
+          "group_name": "GPT专线",
+          "group_platform": "openai",
+          "link_priority": 2
+        },
+        {
+          "group_id": 4,
+          "group_name": "free-tier",
+          "group_platform": "openai",
+          "link_priority": 3
+        }
+      ],
+      "extra_baseline": {
+        "base_rpm": 0,
+        "rpm_sticky_buffer": 0,
+        "max_sessions": 0,
+        "session_idle_timeout_minutes": 0,
+        "window_cost_limit": 0,
+        "window_cost_sticky_reserve": 0,
+        "enable_tls_fingerprint": false,
+        "cache_ttl_override_enabled": false,
+        "session_id_masking_enabled": false,
+        "custom_base_url_enabled": false,
+        "has_custom_base_url": false,
+        "privacy_set": false
+      },
+      "credentials_baseline_safe": {
+        "has_model_mapping": false,
+        "has_temp_unschedulable_rules": false,
+        "temp_unschedulable_enabled": false,
+        "intercept_warmup_requests": false,
+        "temp_unschedulable_error_codes": [],
+        "safe_key_inventory": [
+          "_token_version",
+          "chatgpt_account_id",
+          "chatgpt_user_id",
+          "client_id",
+          "email",
+          "expires_at",
+          "organization_id",
+          "plan_type"
+        ]
+      },
+      "extra_key_inventory": [
+        "codex_5h_reset_after_seconds",
+        "codex_5h_reset_at",
+        "codex_5h_used_percent",
+        "codex_5h_window_minutes",
+        "codex_7d_reset_after_seconds",
+        "codex_7d_reset_at",
+        "codex_7d_used_percent",
+        "codex_7d_window_minutes",
+        "codex_primary_over_secondary_percent",
+        "codex_primary_reset_after_seconds",
+        "codex_primary_used_percent",
+        "codex_primary_window_minutes",
+        "codex_secondary_reset_after_seconds",
+        "codex_secondary_used_percent",
+        "codex_secondary_window_minutes",
+        "codex_usage_updated_at",
+        "email",
+        "openai_oauth_responses_websockets_v2_enabled",
+        "openai_oauth_responses_websockets_v2_mode",
+        "privacy_mode"
+      ]
+    }
+  ]
+}
