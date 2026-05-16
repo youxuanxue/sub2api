@@ -64,6 +64,49 @@
         "backend/internal/repository/user_subscription_repo.go:usersubscription.ExpiresAtGT(time.Now())",
         "backend/internal/repository/user_subscription_repo_integration_test.go:TestExistsByUserIDAndGroupID_IgnoresExpiredAndNonActive"
       ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2506",
+      "severity": "high",
+      "summary": "normalizeClaudeOAuthRequestBody now skips auto-injecting context_management for Haiku models, mirroring the existing Haiku exemption in the anthropic-beta header path; Anthropic /v1/messages would otherwise return HTTP 400 for claude-haiku-4-5-* when thinking.type is enabled.",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_service_tk_haiku_context_management_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/gateway_service.go:See upstream Wei-Shaw/sub2api#2506",
+        "backend/internal/service/gateway_service.go:!strings.Contains(strings.ToLower(modelID), \"haiku\")",
+        "backend/internal/service/gateway_service_tk_haiku_context_management_test.go:TestNormalizeClaudeOAuthRequestBody_Haiku45_ThinkingEnabled_DoesNotInjectContextManagement"
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2500",
+      "severity": "high",
+      "summary": "fixCallIDPrefix in openai_codex_transform.go now produces fc_<id> (with underscore) for call_<id> inputs, matching the fallback branch and the codex backend's id validator; missing underscore caused HTTP 400 on the chatgpt.com codex OAuth path and surfaced as 502 on multi-hop tool turns.",
+      "fixed_by": [
+        "backend/internal/service/openai_codex_transform.go",
+        "backend/internal/service/openai_codex_transform_tk_call_id_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_codex_transform.go:return \"fc_\" + strings.TrimPrefix(id, \"call_\")",
+        "backend/internal/service/openai_codex_transform.go:See upstream Wei-Shaw/sub2api#2500",
+        "backend/internal/service/openai_codex_transform_tk_call_id_test.go:TestApplyCodexOAuthTransform_FunctionCallNanoidIDIsCodexFcUnderscore"
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1311",
+      "severity": "high",
+      "summary": "Non-stream /v1/chat/completions and /v1/messages buffered handlers now explicitly set Content-Type: application/json after WriteFilteredHeaders, preventing the upstream Responses SSE Content-Type from leaking onto a JSON body and breaking OpenAI-SDK consumers that branch on Content-Type.",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_chat_completions.go",
+        "backend/internal/service/openai_gateway_messages.go",
+        "backend/internal/service/openai_gateway_chat_completions_tk_content_type_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_gateway_chat_completions.go:Wei-Shaw/sub2api#1311",
+        "backend/internal/service/openai_gateway_messages.go:Wei-Shaw/sub2api#1311",
+        "backend/internal/service/openai_gateway_chat_completions_tk_content_type_test.go:TestForwardAsChatCompletions_NonStream_ReturnsApplicationJSONContentType"
+      ]
     }
   ]
 }

@@ -552,6 +552,13 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	}
+	// Same fix as the chat.completions buffered path: upstream is Responses SSE
+	// and we buffered into JSON; without this, the client would see a JSON body
+	// with `Content-Type: text/event-stream` because gin's c.JSON does not
+	// overwrite an already-set Content-Type. See upstream Wei-Shaw/sub2api#1311
+	// (reported for /v1/chat/completions but the same root cause applies to
+	// /v1/messages non-stream).
+	c.Writer.Header().Set("Content-Type", "application/json")
 	c.JSON(http.StatusOK, anthropicResp)
 
 	incompleteReason := ""

@@ -1022,6 +1022,13 @@ func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []an
 
 		// 仅修正真正的 tool/function call 标识，避免误改普通 message/reasoning id；
 		// 若 item_reference 指向 legacy call_* 标识，则仅修正该引用本身。
+		// fixCallIDPrefix normalizes tool-call ids to codex's `fc_<id>` form.
+		// The "call_" branch previously omitted the underscore, producing
+		// `fc<id>` which the chatgpt.com codex backend rejects with HTTP 400
+		// ("Expected an ID that contains letters, numbers, underscores, or
+		// dashes, but this value contained additional characters"). The
+		// fallback branch already uses `fc_`; this branch is aligned with it.
+		// See upstream Wei-Shaw/sub2api#2500.
 		fixCallIDPrefix := func(id string) string {
 			if opts.PreserveCallIDs {
 				return id
@@ -1030,7 +1037,7 @@ func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []an
 				return id
 			}
 			if strings.HasPrefix(id, "call_") {
-				return "fc" + strings.TrimPrefix(id, "call_")
+				return "fc_" + strings.TrimPrefix(id, "call_")
 			}
 			return "fc_" + id
 		}
