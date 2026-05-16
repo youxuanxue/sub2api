@@ -811,8 +811,11 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 		}
 
 		// 仅按兼容转换器支持的终止事件提取 usage，避免无意扩大事件语义。
-		if event.Type == "response.output_text.delta" && event.Delta != "" {
-			contentTextLen += utf8.RuneCountInString(event.Delta)
+		switch event.Type {
+		case "response.output_text.delta", "response.reasoning_summary_text.delta":
+			if event.Delta != "" {
+				contentTextLen += utf8.RuneCountInString(event.Delta)
+			}
 		}
 
 		isTerminalEvent := isOpenAICompatResponsesTerminalEvent(event.Type)
