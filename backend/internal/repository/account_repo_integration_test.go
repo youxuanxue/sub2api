@@ -496,6 +496,52 @@ func (s *AccountRepoSuite) TestPreload_And_VirtualFields() {
 	s.Require().Equal(group.ID, accounts[0].GroupIDs[0])
 }
 
+// TestPreload_SkipsDisabledProxy asserts upstream #2159: when an account is
+// bound to a proxy that has been disabled (status != "active"), the proxy
+// must NOT be attached to the account on load. account.Proxy stays nil so
+// outbound forwarding falls back to direct upstream (which is operator intent
+// for "disable this proxy"), rather than continuing to route through a proxy
+// the operator explicitly turned off.
+func (s *AccountRepoSuite) TestPreload_SkipsDisabledProxy() {
+	disabledProxy := mustCreateProxy(s.T(), s.client, &service.Proxy{Name: "p-disabled", Status: "disabled"})
+	activeProxy := mustCreateProxy(s.T(), s.client, &service.Proxy{Name: "p-active"})
+
+	accDisabled := mustCreateAccount(s.T(), s.client, &service.Account{
+		Name:    "acc-with-disabled-proxy",
+		ProxyID: &disabledProxy.ID,
+	})
+	accActive := mustCreateAccount(s.T(), s.client, &service.Account{
+		Name:    "acc-with-active-proxy",
+		ProxyID: &activeProxy.ID,
+	})
+
+	// Disabled proxy: account.ProxyID still records the binding for admin UI,
+	// but account.Proxy must be nil so callers skip proxy routing at runtime.
+	gotDisabled, err := s.repo.GetByID(s.ctx, accDisabled.ID)
+	s.Require().NoError(err, "GetByID disabled-proxy account")
+	s.Require().NotNil(gotDisabled.ProxyID, "ProxyID binding preserved on the account record")
+	s.Require().Equal(disabledProxy.ID, *gotDisabled.ProxyID)
+	s.Require().Nil(gotDisabled.Proxy, "disabled proxy must not be attached to account at load")
+
+	// Active proxy: normal preload.
+	gotActive, err := s.repo.GetByID(s.ctx, accActive.ID)
+	s.Require().NoError(err, "GetByID active-proxy account")
+	s.Require().NotNil(gotActive.Proxy, "active proxy must be attached as before")
+	s.Require().Equal(activeProxy.ID, gotActive.Proxy.ID)
+
+	// Same behavior on list paths.
+	accounts, _, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, "", "", "", "", 0, "")
+	s.Require().NoError(err, "ListWithFilters")
+	byID := make(map[int64]service.Account, len(accounts))
+	for _, a := range accounts {
+		byID[a.ID] = a
+	}
+	s.Require().Contains(byID, accDisabled.ID)
+	s.Require().Contains(byID, accActive.ID)
+	s.Require().Nil(byID[accDisabled.ID].Proxy, "list path must also skip disabled proxy")
+	s.Require().NotNil(byID[accActive.ID].Proxy, "list path must still attach active proxy")
+}
+
 // --- GroupBinding / AddToGroup / RemoveFromGroup / BindGroups / GetGroups ---
 
 func (s *AccountRepoSuite) TestGroupBinding_And_BindGroups() {

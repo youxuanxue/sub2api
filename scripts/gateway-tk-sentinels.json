@@ -59,8 +59,18 @@
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
-      "must_contain": ["case 404:", "s.handle404(ctx, account, upstreamMsg, responseBody)", "anthropic404ModelCooldown", "isAnthropicModelNotFound404", "SetModelRateLimit(ctx, account.ID, modelName, resetAt)", "isAnthropicExtraUsage429", "s.apply429FallbackRateLimit(ctx, account, \"no_reset_time\")"],
-      "rationale": "Anthropic model-not-found 404s must stay model-scoped instead of falling through as an unprotected upstream error or disabling the whole OAuth account. Anthropic 429s without reset metadata must use the configurable short cooldown unless the body is the known third-party/extra-usage rejection, otherwise production can repeatedly hit the same account with no local backoff. Upstream merges in this large service file can compile cleanly while dropping either protection, so the sentinel anchors both policies in the hotspot file."
+      "must_contain": ["case 404:", "s.handle404(ctx, account, upstreamMsg, responseBody)", "anthropic404ModelCooldown", "isAnthropicModelNotFound404", "SetModelRateLimit(ctx, account.ID, modelName, resetAt)", "isAnthropicExtraUsage429", "s.apply429FallbackRateLimit(ctx, account, \"no_reset_time\")", "TkRecordOpenAI429BurstFallthrough(normalized)"],
+      "rationale": "Anthropic model-not-found 404s must stay model-scoped instead of falling through as an unprotected upstream error or disabling the whole OAuth account. Anthropic 429s without reset metadata must use the configurable short cooldown unless the body is the known third-party/extra-usage rejection, otherwise production can repeatedly hit the same account with no local backoff. OpenAI burst 429s (Codex headers present but neither 5h nor 7d window at 100% used+with-reset) must call the TK companion TkRecordOpenAI429BurstFallthrough and return nil so handle429 falls back to the short cooldown, otherwise transient throttle surges turn into multi-day 503 windows (upstream #2258). Upstream merges in this large service file can compile cleanly while dropping any of these protections, so the sentinel anchors all three policies in the hotspot file."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_openai_burst.go",
+      "must_contain": ["func TkIsOpenAI429TransientBurst(normalized *NormalizedCodexLimits) bool", "func TkRecordOpenAI429BurstFallthrough(normalized *NormalizedCodexLimits)", "openai_429_burst_below_window_limits", "is7dExhausted := normalized.Used7dPercent != nil && *normalized.Used7dPercent >= 100 && normalized.Reset7dSeconds != nil", "is5hExhausted := normalized.Used5hPercent != nil && *normalized.Used5hPercent >= 100 && normalized.Reset5hSeconds != nil"],
+      "rationale": "TK companion that holds the OpenAI burst-429 policy referenced from calculateOpenAI429ResetTime (upstream #2258). The predicate must require BOTH `used >= 100` AND a non-nil reset value to treat a window as exhausted; without the reset clause, a 100%-but-no-reset signal would skip the short-cooldown fallback and re-introduce multi-day 503 windows. The slog marker `openai_429_burst_below_window_limits` is the observability sentinel operators alert on."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_openai_burst_test.go",
+      "must_contain": ["TestTkIsOpenAI429TransientBurst", "TestTkRecordOpenAI429BurstFallthrough_HandlesNil"],
+      "rationale": "Focused regressions proving the burst predicate handles the four exhausted/with-reset crossings (and nil snapshot) correctly. Dropping these lets the upstream-merge regression sneak back through unit CI."
     },
     {
       "path": "backend/internal/service/ratelimit_404_model_not_found_test.go",
@@ -155,6 +165,41 @@
         "chatBody = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, chatBody, upstreamModel)"
       ],
       "rationale": "Anthropic-shaped requests converted to Chat Completions must preserve metadata blobs and apply unified sticky injection so Claude Code identities and session affinity survive OpenAI-compat bridge paths during scheduling."
+    },
+    {
+      "path": "backend/internal/service/model_pricing_resolver.go",
+      "must_contain": ["tkApplyChannelFlatOverridesAsFallback(chPricing, resolved)"],
+      "rationale": "TK channel-pricing fallback (upstream #2107): applyTokenOverrides MUST delegate the flat-default application to the TK companion regardless of whether intervals are configured. An upstream merge that restores the original early-return-on-intervals path silently re-introduces $0 billing for custom newapi-channel models on out-of-range token counts."
+    },
+    {
+      "path": "backend/internal/service/model_pricing_resolver_tk_channel_flat_fallback.go",
+      "must_contain": ["func tkApplyChannelFlatOverridesAsFallback(chPricing *ChannelModelPricing, resolved *ResolvedPricing)", "resolved.BasePricing.InputPricePerToken = *chPricing.InputPrice", "resolved.BasePricing.OutputPricePerToken = *chPricing.OutputPrice", "resolved.BasePricing.CacheReadPricePerToken = *chPricing.CacheReadPrice", "resolved.BasePricing.CacheCreationPricePerToken = *chPricing.CacheWritePrice"],
+      "rationale": "TK companion holding the channel flat-fallback policy referenced from applyTokenOverrides (upstream #2107). Each flat field write is sentinel-pinned so a future change cannot drop one of the five pricing dimensions silently — operators rely on each (input/output/cache-read/cache-write/image-output) being honored as the out-of-range fallback."
+    },
+    {
+      "path": "backend/internal/service/model_pricing_resolver_test.go",
+      "must_contain": ["TestGetIntervalPricing_ChannelIntervalsNoMatch_FlatDefaultsApplied", "TestGetIntervalPricing_ChannelIntervalsNoMatch_UnknownModelChargesFlatNotZero"],
+      "rationale": "Focused regressions for upstream #2107: out-of-range token counts must hit channel flat defaults for both LiteLLM-known and LiteLLM-unknown models. Dropping these tests lets the early-return-on-intervals bug return without unit-CI noticing."
+    },
+    {
+      "path": "backend/internal/repository/account_repo.go",
+      "must_contain": ["dbproxy.StatusEQ(service.StatusActive)", "entAcc.Edges.Proxy.Status == service.StatusActive"],
+      "rationale": "TK proxy-status filter (upstream #2159): account preload paths MUST filter out non-active proxies on both the manual loadProxies query and the WithProxy() edge-preload branch. Disabled proxies leaking back into account.Proxy contradicts operator intent and re-routes traffic through proxies that were explicitly turned off (compliance/IP-rotation regression)."
+    },
+    {
+      "path": "backend/internal/repository/account_repo_integration_test.go",
+      "must_contain": ["TestPreload_SkipsDisabledProxy"],
+      "rationale": "Focused regression for upstream #2159 covering both GetByID and ListWithFilters paths. Dropping this test lets the proxy filter regression sneak back through integration CI."
+    },
+    {
+      "path": "backend/internal/repository/user_subscription_repo.go",
+      "must_contain": ["usersubscription.StatusEQ(service.SubscriptionStatusActive)", "usersubscription.ExpiresAtGT(time.Now())"],
+      "rationale": "TK active-subscription predicate (upstream #2478): ExistsByUserIDAndGroupID and GetActiveByUserIDAndGroupID MUST gate on BOTH status=active AND expires_at>now. Without this, expired-yet-not-soft-deleted rows return exists=true and the reassignment flow blocks legitimate renewals with 409 validity_days_mismatch — a user-paid-but-no-access regression."
+    },
+    {
+      "path": "backend/internal/repository/user_subscription_repo_integration_test.go",
+      "must_contain": ["TestExistsByUserIDAndGroupID_IgnoresExpiredAndNonActive"],
+      "rationale": "Focused regression for upstream #2478 covering the three non-active variants (expired by date, expired by status, suspended). Dropping this test lets the reassignment-block bug sneak back through integration CI."
     }
   ]
 }

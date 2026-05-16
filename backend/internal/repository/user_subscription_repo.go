@@ -268,10 +268,23 @@ func (r *userSubscriptionRepository) List(ctx context.Context, params pagination
 	return userSubscriptionEntitiesToService(subs), paginationResultFromTotal(int64(total), params), nil
 }
 
+// ExistsByUserIDAndGroupID reports whether an *active, non-expired* subscription
+// already exists for the (user, group) pair. The reassignment flow uses this to
+// decide whether to reuse vs. create; expired or suspended rows must not block
+// reassignment with a 409 validity_days_mismatch (see upstream #2478).
+//
+// Predicate mirrors GetActiveByUserIDAndGroupID so the reassignment path stays
+// internally consistent. Soft-deleted rows are filtered automatically by the
+// Ent SoftDeleteMixin interceptor.
 func (r *userSubscriptionRepository) ExistsByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (bool, error) {
 	client := clientFromContext(ctx, r.client)
 	return client.UserSubscription.Query().
-		Where(usersubscription.UserIDEQ(userID), usersubscription.GroupIDEQ(groupID)).
+		Where(
+			usersubscription.UserIDEQ(userID),
+			usersubscription.GroupIDEQ(groupID),
+			usersubscription.StatusEQ(service.SubscriptionStatusActive),
+			usersubscription.ExpiresAtGT(time.Now()),
+		).
 		Exist(ctx)
 }
 

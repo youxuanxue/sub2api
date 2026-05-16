@@ -133,42 +133,15 @@ func (r *ModelPricingResolver) applyChannelOverrides(ctx context.Context, groupI
 	}
 }
 
-// applyTokenOverrides 应用 token 模式的渠道覆盖
+// applyTokenOverrides 应用 token 模式的渠道覆盖。
+//
+// TK policy (upstream #2107): operator-configured flat fields always also
+// land on BasePricing as the "out-of-range fallback" — see TK companion
+// tkApplyChannelFlatOverridesAsFallback in
+// model_pricing_resolver_tk_channel_flat_fallback.go.
 func (r *ModelPricingResolver) applyTokenOverrides(chPricing *ChannelModelPricing, resolved *ResolvedPricing) {
-	// 过滤掉所有价格字段都为空的无效 interval
-	validIntervals := filterValidIntervals(chPricing.Intervals)
-
-	// 如果有有效的区间定价，使用区间
-	if len(validIntervals) > 0 {
-		resolved.Intervals = validIntervals
-		return
-	}
-
-	// 否则用 flat 字段覆盖 BasePricing
-	if resolved.BasePricing == nil {
-		resolved.BasePricing = &ModelPricing{}
-	}
-
-	if chPricing.InputPrice != nil {
-		resolved.BasePricing.InputPricePerToken = *chPricing.InputPrice
-		resolved.BasePricing.InputPricePerTokenPriority = *chPricing.InputPrice
-	}
-	if chPricing.OutputPrice != nil {
-		resolved.BasePricing.OutputPricePerToken = *chPricing.OutputPrice
-		resolved.BasePricing.OutputPricePerTokenPriority = *chPricing.OutputPrice
-	}
-	if chPricing.CacheWritePrice != nil {
-		resolved.BasePricing.CacheCreationPricePerToken = *chPricing.CacheWritePrice
-		resolved.BasePricing.CacheCreation5mPrice = *chPricing.CacheWritePrice
-		resolved.BasePricing.CacheCreation1hPrice = *chPricing.CacheWritePrice
-	}
-	if chPricing.CacheReadPrice != nil {
-		resolved.BasePricing.CacheReadPricePerToken = *chPricing.CacheReadPrice
-		resolved.BasePricing.CacheReadPricePerTokenPriority = *chPricing.CacheReadPrice
-	}
-	if chPricing.ImageOutputPrice != nil {
-		resolved.BasePricing.ImageOutputPricePerToken = *chPricing.ImageOutputPrice
-	}
+	resolved.Intervals = filterValidIntervals(chPricing.Intervals)
+	tkApplyChannelFlatOverridesAsFallback(chPricing, resolved)
 }
 
 // applyRequestTierOverrides 应用按次/图片模式的渠道覆盖

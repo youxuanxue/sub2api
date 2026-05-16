@@ -214,8 +214,10 @@ func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*servi
 			continue
 		}
 
-		// Prefer the preloaded proxy edge when available.
-		if entAcc.Edges.Proxy != nil {
+		// Prefer the preloaded proxy edge when available, but only attach an
+		// active proxy — disabled proxies must not surface as account.Proxy so
+		// outbound forwarding skips them. See upstream #2159.
+		if entAcc.Edges.Proxy != nil && entAcc.Edges.Proxy.Status == service.StatusActive {
 			out.Proxy = proxyEntityToService(entAcc.Edges.Proxy)
 		}
 
@@ -1614,13 +1616,28 @@ func notExpiredPredicate(now time.Time) dbpredicate.Account {
 	)
 }
 
+// loadProxies attaches proxy records to accounts, but only when the proxy is
+// currently active. Disabled proxies are silently dropped from the returned map,
+// so callers see account.Proxy == nil and skip outbound routing through the
+// disabled proxy (fall back to direct upstream). This matches operator intent
+// when toggling a proxy off — disabled means "stop using this route".
+//
+// Operators that want hard-fail on disabled proxies (instead of fallback to
+// direct) should mark the bound accounts inactive separately.
+//
+// See upstream #2159.
 func (r *accountRepository) loadProxies(ctx context.Context, proxyIDs []int64) (map[int64]*service.Proxy, error) {
 	proxyMap := make(map[int64]*service.Proxy)
 	if len(proxyIDs) == 0 {
 		return proxyMap, nil
 	}
 
-	proxies, err := r.client.Proxy.Query().Where(dbproxy.IDIn(proxyIDs...)).All(ctx)
+	proxies, err := r.client.Proxy.Query().
+		Where(
+			dbproxy.IDIn(proxyIDs...),
+			dbproxy.StatusEQ(service.StatusActive),
+		).
+		All(ctx)
 	if err != nil {
 		return nil, err
 	}

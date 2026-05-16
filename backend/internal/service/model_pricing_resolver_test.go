@@ -505,6 +505,76 @@ func TestGetIntervalPricing_ChannelIntervalsNoMatch(t *testing.T) {
 	require.InDelta(t, 3e-6, pricing.InputPricePerToken, 1e-12) // original base price
 }
 
+// TestGetIntervalPricing_ChannelIntervalsNoMatch_FlatDefaultsApplied asserts
+// upstream #2107: when a channel configures BOTH interval pricing AND flat
+// defaults (InputPrice / OutputPrice / Cache*), an out-of-range token count
+// must fall back to those operator-configured flat defaults — NOT to LiteLLM
+// catalog pricing (or nil → $0 for unknown models).
+func TestGetIntervalPricing_ChannelIntervalsNoMatch_FlatDefaultsApplied(t *testing.T) {
+	r := newResolverWithChannel(t, []ChannelModelPricing{{
+		Platform:    "anthropic",
+		Models:      []string{"claude-sonnet-4"},
+		BillingMode: BillingModeToken,
+		// Operator configures both intervals and a flat default.
+		InputPrice:      testPtrFloat64(11e-6),
+		OutputPrice:     testPtrFloat64(33e-6),
+		CacheReadPrice:  testPtrFloat64(1e-6),
+		CacheWritePrice: testPtrFloat64(4e-6),
+		Intervals: []PricingInterval{
+			{MinTokens: 50000, MaxTokens: testPtrInt(200000), InputPrice: testPtrFloat64(9e-6), OutputPrice: testPtrFloat64(27e-6)},
+		},
+	}})
+
+	resolved := r.Resolve(context.Background(), PricingInput{
+		Model:   "claude-sonnet-4",
+		GroupID: groupIDPtr(),
+	})
+
+	// In-range token count uses the interval.
+	inRange := r.GetIntervalPricing(resolved, 100000)
+	require.NotNil(t, inRange)
+	require.InDelta(t, 9e-6, inRange.InputPricePerToken, 1e-12)
+	require.InDelta(t, 27e-6, inRange.OutputPricePerToken, 1e-12)
+
+	// Out-of-range token count falls back to the channel's flat defaults.
+	outOfRange := r.GetIntervalPricing(resolved, 1000)
+	require.NotNil(t, outOfRange)
+	require.InDelta(t, 11e-6, outOfRange.InputPricePerToken, 1e-12, "out-of-range InputPrice must use channel flat default, not LiteLLM catalog")
+	require.InDelta(t, 33e-6, outOfRange.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 1e-6, outOfRange.CacheReadPricePerToken, 1e-12)
+	require.InDelta(t, 4e-6, outOfRange.CacheCreationPricePerToken, 1e-12)
+}
+
+// TestGetIntervalPricing_ChannelIntervalsNoMatch_UnknownModelChargesFlatNotZero
+// asserts upstream #2107: a custom model with no LiteLLM entry, configured with
+// intervals + flat defaults, must NOT bill $0 on out-of-range requests.
+func TestGetIntervalPricing_ChannelIntervalsNoMatch_UnknownModelChargesFlatNotZero(t *testing.T) {
+	r := newResolverWithChannel(t, []ChannelModelPricing{{
+		Platform:    "anthropic",
+		Models:      []string{"custom-model-no-litellm"},
+		BillingMode: BillingModeToken,
+		InputPrice:  testPtrFloat64(7e-6),
+		OutputPrice: testPtrFloat64(21e-6),
+		Intervals: []PricingInterval{
+			{MinTokens: 50000, MaxTokens: testPtrInt(200000), InputPrice: testPtrFloat64(9e-6), OutputPrice: testPtrFloat64(27e-6)},
+		},
+	}})
+
+	resolved := r.Resolve(context.Background(), PricingInput{
+		Model:   "custom-model-no-litellm",
+		GroupID: groupIDPtr(),
+	})
+
+	require.NotNil(t, resolved)
+	require.Len(t, resolved.Intervals, 1)
+
+	// Out-of-range: must not return nil (was the bug — $0 billing for unknown models).
+	pricing := r.GetIntervalPricing(resolved, 1000)
+	require.NotNil(t, pricing, "out-of-range pricing must not be nil — would cause $0 billing")
+	require.InDelta(t, 7e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 21e-6, pricing.OutputPricePerToken, 1e-12)
+}
+
 // ===========================================================================
 // 6. Error path tests
 // ===========================================================================

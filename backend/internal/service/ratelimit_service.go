@@ -1073,20 +1073,12 @@ func calculateOpenAI429ResetTime(headers http.Header) *time.Time {
 		return &resetAt
 	}
 
-	// 都未达到100%但收到429，使用较长的重置时间
-	var maxResetSecs int
-	if normalized.Reset7dSeconds != nil && *normalized.Reset7dSeconds > maxResetSecs {
-		maxResetSecs = *normalized.Reset7dSeconds
-	}
-	if normalized.Reset5hSeconds != nil && *normalized.Reset5hSeconds > maxResetSecs {
-		maxResetSecs = *normalized.Reset5hSeconds
-	}
-	if maxResetSecs > 0 {
-		resetAt := now.Add(time.Duration(maxResetSecs) * time.Second)
-		slog.Info("openai_429_using_max_reset", "max_reset_seconds", maxResetSecs, "reset_at", resetAt)
-		return &resetAt
-	}
-
+	// TK policy (upstream #2258): neither 5h nor 7d window has both
+	// `used >= 100` AND a reset value. Treat as burst/throttle 429 and let
+	// handle429 fall through to the configurable short cooldown. The policy
+	// + log live in ratelimit_service_tk_openai_burst.go; this file only
+	// records the decision.
+	TkRecordOpenAI429BurstFallthrough(normalized)
 	return nil
 }
 
