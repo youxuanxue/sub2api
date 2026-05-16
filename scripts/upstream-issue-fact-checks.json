@@ -96,16 +96,28 @@
     {
       "upstream": "Wei-Shaw/sub2api#1311",
       "severity": "high",
-      "summary": "Non-stream /v1/chat/completions and /v1/messages buffered handlers now explicitly set Content-Type: application/json after WriteFilteredHeaders, preventing the upstream Responses SSE Content-Type from leaking onto a JSON body and breaking OpenAI-SDK consumers that branch on Content-Type.",
+      "summary": "Non-stream buffered SSE->JSON handlers in both the OpenAI gateway (/v1/chat/completions, /v1/messages) and the Anthropic-backed gateway forward paths (Responses, Chat Completions) now explicitly set Content-Type: application/json after WriteFilteredHeaders. Without this, the upstream SSE Content-Type (text/event-stream) leaks onto JSON bodies because gin's render.writeContentType only writes when no Content-Type is set, breaking OpenAI-SDK consumers that branch on Content-Type.",
       "fixed_by": [
         "backend/internal/service/openai_gateway_chat_completions.go",
         "backend/internal/service/openai_gateway_messages.go",
-        "backend/internal/service/openai_gateway_chat_completions_tk_content_type_test.go"
+        "backend/internal/service/openai_gateway_chat_completions_tk_content_type_test.go",
+        "backend/internal/service/gateway_forward_as_responses.go",
+        "backend/internal/service/gateway_forward_as_chat_completions.go",
+        "backend/internal/service/gateway_forward_as_responses_tk_content_type_test.go",
+        "backend/internal/service/gateway_forward_as_chat_completions_tk_content_type_test.go",
+        "backend/internal/service/openai_images_responses.go",
+        "scripts/check-buffered-content-type-leak.py"
       ],
       "fixed_if_all_present": [
         "backend/internal/service/openai_gateway_chat_completions.go:Wei-Shaw/sub2api#1311",
         "backend/internal/service/openai_gateway_messages.go:Wei-Shaw/sub2api#1311",
-        "backend/internal/service/openai_gateway_chat_completions_tk_content_type_test.go:TestForwardAsChatCompletions_NonStream_ReturnsApplicationJSONContentType"
+        "backend/internal/service/openai_gateway_chat_completions_tk_content_type_test.go:TestForwardAsChatCompletions_NonStream_ReturnsApplicationJSONContentType",
+        "backend/internal/service/gateway_forward_as_responses.go:Wei-Shaw/sub2api#1311",
+        "backend/internal/service/gateway_forward_as_chat_completions.go:Wei-Shaw/sub2api#1311",
+        "backend/internal/service/gateway_forward_as_responses_tk_content_type_test.go:TestHandleResponsesBufferedStreamingResponse_NonStream_ReturnsApplicationJSONContentType",
+        "backend/internal/service/gateway_forward_as_chat_completions_tk_content_type_test.go:TestHandleCCBufferedFromAnthropic_NonStream_ReturnsApplicationJSONContentType",
+        "backend/internal/service/openai_images_responses.go:Wei-Shaw/sub2api#1311",
+        "scripts/check-buffered-content-type-leak.py:def scan_file"
       ]
     }
   ]

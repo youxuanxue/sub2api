@@ -219,6 +219,48 @@
       "rationale": "Focused regression anchor for upstream #1311 proving a non-stream chat.completions JSON body does not inherit the upstream Responses SSE Content-Type header."
     },
     {
+      "path": "backend/internal/service/gateway_forward_as_responses.go",
+      "must_contain": [
+        "Wei-Shaw/sub2api#1311",
+        "c.Writer.Header().Set(\"Content-Type\", \"application/json; charset=utf-8\")"
+      ],
+      "rationale": "Gateway Anthropic-backed /v1/responses non-stream path (handleResponsesBufferedStreamingResponse) has the same Content-Type leak root cause as upstream #1311: WriteFilteredHeaders propagates the upstream Anthropic `Content-Type: text/event-stream`, and gin's c.Data / c.JSON do not overwrite an already-set Content-Type. Without this explicit override the client gets a JSON body labeled as SSE. Sentinel guards the fix from being silently reverted by upstream merges."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
+      "must_contain": [
+        "Wei-Shaw/sub2api#1311",
+        "c.Writer.Header().Set(\"Content-Type\", \"application/json; charset=utf-8\")"
+      ],
+      "rationale": "Gateway Anthropic-backed /v1/chat/completions non-stream path (handleCCBufferedFromAnthropic) shares the upstream #1311 Content-Type leak root cause and must explicitly override Content-Type after WriteFilteredHeaders so the converted chat.completion JSON body is not labeled text/event-stream."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_responses_tk_content_type_test.go",
+      "must_contain": [
+        "TestHandleResponsesBufferedStreamingResponse_NonStream_ReturnsApplicationJSONContentType",
+        "text/event-stream",
+        "application/json"
+      ],
+      "rationale": "Focused regression anchor for upstream #1311 extended scope (Anthropic-backed Responses path) proving the buffered JSON body does not inherit the upstream SSE Content-Type."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions_tk_content_type_test.go",
+      "must_contain": [
+        "TestHandleCCBufferedFromAnthropic_NonStream_ReturnsApplicationJSONContentType",
+        "text/event-stream",
+        "application/json"
+      ],
+      "rationale": "Focused regression anchor for upstream #1311 extended scope (Anthropic-backed Chat Completions path) proving the buffered JSON body does not inherit the upstream SSE Content-Type."
+    },
+    {
+      "path": "backend/internal/service/openai_images_responses.go",
+      "must_contain": [
+        "Wei-Shaw/sub2api#1311",
+        "c.Writer.Header().Set(\"Content-Type\", \"application/json; charset=utf-8\")"
+      ],
+      "rationale": "OpenAI Images OAuth buffered handler (handleOpenAIImagesOAuthBufferedResponse) converts upstream OpenAI Responses SSE into a single OpenAI Images JSON body. Same Content-Type leak root cause as upstream #1311 — discovered by the generalized scripts/check-buffered-content-type-leak.py gate during PR #244 review and patched in the same commit. Must explicitly override Content-Type before c.Data."
+    },
+    {
       "path": "backend/internal/service/model_pricing_resolver.go",
       "must_contain": ["tkApplyChannelFlatOverridesAsFallback(chPricing, resolved)"],
       "rationale": "TK channel-pricing fallback (upstream #2107): applyTokenOverrides MUST delegate the flat-default application to the TK companion regardless of whether intervals are configured. An upstream merge that restores the original early-return-on-intervals path silently re-introduces $0 billing for custom newapi-channel models on out-of-range token counts."

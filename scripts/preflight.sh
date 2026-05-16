@@ -57,6 +57,14 @@
 #   OpenAI upstream capability truth — guards Responses probe status semantics:
 #        probe call sites must use `internal/pkg/openai_compat` as the owner
 #        instead of reintroducing local status-code truth in service files.
+#   buffered Content-Type leak gate — generalized forward-drift guard for
+#        upstream Wei-Shaw/sub2api#1311: any new site in backend/internal/service
+#        that calls `responseheaders.WriteFilteredHeaders` and then `c.JSON` or
+#        `c.Data(_, "application/json...", _)` without an explicit
+#        `c.Writer.Header().Set("Content-Type", ...)` override leaks the upstream
+#        SSE Content-Type onto a JSON body. Driven by
+#        `scripts/check-buffered-content-type-leak.py`. Mechanical replacement
+#        for "review notices the antipattern" + sentinel pinning of known sites.
 #   QA evidence dataset validator — guards the exported QA evidence dataset contract:
 #        exported `trajectory.jsonl` artifacts must keep H1/H2/H3/D1 and structural
 #        acceptance semantics reachable through the standalone validator script,
@@ -244,6 +252,27 @@ elif ! grep -q 'func ResponsesEndpointSupportedByStatus(status int) bool {' back
     errors=$((errors + 1))
 else
     echo "  ok: Responses probe status truth is centralized in openai_compat"
+fi
+
+# ---- sub2api: buffered Content-Type leak gate --------------------------------
+# Source of truth: scripts/check-buffered-content-type-leak.py. Guards against
+# the upstream Wei-Shaw/sub2api#1311 bug pattern: WriteFilteredHeaders
+# propagates the upstream SSE Content-Type, and gin's c.JSON / c.Data render
+# (which only sets Content-Type when the header map is empty) silently leaves
+# the SSE Content-Type on a JSON response body. This is a forward-drift guard
+# matching the project doctrine on declarative sentinels (CLAUDE.md §5.x) —
+# the next refactor or upstream merge that re-introduces the antipattern fails
+# preflight instead of shipping a regression to prod.
+echo ""
+echo "=== sub2api: buffered Content-Type leak gate ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required to run check-buffered-content-type-leak.py)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/check-buffered-content-type-leak.py --quiet; then
+    # check-buffered-content-type-leak.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: no buffered SSE->JSON Content-Type leak antipattern"
 fi
 
 # ---- sub2api: newapi sentinel registry --------------------------------------

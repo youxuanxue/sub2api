@@ -176,9 +176,15 @@
       "fixed_by": [
         "backend/internal/service/openai_gateway_chat_completions.go",
         "backend/internal/service/openai_gateway_messages.go",
-        "backend/internal/service/openai_gateway_chat_completions_tk_content_type_test.go"
+        "backend/internal/service/openai_gateway_chat_completions_tk_content_type_test.go",
+        "backend/internal/service/gateway_forward_as_responses.go",
+        "backend/internal/service/gateway_forward_as_chat_completions.go",
+        "backend/internal/service/gateway_forward_as_responses_tk_content_type_test.go",
+        "backend/internal/service/gateway_forward_as_chat_completions_tk_content_type_test.go",
+        "backend/internal/service/openai_images_responses.go",
+        "scripts/check-buffered-content-type-leak.py"
       ],
-      "summary": "Non-stream /v1/chat/completions and /v1/messages buffered handlers explicitly set Content-Type: application/json after WriteFilteredHeaders, preventing the upstream Responses SSE Content-Type from leaking onto a JSON body."
+      "summary": "OpenAI-gateway (/v1/chat/completions, /v1/messages), Anthropic-backed gateway forward (Responses, Chat Completions), and the OpenAI Images OAuth buffered handler all explicitly set Content-Type: application/json after WriteFilteredHeaders, preventing the upstream SSE Content-Type from leaking onto a JSON body. A generalized preflight gate (scripts/check-buffered-content-type-leak.py) mechanically rejects any new buffered-conversion site that re-introduces the same pattern."
     },
     {
       "upstream": "Wei-Shaw/sub2api#2500",
