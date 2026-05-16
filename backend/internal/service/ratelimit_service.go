@@ -1557,6 +1557,7 @@ func (s *RateLimitService) ClearRateLimit(ctx context.Context, accountID int64) 
 		}
 	}
 	s.ResetOpenAI403Counter(ctx, accountID)
+	s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)
 	return nil
 }
 
@@ -1606,6 +1607,7 @@ func (s *RateLimitService) RecoverAccountState(ctx context.Context, accountID in
 	}
 	if result.ClearedError || result.ClearedRateLimit {
 		s.ResetOpenAI403Counter(ctx, accountID)
+		s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)
 	}
 
 	return result, nil

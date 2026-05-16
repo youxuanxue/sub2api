@@ -124,3 +124,84 @@ func TestRateLimitService_HandleUpstreamError_AnthropicPoolModeStillCounts(t *te
 	require.Equal(t, 1, repo.tempCalls)
 	require.Equal(t, []int64{402}, counter.incrementIDs)
 }
+
+// Carve-out: Anthropic accounts ignore the custom-error-codes allowlist so a
+// non-listed 5xx still feeds the short-window counter. Without the
+// `account.Platform != PlatformAnthropic` guard in HandleUpstreamError, an
+// upstream merge that "simplifies" the early-return would silently drop the
+// burst protection for any Anthropic APIKey customer who turned custom error
+// codes on for, say, just 429.
+func TestRateLimitService_HandleUpstreamError_AnthropicCustomErrorCodesStillCounts(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	counter := &anthropicUpstreamErrorCounterCacheStub{counts: []int64{3}}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetAnthropicUpstreamErrorCounterCache(counter)
+	account := &Account{
+		ID:       403,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"custom_error_codes_enabled": true,
+			"custom_error_codes":         []any{float64(429)},
+		},
+	}
+
+	shouldDisable := service.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusBadGateway,
+		http.Header{},
+		[]byte(`{"error":{"message":"upstream gateway timeout"}}`),
+	)
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, repo.tempCalls)
+	require.Equal(t, []int64{403}, counter.incrementIDs)
+}
+
+// Recovery paths (ClearRateLimit / RecoverAccountAfterSuccessfulTest) must
+// reset the Anthropic counter so a healed account does not carry stale strikes
+// into the next short window. Mirrors the existing ResetOpenAI403Counter wiring.
+func TestRateLimitService_ClearRateLimit_ResetsAnthropicCounter(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	counter := &anthropicUpstreamErrorCounterCacheStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetAnthropicUpstreamErrorCounterCache(counter)
+
+	require.NoError(t, service.ClearRateLimit(context.Background(), 404))
+	require.Equal(t, []int64{404}, counter.resetCalls)
+}
+
+func TestRateLimitService_RecoverAccountAfterSuccessfulTest_ResetsAnthropicCounter(t *testing.T) {
+	repo := &recoverableAccountRepoStub{
+		rateLimitAccountRepoStub: rateLimitAccountRepoStub{},
+		account: &Account{
+			ID:       405,
+			Platform: PlatformAnthropic,
+			Type:     AccountTypeOAuth,
+			Status:   StatusError,
+		},
+	}
+	counter := &anthropicUpstreamErrorCounterCacheStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetAnthropicUpstreamErrorCounterCache(counter)
+
+	result, err := service.RecoverAccountAfterSuccessfulTest(context.Background(), 405)
+	require.NoError(t, err)
+	require.True(t, result.ClearedError)
+	require.Equal(t, []int64{405}, counter.resetCalls)
+}
+
+type recoverableAccountRepoStub struct {
+	rateLimitAccountRepoStub
+	account *Account
+}
+
+func (r *recoverableAccountRepoStub) GetByID(ctx context.Context, id int64) (*Account, error) {
+	return r.account, nil
+}
+
+func (r *recoverableAccountRepoStub) ClearError(ctx context.Context, id int64) error {
+	r.account.Status = StatusActive
+	return nil
+}
