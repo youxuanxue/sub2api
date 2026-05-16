@@ -76,10 +76,14 @@ func TestRateLimitService_HandleUpstreamError_Anthropic403ThresholdTempUnschedul
 	}
 
 	body := []byte(`{"type":"error","error":{"type":"permission_error","message":"OAuth token lacks required scopes"}}`)
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 2; i++ {
 		shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusForbidden, http.Header{}, body)
-		require.True(t, shouldDisable)
+		require.False(t, shouldDisable)
+		require.Equal(t, 0, repo.tempCalls)
 	}
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusForbidden, http.Header{}, body)
+	require.True(t, shouldDisable)
 
 	require.Equal(t, 0, repo.setErrorCalls)
 	require.Equal(t, 1, repo.tempCalls)

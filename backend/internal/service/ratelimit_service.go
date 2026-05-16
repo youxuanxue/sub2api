@@ -755,17 +755,17 @@ func (s *RateLimitService) handleAnthropicUpstreamError(ctx context.Context, acc
 	msg := buildAnthropicUpstreamErrorMessage(statusCode, upstreamMsg, responseBody)
 	if s.anthropicUpstreamErrorCounterCache == nil {
 		slog.Warn("anthropic_upstream_error_counter_missing", "account_id", account.ID, "status_code", statusCode)
-		return true
+		return false
 	}
 
 	count, err := s.anthropicUpstreamErrorCounterCache.IncrementAnthropicUpstreamErrorCount(ctx, account.ID, anthropicUpstreamErrorWindowMinutes)
 	if err != nil {
 		slog.Warn("anthropic_upstream_error_increment_failed", "account_id", account.ID, "status_code", statusCode, "error", err)
-		return true
+		return false
 	}
 	if count < anthropicUpstreamErrorThreshold {
 		slog.Warn("anthropic_upstream_error_count", "account_id", account.ID, "status_code", statusCode, "count", count, "threshold", anthropicUpstreamErrorThreshold)
-		return true
+		return false
 	}
 
 	now := time.Now()
