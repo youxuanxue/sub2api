@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/tidwall/gjson"
@@ -137,6 +138,32 @@ func estimateAnthropicRequestInputTokens(req *apicompat.AnthropicRequest) int {
 	}
 	if total < 0 {
 		return 0
+	}
+	return total
+}
+
+func openAICompatMessagesCompactCandidate(req *apicompat.AnthropicRequest) bool {
+	if req == nil || req.Stream {
+		return false
+	}
+	if req.MaxTokens > 0 && req.MaxTokens <= 4096 && len(req.Messages) >= 2 {
+		return true
+	}
+	return len(req.Messages) >= 4 && estimateAnthropicRequestInputTokens(req) >= 10000
+}
+
+func anthropicResponseContentTextLen(resp *apicompat.AnthropicResponse) int {
+	if resp == nil {
+		return 0
+	}
+	total := 0
+	for _, block := range resp.Content {
+		switch block.Type {
+		case "text":
+			total += utf8.RuneCountInString(block.Text)
+		case "thinking":
+			total += utf8.RuneCountInString(block.Thinking)
+		}
 	}
 	return total
 }

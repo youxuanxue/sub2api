@@ -49,8 +49,8 @@
     },
     {
       "path": "backend/internal/service/openai_messages_compaction_tk.go",
-      "must_contain": ["shouldEvaluateOpenAICompatMessagesCompactionForAccount", "applyOpenAICompatMessagesCompaction(account *Account", "applyOpenAICompatOAuthMessagesCompaction"],
-      "rationale": "OpenAI OAuth /v1/messages compaction is a TK policy companion: OAuth must opt into threshold-based compaction through the shared replay compaction engine's anchor+tail profile. Dropping these hooks silently makes GPT专线 OAuth accounts ignore configured compaction thresholds."
+      "must_contain": ["shouldEvaluateOpenAICompatMessagesCompactionForAccount", "applyOpenAICompatMessagesCompaction(account *Account", "applyOpenAICompatOAuthMessagesCompaction", "openAICompatMessagesCompactCandidate", "anthropicResponseContentTextLen"],
+      "rationale": "OpenAI OAuth /v1/messages compaction is a TK policy companion: OAuth must opt into threshold-based compaction through the shared replay compaction engine's anchor+tail profile, and gateway completion logs must keep enough compact-attempt evidence to distinguish upstream empty summaries from TokenKey routing or billing failures. Dropping these hooks silently makes GPT专线 OAuth accounts ignore configured compaction thresholds or removes the production evidence needed for long-context compact incidents."
     },
     {
       "path": "backend/internal/service/openai_messages_compaction_tk_test.go",
