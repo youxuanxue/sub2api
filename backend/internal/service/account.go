@@ -1974,14 +1974,14 @@ func (a *Account) GetWindowCostLimit() float64 {
 }
 
 // GetWindowCostStickyReserve 获取粘性会话预留额度（美元）
-// 默认值为 10
+// 默认值为 10；显式配置 0 表示禁用 sticky 成本缓冲。
 func (a *Account) GetWindowCostStickyReserve() float64 {
 	if a.Extra == nil {
 		return 10.0
 	}
 	if v, ok := a.Extra["window_cost_sticky_reserve"]; ok {
 		val := parseExtraFloat64(v)
-		if val > 0 {
+		if val >= 0 {
 			return val
 		}
 	}
