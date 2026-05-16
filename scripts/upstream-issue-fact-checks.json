@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "rationale": "Declarative TokenKey code-fact checks for upstream Wei-Shaw/sub2api issues that have known local fixes. The watchdog uses this registry to reclassify upstream issue triage from unresolved to fixed only when current main still contains the expected fix facts.",
+  "checks": [
+    {
+      "upstream": "Wei-Shaw/sub2api#2107",
+      "severity": "high",
+      "tokenkey_pr": "youxuanxue/sub2api#232",
+      "summary": "Channel interval pricing applies flat channel defaults as the explicit out-of-range fallback, preventing custom-model requests from billing at zero.",
+      "fixed_by": [
+        "backend/internal/service/model_pricing_resolver.go",
+        "backend/internal/service/model_pricing_resolver_tk_channel_flat_fallback.go",
+        "backend/internal/service/model_pricing_resolver_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/model_pricing_resolver_tk_channel_flat_fallback.go:func tkApplyChannelFlatOverridesAsFallback",
+        "backend/internal/service/model_pricing_resolver_test.go:TestGetIntervalPricing_ChannelIntervalsNoMatch_FlatDefaultsApplied",
+        "backend/internal/service/model_pricing_resolver_test.go:TestGetIntervalPricing_ChannelIntervalsNoMatch_UnknownModelChargesFlatNotZero"
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2159",
+      "severity": "high",
+      "tokenkey_pr": "youxuanxue/sub2api#232",
+      "summary": "Disabled proxies are filtered out of account preload and WithProxy edge loads while preserving account ProxyID bindings for admin visibility.",
+      "fixed_by": [
+        "backend/internal/repository/account_repo.go",
+        "backend/internal/repository/account_repo_integration_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/repository/account_repo.go:dbproxy.StatusEQ(service.StatusActive)",
+        "backend/internal/repository/account_repo.go:See upstream #2159",
+        "backend/internal/repository/account_repo_integration_test.go:TestPreload_SkipsDisabledProxy"
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2258",
+      "severity": "high",
+      "tokenkey_pr": "youxuanxue/sub2api#232",
+      "summary": "OpenAI burst 429s below Codex usage-window limits use the short fallback cooldown instead of multi-hour or multi-day reset headers.",
+      "fixed_by": [
+        "backend/internal/service/ratelimit_service.go",
+        "backend/internal/service/ratelimit_service_tk_openai_burst.go",
+        "backend/internal/service/ratelimit_service_tk_openai_burst_test.go",
+        "backend/internal/service/rate_limit_429_cooldown_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/ratelimit_service_tk_openai_burst.go:func TkIsOpenAI429TransientBurst",
+        "backend/internal/service/ratelimit_service_tk_openai_burst.go:openai_429_burst_below_window_limits",
+        "backend/internal/service/rate_limit_429_cooldown_test.go:TestHandle429_OpenAIBurstUsesFallbackCooldownNotLongReset"
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2478",
+      "severity": "high",
+      "tokenkey_pr": "youxuanxue/sub2api#232",
+      "summary": "Expired and non-active subscriptions are ignored by reassignment existence checks, preventing stale rows from causing validity_days_mismatch conflicts.",
+      "fixed_by": [
+        "backend/internal/repository/user_subscription_repo.go",
+        "backend/internal/repository/user_subscription_repo_integration_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/repository/user_subscription_repo.go:usersubscription.StatusEQ(service.SubscriptionStatusActive)",
+        "backend/internal/repository/user_subscription_repo.go:usersubscription.ExpiresAtGT(time.Now())",
+        "backend/internal/repository/user_subscription_repo_integration_test.go:TestExistsByUserIDAndGroupID_IgnoresExpiredAndNonActive"
+      ]
+    }
+  ]
+}
