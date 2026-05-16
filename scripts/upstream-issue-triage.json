@@ -6,11 +6,11 @@
   "counts": {
     "needs_review": 346,
     "needs_prod_validation": 8,
-    "medium": 114,
+    "medium": 115,
     "fixed": 17,
     "not_applicable": 1,
     "low": 94,
-    "unknown_low_signal": 393
+    "unknown_low_signal": 394
   },
   "issues": [
     {
@@ -5587,6 +5587,18 @@
       "updated_at": "2026-05-15T07:02:41Z"
     },
     {
+      "upstream": "Wei-Shaw/sub2api#2510",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2510",
+      "title": "deepseek V4 的 reasoning_content 会支持吗？",
+      "impact": "medium",
+      "categories": [
+        "compatibility"
+      ],
+      "tokenkey_status": "not_prioritized",
+      "rationale": "Potential compatibility/ops/admin impact, but not selected as severe TokenKey production risk in this pass.",
+      "updated_at": "2026-05-16T06:07:54Z"
+    },
+    {
       "upstream": "Wei-Shaw/sub2api#255",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/255",
       "title": "账号管理手机端适配",
@@ -9971,6 +9983,16 @@
       "tokenkey_status": "not_prioritized",
       "rationale": "No high-signal production-risk keywords in this pass.",
       "updated_at": "2026-05-15T03:03:51Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2511",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2511",
+      "title": "[Bug] Redis Password Configuration Failure via `.env` Update",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_prioritized",
+      "rationale": "No high-signal production-risk keywords in this pass.",
+      "updated_at": "2026-05-16T07:03:21Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#262",
