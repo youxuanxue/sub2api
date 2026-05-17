@@ -184,17 +184,16 @@
         "backend/internal/service/openai_images_responses.go",
         "scripts/check-buffered-content-type-leak.py"
       ],
-      "summary": "OpenAI-gateway (/v1/chat/completions, /v1/messages), Anthropic-backed gateway forward (Responses, Chat Completions), and the OpenAI Images OAuth buffered handler all explicitly set Content-Type: application/json after WriteFilteredHeaders, preventing the upstream SSE Content-Type from leaking onto a JSON body. A generalized preflight gate (scripts/check-buffered-content-type-leak.py) mechanically rejects any new buffered-conversion site that re-introduces the same pattern."
+      "summary": "Non-stream buffered SSE->JSON handlers in both the OpenAI gateway (/v1/chat/completions, /v1/messages) and the Anthropic-backed gateway forward paths (Responses, Chat Completions) now explicitly set Content-Type: application/json after WriteFilteredHeaders. Without this, the upstream SSE Content-Type (text/event-stream) leaks onto JSON bodies because gin's render.writeContentType only writes when no Content-Type is set, breaking OpenAI-SDK consumers that branch on Content-Type."
     },
     {
       "upstream": "Wei-Shaw/sub2api#2500",
       "status": "fixed_in_tokenkey",
       "fixed_by": [
         "backend/internal/service/openai_codex_transform.go",
-        "backend/internal/service/openai_codex_transform_test.go",
         "backend/internal/service/openai_codex_transform_tk_call_id_test.go"
       ],
-      "summary": "fixCallIDPrefix rewrites call_<id> tool-call ids as fc_<id> (with underscore), matching the codex backend id validator and avoiding 502 on multi-hop tool turns under OAuth."
+      "summary": "fixCallIDPrefix in openai_codex_transform.go now produces fc_<id> (with underscore) for call_<id> inputs, matching the fallback branch and the codex backend's id validator; missing underscore caused HTTP 400 on the chatgpt.com codex OAuth path and surfaced as 502 on multi-hop tool turns."
     },
     {
       "upstream": "Wei-Shaw/sub2api#2506",
@@ -203,7 +202,7 @@
         "backend/internal/service/gateway_service.go",
         "backend/internal/service/gateway_service_tk_haiku_context_management_test.go"
       ],
-      "summary": "normalizeClaudeOAuthRequestBody skips context_management auto-injection for Haiku models, mirroring the existing Haiku exemption in FullClaudeCodeMimicryBetas; Anthropic otherwise returns 400 for claude-haiku-4-5-* when thinking.type is enabled."
+      "summary": "normalizeClaudeOAuthRequestBody now skips auto-injecting context_management for Haiku models, mirroring the existing Haiku exemption in the anthropic-beta header path; Anthropic /v1/messages would otherwise return HTTP 400 for claude-haiku-4-5-* when thinking.type is enabled."
     }
   ]
 }

@@ -4,13 +4,13 @@
   "generated_from": "GitHub REST API issues?state=open; pull requests excluded",
   "rationale": "TokenKey-local triage cache for upstream open issues. Use this file before re-triaging upstream issues; update entries when TokenKey fixes, dismisses, or reclassifies an issue.",
   "counts": {
-    "needs_review": 346,
+    "needs_review": 345,
     "needs_prod_validation": 8,
-    "medium": 115,
-    "fixed": 17,
+    "medium": 116,
+    "fixed": 20,
     "not_applicable": 1,
     "low": 94,
-    "unknown_low_signal": 394
+    "unknown_low_signal": 396
   },
   "issues": [
     {
@@ -313,21 +313,6 @@
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
       "updated_at": "2026-03-26T01:29:14Z"
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#1311",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/1311",
-      "title": "[Bug] /v1/chat/completions non-stream returns JSON body with Content-Type: text/event-stream",
-      "impact": "needs_review",
-      "categories": [
-        "claude_mimicry",
-        "rate_limit_cooldown",
-        "billing_usage",
-        "security"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-05-15T12:00:37Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#1312",
@@ -2787,7 +2772,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-05-11T06:58:35Z"
+      "updated_at": "2026-05-16T15:51:42Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2298",
@@ -3175,19 +3160,6 @@
       "updated_at": "2026-05-15T02:27:22Z"
     },
     {
-      "upstream": "Wei-Shaw/sub2api#2500",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2500",
-      "title": "OAuth/codex transform produces malformed tool-call ids (`fc<nanoid>` missing underscore) → 502",
-      "impact": "needs_review",
-      "categories": [
-        "rate_limit_cooldown",
-        "image_oauth"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-05-15T15:31:05Z"
-    },
-    {
       "upstream": "Wei-Shaw/sub2api#2503",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/2503",
       "title": "在OpenAI Fast/Flex 策略中增加强制开启fast档位",
@@ -3200,19 +3172,32 @@
       "updated_at": "2026-05-15T16:53:58Z"
     },
     {
-      "upstream": "Wei-Shaw/sub2api#2506",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2506",
-      "title": "[Bug] Haiku 4.5 + thinking.type=enabled triggers Anthropic 400 because normalizeClaudeOAuthRequestBody auto-injects context_management without a Haiku model guard | Haiku 4.5 在 thinking 启用时被 normalizeClaudeOAuthRequestBody 无差别注入 context_management，Anthropic 上游返回 400",
+      "upstream": "Wei-Shaw/sub2api#2516",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2516",
+      "title": "openai图片编辑接口/v1/images/edits频繁报错",
       "impact": "needs_review",
       "categories": [
-        "claude_mimicry",
         "rate_limit_cooldown",
+        "image_oauth"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-05-16T14:31:27Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2525",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2525",
+      "title": "Codex VS Code 配置 service_tier=fast，但到达 Sub2API 后 usage_logs.service_tier 为空 / Codex VS Code service_tier=fast not reaching Sub2API",
+      "impact": "needs_review",
+      "categories": [
+        "rate_limit_cooldown",
+        "billing_usage",
         "image_oauth",
         "security"
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-05-15T21:05:14Z"
+      "updated_at": "2026-05-17T00:14:42Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#263",
@@ -3917,7 +3902,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-05-14T15:26:00Z"
+      "updated_at": "2026-05-16T10:03:25Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#736",
@@ -5599,6 +5584,18 @@
       "updated_at": "2026-05-16T06:07:54Z"
     },
     {
+      "upstream": "Wei-Shaw/sub2api#2515",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2515",
+      "title": "gpt-5.5，completions转换responses时候，对于content为null值的场景没处理，导致请求报错",
+      "impact": "medium",
+      "categories": [
+        "compatibility"
+      ],
+      "tokenkey_status": "not_prioritized",
+      "rationale": "Potential compatibility/ops/admin impact, but not selected as severe TokenKey production risk in this pass.",
+      "updated_at": "2026-05-16T12:51:29Z"
+    },
+    {
       "upstream": "Wei-Shaw/sub2api#255",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/255",
       "title": "账号管理手机端适配",
@@ -5854,6 +5851,23 @@
       "updated_at": "2026-03-13T15:47:43Z"
     },
     {
+      "upstream": "Wei-Shaw/sub2api#1311",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/1311",
+      "title": "[Bug] /v1/chat/completions non-stream returns JSON body with Content-Type: text/event-stream",
+      "impact": "fixed",
+      "categories": [
+        "claude_mimicry",
+        "rate_limit_cooldown",
+        "billing_usage",
+        "security",
+        "compatibility",
+        "enhancement"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Non-stream buffered SSE->JSON handlers in both the OpenAI gateway (/v1/chat/completions, /v1/messages) and the Anthropic-backed gateway forward paths (Responses, Chat Completions) now explicitly set Content-Type: application/json after WriteFilteredHeaders. Without this, the upstream SSE Content-Type (text/event-stream) leaks onto JSON bodies because gin's render.writeContentType only writes when no Content-Type is set, breaking OpenAI-SDK consumers that branch on Content-Type.",
+      "updated_at": "2026-05-15T12:00:37Z"
+    },
+    {
       "upstream": "Wei-Shaw/sub2api#1925",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/1925",
       "title": "OpenAI 账号测试对 /responses 流式校验过宽，提前 EOF 也会判定成功，导致异常账号被误加入调度池",
@@ -6071,6 +6085,37 @@
       "tokenkey_status": "fixed_in_tokenkey",
       "rationale": "OpenAI /compact route and request-body normalization are implemented, including compact_not_supported errors when no account is available.",
       "updated_at": "2026-05-15T05:19:33Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2500",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2500",
+      "title": "OAuth/codex transform produces malformed tool-call ids (`fc<nanoid>` missing underscore) → 502",
+      "impact": "fixed",
+      "categories": [
+        "rate_limit_cooldown",
+        "image_oauth"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "fixCallIDPrefix in openai_codex_transform.go now produces fc_<id> (with underscore) for call_<id> inputs, matching the fallback branch and the codex backend's id validator; missing underscore caused HTTP 400 on the chatgpt.com codex OAuth path and surfaced as 502 on multi-hop tool turns.",
+      "updated_at": "2026-05-15T15:31:05Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2506",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2506",
+      "title": "[Bug] Haiku 4.5 + thinking.type=enabled triggers Anthropic 400 because normalizeClaudeOAuthRequestBody auto-injects context_management without a Haiku model guard | Haiku 4.5 在 thinking 启用时被 normalizeClaudeOAuthRequestBody 无差别注入 context_management，Anthropic 上游返回 400",
+      "impact": "fixed",
+      "categories": [
+        "claude_mimicry",
+        "rate_limit_cooldown",
+        "image_oauth",
+        "security",
+        "ops_observability",
+        "compatibility",
+        "enhancement"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "normalizeClaudeOAuthRequestBody now skips auto-injecting context_management for Haiku models, mirroring the existing Haiku exemption in the anthropic-beta header path; Anthropic /v1/messages would otherwise return HTTP 400 for claude-haiku-4-5-* when thinking.type is enabled.",
+      "updated_at": "2026-05-15T21:05:14Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#580",
@@ -8822,7 +8867,7 @@
       "categories": [],
       "tokenkey_status": "not_prioritized",
       "rationale": "No high-signal production-risk keywords in this pass.",
-      "updated_at": "2026-04-28T11:21:32Z"
+      "updated_at": "2026-05-16T23:31:31Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#1839",
@@ -9995,6 +10040,26 @@
       "updated_at": "2026-05-16T07:03:21Z"
     },
     {
+      "upstream": "Wei-Shaw/sub2api#2517",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2517",
+      "title": "sub2api命中缓存问题",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_prioritized",
+      "rationale": "No high-signal production-risk keywords in this pass.",
+      "updated_at": "2026-05-16T16:01:41Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2520",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2520",
+      "title": "佬们，我用的新加坡服务器，官方会不会封服务器的IP 🤔 导致所有的号被ban",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_prioritized",
+      "rationale": "No high-signal production-risk keywords in this pass.",
+      "updated_at": "2026-05-16T17:47:38Z"
+    },
+    {
       "upstream": "Wei-Shaw/sub2api#262",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/262",
       "title": "crs可以直接迁移过来吗",
@@ -11102,7 +11167,7 @@
       "categories": [],
       "tokenkey_status": "not_prioritized",
       "rationale": "No high-signal production-risk keywords in this pass.",
-      "updated_at": "2026-05-07T07:57:17Z"
+      "updated_at": "2026-05-16T17:49:37Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#927",
