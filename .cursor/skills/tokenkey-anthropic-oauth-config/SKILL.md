@@ -1,15 +1,20 @@
 ---
-name: tokenkey-edge-anthropic-oauth-config
+name: tokenkey-anthropic-oauth-config
 description: >-
-  Query and update edge Anthropic OAuth account stability config using the
-  Stage0 SQL templates as apply source of truth, with default read-only check,
-  explicit apply confirmation, mixed-channel risk precheck, and post-change
-  verification.
+  Query and update Anthropic account/group config across the TokenKey
+  control plane (prod stage0) and the edge stage0 hosts: edge OAuth
+  stability tiers (Stage0 SQL templates), prod cc-*-oauth forward
+  stub bindings, and the cc-edges admin-only routing slot. Default
+  read-only check, explicit apply confirmation, mixed-channel risk
+  precheck, RPM-alignment guard, post-change verification.
 ---
 
-# TokenKey：Edge Anthropic OAuth 配置查询与更新（含账号与分组）
+# TokenKey：Anthropic 账号与分组配置（prod 控制面 + edge OAuth）
 
-适用于本仓库（TokenKey fork of sub2api）。目标是把“查询漂移 → 计划变更 → 显式确认后更新 → 复核”固化为可复用流程。
+适用于本仓库（TokenKey fork of sub2api）。目标是把“查询漂移 → 计划变更 → 显式确认后更新 → 复核”固化为可复用流程，覆盖两条数据路径：
+
+- **edge stage0**：真正的 anthropic OAuth 账号（`platform=anthropic AND type=oauth`），承载 Anthropic 上游流量；tier baseline + TLS profile 在此落档。
+- **prod stage0**：转发 stub（`platform=anthropic AND type=apikey`，credentials 含 `base_url=api-<edge>.tokenkey.dev`），把客户端流量打到对应 edge。
 
 权威纪律以仓库根 `CLAUDE.md` 为准。
 
@@ -41,6 +46,24 @@ description: >-
 - 未声明 `target_scope` 时默认 `target_scope=account`
 - `target_scope=group` 时，`check`/`plan-apply` 可用分组名或分组 ID 定位目标；`apply` 仅允许单 edge + 单分组
 - `edge_id=all` 默认只巡检 deployable edge；如需包含 planned，显式加 `allow_planned=true`
+
+## prod 控制面：anthropic stub 双绑规则
+
+prod 上每一个 anthropic 转发 stub（`platform=anthropic AND type=apikey`，credentials 包含 `base_url=api-<edge>.tokenkey.dev`）必须**同时绑两个分组**：
+
+| 分组 | id | 用途 | 谁可见 |
+| ---- | ---- | ---- | ---- |
+| `default` | 1 | 对外用户流量 | 普通用户 API key |
+| `cc-edges` | 15 | admin 调试旁路 | 仅 admin API key（不暴露给普通用户） |
+
+可见性强制点：**`groups.is_exclusive=true` + `user_allowed_groups` 白名单**。`cc-edges` 必须 `is_exclusive=true`，并且只为 admin user 在 `user_allowed_groups` 写入 `(admin_user_id, 15)` 一行；普通用户在前端选择 group 时 `GetAvailableGroups` 会过滤掉 `cc-edges`，新建/更新 API key 时 `CanBindGroup` 会返回 `GROUP_NOT_ALLOWED`。两个分组指向同一个 stub（同一个上游 edge），区别仅在调用方身份。
+
+操作流程：
+- **新增 anthropic edge stub**（例如再开一个 edge `xx1`）→ 创建 `cc-xx1-oauth` stub 后，第一时间在 prod 上 `INSERT account_groups` 双行（`default` + `cc-edges`）。两条 binding **不可拆开 apply**：要么一起加，要么一起退。
+- **退役 anthropic edge stub**（例如 H3 处理 uk1/fra1） → 软删 stub 前必须先 `DELETE account_groups` 两行；只删一行会留下幽灵 binding，导致下次审计时声音错乱。
+- **edge 数据库内部** → 真正的 OAuth 账号绑定 `default` 组即可，**不需要** edge 端复刻 `cc-edges`；admin 调试旁路只在 prod 控制面有意义（admin 直接命中 prod，再透传到 edge）。
+
+任何对 prod stub 的 binding 改动都属于 `target_scope=account` 的 `apply` 范畴，必须走本 skill §3 的 `confirm_apply` 流程。
 
 ## 一次性跑完（原则）
 
