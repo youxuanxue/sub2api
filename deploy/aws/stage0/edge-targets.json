@@ -4,7 +4,7 @@
   "max_monthly_budget_usd": 16,
   "targets": {
     "uk1": {
-      "deployable": true,
+      "deployable": false,
       "profile": "edge-minimal",
       "region": "eu-west-2",
       "domain": "api-uk1.tokenkey.dev",
@@ -49,7 +49,7 @@
       "purpose": "sg-egress-planned"
     },
     "fra1": {
-      "deployable": true,
+      "deployable": false,
       "profile": "edge-minimal",
       "region": "eu-west-3",
       "domain": "api-fra1.tokenkey.dev",
