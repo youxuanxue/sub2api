@@ -7682,18 +7682,23 @@ func (s *GatewayService) extractSSEUsagePatch(event map[string]any) *sseUsagePat
 			return nil
 		}
 
+		// Upstream Wei-Shaw/sub2api#2332 hardening: gate the hasX flags on
+		// actual parse success. Without this, a partial usage object (e.g.
+		// only output_tokens present, or a fragmented/duplicate message_start)
+		// would clobber legitimate accumulator values with 0 because mergeSSEUsagePatch
+		// writes whenever hasX is true regardless of whether the source key existed.
 		patch := &sseUsagePatch{}
-		patch.hasInputTokens = true
 		if v, ok := parseSSEUsageInt(usageObj["input_tokens"]); ok {
 			patch.inputTokens = v
+			patch.hasInputTokens = true
 		}
-		patch.hasCacheCreationInput = true
 		if v, ok := parseSSEUsageInt(usageObj["cache_creation_input_tokens"]); ok {
 			patch.cacheCreationInputTokens = v
+			patch.hasCacheCreationInput = true
 		}
-		patch.hasCacheReadInput = true
 		if v, ok := parseSSEUsageInt(usageObj["cache_read_input_tokens"]); ok {
 			patch.cacheReadInputTokens = v
+			patch.hasCacheReadInput = true
 		}
 		if cc, ok := usageObj["cache_creation"].(map[string]any); ok {
 			if v, exists := parseSSEUsageInt(cc["ephemeral_5m_input_tokens"]); exists {

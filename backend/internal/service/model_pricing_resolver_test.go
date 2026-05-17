@@ -545,6 +545,75 @@ func TestGetIntervalPricing_ChannelIntervalsNoMatch_FlatDefaultsApplied(t *testi
 	require.InDelta(t, 4e-6, outOfRange.CacheCreationPricePerToken, 1e-12)
 }
 
+// TestGetIntervalPricing_IntervalMatched_FlatCacheReadPreserved asserts upstream
+// Wei-Shaw/sub2api#2363: when an in-range interval defines only InputPrice /
+// OutputPrice (a common operator configuration: tiered token prices + one flat
+// cache_read price for cache-hit discount), the channel's flat CacheReadPrice
+// MUST still apply to billing instead of silently dropping to 0. The matched
+// interval overlays onto BasePricing rather than replacing it.
+//
+// Without this, sticky-routing's cache-hit traffic — which is the headline
+// cost-savings feature — would silently bill at $0 cache_read.
+func TestGetIntervalPricing_IntervalMatched_FlatCacheReadPreserved(t *testing.T) {
+	r := newResolverWithChannel(t, []ChannelModelPricing{{
+		Platform:    "anthropic",
+		Models:      []string{"claude-sonnet-4"},
+		BillingMode: BillingModeToken,
+		// Operator configures flat defaults for cache-read/cache-write/image-output,
+		// plus tiered input/output by interval. The interval intentionally lacks
+		// CacheReadPrice / CacheWritePrice / ImageOutputPrice.
+		InputPrice:       testPtrFloat64(11e-6),
+		OutputPrice:      testPtrFloat64(33e-6),
+		CacheReadPrice:   testPtrFloat64(1e-6),
+		CacheWritePrice:  testPtrFloat64(4e-6),
+		ImageOutputPrice: testPtrFloat64(2e-6),
+		Intervals: []PricingInterval{
+			{MinTokens: 50000, MaxTokens: testPtrInt(200000), InputPrice: testPtrFloat64(9e-6), OutputPrice: testPtrFloat64(27e-6)},
+		},
+	}})
+
+	resolved := r.Resolve(context.Background(), PricingInput{
+		Model:   "claude-sonnet-4",
+		GroupID: groupIDPtr(),
+	})
+
+	// In-range match (100000 ∈ [50000, 200000]).
+	pricing := r.GetIntervalPricing(resolved, 100000)
+	require.NotNil(t, pricing)
+	// Interval-overridden dimensions reflect the interval values.
+	require.InDelta(t, 9e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 27e-6, pricing.OutputPricePerToken, 1e-12)
+	// Channel flat defaults are preserved for dimensions the interval does NOT set.
+	require.InDelta(t, 1e-6, pricing.CacheReadPricePerToken, 1e-12, "in-range match must preserve channel flat CacheReadPrice — upstream #2363")
+	require.InDelta(t, 4e-6, pricing.CacheCreationPricePerToken, 1e-12, "in-range match must preserve channel flat CacheWritePrice — upstream #2363")
+	require.InDelta(t, 2e-6, pricing.ImageOutputPricePerToken, 1e-12, "in-range match must preserve channel flat ImageOutputPrice — upstream #2363")
+}
+
+// TestGetIntervalPricing_IntervalMatched_IntervalCacheReadOverridesFlat asserts
+// the precedence direction is correct: when both a flat default and an interval
+// value are set for the same dimension (cache_read), the interval value wins
+// in-range.
+func TestGetIntervalPricing_IntervalMatched_IntervalCacheReadOverridesFlat(t *testing.T) {
+	r := newResolverWithChannel(t, []ChannelModelPricing{{
+		Platform:       "anthropic",
+		Models:         []string{"claude-sonnet-4"},
+		BillingMode:    BillingModeToken,
+		CacheReadPrice: testPtrFloat64(1e-6), // flat default
+		Intervals: []PricingInterval{
+			{MinTokens: 50000, MaxTokens: testPtrInt(200000), InputPrice: testPtrFloat64(9e-6), CacheReadPrice: testPtrFloat64(8e-7)},
+		},
+	}})
+
+	resolved := r.Resolve(context.Background(), PricingInput{
+		Model:   "claude-sonnet-4",
+		GroupID: groupIDPtr(),
+	})
+
+	pricing := r.GetIntervalPricing(resolved, 100000)
+	require.NotNil(t, pricing)
+	require.InDelta(t, 8e-7, pricing.CacheReadPricePerToken, 1e-12, "interval CacheReadPrice must take precedence over channel flat default in-range")
+}
+
 // TestGetIntervalPricing_ChannelIntervalsNoMatch_UnknownModelChargesFlatNotZero
 // asserts upstream #2107: a custom model with no LiteLLM entry, configured with
 // intervals + flat defaults, must NOT bill $0 on out-of-range requests.

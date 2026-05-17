@@ -168,6 +168,12 @@ func filterValidIntervals(intervals []PricingInterval) []PricingInterval {
 
 // GetIntervalPricing 根据 context token 数获取区间定价。
 // 如果有区间列表，找到匹配区间并构造 ModelPricing；否则直接返回 BasePricing。
+//
+// TK policy (upstream #2363): matched intervals overlay onto BasePricing so the
+// channel's flat defaults (notably CacheReadPrice) are preserved for any
+// dimension the interval itself does not set. See TK companion
+// tkOverlayIntervalOntoBasePricing in
+// model_pricing_resolver_tk_channel_flat_fallback.go.
 func (r *ModelPricingResolver) GetIntervalPricing(resolved *ResolvedPricing, totalContextTokens int) *ModelPricing {
 	if len(resolved.Intervals) == 0 {
 		return resolved.BasePricing
@@ -178,32 +184,7 @@ func (r *ModelPricingResolver) GetIntervalPricing(resolved *ResolvedPricing, tot
 		return resolved.BasePricing
 	}
 
-	return intervalToModelPricing(iv, resolved.SupportsCacheBreakdown)
-}
-
-// intervalToModelPricing 将区间定价转换为 ModelPricing
-func intervalToModelPricing(iv *PricingInterval, supportsCacheBreakdown bool) *ModelPricing {
-	pricing := &ModelPricing{
-		SupportsCacheBreakdown: supportsCacheBreakdown,
-	}
-	if iv.InputPrice != nil {
-		pricing.InputPricePerToken = *iv.InputPrice
-		pricing.InputPricePerTokenPriority = *iv.InputPrice
-	}
-	if iv.OutputPrice != nil {
-		pricing.OutputPricePerToken = *iv.OutputPrice
-		pricing.OutputPricePerTokenPriority = *iv.OutputPrice
-	}
-	if iv.CacheWritePrice != nil {
-		pricing.CacheCreationPricePerToken = *iv.CacheWritePrice
-		pricing.CacheCreation5mPrice = *iv.CacheWritePrice
-		pricing.CacheCreation1hPrice = *iv.CacheWritePrice
-	}
-	if iv.CacheReadPrice != nil {
-		pricing.CacheReadPricePerToken = *iv.CacheReadPrice
-		pricing.CacheReadPricePerTokenPriority = *iv.CacheReadPrice
-	}
-	return pricing
+	return tkOverlayIntervalOntoBasePricing(resolved.BasePricing, iv, resolved.SupportsCacheBreakdown)
 }
 
 // GetRequestTierPrice 根据层级标签获取按次价格
