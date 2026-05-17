@@ -5,9 +5,9 @@
   "rationale": "TokenKey-local triage cache for upstream open issues. Use this file before re-triaging upstream issues; update entries when TokenKey fixes, dismisses, or reclassifies an issue.",
   "counts": {
     "needs_review": 345,
-    "needs_prod_validation": 8,
-    "medium": 116,
-    "fixed": 20,
+    "needs_prod_validation": 4,
+    "medium": 115,
+    "fixed": 25,
     "not_applicable": 1,
     "low": 94,
     "unknown_low_signal": 396
@@ -1579,7 +1579,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-04-27T01:55:38Z"
+      "updated_at": "2026-05-17T02:18:08Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#1894",
@@ -4367,32 +4367,6 @@
       "updated_at": "2026-05-07T06:36:20Z"
     },
     {
-      "upstream": "Wei-Shaw/sub2api#2332",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2332",
-      "title": "Bug: Anthropic streaming message_delta usage 被重复记录导致 input_tokens=0 的冗余计费",
-      "impact": "needs_prod_validation",
-      "categories": [
-        "claude_mimicry",
-        "billing_usage",
-        "security"
-      ],
-      "tokenkey_status": "partially_mitigated",
-      "rationale": "Anthropic message_delta usage parsing avoids zero-value overwrites; production usage rows should still be sampled for duplicate billing.",
-      "updated_at": "2026-05-10T03:47:55Z"
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#2363",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2363",
-      "title": "BUG: 渠道定价中的缓存读取定价未生效，经过计算还是默认值计费的",
-      "impact": "needs_prod_validation",
-      "categories": [
-        "billing_usage"
-      ],
-      "tokenkey_status": "partially_mitigated",
-      "rationale": "Cache-read price overrides exist in resolver and billing paths; verify production channel-pricing source selection.",
-      "updated_at": "2026-05-11T09:19:55Z"
-    },
-    {
       "upstream": "Wei-Shaw/sub2api#2413",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/2413",
       "title": "Cherry Studio 调 gpt-image-2，OpenAI 403 会导致账号被临时标记为不可调度",
@@ -4406,35 +4380,6 @@
       "tokenkey_status": "partially_mitigated",
       "rationale": "OpenAI image 403 still triggers temporary unschedulable cooldown; decide whether CF/Arkose image challenges should be ignored or scoped.",
       "updated_at": "2026-05-14T00:33:30Z"
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#2486",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2486",
-      "title": "gemini-pro-agent 不进入计费",
-      "impact": "needs_prod_validation",
-      "categories": [
-        "billing_usage"
-      ],
-      "tokenkey_status": "needs_tokenkey_review",
-      "rationale": "Gemini pro-agent billing appears to flow through RecordUsageWithLongContext, but no gemini-pro-agent-specific test was found.",
-      "updated_at": "2026-05-15T03:55:24Z"
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#641",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/641",
-      "title": "[Bug] Gemini CLI 反代：google_one 账号触发 429 时被封至 PST 午夜而非使用 tier 的 Cooldown 配置",
-      "impact": "needs_prod_validation",
-      "categories": [
-        "claude_mimicry",
-        "rate_limit_cooldown",
-        "image_oauth",
-        "security",
-        "ops_observability",
-        "enhancement"
-      ],
-      "tokenkey_status": "partially_mitigated",
-      "rationale": "Gemini google_one 429 now uses tier cooldown on Code Assist paths; verify google_one accounts are classified as Code Assist in production.",
-      "updated_at": "2026-02-25T14:36:43Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#1009",
@@ -5584,18 +5529,6 @@
       "updated_at": "2026-05-16T06:07:54Z"
     },
     {
-      "upstream": "Wei-Shaw/sub2api#2515",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2515",
-      "title": "gpt-5.5，completions转换responses时候，对于content为null值的场景没处理，导致请求报错",
-      "impact": "medium",
-      "categories": [
-        "compatibility"
-      ],
-      "tokenkey_status": "not_prioritized",
-      "rationale": "Potential compatibility/ops/admin impact, but not selected as severe TokenKey production risk in this pass.",
-      "updated_at": "2026-05-16T12:51:29Z"
-    },
-    {
       "upstream": "Wei-Shaw/sub2api#255",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/255",
       "title": "账号管理手机端适配",
@@ -5996,6 +5929,20 @@
       "updated_at": "2026-05-09T02:54:27Z"
     },
     {
+      "upstream": "Wei-Shaw/sub2api#2332",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2332",
+      "title": "Bug: Anthropic streaming message_delta usage 被重复记录导致 input_tokens=0 的冗余计费",
+      "impact": "fixed",
+      "categories": [
+        "claude_mimicry",
+        "billing_usage",
+        "security"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "extractSSEUsagePatch message_start branch now gates hasInputTokens/hasCacheCreationInput/hasCacheReadInput on actual parseSSEUsageInt success instead of setting them unconditionally; a partial or duplicate message_start frame no longer zeroes out accumulator dimensions whose source key was absent.",
+      "updated_at": "2026-05-10T03:47:55Z"
+    },
+    {
       "upstream": "Wei-Shaw/sub2api#2337",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/2337",
       "title": "Bug: Anthropic→OpenAI 格式转换时 multi-turn tool_call ID 映射错误导致 400",
@@ -6009,6 +5956,18 @@
       "tokenkey_status": "fixed_in_tokenkey",
       "rationale": "Anthropic-to-OpenAI multi-turn tool call mapping is covered by tool-continuation code and tests.",
       "updated_at": "2026-05-10T06:34:54Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2363",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2363",
+      "title": "BUG: 渠道定价中的缓存读取定价未生效，经过计算还是默认值计费的",
+      "impact": "fixed",
+      "categories": [
+        "billing_usage"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "GetIntervalPricing overlays the matched interval onto BasePricing (which carries channel flat defaults via the #2107 fix), so channel CacheReadPrice/CacheWritePrice/ImageOutputPrice survive in-range matches instead of being silently dropped to 0. Symmetric in-range counterpart to the #2107 out-of-range fix.",
+      "updated_at": "2026-05-11T09:19:55Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2383",
@@ -6048,6 +6007,18 @@
       "tokenkey_status": "fixed_in_tokenkey",
       "rationale": "Expired and non-active subscriptions are ignored by reassignment existence checks, preventing stale rows from causing validity_days_mismatch conflicts. Fixed by youxuanxue/sub2api#232.",
       "updated_at": "2026-05-15T01:33:33Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2486",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2486",
+      "title": "gemini-pro-agent 不进入计费",
+      "impact": "fixed",
+      "categories": [
+        "billing_usage"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Unknown gemini-* models (including gemini-pro-agent) fall back to gemini-3.1-pro pricing instead of returning nil (which caused calculateTokenCost to silently record ActualCost=0 with no quota deduction).",
+      "updated_at": "2026-05-15T03:55:24Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2487",
@@ -6118,6 +6089,19 @@
       "updated_at": "2026-05-15T21:05:14Z"
     },
     {
+      "upstream": "Wei-Shaw/sub2api#2515",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2515",
+      "title": "gpt-5.5，completions转换responses时候，对于content为null值的场景没处理，导致请求报错",
+      "impact": "fixed",
+      "categories": [
+        "compatibility",
+        "enhancement"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "ChatCompletions→Responses transform falls back to empty string when the converted parts list is empty (was emitting JSON null and triggering upstream HTTP 400 on gpt-5.5).",
+      "updated_at": "2026-05-16T12:51:29Z"
+    },
+    {
       "upstream": "Wei-Shaw/sub2api#580",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/580",
       "title": "Bug: OAuth 模拟模式下 User-Agent 版本与真实 Claude Code 客户端不一致",
@@ -6132,6 +6116,23 @@
       "tokenkey_status": "fixed_in_tokenkey",
       "rationale": "Claude Code mimicry UA downgrade fixed by TokenKey PR #223.",
       "updated_at": "2026-02-18T10:49:35Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#641",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/641",
+      "title": "[Bug] Gemini CLI 反代：google_one 账号触发 429 时被封至 PST 午夜而非使用 tier 的 Cooldown 配置",
+      "impact": "fixed",
+      "categories": [
+        "claude_mimicry",
+        "rate_limit_cooldown",
+        "image_oauth",
+        "security",
+        "ops_observability",
+        "enhancement"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Gemini 429 with no quotaResetDelay/retryDelay uses tier cooldown for all Gemini OAuth accounts (google_one + aistudio OAuth + code_assist), not just Code Assist; PST-midnight fallback is reserved for API Key accounts.",
+      "updated_at": "2026-02-25T14:36:43Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2465",
