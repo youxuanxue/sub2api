@@ -47,12 +47,16 @@ type tokenCacheInvalidatorRecorder struct {
 }
 
 type openAI403CounterCacheStub struct {
-	counts     []int64
-	resetCalls []int64
-	err        error
+	counts        []int64
+	incrementIDs  []int64
+	windowMinutes []int
+	resetCalls    []int64
+	err           error
 }
 
-func (s *openAI403CounterCacheStub) IncrementOpenAI403Count(_ context.Context, _ int64, _ int) (int64, error) {
+func (s *openAI403CounterCacheStub) IncrementOpenAI403Count(_ context.Context, accountID int64, windowMinutes int) (int64, error) {
+	s.incrementIDs = append(s.incrementIDs, accountID)
+	s.windowMinutes = append(s.windowMinutes, windowMinutes)
 	if s.err != nil {
 		return 0, s.err
 	}
@@ -65,6 +69,33 @@ func (s *openAI403CounterCacheStub) IncrementOpenAI403Count(_ context.Context, _
 }
 
 func (s *openAI403CounterCacheStub) ResetOpenAI403Count(_ context.Context, accountID int64) error {
+	s.resetCalls = append(s.resetCalls, accountID)
+	return nil
+}
+
+type anthropicUpstreamErrorCounterCacheStub struct {
+	counts        []int64
+	incrementIDs  []int64
+	windowMinutes []int
+	resetCalls    []int64
+	err           error
+}
+
+func (s *anthropicUpstreamErrorCounterCacheStub) IncrementAnthropicUpstreamErrorCount(_ context.Context, accountID int64, windowMinutes int) (int64, error) {
+	s.incrementIDs = append(s.incrementIDs, accountID)
+	s.windowMinutes = append(s.windowMinutes, windowMinutes)
+	if s.err != nil {
+		return 0, s.err
+	}
+	if len(s.counts) == 0 {
+		return 1, nil
+	}
+	count := s.counts[0]
+	s.counts = s.counts[1:]
+	return count, nil
+}
+
+func (s *anthropicUpstreamErrorCounterCacheStub) ResetAnthropicUpstreamErrorCount(_ context.Context, accountID int64) error {
 	s.resetCalls = append(s.resetCalls, accountID)
 	return nil
 }

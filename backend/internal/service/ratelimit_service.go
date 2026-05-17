@@ -20,17 +20,18 @@ import (
 
 // RateLimitService 处理限流和过载状态管理
 type RateLimitService struct {
-	accountRepo           AccountRepository
-	usageRepo             UsageLogRepository
-	cfg                   *config.Config
-	geminiQuotaService    *GeminiQuotaService
-	tempUnschedCache      TempUnschedCache
-	timeoutCounterCache   TimeoutCounterCache
-	openAI403CounterCache OpenAI403CounterCache
-	settingService        *SettingService
-	tokenCacheInvalidator TokenCacheInvalidator
-	usageCacheMu          sync.RWMutex
-	usageCache            map[int64]*geminiUsageCacheEntry
+	accountRepo                        AccountRepository
+	usageRepo                          UsageLogRepository
+	cfg                                *config.Config
+	geminiQuotaService                 *GeminiQuotaService
+	tempUnschedCache                   TempUnschedCache
+	timeoutCounterCache                TimeoutCounterCache
+	openAI403CounterCache              OpenAI403CounterCache
+	anthropicUpstreamErrorCounterCache AnthropicUpstreamErrorCounterCache
+	settingService                     *SettingService
+	tokenCacheInvalidator              TokenCacheInvalidator
+	usageCacheMu                       sync.RWMutex
+	usageCache                         map[int64]*geminiUsageCacheEntry
 }
 
 // SuccessfulTestRecoveryResult 表示测试成功后恢复了哪些运行时状态。
@@ -68,6 +69,10 @@ const (
 	openAI403CooldownMinutesDefault = 10
 	openAI403DisableThreshold       = 3
 	openAI403CounterWindowMinutes   = 180
+
+	anthropicUpstreamErrorThreshold       = 3
+	anthropicUpstreamErrorWindowMinutes   = 10
+	anthropicUpstreamErrorCooldownMinutes = 10
 )
 
 // NewRateLimitService 创建RateLimitService实例
@@ -90,6 +95,10 @@ func (s *RateLimitService) SetTimeoutCounterCache(cache TimeoutCounterCache) {
 // SetOpenAI403CounterCache 设置 OpenAI 403 连续失败计数器（可选依赖）
 func (s *RateLimitService) SetOpenAI403CounterCache(cache OpenAI403CounterCache) {
 	s.openAI403CounterCache = cache
+}
+
+func (s *RateLimitService) SetAnthropicUpstreamErrorCounterCache(cache AnthropicUpstreamErrorCounterCache) {
+	s.anthropicUpstreamErrorCounterCache = cache
 }
 
 // SetSettingService 设置系统设置服务（可选依赖）
@@ -137,14 +146,14 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 	customErrorCodesEnabled := account.IsCustomErrorCodesEnabled()
 
 	// 池模式默认不标记本地账号状态；仅当用户显式配置自定义错误码时按本地策略处理。
-	if account.IsPoolMode() && !customErrorCodesEnabled {
+	if account.IsPoolMode() && !customErrorCodesEnabled && account.Platform != PlatformAnthropic {
 		slog.Info("pool_mode_error_skipped", "account_id", account.ID, "status_code", statusCode)
 		return false
 	}
 
 	// apikey 类型账号：检查自定义错误码配置
 	// 如果启用且错误码不在列表中，则不处理（不停止调度、不标记限流/过载）
-	if !account.ShouldHandleErrorCode(statusCode) {
+	if !account.ShouldHandleErrorCode(statusCode) && account.Platform != PlatformAnthropic {
 		slog.Info("account_error_code_skipped", "account_id", account.ID, "status_code", statusCode)
 		return false
 	}
@@ -180,6 +189,8 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			msg := "Identity verification required (400): " + upstreamMsg
 			s.handleAuthError(ctx, account, msg)
 			shouldDisable = true
+		} else if account.Platform == PlatformAnthropic {
+			shouldDisable = s.handleAnthropicUpstreamError(ctx, account, statusCode, upstreamMsg, responseBody)
 		}
 		// 其他 400 错误（如参数问题）不处理，不禁用账号
 	case 401:
@@ -254,6 +265,10 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			shouldDisable = true
 			break
 		}
+		if account.Platform == PlatformAnthropic {
+			shouldDisable = s.handleAnthropicUpstreamError(ctx, account, statusCode, upstreamMsg, responseBody)
+			break
+		}
 		// 支付要求：余额不足或计费问题，停止调度
 		msg := "Payment required (402): insufficient balance or billing issue"
 		if upstreamMsg != "" {
@@ -278,13 +293,22 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		shouldDisable = s.handle404(ctx, account, upstreamMsg, responseBody)
 	case 429:
 		s.handle429(ctx, account, headers, responseBody)
-		shouldDisable = false
+		if account.Platform == PlatformAnthropic {
+			shouldDisable = s.handleAnthropicUpstreamError(ctx, account, statusCode, upstreamMsg, responseBody)
+		} else {
+			shouldDisable = false
+		}
 	case 529:
 		s.handle529(ctx, account)
-		shouldDisable = false
+		if account.Platform == PlatformAnthropic {
+			shouldDisable = s.handleAnthropicUpstreamError(ctx, account, statusCode, upstreamMsg, responseBody)
+		} else {
+			shouldDisable = false
+		}
 	default:
-		// 自定义错误码启用时：在列表中的错误码都应该停止调度
-		if customErrorCodesEnabled {
+		if account.Platform == PlatformAnthropic && statusCode >= 400 && statusCode <= 599 {
+			shouldDisable = s.handleAnthropicUpstreamError(ctx, account, statusCode, upstreamMsg, responseBody)
+		} else if customErrorCodesEnabled {
 			msg := "Custom error code triggered"
 			if upstreamMsg != "" {
 				msg = upstreamMsg
@@ -714,7 +738,9 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 	if account.Platform == PlatformOpenAI {
 		return s.handleOpenAI403(ctx, account, upstreamMsg, responseBody)
 	}
-	// 非 Antigravity 平台：保持原有行为
+	if account.Platform == PlatformAnthropic {
+		return s.handleAnthropicUpstreamError(ctx, account, http.StatusForbidden, upstreamMsg, responseBody)
+	}
 	msg := buildForbiddenErrorMessage(
 		"Access forbidden (403):",
 		upstreamMsg,
@@ -723,6 +749,61 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 	)
 	s.handleAuthError(ctx, account, msg)
 	return true
+}
+
+func (s *RateLimitService) handleAnthropicUpstreamError(ctx context.Context, account *Account, statusCode int, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
+	msg := buildAnthropicUpstreamErrorMessage(statusCode, upstreamMsg, responseBody)
+	if s.anthropicUpstreamErrorCounterCache == nil {
+		slog.Warn("anthropic_upstream_error_counter_missing", "account_id", account.ID, "status_code", statusCode)
+		return false
+	}
+
+	count, err := s.anthropicUpstreamErrorCounterCache.IncrementAnthropicUpstreamErrorCount(ctx, account.ID, anthropicUpstreamErrorWindowMinutes)
+	if err != nil {
+		slog.Warn("anthropic_upstream_error_increment_failed", "account_id", account.ID, "status_code", statusCode, "error", err)
+		return false
+	}
+	if count < anthropicUpstreamErrorThreshold {
+		slog.Warn("anthropic_upstream_error_count", "account_id", account.ID, "status_code", statusCode, "count", count, "threshold", anthropicUpstreamErrorThreshold)
+		return false
+	}
+
+	now := time.Now()
+	until := now.Add(time.Duration(anthropicUpstreamErrorCooldownMinutes) * time.Minute)
+	reasonMessage := fmt.Sprintf("Anthropic upstream error threshold (%d/%d): %s", count, anthropicUpstreamErrorThreshold, msg)
+	state := &TempUnschedState{
+		UntilUnix:       until.Unix(),
+		TriggeredAtUnix: now.Unix(),
+		StatusCode:      statusCode,
+		MatchedKeyword:  "anthropic_upstream_error",
+		RuleIndex:       -1,
+		ErrorMessage:    truncateTempUnschedMessage([]byte(reasonMessage), tempUnschedMessageMaxBytes),
+	}
+	reason := reasonMessage
+	if raw, marshalErr := json.Marshal(state); marshalErr == nil {
+		reason = string(raw)
+	}
+	if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reason); err != nil {
+		slog.Warn("anthropic_upstream_error_set_temp_unschedulable_failed", "account_id", account.ID, "status_code", statusCode, "error", err)
+		return true
+	}
+	if s.tempUnschedCache != nil {
+		if err := s.tempUnschedCache.SetTempUnsched(ctx, account.ID, state); err != nil {
+			slog.Warn("anthropic_upstream_error_temp_unsched_cache_set_failed", "account_id", account.ID, "error", err)
+		}
+	}
+
+	slog.Warn("anthropic_upstream_error_temp_unschedulable", "account_id", account.ID, "status_code", statusCode, "until", until, "count", count, "threshold", anthropicUpstreamErrorThreshold)
+	return true
+}
+
+func buildAnthropicUpstreamErrorMessage(statusCode int, upstreamMsg string, responseBody []byte) string {
+	return buildForbiddenErrorMessage(
+		fmt.Sprintf("Anthropic upstream error (%d):", statusCode),
+		upstreamMsg,
+		responseBody,
+		"upstream request failed",
+	)
 }
 
 func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
@@ -1450,6 +1531,9 @@ func (s *RateLimitService) UpdateSessionWindow(ctx context.Context, account *Acc
 			slog.Warn("rate_limit_clear_failed", "account_id", account.ID, "error", err)
 		}
 	}
+	if status == "allowed" || status == "allowed_warning" {
+		s.ResetAnthropicUpstreamErrorCounter(ctx, account.ID)
+	}
 }
 
 // ClearRateLimit 清除账号的限流状态
@@ -1473,6 +1557,7 @@ func (s *RateLimitService) ClearRateLimit(ctx context.Context, accountID int64) 
 		}
 	}
 	s.ResetOpenAI403Counter(ctx, accountID)
+	s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)
 	return nil
 }
 
@@ -1482,6 +1567,15 @@ func (s *RateLimitService) ResetOpenAI403Counter(ctx context.Context, accountID 
 	}
 	if err := s.openAI403CounterCache.ResetOpenAI403Count(ctx, accountID); err != nil {
 		slog.Warn("openai_403_reset_failed", "account_id", accountID, "error", err)
+	}
+}
+
+func (s *RateLimitService) ResetAnthropicUpstreamErrorCounter(ctx context.Context, accountID int64) {
+	if s == nil || s.anthropicUpstreamErrorCounterCache == nil || accountID <= 0 {
+		return
+	}
+	if err := s.anthropicUpstreamErrorCounterCache.ResetAnthropicUpstreamErrorCount(ctx, accountID); err != nil {
+		slog.Warn("anthropic_upstream_error_reset_failed", "account_id", accountID, "error", err)
 	}
 }
 
@@ -1513,6 +1607,7 @@ func (s *RateLimitService) RecoverAccountState(ctx context.Context, accountID in
 	}
 	if result.ClearedError || result.ClearedRateLimit {
 		s.ResetOpenAI403Counter(ctx, accountID)
+		s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)
 	}
 
 	return result, nil
@@ -1537,6 +1632,7 @@ func (s *RateLimitService) ClearTempUnschedulable(ctx context.Context, accountID
 	if err := s.accountRepo.ClearModelRateLimits(ctx, accountID); err != nil {
 		slog.Warn("clear_model_rate_limits_on_temp_unsched_reset_failed", "account_id", accountID, "error", err)
 	}
+	s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)
 	return nil
 }
 

@@ -59,8 +59,38 @@
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
-      "must_contain": ["case 404:", "s.handle404(ctx, account, upstreamMsg, responseBody)", "anthropic404ModelCooldown", "isAnthropicModelNotFound404", "SetModelRateLimit(ctx, account.ID, modelName, resetAt)", "isAnthropicExtraUsage429", "s.apply429FallbackRateLimit(ctx, account, \"no_reset_time\")", "TkRecordOpenAI429BurstFallthrough(normalized)"],
-      "rationale": "Anthropic model-not-found 404s must stay model-scoped instead of falling through as an unprotected upstream error or disabling the whole OAuth account. Anthropic 429s without reset metadata must use the configurable short cooldown unless the body is the known third-party/extra-usage rejection, otherwise production can repeatedly hit the same account with no local backoff. OpenAI burst 429s (Codex headers present but neither 5h nor 7d window at 100% used+with-reset) must call the TK companion TkRecordOpenAI429BurstFallthrough and return nil so handle429 falls back to the short cooldown, otherwise transient throttle surges turn into multi-day 503 windows (upstream #2258). Upstream merges in this large service file can compile cleanly while dropping any of these protections, so the sentinel anchors all three policies in the hotspot file."
+      "must_contain": ["case 404:", "s.handle404(ctx, account, upstreamMsg, responseBody)", "anthropic404ModelCooldown", "isAnthropicModelNotFound404", "SetModelRateLimit(ctx, account.ID, modelName, resetAt)", "isAnthropicExtraUsage429", "s.apply429FallbackRateLimit(ctx, account, \"no_reset_time\")", "TkRecordOpenAI429BurstFallthrough(normalized)", "anthropicUpstreamErrorThreshold", "handleAnthropicUpstreamError", "IncrementAnthropicUpstreamErrorCount", "SetTempUnschedulable(ctx, account.ID, until, reason)", "ResetAnthropicUpstreamErrorCounter", "if account.IsPoolMode() && !customErrorCodesEnabled && account.Platform != PlatformAnthropic {", "if !account.ShouldHandleErrorCode(statusCode) && account.Platform != PlatformAnthropic {", "s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)"],
+      "rationale": "Anthropic model-not-found 404s must stay model-scoped instead of falling through as an unprotected upstream error or disabling the whole OAuth account. Anthropic 429s without reset metadata must use the configurable short cooldown unless the body is the known third-party/extra-usage rejection, otherwise production can repeatedly hit the same account with no local backoff. Anthropic upstream errors must also feed the TK short-window counter and mark the account temporarily unschedulable after three hits so a single bad Edge/OAuth account cannot produce repeated upstream 403/5xx responses before the scheduler removes it; the two `&& account.Platform != PlatformAnthropic` carve-outs are load-bearing because they are the ONLY reason pool-mode + custom-error-codes Anthropic accounts still reach the counter, and the `s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)` call must be invoked from the recovery hotpaths (ClearRateLimit, RecoverAccountState, ClearTempUnschedulable, UpdateSessionWindow allowed status) so a healed account does not carry stale strikes into the next window. OpenAI burst 429s (Codex headers present but neither 5h nor 7d window at 100% used+with-reset) must call the TK companion TkRecordOpenAI429BurstFallthrough and return nil so handle429 falls back to the short cooldown, otherwise transient throttle surges turn into multi-day 503 windows (upstream #2258). Upstream merges in this large service file can compile cleanly while dropping any of these protections, so the sentinel anchors all four policies in the hotspot file."
+    },
+    {
+      "path": "backend/internal/service/anthropic_upstream_error_counter.go",
+      "must_contain": ["type AnthropicUpstreamErrorCounterCache interface", "IncrementAnthropicUpstreamErrorCount", "ResetAnthropicUpstreamErrorCount"],
+      "rationale": "Interface seam for Anthropic upstream-error short-window counting. If an upstream merge drops this interface or its reset path, RateLimitService can no longer atomically count failures or clear the counter after recovery."
+    },
+    {
+      "path": "backend/internal/repository/anthropic_upstream_error_counter_cache.go",
+      "must_contain": ["anthropic_upstream_error_count:account:", "NewAnthropicUpstreamErrorCounterCache", "IncrementAnthropicUpstreamErrorCount", "ResetAnthropicUpstreamErrorCount"],
+      "rationale": "Redis-backed atomic counter for Anthropic upstream-error bursts. The prefix and constructor wiring must remain stable so all app replicas share the same short-window threshold before setting temp_unschedulable_until."
+    },
+    {
+      "path": "backend/internal/service/wire.go",
+      "must_contain": ["anthropicUpstreamErrorCounterCache AnthropicUpstreamErrorCounterCache,", "svc.SetAnthropicUpstreamErrorCounterCache(anthropicUpstreamErrorCounterCache)"],
+      "rationale": "ProvideRateLimitService MUST keep the Anthropic upstream-error counter parameter and the SetAnthropicUpstreamErrorCounterCache wire call. If an upstream merge drops either line, handleAnthropicUpstreamError silently falls through (nil counter → returns false → no temp_unschedulable) and the burst protection becomes a NOOP that compiles cleanly and passes all current unit tests. The literal parameter declaration is what wire.go regen sees; the Set call is what hands the dependency to the runtime service."
+    },
+    {
+      "path": "backend/internal/repository/wire.go",
+      "must_contain": ["NewAnthropicUpstreamErrorCounterCache"],
+      "rationale": "ProviderSet MUST register the Anthropic upstream-error counter constructor; without it `wire` regen fails to satisfy the service.AnthropicUpstreamErrorCounterCache dependency added in service/wire.go and falls back to the stale wire_gen.go until someone forces a regen. Anchoring the literal here makes the missing provider obvious on first sentinel run instead of waiting for a wire regen drift."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_403_test.go",
+      "must_contain": ["TestRateLimitService_HandleUpstreamError_Anthropic403ThresholdTempUnschedulable", "TestRateLimitService_HandleUpstreamError_AnthropicPoolModeStillCounts", "TestRateLimitService_HandleUpstreamError_AnthropicCustomErrorCodesStillCounts", "TestRateLimitService_ClearRateLimit_ResetsAnthropicCounter", "TestRateLimitService_RecoverAccountAfterSuccessfulTest_ResetsAnthropicCounter"],
+      "rationale": "Focused regressions proving the four behaviors that are easy to silently revert in an upstream merge: (1) Anthropic upstream errors only disable after the short-window threshold, (2) the pool-mode carve-out still feeds the counter, (3) the custom-error-codes allowlist carve-out still feeds the counter, (4) ClearRateLimit resets the counter to mirror ResetOpenAI403Counter, and (5) RecoverAccountAfterSuccessfulTest resets the counter so a healed account does not carry stale strikes. Dropping these tests lets the upstream-error policy silently drift during future merges."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_401_test.go",
+      "must_contain": ["type anthropicUpstreamErrorCounterCacheStub struct", "IncrementAnthropicUpstreamErrorCount", "ResetAnthropicUpstreamErrorCount"],
+      "rationale": "Shared test stub for the Anthropic upstream-error counter interface lives next to the OpenAI 403 counter stub. The 403 regression suite and any future Anthropic upstream-error test depends on this stub satisfying the AnthropicUpstreamErrorCounterCache interface; an upstream merge that mass-rewrites this test file could drop the stub and silently break the entire 403 test bundle with a compile error masked by build tag (the //go:build unit gate hides the failure from non-unit jobs)."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_openai_burst.go",
