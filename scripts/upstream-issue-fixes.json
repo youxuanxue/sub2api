@@ -14,6 +14,15 @@
       "summary": "Preserved captured real Claude CLI User-Agent and X-Stainless fingerprint values when applying mimicry defaults, avoiding version downgrade churn."
     },
     {
+      "upstream": "Wei-Shaw/sub2api#641",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gemini_messages_compat_service.go",
+        "backend/internal/service/gemini_messages_compat_service_tk_oauth_cooldown_test.go"
+      ],
+      "summary": "Gemini 429 with no quotaResetDelay/retryDelay uses tier cooldown for all Gemini OAuth accounts (google_one + aistudio OAuth + code_assist), not just Code Assist; PST-midnight fallback is reserved for API Key accounts."
+    },
+    {
       "upstream": "Wei-Shaw/sub2api#1925",
       "status": "fixed_in_tokenkey",
       "fixed_by": [
@@ -99,6 +108,16 @@
         "backend/internal/service/gateway_service.go"
       ],
       "summary": "OpenAI OAuth image generation uses a detached upstream context, so long non-stream image jobs are not tied to client disconnect/cancel."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2332",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_anthropic_apikey_passthrough_test.go",
+        "backend/internal/handler/gateway_handler.go"
+      ],
+      "summary": "Anthropic streaming /v1/messages produces exactly one usage_logs row per request: TokenKey accumulates message_start + message_delta into a single ClaudeUsage and writes one RecordUsage in the worker pool; parseSSEUsagePassthrough ignores zero-value input_tokens from message_delta so no duplicate input=0/output>0 row is emitted."
     },
     {
       "upstream": "Wei-Shaw/sub2api#2337",
@@ -194,6 +213,15 @@
         "backend/internal/service/openai_codex_transform_tk_call_id_test.go"
       ],
       "summary": "fixCallIDPrefix in openai_codex_transform.go now produces fc_<id> (with underscore) for call_<id> inputs, matching the fallback branch and the codex backend's id validator; missing underscore caused HTTP 400 on the chatgpt.com codex OAuth path and surfaced as 502 on multi-hop tool turns."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2515",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/pkg/apicompat/chatcompletions_to_responses.go",
+        "backend/internal/pkg/apicompat/chatcompletions_responses_test.go"
+      ],
+      "summary": "ChatCompletions→Responses transform falls back to empty string when the converted parts list is empty (was emitting JSON null and triggering upstream HTTP 400 'Invalid type for input[xx].content: got null instead' on gpt-5.5)."
     },
     {
       "upstream": "Wei-Shaw/sub2api#2506",

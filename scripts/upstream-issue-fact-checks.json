@@ -3,6 +3,35 @@
   "rationale": "Declarative TokenKey code-fact checks for upstream Wei-Shaw/sub2api issues that have known local fixes. The watchdog uses this registry to reclassify upstream issue triage from unresolved to fixed only when current main still contains the expected fix facts.",
   "checks": [
     {
+      "upstream": "Wei-Shaw/sub2api#641",
+      "severity": "high",
+      "summary": "Gemini 429 with no quotaResetDelay/retryDelay uses tier cooldown for all Gemini OAuth accounts (google_one + aistudio OAuth + code_assist), not just Code Assist; PST-midnight fallback is reserved for API Key accounts.",
+      "fixed_by": [
+        "backend/internal/service/gemini_messages_compat_service.go",
+        "backend/internal/service/gemini_messages_compat_service_tk_oauth_cooldown_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/gemini_messages_compat_service.go:TK: See upstream Wei-Shaw/sub2api#641",
+        "backend/internal/service/gemini_messages_compat_service.go:if account.Type == AccountTypeOAuth {",
+        "backend/internal/service/gemini_messages_compat_service_tk_oauth_cooldown_test.go:TestHandleGeminiUpstreamError_GoogleOneOAuth429UsesTierCooldownNotPSTMidnight",
+        "backend/internal/service/gemini_messages_compat_service_tk_oauth_cooldown_test.go:TestHandleGeminiUpstreamError_APIKey429StillFallsBackToPSTMidnight"
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2332",
+      "severity": "high",
+      "summary": "Anthropic streaming /v1/messages produces exactly one usage_logs row per request: TokenKey accumulates message_start + message_delta into a single ClaudeUsage and writes one RecordUsage in the worker pool; parseSSEUsagePassthrough ignores zero-value input_tokens from message_delta.",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_anthropic_apikey_passthrough_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/gateway_service.go:if v := deltaUsage.Get(\"input_tokens\").Int(); v > 0 {",
+        "backend/internal/service/gateway_anthropic_apikey_passthrough_test.go:TestGatewayService_ParseSSEUsagePassthrough_MessageDeltaSelectiveOverwrite",
+        "backend/internal/service/gateway_anthropic_apikey_passthrough_test.go:message_delta 中 0 值不应覆盖已有 input_tokens"
+      ]
+    },
+    {
       "upstream": "Wei-Shaw/sub2api#2107",
       "severity": "high",
       "tokenkey_pr": "youxuanxue/sub2api#232",
@@ -63,6 +92,20 @@
         "backend/internal/repository/user_subscription_repo.go:usersubscription.StatusEQ(service.SubscriptionStatusActive)",
         "backend/internal/repository/user_subscription_repo.go:usersubscription.ExpiresAtGT(time.Now())",
         "backend/internal/repository/user_subscription_repo_integration_test.go:TestExistsByUserIDAndGroupID_IgnoresExpiredAndNonActive"
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2515",
+      "severity": "high",
+      "summary": "ChatCompletions→Responses transform falls back to empty string when the converted parts list is empty (was emitting JSON null and triggering upstream HTTP 400 on gpt-5.5).",
+      "fixed_by": [
+        "backend/internal/pkg/apicompat/chatcompletions_to_responses.go",
+        "backend/internal/pkg/apicompat/chatcompletions_responses_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/pkg/apicompat/chatcompletions_to_responses.go:TK: See upstream Wei-Shaw/sub2api#2515",
+        "backend/internal/pkg/apicompat/chatcompletions_to_responses.go:if len(parts) == 0 {",
+        "backend/internal/pkg/apicompat/chatcompletions_responses_test.go:TestChatCompletionsToResponses_EmptyContentArrayDoesNotProduceNull"
       ]
     },
     {

@@ -4,8 +4,8 @@
   "sentinels": [
     {
       "path": "backend/internal/service/gemini_messages_compat_service.go",
-      "must_contain": ["withGeminiCodeAssistMappedModel(ctx, mappedModel)", "tryGeminiCodeAssistApplyModelRateLimit(ctx, account, body)", "detail.Get(\"retryDelay\").String()", "detail.Get(\"metadata.retryDelay\").String()"],
-      "rationale": "Code Assist 429 fallback-model protection depends on upstream-file hooks plus precise reset-delay extraction. Forwarding must store resolved upstream Gemini model in context, upstream 429 handling must delegate to the TK companion before account-level SetRateLimited, and ParseGeminiRateLimitResetTime must keep structured RetryInfo retryDelay parsing. Dropping any of these reintroduces whole-account long cooldown when upstream already provides a short retry window."
+      "must_contain": ["withGeminiCodeAssistMappedModel(ctx, mappedModel)", "tryGeminiCodeAssistApplyModelRateLimit(ctx, account, body)", "detail.Get(\"retryDelay\").String()", "detail.Get(\"metadata.retryDelay\").String()", "TK: See upstream Wei-Shaw/sub2api#641", "if account.Type == AccountTypeOAuth {"],
+      "rationale": "Code Assist 429 fallback-model protection depends on upstream-file hooks plus precise reset-delay extraction. Forwarding must store resolved upstream Gemini model in context, upstream 429 handling must delegate to the TK companion before account-level SetRateLimited, and ParseGeminiRateLimitResetTime must keep structured RetryInfo retryDelay parsing. Dropping any of these reintroduces whole-account long cooldown when upstream already provides a short retry window. The handleGeminiUpstreamError fallback branch must route all Gemini OAuth accounts (google_one + aistudio OAuth + code_assist) through tier cooldown — only API Key accounts may fall through to PST-midnight reset (see upstream #641)."
     },
     {
       "path": "backend/internal/service/gemini_messages_compat_service_tk_model_rate_limit.go",
