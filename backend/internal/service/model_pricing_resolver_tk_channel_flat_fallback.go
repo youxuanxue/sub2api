@@ -54,3 +54,46 @@ func tkApplyChannelFlatOverridesAsFallback(chPricing *ChannelModelPricing, resol
 		resolved.BasePricing.ImageOutputPricePerToken = *chPricing.ImageOutputPrice
 	}
 }
+
+// tkOverlayIntervalOntoBasePricing returns the effective pricing for a matched
+// interval by overlaying the interval's non-nil fields onto a copy of
+// resolved.BasePricing. This preserves channel flat defaults (input / output /
+// cache_read / cache_write / image_output) for any dimension the interval
+// itself does not override.
+//
+// Upstream Wei-Shaw/sub2api#2363: the original intervalToModelPricing built a
+// brand-new empty ModelPricing{} from interval fields only, so an in-range
+// request silently lost the channel's flat CacheReadPrice (the common operator
+// pattern: tiered input/output by interval + a single flat cache_read price).
+// On TokenKey this is the same failure mode the #2107 fix solved for the
+// out-of-range path — sticky-routing maximizes cache_read_input_tokens
+// specifically to bank that discount, and dropping it makes the headline
+// cost-savings feature silently inert.
+func tkOverlayIntervalOntoBasePricing(base *ModelPricing, iv *PricingInterval, supportsCacheBreakdown bool) *ModelPricing {
+	out := ModelPricing{SupportsCacheBreakdown: supportsCacheBreakdown}
+	if base != nil {
+		out = *base
+		out.SupportsCacheBreakdown = supportsCacheBreakdown
+	}
+	if iv == nil {
+		return &out
+	}
+	if iv.InputPrice != nil {
+		out.InputPricePerToken = *iv.InputPrice
+		out.InputPricePerTokenPriority = *iv.InputPrice
+	}
+	if iv.OutputPrice != nil {
+		out.OutputPricePerToken = *iv.OutputPrice
+		out.OutputPricePerTokenPriority = *iv.OutputPrice
+	}
+	if iv.CacheWritePrice != nil {
+		out.CacheCreationPricePerToken = *iv.CacheWritePrice
+		out.CacheCreation5mPrice = *iv.CacheWritePrice
+		out.CacheCreation1hPrice = *iv.CacheWritePrice
+	}
+	if iv.CacheReadPrice != nil {
+		out.CacheReadPricePerToken = *iv.CacheReadPrice
+		out.CacheReadPricePerTokenPriority = *iv.CacheReadPrice
+	}
+	return &out
+}

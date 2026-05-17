@@ -292,18 +292,18 @@
     },
     {
       "path": "backend/internal/service/model_pricing_resolver.go",
-      "must_contain": ["tkApplyChannelFlatOverridesAsFallback(chPricing, resolved)"],
-      "rationale": "TK channel-pricing fallback (upstream #2107): applyTokenOverrides MUST delegate the flat-default application to the TK companion regardless of whether intervals are configured. An upstream merge that restores the original early-return-on-intervals path silently re-introduces $0 billing for custom newapi-channel models on out-of-range token counts."
+      "must_contain": ["tkApplyChannelFlatOverridesAsFallback(chPricing, resolved)", "tkOverlayIntervalOntoBasePricing(resolved.BasePricing, iv, resolved.SupportsCacheBreakdown)"],
+      "rationale": "TK channel-pricing policy: applyTokenOverrides MUST delegate flat-default application to the TK companion regardless of whether intervals are configured (upstream #2107 — out-of-range fallback). GetIntervalPricing MUST delegate matched-interval pricing to the TK overlay helper instead of building a brand-new ModelPricing from interval fields only (upstream #2363 — in-range cache_read/cache_write/image_output preservation). Either revert silently re-introduces $0 or wrong-tier billing on the most cache-hit-heavy traffic that sticky-routing was designed to bank."
     },
     {
       "path": "backend/internal/service/model_pricing_resolver_tk_channel_flat_fallback.go",
-      "must_contain": ["func tkApplyChannelFlatOverridesAsFallback(chPricing *ChannelModelPricing, resolved *ResolvedPricing)", "resolved.BasePricing.InputPricePerToken = *chPricing.InputPrice", "resolved.BasePricing.OutputPricePerToken = *chPricing.OutputPrice", "resolved.BasePricing.CacheReadPricePerToken = *chPricing.CacheReadPrice", "resolved.BasePricing.CacheCreationPricePerToken = *chPricing.CacheWritePrice"],
-      "rationale": "TK companion holding the channel flat-fallback policy referenced from applyTokenOverrides (upstream #2107). Each flat field write is sentinel-pinned so a future change cannot drop one of the five pricing dimensions silently — operators rely on each (input/output/cache-read/cache-write/image-output) being honored as the out-of-range fallback."
+      "must_contain": ["func tkApplyChannelFlatOverridesAsFallback(chPricing *ChannelModelPricing, resolved *ResolvedPricing)", "resolved.BasePricing.InputPricePerToken = *chPricing.InputPrice", "resolved.BasePricing.OutputPricePerToken = *chPricing.OutputPrice", "resolved.BasePricing.CacheReadPricePerToken = *chPricing.CacheReadPrice", "resolved.BasePricing.CacheCreationPricePerToken = *chPricing.CacheWritePrice", "func tkOverlayIntervalOntoBasePricing(base *ModelPricing, iv *PricingInterval, supportsCacheBreakdown bool) *ModelPricing", "Wei-Shaw/sub2api#2363", "out.CacheReadPricePerToken = *iv.CacheReadPrice"],
+      "rationale": "TK companion holding the channel flat-fallback policy referenced from applyTokenOverrides (upstream #2107) AND the interval overlay helper used by GetIntervalPricing (upstream #2363). Each flat field write is sentinel-pinned so a future change cannot drop one of the five pricing dimensions silently — operators rely on each (input/output/cache-read/cache-write/image-output) being honored as the out-of-range fallback. The overlay helper signature, #2363 reference, and the cache_read interval-overlay line are pinned so the symmetric in-range path cannot regress to the original empty-ModelPricing construction."
     },
     {
       "path": "backend/internal/service/model_pricing_resolver_test.go",
-      "must_contain": ["TestGetIntervalPricing_ChannelIntervalsNoMatch_FlatDefaultsApplied", "TestGetIntervalPricing_ChannelIntervalsNoMatch_UnknownModelChargesFlatNotZero"],
-      "rationale": "Focused regressions for upstream #2107: out-of-range token counts must hit channel flat defaults for both LiteLLM-known and LiteLLM-unknown models. Dropping these tests lets the early-return-on-intervals bug return without unit-CI noticing."
+      "must_contain": ["TestGetIntervalPricing_ChannelIntervalsNoMatch_FlatDefaultsApplied", "TestGetIntervalPricing_ChannelIntervalsNoMatch_UnknownModelChargesFlatNotZero", "TestGetIntervalPricing_IntervalMatched_FlatCacheReadPreserved", "TestGetIntervalPricing_IntervalMatched_IntervalCacheReadOverridesFlat"],
+      "rationale": "Focused regressions for upstream #2107 (out-of-range path) and upstream #2363 (in-range path). The four tests jointly assert that channel flat defaults survive every interval lookup outcome (no intervals, no match, match overlapping interval, match disjoint from flat defaults) and that interval values take precedence in-range when both are set. Dropping any of these lets the symmetric pricing-dimension drop bugs return without unit-CI noticing."
     },
     {
       "path": "backend/internal/repository/account_repo.go",

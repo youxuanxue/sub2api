@@ -231,6 +231,35 @@
         "backend/internal/service/gateway_service_tk_haiku_context_management_test.go"
       ],
       "summary": "normalizeClaudeOAuthRequestBody now skips auto-injecting context_management for Haiku models, mirroring the existing Haiku exemption in the anthropic-beta header path; Anthropic /v1/messages would otherwise return HTTP 400 for claude-haiku-4-5-* when thinking.type is enabled."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2486",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/billing_service.go",
+        "backend/internal/service/billing_service_test.go"
+      ],
+      "summary": "Unknown gemini-* models (including gemini-pro-agent) fall back to gemini-3.1-pro pricing in getFallbackPricing so calculateTokenCost no longer silently records ActualCost=0 with no quota deduction. Direct revenue leak on TokenKey's Gemini platform path."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2363",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/model_pricing_resolver.go",
+        "backend/internal/service/model_pricing_resolver_tk_channel_flat_fallback.go",
+        "backend/internal/service/model_pricing_resolver_test.go",
+        "scripts/gateway-tk-sentinels.json"
+      ],
+      "summary": "GetIntervalPricing now overlays the matched interval onto BasePricing (which carries channel flat defaults via the #2107 fix), so channel CacheReadPrice/CacheWritePrice/ImageOutputPrice survive in-range matches instead of being silently dropped to 0. Symmetric in-range counterpart to the #2107 out-of-range fix; sticky-routing's cache-hit discount now actually applies."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2332",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_streaming_test.go"
+      ],
+      "summary": "extractSSEUsagePatch message_start branch now gates hasInputTokens/hasCacheCreationInput/hasCacheReadInput on actual parseSSEUsageInt success instead of setting them unconditionally; a partial or duplicate message_start frame no longer zeroes out accumulator dimensions whose source key was absent (the input_tokens=0 duplicate-billing shape upstream reported)."
     }
   ]
 }

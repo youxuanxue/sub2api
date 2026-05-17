@@ -293,7 +293,12 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	if strings.Contains(modelLower, "claude") {
 		return s.fallbackPrices["claude-sonnet-4"]
 	}
-	if strings.Contains(modelLower, "gemini-3.1-pro") || strings.Contains(modelLower, "gemini-3-1-pro") {
+	// Gemini family fallback (upstream Wei-Shaw/sub2api#2486): any gemini-* model
+	// without an explicit LiteLLM or fallback entry — including new Google variants
+	// like gemini-pro-agent — must bill at the conservative paid-tier rate instead
+	// of returning nil (which causes calculateTokenCost to swallow the error and
+	// silently record ActualCost=0 with no quota deduction).
+	if strings.Contains(modelLower, "gemini") {
 		return s.fallbackPrices["gemini-3.1-pro"]
 	}
 

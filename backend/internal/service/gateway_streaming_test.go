@@ -82,6 +82,27 @@ func TestParseSSEUsage_DeltaOverwritesWithNonZero(t *testing.T) {
 	require.Equal(t, 60, usage.CacheReadInputTokens)
 }
 
+// TestParseSSEUsage_StartPartialUsageDoesNotZeroAccumulator asserts upstream
+// Wei-Shaw/sub2api#2332 hardening: a message_start frame that only carries
+// some usage fields (or a duplicate message_start with a partial usage object)
+// must NOT zero out accumulator dimensions that the parser cannot extract from
+// this specific frame. Earlier code set hasInputTokens/hasCacheCreationInput/
+// hasCacheReadInput=true unconditionally inside message_start, so any later
+// merge would write 0 for the missing dimensions, producing duplicate-billing-
+// shaped usage rows (input_tokens=0 after a real value had landed).
+func TestParseSSEUsage_StartPartialUsageDoesNotZeroAccumulator(t *testing.T) {
+	svc := newMinimalGatewayService()
+	usage := &ClaudeUsage{InputTokens: 123, CacheCreationInputTokens: 45, CacheReadInputTokens: 67}
+
+	// Frame that includes only output_tokens in the start usage object — the
+	// other dimensions are absent (not zero-valued JSON).
+	svc.parseSSEUsage(`{"type":"message_start","message":{"usage":{"output_tokens":10}}}`, usage)
+
+	require.Equal(t, 123, usage.InputTokens, "absent input_tokens must not zero existing value")
+	require.Equal(t, 45, usage.CacheCreationInputTokens, "absent cache_creation_input_tokens must not zero existing value")
+	require.Equal(t, 67, usage.CacheReadInputTokens, "absent cache_read_input_tokens must not zero existing value")
+}
+
 func TestParseSSEUsage_DeltaDoesNotResetCacheCreationBreakdown(t *testing.T) {
 	svc := newMinimalGatewayService()
 	usage := &ClaudeUsage{}

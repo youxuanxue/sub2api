@@ -211,7 +211,11 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{name: "claude opus 4.5 alt separator", model: "claude-opus-4-5-20260101", expectedInput: 5e-6},
 		{name: "claude generic model fallback sonnet", model: "claude-foo-bar", expectedInput: 3e-6},
 		{name: "gemini explicit fallback", model: "gemini-3-1-pro", expectedInput: 2e-6},
-		{name: "gemini unknown no fallback", model: "gemini-2.0-pro", expectNilPricing: true},
+		// upstream Wei-Shaw/sub2api#2486: unknown gemini-* must NOT bill $0; falls back to gemini-3.1-pro pricing.
+		{name: "gemini unknown falls back to 3.1-pro", model: "gemini-2.0-pro", expectedInput: 2e-6},
+		{name: "gemini-pro-agent falls back to 3.1-pro", model: "gemini-pro-agent", expectedInput: 2e-6},
+		{name: "models/gemini-pro-agent falls back to 3.1-pro", model: "models/gemini-pro-agent", expectedInput: 2e-6},
+		{name: "gemini-2.5-flash-unknown falls back to 3.1-pro", model: "gemini-2.5-flash-unknown-variant", expectedInput: 2e-6},
 		{name: "openai gpt5.4", model: "gpt-5.4", expectedInput: 2.5e-6},
 		{name: "openai gpt5.4 mini", model: "gpt-5.4-mini", expectedInput: 7.5e-7},
 		{name: "openai gpt5.3 codex", model: "gpt-5.3-codex", expectedInput: 1.5e-6},

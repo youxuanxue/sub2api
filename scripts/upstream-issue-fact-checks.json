@@ -162,6 +162,51 @@
         "backend/internal/service/openai_images_responses.go:Wei-Shaw/sub2api#1311",
         "scripts/check-buffered-content-type-leak.py:def scan_file"
       ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2486",
+      "severity": "high",
+      "summary": "Unknown gemini-* models (including gemini-pro-agent) fall back to gemini-3.1-pro pricing instead of returning nil (which caused calculateTokenCost to silently record ActualCost=0 with no quota deduction).",
+      "fixed_by": [
+        "backend/internal/service/billing_service.go",
+        "backend/internal/service/billing_service_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/billing_service.go:Wei-Shaw/sub2api#2486",
+        "backend/internal/service/billing_service.go:if strings.Contains(modelLower, \"gemini\")",
+        "backend/internal/service/billing_service_test.go:gemini-pro-agent falls back to 3.1-pro"
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2363",
+      "severity": "high",
+      "summary": "GetIntervalPricing overlays the matched interval onto BasePricing (which carries channel flat defaults via the #2107 fix), so channel CacheReadPrice/CacheWritePrice/ImageOutputPrice survive in-range matches instead of being silently dropped to 0. Symmetric in-range counterpart to the #2107 out-of-range fix.",
+      "fixed_by": [
+        "backend/internal/service/model_pricing_resolver.go",
+        "backend/internal/service/model_pricing_resolver_tk_channel_flat_fallback.go",
+        "backend/internal/service/model_pricing_resolver_test.go",
+        "scripts/gateway-tk-sentinels.json"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/model_pricing_resolver.go:tkOverlayIntervalOntoBasePricing(resolved.BasePricing, iv, resolved.SupportsCacheBreakdown)",
+        "backend/internal/service/model_pricing_resolver_tk_channel_flat_fallback.go:func tkOverlayIntervalOntoBasePricing",
+        "backend/internal/service/model_pricing_resolver_tk_channel_flat_fallback.go:Wei-Shaw/sub2api#2363",
+        "backend/internal/service/model_pricing_resolver_test.go:TestGetIntervalPricing_IntervalMatched_FlatCacheReadPreserved",
+        "backend/internal/service/model_pricing_resolver_test.go:TestGetIntervalPricing_IntervalMatched_IntervalCacheReadOverridesFlat"
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2332",
+      "severity": "high",
+      "summary": "extractSSEUsagePatch message_start branch now gates hasInputTokens/hasCacheCreationInput/hasCacheReadInput on actual parseSSEUsageInt success instead of setting them unconditionally; a partial or duplicate message_start frame no longer zeroes out accumulator dimensions whose source key was absent.",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_streaming_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/gateway_service.go:Wei-Shaw/sub2api#2332 hardening",
+        "backend/internal/service/gateway_streaming_test.go:TestParseSSEUsage_StartPartialUsageDoesNotZeroAccumulator"
+      ]
     }
   ]
 }
