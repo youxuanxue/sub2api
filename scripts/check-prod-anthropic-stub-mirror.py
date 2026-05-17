@@ -90,7 +90,6 @@ def resolve_instance_id(region: str, stack: str) -> str:
         ).strip()
     except subprocess.CalledProcessError as e:
         fail(f"describe-stacks failed for {stack}/{region}: {e}")
-        return ""
     if not out:
         fail(f"no InstanceId output on stack {stack}/{region}")
     return out
@@ -116,7 +115,6 @@ def run_remote(region: str, inst: str, sql: str, comment: str) -> tuple[str, str
         ).strip()
     except subprocess.CalledProcessError as e:
         fail(f"ssm send-command failed: {e}")
-        return "", ""
     subprocess.run(
         [
             "aws", "ssm", "wait", "command-executed",
@@ -358,8 +356,6 @@ def main() -> int:
                     )
                 else:
                     print(f"      mirror FAIL: {v.get('reason')}")
-            if r.get("skipped_reason") and r["kind"] == "external":
-                pass  # external is expected to skip
 
     return 1 if has_violation else 0
 
