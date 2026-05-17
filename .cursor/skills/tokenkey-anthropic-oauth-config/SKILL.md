@@ -224,11 +224,25 @@ confirm_apply=yes-apply-edge-anthropic-oauth
 python3 scripts/check-account-group-rpm-alignment.py --target <edge_id|prod>
 ```
 
-- exit 0 — 通过，继续 apply
-- exit 1 — 检测到 `account.extra.base_rpm > group.rpm_limit` bottleneck，**必须先修复**（升 `group.rpm_limit` 或调账号 tier 降 `base_rpm`），再重跑此 check，再 apply
-- exit 2 — 目标/SSM/schema 故障，按错误信息排查，不要 apply
+对每个 anthropic group（`rpm_limit > 0`）同时校验两层规则：
 
-理由：tier 落档把 `extra.base_rpm` 调高后，如果绑定 group 的 `rpm_limit` 比新 `base_rpm` 小，group 会成为隐性 bottleneck，账号配置实际半失效。H1 (2026-05-17) 在 edge uk1/fra1 上踩中过这个陷阱（`default.rpm_limit=3` 卡住 `base_rpm=6`）。此 guard 强制把这条规则从软约束硬化到可机器验证。
+- **Layer A**（账号不被组卡）：`max(account.base_rpm) ≤ group.rpm_limit`
+  违反 = 组成为单账号的隐性 bottleneck。H1 (2026-05-17) 在 edge uk1/fra1 上踩中（`default.rpm_limit=3` 卡住 `base_rpm=6`）。
+- **Layer B**（组 cap 不超出组内产能总和）：`Σ(account.base_rpm) ≥ group.rpm_limit`
+  违反 = 组的 RPM 上限超过组内 OAuth 账号实际能合并撑起的速率，多出的 cap 是虚的（永远跑不到）。
+
+跳过条件（不计入 violation）：
+
+- `rpm_limit = 0` 或 NULL — 视为 unlimited，整组跳过。
+- `rpm_limit > 0` 但组内**无** anthropic OAuth 账号 / 无任何账号声明 `extra.base_rpm` — 视为 stub-only 组（如 prod `cc-edges`），本 guard 不适用；如需对 stub 容量护栏，见 §"prod stub 主路径镜像规则"。
+
+退出码：
+
+- exit 0 — 所有 in-scope 组通过两层
+- exit 1 — 至少一组违反 Layer A 或 Layer B，**必须先修复**再 apply：
+  - Layer A 修法：升 `group.rpm_limit` ≥ 该组 max base_rpm；或调低 offender 账号 tier
+  - Layer B 修法：降 `group.rpm_limit` ≤ 该组 sum base_rpm；或往组里加 OAuth 账号补容量
+- exit 2 — 目标/SSM/schema 故障，按错误排查
 
 ### 3.3 模板 SQL 是 apply 源头
 

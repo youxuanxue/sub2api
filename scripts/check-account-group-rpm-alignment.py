@@ -1,26 +1,37 @@
 #!/usr/bin/env python3
 """
-S2 guard: account → group RPM alignment.
+S2 guard: account.base_rpm ↔ group.rpm_limit alignment.
 
-For every active anthropic OAuth account that declares
-`extra.base_rpm`, verify that every group it is bound to has
-`rpm_limit >= base_rpm`. A group with `rpm_limit=0` (or NULL) is
-treated as "unlimited" and always passes.
+For every active anthropic group with `rpm_limit > 0`, verify the
+group's RPM cap sits within the band of its bound anthropic OAuth
+accounts' `extra.base_rpm` values:
 
-Why this exists:
-A tier landed on an account (`extra.base_rpm=N`) is useless if its
-group caps RPM below N — the group becomes the bottleneck silently.
-H1 (2026-05-17) tripped exactly this: edge uk1/fra1 `default.rpm_limit=3`
-masked `base_rpm=6` from tier l1.
+  layer A (per-account):  max(account.base_rpm) ≤ group.rpm_limit
+                          — otherwise the group caps a single account
+                            below its tier-declared RPM (silent
+                            bottleneck; this is the original S2 case
+                            from H1 uk1/fra1).
 
-Targets a single stack at a time:
+  layer B (group-aggregate): Σ(account.base_rpm) ≥ group.rpm_limit
+                          — otherwise the group's cap exceeds the
+                            combined RPM the bound OAuth accounts can
+                            actually sustain (the cap is virtual; the
+                            real ceiling is the accounts' sum).
+
+Groups with `rpm_limit = 0` (or NULL) are treated as "unlimited" and
+skipped entirely. Groups with `rpm_limit > 0` but **no** anthropic
+OAuth account bound (e.g. prod `cc-edges` which only holds stubs) are
+out of scope — the H4 stub-only design intentionally has no
+account.base_rpm to compare against. They are reported as `skipped`
+with a clear reason and do not count as violations.
+
+Targets one stack per invocation:
   --target prod       → tokenkey-prod-stage0 (us-east-1)
-  --target <edge_id>  → matches deploy/aws/stage0/edge-targets.json
-                       (uk1, us1, fra1, sg1, ...)
+  --target <edge_id>  → deploy/aws/stage0/edge-targets.json
 
 Exit codes:
-  0  alignment OK (or no checkable pairs)
-  1  one or more violations
+  0  all in-scope groups satisfy both layers
+  1  one or more violations (layer A or B)
   2  schema / SSM / target-resolution error
 
 Usage:
@@ -46,20 +57,26 @@ PROD = {
 
 QUERY = """
 SELECT COALESCE(jsonb_agg(jsonb_build_object(
-  'account_id',     a.id,
-  'account_name',   a.name,
-  'group_id',       g.id,
-  'group_name',     g.name,
-  'base_rpm',       NULLIF(a.extra->>'base_rpm','')::int,
-  'group_rpm_limit', g.rpm_limit
-) ORDER BY a.name, g.name), '[]'::jsonb)
-FROM accounts a
-JOIN account_groups ag ON ag.account_id = a.id
-JOIN groups g          ON g.id          = ag.group_id AND g.deleted_at IS NULL
-WHERE a.platform = 'anthropic'
-  AND a.type     = 'oauth'
-  AND a.deleted_at IS NULL
-  AND NULLIF(a.extra->>'base_rpm', '') IS NOT NULL;
+  'group_id',   g.id,
+  'group_name', g.name,
+  'rpm_limit',  g.rpm_limit,
+  'oauth_accounts', COALESCE((
+    SELECT jsonb_agg(jsonb_build_object(
+      'account_id', a.id,
+      'account_name', a.name,
+      'base_rpm', NULLIF(a.extra->>'base_rpm','')::int
+    ) ORDER BY a.id)
+    FROM account_groups ag
+    JOIN accounts a ON a.id = ag.account_id
+    WHERE ag.group_id = g.id
+      AND a.platform  = 'anthropic'
+      AND a.type      = 'oauth'
+      AND a.deleted_at IS NULL
+  ), '[]'::jsonb)
+) ORDER BY g.id), '[]'::jsonb)
+FROM groups g
+WHERE g.platform = 'anthropic'
+  AND g.deleted_at IS NULL;
 """
 
 
@@ -89,23 +106,15 @@ def resolve_instance_id(region: str, stack: str) -> str:
     try:
         out = subprocess.check_output(
             [
-                "aws",
-                "cloudformation",
-                "describe-stacks",
-                "--region",
-                region,
-                "--stack-name",
-                stack,
-                "--query",
-                "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue",
-                "--output",
-                "text",
+                "aws", "cloudformation", "describe-stacks",
+                "--region", region, "--stack-name", stack,
+                "--query", "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue",
+                "--output", "text",
             ],
             text=True,
         ).strip()
     except subprocess.CalledProcessError as e:
         fail(f"describe-stacks failed for {stack}/{region}: {e}")
-        return ""  # unreachable
     if not out:
         fail(f"no InstanceId output on stack {stack}/{region}")
     return out
@@ -118,58 +127,32 @@ def run_remote(region: str, inst: str, sql: str, comment: str) -> tuple[str, str
     try:
         cid = subprocess.check_output(
             [
-                "aws",
-                "ssm",
-                "send-command",
-                "--region",
-                region,
-                "--instance-ids",
-                inst,
-                "--document-name",
-                "AWS-RunShellScript",
-                "--comment",
-                comment,
-                "--parameters",
-                params,
-                "--query",
-                "Command.CommandId",
-                "--output",
-                "text",
+                "aws", "ssm", "send-command",
+                "--region", region,
+                "--instance-ids", inst,
+                "--document-name", "AWS-RunShellScript",
+                "--comment", comment,
+                "--parameters", params,
+                "--query", "Command.CommandId",
+                "--output", "text",
             ],
             text=True,
         ).strip()
     except subprocess.CalledProcessError as e:
         fail(f"ssm send-command failed: {e}")
-        return "", ""  # unreachable
     subprocess.run(
         [
-            "aws",
-            "ssm",
-            "wait",
-            "command-executed",
-            "--region",
-            region,
-            "--command-id",
-            cid,
-            "--instance-id",
-            inst,
+            "aws", "ssm", "wait", "command-executed",
+            "--region", region, "--command-id", cid, "--instance-id", inst,
         ],
         check=False,
     )
     inv = json.loads(
         subprocess.check_output(
             [
-                "aws",
-                "ssm",
-                "get-command-invocation",
-                "--region",
-                region,
-                "--command-id",
-                cid,
-                "--instance-id",
-                inst,
-                "--output",
-                "json",
+                "aws", "ssm", "get-command-invocation",
+                "--region", region, "--command-id", cid, "--instance-id", inst,
+                "--output", "json",
             ],
             text=True,
         )
@@ -186,8 +169,8 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     ap.add_argument("--target", required=True, help="edge_id (e.g. us1) or 'prod'")
-    ap.add_argument("--instance-id", help="override SSM instance id (skips CFN describe-stacks)")
-    ap.add_argument("--json", action="store_true", help="emit JSON report only (no human summary)")
+    ap.add_argument("--instance-id", help="override SSM instance id")
+    ap.add_argument("--json", action="store_true", help="emit JSON report only")
     args = ap.parse_args()
 
     tgt = resolve_target(args.target)
@@ -196,21 +179,70 @@ def main() -> int:
         tgt["region"], inst, QUERY, f"S2 rpm alignment check {tgt['label']}"
     )
     try:
-        rows = json.loads(out) if out else []
+        groups = json.loads(out) if out else []
     except json.JSONDecodeError as e:
         fail(f"failed to parse alignment payload: {e}\n{out[:600]}")
         return 2
 
-    violations = []
-    for r in rows:
-        base = r.get("base_rpm")
-        gl = r.get("group_rpm_limit")
-        if base is None:
+    results = []
+    violation_count = 0
+    for g in groups:
+        rpm_limit = g.get("rpm_limit") or 0
+        accounts = g.get("oauth_accounts") or []
+        base_rpms = [a["base_rpm"] for a in accounts if a.get("base_rpm") is not None]
+
+        rec = {
+            "group_id": g["group_id"],
+            "group_name": g["group_name"],
+            "rpm_limit": rpm_limit,
+            "oauth_account_count": len(accounts),
+            "base_rpm_count": len(base_rpms),
+            "max_base_rpm": max(base_rpms) if base_rpms else None,
+            "sum_base_rpm": sum(base_rpms) if base_rpms else 0,
+            "status": "ok",
+            "skip_reason": None,
+            "layer_a_violation": None,
+            "layer_b_violation": None,
+        }
+
+        if rpm_limit == 0:
+            rec["status"] = "skipped"
+            rec["skip_reason"] = "rpm_limit=0 (unlimited)"
+            results.append(rec)
             continue
-        if gl in (0, None):
+        if not base_rpms:
+            rec["status"] = "skipped"
+            rec["skip_reason"] = (
+                f"rpm_limit={rpm_limit} but no anthropic OAuth account "
+                "with extra.base_rpm bound (out of scope: stub-only group)"
+            )
+            results.append(rec)
             continue
-        if gl < base:
-            violations.append(r)
+
+        if rec["max_base_rpm"] > rpm_limit:
+            rec["layer_a_violation"] = {
+                "rule": "max(account.base_rpm) <= group.rpm_limit",
+                "max_base_rpm": rec["max_base_rpm"],
+                "rpm_limit": rpm_limit,
+                "offenders": [
+                    a for a in accounts
+                    if a.get("base_rpm") is not None and a["base_rpm"] > rpm_limit
+                ],
+            }
+            rec["status"] = "fail"
+
+        if rec["sum_base_rpm"] < rpm_limit:
+            rec["layer_b_violation"] = {
+                "rule": "sum(account.base_rpm) >= group.rpm_limit",
+                "sum_base_rpm": rec["sum_base_rpm"],
+                "rpm_limit": rpm_limit,
+            }
+            rec["status"] = "fail"
+
+        if rec["status"] == "fail":
+            violation_count += 1
+
+        results.append(rec)
 
     report = {
         "target": tgt["label"],
@@ -218,36 +250,61 @@ def main() -> int:
         "stack": tgt["stack"],
         "instance_id": inst,
         "ssm_command_id": cid,
-        "pairs_checked": len(rows),
-        "violation_count": len(violations),
-        "violations": violations,
+        "groups_checked": len(results),
+        "violation_count": violation_count,
+        "results": results,
     }
 
     if args.json:
         print(json.dumps(report, indent=2, ensure_ascii=False))
     else:
+        skipped = sum(1 for r in results if r["status"] == "skipped")
+        ok = sum(1 for r in results if r["status"] == "ok")
         print(
-            f"target={tgt['label']} pairs_checked={len(rows)} "
-            f"violations={len(violations)} ssm_cmd={cid}"
+            f"target={tgt['label']} groups_checked={len(results)} "
+            f"ok={ok} skipped={skipped} violations={violation_count} ssm_cmd={cid}"
         )
-        if violations:
-            for v in violations:
-                print(
-                    f"  - account={v['account_name']} (base_rpm={v['base_rpm']}) "
-                    f"bound to group={v['group_name']} (rpm_limit={v['group_rpm_limit']}) "
-                    "← bottleneck"
+        for r in results:
+            head = (
+                f"  [{r['status'].upper()}] group_id={r['group_id']} "
+                f"name={r['group_name']!r} rpm_limit={r['rpm_limit']} "
+                f"oauth_accounts={r['oauth_account_count']}"
+            )
+            print(head)
+            if r["status"] == "skipped":
+                print(f"      skip: {r['skip_reason']}")
+                continue
+            print(
+                f"      max(base_rpm)={r['max_base_rpm']} "
+                f"sum(base_rpm)={r['sum_base_rpm']}"
+            )
+            la = r["layer_a_violation"]
+            if la:
+                offenders = ", ".join(
+                    f"{a['account_name']}(base_rpm={a['base_rpm']})"
+                    for a in la["offenders"]
                 )
-            print(
-                "fix: raise group.rpm_limit to >= base_rpm, "
-                "or lower account base_rpm via tier change."
-            )
-        else:
-            print(
-                "OK: every checked anthropic OAuth account.base_rpm "
-                "<= bound group.rpm_limit (or rpm_limit=0/unlimited)"
-            )
+                print(
+                    f"      layer A FAIL ({la['rule']}): "
+                    f"max={la['max_base_rpm']} > rpm_limit={la['rpm_limit']} "
+                    f"offenders=[{offenders}]"
+                )
+                print(
+                    f"      fix: raise group.rpm_limit to ≥ {la['max_base_rpm']}, "
+                    "or lower offending account tier."
+                )
+            lb = r["layer_b_violation"]
+            if lb:
+                print(
+                    f"      layer B FAIL ({lb['rule']}): "
+                    f"sum={lb['sum_base_rpm']} < rpm_limit={lb['rpm_limit']}"
+                )
+                print(
+                    f"      fix: lower group.rpm_limit to ≤ {lb['sum_base_rpm']}, "
+                    "or add OAuth account capacity to the group."
+                )
 
-    return 1 if violations else 0
+    return 1 if violation_count > 0 else 0
 
 
 if __name__ == "__main__":
