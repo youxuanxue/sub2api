@@ -2851,21 +2851,27 @@ func (s *GeminiMessagesCompatService) handleGeminiUpstreamError(ctx context.Cont
 
 	resetAt := ParseGeminiRateLimitResetTime(body)
 	if resetAt == nil {
-		// 根据账号类型使用不同的默认重置时间
+		// 根据账号类型使用不同的默认重置时间。
+		//
+		// TK: See upstream Wei-Shaw/sub2api#641 —— 反代 Gemini CLI 的
+		// google_one OAuth 账号收到 429（无 quotaResetDelay/retryDelay）时，
+		// upstream 旧逻辑直接封禁到 PST 午夜，完全忽略 tier 上的 Cooldown
+		// 配置（如 google_ai_pro 的 5min）。所有 OAuth 账号（含 google_one /
+		// aistudio OAuth / code_assist）都应走 tier cooldown；只有非 OAuth
+		// 的 AI Studio API Key 才用 PST 午夜兜底。
 		var ra time.Time
-		if isCodeAssist {
-			// Code Assist: fallback cooldown by tier
+		if account.Type == AccountTypeOAuth {
 			cooldown := geminiCooldownForTier(tierID)
 			if s.rateLimitService != nil {
 				cooldown = s.rateLimitService.GeminiCooldown(ctx, account)
 			}
 			ra = time.Now().Add(cooldown)
-			logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d (Code Assist, tier=%s, project=%s) rate limited, cooldown=%v", account.ID, tierID, projectID, time.Until(ra).Truncate(time.Second))
+			logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d (OAuth oauth_type=%s, tier=%s, project=%s, code_assist=%v) rate limited, cooldown=%v", account.ID, oauthType, tierID, projectID, isCodeAssist, time.Until(ra).Truncate(time.Second))
 		} else {
-			// API Key / AI Studio OAuth: PST 午夜
+			// API Key (AI Studio): PST 午夜
 			if ts := nextGeminiDailyResetUnix(); ts != nil {
 				ra = time.Unix(*ts, 0)
-				logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d (API Key/AI Studio, type=%s) rate limited, reset at PST midnight (%v)", account.ID, account.Type, ra)
+				logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d (API Key, type=%s) rate limited, reset at PST midnight (%v)", account.ID, account.Type, ra)
 			} else {
 				// 兜底：5 分钟
 				ra = time.Now().Add(5 * time.Minute)

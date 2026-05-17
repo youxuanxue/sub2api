@@ -28,7 +28,7 @@ LOW_PATTERNS = [
 
 MANUAL_TRIAGE = {
     580: ("fixed", "fixed_in_tokenkey", "Claude Code mimicry UA downgrade fixed by TokenKey PR #223."),
-    641: ("needs_prod_validation", "partially_mitigated", "Gemini google_one 429 now uses tier cooldown on Code Assist paths; verify google_one accounts are classified as Code Assist in production."),
+    641: ("fixed", "fixed_in_tokenkey", "Gemini 429 with no quotaResetDelay/retryDelay now uses tier cooldown for all Gemini OAuth accounts (google_one + aistudio OAuth + code_assist), not just Code Assist; PST-midnight fallback is reserved for API Key accounts. Fixed in TokenKey gemini_messages_compat_service.go handleGeminiUpstreamError."),
     1824: ("needs_prod_validation", "partially_mitigated", "OpenAI 403 now starts with temporary unschedulable state, but repeated CF/Arkose challenges can still cool down or error accounts."),
     1925: ("fixed", "fixed_in_tokenkey", "OpenAI /responses account test requires response.completed/response.done; early EOF fails tests."),
     2055: ("fixed", "fixed_in_tokenkey", "Rate-limit reset clears account/model rate-limit, temp-unschedulable, and OpenAI 403 counters."),
@@ -42,7 +42,7 @@ MANUAL_TRIAGE = {
     2291: ("medium", "unresolved_observability", "Cache hit rate has inconsistent UI formulas between dashboard/trend views; observability issue, not direct production outage."),
     2293: ("fixed", "fixed_in_tokenkey", "Long-context billing includes cache_read tokens in the threshold and applies long-context multiplier to cache_read cost."),
     2310: ("fixed", "fixed_in_tokenkey", "OpenAI OAuth image generation uses a detached upstream context instead of binding long jobs to the client connection."),
-    2332: ("needs_prod_validation", "partially_mitigated", "Anthropic message_delta usage parsing avoids zero-value overwrites; production usage rows should still be sampled for duplicate billing."),
+    2332: ("fixed", "fixed_in_tokenkey", "TokenKey writes exactly one usage_logs row per request (single RecordUsage in worker pool, see gateway_handler.go), and parseSSEUsagePassthrough ignores zero-value input_tokens from message_delta. No duplicate input=0/output>0 rows. Test TestGatewayService_ParseSSEUsagePassthrough_MessageDeltaSelectiveOverwrite pins this."),
     2337: ("fixed", "fixed_in_tokenkey", "Anthropic-to-OpenAI multi-turn tool call mapping is covered by tool-continuation code and tests."),
     2363: ("needs_prod_validation", "partially_mitigated", "Cache-read price overrides exist in resolver and billing paths; verify production channel-pricing source selection."),
     2383: ("fixed", "fixed_in_tokenkey", "OpenAI usage recording has billing model candidates/source tracking and tests for mapped/unmapped models."),
@@ -59,6 +59,7 @@ MANUAL_TRIAGE = {
     1311: ("fixed", "fixed_in_tokenkey", "Non-stream /v1/chat/completions and /v1/messages now explicitly set Content-Type: application/json after WriteFilteredHeaders, so the upstream Responses SSE Content-Type no longer leaks onto JSON bodies."),
     2500: ("fixed", "fixed_in_tokenkey", "Codex OAuth fixCallIDPrefix now emits fc_<id> (with underscore) for call_<id> inputs, matching the codex backend's id validator and preventing 502 on multi-hop tool turns."),
     2506: ("fixed", "fixed_in_tokenkey", "normalizeClaudeOAuthRequestBody skips context_management auto-injection for Haiku models (mirroring the existing Haiku exemption in FullClaudeCodeMimicryBetas), so claude-haiku-4-5-* + thinking.type=enabled no longer triggers Anthropic 400."),
+    2515: ("fixed", "fixed_in_tokenkey", "ChatCompletions→Responses transform no longer emits content:null when the source content array is empty or every part was filtered out — falls back to empty string per upstream Responses contract."),
 }
 
 FIXED_IDS = {num for num, (impact, _, _) in MANUAL_TRIAGE.items() if impact == "fixed"}

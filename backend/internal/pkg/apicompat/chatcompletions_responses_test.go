@@ -1232,3 +1232,47 @@ func TestBufferedResponseAccumulator_IgnoresNonFunctionCallItems(t *testing.T) {
 
 	assert.False(t, acc.HasContent())
 }
+
+// TestChatCompletionsToResponses_EmptyContentArrayDoesNotProduceNull is a
+// regression test for upstream Wei-Shaw/sub2api#2515 — gpt-5.5 (and any model
+// using the chat-completions → responses transform) was producing
+// `"content":null` in the converted input items whenever the source content
+// array was empty or contained only filtered parts (e.g. text="" or unknown
+// types). Upstream OpenAI rejected the request with HTTP 400 "Invalid type
+// for 'input[xx].content': expected one of an array of objects or string, but
+// got null instead". Content must fall back to an empty string in that case.
+func TestChatCompletionsToResponses_EmptyContentArrayDoesNotProduceNull(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+	}{
+		{"empty parts array", `[]`},
+		{"parts with empty text", `[{"type":"text","text":""}]`},
+		{"parts with null text", `[{"type":"text","text":null}]`},
+		{"parts with unsupported type only", `[{"type":"refusal","refusal":"sorry"}]`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := &ChatCompletionsRequest{
+				Model: "gpt-5.5",
+				Messages: []ChatMessage{
+					{Role: "user", Content: json.RawMessage(tc.content)},
+				},
+			}
+			resp, err := ChatCompletionsToResponses(req)
+			require.NoError(t, err)
+
+			var items []ResponsesInputItem
+			require.NoError(t, json.Unmarshal(resp.Input, &items))
+			require.Len(t, items, 1)
+
+			// The critical invariant: content must NEVER be the JSON null literal,
+			// since OpenAI Responses upstream rejects it with HTTP 400.
+			assert.NotEqual(t, "null", string(items[0].Content),
+				"converted content must not be null literal (would cause upstream 400)")
+			assert.Equal(t, `""`, string(items[0].Content),
+				"empty/filtered parts must serialize as empty string per upstream #2515")
+		})
+	}
+}
