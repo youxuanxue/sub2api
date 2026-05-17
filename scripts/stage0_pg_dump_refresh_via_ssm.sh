@@ -88,10 +88,16 @@ WantedBy=timers.target
 PTEOF
 )"
 
+# In-place sync trace: written to the SSM stdout so operators can confirm
+# which stage0-single-ec2.yaml commit the live timer is now aligned to.
+# Falls back to "local" when run outside a workflow.
+TEMPLATE_SHA="${GITHUB_SHA:-local}"
+
 jq -n \
   --arg sh "${PG_DUMP_SH_B64}" \
   --arg svc "${PG_SERVICE_B64}" \
   --arg tmr "${PG_TIMER_B64}" \
+  --arg sha "${TEMPLATE_SHA}" \
   '{
     commands: [
       "set -euo pipefail",
@@ -110,7 +116,9 @@ jq -n \
       "echo --- service unit definition ---",
       "sudo systemctl cat tokenkey-pgdump.service --no-pager || true",
       "echo --- timer unit definition ---",
-      "sudo systemctl cat tokenkey-pgdump.timer --no-pager || true"
+      "sudo systemctl cat tokenkey-pgdump.timer --no-pager || true",
+      ("echo --- in-place sync trace ---"),
+      ("echo Live tokenkey-pgdump.{sh,service,timer} now match deploy/aws/cloudformation/stage0-single-ec2.yaml@" + $sha + " on $(hostname)")
     ]
   }' > "${params_file}"
 
