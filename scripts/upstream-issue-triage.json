@@ -10,7 +10,7 @@
     "fixed": 25,
     "not_applicable": 1,
     "low": 94,
-    "unknown_low_signal": 396
+    "unknown_low_signal": 397
   },
   "issues": [
     {
@@ -10059,6 +10059,16 @@
       "tokenkey_status": "not_prioritized",
       "rationale": "No high-signal production-risk keywords in this pass.",
       "updated_at": "2026-05-16T17:47:38Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2533",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2533",
+      "title": "image2调用何时能引入保活机制？cf超时问题需解决",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_prioritized",
+      "rationale": "No high-signal production-risk keywords in this pass.",
+      "updated_at": "2026-05-17T08:25:58Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#262",
