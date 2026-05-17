@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "description": "TokenKey prod account baseline for non-secret account/group scheduling configuration. Generated from read-only prod Stage0 audit and modeled after anthropic-oauth-stability-baselines-tiered.json.",
+  "description": "TokenKey prod account baseline for non-secret account/group scheduling configuration. Generated from read-only prod Stage0 audit and modeled after anthropic-oauth-stability-baselines-tiered.json. Anthropic accounts under group cc-edges (id=15) are prod-side forward stubs (type=apikey + base_url) that route to per-edge stage0 (uk1/us1/fra1); their tier baseline is owned by each edge per anthropic-oauth-stability-baselines-tiered.json, not by this prod baseline.",
   "captured_at_utc": "2026-05-15T23:41:38Z",
   "target": {
     "environment": "prod",
@@ -44,12 +44,20 @@
         "link_priority"
       ]
     },
+    "anthropic_oauth_tier_authority": {
+      "source_of_truth": "deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json",
+      "applied_per_edge": true,
+      "edge_targets": ["uk1", "us1", "fra1"],
+      "prod_side_role": "prod stores cc-*-oauth as apikey + base_url pointing to api-<edge>.tokenkey.dev; tier-related fields (extra_baseline.*, priority, concurrency, channel_type) on these prod rows are observe-only and MUST NOT be treated as drift against any tier baseline",
+      "tier_apply_path": "tokenkey-edge-anthropic-oauth-config skill (operates on platform=anthropic AND type=oauth in each edge stage0 postgres, not on this prod baseline)"
+    },
     "prod_invariants": [
       "active groups with active API keys must have at least one currently schedulable account",
       "group.platform must match account.platform for all schedulable bindings",
       "newapi accounts must keep channel_type > 0",
       "rate_multiplier remains 1.0 unless intentionally changing billing semantics",
-      "credential values must never be committed to this baseline"
+      "credential values must never be committed to this baseline",
+      "anthropic cc-*-oauth rows under group cc-edges are prod-side forward stubs; their tier configuration is enforced on the per-edge OAuth account in each edge stage0 database, not in prod"
     ]
   },
   "summary": {
@@ -762,6 +770,7 @@
       "id": 15,
       "name": "cc-edges",
       "platform": "anthropic",
+      "tier_config_authority": "per_edge_stage0",
       "status": "active",
       "subscription_type": "standard",
       "is_exclusive": false,
@@ -875,6 +884,8 @@
       "name": "cc-fra1-oauth",
       "platform": "anthropic",
       "type": "apikey",
+      "tier_config_authority": "edge_stage0_fra1",
+      "role_note": "prod-side forward stub; tier owned by edge fra1 stage0 (platform=anthropic AND type=oauth)",
       "status": "active",
       "schedulable": false,
       "concurrency": 3,
@@ -925,6 +936,8 @@
       "name": "cc-uk1-oauth",
       "platform": "anthropic",
       "type": "apikey",
+      "tier_config_authority": "edge_stage0_uk1",
+      "role_note": "prod-side forward stub; tier owned by edge uk1 stage0 (platform=anthropic AND type=oauth)",
       "status": "active",
       "schedulable": false,
       "concurrency": 3,
@@ -975,6 +988,8 @@
       "name": "cc-us1-oauth",
       "platform": "anthropic",
       "type": "apikey",
+      "tier_config_authority": "edge_stage0_us1",
+      "role_note": "prod-side forward stub; tier owned by edge us1 stage0 (platform=anthropic AND type=oauth)",
       "status": "active",
       "schedulable": true,
       "concurrency": 3,
