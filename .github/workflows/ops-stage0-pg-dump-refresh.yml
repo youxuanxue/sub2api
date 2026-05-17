@@ -1,0 +1,158 @@
+name: Stage0 pg_dump Refresh
+
+# One-shot ops workflow that pushes the refreshed pg_dump cadence (every 2h,
+# ≤12 rolling files) into running Stage0 instances. The same systemd unit /
+# timer / script content already lives in
+# deploy/aws/cloudformation/stage0-single-ec2.yaml; this workflow brings the
+# LIVE instance in sync without rebuilding EC2 user-data (which would trigger
+# a prod restart). Future stack rebuild remains the source of truth.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Target: prod, edge-us1, or all"
+        required: true
+        type: choice
+        options:
+          - prod
+          - edge-us1
+          - all
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: ops-stage0-pg-dump-refresh-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  prod:
+    if: inputs.target == 'prod' || inputs.target == 'all'
+    runs-on: ubuntu-latest
+    environment: prod
+    env:
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      STACK_NAME: ${{ vars.PROD_STACK_NAME || 'tokenkey-prod-stage0' }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - name: Validate OIDC role
+        run: |
+          set -euo pipefail
+          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
+            echo "::error::AWS_OIDC_ROLE_ARN repo variable not set"
+            exit 1
+          fi
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Resolve prod instance id
+        id: instance
+        env:
+          STACK_NAME: ${{ env.STACK_NAME }}
+        run: |
+          set -euo pipefail
+          ID=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
+            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)
+          if [ -z "$ID" ] || [ "$ID" = "None" ]; then
+            echo "::error::could not resolve InstanceId from stack $STACK_NAME"
+            exit 1
+          fi
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+      - name: Refresh pg_dump via SSM
+        id: ssm
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          STAGE0_SSM_OUTPUT_DIR: .
+        run: bash scripts/stage0_pg_dump_refresh_via_ssm.sh "$INSTANCE_ID" "ops-pg-dump-refresh target=prod"
+      - name: Job summary
+        if: always()
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          STACK_NAME: ${{ env.STACK_NAME }}
+          CMD_ID: ${{ steps.ssm.outputs.command_id }}
+        run: |
+          {
+            echo "## ops pg_dump refresh"
+            echo "- environment: \`prod\`"
+            echo "- stack: \`$STACK_NAME\`"
+            echo "- instance: \`$INSTANCE_ID\`"
+            echo "- ssm command id: \`${CMD_ID:-none}\`"
+            echo "- cadence: every 2 hours"
+            echo "- retention: max 12 rolling files + 24h mtime ceiling"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  edge-us1:
+    if: inputs.target == 'edge-us1' || inputs.target == 'all'
+    runs-on: ubuntu-latest
+    environment: edge-us1
+    env:
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      INPUT_EDGE_ID: us1
+      INPUT_CONFIRM_STACK: tokenkey-edge-us1-stage0
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - name: Validate OIDC role
+        run: |
+          set -euo pipefail
+          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
+            echo "::error::AWS_OIDC_ROLE_ARN repo variable not set"
+            exit 1
+          fi
+      - name: Resolve edge target
+        id: edge
+        run: |
+          python3 deploy/aws/stage0/resolve-edge-target.py \
+            --edge-id "$INPUT_EDGE_ID" \
+            --confirm-stack "$INPUT_CONFIRM_STACK" \
+            --github-output "$GITHUB_OUTPUT"
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ steps.edge.outputs.region }}
+      - name: Resolve edge instance id
+        id: instance
+        env:
+          STACK_NAME: ${{ steps.edge.outputs.stack }}
+        run: |
+          set -euo pipefail
+          ID=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
+            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)
+          if [ -z "$ID" ] || [ "$ID" = "None" ]; then
+            echo "::error::could not resolve InstanceId from stack $STACK_NAME"
+            exit 1
+          fi
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+      - name: Refresh pg_dump via SSM
+        id: ssm
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          STAGE0_SSM_OUTPUT_DIR: .
+        run: bash scripts/stage0_pg_dump_refresh_via_ssm.sh "$INSTANCE_ID" "ops-pg-dump-refresh target=edge-us1"
+      - name: Job summary
+        if: always()
+        env:
+          EDGE_ID: ${{ steps.edge.outputs.edge_id }}
+          STACK_NAME: ${{ steps.edge.outputs.stack }}
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          CMD_ID: ${{ steps.ssm.outputs.command_id }}
+        run: |
+          {
+            echo "## ops pg_dump refresh"
+            echo "- environment: \`edge-us1\`"
+            echo "- edge_id: \`$EDGE_ID\`"
+            echo "- stack: \`$STACK_NAME\`"
+            echo "- instance: \`$INSTANCE_ID\`"
+            echo "- ssm command id: \`${CMD_ID:-none}\`"
+            echo "- cadence: every 2 hours"
+            echo "- retention: max 12 rolling files + 24h mtime ceiling"
+          } >> "$GITHUB_STEP_SUMMARY"
