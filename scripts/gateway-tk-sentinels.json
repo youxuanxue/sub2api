@@ -224,20 +224,32 @@
       "rationale": "Focused regression anchors for upstream #2500 covering both function_call and hop-2 item_reference replay ids with real nanoid-shaped call_<id> values."
     },
     {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "openAICompatSSEFrame",
+        "openAICompatSSEFrameParser",
+        "openAICompatPayloadWithEventType",
+        "extractOpenAISSEEventLine"
+      ],
+      "rationale": "Upstream PR #2530 introduced the SSE frame parser for Responses API typed events. These types/functions must survive future upstream merges: openAICompatSSEFrameParser buffers event:/data: pairs so typed events (response.completed, response.failed) are recognised before [DONE]; openAICompatPayloadWithEventType injects the event type into the JSON payload for downstream Responses SSE consumers; extractOpenAISSEEventLine extracts the event: field. Dropping any of these silently breaks Responses SSE terminal detection."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_chat_completions.go",
       "must_contain": [
         "Wei-Shaw/sub2api#1311",
-        "c.Writer.Header().Set(\"Content-Type\", \"application/json\")"
+        "c.Writer.Header().Set(\"Content-Type\", \"application/json\")",
+        "openAICompatSSEFrameParser"
       ],
-      "rationale": "Non-stream /v1/chat/completions buffers upstream Responses SSE into a JSON chat.completion object. After header propagation it must explicitly override Content-Type to application/json, otherwise OpenAI SDK consumers see JSON with text/event-stream and parse it as SSE (upstream #1311)."
+      "rationale": "Non-stream /v1/chat/completions buffers upstream Responses SSE into a JSON chat.completion object. After header propagation it must explicitly override Content-Type to application/json, otherwise OpenAI SDK consumers see JSON with text/event-stream and parse it as SSE (upstream #1311). The streaming path must use openAICompatSSEFrameParser to correctly handle typed Responses SSE events (upstream PR #2530)."
     },
     {
       "path": "backend/internal/service/openai_gateway_messages.go",
       "must_contain": [
         "Wei-Shaw/sub2api#1311",
-        "c.Writer.Header().Set(\"Content-Type\", \"application/json\")"
+        "c.Writer.Header().Set(\"Content-Type\", \"application/json\")",
+        "openAICompatSSEFrameParser"
       ],
-      "rationale": "Non-stream /v1/messages uses the same buffered Responses SSE -> JSON conversion root cause as /v1/chat/completions; it must also override Content-Type after WriteFilteredHeaders so JSON bodies are not labeled text/event-stream."
+      "rationale": "Non-stream /v1/messages uses the same buffered Responses SSE -> JSON conversion root cause as /v1/chat/completions; it must also override Content-Type after WriteFilteredHeaders so JSON bodies are not labeled text/event-stream. The buffered terminal reader must use openAICompatSSEFrameParser to recognise typed completion events when the stream closes without a standalone [DONE] (upstream PR #2530)."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_tk_content_type_test.go",
