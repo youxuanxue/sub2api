@@ -158,7 +158,21 @@ confirm_apply=yes-apply-edge-anthropic-oauth
 
 缺失或不匹配则拒绝执行。
 
-### 3.2 模板 SQL 是 apply 源头
+### 3.2 S2 alignment guard（强制 pre-apply 门禁）
+
+任何 `apply` 之前**必须**先跑：
+
+```bash
+python3 scripts/check-account-group-rpm-alignment.py --target <edge_id|prod>
+```
+
+- exit 0 — 通过，继续 apply
+- exit 1 — 检测到 `account.extra.base_rpm > group.rpm_limit` bottleneck，**必须先修复**（升 `group.rpm_limit` 或调账号 tier 降 `base_rpm`），再重跑此 check，再 apply
+- exit 2 — 目标/SSM/schema 故障，按错误信息排查，不要 apply
+
+理由：tier 落档把 `extra.base_rpm` 调高后，如果绑定 group 的 `rpm_limit` 比新 `base_rpm` 小，group 会成为隐性 bottleneck，账号配置实际半失效。H1 (2026-05-17) 在 edge uk1/fra1 上踩中过这个陷阱（`default.rpm_limit=3` 卡住 `base_rpm=6`）。此 guard 强制把这条规则从软约束硬化到可机器验证。
+
+### 3.3 模板 SQL 是 apply 源头
 
 更新配置时禁止临时手写 SQL 或直接拼一份新的字段清单。必须从仓库模板复制出本次执行 SQL，再只替换本次目标变量和经 `plan-apply` 确认的差异：
 
@@ -167,7 +181,7 @@ confirm_apply=yes-apply-edge-anthropic-oauth
 
 推荐落点：`$CLAUDE_JOB_DIR/<edge>-<target>-apply.sql`，不要改原模板来执行单次任务。复制后必须生成**自包含 SQL**：把模板正文复制进该文件，并在文件顶部写入本次 `\set account_name`、`\set stability_tier`、`\set group_name` 等变量；远端 edge 不保证存在仓库 checkout，所以禁止让 SSM/psql 执行依赖远端文件路径的 `\i deploy/aws/stage0/...`。复制后必须保留模板里的 profile、tier、聚合口径和事务结构；只允许改执行变量或经 `plan-apply` 确认过的字面值。若需求确实要求模板未覆盖的新字段，先更新模板和本 skill，再执行 apply，避免 checker、模板和人工 SQL 分叉。
 
-### 3.3 账号模式（target_scope=account）
+### 3.4 账号模式（target_scope=account）
 
 安全限制：
 - `apply` 仅允许单 edge + 单账号；
@@ -183,7 +197,7 @@ confirm_apply=yes-apply-edge-anthropic-oauth
 3. 如需改分组绑定，先完成 mixed-channel 预检，再在同一份自包含 SQL 中加入经确认的绑定变更；
 4. 通过 SSM 把该自包含 SQL 作为 heredoc 传给目标 edge 的 `tokenkey-postgres` 容器执行，不依赖远端目录。
 
-### 3.4 分组模式（target_scope=group）
+### 3.5 分组模式（target_scope=group）
 
 安全限制：
 - `apply` 仅允许单 edge + 单分组；
