@@ -324,6 +324,23 @@
       "path": "backend/internal/repository/user_subscription_repo_integration_test.go",
       "must_contain": ["TestExistsByUserIDAndGroupID_IgnoresExpiredAndNonActive"],
       "rationale": "Focused regression for upstream #2478 covering the three non-active variants (expired by date, expired by status, suspended). Dropping this test lets the reassignment-block bug sneak back through integration CI."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "TK fix for upstream Wei-Shaw/sub2api#1471",
+        "bufferedWriter.WriteString(\"\\ndata: \" + payload + \"\\n\\n\")"
+      ],
+      "rationale": "OpenAI /v1/responses handleStreamingResponse.sendErrorEvent MUST prepend a blank line before the synthetic `data:` event so any in-flight upstream SSE event whose terminating blank line was never sent is closed before the synthetic event is written. Without this, the unterminated `data:` line and the synthetic `data:` line merge into one SSE event whose data buffer contains two concatenated JSON objects — downstream OpenAI-compatible SDKs (Codex / OpenCode) fail JSON.parse. An upstream merge that rewrites this closure to the original `\"data: \" + payload + \"\\n\\n\"` literal would silently re-introduce the malformed-SSE failure mode (upstream #1471)."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service_tk_stream_read_error_sse_test.go",
+      "must_contain": [
+        "TestOpenAIStreamingStreamReadErrorEmitsSeparateSSEEvents",
+        "stream_read_error",
+        "response.output_item.added"
+      ],
+      "rationale": "Focused regression anchor for upstream #1471 proving each SSE event in the post-error transcript carries exactly one parseable-JSON data line, even when the upstream errored mid-event after a non-preamble (output_item.added) line had already been forwarded. Dropping the test lets the malformed-SSE concatenation regression sneak back through unit CI."
     }
   ]
 }

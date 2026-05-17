@@ -207,6 +207,20 @@
         "backend/internal/service/gateway_service.go:Wei-Shaw/sub2api#2332 hardening",
         "backend/internal/service/gateway_streaming_test.go:TestParseSSEUsage_StartPartialUsageDoesNotZeroAccumulator"
       ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1471",
+      "severity": "high",
+      "summary": "OpenAI /v1/responses sendErrorEvent now prepends a blank line before the synthetic data: line, so any in-flight upstream SSE event whose terminating blank line was never sent is closed before the synthetic event is written. Without this, the unterminated `data:` line and the synthetic `data:` line merge into a single SSE event whose payload contains two concatenated JSON objects, which downstream OpenAI-compatible SDKs (Codex, OpenCode, etc.) reject with malformed JSON.",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service.go",
+        "backend/internal/service/openai_gateway_service_tk_stream_read_error_sse_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_gateway_service.go:TK fix for upstream Wei-Shaw/sub2api#1471",
+        "backend/internal/service/openai_gateway_service.go:bufferedWriter.WriteString(\"\\ndata: \" + payload + \"\\n\\n\")",
+        "backend/internal/service/openai_gateway_service_tk_stream_read_error_sse_test.go:TestOpenAIStreamingStreamReadErrorEmitsSeparateSSEEvents"
+      ]
     }
   ]
 }
