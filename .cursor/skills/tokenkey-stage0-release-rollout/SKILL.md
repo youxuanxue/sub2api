@@ -177,6 +177,10 @@ gh workflow run deploy-edge-stage0.yml \
 
 ## target=all 的执行顺序
 
+0. **预检 prod 业务通路（避免把账号问题当 release blocker）**：在动手起 release 之前先做一次只读探活，把"账号无可用 / main↔edge 链路刻意不可调度"等运维状态先暴露出来，避免后面 Edge canary 的 main-gateway-via-edge smoke 失败时被误诊为发布回归。
+   - a. `curl https://api.tokenkey.dev/health` 与 `/api/v1/settings/public` 期望 HTTP 200，确认控制面活。
+   - b. 用 `POST_DEPLOY_SMOKE_API_KEY` 跑 `bash scripts/tk_post_deploy_smoke.sh` 一次（或 dispatch `ops-daily-diagnostics operation=diagnostics target_selector=prod diagnostics_log_since=20m`），拿到 anthropic / openai / gemini 账号统计 + 最近错误聚类。
+   - c. 显式问运维方：本次每个 deployable Edge 在 prod 端是否预期可调度（main→edge-X 链路）；若**刻意不可调度**（隔离策略），后面对应的 main-via-edge 业务 smoke 必为 503 `"no available accounts"`，请提前在摘要里把它降级为"infra OK, business-link by design"而非 rollback 触发条件。
 1. 完成“标准流程：release 新镜像”，得到 `TARGET_TAG`。
 2. 读取 deployable 矩阵（按 `deploy/aws/stage0/edge-targets.json` 顺序）：
    `python3 - <<'PY'\nimport json\nfrom pathlib import Path\np=Path('deploy/aws/stage0/edge-targets.json')\nd=json.loads(p.read_text())\nfor k,v in (d.get('targets') or {}).items():\n    if v.get('deployable'): print(k)\nPY`
@@ -334,6 +338,7 @@ git diff --diff-filter=D --name-only "${PREV_TAG}..${NEW_TAG}" -- backend/ || tr
 | target=all 但 prod run 已自动 queue | 若在 Environment waiting，先等 Edge canary 成功再批准；若已开始，不中断，完成后摘要标记 prod 先行。 |
 | Edge `confirm_stack` mismatch | 停止；检查 `deploy/aws/stage0/edge-targets.json`，不要手改成别的栈名绕过。 |
 | Edge smoke 403 | public runner 访问 `/v1/models` 403 是预期；主网关来源 403 才查 `EDGE_MAIN_GATEWAY_ALLOWED_CIDR` 与 prod EIP。 |
+| main-via-edge smoke HTTP 503 `"no available accounts"` | 先在 prod 上确认对应账号（如 `cc-<edge_id>-oauth`）是否被设为可调度；这是 prod 路由策略，与本次镜像无关。若设计上就不可调度，把这条 smoke 从 hard-fail 降为"infra OK / business-link by design"，**不要 rollback**。若运维想恢复该链路，请按 `/tokenkey-anthropic-oauth-config` 调可调度位再 dispatch `deploy-edge-stage0.yml operation=smoke` 复验。 |
 | `gh run watch` 被工具超时打断 | 用同一 run id 再执行 `gh run watch <id> --exit-status` 接到终态。 |
 | prod `Deploy via SSM Run-Command` 报 `AccessDenied(ssm:SendCommand)` | 先核对 `tokenkey-cicd-oidc` 的 `TargetInstanceId` 是否等于 `tokenkey-prod-stage0` 当前 `InstanceId`；不一致先更新 OIDC 栈参数再重跑 deploy。 |
 | prod smoke 报 `POST_DEPLOY_SMOKE_CHAT_MODEL not listed in GET /v1/models` | 不是代码回归，改 `prod` Environment 的 `POST_DEPLOY_SMOKE_CHAT_MODEL` 为该 key 可见模型（如 `gpt-5.5`）后重跑。 |
@@ -351,3 +356,4 @@ git diff --diff-filter=D --name-only "${PREV_TAG}..${NEW_TAG}" -- backend/ || tr
 - `scripts/tk_post_deploy_smoke.sh` — prod 完整 smoke。
 - `scripts/tk_edge_post_deploy_smoke.sh` — Edge smoke wrapper。
 - `deploy/aws/README.md` — Stage0、Edge、多区域升级 SOP。
+- `.github/workflows/ops-stage0-pg-dump-refresh.yml` + `scripts/stage0_pg_dump_refresh_via_ssm.sh` — in-place 同步 `deploy/aws/cloudformation/stage0-single-ec2.yaml` 里的 `tokenkey-pgdump.*` systemd unit 到 live 实例（不重建 EC2）；下次有类似 user-data 模板改动可参考此形状写一个 one-shot ops workflow。

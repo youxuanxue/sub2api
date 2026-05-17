@@ -86,6 +86,7 @@ jobs:
             echo "- ssm command id: \`${CMD_ID:-none}\`"
             echo "- cadence: every 2 hours"
             echo "- retention: max 12 rolling files + 24h mtime ceiling"
+            echo "- template-sync-from: \`${GITHUB_SHA}\` (deploy/aws/cloudformation/stage0-single-ec2.yaml)"
           } >> "$GITHUB_STEP_SUMMARY"
 
   edge-us1:
@@ -155,4 +156,5 @@ jobs:
             echo "- ssm command id: \`${CMD_ID:-none}\`"
             echo "- cadence: every 2 hours"
             echo "- retention: max 12 rolling files + 24h mtime ceiling"
+            echo "- template-sync-from: \`${GITHUB_SHA}\` (deploy/aws/cloudformation/stage0-single-ec2.yaml)"
           } >> "$GITHUB_STEP_SUMMARY"
