@@ -947,6 +947,8 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			}
 		}
 
+		appendOpsInternalErrorDetail(c, entry)
+
 		if apiKey != nil {
 			entry.APIKeyID = &apiKey.ID
 			if apiKey.User != nil {
@@ -1294,6 +1296,35 @@ func classifyOpsErrorSource(phase string, message string) string {
 			return "upstream_http"
 		}
 		return "gateway"
+	}
+}
+
+// appendOpsInternalErrorDetail consumes a sanitized internal-error detail set
+// by middleware (api_key auth fallbacks etc.) and folds it into the captured
+// error_body so RCA can recover the underlying cache/redis/db error string
+// without needing live docker logs.
+func appendOpsInternalErrorDetail(c *gin.Context, entry *service.OpsInsertErrorLogInput) {
+	if c == nil || entry == nil {
+		return
+	}
+	v, ok := c.Get(service.OpsInternalErrorDetailKey)
+	if !ok {
+		return
+	}
+	s, ok := v.(string)
+	if !ok {
+		return
+	}
+	detail := strings.TrimSpace(s)
+	if detail == "" {
+		return
+	}
+	detail = truncateString(detail, 1024)
+	const marker = "[internal_detail] "
+	if entry.ErrorBody == "" {
+		entry.ErrorBody = marker + detail
+	} else {
+		entry.ErrorBody = entry.ErrorBody + "\n" + marker + detail
 	}
 }
 

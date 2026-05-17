@@ -17,6 +17,13 @@ const (
 	OpsUpstreamErrorDetailKey  = "ops_upstream_error_detail"
 	OpsUpstreamErrorsKey       = "ops_upstream_errors"
 
+	// OpsInternalErrorDetailKey carries a sanitized, truncated detail string for
+	// internal-phase errors (cache/redis/db/context failures) that bubble up as
+	// 5xx from middleware. Distinct from upstream-* keys so dashboards don't
+	// confuse internal infra failures with provider errors. Consumed by
+	// handler/ops_error_logger.go which appends it to ops_error_logs.error_body.
+	OpsInternalErrorDetailKey = "ops_internal_error_detail"
+
 	// Best-effort capture of the current upstream request body so ops can
 	// retry the specific upstream attempt (not just the client request).
 	// This value is sanitized+trimmed before being persisted.

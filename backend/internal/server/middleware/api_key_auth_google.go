@@ -38,6 +38,9 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 				abortWithGoogleError(c, 401, "Invalid API key")
 				return
 			}
+			if detail := sanitizeMiddlewareInternalErrorDetail(err); detail != "" {
+				c.Set(service.OpsInternalErrorDetailKey, detail)
+			}
 			abortWithGoogleError(c, 500, "Failed to validate API key")
 			return
 		}

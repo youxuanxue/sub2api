@@ -130,6 +130,54 @@ func TestEnqueueOpsErrorLog_QueueFullFallsBackToDLQ(t *testing.T) {
 	require.Equal(t, "traj_queue_full", entryPayload["TrajectoryID"])
 }
 
+func TestAppendOpsInternalErrorDetail_AppendsAndPrependsCorrectly(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("noop when key absent", func(t *testing.T) {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		entry := &service.OpsInsertErrorLogInput{ErrorBody: `{"code":"INTERNAL_ERROR"}`}
+		appendOpsInternalErrorDetail(c, entry)
+		require.Equal(t, `{"code":"INTERNAL_ERROR"}`, entry.ErrorBody)
+	})
+
+	t.Run("noop when value not string", func(t *testing.T) {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Set(service.OpsInternalErrorDetailKey, 42)
+		entry := &service.OpsInsertErrorLogInput{ErrorBody: "body"}
+		appendOpsInternalErrorDetail(c, entry)
+		require.Equal(t, "body", entry.ErrorBody)
+	})
+
+	t.Run("appends to existing body", func(t *testing.T) {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Set(service.OpsInternalErrorDetailKey, "redis ECONNREFUSED")
+		entry := &service.OpsInsertErrorLogInput{ErrorBody: `{"code":"INTERNAL_ERROR","message":"Failed to validate API key"}`}
+		appendOpsInternalErrorDetail(c, entry)
+		require.Contains(t, entry.ErrorBody, `{"code":"INTERNAL_ERROR","message":"Failed to validate API key"}`)
+		require.Contains(t, entry.ErrorBody, "[internal_detail] redis ECONNREFUSED")
+	})
+
+	t.Run("populates empty body", func(t *testing.T) {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Set(service.OpsInternalErrorDetailKey, "context deadline exceeded")
+		entry := &service.OpsInsertErrorLogInput{}
+		appendOpsInternalErrorDetail(c, entry)
+		require.Equal(t, "[internal_detail] context deadline exceeded", entry.ErrorBody)
+	})
+
+	t.Run("nil context safe", func(t *testing.T) {
+		entry := &service.OpsInsertErrorLogInput{}
+		appendOpsInternalErrorDetail(nil, entry)
+		require.Empty(t, entry.ErrorBody)
+	})
+
+	t.Run("nil entry safe", func(t *testing.T) {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Set(service.OpsInternalErrorDetailKey, "x")
+		require.NotPanics(t, func() { appendOpsInternalErrorDetail(c, nil) })
+	})
+}
+
 func TestAttachOpsRequestBodyToEntry_EarlyReturnBranches(t *testing.T) {
 	resetOpsErrorLoggerStateForTest(t)
 	gin.SetMode(gin.TestMode)
