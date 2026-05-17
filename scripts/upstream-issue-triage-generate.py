@@ -56,6 +56,9 @@ MANUAL_TRIAGE = {
     2487: ("fixed", "fixed_in_tokenkey", "Codex OAuth transform strips temperature and other unsupported fields before forwarding to ChatGPT internal endpoints."),
     2489: ("fixed", "fixed_in_tokenkey", "Claude Code mimicry helper-method header risk fixed by TokenKey PR #223."),
     2490: ("fixed", "fixed_in_tokenkey", "OpenAI /compact route and request-body normalization are implemented, including compact_not_supported errors when no account is available."),
+    1311: ("fixed", "fixed_in_tokenkey", "Non-stream /v1/chat/completions and /v1/messages now explicitly set Content-Type: application/json after WriteFilteredHeaders, so the upstream Responses SSE Content-Type no longer leaks onto JSON bodies."),
+    2500: ("fixed", "fixed_in_tokenkey", "Codex OAuth fixCallIDPrefix now emits fc_<id> (with underscore) for call_<id> inputs, matching the codex backend's id validator and preventing 502 on multi-hop tool turns."),
+    2506: ("fixed", "fixed_in_tokenkey", "normalizeClaudeOAuthRequestBody skips context_management auto-injection for Haiku models (mirroring the existing Haiku exemption in FullClaudeCodeMimicryBetas), so claude-haiku-4-5-* + thinking.type=enabled no longer triggers Anthropic 400."),
 }
 
 FIXED_IDS = {num for num, (impact, _, _) in MANUAL_TRIAGE.items() if impact == "fixed"}

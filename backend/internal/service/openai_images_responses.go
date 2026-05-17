@@ -573,6 +573,13 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthNonStreamingResponse(
 		return OpenAIUsage{}, 0, err
 	}
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+	// Upstream is OpenAI Responses SSE; this handler buffered it and converted
+	// to a single OpenAI Images API JSON body. gin's c.Data won't overwrite the
+	// upstream `Content-Type: text/event-stream` propagated by
+	// WriteFilteredHeaders (render.writeContentType only writes when empty),
+	// so without this explicit override the client sees a JSON body labeled as
+	// SSE. Same root cause as upstream Wei-Shaw/sub2api#1311.
+	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 	c.Data(resp.StatusCode, "application/json; charset=utf-8", responseBody)
 	return usage, len(results), nil
 }

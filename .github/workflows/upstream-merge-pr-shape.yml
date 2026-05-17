@@ -56,6 +56,11 @@ name: Upstream Merge PR Shape
 #  12. The sentinel-registry update gate stays satisfied on the PR diff: changing
 #      sentinel-covered hotspots without updating the paired `scripts/*-sentinels.json`
 #      fails (mechanical 「覆写防护」vs human review memory — preflight parity).
+#  13. The buffered Content-Type leak antipattern (upstream Wei-Shaw/sub2api#1311)
+#      stays absent: any new `responseheaders.WriteFilteredHeaders` call followed
+#      by `c.JSON` or `c.Data(_, "application/json...", _)` without an explicit
+#      `c.Writer.Header().Set("Content-Type", ...)` override fails the merge
+#      (preflight parity, mechanical forward-drift guard).
 #
 # A green check here is a hard prerequisite for merging. Branch protection
 # on `main` should require this workflow status for `merge/upstream-*` PRs.
@@ -380,7 +385,26 @@ jobs:
             exit 1
           fi
 
+      - name: Check 13 — buffered Content-Type leak antipattern absent
+        run: |
+          # Preflight parity: scripts/check-buffered-content-type-leak.py — generalized
+          # forward-drift guard for upstream Wei-Shaw/sub2api#1311. Any merge that
+          # introduces a new responseheaders.WriteFilteredHeaders(...) followed by
+          # c.JSON / c.Data("application/json", ...) without an explicit
+          # c.Writer.Header().Set("Content-Type", ...) override leaks the upstream SSE
+          # Content-Type onto a JSON body. The gate scans backend/internal/service/*.go
+          # and fails the merge PR before the antipattern reaches main.
+          if [ ! -f ./scripts/check-buffered-content-type-leak.py ]; then
+            echo "::error::scripts/check-buffered-content-type-leak.py missing."
+            exit 1
+          fi
+          if ! python3 ./scripts/check-buffered-content-type-leak.py; then
+            echo "::error::Upstream merge re-introduced the buffered SSE->JSON Content-Type leak antipattern."
+            echo "::error::Fix the flagged site(s) by adding c.Writer.Header().Set(\"Content-Type\", \"application/json\") before c.JSON / c.Data."
+            exit 1
+          fi
+
       - name: Summary
         run: |
-          echo "All twelve §5.y / §5.x checks passed for merge/upstream-* PR."
+          echo "All thirteen §5.y / §5.x checks passed for merge/upstream-* PR."
           echo "Reviewer reminder: pick GitHub 'Create a merge commit' (not Squash)."

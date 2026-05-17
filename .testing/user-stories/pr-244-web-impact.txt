@@ -1,0 +1,3 @@
+PR #244 web impact: none
+
+The backend changes on this branch are relay/service fixes for upstream issue handling. They do not add or change user-facing Web pages, frontend configuration, API contracts, or admin workflows.

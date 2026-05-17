@@ -386,6 +386,13 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	}
+	// Upstream is Responses SSE; we buffered and converted to a single JSON
+	// chat.completion object. WriteFilteredHeaders propagates the upstream
+	// `Content-Type: text/event-stream` and gin's c.JSON will NOT overwrite an
+	// already-set Content-Type, so the response would have a JSON body with an
+	// SSE Content-Type header. Override explicitly. See upstream
+	// Wei-Shaw/sub2api#1311.
+	c.Writer.Header().Set("Content-Type", "application/json")
 	c.JSON(http.StatusOK, chatResp)
 
 	return &OpenAIForwardResult{

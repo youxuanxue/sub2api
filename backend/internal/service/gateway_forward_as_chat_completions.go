@@ -318,6 +318,14 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	}
+	// Upstream is Anthropic SSE; we buffered and converted to a single JSON
+	// chat.completion object. WriteFilteredHeaders propagates the upstream
+	// `Content-Type: text/event-stream` and gin's c.Data / c.JSON will NOT
+	// overwrite an already-set Content-Type (render.writeContentType only writes
+	// when the header is empty), so without this override the client would
+	// receive a JSON body with an SSE Content-Type header. Same root cause as
+	// upstream Wei-Shaw/sub2api#1311.
+	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 	// Marshal then bytes-replace so tool name mapping is reversed at byte level
 	// (parity with Parrot non-stream flow that marshals → restore → emit).
 	if respBytes, err := json.Marshal(ccResp); err == nil {

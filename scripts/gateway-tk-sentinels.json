@@ -126,6 +126,15 @@
       "rationale": "Regression anchors for ParsedRequest Gin fallback precedence over broken-out body metadata drift."
     },
     {
+      "path": "backend/internal/service/gateway_service_tk_haiku_context_management_test.go",
+      "must_contain": [
+        "TestNormalizeClaudeOAuthRequestBody_Haiku45_ThinkingEnabled_DoesNotInjectContextManagement",
+        "TestNormalizeClaudeOAuthRequestBody_Haiku45Dated_ThinkingAdaptive_DoesNotInjectContextManagement",
+        "TestNormalizeClaudeOAuthRequestBody_Sonnet_ThinkingEnabled_InjectsContextManagement"
+      ],
+      "rationale": "Focused regression anchors for upstream #2506: Haiku 4.5 + thinking must not receive auto-injected context_management (Anthropic returns 400), while Sonnet/Opus must keep the real-Claude-CLI context_management mimicry behavior."
+    },
+    {
       "path": "backend/internal/service/sticky_session_injector.go",
       "must_contain": [
         "StickyKeySourceClientClaudeCodeSessionID",
@@ -156,12 +165,14 @@
         "getHeaderRaw(req.Header, key) != \"\"",
         "signatureRetryAttempted := false",
         "FilterThinkingBlocksForRetry(input.Body)",
-        "Passthrough:        true,"
+        "Passthrough:        true,",
+        "Wei-Shaw/sub2api#2506",
+        "!strings.Contains(strings.ToLower(modelID), \"haiku\")"
       ],
       "must_not_contain": [
         "x-stainless-helper-method"
       ],
-      "rationale": "Main gateway upstream builders must invoke unified TK Claude session-header sync after API-key passthrough, OAuth forward, count_tokens forward, and Vertex Anthropic forward paths diverge upstream merge conflicts. Sticky-source sink event emission is also load-bearing for prod request_id/client_request_id evidence correlation. TLS fingerprint profile resolution must pass through the ops helper so upstream_errors JSON records the profile id/name used by failed Anthropic OAuth attempts; otherwise Node24/Node25 candidate canaries cannot be attributed after a profile switch. Claude Code OAuth mimicry must preserve captured real CLI User-Agent/X-Stainless fingerprint values and only fill missing defaults; reverting to unconditional defaults reintroduces version downgrade/header fingerprint drift. API Key passthrough must keep a single guarded thinking-signature 400 retry that records passthrough ops evidence and downgrades stale cross-upstream thinking blocks before surfacing the error; dropping this makes GPT专线 → cc-edges group switches expose invalid thinking signatures to clients. The obsolete x-stainless-helper-method header must stay absent because current real Claude Code traffic does not emit it and reintroducing it increases OAuth fingerprint risk."
+      "rationale": "Main gateway upstream builders must invoke unified TK Claude session-header sync after API-key passthrough, OAuth forward, count_tokens forward, and Vertex Anthropic forward paths diverge upstream merge conflicts. Sticky-source sink event emission is also load-bearing for prod request_id/client_request_id evidence correlation. TLS fingerprint profile resolution must pass through the ops helper so upstream_errors JSON records the profile id/name used by failed Anthropic OAuth attempts; otherwise Node24/Node25 candidate canaries cannot be attributed after a profile switch. Claude Code OAuth mimicry must preserve captured real CLI User-Agent/X-Stainless fingerprint values and only fill missing defaults; reverting to unconditional defaults reintroduces version downgrade/header fingerprint drift. API Key passthrough must keep a single guarded thinking-signature 400 retry that records passthrough ops evidence and downgrades stale cross-upstream thinking blocks before surfacing the error; dropping this makes GPT专线 → cc-edges group switches expose invalid thinking signatures to clients. The obsolete x-stainless-helper-method header must stay absent because current real Claude Code traffic does not emit it and reintroducing it increases OAuth fingerprint risk. Haiku 4.5 context_management auto-injection must stay exempt (upstream #2506): Anthropic rejects context_management for claude-haiku-4-5-* with HTTP 400 even when thinking.type is enabled, and the body rewrite must mirror the existing Haiku exemption in the anthropic-beta header path."
     },
     {
       "path": "backend/internal/service/header_util.go",
@@ -195,6 +206,89 @@
         "chatBody = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, chatBody, upstreamModel)"
       ],
       "rationale": "Anthropic-shaped requests converted to Chat Completions must preserve metadata blobs and apply unified sticky injection so Claude Code identities and session affinity survive OpenAI-compat bridge paths during scheduling."
+    },
+    {
+      "path": "backend/internal/service/openai_codex_transform.go",
+      "must_contain": [
+        "Wei-Shaw/sub2api#2500",
+        "return \"fc_\" + strings.TrimPrefix(id, \"call_\")"
+      ],
+      "rationale": "Codex OAuth tool-call id normalization (upstream #2500) must keep the underscore in fc_<id> for OpenAI-format call_<id> inputs. Dropping it makes the chatgpt.com codex backend reject multi-hop tool turns with HTTP 400, surfaced by TokenKey as 502."
+    },
+    {
+      "path": "backend/internal/service/openai_codex_transform_tk_call_id_test.go",
+      "must_contain": [
+        "TestApplyCodexOAuthTransform_FunctionCallNanoidIDIsCodexFcUnderscore",
+        "TestApplyCodexOAuthTransform_ItemReferenceCallIDIsCodexFcUnderscore"
+      ],
+      "rationale": "Focused regression anchors for upstream #2500 covering both function_call and hop-2 item_reference replay ids with real nanoid-shaped call_<id> values."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions.go",
+      "must_contain": [
+        "Wei-Shaw/sub2api#1311",
+        "c.Writer.Header().Set(\"Content-Type\", \"application/json\")"
+      ],
+      "rationale": "Non-stream /v1/chat/completions buffers upstream Responses SSE into a JSON chat.completion object. After header propagation it must explicitly override Content-Type to application/json, otherwise OpenAI SDK consumers see JSON with text/event-stream and parse it as SSE (upstream #1311)."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages.go",
+      "must_contain": [
+        "Wei-Shaw/sub2api#1311",
+        "c.Writer.Header().Set(\"Content-Type\", \"application/json\")"
+      ],
+      "rationale": "Non-stream /v1/messages uses the same buffered Responses SSE -> JSON conversion root cause as /v1/chat/completions; it must also override Content-Type after WriteFilteredHeaders so JSON bodies are not labeled text/event-stream."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_tk_content_type_test.go",
+      "must_contain": [
+        "TestForwardAsChatCompletions_NonStream_ReturnsApplicationJSONContentType",
+        "text/event-stream",
+        "application/json"
+      ],
+      "rationale": "Focused regression anchor for upstream #1311 proving a non-stream chat.completions JSON body does not inherit the upstream Responses SSE Content-Type header."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_responses.go",
+      "must_contain": [
+        "Wei-Shaw/sub2api#1311",
+        "c.Writer.Header().Set(\"Content-Type\", \"application/json; charset=utf-8\")"
+      ],
+      "rationale": "Gateway Anthropic-backed /v1/responses non-stream path (handleResponsesBufferedStreamingResponse) has the same Content-Type leak root cause as upstream #1311: WriteFilteredHeaders propagates the upstream Anthropic `Content-Type: text/event-stream`, and gin's c.Data / c.JSON do not overwrite an already-set Content-Type. Without this explicit override the client gets a JSON body labeled as SSE. Sentinel guards the fix from being silently reverted by upstream merges."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
+      "must_contain": [
+        "Wei-Shaw/sub2api#1311",
+        "c.Writer.Header().Set(\"Content-Type\", \"application/json; charset=utf-8\")"
+      ],
+      "rationale": "Gateway Anthropic-backed /v1/chat/completions non-stream path (handleCCBufferedFromAnthropic) shares the upstream #1311 Content-Type leak root cause and must explicitly override Content-Type after WriteFilteredHeaders so the converted chat.completion JSON body is not labeled text/event-stream."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_responses_tk_content_type_test.go",
+      "must_contain": [
+        "TestHandleResponsesBufferedStreamingResponse_NonStream_ReturnsApplicationJSONContentType",
+        "text/event-stream",
+        "application/json"
+      ],
+      "rationale": "Focused regression anchor for upstream #1311 extended scope (Anthropic-backed Responses path) proving the buffered JSON body does not inherit the upstream SSE Content-Type."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions_tk_content_type_test.go",
+      "must_contain": [
+        "TestHandleCCBufferedFromAnthropic_NonStream_ReturnsApplicationJSONContentType",
+        "text/event-stream",
+        "application/json"
+      ],
+      "rationale": "Focused regression anchor for upstream #1311 extended scope (Anthropic-backed Chat Completions path) proving the buffered JSON body does not inherit the upstream SSE Content-Type."
+    },
+    {
+      "path": "backend/internal/service/openai_images_responses.go",
+      "must_contain": [
+        "Wei-Shaw/sub2api#1311",
+        "c.Writer.Header().Set(\"Content-Type\", \"application/json; charset=utf-8\")"
+      ],
+      "rationale": "OpenAI Images OAuth buffered handler (handleOpenAIImagesOAuthBufferedResponse) converts upstream OpenAI Responses SSE into a single OpenAI Images JSON body. Same Content-Type leak root cause as upstream #1311 — discovered by the generalized scripts/check-buffered-content-type-leak.py gate during PR #244 review and patched in the same commit. Must explicitly override Content-Type before c.Data."
     },
     {
       "path": "backend/internal/service/model_pricing_resolver.go",
