@@ -2,7 +2,7 @@
 -- Source of truth: deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json
 -- Usage (psql):
 --   \set account_name 'your-account-name'
---   \set stability_tier 'l1'  -- l1|l2|l3|l4
+--   \set stability_tier 'l1'  -- l1|l2|l3|l4|l5
 --   \i deploy/aws/stage0/anthropic-oauth-stability-tiered-apply-template.sql
 
 -- Helper for explicit failure (session-scoped, no persistent schema changes).
@@ -26,7 +26,8 @@ tier_cfg AS (
     ('l1'::text, 1::int, 10::int, 6::int, 2::int, 3::int, 8::int, 180::int, 0::int),
     ('l2'::text, 2::int, 20::int, 8::int, 4::int, 4::int, 8::int, 330::int, 0::int),
     ('l3'::text, 3::int, 30::int, 10::int, 6::int, 5::int, 8::int, 480::int, 0::int),
-    ('l4'::text, 4::int, 40::int, 12::int, 8::int, 6::int, 8::int, 540::int, 0::int)
+    ('l4'::text, 4::int, 40::int, 12::int, 8::int, 6::int, 8::int, 540::int, 0::int),
+    ('l5'::text, 5::int, 50::int, 18::int, 12::int, 8::int, 8::int, 600::int, 0::int)
   ) AS v(
     stability_tier,
     concurrency,
@@ -48,7 +49,7 @@ validate AS (
   SELECT
     CASE
       WHEN NOT EXISTS (SELECT 1 FROM selected) THEN
-        pg_temp.pg_raise('invalid stability_tier=%s (expected l1/l2/l3/l4)', (SELECT stability_tier FROM input))
+        pg_temp.pg_raise('invalid stability_tier=%s (expected l1/l2/l3/l4/l5)', (SELECT stability_tier FROM input))
       ELSE 'ok'
     END AS ok
 ),
