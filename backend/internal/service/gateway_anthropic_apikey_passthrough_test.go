@@ -502,8 +502,11 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ModelMappingPreservesOtherFie
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", nil)
 
-	// 包含复杂字段的请求体：system、thinking、messages
-	body := []byte(`{"model":"claude-sonnet-4-20250514","system":[{"type":"text","text":"You are a helpful assistant."}],"messages":[{"role":"user","content":[{"type":"text","text":"hello world"}]}],"thinking":{"type":"enabled","budget_tokens":5000},"max_tokens":1024}`)
+	// 包含复杂字段的请求体：system、thinking、messages、tool_choice。
+	// `max_tokens` 不是 count_tokens 端点支持的字段（Anthropic 会返回
+	// invalid_request_error），保留它在 body 中以确认 StripCountTokensUnsupportedFields
+	// 会把它剥除，而模型映射只动 model 字段不动其余允许字段。
+	body := []byte(`{"model":"claude-sonnet-4-20250514","system":[{"type":"text","text":"You are a helpful assistant."}],"messages":[{"role":"user","content":[{"type":"text","text":"hello world"}]}],"thinking":{"type":"enabled","budget_tokens":5000},"tool_choice":{"type":"auto"},"max_tokens":1024}`)
 	parsed := &ParsedRequest{
 		Body:  body,
 		Model: "claude-sonnet-4-20250514",
@@ -549,7 +552,8 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ModelMappingPreservesOtherFie
 	require.Equal(t, "hello world", gjson.GetBytes(sentBody, "messages.0.content.0.text").String(), "messages 字段不应被修改")
 	require.Equal(t, "enabled", gjson.GetBytes(sentBody, "thinking.type").String(), "thinking 字段不应被修改")
 	require.Equal(t, int64(5000), gjson.GetBytes(sentBody, "thinking.budget_tokens").Int(), "thinking.budget_tokens 不应被修改")
-	require.Equal(t, int64(1024), gjson.GetBytes(sentBody, "max_tokens").Int(), "max_tokens 不应被修改")
+	require.Equal(t, "auto", gjson.GetBytes(sentBody, "tool_choice.type").String(), "tool_choice 不应被修改")
+	require.False(t, gjson.GetBytes(sentBody, "max_tokens").Exists(), "max_tokens 是 count_tokens 端点不允许的字段，应被 StripCountTokensUnsupportedFields 剥除")
 }
 
 // TestGatewayService_AnthropicAPIKeyPassthrough_EmptyModelSkipsMapping

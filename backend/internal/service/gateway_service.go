@@ -6742,6 +6742,9 @@ func truncateForLog(b []byte, maxBytes int) string {
 // shouldRectifySignatureError 统一判断是否应触发签名整流（strip thinking blocks 并重试）。
 // 根据账号类型检查对应的开关和匹配模式。
 func (s *GatewayService) shouldRectifySignatureError(ctx context.Context, account *Account, respBody []byte) bool {
+	if s == nil || s.settingService == nil {
+		return false
+	}
 	if account.Type == AccountTypeAPIKey {
 		// API Key 账号：独立开关，一次读取配置
 		settings, err := s.settingService.GetRectifierSettings(ctx)
@@ -8956,6 +8959,21 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	// Pre-filter: strip empty text blocks to prevent upstream 400.
 	body = StripEmptyTextBlocks(body)
 
+	// Pre-filter: strip fields that Anthropic's count_tokens endpoint rejects
+	// with `invalid_request_error: "<field>: Extra inputs are not permitted"`.
+	// Common client bug (observed in claude-cli) — without this strip, 3
+	// consecutive 400s used to trip the per-account upstream-error breaker and
+	// take the account temp_unschedulable for 10 minutes.
+	if next, stripped := StripCountTokensUnsupportedFields(body); len(stripped) > 0 {
+		body = next
+		slog.Info(
+			"count_tokens.stripped_unsupported_fields",
+			"account_id", account.ID,
+			"account_name", account.Name,
+			"fields", stripped,
+		)
+	}
+
 	isClaudeCodeCT := IsClaudeCodeClient(ctx) || isClaudeCodeClient(c.GetHeader("User-Agent"), parsed.MetadataUserID)
 	shouldMimicClaudeCode := account.IsOAuth() && !isClaudeCodeCT
 
@@ -9071,8 +9089,13 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 
 	// 处理错误响应
 	if resp.StatusCode >= 400 {
-		// 标记账号状态（429/529等）
-		s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+		// 标记账号状态（429/529 等容量/凭证类错误才计入熔断）。
+		// count_tokens 端点的 400 是客户端 body schema 错误（Anthropic 返回
+		// invalid_request_error），与账号容量/凭证无关——不应触发 account 级
+		// temp_unschedulable，否则会拖垮整个分组（参见生产事故 2026-05-18）。
+		if resp.StatusCode != http.StatusBadRequest {
+			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+		}
 
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
@@ -9086,14 +9109,18 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		}
 		setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
 
-		// 记录上游错误摘要便于排障（不回显请求内容）
+		// 记录上游错误摘要便于排障（不回显请求内容）。
+		// 带上 upstream URL（脱敏）以便区分 Anthropic 直连 vs 中继站（后者常
+		// 把 invalid_request_error 包装成通用 upstream_error，原始 message 不
+		// 再可见，从 URL 一眼看出是哪种情况）。
 		if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
 			logger.LegacyPrintf("service.gateway",
-				"count_tokens upstream error %d (account=%d platform=%s type=%s): %s",
+				"count_tokens upstream error %d (account=%d platform=%s type=%s url=%s): %s",
 				resp.StatusCode,
 				account.ID,
 				account.Platform,
 				account.Type,
+				safeUpstreamURL(upstreamReq.URL.String()),
 				truncateForLog(respBody, s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes),
 			)
 		}
@@ -9127,6 +9154,20 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 	if tokenType != "apikey" {
 		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Invalid account token type")
 		return fmt.Errorf("anthropic api key passthrough requires apikey token, got: %s", tokenType)
+	}
+
+	// Pre-filter: strip fields that count_tokens rejects (see comment on the
+	// equivalent call in ForwardCountTokens). Passthrough hits Anthropic
+	// directly so this strict-schema check is even more important here.
+	if next, stripped := StripCountTokensUnsupportedFields(body); len(stripped) > 0 {
+		body = next
+		slog.Info(
+			"count_tokens.stripped_unsupported_fields",
+			"account_id", account.ID,
+			"account_name", account.Name,
+			"passthrough", true,
+			"fields", stripped,
+		)
 	}
 
 	upstreamReq, err := s.buildCountTokensRequestAnthropicAPIKeyPassthrough(ctx, c, account, body, token)
@@ -9170,7 +9211,9 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 	}
 
 	if resp.StatusCode >= 400 {
-		if s.rateLimitService != nil {
+		// 同 ForwardCountTokens：count_tokens 400 是 client schema 错误，不
+		// 应触发 account 级熔断（参见生产事故 2026-05-18）。
+		if s.rateLimitService != nil && resp.StatusCode != http.StatusBadRequest {
 			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
 		}
 
@@ -9209,6 +9252,19 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 			Message:            upstreamMsg,
 			Detail:             upstreamDetail,
 		})
+
+		// 同 ForwardCountTokens：日志带上 upstream URL（脱敏）以便区分直连与中继。
+		if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+			logger.LegacyPrintf("service.gateway",
+				"count_tokens passthrough upstream error %d (account=%d platform=%s type=%s url=%s): %s",
+				resp.StatusCode,
+				account.ID,
+				account.Platform,
+				account.Type,
+				safeUpstreamURL(upstreamReq.URL.String()),
+				truncateForLog(respBody, s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes),
+			)
+		}
 
 		errMsg := "Upstream request failed"
 		switch resp.StatusCode {

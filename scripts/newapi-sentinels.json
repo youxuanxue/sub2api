@@ -24,8 +24,8 @@
     },
     {
       "path": "backend/internal/service/gateway_request.go",
-      "must_contain": ["ExplicitStickyKey", "PromptCacheKey", "prompt_cache_key", "RequestID", "ClientRequestID"],
-      "rationale": "ParsedRequest must preserve explicit sticky identity and top-level prompt_cache_key so the Anthropic edge ingress can consume prod-forwarded sticky signals without reparsing or falling back to message content; request correlation IDs are also load-bearing inputs for sticky-source evidence indexing."
+      "must_contain": ["ExplicitStickyKey", "PromptCacheKey", "prompt_cache_key", "RequestID", "ClientRequestID", "StripCountTokensUnsupportedFields", "countTokensUnsupportedTopLevelFields"],
+      "rationale": "ParsedRequest must preserve explicit sticky identity and top-level prompt_cache_key so the Anthropic edge ingress can consume prod-forwarded sticky signals without reparsing or falling back to message content; request correlation IDs are also load-bearing inputs for sticky-source evidence indexing. StripCountTokensUnsupportedFields + its declarative field list are TK defensive sanitize for the Anthropic count_tokens endpoint (strips temperature/top_p/top_k/stop_sequences/max_tokens/stream/metadata/service_tier that Anthropic rejects with `Extra inputs are not permitted`). Dropping either symbol regresses the 2026-05-18 prod incident where claude-cli leaked `temperature` into count_tokens and the resulting 400 burst tripped the per-account upstream-error breaker (see gateway_service.go sentinel for the matching call sites + 400 exemption)."
     },
     {
       "path": "backend/internal/service/gateway_service.go",

@@ -318,6 +318,58 @@ func stripEmptyTextBlocksFromSlice(blocks []any) ([]any, bool) {
 	return result, true
 }
 
+// countTokensUnsupportedTopLevelFields lists request fields that the Anthropic
+// /v1/messages/count_tokens endpoint rejects with `invalid_request_error:
+// "<field>: Extra inputs are not permitted"`. The messages endpoint accepts
+// them, but count_tokens only takes: model, system, messages, tools,
+// tool_choice, thinking, mcp_servers, betas.
+//
+// Clients (especially Claude Code CLI / SDKs) frequently forward the full
+// messages body to count_tokens, which trips the validator. We strip these
+// fields defensively on the way out so a client schema bug cannot cascade into
+// repeated 400s and (pre-fix) trigger the per-account upstream-error breaker.
+var countTokensUnsupportedTopLevelFields = []string{
+	"temperature",
+	"top_p",
+	"top_k",
+	"stop_sequences",
+	"max_tokens",
+	"stream",
+	"metadata",
+	"service_tier",
+}
+
+// StripCountTokensUnsupportedFields removes top-level fields that Anthropic's
+// count_tokens endpoint rejects. Returns the (possibly modified) body and the
+// list of field names that were actually removed, so callers can log a single
+// audit line. Body is returned unchanged if none of the unsupported fields are
+// present or if parsing fails (fail-safe — bad sanitize must never break a
+// request that was previously working).
+func StripCountTokensUnsupportedFields(body []byte) ([]byte, []string) {
+	if len(body) == 0 {
+		return body, nil
+	}
+	jsonStr := *(*string)(unsafe.Pointer(&body))
+	var stripped []string
+	out := body
+	for _, field := range countTokensUnsupportedTopLevelFields {
+		if !gjson.Get(jsonStr, field).Exists() {
+			continue
+		}
+		next, err := sjson.DeleteBytes(out, field)
+		if err != nil {
+			continue
+		}
+		out = next
+		stripped = append(stripped, field)
+		jsonStr = *(*string)(unsafe.Pointer(&out))
+	}
+	if len(stripped) == 0 {
+		return body, nil
+	}
+	return out, stripped
+}
+
 // StripEmptyTextBlocks removes empty text blocks from the request body (including nested tool_result content).
 // This is a lightweight pre-filter for the initial request path to prevent upstream 400 errors.
 // Returns the original body unchanged if no empty text blocks are found.
