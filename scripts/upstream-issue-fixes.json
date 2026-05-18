@@ -23,6 +23,60 @@
       "summary": "Gemini 429 with no quotaResetDelay/retryDelay uses tier cooldown for all Gemini OAuth accounts (google_one + aistudio OAuth + code_assist), not just Code Assist; PST-midnight fallback is reserved for API Key accounts."
     },
     {
+      "upstream": "Wei-Shaw/sub2api#1170",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/handler/admin/account_data.go",
+        "backend/internal/handler/admin/account_data_handler_test.go"
+      ],
+      "summary": "Batch account import (/admin/accounts/data) now propagates `group_ids` through to CreateAccountInput.GroupIDs and the symmetric export carries `group_ids` + `channel_type` so an export → import round trip preserves group bindings and newapi fifth-platform metadata. Original implementation defined no GroupIDs field on DataAccount (so JSON `group_ids` was silently dropped at Unmarshal) and the import handler hard-coded `GroupIDs: nil`, leaving batch-imported accounts ungrouped until manually re-edited."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1264",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service.go",
+        "backend/internal/service/openai_gateway_chat_completions.go",
+        "backend/internal/service/openai_responses_unsupported_user_test.go"
+      ],
+      "summary": "OpenAI /v1/responses passthrough strips top-level `user` before forwarding. Symmetric coverage on (a) APIKey native path via OpenAIGatewayService.Forward's unsupportedFields list (the OAuth path already strips it through openAIChatGPTInternalUnsupportedFields in applyCodexOAuthTransform) and (b) the Cursor-shape short-circuit in ForwardAsChatCompletions via cursorResponsesUnsupportedFields. Native OpenAI Responses upstream rejects `user` with HTTP 400 \"Unsupported parameter: user\"; the Responses equivalent is `safety_identifier`, which we already filter."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1311",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_chat_completions.go",
+        "backend/internal/service/openai_gateway_messages.go",
+        "backend/internal/service/openai_gateway_chat_completions_tk_content_type_test.go",
+        "backend/internal/service/gateway_forward_as_responses.go",
+        "backend/internal/service/gateway_forward_as_chat_completions.go",
+        "backend/internal/service/gateway_forward_as_responses_tk_content_type_test.go",
+        "backend/internal/service/gateway_forward_as_chat_completions_tk_content_type_test.go",
+        "backend/internal/service/openai_images_responses.go",
+        "scripts/check-buffered-content-type-leak.py"
+      ],
+      "summary": "Non-stream buffered SSE->JSON handlers in both the OpenAI gateway (/v1/chat/completions, /v1/messages) and the Anthropic-backed gateway forward paths (Responses, Chat Completions) now explicitly set Content-Type: application/json after WriteFilteredHeaders. Without this, the upstream SSE Content-Type (text/event-stream) leaks onto JSON bodies because gin's render.writeContentType only writes when no Content-Type is set, breaking OpenAI-SDK consumers that branch on Content-Type."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1322",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_messages.go",
+        "backend/internal/service/openai_gateway_messages_tk_terminal_event_test.go",
+        "scripts/terminal-sentinels.json"
+      ],
+      "summary": "isOpenAICompatResponsesTerminalEvent (driver for the OpenAI-compat Anthropic Messages and Chat Completions streaming handlers) now recognizes the full six-event terminal set, including response.cancelled / response.canceled. Without this, an upstream that ends the Responses SSE with a legitimate cancellation falls through to 'stream usage incomplete: missing terminal event', producing a spurious openai.forward_failed ops_error_logs entry and skipping clean finalization. Symmetric with openAIStreamEventIsTerminal (gateway_service.go), openai_ws_forwarder.go, and openai_ws_v2/passthrough_relay.go."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1471",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service.go",
+        "backend/internal/service/openai_gateway_service_tk_stream_read_error_sse_test.go"
+      ],
+      "summary": "OpenAI /v1/responses sendErrorEvent now prepends a blank line before the synthetic data: line, so any in-flight upstream SSE event whose terminating blank line was never sent is closed before the synthetic event is written. Without this, the unterminated `data:` line and the synthetic `data:` line merge into a single SSE event whose payload contains two concatenated JSON objects, which downstream OpenAI-compatible SDKs (Codex, OpenCode, etc.) reject with malformed JSON."
+    },
+    {
       "upstream": "Wei-Shaw/sub2api#1925",
       "status": "fixed_in_tokenkey",
       "fixed_by": [
@@ -119,6 +173,15 @@
       "summary": "extractSSEUsagePatch message_start branch now gates hasInputTokens/hasCacheCreationInput/hasCacheReadInput on actual parseSSEUsageInt success instead of setting them unconditionally; a partial or duplicate message_start frame no longer zeroes out accumulator dimensions whose source key was absent."
     },
     {
+      "upstream": "Wei-Shaw/sub2api#2332",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_streaming_test.go"
+      ],
+      "summary": "extractSSEUsagePatch message_start branch now gates hasInputTokens/hasCacheCreationInput/hasCacheReadInput on actual parseSSEUsageInt success instead of setting them unconditionally; a partial or duplicate message_start frame no longer zeroes out accumulator dimensions whose source key was absent (the input_tokens=0 duplicate-billing shape upstream reported)."
+    },
+    {
       "upstream": "Wei-Shaw/sub2api#2337",
       "status": "fixed_in_tokenkey",
       "fixed_by": [
@@ -127,6 +190,17 @@
         "backend/internal/service/openai_compat_model_test.go"
       ],
       "summary": "Anthropic-to-OpenAI multi-turn tool call conversion preserves tool-call/call-id continuity for tool_result history."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2363",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/model_pricing_resolver.go",
+        "backend/internal/service/model_pricing_resolver_tk_channel_flat_fallback.go",
+        "backend/internal/service/model_pricing_resolver_test.go",
+        "scripts/gateway-tk-sentinels.json"
+      ],
+      "summary": "GetIntervalPricing overlays the matched interval onto BasePricing (which carries channel flat defaults via the #2107 fix), so channel CacheReadPrice/CacheWritePrice/ImageOutputPrice survive in-range matches instead of being silently dropped to 0. Symmetric in-range counterpart to the #2107 out-of-range fix."
     },
     {
       "upstream": "Wei-Shaw/sub2api#2383",
@@ -156,6 +230,15 @@
         "backend/internal/repository/user_subscription_repo_integration_test.go"
       ],
       "summary": "Expired and non-active subscriptions are ignored by reassignment existence checks, preventing stale rows from causing validity_days_mismatch conflicts."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2486",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/billing_service.go",
+        "backend/internal/service/billing_service_test.go"
+      ],
+      "summary": "Unknown gemini-* models (including gemini-pro-agent) fall back to gemini-3.1-pro pricing instead of returning nil (which caused calculateTokenCost to silently record ActualCost=0 with no quota deduction)."
     },
     {
       "upstream": "Wei-Shaw/sub2api#2487",
@@ -189,22 +272,6 @@
       "summary": "OpenAI /compact route handling and request-body normalization are implemented, with compact_not_supported when no compatible account is available."
     },
     {
-      "upstream": "Wei-Shaw/sub2api#1311",
-      "status": "fixed_in_tokenkey",
-      "fixed_by": [
-        "backend/internal/service/openai_gateway_chat_completions.go",
-        "backend/internal/service/openai_gateway_messages.go",
-        "backend/internal/service/openai_gateway_chat_completions_tk_content_type_test.go",
-        "backend/internal/service/gateway_forward_as_responses.go",
-        "backend/internal/service/gateway_forward_as_chat_completions.go",
-        "backend/internal/service/gateway_forward_as_responses_tk_content_type_test.go",
-        "backend/internal/service/gateway_forward_as_chat_completions_tk_content_type_test.go",
-        "backend/internal/service/openai_images_responses.go",
-        "scripts/check-buffered-content-type-leak.py"
-      ],
-      "summary": "Non-stream buffered SSE->JSON handlers in both the OpenAI gateway (/v1/chat/completions, /v1/messages) and the Anthropic-backed gateway forward paths (Responses, Chat Completions) now explicitly set Content-Type: application/json after WriteFilteredHeaders. Without this, the upstream SSE Content-Type (text/event-stream) leaks onto JSON bodies because gin's render.writeContentType only writes when no Content-Type is set, breaking OpenAI-SDK consumers that branch on Content-Type."
-    },
-    {
       "upstream": "Wei-Shaw/sub2api#2500",
       "status": "fixed_in_tokenkey",
       "fixed_by": [
@@ -212,15 +279,6 @@
         "backend/internal/service/openai_codex_transform_tk_call_id_test.go"
       ],
       "summary": "fixCallIDPrefix in openai_codex_transform.go now produces fc_<id> (with underscore) for call_<id> inputs, matching the fallback branch and the codex backend's id validator; missing underscore caused HTTP 400 on the chatgpt.com codex OAuth path and surfaced as 502 on multi-hop tool turns."
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#2515",
-      "status": "fixed_in_tokenkey",
-      "fixed_by": [
-        "backend/internal/pkg/apicompat/chatcompletions_to_responses.go",
-        "backend/internal/pkg/apicompat/chatcompletions_responses_test.go"
-      ],
-      "summary": "ChatCompletions→Responses transform falls back to empty string when the converted parts list is empty (was emitting JSON null and triggering upstream HTTP 400 on gpt-5.5)."
     },
     {
       "upstream": "Wei-Shaw/sub2api#2506",
@@ -232,42 +290,13 @@
       "summary": "normalizeClaudeOAuthRequestBody now skips auto-injecting context_management for Haiku models, mirroring the existing Haiku exemption in the anthropic-beta header path; Anthropic /v1/messages would otherwise return HTTP 400 for claude-haiku-4-5-* when thinking.type is enabled."
     },
     {
-      "upstream": "Wei-Shaw/sub2api#2486",
+      "upstream": "Wei-Shaw/sub2api#2515",
       "status": "fixed_in_tokenkey",
       "fixed_by": [
-        "backend/internal/service/billing_service.go",
-        "backend/internal/service/billing_service_test.go"
+        "backend/internal/pkg/apicompat/chatcompletions_to_responses.go",
+        "backend/internal/pkg/apicompat/chatcompletions_responses_test.go"
       ],
-      "summary": "Unknown gemini-* models (including gemini-pro-agent) fall back to gemini-3.1-pro pricing instead of returning nil (which caused calculateTokenCost to silently record ActualCost=0 with no quota deduction)."
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#2363",
-      "status": "fixed_in_tokenkey",
-      "fixed_by": [
-        "backend/internal/service/model_pricing_resolver.go",
-        "backend/internal/service/model_pricing_resolver_tk_channel_flat_fallback.go",
-        "backend/internal/service/model_pricing_resolver_test.go",
-        "scripts/gateway-tk-sentinels.json"
-      ],
-      "summary": "GetIntervalPricing overlays the matched interval onto BasePricing (which carries channel flat defaults via the #2107 fix), so channel CacheReadPrice/CacheWritePrice/ImageOutputPrice survive in-range matches instead of being silently dropped to 0. Symmetric in-range counterpart to the #2107 out-of-range fix."
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#2332",
-      "status": "fixed_in_tokenkey",
-      "fixed_by": [
-        "backend/internal/service/gateway_service.go",
-        "backend/internal/service/gateway_streaming_test.go"
-      ],
-      "summary": "extractSSEUsagePatch message_start branch now gates hasInputTokens/hasCacheCreationInput/hasCacheReadInput on actual parseSSEUsageInt success instead of setting them unconditionally; a partial or duplicate message_start frame no longer zeroes out accumulator dimensions whose source key was absent (the input_tokens=0 duplicate-billing shape upstream reported)."
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#1471",
-      "status": "fixed_in_tokenkey",
-      "fixed_by": [
-        "backend/internal/service/openai_gateway_service.go",
-        "backend/internal/service/openai_gateway_service_tk_stream_read_error_sse_test.go"
-      ],
-      "summary": "OpenAI /v1/responses sendErrorEvent now prepends a blank line before the synthetic data: line, so any in-flight upstream SSE event whose terminating blank line was never sent is closed before the synthetic event is written. Without this, the unterminated `data:` line and the synthetic `data:` line merge into a single SSE event whose payload contains two concatenated JSON objects, which downstream OpenAI-compatible SDKs (Codex, OpenCode, etc.) reject with malformed JSON."
+      "summary": "ChatCompletions→Responses transform falls back to empty string when the converted parts list is empty (was emitting JSON null and triggering upstream HTTP 400 on gpt-5.5)."
     },
     {
       "upstream": "Wei-Shaw/sub2api#2538",
@@ -297,27 +326,7 @@
         "backend/internal/service/openai_gateway_chat_completions_raw.go",
         "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal_test.go"
       ],
-      "summary": "OpenAI Chat Completions raw passthrough (streaming and buffered) now detects upstream silent refusal — empty stream/response with finish_reason=stop and zero usage — and emits a categorical ops_error_logs row (Kind=silent_refusal). Detection is conservative (no content / no tool_calls / no reasoning_content / no refusal / no chunk-level error / zero usage / finish_reason=stop) so legitimate short answers are never flagged. Surfaces previously invisible 'ghost stream' failures (the gpt-5.5 above-input-budget shape upstream reported) to ops dashboards without changing the client-visible HTTP body, keeping the behavior change minimum-surface."
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#1264",
-      "status": "fixed_in_tokenkey",
-      "fixed_by": [
-        "backend/internal/service/openai_gateway_service.go",
-        "backend/internal/service/openai_gateway_chat_completions.go",
-        "backend/internal/service/openai_responses_unsupported_user_test.go",
-        "scripts/gateway-tk-sentinels.json"
-      ],
-      "summary": "OpenAI /v1/responses passthrough now strips top-level `user` before forwarding upstream. Symmetric coverage: (a) APIKey/native passthrough path adds `user` to the unsupportedFields list in OpenAIGatewayService.Forward (the OAuth path already filters it through openAIChatGPTInternalUnsupportedFields in applyCodexOAuthTransform); (b) the Cursor-shape short-circuit in ForwardAsChatCompletions adds `user` to cursorResponsesUnsupportedFields. Without this, clients like LobeHub posting `user` (for end-user tracking) to /v1/responses get HTTP 400 \"Unsupported parameter: user\" from the OpenAI upstream — the Responses-API equivalent field is `safety_identifier`, which we already strip. Tracked by the same sentinel registry entries plus the focused regression in openai_responses_unsupported_user_test.go."
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#1170",
-      "status": "fixed_in_tokenkey",
-      "fixed_by": [
-        "backend/internal/handler/admin/account_data.go",
-        "backend/internal/handler/admin/account_data_handler_test.go"
-      ],
-      "summary": "Batch account import (/admin/accounts/data) propagates `group_ids` from the JSON payload through to CreateAccountInput.GroupIDs so newly imported accounts are bound to the requested groups directly, without requiring a manual edit-and-save. The DataAccount struct now declares the GroupIDs field (the original definition lacked it, so JSON `group_ids` was silently dropped at Unmarshal) and the import handler forwards `item.GroupIDs` instead of hard-coded `nil`. The symmetric export side also surfaces GroupIDs + ChannelType so an export → import round-trip no longer silently drops group bindings or newapi fifth-platform metadata."
+      "summary": "OpenAI Chat Completions raw passthrough detects upstream silent refusal (empty stream/response with finish_reason=stop and zero usage) and emits an ops_error_logs row with Kind=silent_refusal. Conservative predicate: no content / no tool_calls / no reasoning / no refusal / no chunk-level error / zero usage / finish_reason=stop. Stream path keeps the client-visible bytes untouched (headers already flushed); buffered path will keep flexibility to harden later. The categorical ops signal turns the previously invisible 'ghost stream' (gpt-5.5 above input budget) into a dashboard-pivotable event."
     }
   ]
 }

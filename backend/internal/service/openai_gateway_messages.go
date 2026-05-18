@@ -518,9 +518,9 @@ func (s *OpenAIGatewayService) handleAnthropicErrorResponse(
 }
 
 // handleAnthropicBufferedStreamingResponse reads all Responses SSE events from
-// the upstream streaming response, finds the terminal event (response.completed
-// / response.incomplete / response.failed), converts the complete response to
-// Anthropic Messages JSON format, and writes it to the client.
+// the upstream streaming response, finds the terminal event (the six-event
+// set in isOpenAICompatResponsesTerminalEvent), converts the complete response
+// to Anthropic Messages JSON format, and writes it to the client.
 // This is used when the client requested stream=false but the upstream is always
 // streaming.
 func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
@@ -583,7 +583,13 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 
 func isOpenAICompatResponsesTerminalEvent(eventType string) bool {
 	switch strings.TrimSpace(eventType) {
-	case "response.completed", "response.done", "response.incomplete", "response.failed":
+	// TK: align with openAIStreamEventIsTerminal (gateway_service.go),
+	// openai_ws_forwarder.go, and openai_ws_v2/passthrough_relay.go so that
+	// upstream-emitted response.cancelled / response.canceled close the
+	// streaming loop cleanly instead of falling through to "stream usage
+	// incomplete: missing terminal event". See upstream Wei-Shaw/sub2api#1322.
+	case "response.completed", "response.done", "response.incomplete", "response.failed",
+		"response.cancelled", "response.canceled":
 		return true
 	default:
 		return false

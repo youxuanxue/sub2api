@@ -328,6 +328,22 @@
         "backend/internal/handler/admin/account_data_handler_test.go:TestImportData_GroupIDsReachCreateAccount",
         "backend/internal/handler/admin/account_data_handler_test.go:TestExportData_IncludesGroupIDsAndChannelType"
       ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1322",
+      "severity": "high",
+      "summary": "isOpenAICompatResponsesTerminalEvent (driver for the OpenAI-compat Anthropic Messages and Chat Completions streaming handlers) now recognizes the full six-event terminal set, including response.cancelled / response.canceled. Without this, an upstream that ends the Responses SSE with a legitimate cancellation falls through to 'stream usage incomplete: missing terminal event', producing a spurious openai.forward_failed ops_error_logs entry and skipping clean finalization. Symmetric with openAIStreamEventIsTerminal (gateway_service.go), openai_ws_forwarder.go, and openai_ws_v2/passthrough_relay.go.",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_messages.go",
+        "backend/internal/service/openai_gateway_messages_tk_terminal_event_test.go",
+        "scripts/terminal-sentinels.json"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_gateway_messages.go:See upstream Wei-Shaw/sub2api#1322",
+        "backend/internal/service/openai_gateway_messages.go:\"response.cancelled\", \"response.canceled\"",
+        "backend/internal/service/openai_gateway_messages_tk_terminal_event_test.go:TestIsOpenAICompatResponsesTerminalEvent_FullSet",
+        "scripts/terminal-sentinels.json:openai_compat_responses_terminal_helper"
+      ]
     }
   ]
 }

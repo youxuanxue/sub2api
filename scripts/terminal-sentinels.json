@@ -8,7 +8,17 @@
       "required_literals": [
         "func openAIStreamEventIsTerminal(data string) bool {",
         "if trimmed == \"[DONE]\" {",
-        "case \"response.completed\", \"response.done\", \"response.failed\":"
+        "case \"response.completed\", \"response.done\", \"response.failed\":",
+        "case \"response.incomplete\", \"response.cancelled\", \"response.canceled\":"
+      ]
+    },
+    {
+      "name": "openai_compat_responses_terminal_helper",
+      "source": "backend/internal/service/openai_gateway_messages.go",
+      "required_literals": [
+        "func isOpenAICompatResponsesTerminalEvent(eventType string) bool {",
+        "case \"response.completed\", \"response.done\", \"response.incomplete\", \"response.failed\",",
+        "\"response.cancelled\", \"response.canceled\":"
       ]
     },
     {
