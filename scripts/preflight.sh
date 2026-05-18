@@ -275,6 +275,26 @@ else
     echo "  ok: no buffered SSE->JSON Content-Type leak antipattern"
 fi
 
+# ---- sub2api: OpsUpstreamErrorEvent.Kind suffix antipattern ----------------
+# Guards against the regression pattern that surfaced in prod ops_error_logs:
+# storage metadata (e.g. ":request_body_truncated") appended onto the
+# categorical Kind enum, splitting the same root cause into multiple buckets
+# based purely on body size. Kind must stay a clean short label; per-event
+# storage flags belong on dedicated boolean fields of OpsUpstreamErrorEvent.
+# See ops_upstream_context.go Kind comment for the contract.
+echo ""
+echo "=== sub2api: OpsUpstreamErrorEvent.Kind suffix antipattern ==="
+kind_suffix_hits=$(grep -rEn '(out|ev)\.Kind[[:space:]]*=[[:space:]]*(out|ev)\.Kind[[:space:]]*\+' \
+    backend/internal/service/ops*.go 2>/dev/null | grep -v '_test\.go' || true)
+if [ -n "$kind_suffix_hits" ]; then
+    echo "  fail: Kind enum must stay categorical — never append storage metadata."
+    echo "        Use a dedicated boolean field on OpsUpstreamErrorEvent instead."
+    echo "$kind_suffix_hits" | sed 's/^/        /'
+    errors=$((errors + 1))
+else
+    echo "  ok: no Kind enum suffix antipattern"
+fi
+
 # ---- sub2api: newapi sentinel registry --------------------------------------
 # Source of truth: scripts/newapi-sentinels.json. Verifies that every
 # load-bearing surface of the fifth platform (`newapi`) — TK companion files,
