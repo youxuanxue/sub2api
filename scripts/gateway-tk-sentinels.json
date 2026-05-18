@@ -663,6 +663,23 @@
         "docs/approved/rpm-override-deferred-removal.md"
       ],
       "rationale": "Admin dashboard RPMMax must surface the real L1 rate-limit gate (group.rpm_limit) instead of Σ account.base_rpm — after the strict-redline rollout (PR #297) these two values diverge by the sticky_buffer gap and the Σ aggregate becomes a visible lie. Three TK touches in this upstream-shaped file: (1) getGroupCapacity takes the group's rpm_limit as an explicit parameter (function-signature drift caught by `groupRPMLimit int`); (2) the override branch (`if groupRPMLimit > 0 {`) flips RPMMax from Σ base_rpm to the real cap, fallback only when unlimited; (3) the rpmCache query guard adds `|| groupRPMLimit > 0` so a group composed entirely of unlimited (base_rpm=0) accounts but capped by group.rpm_limit > 0 still shows live RPMUsed instead of frozen 0. The doc anchor pins the deferred-removal decision for the L1 rpm_override layer (see docs/approved/rpm-override-deferred-removal.md) so a future cleanup understands why this companion file is more than cosmetic."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "upstream Wei-Shaw/sub2api#1318",
+        "shouldDisable = s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, body)",
+        "if shouldDisable {\n\t\treturn &UpstreamFailoverError{"
+      ],
+      "rationale": "openai_passthrough error handling (handleErrorResponsePassthrough) MUST propagate HandleUpstreamError's shouldDisable signal: when the rate-limit service decides the account must stop scheduling (temp-unsched rule match, 402 deactivated_workspace, OAuth 401, organization-disabled 400, ...) the current request must return UpstreamFailoverError so the handler retries on another account. Before upstream #1318, the signal was discarded with `_ =` and only the side effect on the account fired — the in-flight request was completed against the now-disabled account, surfacing to the client as the raw upstream error. The literal `shouldDisable = ...` line is pinned so a refactor that reverts to discarding the return value fails preflight rather than reintroducing the half-applied policy at runtime."
+    },
+    {
+      "path": "backend/internal/service/openai_oauth_passthrough_test.go",
+      "must_contain": [
+        "TestOpenAIGatewayService_OpenAIPassthrough_TempUnschedRuleTriggersFailover",
+        "passthrough must NOT write the upstream error to the client when the account was disabled"
+      ],
+      "rationale": "Focused regression anchor for upstream #1318: passthrough + temp-unsched rule match must (a) surface UpstreamFailoverError, (b) leave c.Writer untouched so the failover loop owns the response, and (c) tag the ops event with Kind=failover. Without this test, a future refactor of handleErrorResponsePassthrough could silently revert to discarding shouldDisable (the original upstream bug) and the regression would only show up in production when a temp-unsched rule is actually configured."
     }
   ]
 }

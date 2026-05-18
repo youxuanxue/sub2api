@@ -344,6 +344,20 @@
         "backend/internal/service/openai_gateway_messages_tk_terminal_event_test.go:TestIsOpenAICompatResponsesTerminalEvent_FullSet",
         "scripts/terminal-sentinels.json:openai_compat_responses_terminal_helper"
       ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1318",
+      "severity": "high",
+      "summary": "openai_passthrough now propagates HandleUpstreamError's shouldDisable signal: when a temp-unschedulable rule (or any policy that marks the account unschedulable — 402 deactivated_workspace, OAuth 401, organization disabled, etc.) fires, handleErrorResponsePassthrough returns UpstreamFailoverError and emits ops Kind=failover instead of writing the upstream error straight back to the client. This closes the half-applied state where the account got disabled but the in-flight request was still completed on it.",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service.go",
+        "backend/internal/service/openai_oauth_passthrough_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_gateway_service.go:upstream Wei-Shaw/sub2api#1318",
+        "backend/internal/service/openai_gateway_service.go:shouldDisable = s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, body)",
+        "backend/internal/service/openai_oauth_passthrough_test.go:TestOpenAIGatewayService_OpenAIPassthrough_TempUnschedRuleTriggersFailover"
+      ]
     }
   ]
 }

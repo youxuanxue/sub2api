@@ -883,6 +883,118 @@ func TestOpenAIGatewayService_OpenAIPassthrough_429And529TriggerFailover(t *test
 	}
 }
 
+// passthroughTempUnschedRepo records SetTempUnschedulable calls so the test can
+// assert that a hit on a temp-unsched rule actually propagates to the account
+// repository. SetTempUnschedulable returns nil so the rate-limit service treats
+// the trigger as successful and HandleUpstreamError reports shouldDisable=true.
+type passthroughTempUnschedRepo struct {
+	stubOpenAIAccountRepo
+	tempUnschedCalls []time.Time
+	tempUnschedRason []string
+}
+
+func (r *passthroughTempUnschedRepo) SetTempUnschedulable(_ context.Context, _ int64, until time.Time, reason string) error {
+	r.tempUnschedCalls = append(r.tempUnschedCalls, until)
+	r.tempUnschedRason = append(r.tempUnschedRason, reason)
+	return nil
+}
+
+// TestOpenAIGatewayService_OpenAIPassthrough_TempUnschedRuleTriggersFailover pins
+// the fix for upstream Wei-Shaw/sub2api#1318: when an OAuth account in
+// passthrough mode hits a configured temporary-unschedulable rule, the rate-
+// limit service must (a) mark the account temp-unsched (existing behavior),
+// AND (b) the current request must return UpstreamFailoverError so the handler
+// can fail over to another account instead of returning the upstream error to
+// the client. Before the fix, passthrough discarded HandleUpstreamError's
+// shouldDisable signal and only the side effect fired — the in-flight request
+// was still completed against the now-disabled account.
+func TestOpenAIGatewayService_OpenAIPassthrough_TempUnschedRuleTriggersFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
+	c.Request.Header.Set("User-Agent", "codex_cli_rs/0.1.0")
+
+	originalBody := []byte(`{"model":"gpt-5.2","stream":false,"instructions":"local-test-instructions","input":[{"type":"text","text":"hi"}]}`)
+
+	// Upstream returns 402 with body matching the configured temp-unsched
+	// keyword "deactivated". The rate-limit service must trigger the rule and
+	// report shouldDisable=true.
+	resp := &http.Response{
+		StatusCode: http.StatusPaymentRequired,
+		Header: http.Header{
+			"Content-Type": []string{"application/json"},
+			"x-request-id": []string{"rid-temp-unsched"},
+		},
+		Body: io.NopCloser(strings.NewReader(`{"detail":{"code":"deactivated_workspace"}}`)),
+	}
+	upstream := &httpUpstreamRecorder{resp: resp}
+
+	repo := &passthroughTempUnschedRepo{}
+	rateSvc := &RateLimitService{
+		accountRepo: repo,
+		cfg: &config.Config{
+			RateLimit: config.RateLimitConfig{OverloadCooldownMinutes: 10},
+		},
+	}
+
+	svc := &OpenAIGatewayService{
+		cfg:              &config.Config{Gateway: config.GatewayConfig{ForceCodexCLI: false}},
+		httpUpstream:     upstream,
+		rateLimitService: rateSvc,
+	}
+
+	account := &Account{
+		ID:          321,
+		Name:        "acc-temp-unsched",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token":               "oauth-token",
+			"chatgpt_account_id":         "chatgpt-acc",
+			"temp_unschedulable_enabled": true,
+			"temp_unschedulable_rules": []any{
+				map[string]any{
+					"error_code":       float64(402),
+					"keywords":         []any{"deactivated"},
+					"duration_minutes": float64(1440),
+					"description":      "402 deactivated workspace -> temp unsched",
+				},
+			},
+		},
+		Extra:          map[string]any{"openai_passthrough": true},
+		Status:         StatusActive,
+		Schedulable:    true,
+		RateMultiplier: f64p(1),
+	}
+
+	_, err := svc.Forward(context.Background(), c, account, originalBody)
+	require.Error(t, err)
+
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr,
+		"passthrough + temp-unsched rule match must surface UpstreamFailoverError so the handler retries on another account")
+	require.Equal(t, http.StatusPaymentRequired, failoverErr.StatusCode)
+	require.False(t, c.Writer.Written(),
+		"passthrough must NOT write the upstream error to the client when the account was disabled — failover loop owns the response")
+
+	require.Len(t, repo.tempUnschedCalls, 1,
+		"the temp-unsched rule must still take its side effect on the account repository")
+
+	v, ok := c.Get(OpsUpstreamErrorsKey)
+	require.True(t, ok)
+	arr, ok := v.([]*OpsUpstreamErrorEvent)
+	require.True(t, ok)
+	require.NotEmpty(t, arr)
+	last := arr[len(arr)-1]
+	require.True(t, last.Passthrough)
+	require.Equal(t, "failover", last.Kind,
+		"shouldDisable=true must mark the ops event as failover, not http_error")
+	require.Equal(t, http.StatusPaymentRequired, last.UpstreamStatusCode)
+}
+
 func TestOpenAIGatewayService_OAuthPassthrough_NonCodexUAFallbackToCodexUA(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
