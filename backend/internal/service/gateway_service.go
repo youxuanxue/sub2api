@@ -574,6 +574,9 @@ type GatewayService struct {
 	// Injected via GatewayService.SetPricingAvailabilityService (TK companion) so the upstream
 	// constructor signature stays unchanged. nil = feature disabled / not wired yet.
 	tkPricingAvailability *PricingAvailabilityService
+	// TK: per-account thinking-block signature_error preempt cache. Injected via
+	// SetAnthropicSigPreemptCache (TK companion). nil = feature disabled.
+	tkAnthropicSigPreemptCache AnthropicSignaturePreemptCache
 }
 
 // NewGatewayService creates a new GatewayService
@@ -4575,6 +4578,14 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	// Pre-filter: strip empty text blocks (including nested in tool_result) to prevent upstream 400.
 	body = StripEmptyTextBlocks(body)
 
+	// TK signature_error preempt: when this account recently exceeded the
+	// signature_error threshold, strip thinking blocks before the first upstream
+	// call to skip the otherwise-guaranteed 400 + signature_error round trip.
+	// gateway_service_tk_signature_preempt.go owns the cache + thresholds.
+	if account.Platform == PlatformAnthropic {
+		body = s.applySigPreemptIfArmed(ctx, c, account, body)
+	}
+
 	// 重试间复用同一请求体，避免每次 string(body) 产生额外分配。
 	setOpsUpstreamRequestBody(c, body)
 
@@ -4641,6 +4652,9 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 							return ""
 						}(),
 					})
+					// TK: arm per-account signature_error preempt; subsequent
+					// requests within cooldown will pre-filter thinking blocks.
+					s.armSigPreemptOnError(ctx, c, account)
 
 					looksLikeToolSignatureError := func(msg string) bool {
 						m := strings.ToLower(msg)
@@ -5088,6 +5102,13 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 		}
 	}
 
+	// TK signature_error preempt (Anthropic API-Key passthrough path): same
+	// rationale as the OAuth path — strip thinking blocks early when the
+	// account has been recently throwing signature_error.
+	if account.Platform == PlatformAnthropic {
+		input.Body = s.applySigPreemptIfArmed(ctx, c, account, input.Body)
+	}
+
 	// 重试间复用同一请求体，避免每次 string(body) 产生额外分配。
 	setOpsUpstreamRequestBody(c, input.Body)
 
@@ -5151,6 +5172,8 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 							return ""
 						}(),
 					})
+					// TK: arm per-account signature_error preempt for next requests.
+					s.armSigPreemptOnError(ctx, c, account)
 					signatureRetryAttempted = true
 					input.Body = FilterThinkingBlocksForRetry(input.Body)
 					setOpsUpstreamRequestBody(c, input.Body)
@@ -9041,6 +9064,12 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		return err
 	}
 
+	// TK signature_error preempt (count_tokens path): pre-filter thinking blocks
+	// when the account is currently in the preempt cooldown window.
+	if account.Platform == PlatformAnthropic {
+		body = s.applySigPreemptIfArmed(ctx, c, account, body)
+	}
+
 	// 构建上游请求
 	upstreamReq, err := s.buildCountTokensRequest(ctx, c, account, body, token, tokenType, reqModel, shouldMimicClaudeCode)
 	if err != nil {
@@ -9080,6 +9109,8 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	// 检测 thinking block 签名错误（400）并重试一次（过滤 thinking blocks）
 	if resp.StatusCode == 400 && s.shouldRectifySignatureError(ctx, account, respBody) {
 		logger.LegacyPrintf("service.gateway", "Account %d: detected thinking block signature error on count_tokens, retrying with filtered thinking blocks", account.ID)
+		// TK: arm per-account signature_error preempt for subsequent requests.
+		s.armSigPreemptOnError(ctx, c, account)
 
 		filteredBody := FilterThinkingBlocksForRetry(body)
 		retryReq, buildErr := s.buildCountTokensRequest(ctx, c, account, filteredBody, token, tokenType, reqModel, shouldMimicClaudeCode)
