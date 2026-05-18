@@ -247,6 +247,24 @@
         "backend/internal/repository/account_repo_tk_rate_limit_reaper_integration_test.go:TestEnqueueOutboxForJustExpiredAccounts_RepoEnqueuesAccountChangedForExpired",
         "backend/internal/repository/account_repo_tk_rate_limit_reaper_integration_test.go:TestEnqueueOutboxForJustExpiredAccounts_RepoDedupsRepeatedTicksWithin1Second"
       ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2539",
+      "severity": "high",
+      "summary": "BillingService.getImageUnitPrice now defensively normalizes an empty imageSize to \"2K\" — mirroring the request-side normalizeOpenAIImageSizeTier default — so group image-price overrides (Price1K/Price2K/Price4K) are honored when ForwardResult.ImageSize fails to propagate through the request pipeline, instead of silently falling back to the LiteLLM default price ($0.134). Aligns the empty-size billing tier with the request-side default and unblocks customers with image_price_2k overrides who were being billed at the unconfigured default.",
+      "fixed_by": [
+        "backend/internal/service/billing_service.go",
+        "backend/internal/service/billing_service_image_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/billing_service.go:See upstream Wei-Shaw/sub2api#2539",
+        "backend/internal/service/billing_service.go:normalizedSize := imageSize",
+        "backend/internal/service/billing_service.go:if strings.TrimSpace(normalizedSize) == \"\" {",
+        "backend/internal/service/billing_service.go:normalizedSize = \"2K\"",
+        "backend/internal/service/billing_service_image_test.go:TestGetImageUnitPrice_EmptyImageSize_UsesGroupTier",
+        "backend/internal/service/billing_service_image_test.go:TestGetImageUnitPrice_EmptyImageSize_NoGroupFallsBackTo2KDefault",
+        "backend/internal/service/billing_service_image_test.go:TestGetImageUnitPrice_EmptyImageSize_PartialGroupConfigTier2K"
+      ]
     }
   ]
 }
