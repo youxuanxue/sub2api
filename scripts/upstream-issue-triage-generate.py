@@ -61,6 +61,7 @@ MANUAL_TRIAGE = {
     2506: ("fixed", "fixed_in_tokenkey", "normalizeClaudeOAuthRequestBody skips context_management auto-injection for Haiku models (mirroring the existing Haiku exemption in FullClaudeCodeMimicryBetas), so claude-haiku-4-5-* + thinking.type=enabled no longer triggers Anthropic 400."),
     2515: ("fixed", "fixed_in_tokenkey", "ChatCompletions→Responses transform no longer emits content:null when the source content array is empty or every part was filtered out — falls back to empty string per upstream Responses contract."),
     1471: ("fixed", "fixed_in_tokenkey", "OpenAI /v1/responses sendErrorEvent prepends a blank line before the synthetic error event so an in-flight upstream SSE event (data: line without terminating blank line) does not merge with the injected error event into a single event carrying two JSON objects; downstream SDK JSON parsing no longer fails."),
+    2539: ("fixed", "fixed_in_tokenkey", "Image billing no longer drops group image_price_1k/2k/4k overrides when ForwardResult.ImageSize arrives empty; getImageUnitPrice normalizes empty size to \"2K\" before group lookup (matching normalizeOpenAIImageSizeTier), so group pricing is honored on paths that set ImageCount but never thread ImageSize through. No-group case preserves historical default-price behavior."),
 }
 
 FIXED_IDS = {num for num, (impact, _, _) in MANUAL_TRIAGE.items() if impact == "fixed"}

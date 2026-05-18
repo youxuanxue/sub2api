@@ -356,6 +356,24 @@
         "stream_timeout"
       ],
       "rationale": "Focused regression anchors for upstream #1471 covering both sendErrorEvent triggers that share the closure: synchronous scanner error path (stream_read_error) and asynchronous interval-timeout path (stream_timeout). Each asserts every SSE event in the post-error transcript carries exactly one parseable-JSON data line. Together they prove the prepended-blank-line invariant holds for both the bufio.Scanner sync path and the goroutine async path that read from upstream."
+    },
+    {
+      "path": "backend/internal/service/billing_service.go",
+      "must_contain": [
+        "See upstream Wei-Shaw/sub2api#2539",
+        "effectiveSize := imageSize",
+        "if effectiveSize == \"\""
+      ],
+      "rationale": "Image-billing fallback for upstream #2539. getImageUnitPrice MUST normalize empty imageSize to \"2K\" before group-config lookup so configured group image_price_1k/2k/4k overrides are honored when the gateway pipeline leaves ForwardResult.ImageSize empty (the /v1/images/generations forwardOpenAIV1JSON path is the documented offender — it sets ImageCount but never threads ImageSize through). Dropping these literals reintroduces the upstream bug where billing silently falls back to the LiteLLM default ($0.134) and drops group pricing on the floor — a real revenue-accuracy regression, not a display issue."
+    },
+    {
+      "path": "backend/internal/service/billing_service_tk_image_size_fallback_test.go",
+      "must_contain": [
+        "TestGetImageUnitPrice_EmptySize_UsesGroup2KPrice",
+        "TestGetImageUnitPrice_EmptySize_NoGroupConfig_PreservesDefault",
+        "TestCalculateImageCost_Issue2539_Repro"
+      ],
+      "rationale": "Focused regression anchors for upstream #2539 covering the three load-bearing shapes: (a) empty imageSize WITH group Price2K override must apply the group price (the core fix), (b) empty imageSize WITHOUT any group config must preserve the historical base-price default (the no-regression boundary), and (c) the explicit FourPrism repro shape (billing_mode=image, image_count=1, image_size=''). Without all three, future refactors can silently reintroduce the bug because the negative case (no group config) and the positive case (group override applied) test different code paths through the same function."
     }
   ]
 }

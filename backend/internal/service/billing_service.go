@@ -836,9 +836,22 @@ func (s *BillingService) CalculateImageCost(model string, imageSize string, imag
 
 // getImageUnitPrice 获取图片单价
 func (s *BillingService) getImageUnitPrice(model string, imageSize string, groupConfig *ImagePriceConfig) float64 {
+	// TK: See upstream Wei-Shaw/sub2api#2539 — when imageSize reaches the billing
+	// layer empty (some image-generation paths set ForwardResult.ImageCount > 0
+	// but never thread ImageSize through, e.g. the /v1/images/generations
+	// forwardOpenAIV1JSON path that returns OpenAIForwardResult{ImageCount:...}
+	// without ImageSize). Treat empty as "2K" so the group's configured image
+	// pricing is still applied — this matches normalizeOpenAIImageSizeTier's
+	// behavior for empty/"auto" inputs and prevents group overrides from being
+	// silently dropped in favor of the default LiteLLM price.
+	effectiveSize := imageSize
+	if effectiveSize == "" {
+		effectiveSize = "2K"
+	}
+
 	// 优先使用分组配置的价格
 	if groupConfig != nil {
-		switch imageSize {
+		switch effectiveSize {
 		case "1K":
 			if groupConfig.Price1K != nil {
 				return *groupConfig.Price1K
@@ -854,7 +867,8 @@ func (s *BillingService) getImageUnitPrice(model string, imageSize string, group
 		}
 	}
 
-	// 回退到 LiteLLM 默认价格
+	// 回退到 LiteLLM 默认价格 — 仍传原始 imageSize，避免改变没有 group 覆写时
+	// 现有的"未知/空 size 走 base price"默认行为（与 #2539 修复范围分离）。
 	return s.getDefaultImagePrice(model, imageSize)
 }
 

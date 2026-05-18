@@ -268,6 +268,15 @@
         "backend/internal/service/openai_gateway_service_tk_stream_read_error_sse_test.go"
       ],
       "summary": "OpenAI /v1/responses sendErrorEvent now prepends a blank line before the synthetic data: line, so any in-flight upstream SSE event whose terminating blank line was never sent is closed before the synthetic event is written. Without this, the unterminated `data:` line and the synthetic `data:` line merge into a single SSE event whose payload contains two concatenated JSON objects, which downstream OpenAI-compatible SDKs (Codex, OpenCode, etc.) reject with malformed JSON."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2539",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/billing_service.go",
+        "backend/internal/service/billing_service_tk_image_size_fallback_test.go"
+      ],
+      "summary": "Image billing no longer silently drops configured group image_price_1k/2k/4k overrides when the upstream pipeline leaves ForwardResult.ImageSize empty. getImageUnitPrice now normalizes empty imageSize to \"2K\" before group-config lookup (mirroring normalizeOpenAIImageSizeTier's empty→2K convention), so group overrides survive paths that set ImageCount but never thread ImageSize through (e.g. /v1/images/generations forwardOpenAIV1JSON). Falls back to the original default price when the group has no Price2K — keeps the no-group case bit-identical to historical behavior."
     }
   ]
 }
