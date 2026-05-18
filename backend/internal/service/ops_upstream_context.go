@@ -143,7 +143,17 @@ type OpsUpstreamErrorEvent struct {
 	// Best-effort upstream response capture (sanitized+trimmed).
 	UpstreamResponseBody string `json:"upstream_response_body,omitempty"`
 
-	// Kind: http_error | request_error | retry_exhausted | failover
+	// Kind is a short categorical label set by gateway services on each
+	// upstream attempt. Common values currently emitted include:
+	// http_error, request_error, retry, retry_exhausted,
+	// retry_exhausted_failover, failover, failover_on_400, signature_error,
+	// signature_retry, signature_retry_thinking,
+	// signature_retry_tools_request_error, signature_retry_request_error,
+	// budget_constraint_error, prompt_too_long, ws_error. Storage and
+	// downstream aggregation treat it as an opaque short string; the
+	// gateway emit sites are the authoritative source. Storage metadata
+	// (e.g. body truncation) must NOT be appended onto this field — it has
+	// its own dedicated columns/booleans.
 	Kind string `json:"kind,omitempty"`
 
 	Message string `json:"message,omitempty"`
