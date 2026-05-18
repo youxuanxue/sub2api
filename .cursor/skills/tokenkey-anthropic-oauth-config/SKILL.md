@@ -146,6 +146,10 @@ python3 scripts/check-prod-anthropic-stub-mirror.py --json   # CI-friendly
 
 报告输出按 `--- account-level (R1) ---` 与 `--- group-level (R3) ---` 两段呈现；JSON 模式下 `stub_violation_count` 与 `group_violation_count` 分项汇总。
 
+### R3 mirror 修复路径（guard fail 后 apply）
+
+`check-prod-anthropic-stub-mirror.py` 只检测、不修改。fail 后 op 用 [`anthropic-stub-mirror-rpm-apply-template.sql`](../../../deploy/aws/stage0/anthropic-stub-mirror-rpm-apply-template.sql) 把 prod stub-only group 的 `rpm_limit` 写到 R3 期望值（即 guard JSON 输出的 `group_results[i].expected_rpm_limit`）。模板顶部 DO 块拒绝对 OAuth-bearing group 使用——后者归 strict-redline aggregate 模板（[`anthropic-oauth-group-aggregate-apply-template.sql`](../../../deploy/aws/stage0/anthropic-oauth-group-aggregate-apply-template.sql)）。
+
 ### 规则的本质
 
 prod 是 router、edge 是 worker。两条镜像规则的共同算子是 **absorb-zero SUM**：router 的容量必须**精确等于** worker 总容量。任何 edge tier 变更（如 H1 升降、增删 OAuth 账号）都会被 guard 自动捕获。
@@ -321,15 +325,17 @@ python3 scripts/check-account-group-rpm-alignment.py --target <edge_id|prod> --s
 
 1. **PR 合入** — `--strict-redline` 默认关闭，线上 apply 流仍走旧口径，行为零回归。
 2. **离线巡检** — 逐 edge / prod 用 `--strict-redline --json` 跑一遍，确认 Layer C 全过（baseline 已逐 tier 落档），列出 Layer A/B violation 清单。
-3. **升 group cap** — 对每个 strict-mode 下违反 Layer A/B 的 group，按 [`anthropic-oauth-group-aggregate-apply-template.sql`](../../../deploy/aws/stage0/anthropic-oauth-group-aggregate-apply-template.sql) 生成自包含 SQL，把 `group.rpm_limit` 升到 `Σ redline`。R3 自动把 prod 镜像跟上（不需要单独 apply prod）。
-4. **切默认** — 全部 strict-mode 巡检通过后，另起一个小 PR 把 `--strict-redline` 翻成默认（或删除旧口径），完成切换。
+3. **升 edge group cap** — 对每个 strict-mode 下违反 Layer A/B 的 **OAuth-bearing** group（典型是 edge `default`），按 [`anthropic-oauth-group-aggregate-apply-template.sql`](../../../deploy/aws/stage0/anthropic-oauth-group-aggregate-apply-template.sql) 生成自包含 SQL，把 `group.rpm_limit` 升到 `Σ redline`。
+4. **同步 prod 镜像（R3）** — `check-prod-anthropic-stub-mirror.py` 是 guard 不是 applier；edge 改完后它会在下一次巡检里检出 prod 镜像漂移。op 须用 [`anthropic-stub-mirror-rpm-apply-template.sql`](../../../deploy/aws/stage0/anthropic-stub-mirror-rpm-apply-template.sql) 把 prod stub-only group（如 `cc-edges`）的 `rpm_limit` 写到 R3 期望值（取自 stub-mirror guard 的 `expected_rpm_limit`）。注意：strict-redline aggregate 模板不适合 stub-only group——它会算出 `Σ = 0` 把组改成 unlimited。
+5. **切默认** — 全部 strict-mode 巡检通过后，另起一个小 PR 把 `--strict-redline` 翻成默认（或删除旧口径），完成切换。
 
 ### 3.3 模板 SQL 是 apply 源头
 
 更新配置时禁止临时手写 SQL 或直接拼一份新的字段清单。必须从仓库模板复制出本次执行 SQL，再只替换本次目标变量和经 `plan-apply` 确认的差异：
 
 - 账号 tier/stability/TLS baseline 更新：复制 `deploy/aws/stage0/anthropic-oauth-stability-tiered-apply-template.sql`
-- 分组聚合 rpm 更新：复制 `deploy/aws/stage0/anthropic-oauth-group-aggregate-apply-template.sql`
+- 分组聚合 rpm 更新（OAuth-bearing group）：复制 `deploy/aws/stage0/anthropic-oauth-group-aggregate-apply-template.sql`
+- R3 镜像 rpm 更新（prod stub-only group）：复制 `deploy/aws/stage0/anthropic-stub-mirror-rpm-apply-template.sql`
 
 推荐落点：`$CLAUDE_JOB_DIR/<edge>-<target>-apply.sql`，不要改原模板来执行单次任务。复制后必须生成**自包含 SQL**：把模板正文复制进该文件，并在文件顶部写入本次 `\set account_name`、`\set stability_tier`、`\set group_name` 等变量；远端 edge 不保证存在仓库 checkout，所以禁止让 SSM/psql 执行依赖远端文件路径的 `\i deploy/aws/stage0/...`。复制后必须保留模板里的 profile、tier、聚合口径和事务结构；只允许改执行变量或经 `plan-apply` 确认过的字面值。若需求确实要求模板未覆盖的新字段，先更新模板和本 skill，再执行 apply，避免 checker、模板和人工 SQL 分叉。
 
@@ -472,9 +478,12 @@ summary.error_count=<n>
 ## 扩展阅读
 
 - `scripts/check-edge-anthropic-oauth-stability.py`
+- `scripts/check-account-group-rpm-alignment.py`
+- `scripts/check-prod-anthropic-stub-mirror.py`
 - `deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json`
 - `deploy/aws/stage0/anthropic-oauth-stability-tiered-apply-template.sql`
 - `deploy/aws/stage0/anthropic-oauth-group-aggregate-apply-template.sql`
+- `deploy/aws/stage0/anthropic-stub-mirror-rpm-apply-template.sql`
 - `backend/internal/handler/admin/account_handler.go`
 - `backend/internal/service/admin_service.go`
 - `backend/internal/repository/account_repo.go`
