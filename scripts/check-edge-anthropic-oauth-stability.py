@@ -370,13 +370,13 @@ def resolve_effective_baseline(
     tier_key = str(account.get("stability_tier") or "").strip().lower()
     if not tier_key and default_tier:
         tier_key = default_tier
+    tiers = baseline.get("tiers") or {}
     if not tier_key:
         fail(
             f"account {account_name} on edge {edge_id} missing account.extra.stability_tier; "
-            "expected one of l1/l2/l3/l4"
+            f"expected one of {'/'.join(sorted(tiers))}"
         )
 
-    tiers = baseline.get("tiers") or {}
     tier_cfg = tiers.get(tier_key)
     if not isinstance(tier_cfg, dict):
         fail(
