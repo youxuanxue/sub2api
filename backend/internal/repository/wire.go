@@ -118,6 +118,9 @@ var ProviderSet = wire.NewSet(
 	NewGeminiTokenCache,
 	ProvideSchedulerCache,
 	NewSchedulerOutboxRepository,
+	// TK fix for upstream Wei-Shaw/sub2api#2538 — see
+	// account_repo_tk_rate_limit_reaper.go.
+	NewRateLimitExpiryRepository,
 	NewProxyLatencyCache,
 	NewTotpCache,
 	NewRefreshTokenCache,

@@ -268,6 +268,17 @@
         "backend/internal/service/openai_gateway_service_tk_stream_read_error_sse_test.go"
       ],
       "summary": "OpenAI /v1/responses sendErrorEvent now prepends a blank line before the synthetic data: line, so any in-flight upstream SSE event whose terminating blank line was never sent is closed before the synthetic event is written. Without this, the unterminated `data:` line and the synthetic `data:` line merge into a single SSE event whose payload contains two concatenated JSON objects, which downstream OpenAI-compatible SDKs (Codex, OpenCode, etc.) reject with malformed JSON."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2538",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/scheduler_rate_limit_reaper.go",
+        "backend/internal/service/scheduler_rate_limit_reaper_test.go",
+        "backend/internal/repository/account_repo_tk_rate_limit_reaper.go",
+        "backend/internal/repository/account_repo_tk_rate_limit_reaper_integration_test.go"
+      ],
+      "summary": "SchedulerRateLimitReaper closes the deadlock where an account's 429 cooldown expires but no event triggers a snapshot rebuild; reaper ticks every 5s, scans accounts.rate_limit_reset_at in (lastTick, now], and enqueues one scheduler_outbox(account_changed) event per match. The existing outbox worker then rebuilds the bucket. Reaper is independent of upstream SchedulerSnapshotService."
     }
   ]
 }

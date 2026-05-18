@@ -221,6 +221,32 @@
         "backend/internal/service/openai_gateway_service.go:bufferedWriter.WriteString(\"\\ndata: \" + payload + \"\\n\\n\")",
         "backend/internal/service/openai_gateway_service_tk_stream_read_error_sse_test.go:TestOpenAIStreamingStreamReadErrorEmitsSeparateSSEEvents"
       ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2538",
+      "severity": "high",
+      "summary": "SchedulerRateLimitReaper closes the deadlock where an account's 429 cooldown expires but no event triggers a snapshot rebuild; reaper ticks every 5s, scans accounts.rate_limit_reset_at in (lastTick, now], and enqueues one scheduler_outbox(account_changed) event per match. The existing outbox worker then rebuilds the bucket. Reaper is independent of upstream SchedulerSnapshotService.",
+      "fixed_by": [
+        "backend/internal/service/scheduler_rate_limit_reaper.go",
+        "backend/internal/service/scheduler_rate_limit_reaper_test.go",
+        "backend/internal/repository/account_repo_tk_rate_limit_reaper.go",
+        "backend/internal/repository/account_repo_tk_rate_limit_reaper_integration_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/scheduler_rate_limit_reaper.go:TK: See upstream Wei-Shaw/sub2api#2538",
+        "backend/internal/service/scheduler_rate_limit_reaper.go:type SchedulerRateLimitReaper struct",
+        "backend/internal/service/scheduler_rate_limit_reaper.go:type RateLimitExpiryRepository interface",
+        "backend/internal/service/scheduler_rate_limit_reaper.go:EnqueueOutboxForJustExpiredAccounts(ctx context.Context, since, until time.Time) (int, error)",
+        "backend/internal/repository/account_repo_tk_rate_limit_reaper.go:TK: See upstream Wei-Shaw/sub2api#2538",
+        "backend/internal/repository/account_repo_tk_rate_limit_reaper.go:INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload)",
+        "backend/internal/repository/account_repo_tk_rate_limit_reaper.go:WHERE a.rate_limit_reset_at > $1",
+        "backend/internal/repository/account_repo_tk_rate_limit_reaper.go:AND a.rate_limit_reset_at <= $2",
+        "backend/internal/service/scheduler_rate_limit_reaper_test.go:TestRateLimitReaper_FirstTick_UsesLookbackWindow",
+        "backend/internal/service/scheduler_rate_limit_reaper_test.go:TestRateLimitReaper_SubsequentTicks_UseLastTickAsLowerBound",
+        "backend/internal/service/scheduler_rate_limit_reaper_test.go:TestRateLimitReaper_RepoErrorPreservesLastTick",
+        "backend/internal/repository/account_repo_tk_rate_limit_reaper_integration_test.go:TestEnqueueOutboxForJustExpiredAccounts_RepoEnqueuesAccountChangedForExpired",
+        "backend/internal/repository/account_repo_tk_rate_limit_reaper_integration_test.go:TestEnqueueOutboxForJustExpiredAccounts_RepoDedupsRepeatedTicksWithin1Second"
+      ]
     }
   ]
 }

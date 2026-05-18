@@ -357,6 +357,52 @@
         "stream_timeout"
       ],
       "rationale": "Focused regression anchors for upstream #1471 covering both sendErrorEvent triggers that share the closure: synchronous scanner error path (stream_read_error) and asynchronous interval-timeout path (stream_timeout). Each asserts every SSE event in the post-error transcript carries exactly one parseable-JSON data line. Together they prove the prepended-blank-line invariant holds for both the bufio.Scanner sync path and the goroutine async path that read from upstream."
+    },
+    {
+      "path": "backend/internal/service/scheduler_rate_limit_reaper.go",
+      "must_contain": [
+        "TK: See upstream Wei-Shaw/sub2api#2538",
+        "type SchedulerRateLimitReaper struct",
+        "type RateLimitExpiryRepository interface",
+        "EnqueueOutboxForJustExpiredAccounts(ctx context.Context, since, until time.Time) (int, error)",
+        "func NewSchedulerRateLimitReaper",
+        "func (r *SchedulerRateLimitReaper) Start()",
+        "func (r *SchedulerRateLimitReaper) Stop()"
+      ],
+      "rationale": "TK companion that closes the upstream #2538 scheduler deadlock: when an account hits 429 it is dropped from the snapshot, but the rate-limit cooldown expiry produces no event so the account stays invisible until the next full_rebuild_interval_seconds tick (default 5 min). Reaper ticks short (5s default) and enqueues a single outbox account_changed per just-expired account; the existing outbox worker rebuilds the bucket. Each anchor literal must remain: the issue reference (so future readers find the rationale), the type names (so wire injection survives renames), and the interface signature (so the SQL contract stays stable across upstream merges)."
+    },
+    {
+      "path": "backend/internal/service/scheduler_rate_limit_reaper_test.go",
+      "must_contain": [
+        "TestRateLimitReaper_FirstTick_UsesLookbackWindow",
+        "TestRateLimitReaper_SubsequentTicks_UseLastTickAsLowerBound",
+        "TestRateLimitReaper_RepoErrorPreservesLastTick",
+        "TestRateLimitReaper_NonPositiveIntervalDisablesGoroutine"
+      ],
+      "rationale": "Focused regression anchors for upstream #2538 covering the four reaper invariants the SQL alone cannot prove: (a) first-tick window equals configured lookback (no skipped accounts at startup), (b) subsequent ticks use (lastTick, now] so consecutive windows have no gap and no double-scan, (c) a transient repo error must NOT advance lastTick (so the missed window is retried), and (d) the non-positive-interval disable knob keeps the disable-by-config keystroke aligned with FullRebuildIntervalSeconds (both <=0 disable)."
+    },
+    {
+      "path": "backend/internal/repository/account_repo_tk_rate_limit_reaper.go",
+      "must_contain": [
+        "TK: See upstream Wei-Shaw/sub2api#2538",
+        "func NewRateLimitExpiryRepository(db *sql.DB) service.RateLimitExpiryRepository",
+        "INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload)",
+        "WHERE a.rate_limit_reset_at > $1",
+        "AND a.rate_limit_reset_at <= $2",
+        "AND a.deleted_at IS NULL",
+        "AND o.created_at >= NOW() - make_interval(secs => 1)"
+      ],
+      "rationale": "Atomic INSERT...SELECT must remain a single statement so reaper window evaluation and outbox writes share a PG MVCC snapshot — without atomicity a 429 firing between SELECT and INSERT can re-set rate_limit_reset_at after we enqueued the resurrection event. The deleted_at IS NULL guard prevents soft-deleted accounts from being resurrected. The 1s dedup window mirrors scheduler_outbox_repo.go::enqueueSchedulerOutbox so reaper events stay consistent with SetRateLimited-written events."
+    },
+    {
+      "path": "backend/internal/repository/account_repo_tk_rate_limit_reaper_integration_test.go",
+      "must_contain": [
+        "TestEnqueueOutboxForJustExpiredAccounts_RepoEnqueuesAccountChangedForExpired",
+        "TestEnqueueOutboxForJustExpiredAccounts_RepoSkipsStillCoolingDownAccounts",
+        "TestEnqueueOutboxForJustExpiredAccounts_RepoSkipsSoftDeletedAccounts",
+        "TestEnqueueOutboxForJustExpiredAccounts_RepoDedupsRepeatedTicksWithin1Second"
+      ],
+      "rationale": "Integration anchors for the SQL contract: predicate is exclusive on lower bound + inclusive on upper bound (so accounts whose reset_at exactly equals a tick boundary still get caught the first time), soft-deleted accounts are skipped, and the 1s dedup window protects against double-enqueue across consecutive reaper ticks. Without these, the reaper could silently spam the outbox or quietly resurrect deleted accounts."
     }
   ]
 }
