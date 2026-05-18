@@ -36,17 +36,23 @@ Two evaluation modes (the redline definition differs):
     of the green-zone ceiling alone, so the group cap leaves room for
     in-flight StickyOnly traffic.
 
-Strict-mode preconditions (fail-loud, treated as configuration drift):
+Strict-mode group classification:
 
   - Any OAuth account with `extra.rpm_strategy = 'sticky_exempt'`
     has no finite redline.  Such groups are reported as `skipped`
     with reason; operator must review the cap manually.  TokenKey
     does not enable this strategy today.
 
-  - Any OAuth account missing `extra.rpm_sticky_buffer` (NULL / 0 /
-    empty string) is treated as a Layer-C drift violation — strict
-    mode requires every account to carry the manual override field
-    that baseline tiers (L1..L5) already populate.
+  - Any OAuth account with `base_rpm = 0` (runtime unlimited) makes
+    the group's redline non-finite.  Such groups are reported as
+    `skipped` with reason, mirroring the SQL apply template's
+    absorb-zero gate that would write `rpm_limit = 0`.
+
+  - Any OAuth account with `base_rpm > 0` missing
+    `extra.rpm_sticky_buffer` (NULL / 0 / empty string) is treated
+    as a Layer-C drift violation — strict mode requires every
+    finite-redline account to carry the manual override field that
+    baseline tiers (L1..L5) already populate.
 
 Groups with `rpm_limit = 0` (or NULL) are treated as "unlimited" and
 skipped entirely. Groups with `rpm_limit > 0` but **no** anthropic
