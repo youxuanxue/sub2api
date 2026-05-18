@@ -30,13 +30,16 @@ import (
 // The normal Chat Completions → Responses conversion path is unaffected
 // because ChatCompletionsRequest has no fields for these parameters — unknown
 // fields are dropped naturally by json.Unmarshal. Kept semantically in sync
-// with the list in openai_gateway_service.go:2034 used by the /v1/responses
-// passthrough path.
+// with the unsupportedFields list in openai_gateway_service.go used by the
+// /v1/responses passthrough path. `user` is included per upstream
+// Wei-Shaw/sub2api#1264 — Cursor-like clients that POST Responses-shape bodies
+// to /v1/chat/completions can carry `user`, which the Responses upstream rejects.
 var cursorResponsesUnsupportedFields = []string{
 	"prompt_cache_retention",
 	"safety_identifier",
 	"metadata",
 	"stream_options",
+	"user",
 }
 
 // ForwardAsChatCompletions accepts a Chat Completions request body, converts it

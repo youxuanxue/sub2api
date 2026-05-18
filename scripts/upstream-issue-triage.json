@@ -4,10 +4,10 @@
   "generated_from": "GitHub REST API issues?state=open; pull requests excluded",
   "rationale": "TokenKey-local triage cache for upstream open issues. Use this file before re-triaging upstream issues; update entries when TokenKey fixes, dismisses, or reclassifies an issue.",
   "counts": {
-    "needs_review": 347,
-    "fixed": 29,
+    "needs_review": 346,
     "needs_prod_validation": 4,
     "medium": 115,
+    "fixed": 30,
     "not_applicable": 1,
     "low": 96,
     "unknown_low_signal": 402
@@ -237,20 +237,6 @@
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
       "updated_at": "2026-04-25T01:57:31Z"
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#1264",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/1264",
-      "title": "# [Bug] `/v1/responses` endpoint forwards unsupported `user` parameter to upstream, causing 400 error",
-      "impact": "needs_review",
-      "categories": [
-        "rate_limit_cooldown",
-        "image_oauth",
-        "security"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-03-24T13:52:59Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#1292",
@@ -5806,6 +5792,20 @@
       "tokenkey_status": "not_prioritized",
       "rationale": "Potential compatibility/ops/admin impact, but not selected as severe TokenKey production risk in this pass.",
       "updated_at": "2026-03-13T15:47:43Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1264",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/1264",
+      "title": "# [Bug] `/v1/responses` endpoint forwards unsupported `user` parameter to upstream, causing 400 error",
+      "impact": "fixed",
+      "categories": [
+        "rate_limit_cooldown",
+        "image_oauth",
+        "security"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "OpenAI /v1/responses passthrough strips top-level `user` before forwarding. The APIKey native path adds `user` to OpenAIGatewayService.Forward's unsupportedFields list (the OAuth path already filters it through applyCodexOAuthTransform); the Cursor-shape short-circuit in ForwardAsChatCompletions adds `user` to cursorResponsesUnsupportedFields. Without this, clients like LobeHub posting `user` to /v1/responses got upstream HTTP 400 'Unsupported parameter: user'.",
+      "updated_at": "2026-03-24T13:52:59Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#1311",

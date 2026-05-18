@@ -2420,8 +2420,14 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			}
 		}
 
-		// Remove unsupported fields (not supported by upstream OpenAI API)
-		unsupportedFields := []string{"prompt_cache_retention", "safety_identifier"}
+		// Remove unsupported fields (not supported by upstream OpenAI API).
+		// TK: See upstream Wei-Shaw/sub2api#1264 — the OpenAI Responses API rejects
+		// `user` with "Unsupported parameter: user" (the equivalent field on
+		// Responses is `safety_identifier`, which we also strip). The OAuth path
+		// already filters this through openAIChatGPTInternalUnsupportedFields in
+		// applyCodexOAuthTransform; this list is the catch-all for APIKey accounts
+		// hitting native /v1/responses (LobeHub, etc.).
+		unsupportedFields := []string{"prompt_cache_retention", "safety_identifier", "user"}
 		for _, unsupportedField := range unsupportedFields {
 			if _, has := reqBody[unsupportedField]; has {
 				delete(reqBody, unsupportedField)

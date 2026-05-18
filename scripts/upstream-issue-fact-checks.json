@@ -292,6 +292,24 @@
         "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal_test.go:TestChatRawSilentRefusalPredicate_RequiresZeroUsage",
         "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal_test.go:TestChatRawSilentRefusalPredicate_ChunkLevelErrorBlocks"
       ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1264",
+      "severity": "high",
+      "summary": "OpenAI /v1/responses passthrough strips top-level `user` before forwarding. Symmetric coverage on (a) APIKey native path via OpenAIGatewayService.Forward's unsupportedFields list (the OAuth path already strips it through openAIChatGPTInternalUnsupportedFields in applyCodexOAuthTransform) and (b) the Cursor-shape short-circuit in ForwardAsChatCompletions via cursorResponsesUnsupportedFields. Native OpenAI Responses upstream rejects `user` with HTTP 400 \"Unsupported parameter: user\"; the Responses equivalent is `safety_identifier`, which we already filter.",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service.go",
+        "backend/internal/service/openai_gateway_chat_completions.go",
+        "backend/internal/service/openai_responses_unsupported_user_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_gateway_service.go:Wei-Shaw/sub2api#1264",
+        "backend/internal/service/openai_gateway_service.go:\"prompt_cache_retention\", \"safety_identifier\", \"user\"",
+        "backend/internal/service/openai_gateway_chat_completions.go:Wei-Shaw/sub2api#1264",
+        "backend/internal/service/openai_gateway_chat_completions.go:cursorResponsesUnsupportedFields",
+        "backend/internal/service/openai_responses_unsupported_user_test.go:TestOpenAIGatewayService_Forward_StripsUserFieldFromAPIKeyResponsesPassthrough",
+        "backend/internal/service/openai_responses_unsupported_user_test.go:TestCursorResponsesUnsupportedFields_IncludesUser"
+      ]
     }
   ]
 }

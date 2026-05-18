@@ -298,6 +298,17 @@
         "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal_test.go"
       ],
       "summary": "OpenAI Chat Completions raw passthrough (streaming and buffered) now detects upstream silent refusal — empty stream/response with finish_reason=stop and zero usage — and emits a categorical ops_error_logs row (Kind=silent_refusal). Detection is conservative (no content / no tool_calls / no reasoning_content / no refusal / no chunk-level error / zero usage / finish_reason=stop) so legitimate short answers are never flagged. Surfaces previously invisible 'ghost stream' failures (the gpt-5.5 above-input-budget shape upstream reported) to ops dashboards without changing the client-visible HTTP body, keeping the behavior change minimum-surface."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1264",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service.go",
+        "backend/internal/service/openai_gateway_chat_completions.go",
+        "backend/internal/service/openai_responses_unsupported_user_test.go",
+        "scripts/gateway-tk-sentinels.json"
+      ],
+      "summary": "OpenAI /v1/responses passthrough now strips top-level `user` before forwarding upstream. Symmetric coverage: (a) APIKey/native passthrough path adds `user` to the unsupportedFields list in OpenAIGatewayService.Forward (the OAuth path already filters it through openAIChatGPTInternalUnsupportedFields in applyCodexOAuthTransform); (b) the Cursor-shape short-circuit in ForwardAsChatCompletions adds `user` to cursorResponsesUnsupportedFields. Without this, clients like LobeHub posting `user` (for end-user tracking) to /v1/responses get HTTP 400 \"Unsupported parameter: user\" from the OpenAI upstream — the Responses-API equivalent field is `safety_identifier`, which we already strip. Tracked by the same sentinel registry entries plus the focused regression in openai_responses_unsupported_user_test.go."
     }
   ]
 }

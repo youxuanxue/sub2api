@@ -156,10 +156,11 @@ func TestCursorMixedShape_JSONRoundtrip(t *testing.T) {
 
 // TestCursorMixedShape_StripsUnsupportedFields mirrors the strip loop in
 // ForwardAsChatCompletions (isResponsesShape branch). Cursor cloud sends
-// prompt_cache_retention, safety_identifier, metadata and stream_options
-// as top-level Responses API parameters, which Codex upstreams reject with
-// "Unsupported parameter: ...". The fix must remove them from the raw body
-// before it is forwarded, for BOTH OAuth and API Key account types.
+// prompt_cache_retention, safety_identifier, metadata, stream_options and
+// user as top-level Responses API parameters, which Codex upstreams reject
+// with "Unsupported parameter: ...". The fix must remove them from the raw
+// body before it is forwarded, for BOTH OAuth and API Key account types.
+// `user` was added to the strip list per upstream Wei-Shaw/sub2api#1264.
 func TestCursorMixedShape_StripsUnsupportedFields(t *testing.T) {
 	cursorBody := []byte(`{
 		"model": "gpt-5.4",
@@ -168,6 +169,7 @@ func TestCursorMixedShape_StripsUnsupportedFields(t *testing.T) {
 		"safety_identifier": "cursor-user-xyz",
 		"metadata": {"trace_id":"abc","caller":"cursor"},
 		"stream_options": {"include_usage": true},
+		"user": "user_123",
 		"input": [{"role":"user","content":"hi"}]
 	}`)
 
