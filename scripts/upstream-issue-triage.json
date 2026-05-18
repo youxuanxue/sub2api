@@ -10,7 +10,7 @@
     "fixed": 26,
     "not_applicable": 1,
     "low": 94,
-    "unknown_low_signal": 399
+    "unknown_low_signal": 401
   },
   "issues": [
     {
@@ -2197,7 +2197,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-05-14T01:30:02Z"
+      "updated_at": "2026-05-18T07:43:35Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2094",
@@ -3196,7 +3196,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-05-17T14:01:10Z"
+      "updated_at": "2026-05-18T02:19:59Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2539",
@@ -3221,7 +3221,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-05-17T17:38:37Z"
+      "updated_at": "2026-05-18T02:22:13Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#263",
@@ -4852,7 +4852,7 @@
       ],
       "tokenkey_status": "not_prioritized",
       "rationale": "Potential compatibility/ops/admin impact, but not selected as severe TokenKey production risk in this pass.",
-      "updated_at": "2026-05-06T03:53:12Z"
+      "updated_at": "2026-05-18T04:00:00Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#1701",
@@ -6092,7 +6092,7 @@
       ],
       "tokenkey_status": "fixed_in_tokenkey",
       "rationale": "OpenAI /compact route and request-body normalization are implemented, including compact_not_supported errors when no account is available.",
-      "updated_at": "2026-05-15T05:19:33Z"
+      "updated_at": "2026-05-18T05:28:10Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2500",
@@ -7535,7 +7535,7 @@
       "categories": [],
       "tokenkey_status": "not_prioritized",
       "rationale": "No high-signal production-risk keywords in this pass.",
-      "updated_at": "2026-04-29T01:50:52Z"
+      "updated_at": "2026-05-18T03:49:10Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#1092",
@@ -10115,7 +10115,7 @@
       "categories": [],
       "tokenkey_status": "not_prioritized",
       "rationale": "No high-signal production-risk keywords in this pass.",
-      "updated_at": "2026-05-17T11:53:19Z"
+      "updated_at": "2026-05-18T02:40:44Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2542",
@@ -10125,7 +10125,27 @@
       "categories": [],
       "tokenkey_status": "not_prioritized",
       "rationale": "No high-signal production-risk keywords in this pass.",
-      "updated_at": "2026-05-18T01:18:00Z"
+      "updated_at": "2026-05-18T06:49:52Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2544",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2544",
+      "title": "能否优先调度快到刷新日期的账号？",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_prioritized",
+      "rationale": "No high-signal production-risk keywords in this pass.",
+      "updated_at": "2026-05-18T03:24:09Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2545",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2545",
+      "title": "能不能加一个默认代理设置",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_prioritized",
+      "rationale": "No high-signal production-risk keywords in this pass.",
+      "updated_at": "2026-05-18T06:18:49Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#262",
