@@ -4,10 +4,10 @@
   "generated_from": "GitHub REST API issues?state=open; pull requests excluded",
   "rationale": "TokenKey-local triage cache for upstream open issues. Use this file before re-triaging upstream issues; update entries when TokenKey fixes, dismisses, or reclassifies an issue.",
   "counts": {
-    "needs_review": 347,
+    "needs_review": 346,
     "needs_prod_validation": 4,
     "medium": 115,
-    "fixed": 26,
+    "fixed": 27,
     "not_applicable": 1,
     "low": 94,
     "unknown_low_signal": 401
@@ -3187,18 +3187,6 @@
       "updated_at": "2026-05-17T13:12:03Z"
     },
     {
-      "upstream": "Wei-Shaw/sub2api#2538",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2538",
-      "title": "[Bug] 429 bug",
-      "impact": "needs_review",
-      "categories": [
-        "rate_limit_cooldown"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-05-18T02:19:59Z"
-    },
-    {
       "upstream": "Wei-Shaw/sub2api#2539",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/2539",
       "title": "Image billing falls back to default price when usage_logs.image_size is empty, ignoring group image price overrides",
@@ -6137,6 +6125,18 @@
       "tokenkey_status": "fixed_in_tokenkey",
       "rationale": "ChatCompletions→Responses transform falls back to empty string when the converted parts list is empty (was emitting JSON null and triggering upstream HTTP 400 on gpt-5.5).",
       "updated_at": "2026-05-16T12:51:29Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2538",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2538",
+      "title": "[Bug] 429 bug",
+      "impact": "fixed",
+      "categories": [
+        "rate_limit_cooldown"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "SchedulerRateLimitReaper closes the deadlock where an account's 429 cooldown expires but no event triggers a scheduler snapshot rebuild; reaper ticks every 5s, atomically enqueues outbox account_changed events for accounts whose rate_limit_reset_at just elapsed, and the existing outbox worker rebuilds the bucket. Reaper is fully independent of upstream SchedulerSnapshotService and degrades to a no-op when disabled via config.",
+      "updated_at": "2026-05-18T02:19:59Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#580",

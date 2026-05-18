@@ -208,6 +208,20 @@ func ProvideSchedulerSnapshotService(
 	return svc
 }
 
+// ProvideSchedulerRateLimitReaper creates and starts the TK rate-limit reaper.
+// See scheduler_rate_limit_reaper.go for the upstream-issue context
+// (Wei-Shaw/sub2api#2538): without this reaper, accounts whose rate-limit
+// cooldown elapses stay invisible to the scheduler until the next
+// full_rebuild_interval_seconds tick.
+func ProvideSchedulerRateLimitReaper(
+	repo RateLimitExpiryRepository,
+	cfg *config.Config,
+) *SchedulerRateLimitReaper {
+	svc := NewSchedulerRateLimitReaper(repo, cfg)
+	svc.Start()
+	return svc
+}
+
 // ProvideRateLimitService creates RateLimitService with optional dependencies.
 func ProvideRateLimitService(
 	accountRepo AccountRepository,
@@ -489,6 +503,9 @@ var ProviderSet = wire.NewSet(
 	ProvideUserMessageQueueService,
 	NewUsageRecordWorkerPool,
 	ProvideSchedulerSnapshotService,
+	// TK fix for upstream Wei-Shaw/sub2api#2538 — see
+	// scheduler_rate_limit_reaper.go.
+	ProvideSchedulerRateLimitReaper,
 	NewIdentityService,
 	NewCRSSyncService,
 	ProvideUpdateService,

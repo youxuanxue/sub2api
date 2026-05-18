@@ -46,6 +46,10 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg)
 	idempotencyCleanupSvc := service.NewIdempotencyCleanupService(nil, cfg)
 	schedulerSnapshotSvc := service.NewSchedulerSnapshotService(nil, nil, nil, nil, cfg)
+	// TK fix for upstream Wei-Shaw/sub2api#2538: nil repo makes Start() a no-op
+	// so this test does not spin a goroutine even though provideCleanup wires
+	// the Stop() call.
+	schedulerRateLimitReaperSvc := service.NewSchedulerRateLimitReaper(nil, cfg)
 	opsSystemLogSinkSvc := service.NewOpsSystemLogSink(nil)
 
 	cleanup := provideCleanup(
@@ -58,6 +62,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		&service.OpsScheduledReportService{},
 		opsSystemLogSinkSvc,
 		schedulerSnapshotSvc,
+		schedulerRateLimitReaperSvc,
 		tokenRefreshSvc,
 		accountExpirySvc,
 		subscriptionExpirySvc,

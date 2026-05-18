@@ -81,6 +81,9 @@ func provideCleanup(
 	opsScheduledReport *service.OpsScheduledReportService,
 	opsSystemLogSink *service.OpsSystemLogSink,
 	schedulerSnapshot *service.SchedulerSnapshotService,
+	// TK fix for upstream Wei-Shaw/sub2api#2538 — see
+	// internal/service/scheduler_rate_limit_reaper.go.
+	schedulerRateLimitReaper *service.SchedulerRateLimitReaper,
 	tokenRefresh *service.TokenRefreshService,
 	accountExpiry *service.AccountExpiryService,
 	subscriptionExpiry *service.SubscriptionExpiryService,
@@ -166,6 +169,14 @@ func provideCleanup(
 			{"SchedulerSnapshotService", func() error {
 				if schedulerSnapshot != nil {
 					schedulerSnapshot.Stop()
+				}
+				return nil
+			}},
+			// TK fix for upstream Wei-Shaw/sub2api#2538 — see
+			// internal/service/scheduler_rate_limit_reaper.go.
+			{"SchedulerRateLimitReaper", func() error {
+				if schedulerRateLimitReaper != nil {
+					schedulerRateLimitReaper.Stop()
 				}
 				return nil
 			}},

@@ -994,6 +994,18 @@ type GatewaySchedulingConfig struct {
 	// 全量重建周期配置
 	// 全量重建周期（秒），0 表示禁用
 	FullRebuildIntervalSeconds int `mapstructure:"full_rebuild_interval_seconds"`
+
+	// RateLimitReaperIntervalSeconds 限流过期回收 reaper 周期（秒）。
+	// TK fix for upstream Wei-Shaw/sub2api#2538：账号 429 后调度快照会立即剔除该账号，
+	// 但限流过期时没有事件触发重建，账号最长要等到下一个 full_rebuild_interval_seconds tick
+	// 才回到快照（默认 5 分钟）。Reaper 周期性查询刚过期的账号并入 outbox account_changed
+	// 事件，让现有 outbox worker 自然完成重建。<0 禁用；0 使用默认 5 秒。
+	RateLimitReaperIntervalSeconds int `mapstructure:"rate_limit_reaper_interval_seconds"`
+
+	// RateLimitReaperLookbackSeconds 限流回收 reaper 单次窗口回看长度（秒）。
+	// 用作首个 tick 之前 / wall-clock 跳跃后的安全窗口；正常运行时 reaper 会维护 lastTick
+	// 状态并使用 (lastTick, now] 精确扫描。0 使用默认 30 秒。
+	RateLimitReaperLookbackSeconds int `mapstructure:"rate_limit_reaper_lookback_seconds"`
 }
 
 func (s *ServerConfig) Address() string {
@@ -1793,6 +1805,9 @@ func setDefaults() {
 	viper.SetDefault("gateway.scheduling.outbox_lag_rebuild_failures", 3)
 	viper.SetDefault("gateway.scheduling.outbox_backlog_rebuild_rows", 10000)
 	viper.SetDefault("gateway.scheduling.full_rebuild_interval_seconds", 300)
+	// TK fix for upstream Wei-Shaw/sub2api#2538 — see SchedulingConfig.RateLimitReaper* docs.
+	viper.SetDefault("gateway.scheduling.rate_limit_reaper_interval_seconds", 5)
+	viper.SetDefault("gateway.scheduling.rate_limit_reaper_lookback_seconds", 30)
 	viper.SetDefault("gateway.usage_record.worker_count", 128)
 	viper.SetDefault("gateway.usage_record.queue_size", 16384)
 	viper.SetDefault("gateway.usage_record.task_timeout_seconds", 5)
@@ -2636,6 +2651,13 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.Scheduling.FullRebuildIntervalSeconds < 0 {
 		return fmt.Errorf("gateway.scheduling.full_rebuild_interval_seconds must be non-negative")
+	}
+	// TK fix for upstream Wei-Shaw/sub2api#2538: validate reaper knobs. Negative
+	// interval explicitly disables the reaper goroutine; negative lookback is a
+	// misconfiguration because the runOnce path treats lookback as a positive
+	// fallback window when wall-clock jumps forward.
+	if c.Gateway.Scheduling.RateLimitReaperLookbackSeconds < 0 {
+		return fmt.Errorf("gateway.scheduling.rate_limit_reaper_lookback_seconds must be non-negative")
 	}
 	if c.Gateway.Scheduling.OutboxLagWarnSeconds > 0 &&
 		c.Gateway.Scheduling.OutboxLagRebuildSeconds > 0 &&
