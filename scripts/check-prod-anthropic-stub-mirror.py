@@ -23,11 +23,14 @@ layers:
        edge is the SUM of its OAuth concurrencies.
 
 3. Group-level mirror (R3; every prod anthropic group that contains
-   at least one self-edge stub):
-     - For each member self-edge stub, resolve <edge_id> and pull
-       that edge's anthropic `default` group rpm_limit.
-     - Verify `prod_group.rpm_limit ==
-       absorb_zero_sum(edge.default.rpm_limit over fan-out)`.
+   at least one apikey stub member):
+     - For each member stub in the group, contribute to fan-out:
+         * self-edge stub  → upstream edge default_group.rpm_limit
+         * external stub   → 0  (unknown capacity ⇒ unlimited)
+     - Verify `prod_group.rpm_limit == absorb_zero_sum(fan-out)`.
+     - Mixed groups (containing any external stub) thus aggregate to
+       0 (unlimited) — the operator is declaring the group accepts
+       no RPM ceiling because external capacity is unmodeled.
 
 Capacity aggregation operator: **absorb-zero SUM**.  Runtime treats 0
 as "unlimited" for `account.concurrency` (concurrency_service.go) and
@@ -38,10 +41,13 @@ to 0.  See SKILL.md §"prod 控制面：anthropic stub 主路径镜像规则"
 的"容量约定".
 
 External fallback stubs (`base_url` not matching the self-edge
-pattern, e.g. `tokensea-*.4` → `agent.tokensea.ai`) are allowed
-independent capacity: they are NOT mirrored at R1 and do NOT
-contribute to the R3 fan-out — but they must satisfy the common
-baseline.
+pattern, e.g. `tokensea-*.4` → `agent.tokensea.ai`) have independent
+capacity not recorded in our schema:
+  - R1: NOT mirrored (operator declares concurrency independently).
+  - R3: contributes 0 (unlimited) to fan-out (treated as "unknown =
+    unlimited"; any external presence in a group ⇒ group goes
+    unlimited via absorb-zero).
+  - Must satisfy the common baseline.
 
 Exit codes:
   0  all checked stubs and groups aligned (or only external stubs)
@@ -210,13 +216,15 @@ ORDER BY g.id
 LIMIT 1;
 """
 
-# Prod anthropic groups + their self-edge stub members (apikey + matching base_url).
-PROD_GROUPS_SQL = r"""
+# Prod anthropic groups + ALL apikey stub members (self-edge + external).
+# Classification (self-edge vs external) happens in Python via base_url regex
+# so a single membership query feeds both contribution paths.
+PROD_GROUPS_SQL = """
 SELECT COALESCE(jsonb_agg(jsonb_build_object(
   'id', g.id,
   'name', g.name,
   'rpm_limit', g.rpm_limit,
-  'self_edge_stubs', COALESCE((
+  'stubs', COALESCE((
     SELECT jsonb_agg(jsonb_build_object(
       'account_id', a.id,
       'account_name', a.name,
@@ -229,7 +237,6 @@ SELECT COALESCE(jsonb_agg(jsonb_build_object(
       AND a.type = 'apikey'
       AND a.status = 'active'
       AND a.deleted_at IS NULL
-      AND a.credentials->>'base_url' ~ '^https?://api-[a-z0-9-]+\.tokenkey\.dev/?$'
   ), '[]'::jsonb)
 ) ORDER BY g.id), '[]'::jsonb)
 FROM groups g
@@ -402,33 +409,43 @@ def main() -> int:
             return 2
 
         for g in prod_groups:
+            stubs_in_group = g.get("stubs") or []
+            self_edge_in_group = [
+                s for s in stubs_in_group
+                if SELF_EDGE_BASE_URL_RE.match(s.get("base_url") or "")
+            ]
+            external_in_group = [
+                s for s in stubs_in_group
+                if not SELF_EDGE_BASE_URL_RE.match(s.get("base_url") or "")
+            ]
+
             grec: dict = {
                 "group_id": g["id"],
                 "group_name": g["name"],
                 "prod_rpm_limit": g.get("rpm_limit"),
-                "self_edge_count": len(g.get("self_edge_stubs") or []),
-                "edge_fanout": [],
+                "stub_count": len(stubs_in_group),
+                "self_edge_count": len(self_edge_in_group),
+                "external_count": len(external_in_group),
+                "fanout": [],
                 "expected_rpm_limit": None,
                 "mirror_violations": [],
                 "skipped_reason": None,
             }
 
-            stubs_in_group = g.get("self_edge_stubs") or []
             if not stubs_in_group:
-                grec["skipped_reason"] = "no self-edge stubs in this group"
+                grec["skipped_reason"] = "no apikey stubs in this group"
                 group_results.append(grec)
                 continue
 
-            # Unique edge fan-out per group.
+            # Build fan-out: self-edge stubs contribute upstream edge default rpm;
+            # external stubs contribute 0 (unlimited, absorb-zero). Deduplicate
+            # self-edge edges so a multi-stub edge does not double-count.
             seen_edge_ids: set[str] = set()
             fan_rpms: list[int] = []
             fanout_errors: list[str] = []
 
-            for stub in stubs_in_group:
-                url = stub.get("base_url") or ""
-                m = SELF_EDGE_BASE_URL_RE.match(url)
-                if not m:
-                    continue  # defensive; SQL already filters
+            for stub in self_edge_in_group:
+                m = SELF_EDGE_BASE_URL_RE.match(stub.get("base_url") or "")
                 edge_id = m.group("edge_id")
                 if edge_id in seen_edge_ids:
                     continue
@@ -438,19 +455,35 @@ def main() -> int:
                 fan = {
                     "stub_account_id": stub["account_id"],
                     "stub_account_name": stub["account_name"],
+                    "kind": "self-edge",
                     "edge_id": edge_id,
                     "edge_default_group_id": None,
                     "edge_default_rpm_limit": None,
+                    "contribution": None,
                     "lookup_error": err,
                 }
                 if err is not None:
                     fanout_errors.append(f"edge {edge_id}: {err}")
-                    grec["edge_fanout"].append(fan)
+                    grec["fanout"].append(fan)
                     continue
+                rpm = int(edge_default.get("rpm_limit") or 0)
                 fan["edge_default_group_id"] = edge_default.get("group_id")
                 fan["edge_default_rpm_limit"] = edge_default.get("rpm_limit")
-                grec["edge_fanout"].append(fan)
-                fan_rpms.append(int(edge_default.get("rpm_limit") or 0))
+                fan["contribution"] = rpm
+                grec["fanout"].append(fan)
+                fan_rpms.append(rpm)
+
+            for stub in external_in_group:
+                fan = {
+                    "stub_account_id": stub["account_id"],
+                    "stub_account_name": stub["account_name"],
+                    "kind": "external",
+                    "base_url": stub.get("base_url"),
+                    "contribution": 0,
+                    "lookup_error": None,
+                }
+                grec["fanout"].append(fan)
+                fan_rpms.append(0)  # external = unknown ⇒ unlimited contribution
 
             if fanout_errors:
                 for err in fanout_errors:
@@ -467,7 +500,7 @@ def main() -> int:
                     "field": "rpm_limit",
                     "prod_group_rpm": g.get("rpm_limit"),
                     "expected": expected,
-                    "expected_formula": "absorb_zero_sum(edge.default.rpm_limit over self-edge fan-out)",
+                    "expected_formula": "absorb_zero_sum(self-edge contributions + external contributions)",
                     "fanout_rpms": fan_rpms,
                 })
                 has_violation = True
@@ -480,8 +513,12 @@ def main() -> int:
         "self_edge_stubs": sum(1 for r in results if r["kind"] == "self-edge"),
         "external_stubs": sum(1 for r in results if r["kind"] == "external"),
         "groups_checked": len(group_results),
-        "groups_with_self_edge": sum(
-            1 for gr in group_results if gr["self_edge_count"] > 0
+        "groups_with_stubs": sum(
+            1 for gr in group_results if gr.get("stub_count", 0) > 0
+        ),
+        "groups_mixed": sum(
+            1 for gr in group_results
+            if gr.get("self_edge_count", 0) > 0 and gr.get("external_count", 0) > 0
         ),
         "stub_violation_count": sum(
             1 for r in results
@@ -501,7 +538,8 @@ def main() -> int:
             f"stubs_checked={report['stubs_checked']} "
             f"self_edge={report['self_edge_stubs']} external={report['external_stubs']} "
             f"groups_checked={report['groups_checked']} "
-            f"groups_with_self_edge={report['groups_with_self_edge']} "
+            f"groups_with_stubs={report['groups_with_stubs']} "
+            f"groups_mixed={report['groups_mixed']} "
             f"stub_violations={report['stub_violation_count']} "
             f"group_violations={report['group_violation_count']}"
         )
@@ -536,15 +574,25 @@ def main() -> int:
                 tag = "OK" if not gr["mirror_violations"] else "FAIL"
                 if gr["skipped_reason"]:
                     tag = "skip"
-                fanout_desc = ",".join(
-                    f"{f['edge_id']}:rpm={f.get('edge_default_rpm_limit')}"
-                    for f in gr["edge_fanout"] if f.get("edge_default_group_id") is not None
-                )
+                fanout_parts: list[str] = []
+                for f in gr.get("fanout") or []:
+                    if f.get("kind") == "self-edge" and f.get("edge_default_group_id") is not None:
+                        fanout_parts.append(
+                            f"{f['edge_id']}:rpm={f.get('edge_default_rpm_limit')}"
+                        )
+                    elif f.get("kind") == "external":
+                        fanout_parts.append(
+                            f"external({f.get('stub_account_name')}):rpm=0"
+                        )
+                fanout_desc = ",".join(fanout_parts)
+                mixed_marker = " mixed" if (
+                    gr.get("self_edge_count", 0) > 0 and gr.get("external_count", 0) > 0
+                ) else ""
                 print(
                     f"  [{tag}] group_id={gr['group_id']} name={gr['group_name']!r}"
                     f" prod_rpm={gr['prod_rpm_limit']}"
-                    f" self_edge_stubs={gr['self_edge_count']}"
-                    f" edge_fanout=[{fanout_desc}]"
+                    f" stubs={gr['stub_count']}(self_edge={gr['self_edge_count']}, external={gr['external_count']}){mixed_marker}"
+                    f" fanout=[{fanout_desc}]"
                     f" expected={gr.get('expected_rpm_limit')}"
                 )
                 if gr["skipped_reason"]:

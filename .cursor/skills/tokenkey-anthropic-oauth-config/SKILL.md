@@ -93,25 +93,36 @@ stub.concurrency  ==  absorb_zero_sum(
 
 含义：一个 stub 代表整个 edge `default` 组的合计 inflight 容量。多 OAuth 账号 edge 的合并值大于单账号；若任一 upstream OAuth 是 unlimited（`concurrency=0`），stub 也必须 `concurrency=0`。
 
-**R3 — 分组级 rpm 镜像**（每个含 self-edge stub 的 prod 组）
+**R3 — 分组级 rpm 镜像**（每个含 stub 的 prod 组）
 
 ```
 prod_group.rpm_limit  ==  absorb_zero_sum(
-                            upstream_edge.default_group.rpm_limit
-                            for stub in g.self_edge_stubs
+                            contribution(stub)  for stub in g.stubs
                           )
+
+contribution(stub):
+    self-edge   →  upstream_edge.default_group.rpm_limit
+    external    →  0   (unknown capacity ⇒ treated as unlimited)
 ```
 
-含义：prod 组的 RPM 上限就是该组所有 fan-out edge `default` 组 rpm 之和；任一 edge default 是 unlimited（`rpm_limit=0`）⇒ prod 组也必须 unlimited。
+含义：每个 stub 贡献它代表的上游容量到组级 SUM。self-edge stub 的贡献是 mirror 上游 edge default 的 rpm；external stub（兜底，例如 `agent.tokensea.ai`）容量不在我们的 schema 里——按"未知即 unlimited"贡献 `0`，让 absorb-zero 把整组推到 unlimited。
+
+副作用（明示）：**组合 self-edge + external 的 mixed 组 ⇒ R3 强制 prod_group.rpm_limit = 0**。语义上：选择把 external 放进同一个组就是声明此组不接受 RPM 闸门，由 external 自管；要给 self-edge 单独上闸门，把它放纯 self-edge 组（如 `cc-edges`）。
+
+任一 edge default `rpm_limit=0`（self-edge fan-out 中有 unlimited 上游）⇒ 同样吸收零到 prod 组 unlimited。
 
 ### 刻意**不**镜像的字段（设计放弃）
 
 - `accounts.extra.base_rpm` / `extra.max_sessions` / `extra.window_cost_limit` — stub 不读这些（runtime 由 edge OAuth 自己持有，在 edge 侧落档）。
 - `accounts.priority` — prod 组内调度顺序，与 edge 内部排序无关。
 
-### 外部兜底 stub
+### 外部兜底 stub 处理
 
-`base_url` 不匹配 `https?://api-<edge_id>\.tokenkey\.dev/?$` 的 stub（例如 `https://agent.tokensea.ai`）享有独立容量：**不参与 R1 / R3 fan-out**，仅校验共同 baseline。其容量声明权与运行风险由 operator 自负。
+`base_url` 不匹配 `https?://api-<edge_id>\.tokenkey\.dev/?$` 的 stub（例如 `https://agent.tokensea.ai`）：
+
+- **R1 不适用**——它们没有可对照的上游 OAuth 容量，concurrency 由 operator 独立声明。
+- **R3 以 `0`（unlimited）贡献参与 fan-out**，见上文 `contribution(stub)` 定义。
+- 仍需满足共同 baseline。
 
 ### 共同 baseline（所有 stub 必须满足）
 
