@@ -4,13 +4,13 @@
   "generated_from": "GitHub REST API issues?state=open; pull requests excluded",
   "rationale": "TokenKey-local triage cache for upstream open issues. Use this file before re-triaging upstream issues; update entries when TokenKey fixes, dismisses, or reclassifies an issue.",
   "counts": {
-    "needs_review": 345,
+    "needs_review": 347,
     "needs_prod_validation": 4,
     "medium": 115,
-    "fixed": 25,
+    "fixed": 26,
     "not_applicable": 1,
     "low": 94,
-    "unknown_low_signal": 397
+    "unknown_low_signal": 399
   },
   "issues": [
     {
@@ -662,19 +662,6 @@
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
       "updated_at": "2026-04-14T02:47:41Z"
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#1471",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/1471",
-      "title": "OpenAI /v1/responses streaming can emit malformed SSE after stream_read_error",
-      "impact": "needs_review",
-      "categories": [
-        "rate_limit_cooldown",
-        "account_pool_health"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-04-06T00:12:29Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#1475",
@@ -1805,18 +1792,6 @@
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
       "updated_at": "2026-04-27T04:30:06Z"
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#1969",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/1969",
-      "title": "bug: codex开启Auto Review模式会导致503，因为使用了新的codex-auto-review内部模型",
-      "impact": "needs_review",
-      "categories": [
-        "rate_limit_cooldown"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-05-09T05:46:21Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#1980",
@@ -3198,6 +3173,55 @@
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
       "updated_at": "2026-05-17T00:14:42Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2536",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2536",
+      "title": "gemini cli 使用gemini-3.1-pro-preview 报错",
+      "impact": "needs_review",
+      "categories": [
+        "rate_limit_cooldown"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-05-17T13:12:03Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2538",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2538",
+      "title": "[Bug] 429 bug",
+      "impact": "needs_review",
+      "categories": [
+        "rate_limit_cooldown"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-05-17T14:01:10Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2539",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2539",
+      "title": "Image billing falls back to default price when usage_logs.image_size is empty, ignoring group image price overrides",
+      "impact": "needs_review",
+      "categories": [
+        "billing_usage",
+        "image_oauth"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-05-17T16:20:43Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2540",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2540",
+      "title": "生图问题",
+      "impact": "needs_review",
+      "categories": [
+        "image_oauth"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-05-17T17:38:37Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#263",
@@ -5799,6 +5823,19 @@
       "tokenkey_status": "fixed_in_tokenkey",
       "rationale": "Non-stream buffered SSE->JSON handlers in both the OpenAI gateway (/v1/chat/completions, /v1/messages) and the Anthropic-backed gateway forward paths (Responses, Chat Completions) now explicitly set Content-Type: application/json after WriteFilteredHeaders. Without this, the upstream SSE Content-Type (text/event-stream) leaks onto JSON bodies because gin's render.writeContentType only writes when no Content-Type is set, breaking OpenAI-SDK consumers that branch on Content-Type.",
       "updated_at": "2026-05-15T12:00:37Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1471",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/1471",
+      "title": "OpenAI /v1/responses streaming can emit malformed SSE after stream_read_error",
+      "impact": "fixed",
+      "categories": [
+        "rate_limit_cooldown",
+        "account_pool_health"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "OpenAI /v1/responses sendErrorEvent now prepends a blank line before the synthetic data: line, so any in-flight upstream SSE event whose terminating blank line was never sent is closed before the synthetic event is written. Without this, the unterminated `data:` line and the synthetic `data:` line merge into a single SSE event whose payload contains two concatenated JSON objects, which downstream OpenAI-compatible SDKs (Codex, OpenCode, etc.) reject with malformed JSON.",
+      "updated_at": "2026-04-06T00:12:29Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#1925",
@@ -9968,7 +10005,7 @@
       "categories": [],
       "tokenkey_status": "not_prioritized",
       "rationale": "No high-signal production-risk keywords in this pass.",
-      "updated_at": "2026-05-13T13:58:44Z"
+      "updated_at": "2026-05-18T01:55:31Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#244",
@@ -10068,7 +10105,27 @@
       "categories": [],
       "tokenkey_status": "not_prioritized",
       "rationale": "No high-signal production-risk keywords in this pass.",
-      "updated_at": "2026-05-17T08:25:58Z"
+      "updated_at": "2026-05-18T01:50:16Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2535",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2535",
+      "title": "请问该如何接入kiro呢",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_prioritized",
+      "rationale": "No high-signal production-risk keywords in this pass.",
+      "updated_at": "2026-05-17T11:53:19Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2542",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2542",
+      "title": "日卡刷新存在问题",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_prioritized",
+      "rationale": "No high-signal production-risk keywords in this pass.",
+      "updated_at": "2026-05-18T01:18:00Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#262",
