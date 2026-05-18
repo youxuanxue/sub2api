@@ -23,6 +23,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 // TestGatewayService_ForwardCountTokens_400DoesNotTripUpstreamErrorBreaker
@@ -132,4 +133,78 @@ func TestGatewayService_ForwardCountTokens_429StillTripsUpstreamErrorBreaker(t *
 
 	_ = svc.ForwardCountTokens(context.Background(), c, account, parsed)
 	require.Equal(t, []int64{502}, counter.incrementIDs, "count_tokens 429 must still feed the anthropic_upstream_error counter (capacity signal)")
+}
+
+// TestGatewayService_ForwardCountTokens_OAuthMimicInjectionGetsStripped
+// 回归：OAuth 账号走 normalizeClaudeOAuthRequestBody 时会注入
+// temperature/max_tokens/context_management 来 mimic 真实 Claude Code CLI 行为
+// （供 /v1/messages 用）。但 count_tokens 端点拒绝这些字段。
+// 这个测试验证 ForwardCountTokens 在 normalize 之后再跑一次 sanitize，
+// 确保上游收到的 body 不含 normalize 注入的 unsupported 字段。
+// 触发场景：客户端 body 不带 temperature、max_tokens、context_management；
+// OAuth 账号 + 非 claude-cli UA → mimic 注入 → 最终 sanitize 兜底剥除。
+// 没这个兜底，count_tokens 在 OAuth 路径上 100% 返回 400 给客户端
+// （生产线 2026-05-18 09:10:30 实测复现）。
+func TestGatewayService_ForwardCountTokens_OAuthMimicInjectionGetsStripped(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", nil)
+	// 非 claude-cli UA → 触发 mimic 路径（shouldMimicClaudeCode=true）
+	c.Request.Header.Set("User-Agent", "anthropic-sdk-python/0.42.0 python/3.12.0")
+	// thinking enabled → normalize 还会注入 context_management（Sonnet/Opus，非 Haiku）
+	body := []byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hi"}],"thinking":{"type":"enabled","budget_tokens":2000}}`)
+	parsed := &ParsedRequest{Body: body, Model: "claude-sonnet-4-5", ThinkingEnabled: true}
+
+	upstream := &anthropicHTTPUpstreamRecorder{
+		resp: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"input_tokens":3}`)),
+		},
+	}
+
+	svc := &GatewayService{
+		cfg:                 &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}},
+		httpUpstream:        upstream,
+		rateLimitService:    &RateLimitService{},
+		responseHeaderFilter: compileResponseHeaderFilter(&config.Config{}),
+	}
+
+	account := &Account{
+		ID:          601,
+		Name:        "ct-oauth-mimic-strip",
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token":  "oauth-access",
+			"refresh_token": "oauth-refresh",
+			"expires_at":    "2099-01-01T00:00:00Z",
+		},
+		Status:      StatusActive,
+		Schedulable: true,
+	}
+
+	err := svc.ForwardCountTokens(context.Background(), c, account, parsed)
+	require.NoError(t, err, "count_tokens should succeed (upstream returns 200)")
+	require.NotNil(t, upstream.lastBody, "upstream must have received a body")
+
+	// Final sanitize 必须把 normalize 注入的 unsupported 字段全部剥掉。
+	require.False(t, gjson.GetBytes(upstream.lastBody, "temperature").Exists(),
+		"temperature must be stripped after OAuth mimic injection (Anthropic count_tokens rejects it)")
+	require.False(t, gjson.GetBytes(upstream.lastBody, "max_tokens").Exists(),
+		"max_tokens must be stripped after OAuth mimic injection")
+	require.False(t, gjson.GetBytes(upstream.lastBody, "context_management").Exists(),
+		"context_management must be stripped after OAuth mimic injection")
+
+	// 同时确保 supported 字段保留（model + messages + thinking）。
+	// model 经 normalize 后可能从短 ID 映射到 long ID（如 claude-sonnet-4-5 →
+	// claude-sonnet-4-5-20250929），保留前缀比对即可。
+	require.True(t,
+		strings.HasPrefix(gjson.GetBytes(upstream.lastBody, "model").String(), "claude-sonnet-4-5"),
+		"model should be the (possibly long-id mapped) sonnet 4-5 family")
+	require.True(t, gjson.GetBytes(upstream.lastBody, "messages").IsArray())
+	require.Equal(t, "enabled", gjson.GetBytes(upstream.lastBody, "thinking.type").String())
 }

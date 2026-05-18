@@ -8987,6 +8987,18 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		} else {
 			body = applyToolsLastCacheBreakpoint(body)
 		}
+
+		// Final-strip after OAuth mimic injection: normalizeClaudeOAuthRequestBody
+		// deliberately injects `temperature: 1`, `max_tokens: 128000`, and
+		// `context_management: {...}` to match the real Claude Code CLI fingerprint
+		// on the regular /v1/messages path. None of those are accepted on
+		// /v1/messages/count_tokens (Anthropic returns
+		// `invalid_request_error: <field>: Extra inputs are not permitted`).
+		// Without this second strip the early one above is no-op for the common
+		// case (client body had no unsupported fields), and Anthropic 400s every
+		// count_tokens request. Silent: this strip is an expected internal sanitize
+		// of normalize side effects, not a client schema bug, so it does not log.
+		body, _ = StripCountTokensUnsupportedFields(body)
 	}
 
 	// Antigravity 账户不支持 count_tokens，返回 404 让客户端 fallback 到本地估算。
