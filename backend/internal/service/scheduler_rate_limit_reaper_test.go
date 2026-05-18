@@ -10,6 +10,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -165,20 +166,26 @@ func TestRateLimitReaper_NilRepo_NoOp(t *testing.T) {
 	})
 }
 
-// TestRateLimitReaper_NegativeIntervalDisablesGoroutine verifies the explicit
-// disable knob (interval < 0). With this off, no goroutine is spawned and
-// Stop() must still be safe.
-func TestRateLimitReaper_NegativeIntervalDisablesGoroutine(t *testing.T) {
-	repo := &fakeRateLimitExpiryRepo{}
-	cfg := &config.Config{}
-	cfg.Gateway.Scheduling.RateLimitReaperIntervalSeconds = -1
+// TestRateLimitReaper_NonPositiveIntervalDisablesGoroutine pins the disable
+// knob: both `0` and `<0` interval values must produce zero goroutines and
+// zero repository calls, mirroring FullRebuildIntervalSeconds and the rest of
+// SchedulingConfig. This keeps disable-by-config a single keystroke (`0`)
+// instead of forcing operators to type `-1`.
+func TestRateLimitReaper_NonPositiveIntervalDisablesGoroutine(t *testing.T) {
+	for _, sec := range []int{0, -1} {
+		t.Run(fmt.Sprintf("interval=%d", sec), func(t *testing.T) {
+			repo := &fakeRateLimitExpiryRepo{}
+			cfg := &config.Config{}
+			cfg.Gateway.Scheduling.RateLimitReaperIntervalSeconds = sec
 
-	reaper := NewSchedulerRateLimitReaper(repo, cfg)
-	reaper.Start()
-	reaper.Stop()
+			reaper := NewSchedulerRateLimitReaper(repo, cfg)
+			reaper.Start()
+			reaper.Stop()
 
-	require.Equal(t, 0, repo.callCount(),
-		"a negative interval must disable the reaper entirely (no repository calls, no goroutine)")
+			require.Equal(t, 0, repo.callCount(),
+				"interval=%d must disable the reaper entirely (no goroutine, no repository calls)", sec)
+		})
+	}
 }
 
 // TestRateLimitReaper_StartStop_IsIdempotentAndDoesNotLeak runs the full

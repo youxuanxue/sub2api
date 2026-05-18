@@ -999,7 +999,8 @@ type GatewaySchedulingConfig struct {
 	// TK fix for upstream Wei-Shaw/sub2api#2538：账号 429 后调度快照会立即剔除该账号，
 	// 但限流过期时没有事件触发重建，账号最长要等到下一个 full_rebuild_interval_seconds tick
 	// 才回到快照（默认 5 分钟）。Reaper 周期性查询刚过期的账号并入 outbox account_changed
-	// 事件，让现有 outbox worker 自然完成重建。<0 禁用；0 使用默认 5 秒。
+	// 事件，让现有 outbox worker 自然完成重建。<=0 禁用 reaper goroutine（与
+	// FullRebuildIntervalSeconds 同语义）；viper.SetDefault 提供 5 秒默认。
 	RateLimitReaperIntervalSeconds int `mapstructure:"rate_limit_reaper_interval_seconds"`
 
 	// RateLimitReaperLookbackSeconds 限流回收 reaper 单次窗口回看长度（秒）。

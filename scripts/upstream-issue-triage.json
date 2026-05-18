@@ -6135,7 +6135,7 @@
         "rate_limit_cooldown"
       ],
       "tokenkey_status": "fixed_in_tokenkey",
-      "rationale": "SchedulerRateLimitReaper closes the deadlock where an account's 429 cooldown expires but no event triggers a scheduler snapshot rebuild; reaper ticks every 5s, atomically enqueues outbox account_changed events for accounts whose rate_limit_reset_at just elapsed, and the existing outbox worker rebuilds the bucket. Reaper is fully independent of upstream SchedulerSnapshotService and degrades to a no-op when disabled via config.",
+      "rationale": "SchedulerRateLimitReaper closes the deadlock where an account's 429 cooldown expires but no event triggers a snapshot rebuild; reaper ticks every 5s, scans accounts.rate_limit_reset_at in (lastTick, now], and enqueues one scheduler_outbox(account_changed) event per match. The existing outbox worker then rebuilds the bucket. Reaper is independent of upstream SchedulerSnapshotService.",
       "updated_at": "2026-05-18T02:19:59Z"
     },
     {

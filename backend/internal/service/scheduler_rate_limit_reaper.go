@@ -106,8 +106,9 @@ func (r *SchedulerRateLimitReaper) Stop() {
 	r.wg.Wait()
 }
 
-// runOnce performs a single reaper pass. Exported for tests; production code
-// always reaches it via the ticker.
+// runOnce performs a single reaper pass. Tests call it directly to drive
+// invariants without spinning the wall clock; production code reaches it via
+// the ticker goroutine in Start.
 func (r *SchedulerRateLimitReaper) runOnce() {
 	if r == nil || r.repo == nil {
 		return
@@ -143,14 +144,17 @@ func (r *SchedulerRateLimitReaper) runOnce() {
 
 func (r *SchedulerRateLimitReaper) tickInterval() time.Duration {
 	if r.cfg == nil {
-		return 5 * time.Second
-	}
-	sec := r.cfg.Gateway.Scheduling.RateLimitReaperIntervalSeconds
-	if sec < 0 {
 		return 0
 	}
-	if sec == 0 {
-		return 5 * time.Second
+	// Mirror FullRebuildIntervalSeconds / OutboxLag*Seconds semantics across
+	// the scheduling config block: <=0 explicitly disables the worker, and
+	// viper.SetDefault supplies the non-zero default when the user did not
+	// set the knob at all. Using <0 here would force operators to type `-1`
+	// just to disable the reaper, which diverges from every other interval
+	// knob in SchedulingConfig.
+	sec := r.cfg.Gateway.Scheduling.RateLimitReaperIntervalSeconds
+	if sec <= 0 {
+		return 0
 	}
 	return time.Duration(sec) * time.Second
 }

@@ -376,9 +376,9 @@
         "TestRateLimitReaper_FirstTick_UsesLookbackWindow",
         "TestRateLimitReaper_SubsequentTicks_UseLastTickAsLowerBound",
         "TestRateLimitReaper_RepoErrorPreservesLastTick",
-        "TestRateLimitReaper_NegativeIntervalDisablesGoroutine"
+        "TestRateLimitReaper_NonPositiveIntervalDisablesGoroutine"
       ],
-      "rationale": "Focused regression anchors for upstream #2538 covering the four reaper invariants the SQL alone cannot prove: (a) first-tick window equals configured lookback (no skipped accounts at startup), (b) subsequent ticks use (lastTick, now] so consecutive windows have no gap and no double-scan, (c) a transient repo error must NOT advance lastTick (so the missed window is retried), and (d) a negative interval cleanly disables the goroutine for ops who want to opt out."
+      "rationale": "Focused regression anchors for upstream #2538 covering the four reaper invariants the SQL alone cannot prove: (a) first-tick window equals configured lookback (no skipped accounts at startup), (b) subsequent ticks use (lastTick, now] so consecutive windows have no gap and no double-scan, (c) a transient repo error must NOT advance lastTick (so the missed window is retried), and (d) the non-positive-interval disable knob keeps the disable-by-config keystroke aligned with FullRebuildIntervalSeconds (both <=0 disable)."
     },
     {
       "path": "backend/internal/repository/account_repo_tk_rate_limit_reaper.go",
