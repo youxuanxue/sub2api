@@ -1,22 +1,58 @@
 #!/usr/bin/env python3
 """
-S2 guard: account.base_rpm ↔ group.rpm_limit alignment.
+S2 guard: account redline ↔ group.rpm_limit alignment.
 
 For every active anthropic group with `rpm_limit > 0`, verify the
 group's RPM cap sits within the band of its bound anthropic OAuth
-accounts' `extra.base_rpm` values:
+accounts' per-account redline:
 
-  layer A (per-account):  max(account.base_rpm) ≤ group.rpm_limit
+  layer A (per-account):  max(redline) ≤ group.rpm_limit
                           — otherwise the group caps a single account
-                            below its tier-declared RPM (silent
-                            bottleneck; this is the original S2 case
-                            from H1 uk1/fra1).
+                            below its tier-declared ceiling (silent
+                            bottleneck; original S2 case from H1
+                            uk1/fra1).
 
-  layer B (group-aggregate): Σ(account.base_rpm) ≥ group.rpm_limit
+  layer B (group-aggregate): Σ(redline) ≥ group.rpm_limit
                           — otherwise the group's cap exceeds the
                             combined RPM the bound OAuth accounts can
-                            actually sustain (the cap is virtual; the
-                            real ceiling is the accounts' sum).
+                            actually sustain (the cap is virtual).
+
+Two evaluation modes (the redline definition differs):
+
+  default (legacy base_rpm mode):
+      redline = account.extra.base_rpm
+    Pre-strict-redline historical behavior.  Ignores sticky_buffer
+    space, which means the group cap can be set right at Σ(base_rpm)
+    and silently throttle the StickyOnly (yellow-zone) traffic that
+    runtime account-level scheduling intends to allow.
+
+  --strict-redline (recommended; matches runtime account-level
+  ceiling):
+      redline = account.extra.base_rpm
+              + account.extra.rpm_sticky_buffer
+    Mirrors `(*Account).CheckRPMSchedulability`'s NotSchedulable
+    threshold (`backend/internal/service/account.go`).  Each account
+    contributes its physical hard ceiling (base_rpm + buffer) instead
+    of the green-zone ceiling alone, so the group cap leaves room for
+    in-flight StickyOnly traffic.
+
+Strict-mode group classification:
+
+  - Any OAuth account with `extra.rpm_strategy = 'sticky_exempt'`
+    has no finite redline.  Such groups are reported as `skipped`
+    with reason; operator must review the cap manually.  TokenKey
+    does not enable this strategy today.
+
+  - Any OAuth account with `base_rpm = 0` (runtime unlimited) makes
+    the group's redline non-finite.  Such groups are reported as
+    `skipped` with reason, mirroring the SQL apply template's
+    absorb-zero gate that would write `rpm_limit = 0`.
+
+  - Any OAuth account with `base_rpm > 0` missing
+    `extra.rpm_sticky_buffer` (NULL / 0 / empty string) is treated
+    as a Layer-C drift violation — strict mode requires every
+    finite-redline account to carry the manual override field that
+    baseline tiers (L1..L5) already populate.
 
 Groups with `rpm_limit = 0` (or NULL) are treated as "unlimited" and
 skipped entirely. Groups with `rpm_limit > 0` but **no** anthropic
@@ -31,12 +67,13 @@ Targets one stack per invocation:
 
 Exit codes:
   0  all in-scope groups satisfy both layers
-  1  one or more violations (layer A or B)
+  1  one or more violations (layer A / B / C)
   2  schema / SSM / target-resolution error
 
 Usage:
   python3 scripts/check-account-group-rpm-alignment.py --target us1
   python3 scripts/check-account-group-rpm-alignment.py --target prod --json
+  python3 scripts/check-account-group-rpm-alignment.py --target us1 --strict-redline
 """
 from __future__ import annotations
 
@@ -64,7 +101,9 @@ SELECT COALESCE(jsonb_agg(jsonb_build_object(
     SELECT jsonb_agg(jsonb_build_object(
       'account_id', a.id,
       'account_name', a.name,
-      'base_rpm', NULLIF(a.extra->>'base_rpm','')::int
+      'base_rpm', NULLIF(a.extra->>'base_rpm','')::int,
+      'rpm_sticky_buffer', NULLIF(a.extra->>'rpm_sticky_buffer','')::int,
+      'rpm_strategy', NULLIF(a.extra->>'rpm_strategy','')
     ) ORDER BY a.id)
     FROM account_groups ag
     JOIN accounts a ON a.id = ag.account_id
@@ -72,6 +111,7 @@ SELECT COALESCE(jsonb_agg(jsonb_build_object(
       AND a.platform  = 'anthropic'
       AND a.type      = 'oauth'
       AND a.deleted_at IS NULL
+      AND COALESCE(a.status, '') NOT IN ('disabled', 'suspended')
   ), '[]'::jsonb)
 ) ORDER BY g.id), '[]'::jsonb)
 FROM groups g
@@ -171,6 +211,16 @@ def main() -> int:
     ap.add_argument("--target", required=True, help="edge_id (e.g. us1) or 'prod'")
     ap.add_argument("--instance-id", help="override SSM instance id")
     ap.add_argument("--json", action="store_true", help="emit JSON report only")
+    ap.add_argument(
+        "--strict-redline",
+        action="store_true",
+        help=(
+            "evaluate redline as base_rpm + rpm_sticky_buffer (matches "
+            "runtime CheckRPMSchedulability). Fails on accounts missing "
+            "rpm_sticky_buffer; skips groups containing sticky_exempt "
+            "accounts with explicit reason."
+        ),
+    )
     args = ap.parse_args()
 
     tgt = resolve_target(args.target)
@@ -184,25 +234,24 @@ def main() -> int:
         fail(f"failed to parse alignment payload: {e}\n{out[:600]}")
         return 2
 
+    strict = args.strict_redline
     results = []
     violation_count = 0
     for g in groups:
         rpm_limit = g.get("rpm_limit") or 0
         accounts = g.get("oauth_accounts") or []
-        base_rpms = [a["base_rpm"] for a in accounts if a.get("base_rpm") is not None]
 
         rec = {
             "group_id": g["group_id"],
             "group_name": g["group_name"],
             "rpm_limit": rpm_limit,
             "oauth_account_count": len(accounts),
-            "base_rpm_count": len(base_rpms),
-            "max_base_rpm": max(base_rpms) if base_rpms else None,
-            "sum_base_rpm": sum(base_rpms) if base_rpms else 0,
+            "mode": "strict_redline" if strict else "base_rpm",
             "status": "ok",
             "skip_reason": None,
             "layer_a_violation": None,
             "layer_b_violation": None,
+            "layer_c_violation": None,
         }
 
         if rpm_limit == 0:
@@ -210,7 +259,31 @@ def main() -> int:
             rec["skip_reason"] = "rpm_limit=0 (unlimited)"
             results.append(rec)
             continue
-        if not base_rpms:
+
+        # Strict mode: groups containing sticky_exempt accounts have no
+        # finite redline (the strategy bypasses the red zone). Skip with
+        # explicit reason instead of silently passing or panicking.
+        sticky_exempt = (
+            [a for a in accounts if (a.get("rpm_strategy") or "") == "sticky_exempt"]
+            if strict
+            else []
+        )
+        if sticky_exempt:
+            rec["status"] = "skipped"
+            rec["skip_reason"] = (
+                f"rpm_limit={rpm_limit}; group contains "
+                f"{len(sticky_exempt)} account(s) with rpm_strategy="
+                "'sticky_exempt' (no finite redline). Review cap manually."
+            )
+            rec["sticky_exempt_accounts"] = [
+                {"account_id": a["account_id"], "account_name": a["account_name"]}
+                for a in sticky_exempt
+            ]
+            results.append(rec)
+            continue
+
+        base_rpm_accounts = [a for a in accounts if a.get("base_rpm") is not None]
+        if not base_rpm_accounts:
             rec["status"] = "skipped"
             rec["skip_reason"] = (
                 f"rpm_limit={rpm_limit} but no anthropic OAuth account "
@@ -219,23 +292,121 @@ def main() -> int:
             results.append(rec)
             continue
 
-        if rec["max_base_rpm"] > rpm_limit:
+        # Strict mode: any account with base_rpm=0 means "runtime unlimited"
+        # for that account. The SQL apply template absorbs-zero this group
+        # to rpm_limit=0 (unlimited) via bool_or(base_rpm = 0). Mirror that
+        # semantic here: skip with reason rather than treat the buffer
+        # alone as the per-account ceiling (which would be a nonsensical
+        # finite redline and disagree with what apply would actually write).
+        unlimited_accounts = (
+            [a for a in base_rpm_accounts if a["base_rpm"] == 0]
+            if strict
+            else []
+        )
+        if unlimited_accounts:
+            rec["status"] = "skipped"
+            rec["skip_reason"] = (
+                f"rpm_limit={rpm_limit}; group contains "
+                f"{len(unlimited_accounts)} account(s) with base_rpm=0 "
+                "(runtime unlimited). SQL apply template would absorb-zero "
+                "this group to rpm_limit=0. Set base_rpm > 0 on those "
+                "accounts or accept rpm_limit=0."
+            )
+            rec["unlimited_accounts"] = [
+                {"account_id": a["account_id"], "account_name": a["account_name"]}
+                for a in unlimited_accounts
+            ]
+            results.append(rec)
+            continue
+
+        if strict:
+            # Layer C: every account with base_rpm > 0 must also carry a
+            # manual override rpm_sticky_buffer > 0. Baseline tiers L1-L5
+            # all supply this; absent values are config drift that must
+            # be resolved before apply.  (base_rpm=0 accounts are already
+            # absorbed-zero out above, so the predicate naturally only
+            # touches finite-redline accounts here.)
+            missing_buffer = [
+                a
+                for a in base_rpm_accounts
+                if a.get("rpm_sticky_buffer") is None
+                or a["rpm_sticky_buffer"] <= 0
+            ]
+            if missing_buffer:
+                rec["layer_c_violation"] = {
+                    "rule": (
+                        "every account with extra.base_rpm must also "
+                        "carry extra.rpm_sticky_buffer > 0 (strict mode "
+                        "requires manual override; baseline tiers L1-L5 "
+                        "already supply it)"
+                    ),
+                    "offenders": [
+                        {
+                            "account_id": a["account_id"],
+                            "account_name": a["account_name"],
+                            "base_rpm": a["base_rpm"],
+                            "rpm_sticky_buffer": a.get("rpm_sticky_buffer"),
+                        }
+                        for a in missing_buffer
+                    ],
+                }
+                rec["status"] = "fail"
+                violation_count += 1
+                results.append(rec)
+                continue
+
+            redlines = [
+                {
+                    "account_id": a["account_id"],
+                    "account_name": a["account_name"],
+                    "base_rpm": a["base_rpm"],
+                    "rpm_sticky_buffer": a["rpm_sticky_buffer"],
+                    "redline": a["base_rpm"] + a["rpm_sticky_buffer"],
+                }
+                for a in base_rpm_accounts
+            ]
+            rec["max_redline"] = max(r["redline"] for r in redlines)
+            rec["sum_redline"] = sum(r["redline"] for r in redlines)
+            ceiling_value = rec["max_redline"]
+            sum_value = rec["sum_redline"]
+            layer_a_rule = (
+                "max(account.base_rpm + rpm_sticky_buffer) <= group.rpm_limit"
+            )
+            layer_b_rule = (
+                "sum(account.base_rpm + rpm_sticky_buffer) >= group.rpm_limit"
+            )
+            ceiling_key = "max_redline"
+            sum_key = "sum_redline"
+            layer_a_offenders = [r for r in redlines if r["redline"] > rpm_limit]
+        else:
+            base_rpms = [a["base_rpm"] for a in base_rpm_accounts]
+            rec["base_rpm_count"] = len(base_rpms)
+            rec["max_base_rpm"] = max(base_rpms)
+            rec["sum_base_rpm"] = sum(base_rpms)
+            ceiling_value = rec["max_base_rpm"]
+            sum_value = rec["sum_base_rpm"]
+            layer_a_rule = "max(account.base_rpm) <= group.rpm_limit"
+            layer_b_rule = "sum(account.base_rpm) >= group.rpm_limit"
+            ceiling_key = "max_base_rpm"
+            sum_key = "sum_base_rpm"
+            layer_a_offenders = [
+                a for a in base_rpm_accounts if a["base_rpm"] > rpm_limit
+            ]
+
+        if ceiling_value > rpm_limit:
             rec["layer_a_violation"] = {
-                "rule": "max(account.base_rpm) <= group.rpm_limit",
-                "max_base_rpm": rec["max_base_rpm"],
+                "rule": layer_a_rule,
                 "rpm_limit": rpm_limit,
-                "offenders": [
-                    a for a in accounts
-                    if a.get("base_rpm") is not None and a["base_rpm"] > rpm_limit
-                ],
+                ceiling_key: ceiling_value,
+                "offenders": layer_a_offenders,
             }
             rec["status"] = "fail"
 
-        if rec["sum_base_rpm"] < rpm_limit:
+        if sum_value < rpm_limit:
             rec["layer_b_violation"] = {
-                "rule": "sum(account.base_rpm) >= group.rpm_limit",
-                "sum_base_rpm": rec["sum_base_rpm"],
+                "rule": layer_b_rule,
                 "rpm_limit": rpm_limit,
+                sum_key: sum_value,
             }
             rec["status"] = "fail"
 
@@ -250,6 +421,7 @@ def main() -> int:
         "stack": tgt["stack"],
         "instance_id": inst,
         "ssm_command_id": cid,
+        "mode": "strict_redline" if strict else "base_rpm",
         "groups_checked": len(results),
         "violation_count": violation_count,
         "results": results,
@@ -260,9 +432,11 @@ def main() -> int:
     else:
         skipped = sum(1 for r in results if r["status"] == "skipped")
         ok = sum(1 for r in results if r["status"] == "ok")
+        mode_label = "strict_redline" if strict else "base_rpm"
         print(
-            f"target={tgt['label']} groups_checked={len(results)} "
-            f"ok={ok} skipped={skipped} violations={violation_count} ssm_cmd={cid}"
+            f"target={tgt['label']} mode={mode_label} "
+            f"groups_checked={len(results)} ok={ok} skipped={skipped} "
+            f"violations={violation_count} ssm_cmd={cid}"
         )
         for r in results:
             head = (
@@ -274,33 +448,72 @@ def main() -> int:
             if r["status"] == "skipped":
                 print(f"      skip: {r['skip_reason']}")
                 continue
-            print(
-                f"      max(base_rpm)={r['max_base_rpm']} "
-                f"sum(base_rpm)={r['sum_base_rpm']}"
-            )
-            la = r["layer_a_violation"]
-            if la:
+
+            lc = r.get("layer_c_violation")
+            if lc:
                 offenders = ", ".join(
-                    f"{a['account_name']}(base_rpm={a['base_rpm']})"
-                    for a in la["offenders"]
+                    f"{a['account_name']}"
+                    f"(base_rpm={a['base_rpm']},"
+                    f"rpm_sticky_buffer={a.get('rpm_sticky_buffer')})"
+                    for a in lc["offenders"]
                 )
                 print(
-                    f"      layer A FAIL ({la['rule']}): "
-                    f"max={la['max_base_rpm']} > rpm_limit={la['rpm_limit']} "
+                    f"      layer C FAIL ({lc['rule']}): "
                     f"offenders=[{offenders}]"
                 )
                 print(
-                    f"      fix: raise group.rpm_limit to ≥ {la['max_base_rpm']}, "
+                    "      fix: set extra.rpm_sticky_buffer per the "
+                    "account's tier in "
+                    "deploy/aws/stage0/anthropic-oauth-stability-"
+                    "baselines-tiered.json before apply."
+                )
+                continue
+
+            if r["mode"] == "strict_redline":
+                print(
+                    f"      max(redline)={r['max_redline']} "
+                    f"sum(redline)={r['sum_redline']} "
+                    "(redline = base_rpm + rpm_sticky_buffer)"
+                )
+            else:
+                print(
+                    f"      max(base_rpm)={r['max_base_rpm']} "
+                    f"sum(base_rpm)={r['sum_base_rpm']}"
+                )
+
+            la = r["layer_a_violation"]
+            if la:
+                if r["mode"] == "strict_redline":
+                    offenders = ", ".join(
+                        f"{a['account_name']}(redline={a['redline']}"
+                        f"=base_rpm({a['base_rpm']})+buffer({a['rpm_sticky_buffer']}))"
+                        for a in la["offenders"]
+                    )
+                    ceiling = la["max_redline"]
+                else:
+                    offenders = ", ".join(
+                        f"{a['account_name']}(base_rpm={a['base_rpm']})"
+                        for a in la["offenders"]
+                    )
+                    ceiling = la["max_base_rpm"]
+                print(
+                    f"      layer A FAIL ({la['rule']}): "
+                    f"max={ceiling} > rpm_limit={la['rpm_limit']} "
+                    f"offenders=[{offenders}]"
+                )
+                print(
+                    f"      fix: raise group.rpm_limit to ≥ {ceiling}, "
                     "or lower offending account tier."
                 )
             lb = r["layer_b_violation"]
             if lb:
+                floor_sum = lb.get("sum_redline", lb.get("sum_base_rpm"))
                 print(
                     f"      layer B FAIL ({lb['rule']}): "
-                    f"sum={lb['sum_base_rpm']} < rpm_limit={lb['rpm_limit']}"
+                    f"sum={floor_sum} < rpm_limit={lb['rpm_limit']}"
                 )
                 print(
-                    f"      fix: lower group.rpm_limit to ≤ {lb['sum_base_rpm']}, "
+                    f"      fix: lower group.rpm_limit to ≤ {floor_sum}, "
                     "or add OAuth account capacity to the group."
                 )
 

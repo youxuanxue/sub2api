@@ -111,6 +111,8 @@ contribution(stub):
 
 任一 edge default `rpm_limit=0`（self-edge fan-out 中有 unlimited 上游）⇒ 同样吸收零到 prod 组 unlimited。
 
+**注（strict-redline 之后）**：upstream edge `default_group.rpm_limit` 现按 §3.2.1 切换为 `Σ(account.base_rpm + extra.rpm_sticky_buffer)`（含 sticky_buffer 空间）。R3 公式不变，但 prod 镜像值会随之提高，留出黄区流量空间，不再替 edge 提前 429 sticky 续打请求。
+
 ### 刻意**不**镜像的字段（设计放弃）
 
 - `accounts.extra.base_rpm` / `extra.max_sessions` / `extra.window_cost_limit` — stub 不读这些（runtime 由 edge OAuth 自己持有，在 edge 侧落档）。
@@ -167,11 +169,12 @@ prod 是 router、edge 是 worker。两条镜像规则的共同算子是 **absor
 聚合字段建议口径：
 - `group_agg.available_account_count` = 可用账号数量
 - `group_agg.total_base_rpm` = absorb-zero SUM(每个可用账号 `extra.base_rpm`)
+- `group_agg.total_redline` = absorb-zero SUM(每个可用账号 `extra.base_rpm + extra.rpm_sticky_buffer`)；这是 strict-redline 口径下 group cap apply 的目标值，运行时对齐账号 NotSchedulable 阈值
 - `group_agg.total_max_sessions` = absorb-zero SUM(每个可用账号 `extra.max_sessions`)
 - `group_agg.total_window_cost_limit` = absorb-zero SUM(每个可用账号 `extra.window_cost_limit`)
 - `group_agg.effective_concurrency` = absorb-zero SUM(每个可用账号 `account.concurrency`)
 - `group_agg.min_priority` / `max_priority` = 分组内优先级范围（数值越小优先级越高）
-- `group_agg.tier_distribution` = 各 tier 账号计数（L1~L3）
+- `group_agg.tier_distribution` = 各 tier 账号计数（L1~L5）
 
 `check` 输出应同时包含：
 1) 分组聚合结果（group_agg）；
@@ -251,6 +254,7 @@ python3 scripts/check-edge-anthropic-oauth-stability.py \
 - 基于分组内 `member_results[]` 生成“逐账号变更清单”（账号 ID、字段 diff、tier、预估影响）。
 - 生成“分组聚合前后对比预览”：
   - `total_base_rpm_before/after`
+  - `total_redline_before/after`（strict-redline 模式下 group cap apply 的目标值）
   - `total_max_sessions_before/after`
   - `total_window_cost_limit_before/after`
   - `effective_concurrency_before/after`
@@ -274,27 +278,51 @@ confirm_apply=yes-apply-edge-anthropic-oauth
 
 ```bash
 python3 scripts/check-account-group-rpm-alignment.py --target <edge_id|prod>
+python3 scripts/check-account-group-rpm-alignment.py --target <edge_id|prod> --strict-redline
 ```
 
-对每个 anthropic group（`rpm_limit > 0`）同时校验两层规则：
+对每个 anthropic group（`rpm_limit > 0`）按所选模式校验账号 redline ↔ `group.rpm_limit`：
 
-- **Layer A**（账号不被组卡）：`max(account.base_rpm) ≤ group.rpm_limit`
+| 模式 | redline 定义 | 含义 |
+|---|---|---|
+| 默认（legacy） | `account.extra.base_rpm` | 历史 H1 兼容口径，仅校验绿区上限。**已知漏防护**：group.rpm_limit 可被夹到 Σ base_rpm，sticky_buffer 空间无法生效，黄区流量被组提前 429。 |
+| `--strict-redline`（推荐） | `account.extra.base_rpm + extra.rpm_sticky_buffer` | 对齐 runtime `(*Account).CheckRPMSchedulability` 的 NotSchedulable 阈值（[`account.go:2092`](../../../backend/internal/service/account.go:2092)）。group cap 必须为 in-flight StickyOnly 流量留位。 |
+
+两个模式共享两层规则：
+
+- **Layer A**（账号不被组卡）：`max(redline) ≤ group.rpm_limit`
   违反 = 组成为单账号的隐性 bottleneck。H1 (2026-05-17) 在 edge uk1/fra1 上踩中（`default.rpm_limit=3` 卡住 `base_rpm=6`）。
-- **Layer B**（组 cap 不超出组内产能总和）：`Σ(account.base_rpm) ≥ group.rpm_limit`
+- **Layer B**（组 cap 不超出组内产能总和）：`Σ(redline) ≥ group.rpm_limit`
   违反 = 组的 RPM 上限超过组内 OAuth 账号实际能合并撑起的速率，多出的 cap 是虚的（永远跑不到）。
+
+`--strict-redline` 额外增加：
+
+- **Layer C**（baseline drift）：每个 `base_rpm > 0` 的账号必须同时具备 `extra.rpm_sticky_buffer > 0`。
+  违反 = baseline 尚未落档。修法：按 [`anthropic-oauth-stability-baselines-tiered.json`](../../../deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json) 中该账号 tier 的 `rpm_sticky_buffer` 字段补齐，再重跑 guard。
 
 跳过条件（不计入 violation）：
 
 - `rpm_limit = 0` 或 NULL — 视为 unlimited，整组跳过。
 - `rpm_limit > 0` 但组内**无** anthropic OAuth 账号 / 无任何账号声明 `extra.base_rpm` — 视为 stub-only 组（如 prod `cc-edges`），本 guard 不适用；如需对 stub 容量护栏，见 §"prod stub 主路径镜像规则"。
+- `--strict-redline` 模式下，组内任一账号 `extra.rpm_strategy = 'sticky_exempt'` —— 该策略没有有限的 redline，整组 skip 并提示 op 手动核对（TokenKey 当前不启用此策略，仅作前向防御）。
 
 退出码：
 
-- exit 0 — 所有 in-scope 组通过两层
-- exit 1 — 至少一组违反 Layer A 或 Layer B，**必须先修复**再 apply：
-  - Layer A 修法：升 `group.rpm_limit` ≥ 该组 max base_rpm；或调低 offender 账号 tier
-  - Layer B 修法：降 `group.rpm_limit` ≤ 该组 sum base_rpm；或往组里加 OAuth 账号补容量
+- exit 0 — 所有 in-scope 组通过两层（strict 模式额外含 Layer C）
+- exit 1 — 至少一组违反 Layer A / B / C，**必须先修复**再 apply：
+  - Layer A 修法：升 `group.rpm_limit` ≥ 该组 max(redline)；或调低 offender 账号 tier
+  - Layer B 修法：降 `group.rpm_limit` ≤ 该组 sum(redline)；或往组里加 OAuth 账号补容量
+  - Layer C 修法：按 baseline tier 补齐账号的 `extra.rpm_sticky_buffer`
 - exit 2 — 目标/SSM/schema 故障，按错误排查
+
+#### 3.2.1 rollout 顺序（默认 → strict）
+
+新口径上线需要观察窗口，避免 guard 自锁现有 group cap：
+
+1. **PR 合入** — `--strict-redline` 默认关闭，线上 apply 流仍走旧口径，行为零回归。
+2. **离线巡检** — 逐 edge / prod 用 `--strict-redline --json` 跑一遍，确认 Layer C 全过（baseline 已逐 tier 落档），列出 Layer A/B violation 清单。
+3. **升 group cap** — 对每个 strict-mode 下违反 Layer A/B 的 group，按 [`anthropic-oauth-group-aggregate-apply-template.sql`](../../../deploy/aws/stage0/anthropic-oauth-group-aggregate-apply-template.sql) 生成自包含 SQL，把 `group.rpm_limit` 升到 `Σ redline`。R3 自动把 prod 镜像跟上（不需要单独 apply prod）。
+4. **切默认** — 全部 strict-mode 巡检通过后，另起一个小 PR 把 `--strict-redline` 翻成默认（或删除旧口径），完成切换。
 
 ### 3.3 模板 SQL 是 apply 源头
 
@@ -412,6 +440,7 @@ member_total=<n>
 applied_count=<n>
 failed_count=<n>
 group_agg.total_base_rpm=<sum>
+group_agg.total_redline=<sum>
 group_agg.total_max_sessions=<sum>
 group_agg.total_window_cost_limit=<sum>
 notes=<risk/precheck/rollback info>
