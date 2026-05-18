@@ -287,7 +287,7 @@
         "backend/internal/service/billing_service.go",
         "backend/internal/service/billing_service_image_test.go"
       ],
-      "summary": "BillingService.getImageUnitPrice defensively normalizes an empty imageSize to \"2K\" — mirroring the request-side normalizeOpenAIImageSizeTier default — so group image-price overrides (Price1K/Price2K/Price4K) are honored when ForwardResult.ImageSize fails to propagate through the request pipeline, instead of silently falling back to the LiteLLM default price ($0.134)."
+      "summary": "BillingService.getImageUnitPrice now defensively normalizes an empty imageSize to \"2K\" — mirroring the request-side normalizeOpenAIImageSizeTier default — so group image-price overrides (Price1K/Price2K/Price4K) are honored when ForwardResult.ImageSize fails to propagate through the request pipeline, instead of silently falling back to the LiteLLM default price ($0.134). Aligns the empty-size billing tier with the request-side default and unblocks customers with image_price_2k overrides who were being billed at the unconfigured default."
     }
   ]
 }
