@@ -105,6 +105,7 @@ SELECT COALESCE(jsonb_agg(jsonb_build_object(
       AND a.platform  = 'anthropic'
       AND a.type      = 'oauth'
       AND a.deleted_at IS NULL
+      AND COALESCE(a.status, '') NOT IN ('disabled', 'suspended')
   ), '[]'::jsonb)
 ) ORDER BY g.id), '[]'::jsonb)
 FROM groups g
@@ -285,11 +286,40 @@ def main() -> int:
             results.append(rec)
             continue
 
+        # Strict mode: any account with base_rpm=0 means "runtime unlimited"
+        # for that account. The SQL apply template absorbs-zero this group
+        # to rpm_limit=0 (unlimited) via bool_or(base_rpm = 0). Mirror that
+        # semantic here: skip with reason rather than treat the buffer
+        # alone as the per-account ceiling (which would be a nonsensical
+        # finite redline and disagree with what apply would actually write).
+        unlimited_accounts = (
+            [a for a in base_rpm_accounts if a["base_rpm"] == 0]
+            if strict
+            else []
+        )
+        if unlimited_accounts:
+            rec["status"] = "skipped"
+            rec["skip_reason"] = (
+                f"rpm_limit={rpm_limit}; group contains "
+                f"{len(unlimited_accounts)} account(s) with base_rpm=0 "
+                "(runtime unlimited). SQL apply template would absorb-zero "
+                "this group to rpm_limit=0. Set base_rpm > 0 on those "
+                "accounts or accept rpm_limit=0."
+            )
+            rec["unlimited_accounts"] = [
+                {"account_id": a["account_id"], "account_name": a["account_name"]}
+                for a in unlimited_accounts
+            ]
+            results.append(rec)
+            continue
+
         if strict:
-            # Layer C: every account with base_rpm must also carry a
-            # manual override rpm_sticky_buffer > 0. Baseline tiers
-            # L1-L5 all supply this; absent values are config drift
-            # that must be resolved before apply.
+            # Layer C: every account with base_rpm > 0 must also carry a
+            # manual override rpm_sticky_buffer > 0. Baseline tiers L1-L5
+            # all supply this; absent values are config drift that must
+            # be resolved before apply.  (base_rpm=0 accounts are already
+            # absorbed-zero out above, so the predicate naturally only
+            # touches finite-redline accounts here.)
             missing_buffer = [
                 a
                 for a in base_rpm_accounts
@@ -426,8 +456,10 @@ def main() -> int:
                     f"offenders=[{offenders}]"
                 )
                 print(
-                    "      fix: set extra.rpm_sticky_buffer per baseline "
-                    "tier (L1=2 / L2=4 / L3=6 / L4=8 / L5=12) before apply."
+                    "      fix: set extra.rpm_sticky_buffer per the "
+                    "account's tier in "
+                    "deploy/aws/stage0/anthropic-oauth-stability-"
+                    "baselines-tiered.json before apply."
                 )
                 continue
 

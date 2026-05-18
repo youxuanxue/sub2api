@@ -298,7 +298,7 @@ python3 scripts/check-account-group-rpm-alignment.py --target <edge_id|prod> --s
 `--strict-redline` 额外增加：
 
 - **Layer C**（baseline drift）：每个 `base_rpm > 0` 的账号必须同时具备 `extra.rpm_sticky_buffer > 0`。
-  违反 = baseline 尚未落档（L1=2 / L2=4 / L3=6 / L4=8 / L5=12）。修法：按 baseline tier 补齐账号的 `extra.rpm_sticky_buffer`，再重跑 guard。
+  违反 = baseline 尚未落档。修法：按 [`anthropic-oauth-stability-baselines-tiered.json`](../../../deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json) 中该账号 tier 的 `rpm_sticky_buffer` 字段补齐，再重跑 guard。
 
 跳过条件（不计入 violation）：
 

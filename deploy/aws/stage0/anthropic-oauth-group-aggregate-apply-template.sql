@@ -52,7 +52,7 @@ BEGIN
   IF drift IS NOT NULL THEN
     RAISE EXCEPTION USING
       MESSAGE = 'baseline drift: rpm_sticky_buffer missing on account(s) in group "' || tg || '": [' || drift || ']',
-      HINT = 'Run scripts/check-account-group-rpm-alignment.py --target <id> --strict-redline and update baseline (L1=2 / L2=4 / L3=6 / L4=8 / L5=12) before re-applying this template.';
+      HINT = 'Run scripts/check-account-group-rpm-alignment.py --target <id> --strict-redline and update baseline per deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json before re-applying this template.';
   END IF;
 END $$;
 
