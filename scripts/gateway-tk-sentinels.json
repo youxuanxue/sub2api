@@ -450,6 +450,39 @@
         "TestArmSigPreempt_RedisError_FailOpen"
       ],
       "rationale": "Focused regressions proving the contracts that make the feature safe to run in production: (a) the arm transition emits a signature_preempt_armed ops event with the right Kind/Message, (b) armed requests with thinking content have those blocks stripped from the outgoing body, (c) armed-but-no-thinking-content path runs the IsArmed check but stays silent (no ops_error_logs flood — see F-002 in the review of PR #287), (d) Redis errors during IsArmed do not block the request (fail-open), (e) Redis errors during ArmIfThreshold do not panic and do not emit a misleading armed event. Dropping any of these lets a silent regression slip through unit CI."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal.go",
+      "must_contain": [
+        "TK: See upstream Wei-Shaw/sub2api#2556",
+        "const silentRefusalKind = \"silent_refusal\"",
+        "func (o *chatRawStreamObservations) IsSilentRefusal(usage OpenAIUsage) bool {",
+        "func recordOpenAIChatRawSilentRefusal("
+      ],
+      "rationale": "Detects the gpt-5.5 above-input-budget 'ghost stream' shape on the OpenAI Chat Completions raw passthrough (empty stream / response with finish_reason=stop and zero usage). The detection emits a categorical OpsUpstreamErrorEvent.Kind=silent_refusal so ops_error_logs and dashboards can pivot on it; without these anchors an upstream merge or refactor can silently delete the predicate and the gateway will go back to billing 0/0-token ghost responses as successes with no visible failure. The predicate signature, the Kind constant, and the recordOpenAIChatRawSilentRefusal entrypoint are all pinned because each is the only call site that makes the feature visible at runtime."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
+      "must_contain": [
+        "refusalObs.Observe(payload)",
+        "if refusalObs.IsSilentRefusal(usage) {",
+        "refusalObs.ObserveBufferedResponse(respBody)"
+      ],
+      "rationale": "Two call sites in the upstream-shaped raw chat-completions passthrough that hook the silent-refusal detector into the streaming and buffered paths. The Observe call wires the streaming SSE loop into the observation set, the IsSilentRefusal guard at end-of-stream is what actually emits the ops event, and ObserveBufferedResponse is the non-streaming entrypoint. Dropping any of the three lets the gpt-5.5 ghost stream go invisible again."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal_test.go",
+      "must_contain": [
+        "TestChatRawSilentRefusal_GhostStream_TriggersOpsError",
+        "TestChatRawSilentRefusal_NormalStream_DoesNotTrigger",
+        "TestChatRawSilentRefusal_ToolCallsStop_DoesNotTrigger",
+        "TestChatRawSilentRefusal_ReasoningStream_DoesNotTrigger",
+        "TestChatRawSilentRefusal_LengthStop_DoesNotTrigger",
+        "TestChatRawSilentRefusal_BufferedGhostResponse_TriggersOpsError",
+        "TestChatRawSilentRefusalPredicate_RequiresZeroUsage",
+        "TestChatRawSilentRefusalPredicate_ChunkLevelErrorBlocks"
+      ],
+      "rationale": "Focused regressions that lock the conservative shape of the silent-refusal predicate: a ghost stream triggers exactly one ops event with Kind=silent_refusal; normal streams, tool_calls finishes, reasoning streams, and length-class finishes never trigger; non-streaming ghost responses are handled symmetrically; usage>0 or a chunk-level error blocks the predicate. Dropping any of these lets a future refactor either widen the predicate (false positives on legitimate short answers) or narrow it (the original #2556 regression returns)."
     }
   ]
 }

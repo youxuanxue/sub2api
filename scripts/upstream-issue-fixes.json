@@ -288,6 +288,16 @@
         "backend/internal/service/billing_service_image_test.go"
       ],
       "summary": "BillingService.getImageUnitPrice now defensively normalizes an empty imageSize to \"2K\" — mirroring the request-side normalizeOpenAIImageSizeTier default — so group image-price overrides (Price1K/Price2K/Price4K) are honored when ForwardResult.ImageSize fails to propagate through the request pipeline, instead of silently falling back to the LiteLLM default price ($0.134). Aligns the empty-size billing tier with the request-side default and unblocks customers with image_price_2k overrides who were being billed at the unconfigured default."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2556",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal.go",
+        "backend/internal/service/openai_gateway_chat_completions_raw.go",
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal_test.go"
+      ],
+      "summary": "OpenAI Chat Completions raw passthrough (streaming and buffered) now detects upstream silent refusal — empty stream/response with finish_reason=stop and zero usage — and emits a categorical ops_error_logs row (Kind=silent_refusal). Detection is conservative (no content / no tool_calls / no reasoning_content / no refusal / no chunk-level error / zero usage / finish_reason=stop) so legitimate short answers are never flagged. Surfaces previously invisible 'ghost stream' failures (the gpt-5.5 above-input-budget shape upstream reported) to ops dashboards without changing the client-visible HTTP body, keeping the behavior change minimum-surface."
     }
   ]
 }

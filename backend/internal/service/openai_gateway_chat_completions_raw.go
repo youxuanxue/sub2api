@@ -220,9 +220,9 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 
 	// 8. Forward response
 	if clientStream {
-		return s.streamRawChatCompletions(c, resp, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+		return s.streamRawChatCompletions(c, resp, account, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 	}
-	return s.bufferRawChatCompletions(c, resp, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+	return s.bufferRawChatCompletions(c, resp, account, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 }
 
 // streamRawChatCompletions 透传上游 CC SSE 流到客户端，并提取 usage（包括
@@ -234,6 +234,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 func (s *OpenAIGatewayService) streamRawChatCompletions(
 	c *gin.Context,
 	resp *http.Response,
+	account *Account,
 	originalModel string,
 	billingModel string,
 	upstreamModel string,
@@ -262,6 +263,8 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	var usage OpenAIUsage
 	var firstTokenMs *int
 	clientDisconnected := false
+	// Silent-refusal observer: see upstream Wei-Shaw/sub2api#2556.
+	var refusalObs chatRawStreamObservations
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -276,6 +279,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 					elapsed := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &elapsed
 				}
+				refusalObs.Observe(payload)
 			}
 		}
 
@@ -306,6 +310,15 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 				zap.String("request_id", requestID),
 			)
 		}
+	}
+
+	if refusalObs.IsSilentRefusal(usage) {
+		logger.L().Warn("openai chat_completions raw: silent refusal detected",
+			zap.String("request_id", requestID),
+			zap.Int64("account_id", account.ID),
+			zap.String("upstream_model", upstreamModel),
+		)
+		recordOpenAIChatRawSilentRefusal(c, account, requestID)
 	}
 
 	return &OpenAIForwardResult{
@@ -365,6 +378,7 @@ func extractCCStreamUsage(payload string) *OpenAIUsage {
 func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	c *gin.Context,
 	resp *http.Response,
+	account *Account,
 	originalModel string,
 	billingModel string,
 	upstreamModel string,
@@ -392,6 +406,19 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		if ccResp.Usage.PromptTokensDetails != nil {
 			usage.CacheReadInputTokens = ccResp.Usage.PromptTokensDetails.CachedTokens
 		}
+	}
+
+	// Silent-refusal detection on the non-streaming response shape.
+	// See upstream Wei-Shaw/sub2api#2556.
+	var refusalObs chatRawStreamObservations
+	refusalObs.ObserveBufferedResponse(respBody)
+	if refusalObs.IsSilentRefusal(usage) {
+		logger.L().Warn("openai chat_completions raw: silent refusal detected (buffered)",
+			zap.String("request_id", requestID),
+			zap.Int64("account_id", account.ID),
+			zap.String("upstream_model", upstreamModel),
+		)
+		recordOpenAIChatRawSilentRefusal(c, account, requestID)
 	}
 
 	if s.responseHeaderFilter != nil {

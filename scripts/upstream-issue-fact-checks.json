@@ -265,6 +265,33 @@
         "backend/internal/service/billing_service_image_test.go:TestGetImageUnitPrice_EmptyImageSize_NoGroupFallsBackTo2KDefault",
         "backend/internal/service/billing_service_image_test.go:TestGetImageUnitPrice_EmptyImageSize_PartialGroupConfigTier2K"
       ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2556",
+      "severity": "high",
+      "summary": "OpenAI Chat Completions raw passthrough detects upstream silent refusal (empty stream/response with finish_reason=stop and zero usage) and emits an ops_error_logs row with Kind=silent_refusal. Conservative predicate: no content / no tool_calls / no reasoning / no refusal / no chunk-level error / zero usage / finish_reason=stop. Stream path keeps the client-visible bytes untouched (headers already flushed); buffered path will keep flexibility to harden later. The categorical ops signal turns the previously invisible 'ghost stream' (gpt-5.5 above input budget) into a dashboard-pivotable event.",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal.go",
+        "backend/internal/service/openai_gateway_chat_completions_raw.go",
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal.go:TK: See upstream Wei-Shaw/sub2api#2556",
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal.go:const silentRefusalKind = \"silent_refusal\"",
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal.go:func (o *chatRawStreamObservations) IsSilentRefusal(usage OpenAIUsage) bool {",
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal.go:func recordOpenAIChatRawSilentRefusal(",
+        "backend/internal/service/openai_gateway_chat_completions_raw.go:refusalObs.Observe(payload)",
+        "backend/internal/service/openai_gateway_chat_completions_raw.go:if refusalObs.IsSilentRefusal(usage) {",
+        "backend/internal/service/openai_gateway_chat_completions_raw.go:refusalObs.ObserveBufferedResponse(respBody)",
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal_test.go:TestChatRawSilentRefusal_GhostStream_TriggersOpsError",
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal_test.go:TestChatRawSilentRefusal_NormalStream_DoesNotTrigger",
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal_test.go:TestChatRawSilentRefusal_ToolCallsStop_DoesNotTrigger",
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal_test.go:TestChatRawSilentRefusal_ReasoningStream_DoesNotTrigger",
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal_test.go:TestChatRawSilentRefusal_LengthStop_DoesNotTrigger",
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal_test.go:TestChatRawSilentRefusal_BufferedGhostResponse_TriggersOpsError",
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal_test.go:TestChatRawSilentRefusalPredicate_RequiresZeroUsage",
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal_test.go:TestChatRawSilentRefusalPredicate_ChunkLevelErrorBlocks"
+      ]
     }
   ]
 }

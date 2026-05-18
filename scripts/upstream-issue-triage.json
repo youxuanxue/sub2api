@@ -4,10 +4,10 @@
   "generated_from": "GitHub REST API issues?state=open; pull requests excluded",
   "rationale": "TokenKey-local triage cache for upstream open issues. Use this file before re-triaging upstream issues; update entries when TokenKey fixes, dismisses, or reclassifies an issue.",
   "counts": {
-    "needs_review": 348,
+    "needs_review": 347,
+    "fixed": 29,
     "needs_prod_validation": 4,
     "medium": 115,
-    "fixed": 28,
     "not_applicable": 1,
     "low": 96,
     "unknown_low_signal": 402
@@ -3224,20 +3224,6 @@
       "updated_at": "2026-05-18T09:06:40Z"
     },
     {
-      "upstream": "Wei-Shaw/sub2api#2556",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2556",
-      "title": "【bug反馈】gpt-5.5 上游静默拒绝（空 SSE + finish_reason=stop）被当成成功响应——计费记 0/0 token、不触发 failover、无错误日志",
-      "impact": "needs_review",
-      "categories": [
-        "rate_limit_cooldown",
-        "billing_usage",
-        "security"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-05-18T11:15:08Z"
-    },
-    {
       "upstream": "Wei-Shaw/sub2api#263",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/263",
       "title": "使用 sub2api + cc-router中转gemini3 在claude code中使用经常 429",
@@ -6176,6 +6162,20 @@
       "tokenkey_status": "fixed_in_tokenkey",
       "rationale": "BillingService.getImageUnitPrice now defensively normalizes an empty imageSize to \"2K\" — mirroring the request-side normalizeOpenAIImageSizeTier default — so group image-price overrides (Price1K/Price2K/Price4K) are honored when ForwardResult.ImageSize fails to propagate through the request pipeline, instead of silently falling back to the LiteLLM default price ($0.134). Aligns the empty-size billing tier with the request-side default and unblocks customers with image_price_2k overrides who were being billed at the unconfigured default.",
       "updated_at": "2026-05-17T16:20:43Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2556",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2556",
+      "title": "【bug反馈】gpt-5.5 上游静默拒绝（空 SSE + finish_reason=stop）被当成成功响应——计费记 0/0 token、不触发 failover、无错误日志",
+      "impact": "fixed",
+      "categories": [
+        "rate_limit_cooldown",
+        "billing_usage",
+        "security"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "OpenAI Chat Completions raw passthrough now detects upstream silent refusal (empty stream / response with finish_reason=stop and no usage) and emits an ops_error_logs row with Kind=silent_refusal. Detection is conservative (zero content + zero tool_calls + zero reasoning + zero refusal + zero usage + finish_reason=stop) so legitimate short answers are not flagged. Surfaces previously invisible 'ghost stream' failures to ops/dashboards.",
+      "updated_at": "2026-05-18T11:15:08Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#580",
