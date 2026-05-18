@@ -148,13 +148,37 @@ func TestAppendOpsInternalErrorDetail_AppendsAndPrependsCorrectly(t *testing.T) 
 		require.Equal(t, "body", entry.ErrorBody)
 	})
 
-	t.Run("appends to existing body", func(t *testing.T) {
+	t.Run("injects into JSON object body", func(t *testing.T) {
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
 		c.Set(service.OpsInternalErrorDetailKey, "redis ECONNREFUSED")
 		entry := &service.OpsInsertErrorLogInput{ErrorBody: `{"code":"INTERNAL_ERROR","message":"Failed to validate API key"}`}
 		appendOpsInternalErrorDetail(c, entry)
-		require.Contains(t, entry.ErrorBody, `{"code":"INTERNAL_ERROR","message":"Failed to validate API key"}`)
-		require.Contains(t, entry.ErrorBody, "[internal_detail] redis ECONNREFUSED")
+
+		// Must remain valid JSON so service.sanitizeErrorBodyForStorage can
+		// still apply redactSensitiveJSON downstream.
+		var decoded map[string]any
+		require.NoError(t, json.Unmarshal([]byte(entry.ErrorBody), &decoded))
+		require.Equal(t, "INTERNAL_ERROR", decoded["code"])
+		require.Equal(t, "Failed to validate API key", decoded["message"])
+		require.Equal(t, "redis ECONNREFUSED", decoded["_internal_detail"])
+	})
+
+	t.Run("falls back to marker on non-JSON body", func(t *testing.T) {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Set(service.OpsInternalErrorDetailKey, "context deadline exceeded")
+		entry := &service.OpsInsertErrorLogInput{ErrorBody: "plain text body, not json"}
+		appendOpsInternalErrorDetail(c, entry)
+		require.Equal(t, "plain text body, not json\n[internal_detail] context deadline exceeded", entry.ErrorBody)
+	})
+
+	t.Run("falls back to marker on JSON array body", func(t *testing.T) {
+		// JSON arrays have no stable "_internal_detail" insertion shape, so
+		// we expect the marker-append fallback to kick in.
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Set(service.OpsInternalErrorDetailKey, "pool exhausted")
+		entry := &service.OpsInsertErrorLogInput{ErrorBody: `["a","b"]`}
+		appendOpsInternalErrorDetail(c, entry)
+		require.Equal(t, `["a","b"]`+"\n[internal_detail] pool exhausted", entry.ErrorBody)
 	})
 
 	t.Run("populates empty body", func(t *testing.T) {

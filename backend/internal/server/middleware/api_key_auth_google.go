@@ -38,10 +38,7 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 				abortWithGoogleError(c, 401, "Invalid API key")
 				return
 			}
-			if detail := sanitizeMiddlewareInternalErrorDetail(err); detail != "" {
-				c.Set(service.OpsInternalErrorDetailKey, detail)
-			}
-			abortWithGoogleError(c, 500, "Failed to validate API key")
+			abortWithGoogleErrorDetail(c, 500, "Failed to validate API key", err)
 			return
 		}
 
@@ -170,4 +167,18 @@ func abortWithGoogleError(c *gin.Context, status int, message string) {
 		},
 	})
 	c.Abort()
+}
+
+// abortWithGoogleErrorDetail mirrors AbortWithErrorDetail but writes a
+// Google-style error payload. The internalErr is sanitized and stashed on the
+// gin context via service.OpsInternalErrorDetailKey for ops_error_logger to
+// fold into ops_error_logs.error_body; it is NOT leaked into the client
+// response.
+func abortWithGoogleErrorDetail(c *gin.Context, status int, message string, internalErr error) {
+	if c != nil && internalErr != nil {
+		if detail := sanitizeMiddlewareInternalErrorDetail(internalErr); detail != "" {
+			c.Set(service.OpsInternalErrorDetailKey, detail)
+		}
+	}
+	abortWithGoogleError(c, status, message)
 }
