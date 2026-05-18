@@ -836,9 +836,19 @@ func (s *BillingService) CalculateImageCost(model string, imageSize string, imag
 
 // getImageUnitPrice 获取图片单价
 func (s *BillingService) getImageUnitPrice(model string, imageSize string, groupConfig *ImagePriceConfig) float64 {
+	// Defensive normalization: when imageSize is empty/whitespace, mirror the
+	// request-side default in normalizeOpenAIImageSizeTier ("" → "2K") so an
+	// upstream pipeline that fails to propagate size into ForwardResult does
+	// not silently skip group image-price overrides nor mis-classify the
+	// default tier as 1K. See upstream Wei-Shaw/sub2api#2539.
+	normalizedSize := imageSize
+	if strings.TrimSpace(normalizedSize) == "" {
+		normalizedSize = "2K"
+	}
+
 	// 优先使用分组配置的价格
 	if groupConfig != nil {
-		switch imageSize {
+		switch normalizedSize {
 		case "1K":
 			if groupConfig.Price1K != nil {
 				return *groupConfig.Price1K
@@ -855,7 +865,7 @@ func (s *BillingService) getImageUnitPrice(model string, imageSize string, group
 	}
 
 	// 回退到 LiteLLM 默认价格
-	return s.getDefaultImagePrice(model, imageSize)
+	return s.getDefaultImagePrice(model, normalizedSize)
 }
 
 // getDefaultImagePrice 获取 LiteLLM 默认图片价格

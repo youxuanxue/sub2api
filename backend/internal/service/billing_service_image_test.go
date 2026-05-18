@@ -148,3 +148,58 @@ func TestGetDefaultImagePrice_FallbackHardcoded(t *testing.T) {
 	cost = svc.CalculateImageCost("gemini-3-pro-image", "2K", 1, nil, 1.0)
 	require.InDelta(t, 0.201, cost.TotalCost, 0.0001)
 }
+
+// TestGetImageUnitPrice_EmptyImageSize_UsesGroupTier locks the upstream
+// Wei-Shaw/sub2api#2539 fix: when ForwardResult.ImageSize fails to propagate
+// (image_size == ""), billing must still honor the group's configured image
+// pricing — mirroring the request-side normalizeOpenAIImageSizeTier default
+// (empty → "2K") — instead of silently falling back to the LiteLLM default
+// price of $0.134.
+func TestGetImageUnitPrice_EmptyImageSize_UsesGroupTier(t *testing.T) {
+	svc := &BillingService{}
+
+	price1K := 0.30
+	price2K := 0.50
+	price4K := 1.00
+	groupConfig := &ImagePriceConfig{
+		Price1K: &price1K,
+		Price2K: &price2K,
+		Price4K: &price4K,
+	}
+
+	// Empty imageSize should be treated as the 2K tier and pick group's Price2K
+	// ($0.50), NOT the default $0.134.
+	cost := svc.CalculateImageCost("gpt-image-2", "", 1, groupConfig, 1.0)
+	require.InDelta(t, 0.50, cost.TotalCost, 0.0001)
+	require.InDelta(t, 0.50, cost.ActualCost, 0.0001)
+
+	// Whitespace-only imageSize behaves the same as empty.
+	cost = svc.CalculateImageCost("gpt-image-2", "   ", 2, groupConfig, 1.0)
+	require.InDelta(t, 1.00, cost.TotalCost, 0.0001)
+}
+
+// TestGetImageUnitPrice_EmptyImageSize_NoGroupFallsBackTo2KDefault ensures the
+// empty-imageSize normalization is consistent with the request-side default
+// even when no group pricing is configured: $0.134 * 1.5 = $0.201 (2K tier),
+// not the prior 1K tier of $0.134.
+func TestGetImageUnitPrice_EmptyImageSize_NoGroupFallsBackTo2KDefault(t *testing.T) {
+	svc := &BillingService{}
+
+	cost := svc.CalculateImageCost("gemini-3-pro-image", "", 1, nil, 1.0)
+	require.InDelta(t, 0.201, cost.TotalCost, 0.0001)
+}
+
+// TestGetImageUnitPrice_EmptyImageSize_PartialGroupConfigTier2K covers the
+// realistic case from Wei-Shaw/sub2api#2539: customer configured only the 2K
+// override and the request lost its size on the way to billing.
+func TestGetImageUnitPrice_EmptyImageSize_PartialGroupConfigTier2K(t *testing.T) {
+	svc := &BillingService{}
+
+	price2K := 0.50
+	groupConfig := &ImagePriceConfig{
+		Price2K: &price2K,
+	}
+
+	cost := svc.CalculateImageCost("gpt-image-2", "", 1, groupConfig, 1.0)
+	require.InDelta(t, 0.50, cost.TotalCost, 0.0001)
+}

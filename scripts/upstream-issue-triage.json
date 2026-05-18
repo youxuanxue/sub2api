@@ -4,10 +4,10 @@
   "generated_from": "GitHub REST API issues?state=open; pull requests excluded",
   "rationale": "TokenKey-local triage cache for upstream open issues. Use this file before re-triaging upstream issues; update entries when TokenKey fixes, dismisses, or reclassifies an issue.",
   "counts": {
-    "needs_review": 348,
+    "needs_review": 347,
+    "fixed": 28,
     "needs_prod_validation": 4,
     "medium": 115,
-    "fixed": 27,
     "not_applicable": 1,
     "low": 96,
     "unknown_low_signal": 402
@@ -3187,19 +3187,6 @@
       "updated_at": "2026-05-17T13:12:03Z"
     },
     {
-      "upstream": "Wei-Shaw/sub2api#2539",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2539",
-      "title": "Image billing falls back to default price when usage_logs.image_size is empty, ignoring group image price overrides",
-      "impact": "needs_review",
-      "categories": [
-        "billing_usage",
-        "image_oauth"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-05-17T16:20:43Z"
-    },
-    {
       "upstream": "Wei-Shaw/sub2api#2540",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/2540",
       "title": "生图问题",
@@ -6162,6 +6149,18 @@
       "tokenkey_status": "fixed_in_tokenkey",
       "rationale": "SchedulerRateLimitReaper closes the deadlock where an account's 429 cooldown expires but no event triggers a snapshot rebuild; reaper ticks every 5s, scans accounts.rate_limit_reset_at in (lastTick, now], and enqueues one scheduler_outbox(account_changed) event per match. The existing outbox worker then rebuilds the bucket. Reaper is independent of upstream SchedulerSnapshotService.",
       "updated_at": "2026-05-18T02:19:59Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2539",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2539",
+      "title": "Image billing falls back to default price when usage_logs.image_size is empty, ignoring group image price overrides",
+      "impact": "fixed",
+      "categories": [
+        "manual"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "BillingService.getImageUnitPrice now defensively normalizes an empty imageSize to \"2K\" (mirroring the request-side normalizeOpenAIImageSizeTier default), so group image-price overrides (image_price_1k/2k/4k) are honored when ForwardResult.ImageSize fails to propagate, instead of silently falling back to the LiteLLM default price ($0.134).",
+      "updated_at": "2026-05-17T16:20:43Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#580",
