@@ -260,11 +260,21 @@ if [[ -n "${GEMINI_KEY}" ]]; then
   gemini_suffix="$(printf '%s' "${GEMINI_KEY}" | tail -c 4)"
   echo "tk_post_deploy_smoke: gemini_key_hint=${gemini_prefix}…${gemini_suffix} gemini_model=${GEMINI_MODEL}"
 
+  # max_tokens budget covers BOTH reasoning/thinking tokens AND visible
+  # content for Gemini reasoning models (e.g. gemini-3.1-pro-preview).
+  # The original 96-token budget was sized for non-reasoning Gemini models
+  # and is fully consumed by thinking on reasoning models, producing a
+  # legal upstream `finishReason: MAX_TOKENS` with content=[] — which the
+  # HTTP-200 shape guard below then treats as a hard fail. 2048 gives the
+  # model enough budget to finish thinking AND emit a short sentence, so
+  # the content_count>=1 guard remains meaningful. A schema-cleanup
+  # regression (the bug this section guards) would surface as upstream
+  # 400 long before this token budget matters.
   gpayload="$(jq -n \
     --arg m "${GEMINI_MODEL}" \
     '{
       model: $m,
-      max_tokens: 96,
+      max_tokens: 2048,
       messages: [{role:"user",content:"Reply with one short sentence."}],
       tools: [{
         name: "tk_smoke_schema_probe",
