@@ -324,6 +324,23 @@
       "path": "backend/internal/repository/user_subscription_repo_integration_test.go",
       "must_contain": ["TestExistsByUserIDAndGroupID_IgnoresExpiredAndNonActive"],
       "rationale": "Focused regression for upstream #2478 covering the three non-active variants (expired by date, expired by status, suspended). Dropping this test lets the reassignment-block bug sneak back through integration CI."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "TK fix for upstream Wei-Shaw/sub2api#1471"
+      ],
+      "rationale": "OpenAI /v1/responses handleStreamingResponse.sendErrorEvent MUST prepend a blank line before the synthetic `data:` event so any in-flight upstream SSE event whose terminating blank line was never sent is closed before the synthetic event is written. Without this, the unterminated `data:` line and the synthetic `data:` line merge into one SSE event whose data buffer contains two concatenated JSON objects — downstream OpenAI-compatible SDKs (Codex / OpenCode) fail JSON.parse. The marker comment is the intent anchor; the literal write expression is intentionally NOT pinned so harmless refactors (extracting prefix to a constant, renaming `payload`, switching to fmt.Fprintf) do not flap the registry. Regression test (sentinel below) is the primary protection — the watchdog fact-check in scripts/upstream-issue-fact-checks.json pins the actual `\\ndata: ` literal for the watchdog's stricter audit."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service_tk_stream_read_error_sse_test.go",
+      "must_contain": [
+        "TestOpenAIStreamingStreamReadErrorEmitsSeparateSSEEvents",
+        "TestOpenAIStreamingStreamTimeoutEmitsSeparateSSEEvents",
+        "stream_read_error",
+        "stream_timeout"
+      ],
+      "rationale": "Focused regression anchors for upstream #1471 covering both sendErrorEvent triggers that share the closure: synchronous scanner error path (stream_read_error) and asynchronous interval-timeout path (stream_timeout). Each asserts every SSE event in the post-error transcript carries exactly one parseable-JSON data line. Together they prove the prepended-blank-line invariant holds for both the bufio.Scanner sync path and the goroutine async path that read from upstream."
     }
   ]
 }

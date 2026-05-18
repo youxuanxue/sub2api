@@ -4377,7 +4377,13 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 			clientDisconnected = true
 			return
 		}
-		if _, err := bufferedWriter.WriteString("data: " + payload + "\n\n"); err != nil {
+		// TK fix for upstream Wei-Shaw/sub2api#1471: prepend a blank line to
+		// terminate any in-flight upstream SSE event whose trailing blank line
+		// has not yet been written. Without this, the unterminated `data:` line
+		// and this synthetic `data:` line merge into a single SSE event whose
+		// payload contains two concatenated JSON objects, breaking downstream
+		// SDK JSON parsers.
+		if _, err := bufferedWriter.WriteString("\ndata: " + payload + "\n\n"); err != nil {
 			clientDisconnected = true
 			return
 		}
