@@ -83,9 +83,10 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil,                                   // backupSvc
 		nil,                                   // paymentOrderExpiry
 		nil,                                   // channelMonitorRunner
-		service.TKAuthServiceColdStartReady{},          // TK: forces SetTrialKeyIssuer wiring
-		service.TKGatewayPricingAvailabilityReady{},   // TK: forces SetPricingAvailabilityService wiring
-		handler.TKGatewayHandlerModelListReady{},      // TK: forces SetModelListFilter wiring
+		service.TKAuthServiceColdStartReady{},             // TK: forces SetTrialKeyIssuer wiring
+		service.TKGatewayPricingAvailabilityReady{},       // TK: forces SetPricingAvailabilityService wiring
+		service.TKGatewayAnthropicSigPreemptReady{},       // TK: forces SetAnthropicSigPreemptCache wiring
+		handler.TKGatewayHandlerModelListReady{},          // TK: forces SetModelListFilter wiring
 	)
 
 	require.NotPanics(t, func() {

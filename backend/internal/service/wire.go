@@ -553,6 +553,11 @@ var ProviderSet = wire.NewSet(
 	// TokenKey: client model-list filter (R-003 / Goal 2) — gates /v1/models
 	// /v1beta/models /antigravity/models to priced ∩ ¬unreachable.
 	NewModelListFilter,
+	// TokenKey: Anthropic signature_error preempt — wires the per-account
+	// thinking-block preempt cache onto GatewayService post-construction.
+	// Same shape as ProvideTKGatewayPricingAvailability; consumed by
+	// provideCleanup in cmd/server/wire.go so wire forces evaluation.
+	ProvideTKGatewayAnthropicSigPreempt,
 )
 
 // TKAuthServiceColdStartReady is a wire sentinel: holding it proves that
@@ -645,4 +650,29 @@ func ProvideChannelMonitorRunner(svc *ChannelMonitorService, settingService *Set
 	svc.SetScheduler(r)
 	r.Start()
 	return r
+}
+
+// TKGatewayAnthropicSigPreemptReady is a wire sentinel: holding it proves that
+// GatewayService.SetAnthropicSigPreemptCache has been called. provideCleanup
+// (cmd/server/wire.go) consumes this type as an unused parameter so wire forces
+// evaluation of the side-effect.
+type TKGatewayAnthropicSigPreemptReady struct{}
+
+// ProvideTKGatewayAnthropicSigPreempt wires the Anthropic signature_error
+// preempt cache onto GatewayService post-construction. Mirrors
+// ProvideTKGatewayPricingAvailability in shape — keep upstream
+// NewGatewayService signature stable, attach setter-only dependencies in TK
+// companion glue.
+//
+// Setter is nil-safe; if cache is nil (e.g. degraded test wiring) the gateway
+// remains in feature-disabled state and applySigPreemptIfArmed / armSigPreemptOnError
+// become no-ops.
+func ProvideTKGatewayAnthropicSigPreempt(
+	gw *GatewayService,
+	cache AnthropicSignaturePreemptCache,
+) TKGatewayAnthropicSigPreemptReady {
+	if gw != nil {
+		gw.SetAnthropicSigPreemptCache(cache)
+	}
+	return TKGatewayAnthropicSigPreemptReady{}
 }

@@ -403,6 +403,53 @@
         "TestEnqueueOutboxForJustExpiredAccounts_RepoDedupsRepeatedTicksWithin1Second"
       ],
       "rationale": "Integration anchors for the SQL contract: predicate is exclusive on lower bound + inclusive on upper bound (so accounts whose reset_at exactly equals a tick boundary still get caught the first time), soft-deleted accounts are skipped, and the 1s dedup window protects against double-enqueue across consecutive reaper ticks. Without these, the reaper could silently spam the outbox or quietly resurrect deleted accounts."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_signature_preempt.go",
+      "must_contain": [
+        "applySigPreemptIfArmed",
+        "armSigPreemptOnError",
+        "SetAnthropicSigPreemptCache",
+        "FilterThinkingBlocksForRetry",
+        "ArmIfThreshold",
+        "IsArmed",
+        "signature_preempt_armed",
+        "signature_preempt_applied",
+        "anthropicSigPreemptThreshold",
+        "anthropicSigPreemptWindowSec",
+        "anthropicSigPreemptCooldownSec"
+      ],
+      "rationale": "TK companion that pre-filters Anthropic thinking blocks when an account is in the signature_error preempt cooldown — eliminates the wasted first-shot upstream 400 that the retry chain otherwise has to recover. The helpers MUST keep delegating to FilterThinkingBlocksForRetry (the same transform the retry chain uses, so production has validated the body shape) and MUST keep using ArmIfThreshold/IsArmed on the per-account preempt cache; rewriting either to call a different filter or to skip the cache silently turns the feature into a no-op. The two ops kinds (signature_preempt_armed / signature_preempt_applied — aligned with the existing signature_* family in ops_upstream_context.go) and the three threshold/window/cooldown constants are pinned because Ops dashboards and the burst-detection logic depend on those exact names — see edge-us1 2026-05-18 09:00Z incident on OAuth account cc-am-or-ec2-5-1-b (12 signature_errors / 4 min → wasted 12 upstream 400 calls)."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "s.applySigPreemptIfArmed(ctx, c, account, body)",
+        "s.applySigPreemptIfArmed(ctx, c, account, input.Body)",
+        "s.armSigPreemptOnError(ctx, c, account)",
+        "tkAnthropicSigPreemptCache AnthropicSignaturePreemptCache"
+      ],
+      "rationale": "Three call sites in upstream-shaped forwarding code that anchor the signature_error preempt feature: (1) the main Anthropic Forward path (~4583) and (3) ForwardCountTokens (~9060) both call applySigPreemptIfArmed on the working body before the first upstream attempt; (2) the Anthropic API-Key passthrough path (~5105) calls applySigPreemptIfArmed on input.Body. armSigPreemptOnError is invoked from all three signature_error detection branches. The struct-field declaration is pinned so upstream merges cannot drop the setter target. If any of these are silently removed, the feature degrades to no-op and the 12-in-4-min burst symptom on a single OAuth account returns."
+    },
+    {
+      "path": "backend/internal/service/wire.go",
+      "must_contain": [
+        "ProvideTKGatewayAnthropicSigPreempt",
+        "TKGatewayAnthropicSigPreemptReady",
+        "gw.SetAnthropicSigPreemptCache(cache)"
+      ],
+      "rationale": "Wire provider + sentinel that forces SetAnthropicSigPreemptCache to be called during startup. The setter call is pinned (not just the provider name) because the function body is the only place in the wiring graph that connects the Redis-backed cache to the gateway service. Without this line wire would still compile but the gateway would silently run with tkAnthropicSigPreemptCache=nil and the feature would be off in production while unit tests (which instantiate the field directly) still pass."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_signature_preempt_test.go",
+      "must_contain": [
+        "TestArmSigPreempt_AtThreshold_EmitsEvent",
+        "TestApplyPreempt_Armed_StripsThinkingBlocks",
+        "TestApplyPreempt_Armed_NoThinkingContent_StaysSilent",
+        "TestApplyPreempt_IsArmedError_FailOpen",
+        "TestArmSigPreempt_RedisError_FailOpen"
+      ],
+      "rationale": "Focused regressions proving the contracts that make the feature safe to run in production: (a) the arm transition emits a signature_preempt_armed ops event with the right Kind/Message, (b) armed requests with thinking content have those blocks stripped from the outgoing body, (c) armed-but-no-thinking-content path runs the IsArmed check but stays silent (no ops_error_logs flood — see F-002 in the review of PR #287), (d) Redis errors during IsArmed do not block the request (fail-open), (e) Redis errors during ArmIfThreshold do not panic and do not emit a misleading armed event. Dropping any of these lets a silent regression slip through unit CI."
     }
   ]
 }
