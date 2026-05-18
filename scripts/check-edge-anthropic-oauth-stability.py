@@ -373,7 +373,7 @@ def resolve_effective_baseline(
     if not tier_key:
         fail(
             f"account {account_name} on edge {edge_id} missing account.extra.stability_tier; "
-            "expected one of l1/l2/l3"
+            "expected one of l1/l2/l3/l4"
         )
 
     tiers = baseline.get("tiers") or {}
