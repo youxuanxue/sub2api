@@ -502,8 +502,11 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ModelMappingPreservesOtherFie
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", nil)
 
-	// 包含复杂字段的请求体：system、thinking、messages
-	body := []byte(`{"model":"claude-sonnet-4-20250514","system":[{"type":"text","text":"You are a helpful assistant."}],"messages":[{"role":"user","content":[{"type":"text","text":"hello world"}]}],"thinking":{"type":"enabled","budget_tokens":5000},"max_tokens":1024}`)
+	// 包含复杂字段的请求体：system、thinking、messages、tool_choice。
+	// `max_tokens` 不是 count_tokens 端点支持的字段（Anthropic 会返回
+	// invalid_request_error），保留它在 body 中以确认 StripCountTokensUnsupportedFields
+	// 会把它剥除，而模型映射只动 model 字段不动其余允许字段。
+	body := []byte(`{"model":"claude-sonnet-4-20250514","system":[{"type":"text","text":"You are a helpful assistant."}],"messages":[{"role":"user","content":[{"type":"text","text":"hello world"}]}],"thinking":{"type":"enabled","budget_tokens":5000},"tool_choice":{"type":"auto"},"max_tokens":1024}`)
 	parsed := &ParsedRequest{
 		Body:  body,
 		Model: "claude-sonnet-4-20250514",
@@ -549,7 +552,117 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ModelMappingPreservesOtherFie
 	require.Equal(t, "hello world", gjson.GetBytes(sentBody, "messages.0.content.0.text").String(), "messages 字段不应被修改")
 	require.Equal(t, "enabled", gjson.GetBytes(sentBody, "thinking.type").String(), "thinking 字段不应被修改")
 	require.Equal(t, int64(5000), gjson.GetBytes(sentBody, "thinking.budget_tokens").Int(), "thinking.budget_tokens 不应被修改")
-	require.Equal(t, int64(1024), gjson.GetBytes(sentBody, "max_tokens").Int(), "max_tokens 不应被修改")
+	require.Equal(t, "auto", gjson.GetBytes(sentBody, "tool_choice.type").String(), "tool_choice 不应被修改")
+	require.False(t, gjson.GetBytes(sentBody, "max_tokens").Exists(), "max_tokens 是 count_tokens 端点不允许的字段，应被 StripCountTokensUnsupportedFields 剥除")
+}
+
+// TestGatewayService_ForwardCountTokens_400DoesNotTripUpstreamErrorBreaker
+// 回归：count_tokens 端的 400（Anthropic 返回 invalid_request_error，常见客户
+// 端 schema bug 如带 `temperature` 字段）必须 *不* 进 RateLimitService 的
+// anthropic_upstream_error 计数器，避免一个客户端 bug 把整个账号搞 temp_unschedulable
+// 10 分钟（生产事故 2026-05-18）。
+func TestGatewayService_ForwardCountTokens_400DoesNotTripUpstreamErrorBreaker(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", nil)
+
+	// 即便客户端送的 body 本身没有 unsupported 字段，中继站/上游也可能因别的
+	// 原因返回 400；这种 400 同样不应该熔断 account。
+	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}]}`)
+	parsed := &ParsedRequest{Body: body, Model: "claude-opus-4-7"}
+
+	upstreamRespBody := `{"type":"error","error":{"type":"invalid_request_error","message":"temperature: Extra inputs are not permitted"}}`
+	upstream := &anthropicHTTPUpstreamRecorder{
+		resp: &http.Response{
+			StatusCode: http.StatusBadRequest,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(upstreamRespBody)),
+		},
+	}
+
+	counter := &anthropicUpstreamErrorCounterCacheStub{counts: []int64{1, 2, 3}}
+	repo := &rateLimitAccountRepoStub{}
+	rateLimit := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	rateLimit.SetAnthropicUpstreamErrorCounterCache(counter)
+
+	svc := &GatewayService{
+		cfg:              &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}},
+		httpUpstream:     upstream,
+		rateLimitService: rateLimit,
+	}
+
+	account := &Account{
+		ID:          501,
+		Name:        "ct-400-no-breaker",
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "k",
+			"base_url": "https://api.anthropic.com",
+		},
+		Status:      StatusActive,
+		Schedulable: true,
+	}
+
+	err := svc.ForwardCountTokens(context.Background(), c, account, parsed)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "upstream error: 400")
+	require.Empty(t, counter.incrementIDs, "count_tokens 400 must not increment the anthropic_upstream_error counter")
+	require.Equal(t, 0, repo.tempCalls, "count_tokens 400 must not mark account temp_unschedulable")
+}
+
+// TestGatewayService_ForwardCountTokens_429StillTripsUpstreamErrorBreaker
+// 反向回归：count_tokens 端的 429（真实容量信号）仍然应该计入 breaker。
+// 这保证 #3 修复只豁免 400，不破坏正常的容量保护。
+func TestGatewayService_ForwardCountTokens_429StillTripsUpstreamErrorBreaker(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", nil)
+
+	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}]}`)
+	parsed := &ParsedRequest{Body: body, Model: "claude-opus-4-7"}
+
+	upstreamRespBody := `{"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}`
+	upstream := &anthropicHTTPUpstreamRecorder{
+		resp: &http.Response{
+			StatusCode: http.StatusTooManyRequests,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(upstreamRespBody)),
+		},
+	}
+
+	counter := &anthropicUpstreamErrorCounterCacheStub{counts: []int64{1}}
+	repo := &rateLimitAccountRepoStub{}
+	rateLimit := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	rateLimit.SetAnthropicUpstreamErrorCounterCache(counter)
+
+	svc := &GatewayService{
+		cfg:              &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}},
+		httpUpstream:     upstream,
+		rateLimitService: rateLimit,
+	}
+
+	account := &Account{
+		ID:          502,
+		Name:        "ct-429-still-counts",
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "k",
+			"base_url": "https://api.anthropic.com",
+		},
+		Status:      StatusActive,
+		Schedulable: true,
+	}
+
+	_ = svc.ForwardCountTokens(context.Background(), c, account, parsed)
+	require.Equal(t, []int64{502}, counter.incrementIDs, "count_tokens 429 must still feed the anthropic_upstream_error counter (capacity signal)")
 }
 
 // TestGatewayService_AnthropicAPIKeyPassthrough_EmptyModelSkipsMapping
