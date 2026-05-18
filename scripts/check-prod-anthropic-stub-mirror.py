@@ -3,7 +3,9 @@
 Prod anthropic stub mirror-edge guard.
 
 For every active anthropic forward stub on the prod stage0 control
-plane (`platform=anthropic AND type=apikey`), verify two layers:
+plane (`platform=anthropic AND type=apikey`), and for every prod
+anthropic group that contains at least one such stub, verify three
+layers:
 
 1. Common baseline (every stub must satisfy these regardless of where
    it forwards to):
@@ -12,29 +14,44 @@ plane (`platform=anthropic AND type=apikey`), verify two layers:
      - auto_pause_on_expired = true
      - status = 'active' (skip otherwise)
 
-2. Mirror-edge layer (only stubs whose `credentials.base_url` matches
-   `https://api-<edge_id>.tokenkey.dev`):
+2. Account-level mirror (R1; only stubs whose `credentials.base_url`
+   matches `https://api-<edge_id>.tokenkey.dev`):
      - Resolve <edge_id> against `deploy/aws/stage0/edge-targets.json`.
-     - Pull the edge's active anthropic OAuth account.
-     - Verify `prod_stub.concurrency == edge_oauth.concurrency`.
+     - Pull the edge's anthropic `default` group OAuth members.
+     - Verify `stub.concurrency == absorb_zero_sum(oauth.concurrency)`.
+       A stub fronts the *entire* edge default group, so a multi-OAuth
+       edge is the SUM of its OAuth concurrencies.
 
-Stubs whose base_url does NOT match the self-edge pattern (e.g.
-`tokensea-*.4` → `agent.tokensea.ai`) are treated as **external
-fallback** — they are allowed independent capacity (concurrency is
-not compared) but still must satisfy the common baseline.
+3. Group-level mirror (R3; every prod anthropic group that contains
+   at least one apikey stub member):
+     - For each member stub in the group, contribute to fan-out:
+         * self-edge stub  → upstream edge default_group.rpm_limit
+         * external stub   → 0  (unknown capacity ⇒ unlimited)
+     - Verify `prod_group.rpm_limit == absorb_zero_sum(fan-out)`.
+     - Mixed groups (containing any external stub) thus aggregate to
+       0 (unlimited) — the operator is declaring the group accepts
+       no RPM ceiling because external capacity is unmodeled.
 
-Why this rule:
-TokenKey's anthropic forward stubs are the prod-side front of an
-edge OAuth account. The edge's OAuth account is the actual upstream
-throughput contract (Anthropic per-account RPM/concurrency). Having
-prod stub concurrency exceed the edge OAuth concurrency causes
-wasted upstream calls (overflow gets 429'd at the edge); having it
-fall short under-uses the edge's quota. Mirror = pre-edge
-backpressure aligned with reality.
+Capacity aggregation operator: **absorb-zero SUM**.  Runtime treats 0
+as "unlimited" for `account.concurrency` (concurrency_service.go) and
+`account.extra.base_rpm` / `group.rpm_limit` (account.go / ent schema).
+Naive SUM would silently treat unlimited as a 0 datum; absorb-zero
+propagates the unlimited semantic — any 0 term forces the aggregate
+to 0.  See SKILL.md §"prod 控制面：anthropic stub 主路径镜像规则"
+的"容量约定".
+
+External fallback stubs (`base_url` not matching the self-edge
+pattern, e.g. `tokensea-*.4` → `agent.tokensea.ai`) have independent
+capacity not recorded in our schema:
+  - R1: NOT mirrored (operator declares concurrency independently).
+  - R3: contributes 0 (unlimited) to fan-out (treated as "unknown =
+    unlimited"; any external presence in a group ⇒ group goes
+    unlimited via absorb-zero).
+  - Must satisfy the common baseline.
 
 Exit codes:
-  0  all checked stubs aligned (or only external stubs)
-  1  one or more mirror or baseline violations
+  0  all checked stubs and groups aligned (or only external stubs)
+  1  one or more baseline / account-mirror / group-mirror violations
   2  schema / SSM / target-resolution error
 
 Usage:
@@ -68,6 +85,16 @@ SELF_EDGE_BASE_URL_RE = re.compile(
 def fail(msg: str, code: int = 2) -> None:
     print(f"::error::{msg}", file=sys.stderr)
     sys.exit(code)
+
+
+def absorb_zero_sum(values: list[int]) -> int:
+    """absorb-zero SUM: any 0 term ⇒ 0 (unlimited), else SUM of positives.
+
+    Empty input returns 0 (unlimited) — there is no capacity to bound.
+    """
+    if any(v == 0 for v in values):
+        return 0
+    return sum(values)
 
 
 def resolve_instance_id(region: str, stack: str) -> str:
@@ -158,16 +185,63 @@ WHERE a.platform = 'anthropic'
   AND a.deleted_at IS NULL;
 """
 
-EDGE_OAUTH_SQL = """
+# Per-edge: anthropic 'default' group + active OAuth members' concurrency.
+# Used by both R1 (sum concurrencies) and R3 (group rpm_limit).
+EDGE_DEFAULT_SQL = """
+SELECT COALESCE(jsonb_build_object(
+  'group_id', g.id,
+  'group_name', g.name,
+  'rpm_limit', g.rpm_limit,
+  'oauth_members', COALESCE((
+    SELECT jsonb_agg(jsonb_build_object(
+      'id', a.id,
+      'name', a.name,
+      'concurrency', a.concurrency,
+      'stability_tier', a.extra->>'stability_tier'
+    ) ORDER BY a.id)
+    FROM account_groups ag
+    JOIN accounts a ON a.id = ag.account_id
+    WHERE ag.group_id = g.id
+      AND a.platform = 'anthropic'
+      AND a.type = 'oauth'
+      AND a.status = 'active'
+      AND a.deleted_at IS NULL
+  ), '[]'::jsonb)
+), '{}'::jsonb)
+FROM groups g
+WHERE g.platform = 'anthropic'
+  AND g.name = 'default'
+  AND g.deleted_at IS NULL
+ORDER BY g.id
+LIMIT 1;
+"""
+
+# Prod anthropic groups + ALL apikey stub members (self-edge + external).
+# Classification (self-edge vs external) happens in Python via base_url regex
+# so a single membership query feeds both contribution paths.
+PROD_GROUPS_SQL = """
 SELECT COALESCE(jsonb_agg(jsonb_build_object(
-  'id', a.id, 'name', a.name,
-  'concurrency', a.concurrency,
-  'stability_tier', a.extra->>'stability_tier'
-) ORDER BY a.id), '[]'::jsonb)
-FROM accounts a
-WHERE a.platform = 'anthropic'
-  AND a.type = 'oauth'
-  AND a.deleted_at IS NULL;
+  'id', g.id,
+  'name', g.name,
+  'rpm_limit', g.rpm_limit,
+  'stubs', COALESCE((
+    SELECT jsonb_agg(jsonb_build_object(
+      'account_id', a.id,
+      'account_name', a.name,
+      'base_url', a.credentials->>'base_url'
+    ) ORDER BY a.id)
+    FROM account_groups ag
+    JOIN accounts a ON a.id = ag.account_id
+    WHERE ag.group_id = g.id
+      AND a.platform = 'anthropic'
+      AND a.type = 'apikey'
+      AND a.status = 'active'
+      AND a.deleted_at IS NULL
+  ), '[]'::jsonb)
+) ORDER BY g.id), '[]'::jsonb)
+FROM groups g
+WHERE g.platform = 'anthropic'
+  AND g.deleted_at IS NULL;
 """
 
 
@@ -187,7 +261,7 @@ def main() -> int:
         description=__doc__.split("\n\n", 1)[0] if __doc__ else "",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ap.add_argument("--account-id", type=int, help="check only this prod account id")
+    ap.add_argument("--account-id", type=int, help="check only this prod account id (skips group-level R3)")
     ap.add_argument("--json", action="store_true", help="emit JSON report only")
     ap.add_argument("--prod-instance-id", help="override prod EC2 instance id")
     ap.add_argument("--allow-planned", action="store_true",
@@ -215,12 +289,12 @@ def main() -> int:
         if not stubs:
             fail(f"prod account_id={args.account_id} not found (or not anthropic apikey active)", code=2)
 
-    # Edge OAuth lookups are cached per edge_id; only deployable edges by default.
-    edge_oauth_cache: dict[str, list[dict]] = {}
+    # Per-edge default group + OAuth members; cached.
+    edge_default_cache: dict[str, dict | None] = {}
 
-    def edge_oauth_for(edge_id: str) -> tuple[list[dict] | None, str | None]:
-        if edge_id in edge_oauth_cache:
-            return edge_oauth_cache[edge_id], None
+    def edge_default_for(edge_id: str) -> tuple[dict | None, str | None]:
+        if edge_id in edge_default_cache:
+            return edge_default_cache[edge_id], None
         tgt = edge_targets.get(edge_id)
         if not tgt:
             return None, f"unknown edge_id {edge_id!r} (not in edge-targets.json)"
@@ -231,17 +305,22 @@ def main() -> int:
                 return None, f"edge {edge_id} missing required field {key}"
         inst = resolve_instance_id(tgt["region"], tgt["stack"])
         raw, _ = run_remote(
-            tgt["region"], inst, EDGE_OAUTH_SQL,
-            f"prod stub mirror: edge {edge_id} oauth accounts",
+            tgt["region"], inst, EDGE_DEFAULT_SQL,
+            f"prod stub mirror: edge {edge_id} default group + oauth members",
         )
         try:
-            data = json.loads(raw) if raw else []
+            data = json.loads(raw) if raw else {}
         except json.JSONDecodeError as e:
             return None, f"parse edge {edge_id} payload: {e}"
-        edge_oauth_cache[edge_id] = data
+        # Empty result means no 'default' anthropic group on edge.
+        if not data or not data.get("group_id"):
+            edge_default_cache[edge_id] = None
+            return None, f"edge {edge_id} has no anthropic 'default' group"
+        edge_default_cache[edge_id] = data
         return data, None
 
-    results = []
+    # ---------------- Account-level (R1) + baseline ----------------
+    results: list[dict] = []
     has_violation = False
     for stub in stubs:
         rec: dict = {
@@ -251,8 +330,9 @@ def main() -> int:
             "base_url": stub.get("base_url"),
             "kind": None,             # "self-edge" | "external"
             "edge_id": None,
-            "edge_oauth_account_id": None,
-            "edge_oauth_concurrency": None,
+            "edge_default_group_id": None,
+            "edge_oauth_account_ids": [],
+            "expected_concurrency": None,
             "baseline_violations": [],
             "mirror_violations": [],
             "skipped_reason": None,
@@ -274,7 +354,7 @@ def main() -> int:
         edge_id = m.group("edge_id")
         rec["edge_id"] = edge_id
 
-        edge_oauths, err = edge_oauth_for(edge_id)
+        edge_default, err = edge_default_for(edge_id)
         if err is not None:
             rec["skipped_reason"] = err
             rec["mirror_violations"].append({"reason": err})
@@ -282,31 +362,30 @@ def main() -> int:
             results.append(rec)
             continue
 
-        if not edge_oauths:
-            rec["mirror_violations"].append({"reason": f"no active anthropic oauth account on edge {edge_id}"})
+        oauths = edge_default.get("oauth_members") or []
+        if not oauths:
+            rec["mirror_violations"].append(
+                {"reason": f"edge {edge_id} default group has no active anthropic OAuth members"}
+            )
             has_violation = True
             results.append(rec)
             continue
 
-        if len(edge_oauths) > 1:
-            rec["mirror_violations"].append({
-                "reason": f"edge {edge_id} has {len(edge_oauths)} anthropic oauth accounts; mirror is ambiguous",
-                "edge_account_ids": [a["id"] for a in edge_oauths],
-            })
-            has_violation = True
-            results.append(rec)
-            continue
+        rec["edge_default_group_id"] = edge_default.get("group_id")
+        rec["edge_oauth_account_ids"] = [o["id"] for o in oauths]
+        rec["edge_oauth_concurrencies"] = [o.get("concurrency") for o in oauths]
+        rec["edge_oauth_tiers"] = [o.get("stability_tier") for o in oauths]
 
-        edge_oauth = edge_oauths[0]
-        rec["edge_oauth_account_id"] = edge_oauth["id"]
-        rec["edge_oauth_concurrency"] = edge_oauth["concurrency"]
-        rec["edge_oauth_tier"] = edge_oauth.get("stability_tier")
+        expected = absorb_zero_sum([o.get("concurrency") or 0 for o in oauths])
+        rec["expected_concurrency"] = expected
 
-        if stub.get("concurrency") != edge_oauth["concurrency"]:
+        if stub.get("concurrency") != expected:
             rec["mirror_violations"].append({
                 "field": "concurrency",
                 "prod_stub": stub.get("concurrency"),
-                "edge_oauth": edge_oauth["concurrency"],
+                "expected": expected,
+                "expected_formula": "absorb_zero_sum(edge.default.oauth.concurrency)",
+                "edge_oauth_concurrencies": rec["edge_oauth_concurrencies"],
             })
             has_violation = True
 
@@ -315,16 +394,141 @@ def main() -> int:
 
         results.append(rec)
 
+    # ---------------- Group-level (R3) ----------------
+    # Skipped when --account-id is given (stub-scoped invocation).
+    group_results: list[dict] = []
+    if args.account_id is None:
+        groups_raw, _ = run_remote(
+            PROD["region"], prod_inst, PROD_GROUPS_SQL,
+            "prod stub mirror: list anthropic groups + self-edge stubs",
+        )
+        try:
+            prod_groups = json.loads(groups_raw) if groups_raw else []
+        except json.JSONDecodeError as e:
+            fail(f"parse prod groups payload: {e}\n{groups_raw[:600]}")
+            return 2
+
+        for g in prod_groups:
+            stubs_in_group = g.get("stubs") or []
+            self_edge_in_group = [
+                s for s in stubs_in_group
+                if SELF_EDGE_BASE_URL_RE.match(s.get("base_url") or "")
+            ]
+            external_in_group = [
+                s for s in stubs_in_group
+                if not SELF_EDGE_BASE_URL_RE.match(s.get("base_url") or "")
+            ]
+
+            grec: dict = {
+                "group_id": g["id"],
+                "group_name": g["name"],
+                "prod_rpm_limit": g.get("rpm_limit"),
+                "stub_count": len(stubs_in_group),
+                "self_edge_count": len(self_edge_in_group),
+                "external_count": len(external_in_group),
+                "fanout": [],
+                "expected_rpm_limit": None,
+                "mirror_violations": [],
+                "skipped_reason": None,
+            }
+
+            if not stubs_in_group:
+                grec["skipped_reason"] = "no apikey stubs in this group"
+                group_results.append(grec)
+                continue
+
+            # Build fan-out: self-edge stubs contribute upstream edge default rpm;
+            # external stubs contribute 0 (unlimited, absorb-zero). Deduplicate
+            # self-edge edges so a multi-stub edge does not double-count.
+            seen_edge_ids: set[str] = set()
+            fan_rpms: list[int] = []
+            fanout_errors: list[str] = []
+
+            for stub in self_edge_in_group:
+                m = SELF_EDGE_BASE_URL_RE.match(stub.get("base_url") or "")
+                edge_id = m.group("edge_id")
+                if edge_id in seen_edge_ids:
+                    continue
+                seen_edge_ids.add(edge_id)
+
+                edge_default, err = edge_default_for(edge_id)
+                fan = {
+                    "stub_account_id": stub["account_id"],
+                    "stub_account_name": stub["account_name"],
+                    "kind": "self-edge",
+                    "edge_id": edge_id,
+                    "edge_default_group_id": None,
+                    "edge_default_rpm_limit": None,
+                    "contribution": None,
+                    "lookup_error": err,
+                }
+                if err is not None:
+                    fanout_errors.append(f"edge {edge_id}: {err}")
+                    grec["fanout"].append(fan)
+                    continue
+                rpm = int(edge_default.get("rpm_limit") or 0)
+                fan["edge_default_group_id"] = edge_default.get("group_id")
+                fan["edge_default_rpm_limit"] = edge_default.get("rpm_limit")
+                fan["contribution"] = rpm
+                grec["fanout"].append(fan)
+                fan_rpms.append(rpm)
+
+            for stub in external_in_group:
+                fan = {
+                    "stub_account_id": stub["account_id"],
+                    "stub_account_name": stub["account_name"],
+                    "kind": "external",
+                    "base_url": stub.get("base_url"),
+                    "contribution": 0,
+                    "lookup_error": None,
+                }
+                grec["fanout"].append(fan)
+                fan_rpms.append(0)  # external = unknown ⇒ unlimited contribution
+
+            if fanout_errors:
+                for err in fanout_errors:
+                    grec["mirror_violations"].append({"reason": err})
+                has_violation = True
+                group_results.append(grec)
+                continue
+
+            expected = absorb_zero_sum(fan_rpms)
+            grec["expected_rpm_limit"] = expected
+
+            if (g.get("rpm_limit") or 0) != expected:
+                grec["mirror_violations"].append({
+                    "field": "rpm_limit",
+                    "prod_group_rpm": g.get("rpm_limit"),
+                    "expected": expected,
+                    "expected_formula": "absorb_zero_sum(self-edge contributions + external contributions)",
+                    "fanout_rpms": fan_rpms,
+                })
+                has_violation = True
+
+            group_results.append(grec)
+
     report = {
         "prod_ssm_command_id": stubs_cid,
         "stubs_checked": len(results),
         "self_edge_stubs": sum(1 for r in results if r["kind"] == "self-edge"),
         "external_stubs": sum(1 for r in results if r["kind"] == "external"),
-        "violation_count": sum(
+        "groups_checked": len(group_results),
+        "groups_with_stubs": sum(
+            1 for gr in group_results if gr.get("stub_count", 0) > 0
+        ),
+        "groups_mixed": sum(
+            1 for gr in group_results
+            if gr.get("self_edge_count", 0) > 0 and gr.get("external_count", 0) > 0
+        ),
+        "stub_violation_count": sum(
             1 for r in results
             if r["baseline_violations"] or r["mirror_violations"]
         ),
+        "group_violation_count": sum(
+            1 for gr in group_results if gr["mirror_violations"]
+        ),
         "results": results,
+        "group_results": group_results,
     }
 
     if args.json:
@@ -333,18 +537,25 @@ def main() -> int:
         print(
             f"stubs_checked={report['stubs_checked']} "
             f"self_edge={report['self_edge_stubs']} external={report['external_stubs']} "
-            f"violations={report['violation_count']}"
+            f"groups_checked={report['groups_checked']} "
+            f"groups_with_stubs={report['groups_with_stubs']} "
+            f"groups_mixed={report['groups_mixed']} "
+            f"stub_violations={report['stub_violation_count']} "
+            f"group_violations={report['group_violation_count']}"
         )
+        print("--- account-level (R1) ---")
         for r in results:
             tag = "OK" if not (r["baseline_violations"] or r["mirror_violations"]) else "FAIL"
             if r["kind"] == "external" and not r["baseline_violations"]:
                 tag = "external"
             print(f"  [{tag}] id={r['account_id']} name={r['name']} kind={r['kind']} base_url={r['base_url']!r}")
-            if r["kind"] == "self-edge":
+            if r["kind"] == "self-edge" and r.get("expected_concurrency") is not None:
                 print(
-                    f"      edge_id={r['edge_id']} edge_oauth_id={r['edge_oauth_account_id']}"
-                    f" tier={r.get('edge_oauth_tier')}"
-                    f" → prod_conc={r['concurrency']} vs edge_oauth_conc={r['edge_oauth_concurrency']}"
+                    f"      edge_id={r['edge_id']} default_group={r['edge_default_group_id']}"
+                    f" oauth_ids={r['edge_oauth_account_ids']}"
+                    f" oauth_conc={r.get('edge_oauth_concurrencies')}"
+                    f" → prod_conc={r['concurrency']} vs expected={r['expected_concurrency']}"
+                    f" (absorb-zero SUM)"
                 )
             for v in r["baseline_violations"]:
                 print(f"      baseline FAIL: {v['field']} expected={v['expected']} actual={v['actual']}")
@@ -352,10 +563,50 @@ def main() -> int:
                 if "field" in v:
                     print(
                         f"      mirror FAIL: {v['field']}"
-                        f" prod_stub={v['prod_stub']} edge_oauth={v['edge_oauth']}"
+                        f" prod_stub={v.get('prod_stub')} expected={v.get('expected')}"
+                        f" upstream={v.get('edge_oauth_concurrencies')}"
                     )
                 else:
                     print(f"      mirror FAIL: {v.get('reason')}")
+        if args.account_id is None:
+            print("--- group-level (R3) ---")
+            for gr in group_results:
+                tag = "OK" if not gr["mirror_violations"] else "FAIL"
+                if gr["skipped_reason"]:
+                    tag = "skip"
+                fanout_parts: list[str] = []
+                for f in gr.get("fanout") or []:
+                    if f.get("kind") == "self-edge" and f.get("edge_default_group_id") is not None:
+                        fanout_parts.append(
+                            f"{f['edge_id']}:rpm={f.get('edge_default_rpm_limit')}"
+                        )
+                    elif f.get("kind") == "external":
+                        fanout_parts.append(
+                            f"external({f.get('stub_account_name')}):rpm=0"
+                        )
+                fanout_desc = ",".join(fanout_parts)
+                mixed_marker = " mixed" if (
+                    gr.get("self_edge_count", 0) > 0 and gr.get("external_count", 0) > 0
+                ) else ""
+                print(
+                    f"  [{tag}] group_id={gr['group_id']} name={gr['group_name']!r}"
+                    f" prod_rpm={gr['prod_rpm_limit']}"
+                    f" stubs={gr['stub_count']}(self_edge={gr['self_edge_count']}, external={gr['external_count']}){mixed_marker}"
+                    f" fanout=[{fanout_desc}]"
+                    f" expected={gr.get('expected_rpm_limit')}"
+                )
+                if gr["skipped_reason"]:
+                    print(f"      skip: {gr['skipped_reason']}")
+                for v in gr["mirror_violations"]:
+                    if "field" in v:
+                        print(
+                            f"      mirror FAIL: {v['field']}"
+                            f" prod_group_rpm={v.get('prod_group_rpm')}"
+                            f" expected={v.get('expected')}"
+                            f" fanout={v.get('fanout_rpms')}"
+                        )
+                    else:
+                        print(f"      mirror FAIL: {v.get('reason')}")
 
     return 1 if has_violation else 0
 

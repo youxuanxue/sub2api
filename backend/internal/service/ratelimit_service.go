@@ -71,7 +71,7 @@ const (
 	openAI403CounterWindowMinutes   = 180
 
 	anthropicUpstreamErrorThreshold       = 3
-	anthropicUpstreamErrorWindowMinutes   = 10
+	anthropicUpstreamErrorWindowMinutes   = 1
 	anthropicUpstreamErrorCooldownMinutes = 10
 )
 
