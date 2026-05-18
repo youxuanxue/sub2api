@@ -668,10 +668,9 @@
       "path": "backend/internal/service/openai_gateway_service.go",
       "must_contain": [
         "upstream Wei-Shaw/sub2api#1318",
-        "shouldDisable = s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, body)",
-        "if shouldDisable {\n\t\treturn &UpstreamFailoverError{"
+        "shouldDisable = s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, body)"
       ],
-      "rationale": "openai_passthrough error handling (handleErrorResponsePassthrough) MUST propagate HandleUpstreamError's shouldDisable signal: when the rate-limit service decides the account must stop scheduling (temp-unsched rule match, 402 deactivated_workspace, OAuth 401, organization-disabled 400, ...) the current request must return UpstreamFailoverError so the handler retries on another account. Before upstream #1318, the signal was discarded with `_ =` and only the side effect on the account fired — the in-flight request was completed against the now-disabled account, surfacing to the client as the raw upstream error. The literal `shouldDisable = ...` line is pinned so a refactor that reverts to discarding the return value fails preflight rather than reintroducing the half-applied policy at runtime."
+      "rationale": "openai_passthrough error handling (handleErrorResponsePassthrough) MUST propagate HandleUpstreamError's shouldDisable signal: when the rate-limit service decides the account must stop scheduling (temp-unsched rule match, 402 deactivated_workspace, OAuth 401, organization-disabled 400, ...) the current request must return UpstreamFailoverError so the handler retries on another account. Before upstream #1318, the signal was discarded with `_ =` and only the side effect on the account fired — the in-flight request was completed against the now-disabled account, surfacing to the client as the raw upstream error. Pinning the literal `shouldDisable = s.rateLimitService.HandleUpstreamError(...)` assignment (not `_ =`) is enough to catch the regression. The registry intentionally avoids pinning the gofmt-shaped `if shouldDisable {...}` block so future zap-field / logging additions inside the same branch do not break preflight. Behavior is exercised end-to-end by TestOpenAIGatewayService_OpenAIPassthrough_TempUnschedRuleTriggersFailover (which is pinned by its own sentinel below)."
     },
     {
       "path": "backend/internal/service/openai_oauth_passthrough_test.go",

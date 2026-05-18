@@ -889,13 +889,13 @@ func TestOpenAIGatewayService_OpenAIPassthrough_429And529TriggerFailover(t *test
 // the trigger as successful and HandleUpstreamError reports shouldDisable=true.
 type passthroughTempUnschedRepo struct {
 	stubOpenAIAccountRepo
-	tempUnschedCalls []time.Time
-	tempUnschedRason []string
+	tempUnschedCalls   []time.Time
+	tempUnschedReasons []string
 }
 
 func (r *passthroughTempUnschedRepo) SetTempUnschedulable(_ context.Context, _ int64, until time.Time, reason string) error {
 	r.tempUnschedCalls = append(r.tempUnschedCalls, until)
-	r.tempUnschedRason = append(r.tempUnschedRason, reason)
+	r.tempUnschedReasons = append(r.tempUnschedReasons, reason)
 	return nil
 }
 
@@ -982,6 +982,18 @@ func TestOpenAIGatewayService_OpenAIPassthrough_TempUnschedRuleTriggersFailover(
 
 	require.Len(t, repo.tempUnschedCalls, 1,
 		"the temp-unsched rule must still take its side effect on the account repository")
+	// Reason must carry the matched rule context (status code + matched keyword)
+	// so ops can later attribute the disable back to the right rule. This pins
+	// that #1318's regression is not just "shouldDisable propagated" but also
+	// "the matched-rule reason was actually persisted" — a previous half-applied
+	// state where the reason was empty would silently make admin troubleshooting
+	// useless.
+	require.Len(t, repo.tempUnschedReasons, 1)
+	persistedReason := repo.tempUnschedReasons[0]
+	require.Contains(t, persistedReason, "deactivated",
+		"persisted temp-unsched reason must contain the matched keyword so admin/ops can attribute the disable")
+	require.Contains(t, persistedReason, "402",
+		"persisted temp-unsched reason must contain the triggering status code")
 
 	v, ok := c.Get(OpsUpstreamErrorsKey)
 	require.True(t, ok)
