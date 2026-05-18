@@ -483,6 +483,32 @@
         "TestChatRawSilentRefusalPredicate_ChunkLevelErrorBlocks"
       ],
       "rationale": "Focused regressions that lock the conservative shape of the silent-refusal predicate: a ghost stream triggers exactly one ops event with Kind=silent_refusal; normal streams, tool_calls finishes, reasoning streams, and length-class finishes never trigger; non-streaming ghost responses are handled symmetrically; usage>0 or a chunk-level error blocks the predicate. Dropping any of these lets a future refactor either widen the predicate (false positives on legitimate short answers) or narrow it (the original #2556 regression returns)."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "Wei-Shaw/sub2api#1264",
+        "\"prompt_cache_retention\", \"safety_identifier\", \"user\""
+      ],
+      "rationale": "OpenAI /v1/responses passthrough (OpenAIGatewayService.Forward) MUST strip top-level `user` from the request body before forwarding upstream. Native OpenAI Responses rejects `user` with HTTP 400 \"Unsupported parameter: user\" (the equivalent Responses field is `safety_identifier`). The OAuth path already strips it via openAIChatGPTInternalUnsupportedFields in applyCodexOAuthTransform; this list is the catch-all for the APIKey path. Without it, clients like LobeHub send `user` and every request 400s. The literal ordering is pinned so an alphabetization refactor that splits the line cannot regress the intent invisibly. The upstream issue marker is the intent anchor."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions.go",
+      "must_contain": [
+        "Wei-Shaw/sub2api#1264",
+        "cursorResponsesUnsupportedFields",
+        "\"user\""
+      ],
+      "rationale": "Cursor-shape short-circuit in ForwardAsChatCompletions (isResponsesShape branch) forwards a Responses-shape body untouched to the Responses upstream. The cursorResponsesUnsupportedFields list is kept semantically in sync with the unsupportedFields list in openai_gateway_service.go (the /v1/responses passthrough) — both must include `user` per upstream #1264 because Cursor-style clients posting Responses-shape bodies to /v1/chat/completions can still carry the top-level `user` field that the Responses upstream rejects. The marker pins the intent so symmetric drift between the two lists fails preflight rather than only being caught at runtime."
+    },
+    {
+      "path": "backend/internal/service/openai_responses_unsupported_user_test.go",
+      "must_contain": [
+        "TestOpenAIGatewayService_Forward_StripsUserFieldFromAPIKeyResponsesPassthrough",
+        "TestCursorResponsesUnsupportedFields_IncludesUser",
+        "Wei-Shaw/sub2api#1264"
+      ],
+      "rationale": "Focused regressions for upstream #1264: the Forward test exercises the APIKey /v1/responses passthrough end-to-end and asserts `user` is absent from the body actually sent upstream; the list test pins the symmetric Cursor-shape filter. Dropping either lets the bug return silently — the OAuth path is already covered elsewhere and would not flag the APIKey regression on its own."
     }
   ]
 }
