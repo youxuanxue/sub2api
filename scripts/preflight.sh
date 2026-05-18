@@ -572,6 +572,22 @@ else
     echo "  ok: no Edge Stage0 workflow present"
 fi
 
+# Anthropic OAuth tier baseline values must stay in sync between the JSON
+# source of truth and the SQL apply template's VALUES table. The SQL comment
+# claims JSON is canonical, but there is no plpgsql-side JSON loader — the
+# two are aligned by hand. This check fails when any tier is missing on one
+# side or any numeric field disagrees.
+echo ""
+echo "=== sub2api: anthropic tier baseline JSON↔SQL drift ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by check-anthropic-tier-baseline-drift.py)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/check-anthropic-tier-baseline-drift.py --quiet; then
+    errors=$((errors + 1))
+else
+    echo "  ok: anthropic tier baseline JSON and SQL VALUES are in sync"
+fi
+
 # Headless agent stream redactor: scripts/redact-agent-stream.py sits between
 # `claude -p` and `tee` in upstream-merge-agent-daily.yml / pr-repair-agent.yml
 # /agent-draft-pr/action.yml, scrubbing secrets out of the agent's stdout

@@ -5,7 +5,7 @@
     "single_account_scope": true,
     "rate_multiplier_fixed": 1.0,
     "usage_model": "Claude Code human-paced work: usage budget and session length are constrained separately; lower tiers are scheduled first but reach their local limits earlier.",
-    "tier_order": ["l1", "l2", "l3"],
+    "tier_order": ["l1", "l2", "l3", "l4"],
     "rounding": {
       "integer_fields": "explicit",
       "float_fields": "explicit"
@@ -198,6 +198,24 @@
           "max_sessions": 5,
           "session_idle_timeout_minutes": 8,
           "window_cost_limit": 480,
+          "window_cost_sticky_reserve": 0
+        }
+      }
+    },
+    "l4": {
+      "factor": 0.9,
+      "baseline": {
+        "account": {
+          "concurrency": 4,
+          "priority": 40,
+          "rate_multiplier": 1.0
+        },
+        "extra": {
+          "base_rpm": 12,
+          "rpm_sticky_buffer": 8,
+          "max_sessions": 6,
+          "session_idle_timeout_minutes": 8,
+          "window_cost_limit": 540,
           "window_cost_sticky_reserve": 0
         }
       }
