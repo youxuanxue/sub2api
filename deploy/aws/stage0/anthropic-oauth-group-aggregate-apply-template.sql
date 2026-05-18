@@ -3,6 +3,14 @@
 -- Usage (psql):
 --   \set group_name 'default'
 --   \i deploy/aws/stage0/anthropic-oauth-group-aggregate-apply-template.sql
+--
+-- Capacity aggregation operator: absorb-zero SUM.
+-- Runtime treats 0 as "unlimited" for account.base_rpm / max_sessions /
+-- window_cost_limit / concurrency (see SKILL.md §"prod 控制面：anthropic
+-- stub 主路径镜像规则" 的"容量约定").  Naive SUM would silently treat
+-- "unlimited" as a 0 datum and underestimate the group ceiling; absorb-zero
+-- propagates the unlimited semantic: any member account with field=0 makes
+-- the aggregate also 0 (unlimited), otherwise SUM of positives.
 
 BEGIN;
 
@@ -36,12 +44,25 @@ available_accounts AS (
     AND COALESCE(a.status, '') NOT IN ('disabled', 'suspended')
 ),
 agg AS (
+  -- absorb-zero SUM: any member with field=0 (runtime: unlimited) makes the
+  -- aggregate also 0 (unlimited); otherwise SUM of positives.  Empty group
+  -- aggregates to 0 (no members ⇒ unlimited is the conservative/no-cap
+  -- choice; operator should not be applying this template against an empty
+  -- group anyway).
   SELECT
     COUNT(*)::int AS available_account_count,
-    COALESCE(SUM(base_rpm), 0)::int AS total_base_rpm,
-    COALESCE(SUM(max_sessions), 0)::int AS total_max_sessions,
-    COALESCE(SUM(window_cost_limit), 0)::int AS total_window_cost_limit,
-    COALESCE(SUM(concurrency), 0)::int AS effective_concurrency,
+    CASE WHEN bool_or(base_rpm = 0)
+         THEN 0
+         ELSE COALESCE(SUM(base_rpm), 0)::int END AS total_base_rpm,
+    CASE WHEN bool_or(max_sessions = 0)
+         THEN 0
+         ELSE COALESCE(SUM(max_sessions), 0)::int END AS total_max_sessions,
+    CASE WHEN bool_or(window_cost_limit = 0)
+         THEN 0
+         ELSE COALESCE(SUM(window_cost_limit), 0)::int END AS total_window_cost_limit,
+    CASE WHEN bool_or(concurrency = 0)
+         THEN 0
+         ELSE COALESCE(SUM(concurrency), 0)::int END AS effective_concurrency,
     COALESCE(MIN(priority), 0)::int AS min_priority,
     COALESCE(MAX(priority), 0)::int AS max_priority
   FROM available_accounts
