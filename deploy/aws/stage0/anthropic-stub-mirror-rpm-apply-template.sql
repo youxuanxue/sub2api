@@ -37,6 +37,17 @@ DECLARE
   tg TEXT := current_setting('app.target_group_name');
   oauth_member TEXT;
 BEGIN
+  -- Group must exist; otherwise the WITH...UPDATE below silently no-ops
+  -- (a typo in :'group_name' would leave the operator thinking the
+  -- mirror was written when it wasn't).
+  IF NOT EXISTS (
+    SELECT 1 FROM groups WHERE name = tg AND deleted_at IS NULL
+  ) THEN
+    RAISE EXCEPTION 'group % not found (or soft-deleted)', quote_literal(tg);
+  END IF;
+
+  -- Refuse stub-mirror writes on groups that own OAuth accounts; those
+  -- are governed by Σ(redline) via the strict-redline aggregate template.
   SELECT a.name INTO oauth_member
   FROM groups g
   JOIN account_groups ag ON ag.group_id = g.id
