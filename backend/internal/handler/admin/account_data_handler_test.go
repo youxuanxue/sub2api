@@ -44,6 +44,8 @@ type dataAccount struct {
 	ProxyKey    *string        `json:"proxy_key"`
 	Concurrency int            `json:"concurrency"`
 	Priority    int            `json:"priority"`
+	ChannelType int            `json:"channel_type"`
+	GroupIDs    []int64        `json:"group_ids"`
 }
 
 func setupAccountDataRouter() (*gin.Engine, *stubAdminService) {
@@ -274,4 +276,81 @@ func TestImportDataReusesProxyAndSkipsDefaultGroup(t *testing.T) {
 	require.Len(t, adminSvc.createdProxies, 0)
 	require.Len(t, adminSvc.createdAccounts, 1)
 	require.True(t, adminSvc.createdAccounts[0].SkipDefaultGroupBind)
+}
+
+// TestImportData_GroupIDsReachCreateAccount is a regression for upstream
+// Wei-Shaw/sub2api#1170: the import payload's `group_ids` array must reach
+// CreateAccount as CreateAccountInput.GroupIDs. The original code silently
+// dropped the field (DataAccount struct had no GroupIDs) and the import
+// handler hard-coded GroupIDs: nil, so batch-imported accounts came in
+// ungrouped even when the operator explicitly listed groups.
+func TestImportData_GroupIDsReachCreateAccount(t *testing.T) {
+	router, adminSvc := setupAccountDataRouter()
+
+	dataPayload := map[string]any{
+		"data": map[string]any{
+			"type":    dataType,
+			"version": dataVersion,
+			"proxies": []map[string]any{},
+			"accounts": []map[string]any{
+				{
+					"name":        "grouped-acc",
+					"platform":    service.PlatformOpenAI,
+					"type":        service.AccountTypeOAuth,
+					"credentials": map[string]any{"refresh_token": "rt_x"},
+					"concurrency": 3,
+					"priority":    50,
+					"group_ids":   []int64{1, 2, 3, 4},
+				},
+			},
+		},
+		"skip_default_group_bind": true,
+	}
+
+	body, _ := json.Marshal(dataPayload)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/data", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	require.Len(t, adminSvc.createdAccounts, 1)
+	require.Equal(t, []int64{1, 2, 3, 4}, adminSvc.createdAccounts[0].GroupIDs,
+		"group_ids from import payload must reach CreateAccountInput.GroupIDs (upstream #1170)")
+}
+
+// TestExportData_IncludesGroupIDsAndChannelType pins the export side of the
+// upstream #1170 round-trip: an account with bound groups and a channel_type
+// must surface both in the export payload, otherwise re-importing the export
+// silently loses group bindings and channel-type metadata.
+func TestExportData_IncludesGroupIDsAndChannelType(t *testing.T) {
+	router, adminSvc := setupAccountDataRouter()
+
+	adminSvc.accounts = []service.Account{
+		{
+			ID:          42,
+			Name:        "grouped",
+			Platform:    service.PlatformNewAPI,
+			Type:        service.AccountTypeAPIKey,
+			Credentials: map[string]any{"api_key": "sk-x"},
+			Concurrency: 3,
+			Priority:    50,
+			ChannelType: 45,
+			GroupIDs:    []int64{1, 2, 3},
+			Status:      service.StatusActive,
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/data", nil)
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp dataResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Data.Accounts, 1)
+	require.Equal(t, []int64{1, 2, 3}, resp.Data.Accounts[0].GroupIDs,
+		"GroupIDs must be exported so the export → import round-trip preserves group bindings (upstream #1170)")
+	require.Equal(t, 45, resp.Data.Accounts[0].ChannelType,
+		"ChannelType must be exported so newapi fifth-platform metadata survives the round-trip")
 }
