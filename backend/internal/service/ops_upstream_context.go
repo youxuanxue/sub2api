@@ -135,6 +135,11 @@ type OpsUpstreamErrorEvent struct {
 	// Required for retrying a specific upstream attempt.
 	UpstreamRequestBody string `json:"upstream_request_body,omitempty"`
 
+	// RequestBodyTruncated indicates UpstreamRequestBody was truncated for
+	// storage (the stored value is smaller than the original upstream body).
+	// Kept separate from Kind so the latter stays a clean categorical enum.
+	RequestBodyTruncated bool `json:"request_body_truncated,omitempty"`
+
 	// Best-effort upstream response capture (sanitized+trimmed).
 	UpstreamResponseBody string `json:"upstream_response_body,omitempty"`
 
