@@ -81,9 +81,3 @@ func (c *anthropicSignaturePreemptCache) IsArmed(ctx context.Context, accountID 
 	}
 	return n > 0, nil
 }
-
-func (c *anthropicSignaturePreemptCache) Reset(ctx context.Context, accountID int64) error {
-	countKey := fmt.Sprintf("%s%d", anthropicSigPreemptCountPrefix, accountID)
-	flagKey := fmt.Sprintf("%s%d", anthropicSigPreemptFlagPrefix, accountID)
-	return c.rdb.Del(ctx, countKey, flagKey).Err()
-}

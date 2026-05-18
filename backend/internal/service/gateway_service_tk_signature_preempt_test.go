@@ -24,7 +24,6 @@ type fakeSigPreemptCache struct {
 	}
 	armCalls    atomic.Int32
 	isArmCalls  atomic.Int32
-	resetCalls  atomic.Int32
 	lastAccount atomic.Int64
 }
 
@@ -47,11 +46,6 @@ func (f *fakeSigPreemptCache) IsArmed(_ context.Context, accountID int64) (bool,
 		return false, f.isArmErr
 	}
 	return f.armed.Load(), nil
-}
-
-func (f *fakeSigPreemptCache) Reset(_ context.Context, _ int64) error {
-	f.resetCalls.Add(1)
-	return nil
 }
 
 func newTestGin() *gin.Context {
@@ -114,7 +108,7 @@ func TestArmSigPreempt_BelowThreshold_NoEvent(t *testing.T) {
 	s.armSigPreemptOnError(context.Background(), c, newTestAccount())
 
 	require.Equal(t, int32(1), cache.armCalls.Load())
-	require.False(t, hasOpsEventKind(c, "sig_preempt_armed"), "armed event only when armedNow=true")
+	require.False(t, hasOpsEventKind(c, "signature_preempt_armed"), "armed event only when armedNow=true")
 }
 
 func TestArmSigPreempt_AtThreshold_EmitsEvent(t *testing.T) {
@@ -126,13 +120,13 @@ func TestArmSigPreempt_AtThreshold_EmitsEvent(t *testing.T) {
 
 	s.armSigPreemptOnError(context.Background(), c, newTestAccount())
 
-	require.True(t, hasOpsEventKind(c, "sig_preempt_armed"), "must emit ops event on arm transition")
+	require.True(t, hasOpsEventKind(c, "signature_preempt_armed"), "must emit ops event on arm transition")
 	events := getOpsEvents(c)
 	require.Len(t, events, 1)
-	require.Equal(t, "sig_preempt_armed", events[0].Kind)
+	require.Equal(t, "signature_preempt_armed", events[0].Kind)
 	require.Equal(t, int64(42), events[0].AccountID)
-	require.Contains(t, events[0].Detail, "count=3")
-	require.Contains(t, events[0].Detail, "threshold=3")
+	require.Equal(t, "signature_error_threshold_crossed", events[0].Message)
+	require.Empty(t, events[0].Detail, "Detail intentionally unused — count is implicit at arm transition")
 }
 
 func TestArmSigPreempt_RedisError_FailOpen(t *testing.T) {
@@ -142,7 +136,7 @@ func TestArmSigPreempt_RedisError_FailOpen(t *testing.T) {
 
 	// Must not panic and must not emit a misleading ops event.
 	s.armSigPreemptOnError(context.Background(), c, newTestAccount())
-	require.False(t, hasOpsEventKind(c, "sig_preempt_armed"))
+	require.False(t, hasOpsEventKind(c, "signature_preempt_armed"))
 }
 
 // --- applySigPreemptIfArmed ---
@@ -180,14 +174,18 @@ func TestApplyPreempt_Armed_StripsThinkingBlocks(t *testing.T) {
 	require.NotEqual(t, body, out, "armed run with thinking content must transform body")
 	require.False(t, bytes.Contains(out, []byte(`"type":"thinking"`)),
 		"thinking block must be removed from output, got: %s", string(out))
-	require.True(t, hasOpsEventKind(c, "sig_preempt_applied"), "must emit ops event on apply")
+	require.True(t, hasOpsEventKind(c, "signature_preempt_applied"), "must emit ops event on apply")
 
 	events := getOpsEvents(c)
 	require.Len(t, events, 1)
 	require.Equal(t, "thinking_blocks_stripped", events[0].Message)
 }
 
-func TestApplyPreempt_Armed_NoThinkingContent_EmitsNoopEvent(t *testing.T) {
+func TestApplyPreempt_Armed_NoThinkingContent_StaysSilent(t *testing.T) {
+	// Armed-but-nothing-to-strip is silent: the cooldown check still ran, but
+	// emitting an ops event per request would flood ops_error_logs on accounts
+	// with steady non-thinking traffic during cooldown. Behavior of armed
+	// path is still asserted via the IsArmed call count.
 	cache := &fakeSigPreemptCache{}
 	cache.armed.Store(true)
 	s := &GatewayService{tkAnthropicSigPreemptCache: cache}
@@ -197,9 +195,8 @@ func TestApplyPreempt_Armed_NoThinkingContent_EmitsNoopEvent(t *testing.T) {
 	out := s.applySigPreemptIfArmed(context.Background(), c, newTestAccount(), body)
 
 	require.Equal(t, body, out, "no-thinking body returned unchanged even when armed")
-	require.True(t, hasOpsEventKind(c, "sig_preempt_applied"))
-	events := getOpsEvents(c)
-	require.Equal(t, "thinking_blocks_preempt_noop", events[0].Message)
+	require.Equal(t, int32(1), cache.isArmCalls.Load(), "armed flag must still be checked")
+	require.Empty(t, getOpsEvents(c), "no-op preempt must not emit ops event")
 }
 
 func TestApplyPreempt_IsArmedError_FailOpen(t *testing.T) {
