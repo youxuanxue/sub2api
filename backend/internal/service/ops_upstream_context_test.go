@@ -1,7 +1,9 @@
 package service
 
 import (
+	"encoding/json"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -91,4 +93,68 @@ func TestAppendOpsUpstreamError_UsesTLSFingerprintProfileFromContext(t *testing.
 	require.NotNil(t, raw)
 	require.Contains(t, *raw, `"tls_fingerprint_profile_id":42`)
 	require.Contains(t, *raw, `"tls_fingerprint_profile_name":"claude_cli_nodejs25_observed_candidate"`)
+}
+
+// TestSanitizeOpsUpstreamErrors_TruncatedBodyKeepsKindClean verifies that
+// the request_body_truncated marker rides on its own boolean field rather than
+// being suffixed onto Kind (which must stay a clean categorical enum so ops
+// dashboards/alerts can group "request_error" without :request_body_truncated
+// drift based purely on body size).
+func TestSanitizeOpsUpstreamErrors_TruncatedBodyKeepsKindClean(t *testing.T) {
+	// Build an upstream body large enough to exceed the 10 KB cap applied in
+	// sanitizeOpsUpstreamErrors. We embed it inside a valid JSON object so the
+	// sanitizer treats it as a JSON payload (matching the production shape).
+	largeContent := strings.Repeat("x", 20*1024)
+	body, err := json.Marshal(map[string]any{"messages": []map[string]any{{"role": "user", "content": largeContent}}})
+	require.NoError(t, err)
+
+	entry := &OpsInsertErrorLogInput{
+		UpstreamErrors: []*OpsUpstreamErrorEvent{
+			{
+				Kind:                "request_error",
+				Message:             `Post "https://api.anthropic.com/v1/messages": net/http: timeout awaiting response headers`,
+				UpstreamRequestBody: string(body),
+			},
+		},
+	}
+
+	require.NoError(t, sanitizeOpsUpstreamErrors(entry))
+	require.NotNil(t, entry.UpstreamErrorsJSON)
+
+	var got []*OpsUpstreamErrorEvent
+	require.NoError(t, json.Unmarshal([]byte(*entry.UpstreamErrorsJSON), &got))
+	require.Len(t, got, 1)
+
+	require.Equal(t, "request_error", got[0].Kind, "Kind must stay a clean enum value")
+	require.True(t, got[0].RequestBodyTruncated, "RequestBodyTruncated must be true when body exceeds storage cap")
+	require.NotEmpty(t, got[0].UpstreamRequestBody)
+	require.LessOrEqual(t, len(got[0].UpstreamRequestBody), 10*1024)
+	require.NotContains(t, *entry.UpstreamErrorsJSON, ":request_body_truncated",
+		"the truncated marker must not be suffixed onto kind")
+}
+
+// TestSanitizeOpsUpstreamErrors_SmallBodyKeepsTruncatedFalse verifies the
+// boolean is false (and omitted from JSON via omitempty) for bodies that fit.
+func TestSanitizeOpsUpstreamErrors_SmallBodyKeepsTruncatedFalse(t *testing.T) {
+	entry := &OpsInsertErrorLogInput{
+		UpstreamErrors: []*OpsUpstreamErrorEvent{
+			{
+				Kind:                "request_error",
+				Message:             "dial tcp: i/o timeout",
+				UpstreamRequestBody: `{"model":"claude-opus-4-7","stream":true}`,
+			},
+		},
+	}
+
+	require.NoError(t, sanitizeOpsUpstreamErrors(entry))
+	require.NotNil(t, entry.UpstreamErrorsJSON)
+
+	var got []*OpsUpstreamErrorEvent
+	require.NoError(t, json.Unmarshal([]byte(*entry.UpstreamErrorsJSON), &got))
+	require.Len(t, got, 1)
+
+	require.Equal(t, "request_error", got[0].Kind)
+	require.False(t, got[0].RequestBodyTruncated)
+	require.NotContains(t, *entry.UpstreamErrorsJSON, "request_body_truncated",
+		"omitempty must drop the false flag from serialized JSON")
 }

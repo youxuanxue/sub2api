@@ -355,13 +355,7 @@ func sanitizeOpsUpstreamErrors(entry *OpsInsertErrorLogInput) error {
 			sanitizedBody, truncated, _ := sanitizeAndTrimRequestBody([]byte(out.UpstreamRequestBody), 10*1024)
 			if sanitizedBody != "" {
 				out.UpstreamRequestBody = sanitizedBody
-				if truncated {
-					out.Kind = strings.TrimSpace(out.Kind)
-					if out.Kind == "" {
-						out.Kind = "upstream"
-					}
-					out.Kind = out.Kind + ":request_body_truncated"
-				}
+				out.RequestBodyTruncated = truncated
 			} else {
 				out.UpstreamRequestBody = ""
 			}
