@@ -947,6 +947,8 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			}
 		}
 
+		appendOpsInternalErrorDetail(c, entry)
+
 		if apiKey != nil {
 			entry.APIKeyID = &apiKey.ID
 			if apiKey.User != nil {
@@ -1294,6 +1296,55 @@ func classifyOpsErrorSource(phase string, message string) string {
 			return "upstream_http"
 		}
 		return "gateway"
+	}
+}
+
+// appendOpsInternalErrorDetail consumes a sanitized internal-error detail set
+// by middleware (api_key auth fallbacks etc.) and folds it into the captured
+// error_body so RCA can recover the underlying cache/redis/db error string
+// without needing live docker logs.
+//
+// When error_body is a JSON object, the detail is injected as a top-level
+// "_internal_detail" field so downstream service.sanitizeErrorBodyForStorage
+// still applies JSON-aware redaction (redactSensitiveJSON) to any sensitive
+// fields a future caller might leave in the body. When the body is empty or
+// not a JSON object, fall back to a "[internal_detail] <text>" suffix.
+func appendOpsInternalErrorDetail(c *gin.Context, entry *service.OpsInsertErrorLogInput) {
+	if c == nil || entry == nil {
+		return
+	}
+	v, ok := c.Get(service.OpsInternalErrorDetailKey)
+	if !ok {
+		return
+	}
+	s, ok := v.(string)
+	if !ok {
+		return
+	}
+	detail := strings.TrimSpace(s)
+	if detail == "" {
+		return
+	}
+	detail = truncateString(detail, 1024)
+
+	if trimmed := strings.TrimSpace(entry.ErrorBody); trimmed != "" {
+		var decoded any
+		if err := json.Unmarshal([]byte(trimmed), &decoded); err == nil {
+			if obj, ok := decoded.(map[string]any); ok {
+				obj["_internal_detail"] = detail
+				if encoded, encErr := json.Marshal(obj); encErr == nil {
+					entry.ErrorBody = string(encoded)
+					return
+				}
+			}
+		}
+	}
+
+	const marker = "[internal_detail] "
+	if entry.ErrorBody == "" {
+		entry.ErrorBody = marker + detail
+	} else {
+		entry.ErrorBody = entry.ErrorBody + "\n" + marker + detail
 	}
 }
 

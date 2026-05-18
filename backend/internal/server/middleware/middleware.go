@@ -3,12 +3,16 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
+
+const middlewareInternalErrorDetailMaxLen = 1024
 
 // ContextKey 定义上下文键类型
 type ContextKey string
@@ -73,6 +77,42 @@ func NewErrorResponse(code, message string) ErrorResponse {
 func AbortWithError(c *gin.Context, statusCode int, code, message string) {
 	c.JSON(statusCode, NewErrorResponse(code, message))
 	c.Abort()
+}
+
+// AbortWithErrorDetail behaves like AbortWithError but additionally records a
+// sanitized representation of internalErr on the gin context so that
+// OpsErrorLoggerMiddleware can persist it into ops_error_logs.error_body for
+// post-hoc RCA. The client-facing response is identical to AbortWithError —
+// no detail is leaked to callers.
+func AbortWithErrorDetail(c *gin.Context, statusCode int, code, message string, internalErr error) {
+	if c != nil && internalErr != nil {
+		if detail := sanitizeMiddlewareInternalErrorDetail(internalErr); detail != "" {
+			c.Set(service.OpsInternalErrorDetailKey, detail)
+		}
+	}
+	AbortWithError(c, statusCode, code, message)
+}
+
+// sanitizeMiddlewareInternalErrorDetail trims and length-caps an internal error
+// string so it is safe to persist in ops_error_logs. Internal errors from
+// Postgres/Redis/context cancellation generally do not carry caller secrets,
+// but we still cap length to keep error_body bounded and utf8-safe.
+func sanitizeMiddlewareInternalErrorDetail(err error) string {
+	if err == nil {
+		return ""
+	}
+	s := strings.TrimSpace(err.Error())
+	if s == "" {
+		return ""
+	}
+	if len(s) > middlewareInternalErrorDetailMaxLen {
+		s = s[:middlewareInternalErrorDetailMaxLen]
+		for len(s) > 0 && !utf8.ValidString(s) {
+			s = s[:len(s)-1]
+		}
+		s += "...(truncated)"
+	}
+	return s
 }
 
 // ──────────────────────────────────────────────────────────
