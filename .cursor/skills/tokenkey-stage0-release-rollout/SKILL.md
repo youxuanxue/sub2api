@@ -331,20 +331,21 @@ git diff --name-only "${PREV_TAG}..${NEW_TAG}" -- 'frontend/src/' 'deploy/aws/st
 
 ### Step C：每次跟进的固定输出形状
 
-每次跟进结束输出一段 5–12 行的简洁汇报，结构固定：
+每次跟进结束输出一段 5–12 行的简洁汇报，结构固定（占位符在执行时按 Step A 提取结果填实）：
 
 ```
-[+Nmin post-release v1.7.38]
-control plane: api 200 ✓ | settings/public 200 ✓ | edge-us1 200 ✓
-errors (last 5m): <error cluster summary, or "none">
+[+Nmin post-release ${NEW_TAG}]
+control plane: api 200 ✓ | settings/public 200 ✓ | <each deployable edge> 200 ✓
+errors (last 5m): <cluster summary by reason/status_code/platform, or "none">
 traffic (last 5m): N total | chat=X messages=Y models=Z
-new-code hooks:
-  - SchedulerRateLimitReaper: <cycle count and intervals, or "no activity">
-  - applySigPreemptIfArmed: <fires, accounts affected, or "no fires">
-  - openai silent_refusal: <fires, or "no fires">
-  - stream keepalive ticker: <events, or "no activity">
+new-code hooks:                   # 按 Step A 提取的本次重点 hook 列项（按 release 不同）
+  - <hook 1 from Step A>: <grep result, or "no fires">
+  - <hook 2 from Step A>: <grep result, or "no activity">
+  - ...
 verdict: green | yellow | red — <one-line reason>
 ```
+
+**不要把上面模板照搬当输出**：`new-code hooks` 这一节的具体 hook 名由 Step A 的 diff 分析动态产出，不是固定 4 条。例如 v1.7.38 那次 Step A 会提取 `SchedulerRateLimitReaper` / `applySigPreemptIfArmed` / `openai silent_refusal` / stream keepalive ticker；下一次 release 改动不同则换成另一组（甚至完全没有，比如纯前端 / 纯 chore release，那一节直接写 `(no new backend hooks this release)`）。
 
 `verdict` 判定原则：
 
@@ -357,7 +358,7 @@ verdict: green | yellow | red — <one-line reason>
 第 3 次（+15min）跟进汇报完后**立即**给综合建议（不再等更长窗口），结构：
 
 ```
-=== Post-release follow-up summary (v1.7.38, 3 ticks over +15min) ===
+=== Post-release follow-up summary (${NEW_TAG}, 3 ticks over +15min) ===
 重点变更：<列出 Step A 的关键 hook / 配置项>
 control plane：3/3 ticks green | <or list any failure tick>
 错误聚类汇总：<去重的 cluster + 频次趋势>
@@ -375,7 +376,7 @@ control plane：3/3 ticks green | <or list any failure tick>
 - 第 1 次跟进在最后一个 smoke 通过后 +5min ± 30s 启动（用 `ScheduleWakeup`、`CronCreate */5 * * * *` 限 3 次、或 Bash background `sleep 300` 循环均可）
 - 第 2 / 3 次按 5 min 间隔自动续上
 - 中间任意一次 verdict = red → 立刻汇报，停止后续 tick，等人工决定 rollback
-- 3 次窗口结束后会话**不再自动延期**；如需 +1h / +6h / +24h 跟踪由人工显式重新触发本 skill（`operation=follow-up tag=X.Y.Z hours=1`），不要自己延期否则会跨越上下文窗口
+- 3 次窗口结束后会话**不再自动延期**；如需 +1h / +6h / +24h 跟踪由人工显式发起：在新会话里重新调用本 skill 的"完成后：会话里 +5/+10/+15min 后置跟进"段（手动指定起点 tick 偏移），不要在当前会话里自己延期否则会跨越上下文窗口
 
 ## 完成后：rollout 摘要
 
