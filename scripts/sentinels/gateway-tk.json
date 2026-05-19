@@ -411,7 +411,7 @@
         "Wei-Shaw/sub2api#1311",
         "c.Writer.Header().Set(\"Content-Type\", \"application/json; charset=utf-8\")"
       ],
-      "rationale": "OpenAI Images OAuth buffered handler (handleOpenAIImagesOAuthBufferedResponse) converts upstream OpenAI Responses SSE into a single OpenAI Images JSON body. Same Content-Type leak root cause as upstream #1311 — discovered by the generalized scripts/check-buffered-content-type-leak.py gate during PR #244 review and patched in the same commit. Must explicitly override Content-Type before c.Data."
+      "rationale": "OpenAI Images OAuth buffered handler (handleOpenAIImagesOAuthBufferedResponse) converts upstream OpenAI Responses SSE into a single OpenAI Images JSON body. Same Content-Type leak root cause as upstream #1311 — discovered by the generalized scripts/checks/buffered-content-type-leak.py gate during PR #244 review and patched in the same commit. Must explicitly override Content-Type before c.Data."
     },
     {
       "path": "backend/internal/service/model_pricing_resolver.go",

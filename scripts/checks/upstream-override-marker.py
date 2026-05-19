@@ -44,7 +44,7 @@ Exit codes
 Usage
 -----
 
-  python3 scripts/check-upstream-override-marker.py [--base origin/main] [--quiet]
+  python3 scripts/checks/upstream-override-marker.py [--base origin/main] [--quiet]
 """
 from __future__ import annotations
 

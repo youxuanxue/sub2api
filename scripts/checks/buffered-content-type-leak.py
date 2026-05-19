@@ -42,7 +42,7 @@ import re
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SERVICE_DIR = REPO_ROOT / "backend" / "internal" / "service"
 
 WRITE_FILTERED_RE = re.compile(r"responseheaders\.WriteFilteredHeaders\(")

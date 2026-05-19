@@ -84,8 +84,8 @@ jobs:
 
       - name: Verify frontend release assets
         run: |
-          python3 scripts/check-frontend-dist-freshness.py --check backend/internal/web/dist
-          python3 scripts/check-frontend-release-assets.py --dist backend/internal/web/dist
+          python3 scripts/checks/frontend-dist-freshness.py --check backend/internal/web/dist
+          python3 scripts/checks/frontend-release-assets.py --dist backend/internal/web/dist
 
       - name: Upload frontend artifact
         uses: actions/upload-artifact@v7
@@ -120,8 +120,8 @@ jobs:
 
       - name: Verify downloaded frontend artifact
         run: |
-          python3 scripts/check-frontend-dist-freshness.py --check backend/internal/web/dist
-          python3 scripts/check-frontend-release-assets.py --dist backend/internal/web/dist
+          python3 scripts/checks/frontend-dist-freshness.py --check backend/internal/web/dist
+          python3 scripts/checks/frontend-release-assets.py --dist backend/internal/web/dist
 
       - name: Setup Go
         uses: actions/setup-go@v6

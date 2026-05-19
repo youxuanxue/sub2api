@@ -347,7 +347,7 @@ jobs:
 
       - name: Check 10 — QA evidence dataset validator stays executable after merge
         run: |
-          # Single source of truth: scripts/check-qa-evidence-dataset.py plus the focused
+          # Single source of truth: scripts/checks/qa-evidence-dataset.py plus the focused
           # TestUS077_QAEvidenceDatasetCheck_* regressions. Same target that
           # scripts/preflight.sh runs locally, so a green local preflight implies
           # a green Check 10 here. Failure means the export artifact or standalone
@@ -387,18 +387,18 @@ jobs:
 
       - name: Check 13 — buffered Content-Type leak antipattern absent
         run: |
-          # Preflight parity: scripts/check-buffered-content-type-leak.py — generalized
+          # Preflight parity: scripts/checks/buffered-content-type-leak.py — generalized
           # forward-drift guard for upstream Wei-Shaw/sub2api#1311. Any merge that
           # introduces a new responseheaders.WriteFilteredHeaders(...) followed by
           # c.JSON / c.Data("application/json", ...) without an explicit
           # c.Writer.Header().Set("Content-Type", ...) override leaks the upstream SSE
           # Content-Type onto a JSON body. The gate scans backend/internal/service/*.go
           # and fails the merge PR before the antipattern reaches main.
-          if [ ! -f ./scripts/check-buffered-content-type-leak.py ]; then
-            echo "::error::scripts/check-buffered-content-type-leak.py missing."
+          if [ ! -f ./scripts/checks/buffered-content-type-leak.py ]; then
+            echo "::error::scripts/checks/buffered-content-type-leak.py missing."
             exit 1
           fi
-          if ! python3 ./scripts/check-buffered-content-type-leak.py; then
+          if ! python3 ./scripts/checks/buffered-content-type-leak.py; then
             echo "::error::Upstream merge re-introduced the buffered SSE->JSON Content-Type leak antipattern."
             echo "::error::Fix the flagged site(s) by adding c.Writer.Header().Set(\"Content-Type\", \"application/json\") before c.JSON / c.Data."
             exit 1

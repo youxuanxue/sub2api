@@ -15,7 +15,7 @@ check stops the pattern from recurring.
 Step-level if expressions DO support env; only job-level if (jobs.<name>.if)
 is flagged.
 
-Usage: python3 scripts/check-workflow-job-if-env.py [--quiet]
+Usage: python3 scripts/checks/workflow-job-if-env.py [--quiet]
 Exit 0 ok, 1 violation, 2 missing dep / unparseable.
 """
 
@@ -35,7 +35,7 @@ except ImportError:
     )
     sys.exit(2)
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
 ENV_REF = re.compile(r"\benv\.")
 
