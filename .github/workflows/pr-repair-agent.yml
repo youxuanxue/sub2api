@@ -4,12 +4,17 @@ name: PR Repair Agent
 # CLAUDE.md and the failed logs; merge/upstream-* PRs additionally load the
 # upstream merge skill SOP because they require a real --no-ff merge commit and
 # stricter merge-hygiene constraints.
-
+#
+# Only the CI workflow is listened to here. Upstream Merge PR Shape is skipped
+# 97% of the time (it only runs full checks on `merge/upstream-*` PRs), so
+# wiring it as a trigger source produced one "skipped" repair invocation per
+# unrelated PR — pure UI noise. When an upstream-merge PR actually fails CI,
+# this workflow still fires through the CI trigger and loads the upstream
+# merge skill because of the head-branch check below.
 on:
   workflow_run:
     workflows:
       - CI
-      - Upstream Merge PR Shape
     types: [completed]
   workflow_dispatch:
     inputs:

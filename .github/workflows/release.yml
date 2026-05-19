@@ -203,7 +203,37 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           echo "::warning::simple_release=true — amd64-only build, will overwrite shared tags and break ARM consumers"
 
-      - name: Run GoReleaser
+      # GoReleaser already retries per-blob on docker push, but exhausted its
+      # internal backoff during the 2026-05-18 v1.7.37 release when GHCR was
+      # flapping. Outer two-attempt retry so a single registry blip does not
+      # require a manual `gh workflow run release.yml` recovery. Pattern:
+      # attempt 1 with `continue-on-error`, sleep 60s, attempt 2 only if
+      # attempt 1 failed. `--clean` is idempotent across attempts. The second
+      # attempt is the one that fails the job if both fail, so a genuinely
+      # down registry still surfaces a red release.
+      - name: Run GoReleaser (attempt 1)
+        id: goreleaser_attempt1
+        continue-on-error: true
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: '~> v2'
+          args: release --clean --skip=validate ${{ env.SIMPLE_RELEASE == 'true' && '--config=.goreleaser.simple.yaml' || '' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_MESSAGE: ${{ steps.tag_message.outputs.message }}
+          GITHUB_REPO_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO_OWNER_LOWER: ${{ steps.lowercase.outputs.owner }}
+          GITHUB_REPO_NAME: ${{ github.event.repository.name }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME || 'skip' }}
+
+      - name: Wait before retrying GoReleaser
+        if: steps.goreleaser_attempt1.outcome == 'failure'
+        run: |
+          echo "::warning::GoReleaser attempt 1 failed (likely transient registry / GHCR issue). Sleeping 60s, then retrying once."
+          sleep 60
+
+      - name: Run GoReleaser (attempt 2)
+        if: steps.goreleaser_attempt1.outcome == 'failure'
         uses: goreleaser/goreleaser-action@v7
         with:
           version: '~> v2'
