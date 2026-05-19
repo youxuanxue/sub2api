@@ -51,7 +51,7 @@ func (s *GroupCapacityService) GetAllGroupCapacity(ctx context.Context) ([]Group
 
 	results := make([]GroupCapacitySummary, 0, len(groups))
 	for i := range groups {
-		cap, err := s.getGroupCapacity(ctx, groups[i].ID)
+		cap, err := s.getGroupCapacity(ctx, groups[i].ID, groups[i].RPMLimit)
 		if err != nil {
 			// Skip groups with errors, return partial results
 			continue
@@ -62,7 +62,7 @@ func (s *GroupCapacityService) GetAllGroupCapacity(ctx context.Context) ([]Group
 	return results, nil
 }
 
-func (s *GroupCapacityService) getGroupCapacity(ctx context.Context, groupID int64) (GroupCapacitySummary, error) {
+func (s *GroupCapacityService) getGroupCapacity(ctx context.Context, groupID int64, groupRPMLimit int) (GroupCapacitySummary, error) {
 	accounts, err := s.accountRepo.ListSchedulableByGroupID(ctx, groupID)
 	if err != nil {
 		return GroupCapacitySummary{}, err
@@ -104,7 +104,13 @@ func (s *GroupCapacityService) getGroupCapacity(ctx context.Context, groupID int
 	}
 
 	var rpmMap map[int64]int
-	if rpmMax > 0 && s.rpmCache != nil {
+	// Query rpmCache whenever the group reports any RPM ceiling — either the
+	// Σ base_rpm aggregate (legacy fallback) OR the group-level L1 cap
+	// (groupRPMLimit > 0). Without the latter clause, a group whose accounts
+	// all have base_rpm=0 (runtime unlimited) but whose group.rpm_limit > 0
+	// would skip the rpmCache query and surface "rpm_used=0" forever, even
+	// while traffic is flowing.
+	if (rpmMax > 0 || groupRPMLimit > 0) && s.rpmCache != nil {
 		rpmMap, _ = s.rpmCache.GetRPMBatch(ctx, accountIDs)
 	}
 
@@ -120,6 +126,17 @@ func (s *GroupCapacityService) getGroupCapacity(ctx context.Context, groupID int
 		}
 	}
 
+	// rpmMax 默认为 Σ account.base_rpm（绿区合计 / 历史口径）。当 group
+	// 自己设置了 rpm_limit > 0（真实 L1 限流闸门，对应
+	// billing_cache_service.checkRPM 第一层级联），优先显示该值——这才是
+	// gateway 拒不拒请求的真正闸门，sticky_buffer 上线后两者可能不再相等
+	// (Σ base_rpm < group.rpm_limit ≤ Σ (base_rpm + sticky_buffer))。
+	// rpm_limit=0 (unlimited) 时保留 Σ base_rpm 作为容量展示，避免卡片空白。
+	// 三层限流的完整分析与 rpm_override 的现状记录见
+	// docs/approved/rpm-override-deferred-removal.md。
+	if groupRPMLimit > 0 {
+		rpmMax = groupRPMLimit
+	}
 	return GroupCapacitySummary{
 		ConcurrencyUsed: concurrencyUsed,
 		ConcurrencyMax:  concurrencyMax,
