@@ -55,6 +55,9 @@ import subprocess
 import sys
 
 UPSTREAM_SHAPED_INCLUDE = [
+    # Backend Go — every upstream-owned subpackage explicitly. Listing each
+    # subdir keeps generated trees (backend/ent/* outside schema/, vendor,
+    # observability TK spine, etc.) and the worktree caches out of scope.
     re.compile(r"^backend/internal/handler/.*\.go$"),
     re.compile(r"^backend/internal/service/.*\.go$"),
     re.compile(r"^backend/internal/repository/.*\.go$"),
@@ -70,11 +73,12 @@ UPSTREAM_SHAPED_INCLUDE = [
     re.compile(r"^backend/cmd/.*\.go$"),
     re.compile(r"^backend/ent/schema/.*\.go$"),
     re.compile(r"^backend/migrations/(?!.*tk_).*\.sql$"),
-    re.compile(r"^frontend/src/views/.*\.(?:vue|ts)$"),
-    re.compile(r"^frontend/src/components/.*\.(?:vue|ts)$"),
-    re.compile(r"^frontend/src/api/(?!admin/tk).*\.(?:vue|ts)$"),
-    re.compile(r"^frontend/src/stores/.*\.(?:vue|ts)$"),
-    re.compile(r"^frontend/src/router/.*\.(?:vue|ts)$"),
+    # Frontend — single broad rule covers every src/ subdir (views,
+    # components, api, stores, router, composables, utils, i18n, types,
+    # styles, plus top-level main.ts / App.vue / env.d.ts).  Upstream-owned
+    # source files anywhere under src/ are caught; TK-only conventions are
+    # handled by the EXCLUDE list.
+    re.compile(r"^frontend/src/.*\.(?:vue|ts|tsx)$"),
 ]
 
 UPSTREAM_SHAPED_EXCLUDE = [
@@ -87,9 +91,13 @@ UPSTREAM_SHAPED_EXCLUDE = [
     re.compile(r"^backend/internal/integration/newapi/"),
     re.compile(r"^backend/internal/relay/bridge/"),
     re.compile(r"^backend/internal/pkg/"),
+    re.compile(r"^backend/internal/observability/"),
+    re.compile(r"^backend/internal/testutil/"),
     re.compile(r"^frontend/src/components/admin/tk/"),
     re.compile(r"^frontend/src/composables/useTk.*\.ts$"),
     re.compile(r"^frontend/src/constants/.*\.tk\.ts$"),
+    re.compile(r"^frontend/src/api/admin/tk/"),
+    re.compile(r"^frontend/src/__tests__/"),
 ]
 
 MARKERS = [
