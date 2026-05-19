@@ -28,7 +28,4 @@ lint-security:
 	golangci-lint run ./... --enable-only gosec $(GOLANGCI_LINT_SECURITY_ARGS)
 
 test-e2e:
-	./scripts/e2e-test.sh
-
-test-e2e-local:
 	go test -tags=e2e -v -timeout=300s ./internal/integration/...
