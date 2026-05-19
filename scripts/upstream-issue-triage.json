@@ -4,8 +4,8 @@
   "generated_from": "GitHub REST API issues?state=open; pull requests excluded",
   "rationale": "TokenKey-local triage cache for upstream open issues. Use this file before re-triaging upstream issues; update entries when TokenKey fixes, dismisses, or reclassifies an issue.",
   "counts": {
-    "needs_review": 344,
-    "fixed": 32,
+    "needs_review": 343,
+    "fixed": 33,
     "needs_prod_validation": 4,
     "medium": 115,
     "not_applicable": 1,
@@ -298,19 +298,6 @@
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
       "updated_at": "2026-04-19T10:53:21Z"
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#1318",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/1318",
-      "title": "[bug] openai_passthrough 命中临时不可调度规则后未触发 failover",
-      "impact": "needs_review",
-      "categories": [
-        "rate_limit_cooldown",
-        "image_oauth"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-03-26T06:47:06Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#1326",
@@ -5809,6 +5796,19 @@
       "tokenkey_status": "fixed_in_tokenkey",
       "rationale": "Non-stream buffered SSE->JSON handlers in both the OpenAI gateway (/v1/chat/completions, /v1/messages) and the Anthropic-backed gateway forward paths (Responses, Chat Completions) now explicitly set Content-Type: application/json after WriteFilteredHeaders. Without this, the upstream SSE Content-Type (text/event-stream) leaks onto JSON bodies because gin's render.writeContentType only writes when no Content-Type is set, breaking OpenAI-SDK consumers that branch on Content-Type.",
       "updated_at": "2026-05-15T12:00:37Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1318",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/1318",
+      "title": "[bug] openai_passthrough 命中临时不可调度规则后未触发 failover",
+      "impact": "fixed",
+      "categories": [
+        "rate_limit_cooldown",
+        "image_oauth"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "openai_passthrough now propagates HandleUpstreamError's shouldDisable signal: when a temp-unschedulable rule (or any policy that marks the account unschedulable — 402 deactivated_workspace, OAuth 401, organization disabled, etc.) fires, handleErrorResponsePassthrough returns UpstreamFailoverError and emits ops Kind=failover instead of writing the upstream error straight back to the client. This closes the half-applied state where the account got disabled but the in-flight request was still completed on it.",
+      "updated_at": "2026-03-26T06:47:06Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#1322",

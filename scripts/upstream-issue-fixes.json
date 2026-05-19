@@ -58,6 +58,15 @@
       "summary": "Non-stream buffered SSE->JSON handlers in both the OpenAI gateway (/v1/chat/completions, /v1/messages) and the Anthropic-backed gateway forward paths (Responses, Chat Completions) now explicitly set Content-Type: application/json after WriteFilteredHeaders. Without this, the upstream SSE Content-Type (text/event-stream) leaks onto JSON bodies because gin's render.writeContentType only writes when no Content-Type is set, breaking OpenAI-SDK consumers that branch on Content-Type."
     },
     {
+      "upstream": "Wei-Shaw/sub2api#1318",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service.go",
+        "backend/internal/service/openai_oauth_passthrough_test.go"
+      ],
+      "summary": "openai_passthrough now propagates HandleUpstreamError's shouldDisable signal: when a temp-unschedulable rule (or any policy that marks the account unschedulable — 402 deactivated_workspace, OAuth 401, organization disabled, etc.) fires, handleErrorResponsePassthrough returns UpstreamFailoverError and emits ops Kind=failover instead of writing the upstream error straight back to the client. This closes the half-applied state where the account got disabled but the in-flight request was still completed on it."
+    },
+    {
       "upstream": "Wei-Shaw/sub2api#1322",
       "status": "fixed_in_tokenkey",
       "fixed_by": [
