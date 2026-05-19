@@ -297,7 +297,7 @@
         "backend/internal/service/openai_gateway_chat_completions_raw.go",
         "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal_test.go"
       ],
-      "summary": "OpenAI Chat Completions raw passthrough (streaming and buffered) now detects upstream silent refusal — empty stream/response with finish_reason=stop and zero usage — and emits a categorical ops_error_logs row (Kind=silent_refusal). Detection is conservative (no content / no tool_calls / no reasoning_content / no refusal / no chunk-level error / zero usage / finish_reason=stop) so legitimate short answers are never flagged. Surfaces previously invisible 'ghost stream' failures (the gpt-5.5 above-input-budget shape upstream reported) to ops dashboards without changing the client-visible HTTP body, keeping the behavior change minimum-surface."
+      "summary": "OpenAI Chat Completions raw passthrough detects upstream silent refusal (empty stream/response with finish_reason=stop and zero usage) and emits an ops_error_logs row with Kind=silent_refusal. Conservative predicate: no content / no tool_calls / no reasoning / no refusal / no chunk-level error / zero usage / finish_reason=stop. Stream path keeps the client-visible bytes untouched (headers already flushed); buffered path will keep flexibility to harden later. The categorical ops signal turns the previously invisible 'ghost stream' (gpt-5.5 above input budget) into a dashboard-pivotable event."
     },
     {
       "upstream": "Wei-Shaw/sub2api#1264",
@@ -305,10 +305,9 @@
       "fixed_by": [
         "backend/internal/service/openai_gateway_service.go",
         "backend/internal/service/openai_gateway_chat_completions.go",
-        "backend/internal/service/openai_responses_unsupported_user_test.go",
-        "scripts/gateway-tk-sentinels.json"
+        "backend/internal/service/openai_responses_unsupported_user_test.go"
       ],
-      "summary": "OpenAI /v1/responses passthrough now strips top-level `user` before forwarding upstream. Symmetric coverage: (a) APIKey/native passthrough path adds `user` to the unsupportedFields list in OpenAIGatewayService.Forward (the OAuth path already filters it through openAIChatGPTInternalUnsupportedFields in applyCodexOAuthTransform); (b) the Cursor-shape short-circuit in ForwardAsChatCompletions adds `user` to cursorResponsesUnsupportedFields. Without this, clients like LobeHub posting `user` (for end-user tracking) to /v1/responses get HTTP 400 \"Unsupported parameter: user\" from the OpenAI upstream — the Responses-API equivalent field is `safety_identifier`, which we already strip. Tracked by the same sentinel registry entries plus the focused regression in openai_responses_unsupported_user_test.go."
+      "summary": "OpenAI /v1/responses passthrough strips top-level `user` before forwarding. Symmetric coverage on (a) APIKey native path via OpenAIGatewayService.Forward's unsupportedFields list (the OAuth path already strips it through openAIChatGPTInternalUnsupportedFields in applyCodexOAuthTransform) and (b) the Cursor-shape short-circuit in ForwardAsChatCompletions via cursorResponsesUnsupportedFields. Native OpenAI Responses upstream rejects `user` with HTTP 400 \"Unsupported parameter: user\"; the Responses equivalent is `safety_identifier`, which we already filter."
     },
     {
       "upstream": "Wei-Shaw/sub2api#1170",
@@ -317,7 +316,7 @@
         "backend/internal/handler/admin/account_data.go",
         "backend/internal/handler/admin/account_data_handler_test.go"
       ],
-      "summary": "Batch account import (/admin/accounts/data) propagates `group_ids` from the JSON payload through to CreateAccountInput.GroupIDs so newly imported accounts are bound to the requested groups directly, without requiring a manual edit-and-save. The DataAccount struct now declares the GroupIDs field (the original definition lacked it, so JSON `group_ids` was silently dropped at Unmarshal) and the import handler forwards `item.GroupIDs` instead of hard-coded `nil`. The symmetric export side also surfaces GroupIDs + ChannelType so an export → import round-trip no longer silently drops group bindings or newapi fifth-platform metadata."
+      "summary": "Batch account import (/admin/accounts/data) now propagates `group_ids` through to CreateAccountInput.GroupIDs and the symmetric export carries `group_ids` + `channel_type` so an export → import round trip preserves group bindings and newapi fifth-platform metadata. Original implementation defined no GroupIDs field on DataAccount (so JSON `group_ids` was silently dropped at Unmarshal) and the import handler hard-coded `GroupIDs: nil`, leaving batch-imported accounts ungrouped until manually re-edited."
     }
   ]
 }
