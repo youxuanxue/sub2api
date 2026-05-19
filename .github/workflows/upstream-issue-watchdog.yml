@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - 'backend/**'
-      - 'scripts/upstream-issue-*.json'
+      - '.cache/upstream/*.json'
       - 'scripts/upstream-issue-*.py'
       - '.github/workflows/upstream-issue-watchdog.yml'
   schedule:
@@ -112,18 +112,18 @@ jobs:
           set -euo pipefail
           python3 scripts/upstream-issue-triage-generate.py \
             .cache/upstream-issue-watchdog/upstream-open-issues.jsonl \
-            scripts/upstream-issue-triage.json
+            .cache/upstream/triage.json
           python3 scripts/upstream-issue-watchdog.py \
             --upstream-issues .cache/upstream-issue-watchdog/upstream-issues.jsonl \
-            --triage scripts/upstream-issue-triage.json \
-            --fixes scripts/upstream-issue-fixes.json \
-            --fact-checks scripts/upstream-issue-fact-checks.json \
+            --triage .cache/upstream/triage.json \
+            --fixes .cache/upstream/fixes.json \
+            --fact-checks .cache/upstream/fact-checks.json \
             --report-json .cache/upstream-issue-watchdog/report.json \
             --report-md .cache/upstream-issue-watchdog/report.md \
             --agent-input-json .cache/upstream-issue-watchdog/agent-input.json \
             --force-upstream-issue "${FORCE_UPSTREAM_ISSUE:-}"
-          python3 -m json.tool scripts/upstream-issue-triage.json >/dev/null
-          python3 -m json.tool scripts/upstream-issue-fixes.json >/dev/null
+          python3 -m json.tool .cache/upstream/triage.json >/dev/null
+          python3 -m json.tool .cache/upstream/fixes.json >/dev/null
           python3 -m json.tool .cache/upstream-issue-watchdog/report.json >/dev/null
           python3 -m json.tool .cache/upstream-issue-watchdog/agent-input.json >/dev/null
           python3 - <<'PY'
@@ -151,18 +151,18 @@ jobs:
               return normalizer(json.loads(before)) != normalizer(json.loads(after))
 
           changed_paths = []
-          if json_changed("scripts/upstream-issue-triage.json", scrub_updated_at):
-              changed_paths.append("scripts/upstream-issue-triage.json")
-          if json_changed("scripts/upstream-issue-fixes.json"):
-              changed_paths.append("scripts/upstream-issue-fixes.json")
+          if json_changed(".cache/upstream/triage.json", scrub_updated_at):
+              changed_paths.append(".cache/upstream/triage.json")
+          if json_changed(".cache/upstream/fixes.json"):
+              changed_paths.append(".cache/upstream/fixes.json")
 
           raw_changed = subprocess.run([
               "git",
               "diff",
               "--quiet",
               "--",
-              "scripts/upstream-issue-triage.json",
-              "scripts/upstream-issue-fixes.json",
+              ".cache/upstream/triage.json",
+              ".cache/upstream/fixes.json",
           ]).returncode != 0
           if raw_changed and not changed_paths:
               print("Only upstream issue updated_at timestamps changed; skipping cache PR.")
@@ -280,26 +280,26 @@ jobs:
           set -euo pipefail
           echo "cache_pr_url=" >> "$GITHUB_OUTPUT"
           if [ "${{ steps.watchdog.outputs.cache_changed }}" != "true" ]; then
-            if git diff --quiet -- scripts/upstream-issue-triage-generate.py scripts/upstream-issue-fact-checks.json scripts/upstream-issue-watchdog.py .github/workflows/upstream-issue-watchdog.yml; then
+            if git diff --quiet -- scripts/upstream-issue-triage-generate.py .cache/upstream/fact-checks.json scripts/upstream-issue-watchdog.py .github/workflows/upstream-issue-watchdog.yml; then
               echo "No substantive upstream issue cache changes to propose."
               exit 0
             fi
           fi
-          if git diff --quiet -- scripts/upstream-issue-triage-generate.py scripts/upstream-issue-triage.json scripts/upstream-issue-fixes.json scripts/upstream-issue-fact-checks.json scripts/upstream-issue-watchdog.py .github/workflows/upstream-issue-watchdog.yml; then
+          if git diff --quiet -- scripts/upstream-issue-triage-generate.py .cache/upstream/triage.json .cache/upstream/fixes.json .cache/upstream/fact-checks.json scripts/upstream-issue-watchdog.py .github/workflows/upstream-issue-watchdog.yml; then
             echo "No upstream issue cache changes to propose."
             exit 0
           fi
 
           BRANCH="chore/upstream-issue-cache"
           git checkout -B "$BRANCH"
-          git add scripts/upstream-issue-triage-generate.py scripts/upstream-issue-triage.json scripts/upstream-issue-fixes.json scripts/upstream-issue-fact-checks.json scripts/upstream-issue-watchdog.py .github/workflows/upstream-issue-watchdog.yml
+          git add scripts/upstream-issue-triage-generate.py .cache/upstream/triage.json .cache/upstream/fixes.json .cache/upstream/fact-checks.json scripts/upstream-issue-watchdog.py .github/workflows/upstream-issue-watchdog.yml
           git commit -m "chore: refresh upstream issue cache"
           git push --force-with-lease origin "$BRANCH"
 
           cat > .cache/upstream-issue-watchdog/cache-pr-body.md <<'EOF'
           ## Summary
-          - Refresh `scripts/upstream-issue-triage.json` from the latest Wei-Shaw/sub2api issues.
-          - Update `scripts/upstream-issue-fixes.json` from current TokenKey main fact checks.
+          - Refresh `.cache/upstream/triage.json` from the latest Wei-Shaw/sub2api issues.
+          - Update `.cache/upstream/fixes.json` from current TokenKey main fact checks.
           - Keep watchdog workflow/script/fact-check metadata in sync with the refreshed cache.
 
           ## Watchdog report
@@ -308,9 +308,9 @@ jobs:
           cat >> .cache/upstream-issue-watchdog/cache-pr-body.md <<'EOF'
 
           ## Test plan
-          - [x] `python3 -m json.tool scripts/upstream-issue-triage.json`
-          - [x] `python3 -m json.tool scripts/upstream-issue-fixes.json`
-          - [x] `python3 -m json.tool scripts/upstream-issue-fact-checks.json`
+          - [x] `python3 -m json.tool .cache/upstream/triage.json`
+          - [x] `python3 -m json.tool .cache/upstream/fixes.json`
+          - [x] `python3 -m json.tool .cache/upstream/fact-checks.json`
           - [x] `python3 -m py_compile scripts/upstream-issue-watchdog.py`
           - [x] `python3 -m json.tool .cache/upstream-issue-watchdog/report.json`
           - [x] `python3 -m json.tool .cache/upstream-issue-watchdog/agent-input.json`
@@ -440,7 +440,7 @@ jobs:
           - Verify the current TokenKey code fact before editing; do not rely only on the upstream issue text.
           - Preserve upstream-owned functionality by default. Prefer TokenKey companion/facade/helper boundaries over large rewrites of upstream-shaped files.
           - Add or update the smallest regression test that proves the fix.
-          - Update scripts/upstream-issue-triage-generate.py, scripts/upstream-issue-triage.json, scripts/upstream-issue-fixes.json, and scripts/upstream-issue-fact-checks.json so ${SELECTED_UPSTREAM} becomes fixed_in_tokenkey only after stable code facts prove the fix.
+          - Update scripts/upstream-issue-triage-generate.py, .cache/upstream/triage.json, .cache/upstream/fixes.json, and .cache/upstream/fact-checks.json so ${SELECTED_UPSTREAM} becomes fixed_in_tokenkey only after stable code facts prove the fix.
           - Add fact-check needles that will still pass on a fresh main checkout after the PR is merged.
           - Run focused tests for the changed area and bash scripts/preflight.sh before declaring the PR ready.
           - Commit and push the branch, then create or update a GitHub PR to main.
@@ -452,9 +452,9 @@ jobs:
           - ${SELECTED_UPSTREAM}
           - changed code facts
           - scripts/upstream-issue-triage-generate.py
-          - scripts/upstream-issue-triage.json
-          - scripts/upstream-issue-fixes.json
-          - scripts/upstream-issue-fact-checks.json
+          - .cache/upstream/triage.json
+          - .cache/upstream/fixes.json
+          - .cache/upstream/fact-checks.json
           - focused tests and preflight result
           EOF
           printf '\n## Sanitized watchdog agent input\n\n```json\n' >> /tmp/upstream-issue-fix-prompt.txt
@@ -531,7 +531,7 @@ jobs:
           gh pr view "$PR_NUMBER" --json body,url,title > /tmp/upstream-issue-fix-pr.json
           URL="$(jq -r '.url' /tmp/upstream-issue-fix-pr.json)"
           BODY="$(jq -r '.body // ""' /tmp/upstream-issue-fix-pr.json)"
-          for needle in "$SELECTED_UPSTREAM" "scripts/upstream-issue-triage-generate.py" "scripts/upstream-issue-triage.json" "scripts/upstream-issue-fixes.json" "scripts/upstream-issue-fact-checks.json"; do
+          for needle in "$SELECTED_UPSTREAM" "scripts/upstream-issue-triage-generate.py" ".cache/upstream/triage.json" ".cache/upstream/fixes.json" ".cache/upstream/fact-checks.json"; do
             if ! grep -q "$needle" <<<"$BODY"; then
               echo "::error::PR #$PR_NUMBER body is missing required text: $needle"
               exit 1
@@ -547,22 +547,22 @@ jobs:
           import os
           from pathlib import Path
           issue = os.environ['SELECTED_UPSTREAM']
-          triage = json.loads(Path('scripts/upstream-issue-triage.json').read_text(encoding='utf-8'))
-          fixes = json.loads(Path('scripts/upstream-issue-fixes.json').read_text(encoding='utf-8'))
-          fact_checks = json.loads(Path('scripts/upstream-issue-fact-checks.json').read_text(encoding='utf-8'))
+          triage = json.loads(Path('.cache/upstream/triage.json').read_text(encoding='utf-8'))
+          fixes = json.loads(Path('.cache/upstream/fixes.json').read_text(encoding='utf-8'))
+          fact_checks = json.loads(Path('.cache/upstream/fact-checks.json').read_text(encoding='utf-8'))
           triage_entry = next((item for item in triage.get('issues', []) if item.get('upstream') == issue), None)
           if not triage_entry:
-              raise SystemExit(f'{issue} missing from scripts/upstream-issue-triage.json')
+              raise SystemExit(f'{issue} missing from .cache/upstream/triage.json')
           if triage_entry.get('tokenkey_status') != 'fixed_in_tokenkey':
               raise SystemExit(f'{issue} triage status is {triage_entry.get("tokenkey_status")}, expected fixed_in_tokenkey')
           fix_entry = next((item for item in fixes.get('issues', []) if item.get('upstream') == issue), None)
           if not fix_entry:
-              raise SystemExit(f'{issue} missing from scripts/upstream-issue-fixes.json')
+              raise SystemExit(f'{issue} missing from .cache/upstream/fixes.json')
           if fix_entry.get('status') != 'fixed_in_tokenkey':
               raise SystemExit(f'{issue} fix status is {fix_entry.get("status")}, expected fixed_in_tokenkey')
           fact_entry = next((item for item in fact_checks.get('checks', []) if item.get('upstream') == issue), None)
           if not fact_entry:
-              raise SystemExit(f'{issue} missing from scripts/upstream-issue-fact-checks.json')
+              raise SystemExit(f'{issue} missing from .cache/upstream/fact-checks.json')
           if not fact_entry.get('fixed_if_all_present'):
               raise SystemExit(f'{issue} fact-check entry has no fixed_if_all_present needles')
           print(f'{issue} cache contract ok')
