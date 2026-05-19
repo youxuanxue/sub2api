@@ -588,6 +588,25 @@ else
     echo "  ok: no env references in job-level if expressions"
 fi
 
+# ---- sub2api: release.yml simple_release default = false --------------------
+# Mechanizes CLAUDE.md §9.1. prod (api.tokenkey.dev) and Edge Stage0 hosts run
+# on AWS Graviton (arm64). simple_release=true builds linux/amd64 only and
+# overwrites the shared :latest / :X / :X.Y / :X.Y.Z tags — any ARM host
+# pulling those tags crashes immediately with `exec format error`. The prose
+# rule has been "depends on human memory" until this check; now flipping the
+# at-rest default fails preflight + CI before merge. One-off amd64 releases
+# still work via manual `gh workflow run release.yml -f simple_release=true`.
+echo ""
+echo "=== sub2api: release.yml simple_release default ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required to parse release.yml)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/release-simple-release-default.py --quiet; then
+    errors=$((errors + 1))
+else
+    echo "  ok: release.yml simple_release default = false (Graviton-safe)"
+fi
+
 # ---- sub2api: Caddyfile syntax gate ------------------------------------------
 # Stage0 deploy path treats deploy/aws/stage0/Caddyfile(.edge) as source of
 # truth for CloudFormation-embedded payloads. Parse failures here should block
