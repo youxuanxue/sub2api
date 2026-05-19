@@ -404,6 +404,34 @@ else
     echo "  ok: guarded hotspot changes update their sentinel registries"
 fi
 
+# ---- sub2api: script ref existence ------------------------------------------
+# Closes the OPC gap exposed by PR #307: when scripts/ files move, repo-wide
+# literal `scripts/...|ops/...|tools/...` references can be left stale. The
+# refactor's sed pass walked a limited path set and silently missed Dockerfile,
+# frontend/package.json, and .goreleaser*.yaml — each was a CI build failure
+# waiting to happen. This check fails preflight on any literal path of that
+# shape that does not resolve to an existing file.
+#
+# The check has non-trivial regex + multi-step path resolution (Docker context,
+# relative invocation, submodule-nested refs). Its 9-pattern self-test runs
+# adjacent so any future regex/resolver edit that re-introduces v1's
+# "blind to ../scripts/X" class of bug fires at preflight time.
+echo ""
+echo "=== sub2api: script ref existence ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for script ref existence check)"
+    errors=$((errors + 1))
+else
+    if ! python3 ./scripts/checks/script-ref-existence.py; then
+        # script-ref-existence.py already printed the actionable failure list.
+        errors=$((errors + 1))
+    fi
+    if ! bash ./scripts/checks/script-ref-existence_test.sh; then
+        # script-ref-existence_test.sh already printed which case(s) failed.
+        errors=$((errors + 1))
+    fi
+fi
+
 # ---- sub2api: upstream override marker --------------------------------------
 # Whole-fork version of the same idea. The sentinel-registry-update-gate above
 # only fires when a *currently registered* hotspot is touched. This check fires
