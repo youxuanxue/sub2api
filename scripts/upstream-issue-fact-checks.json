@@ -310,6 +310,24 @@
         "backend/internal/service/openai_responses_unsupported_user_test.go:TestOpenAIGatewayService_Forward_StripsUserFieldFromAPIKeyResponsesPassthrough",
         "backend/internal/service/openai_responses_unsupported_user_test.go:TestCursorResponsesUnsupportedFields_IncludesUser"
       ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1170",
+      "severity": "high",
+      "summary": "Batch account import (/admin/accounts/data) now propagates `group_ids` through to CreateAccountInput.GroupIDs and the symmetric export carries `group_ids` + `channel_type` so an export → import round trip preserves group bindings and newapi fifth-platform metadata. Original implementation defined no GroupIDs field on DataAccount (so JSON `group_ids` was silently dropped at Unmarshal) and the import handler hard-coded `GroupIDs: nil`, leaving batch-imported accounts ungrouped until manually re-edited.",
+      "fixed_by": [
+        "backend/internal/handler/admin/account_data.go",
+        "backend/internal/handler/admin/account_data_handler_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/handler/admin/account_data.go:Wei-Shaw/sub2api#1170",
+        "backend/internal/handler/admin/account_data.go:GroupIDs           []int64 `json:\"group_ids,omitempty\"`",
+        "backend/internal/handler/admin/account_data.go:GroupIDs:             item.GroupIDs,",
+        "backend/internal/handler/admin/account_data.go:GroupIDs:           acc.GroupIDs,",
+        "backend/internal/handler/admin/account_data.go:ChannelType:        acc.ChannelType,",
+        "backend/internal/handler/admin/account_data_handler_test.go:TestImportData_GroupIDsReachCreateAccount",
+        "backend/internal/handler/admin/account_data_handler_test.go:TestExportData_IncludesGroupIDsAndChannelType"
+      ]
     }
   ]
 }
