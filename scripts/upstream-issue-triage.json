@@ -7,10 +7,10 @@
     "needs_review": 343,
     "fixed": 33,
     "needs_prod_validation": 4,
-    "medium": 115,
+    "medium": 116,
     "not_applicable": 1,
     "low": 96,
-    "unknown_low_signal": 402
+    "unknown_low_signal": 404
   },
   "issues": [
     {
@@ -273,7 +273,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-04-06T03:41:47Z"
+      "updated_at": "2026-05-18T16:00:49Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#1307",
@@ -2469,7 +2469,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-05-15T02:58:04Z"
+      "updated_at": "2026-05-19T02:37:27Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2231",
@@ -2994,18 +2994,6 @@
       "updated_at": "2026-05-14T02:48:29Z"
     },
     {
-      "upstream": "Wei-Shaw/sub2api#2442",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2442",
-      "title": "Docker build fails at pnpm install with ERR_PNPM_IGNORED_BUILDS in frontend-builder",
-      "impact": "needs_review",
-      "categories": [
-        "rate_limit_cooldown"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-05-16T04:42:28Z"
-    },
-    {
       "upstream": "Wei-Shaw/sub2api#2445",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/2445",
       "title": "exceeded retry limit, last status: 429 Too Many Requests, request id",
@@ -3168,6 +3156,18 @@
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
       "updated_at": "2026-05-18T09:06:40Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2560",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2560",
+      "title": "希望完善程序 让gpt-image-2支持远程图片链接处理",
+      "impact": "needs_review",
+      "categories": [
+        "image_oauth"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-05-18T17:56:10Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#263",
@@ -5511,6 +5511,18 @@
       "updated_at": "2026-01-15T02:25:35Z"
     },
     {
+      "upstream": "Wei-Shaw/sub2api#2558",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2558",
+      "title": "希望在前端 【渠道】-【模型定价】添加【同步支持最新模型】",
+      "impact": "medium",
+      "categories": [
+        "admin_ui"
+      ],
+      "tokenkey_status": "not_prioritized",
+      "rationale": "Potential compatibility/ops/admin impact, but not selected as severe TokenKey production risk in this pass.",
+      "updated_at": "2026-05-18T14:11:26Z"
+    },
+    {
       "upstream": "Wei-Shaw/sub2api#275",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/275",
       "title": "「UI建议」过期时间增加一个月/一年选项",
@@ -5760,7 +5772,8 @@
       "impact": "fixed",
       "categories": [
         "image_oauth",
-        "security"
+        "security",
+        "enhancement"
       ],
       "tokenkey_status": "fixed_in_tokenkey",
       "rationale": "Batch account import (/admin/accounts/data) now propagates `group_ids` through to CreateAccountInput.GroupIDs and the symmetric export carries `group_ids` + `channel_type` so an export → import round trip preserves group bindings and newapi fifth-platform metadata. Original implementation defined no GroupIDs field on DataAccount (so JSON `group_ids` was silently dropped at Unmarshal) and the import handler hard-coded `GroupIDs: nil`, leaving batch-imported accounts ungrouped until manually re-edited.",
@@ -6092,7 +6105,7 @@
       ],
       "tokenkey_status": "fixed_in_tokenkey",
       "rationale": "OpenAI /compact route and request-body normalization are implemented, including compact_not_supported errors when no account is available.",
-      "updated_at": "2026-05-18T08:48:32Z"
+      "updated_at": "2026-05-18T15:40:20Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2500",
@@ -6171,7 +6184,10 @@
       "categories": [
         "rate_limit_cooldown",
         "billing_usage",
-        "security"
+        "security",
+        "ops_observability",
+        "admin_ui",
+        "enhancement"
       ],
       "tokenkey_status": "fixed_in_tokenkey",
       "rationale": "OpenAI Chat Completions raw passthrough detects upstream silent refusal (empty stream/response with finish_reason=stop and zero usage) and emits an ops_error_logs row with Kind=silent_refusal. Conservative predicate: no content / no tool_calls / no reasoning / no refusal / no chunk-level error / zero usage / finish_reason=stop. Stream path keeps the client-visible bytes untouched (headers already flushed); buffered path will keep flexibility to harden later. The categorical ops signal turns the previously invisible 'ghost stream' (gpt-5.5 above input budget) into a dashboard-pivotable event.",
@@ -9628,7 +9644,7 @@
       "categories": [],
       "tokenkey_status": "not_prioritized",
       "rationale": "No high-signal production-risk keywords in this pass.",
-      "updated_at": "2026-05-07T04:03:11Z"
+      "updated_at": "2026-05-19T02:26:49Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2249",
@@ -9988,7 +10004,7 @@
       "categories": [],
       "tokenkey_status": "not_prioritized",
       "rationale": "No high-signal production-risk keywords in this pass.",
-      "updated_at": "2026-05-12T08:16:02Z"
+      "updated_at": "2026-05-19T02:26:59Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2405",
@@ -10158,7 +10174,7 @@
       "categories": [],
       "tokenkey_status": "not_prioritized",
       "rationale": "No high-signal production-risk keywords in this pass.",
-      "updated_at": "2026-05-16T17:47:38Z"
+      "updated_at": "2026-05-18T12:55:23Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2533",
@@ -10219,6 +10235,26 @@
       "tokenkey_status": "not_prioritized",
       "rationale": "No high-signal production-risk keywords in this pass.",
       "updated_at": "2026-05-18T11:07:01Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2559",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2559",
+      "title": "No available accounts: no available accounts",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_prioritized",
+      "rationale": "No high-signal production-risk keywords in this pass.",
+      "updated_at": "2026-05-18T17:52:30Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2561",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2561",
+      "title": "初始化完成后setup居然还能打开",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_prioritized",
+      "rationale": "No high-signal production-risk keywords in this pass.",
+      "updated_at": "2026-05-19T01:48:15Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#262",
