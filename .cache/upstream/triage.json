@@ -4,13 +4,13 @@
   "generated_from": "GitHub REST API issues?state=open; pull requests excluded",
   "rationale": "TokenKey-local triage cache for upstream open issues. Use this file before re-triaging upstream issues; update entries when TokenKey fixes, dismisses, or reclassifies an issue.",
   "counts": {
-    "needs_review": 343,
-    "fixed": 33,
+    "needs_review": 342,
+    "fixed": 30,
     "needs_prod_validation": 4,
-    "medium": 116,
+    "medium": 114,
     "not_applicable": 1,
     "low": 96,
-    "unknown_low_signal": 404
+    "unknown_low_signal": 402
   },
   "issues": [
     {
@@ -298,6 +298,20 @@
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
       "updated_at": "2026-04-19T10:53:21Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1322",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/1322",
+      "title": "Responses terminal event detection is inconsistent: gateway_service.go does not treat response.incomplete / response.cancelled as terminal",
+      "impact": "needs_review",
+      "categories": [
+        "rate_limit_cooldown",
+        "billing_usage",
+        "account_pool_health"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-03-26T08:41:35Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#1326",
@@ -2497,20 +2511,6 @@
       "updated_at": "2026-05-07T07:51:59Z"
     },
     {
-      "upstream": "Wei-Shaw/sub2api#2237",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2237",
-      "title": "Bug: /v1/chat/completions returns 401 for Gemini platform groups (OAuth accounts)",
-      "impact": "needs_review",
-      "categories": [
-        "rate_limit_cooldown",
-        "image_oauth",
-        "security"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-05-10T16:14:10Z"
-    },
-    {
       "upstream": "Wei-Shaw/sub2api#2242",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/2242",
       "title": "这个渠道监控模型GPT Image 2有问题",
@@ -2932,44 +2932,6 @@
       "updated_at": "2026-05-13T14:26:34Z"
     },
     {
-      "upstream": "Wei-Shaw/sub2api#2428",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2428",
-      "title": "安装失败 bash: line 37: declare: -A: invalid option",
-      "impact": "needs_review",
-      "categories": [
-        "billing_usage"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-05-13T06:59:23Z"
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#2431",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2431",
-      "title": "[Feature] OpenAI APIKey 账号应支持在管理后台设置 Responses API 支持状态",
-      "impact": "needs_review",
-      "categories": [
-        "claude_mimicry",
-        "billing_usage",
-        "security"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-05-13T09:31:54Z"
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#2435",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2435",
-      "title": "支付系统前缀设置无效",
-      "impact": "needs_review",
-      "categories": [
-        "claude_mimicry"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-05-13T12:58:44Z"
-    },
-    {
       "upstream": "Wei-Shaw/sub2api#2437",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/2437",
       "title": "同一个会话中持续修改图片，会迅速把带宽吃满",
@@ -3168,6 +3130,30 @@
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
       "updated_at": "2026-05-18T17:56:10Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2565",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2565",
+      "title": "v0.1.125 图片生成调度问题",
+      "impact": "needs_review",
+      "categories": [
+        "image_oauth"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-05-19T06:18:06Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2566",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2566",
+      "title": "GPT 号一跑满，服务器就要卡死一段时间，503 Service Unavailable，然后恢复。",
+      "impact": "needs_review",
+      "categories": [
+        "rate_limit_cooldown"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-05-19T06:59:57Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#263",
@@ -3705,7 +3691,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-04-27T04:12:26Z"
+      "updated_at": "2026-05-19T06:29:45Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#599",
@@ -4350,19 +4336,6 @@
       "tokenkey_status": "partially_mitigated",
       "rationale": "OpenAI image 403 still triggers temporary unschedulable cooldown; decide whether CF/Arkose image challenges should be ignored or scoped.",
       "updated_at": "2026-05-14T00:33:30Z"
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#1009",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/1009",
-      "title": "0.1.99 版本 缺少pg_dump 导致手动创建备份失败",
-      "impact": "medium",
-      "categories": [
-        "ops_observability",
-        "compatibility"
-      ],
-      "tokenkey_status": "not_prioritized",
-      "rationale": "Potential compatibility/ops/admin impact, but not selected as severe TokenKey production risk in this pass.",
-      "updated_at": "2026-04-16T02:21:08Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#1048",
@@ -5426,19 +5399,6 @@
       "updated_at": "2026-05-13T14:57:06Z"
     },
     {
-      "upstream": "Wei-Shaw/sub2api#2453",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2453",
-      "title": "OpenAI Fast/Flex Policy 默认过滤 service_tier 导致多数部署失去 fast mode",
-      "impact": "medium",
-      "categories": [
-        "compatibility",
-        "enhancement"
-      ],
-      "tokenkey_status": "intentional_policy",
-      "rationale": "Default OpenAI fast policy still filters priority/fast globally by design; important product-policy tradeoff, not an accidental outage bug.",
-      "updated_at": "2026-05-14T06:44:54Z"
-    },
-    {
       "upstream": "Wei-Shaw/sub2api#2459",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/2459",
       "title": "监控渠道使用内网地址不通",
@@ -5807,7 +5767,7 @@
         "enhancement"
       ],
       "tokenkey_status": "fixed_in_tokenkey",
-      "rationale": "Non-stream buffered SSE->JSON handlers in both the OpenAI gateway (/v1/chat/completions, /v1/messages) and the Anthropic-backed gateway forward paths (Responses, Chat Completions) now explicitly set Content-Type: application/json after WriteFilteredHeaders. Without this, the upstream SSE Content-Type (text/event-stream) leaks onto JSON bodies because gin's render.writeContentType only writes when no Content-Type is set, breaking OpenAI-SDK consumers that branch on Content-Type.",
+      "rationale": "Non-stream /v1/chat/completions and /v1/messages now explicitly set Content-Type: application/json after WriteFilteredHeaders, so the upstream Responses SSE Content-Type no longer leaks onto JSON bodies.",
       "updated_at": "2026-05-15T12:00:37Z"
     },
     {
@@ -5822,20 +5782,6 @@
       "tokenkey_status": "fixed_in_tokenkey",
       "rationale": "openai_passthrough now propagates HandleUpstreamError's shouldDisable signal: when a temp-unschedulable rule (or any policy that marks the account unschedulable — 402 deactivated_workspace, OAuth 401, organization disabled, etc.) fires, handleErrorResponsePassthrough returns UpstreamFailoverError and emits ops Kind=failover instead of writing the upstream error straight back to the client. This closes the half-applied state where the account got disabled but the in-flight request was still completed on it.",
       "updated_at": "2026-03-26T06:47:06Z"
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#1322",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/1322",
-      "title": "Responses terminal event detection is inconsistent: gateway_service.go does not treat response.incomplete / response.cancelled as terminal",
-      "impact": "fixed",
-      "categories": [
-        "rate_limit_cooldown",
-        "billing_usage",
-        "account_pool_health"
-      ],
-      "tokenkey_status": "fixed_in_tokenkey",
-      "rationale": "isOpenAICompatResponsesTerminalEvent (driver for the OpenAI-compat Anthropic Messages and Chat Completions streaming handlers) now recognizes the full six-event terminal set, including response.cancelled / response.canceled. Without this, an upstream that ends the Responses SSE with a legitimate cancellation falls through to 'stream usage incomplete: missing terminal event', producing a spurious openai.forward_failed ops_error_logs entry and skipping clean finalization. Symmetric with openAIStreamEventIsTerminal (gateway_service.go), openai_ws_forwarder.go, and openai_ws_v2/passthrough_relay.go.",
-      "updated_at": "2026-03-26T08:41:35Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#1471",
@@ -5961,22 +5907,6 @@
       "tokenkey_status": "fixed_in_tokenkey",
       "rationale": "Long-context billing includes cache_read tokens in the threshold and applies long-context multiplier to cache_read cost.",
       "updated_at": "2026-05-08T11:51:00Z"
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#2310",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2310",
-      "title": "[Bug] OAuth 图片生成（非流式）因绑定客户端 context 导致超时 context canceled",
-      "impact": "fixed",
-      "categories": [
-        "rate_limit_cooldown",
-        "image_oauth",
-        "ops_observability",
-        "compatibility",
-        "enhancement"
-      ],
-      "tokenkey_status": "fixed_in_tokenkey",
-      "rationale": "OpenAI OAuth image generation uses a detached upstream context instead of binding long jobs to the client connection.",
-      "updated_at": "2026-05-09T02:54:27Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2332",
@@ -6139,19 +6069,6 @@
       "updated_at": "2026-05-15T21:05:14Z"
     },
     {
-      "upstream": "Wei-Shaw/sub2api#2515",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2515",
-      "title": "gpt-5.5，completions转换responses时候，对于content为null值的场景没处理，导致请求报错",
-      "impact": "fixed",
-      "categories": [
-        "compatibility",
-        "enhancement"
-      ],
-      "tokenkey_status": "fixed_in_tokenkey",
-      "rationale": "ChatCompletions→Responses transform falls back to empty string when the converted parts list is empty (was emitting JSON null and triggering upstream HTTP 400 on gpt-5.5).",
-      "updated_at": "2026-05-16T12:51:29Z"
-    },
-    {
       "upstream": "Wei-Shaw/sub2api#2538",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/2538",
       "title": "[Bug] 429 bug",
@@ -6191,7 +6108,7 @@
       ],
       "tokenkey_status": "fixed_in_tokenkey",
       "rationale": "OpenAI Chat Completions raw passthrough detects upstream silent refusal (empty stream/response with finish_reason=stop and zero usage) and emits an ops_error_logs row with Kind=silent_refusal. Conservative predicate: no content / no tool_calls / no reasoning / no refusal / no chunk-level error / zero usage / finish_reason=stop. Stream path keeps the client-visible bytes untouched (headers already flushed); buffered path will keep flexibility to harden later. The categorical ops signal turns the previously invisible 'ghost stream' (gpt-5.5 above input budget) into a dashboard-pivotable event.",
-      "updated_at": "2026-05-18T11:15:08Z"
+      "updated_at": "2026-05-19T03:24:07Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#580",
@@ -9797,16 +9714,6 @@
       "updated_at": "2026-05-10T03:12:40Z"
     },
     {
-      "upstream": "Wei-Shaw/sub2api#2334",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2334",
-      "title": "兑换码生成后全部复制报错",
-      "impact": "unknown_low_signal",
-      "categories": [],
-      "tokenkey_status": "not_prioritized",
-      "rationale": "No high-signal production-risk keywords in this pass.",
-      "updated_at": "2026-05-10T04:26:06Z"
-    },
-    {
       "upstream": "Wei-Shaw/sub2api#2336",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/2336",
       "title": "个人意见-什么时候可以设置 模型的输入、输出、缓存价格？",
@@ -10037,16 +9944,6 @@
       "updated_at": "2026-05-13T09:13:32Z"
     },
     {
-      "upstream": "Wei-Shaw/sub2api#2426",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2426",
-      "title": "模型白名单和模型映射不能同时设置",
-      "impact": "unknown_low_signal",
-      "categories": [],
-      "tokenkey_status": "not_prioritized",
-      "rationale": "No high-signal production-risk keywords in this pass.",
-      "updated_at": "2026-05-13T06:11:59Z"
-    },
-    {
       "upstream": "Wei-Shaw/sub2api#2429",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/2429",
       "title": "一个分组就两个账号，但是响应速度特别慢，完成一个任务基本都要半小时，平均响应三十多秒，请问大佬有什么办法可以解决",
@@ -10197,16 +10094,6 @@
       "updated_at": "2026-05-18T02:40:44Z"
     },
     {
-      "upstream": "Wei-Shaw/sub2api#2542",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2542",
-      "title": "日卡刷新存在问题",
-      "impact": "unknown_low_signal",
-      "categories": [],
-      "tokenkey_status": "not_prioritized",
-      "rationale": "No high-signal production-risk keywords in this pass.",
-      "updated_at": "2026-05-18T06:49:52Z"
-    },
-    {
       "upstream": "Wei-Shaw/sub2api#2544",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/2544",
       "title": "能否优先调度快到刷新日期的账号？",
@@ -10244,7 +10131,7 @@
       "categories": [],
       "tokenkey_status": "not_prioritized",
       "rationale": "No high-signal production-risk keywords in this pass.",
-      "updated_at": "2026-05-18T17:52:30Z"
+      "updated_at": "2026-05-19T03:21:54Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2561",
@@ -10255,6 +10142,16 @@
       "tokenkey_status": "not_prioritized",
       "rationale": "No high-signal production-risk keywords in this pass.",
       "updated_at": "2026-05-19T01:48:15Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2564",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2564",
+      "title": "开启邀请码注册 注册以后 怎么生成邀请码",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_prioritized",
+      "rationale": "No high-signal production-risk keywords in this pass.",
+      "updated_at": "2026-05-19T05:31:53Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#262",
