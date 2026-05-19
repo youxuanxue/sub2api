@@ -34,7 +34,7 @@ RUN pnpm install --frozen-lockfile
 
 # Copy frontend source and build
 COPY sub2api/frontend/ ./
-COPY sub2api/scripts/check-frontend-dist-freshness.py /build/sub2api/scripts/check-frontend-dist-freshness.py
+COPY sub2api/scripts/checks/frontend-dist-freshness.py /build/sub2api/scripts/checks/frontend-dist-freshness.py
 RUN pnpm run build
 
 # -----------------------------------------------------------------------------
