@@ -190,10 +190,10 @@ gh workflow run deploy-edge-stage0.yml \
 6. 做 prod 完整 smoke（见下文）；若仅因 `POST_DEPLOY_SMOKE_CHAT_MODEL` 不在当前 key 的 `/v1/models` 可见列表而失败，先把对应 Environment 变量改到可见模型（如 `gpt-5.5`）再重跑，不要误判为发布回归。
 7. 对 canary Edge 再 dispatch `operation=smoke`，做 prod 升级后的 main-gateway-via-edge 验证；若缺 `MAIN_GATEWAY_EDGE_SMOKE_API_KEY`，只可标记“infra smoke 通过，主网关经 Edge 业务 smoke 未覆盖”。
 8. 其余 deployable Edge 顺序 upgrade + smoke；默认优先 `claude-sonnet-4-6`，若该 edge/key 不可见则切到该 key 的可见模型并重跑一次；失败即停。
-9. **自动轻量 Diagnostics（all 默认搭配）**：all rollout 完成后自动 dispatch `.github/workflows/post-release-light-diagnostics.yml`（默认 `target_selector=all`），该 workflow 会按固定节奏触发两次 `ops-daily-diagnostics.yml operation=diagnostics`：
-   - 第一次：+5min，`diagnostics_log_since=20m`（覆盖发版前后）。
-   - 第二次：+1h，`diagnostics_log_since=2h`（覆盖发版前后）。
-   - 两次都用 `diagnostics_include_error_clustering=false`，仅做 runtime/health 轻量巡检。
+9. **会话内 post-release 跟进（all 默认搭配）**：all rollout 完成后不要 dispatch 额外 diagnostics workflow，也不要把等待逻辑放进 GitHub Actions；由当前 Claude Code 会话每 5 分钟做一次只读线上观察并向用户汇报，连续 3 次。
+   - 每次观察覆盖 prod 与 deployable Edge：health/runtime 状态、最近错误聚类、关键 4xx/5xx/429、账号可调度性、实际流量/请求量趋势。
+   - 第一轮建议 `diagnostics_log_since=20m` 覆盖发版前后；第二/三轮建议 `diagnostics_log_since=10m` 聚焦上线后增量。
+   - 第 3 次汇报后给出综合建议：继续观察、回滚、调整账号/模型配置，或关闭本次跟进。
 
 ## prod 真实测试
 
@@ -275,21 +275,18 @@ gh workflow run deploy-edge-stage0.yml \
 
 prod smoke 失败：停，优先 rollback prod；不要继续 Edge rollout。Edge canary 失败：停，不批准/推进 prod，除非用户明确 override。
 
-### 触发 all 后置轻量 Diagnostics（自动）
+### 会话内 post-release 跟进（自动）
 
-all rollout 验收完成后执行：
+all rollout 验收完成后，不再触发独立 GitHub workflow。当前会话必须继续保留跟进节奏：每 5 分钟做一次只读线上观察并向用户汇报，连续 3 次。
 
-```bash
-gh workflow run post-release-light-diagnostics.yml \
-  -f target_selector=all
-```
+每次观察至少覆盖：
 
-该 workflow 默认：
+- prod 与 deployable Edge 的 health/runtime 状态。
+- 最近错误聚类，尤其 5xx、429、上游 not_found、no available accounts。
+- 实际流量/请求量趋势，区分“无流量”与“有流量但错误上升”。
+- 账号可调度性与模型可见性异常。
 
-- +5min dispatch 一次轻量 diagnostics（`diagnostics_log_since=20m`）
-- +1h dispatch 一次轻量 diagnostics（`diagnostics_log_since=2h`）
-
-如需自定义延时/窗口，可覆写：`first_delay_minutes`、`first_window`、`second_delay_minutes`、`second_window`。
+第 3 次汇报后输出综合建议：继续观察、回滚、调整账号/模型配置，或关闭本次跟进。
 
 ## 完成后：rollout 摘要
 
@@ -344,7 +341,6 @@ git diff --diff-filter=D --name-only "${PREV_TAG}..${NEW_TAG}" -- backend/ || tr
 | prod smoke 报 `POST_DEPLOY_SMOKE_CHAT_MODEL not listed in GET /v1/models` | 不是代码回归，改 `prod` Environment 的 `POST_DEPLOY_SMOKE_CHAT_MODEL` 为该 key 可见模型（如 `gpt-5.5`）后重跑。 |
 | `gh` 请求持续报 `read ... 127.0.0.1:7890: connection reset by peer` | 先用 `env -u HTTPS_PROXY -u https_proxy -u HTTP_PROXY -u http_proxy gh <cmd>` 做无代理重试；恢复后再继续 watch。 |
 | 无代理后 dispatch 报 `HTTP 403 Must have admin rights to Repository` | `gh` 可能切到另一个账号；先 `env -u GH_TOKEN ... gh auth status`，必要时 `gh auth switch -u <repo-owner>` 后重试 dispatch。 |
-| `post-release-light-diagnostics` 在 `Dispatch first lightweight diagnostics` 失败且日志含 `failed to run git: ... not a git repository` | 视为 workflow 缺陷：先手动 dispatch 一次 `ops-daily-diagnostics.yml operation=diagnostics` 兜底，再记录 run id 并提修复 PR（定位该 workflow 对 `gh workflow run` 的调用上下文）。 |
 
 ## 扩展阅读（按需打开）
 
@@ -352,7 +348,6 @@ git diff --diff-filter=D --name-only "${PREV_TAG}..${NEW_TAG}" -- backend/ || tr
 - `.github/workflows/release.yml` — multi-arch image build 与 prod auto-dispatch。
 - `.github/workflows/deploy-stage0.yml` — prod deploy。
 - `.github/workflows/deploy-edge-stage0.yml` — Edge upgrade/smoke/rollback。
-- `.github/workflows/post-release-light-diagnostics.yml` — all rollout 后 +5min/+1h 自动 dispatch 轻量 diagnostics。
 - `ops/stage0/post_deploy_smoke.sh` — prod 完整 smoke。
 - `ops/stage0/edge_post_deploy_smoke.sh` — Edge smoke wrapper。
 - `deploy/aws/README.md` — Stage0、Edge、多区域升级 SOP。
