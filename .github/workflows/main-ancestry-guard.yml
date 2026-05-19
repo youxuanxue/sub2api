@@ -6,7 +6,7 @@ name: Main Ancestry Guard
 # GitHub's "Squash and merge", such a PR rewrites main into the orphan tree
 # and all earlier history (including release tags) becomes unreachable.
 #
-# Two hard checks:
+# Three hard checks:
 #
 #   1. `git merge-base --is-ancestor PR_base PR_head` must succeed.
 #      Normal feature branches branched from main satisfy this trivially.
@@ -19,6 +19,14 @@ name: Main Ancestry Guard
 #      message contains the literal marker `main-ancestry-anchor-advance`.
 #      The anchor is a one-way ratchet; see CLAUDE.md §5.y.1 for the
 #      advancement procedure.
+#
+#   3. No PR title, PR body, or PR commit message may carry the bracketed
+#      skip-ci / ci-skip markers that GitHub uses to suppress workflows.
+#      GitHub's "Squash and merge" composes the landing commit body from
+#      these three sources, so any one of them carrying the bracketed form
+#      would land on main and silently disable release.yml the next time
+#      that commit is tagged. This is the v1.3.0 incident (CLAUDE.md §9.2)
+#      and the PR #312 re-occurrence pattern.
 #
 # Companion preflight check `scripts/checks/main-ancestry-anchor.py` runs
 # locally and in CI on every PR; together with this workflow they cover
@@ -154,3 +162,50 @@ jobs:
           fi
 
           echo "OK: .main-ancestry-anchor advanced from $OLD_ANCHOR to $NEW_ANCHOR (descendant)."
+
+      - name: Check 3 — no literal skip marker in any squash-body source
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          BASE='${{ github.event.pull_request.base.sha }}'
+          HEAD='${{ github.event.pull_request.head.sha }}'
+
+          # GitHub's "Squash and merge" composes the landing commit body
+          # from three sources:
+          #   subject = PR title (... #NUM)
+          #   body    = bullet list of each PR commit's message
+          # The reviewer may also paste PR body content into the merge
+          # dialog. Any of these carrying the bracketed skip-ci marker
+          # would land on main and silently disable release.yml on any
+          # future tag of that commit — see CLAUDE.md §9.2 (v1.3.0
+          # incident) and the PR #312 re-occurrence.
+          #
+          # Discussion of the marker name in plain text is allowed —
+          # authors should use unbracketed forms when discussing it:
+          #     skip-ci   (hyphen)        ci-skip   (hyphen)
+          #     skip ci   (no brackets)   ci skip   (no brackets)
+          # The bracketed form `[skip ci]` / `[ci skip]` is what GitHub
+          # matches literally, and the only form this check rejects.
+
+          fail=0
+          check_source () {
+            local label="$1"
+            local text="$2"
+            if printf '%s' "$text" | grep -Fq -e '[skip ci]' -e '[ci skip]'; then
+              echo "::error::$label contains a bracketed skip-ci / ci-skip marker."
+              echo "::error::This would land in the squash-merge commit body and"
+              echo "::error::silently disable release.yml on any future tag of that commit."
+              echo "::error::Replace the bracketed form with an unbracketed form when"
+              echo "::error::discussing the marker — e.g. 'skip-ci' (hyphen)."
+              fail=1
+            else
+              echo "OK: $label clean"
+            fi
+          }
+
+          check_source "PR title" "$PR_TITLE"
+          check_source "PR body"  "$PR_BODY"
+          check_source "PR commit messages" "$(git log --format='%B' "$BASE".."$HEAD")"
+
+          exit $fail
