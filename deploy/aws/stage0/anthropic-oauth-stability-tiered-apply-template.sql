@@ -23,11 +23,11 @@ WITH input AS (
 tier_cfg AS (
   SELECT *
   FROM (VALUES
-    ('l1'::text, 1::int, 10::int, 4::int, 4::int, 3::int, 8::int, 120::int, 0::int),
-    ('l2'::text, 2::int, 20::int, 6::int, 6::int, 4::int, 8::int, 220::int, 0::int),
-    ('l3'::text, 3::int, 30::int, 10::int, 6::int, 5::int, 8::int, 400::int, 0::int),
-    ('l4'::text, 5::int, 40::int, 14::int, 10::int, 8::int, 8::int, 800::int, 0::int),
-    ('l5'::text, 8::int, 50::int, 22::int, 14::int, 12::int, 8::int, 1500::int, 0::int)
+    ('l1'::text, 1::int, 10::int, 4::int, 4::int, 3::int, 8::int, 120::int, 0::int, false::boolean),
+    ('l2'::text, 2::int, 20::int, 6::int, 6::int, 4::int, 8::int, 220::int, 0::int, false::boolean),
+    ('l3'::text, 3::int, 30::int, 10::int, 6::int, 5::int, 8::int, 400::int, 0::int, true::boolean),
+    ('l4'::text, 5::int, 40::int, 14::int, 10::int, 8::int, 8::int, 800::int, 0::int, true::boolean),
+    ('l5'::text, 8::int, 50::int, 22::int, 14::int, 12::int, 8::int, 1500::int, 0::int, true::boolean)
   ) AS v(
     stability_tier,
     concurrency,
@@ -37,7 +37,8 @@ tier_cfg AS (
     max_sessions,
     session_idle_timeout_minutes,
     window_cost_limit,
-    window_cost_sticky_reserve
+    window_cost_sticky_reserve,
+    cache_ttl_override_enabled
   )
 ),
 selected AS (
@@ -129,7 +130,7 @@ updated AS (
         'rpm_strategy', 'tiered',
         'user_msg_queue_mode', 'serialize',
         'session_id_masking_enabled', true,
-        'cache_ttl_override_enabled', true,
+        'cache_ttl_override_enabled', s.cache_ttl_override_enabled,
         'cache_ttl_override_target', '1h',
         'custom_base_url_enabled', false,
         'tls_fingerprint_profile_id', (SELECT id FROM profile),
