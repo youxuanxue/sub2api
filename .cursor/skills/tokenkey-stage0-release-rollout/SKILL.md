@@ -235,7 +235,7 @@ bash ops/stage0/post_deploy_smoke.sh
 通过标准：
 
 - public settings：HTTP 200，JSON `code=0`。
-- frontend release asset shape：`check-frontend-release-assets.py` 通过。
+- frontend release asset shape：`scripts/checks/frontend-release-assets.py` 通过。
 - `/v1/models`：HTTP 200，`object=list`，`data` 非空。
 - `/v1/chat/completions`：HTTP 200，shape 正确，usage 存在。
 - `/v1/messages`：HTTP 200，shape 正确，usage 存在。
