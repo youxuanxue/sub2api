@@ -1,4 +1,4 @@
-module github.com/Wei-Shaw/sub2api-error-clustering
+module tokenkey.dev/tools/error_clustering
 
 go 1.26.3
 
