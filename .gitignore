@@ -90,6 +90,10 @@ temp/
 *.log
 *.bak
 .cache/
+# Whitelisted: upstream-issue triage cache (refreshed by upstream-issue-watchdog.yml
+# and read by CI; lives under .cache/ to signal "regenerated data, not source code").
+!.cache/upstream/
+!.cache/upstream/**
 .dev/
 .serena/
 

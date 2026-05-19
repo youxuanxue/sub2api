@@ -10,7 +10,7 @@
   - `backend/internal/service/claude_mimicry_headers_test.go`
 - Sentinel / upstream issue registry changes:
   - `scripts/gateway-tk-sentinels.json`
-  - `scripts/upstream-issue-fixes.json`
+  - `.cache/upstream/fixes.json`
 
 ## Intent
 - Stop emitting or forwarding `x-stainless-helper-method`, which is not part of the current real Claude Code request fingerprint we want to mimic.

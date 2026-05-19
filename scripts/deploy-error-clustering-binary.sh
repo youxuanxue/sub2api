@@ -26,7 +26,7 @@ if ! command -v aws >/dev/null 2>&1; then
 fi
 
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
-SRC_DIR="$REPO_ROOT/scripts/error_clustering"
+SRC_DIR="$REPO_ROOT/tools/error_clustering"
 if [[ ! -f "$SRC_DIR/main.go" ]]; then
   echo "missing $SRC_DIR/main.go" >&2
   exit 1
@@ -40,7 +40,7 @@ if [[ -z "$INSTANCE_ID" || "$INSTANCE_ID" == "None" ]]; then
 fi
 
 # Tar + base64 the standalone module (~5 KB total) so it fits in one SSM payload.
-TAR_B64=$(cd "$REPO_ROOT" && tar czf - -C scripts error_clustering | base64 | tr -d '\n')
+TAR_B64=$(cd "$REPO_ROOT" && tar czf - -C tools error_clustering | base64 | tr -d '\n')
 
 WORKDIR=$(mktemp -d)
 trap 'rm -rf "$WORKDIR"' EXIT

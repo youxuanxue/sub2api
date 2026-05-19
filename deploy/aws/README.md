@@ -674,7 +674,7 @@ GitHub Actions 不再用长期 AWS 凭证，**OIDC 临时换 STS** → `ssm:Send
    ```
 
    binary 落到 `/usr/local/bin/error_clustering`（arm64 静态、CGO=0、~2MB）。
-   每次 `scripts/error_clustering/main.go` 改动后，操作员需重跑此脚本把新版本推到
+   每次 `tools/error_clustering/main.go` 改动后，操作员需重跑此脚本把新版本推到
    prod。**TODO（后续 PR）**：将 binary 烤进 release Docker 镜像，让镜像升级即更新；
    届时 binary 来源切到 `docker exec tokenkey ...`，本节脚本只在引导期使用。
 
