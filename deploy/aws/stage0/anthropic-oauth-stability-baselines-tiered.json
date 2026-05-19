@@ -157,11 +157,11 @@
           "rate_multiplier": 1.0
         },
         "extra": {
-          "base_rpm": 6,
-          "rpm_sticky_buffer": 2,
+          "base_rpm": 4,
+          "rpm_sticky_buffer": 4,
           "max_sessions": 3,
           "session_idle_timeout_minutes": 8,
-          "window_cost_limit": 180,
+          "window_cost_limit": 120,
           "window_cost_sticky_reserve": 0
         }
       }
@@ -175,11 +175,11 @@
           "rate_multiplier": 1.0
         },
         "extra": {
-          "base_rpm": 8,
-          "rpm_sticky_buffer": 4,
+          "base_rpm": 6,
+          "rpm_sticky_buffer": 6,
           "max_sessions": 4,
           "session_idle_timeout_minutes": 8,
-          "window_cost_limit": 330,
+          "window_cost_limit": 220,
           "window_cost_sticky_reserve": 0
         }
       }
@@ -197,7 +197,7 @@
           "rpm_sticky_buffer": 6,
           "max_sessions": 5,
           "session_idle_timeout_minutes": 8,
-          "window_cost_limit": 480,
+          "window_cost_limit": 400,
           "window_cost_sticky_reserve": 0
         }
       }
@@ -206,16 +206,16 @@
       "factor": 0.9,
       "baseline": {
         "account": {
-          "concurrency": 4,
+          "concurrency": 5,
           "priority": 40,
           "rate_multiplier": 1.0
         },
         "extra": {
-          "base_rpm": 12,
-          "rpm_sticky_buffer": 8,
-          "max_sessions": 6,
+          "base_rpm": 14,
+          "rpm_sticky_buffer": 10,
+          "max_sessions": 8,
           "session_idle_timeout_minutes": 8,
-          "window_cost_limit": 540,
+          "window_cost_limit": 800,
           "window_cost_sticky_reserve": 0
         }
       }
@@ -224,16 +224,16 @@
       "factor": 0.95,
       "baseline": {
         "account": {
-          "concurrency": 5,
+          "concurrency": 8,
           "priority": 50,
           "rate_multiplier": 1.0
         },
         "extra": {
-          "base_rpm": 18,
-          "rpm_sticky_buffer": 12,
-          "max_sessions": 8,
+          "base_rpm": 22,
+          "rpm_sticky_buffer": 14,
+          "max_sessions": 12,
           "session_idle_timeout_minutes": 8,
-          "window_cost_limit": 600,
+          "window_cost_limit": 1500,
           "window_cost_sticky_reserve": 0
         }
       }
