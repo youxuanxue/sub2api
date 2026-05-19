@@ -607,6 +607,24 @@ else
     echo "  ok: release.yml simple_release default = false (Graviton-safe)"
 fi
 
+# ---- sub2api: main ancestry anchor ------------------------------------------
+# Mechanizes CLAUDE.md §5.y / §5.y.1 ("`main` is immutable history once
+# pushed"). The previous enforcement stack worked on diff content; none of
+# the gates noticed when an orphan-branch squash merge severed main from
+# release tag v1.7.37 (commit 5a3c120d became unreachable from HEAD). The
+# anchor is a single SHA pinned in repo-root .main-ancestry-anchor; this
+# check fails if that SHA is no longer reachable from HEAD. Companion
+# .github/workflows/main-ancestry-guard.yml catches the same failure mode
+# at PR-merge time (PR.base must be ancestor of PR.head).
+echo ""
+echo "=== sub2api: main ancestry anchor ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required to read .main-ancestry-anchor)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/main-ancestry-anchor.py; then
+    errors=$((errors + 1))
+fi
+
 # ---- sub2api: Caddyfile syntax gate ------------------------------------------
 # Stage0 deploy path treats deploy/aws/stage0/Caddyfile(.edge) as source of
 # truth for CloudFormation-embedded payloads. Parse failures here should block
