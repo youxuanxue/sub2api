@@ -4,7 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/upstream-drift.sh
-source "$SCRIPT_DIR/lib/upstream-drift.sh"
+source "$SCRIPT_DIR/../lib/upstream-drift.sh"
 
 STATE_FILE="${STATE_FILE:-/tmp/upstream-merge-state.json}"
 
@@ -308,7 +308,7 @@ case "$cmd" in
     ;;
   contract-eval-pure)
     # Direct pure-assembler entrypoint: facts → JSON, no git/gh I/O. Used by
-    # unit tests in scripts/upstream-merge-state_test.sh.
+    # unit tests in scripts/upstream/merge-state_test.sh.
     contract_eval_pure "$2" "$3" "$4" "$5" "$6" "${7:-skip}" "${8:-skip}"
     ;;
   update-contract-checkpoint)

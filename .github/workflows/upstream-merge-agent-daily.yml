@@ -149,7 +149,7 @@ jobs:
           STATE_HELPER_DIR="/tmp/upstream-merge-scripts"
           rm -rf "$STATE_HELPER_DIR"
           mkdir -p "$STATE_HELPER_DIR"
-          cp scripts/upstream-merge-state.sh "$STATE_HELPER_DIR/upstream-merge-state.sh"
+          cp scripts/upstream/merge-state.sh "$STATE_HELPER_DIR/upstream-merge-state.sh"
           cp -R scripts/lib "$STATE_HELPER_DIR/lib"
           chmod +x "$STATE_HELPER_DIR/upstream-merge-state.sh"
           echo "STATE_HELPER=$STATE_HELPER_DIR/upstream-merge-state.sh" >> "$GITHUB_ENV"

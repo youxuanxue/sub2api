@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# check-upstream-drift.sh — Mechanical enforcement of CLAUDE.md §5.y
+# scripts/upstream/check-drift.sh — Mechanical enforcement of CLAUDE.md §5.y
 #
 # Reports whether upstream/main has commits not yet merged into the TK fork
 # and prints the full §5.y merge procedure when drift is detected.
 #
 # Usage:
-#   bash scripts/check-upstream-drift.sh           # human-readable
-#   bash scripts/check-upstream-drift.sh --json    # JSON for CI consumption
-#   bash scripts/check-upstream-drift.sh --quiet   # exit code only (no output)
+#   bash scripts/upstream/check-drift.sh           # human-readable
+#   bash scripts/upstream/check-drift.sh --json    # JSON for CI consumption
+#   bash scripts/upstream/check-drift.sh --quiet   # exit code only (no output)
 #
 # Exit codes:
 #   0 — TK fork is in sync (origin/main contains all of upstream/main)
@@ -39,7 +39,7 @@ err() { echo "$@" >&2; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/upstream-drift.sh
-source "$SCRIPT_DIR/lib/upstream-drift.sh"
+source "$SCRIPT_DIR/../lib/upstream-drift.sh"
 
 # Fetch both, fail loudly on network/auth errors.
 if ! fetch_and_load_upstream_drift_snapshot; then

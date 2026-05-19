@@ -35,7 +35,7 @@ upstream 融合采用单入口自动化：周期任务统一由 `upstream-merge-
 
 1. 工作区必须干净；若已有用户改动，先确认归属，不覆盖。
 2. 同步远端：`git fetch origin --tags && git fetch upstream --tags`。
-3. 确认 main 与 upstream 状态：`bash scripts/check-upstream-drift.sh`。
+3. 确认 main 与 upstream 状态：`bash scripts/upstream/check-drift.sh`。
 4. Dry-run：`git merge-tree upstream/main HEAD`，先识别热点冲突。
 5. 创建分支：`merge/upstream-YYYYMMDD`。
 

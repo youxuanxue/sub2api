@@ -13,9 +13,9 @@
 # test/lint/security runs all use the *exact same* new-api commit.
 #
 # Usage:
-#   bash scripts/sync-new-api.sh                # default: pin from .new-api-ref
-#   bash scripts/sync-new-api.sh --check        # exit 1 if local sibling != pin
-#   bash scripts/sync-new-api.sh --bump <sha>   # update .new-api-ref + sync
+#   bash scripts/upstream/sync-new-api.sh                # default: pin from .new-api-ref
+#   bash scripts/upstream/sync-new-api.sh --check        # exit 1 if local sibling != pin
+#   bash scripts/upstream/sync-new-api.sh --bump <sha>   # update .new-api-ref + sync
 #
 # After --bump you should: go test -tags=unit ./... && git add .new-api-ref
 # && git commit -m "chore(deps): bump new-api to <sha>".
@@ -23,7 +23,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
-SUB2API_ROOT="$(cd -- "${SCRIPT_DIR}/.." &>/dev/null && pwd)"
+SUB2API_ROOT="$(cd -- "${SCRIPT_DIR}/../.." &>/dev/null && pwd)"
 PIN_FILE="${SUB2API_ROOT}/.new-api-ref"
 # Resolve sibling dir without leaking a double-slash when ${SUB2API_ROOT}
 # sits directly under filesystem root (e.g. /workspace on Cursor cloud-agent
@@ -63,7 +63,7 @@ PIN="$(tr -d '[:space:]' < "${PIN_FILE}")"
 if [ ! -d "${SIBLING_DIR}/.git" ]; then
   if [ "${mode}" = "check" ]; then
     echo "ERROR: sibling clone missing at ${SIBLING_DIR}" >&2
-    echo "       run: bash scripts/sync-new-api.sh" >&2
+    echo "       run: bash scripts/upstream/sync-new-api.sh" >&2
     exit 1
   fi
   echo "Cloning new-api into ${SIBLING_DIR} ..."
@@ -75,7 +75,7 @@ current="$(git -C "${SIBLING_DIR}" rev-parse HEAD)"
 if [ "${mode}" = "check" ]; then
   if [ "${current}" != "${PIN}" ]; then
     echo "DRIFT: sibling new-api is at ${current}, pin is ${PIN}" >&2
-    echo "       run: bash scripts/sync-new-api.sh" >&2
+    echo "       run: bash scripts/upstream/sync-new-api.sh" >&2
     exit 1
   fi
   echo "OK: new-api sibling at pinned ${PIN}"

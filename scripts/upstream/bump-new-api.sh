@@ -2,11 +2,11 @@
 # bump-new-api.sh — thin wrapper for bumping the pinned QuantumNous/new-api SHA.
 #
 # Usage:
-#   bash scripts/bump-new-api.sh <sha>
-#   bash scripts/bump-new-api.sh <sha> --no-test
+#   bash scripts/upstream/bump-new-api.sh <sha>
+#   bash scripts/upstream/bump-new-api.sh <sha> --no-test
 #
 # Default mode:
-#   - updates .new-api-ref via scripts/sync-new-api.sh --bump
+#   - updates .new-api-ref via scripts/upstream/sync-new-api.sh --bump
 #   - syncs the sibling clone
 #   - runs the fixed backend smoke set so the pin bump fails fast
 
@@ -18,7 +18,7 @@ if [ "$#" -lt 1 ]; then
 fi
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
-REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." &>/dev/null && pwd)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." &>/dev/null && pwd)"
 PIN_FILE="${REPO_ROOT}/.new-api-ref"
 TARGET_SHA=""
 RUN_TESTS=1
@@ -68,7 +68,7 @@ if [ -f "$PIN_FILE" ]; then
   OLD_PIN="$(tr -d '[:space:]' < "$PIN_FILE")"
 fi
 
-bash "${REPO_ROOT}/scripts/sync-new-api.sh" --bump "$TARGET_SHA"
+bash "${REPO_ROOT}/scripts/upstream/sync-new-api.sh" --bump "$TARGET_SHA"
 
 if [ "$RUN_TESTS" -eq 1 ]; then
   run_backend_smoke

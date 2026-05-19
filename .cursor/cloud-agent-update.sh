@@ -13,7 +13,7 @@ echo "[cloud-agent-update] refreshing dev-rules submodule"
 git submodule update --init --recursive dev-rules || true
 
 echo "[cloud-agent-update] checking sibling new-api pin"
-bash scripts/sync-new-api.sh --check 2>/dev/null || bash scripts/sync-new-api.sh || true
+bash scripts/upstream/sync-new-api.sh --check 2>/dev/null || bash scripts/upstream/sync-new-api.sh || true
 
 if command -v pnpm >/dev/null 2>&1; then
   echo "[cloud-agent-update] frontend dependencies"

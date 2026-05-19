@@ -110,10 +110,10 @@ jobs:
           FORCE_UPSTREAM_ISSUE: ${{ inputs.upstream_issue || '' }}
         run: |
           set -euo pipefail
-          python3 scripts/upstream-issue-triage-generate.py \
+          python3 scripts/upstream/issue-triage-generate.py \
             .cache/upstream-issue-watchdog/upstream-open-issues.jsonl \
             .cache/upstream/triage.json
-          python3 scripts/upstream-issue-watchdog.py \
+          python3 scripts/upstream/issue-watchdog.py \
             --upstream-issues .cache/upstream-issue-watchdog/upstream-issues.jsonl \
             --triage .cache/upstream/triage.json \
             --fixes .cache/upstream/fixes.json \
@@ -280,19 +280,19 @@ jobs:
           set -euo pipefail
           echo "cache_pr_url=" >> "$GITHUB_OUTPUT"
           if [ "${{ steps.watchdog.outputs.cache_changed }}" != "true" ]; then
-            if git diff --quiet -- scripts/upstream-issue-triage-generate.py .cache/upstream/fact-checks.json scripts/upstream-issue-watchdog.py .github/workflows/upstream-issue-watchdog.yml; then
+            if git diff --quiet -- scripts/upstream/issue-triage-generate.py .cache/upstream/fact-checks.json scripts/upstream/issue-watchdog.py .github/workflows/upstream-issue-watchdog.yml; then
               echo "No substantive upstream issue cache changes to propose."
               exit 0
             fi
           fi
-          if git diff --quiet -- scripts/upstream-issue-triage-generate.py .cache/upstream/triage.json .cache/upstream/fixes.json .cache/upstream/fact-checks.json scripts/upstream-issue-watchdog.py .github/workflows/upstream-issue-watchdog.yml; then
+          if git diff --quiet -- scripts/upstream/issue-triage-generate.py .cache/upstream/triage.json .cache/upstream/fixes.json .cache/upstream/fact-checks.json scripts/upstream/issue-watchdog.py .github/workflows/upstream-issue-watchdog.yml; then
             echo "No upstream issue cache changes to propose."
             exit 0
           fi
 
           BRANCH="chore/upstream-issue-cache"
           git checkout -B "$BRANCH"
-          git add scripts/upstream-issue-triage-generate.py .cache/upstream/triage.json .cache/upstream/fixes.json .cache/upstream/fact-checks.json scripts/upstream-issue-watchdog.py .github/workflows/upstream-issue-watchdog.yml
+          git add scripts/upstream/issue-triage-generate.py .cache/upstream/triage.json .cache/upstream/fixes.json .cache/upstream/fact-checks.json scripts/upstream/issue-watchdog.py .github/workflows/upstream-issue-watchdog.yml
           git commit -m "chore: refresh upstream issue cache"
           git push --force-with-lease origin "$BRANCH"
 
@@ -311,7 +311,7 @@ jobs:
           - [x] `python3 -m json.tool .cache/upstream/triage.json`
           - [x] `python3 -m json.tool .cache/upstream/fixes.json`
           - [x] `python3 -m json.tool .cache/upstream/fact-checks.json`
-          - [x] `python3 -m py_compile scripts/upstream-issue-watchdog.py`
+          - [x] `python3 -m py_compile scripts/upstream/issue-watchdog.py`
           - [x] `python3 -m json.tool .cache/upstream-issue-watchdog/report.json`
           - [x] `python3 -m json.tool .cache/upstream-issue-watchdog/agent-input.json`
           EOF
@@ -440,7 +440,7 @@ jobs:
           - Verify the current TokenKey code fact before editing; do not rely only on the upstream issue text.
           - Preserve upstream-owned functionality by default. Prefer TokenKey companion/facade/helper boundaries over large rewrites of upstream-shaped files.
           - Add or update the smallest regression test that proves the fix.
-          - Update scripts/upstream-issue-triage-generate.py, .cache/upstream/triage.json, .cache/upstream/fixes.json, and .cache/upstream/fact-checks.json so ${SELECTED_UPSTREAM} becomes fixed_in_tokenkey only after stable code facts prove the fix.
+          - Update scripts/upstream/issue-triage-generate.py, .cache/upstream/triage.json, .cache/upstream/fixes.json, and .cache/upstream/fact-checks.json so ${SELECTED_UPSTREAM} becomes fixed_in_tokenkey only after stable code facts prove the fix.
           - Add fact-check needles that will still pass on a fresh main checkout after the PR is merged.
           - Run focused tests for the changed area and bash scripts/preflight.sh before declaring the PR ready.
           - Commit and push the branch, then create or update a GitHub PR to main.
@@ -451,7 +451,7 @@ jobs:
           The PR body must include:
           - ${SELECTED_UPSTREAM}
           - changed code facts
-          - scripts/upstream-issue-triage-generate.py
+          - scripts/upstream/issue-triage-generate.py
           - .cache/upstream/triage.json
           - .cache/upstream/fixes.json
           - .cache/upstream/fact-checks.json
@@ -531,7 +531,7 @@ jobs:
           gh pr view "$PR_NUMBER" --json body,url,title > /tmp/upstream-issue-fix-pr.json
           URL="$(jq -r '.url' /tmp/upstream-issue-fix-pr.json)"
           BODY="$(jq -r '.body // ""' /tmp/upstream-issue-fix-pr.json)"
-          for needle in "$SELECTED_UPSTREAM" "scripts/upstream-issue-triage-generate.py" ".cache/upstream/triage.json" ".cache/upstream/fixes.json" ".cache/upstream/fact-checks.json"; do
+          for needle in "$SELECTED_UPSTREAM" "scripts/upstream/issue-triage-generate.py" ".cache/upstream/triage.json" ".cache/upstream/fixes.json" ".cache/upstream/fact-checks.json"; do
             if ! grep -q "$needle" <<<"$BODY"; then
               echo "::error::PR #$PR_NUMBER body is missing required text: $needle"
               exit 1

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Unit test for the pure contract-eval assembler in scripts/upstream-merge-state.sh.
+# Unit test for the pure contract-eval assembler in scripts/upstream/merge-state.sh.
 # The pure assembler takes facts (PR existence, preflight result, audit result) and
 # produces the contract JSON without touching git/gh, so we can exercise every
 # branch of the gating logic deterministically.
@@ -8,7 +8,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HELPER="$HERE/upstream-merge-state.sh"
+HELPER="$HERE/merge-state.sh"
 
 if [ ! -f "$HELPER" ]; then
   echo "FAIL: $HELPER missing" >&2

@@ -95,7 +95,7 @@ if [ ! -d "$SIBLING_DIR/.git" ] && [ ! -w "$SIBLING_PARENT" ]; then
 fi
 
 echo "[project-hook] syncing sibling new-api to pinned SHA"
-bash scripts/sync-new-api.sh --check || bash scripts/sync-new-api.sh || warn "sync-new-api.sh failed"
+bash scripts/upstream/sync-new-api.sh --check || bash scripts/upstream/sync-new-api.sh || warn "sync-new-api.sh failed"
 
 echo "[project-hook] installing frontend dependencies via pnpm"
 if command -v pnpm >/dev/null 2>&1; then
