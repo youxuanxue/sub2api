@@ -1,0 +1,112 @@
+name: Main Ancestry Guard
+
+# Mechanical enforcement of CLAUDE.md §5.y for any PR whose base branch is
+# `main`. Catches the exact failure mode that orphan-reset main in PR #307:
+# a PR opened from a branch whose head shares no ancestry with main. On
+# GitHub's "Squash and merge", such a PR rewrites main into the orphan tree
+# and all earlier history (including release tags) becomes unreachable.
+#
+# Two hard checks:
+#
+#   1. `git merge-base --is-ancestor PR_base PR_head` must succeed.
+#      Normal feature branches branched from main satisfy this trivially.
+#      `merge/upstream-*` PRs that use `git merge --no-ff upstream/main`
+#      also satisfy this (main stays as the first-parent ancestor).
+#      Orphan branches (`git checkout --orphan ...`) and cross-fork
+#      cherry-picks fail it.
+#
+#   2. The PR cannot modify `.main-ancestry-anchor` unless its commit
+#      message contains the literal marker `main-ancestry-anchor-advance`.
+#      The anchor is a one-way ratchet; see CLAUDE.md §5.y.1 for the
+#      advancement procedure.
+#
+# Companion preflight check `scripts/checks/main-ancestry-anchor.py` runs
+# locally and in CI on every PR; together with this workflow they cover
+# both prevention (this gate, at PR-merge time) and detection (preflight,
+# at every commit / push). A green check here is a hard prerequisite for
+# merging — branch protection on `main` should require this status.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Check 1 — PR base is an ancestor of PR head
+        run: |
+          BASE='${{ github.event.pull_request.base.sha }}'
+          HEAD='${{ github.event.pull_request.head.sha }}'
+
+          # Ensure both SHAs are present locally. PR head was checked out
+          # above; PR base may not be reachable from head if the PR was
+          # opened from an orphan branch — fetch it explicitly so the
+          # merge-base check itself is what fails, not git plumbing.
+          git fetch --no-tags --depth=1 origin "$BASE" 2>/dev/null || true
+
+          if ! git cat-file -e "$BASE" 2>/dev/null; then
+            echo "::error::PR base commit $BASE could not be fetched from origin."
+            echo "::error::This usually means the PR was opened against a force-pushed or deleted base."
+            echo "::error::Re-sync the base branch and re-open the PR."
+            exit 1
+          fi
+
+          if git merge-base --is-ancestor "$BASE" "$HEAD"; then
+            echo "OK: PR base $BASE is an ancestor of PR head $HEAD."
+            exit 0
+          fi
+
+          echo "::error::PR base ($BASE) is NOT an ancestor of PR head ($HEAD)."
+          echo "::error::Squash-merging this PR would orphan-reset main and sever"
+          echo "::error::every commit (including release tags) currently reachable"
+          echo "::error::from main but not from this PR's head."
+          echo "::error::"
+          echo "::error::This is the exact failure mode CLAUDE.md §5.y forbids."
+          echo "::error::See §5.y.1 for the enforcement rationale."
+          echo "::error::"
+          echo "::error::Fix: rebase your branch onto current origin/main and"
+          echo "::error::force-push the FEATURE branch only (never main):"
+          echo "::error::  git fetch origin"
+          echo "::error::  git rebase origin/main"
+          echo "::error::  git push --force-with-lease origin <your-feature-branch>"
+          exit 1
+
+      - name: Check 2 — PR does not modify .main-ancestry-anchor without explicit advance marker
+        env:
+          PR_COMMITS_URL: ${{ github.event.pull_request.commits_url }}
+        run: |
+          BASE='${{ github.event.pull_request.base.sha }}'
+          HEAD='${{ github.event.pull_request.head.sha }}'
+
+          if ! git diff --name-only "$BASE".."$HEAD" | grep -qx '\.main-ancestry-anchor'; then
+            echo "OK: PR does not modify .main-ancestry-anchor."
+            exit 0
+          fi
+
+          # The anchor changed. Allow only if at least one PR commit message
+          # carries the explicit `main-ancestry-anchor-advance` marker.
+          MARKER='main-ancestry-anchor-advance'
+          if git log --format='%B' "$BASE".."$HEAD" | grep -qF "$MARKER"; then
+            echo "OK: .main-ancestry-anchor change is authorized by '$MARKER' marker."
+            exit 0
+          fi
+
+          echo "::error::This PR modifies .main-ancestry-anchor but no commit message"
+          echo "::error::contains the required marker '$MARKER'."
+          echo "::error::"
+          echo "::error::The anchor is a one-way ratchet (see CLAUDE.md §5.y.1)."
+          echo "::error::To advance it, include the literal string"
+          echo "::error::    $MARKER"
+          echo "::error::in a commit message in this PR (typically alongside the SHA bump)."
+          exit 1
