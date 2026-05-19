@@ -39,6 +39,10 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0 ensures PR base is reachable locally — GitHub Actions
+      # fetches both base and head when checking out a PR ref with full depth,
+      # so no second `git fetch` is needed. submodules are intentionally NOT
+      # checked out: this gate only uses git plumbing on the host repo.
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -49,14 +53,8 @@ jobs:
           BASE='${{ github.event.pull_request.base.sha }}'
           HEAD='${{ github.event.pull_request.head.sha }}'
 
-          # Ensure both SHAs are present locally. PR head was checked out
-          # above; PR base may not be reachable from head if the PR was
-          # opened from an orphan branch — fetch it explicitly so the
-          # merge-base check itself is what fails, not git plumbing.
-          git fetch --no-tags --depth=1 origin "$BASE" 2>/dev/null || true
-
           if ! git cat-file -e "$BASE" 2>/dev/null; then
-            echo "::error::PR base commit $BASE could not be fetched from origin."
+            echo "::error::PR base commit $BASE not present in the checked-out repo."
             echo "::error::This usually means the PR was opened against a force-pushed or deleted base."
             echo "::error::Re-sync the base branch and re-open the PR."
             exit 1
@@ -82,9 +80,7 @@ jobs:
           echo "::error::  git push --force-with-lease origin <your-feature-branch>"
           exit 1
 
-      - name: Check 2 — PR does not modify .main-ancestry-anchor without explicit advance marker
-        env:
-          PR_COMMITS_URL: ${{ github.event.pull_request.commits_url }}
+      - name: Check 2 — anchor changes are authorized and forward-only
         run: |
           BASE='${{ github.event.pull_request.base.sha }}'
           HEAD='${{ github.event.pull_request.head.sha }}'
@@ -94,19 +90,47 @@ jobs:
             exit 0
           fi
 
-          # The anchor changed. Allow only if at least one PR commit message
-          # carries the explicit `main-ancestry-anchor-advance` marker.
+          # Anchor changed — apply two sub-checks in order.
+
+          # 2a. At least one PR commit message must carry the explicit
+          #     `main-ancestry-anchor-advance` marker.
           MARKER='main-ancestry-anchor-advance'
-          if git log --format='%B' "$BASE".."$HEAD" | grep -qF "$MARKER"; then
-            echo "OK: .main-ancestry-anchor change is authorized by '$MARKER' marker."
+          if ! git log --format='%B' "$BASE".."$HEAD" | grep -qF "$MARKER"; then
+            echo "::error::This PR modifies .main-ancestry-anchor but no commit message"
+            echo "::error::contains the required marker '$MARKER'."
+            echo "::error::"
+            echo "::error::The anchor is a one-way ratchet (see CLAUDE.md §5.y.1)."
+            echo "::error::To advance it, include the literal string"
+            echo "::error::    $MARKER"
+            echo "::error::in a commit message in this PR (typically alongside the SHA bump)."
+            exit 1
+          fi
+
+          # 2b. The new anchor SHA must be a descendant of the old anchor SHA.
+          #     This is the actual ratchet enforcement — without it, a PR
+          #     carrying the marker could silently roll the anchor backward
+          #     to an older commit, defeating the §5.y guarantee.
+          OLD_ANCHOR=$(git show "$BASE":.main-ancestry-anchor | tr -d '[:space:]')
+          NEW_ANCHOR=$(git show "$HEAD":.main-ancestry-anchor | tr -d '[:space:]')
+
+          if [ "$OLD_ANCHOR" = "$NEW_ANCHOR" ]; then
+            echo "OK: .main-ancestry-anchor file diffed but resolved SHA is unchanged."
             exit 0
           fi
 
-          echo "::error::This PR modifies .main-ancestry-anchor but no commit message"
-          echo "::error::contains the required marker '$MARKER'."
-          echo "::error::"
-          echo "::error::The anchor is a one-way ratchet (see CLAUDE.md §5.y.1)."
-          echo "::error::To advance it, include the literal string"
-          echo "::error::    $MARKER"
-          echo "::error::in a commit message in this PR (typically alongside the SHA bump)."
-          exit 1
+          if ! git cat-file -e "$OLD_ANCHOR" 2>/dev/null || ! git cat-file -e "$NEW_ANCHOR" 2>/dev/null; then
+            echo "::error::Old anchor $OLD_ANCHOR or new anchor $NEW_ANCHOR not present in repo."
+            echo "::error::Both must resolve to real git commits before the PR can be merged."
+            exit 1
+          fi
+
+          if ! git merge-base --is-ancestor "$OLD_ANCHOR" "$NEW_ANCHOR"; then
+            echo "::error::anchor ratchet violated: new anchor $NEW_ANCHOR is NOT a descendant"
+            echo "::error::of old anchor $OLD_ANCHOR. The anchor may only move forward."
+            echo "::error::"
+            echo "::error::See CLAUDE.md §5.y.1 — to roll the anchor back you would need to"
+            echo "::error::reset main itself, which is exactly what §5.y forbids."
+            exit 1
+          fi
+
+          echo "OK: .main-ancestry-anchor advanced from $OLD_ANCHOR to $NEW_ANCHOR (descendant)."
