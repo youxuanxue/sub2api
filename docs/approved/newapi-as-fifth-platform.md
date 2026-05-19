@@ -433,7 +433,7 @@ PR：[`feature/newapi-fifth-platform → main`](https://github.com/youxuanxue/su
 
 ### 12.2 单一事实来源
 
-[`scripts/newapi-sentinels.json`](../../scripts/newapi-sentinels.json) — 列出 10 个载体（6 后端 Go + 2 集成包 + 2 前端 TS），每条带 `path` / `must_contain` / `rationale`。当前覆盖的载体类别：
+[`scripts/sentinels/newapi.json`](../../scripts/sentinels/newapi.json) — 列出 10 个载体（6 后端 Go + 2 集成包 + 2 前端 TS），每条带 `path` / `must_contain` / `rationale`。当前覆盖的载体类别：
 
 | 类别 | 代表条目 | 失败时的真实后果 |
 |---|---|---|
@@ -454,14 +454,14 @@ PR：[`feature/newapi-fifth-platform → main`](https://github.com/youxuanxue/su
 | `scripts/preflight.sh § 10` | 任何分支的 pre-commit / CI | 提交被拒 |
 | `.github/workflows/upstream-merge-pr-shape.yml` Check 4 | `merge/upstream-*` PR | merge PR 红灯，必须修复才能合 |
 
-两者复用同一个 `scripts/check-newapi-sentinels.py`，行为完全一致；本地绿了 CI 必绿。
+两者复用同一个 `scripts/sentinels/check-newapi.py`，行为完全一致；本地绿了 CI 必绿。
 
 ### 12.4 演化纪律（添加新载体的正确方式）
 
-- 当新增第五平台不可缺失的文件/符号时，在同一 commit 内向 `scripts/newapi-sentinels.json` 追加条目。
+- 当新增第五平台不可缺失的文件/符号时，在同一 commit 内向 `scripts/sentinels/newapi.json` 追加条目。
 - 当 sentinel 被有意重命名/搬迁时，更新 registry，不允许"为了通过检查而删掉条目"。Check 4 的报错信息会显式提示这条纪律。
 - 不要把"所有 `*_tk_*.go`"都登记进去——sentinels 列「真实有载荷的接口/符号」，不列「我们为风格写的所有 companion」。冗余清单是漂移源。
 
 ### 12.5 Negative-test（行为验证而非存在性测试）
 
-提交前已通过 negative-test（test-philosophy.mdc §6 「运行才算验证」）：临时把 `account_tk_compat_pool.go` 中 `IsOpenAICompatPoolMember` / `OpenAICompatPlatforms` 全文替换为占位符，运行 `python3 scripts/check-newapi-sentinels.py` → exit 1，输出列出缺失符号 + rationale；恢复后 exit 0。证据见 PR 描述。
+提交前已通过 negative-test（test-philosophy.mdc §6 「运行才算验证」）：临时把 `account_tk_compat_pool.go` 中 `IsOpenAICompatPoolMember` / `OpenAICompatPlatforms` 全文替换为占位符，运行 `python3 scripts/sentinels/check-newapi.py` → exit 1，输出列出缺失符号 + rationale；恢复后 exit 0。证据见 PR 描述。

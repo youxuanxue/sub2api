@@ -6,7 +6,7 @@
   - `backend/internal/service/ratelimit_service.go`
   - `backend/internal/service/rate_limit_429_cooldown_test.go`
 - Sentinel registry changes:
-  - `scripts/gateway-tk-sentinels.json`
+  - `scripts/sentinels/gateway-tk.json`
 
 ## Intent
 - Apply the existing configurable short 429 cooldown when Anthropic returns a 429 without reset metadata.

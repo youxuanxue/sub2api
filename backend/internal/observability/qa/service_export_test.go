@@ -600,7 +600,7 @@ func writeTrajectoryExportFixture(t *testing.T, zipBody []byte) string {
 
 func runQAEvidenceDatasetCheck(t *testing.T, datasetPath string, args ...string) (int, string) {
 	t.Helper()
-	commandArgs := append([]string{"scripts/check-qa-evidence-dataset.py", datasetPath}, args...)
+	commandArgs := append([]string{"scripts/checks/qa-evidence-dataset.py", datasetPath}, args...)
 	cmd := exec.Command("python3", commandArgs...)
 	cmd.Dir = filepath.Join("..", "..", "..", "..")
 	output, err := cmd.CombinedOutput()

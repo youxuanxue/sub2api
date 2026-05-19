@@ -5,7 +5,7 @@
 -- StickyOnly (yellow-zone) traffic the runtime account scheduler intends to
 -- allow, rather than dropping it at the group gate.
 --
--- Pre-flight: run scripts/check-account-group-rpm-alignment.py
+-- Pre-flight: run ops/anthropic/check-account-group-rpm-alignment.py
 --   --target <edge_id|prod> --strict-redline
 -- and confirm 0 violations before applying this template.  The DO block at
 -- the top is belt-and-suspenders: it aborts the transaction with a clear
@@ -63,7 +63,7 @@ BEGIN
   IF drift IS NOT NULL THEN
     RAISE EXCEPTION USING
       MESSAGE = 'baseline drift: rpm_sticky_buffer missing on account(s) in group "' || tg || '": [' || drift || ']',
-      HINT = 'Run scripts/check-account-group-rpm-alignment.py --target <id> --strict-redline and update baseline per deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json before re-applying this template.';
+      HINT = 'Run ops/anthropic/check-account-group-rpm-alignment.py --target <id> --strict-redline and update baseline per deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json before re-applying this template.';
   END IF;
 END $$;
 

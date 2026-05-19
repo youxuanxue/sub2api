@@ -12,7 +12,7 @@
 -- group's rpm_limit, with absorb-zero across stubs) instead.
 --
 -- Pre-flight:
---   1. Run scripts/check-prod-anthropic-stub-mirror.py --json against this
+--   1. Run ops/anthropic/check-prod-stub-mirror.py --json against this
 --      target and read `group_results[i].expected_rpm_limit` for the
 --      target group; pass that integer as :new_rpm_limit below.
 --   2. The DO block aborts if any OAuth-type account is bound to the

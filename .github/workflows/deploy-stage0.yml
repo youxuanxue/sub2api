@@ -64,7 +64,7 @@ jobs:
         # divergent image-architecture gates.
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash scripts/stage0_verify_ghcr_manifest.sh "$INPUT_TAG" "$INPUT_OVERRIDE"
+        run: bash ops/stage0/verify_ghcr_manifest.sh "$INPUT_TAG" "$INPUT_OVERRIDE"
 
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
@@ -99,12 +99,12 @@ jobs:
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
           STAGE0_SSM_OUTPUT_DIR: .
-        run: bash scripts/stage0_deploy_via_ssm.sh "$INPUT_TAG" "$INSTANCE_ID" "deploy-stage0 env=prod"
+        run: bash ops/stage0/deploy_via_ssm.sh "$INPUT_TAG" "$INSTANCE_ID" "deploy-stage0 env=prod"
 
       - name: External health check
         env:
           API_URL: ${{ steps.instance.outputs.api_url }}
-        run: bash scripts/stage0_external_health.sh "$API_URL"
+        run: bash ops/stage0/external_health.sh "$API_URL"
 
       - name: Post-deploy gateway smoke (API + Claude paths)
         env:
@@ -137,7 +137,7 @@ jobs:
             echo "See deploy/aws/README.md (post-deploy smoke) and docs/approved/deploy-stage0-workflow.md §5."
             exit 1
           fi
-          bash scripts/tk_post_deploy_smoke.sh
+          bash ops/stage0/post_deploy_smoke.sh
 
       - name: Job summary
         if: always()

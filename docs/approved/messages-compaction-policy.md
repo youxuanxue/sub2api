@@ -116,7 +116,7 @@ related_stories: [US-034]
   - `backend/internal/service/api_key_auth_cache_impl.go`
   - `backend/internal/handler/dto/types.go`
   - `backend/internal/handler/dto/mappers.go`
-- 覆写防护门禁：`scripts/engine-facade-sentinels.json`
+- 覆写防护门禁：`scripts/sentinels/engine-facade.json`
 
 ## 8. 风险与控制
 

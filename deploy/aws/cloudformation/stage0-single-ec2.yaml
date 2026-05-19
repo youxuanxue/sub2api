@@ -141,7 +141,7 @@ Parameters:
       Daily QA safety-net: remove qa_records rows and on-disk files under
       /var/lib/tokenkey/app/qa_blobs and qa_dlq older than this many days
       (fractional days allowed, e.g. 1.5). Same surfaces as
-      scripts/prod-qa-export-and-purge.sh (plus age-filtered qa_records DELETE).
+      ops/prod/qa-export-and-purge.sh (plus age-filtered qa_records DELETE).
       Set to 0 to disable the timer (script no-ops).
 
 Conditions:

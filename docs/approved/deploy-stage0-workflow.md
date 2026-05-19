@@ -13,7 +13,7 @@ related_prs: ["#53"]
 # Adversarial fail-closed gate also verified:
 #   GHA run https://github.com/youxuanxue/sub2api/actions/runs/24872388875
 #   (tag=99.99.99 → exited at GHCR manifest precheck before any AWS call).
-scope: ".github/workflows/deploy-stage0.yml (prod-only) + scripts/tk_post_deploy_smoke.sh + IAM in deploy/aws/cloudformation/cicd-oidc.yaml"
+scope: ".github/workflows/deploy-stage0.yml (prod-only) + ops/stage0/post_deploy_smoke.sh + IAM in deploy/aws/cloudformation/cicd-oidc.yaml"
 ---
 
 # Cloud-Agent-Driven Tag-and-Deploy Workflow
@@ -110,7 +110,7 @@ Steps:
    not reach `healthy`.
 6. **External health-check** — `curl ${ApiUrl}/health`, three attempts
    spaced 10 s apart, require HTTP 200 within 5 s.
-7. **Post-deploy gateway smoke** — `scripts/tk_post_deploy_smoke.sh` against
+7. **Post-deploy gateway smoke** — `ops/stage0/post_deploy_smoke.sh` against
    `${ApiUrl}`: public settings, authenticated `/v1/models`,
    `/v1/chat/completions`, and `/v1/messages` (Claude Code-style `x-api-key`).
    Requires repository secret `POST_DEPLOY_SMOKE_API_KEY` (a user `sk-...`

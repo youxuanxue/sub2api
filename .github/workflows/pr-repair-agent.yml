@@ -178,7 +178,7 @@ jobs:
         if: steps.target.outputs.skip != 'true'
         env:
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-        run: bash scripts/setup-claude-code.sh
+        run: bash scripts/agent/setup-claude-code.sh
 
       - name: Configure git identity
         if: steps.target.outputs.skip != 'true'
@@ -198,11 +198,11 @@ jobs:
           # and the warning is loud.
           set -euo pipefail
           git fetch origin main --depth=1 >/dev/null 2>&1 || true
-          if git show origin/main:scripts/redact-agent-stream.py > /tmp/redact-agent-stream.py 2>/dev/null; then
+          if git show origin/main:scripts/agent/redact-stream.py > /tmp/redact-agent-stream.py 2>/dev/null; then
             chmod +x /tmp/redact-agent-stream.py
-            echo "ok: staged scripts/redact-agent-stream.py from origin/main"
+            echo "ok: staged scripts/agent/redact-stream.py from origin/main"
           else
-            echo "::warning::scripts/redact-agent-stream.py missing on origin/main — agent artifact will be unfiltered"
+            echo "::warning::scripts/agent/redact-stream.py missing on origin/main — agent artifact will be unfiltered"
             cat > /tmp/redact-agent-stream.py <<'PYEOF'
           import sys
           for line in sys.stdin:

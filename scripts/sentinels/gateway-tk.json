@@ -1,0 +1,684 @@
+{
+  "version": 1,
+  "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
+  "sentinels": [
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "withGeminiCodeAssistMappedModel(ctx, mappedModel)",
+        "tryGeminiCodeAssistApplyModelRateLimit(ctx, account, body)",
+        "detail.Get(\"retryDelay\").String()",
+        "detail.Get(\"metadata.retryDelay\").String()",
+        "TK: See upstream Wei-Shaw/sub2api#641",
+        "if account.Type == AccountTypeOAuth {"
+      ],
+      "rationale": "Code Assist 429 fallback-model protection depends on upstream-file hooks plus precise reset-delay extraction. Forwarding must store resolved upstream Gemini model in context, upstream 429 handling must delegate to the TK companion before account-level SetRateLimited, and ParseGeminiRateLimitResetTime must keep structured RetryInfo retryDelay parsing. Dropping any of these reintroduces whole-account long cooldown when upstream already provides a short retry window. The handleGeminiUpstreamError fallback branch must route all Gemini OAuth accounts (google_one + aistudio OAuth + code_assist) through tier cooldown — only API Key accounts may fall through to PST-midnight reset (see upstream #641)."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service_tk_model_rate_limit.go",
+      "must_contain": [
+        "withGeminiCodeAssistMappedModel",
+        "geminiCodeAssistMappedModelFromContext",
+        "isGeminiCodeAssistModelScopedRateLimit",
+        "SetModelRateLimit"
+      ],
+      "rationale": "TK companion that keeps Gemini Code Assist MODEL_CAPACITY_EXHAUSTED scoped to the affected upstream model, including the production case where Google omits ErrorInfo.metadata.model."
+    },
+    {
+      "path": "backend/internal/service/model_rate_limit.go",
+      "must_contain": [
+        "resolveFinalGeminiModelKey",
+        "TKResolveGeminiDispatchModel",
+        "PlatformGemini"
+      ],
+      "rationale": "Scheduling must read model_rate_limits through the same Gemini group-level Claude→Gemini mapping used by forwarding; otherwise writes use gemini-* keys while subsequent /v1/messages reads probe claude-* keys."
+    },
+    {
+      "path": "backend/internal/service/model_rate_limit_test.go",
+      "must_contain": [
+        "TestIsModelRateLimited_GeminiDispatchMappingAffectsModelKey"
+      ],
+      "rationale": "Focused regression proving Gemini dispatch mapping affects model-level rate-limit reads."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service_tk_model_rate_limit_test.go",
+      "must_contain": [
+        "TestTryGeminiCodeAssistApplyModelRateLimit_UsesFallbackModelForModelScoped429",
+        "TestHandleGeminiUpstreamError_CodeAssist429FallbackModelRoutesToPerModel",
+        "TestHandleGeminiUpstreamError_CodeAssist429RetryDelayRoutesToPerModel"
+      ],
+      "rationale": "Focused regressions proving model-scoped Code Assist 429s without metadata.model and with RetryInfo retryDelay both stay per-model and do not fall back to account-level cooldown."
+    },
+    {
+      "path": "backend/internal/service/ops_alert_evaluator_service.go",
+      "must_contain": [
+        "maybeSendAlertNotifications",
+        "feishu_sent"
+      ],
+      "rationale": "Ops alert evaluator must call the TK companion notification fanout and report Feishu sends in the heartbeat. If an upstream merge restores the old email-only call, P0 Feishu delivery silently stops while alert event creation still works."
+    },
+    {
+      "path": "backend/internal/service/ops_alert_notifications_tk_feishu.go",
+      "must_contain": [
+        "maybeSendAlertFeishu",
+        "strings.EqualFold(strings.TrimSpace(rule.Severity), \"P0\")",
+        "rule.NotifyEmail",
+        "opsFeishuDedupeKey",
+        "s.limiter.SetLimit(cfg.RateLimitPerHour)"
+      ],
+      "rationale": "TK companion that keeps Feishu alerting P0-only, tied to the existing external-notification opt-in, and protected by per-rule/dimension cooldown plus global hourly rate limiting. Dropping any anchor turns a low-noise OPC pager into either silence or chat noise."
+    },
+    {
+      "path": "backend/internal/service/ops_feishu_notifier_tk.go",
+      "must_contain": [
+        "sanitizeFeishuWebhook",
+        "sanitizeFeishuWebhookError",
+        "signFeishuWebhook",
+        "SigningSecret"
+      ],
+      "rationale": "Feishu webhook delivery must keep secrets out of logs/errors and support the optional bot signing secret. These are safety properties that compile cleanly if accidentally removed."
+    },
+    {
+      "path": "backend/internal/service/ops_settings_models.go",
+      "must_contain": [
+        "OpsFeishuAlertConfig",
+        "WebhookURLConfigured",
+        "SigningSecretConfigured"
+      ],
+      "rationale": "Ops email notification config JSON must preserve the Feishu write-only webhook/secret state without a DB migration. If this model shape is overwritten, frontend saves can drop Feishu config or leak secret fields."
+    },
+    {
+      "path": "backend/internal/service/openai_messages_compaction_tk.go",
+      "must_contain": [
+        "shouldEvaluateOpenAICompatMessagesCompactionForAccount",
+        "applyOpenAICompatMessagesCompaction(account *Account",
+        "applyOpenAICompatOAuthMessagesCompaction",
+        "openAICompatMessagesCompactCandidate",
+        "anthropicResponseContentTextLen"
+      ],
+      "rationale": "OpenAI OAuth /v1/messages compaction is a TK policy companion: OAuth must opt into threshold-based compaction through the shared replay compaction engine's anchor+tail profile, and gateway completion logs must keep enough compact-attempt evidence to distinguish upstream empty summaries from TokenKey routing or billing failures. Dropping these hooks silently makes GPT专线 OAuth accounts ignore configured compaction thresholds or removes the production evidence needed for long-context compact incidents."
+    },
+    {
+      "path": "backend/internal/service/openai_messages_compaction_tk_test.go",
+      "must_contain": [
+        "TestShouldEvaluateOpenAICompatMessagesCompactionForAccount",
+        "TestApplyOpenAICompatMessagesCompaction_UsesAnchorAndTailProfileForOAuth",
+        "TestApplyOpenAICompatMessagesCompaction_UsesTailOnlyProfileForAPIKey"
+      ],
+      "rationale": "Focused regressions proving OAuth configured compaction uses the shared engine's anchor+tail profile while APIKey compaction keeps the existing continuation gate and tail-only profile."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "case 404:",
+        "s.handle404(ctx, account, upstreamMsg, responseBody)",
+        "anthropic404ModelCooldown",
+        "isAnthropicModelNotFound404",
+        "SetModelRateLimit(ctx, account.ID, modelName, resetAt)",
+        "isAnthropicExtraUsage429",
+        "s.apply429FallbackRateLimit(ctx, account, \"no_reset_time\")",
+        "TkRecordOpenAI429BurstFallthrough(normalized)",
+        "anthropicUpstreamErrorThreshold",
+        "anthropicUpstreamErrorWindowMinutes",
+        "handleAnthropicUpstreamError",
+        "IncrementAnthropicUpstreamErrorCount",
+        "SetTempUnschedulable(ctx, account.ID, until, reason)",
+        "ResetAnthropicUpstreamErrorCounter",
+        "if account.IsPoolMode() && !customErrorCodesEnabled && account.Platform != PlatformAnthropic {",
+        "if !account.ShouldHandleErrorCode(statusCode) && account.Platform != PlatformAnthropic {",
+        "s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)"
+      ],
+      "rationale": "Anthropic model-not-found 404s must stay model-scoped instead of falling through as an unprotected upstream error or disabling the whole OAuth account. Anthropic 429s without reset metadata must use the configurable short cooldown unless the body is the known third-party/extra-usage rejection, otherwise production can repeatedly hit the same account with no local backoff. Anthropic upstream errors must also feed the TK short-window counter (anchored by the `anthropicUpstreamErrorWindowMinutes` symbol — the value is intentionally short, currently 1 minute, so a transient burst clears quickly rather than carrying stale strikes across an entire 10-minute cooldown) and mark the account temporarily unschedulable after three hits so a single bad Edge/OAuth account cannot produce repeated upstream 400/403/5xx responses before the scheduler removes it; the two `&& account.Platform != PlatformAnthropic` carve-outs are load-bearing because they are the ONLY reason pool-mode + custom-error-codes Anthropic accounts still reach the counter, and the `s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)` call must be invoked from the recovery hotpaths (ClearRateLimit, RecoverAccountState, ClearTempUnschedulable, UpdateSessionWindow allowed status) so a healed account does not carry stale strikes into the next window. OpenAI burst 429s (Codex headers present but neither 5h nor 7d window at 100% used+with-reset) must call the TK companion TkRecordOpenAI429BurstFallthrough and return nil so handle429 falls back to the short cooldown, otherwise transient throttle surges turn into multi-day 503 windows (upstream #2258). Upstream merges in this large service file can compile cleanly while dropping any of these protections, so the sentinel anchors all four policies in the hotspot file."
+    },
+    {
+      "path": "backend/internal/service/anthropic_upstream_error_counter.go",
+      "must_contain": [
+        "type AnthropicUpstreamErrorCounterCache interface",
+        "IncrementAnthropicUpstreamErrorCount",
+        "ResetAnthropicUpstreamErrorCount"
+      ],
+      "rationale": "Interface seam for Anthropic upstream-error short-window counting. If an upstream merge drops this interface or its reset path, RateLimitService can no longer atomically count failures or clear the counter after recovery."
+    },
+    {
+      "path": "backend/internal/repository/anthropic_upstream_error_counter_cache.go",
+      "must_contain": [
+        "anthropic_upstream_error_count:account:",
+        "NewAnthropicUpstreamErrorCounterCache",
+        "IncrementAnthropicUpstreamErrorCount",
+        "ResetAnthropicUpstreamErrorCount"
+      ],
+      "rationale": "Redis-backed atomic counter for Anthropic upstream-error bursts. The prefix and constructor wiring must remain stable so all app replicas share the same short-window threshold before setting temp_unschedulable_until."
+    },
+    {
+      "path": "backend/internal/service/wire.go",
+      "must_contain": [
+        "anthropicUpstreamErrorCounterCache AnthropicUpstreamErrorCounterCache,",
+        "svc.SetAnthropicUpstreamErrorCounterCache(anthropicUpstreamErrorCounterCache)"
+      ],
+      "rationale": "ProvideRateLimitService MUST keep the Anthropic upstream-error counter parameter and the SetAnthropicUpstreamErrorCounterCache wire call. If an upstream merge drops either line, handleAnthropicUpstreamError silently falls through (nil counter → returns false → no temp_unschedulable) and the burst protection becomes a NOOP that compiles cleanly and passes all current unit tests. The literal parameter declaration is what wire.go regen sees; the Set call is what hands the dependency to the runtime service."
+    },
+    {
+      "path": "backend/internal/repository/wire.go",
+      "must_contain": [
+        "NewAnthropicUpstreamErrorCounterCache"
+      ],
+      "rationale": "ProviderSet MUST register the Anthropic upstream-error counter constructor; without it `wire` regen fails to satisfy the service.AnthropicUpstreamErrorCounterCache dependency added in service/wire.go and falls back to the stale wire_gen.go until someone forces a regen. Anchoring the literal here makes the missing provider obvious on first sentinel run instead of waiting for a wire regen drift."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_403_test.go",
+      "must_contain": [
+        "TestRateLimitService_HandleUpstreamError_Anthropic403ThresholdTempUnschedulable",
+        "TestRateLimitService_HandleUpstreamError_AnthropicPoolModeStillCounts",
+        "TestRateLimitService_HandleUpstreamError_AnthropicCustomErrorCodesStillCounts",
+        "TestRateLimitService_ClearRateLimit_ResetsAnthropicCounter",
+        "TestRateLimitService_RecoverAccountAfterSuccessfulTest_ResetsAnthropicCounter"
+      ],
+      "rationale": "Focused regressions proving the four behaviors that are easy to silently revert in an upstream merge: (1) Anthropic upstream errors only disable after the short-window threshold, (2) the pool-mode carve-out still feeds the counter, (3) the custom-error-codes allowlist carve-out still feeds the counter, (4) ClearRateLimit resets the counter to mirror ResetOpenAI403Counter, and (5) RecoverAccountAfterSuccessfulTest resets the counter so a healed account does not carry stale strikes. Dropping these tests lets the upstream-error policy silently drift during future merges."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_401_test.go",
+      "must_contain": [
+        "type anthropicUpstreamErrorCounterCacheStub struct",
+        "IncrementAnthropicUpstreamErrorCount",
+        "ResetAnthropicUpstreamErrorCount"
+      ],
+      "rationale": "Shared test stub for the Anthropic upstream-error counter interface lives next to the OpenAI 403 counter stub. The 403 regression suite and any future Anthropic upstream-error test depends on this stub satisfying the AnthropicUpstreamErrorCounterCache interface; an upstream merge that mass-rewrites this test file could drop the stub and silently break the entire 403 test bundle with a compile error masked by build tag (the //go:build unit gate hides the failure from non-unit jobs)."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_openai_burst.go",
+      "must_contain": [
+        "func TkIsOpenAI429TransientBurst(normalized *NormalizedCodexLimits) bool",
+        "func TkRecordOpenAI429BurstFallthrough(normalized *NormalizedCodexLimits)",
+        "openai_429_burst_below_window_limits",
+        "is7dExhausted := normalized.Used7dPercent != nil && *normalized.Used7dPercent >= 100 && normalized.Reset7dSeconds != nil",
+        "is5hExhausted := normalized.Used5hPercent != nil && *normalized.Used5hPercent >= 100 && normalized.Reset5hSeconds != nil"
+      ],
+      "rationale": "TK companion that holds the OpenAI burst-429 policy referenced from calculateOpenAI429ResetTime (upstream #2258). The predicate must require BOTH `used >= 100` AND a non-nil reset value to treat a window as exhausted; without the reset clause, a 100%-but-no-reset signal would skip the short-cooldown fallback and re-introduce multi-day 503 windows. The slog marker `openai_429_burst_below_window_limits` is the observability sentinel operators alert on."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_openai_burst_test.go",
+      "must_contain": [
+        "TestTkIsOpenAI429TransientBurst",
+        "TestTkRecordOpenAI429BurstFallthrough_HandlesNil"
+      ],
+      "rationale": "Focused regressions proving the burst predicate handles the four exhausted/with-reset crossings (and nil snapshot) correctly. Dropping these lets the upstream-merge regression sneak back through unit CI."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_404_model_not_found_test.go",
+      "must_contain": [
+        "TestHandleUpstreamError_Anthropic404ModelNotFoundSetsModelRateLimit",
+        "TestHandleUpstreamError_Anthropic404WithoutModelDoesNotDisableAccount",
+        "TestHandleUpstreamError_NonAnthropic404DoesNotUseAnthropicModelProtection"
+      ],
+      "rationale": "Focused regressions proving only Anthropic model-not-found 404s write model_rate_limits, while generic 404s and non-Anthropic 404s do not disable accounts. Dropping these tests lets the upstream-error policy silently drift during future merges."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_sticky.go",
+      "must_contain": [
+        "const ClaudeCodeParsedRequestGinKey",
+        "func tkSyncClaudeCodeSessionHeaderFromBody(headers http.Header",
+        "func tkEnsureClaudeCodeSessionHeader(headers http.Header",
+        "c.Get(ClaudeCodeParsedRequestGinKey)"
+      ],
+      "rationale": "Prod→sibling gateway hops rely on syncing X-Claude-Code-Session-Id after body transforms plus a ParsedRequest Gin fallback when metadata.user_id is no longer readable from the outbound JSON; dropping this TK module makes Edge regress to message_content_fallback sticky hashing and exhausts sibling max_sessions silently."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_sticky_test.go",
+      "must_contain": [
+        "TestTkEnsureClaudeCodeSessionHeader_IngressParsedRequestFallback",
+        "TestTkEnsureClaudeCodeSessionHeader_BodyOverridesIngressFallback"
+      ],
+      "rationale": "Regression anchors for ParsedRequest Gin fallback precedence over broken-out body metadata drift."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_haiku_context_management_test.go",
+      "must_contain": [
+        "TestNormalizeClaudeOAuthRequestBody_Haiku45_ThinkingEnabled_DoesNotInjectContextManagement",
+        "TestNormalizeClaudeOAuthRequestBody_Haiku45Dated_ThinkingAdaptive_DoesNotInjectContextManagement",
+        "TestNormalizeClaudeOAuthRequestBody_Sonnet_ThinkingEnabled_InjectsContextManagement"
+      ],
+      "rationale": "Focused regression anchors for upstream #2506: Haiku 4.5 + thinking must not receive auto-injected context_management (Anthropic returns 400), while Sonnet/Opus must keep the real-Claude-CLI context_management mimicry behavior."
+    },
+    {
+      "path": "backend/internal/service/sticky_session_injector.go",
+      "must_contain": [
+        "StickyKeySourceClientClaudeCodeSessionID",
+        "headers.Get(\"X-Claude-Code-Session-Id\")",
+        "req.IsClaudeCodeUA || key.Source == StickyKeySourceClientClaudeCodeSessionID",
+        "//  1. headers[\"session_id\"] / headers[\"conversation_id\"] / headers[\"X-Claude-Code-Session-Id\"] / headers[\"X-Session-Id\"]"
+      ],
+      "rationale": "Claude Code session header must participate in sticky derivation before X-Session-Id and must not trigger synthetic metadata.user_id injection (which would collide with ingress-only sibling routing). Small upstream-shape file compiles cleanly if reverted."
+    },
+    {
+      "path": "backend/internal/service/sticky_session_injector_test.go",
+      "must_contain": [
+        "TestUS201_DeriveReadsClaudeCodeSessionIDHeader",
+        "TestUS201_DeriveClaudeCodeSessionIDPrecedesXSessionIDHeader",
+        "TestUS201_InjectAnthropicMessages_SkipsClaudeCodeSessionHeaderKey"
+      ],
+      "rationale": "Focused regressions for header precedence and inject suppression when sticky key originates from X-Claude-Code-Session-Id."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "tkEnsureClaudeCodeSessionHeader(req.Header, body, c)",
+        "tkEnsureClaudeCodeSessionHeader(req.Header, vertexBody, c)",
+        "logger.WriteSinkEvent(\"info\", \"http.access.sticky\", \"sticky.hash_source\"",
+        "\"session_hash_short\": shortSessionHash(sessionHash)",
+        "resolveOpsTLSFingerprintProfile(c, s.tlsFPProfileService, account)",
+        "applyClaudeCodeMimicHeaders(req *http.Request, _ bool)",
+        "getHeaderRaw(req.Header, key) != \"\"",
+        "signatureRetryAttempted := false",
+        "FilterThinkingBlocksForRetry(input.Body)",
+        "Passthrough:        true,",
+        "Wei-Shaw/sub2api#2506",
+        "!strings.Contains(strings.ToLower(modelID), \"haiku\")",
+        "StripCountTokensUnsupportedFields(body)",
+        "count_tokens.stripped_unsupported_fields",
+        "if resp.StatusCode != http.StatusBadRequest {",
+        "body, _ = StripCountTokensUnsupportedFields(body)"
+      ],
+      "must_not_contain": [
+        "x-stainless-helper-method"
+      ],
+      "rationale": "Main gateway upstream builders must invoke unified TK Claude session-header sync after API-key passthrough, OAuth forward, count_tokens forward, and Vertex Anthropic forward paths diverge upstream merge conflicts. Sticky-source sink event emission is also load-bearing for prod request_id/client_request_id evidence correlation. TLS fingerprint profile resolution must pass through the ops helper so upstream_errors JSON records the profile id/name used by failed Anthropic OAuth attempts; otherwise Node24/Node25 candidate canaries cannot be attributed after a profile switch. Claude Code OAuth mimicry must preserve captured real CLI User-Agent/X-Stainless fingerprint values and only fill missing defaults; reverting to unconditional defaults reintroduces version downgrade/header fingerprint drift. API Key passthrough must keep a single guarded thinking-signature 400 retry that records passthrough ops evidence and downgrades stale cross-upstream thinking blocks before surfacing the error; dropping this makes GPT专线 → cc-edges group switches expose invalid thinking signatures to clients. The obsolete x-stainless-helper-method header must stay absent because current real Claude Code traffic does not emit it and reintroducing it increases OAuth fingerprint risk. Haiku 4.5 context_management auto-injection must stay exempt (upstream #2506): Anthropic rejects context_management for claude-haiku-4-5-* with HTTP 400 even when thinking.type is enabled, and the body rewrite must mirror the existing Haiku exemption in the anthropic-beta header path. count_tokens forwarding must pre-strip Anthropic-unsupported top-level fields (temperature/top_p/top_k/stop_sequences/max_tokens/stream/metadata/service_tier/context_management) AND must run a second silent strip AFTER normalizeClaudeOAuthRequestBody injects mimic defaults (temperature=1 / max_tokens=128000 / context_management=...); without this second strip, OAuth-account count_tokens still 400s because normalize undoes the early sanitize (2026-05-18 09:10:30 prod trace). The 400-exempt clause excludes count_tokens 400 from the anthropic_upstream_error breaker — both ForwardCountTokens and the API-key passthrough variant — so a single client schema bug cannot accumulate to threshold and trip `anthropic_upstream_error_temp_unschedulable`, taking the account schedulable=false for the cooldown window (reproduced as the 2026-05-18 cc-us1-oauth → group cc-edges incident)."
+    },
+    {
+      "path": "backend/internal/service/header_util.go",
+      "must_not_contain": [
+        "x-stainless-helper-method"
+      ],
+      "rationale": "Header wire casing/order must not re-add x-stainless-helper-method after upstream merges. That header is not part of the current Claude Code mimicry surface TokenKey wants to emit, and keeping it out of the raw-header utilities prevents accidental forwarding or debug-order resurrection."
+    },
+    {
+      "path": "backend/internal/handler/gateway_helper.go",
+      "must_contain": [
+        "c.Set(service.ClaudeCodeParsedRequestGinKey, parsedReq)",
+        "c.Get(service.ClaudeCodeParsedRequestGinKey)"
+      ],
+      "rationale": "Claude Code parsed request snapshot must remain on the canonical Gin key so service-layer tkEnsure can recover session UUID when outbound serialization loses metadata.user_id."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_selection.go",
+      "must_contain": [
+        "TkPrepareParsedRequestSessionInputs",
+        "ExplicitStickyKey = service.StickyKeyFromClientHeaders(c.Request.Header)",
+        "parsedReq.RequestID = strings.TrimSpace(requestID)",
+        "parsedReq.ClientRequestID = strings.TrimSpace(clientRequestID)"
+      ],
+      "rationale": "/v1/messages and compat ingress must populate ExplicitStickyKey from whitelist headers including X-Claude-Code-Session-Id forwarded from an upstream sibling before GenerateSessionHash; it must also copy request_id/client_request_id into ParsedRequest so sticky-source sink events can be correlated in ops_system_logs."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_anthropic.go",
+      "must_contain": [
+        "chatReq[\"metadata\"] = json.RawMessage(req.Metadata)",
+        "chatBody = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, chatBody, upstreamModel)"
+      ],
+      "rationale": "Anthropic-shaped requests converted to Chat Completions must preserve metadata blobs and apply unified sticky injection so Claude Code identities and session affinity survive OpenAI-compat bridge paths during scheduling."
+    },
+    {
+      "path": "backend/internal/service/openai_codex_transform.go",
+      "must_contain": [
+        "Wei-Shaw/sub2api#2500",
+        "return \"fc_\" + strings.TrimPrefix(id, \"call_\")"
+      ],
+      "rationale": "Codex OAuth tool-call id normalization (upstream #2500) must keep the underscore in fc_<id> for OpenAI-format call_<id> inputs. Dropping it makes the chatgpt.com codex backend reject multi-hop tool turns with HTTP 400, surfaced by TokenKey as 502."
+    },
+    {
+      "path": "backend/internal/service/openai_codex_transform_tk_call_id_test.go",
+      "must_contain": [
+        "TestApplyCodexOAuthTransform_FunctionCallNanoidIDIsCodexFcUnderscore",
+        "TestApplyCodexOAuthTransform_ItemReferenceCallIDIsCodexFcUnderscore"
+      ],
+      "rationale": "Focused regression anchors for upstream #2500 covering both function_call and hop-2 item_reference replay ids with real nanoid-shaped call_<id> values."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "openAICompatSSEFrame",
+        "openAICompatSSEFrameParser",
+        "openAICompatPayloadWithEventType",
+        "extractOpenAISSEEventLine"
+      ],
+      "rationale": "Upstream PR #2530 introduced the SSE frame parser for Responses API typed events. These types/functions must survive future upstream merges: openAICompatSSEFrameParser buffers event:/data: pairs so typed events (response.completed, response.failed) are recognised before [DONE]; openAICompatPayloadWithEventType injects the event type into the JSON payload for downstream Responses SSE consumers; extractOpenAISSEEventLine extracts the event: field. Dropping any of these silently breaks Responses SSE terminal detection."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions.go",
+      "must_contain": [
+        "Wei-Shaw/sub2api#1311",
+        "c.Writer.Header().Set(\"Content-Type\", \"application/json\")",
+        "openAICompatSSEFrameParser"
+      ],
+      "rationale": "Non-stream /v1/chat/completions buffers upstream Responses SSE into a JSON chat.completion object. After header propagation it must explicitly override Content-Type to application/json, otherwise OpenAI SDK consumers see JSON with text/event-stream and parse it as SSE (upstream #1311). The streaming path must use openAICompatSSEFrameParser to correctly handle typed Responses SSE events (upstream PR #2530)."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages.go",
+      "must_contain": [
+        "Wei-Shaw/sub2api#1311",
+        "c.Writer.Header().Set(\"Content-Type\", \"application/json\")",
+        "openAICompatSSEFrameParser",
+        "Wei-Shaw/sub2api#1322",
+        "\"response.cancelled\", \"response.canceled\""
+      ],
+      "rationale": "Non-stream /v1/messages uses the same buffered Responses SSE -> JSON conversion root cause as /v1/chat/completions; it must also override Content-Type after WriteFilteredHeaders so JSON bodies are not labeled text/event-stream. The buffered terminal reader must use openAICompatSSEFrameParser to recognise typed completion events when the stream closes without a standalone [DONE] (upstream PR #2530). isOpenAICompatResponsesTerminalEvent — used by both the Messages and Chat Completions streaming handlers — must keep response.cancelled / response.canceled in its terminal set so legitimate upstream cancellations close the stream cleanly instead of degenerating to 'stream usage incomplete: missing terminal event' (upstream #1322)."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_tk_content_type_test.go",
+      "must_contain": [
+        "TestForwardAsChatCompletions_NonStream_ReturnsApplicationJSONContentType",
+        "text/event-stream",
+        "application/json"
+      ],
+      "rationale": "Focused regression anchor for upstream #1311 proving a non-stream chat.completions JSON body does not inherit the upstream Responses SSE Content-Type header."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_responses.go",
+      "must_contain": [
+        "Wei-Shaw/sub2api#1311",
+        "c.Writer.Header().Set(\"Content-Type\", \"application/json; charset=utf-8\")"
+      ],
+      "rationale": "Gateway Anthropic-backed /v1/responses non-stream path (handleResponsesBufferedStreamingResponse) has the same Content-Type leak root cause as upstream #1311: WriteFilteredHeaders propagates the upstream Anthropic `Content-Type: text/event-stream`, and gin's c.Data / c.JSON do not overwrite an already-set Content-Type. Without this explicit override the client gets a JSON body labeled as SSE. Sentinel guards the fix from being silently reverted by upstream merges."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
+      "must_contain": [
+        "Wei-Shaw/sub2api#1311",
+        "c.Writer.Header().Set(\"Content-Type\", \"application/json; charset=utf-8\")"
+      ],
+      "rationale": "Gateway Anthropic-backed /v1/chat/completions non-stream path (handleCCBufferedFromAnthropic) shares the upstream #1311 Content-Type leak root cause and must explicitly override Content-Type after WriteFilteredHeaders so the converted chat.completion JSON body is not labeled text/event-stream."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_responses_tk_content_type_test.go",
+      "must_contain": [
+        "TestHandleResponsesBufferedStreamingResponse_NonStream_ReturnsApplicationJSONContentType",
+        "text/event-stream",
+        "application/json"
+      ],
+      "rationale": "Focused regression anchor for upstream #1311 extended scope (Anthropic-backed Responses path) proving the buffered JSON body does not inherit the upstream SSE Content-Type."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions_tk_content_type_test.go",
+      "must_contain": [
+        "TestHandleCCBufferedFromAnthropic_NonStream_ReturnsApplicationJSONContentType",
+        "text/event-stream",
+        "application/json"
+      ],
+      "rationale": "Focused regression anchor for upstream #1311 extended scope (Anthropic-backed Chat Completions path) proving the buffered JSON body does not inherit the upstream SSE Content-Type."
+    },
+    {
+      "path": "backend/internal/service/openai_images_responses.go",
+      "must_contain": [
+        "Wei-Shaw/sub2api#1311",
+        "c.Writer.Header().Set(\"Content-Type\", \"application/json; charset=utf-8\")"
+      ],
+      "rationale": "OpenAI Images OAuth buffered handler (handleOpenAIImagesOAuthBufferedResponse) converts upstream OpenAI Responses SSE into a single OpenAI Images JSON body. Same Content-Type leak root cause as upstream #1311 — discovered by the generalized scripts/checks/buffered-content-type-leak.py gate during PR #244 review and patched in the same commit. Must explicitly override Content-Type before c.Data."
+    },
+    {
+      "path": "backend/internal/service/model_pricing_resolver.go",
+      "must_contain": [
+        "tkApplyChannelFlatOverridesAsFallback(chPricing, resolved)",
+        "tkOverlayIntervalOntoBasePricing(resolved.BasePricing, iv, resolved.SupportsCacheBreakdown)"
+      ],
+      "rationale": "TK channel-pricing policy: applyTokenOverrides MUST delegate flat-default application to the TK companion regardless of whether intervals are configured (upstream #2107 — out-of-range fallback). GetIntervalPricing MUST delegate matched-interval pricing to the TK overlay helper instead of building a brand-new ModelPricing from interval fields only (upstream #2363 — in-range cache_read/cache_write/image_output preservation). Either revert silently re-introduces $0 or wrong-tier billing on the most cache-hit-heavy traffic that sticky-routing was designed to bank."
+    },
+    {
+      "path": "backend/internal/service/model_pricing_resolver_tk_channel_flat_fallback.go",
+      "must_contain": [
+        "func tkApplyChannelFlatOverridesAsFallback(chPricing *ChannelModelPricing, resolved *ResolvedPricing)",
+        "resolved.BasePricing.InputPricePerToken = *chPricing.InputPrice",
+        "resolved.BasePricing.OutputPricePerToken = *chPricing.OutputPrice",
+        "resolved.BasePricing.CacheReadPricePerToken = *chPricing.CacheReadPrice",
+        "resolved.BasePricing.CacheCreationPricePerToken = *chPricing.CacheWritePrice",
+        "func tkOverlayIntervalOntoBasePricing(base *ModelPricing, iv *PricingInterval, supportsCacheBreakdown bool) *ModelPricing",
+        "Wei-Shaw/sub2api#2363",
+        "out.CacheReadPricePerToken = *iv.CacheReadPrice"
+      ],
+      "rationale": "TK companion holding the channel flat-fallback policy referenced from applyTokenOverrides (upstream #2107) AND the interval overlay helper used by GetIntervalPricing (upstream #2363). Each flat field write is sentinel-pinned so a future change cannot drop one of the five pricing dimensions silently — operators rely on each (input/output/cache-read/cache-write/image-output) being honored as the out-of-range fallback. The overlay helper signature, #2363 reference, and the cache_read interval-overlay line are pinned so the symmetric in-range path cannot regress to the original empty-ModelPricing construction."
+    },
+    {
+      "path": "backend/internal/service/model_pricing_resolver_test.go",
+      "must_contain": [
+        "TestGetIntervalPricing_ChannelIntervalsNoMatch_FlatDefaultsApplied",
+        "TestGetIntervalPricing_ChannelIntervalsNoMatch_UnknownModelChargesFlatNotZero",
+        "TestGetIntervalPricing_IntervalMatched_FlatCacheReadPreserved",
+        "TestGetIntervalPricing_IntervalMatched_IntervalCacheReadOverridesFlat"
+      ],
+      "rationale": "Focused regressions for upstream #2107 (out-of-range path) and upstream #2363 (in-range path). The four tests jointly assert that channel flat defaults survive every interval lookup outcome (no intervals, no match, match overlapping interval, match disjoint from flat defaults) and that interval values take precedence in-range when both are set. Dropping any of these lets the symmetric pricing-dimension drop bugs return without unit-CI noticing."
+    },
+    {
+      "path": "backend/internal/repository/account_repo.go",
+      "must_contain": [
+        "dbproxy.StatusEQ(service.StatusActive)",
+        "entAcc.Edges.Proxy.Status == service.StatusActive"
+      ],
+      "rationale": "TK proxy-status filter (upstream #2159): account preload paths MUST filter out non-active proxies on both the manual loadProxies query and the WithProxy() edge-preload branch. Disabled proxies leaking back into account.Proxy contradicts operator intent and re-routes traffic through proxies that were explicitly turned off (compliance/IP-rotation regression)."
+    },
+    {
+      "path": "backend/internal/repository/account_repo_integration_test.go",
+      "must_contain": [
+        "TestPreload_SkipsDisabledProxy"
+      ],
+      "rationale": "Focused regression for upstream #2159 covering both GetByID and ListWithFilters paths. Dropping this test lets the proxy filter regression sneak back through integration CI."
+    },
+    {
+      "path": "backend/internal/repository/user_subscription_repo.go",
+      "must_contain": [
+        "usersubscription.StatusEQ(service.SubscriptionStatusActive)",
+        "usersubscription.ExpiresAtGT(time.Now())"
+      ],
+      "rationale": "TK active-subscription predicate (upstream #2478): ExistsByUserIDAndGroupID and GetActiveByUserIDAndGroupID MUST gate on BOTH status=active AND expires_at>now. Without this, expired-yet-not-soft-deleted rows return exists=true and the reassignment flow blocks legitimate renewals with 409 validity_days_mismatch — a user-paid-but-no-access regression."
+    },
+    {
+      "path": "backend/internal/repository/user_subscription_repo_integration_test.go",
+      "must_contain": [
+        "TestExistsByUserIDAndGroupID_IgnoresExpiredAndNonActive"
+      ],
+      "rationale": "Focused regression for upstream #2478 covering the three non-active variants (expired by date, expired by status, suspended). Dropping this test lets the reassignment-block bug sneak back through integration CI."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "TK fix for upstream Wei-Shaw/sub2api#1471"
+      ],
+      "rationale": "OpenAI /v1/responses handleStreamingResponse.sendErrorEvent MUST prepend a blank line before the synthetic `data:` event so any in-flight upstream SSE event whose terminating blank line was never sent is closed before the synthetic event is written. Without this, the unterminated `data:` line and the synthetic `data:` line merge into one SSE event whose data buffer contains two concatenated JSON objects — downstream OpenAI-compatible SDKs (Codex / OpenCode) fail JSON.parse. The marker comment is the intent anchor; the literal write expression is intentionally NOT pinned so harmless refactors (extracting prefix to a constant, renaming `payload`, switching to fmt.Fprintf) do not flap the registry. Regression test (sentinel below) is the primary protection — the watchdog fact-check in .cache/upstream/fact-checks.json pins the actual `\\ndata: ` literal for the watchdog's stricter audit."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service_tk_stream_read_error_sse_test.go",
+      "must_contain": [
+        "TestOpenAIStreamingStreamReadErrorEmitsSeparateSSEEvents",
+        "TestOpenAIStreamingStreamTimeoutEmitsSeparateSSEEvents",
+        "stream_read_error",
+        "stream_timeout"
+      ],
+      "rationale": "Focused regression anchors for upstream #1471 covering both sendErrorEvent triggers that share the closure: synchronous scanner error path (stream_read_error) and asynchronous interval-timeout path (stream_timeout). Each asserts every SSE event in the post-error transcript carries exactly one parseable-JSON data line. Together they prove the prepended-blank-line invariant holds for both the bufio.Scanner sync path and the goroutine async path that read from upstream."
+    },
+    {
+      "path": "backend/internal/service/scheduler_rate_limit_reaper.go",
+      "must_contain": [
+        "TK: See upstream Wei-Shaw/sub2api#2538",
+        "type SchedulerRateLimitReaper struct",
+        "type RateLimitExpiryRepository interface",
+        "EnqueueOutboxForJustExpiredAccounts(ctx context.Context, since, until time.Time) (int, error)",
+        "func NewSchedulerRateLimitReaper",
+        "func (r *SchedulerRateLimitReaper) Start()",
+        "func (r *SchedulerRateLimitReaper) Stop()"
+      ],
+      "rationale": "TK companion that closes the upstream #2538 scheduler deadlock: when an account hits 429 it is dropped from the snapshot, but the rate-limit cooldown expiry produces no event so the account stays invisible until the next full_rebuild_interval_seconds tick (default 5 min). Reaper ticks short (5s default) and enqueues a single outbox account_changed per just-expired account; the existing outbox worker rebuilds the bucket. Each anchor literal must remain: the issue reference (so future readers find the rationale), the type names (so wire injection survives renames), and the interface signature (so the SQL contract stays stable across upstream merges)."
+    },
+    {
+      "path": "backend/internal/service/scheduler_rate_limit_reaper_test.go",
+      "must_contain": [
+        "TestRateLimitReaper_FirstTick_UsesLookbackWindow",
+        "TestRateLimitReaper_SubsequentTicks_UseLastTickAsLowerBound",
+        "TestRateLimitReaper_RepoErrorPreservesLastTick",
+        "TestRateLimitReaper_NonPositiveIntervalDisablesGoroutine"
+      ],
+      "rationale": "Focused regression anchors for upstream #2538 covering the four reaper invariants the SQL alone cannot prove: (a) first-tick window equals configured lookback (no skipped accounts at startup), (b) subsequent ticks use (lastTick, now] so consecutive windows have no gap and no double-scan, (c) a transient repo error must NOT advance lastTick (so the missed window is retried), and (d) the non-positive-interval disable knob keeps the disable-by-config keystroke aligned with FullRebuildIntervalSeconds (both <=0 disable)."
+    },
+    {
+      "path": "backend/internal/repository/account_repo_tk_rate_limit_reaper.go",
+      "must_contain": [
+        "TK: See upstream Wei-Shaw/sub2api#2538",
+        "func NewRateLimitExpiryRepository(db *sql.DB) service.RateLimitExpiryRepository",
+        "INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload)",
+        "WHERE a.rate_limit_reset_at > $1",
+        "AND a.rate_limit_reset_at <= $2",
+        "AND a.deleted_at IS NULL",
+        "AND o.created_at >= NOW() - make_interval(secs => 1)"
+      ],
+      "rationale": "Atomic INSERT...SELECT must remain a single statement so reaper window evaluation and outbox writes share a PG MVCC snapshot — without atomicity a 429 firing between SELECT and INSERT can re-set rate_limit_reset_at after we enqueued the resurrection event. The deleted_at IS NULL guard prevents soft-deleted accounts from being resurrected. The 1s dedup window mirrors scheduler_outbox_repo.go::enqueueSchedulerOutbox so reaper events stay consistent with SetRateLimited-written events."
+    },
+    {
+      "path": "backend/internal/repository/account_repo_tk_rate_limit_reaper_integration_test.go",
+      "must_contain": [
+        "TestEnqueueOutboxForJustExpiredAccounts_RepoEnqueuesAccountChangedForExpired",
+        "TestEnqueueOutboxForJustExpiredAccounts_RepoSkipsStillCoolingDownAccounts",
+        "TestEnqueueOutboxForJustExpiredAccounts_RepoSkipsSoftDeletedAccounts",
+        "TestEnqueueOutboxForJustExpiredAccounts_RepoDedupsRepeatedTicksWithin1Second"
+      ],
+      "rationale": "Integration anchors for the SQL contract: predicate is exclusive on lower bound + inclusive on upper bound (so accounts whose reset_at exactly equals a tick boundary still get caught the first time), soft-deleted accounts are skipped, and the 1s dedup window protects against double-enqueue across consecutive reaper ticks. Without these, the reaper could silently spam the outbox or quietly resurrect deleted accounts."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_signature_preempt.go",
+      "must_contain": [
+        "applySigPreemptIfArmed",
+        "armSigPreemptOnError",
+        "SetAnthropicSigPreemptCache",
+        "FilterThinkingBlocksForRetry",
+        "ArmIfThreshold",
+        "IsArmed",
+        "signature_preempt_armed",
+        "signature_preempt_applied",
+        "anthropicSigPreemptThreshold",
+        "anthropicSigPreemptWindowSec",
+        "anthropicSigPreemptCooldownSec"
+      ],
+      "rationale": "TK companion that pre-filters Anthropic thinking blocks when an account is in the signature_error preempt cooldown — eliminates the wasted first-shot upstream 400 that the retry chain otherwise has to recover. The helpers MUST keep delegating to FilterThinkingBlocksForRetry (the same transform the retry chain uses, so production has validated the body shape) and MUST keep using ArmIfThreshold/IsArmed on the per-account preempt cache; rewriting either to call a different filter or to skip the cache silently turns the feature into a no-op. The two ops kinds (signature_preempt_armed / signature_preempt_applied — aligned with the existing signature_* family in ops_upstream_context.go) and the three threshold/window/cooldown constants are pinned because Ops dashboards and the burst-detection logic depend on those exact names — see edge-us1 2026-05-18 09:00Z incident on OAuth account cc-am-or-ec2-5-1-b (12 signature_errors / 4 min → wasted 12 upstream 400 calls)."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "s.applySigPreemptIfArmed(ctx, c, account, body)",
+        "s.applySigPreemptIfArmed(ctx, c, account, input.Body)",
+        "s.armSigPreemptOnError(ctx, c, account)",
+        "tkAnthropicSigPreemptCache AnthropicSignaturePreemptCache"
+      ],
+      "rationale": "Three call sites in upstream-shaped forwarding code that anchor the signature_error preempt feature: (1) the main Anthropic Forward path (~4583) and (3) ForwardCountTokens (~9060) both call applySigPreemptIfArmed on the working body before the first upstream attempt; (2) the Anthropic API-Key passthrough path (~5105) calls applySigPreemptIfArmed on input.Body. armSigPreemptOnError is invoked from all three signature_error detection branches. The struct-field declaration is pinned so upstream merges cannot drop the setter target. If any of these are silently removed, the feature degrades to no-op and the 12-in-4-min burst symptom on a single OAuth account returns."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "case <-keepaliveCh:",
+        "event: ping\\ndata: {\\\"type\\\": \\\"ping\\\"}\\n\\n",
+        "inPartialEvent",
+        "lastDataAt"
+      ],
+      "rationale": "Upstream Wei-Shaw/sub2api#2552: keepalive ping injection for Anthropic API-key passthrough streams. Uses the existing cfg.Gateway.StreamKeepaliveInterval config field (opt-in when > 0). The select case must remain so long-lived passthrough streams can emit SSE ping events to prevent proxy/load-balancer idle-timeout disconnections. The inPartialEvent guard prevents pings mid-event-boundary; lastDataAt prevents spurious pings when the upstream is already active. This is a pure upstream feature, not a TK-specific injection — documented here so future upstream re-merges cannot silently revert the keepalive path."
+    },
+    {
+      "path": "backend/internal/service/wire.go",
+      "must_contain": [
+        "ProvideTKGatewayAnthropicSigPreempt",
+        "TKGatewayAnthropicSigPreemptReady",
+        "gw.SetAnthropicSigPreemptCache(cache)"
+      ],
+      "rationale": "Wire provider + sentinel that forces SetAnthropicSigPreemptCache to be called during startup. The setter call is pinned (not just the provider name) because the function body is the only place in the wiring graph that connects the Redis-backed cache to the gateway service. Without this line wire would still compile but the gateway would silently run with tkAnthropicSigPreemptCache=nil and the feature would be off in production while unit tests (which instantiate the field directly) still pass."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_signature_preempt_test.go",
+      "must_contain": [
+        "TestArmSigPreempt_AtThreshold_EmitsEvent",
+        "TestApplyPreempt_Armed_StripsThinkingBlocks",
+        "TestApplyPreempt_Armed_NoThinkingContent_StaysSilent",
+        "TestApplyPreempt_IsArmedError_FailOpen",
+        "TestArmSigPreempt_RedisError_FailOpen"
+      ],
+      "rationale": "Focused regressions proving the contracts that make the feature safe to run in production: (a) the arm transition emits a signature_preempt_armed ops event with the right Kind/Message, (b) armed requests with thinking content have those blocks stripped from the outgoing body, (c) armed-but-no-thinking-content path runs the IsArmed check but stays silent (no ops_error_logs flood — see F-002 in the review of PR #287), (d) Redis errors during IsArmed do not block the request (fail-open), (e) Redis errors during ArmIfThreshold do not panic and do not emit a misleading armed event. Dropping any of these lets a silent regression slip through unit CI."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal.go",
+      "must_contain": [
+        "TK: See upstream Wei-Shaw/sub2api#2556",
+        "const silentRefusalKind = \"silent_refusal\"",
+        "func (o *chatRawStreamObservations) IsSilentRefusal(usage OpenAIUsage) bool {",
+        "func recordOpenAIChatRawSilentRefusal("
+      ],
+      "rationale": "Detects the gpt-5.5 above-input-budget 'ghost stream' shape on the OpenAI Chat Completions raw passthrough (empty stream / response with finish_reason=stop and zero usage). The detection emits a categorical OpsUpstreamErrorEvent.Kind=silent_refusal so ops_error_logs and dashboards can pivot on it; without these anchors an upstream merge or refactor can silently delete the predicate and the gateway will go back to billing 0/0-token ghost responses as successes with no visible failure. The predicate signature, the Kind constant, and the recordOpenAIChatRawSilentRefusal entrypoint are all pinned because each is the only call site that makes the feature visible at runtime."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
+      "must_contain": [
+        "refusalObs.Observe(payload)",
+        "if refusalObs.IsSilentRefusal(usage) {",
+        "refusalObs.ObserveBufferedResponse(respBody)"
+      ],
+      "rationale": "Two call sites in the upstream-shaped raw chat-completions passthrough that hook the silent-refusal detector into the streaming and buffered paths. The Observe call wires the streaming SSE loop into the observation set, the IsSilentRefusal guard at end-of-stream is what actually emits the ops event, and ObserveBufferedResponse is the non-streaming entrypoint. Dropping any of the three lets the gpt-5.5 ghost stream go invisible again."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal_test.go",
+      "must_contain": [
+        "TestChatRawSilentRefusal_GhostStream_TriggersOpsError",
+        "TestChatRawSilentRefusal_NormalStream_DoesNotTrigger",
+        "TestChatRawSilentRefusal_ToolCallsStop_DoesNotTrigger",
+        "TestChatRawSilentRefusal_ReasoningStream_DoesNotTrigger",
+        "TestChatRawSilentRefusal_LengthStop_DoesNotTrigger",
+        "TestChatRawSilentRefusal_BufferedGhostResponse_TriggersOpsError",
+        "TestChatRawSilentRefusalPredicate_RequiresZeroUsage",
+        "TestChatRawSilentRefusalPredicate_ChunkLevelErrorBlocks"
+      ],
+      "rationale": "Focused regressions that lock the conservative shape of the silent-refusal predicate: a ghost stream triggers exactly one ops event with Kind=silent_refusal; normal streams, tool_calls finishes, reasoning streams, and length-class finishes never trigger; non-streaming ghost responses are handled symmetrically; usage>0 or a chunk-level error blocks the predicate. Dropping any of these lets a future refactor either widen the predicate (false positives on legitimate short answers) or narrow it (the original #2556 regression returns)."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "Wei-Shaw/sub2api#1264",
+        "\"prompt_cache_retention\", \"safety_identifier\", \"user\""
+      ],
+      "rationale": "OpenAI /v1/responses passthrough (OpenAIGatewayService.Forward) MUST strip top-level `user` from the request body before forwarding upstream. Native OpenAI Responses rejects `user` with HTTP 400 \"Unsupported parameter: user\" (the equivalent Responses field is `safety_identifier`). The OAuth path already strips it via openAIChatGPTInternalUnsupportedFields in applyCodexOAuthTransform; this list is the catch-all for the APIKey path. Without it, clients like LobeHub send `user` and every request 400s. The literal ordering is pinned so an alphabetization refactor that splits the line cannot regress the intent invisibly. The upstream issue marker is the intent anchor."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions.go",
+      "must_contain": [
+        "Wei-Shaw/sub2api#1264",
+        "cursorResponsesUnsupportedFields",
+        "\"user\""
+      ],
+      "rationale": "Cursor-shape short-circuit in ForwardAsChatCompletions (isResponsesShape branch) forwards a Responses-shape body untouched to the Responses upstream. The cursorResponsesUnsupportedFields list is kept semantically in sync with the unsupportedFields list in openai_gateway_service.go (the /v1/responses passthrough) — both must include `user` per upstream #1264 because Cursor-style clients posting Responses-shape bodies to /v1/chat/completions can still carry the top-level `user` field that the Responses upstream rejects. The marker pins the intent so symmetric drift between the two lists fails preflight rather than only being caught at runtime."
+    },
+    {
+      "path": "backend/internal/service/openai_responses_unsupported_user_test.go",
+      "must_contain": [
+        "TestOpenAIGatewayService_Forward_StripsUserFieldFromAPIKeyResponsesPassthrough",
+        "TestCursorResponsesUnsupportedFields_IncludesUser",
+        "Wei-Shaw/sub2api#1264"
+      ],
+      "rationale": "Focused regressions for upstream #1264: the Forward test exercises the APIKey /v1/responses passthrough end-to-end and asserts `user` is absent from the body actually sent upstream; the list test pins the symmetric Cursor-shape filter. Dropping either lets the bug return silently — the OAuth path is already covered elsewhere and would not flag the APIKey regression on its own."
+    },
+    {
+      "path": "backend/internal/service/group_capacity_service.go",
+      "must_contain": [
+        "groupRPMLimit int",
+        "if groupRPMLimit > 0 {",
+        "(rpmMax > 0 || groupRPMLimit > 0) && s.rpmCache != nil",
+        "docs/approved/rpm-override-deferred-removal.md"
+      ],
+      "rationale": "Admin dashboard RPMMax must surface the real L1 rate-limit gate (group.rpm_limit) instead of Σ account.base_rpm — after the strict-redline rollout (PR #297) these two values diverge by the sticky_buffer gap and the Σ aggregate becomes a visible lie. Three TK touches in this upstream-shaped file: (1) getGroupCapacity takes the group's rpm_limit as an explicit parameter (function-signature drift caught by `groupRPMLimit int`); (2) the override branch (`if groupRPMLimit > 0 {`) flips RPMMax from Σ base_rpm to the real cap, fallback only when unlimited; (3) the rpmCache query guard adds `|| groupRPMLimit > 0` so a group composed entirely of unlimited (base_rpm=0) accounts but capped by group.rpm_limit > 0 still shows live RPMUsed instead of frozen 0. The doc anchor pins the deferred-removal decision for the L1 rpm_override layer (see docs/approved/rpm-override-deferred-removal.md) so a future cleanup understands why this companion file is more than cosmetic."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "upstream Wei-Shaw/sub2api#1318",
+        "shouldDisable = s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, body)"
+      ],
+      "rationale": "openai_passthrough error handling (handleErrorResponsePassthrough) MUST propagate HandleUpstreamError's shouldDisable signal: when the rate-limit service decides the account must stop scheduling (temp-unsched rule match, 402 deactivated_workspace, OAuth 401, organization-disabled 400, ...) the current request must return UpstreamFailoverError so the handler retries on another account. Before upstream #1318, the signal was discarded with `_ =` and only the side effect on the account fired — the in-flight request was completed against the now-disabled account, surfacing to the client as the raw upstream error. Pinning the literal `shouldDisable = s.rateLimitService.HandleUpstreamError(...)` assignment (not `_ =`) is enough to catch the regression. The registry intentionally avoids pinning the gofmt-shaped `if shouldDisable {...}` block so future zap-field / logging additions inside the same branch do not break preflight. Behavior is exercised end-to-end by TestOpenAIGatewayService_OpenAIPassthrough_TempUnschedRuleTriggersFailover (which is pinned by its own sentinel below)."
+    },
+    {
+      "path": "backend/internal/service/openai_oauth_passthrough_test.go",
+      "must_contain": [
+        "TestOpenAIGatewayService_OpenAIPassthrough_TempUnschedRuleTriggersFailover",
+        "passthrough must NOT write the upstream error to the client when the account was disabled"
+      ],
+      "rationale": "Focused regression anchor for upstream #1318: passthrough + temp-unsched rule match must (a) surface UpstreamFailoverError, (b) leave c.Writer untouched so the failover loop owns the response, and (c) tag the ops event with Kind=failover. Without this test, a future refactor of handleErrorResponsePassthrough could silently revert to discarding shouldDisable (the original upstream bug) and the regression would only show up in production when a temp-unsched rule is actually configured."
+    }
+  ]
+}

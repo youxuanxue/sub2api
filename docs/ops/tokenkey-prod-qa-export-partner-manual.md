@@ -38,10 +38,10 @@ export OUT_DIR="./.dump_qa/prod-export-$(date -u +%Y%m%d)"
 
 ## 只做「全量导出」（不删云上数据）
 
-脚本：`scripts/fetch-prod-qa-dump.sh`
+脚本：`ops/prod/fetch-qa-dump.sh`
 
 ```bash
-bash scripts/fetch-prod-qa-dump.sh
+bash ops/prod/fetch-qa-dump.sh
 ```
 
 流程摘要：经 SSM 在 prod 实例打包 → 预签名 **PUT** 到 `QA_DUMP_S3_BUCKET` → 本机 **下载并解压** → 生成 **`$OUT_DIR/.last-prod-qa-export.json`**（行数、校验和、时间戳等）。
@@ -49,14 +49,14 @@ bash scripts/fetch-prod-qa-dump.sh
 自检（不连 AWS 跑逻辑，只检工具与变量）：
 
 ```bash
-bash scripts/fetch-prod-qa-dump.sh --check
+bash ops/prod/fetch-qa-dump.sh --check
 ```
 
 ---
 
 ## 「导出 + 清理云上占用」（推荐用于释放 prod 资源）
 
-脚本：`scripts/prod-qa-export-and-purge.sh`
+脚本：`ops/prod/qa-export-and-purge.sh`
 
 该脚本顺序为：**先完整导出并本地校验** → （可选行数门禁）→ **远端 TRUNCATE + 清空 blob 目录** → **删除 S3 暂存 tar**。破坏性步骤前必须有合法确认串。
 
@@ -67,7 +67,7 @@ bash scripts/fetch-prod-qa-dump.sh --check
 ```bash
 export PROD_QA_PURGE_CONFIRM=yes-delete-prod-qa-data
 export PROD_QA_PURGE_DRY_RUN=1   # 或使用参数 --dry-run
-bash scripts/prod-qa-export-and-purge.sh --dry-run
+bash ops/prod/qa-export-and-purge.sh --dry-run
 ```
 
 结束时日志会出现 **dry-run: skipping remote purge**，且 **不会** TRUNCATE。
@@ -87,7 +87,7 @@ export PURGE_MAX_EXTRA_ROWS=0
 # 若希望保留解压后同目录下的 .tar.gz 副本：
 export KEEP_LOCAL_TAR_AFTER_PURGE=1
 
-bash scripts/prod-qa-export-and-purge.sh
+bash ops/prod/qa-export-and-purge.sh
 ```
 
 成功时日志中应出现 **`purge_ok`**，并提示已删除 S3 暂存对象。若任一步失败，**以脚本退出码与日志为准**，不要假设 prod 已清空或本地已完整。
@@ -141,8 +141,8 @@ zstd -dc qa_blobs/2026/04/28/ab/<request_id>.json.zst | jq .
 
 | 资源 | 路径 |
 |------|------|
-| 仅导出 | `scripts/fetch-prod-qa-dump.sh` |
-| 导出 + 清理 | `scripts/prod-qa-export-and-purge.sh` |
+| 仅导出 | `ops/prod/fetch-qa-dump.sh` |
+| 导出 + 清理 | `ops/prod/qa-export-and-purge.sh` |
 | AWS 侧说明与迁移注意 | `deploy/aws/README.md`（Prod QA 小节） |
 
 本文仅服务运营合伙人日常操作；**发版 / 镜像部署**与本文无关，请参阅 `deploy/aws/README.md` 中升级与 release 章节。

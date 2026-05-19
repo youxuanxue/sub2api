@@ -9,7 +9,7 @@
   - `backend/internal/service/header_util.go`
   - `backend/internal/service/claude_mimicry_headers_test.go`
 - Sentinel / upstream issue registry changes:
-  - `scripts/gateway-tk-sentinels.json`
+  - `scripts/sentinels/gateway-tk.json`
   - `.cache/upstream/fixes.json`
 
 ## Intent

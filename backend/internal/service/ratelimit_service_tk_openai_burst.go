@@ -20,7 +20,7 @@ import (
 // TkRecordOpenAI429BurstFallthrough; the policy + log marker live here so an
 // upstream merge that rewrites calculateOpenAI429ResetTime cannot silently
 // reintroduce the long-cooldown behavior without also touching this file.
-// scripts/gateway-tk-sentinels.json pins both the call site (`TkRecordOpenAI429BurstFallthrough`)
+// scripts/sentinels/gateway-tk.json pins both the call site (`TkRecordOpenAI429BurstFallthrough`)
 // and the slog marker (`openai_429_burst_below_window_limits`) so the
 // preflight + upstream-merge PR shape checks catch any revert.
 

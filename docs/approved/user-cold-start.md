@@ -366,7 +366,7 @@ prototype 必须**至少**呈现以下 4 个画面/状态：
 
 - 前端 `PlaygroundView.vue` 实装（交互页可与 prototype 组件并存；**参数契约**：默认 `max_tokens=1024`、硬上限 `4096`、超时 `60s`、浏览器内最多保留 50 轮 user/assistant 对、不发送 `tools`）
 - 路由 `/playground` 注册 + sidebar 入口
-- （可选）e2e：Playwright 覆盖主路径；或以运维脚本 `scripts/tk_gateway_smoke.sh` 对生产/测试网关做 **Key 级**烟雾验证（不在日志中打印 Key）
+- （可选）e2e：Playwright 覆盖主路径；或以运维脚本 `ops/stage0/gateway_smoke.sh` 对生产/测试网关做 **Key 级**烟雾验证（不在日志中打印 Key）
 - follow-up：独立故事文件 `US-032-playground-experience.md` 可在收紧 e2e 门禁时补档
 
 **不做可执行 prototype 就实装 Playground = 违反本门禁的原意**；当前仓库已在落地 Playground 前合并 `PlaygroundPrototype.vue` 与 Vitest 状态断言（见 `US-032-playground-prototype-AB.md` Evidence）。

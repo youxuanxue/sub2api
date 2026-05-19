@@ -70,7 +70,7 @@ jobs:
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
           STAGE0_SSM_OUTPUT_DIR: .
-        run: bash scripts/stage0_pg_dump_refresh_via_ssm.sh "$INSTANCE_ID" "ops-pg-dump-refresh target=prod"
+        run: bash ops/stage0/pg_dump_refresh_via_ssm.sh "$INSTANCE_ID" "ops-pg-dump-refresh target=prod"
       - name: Job summary
         if: always()
         env:
@@ -138,7 +138,7 @@ jobs:
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
           STAGE0_SSM_OUTPUT_DIR: .
-        run: bash scripts/stage0_pg_dump_refresh_via_ssm.sh "$INSTANCE_ID" "ops-pg-dump-refresh target=edge-us1"
+        run: bash ops/stage0/pg_dump_refresh_via_ssm.sh "$INSTANCE_ID" "ops-pg-dump-refresh target=edge-us1"
       - name: Job summary
         if: always()
         env:

@@ -216,7 +216,7 @@ jobs:
       - name: Run pinned new-api smoke via bump helper
         run: |
           CURRENT_PIN="$(tr -d '[:space:]' < .new-api-ref)"
-          bash scripts/bump-new-api.sh "$CURRENT_PIN"
+          bash scripts/upstream/bump-new-api.sh "$CURRENT_PIN"
 
   compile-smoke:
     if: (github.event_name == 'schedule' && github.event.schedule == '17 9 * * TUE') || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'weekly-smoke'))
