@@ -31,7 +31,7 @@ description: >-
 | `account_name` | `target_scope=account` 时必填；目标账号名（`accounts.name`）；`check` 支持 `all` 自动枚举每个 edge 下全部 anthropic oauth 账号。 |
 | `target_group_id` | `target_scope=group` 时可选；目标分组 ID（与 `target_group_name` 二选一，优先 ID）。 |
 | `target_group_name` | `target_scope=group` 时可选；目标分组名（与 `target_group_id` 二选一）。 |
-| `account.extra.stability_tier` | 分级基线选择键（`l1/l2/l3`），`check` 会按该字段选择 tier baseline。 |
+| `account.extra.stability_tier` | 分级基线选择键（`l1/l2/l3/l4/l5`），`check` 会按该字段选择 tier baseline。 |
 | `operation=check` | 默认模式，只读检查当前配置与基准差异；`target_scope=group` 时输出分组聚合结果与成员账号明细。 |
 | `operation=plan-apply` | 生成更新计划与请求 payload 预览，不写入。 |
 | `operation=apply` | 执行更新（账号字段 + 可选分组绑定）；`target_scope=group` 时对分组内可用账号逐一执行，必须显式确认。 |
