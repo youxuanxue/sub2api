@@ -66,7 +66,11 @@ BEGIN
       HINT = 'OAuth accounts are governed by tier baseline (anthropic-oauth-stability-tiered-apply-template.sql).';
   END IF;
 
-  IF acc_base_url IS NULL OR acc_base_url !~ '^https?://api-[a-z0-9]+\.tokenkey\.dev/?$' THEN
+  -- Self-edge regex MUST stay in lockstep with SELF_EDGE_BASE_URL_RE in
+  -- ops/anthropic/check-prod-stub-mirror.py — both apply to the same
+  -- prod stub base_url surface.  Character class includes `-` so edge
+  -- ids like `us-west-1` are accepted by both layers.
+  IF acc_base_url IS NULL OR acc_base_url !~ '^https?://api-[a-z0-9-]+\.tokenkey\.dev/?$' THEN
     RAISE EXCEPTION USING
       MESSAGE = 'account "' || ta || '" base_url=' || COALESCE(acc_base_url, '<null>') || '; not a self-edge stub',
       HINT = 'R1 mirror requires base_url matching api-<edge>.tokenkey.dev. External stubs (e.g. agent.tokensea.ai) have no upstream OAuth pool and must be set independently.';
