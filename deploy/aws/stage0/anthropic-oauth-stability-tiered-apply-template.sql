@@ -23,11 +23,11 @@ WITH input AS (
 tier_cfg AS (
   SELECT *
   FROM (VALUES
-    ('l1'::text, 1::int, 10::int, 6::int, 2::int, 3::int, 8::int, 180::int, 0::int),
-    ('l2'::text, 2::int, 20::int, 8::int, 4::int, 4::int, 8::int, 330::int, 0::int),
-    ('l3'::text, 3::int, 30::int, 10::int, 6::int, 5::int, 8::int, 480::int, 0::int),
-    ('l4'::text, 4::int, 40::int, 12::int, 8::int, 6::int, 8::int, 540::int, 0::int),
-    ('l5'::text, 5::int, 50::int, 18::int, 12::int, 8::int, 8::int, 600::int, 0::int)
+    ('l1'::text, 1::int, 10::int, 4::int, 4::int, 3::int, 8::int, 120::int, 0::int),
+    ('l2'::text, 2::int, 20::int, 6::int, 6::int, 4::int, 8::int, 220::int, 0::int),
+    ('l3'::text, 3::int, 30::int, 10::int, 6::int, 5::int, 8::int, 400::int, 0::int),
+    ('l4'::text, 5::int, 40::int, 14::int, 10::int, 8::int, 8::int, 800::int, 0::int),
+    ('l5'::text, 8::int, 50::int, 22::int, 14::int, 12::int, 8::int, 1500::int, 0::int)
   ) AS v(
     stability_tier,
     concurrency,
