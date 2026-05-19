@@ -22,9 +22,14 @@ import (
 )
 
 const (
-	opsModelKey       = "ops_model"
+	// TK: opsModelKey / opsRequestBodyKey 引用 service 包的 exported 常量作为单一真值源。
+	// service 层的 TkEnrichForbiddenMessage 等 helper 必须用同样的 key 字符串才能读到
+	// handler 在 setOpsRequestContext 写入的 model / body — 之前两边各定义一份相同字面量
+	// 字符串，靠 rationale 注释提醒"keep in sync"，任一处 typo 即让 enrichment 静默失效。
+	// 现在用 const = service.OpsXxxKey 让 service 成为唯一真值，编译期就把同步绑定固化。
+	opsModelKey       = service.OpsModelKey
 	opsStreamKey      = "ops_stream"
-	opsRequestBodyKey = "ops_request_body"
+	opsRequestBodyKey = service.OpsRequestBodyKey
 	opsAccountIDKey   = "ops_account_id"
 	opsChannelTypeKey = "ops_channel_type"
 

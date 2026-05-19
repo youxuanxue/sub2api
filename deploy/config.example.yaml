@@ -372,6 +372,26 @@ gateway:
     # Max image requests waiting in this process when overflow_mode=wait, 0=unlimited
     # wait 模式当前进程允许排队等待的图片请求数，0=不限制
     max_waiting_requests: 100
+  # Upstream body-size soft guards (TK): per-(platform, model_prefix) thresholds to warn or
+  # reject oversize requests before they hit upstream. Triggered by edge:us1 production data
+  # where anthropic claude-opus-4-7 upstream rejects body >= ~940 KB with raw 403 (no anthropic
+  # error JSON), while body <= ~400 KB succeeds on the same account/model. Defaults below are
+  # auto-injected when this list is empty (a yaml-level empty list `[]` counts as "absent" and
+  # is also replaced by defaults). To disable globally, override with a single never-matching
+  # rule, e.g. `[{platform: anthropic, model_prefix: "__disabled__"}]`; to disable per-model,
+  # override that model's entry with warn_bytes:0 + reject_bytes:0.
+  # 上游大请求体软门禁（TK）：按 (platform, model_prefix) 设阈值，在 forward 前预检查 body。
+  # 未配置或 `upstream_body_guards: []` 时自动填充 anthropic claude-opus-4-7 默认规则
+  # （warn=600000, reject=900000）。
+  # warn_bytes > 0：超过则记 INFO 日志，不阻断；reject_bytes > 0：超过则 413 拒绝。
+  # 两者都 <=0 表示该条规则禁用。首条命中即生效，后续忽略。
+  # 想全局禁用：写一条永不匹配的规则（如 `model_prefix: "__disabled__"`）；
+  # 想关掉某模型：把该模型 entry 的 warn_bytes / reject_bytes 都设为 0。
+  upstream_body_guards:
+    - platform: anthropic
+      model_prefix: claude-opus-4-7
+      warn_bytes: 600000     # 600 KB - 400 KB 已知成功上限 + 200 KB buffer
+      reject_bytes: 900000   # 900 KB - 940 KB 已知失败下限 - 40 KB buffer
   # SSE max line size in bytes (default: 40MB)
   # SSE 单行最大字节数（默认 40MB）
   max_line_size: 41943040

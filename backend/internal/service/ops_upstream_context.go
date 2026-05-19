@@ -12,6 +12,16 @@ import (
 // Gin context keys used by Ops error logger for capturing upstream error details.
 // These keys are set by gateway services and consumed by handler/ops_error_logger.go.
 const (
+	// OpsModelKey / OpsRequestBodyKey mirror the unexported constants in
+	// handler/ops_error_logger.go ("ops_model" / "ops_request_body"). They are
+	// re-declared here so service-layer code (gateway_service_tk_upstream_error_msg.go
+	// and friends) can read the request body size + model that setOpsRequestContext
+	// stashed at handler entry, without creating a service→handler import cycle.
+	// Keep the literal string values in sync with handler.opsModelKey /
+	// handler.opsRequestBodyKey — they are a cross-package wire contract.
+	OpsModelKey       = "ops_model"
+	OpsRequestBodyKey = "ops_request_body"
+
 	OpsUpstreamStatusCodeKey   = "ops_upstream_status_code"
 	OpsUpstreamErrorMessageKey = "ops_upstream_error_message"
 	OpsUpstreamErrorDetailKey  = "ops_upstream_error_detail"

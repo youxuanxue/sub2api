@@ -78,6 +78,32 @@ func TestLoadDefaultSchedulingConfig(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultUpstreamBodyGuards(t *testing.T) {
+	resetViperWithJWTSecret(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if len(cfg.Gateway.UpstreamBodyGuards) != 1 {
+		t.Fatalf("UpstreamBodyGuards len = %d, want 1", len(cfg.Gateway.UpstreamBodyGuards))
+	}
+	g := cfg.Gateway.UpstreamBodyGuards[0]
+	if g.Platform != "anthropic" {
+		t.Fatalf("default guard Platform = %q, want anthropic", g.Platform)
+	}
+	if g.ModelPrefix != "claude-opus-4-7" {
+		t.Fatalf("default guard ModelPrefix = %q, want claude-opus-4-7", g.ModelPrefix)
+	}
+	if g.WarnBytes != 600000 {
+		t.Fatalf("default guard WarnBytes = %d, want 600000", g.WarnBytes)
+	}
+	if g.RejectBytes != 900000 {
+		t.Fatalf("default guard RejectBytes = %d, want 900000", g.RejectBytes)
+	}
+}
+
 func TestLoadDefaultOpenAIWSConfig(t *testing.T) {
 	resetViperWithJWTSecret(t)
 
@@ -1242,6 +1268,27 @@ func TestValidateConfigErrors(t *testing.T) {
 			name:    "gateway max idle conns",
 			mutate:  func(c *Config) { c.Gateway.MaxIdleConns = 0 },
 			wantErr: "gateway.max_idle_conns",
+		},
+		{
+			name: "gateway upstream body guards platform required",
+			mutate: func(c *Config) {
+				c.Gateway.UpstreamBodyGuards = []UpstreamBodyGuardConfig{{Platform: "", WarnBytes: 1, RejectBytes: 2}}
+			},
+			wantErr: "gateway.upstream_body_guards[0].platform",
+		},
+		{
+			name: "gateway upstream body guards warn negative",
+			mutate: func(c *Config) {
+				c.Gateway.UpstreamBodyGuards = []UpstreamBodyGuardConfig{{Platform: "anthropic", WarnBytes: -1}}
+			},
+			wantErr: "gateway.upstream_body_guards[0].warn_bytes",
+		},
+		{
+			name: "gateway upstream body guards reject negative",
+			mutate: func(c *Config) {
+				c.Gateway.UpstreamBodyGuards = []UpstreamBodyGuardConfig{{Platform: "anthropic", RejectBytes: -1}}
+			},
+			wantErr: "gateway.upstream_body_guards[0].reject_bytes",
 		},
 		{
 			name:    "gateway max idle conns per host",

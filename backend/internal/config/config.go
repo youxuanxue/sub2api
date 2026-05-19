@@ -629,6 +629,34 @@ const (
 	ImageConcurrencyOverflowModeWait   = "wait"
 )
 
+// UpstreamBodyGuardConfig TK: 上游大请求体软门禁规则（按 platform + model_prefix 匹配）。
+//
+// 背景：实测发现 anthropic claude-opus-4-7 上游对 body ≥ ~940KB 的请求直接 403（无 anthropic JSON），
+// 同账号同模型同窗口下 ≤ 400KB 的请求 200 成功。默认对该模型预填 warn=600KB / reject=900KB，
+// 让大请求在 forward 之前 fail-fast，避免 (a) 消耗 OAuth 配额，(b) 污染 ops 错误统计，
+// (c) 让客户端拿到可操作的 hint（/compact 或新会话）。
+//
+// 匹配规则：
+//   - Platform 必须等于 account.Platform（如 "anthropic" / "openai" / "gemini"）。
+//   - ModelPrefix 用 strings.HasPrefix 匹配请求 model；空表示匹配该 platform 全部模型。
+//   - 多条规则按定义顺序匹配，**首条命中即生效**（后续规则忽略）。
+//
+// 阈值语义：
+//   - WarnBytes > 0：body 超过则记 INFO 日志（gateway.body_size_warn），不阻断请求。
+//   - RejectBytes > 0：body 超过则直接返回 413 + 可操作 hint，不再 forward。
+//   - 两者都 ≤ 0：该规则被禁用（用于显式覆盖默认）。
+//   - RejectBytes < WarnBytes 不被视为错误（warn 段无效但 reject 段仍生效）。
+type UpstreamBodyGuardConfig struct {
+	// Platform: 平台名（"anthropic" / "openai" / "gemini" 等），与 account.Platform 比较
+	Platform string `mapstructure:"platform"`
+	// ModelPrefix: 模型名前缀（strings.HasPrefix），空表示该 platform 所有模型
+	ModelPrefix string `mapstructure:"model_prefix"`
+	// WarnBytes: 超过则记 INFO 日志，0 或负值表示不 warn
+	WarnBytes int64 `mapstructure:"warn_bytes"`
+	// RejectBytes: 超过则 413 拒绝，0 或负值表示不 reject
+	RejectBytes int64 `mapstructure:"reject_bytes"`
+}
+
 // GatewayConfig API网关相关配置
 type GatewayConfig struct {
 	// 等待上游响应头的超时时间（秒），0表示无超时
@@ -663,6 +691,9 @@ type GatewayConfig struct {
 	OpenAIWS GatewayOpenAIWSConfig `mapstructure:"openai_ws"`
 	// ImageConcurrency: 图片生成独立并发限制配置（默认关闭）
 	ImageConcurrency ImageConcurrencyConfig `mapstructure:"image_concurrency"`
+	// UpstreamBodyGuards: TK 上游大请求体软门禁规则列表（按 platform + model_prefix 匹配）。
+	// 详见 UpstreamBodyGuardConfig 文档；空列表会在 load() 中填充默认 anthropic+opus-4-7 规则。
+	UpstreamBodyGuards []UpstreamBodyGuardConfig `mapstructure:"upstream_body_guards"`
 
 	// HTTP 上游连接池配置（性能优化：支持高并发场景调优）
 	// MaxIdleConns: 所有主机的最大空闲连接总数
@@ -1373,6 +1404,24 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	// 新键未配置（<=0）时回退旧键；新键优先。
 	if cfg.Gateway.OpenAIWS.StickyResponseIDTTLSeconds <= 0 && cfg.Gateway.OpenAIWS.StickyPreviousResponseTTLSeconds > 0 {
 		cfg.Gateway.OpenAIWS.StickyResponseIDTTLSeconds = cfg.Gateway.OpenAIWS.StickyPreviousResponseTTLSeconds
+	}
+
+	// TK: upstream body guards 默认值。
+	// 未配置时填充 anthropic claude-opus-4-7 默认规则，基于 edge:us1 实测数据：
+	// body ≤ ~400KB 成功，≥ ~940KB 上游 403。要禁用默认规则，请显式在 yaml 中配 1 条 reject_bytes=0 / warn_bytes=0 的同 platform/model_prefix 规则。
+	if len(cfg.Gateway.UpstreamBodyGuards) == 0 {
+		cfg.Gateway.UpstreamBodyGuards = []UpstreamBodyGuardConfig{
+			{
+				Platform:    "anthropic",
+				ModelPrefix: "claude-opus-4-7",
+				WarnBytes:   600000,
+				RejectBytes: 900000,
+			},
+		}
+	}
+	for i := range cfg.Gateway.UpstreamBodyGuards {
+		cfg.Gateway.UpstreamBodyGuards[i].Platform = strings.TrimSpace(cfg.Gateway.UpstreamBodyGuards[i].Platform)
+		cfg.Gateway.UpstreamBodyGuards[i].ModelPrefix = strings.TrimSpace(cfg.Gateway.UpstreamBodyGuards[i].ModelPrefix)
 	}
 
 	// Normalize UMQ mode: 白名单校验，非法值在加载时一次性 warn 并清空
@@ -2371,6 +2420,17 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.ImageConcurrency.MaxWaitingRequests < 0 {
 		return fmt.Errorf("gateway.image_concurrency.max_waiting_requests must be non-negative")
+	}
+	for i, guard := range c.Gateway.UpstreamBodyGuards {
+		if strings.TrimSpace(guard.Platform) == "" {
+			return fmt.Errorf("gateway.upstream_body_guards[%d].platform is required", i)
+		}
+		if guard.WarnBytes < 0 {
+			return fmt.Errorf("gateway.upstream_body_guards[%d].warn_bytes must be non-negative", i)
+		}
+		if guard.RejectBytes < 0 {
+			return fmt.Errorf("gateway.upstream_body_guards[%d].reject_bytes must be non-negative", i)
+		}
 	}
 	if c.Gateway.MaxIdleConns <= 0 {
 		return fmt.Errorf("gateway.max_idle_conns must be positive")

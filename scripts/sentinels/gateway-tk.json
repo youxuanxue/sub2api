@@ -10,9 +10,10 @@
         "detail.Get(\"retryDelay\").String()",
         "detail.Get(\"metadata.retryDelay\").String()",
         "TK: See upstream Wei-Shaw/sub2api#641",
-        "if account.Type == AccountTypeOAuth {"
+        "if account.Type == AccountTypeOAuth {",
+        "TkEnrichForbiddenMessage("
       ],
-      "rationale": "Code Assist 429 fallback-model protection depends on upstream-file hooks plus precise reset-delay extraction. Forwarding must store resolved upstream Gemini model in context, upstream 429 handling must delegate to the TK companion before account-level SetRateLimited, and ParseGeminiRateLimitResetTime must keep structured RetryInfo retryDelay parsing. Dropping any of these reintroduces whole-account long cooldown when upstream already provides a short retry window. The handleGeminiUpstreamError fallback branch must route all Gemini OAuth accounts (google_one + aistudio OAuth + code_assist) through tier cooldown — only API Key accounts may fall through to PST-midnight reset (see upstream #641)."
+      "rationale": "Code Assist 429 fallback-model protection depends on upstream-file hooks plus precise reset-delay extraction. Forwarding must store resolved upstream Gemini model in context, upstream 429 handling must delegate to the TK companion before account-level SetRateLimited, and ParseGeminiRateLimitResetTime must keep structured RetryInfo retryDelay parsing. Dropping any of these reintroduces whole-account long cooldown when upstream already provides a short retry window. The handleGeminiUpstreamError fallback branch must route all Gemini OAuth accounts (google_one + aistudio OAuth + code_assist) through tier cooldown — only API Key accounts may fall through to PST-midnight reset (see upstream #641). Also locks the TkEnrichForbiddenMessage hook in writeGeminiMappedError's case-403 branch so the 403 client message keeps body-size context instead of regressing to the unhelpful default."
     },
     {
       "path": "backend/internal/service/gemini_messages_compat_service_tk_model_rate_limit.go",
@@ -338,9 +339,10 @@
         "openAICompatSSEFrame",
         "openAICompatSSEFrameParser",
         "openAICompatPayloadWithEventType",
-        "extractOpenAISSEEventLine"
+        "extractOpenAISSEEventLine",
+        "TkEnrichForbiddenMessage("
       ],
-      "rationale": "Upstream PR #2530 introduced the SSE frame parser for Responses API typed events. These types/functions must survive future upstream merges: openAICompatSSEFrameParser buffers event:/data: pairs so typed events (response.completed, response.failed) are recognised before [DONE]; openAICompatPayloadWithEventType injects the event type into the JSON payload for downstream Responses SSE consumers; extractOpenAISSEEventLine extracts the event: field. Dropping any of these silently breaks Responses SSE terminal detection."
+      "rationale": "Upstream PR #2530 introduced the SSE frame parser for Responses API typed events. These types/functions must survive future upstream merges: openAICompatSSEFrameParser buffers event:/data: pairs so typed events (response.completed, response.failed) are recognised before [DONE]; openAICompatPayloadWithEventType injects the event type into the JSON payload for downstream Responses SSE consumers; extractOpenAISSEEventLine extracts the event: field. Dropping any of these silently breaks Responses SSE terminal detection. Also locks the TkEnrichForbiddenMessage hook in handleErrorResponse's case-403 branch so the 403 client message keeps body-size context."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions.go",
