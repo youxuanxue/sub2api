@@ -65,6 +65,57 @@ fi
 command -v curl >/dev/null 2>&1 || { echo "tk_post_deploy_smoke: curl not on PATH" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "tk_post_deploy_smoke: jq not on PATH" >&2; exit 1; }
 
+# soft_degrade_or_exit
+#   $1 = label (used in log/warning text, e.g. "/v1/chat/completions")
+#   $2 = HTTP status code from curl `%{http_code}`
+#   $3 = path to response body JSON file
+# return 0 = HTTP 200, caller should run shape + marker checks
+# return 1 = soft-degraded, caller should skip shape checks for this section
+# exit  1 = hard failure (4xx auth/route/payload, or unrecognized non-200)
+#
+# Soft-degrade contract: HTTP 5xx, 429, and gateway message containing
+# "no available accounts" are runtime-resource failures (pool dry, upstream
+# down, rate-limited) — they cannot indicate a control-plane shape regression
+# because the request never reached the scheduling pool in a way that could
+# have produced a malformed response. Treating them as deploy failures
+# conflates control-plane health with runtime-resource health (2026-05-06
+# Gemini false-positive postmortem; 2026-05-14..18 Edge smoke flap). 4xx
+# (auth/routing/payload) IS a control-plane regression and still hard-fails.
+soft_degrade_or_exit() {
+  local label="$1" http="$2" resp_file="$3"
+  local err_msg
+  err_msg="$(jq -r '.error.message // empty' "${resp_file}" 2>/dev/null)"
+  case "${http}" in
+    200)
+      return 0
+      ;;
+    5*|429)
+      echo "::warning::tk_post_deploy_smoke: ${label} returned HTTP ${http} — runtime resource issue (likely no available accounts / upstream 5xx / rate-limit), NOT a control-plane regression." >&2
+      if [[ -n "${err_msg}" ]]; then
+        echo "  gateway message: ${err_msg}" >&2
+      fi
+      jq . "${resp_file}" >&2 2>/dev/null || cat "${resp_file}" >&2
+      echo "tk_post_deploy_smoke: ${label} section soft-skipped (HTTP ${http} is not a shape-regression signal)"
+      return 1
+      ;;
+    *)
+      case "${err_msg}" in
+        *"no available accounts"*)
+          echo "::warning::tk_post_deploy_smoke: ${label} returned HTTP ${http} with 'no available accounts' — pool exhausted, not a control-plane regression." >&2
+          jq . "${resp_file}" >&2 2>/dev/null || cat "${resp_file}" >&2
+          echo "tk_post_deploy_smoke: ${label} section soft-skipped (pool exhausted)"
+          return 1
+          ;;
+        *)
+          echo "tk_post_deploy_smoke: ${label} failed" >&2
+          jq . "${resp_file}" >&2 2>/dev/null || cat "${resp_file}" >&2
+          exit 1
+          ;;
+      esac
+      ;;
+  esac
+}
+
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 
@@ -170,11 +221,7 @@ chat_http=$(curl -sS -o "$tmpdir/chat.json" -w "%{http_code}" \
   -d "${payload}" \
   "${BASE}/v1/chat/completions")
 echo "tk_post_deploy_smoke: POST .../v1/chat/completions -> HTTP ${chat_http}"
-if [[ "${chat_http}" != "200" ]]; then
-  echo "tk_post_deploy_smoke: /v1/chat/completions failed" >&2
-  jq . "$tmpdir/chat.json" >&2 2>/dev/null || cat "$tmpdir/chat.json" >&2
-  exit 1
-fi
+if soft_degrade_or_exit "/v1/chat/completions" "${chat_http}" "$tmpdir/chat.json"; then
 chat_object="$(jq -r '.object // empty' "$tmpdir/chat.json")"
 chat_choices="$(jq -r '(.choices // []) | length' "$tmpdir/chat.json")"
 chat_finish="$(jq -r '.choices[0].finish_reason // empty' "$tmpdir/chat.json")"
@@ -193,6 +240,7 @@ if ! printf '%s' "${chat_body}" | grep -Fq "${expect_openai}"; then
   printf '%s\n' "${chat_body}" >&2
   exit 1
 fi
+fi  # end soft_degrade_or_exit guard
 
 # --- 5) Anthropic Messages shape (Claude Code / x-api-key path) ---
 expect_anthropic="E2E-ANTHROPIC-OK"
@@ -208,11 +256,7 @@ msg_http=$(curl -sS -o "$tmpdir/msg.json" -w "%{http_code}" \
   -d "${apayload}" \
   "${BASE}/v1/messages")
 echo "tk_post_deploy_smoke: POST .../v1/messages -> HTTP ${msg_http}"
-if [[ "${msg_http}" != "200" ]]; then
-  echo "tk_post_deploy_smoke: /v1/messages failed" >&2
-  jq . "$tmpdir/msg.json" >&2 2>/dev/null || cat "$tmpdir/msg.json" >&2
-  exit 1
-fi
+if soft_degrade_or_exit "/v1/messages" "${msg_http}" "$tmpdir/msg.json"; then
 msg_type="$(jq -r '.type // empty' "$tmpdir/msg.json")"
 msg_role="$(jq -r '.role // empty' "$tmpdir/msg.json")"
 msg_content_count="$(jq -r '(.content // []) | length' "$tmpdir/msg.json")"
@@ -232,6 +276,7 @@ if ! printf '%s' "${msg_text}" | grep -Fq "${expect_anthropic}"; then
   printf '%s\n' "${msg_text}" >&2
   exit 1
 fi
+fi  # end soft_degrade_or_exit guard
 
 # --- 6) Gemini /v1/messages with tools (Anthropic→Gemini schema cleanup regression) ---
 # Validates tkCleanToolSchema strips Draft 2020 / OpenAPI 3.1 keywords that
@@ -254,27 +299,29 @@ fi
 #         health with runtime-resource health.
 GEMINI_KEY="${POST_DEPLOY_SMOKE_GEMINI_API_KEY:-}"
 GEMINI_MODEL="${POST_DEPLOY_SMOKE_GEMINI_MODEL:-gemini-3.1-pro-preview}"
+GEMINI_MAX_TOKENS="${POST_DEPLOY_SMOKE_GEMINI_MAX_TOKENS:-8192}"
 
 if [[ -n "${GEMINI_KEY}" ]]; then
   gemini_prefix="$(printf '%s' "${GEMINI_KEY}" | head -c 6)"
   gemini_suffix="$(printf '%s' "${GEMINI_KEY}" | tail -c 4)"
-  echo "tk_post_deploy_smoke: gemini_key_hint=${gemini_prefix}…${gemini_suffix} gemini_model=${GEMINI_MODEL}"
+  echo "tk_post_deploy_smoke: gemini_key_hint=${gemini_prefix}…${gemini_suffix} gemini_model=${GEMINI_MODEL} max_tokens=${GEMINI_MAX_TOKENS}"
 
   # max_tokens budget covers BOTH reasoning/thinking tokens AND visible
   # content for Gemini reasoning models (e.g. gemini-3.1-pro-preview).
-  # The original 96-token budget was sized for non-reasoning Gemini models
-  # and is fully consumed by thinking on reasoning models, producing a
-  # legal upstream `finishReason: MAX_TOKENS` with content=[] — which the
-  # HTTP-200 shape guard below then treats as a hard fail. 2048 gives the
-  # model enough budget to finish thinking AND emit a short sentence, so
-  # the content_count>=1 guard remains meaningful. A schema-cleanup
-  # regression (the bug this section guards) would surface as upstream
-  # 400 long before this token budget matters.
+  # 2048 was the prior default; 2026-05-18 v1.7.37 prod smoke hit
+  # finishReason: MAX_TOKENS at 2048 with output_tokens=93 and content=[]
+  # (thinking consumed ~1955 tokens). 8192 gives ~4x headroom while still
+  # bounding cost. The HTTP-200 + content=[] + stop_reason=max_tokens
+  # + output_tokens>0 branch below now soft-warns instead of hard-failing
+  # as a final safety net for newer / slower reasoning models. A
+  # schema-cleanup regression (the bug this section guards) would surface
+  # as upstream 400 long before this token budget matters.
   gpayload="$(jq -n \
     --arg m "${GEMINI_MODEL}" \
+    --argjson maxt "${GEMINI_MAX_TOKENS}" \
     '{
       model: $m,
-      max_tokens: 2048,
+      max_tokens: $maxt,
       messages: [{role:"user",content:"Reply with one short sentence."}],
       tools: [{
         name: "tk_smoke_schema_probe",
@@ -309,12 +356,30 @@ if [[ -n "${GEMINI_KEY}" ]]; then
     gemini_type="$(jq -r '.type // empty' "$tmpdir/gemini-msg.json")"
     gemini_role="$(jq -r '.role // empty' "$tmpdir/gemini-msg.json")"
     gemini_content_count="$(jq -r '(.content // []) | length' "$tmpdir/gemini-msg.json")"
-    if [[ "${gemini_type}" != "message" ]] || [[ "${gemini_role}" != "assistant" ]] || [[ "${gemini_content_count}" -lt 1 ]]; then
+    gemini_stop="$(jq -r '.stop_reason // empty' "$tmpdir/gemini-msg.json")"
+    gemini_output_tokens="$(jq -r '.usage.output_tokens // 0' "$tmpdir/gemini-msg.json")"
+    # Reasoning models (gemini-3.1-pro-preview etc.) may burn the entire
+    # max_tokens budget on hidden thinking and return content=[] with
+    # stop_reason=max_tokens and usage.output_tokens > 0. The 2026-05-18
+    # v1.7.37 prod smoke false-positive: max_tokens=2048 fully consumed by
+    # thinking, output_tokens=93 visible, content=[]. That is not a schema
+    # regression — Google parsed the schema fine, generated tokens fine,
+    # just ran out of budget before emitting a sentence. Treat as soft
+    # warn so operators get the signal without a red deploy.
+    if [[ "${gemini_type}" == "message" ]] && [[ "${gemini_role}" == "assistant" ]] \
+        && [[ "${gemini_content_count}" -lt 1 ]] \
+        && [[ "${gemini_stop}" == "max_tokens" ]] \
+        && [[ "${gemini_output_tokens}" -gt 0 ]]; then
+      echo "::warning::tk_post_deploy_smoke: /v1/messages (gemini, with tools) returned HTTP 200 but content=[] with stop_reason=max_tokens (output_tokens=${gemini_output_tokens}) — reasoning model consumed budget before emitting text, NOT a schema regression. Consider raising POST_DEPLOY_SMOKE_GEMINI_MAX_TOKENS." >&2
+      jq . "$tmpdir/gemini-msg.json" >&2 || true
+      echo "tk_post_deploy_smoke: gemini section soft-skipped (reasoning model exhausted token budget without visible content)"
+    elif [[ "${gemini_type}" != "message" ]] || [[ "${gemini_role}" != "assistant" ]] || [[ "${gemini_content_count}" -lt 1 ]]; then
       echo "tk_post_deploy_smoke: /v1/messages (gemini) shape invalid (type=${gemini_type:-missing} role=${gemini_role:-missing} content=${gemini_content_count})" >&2
       jq . "$tmpdir/gemini-msg.json" >&2 || true
       exit 1
+    else
+      echo "tk_post_deploy_smoke: /v1/messages (gemini, with tools) shape type=${gemini_type} role=${gemini_role} content=${gemini_content_count}"
     fi
-    echo "tk_post_deploy_smoke: /v1/messages (gemini, with tools) shape type=${gemini_type} role=${gemini_role} content=${gemini_content_count}"
   # 400 → HARD FAIL. Schema cleanup regressed, that is the whole point of
   # this section. Operators must investigate before considering the deploy
   # successful.

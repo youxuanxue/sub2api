@@ -167,7 +167,7 @@ jobs:
 
       - name: Configure AWS credentials via OIDC
         if: steps.precheck.outputs.skip == 'false'
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ env.OIDC_ROLE_ARN }}
           aws-region: ${{ env.TARGET_REGION }}
@@ -890,7 +890,7 @@ jobs:
           fi
 
       - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ env.OIDC_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}

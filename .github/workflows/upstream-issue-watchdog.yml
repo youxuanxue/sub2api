@@ -292,7 +292,11 @@ jobs:
 
           BRANCH="chore/upstream-issue-cache"
           git checkout -B "$BRANCH"
-          git add scripts/upstream/issue-triage-generate.py .cache/upstream/triage.json .cache/upstream/fixes.json .cache/upstream/fact-checks.json scripts/upstream/issue-watchdog.py .github/workflows/upstream-issue-watchdog.yml
+          # -f because `.cache/` is gitignored repo-wide; this PR is the only
+          # path that intentionally commits curated `.cache/upstream/*.json`
+          # snapshots (2026-05-19 watchdog regression: previously broken when
+          # the .gitignore began catching these paths).
+          git add -f scripts/upstream/issue-triage-generate.py .cache/upstream/triage.json .cache/upstream/fixes.json .cache/upstream/fact-checks.json scripts/upstream/issue-watchdog.py .github/workflows/upstream-issue-watchdog.yml
           git commit -m "chore: refresh upstream issue cache"
           git push --force-with-lease origin "$BRANCH"
 
