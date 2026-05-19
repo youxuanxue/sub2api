@@ -26,9 +26,18 @@ EDGE_API_URL="${EDGE_API_URL%/}"
 MAIN_GATEWAY_BASE_URL="${MAIN_GATEWAY_BASE_URL:-https://api.tokenkey.dev}"
 MAIN_GATEWAY_BASE_URL="${MAIN_GATEWAY_BASE_URL%/}"
 
-# Anthropic OAuth /messages probe: avoid /v1/models "first claude id" drift (e.g. legacy
-# 3.7 snapshot ids that upstream no longer serves — edge smoke 2026-05-19).
-export POST_DEPLOY_SMOKE_CHAT_MODEL="${POST_DEPLOY_SMOKE_CHAT_MODEL:-claude-sonnet-4-6}"
+# Pin the chat model from the caller. Avoiding ops/stage0/post_deploy_smoke.sh's
+# "first claude id from /v1/models" heuristic prevents 4xx model_not_found
+# when upstream drops legacy snapshot ids from the catalog (hard control-plane
+# fail, not covered by soft-degrade).
+#
+# Caller MUST set POST_DEPLOY_SMOKE_CHAT_MODEL — workflow yaml is the single
+# source of truth for the default. See:
+#   .github/workflows/deploy-edge-stage0.yml (vars.POST_DEPLOY_SMOKE_CHAT_MODEL || 'claude-sonnet-4-6')
+#   .github/workflows/deploy-stage0.yml      (same)
+# Encoding a third default here would create a three-place sync surface
+# (Jobs anti-pattern: same information stored in two/three places).
+export POST_DEPLOY_SMOKE_CHAT_MODEL="${POST_DEPLOY_SMOKE_CHAT_MODEL:?caller must set POST_DEPLOY_SMOKE_CHAT_MODEL — workflow yaml is single source of truth}"
 
 command -v aws >/dev/null 2>&1 || { echo "tk_edge_post_deploy_smoke: aws CLI not on PATH" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "tk_edge_post_deploy_smoke: jq not on PATH" >&2; exit 1; }
@@ -69,7 +78,7 @@ if [[ "${EDGE_SELF_SMOKE_MODE}" == "api" ]]; then
   fi
   ssm_commands+=(
     "EDGE_KEY=\$(aws ssm get-parameter --name '${EDGE_SSM_PREFIX}/smoke/api-key' --with-decryption --query Parameter.Value --output text)"
-    "sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env exec -T -e TOKENKEY_BASE_URL=http://localhost:8080 -e POST_DEPLOY_SMOKE_SKIP_FRONTEND=1 -e POST_DEPLOY_SMOKE_CHAT_MODEL=${POST_DEPLOY_SMOKE_CHAT_MODEL} -e POST_DEPLOY_SMOKE_API_KEY=\"\$EDGE_KEY\" tokenkey bash /app/ops/stage0/post_deploy_smoke.sh"
+    "sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env exec -T -e TOKENKEY_BASE_URL=http://localhost:8080 -e POST_DEPLOY_SMOKE_SKIP_FRONTEND=1 -e POST_DEPLOY_SMOKE_CHAT_MODEL=\"${POST_DEPLOY_SMOKE_CHAT_MODEL}\" -e POST_DEPLOY_SMOKE_API_KEY=\"\$EDGE_KEY\" tokenkey bash /app/ops/stage0/post_deploy_smoke.sh"
   )
 else
   echo "tk_edge_post_deploy_smoke: edge API self-smoke skipped (set EDGE_SELF_SMOKE_MODE=api after Edge upstream/key setup)"
