@@ -104,7 +104,13 @@ func (s *GroupCapacityService) getGroupCapacity(ctx context.Context, groupID int
 	}
 
 	var rpmMap map[int64]int
-	if rpmMax > 0 && s.rpmCache != nil {
+	// Query rpmCache whenever the group reports any RPM ceiling — either the
+	// Σ base_rpm aggregate (legacy fallback) OR the group-level L1 cap
+	// (groupRPMLimit > 0). Without the latter clause, a group whose accounts
+	// all have base_rpm=0 (runtime unlimited) but whose group.rpm_limit > 0
+	// would skip the rpmCache query and surface "rpm_used=0" forever, even
+	// while traffic is flowing.
+	if (rpmMax > 0 || groupRPMLimit > 0) && s.rpmCache != nil {
 		rpmMap, _ = s.rpmCache.GetRPMBatch(ctx, accountIDs)
 	}
 
