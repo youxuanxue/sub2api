@@ -139,11 +139,19 @@ fi
 
 # --- 2) Frontend release asset shape ---
 if [[ "${POST_DEPLOY_SMOKE_SKIP_FRONTEND:-}" != "1" ]]; then
-  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  if [[ -x "${script_dir}/check-frontend-release-assets.py" || -f "${script_dir}/check-frontend-release-assets.py" ]]; then
-    python3 "${script_dir}/check-frontend-release-assets.py" --url "${BASE}"
+  # PR #307 relocated check-frontend-release-assets.py from ops/stage0/ to
+  # scripts/checks/frontend-release-assets.py. The sed pass that updated
+  # Dockerfile / frontend/package.json / .goreleaser*.yaml missed this
+  # ${script_dir}-relative reference because script-ref-existence.py only
+  # scans literal scripts/|ops/|tools/ prefixes, not shell-variable
+  # indirection. Anchor to repo root explicitly so the path is one
+  # readable string and the next refactor's grep sees it.
+  repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  check_script="${repo_root}/scripts/checks/frontend-release-assets.py"
+  if [[ -f "${check_script}" ]]; then
+    python3 "${check_script}" --url "${BASE}"
   else
-    echo "tk_post_deploy_smoke: missing check-frontend-release-assets.py" >&2
+    echo "tk_post_deploy_smoke: missing ${check_script}" >&2
     exit 1
   fi
 
