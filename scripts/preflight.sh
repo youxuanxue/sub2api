@@ -404,6 +404,28 @@ else
     echo "  ok: guarded hotspot changes update their sentinel registries"
 fi
 
+# ---- sub2api: upstream override marker --------------------------------------
+# Whole-fork version of the same idea. The sentinel-registry-update-gate above
+# only fires when a *currently registered* hotspot is touched. This check fires
+# on *any* upstream-shaped path (backend/internal/handler|service|repository|...,
+# frontend/src/views|components|api|...). Forces the author to either pin new
+# anchors via sentinel registry OR carry an explicit marker in commit message
+# (upstream-touch-guarded / upstream-touch-trivial / upstream-merge /
+# no-upstream-touch). Same shape as `no-web-impact`: the marker is a forced
+# acknowledgement that this PR's diff against an upstream merge has been
+# considered.
+echo ""
+echo "=== sub2api: upstream override marker ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for upstream override marker check)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/check-upstream-override-marker.py --quiet; then
+    # check-upstream-override-marker.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: upstream-shaped paths protected (sentinel update or marker present)"
+fi
+
 # ---- sub2api: redaction version contract ------------------------------------
 # Source of truth: scripts/redaction-sentinels.json. Verifies that the default
 # sensitive-key set in logredact and the outward QA redaction_version literals
