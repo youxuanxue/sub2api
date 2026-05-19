@@ -166,9 +166,10 @@
       "must_contain": [
         "function normalizeModelID(value: unknown): string",
         "allowedModels: unknown[]",
-        "const model = normalizeModelID(item)"
+        "const model = normalizeModelID(item)",
+        "claude-opus-4-7"
       ],
-      "rationale": "buildModelMappingObject must tolerate stale object entries and emit only string-to-string model_mapping pairs. Without this normalization, the submit path can hit `includes is not a function` or persist invalid object-shaped model mappings after #128 responses."
+      "rationale": "buildModelMappingObject must tolerate stale object entries and emit only string-to-string model_mapping pairs. Without this normalization, the submit path can hit `includes is not a function` or persist invalid object-shaped model mappings after #128 responses. This file also owns the admin default model lists; keep Claude defaults on currently available 4.x models and do not re-add retired 3.7 Sonnet entries that trigger Anthropic not_found errors."
     }
   ]
 }

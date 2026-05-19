@@ -190,10 +190,7 @@ gh workflow run deploy-edge-stage0.yml \
 6. 做 prod 完整 smoke（见下文）；若仅因 `POST_DEPLOY_SMOKE_CHAT_MODEL` 不在当前 key 的 `/v1/models` 可见列表而失败，先把对应 Environment 变量改到可见模型（如 `gpt-5.5`）再重跑，不要误判为发布回归。
 7. 对 canary Edge 再 dispatch `operation=smoke`，做 prod 升级后的 main-gateway-via-edge 验证；若缺 `MAIN_GATEWAY_EDGE_SMOKE_API_KEY`，只可标记“infra smoke 通过，主网关经 Edge 业务 smoke 未覆盖”。
 8. 其余 deployable Edge 顺序 upgrade + smoke；默认优先 `claude-sonnet-4-6`，若该 edge/key 不可见则切到该 key 的可见模型并重跑一次；失败即停。
-9. **会话内 post-release 跟进（all 默认搭配）**：all rollout 完成后不要 dispatch 额外 diagnostics workflow，也不要把等待逻辑放进 GitHub Actions；由当前 Claude Code 会话每 5 分钟做一次只读线上观察并向用户汇报，连续 3 次。
-   - 每次观察覆盖 prod 与 deployable Edge：health/runtime 状态、最近错误聚类、关键 4xx/5xx/429、账号可调度性、实际流量/请求量趋势。
-   - 第一轮建议 `diagnostics_log_since=20m` 覆盖发版前后；第二/三轮建议 `diagnostics_log_since=10m` 聚焦上线后增量。
-   - 第 3 次汇报后给出综合建议：继续观察、回滚、调整账号/模型配置，或关闭本次跟进。
+9. **会话内 3 次后置跟进（all 默认搭配）**：完成最后一个 smoke 后**不要结束会话**，按“完成后：会话里 +5min / +10min / +15min 后置跟进”段执行三次轻量诊断 + 综合建议。**不要**通过额外 GitHub Actions workflow 调度 post-release diagnostics；会话内跟进必须基于 `git diff v${PREV}..v${NEW}` 动态决定本次重点观察变量，避免固定 metric 集漏掉 release-specific hook。
 
 ## prod 真实测试
 
@@ -275,18 +272,109 @@ gh workflow run deploy-edge-stage0.yml \
 
 prod smoke 失败：停，优先 rollback prod；不要继续 Edge rollout。Edge canary 失败：停，不批准/推进 prod，除非用户明确 override。
 
-### 会话内 post-release 跟进（自动）
+## 完成后：会话里 +5min / +10min / +15min 后置跟进
 
-all rollout 验收完成后，不再触发独立 GitHub workflow。当前会话必须继续保留跟进节奏：每 5 分钟做一次只读线上观察并向用户汇报，连续 3 次。
+发版 rollout 完成（prod smoke 通过 + main-via-edge smoke 通过）后**不要立即结束会话**，也**不要**把跟进推到后续 GitHub Actions run。在当前会话里做三次 5 分钟间隔的轻量跟进，最后基于 3 次观察给综合建议。
 
-每次观察至少覆盖：
+### Step A：确定本次发版的「重点观察变量」
 
-- prod 与 deployable Edge 的 health/runtime 状态。
-- 最近错误聚类，尤其 5xx、429、上游 not_found、no available accounts。
-- 实际流量/请求量趋势，区分“无流量”与“有流量但错误上升”。
-- 账号可调度性与模型可见性异常。
+跟进不跑固定 metric 集，而是基于本次 `git diff v${PREV}..v${NEW}` 决定要重点盯什么：
 
-第 3 次汇报后输出综合建议：继续观察、回滚、调整账号/模型配置，或关闭本次跟进。
+```bash
+PREV_TAG=$(git tag --sort=-version:refname | grep '^v[0-9]' | sed -n '2p')
+NEW_TAG=$(git tag --sort=-version:refname | grep '^v[0-9]' | head -1)
+
+git diff --name-only "${PREV_TAG}..${NEW_TAG}" -- \
+  'backend/internal/service/*.go' 'backend/internal/handler/**/*.go' \
+  'backend/internal/repository/*.go' 'backend/cmd/server/*.go' \
+  'backend/internal/config/*.go' 'backend/internal/middleware/*.go' \
+  | grep -v '_test\.go'
+
+git diff --name-only "${PREV_TAG}..${NEW_TAG}" -- 'frontend/src/' 'deploy/aws/stage0/'
+```
+
+对每条 backend 改动，提取**有可观察 trace 的 hook 名**作为本次的“重点观察变量”，例如：
+
+| 改动类型 | 重点观察的 trace 关键词 |
+|---|---|
+| 新背景 goroutine（如 `*_reaper.go`） | grep `XxxReaper` 启动日志、cycle 频率、Cleanup 退出消息 |
+| 新 gateway 路径 hook（如 `*_tk_signature_preempt.go`） | grep `applyXxxIfArmed` / `armXxxOnError` 触发次数、影响的 account_id 分布 |
+| 新错误处理分支（如 `*_silent_refusal.go`） | grep `silent_refusal` / 新增 `ops_error_logs.reason` 取值 |
+| Stream 行为改动（keepalive ticker、超时等） | 看 SSE 连接持续时间分布、`Gateway.StreamKeepaliveInterval` 是否实际启用 |
+| `wire.go` / `wire_gen.go` DI 变化 | 看启动日志 provider 顺序无 panic、新依赖构造无 nil |
+| `config.go` 新字段 | 在 prod / Edge `.env` 与 `.env.example` 对齐确认；进容器后只输出字段是否设置或 redacted 状态，不打印变量值 |
+| 数据库 schema / migrations | 新表/列的写入路径在 5 分钟窗口是否 surfacing 异常 |
+| 前端 frontend dist hash 变化 | embedded dist freshness + 关键页面 200 |
+
+把“重点观察变量”列在第一次跟进的开头，让 user 看到这一次跟进是按本次发版定制的，而非通用模板。
+
+### Step B：三次轻量跟进的节奏与内容
+
+调度：上线完成时立刻调度 +5min / +10min / +15min 三个时点的醒来，每次跟进做以下三件事：
+
+1. **控制面探活（本地，无密钥）**
+   - `curl -sS -o /dev/null -w '%{http_code}\n' 'https://api.tokenkey.dev/health'` 期望 200
+   - `curl -sS -o /dev/null -w '%{http_code}\n' 'https://api.tokenkey.dev/api/v1/settings/public'` 期望 200
+   - 每个 deployable Edge 也跑一次 `/health` 期望 200
+
+2. **错误 + 流量快照（最近 5 分钟窗口）**
+   - 用 `/tokenkey-online-log-troubleshooting` skill 查 `ops_error_logs` 最近 5 分钟错误聚类（按 `reason`、`status_code`、`platform` 三维聚）
+   - 主网关 docker logs 最近 5 分钟 `level=error` 或 status>=500 的 Top 3 路由
+   - 流量量级估算：最近 5 分钟总请求数、按 `/v1/chat/completions` / `/v1/messages` / `/v1/models` 分布
+   - 不要拉日志全文 — 只要聚类摘要，避免 context 爆
+
+3. **本次「重点观察变量」的 trace**
+   - 对 Step A 提取的每条 hook 关键词，grep 主网关日志 5 分钟窗口的触发计数 + 任何异常 stacktrace
+   - 没看到触发 = 正常（流量未触达该路径）；触发频次明显高于基线（如 reaper 每秒跑一次）= 异常；触发后立即 5xx 跟随 = 异常
+
+### Step C：每次跟进的固定输出形状
+
+每次跟进结束输出一段 5–12 行的简洁汇报，结构固定（占位符在执行时按 Step A 提取结果填实）：
+
+```text
+[+Nmin post-release ${NEW_TAG}]
+control plane: api 200 ✓ | settings/public 200 ✓ | <each deployable edge> 200 ✓
+errors (last 5m): <cluster summary by reason/status_code/platform, or "none">
+traffic (last 5m): N total | chat=X messages=Y models=Z
+new-code hooks:
+  - <hook 1 from Step A>: <grep result, or "no fires">
+  - <hook 2 from Step A>: <grep result, or "no activity">
+  - ...
+verdict: green | yellow | red — <one-line reason>
+```
+
+不要把上面模板照搬当输出：`new-code hooks` 的具体 hook 名由 Step A 的 diff 分析动态产出。纯前端 / 纯 chore release 没有 backend hook 时，直接写 `(no new backend hooks this release)`。
+
+`verdict` 判定原则：
+
+- **green**：control plane 全 200 + 错误聚类无新 cluster + 重点观察变量按预期触发或合理静默 + 流量量级与基线一致
+- **yellow**：control plane OK 但某条路径错误率上升 / 重点 hook 未按预期触发或频次异常 / 流量明显偏低或偏高 → 列出可疑 cluster + 建议是否需要人工触发更长窗口观察
+- **red**：control plane 任一点 fail / 错误聚类含新 type 且 rate 高于基线 2× / 重点 hook 触发后立即 5xx / 流量塌方 → **立即汇报，不再续 +5min**，建议人工立即决定是否 rollback 到 `previous_tag`
+
+### Step D：第 3 次跟进后的综合建议
+
+第 3 次（+15min）跟进汇报完后**立即**给综合建议（不再等更长窗口），结构：
+
+```text
+=== Post-release follow-up summary (${NEW_TAG}, 3 ticks over +15min) ===
+重点变更：<列出 Step A 的关键 hook / 配置项>
+control plane：3/3 ticks green | <or list any failure tick>
+错误聚类汇总：<去重的 cluster + 频次趋势>
+流量趋势：<是否与基线一致>
+重点观察变量结论：<逐项 hook 是否按预期>
+综合 verdict: green / yellow / red
+建议：
+  - <green>: 发版稳定，无 follow-up。
+  - <yellow>: 列出 1-3 条需要在 24h / 1week 内再观察或修复的事项；建议是否人工触发 +1h / +6h 跟进。
+  - <red>: 列出可疑回归点，建议立即 `gh workflow run deploy-stage0.yml -f tag=${PREVIOUS_TAG}` rollback；其余 Edge 暂不批准 prod approval。
+```
+
+### 调度纪律
+
+- 第 1 次跟进在最后一个 smoke 通过后 +5min ± 30s 启动（优先用 `ScheduleWakeup`，也可用三次明确的一次性调度；不要创建无限循环）
+- 第 2 / 3 次按 5 min 间隔自动续上
+- 中间任意一次 verdict = red → 立刻汇报，停止后续 tick，等人工决定 rollback
+- 3 次窗口结束后会话**不再自动延期**；如需 +1h / +6h / +24h 跟踪由人工显式发起，不要在当前会话里自己延期否则会跨越上下文窗口
 
 ## 完成后：rollout 摘要
 
