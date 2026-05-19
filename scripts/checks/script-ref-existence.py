@@ -84,6 +84,11 @@ EXCLUDE_PREFIXES = (
     "backend/internal/web/dist/",
     "node_modules/",
     ".cache/",
+    # The self-test must contain literal "scripts/missing-*.sh" fixture strings
+    # to exercise the check; those fixtures would otherwise fire this check on
+    # itself. The self-test runs alongside via preflight, providing equivalent
+    # coverage on this file's contract.
+    "scripts/checks/script-ref-existence_test.sh",
 )
 
 # Characters that terminate the "path-like token" walk-back used by
