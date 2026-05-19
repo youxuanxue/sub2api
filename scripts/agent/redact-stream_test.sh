@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# Self-test for scripts/redact-agent-stream.py.
+# Self-test for scripts/agent/redact-stream.py.
 # Runs as the last preflight check; fails the commit if redaction breaks.
 
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SCRIPT="$HERE/redact-agent-stream.py"
+SCRIPT="$HERE/redact-stream.py"
 
 if [ ! -x "$SCRIPT" ]; then
   echo "FAIL: $SCRIPT missing or not executable" >&2
@@ -102,7 +102,7 @@ out="$(printf 'sk-len-7: sk-abc123 / sk-len-8: sk-abc12345 tail\n' | python3 "$S
 expect "sk- threshold (7 chars passes, 8+ redacted)" "sk-len-7: sk-abc123 / sk-len-8: ***REDACTED*** tail" "$out"
 
 if [ "$fail" -ne 0 ]; then
-  echo "redact-agent-stream self-test: $pass passed, $fail FAILED" >&2
+  echo "redact-stream self-test: $pass passed, $fail FAILED" >&2
   exit 1
 fi
-echo "ok: redact-agent-stream self-test ($pass cases)"
+echo "ok: redact-stream self-test ($pass cases)"

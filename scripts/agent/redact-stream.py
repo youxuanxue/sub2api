@@ -5,7 +5,7 @@ GitHub Actions masks secret values in the live log render, but bytes that hit
 a `tee`-targeted file are raw -- and that file usually becomes a public
 artifact. This filter sits between the agent and the file:
 
-    claude -p ... 2>&1 | python3 scripts/redact-agent-stream.py | tee out.txt
+    claude -p ... 2>&1 | python3 scripts/agent/redact-stream.py | tee out.txt
 
 Two passes per line:
 

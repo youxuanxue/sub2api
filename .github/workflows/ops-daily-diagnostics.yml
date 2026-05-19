@@ -640,7 +640,7 @@ jobs:
         if: steps.claude_token.outputs.present == 'true'
         env:
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-        run: bash scripts/setup-claude-code.sh
+        run: bash scripts/agent/setup-claude-code.sh
 
       - name: Build read-only diagnosis prompt
         if: steps.claude_token.outputs.present == 'true'
@@ -681,7 +681,7 @@ jobs:
             --exclude-dynamic-system-prompt-sections \
             --allowedTools "Read Grep Glob" \
             2>&1 \
-            | python3 scripts/redact-agent-stream.py \
+            | python3 scripts/agent/redact-stream.py \
             | tee claude-issue-diagnosis.jsonl
 
       - name: Extract Claude diagnosis

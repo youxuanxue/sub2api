@@ -93,7 +93,7 @@ jobs:
       - name: Install Claude Code CLI
         env:
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-        run: bash scripts/setup-claude-code.sh
+        run: bash scripts/agent/setup-claude-code.sh
 
       - name: Configure git identity
         run: |
@@ -285,7 +285,7 @@ jobs:
           # (run 25415454229 / job 74548660906, 2026-05-06). Whitelist the
           # work toolkit explicitly per global CLAUDE.md §5 ("严格遵守
           # --allowedTools 限制"); WebFetch/WebSearch/Skill stay denied.
-          # scripts/redact-agent-stream.py scrubs secrets from the stream
+          # scripts/agent/redact-stream.py scrubs secrets from the stream
           # before tee writes the artifact: Actions log masking does NOT
           # apply to bytes that hit disk via tee, so without this filter
           # the public artifact can leak ANTHROPIC_AUTH_TOKEN / GH_TOKEN
@@ -324,7 +324,7 @@ jobs:
             --output-format stream-json --verbose \
             --exclude-dynamic-system-prompt-sections \
             2>&1 \
-            | python3 scripts/redact-agent-stream.py \
+            | python3 scripts/agent/redact-stream.py \
             | tee /tmp/upstream-merge-agent-output-attempt1.txt
           exit_code=${PIPESTATUS[0]}
           set -e
@@ -430,7 +430,7 @@ jobs:
             --output-format stream-json --verbose \
             --exclude-dynamic-system-prompt-sections \
             2>&1 \
-            | python3 scripts/redact-agent-stream.py \
+            | python3 scripts/agent/redact-stream.py \
             | tee /tmp/upstream-merge-agent-output-attempt2.txt
           exit_code=${PIPESTATUS[0]}
           set -e

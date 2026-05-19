@@ -402,7 +402,7 @@ jobs:
       - name: Install Claude Code CLI
         env:
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-        run: bash scripts/setup-claude-code.sh
+        run: bash scripts/agent/setup-claude-code.sh
 
       - name: Configure git identity
         run: |
@@ -479,7 +479,7 @@ jobs:
             --output-format stream-json --verbose \
             --exclude-dynamic-system-prompt-sections \
             2>&1 \
-            | python3 scripts/redact-agent-stream.py \
+            | python3 scripts/agent/redact-stream.py \
             | tee /tmp/upstream-issue-fix-agent-output.txt
 
       - uses: actions/upload-artifact@v4
