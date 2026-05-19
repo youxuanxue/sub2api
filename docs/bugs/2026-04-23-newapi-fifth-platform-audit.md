@@ -332,11 +332,11 @@ if model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSe
 		}
 ```
 
-依赖上游 `ChannelBaseURLs` slice 长度。如果 upstream 重排 / 新增/删除 channel type 但忘记同步 `ChannelBaseURLs`，TK 会静默给前端返回空 `BaseURL` 而不是上游正确的默认根。`scripts/check-newapi-sentinels.py` 当前不覆盖这种 slice 形状漂移。
+依赖上游 `ChannelBaseURLs` slice 长度。如果 upstream 重排 / 新增/删除 channel type 但忘记同步 `ChannelBaseURLs`，TK 会静默给前端返回空 `BaseURL` 而不是上游正确的默认根。`scripts/sentinels/check-newapi.py` 当前不覆盖这种 slice 形状漂移。
 
 **为什么是 P2**：upstream 已经维护这个 slice 很久，长度变化一旦发生 grep / 测试都会报。但属于"upstream merge 时静默断裂"高风险类，sentinel 应当扩展。
 
-**修复方向**：在 `scripts/newapi-sentinels.json` 增加一条针对 `ChannelBaseURLs` 长度的 sentinel；或者直接调上游 helper 而不是裸索引。
+**修复方向**：在 `scripts/sentinels/newapi.json` 增加一条针对 `ChannelBaseURLs` 长度的 sentinel；或者直接调上游 helper 而不是裸索引。
 
 ---
 

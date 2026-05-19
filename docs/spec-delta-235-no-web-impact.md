@@ -8,7 +8,7 @@
   - `backend/internal/service/openai_messages_compaction_tk.go`
   - `backend/internal/service/openai_compat_model_test.go`
 - Sentinel registry changes:
-  - `scripts/gateway-tk-sentinels.json`
+  - `scripts/sentinels/gateway-tk.json`
 
 ## Intent
 - Add production log evidence for OpenAI-compatible Messages compact-candidate requests.

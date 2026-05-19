@@ -14,27 +14,27 @@ name: Upstream Merge PR Shape
 #      pipeline if that PR's landing commit is later tagged. Imported upstream
 #      history is allowed to keep upstream's own release-sync messages.
 #   4. Every load-bearing surface of the fifth platform `newapi` listed
-#      in `scripts/newapi-sentinels.json` is still present after the
+#      in `scripts/sentinels/newapi.json` is still present after the
 #      merge. This catches the recurring failure mode that motivated
 #      docs/approved/newapi-as-fifth-platform.md: an upstream merge
 #      silently drops a TK companion file or a `case PlatformNewAPI`
 #      branch and the regression is only noticed weeks later.
 #   5. Every outward TokenKey brand surface listed in
-#      `scripts/brand-sentinels.json` is still intact after the merge,
+#      `scripts/sentinels/brand.json` is still intact after the merge,
 #      so upstream churn cannot silently revert default title / README /
 #      fifth-platform display labels back into split branding.
 #   5b. Every load-bearing TokenKey-only frontend surface listed in
-#      `scripts/frontend-tk-sentinels.json` is still intact after the
+#      `scripts/sentinels/frontend-tk.json` is still intact after the
 #      merge — small UI divergences (sidebar geometry, fluid admin-accounts
 #      table mode, sticky-edge-hints opt-out) compile cleanly even if
 #      silently reverted, so a literal-content guard is the only catch.
 #   5c. Every load-bearing TokenKey-only gateway/service hook listed in
-#      `scripts/gateway-tk-sentinels.json` is still intact after the merge;
+#      `scripts/sentinels/gateway-tk.json` is still intact after the merge;
 #      these are small upstream-hotspot injections that otherwise compile
 #      cleanly when silently reverted (incl. prod-to-sibling Claude sticky
 #      session header + ParsedRequest Gin fallback, and bridge metadata).
 #   6. The QA evidence redaction contract stays aligned: if logredact's
-#      default sensitive-key set changes, `scripts/redaction-sentinels.json`
+#      default sensitive-key set changes, `scripts/sentinels/redaction.json`
 #      and every outward `redaction_version` literal must move in the same
 #      commit, so exported evidence remains interpretable across versions.
 #   7. The gateway evidence hook contract stays aligned: main gateway scopes
@@ -51,10 +51,10 @@ name: Upstream Merge PR Shape
 #      validator plus its focused regression tests must keep H1/H2/H3/D1 and
 #      structural acceptance gates executable after the merge.
 #  11. The pricing-availability tap contract stays intact: TK call sites registered
-#      in `scripts/pricing-availability-sentinels.json` must survive the merge so
+#      in `scripts/sentinels/pricing-availability.json` must survive the merge so
 #      passive availability does not silently go dark (preflight parity).
 #  12. The sentinel-registry update gate stays satisfied on the PR diff: changing
-#      sentinel-covered hotspots without updating the paired `scripts/*-sentinels.json`
+#      sentinel-covered hotspots without updating the paired `scripts/sentinels/*.json`
 #      fails (mechanical 「覆写防护」vs human review memory — preflight parity).
 #  13. The buffered Content-Type leak antipattern (upstream Wei-Shaw/sub2api#1311)
 #      stays absent: any new `responseheaders.WriteFilteredHeaders` call followed
@@ -189,19 +189,19 @@ jobs:
 
       - name: Check 4 — newapi sentinels still intact after merge
         run: |
-          # Single source of truth: scripts/newapi-sentinels.json. Same script
+          # Single source of truth: scripts/sentinels/newapi.json. Same script
           # that scripts/preflight.sh runs locally as the "newapi sentinel
           # registry" check, so a green local preflight implies a green Check
           # 4 here. Failure means the upstream merge silently dropped a
           # load-bearing fifth-platform surface — fix the merge to restore
           # the file/symbol, do NOT delete the sentinel entry to make the
           # check pass.
-          if [ ! -x ./scripts/check-newapi-sentinels.py ]; then
-            echo "::error::scripts/check-newapi-sentinels.py missing or not executable."
+          if [ ! -x ./scripts/sentinels/check-newapi.py ]; then
+            echo "::error::scripts/sentinels/check-newapi.py missing or not executable."
             echo "::error::Per CLAUDE.md §5.x, this guard cannot be silently disabled."
             exit 1
           fi
-          if ! python3 ./scripts/check-newapi-sentinels.py; then
+          if ! python3 ./scripts/sentinels/check-newapi.py; then
             echo "::error::Upstream merge regressed at least one newapi sentinel."
             echo "::error::Per CLAUDE.md §5.x, restore the dropped file/symbol in this"
             echo "::error::merge PR. Do NOT 'fix' by deleting the sentinel entry."
@@ -210,17 +210,17 @@ jobs:
 
       - name: Check 5 — brand sentinels still intact after merge
         run: |
-          # Single source of truth: scripts/brand-sentinels.json. This stays
+          # Single source of truth: scripts/sentinels/brand.json. This stays
           # intentionally separate from the newapi semantic guard: compat
           # identities like `sub2api` / `newapi` are still valid in internal
           # route / image / repo identities; this check only protects outward
           # TokenKey brand surfaces from drifting apart again.
-          if [ ! -x ./scripts/check-brand-sentinels.py ]; then
-            echo "::error::scripts/check-brand-sentinels.py missing or not executable."
+          if [ ! -x ./scripts/sentinels/check-brand.py ]; then
+            echo "::error::scripts/sentinels/check-brand.py missing or not executable."
             echo "::error::Per the TokenKey OPC baseline, this guard cannot be silently disabled."
             exit 1
           fi
-          if ! python3 ./scripts/check-brand-sentinels.py; then
+          if ! python3 ./scripts/sentinels/check-brand.py; then
             echo "::error::Upstream merge regressed at least one outward brand sentinel."
             echo "::error::Restore the dropped / reverted brand surface in this merge PR."
             echo "::error::Do NOT 'fix' by deleting the brand sentinel entry."
@@ -229,18 +229,18 @@ jobs:
 
       - name: Check 5b — frontend TK sentinels still intact after merge
         run: |
-          # Single source of truth: scripts/frontend-tk-sentinels.json. Same
+          # Single source of truth: scripts/sentinels/frontend-tk.json. Same
           # script that scripts/preflight.sh runs locally, so a green local
           # preflight implies a green check here. Guards small TK frontend
           # divergences (sidebar geometry, fluid table mode, sticky-edge-hints
           # opt-out) that would otherwise compile cleanly even if reverted —
           # the regression only surfaces visually.
-          if [ ! -x ./scripts/check-frontend-tk-sentinels.py ]; then
-            echo "::error::scripts/check-frontend-tk-sentinels.py missing or not executable."
+          if [ ! -x ./scripts/sentinels/check-frontend-tk.py ]; then
+            echo "::error::scripts/sentinels/check-frontend-tk.py missing or not executable."
             echo "::error::Per CLAUDE.md §5 minimum-invasion guidance, this guard cannot be silently disabled."
             exit 1
           fi
-          if ! python3 ./scripts/check-frontend-tk-sentinels.py; then
+          if ! python3 ./scripts/sentinels/check-frontend-tk.py; then
             echo "::error::Upstream merge regressed at least one frontend TK sentinel."
             echo "::error::Restore the dropped / reverted TK frontend surface in this merge PR."
             echo "::error::Do NOT 'fix' by deleting the sentinel entry."
@@ -249,17 +249,17 @@ jobs:
 
       - name: Check 5c — gateway TK sentinels still intact after merge
         run: |
-          # Single source of truth: scripts/gateway-tk-sentinels.json. Same
+          # Single source of truth: scripts/sentinels/gateway-tk.json. Same
           # script that scripts/preflight.sh runs locally, so a green local
           # preflight implies a green check here. Guards small TK gateway/service
           # hooks in upstream-shaped hotspot files that compile cleanly even if
           # reverted, with regressions only surfacing in production behavior.
-          if [ ! -x ./scripts/check-gateway-tk-sentinels.py ]; then
-            echo "::error::scripts/check-gateway-tk-sentinels.py missing or not executable."
+          if [ ! -x ./scripts/sentinels/check-gateway-tk.py ]; then
+            echo "::error::scripts/sentinels/check-gateway-tk.py missing or not executable."
             echo "::error::Per CLAUDE.md §5 minimum-invasion guidance, this guard cannot be silently disabled."
             exit 1
           fi
-          if ! python3 ./scripts/check-gateway-tk-sentinels.py; then
+          if ! python3 ./scripts/sentinels/check-gateway-tk.py; then
             echo "::error::Upstream merge regressed at least one gateway TK sentinel."
             echo "::error::Restore the dropped / reverted TK gateway hook in this merge PR."
             echo "::error::Do NOT 'fix' by deleting the sentinel entry."
@@ -268,37 +268,37 @@ jobs:
 
       - name: Check 6 — redaction version contract stays aligned after merge
         run: |
-          # Single source of truth: scripts/redaction-sentinels.json. Same script
+          # Single source of truth: scripts/sentinels/redaction.json. Same script
           # that scripts/preflight.sh runs locally as the "redaction version
           # contract" check, so a green local preflight implies a green Check 6
           # here. Failure means the merge changed logredact's default sensitive
           # keys or version literals without moving the outward QA contract in
           # lockstep.
-          if [ ! -x ./scripts/check-redaction-version.py ]; then
-            echo "::error::scripts/check-redaction-version.py missing or not executable."
+          if [ ! -x ./scripts/sentinels/check-redaction-version.py ]; then
+            echo "::error::scripts/sentinels/check-redaction-version.py missing or not executable."
             echo "::error::Per the Evidence Spine contract, this guard cannot be silently disabled."
             exit 1
           fi
-          if ! python3 ./scripts/check-redaction-version.py; then
+          if ! python3 ./scripts/sentinels/check-redaction-version.py; then
             echo "::error::Upstream merge regressed the QA evidence redaction contract."
-            echo "::error::Update scripts/redaction-sentinels.json and bump the outward"
+            echo "::error::Update scripts/sentinels/redaction.json and bump the outward"
             echo "::error::redaction_version literals in the same commit; do NOT delete the guard."
             exit 1
           fi
 
       - name: Check 7 — trajectory hook contract stays aligned after merge
         run: |
-          # Single source of truth: scripts/trajectory-sentinels.json. Same script
+          # Single source of truth: scripts/sentinels/trajectory.json. Same script
           # that scripts/preflight.sh runs locally as the "trajectory hook
           # registry" check, so a green local preflight implies a green Check 7
           # here. Failure means the merge dropped gateway trajectory/qa capture
           # wiring or the QA middleware stopped terminating in CaptureFromContext.
-          if [ ! -x ./scripts/check-trajectory-hooks.py ]; then
-            echo "::error::scripts/check-trajectory-hooks.py missing or not executable."
+          if [ ! -x ./scripts/sentinels/check-trajectory-hooks.py ]; then
+            echo "::error::scripts/sentinels/check-trajectory-hooks.py missing or not executable."
             echo "::error::Per the Evidence Spine contract, this guard cannot be silently disabled."
             exit 1
           fi
-          if ! python3 ./scripts/check-trajectory-hooks.py; then
+          if ! python3 ./scripts/sentinels/check-trajectory-hooks.py; then
             echo "::error::Upstream merge regressed the gateway trajectory / QA capture contract."
             echo "::error::Restore trajectory_id + qaCapture route wiring and keep the"
             echo "::error::QA middleware terminating in Service.CaptureFromContext."
@@ -307,18 +307,18 @@ jobs:
 
       - name: Check 8 — terminal event contract stays aligned after merge
         run: |
-          # Single source of truth: scripts/terminal-sentinels.json. Same script
+          # Single source of truth: scripts/sentinels/terminal.json. Same script
           # that scripts/preflight.sh runs locally as the "terminal event
           # registry" check, so a green local preflight implies a green Check 8
           # here. Failure means the merge regressed stable terminal helpers,
           # `[DONE]` emission, or the focused terminal assertions that protect
           # Evidence Spine completion semantics.
-          if [ ! -x ./scripts/check-terminal-events.py ]; then
-            echo "::error::scripts/check-terminal-events.py missing or not executable."
+          if [ ! -x ./scripts/sentinels/check-terminal-events.py ]; then
+            echo "::error::scripts/sentinels/check-terminal-events.py missing or not executable."
             echo "::error::Per the Evidence Spine contract, this guard cannot be silently disabled."
             exit 1
           fi
-          if ! python3 ./scripts/check-terminal-events.py; then
+          if ! python3 ./scripts/sentinels/check-terminal-events.py; then
             echo "::error::Upstream merge regressed the stream terminal-event contract."
             echo "::error::Restore stable terminal helpers, keep [DONE] emission, and preserve"
             echo "::error::the focused terminal assertions instead of deleting the guard."
@@ -327,18 +327,18 @@ jobs:
 
       - name: Check 9 — engine facade contract stays aligned after merge
         run: |
-          # Single source of truth: scripts/engine-facade-sentinels.json. Same
+          # Single source of truth: scripts/sentinels/engine-facade.json. Same
           # script that scripts/preflight.sh runs locally as the "engine facade
           # registry" check, so a green local preflight implies a green Check 9
           # here. Failure means bridge/provider selection truth drifted back
           # into hotspot gateway service files instead of staying behind the
           # shared Engine facade.
-          if [ ! -x ./scripts/check-engine-facade-hooks.py ]; then
-            echo "::error::scripts/check-engine-facade-hooks.py missing or not executable."
+          if [ ! -x ./scripts/sentinels/check-engine-facade.py ]; then
+            echo "::error::scripts/sentinels/check-engine-facade.py missing or not executable."
             echo "::error::Per the Engine Spine contract, this guard cannot be silently disabled."
             exit 1
           fi
-          if ! python3 ./scripts/check-engine-facade-hooks.py; then
+          if ! python3 ./scripts/sentinels/check-engine-facade.py; then
             echo "::error::Upstream merge regressed the Engine facade contract."
             echo "::error::Restore shared engine.BuildDispatchPlan gating instead of"
             echo "::error::reintroducing local provider branching in gateway services."
@@ -357,13 +357,13 @@ jobs:
 
       - name: Check 11 — pricing-availability sentinels still intact after merge
         run: |
-          # Preflight parity: scripts/pricing-availability-sentinels.json. Without these
+          # Preflight parity: scripts/sentinels/pricing-availability.json. Without these
           # literal tap hooks, merges can compile cleanly while availability ingestion stops.
-          if [ ! -f ./scripts/check-pricing-availability-sentinels.py ]; then
-            echo "::error::scripts/check-pricing-availability-sentinels.py missing."
+          if [ ! -f ./scripts/sentinels/check-pricing-availability.py ]; then
+            echo "::error::scripts/sentinels/check-pricing-availability.py missing."
             exit 1
           fi
-          if ! python3 ./scripts/check-pricing-availability-sentinels.py; then
+          if ! python3 ./scripts/sentinels/check-pricing-availability.py; then
             echo "::error::Upstream merge regressed at least one pricing-availability sentinel."
             echo "::error::Restore the tap / RecordOutcome literals in this merge PR; do NOT delete sentinel entries."
             exit 1
@@ -371,17 +371,17 @@ jobs:
 
       - name: Check 12 — sentinel registry update gate (PR diff ↔ registries coupled)
         run: |
-          # Preflight parity: scripts/check-sentinel-registry-update-gate.py — forces any
+          # Preflight parity: scripts/sentinels/check-registry-update-gate.py — forces any
           # change to sentinel-covered or hotspot-listed sources to accompany a registry edit.
-          if [ ! -f ./scripts/check-sentinel-registry-update-gate.py ]; then
-            echo "::error::scripts/check-sentinel-registry-update-gate.py missing."
+          if [ ! -f ./scripts/sentinels/check-registry-update-gate.py ]; then
+            echo "::error::scripts/sentinels/check-registry-update-gate.py missing."
             exit 1
           fi
           BASE_SHA='${{ github.event.pull_request.base.sha }}'
           HEAD_SHA='${{ github.event.pull_request.head.sha }}'
-          if ! python3 ./scripts/check-sentinel-registry-update-gate.py --base "$BASE_SHA" --head "$HEAD_SHA"; then
+          if ! python3 ./scripts/sentinels/check-registry-update-gate.py --base "$BASE_SHA" --head "$HEAD_SHA"; then
             echo "::error::Sentinel registry update gate failed."
-            echo "::error::Changing load-bearing hotspots requires updating scripts/*-sentinels.json in the same PR."
+            echo "::error::Changing load-bearing hotspots requires updating scripts/sentinels/*.json in the same PR."
             exit 1
           fi
 

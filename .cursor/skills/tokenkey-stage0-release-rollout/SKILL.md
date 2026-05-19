@@ -304,7 +304,7 @@ git log "${PREV_TAG}..${NEW_TAG}" --oneline --no-merges \
   | grep -v 'chore: bump VERSION' | grep -v '\[skip ci\]'
 
 git diff --stat "${PREV_TAG}..${NEW_TAG}" -- backend/ frontend/src/ | tail -10
-git diff --name-only "${PREV_TAG}..${NEW_TAG}" -- 'scripts/*-sentinels.json' 2>/dev/null || true
+git diff --name-only "${PREV_TAG}..${NEW_TAG}" -- 'scripts/sentinels/*.json' 2>/dev/null || true
 git diff --diff-filter=D --name-only "${PREV_TAG}..${NEW_TAG}" -- backend/ || true
 ```
 

@@ -15,7 +15,7 @@ package service
 // channel's flat fields are written to BasePricing so GetIntervalPricing's
 // out-of-range fallback returns operator-intended values.
 //
-// scripts/gateway-tk-sentinels.json pins both the call site in
+// scripts/sentinels/gateway-tk.json pins both the call site in
 // applyTokenOverrides (`tkApplyChannelFlatOverridesAsFallback`) and the
 // helper definition here, so preflight + upstream-merge PR shape checks
 // catch any revert.

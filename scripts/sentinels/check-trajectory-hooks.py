@@ -2,7 +2,7 @@
 """
 check-trajectory-hooks.py — ensure gateway trajectory/QA capture hooks stay wired.
 
-Source of truth lives in `scripts/trajectory-sentinels.json`:
+Source of truth lives in `scripts/sentinels/trajectory.json`:
 - `route_source` is the gateway route registration file that must keep the
   canonical trajectory_id + QA capture middleware hooks on main gateway scopes.
 - `capture_source` is the QA middleware that must still terminate in
@@ -29,8 +29,8 @@ import re
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-REGISTRY_PATH = REPO_ROOT / "scripts" / "trajectory-sentinels.json"
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+REGISTRY_PATH = REPO_ROOT / "scripts" / "sentinels" / "trajectory.json"
 
 
 def fatal(msg: str) -> None:

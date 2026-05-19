@@ -38,7 +38,7 @@ claude code CLI ─→ prod (api.tokenkey.dev)
 | OAuth 专用步骤 | `gateway_service.go:6072 if account.IsOAuth() && s.identityService != nil` → fingerprint / RewriteUserID / masking / CCH |
 | masking 实现 | `backend/internal/service/identity_service.go:269 RewriteUserIDWithMasking` |
 | sticky-hit TTL 刷新（PR #190 之后） | `gateway_service.go RefreshSessionTTL` 6 callsite：1711 / 1910 / 3074 / 3192 / 3337 / 3457 |
-| 出口 sentinel 注册 | `scripts/gateway-tk-sentinels.json`（保护 tkEnsure 4 callsite 字符串） |
+| 出口 sentinel 注册 | `scripts/sentinels/gateway-tk.json`（保护 tkEnsure 4 callsite 字符串） |
 | edge Caddy 放行规则 | `deploy/aws/stage0/Caddyfile.edge @allowed_relay remote_ip ${MAIN_GATEWAY_ALLOWED_CIDR}` |
 | 部署拓扑 | `deploy/aws/stage0/edge-targets.json` |
 
@@ -66,7 +66,7 @@ claude code CLI ─→ prod (api.tokenkey.dev)
 ## 5. 改代码时的常见雷区
 
 - **改 sticky 派生顺序** — 动 `GenerateSessionHash` 的优先级会同时影响 prod 和 edge 两侧，验证要两端都看；改完同步检查 `StickyKeyFromClientHeaders` 的 header walk 顺序是否一致。
-- **新增 `buildUpstreamRequest*` 变种** — 必须调 `tkEnsureClaudeCodeSessionHeader`，并在 `scripts/gateway-tk-sentinels.json` 加 sentinel，否则下次 upstream merge 会静默删掉。
+- **新增 `buildUpstreamRequest*` 变种** — 必须调 `tkEnsureClaudeCodeSessionHeader`，并在 `scripts/sentinels/gateway-tk.json` 加 sentinel，否则下次 upstream merge 会静默删掉。
 - **改 TTL refresh 逻辑** — 6 个 callsite 都得动，不要只动一个；现有模式是「sticky hit return 之前刷」。
 - **碰 RewriteUserID / masking / fingerprint** — 这些只在 OAuth 路径生效（`if account.IsOAuth()`）；APIKey 账号根本不进，改的时候要确认你在动哪条路径。
 - **加新的 sticky 派生源**（比如自定义 header）— 同时改 `StickyKeyFromClientHeaders` 顺序和 `GenerateSessionHash` 顺序，并在 sentinel 注册。

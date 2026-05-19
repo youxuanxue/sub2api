@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-check-engine-facade-hooks.py — ensure key dispatch paths stay routed through Engine facade truth.
+check-terminal-events.py — ensure Evidence Spine terminal-event markers stay wired.
 
-Source of truth lives in `scripts/engine-facade-sentinels.json`:
-- each entry names a source file whose Engine-facade contract is load-bearing
+Source of truth lives in `scripts/sentinels/terminal.json`:
+- each entry names a source file whose terminal-event contract is load-bearing
 - `required_literals` are exact substrings that must remain present
 
 Failure modes this catches:
-1. A refactor reintroduces bridge/provider branching directly inside hotspot service
-   files instead of going through the shared engine facade gate.
-2. The canonical engine facade entrypoint stops owning dispatch-plan selection,
-   leaving the Engine Spine nominal only.
+1. A refactor drops OpenAI/Anthropic terminal marker helpers, so completion
+   semantics drift and finish-capture logic loses a stable end-of-stream signal.
+2. A forwarder stops emitting `[DONE]` or the focused unit tests stop asserting
+   terminal markers, so regressions can land silently.
 
 Exit codes:
-  0  — engine facade sources are aligned.
+  0  — terminal-event sources are aligned.
   1  — at least one required literal is missing.
   2  — registry or source parsing failed.
 """
@@ -24,8 +24,8 @@ import json
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-REGISTRY_PATH = REPO_ROOT / "scripts" / "engine-facade-sentinels.json"
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+REGISTRY_PATH = REPO_ROOT / "scripts" / "sentinels" / "terminal.json"
 
 
 def fatal(msg: str) -> None:
@@ -97,18 +97,17 @@ def main() -> int:
         sys.stdout.write("\n")
     else:
         if not args.quiet:
-            print(f"engine facade check: {REGISTRY_PATH.relative_to(REPO_ROOT)}")
+            print(f"terminal event check: {REGISTRY_PATH.relative_to(REPO_ROOT)}")
         if failures:
-            print("  FAIL: engine facade contract drift detected")
+            print("  FAIL: terminal-event contract drift detected")
             for failure in failures:
                 print(f"        - {failure}")
             print(
-                "        - fix path: restore engine.BuildDispatchPlan gating in "
-                "backend/internal/service/gateway_bridge_dispatch.go and keep "
-                "OpenAI gateway dispatch paths routing through the shared helper"
+                "        - fix path: restore terminal helpers in backend/internal/service/gateway_service.go, "
+                "keep [DONE] emission in gateway_forward_as_chat_completions.go, and preserve the focused unit tests"
             )
         elif not args.quiet:
-            print("  ok: key dispatch paths still route through Engine facade truth")
+            print("  ok: terminal-event helpers and focused assertions are aligned")
 
     return 0 if not failures else 1
 

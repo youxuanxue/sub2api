@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """
-check-brand-sentinels.py — verify outward TokenKey brand surfaces stay intact.
+check-gateway-tk.py — verify TokenKey gateway/service hotspot hooks.
 
-Reads `scripts/brand-sentinels.json` and for each entry verifies the file exists
-and every literal in `must_contain` appears at least once.
+Reads `scripts/sentinels/gateway-tk.json` and for each entry verifies:
+
+  1. The file at `path` exists.
+  2. Every literal string in `must_contain` appears at least once in the file.
+  3. Every literal string in `must_not_contain` is absent from the file.
 
 Exit codes:
   0  — all sentinels intact.
-  1  — at least one sentinel missing or regressed.
-  2  — registry missing or malformed.
-
-Used by `scripts/preflight.sh` and `.github/workflows/upstream-merge-pr-shape.yml`.
+  1  — at least one sentinel missing or has lost a required symbol.
+  2  — registry file missing or malformed.
 """
 from __future__ import annotations
 
@@ -19,8 +20,8 @@ import json
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-REGISTRY_PATH = REPO_ROOT / "scripts" / "brand-sentinels.json"
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+REGISTRY_PATH = REPO_ROOT / "scripts" / "sentinels" / "gateway-tk.json"
 
 
 def load_registry() -> dict:
@@ -34,10 +35,7 @@ def load_registry() -> dict:
         with REGISTRY_PATH.open("r", encoding="utf-8") as f:
             data = json.load(f)
     except json.JSONDecodeError as exc:
-        print(
-            f"FATAL: registry file is not valid JSON: {exc}",
-            file=sys.stderr,
-        )
+        print(f"FATAL: registry file is not valid JSON: {exc}", file=sys.stderr)
         sys.exit(2)
     if "sentinels" not in data or not isinstance(data["sentinels"], list):
         print("FATAL: registry missing 'sentinels' array.", file=sys.stderr)
@@ -63,17 +61,16 @@ def check_sentinel(entry: dict) -> tuple[bool, list[str]]:
     for needle in must_contain:
         if needle not in content:
             failures.append(f"missing literal `{needle}` in {path_str}")
+    for needle in entry.get("must_not_contain") or []:
+        if needle in content:
+            failures.append(f"forbidden literal `{needle}` still present in {path_str}")
     return (len(failures) == 0), failures
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--quiet", action="store_true", help="only print failures")
-    parser.add_argument(
-        "--json",
-        action="store_true",
-        help="emit a machine-readable JSON report on stdout",
-    )
+    parser.add_argument("--json", action="store_true", help="emit a machine-readable JSON report")
     args = parser.parse_args()
 
     registry = load_registry()
@@ -95,16 +92,12 @@ def main() -> int:
         )
 
     if args.json:
-        json.dump(
-            {"total": len(sentinels), "failed": fail_count, "results": results},
-            sys.stdout,
-            indent=2,
-        )
+        json.dump({"total": len(sentinels), "failed": fail_count, "results": results}, sys.stdout, indent=2)
         sys.stdout.write("\n")
     else:
         if not args.quiet:
             print(
-                f"brand sentinels: checking {len(sentinels)} entries from "
+                f"gateway TK sentinels: checking {len(sentinels)} entries from "
                 f"{REGISTRY_PATH.relative_to(REPO_ROOT)}"
             )
         for r in results:
@@ -119,21 +112,16 @@ def main() -> int:
                     print(f"        why it matters: {r['rationale']}")
         if fail_count == 0:
             if not args.quiet:
-                print(
-                    f"brand sentinels: PASS ({len(sentinels)}/{len(sentinels)} intact)"
-                )
+                print(f"gateway TK sentinels: PASS ({len(sentinels)}/{len(sentinels)} intact)")
         else:
             print(
-                f"brand sentinels: FAIL ({fail_count}/{len(sentinels)} regressed)",
+                f"gateway TK sentinels: FAIL ({fail_count}/{len(sentinels)} regressed)",
                 file=sys.stderr,
             )
+            print("  Source of truth: scripts/sentinels/gateway-tk.json", file=sys.stderr)
             print(
-                "  Source of truth: scripts/brand-sentinels.json",
-                file=sys.stderr,
-            )
-            print(
-                "  If a sentinel was intentionally moved/renamed, update the "
-                "registry in the same commit.",
+                "  If a hook was intentionally moved/renamed, update the registry "
+                "in the same commit. Do NOT silently delete entries.",
                 file=sys.stderr,
             )
 

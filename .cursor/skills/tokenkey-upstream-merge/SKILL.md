@@ -178,7 +178,7 @@ git diff --diff-filter=D --name-only upstream/main..HEAD -- backend/ || echo "(n
 | OpenAI-compat / Responses | OpenAI OAuth 探针（必须设 `POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY`）；`reasoning_tokens` 是否透传 |
 | pricing / model-list | `/v1/models` 数量与可用性标记 |
 | frontend 组件 | frontend release asset 探针 + 浏览器关键页 |
-| 新增 sentinel | 列出 `*-sentinels.json` 文件名，说明守卫的回归场景 |
+| 新增 sentinel | 列出 `scripts/sentinels/*.json` 文件名，说明守卫的回归场景 |
 | upstream 删除文件（如有） | 逐一确认 PR description 有 (a)/(b)/(c) 回归说明 |
 
 **后续建议**：是否需要立即 bump VERSION 发版，或等待下一批 TK 功能合入。

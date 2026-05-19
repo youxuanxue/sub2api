@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-check-frontend-tk-sentinels.py — verify that every load-bearing TokenKey-only
+check-frontend-tk.py — verify that every load-bearing TokenKey-only
 frontend surface (admin-UI fluid table, sidebar geometry, etc.) is still
 present in the working tree.
 
-Reads `scripts/frontend-tk-sentinels.json` (single source of truth) and for
+Reads `scripts/sentinels/frontend-tk.json` (single source of truth) and for
 each entry verifies:
 
   1. The file at `path` exists.
@@ -17,9 +17,9 @@ Exit codes:
   2  — registry file missing or malformed.
 
 Usage:
-  python3 scripts/check-frontend-tk-sentinels.py
-  python3 scripts/check-frontend-tk-sentinels.py --quiet     # only print failures
-  python3 scripts/check-frontend-tk-sentinels.py --json      # machine-readable report
+  python3 scripts/sentinels/check-frontend-tk.py
+  python3 scripts/sentinels/check-frontend-tk.py --quiet     # only print failures
+  python3 scripts/sentinels/check-frontend-tk.py --json      # machine-readable report
 
 Why this exists:
   Small TK frontend changes (sidebar w-44 vs upstream w-64, DataTable `fluid`
@@ -27,7 +27,7 @@ Why this exists:
   divergence that get silently reverted by upstream merges — they compile
   cleanly with or without the TK touches, so without a literal-content guard
   the regression is invisible until someone notices the UI looks wrong.
-  Listing the load-bearing surfaces in `scripts/frontend-tk-sentinels.json`
+  Listing the load-bearing surfaces in `scripts/sentinels/frontend-tk.json`
   and gating both pre-commit (`scripts/preflight.sh`) and upstream merge PRs
   (`.github/workflows/upstream-merge-pr-shape.yml`) on this script upgrades
   the rule from "agent must remember" to "merge will fail". Sibling
@@ -40,8 +40,8 @@ import json
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-REGISTRY_PATH = REPO_ROOT / "scripts" / "frontend-tk-sentinels.json"
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+REGISTRY_PATH = REPO_ROOT / "scripts" / "sentinels" / "frontend-tk.json"
 LABEL = "frontend TK sentinels"
 
 

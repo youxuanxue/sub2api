@@ -2,7 +2,7 @@
 """
 check-redaction-version.py — ensure sensitive-key drift bumps QA redaction_version.
 
-Source of truth lives in `scripts/redaction-sentinels.json`:
+Source of truth lives in `scripts/sentinels/redaction.json`:
 - `sensitive_keys` is the approved snapshot of logredact's default sensitive keys.
 - `redaction_version` is the expected outward version string that evidence records write.
 - `version_sources` are files that must still contain that version literal.
@@ -26,8 +26,8 @@ import re
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-REGISTRY_PATH = REPO_ROOT / "scripts" / "redaction-sentinels.json"
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+REGISTRY_PATH = REPO_ROOT / "scripts" / "sentinels" / "redaction.json"
 LOGREDACT_PATH = REPO_ROOT / "backend" / "internal" / "util" / "logredact" / "redact.go"
 
 KEY_MAP_RE = re.compile(r"var\s+defaultSensitiveKeys\s*=\s*map\[string\]struct\{\}\s*\{(?P<body>.*?)\n\}", re.S)
@@ -115,12 +115,12 @@ def main() -> int:
     failures: list[str] = []
     if map_keys != expected_keys_sorted:
         failures.append(
-            "defaultSensitiveKeys drifted from scripts/redaction-sentinels.json; "
+            "defaultSensitiveKeys drifted from scripts/sentinels/redaction.json; "
             "update the registry and bump redaction_version in the same commit"
         )
     if sorted(set(list_keys)) != expected_keys_sorted:
         failures.append(
-            "defaultSensitiveKeyList drifted from scripts/redaction-sentinels.json; "
+            "defaultSensitiveKeyList drifted from scripts/sentinels/redaction.json; "
             "keep the list/map snapshot aligned and bump redaction_version in the same commit"
         )
     if list_keys != sorted(set(list_keys)):
@@ -154,7 +154,7 @@ def main() -> int:
             for failure in failures:
                 print(f"        - {failure}")
             print(
-                "        - fix path: update scripts/redaction-sentinels.json and bump "
+                "        - fix path: update scripts/sentinels/redaction.json and bump "
                 "redaction_version in backend/internal/observability/qa/service.go plus "
                 "backend/ent/schema/qa_record.go in the same commit"
             )

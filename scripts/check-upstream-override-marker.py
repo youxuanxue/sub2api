@@ -6,7 +6,7 @@ new-api). Edits to upstream-shaped files can be silently reverted by a
 future `git merge upstream/main`. This check forces the author to handle
 that risk **on every PR** that touches upstream-shaped paths, by either:
 
-  1. Updating one of the sentinel registries under scripts/*-sentinels.json
+  1. Updating one of the sentinel registries under scripts/sentinels/*.json
      (preferred — the anchors are then independently verified by
      gateway-tk-sentinel / brand-sentinel / frontend-tk-sentinel /
      newapi-sentinel / pricing-availability-sentinel / etc.).
@@ -107,7 +107,7 @@ MARKERS = [
     "no-upstream-touch",
 ]
 
-SENTINEL_REGISTRY_RE = re.compile(r"^scripts/.*-sentinels?\.json$")
+SENTINEL_REGISTRY_RE = re.compile(r"^scripts/sentinels/.*\.json$")
 
 
 def changed_paths(base: str) -> list[str]:
@@ -189,7 +189,7 @@ def main() -> int:
         print(f"  ... and {len(upstream_files) - 30} more", file=sys.stderr)
     print("", file=sys.stderr)
     print("Fix: either", file=sys.stderr)
-    print("  (a) update one of scripts/*-sentinels.json with anchor(s) for the change, OR", file=sys.stderr)
+    print("  (a) update one of scripts/sentinels/*.json with anchor(s) for the change, OR", file=sys.stderr)
     print(f"  (b) include one of these tokens in any commit message: {', '.join(MARKERS)}", file=sys.stderr)
     print("", file=sys.stderr)
     print("Marker semantics:", file=sys.stderr)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-check-sentinel-registry-update-gate.py — require sentinel registry updates when
+check-registry-update-gate.py — require sentinel registry updates when
 load-bearing TK/NewAPI surfaces change.
 
 This is the hard gate behind the recurring review note: "补充必要的 upstream
@@ -24,31 +24,31 @@ import sys
 from pathlib import Path
 from typing import Iterable
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-REGISTRY_GLOB = "scripts/*-sentinels.json"
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+REGISTRY_GLOB = "scripts/sentinels/*.json"
 DEFAULT_BASE = "origin/main"
 
 # Hotspots that repeatedly need explicit upstream-overwrite guards. Exact files
 # already listed in a sentinel registry are also guarded automatically; these
 # patterns catch newly introduced or still-unregistered TK/NewAPI surfaces.
 HOTSPOT_PATTERNS: dict[str, list[str]] = {
-    "frontend/src/components/account/CreateAccountModal.vue": ["scripts/newapi-sentinels.json", "scripts/frontend-tk-sentinels.json"],
-    "frontend/src/components/account/EditAccountModal.vue": ["scripts/newapi-sentinels.json", "scripts/frontend-tk-sentinels.json"],
-    "frontend/src/components/account/AccountNewApiPlatformFields.vue": ["scripts/newapi-sentinels.json"],
-    "frontend/src/components/account/ModelWhitelistSelector.vue": ["scripts/newapi-sentinels.json"],
-    "frontend/src/components/account/QuotaLimitCard.vue": ["scripts/frontend-tk-sentinels.json"],
-    "frontend/src/components/common/ModelIcon.vue": ["scripts/newapi-sentinels.json"],
-    "frontend/src/composables/useTkAccountNewApiPlatform.ts": ["scripts/newapi-sentinels.json"],
-    "frontend/src/composables/useModelWhitelist.ts": ["scripts/newapi-sentinels.json"],
-    "frontend/src/constants/gatewayPlatforms.ts": ["scripts/newapi-sentinels.json"],
-    "frontend/src/composables/usePlatformOptions.ts": ["scripts/newapi-sentinels.json"],
-    "frontend/src/views/auth/LoginView.vue": ["scripts/frontend-tk-sentinels.json"],
-    "frontend/tailwind.config.js": ["scripts/frontend-tk-sentinels.json"],
-    "frontend/src/style.css": ["scripts/frontend-tk-sentinels.json"],
-    "backend/internal/integration/newapi/*.go": ["scripts/newapi-sentinels.json"],
-    "backend/internal/integration/newapi/**/*.go": ["scripts/newapi-sentinels.json"],
-    "backend/internal/**/*_tk_*.go": ["scripts/newapi-sentinels.json", "scripts/gateway-tk-sentinels.json"],
-    "backend/internal/relay/bridge/*.go": ["scripts/newapi-sentinels.json"],
+    "frontend/src/components/account/CreateAccountModal.vue": ["scripts/sentinels/newapi.json", "scripts/sentinels/frontend-tk.json"],
+    "frontend/src/components/account/EditAccountModal.vue": ["scripts/sentinels/newapi.json", "scripts/sentinels/frontend-tk.json"],
+    "frontend/src/components/account/AccountNewApiPlatformFields.vue": ["scripts/sentinels/newapi.json"],
+    "frontend/src/components/account/ModelWhitelistSelector.vue": ["scripts/sentinels/newapi.json"],
+    "frontend/src/components/account/QuotaLimitCard.vue": ["scripts/sentinels/frontend-tk.json"],
+    "frontend/src/components/common/ModelIcon.vue": ["scripts/sentinels/newapi.json"],
+    "frontend/src/composables/useTkAccountNewApiPlatform.ts": ["scripts/sentinels/newapi.json"],
+    "frontend/src/composables/useModelWhitelist.ts": ["scripts/sentinels/newapi.json"],
+    "frontend/src/constants/gatewayPlatforms.ts": ["scripts/sentinels/newapi.json"],
+    "frontend/src/composables/usePlatformOptions.ts": ["scripts/sentinels/newapi.json"],
+    "frontend/src/views/auth/LoginView.vue": ["scripts/sentinels/frontend-tk.json"],
+    "frontend/tailwind.config.js": ["scripts/sentinels/frontend-tk.json"],
+    "frontend/src/style.css": ["scripts/sentinels/frontend-tk.json"],
+    "backend/internal/integration/newapi/*.go": ["scripts/sentinels/newapi.json"],
+    "backend/internal/integration/newapi/**/*.go": ["scripts/sentinels/newapi.json"],
+    "backend/internal/**/*_tk_*.go": ["scripts/sentinels/newapi.json", "scripts/sentinels/gateway-tk.json"],
+    "backend/internal/relay/bridge/*.go": ["scripts/sentinels/newapi.json"],
 }
 
 

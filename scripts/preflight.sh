@@ -16,44 +16,44 @@
 #        OpenAICompatPlatforms instead of bare PlatformOpenAI / IsOpenAI).
 #   newapi sentinel registry     — guards the recurring upstream-merge
 #        regression where load-bearing fifth-platform files / symbols get
-#        silently deleted. Driven by `scripts/newapi-sentinels.json`
-#        (single source of truth) via `scripts/check-newapi-sentinels.py`.
+#        silently deleted. Driven by `scripts/sentinels/newapi.json`
+#        (single source of truth) via `scripts/sentinels/check-newapi.py`.
 #        The same script is invoked by
 #        `.github/workflows/upstream-merge-pr-shape.yml`.
 #   brand sentinel registry      — guards outward TokenKey brand surfaces
 #        (browser title, deploy/operator surfaces, image metadata,
 #        fifth-platform display label) from drifting back apart. Driven by
-#        `scripts/brand-sentinels.json` via `scripts/check-brand-sentinels.py`;
+#        `scripts/sentinels/brand.json` via `scripts/sentinels/check-brand.py`;
 #        intentionally separate from `newapi` semantics / routing truth.
 #   frontend TK sentinel registry — guards load-bearing TokenKey-only frontend
 #        surfaces (sidebar geometry, fluid admin-accounts table mode, sticky
 #        edge-hints opt-out) from being silently reverted by upstream merges
-#        on common Vue components. Driven by `scripts/frontend-tk-sentinels.json`
-#        via `scripts/check-frontend-tk-sentinels.py`. The same script is
+#        on common Vue components. Driven by `scripts/sentinels/frontend-tk.json`
+#        via `scripts/sentinels/check-frontend-tk.py`. The same script is
 #        invoked by `.github/workflows/upstream-merge-pr-shape.yml`.
 #   gateway TK sentinel registry — guards small TokenKey-only gateway/service
 #        hooks in upstream-shaped hotspot files from being silently reverted by
-#        upstream merges. Driven by `scripts/gateway-tk-sentinels.json` via
-#        `scripts/check-gateway-tk-sentinels.py`. The same script is invoked by
+#        upstream merges. Driven by `scripts/sentinels/gateway-tk.json` via
+#        `scripts/sentinels/check-gateway-tk.py`. The same script is invoked by
 #        `.github/workflows/upstream-merge-pr-shape.yml`.
 #   redaction version contract   — guards Evidence Spine contract drift:
 #        changing the default sensitive-key set in logredact must bump the
 #        outward QA `redaction_version` contract in the same commit. Driven by
-#        `scripts/redaction-sentinels.json` via `scripts/check-redaction-version.py`.
+#        `scripts/sentinels/redaction.json` via `scripts/sentinels/check-redaction-version.py`.
 #   trajectory hook registry     — guards the request-evidence hook contract:
 #        main gateway scopes must keep `trajectory_id` + `qaCapture` wiring, and
 #        the QA middleware must still terminate in `CaptureFromContext`. Driven by
-#        `scripts/trajectory-sentinels.json` via `scripts/check-trajectory-hooks.py`.
+#        `scripts/sentinels/trajectory.json` via `scripts/sentinels/check-trajectory-hooks.py`.
 #   terminal event registry      — guards stream terminal semantics: OpenAI /
 #        Anthropic terminal helpers, `[DONE]` emission, and focused terminal-path
 #        assertions must remain intact so evidence capture keeps stable completion
-#        signals. Driven by `scripts/terminal-sentinels.json` via
-#        `scripts/check-terminal-events.py`.
+#        signals. Driven by `scripts/sentinels/terminal.json` via
+#        `scripts/sentinels/check-terminal-events.py`.
 #   engine facade registry      — guards Engine Spine dispatch semantics: key
 #        gateway dispatch paths must keep routing bridge eligibility through
 #        shared engine facade helpers instead of drifting back into hotspot
-#        service files. Driven by `scripts/engine-facade-sentinels.json` via
-#        `scripts/check-engine-facade-hooks.py`.
+#        service files. Driven by `scripts/sentinels/engine-facade.json` via
+#        `scripts/sentinels/check-engine-facade.py`.
 #   OpenAI upstream capability truth — guards Responses probe status semantics:
 #        probe call sites must use `internal/pkg/openai_compat` as the owner
 #        instead of reintroducing local status-code truth in service files.
@@ -296,7 +296,7 @@ else
 fi
 
 # ---- sub2api: newapi sentinel registry --------------------------------------
-# Source of truth: scripts/newapi-sentinels.json. Verifies that every
+# Source of truth: scripts/sentinels/newapi.json. Verifies that every
 # load-bearing surface of the fifth platform (`newapi`) — TK companion files,
 # canonical predicates, frontend platform enumerations — is still present.
 # This catches the failure mode that triggered this guard: an upstream merge
@@ -307,7 +307,7 @@ echo "=== sub2api: newapi sentinel registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read newapi-sentinels.json)"
     errors=$((errors + 1))
-elif ! python3 ./scripts/check-newapi-sentinels.py --quiet; then
+elif ! python3 ./scripts/sentinels/check-newapi.py --quiet; then
     # check-newapi-sentinels.py already printed the actionable failure.
     errors=$((errors + 1))
 else
@@ -315,7 +315,7 @@ else
 fi
 
 # ---- sub2api: brand sentinel registry ---------------------------------------
-# Source of truth: scripts/brand-sentinels.json. Verifies that outward TokenKey
+# Source of truth: scripts/sentinels/brand.json. Verifies that outward TokenKey
 # brand surfaces (default title, deploy/operator docs, image metadata,
 # fifth-platform display label) stay converged without turning compat identities
 # like `sub2api` / `newapi` into banned strings across the repo.
@@ -324,7 +324,7 @@ echo "=== sub2api: brand sentinel registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read brand-sentinels.json)"
     errors=$((errors + 1))
-elif ! python3 ./scripts/check-brand-sentinels.py --quiet; then
+elif ! python3 ./scripts/sentinels/check-brand.py --quiet; then
     # check-brand-sentinels.py already printed the actionable failure.
     errors=$((errors + 1))
 else
@@ -332,7 +332,7 @@ else
 fi
 
 # ---- sub2api: pricing-availability sentinel registry ------------------------
-# Source of truth: scripts/pricing-availability-sentinels.json. Verifies that
+# Source of truth: scripts/sentinels/pricing-availability.json. Verifies that
 # the 1-line TK availability-tap injections in upstream-shaped handler and
 # service files (TkRecordFailureFromErr call sites, RecordOutcome hook) are
 # still present after any upstream merge. Without these taps the model_availability
@@ -344,7 +344,7 @@ echo "=== sub2api: pricing-availability sentinel registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read pricing-availability-sentinels.json)"
     errors=$((errors + 1))
-elif ! python3 ./scripts/check-pricing-availability-sentinels.py --quiet; then
+elif ! python3 ./scripts/sentinels/check-pricing-availability.py --quiet; then
     # check-pricing-availability-sentinels.py already printed the actionable failure.
     errors=$((errors + 1))
 else
@@ -352,7 +352,7 @@ else
 fi
 
 # ---- sub2api: frontend TK sentinel registry ---------------------------------
-# Source of truth: scripts/frontend-tk-sentinels.json. Verifies that load-bearing
+# Source of truth: scripts/sentinels/frontend-tk.json. Verifies that load-bearing
 # TokenKey-only frontend surfaces (sidebar geometry, fluid table mode, sticky
 # edge-hints opt-out on the admin accounts page) are still present. These are
 # small, additive divergences from upstream that compile cleanly with or
@@ -363,7 +363,7 @@ echo "=== sub2api: frontend TK sentinel registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read frontend-tk-sentinels.json)"
     errors=$((errors + 1))
-elif ! python3 ./scripts/check-frontend-tk-sentinels.py --quiet; then
+elif ! python3 ./scripts/sentinels/check-frontend-tk.py --quiet; then
     # check-frontend-tk-sentinels.py already printed the actionable failure.
     errors=$((errors + 1))
 else
@@ -371,7 +371,7 @@ else
 fi
 
 # ---- sub2api: gateway TK sentinel registry ----------------------------------
-# Source of truth: scripts/gateway-tk-sentinels.json. Verifies that small
+# Source of truth: scripts/sentinels/gateway-tk.json. Verifies that small
 # TokenKey-only gateway/service injections in upstream-shaped hotspot files are
 # still present after merges. These hooks compile cleanly if dropped but cause
 # production routing / rate-limit regressions later.
@@ -380,7 +380,7 @@ echo "=== sub2api: gateway TK sentinel registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read gateway-tk-sentinels.json)"
     errors=$((errors + 1))
-elif ! python3 ./scripts/check-gateway-tk-sentinels.py --quiet; then
+elif ! python3 ./scripts/sentinels/check-gateway-tk.py --quiet; then
     # check-gateway-tk-sentinels.py already printed the actionable failure.
     errors=$((errors + 1))
 else
@@ -397,7 +397,7 @@ echo "=== sub2api: sentinel registry update gate ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for sentinel registry update gate)"
     errors=$((errors + 1))
-elif ! python3 ./scripts/check-sentinel-registry-update-gate.py --quiet; then
+elif ! python3 ./scripts/sentinels/check-registry-update-gate.py --quiet; then
     # check-sentinel-registry-update-gate.py already printed the actionable failure.
     errors=$((errors + 1))
 else
@@ -427,7 +427,7 @@ else
 fi
 
 # ---- sub2api: redaction version contract ------------------------------------
-# Source of truth: scripts/redaction-sentinels.json. Verifies that the default
+# Source of truth: scripts/sentinels/redaction.json. Verifies that the default
 # sensitive-key set in logredact and the outward QA redaction_version literals
 # move together, so a changed evidence redaction policy cannot silently keep the
 # old version string.
@@ -436,7 +436,7 @@ echo "=== sub2api: redaction version contract ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read redaction-sentinels.json)"
     errors=$((errors + 1))
-elif ! python3 ./scripts/check-redaction-version.py --quiet; then
+elif ! python3 ./scripts/sentinels/check-redaction-version.py --quiet; then
     # check-redaction-version.py already printed the actionable failure.
     errors=$((errors + 1))
 else
@@ -444,7 +444,7 @@ else
 fi
 
 # ---- sub2api: trajectory hook registry --------------------------------------
-# Source of truth: scripts/trajectory-sentinels.json. Verifies that the main
+# Source of truth: scripts/sentinels/trajectory.json. Verifies that the main
 # gateway route scopes still carry trajectory_id + qaCapture wiring, and that
 # the QA middleware still terminates in CaptureFromContext after teeing request /
 # response bodies.
@@ -453,7 +453,7 @@ echo "=== sub2api: trajectory hook registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read trajectory-sentinels.json)"
     errors=$((errors + 1))
-elif ! python3 ./scripts/check-trajectory-hooks.py --quiet; then
+elif ! python3 ./scripts/sentinels/check-trajectory-hooks.py --quiet; then
     # check-trajectory-hooks.py already printed the actionable failure.
     errors=$((errors + 1))
 else
@@ -461,7 +461,7 @@ else
 fi
 
 # ---- sub2api: terminal event registry ---------------------------------------
-# Source of truth: scripts/terminal-sentinels.json. Verifies that the stable
+# Source of truth: scripts/sentinels/terminal.json. Verifies that the stable
 # terminal-event helpers, `[DONE]` emission, and focused terminal assertions stay
 # intact so evidence capture keeps reliable completion markers.
 echo ""
@@ -469,7 +469,7 @@ echo "=== sub2api: terminal event registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read terminal-sentinels.json)"
     errors=$((errors + 1))
-elif ! python3 ./scripts/check-terminal-events.py --quiet; then
+elif ! python3 ./scripts/sentinels/check-terminal-events.py --quiet; then
     # check-terminal-events.py already printed the actionable failure.
     errors=$((errors + 1))
 else
@@ -477,7 +477,7 @@ else
 fi
 
 # ---- sub2api: engine facade registry -----------------------------------------
-# Source of truth: scripts/engine-facade-sentinels.json. Verifies that the key
+# Source of truth: scripts/sentinels/engine-facade.json. Verifies that the key
 # gateway dispatch paths still route bridge eligibility through the shared
 # Engine facade helpers instead of reintroducing local provider branching.
 echo ""
@@ -485,7 +485,7 @@ echo "=== sub2api: engine facade registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read engine-facade-sentinels.json)"
     errors=$((errors + 1))
-elif ! python3 ./scripts/check-engine-facade-hooks.py --quiet; then
+elif ! python3 ./scripts/sentinels/check-engine-facade.py --quiet; then
     # check-engine-facade-hooks.py already printed the actionable failure.
     errors=$((errors + 1))
 else
