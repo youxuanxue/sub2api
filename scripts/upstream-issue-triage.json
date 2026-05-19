@@ -4,10 +4,10 @@
   "generated_from": "GitHub REST API issues?state=open; pull requests excluded",
   "rationale": "TokenKey-local triage cache for upstream open issues. Use this file before re-triaging upstream issues; update entries when TokenKey fixes, dismisses, or reclassifies an issue.",
   "counts": {
-    "needs_review": 345,
+    "needs_review": 344,
+    "fixed": 32,
     "needs_prod_validation": 4,
     "medium": 115,
-    "fixed": 31,
     "not_applicable": 1,
     "low": 96,
     "unknown_low_signal": 402
@@ -311,20 +311,6 @@
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
       "updated_at": "2026-03-26T06:47:06Z"
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#1322",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/1322",
-      "title": "Responses terminal event detection is inconsistent: gateway_service.go does not treat response.incomplete / response.cancelled as terminal",
-      "impact": "needs_review",
-      "categories": [
-        "rate_limit_cooldown",
-        "billing_usage",
-        "account_pool_health"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-03-26T08:41:35Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#1326",
@@ -5790,7 +5776,7 @@
         "security"
       ],
       "tokenkey_status": "fixed_in_tokenkey",
-      "rationale": "Batch account import (/admin/accounts/data) propagates `group_ids` from the payload to CreateAccountInput.GroupIDs so imported accounts get the requested groups directly, without requiring a manual edit-and-save. DataAccount now declares GroupIDs (original definition lacked the field, so JSON `group_ids` was silently dropped at Unmarshal) and the import handler forwards `item.GroupIDs` instead of hard-coded `nil`. Export side also surfaces GroupIDs + ChannelType for round-trip integrity.",
+      "rationale": "Batch account import (/admin/accounts/data) now propagates `group_ids` through to CreateAccountInput.GroupIDs and the symmetric export carries `group_ids` + `channel_type` so an export → import round trip preserves group bindings and newapi fifth-platform metadata. Original implementation defined no GroupIDs field on DataAccount (so JSON `group_ids` was silently dropped at Unmarshal) and the import handler hard-coded `GroupIDs: nil`, leaving batch-imported accounts ungrouped until manually re-edited.",
       "updated_at": "2026-03-19T18:15:43Z"
     },
     {
@@ -5804,7 +5790,7 @@
         "security"
       ],
       "tokenkey_status": "fixed_in_tokenkey",
-      "rationale": "OpenAI /v1/responses passthrough strips top-level `user` before forwarding. The APIKey native path adds `user` to OpenAIGatewayService.Forward's unsupportedFields list (the OAuth path already filters it through applyCodexOAuthTransform); the Cursor-shape short-circuit in ForwardAsChatCompletions adds `user` to cursorResponsesUnsupportedFields. Without this, clients like LobeHub posting `user` to /v1/responses got upstream HTTP 400 'Unsupported parameter: user'.",
+      "rationale": "OpenAI /v1/responses passthrough strips top-level `user` before forwarding. Symmetric coverage on (a) APIKey native path via OpenAIGatewayService.Forward's unsupportedFields list (the OAuth path already strips it through openAIChatGPTInternalUnsupportedFields in applyCodexOAuthTransform) and (b) the Cursor-shape short-circuit in ForwardAsChatCompletions via cursorResponsesUnsupportedFields. Native OpenAI Responses upstream rejects `user` with HTTP 400 \"Unsupported parameter: user\"; the Responses equivalent is `safety_identifier`, which we already filter.",
       "updated_at": "2026-03-24T13:52:59Z"
     },
     {
@@ -5823,6 +5809,20 @@
       "tokenkey_status": "fixed_in_tokenkey",
       "rationale": "Non-stream buffered SSE->JSON handlers in both the OpenAI gateway (/v1/chat/completions, /v1/messages) and the Anthropic-backed gateway forward paths (Responses, Chat Completions) now explicitly set Content-Type: application/json after WriteFilteredHeaders. Without this, the upstream SSE Content-Type (text/event-stream) leaks onto JSON bodies because gin's render.writeContentType only writes when no Content-Type is set, breaking OpenAI-SDK consumers that branch on Content-Type.",
       "updated_at": "2026-05-15T12:00:37Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1322",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/1322",
+      "title": "Responses terminal event detection is inconsistent: gateway_service.go does not treat response.incomplete / response.cancelled as terminal",
+      "impact": "fixed",
+      "categories": [
+        "rate_limit_cooldown",
+        "billing_usage",
+        "account_pool_health"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "isOpenAICompatResponsesTerminalEvent (driver for the OpenAI-compat Anthropic Messages and Chat Completions streaming handlers) now recognizes the full six-event terminal set, including response.cancelled / response.canceled. Without this, an upstream that ends the Responses SSE with a legitimate cancellation falls through to 'stream usage incomplete: missing terminal event', producing a spurious openai.forward_failed ops_error_logs entry and skipping clean finalization. Symmetric with openAIStreamEventIsTerminal (gateway_service.go), openai_ws_forwarder.go, and openai_ws_v2/passthrough_relay.go.",
+      "updated_at": "2026-03-26T08:41:35Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#1471",
@@ -6174,7 +6174,7 @@
         "security"
       ],
       "tokenkey_status": "fixed_in_tokenkey",
-      "rationale": "OpenAI Chat Completions raw passthrough now detects upstream silent refusal (empty stream / response with finish_reason=stop and no usage) and emits an ops_error_logs row with Kind=silent_refusal. Detection is conservative (zero content + zero tool_calls + zero reasoning + zero refusal + zero usage + finish_reason=stop) so legitimate short answers are not flagged. Surfaces previously invisible 'ghost stream' failures to ops/dashboards.",
+      "rationale": "OpenAI Chat Completions raw passthrough detects upstream silent refusal (empty stream/response with finish_reason=stop and zero usage) and emits an ops_error_logs row with Kind=silent_refusal. Conservative predicate: no content / no tool_calls / no reasoning / no refusal / no chunk-level error / zero usage / finish_reason=stop. Stream path keeps the client-visible bytes untouched (headers already flushed); buffered path will keep flexibility to harden later. The categorical ops signal turns the previously invisible 'ghost stream' (gpt-5.5 above input budget) into a dashboard-pivotable event.",
       "updated_at": "2026-05-18T11:15:08Z"
     },
     {

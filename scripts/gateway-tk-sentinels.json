@@ -356,9 +356,11 @@
       "must_contain": [
         "Wei-Shaw/sub2api#1311",
         "c.Writer.Header().Set(\"Content-Type\", \"application/json\")",
-        "openAICompatSSEFrameParser"
+        "openAICompatSSEFrameParser",
+        "Wei-Shaw/sub2api#1322",
+        "\"response.cancelled\", \"response.canceled\""
       ],
-      "rationale": "Non-stream /v1/messages uses the same buffered Responses SSE -> JSON conversion root cause as /v1/chat/completions; it must also override Content-Type after WriteFilteredHeaders so JSON bodies are not labeled text/event-stream. The buffered terminal reader must use openAICompatSSEFrameParser to recognise typed completion events when the stream closes without a standalone [DONE] (upstream PR #2530)."
+      "rationale": "Non-stream /v1/messages uses the same buffered Responses SSE -> JSON conversion root cause as /v1/chat/completions; it must also override Content-Type after WriteFilteredHeaders so JSON bodies are not labeled text/event-stream. The buffered terminal reader must use openAICompatSSEFrameParser to recognise typed completion events when the stream closes without a standalone [DONE] (upstream PR #2530). isOpenAICompatResponsesTerminalEvent — used by both the Messages and Chat Completions streaming handlers — must keep response.cancelled / response.canceled in its terminal set so legitimate upstream cancellations close the stream cleanly instead of degenerating to 'stream usage incomplete: missing terminal event' (upstream #1322)."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_tk_content_type_test.go",
