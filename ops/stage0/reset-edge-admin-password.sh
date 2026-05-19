@@ -4,12 +4,12 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  bash scripts/reset-edge-admin-password.sh edge-<id>
-  bash scripts/reset-edge-admin-password.sh <id>
+  bash ops/stage0/reset-edge-admin-password.sh edge-<id>
+  bash ops/stage0/reset-edge-admin-password.sh <id>
 
 Examples:
-  bash scripts/reset-edge-admin-password.sh edge-fra1
-  bash scripts/reset-edge-admin-password.sh fra1
+  bash ops/stage0/reset-edge-admin-password.sh edge-fra1
+  bash ops/stage0/reset-edge-admin-password.sh fra1
 
 Behavior:
   - Resolves region/stack from deploy/aws/stage0/edge-targets.json
@@ -34,7 +34,7 @@ if [[ ! "$EDGE_ID" =~ ^[a-z]{2,4}[0-9]+$ ]]; then
   exit 1
 fi
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MATRIX_PATH="$REPO_ROOT/deploy/aws/stage0/edge-targets.json"
 
 if [[ ! -f "$MATRIX_PATH" ]]; then

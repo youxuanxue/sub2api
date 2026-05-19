@@ -11,7 +11,7 @@
 #   POST_DEPLOY_SMOKE_API_KEY=sk-... \
 #   POST_DEPLOY_SMOKE_GEMINI_API_KEY=sk-... \              # optional, binds to gemini group
 #   POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY=sk-... \        # optional, binds to OpenAI OAuth/codex group
-#   bash scripts/tk_post_deploy_smoke.sh
+#   bash ops/stage0/post_deploy_smoke.sh
 #
 # Key resolution (first non-empty): POST_DEPLOY_SMOKE_API_KEY,
 # ANTHROPIC_AUTH_TOKEN, TK_TOKEN, TOKENKEY_API_KEY.

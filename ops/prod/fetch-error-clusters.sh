@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# scripts/fetch-prod-error-clusters.sh — Cloud-Agent-friendly wrapper that
+# ops/prod/fetch-error-clusters.sh — Cloud-Agent-friendly wrapper that
 # triggers the `ops-daily-diagnostics.yml` workflow on GitHub and downloads its error
 # clustering artifact (`report.json` + `report.md`) to a local directory.
 #
@@ -33,8 +33,8 @@
 #   POLL_TIMEOUT_S     default: 600     (max seconds to wait for the run to finish)
 #
 # Modes:
-#   bash scripts/fetch-prod-error-clusters.sh           # dispatch + wait + download
-#   bash scripts/fetch-prod-error-clusters.sh --check   # validate env + tools, no dispatch
+#   bash ops/prod/fetch-error-clusters.sh           # dispatch + wait + download
+#   bash ops/prod/fetch-error-clusters.sh --check   # validate env + tools, no dispatch
 #
 # Exit codes:
 #   0  report downloaded (or run finished gracefully — including the

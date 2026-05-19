@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
-# scripts/fetch-prod-logs.sh — Cloud-Agent-friendly wrapper that triggers
+# ops/prod/fetch-logs.sh — Cloud-Agent-friendly wrapper that triggers
 # the `ops-daily-diagnostics.yml` workflow on GitHub and downloads the resulting log dump
 # `logs.txt` artifact.
 #
-# Companion to scripts/fetch-prod-error-clusters.sh. Same architecture
+# Companion to ops/prod/fetch-error-clusters.sh. Same architecture
 # (gh workflow run → poll → download), different question:
 #   - fetch-prod-error-clusters.sh → "show me aggregate trends"
 #   - fetch-prod-logs.sh           → "show me raw log lines for incident X"
@@ -35,8 +35,8 @@
 #   POLL_TIMEOUT_S     default: 600
 #
 # Modes:
-#   bash scripts/fetch-prod-logs.sh           # dispatch + wait + download
-#   bash scripts/fetch-prod-logs.sh --check   # validate env + tools, no dispatch
+#   bash ops/prod/fetch-logs.sh           # dispatch + wait + download
+#   bash ops/prod/fetch-logs.sh --check   # validate env + tools, no dispatch
 #
 # Exit codes (same shape as fetch-prod-error-clusters.sh):
 #   0  logs downloaded (including the case where no lines matched)

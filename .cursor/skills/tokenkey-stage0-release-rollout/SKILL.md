@@ -179,7 +179,7 @@ gh workflow run deploy-edge-stage0.yml \
 
 0. **预检 prod 业务通路（避免把账号问题当 release blocker）**：在动手起 release 之前先做一次只读探活，把"账号无可用 / main↔edge 链路刻意不可调度"等运维状态先暴露出来，避免后面 Edge canary 的 main-gateway-via-edge smoke 失败时被误诊为发布回归。
    - a. `curl https://api.tokenkey.dev/health` 与 `/api/v1/settings/public` 期望 HTTP 200，确认控制面活。
-   - b. 用 `POST_DEPLOY_SMOKE_API_KEY` 跑 `bash scripts/tk_post_deploy_smoke.sh` 一次（或 dispatch `ops-daily-diagnostics operation=diagnostics target_selector=prod diagnostics_log_since=20m`），拿到 anthropic / openai / gemini 账号统计 + 最近错误聚类。
+   - b. 用 `POST_DEPLOY_SMOKE_API_KEY` 跑 `bash ops/stage0/post_deploy_smoke.sh` 一次（或 dispatch `ops-daily-diagnostics operation=diagnostics target_selector=prod diagnostics_log_since=20m`），拿到 anthropic / openai / gemini 账号统计 + 最近错误聚类。
    - c. 显式问运维方：本次每个 deployable Edge 在 prod 端是否预期可调度（main→edge-X 链路）；若**刻意不可调度**（隔离策略），后面对应的 main-via-edge 业务 smoke 必为 503 `"no available accounts"`，请提前在摘要里把它降级为"infra OK, business-link by design"而非 rollback 触发条件。
 1. 完成“标准流程：release 新镜像”，得到 `TARGET_TAG`。
 2. 读取 deployable 矩阵（按 `deploy/aws/stage0/edge-targets.json` 顺序）：
@@ -225,7 +225,7 @@ export TOKENKEY_BASE_URL=https://api.tokenkey.dev
 # 必填：POST_DEPLOY_SMOKE_API_KEY
 # 必填：POST_DEPLOY_SMOKE_GEMINI_API_KEY
 # 必填：POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY
-bash scripts/tk_post_deploy_smoke.sh
+bash ops/stage0/post_deploy_smoke.sh
 ```
 
 主 key 解析顺序：`POST_DEPLOY_SMOKE_API_KEY` → `ANTHROPIC_AUTH_TOKEN` → `TK_TOKEN` → `TOKENKEY_API_KEY`。不得打印完整 key；脚本只输出 `key_hint`。
@@ -244,7 +244,7 @@ bash scripts/tk_post_deploy_smoke.sh
 
 ## Edge smoke 验收
 
-`deploy-edge-stage0.yml` 的 `Edge smoke` 调用 `scripts/tk_edge_post_deploy_smoke.sh`。验收时确认：
+`deploy-edge-stage0.yml` 的 `Edge smoke` 调用 `ops/stage0/edge_post_deploy_smoke.sh`。验收时确认：
 
 - external `GET <EDGE_API_URL>/health` 为 200。
 - public runner `GET <EDGE_API_URL>/v1/models` 为 403，证明 Caddy relay path allowlist 生效。
@@ -353,7 +353,7 @@ git diff --diff-filter=D --name-only "${PREV_TAG}..${NEW_TAG}" -- backend/ || tr
 - `.github/workflows/deploy-stage0.yml` — prod deploy。
 - `.github/workflows/deploy-edge-stage0.yml` — Edge upgrade/smoke/rollback。
 - `.github/workflows/post-release-light-diagnostics.yml` — all rollout 后 +5min/+1h 自动 dispatch 轻量 diagnostics。
-- `scripts/tk_post_deploy_smoke.sh` — prod 完整 smoke。
-- `scripts/tk_edge_post_deploy_smoke.sh` — Edge smoke wrapper。
+- `ops/stage0/post_deploy_smoke.sh` — prod 完整 smoke。
+- `ops/stage0/edge_post_deploy_smoke.sh` — Edge smoke wrapper。
 - `deploy/aws/README.md` — Stage0、Edge、多区域升级 SOP。
-- `.github/workflows/ops-stage0-pg-dump-refresh.yml` + `scripts/stage0_pg_dump_refresh_via_ssm.sh` — in-place 同步 `deploy/aws/cloudformation/stage0-single-ec2.yaml` 里的 `tokenkey-pgdump.*` systemd unit 到 live 实例（不重建 EC2）；下次有类似 user-data 模板改动可参考此形状写一个 one-shot ops workflow。
+- `.github/workflows/ops-stage0-pg-dump-refresh.yml` + `ops/stage0/pg_dump_refresh_via_ssm.sh` — in-place 同步 `deploy/aws/cloudformation/stage0-single-ec2.yaml` 里的 `tokenkey-pgdump.*` systemd unit 到 live 实例（不重建 EC2）；下次有类似 user-data 模板改动可参考此形状写一个 one-shot ops workflow。

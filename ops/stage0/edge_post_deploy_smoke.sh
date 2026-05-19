@@ -65,7 +65,7 @@ if [[ "${EDGE_SELF_SMOKE_MODE}" == "api" ]]; then
   fi
   ssm_commands+=(
     "EDGE_KEY=\$(aws ssm get-parameter --name '${EDGE_SSM_PREFIX}/smoke/api-key' --with-decryption --query Parameter.Value --output text)"
-    "sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env exec -T -e TOKENKEY_BASE_URL=http://localhost:8080 -e POST_DEPLOY_SMOKE_SKIP_FRONTEND=1 -e POST_DEPLOY_SMOKE_API_KEY=\"\$EDGE_KEY\" tokenkey bash /app/scripts/tk_post_deploy_smoke.sh"
+    "sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env exec -T -e TOKENKEY_BASE_URL=http://localhost:8080 -e POST_DEPLOY_SMOKE_SKIP_FRONTEND=1 -e POST_DEPLOY_SMOKE_API_KEY=\"\$EDGE_KEY\" tokenkey bash /app/ops/stage0/post_deploy_smoke.sh"
   )
 else
   echo "tk_edge_post_deploy_smoke: edge API self-smoke skipped (set EDGE_SELF_SMOKE_MODE=api after Edge upstream/key setup)"
@@ -126,7 +126,7 @@ TOKENKEY_BASE_URL="${MAIN_GATEWAY_BASE_URL}" \
 POST_DEPLOY_SMOKE_SKIP_FRONTEND=1 \
 POST_DEPLOY_SMOKE_API_KEY="${MAIN_GATEWAY_EDGE_SMOKE_API_KEY}" \
 POST_DEPLOY_SMOKE_CHAT_MODEL="${POST_DEPLOY_SMOKE_CHAT_MODEL:-}" \
-bash scripts/tk_post_deploy_smoke.sh
+bash ops/stage0/post_deploy_smoke.sh
 
 log_cmd="sudo docker logs tokenkey-caddy --since 5m 2>&1 | tail -200 || true; sudo docker logs tokenkey --since 5m 2>&1 | tail -200 || true; echo smoke_start_epoch=${start_epoch}"
 jq -n --arg cmd "${log_cmd}" '{commands:["set -euo pipefail", $cmd]}' > "${tmpdir}/edge-log-ssm.json"

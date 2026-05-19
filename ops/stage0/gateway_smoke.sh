@@ -2,7 +2,7 @@
 # TokenKey smoke tests against TOKENKEY_BASE_URL (never prints API keys).
 #
 # For deploy-stage0's mandatory gate (incl. /v1/messages), use
-# scripts/tk_post_deploy_smoke.sh instead.
+# ops/stage0/post_deploy_smoke.sh instead.
 #
 # 1) GET /api/v1/settings/public — no auth (validates cold-start public fields).
 # 2) GET/POST /v1/* — requires a **user API key** (sk-...): TK_TOKEN or TOKENKEY_API_KEY.
@@ -12,7 +12,7 @@
 # Usage:
 #   export TOKENKEY_BASE_URL='https://api.example.com'
 #   export TK_TOKEN='sk-...'            # optional for step 2
-#   bash scripts/tk_gateway_smoke.sh
+#   bash ops/stage0/gateway_smoke.sh
 #
 # Legacy: TK_GATEWAY_URL if TOKENKEY_BASE_URL is unset.
 set -euo pipefail

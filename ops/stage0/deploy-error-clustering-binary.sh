@@ -25,7 +25,7 @@ if ! command -v aws >/dev/null 2>&1; then
   exit 1
 fi
 
-REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
+REPO_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 SRC_DIR="$REPO_ROOT/tools/error_clustering"
 if [[ ! -f "$SRC_DIR/main.go" ]]; then
   echo "missing $SRC_DIR/main.go" >&2

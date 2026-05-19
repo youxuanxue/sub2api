@@ -221,7 +221,7 @@ jobs:
           fi
 
           if [ -n "$API_URL" ]; then
-            if bash scripts/stage0_external_health.sh "$API_URL" >>"$STDOUT" 2>>"$STDERR"; then
+            if bash ops/stage0/external_health.sh "$API_URL" >>"$STDOUT" 2>>"$STDERR"; then
               add_finding "external_health" "ok" "info" "External health passed for $TARGET_ID" "$API_URL/health returned 200 under 5s." "external-health|$TARGET_ID"
             else
               add_finding "external_health" "issue_candidate" "error" "External health failed for $TARGET_ID" "$API_URL/health did not pass the Stage0 external health check." "external-health|$TARGET_ID"
@@ -377,10 +377,10 @@ jobs:
                 done
                 if [ "$BIN_STATUS" != "Success" ]; then
                   echo "error_clustering binary missing or not executable on $TARGET_ID (status=$BIN_STATUS); installing" >> "$STDOUT"
-                  if STACK="$STACK_NAME" AWS_REGION="$TARGET_REGION" AWS_SSM_WAIT_MAX=600 bash scripts/deploy-error-clustering-binary.sh >>"$STDOUT" 2>>"$STDERR"; then
+                  if STACK="$STACK_NAME" AWS_REGION="$TARGET_REGION" AWS_SSM_WAIT_MAX=600 bash ops/stage0/deploy-error-clustering-binary.sh >>"$STDOUT" 2>>"$STDERR"; then
                     add_finding "error_clustering_binary" "ok" "info" "Installed error_clustering binary for $TARGET_ID" "Diagnostic binary was missing and was installed successfully." "error-clustering-binary|$TARGET_ID"
                   else
-                    add_finding "error_clustering_binary" "manual_ops" "error" "Could not install error_clustering binary for $TARGET_ID" "scripts/deploy-error-clustering-binary.sh failed for $STACK_NAME in $TARGET_REGION." "error-clustering-binary|$TARGET_ID|install-failed"
+                    add_finding "error_clustering_binary" "manual_ops" "error" "Could not install error_clustering binary for $TARGET_ID" "ops/stage0/deploy-error-clustering-binary.sh failed for $STACK_NAME in $TARGET_REGION." "error-clustering-binary|$TARGET_ID|install-failed"
                   fi
                 fi
               fi

@@ -534,8 +534,8 @@ fi
 # ---- sub2api: post-deploy smoke script (syntax only; no live HTTP) ----------
 echo ""
 echo "=== sub2api: post-deploy smoke script syntax ==="
-if ! bash -n ./scripts/tk_post_deploy_smoke.sh; then
-    echo "  FAIL: scripts/tk_post_deploy_smoke.sh has bash syntax errors"
+if ! bash -n ./ops/stage0/post_deploy_smoke.sh; then
+    echo "  FAIL: ops/stage0/post_deploy_smoke.sh has bash syntax errors"
     errors=$((errors + 1))
 else
     echo "  ok: tk_post_deploy_smoke.sh parses"
@@ -578,14 +578,14 @@ fi
 echo ""
 echo "=== sub2api: Stage0 deployment primitive sharing ==="
 if [ -f .github/workflows/deploy-edge-stage0.yml ]; then
-    if ! grep -q 'scripts/stage0_deploy_via_ssm.sh' .github/workflows/deploy-stage0.yml; then
-        echo "  FAIL: deploy-stage0.yml must use scripts/stage0_deploy_via_ssm.sh"
+    if ! grep -q 'ops/stage0/deploy_via_ssm.sh' .github/workflows/deploy-stage0.yml; then
+        echo "  FAIL: deploy-stage0.yml must use ops/stage0/deploy_via_ssm.sh"
         errors=$((errors + 1))
-    elif ! grep -q 'scripts/stage0_deploy_via_ssm.sh' .github/workflows/deploy-edge-stage0.yml; then
-        echo "  FAIL: deploy-edge-stage0.yml must use scripts/stage0_deploy_via_ssm.sh"
+    elif ! grep -q 'ops/stage0/deploy_via_ssm.sh' .github/workflows/deploy-edge-stage0.yml; then
+        echo "  FAIL: deploy-edge-stage0.yml must use ops/stage0/deploy_via_ssm.sh"
         errors=$((errors + 1))
     elif grep -q 'docker compose --env-file .* up -d --no-deps tokenkey' .github/workflows/deploy-stage0.yml .github/workflows/deploy-edge-stage0.yml; then
-        echo "  FAIL: Stage0 workflows must not inline tokenkey SSM deploy commands; use scripts/stage0_deploy_via_ssm.sh"
+        echo "  FAIL: Stage0 workflows must not inline tokenkey SSM deploy commands; use ops/stage0/deploy_via_ssm.sh"
         errors=$((errors + 1))
     else
         echo "  ok: prod deploy-stage0 and Edge workflows share the Stage0 SSM deploy primitive"

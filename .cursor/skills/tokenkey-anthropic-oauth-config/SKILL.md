@@ -136,8 +136,8 @@ contribution(stub):
 ### 强制 pre-apply 门禁
 
 ```bash
-python3 scripts/check-prod-anthropic-stub-mirror.py
-python3 scripts/check-prod-anthropic-stub-mirror.py --json   # CI-friendly
+python3 ops/anthropic/check-prod-stub-mirror.py
+python3 ops/anthropic/check-prod-stub-mirror.py --json   # CI-friendly
 ```
 
 - exit 0 — 所有 stub 通过 R1 + baseline，且所有含 self-edge stub 的组通过 R3
@@ -187,14 +187,14 @@ prod 是 router、edge 是 worker。两条镜像规则的共同算子是 **absor
 
 ## 1) Read-only 检查（operation=check）
 
-复用脚本：`scripts/check-edge-anthropic-oauth-stability.py`
+复用脚本：`ops/anthropic/check-edge-oauth-stability.py`
 
 ### 1.1 账号模式（target_scope=account）
 
 标准命令形态：
 
 ```bash
-python3 scripts/check-edge-anthropic-oauth-stability.py \
+python3 ops/anthropic/check-edge-oauth-stability.py \
   --edge-id "$EDGE_ID" \
   --account-name "$ACCOUNT_NAME" \
   --json
@@ -216,7 +216,7 @@ python3 scripts/check-edge-anthropic-oauth-stability.py \
 > 注意：`--emit-sql` 只支持单 edge + 单账号；任一参数为 `all` 时会被拒绝。
 
 ```bash
-python3 scripts/check-edge-anthropic-oauth-stability.py \
+python3 ops/anthropic/check-edge-oauth-stability.py \
   --edge-id "$EDGE_ID" \
   --account-name "$ACCOUNT_NAME" \
   --emit-sql /tmp/${EDGE_ID}-${ACCOUNT_NAME}.sql \
@@ -281,8 +281,8 @@ confirm_apply=yes-apply-edge-anthropic-oauth
 任何 `apply` 之前**必须**先跑：
 
 ```bash
-python3 scripts/check-account-group-rpm-alignment.py --target <edge_id|prod>
-python3 scripts/check-account-group-rpm-alignment.py --target <edge_id|prod> --strict-redline
+python3 ops/anthropic/check-account-group-rpm-alignment.py --target <edge_id|prod>
+python3 ops/anthropic/check-account-group-rpm-alignment.py --target <edge_id|prod> --strict-redline
 ```
 
 对每个 anthropic group（`rpm_limit > 0`）按所选模式校验账号 redline ↔ `group.rpm_limit`：
@@ -400,7 +400,7 @@ python3 scripts/check-account-group-rpm-alignment.py --target <edge_id|prod> --s
 仅在人工确认“该账号已稳定且应纳入基线名单”时执行：
 
 ```bash
-python3 scripts/check-edge-anthropic-oauth-stability.py \
+python3 ops/anthropic/check-edge-oauth-stability.py \
   --edge-id "$EDGE_ID" \
   --account-name "$ACCOUNT_NAME" \
   --update-stable-list \
@@ -477,9 +477,9 @@ summary.error_count=<n>
 
 ## 扩展阅读
 
-- `scripts/check-edge-anthropic-oauth-stability.py`
-- `scripts/check-account-group-rpm-alignment.py`
-- `scripts/check-prod-anthropic-stub-mirror.py`
+- `ops/anthropic/check-edge-oauth-stability.py`
+- `ops/anthropic/check-account-group-rpm-alignment.py`
+- `ops/anthropic/check-prod-stub-mirror.py`
 - `deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json`
 - `deploy/aws/stage0/anthropic-oauth-stability-tiered-apply-template.sql`
 - `deploy/aws/stage0/anthropic-oauth-group-aggregate-apply-template.sql`

@@ -22,11 +22,11 @@
 #   RM_LOCAL_TAR_AFTER_EXTRACT=1  delete the .tar.gz after successful extract (saves ~1× blob size on disk)
 #
 # Usage:
-#   QA_DUMP_S3_BUCKET=my-bucket bash scripts/fetch-prod-qa-dump.sh
-#   bash scripts/fetch-prod-qa-dump.sh --check
+#   QA_DUMP_S3_BUCKET=my-bucket bash ops/prod/fetch-qa-dump.sh
+#   bash ops/prod/fetch-qa-dump.sh --check
 #
 # After a verified export, optional full prod cleanup (DB + EBS blobs + S3 staging):
-#   scripts/prod-qa-export-and-purge.sh
+#   ops/prod/qa-export-and-purge.sh
 #
 set -euo pipefail
 

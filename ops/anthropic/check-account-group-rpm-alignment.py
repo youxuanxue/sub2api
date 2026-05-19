@@ -71,9 +71,9 @@ Exit codes:
   2  schema / SSM / target-resolution error
 
 Usage:
-  python3 scripts/check-account-group-rpm-alignment.py --target us1
-  python3 scripts/check-account-group-rpm-alignment.py --target prod --json
-  python3 scripts/check-account-group-rpm-alignment.py --target us1 --strict-redline
+  python3 ops/anthropic/check-account-group-rpm-alignment.py --target us1
+  python3 ops/anthropic/check-account-group-rpm-alignment.py --target prod --json
+  python3 ops/anthropic/check-account-group-rpm-alignment.py --target us1 --strict-redline
 """
 from __future__ import annotations
 
@@ -83,7 +83,7 @@ import pathlib
 import subprocess
 import sys
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 EDGE_MATRIX = REPO_ROOT / "deploy/aws/stage0/edge-targets.json"
 
 PROD = {

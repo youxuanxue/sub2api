@@ -42,7 +42,7 @@ description: >-
 - 按顺序推进：`prepare` → `provision` → DNS → `smoke`。
 - `gh run watch` 必须 `--exit-status` 跟到终态，不中途截断。
 - 失败先定位根因再重跑，不做“盲目多次重试”。
-- 任何新增 edge 都必须复用现有共享 primitive（`deploy-edge-stage0.yml` + `scripts/stage0_*`），避免分叉语义。
+- 任何新增 edge 都必须复用现有共享 primitive（`deploy-edge-stage0.yml` + `ops/stage0/*.sh`），避免分叉语义。
 
 ## 0) 前置检查
 
@@ -218,7 +218,7 @@ unset RAW_OUTPUT ADMIN_PASSWORD
 直接重置：
 
 ```bash
-bash scripts/reset-edge-admin-password.sh edge-<edge_id>
+bash ops/stage0/reset-edge-admin-password.sh edge-<edge_id>
 ```
 
 脚本只打印状态和 `CREDENTIAL_FILE`，不会打印密码。登录后立即改为长期密码。
@@ -316,19 +316,19 @@ bash scripts/preflight.sh
 - `deploy/aws/cloudformation/cicd-oidc.yaml`
 - `deploy/aws/stage0/edge-targets.json`
 - `deploy/aws/cloudformation/stage0-edge-ec2.yaml`
-- `scripts/tk_edge_post_deploy_smoke.sh`
+- `ops/stage0/edge_post_deploy_smoke.sh`
 - `deploy/aws/README.md`
 
 ## 工具脚本：重置 Edge admin 密码（随机）
 
-已提供脚本：`scripts/reset-edge-admin-password.sh`
+已提供脚本：`ops/stage0/reset-edge-admin-password.sh`
 
 用法：
 
 ```bash
-bash scripts/reset-edge-admin-password.sh edge-fra1
+bash ops/stage0/reset-edge-admin-password.sh edge-fra1
 # 或
-bash scripts/reset-edge-admin-password.sh fra1
+bash ops/stage0/reset-edge-admin-password.sh fra1
 ```
 
 行为：

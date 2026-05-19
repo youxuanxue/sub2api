@@ -55,9 +55,9 @@ Exit codes:
   2  schema / SSM / target-resolution error
 
 Usage:
-  python3 scripts/check-prod-anthropic-stub-mirror.py
-  python3 scripts/check-prod-anthropic-stub-mirror.py --json
-  python3 scripts/check-prod-anthropic-stub-mirror.py --account-id 42
+  python3 ops/anthropic/check-prod-stub-mirror.py
+  python3 ops/anthropic/check-prod-stub-mirror.py --json
+  python3 ops/anthropic/check-prod-stub-mirror.py --account-id 42
 """
 from __future__ import annotations
 
@@ -68,7 +68,7 @@ import re
 import subprocess
 import sys
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 EDGE_MATRIX = REPO_ROOT / "deploy/aws/stage0/edge-targets.json"
 
 PROD = {

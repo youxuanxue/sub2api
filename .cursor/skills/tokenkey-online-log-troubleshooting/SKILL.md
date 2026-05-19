@@ -328,7 +328,7 @@ PY
 优先复用专用 skill / 脚本：
 
 ```bash
-python3 scripts/check-edge-anthropic-oauth-stability.py \
+python3 ops/anthropic/check-edge-oauth-stability.py \
   --edge-id "$EDGE_ID" \
   --account-name all \
   --json

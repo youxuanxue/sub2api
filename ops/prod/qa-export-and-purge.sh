@@ -39,9 +39,9 @@
 #
 # Usage:
 #   QA_DUMP_S3_BUCKET=my-bucket PROD_QA_PURGE_CONFIRM=yes-delete-prod-qa-data \
-#     bash scripts/prod-qa-export-and-purge.sh
+#     bash ops/prod/qa-export-and-purge.sh
 #   PROD_QA_PURGE_DRY_RUN=1 QA_DUMP_S3_BUCKET=my-bucket PROD_QA_PURGE_CONFIRM=yes-delete-prod-qa-data \
-#     bash scripts/prod-qa-export-and-purge.sh
+#     bash ops/prod/qa-export-and-purge.sh
 #
 set -euo pipefail
 
@@ -52,7 +52,7 @@ PURGE_WAIT="${PURGE_SSM_WAIT_MAX:-900}"
 KEEP_TAR="${KEEP_LOCAL_TAR_AFTER_PURGE:-0}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 err() { echo "[prod-qa-export-and-purge] error: $*" >&2; }
 log() { echo "[prod-qa-export-and-purge] $*"; }

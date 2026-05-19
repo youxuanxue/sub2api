@@ -31,8 +31,8 @@ echo "[project-hook] using prepared dev-rules submodule from .cursor/cloud-agent
 # AWS CLI install. dev-rules/templates/cloud-agent-bootstrap.sh intentionally
 # excludes awscli from install_tool() (see comment at line ~179 of that file:
 # "heavy, distro-coupled, or contradict OPC's 'least credentials' stance"), so
-# we install it here. Used by scripts/stage0_deploy_via_ssm.sh,
-# scripts/reset-edge-admin-password.sh, deploy-error-clustering-binary.sh,
+# we install it here. Used by ops/stage0/deploy_via_ssm.sh,
+# ops/stage0/reset-edge-admin-password.sh, deploy-error-clustering-binary.sh,
 # fetch-prod-qa-dump.sh, tk_edge_post_deploy_smoke.sh.
 #
 # Strategy: prefer the official AWS CLI v2 zip on x86_64/arm64 (matches
@@ -71,7 +71,7 @@ if ! command -v aws >/dev/null 2>&1; then
   if [ "$AWS_INSTALLED" = "1" ] && command -v aws >/dev/null 2>&1; then
     echo "[project-hook] aws ready ($(aws --version 2>&1 | head -1))"
   else
-    warn "AWS CLI install failed; scripts/stage0_deploy_via_ssm.sh and edge admin scripts will not work this session"
+    warn "AWS CLI install failed; ops/stage0/deploy_via_ssm.sh and edge admin scripts will not work this session"
   fi
 fi
 
@@ -141,8 +141,8 @@ fi
 if [ -n "${GH_TOKEN:-}" ]; then
   echo "[project-hook] verifying prod-data fetch env (GH_TOKEN is set)"
   CLUSTER_OK=0; LOGS_OK=0
-  bash scripts/fetch-prod-error-clusters.sh --check && CLUSTER_OK=1
-  bash scripts/fetch-prod-logs.sh             --check && LOGS_OK=1
+  bash ops/prod/fetch-error-clusters.sh --check && CLUSTER_OK=1
+  bash ops/prod/fetch-logs.sh             --check && LOGS_OK=1
   if [ "$CLUSTER_OK" = "1" ] && [ "$LOGS_OK" = "1" ]; then
     echo "[project-hook] prod-data fetch env OK"
   else
