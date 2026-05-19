@@ -94,6 +94,12 @@ jobs:
 
           # 2a. At least one PR commit message must carry the explicit
           #     `main-ancestry-anchor-advance` marker.
+          #
+          #     Note: this is a permissive substring grep — discussing the
+          #     marker name in a commit message counts as carrying it (same
+          #     trap as §9.2 [skip ci]). That is intentional: 2a is only a
+          #     human-attention gate. The real ratchet is sub-check 2b below
+          #     (descendant enforcement on the OLD/NEW anchor SHA).
           MARKER='main-ancestry-anchor-advance'
           if ! git log --format='%B' "$BASE".."$HEAD" | grep -qF "$MARKER"; then
             echo "::error::This PR modifies .main-ancestry-anchor but no commit message"
@@ -110,8 +116,22 @@ jobs:
           #     This is the actual ratchet enforcement — without it, a PR
           #     carrying the marker could silently roll the anchor backward
           #     to an older commit, defeating the §5.y guarantee.
-          OLD_ANCHOR=$(git show "$BASE":.main-ancestry-anchor | tr -d '[:space:]')
-          NEW_ANCHOR=$(git show "$HEAD":.main-ancestry-anchor | tr -d '[:space:]')
+          #
+          #     Special case: if BASE does not contain .main-ancestry-anchor
+          #     at all, this PR introduces the anchor for the first time.
+          #     There is no prior anchor to compare against; reviewer attention
+          #     (gated by sub-check 2a's marker) is the only protection for
+          #     the initial SHA choice.
+          if ! git cat-file -e "$BASE:.main-ancestry-anchor" 2>/dev/null; then
+            INITIAL_SHA=$(git show "$HEAD:.main-ancestry-anchor")
+            echo "OK: PR introduces .main-ancestry-anchor for the first time."
+            echo "    Initial SHA: $INITIAL_SHA"
+            echo "    Descendant check skipped — reviewer must verify the initial SHA is intentional."
+            exit 0
+          fi
+
+          OLD_ANCHOR=$(git show "$BASE:.main-ancestry-anchor")
+          NEW_ANCHOR=$(git show "$HEAD:.main-ancestry-anchor")
 
           if [ "$OLD_ANCHOR" = "$NEW_ANCHOR" ]; then
             echo "OK: .main-ancestry-anchor file diffed but resolved SHA is unchanged."
