@@ -366,7 +366,7 @@ PR：[`feature/newapi-fifth-platform → main`](https://github.com/youxuanxue/su
 | M6 | `4441b642` | `scripts/preflight.sh § 2` 段（两条 drift check：直接 `PlatformOpenAI` bucket / 裸 `!account.IsOpenAI()`），POSIX grep + 行为验证可 fail（merge PR #11 后由 `scripts/preflight.sh § 9` 承担，语义不变） |
 | M7 | `ab39ddbb` | `scripts/export_agent_contract.py`（audit 模式）+ 项目级 `preflight § 3` 接入 + `docs/agent_integration.md` Notes 段 5 平台 + newapi 三入口契约 + agent contract audit 说明更新（merge PR #11 后由 `dev-rules/templates/preflight.sh § 4 (agent contract drift)` 自动调用，无需项目级段） |
 | M8 | `90d5d90c` | CLAUDE.md "Current Gateway Flow" 补 newapi 调度池语义 + design doc §9 验收清单勾选 + frontmatter shipped + §11 实施情况 + shipped 状态对齐 |
-| Merge `origin/main` (PR #11) | `d13b2646` | 接入 dev-rules submodule（删除项目级 `scripts/preflight.sh` + `scripts/check_approved_docs.py`）→ 重建 `scripts/preflight.sh` 为 wrapper（dev-rules 模板 § 1-8 + sub2api § 9）、同步对齐文档 § 编号引用、CLAUDE.md §10 描述更新为"thin wrapper" |
+| Merge `origin/main` (PR #11) | `d13b2646` | 接入 dev-rules submodule（删除项目级 `scripts/preflight.sh` 与同期项目级 approved-docs 检查脚本）→ 重建 `scripts/preflight.sh` 为 wrapper（dev-rules 模板 § 1-8 + sub2api § 9）、同步对齐文档 § 编号引用、CLAUDE.md §10 描述更新为"thin wrapper" |
 
 ### 11.2 单测覆盖（34 case，覆盖 US-008..015）
 

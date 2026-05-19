@@ -121,7 +121,7 @@ backend/internal/web/dist/*
 backend/data/
 
 # Cloud Agent 拉取的 prod 运行时数据（包含真实日志行 / 错误聚合，禁止入库）
-# 由 scripts/fetch-prod-logs.sh 与 scripts/fetch-prod-error-clusters.sh 生成
+# 由 ops/prod/fetch-logs.sh 与 ops/prod/fetch-error-clusters.sh 生成
 .prod-logs/
 .prod-logs-*/
 .error-clusters/
