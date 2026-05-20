@@ -1802,7 +1802,7 @@ func (s *GeminiMessagesCompatService) writeGeminiMappedError(c *gin.Context, acc
 			errType = "permission_error"
 		}
 		if errMsg == "" {
-			errMsg = "Upstream access forbidden, please contact administrator"
+			errMsg = TkEnrichForbiddenMessage(c, "Upstream access forbidden, please contact administrator")
 		}
 	case 404:
 		if statusCode == 0 {

@@ -4155,7 +4155,7 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 	case 403:
 		statusCode = http.StatusBadGateway
 		errType = "upstream_error"
-		errMsg = "Upstream access forbidden, please contact administrator"
+		errMsg = TkEnrichForbiddenMessage(c, "Upstream access forbidden, please contact administrator")
 	case 429:
 		statusCode = http.StatusTooManyRequests
 		errType = "rate_limit_error"

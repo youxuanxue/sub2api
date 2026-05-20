@@ -3647,7 +3647,7 @@ func (s *AntigravityGatewayService) writeMappedClaudeError(c *gin.Context, accou
 	case 403:
 		statusCode = http.StatusBadGateway
 		errType = "permission_error"
-		errMsg = "Upstream access forbidden"
+		errMsg = TkEnrichForbiddenMessage(c, "Upstream access forbidden")
 	case 429:
 		statusCode = http.StatusTooManyRequests
 		errType = "rate_limit_error"

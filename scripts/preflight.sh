@@ -78,6 +78,20 @@ set -u
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# ---- TK: clear worktree git-config debt before any submodule traversal -------
+# When this script runs inside a git worktree that contains nested submodules
+# (e.g. `dev-rules/`), `git submodule status` and similar walkers will silently
+# set `core.bare=true` on the worktree-local git config. The next `git status`
+# or `git commit` in the same shell then fails with "fatal: this operation
+# must be run in a work tree". A regular preflight cycle calls submodule-aware
+# checks several times, so the only safe place to clear this debt is both
+# up-front (to defend against debt left by an earlier process) AND on EXIT
+# (to make sure the next `git commit` step after preflight returns is clean).
+# This is mechanical R-004 fix; previously the workaround lived only in memory
+# ("when in doubt, unset core.bare and retry") which is OPC anti-pattern.
+git config --local --unset core.bare >/dev/null 2>&1 || true
+trap 'git config --local --unset core.bare >/dev/null 2>&1 || true' EXIT
+
 # ---- Sections 1-8: delegate to dev-rules template ----------------------------
 if [ ! -x ./dev-rules/templates/preflight.sh ]; then
     echo "FAIL: dev-rules submodule not initialized."

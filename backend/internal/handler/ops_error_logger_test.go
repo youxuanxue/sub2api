@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 
@@ -467,4 +468,36 @@ func TestGuessPlatformFromPath(t *testing.T) {
 			require.Equal(t, tt.want, guessPlatformFromPath(tt.path))
 		})
 	}
+}
+
+// TestOpsKeyContract_HandlerWriteServiceRead is the mechanical guard for R-005:
+// handler.setOpsRequestContext writes model + body via the unexported opsXxxKey
+// constants, and service.TkEnrichForbiddenMessage reads them via the exported
+// service.OpsXxxKey constants. If anyone ever forks these two strings apart
+// (so handler writes "ops_model" but service reads "ops_model_v2"), this test
+// fails — replacing the previous rationale-comment-only sync discipline.
+func TestOpsKeyContract_HandlerWriteServiceRead(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	// Handler-side writer.
+	body := []byte(`{"model":"claude-opus-4-7"}`)
+	setOpsRequestContext(c, "claude-opus-4-7", false, body)
+
+	// Service-side reader (the actual production consumer of this contract).
+	got := service.TkEnrichForbiddenMessage(c, "default-msg")
+
+	require.Contains(t, got, "claude-opus-4-7",
+		"service.TkEnrichForbiddenMessage must read the model handler.setOpsRequestContext wrote — opsModelKey/OpsModelKey out of sync?")
+	require.Contains(t, got, strconv.Itoa(len(body)),
+		"service.TkEnrichForbiddenMessage must read the body length handler.setOpsRequestContext wrote (%d bytes) — opsRequestBodyKey/OpsRequestBodyKey out of sync?", len(body))
+
+	// Also verify the literal constants agree symbolically (compile-time guard
+	// for the const = service.OpsXxxKey aliasing in ops_error_logger.go).
+	require.Equal(t, service.OpsModelKey, opsModelKey,
+		"opsModelKey must be defined as service.OpsModelKey")
+	require.Equal(t, service.OpsRequestBodyKey, opsRequestBodyKey,
+		"opsRequestBodyKey must be defined as service.OpsRequestBodyKey")
 }

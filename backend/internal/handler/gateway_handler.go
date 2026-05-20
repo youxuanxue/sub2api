@@ -193,6 +193,12 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		return
 	}
 
+	// TK: pre-flight body-size guard (see gateway_handler_tk_body_guard.go).
+	if reject, msg := TkEvalBodyGuard(reqLog, h.cfg.Gateway.UpstreamBodyGuards, domain.PlatformAnthropic, reqModel, len(body)); reject {
+		h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", msg)
+		return
+	}
+
 	if decision := h.checkContentModeration(c, reqLog, apiKey, subject, service.ContentModerationProtocolAnthropicMessages, reqModel, body); decision != nil && decision.Blocked {
 		h.errorResponse(c, contentModerationStatus(decision), contentModerationErrorCode(decision), decision.Message)
 		return
@@ -1329,12 +1335,18 @@ func (h *GatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *se
 
 	// 使用默认的错误映射
 	status, errType, errMsg := h.mapUpstreamError(statusCode)
+	if statusCode == http.StatusForbidden {
+		errMsg = service.TkEnrichForbiddenMessage(c, errMsg)
+	}
 	h.handleStreamingAwareError(c, status, errType, errMsg, streamStarted)
 }
 
 // handleFailoverExhaustedSimple 简化版本，用于没有响应体的情况
 func (h *GatewayHandler) handleFailoverExhaustedSimple(c *gin.Context, statusCode int, streamStarted bool) {
 	status, errType, errMsg := h.mapUpstreamError(statusCode)
+	if statusCode == http.StatusForbidden {
+		errMsg = service.TkEnrichForbiddenMessage(c, errMsg)
+	}
 	service.SetOpsUpstreamError(c, statusCode, errMsg, "")
 	h.handleStreamingAwareError(c, status, errType, errMsg, streamStarted)
 }
@@ -1501,6 +1513,12 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 
 	setOpsRequestContext(c, parsedReq.Model, parsedReq.Stream, body)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(parsedReq.Stream, false)))
+
+	// TK: pre-flight body-size guard (see gateway_handler_tk_body_guard.go).
+	if reject, msg := TkEvalBodyGuard(reqLog, h.cfg.Gateway.UpstreamBodyGuards, domain.PlatformAnthropic, parsedReq.Model, len(body)); reject {
+		h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", msg)
+		return
+	}
 
 	// 获取订阅信息（可能为nil）
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)

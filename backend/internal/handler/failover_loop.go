@@ -2,11 +2,13 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
 
@@ -74,6 +76,34 @@ func (s *FailoverState) HandleFailoverError(
 	// 缓存计费判断
 	if needForceCacheBilling(s.hasBoundSession, failoverErr) {
 		s.ForceCacheBilling = true
+	}
+
+	// TK fail-fast: 上游 403 且响应体不是结构化错误 JSON（任何 platform shape）→
+	// 视为"请求级"失败（典型场景：claude-cli 大 body 被 Cloudflare/WAF 拦截，
+	// 上游边缘网关直接 403 + 空 body 或 HTML 错误页），切账号无用，直接
+	// FailoverExhausted。
+	//
+	// 判定 looksLikeStructuredErrorJSON 兼容三家 shape：
+	//   - anthropic: {"type":"error","error":{...}}
+	//   - openai:    {"error":{"message":"...","type":"...","code":"..."}}
+	//   - gemini:    {"error":{"code":403,"message":"...","status":"..."}}
+	// 任何 platform 的结构化 JSON 错误都视为账号级问题（key 失效 / 账号被封 /
+	// scope 越界），走原 failover 切其他账号。只有非 JSON / 空 body 才视为
+	// 请求级 cloudflare 拦截。
+	//
+	// 不调用 TempUnscheduleRetryableError（403 非 transient），不递增 SwitchCount
+	// （避免日志噪声 + 给 us1 这种单 schedulable 账号场景节省 retry 预算）。
+	// 仍把账号加入 FailedAccountIDs，防止上层 retry loop 立刻再选回同账号。
+	// 详见排查记录：account_id=1 (cc-am-or-ec2-5-1-b) 上 10 次 403 全部 ResponseBody 空。
+	if failoverErr.StatusCode == http.StatusForbidden && !looksLikeStructuredErrorJSON(failoverErr.ResponseBody) {
+		logger.FromContext(ctx).Warn("gateway.failover_forbidden_fail_fast",
+			zap.Int64("account_id", accountID),
+			zap.String("platform", platform),
+			zap.Int("upstream_status", failoverErr.StatusCode),
+			zap.Int("response_body_bytes", len(failoverErr.ResponseBody)),
+		)
+		s.FailedAccountIDs[accountID] = struct{}{}
+		return FailoverExhausted
 	}
 
 	// 同账号重试：对 RetryableOnSameAccount 的临时性错误，先在同一账号上重试
@@ -171,4 +201,28 @@ func sleepWithContext(ctx context.Context, d time.Duration) bool {
 	case <-time.After(d):
 		return true
 	}
+}
+
+// looksLikeStructuredErrorJSON 判断上游 ResponseBody 是否为某种 platform 的结构化
+// 错误 JSON（anthropic / openai / gemini 任一）。
+//
+// 兼容的错误 shape:
+//
+//   - anthropic: {"type":"error","error":{"type":"...","message":"..."}}
+//   - openai:    {"error":{"message":"...","type":"...","code":"..."}}
+//   - gemini:    {"error":{"code":403,"message":"...","status":"..."}}
+//
+// 命中策略：有效 JSON 且顶层有 `error` 字段（object）即视为结构化错误，
+// 走原 failover 切账号路径；anthropic 顶层 `"type":"error"` 不再强制要求。
+//
+// 任何其他形态（空 body、HTML、Cloudflare 错误页、纯文本、合法 JSON 但无 error 字段）
+// 都视为"非结构化错误"，在 403 场景下触发 fail-fast。
+func looksLikeStructuredErrorJSON(body []byte) bool {
+	if len(body) == 0 {
+		return false
+	}
+	if !json.Valid(body) {
+		return false
+	}
+	return gjson.GetBytes(body, "error").IsObject()
 }

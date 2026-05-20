@@ -186,6 +186,12 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	setOpsRequestContext(c, modelName, stream, body)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(stream, false)))
 
+	// TK: pre-flight body-size guard (see gateway_handler_tk_body_guard.go).
+	if reject, msg := TkEvalBodyGuard(reqLog, h.cfg.Gateway.UpstreamBodyGuards, domain.PlatformGemini, modelName, len(body)); reject {
+		googleError(c, http.StatusRequestEntityTooLarge, msg)
+		return
+	}
+
 	if decision := h.checkContentModeration(c, reqLog, apiKey, authSubject, service.ContentModerationProtocolGemini, modelName, body); decision != nil && decision.Blocked {
 		googleError(c, contentModerationStatus(decision), decision.Message)
 		return
@@ -619,6 +625,9 @@ func (h *GatewayHandler) handleGeminiFailoverExhausted(c *gin.Context, failoverE
 
 	// 使用默认的错误映射
 	status, message := mapGeminiUpstreamError(statusCode)
+	if statusCode == http.StatusForbidden {
+		message = service.TkEnrichForbiddenMessage(c, message)
+	}
 	googleError(c, status, message)
 }
 

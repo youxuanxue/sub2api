@@ -38,6 +38,11 @@ run() {
   local dir
   dir="$(mktemp -d)"
   (
+    # When invoked inside a git pre-commit hook, the parent shell inherits
+    # GIT_DIR / GIT_INDEX_FILE / GIT_WORK_TREE pointing at the outer worktree.
+    # `cd` does not isolate this — `git init` in $dir would still operate on
+    # the outer repo. Strip those env vars so the fixture repo is truly fresh.
+    unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_OBJECT_DIRECTORY GIT_NAMESPACE
     cd "$dir"
     git init -q
     mkdir -p scripts/checks
@@ -46,7 +51,10 @@ run() {
     git add fixture.md
   )
   local out hit
-  out="$(python3 "$dir/scripts/checks/script-ref-existence.py" 2>&1 || true)"
+  # env -u: strip GIT_* env vars inherited from a parent git pre-commit hook so
+  # the python script's internal `git ls-files` (cwd=$dir) is not redirected
+  # back to the outer worktree's .git.
+  out="$(env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE -u GIT_OBJECT_DIRECTORY -u GIT_NAMESPACE python3 "$dir/scripts/checks/script-ref-existence.py" 2>&1 || true)"
   hit=0
   if grep -q 'file=fixture.md' <<<"$out"; then
     hit=1

@@ -4999,8 +4999,14 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		streamResult, err := s.handleStreamingResponse(ctx, resp, c, account, startTime, originalModel, reqModel, shouldMimicClaudeCode)
 		if err != nil {
 			if err.Error() == "have error in stream" {
+				// TK: stream-side error event after the upstream already returned HTTP 200.
+				// Previously wrapped as fake-403, but that collided with the new
+				// failover_loop fail-fast that treats empty-body 403 as a request-level
+				// failure (cloudflare reject). Use 502 (the actual semantic — "upstream
+				// service temporarily unavailable") so the failover loop still retries
+				// on a different account.
 				return nil, &UpstreamFailoverError{
-					StatusCode: 403,
+					StatusCode: http.StatusBadGateway,
 				}
 			}
 			return nil, err
@@ -7151,7 +7157,7 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 	case 403:
 		statusCode = http.StatusBadGateway
 		errType = "upstream_error"
-		errMsg = "Upstream access forbidden, please contact administrator"
+		errMsg = TkEnrichForbiddenMessage(c, "Upstream access forbidden, please contact administrator")
 	case 429:
 		statusCode = http.StatusTooManyRequests
 		errType = "rate_limit_error"

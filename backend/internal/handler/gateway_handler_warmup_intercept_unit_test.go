@@ -185,6 +185,7 @@ func newTestGatewayHandler(t *testing.T, group *service.Group, accounts []*servi
 		gatewayService:      gwSvc,
 		billingCacheService: billingCacheSvc,
 		concurrencyHelper:   concurrencyHelper,
+		cfg:                 cfg, // R-007: production code reads h.cfg.Gateway, must be non-nil
 		// 这些字段对本测试不敏感，保持较小即可
 		maxAccountSwitches:       1,
 		maxAccountSwitchesGemini: 1,

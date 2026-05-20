@@ -40,6 +40,16 @@ func newTestFailoverErr(statusCode int, retryable, forceBilling bool) *service.U
 	}
 }
 
+// newTestFailoverErrWithBody 构造带 ResponseBody 的 UpstreamFailoverError，用于覆盖
+// TK fail-fast 路径（HandleFailoverError 中 statusCode=403 + 非 anthropic JSON body 分支）。
+func newTestFailoverErrWithBody(statusCode int, retryable bool, body []byte) *service.UpstreamFailoverError {
+	return &service.UpstreamFailoverError{
+		StatusCode:             statusCode,
+		RetryableOnSameAccount: retryable,
+		ResponseBody:           body,
+	}
+}
+
 // ---------------------------------------------------------------------------
 // NewFailoverState 测试
 // ---------------------------------------------------------------------------
@@ -725,5 +735,134 @@ func TestHandleSelectionExhausted(t *testing.T) {
 
 		action := fs.HandleSelectionExhausted(context.Background())
 		require.Equal(t, FailoverContinue, action)
+	})
+}
+
+// ---------------------------------------------------------------------------
+// TK: 403 fail-fast (上游 403 + 非 anthropic JSON body)
+// ---------------------------------------------------------------------------
+
+func TestHandleFailoverError_Forbidden403FailFast(t *testing.T) {
+	t.Run("403_空body_立即FailoverExhausted且不切账号不unschedule", func(t *testing.T) {
+		fs := NewFailoverState(5, false)
+		mock := &mockTempUnscheduler{}
+		err := newTestFailoverErrWithBody(403, false, nil)
+
+		action := fs.HandleFailoverError(context.Background(), mock, 42, "anthropic", err)
+
+		require.Equal(t, FailoverExhausted, action)
+		require.Empty(t, mock.calls, "403 不应触发 TempUnscheduleRetryableError")
+		require.Equal(t, 0, fs.SwitchCount, "fail-fast 路径不应递增 SwitchCount")
+		require.Contains(t, fs.FailedAccountIDs, int64(42), "失败账号应加入 FailedAccountIDs")
+	})
+
+	t.Run("403_非JSON_HTML页面_FailoverExhausted", func(t *testing.T) {
+		fs := NewFailoverState(5, false)
+		mock := &mockTempUnscheduler{}
+		body := []byte("<html><body>403 Forbidden</body></html>")
+		err := newTestFailoverErrWithBody(403, false, body)
+
+		action := fs.HandleFailoverError(context.Background(), mock, 7, "anthropic", err)
+
+		require.Equal(t, FailoverExhausted, action)
+		require.Empty(t, mock.calls)
+		require.Equal(t, 0, fs.SwitchCount)
+	})
+
+	t.Run("403_非anthropicJSON_FailoverExhausted", func(t *testing.T) {
+		fs := NewFailoverState(5, false)
+		mock := &mockTempUnscheduler{}
+		body := []byte(`{"foo":"bar"}`)
+		err := newTestFailoverErrWithBody(403, false, body)
+
+		action := fs.HandleFailoverError(context.Background(), mock, 7, "anthropic", err)
+		require.Equal(t, FailoverExhausted, action)
+		require.Equal(t, 0, fs.SwitchCount)
+	})
+
+	t.Run("403_anthropicJSON_走原failover路径切账号", func(t *testing.T) {
+		fs := NewFailoverState(5, false)
+		mock := &mockTempUnscheduler{}
+		body := []byte(`{"type":"error","error":{"type":"forbidden","message":"x"}}`)
+		err := newTestFailoverErrWithBody(403, false, body)
+
+		action := fs.HandleFailoverError(context.Background(), mock, 7, "anthropic", err)
+
+		// 走原路径：SwitchCount 应递增到 1，进入下次循环
+		require.Equal(t, FailoverContinue, action)
+		require.Equal(t, 1, fs.SwitchCount, "anthropic JSON 403 应走原 failover 路径递增 SwitchCount")
+	})
+
+	t.Run("403_openaiJSON_走原failover路径切账号", func(t *testing.T) {
+		fs := NewFailoverState(5, false)
+		mock := &mockTempUnscheduler{}
+		body := []byte(`{"error":{"message":"key revoked","type":"invalid_request_error","code":"invalid_api_key"}}`)
+		err := newTestFailoverErrWithBody(403, false, body)
+
+		action := fs.HandleFailoverError(context.Background(), mock, 7, "openai", err)
+		require.Equal(t, FailoverContinue, action, "openai shape 403 应走原 failover 路径")
+		require.Equal(t, 1, fs.SwitchCount)
+	})
+
+	t.Run("403_geminiJSON_走原failover路径切账号", func(t *testing.T) {
+		fs := NewFailoverState(5, false)
+		mock := &mockTempUnscheduler{}
+		body := []byte(`{"error":{"code":403,"message":"Permission denied","status":"PERMISSION_DENIED"}}`)
+		err := newTestFailoverErrWithBody(403, false, body)
+
+		action := fs.HandleFailoverError(context.Background(), mock, 7, "gemini", err)
+		require.Equal(t, FailoverContinue, action, "gemini shape 403 应走原 failover 路径")
+		require.Equal(t, 1, fs.SwitchCount)
+	})
+
+	t.Run("非403_不触发fail-fast", func(t *testing.T) {
+		fs := NewFailoverState(5, false)
+		mock := &mockTempUnscheduler{}
+		err := newTestFailoverErrWithBody(401, false, nil)
+
+		action := fs.HandleFailoverError(context.Background(), mock, 7, "anthropic", err)
+
+		require.Equal(t, FailoverContinue, action, "401 应走原 failover 切账号路径")
+		require.Equal(t, 1, fs.SwitchCount)
+	})
+
+	t.Run("502_streamErrorWrap_不触发fail-fast", func(t *testing.T) {
+		// R-001 regression: anthropic stream-error event used to be wrapped
+		// as fake-403 (empty body). Now wrapped as 502 so it does not collide
+		// with the 403 fail-fast judgment.
+		fs := NewFailoverState(5, false)
+		mock := &mockTempUnscheduler{}
+		err := newTestFailoverErrWithBody(502, false, nil)
+
+		action := fs.HandleFailoverError(context.Background(), mock, 7, "anthropic", err)
+		require.Equal(t, FailoverContinue, action, "stream-error wrapped 502 应走原 failover")
+		require.Equal(t, 1, fs.SwitchCount)
+	})
+
+	t.Run("looksLikeStructuredErrorJSON_空body", func(t *testing.T) {
+		require.False(t, looksLikeStructuredErrorJSON(nil))
+		require.False(t, looksLikeStructuredErrorJSON([]byte{}))
+	})
+
+	t.Run("looksLikeStructuredErrorJSON_非JSON", func(t *testing.T) {
+		require.False(t, looksLikeStructuredErrorJSON([]byte("not json at all")))
+		require.False(t, looksLikeStructuredErrorJSON([]byte("<html></html>")))
+	})
+
+	t.Run("looksLikeStructuredErrorJSON_合法JSON但无error字段", func(t *testing.T) {
+		require.False(t, looksLikeStructuredErrorJSON([]byte(`{"foo":"bar"}`)))
+		require.False(t, looksLikeStructuredErrorJSON([]byte(`{"type":"error","error":"string"}`)),
+			"error 字段必须是 object")
+	})
+
+	t.Run("looksLikeStructuredErrorJSON_anthropic_openai_gemini", func(t *testing.T) {
+		require.True(t, looksLikeStructuredErrorJSON([]byte(`{"type":"error","error":{"type":"forbidden","message":"x"}}`)),
+			"anthropic shape")
+		require.True(t, looksLikeStructuredErrorJSON([]byte(`{"error":{"message":"x","type":"y","code":"z"}}`)),
+			"openai shape")
+		require.True(t, looksLikeStructuredErrorJSON([]byte(`{"error":{"code":403,"message":"x","status":"y"}}`)),
+			"gemini shape")
+		require.True(t, looksLikeStructuredErrorJSON([]byte(`{"error":{}}`)),
+			"任何有 error object 的 JSON 都视为结构化错误")
 	})
 }

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -80,6 +81,15 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 
 	setOpsRequestContext(c, reqModel, reqStream, body)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
+
+	// TK: pre-flight body-size guard (see gateway_handler_tk_body_guard.go).
+	// /v1/responses is an OpenAI-shape endpoint that this fork only serves for
+	// Anthropic platform groups (see function doc above) — forwarding goes to
+	// the Anthropic upstream, so guards match against PlatformAnthropic.
+	if reject, msg := TkEvalBodyGuard(reqLog, h.cfg.Gateway.UpstreamBodyGuards, domain.PlatformAnthropic, reqModel, len(body)); reject {
+		h.responsesErrorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", msg)
+		return
+	}
 
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
