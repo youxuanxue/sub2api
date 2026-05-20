@@ -4,9 +4,7 @@
   "max_monthly_budget_usd": 16,
   "targets": {
     "uk1": {
-      "deployable": false,
-      "drift_locked": true,
-      "drift_reason": "EIP replaced 2026-05-20 outside CFN (3.9.160.161 polluted → 35.177.124.150); recovery procedure in docs/deploy/tokenkey-edge-ip-history.md § 5 must run before next deploy-edge-stage0.yml against uk1.",
+      "deployable": true,
       "profile": "edge-minimal",
       "region": "eu-west-2",
       "domain": "api-uk1.tokenkey.dev",
