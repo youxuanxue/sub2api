@@ -271,7 +271,7 @@ Resources:
     DependsOn: IGWAttach
     # Retain on delete/update so manual EIP replacements (e.g. for pollution)
     # are never destroyed by a subsequent stack update. See
-    # docs/deploy/edge-ip-history.md for the replacement & drift recovery runbook.
+    # docs/deploy/tokenkey-edge-ip-history.md for the replacement & drift recovery runbook.
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
@@ -588,7 +588,7 @@ Resources:
     Type: AWS::EC2::EIPAssociation
     # Same Retain rationale as ElasticIP: a manually swapped association must
     # survive future update-stack operations until the IMPORT recovery in
-    # docs/deploy/edge-ip-history.md § 5 has been run.
+    # docs/deploy/tokenkey-edge-ip-history.md § 5 has been run.
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:

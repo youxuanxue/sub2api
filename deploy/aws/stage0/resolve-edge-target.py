@@ -39,6 +39,14 @@ def resolve_target(data: dict, edge_id: str, *, confirm_stack: str = "", profile
             "set deployable=true in deploy/aws/stage0/edge-targets.json when ready"
         )
 
+    if bool(target.get("drift_locked")):
+        reason = str(target.get("drift_reason") or "no reason recorded")
+        fail(
+            f"edge_id {edge_id} is drift_locked; refuse to resolve target. "
+            f"Reason: {reason} "
+            "Clear drift_locked in deploy/aws/stage0/edge-targets.json only after running the recovery runbook."
+        )
+
     target_profile = str(target.get("profile") or "")
     requested_profile = profile.strip()
     if requested_profile and requested_profile != target_profile:

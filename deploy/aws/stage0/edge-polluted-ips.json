@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "description": "Permanent exclusion list of EIPs observed triggering upstream-API risk-blocks (Anthropic / OpenAI / Google / etc.). Any future allocate-address that returns one of these MUST immediately release-address and re-allocate. Source of truth for docs/deploy/tokenkey-edge-ip-history.md § 2. Update via the replacement runbook (§ 4 step 8) of the same doc.",
+  "polluted": [
+    {
+      "ip": "3.9.160.161",
+      "region": "eu-west-2",
+      "previous_edge": "uk1",
+      "retired_on": "2026-05-20",
+      "released_on": "2026-05-20",
+      "notes": "First documented pollution. User-reported upstream-API risk-block."
+    }
+  ]
+}
