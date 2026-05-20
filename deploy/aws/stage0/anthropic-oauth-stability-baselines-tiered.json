@@ -162,7 +162,8 @@
           "max_sessions": 3,
           "session_idle_timeout_minutes": 8,
           "window_cost_limit": 120,
-          "window_cost_sticky_reserve": 0
+          "window_cost_sticky_reserve": 0,
+          "cache_ttl_override_enabled": false
         }
       }
     },
@@ -180,7 +181,8 @@
           "max_sessions": 4,
           "session_idle_timeout_minutes": 8,
           "window_cost_limit": 220,
-          "window_cost_sticky_reserve": 0
+          "window_cost_sticky_reserve": 0,
+          "cache_ttl_override_enabled": false
         }
       }
     },

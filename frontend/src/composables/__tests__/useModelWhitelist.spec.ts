@@ -27,6 +27,12 @@ describe('useModelWhitelist', () => {
     expect(models).not.toContain('gpt-5.2-codex')
   })
 
+  it('claude 默认模型列表不再暴露已下线的 3.7 Sonnet', () => {
+    const models = getModelsByPlatform('claude')
+
+    expect(models).not.toContain('claude-3-7-sonnet-20250219')
+  })
+
   it('antigravity 模型列表包含图片模型兼容项', () => {
     const models = getModelsByPlatform('antigravity')
 
