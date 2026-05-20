@@ -461,6 +461,8 @@ var ProviderSet = wire.NewSet(
 	NewDashboardService,
 	ProvidePricingService,
 	NewPricingCatalogService,
+	// TK: per-user pricing catalog ("Your Menu") — see me_pricing_catalog_tk.go
+	NewMePricingCatalogService,
 	NewBillingService,
 	ProvideBillingCacheService,
 	NewAnnouncementService,

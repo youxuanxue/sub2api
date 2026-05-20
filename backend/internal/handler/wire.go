@@ -178,6 +178,7 @@ func ProvideHandlers(
 	availableChannelHandler *AvailableChannelHandler,
 	qaService *qaobs.Service,
 	pricingCatalogHandler *PricingCatalogHandler,
+	mePricingCatalogHandler *MePricingCatalogHandler,
 	qaHandler *QAHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
@@ -201,6 +202,7 @@ func ProvideHandlers(
 		AvailableChannel: availableChannelHandler,
 		QACapture:        qaService,
 		PricingCatalog:   pricingCatalogHandler,
+		MePricingCatalog: mePricingCatalogHandler,
 		QA:               qaHandler,
 	}
 }
@@ -225,6 +227,8 @@ var ProviderSet = wire.NewSet(
 	NewAvailableChannelHandler,
 	// TK: pricing-availability observability — see docs/approved/pricing-availability-source-of-truth.md
 	ProvideTKPricingCatalogHandler,
+	// TK: per-user pricing catalog ("Your Menu") — see me_pricing_catalog_handler_tk.go
+	NewMePricingCatalogHandler,
 	ProvideTKGatewayHandlerModelList,
 	NewQAHandler,
 

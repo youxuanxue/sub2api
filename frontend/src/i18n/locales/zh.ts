@@ -47,7 +47,45 @@ export default {
       noMatches: '没有匹配的模型。可切换到模糊搜索或缩短关键词。'
     },
     ctaBonus: '立即注册 · 获赠 {amount} 试用额度',
-    ctaBonusHint: '当本站开启注册赠额时显示此提示。'
+    ctaBonusHint: '当本站开启注册赠额时显示此提示。',
+    perRequest: '/ 次',
+    // TK: 登录态「我的菜单」视图（GET /api/v1/me/pricing-catalog）
+    my: {
+      tabMy: '我的菜单',
+      tabPublic: '公开目录',
+      title: '我的模型菜单',
+      subtitle: '当前 API Key 所属分组可调用的模型与你的实际单价',
+      description:
+        '价格已按你的有效倍率（分组默认 × 个人覆写）计算，单位为每 1,000 tokens。切换 API Key 查看不同 group，或对比其他可用 group 决定是否升级。',
+      pickerKey: '当前 Key：',
+      pickerCompare: '对比其他 group：',
+      compareDefault: '保持当前',
+      noKeyHint: '你还没有可用的 API Key，先去控制台创建一个。',
+      columns: {
+        input: '输入（你的单价）',
+        output: '输出（你的单价）'
+      },
+      rateHint: '已应用 {multiplier} 倍率',
+      rateOverride: '含个人覆写',
+      empty: {
+        noAccess: {
+          title: '暂无可用分组',
+          hint: '没有可访问的 group，请联系管理员或先在订阅页选购。'
+        },
+        noModels: {
+          title: '此分组暂未上架模型',
+          hint: '管理员可能正在配置渠道，请稍后再来或切换到其他 group。'
+        }
+      },
+      exploreBanner: {
+        message: '正在查看 {group} 的目录 · 倍率 ×{multiplier}',
+        cta: '在 {group} 创建 Key'
+      },
+      billingMode: {
+        per_request: '按次',
+        image: '按图'
+      }
+    }
   },
 
   playground: {

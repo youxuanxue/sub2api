@@ -681,6 +681,46 @@
         "passthrough must NOT write the upstream error to the client when the account was disabled"
       ],
       "rationale": "Focused regression anchor for upstream #1318: passthrough + temp-unsched rule match must (a) surface UpstreamFailoverError, (b) leave c.Writer untouched so the failover loop owns the response, and (c) tag the ops event with Kind=failover. Without this test, a future refactor of handleErrorResponsePassthrough could silently revert to discarding shouldDisable (the original upstream bug) and the regression would only show up in production when a temp-unsched rule is actually configured."
+    },
+    {
+      "path": "backend/internal/server/routes/user_tk_routes.go",
+      "must_contain": [
+        "authenticated.GET(\"/me/pricing-catalog\", h.MePricingCatalog.Get)"
+      ],
+      "rationale": "Per-user pricing-catalog route MUST stay wired inside the JWT-only authenticated group. Without this line GET /api/v1/me/pricing-catalog 404s, the UI segmented control silently falls back to the public catalog, and users lose the 'your menu' view that drives upgrade-decision conversions. Upstream merges of routes/user.go cannot touch this companion file but a sloppy edit could drop the registration; pinning the literal closes that gap."
+    },
+    {
+      "path": "backend/internal/service/wire.go",
+      "must_contain": [
+        "NewMePricingCatalogService"
+      ],
+      "rationale": "ProviderSet MUST register the per-user pricing-catalog service. Without it `wire` regen fails to satisfy the *MePricingCatalogService dependency in handler/wire.go and falls back to a nil handler (500 on /api/v1/me/pricing-catalog). The TK-only feature lives in service/me_pricing_catalog_tk.go but only this registration makes it reachable at runtime — easy to silently drop in an upstream merge of the ProviderSet."
+    },
+    {
+      "path": "backend/internal/handler/wire.go",
+      "must_contain": [
+        "NewMePricingCatalogHandler",
+        "MePricingCatalog: mePricingCatalogHandler"
+      ],
+      "rationale": "Handler ProviderSet + ProvideHandlers assignment for the per-user pricing-catalog endpoint. Two lines must both survive: the ProviderSet registration so wire can construct the handler, and the field assignment in ProvideHandlers so the runtime Handlers struct actually carries it (a missing assignment lets wire compile but silently leaves Handlers.MePricingCatalog nil → routes/user_tk_routes.go skips registration via its nil guard)."
+    },
+    {
+      "path": "backend/internal/service/me_pricing_catalog_tk.go",
+      "must_contain": [
+        "func (s *MePricingCatalogService) BuildForUser",
+        "ErrMePricingGroupForbidden",
+        "if m.Platform != targetGroup.Platform {"
+      ],
+      "rationale": "Per-user pricing-catalog service. Three load-bearing invariants pinned: (1) BuildForUser is the only entry point; renaming it silently breaks the handler. (2) ErrMePricingGroupForbidden is part of the documented error contract (403 mapping in handler) — losing the sentinel would let a refactor collapse it into a generic error and the handler would surface 500 instead. (3) The cross-platform leak guard (`m.Platform != targetGroup.Platform`) prevents an anthropic-platform model from bleeding into a newapi group's menu when a channel sits on groups across platforms; the same discipline is enforced in available_channel_handler.go and dropping it here would re-introduce the leak."
+    },
+    {
+      "path": "backend/internal/handler/me_pricing_catalog_handler_tk.go",
+      "must_contain": [
+        "middleware.GetAuthSubjectFromContext(c)",
+        "ErrMePricingGroupForbidden",
+        "ErrMePricingNoAccessibleGroups"
+      ],
+      "rationale": "Per-user pricing-catalog handler. Pinning the auth check and the two sentinel-error mappings catches the two most likely regressions: (a) dropping JWT enforcement (anyone could probe other users' menus), and (b) collapsing the error mapping so the UI's 'create a key' empty-state banner and 'group not accessible' forbidden message stop firing. The 200-with-empty-data fallback for ErrMePricingNoAccessibleGroups is intentional UI behavior — not an error suppression bug."
     }
   ]
 }

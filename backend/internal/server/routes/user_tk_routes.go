@@ -17,12 +17,18 @@ import (
 //
 // Endpoints (JWT-only):
 //   - POST /api/v1/user/onboarding-tour-completed — US-031 P1-A.
+//   - GET  /api/v1/me/pricing-catalog            — per-user "your menu"
+//     view; price + capability list scoped to the API key's group, plus
+//     pickers for switching between accessible groups. See
+//     handler/me_pricing_catalog_handler_tk.go.
 //
 // Endpoints requiring BOTH JWT and API-key auth live in
 // registerTKUserDualAuthRoutes below.
 func registerTKUserRoutes(authenticated, user *gin.RouterGroup, h *handler.Handlers) {
 	user.POST("/onboarding-tour-completed", h.User.MarkOnboardingTourSeen)
-	_ = authenticated // reserved for future JWT-only TK additions
+	if h.MePricingCatalog != nil {
+		authenticated.GET("/me/pricing-catalog", h.MePricingCatalog.Get)
+	}
 }
 
 // registerTKUserDualAuthRoutes wires TokenKey user-side endpoints that
