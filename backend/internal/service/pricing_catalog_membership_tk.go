@@ -22,9 +22,13 @@ import (
 )
 
 // IsModelPriced reports whether modelID has a pricing entry in the catalog.
-// The platform parameter is reserved for a future per-platform pricing split
-// (see §8 of docs/approved/pricing-availability-source-of-truth.md "遗留事项")
-// and is currently ignored; the catalog is platform-agnostic in v1.
+// The platform parameter is reserved for a future *cross-vendor* pricing
+// split — e.g. claude-3-haiku-20240307 priced differently on Bedrock vs
+// anthropic.com (see §8 of docs/approved/pricing-availability-source-of-truth.md
+// "遗留事项") — and is currently ignored; the catalog is platform-agnostic
+// in v1. Note: <vendor>/<model>-style ids already carry their own
+// per-vendor signal via the "/" prefix, which the fallback below consumes
+// without needing the platform argument.
 //
 // Behavior:
 //   - nil receiver, empty modelID, or empty/cold catalog → false (callers
