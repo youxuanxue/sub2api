@@ -47,9 +47,15 @@ Currently drift-locked edges (live state):
 
 Recovery history:
 
-- **edge-uk1** — drift resolved 2026-05-20 via § 5 Phase 2 IMPORT (Phase 1 rolled back as anticipated by § 5). Stack now references the live `35.177.124.150` / `eipalloc-0f7da5f311cc36075` / `eipassoc-011059cc27c15b401`; Retain attributes landed via the IMPORT template. Tag set on `ElasticIP` reports MODIFIED in `detect-stack-drift` (operational tags `tokenkey:replaced-on/replaces/replaces-reason/status` are intentionally not declared in the template) — expected, not actionable. `AppSecurityGroup` also reports MODIFIED for unrelated pre-existing CFN-external rule changes; outside this recovery's scope.
+- **edge-uk1** — drift resolved 2026-05-20 via § 5 Phase 2 IMPORT (Phase 1 rolled back as anticipated by § 5). Stack now references the live `35.177.124.150` / `eipalloc-0f7da5f311cc36075` / `eipassoc-011059cc27c15b401`; Retain attributes landed via the IMPORT template.
 
-If this list grows beyond one entry for more than a sprint, that is a signal the drift-recovery procedure is too costly and should be folded into the main `deploy-edge-stage0.yml` workflow.
+Known unresolved drift on edge stacks (not blocking deploys; tracked here so future recoveries do not re-discover them):
+
+- **`ElasticIP` Tag set MODIFIED** on any edge that has had an EIP rotation — operational tags `tokenkey:replaced-on / replaces / replaces-reason / status` are written by the rotation procedure (§ 4 step 6) and intentionally not declared in the CFN template (they are dynamic per rotation). Re-asserted on every rotation; not actionable.
+- **`AppSecurityGroup` `SecurityGroupIngress` MODIFIED** on `tokenkey-edge-uk1-stage0` (and potentially other edges): live property differences observed at `/SecurityGroupIngress/0/CidrIp`, `/SecurityGroupIngress/1`, `/SecurityGroupIngress/3`. Probable cause: ad-hoc rule edits applied outside CFN during ops (e.g. probe / debugging access). Root-cause inspection and reconciliation are deferred to a separate PR — needs a per-edge diff of live `aws ec2 describe-security-groups` against the template's `SecurityGroupIngress` block to decide whether to absorb the edits into the template or revert them.
+- **`detect-stack-drift` returns `DetectionStatus=DETECTION_FAILED`** on edge stacks today: the CFN service role (`tokenkey-cfn-<region>-edge-<id>-stage0`) lacks 4 read-only listing permissions — `iam:ListAttachedRolePolicies`, `ssm:ListTagsForResource`, `ssm:ListAssociations`, `cloudwatch:ListTagsForResource`. CFN cannot evaluate drift on the 6 affected resources, so the top-level detection completes with `FAILED` even when no real drift exists. Real drift-clearance verification thus shifts to `describe-stack-resource-drifts` (see § 5 Phase 2 step 7). Fixing the role posture is a separate IAM PR.
+
+If the unresolved-drift list grows or the `Recovery history` list grows beyond one entry per sprint, the recovery procedure itself is too costly and should be folded into `deploy-edge-stage0.yml`.
 
 ## 4. Replacement runbook (when a current IP is polluted)
 
@@ -309,20 +315,25 @@ Goal: drop `ElasticIP` + `EIPAssoc` from the stack (Retain protects the real res
    aws cloudformation wait stack-update-complete --region "$REGION" --stack-name "$STACK"
    ```
 
-7. **Verify drift cleared:**
+7. **Verify drift cleared.** Note: on edge Stage0 stacks the CFN service role currently lacks 4 read-only listing permissions (`iam:ListAttachedRolePolicies`, `ssm:ListTagsForResource`, `ssm:ListAssociations`, `cloudwatch:ListTagsForResource`), so `detect-stack-drift` returns `DetectionStatus=DETECTION_FAILED` even when no real drift exists — see § 3 "Known unresolved drift". The real pass criterion is therefore the **physical-id check** plus the **resource-drift contents check**, not the top-level `DetectionStatus`.
    ```bash
-   DRIFT_ID=$(aws cloudformation detect-stack-drift --region "$REGION" --stack-name "$STACK" \
-     --query 'StackDriftDetectionId' --output text)
-   sleep 30
-   aws cloudformation describe-stack-drift-detection-status --region "$REGION" \
-     --stack-drift-detection-id "$DRIFT_ID" \
-     --query '{State:DetectionStatus,Drift:StackDriftStatus}' --output table
-   # Expect: DetectionStatus=DETECTION_COMPLETE, StackDriftStatus=IN_SYNC
+   # Physical-id check (primary success criterion)
    aws cloudformation describe-stack-resources --region "$REGION" --stack-name "$STACK" \
      --query 'StackResources[?ResourceType==`AWS::EC2::EIP` || ResourceType==`AWS::EC2::EIPAssociation`].{Logical:LogicalResourceId,Type:ResourceType,Physical:PhysicalResourceId}' \
      --output table
-   # Expect ElasticIP physical-id = the new EIP (35.177.124.150 for uk1),
+   # Expect ElasticIP physical-id = the live public IP (35.177.124.150 for uk1),
    #        EIPAssoc physical-id = the live eipassoc-… created by step 5 of § 4.
+
+   # Resource-drift contents check (no surprise modifications)
+   DRIFT_ID=$(aws cloudformation detect-stack-drift --region "$REGION" --stack-name "$STACK" \
+     --query 'StackDriftDetectionId' --output text)
+   sleep 30
+   aws cloudformation describe-stack-resource-drifts --region "$REGION" --stack-name "$STACK" \
+     --stack-resource-drift-status-filters MODIFIED DELETED \
+     --query 'StackResourceDrifts[].{Logical:LogicalResourceId,Type:ResourceType,Status:StackResourceDriftStatus,Diff:PropertyDifferences[].PropertyPath}' \
+     --output json
+   # Expect: at most the known unresolved drift items from § 3 (ElasticIP Tag set, AppSecurityGroup
+   # SecurityGroupIngress). Anything else is a real surprise — stop and investigate.
    ```
 
 8. **Clear `drift_locked`** in `deploy/aws/stage0/edge-targets.json` for the recovered edge, commit, push, open PR. The next `deploy-edge-stage0.yml` against this edge is now safe.
@@ -345,11 +356,11 @@ These are real failure modes encountered during the 2026-05-20 edge-uk1 recovery
    # then in create-change-set --parameters:
    # ParameterKey=AmazonLinux2023Arm64Ami,ParameterValue=/tokenkey/edge/<edge>/stage0/recovery/ami-pin
    ```
-   Delete the pin SSM parameter once the recovery PR has merged.
+   The pin SSM parameter is recovery-only. When `recover-drift` is driven by the [`tokenkey-stage0-edge-ip-rotation`](../../.cursor/skills/tokenkey-stage0-edge-ip-rotation/SKILL.md) skill, the skill owns the pin's full lifecycle (put-parameter at the start of Phase 2, delete-parameter after `IMPORT_COMPLETE` is verified). For a fully manual recovery without the skill, the operator MUST delete the pin themselves after the recovery PR merges — to keep that mechanical, tag the pin at creation with `--tags Key=tokenkey:transient,Value=recovery-$(date -u +%F)` and audit `aws ssm describe-parameters --filters Key=tag:tokenkey:transient` weekly.
 3. **CFN IMPORT for `AWS::EC2::EIP` requires the compound `{PublicIp, AllocationId}` identifier**, not just `AllocationId`. The single-key shape fails CreateChangeSet with `Invalid resource identifier for resource type AWS::EC2::EIP. Expected [PublicIp, AllocationId]`. See the corrected table above.
 4. **IMPORT change-sets reject templates where the imported resource lacks `DeletionPolicy`.** CFN errors with `must have DeletionPolicy attribute specified in the template`. Add `DeletionPolicy: Retain` + `UpdateReplacePolicy: Retain` to both `ElasticIP` and `EIPAssoc` in the IMPORT template — this also lands the Retain protection in the same change-set without needing a follow-up update.
 5. **IMPORT change-sets forbid any `Outputs` add/modify.** If Phase 2 step 1 commented out `Outputs.PublicIP` along with the two resources (necessary to avoid a dangling `!Ref ElasticIP` reference in the detach update), then the IMPORT template MUST also leave `Outputs.PublicIP` commented. CFN errors otherwise with `As part of the import operation, you cannot modify or add [Outputs]`. Restore the output via a routine `deploy-edge-stage0.yml` run after recovery.
-6. **`aws cloudformation get-template --output text` may downgrade non-ASCII characters** (e.g. em dash `—` → `?`). Use `--output json | jq -r '.TemplateBody'` to fetch the deployed template verbatim. The deployed template may still differ from in-tree if the original ingestion mangled characters at stack creation time; an `AlarmDescription`-only `DirectModification` with `RequiresRecreation: Never` in a detach change-set is the typical signature of this and is safe to ignore.
+6. **An `AlarmDescription`-only `DirectModification` with `RequiresRecreation: Never` in a detach change-set is CFN's internal YAML/UTF-8 normalization noise — safe to ignore.** Root cause observed on edge-uk1: an em dash `—` in `AlarmDescription` was stored as `?` at original stack-creation ingestion (not a retrieval issue — `get-template` with `--output json` returns the same `?`). Submitting the in-tree template (which still has `—`) reads as a change against the ASCII-normalized deployed state. As a best practice when comparing deployed vs in-tree, use `aws cloudformation get-template --output json | jq -r '.TemplateBody'` (json output is unambiguous about character preservation), but do not expect it to "fix" pre-existing storage normalization.
 
 ### Choosing the template basis for Phase 2: in-tree vs deployed
 
