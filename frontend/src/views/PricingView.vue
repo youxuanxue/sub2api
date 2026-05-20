@@ -100,8 +100,9 @@
               >
                 <span class="font-medium">{{ t('pricing.my.pickerKey') }}</span>
                 <select
-                  v-model.number="selectedKeyId"
+                  :value="displayKeyId"
                   class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm dark:border-dark-700 dark:bg-dark-900 dark:text-white"
+                  @change="onPickKey"
                 >
                   <option
                     v-for="k in myCatalog.my_keys"
@@ -122,8 +123,9 @@
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-dark-200">
               <span>{{ t('pricing.my.pickerCompare') }}</span>
               <select
-                v-model.number="selectedGroupId"
+                :value="selectedGroupId"
                 class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm dark:border-dark-700 dark:bg-dark-900 dark:text-white"
+                @change="onPickGroup"
               >
                 <option :value="0">{{ t('pricing.my.compareDefault') }}</option>
                 <option
@@ -326,13 +328,13 @@
                 >
                   <tr
                     v-for="row in filteredRows"
-                    :key="row.modelId"
+                    :key="row.model_id"
                     class="group hover:bg-primary-50/30 dark:hover:bg-dark-800/40"
                   >
                     <td
                       class="sticky left-0 z-10 min-w-[14rem] max-w-[28rem] border-r border-gray-200 bg-white px-3 py-3 align-top font-mono text-sm leading-snug text-gray-900 shadow-[4px_0_12px_-8px_rgba(0,0,0,0.12)] break-words group-hover:bg-primary-50/30 dark:border-dark-700 dark:bg-dark-900 dark:text-white dark:shadow-[4px_0_12px_-8px_rgba(0,0,0,0.45)] dark:group-hover:bg-dark-800/40"
                     >
-                      {{ row.modelId }}
+                      {{ row.model_id }}
                       <span
                         v-if="row.billingMode && row.billingMode !== 'token'"
                         class="ml-1 inline-flex items-center rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
@@ -463,7 +465,7 @@
  * between modes — this is by design; the v1 trade-off accepted in
  * /Users/xuejiao/.claude/plans/bubbly-bouncing-sunbeam.md.
  */
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getPublicPricing, type PublicCatalogResponse } from '@/api/pricing'
 import {
@@ -487,9 +489,16 @@ const appStore = useAppStore()
 
 type ViewMode = 'my' | 'public'
 
-/** Internal row shape — single source of truth for the shared table markup. */
+/**
+ * Internal row shape — single source of truth for the shared table markup.
+ *
+ * Uses snake_case `model_id` (not camelCase modelId) so the row can flow
+ * directly through `filterPricingCatalogByModel<T extends {model_id:string}>`
+ * without an adapter mapping. Other fields stay camelCase because they're
+ * derived/UI-shaped, not echoes of backend DTOs.
+ */
 interface NormalizedRow {
-  modelId: string
+  model_id: string
   vendor: string
   inputPer1K: number | null
   outputPer1K: number | null
@@ -587,7 +596,7 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
   if (viewMode.value === 'public') {
     if (!publicCatalog.value) return []
     return publicCatalog.value.data.map((m) => ({
-      modelId: m.model_id,
+      model_id: m.model_id,
       vendor: m.vendor ?? '',
       inputPer1K: m.pricing.input_per_1k_tokens ?? null,
       outputPer1K: m.pricing.output_per_1k_tokens ?? null,
@@ -603,7 +612,7 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
   // 'my' view
   if (!myCatalog.value) return []
   return myCatalog.value.models.map((m) => ({
-    modelId: m.model_id,
+    model_id: m.model_id,
     vendor: m.vendor ?? '',
     inputPer1K: m.your_price.input_per_1k ?? null,
     outputPer1K: m.your_price.output_per_1k ?? null,
@@ -618,22 +627,7 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
 })
 
 const filteredRows = computed(() =>
-  filterPricingCatalogByModel(
-    normalizedRows.value.map((r) => ({
-      model_id: r.modelId,
-      vendor: r.vendor,
-      pricing: {
-        currency: 'USD',
-        input_per_1k_tokens: r.inputPer1K ?? 0,
-        output_per_1k_tokens: r.outputPer1K ?? 0
-      },
-      capabilities: r.capabilities,
-      context_window: r.contextWindow,
-      max_output_tokens: r.maxOutputTokens
-    })),
-    modelSearchQuery.value,
-    modelSearchMode.value
-  ).map((m) => normalizedRows.value.find((r) => r.modelId === m.model_id)!).filter(Boolean)
+  filterPricingCatalogByModel(normalizedRows.value, modelSearchQuery.value, modelSearchMode.value)
 )
 
 const hasCacheColumns = computed(() =>
@@ -779,15 +773,36 @@ async function loadMyCatalog(): Promise<void> {
     params.apiKeyId = selectedKeyId.value
   }
   myCatalog.value = await getMePricingCatalog(params)
-  // Sync the picker selections to whatever the backend resolved.
-  if (myCatalog.value) {
-    if (selectedKeyId.value === 0 && myCatalog.value.my_keys.length > 0) {
-      const matchingKey = myCatalog.value.my_keys.find(
-        (k) => k.group_id === myCatalog.value!.target_group.id
-      )
-      selectedKeyId.value = matchingKey?.id ?? myCatalog.value.my_keys[0].id
-    }
-  }
+}
+
+/**
+ * `displayKeyId` is the value the key-picker shows. Derived (never written
+ * back into selectedKeyId by the loader) to avoid the watch-loop where a
+ * post-load writeback fires another fetch. User picks are explicit via
+ * onPickKey — no implicit reactive ping-pong.
+ */
+const displayKeyId = computed<number>(() => {
+  if (selectedKeyId.value > 0) return selectedKeyId.value
+  if (!myCatalog.value || myCatalog.value.my_keys.length === 0) return 0
+  const tgID = myCatalog.value.target_group.id
+  const match = myCatalog.value.my_keys.find((k) => k.group_id === tgID)
+  return match?.id ?? myCatalog.value.my_keys[0].id
+})
+
+function onPickKey(e: Event): void {
+  const next = Number((e.target as HTMLSelectElement).value)
+  if (!Number.isFinite(next) || next <= 0) return
+  selectedKeyId.value = next
+  // Switching key clears any explore-group override.
+  selectedGroupId.value = 0
+  void load()
+}
+
+function onPickGroup(e: Event): void {
+  const next = Number((e.target as HTMLSelectElement).value)
+  if (!Number.isFinite(next) || next < 0) return
+  selectedGroupId.value = next
+  void load()
 }
 
 async function load(): Promise<void> {
@@ -810,21 +825,6 @@ async function load(): Promise<void> {
 function reload(): void {
   void load()
 }
-
-// Reload when key or group selection changes.
-watch(selectedKeyId, (next, prev) => {
-  if (viewMode.value !== 'my' || next === prev) return
-  if (next > 0) {
-    // Switching key clears any explore-group override.
-    selectedGroupId.value = 0
-    void load()
-  }
-})
-
-watch(selectedGroupId, (next, prev) => {
-  if (viewMode.value !== 'my' || next === prev) return
-  void load()
-})
 
 onMounted(() => {
   if (canShowMyView.value) {

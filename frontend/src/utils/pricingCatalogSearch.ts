@@ -1,21 +1,25 @@
 /**
- * Client-side filtering for the public pricing catalog (model_id search).
+ * Client-side filtering for any model-keyed row by model_id.
+ *
+ * Generic over `T extends { model_id: string }` so the same matcher serves
+ * both the public LiteLLM catalog (PublicCatalogModel) and the per-user
+ * "your menu" rows. Keeping the constraint to the single field actually
+ * used by the matcher avoids the previous PublicCatalogModel coupling
+ * that forced callers to shape-shift their rows just to reuse this util.
  */
-
-import type { PublicCatalogModel } from '@/api/pricing'
 
 export type PricingCatalogSearchMode = 'fuzzy' | 'exact'
 
 /**
- * Filters catalog rows by model_id.
+ * Filters rows by model_id.
  * - fuzzy: case-insensitive substring match (partial / "模糊")
  * - exact: case-insensitive full string equality after trim ("精准")
  */
-export function filterPricingCatalogByModel(
-  models: PublicCatalogModel[],
+export function filterPricingCatalogByModel<T extends { model_id: string }>(
+  models: T[],
   rawQuery: string,
   mode: PricingCatalogSearchMode
-): PublicCatalogModel[] {
+): T[] {
   const q = rawQuery.trim()
   if (!q) {
     return models

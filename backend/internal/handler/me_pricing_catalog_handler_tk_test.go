@@ -142,13 +142,18 @@ func TestMePricingHandler_NoAccessibleGroupsRendersEmptyOK(t *testing.T) {
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK, w.Code)
 	var resp struct {
-		Data *service.MePricingCatalogResponse `json:"data"`
+		Code    int                               `json:"code"`
+		Message string                            `json:"message"`
+		Data    *service.MePricingCatalogResponse `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.NotNil(t, resp.Data)
 	assert.Empty(t, resp.Data.Models)
 	assert.Empty(t, resp.Data.AccessibleGroups)
 	assert.Empty(t, resp.Data.MyKeys)
+	// Envelope MUST match response.Success ({code:0, message:"success"}).
+	assert.Equal(t, 0, resp.Code)
+	assert.Equal(t, "success", resp.Message)
 }
 
 func TestMePricingHandler_NilServiceReturns500(t *testing.T) {

@@ -13,7 +13,6 @@ package handler
 import (
 	"context"
 	"errors"
-	"net/http"
 	"strconv"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -114,14 +113,13 @@ func writeMePricingError(c *gin.Context, err error) {
 	case errors.Is(err, service.ErrMePricingNoAccessibleGroups):
 		// 200 + empty payload so the UI can render the "create a key"
 		// banner without the API client treating it like an error.
-		c.JSON(http.StatusOK, gin.H{
-			"code":    0,
-			"message": "no accessible groups",
-			"data": service.MePricingCatalogResponse{
-				Models:           []service.MePricingModel{},
-				MyKeys:           []service.MePricingKeyRef{},
-				AccessibleGroups: []service.MePricingGroupRef{},
-			},
+		// Reuses response.Success to keep the {code,message,data}
+		// envelope identical to every other success path — the
+		// frontend's emptyHint computed handles the empty arrays.
+		response.Success(c, service.MePricingCatalogResponse{
+			Models:           []service.MePricingModel{},
+			MyKeys:           []service.MePricingKeyRef{},
+			AccessibleGroups: []service.MePricingGroupRef{},
 		})
 	case errors.Is(err, service.ErrMePricingAPIKeyNotFound):
 		response.NotFound(c, "api key not found")
