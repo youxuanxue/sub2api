@@ -36,13 +36,13 @@
           <h1
             class="text-3xl font-bold tracking-tight text-gray-900 dark:text-white sm:text-4xl"
           >
-            {{ t('pricing.title') }}
+            {{ heroTitle }}
           </h1>
           <p class="mt-3 text-base text-gray-600 dark:text-dark-300">
-            {{ t('pricing.subtitle') }}
+            {{ heroSubtitle }}
           </p>
           <p class="mx-auto mt-4 max-w-3xl text-sm text-gray-500 dark:text-dark-400">
-            {{ t('pricing.description') }}
+            {{ heroDescription }}
           </p>
           <div
             v-if="bonusCtaVisible"
@@ -56,10 +56,104 @@
             </router-link>
             <p class="text-xs text-gray-600 dark:text-dark-400">{{ t('pricing.ctaBonusHint') }}</p>
           </div>
+
+          <!-- Segmented view switch: 我的菜单 / 公开目录. Only shown when logged in. -->
+          <div v-if="canShowMyView" class="mt-6 flex justify-center">
+            <div
+              role="tablist"
+              class="inline-flex rounded-xl border border-gray-200 bg-white/80 p-1 shadow-sm dark:border-dark-700 dark:bg-dark-900/70"
+            >
+              <button
+                v-for="opt in viewOptions"
+                :key="opt.value"
+                role="tab"
+                :aria-selected="viewMode === opt.value"
+                type="button"
+                class="rounded-lg px-4 py-1.5 text-sm font-medium transition-colors"
+                :class="
+                  viewMode === opt.value
+                    ? 'bg-primary-600 text-white shadow-sm dark:bg-primary-500'
+                    : 'text-gray-600 hover:text-primary-700 dark:text-dark-300 dark:hover:text-primary-200'
+                "
+                @click="setView(opt.value)"
+              >
+                {{ opt.label }}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
       <div class="mx-auto flex min-h-0 w-full max-w-[90rem] flex-1 flex-col">
+        <!-- "我的菜单" toolbar: key picker + group switcher + banner -->
+        <div
+          v-if="viewMode === 'my' && !loading && !errorMessage && myCatalog"
+          class="mb-4 flex flex-col gap-3"
+        >
+          <div
+            class="flex flex-col gap-3 rounded-2xl border border-gray-200 bg-white/80 px-4 py-3 shadow-sm dark:border-dark-800 dark:bg-dark-900/70 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+              <label
+                v-if="myCatalog.my_keys.length > 0"
+                class="flex items-center gap-2 text-sm text-gray-700 dark:text-dark-200"
+              >
+                <span class="font-medium">{{ t('pricing.my.pickerKey') }}</span>
+                <select
+                  :value="displayKeyId"
+                  class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm dark:border-dark-700 dark:bg-dark-900 dark:text-white"
+                  @change="onPickKey"
+                >
+                  <option
+                    v-for="k in myCatalog.my_keys"
+                    :key="k.id"
+                    :value="k.id"
+                  >
+                    {{ k.name }} · {{ k.group_name }}
+                  </option>
+                </select>
+              </label>
+              <span
+                v-else
+                class="text-sm text-gray-500 dark:text-dark-400"
+              >
+                {{ t('pricing.my.noKeyHint') }}
+              </span>
+            </div>
+            <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-dark-200">
+              <span>{{ t('pricing.my.pickerCompare') }}</span>
+              <select
+                :value="selectedGroupId"
+                class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm dark:border-dark-700 dark:bg-dark-900 dark:text-white"
+                @change="onPickGroup"
+              >
+                <option :value="0">{{ t('pricing.my.compareDefault') }}</option>
+                <option
+                  v-for="g in groupsForComparison"
+                  :key="g.id"
+                  :value="g.id"
+                >
+                  {{ g.name }}{{ formatGroupRateBadge(g) }}
+                </option>
+              </select>
+            </label>
+          </div>
+
+          <!-- Banner: exploring a group the user doesn't have a key in -->
+          <div
+            v-if="exploreBanner"
+            class="flex flex-col gap-2 rounded-2xl border border-primary-200 bg-primary-50/80 px-4 py-3 text-sm text-primary-900 shadow-sm dark:border-primary-900/50 dark:bg-primary-950/40 dark:text-primary-200 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <p>{{ exploreBanner.message }}</p>
+            <router-link
+              :to="exploreBanner.ctaTo"
+              class="inline-flex items-center justify-center rounded-lg bg-primary-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600"
+            >
+              {{ exploreBanner.ctaLabel }}
+            </router-link>
+          </div>
+        </div>
+
         <div
           v-if="loading"
           class="flex items-center justify-center rounded-2xl bg-white/80 py-24 shadow-sm backdrop-blur dark:bg-dark-900/60"
@@ -85,7 +179,7 @@
           <button
             type="button"
             class="mt-5 inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 transition-colors hover:bg-red-100 dark:border-red-800 dark:bg-red-950/60 dark:text-red-200 dark:hover:bg-red-900/60"
-            @click="loadCatalog"
+            @click="reload"
           >
             <Icon name="refresh" size="sm" />
             {{ t('pricing.retry') }}
@@ -93,15 +187,15 @@
         </div>
 
         <div
-          v-else-if="!catalog || catalog.data.length === 0"
+          v-else-if="normalizedRows.length === 0 && !hasFilterActive"
           class="rounded-2xl border border-dashed border-gray-300 bg-white/60 p-12 text-center dark:border-dark-700 dark:bg-dark-900/40"
         >
           <Icon name="inbox" size="xl" class="mx-auto text-gray-400 dark:text-dark-500" />
           <h2 class="mt-4 text-lg font-semibold text-gray-800 dark:text-dark-100">
-            {{ t('pricing.empty.title') }}
+            {{ emptyTitle }}
           </h2>
           <p class="mt-2 text-sm text-gray-500 dark:text-dark-400">
-            {{ t('pricing.empty.hint') }}
+            {{ emptyHint }}
           </p>
         </div>
 
@@ -145,7 +239,7 @@
                 v-if="modelSearchQuery.trim()"
                 class="text-xs tabular-nums text-gray-500 dark:text-dark-400"
               >
-                {{ t('pricing.search.resultCount', { count: filteredCatalogRows.length }) }}
+                {{ t('pricing.search.resultCount', { count: filteredRows.length }) }}
               </span>
             </div>
           </div>
@@ -155,7 +249,7 @@
             {{ t('pricing.tableHint') }}
           </p>
           <div
-            v-if="filteredCatalogRows.length === 0 && modelSearchQuery.trim()"
+            v-if="filteredRows.length === 0 && modelSearchQuery.trim()"
             class="border-t border-gray-100 px-4 py-12 text-center dark:border-dark-800"
           >
             <Icon name="inbox" size="xl" class="mx-auto text-gray-400 dark:text-dark-500" />
@@ -186,13 +280,13 @@
                       scope="col"
                       class="sticky top-0 z-40 bg-gray-50 px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:bg-dark-800/60 dark:text-dark-300"
                     >
-                      {{ t('pricing.columns.input') }}
+                      {{ inputColumnTitle }}
                     </th>
                     <th
                       scope="col"
                       class="sticky top-0 z-40 bg-gray-50 px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 dark:bg-dark-800/60 dark:text-dark-300"
                     >
-                      {{ t('pricing.columns.output') }}
+                      {{ outputColumnTitle }}
                     </th>
                     <th
                       v-if="hasCacheColumns"
@@ -233,55 +327,64 @@
                   class="divide-y divide-gray-100 bg-white dark:divide-dark-800/60 dark:bg-dark-900"
                 >
                   <tr
-                    v-for="model in filteredCatalogRows"
-                    :key="model.model_id"
+                    v-for="row in filteredRows"
+                    :key="row.model_id"
                     class="group hover:bg-primary-50/30 dark:hover:bg-dark-800/40"
                   >
                     <td
                       class="sticky left-0 z-10 min-w-[14rem] max-w-[28rem] border-r border-gray-200 bg-white px-3 py-3 align-top font-mono text-sm leading-snug text-gray-900 shadow-[4px_0_12px_-8px_rgba(0,0,0,0.12)] break-words group-hover:bg-primary-50/30 dark:border-dark-700 dark:bg-dark-900 dark:text-white dark:shadow-[4px_0_12px_-8px_rgba(0,0,0,0.45)] dark:group-hover:bg-dark-800/40"
                     >
-                      {{ model.model_id }}
+                      {{ row.model_id }}
+                      <span
+                        v-if="row.billingMode && row.billingMode !== 'token'"
+                        class="ml-1 inline-flex items-center rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
+                      >
+                        {{ formatBillingMode(row.billingMode) }}
+                      </span>
                     </td>
                     <td
                       class="min-w-[7rem] px-3 py-3 align-top text-sm leading-snug text-gray-600 break-words dark:text-dark-300"
                     >
-                      {{ model.vendor || '—' }}
+                      {{ row.vendor || '—' }}
                     </td>
                     <td class="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-gray-900 dark:text-white">
-                      {{ formatPrice(model.pricing.input_per_1k_tokens) }}
-                      <span class="ml-0.5 text-xs text-gray-400">{{
-                        t('pricing.perThousandTokens')
-                      }}</span>
+                      <template v-if="row.billingMode === 'per_request' && row.perRequest != null">
+                        {{ formatPrice(row.perRequest) }}
+                        <span class="ml-0.5 text-xs text-gray-400">{{ t('pricing.perRequest') }}</span>
+                      </template>
+                      <template v-else-if="row.inputPer1K != null">
+                        {{ formatPrice(row.inputPer1K) }}
+                        <span class="ml-0.5 text-xs text-gray-400">{{
+                          t('pricing.perThousandTokens')
+                        }}</span>
+                      </template>
+                      <template v-else>—</template>
                     </td>
                     <td class="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-gray-900 dark:text-white">
-                      {{ formatPrice(model.pricing.output_per_1k_tokens) }}
-                      <span class="ml-0.5 text-xs text-gray-400">{{
-                        t('pricing.perThousandTokens')
-                      }}</span>
+                      <template v-if="row.billingMode === 'per_request'">—</template>
+                      <template v-else-if="row.outputPer1K != null">
+                        {{ formatPrice(row.outputPer1K) }}
+                        <span class="ml-0.5 text-xs text-gray-400">{{
+                          t('pricing.perThousandTokens')
+                        }}</span>
+                      </template>
+                      <template v-else>—</template>
                     </td>
                     <td
                       v-if="hasCacheColumns"
                       class="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-gray-700 dark:text-dark-200"
                     >
-                      {{
-                        model.pricing.cache_read_per_1k != null
-                          ? formatPrice(model.pricing.cache_read_per_1k)
-                          : '—'
-                      }}
+                      {{ row.cacheReadPer1K != null ? formatPrice(row.cacheReadPer1K) : '—' }}
                     </td>
                     <td
                       v-if="hasCacheColumns"
                       class="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-gray-700 dark:text-dark-200"
                     >
-                      {{
-                        model.pricing.cache_write_per_1k != null
-                          ? formatPrice(model.pricing.cache_write_per_1k)
-                          : '—'
-                      }}
+                      {{ row.cacheWritePer1K != null ? formatPrice(row.cacheWritePer1K) : '—' }}
                     </td>
                     <td class="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-gray-600 dark:text-dark-300">
-                      <template v-if="model.context_window && model.context_window > 0">
-                        {{ formatNumber(model.context_window) }}
+                      <template v-if="row.contextWindow && row.contextWindow > 0">
+                        {{ formatNumber(row.contextWindow) }}
                       </template>
                       <template v-else>—</template>
                     </td>
@@ -289,22 +392,22 @@
                       v-if="hasMaxOutputColumn"
                       class="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-gray-600 dark:text-dark-300"
                     >
-                      <template v-if="model.max_output_tokens && model.max_output_tokens > 0">
-                        {{ formatNumber(model.max_output_tokens) }}
+                      <template v-if="row.maxOutputTokens && row.maxOutputTokens > 0">
+                        {{ formatNumber(row.maxOutputTokens) }}
                       </template>
                       <template v-else>—</template>
                     </td>
                     <td class="px-3 py-3 align-top">
                       <div class="flex flex-wrap gap-1">
                         <span
-                          v-for="cap in model.capabilities"
+                          v-for="cap in row.capabilities"
                           :key="cap"
                           class="inline-flex items-center rounded-full bg-primary-50 px-2 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
                         >
                           {{ cap }}
                         </span>
                         <span
-                          v-if="!model.capabilities || model.capabilities.length === 0"
+                          v-if="!row.capabilities || row.capabilities.length === 0"
                           class="text-xs text-gray-400"
                           >—</span
                         >
@@ -321,14 +424,17 @@
                 <template v-if="modelSearchQuery.trim()">
                   {{
                     t('pricing.footer.filtered', {
-                      shown: filteredCatalogRows.length,
-                      total: catalogRowTotal
+                      shown: filteredRows.length,
+                      total: rowTotal
                     })
                   }}
                 </template>
                 <template v-else>
-                  {{ t('pricing.footer.total', { count: catalogRowTotal }) }}
+                  {{ t('pricing.footer.total', { count: rowTotal }) }}
                 </template>
+                <span v-if="rateHint" class="ml-2 text-gray-600 dark:text-dark-300">
+                  · {{ rateHint }}
+                </span>
               </p>
               <p class="text-left sm:text-right">
                 {{ t('pricing.updatedAt', { time: formattedUpdatedAt }) }}
@@ -343,18 +449,30 @@
 
 <script setup lang="ts">
 /**
- * Public model + pricing catalog page.
+ * Model + pricing catalog page.
  *
- * Backed by GET /api/v1/public/pricing (no auth required). Renders an empty
- * state when the catalog is unavailable (US-028 AC-005) and a 404 navigation
- * (handled by the API client) when the admin has flipped
- * `pricing_catalog_public = false`.
+ * Two views share the same URL `/pricing`:
+ *  - Public view (unauthenticated default): GET /api/v1/public/pricing returns
+ *    the platform-wide LiteLLM list-price catalog. Behaves per US-028 AC-005
+ *    (empty when source unavailable; 404 when admin disabled public catalog).
+ *  - "我的菜单" view (authenticated default when accessible groups exist):
+ *    GET /api/v1/me/pricing-catalog returns models scoped to the user's
+ *    selected key's group, with prices already multiplied by their effective
+ *    rate (group default × per-user override). The user can switch keys or
+ *    explore other accessible groups for upgrade comparison.
  *
- * docs/approved/user-cold-start.md §2 (v1 MVP).
+ * Both feed a single normalized row shape so the table markup stays identical
+ * between modes — this is by design; the v1 trade-off accepted in
+ * /Users/xuejiao/.claude/plans/bubbly-bouncing-sunbeam.md.
  */
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getPublicPricing, type PublicCatalogResponse } from '@/api/pricing'
+import {
+  getMePricingCatalog,
+  type MePricingCatalogResponse,
+  type MePricingGroupRef
+} from '@/api/me-pricing'
 import Icon from '@/components/icons/Icon.vue'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -368,6 +486,30 @@ import {
 const { t } = useI18n()
 const authStore = useAuthStore()
 const appStore = useAppStore()
+
+type ViewMode = 'my' | 'public'
+
+/**
+ * Internal row shape — single source of truth for the shared table markup.
+ *
+ * Uses snake_case `model_id` (not camelCase modelId) so the row can flow
+ * directly through `filterPricingCatalogByModel<T extends {model_id:string}>`
+ * without an adapter mapping. Other fields stay camelCase because they're
+ * derived/UI-shaped, not echoes of backend DTOs.
+ */
+interface NormalizedRow {
+  model_id: string
+  vendor: string
+  inputPer1K: number | null
+  outputPer1K: number | null
+  cacheReadPer1K: number | null
+  cacheWritePer1K: number | null
+  contextWindow: number
+  maxOutputTokens: number
+  capabilities: string[]
+  billingMode?: string
+  perRequest?: number | null
+}
 
 const signupBonusFormatted = computed(() =>
   formatCurrency(appStore.cachedPublicSettings?.signup_bonus_balance_usd ?? 0, 'USD')
@@ -399,53 +541,191 @@ const consoleLinkTitle = computed(() =>
   authStore.isAuthenticated ? t('pricing.nav.consoleTitleAuthed') : t('pricing.nav.consoleTitleGuest')
 )
 
-const catalog = ref<PublicCatalogResponse | null>(null)
+// ============================== view-state ==============================
+
+const viewMode = ref<ViewMode>('public')
 const loading = ref(true)
 const errorMessage = ref('')
 const modelSearchQuery = ref('')
 const modelSearchMode = ref<PricingCatalogSearchMode>('fuzzy')
 
-const filteredCatalogRows = computed(() => {
-  if (!catalog.value) return []
-  return filterPricingCatalogByModel(
-    catalog.value.data,
-    modelSearchQuery.value,
-    modelSearchMode.value
+// Public catalog state (unchanged from v1 — US-028 backing data).
+const publicCatalog = ref<PublicCatalogResponse | null>(null)
+
+// My catalog state.
+const myCatalog = ref<MePricingCatalogResponse | null>(null)
+const selectedKeyId = ref<number>(0)
+const selectedGroupId = ref<number>(0)
+
+const canShowMyView = computed(() => authStore.isAuthenticated)
+
+const viewOptions = computed(() => [
+  { value: 'my' as ViewMode, label: t('pricing.my.tabMy') },
+  { value: 'public' as ViewMode, label: t('pricing.my.tabPublic') }
+])
+
+function setView(next: ViewMode): void {
+  if (next === viewMode.value) return
+  viewMode.value = next
+  modelSearchQuery.value = ''
+  void load()
+}
+
+// ============================== hero copy ==============================
+
+const heroTitle = computed(() =>
+  viewMode.value === 'my' ? t('pricing.my.title') : t('pricing.title')
+)
+const heroSubtitle = computed(() =>
+  viewMode.value === 'my' ? t('pricing.my.subtitle') : t('pricing.subtitle')
+)
+const heroDescription = computed(() =>
+  viewMode.value === 'my' ? t('pricing.my.description') : t('pricing.description')
+)
+
+const inputColumnTitle = computed(() =>
+  viewMode.value === 'my' ? t('pricing.my.columns.input') : t('pricing.columns.input')
+)
+const outputColumnTitle = computed(() =>
+  viewMode.value === 'my' ? t('pricing.my.columns.output') : t('pricing.columns.output')
+)
+
+// ============================== normalize ==============================
+
+const normalizedRows = computed<NormalizedRow[]>(() => {
+  if (viewMode.value === 'public') {
+    if (!publicCatalog.value) return []
+    return publicCatalog.value.data.map((m) => ({
+      model_id: m.model_id,
+      vendor: m.vendor ?? '',
+      inputPer1K: m.pricing.input_per_1k_tokens ?? null,
+      outputPer1K: m.pricing.output_per_1k_tokens ?? null,
+      cacheReadPer1K: m.pricing.cache_read_per_1k ?? null,
+      cacheWritePer1K: m.pricing.cache_write_per_1k ?? null,
+      contextWindow: m.context_window ?? 0,
+      maxOutputTokens: m.max_output_tokens ?? 0,
+      capabilities: m.capabilities ?? [],
+      billingMode: 'token',
+      perRequest: null
+    }))
+  }
+  // 'my' view
+  if (!myCatalog.value) return []
+  return myCatalog.value.models.map((m) => ({
+    model_id: m.model_id,
+    vendor: m.vendor ?? '',
+    inputPer1K: m.your_price.input_per_1k ?? null,
+    outputPer1K: m.your_price.output_per_1k ?? null,
+    cacheReadPer1K: m.your_price.cache_read_per_1k ?? null,
+    cacheWritePer1K: m.your_price.cache_write_per_1k ?? null,
+    contextWindow: m.context_window ?? 0,
+    maxOutputTokens: m.max_output_tokens ?? 0,
+    capabilities: m.capabilities ?? [],
+    billingMode: m.billing_mode,
+    perRequest: m.your_price.per_request ?? null
+  }))
+})
+
+const filteredRows = computed(() =>
+  filterPricingCatalogByModel(normalizedRows.value, modelSearchQuery.value, modelSearchMode.value)
+)
+
+const hasCacheColumns = computed(() =>
+  normalizedRows.value.some(
+    (r) => (r.cacheReadPer1K != null && r.cacheReadPer1K > 0) ||
+           (r.cacheWritePer1K != null && r.cacheWritePer1K > 0)
   )
+)
+
+const hasMaxOutputColumn = computed(() =>
+  normalizedRows.value.some((r) => r.maxOutputTokens > 0)
+)
+
+const rowTotal = computed(() => normalizedRows.value.length)
+const hasFilterActive = computed(() => modelSearchQuery.value.trim().length > 0)
+
+// ============================== empty-state copy ==============================
+
+const emptyTitle = computed(() => {
+  if (viewMode.value === 'my' && myCatalog.value) {
+    return myCatalog.value.my_keys.length === 0 && myCatalog.value.accessible_groups.length === 0
+      ? t('pricing.my.empty.noAccess.title')
+      : t('pricing.my.empty.noModels.title')
+  }
+  return t('pricing.empty.title')
 })
 
-const hasCacheColumns = computed(() => {
-  if (!catalog.value) return false
-  return catalog.value.data.some(
-    (m) =>
-      (m.pricing.cache_read_per_1k != null && m.pricing.cache_read_per_1k > 0) ||
-      (m.pricing.cache_write_per_1k != null && m.pricing.cache_write_per_1k > 0)
-  )
+const emptyHint = computed(() => {
+  if (viewMode.value === 'my' && myCatalog.value) {
+    return myCatalog.value.my_keys.length === 0 && myCatalog.value.accessible_groups.length === 0
+      ? t('pricing.my.empty.noAccess.hint')
+      : t('pricing.my.empty.noModels.hint')
+  }
+  return t('pricing.empty.hint')
 })
 
-/** Show column when catalog has max-output metadata (often unset for slim entries). */
-const hasMaxOutputColumn = computed(() => {
-  if (!catalog.value) return false
-  return catalog.value.data.some((m) => (m.max_output_tokens ?? 0) > 0)
-})
-
-/** Footer total row count (full catalog, not filtered). */
-const catalogRowTotal = computed(() => catalog.value?.data.length ?? 0)
+// ============================== updated-at ==============================
 
 const formattedUpdatedAt = computed(() => {
-  if (!catalog.value?.updated_at) return ''
+  const raw =
+    viewMode.value === 'my'
+      ? myCatalog.value?.updated_at
+      : publicCatalog.value?.updated_at
+  if (!raw) return ''
   try {
-    return new Date(catalog.value.updated_at).toLocaleString()
+    return new Date(raw).toLocaleString()
   } catch {
-    return catalog.value.updated_at
+    return raw
   }
 })
 
-/** Lock main to viewport height when the catalog table is shown so nav + hero stay fixed and only the grid scrolls. */
-const pricingCatalogScrollMode = computed(() => {
-  if (loading.value || errorMessage.value) return false
-  return Boolean(catalog.value && catalog.value.data.length > 0)
+// ============================== rate-hint ==============================
+
+const rateHint = computed(() => {
+  if (viewMode.value !== 'my' || !myCatalog.value) return ''
+  const tg = myCatalog.value.target_group
+  const rate = tg.rate_multiplier
+  if (rate === 1 && !tg.has_override) return ''
+  const fmt = rate === 0 ? '×0' : `×${rate}`
+  const suffix = tg.has_override ? ` (${t('pricing.my.rateOverride')})` : ''
+  return t('pricing.my.rateHint', { multiplier: fmt }) + suffix
 })
+
+// ============================== group switcher ==============================
+
+const groupsForComparison = computed<MePricingGroupRef[]>(() => {
+  if (!myCatalog.value) return []
+  return myCatalog.value.accessible_groups
+})
+
+function formatGroupRateBadge(g: MePricingGroupRef): string {
+  if (g.rate_multiplier === 1) return ''
+  return ` · ×${g.rate_multiplier}`
+}
+
+interface ExploreBanner {
+  message: string
+  ctaLabel: string
+  ctaTo: { path: string; query?: Record<string, string> }
+}
+
+const exploreBanner = computed<ExploreBanner | null>(() => {
+  if (viewMode.value !== 'my' || !myCatalog.value) return null
+  const tg = myCatalog.value.target_group
+  const currentKeysInTarget = myCatalog.value.my_keys.some((k) => k.group_id === tg.id)
+  if (currentKeysInTarget) return null
+  // User is viewing a group they don't hold a key in → upgrade-CTA banner.
+  return {
+    message: t('pricing.my.exploreBanner.message', {
+      group: tg.name,
+      multiplier: tg.rate_multiplier
+    }),
+    ctaLabel: t('pricing.my.exploreBanner.cta', { group: tg.name }),
+    ctaTo: { path: '/dashboard/keys', query: { group_id: String(tg.id) } }
+  }
+})
+
+// ============================== misc formatters ==============================
 
 function formatPrice(value: number): string {
   if (!Number.isFinite(value)) return '—'
@@ -459,27 +739,98 @@ function formatNumber(value: number): string {
   return new Intl.NumberFormat().format(value)
 }
 
-async function loadCatalog(): Promise<void> {
-  loading.value = true
-  errorMessage.value = ''
+function formatBillingMode(mode: string): string {
+  return t(`pricing.my.billingMode.${mode}`, mode)
+}
+
+// ============================== layout ==============================
+
+const pricingCatalogScrollMode = computed(() => {
+  if (loading.value || errorMessage.value) return false
+  return rowTotal.value > 0
+})
+
+// ============================== loaders ==============================
+
+async function loadPublicCatalog(): Promise<void> {
   try {
-    catalog.value = await getPublicPricing()
+    publicCatalog.value = await getPublicPricing()
   } catch (err) {
     const apiErr = err as { status?: number; message?: string }
     if (apiErr.status === 404) {
-      // Admin disabled the public catalog; treat as "empty" rather than error
-      // so the page still renders cleanly when the entry leaks through cache.
-      catalog.value = { object: 'list', data: [], updated_at: '' }
+      publicCatalog.value = { object: 'list', data: [], updated_at: '' }
     } else {
-      errorMessage.value = apiErr.message || 'Network error'
+      throw err
     }
+  }
+}
+
+async function loadMyCatalog(): Promise<void> {
+  const params: { apiKeyId?: number; groupId?: number } = {}
+  if (selectedGroupId.value > 0) {
+    params.groupId = selectedGroupId.value
+  } else if (selectedKeyId.value > 0) {
+    params.apiKeyId = selectedKeyId.value
+  }
+  myCatalog.value = await getMePricingCatalog(params)
+}
+
+/**
+ * `displayKeyId` is the value the key-picker shows. Derived (never written
+ * back into selectedKeyId by the loader) to avoid the watch-loop where a
+ * post-load writeback fires another fetch. User picks are explicit via
+ * onPickKey — no implicit reactive ping-pong.
+ */
+const displayKeyId = computed<number>(() => {
+  if (selectedKeyId.value > 0) return selectedKeyId.value
+  if (!myCatalog.value || myCatalog.value.my_keys.length === 0) return 0
+  const tgID = myCatalog.value.target_group.id
+  const match = myCatalog.value.my_keys.find((k) => k.group_id === tgID)
+  return match?.id ?? myCatalog.value.my_keys[0].id
+})
+
+function onPickKey(e: Event): void {
+  const next = Number((e.target as HTMLSelectElement).value)
+  if (!Number.isFinite(next) || next <= 0) return
+  selectedKeyId.value = next
+  // Switching key clears any explore-group override.
+  selectedGroupId.value = 0
+  void load()
+}
+
+function onPickGroup(e: Event): void {
+  const next = Number((e.target as HTMLSelectElement).value)
+  if (!Number.isFinite(next) || next < 0) return
+  selectedGroupId.value = next
+  void load()
+}
+
+async function load(): Promise<void> {
+  loading.value = true
+  errorMessage.value = ''
+  try {
+    if (viewMode.value === 'my') {
+      await loadMyCatalog()
+    } else {
+      await loadPublicCatalog()
+    }
+  } catch (err) {
+    const apiErr = err as { message?: string }
+    errorMessage.value = apiErr.message || 'Network error'
   } finally {
     loading.value = false
   }
 }
 
+function reload(): void {
+  void load()
+}
+
 onMounted(() => {
-  loadCatalog()
+  if (canShowMyView.value) {
+    viewMode.value = 'my'
+  }
+  void load()
   void appStore.fetchPublicSettings()
 })
 </script>

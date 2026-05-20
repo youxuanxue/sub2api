@@ -48,7 +48,45 @@ export default {
       noMatches: 'No models match your search. Try fuzzy mode or a shorter query.'
     },
     ctaBonus: 'Register — get {amount} trial credit',
-    ctaBonusHint: 'Shown when signup bonus is enabled for this site.'
+    ctaBonusHint: 'Shown when signup bonus is enabled for this site.',
+    perRequest: '/ request',
+    // TK: authenticated "Your Menu" view (GET /api/v1/me/pricing-catalog).
+    my: {
+      tabMy: 'Your Menu',
+      tabPublic: 'Public Catalog',
+      title: 'Your Model Menu',
+      subtitle: 'Models available to the group of your selected API key, at your effective price',
+      description:
+        'Prices are already multiplied by your effective rate (group default × your override), per 1,000 tokens. Switch keys to see another group, or compare other accessible groups to decide whether to upgrade.',
+      pickerKey: 'Current key:',
+      pickerCompare: 'Compare group:',
+      compareDefault: 'Keep current',
+      noKeyHint: 'You have no active API keys yet — create one in the console first.',
+      columns: {
+        input: 'Input (your price)',
+        output: 'Output (your price)'
+      },
+      rateHint: 'Multiplier {multiplier} applied',
+      rateOverride: 'includes personal override',
+      empty: {
+        noAccess: {
+          title: 'No accessible group',
+          hint: 'You have no group you can use yet. Contact the administrator or pick a plan in the subscription page.'
+        },
+        noModels: {
+          title: 'This group has no models yet',
+          hint: 'The administrator may still be configuring channels. Check back later or compare another group.'
+        }
+      },
+      exploreBanner: {
+        message: 'Viewing {group} catalog · multiplier ×{multiplier}',
+        cta: 'Create key in {group}'
+      },
+      billingMode: {
+        per_request: 'per call',
+        image: 'per image'
+      }
+    }
   },
 
   playground: {
