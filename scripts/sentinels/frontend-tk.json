@@ -215,6 +215,31 @@
       "rationale": "Chinese pricing 'Your Menu' i18n keys (tabMy, exploreBanner) must move in lockstep with the English copies above. An upstream merge that drops only one language leaves operators staring at raw `pricing.my.*` paths in either zh or en — a regression that compiles but visibly breaks the page."
     },
     {
+      "path": "frontend/src/views/admin/SettingsView.vue",
+      "must_contain": [
+        "v-model=\"form.tk_anthropic_request_normalize_enabled\"",
+        "admin.settings.gatewayForwarding.anthropicRequestNormalize",
+        "tk_anthropic_request_normalize_enabled: true"
+      ],
+      "rationale": "Admin toggle for tk_anthropic_request_normalize_enabled (Gateway Forwarding tab). Three load-bearing literals: (1) the Toggle v-model binding so the UI control actually flips the form state; (2) the i18n key prefix so the label + hint stay translated rather than falling back to raw keys; (3) the PUT payload field so saving the toggle reaches the backend. Dropping any one silently breaks the operator's one-click rollback path for the Anthropic request normalize feature (2026-05-21 incident)."
+    },
+    {
+      "path": "frontend/src/i18n/locales/en.ts",
+      "must_contain": [
+        "anthropicRequestNormalize:",
+        "anthropicRequestNormalizeHint:"
+      ],
+      "rationale": "English i18n keys for the Anthropic request normalize admin toggle (label + hint). Must move in lockstep with the zh.ts counterpart so an upstream merge that drops only one language cannot leave the toggle showing raw `admin.settings.gatewayForwarding.anthropicRequestNormalize` strings."
+    },
+    {
+      "path": "frontend/src/i18n/locales/zh.ts",
+      "must_contain": [
+        "anthropicRequestNormalize:",
+        "anthropicRequestNormalizeHint:"
+      ],
+      "rationale": "Chinese i18n keys for the Anthropic request normalize admin toggle. Locked in lockstep with the en.ts counterpart so neither language can silently regress to raw key strings."
+    },
+    {
       "path": "frontend/src/views/PricingView.vue",
       "must_contain": [
         "getMePricingCatalog",

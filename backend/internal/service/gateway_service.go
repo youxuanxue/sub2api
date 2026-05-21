@@ -4457,6 +4457,13 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		})
 	}
 
+	// TK: normalize Anthropic native request body (tool_choice string -> object;
+	// strip thinking when tool_choice forces tool use). Runs once per request
+	// before any downstream rewrite. See gateway_anthropic_request_normalize_tk.go.
+	if account.Platform == PlatformAnthropic {
+		body = s.tkNormalizeAnthropicRequestBody(ctx, c, body)
+	}
+
 	// Claude Code 客户端判定：UA 匹配 claude-cli/* 且携带 metadata.user_id。
 	// 真正的 Claude Code 客户端自带完整的 system prompt、cache_control 断点和 header，
 	// 不需要代理做任何 body 级别的 mimicry；强行替换反而会破坏客户端的缓存策略
@@ -9022,6 +9029,15 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 
 	// Pre-filter: strip empty text blocks to prevent upstream 400.
 	body = StripEmptyTextBlocks(body)
+
+	// TK: normalize Anthropic native request body for count_tokens path
+	// (mirrors the Forward path). Same client request shape lands on both
+	// endpoints; without this, tool_choice="required" / thinking+forces-tool-use
+	// 400s here can trip the per-account upstream-error breaker (see
+	// StripCountTokensUnsupportedFields comment).
+	if account != nil && account.Platform == PlatformAnthropic {
+		body = s.tkNormalizeAnthropicRequestBody(ctx, c, body)
+	}
 
 	// Pre-filter: strip fields that Anthropic's count_tokens endpoint rejects
 	// with `invalid_request_error: "<field>: Extra inputs are not permitted"`.

@@ -91,6 +91,7 @@ type cachedGatewayForwardingSettings struct {
 	cchSigning                   bool
 	anthropicCacheTTL1hInjection bool
 	rewriteMessageCacheControl   bool
+	anthropicRequestNormalize    bool
 	expiresAt                    int64 // unix nano
 }
 
@@ -1446,6 +1447,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyAccountQuotaNotifyEnabled] = strconv.FormatBool(settings.AccountQuotaNotifyEnabled)
 	updates[SettingKeyAccountQuotaNotifyEmails] = MarshalNotifyEmails(settings.AccountQuotaNotifyEmails)
 	s.tkAppendTokenKeyBridgeSettingUpdates(updates, settings)
+	s.tkAppendAnthropicNormalizeSettingUpdates(updates, settings)
 	s.tkAppendColdStartSettingUpdates(updates, settings)
 
 	// Do not persist here: callers (UpdateSettings / UpdateSettingsWithAuthSourceDefaults)
@@ -1506,6 +1508,7 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 		cchSigning:                   settings.EnableCCHSigning,
 		anthropicCacheTTL1hInjection: settings.EnableAnthropicCacheTTL1hInjection,
 		rewriteMessageCacheControl:   settings.RewriteMessageCacheControl,
+		anthropicRequestNormalize:    settings.AnthropicRequestNormalizeEnabled,
 		expiresAt:                    time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
 	})
 	s.antigravityUAVersionSF.Forget("antigravity_user_agent_version")
@@ -1632,7 +1635,7 @@ func (s *SettingService) IsBackendModeEnabled(ctx context.Context) bool {
 }
 
 type gatewayForwardingSettingsResult struct {
-	fp, mp, cch, cacheTTL1h, rewriteMessageCacheControl bool
+	fp, mp, cch, cacheTTL1h, rewriteMessageCacheControl, anthropicRequestNormalize bool
 }
 
 func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context) gatewayForwardingSettingsResult {
@@ -1644,6 +1647,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 				cch:                        cached.cchSigning,
 				cacheTTL1h:                 cached.anthropicCacheTTL1hInjection,
 				rewriteMessageCacheControl: cached.rewriteMessageCacheControl,
+				anthropicRequestNormalize:  cached.anthropicRequestNormalize,
 			}
 		}
 	}
@@ -1656,6 +1660,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 					cch:                        cached.cchSigning,
 					cacheTTL1h:                 cached.anthropicCacheTTL1hInjection,
 					rewriteMessageCacheControl: cached.rewriteMessageCacheControl,
+					anthropicRequestNormalize:  cached.anthropicRequestNormalize,
 				}, nil
 			}
 		}
@@ -1667,6 +1672,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			SettingKeyEnableCCHSigning,
 			SettingKeyEnableAnthropicCacheTTL1hInjection,
 			SettingKeyRewriteMessageCacheControl,
+			SettingKeyAnthropicRequestNormalizeEnabled,
 		})
 		if err != nil {
 			slog.Warn("failed to get gateway forwarding settings", "error", err)
@@ -1676,9 +1682,17 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 				cchSigning:                   false,
 				anthropicCacheTTL1hInjection: false,
 				rewriteMessageCacheControl:   s.defaultRewriteMessageCacheControl(),
+				anthropicRequestNormalize:    true,
 				expiresAt:                    time.Now().Add(gatewayForwardingErrorTTL).UnixNano(),
 			})
-			return gatewayForwardingSettingsResult{fp: true, rewriteMessageCacheControl: s.defaultRewriteMessageCacheControl()}, nil
+			return gatewayForwardingSettingsResult{
+				fp:                         true,
+				mp:                         false,
+				cch:                        false,
+				cacheTTL1h:                 false,
+				rewriteMessageCacheControl: s.defaultRewriteMessageCacheControl(),
+				anthropicRequestNormalize:  true,
+			}, nil
 		}
 		fp := true
 		if v, ok := values[SettingKeyEnableFingerprintUnification]; ok && v != "" {
@@ -1691,12 +1705,15 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 		if v, ok := values[SettingKeyRewriteMessageCacheControl]; ok && v != "" {
 			rewriteMessageCacheControl = v == "true"
 		}
+		// Default-true: missing / empty value means enabled. Explicit "false" disables.
+		anthropicRequestNormalize := !isFalseSettingValue(values[SettingKeyAnthropicRequestNormalizeEnabled])
 		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
 			fingerprintUnification:       fp,
 			metadataPassthrough:          mp,
 			cchSigning:                   cch,
 			anthropicCacheTTL1hInjection: cacheTTL1h,
 			rewriteMessageCacheControl:   rewriteMessageCacheControl,
+			anthropicRequestNormalize:    anthropicRequestNormalize,
 			expiresAt:                    time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
 		})
 		return gatewayForwardingSettingsResult{
@@ -1705,12 +1722,13 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			cch:                        cch,
 			cacheTTL1h:                 cacheTTL1h,
 			rewriteMessageCacheControl: rewriteMessageCacheControl,
+			anthropicRequestNormalize:  anthropicRequestNormalize,
 		}, nil
 	})
 	if r, ok := val.(gatewayForwardingSettingsResult); ok {
 		return r
 	}
-	return gatewayForwardingSettingsResult{fp: true}
+	return gatewayForwardingSettingsResult{fp: true, anthropicRequestNormalize: true}
 }
 
 // GetGatewayForwardingSettings returns cached gateway forwarding settings.
@@ -2210,6 +2228,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyAntigravityUserAgentVersion:        "",
 	}
 	tkMergeDefaultTokenKeyBridgeSettings(defaults)
+	tkMergeDefaultAnthropicNormalizeSettings(defaults)
 	tkMergeDefaultColdStartSettings(defaults)
 
 	return s.settingRepo.SetMultiple(ctx, defaults)
@@ -2251,6 +2270,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		BackendModeEnabled:               settings[SettingKeyBackendModeEnabled] == "true",
 	}
 	tkApplyTokenKeyBridgeParsed(settings, result)
+	tkApplyAnthropicNormalizeParsed(settings, result)
 	tkApplyColdStartParsed(settings, result)
 	result.TableDefaultPageSize, result.TablePageSizeOptions = parseTablePreferences(
 		settings[SettingKeyTableDefaultPageSize],

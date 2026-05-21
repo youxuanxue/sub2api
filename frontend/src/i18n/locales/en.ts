@@ -5557,6 +5557,8 @@ export default {
         anthropicCacheTTL1hInjectionHint: 'When enabled, existing ephemeral cache_control blocks in Anthropic OAuth/Setup Token request bodies are forced to 1h; response usage is billed back as 5m by default, with account-level TTL billing override taking priority.',
         rewriteMessageCacheControl: 'Rewrite Message Cache Breakpoints',
         rewriteMessageCacheControlHint: 'Default off: preserve client cache_control on message content blocks. When enabled, client breakpoints are stripped and proxy breakpoints are injected for clients that do not manage caching themselves.',
+        anthropicRequestNormalize: 'Anthropic Request Normalize',
+        anthropicRequestNormalizeHint: 'Default on. Fixes two recurring client mistakes on /v1/messages before forwarding: (1) tool_choice given as an OpenAI-style string ("auto" / "required" / "none") is rewritten to Anthropic\'s required object form; (2) when thinking is enabled together with a tool_choice that forces tool use (any / tool), strips thinking to preserve the forced-tool-use intent. Unknown tool_choice strings are left untouched so the upstream still surfaces the client bug.',
         antigravityUserAgentVersion: 'Antigravity UA Version',
         antigravityUserAgentVersionPlaceholder: '1.23.2',
         antigravityUserAgentVersionHint: 'Leave empty to use ANTIGRAVITY_USER_AGENT_VERSION or the built-in default 1.23.2; when set, the admin setting takes precedence.',

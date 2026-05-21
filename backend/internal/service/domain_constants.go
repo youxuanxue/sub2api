@@ -87,6 +87,13 @@ const (
 // TokenKey bridge setting keys
 const (
 	SettingKeyNewAPIBridgeEnabled = "newapi_bridge_enabled"
+
+	// SettingKeyAnthropicRequestNormalizeEnabled toggles gateway-side
+	// normalization of common client mistakes on the Anthropic native
+	// /v1/messages path (tool_choice string -> object; strip thinking when
+	// tool_choice forces tool use). Defaults to true. See
+	// gateway_anthropic_request_normalize_tk.go for the rules.
+	SettingKeyAnthropicRequestNormalizeEnabled = "tk_anthropic_request_normalize_enabled"
 )
 
 // LinuxDoConnectSyntheticEmailDomain 是 LinuxDo Connect 用户的合成邮箱后缀（RFC 保留域名）。

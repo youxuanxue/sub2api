@@ -721,6 +721,39 @@
         "ErrMePricingNoAccessibleGroups"
       ],
       "rationale": "Per-user pricing-catalog handler. Pinning the auth check and the two sentinel-error mappings catches the two most likely regressions: (a) dropping JWT enforcement (anyone could probe other users' menus), and (b) collapsing the error mapping so the UI's 'create a key' empty-state banner and 'group not accessible' forbidden message stop firing. The 200-with-empty-data fallback for ErrMePricingNoAccessibleGroups is intentional UI behavior — not an error suppression bug."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "s.tkNormalizeAnthropicRequestBody(ctx, c, body)",
+        "// TK: normalize Anthropic native request body for count_tokens path"
+      ],
+      "rationale": "Anchors the TWO call sites of the Anthropic-native request-body normalizer (tool_choice string -> object; strip thinking when tool_choice forces tool use). First call: GatewayService.Forward (~4460), between CLIENT_ORIGINAL debug log and the shouldMimicClaudeCode branch, so it runs for ALL Anthropic Forward callers — OAuth + non-CC, OAuth + CC, APIKey (non-passthrough), and ServiceAccount alike. Second call: GatewayService.ForwardCountTokens (~9030), after StripEmptyTextBlocks and before StripCountTokensUnsupportedFields. The count_tokens-specific banner comment is pinned because the bare `s.tkNormalizeAnthropicRequestBody(ctx, c, body)` literal alone would be satisfied by the Forward call site, leaving count_tokens silently unguarded. Dropping either silently regresses to the upstream 400 trap from the 2026-05-21 incident; on the count_tokens path it can additionally trip the per-account upstream-error breaker (see StripCountTokensUnsupportedFields comment) since the rule's effect is invisible to functional tests because the upstream still works for well-formed requests."
+    },
+    {
+      "path": "backend/internal/service/gateway_anthropic_request_normalize_tk.go",
+      "must_contain": [
+        "func (s *GatewayService) tkNormalizeAnthropicRequestBody",
+        "func tkNormalizeAnthropicToolChoiceString",
+        "func tkNormalizeAnthropicThinkingForcesToolUse",
+        "tkNormalizeChangeToolChoiceStringToObject",
+        "tkNormalizeChangeThinkingForcesToolUse",
+        "Kind:     \"request_normalized\"",
+        "gateway.anthropic_request_normalized"
+      ],
+      "rationale": "Anchors the two normalize rules and their observability hooks. The rule functions MUST stay pure (no settingService dependency) so they remain trivially unit-testable; the GatewayService method is the only place that consults settingService.IsAnthropicRequestNormalizeEnabled. The two change-kind constants double as ops-event payload identifiers (Message field of OpsUpstreamErrorEvent) and as SQL filter terms in operator runbooks — renaming them silently breaks downstream dashboards. The Kind=\"request_normalized\" literal and the gateway.anthropic_request_normalized log key together let operators compute save-rate = 1 - (rows-with-event / total-normalize-hits); changing either breaks the existing query template."
+    },
+    {
+      "path": "backend/internal/service/setting_service_tk_anthropic_normalize.go",
+      "must_contain": [
+        "SettingKeyAnthropicRequestNormalizeEnabled",
+        "tkAppendAnthropicNormalizeSettingUpdates",
+        "tkMergeDefaultAnthropicNormalizeSettings",
+        "tkApplyAnthropicNormalizeParsed",
+        "IsAnthropicRequestNormalizeEnabled",
+        "return true"
+      ],
+      "rationale": "TK setting triplet (Append/Merge/Apply) + IsXxxEnabled helper for the Anthropic request normalize toggle. The triplet MUST stay wired into setting_service.go (buildSystemSettingsUpdates / InitializeDefaultSettings / parseSettings) — losing any of the three breaks the admin GET/PUT flow. The `return true` literal anchors the default-enabled behavior: a missing/empty/error setting value MUST default to enabled so a fresh install still normalizes; flipping the default to false would silently disable the rule on every fresh DB."
     }
   ]
 }
