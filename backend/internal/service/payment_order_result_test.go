@@ -168,8 +168,10 @@ func TestBuildPaymentSubjectAppliesAffixToSubscriptionPlanDefaultName(t *testing
 	plan := &dbent.SubscriptionPlan{Name: "Team Monthly"}
 
 	got := svc.buildPaymentSubject(plan, 0, cfg, nil)
-	if got != "PRE Sub2API Subscription Team Monthly SUF" {
-		t.Fatalf("buildPaymentSubject() = %q, want %q", got, "PRE Sub2API Subscription Team Monthly SUF")
+	// TK brand: fallback product name is "TokenKey Subscription <plan>" — see
+	// payment_order.go buildPaymentSubject for the rationale.
+	if got != "PRE TokenKey Subscription Team Monthly SUF" {
+		t.Fatalf("buildPaymentSubject() = %q, want %q", got, "PRE TokenKey Subscription Team Monthly SUF")
 	}
 }
 

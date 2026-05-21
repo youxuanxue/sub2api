@@ -504,7 +504,13 @@ func (s *PaymentService) buildPaymentSubject(plan *dbent.SubscriptionPlan, limit
 	if plan != nil {
 		productName := plan.ProductName
 		if productName == "" {
-			productName = "Sub2API Subscription " + plan.Name
+			// TK brand: upstream's literal "Sub2API Subscription <plan>" was a
+			// silent brand regression on TokenKey deployments that hadn't set
+			// PaymentProductNamePrefix manually. Keep the TK product-name
+			// fallback in sync with brand.json sentinels — applyPaymentProductNameAffix
+			// still runs below so admin-configured prefix/suffix layer cleanly
+			// on top when present.
+			productName = "TokenKey Subscription " + plan.Name
 		}
 		return applyPaymentProductNameAffix(productName, cfg)
 	}
