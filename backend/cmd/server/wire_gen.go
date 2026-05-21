@@ -260,7 +260,8 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		return nil, err
 	}
 	pricingCatalogHandler := handler.ProvideTKPricingCatalogHandler(pricingCatalogService, settingService, pricingAvailabilityService)
-	mePricingCatalogService := service.NewMePricingCatalogService(apiKeyService, channelService, pricingCatalogService)
+	accountService := service.NewAccountService(accountRepository, groupRepository)
+	mePricingCatalogService := service.NewMePricingCatalogService(apiKeyService, channelService, pricingCatalogService, accountService)
 	mePricingCatalogHandler := handler.NewMePricingCatalogHandler(mePricingCatalogService)
 	qaHandler := handler.NewQAHandler(qaService)
 	idempotencyCoordinator := service.ProvideIdempotencyCoordinator(idempotencyRepository, configConfig)

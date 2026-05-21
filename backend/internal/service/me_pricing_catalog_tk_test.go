@@ -68,6 +68,18 @@ func (f *fakeCatalogProvider) BuildPublicCatalog(ctx context.Context) *PublicCat
 	return f.resp
 }
 
+type fakeAccountSource struct {
+	accounts []Account
+	err      error
+}
+
+func (f *fakeAccountSource) ListSchedulableByGroupID(ctx context.Context, groupID int64) ([]Account, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.accounts, nil
+}
+
 // ----- builders -----
 
 func mkGroupForMe(id int64, name, platform string, rate float64) Group {
@@ -120,6 +132,53 @@ func mkPricing(input, output, cacheR float64) *ChannelModelPricing {
 
 func newService(k *fakeKeyAccess, c *fakeChannelLister, cat *fakeCatalogProvider) *MePricingCatalogService {
 	return &MePricingCatalogService{keys: k, channels: c, catalog: cat}
+}
+
+// newServiceWithAccounts mirrors newService but wires the account-whitelist
+// fallback source (introduced by the post-#325/#326 bridge PR). Existing
+// tests that pass nil accounts get the legacy "channel-only" behavior.
+func newServiceWithAccounts(
+	k *fakeKeyAccess,
+	c *fakeChannelLister,
+	cat *fakeCatalogProvider,
+	a *fakeAccountSource,
+) *MePricingCatalogService {
+	return &MePricingCatalogService{keys: k, channels: c, catalog: cat, accounts: a}
+}
+
+// mkAccountWithWhitelist builds an Account whose credentials.model_mapping
+// is the identity map for the supplied model IDs — exactly the JSON shape
+// admin UI's ModelWhitelistSelector emits when in whitelist mode.
+func mkAccountWithWhitelist(id int64, name, platform string, channelType int, whitelist []string) Account {
+	creds := map[string]any{}
+	if len(whitelist) > 0 {
+		mm := make(map[string]any, len(whitelist))
+		for _, m := range whitelist {
+			mm[m] = m
+		}
+		creds["model_mapping"] = mm
+	}
+	return Account{
+		ID: id, Name: name, Platform: platform, ChannelType: channelType,
+		Status: StatusActive, Schedulable: true,
+		Credentials: creds,
+	}
+}
+
+// mkPublicCatalogModel builds a PublicCatalogResponse entry with per-1k
+// prices. CacheReadPer1K is optional — pass 0 to leave it absent.
+func mkPublicCatalogModel(modelID, vendor string, in, out, cacheR float64) PublicCatalogModel {
+	return PublicCatalogModel{
+		ModelID:      modelID,
+		Vendor:       vendor,
+		Capabilities: []string{},
+		Pricing: PublicCatalogPricing{
+			Currency:          "USD",
+			InputPer1KTokens:  in,
+			OutputPer1KTokens: out,
+			CacheReadPer1K:    cacheR,
+		},
+	}
 }
 
 // ----- tests -----
@@ -509,4 +568,214 @@ func TestMePricingCatalog_PerRequestBillingPreservesPrice(t *testing.T) {
 	require.NotNil(t, resp.Models[0].YourPrice.PerRequest)
 	assert.InDelta(t, 0.04, *resp.Models[0].YourPrice.PerRequest, 1e-9)
 	assert.Nil(t, resp.Models[0].YourPrice.InputPer1K)
+}
+
+// ----- account-whitelist fallback (post-#325/#326 bridge) -----
+
+// TestBuildForUser_AccountWhitelistOnly_NoChannels mirrors the production
+// incident that motivated the bridge: operator created an account, ticked
+// the model-whitelist boxes in admin, never configured any channels. The
+// menu should reflect the whitelist with LiteLLM-derived default prices
+// × group rate, not be empty.
+func TestBuildForUser_AccountWhitelistOnly_NoChannels(t *testing.T) {
+	gOpenAI := mkGroupForMe(30, "GPT", "openai", 2.0)
+	k1 := mkKeyForMe(1, 7, "gpt-key", ptrI(30))
+	acct := mkAccountWithWhitelist(11, "openai-oauth", "openai", 0, []string{"gpt-5.2", "gpt-4o"})
+	catalog := &PublicCatalogResponse{
+		Data: []PublicCatalogModel{
+			mkPublicCatalogModel("gpt-5.2", "OpenAI", 0.005, 0.020, 0),
+			mkPublicCatalogModel("gpt-4o", "OpenAI", 0.0025, 0.010, 0),
+		},
+	}
+	svc := newServiceWithAccounts(
+		&fakeKeyAccess{groups: []Group{gOpenAI}, keys: []APIKey{k1}},
+		&fakeChannelLister{},
+		&fakeCatalogProvider{resp: catalog},
+		&fakeAccountSource{accounts: []Account{acct}},
+	)
+	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
+	require.NoError(t, err)
+	require.Len(t, resp.Models, 2, "both whitelisted GPT models should surface")
+	byID := map[string]MePricingModel{}
+	for _, m := range resp.Models {
+		byID[m.ModelID] = m
+	}
+	require.Contains(t, byID, "gpt-5.2")
+	require.NotNil(t, byID["gpt-5.2"].YourPrice.InputPer1K)
+	assert.InDelta(t, 0.010, *byID["gpt-5.2"].YourPrice.InputPer1K, 1e-9, "0.005 catalog × 2.0 effective rate")
+	require.NotNil(t, byID["gpt-5.2"].YourPrice.OutputPer1K)
+	assert.InDelta(t, 0.040, *byID["gpt-5.2"].YourPrice.OutputPer1K, 1e-9, "0.020 catalog × 2.0 effective rate")
+	require.NotNil(t, byID["gpt-4o"].YourPrice.InputPer1K)
+	assert.InDelta(t, 0.005, *byID["gpt-4o"].YourPrice.InputPer1K, 1e-9)
+}
+
+// TestBuildForUser_ChannelAndAccount_ChannelWins guards the "channel
+// price is authoritative on conflict" rule. The catalog input for the
+// shared model is set to a very different number than the channel price
+// so a regression that overwrote channel rows would be obvious.
+func TestBuildForUser_ChannelAndAccount_ChannelWins(t *testing.T) {
+	gOpenAI := mkGroupForMe(30, "GPT", "openai", 1.0)
+	k1 := mkKeyForMe(1, 7, "gpt-key", ptrI(30))
+	channel := mkChannelWithModel(100, "operator-ch",
+		[]AvailableGroupRef{{ID: 30, Platform: "openai"}},
+		[]SupportedModel{mkSupportedModel("gpt-5.2", "openai", mkPricing(0.001, 0.002, 0))},
+	)
+	acct := mkAccountWithWhitelist(11, "openai-oauth", "openai", 0, []string{"gpt-5.2", "gpt-4o"})
+	catalog := &PublicCatalogResponse{
+		Data: []PublicCatalogModel{
+			mkPublicCatalogModel("gpt-5.2", "OpenAI", 0.999, 0.999, 0),
+			mkPublicCatalogModel("gpt-4o", "OpenAI", 0.0025, 0.010, 0),
+		},
+	}
+	svc := newServiceWithAccounts(
+		&fakeKeyAccess{groups: []Group{gOpenAI}, keys: []APIKey{k1}},
+		&fakeChannelLister{channels: []AvailableChannel{channel}},
+		&fakeCatalogProvider{resp: catalog},
+		&fakeAccountSource{accounts: []Account{acct}},
+	)
+	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
+	require.NoError(t, err)
+	require.Len(t, resp.Models, 2)
+	byID := map[string]MePricingModel{}
+	for _, m := range resp.Models {
+		byID[m.ModelID] = m
+	}
+	require.NotNil(t, byID["gpt-5.2"].YourPrice.InputPer1K)
+	assert.InDelta(t, 1.0, *byID["gpt-5.2"].YourPrice.InputPer1K, 1e-9,
+		"0.001 channel × 1000 (per-token → per-1k) × 1.0 rate; catalog 0.999 MUST NOT win")
+	require.NotNil(t, byID["gpt-4o"].YourPrice.InputPer1K)
+	assert.InDelta(t, 0.0025, *byID["gpt-4o"].YourPrice.InputPer1K, 1e-9, "gpt-4o is account-only — catalog 0.0025 × 1.0 rate")
+}
+
+// TestBuildForUser_AccountWhitelist_VendorPrefix exercises reuse of
+// stripVendorPrefixForCatalogLookup (PR #326). An account whitelisting an
+// OpenRouter-style "<vendor>/<model>" must still resolve to the LiteLLM
+// catalog's bare model_id row.
+func TestBuildForUser_AccountWhitelist_VendorPrefix(t *testing.T) {
+	gAnthropic := mkGroupForMe(40, "claude", "anthropic", 1.0)
+	k1 := mkKeyForMe(1, 7, "claude-key", ptrI(40))
+	acct := mkAccountWithWhitelist(11, "anthropic-key", "anthropic", 0,
+		[]string{"anthropic/claude-3-5-sonnet"})
+	catalog := &PublicCatalogResponse{
+		Data: []PublicCatalogModel{
+			mkPublicCatalogModel("claude-3-5-sonnet", "Anthropic", 0.003, 0.015, 0),
+		},
+	}
+	svc := newServiceWithAccounts(
+		&fakeKeyAccess{groups: []Group{gAnthropic}, keys: []APIKey{k1}},
+		&fakeChannelLister{},
+		&fakeCatalogProvider{resp: catalog},
+		&fakeAccountSource{accounts: []Account{acct}},
+	)
+	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
+	require.NoError(t, err)
+	require.Len(t, resp.Models, 1)
+	assert.Equal(t, "anthropic/claude-3-5-sonnet", resp.Models[0].ModelID,
+		"row keeps the operator-facing ID; only the catalog lookup uses the stripped form")
+	require.NotNil(t, resp.Models[0].YourPrice.InputPer1K)
+	assert.InDelta(t, 0.003, *resp.Models[0].YourPrice.InputPer1K, 1e-9)
+}
+
+// TestBuildForUser_AccountWhitelist_CrossPlatformGuard confirms an
+// openai-platform account does not leak into an anthropic-platform group
+// even when both share a group binding edge.
+func TestBuildForUser_AccountWhitelist_CrossPlatformGuard(t *testing.T) {
+	gAnthropic := mkGroupForMe(40, "claude", "anthropic", 1.0)
+	k1 := mkKeyForMe(1, 7, "claude-key", ptrI(40))
+	// openai account that somehow ended up on an anthropic group's
+	// schedulable list (the scheduler would reject it; we double-check
+	// the menu builder enforces the same rule).
+	acct := mkAccountWithWhitelist(11, "stray-openai", "openai", 0, []string{"gpt-5.2"})
+	catalog := &PublicCatalogResponse{
+		Data: []PublicCatalogModel{
+			mkPublicCatalogModel("gpt-5.2", "OpenAI", 0.005, 0.020, 0),
+		},
+	}
+	svc := newServiceWithAccounts(
+		&fakeKeyAccess{groups: []Group{gAnthropic}, keys: []APIKey{k1}},
+		&fakeChannelLister{},
+		&fakeCatalogProvider{resp: catalog},
+		&fakeAccountSource{accounts: []Account{acct}},
+	)
+	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
+	require.NoError(t, err)
+	assert.Empty(t, resp.Models, "openai account must not surface on an anthropic group menu")
+}
+
+// TestBuildForUser_AccountWhitelist_MappingModeIgnored documents the
+// whitelist-only contract: an entry with from != to is a routing
+// rewrite (alias), not a user-visible menu item.
+func TestBuildForUser_AccountWhitelist_MappingModeIgnored(t *testing.T) {
+	gAnthropic := mkGroupForMe(40, "claude", "anthropic", 1.0)
+	k1 := mkKeyForMe(1, 7, "claude-key", ptrI(40))
+	acct := Account{
+		ID: 11, Name: "alias-only", Platform: "anthropic",
+		Status: StatusActive, Schedulable: true,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				// mapping mode: "claude-3-haiku" requests routed to claude-3-5-sonnet upstream
+				"claude-3-haiku": "claude-3-5-sonnet",
+				// whitelist mode: real menu offering
+				"claude-3-5-sonnet": "claude-3-5-sonnet",
+			},
+		},
+	}
+	catalog := &PublicCatalogResponse{
+		Data: []PublicCatalogModel{
+			mkPublicCatalogModel("claude-3-haiku", "Anthropic", 0.0005, 0.0025, 0),
+			mkPublicCatalogModel("claude-3-5-sonnet", "Anthropic", 0.003, 0.015, 0),
+		},
+	}
+	svc := newServiceWithAccounts(
+		&fakeKeyAccess{groups: []Group{gAnthropic}, keys: []APIKey{k1}},
+		&fakeChannelLister{},
+		&fakeCatalogProvider{resp: catalog},
+		&fakeAccountSource{accounts: []Account{acct}},
+	)
+	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
+	require.NoError(t, err)
+	require.Len(t, resp.Models, 1)
+	assert.Equal(t, "claude-3-5-sonnet", resp.Models[0].ModelID,
+		"only the identity-mapped (whitelist) entry surfaces; the alias rewrite contributes nothing")
+}
+
+// TestBuildForUser_AccountWhitelist_MissingFromLiteLLM_StillEmits
+// documents the forgiving fallback: a model that LiteLLM doesn't price
+// yet (e.g. a freshly released family) still appears in the menu with
+// nil prices, so the user knows the gateway can serve it.
+func TestBuildForUser_AccountWhitelist_MissingFromLiteLLM_StillEmits(t *testing.T) {
+	gOpenAI := mkGroupForMe(30, "GPT", "openai", 1.0)
+	k1 := mkKeyForMe(1, 7, "gpt-key", ptrI(30))
+	acct := mkAccountWithWhitelist(11, "oauth", "openai", 0, []string{"gpt-5.5-not-in-catalog"})
+	svc := newServiceWithAccounts(
+		&fakeKeyAccess{groups: []Group{gOpenAI}, keys: []APIKey{k1}},
+		&fakeChannelLister{},
+		&fakeCatalogProvider{resp: &PublicCatalogResponse{}},
+		&fakeAccountSource{accounts: []Account{acct}},
+	)
+	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
+	require.NoError(t, err)
+	require.Len(t, resp.Models, 1)
+	assert.Equal(t, "gpt-5.5-not-in-catalog", resp.Models[0].ModelID)
+	assert.Nil(t, resp.Models[0].YourPrice.InputPer1K, "unknown to catalog → nil (UI renders —)")
+	assert.Nil(t, resp.Models[0].YourPrice.OutputPer1K)
+}
+
+// TestBuildForUser_AccountSourceError_DoesNotKillResponse documents the
+// best-effort posture of the fallback: a failing account read must not
+// break the catalog endpoint, otherwise a transient DB hiccup in account
+// listing would 500 the /pricing page.
+func TestBuildForUser_AccountSourceError_DoesNotKillResponse(t *testing.T) {
+	gOpenAI := mkGroupForMe(30, "GPT", "openai", 1.0)
+	k1 := mkKeyForMe(1, 7, "gpt-key", ptrI(30))
+	svc := newServiceWithAccounts(
+		&fakeKeyAccess{groups: []Group{gOpenAI}, keys: []APIKey{k1}},
+		&fakeChannelLister{},
+		&fakeCatalogProvider{resp: &PublicCatalogResponse{}},
+		&fakeAccountSource{err: errors.New("db unavailable")},
+	)
+	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
+	require.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Empty(t, resp.Models)
 }

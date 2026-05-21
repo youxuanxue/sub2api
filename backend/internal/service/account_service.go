@@ -232,6 +232,16 @@ func (s *AccountService) ListByGroup(ctx context.Context, groupID int64) ([]Acco
 	return accounts, nil
 }
 
+// ListSchedulableByGroupID 返回分组下当前可被调度的账号（active + schedulable + 未在临时不可调度窗口）。
+// 与 ListByGroup 的区别：后者返回全部状态，前者贴近调度器视角。
+func (s *AccountService) ListSchedulableByGroupID(ctx context.Context, groupID int64) ([]Account, error) {
+	accounts, err := s.accountRepo.ListSchedulableByGroupID(ctx, groupID)
+	if err != nil {
+		return nil, fmt.Errorf("list schedulable accounts by group: %w", err)
+	}
+	return accounts, nil
+}
+
 // Update 更新账号
 func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccountRequest) (*Account, error) {
 	account, err := s.accountRepo.GetByID(ctx, id)
