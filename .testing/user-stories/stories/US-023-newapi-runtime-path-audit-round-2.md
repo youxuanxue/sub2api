@@ -37,18 +37,19 @@
    `handle429` 处理该响应，Then 仍然落入文档化的默认 5 分钟兜底分支并
    调用一次 `SetRateLimited`，验证修复**未**变成"总是解析 OpenAI 体"
    的过度干预。
-3. AC-003 (正向 / ops retry classifier): Given `detectOpsRetryType` 收
-   到任意 `/chat/completions`（含 `/v1/chat/completions` 与
-   `/V1/Chat/Completions` 大小写），When 分类执行，Then 必须返回
-   `opsRetryTypeOpenAI`；与此同时 `/v1/responses`、`/v1beta/...`、
-   `/v1/messages`、空字符串这 4 个既有路径分类**保持原样**（回归保护）。
-4. AC-004 (负向 / ops retry guard): Given 一个 OpenAI 或 NewAPI 账号被
-   错误地以 `opsRetryTypeMessages` 调入 `executeWithAccount`（模拟未来
-   分类器回归），When 走到 messages-default 分支，Then 必须返回
-   `opsRetryStatusFailed`、错误信息中包含平台名 `openai` / `newapi` 与
-   `OpenAI-compat` 或 `opsRetryTypeOpenAI` 字样，且**不能**真正调用
-   `gatewayService.Forward`（用 `gatewayService=nil` 验证不会 panic / nil
-   deref，证明守卫先于转发执行）。
+3. AC-003 ~~(正向 / ops retry classifier)~~ **superseded by upstream
+   Wei-Shaw/sub2api `2eb622f2` "Remove ops retry replay storage"** —
+   the runtime classifier (`detectOpsRetryType`) and the entire
+   ops_retry path were removed upstream; admin "retry with account" no
+   longer exists at runtime, so this AC is no longer load-bearing.
+   Original intent: ~~Given `detectOpsRetryType` 收到任意 `/chat/completions`，
+   必须返回 `opsRetryTypeOpenAI` 并保留其他 4 条历史分类不变。~~
+4. AC-004 ~~(负向 / ops retry guard)~~ **superseded by upstream
+   Wei-Shaw/sub2api `2eb622f2`** — `executeWithAccount` and the
+   messages-default OpenAI/NewAPI guard were removed alongside the
+   ops_retry feature. Original intent: ~~Given OpenAI/NewAPI 账号错误地
+   以 `opsRetryTypeMessages` 调入 `executeWithAccount`，必须返回
+   `opsRetryStatusFailed` 并明示平台名，且不调用 `gatewayService.Forward`。~~
 5. AC-005 (回归): Given 本次代码变更，When 执行 `go test -tags=unit -run
    'TestUS023_' ./internal/service/...`，Then 全部通过。
 
@@ -57,18 +58,22 @@
 - `repo.rateLimitedAt.Unix() == expectedResetUnix`（AC-001）
 - `repo.rateLimitedCalls == 1` 且 `rateLimitedAt` 落在 `[before+5min,
   after+5min]` 窗口（AC-002）
-- `detectOpsRetryType("/v1/chat/completions") == opsRetryTypeOpenAI`
-  且 `/v1/messages` 仍 == `opsRetryTypeMessages`（AC-003）
-- `exec.status == opsRetryStatusFailed`，`exec.errorMessage` contains
-  platform 与 `OpenAI-compat` 或 `opsRetryTypeOpenAI`（AC-004）
+- AC-003 / AC-004 assertions superseded — upstream commit `2eb622f2`
+  retired the entire ops_retry surface (classifier + executeWithAccount
+  + admin "retry with account"). No live assertion remains for these.
 - 完整 `go test -tags=unit ./internal/service/...` exit 0（AC-005）
 
 ## Linked Tests
 
 - `backend/internal/service/us023_newapi_handle429_test.go`::`TestUS023_NewAPI_Handle429_ParsesOpenAICompatBody` (AC-001)
 - `backend/internal/service/us023_newapi_handle429_test.go`::`TestUS023_NewAPI_Handle429_FallsBackTo5MinWhenBodyHasNoResetTime` (AC-002)
-- `backend/internal/service/us023_newapi_handle429_test.go`::`TestUS023_OpsRetry_ClassifiesChatCompletionsAsOpenAI` (AC-003)
-- `backend/internal/service/us023_newapi_handle429_test.go`::`TestUS023_OpsRetry_ExecuteWithAccount_GuardsOpenAICompatInMessagesDefault` (AC-004)
+- AC-003 / AC-004 (ops_retry classifier + executeWithAccount guard) — 已随
+  上游 Wei-Shaw/sub2api commit `2eb622f2 Remove ops retry replay storage`
+  退役：`ops_retry.go` / `ops_retry_attempts` 表 / `ops_error_logs` 上的
+  `request_body` 等列均已删除，runtime 层不再有需要回归保护的 "admin
+  retry with account" 分支。本 story 的 AC-001/AC-002 仍由上方两个 429
+  body-parse 测试覆盖；AC-003/AC-004 标记为 superseded-by-upstream，无
+  对应活跃测试。
 - 运行命令: `go test -tags=unit -v -run 'TestUS023_' ./backend/internal/service/...`
 
 ## Evidence

@@ -501,8 +501,13 @@ type ForwardResult struct {
 	ReasoningEffort  *string
 
 	// 图片生成计费字段（图片生成模型使用）
-	ImageCount int    // 生成的图片数量
-	ImageSize  string // 图片尺寸 "1K", "2K", "4K"
+	ImageCount         int    // 生成的图片数量
+	ImageSize          string // 最终计费尺寸 "1K", "2K", "4K"
+	ImageInputSize     string // 请求中的原始图片尺寸
+	ImageOutputSize    string // 上游响应中的图片尺寸
+	ImageOutputSizes   []string
+	ImageSizeSource    string
+	ImageSizeBreakdown map[string]int
 }
 
 // UpstreamFailoverError indicates an upstream error that should trigger account failover.
@@ -1454,7 +1459,6 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 }
 
 // SelectAccountWithLoadAwareness selects account with load-awareness and wait plan.
-// 调度流程文档见 docs/ACCOUNT_SCHEDULING_FLOW.md 。
 // metadataUserID: 用于客户端亲和调度，从中提取客户端 ID
 // sub2apiUserID: 系统用户 ID，用于二维亲和调度
 func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, metadataUserID string, sub2apiUserID int64) (*AccountSelectionResult, error) {
@@ -4418,6 +4422,13 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		return s.handleWebSearchEmulation(ctx, c, account, parsed)
 	}
 
+	// Bedrock CC 兼容：在转发之前对请求体做 CC 兼容处理。
+	// 只修改 body 内容（thinking 类型、tool_use ID），不影响后续的透传/Bedrock 转发路径。
+	if account != nil && s.isBedrockCCCompatEnabled(ctx, account, parsed.GroupID) {
+		parsed.Body = sanitizeBedrockThinking(parsed.Body, parsed.Model)
+		parsed.Body = sanitizeBedrockToolUseIDs(parsed.Body)
+	}
+
 	if account != nil && account.IsAnthropicAPIKeyPassthroughEnabled() {
 		passthroughBody := parsed.Body
 		passthroughModel := parsed.Model
@@ -5796,6 +5807,18 @@ func writeAnthropicPassthroughResponseHeaders(dst http.Header, src http.Header, 
 	}
 }
 
+// isBedrockCCCompatEnabled 检查渠道是否启用了 Bedrock CC 兼容模式
+func (s *GatewayService) isBedrockCCCompatEnabled(ctx context.Context, account *Account, groupID *int64) bool {
+	if groupID == nil || s.channelService == nil {
+		return false
+	}
+	ch, err := s.channelService.GetChannelForGroup(ctx, *groupID)
+	if err != nil || ch == nil {
+		return false
+	}
+	return ch.IsBedrockCCCompatEnabled(account.Platform)
+}
+
 // forwardBedrock 转发请求到 AWS Bedrock
 func (s *GatewayService) forwardBedrock(
 	ctx context.Context,
@@ -5828,7 +5851,7 @@ func (s *GatewayService) forwardBedrock(
 		return nil, err
 	}
 
-	bedrockBody, err := PrepareBedrockRequestBodyWithTokens(body, mappedModel, betaTokens)
+	bedrockBody, err := PrepareBedrockRequestBodyWithTokens(body, mappedModel, betaTokens, false)
 	if err != nil {
 		return nil, fmt.Errorf("prepare bedrock request body: %w", err)
 	}
@@ -6347,7 +6370,6 @@ func (s *GatewayService) buildUpstreamRequestAnthropicVertex(
 	if err != nil {
 		return nil, err
 	}
-	setOpsUpstreamRequestBody(c, vertexBody)
 	fullURL, err := buildVertexAnthropicURL(account.VertexProjectID(), account.VertexLocation(modelID), modelID, reqStream)
 	if err != nil {
 		return nil, err
@@ -6917,7 +6939,11 @@ func (s *GatewayService) isThinkingBlockSignatureError(respBody []byte) bool {
 	}
 
 	// 检测空 thinking 字段错误（OpenAI-compat 历史回放到 Anthropic 原生路由时会触发）。
-	// 例如: "messages.11.content.0.thinking: each thinking block must contain thinking"
+	// 例如:
+	//   "messages.1.content.0.thinking: each thinking block must contain thinking"
+	//   "messages.11.content.0.thinking: each thinking block must contain thinking"
+	// 同时覆盖跨模型切换场景：其他模型回过的 assistant 历史里有 type=thinking
+	// 但没有 thinking 文本，喂给开启 extended thinking 的 claude 时会被拒。
 	if strings.Contains(msg, "must contain thinking") ||
 		strings.Contains(msg, "thinking block must contain") {
 		logger.LegacyPrintf("service.gateway", "[SignatureCheck] Detected empty thinking field error")
@@ -8565,6 +8591,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	user := input.User
 	account := input.Account
 	subscription := input.Subscription
+	ApplyForwardImageBillingResolution(result)
 
 	// 强制缓存计费：将 input_tokens 转为 cache_read_input_tokens
 	// 用于粘性会话切换时的特殊计费处理
@@ -8722,6 +8749,7 @@ func (s *GatewayService) calculateImageCost(
 	billingModel string,
 	multiplier float64,
 ) *CostBreakdown {
+	sizeTier := NormalizeImageBillingTierOrDefault(result.ImageSize)
 	if resolved := s.resolveChannelPricing(ctx, billingModel, apiKey); resolved != nil {
 		tokens := UsageTokens{
 			InputTokens:       result.Usage.InputTokens,
@@ -8735,7 +8763,7 @@ func (s *GatewayService) calculateImageCost(
 			GroupID:        &gid,
 			Tokens:         tokens,
 			RequestCount:   result.ImageCount,
-			SizeTier:       result.ImageSize,
+			SizeTier:       sizeTier,
 			RateMultiplier: multiplier,
 			Resolver:       s.resolver,
 			Resolved:       resolved,
@@ -8755,7 +8783,7 @@ func (s *GatewayService) calculateImageCost(
 			Price4K: apiKey.Group.ImagePrice4K,
 		}
 	}
-	return s.billingService.CalculateImageCost(billingModel, result.ImageSize, result.ImageCount, groupConfig, multiplier)
+	return s.billingService.CalculateImageCost(billingModel, sizeTier, result.ImageCount, groupConfig, multiplier)
 }
 
 // calculateTokenCost 计算 Token 计费：根据 opts 决定走普通/长上下文/渠道统一计费。
@@ -8856,6 +8884,10 @@ func (s *GatewayService) buildRecordUsageLog(
 		FirstTokenMs:          result.FirstTokenMs,
 		ImageCount:            result.ImageCount,
 		ImageSize:             optionalTrimmedStringPtr(result.ImageSize),
+		ImageInputSize:        optionalTrimmedStringPtr(result.ImageInputSize),
+		ImageOutputSize:       optionalTrimmedStringPtr(result.ImageOutputSize),
+		ImageSizeSource:       optionalTrimmedStringPtr(result.ImageSizeSource),
+		ImageSizeBreakdown:    result.ImageSizeBreakdown,
 		CacheTTLOverridden:    cacheTTLOverridden,
 		ChannelID:             optionalInt64Ptr(input.ChannelID),
 		ModelMappingChain:     optionalTrimmedStringPtr(input.ModelMappingChain),

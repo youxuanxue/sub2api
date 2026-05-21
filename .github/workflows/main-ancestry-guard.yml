@@ -206,6 +206,13 @@ jobs:
 
           check_source "PR title" "$PR_TITLE"
           check_source "PR body"  "$PR_BODY"
-          check_source "PR commit messages" "$(git log --format='%B' "$BASE".."$HEAD")"
+          # Use --first-parent so imported upstream history (second-parent
+          # of a `merge/upstream-*` merge commit) does NOT count — upstream's
+          # own `chore: sync VERSION to X.Y.Z [skip ci]` commits are by
+          # contract preserved and would otherwise wrongly trip this gate
+          # on every upstream merge. This matches the documented intent in
+          # upstream-merge-pr-shape.yml Check 3 ("Imported upstream history
+          # is allowed to keep upstream's own release-sync messages").
+          check_source "PR commit messages" "$(git log --first-parent --format='%B' "$BASE".."$HEAD")"
 
           exit $fail

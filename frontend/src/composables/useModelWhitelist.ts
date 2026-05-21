@@ -58,6 +58,7 @@ const geminiModels = [
   'gemini-2.0-flash',
   'gemini-2.5-flash',
   'gemini-2.5-pro',
+  'gemini-3.5-flash',
   'gemini-3-flash-preview',
   'gemini-3-pro-preview'
 ]
@@ -292,6 +293,7 @@ const geminiPresetMappings = [
   { label: '2.5 Flash', from: 'gemini-2.5-flash', to: 'gemini-2.5-flash', color: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400' },
   { label: '2.5 Image', from: 'gemini-2.5-flash-image', to: 'gemini-2.5-flash-image', color: 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-400' },
   { label: '2.5 Pro', from: 'gemini-2.5-pro', to: 'gemini-2.5-pro', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400' },
+  { label: '3.5 Flash', from: 'gemini-3.5-flash', to: 'gemini-3.5-flash', color: 'bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400' },
   { label: '3.1 Image', from: 'gemini-3.1-flash-image', to: 'gemini-3.1-flash-image', color: 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-400' }
 ]
 
@@ -420,6 +422,10 @@ export function getPresetMappingsByPlatform(platform: string) {
 // 构建模型映射对象（用于 API）
 // =====================
 
+// normalizeModelID 容忍 #128 之后从后端可能拿到的两种 model 列表形态：
+// 纯字符串数组 ["gpt-5"] 以及对象数组 [{ id: "gpt-5", pricing_status }]。
+// 只提取 trimmed `id` 字段，确保 buildModelMappingObject 写出的
+// model_mapping 始终是 string→string，避免后端持久化里混入对象项。
 function normalizeModelID(value: unknown): string {
   if (typeof value === 'string') return value.trim()
   if (value && typeof value === 'object') {
@@ -438,14 +444,51 @@ export function isValidWildcardPattern(pattern: string): boolean {
   return starIndex === pattern.length - 1 && pattern.lastIndexOf('*') === starIndex
 }
 
+export type ModelRestrictionMode = 'whitelist' | 'mapping' | 'combined'
+
+export interface ModelMappingEntry {
+  from: string
+  to: string
+}
+
+export function splitModelMappingObject(
+  modelMapping?: Record<string, unknown> | null
+): { allowedModels: string[]; modelMappings: ModelMappingEntry[] } {
+  const allowedModels: string[] = []
+  const modelMappings: ModelMappingEntry[] = []
+
+  if (!modelMapping || typeof modelMapping !== 'object') {
+    return { allowedModels, modelMappings }
+  }
+
+  for (const [rawFrom, rawTo] of Object.entries(modelMapping)) {
+    if (typeof rawTo !== 'string') continue
+    const from = rawFrom.trim()
+    const to = rawTo.trim()
+    if (!from || !to) continue
+
+    if (from === to) {
+      allowedModels.push(from)
+    } else {
+      modelMappings.push({ from, to })
+    }
+  }
+
+  return { allowedModels, modelMappings }
+}
+
 export function buildModelMappingObject(
-  mode: 'whitelist' | 'mapping',
+  mode: ModelRestrictionMode,
+  // unknown[] (not string[]) on purpose: callers may pass either trimmed
+  // strings or `{ id, pricing_status, ... }` objects coming back from
+  // #128 model-pricing responses. normalizeModelID below is the single
+  // sanitizer.
   allowedModels: unknown[],
-  modelMappings: { from: string; to: string }[]
+  modelMappings: ModelMappingEntry[]
 ): Record<string, string> | null {
   const mapping: Record<string, string> = {}
 
-  if (mode === 'whitelist') {
+  if (mode === 'whitelist' || mode === 'combined') {
     for (const item of allowedModels) {
       const model = normalizeModelID(item)
       if (!model) continue
@@ -456,7 +499,9 @@ export function buildModelMappingObject(
         mapping[model] = model
       }
     }
-  } else {
+  }
+
+  if (mode === 'mapping' || mode === 'combined') {
     for (const m of modelMappings) {
       const from = m.from.trim()
       const to = m.to.trim()

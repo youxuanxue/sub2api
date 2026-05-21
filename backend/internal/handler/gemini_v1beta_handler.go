@@ -61,6 +61,7 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 			c.JSON(http.StatusOK, h.tkGeminiFallbackModelsList(c.Request.Context()))
 			return
 		}
+		markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 		googleError(c, http.StatusServiceUnavailable, "No available Gemini accounts: "+err.Error())
 		return
 	}
@@ -114,6 +115,7 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 			c.JSON(http.StatusOK, gemini.FallbackModel(modelName))
 			return
 		}
+		markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 		googleError(c, http.StatusServiceUnavailable, "No available Gemini accounts: "+err.Error())
 		return
 	}
@@ -183,7 +185,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		return
 	}
 
-	setOpsRequestContext(c, modelName, stream, body)
+	setOpsRequestModelAndBody(c, modelName, stream, body)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(stream, false)))
 
 	// TK: pre-flight body-size guard (see gateway_handler_tk_body_guard.go).
@@ -375,6 +377,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, sessionKey, modelName, fs.FailedAccountIDs, "", int64(0)) // Gemini 不使用会话限制
 		if err != nil {
 			if len(fs.FailedAccountIDs) == 0 {
+				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 				googleError(c, http.StatusServiceUnavailable, "No available Gemini accounts: "+err.Error())
 				return
 			}
@@ -422,6 +425,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		accountReleaseFunc := selection.ReleaseFunc
 		if !selection.Acquired {
 			if selection.WaitPlan == nil {
+				markOpsRoutingCapacityLimited(c)
 				googleError(c, http.StatusServiceUnavailable, "No available Gemini accounts")
 				return
 			}

@@ -28,6 +28,29 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 REGISTRY_GLOB = "scripts/sentinels/*.json"
 DEFAULT_BASE = "origin/main"
 
+# Commit-message markers that count as explicit author assertions that the
+# author reviewed the touched hotspot files against their guarding sentinel
+# registries and decided no anchor change is required.
+#
+# Why these exist: without a marker, the only way for an author to pass this
+# gate when no sentinel literal needs to change is to vandalize the registry
+# rationale text (the gate accepts "file appeared in diff" as proof). That
+# led to "Reviewed during merge/upstream-XXXX — anchors verified intact"
+# paragraphs accumulating on every upstream merge. Markers replace that with
+# a single line in the commit message, leaving the registry text clean.
+#
+# Markers (any one is sufficient, and they accumulate across all commits in
+# the PR's `base..head` range):
+#   sentinel-registry-reviewed — author reviewed the touched hotspots, no
+#                                anchor literal needs to change in this PR.
+#   upstream-merge             — this is an upstream-merge PR (matches the
+#                                shape gate used by upstream-override-marker
+#                                / upstream-merge-pr-shape).
+SENTINEL_GATE_MARKERS = (
+    "sentinel-registry-reviewed",
+    "upstream-merge",
+)
+
 # Hotspots that repeatedly need explicit upstream-overwrite guards. Exact files
 # already listed in a sentinel registry are also guarded automatically; these
 # patterns catch newly introduced or still-unregistered TK/NewAPI surfaces.
@@ -101,6 +124,23 @@ def working_tree_changed_files() -> set[str]:
         proc = run_git(args)
         changed.update(line.strip() for line in proc.stdout.splitlines() if line.strip())
     return changed
+
+
+def commit_messages(base: str, head: str) -> str:
+    proc = run_git(["log", f"{base}..{head}", "--pretty=%B"], check=False)
+    if proc.returncode != 0:
+        return ""
+    return proc.stdout
+
+
+def has_review_marker(base: str, head: str) -> tuple[bool, str | None]:
+    """Return (matched, marker) — True when any SENTINEL_GATE_MARKERS appears
+    verbatim in a commit message between base and head."""
+    msg = commit_messages(base, head)
+    for marker in SENTINEL_GATE_MARKERS:
+        if marker in msg:
+            return True, marker
+    return False, None
 
 
 def registry_paths() -> list[Path]:
@@ -193,6 +233,20 @@ def main() -> int:
             )
         return 0
 
+    # Before declaring violation, accept an explicit commit-message marker as
+    # proof the author reviewed the touched hotspots and decided no anchor
+    # literal needs to change. This is the documented escape hatch for the
+    # "touched a hotspot but the existing sentinels still hold" case — the
+    # alternative is rationale-text vandalism every PR.
+    matched, marker = has_review_marker(base, args.head)
+    if matched:
+        if not args.quiet:
+            print(
+                "sentinel registry update gate: ok "
+                f"(commit marker '{marker}' present; hotspot review acknowledged)"
+            )
+        return 0
+
     print("sentinel registry update gate: FAIL", file=sys.stderr)
     print(
         "  Load-bearing TK/NewAPI surfaces changed without updating the matching sentinel registry.",
@@ -203,8 +257,11 @@ def main() -> int:
         print(f"      update one of: {compact(related)}", file=sys.stderr)
         print(f"      changed registries in this diff: {compact(seen)}", file=sys.stderr)
     print(
-        "  Fix: add/adjust the relevant sentinel literal+rationale in the same PR. "
-        "If the change is genuinely not load-bearing, record that decision by updating the registry rationale rather than relying on review memory.",
+        "  Fix (any one): "
+        "(a) add/adjust the relevant sentinel literal in the same PR; "
+        "(b) put one of these markers in a commit message in this PR's range: "
+        + ", ".join(SENTINEL_GATE_MARKERS)
+        + " — use marker only when you reviewed the hotspots and confirmed no anchor change is required.",
         file=sys.stderr,
     )
     return 1

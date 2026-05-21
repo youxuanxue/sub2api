@@ -199,12 +199,11 @@ pass 时再做。
       响应体里的 `resets_at` 必须被采用，**不**走 5min 默认）
     - `TestUS023_NewAPI_Handle429_FallsBackTo5MinWhenBodyHasNoResetTime`
       （负向：缺 reset 字段时 5min 兜底依旧生效，确保修复未"过度解析"）
-    - `TestUS023_OpsRetry_ClassifiesChatCompletionsAsOpenAI`
-      （`/chat/completions` → `opsRetryTypeOpenAI`，`/v1/messages` /
-      `/v1/responses` / `/v1beta/...` 4 条历史分类回归保护）
-    - `TestUS023_OpsRetry_ExecuteWithAccount_GuardsOpenAICompatInMessagesDefault`
-      （PlatformOpenAI/PlatformNewAPI 在 messages-default 走守卫并 fail
-      fast，**不**调用 `gatewayService.Forward`）
+    - `TestUS023_OpsRetry_*`（已随上游 Wei-Shaw/sub2api `2eb622f2 Remove
+      ops retry replay storage` 一并退役：upstream 删除了 `ops_retry.go`
+      / `ops_retry_attempts` 表 / `ops_error_logs.{request_body,…}` 列，
+      runtime 层不再走"admin retry with account"路径，对应回归测试也已
+      下线。）
 - 前端 vitest：`ChannelTypeBadge.spec.ts` 渲染断言。
 
 ### 3.2 手动 stage-4 smoke

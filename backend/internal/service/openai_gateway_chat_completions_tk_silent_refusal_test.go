@@ -84,7 +84,7 @@ func TestChatRawSilentRefusal_GhostStream_TriggersOpsError(t *testing.T) {
 
 	result, err := svc.streamRawChatCompletions(
 		c, resp, rawChatCompletionsTestAccount(),
-		"gpt-5.5", "gpt-5.5", "gpt-5.5", nil, nil, time.Now(),
+		"gpt-5.5", "gpt-5.5", "gpt-5.5", nil, nil, time.Now(), 0,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -113,7 +113,7 @@ func TestChatRawSilentRefusal_NormalStream_DoesNotTrigger(t *testing.T) {
 
 	result, err := svc.streamRawChatCompletions(
 		c, resp, rawChatCompletionsTestAccount(),
-		"gpt-5.5", "gpt-5.5", "gpt-5.5", nil, nil, time.Now(),
+		"gpt-5.5", "gpt-5.5", "gpt-5.5", nil, nil, time.Now(), 0,
 	)
 	require.NoError(t, err)
 	require.Equal(t, 12, result.Usage.InputTokens)
@@ -136,7 +136,7 @@ func TestChatRawSilentRefusal_ToolCallsStop_DoesNotTrigger(t *testing.T) {
 
 	result, err := svc.streamRawChatCompletions(
 		c, resp, rawChatCompletionsTestAccount(),
-		"gpt-5.5", "gpt-5.5", "gpt-5.5", nil, nil, time.Now(),
+		"gpt-5.5", "gpt-5.5", "gpt-5.5", nil, nil, time.Now(), 0,
 	)
 	require.NoError(t, err)
 	require.Greater(t, result.Usage.OutputTokens, 0)
@@ -158,7 +158,7 @@ func TestChatRawSilentRefusal_ReasoningStream_DoesNotTrigger(t *testing.T) {
 
 	result, err := svc.streamRawChatCompletions(
 		c, resp, rawChatCompletionsTestAccount(),
-		"gpt-5.5", "gpt-5.5", "gpt-5.5", nil, nil, time.Now(),
+		"gpt-5.5", "gpt-5.5", "gpt-5.5", nil, nil, time.Now(), 0,
 	)
 	require.NoError(t, err)
 	require.Greater(t, result.Usage.InputTokens, 0)
@@ -180,7 +180,7 @@ func TestChatRawSilentRefusal_LengthStop_DoesNotTrigger(t *testing.T) {
 
 	_, err := svc.streamRawChatCompletions(
 		c, resp, rawChatCompletionsTestAccount(),
-		"gpt-5.5", "gpt-5.5", "gpt-5.5", nil, nil, time.Now(),
+		"gpt-5.5", "gpt-5.5", "gpt-5.5", nil, nil, time.Now(), 0,
 	)
 	require.NoError(t, err)
 	require.Empty(t, opsUpstreamErrorsForTest(c), "finish_reason=length must not record silent_refusal")

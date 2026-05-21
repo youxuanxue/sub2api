@@ -63,9 +63,9 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 	}
 
 	if isMultipartImagesContentType(c.GetHeader("Content-Type")) {
-		setOpsRequestContext(c, "", false, nil)
+		setOpsRequestContext(c, "", false)
 	} else {
-		setOpsRequestContext(c, "", false, body)
+		setOpsRequestContext(c, "", false)
 	}
 
 	parsed, err := h.gatewayService.ParseOpenAIImagesRequest(c, body)
@@ -97,11 +97,9 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		defer imageReleaseFunc()
 	}
 
-	if parsed.Multipart {
-		setOpsRequestContext(c, parsed.Model, parsed.Stream, nil)
-	} else {
-		setOpsRequestContext(c, parsed.Model, parsed.Stream, body)
-	}
+	// Both multipart and JSON paths stash the raw body bytes for TK
+	// body-size-aware 403 enrichment (see ops_request_context_tk.go).
+	setOpsRequestModelAndBody(c, parsed.Model, parsed.Stream, body)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(parsed.Stream, false)))
 
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, parsed.Model)
@@ -157,6 +155,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
 			if len(failedAccountIDs) == 0 {
+				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 				h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available compatible accounts", streamStarted)
 				return
 			}
@@ -168,6 +167,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			return
 		}
 		if selection == nil || selection.Account == nil {
+			markOpsRoutingCapacityLimited(c)
 			h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available compatible accounts", streamStarted)
 			return
 		}
@@ -215,6 +215,18 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 					zap.Error(err),
 				)
 			} else {
+				var imageUpstreamErr *service.OpenAIImagesUpstreamError
+				if errors.As(err, &imageUpstreamErr) {
+					h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, nil)
+					reqLog.Warn("openai.images.upstream_user_error",
+						zap.Int64("account_id", account.ID),
+						zap.Int("status_code", imageUpstreamErr.StatusCode),
+						zap.String("error_type", imageUpstreamErr.ErrorType),
+						zap.String("error_code", imageUpstreamErr.Code),
+						zap.Error(err),
+					)
+					return
+				}
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)

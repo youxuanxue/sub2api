@@ -141,6 +141,11 @@
             :disabled="authActionDisabled"
             :show-divider="false"
           />
+          <DingTalkOAuthSection
+            v-if="dingtalkOAuthEnabled"
+            :disabled="authActionDisabled"
+            :show-divider="false"
+          />
           <WechatOAuthSection
             v-if="wechatOAuthEnabled"
             :disabled="authActionDisabled"
@@ -187,6 +192,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { AuthLayout } from '@/components/layout'
 import LinuxDoOAuthSection from '@/components/auth/LinuxDoOAuthSection.vue'
+import DingTalkOAuthSection from '@/components/auth/DingTalkOAuthSection.vue'
 import OidcOAuthSection from '@/components/auth/OidcOAuthSection.vue'
 import WechatOAuthSection from '@/components/auth/WechatOAuthSection.vue'
 import EmailOAuthButtons from '@/components/auth/EmailOAuthButtons.vue'
@@ -217,6 +223,7 @@ const publicSettingsLoaded = ref<boolean>(false)
 
 // Public settings
 const linuxdoOAuthEnabled = ref<boolean>(false)
+const dingtalkOAuthEnabled = ref<boolean>(false)
 const wechatOAuthEnabled = ref<boolean>(false)
 const backendModeEnabled = ref<boolean>(false)
 const oidcOAuthEnabled = ref<boolean>(false)
@@ -262,6 +269,7 @@ const showOAuthLogin = computed(
   () =>
     !backendModeEnabled.value &&
     (linuxdoOAuthEnabled.value ||
+      dingtalkOAuthEnabled.value ||
       wechatOAuthEnabled.value ||
       oidcOAuthEnabled.value ||
       githubOAuthEnabled.value ||
@@ -288,6 +296,7 @@ onMounted(async () => {
   try {
     const settings = await getPublicSettings()
     linuxdoOAuthEnabled.value = settings.linuxdo_oauth_enabled
+    dingtalkOAuthEnabled.value = settings.dingtalk_oauth_enabled ?? false
     wechatOAuthEnabled.value = isWeChatWebOAuthEnabled(settings)
     backendModeEnabled.value = settings.backend_mode_enabled === true
     oidcOAuthEnabled.value = settings.oidc_oauth_enabled

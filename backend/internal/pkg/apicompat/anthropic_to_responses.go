@@ -30,12 +30,25 @@ func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
 	// roundtrip the encrypted state, so the upstream silently returns a
 	// 0-token / empty assistant message on the second turn whenever the history
 	// contains thinking + tool_result. See docs/approved/openai-codex-as-claude-thinking-continuity.md.
+	// TK / US-027: Include must NOT carry "reasoning.encrypted_content" on
+	// Anthropic→Responses. See the comment above the `out :=` literal and
+	// docs/approved/openai-codex-as-claude-thinking-continuity.md for the full
+	// regression: pairing Include=reasoning.encrypted_content with Store=false
+	// yields silent 0-token assistant turns whenever history carries thinking
+	// + tool_result, since Anthropic→Responses drops thinking blocks.
 	out := &ResponsesRequest{
-		Model:       req.Model,
-		Input:       inputJSON,
-		Temperature: req.Temperature,
-		TopP:        req.TopP,
-		Stream:      req.Stream,
+		Model:  req.Model,
+		Input:  inputJSON,
+		Stream: req.Stream,
+	}
+
+	// Reasoning models (gpt-5.x) served via the Responses API do not accept
+	// sampling parameters. Sending temperature or top_p causes a 400
+	// "Unsupported parameter" error, so we only forward them for non-reasoning
+	// models. Upstream Wei-Shaw/sub2api#276b5c77.
+	if !isReasoningModel(req.Model) {
+		out.Temperature = req.Temperature
+		out.TopP = req.TopP
 	}
 
 	storeFalse := false
@@ -483,6 +496,14 @@ func convertAnthropicToolsToResponses(tools []AnthropicTool) []ResponsesTool {
 
 func boolPtr(v bool) *bool {
 	return &v
+}
+
+// isReasoningModel reports whether model is a reasoning model that does not
+// support sampling parameters (temperature, top_p) via the Responses API.
+// All gpt-5.x models are reasoning-only; the Responses API returns
+// "Unsupported parameter: temperature" if these fields are present.
+func isReasoningModel(model string) bool {
+	return strings.HasPrefix(model, "gpt-5")
 }
 
 // normalizeToolParameters ensures the tool parameter schema is valid for

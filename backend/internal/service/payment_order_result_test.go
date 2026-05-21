@@ -138,6 +138,43 @@ func TestCalculateCreateOrderPayAmountRejectsFractionalZeroDecimal(t *testing.T)
 	}
 }
 
+func TestBuildPaymentSubjectAppliesAffixToSubscriptionPlanProductName(t *testing.T) {
+	t.Parallel()
+
+	svc := &PaymentService{}
+	cfg := &PaymentConfig{
+		ProductNamePrefix: "PRE",
+		ProductNameSuffix: "SUF",
+	}
+	plan := &dbent.SubscriptionPlan{
+		Name:        "Pro Monthly",
+		ProductName: "Claude Pro",
+	}
+
+	got := svc.buildPaymentSubject(plan, 0, cfg, nil)
+	if got != "PRE Claude Pro SUF" {
+		t.Fatalf("buildPaymentSubject() = %q, want %q", got, "PRE Claude Pro SUF")
+	}
+}
+
+func TestBuildPaymentSubjectAppliesAffixToSubscriptionPlanDefaultName(t *testing.T) {
+	t.Parallel()
+
+	svc := &PaymentService{}
+	cfg := &PaymentConfig{
+		ProductNamePrefix: "PRE",
+		ProductNameSuffix: "SUF",
+	}
+	plan := &dbent.SubscriptionPlan{Name: "Team Monthly"}
+
+	got := svc.buildPaymentSubject(plan, 0, cfg, nil)
+	// TK brand: fallback product name is "TokenKey Subscription <plan>" — see
+	// payment_order.go buildPaymentSubject for the rationale.
+	if got != "PRE TokenKey Subscription Team Monthly SUF" {
+		t.Fatalf("buildPaymentSubject() = %q, want %q", got, "PRE TokenKey Subscription Team Monthly SUF")
+	}
+}
+
 func TestMaybeBuildWeChatOAuthRequiredResponse(t *testing.T) {
 	t.Setenv("PAYMENT_RESUME_SIGNING_KEY", "0123456789abcdef0123456789abcdef")
 
