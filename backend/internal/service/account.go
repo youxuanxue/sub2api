@@ -841,6 +841,7 @@ func (a *Account) IsCustomErrorCodesEnabled() bool {
 //     temp_unschedulable_until / rate_limited_at / error 等本地状态字段；
 //   - Anthropic 平台额外跳过 handleAnthropicUpstreamError 内的 3/3
 //     短窗 temp_unschedulable 阈值，避免级联拉黑。
+//
 // OAuth 账号永远返回 false（IsAPIKeyOrBedrock 前置）。
 func (a *Account) IsPoolMode() bool {
 	if !a.IsAPIKeyOrBedrock() || a.Credentials == nil {
