@@ -31,8 +31,6 @@ const (
 )
 
 const (
-	// maxSameAccountRetries 同账号重试次数上限（针对 RetryableOnSameAccount 错误）
-	maxSameAccountRetries = 3
 	// sameAccountRetryDelay 同账号重试间隔
 	sameAccountRetryDelay = 500 * time.Millisecond
 	// singleAccountBackoffDelay 单账号分组 503 退避重试固定延时。
@@ -64,13 +62,23 @@ func NewFailoverState(maxSwitches int, hasBoundSession bool) *FailoverState {
 
 // HandleFailoverError 处理 UpstreamFailoverError，返回下一步动作。
 // 包含：缓存计费判断、同账号重试、临时封禁、切换计数、Antigravity 延时。
+//
+// sameAccountRetryLimit 是本账号的同账号 retry 上限。生产路径应传
+// account.GetPoolModeRetryCount()（pool_mode 账号读 credentials.pool_mode_retry_count，
+// 非 pool_mode 返回 defaultPoolModeRetryCount=1）。传 0 表示"不允许同账号 retry，
+// 立即 failover"——这是 UI hint 承诺的语义（i18n: "0 = 不原地重试"）。负数同样
+// 视为 0；不做隐式升值，避免运维显式禁用 retry 时被悄悄改成 1 次。
 func (s *FailoverState) HandleFailoverError(
 	ctx context.Context,
 	gatewayService TempUnscheduler,
 	accountID int64,
 	platform string,
+	sameAccountRetryLimit int,
 	failoverErr *service.UpstreamFailoverError,
 ) FailoverAction {
+	if sameAccountRetryLimit < 0 {
+		sameAccountRetryLimit = 0
+	}
 	s.LastFailoverErr = failoverErr
 
 	// 缓存计费判断
@@ -107,13 +115,13 @@ func (s *FailoverState) HandleFailoverError(
 	}
 
 	// 同账号重试：对 RetryableOnSameAccount 的临时性错误，先在同一账号上重试
-	if failoverErr.RetryableOnSameAccount && s.SameAccountRetryCount[accountID] < maxSameAccountRetries {
+	if failoverErr.RetryableOnSameAccount && s.SameAccountRetryCount[accountID] < sameAccountRetryLimit {
 		s.SameAccountRetryCount[accountID]++
 		logger.FromContext(ctx).Warn("gateway.failover_same_account_retry",
 			zap.Int64("account_id", accountID),
 			zap.Int("upstream_status", failoverErr.StatusCode),
 			zap.Int("same_account_retry_count", s.SameAccountRetryCount[accountID]),
-			zap.Int("same_account_retry_max", maxSameAccountRetries),
+			zap.Int("same_account_retry_max", sameAccountRetryLimit),
 		)
 		if !sleepWithContext(ctx, sameAccountRetryDelay) {
 			return FailoverCanceled

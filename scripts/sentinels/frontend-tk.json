@@ -240,6 +240,26 @@
       "rationale": "Chinese i18n keys for the Anthropic request normalize admin toggle. Locked in lockstep with the en.ts counterpart so neither language can silently regress to raw key strings."
     },
     {
+      "path": "frontend/src/i18n/locales/zh.ts",
+      "must_contain": [
+        "poolMode: '池模式'",
+        "poolModeHint:",
+        "poolModeInfo:",
+        "poolModeRetryCount:"
+      ],
+      "rationale": "Chinese i18n keys for the per-account pool-mode admin toggle (label / hint / info / retry-count). EditAccountModal.vue and CreateAccountModal.vue render `t('admin.accounts.poolMode*')` in the type=apikey branch for every platform — including Anthropic, which is the operator's only mechanism to opt out of the 3/3 auto-unsched protector (2026-05-21 reversal of PR #248 — see gateway-tk.json ratelimit_service.go rationale for the cascade incident). Locking the key names (NOT the literal text — `poolModeInfo` content is informational and may evolve) prevents an upstream merge from silently dropping the toggle into a raw `admin.accounts.poolMode` path, which would block operators from enabling the bypass on cc-us1-oauth / future stub accounts."
+    },
+    {
+      "path": "frontend/src/i18n/locales/en.ts",
+      "must_contain": [
+        "poolMode: 'Pool Mode'",
+        "poolModeHint:",
+        "poolModeInfo:",
+        "poolModeRetryCount:"
+      ],
+      "rationale": "English counterpart of the pool-mode i18n lockstep above. Locked in lockstep with zh.ts so neither language can silently regress to raw key strings during an upstream merge of i18n files."
+    },
+    {
       "path": "frontend/src/views/PricingView.vue",
       "must_contain": [
         "getMePricingCatalog",
