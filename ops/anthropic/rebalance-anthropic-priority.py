@@ -374,7 +374,12 @@ def _load_tier_base_priority() -> dict[str, int]:
     return out
 
 
-def _parse_sampled_at(raw: str | None) -> _dt.datetime | None:
+def _parse_utc_iso(raw: str | None) -> _dt.datetime | None:
+    """Parse an RFC3339 / ISO-8601 UTC timestamp.
+
+    Used for both ``passive_usage_sampled_at`` and ``session_window_end``;
+    they share format (UTC string with trailing Z).
+    """
     if not raw:
         return None
     s = raw.replace("Z", "+00:00") if raw.endswith("Z") else raw
@@ -385,10 +390,6 @@ def _parse_sampled_at(raw: str | None) -> _dt.datetime | None:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=_dt.timezone.utc)
     return dt
-
-
-def _parse_window_end(raw: str | None) -> _dt.datetime | None:
-    return _parse_sampled_at(raw)
 
 
 def _score_account(
@@ -415,8 +416,8 @@ def _score_account(
 
     util_5h = acct.get("session_window_utilization")
     util_7d = acct.get("passive_usage_7d_utilization")
-    sampled_at = _parse_sampled_at(acct.get("passive_usage_sampled_at"))
-    window_end = _parse_window_end(acct.get("session_window_end"))
+    sampled_at = _parse_utc_iso(acct.get("passive_usage_sampled_at"))
+    window_end = _parse_utc_iso(acct.get("session_window_end"))
 
     # Freshness gate: stale sampled_at OR sampled_at missing entirely
     if sampled_at is None:
@@ -604,7 +605,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
     else:
         requested_edges = [args.edge_id]
 
-    snapshot_at = _parse_sampled_at(snap.get("captured_at")) or now_utc()
+    snapshot_at = _parse_utc_iso(snap.get("captured_at")) or now_utc()
 
     all_actions: list[dict] = []
     all_skipped: list[dict] = []
