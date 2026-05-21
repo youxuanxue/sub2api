@@ -786,6 +786,28 @@
       "rationale": "Anchors the two normalize rules and their observability hooks. The rule functions MUST stay pure (no settingService dependency) so they remain trivially unit-testable; the GatewayService method is the only place that consults settingService.IsAnthropicRequestNormalizeEnabled. The two change-kind constants double as ops-event payload identifiers (Message field of OpsUpstreamErrorEvent) and as SQL filter terms in operator runbooks — renaming them silently breaks downstream dashboards. The Kind=\"request_normalized\" literal and the gateway.anthropic_request_normalized log key together let operators compute save-rate = 1 - (rows-with-event / total-normalize-hits); changing either breaks the existing query template."
     },
     {
+      "path": "backend/internal/service/gateway_anthropic_deprecated_model_tk.go",
+      "must_contain": [
+        "func tkIsDeprecatedAnthropicModel",
+        "func tkWriteAnthropicDeprecatedModelError",
+        "func tkBuildDeprecatedAnthropicMessage",
+        "tkDeprecatedAnthropicModels",
+        "claude-3-5-sonnet-20241022",
+        "claude-3-7-sonnet-20250219",
+        "claude-sonnet-4-20250514",
+        "claude-opus-4-20250514"
+      ],
+      "rationale": "Anchors the customer-facing deprecation gate for retired / soon-to-sunset Anthropic model IDs. PR #329 / #327 removed the IDs from admin dropdowns + default chain but did NOT short-circuit requests; this module is what turns a hardcoded-client request into a friendly 400 + migration suggestion instead of an opaque upstream not_found_error. The table literal IDs (3-5-sonnet-20241022, 3-7-sonnet, 4.0 sonnet/opus snapshots) are pinned because dropping any of them silently re-opens the cliff for a specific client population — the snapshot ID is the contract the customer's migration message refers to. The replacement-message builder is anchored separately because the Anthropic 4.0 family is still upstream-accepted until 2026-06-15: the friendly message is the only signal customers get before that date. See /xj-review R-001 (decision path c)."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "tkWriteAnthropicDeprecatedModelError(c, mappedModel, replacement)",
+        "tkWriteAnthropicDeprecatedModelError(c, reqModel, replacement)"
+      ],
+      "rationale": "Pins the TWO deprecation-gate call sites in gateway_service.go: the Forward path (~4585) checks `mappedModel` AFTER account.GetMappedModel + claude.NormalizeModelID so admin-configured mappings take precedence, and the ForwardCountTokens path (~9175) checks `reqModel` AFTER its own mapping block. Two distinct argument shapes are anchored separately because the literal `tkWriteAnthropicDeprecatedModelError(c, ` alone would be satisfied by either call site, leaving the other silently unguarded — same pattern the normalize anchors already use. Without both, an upstream merge that touches the surrounding mapping/normalize code can silently drop one path and re-open the 2026-06-15 customer cliff on count_tokens (or vice versa)."
+    },
+    {
       "path": "backend/internal/service/setting_service_tk_anthropic_normalize.go",
       "must_contain": [
         "SettingKeyAnthropicRequestNormalizeEnabled",
