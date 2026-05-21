@@ -79,6 +79,11 @@ type anthropicUpstreamErrorCounterCacheStub struct {
 	windowMinutes []int
 	resetCalls    []int64
 	err           error
+
+	tierCounts       []int64
+	tierIncrementIDs []int64
+	tierTTLMinutes   []int
+	tierResetCalls   []int64
 }
 
 func (s *anthropicUpstreamErrorCounterCacheStub) IncrementAnthropicUpstreamErrorCount(_ context.Context, accountID int64, windowMinutes int) (int64, error) {
@@ -97,6 +102,22 @@ func (s *anthropicUpstreamErrorCounterCacheStub) IncrementAnthropicUpstreamError
 
 func (s *anthropicUpstreamErrorCounterCacheStub) ResetAnthropicUpstreamErrorCount(_ context.Context, accountID int64) error {
 	s.resetCalls = append(s.resetCalls, accountID)
+	return nil
+}
+
+func (s *anthropicUpstreamErrorCounterCacheStub) IncrementAnthropicCooldownTier(_ context.Context, accountID int64, ttlMinutes int) (int64, error) {
+	s.tierIncrementIDs = append(s.tierIncrementIDs, accountID)
+	s.tierTTLMinutes = append(s.tierTTLMinutes, ttlMinutes)
+	if len(s.tierCounts) == 0 {
+		return 1, nil
+	}
+	count := s.tierCounts[0]
+	s.tierCounts = s.tierCounts[1:]
+	return count, nil
+}
+
+func (s *anthropicUpstreamErrorCounterCacheStub) ResetAnthropicCooldownTier(_ context.Context, accountID int64) error {
+	s.tierResetCalls = append(s.tierResetCalls, accountID)
 	return nil
 }
 

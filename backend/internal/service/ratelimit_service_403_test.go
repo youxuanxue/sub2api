@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
@@ -97,22 +98,30 @@ func TestRateLimitService_HandleUpstreamError_Anthropic403ThresholdTempUnschedul
 	require.Contains(t, state.ErrorMessage, "OAuth token lacks required scopes")
 }
 
-// Anthropic apikey 池模式（上游是另一套 TokenKey / 兼容网关账号池）的账号必须
-// 跳过 3/3 自动 temp_unschedulable：池前置代理自身会在内部轮换成员，偶发 5xx 是
-// 池内调度抖动而非本账号故障，不应级联拉黑本地账号。
+// pool_mode Anthropic accounts go through the same 3/3 short-window counter
+// as non-pool-mode accounts (2026-05-21 revision of PR #333). The blanket
+// PR #333 immunity left ops with no mechanical signal that a stub was
+// failing — its only slog.Warn had no alert hook, and the failover loop
+// alone could not protect a single-member exclusive group from cascading
+// customer-facing 503s. The replacement design uses tiered exponential
+// cooldown (30s / 2min / 10min) so transient jitter is shrugged off in
+// 30s while persistent failure still escalates to 10min.
 //
-// 这条断言显式反转了 PR #248 (commit c62104ba) 的原设计 "pool-mode 仍计数"。
-// 反转动因：prod cc-us1-oauth → edge-us1 转发链路下，cc-edges 单成员组被 10 分钟
-// 自动暂禁会导致整个 group 0 可用账号、用户连续 503（2026-05-21 03:22 / 03:36
-// 两次复现）。运维侧通过显式启用 credentials.pool_mode 表达"上游是池而非单点"，
-// 接受失去 3/3 保护作为代价。
-func TestRateLimitService_HandleUpstreamError_AnthropicPoolModeBypassesUpstreamErrorCounter(t *testing.T) {
+// This test asserts pool_mode accounts:
+//  1. DO feed the IncrementAnthropicUpstreamErrorCount counter.
+//  2. DO write temp_unschedulable on the 3rd hit.
+//  3. Use the tier-0 cooldown (30s) on the first cooldown in a window.
+//
+// Sibling test below (AnthropicCooldownTierEscalates) covers the 2nd/3rd
+// tier escalation. Together they replace the prior
+// AnthropicPoolModeBypassesUpstreamErrorCounter assertion that codified
+// the now-removed blanket immunity.
+func TestRateLimitService_HandleUpstreamError_AnthropicPoolModeStillCountsWithShortCooldown(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
-	// counter stub has no preset counts: the regression guard is the final
-	// require.Empty(t, counter.incrementIDs) assertion below — it fails the
-	// moment a regression makes IncrementAnthropicUpstreamErrorCount get
-	// called at all, regardless of the (0, nil) the stub would return.
-	counter := &anthropicUpstreamErrorCounterCacheStub{}
+	counter := &anthropicUpstreamErrorCounterCacheStub{
+		counts:     []int64{1, 2, 3},
+		tierCounts: []int64{1},
+	}
 	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
 	service.SetAnthropicUpstreamErrorCounterCache(counter)
 	account := &Account{
@@ -124,20 +133,99 @@ func TestRateLimitService_HandleUpstreamError_AnthropicPoolModeBypassesUpstreamE
 		},
 	}
 
-	for i := 0; i < 5; i++ {
-		shouldDisable := service.HandleUpstreamError(
-			context.Background(),
-			account,
-			http.StatusBadGateway,
-			http.Header{},
-			[]byte(`{"error":{"message":"upstream edge failed"}}`),
-		)
-		require.False(t, shouldDisable, "iteration %d: pool_mode anthropic must not disable on 5xx", i)
+	body := []byte(`{"error":{"message":"upstream edge failed"}}`)
+	for i := 0; i < 2; i++ {
+		shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusBadGateway, http.Header{}, body)
+		require.False(t, shouldDisable, "iteration %d: below threshold must not disable", i)
+		require.Equal(t, 0, repo.tempCalls)
 	}
 
-	require.Equal(t, 0, repo.setErrorCalls, "must not write account error state")
-	require.Equal(t, 0, repo.tempCalls, "must not write temp_unschedulable")
-	require.Empty(t, counter.incrementIDs, "must not even reach the counter increment")
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusBadGateway, http.Header{}, body)
+	require.True(t, shouldDisable, "3rd hit must temp_unschedulable")
+
+	require.Equal(t, 0, repo.setErrorCalls, "must not write account error state — temp_unschedulable only")
+	require.Equal(t, 1, repo.tempCalls, "exactly one temp_unschedulable write on the 3rd hit")
+	require.Equal(t, []int64{402, 402, 402}, counter.incrementIDs, "pool_mode account MUST feed the 3/3 counter")
+	require.Equal(t, []int64{402}, counter.tierIncrementIDs, "tier counter incremented exactly once at threshold trip")
+
+	var state TempUnschedState
+	require.NoError(t, json.Unmarshal([]byte(repo.lastTempReason), &state))
+	require.Equal(t, http.StatusBadGateway, state.StatusCode)
+	require.Equal(t, "anthropic_upstream_error", state.MatchedKeyword)
+	// First cooldown in the 30-min escalation window is the shortest tier (30s).
+	// Margin allows for the 1-2ms scheduling delta between time.Now() in the
+	// service and time.Now() in the test.
+	untilDelta := time.Until(time.Unix(state.UntilUnix, 0))
+	require.InDelta(t, 30*time.Second, untilDelta, float64(2*time.Second), "tier-0 cooldown must be 30s, got %s", untilDelta)
+}
+
+// Repeated cooldown trips within the escalation TTL window MUST escalate to
+// the next tier in the ladder. Without this, persistent upstream failure
+// would just bounce every 30s indefinitely, hammering the bad backend at
+// ~50% error rate forever. The ladder ensures the 3rd+ trip lands at 10min.
+func TestRateLimitService_HandleUpstreamError_AnthropicCooldownTierEscalates(t *testing.T) {
+	tests := []struct {
+		name             string
+		tierCount        int64
+		expectedCooldown time.Duration
+		expectedTier     int
+	}{
+		{name: "tier_0_first_trip_30s", tierCount: 1, expectedCooldown: 30 * time.Second, expectedTier: 0},
+		{name: "tier_1_second_trip_2min", tierCount: 2, expectedCooldown: 2 * time.Minute, expectedTier: 1},
+		{name: "tier_2_third_trip_10min", tierCount: 3, expectedCooldown: 10 * time.Minute, expectedTier: 2},
+		{name: "tier_clamps_above_ladder_len", tierCount: 10, expectedCooldown: 10 * time.Minute, expectedTier: 2},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &rateLimitAccountRepoStub{}
+			counter := &anthropicUpstreamErrorCounterCacheStub{
+				counts:     []int64{3},
+				tierCounts: []int64{tc.tierCount},
+			}
+			service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+			service.SetAnthropicUpstreamErrorCounterCache(counter)
+			account := &Account{
+				ID:       500 + int64(tc.expectedTier),
+				Platform: PlatformAnthropic,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"pool_mode": true,
+				},
+			}
+
+			shouldDisable := service.HandleUpstreamError(
+				context.Background(),
+				account,
+				http.StatusBadGateway,
+				http.Header{},
+				[]byte(`{"error":{"message":"upstream pool jitter"}}`),
+			)
+			require.True(t, shouldDisable)
+			require.Equal(t, 1, repo.tempCalls)
+
+			var state TempUnschedState
+			require.NoError(t, json.Unmarshal([]byte(repo.lastTempReason), &state))
+			untilDelta := time.Until(time.Unix(state.UntilUnix, 0))
+			require.InDelta(t, tc.expectedCooldown, untilDelta, float64(2*time.Second),
+				"tier=%d expected cooldown %s, got %s", tc.expectedTier, tc.expectedCooldown, untilDelta)
+		})
+	}
+}
+
+// Recovery paths must reset BOTH the short-window error counter AND the
+// cooldown escalation tier so a healed account starts the next failure
+// window at the shortest cooldown (30s) rather than carrying stale 10-min
+// escalation state forward.
+func TestRateLimitService_ResetAnthropicCounter_AlsoResetsCooldownTier(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	counter := &anthropicUpstreamErrorCounterCacheStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetAnthropicUpstreamErrorCounterCache(counter)
+
+	service.ResetAnthropicUpstreamErrorCounter(context.Background(), 600)
+	require.Equal(t, []int64{600}, counter.resetCalls, "error counter reset must propagate")
+	require.Equal(t, []int64{600}, counter.tierResetCalls, "cooldown tier reset must propagate")
 }
 
 // Carve-out: Anthropic accounts ignore the custom-error-codes allowlist so a

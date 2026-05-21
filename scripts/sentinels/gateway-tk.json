@@ -121,35 +121,43 @@
         "TkRecordOpenAI429BurstFallthrough(normalized)",
         "anthropicUpstreamErrorThreshold",
         "anthropicUpstreamErrorWindowMinutes",
+        "anthropicCooldownTierLadder",
+        "anthropicCooldownTierTTLMinutes",
         "handleAnthropicUpstreamError",
         "IncrementAnthropicUpstreamErrorCount",
+        "IncrementAnthropicCooldownTier",
         "SetTempUnschedulable(ctx, account.ID, until, reason)",
         "ResetAnthropicUpstreamErrorCounter",
-        "anthropic_upstream_error_pool_mode_skipped",
+        "ResetAnthropicCooldownTier",
         "if account.IsPoolMode() && !customErrorCodesEnabled && account.Platform != PlatformAnthropic {",
         "if !account.ShouldHandleErrorCode(statusCode) && account.Platform != PlatformAnthropic {",
         "s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)"
       ],
-      "rationale": "Anthropic model-not-found 404s must stay model-scoped instead of falling through as an unprotected upstream error or disabling the whole OAuth account. Anthropic 429s without reset metadata must use the configurable short cooldown unless the body is the known third-party/extra-usage rejection, otherwise production can repeatedly hit the same account with no local backoff. Anthropic upstream errors must also feed the TK short-window counter (anchored by the `anthropicUpstreamErrorWindowMinutes` symbol — the value is intentionally short, currently 1 minute, so a transient burst clears quickly rather than carrying stale strikes across an entire 10-minute cooldown) and mark the account temporarily unschedulable after three hits so a single bad Edge/OAuth account cannot produce repeated upstream 400/403/5xx responses before the scheduler removes it. **Pool-mode carve-out (2026-05-21 reversal of PR #248)**: when the Anthropic apikey account is explicitly marked `credentials.pool_mode=true` (i.e. operator declared upstream is another TokenKey / OpenAI-compat pool, not a single backend), `handleAnthropicUpstreamError` must early-return before the counter increment — anchored by the slog kind `anthropic_upstream_error_pool_mode_skipped`. Background: prod cc-us1-oauth → edge-us1 forwarding chain where cc-edges was a single-member exclusive group; PR #248's still-counts default cascaded a 10-minute auto-unsched into 100% group downtime (2026-05-21 03:22 / 03:36 incidents). The `pool_mode` opt-in is the operator's explicit declaration to trade 3/3 protection for never cascading edge pool jitter into local prod state. The original `&& account.Platform != PlatformAnthropic` carve-outs on the early-return paths are preserved so that **non-pool-mode** Anthropic accounts still feed the counter through the standard error switch. The `s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)` call must be invoked from the recovery hotpaths (ClearRateLimit, RecoverAccountState, ClearTempUnschedulable, UpdateSessionWindow allowed status) so a healed account does not carry stale strikes into the next window. OpenAI burst 429s (Codex headers present but neither 5h nor 7d window at 100% used+with-reset) must call the TK companion TkRecordOpenAI429BurstFallthrough and return nil so handle429 falls back to the short cooldown, otherwise transient throttle surges turn into multi-day 503 windows (upstream #2258). Upstream merges in this large service file can compile cleanly while dropping any of these protections, so the sentinel anchors all four policies in the hotspot file."
+      "rationale": "Anthropic model-not-found 404s must stay model-scoped instead of falling through as an unprotected upstream error or disabling the whole OAuth account. Anthropic 429s without reset metadata must use the configurable short cooldown unless the body is the known third-party/extra-usage rejection, otherwise production can repeatedly hit the same account with no local backoff. Anthropic upstream errors must feed the TK short-window counter (anchored by `anthropicUpstreamErrorWindowMinutes` — intentionally short at 1 minute so transient bursts clear quickly) and mark the account temporarily unschedulable after three hits so a single bad Edge/OAuth account cannot produce repeated upstream 400/403/5xx responses before the scheduler removes it. **Pool-mode policy (2026-05-21 revision of PR #333, anchored by `anthropicCooldownTierLadder`)**: the prior PR #333 carve-out (which let pool_mode accounts early-return before the counter via `anthropic_upstream_error_pool_mode_skipped`) is removed. PR #333's blanket immunity left ops with no mechanical signal that a stub was failing, leaving cc-edges (single-member exclusive group) vulnerable to silently routing all traffic to a dead upstream pool. The replacement is **tiered exponential cooldown**: first cooldown in a 30-min window is 30s (transient jitter shrugged off without the 10-min outage that motivated PR #248's reversal), second is 2 min, third+ is 10 min. The two carve-outs on `HandleUpstreamError` entry (`account.Platform != PlatformAnthropic` on both the pool-mode early-return AND the custom-error-codes allowlist guard) MUST stay so Anthropic 4xx/5xx still enter the dispatch — without them an upstream merge that 'simplifies' the early-returns would silently restore PR #333's broken immunity. `IncrementAnthropicCooldownTier` and `ResetAnthropicCooldownTier` are anchored separately because they are the load-bearing seams for tier escalation; a Redis client refactor that drops them would silently collapse the ladder back to a fixed 30s cooldown. The `ResetAnthropicUpstreamErrorCounter` call MUST be invoked from recovery hotpaths (ClearRateLimit, RecoverAccountState, ClearTempUnschedulable, UpdateSessionWindow allowed status) so a healed account does not carry stale strikes OR stale tier escalation. OpenAI burst 429s (Codex headers present but neither 5h nor 7d window at 100% used+with-reset) must call the TK companion TkRecordOpenAI429BurstFallthrough and return nil so handle429 falls back to the short cooldown, otherwise transient throttle surges turn into multi-day 503 windows (upstream #2258). Upstream merges in this large service file can compile cleanly while dropping any of these protections, so the sentinel anchors all policies in the hotspot file."
     },
     {
       "path": "backend/internal/service/anthropic_upstream_error_counter.go",
       "must_contain": [
         "type AnthropicUpstreamErrorCounterCache interface",
         "IncrementAnthropicUpstreamErrorCount",
-        "ResetAnthropicUpstreamErrorCount"
+        "ResetAnthropicUpstreamErrorCount",
+        "IncrementAnthropicCooldownTier",
+        "ResetAnthropicCooldownTier"
       ],
-      "rationale": "Interface seam for Anthropic upstream-error short-window counting. If an upstream merge drops this interface or its reset path, RateLimitService can no longer atomically count failures or clear the counter after recovery."
+      "rationale": "Interface seam for both (a) Anthropic upstream-error short-window counting and (b) cooldown-tier escalation (30s → 2min → 10min). If an upstream merge drops the tier methods, handleAnthropicUpstreamError silently collapses back to a fixed cooldown — losing the persistent-failure escalation that replaces PR #333's removed pool_mode immunity."
     },
     {
       "path": "backend/internal/repository/anthropic_upstream_error_counter_cache.go",
       "must_contain": [
         "anthropic_upstream_error_count:account:",
+        "anthropic_cooldown_tier:account:",
         "NewAnthropicUpstreamErrorCounterCache",
         "IncrementAnthropicUpstreamErrorCount",
-        "ResetAnthropicUpstreamErrorCount"
+        "ResetAnthropicUpstreamErrorCount",
+        "IncrementAnthropicCooldownTier",
+        "ResetAnthropicCooldownTier"
       ],
-      "rationale": "Redis-backed atomic counter for Anthropic upstream-error bursts. The prefix and constructor wiring must remain stable so all app replicas share the same short-window threshold before setting temp_unschedulable_until."
+      "rationale": "Redis-backed atomic counters for both the Anthropic upstream-error short window AND the cooldown-tier escalation window. Both prefixes (`anthropic_upstream_error_count:account:` and `anthropic_cooldown_tier:account:`) must remain stable so all app replicas share the same threshold + tier state."
     },
     {
       "path": "backend/internal/service/wire.go",
@@ -170,21 +178,25 @@
       "path": "backend/internal/service/ratelimit_service_403_test.go",
       "must_contain": [
         "TestRateLimitService_HandleUpstreamError_Anthropic403ThresholdTempUnschedulable",
-        "TestRateLimitService_HandleUpstreamError_AnthropicPoolModeBypassesUpstreamErrorCounter",
+        "TestRateLimitService_HandleUpstreamError_AnthropicPoolModeStillCountsWithShortCooldown",
+        "TestRateLimitService_HandleUpstreamError_AnthropicCooldownTierEscalates",
         "TestRateLimitService_HandleUpstreamError_AnthropicCustomErrorCodesStillCounts",
         "TestRateLimitService_ClearRateLimit_ResetsAnthropicCounter",
-        "TestRateLimitService_RecoverAccountAfterSuccessfulTest_ResetsAnthropicCounter"
+        "TestRateLimitService_RecoverAccountAfterSuccessfulTest_ResetsAnthropicCounter",
+        "TestRateLimitService_ResetAnthropicCounter_AlsoResetsCooldownTier"
       ],
-      "rationale": "Focused regressions proving the five behaviors that are easy to silently revert in an upstream merge: (1) non-pool-mode Anthropic upstream errors still only disable after the short-window threshold, (2) **pool-mode Anthropic accounts now bypass the counter entirely** (2026-05-21 reversal of PR #248: pool_mode is the operator's explicit declaration that upstream is a TokenKey/compat pool; cascading 10-min auto-unsched onto a single-member exclusive group caused the cc-us1-oauth → cc-edges full outage). The old TestRateLimitService_HandleUpstreamError_AnthropicPoolModeStillCounts asserted the inverse and was deleted in the same commit that added the bypass; restoring its name in this list will fail preflight and prompt the reviewer to read the rationale before re-reverting the policy. (3) the custom-error-codes allowlist carve-out still feeds the counter (non-pool-mode), (4) ClearRateLimit resets the counter to mirror ResetOpenAI403Counter, and (5) RecoverAccountAfterSuccessfulTest resets the counter so a healed account does not carry stale strikes. Dropping these tests lets the upstream-error policy silently drift during future merges."
+      "rationale": "Focused regressions proving the behaviors that are easy to silently revert in an upstream merge: (1) non-pool-mode Anthropic upstream errors only disable after the 3/3 short-window threshold, (2) **pool-mode Anthropic accounts STILL feed the counter** and the first cooldown is 30s (2026-05-21 revision of PR #333: the blanket immunity left ops with no mechanical signal that a stub was failing; the replacement is tiered cooldown that keeps single-member-group customer impact ≤30s on transient jitter while still escalating to 10min on persistent failure), (3) **tier escalation 30s → 2min → 10min** via AnthropicCooldownTierEscalates — without this, persistent upstream failure would just bounce every 30s indefinitely, hammering the bad backend at ~50% error rate forever, (4) custom-error-codes allowlist carve-out still feeds the counter (non-pool-mode), (5) ClearRateLimit and RecoverAccountAfterSuccessfulTest both reset the error counter, and (6) ResetAnthropicCounter ALSO resets the cooldown tier so a healed account starts the next failure window at the shortest cooldown. The deleted TestRateLimitService_HandleUpstreamError_AnthropicPoolModeBypassesUpstreamErrorCounter asserted the inverse policy (pool_mode bypasses counter); restoring its name here would fail preflight and prompt the reviewer to read this rationale before re-applying the immunity. Dropping these tests lets the upstream-error policy silently drift during future merges."
     },
     {
       "path": "backend/internal/service/ratelimit_service_401_test.go",
       "must_contain": [
         "type anthropicUpstreamErrorCounterCacheStub struct",
         "IncrementAnthropicUpstreamErrorCount",
-        "ResetAnthropicUpstreamErrorCount"
+        "ResetAnthropicUpstreamErrorCount",
+        "IncrementAnthropicCooldownTier",
+        "ResetAnthropicCooldownTier"
       ],
-      "rationale": "Shared test stub for the Anthropic upstream-error counter interface lives next to the OpenAI 403 counter stub. The 403 regression suite and any future Anthropic upstream-error test depends on this stub satisfying the AnthropicUpstreamErrorCounterCache interface; an upstream merge that mass-rewrites this test file could drop the stub and silently break the entire 403 test bundle with a compile error masked by build tag (the //go:build unit gate hides the failure from non-unit jobs)."
+      "rationale": "Shared test stub for the Anthropic upstream-error counter interface lives next to the OpenAI 403 counter stub. The stub must satisfy BOTH the error-count methods AND the cooldown-tier methods; an upstream merge that mass-rewrites this test file could drop either pair and silently break the entire 403 test bundle with a compile error masked by build tag (the //go:build unit gate hides the failure from non-unit jobs)."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_openai_burst.go",
@@ -279,7 +291,7 @@
         "count_tokens.stripped_unsupported_fields",
         "if resp.StatusCode != http.StatusBadRequest {",
         "body, _ = StripCountTokensUnsupportedFields(body)",
-        "pool_mode_temp_unschedule_skipped"
+        "TempUnscheduleRetryableError"
       ],
       "must_not_contain": [
         "x-stainless-helper-method"
