@@ -56,8 +56,9 @@ func TestOpsCleanupServiceRunCleanupOnceUsesSeparateLogRetentions(t *testing.T) 
 	svc := NewOpsCleanupService(&opsRepoMock{}, db, nil, cfg, nil, nil)
 	svc.refreshEffectiveBeforeRun(context.Background())
 
+	// Upstream Wei-Shaw/sub2api commit 2eb622f2 dropped ops_retry_attempts
+	// alongside the retry/replay feature; the cleanup loop no longer touches it.
 	expectCleanupTable(t, mock, "ops_error_logs", 14, 3)
-	expectCleanupTable(t, mock, "ops_retry_attempts", 14, 2)
 	expectCleanupTable(t, mock, "ops_alert_events", 14, 1)
 	expectCleanupTable(t, mock, "ops_system_logs", 14, 5)
 	expectCleanupTable(t, mock, "ops_system_log_cleanup_audits", 14, 4)
@@ -66,7 +67,7 @@ func TestOpsCleanupServiceRunCleanupOnceUsesSeparateLogRetentions(t *testing.T) 
 	if err != nil {
 		t.Fatalf("runCleanupOnce() error = %v", err)
 	}
-	if counts.errorLogs != 3 || counts.retryAttempts != 2 || counts.alertEvents != 1 {
+	if counts.errorLogs != 3 || counts.alertEvents != 1 {
 		t.Fatalf("unexpected error-like cleanup counts: %+v", counts)
 	}
 	if counts.systemLogs != 5 || counts.logAudits != 4 {

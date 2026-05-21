@@ -50,50 +50,7 @@ func resetOpsErrorLoggerStateForTest(t *testing.T) {
 	opsErrorLogDrained.Store(false)
 }
 
-func TestAttachOpsRequestBodyToEntry_SanitizeAndTrim(t *testing.T) {
-	resetOpsErrorLoggerStateForTest(t)
-	gin.SetMode(gin.TestMode)
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-
-	raw := []byte(`{"access_token":"secret-token","messages":[{"role":"user","content":"hello"}]}`)
-	setOpsRequestContext(c, "claude-3", false, raw)
-
-	entry := &service.OpsInsertErrorLogInput{}
-	attachOpsRequestBodyToEntry(c, entry)
-
-	require.NotNil(t, entry.RequestBodyBytes)
-	require.Equal(t, len(raw), *entry.RequestBodyBytes)
-	require.NotNil(t, entry.RequestBodyJSON)
-	require.NotContains(t, *entry.RequestBodyJSON, "secret-token")
-	require.Contains(t, *entry.RequestBodyJSON, "[REDACTED]")
-	require.Equal(t, int64(1), OpsErrorLogSanitizedTotal())
-}
-
-func TestAttachOpsRequestBodyToEntry_InvalidJSONKeepsSize(t *testing.T) {
-	resetOpsErrorLoggerStateForTest(t)
-	gin.SetMode(gin.TestMode)
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-
-	raw := []byte("not-json")
-	setOpsRequestContext(c, "claude-3", false, raw)
-
-	entry := &service.OpsInsertErrorLogInput{}
-	attachOpsRequestBodyToEntry(c, entry)
-
-	require.Nil(t, entry.RequestBodyJSON)
-	require.NotNil(t, entry.RequestBodyBytes)
-	require.Equal(t, len(raw), *entry.RequestBodyBytes)
-	require.False(t, entry.RequestBodyTruncated)
-	require.Equal(t, int64(1), OpsErrorLogSanitizedTotal())
-}
-
-func TestEnqueueOpsErrorLog_QueueFullFallsBackToDLQ(t *testing.T) {
+func TestEnqueueOpsErrorLog_QueueFullDrop(t *testing.T) {
 	resetOpsErrorLoggerStateForTest(t)
 	dataDir := t.TempDir()
 	t.Setenv("DATA_DIR", dataDir)
@@ -201,39 +158,6 @@ func TestAppendOpsInternalErrorDetail_AppendsAndPrependsCorrectly(t *testing.T) 
 		c.Set(service.OpsInternalErrorDetailKey, "x")
 		require.NotPanics(t, func() { appendOpsInternalErrorDetail(c, nil) })
 	})
-}
-
-func TestAttachOpsRequestBodyToEntry_EarlyReturnBranches(t *testing.T) {
-	resetOpsErrorLoggerStateForTest(t)
-	gin.SetMode(gin.TestMode)
-
-	entry := &service.OpsInsertErrorLogInput{}
-	attachOpsRequestBodyToEntry(nil, entry)
-	attachOpsRequestBodyToEntry(&gin.Context{}, nil)
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-
-	// 无请求体 key
-	attachOpsRequestBodyToEntry(c, entry)
-	require.Nil(t, entry.RequestBodyJSON)
-	require.Nil(t, entry.RequestBodyBytes)
-	require.False(t, entry.RequestBodyTruncated)
-
-	// 错误类型
-	c.Set(opsRequestBodyKey, "not-bytes")
-	attachOpsRequestBodyToEntry(c, entry)
-	require.Nil(t, entry.RequestBodyJSON)
-	require.Nil(t, entry.RequestBodyBytes)
-
-	// 空 bytes
-	c.Set(opsRequestBodyKey, []byte{})
-	attachOpsRequestBodyToEntry(c, entry)
-	require.Nil(t, entry.RequestBodyJSON)
-	require.Nil(t, entry.RequestBodyBytes)
-
-	require.Equal(t, int64(0), OpsErrorLogSanitizedTotal())
 }
 
 func TestEnqueueOpsErrorLog_EarlyReturnBranches(t *testing.T) {
@@ -385,6 +309,435 @@ func TestNormalizeOpsErrorType(t *testing.T) {
 	}
 }
 
+func TestClassifyOpsNoAvailableAccountsExcludedFromSLA(t *testing.T) {
+	const message = "No available accounts"
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	markOpsRoutingCapacityLimited(c)
+
+	errType := normalizeOpsErrorType("api_error", "")
+	phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(c, errType, message, "", http.StatusServiceUnavailable)
+
+	require.Equal(t, "api_error", errType)
+	require.Equal(t, "routing", phase)
+	require.True(t, isBusinessLimited)
+	require.Equal(t, "platform", errorOwner)
+	require.Equal(t, "gateway", errorSource)
+}
+
+func TestClassifyOpsRoutingCapacityMarkerExcludesMaskedSelectionFailureFromSLA(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	markOpsRoutingCapacityLimited(c)
+
+	phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(
+		c,
+		"api_error",
+		"Service temporarily unavailable",
+		"",
+		http.StatusServiceUnavailable,
+	)
+
+	require.Equal(t, "routing", phase)
+	require.True(t, isBusinessLimited)
+	require.Equal(t, "platform", errorOwner)
+	require.Equal(t, "gateway", errorSource)
+}
+
+func TestClassifyOpsAuthClientErrorsExcludedFromSLA(t *testing.T) {
+	tests := []struct {
+		name    string
+		errType string
+		message string
+		code    string
+		status  int
+	}{
+		{
+			name:    "standard invalid API key",
+			errType: "api_error",
+			message: "Invalid API key",
+			code:    "INVALID_API_KEY",
+			status:  http.StatusUnauthorized,
+		},
+		{
+			name:    "standard missing API key",
+			errType: "api_error",
+			message: "API key is required in Authorization header (Bearer scheme), x-api-key header, or x-goog-api-key header",
+			code:    "API_KEY_REQUIRED",
+			status:  http.StatusUnauthorized,
+		},
+		{
+			name:    "expired local API key",
+			errType: "api_error",
+			message: "API key 已过期",
+			code:    "API_KEY_EXPIRED",
+			status:  http.StatusForbidden,
+		},
+		{
+			name:    "disabled local API key",
+			errType: "api_error",
+			message: "API key is disabled",
+			code:    "API_KEY_DISABLED",
+			status:  http.StatusUnauthorized,
+		},
+		{
+			name:    "local API key user missing",
+			errType: "api_error",
+			message: "User associated with API key not found",
+			code:    "USER_NOT_FOUND",
+			status:  http.StatusUnauthorized,
+		},
+		{
+			name:    "inactive local API key user",
+			errType: "api_error",
+			message: "User account is not active",
+			code:    "USER_INACTIVE",
+			status:  http.StatusUnauthorized,
+		},
+		{
+			name:    "google invalid API key",
+			errType: "api_error",
+			message: "Invalid API key",
+			code:    "401",
+			status:  http.StatusUnauthorized,
+		},
+		{
+			name:    "google missing API key",
+			errType: "api_error",
+			message: "API key is required",
+			code:    "401",
+			status:  http.StatusUnauthorized,
+		},
+		{
+			name:    "google disabled API key",
+			errType: "api_error",
+			message: "API key is disabled",
+			code:    "401",
+			status:  http.StatusUnauthorized,
+		},
+		{
+			name:    "google local API key user missing",
+			errType: "api_error",
+			message: "User associated with API key not found",
+			code:    "401",
+			status:  http.StatusUnauthorized,
+		},
+		{
+			name:    "google inactive local API key user",
+			errType: "api_error",
+			message: "User account is not active",
+			code:    "401",
+			status:  http.StatusUnauthorized,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+
+			errType := normalizeOpsErrorType(tt.errType, tt.code)
+			phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(c, errType, tt.message, tt.code, tt.status)
+
+			require.Equal(t, "api_error", errType)
+			require.Equal(t, "auth", phase)
+			require.True(t, isBusinessLimited)
+			require.Equal(t, "client", errorOwner)
+			require.Equal(t, "client_request", errorSource)
+		})
+	}
+}
+
+func TestClassifyOpsLocalBusinessLimitErrorsExcludedFromSLA(t *testing.T) {
+	tests := []struct {
+		name        string
+		errType     string
+		message     string
+		code        string
+		status      int
+		wantErrType string
+		wantPhase   string
+	}{
+		{
+			name:        "standard API key quota exhausted",
+			errType:     "api_error",
+			message:     "API key 额度已用完",
+			code:        "API_KEY_QUOTA_EXHAUSTED",
+			status:      http.StatusTooManyRequests,
+			wantErrType: "api_error",
+			wantPhase:   "request",
+		},
+		{
+			name:        "standard query API key deprecated",
+			errType:     "api_error",
+			message:     "API key in query parameter is deprecated. Please use Authorization header instead.",
+			code:        "api_key_in_query_deprecated",
+			status:      http.StatusBadRequest,
+			wantErrType: "api_error",
+			wantPhase:   "request",
+		},
+		{
+			name:        "google query API key deprecated",
+			errType:     "api_error",
+			message:     "Query parameter api_key is deprecated. Use Authorization header or key instead.",
+			code:        "400",
+			status:      http.StatusBadRequest,
+			wantErrType: "api_error",
+			wantPhase:   "request",
+		},
+		{
+			name:        "google no active subscription",
+			errType:     "api_error",
+			message:     "No active subscription found for this group",
+			code:        "403",
+			status:      http.StatusForbidden,
+			wantErrType: "api_error",
+			wantPhase:   "request",
+		},
+		{
+			name:        "google insufficient account balance",
+			errType:     "api_error",
+			message:     "Insufficient account balance",
+			code:        "403",
+			status:      http.StatusForbidden,
+			wantErrType: "api_error",
+			wantPhase:   "request",
+		},
+		{
+			name:        "gateway billing cache insufficient balance",
+			errType:     "billing_error",
+			message:     "insufficient balance",
+			code:        "",
+			status:      http.StatusForbidden,
+			wantErrType: "billing_error",
+			wantPhase:   "request",
+		},
+		{
+			name:        "gemini group platform mismatch",
+			errType:     "api_error",
+			message:     "API key group platform is not gemini",
+			code:        "400",
+			status:      http.StatusBadRequest,
+			wantErrType: "api_error",
+			wantPhase:   "request",
+		},
+		{
+			name:        "gateway API key 5h rate limit",
+			errType:     "api_error",
+			message:     "api key 5小时限额已用完",
+			code:        "rate_limit_exceeded",
+			status:      http.StatusTooManyRequests,
+			wantErrType: "api_error",
+			wantPhase:   "request",
+		},
+		{
+			name:        "gateway group RPM limit",
+			errType:     "api_error",
+			message:     "group requests-per-minute limit exceeded",
+			code:        "rate_limit_exceeded",
+			status:      http.StatusTooManyRequests,
+			wantErrType: "api_error",
+			wantPhase:   "request",
+		},
+		{
+			name:        "google subscription daily limit",
+			errType:     "api_error",
+			message:     "daily usage limit exceeded",
+			code:        "429",
+			status:      http.StatusTooManyRequests,
+			wantErrType: "api_error",
+			wantPhase:   "request",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+
+			errType := normalizeOpsErrorType(tt.errType, tt.code)
+			phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(c, errType, tt.message, tt.code, tt.status)
+
+			require.Equal(t, tt.wantErrType, errType)
+			require.Equal(t, tt.wantPhase, phase)
+			require.True(t, isBusinessLimited)
+			require.Equal(t, "client", errorOwner)
+			require.Equal(t, "client_request", errorSource)
+		})
+	}
+}
+
+func TestClassifyOpsIPRestrictionAccessDeniedExcludedFromSLA(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonIPRestriction)
+
+	errType := normalizeOpsErrorType("api_error", "ACCESS_DENIED")
+	phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(c, errType, "Access denied", "ACCESS_DENIED", http.StatusForbidden)
+
+	require.Equal(t, "api_error", errType)
+	require.Equal(t, "auth", phase)
+	require.True(t, isBusinessLimited)
+	require.Equal(t, "client", errorOwner)
+	require.Equal(t, "client_request", errorSource)
+}
+
+func TestClassifyOpsOtherErrorsStillCountForSLA(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	errType := normalizeOpsErrorType("api_error", "INTERNAL_ERROR")
+	phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(c, errType, "Failed to validate API key", "INTERNAL_ERROR", http.StatusInternalServerError)
+
+	require.Equal(t, "api_error", errType)
+	require.Equal(t, "internal", phase)
+	require.False(t, isBusinessLimited)
+	require.Equal(t, "platform", errorOwner)
+	require.Equal(t, "gateway", errorSource)
+}
+
+func TestClassifyOpsUnsupportedModelExcludedFromSLA(t *testing.T) {
+	tests := []string{
+		"No available accounts: no available accounts supporting model: made-up-model",
+		"No available accounts: no available OpenAI accounts supporting model: made-up-model",
+		"No available Gemini accounts: no available Gemini accounts supporting model: made-up-model",
+		"No available accounts: no available accounts supporting model: made-up-model (channel pricing restriction)",
+	}
+
+	for _, message := range tests {
+		t.Run(message, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			markOpsRoutingCapacityLimited(c)
+
+			errType := normalizeOpsErrorType("api_error", "")
+			phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(c, errType, message, "", http.StatusServiceUnavailable)
+
+			require.Equal(t, "api_error", errType)
+			require.Equal(t, "routing", phase)
+			require.True(t, isBusinessLimited)
+			require.Equal(t, "platform", errorOwner)
+			require.Equal(t, "gateway", errorSource)
+		})
+	}
+}
+
+func TestClassifyOpsUnmarkedNoAvailableTextStillCountsForSLA(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(
+		c,
+		"api_error",
+		"No available accounts",
+		"",
+		http.StatusServiceUnavailable,
+	)
+
+	require.Equal(t, "routing", phase)
+	require.False(t, isBusinessLimited)
+	require.Equal(t, "platform", errorOwner)
+	require.Equal(t, "gateway", errorSource)
+}
+
+func TestClassifyOpsUpstreamAuthTextStillCountsForSLA(t *testing.T) {
+	tests := []struct {
+		name    string
+		message string
+		code    string
+		status  int
+	}{
+		{
+			name:    "invalid API key",
+			message: "Invalid API key",
+			code:    "401",
+			status:  http.StatusUnauthorized,
+		},
+		{
+			name:    "disabled API key",
+			message: "API key is disabled",
+			code:    "API_KEY_DISABLED",
+			status:  http.StatusUnauthorized,
+		},
+		{
+			name:    "gemini group platform mismatch",
+			message: "API key group platform is not gemini",
+			code:    "400",
+			status:  http.StatusBadRequest,
+		},
+		{
+			name:    "provider balance error",
+			message: "Insufficient account balance",
+			code:    "INSUFFICIENT_BALANCE",
+			status:  http.StatusForbidden,
+		},
+		{
+			name:    "provider subscription error",
+			message: "No active subscription found for this group",
+			code:    "SUBSCRIPTION_NOT_FOUND",
+			status:  http.StatusForbidden,
+		},
+		{
+			name:    "provider quota error",
+			message: "api key 额度已用完",
+			code:    "API_KEY_QUOTA_EXHAUSTED",
+			status:  http.StatusTooManyRequests,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			service.SetOpsUpstreamError(c, tt.status, tt.message, "")
+
+			phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(
+				c,
+				"api_error",
+				tt.message,
+				tt.code,
+				tt.status,
+			)
+
+			require.Equal(t, "upstream", phase)
+			require.False(t, isBusinessLimited)
+			require.Equal(t, "provider", errorOwner)
+			require.Equal(t, "upstream_http", errorSource)
+		})
+	}
+}
+
+func TestClassifyOpsUpstreamNoAvailableTextStillCountsForSLA(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	service.SetOpsUpstreamError(c, http.StatusServiceUnavailable, "No available accounts", "")
+
+	phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(
+		c,
+		"api_error",
+		"No available accounts",
+		"",
+		http.StatusServiceUnavailable,
+	)
+
+	require.Equal(t, "upstream", phase)
+	require.False(t, isBusinessLimited)
+	require.Equal(t, "provider", errorOwner)
+	require.Equal(t, "upstream_http", errorSource)
+}
+
 func TestSetOpsEndpointContext_SetsContextKeys(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
@@ -482,9 +835,15 @@ func TestOpsKeyContract_HandlerWriteServiceRead(t *testing.T) {
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 
-	// Handler-side writer.
+	// Handler-side writer for model (setOpsRequestContext is the production
+	// writer); body is no longer captured by setOpsRequestContext after the
+	// upstream commit 2eb622f2 dropped ops_retry_replay storage. The body-size
+	// branch of TkEnrichForbiddenMessage is now exercised by service-layer
+	// tests that set OpsRequestBodyKey directly via gateway_service.go
+	// `setOpsUpstreamRequestBody`.
 	body := []byte(`{"model":"claude-opus-4-7"}`)
-	setOpsRequestContext(c, "claude-opus-4-7", false, body)
+	setOpsRequestContext(c, "claude-opus-4-7", false)
+	c.Set(opsRequestBodyKey, body)
 
 	// Service-side reader (the actual production consumer of this contract).
 	got := service.TkEnrichForbiddenMessage(c, "default-msg")
@@ -492,7 +851,7 @@ func TestOpsKeyContract_HandlerWriteServiceRead(t *testing.T) {
 	require.Contains(t, got, "claude-opus-4-7",
 		"service.TkEnrichForbiddenMessage must read the model handler.setOpsRequestContext wrote — opsModelKey/OpsModelKey out of sync?")
 	require.Contains(t, got, strconv.Itoa(len(body)),
-		"service.TkEnrichForbiddenMessage must read the body length handler.setOpsRequestContext wrote (%d bytes) — opsRequestBodyKey/OpsRequestBodyKey out of sync?", len(body))
+		"service.TkEnrichForbiddenMessage must read the body length handler context wrote (%d bytes) — opsRequestBodyKey/OpsRequestBodyKey out of sync?", len(body))
 
 	// Also verify the literal constants agree symbolically (compile-time guard
 	// for the const = service.OpsXxxKey aliasing in ops_error_logger.go).

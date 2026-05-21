@@ -49,6 +49,7 @@ export interface PlatformSection {
   model_pricing: PricingFormEntry[]
   web_search_emulation: boolean
   codex_image_generation_bridge: boolean
+  bedrock_cc_compat: boolean
   account_stats_pricing_rules: FormPricingRule[]
 }
 
@@ -137,6 +138,11 @@ export function apiToFormSections(
     const codexImageGenerationBridgeEnabled =
       codexImageGenerationBridge?.[platform] === true
 
+    const bedrockCCCompat = fc?.bedrock_cc_compat as
+      | Record<string, boolean>
+      | undefined
+    const bedrockCCCompatEnabled = bedrockCCCompat?.[platform] === true
+
     sections.push({
       platform,
       enabled: true,
@@ -146,6 +152,7 @@ export function apiToFormSections(
       model_pricing: pricing,
       web_search_emulation: webSearchEnabled,
       codex_image_generation_bridge: codexImageGenerationBridgeEnabled,
+      bedrock_cc_compat: bedrockCCCompatEnabled,
       account_stats_pricing_rules: [],
     })
   }
@@ -228,6 +235,19 @@ export function formSectionsToApi(
     featuresConfig.codex_image_generation_bridge = codexImageGenerationBridge
   } else {
     delete featuresConfig.codex_image_generation_bridge
+  }
+
+  const bedrockCCCompat: Record<string, boolean> = {}
+  for (const section of sections) {
+    if (!section.enabled) continue
+    if (section.platform === 'anthropic') {
+      bedrockCCCompat[section.platform] = !!section.bedrock_cc_compat
+    }
+  }
+  if (Object.keys(bedrockCCCompat).length > 0) {
+    featuresConfig.bedrock_cc_compat = bedrockCCCompat
+  } else {
+    delete featuresConfig.bedrock_cc_compat
   }
 
   return { group_ids, model_pricing, model_mapping, features_config: featuresConfig }

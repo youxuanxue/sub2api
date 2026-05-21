@@ -25,7 +25,11 @@ FROM ${NODE_IMAGE} AS frontend-builder
 
 WORKDIR /build/sub2api/frontend
 
-# Install pnpm and Python used by the frontend freshness manifest step
+# Install pnpm and Python used by the frontend freshness manifest step.
+# Python is TK-specific: scripts/checks/frontend-dist-freshness.py runs during
+# the frontend build to fail-fast on stale embedded dist. pnpm@latest keeps the
+# image aligned with the maintainer's local toolchain — pnpm-lock.yaml shape is
+# the actual reproducibility anchor (`pnpm install --frozen-lockfile` below).
 RUN apk add --no-cache python3 && corepack enable && corepack prepare pnpm@latest --activate
 
 # Install dependencies first (better caching)

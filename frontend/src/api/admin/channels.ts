@@ -240,8 +240,23 @@ export async function aggregatedGroupModels(params: {
   return Array.isArray(data?.models) ? data.models : []
 }
 
+export interface SyncPricingModelsResult {
+  models: string[]
+}
+
+/**
+ * Fetch the latest model names from the LiteLLM pricing catalog for the given platform
+ */
+export async function syncPricingModels(platform: string): Promise<SyncPricingModelsResult> {
+  const { data } = await apiClient.get<SyncPricingModelsResult>('/admin/channels/pricing/sync-models', {
+    params: { platform }
+  })
+  return data
+}
+
 const channelsAPI = {
   list, getById, create, update, remove, getModelDefaultPricing,
-  listChannelTypes, listChannelTypeModels, fetchUpstreamModels, aggregatedGroupModels
+  listChannelTypes, listChannelTypeModels, fetchUpstreamModels, aggregatedGroupModels,
+  syncPricingModels
 }
 export default channelsAPI

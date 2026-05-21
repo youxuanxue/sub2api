@@ -67,8 +67,13 @@
 
 - `backend/internal/service/us023_newapi_handle429_test.go`::`TestUS023_NewAPI_Handle429_ParsesOpenAICompatBody` (AC-001)
 - `backend/internal/service/us023_newapi_handle429_test.go`::`TestUS023_NewAPI_Handle429_FallsBackTo5MinWhenBodyHasNoResetTime` (AC-002)
-- `backend/internal/service/us023_newapi_handle429_test.go`::`TestUS023_OpsRetry_ClassifiesChatCompletionsAsOpenAI` (AC-003)
-- `backend/internal/service/us023_newapi_handle429_test.go`::`TestUS023_OpsRetry_ExecuteWithAccount_GuardsOpenAICompatInMessagesDefault` (AC-004)
+- AC-003 / AC-004 (ops_retry classifier + executeWithAccount guard) — 已随
+  上游 Wei-Shaw/sub2api commit `2eb622f2 Remove ops retry replay storage`
+  退役：`ops_retry.go` / `ops_retry_attempts` 表 / `ops_error_logs` 上的
+  `request_body` 等列均已删除，runtime 层不再有需要回归保护的 "admin
+  retry with account" 分支。本 story 的 AC-001/AC-002 仍由上方两个 429
+  body-parse 测试覆盖；AC-003/AC-004 标记为 superseded-by-upstream，无
+  对应活跃测试。
 - 运行命令: `go test -tags=unit -v -run 'TestUS023_' ./backend/internal/service/...`
 
 ## Evidence

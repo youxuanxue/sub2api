@@ -824,6 +824,11 @@ func TestStreamingReasoning(t *testing.T) {
 		OutputIndex: 0,
 		Item:        &ResponsesOutput{Type: "reasoning"},
 	}, state)
+	// TK: resToAnthHandleOutputItemAdded for reasoning returns nil (delays
+	// content_block_start until the first non-empty summary delta arrives).
+	// Upstream emits an eager content_block_start with empty thinking content;
+	// see Wei-Shaw/sub2api commit e9a25e7b. TK keeps the deferred-open behavior
+	// to avoid forcing consumers to handle an immediate-empty thinking block.
 	require.Len(t, events, 0)
 
 	events = ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
@@ -1791,4 +1796,50 @@ func TestAnthropicToResponses_ToolUseInputMustBeJSONObject(t *testing.T) {
 	require.Equal(t, "{}", items[1].Arguments)
 	require.Equal(t, "function_call", items[2].Type)
 	require.JSONEq(t, `{"file_path":"/tmp/a.txt"}`, items[2].Arguments)
+}
+
+// ---------------------------------------------------------------------------
+// isReasoningModel / temperature-stripping tests
+// ---------------------------------------------------------------------------
+
+func TestAnthropicToResponses_TemperatureStrippedForReasoningModel(t *testing.T) {
+	temp := 0.7
+	req := &AnthropicRequest{
+		Model:       "gpt-5.2",
+		MaxTokens:   1024,
+		Messages:    []AnthropicMessage{{Role: "user", Content: json.RawMessage(`"Hello"`)}},
+		Temperature: &temp,
+		TopP:        &temp,
+	}
+
+	resp, err := AnthropicToResponses(req)
+	require.NoError(t, err)
+	assert.Nil(t, resp.Temperature, "reasoning model: temperature must be stripped")
+	assert.Nil(t, resp.TopP, "reasoning model: top_p must be stripped")
+
+	// Verify the fields are absent from the serialised JSON.
+	b, err := json.Marshal(resp)
+	require.NoError(t, err)
+	assert.NotContains(t, string(b), `"temperature"`)
+	assert.NotContains(t, string(b), `"top_p"`)
+}
+
+func TestAnthropicToResponses_TemperatureStrippedForAllGpt5Variants(t *testing.T) {
+	temp := 1.0
+	models := []string{"gpt-5.2", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.5"}
+	for _, model := range models {
+		t.Run(model, func(t *testing.T) {
+			req := &AnthropicRequest{
+				Model:       model,
+				MaxTokens:   1024,
+				Messages:    []AnthropicMessage{{Role: "user", Content: json.RawMessage(`"Hello"`)}},
+				Temperature: &temp,
+				TopP:        &temp,
+			}
+			resp, err := AnthropicToResponses(req)
+			require.NoError(t, err)
+			assert.Nil(t, resp.Temperature, "model %s: temperature must be stripped", model)
+			assert.Nil(t, resp.TopP, "model %s: top_p must be stripped", model)
+		})
+	}
 }

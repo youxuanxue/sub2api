@@ -57,7 +57,20 @@ const (
 	// OpsSkipPassthroughKey 由 applyErrorPassthroughRule 在命中 skip_monitoring=true 的规则时设置。
 	// ops_error_logger 中间件检查此 key，为 true 时跳过错误记录。
 	OpsSkipPassthroughKey = "ops_skip_passthrough"
+
+	// Client-side configuration denials should remain visible in ops_error_logs,
+	// but should be excluded from SLA/error-rate calculations.
+	OpsClientBusinessLimitedKey                 = "ops_client_business_limited"
+	OpsClientBusinessLimitedReasonKey           = "ops_client_business_limited_reason"
+	OpsClientBusinessLimitedReasonIPRestriction = "api_key_ip_restriction"
 )
+
+func SetOpsLatencyMs(c *gin.Context, key string, value int64) {
+	if c == nil || strings.TrimSpace(key) == "" || value < 0 {
+		return
+	}
+	c.Set(key, value)
+}
 
 func setOpsUpstreamRequestBody(c *gin.Context, body []byte) {
 	if c == nil || len(body) == 0 {
@@ -65,13 +78,6 @@ func setOpsUpstreamRequestBody(c *gin.Context, body []byte) {
 	}
 	// 热路径避免 string(body) 额外分配，按需在落库前再转换。
 	c.Set(OpsUpstreamRequestBodyKey, body)
-}
-
-func SetOpsLatencyMs(c *gin.Context, key string, value int64) {
-	if c == nil || strings.TrimSpace(key) == "" || value < 0 {
-		return
-	}
-	c.Set(key, value)
 }
 
 func setOpsTLSFingerprintProfile(c *gin.Context, account *Account, profile *tlsfingerprint.Profile) {
@@ -93,6 +99,28 @@ func resolveOpsTLSFingerprintProfile(c *gin.Context, svc *TLSFingerprintProfileS
 	profile := svc.ResolveTLSProfile(account)
 	setOpsTLSFingerprintProfile(c, account, profile)
 	return profile
+}
+
+func MarkOpsClientBusinessLimited(c *gin.Context, reason string) {
+	if c == nil {
+		return
+	}
+	c.Set(OpsClientBusinessLimitedKey, true)
+	if reason = strings.TrimSpace(reason); reason != "" {
+		c.Set(OpsClientBusinessLimitedReasonKey, reason)
+	}
+}
+
+func HasOpsClientBusinessLimited(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	v, ok := c.Get(OpsClientBusinessLimitedKey)
+	if !ok {
+		return false
+	}
+	marked, _ := v.(bool)
+	return marked
 }
 
 // SetOpsUpstreamError is the exported wrapper for setOpsUpstreamError, used by
@@ -210,7 +238,8 @@ func appendOpsUpstreamError(c *gin.Context, ev OpsUpstreamErrorEvent) {
 	}
 
 	// If the caller didn't explicitly pass upstream request body but the gateway
-	// stored it on the context, attach it so ops can retry this specific attempt.
+	// stashed it on the context via setOpsUpstreamRequestBody, attach it so
+	// downstream ops_error_logs JSON can carry per-attempt body context.
 	if ev.UpstreamRequestBody == "" {
 		if v, ok := c.Get(OpsUpstreamRequestBodyKey); ok {
 			switch raw := v.(type) {

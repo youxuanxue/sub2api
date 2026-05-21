@@ -32,6 +32,7 @@ func RegisterUserRoutes(
 			user.POST("/account-bindings/email", h.User.BindEmailIdentity)
 			user.DELETE("/account-bindings/:provider", h.User.UnbindIdentity)
 			user.POST("/auth-identities/bind/start", h.User.StartIdentityBinding)
+			user.GET("/api-keys/:id/usage/daily", h.Usage.GetMyAPIKeyDailyUsage)
 
 			registerTKUserRoutes(authenticated, user, h)
 

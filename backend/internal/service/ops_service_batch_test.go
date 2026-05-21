@@ -36,11 +36,10 @@ func TestOpsServiceRecordErrorBatch_SanitizesAndBatches(t *testing.T) {
 			UpstreamErrorDetail:  strPtr(detail),
 			UpstreamErrors: []*OpsUpstreamErrorEvent{
 				{
-					AccountID:           -2,
-					UpstreamStatusCode:  429,
-					Message:             " token leaked ",
-					Detail:              `{"refresh_token":"secret"}`,
-					UpstreamRequestBody: `{"api_key":"secret","messages":[{"role":"user","content":"hello"}]}`,
+					AccountID:          -2,
+					UpstreamStatusCode: 429,
+					Message:            " token leaked ",
+					Detail:             `{"refresh_token":"secret"}`,
 				},
 			},
 		},
@@ -114,7 +113,7 @@ func TestOpsServiceRecordError_FallsBackWhenRepoUnavailable(t *testing.T) {
 		ErrorPhase:   "upstream",
 		ErrorType:    "upstream_error",
 		ErrorMessage: "failed",
-	}, nil)
+	})
 	require.NoError(t, err)
 	require.Equal(t, before+1, trajectory.DLQWrites())
 	payload := readOpsFallbackPayload(t, filepath.Join(os.Getenv("DATA_DIR"), "ops_dlq", "req_repo_unavailable.json.zst"))
@@ -142,7 +141,7 @@ func TestOpsServiceRecordError_FallsBackWhenInsertFails(t *testing.T) {
 		ErrorPhase:   "upstream",
 		ErrorType:    "upstream_error",
 		ErrorMessage: "failed",
-	}, nil)
+	})
 	require.Error(t, err)
 	require.Equal(t, before+1, trajectory.DLQWrites())
 	payload := readOpsFallbackPayload(t, filepath.Join(os.Getenv("DATA_DIR"), "ops_dlq", "req_insert_failed.json.zst"))

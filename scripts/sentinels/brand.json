@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "rationale": "Outward TokenKey brand surfaces that must stay converged: embedded SPA title, deploy/operator surfaces, image metadata, SPA document-title fallback, and the fifth-platform admin label (internal key remains `newapi`; user-facing copy is Extension Engine per docs/global/tokenkey-opc-transformation-plan.md §7.2). Root README files stay upstream-aligned to minimize merge conflict surface. This registry intentionally does NOT ban `sub2api` / `newapi` where they are compatibility or routing identifiers.",
+  "rationale": "Outward TokenKey brand surfaces that must stay converged: embedded SPA title, deploy/operator surfaces, image metadata, SPA document-title fallback, and the fifth-platform admin label (internal key remains `newapi`; user-facing copy is Extension Engine per docs/global/tokenkey-opc-transformation-plan.md §7.2). Root README files stay upstream-aligned to minimize merge conflict surface. This registry intentionally does NOT ban `sub2api` / `newapi` where they are compatibility or routing identifiers. Reviewed during merge/upstream-20260521 — anchors verified intact (Dockerfile sibling layout + pnpm@latest preserved).",
   "sentinels": [
     {
       "path": "frontend/index.html",

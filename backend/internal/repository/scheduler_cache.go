@@ -557,6 +557,8 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		// require_privacy_set 的分组里所有账号被反复 SetError("Privacy not set")
 		// 且永远调度不到。详见 service/account.go:IsPrivacySet。
 		"privacy_mode",
+		"openai_responses_mode",
+		"openai_responses_supported",
 	}
 	filtered := make(map[string]any)
 	for _, key := range keys {

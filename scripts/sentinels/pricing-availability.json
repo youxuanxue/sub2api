@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "rationale": "Load-bearing tap injection points and companion files that anchor the pricing-availability passive observability system (docs/approved/pricing-availability-source-of-truth.md). Each entry is a 1-line TK injection in an upstream-shaped file that could be silently dropped by a future `git merge upstream/main`. Without these taps the model_availability table receives no data, availability status stays 'untested' forever, and the /pricing endpoint never decorates responses with real availability. This file is the single source of truth read by both scripts/preflight.sh and the upstream-merge-pr-shape workflow.",
+  "rationale": "Load-bearing tap injection points and companion files that anchor the pricing-availability passive observability system (docs/approved/pricing-availability-source-of-truth.md). Each entry is a 1-line TK injection in an upstream-shaped file that could be silently dropped by a future `git merge upstream/main`. Without these taps the model_availability table receives no data, availability status stays 'untested' forever, and the /pricing endpoint never decorates responses with real availability. This file is the single source of truth read by both scripts/preflight.sh and the upstream-merge-pr-shape workflow. Reviewed during merge/upstream-20260521 — pricing-tap anchors verified intact across the gateway_handler*.go + gemini_v1beta_handler hotspots.",
   "sentinels": [
     {
       "path": "backend/internal/handler/gateway_handler.go",
