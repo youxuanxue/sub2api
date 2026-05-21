@@ -100,6 +100,7 @@ operate 流程：
 | snapshot 失败 / SSM 拒绝 | 校验 EC2 instance 在跑 / `edge-targets.json` / OIDC 权限 |
 | `apply --confirm` 拒绝 | 必须精确 `yes-apply-anthropic-config-cascade` |
 | tier baseline drift（check-edge-oauth-stability `extra_baseline_drift` / `account_field_drift`） | 用本流水线 plan-edge-account-tier 重写到对应 tier |
+| check guard 报 `credentials_drift` / `temp_unschedulable_rules` 不一致，但数值字段全等 | 加 `--force-template-rewrite` 让 plan 不再走 noop 短路，强制重写 credentials 端字段（snapshot/verify 不读 rules，所以默认 noop；这条 flag 是 escape hatch）。Apply 完跑一次 `check` 当真值 |
 | OAuth account `status=error/suspended` | OAuth 凭据问题（token 过期 / 403 / 上游禁用），见 OAuth 故障文档；不在本流水线范围 |
 | verify drift | operator 决定再 apply 或回滚（用 admin 前端按 plan.live_inputs 的 `edge_account_before` 反向写回） |
 | 想调 group.rpm_limit | admin UI 直接编辑 group，不要再用本流水线，也**不要**按 account 聚合手算 |
