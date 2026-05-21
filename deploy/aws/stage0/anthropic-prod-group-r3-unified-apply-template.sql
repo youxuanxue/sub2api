@@ -54,8 +54,6 @@ SELECT set_config('app.target_group_id', :'group_id', true);
 DO $$
 DECLARE
   tg_id BIGINT := current_setting('app.target_group_id')::bigint;
-  missing_count INT;
-  bad_decl_count INT;
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM groups WHERE id = tg_id AND deleted_at IS NULL
@@ -63,9 +61,9 @@ BEGIN
     RAISE EXCEPTION 'group id=% not found (or soft-deleted)', tg_id;
   END IF;
 
-  -- The temp_stub_inputs view is created by the CTE below at the point
-  -- of UPDATE.  We materialize a session-scoped temp table here so the
-  -- DO block can validate before any write hits the table.
+  -- Session-scoped staging table for stub inputs.  ON COMMIT DROP, so
+  -- the next transaction starts clean.  Membership / declared_rpm / SUM
+  -- validation runs in the second DO block below, after operator INSERTs.
   CREATE TEMP TABLE IF NOT EXISTS _stub_inputs_validate (
     account_id BIGINT PRIMARY KEY,
     declared_rpm INT NOT NULL
@@ -78,13 +76,15 @@ END $$;
 --   - declare a positive RPM (DO block enforces declared_rpm > 0)
 -- self-edge stubs: declared_rpm = upstream edge default_group.rpm_limit
 -- external stubs:  declared_rpm = operator quota (visible non-zero)
+--
+-- ⚠ The placeholder rows below are SENTINELS (account_id=-1, declared_rpm=-1).
+-- They WILL trigger the DO-block reject (declared_rpm <= 0 + missing account)
+-- so that an operator who copies this template without editing the VALUES
+-- block fails fast instead of silently writing nothing / something wrong.
+-- Replace every placeholder row with real (account_id, declared_rpm).
 INSERT INTO _stub_inputs_validate (account_id, declared_rpm) VALUES
-  -- BEGIN stub_inputs (REPLACE THIS BLOCK)
-  (40::bigint,  16::int),    -- cc-uk1-oauth: mirror uk1.default.rpm_limit
-  (42::bigint,  48::int),    -- cc-us1-oauth: mirror us1.default.rpm_limit
-  (43::bigint, 100::int),    -- tokensea-0.4: operator declared
-  (44::bigint, 100::int),    -- tokensea-0.6: operator declared
-  (45::bigint, 100::int)     -- ds-fallback:  operator declared
+  -- BEGIN stub_inputs (REPLACE THIS BLOCK — placeholders below are sentinels)
+  (-1::bigint, -1::int)     -- SENTINEL: replace with one row per stub
   -- END stub_inputs
 ;  -- duplicate account_id intentionally triggers a PK violation (operator error)
 

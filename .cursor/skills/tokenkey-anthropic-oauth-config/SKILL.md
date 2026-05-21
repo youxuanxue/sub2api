@@ -151,7 +151,7 @@ python3 ops/anthropic/check-prod-stub-mirror.py --legacy-r3     # rollout 过渡
 | kind | 含义 | 修法 |
 |---|---|---|
 | `r1_mirror_drift` | stub.concurrency ≠ absorb_zero_sum(upstream OAuth) | 用 concurrency apply 模板对齐 |
-| `r1_upstream_no_active_oauth` | edge default group 没有 active 状态的 anthropic OAuth 账号（可能 status=error / suspended / 软删） | edge OAuth 健康问题，不是镜像数学错误；查 `accounts.status` 与 `error_message`，决定修复 OAuth 还是下线 prod stub。R3-unified 的 `declared_rpm` 镜像仍可继续校验（不依赖 OAuth 状态） |
+| `upstream_no_active_oauth` | edge default group 没有 active 状态的 anthropic OAuth 账号（可能 status=error / suspended / 软删） | edge OAuth 健康问题，不是镜像数学错误；查 `accounts.status` 与 `error_message`，决定修复 OAuth 还是下线 prod stub。R3-unified 的 `declared_rpm` 镜像仍可继续校验（不依赖 OAuth 状态） |
 | `r3_declared_rpm_missing` | stub 缺 `extra.declared_rpm` | 用 R3-unified apply 模板写入 |
 | `r3_declared_rpm_zero_forbidden` | declared_rpm ≤ 0 | 同上 + 由 operator 拍非零值 |
 | `r3_self_edge_mirror_drift` | self-edge.declared_rpm ≠ upstream.default.rpm_limit | 同上 + 取上游实时值 |

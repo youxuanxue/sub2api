@@ -12,6 +12,16 @@
 -- This file is retained for audit-trail / git-blame continuity only.
 -- All new R3 writes MUST use anthropic-prod-group-r3-unified-apply-template.sql.
 --
+-- Mechanical guard: the DO block immediately below will RAISE EXCEPTION
+-- unless the operator explicitly sets a server-side GUC BEFORE BEGIN:
+--   SET app.ack_deprecated = 'yes-r3-unified-replaces-this';
+-- This is the OPC-style hard gate that prevents accidental copy-paste
+-- reuse from regressing the mixed-group unlimited window.  Use the
+-- escape hatch ONLY for emergency rollback of a specific historical
+-- apply, never for a fresh write.  The check uses current_setting(name,
+-- missing_ok=true) so an unset GUC returns NULL (fail-safe) rather than
+-- raising a confusing "no parameter" error.
+--
 -- ============================================================
 -- Historical doc (R3 absorb-zero path, no longer in force):
 -- ============================================================
@@ -43,6 +53,23 @@
 --   \i deploy/aws/stage0/anthropic-stub-mirror-rpm-apply-template.sql
 
 BEGIN;
+
+-- Deprecation hard gate (R3-unified 2026-05-21): refuse to execute this
+-- template unless the operator explicitly acknowledges the deprecation
+-- via a server-side GUC set BEFORE BEGIN.  Default behavior is fail-fast
+-- with a pointer to the replacement template.
+DO $$
+DECLARE
+  ack TEXT := current_setting('app.ack_deprecated', true);
+BEGIN
+  IF ack IS DISTINCT FROM 'yes-r3-unified-replaces-this' THEN
+    RAISE EXCEPTION USING
+      MESSAGE = 'anthropic-stub-mirror-rpm-apply-template.sql is DEPRECATED under R3-unified',
+      HINT = 'Use deploy/aws/stage0/anthropic-prod-group-r3-unified-apply-template.sql for new writes. '
+          || 'If this is an emergency rollback of a historical apply, before BEGIN run: '
+          || 'SET app.ack_deprecated = ''yes-r3-unified-replaces-this'';';
+  END IF;
+END $$;
 
 -- Pre-flight: refuse to run on a group that owns any OAuth account.  Such
 -- groups are governed by Σ(redline) via the strict-redline aggregate

@@ -274,6 +274,45 @@ def baseline_violations(stub: dict) -> list[dict]:
     return out
 
 
+def _check_declared_rpm_basic(
+    rec: dict,
+    actual_decl: int | None,
+    is_external: bool,
+    expected_decl: int | None = None,
+) -> bool:
+    """R3-unified per-stub declared_rpm basic checks (missing / zero-forbidden).
+
+    Used by both self-edge and external stub paths.  Returns True if a basic
+    violation was appended (so the caller can skip the self-edge mirror-drift
+    check — emitting both for the same root cause is misleading).
+    """
+    if actual_decl is None:
+        hint = "accounts.extra.declared_rpm is required for every anthropic apikey stub under R3-unified."
+        if is_external:
+            hint += " For external stubs this is the operator-declared quota."
+        violation: dict = {
+            "field": "declared_rpm",
+            "kind": "r3_declared_rpm_missing",
+            "hint": hint,
+        }
+        if expected_decl is not None:
+            violation["expected"] = expected_decl
+        rec["mirror_violations"].append(violation)
+        return True
+    if actual_decl <= 0:
+        violation = {
+            "field": "declared_rpm",
+            "kind": "r3_declared_rpm_zero_forbidden",
+            "actual": actual_decl,
+            "hint": "0 / negative declared_rpm = unlimited; forbidden under R3-unified.",
+        }
+        if expected_decl is not None:
+            violation["expected"] = expected_decl
+        rec["mirror_violations"].append(violation)
+        return True
+    return False
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__.split("\n\n", 1)[0] if __doc__ else "",
@@ -378,9 +417,14 @@ def main() -> int:
         if not m:
             rec["kind"] = "external"
             rec["skipped_reason"] = "base_url does not match api-<edge>.tokenkey.dev"
-            results.append(rec)
-            if rec["baseline_violations"]:
+            # R3-unified per-stub check for external stubs: declared_rpm must
+            # be a positive operator-declared quota.  No upstream mirror to
+            # compare against; only existence and sign matter.
+            if not args.legacy_r3:
+                _check_declared_rpm_basic(rec, stub.get("declared_rpm"), is_external=True)
+            if rec["baseline_violations"] or rec["mirror_violations"]:
                 has_violation = True
+            results.append(rec)
             continue
 
         rec["kind"] = "self-edge"
@@ -431,40 +475,29 @@ def main() -> int:
             # declared_rpm be checked below against default.rpm_limit.
             rec["mirror_violations"].append({
                 "field": "upstream_oauth_health",
-                "kind": "r1_upstream_no_active_oauth",
+                "kind": "upstream_no_active_oauth",
                 "reason": f"edge {edge_id} default group has no active anthropic OAuth members",
                 "hint": "OAuth account(s) may be status=error / suspended / soft-deleted; investigate edge OAuth health separately. R1 mirror check skipped; R3-unified declared_rpm mirror still enforced against upstream default.rpm_limit.",
             })
             has_violation = True
 
-        # R3-unified per-stub check (deferred to group loop for SUM, but the
-        # mirror-drift check on declared_rpm itself is per-stub).
+        # R3-unified per-stub check: declared_rpm must be present and
+        # positive AND (for self-edge) must equal upstream default.rpm_limit.
         expected_decl = int(edge_default.get("rpm_limit") or 0)
         rec["expected_declared_rpm"] = expected_decl
         if not args.legacy_r3:
-            actual_decl = stub.get("declared_rpm")
-            if actual_decl is None:
-                rec["mirror_violations"].append({
-                    "field": "declared_rpm",
-                    "kind": "r3_declared_rpm_missing",
-                    "expected": expected_decl,
-                    "hint": "accounts.extra.declared_rpm is required for every anthropic apikey stub under R3-unified.",
-                })
-                has_violation = True
-            elif actual_decl <= 0:
-                rec["mirror_violations"].append({
-                    "field": "declared_rpm",
-                    "kind": "r3_declared_rpm_zero_forbidden",
-                    "actual": actual_decl,
-                    "expected": expected_decl,
-                    "hint": "0 / negative declared_rpm = unlimited; forbidden under R3-unified.",
-                })
-                has_violation = True
-            elif actual_decl != expected_decl:
+            stub_had_basic_violation = _check_declared_rpm_basic(
+                rec, stub.get("declared_rpm"),
+                is_external=False, expected_decl=expected_decl,
+            )
+            # Mirror drift only applies when the basic checks pass — otherwise
+            # we'd emit two violations for the same root cause (missing vs.
+            # drift, zero vs. drift).
+            if not stub_had_basic_violation and stub.get("declared_rpm") != expected_decl:
                 rec["mirror_violations"].append({
                     "field": "declared_rpm",
                     "kind": "r3_self_edge_mirror_drift",
-                    "prod_stub": actual_decl,
+                    "prod_stub": stub.get("declared_rpm"),
                     "expected": expected_decl,
                     "expected_formula": "upstream edge default_group.rpm_limit",
                     "upstream_edge_id": edge_id,
@@ -472,35 +505,10 @@ def main() -> int:
                 })
                 has_violation = True
 
-        if rec["baseline_violations"]:
+        if rec["baseline_violations"] or rec["mirror_violations"]:
             has_violation = True
 
         results.append(rec)
-
-    # ---------------- R3-unified per-stub check for EXTERNAL stubs ----------------
-    # (self-edge already handled in the R1 loop above)
-    for rec in results:
-        if rec["kind"] != "external":
-            continue
-        if args.legacy_r3:
-            continue
-        decl = rec.get("declared_rpm")
-        if decl is None:
-            rec["mirror_violations"].append({
-                "field": "declared_rpm",
-                "kind": "r3_declared_rpm_missing",
-                "hint": "accounts.extra.declared_rpm is required for every anthropic apikey stub under R3-unified. "
-                        "For external stubs this is the operator-declared quota.",
-            })
-            has_violation = True
-        elif decl <= 0:
-            rec["mirror_violations"].append({
-                "field": "declared_rpm",
-                "kind": "r3_declared_rpm_zero_forbidden",
-                "actual": decl,
-                "hint": "0 / negative declared_rpm = unlimited; forbidden under R3-unified.",
-            })
-            has_violation = True
 
     # ---------------- Group-level (R3-unified or legacy) ----------------
     # Skipped when --account-id is given (stub-scoped invocation).
@@ -655,7 +663,10 @@ def main() -> int:
                 group_results.append(grec)
                 continue
 
-            # Unlimited group forbidden.
+            # Unlimited group forbidden is the root cause when prod_rpm <= 0;
+            # SUM mismatch is the residual case when prod_rpm > 0 but ≠ Σ.
+            # Treat them as alternatives, not stacked violations — otherwise
+            # the same group reports two findings for the same drift.
             if (g.get("rpm_limit") or 0) <= 0:
                 grec["mirror_violations"].append({
                     "field": "rpm_limit",
@@ -665,9 +676,7 @@ def main() -> int:
                     "hint": "group.rpm_limit=0 ⇒ unlimited; forbidden under R3-unified.",
                 })
                 has_violation = True
-
-            # SUM mismatch.
-            if (g.get("rpm_limit") or 0) != sum_decl:
+            elif (g.get("rpm_limit") or 0) != sum_decl:
                 grec["mirror_violations"].append({
                     "field": "rpm_limit",
                     "kind": "r3_group_sum_mismatch",
