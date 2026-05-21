@@ -179,9 +179,10 @@
         "settingsTabKeyboardActions",
         "handleSettingsTabKeydown",
         "value: \"airwallex\"",
-        "providerAirwallex"
+        "providerAirwallex",
+        "fallback_model_anthropic: \"claude-sonnet-4-6\""
       ],
-      "rationale": "The request-forwarding settings card is a large upstream-shaped admin page. Global prompt-cache sticky routing and Anthropic Cache TTL 1h injection both compile cleanly if their toggles are dropped from the template while the backend settings still exist, leaving operators unable to configure the account-safety/cache controls from the UI. This file now also carries two additional load-bearing TokenKey surfaces from the upstream merge: keyboard-accessible tab navigation (ARIA + arrow/home/end handlers) and Airwallex provider wiring in the payment-provider option lists; both can be silently reverted by template/script overwrites while keeping builds green."
+      "rationale": "The request-forwarding settings card is a large upstream-shaped admin page. Global prompt-cache sticky routing and Anthropic Cache TTL 1h injection both compile cleanly if their toggles are dropped from the template while the backend settings still exist, leaving operators unable to configure the account-safety/cache controls from the UI. This file now also carries two additional load-bearing TokenKey surfaces from the upstream merge: keyboard-accessible tab navigation (ARIA + arrow/home/end handlers) and Airwallex provider wiring in the payment-provider option lists; both can be silently reverted by template/script overwrites while keeping builds green. The fallback_model_anthropic default is pinned to a currently-available 4.x model — Anthropic OAuth subscription channels return not_found_error for retired 3.5 / 3.7 Sonnet, so any upstream merge that re-introduces those defaults silently breaks the model-fallback flow."
     },
     {
       "path": "frontend/src/i18n/locales/zh.ts",

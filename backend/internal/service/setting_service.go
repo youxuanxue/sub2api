@@ -2199,7 +2199,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeySMTPPort:                                 "587",
 		SettingKeySMTPUseTLS:                               "false",
 		SettingKeyEnableModelFallback:                      "false",
-		SettingKeyFallbackModelAnthropic:                   "claude-3-5-sonnet-20241022",
+		SettingKeyFallbackModelAnthropic:                   "claude-sonnet-4-6",
 		SettingKeyFallbackModelOpenAI:                      "gpt-4o",
 		SettingKeyFallbackModelGemini:                      "gemini-2.5-pro",
 		SettingKeyFallbackModelAntigravity:                 "gemini-2.5-pro",
@@ -2517,7 +2517,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 
 	// Model fallback settings
 	result.EnableModelFallback = settings[SettingKeyEnableModelFallback] == "true"
-	result.FallbackModelAnthropic = s.getStringOrDefault(settings, SettingKeyFallbackModelAnthropic, "claude-3-5-sonnet-20241022")
+	result.FallbackModelAnthropic = s.getStringOrDefault(settings, SettingKeyFallbackModelAnthropic, "claude-sonnet-4-6")
 	result.FallbackModelOpenAI = s.getStringOrDefault(settings, SettingKeyFallbackModelOpenAI, "gpt-4o")
 	result.FallbackModelGemini = s.getStringOrDefault(settings, SettingKeyFallbackModelGemini, "gemini-2.5-pro")
 	result.FallbackModelAntigravity = s.getStringOrDefault(settings, SettingKeyFallbackModelAntigravity, "gemini-2.5-pro")
@@ -2917,7 +2917,7 @@ func (s *SettingService) GetFallbackModel(ctx context.Context, platform string) 
 	switch platform {
 	case PlatformAnthropic:
 		key = SettingKeyFallbackModelAnthropic
-		defaultModel = "claude-3-5-sonnet-20241022"
+		defaultModel = "claude-sonnet-4-6"
 	case PlatformOpenAI:
 		key = SettingKeyFallbackModelOpenAI
 		defaultModel = "gpt-4o"

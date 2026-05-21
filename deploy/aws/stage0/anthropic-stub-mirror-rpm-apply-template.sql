@@ -1,3 +1,30 @@
+-- ⚠️ DEPRECATED 2026-05-21 — DO NOT USE FOR NEW WRITES.
+-- Replaced by deploy/aws/stage0/anthropic-prod-group-r3-unified-apply-template.sql
+-- under R3-unified.  Reasons:
+--   1. This template only writes group.rpm_limit; under R3-unified the
+--      per-stub `accounts.extra.declared_rpm` must also be written in
+--      the same transaction (mirror baseline + audit trail).
+--   2. This template relied on R3 absorb-zero (mixed group → unlimited),
+--      which is now a forbidden state.  Using this template on a mixed
+--      group writes the wrong value (computed as absorb-zero SUM).
+--   3. R3-unified guard kinds (r3_group_sum_mismatch / r3_declared_rpm_*)
+--      cannot be cleared by this template.
+-- This file is retained for audit-trail / git-blame continuity only.
+-- All new R3 writes MUST use anthropic-prod-group-r3-unified-apply-template.sql.
+--
+-- Mechanical guard: the DO block immediately below will RAISE EXCEPTION
+-- unless the operator explicitly sets a server-side GUC BEFORE BEGIN:
+--   SET app.ack_deprecated = 'yes-r3-unified-replaces-this';
+-- This is the OPC-style hard gate that prevents accidental copy-paste
+-- reuse from regressing the mixed-group unlimited window.  Use the
+-- escape hatch ONLY for emergency rollback of a specific historical
+-- apply, never for a fresh write.  The check uses current_setting(name,
+-- missing_ok=true) so an unset GUC returns NULL (fail-safe) rather than
+-- raising a confusing "no parameter" error.
+--
+-- ============================================================
+-- Historical doc (R3 absorb-zero path, no longer in force):
+-- ============================================================
 -- Anthropic stub-only group RPM mirror apply template (R3 mirror path)
 -- Purpose: write group.rpm_limit on a prod-side stub-only group to mirror
 -- the upstream edge's default_group.rpm_limit, per the R3 rule in
@@ -26,6 +53,23 @@
 --   \i deploy/aws/stage0/anthropic-stub-mirror-rpm-apply-template.sql
 
 BEGIN;
+
+-- Deprecation hard gate (R3-unified 2026-05-21): refuse to execute this
+-- template unless the operator explicitly acknowledges the deprecation
+-- via a server-side GUC set BEFORE BEGIN.  Default behavior is fail-fast
+-- with a pointer to the replacement template.
+DO $$
+DECLARE
+  ack TEXT := current_setting('app.ack_deprecated', true);
+BEGIN
+  IF ack IS DISTINCT FROM 'yes-r3-unified-replaces-this' THEN
+    RAISE EXCEPTION USING
+      MESSAGE = 'anthropic-stub-mirror-rpm-apply-template.sql is DEPRECATED under R3-unified',
+      HINT = 'Use deploy/aws/stage0/anthropic-prod-group-r3-unified-apply-template.sql for new writes. '
+          || 'If this is an emergency rollback of a historical apply, before BEGIN run: '
+          || 'SET app.ack_deprecated = ''yes-r3-unified-replaces-this'';';
+  END IF;
+END $$;
 
 -- Pre-flight: refuse to run on a group that owns any OAuth account.  Such
 -- groups are governed by Σ(redline) via the strict-redline aggregate

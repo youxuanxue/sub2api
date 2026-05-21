@@ -6100,7 +6100,7 @@ const form = reactive<SettingsForm>({
   google_oauth_frontend_redirect_url: "/auth/google/callback",
   // Model fallback
   enable_model_fallback: false,
-  fallback_model_anthropic: "claude-3-5-sonnet-20241022",
+  fallback_model_anthropic: "claude-sonnet-4-6",
   fallback_model_openai: "gpt-4o",
   fallback_model_gemini: "gemini-2.5-pro",
   fallback_model_antigravity: "gemini-2.5-pro",
