@@ -5713,6 +5713,8 @@ export default {
         anthropicCacheTTL1hInjectionHint: '开启后，对 Anthropic OAuth/Setup Token 请求体中已有的 ephemeral 缓存块强制写入 1h；响应 usage 默认按 5m 回写计费，账号级 TTL 计费设置优先。',
         rewriteMessageCacheControl: '改写消息缓存断点',
         rewriteMessageCacheControlHint: '默认关闭，保留客户端在 messages 内容块中的 cache_control。开启后会清除客户端断点并注入代理断点，适合不自行管理缓存策略的客户端。',
+        anthropicRequestNormalize: 'Anthropic 请求归一化',
+        anthropicRequestNormalizeHint: '默认开启，在转发前修复客户端的两类常见错误：(1) tool_choice 为 OpenAI 风格字符串（"auto" / "required" / "none"）时改写成 Anthropic 必需的 object 形态；(2) 同时启用 thinking 且 tool_choice 强制工具使用（any / tool）时，删除 thinking 以保留客户端的强制工具使用意图。未知的 tool_choice 字符串保留原样，让上游继续暴露客户端 bug。',
         antigravityUserAgentVersion: 'Antigravity UA 版本',
         antigravityUserAgentVersionPlaceholder: '1.23.2',
         antigravityUserAgentVersionHint: '留空时使用 ANTIGRAVITY_USER_AGENT_VERSION 或内置默认值 1.23.2；填写后后台设置优先。',

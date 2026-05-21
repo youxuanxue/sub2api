@@ -375,6 +375,7 @@ export interface SystemSettings {
   table_default_page_size: number;
   table_page_size_options: number[];
   backend_mode_enabled: boolean;
+  tk_anthropic_request_normalize_enabled: boolean;
   custom_menu_items: CustomMenuItem[];
   custom_endpoints: CustomEndpoint[];
   // SMTP settings
@@ -601,6 +602,7 @@ export interface UpdateSettingsRequest {
   table_default_page_size?: number;
   table_page_size_options?: number[];
   backend_mode_enabled?: boolean;
+  tk_anthropic_request_normalize_enabled?: boolean;
   custom_menu_items?: CustomMenuItem[];
   custom_endpoints?: CustomEndpoint[];
   smtp_host?: string;

@@ -1446,6 +1446,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyAccountQuotaNotifyEnabled] = strconv.FormatBool(settings.AccountQuotaNotifyEnabled)
 	updates[SettingKeyAccountQuotaNotifyEmails] = MarshalNotifyEmails(settings.AccountQuotaNotifyEmails)
 	s.tkAppendTokenKeyBridgeSettingUpdates(updates, settings)
+	s.tkAppendAnthropicNormalizeSettingUpdates(updates, settings)
 	s.tkAppendColdStartSettingUpdates(updates, settings)
 
 	// Do not persist here: callers (UpdateSettings / UpdateSettingsWithAuthSourceDefaults)
@@ -2210,6 +2211,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyAntigravityUserAgentVersion:        "",
 	}
 	tkMergeDefaultTokenKeyBridgeSettings(defaults)
+	tkMergeDefaultAnthropicNormalizeSettings(defaults)
 	tkMergeDefaultColdStartSettings(defaults)
 
 	return s.settingRepo.SetMultiple(ctx, defaults)
@@ -2251,6 +2253,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		BackendModeEnabled:               settings[SettingKeyBackendModeEnabled] == "true",
 	}
 	tkApplyTokenKeyBridgeParsed(settings, result)
+	tkApplyAnthropicNormalizeParsed(settings, result)
 	tkApplyColdStartParsed(settings, result)
 	result.TableDefaultPageSize, result.TablePageSizeOptions = parseTablePreferences(
 		settings[SettingKeyTableDefaultPageSize],

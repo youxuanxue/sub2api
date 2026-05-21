@@ -3231,6 +3231,31 @@
                 <Toggle v-model="form.rewrite_message_cache_control" />
               </div>
 
+              <!-- TK: Anthropic 请求体归一化 -->
+              <div class="flex items-center justify-between">
+                <div>
+                  <label
+                    class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{
+                      t(
+                        "admin.settings.gatewayForwarding.anthropicRequestNormalize",
+                      )
+                    }}
+                  </label>
+                  <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{
+                      t(
+                        "admin.settings.gatewayForwarding.anthropicRequestNormalizeHint",
+                      )
+                    }}
+                  </p>
+                </div>
+                <Toggle
+                  v-model="form.tk_anthropic_request_normalize_enabled"
+                />
+              </div>
+
               <!-- Antigravity UA 版本 -->
               <div>
                 <label
@@ -6098,6 +6123,7 @@ const form = reactive<SettingsForm>({
   enable_metadata_passthrough: false,
   enable_cch_signing: false,
   enable_anthropic_cache_ttl_1h_injection: false,
+  tk_anthropic_request_normalize_enabled: true,
   sticky_routing_enabled: true,
   rewrite_message_cache_control: false,
   antigravity_user_agent_version: "",
@@ -7081,6 +7107,8 @@ async function saveSettings() {
         form.enable_anthropic_cache_ttl_1h_injection,
       sticky_routing_enabled: form.sticky_routing_enabled,
       rewrite_message_cache_control: form.rewrite_message_cache_control,
+      tk_anthropic_request_normalize_enabled:
+        form.tk_anthropic_request_normalize_enabled,
       antigravity_user_agent_version:
         form.antigravity_user_agent_version?.trim() || "",
       // Payment configuration

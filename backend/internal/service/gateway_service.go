@@ -4457,6 +4457,13 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		})
 	}
 
+	// TK: normalize Anthropic native request body (tool_choice string -> object;
+	// strip thinking when tool_choice forces tool use). Runs once per request
+	// before any downstream rewrite. See gateway_anthropic_request_normalize_tk.go.
+	if account.Platform == PlatformAnthropic {
+		body = s.tkNormalizeAnthropicRequestBody(ctx, c, body)
+	}
+
 	// Claude Code 客户端判定：UA 匹配 claude-cli/* 且携带 metadata.user_id。
 	// 真正的 Claude Code 客户端自带完整的 system prompt、cache_control 断点和 header，
 	// 不需要代理做任何 body 级别的 mimicry；强行替换反而会破坏客户端的缓存策略
