@@ -4607,7 +4607,6 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	// 重试间复用同一请求体，避免每次 string(body) 产生额外分配。
 	setOpsUpstreamRequestBody(c, body)
 
-
 	// 重试循环
 	var resp *http.Response
 	retryStart := time.Now()
@@ -5136,7 +5135,6 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 
 	// 重试间复用同一请求体，避免每次 string(body) 产生额外分配。
 	setOpsUpstreamRequestBody(c, input.Body)
-
 
 	var resp *http.Response
 	retryStart := time.Now()

@@ -186,10 +186,10 @@ type SystemSettings struct {
 	PricingCatalogPublic         bool    `json:"pricing_catalog_public"`
 
 	// Gateway forwarding behavior
-	EnableFingerprintUnification       bool   `json:"enable_fingerprint_unification"`
-	EnableMetadataPassthrough          bool   `json:"enable_metadata_passthrough"`
-	EnableCCHSigning                   bool   `json:"enable_cch_signing"`
-	EnableAnthropicCacheTTL1hInjection bool   `json:"enable_anthropic_cache_ttl_1h_injection"`
+	EnableFingerprintUnification       bool `json:"enable_fingerprint_unification"`
+	EnableMetadataPassthrough          bool `json:"enable_metadata_passthrough"`
+	EnableCCHSigning                   bool `json:"enable_cch_signing"`
+	EnableAnthropicCacheTTL1hInjection bool `json:"enable_anthropic_cache_ttl_1h_injection"`
 	// Sticky routing kill switch (default true).
 	// See docs/approved/sticky-routing.md §3.2.
 	StickyRoutingEnabled        bool   `json:"sticky_routing_enabled"`

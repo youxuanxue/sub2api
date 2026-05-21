@@ -930,8 +930,10 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		platform = forcedPlatform
 	}
 
-	// Get available models from account configurations (without platform filter)
-	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, "")
+	// Get available models from account configurations, filtered to the
+	// selected group platform so cross-platform model_mapping entries on
+	// sibling accounts in the same group don't leak through.
+	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
 	// TK: filter to priced ∩ ¬unreachable (Goal 2, R-003). Nil-safe fail-open.
 	availableModels = h.tkFilterModelIDs(c.Request.Context(), platform, availableModels)
 

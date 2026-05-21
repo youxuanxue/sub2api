@@ -6176,7 +6176,6 @@ func extractOpenAIReasoningEffortFromBody(body []byte, requestedModel string) *s
 	return &value
 }
 
-
 func sanitizeEmptyBase64InputImagesInOpenAIBody(body []byte) ([]byte, bool, error) {
 	if len(body) == 0 || !bytes.Contains(body, []byte(`"image_url"`)) || !bytes.Contains(body, []byte(`base64,`)) {
 		return body, false, nil

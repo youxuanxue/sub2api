@@ -259,10 +259,6 @@ const (
 	defaultLoginAgreementDate    = "2026-03-31"
 )
 
-func parseLoginAgreementDocuments(raw string) []LoginAgreementDocument {
-	return parseLoginAgreementDocumentsJSON(raw)
-}
-
 // loginAgreementDocumentsJSON is the seed value persisted into the
 // SettingKeyLoginAgreementDocuments default. Falls back to "[]" when the seed
 // list is empty so we always store valid JSON.
@@ -2315,15 +2311,15 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 
 	// 初始化默认设置（single map — duplicate keys break Go compilation)
 	defaults := map[string]string{
-		SettingKeyRegistrationEnabled:                       "true",
-		SettingKeyEmailVerifyEnabled:                        "false",
-		SettingKeyRegistrationEmailSuffixWhitelist:          "[]",
-		SettingKeyPromoCodeEnabled:                          "true", // 默认启用优惠码功能
-		SettingKeyLoginAgreementEnabled:                     "false",
-		SettingKeyLoginAgreementMode:                        defaultLoginAgreementMode,
-		SettingKeyLoginAgreementUpdatedAt:                   defaultLoginAgreementDate,
-		SettingKeyLoginAgreementDocuments:                   loginAgreementDocumentsJSON,
-		SettingKeyAPIKeyACLTrustForwardedIP:                 "false",
+		SettingKeyRegistrationEnabled:              "true",
+		SettingKeyEmailVerifyEnabled:               "false",
+		SettingKeyRegistrationEmailSuffixWhitelist: "[]",
+		SettingKeyPromoCodeEnabled:                 "true", // 默认启用优惠码功能
+		SettingKeyLoginAgreementEnabled:            "false",
+		SettingKeyLoginAgreementMode:               defaultLoginAgreementMode,
+		SettingKeyLoginAgreementUpdatedAt:          defaultLoginAgreementDate,
+		SettingKeyLoginAgreementDocuments:          loginAgreementDocumentsJSON,
+		SettingKeyAPIKeyACLTrustForwardedIP:        "false",
 		// TokenKey brand 默认值；保持产品心智一致（rule §5 invariant）。
 		SettingKeySiteName:                                  "TokenKey",
 		SettingKeySiteLogo:                                  "",
@@ -2462,7 +2458,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyMaxClaudeCodeVersion: "",
 
 		// 分组隔离（默认不允许未分组 Key 调度）
-		SettingKeyAllowUngroupedKeyScheduling:        "false",
+		SettingKeyAllowUngroupedKeyScheduling: "false",
 		// Backend Mode：TokenKey 默认开启（管理员发号场景）；migration tk_003 也镜像了这条覆写。
 		SettingKeyBackendModeEnabled:                 "true",
 		SettingKeyEnableAnthropicCacheTTL1hInjection: "false",
