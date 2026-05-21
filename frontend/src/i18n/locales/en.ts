@@ -3488,9 +3488,9 @@ export default {
       modelExists: 'Model already exists',
       modelCount: '{count} models',
       poolMode: 'Pool Mode',
-      poolModeHint: 'Enable when upstream is an account pool; errors won\'t mark local account status',
+      poolModeHint: 'Enable when upstream is an account pool; one in-place retry lets the upstream pool rotate to a healthy member',
       poolModeInfo:
-        'When enabled, behavior is uniform across platforms (OpenAI / Gemini / Antigravity / Anthropic): upstream 401 / 403 / 429 / 502 / 503 / 504 errors first retry on the same account N times (N = "Same-Account Retries" below, default 1), then naturally fail over to the next account. The local account is never marked rate-limited / errored / temp-unscheduled. For Anthropic, the "three consecutive failures auto-cool this account" protection is also skipped. Suitable when the upstream points to another TokenKey / compatible gateway pool. Trade-off: you give up automatic failure protection for this account — only enable when you have verified the upstream itself is a self-rotating pool.',
+        'When enabled, upstream 401 / 403 / 429 / 502 / 503 / 504 errors first retry on the same account N times (N = "Same-Account Retries" below, default 1) so the upstream pool gets a chance to rotate to a different backend, then naturally fail over to the next local account. Anthropic accounts still receive the 3/3 short-window protection, but cooldown is now exponential: 30s on the first trip, 2 min on the second, 10 min on the third+ — short enough that a single transient burst no longer takes a single-member group offline for 10 minutes, while persistent failure still escalates to a hard back-off. Suitable when upstream points to another TokenKey / compatible gateway pool.',
       poolModeRetryCount: 'Same-Account Retries',
       poolModeRetryCountHint:
         'Applies to all pool-mode platforms (including Anthropic). 1 = retry the same account once before failover; 0 = no in-place retry at all, failover immediately; default {default}, maximum {max}. Higher values amplify upstream load — keep this low when forwarding to a self-rotating pool.',

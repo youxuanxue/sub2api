@@ -70,10 +70,32 @@ const (
 	openAI403DisableThreshold       = 3
 	openAI403CounterWindowMinutes   = 180
 
-	anthropicUpstreamErrorThreshold       = 3
-	anthropicUpstreamErrorWindowMinutes   = 1
-	anthropicUpstreamErrorCooldownMinutes = 10
+	anthropicUpstreamErrorThreshold     = 3
+	anthropicUpstreamErrorWindowMinutes = 1
+	// Cooldown escalation TTL: how long a prior cooldown trigger keeps the
+	// account at an elevated tier before falling back to the shortest tier
+	// (30s). Anything inside this window counts toward escalation.
+	anthropicCooldownTierTTLMinutes = 30
 )
+
+// anthropicCooldownTierLadder picks an exponentially longer cooldown when
+// the same account repeatedly trips the 3/3 short-window threshold inside
+// anthropicCooldownTierTTLMinutes. Tier index = (recent cooldown count - 1)
+// clamped to len-1.
+//
+// Tier 0 (first hit in 30 min): 30s — transient upstream jitter
+// Tier 1 (second hit):           2 min — repeat suggests real problem
+// Tier 2+ (third+ hit):          10 min — persistent failure, back off hard
+//
+// Replaces the prior fixed 10-min cooldown which amplified single transient
+// bursts into 10-min group outages on single-member exclusive groups
+// (2026-05-21 cc-us1-oauth → cc-edges incident). The shortest tier is the
+// dominant case; the long tail still escalates to give upstream room.
+var anthropicCooldownTierLadder = []time.Duration{
+	30 * time.Second,
+	2 * time.Minute,
+	10 * time.Minute,
+}
 
 // NewRateLimitService 创建RateLimitService实例
 func NewRateLimitService(accountRepo AccountRepository, usageRepo UsageLogRepository, cfg *config.Config, geminiQuotaService *GeminiQuotaService, tempUnschedCache TempUnschedCache) *RateLimitService {
@@ -762,25 +784,34 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 	return true
 }
 
+// handleAnthropicUpstreamError counts upstream errors per account in a 1-min
+// short window and, on the 3rd hit, marks the account temp_unschedulable.
+//
+// Pool-mode policy (2026-05-21 revision of PR #333, which itself reversed
+// PR #248): pool_mode accounts are NOT bypassed here. PR #333's blanket
+// immunity meant a pool_mode account would persistently take traffic even
+// when its upstream pool was genuinely down — the slog-only signal had no
+// alert hook and the failover loop alone could not protect a single-member
+// exclusive group from cascading customer-facing 503s.
+//
+// The new design keeps the 3/3 threshold for everyone, but the cooldown
+// itself is exponential rather than a fixed 10 min:
+//   - first cooldown in 30 min:  30s (transient jitter shrugged off)
+//   - second cooldown in 30 min: 2 min
+//   - third+ cooldown:           10 min (persistent failure, hard back-off)
+//
+// This restores the mechanical "account is failing" signal that ops
+// dashboards / on-call can act on, while limiting customer-visible outage
+// on transient upstream jitter to 30 seconds on the first hit. Pool_mode
+// retains its meaningful semantic (one in-place same-account retry via
+// isPoolModeRetryableStatus + GetPoolModeRetryCount) — that retry already
+// absorbs most single-shot upstream pool jitter before the 3/3 counter
+// can fire.
+//
+// Other Anthropic protections (credit-balance / KYC / organization-disabled
+// in case 400, OAuth 401 refresh, 429 retry-after cooldown, 529 overload)
+// live outside this function and are unaffected.
 func (s *RateLimitService) handleAnthropicUpstreamError(ctx context.Context, account *Account, statusCode int, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
-	// TK: 当 Anthropic apikey 账号启用池模式（上游是另一套 TokenKey / 兼容网关账号池）时，
-	// 跳过 3/3 自动 temp_unschedulable 累积。池前置代理本身就会在内部轮换成员，
-	// 偶发 5xx 是池内调度抖动而不是本账号故障，不应级联拉黑本地账号。
-	// 注意：这显式反转了 PR #248 引入的"pool-mode 仍计数"设计——见 commit c62104ba 与
-	// AnthropicPoolModeSkipsAutoUnsched 测试。其他保护路径（credit balance/KYC/
-	// organization disabled 在 case 400 分支、429 retry-after cooldown、529 overload）
-	// 不在本函数内，自动保留。
-	if account.IsPoolMode() {
-		// WARN level (not INFO): reversing PR #248 removes the only mechanical
-		// signal that a stub account is failing. WARN gives ops dashboards /
-		// log-level alert rules a hookable event until a dedicated
-		// pool_mode-failure-rate alert is added in ops_alert_evaluator_service.
-		slog.Warn("anthropic_upstream_error_pool_mode_skipped",
-			"account_id", account.ID,
-			"status_code", statusCode,
-			"platform", account.Platform)
-		return false
-	}
 	msg := buildAnthropicUpstreamErrorMessage(statusCode, upstreamMsg, responseBody)
 	if s.anthropicUpstreamErrorCounterCache == nil {
 		slog.Warn("anthropic_upstream_error_counter_missing", "account_id", account.ID, "status_code", statusCode)
@@ -793,13 +824,38 @@ func (s *RateLimitService) handleAnthropicUpstreamError(ctx context.Context, acc
 		return false
 	}
 	if count < anthropicUpstreamErrorThreshold {
-		slog.Warn("anthropic_upstream_error_count", "account_id", account.ID, "status_code", statusCode, "count", count, "threshold", anthropicUpstreamErrorThreshold)
+		slog.Warn("anthropic_upstream_error_count",
+			"account_id", account.ID,
+			"status_code", statusCode,
+			"count", count,
+			"threshold", anthropicUpstreamErrorThreshold,
+			"pool_mode", account.IsPoolMode())
 		return false
 	}
 
+	// Pick the cooldown duration based on how many times this same account
+	// has tripped the threshold inside the last anthropicCooldownTierTTLMinutes.
+	// Best-effort: any Redis failure falls back to the shortest tier so we
+	// never accidentally apply a 10-min cooldown on a counter error.
+	tierIndex := 0
+	tierCount, tierErr := s.anthropicUpstreamErrorCounterCache.IncrementAnthropicCooldownTier(ctx, account.ID, anthropicCooldownTierTTLMinutes)
+	if tierErr != nil {
+		slog.Warn("anthropic_cooldown_tier_increment_failed",
+			"account_id", account.ID,
+			"status_code", statusCode,
+			"error", tierErr)
+	} else if tierCount > 1 {
+		tierIndex = int(tierCount) - 1
+		if tierIndex >= len(anthropicCooldownTierLadder) {
+			tierIndex = len(anthropicCooldownTierLadder) - 1
+		}
+	}
+	cooldown := anthropicCooldownTierLadder[tierIndex]
+
 	now := time.Now()
-	until := now.Add(time.Duration(anthropicUpstreamErrorCooldownMinutes) * time.Minute)
-	reasonMessage := fmt.Sprintf("Anthropic upstream error threshold (%d/%d): %s", count, anthropicUpstreamErrorThreshold, msg)
+	until := now.Add(cooldown)
+	reasonMessage := fmt.Sprintf("Anthropic upstream error threshold (%d/%d, cooldown=%s tier=%d): %s",
+		count, anthropicUpstreamErrorThreshold, cooldown, tierIndex, msg)
 	state := &TempUnschedState{
 		UntilUnix:       until.Unix(),
 		TriggeredAtUnix: now.Unix(),
@@ -822,7 +878,18 @@ func (s *RateLimitService) handleAnthropicUpstreamError(ctx context.Context, acc
 		}
 	}
 
-	slog.Warn("anthropic_upstream_error_temp_unschedulable", "account_id", account.ID, "status_code", statusCode, "until", until, "count", count, "threshold", anthropicUpstreamErrorThreshold)
+	// Single observability anchor for ops alerts: cooldown_seconds and tier
+	// let evaluators distinguish "transient jitter shrugged off" (tier=0,
+	// 30s) from "persistent failure escalating" (tier>=2, 10min).
+	slog.Warn("anthropic_upstream_error_temp_unschedulable",
+		"account_id", account.ID,
+		"status_code", statusCode,
+		"until", until,
+		"count", count,
+		"threshold", anthropicUpstreamErrorThreshold,
+		"cooldown_seconds", int(cooldown.Seconds()),
+		"tier", tierIndex,
+		"pool_mode", account.IsPoolMode())
 	return true
 }
 
@@ -1605,6 +1672,12 @@ func (s *RateLimitService) ResetAnthropicUpstreamErrorCounter(ctx context.Contex
 	}
 	if err := s.anthropicUpstreamErrorCounterCache.ResetAnthropicUpstreamErrorCount(ctx, accountID); err != nil {
 		slog.Warn("anthropic_upstream_error_reset_failed", "account_id", accountID, "error", err)
+	}
+	// Also reset cooldown escalation tier so a healed account starts the next
+	// failure window at the shortest cooldown (30s) rather than carrying stale
+	// 10-min escalation state forward.
+	if err := s.anthropicUpstreamErrorCounterCache.ResetAnthropicCooldownTier(ctx, accountID); err != nil {
+		slog.Warn("anthropic_cooldown_tier_reset_failed", "account_id", accountID, "error", err)
 	}
 }
 

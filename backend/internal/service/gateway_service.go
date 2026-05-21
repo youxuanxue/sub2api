@@ -526,20 +526,21 @@ func (e *UpstreamFailoverError) Error() string {
 // TempUnscheduleRetryableError 对 RetryableOnSameAccount 类型的 failover 错误触发临时封禁。
 // 由 handler 层在同账号重试全部用尽、切换账号时调用。
 //
-// 池模式账号（credentials.pool_mode=true）跳过：声明上游是自我轮换的账号池后，
-// 同账号 retry 用尽属于池调度抖动而非本账号故障；级联拉黑会让转发 stub
-// 在单成员组里成为系统单点失败源（见 2026-05-21 cc-us1-oauth → cc-edges
-// 事件）。failover_loop 在 retry 用尽后自然 failover 到下个账号，无需再写
-// temp_unschedulable_until。
+// 池模式账号同样进入此路径（2026-05-21 revision of PR #333）：retry 用尽
+// 才进 TempUnschedule，而 pool_mode 默认 pool_mode_retry_count=1 已经
+// 给了池一次自愈机会；用尽仍失败时不再回避本地状态写入。
+//
+// 本函数只处理 RetryableOnSameAccount 的两个状态码：
+//   - case 400: tempUnscheduleGoogleConfigError —— 1 分钟 cooldown
+//   - case 502: tempUnscheduleEmptyResponse —— 1 分钟 cooldown
+//
+// 其余状态码（401/403/429/503/504）本函数不写 temp_unschedulable_until。
+// Anthropic 平台 4xx/5xx 的 3/3 短窗 + 指数退避 cooldown（30s → 2min → 10min）
+// 由独立路径 HandleUpstreamError → handleAnthropicUpstreamError 维护，与本函数
+// 并行执行同一请求；两路径都写 temp_unschedulable_until 时由 SetTempUnschedulable
+// 后写胜出。
 func (s *GatewayService) TempUnscheduleRetryableError(ctx context.Context, accountID int64, failoverErr *UpstreamFailoverError) {
 	if failoverErr == nil || !failoverErr.RetryableOnSameAccount {
-		return
-	}
-	if account, err := s.accountRepo.GetByID(ctx, accountID); err == nil && account != nil && account.IsPoolMode() {
-		slog.Warn("pool_mode_temp_unschedule_skipped",
-			"account_id", accountID,
-			"status_code", failoverErr.StatusCode,
-			"platform", account.Platform)
 		return
 	}
 	// 根据状态码选择封禁策略
