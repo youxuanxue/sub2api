@@ -1268,6 +1268,15 @@ type DefaultConfig struct {
 type RateLimitConfig struct {
 	OverloadCooldownMinutes int `mapstructure:"overload_cooldown_minutes"`  // 529过载冷却时间(分钟)
 	OAuth401CooldownMinutes int `mapstructure:"oauth_401_cooldown_minutes"` // OAuth 401临时不可调度冷却(分钟)
+
+	// AnthropicErrorThreshold 控制 handleAnthropicUpstreamError 的 short-window
+	// 计数阈值（默认 3）。单账号 / 小拼车场景可调到 5–7 减少 Sonnet↔Opus 切换时的
+	// jitter 误触；零值或负值回退到内置默认。
+	AnthropicErrorThreshold int `mapstructure:"anthropic_error_threshold"`
+
+	// AnthropicErrorWindowMinutes 控制阈值短窗口长度（默认 1 分钟）。零值或负值
+	// 回退到内置默认。
+	AnthropicErrorWindowMinutes int `mapstructure:"anthropic_error_window_minutes"`
 }
 
 // APIKeyAuthCacheConfig API Key 认证缓存配置

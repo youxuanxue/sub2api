@@ -55,6 +55,23 @@ type OpsAlertEvaluatorService struct {
 	skipLogAt time.Time
 
 	warnNoRedisOnce sync.Once
+
+	// Optional cache injection for anthropic cooldown-tier escalation counter.
+	// When unset the metric path falls back to redisClient.Get on the
+	// canonical key (AnthropicCooldownTierEscalationsKey). Wired via
+	// SetAnthropicUpstreamErrorCounterCache so unit tests can drive the
+	// metric without spinning up Redis.
+	anthropicUpstreamErrorCounterCache AnthropicUpstreamErrorCounterCache
+}
+
+// SetAnthropicUpstreamErrorCounterCache attaches the anthropic upstream-error
+// counter cache for read-side use by the anthropic_cooldown_tier_escalation_
+// count metric. Idempotent and intended for Wire DI / tests.
+func (s *OpsAlertEvaluatorService) SetAnthropicUpstreamErrorCounterCache(cache AnthropicUpstreamErrorCounterCache) {
+	if s == nil {
+		return
+	}
+	s.anthropicUpstreamErrorCounterCache = cache
 }
 
 type opsAlertRuleState struct {
@@ -555,6 +572,36 @@ func (s *OpsAlertEvaluatorService) computeRuleMetric(
 		return float64(countAccountsByCondition(availability.Accounts, func(acc *AccountAvailability) bool {
 			return acc.IsOverloaded
 		})), true
+	case "anthropic_cooldown_tier_escalation_count":
+		// Aggregate count of "tier >= 1" anthropic cooldown events across all
+		// accounts within the rolling window owned by the writer (default 1h
+		// via anthropicCooldownTierEscalationsWindowMinutes). The metric
+		// drives Feishu/email alerts for the PR #337 ladder follow-up:
+		// tier=0 (30s) is transient jitter and intentionally invisible here;
+		// tier>=1 (≥ 2 min cooldown) is the "real problem starting" signal.
+		// Scope filters (platform/groupID) are ignored — the counter is
+		// global by construction.
+		if s == nil {
+			return 0, false
+		}
+		if s.anthropicUpstreamErrorCounterCache != nil {
+			val, err := s.anthropicUpstreamErrorCounterCache.GetAnthropicCooldownTierEscalations(ctx)
+			if err != nil {
+				return 0, false
+			}
+			return float64(val), true
+		}
+		if s.redisClient == nil {
+			return 0, false
+		}
+		val, err := s.redisClient.Get(ctx, AnthropicCooldownTierEscalationsKey).Int64()
+		if err != nil {
+			if err == redis.Nil {
+				return 0, true
+			}
+			return 0, false
+		}
+		return float64(val), true
 	}
 
 	overview, err := s.opsRepo.GetDashboardOverview(ctx, &OpsDashboardFilter{

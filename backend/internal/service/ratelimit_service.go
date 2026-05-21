@@ -70,13 +70,62 @@ const (
 	openAI403DisableThreshold       = 3
 	openAI403CounterWindowMinutes   = 180
 
-	anthropicUpstreamErrorThreshold     = 3
-	anthropicUpstreamErrorWindowMinutes = 1
+	// Built-in defaults for handleAnthropicUpstreamError; the live values
+	// are read via getAnthropicErrorThreshold / getAnthropicErrorWindowMinutes
+	// so operators can lift the threshold for single-account or small-pool
+	// deployments without recompiling.
+	anthropicUpstreamErrorThresholdDefault     = 3
+	anthropicUpstreamErrorWindowMinutesDefault = 1
+
 	// Cooldown escalation TTL: how long a prior cooldown trigger keeps the
 	// account at an elevated tier before falling back to the shortest tier
 	// (30s). Anything inside this window counts toward escalation.
 	anthropicCooldownTierTTLMinutes = 30
+
+	// Window owned by the global "tier >= 1" escalation counter that drives
+	// the anthropic_cooldown_tier_escalation_count ops_alert_evaluator
+	// metric. 60 min picks the smallest unit operators care about for the
+	// "is the whole pool burning down right now" question; the counter
+	// expires when the window closes so a healed deploy reads zero.
+	anthropicCooldownTierEscalationsWindowMinutes = 60
+
+	// 403 keyword scan used by handle403 to surface suspected TLS / bot-
+	// detection regressions. When the upstream body contains any of these
+	// tokens we skip the long account_disabled_auth_error cooldown and
+	// keep the account on a short cooldown so an operator can react.
+	tlsFingerprintFailureCooldown = 30 * time.Second
 )
+
+// tlsFingerprintFailureKeywords matches Cloudflare / WAF responses that
+// reveal the request was rejected on TLS shape rather than on the OAuth
+// identity itself (e.g. "ja3" / "ja4" / "bot detection" / "tls fingerprint").
+// Order is insignificant; matching is case-insensitive.
+var tlsFingerprintFailureKeywords = []string{
+	"ja3",
+	"ja4",
+	"bot detection",
+	"bot management",
+	"tls fingerprint",
+	"client fingerprint",
+}
+
+// getAnthropicErrorThreshold returns the configured 3/3-style threshold, or
+// the built-in default when unset / zero / negative.
+func (s *RateLimitService) getAnthropicErrorThreshold() int64 {
+	if s != nil && s.cfg != nil && s.cfg.RateLimit.AnthropicErrorThreshold > 0 {
+		return int64(s.cfg.RateLimit.AnthropicErrorThreshold)
+	}
+	return anthropicUpstreamErrorThresholdDefault
+}
+
+// getAnthropicErrorWindowMinutes returns the configured short-window length
+// for the 3/3 counter, or the built-in default when unset / zero / negative.
+func (s *RateLimitService) getAnthropicErrorWindowMinutes() int {
+	if s != nil && s.cfg != nil && s.cfg.RateLimit.AnthropicErrorWindowMinutes > 0 {
+		return s.cfg.RateLimit.AnthropicErrorWindowMinutes
+	}
+	return anthropicUpstreamErrorWindowMinutesDefault
+}
 
 // anthropicCooldownTierLadder picks an exponentially longer cooldown when
 // the same account repeatedly trips the 3/3 short-window threshold inside
@@ -325,16 +374,25 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 	case 404:
 		shouldDisable = s.handle404(ctx, account, upstreamMsg, responseBody)
 	case 429:
-		s.handle429(ctx, account, headers, responseBody)
+		// handle429 returns true when SetRateLimited landed on an upstream-
+		// provided reset time. If so, suppress the ladder's parallel
+		// SetTempUnschedulable write (last-write-wins would otherwise
+		// race a less-precise local cooldown over the just-written reset).
+		// The 3/3 + tier counters still advance so persistent failure
+		// still escalates.
+		rateLimitSet := s.handle429(ctx, account, headers, responseBody)
 		if account.Platform == PlatformAnthropic {
-			shouldDisable = s.handleAnthropicUpstreamError(ctx, account, statusCode, upstreamMsg, responseBody)
+			shouldDisable = s.handleAnthropicUpstreamErrorWithOptions(ctx, account, statusCode, upstreamMsg, responseBody, rateLimitSet)
 		} else {
 			shouldDisable = false
 		}
 	case 529:
-		s.handle529(ctx, account)
+		// Same rationale as 429: when handle529 successfully wrote
+		// SetOverloaded with the configured cooldown, suppress the
+		// ladder's redundant SetTempUnschedulable write.
+		overloadSet := s.handle529(ctx, account)
 		if account.Platform == PlatformAnthropic {
-			shouldDisable = s.handleAnthropicUpstreamError(ctx, account, statusCode, upstreamMsg, responseBody)
+			shouldDisable = s.handleAnthropicUpstreamErrorWithOptions(ctx, account, statusCode, upstreamMsg, responseBody, overloadSet)
 		} else {
 			shouldDisable = false
 		}
@@ -772,6 +830,45 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 		return s.handleOpenAI403(ctx, account, upstreamMsg, responseBody)
 	}
 	if account.Platform == PlatformAnthropic {
+		// TLS / bot-detection 失效专项：上游用 403 拒绝是因为 Cloudflare / WAF
+		// 识别到 JA3/JA4 不像真实 Claude Code CLI（指纹库失效或 CLI 版本升级）。
+		// 这种情况下账号本身没问题，是基础设施层面的问题，需要 ops 立即介入
+		// 重新抓 TLS 指纹。用一个短 cooldown 避免持续重试加重风控，并打一个
+		// 高可见性 slog 让告警钩子能拉起来（运维侧用 log-based alert 接入即可）。
+		if matched := matchTempUnschedKeyword(strings.ToLower(string(responseBody)), tlsFingerprintFailureKeywords); matched != "" {
+			until := time.Now().Add(tlsFingerprintFailureCooldown)
+			reasonMessage := fmt.Sprintf("Anthropic 403 with TLS/bot-detection signal (%s): %s",
+				matched, upstreamMsg)
+			state := &TempUnschedState{
+				UntilUnix:       until.Unix(),
+				TriggeredAtUnix: time.Now().Unix(),
+				StatusCode:      http.StatusForbidden,
+				MatchedKeyword:  "tls_fingerprint_failure",
+				RuleIndex:       -1,
+				ErrorMessage:    truncateTempUnschedMessage([]byte(reasonMessage), tempUnschedMessageMaxBytes),
+			}
+			reasonJSON := reasonMessage
+			if raw, marshalErr := json.Marshal(state); marshalErr == nil {
+				reasonJSON = string(raw)
+			}
+			if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reasonJSON); err != nil {
+				slog.Warn("anthropic_tls_fingerprint_set_temp_unschedulable_failed",
+					"account_id", account.ID, "error", err)
+			}
+			if s.tempUnschedCache != nil {
+				if err := s.tempUnschedCache.SetTempUnsched(ctx, account.ID, state); err != nil {
+					slog.Warn("anthropic_tls_fingerprint_temp_unsched_cache_set_failed",
+						"account_id", account.ID, "error", err)
+				}
+			}
+			slog.Error("anthropic_tls_fingerprint_failure_suspected",
+				"account_id", account.ID,
+				"matched_keyword", matched,
+				"cooldown_seconds", int(tlsFingerprintFailureCooldown.Seconds()),
+				"action", "ops_should_re-capture_claude_cli_tls_profile",
+				"upstream_msg", upstreamMsg)
+			return true
+		}
 		return s.handleAnthropicUpstreamError(ctx, account, http.StatusForbidden, upstreamMsg, responseBody)
 	}
 	msg := buildForbiddenErrorMessage(
@@ -812,23 +909,37 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 // in case 400, OAuth 401 refresh, 429 retry-after cooldown, 529 overload)
 // live outside this function and are unaffected.
 func (s *RateLimitService) handleAnthropicUpstreamError(ctx context.Context, account *Account, statusCode int, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
+	return s.handleAnthropicUpstreamErrorWithOptions(ctx, account, statusCode, upstreamMsg, responseBody, false)
+}
+
+// handleAnthropicUpstreamErrorWithOptions is the implementation seam for
+// callers that already wrote an authoritative cooldown to the account
+// (handle429 with retry-after / handle529 with overload_until). When
+// skipCooldownWrite=true the 3/3 + tier counters still advance and the
+// observability slog still fires — only the SetTempUnschedulable write
+// is suppressed so the just-written rate_limit_reset / overload_until is
+// not raced by a less-precise ladder cooldown (last-write-wins).
+func (s *RateLimitService) handleAnthropicUpstreamErrorWithOptions(ctx context.Context, account *Account, statusCode int, upstreamMsg string, responseBody []byte, skipCooldownWrite bool) (shouldDisable bool) {
 	msg := buildAnthropicUpstreamErrorMessage(statusCode, upstreamMsg, responseBody)
 	if s.anthropicUpstreamErrorCounterCache == nil {
 		slog.Warn("anthropic_upstream_error_counter_missing", "account_id", account.ID, "status_code", statusCode)
 		return false
 	}
 
-	count, err := s.anthropicUpstreamErrorCounterCache.IncrementAnthropicUpstreamErrorCount(ctx, account.ID, anthropicUpstreamErrorWindowMinutes)
+	threshold := s.getAnthropicErrorThreshold()
+	windowMinutes := s.getAnthropicErrorWindowMinutes()
+
+	count, err := s.anthropicUpstreamErrorCounterCache.IncrementAnthropicUpstreamErrorCount(ctx, account.ID, windowMinutes)
 	if err != nil {
 		slog.Warn("anthropic_upstream_error_increment_failed", "account_id", account.ID, "status_code", statusCode, "error", err)
 		return false
 	}
-	if count < anthropicUpstreamErrorThreshold {
+	if count < threshold {
 		slog.Warn("anthropic_upstream_error_count",
 			"account_id", account.ID,
 			"status_code", statusCode,
 			"count", count,
-			"threshold", anthropicUpstreamErrorThreshold,
+			"threshold", threshold,
 			"pool_mode", account.IsPoolMode())
 		return false
 	}
@@ -852,10 +963,49 @@ func (s *RateLimitService) handleAnthropicUpstreamError(ctx context.Context, acc
 	}
 	cooldown := anthropicCooldownTierLadder[tierIndex]
 
+	// Emit a global "tier >= 1" escalation signal so ops_alert_evaluator can
+	// surface "persistent failure rising" without scanning every per-account
+	// counter. tier=0 is intentionally silent — that's transient jitter and
+	// the 30s cooldown absorbs it. Failure here only loses telemetry.
+	if tierIndex >= 1 {
+		if _, escErr := s.anthropicUpstreamErrorCounterCache.IncrementAnthropicCooldownTierEscalations(ctx, anthropicCooldownTierEscalationsWindowMinutes); escErr != nil {
+			slog.Warn("anthropic_cooldown_tier_escalation_increment_failed",
+				"account_id", account.ID,
+				"status_code", statusCode,
+				"tier", tierIndex,
+				"error", escErr)
+		} else {
+			slog.Warn("anthropic_cooldown_tier_escalation",
+				"account_id", account.ID,
+				"status_code", statusCode,
+				"tier", tierIndex,
+				"cooldown_seconds", int(cooldown.Seconds()),
+				"pool_mode", account.IsPoolMode())
+		}
+	}
+
+	if skipCooldownWrite {
+		// The dispatch caller (case 429 retry-after path / case 529 overload
+		// path) already wrote an authoritative cooldown to the account
+		// state. Suppress the ladder's SetTempUnschedulable write so the
+		// just-landed rate_limit_reset / overload_until is not overwritten
+		// by a less-precise local cooldown. Counters above still advanced.
+		slog.Warn("anthropic_upstream_error_cooldown_write_skipped",
+			"account_id", account.ID,
+			"status_code", statusCode,
+			"count", count,
+			"threshold", threshold,
+			"cooldown_seconds", int(cooldown.Seconds()),
+			"tier", tierIndex,
+			"reason", "authoritative_cooldown_already_written",
+			"pool_mode", account.IsPoolMode())
+		return true
+	}
+
 	now := time.Now()
 	until := now.Add(cooldown)
 	reasonMessage := fmt.Sprintf("Anthropic upstream error threshold (%d/%d, cooldown=%s tier=%d): %s",
-		count, anthropicUpstreamErrorThreshold, cooldown, tierIndex, msg)
+		count, threshold, cooldown, tierIndex, msg)
 	state := &TempUnschedState{
 		UntilUnix:       until.Unix(),
 		TriggeredAtUnix: now.Unix(),
@@ -886,7 +1036,7 @@ func (s *RateLimitService) handleAnthropicUpstreamError(ctx context.Context, acc
 		"status_code", statusCode,
 		"until", until,
 		"count", count,
-		"threshold", anthropicUpstreamErrorThreshold,
+		"threshold", threshold,
 		"cooldown_seconds", int(cooldown.Seconds()),
 		"tier", tierIndex,
 		"pool_mode", account.IsPoolMode())
@@ -1058,7 +1208,17 @@ func findAnthropicNotFoundModel(text string) string {
 
 // handle429 处理429限流错误
 // 解析响应头获取重置时间，标记账号为限流状态
-func (s *RateLimitService) handle429(ctx context.Context, account *Account, headers http.Header, responseBody []byte) {
+// handle429 returns true when an exact SetRateLimited write to an
+// upstream-provided reset time succeeded; false otherwise (header missing,
+// SetRateLimited failure, fallback 5-min cooldown, extra-usage skip).
+// The return is consumed by the case 429 dispatch in HandleUpstreamError
+// so handleAnthropicUpstreamError can skip the ladder cooldown write
+// (which is by design less precise than what the upstream told us).
+// The 3/3 short-window counter and the per-account tier counter still
+// advance so persistent failure still escalates — only the
+// SetTempUnschedulable write is suppressed when the more authoritative
+// SetRateLimited has just landed.
+func (s *RateLimitService) handle429(ctx context.Context, account *Account, headers http.Header, responseBody []byte) bool {
 	// 1. OpenAI 平台：优先尝试解析 x-codex-* 响应头（用于 rate_limit_exceeded）
 	if account.Platform == PlatformOpenAI {
 		persistOpenAI429PlanType(ctx, s.accountRepo, account, responseBody)
@@ -1066,10 +1226,10 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 		if resetAt := s.calculateOpenAI429ResetTime(headers); resetAt != nil {
 			if err := s.accountRepo.SetRateLimited(ctx, account.ID, *resetAt); err != nil {
 				slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
-				return
+				return false
 			}
 			slog.Info("openai_account_rate_limited", "account_id", account.ID, "reset_at", *resetAt)
-			return
+			return true
 		}
 	}
 
@@ -1077,7 +1237,7 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 	if result := calculateAnthropic429ResetTime(headers); result != nil {
 		if err := s.accountRepo.SetRateLimited(ctx, account.ID, result.resetAt); err != nil {
 			slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
-			return
+			return false
 		}
 
 		// 更新 session window：优先使用 5h-reset 头精确计算，否则从 resetAt 反推
@@ -1091,7 +1251,7 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 		}
 
 		slog.Info("anthropic_account_rate_limited", "account_id", account.ID, "reset_at", result.resetAt, "reset_in", time.Until(result.resetAt).Truncate(time.Second))
-		return
+		return true
 	}
 
 	// 3. 尝试从响应头解析重置时间（Anthropic 聚合头，向后兼容）
@@ -1109,10 +1269,10 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 				resetTime := time.Unix(*resetAt, 0)
 				if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetTime); err != nil {
 					slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
-					return
+					return false
 				}
 				slog.Info("account_rate_limited", "account_id", account.ID, "platform", account.Platform, "reset_at", resetTime, "reset_in", time.Until(resetTime).Truncate(time.Second))
-				return
+				return true
 			}
 		case PlatformGemini, PlatformAntigravity:
 			// 尝试解析 Gemini 格式（用于其他平台）
@@ -1120,10 +1280,10 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 				resetTime := time.Unix(*resetAt, 0)
 				if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetTime); err != nil {
 					slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
-					return
+					return false
 				}
 				slog.Info("account_rate_limited", "account_id", account.ID, "platform", account.Platform, "reset_at", resetTime, "reset_in", time.Until(resetTime).Truncate(time.Second))
-				return
+				return true
 			}
 		}
 
@@ -1132,11 +1292,11 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 				"account_id", account.ID,
 				"platform", account.Platform,
 				"reason", "anthropic extra usage error without rate limit reset time")
-			return
+			return false
 		}
 
 		s.apply429FallbackRateLimit(ctx, account, "no_reset_time")
-		return
+		return false
 	}
 
 	// 解析Unix时间戳
@@ -1144,7 +1304,7 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 	if err != nil {
 		slog.Warn("rate_limit_reset_parse_failed", "reset_timestamp", resetTimestamp, "error", err)
 		s.apply429FallbackRateLimit(ctx, account, "reset_parse_failed")
-		return
+		return false
 	}
 
 	resetAt := time.Unix(ts, 0)
@@ -1152,7 +1312,7 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 	// 标记限流状态
 	if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetAt); err != nil {
 		slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
-		return
+		return false
 	}
 
 	// 根据重置时间反推5h窗口
@@ -1163,6 +1323,7 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 	}
 
 	slog.Info("account_rate_limited", "account_id", account.ID, "reset_at", resetAt)
+	return true
 }
 
 func isAnthropicExtraUsage429(responseBody []byte) bool {
@@ -1491,7 +1652,15 @@ func persistOpenAI429PlanType(ctx context.Context, repo AccountRepository, accou
 
 // handle529 处理529过载错误
 // 根据配置决定是否暂停账号调度及冷却时长
-func (s *RateLimitService) handle529(ctx context.Context, account *Account) {
+// handle529 marks the account overloaded for the configured cooldown and
+// returns true when an exact SetOverloaded write succeeded. The return is
+// consumed by the case 529 dispatch so handleAnthropicUpstreamError can
+// skip writing a parallel SetTempUnschedulable cooldown that would only
+// race the just-written overload_until (last-write-wins) — the per-account
+// counter and tier counter still advance so a repeat 529 storm still
+// escalates the ladder. A false return means the caller should fall back
+// to the ladder write (settings disabled or Redis/DB failure).
+func (s *RateLimitService) handle529(ctx context.Context, account *Account) bool {
 	var settings *OverloadCooldownSettings
 	if s.settingService != nil {
 		var err error
@@ -1512,7 +1681,7 @@ func (s *RateLimitService) handle529(ctx context.Context, account *Account) {
 
 	if !settings.Enabled {
 		slog.Info("account_529_ignored", "account_id", account.ID, "reason", "overload_cooldown_disabled")
-		return
+		return false
 	}
 
 	cooldownMinutes := settings.CooldownMinutes
@@ -1523,10 +1692,11 @@ func (s *RateLimitService) handle529(ctx context.Context, account *Account) {
 	until := time.Now().Add(time.Duration(cooldownMinutes) * time.Minute)
 	if err := s.accountRepo.SetOverloaded(ctx, account.ID, until); err != nil {
 		slog.Warn("overload_set_failed", "account_id", account.ID, "error", err)
-		return
+		return false
 	}
 
 	slog.Info("account_overloaded", "account_id", account.ID, "until", until)
+	return true
 }
 
 // UpdateSessionWindow 从成功响应更新5h窗口状态
@@ -1851,6 +2021,23 @@ func (s *RateLimitService) tryTempUnschedulable(ctx context.Context, account *Ac
 		if wasTempUnschedByStatusCode(reason, statusCode) {
 			slog.Info("401_escalated_to_error", "account_id", account.ID,
 				"reason", "previous temp-unschedulable was also 401")
+			return false
+		}
+	}
+	// 403 二次升级：account_disabled_auth_error / organization disabled
+	// 第二次命中表示上游已经判定账号死亡，6h cooldown 反复探测只会加重风控。
+	// 升级为 SetError（handle403 → handleAuthError），需要人工介入恢复。
+	// Antigravity 跳过：与 401 同理，由 applyErrorPolicy 自行控制。
+	if statusCode == http.StatusForbidden && account.Platform != PlatformAntigravity {
+		reason := account.TempUnschedulableReason
+		if reason == "" {
+			if dbAcc, err := s.accountRepo.GetByID(ctx, account.ID); err == nil && dbAcc != nil {
+				reason = dbAcc.TempUnschedulableReason
+			}
+		}
+		if wasTempUnschedByStatusCode(reason, statusCode) {
+			slog.Warn("403_escalated_to_error", "account_id", account.ID,
+				"reason", "previous temp-unschedulable was also 403; account likely disabled upstream")
 			return false
 		}
 	}

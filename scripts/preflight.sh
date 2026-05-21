@@ -401,6 +401,25 @@ else
     echo "  ok: all gateway TK sentinels intact"
 fi
 
+# ---- sub2api: anthropic baseline ↔ ratelimit constants sync -----------------
+# Anthropic OAuth tier baseline JSON documents the cooldown ladder
+# (30s / 2min / 10min) and 30-min tier TTL that the Go runtime owns. If the
+# JSON drifts from the Go constants, ops dashboards mislead operators about
+# what the production ratelimit_service.go actually does. See PR #337 +
+# scripts/sentinels/check-anthropic-baseline-sync.py header for the
+# 2026-05-21 incident that motivated this guard.
+echo ""
+echo "=== sub2api: anthropic baseline sync ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for anthropic baseline sync check)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/sentinels/check-anthropic-baseline-sync.py --quiet; then
+    # check-anthropic-baseline-sync.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: anthropic baseline JSON in sync with ratelimit_service.go constants"
+fi
+
 # ---- sub2api: sentinel registry update gate ---------------------------------
 # Existing sentinel checks prove current guarded literals still exist. This gate
 # proves PRs that modify guarded/hotspot files also update the matching registry,

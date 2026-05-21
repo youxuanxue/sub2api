@@ -70,3 +70,27 @@ func (c *anthropicUpstreamErrorCounterCache) ResetAnthropicCooldownTier(ctx cont
 	key := fmt.Sprintf("%s%d", anthropicCooldownTierPrefix, accountID)
 	return c.rdb.Del(ctx, key).Err()
 }
+
+func (c *anthropicUpstreamErrorCounterCache) IncrementAnthropicCooldownTierEscalations(ctx context.Context, ttlMinutes int) (int64, error) {
+	ttlSeconds := ttlMinutes * 60
+	if ttlSeconds < 60 {
+		ttlSeconds = 60
+	}
+
+	result, err := anthropicUpstreamErrorCounterIncrScript.Run(ctx, c.rdb, []string{service.AnthropicCooldownTierEscalationsKey}, ttlSeconds).Int64()
+	if err != nil {
+		return 0, fmt.Errorf("increment anthropic cooldown tier escalations: %w", err)
+	}
+	return result, nil
+}
+
+func (c *anthropicUpstreamErrorCounterCache) GetAnthropicCooldownTierEscalations(ctx context.Context) (int64, error) {
+	val, err := c.rdb.Get(ctx, service.AnthropicCooldownTierEscalationsKey).Int64()
+	if err != nil {
+		if err == redis.Nil {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("get anthropic cooldown tier escalations: %w", err)
+	}
+	return val, nil
+}

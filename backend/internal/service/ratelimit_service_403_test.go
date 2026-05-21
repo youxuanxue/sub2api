@@ -89,7 +89,7 @@ func TestRateLimitService_HandleUpstreamError_Anthropic403ThresholdTempUnschedul
 	require.Equal(t, 0, repo.setErrorCalls)
 	require.Equal(t, 1, repo.tempCalls)
 	require.Equal(t, []int64{401, 401, 401}, counter.incrementIDs)
-	require.Equal(t, []int{anthropicUpstreamErrorWindowMinutes, anthropicUpstreamErrorWindowMinutes, anthropicUpstreamErrorWindowMinutes}, counter.windowMinutes)
+	require.Equal(t, []int{anthropicUpstreamErrorWindowMinutesDefault, anthropicUpstreamErrorWindowMinutesDefault, anthropicUpstreamErrorWindowMinutesDefault}, counter.windowMinutes)
 
 	var state TempUnschedState
 	require.NoError(t, json.Unmarshal([]byte(repo.lastTempReason), &state))
