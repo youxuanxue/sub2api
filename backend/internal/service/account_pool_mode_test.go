@@ -115,3 +115,26 @@ func TestGetPoolModeRetryCount(t *testing.T) {
 		})
 	}
 }
+
+// isPoolModeRetryableStatus must include the upstream-pool failure codes that
+// indicate the pool's internal scheduler is jittering (5xx from a TokenKey /
+// compat gateway), not just per-account transient codes (401/403/429). Without
+// 502/503/504, anthropic apikey stubs forwarding to an edge gateway pool would
+// failover to the next account on every transient 5xx instead of letting the
+// pool rotate to a different upstream member — defeating the whole point of
+// pool_mode for forwarding-stub topologies.
+//
+// 500/501 are intentionally excluded: 500 typically signals an upstream
+// application bug (retry will fail the same way and 3× the upstream load);
+// 501 is Not Implemented (retry is structurally pointless).
+func TestIsPoolModeRetryableStatus_Coverage(t *testing.T) {
+	retryable := []int{401, 403, 429, 502, 503, 504}
+	notRetryable := []int{200, 400, 402, 404, 408, 422, 500, 501, 505}
+
+	for _, sc := range retryable {
+		require.Truef(t, isPoolModeRetryableStatus(sc), "status %d should be retryable", sc)
+	}
+	for _, sc := range notRetryable {
+		require.Falsef(t, isPoolModeRetryableStatus(sc), "status %d must NOT be retryable", sc)
+	}
+}
