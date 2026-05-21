@@ -522,11 +522,16 @@ func (s *MePricingCatalogService) fillWhitelistFallback(
 }
 
 // accountInGroupScope encodes the cross-platform leak guard for the
-// fallback path. Pool-shared groups (openai / newapi) use the upstream
-// compat-pool predicate so a newapi-channel account contributes to an
-// openai-platform group and vice-versa — the same rule the scheduler
-// applies in account_tk_compat_pool.go. All other platforms require
-// strict platform equality, matching the scheduler's anti-leak stance.
+// fallback path. Matches the scheduling-pool partition the scheduler
+// enforces (docs/approved/newapi-as-fifth-platform.md §2.1 "不混池"):
+// openai groups schedule openai accounts only, newapi groups schedule
+// newapi accounts only — there is no cross-platform routing between
+// the two. We delegate openai / newapi to IsOpenAICompatPoolMember so
+// the newapi pool additionally enforces channel_type > 0 (a newapi
+// account with channel_type=0 has no New API adaptor target and would
+// crash bridge dispatch — same defense as the scheduler in
+// openai_account_scheduler.go). Other platforms only need strict
+// platform equality.
 func accountInGroupScope(a *Account, groupPlatform string) bool {
 	if a == nil {
 		return false
@@ -597,19 +602,21 @@ func buildAccountFallbackEntry(modelID string, rate float64, metaByID map[string
 		return entry
 	}
 	entry.Vendor = meta.Vendor
-	entry.YourPrice.InputPer1K = per1KFromCatalog(meta.Pricing.InputPer1KTokens, rate)
-	entry.YourPrice.OutputPer1K = per1KFromCatalog(meta.Pricing.OutputPer1KTokens, rate)
-	entry.YourPrice.CacheReadPer1K = per1KFromCatalog(meta.Pricing.CacheReadPer1K, rate)
-	entry.YourPrice.CacheWritePer1K = per1KFromCatalog(meta.Pricing.CacheWritePer1K, rate)
+	entry.YourPrice.InputPer1K = scaleCatalogPrice(meta.Pricing.InputPer1KTokens, rate)
+	entry.YourPrice.OutputPer1K = scaleCatalogPrice(meta.Pricing.OutputPer1KTokens, rate)
+	entry.YourPrice.CacheReadPer1K = scaleCatalogPrice(meta.Pricing.CacheReadPer1K, rate)
+	entry.YourPrice.CacheWritePer1K = scaleCatalogPrice(meta.Pricing.CacheWritePer1K, rate)
 	return entry
 }
 
-// per1KFromCatalog scales a public-catalog per-1k price by the user's
-// effective rate. Catalog uses 0.0 as the sentinel for "no price
-// published" (PublicCatalogPricing fields are floats, not pointers), so
-// 0.0 surfaces as nil here — preserving MePricingPrice's nil-vs-0
-// contract (nil = "—", 0 = real free-subscription price).
-func per1KFromCatalog(v, rate float64) *float64 {
+// scaleCatalogPrice multiplies a PublicCatalogPricing value (already in
+// per-1k tokens — see pricing_catalog_tk.go PublicCatalogPricing) by the
+// user's effective rate. Unlike scaleTo1K there is NO ×1000 unit
+// conversion: catalog prices are already per-1k. Catalog uses 0.0 as
+// the sentinel for "no price published" (fields are floats, not
+// pointers), so 0.0 surfaces as nil here — preserving MePricingPrice's
+// nil-vs-0 contract (nil = "—", 0 = real free-subscription price).
+func scaleCatalogPrice(v, rate float64) *float64 {
 	if v == 0 {
 		return nil
 	}

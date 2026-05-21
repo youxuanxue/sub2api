@@ -779,3 +779,62 @@ func TestBuildForUser_AccountSourceError_DoesNotKillResponse(t *testing.T) {
 	assert.NotNil(t, resp)
 	assert.Empty(t, resp.Models)
 }
+
+// TestBuildForUser_AccountWhitelist_NewapiRequiresChannelType pins the
+// fifth-platform doctrine (docs/approved/newapi-as-fifth-platform.md §2.1):
+// newapi accounts join the pool ONLY when channel_type > 0 — an
+// incompletely configured newapi account (channel_type = 0) has no New
+// API adaptor target and must not contribute menu rows. The scheduler
+// applies the same rule via IsOpenAICompatPoolMember; the fallback path
+// must not diverge.
+func TestBuildForUser_AccountWhitelist_NewapiRequiresChannelType(t *testing.T) {
+	gNewapi := mkGroupForMe(50, "newapi-pro", "newapi", 1.0)
+	k1 := mkKeyForMe(1, 7, "newapi-key", ptrI(50))
+	bad := mkAccountWithWhitelist(11, "incomplete-newapi", "newapi", 0, []string{"gemini-2.5-pro"})
+	good := mkAccountWithWhitelist(12, "configured-newapi", "newapi", 31, []string{"qwen-3-max"})
+	catalog := &PublicCatalogResponse{
+		Data: []PublicCatalogModel{
+			mkPublicCatalogModel("gemini-2.5-pro", "Google", 0.00125, 0.005, 0),
+			mkPublicCatalogModel("qwen-3-max", "Alibaba", 0.0012, 0.0024, 0),
+		},
+	}
+	svc := newServiceWithAccounts(
+		&fakeKeyAccess{groups: []Group{gNewapi}, keys: []APIKey{k1}},
+		&fakeChannelLister{},
+		&fakeCatalogProvider{resp: catalog},
+		&fakeAccountSource{accounts: []Account{bad, good}},
+	)
+	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
+	require.NoError(t, err)
+	require.Len(t, resp.Models, 1, "channel_type=0 newapi account must be filtered out (no adaptor target)")
+	assert.Equal(t, "qwen-3-max", resp.Models[0].ModelID,
+		"only the channel_type>0 newapi account surfaces — matches scheduler IsOpenAICompatPoolMember")
+}
+
+// TestBuildForUser_ChannelsErrorDoesNotKillFallback documents the
+// best-effort posture on the channel-listing side: a transient channel
+// read failure must NOT empty the whole menu when an account-whitelist
+// fallback could still populate it. Behavior change from the pre-bridge
+// code, which used to return an empty []MePricingModel on channel err.
+func TestBuildForUser_ChannelsErrorDoesNotKillFallback(t *testing.T) {
+	gOpenAI := mkGroupForMe(30, "GPT", "openai", 1.0)
+	k1 := mkKeyForMe(1, 7, "gpt-key", ptrI(30))
+	acct := mkAccountWithWhitelist(11, "openai-oauth", "openai", 0, []string{"gpt-4o"})
+	catalog := &PublicCatalogResponse{
+		Data: []PublicCatalogModel{
+			mkPublicCatalogModel("gpt-4o", "OpenAI", 0.0025, 0.010, 0),
+		},
+	}
+	svc := newServiceWithAccounts(
+		&fakeKeyAccess{groups: []Group{gOpenAI}, keys: []APIKey{k1}},
+		&fakeChannelLister{err: errors.New("channel db unavailable")},
+		&fakeCatalogProvider{resp: catalog},
+		&fakeAccountSource{accounts: []Account{acct}},
+	)
+	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
+	require.NoError(t, err)
+	require.Len(t, resp.Models, 1, "channel error must not block account fallback")
+	assert.Equal(t, "gpt-4o", resp.Models[0].ModelID)
+	require.NotNil(t, resp.Models[0].YourPrice.InputPer1K)
+	assert.InDelta(t, 0.0025, *resp.Models[0].YourPrice.InputPer1K, 1e-9)
+}
