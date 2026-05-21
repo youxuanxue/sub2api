@@ -62,11 +62,25 @@ type MePricingCatalogProvider interface {
 	BuildPublicCatalog(ctx context.Context) *PublicCatalogResponse
 }
 
+// MePricingAccountSource is the slice of *AccountService that BuildForUser
+// needs for the account-whitelist fallback. Defined as an interface so unit
+// tests can inject fakes without constructing a full AccountService.
+//
+// The fallback turns each account's `credentials.model_mapping` whitelist
+// entries (from === to) into menu rows when no channel-configured pricing
+// covers that model under the target group. This bridges the admin "model
+// whitelist" UX (gateway routing limit) into the user-facing "Your Menu"
+// surface — see TK incident 2026-05-21.
+type MePricingAccountSource interface {
+	ListSchedulableByGroupID(ctx context.Context, groupID int64) ([]Account, error)
+}
+
 // MePricingCatalogService builds the per-user pricing-catalog DTO.
 type MePricingCatalogService struct {
 	keys     MePricingKeyAccess
 	channels MePricingChannelLister
 	catalog  MePricingCatalogProvider
+	accounts MePricingAccountSource
 }
 
 // NewMePricingCatalogService is the production constructor. Any nil
@@ -77,11 +91,13 @@ func NewMePricingCatalogService(
 	keys *APIKeyService,
 	channels *ChannelService,
 	catalog *PricingCatalogService,
+	accounts *AccountService,
 ) *MePricingCatalogService {
 	var (
 		k MePricingKeyAccess
 		c MePricingChannelLister
 		p MePricingCatalogProvider
+		a MePricingAccountSource
 	)
 	if keys != nil {
 		k = keys
@@ -92,7 +108,10 @@ func NewMePricingCatalogService(
 	if catalog != nil {
 		p = catalog
 	}
-	return &MePricingCatalogService{keys: k, channels: c, catalog: p}
+	if accounts != nil {
+		a = accounts
+	}
+	return &MePricingCatalogService{keys: k, channels: c, catalog: p, accounts: a}
 }
 
 // MePricingCatalogOptions selects which group the menu is built for.
@@ -357,54 +376,29 @@ func resolveTargetGroupID(
 // buildModelsForGroup performs steps 4-8 of the algorithm. Returns an
 // empty (non-nil) slice when no models exist; UI relies on this for the
 // "no models published" empty state.
+//
+// The build proceeds in three stages:
+//
+//  1. Channel pricing — walk active channels mapped to the target group,
+//     keep platform-matching SupportedModels, dedupe by model_id with the
+//     cheaper-wins rule.
+//  2. Account whitelist fallback — for each schedulable account on the
+//     target group, synthesize a row per whitelisted model_id that the
+//     channel loop did not already cover. Channel pricing always wins on
+//     conflict. Bridges the admin "model whitelist" UX (gateway routing
+//     limit) into Your-Menu when operators have not configured channel
+//     pricing for that group.
+//  3. LiteLLM metadata join — vendor / context_window / capabilities /
+//     max_output_tokens applied to every row, regardless of source.
 func (s *MePricingCatalogService) buildModelsForGroup(
 	ctx context.Context,
 	targetGroup Group,
 	effectiveRate float64,
 ) []MePricingModel {
 	out := []MePricingModel{}
-	if s.channels == nil {
-		return out
-	}
 
-	channels, err := s.channels.ListAvailable(ctx)
-	if err != nil || len(channels) == 0 {
-		return out
-	}
-
-	bestByModel := make(map[string]MePricingModel)
-	for _, ch := range channels {
-		if ch.Status != StatusActive {
-			continue
-		}
-		mapped := false
-		for _, g := range ch.Groups {
-			if g.ID == targetGroup.ID {
-				mapped = true
-				break
-			}
-		}
-		if !mapped {
-			continue
-		}
-		for i := range ch.SupportedModels {
-			m := ch.SupportedModels[i]
-			// Cross-platform leak guard — a channel can sit on groups
-			// from multiple platforms; we restrict to models declared
-			// on the target group's platform.
-			if m.Platform != targetGroup.Platform {
-				continue
-			}
-			candidate := buildModelEntry(m, effectiveRate)
-			if existing, ok := bestByModel[m.Name]; ok {
-				bestByModel[m.Name] = pickCheaperModel(existing, candidate)
-			} else {
-				bestByModel[m.Name] = candidate
-			}
-		}
-	}
-
-	// Join LiteLLM catalog metadata.
+	// Build LiteLLM catalog index up-front: the channel metadata join and
+	// the account-whitelist fallback both consume it, so we read once.
 	metaByID := map[string]PublicCatalogModel{}
 	if s.catalog != nil {
 		if resp := s.catalog.BuildPublicCatalog(ctx); resp != nil {
@@ -414,6 +408,50 @@ func (s *MePricingCatalogService) buildModelsForGroup(
 		}
 	}
 
+	bestByModel := make(map[string]MePricingModel)
+
+	// Stage 1: channel pricing.
+	if s.channels != nil {
+		channels, err := s.channels.ListAvailable(ctx)
+		if err == nil {
+			for _, ch := range channels {
+				if ch.Status != StatusActive {
+					continue
+				}
+				mapped := false
+				for _, g := range ch.Groups {
+					if g.ID == targetGroup.ID {
+						mapped = true
+						break
+					}
+				}
+				if !mapped {
+					continue
+				}
+				for i := range ch.SupportedModels {
+					m := ch.SupportedModels[i]
+					// Cross-platform leak guard — a channel can sit on groups
+					// from multiple platforms; we restrict to models declared
+					// on the target group's platform.
+					if m.Platform != targetGroup.Platform {
+						continue
+					}
+					candidate := buildModelEntry(m, effectiveRate)
+					if existing, ok := bestByModel[m.Name]; ok {
+						bestByModel[m.Name] = pickCheaperModel(existing, candidate)
+					} else {
+						bestByModel[m.Name] = candidate
+					}
+				}
+			}
+		}
+	}
+
+	// Stage 2: account-whitelist fallback (channel-priced rows are
+	// authoritative; this only fills gaps).
+	s.fillWhitelistFallback(ctx, targetGroup, effectiveRate, bestByModel, metaByID)
+
+	// Stage 3: LiteLLM metadata join — applied uniformly to all rows.
 	for _, m := range bestByModel {
 		if meta, ok := metaByID[m.ModelID]; ok {
 			m.ContextWindow = meta.ContextWindow
@@ -433,6 +471,157 @@ func (s *MePricingCatalogService) buildModelsForGroup(
 
 	sort.Slice(out, func(i, j int) bool { return out[i].ModelID < out[j].ModelID })
 	return out
+}
+
+// fillWhitelistFallback inserts account-derived menu rows for any model
+// listed in a schedulable account's whitelist (credentials.model_mapping
+// entries with from === to) that is not already present in bestByModel.
+//
+// Channel-configured rows ALWAYS win on conflict — we never overwrite an
+// existing key. The catalog index is passed in so the price/metadata
+// lookup uses the same source the metadata-join stage does, keeping
+// catalog reads to one round-trip per call.
+//
+// When the catalog has no entry for a whitelisted model_id, vendor-prefix
+// stripping (matches OpenRouter / Azure "<vendor>/<family-version>"
+// style — same predicate as IsModelPriced § PR #326) is retried before
+// giving up. If both lookups miss, the row is still emitted with nil
+// prices: admin-visible whitelist coverage takes priority over hiding
+// unpriced models. MePricingPrice's contract treats nil as "—" in the
+// UI, distinct from a real 0.0 free-subscription price.
+//
+// Errors from the account source are absorbed: the fallback is
+// best-effort and must not block the main pricing-catalog response.
+func (s *MePricingCatalogService) fillWhitelistFallback(
+	ctx context.Context,
+	targetGroup Group,
+	effectiveRate float64,
+	bestByModel map[string]MePricingModel,
+	metaByID map[string]PublicCatalogModel,
+) {
+	if s.accounts == nil {
+		return
+	}
+	accounts, err := s.accounts.ListSchedulableByGroupID(ctx, targetGroup.ID)
+	if err != nil || len(accounts) == 0 {
+		return
+	}
+	for i := range accounts {
+		a := &accounts[i]
+		if !accountInGroupScope(a, targetGroup.Platform) {
+			continue
+		}
+		whitelist := parseWhitelistFromCredentials(a.Credentials)
+		for _, modelID := range whitelist {
+			if _, exists := bestByModel[modelID]; exists {
+				continue
+			}
+			bestByModel[modelID] = buildAccountFallbackEntry(modelID, effectiveRate, metaByID)
+		}
+	}
+}
+
+// accountInGroupScope encodes the cross-platform leak guard for the
+// fallback path. Matches the scheduling-pool partition the scheduler
+// enforces (docs/approved/newapi-as-fifth-platform.md §2.1 "不混池"):
+// openai groups schedule openai accounts only, newapi groups schedule
+// newapi accounts only — there is no cross-platform routing between
+// the two. We delegate openai / newapi to IsOpenAICompatPoolMember so
+// the newapi pool additionally enforces channel_type > 0 (a newapi
+// account with channel_type=0 has no New API adaptor target and would
+// crash bridge dispatch — same defense as the scheduler in
+// openai_account_scheduler.go). Other platforms only need strict
+// platform equality.
+func accountInGroupScope(a *Account, groupPlatform string) bool {
+	if a == nil {
+		return false
+	}
+	switch groupPlatform {
+	case "openai", "newapi":
+		return a.IsOpenAICompatPoolMember(groupPlatform)
+	default:
+		return a.Platform == groupPlatform
+	}
+}
+
+// parseWhitelistFromCredentials extracts the whitelist-mode entries from
+// an account's credentials.model_mapping JSON. Whitelist mode is the
+// identity map ({from: from}); mapping mode ({from: to}, from != to) is
+// a routing rewrite and contributes nothing to the menu — those models
+// are *aliases*, not user-visible offerings.
+//
+// Returns nil for absent / non-object / empty input. Defensive type
+// assertions guard against malformed JSON without panicking; a single
+// non-string value entry is skipped rather than poisoning the whole map.
+func parseWhitelistFromCredentials(creds map[string]any) []string {
+	if creds == nil {
+		return nil
+	}
+	raw, ok := creds["model_mapping"].(map[string]any)
+	if !ok || len(raw) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for from, toAny := range raw {
+		to, ok := toAny.(string)
+		if !ok {
+			continue
+		}
+		if to != from {
+			continue
+		}
+		out = append(out, from)
+	}
+	return out
+}
+
+// buildAccountFallbackEntry constructs a MePricingModel for one
+// whitelisted model_id, sourcing per-1k price and vendor from the
+// catalog index when available. The metadata-join stage in
+// buildModelsForGroup applies context_window / max_output_tokens /
+// capabilities uniformly later, so this function only needs to seed
+// price + vendor.
+//
+// When the catalog lacks the model (e.g. a freshly released family not
+// yet in LiteLLM), the row is returned with nil prices so the user
+// still sees the model is reachable through the gateway.
+func buildAccountFallbackEntry(modelID string, rate float64, metaByID map[string]PublicCatalogModel) MePricingModel {
+	entry := MePricingModel{
+		ModelID:      modelID,
+		BillingMode:  string(BillingModeToken),
+		YourPrice:    MePricingPrice{Currency: "USD"},
+		Capabilities: []string{},
+	}
+	meta, ok := metaByID[modelID]
+	if !ok {
+		if stripped, stripOK := stripVendorPrefixForCatalogLookup(modelID); stripOK {
+			meta, ok = metaByID[stripped]
+		}
+	}
+	if !ok {
+		return entry
+	}
+	entry.Vendor = meta.Vendor
+	entry.YourPrice.InputPer1K = scaleCatalogPrice(meta.Pricing.InputPer1KTokens, rate)
+	entry.YourPrice.OutputPer1K = scaleCatalogPrice(meta.Pricing.OutputPer1KTokens, rate)
+	entry.YourPrice.CacheReadPer1K = scaleCatalogPrice(meta.Pricing.CacheReadPer1K, rate)
+	entry.YourPrice.CacheWritePer1K = scaleCatalogPrice(meta.Pricing.CacheWritePer1K, rate)
+	return entry
+}
+
+// scaleCatalogPrice multiplies a PublicCatalogPricing value (already in
+// per-1k tokens — see pricing_catalog_tk.go PublicCatalogPricing) by the
+// user's effective rate. Unlike scaleTo1K there is NO ×1000 unit
+// conversion: catalog prices are already per-1k. Catalog uses 0.0 as
+// the sentinel for "no price published" (fields are floats, not
+// pointers), so 0.0 surfaces as nil here — preserving MePricingPrice's
+// nil-vs-0 contract (nil = "—", 0 = real free-subscription price).
+func scaleCatalogPrice(v, rate float64) *float64 {
+	if v == 0 {
+		return nil
+	}
+	r := v * rate
+	return &r
 }
 
 // buildModelEntry maps a single SupportedModel + effective rate into a

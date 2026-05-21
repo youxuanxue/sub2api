@@ -178,6 +178,16 @@
         "stripVendorPrefixForCatalogLookup"
       ],
       "rationale": "Read-side predicate consumed by integration/newapi/discover_filter_tk.go step [3] to tag admin 'fetch upstream models' results with pricing_status. OpenRouter / Azure / Bedrock report '<vendor>/<family-version>' ids whose tail uses '.' while the LiteLLM catalog stores bare names with '-' and date suffixes (anthropic/claude-opus-4.5 vs claude-opus-4-5-20251001). stripVendorPrefixForCatalogLookup + the '.'→'-' normalization is what keeps the entire OpenRouter / Azure model list from being tagged 'missing' across admin and the client /v1/models filter. Removing either symbol silently flips ~all OpenRouter channels to a wall of orange 'missing' badges (the regression this sentinel guards)."
+    },
+    {
+      "path": "backend/internal/service/me_pricing_catalog_tk.go",
+      "must_contain": [
+        "MePricingAccountSource",
+        "fillWhitelistFallback",
+        "parseWhitelistFromCredentials",
+        "buildAccountFallbackEntry"
+      ],
+      "rationale": "Post-#325/#326 bridge: /api/v1/me/pricing-catalog (Your Menu) falls back to accounts.credentials.model_mapping whitelist entries when no channel-configured pricing covers the target group's models. Without these symbols, openai/newapi accounts whose operator only configured the admin 'model whitelist' (gateway routing limit) — but never created a Channel row + channel_model_pricing entry — render an empty pricing menu for users holding keys on that group, even though the gateway is happy to serve those models. This is the regression behind the TK 2026-05-21 local-stack incident: 17 GPT-family models in the GPT account's whitelist showed zero rows in /pricing until the bridge landed."
     }
   ]
 }
