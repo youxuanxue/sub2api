@@ -203,11 +203,17 @@ def ssm_run_sql(region: str, instance_id: str, sql: str, comment: str) -> tuple[
     return (inv.get("StandardOutputContent") or "").strip(), cid
 
 
-def ssm_run_sql_b64(region: str, instance_id: str, sql_b64: str, comment: str) -> tuple[str, str]:
+def ssm_run_sql_b64(region: str, instance_id: str, sql_b64: str, comment: str
+                     ) -> tuple[str, str, bool, str]:
     """For apply: send base64-encoded SQL so embedded quotes/heredocs don't escape.
 
     Uses -A -t (unaligned + tuples-only) so jsonb_pretty() output is a parseable
     JSON blob, not psql's "key | { ... +" expanded-mode decoration.
+
+    Returns (stdout, ssm_command_id, success, stderr_preview).  cid is always
+    a valid SSM CommandId string (never decorated with a status suffix), so
+    callers can still feed it to ``aws ssm get-command-invocation`` for
+    after-the-fact debugging even when success=False.
     """
     command = (
         "set -euo pipefail\n"
@@ -252,11 +258,14 @@ def ssm_run_sql_b64(region: str, instance_id: str, sql_b64: str, comment: str) -
             text=True,
         )
     )
-    if inv.get("Status") != "Success" or inv.get("ResponseCode") != 0:
-        err = (inv.get("StandardErrorContent") or "").strip()[:1200]
-        out_preview = (inv.get("StandardOutputContent") or "").strip()[:600]
-        return out_preview, cid + " FAILED"  # let caller detect via exit_status
-    return (inv.get("StandardOutputContent") or "").strip(), cid
+    stdout = (inv.get("StandardOutputContent") or "").strip()
+    stderr = (inv.get("StandardErrorContent") or "").strip()[:1200]
+    success = inv.get("Status") == "Success" and inv.get("ResponseCode") == 0
+    if not success:
+        # Truncate stdout for noisy DO-block RAISE output; full stdout still
+        # available via aws ssm get-command-invocation --command-id <cid>.
+        stdout = stdout[:600]
+    return stdout, cid, success, stderr
 
 
 # --------------------------------------------------------------------------
@@ -628,12 +637,28 @@ def _stub_by_id(snap: dict, account_id: int) -> dict | None:
     return None
 
 
+def _is_oauth_active(acc: dict, override_account: str | None) -> bool:
+    """Active-account filter mirroring the guards' `WHERE a.status = 'active'`.
+
+    The override account (the one whose tier we're about to change) is always
+    treated as active for the purpose of cascade math — even if it's currently
+    status=error, the new tier baseline is what the edge group cap should mirror
+    after apply.  Without this carve-out, an attempt to recover a status=error
+    account by raising/lowering its tier would compute a cap that excludes the
+    very account being repaired.
+    """
+    if override_account and acc.get("name") == override_account:
+        return True
+    return acc.get("status") == "active"
+
+
 def _edge_default_redline_sum(edge: dict, override_account: str | None = None,
                                override_fields: dict | None = None) -> int:
     """Recompute edge default group's rpm_limit = absorb_zero_sum(base+sticky_buffer).
 
     If override_account is given, that account's base/sticky are taken from
-    override_fields instead of the snapshot.
+    override_fields instead of the snapshot.  Inactive accounts are excluded
+    by white-list (status='active'), matching the guards' SQL.
     """
     grp = _find_edge_group(edge, "default")
     if not grp:
@@ -643,7 +668,7 @@ def _edge_default_redline_sum(edge: dict, override_account: str | None = None,
     for acc in edge.get("oauth_accounts", []):
         if acc["id"] not in members:
             continue
-        if acc.get("status") in ("disabled", "suspended"):
+        if not _is_oauth_active(acc, override_account):
             continue
         if override_account and acc.get("name") == override_account and override_fields:
             base = int(override_fields.get("base_rpm") or 0)
@@ -665,7 +690,7 @@ def _edge_default_concurrency_sum(edge: dict, override_account: str | None = Non
     for acc in edge.get("oauth_accounts", []):
         if acc["id"] not in members:
             continue
-        if acc.get("status") in ("disabled", "suspended"):
+        if not _is_oauth_active(acc, override_account):
             continue
         if override_account and acc.get("name") == override_account and override_fields:
             concs.append(int(override_fields.get("concurrency") or 0))
@@ -685,7 +710,57 @@ def cmd_plan_edge_account_tier(args: argparse.Namespace) -> int:
     edge = _find_edge(snap, args.edge_id)
     target_account = _find_edge_account(edge, args.account_name)
 
-    # Edge default group cap recomputed with override
+    # Hard guard: orchestrator currently models the cascade only for the
+    # edge anthropic 'default' group.  If the OAuth account is bound to
+    # additional anthropic groups, those groups' rpm_limit math would
+    # silently drift after apply.  Refuse plan and point operator to
+    # Appendix A emergency mode instead of producing a partially-wrong plan.
+    default_grp = _find_edge_group(edge, "default")
+    if not default_grp:
+        fail(f"edge {args.edge_id!r} has no anthropic 'default' group; cannot plan tier cascade")
+    bindings = list(target_account.get("group_bindings", []))
+    if bindings != [default_grp["id"]]:
+        fail(
+            f"edge OAuth account {args.account_name!r} (edge {args.edge_id}) is bound to groups "
+            f"{bindings}; orchestrator only supports accounts bound to exactly the edge 'default' "
+            f"group (id={default_grp['id']}). Multi-group OAuth bindings require Appendix A "
+            f"emergency mode so the operator can hand-roll the cascade for each affected group."
+        )
+
+    # Short-circuit no-op: target tier == current tier AND no other field drift.
+    current_tier = (target_account.get("stability_tier") or "").lower()
+    fields_match = all(
+        target_account.get(k) == baseline.get(k)
+        for k in ("base_rpm", "rpm_sticky_buffer", "concurrency", "max_sessions")
+    )
+    if current_tier == tier_key and fields_match:
+        print(
+            f"plan: account {args.account_name!r} on edge {args.edge_id} is already at "
+            f"tier {tier_key} with matching baseline fields — emitting empty plan.",
+            file=sys.stderr,
+        )
+        empty_plan = {
+            "version": PLAN_VERSION,
+            "kind": "edge_account_tier_change",
+            "confirm_code": CONFIRM_CODE,
+            "intent": {"edge_id": args.edge_id, "account_name": args.account_name, "new_tier": tier_key},
+            "snapshot_captured_at": snap.get("captured_at"),
+            "plan_built_at": now_utc_iso(),
+            "noop": True,
+            "noop_reason": "current tier and baseline fields already match target",
+            "summary": {"total_steps": 0, "edge_changes": 0, "prod_changes": 0},
+            "live_inputs": {"edge_account_before": target_account},
+            "actions": [],
+        }
+        out_str = json.dumps(empty_plan, indent=2, ensure_ascii=False)
+        if args.out:
+            pathlib.Path(args.out).write_text(out_str)
+            print(f"plan: written {args.out} (noop)", file=sys.stderr)
+        else:
+            print(out_str)
+        return 0
+
+    # Edge default group cap recomputed with override (active-only filter)
     new_edge_default_rpm = _edge_default_redline_sum(
         edge, override_account=args.account_name, override_fields=baseline,
     )
@@ -1098,25 +1173,33 @@ def cmd_apply(args: argparse.Namespace) -> int:
         region, instance_id, target_label = _resolve_action_target(action, edge_matrix)
         sql_b64 = base64.b64encode(sql.encode("utf-8")).decode("ascii")
         print(f"apply: step{step:02d} {kind} → {target_label}  (sql={sql_path})", file=sys.stderr)
-        stdout, cid = ssm_run_sql_b64(region, instance_id, sql_b64,
-                                       f"apply step {step} {kind} on {target_label}")
-        output_json = _extract_output_json(stdout)
-        mismatches = _verify_expected_after(action, output_json)
+        stdout, cid, ssm_ok, stderr = ssm_run_sql_b64(
+            region, instance_id, sql_b64,
+            f"apply step {step} {kind} on {target_label}",
+        )
+        output_json = _extract_output_json(stdout) if ssm_ok else None
+        mismatches = _verify_expected_after(action, output_json) if ssm_ok else []
         result = {
             "step": step,
             "kind": kind,
             "target_label": target_label,
             "sql_path": str(sql_path),
             "ssm_command_id": cid,
+            "ssm_ok": ssm_ok,
             "stdout_preview": stdout[-1200:],
+            "stderr_preview": stderr,
             "output_json": output_json,
             "expected_after": action.get("expected_after"),
             "mismatches": mismatches,
-            "ok": cid.endswith("FAILED") is False and not mismatches,
+            "ok": ssm_ok and not mismatches,
         }
-        if cid.endswith("FAILED"):
-            result["ok"] = False
-            result["error"] = "SSM exit_status indicates failure; see stdout_preview / SSM logs"
+        if not ssm_ok:
+            result["error"] = (
+                "SSM ResponseCode != 0; remote SQL likely failed (DO-block RAISE or "
+                "psql ON_ERROR_STOP). Inspect via: "
+                f"aws ssm get-command-invocation --region {region} "
+                f"--instance-id {instance_id} --command-id {cid}"
+            )
         results.append(result)
         if not result["ok"]:
             print(f"apply: step{step:02d} FAILED — stopping. cid={cid}", file=sys.stderr)
@@ -1207,23 +1290,20 @@ def cmd_verify(args: argparse.Namespace) -> int:
     plan_path = pathlib.Path(args.plan)
     plan = load_json_file(plan_path, "plan")
 
-    print("verify: capturing fresh snapshot...", file=sys.stderr)
-    snap_ns = argparse.Namespace(
-        out=None, allow_planned=False, prod_instance_id=None,
-    )
-    # Capture snapshot to a temp file via a subprocess call to ourselves so the
-    # snapshot subcommand handles all SSM resolution / printing identically.
     snap_path = pathlib.Path(args.snapshot_out) if args.snapshot_out else pathlib.Path(
         f"/tmp/anthropic-verify-snap-{_dt.datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
     )
-    res = subprocess.run(
-        ["python3", str(pathlib.Path(__file__)), "snapshot",
-         "--out", str(snap_path)]
-        + (["--allow-planned"] if args.allow_planned else []),
-        check=False,
+    print(f"verify: capturing fresh snapshot → {snap_path}", file=sys.stderr)
+    # Call cmd_snapshot in-process — same module, same imports, same SSM
+    # auth — no subprocess overhead or argparse marshaling.
+    snap_args = argparse.Namespace(
+        out=str(snap_path),
+        prod_instance_id=None,
+        allow_planned=args.allow_planned,
     )
-    if res.returncode != 0:
-        fail(f"verify: re-snapshot exited {res.returncode}")
+    rc = cmd_snapshot(snap_args)
+    if rc != 0:
+        fail(f"verify: re-snapshot exited {rc}")
     snap = load_json_file(snap_path, "verify snapshot")
 
     drift: list[dict] = []
