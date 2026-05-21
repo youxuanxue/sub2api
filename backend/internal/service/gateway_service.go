@@ -9030,6 +9030,15 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	// Pre-filter: strip empty text blocks to prevent upstream 400.
 	body = StripEmptyTextBlocks(body)
 
+	// TK: normalize Anthropic native request body for count_tokens path
+	// (mirrors the Forward path). Same client request shape lands on both
+	// endpoints; without this, tool_choice="required" / thinking+forces-tool-use
+	// 400s here can trip the per-account upstream-error breaker (see
+	// StripCountTokensUnsupportedFields comment).
+	if account != nil && account.Platform == PlatformAnthropic {
+		body = s.tkNormalizeAnthropicRequestBody(ctx, c, body)
+	}
+
 	// Pre-filter: strip fields that Anthropic's count_tokens endpoint rejects
 	// with `invalid_request_error: "<field>: Extra inputs are not permitted"`.
 	// Common client bug (observed in claude-cli) — without this strip, 3

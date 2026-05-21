@@ -725,9 +725,10 @@
     {
       "path": "backend/internal/service/gateway_service.go",
       "must_contain": [
-        "s.tkNormalizeAnthropicRequestBody(ctx, c, body)"
+        "s.tkNormalizeAnthropicRequestBody(ctx, c, body)",
+        "// TK: normalize Anthropic native request body for count_tokens path"
       ],
-      "rationale": "Anchors the single call site of the Anthropic-native request-body normalizer (tool_choice string -> object; strip thinking when tool_choice forces tool use). Sits between CLIENT_ORIGINAL debug log and the shouldMimicClaudeCode branch in GatewayService.Forward (~4460) so it runs for ALL Anthropic Forward callers — OAuth + non-CC, OAuth + CC, APIKey (non-passthrough), and ServiceAccount alike. Dropping this call silently regresses to the original behavior where edge-us1/uk1 saw a steady trickle of upstream 400s on tool_choice=\"required\" and thinking + tool_choice.type=any (2026-05-21 incident); the rule's effect is invisible to functional tests because the upstream still works for well-formed requests."
+      "rationale": "Anchors the TWO call sites of the Anthropic-native request-body normalizer (tool_choice string -> object; strip thinking when tool_choice forces tool use). First call: GatewayService.Forward (~4460), between CLIENT_ORIGINAL debug log and the shouldMimicClaudeCode branch, so it runs for ALL Anthropic Forward callers — OAuth + non-CC, OAuth + CC, APIKey (non-passthrough), and ServiceAccount alike. Second call: GatewayService.ForwardCountTokens (~9030), after StripEmptyTextBlocks and before StripCountTokensUnsupportedFields. The count_tokens-specific banner comment is pinned because the bare `s.tkNormalizeAnthropicRequestBody(ctx, c, body)` literal alone would be satisfied by the Forward call site, leaving count_tokens silently unguarded. Dropping either silently regresses to the upstream 400 trap from the 2026-05-21 incident; on the count_tokens path it can additionally trip the per-account upstream-error breaker (see StripCountTokensUnsupportedFields comment) since the rule's effect is invisible to functional tests because the upstream still works for well-formed requests."
     },
     {
       "path": "backend/internal/service/gateway_anthropic_request_normalize_tk.go",

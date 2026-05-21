@@ -99,30 +99,32 @@ func TestTkNormalizeAnthropicThinkingForcesToolUse(t *testing.T) {
 
 // --- GatewayService integration with settingService + ops events -------------
 
-func newNormalizeTestService(t *testing.T, settingValue string) (*GatewayService, *gatewayTTLSettingRepo) {
+func newNormalizeTestService(t *testing.T, settingValue string) *GatewayService {
 	t.Helper()
 	repo := &gatewayTTLSettingRepo{data: map[string]string{}}
 	if settingValue != "" {
 		repo.data[SettingKeyAnthropicRequestNormalizeEnabled] = settingValue
 	}
-	svc := &GatewayService{settingService: NewSettingService(repo, &config.Config{})}
-	return svc, repo
+	// Reset the shared gatewayForwardingCache between tests so each test sees
+	// its own settingValue without leaking 60s TTL state across cases.
+	gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{})
+	return &GatewayService{settingService: NewSettingService(repo, &config.Config{})}
 }
 
-func newGinTestContext() (*gin.Context, *httptest.ResponseRecorder) {
+func newGinTestContext() *gin.Context {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest("POST", "/v1/messages", nil)
-	return c, rec
+	return c
 }
 
 func TestTkNormalizeAnthropicRequestBody_CombinedRewrite(t *testing.T) {
 	// Client sends OpenAI-style string AND thinking; both rules fire in series.
 	in := []byte(`{"tool_choice":"required","thinking":{"type":"enabled","budget_tokens":10000},"tools":[]}`)
 
-	svc, _ := newNormalizeTestService(t, "true")
-	c, _ := newGinTestContext()
+	svc := newNormalizeTestService(t, "true")
+	c := newGinTestContext()
 
 	out := svc.tkNormalizeAnthropicRequestBody(context.Background(), c, in)
 
@@ -143,8 +145,8 @@ func TestTkNormalizeAnthropicRequestBody_CombinedRewrite(t *testing.T) {
 func TestTkNormalizeAnthropicRequestBody_NoChangeWhenAlreadyValid(t *testing.T) {
 	in := []byte(`{"tool_choice":{"type":"auto"},"thinking":{"type":"enabled"}}`)
 
-	svc, _ := newNormalizeTestService(t, "true")
-	c, _ := newGinTestContext()
+	svc := newNormalizeTestService(t, "true")
+	c := newGinTestContext()
 
 	out := svc.tkNormalizeAnthropicRequestBody(context.Background(), c, in)
 
@@ -156,8 +158,8 @@ func TestTkNormalizeAnthropicRequestBody_SettingDisabledIsNoop(t *testing.T) {
 	// Bad body the normalizer would otherwise fix.
 	in := []byte(`{"tool_choice":"required","thinking":{"type":"enabled"}}`)
 
-	svc, _ := newNormalizeTestService(t, "false")
-	c, _ := newGinTestContext()
+	svc := newNormalizeTestService(t, "false")
+	c := newGinTestContext()
 
 	out := svc.tkNormalizeAnthropicRequestBody(context.Background(), c, in)
 
@@ -169,8 +171,8 @@ func TestTkNormalizeAnthropicRequestBody_DefaultEnabledWhenSettingMissing(t *tes
 	// Missing setting key falls back to enabled-by-default.
 	in := []byte(`{"tool_choice":"auto"}`)
 
-	svc, _ := newNormalizeTestService(t, "")
-	c, _ := newGinTestContext()
+	svc := newNormalizeTestService(t, "")
+	c := newGinTestContext()
 
 	out := svc.tkNormalizeAnthropicRequestBody(context.Background(), c, in)
 
@@ -180,8 +182,8 @@ func TestTkNormalizeAnthropicRequestBody_DefaultEnabledWhenSettingMissing(t *tes
 }
 
 func TestTkNormalizeAnthropicRequestBody_EmptyBodyPassesThrough(t *testing.T) {
-	svc, _ := newNormalizeTestService(t, "true")
-	c, _ := newGinTestContext()
+	svc := newNormalizeTestService(t, "true")
+	c := newGinTestContext()
 
 	out := svc.tkNormalizeAnthropicRequestBody(context.Background(), c, nil)
 	require.Nil(t, out)
@@ -193,7 +195,7 @@ func TestTkNormalizeAnthropicRequestBody_NilContextStillRewrites(t *testing.T) {
 	// ops event recording is skipped.
 	in := []byte(`{"tool_choice":"required"}`)
 
-	svc, _ := newNormalizeTestService(t, "true")
+	svc := newNormalizeTestService(t, "true")
 	out := svc.tkNormalizeAnthropicRequestBody(context.Background(), nil, in)
 
 	require.JSONEq(t, `{"tool_choice":{"type":"any"}}`, string(out))

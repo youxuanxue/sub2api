@@ -29,13 +29,15 @@ func tkApplyAnthropicNormalizeParsed(settings map[string]string, result *SystemS
 // known-bad Anthropic native request shapes (tool_choice string -> object;
 // strip thinking when tool_choice forces tool use). Defaults to true: an
 // unreadable repo or empty value means enabled.
+//
+// Reads through the shared 60s gatewayForwardingCache (singleflight) — every
+// adjacent setting (fingerprint unification, metadata passthrough, cch
+// signing, anthropic cache TTL 1h injection, message cache_control rewrite)
+// uses the same cache for the hot Anthropic forward path. Direct DB lookup
+// here would add one DB roundtrip per /v1/messages request.
 func (s *SettingService) IsAnthropicRequestNormalizeEnabled(ctx context.Context) bool {
-	if s == nil || s.settingRepo == nil {
+	if s == nil {
 		return true
 	}
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyAnthropicRequestNormalizeEnabled)
-	if err != nil {
-		return true
-	}
-	return !isFalseSettingValue(value)
+	return s.getGatewayForwardingSettingsCached(ctx).anthropicRequestNormalize
 }
