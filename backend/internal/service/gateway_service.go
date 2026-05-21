@@ -4575,6 +4575,19 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		logger.LegacyPrintf("service.gateway", "Model mapping applied: %s -> %s (account: %s, source=%s)", originalModel, mappedModel, account.Name, mappingSource)
 	}
 
+	// TK: friendly 400 for retired / sunset Anthropic model IDs. Runs after
+	// account.GetMappedModel + claude.NormalizeModelID so admin-configured
+	// mappings (e.g. claude-3-5-sonnet-20241022 -> claude-sonnet-4-6) take
+	// precedence — the check fires on the post-mapping model, so an admin
+	// who explicitly rewrote a retired ID into a current one keeps working.
+	// See gateway_anthropic_deprecated_model_tk.go.
+	if account.Platform == PlatformAnthropic {
+		if replacement, deprecated := tkIsDeprecatedAnthropicModel(mappedModel); deprecated {
+			tkWriteAnthropicDeprecatedModelError(c, mappedModel, replacement)
+			return nil, fmt.Errorf("anthropic model %q is retired (suggest %q)", mappedModel, replacement)
+		}
+	}
+
 	if s.shouldInjectAnthropicCacheTTL1h(ctx, account) {
 		body = injectAnthropicCacheControlTTL1h(body)
 	}
@@ -9149,6 +9162,18 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 			body = s.replaceModelInBody(body, mappedModel)
 			reqModel = mappedModel
 			logger.LegacyPrintf("service.gateway", "CountTokens model mapping applied: %s -> %s (account: %s, source=%s)", parsed.Model, mappedModel, account.Name, mappingSource)
+		}
+	}
+
+	// TK: friendly 400 for retired / sunset Anthropic model IDs on the
+	// count_tokens path. Mirrors the Forward path gate so clients get the
+	// same migration signal whether they call /v1/messages or
+	// /v1/messages/count_tokens. Runs after mapping so admin-configured
+	// rewrites take precedence. See gateway_anthropic_deprecated_model_tk.go.
+	if account.Platform == PlatformAnthropic && reqModel != "" {
+		if replacement, deprecated := tkIsDeprecatedAnthropicModel(reqModel); deprecated {
+			tkWriteAnthropicDeprecatedModelError(c, reqModel, replacement)
+			return fmt.Errorf("anthropic model %q is retired (suggest %q)", reqModel, replacement)
 		}
 	}
 

@@ -16,6 +16,14 @@ import "embed"
 //   - 格式：NNN_description.sql（如 001_init.sql, 002_add_users.sql）
 //   - 描述部分使用下划线分隔的小写单词
 //
+// 同序号兜底语义：
+//   - applyMigrationsFS 使用 sort.Strings(files) 按 ASCII 字典序加载
+//     （见 backend/internal/repository/migrations_runner.go）
+//   - 同序号的多个迁移按描述部分字典序确定执行顺序
+//     （例：136_add_*.sql < 136_remove_*.sql < 136_usage_*.sql）
+//   - 仅作为多 PR 同期合入时的物理兜底，避免序号冲突阻塞合入；
+//     新增迁移仍应使用唯一序号
+//
 // 迁移文件要求：
 //   - 必须是幂等的（可重复执行而不产生错误）
 //   - 推荐使用 IF NOT EXISTS / IF EXISTS 语法

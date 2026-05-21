@@ -864,7 +864,12 @@ const (
 )
 
 // GetPoolModeRetryCount 返回池模式同账号重试次数。
-// 未配置或配置非法时回退为默认值 3；小于 0 按 0 处理；过大则截断到 10。
+// 未配置或配置非法时回退为默认值 1；小于 0 按 0 处理；过大则截断到 10。
+//
+// 注意：非 pool_mode 账号也会拿到 defaultPoolModeRetryCount=1，但实际不被消费——
+// 各平台 gateway 路径中 `RetryableOnSameAccount` 都 gated on
+// `account.IsPoolMode()`（见 gateway_service.go / openai_gateway_*.go），
+// 因此非 pool_mode 账号的 same-account retry 不会触发。
 func (a *Account) GetPoolModeRetryCount() int {
 	if a == nil || !a.IsPoolMode() || a.Credentials == nil {
 		return defaultPoolModeRetryCount
