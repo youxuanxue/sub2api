@@ -278,7 +278,8 @@
         "StripCountTokensUnsupportedFields(body)",
         "count_tokens.stripped_unsupported_fields",
         "if resp.StatusCode != http.StatusBadRequest {",
-        "body, _ = StripCountTokensUnsupportedFields(body)"
+        "body, _ = StripCountTokensUnsupportedFields(body)",
+        "pool_mode_temp_unschedule_skipped"
       ],
       "must_not_contain": [
         "x-stainless-helper-method"
@@ -722,6 +723,43 @@
         "ErrMePricingNoAccessibleGroups"
       ],
       "rationale": "Per-user pricing-catalog handler. Pinning the auth check and the two sentinel-error mappings catches the two most likely regressions: (a) dropping JWT enforcement (anyone could probe other users' menus), and (b) collapsing the error mapping so the UI's 'create a key' empty-state banner and 'group not accessible' forbidden message stop firing. The 200-with-empty-data fallback for ErrMePricingNoAccessibleGroups is intentional UI behavior — not an error suppression bug."
+    },
+    {
+      "path": "backend/internal/handler/failover_loop.go",
+      "must_contain": [
+        "sameAccountRetryLimit int,",
+        "fallbackSameAccountRetries",
+        "s.SameAccountRetryCount[accountID] < sameAccountRetryLimit"
+      ],
+      "rationale": "Same-account retry upper bound MUST come from the caller-supplied parameter (in production: account.GetPoolModeRetryCount() per upstream-pool-aware UI config), not from the old hardcoded constant. The signature anchor `sameAccountRetryLimit int,` ensures a future refactor cannot quietly drop the parameter and revert to the constant. The fallback anchor pins the safety net for callers that pass 0 (defaults to 1 — preserves at least one retry rather than 0, matching the IsPoolMode protection contract). The L110 comparison literal pins the actual gate so a refactor changing it to `< 3` or `< maxSameAccountRetries` (re-introducing a hardcoded ceiling) trips the registry. Background: 2026-05-21 cc-us1-oauth incident exposed that the OpenAI handlers already read GetPoolModeRetryCount() while the shared failover_loop hardcoded 3 — anthropic stub UI settings were silently ignored. Unifying the read path means a single per-account `pool_mode_retry_count` JSONB field controls retry pressure on the upstream pool for every platform."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler.go",
+      "must_contain": [
+        "account.GetPoolModeRetryCount(), failoverErr"
+      ],
+      "rationale": "Anthropic /v1/messages and the legacy gateway entry both must pass `account.GetPoolModeRetryCount()` as the same-account retry limit to HandleFailoverError. Without this, anthropic apikey accounts with pool_mode=true fall back to the failover_loop default of 1 instead of the per-account UI-configured value. Locking the literal at both callsites (file uses replace_all on the same substring) catches an upstream merge that re-inserts the old 4-arg call."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_responses.go",
+      "must_contain": [
+        "account.GetPoolModeRetryCount(), failoverErr"
+      ],
+      "rationale": "/v1/responses (Anthropic-backed) must thread account.GetPoolModeRetryCount() into the shared failover loop — same contract as the anthropic /v1/messages gateway. Forgetting the parameter silently restores the old failover_loop hardcoded retry ceiling."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_chat_completions.go",
+      "must_contain": [
+        "account.GetPoolModeRetryCount(), failoverErr"
+      ],
+      "rationale": "/v1/chat/completions (Anthropic-backed converter) must thread account.GetPoolModeRetryCount() into the shared failover loop — same contract as the anthropic /v1/messages gateway."
+    },
+    {
+      "path": "backend/internal/handler/gemini_v1beta_handler.go",
+      "must_contain": [
+        "account.GetPoolModeRetryCount(), failoverErr"
+      ],
+      "rationale": "Gemini /v1beta gateway must thread account.GetPoolModeRetryCount() into the shared failover loop — same contract that unifies pool_mode retry behavior across platforms."
     },
     {
       "path": "backend/internal/service/gateway_service.go",

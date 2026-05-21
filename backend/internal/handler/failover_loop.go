@@ -31,8 +31,11 @@ const (
 )
 
 const (
-	// maxSameAccountRetries 同账号重试次数上限（针对 RetryableOnSameAccount 错误）
-	maxSameAccountRetries = 3
+	// fallbackSameAccountRetries 是 HandleFailoverError 在调用方未传具体上限时
+	// 回退使用的同账号 retry 次数。生产路径（gateway_handler*.go / gemini_v1beta_handler.go）
+	// 应该传入 account.GetPoolModeRetryCount() 让账号级配置生效；这个常量只保护
+	// 没传具体值的兼容路径，不再是真正的硬上限。
+	fallbackSameAccountRetries = 1
 	// sameAccountRetryDelay 同账号重试间隔
 	sameAccountRetryDelay = 500 * time.Millisecond
 	// singleAccountBackoffDelay 单账号分组 503 退避重试固定延时。
@@ -64,13 +67,25 @@ func NewFailoverState(maxSwitches int, hasBoundSession bool) *FailoverState {
 
 // HandleFailoverError 处理 UpstreamFailoverError，返回下一步动作。
 // 包含：缓存计费判断、同账号重试、临时封禁、切换计数、Antigravity 延时。
+//
+// sameAccountRetryLimit 是本账号的同账号 retry 上限。生产路径应传
+// account.GetPoolModeRetryCount()（pool_mode 账号读 credentials.pool_mode_retry_count，
+// 非 pool_mode 返回默认 1）。传 0 或负数时回退到 fallbackSameAccountRetries=1。
 func (s *FailoverState) HandleFailoverError(
 	ctx context.Context,
 	gatewayService TempUnscheduler,
 	accountID int64,
 	platform string,
+	sameAccountRetryLimit int,
 	failoverErr *service.UpstreamFailoverError,
 ) FailoverAction {
+	if sameAccountRetryLimit < 0 {
+		sameAccountRetryLimit = 0
+	}
+	if sameAccountRetryLimit == 0 && failoverErr != nil && failoverErr.RetryableOnSameAccount {
+		// 兼容旧 caller 没传具体值的场景：用 fallback。
+		sameAccountRetryLimit = fallbackSameAccountRetries
+	}
 	s.LastFailoverErr = failoverErr
 
 	// 缓存计费判断
@@ -107,13 +122,13 @@ func (s *FailoverState) HandleFailoverError(
 	}
 
 	// 同账号重试：对 RetryableOnSameAccount 的临时性错误，先在同一账号上重试
-	if failoverErr.RetryableOnSameAccount && s.SameAccountRetryCount[accountID] < maxSameAccountRetries {
+	if failoverErr.RetryableOnSameAccount && s.SameAccountRetryCount[accountID] < sameAccountRetryLimit {
 		s.SameAccountRetryCount[accountID]++
 		logger.FromContext(ctx).Warn("gateway.failover_same_account_retry",
 			zap.Int64("account_id", accountID),
 			zap.Int("upstream_status", failoverErr.StatusCode),
 			zap.Int("same_account_retry_count", s.SameAccountRetryCount[accountID]),
-			zap.Int("same_account_retry_max", maxSameAccountRetries),
+			zap.Int("same_account_retry_max", sameAccountRetryLimit),
 		)
 		if !sleepWithContext(ctx, sameAccountRetryDelay) {
 			return FailoverCanceled

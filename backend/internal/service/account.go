@@ -834,11 +834,13 @@ func (a *Account) IsCustomErrorCodesEnabled() bool {
 }
 
 // IsPoolMode 检查 API Key / Bedrock 账号是否启用池模式。
-// 池模式下，上游错误不标记本地账号状态。按平台分两种具体行为：
-//   - OpenAI / Gemini / Antigravity：401/403/429 在同账号 in-place
-//     retry N 次（见 isPoolModeRetryableStatus 与 GetPoolModeRetryCount）；
-//   - Anthropic：5xx/403 跳过 3/3 自动 temp_unschedulable 阈值，不在
-//     同账号重试，由上层 failover 自然切下一账号。
+// 池模式下，上游错误不标记本地账号状态，行为对所有平台统一：
+//   - 401 / 403 / 429 / 502 / 503 / 504：在同账号 in-place retry N 次
+//     （N = GetPoolModeRetryCount，默认 1，最大 10；见 isPoolModeRetryableStatus）；
+//   - retry 全部用尽后由上层 failover 自然切下一账号，不写入
+//     temp_unschedulable_until / rate_limited_at / error 等本地状态字段；
+//   - Anthropic 平台额外跳过 handleAnthropicUpstreamError 内的 3/3
+//     短窗 temp_unschedulable 阈值，避免级联拉黑。
 // OAuth 账号永远返回 false（IsAPIKeyOrBedrock 前置）。
 func (a *Account) IsPoolMode() bool {
 	if !a.IsAPIKeyOrBedrock() || a.Credentials == nil {
@@ -853,7 +855,10 @@ func (a *Account) IsPoolMode() bool {
 }
 
 const (
-	defaultPoolModeRetryCount = 3
+	// defaultPoolModeRetryCount 默认同账号 retry 次数（每账号可在 UI 覆盖到 0..max）。
+	// 选择 1：转发 stub → 上游账号池场景下，池每次会轮换成员，1 次 retry 大概率
+	// 命中不同后端；3 次会无谓放大 3 倍 upstream 流量。运维确认上游单后端时再调高。
+	defaultPoolModeRetryCount = 1
 	maxPoolModeRetryCount     = 10
 )
 
@@ -897,10 +902,20 @@ func parsePoolModeRetryCount(value any) int {
 	return defaultPoolModeRetryCount
 }
 
-// isPoolModeRetryableStatus 池模式下应触发同账号重试的状态码
+// isPoolModeRetryableStatus 池模式下应触发同账号重试的状态码。
+//
+// 401 / 403 / 429: 上游池内当前命中的账号 token 失效 / 被封 / 限流，再打同
+// 一上游 URL 大概率轮换到下个池成员。
+//
+// 502 / 503 / 504: 上游池前置代理（如另一台 TokenKey / 兼容网关）的瞬时
+// 不可调度（"No available accounts"、网关无后端等），retry 让池内调度
+// 自我修复。
+//
+// 500 / 501 不在内：500 通常是上游业务 bug，501 是 Not Implemented，
+// 两者重试均无意义且会加剧 upstream 压力。
 func isPoolModeRetryableStatus(statusCode int) bool {
 	switch statusCode {
-	case 401, 403, 429:
+	case 401, 403, 429, 502, 503, 504:
 		return true
 	default:
 		return false
