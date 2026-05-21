@@ -274,14 +274,22 @@ func ProvideOpsAggregationService(
 }
 
 // ProvideOpsAlertEvaluatorService creates and starts OpsAlertEvaluatorService.
+// The anthropic upstream-error counter cache is injected so the
+// anthropic_cooldown_tier_escalation_count metric path reads through the
+// same interface the ratelimit writer side uses (single Redis-backed
+// counter behind one canonical key). Without this injection the metric
+// would silently work via a redundant raw redisClient.Get path and the
+// cache interface would be dead code in production.
 func ProvideOpsAlertEvaluatorService(
 	opsService *OpsService,
 	opsRepo OpsRepository,
 	emailService *EmailService,
 	redisClient *redis.Client,
 	cfg *config.Config,
+	anthropicUpstreamErrorCounterCache AnthropicUpstreamErrorCounterCache,
 ) *OpsAlertEvaluatorService {
 	svc := NewOpsAlertEvaluatorService(opsService, opsRepo, emailService, redisClient, cfg)
+	svc.SetAnthropicUpstreamErrorCounterCache(anthropicUpstreamErrorCounterCache)
 	svc.Start()
 	return svc
 }

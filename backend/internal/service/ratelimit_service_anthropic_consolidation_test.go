@@ -234,6 +234,58 @@ func TestRateLimitService_HandleUpstreamError_Anthropic403TLSFingerprintShortCoo
 		"TLS fingerprint path must NOT feed the 3/3 short-window counter (the account is fine; infra is not)")
 }
 
+// Production OAuth accounts ship with the baseline credentials wired —
+// temp_unschedulable_enabled=true + a 403 account_disabled_auth_error rule
+// (anthropic-oauth-stability-baselines-tiered.json shared_baseline.credentials).
+// A 403 body that contains a TLS-fingerprint keyword but NOT
+// account_disabled_auth_error MUST still reach the handle403 TLS branch and
+// land the short 30s cooldown — the JSON 403 rule MUST NOT eat the request
+// just because the rule's error_code matches. Regression coverage for the
+// "production credentials path" vs the simpler bare-account test above.
+func TestRateLimitService_HandleUpstreamError_Anthropic403TLSFingerprintNotEatenBy403Rule(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	counter := &anthropicUpstreamErrorCounterCacheStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetAnthropicUpstreamErrorCounterCache(counter)
+
+	account := &Account{
+		ID:       821,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"temp_unschedulable_enabled": true,
+			"temp_unschedulable_rules": []map[string]any{
+				{
+					"error_code":       403,
+					"keywords":         []string{"account_disabled_auth_error", "organization disabled"},
+					"duration_minutes": 360,
+				},
+			},
+		},
+	}
+
+	body := []byte(`{"error":{"message":"forbidden: JA4 fingerprint mismatch on this client"}}`)
+	shouldDisable := service.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusForbidden,
+		http.Header{},
+		body,
+	)
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, repo.tempCalls,
+		"TLS fingerprint failure must still write SetTempUnschedulable even with the 403 rule armed")
+
+	var state TempUnschedState
+	require.NoError(t, json.Unmarshal([]byte(repo.lastTempReason), &state))
+	require.Equal(t, "tls_fingerprint_failure", state.MatchedKeyword,
+		"reason must record the TLS path, NOT the 6h account_disabled_auth_error rule")
+
+	cooldown := time.Until(time.Unix(state.UntilUnix, 0))
+	require.InDelta(t, tlsFingerprintFailureCooldown, cooldown, float64(2*time.Second),
+		"production credentials path must still apply 30s cooldown, not 6h")
+}
+
 // --- P5: cfg.AnthropicErrorThreshold lifts the 3/3 bar -----------------------
 
 func TestRateLimitService_HandleUpstreamError_AnthropicErrorThresholdConfigurable(t *testing.T) {

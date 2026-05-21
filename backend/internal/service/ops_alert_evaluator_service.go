@@ -581,24 +581,18 @@ func (s *OpsAlertEvaluatorService) computeRuleMetric(
 		// tier>=1 (≥ 2 min cooldown) is the "real problem starting" signal.
 		// Scope filters (platform/groupID) are ignored — the counter is
 		// global by construction.
-		if s == nil {
+		//
+		// The cache MUST be wired by ProvideOpsAlertEvaluatorService; a nil
+		// cache means the evaluator was constructed without DI (test stub /
+		// shim) and the metric is intentionally unavailable in that mode —
+		// no silent raw-Redis fallback (testing path and production path
+		// must hit the same interface, otherwise the cache interface
+		// would silently disappear from the production graph).
+		if s == nil || s.anthropicUpstreamErrorCounterCache == nil {
 			return 0, false
 		}
-		if s.anthropicUpstreamErrorCounterCache != nil {
-			val, err := s.anthropicUpstreamErrorCounterCache.GetAnthropicCooldownTierEscalations(ctx)
-			if err != nil {
-				return 0, false
-			}
-			return float64(val), true
-		}
-		if s.redisClient == nil {
-			return 0, false
-		}
-		val, err := s.redisClient.Get(ctx, AnthropicCooldownTierEscalationsKey).Int64()
+		val, err := s.anthropicUpstreamErrorCounterCache.GetAnthropicCooldownTierEscalations(ctx)
 		if err != nil {
-			if err == redis.Nil {
-				return 0, true
-			}
 			return 0, false
 		}
 		return float64(val), true
