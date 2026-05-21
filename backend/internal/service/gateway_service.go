@@ -528,9 +528,17 @@ func (e *UpstreamFailoverError) Error() string {
 //
 // 池模式账号同样进入此路径（2026-05-21 revision of PR #333）：retry 用尽
 // 才进 TempUnschedule，而 pool_mode 默认 pool_mode_retry_count=1 已经
-// 给了池一次自愈机会；用尽仍失败时不再回避本地状态写入。短窗 cooldown
-// （Anthropic 走 handleAnthropicUpstreamError 的指数退避 30s/2min/10min；
-// 其他平台走各自的 handle4xx）保证单成员组不会被 10min 长锁。
+// 给了池一次自愈机会；用尽仍失败时不再回避本地状态写入。
+//
+// 本函数只处理 RetryableOnSameAccount 的两个状态码：
+//   - case 400: tempUnscheduleGoogleConfigError —— 1 分钟 cooldown
+//   - case 502: tempUnscheduleEmptyResponse —— 1 分钟 cooldown
+//
+// 其余状态码（401/403/429/503/504）本函数不写 temp_unschedulable_until。
+// Anthropic 平台 4xx/5xx 的 3/3 短窗 + 指数退避 cooldown（30s → 2min → 10min）
+// 由独立路径 HandleUpstreamError → handleAnthropicUpstreamError 维护，与本函数
+// 并行执行同一请求；两路径都写 temp_unschedulable_until 时由 SetTempUnschedulable
+// 后写胜出。
 func (s *GatewayService) TempUnscheduleRetryableError(ctx context.Context, accountID int64, failoverErr *UpstreamFailoverError) {
 	if failoverErr == nil || !failoverErr.RetryableOnSameAccount {
 		return
