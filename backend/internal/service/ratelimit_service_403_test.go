@@ -108,9 +108,10 @@ func TestRateLimitService_HandleUpstreamError_Anthropic403ThresholdTempUnschedul
 // 接受失去 3/3 保护作为代价。
 func TestRateLimitService_HandleUpstreamError_AnthropicPoolModeBypassesUpstreamErrorCounter(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
-	// counter has no preset counts: the early-return must short-circuit BEFORE
-	// any IncrementAnthropicUpstreamErrorCount call; counts list is intentionally
-	// empty to make a regression that touches the counter trip on out-of-range.
+	// counter stub has no preset counts: the regression guard is the final
+	// require.Empty(t, counter.incrementIDs) assertion below — it fails the
+	// moment a regression makes IncrementAnthropicUpstreamErrorCount get
+	// called at all, regardless of the (0, nil) the stub would return.
 	counter := &anthropicUpstreamErrorCounterCacheStub{}
 	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
 	service.SetAnthropicUpstreamErrorCounterCache(counter)
