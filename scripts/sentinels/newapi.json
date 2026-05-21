@@ -169,7 +169,7 @@
         "const model = normalizeModelID(item)",
         "claude-opus-4-7"
       ],
-      "rationale": "buildModelMappingObject must tolerate stale object entries and emit only string-to-string model_mapping pairs. Without this normalization, the submit path can hit `includes is not a function` or persist invalid object-shaped model mappings after #128 responses. This file also owns the admin default model lists; keep Claude defaults on currently available 4.x models and do not re-add retired 3.5 / 3.7 Sonnet (or 3.5 Haiku) entries that trigger Anthropic not_found errors on OAuth subscription channels."
+      "rationale": "buildModelMappingObject must tolerate stale object entries and emit only string-to-string model_mapping pairs. Without this normalization, the submit path can hit `includes is not a function` or persist invalid object-shaped model mappings after #128 responses. This file also owns the admin default model lists; keep Claude defaults on currently-available 4.5/4.6/4.7 models and do not re-add (a) retired 3.x snapshots: claude-3-7-sonnet-20250219, claude-3-5-sonnet-20241022, claude-3-5-sonnet-20240620, claude-3-5-haiku-20241022, claude-3-haiku-20240307, claude-3-opus-20240229, claude-3-sonnet-20240229 — Anthropic API returns not_found_error for these (model-deprecations page verified 2026-05-21); nor (b) deprecated 4.0 snapshots claude-sonnet-4-20250514 and claude-opus-4-20250514 which Anthropic retires on 2026-06-15."
     },
     {
       "path": "backend/internal/service/pricing_catalog_membership_tk.go",

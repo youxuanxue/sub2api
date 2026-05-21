@@ -27,13 +27,20 @@ describe('useModelWhitelist', () => {
     expect(models).not.toContain('gpt-5.2-codex')
   })
 
-  it('claude 默认模型列表不再暴露已下线的 3.5/3.7 系列', () => {
+  it('claude 默认模型列表不再暴露已下线或即将退役的旧模型', () => {
     const models = getModelsByPlatform('claude')
 
+    // Retired (per Anthropic model-deprecations page)
     expect(models).not.toContain('claude-3-7-sonnet-20250219')
     expect(models).not.toContain('claude-3-5-sonnet-20241022')
     expect(models).not.toContain('claude-3-5-sonnet-20240620')
     expect(models).not.toContain('claude-3-5-haiku-20241022')
+    expect(models).not.toContain('claude-3-haiku-20240307')
+    expect(models).not.toContain('claude-3-opus-20240229')
+    expect(models).not.toContain('claude-3-sonnet-20240229')
+    // Deprecated, retiring 2026-06-15
+    expect(models).not.toContain('claude-sonnet-4-20250514')
+    expect(models).not.toContain('claude-opus-4-20250514')
   })
 
   it('antigravity 模型列表包含图片模型兼容项', () => {
