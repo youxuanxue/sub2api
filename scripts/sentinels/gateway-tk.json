@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks. Reviewed during merge/upstream-20260521 — engine.BuildDispatchPlan + ForwardAsChatCompletionsDispatched + ForwardAsResponsesDispatched + signature_preempt + sticky-routing injections + silent-refusal observer all verified intact.",
+  "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
       "path": "backend/internal/service/gemini_messages_compat_service.go",
