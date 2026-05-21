@@ -1,3 +1,20 @@
+-- ⚠️ DEPRECATED 2026-05-21 — DO NOT USE FOR NEW WRITES.
+-- Replaced by deploy/aws/stage0/anthropic-prod-group-r3-unified-apply-template.sql
+-- under R3-unified.  Reasons:
+--   1. This template only writes group.rpm_limit; under R3-unified the
+--      per-stub `accounts.extra.declared_rpm` must also be written in
+--      the same transaction (mirror baseline + audit trail).
+--   2. This template relied on R3 absorb-zero (mixed group → unlimited),
+--      which is now a forbidden state.  Using this template on a mixed
+--      group writes the wrong value (computed as absorb-zero SUM).
+--   3. R3-unified guard kinds (r3_group_sum_mismatch / r3_declared_rpm_*)
+--      cannot be cleared by this template.
+-- This file is retained for audit-trail / git-blame continuity only.
+-- All new R3 writes MUST use anthropic-prod-group-r3-unified-apply-template.sql.
+--
+-- ============================================================
+-- Historical doc (R3 absorb-zero path, no longer in force):
+-- ============================================================
 -- Anthropic stub-only group RPM mirror apply template (R3 mirror path)
 -- Purpose: write group.rpm_limit on a prod-side stub-only group to mirror
 -- the upstream edge's default_group.rpm_limit, per the R3 rule in
