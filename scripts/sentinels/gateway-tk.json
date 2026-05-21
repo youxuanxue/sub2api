@@ -728,10 +728,13 @@
       "path": "backend/internal/handler/failover_loop.go",
       "must_contain": [
         "sameAccountRetryLimit int,",
-        "fallbackSameAccountRetries",
         "s.SameAccountRetryCount[accountID] < sameAccountRetryLimit"
       ],
-      "rationale": "Same-account retry upper bound MUST come from the caller-supplied parameter (in production: account.GetPoolModeRetryCount() per upstream-pool-aware UI config), not from the old hardcoded constant. The signature anchor `sameAccountRetryLimit int,` ensures a future refactor cannot quietly drop the parameter and revert to the constant. The fallback anchor pins the safety net for callers that pass 0 (defaults to 1 — preserves at least one retry rather than 0, matching the IsPoolMode protection contract). The L110 comparison literal pins the actual gate so a refactor changing it to `< 3` or `< maxSameAccountRetries` (re-introducing a hardcoded ceiling) trips the registry. Background: 2026-05-21 cc-us1-oauth incident exposed that the OpenAI handlers already read GetPoolModeRetryCount() while the shared failover_loop hardcoded 3 — anthropic stub UI settings were silently ignored. Unifying the read path means a single per-account `pool_mode_retry_count` JSONB field controls retry pressure on the upstream pool for every platform."
+      "must_not_contain": [
+        "maxSameAccountRetries = 3",
+        "fallbackSameAccountRetries"
+      ],
+      "rationale": "Same-account retry upper bound MUST come from the caller-supplied parameter (in production: account.GetPoolModeRetryCount() per upstream-pool-aware UI config), not from a hardcoded constant or a silent fallback. The signature anchor `sameAccountRetryLimit int,` ensures a future refactor cannot quietly drop the parameter. The L110 comparison literal pins the actual gate so a refactor changing it to `< 3` or `< maxSameAccountRetries` (re-introducing a hardcoded ceiling) trips the registry. The two must_not_contain anchors block two known-bad re-introductions: (a) the old `maxSameAccountRetries = 3` constant that originally hid the bug, and (b) the `fallbackSameAccountRetries` shim from an interim revision that would have silently re-mapped a UI-configured `pool_mode_retry_count=0` (operator explicitly disabling retry) back to 1, contradicting the i18n hint. Background: 2026-05-21 cc-us1-oauth incident exposed that the OpenAI handlers already read GetPoolModeRetryCount() while the shared failover_loop hardcoded 3 — anthropic stub UI settings were silently ignored. Unifying the read path means a single per-account `pool_mode_retry_count` JSONB field controls retry pressure on the upstream pool for every platform, including the explicit 'zero retry' choice."
     },
     {
       "path": "backend/internal/handler/gateway_handler.go",

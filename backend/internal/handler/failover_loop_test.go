@@ -744,16 +744,28 @@ func TestHandleSelectionExhausted(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestHandleFailoverError_SameAccountRetryLimit_DrivenByParameter(t *testing.T) {
-	t.Run("limit=0_fallback到1次retry", func(t *testing.T) {
-		// HandleFailoverError 在 limit<=0 且 RetryableOnSameAccount=true 时
-		// 会 fallback 到 fallbackSameAccountRetries=1，符合"显式 0 视为未传值"契约。
+	t.Run("limit=0_显式禁用retry_直接切账号", func(t *testing.T) {
+		// limit=0 是运维通过 UI 显式选择"不原地重试"的语义（i18n hint:
+		// "0 = 不原地重试"）。不做隐式升值，否则违反 UI 承诺。
 		mock := &mockTempUnscheduler{}
 		fs := NewFailoverState(3, false)
 		err := newTestFailoverErr(503, true, false)
 
 		action := fs.HandleFailoverError(context.Background(), mock, 100, "anthropic", 0, err)
 		require.Equal(t, FailoverContinue, action)
-		require.Equal(t, 1, fs.SameAccountRetryCount[100], "limit=0 fallback 应允许 1 次 retry")
+		require.Empty(t, fs.SameAccountRetryCount, "limit=0 不应记录任何 retry")
+		require.Equal(t, 1, fs.SwitchCount, "limit=0 应立即切账号")
+	})
+
+	t.Run("limit=负数_当作0处理_直接切账号", func(t *testing.T) {
+		mock := &mockTempUnscheduler{}
+		fs := NewFailoverState(3, false)
+		err := newTestFailoverErr(503, true, false)
+
+		action := fs.HandleFailoverError(context.Background(), mock, 100, "anthropic", -5, err)
+		require.Equal(t, FailoverContinue, action)
+		require.Empty(t, fs.SameAccountRetryCount)
+		require.Equal(t, 1, fs.SwitchCount)
 	})
 
 	t.Run("limit=1_只retry一次_第二次切账号", func(t *testing.T) {

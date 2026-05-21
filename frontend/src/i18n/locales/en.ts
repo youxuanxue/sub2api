@@ -3378,7 +3378,7 @@ export default {
         'When enabled, behavior is uniform across platforms (OpenAI / Gemini / Antigravity / Anthropic): upstream 401 / 403 / 429 / 502 / 503 / 504 errors first retry on the same account N times (N = "Same-Account Retries" below, default 1), then naturally fail over to the next account. The local account is never marked rate-limited / errored / temp-unscheduled. For Anthropic, the "three consecutive failures auto-cool this account" protection is also skipped. Suitable when the upstream points to another TokenKey / compatible gateway pool. Trade-off: you give up automatic failure protection for this account — only enable when you have verified the upstream itself is a self-rotating pool.',
       poolModeRetryCount: 'Same-Account Retries',
       poolModeRetryCountHint:
-        'Applies to all pool-mode platforms (including Anthropic). 1 = retry the same account once before failover; 0 is treated as 1 (minimum protection); default {default}, maximum {max}. Higher values amplify upstream load — keep this low when forwarding to a self-rotating pool.',
+        'Applies to all pool-mode platforms (including Anthropic). 1 = retry the same account once before failover; 0 = no in-place retry at all, failover immediately; default {default}, maximum {max}. Higher values amplify upstream load — keep this low when forwarding to a self-rotating pool.',
       customErrorCodes: 'Custom Error Codes',
       customErrorCodesHint: 'Only stop scheduling for selected error codes',
       customErrorCodesWarning:

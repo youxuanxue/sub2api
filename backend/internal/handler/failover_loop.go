@@ -31,11 +31,6 @@ const (
 )
 
 const (
-	// fallbackSameAccountRetries 是 HandleFailoverError 在调用方未传具体上限时
-	// 回退使用的同账号 retry 次数。生产路径（gateway_handler*.go / gemini_v1beta_handler.go）
-	// 应该传入 account.GetPoolModeRetryCount() 让账号级配置生效；这个常量只保护
-	// 没传具体值的兼容路径，不再是真正的硬上限。
-	fallbackSameAccountRetries = 1
 	// sameAccountRetryDelay 同账号重试间隔
 	sameAccountRetryDelay = 500 * time.Millisecond
 	// singleAccountBackoffDelay 单账号分组 503 退避重试固定延时。
@@ -70,7 +65,9 @@ func NewFailoverState(maxSwitches int, hasBoundSession bool) *FailoverState {
 //
 // sameAccountRetryLimit 是本账号的同账号 retry 上限。生产路径应传
 // account.GetPoolModeRetryCount()（pool_mode 账号读 credentials.pool_mode_retry_count，
-// 非 pool_mode 返回默认 1）。传 0 或负数时回退到 fallbackSameAccountRetries=1。
+// 非 pool_mode 返回 defaultPoolModeRetryCount=1）。传 0 表示"不允许同账号 retry，
+// 立即 failover"——这是 UI hint 承诺的语义（i18n: "0 = 不原地重试"）。负数同样
+// 视为 0；不做隐式升值，避免运维显式禁用 retry 时被悄悄改成 1 次。
 func (s *FailoverState) HandleFailoverError(
 	ctx context.Context,
 	gatewayService TempUnscheduler,
@@ -81,10 +78,6 @@ func (s *FailoverState) HandleFailoverError(
 ) FailoverAction {
 	if sameAccountRetryLimit < 0 {
 		sameAccountRetryLimit = 0
-	}
-	if sameAccountRetryLimit == 0 && failoverErr != nil && failoverErr.RetryableOnSameAccount {
-		// 兼容旧 caller 没传具体值的场景：用 fallback。
-		sameAccountRetryLimit = fallbackSameAccountRetries
 	}
 	s.LastFailoverErr = failoverErr
 
