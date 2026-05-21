@@ -203,7 +203,7 @@ func TestBuildUsageInfo_ModelWithNilQuotaInfo(t *testing.T) {
 func TestBuildUsageInfo_FiveHourPriorityOrder(t *testing.T) {
 	fetcher := &AntigravityQuotaFetcher{}
 
-	// priorityModels = ["claude-sonnet-4-20250514", "claude-sonnet-4", "gemini-2.5-pro"]
+	// priorityModels = ["claude-sonnet-4-6", "claude-sonnet-4", "gemini-2.5-pro"]
 	// When the first priority model exists, it should be used for FiveHour
 	modelsResp := &antigravity.FetchAvailableModelsResponse{
 		Models: map[string]antigravity.ModelInfo{
@@ -213,7 +213,7 @@ func TestBuildUsageInfo_FiveHourPriorityOrder(t *testing.T) {
 					ResetTime:         "2026-03-08T18:00:00Z",
 				},
 			},
-			"claude-sonnet-4-20250514": {
+			"claude-sonnet-4-6": {
 				QuotaInfo: &antigravity.ModelQuotaInfo{
 					RemainingFraction: 0.80,
 					ResetTime:         "2026-03-08T12:00:00Z",
@@ -225,7 +225,7 @@ func TestBuildUsageInfo_FiveHourPriorityOrder(t *testing.T) {
 	info := fetcher.buildUsageInfo(modelsResp, "", "", nil)
 
 	require.NotNil(t, info.FiveHour, "FiveHour should be set when a priority model exists")
-	// claude-sonnet-4-20250514 is first in priority list, so it should be used
+	// claude-sonnet-4-6 is first in priority list, so it should be used
 	expectedUtilization := (1.0 - 0.80) * 100 // 20
 	require.InDelta(t, expectedUtilization, info.FiveHour.Utilization, 0.01)
 	require.NotNil(t, info.FiveHour.ResetsAt, "ResetsAt should be parsed from ResetTime")
@@ -234,7 +234,7 @@ func TestBuildUsageInfo_FiveHourPriorityOrder(t *testing.T) {
 func TestBuildUsageInfo_FiveHourFallbackToClaude4(t *testing.T) {
 	fetcher := &AntigravityQuotaFetcher{}
 
-	// Only claude-sonnet-4 exists (second in priority list), not claude-sonnet-4-20250514
+	// Only claude-sonnet-4 exists (second in priority list), not claude-sonnet-4-6
 	modelsResp := &antigravity.FetchAvailableModelsResponse{
 		Models: map[string]antigravity.ModelInfo{
 			"claude-sonnet-4": {
@@ -308,7 +308,7 @@ func TestBuildUsageInfo_FiveHourWithEmptyResetTime(t *testing.T) {
 
 	modelsResp := &antigravity.FetchAvailableModelsResponse{
 		Models: map[string]antigravity.ModelInfo{
-			"claude-sonnet-4-20250514": {
+			"claude-sonnet-4-6": {
 				QuotaInfo: &antigravity.ModelQuotaInfo{
 					RemainingFraction: 0.50,
 					ResetTime:         "", // empty reset time
