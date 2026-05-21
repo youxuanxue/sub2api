@@ -85,12 +85,11 @@ func tkIsDeprecatedAnthropicModel(model string) (string, bool) {
 }
 
 // tkWriteAnthropicDeprecatedModelError emits the Anthropic-shape 400 error
-// for a retired model request and aborts further gin handling. Returning
-// `true` lets callers `return` immediately without writing their own
-// response. Safe to call with c == nil (returns false, no-op).
-func tkWriteAnthropicDeprecatedModelError(c *gin.Context, requestedModel, replacement string) bool {
+// for a retired model request and aborts further gin handling. Safe to call
+// with c == nil (no-op).
+func tkWriteAnthropicDeprecatedModelError(c *gin.Context, requestedModel, replacement string) {
 	if c == nil {
-		return false
+		return
 	}
 	c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
 		"type": "error",
@@ -99,16 +98,14 @@ func tkWriteAnthropicDeprecatedModelError(c *gin.Context, requestedModel, replac
 			"message": tkBuildDeprecatedAnthropicMessage(requestedModel, replacement),
 		},
 	})
-	return true
 }
 
 // tkBuildDeprecatedAnthropicMessage assembles the friendly migration message.
 // Kept as a separate function so the unit test can assert message content
-// without parsing JSON.
+// without parsing JSON. Callers must pass a non-empty replacement — the
+// retired-model table guarantees this (every value is a Sonnet/Opus
+// constant), so there is no defensive fallback here.
 func tkBuildDeprecatedAnthropicMessage(requestedModel, replacement string) string {
-	if replacement == "" {
-		replacement = tkDeprecatedAnthropicReplacementSonnet
-	}
 	return "Model '" + requestedModel + "' is retired or scheduled for sunset by Anthropic" +
 		" and has been removed from this TokenKey deployment. Please migrate to '" +
 		replacement + "' (or '" + tkDeprecatedAnthropicReplacementOpus +

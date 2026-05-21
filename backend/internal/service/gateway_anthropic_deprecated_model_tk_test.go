@@ -59,19 +59,12 @@ func TestTkBuildDeprecatedAnthropicMessage(t *testing.T) {
 	require.Contains(t, msg, "anthropic.com", "must link to Anthropic docs")
 }
 
-func TestTkBuildDeprecatedAnthropicMessageEmptyReplacementFallsBackToSonnet(t *testing.T) {
-	msg := tkBuildDeprecatedAnthropicMessage("claude-3-opus-20240229", "")
-	require.Contains(t, msg, tkDeprecatedAnthropicReplacementSonnet,
-		"empty replacement should fall back to the sonnet default so the customer message never reads 'migrate to '''")
-}
-
 func TestTkWriteAnthropicDeprecatedModelError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
-	wrote := tkWriteAnthropicDeprecatedModelError(c, "claude-3-5-sonnet-20241022", tkDeprecatedAnthropicReplacementSonnet)
-	require.True(t, wrote)
+	tkWriteAnthropicDeprecatedModelError(c, "claude-3-5-sonnet-20241022", tkDeprecatedAnthropicReplacementSonnet)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.True(t, c.IsAborted(), "must abort further gin handlers")
 
@@ -93,8 +86,9 @@ func TestTkWriteAnthropicDeprecatedModelError(t *testing.T) {
 }
 
 func TestTkWriteAnthropicDeprecatedModelErrorNilContextIsSafe(t *testing.T) {
-	wrote := tkWriteAnthropicDeprecatedModelError(nil, "anything", "anything")
-	require.False(t, wrote, "nil context must be a safe no-op")
+	require.NotPanics(t, func() {
+		tkWriteAnthropicDeprecatedModelError(nil, "anything", "anything")
+	}, "nil context must be a safe no-op")
 }
 
 // Guards against silent table edits during upstream merges. The set of
