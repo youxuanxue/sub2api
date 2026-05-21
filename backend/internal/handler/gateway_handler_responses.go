@@ -79,7 +79,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 	reqStream := gjson.GetBytes(body, "stream").Bool()
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
 
-	setOpsRequestContext(c, reqModel, reqStream)
+	setOpsRequestModelAndBody(c, reqModel, reqStream, body)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
 
 	// TK: pre-flight body-size guard (see gateway_handler_tk_body_guard.go).

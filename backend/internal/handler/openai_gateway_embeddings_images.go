@@ -74,7 +74,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 	reqModel := modelResult.String()
 	reqLog = reqLog.With(zap.String("model", reqModel))
 
-	setOpsRequestContext(c, reqModel, false)
+	setOpsRequestModelAndBody(c, reqModel, false, body)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(false, false)))
 
 	// TK: pre-flight body-size guard (see gateway_handler_tk_body_guard.go).
@@ -372,7 +372,7 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 	reqModel := modelResult.String()
 	reqLog = reqLog.With(zap.String("model", reqModel))
 
-	setOpsRequestContext(c, reqModel, false)
+	setOpsRequestModelAndBody(c, reqModel, false, body)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(false, false)))
 
 	// TK: pre-flight body-size guard (see gateway_handler_tk_body_guard.go).

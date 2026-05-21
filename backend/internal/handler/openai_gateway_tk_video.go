@@ -94,7 +94,7 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 	}
 	reqLog = reqLog.With(zap.String("model", reqModel))
 
-	setOpsRequestContext(c, reqModel, false)
+	setOpsRequestModelAndBody(c, reqModel, false, body)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(false, false)))
 
 	if h.errorPassthroughService != nil {

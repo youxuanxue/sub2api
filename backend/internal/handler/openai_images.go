@@ -97,11 +97,9 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		defer imageReleaseFunc()
 	}
 
-	if parsed.Multipart {
-		setOpsRequestContext(c, parsed.Model, parsed.Stream)
-	} else {
-		setOpsRequestContext(c, parsed.Model, parsed.Stream)
-	}
+	// Both multipart and JSON paths stash the raw body bytes for TK
+	// body-size-aware 403 enrichment (see ops_request_context_tk.go).
+	setOpsRequestModelAndBody(c, parsed.Model, parsed.Stream, body)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(parsed.Stream, false)))
 
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, parsed.Model)

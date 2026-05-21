@@ -185,7 +185,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		return
 	}
 
-	setOpsRequestContext(c, modelName, stream)
+	setOpsRequestModelAndBody(c, modelName, stream, body)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(stream, false)))
 
 	// TK: pre-flight body-size guard (see gateway_handler_tk_body_guard.go).
