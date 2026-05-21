@@ -752,6 +752,20 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 }
 
 func (s *RateLimitService) handleAnthropicUpstreamError(ctx context.Context, account *Account, statusCode int, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
+	// TK: 当 Anthropic apikey 账号启用池模式（上游是另一套 TokenKey / 兼容网关账号池）时，
+	// 跳过 3/3 自动 temp_unschedulable 累积。池前置代理本身就会在内部轮换成员，
+	// 偶发 5xx 是池内调度抖动而不是本账号故障，不应级联拉黑本地账号。
+	// 注意：这显式反转了 PR #248 引入的"pool-mode 仍计数"设计——见 commit c62104ba 与
+	// AnthropicPoolModeSkipsAutoUnsched 测试。其他保护路径（credit balance/KYC/
+	// organization disabled 在 case 400 分支、429 retry-after cooldown、529 overload）
+	// 不在本函数内，自动保留。
+	if account.IsPoolMode() {
+		slog.Info("anthropic_upstream_error_pool_mode_skipped",
+			"account_id", account.ID,
+			"status_code", statusCode,
+			"platform", account.Platform)
+		return false
+	}
 	msg := buildAnthropicUpstreamErrorMessage(statusCode, upstreamMsg, responseBody)
 	if s.anthropicUpstreamErrorCounterCache == nil {
 		slog.Warn("anthropic_upstream_error_counter_missing", "account_id", account.ID, "status_code", statusCode)

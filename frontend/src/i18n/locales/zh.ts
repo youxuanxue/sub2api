@@ -3518,7 +3518,7 @@ export default {
       poolMode: '池模式',
       poolModeHint: '上游为账号池时启用，错误不标记本地账号状态',
       poolModeInfo:
-        '启用后，上游 429/403/401 错误将自动重试而不标记账号限流或错误，适用于上游指向另一套兼容 TokenKey 的网关实例的场景。',
+        '启用后：OpenAI / Gemini / Antigravity 上游的 429 / 403 / 401 错误将自动重试，不标记账号限流或错误；Anthropic 上游的 5xx / 403 错误将跳过 3/3 自动暂禁阈值，本地账号不被级联拉黑。适用于上游指向另一套 TokenKey / 兼容网关账号池的场景。代价：失去 PR #248 引入的"连续 3 次上游失败即暂禁本账号"保护——只有当你确认上游本身就是会自我轮换的池时再启用。',
       poolModeRetryCount: '同账号重试次数',
       poolModeRetryCountHint: '仅在池模式下生效。0 表示不原地重试；默认 {default}，最大 {max}。',
       customErrorCodes: '自定义错误码',

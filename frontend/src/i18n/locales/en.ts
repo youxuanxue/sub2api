@@ -3375,7 +3375,7 @@ export default {
       poolMode: 'Pool Mode',
       poolModeHint: 'Enable when upstream is an account pool; errors won\'t mark local account status',
       poolModeInfo:
-        'When enabled, upstream 429/403/401 errors will auto-retry without marking the account as rate-limited or errored. Suitable when the upstream points to another TokenKey-compatible gateway instance.',
+        'When enabled: OpenAI / Gemini / Antigravity upstream 429 / 403 / 401 errors auto-retry without marking the account as rate-limited or errored; Anthropic upstream 5xx / 403 errors bypass the 3/3 auto temp-unschedulable threshold so the local account is not cascaded into a 10-minute cooldown. Suitable when the upstream points to another TokenKey / compatible gateway pool. Trade-off: gives up the "three consecutive upstream failures auto-cool this account" protection introduced in PR #248 — only enable when you have verified the upstream itself is a self-rotating pool.',
       poolModeRetryCount: 'Same-Account Retries',
       poolModeRetryCountHint:
         'Only applies in pool mode. Use 0 to disable in-place retry. Default {default}, maximum {max}.',

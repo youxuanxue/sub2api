@@ -97,7 +97,16 @@ func TestRateLimitService_HandleUpstreamError_Anthropic403ThresholdTempUnschedul
 	require.Contains(t, state.ErrorMessage, "OAuth token lacks required scopes")
 }
 
-func TestRateLimitService_HandleUpstreamError_AnthropicPoolModeStillCounts(t *testing.T) {
+// Anthropic apikey 池模式（上游是另一套 TokenKey / 兼容网关账号池）的账号必须
+// 跳过 3/3 自动 temp_unschedulable：池前置代理自身会在内部轮换成员，偶发 5xx 是
+// 池内调度抖动而非本账号故障，不应级联拉黑本地账号。
+//
+// 这条断言显式反转了 PR #248 (commit c62104ba) 的原设计 "pool-mode 仍计数"。
+// 反转动因：prod cc-us1-oauth → edge-us1 转发链路下，cc-edges 单成员组被 10 分钟
+// 自动暂禁会导致整个 group 0 可用账号、用户连续 503（2026-05-21 03:22 / 03:36
+// 两次复现）。运维侧通过显式启用 credentials.pool_mode 表达"上游是池而非单点"，
+// 接受失去 3/3 保护作为代价。
+func TestRateLimitService_HandleUpstreamError_AnthropicPoolModeSkipsAutoUnsched(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	counter := &anthropicUpstreamErrorCounterCacheStub{counts: []int64{3}}
 	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
@@ -111,18 +120,20 @@ func TestRateLimitService_HandleUpstreamError_AnthropicPoolModeStillCounts(t *te
 		},
 	}
 
-	shouldDisable := service.HandleUpstreamError(
-		context.Background(),
-		account,
-		http.StatusBadGateway,
-		http.Header{},
-		[]byte(`{"error":{"message":"upstream edge failed"}}`),
-	)
+	for i := 0; i < 5; i++ {
+		shouldDisable := service.HandleUpstreamError(
+			context.Background(),
+			account,
+			http.StatusBadGateway,
+			http.Header{},
+			[]byte(`{"error":{"message":"upstream edge failed"}}`),
+		)
+		require.False(t, shouldDisable, "iteration %d: pool_mode anthropic must not disable on 5xx", i)
+	}
 
-	require.True(t, shouldDisable)
-	require.Equal(t, 0, repo.setErrorCalls)
-	require.Equal(t, 1, repo.tempCalls)
-	require.Equal(t, []int64{402}, counter.incrementIDs)
+	require.Equal(t, 0, repo.setErrorCalls, "must not write account error state")
+	require.Equal(t, 0, repo.tempCalls, "must not write temp_unschedulable")
+	require.Empty(t, counter.incrementIDs, "must not even reach the counter increment")
 }
 
 // Carve-out: Anthropic accounts ignore the custom-error-codes allowlist so a
