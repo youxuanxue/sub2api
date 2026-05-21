@@ -760,7 +760,11 @@ func (s *RateLimitService) handleAnthropicUpstreamError(ctx context.Context, acc
 	// organization disabled 在 case 400 分支、429 retry-after cooldown、529 overload）
 	// 不在本函数内，自动保留。
 	if account.IsPoolMode() {
-		slog.Info("anthropic_upstream_error_pool_mode_skipped",
+		// WARN level (not INFO): reversing PR #248 removes the only mechanical
+		// signal that a stub account is failing. WARN gives ops dashboards /
+		// log-level alert rules a hookable event until a dedicated
+		// pool_mode-failure-rate alert is added in ops_alert_evaluator_service.
+		slog.Warn("anthropic_upstream_error_pool_mode_skipped",
 			"account_id", account.ID,
 			"status_code", statusCode,
 			"platform", account.Platform)

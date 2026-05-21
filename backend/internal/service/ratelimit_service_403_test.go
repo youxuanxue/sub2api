@@ -106,9 +106,12 @@ func TestRateLimitService_HandleUpstreamError_Anthropic403ThresholdTempUnschedul
 // 自动暂禁会导致整个 group 0 可用账号、用户连续 503（2026-05-21 03:22 / 03:36
 // 两次复现）。运维侧通过显式启用 credentials.pool_mode 表达"上游是池而非单点"，
 // 接受失去 3/3 保护作为代价。
-func TestRateLimitService_HandleUpstreamError_AnthropicPoolModeSkipsAutoUnsched(t *testing.T) {
+func TestRateLimitService_HandleUpstreamError_AnthropicPoolModeBypassesUpstreamErrorCounter(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
-	counter := &anthropicUpstreamErrorCounterCacheStub{counts: []int64{3}}
+	// counter has no preset counts: the early-return must short-circuit BEFORE
+	// any IncrementAnthropicUpstreamErrorCount call; counts list is intentionally
+	// empty to make a regression that touches the counter trip on out-of-range.
+	counter := &anthropicUpstreamErrorCounterCacheStub{}
 	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
 	service.SetAnthropicUpstreamErrorCounterCache(counter)
 	account := &Account{

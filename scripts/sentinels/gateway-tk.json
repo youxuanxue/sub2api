@@ -170,7 +170,7 @@
       "path": "backend/internal/service/ratelimit_service_403_test.go",
       "must_contain": [
         "TestRateLimitService_HandleUpstreamError_Anthropic403ThresholdTempUnschedulable",
-        "TestRateLimitService_HandleUpstreamError_AnthropicPoolModeSkipsAutoUnsched",
+        "TestRateLimitService_HandleUpstreamError_AnthropicPoolModeBypassesUpstreamErrorCounter",
         "TestRateLimitService_HandleUpstreamError_AnthropicCustomErrorCodesStillCounts",
         "TestRateLimitService_ClearRateLimit_ResetsAnthropicCounter",
         "TestRateLimitService_RecoverAccountAfterSuccessfulTest_ResetsAnthropicCounter"

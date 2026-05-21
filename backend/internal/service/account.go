@@ -833,8 +833,13 @@ func (a *Account) IsCustomErrorCodesEnabled() bool {
 	return false
 }
 
-// IsPoolMode 检查 API Key 账号是否启用池模式。
-// 池模式下，上游错误不标记本地账号状态，而是在同一账号上重试。
+// IsPoolMode 检查 API Key / Bedrock 账号是否启用池模式。
+// 池模式下，上游错误不标记本地账号状态。按平台分两种具体行为：
+//   - OpenAI / Gemini / Antigravity：401/403/429 在同账号 in-place
+//     retry N 次（见 isPoolModeRetryableStatus 与 GetPoolModeRetryCount）；
+//   - Anthropic：5xx/403 跳过 3/3 自动 temp_unschedulable 阈值，不在
+//     同账号重试，由上层 failover 自然切下一账号。
+// OAuth 账号永远返回 false（IsAPIKeyOrBedrock 前置）。
 func (a *Account) IsPoolMode() bool {
 	if !a.IsAPIKeyOrBedrock() || a.Credentials == nil {
 		return false
