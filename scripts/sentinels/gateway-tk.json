@@ -54,9 +54,13 @@
       "path": "backend/internal/service/ops_alert_evaluator_service.go",
       "must_contain": [
         "maybeSendAlertNotifications",
-        "feishu_sent"
+        "feishu_sent",
+        "\"anthropic_cooldown_tier_escalation_count\"",
+        "SetAnthropicUpstreamErrorCounterCache",
+        "GetAnthropicCooldownTierEscalations",
+        "AnthropicCooldownTierEscalationsKey"
       ],
-      "rationale": "Ops alert evaluator must call the TK companion notification fanout and report Feishu sends in the heartbeat. If an upstream merge restores the old email-only call, P0 Feishu delivery silently stops while alert event creation still works."
+      "rationale": "Ops alert evaluator must call the TK companion notification fanout and report Feishu sends in the heartbeat. If an upstream merge restores the old email-only call, P0 Feishu delivery silently stops while alert event creation still works. The anthropic_cooldown_tier_escalation_count metric case is the PR #337 follow-up that turns persistent ladder escalation into Feishu/email alerts; dropping the case (or the cache injection seam / shared canonical key) silently disables the alert while the writer side keeps incrementing the counter."
     },
     {
       "path": "backend/internal/service/ops_alert_notifications_tk_feishu.go",
@@ -119,13 +123,24 @@
         "isAnthropicExtraUsage429",
         "s.apply429FallbackRateLimit(ctx, account, \"no_reset_time\")",
         "TkRecordOpenAI429BurstFallthrough(normalized)",
-        "anthropicUpstreamErrorThreshold",
-        "anthropicUpstreamErrorWindowMinutes",
+        "anthropicUpstreamErrorThresholdDefault",
+        "anthropicUpstreamErrorWindowMinutesDefault",
+        "getAnthropicErrorThreshold",
+        "getAnthropicErrorWindowMinutes",
         "anthropicCooldownTierLadder",
         "anthropicCooldownTierTTLMinutes",
+        "anthropicCooldownTierEscalationsWindowMinutes",
+        "tlsFingerprintFailureKeywords",
+        "tlsFingerprintFailureCooldown",
         "handleAnthropicUpstreamError",
+        "handleAnthropicUpstreamErrorWithOptions",
         "IncrementAnthropicUpstreamErrorCount",
         "IncrementAnthropicCooldownTier",
+        "IncrementAnthropicCooldownTierEscalations",
+        "anthropic_cooldown_tier_escalation",
+        "anthropic_upstream_error_cooldown_write_skipped",
+        "anthropic_tls_fingerprint_failure_suspected",
+        "403_escalated_to_error",
         "SetTempUnschedulable(ctx, account.ID, until, reason)",
         "ResetAnthropicUpstreamErrorCounter",
         "ResetAnthropicCooldownTier",
@@ -142,22 +157,28 @@
         "IncrementAnthropicUpstreamErrorCount",
         "ResetAnthropicUpstreamErrorCount",
         "IncrementAnthropicCooldownTier",
-        "ResetAnthropicCooldownTier"
+        "ResetAnthropicCooldownTier",
+        "IncrementAnthropicCooldownTierEscalations",
+        "GetAnthropicCooldownTierEscalations",
+        "AnthropicCooldownTierEscalationsKey"
       ],
-      "rationale": "Interface seam for both (a) Anthropic upstream-error short-window counting and (b) cooldown-tier escalation (30s → 2min → 10min). If an upstream merge drops the tier methods, handleAnthropicUpstreamError silently collapses back to a fixed cooldown — losing the persistent-failure escalation that replaces PR #333's removed pool_mode immunity."
+      "rationale": "Interface seam for (a) per-account Anthropic upstream-error short-window counting, (b) per-account cooldown-tier escalation (30s → 2min → 10min), and (c) global tier>=1 escalation aggregation for ops alerts. If an upstream merge drops the tier methods, handleAnthropicUpstreamError silently collapses back to a fixed cooldown — losing the persistent-failure escalation that replaces PR #333's removed pool_mode immunity. The global escalation pair (Increment/Get) + exported key constant `AnthropicCooldownTierEscalationsKey` are the contract ops_alert_evaluator's `anthropic_cooldown_tier_escalation_count` metric reads from; dropping any one silently disables the alert."
     },
     {
       "path": "backend/internal/repository/anthropic_upstream_error_counter_cache.go",
       "must_contain": [
         "anthropic_upstream_error_count:account:",
         "anthropic_cooldown_tier:account:",
+        "service.AnthropicCooldownTierEscalationsKey",
         "NewAnthropicUpstreamErrorCounterCache",
         "IncrementAnthropicUpstreamErrorCount",
         "ResetAnthropicUpstreamErrorCount",
         "IncrementAnthropicCooldownTier",
-        "ResetAnthropicCooldownTier"
+        "ResetAnthropicCooldownTier",
+        "IncrementAnthropicCooldownTierEscalations",
+        "GetAnthropicCooldownTierEscalations"
       ],
-      "rationale": "Redis-backed atomic counters for both the Anthropic upstream-error short window AND the cooldown-tier escalation window. Both prefixes (`anthropic_upstream_error_count:account:` and `anthropic_cooldown_tier:account:`) must remain stable so all app replicas share the same threshold + tier state."
+      "rationale": "Redis-backed atomic counters for (1) the per-account Anthropic upstream-error short window, (2) the per-account cooldown-tier escalation window, and (3) the global tier>=1 escalation aggregator that drives ops_alert_evaluator's anthropic_cooldown_tier_escalation_count metric. All three prefixes/keys (`anthropic_upstream_error_count:account:`, `anthropic_cooldown_tier:account:`, `AnthropicCooldownTierEscalationsKey` — the latter exported from the service package so the evaluator's Redis fallback and the repository writer share a single literal) must remain stable so all app replicas share the same threshold + tier + escalation state."
     },
     {
       "path": "backend/internal/service/wire.go",

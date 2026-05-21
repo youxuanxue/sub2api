@@ -21,6 +21,20 @@ type rateLimitAccountRepoStub struct {
 	lastCredentials        map[string]any
 	lastErrorMsg           string
 	lastTempReason         string
+
+	// PR #338 (P3): track exact-reset-time writes so tests can assert
+	// handle429 / handle529 ran the upstream-precise path before the
+	// ladder write got suppressed via skipCooldownWrite.
+	setRateLimitedCalls    int
+	setOverloadedCalls     int
+	lastRateLimitedResetAt time.Time
+	lastOverloadedUntil    time.Time
+
+	// PR #338 (P4): seed account state for the 403 second-hit escalation
+	// path. When set, GetByID returns an account whose
+	// TempUnschedulableReason holds the prior 403 TempUnschedState so
+	// wasTempUnschedByStatusCode(reason, 403) returns true.
+	tempReasonOnGet string
 }
 
 func (r *rateLimitAccountRepoStub) SetError(ctx context.Context, id int64, errorMsg string) error {
@@ -39,6 +53,25 @@ func (r *rateLimitAccountRepoStub) UpdateCredentials(ctx context.Context, id int
 	r.updateCredentialsCalls++
 	r.lastCredentials = cloneCredentials(credentials)
 	return nil
+}
+
+func (r *rateLimitAccountRepoStub) SetRateLimited(ctx context.Context, id int64, resetAt time.Time) error {
+	r.setRateLimitedCalls++
+	r.lastRateLimitedResetAt = resetAt
+	return nil
+}
+
+func (r *rateLimitAccountRepoStub) SetOverloaded(ctx context.Context, id int64, until time.Time) error {
+	r.setOverloadedCalls++
+	r.lastOverloadedUntil = until
+	return nil
+}
+
+func (r *rateLimitAccountRepoStub) GetByID(ctx context.Context, id int64) (*Account, error) {
+	if r.tempReasonOnGet == "" {
+		return nil, nil
+	}
+	return &Account{ID: id, TempUnschedulableReason: r.tempReasonOnGet}, nil
 }
 
 type tokenCacheInvalidatorRecorder struct {
@@ -84,6 +117,13 @@ type anthropicUpstreamErrorCounterCacheStub struct {
 	tierIncrementIDs []int64
 	tierTTLMinutes   []int
 	tierResetCalls   []int64
+
+	// Global "tier >= 1" escalation counter (PR #338 follow-up to PR #337).
+	// Increments are recorded so tests can assert that tier escalations
+	// emit the ops_alert_evaluator metric signal. Get returns the running
+	// total of the escalations slice length so reads stay consistent with
+	// writes without a real Redis backend.
+	escalationTTLMinutes []int
 }
 
 func (s *anthropicUpstreamErrorCounterCacheStub) IncrementAnthropicUpstreamErrorCount(_ context.Context, accountID int64, windowMinutes int) (int64, error) {
@@ -119,6 +159,15 @@ func (s *anthropicUpstreamErrorCounterCacheStub) IncrementAnthropicCooldownTier(
 func (s *anthropicUpstreamErrorCounterCacheStub) ResetAnthropicCooldownTier(_ context.Context, accountID int64) error {
 	s.tierResetCalls = append(s.tierResetCalls, accountID)
 	return nil
+}
+
+func (s *anthropicUpstreamErrorCounterCacheStub) IncrementAnthropicCooldownTierEscalations(_ context.Context, ttlMinutes int) (int64, error) {
+	s.escalationTTLMinutes = append(s.escalationTTLMinutes, ttlMinutes)
+	return int64(len(s.escalationTTLMinutes)), nil
+}
+
+func (s *anthropicUpstreamErrorCounterCacheStub) GetAnthropicCooldownTierEscalations(_ context.Context) (int64, error) {
+	return int64(len(s.escalationTTLMinutes)), nil
 }
 
 func (r *tokenCacheInvalidatorRecorder) InvalidateToken(ctx context.Context, account *Account) error {

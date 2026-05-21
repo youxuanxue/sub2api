@@ -6,6 +6,9 @@
     "rate_multiplier_fixed": 1.0,
     "usage_model": "Claude Code human-paced work: usage budget and session length are constrained separately; lower tiers are scheduled first but reach their local limits earlier.",
     "tier_order": ["l1", "l2", "l3", "l4", "l5"],
+    "escalation_model": "code-owned",
+    "cooldown_ladder_seconds": [30, 120, 600],
+    "cooldown_tier_ttl_minutes": 30,
     "rounding": {
       "integer_fields": "explicit",
       "float_fields": "explicit"
@@ -25,40 +28,13 @@
       "temp_unschedulable_enabled": true,
       "temp_unschedulable_rules": [
         {
-          "error_code": 429,
-          "keywords": [
-            "rate limit",
-            "too many requests"
-          ],
-          "duration_minutes": 30,
-          "description": "触发限流 - 暂停 30 分钟"
-        },
-        {
-          "error_code": 529,
-          "keywords": [
-            "overloaded",
-            "capacity"
-          ],
-          "duration_minutes": 15,
-          "description": "上游过载 - 暂停 15 分钟"
-        },
-        {
-          "error_code": 401,
-          "keywords": [
-            "invalid_token",
-            "expired"
-          ],
-          "duration_minutes": 30,
-          "description": "凭据异常 - 暂停 30 分钟"
-        },
-        {
           "error_code": 403,
           "keywords": [
             "account_disabled_auth_error",
             "organization disabled"
           ],
           "duration_minutes": 360,
-          "description": "账号或组织禁用 - 暂停 6 小时"
+          "description": "账号或组织禁用 - 暂停 6 小时（二次命中由 handle403 升级为 SetError）"
         }
       ]
     },
