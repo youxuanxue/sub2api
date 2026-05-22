@@ -4,7 +4,8 @@ description: >-
   TokenKey Anthropic OAuth tier baseline 写入流水线（snapshot → check → plan → apply → verify）。
   覆盖单一写入面：edge anthropic OAuth account 的 tier baseline（concurrency / base_rpm
   / sticky_buffer / max_sessions 等 account 字段）。单一脚本
-  ops/anthropic/manage-anthropic-config.py 编排，1 个 SQL 模板固化写入。
+  ops/anthropic/manage-anthropic-config.py 编排；tier baseline 值只存在于
+  baseline JSON 一处，apply SQL 由 orchestrator 运行时从 JSON 派生（无静态 SQL 模板）。
   group.rpm_limit 不由本流水线写——由 admin UI 直接独立设置。
 ---
 
