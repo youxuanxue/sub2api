@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -38,18 +37,6 @@ func TestOpenAISSEDataPayloadIsEmpty(t *testing.T) {
 			require.Equal(t, tc.want, got)
 		})
 	}
-}
-
-// fullReadCloser returns the supplied body on a single Read and then EOF.
-type fullReadCloser struct {
-	r *bytes.Reader
-}
-
-func (f *fullReadCloser) Read(p []byte) (int, error) { return f.r.Read(p) }
-func (f *fullReadCloser) Close() error               { return nil }
-
-func newFullReadCloser(body string) io.ReadCloser {
-	return &fullReadCloser{r: bytes.NewReader([]byte(body))}
 }
 
 // streamHasEmptyDataLine reports whether any non-comment line in the captured
@@ -116,7 +103,7 @@ func TestOpenAIStreamingDropsEmptySSEDataFrames(t *testing.T) {
 	// events interleaved with bare empty data frames (`data:\n\n` and
 	// `data: \n\n` are both reported in the wild) plus a final terminal
 	// event.
-	body := newFullReadCloser(strings.Join([]string{
+	body := io.NopCloser(strings.NewReader(strings.Join([]string{
 		`data: {"type":"response.created","response":{"id":"resp_1"}}`,
 		``,
 		`data:`,
@@ -131,7 +118,7 @@ func TestOpenAIStreamingDropsEmptySSEDataFrames(t *testing.T) {
 		``,
 		`data: {"type":"response.completed","response":{"id":"resp_1","usage":{"input_tokens":3,"output_tokens":5}}}`,
 		``,
-	}, "\n"))
+	}, "\n")))
 
 	resp := &http.Response{
 		StatusCode: http.StatusOK,
@@ -185,7 +172,7 @@ func TestOpenAIChatCompletionsRawDropsEmptySSEDataFrames(t *testing.T) {
 	// Chat Completions SSE shape: each chunk is a Chat Completions delta
 	// with at least one choices[*].delta.content token so the silent
 	// refusal detector releases the client output buffer.
-	body := newFullReadCloser(strings.Join([]string{
+	body := io.NopCloser(strings.NewReader(strings.Join([]string{
 		`data: {"id":"c1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":"hi"}}]}`,
 		``,
 		`data:`,
@@ -198,7 +185,7 @@ func TestOpenAIChatCompletionsRawDropsEmptySSEDataFrames(t *testing.T) {
 		``,
 		`data: [DONE]`,
 		``,
-	}, "\n"))
+	}, "\n")))
 
 	resp := &http.Response{
 		StatusCode: http.StatusOK,
@@ -239,7 +226,7 @@ func TestOpenAIPassthroughDropsEmptySSEDataFrames(t *testing.T) {
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
 
-	body := newFullReadCloser(strings.Join([]string{
+	body := io.NopCloser(strings.NewReader(strings.Join([]string{
 		`data: {"type":"response.created","response":{"id":"resp_1"}}`,
 		``,
 		`data:`,
@@ -252,7 +239,7 @@ func TestOpenAIPassthroughDropsEmptySSEDataFrames(t *testing.T) {
 		``,
 		`data: [DONE]`,
 		``,
-	}, "\n"))
+	}, "\n")))
 
 	resp := &http.Response{
 		StatusCode: http.StatusOK,
