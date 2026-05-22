@@ -355,6 +355,33 @@ def diff_absent(section: str, absent_keys: list[str], actual: dict[str, Any] | N
     return diffs
 
 
+def effective_baseline_for_tier(baseline: dict[str, Any], tier_key: str) -> dict[str, Any]:
+    """Merge shared_baseline with one tier's overrides into the effective baseline.
+
+    Single source of truth for the per-tier account/credentials/extra/tls values:
+    the JSON baseline file. Both the live-vs-baseline guard (resolve_effective_baseline)
+    and the apply-SQL generator (generate_sql, reused by the orchestrator) consume this,
+    so there is exactly one place that knows the numbers.
+    """
+    tiers = baseline.get("tiers") or {}
+    tier_cfg = tiers.get(tier_key)
+    if not isinstance(tier_cfg, dict):
+        fail(
+            f"unsupported stability_tier={tier_key}; "
+            f"known tiers: {', '.join(sorted(tiers))}"
+        )
+    shared = baseline.get("shared_baseline") or {}
+    tier_base = tier_cfg.get("baseline") or {}
+    effective = {
+        "account": {**(shared.get("account") or {}), **(tier_base.get("account") or {})},
+        "credentials": {**(shared.get("credentials") or {}), **(tier_base.get("credentials") or {})},
+        "extra": {**(shared.get("extra") or {}), **(tier_base.get("extra") or {})},
+        "extra_absent": list(shared.get("extra_absent") or []),
+        "tls_profile": {**(shared.get("tls_profile") or {}), **(tier_base.get("tls_profile") or {})},
+    }
+    return {"baseline": effective, "selected_tier": tier_key}
+
+
 def resolve_effective_baseline(
     baseline: dict[str, Any],
     live: dict[str, Any],
@@ -377,27 +404,19 @@ def resolve_effective_baseline(
             f"expected one of {'/'.join(sorted(tiers))}"
         )
 
-    tier_cfg = tiers.get(tier_key)
-    if not isinstance(tier_cfg, dict):
+    if tier_key not in tiers:
         fail(
             f"account {account_name} on edge {edge_id} has unsupported stability_tier={tier_key}; "
             f"known tiers: {', '.join(sorted(tiers))}"
         )
 
-    shared = baseline.get("shared_baseline") or {}
-    tier_base = tier_cfg.get("baseline") or {}
-    effective = {
-        "account": {**(shared.get("account") or {}), **(tier_base.get("account") or {})},
-        "credentials": {**(shared.get("credentials") or {}), **(tier_base.get("credentials") or {})},
-        "extra": {**(shared.get("extra") or {}), **(tier_base.get("extra") or {})},
-        "extra_absent": list(shared.get("extra_absent") or []),
-        "tls_profile": {**(shared.get("tls_profile") or {}), **(tier_base.get("tls_profile") or {})},
-    }
-    return {
-        "baseline": effective,
-        "selected_tier": tier_key,
-        "tier_source": "account.extra.stability_tier" if (live.get("account") or {}).get("stability_tier") else "default_tier",
-    }
+    resolved = effective_baseline_for_tier(baseline, tier_key)
+    resolved["tier_source"] = (
+        "account.extra.stability_tier"
+        if (live.get("account") or {}).get("stability_tier")
+        else "default_tier"
+    )
+    return resolved
 
 
 def compare_live_to_baseline(live: dict[str, Any], baseline: dict[str, Any]) -> list[dict[str, Any]]:

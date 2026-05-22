@@ -114,5 +114,36 @@ class PlanEdgeAccountTierTest(unittest.TestCase):
         self.assertEqual(len(plan["actions"]), 1)
 
 
+class SingleSourceRenderTest(unittest.TestCase):
+    """Tier baseline values live only in the JSON file; the apply SQL is rendered
+    from it at runtime. These tests lock that wiring so the retired dual-source
+    SQL template (with its own hand-aligned VALUES table) cannot creep back."""
+
+    def test_render_embeds_json_values(self) -> None:
+        # Derive expected numbers from the JSON (single source) so this stays
+        # green if tiers are retuned — it asserts the values flow into the SQL,
+        # not specific magic numbers.
+        baseline_json = mgr.load_json_file(mgr.TIER_BASELINES, "tier baselines")
+        eff = mgr._GUARD.effective_baseline_for_tier(baseline_json, "l5")["baseline"]
+        sql = mgr.render_edge_account_tier_sql("acct-x", "l5", "us1")
+        extra = eff["extra"]
+        for key in (
+            "base_rpm", "rpm_sticky_buffer", "max_sessions", "window_cost_limit",
+            "session_idle_timeout_minutes", "window_cost_sticky_reserve",
+        ):
+            self.assertIn(f"'{key}', '{extra[key]}'::jsonb", sql)
+        self.assertIn(f"concurrency = {eff['account']['concurrency']}", sql)
+        self.assertIn(f"priority = {eff['account']['priority']}", sql)
+        self.assertIn("'stability_tier', '\"l5\"'::jsonb", sql)
+
+    def test_retired_sql_template_absent(self) -> None:
+        legacy = mgr.REPO_ROOT / "deploy/aws/stage0/anthropic-oauth-stability-tiered-apply-template.sql"
+        self.assertFalse(
+            legacy.exists(),
+            "retired dual-source SQL apply template reappeared; tier values must "
+            "live only in anthropic-oauth-stability-baselines-tiered.json",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

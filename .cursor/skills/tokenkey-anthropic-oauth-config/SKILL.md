@@ -112,8 +112,8 @@ operate 流程：
 **Guards**（只读检查）：
 - `ops/anthropic/check-edge-oauth-stability.py --edge-id E --account-name A [--json] [--emit-sql FILE]` — edge OAuth tier baseline drift
 
-**Apply 模板**（自包含、有 DO-block 校验；orchestrator 内部自动渲染；手动写需自起 `\set ...` 然后 base64 通过 SSM 注入）：
-- `deploy/aws/stage0/anthropic-oauth-stability-tiered-apply-template.sql` — edge OAuth tier
+**Apply SQL（JSON 派生，无静态模板）**：tier baseline 值只存在于 baseline JSON 一处；apply SQL 由 orchestrator 运行时从 JSON 渲染——内部复用 guard 的 `effective_baseline_for_tier`（合并 `shared_baseline` + tier 覆盖）+ `generate_sql`。手动 / 紧急生成同一份 SQL：
+- `python3 ops/anthropic/check-edge-oauth-stability.py --edge-id E --account-name A --emit-sql out.sql`（按账号 live tier 渲染；改 tier 时先在 baseline JSON 调整对应 tier 值再渲染），再 base64 通过 SSM 注入。
 
 **底线**：手动绕开 orchestrator 时 op 必须自己做 apply 后复核——同样不允许跳过 § 1 "先查后说"协议。
 
@@ -132,8 +132,7 @@ operate 流程：
 
 - `ops/anthropic/manage-anthropic-config.py`（5 阶段 orchestrator，本 skill 唯一推荐入口）
 - `ops/anthropic/check-edge-oauth-stability.py`
-- `deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json`
-- `deploy/aws/stage0/anthropic-oauth-stability-tiered-apply-template.sql`
+- `deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json`（tier baseline 唯一真值源；apply SQL 运行时从它派生，无静态 SQL 模板）
 - `backend/internal/handler/admin/account_handler.go`
 - `backend/internal/service/admin_service.go`
 - `backend/internal/repository/account_repo.go`
