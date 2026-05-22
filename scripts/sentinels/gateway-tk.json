@@ -862,9 +862,26 @@
         "GetClaudeStatusSnapshot",
         "claudeAPIComponentID",
         "claudeStatusAPIURL",
+        "claudeStatusPageURL",
+        "claudeStatusMaxStaleness",
         "claude_api_incident_detected"
       ],
-      "rationale": "TK companion that polls status.claude.com/api/v2/components.json every 30s and exposes IsClaudeAPIIncident() for the incident-aware cooldown guard in ratelimit_service.go. If this file is silently dropped by an upstream merge (unlikely since it is a *_tk_*.go companion, but the hotspot-pattern gate covers it), account cooldown writes resume during upstream incidents and health scores are incorrectly penalised. claudeAPIComponentID must remain 'k8w3r06qmzrp' (the Claude API component ID on status.claude.com); if Anthropic changes their status-page IDs, this sentinel will fail and force a deliberate update."
+      "rationale": "TK companion that polls status.claude.com/api/v2/components.json every 30s and exposes IsClaudeAPIIncident() for the incident-aware cooldown guard in ratelimit_service.go. If this file is silently dropped by an upstream merge (unlikely since it is a *_tk_*.go companion, but the hotspot-pattern gate covers it), account cooldown writes resume during upstream incidents and health scores are incorrectly penalised. claudeAPIComponentID must remain 'k8w3r06qmzrp' (the Claude API component ID on status.claude.com); if Anthropic changes their status-page IDs, this sentinel will fail and force a deliberate update. claudeStatusMaxStaleness anchors the fail-safe that treats a too-old incident reading as resolved (so a status-page outage cannot suppress cooldowns forever). claudeStatusPageURL is the human-facing link surfaced to clients by TkEnrichClaudeIncidentMessage."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_upstream_error_msg.go",
+      "must_contain": [
+        "func TkEnrichForbiddenMessage(",
+        "func TkEnrichClaudeIncidentMessage("
+      ],
+      "rationale": "Service-layer client-message enrichers. TkEnrichForbiddenMessage keeps body-size context on upstream 403s. TkEnrichClaudeIncidentMessage rewrites the failover-exhausted client message during a Claude API incident so the caller is pointed at status.claude.com (the real upstream) instead of the generic 'all accounts exhausted' wording that wrongly implicates the TokenKey pool / the user's key. Dropping the incident enricher silently regresses the incident UX back to a misleading message."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler.go",
+      "must_contain": [
+        "service.TkEnrichClaudeIncidentMessage(errMsg, failoverErr.StatusCode)"
+      ],
+      "rationale": "Locks the incident-aware client-message hook in handleAnthropicFailoverExhausted — the native /v1/messages (Claude Code / claude-cli) exhausted path. Without this call a Claude API incident surfaces to the caller as a generic upstream error with no pointer to status.claude.com; an upstream merge that rewrites the exhausted handler would silently drop the redirect."
     }
   ]
 }

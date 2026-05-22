@@ -913,6 +913,14 @@ func (s *RateLimitService) handleAnthropicUpstreamError(ctx context.Context, acc
 	// Anthropic's fault, not the account's. Skip writing temp_unschedulable_until so
 	// account health scores are not penalised during upstream incidents.
 	// Counters still advance for observability (handled inside WithOptions).
+	//
+	// Scope note: this only protects account *health* (the account stays in the
+	// pool and is immediately usable the moment Anthropic recovers — no cooldown
+	// tail). It does NOT rescue the in-flight request: shouldDisable=true still
+	// fails this request over, and once the failover loop exhausts the pool the
+	// caller receives Anthropic's real upstream error. handleAnthropicFailoverExhausted
+	// then enriches that client message via TkEnrichClaudeIncidentMessage so the
+	// user is pointed at status.claude.com instead of blaming the TokenKey pool.
 	skipCooldown := IsClaudeAPIIncident()
 	if skipCooldown {
 		snap := GetClaudeStatusSnapshot()

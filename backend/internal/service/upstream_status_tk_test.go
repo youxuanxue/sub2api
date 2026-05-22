@@ -183,6 +183,43 @@ func TestFetchClaudeAPIStatus(t *testing.T) {
 	}
 }
 
+// The client-facing failover-exhausted message must be rewritten to point at
+// the upstream status page during an incident, and left untouched otherwise.
+func TestTkEnrichClaudeIncidentMessage(t *testing.T) {
+	const def = "All available accounts exhausted"
+
+	t.Run("incident rewrites message with status + link", func(t *testing.T) {
+		setClaudeStatusForTest(t, ClaudeStatusSnapshot{
+			IsIncident: true,
+			Status:     "partial_outage",
+			FetchedAt:  time.Now(),
+		})
+		got := TkEnrichClaudeIncidentMessage(def, http.StatusInternalServerError)
+		require.NotEqual(t, def, got)
+		require.Contains(t, got, "partial_outage")
+		require.Contains(t, got, "500")
+		require.Contains(t, got, claudeStatusPageURL)
+	})
+
+	t.Run("operational leaves message unchanged", func(t *testing.T) {
+		setClaudeStatusForTest(t, ClaudeStatusSnapshot{
+			IsIncident: false,
+			Status:     "operational",
+			FetchedAt:  time.Now(),
+		})
+		require.Equal(t, def, TkEnrichClaudeIncidentMessage(def, http.StatusInternalServerError))
+	})
+
+	t.Run("stale incident is treated as resolved (unchanged)", func(t *testing.T) {
+		setClaudeStatusForTest(t, ClaudeStatusSnapshot{
+			IsIncident: true,
+			Status:     "partial_outage",
+			FetchedAt:  time.Now().Add(-claudeStatusMaxStaleness - time.Minute),
+		})
+		require.Equal(t, def, TkEnrichClaudeIncidentMessage(def, http.StatusInternalServerError))
+	})
+}
+
 func TestFetchClaudeAPIStatus_BadJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`not json`))

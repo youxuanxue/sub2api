@@ -12,7 +12,8 @@ import (
 
 const (
 	claudeStatusAPIURL       = "https://status.claude.com/api/v2/components.json"
-	claudeAPIComponentID     = "k8w3r06qmzrp" // "Claude API (api.anthropic.com)"
+	claudeStatusPageURL      = "https://status.claude.com" // human-facing page surfaced to clients during an incident
+	claudeAPIComponentID     = "k8w3r06qmzrp"              // "Claude API (api.anthropic.com)"
 	claudeStatusPollInterval = 30 * time.Second
 	claudeStatusFetchTimeout = 5 * time.Second
 	// claudeStatusMaxStaleness bounds how long a single incident reading may
