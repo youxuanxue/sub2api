@@ -462,19 +462,44 @@ def _find_edge_account(edge: dict, account_name: str) -> dict:
     return {}  # unreachable
 
 
-# Fields the apply template actually rewrites and verify re-reads. Equality on
-# all four means re-applying the same tier would be a no-op for the snapshot/
-# verify surface (credentials-side fields like temp_unschedulable_rules are not
-# tracked here — that is what --force-template-rewrite exists for).
-_TIER_MATCH_FIELDS = ("base_rpm", "rpm_sticky_buffer", "concurrency", "max_sessions")
+# Tier-baseline value fields that the apply SQL writes AND that this pipeline
+# owns end-to-end. The skip-as-noop gate (_tier_fields_match) and Stage-5 verify
+# must both cover this WHOLE set — otherwise a bump touching only one of them
+# (e.g. window_cost_limit-only) is silently skipped by plan-tier-bump and then
+# falsely verified clean, defeating the "no account left at the old value"
+# guarantee. snapshot already carries all of these.
+#
+# `priority` is deliberately EXCLUDED: it is owned by the separate
+# rebalance-anthropic-priority pipeline. Pulling it in here would make
+# plan-tier-bump fight the rebalancer (spurious actions on every rebalanced
+# account) and make verify flag false drift whenever priority was rebalanced.
+# (apply still writes the baseline priority — an existing cross-pipeline
+# interaction, out of scope here.) rate_multiplier is fixed at 1.0 by policy and
+# is likewise not a field anyone bumps, so it is left out to avoid float-equality
+# fragility. credentials-side fields (e.g. temp_unschedulable_rules) are not
+# tracked by snapshot/verify either — that is what --force-template-rewrite covers.
+_TIER_BASELINE_FIELDS = (
+    "base_rpm", "rpm_sticky_buffer", "concurrency", "max_sessions",
+    "window_cost_limit", "session_idle_timeout_minutes", "window_cost_sticky_reserve",
+)
 _ACCOUNT_BEFORE_FIELDS = (
     "id", "name", "concurrency", "stability_tier", "base_rpm",
-    "rpm_sticky_buffer", "max_sessions", "window_cost_limit", "status",
+    "rpm_sticky_buffer", "max_sessions", "session_idle_timeout_minutes",
+    "window_cost_limit", "window_cost_sticky_reserve", "status",
 )
 
 
 def _tier_fields_match(account: dict, baseline: dict) -> bool:
-    return all(account.get(k) == baseline.get(k) for k in _TIER_MATCH_FIELDS)
+    return all(account.get(k) == baseline.get(k) for k in _TIER_BASELINE_FIELDS)
+
+
+def _tier_expected_after(baseline: dict, tier_key: str) -> dict:
+    """The post-apply field values Stage-5 verify compares against live. Carries
+    stability_tier + every field this pipeline owns (_TIER_BASELINE_FIELDS), so
+    verify can confirm each one actually landed."""
+    exp = {"stability_tier": tier_key}
+    exp.update({k: baseline.get(k) for k in _TIER_BASELINE_FIELDS})
+    return exp
 
 
 def _build_tier_action(edge_id: str, account_name: str, baseline: dict,
@@ -488,13 +513,7 @@ def _build_tier_action(edge_id: str, account_name: str, baseline: dict,
         "target": {"env": "edge", "edge_id": edge_id, "account_name": account_name},
         "sql_source": "rendered-from-anthropic-oauth-stability-baselines-tiered.json",
         "variables": {"account_name": account_name, "stability_tier": tier_key},
-        "expected_after": {
-            "stability_tier": tier_key,
-            "base_rpm": baseline.get("base_rpm"),
-            "rpm_sticky_buffer": baseline.get("rpm_sticky_buffer"),
-            "concurrency": baseline.get("concurrency"),
-            "max_sessions": baseline.get("max_sessions"),
-        },
+        "expected_after": _tier_expected_after(baseline, tier_key),
     }
 
 
@@ -790,9 +809,13 @@ def cmd_verify(args: argparse.Namespace) -> int:
         if live is None:
             diffs.append("target not found in live snapshot")
         else:
-            for k in ("stability_tier", "base_rpm", "rpm_sticky_buffer", "concurrency", "max_sessions"):
-                if k in exp and live.get(k) != exp[k]:
-                    diffs.append(f"{k}: live={live.get(k)} expected={exp[k]}")
+            # Compare every field the plan declared in expected_after (it carries
+            # exactly the fields this pipeline owns — see _TIER_BASELINE_FIELDS),
+            # so verify stays faithful to what apply wrote without a second
+            # hand-maintained field list that could drift narrower.
+            for k, want in exp.items():
+                if live.get(k) != want:
+                    diffs.append(f"{k}: live={live.get(k)} expected={want}")
         if diffs:
             drift.append({
                 "step": action["step"],

@@ -29,16 +29,14 @@ class PlanEdgeAccountTierTest(unittest.TestCase):
     ACCOUNT = "acct-under-test"
 
     def setUp(self) -> None:
-        # Build a snapshot account whose four match-fields equal the live l5
-        # baseline, so the orchestrator's fields_match check is True. Reading
-        # the values from the real baselines file (single source of truth)
-        # keeps the test green if the baseline numbers are retuned later — it
-        # asserts behavior (noop vs action), not specific magic numbers.
+        # Build a snapshot account whose pipeline-owned fields all equal the live
+        # baseline, so the orchestrator's fields_match check is True. Reading the
+        # values from the real baselines file (single source of truth) keeps the
+        # test green if the baseline numbers are retuned later — it asserts
+        # behavior (noop vs action), not specific magic numbers. The field set is
+        # _TIER_BASELINE_FIELDS (R-001: wider than the original 4).
         baseline = mgr._load_tier_baselines()[self.TIER]
-        self.match_fields = {
-            k: baseline[k]
-            for k in ("base_rpm", "rpm_sticky_buffer", "concurrency", "max_sessions")
-        }
+        self.match_fields = {k: baseline[k] for k in mgr._TIER_BASELINE_FIELDS}
         self._tmp = tempfile.TemporaryDirectory()
         self.tmp = pathlib.Path(self._tmp.name)
 
@@ -122,10 +120,7 @@ class PlanTierBumpTest(unittest.TestCase):
 
     def setUp(self) -> None:
         baseline = mgr._load_tier_baselines()[self.TIER]
-        self.match_fields = {
-            k: baseline[k]
-            for k in ("base_rpm", "rpm_sticky_buffer", "concurrency", "max_sessions")
-        }
+        self.match_fields = {k: baseline[k] for k in mgr._TIER_BASELINE_FIELDS}
         self._tmp = tempfile.TemporaryDirectory()
         self.tmp = pathlib.Path(self._tmp.name)
 
@@ -192,6 +187,20 @@ class PlanTierBumpTest(unittest.TestCase):
         plan = self._run(snap, force=True)
         self.assertEqual(len(plan["actions"]), 1)
         self.assertFalse(plan["noop"])
+
+    def test_window_cost_only_change_is_not_skipped(self) -> None:
+        # R-001 regression: an account matching the 4 capacity fields but with a
+        # stale window_cost_limit must NOT be skipped, and expected_after must
+        # carry window_cost_limit so verify can confirm it landed.
+        stale_cost = self.match_fields["window_cost_limit"] - 1
+        snap = self._write_snapshot({
+            "us1": {"deployable": True, "instance_id": "i-1", "region": "us-west-2",
+                    "oauth_accounts": [self._acct("a1", overrides={"window_cost_limit": stale_cost})]},
+        })
+        plan = self._run(snap)
+        self.assertEqual(len(plan["actions"]), 1, "window_cost_limit-only drift must emit an action")
+        self.assertFalse(plan["noop"])
+        self.assertIn("window_cost_limit", plan["actions"][0]["expected_after"])
 
 
 class SingleSourceRenderTest(unittest.TestCase):
