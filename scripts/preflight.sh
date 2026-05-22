@@ -725,22 +725,21 @@ else
     echo "  ok: anthropic tier baseline JSON and SQL VALUES are in sync"
 fi
 
-# Anthropic config orchestrator (ops/anthropic/manage-anthropic-config.py):
-# plan-edge-account-tier owns the fields_match noop short-circuit and the
-# --force-template-rewrite escape hatch. snapshot/verify do NOT read
-# credentials.temp_unschedulable_rules, so re-tuning the noop logic or
-# renaming the intent field has no other automated guard. Pin the branch
-# behavior with the stdlib-unittest suite (no AWS / pytest dependency).
+# Ops/Anthropic orchestrator coverage (stdlib only; no AWS / pytest).
+# Runs one `unittest discover -s ops/anthropic`; pin set includes:
+#   · manage-anthropic-config.py plan-edge-account-tier (fields_match noop,
+#     --force-template-rewrite hatch; snapshot/verify don’t exercise those)
+#   · rebalance-anthropic-priority.py plan/scoring exits + SQL name guard
 echo ""
-echo "=== sub2api: anthropic config orchestrator plan unittest ==="
+echo "=== sub2api: ops/anthropic orchestrators unittest ==="
 if ! command -v python3 >/dev/null 2>&1; then
-    echo "  FAIL: python3 not on PATH (required by ops/anthropic plan unittest)"
+    echo "  FAIL: python3 not on PATH (required by ops/anthropic unittest suite)"
     errors=$((errors + 1))
 elif ! python3 -m unittest discover -s ops/anthropic -p 'test_*.py' -t ops/anthropic >/dev/null 2>&1; then
-    echo "  FAIL: ops/anthropic plan unittest failed (re-run: python3 -m unittest discover -s ops/anthropic -p 'test_*.py' -t ops/anthropic)"
+    echo "  FAIL: ops/anthropic unittest failed (re-run: python3 -m unittest discover -s ops/anthropic -p 'test_*.py' -t ops/anthropic -v)"
     errors=$((errors + 1))
 else
-    echo "  ok: anthropic config orchestrator plan branch behavior pinned"
+    echo "  ok: ops/anthropic unittest suite (tier plan + oauth priority rebalance)"
 fi
 
 # Headless agent stream redactor: scripts/agent/redact-stream.py sits between
