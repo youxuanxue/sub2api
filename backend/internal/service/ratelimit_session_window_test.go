@@ -153,7 +153,7 @@ func (m *sessionWindowMockRepo) IncrementQuotaUsed(context.Context, int64, float
 	panic("unexpected")
 }
 func (m *sessionWindowMockRepo) ResetQuotaUsed(context.Context, int64) error { panic("unexpected") }
-func (m *sessionWindowMockRepo) SumConcurrencyAnthropicOAuth(context.Context) (int64, error) {
+func (m *sessionWindowMockRepo) SumConcurrencyAnthropic(context.Context) (int64, error) {
 	panic("unexpected")
 }
 

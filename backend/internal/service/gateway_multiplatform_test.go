@@ -195,7 +195,7 @@ func (m *mockAccountRepoForPlatform) ResetQuotaUsed(ctx context.Context, id int6
 	return nil
 }
 
-func (m *mockAccountRepoForPlatform) SumConcurrencyAnthropicOAuth(context.Context) (int64, error) { return 0, nil }
+func (m *mockAccountRepoForPlatform) SumConcurrencyAnthropic(context.Context) (int64, error) { return 0, nil }
 
 // Verify interface implementation
 var _ AccountRepository = (*mockAccountRepoForPlatform)(nil)

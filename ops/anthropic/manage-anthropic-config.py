@@ -27,9 +27,9 @@ Group `rpm_limit` is now set independently in the admin UI; this
 orchestrator no longer writes to any group nor to any prod surface.
 
 Each successful edge ``apply`` transaction also sets ``users.id=1``
-``concurrency`` to the sum of active ``anthropic``/``oauth`` account
-``concurrency`` rows on that same database (operator default user tracks
-OAuth pool capacity).
+``concurrency`` to the sum of ``concurrency`` on every ``anthropic`` account row
+(not soft-deleted) on that same database — oauth and api-key types —
+so operator default tracks total Anthropic account capacity.
 
 Exit codes
 ----------
@@ -91,8 +91,9 @@ PLAN_VERSION = 2
 SNAPSHOT_VERSION = 2
 
 # After each OAuth tier-baseline apply on an edge Postgres, bump the operator
-# (admin/default) user's row concurrency to match Σ anthropic/oauth account
-# concurrency on that same DB — avoids manual drift when OAuth pool sizing changes.
+# (admin/default) user's row concurrency to match Σ anthropic account concurrency
+# (all types incl. api-key) on that same DB — avoids drift when Anthropic pool sizing changes.
+
 ADMIN_OPERATOR_USER_CONCURRENCY_SYNC_ID = 1
 
 
@@ -668,25 +669,23 @@ def cmd_plan_tier_bump(args: argparse.Namespace) -> int:
 # --------------------------------------------------------------------------
 
 def render_admin_operator_concurrency_sync_sql() -> str:
-    """Sync ``users.concurrency`` for the operator account to the summed OAuth pool.
+    """Sync ``users.concurrency`` for the operator account to summed Anthropic pool.
 
-    Same filter as ``EDGE_ACCOUNTS_SQL`` (live anthropic oauth accounts).
-    Runs in the same transaction as the tier-baseline ``generate_sql`` block.
+    All non-soft-deleted ``accounts`` rows with ``platform='anthropic'`` including
+    ``oauth`` and ``api_key`` rows. Runs in the same transaction as tier-baseline SQL.
     """
     uid = ADMIN_OPERATOR_USER_CONCURRENCY_SYNC_ID
     return (
-        f"-- Align users.id={uid} concurrency to Σ anthropic/oauth account concurrency\n"
+        f"-- Align users.id={uid} concurrency to Σ all anthropic account concurrency\n"
         "UPDATE users u SET concurrency = agg.total::int, updated_at = NOW()\n"
         "FROM (\n"
         "  SELECT COALESCE(SUM(a.concurrency), 0)::bigint AS total\n"
         "  FROM accounts a\n"
         "  WHERE a.platform = 'anthropic'\n"
-        "    AND a.type = 'oauth'\n"
         "    AND a.deleted_at IS NULL\n"
         ") agg\n"
         f"WHERE u.id = {uid} AND u.deleted_at IS NULL;"
     )
-
 
 def _inject_sql_before_commit(transaction_sql: str, fragment: str) -> str:
     """Append ``fragment`` immediately before the final ``COMMIT;``."""
