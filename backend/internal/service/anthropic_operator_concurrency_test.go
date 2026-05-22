@@ -23,8 +23,8 @@ func (a *accountRepoSumStub) SumConcurrencyAnthropic(context.Context) (int64, er
 type recordingUserRepoStub struct {
 	UserRepository
 
-	lastVal   int
-	lastIDs   []int64
+	lastVal int
+	lastIDs []int64
 }
 
 func (r *recordingUserRepoStub) BatchSetConcurrency(_ context.Context, userIDs []int64, value int) (int, error) {

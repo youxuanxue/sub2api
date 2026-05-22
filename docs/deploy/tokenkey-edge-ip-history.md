@@ -33,6 +33,7 @@ IPs in this list have been observed triggering upstream-API risk-blocks (Anthrop
 | IP | Region | Retired on | Released on | Previously edge | Notes |
 | --- | --- | --- | --- | --- | --- |
 | `3.9.160.161` | eu-west-2 | 2026-05-20 | 2026-05-20 | edge-uk1 | First documented pollution. User-reported upstream-API risk-block. |
+| `35.177.124.150` | eu-west-2 | 2026-05-22 | 2026-05-22 | edge-uk1 | upstream-ip-pollution-2026-05-22; operator-confirmed egress pollution; EIP released after §4 rotation to 16.61.87.51; §5 IMPORT drift recovery completed same day. |
 <!-- END edge-ip-status:polluted -->
 
 To add an entry: edit `edge-polluted-ips.json` in the same PR as the EIP replacement, run `scripts/edge-ip-status.sh --markdown` and paste the regenerated tables. Preflight's `--check` mode catches a forgotten regeneration.
@@ -43,11 +44,18 @@ The mechanical lock for edges with known drift is the `drift_locked: true` flag 
 
 Currently drift-locked edges (live state):
 
-- _(none)_
+- _(none)_ — EIP drift for **edge-uk1** cleared 2026-05-22 after the second IMPORT below (`ElasticIP.PhysicalResourceId` now matches DNS + live association).
 
 Recovery history:
 
-- **edge-uk1** — drift resolved 2026-05-20 via § 5 Phase 2 IMPORT (Phase 1 rolled back as anticipated by § 5). Stack now references the live `35.177.124.150` / `eipalloc-0f7da5f311cc36075` / `eipassoc-011059cc27c15b401`; Retain attributes landed via the IMPORT template.
+- **edge-uk1** — 2026-05-20 drift resolved via § 5 Phase 2 IMPORT (Phase 1 rolled back as anticipated). Stack aligned CFN to the live pair at that time (`35.177.124.150` / `eipalloc-0f7da5f311cc36075` / `eipassoc-011059cc27c15b401`).
+
+- **edge-uk1** — 2026-05-22 pollution confirmed on the post-import EIP (`35.177.124.150`/`eipalloc-0f7da5f311cc36075`); outside-CFN replacement + Porkbun DNS moved active egress to `16.61.87.51` (`eipalloc-03b2653ddd57b9c93` / `eipassoc-096ac9e72948ab848`). Old allocation released → listed in § 2.
+
+- **edge-uk1** — 2026-05-22 second § 5 recovery: Phase 2 detach + IMPORT driven from **deployed** `get-template` snapshot (detach template only in `/tmp`), because upstream `stage0-edge-ec2.yaml` had diverged materially (would have pulled unintended Instance/UserData/SSM changes). Post-import physics: CFN **`ElasticIP` → `16.61.87.51`**, **`EIPAssoc` → `eipassoc-096ac9e72948ab848`**; stack status `IMPORT_COMPLETE` / EIP resource `UPDATE_COMPLETE`.
+
+> **Operational follow-up:** the stack parameter `AmazonLinux2023Arm64Ami` still points at **`/tokenkey/edge/uk1/stage0/recovery/ami-pin`** holding `ami-01308afad6532bf22`. Keep that SSM parameter until a normal **`deploy-edge-stage0.yml`** (or equivalent stack update) returns the AMI parameter path to `/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64` (pin no longer referenced), **then delete** `/tokenkey/edge/uk1/stage0/recovery/ami-pin` to satisfy the ami-pin housekeeping in `tokenkey-stage0-edge-ip-rotation`.
+
 
 Known unresolved drift on edge stacks (not blocking deploys; tracked here so future recoveries do not re-discover them):
 
