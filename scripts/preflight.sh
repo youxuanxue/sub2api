@@ -709,20 +709,22 @@ else
     echo "  ok: no Edge Stage0 workflow present"
 fi
 
-# Anthropic OAuth tier baseline values must stay in sync between the JSON
-# source of truth and the SQL apply template's VALUES table. The SQL comment
-# claims JSON is canonical, but there is no plpgsql-side JSON loader — the
-# two are aligned by hand. This check fails when any tier is missing on one
-# side or any numeric field disagrees.
+# Anthropic OAuth tier baseline values now live in exactly one place: the JSON
+# source of truth. The apply SQL is generated from it at runtime (orchestrator
+# reuses the guard's generate_sql), so there is no second hand-aligned copy to
+# drift. This guard fails if the retired dual-source SQL template reappears —
+# re-introducing it would resurrect the "edit one, forget the other" failure
+# mode this dedup removed. Single-source wiring itself is asserted by the
+# ops/anthropic unittest suite below (render embeds the JSON values).
 echo ""
-echo "=== sub2api: anthropic tier baseline JSON↔SQL drift ==="
-if ! command -v python3 >/dev/null 2>&1; then
-    echo "  FAIL: python3 not on PATH (required by check-anthropic-tier-baseline-drift.py)"
-    errors=$((errors + 1))
-elif ! python3 ./scripts/checks/anthropic-tier-baseline-drift.py --quiet; then
+echo "=== sub2api: anthropic tier baseline single-source ==="
+if [ -f ./deploy/aws/stage0/anthropic-oauth-stability-tiered-apply-template.sql ]; then
+    echo "  FAIL: retired SQL apply template reappeared — tier baseline values must"
+    echo "        live only in anthropic-oauth-stability-baselines-tiered.json; the"
+    echo "        orchestrator renders SQL from it via the guard's generate_sql."
     errors=$((errors + 1))
 else
-    echo "  ok: anthropic tier baseline JSON and SQL VALUES are in sync"
+    echo "  ok: tier baseline values live only in the JSON source of truth"
 fi
 
 # Ops/Anthropic orchestrator coverage (stdlib only; no AWS / pytest).
