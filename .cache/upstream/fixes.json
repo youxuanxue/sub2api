@@ -342,10 +342,9 @@
       "status": "fixed_in_tokenkey",
       "fixed_by": [
         "backend/internal/service/ratelimit_service.go",
-        "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go",
-        "scripts/sentinels/gateway-tk.json"
+        "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go"
       ],
-      "summary": "OpenAI 403 handler short-circuits on Cloudflare / Arkose challenge bodies (cloudflare, just a moment, arkoselabs, funcaptcha, challenge-platform) by skipping the openAI403Counter increment AND the SetTempUnschedulable / SetError writes. The in-flight request still fails over (shouldDisable=true) but the OAuth account stays in the pool, so per-request CF/Arkose challenges on /v1/images/{generations,edits} no longer poison the entire OAuth pool for unrelated chat/embeddings traffic. Path-agnostic on purpose — body keyword match is the signal, not the URL — because legitimate OpenAI 403s return structured JSON with none of these keywords."
+      "summary": "OpenAI 403 handler skips the per-account counter + temp_unschedulable + SetError writes when the response body matches a Cloudflare / Arkose challenge keyword (cloudflare / just a moment / arkoselabs / funcaptcha / challenge-platform). Failover still proceeds for the in-flight request; the OAuth account stays in the pool for unrelated traffic."
     },
     {
       "upstream": "Wei-Shaw/sub2api#2413",
