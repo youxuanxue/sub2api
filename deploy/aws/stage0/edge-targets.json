@@ -4,7 +4,7 @@
   "max_monthly_budget_usd": 16,
   "targets": {
     "uk1": {
-      "deployable": false,
+      "deployable": true,
       "profile": "edge-minimal",
       "region": "eu-west-2",
       "domain": "api-uk1.tokenkey.dev",
