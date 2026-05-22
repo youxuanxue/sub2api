@@ -22,7 +22,7 @@
     </CapacityBadge>
 
     <!-- RPM 限制 -->
-    <CapacityBadge v-if="showRpmLimit" :color-class="rpmClass" :tooltip="rpmTooltip" :current="currentRPM" :max="account.base_rpm!" :suffix="rpmStrategyTag">
+    <CapacityBadge v-if="showRpmLimit" :color-class="rpmClass" :tooltip="rpmTooltip" :current="currentRPM" :max="account.base_rpm!" :suffix="rpmSuffix">
       <svg class="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
       </svg>
@@ -130,12 +130,19 @@ const showRpmLimit = computed(() =>
 
 const currentRPM = computed(() => props.account.current_rpm ?? 0)
 const rpmStrategy = computed(() => props.account.rpm_strategy || 'tiered')
-const rpmStrategyTag = computed(() => rpmStrategy.value === 'sticky_exempt' ? '[S]' : '[T]')
 
 const rpmBuffer = computed(() => {
   const base = props.account.base_rpm || 0
   return props.account.rpm_sticky_buffer ?? (base > 0 ? Math.max(1, Math.floor(base / 5)) : 0)
 })
+
+// sticky_exempt has no finite sticky buffer (unlimited sticky headroom), so it
+// keeps the bare [S] tag; tiered surfaces the actual buffer count as (+N sticky).
+const rpmSuffix = computed(() =>
+  rpmStrategy.value === 'sticky_exempt'
+    ? '[S]'
+    : t('admin.accounts.capacity.rpm.stickyBufferSuffix', { buffer: rpmBuffer.value })
+)
 
 const rpmClass = computed(() => {
   if (!showRpmLimit.value) return ''
