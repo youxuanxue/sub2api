@@ -1,11 +1,9 @@
 package service
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -80,62 +78,4 @@ func (s *AccountTestService) testNewAPIAccountConnectionTK(c *gin.Context, accou
 	}
 
 	return s.processOpenAIChatCompletionsStream(c, strings.NewReader(rec.Body.String()))
-}
-
-func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, body io.Reader) error {
-	reader := bufio.NewReader(body)
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			if err == io.EOF {
-				return s.sendErrorAndEnd(c, "Stream ended before chat completion finished")
-			}
-			return s.sendErrorAndEnd(c, fmt.Sprintf("Stream read error: %s", err.Error()))
-		}
-
-		line = strings.TrimSpace(line)
-		if line == "" || !sseDataPrefix.MatchString(line) {
-			continue
-		}
-
-		jsonStr := sseDataPrefix.ReplaceAllString(line, "")
-		if jsonStr == "[DONE]" {
-			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-			return nil
-		}
-
-		var data map[string]any
-		if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
-			continue
-		}
-		if errData, ok := data["error"].(map[string]any); ok {
-			if msg, ok := errData["message"].(string); ok && msg != "" {
-				return s.sendErrorAndEnd(c, msg)
-			}
-			return s.sendErrorAndEnd(c, "Unknown upstream error")
-		}
-
-		choices, ok := data["choices"].([]any)
-		if !ok || len(choices) == 0 {
-			continue
-		}
-		choice, ok := choices[0].(map[string]any)
-		if !ok {
-			continue
-		}
-		if delta, ok := choice["delta"].(map[string]any); ok {
-			if content, ok := delta["content"].(string); ok && content != "" {
-				s.sendEvent(c, TestEvent{Type: "content", Text: content})
-			}
-		}
-		if message, ok := choice["message"].(map[string]any); ok {
-			if content, ok := message["content"].(string); ok && content != "" {
-				s.sendEvent(c, TestEvent{Type: "content", Text: content})
-			}
-		}
-		if finishReason, ok := choice["finish_reason"].(string); ok && finishReason != "" {
-			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-			return nil
-		}
-	}
 }

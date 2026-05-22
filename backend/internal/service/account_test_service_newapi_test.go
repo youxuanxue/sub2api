@@ -125,7 +125,7 @@ func TestAccountTestService_NewAPI_ReportsTruncatedChatStream(t *testing.T) {
 	body := rec.Body.String()
 	require.Contains(t, body, "partial")
 	require.Contains(t, body, `"type":"error"`)
-	require.Contains(t, body, "Stream ended before chat completion finished")
+	require.Contains(t, body, "ended before [DONE]")
 	require.NotContains(t, body, `"success":true`)
 }
 
