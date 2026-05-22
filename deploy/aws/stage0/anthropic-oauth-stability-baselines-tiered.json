@@ -204,7 +204,7 @@
         "extra": {
           "base_rpm": 28,
           "rpm_sticky_buffer": 20,
-          "max_sessions": 60,
+          "max_sessions": 80,
           "session_idle_timeout_minutes": 8,
           "window_cost_limit": 1500,
           "window_cost_sticky_reserve": 0
