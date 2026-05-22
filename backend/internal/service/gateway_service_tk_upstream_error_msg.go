@@ -57,6 +57,29 @@ func TkEnrichForbiddenMessage(c *gin.Context, defaultMsg string) string {
 		"If body is large, run /compact or start a new conversation to reduce it; otherwise contact administrator."
 }
 
+// TkEnrichClaudeIncidentMessage rewrites a failover-exhausted client message
+// into an incident-aware notice when status.claude.com reports a non-operational
+// Claude API. The goal is to redirect the caller's attention to the real
+// upstream (Anthropic) instead of the generic "all accounts exhausted" wording,
+// which wrongly implicates the TokenKey account pool or the user's own key.
+//
+// Returns defaultMsg verbatim when there is no active incident (including the
+// staleness fail-safe in IsClaudeAPIIncident), so non-incident behaviour is
+// unchanged. upstreamStatusCode carries the upstream HTTP status into the
+// message so the caller can see what Anthropic actually returned.
+func TkEnrichClaudeIncidentMessage(defaultMsg string, upstreamStatusCode int) string {
+	if !IsClaudeAPIIncident() {
+		return defaultMsg
+	}
+	snap := GetClaudeStatusSnapshot()
+	return fmt.Sprintf(
+		"Anthropic upstream is currently reporting an incident (Claude API status: %s, upstream returned %d). "+
+			"This is an Anthropic-side outage, not a problem with your account or API key. "+
+			"Check live status at %s — requests recover automatically once Anthropic returns to operational.",
+		snap.Status, upstreamStatusCode, claudeStatusPageURL,
+	)
+}
+
 func readOpsModel(c *gin.Context) string {
 	v, ok := c.Get(OpsModelKey)
 	if !ok {
