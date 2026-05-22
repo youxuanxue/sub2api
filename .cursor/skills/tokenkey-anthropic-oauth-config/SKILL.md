@@ -76,8 +76,8 @@ python3 $MGR verify --plan $JOBDIR/plan.json
       "deployable": true, "instance_id": "i-...", "region": "...",
       "oauth_accounts": [          // ← 账号在这里
         { "id": 1, "name": "...", "stability_tier": "l5",
-          "base_rpm": 28, "rpm_sticky_buffer": 20, "concurrency": 8,
-          "max_sessions": 60, "window_cost_limit": 1500, "status": "active", ... }
+          "base_rpm": 28, "rpm_sticky_buffer": 20, "concurrency": 10,
+          "max_sessions": 100, "window_cost_limit": 1500, "status": "active", ... }
       ]
     },
     "uk1": { "deployable": false, "skipped_reason": "planned; pass --allow-planned" }
