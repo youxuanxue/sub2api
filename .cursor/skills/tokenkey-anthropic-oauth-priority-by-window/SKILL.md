@@ -74,6 +74,8 @@ python3 $MGR verify --plan $JOBDIR/plan.json
 | apply | plan.json + `--confirm` | 逐 step 渲染 SQL → SSM → `apply-report.json` | 0 / 1 step failed / 2 |
 | verify | plan.json | 再 snapshot + 比对 `actions[*].expected_after.priority` vs live | 0 / 1 drift / 2 |
 
+`plan` 的 **exit 1 / `summary.any_stale`**：以 `tier_summaries[*].stale_count` 与各 action 的 `ranking.stale` 为准；**不会**仅因「没有生成 apply action（priority 已是算出的顺序）」就把 stale 误判为全绿。
+
 ### 打分细节（仅作参考；权威以脚本 `_score_account` 为准）
 
 | 输入字段 | 来源 | 缺失时含义 |
@@ -168,7 +170,8 @@ cat >"$SQL" <<EOF
 \set new_priority 20    -- l2 tier base
 EOF
 cat deploy/aws/stage0/anthropic-oauth-priority-rebalance-apply-template.sql >>"$SQL"
-B64=$(base64 -w0 <"$SQL")
+# One-line payload: GNU `base64 -w0` works; portable (macOS/OpenBSD): strip newlines after encode.
+B64=$(base64 <"$SQL" | tr -d '\n')
 aws ssm send-command --region eu-west-2 --instance-ids i-xxx \
   --document-name AWS-RunShellScript \
   --parameters "commands=[\"set -euo pipefail\necho $B64 | base64 -d | sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -v ON_ERROR_STOP=1\"]"
