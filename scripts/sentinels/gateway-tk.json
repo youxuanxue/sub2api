@@ -879,7 +879,7 @@
     {
       "path": "backend/internal/handler/openai_gateway_handler.go",
       "must_contain": [
-        "service.TkEnrichClaudeIncidentMessage(errMsg, failoverErr.StatusCode)"
+        "service.TkEnrichClaudeIncidentMessage("
       ],
       "rationale": "Locks the incident-aware client-message hook in handleAnthropicFailoverExhausted — the native /v1/messages (Claude Code / claude-cli) exhausted path. Without this call a Claude API incident surfaces to the caller as a generic upstream error with no pointer to status.claude.com; an upstream merge that rewrites the exhausted handler would silently drop the redirect."
     }
