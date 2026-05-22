@@ -268,6 +268,28 @@
         "v-if=\"viewMode === 'my' && !loading"
       ],
       "rationale": "PricingView.vue must keep the per-user 'Your Menu' branch wired: (1) calling getMePricingCatalog (otherwise the page only ever shows the public LiteLLM catalog), (2) defaulting authenticated users to viewMode='my' on mount, and (3) the v-if guard that gates the key-picker / group-switcher toolbar to the 'my' view. Dropping any one silently regresses to upstream-style flat-catalog behavior even though the segmented control still renders."
+    },
+    {
+      "path": "frontend/src/components/account/AccountCapacityCell.vue",
+      "must_contain": [
+        ":suffix=\"rpmSuffix\"",
+        "admin.accounts.capacity.rpm.stickyBufferSuffix"
+      ],
+      "rationale": "TK diverges the RPM capacity badge suffix from upstream's bare strategy tag: tiered accounts surface the actual sticky-buffer headroom as (+N sticky) instead of upstream's [T], so operators can read the total sticky capacity (base_rpm + rpm_sticky_buffer) directly off the account card. This is a cosmetic-but-load-bearing operator affordance on an upstream-owned file — upstream owns AccountCapacityCell.vue and an upstream merge that restores :suffix=\"rpmStrategyTag\" would compile cleanly while silently reverting the badge to [T] and dropping the buffer readout. The two literals pin the template wiring (rpmSuffix binding) and the i18n key reference; the locale strings themselves are anchored in the en.ts / zh.ts sentinels below."
+    },
+    {
+      "path": "frontend/src/i18n/locales/en.ts",
+      "must_contain": [
+        "stickyBufferSuffix: '(+{buffer} sticky)'"
+      ],
+      "rationale": "English RPM capacity badge sticky-buffer suffix. Renders as (+N sticky) on tiered accounts. Locked in lockstep with the zh.ts counterpart so an upstream locale merge cannot drop one language and leave the badge showing a raw i18n path."
+    },
+    {
+      "path": "frontend/src/i18n/locales/zh.ts",
+      "must_contain": [
+        "stickyBufferSuffix: '(+{buffer} 粘性)'"
+      ],
+      "rationale": "Chinese RPM capacity badge sticky-buffer suffix. Moves in lockstep with the en.ts counterpart above so neither language silently regresses to a raw key during an i18n upstream merge."
     }
   ]
 }

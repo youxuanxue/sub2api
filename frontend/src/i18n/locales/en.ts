@@ -3183,7 +3183,8 @@ export default {
           tieredBlocked: 'RPM limit (Tiered) - Blocked | Buffer: {buffer}',
           stickyExemptNormal: 'RPM limit (Sticky Exempt) - Normal',
           stickyExemptWarning: 'RPM limit (Sticky Exempt) - Approaching limit',
-          stickyExemptOver: 'RPM limit (Sticky Exempt) - Over limit, sticky only'
+          stickyExemptOver: 'RPM limit (Sticky Exempt) - Over limit, sticky only',
+          stickyBufferSuffix: '(+{buffer} sticky)'
         },
         quota: {
           exceeded: 'Quota exceeded, account paused',

@@ -3219,7 +3219,8 @@ export default {
           tieredBlocked: 'RPM 限制 (三区模型) - 已阻塞 | 缓冲区: {buffer}',
           stickyExemptNormal: 'RPM 限制 (粘性豁免) - 正常',
           stickyExemptWarning: 'RPM 限制 (粘性豁免) - 接近阈值',
-          stickyExemptOver: 'RPM 限制 (粘性豁免) - 超限，仅粘性会话'
+          stickyExemptOver: 'RPM 限制 (粘性豁免) - 超限，仅粘性会话',
+          stickyBufferSuffix: '(+{buffer} 粘性)'
         },
         quota: {
           exceeded: '配额已用完，账号暂停调度',
