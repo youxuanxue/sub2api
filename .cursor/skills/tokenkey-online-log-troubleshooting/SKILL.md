@@ -74,7 +74,16 @@ planned edge 默认不查；除非用户显式允许 `allow_planned=true`。
 
 ### 1.2 Prod / main gateway
 
-prod 目标优先从 deploy 文档和 CloudFormation/SSM 已知入口解析；如果不确定，先问或只查 GitHub/CI，不要猜 AWS 实例。若已有域名或 stack 名，先用只读 AWS CLI/CloudFormation describe 定位 instance id。
+prod 已固定（`api.tokenkey.dev`，AWS Graviton arm64）：**stack=`tokenkey-prod-stage0`，region=`us-east-1`**。直接解析 instance id（只读）：
+
+```bash
+REGION=us-east-1; STACK=tokenkey-prod-stage0
+IID=$(aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK" \
+  --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue" --output text)
+# 回退：若 Outputs 无 InstanceId，用 describe-stack-resources 取 AWS::EC2::Instance 的 PhysicalResourceId
+```
+
+栈若曾在 us-east-1 以外创建过，把 `REGION` 改成当时的 region（见 `deploy/aws/README.md`）。其余仍不确定的入口（新栈/新域名）才回到"先问或只查 CI、不猜实例"。
 
 ### 1.3 快速环境指纹
 
@@ -245,6 +254,8 @@ docker logs tokenkey --since '<start_z>' --until '<end_z>' 2>&1 \
   | grep -E 'GROUP_RPM_EXCEEDED|USER_RPM|rate limit|429|529|overload|temp.*unsched' \
   | tail -n 200 || true
 ```
+
+> **裸数字误报坑（实测）**：`grep -c '429'` / `'529'` 会命中 request_id/UUID、`body_bytes`、`latency_ms`、`content_len` 里的子串，给出几十上百的**假计数**。判**真实** HTTP 429/529 要么解析 JSON 看 `status_code` 字段，要么匹配语义标记 `rate_limit_error` / `overloaded_error` / `too_many_requests`，**不要数裸的 429/529**。`ops_error_logs` 的 `status_code` / `upstream_status_code` 列才是权威，应优先用 §4.2 的 SQL 聚合而非 grep 数字。
 
 **Anthropic thinking signature：**
 

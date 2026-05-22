@@ -61,6 +61,15 @@ python3 $MGR verify --plan $JOBDIR/plan.json
 - Stage 5 verify 必须跑；drift → operator 决定补 apply 或回滚
 - snapshot 出于"先查后说"原则：禁止凭记忆断言字段值，所有断言都来自一次 SSM read
 
+### 改 tier baseline 值（如 L5 max_sessions 30→50）必跟的一步：提交 JSON
+
+tier baseline 的**唯一真值源**是 `deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json`；apply 时只读它派生 SQL。若你为了改某个 tier 的基线值而**编辑了这个 JSON**，apply 到 live 后**必须把 JSON 改动经分支 + PR 落到 `origin/main`**（仓库纪律 §5.y，不直推）。否则：
+
+- 本地 JSON=新值、live=新值 → 你本地 `check` 通过；
+- 但 `origin/main` 仍是旧值 → 别人 fresh checkout / CI 跑 `check-edge-oauth-stability` 会把 live 报成 `extra_baseline_drift`（live↔repo 漂移）。
+
+只是把**某账号**改到**现有** tier（不动 JSON 数值）则无此跟进项——那是纯 live 写入，不涉及真值源变更。
+
 ## 2. 不在本流水线范围内（独立操作）
 
 本流水线**只写** edge anthropic OAuth account 的 tier 字段。下列写入面**不由本脚本管**：
