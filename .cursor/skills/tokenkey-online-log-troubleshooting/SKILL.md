@@ -55,20 +55,23 @@ description: >-
 
 Edge 矩阵权威文件：`deploy/aws/stage0/edge-targets.json`。
 
-优先用脚本解析：
+优先用脚本解析（输出是 `key=value` 行，**没有 `--json` flag**——别加，会 `unrecognized arguments` 报错；要结构化就直接读 `edge-targets.json`）：
 
 ```bash
-python3 deploy/aws/stage0/resolve-edge-target.py --edge-id "$EDGE_ID" --json
+python3 deploy/aws/stage0/resolve-edge-target.py --edge-id "$EDGE_ID"
+# 加 --allow-planned 才会解析 deployable:false 的 planned edge
 ```
 
-如果脚本参数变化，直接读取 JSON。必须确认：
-- `edge_id`
-- `deployable`
-- `region`
-- `instance_id`
-- `domain`
-- `ssm_prefix`
-- `stack`
+脚本给出：`edge_id` `deployable` `region` `domain` `ssm_prefix` `stack` 等。**注意脚本不输出 `instance_id`**——和 prod 一样要从 CloudFormation 单独取（同 §1.2）：
+
+```bash
+REGION=<上面解析出的 region>; STACK=<上面解析出的 stack>
+IID=$(aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK" \
+  --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue" --output text)
+# 回退：若 Outputs 无 InstanceId，用 describe-stack-resources 取 AWS::EC2::Instance 的 PhysicalResourceId
+```
+
+最终必须确认：`edge_id` / `deployable` / `region` / `instance_id` / `domain` / `ssm_prefix` / `stack`。
 
 planned edge 默认不查；除非用户显式允许 `allow_planned=true`。
 
