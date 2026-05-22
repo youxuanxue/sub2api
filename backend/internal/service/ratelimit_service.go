@@ -909,7 +909,19 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 // in case 400, OAuth 401 refresh, 429 retry-after cooldown, 529 overload)
 // live outside this function and are unaffected.
 func (s *RateLimitService) handleAnthropicUpstreamError(ctx context.Context, account *Account, statusCode int, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
-	return s.handleAnthropicUpstreamErrorWithOptions(ctx, account, statusCode, upstreamMsg, responseBody, false)
+	// TK: when status.claude.com reports a non-operational Claude API, the error is
+	// Anthropic's fault, not the account's. Skip writing temp_unschedulable_until so
+	// account health scores are not penalised during upstream incidents.
+	// Counters still advance for observability (handled inside WithOptions).
+	skipCooldown := IsClaudeAPIIncident()
+	if skipCooldown {
+		snap := GetClaudeStatusSnapshot()
+		slog.Info("anthropic_upstream_error_incident_skip_cooldown",
+			"account_id", account.ID,
+			"status_code", statusCode,
+			"upstream_status", snap.Status)
+	}
+	return s.handleAnthropicUpstreamErrorWithOptions(ctx, account, statusCode, upstreamMsg, responseBody, skipCooldown)
 }
 
 // handleAnthropicUpstreamErrorWithOptions is the implementation seam for
