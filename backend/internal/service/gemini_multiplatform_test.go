@@ -184,6 +184,10 @@ func (m *mockAccountRepoForGemini) ResetQuotaUsed(ctx context.Context, id int64)
 	return nil
 }
 
+func (m *mockAccountRepoForGemini) SumConcurrencyAnthropicOAuth(context.Context) (int64, error) {
+	return 0, nil
+}
+
 // Verify interface implementation
 var _ AccountRepository = (*mockAccountRepoForGemini)(nil)
 

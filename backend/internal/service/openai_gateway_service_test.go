@@ -30,6 +30,10 @@ type stubOpenAIAccountRepo struct {
 	accounts []Account
 }
 
+func (stubOpenAIAccountRepo) SumConcurrencyAnthropicOAuth(context.Context) (int64, error) {
+	return 0, nil
+}
+
 type snapshotUpdateAccountRepo struct {
 	stubOpenAIAccountRepo
 	updateExtraCalls chan map[string]any

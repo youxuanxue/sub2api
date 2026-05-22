@@ -1074,6 +1074,24 @@ func (s *AccountRepoSuite) TestBulkUpdate_EmptyUpdates() {
 	s.Require().Zero(affected)
 }
 
+func (s *AccountRepoSuite) TestSumConcurrencyAnthropicOAuth_FilterByPlatformAndType() {
+	mustCreateAccount(s.T(), s.client, &service.Account{
+		Name: "sum-auth-4", Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth, Concurrency: 4,
+	})
+	mustCreateAccount(s.T(), s.client, &service.Account{
+		Name: "sum-auth-5", Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth, Concurrency: 5,
+	})
+	mustCreateAccount(s.T(), s.client, &service.Account{
+		Name: "sum-apikey-big", Platform: service.PlatformAnthropic, Type: service.AccountTypeAPIKey, Concurrency: 900,
+	})
+	mustCreateAccount(s.T(), s.client, &service.Account{
+		Name: "sum-openai-oauth", Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Concurrency: 800,
+	})
+	got, err := s.repo.SumConcurrencyAnthropicOAuth(s.ctx)
+	s.Require().NoError(err)
+	s.Require().EqualValues(9, got)
+}
+
 func idsOfAccounts(accounts []service.Account) []int64 {
 	out := make([]int64, 0, len(accounts))
 	for i := range accounts {

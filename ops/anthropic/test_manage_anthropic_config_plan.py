@@ -224,6 +224,8 @@ class SingleSourceRenderTest(unittest.TestCase):
         self.assertIn(f"concurrency = {eff['account']['concurrency']}", sql)
         self.assertIn(f"priority = {eff['account']['priority']}", sql)
         self.assertIn("'stability_tier', '\"l5\"'::jsonb", sql)
+        self.assertIn("UPDATE users u SET concurrency", sql)
+        self.assertIn("SUM(a.concurrency)", sql)
 
     def test_retired_sql_template_absent(self) -> None:
         legacy = mgr.REPO_ROOT / "deploy/aws/stage0/anthropic-oauth-stability-tiered-apply-template.sql"
@@ -232,6 +234,15 @@ class SingleSourceRenderTest(unittest.TestCase):
             "retired dual-source SQL apply template reappeared; tier values must "
             "live only in anthropic-oauth-stability-baselines-tiered.json",
         )
+
+
+class InjectBeforeCommitTest(unittest.TestCase):
+    def test_fragments_land_before_commit(self) -> None:
+        tx = "BEGIN;\nSELECT 1;\nCOMMIT;\n"
+        out = mgr._inject_sql_before_commit(tx, "SELECT 2;")
+        self.assertGreater(out.index("SELECT 2;"), out.index("SELECT 1;"))
+        self.assertLess(out.index("COMMIT;"), len(out))
+        self.assertGreater(out.rindex("COMMIT;"), out.index("SELECT 2;"))
 
 
 if __name__ == "__main__":

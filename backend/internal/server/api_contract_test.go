@@ -1444,7 +1444,7 @@ func (r *stubUserRepo) BatchAddConcurrency(ctx context.Context, userIDs []int64,
 }
 
 func (r *stubUserRepo) BatchSetConcurrency(ctx context.Context, userIDs []int64, value int) (int, error) {
-	return 0, errors.New("not implemented")
+	return len(userIDs), nil
 }
 
 func (r *stubUserRepo) ExistsByEmail(ctx context.Context, email string) (bool, error) {
@@ -1787,6 +1787,10 @@ func (s *stubAccountRepo) ResetQuotaUsed(ctx context.Context, id int64) error {
 func (s *stubAccountRepo) BulkUpdate(ctx context.Context, ids []int64, updates service.AccountBulkUpdate) (int64, error) {
 	s.bulkUpdateIDs = append([]int64{}, ids...)
 	return int64(len(ids)), nil
+}
+
+func (s *stubAccountRepo) SumConcurrencyAnthropicOAuth(context.Context) (int64, error) {
+	return 0, nil
 }
 
 func (s *stubAccountRepo) ListCRSAccountIDs(ctx context.Context) (map[string]int64, error) {

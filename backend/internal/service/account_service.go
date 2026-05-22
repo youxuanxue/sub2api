@@ -70,6 +70,10 @@ type AccountRepository interface {
 	UpdateSessionWindow(ctx context.Context, id int64, start, end *time.Time, status string) error
 	UpdateExtra(ctx context.Context, id int64, updates map[string]any) error
 	BulkUpdate(ctx context.Context, ids []int64, updates AccountBulkUpdate) (int64, error)
+
+	// SumConcurrencyAnthropicOAuth returns Σ concurrency for rows matching the Anthropic OAuth
+	// orchestrator snapshot (platform=anthropic, type=oauth, not soft-deleted).
+	SumConcurrencyAnthropicOAuth(ctx context.Context) (int64, error)
 	// IncrementQuotaUsed 原子递增 API Key 账号的配额用量（总/日/周）
 	IncrementQuotaUsed(ctx context.Context, id int64, amount float64) error
 	// ResetQuotaUsed 重置 API Key 账号所有维度的配额用量为 0

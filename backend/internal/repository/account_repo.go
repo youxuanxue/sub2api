@@ -15,6 +15,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +26,7 @@ import (
 	dbgroup "github.com/Wei-Shaw/sub2api/ent/group"
 	dbpredicate "github.com/Wei-Shaw/sub2api/ent/predicate"
 	dbproxy "github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -143,6 +145,21 @@ func (r *accountRepository) Create(ctx context.Context, account *service.Account
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue account create failed: account=%d err=%v", account.ID, err)
 	}
 	return nil
+}
+
+func (r *accountRepository) SumConcurrencyAnthropicOAuth(ctx context.Context) (int64, error) {
+	const q = `
+SELECT COALESCE(SUM(concurrency), 0)::bigint
+FROM accounts
+WHERE platform = $1 AND type = $2 AND deleted_at IS NULL`
+	var sum sql.NullInt64
+	if err := scanSingleRow(ctx, r.sql, q, []any{domain.PlatformAnthropic, domain.AccountTypeOAuth}, &sum); err != nil {
+		return 0, fmt.Errorf("sum anthropic oauth concurrency: %w", err)
+	}
+	if !sum.Valid {
+		return 0, nil
+	}
+	return sum.Int64, nil
 }
 
 func (r *accountRepository) GetByID(ctx context.Context, id int64) (*service.Account, error) {
