@@ -50,9 +50,10 @@
         ":sticky-edge-hints=\"false\"",
         "Wrap-first column policy",
         "const wrap = (maxW: string) =>",
-        "wrap('max-w-[15rem]')"
+        "wrap('max-w-[15rem]')",
+        "current.current_rpm !== next.current_rpm"
       ],
-      "rationale": "The TK callsite for fluid+stickyEdgeHints opt-outs (first two literals), the wrap-first column-class policy comment (third literal), and the per-column max-width discipline (fourth + fifth literals). `wrap` as a function (not a plain string constant) means every column carries an explicit cap — an upstream merge that flattens it back to a bare string would silently drop the caps and the table overflows again at 100% browser zoom. The fifth literal anchors the usage column at 15rem (the widest cap), chosen because it is uniquely wide and unlikely to clash with any upstream string. Without the max-width caps, `min-w-0 align-top` alone is insufficient: browser table-auto still sizes columns to their natural max-content width when there is no explicit upper bound."
+      "rationale": "The TK callsite for fluid+stickyEdgeHints opt-outs (first two literals), the wrap-first column-class policy comment (third literal), and the per-column max-width discipline (fourth + fifth literals). `wrap` as a function (not a plain string constant) means every column carries an explicit cap — an upstream merge that flattens it back to a bare string would silently drop the caps and the table overflows again at 100% browser zoom. The fifth literal anchors the usage column at 15rem (the widest cap), chosen because it is uniquely wide and unlikely to clash with any upstream string. Without the max-width caps, `min-w-0 align-top` alone is insufficient: browser table-auto still sizes columns to their natural max-content width when there is no explicit upper bound. The sixth literal anchors current_rpm inside shouldReplaceAutoRefreshRow's auto-refresh field whitelist: current_rpm is a Redis-backed realtime gauge that never bumps updated_at, so an upstream merge that drops it from the whitelist would silently regress the 6s auto-refresh back to RPM-stale (only manual refresh would update the RPM badge)."
     },
     {
       "path": "frontend/src/views/admin/GroupsView.vue",
