@@ -3,8 +3,17 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# In-repo layout: scripts/upstream/merge-state.sh + scripts/lib/upstream-drift.sh
+# Workflow-pinned layout: $STATE_HELPER_DIR/upstream-merge-state.sh + $STATE_HELPER_DIR/lib/upstream-drift.sh
 # shellcheck source=scripts/lib/upstream-drift.sh
-source "$SCRIPT_DIR/../lib/upstream-drift.sh"
+if [ -f "$SCRIPT_DIR/../lib/upstream-drift.sh" ]; then
+  source "$SCRIPT_DIR/../lib/upstream-drift.sh"
+elif [ -f "$SCRIPT_DIR/lib/upstream-drift.sh" ]; then
+  source "$SCRIPT_DIR/lib/upstream-drift.sh"
+else
+  echo "ERROR: cannot locate upstream-drift.sh next to merge-state.sh" >&2
+  exit 2
+fi
 
 STATE_FILE="${STATE_FILE:-/tmp/upstream-merge-state.json}"
 
