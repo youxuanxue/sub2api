@@ -32,8 +32,12 @@ python3 $MGR snapshot --out $JOBDIR/snap.json
 python3 $MGR check --snapshot $JOBDIR/snap.json
 
 # Stage 3 — Plan：声明 tier 变更意图，机器算 expected_after
+#   3a) 移单个账号到某 tier（不改 JSON 数值）：
 python3 $MGR plan-edge-account-tier \
   --edge uk1 --account en-ld-ec2-16-1-b --tier l2 \
+  --snapshot $JOBDIR/snap.json --out $JOBDIR/plan.json
+#   3b) 改某 tier 的基线值本身 → 一个多 action plan 覆盖该 tier 全部账号（见 §1 recipe）：
+python3 $MGR plan-tier-bump --tier l5 \
   --snapshot $JOBDIR/snap.json --out $JOBDIR/plan.json
 
 # Stage 4 — Apply：渲染 SQL → SSM → 写入；失败即停
@@ -51,9 +55,33 @@ python3 $MGR verify --plan $JOBDIR/plan.json
 |---|---|---|---|
 | snapshot | EC2 SSM 权限 | `snap.json`：每个 deployable edge 的 anthropic OAuth account 字段 | 0 / 2 error |
 | check | snap.json | 每个 edge 跑 `check-edge-oauth-stability.py`，union violation | 0 ok / 1 violation / 2 error |
-| plan-edge-account-tier | snap.json + edge+account+tier | `plan.json`：1 个 action（写 OAuth account 的 tier baseline） | 0 / 2 |
-| apply | plan.json + confirm | 渲染 SQL → SSM 执行 → 写 `apply-report.json` | 0 / 1 step failed / 2 |
-| verify | plan.json | 再 snapshot + 比对 `actions[*].expected_after` vs live；drift 列表 | 0 / 1 drift / 2 |
+| plan-edge-account-tier | snap.json + edge+account+tier | `plan.json`：1 个 action（把单个 account 移到某 tier） | 0 / 2 |
+| plan-tier-bump | snap.json + tier | `plan.json`：N 个 action（该 tier 全部账号，跨 deployable edge；已匹配的跳过） | 0 / 2 |
+| apply | plan.json + confirm | 逐 action 渲染 SQL → SSM 执行（支持多 action）→ 写 `apply-report.json`；任一 step 失败即停 | 0 / 1 step failed / 2 |
+| verify | plan.json | 再 snapshot + 比对**每个** `actions[*].expected_after` vs live；drift 列表 | 0 / 1 drift / 2 |
+
+### snapshot JSON 结构速查
+
+解析 `snap.json` 别猜形状（`edges` 是**按 edge_id 索引的 dict**，不是 list；账号在 **`oauth_accounts`**，不是 `accounts`）：
+
+```jsonc
+{
+  "version": <int>, "captured_at": "...Z",
+  "edges": {
+    "us1": {                       // key = edge_id
+      "deployable": true, "instance_id": "i-...", "region": "...",
+      "oauth_accounts": [          // ← 账号在这里
+        { "id": 1, "name": "...", "stability_tier": "l5",
+          "base_rpm": 28, "rpm_sticky_buffer": 20, "concurrency": 8,
+          "max_sessions": 60, "window_cost_limit": 1500, "status": "active", ... }
+      ]
+    },
+    "uk1": { "deployable": false, "skipped_reason": "planned; pass --allow-planned" }
+  }
+}
+```
+
+planned / 未快照的 edge 带 `skipped_reason`（或 `error`）且无 `oauth_accounts`——遍历时跳过它们（`plan-tier-bump` 已自动跳过）。
 
 ### 失败即停 + Pre-apply re-read
 
@@ -61,14 +89,38 @@ python3 $MGR verify --plan $JOBDIR/plan.json
 - Stage 5 verify 必须跑；drift → operator 决定补 apply 或回滚
 - snapshot 出于"先查后说"原则：禁止凭记忆断言字段值，所有断言都来自一次 SSM read
 
-### 改 tier baseline 值（如 L5 max_sessions 30→50）必跟的一步：提交 JSON
+### 两种 plan：移单个账号 vs 改整个 tier 的值
 
-tier baseline 的**唯一真值源**是 `deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json`；apply 时只读它派生 SQL。若你为了改某个 tier 的基线值而**编辑了这个 JSON**，apply 到 live 后**必须把 JSON 改动经分支 + PR 落到 `origin/main`**（仓库纪律 §5.y，不直推）。否则：
+- **`plan-edge-account-tier`** —— 把**一个账号**从当前 tier **移到另一个 tier**（不改 JSON 数值）。纯 live 写入，无 JSON/PR 跟进。
+- **`plan-tier-bump`** —— 改**某个 tier 的基线数值本身**（如 L5 `max_sessions` 50→60）。这是 tier 级变更，影响**该 tier 上的每一个账号、跨所有 deployable edge**。
+
+> ⚠️ **改 tier 值时不要用 `plan-edge-account-tier` 逐个手敲账号**——很容易漏掉某个 edge 上的同 tier 账号，导致它静默停在旧值，下次 `check` 报 `extra_baseline_drift`。用 `plan-tier-bump`：它从 snapshot 枚举该 tier 的**全部** live 账号，产出**一个多 action plan**；`apply` / `verify` 本来就迭代 actions 数组，所以**一次 apply + 一次 verify** 覆盖整批。
+
+### 改 tier baseline 值（如 L5 max_sessions 50→60）的完整 recipe
+
+```bash
+# 0) 先编辑唯一真值源（apply 时只读它派生 SQL）
+#    deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json
+#    把 tiers.l5.baseline.extra.max_sessions 改成新值
+python3 $MGR snapshot --out $JOBDIR/snap.json
+python3 $MGR check     --snapshot $JOBDIR/snap.json          # 改前基线全绿
+# 1) 枚举该 tier 全部账号 → 一个多 action plan（fields 已匹配的账号自动跳过）
+python3 $MGR plan-tier-bump --tier l5 \
+  --snapshot $JOBDIR/snap.json --out $JOBDIR/plan.json
+# 2) 一次 apply + 一次 verify 覆盖整批
+python3 $MGR apply  --plan $JOBDIR/plan.json --confirm yes-apply-anthropic-config-cascade
+python3 $MGR verify --plan $JOBDIR/plan.json                  # drift_count 必须=0
+# 3) JSON 改动经 分支 + PR 落 origin/main（见下）
+```
+
+`plan-tier-bump` 输出 `noop=true`（0 action）说明该 tier 当前账号字段已全等新值（多半是你已 apply 过又重跑）；要强制重写 credentials 端字段加 `--force-template-rewrite`。
+
+**必跟的一步：提交 JSON。** 若你为改 tier 基线值而**编辑了这个 JSON**，apply 到 live 后**必须把 JSON 改动经分支 + PR 落到 `origin/main`**（仓库纪律 §5.y，不直推）。否则：
 
 - 本地 JSON=新值、live=新值 → 你本地 `check` 通过；
 - 但 `origin/main` 仍是旧值 → 别人 fresh checkout / CI 跑 `check-edge-oauth-stability` 会把 live 报成 `extra_baseline_drift`（live↔repo 漂移）。
 
-只是把**某账号**改到**现有** tier（不动 JSON 数值）则无此跟进项——那是纯 live 写入，不涉及真值源变更。
+**不需要联动改 Go 代码。** preflight 的 `anthropic baseline sync` 检查（`scripts/sentinels/check-anthropic-baseline-sync.py`）只比对 **`policy.cooldown_tier_ttl_minutes`** 一个字段 ↔ `ratelimit_service.go` 常量；per-tier 的 `baseline.account.*` / `baseline.extra.*`（`max_sessions` / `base_rpm` / `rpm_sticky_buffer` / `concurrency` / `window_cost_limit` …）**都不镜像到 Go**，所以改这些 tier 值永远不触发该 check，无需改代码。
 
 ## 2. 不在本流水线范围内（独立操作）
 
@@ -109,7 +161,7 @@ operate 流程：
 |---|---|
 | snapshot 失败 / SSM 拒绝 | 校验 EC2 instance 在跑 / `edge-targets.json` / OIDC 权限 |
 | `apply --confirm` 拒绝 | 必须精确 `yes-apply-anthropic-config-cascade` |
-| tier baseline drift（check-edge-oauth-stability `extra_baseline_drift` / `account_field_drift`） | 用本流水线 plan-edge-account-tier 重写到对应 tier |
+| tier baseline drift（check-edge-oauth-stability `extra_baseline_drift` / `account_field_drift`） | 单账号用 plan-edge-account-tier 重写到对应 tier；整个 tier 值漂移（多账号）用 `plan-tier-bump --tier lN` 一次性重写 |
 | check guard 报 `status: drift` 且 `diffs[].path` 含 `/credentials/temp_unschedulable_rules`，但数值字段全等 | 加 `--force-template-rewrite` 让 plan 不再走 noop 短路，强制重写 credentials 端字段（snapshot/verify 不读 rules，所以默认 noop；这条 flag 是 escape hatch）。Apply 完跑一次 `check` 当真值 |
 | OAuth account `status=error/suspended` | OAuth 凭据问题（token 过期 / 403 / 上游禁用），见 OAuth 故障文档；不在本流水线范围 |
 | verify drift | operator 决定再 apply 或回滚（用 admin 前端按 plan.live_inputs 的 `edge_account_before` 反向写回） |

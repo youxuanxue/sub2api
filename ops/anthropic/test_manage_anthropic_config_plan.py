@@ -114,6 +114,86 @@ class PlanEdgeAccountTierTest(unittest.TestCase):
         self.assertEqual(len(plan["actions"]), 1)
 
 
+class PlanTierBumpTest(unittest.TestCase):
+    """plan-tier-bump enumerates every account on a tier across deployable edges
+    into one multi-action plan — the correct shape for a tier-VALUE bump."""
+
+    TIER = "l5"
+
+    def setUp(self) -> None:
+        baseline = mgr._load_tier_baselines()[self.TIER]
+        self.match_fields = {
+            k: baseline[k]
+            for k in ("base_rpm", "rpm_sticky_buffer", "concurrency", "max_sessions")
+        }
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = pathlib.Path(self._tmp.name)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _acct(self, name, *, tier=None, overrides=None):
+        a = {"id": 0, "name": name, "type": "oauth", "status": "active",
+             "platform": "anthropic", "stability_tier": tier or self.TIER,
+             **self.match_fields}
+        if overrides:
+            a.update(overrides)
+        return a
+
+    def _write_snapshot(self, edges: dict) -> pathlib.Path:
+        snap = {"version": mgr.SNAPSHOT_VERSION, "captured_at": "2026-05-22T00:00:00Z",
+                "edges": edges}
+        path = self.tmp / "snap.json"
+        path.write_text(json.dumps(snap))
+        return path
+
+    def _run(self, snap_path, *, force=False) -> dict:
+        out = self.tmp / "plan.json"
+        ns = argparse.Namespace(tier=self.TIER, snapshot=str(snap_path),
+                                out=str(out), force_template_rewrite=force)
+        self.assertEqual(mgr.cmd_plan_tier_bump(ns), 0)
+        return json.loads(out.read_text())
+
+    def test_enumerates_all_matching_tier_accounts_when_value_bumped(self) -> None:
+        # Stale fields (bumped base_rpm) → both l5 accounts get an action; a
+        # planned edge and an off-tier account are excluded.
+        stale = {"base_rpm": self.match_fields["base_rpm"] + 1}
+        snap = self._write_snapshot({
+            "us1": {"deployable": True, "instance_id": "i-1", "region": "us-west-2",
+                    "oauth_accounts": [self._acct("a1", overrides=stale),
+                                       self._acct("a4", overrides=stale),
+                                       self._acct("other", tier="l3")]},
+            "uk1": {"deployable": False, "skipped_reason": "planned"},
+        })
+        plan = self._run(snap)
+        names = sorted(a["target"]["account_name"] for a in plan["actions"])
+        self.assertEqual(names, ["a1", "a4"])
+        self.assertEqual([a["step"] for a in plan["actions"]], [1, 2])
+        for a in plan["actions"]:
+            self.assertEqual(a["expected_after"]["max_sessions"],
+                             self.match_fields["max_sessions"])
+        self.assertFalse(plan["noop"])
+
+    def test_already_matching_accounts_are_skipped_not_actioned(self) -> None:
+        snap = self._write_snapshot({
+            "us1": {"deployable": True, "instance_id": "i-1", "region": "us-west-2",
+                    "oauth_accounts": [self._acct("a1")]},
+        })
+        plan = self._run(snap)
+        self.assertEqual(plan["actions"], [])
+        self.assertTrue(plan["noop"])
+        self.assertEqual(plan["summary"]["skipped"], 1)
+
+    def test_force_includes_matching_accounts(self) -> None:
+        snap = self._write_snapshot({
+            "us1": {"deployable": True, "instance_id": "i-1", "region": "us-west-2",
+                    "oauth_accounts": [self._acct("a1")]},
+        })
+        plan = self._run(snap, force=True)
+        self.assertEqual(len(plan["actions"]), 1)
+        self.assertFalse(plan["noop"])
+
+
 class SingleSourceRenderTest(unittest.TestCase):
     """Tier baseline values live only in the JSON file; the apply SQL is rendered
     from it at runtime. These tests lock that wiring so the retired dual-source

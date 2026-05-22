@@ -462,6 +462,46 @@ def _find_edge_account(edge: dict, account_name: str) -> dict:
     return {}  # unreachable
 
 
+# Fields the apply template actually rewrites and verify re-reads. Equality on
+# all four means re-applying the same tier would be a no-op for the snapshot/
+# verify surface (credentials-side fields like temp_unschedulable_rules are not
+# tracked here — that is what --force-template-rewrite exists for).
+_TIER_MATCH_FIELDS = ("base_rpm", "rpm_sticky_buffer", "concurrency", "max_sessions")
+_ACCOUNT_BEFORE_FIELDS = (
+    "id", "name", "concurrency", "stability_tier", "base_rpm",
+    "rpm_sticky_buffer", "max_sessions", "window_cost_limit", "status",
+)
+
+
+def _tier_fields_match(account: dict, baseline: dict) -> bool:
+    return all(account.get(k) == baseline.get(k) for k in _TIER_MATCH_FIELDS)
+
+
+def _build_tier_action(edge_id: str, account_name: str, baseline: dict,
+                       tier_key: str, step: int) -> dict:
+    """One apply action re-rendering ``account_name`` at ``tier_key``. The SQL is
+    derived from the JSON baseline at apply time; ``expected_after`` is what Stage
+    5 verify compares against live."""
+    return {
+        "step": step,
+        "kind": "edge_account_tier",
+        "target": {"env": "edge", "edge_id": edge_id, "account_name": account_name},
+        "sql_source": "rendered-from-anthropic-oauth-stability-baselines-tiered.json",
+        "variables": {"account_name": account_name, "stability_tier": tier_key},
+        "expected_after": {
+            "stability_tier": tier_key,
+            "base_rpm": baseline.get("base_rpm"),
+            "rpm_sticky_buffer": baseline.get("rpm_sticky_buffer"),
+            "concurrency": baseline.get("concurrency"),
+            "max_sessions": baseline.get("max_sessions"),
+        },
+    }
+
+
+def _account_before(account: dict) -> dict:
+    return {k: account.get(k) for k in _ACCOUNT_BEFORE_FIELDS}
+
+
 def cmd_plan_edge_account_tier(args: argparse.Namespace) -> int:
     snap = _load_snapshot_or_die(args.snapshot)
     tiers = _load_tier_baselines()
@@ -474,10 +514,7 @@ def cmd_plan_edge_account_tier(args: argparse.Namespace) -> int:
     target_account = _find_edge_account(edge, args.account_name)
 
     current_tier = (target_account.get("stability_tier") or "").lower()
-    fields_match = all(
-        target_account.get(k) == baseline.get(k)
-        for k in ("base_rpm", "rpm_sticky_buffer", "concurrency", "max_sessions")
-    )
+    fields_match = _tier_fields_match(target_account, baseline)
     force_rewrite = bool(getattr(args, "force_template_rewrite", False))
     if current_tier == tier_key and fields_match and not force_rewrite:
         print(
@@ -508,21 +545,7 @@ def cmd_plan_edge_account_tier(args: argparse.Namespace) -> int:
             print(out_str)
         return 0
 
-    action = {
-        "step": 1,
-        "kind": "edge_account_tier",
-        "target": {"env": "edge", "edge_id": args.edge_id,
-                   "account_name": args.account_name},
-        "sql_source": "rendered-from-anthropic-oauth-stability-baselines-tiered.json",
-        "variables": {"account_name": args.account_name, "stability_tier": tier_key},
-        "expected_after": {
-            "stability_tier": tier_key,
-            "base_rpm": baseline.get("base_rpm"),
-            "rpm_sticky_buffer": baseline.get("rpm_sticky_buffer"),
-            "concurrency": baseline.get("concurrency"),
-            "max_sessions": baseline.get("max_sessions"),
-        },
-    }
+    action = _build_tier_action(args.edge_id, args.account_name, baseline, tier_key, 1)
 
     plan = {
         "version": PLAN_VERSION,
@@ -535,10 +558,7 @@ def cmd_plan_edge_account_tier(args: argparse.Namespace) -> int:
         "plan_built_at": now_utc_iso(),
         "summary": {"total_steps": 1, "edge_changes": 1},
         "live_inputs": {
-            "edge_account_before": {k: target_account.get(k) for k in [
-                "id", "name", "concurrency", "stability_tier", "base_rpm",
-                "rpm_sticky_buffer", "max_sessions", "window_cost_limit", "status",
-            ]},
+            "edge_account_before": _account_before(target_account),
         },
         "actions": [action],
     }
@@ -549,6 +569,68 @@ def cmd_plan_edge_account_tier(args: argparse.Namespace) -> int:
         print(f"plan: written {args.out} (1 step)", file=sys.stderr)
     else:
         print(out_str)
+    return 0
+
+
+def cmd_plan_tier_bump(args: argparse.Namespace) -> int:
+    """Re-apply a (just-edited) tier baseline value to *every* account currently
+    on that tier across all snapshotted deployable edges, in one multi-action
+    plan. This is the correct shape for a tier-VALUE bump (e.g. L5 max_sessions
+    50→60): edit the baseline JSON first, then this enumerates the tier's whole
+    live population so no account is silently left at the old value. apply/verify
+    already iterate the actions list, so one apply + one verify covers the batch.
+    Contrast plan-edge-account-tier, which MOVES a single account to a tier."""
+    snap = _load_snapshot_or_die(args.snapshot)
+    tiers = _load_tier_baselines()
+    tier_key = args.tier.lower()
+    if tier_key not in tiers:
+        fail(f"tier {args.tier!r} not in baselines (available: {sorted(tiers)})")
+    baseline = tiers[tier_key]
+    force = bool(getattr(args, "force_template_rewrite", False))
+
+    actions: list[dict] = []
+    befores: list[dict] = []
+    skipped: list[dict] = []
+    for edge_id, edge in sorted(snap.get("edges", {}).items()):
+        if edge.get("error") or edge.get("skipped_reason"):
+            continue
+        for a in edge.get("oauth_accounts", []):
+            if (a.get("stability_tier") or "").lower() != tier_key:
+                continue
+            if _tier_fields_match(a, baseline) and not force:
+                skipped.append({"edge_id": edge_id, "account_name": a.get("name"),
+                                "reason": "live fields already match baseline"})
+                continue
+            step = len(actions) + 1
+            actions.append(_build_tier_action(edge_id, a.get("name"), baseline, tier_key, step))
+            befores.append({"edge_id": edge_id, **_account_before(a)})
+
+    plan = {
+        "version": PLAN_VERSION,
+        "kind": "edge_account_tier_change",
+        "confirm_code": CONFIRM_CODE,
+        "intent": {"tier_bump": tier_key, "scope": "all-snapshotted-deployable-edges",
+                   "force_template_rewrite": force},
+        "snapshot_captured_at": snap.get("captured_at"),
+        "plan_built_at": now_utc_iso(),
+        "noop": len(actions) == 0,
+        "summary": {"total_steps": len(actions), "edge_changes": len(actions),
+                    "skipped": len(skipped)},
+        "live_inputs": {"edge_accounts_before": befores, "skipped": skipped},
+        "actions": actions,
+    }
+
+    out_str = json.dumps(plan, indent=2, ensure_ascii=False)
+    if args.out:
+        pathlib.Path(args.out).write_text(out_str)
+        print(f"plan: written {args.out} ({len(actions)} step(s), {len(skipped)} skipped)",
+              file=sys.stderr)
+    else:
+        print(out_str)
+    if not actions:
+        print(f"plan: no account on tier {tier_key} needs rewriting "
+              f"(skipped={len(skipped)}; pass --force-template-rewrite to rewrite anyway)",
+              file=sys.stderr)
     return 0
 
 
@@ -781,6 +863,23 @@ def main() -> int:
         ),
     )
     sp.set_defaults(handler=cmd_plan_edge_account_tier)
+
+    sp = sub.add_parser(
+        "plan-tier-bump",
+        help="re-apply a tier's baseline to every account on that tier (one multi-action plan)")
+    sp.add_argument("--tier", required=True, help="l1 / l2 / l3 / l4 / l5")
+    sp.add_argument("--snapshot", required=True)
+    sp.add_argument("--out", help="write plan JSON (otherwise stdout)")
+    sp.add_argument(
+        "--force-template-rewrite",
+        action="store_true",
+        help=(
+            "include accounts whose live fields already match the baseline "
+            "(otherwise they are skipped as no-ops). Use when only credentials-side "
+            "fields changed."
+        ),
+    )
+    sp.set_defaults(handler=cmd_plan_tier_bump)
 
     sp = sub.add_parser("apply",
                         help="execute a plan: render the tier-baseline SQL from JSON, run via SSM")
