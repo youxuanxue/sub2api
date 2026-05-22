@@ -30,7 +30,7 @@ type stubOpenAIAccountRepo struct {
 	accounts []Account
 }
 
-func (stubOpenAIAccountRepo) SumConcurrencyAnthropicOAuth(context.Context) (int64, error) {
+func (stubOpenAIAccountRepo) SumConcurrencyAnthropic(context.Context) (int64, error) {
 	return 0, nil
 }
 

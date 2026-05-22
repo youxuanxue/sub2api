@@ -1789,7 +1789,7 @@ func (s *stubAccountRepo) BulkUpdate(ctx context.Context, ids []int64, updates s
 	return int64(len(ids)), nil
 }
 
-func (s *stubAccountRepo) SumConcurrencyAnthropicOAuth(context.Context) (int64, error) {
+func (s *stubAccountRepo) SumConcurrencyAnthropic(context.Context) (int64, error) {
 	return 0, nil
 }
 

@@ -9,6 +9,14 @@
       "retired_on": "2026-05-20",
       "released_on": "2026-05-20",
       "notes": "First documented pollution. User-reported upstream-API risk-block."
+    },
+    {
+      "ip": "35.177.124.150",
+      "region": "eu-west-2",
+      "previous_edge": "uk1",
+      "retired_on": "2026-05-22",
+      "released_on": "2026-05-22",
+      "notes": "upstream-ip-pollution-2026-05-22; operator-confirmed egress pollution; EIP released after §4 rotation to 16.61.87.51; §5 IMPORT drift recovery completed same day."
     }
   ]
 }

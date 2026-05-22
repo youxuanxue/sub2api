@@ -590,15 +590,15 @@ func NewAdminService(
 	}
 }
 
-func (s *adminServiceImpl) syncAnthropicOAuthOperatorConcurrency(ctx context.Context) error {
+func (s *adminServiceImpl) syncAnthropicOperatorConcurrency(ctx context.Context) error {
 	if s.accountRepo == nil || s.userRepo == nil {
 		return nil
 	}
-	if err := SyncAnthropicOAuthOperatorConcurrency(ctx, s.accountRepo, s.userRepo); err != nil {
+	if err := SyncAnthropicOperatorConcurrency(ctx, s.accountRepo, s.userRepo); err != nil {
 		return err
 	}
 	if s.authCacheInvalidator != nil {
-		s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, AnthropicOAuthOperatorConcurrencyUserID)
+		s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, AnthropicOperatorConcurrencyUserID)
 	}
 	return nil
 }
@@ -2503,8 +2503,8 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		}
 	}
 
-	if err := s.syncAnthropicOAuthOperatorConcurrency(ctx); err != nil {
-		return nil, fmt.Errorf("sync operator concurrency from anthropic oauth pool: %w", err)
+	if err := s.syncAnthropicOperatorConcurrency(ctx); err != nil {
+		return nil, fmt.Errorf("sync operator concurrency from anthropic account pool: %w", err)
 	}
 
 	return account, nil
@@ -2655,8 +2655,8 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if err != nil {
 		return nil, err
 	}
-	if err := s.syncAnthropicOAuthOperatorConcurrency(ctx); err != nil {
-		return nil, fmt.Errorf("sync operator concurrency from anthropic oauth pool: %w", err)
+	if err := s.syncAnthropicOperatorConcurrency(ctx); err != nil {
+		return nil, fmt.Errorf("sync operator concurrency from anthropic account pool: %w", err)
 	}
 	return updated, nil
 }
@@ -2784,8 +2784,8 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		result.Results = append(result.Results, entry)
 	}
 
-	if err := s.syncAnthropicOAuthOperatorConcurrency(ctx); err != nil {
-		return nil, fmt.Errorf("sync operator concurrency from anthropic oauth pool: %w", err)
+	if err := s.syncAnthropicOperatorConcurrency(ctx); err != nil {
+		return nil, fmt.Errorf("sync operator concurrency from anthropic account pool: %w", err)
 	}
 
 	return result, nil
@@ -2844,8 +2844,8 @@ func (s *adminServiceImpl) DeleteAccount(ctx context.Context, id int64) error {
 	if err := s.accountRepo.Delete(ctx, id); err != nil {
 		return err
 	}
-	if err := s.syncAnthropicOAuthOperatorConcurrency(ctx); err != nil {
-		return fmt.Errorf("sync operator concurrency from anthropic oauth pool: %w", err)
+	if err := s.syncAnthropicOperatorConcurrency(ctx); err != nil {
+		return fmt.Errorf("sync operator concurrency from anthropic account pool: %w", err)
 	}
 	return nil
 }

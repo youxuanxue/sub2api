@@ -147,14 +147,14 @@ func (r *accountRepository) Create(ctx context.Context, account *service.Account
 	return nil
 }
 
-func (r *accountRepository) SumConcurrencyAnthropicOAuth(ctx context.Context) (int64, error) {
+func (r *accountRepository) SumConcurrencyAnthropic(ctx context.Context) (int64, error) {
 	const q = `
 SELECT COALESCE(SUM(concurrency), 0)::bigint
 FROM accounts
-WHERE platform = $1 AND type = $2 AND deleted_at IS NULL`
+WHERE platform = $1 AND deleted_at IS NULL`
 	var sum sql.NullInt64
-	if err := scanSingleRow(ctx, r.sql, q, []any{domain.PlatformAnthropic, domain.AccountTypeOAuth}, &sum); err != nil {
-		return 0, fmt.Errorf("sum anthropic oauth concurrency: %w", err)
+	if err := scanSingleRow(ctx, r.sql, q, []any{domain.PlatformAnthropic}, &sum); err != nil {
+		return 0, fmt.Errorf("sum anthropic concurrency: %w", err)
 	}
 	if !sum.Valid {
 		return 0, nil
