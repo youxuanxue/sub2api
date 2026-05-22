@@ -410,8 +410,7 @@ def _load_tier_baselines() -> dict[str, dict]:
         if not key:
             continue
         baseline = t.get("baseline") if isinstance(t, dict) else None
-        flat: dict[str, Any] = {"tier": str(key).lower(),
-                                "factor": t.get("factor") if isinstance(t, dict) else None}
+        flat: dict[str, Any] = {"tier": str(key).lower()}
         if isinstance(baseline, dict):
             for sub in ("account", "extra"):
                 d = baseline.get(sub)
@@ -419,7 +418,7 @@ def _load_tier_baselines() -> dict[str, dict]:
                     flat[sub] = dict(d)
                     flat.update(d)
         for k, v in (t.items() if isinstance(t, dict) else []):
-            if k in ("baseline", "factor"):
+            if k == "baseline":
                 continue
             flat.setdefault(k, v)
         out[str(key).lower()] = flat

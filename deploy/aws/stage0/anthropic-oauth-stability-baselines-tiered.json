@@ -125,7 +125,6 @@
   },
   "tiers": {
     "l1": {
-      "factor": 0.3,
       "baseline": {
         "account": {
           "concurrency": 1,
@@ -144,7 +143,6 @@
       }
     },
     "l2": {
-      "factor": 0.55,
       "baseline": {
         "account": {
           "concurrency": 2,
@@ -163,7 +161,6 @@
       }
     },
     "l3": {
-      "factor": 0.8,
       "baseline": {
         "account": {
           "concurrency": 3,
@@ -181,7 +178,6 @@
       }
     },
     "l4": {
-      "factor": 0.9,
       "baseline": {
         "account": {
           "concurrency": 5,
@@ -199,7 +195,6 @@
       }
     },
     "l5": {
-      "factor": 0.95,
       "baseline": {
         "account": {
           "concurrency": 8,
