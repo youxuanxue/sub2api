@@ -247,24 +247,24 @@ func TestAdminServiceBulkUpdateAccounts_ResolvesIDsFromFilters(t *testing.T) {
 	require.Equal(t, []int64{7, 11}, result.SuccessIDs)
 }
 
-// bulkAccountRepoAnthropicOAuthSum embeds bulk stub and exposes a deterministic sum for operator sync tests.
-type bulkAccountRepoAnthropicOAuthSum struct {
+// bulkAccountRepoAnthropicSum embeds bulk stub and exposes a deterministic sum for operator sync tests.
+type bulkAccountRepoAnthropicSum struct {
 	accountRepoStubForBulkUpdate
-	oauthConcurrencySum int64
-	oauthConcurrencyErr error
+	anthropicConcurrencySum int64
+	anthropicConcurrencyErr error
 }
 
-func (s *bulkAccountRepoAnthropicOAuthSum) SumConcurrencyAnthropicOAuth(context.Context) (int64, error) {
-	if s.oauthConcurrencyErr != nil {
-		return 0, s.oauthConcurrencyErr
+func (s *bulkAccountRepoAnthropicSum) SumConcurrencyAnthropic(context.Context) (int64, error) {
+	if s.anthropicConcurrencyErr != nil {
+		return 0, s.anthropicConcurrencyErr
 	}
-	return s.oauthConcurrencySum, nil
+	return s.anthropicConcurrencySum, nil
 }
 
-// TestBulkUpdateAccounts_SyncAnthropicOAuthOperatorConcurrency 验证 userRepo 齐备时，
-// 批量成功后会把管理员用户（users.id=AnthropicOAuthOperatorConcurrencyUserID）的并发写成 Σ anthropic oauth。
-func TestBulkUpdateAccounts_SyncAnthropicOAuthOperatorConcurrency(t *testing.T) {
-	repo := &bulkAccountRepoAnthropicOAuthSum{oauthConcurrencySum: 24}
+// TestBulkUpdateAccounts_SyncAnthropicOperatorConcurrency 验证 userRepo 齐备时，
+// 批量成功后会把管理员用户（users.id=AnthropicOperatorConcurrencyUserID）的并发写成 Σ anthropic accounts。
+func TestBulkUpdateAccounts_SyncAnthropicOperatorConcurrency(t *testing.T) {
+	repo := &bulkAccountRepoAnthropicSum{anthropicConcurrencySum: 24}
 	userRepo := &recordingUserRepoStub{}
 	svc := &adminServiceImpl{
 		accountRepo: repo,
@@ -279,5 +279,5 @@ func TestBulkUpdateAccounts_SyncAnthropicOAuthOperatorConcurrency(t *testing.T) 
 	require.NoError(t, err)
 	require.Equal(t, 1, result.Success)
 	require.Equal(t, 24, userRepo.lastVal)
-	require.Equal(t, []int64{AnthropicOAuthOperatorConcurrencyUserID}, userRepo.lastIDs)
+	require.Equal(t, []int64{AnthropicOperatorConcurrencyUserID}, userRepo.lastIDs)
 }

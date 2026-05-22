@@ -207,7 +207,7 @@ func (s *accountRepoStub) ResetQuotaUsed(ctx context.Context, id int64) error {
 	return nil
 }
 
-func (s *accountRepoStub) SumConcurrencyAnthropicOAuth(ctx context.Context) (int64, error) {
+func (s *accountRepoStub) SumConcurrencyAnthropic(ctx context.Context) (int64, error) {
 	return 0, nil
 }
 

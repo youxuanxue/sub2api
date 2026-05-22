@@ -16,7 +16,7 @@
       "previous_edge": "uk1",
       "retired_on": "2026-05-22",
       "released_on": "2026-05-22",
-      "notes": "Upstream-api risk-block; replaced under § 4 and CFN IMPORT recovery (2026-05-22)."
+      "notes": "upstream-ip-pollution-2026-05-22; operator-confirmed egress pollution; EIP released after §4 rotation to 16.61.87.51; §5 IMPORT drift recovery completed same day."
     }
   ]
 }
