@@ -120,6 +120,33 @@ else
   echo "  args: $(cat "$tmpdir/gh-args" 2>/dev/null || true)" >&2
 fi
 
+# 11) Workflow-pinned layout: the daily agent flattens the helper into
+#     /tmp/upstream-merge-scripts/upstream-merge-state.sh and copies scripts/lib
+#     as a SIBLING lib/ (not ../lib/). Regression guard for the twice-recurring
+#     prod failure where the source path resolved to a non-existent ../lib/.
+pinned_dir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir" "$pinned_dir"' EXIT
+cp "$HELPER" "$pinned_dir/upstream-merge-state.sh"
+cp -R "$HERE/../lib" "$pinned_dir/lib"
+chmod +x "$pinned_dir/upstream-merge-state.sh"
+# A no-op-ish subcommand: if the lib source fails, the script dies at the
+# source line (stderr mentions upstream-drift.sh) before reaching business
+# logic. With the source resolved, set-reason-code on a missing STATE_FILE
+# reaches require_state_file and emits "STATE_FILE missing" — the positive
+# proof that the lib loaded and business logic ran.
+set +e
+STATE_FILE="$pinned_dir/nonexistent-state.json" \
+  bash "$pinned_dir/upstream-merge-state.sh" set-reason-code TEST 2>"$pinned_dir/err"
+set -e
+if grep -q "STATE_FILE missing" "$pinned_dir/err" 2>/dev/null \
+   && ! grep -q "upstream-drift.sh" "$pinned_dir/err" 2>/dev/null; then
+  pass=$((pass + 1))
+else
+  fail=$((fail + 1))
+  echo "FAIL: pinned layout did not source lib / reach business logic" >&2
+  echo "  stderr: $(cat "$pinned_dir/err" 2>/dev/null || true)" >&2
+fi
+
 echo ""
 if [ "$fail" -eq 0 ]; then
   echo "=== upstream-merge-state pure assembler: PASS ($pass assertions) ==="
