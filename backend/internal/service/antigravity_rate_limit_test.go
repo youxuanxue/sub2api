@@ -89,6 +89,8 @@ type stubAntigravityAccountRepo struct {
 	extraUpdateCalls    []extraUpdateCall
 }
 
+func (stubAntigravityAccountRepo) SumConcurrencyAnthropicOAuth(context.Context) (int64, error) { return 0, nil }
+
 func (s *stubAntigravityAccountRepo) SetRateLimited(ctx context.Context, id int64, resetAt time.Time) error {
 	s.rateCalls = append(s.rateCalls, rateLimitCall{accountID: id, resetAt: resetAt})
 	return nil
