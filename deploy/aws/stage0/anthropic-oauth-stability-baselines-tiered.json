@@ -180,14 +180,14 @@
     "l4": {
       "baseline": {
         "account": {
-          "concurrency": 5,
-          "priority": 40,
+          "concurrency": 6,
+          "priority": 50,
           "rate_multiplier": 1.0
         },
         "extra": {
-          "base_rpm": 18,
-          "rpm_sticky_buffer": 14,
-          "max_sessions": 11,
+          "base_rpm": 28,
+          "rpm_sticky_buffer": 20,
+          "max_sessions": 60,
           "session_idle_timeout_minutes": 8,
           "window_cost_limit": 800,
           "window_cost_sticky_reserve": 0
