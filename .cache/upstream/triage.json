@@ -5,8 +5,8 @@
   "rationale": "TokenKey-local triage cache for upstream open issues. Use this file before re-triaging upstream issues; update entries when TokenKey fixes, dismisses, or reclassifies an issue.",
   "counts": {
     "needs_review": 357,
-    "fixed": 28,
-    "needs_prod_validation": 4,
+    "fixed": 30,
+    "needs_prod_validation": 2,
     "medium": 116,
     "not_applicable": 1,
     "low": 101,
@@ -4460,7 +4460,7 @@
       "upstream": "Wei-Shaw/sub2api#1824",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/1824",
       "title": "只有OAuth账号调用生图API会将账号标记错误",
-      "impact": "needs_prod_validation",
+      "impact": "fixed",
       "categories": [
         "rate_limit_cooldown",
         "image_oauth",
@@ -4468,8 +4468,8 @@
         "compatibility",
         "admin_ui"
       ],
-      "tokenkey_status": "partially_mitigated",
-      "rationale": "OpenAI 403 now starts with temporary unschedulable state, but repeated CF/Arkose challenges can still cool down or error accounts.",
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Body keyword short-circuit in handleOpenAI403 (Cloudflare / Arkose challenge keywords) skips the 403 counter and temp_unschedulable write so per-request CF/Arkose challenges no longer poison the OAuth pool. Failover still occurs. See fact-checks.json.",
       "updated_at": "2026-04-23T06:46:12Z"
     },
     {
@@ -4510,15 +4510,15 @@
       "upstream": "Wei-Shaw/sub2api#2413",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/2413",
       "title": "Cherry Studio 调 gpt-image-2，OpenAI 403 会导致账号被临时标记为不可调度",
-      "impact": "needs_prod_validation",
+      "impact": "fixed",
       "categories": [
         "rate_limit_cooldown",
         "image_oauth",
         "ops_observability",
         "enhancement"
       ],
-      "tokenkey_status": "partially_mitigated",
-      "rationale": "OpenAI image 403 still triggers temporary unschedulable cooldown; decide whether CF/Arkose image challenges should be ignored or scoped.",
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Same fix as #1824 — Cherry Studio gpt-image-2 CF challenges no longer cool down the OAuth account. See fact-checks.json.",
       "updated_at": "2026-05-20T14:04:19Z"
     },
     {

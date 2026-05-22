@@ -109,6 +109,29 @@ var tlsFingerprintFailureKeywords = []string{
 	"client fingerprint",
 }
 
+// openAICloudflareChallengeKeywords matches Cloudflare / Arkose challenge
+// pages where an OpenAI 403 was returned by infrastructure (CF JS challenge,
+// Arkose FunCaptcha) rather than by OpenAI's auth/permission layer. The
+// most common trigger today is the OAuth /v1/images/{generations,edits}
+// path under heavy automation — Cherry Studio and similar clients see a
+// per-request CF challenge HTML body, but the OAuth identity itself is
+// healthy. Treating these as account-level 403s would write a 10-minute
+// temp_unschedulable on the FIRST hit and SetError on the 3rd within the
+// 180-min counter window, removing the OAuth account from the pool for ALL
+// non-image traffic too. Body match is path-agnostic on purpose: a real
+// OpenAI 403 returns structured JSON ({"error":{"code":"...","message":..."}}),
+// none of these keywords appear in legitimate auth/permission errors.
+//
+// Matching is case-insensitive; order is insignificant.
+// See upstream Wei-Shaw/sub2api#1824 and #2413.
+var openAICloudflareChallengeKeywords = []string{
+	"cloudflare",
+	"just a moment",
+	"arkoselabs",
+	"funcaptcha",
+	"challenge-platform",
+}
+
 // getAnthropicErrorThreshold returns the configured 3/3-style threshold, or
 // the built-in default when unset / zero / negative.
 func (s *RateLimitService) getAnthropicErrorThreshold() int64 {
@@ -1073,6 +1096,23 @@ func buildAnthropicUpstreamErrorMessage(statusCode int, upstreamMsg string, resp
 }
 
 func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
+	// TK: Cloudflare / Arkose challenge pages return 403 on OAuth image paths
+	// (and occasionally other paths under heavy automation). The OAuth account
+	// is healthy — the 403 is per-request infrastructure noise. Skip the 403
+	// counter increment AND the temp_unschedulable write so the OAuth pool
+	// is not poisoned for non-image traffic. The in-flight request still
+	// fails over (shouldDisable=true) because this account can't serve it
+	// right now. See upstream Wei-Shaw/sub2api#1824 and #2413.
+	if matched := matchTempUnschedKeyword(strings.ToLower(string(responseBody)), openAICloudflareChallengeKeywords); matched != "" {
+		slog.Warn(
+			"openai_403_cf_challenge_skip_cooldown",
+			"account_id", account.ID,
+			"matched_keyword", matched,
+			"upstream_msg", upstreamMsg,
+		)
+		return true
+	}
+
 	msg := buildForbiddenErrorMessage(
 		"Access forbidden (403):",
 		upstreamMsg,

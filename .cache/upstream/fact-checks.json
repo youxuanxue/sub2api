@@ -358,6 +358,22 @@
         "backend/internal/service/openai_gateway_service.go:shouldDisable = s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, body)",
         "backend/internal/service/openai_oauth_passthrough_test.go:TestOpenAIGatewayService_OpenAIPassthrough_TempUnschedRuleTriggersFailover"
       ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1824",
+      "severity": "high",
+      "summary": "OpenAI 403 handler skips the per-account counter + temp_unschedulable + SetError writes when the response body matches a Cloudflare / Arkose challenge keyword (cloudflare / just a moment / arkoselabs / funcaptcha / challenge-platform). Failover still proceeds for the in-flight request; the OAuth account stays in the pool for unrelated traffic.",
+      "fixed_by": [
+        "backend/internal/service/ratelimit_service.go",
+        "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/ratelimit_service.go:openAICloudflareChallengeKeywords",
+        "backend/internal/service/ratelimit_service.go:openai_403_cf_challenge_skip_cooldown",
+        "backend/internal/service/ratelimit_service.go:See upstream Wei-Shaw/sub2api#1824 and #2413",
+        "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go:TestRateLimitService_HandleUpstreamError_OpenAI403CloudflareChallengeSkipsCooldown",
+        "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go:TestRateLimitService_HandleUpstreamError_OpenAI403RealAccountErrorStillCoolsDown"
+      ]
     }
   ]
 }
