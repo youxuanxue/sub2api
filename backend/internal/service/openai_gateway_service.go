@@ -3700,6 +3700,13 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		lineStartsClientOutput := false
 		forceFlushFailedEvent := false
 		if data, ok := extractOpenAISSEDataLine(line); ok {
+			// TK fix for upstream Wei-Shaw/sub2api#2298: drop empty `data:` SSE
+			// frames before forwarding (OpenAI Python SDK crashes on json.loads("")
+			// on the OAuth /v1/responses passthrough path too). See
+			// openAISSEDataPayloadIsEmpty for the canonical rationale.
+			if openAISSEDataPayloadIsEmpty(data) {
+				continue
+			}
 			dataBytes := []byte(data)
 			trimmedData := strings.TrimSpace(data)
 			if needModelReplace && strings.Contains(data, mappedModel) {
@@ -4576,6 +4583,15 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 		}
 		// Extract data from SSE line (supports both "data: " and "data:" formats)
 		if data, ok := extractOpenAISSEDataLine(line); ok {
+			// TK fix for upstream Wei-Shaw/sub2api#2298: drop empty / whitespace-only
+			// `data:` SSE frames before forwarding. Upstream gpt-5.5 on `/v1/responses`
+			// occasionally emits bare `data:\n` frames; the OpenAI Python SDK calls
+			// json.loads("") on every data line and crashes, breaking clients with a
+			// 5-10% failure rate. See openAISSEDataPayloadIsEmpty for the canonical
+			// rationale.
+			if openAISSEDataPayloadIsEmpty(data) {
+				return
+			}
 
 			// Replace model in response if needed.
 			// Fast path: most events do not contain model field values.

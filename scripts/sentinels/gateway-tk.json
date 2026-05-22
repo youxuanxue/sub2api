@@ -547,6 +547,41 @@
       "rationale": "Focused regression anchors for upstream #1471 covering both sendErrorEvent triggers that share the closure: synchronous scanner error path (stream_read_error) and asynchronous interval-timeout path (stream_timeout). Each asserts every SSE event in the post-error transcript carries exactly one parseable-JSON data line. Together they prove the prepended-blank-line invariant holds for both the bufio.Scanner sync path and the goroutine async path that read from upstream."
     },
     {
+      "path": "backend/internal/service/openai_gateway_service_tk_empty_sse_data.go",
+      "must_contain": [
+        "func openAISSEDataPayloadIsEmpty",
+        "Wei-Shaw/sub2api#2298"
+      ],
+      "rationale": "TK companion that exposes the single empty-SSE-data predicate consumed by all three OpenAI forward paths (handleStreamingResponse, handleStreamingResponsePassthrough, streamRawChatCompletions). Without this helper the upstream Wei-Shaw/sub2api#2298 fix silently regresses: upstream gpt-5.5 on /v1/responses occasionally emits bare `data:\\n\\n` SSE frames at ~5-10% rate, and the OpenAI Python SDK crashes on json.loads(\"\") inside openai/_streaming.py. The function name + issue reference are the intent anchors; the body is intentionally tiny so harmless refactors (renaming the param, switching to bytes input) do not flap the registry."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "TK fix for upstream Wei-Shaw/sub2api#2298",
+        "openAISSEDataPayloadIsEmpty(data)"
+      ],
+      "rationale": "OpenAI streaming forward paths (handleStreamingResponse main loop and handleStreamingResponsePassthrough) must drop empty / whitespace-only `data:` SSE frames before forwarding to the client. Pinning both the intent comment and the predicate call site catches upstream merges that revert either piece — losing only the comment is harmless, but losing the call silently restores the gpt-5.5 JSON crash on every OpenAI Python SDK consumer."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
+      "must_contain": [
+        "TK fix for upstream Wei-Shaw/sub2api#2298",
+        "openAISSEDataPayloadIsEmpty(payload)"
+      ],
+      "rationale": "Same upstream Wei-Shaw/sub2api#2298 invariant on the third-party OpenAI-compat raw Chat Completions forward (DeepSeek / Kimi / GLM / Qwen ...). Without the call, empty `data:` frames from any of those upstreams leak to clients and crash OpenAI Python SDK consumers."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service_tk_empty_sse_data_test.go",
+      "must_contain": [
+        "TestOpenAISSEDataPayloadIsEmpty",
+        "TestOpenAIStreamingDropsEmptySSEDataFrames",
+        "TestOpenAIPassthroughDropsEmptySSEDataFrames",
+        "TestOpenAIChatCompletionsRawDropsEmptySSEDataFrames",
+        "streamHasEmptyDataLine"
+      ],
+      "rationale": "Focused regression anchors for upstream #2298 across all three OpenAI forward paths. streamHasEmptyDataLine is the load-bearing invariant assertion (no `data:` line in the captured transcript has a whitespace-only payload); dropping the helper would let the per-path tests still pass while losing the audit predicate."
+    },
+    {
       "path": "backend/internal/service/scheduler_rate_limit_reaper.go",
       "must_contain": [
         "TK: See upstream Wei-Shaw/sub2api#2538",

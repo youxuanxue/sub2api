@@ -294,6 +294,27 @@
       ]
     },
     {
+      "upstream": "Wei-Shaw/sub2api#2298",
+      "severity": "high",
+      "summary": "OpenAI gateway forward paths drop empty / whitespace-only `data:` SSE frames before they reach the client. Upstream gpt-5.5 on `/v1/responses` emits bare `data:\\n\\n` frames at roughly a 5-10% rate; the OpenAI Python SDK then crashes on json.loads(\"\") inside `openai/_streaming.py`. The TK fix introduces a single `openAISSEDataPayloadIsEmpty` predicate and consumes it in all three client-facing forward paths: handleStreamingResponse (main /v1/responses), handleStreamingResponsePassthrough (OAuth passthrough), and streamRawChatCompletions (third-party OpenAI-compat upstreams like DeepSeek / Kimi / GLM / Qwen). See router-for-me/CLIProxyAPI#2460 for the canonical analysis.",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service_tk_empty_sse_data.go",
+        "backend/internal/service/openai_gateway_service.go",
+        "backend/internal/service/openai_gateway_chat_completions_raw.go",
+        "backend/internal/service/openai_gateway_service_tk_empty_sse_data_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_gateway_service_tk_empty_sse_data.go:func openAISSEDataPayloadIsEmpty",
+        "backend/internal/service/openai_gateway_service_tk_empty_sse_data.go:Wei-Shaw/sub2api#2298",
+        "backend/internal/service/openai_gateway_service.go:TK fix for upstream Wei-Shaw/sub2api#2298",
+        "backend/internal/service/openai_gateway_chat_completions_raw.go:TK fix for upstream Wei-Shaw/sub2api#2298",
+        "backend/internal/service/openai_gateway_service_tk_empty_sse_data_test.go:TestOpenAISSEDataPayloadIsEmpty",
+        "backend/internal/service/openai_gateway_service_tk_empty_sse_data_test.go:TestOpenAIStreamingDropsEmptySSEDataFrames",
+        "backend/internal/service/openai_gateway_service_tk_empty_sse_data_test.go:TestOpenAIPassthroughDropsEmptySSEDataFrames",
+        "backend/internal/service/openai_gateway_service_tk_empty_sse_data_test.go:TestOpenAIChatCompletionsRawDropsEmptySSEDataFrames"
+      ]
+    },
+    {
       "upstream": "Wei-Shaw/sub2api#1264",
       "severity": "high",
       "summary": "OpenAI /v1/responses passthrough strips top-level `user` before forwarding. Symmetric coverage on (a) APIKey native path via OpenAIGatewayService.Forward's unsupportedFields list (the OAuth path already strips it through openAIChatGPTInternalUnsupportedFields in applyCodexOAuthTransform) and (b) the Cursor-shape short-circuit in ForwardAsChatCompletions via cursorResponsesUnsupportedFields. Native OpenAI Responses upstream rejects `user` with HTTP 400 \"Unsupported parameter: user\"; the Responses equivalent is `safety_identifier`, which we already filter.",

@@ -86,6 +86,15 @@
       "summary": "OpenAI /v1/responses sendErrorEvent now prepends a blank line before the synthetic data: line, so any in-flight upstream SSE event whose terminating blank line was never sent is closed before the synthetic event is written. Without this, the unterminated `data:` line and the synthetic `data:` line merge into a single SSE event whose payload contains two concatenated JSON objects, which downstream OpenAI-compatible SDKs (Codex, OpenCode, etc.) reject with malformed JSON."
     },
     {
+      "upstream": "Wei-Shaw/sub2api#1824",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/ratelimit_service.go",
+        "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go"
+      ],
+      "summary": "OpenAI 403 handler skips the per-account counter + temp_unschedulable + SetError writes when the response body matches a Cloudflare / Arkose challenge keyword (cloudflare / just a moment / arkoselabs / funcaptcha / challenge-platform). Failover still proceeds for the in-flight request; the OAuth account stays in the pool for unrelated traffic."
+    },
+    {
       "upstream": "Wei-Shaw/sub2api#1925",
       "status": "fixed_in_tokenkey",
       "fixed_by": [
@@ -164,6 +173,17 @@
       "summary": "GPT-5.4/5.5 long-context billing includes cache_read tokens in the threshold and applies the long-context multiplier to cache_read cost."
     },
     {
+      "upstream": "Wei-Shaw/sub2api#2298",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service_tk_empty_sse_data.go",
+        "backend/internal/service/openai_gateway_service.go",
+        "backend/internal/service/openai_gateway_chat_completions_raw.go",
+        "backend/internal/service/openai_gateway_service_tk_empty_sse_data_test.go"
+      ],
+      "summary": "OpenAI gateway forward paths drop empty / whitespace-only `data:` SSE frames before they reach the client. Upstream gpt-5.5 on `/v1/responses` emits bare `data:\\n\\n` frames at roughly a 5-10% rate; the OpenAI Python SDK then crashes on json.loads(\"\") inside `openai/_streaming.py`. The TK fix introduces a single `openAISSEDataPayloadIsEmpty` predicate and consumes it in all three client-facing forward paths: handleStreamingResponse (main /v1/responses), handleStreamingResponsePassthrough (OAuth passthrough), and streamRawChatCompletions (third-party OpenAI-compat upstreams like DeepSeek / Kimi / GLM / Qwen). See router-for-me/CLIProxyAPI#2460 for the canonical analysis."
+    },
+    {
       "upstream": "Wei-Shaw/sub2api#2310",
       "status": "fixed_in_tokenkey",
       "fixed_by": [
@@ -229,6 +249,16 @@
         "backend/internal/service/openai_account_scheduler.go"
       ],
       "summary": "Sticky-session scheduling has dedicated hash, strategy, TTL refresh, and invalidation logic for OpenAI-compatible account selection."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2413",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/ratelimit_service.go",
+        "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go",
+        "scripts/sentinels/gateway-tk.json"
+      ],
+      "summary": "Same fix as #1824: Cherry Studio gpt-image-2 traffic hits per-request Cloudflare challenges on OpenAI OAuth; the body keyword match in handleOpenAI403 now keeps the account schedulable for non-image traffic instead of writing temp_unschedulable on the first hit."
     },
     {
       "upstream": "Wei-Shaw/sub2api#2478",
@@ -336,25 +366,6 @@
         "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal_test.go"
       ],
       "summary": "OpenAI Chat Completions raw passthrough detects upstream silent refusal (empty stream/response with finish_reason=stop and zero usage) and emits an ops_error_logs row with Kind=silent_refusal. Conservative predicate: no content / no tool_calls / no reasoning / no refusal / no chunk-level error / zero usage / finish_reason=stop. Stream path keeps the client-visible bytes untouched (headers already flushed); buffered path will keep flexibility to harden later. The categorical ops signal turns the previously invisible 'ghost stream' (gpt-5.5 above input budget) into a dashboard-pivotable event."
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#1824",
-      "status": "fixed_in_tokenkey",
-      "fixed_by": [
-        "backend/internal/service/ratelimit_service.go",
-        "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go"
-      ],
-      "summary": "OpenAI 403 handler skips the per-account counter + temp_unschedulable + SetError writes when the response body matches a Cloudflare / Arkose challenge keyword (cloudflare / just a moment / arkoselabs / funcaptcha / challenge-platform). Failover still proceeds for the in-flight request; the OAuth account stays in the pool for unrelated traffic."
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#2413",
-      "status": "fixed_in_tokenkey",
-      "fixed_by": [
-        "backend/internal/service/ratelimit_service.go",
-        "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go",
-        "scripts/sentinels/gateway-tk.json"
-      ],
-      "summary": "Same fix as #1824: Cherry Studio gpt-image-2 traffic hits per-request Cloudflare challenges on OpenAI OAuth; the body keyword match in handleOpenAI403 now keeps the account schedulable for non-image traffic instead of writing temp_unschedulable on the first hit."
     }
   ]
 }
