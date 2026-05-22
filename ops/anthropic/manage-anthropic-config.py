@@ -460,7 +460,8 @@ def cmd_plan_edge_account_tier(args: argparse.Namespace) -> int:
         target_account.get(k) == baseline.get(k)
         for k in ("base_rpm", "rpm_sticky_buffer", "concurrency", "max_sessions")
     )
-    if current_tier == tier_key and fields_match:
+    force_rewrite = bool(getattr(args, "force_template_rewrite", False))
+    if current_tier == tier_key and fields_match and not force_rewrite:
         print(
             f"plan: account {args.account_name!r} on edge {args.edge_id} is already at "
             f"tier {tier_key} with matching baseline fields — emitting empty plan.",
@@ -471,7 +472,8 @@ def cmd_plan_edge_account_tier(args: argparse.Namespace) -> int:
             "kind": "edge_account_tier_change",
             "confirm_code": CONFIRM_CODE,
             "intent": {"edge_id": args.edge_id, "account_name": args.account_name,
-                       "new_tier": tier_key},
+                       "new_tier": tier_key,
+                       "force_template_rewrite": force_rewrite},
             "snapshot_captured_at": snap.get("captured_at"),
             "plan_built_at": now_utc_iso(),
             "noop": True,
@@ -509,7 +511,8 @@ def cmd_plan_edge_account_tier(args: argparse.Namespace) -> int:
         "kind": "edge_account_tier_change",
         "confirm_code": CONFIRM_CODE,
         "intent": {"edge_id": args.edge_id, "account_name": args.account_name,
-                   "new_tier": tier_key},
+                   "new_tier": tier_key,
+                   "force_template_rewrite": force_rewrite},
         "snapshot_captured_at": snap.get("captured_at"),
         "plan_built_at": now_utc_iso(),
         "summary": {"total_steps": 1, "edge_changes": 1},
@@ -753,6 +756,16 @@ def main() -> int:
     sp.add_argument("--tier", required=True, help="l1 / l2 / l3 / l4 / l5")
     sp.add_argument("--snapshot", required=True)
     sp.add_argument("--out", help="write plan JSON (otherwise stdout)")
+    sp.add_argument(
+        "--force-template-rewrite",
+        action="store_true",
+        help=(
+            "skip the fields_match noop short-circuit and always emit an action. "
+            "Required when re-applying the same tier to overwrite credentials-side "
+            "fields (e.g. temp_unschedulable_rules) that snapshot/verify do not "
+            "track but the apply template rewrites unconditionally."
+        ),
+    )
     sp.set_defaults(handler=cmd_plan_edge_account_tier)
 
     sp = sub.add_parser("apply",

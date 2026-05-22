@@ -114,12 +114,15 @@ updated AS (
       jsonb_build_object(
         'intercept_warmup_requests', true,
         'temp_unschedulable_enabled', true,
+        -- 仅保留 403 account_disabled / organization_disabled 一条规则。
+        -- 429 / 529 / 401 删除后由 case 429 (handle429 retry-after / 5h-window 精准 reset_at) /
+        -- case 529 (handle529 + OverloadCooldownMinutes admin 全局可调) /
+        -- case 401 (OAuth force-refresh + OAuth401CooldownMinutes + 二次升级 SetError) 各自接管。
+        -- 403 这一条 + tryTempUnschedulable 的二次命中升级（ratelimit_service.go L2031-2042）
+        -- 共同构成 "先睡 6h 再死" 的语义间隔，与 baselines-tiered.json 一致。
         'temp_unschedulable_rules',
           '[
-            {"error_code":429,"keywords":["rate limit","too many requests"],"duration_minutes":30,"description":"触发限流 - 暂停 30 分钟"},
-            {"error_code":529,"keywords":["overloaded","capacity"],"duration_minutes":15,"description":"上游过载 - 暂停 15 分钟"},
-            {"error_code":401,"keywords":["invalid_token","expired"],"duration_minutes":30,"description":"凭据异常 - 暂停 30 分钟"},
-            {"error_code":403,"keywords":["account_disabled_auth_error","organization disabled"],"duration_minutes":360,"description":"账号或组织禁用 - 暂停 6 小时"}
+            {"error_code":403,"keywords":["account_disabled_auth_error","organization disabled"],"duration_minutes":360,"description":"账号或组织禁用 - 暂停 6 小时（二次命中由 handle403 升级为 SetError）"}
           ]'::jsonb
       ),
     extra = (
