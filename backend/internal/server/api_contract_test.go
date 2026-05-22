@@ -1444,7 +1444,7 @@ func (r *stubUserRepo) BatchAddConcurrency(ctx context.Context, userIDs []int64,
 }
 
 func (r *stubUserRepo) BatchSetConcurrency(ctx context.Context, userIDs []int64, value int) (int, error) {
-	return 0, errors.New("not implemented")
+	return len(userIDs), nil
 }
 
 func (r *stubUserRepo) ExistsByEmail(ctx context.Context, email string) (bool, error) {
