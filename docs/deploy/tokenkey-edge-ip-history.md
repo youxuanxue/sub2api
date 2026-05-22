@@ -56,7 +56,6 @@ Recovery history:
 
 > **Operational follow-up:** the stack parameter `AmazonLinux2023Arm64Ami` still points at **`/tokenkey/edge/uk1/stage0/recovery/ami-pin`** holding `ami-01308afad6532bf22`. Keep that SSM parameter until a normal **`deploy-edge-stage0.yml`** (or equivalent stack update) returns the AMI parameter path to `/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64` (pin no longer referenced), **then delete** `/tokenkey/edge/uk1/stage0/recovery/ami-pin` to satisfy the ami-pin housekeeping in `tokenkey-stage0-edge-ip-rotation`.
 
-
 Known unresolved drift on edge stacks (not blocking deploys; tracked here so future recoveries do not re-discover them):
 
 - **`ElasticIP` Tag set MODIFIED** on any edge that has had an EIP rotation — operational tags `tokenkey:replaced-on / replaces / replaces-reason / status` are written by the rotation procedure (§ 4 step 6) and intentionally not declared in the CFN template (they are dynamic per rotation). Re-asserted on every rotation; not actionable.
