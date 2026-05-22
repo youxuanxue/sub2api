@@ -132,6 +132,8 @@
         "anthropicCooldownTierEscalationsWindowMinutes",
         "tlsFingerprintFailureKeywords",
         "tlsFingerprintFailureCooldown",
+        "openAICloudflareChallengeKeywords",
+        "openai_403_cf_challenge_skip_cooldown",
         "handleAnthropicUpstreamError",
         "handleAnthropicUpstreamErrorWithOptions",
         "IncrementAnthropicUpstreamErrorCount",
@@ -209,6 +211,16 @@
         "TestRateLimitService_ResetAnthropicCounter_AlsoResetsCooldownTier"
       ],
       "rationale": "Focused regressions proving the behaviors that are easy to silently revert in an upstream merge: (1) non-pool-mode Anthropic upstream errors only disable after the 3/3 short-window threshold, (2) **pool-mode Anthropic accounts STILL feed the counter** and the first cooldown is 30s (2026-05-21 revision of PR #333: the blanket immunity left ops with no mechanical signal that a stub was failing; the replacement is tiered cooldown that keeps single-member-group customer impact ≤30s on transient jitter while still escalating to 10min on persistent failure), (3) **tier escalation 30s → 2min → 10min** via AnthropicCooldownTierEscalates — without this, persistent upstream failure would just bounce every 30s indefinitely, hammering the bad backend at ~50% error rate forever, (4) custom-error-codes allowlist carve-out still feeds the counter (non-pool-mode), (5) ClearRateLimit and RecoverAccountAfterSuccessfulTest both reset the error counter, and (6) ResetAnthropicCounter ALSO resets the cooldown tier so a healed account starts the next failure window at the shortest cooldown. The deleted TestRateLimitService_HandleUpstreamError_AnthropicPoolModeBypassesUpstreamErrorCounter asserted the inverse policy (pool_mode bypasses counter); restoring its name here would fail preflight and prompt the reviewer to read this rationale before re-applying the immunity. Dropping these tests lets the upstream-error policy silently drift during future merges."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go",
+      "must_contain": [
+        "TestRateLimitService_HandleUpstreamError_OpenAI403CloudflareChallengeSkipsCooldown",
+        "TestRateLimitService_HandleUpstreamError_OpenAI403RealAccountErrorStillCoolsDown",
+        "TestRateLimitService_HandleUpstreamError_OpenAI403CFKeywordInsideStructuredBodyStillSkips",
+        "TestRateLimitService_HandleUpstreamError_OpenAI403CFChallengeSkipsForAPIKey"
+      ],
+      "rationale": "Focused regressions for the OpenAI 403 Cloudflare / Arkose challenge short-circuit (upstream Wei-Shaw/sub2api#1824, #2413). Without these tests, an upstream merge or refactor that 'simplifies' handleOpenAI403 by dropping the body keyword scan would silently restore the OAuth-pool-poisoning behavior: a single CF/Arkose challenge on /v1/images/{generations,edits} writes a 10-min temp_unschedulable on the FIRST hit and escalates to SetError on the 3rd within 180 min, removing the account from ALL non-image traffic. The four cases anchor: (1) the four body shapes in the keyword list each match (just-a-moment, cloudflare, arkoselabs, challenge-platform), (2) a real account 403 with structured JSON STILL increments the counter and writes temp_unschedulable, (3) a CF keyword inside a JSON envelope still skips (regression guard for over-clever JSON-aware future refactors), (4) APIKey accounts also benefit — the short-circuit runs before any OAuth-specific branch."
     },
     {
       "path": "backend/internal/service/ratelimit_service_401_test.go",
