@@ -396,7 +396,6 @@ def resolve_effective_baseline(
     return {
         "baseline": effective,
         "selected_tier": tier_key,
-        "selected_factor": tier_cfg.get("factor"),
         "tier_source": "account.extra.stability_tier" if (live.get("account") or {}).get("stability_tier") else "default_tier",
     }
 
@@ -674,7 +673,6 @@ def main() -> int:
                     "account_name": account_name,
                     "account_stability_tier": (live.get("account") or {}).get("stability_tier"),
                     "baseline_tier": effective_baseline.get("selected_tier"),
-                    "baseline_factor": effective_baseline.get("selected_factor"),
                     "tier_source": effective_baseline.get("tier_source"),
                     "ssm_command_id": live.get("ssm_command_id"),
                     "status": "ok" if not diffs else "drift",
