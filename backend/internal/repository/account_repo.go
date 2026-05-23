@@ -151,7 +151,7 @@ func (r *accountRepository) SumConcurrencyAnthropic(ctx context.Context) (int64,
 	const q = `
 SELECT COALESCE(SUM(concurrency), 0)::bigint
 FROM accounts
-WHERE platform = $1 AND deleted_at IS NULL`
+WHERE platform = $1 AND schedulable = true AND deleted_at IS NULL`
 	var sum sql.NullInt64
 	if err := scanSingleRow(ctx, r.sql, q, []any{domain.PlatformAnthropic}, &sum); err != nil {
 		return 0, fmt.Errorf("sum anthropic concurrency: %w", err)

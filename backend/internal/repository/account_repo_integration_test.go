@@ -1074,7 +1074,7 @@ func (s *AccountRepoSuite) TestBulkUpdate_EmptyUpdates() {
 	s.Require().Zero(affected)
 }
 
-func (s *AccountRepoSuite) TestSumConcurrencyAnthropic_FilterByPlatform() {
+func (s *AccountRepoSuite) TestSumConcurrencyAnthropic_FilterByPlatformAndSchedulable() {
 	mustCreateAccount(s.T(), s.client, &service.Account{
 		Name: "sum-auth-4", Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth, Concurrency: 4,
 	})
@@ -1087,6 +1087,14 @@ func (s *AccountRepoSuite) TestSumConcurrencyAnthropic_FilterByPlatform() {
 	mustCreateAccount(s.T(), s.client, &service.Account{
 		Name: "sum-openai-oauth", Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Concurrency: 800,
 	})
+	// Non-schedulable anthropic row must be excluded from the operator-concurrency
+	// sum (mirrors ops/anthropic operator SQL: AND schedulable = true). The fixture
+	// forces schedulable=true, so flip it directly afterwards.
+	unsched := mustCreateAccount(s.T(), s.client, &service.Account{
+		Name: "sum-anthropic-unsched", Platform: service.PlatformAnthropic, Type: service.AccountTypeAPIKey, Concurrency: 50,
+	})
+	s.Require().NoError(s.client.Account.UpdateOneID(unsched.ID).SetSchedulable(false).Exec(s.ctx))
+
 	got, err := s.repo.SumConcurrencyAnthropic(s.ctx)
 	s.Require().NoError(err)
 	s.Require().EqualValues(4+5+900, got)
