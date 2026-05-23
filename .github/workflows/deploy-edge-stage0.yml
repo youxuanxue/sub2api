@@ -18,7 +18,7 @@ on:
           - fra1
           - us1
       operation:
-        description: "Operation to run. provision creates/updates CFN; upgrade only changes image tag via SSM; smoke verifies."
+        description: "Operation to run. provision creates/updates CFN; upgrade only changes image tag via SSM; smoke verifies; rotate_egress_ip swaps the EIP via CFN-native UpdateStack with auto-revert on pollution."
         required: true
         type: choice
         options:
@@ -26,6 +26,7 @@ on:
           - upgrade
           - smoke
           - rollback
+          - rotate_egress_ip
       tag:
         description: "Released image tag without leading v. Required for provision/upgrade/rollback."
         required: false
@@ -39,6 +40,14 @@ on:
         required: false
         type: boolean
         default: false
+      rotation_reason:
+        description: "Required for operation=rotate_egress_ip. Short string written to the EIP tag and to edge-polluted-ips.json notes when the old EIP is retired (e.g. 'upstream-api-risk-block-2026-05-23')."
+        required: false
+        type: string
+      candidate_allocation_id:
+        description: "Optional for operation=rotate_egress_ip. If set, skip allocation and swap directly to this pre-vetted allocation-id. Must match ^eipalloc-[0-9a-f]+$ and be in the edge's region."
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -60,6 +69,8 @@ jobs:
       INPUT_TAG: ${{ inputs.tag }}
       INPUT_CONFIRM_STACK: ${{ inputs.confirm_stack }}
       INPUT_OVERRIDE: ${{ inputs.simple_release_override }}
+      INPUT_ROTATION_REASON: ${{ inputs.rotation_reason }}
+      INPUT_CANDIDATE_ALLOC: ${{ inputs.candidate_allocation_id }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -93,6 +104,16 @@ jobs:
               fi
               ;;
             smoke)
+              ;;
+            rotate_egress_ip)
+              if [ -z "${INPUT_ROTATION_REASON:-}" ]; then
+                echo "::error::rotation_reason is required for operation=rotate_egress_ip"
+                exit 1
+              fi
+              if [ -n "${INPUT_CANDIDATE_ALLOC:-}" ] && ! printf '%s' "$INPUT_CANDIDATE_ALLOC" | grep -Eq '^eipalloc-[0-9a-f]{8,17}$'; then
+                echo "::error::candidate_allocation_id must match ^eipalloc-[0-9a-f]+$, got: $INPUT_CANDIDATE_ALLOC"
+                exit 1
+              fi
               ;;
             *)
               echo "::error::unsupported operation=$INPUT_OPERATION"
@@ -210,6 +231,233 @@ jobs:
           STAGE0_SSM_OUTPUT_DIR: .
         run: bash ops/stage0/deploy_via_ssm.sh "$INPUT_TAG" "$INSTANCE_ID" "deploy-edge-stage0 edge=$INPUT_EDGE_ID op=$INPUT_OPERATION"
 
+      - name: Resolve CFN execution role (rotate_egress_ip)
+        id: rotate_role
+        if: inputs.operation == 'rotate_egress_ip'
+        env:
+          EDGE_ID: ${{ steps.edge.outputs.edge_id }}
+          AWS_OIDC_STACK_NAME: ${{ vars.AWS_OIDC_STACK_NAME }}
+          AWS_OIDC_STACK_REGION: ${{ vars.AWS_OIDC_STACK_REGION || vars.AWS_REGION || 'us-east-1' }}
+        run: |
+          set -euo pipefail
+          AWS_OIDC_STACK_NAME="${AWS_OIDC_STACK_NAME:-tokenkey-cicd-oidc}"
+          case "${EDGE_ID}" in
+            uk1) CFN_ROLE_OUTPUT_KEY=EdgeUk1CloudFormationExecutionRoleArn ;;
+            fra1) CFN_ROLE_OUTPUT_KEY=EdgeFra1CloudFormationExecutionRoleArn ;;
+            us1) CFN_ROLE_OUTPUT_KEY=EdgeUs1CloudFormationExecutionRoleArn ;;
+            *)
+              echo "::error::edge_id ${EDGE_ID} has no CloudFormation execution role mapping in deploy-edge-stage0.yml"
+              exit 1
+              ;;
+          esac
+          ARN=$(aws cloudformation describe-stacks --region "${AWS_OIDC_STACK_REGION}" \
+            --stack-name "$AWS_OIDC_STACK_NAME" \
+            --query "Stacks[0].Outputs[?OutputKey==\`${CFN_ROLE_OUTPUT_KEY}\`].OutputValue" --output text)
+          if [ -z "${ARN:-}" ] || [ "$ARN" = "None" ]; then
+            echo "::error::could not resolve ${CFN_ROLE_OUTPUT_KEY} from cicd OIDC stack ${AWS_OIDC_STACK_NAME} (region ${AWS_OIDC_STACK_REGION})"
+            exit 1
+          fi
+          echo "arn=$ARN" >> "$GITHUB_OUTPUT"
+
+      - name: Read current EipAllocationId from stack (rotate_egress_ip)
+        id: current_eip
+        if: inputs.operation == 'rotate_egress_ip'
+        env:
+          STACK_NAME: ${{ steps.edge.outputs.stack }}
+        run: |
+          set -euo pipefail
+          OLD_ALLOC=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
+            --query "Stacks[0].Parameters[?ParameterKey=='EipAllocationId'].ParameterValue | [0]" --output text)
+          if [ -z "$OLD_ALLOC" ] || [ "$OLD_ALLOC" = "None" ]; then
+            echo "::error::stack $STACK_NAME has no EipAllocationId parameter — pre-OPC EIP-as-resource shape. Run deploy/aws/stage0/migrate-edge-eip-to-parameter.sh first."
+            exit 1
+          fi
+          OLD_IP=$(aws ec2 describe-addresses --allocation-ids "$OLD_ALLOC" \
+            --query 'Addresses[0].PublicIp' --output text)
+          if [ -z "$OLD_IP" ] || [ "$OLD_IP" = "None" ]; then
+            echo "::error::could not resolve PublicIp for current allocation $OLD_ALLOC"
+            exit 1
+          fi
+          echo "alloc=$OLD_ALLOC" >> "$GITHUB_OUTPUT"
+          echo "ip=$OLD_IP" >> "$GITHUB_OUTPUT"
+
+      - name: Allocate clean candidate EIP (rotate_egress_ip; auto path)
+        id: candidate
+        if: inputs.operation == 'rotate_egress_ip' && inputs.candidate_allocation_id == ''
+        env:
+          EDGE_ID: ${{ steps.edge.outputs.edge_id }}
+          REGION: ${{ steps.edge.outputs.region }}
+        run: |
+          set -euo pipefail
+          out=$(python3 deploy/aws/stage0/allocate-clean-egress-eip.py \
+            --region "$REGION" --edge-id "$EDGE_ID" --reason "$INPUT_ROTATION_REASON")
+          echo "$out"
+          alloc=$(printf '%s' "$out" | python3 -c 'import json,sys;print(json.loads(sys.stdin.read())["allocation_id"])')
+          ip=$(printf '%s' "$out" | python3 -c 'import json,sys;print(json.loads(sys.stdin.read())["public_ip"])')
+          echo "alloc=$alloc" >> "$GITHUB_OUTPUT"
+          echo "ip=$ip" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve effective candidate (rotate_egress_ip)
+        id: new_eip
+        if: inputs.operation == 'rotate_egress_ip'
+        env:
+          OVERRIDE_ALLOC: ${{ inputs.candidate_allocation_id }}
+          AUTO_ALLOC: ${{ steps.candidate.outputs.alloc }}
+          AUTO_IP: ${{ steps.candidate.outputs.ip }}
+          REGION: ${{ steps.edge.outputs.region }}
+        run: |
+          set -euo pipefail
+          if [ -n "$OVERRIDE_ALLOC" ]; then
+            NEW_ALLOC="$OVERRIDE_ALLOC"
+            NEW_IP=$(aws ec2 describe-addresses --region "$REGION" --allocation-ids "$NEW_ALLOC" \
+              --query 'Addresses[0].PublicIp' --output text)
+            if [ -z "$NEW_IP" ] || [ "$NEW_IP" = "None" ]; then
+              echo "::error::could not resolve PublicIp for operator-supplied candidate $NEW_ALLOC in $REGION"
+              exit 1
+            fi
+            SOURCE=operator
+          else
+            NEW_ALLOC="$AUTO_ALLOC"
+            NEW_IP="$AUTO_IP"
+            SOURCE=auto
+          fi
+          echo "alloc=$NEW_ALLOC" >> "$GITHUB_OUTPUT"
+          echo "ip=$NEW_IP" >> "$GITHUB_OUTPUT"
+          echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
+
+      - name: Swap EIP via CloudFormation update-stack (rotate_egress_ip)
+        if: inputs.operation == 'rotate_egress_ip'
+        env:
+          STACK_NAME: ${{ steps.edge.outputs.stack }}
+          CFN_ROLE: ${{ steps.rotate_role.outputs.arn }}
+          NEW_ALLOC: ${{ steps.new_eip.outputs.alloc }}
+        run: |
+          set -euo pipefail
+          aws cloudformation deploy \
+            --stack-name "$STACK_NAME" \
+            --template-file deploy/aws/cloudformation/stage0-edge-ec2.yaml \
+            --role-arn "$CFN_ROLE" \
+            --capabilities CAPABILITY_IAM \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides EipAllocationId="$NEW_ALLOC"
+
+      - name: Verify SSM Online post-swap (rotate_egress_ip)
+        if: inputs.operation == 'rotate_egress_ip'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          REGION: ${{ steps.edge.outputs.region }}
+        run: bash deploy/aws/stage0/verify-ssm-online.sh "$INSTANCE_ID" "$REGION"
+
+      - name: Probe egress for upstream-API pollution (rotate_egress_ip)
+        id: egress_probe
+        if: inputs.operation == 'rotate_egress_ip'
+        continue-on-error: true
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          REGION: ${{ steps.edge.outputs.region }}
+          NEW_IP: ${{ steps.new_eip.outputs.ip }}
+        run: bash deploy/aws/stage0/verify-egress-clean.sh "$INSTANCE_ID" "$REGION" "$NEW_IP"
+
+      - name: Revert EIP on probe failure (rotate_egress_ip)
+        if: inputs.operation == 'rotate_egress_ip' && steps.egress_probe.outcome == 'failure'
+        env:
+          STACK_NAME: ${{ steps.edge.outputs.stack }}
+          CFN_ROLE: ${{ steps.rotate_role.outputs.arn }}
+          OLD_ALLOC: ${{ steps.current_eip.outputs.alloc }}
+          NEW_ALLOC: ${{ steps.new_eip.outputs.alloc }}
+          NEW_SOURCE: ${{ steps.new_eip.outputs.source }}
+          REGION: ${{ steps.edge.outputs.region }}
+        run: |
+          set -euo pipefail
+          echo "::warning::pollution probe failed on ${NEW_ALLOC}; reverting stack to ${OLD_ALLOC}"
+          aws cloudformation deploy \
+            --stack-name "$STACK_NAME" \
+            --template-file deploy/aws/cloudformation/stage0-edge-ec2.yaml \
+            --role-arn "$CFN_ROLE" \
+            --capabilities CAPABILITY_IAM \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides EipAllocationId="$OLD_ALLOC"
+          bash deploy/aws/stage0/verify-ssm-online.sh "${{ steps.instance.outputs.id }}" "$REGION"
+          if [ "$NEW_SOURCE" = "auto" ]; then
+            # The candidate was allocated inside this run; release it. Operator-
+            # supplied allocations are left alone so they can be inspected.
+            aws ec2 release-address --region "$REGION" --allocation-id "$NEW_ALLOC" || true
+          fi
+          echo "::error::rotate_egress_ip aborted; data plane restored to ${OLD_ALLOC}. Inspect the verify-egress-clean step output and re-dispatch with a different candidate (or different region)."
+          exit 1
+
+      - name: Data-plane health on new IP (rotate_egress_ip)
+        if: inputs.operation == 'rotate_egress_ip'
+        env:
+          DOMAIN: ${{ steps.edge.outputs.domain }}
+          NEW_IP: ${{ steps.new_eip.outputs.ip }}
+        run: |
+          set -euo pipefail
+          # DNS still points at OLD_IP until the operator updates Porkbun. Force-
+          # resolve to the new IP so we test Caddy + app end-to-end on the new
+          # allocation immediately, not after DNS propagation.
+          ok=false
+          for i in 1 2 3; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 \
+              --resolve "${DOMAIN}:443:${NEW_IP}" \
+              "https://${DOMAIN}/health" || echo 000)
+            echo "try ${i}: HTTP ${code} (https://${DOMAIN}/health via ${NEW_IP})"
+            if [ "$code" = "200" ]; then ok=true; break; fi
+            sleep 6
+          done
+          if [ "$ok" != "true" ]; then
+            echo "::error::data-plane health check failed on new IP ${NEW_IP} (Caddy + app not responding 200 within 3 tries). Consider revert via re-dispatch with candidate_allocation_id=${{ steps.current_eip.outputs.alloc }}."
+            exit 1
+          fi
+
+      - name: Emit rotation handoff summary (rotate_egress_ip)
+        if: inputs.operation == 'rotate_egress_ip'
+        env:
+          EDGE_ID: ${{ steps.edge.outputs.edge_id }}
+          REGION: ${{ steps.edge.outputs.region }}
+          DOMAIN: ${{ steps.edge.outputs.domain }}
+          OLD_ALLOC: ${{ steps.current_eip.outputs.alloc }}
+          OLD_IP: ${{ steps.current_eip.outputs.ip }}
+          NEW_ALLOC: ${{ steps.new_eip.outputs.alloc }}
+          NEW_IP: ${{ steps.new_eip.outputs.ip }}
+          REASON: ${{ inputs.rotation_reason }}
+        run: |
+          set -euo pipefail
+          today=$(date -u +%Y-%m-%d)
+          {
+            echo "## EIP rotation complete (operation=rotate_egress_ip)"
+            echo
+            echo "- edge: \`${EDGE_ID}\` (\`${REGION}\`)"
+            echo "- old: \`${OLD_IP}\` (\`${OLD_ALLOC}\`)"
+            echo "- new: \`${NEW_IP}\` (\`${NEW_ALLOC}\`)"
+            echo "- reason: ${REASON}"
+            echo
+            echo "### Operator follow-up — two manual steps remain (intentional)"
+            echo
+            echo "**1. Update DNS at Porkbun** (or your DNS provider): set the A record for \`${DOMAIN}\` from \`${OLD_IP}\` to \`${NEW_IP}\`. The data plane already serves on the new IP — this step just makes resolver lookups agree."
+            echo
+            echo "**2. Append the retired IP to \`deploy/aws/stage0/edge-polluted-ips.json\`** so future rotations refuse to re-allocate it. Snippet to paste under \`.polluted\`:"
+            echo
+            echo "\`\`\`json"
+            echo "{"
+            echo "  \"ip\": \"${OLD_IP}\","
+            echo "  \"region\": \"${REGION}\","
+            echo "  \"previous_edge\": \"${EDGE_ID}\","
+            echo "  \"retired_on\": \"${today}\","
+            echo "  \"released_on\": null,"
+            echo "  \"notes\": \"${REASON}; retired via deploy-edge-stage0 operation=rotate_egress_ip; release-address scheduled after DNS propagation\""
+            echo "}"
+            echo "\`\`\`"
+            echo
+            echo "Once DNS has propagated (~1 hour) you may also release the retired EIP:"
+            echo
+            echo "\`\`\`bash"
+            echo "aws ec2 release-address --region ${REGION} --allocation-id ${OLD_ALLOC}"
+            echo "\`\`\`"
+            echo
+            echo "After the release, update \`released_on\` in the JSON entry to the release date and commit."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: External Edge health check
         if: inputs.operation == 'upgrade' || inputs.operation == 'rollback' || inputs.operation == 'smoke'
         env:
@@ -257,5 +505,5 @@ jobs:
             echo "- api: ${API_URL:-none}"
             echo "- ssm command id: \`${CMD_ID:-none}\`"
             echo
-            echo "Rollback: dispatch operation=rollback with the previous tag. Destroy is intentionally not available in this workflow."
+            echo "Rollback: dispatch operation=rollback with the previous tag. IP rotation: dispatch operation=rotate_egress_ip with rotation_reason set. Destroy is intentionally not available in this workflow."
           } >> "$GITHUB_STEP_SUMMARY"
