@@ -1,17 +1,28 @@
 #!/usr/bin/env python3
 """
-TokenKey Anthropic OAuth tier-baseline orchestrator.
+TokenKey Anthropic OAuth tier-baseline + prod stub pool-mode orchestrator.
 
-One entrypoint, five subcommands, one file format (plan JSON) between
-stages.  Covers ONE write surface only: edge OAuth account tier baseline
-(per `anthropic-oauth-stability-baselines-tiered.json`).
+One entrypoint, plan JSON as the only file between stages.  Two write
+surfaces, both JSON-derived (no static SQL templates, no operator-written
+SQL):
+
+  A. edge OAuth account tier baseline
+     — per ``anthropic-oauth-stability-baselines-tiered.json``
+     — action.kind = ``edge_account_tier``
+  B. prod anthropic api-key stub pool_mode (mirror stubs, base_url = api-*.tokenkey.dev)
+     — per ``anthropic-stub-pool-baselines.json``
+     — action.kind = ``prod_stub_pool``
 
 Stages
 ------
-  1. snapshot — pull each deployable edge's anthropic OAuth accounts into one JSON
+  1. snapshot — pull each deployable edge's anthropic OAuth accounts AND
+                prod's anthropic api-key mirror stubs into one JSON
   2. check    — invoke check-edge-oauth-stability.py for each edge × account
-  3. plan-edge-account-tier — declare an edge OAuth tier change; emit plan JSON
-  4. apply    — render the tier-baseline SQL from JSON, run via SSM, parse output
+  3a. plan-edge-account-tier — declare an edge OAuth tier change
+  3b. plan-tier-bump         — re-apply a tier baseline to every matching edge account
+  3c. plan-stub-pool         — enable pool_mode on every prod stub matching the
+                               base_url policy (idempotent; live-matched stubs skip)
+  4. apply    — render apply SQL from JSON, run via SSM, parse output
   5. verify   — re-snapshot, diff each expected_after vs live
 
 History
@@ -64,7 +75,18 @@ from typing import Any
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 EDGE_MATRIX = REPO_ROOT / "deploy/aws/stage0/edge-targets.json"
 TIER_BASELINES = REPO_ROOT / "deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json"
+STUB_POOL_BASELINES = REPO_ROOT / "deploy/aws/stage0/anthropic-stub-pool-baselines.json"
 OPS_DIR = REPO_ROOT / "ops/anthropic"
+
+# prod is not an entry in edge-targets.json (which is the edge matrix).
+# Pin it explicitly so plan-stub-pool / apply / verify can resolve the prod
+# Postgres without operators discovering CFN stack names from memory.
+PROD_TARGET = {
+    "region": "us-east-1",
+    "stack": "tokenkey-prod-stage0",
+    "domain": "api.tokenkey.dev",
+    "label": "prod",
+}
 
 
 def _load_guard_module():
@@ -87,8 +109,8 @@ _GUARD = _load_guard_module()
 
 CONFIRM_CODE = "yes-apply-anthropic-config-cascade"
 
-PLAN_VERSION = 2
-SNAPSHOT_VERSION = 2
+PLAN_VERSION = 3
+SNAPSHOT_VERSION = 3
 
 # After each OAuth tier-baseline apply on an edge Postgres, bump the operator
 # (admin/default) user's row concurrency to match Σ anthropic account concurrency
@@ -276,7 +298,8 @@ def ssm_run_sql_b64(region: str, instance_id: str, sql_b64: str, comment: str
 EDGE_ACCOUNTS_SQL = """
 SELECT COALESCE(jsonb_agg(jsonb_build_object(
   'id', a.id, 'name', a.name, 'platform', a.platform, 'type', a.type,
-  'status', a.status, 'concurrency', a.concurrency, 'priority', a.priority,
+  'status', a.status, 'schedulable', a.schedulable,
+  'concurrency', a.concurrency, 'priority', a.priority,
   'channel_type', a.channel_type, 'rate_multiplier', a.rate_multiplier,
   'auto_pause_on_expired', a.auto_pause_on_expired,
   'stability_tier', a.extra->>'stability_tier',
@@ -292,6 +315,27 @@ SELECT COALESCE(jsonb_agg(jsonb_build_object(
 FROM accounts a
 WHERE a.platform = 'anthropic'
   AND a.type = 'oauth'
+  AND a.deleted_at IS NULL;
+"""
+
+# Prod stubs: anthropic api-key accounts whose credentials.base_url points at
+# a tokenkey edge domain. snapshot pulls them so plan-stub-pool can match by
+# regex without re-querying. We deliberately include every anthropic api-key
+# stub (not just base_url-matching ones); plan-stub-pool filters in Python
+# using the JSON-driven policy regex — this keeps the SQL stable when we
+# evolve which patterns are in scope.
+PROD_STUBS_SQL = """
+SELECT COALESCE(jsonb_agg(jsonb_build_object(
+  'id', a.id, 'name', a.name, 'platform', a.platform, 'type', a.type,
+  'status', a.status, 'schedulable', a.schedulable,
+  'concurrency', a.concurrency, 'priority', a.priority,
+  'cred_base_url',              a.credentials->>'base_url',
+  'cred_pool_mode',             NULLIF(a.credentials->>'pool_mode', '')::boolean,
+  'cred_pool_mode_retry_count', NULLIF(a.credentials->>'pool_mode_retry_count', '')::int
+) ORDER BY a.id), '[]'::jsonb)
+FROM accounts a
+WHERE a.platform = 'anthropic'
+  AND a.type = 'apikey'
   AND a.deleted_at IS NULL;
 """
 
@@ -326,10 +370,32 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
             "oauth_accounts": json.loads(accts_raw) if accts_raw else [],
         }
 
+    prod_view: dict[str, Any]
+    if getattr(args, "skip_prod", False):
+        prod_view = {"skipped_reason": "--skip-prod passed"}
+    else:
+        try:
+            prod_inst = resolve_instance_id(PROD_TARGET["region"], PROD_TARGET["stack"])
+            print(f"snapshot: prod instance={prod_inst}", file=sys.stderr)
+            stubs_raw, _ = ssm_run_sql(PROD_TARGET["region"], prod_inst, PROD_STUBS_SQL,
+                                        "snapshot: prod anthropic stubs")
+            prod_view = {
+                "instance_id": prod_inst,
+                "region": PROD_TARGET["region"],
+                "stack": PROD_TARGET["stack"],
+                "domain": PROD_TARGET["domain"],
+                "anthropic_stubs": json.loads(stubs_raw) if stubs_raw else [],
+            }
+        except SystemExit:
+            print("snapshot: prod failed to resolve instance (skipping prod view; "
+                  "plan-stub-pool will fail-loud if invoked)", file=sys.stderr)
+            prod_view = {"error": "could not resolve instance for prod"}
+
     snapshot = {
         "version": SNAPSHOT_VERSION,
         "captured_at": now_utc_iso(),
         "edges": edges,
+        "prod": prod_view,
     }
 
     out_str = json.dumps(snapshot, indent=2, ensure_ascii=False)
@@ -419,8 +485,45 @@ def _load_snapshot_or_die(path: str) -> dict:
     v = snap.get("version")
     if v != SNAPSHOT_VERSION:
         fail(f"snapshot version {v} != expected {SNAPSHOT_VERSION} "
-             f"(snapshot v1 included prod data + declared_rpm cascade — that pipeline was retired)")
+             f"(snapshot v1 cascaded prod stub fields aggregated from edges; "
+             f"v2 dropped that, v3 re-added a prod READ view + stub pool-mode WRITE)")
     return snap
+
+
+def _load_stub_pool_policy() -> dict:
+    """Parse anthropic-stub-pool-baselines.json once. The policy is the single
+    source of truth for which prod anthropic stubs get pool_mode enabled — both
+    the regex matcher and the retry-count value live here, so apply SQL is
+    derived (not hand-written) and verify can compare against the same field
+    set the plan declared. Schema is checked strictly to catch typos early."""
+    raw = load_json_file(STUB_POOL_BASELINES, "stub pool baselines")
+    if not isinstance(raw, dict):
+        fail("stub pool baselines: top-level must be an object")
+    if raw.get("schema_version") != 1:
+        fail(f"stub pool baselines: schema_version {raw.get('schema_version')!r} != 1")
+    policy = raw.get("policy")
+    if not isinstance(policy, dict):
+        fail("stub pool baselines: missing 'policy' object")
+    required = ("base_url_pattern", "platform", "account_type",
+                "pool_mode_enabled", "pool_mode_retry_count")
+    for k in required:
+        if k not in policy:
+            fail(f"stub pool baselines: policy missing required field {k!r}")
+    if policy["platform"] != "anthropic":
+        fail(f"stub pool baselines: policy.platform must be 'anthropic', got {policy['platform']!r} "
+             "(this orchestrator handles anthropic only)")
+    if policy["account_type"] != "apikey":
+        fail(f"stub pool baselines: policy.account_type must be 'apikey', got {policy['account_type']!r} "
+             "(pool_mode is only meaningful for IsAPIKeyOrBedrock() accounts; oauth cannot enable it)")
+    retry = policy["pool_mode_retry_count"]
+    if not isinstance(retry, int) or retry < 0 or retry > 10:
+        fail(f"stub pool baselines: policy.pool_mode_retry_count must be int in [0,10], got {retry!r}")
+    try:
+        import re
+        policy["_compiled_pattern"] = re.compile(policy["base_url_pattern"])
+    except re.error as e:
+        fail(f"stub pool baselines: policy.base_url_pattern is not a valid regex: {e}")
+    return policy
 
 
 def _load_tier_baselines() -> dict[str, dict]:
@@ -665,6 +768,129 @@ def cmd_plan_tier_bump(args: argparse.Namespace) -> int:
 
 
 # --------------------------------------------------------------------------
+# Stage 3c — plan-stub-pool (prod anthropic mirror stubs)
+# --------------------------------------------------------------------------
+
+_STUB_POOL_FIELDS = ("cred_pool_mode", "cred_pool_mode_retry_count")
+
+
+def _stub_pool_expected_after(policy: dict) -> dict:
+    """Field values Stage-5 verify compares against live after pool_mode is set.
+    Carries exactly what apply writes; verify reads them straight off the
+    re-snapshot's prod.anthropic_stubs entries (same JSON keys)."""
+    return {
+        "cred_pool_mode": bool(policy["pool_mode_enabled"]),
+        "cred_pool_mode_retry_count": int(policy["pool_mode_retry_count"]),
+    }
+
+
+def _stub_pool_fields_match(stub: dict, policy: dict) -> bool:
+    exp = _stub_pool_expected_after(policy)
+    return all(stub.get(k) == exp[k] for k in _STUB_POOL_FIELDS)
+
+
+def _stub_before(stub: dict) -> dict:
+    keep = ("id", "name", "type", "status", "schedulable", "concurrency",
+            "cred_base_url", "cred_pool_mode", "cred_pool_mode_retry_count")
+    return {k: stub.get(k) for k in keep}
+
+
+def cmd_plan_stub_pool(args: argparse.Namespace) -> int:
+    """Enumerate every prod anthropic stub whose credentials.base_url matches
+    the policy regex; emit one plan action per stub that is not already at the
+    declared (pool_mode_enabled, pool_mode_retry_count) tuple. Idempotent — a
+    second run after apply produces noop=true. Per skill design 2026-05-23:
+    no edge-fan-out gate (see policy.notes.no_min_account_gate in the baseline)."""
+    snap = _load_snapshot_or_die(args.snapshot)
+    policy = _load_stub_pool_policy()
+    pattern = policy["_compiled_pattern"]
+    force = bool(getattr(args, "force_template_rewrite", False))
+
+    prod = snap.get("prod") or {}
+    if prod.get("error") or prod.get("skipped_reason"):
+        fail(f"snapshot.prod not captured: {prod.get('error') or prod.get('skipped_reason')}; "
+             "re-run snapshot without --skip-prod")
+    stubs = prod.get("anthropic_stubs") or []
+
+    actions: list[dict] = []
+    befores: list[dict] = []
+    skipped_unmatched: list[dict] = []
+    skipped_noop: list[dict] = []
+    for stub in stubs:
+        base_url = stub.get("cred_base_url") or ""
+        if not pattern.match(base_url):
+            skipped_unmatched.append({
+                "id": stub.get("id"), "name": stub.get("name"),
+                "cred_base_url": base_url,
+                "reason": "base_url does not match policy.base_url_pattern",
+            })
+            continue
+        if _stub_pool_fields_match(stub, policy) and not force:
+            skipped_noop.append({
+                "id": stub.get("id"), "name": stub.get("name"),
+                "reason": "pool_mode + retry_count already match policy",
+            })
+            continue
+        step = len(actions) + 1
+        actions.append({
+            "step": step,
+            "kind": "prod_stub_pool",
+            "target": {
+                "env": "prod",
+                "account_id": stub.get("id"),
+                "account_name": stub.get("name"),
+            },
+            "sql_source": "rendered-from-anthropic-stub-pool-baselines.json",
+            "variables": {
+                "account_id": stub.get("id"),
+                "pool_mode_enabled": bool(policy["pool_mode_enabled"]),
+                "pool_mode_retry_count": int(policy["pool_mode_retry_count"]),
+            },
+            "expected_after": _stub_pool_expected_after(policy),
+        })
+        befores.append(_stub_before(stub))
+
+    plan = {
+        "version": PLAN_VERSION,
+        "kind": "prod_stub_pool_mode",
+        "confirm_code": CONFIRM_CODE,
+        "intent": {
+            "scope": "all-prod-anthropic-stubs-matching-policy",
+            "policy_source": STUB_POOL_BASELINES.name,
+            "base_url_pattern": policy["base_url_pattern"],
+            "pool_mode_enabled": bool(policy["pool_mode_enabled"]),
+            "pool_mode_retry_count": int(policy["pool_mode_retry_count"]),
+            "force_template_rewrite": force,
+        },
+        "snapshot_captured_at": snap.get("captured_at"),
+        "plan_built_at": now_utc_iso(),
+        "noop": len(actions) == 0,
+        "summary": {
+            "total_steps": len(actions),
+            "prod_changes": len(actions),
+            "skipped_unmatched": len(skipped_unmatched),
+            "skipped_noop": len(skipped_noop),
+        },
+        "live_inputs": {
+            "prod_stubs_before": befores,
+            "skipped_unmatched": skipped_unmatched,
+            "skipped_noop": skipped_noop,
+        },
+        "actions": actions,
+    }
+
+    out_str = json.dumps(plan, indent=2, ensure_ascii=False)
+    if args.out:
+        pathlib.Path(args.out).write_text(out_str)
+        print(f"plan-stub-pool: written {args.out} "
+              f"({len(actions)} step(s), {len(skipped_noop)} noop, "
+              f"{len(skipped_unmatched)} unmatched)", file=sys.stderr)
+    else:
+        print(out_str)
+    return 0
+
+
+# --------------------------------------------------------------------------
 # Stage 4 — apply
 # --------------------------------------------------------------------------
 
@@ -719,6 +945,58 @@ def _resolve_edge_target(edge_id: str, edge_matrix: dict) -> tuple[str, str, str
     return e["region"], resolve_instance_id(e["region"], e["stack"]), f"edge:{edge_id}"
 
 
+def _resolve_prod_target() -> tuple[str, str, str]:
+    return (
+        PROD_TARGET["region"],
+        resolve_instance_id(PROD_TARGET["region"], PROD_TARGET["stack"]),
+        PROD_TARGET["label"],
+    )
+
+
+def render_prod_stub_pool_sql(account_id: int, account_name: str,
+                              pool_mode_enabled: bool, pool_mode_retry_count: int) -> str:
+    """Render the apply SQL for one prod anthropic stub. credentials is jsonb;
+    we merge two keys with ``||`` so any sibling keys (api_key, base_url, …)
+    survive untouched. ``id + name + platform + type`` form the WHERE so a
+    typo never silently lands on a different row. ON_ERROR_STOP=1 is set by
+    the SSM wrapper. Reason embedded in a comment for audit. (No
+    ``users.id=1`` concurrency-sum sync here — that runs after edge tier-baseline
+    apply only; this surface does not touch concurrency.)"""
+    # Defence-in-depth: name/account_id are PK-typed but we still parameterise
+    # via a constant-ish SQL literal because the orchestrator owns both ends.
+    # If you find yourself wanting to f"" untrusted strings here, stop and add
+    # a quoting helper instead.
+    if not isinstance(account_id, int):
+        fail(f"render_prod_stub_pool_sql: account_id must be int, got {type(account_id).__name__}")
+    if not isinstance(account_name, str) or not account_name:
+        fail(f"render_prod_stub_pool_sql: account_name required, got {account_name!r}")
+    # SQL-quote the name: replace ' with '' (defensive only — stub names are
+    # admin-set ascii identifiers in practice).
+    quoted_name = account_name.replace("'", "''")
+    enabled_lit = "true" if pool_mode_enabled else "false"
+    return (
+        f"-- Auto-generated by manage-anthropic-config.py at {now_utc_iso()}\n"
+        f"-- source of truth: {STUB_POOL_BASELINES.name}\n"
+        f"-- kind: prod_stub_pool, account_id={account_id}, name='{quoted_name}'\n"
+        "BEGIN;\n"
+        "UPDATE accounts SET\n"
+        "  credentials = credentials || jsonb_build_object(\n"
+        f"    'pool_mode', {enabled_lit}::boolean,\n"
+        f"    'pool_mode_retry_count', {int(pool_mode_retry_count)}::int\n"
+        "  ),\n"
+        "  updated_at = NOW()\n"
+        f"WHERE id = {int(account_id)}\n"
+        f"  AND name = '{quoted_name}'\n"
+        "  AND platform = 'anthropic'\n"
+        "  AND type = 'apikey'\n"
+        "  AND deleted_at IS NULL\n"
+        "RETURNING id, name,\n"
+        "  credentials->>'pool_mode' AS after_pool_mode,\n"
+        "  credentials->>'pool_mode_retry_count' AS after_retry;\n"
+        "COMMIT;"
+    )
+
+
 def cmd_apply(args: argparse.Namespace) -> int:
     plan_path = pathlib.Path(args.plan)
     plan = load_json_file(plan_path, "plan")
@@ -743,18 +1021,29 @@ def cmd_apply(args: argparse.Namespace) -> int:
     for action in actions:
         step = action["step"]
         kind = action["kind"]
-        if kind != "edge_account_tier":
-            fail(f"unknown action.kind {kind!r} (this orchestrator only handles edge_account_tier)")
         tgt = action["target"]
-        edge_id = tgt["edge_id"]
-        account_name = tgt["account_name"]
-        label = f"step{step:02d}-edge-{edge_id}-{kind}-{account_name}".replace("/", "-")
-        sql_path = job_dir / f"{label}.sql"
         v = action.get("variables", {})
-        sql = render_edge_account_tier_sql(v["account_name"], v["stability_tier"], edge_id)
-        sql_path.write_text(sql)
+        if kind == "edge_account_tier":
+            edge_id = tgt["edge_id"]
+            account_name = tgt["account_name"]
+            label = f"step{step:02d}-edge-{edge_id}-{kind}-{account_name}".replace("/", "-")
+            sql = render_edge_account_tier_sql(v["account_name"], v["stability_tier"], edge_id)
+            region, instance_id, target_label = _resolve_edge_target(edge_id, edge_matrix)
+        elif kind == "prod_stub_pool":
+            account_id = v["account_id"]
+            account_name = tgt["account_name"]
+            label = f"step{step:02d}-prod-{kind}-{account_name}".replace("/", "-")
+            sql = render_prod_stub_pool_sql(
+                int(account_id), account_name,
+                bool(v["pool_mode_enabled"]), int(v["pool_mode_retry_count"]),
+            )
+            region, instance_id, target_label = _resolve_prod_target()
+        else:
+            fail(f"unknown action.kind {kind!r} (orchestrator handles edge_account_tier | prod_stub_pool)")
+            return 2  # unreachable, pacifies static analysis
 
-        region, instance_id, target_label = _resolve_edge_target(edge_id, edge_matrix)
+        sql_path = job_dir / f"{label}.sql"
+        sql_path.write_text(sql)
         sql_b64 = base64.b64encode(sql.encode("utf-8")).decode("ascii")
         print(f"apply: step{step:02d} {kind} → {target_label}  (sql={sql_path})",
               file=sys.stderr)
@@ -826,9 +1115,13 @@ def cmd_verify(args: argparse.Namespace) -> int:
         f"/tmp/anthropic-verify-snap-{_dt.datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
     )
     print(f"verify: capturing fresh snapshot → {snap_path}", file=sys.stderr)
+    plan_needs_prod = any(
+        (a.get("kind") == "prod_stub_pool") for a in (plan.get("actions") or [])
+    )
     snap_args = argparse.Namespace(
         out=str(snap_path),
         allow_planned=args.allow_planned,
+        skip_prod=not plan_needs_prod and bool(getattr(args, "skip_prod", False)),
     )
     rc = cmd_snapshot(snap_args)
     if rc != 0:
@@ -837,31 +1130,42 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
     drift: list[dict] = []
     for action in plan.get("actions") or []:
-        if action.get("kind") != "edge_account_tier":
-            continue
+        kind = action.get("kind")
         tgt = action["target"]
-        edge = snap.get("edges", {}).get(tgt["edge_id"], {})
-        live: dict | None = None
-        for a in edge.get("oauth_accounts", []):
-            if a.get("name") == tgt["account_name"]:
-                live = a
-                break
         exp = action.get("expected_after") or {}
+        live: dict | None = None
         diffs: list[str] = []
-        if live is None:
-            diffs.append("target not found in live snapshot")
+        if kind == "edge_account_tier":
+            edge = snap.get("edges", {}).get(tgt["edge_id"], {})
+            for a in edge.get("oauth_accounts", []):
+                if a.get("name") == tgt["account_name"]:
+                    live = a
+                    break
+        elif kind == "prod_stub_pool":
+            prod = snap.get("prod") or {}
+            if prod.get("error") or prod.get("skipped_reason"):
+                diffs.append(f"verify snapshot lacks prod view: "
+                             f"{prod.get('error') or prod.get('skipped_reason')}")
+            else:
+                # account_id is the trustworthy PK; name is also checked downstream
+                # in apply WHERE, but here we match by id since it cannot collide.
+                want_id = tgt.get("account_id")
+                for s in prod.get("anthropic_stubs", []):
+                    if s.get("id") == want_id:
+                        live = s
+                        break
         else:
-            # Compare every field the plan declared in expected_after (it carries
-            # exactly the fields this pipeline owns — see _TIER_BASELINE_FIELDS),
-            # so verify stays faithful to what apply wrote without a second
-            # hand-maintained field list that could drift narrower.
+            diffs.append(f"verify: unknown action.kind {kind!r}")
+        if live is None and not diffs:
+            diffs.append("target not found in live snapshot")
+        if live is not None:
             for k, want in exp.items():
                 if live.get(k) != want:
                     diffs.append(f"{k}: live={live.get(k)} expected={want}")
         if diffs:
             drift.append({
                 "step": action["step"],
-                "kind": action["kind"],
+                "kind": kind,
                 "target": tgt,
                 "diffs": diffs,
             })
@@ -898,10 +1202,13 @@ def main() -> int:
     )
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    sp = sub.add_parser("snapshot", help="pull each deployable edge's anthropic OAuth accounts into one JSON")
+    sp = sub.add_parser("snapshot",
+                        help="pull each deployable edge's anthropic OAuth accounts + prod anthropic api-key stubs into one JSON")
     sp.add_argument("--out", help="write snapshot JSON to this path (otherwise stdout)")
     sp.add_argument("--allow-planned", action="store_true",
                     help="include planned edges (per edge-targets.json)")
+    sp.add_argument("--skip-prod", action="store_true",
+                    help="skip the prod stub query (offline / lab runs that only need edge data)")
     sp.set_defaults(handler=cmd_snapshot)
 
     sp = sub.add_parser("check", help="run edge OAuth stability guard for each edge in scope")
@@ -946,8 +1253,24 @@ def main() -> int:
     )
     sp.set_defaults(handler=cmd_plan_tier_bump)
 
+    sp = sub.add_parser(
+        "plan-stub-pool",
+        help="enable pool_mode on every prod anthropic stub matching the base_url policy")
+    sp.add_argument("--snapshot", required=True)
+    sp.add_argument("--out", help="write plan JSON (otherwise stdout)")
+    sp.add_argument(
+        "--force-template-rewrite",
+        action="store_true",
+        help=(
+            "skip the live-fields-match noop short-circuit and re-emit an action "
+            "for every matching stub. Use if you suspect the snapshot is stale "
+            "or want to rewrite credentials regardless of the live JSONB shape."
+        ),
+    )
+    sp.set_defaults(handler=cmd_plan_stub_pool)
+
     sp = sub.add_parser("apply",
-                        help="execute a plan: render the tier-baseline SQL from JSON, run via SSM")
+                        help="execute a plan: render apply SQL from JSON, run via SSM")
     sp.add_argument("--plan", required=True)
     sp.add_argument("--confirm", required=True,
                     help=f"must be exactly: {CONFIRM_CODE}")
@@ -960,6 +1283,8 @@ def main() -> int:
     sp.add_argument("--plan", required=True)
     sp.add_argument("--snapshot-out", help="path to write the fresh snapshot used for verify")
     sp.add_argument("--allow-planned", action="store_true")
+    sp.add_argument("--skip-prod", action="store_true",
+                    help="skip the re-snapshot's prod query when the plan has no prod_stub_pool actions")
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(handler=cmd_verify)
 

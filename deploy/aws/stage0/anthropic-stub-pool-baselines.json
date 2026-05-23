@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "description": "Prod-side anthropic stub pool-mode policy. Applied by ops/anthropic/manage-anthropic-config.py (plan-stub-pool / apply / verify) to every prod anthropic api-key account whose credentials.base_url matches an internal tokenkey edge domain (the so-called 'cc-*' mirror stubs). Reason: any 5xx/no-available-accounts from the edge transparently bubbles back as 'anthropic_upstream_error' on prod and gets the stub cooldown'd by the keyword threshold rule — pool_mode flips that path to in-place same-account retry, letting the edge re-pick a healthy oauth account in its pool before prod writes any temp_unschedulable state. See backend/internal/service/account.go::IsPoolMode and ratelimit_service.go::handleAnthropicUpstreamError.",
+  "policy": {
+    "base_url_pattern": "^https://api-[a-z0-9]+\\.tokenkey\\.dev/?$",
+    "platform": "anthropic",
+    "account_type": "apikey",
+    "pool_mode_enabled": true,
+    "pool_mode_retry_count": 1
+  },
+  "notes": {
+    "no_min_account_gate": "Pool mode is unconditionally on for matching stubs regardless of how many schedulable accounts the target edge currently has. Rationale (2026-05-23): even with a single edge account, same-account retry is still strictly better than cooldown-on-first-503 (the alternative the keyword threshold rule produces); the win of avoiding chained cooldown does not depend on edge fan-out.",
+    "out_of_scope_fields": "This pipeline writes ONLY credentials.pool_mode + credentials.pool_mode_retry_count. Other stub fields (base_url, concurrency, priority, group bindings) remain admin-UI / out-of-band per skill §2.",
+    "retry_count_choice": "1 = one in-place retry per failure (two attempts total). Larger values amplify cross-region RTT and pile retries onto the stub's local concurrency cap. If empirically needed, bump here and re-apply — never edit per-stub credentials by hand."
+  }
+}
