@@ -4,6 +4,7 @@ the expected markdown sections against a fake repo. stdlib-only.
 """
 from __future__ import annotations
 
+import os
 import pathlib
 import shutil
 import subprocess
@@ -13,8 +14,15 @@ import unittest
 _SCRIPT = pathlib.Path(__file__).resolve().parent / "release-rollout-summary.sh"
 
 
+def _clean_env() -> dict[str, str]:
+    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+
+
 def _git(cwd: pathlib.Path, *args: str, check: bool = True) -> str:
-    proc = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=check)
+    proc = subprocess.run(
+        ["git", *args], cwd=cwd, env=_clean_env(),
+        capture_output=True, text=True, check=check,
+    )
     return proc.stdout
 
 
@@ -51,7 +59,8 @@ class ReleaseRolloutSummaryTest(unittest.TestCase):
     def _run(self, *args: str) -> str:
         proc = subprocess.run(
             ["bash", "scripts/release-rollout-summary.sh", *args],
-            cwd=self.repo, capture_output=True, text=True, check=True,
+            cwd=self.repo, env=_clean_env(),
+            capture_output=True, text=True, check=True,
         )
         return proc.stdout
 
@@ -88,7 +97,8 @@ class ReleaseRolloutSummaryTest(unittest.TestCase):
     def test_invalid_mode_rejected(self) -> None:
         proc = subprocess.run(
             ["bash", "scripts/release-rollout-summary.sh", "--mode", "bogus"],
-            cwd=self.repo, capture_output=True, text=True, check=False,
+            cwd=self.repo, env=_clean_env(),
+            capture_output=True, text=True, check=False,
         )
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("--mode must be", proc.stderr)
