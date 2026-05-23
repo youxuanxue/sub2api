@@ -14,16 +14,13 @@ import unittest
 _SCRIPT = pathlib.Path(__file__).resolve().parent / "release-rollout-summary.sh"
 
 
-def _scrubbed_env() -> dict:
-    env = dict(os.environ)
-    for key in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR"):
-        env.pop(key, None)
-    return env
+def _clean_env() -> dict[str, str]:
+    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
 
 
 def _git(cwd: pathlib.Path, *args: str, check: bool = True) -> str:
     proc = subprocess.run(
-        ["git", *args], cwd=cwd, env=_scrubbed_env(),
+        ["git", *args], cwd=cwd, env=_clean_env(),
         capture_output=True, text=True, check=check,
     )
     return proc.stdout
@@ -62,7 +59,7 @@ class ReleaseRolloutSummaryTest(unittest.TestCase):
     def _run(self, *args: str) -> str:
         proc = subprocess.run(
             ["bash", "scripts/release-rollout-summary.sh", *args],
-            cwd=self.repo, env=_scrubbed_env(),
+            cwd=self.repo, env=_clean_env(),
             capture_output=True, text=True, check=True,
         )
         return proc.stdout
@@ -100,7 +97,7 @@ class ReleaseRolloutSummaryTest(unittest.TestCase):
     def test_invalid_mode_rejected(self) -> None:
         proc = subprocess.run(
             ["bash", "scripts/release-rollout-summary.sh", "--mode", "bogus"],
-            cwd=self.repo, env=_scrubbed_env(),
+            cwd=self.repo, env=_clean_env(),
             capture_output=True, text=True, check=False,
         )
         self.assertNotEqual(proc.returncode, 0)

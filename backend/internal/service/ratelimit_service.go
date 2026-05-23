@@ -1139,6 +1139,20 @@ func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account
 		return true
 	}
 
+	// TK: shape-based fallback for HTML 403 bodies that don't match a known
+	// challenge keyword — most notably OpenAI's own UA / bot-detect
+	// access-denied page (issue #2413 sample). Real OpenAI account-level
+	// 403s return JSON; any HTML body on a 403 is per-request infrastructure
+	// noise and must not poison the OAuth pool with a cooldown.
+	if openAIIsHTMLBody(responseBody) {
+		slog.Warn(
+			"openai_403_html_body_skip_cooldown",
+			"account_id", account.ID,
+			"upstream_msg", upstreamMsg,
+		)
+		return true
+	}
+
 	msg := buildForbiddenErrorMessage(
 		"Access forbidden (403):",
 		upstreamMsg,

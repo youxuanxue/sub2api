@@ -17,16 +17,13 @@ import unittest
 _SCRIPT = pathlib.Path(__file__).resolve().parent / "release-decide-version.sh"
 
 
-def _scrubbed_env() -> dict:
-    env = dict(os.environ)
-    for key in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR"):
-        env.pop(key, None)
-    return env
+def _clean_env() -> dict[str, str]:
+    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
 
 
 def _git(cwd: pathlib.Path, *args: str, check: bool = True) -> str:
     proc = subprocess.run(
-        ["git", *args], cwd=cwd, env=_scrubbed_env(),
+        ["git", *args], cwd=cwd, env=_clean_env(),
         capture_output=True, text=True, check=check,
     )
     return proc.stdout
@@ -41,7 +38,7 @@ class ReleaseDecideVersionTest(unittest.TestCase):
         # Bare origin
         subprocess.run(
             ["git", "init", "--bare", "-q", "-b", "main", str(self.origin)],
-            env=_scrubbed_env(), check=True,
+            env=_clean_env(), check=True,
         )
         # Working repo
         self.repo.mkdir()
@@ -65,7 +62,7 @@ class ReleaseDecideVersionTest(unittest.TestCase):
     def _run(self) -> dict:
         proc = subprocess.run(
             ["bash", "scripts/release-decide-version.sh"],
-            cwd=self.repo, env=_scrubbed_env(),
+            cwd=self.repo, env=_clean_env(),
             capture_output=True, text=True, check=False,
         )
         if proc.returncode != 0:
@@ -117,7 +114,7 @@ class ReleaseDecideVersionTest(unittest.TestCase):
         _git(self.repo, "push", "-q", "origin", "main")
         proc = subprocess.run(
             ["bash", "scripts/release-decide-version.sh", "--emit-suggested-bump"],
-            cwd=self.repo, env=_scrubbed_env(),
+            cwd=self.repo, env=_clean_env(),
             capture_output=True, text=True, check=True,
         )
         self.assertIn("suggested_next_version=1.0.1", proc.stdout)
