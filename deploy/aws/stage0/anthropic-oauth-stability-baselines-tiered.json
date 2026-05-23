@@ -180,14 +180,14 @@
     "l4": {
       "baseline": {
         "account": {
-          "concurrency": 6,
+          "concurrency": 8,
           "priority": 50,
           "rate_multiplier": 1.0
         },
         "extra": {
           "base_rpm": 28,
           "rpm_sticky_buffer": 20,
-          "max_sessions": 100,
+          "max_sessions": 120,
           "session_idle_timeout_minutes": 8,
           "window_cost_limit": 800,
           "window_cost_sticky_reserve": 0
@@ -204,7 +204,7 @@
         "extra": {
           "base_rpm": 28,
           "rpm_sticky_buffer": 20,
-          "max_sessions": 120,
+          "max_sessions": 150,
           "session_idle_timeout_minutes": 8,
           "window_cost_limit": 1500,
           "window_cost_sticky_reserve": 0
