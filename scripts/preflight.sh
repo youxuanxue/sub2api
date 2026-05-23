@@ -755,10 +755,18 @@ if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by determinism-baseline suites)"
     errors=$((errors + 1))
 else
+    # When preflight runs inside a git pre-commit hook, git injects GIT_DIR /
+    # GIT_INDEX_FILE / GIT_WORK_TREE into the environment. The Python tests
+    # spin up tmpdir-isolated git repos via subprocess.run(["git", ...], cwd=…),
+    # and the cwd= argument is ignored when GIT_DIR is set — so every test sees
+    # the host repo's index instead of its tmpdir and fails with non-zero
+    # CalledProcessError. Strip these vars at the boundary so the suites behave
+    # identically inside the hook and standalone.
     _det_baseline_failed=0
     for _det_dir in ops/observability ops/stage0 scripts deploy/aws/stage0 deploy/aws/lightsail; do
-        if ! python3 -m unittest discover -s "$_det_dir" -p 'test_*.py' -t "$_det_dir" >/dev/null 2>&1; then
-            echo "  FAIL: $_det_dir unittest failed (re-run: python3 -m unittest discover -s $_det_dir -p 'test_*.py' -t $_det_dir -v)"
+        if ! env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR \
+              python3 -m unittest discover -s "$_det_dir" -p 'test_*.py' -t "$_det_dir" >/dev/null 2>&1; then
+            echo "  FAIL: $_det_dir unittest failed (re-run: env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE python3 -m unittest discover -s $_det_dir -p 'test_*.py' -t $_det_dir -v)"
             errors=$((errors + 1))
             _det_baseline_failed=1
         fi
