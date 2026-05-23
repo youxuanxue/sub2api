@@ -136,7 +136,7 @@
           "rpm_sticky_buffer": 5,
           "max_sessions": 30,
           "session_idle_timeout_minutes": 8,
-          "window_cost_limit": 200,
+          "window_cost_limit": 600,
           "window_cost_sticky_reserve": 0,
           "cache_ttl_override_enabled": false
         }
@@ -154,7 +154,7 @@
           "rpm_sticky_buffer": 10,
           "max_sessions": 60,
           "session_idle_timeout_minutes": 8,
-          "window_cost_limit": 200,
+          "window_cost_limit": 600,
           "window_cost_sticky_reserve": 0,
           "cache_ttl_override_enabled": false
         }
@@ -172,7 +172,7 @@
           "rpm_sticky_buffer": 15,
           "max_sessions": 90,
           "session_idle_timeout_minutes": 8,
-          "window_cost_limit": 200,
+          "window_cost_limit": 600,
           "window_cost_sticky_reserve": 0
         }
       }
@@ -189,7 +189,7 @@
           "rpm_sticky_buffer": 20,
           "max_sessions": 120,
           "session_idle_timeout_minutes": 8,
-          "window_cost_limit": 200,
+          "window_cost_limit": 600,
           "window_cost_sticky_reserve": 0
         }
       }
@@ -206,7 +206,7 @@
           "rpm_sticky_buffer": 20,
           "max_sessions": 150,
           "session_idle_timeout_minutes": 8,
-          "window_cost_limit": 200,
+          "window_cost_limit": 600,
           "window_cost_sticky_reserve": 0
         }
       }
