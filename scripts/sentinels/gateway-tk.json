@@ -3,6 +3,22 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/cmd/server/main.go",
+      "must_contain": [
+        "protocols.SetUnencryptedHTTP2(true)",
+        "Protocols:         protocols,"
+      ],
+      "rationale": "Setup-wizard HTTP server must use the std-lib http.Server.Protocols + SetUnencryptedHTTP2 path (Go 1.24+) instead of the deprecated x/net/http2/h2c.NewHandler. This anchors the migration done as part of the x/net v0.55.0 bump (GO-2026-5026 fix): there is no http2.Server tuning here, so the std-lib API is a clean replacement. Reintroducing h2c.NewHandler in main.go would put back a deprecated import for no benefit; this sentinel catches an upstream merge that copies the old shape back over our migration."
+    },
+    {
+      "path": "backend/internal/server/http.go",
+      "must_contain": [
+        "h2c.NewHandler(router, &http2.Server{",
+        "SA1019: h2c.NewHandler is deprecated in x/net v0.55.0 but kept on purpose"
+      ],
+      "rationale": "Main HTTP server keeps the deprecated x/net/http2/h2c.NewHandler on purpose because the std-lib http.Server.Protocols replacement does not expose the http2.Server tuning surface (MaxConcurrentStreams, IdleTimeout, MaxReadFrameSize, MaxUploadBufferPerConnection, MaxUploadBufferPerStream) that cfg.Server.H2C configures. Sentinel pins both the call shape (so an upstream merge that strips the H2C block reintroduces an unguarded handler is caught) and the kept-on-purpose //nolint rationale anchor (so a refactor that drops the comment without retiring the call loses the design context). Drop both lines only when the std-lib API exposes equivalent tuning."
+    },
+    {
       "path": "backend/internal/service/gemini_messages_compat_service.go",
       "must_contain": [
         "withGeminiCodeAssistMappedModel(ctx, mappedModel)",
