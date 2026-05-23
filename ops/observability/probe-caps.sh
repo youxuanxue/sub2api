@@ -2,7 +2,7 @@
 # probe-caps.sh — TokenKey read-only caps + 不可调度证据 + Redis 快照 + 近 2h 错误日志。
 #
 # Designed to run INSIDE the TokenKey host (prod or edge), via SSM `AWS-RunShellScript`
-# with base64 delivery (see ops/observability/README or the SKILL `tokenkey-online-traffic-profile`).
+# with base64 delivery (see the SKILL `tokenkey-online-traffic-profile`).
 # Pure read-only: psql SELECT + redis-cli ZCARD/GET/EVAL + docker ps.
 #
 # Determinism contract (matches dev-rules-convention.mdc §"skill / command 确定性基线"):
@@ -18,7 +18,7 @@
 #
 # Container names follow Stage0 compose (docker-compose.yml): tokenkey, tokenkey-postgres,
 # tokenkey-redis. Verified by `docker ps` block at the top of the output.
-set -uo pipefail
+set -u
 
 PSQL='docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t'
 RC='docker exec tokenkey-redis redis-cli'
@@ -62,6 +62,8 @@ echo
 echo "=== Redis snapshot (active accounts of platform=$PLATFORM) ==="
 IDS=$($PSQL -c "SELECT string_agg(id::text,' ' ORDER BY id) FROM accounts WHERE platform='$PLATFORM' AND status='active';" 2>/dev/null)
 echo "active_ids: $IDS"
+# 2>/dev/null below 吞 redis-cli AUTH stderr 噪声（容器里 REDISCLI_AUTH 是空值副作用，
+# stdout 取值仍是正确的；详见 SKILL §1.1）。真失败时 stdout 为空，会以 conc= 形式留痕。
 for id in $IDS; do
   conc=$($RC ZCARD concurrency:account:$id 2>/dev/null)
   sess=$($RC ZCARD session_limit:account:$id 2>/dev/null)

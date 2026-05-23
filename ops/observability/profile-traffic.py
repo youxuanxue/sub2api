@@ -17,8 +17,9 @@ Inputs (env):
                宁宽勿窄. Defaults to 5.
     PATH_KEY   path filter to enforce on http request completed entries
                (default: /v1/messages).
-    FMT        time bucket format (default: '%H:%M' = per-minute). Caller chooses 5min
-               by passing FMT='%H:%M' and downstream 5-min rollup.
+    FMT        strftime format for the minute-bucket label only (default: '%H:%M').
+               Bucket granularity is always one minute — strftime cannot express
+               5-min buckets. For coarser buckets, roll up the printed table.
 
 Output (stdout): one header row + one row per UTC minute with columns
 

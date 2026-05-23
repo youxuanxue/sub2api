@@ -23,7 +23,7 @@ description: >-
 ## 调用参数
 
 ```text
-/tokenkey-online-traffic-profile target=<prod|edge:<id>|all-edges|domain> [hours=<N，默认1>] [minutes=<M>] [account=<id|name|all，默认all>] [model=<name>] [path=/v1/messages] [bucket=minute|5min] [allow_planned=false]
+/tokenkey-online-traffic-profile target=<prod|edge:<id>|all-edges|domain> [hours=<N，默认1>] [minutes=<M>] [account=<id|name|all，默认all>] [model=<name>] [path=/v1/messages] [allow_planned=false]
 ```
 
 | 参数 | 语义 |
@@ -32,9 +32,8 @@ description: >-
 | `hours` | 回看小时数。注意 docker logs 仅覆盖容器 `Up` 时长——先 `docker ps` 看 `tokenkey` 启动多久，超出部分日志不存在。 |
 | `minutes` | 亚小时窗口；用户说"过去 30 分钟"用 `minutes=30`，直接转 `docker logs --since 32m`（多拉 2min 缓冲让按 `completed_at` 过滤的边界分钟完整）。给了 `minutes` 就忽略 `hours`。 |
 | `account` | 账号 id 或 name；`all` 则先列该 platform 的可调度账号再画像。 |
-| `bucket` | 默认按分钟；流量大或回看长时用 `5min`。 |
 
-默认：`hours=1`、`account=all`、`path=/v1/messages`、`mode=只读`。planned edge 不查除非 `allow_planned=true`。
+默认：`hours=1`、`account=all`、`path=/v1/messages`、`mode=只读`、桶=分钟。planned edge 不查除非 `allow_planned=true`。当前桶只支持分钟；需要 5-min 等更粗桶就在分钟输出上做 rollup，不要靠 `FMT` 偷桥（`strftime` 无法表达 5-min 桶）。
 
 > **target=all-edges 的解析**：可调度集 = `deploy/aws/stage0/edge-targets.json` 里 `deployable:true` 的条目（用 `resolve-edge-target.py` 或直接读 JSON）。**不要**对 `deployable:false` 的 planned edge（uk1/sg1/fra1 等）跑画像，除非 `allow_planned=true`。当前矩阵下 `all-edges` 实际只解析出 us1。
 
@@ -172,7 +171,7 @@ env 契约（脚本 docstring 是 ground truth，这里只列要点）：
 | `ACCTS` | 逗号分隔账号 id（必填） | — |
 | `IDLE_MIN` | session 活跃尾随窗（分钟），= MAX(account.idle_min) | 5 |
 | `PATH_KEY` | 路径过滤（与 §2 必须一致） | `/v1/messages` |
-| `FMT` | 时间桶 `strftime` 格式 | `%H:%M`（分钟桶） |
+| `FMT` | 输出时间列的 `strftime` 格式（**只换显示格式，不换桶粒度**——桶始终是分钟） | `%H:%M` |
 
 > 逐分钟表 `ok` / `bad` 是**该分钟**完成的 200 / 非 200 数（按 request start 落分钟）；某分钟 `rpm > ok` 即该分钟有失败。整段 status 分布看末尾 `statuses={…}` 字典。**不要**把整段总数当逐分钟值（旧模板曾踩此坑）。
 
@@ -226,7 +225,7 @@ prod 上 anthropic Key 账号若命名形如 `cc-<edge>-oauth`（如 `cc-us1-oau
 **强制 key=value / JSON**：每个数字前面必须挨着字段名。**禁止**列号风格的自由文本（`a4: 10/28/20/100/8/1500/l5` 这种），否则坑 6 会复发。
 
 ```text
-target=<...>  time_window_utc=<..>..<..>  time_window_local=<..>  bucket=minute
+target=<...>  time_window_utc=<..>..<..>  time_window_local=<..>
 
 accounts:                                # 每行一账号，字段名: 值，禁止单行多值无名
 - id=4 name=am-us-ec2-5-1-b status=active schedulable=true

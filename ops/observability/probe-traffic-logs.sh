@@ -14,7 +14,9 @@
 #
 # Reports line counts at the end so the caller can detect zero-match patterns
 # (e.g. log-format drift renaming "http request completed" to "http_request_completed").
-set -uo pipefail
+# 不开 `set -o pipefail`：grep 0 匹配会返回 1，pipefail+set -e 会误中止，
+# 而我们正好要在 wc 看到 0 行时报 WARN。只保留 set -u 防御 unbound vars。
+set -u
 
 SINCE="${SINCE:-1h}"
 PATH_KEY="${PATH_KEY:-/v1/messages}"
