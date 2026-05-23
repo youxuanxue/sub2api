@@ -290,6 +290,24 @@
         "stickyBufferSuffix: '(+{buffer} 粘性)'"
       ],
       "rationale": "Chinese RPM capacity badge sticky-buffer suffix. Moves in lockstep with the en.ts counterpart above so neither language silently regresses to a raw key during an i18n upstream merge."
+    },
+    {
+      "path": "frontend/src/views/admin/ProxiesView.vue",
+      "must_contain": [
+        "TK override (upstream-touch-guarded): upstream 04308997 added a"
+      ],
+      "must_not_contain": [
+        "<ProxyAdBanner />",
+        "import ProxyAdBanner"
+      ],
+      "rationale": "Upstream commit 04308997 (feat(admin): add compact proxy IP resource link) introduced ProxyAdBanner.vue — a hardcoded affiliate link to bestproxy.com — and mounted it in the proxies create-modal tab bar. TokenKey admin UI must stay vendor-neutral and brand-pure: render-site is intentionally dropped (banner not rendered, import removed), with an inline TK override comment that doubles as the must_contain anchor. The must_not_contain anchors are belt-and-suspenders — if a future upstream merge silently re-introduces either the `<ProxyAdBanner />` render or the import statement, the merge PR fails CI instead of slipping the affiliate link back into prod admin UI. ProxyAdBanner.vue itself is left untouched on disk per §5.x (default keep, override at the call site) to minimise the next upstream merge conflict surface."
+    },
+    {
+      "path": "scripts/sentinels/check-frontend-tk.py",
+      "must_contain": [
+        "must_not_contain"
+      ],
+      "rationale": "The ProxiesView ad-banner sentinel above uses both `must_contain` (positive anchor on the TK override comment) and `must_not_contain` (negative anchor blocking re-introduction of the upstream banner render/import). If a future check-frontend-tk.py refactor drops the must_not_contain handler, the negative side of the ad-banner guard becomes a silent no-op. Anchoring the literal token here forces any such refactor to either keep handling must_not_contain or remove this sentinel deliberately."
     }
   ]
 }

@@ -400,7 +400,13 @@
             {{ t('admin.proxies.batchAdd') }}
           </button>
         </div>
-        <ProxyAdBanner />
+        <!-- TK override (upstream-touch-guarded): upstream 04308997 added a
+             third-party affiliate banner here (bestproxy.com link via
+             ProxyAdBanner.vue). TokenKey admin UI must stay vendor-neutral
+             and brand-pure — render the banner is intentionally dropped.
+             Upstream file ProxyAdBanner.vue is left on disk untouched to
+             keep the next upstream merge conflict-free; the import on
+             ProxiesView.vue is the single removed reference. -->
       </div>
 
       <!-- Standard Add Form -->
@@ -892,7 +898,8 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ImportDataModal from '@/components/admin/proxy/ImportDataModal.vue'
 import Select from '@/components/common/Select.vue'
-import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
+// TK override (upstream-touch-guarded): ProxyAdBanner import intentionally
+// dropped — see render-site comment near `admin.proxies.standardAdd` tab.
 import Icon from '@/components/icons/Icon.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import { useClipboard } from '@/composables/useClipboard'
