@@ -181,6 +181,28 @@ jobs:
             echo "::error::could not resolve ${CFN_ROLE_OUTPUT_KEY} from cicd OIDC stack ${AWS_OIDC_STACK_NAME} (region ${AWS_OIDC_STACK_REGION})"
             exit 1
           fi
+
+          # EipAllocationId is a required CFN parameter in the new template
+          # (the EIP is owned outside the stack). For an EXISTING stack we omit
+          # the override so the current value is preserved. For a NEW stack
+          # we allocate first and pass the fresh allocation-id.
+          EIP_PARAM=()
+          if aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
+               --query 'Stacks[0].StackStatus' --output text >/dev/null 2>&1; then
+            echo "stack $STACK_NAME already exists — preserving current EipAllocationId across update"
+          else
+            echo "stack $STACK_NAME does not exist — allocating fresh EIP for initial provision"
+            ALLOC_JSON=$(python3 deploy/aws/stage0/allocate-clean-egress-eip.py \
+              --region "$AWS_DEFAULT_REGION" \
+              --edge-id "$EDGE_ID" \
+              --profile "$PROFILE" \
+              --monthly-budget-usd "$MONTHLY_BUDGET_USD" \
+              --reason "initial provision via deploy-edge-stage0")
+            echo "$ALLOC_JSON"
+            NEW_ALLOC=$(printf '%s' "$ALLOC_JSON" | python3 -c 'import json,sys;print(json.loads(sys.stdin.read())["allocation_id"])')
+            EIP_PARAM=("EipAllocationId=$NEW_ALLOC")
+          fi
+
           aws cloudformation deploy \
             --stack-name "$STACK_NAME" \
             --template-file deploy/aws/cloudformation/stage0-edge-ec2.yaml \
@@ -199,7 +221,8 @@ jobs:
               GhcrOwner="$GHCR_OWNER" \
               GhcrPullUser="$GHCR_PULL_USER" \
               GhcrPatSsmName="$GHCR_PAT_SSM_NAME" \
-              ImageTag="$INPUT_TAG"
+              ImageTag="$INPUT_TAG" \
+              "${EIP_PARAM[@]}"
 
       - name: Resolve Edge instance + API URL
         id: instance
@@ -287,10 +310,14 @@ jobs:
         env:
           EDGE_ID: ${{ steps.edge.outputs.edge_id }}
           REGION: ${{ steps.edge.outputs.region }}
+          PROFILE: ${{ steps.edge.outputs.profile }}
+          MONTHLY_BUDGET_USD: ${{ steps.edge.outputs.monthly_budget_usd }}
         run: |
           set -euo pipefail
           out=$(python3 deploy/aws/stage0/allocate-clean-egress-eip.py \
-            --region "$REGION" --edge-id "$EDGE_ID" --reason "$INPUT_ROTATION_REASON")
+            --region "$REGION" --edge-id "$EDGE_ID" \
+            --profile "$PROFILE" --monthly-budget-usd "$MONTHLY_BUDGET_USD" \
+            --reason "$INPUT_ROTATION_REASON")
           echo "$out"
           alloc=$(printf '%s' "$out" | python3 -c 'import json,sys;print(json.loads(sys.stdin.read())["allocation_id"])')
           ip=$(printf '%s' "$out" | python3 -c 'import json,sys;print(json.loads(sys.stdin.read())["public_ip"])')

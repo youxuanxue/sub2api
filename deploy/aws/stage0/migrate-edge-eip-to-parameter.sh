@@ -25,7 +25,9 @@
 #     edge_id  — uk1 | us1 | fra1 | sg1 (must exist in edge-targets.json)
 #     --apply  — actually run aws cloudformation deploy. Without it the script
 #                does a read-only dry-run that prints the planned parameters
-#                and exits 0 — safe to run any time.
+#                and exits 0. The dry-run still calls aws cloudformation
+#                describe-stacks and aws ec2 describe-addresses, so it requires
+#                AWS read credentials (just not mutating ones).
 #
 # Exit codes:
 #   0 — dry-run succeeded, or --apply succeeded

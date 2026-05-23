@@ -96,8 +96,11 @@ CMD_ID=$(aws ssm send-command --region "$REGION" \
     exit 2
   }
 
-# Poll up to 60s for the command to complete.
-deadline=$(( $(date +%s) + 60 ))
+# Poll for the command to complete. 60s was tight: 3 outbound curls at 15s
+# timeout each (up to 45s) + SSM SendCommand → InProgress → Success latency
+# (commonly 10-30s) easily exceeds it on a cold path, which would spuriously
+# trip the auto-revert. Operator can override via TOKENKEY_EGRESS_PROBE_TIMEOUT_SECONDS.
+deadline=$(( $(date +%s) + ${TOKENKEY_EGRESS_PROBE_TIMEOUT_SECONDS:-180} ))
 inv_status=""
 while [ "$(date +%s)" -lt "$deadline" ]; do
   inv_status=$(aws ssm get-command-invocation --region "$REGION" \

@@ -99,18 +99,32 @@ def main() -> int:
         default=int(os.environ.get("ALLOCATE_MAX_ATTEMPTS", "5")),
         help="Maximum allocate-address calls before giving up (default 5)",
     )
+    # Optional billing/identity tags — preserves parity with the tag set the
+    # pre-OPC CFN-managed AWS::EC2::EIP carried, so AWS billing cost-allocation
+    # by tag and cross-account ops queries continue to attribute the EIP to the
+    # right project/environment/profile/budget bucket.
+    parser.add_argument("--environment", default="edge", help="Environment tag value (default 'edge')")
+    parser.add_argument("--profile", default="edge-minimal", help="Profile tag value (default 'edge-minimal')")
+    parser.add_argument("--monthly-budget-usd", default="", help="MonthlyBudgetUsd tag value (e.g. '16'); blank to omit")
     args = parser.parse_args()
 
     polluted = load_polluted_ips(args.region)
 
     sanitized_reason = args.reason.replace('"', "'")[:200]
+    extra_tags = (
+        f"{{Key=Environment,Value={args.environment}}},"
+        f"{{Key=Profile,Value={args.profile}}}"
+    )
+    if args.monthly_budget_usd:
+        extra_tags += f",{{Key=MonthlyBudgetUsd,Value={args.monthly_budget_usd}}}"
     tag_spec = (
         f"ResourceType=elastic-ip,Tags=["
         f"{{Key=Project,Value=tokenkey}},"
         f"{{Key=EdgeId,Value={args.edge_id}}},"
         f"{{Key=Name,Value=tokenkey-{args.edge_id}-eip-candidate}},"
         f"{{Key=tokenkey:status,Value=candidate}},"
-        f"{{Key=tokenkey:replaces-reason,Value={sanitized_reason}}}"
+        f"{{Key=tokenkey:replaces-reason,Value={sanitized_reason}}},"
+        f"{extra_tags}"
         f"]"
     )
 
