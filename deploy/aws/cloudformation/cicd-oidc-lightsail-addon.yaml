@@ -1,0 +1,81 @@
+AWSTemplateFormatVersion: "2010-10-09"
+Description: >-
+  Optional addon for TokenKey Edge Lightsail automation. Attaches an inline policy
+  to the existing GitHub Actions OIDC role (from cicd-oidc.yaml) granting
+  Lightsail provision APIs, SSM Hybrid Activation, managed-instance SendCommand,
+  and /tokenkey/lightsail/* Parameter Store writes. Deploy once per account;
+  does not modify prod EC2 Edge stacks.
+
+Parameters:
+  GitHubOidcRoleName:
+    Type: String
+    Default: tokenkey-gha-us-east-1-error-clustering
+    Description: Name of the existing GHA OIDC role from tokenkey-cicd-oidc stack.
+  LightsailEdgeRegions:
+    Type: CommaDelimitedList
+    Default: "eu-west-2,us-west-2,eu-central-1,ap-southeast-1"
+    Description: Regions where Edge Lightsail instances may be provisioned.
+
+Resources:
+  LightsailEdgeAddonPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: tokenkey-lightsail-edge-addon
+      Roles:
+        - !Ref GitHubOidcRoleName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: LightsailEdgeProvision
+            Effect: Allow
+            Action:
+              - lightsail:GetInstance
+              - lightsail:GetInstances
+              - lightsail:CreateInstances
+              - lightsail:DeleteInstance
+              - lightsail:StopInstance
+              - lightsail:StartInstance
+              - lightsail:GetStaticIp
+              - lightsail:GetStaticIps
+              - lightsail:AllocateStaticIp
+              - lightsail:ReleaseStaticIp
+              - lightsail:AttachStaticIp
+              - lightsail:DetachStaticIp
+              - lightsail:GetBlueprints
+              - lightsail:GetBundles
+              - lightsail:GetRegions
+            Resource: "*"
+          - Sid: SsmHybridActivation
+            Effect: Allow
+            Action:
+              - ssm:CreateActivation
+              - ssm:DeleteActivation
+              - ssm:DescribeActivations
+            Resource: "*"
+          - Sid: SsmManagedInstanceCommand
+            Effect: Allow
+            Action:
+              - ssm:SendCommand
+            Resource:
+              - !Sub "arn:aws:ssm:*:${AWS::AccountId}:managed-instance/*"
+              - !Sub "arn:aws:ssm:*::document/AWS-RunShellScript"
+          - Sid: SsmLightsailStateParams
+            Effect: Allow
+            Action:
+              - ssm:GetParameter
+              - ssm:GetParameters
+              - ssm:PutParameter
+              - ssm:DeleteParameter
+            Resource:
+              - !Sub "arn:aws:ssm:*:${AWS::AccountId}:parameter/tokenkey/lightsail/*"
+              - !Sub "arn:aws:ssm:*:${AWS::AccountId}:parameter/tokenkey/edge/*/ghcr/pat"
+          - Sid: SsmDescribeManagedInstances
+            Effect: Allow
+            Action:
+              - ssm:DescribeInstanceInformation
+            Resource: "*"
+
+Outputs:
+  AddonPolicyArn:
+    Description: ARN of the attached Lightsail Edge addon policy
+    Value: !Ref LightsailEdgeAddonPolicy
