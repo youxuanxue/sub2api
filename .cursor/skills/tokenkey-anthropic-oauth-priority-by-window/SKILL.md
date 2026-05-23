@@ -15,6 +15,23 @@ description: >-
 `platform=anthropic AND type=oauth` 账号，按当前的 5h / 7d 用量窗口剩余度同
 tier 内重排 `accounts.priority`。
 
+## 确定性基线（机械化 vs 真判断）
+
+按 dev-rules `rules/dev-rules-convention.mdc` §「skill / command 确定性基线」自审。本 skill **已达基线**——4 阶段 orchestrator 全机械化，priority 计算公式（freshness 门禁、5h/7d 取最紧、稳定排序键）全在脚本里。
+
+| 步骤 | 类型 | 承载 |
+|---|---|---|
+| snapshot / plan / apply / verify | 机械 | `python3 ops/anthropic/rebalance-anthropic-priority.py {snapshot\|plan\|apply\|verify}` |
+| `remaining_score = min(remaining_5h, remaining_7d)` 打分 | 机械 | `_score_account` |
+| 排序键 `(stale 0/1, -remaining_score, id)` | 机械 | orchestrator 内 stable sort |
+| `MAX_PER_TIER_PER_EDGE` 安全栏（防 offset 越级） | 机械 | plan 阶段 fail-fast |
+| SQL 模板 `accounts.priority` 单字段更新 + DO-block 校验 | 机械 | `deploy/aws/stage0/anthropic-oauth-priority-rebalance-apply-template.sql` |
+| 单元测试覆盖 plan / scoring / SQL name guard | 机械 | `ops/anthropic/test_rebalance_anthropic_priority_plan.py`（preflight 跑） |
+| confirm code 字面匹配 | 机械 | `--confirm yes-rebalance-anthropic-priority` |
+| 同 tier 内重排原则 / freshness 门禁阈值（120 min）/ stale → 队尾 | 判断 | prompt（架构设计 §1） |
+| `status!=active` skip / 跨 tier 不允许 | 判断 | prompt（产品边界） |
+| 与 tier baseline 流水线的协作顺序（必须 baseline apply 后跑本 skill） | 判断 | prompt（依赖语义） |
+
 与 [`tokenkey-anthropic-oauth-config`](../tokenkey-anthropic-oauth-config/SKILL.md) 关系：
 
 | 流水线 | 写入面 | 何时跑 |

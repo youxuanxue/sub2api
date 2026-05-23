@@ -34,6 +34,21 @@ Authority discipline follows the repo's `CLAUDE.md` (ARM-only, no `[skip ci]`
 in landing commits, dev-rules submodule order, etc.). The skill MUST refuse to
 skip any of those.
 
+## 确定性基线（机械化 vs 真判断）
+
+按 dev-rules `rules/dev-rules-convention.mdc` §「skill / command 确定性基线」自审。本 skill **已达基线**——bash 命令面下沉到 prose runbook（`docs/deploy/tokenkey-edge-ip-history.md`），SKILL 本身不含 bash；剩余主要是真判断（破坏性确认、爆炸半径）。
+
+| 步骤 | 类型 | 承载 |
+|---|---|---|
+| edge status / drift 表 | 机械 | `bash scripts/edge-ip-status.sh [--markdown\|--json]` |
+| target 解析（edge_id → region/stack/domain） | 机械 | `deploy/aws/stage0/resolve-edge-target.py` |
+| §4 候选 EIP 分配 / 污染探测 / EIP swap / drift-lock 标记 | 机械 | runbook §4 + AWS CLI（drive 文字，不要复制到这里） |
+| §5 CFN drift recovery（detach + IMPORT）的命令面 | 机械 | runbook §5 + AWS CLI |
+| Stop-the-line rules 1-9（边界 / 污染 / 工作区脏 / DNS pause / Phase 2 确认） | 判断 | prompt（破坏性确认 + 爆炸半径） |
+| 报告契约 / next_action / known failure patterns | 判断 | prompt（结构化输出 + 诊断分支） |
+
+新增机械化检查不要复制 bash 进 SKILL —— 加到 `scripts/edge-ip-status.sh` 或 prose runbook。
+
 ## Invocation
 
 ```text

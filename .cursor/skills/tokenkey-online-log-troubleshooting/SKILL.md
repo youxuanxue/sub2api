@@ -13,6 +13,21 @@ description: >-
 
 权威纪律以仓库根 `CLAUDE.md` 为准；本 skill 默认**只读**。任何写线上配置、重启容器、部署、删数据、改分支或发 PR comment 都必须另行显式确认。
 
+## 确定性基线（机械化 vs 真判断）
+
+按 dev-rules `rules/dev-rules-convention.mdc` §「skill / command 确定性基线」自审。这张表是未来 PR 编辑本 skill 时 reviewer 的核对抓手：新增「步骤」必须先按此分类。
+
+| 步骤 | 类型 | 承载 |
+|---|---|---|
+| 解析 prod / edge target（region / instance_id / domain） | 机械 | `deploy/aws/stage0/resolve-edge-target.py --edge-id <id>` + `aws cloudformation describe-stacks` |
+| SSM base64 投递 + send-command + poll | 机械 | `ops/observability/run-probe.sh --target prod\|edge:<id> --script <probe.sh>` |
+| `ops_error_logs` 标准聚合（schema + by_status + upstream_events + 429-by-minute） | 机械 | `ops/observability/ops-error-triage.sh`（通过 run-probe.sh 投递） |
+| Docker access log 解析（status/model/minute/latency 直方图 + marker 计数） | 机械 | `ops/observability/parse-access-log.py --stdin\|--file\|--docker` |
+| anthropic capacity / cap 与 schedulable 证据 | 机械 | `ops/observability/probe-caps.sh`（已有，通过 run-probe.sh 投递）/ `ops/anthropic/manage-anthropic-config.py snapshot` |
+| 时间窗规范（UTC ↔ Asia/Shanghai 双写） | 判断 | prompt（含报告口径，无机械抓手） |
+| 解读规则：final_status vs upstream events、镜像账号链式失败 | 判断 | prompt（架构判断，§0 列出 8 个 trap 已固化） |
+| 根因 / 风险分级 / 建议下一步 | 判断 | prompt（爆炸半径 / 回滚成本） |
+
 ## 调用参数
 
 ```text
@@ -100,40 +115,31 @@ docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -F $'\t' -c "SE
 
 如果容器名不同，改用 `docker ps` 结果中的实际名称。
 
-## 2) SSM 执行方式
+## 2) SSM 执行方式（机械化）
 
-所有远端命令用 `aws ssm send-command` + `get-command-invocation`。本地临时 JSON 放 `$CLAUDE_JOB_DIR`，不要用 `/tmp`。
-
-推荐参数文件形态：
-
-```json
-{
-  "commands": [
-    "set -euo pipefail",
-    "echo 'diagnostic start'",
-    "docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'"
-  ]
-}
-```
-
-执行：
+所有远端命令通过 `ops/observability/run-probe.sh` 投递。包装了 base64 投递 + `aws ssm send-command` + waiter + `get-command-invocation` 取 stdout 的标准流程，并把 region/instance 解析委托给 `resolve-edge-target.py` + `describe-stacks`。
 
 ```bash
-cmd_id=$(aws ssm send-command \
-  --region "$REGION" \
-  --instance-ids "$INSTANCE_ID" \
-  --document-name AWS-RunShellScript \
-  --comment "Claude read-only TokenKey troubleshooting" \
-  --parameters "file://$CLAUDE_JOB_DIR/<name>.json" \
-  --query 'Command.CommandId' --output text)
-aws ssm wait command-executed --region "$REGION" --command-id "$cmd_id" --instance-id "$INSTANCE_ID"
-aws ssm get-command-invocation --region "$REGION" --command-id "$cmd_id" --instance-id "$INSTANCE_ID" --output json
+# 调用 probe-caps.sh（caps + 不可调度证据 + Redis 快照 + 最近 2h ops_error_logs）
+bash ops/observability/run-probe.sh \
+  --target prod \
+  --script ops/observability/probe-caps.sh \
+  --env PLATFORM=anthropic \
+  --env ERR_HOURS=2
+
+# Edge 同款；带规划态需 ALLOW_PLANNED=1
+ALLOW_PLANNED=1 bash ops/observability/run-probe.sh \
+  --target edge:us1 \
+  --script ops/observability/probe-caps.sh
 ```
 
-失败处理：
-- 先读 `StandardErrorContent` 和 `ResponseCode`。
-- 如果 stdout 为空但 success，通常是 heredoc/JSON quoting 没展开；改成 `psql -c` 或远端 Python 包装。
-- 如果输出截断，缩小 SQL、只返回聚合，或把远端输出写文件后 `tail`/`wc`/摘要。
+Exit codes：
+- `0` SSM Success；wrapper stdout = remote stdout
+- `1` wrapper 参数错（target/script 缺失、script 不存在）
+- `2` AWS transport 失败（assume-role / send-command / describe-stacks）
+- `3` 远端 SSM status ≠ Success
+
+stderr 的 `[remote-stderr] ...` 行是远端 stderr 透传（解析输出时忽略）。失败优先看 `[run-probe] status=...` 行。不要手动重写 base64 / SSM 调用 —— 漂移点全部消化在 wrapper 内。
 
 ## 3) 时间窗口规范
 
@@ -162,222 +168,92 @@ WITH bounds AS (
 
 不要混用本地时区字符串和 DB UTC 字段。
 
-## 4) `ops_error_logs` 标准 triage
+## 4) `ops_error_logs` 标准 triage（机械化）
 
-### 4.1 先确认 schema
-
-```sql
-SELECT column_name, data_type
-FROM information_schema.columns
-WHERE table_schema='public' AND table_name='ops_error_logs'
-ORDER BY ordinal_position;
-```
-
-必要时用：
-
-```sql
-SELECT row_to_json(l) FROM ops_error_logs l ORDER BY created_at DESC LIMIT 1;
-```
-
-### 4.2 最小聚合 SQL
-
-根据实际列名调整；默认 PostgreSQL only。
-
-```sql
-WITH bounds AS (
-  SELECT timestamp with time zone '<start>' AS since,
-         timestamp with time zone '<end>' AS until
-), base AS (
-  SELECT l.*
-  FROM ops_error_logs l, bounds b
-  WHERE l.created_at >= b.since AND l.created_at < b.until
-    AND ('<path>' = '' OR l.request_path = '<path>')
-    AND ('<model>' = '' OR l.requested_model = '<model>')
-)
-SELECT 'summary' AS section,
-       COUNT(*) AS total_ops_rows,
-       COUNT(*) FILTER (WHERE status_code >= 400) AS final_error_rows,
-       MIN(created_at) AS first_at,
-       MAX(created_at) AS last_at
-FROM base;
-```
-
-```sql
-WITH bounds AS (...), base AS (...)
-SELECT 'by_status' AS section, status_code, COUNT(*) AS n,
-       MIN(created_at) AS first_at, MAX(created_at) AS last_at
-FROM base
-GROUP BY status_code
-ORDER BY n DESC, status_code;
-```
-
-```sql
-WITH bounds AS (...), base AS (...), events AS (
-  SELECT l.id AS log_id, l.created_at, l.status_code,
-         e.value AS ev
-  FROM base l
-  CROSS JOIN LATERAL jsonb_array_elements(COALESCE(l.upstream_errors, '[]'::jsonb)) AS e(value)
-)
-SELECT 'upstream_events' AS section,
-       COALESCE(ev->>'kind','') AS kind,
-       COALESCE(ev->>'platform','') AS platform,
-       COALESCE(ev->>'account_id','') AS account_id,
-       COALESCE(ev->>'account_name','') AS account_name,
-       COALESCE(ev->>'upstream_status_code','') AS upstream_status,
-       status_code AS final_status,
-       COUNT(*) AS n,
-       MIN(created_at) AS first_at,
-       MAX(created_at) AS last_at
-FROM events
-GROUP BY kind, platform, account_id, account_name, upstream_status, final_status
-ORDER BY n DESC, kind, final_status
-LIMIT 50;
-```
-
-### 4.3 常用专项聚合
-
-**429 / RPM：**
-
-```sql
-WITH bounds AS (...), base AS (...)
-SELECT date_trunc('minute', created_at) AS minute,
-       status_code,
-       COUNT(*) AS n
-FROM base
-WHERE status_code = 429
-GROUP BY minute, status_code
-ORDER BY n DESC, minute
-LIMIT 30;
-```
-
-同时查本地应用日志：
+聚合 SQL 由 `ops/observability/ops-error-triage.sh` 渲染（schema 探测 + summary + by_status + upstream_events + 429-by-minute），所有输出都是 `row_to_json(t)`，字段名嵌在值旁，下游用 `jq`/`json.loads` 按字段取，**禁止按列号读**。通过 §2 的 `run-probe.sh` 投递：
 
 ```bash
-docker logs tokenkey --since '<start_z>' --until '<end_z>' 2>&1 \
-  | grep -E 'GROUP_RPM_EXCEEDED|USER_RPM|rate limit|429|529|overload|temp.*unsched' \
-  | tail -n 200 || true
+bash ops/observability/run-probe.sh \
+  --target prod \
+  --script ops/observability/ops-error-triage.sh \
+  --env WINDOW_HOURS=24 \
+  --env PATH_FILTER=/v1/messages
 ```
 
-> **裸数字误报坑（实测）**：`grep -c '429'` / `'529'` 会命中 request_id/UUID、`body_bytes`、`latency_ms`、`content_len` 里的子串，给出几十上百的**假计数**。判**真实** HTTP 429/529 要么解析 JSON 看 `status_code` 字段，要么匹配语义标记 `rate_limit_error` / `overloaded_error` / `too_many_requests`，**不要数裸的 429/529**。`ops_error_logs` 的 `status_code` / `upstream_status_code` 列才是权威，应优先用 §4.2 的 SQL 聚合而非 grep 数字。
+env 契约（脚本顶部 docstring 是 ground truth）：
 
-**Anthropic thinking signature：**
+| env | 默认 | 含义 |
+|---|---|---|
+| `WINDOW_HOURS` | 24 | 回看小时数（正整数；非整数 fail-fast） |
+| `PATH_FILTER` | （空） | `request_path` 精确过滤 |
+| `MODEL_FILTER` | （空） | `requested_model` 精确过滤 |
+| `STATUS_MIN` | 400 | `final_error_rows` 阈值 |
+| `TOP_KIND_LIMIT` | 50 | upstream_events 行数上限 |
+| `TOP_MIN_LIMIT` | 30 | by_minute_429 行数上限 |
 
-```sql
-WITH bounds AS (...), base AS (...), events AS (...)
-SELECT date_trunc('hour', created_at) AS hour,
-       status_code AS final_status,
-       COUNT(*) AS n
-FROM events
-WHERE ev->>'kind' = 'signature_error'
-   OR lower(COALESCE(ev->>'message','') || ' ' || COALESCE(ev->>'detail','')) LIKE '%signature%'
-GROUP BY hour, final_status
-ORDER BY hour, final_status;
-```
+输出分段：`=== meta ===` / `=== schema ===` / `=== summary ===` / `=== by_status ===` / `=== upstream_events ===` / `=== by_minute_429 ===`。
 
-解释规则：
-- `final_status=200` + `kind=signature_error` = 首轮上游 400 后已恢复。
-- `final_status>=400` = 用户侧真实失败，需要样本。
+新增字段或新维度：先改 `ops-error-triage.sh` 再回头改本 SKILL，不直接在 prose 里写新 SQL。
 
-**耗时：** 如果表没有 `duration_ms`，不要继续猜；改用 access log `latency_ms`。
+> **裸数字误报坑**：`grep -c '429'` / `'529'` 会命中 UUID、`body_bytes`、`latency_ms` 子串，给出假计数。判**真实** HTTP 429/529 用 `ops-error-triage.sh` 的 `by_status` 段（权威列 `status_code` / `upstream_status_code`），或用 §5 的 access log 解析的 `markers` 字段匹配 `rate_limit_error` / `overloaded_error` 语义标记。
 
-```sql
-WITH bounds AS (...), base AS (...)
-SELECT COUNT(*) AS n,
-       percentile_disc(0.50) WITHIN GROUP (ORDER BY duration_ms) AS p50_ms,
-       percentile_disc(0.90) WITHIN GROUP (ORDER BY duration_ms) AS p90_ms,
-       percentile_disc(0.95) WITHIN GROUP (ORDER BY duration_ms) AS p95_ms,
-       percentile_disc(0.99) WITHIN GROUP (ORDER BY duration_ms) AS p99_ms,
-       MAX(duration_ms) AS max_ms
-FROM base
-WHERE duration_ms IS NOT NULL;
-```
+**解读规则（真判断）**：
+- `final_status=200` + `kind=signature_error` 等 → 首轮上游错误已恢复，不算用户侧失败。
+- `final_status >= 400` + 同 kind → 用户侧真实失败，需要样本。
+- `GROUP_RPM_EXCEEDED` 且 `upstream_errors` 为空 → 本地分组限额挡住，非上游故障。
 
-## 5) Docker access log 解析
+## 5) Docker access log 解析（机械化）
 
-当 `ops_error_logs` 只记录异常或缺少 latency 时，用容器 JSON log 解析 `http request completed`。
-
-推荐远端 Python 包装，避免 grep/awk quoting 地狱：
+`ops/observability/parse-access-log.py` 解析 `http request completed` JSON 行（按 path/model 过滤 → status/model/minute 直方图 + latency p50/p90/p95/p99/max + marker 计数），输出单个 JSON 对象。三种输入模式（互斥）：
 
 ```bash
-python3 - <<'PY'
-import json, re, subprocess, collections
-START='<start_z>'; END='<end_z>'; PATH_FILTER='<path>'
-cmd=['docker','logs','tokenkey','--since',START,'--until',END]
-p=subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=False)
-status=collections.Counter(); model_status=collections.Counter(); minute_status=collections.Counter(); latencies=[]
-markers=collections.Counter()
-for line in p.stdout.splitlines():
-    for k in ['GROUP_RPM_EXCEEDED','thinking blocks have invalid signature','thinking block retry succeeded','429','529','timeout']:
-        if k in line: markers[k]+=1
-    if 'http request completed' not in line:
-        continue
-    m=re.search(r'\{.*\}$', line)
-    if not m:
-        continue
-    try: obj=json.loads(m.group(0))
-    except Exception: continue
-    if PATH_FILTER and obj.get('path') != PATH_FILTER:
-        continue
-    sc=obj.get('status_code'); model=obj.get('model') or ''; ts=obj.get('completed_at') or ''
-    if sc is None: continue
-    status[sc]+=1; model_status[(model,sc)]+=1; minute_status[(ts[:16],sc)]+=1
-    if isinstance(obj.get('latency_ms'), (int,float)): latencies.append(int(obj['latency_ms']))
-print('status_counts', dict(sorted(status.items())))
-print('markers', dict(markers))
-print('top_minutes')
-for (minute, sc), n in sorted(minute_status.items(), key=lambda kv: (-kv[1], kv[0]))[:30]: print(minute, sc, n)
-print('model_status')
-for (model, sc), n in sorted(model_status.items(), key=lambda kv: (-kv[1], kv[0]))[:30]: print(model, sc, n)
-if latencies:
-    latencies.sort()
-    def pct(p): return latencies[min(len(latencies)-1, int((len(latencies)-1)*p))]
-    print('latency_ms', 'n', len(latencies), 'p50', pct(.5), 'p90', pct(.9), 'p95', pct(.95), 'p99', pct(.99), 'max', latencies[-1])
-PY
+# A) docker logs（最常见；远端跑后管道进 parser）
+docker logs tokenkey --since 1h \
+  | python3 ops/observability/parse-access-log.py --stdin --path /v1/messages
+
+# B) 本地已落地的日志文件
+python3 ops/observability/parse-access-log.py \
+  --file /tmp/tokenkey.log --path /v1/messages --model claude-sonnet-4-6
+
+# C) 直接调起 docker logs（需要本地能跑 docker）
+python3 ops/observability/parse-access-log.py --docker tokenkey --since 1h
 ```
+
+输出 schema（脚本 docstring 是 ground truth）：
+
+| key | 含义 |
+|---|---|
+| `totals` | `lines_seen / lines_parsed / lines_skipped / bad_count` |
+| `status_counts` | `{"200": N, "503": N, ...}` |
+| `by_minute` | `[{minute_utc, status_code, n}]`（top N 按 n desc） |
+| `by_model_status` | `[{model, status_code, n}]` |
+| `markers` | 默认匹配 `GROUP_RPM_EXCEEDED / thinking block ... / rate_limit_error / overloaded_error / 529 / timeout / no available accounts` 等；可用 `--markers` 覆盖 |
+| `latency_ms` | `{n, p50, p90, p95, p99, max}` 或 `null` |
+
+确定性保证：同一份 stdin + 同一组 flag → 字节一致的 JSON（排序稳定、整数 ms、无 locale 浮点）。
 
 ## 6) 配置与限额核对
 
-### 6.1 Anthropic OAuth / Edge capacity
+### 6.1 Anthropic OAuth / Edge capacity（机械化）
 
-优先复用专用 skill / 脚本：
+不在本 skill 里重复手写 SQL 查 cap 字段——会与 traffic-profile / anthropic-oauth-config 的真值源漂移。按调用面分工：
 
 ```bash
+# A) 单账号 stability tier baseline 核对（最常用）
 python3 ops/anthropic/check-edge-oauth-stability.py \
-  --edge-id "$EDGE_ID" \
-  --account-name all \
-  --json
+  --edge-id "$EDGE_ID" --account-name all --json
+
+# B) 跨 edge + prod 完整 snapshot（含 cap、schedulable、temp_unschedulable_reason、stub pool_mode）
+python3 ops/anthropic/manage-anthropic-config.py snapshot --out "$CLAUDE_JOB_DIR/snap.json"
+
+# C) 仅排障：caps + 不可调度证据 + Redis 快照 + 近 2h ops_error_logs（远端跑 probe-caps.sh）
+bash ops/observability/run-probe.sh \
+  --target edge:"$EDGE_ID" \
+  --script ops/observability/probe-caps.sh \
+  --env PLATFORM=anthropic
 ```
 
-需要查 live DB 时只读：
-
-```sql
-SELECT id, name, platform, type, status, schedulable,
-       concurrency, priority, channel_type,
-       extra->>'stability_tier' AS stability_tier,
-       extra->>'base_rpm' AS base_rpm,
-       extra->>'max_sessions' AS max_sessions,
-       extra->>'window_cost_limit' AS window_cost_limit
-FROM accounts
-WHERE platform='anthropic'
-ORDER BY id;
-```
-
-分组列名可能演化，先查 schema；当前常见：
-
-```sql
-SELECT id, name, platform, status, rpm_limit, sticky_routing_mode
-FROM groups
-WHERE deleted_at IS NULL
-ORDER BY id;
-```
-
-用户/分组 override：
-
-```sql
-SELECT user_id, group_id, rate_multiplier, rpm_override
-FROM user_group_rate_multipliers
-ORDER BY user_id, group_id;
-```
+`group.rpm_limit` 与 `user_group_rate_multipliers` 由 admin UI 维护，不由本 skill 派生（按 memory「group.rpm_limit 与 account 字段独立」）；如需读 group 状态请直接看 admin UI，不要在 SKILL 里写漂移容易的 SELECT。
 
 ### 6.2 解释规则
 
