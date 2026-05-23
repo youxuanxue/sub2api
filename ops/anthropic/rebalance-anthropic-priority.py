@@ -16,7 +16,7 @@ window_cost_limit / stability_tier) remains the write surface of
 ops/anthropic/manage-anthropic-config.py and MUST NOT be co-written.
 
 Re-apply after every tier-baseline apply — the tier-baseline template
-resets priority to the tier base (l1=10, l2=20, l3=30, l4=40, l5=50).
+resets priority to the tier base (l1=1, l2=2, l3=3, l4=4, l5=5).
 
 Stages
 ------
@@ -81,10 +81,11 @@ CONFIRM_CODE = "yes-rebalance-anthropic-priority"
 PLAN_VERSION = 1
 SNAPSHOT_VERSION = 1
 
-# Tier band geometry: tiers are spaced 10 apart in
-# anthropic-oauth-stability-baselines-tiered.json. Allow at most 10
-# accounts per tier per edge so offset 0..9 never spills into the next
-# tier's band.
+# Tier band geometry: tier base priorities are consecutive integers
+# (l1=1 .. l5=5) in anthropic-oauth-stability-baselines-tiered.json.
+# Rebalance assigns new_priority = tier_base + rank within the same
+# stability_tier bucket only; keep per-tier account counts modest so
+# rank offsets do not collide with another tier's scheduling intent.
 MAX_PER_TIER_PER_EDGE = 10
 
 # psql \set account_name '...' 不是绑定参数——仅允许 slug 形态名，
