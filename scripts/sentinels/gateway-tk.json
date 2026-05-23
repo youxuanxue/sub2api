@@ -13,10 +13,11 @@
     {
       "path": "backend/internal/server/http.go",
       "must_contain": [
-        "h2c.NewHandler(router, &http2.Server{",
-        "SA1019: h2c.NewHandler is deprecated in x/net v0.55.0 but kept on purpose"
+        "http2.ConfigureServer(server, &http2.Server{",
+        "protocols.SetUnencryptedHTTP2(true)",
+        "MaxConcurrentStreams:         h2cConfig.MaxConcurrentStreams,"
       ],
-      "rationale": "Main HTTP server keeps the deprecated x/net/http2/h2c.NewHandler on purpose because the std-lib http.Server.Protocols replacement does not expose the http2.Server tuning surface (MaxConcurrentStreams, IdleTimeout, MaxReadFrameSize, MaxUploadBufferPerConnection, MaxUploadBufferPerStream) that cfg.Server.H2C configures. Sentinel pins both the call shape (so an upstream merge that strips the H2C block reintroduces an unguarded handler is caught) and the kept-on-purpose //nolint rationale anchor (so a refactor that drops the comment without retiring the call loses the design context). Drop both lines only when the std-lib API exposes equivalent tuning."
+      "rationale": "Main HTTP server migrated off deprecated x/net/http2/h2c.NewHandler (x/net v0.55.0 / GO-2026-5026) to std-lib http2.ConfigureServer + server.Protocols.SetUnencryptedHTTP2 while preserving cfg.Server.H2C tuning (MaxConcurrentStreams, IdleTimeout, MaxReadFrameSize, MaxUploadBufferPerConnection, MaxUploadBufferPerStream). Pins the merged upstream shape so a future merge cannot silently revert to h2c.NewHandler or drop the tuning block without losing H2C capability."
     },
     {
       "path": "backend/internal/service/gemini_messages_compat_service.go",
@@ -774,9 +775,18 @@
       "path": "backend/internal/service/openai_gateway_service.go",
       "must_contain": [
         "upstream Wei-Shaw/sub2api#1318",
-        "shouldDisable = s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, body)"
+        "shouldDisable := s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body)"
       ],
-      "rationale": "openai_passthrough error handling (handleErrorResponsePassthrough) MUST propagate HandleUpstreamError's shouldDisable signal: when the rate-limit service decides the account must stop scheduling (temp-unsched rule match, 402 deactivated_workspace, OAuth 401, organization-disabled 400, ...) the current request must return UpstreamFailoverError so the handler retries on another account. Before upstream #1318, the signal was discarded with `_ =` and only the side effect on the account fired — the in-flight request was completed against the now-disabled account, surfacing to the client as the raw upstream error. Pinning the literal `shouldDisable = s.rateLimitService.HandleUpstreamError(...)` assignment (not `_ =`) is enough to catch the regression. The registry intentionally avoids pinning the gofmt-shaped `if shouldDisable {...}` block so future zap-field / logging additions inside the same branch do not break preflight. Behavior is exercised end-to-end by TestOpenAIGatewayService_OpenAIPassthrough_TempUnschedRuleTriggersFailover (which is pinned by its own sentinel below)."
+      "rationale": "openai_passthrough error handling (handleErrorResponsePassthrough) MUST propagate HandleUpstreamError's shouldDisable signal: when the rate-limit service decides the account must stop scheduling (temp-unsched rule match, 402 deactivated_workspace, OAuth 401, organization-disabled 400, ...) the current request must return UpstreamFailoverError so the handler retries on another account. Before upstream #1318, the signal was discarded with `_ =` and only the side effect on the account fired — the in-flight request was completed against the now-disabled account, surfacing to the client as the raw upstream error. After upstream cooldown-scheduling merge, the call site routes through handleOpenAIAccountUpstreamError (companion openai_account_runtime_block_fastpath.go) which still forwards shouldDisable from rateLimitService.HandleUpstreamError. Pinning the companion call (not `_ =`) catches passthrough regressions without bloating the hotspot file. Behavior is exercised end-to-end by TestOpenAIGatewayService_OpenAIPassthrough_TempUnschedRuleTriggersFailover (which is pinned by its own sentinel below)."
+    },
+    {
+      "path": "backend/internal/service/openai_account_runtime_block_fastpath.go",
+      "must_contain": [
+        "shouldDisable := s.rateLimitService.HandleUpstreamError(stateCtx, account, statusCode, headers, responseBody)",
+        "s.BlockAccountScheduling(account, time.Time{}, \"upstream_disable\")",
+        "openAIOAuth429StormThreshold"
+      ],
+      "rationale": "OPC companion for upstream OpenAI cooldown scheduling (#2698 / 1e406fed): centralizes HandleUpstreamError + BlockAccountScheduling + OAuth 429 storm guard so openai_gateway_service.go and openai_account_scheduler.go stay thin. Pinning HandleUpstreamError's shouldDisable capture and upstream_disable block path prevents silent reversion to `_ =` side-effect-only handling. OAuth 429 storm threshold anchors the TK failover guard that limits account switches during burst 429s."
     },
     {
       "path": "backend/internal/service/openai_oauth_passthrough_test.go",
