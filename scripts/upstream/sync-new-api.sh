@@ -52,8 +52,10 @@ case "${1:-}" in
 esac
 
 if [ "${mode}" = "bump" ]; then
+  # Tentative write — will be re-written below as the 40-char canonical
+  # SHA after checkout. Writing first lets the downstream pin-loader use
+  # the new value verbatim (handles short SHA / branch / tag inputs).
   printf '%s\n' "${new_pin}" > "${PIN_FILE}"
-  echo "Updated ${PIN_FILE} -> ${new_pin}"
 fi
 
 [ -f "${PIN_FILE}" ] || { echo "ERROR: ${PIN_FILE} missing" >&2; exit 1; }
@@ -86,6 +88,16 @@ if [ "${current}" != "${PIN}" ]; then
   echo "Fetching ${PIN} ..."
   git -C "${SIBLING_DIR}" fetch --filter=blob:none origin "${PIN}" || git -C "${SIBLING_DIR}" fetch
   git -C "${SIBLING_DIR}" checkout "${PIN}"
+  current="$(git -C "${SIBLING_DIR}" rev-parse HEAD)"
 fi
 
-echo "OK: new-api sibling at ${PIN}"
+if [ "${mode}" = "bump" ]; then
+  # Normalize PIN_FILE to the 40-char SHA git just resolved. Prevents
+  # --check false positives when --bump was called with a short SHA
+  # (or, in principle, a branch/tag) — the string comparison on line ~80
+  # always sees the canonical form on both sides.
+  printf '%s\n' "${current}" > "${PIN_FILE}"
+  echo "Updated ${PIN_FILE} -> ${current}"
+fi
+
+echo "OK: new-api sibling at ${current}"
