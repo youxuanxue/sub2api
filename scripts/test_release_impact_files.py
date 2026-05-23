@@ -8,6 +8,7 @@ stdlib-only.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import shutil
 import subprocess
@@ -17,8 +18,15 @@ import unittest
 _SCRIPT = pathlib.Path(__file__).resolve().parent / "release-impact-files.sh"
 
 
+def _clean_env() -> dict[str, str]:
+    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+
+
 def _run_git(cwd: pathlib.Path, *args: str) -> str:
-    proc = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True)
+    proc = subprocess.run(
+        ["git", *args], cwd=cwd, env=_clean_env(),
+        capture_output=True, text=True, check=True,
+    )
     return proc.stdout
 
 
@@ -56,7 +64,8 @@ class ReleaseImpactFilesTest(unittest.TestCase):
     def _classify(self, base: str, head: str) -> dict:
         proc = subprocess.run(
             ["bash", "scripts/release-impact-files.sh", base, head],
-            cwd=self.repo, capture_output=True, text=True, check=True,
+            cwd=self.repo, env=_clean_env(),
+            capture_output=True, text=True, check=True,
         )
         return json.loads(proc.stdout)
 

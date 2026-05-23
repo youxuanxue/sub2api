@@ -1,5 +1,18 @@
 # TokenKey Edge Egress IP History & Replacement Runbook
 
+> **NOTE (v2 / OPC, 2026-05-23).** The active rotation path is now
+> [`gh workflow run deploy-edge-stage0.yml -f operation=rotate_egress_ip`](../../.github/workflows/deploy-edge-stage0.yml)
+> driven by [`.cursor/skills/tokenkey-stage0-edge-ip-rotation/SKILL.md`](../../.cursor/skills/tokenkey-stage0-edge-ip-rotation/SKILL.md).
+> The CFN template no longer owns the EIP as a resource — it takes
+> `EipAllocationId` as a parameter, so rotation is a CFN-native UpdateStack
+> with no detach + no IMPORT + no drift class. **This document is retained
+> only for:** (a) the one-time per-stack migration story
+> ([`deploy/aws/stage0/migrate-edge-eip-to-parameter.sh`](../../deploy/aws/stage0/migrate-edge-eip-to-parameter.sh)),
+> (b) hand-recovery for any stack still on the pre-OPC shape (`ElasticIP +
+> EIPAssociation with Retain`), and (c) the polluted-IP audit trail in § 1 / § 2.
+> Once every edge has been migrated, sections 4 and 5 below become
+> permanent history — do not re-author them.
+
 This document tracks the egress (Elastic IP) lifecycle of TokenKey's AWS Stage0 edge gateways: which IPs are currently active, which have been retired (typically because an upstream API risk-blocked them — referred to here as "pollution"), and the validated procedure for replacing a polluted IP without breaking the CFN stack.
 
 Companions:

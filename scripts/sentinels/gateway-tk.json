@@ -151,6 +151,8 @@
         "tlsFingerprintFailureCooldown",
         "openAICloudflareChallengeKeywords",
         "openai_403_cf_challenge_skip_cooldown",
+        "openAIIsHTMLBody",
+        "openai_403_html_body_skip_cooldown",
         "handleAnthropicUpstreamError",
         "handleAnthropicUpstreamErrorWithOptions",
         "IncrementAnthropicUpstreamErrorCount",
@@ -238,6 +240,17 @@
         "TestRateLimitService_HandleUpstreamError_OpenAI403CFChallengeSkipsForAPIKey"
       ],
       "rationale": "Focused regressions for the OpenAI 403 Cloudflare / Arkose challenge short-circuit (upstream Wei-Shaw/sub2api#1824, #2413). Without these tests, an upstream merge or refactor that 'simplifies' handleOpenAI403 by dropping the body keyword scan would silently restore the OAuth-pool-poisoning behavior: a single CF/Arkose challenge on /v1/images/{generations,edits} writes a 10-min temp_unschedulable on the FIRST hit and escalates to SetError on the 3rd within 180 min, removing the account from ALL non-image traffic. The four cases anchor: (1) the four body shapes in the keyword list each match (just-a-moment, cloudflare, arkoselabs, challenge-platform), (2) a real account 403 with structured JSON STILL increments the counter and writes temp_unschedulable, (3) a CF keyword inside a JSON envelope still skips (regression guard for over-clever JSON-aware future refactors), (4) APIKey accounts also benefit — the short-circuit runs before any OAuth-specific branch."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_openai_html_403_test.go",
+      "must_contain": [
+        "TestRateLimitService_HandleUpstreamError_OpenAI403OpenAIAccessDeniedHTMLSkipsCooldown",
+        "TestRateLimitService_HandleUpstreamError_OpenAI403HTMLShapeVariantsSkipCooldown",
+        "TestRateLimitService_HandleUpstreamError_OpenAI403JSONBodyStillCoolsDown",
+        "TestOpenAIIsHTMLBody",
+        "openAIAccessDeniedHTMLSample"
+      ],
+      "rationale": "Shape-based fallback for OpenAI 403 (upstream Wei-Shaw/sub2api#2413 partial-mitigation closeout). The CF/Arkose keyword list only catches *named* challenge platforms; the upstream issue's actual production sample is OpenAI's own UA / bot-detect access-denied HTML page (`.logo{color:#8e8ea0}`, `scale-appear`), which contains none of the keywords and previously slipped through into the 10-min temp_unschedulable + 3/180 SetError path on healthy OAuth accounts. The shape predicate `openAIIsHTMLBody` (anchored in ratelimit_service.go sentinel) catches any HTML 403 body. These regressions anchor: (1) the issue #2413 HTML sample is treated as request-level noise (no counter increment, no cooldown, account stays in the pool), (2) HTML shape variants (DOCTYPE / mixed case / leading whitespace / BOM / individual tags) all detected, (3) non-HTML 403s (structured JSON, plain text, empty body) STILL cool down — regression guard against the predicate bleeding into legitimate account-health 403s, (4) the predicate-level unit test covers boundary conditions (probe window cutoff, XML without HTML tags) so a future refactor cannot silently widen detection. Without these, an upstream merge that 'tightens' the predicate or drops the call site would silently restore OAuth-pool poisoning on every gpt-image-2 UA-detect 403."
     },
     {
       "path": "backend/internal/service/ratelimit_service_401_test.go",
