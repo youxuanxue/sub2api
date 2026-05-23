@@ -143,7 +143,11 @@ gh workflow run deploy-edge-stage0.yml \
   -f tag=$TAG \
   -f confirm_stack=tokenkey-edge-uk1-stage0
 
-# 4) 从 workflow summary / CFN output 取 PublicIP，手工把 api-uk1.tokenkey.dev A 记录指向该 EIP。
+# 4) 从 workflow summary 取新 EIP 的 PublicIP（provision 步骤自动分配并打印 JSON），手工把 api-uk1.tokenkey.dev A 记录指向该 IP。
+#    也可以从 stack 反查：
+#      ALLOC=$(aws cloudformation describe-stacks --region "${REGION}" --stack-name tokenkey-edge-uk1-stage0 \
+#               --query 'Stacks[0].Outputs[?OutputKey==`EipAllocationId`].OutputValue' --output text)
+#      aws ec2 describe-addresses --region "${REGION}" --allocation-ids "$ALLOC" --query 'Addresses[0].PublicIp' --output text
 # 5) DNS 生效后 dispatch smoke；默认先跑 external health + infra smoke + API path block 检查。
 gh workflow run deploy-edge-stage0.yml \
   -f edge_id=uk1 \

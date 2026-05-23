@@ -213,6 +213,80 @@ Resources:
                   - ssm:ListCommandInvocations
                   - ssm:ListCommands
                 Resource: "*"
+              - Sid: DescribeInstanceInformationForSsmReadiness
+                # verify-ssm-online.sh polls until PingStatus=Online after EIP
+                # rotation. The action requires "*" resource per IAM docs; gate
+                # on edge regions only.
+                Effect: Allow
+                Action:
+                  - ssm:DescribeInstanceInformation
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    "aws:RequestedRegion":
+                      - !Ref AWS::Region
+                      - !Ref EdgeUk1Region
+                      - !Ref EdgeFra1Region
+                      - !Ref EdgeUs1Region
+              - Sid: DescribeEgressEipForRotation
+                # Read-side of EIP rotation: discover current allocation-id,
+                # candidate state, post-swap public-IP confirmation. AWS does
+                # not support resource-level scoping for ec2:Describe*; gate on
+                # edge regions only.
+                Effect: Allow
+                Action:
+                  - ec2:DescribeAddresses
+                  - ec2:DescribeInstances
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    "aws:RequestedRegion":
+                      - !Ref EdgeUk1Region
+                      - !Ref EdgeFra1Region
+                      - !Ref EdgeUs1Region
+              - Sid: AllocateAndTagEgressEipForRotation
+                # Write-side, allocate: workflow allocates a fresh candidate EIP
+                # before update-stack swaps it in. CreateTags is conditioned on
+                # the allocate action via ec2:CreateAction so we cannot tag
+                # arbitrary pre-existing resources.
+                Effect: Allow
+                Action:
+                  - ec2:AllocateAddress
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    "aws:RequestedRegion":
+                      - !Ref EdgeUk1Region
+                      - !Ref EdgeFra1Region
+                      - !Ref EdgeUs1Region
+              - Sid: TagFreshEgressEipOnAllocate
+                Effect: Allow
+                Action:
+                  - ec2:CreateTags
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    "ec2:CreateAction": AllocateAddress
+                    "aws:RequestedRegion":
+                      - !Ref EdgeUk1Region
+                      - !Ref EdgeFra1Region
+                      - !Ref EdgeUs1Region
+              - Sid: ReleaseTaggedTokenkeyCandidateEip
+                # Write-side, release: only EIPs we tagged (Project=tokenkey)
+                # can be released by this role. Used on revert (post-swap probe
+                # detected pollution) and on operator-initiated retirement of
+                # the previous EIP after DNS propagation.
+                Effect: Allow
+                Action:
+                  - ec2:ReleaseAddress
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    "aws:ResourceTag/Project": tokenkey
+                    "aws:RequestedRegion":
+                      - !Ref EdgeUk1Region
+                      - !Ref EdgeFra1Region
+                      - !Ref EdgeUs1Region
               - Sid: DescribeStackForInstanceLookup
                 Effect: Allow
                 Action:
