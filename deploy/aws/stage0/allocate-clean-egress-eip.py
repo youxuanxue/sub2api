@@ -21,9 +21,18 @@ import argparse
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 from typing import Any
+
+
+# AWS CLI shorthand parser treats `,`, `=`, `[`, `]`, `{`, `}` as structural
+# separators inside `--tag-specifications Tags=[{Key=...,Value=...},...]`. Any
+# of these characters in a Tag Value breaks the entire allocate-address call.
+# Replace with spaces so the human-readable reason stays useful while staying
+# shorthand-safe. (Operator-supplied rotation_reason flows through here.)
+_TAG_VALUE_UNSAFE = re.compile(r'[,=\[\]{}"]')
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
@@ -110,19 +119,26 @@ def main() -> int:
 
     polluted = load_polluted_ips(args.region)
 
-    sanitized_reason = args.reason.replace('"', "'")[:200]
+    sanitized_reason = _TAG_VALUE_UNSAFE.sub(" ", args.reason)[:200]
     extra_tags = (
         f"{{Key=Environment,Value={args.environment}}},"
         f"{{Key=Profile,Value={args.profile}}}"
     )
     if args.monthly_budget_usd:
         extra_tags += f",{{Key=MonthlyBudgetUsd,Value={args.monthly_budget_usd}}}"
+    # No -candidate suffix on Name and no tokenkey:status=candidate tag:
+    # the cicd-oidc IAM gates ec2:CreateTags on ec2:CreateAction=AllocateAddress,
+    # so we cannot flip the tag from "candidate" to "active" after a successful
+    # swap. Calling the EIP its final name from allocation time avoids leaving
+    # the active edge EIP with a stale "candidate" label in the AWS console.
+    # Brief window where two EIPs share Name=tokenkey-<edge>-eip (between swap
+    # success and operator release of the old one) is harmless — edge-ip-status.sh
+    # filters by instance-id, not Name.
     tag_spec = (
         f"ResourceType=elastic-ip,Tags=["
         f"{{Key=Project,Value=tokenkey}},"
         f"{{Key=EdgeId,Value={args.edge_id}}},"
-        f"{{Key=Name,Value=tokenkey-{args.edge_id}-eip-candidate}},"
-        f"{{Key=tokenkey:status,Value=candidate}},"
+        f"{{Key=Name,Value=tokenkey-{args.edge_id}-eip}},"
         f"{{Key=tokenkey:replaces-reason,Value={sanitized_reason}}},"
         f"{extra_tags}"
         f"]"

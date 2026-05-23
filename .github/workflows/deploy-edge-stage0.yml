@@ -408,7 +408,17 @@ jobs:
           if [ "$NEW_SOURCE" = "auto" ]; then
             # The candidate was allocated inside this run; release it. Operator-
             # supplied allocations are left alone so they can be inspected.
-            aws ec2 release-address --region "$REGION" --allocation-id "$NEW_ALLOC" || true
+            #
+            # The `|| true` here is intentional: revert correctness is "data
+            # plane is back on OLD_ALLOC and SSM is Online", both already
+            # asserted above. If release-address transiently fails (AWS
+            # throttling, residual association lag, etc.) we'd rather log a
+            # leaked candidate EIP than abort the revert path and leave the
+            # operator with an unclear failure state. The job still exits 1
+            # below, so the leak — if any — surfaces in the next ops
+            # diagnostic cycle, not silently.
+            aws ec2 release-address --region "$REGION" --allocation-id "$NEW_ALLOC" || \
+              echo "::warning::release-address failed for candidate ${NEW_ALLOC} during revert; check region ${REGION} for orphan EIPs"
           fi
           echo "::error::rotate_egress_ip aborted; data plane restored to ${OLD_ALLOC}. Inspect the verify-egress-clean step output and re-dispatch with a different candidate (or different region)."
           exit 1
