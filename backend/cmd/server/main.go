@@ -26,8 +26,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/web"
 
 	"github.com/gin-gonic/gin"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 )
 
 //go:embed VERSION
@@ -133,9 +131,16 @@ func runSetupServer() {
 	log.Printf("Setup wizard available at http://%s", addr)
 	log.Println("Complete the setup wizard to configure TokenKey")
 
+	// Std-lib h2c support (Go 1.24+) replaces the deprecated
+	// golang.org/x/net/http2/h2c.NewHandler. We do not need the http2.Server
+	// tuning surface for the setup wizard, so the std-lib API is a clean fit.
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           h2c.NewHandler(r, &http2.Server{}),
+		Handler:           r,
+		Protocols:         protocols,
 		ReadHeaderTimeout: 30 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
