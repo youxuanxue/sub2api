@@ -13,6 +13,18 @@ description: >-
 
 权威纪律以仓库根 `CLAUDE.md` 为准（ARM、多架构发布、release/deploy 顺序、禁止绕过 preflight）。
 
+## 确定性基线（机械化 vs 真判断）
+
+按 dev-rules `rules/dev-rules-convention.mdc` §「skill / command 确定性基线」自审。本 skill **大部分是真判断**（IAM/OIDC scope、跨区 ARN、CFN role 命名属于架构决定，不应机械化），只列差异最大的几项。
+
+| 步骤 | 类型 | 承载 |
+|---|---|---|
+| edge-targets.json / deploy-edge-stage0.yml / cicd-oidc.yaml / GitHub Environment / SSM 参数 5 个文件的差量编辑 | 判断 | prompt（IAM/OIDC scope、跨区 ARN、CFN role 命名是架构决定） |
+| Provision dispatch + watch | 机械 | `gh workflow run deploy-edge-stage0.yml ...` + `gh run watch --exit-status` |
+| 抓初始 admin 邮箱+密码并落本地 keys 文件 | 机械 | `bash ops/stage0/capture-edge-admin-credentials.sh <edge_id>` |
+| Smoke / Upgrade / Rollback dispatch | 机械 | `gh workflow run deploy-edge-stage0.yml`（参数化） |
+| 故障速查（OIDC subject / CFN role output / cloud-init / ssm doc ARN） | 判断 | prompt（诊断分支） |
+
 ## 调用参数
 
 ```text
@@ -159,69 +171,31 @@ gh run watch <run-id> --exit-status
 - 初始和重置 admin 账密必须保存到 `$HOME/Codes/keys/tokenkey-<edge_id>-admin-password.txt`，格式与 `tokenkey-uk1-admin-password.txt` 一致：`email=...`、`password=...`。
 - 禁止在终端、PR、issue、日志摘要或聊天中打印密码；只报告保存路径和状态。
 
-### 3.2 线上日志保存（优先）
+### 3.2 线上日志保存（机械化）
 
 ```bash
-EDGE_ID=<edge_id>
-REGION=<edge-region>
-STACK=tokenkey-edge-<edge_id>-stage0
-KEYS_DIR=$HOME/Codes/keys
-CREDENTIAL_FILE="$KEYS_DIR/tokenkey-$EDGE_ID-admin-password.txt"
-INSTANCE_ID=$(aws cloudformation describe-stacks \
-  --region "$REGION" \
-  --stack-name "$STACK" \
-  --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' \
-  --output text)
-
-CMD_ID=$(aws ssm send-command \
-  --region "$REGION" \
-  --instance-ids "$INSTANCE_ID" \
-  --document-name AWS-RunShellScript \
-  --parameters 'commands=[
-    "set -euo pipefail",
-    "sudo grep \"^ADMIN_EMAIL=\" /var/lib/tokenkey/.env || true",
-    "sudo docker logs tokenkey 2>&1 | grep -E \"Generated admin password\" || true",
-    "sudo journalctl -u tokenkey.service --no-pager | grep -E \"Generated admin password\" || true",
-    "sudo grep -E \"Generated admin password|ADMIN_EMAIL\" /var/log/tokenkey-edge-bootstrap.log || true"
-  ]' \
-  --query 'Command.CommandId' --output text)
-
-aws ssm wait command-executed \
-  --region "$REGION" \
-  --command-id "$CMD_ID" \
-  --instance-id "$INSTANCE_ID" || true
-
-RAW_OUTPUT=$(aws ssm get-command-invocation \
-  --region "$REGION" \
-  --command-id "$CMD_ID" \
-  --instance-id "$INSTANCE_ID" \
-  --query 'StandardOutputContent' --output text)
-
-ADMIN_EMAIL=$(printf '%s\n' "$RAW_OUTPUT" | grep -Eo 'ADMIN_EMAIL=[^[:space:]]+' | tail -n 1 | cut -d= -f2-)
-ADMIN_PASSWORD=$(printf '%s\n' "$RAW_OUTPUT" | sed -nE 's/.*Generated admin password \(one-time\): ([^[:space:]]+).*/\1/p' | tail -n 1)
-if [ -z "$ADMIN_EMAIL" ] || [ -z "$ADMIN_PASSWORD" ]; then
-  echo "[warn] initial admin credential not found in logs; run reset script instead" >&2
-else
-  umask 077
-  {
-    printf 'email=%s\n' "$ADMIN_EMAIL"
-    printf 'password=%s\n' "$ADMIN_PASSWORD"
-  } >"$CREDENTIAL_FILE"
-  chmod 600 "$CREDENTIAL_FILE"
-  echo "[ok] admin credentials saved to $CREDENTIAL_FILE"
-fi
-unset RAW_OUTPUT ADMIN_PASSWORD
+bash ops/stage0/capture-edge-admin-credentials.sh edge-<edge_id>
+# 或省略前缀：
+bash ops/stage0/capture-edge-admin-credentials.sh <edge_id>
 ```
 
-### 3.3 若查不到初始密码（常见）
+行为契约（脚本顶部 docstring 是 ground truth）：
 
-直接重置：
+- 自动解析 `region` / `stack` / `instance_id`（同 `reset-edge-admin-password.sh` 的解析链）。
+- 通过 SSM 探四个源（`/var/lib/tokenkey/.env` 的 `ADMIN_EMAIL`、`docker logs`、`journalctl`、`/var/log/tokenkey-edge-bootstrap.log` 的 `Generated admin password`）。
+- 落到 `$HOME/Codes/keys/tokenkey-<edge_id>-admin-password.txt`（chmod 600）。
+- **从不打印密码** —— 只输出状态 + `CREDENTIAL_FILE` 路径。
+- Exit codes：`0` 抓到；`3` 日志已过期未找到（提示改跑 `reset-edge-admin-password.sh`）；`1`/`2` 用法/SSM 错。
+
+### 3.3 若查不到初始密码（capture 退出码 3）
+
+直接重置（同样不打印密码、同样落同一份 keys 文件）：
 
 ```bash
 bash ops/stage0/reset-edge-admin-password.sh edge-<edge_id>
 ```
 
-脚本只打印状态和 `CREDENTIAL_FILE`，不会打印密码。登录后立即改为长期密码。
+登录后立即改为长期密码。
 
 ## 4) DNS
 

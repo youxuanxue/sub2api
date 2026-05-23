@@ -21,6 +21,21 @@ description: >-
 
 适用于本仓库（TokenKey fork of sub2api）。三条**完全平行**的写入面，都由 `ops/anthropic/manage-anthropic-config.py` 编排，**都遵守同一组确定性纪律**（详 §0）：
 
+## 确定性基线（机械化 vs 真判断）
+
+按 dev-rules `rules/dev-rules-convention.mdc` §「skill / command 确定性基线」自审。本 skill **已达基线**——5 阶段 orchestrator 全机械化，prompt 只留真判断。本表是 review-time 抓手。
+
+| 步骤 | 类型 | 承载 |
+|---|---|---|
+| snapshot / check / plan / apply / verify | 机械 | `python3 ops/anthropic/manage-anthropic-config.py {snapshot\|check\|plan-*\|apply\|verify}` |
+| baseline JSON 派生 SQL（无静态模板） | 机械 | orchestrator 内部 `effective_baseline_for_tier` + `generate_sql` |
+| stub_pool / concurrency-mirror 模板 SQL 渲染 | 机械 | orchestrator 内 `render_prod_stub_pool_sql` / `render_prod_concurrency_mirror_sql` |
+| confirm code 字面匹配 | 机械 | `--confirm yes-apply-anthropic-config-cascade` |
+| 单元测试覆盖 plan 渲染 / apply 路由 | 机械 | `ops/anthropic/test_manage_anthropic_config_{plan,stub_pool,concurrency_mirror}.py`（preflight 跑） |
+| §0 「数据值散落多处」「列号读取」「跨账号脑补」防御 | 判断 + 机械 | 见 §0 表格：每条「风险」都有对应「固化机制」 |
+| 写入面边界（B 写 credentials 子键、(C) 不动 credentials、admin UI 负责 group.rpm_limit） | 判断 | prompt（产品边界 + admin UI 分工） |
+| 新增写入面/新增字段时的 5 层落地要求 | 判断 + 已知缺口 | prompt §0 ⚠️ 块明示是 OPC backlog 项 |
+
 | 写入面 | 数据真值源 | action.kind | 影响范围 |
 |---|---|---|---|
 | (A) edge OAuth tier baseline | `anthropic-oauth-stability-baselines-tiered.json` | `edge_account_tier` | 每个 deployable edge 上 `type=oauth` 账号的 `extra.*` + `concurrency` + `priority` + `stability_tier` 字段；事务末尾同步 `users.id=1.concurrency = Σ schedulable anthropic.concurrency` |

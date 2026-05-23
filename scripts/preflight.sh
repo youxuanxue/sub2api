@@ -744,6 +744,30 @@ else
     echo "  ok: ops/anthropic unittest suite (tier plan + oauth priority rebalance)"
 fi
 
+# Determinism-baseline observability/release/stage0 helpers (added 2026-05 to
+# back the SKILL.md mechanization migration per dev-rules §"skill / command
+# 确定性基线"). Same pattern as the ops/anthropic suite: stdlib-only unittest,
+# no AWS/network; the directories are listed individually because each ships
+# its own importlib-loaded scripts (filenames contain hyphens).
+echo ""
+echo "=== sub2api: determinism-baseline helper unittests ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by determinism-baseline suites)"
+    errors=$((errors + 1))
+else
+    _det_baseline_failed=0
+    for _det_dir in ops/observability ops/stage0 scripts deploy/aws/stage0; do
+        if ! python3 -m unittest discover -s "$_det_dir" -p 'test_*.py' -t "$_det_dir" >/dev/null 2>&1; then
+            echo "  FAIL: $_det_dir unittest failed (re-run: python3 -m unittest discover -s $_det_dir -p 'test_*.py' -t $_det_dir -v)"
+            errors=$((errors + 1))
+            _det_baseline_failed=1
+        fi
+    done
+    if [ "$_det_baseline_failed" -eq 0 ]; then
+        echo "  ok: determinism-baseline suites (observability / stage0 / scripts / deploy.stage0)"
+    fi
+fi
+
 # Headless agent stream redactor: scripts/agent/redact-stream.py sits between
 # `claude -p` and `tee` in upstream-merge-agent-daily.yml / pr-repair-agent.yml
 # /agent-draft-pr/action.yml, scrubbing secrets out of the agent's stdout

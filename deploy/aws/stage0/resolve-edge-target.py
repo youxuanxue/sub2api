@@ -178,9 +178,28 @@ def main() -> int:
     parser.add_argument("--target-selector", default="all")
     parser.add_argument("--prod-region", default="us-east-1")
     parser.add_argument("--prod-stack", default="tokenkey-prod-stage0")
+    parser.add_argument(
+        "--list-deployable",
+        action="store_true",
+        help=(
+            "Print one deployable edge id per line (deployable=true in the matrix). "
+            "Mutually exclusive with --edge-id / --prod-ops-matrix. "
+            "Stable output for shell consumers in skills/scripts; "
+            "exits 0 even when no edges are deployable (prints nothing)."
+        ),
+    )
     args = parser.parse_args()
 
     data = load_matrix(args.matrix)
+
+    if args.list_deployable:
+        if args.edge_id or args.prod_ops_matrix:
+            fail("--list-deployable is mutually exclusive with --edge-id / --prod-ops-matrix")
+        targets = data.get("targets") or {}
+        for edge_id in sorted(targets):
+            if bool(targets[edge_id].get("deployable")):
+                print(edge_id)
+        return 0
 
     if args.prod_ops_matrix:
         matrix, excluded = build_prod_ops_matrix(
