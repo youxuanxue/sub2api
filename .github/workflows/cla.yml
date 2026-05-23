@@ -37,17 +37,33 @@ jobs:
           path-to-signatures: "cla.json"
           path-to-document: "https://github.com/Wei-Shaw/sub2api/blob/main/CLA.md"
           branch: "cla-signatures"
-          # NOTE: `yyy` is the placeholder git author NAME used by the
-          # maintainer's local git config (commits as `yyy <yyy@no-replay.com>`).
-          # Because that email is not linked to any GitHub account, the action
-          # falls back to commit.author.name for matching (see graphql.ts in
-          # contributor-assistant/github-action — extractUserFromCommit returns
-          # commit.author when commit.author.user is null, and committer.name
-          # = login || name). So the allowlist entry must be the git author
-          # NAME, NOT the email. Long-term fix: set a proper `git config
-          # user.email` linked to the GitHub account; once the maintainer's
-          # commits show up with author.user.login = "youxuanxue", remove
-          # this entry.
+          # MAINTAINER ENTRIES (`yyy` + `youxuanxue`) — keep both during the
+          # transition. The action's extractUserFromCommit returns
+          # `commit.author.user.login || commit.author.name`, so a maintainer
+          # commit shows up under different identifiers depending on whether
+          # GitHub can resolve the author email:
+          #
+          #   - `yyy`: placeholder NAME used by the maintainer's local git
+          #     config (commits as `yyy <yyy@no-replay.com>`). The email is
+          #     not linked to any GitHub account, so the action falls back to
+          #     commit.author.name = "yyy". Required for every hand-written
+          #     local commit.
+          #
+          #   - `youxuanxue`: GitHub LOGIN of the maintainer's account. Used
+          #     for commits whose author email DOES resolve to GitHub —
+          #     specifically the merge commits GitHub itself creates when the
+          #     maintainer clicks "Update branch" in the PR UI (author email
+          #     = `forsurexue@gmail.com`, which resolves to this login). Also
+          #     covers any future commit made through GitHub web UI (file
+          #     editor / suggestion accept). Without this entry every PR that
+          #     ever pulls main back into its feature branch fails CLA on the
+          #     "Update branch" merge commit, even though every other commit
+          #     is allowlisted.
+          #
+          # Long-term cleanup: once the maintainer switches the local git
+          # `user.email` to `forsurexue@gmail.com` (so even hand-written
+          # commits resolve to login=youxuanxue) and the last `yyy`-authored
+          # commit has merged, drop `yyy` from the allowlist.
           #
           # `cursoragent` is the GitHub LOGIN of the Cursor Background Agent
           # service account (https://github.com/cursoragent). The action's
@@ -78,7 +94,7 @@ jobs:
           # contributor whose commits are squashed under the maintainer's
           # authorship at merge time; the CLA bot must accept it as
           # already-signed to avoid blocking every Claude-authored PR.
-          allowlist: "dependabot[bot],renovate[bot],bot*,yyy,cursoragent,claude"
+          allowlist: "dependabot[bot],renovate[bot],bot*,yyy,youxuanxue,cursoragent,claude"
           lock-pullrequest-aftermerge: false
           custom-notsigned-prcomment: |
             Thank you for your contribution! Before we can merge this PR, we need $you to sign our [Contributor License Agreement (CLA)](https://github.com/Wei-Shaw/sub2api/blob/main/CLA.md).
@@ -103,5 +119,5 @@ jobs:
           path-to-signatures: "cla.json"
           path-to-document: "https://github.com/Wei-Shaw/sub2api/blob/main/CLA.md"
           branch: "cla-signatures"
-          allowlist: "dependabot[bot],renovate[bot],bot*,yyy,cursoragent,claude"
+          allowlist: "dependabot[bot],renovate[bot],bot*,yyy,youxuanxue,cursoragent,claude"
           lock-pullrequest-aftermerge: true
