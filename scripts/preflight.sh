@@ -768,6 +768,28 @@ else
     fi
 fi
 
+# ---- sub2api: edge platform exclusivity -------------------------------------
+# EC2 Edge and Lightsail Edge intentionally share the same <edge_id> namespace,
+# the same GitHub Environment edge-<id>, and the same DNS domain
+# api-<id>.tokenkey.dev. AWS resources are fully namespaced (stack name, SSM
+# prefix, Static IP name), so the two stacks can co-exist without colliding
+# inside AWS. The single hard conflict is DNS: only one A record can point at
+# one IP. If both matrices declare the same edge_id as deployable=true at the
+# same time, operators get undefined behaviour (whichever stack DNS currently
+# points at "wins"; the other silently runs as a phantom). The README warning
+# "不要对同一 edge 混跑两种 provision" is now this mechanical gate.
+echo ""
+echo "=== sub2api: edge platform exclusivity (EC2 ↔ Lightsail) ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for edge platform exclusivity check)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/edge-platform-exclusivity.py; then
+    # edge-platform-exclusivity.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: no edge_id is deployable=true on both EC2 and Lightsail"
+fi
+
 # ---- sub2api: lightsail edge launch-script drift ----------------------------
 # Source of truth: deploy/aws/lightsail/render-bootstrap.sh + the four Stage0
 # inputs it embeds (docker-compose.yml, Caddyfile.edge, two ops shell scripts).
