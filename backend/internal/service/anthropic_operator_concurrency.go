@@ -7,12 +7,12 @@ import (
 )
 
 // AnthropicOperatorConcurrencyUserID is the admin/default operator user whose API
-// concurrency mirrors Σ concurrency of all anthropic rows on this DB (OAuth + apikey etc.),
-// aligned with ops/anthropic/manage-anthropic-config.py edge apply SQL.
+// concurrency mirrors Σ concurrency of schedulable=true anthropic rows on this DB,
+// aligned with ops/anthropic/manage-anthropic-config.py operator-concurrency SQL.
 const AnthropicOperatorConcurrencyUserID int64 = 1
 
 // SyncAnthropicOperatorConcurrency sets users AnthropicOperatorConcurrencyUserID concurrency
-// to the sum of non-deleted anthropic account concurrency rows (all account types).
+// to the sum of non-deleted schedulable=true anthropic account concurrency rows.
 func SyncAnthropicOperatorConcurrency(ctx context.Context, accountRepo AccountRepository, userRepo UserRepository) error {
 	if accountRepo == nil || userRepo == nil {
 		return fmt.Errorf("sync anthropic operator concurrency: nil repository")

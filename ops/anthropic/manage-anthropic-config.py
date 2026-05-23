@@ -2,8 +2,8 @@
 """
 TokenKey Anthropic OAuth tier-baseline + prod stub pool-mode orchestrator.
 
-One entrypoint, plan JSON as the only file between stages.  Two write
-surfaces, both JSON-derived (no static SQL templates, no operator-written
+One entrypoint, plan JSON as the only file between stages.  Three write
+surfaces, all JSON-derived (no static SQL templates, no operator-written
 SQL):
 
   A. edge OAuth account tier baseline
@@ -12,16 +12,30 @@ SQL):
   B. prod anthropic api-key stub pool_mode (mirror stubs, base_url = api-*.tokenkey.dev)
      — per ``anthropic-stub-pool-baselines.json``
      — action.kind = ``prod_stub_pool``
+  C. prod stub concurrency mirror (the "two-hop" capacity cascade)
+     — derived from live ``schedulable=true`` concurrency, no baseline file
+     — action.kind = ``edge_operator_concurrency`` (per edge) /
+                      ``prod_concurrency_mirror`` (one prod tx)
+
+Topology (which edges exist, and which prod stub maps to which edge) is read
+ONLY from ``deploy/aws/stage0/edge-targets.json`` (each edge's ``domain`` field
+is the authoritative prod-stub↔edge link) and the pinned ``PROD_TARGET`` —
+never re-inferred from account names or ad-hoc slug parsing.
 
 Stages
 ------
   1. snapshot — pull each deployable edge's anthropic OAuth accounts AND
-                prod's anthropic api-key mirror stubs into one JSON
+                prod's anthropic api-key mirror stubs into one JSON; also
+                each target's operator (users.id=1) concurrency + live
+                Σ schedulable anthropic concurrency (surface C inputs)
   2. check    — invoke check-edge-oauth-stability.py for each edge × account
   3a. plan-edge-account-tier — declare an edge OAuth tier change
   3b. plan-tier-bump         — re-apply a tier baseline to every matching edge account
   3c. plan-stub-pool         — enable pool_mode on every prod stub matching the
                                base_url policy (idempotent; live-matched stubs skip)
+  3d. plan-concurrency-mirror — align edge operator concurrency + prod stub
+                               concurrency + prod operator concurrency to live
+                               Σ schedulable anthropic (idempotent)
   4. apply    — render apply SQL from JSON, run via SSM, parse output
   5. verify   — re-snapshot, diff each expected_after vs live
 
@@ -35,12 +49,25 @@ aggregation" model was retired because layered SUM caps left no
 headroom for sticky-buffer burst on the upstream OAuth pool — upstream
 quota was being throttled before real traffic could exercise it.
 Group `rpm_limit` is now set independently in the admin UI; this
-orchestrator no longer writes to any group nor to any prod surface.
+orchestrator no longer writes to any group.
+
+2026-05-23: the stub *concurrency* mirror was re-wired back into the
+pipeline as surface C (``plan-concurrency-mirror``). It is NOT a revival
+of the retired group-RPM aggregation — only the concurrency cascade
+returns, and its basis changed from "Σ all anthropic concurrency" to
+"Σ ``schedulable=true`` anthropic concurrency". The four-hop cascade is:
+(1) edge account tier config (surface A); (2) edge ``users.id=1`` =
+that edge's Σ schedulable; (3) each prod mirror stub's ``concurrency`` =
+its edge's Σ schedulable (edge resolved via the stub's ``base_url`` matched
+against ``edge-targets.json`` ``domain``); (4) prod ``users.id=1`` = prod's
+Σ schedulable (computed after step 3 in the same prod transaction).
 
 Each successful edge ``apply`` transaction also sets ``users.id=1``
-``concurrency`` to the sum of ``concurrency`` on every ``anthropic`` account row
-(not soft-deleted) on that same database — oauth and api-key types —
-so operator default tracks total Anthropic account capacity.
+``concurrency`` to the sum of ``concurrency`` on every ``schedulable=true``
+``anthropic`` account row (not soft-deleted) on that same database — oauth
+and api-key types — so operator default tracks live schedulable Anthropic
+capacity (admin/diagnostic accounts parked at ``schedulable=false`` are
+excluded, matching the scheduler's own view).
 
 Exit codes
 ----------
@@ -109,8 +136,8 @@ _GUARD = _load_guard_module()
 
 CONFIRM_CODE = "yes-apply-anthropic-config-cascade"
 
-PLAN_VERSION = 3
-SNAPSHOT_VERSION = 3
+PLAN_VERSION = 4
+SNAPSHOT_VERSION = 4
 
 # After each OAuth tier-baseline apply on an edge Postgres, bump the operator
 # (admin/default) user's row concurrency to match Σ anthropic account concurrency
@@ -339,6 +366,41 @@ WHERE a.platform = 'anthropic'
   AND a.deleted_at IS NULL;
 """
 
+# Surface-C inputs, identical on every target (edge or prod): the operator
+# (users.id=1) row concurrency, and the live Σ schedulable anthropic concurrency
+# the scheduler actually sees. Both numbers are computed authoritatively in SQL
+# (never re-summed in Python) so the planner trusts one source. The sum mirrors
+# render_admin_operator_concurrency_sync_sql exactly (same platform + schedulable
+# + deleted_at predicate) — keep them in lockstep.
+OPERATOR_CONCURRENCY_SQL = f"""
+SELECT jsonb_build_object(
+  'operator_user_concurrency',
+    (SELECT concurrency FROM users
+      WHERE id = {ADMIN_OPERATOR_USER_CONCURRENCY_SYNC_ID} AND deleted_at IS NULL),
+  'schedulable_concurrency_sum',
+    (SELECT COALESCE(SUM(a.concurrency), 0)::int FROM accounts a
+      WHERE a.platform = 'anthropic'
+        AND a.schedulable = true
+        AND a.deleted_at IS NULL)
+);
+"""
+
+
+def _read_operator_concurrency(region: str, instance_id: str, label: str) -> dict:
+    """Pull operator_user_concurrency + schedulable_concurrency_sum for one target.
+    Both are SQL-authoritative ints; missing/parse failures degrade to None so the
+    planner can fail-loud rather than silently treat them as 0."""
+    raw, _ = ssm_run_sql(region, instance_id, OPERATOR_CONCURRENCY_SQL,
+                         f"snapshot: {label} operator concurrency")
+    try:
+        obj = json.loads(raw) if raw else {}
+    except json.JSONDecodeError:
+        obj = {}
+    return {
+        "operator_user_concurrency": obj.get("operator_user_concurrency"),
+        "schedulable_concurrency_sum": obj.get("schedulable_concurrency_sum"),
+    }
+
 
 def cmd_snapshot(args: argparse.Namespace) -> int:
     edge_matrix = load_json_file(EDGE_MATRIX, "edge matrix")
@@ -361,6 +423,7 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
         print(f"snapshot: edge {eid} instance={inst}", file=sys.stderr)
         accts_raw, _ = ssm_run_sql(tgt["region"], inst, EDGE_ACCOUNTS_SQL,
                                     f"snapshot: edge {eid} oauth accounts")
+        op = _read_operator_concurrency(tgt["region"], inst, f"edge {eid}")
         edges[eid] = {
             "deployable": True,
             "instance_id": inst,
@@ -368,6 +431,8 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
             "stack": tgt["stack"],
             "domain": tgt.get("domain"),
             "oauth_accounts": json.loads(accts_raw) if accts_raw else [],
+            "operator_user_concurrency": op["operator_user_concurrency"],
+            "schedulable_concurrency_sum": op["schedulable_concurrency_sum"],
         }
 
     prod_view: dict[str, Any]
@@ -379,12 +444,15 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
             print(f"snapshot: prod instance={prod_inst}", file=sys.stderr)
             stubs_raw, _ = ssm_run_sql(PROD_TARGET["region"], prod_inst, PROD_STUBS_SQL,
                                         "snapshot: prod anthropic stubs")
+            prod_op = _read_operator_concurrency(PROD_TARGET["region"], prod_inst, "prod")
             prod_view = {
                 "instance_id": prod_inst,
                 "region": PROD_TARGET["region"],
                 "stack": PROD_TARGET["stack"],
                 "domain": PROD_TARGET["domain"],
                 "anthropic_stubs": json.loads(stubs_raw) if stubs_raw else [],
+                "operator_user_concurrency": prod_op["operator_user_concurrency"],
+                "schedulable_concurrency_sum": prod_op["schedulable_concurrency_sum"],
             }
         except SystemExit:
             print("snapshot: prod failed to resolve instance (skipping prod view; "
@@ -486,7 +554,9 @@ def _load_snapshot_or_die(path: str) -> dict:
     if v != SNAPSHOT_VERSION:
         fail(f"snapshot version {v} != expected {SNAPSHOT_VERSION} "
              f"(snapshot v1 cascaded prod stub fields aggregated from edges; "
-             f"v2 dropped that, v3 re-added a prod READ view + stub pool-mode WRITE)")
+             f"v2 dropped that, v3 re-added a prod READ view + stub pool-mode WRITE; "
+             f"v4 added per-target operator_user_concurrency + schedulable_concurrency_sum "
+             f"for the concurrency-mirror surface)")
     return snap
 
 
@@ -891,23 +961,233 @@ def cmd_plan_stub_pool(args: argparse.Namespace) -> int:
 
 
 # --------------------------------------------------------------------------
+# Stage 3d — plan-concurrency-mirror (the prod stub concurrency cascade)
+# --------------------------------------------------------------------------
+
+def _normalize_base_url(base_url: str) -> str:
+    """Strip scheme + trailing slash so a stub's credentials.base_url can be matched
+    against an edge's bare ``domain`` (e.g. ``https://api-us1.tokenkey.dev/`` →
+    ``api-us1.tokenkey.dev``). No slug parsing — the whole host is the key."""
+    s = (base_url or "").strip()
+    for scheme in ("https://", "http://"):
+        if s.startswith(scheme):
+            s = s[len(scheme):]
+            break
+    return s.rstrip("/")
+
+
+def _build_domain_to_edge(edge_matrix: dict) -> dict[str, str]:
+    """Authoritative prod-stub↔edge link, read straight from edge-targets.json:
+    map each edge's ``domain`` to its edge id. This is the ONLY place the two-hop
+    topology is resolved — never inferred from account names or ad-hoc slugs."""
+    out: dict[str, str] = {}
+    for eid, tgt in (edge_matrix.get("targets") or {}).items():
+        dom = _normalize_base_url(tgt.get("domain") or "")
+        if dom:
+            out[dom] = eid
+    return out
+
+
+def cmd_plan_concurrency_mirror(args: argparse.Namespace) -> int:
+    """Surface C planner — the four-hop schedulable-concurrency cascade.
+
+    Hop 1 (edge account tier) is surface A's job; this planner aligns hops 2-4:
+      2. each deployable edge's ``users.id=1`` → that edge's Σ schedulable
+         anthropic concurrency  (action.kind = edge_operator_concurrency)
+      3. each prod mirror stub's ``concurrency`` → the Σ schedulable of the edge
+         its base_url points at  (folded into one prod_concurrency_mirror action)
+      4. prod's ``users.id=1`` → prod's Σ schedulable, computed after hop 3 in the
+         same prod transaction  (same prod_concurrency_mirror action)
+
+    Edge resolution for hop 3 is purely from edge-targets.json ``domain`` — no
+    name/slug inference. Idempotent: a second run after apply is noop. Safety
+    rail: an edge whose Σ schedulable is 0 is skipped loud for hop 3 (we never
+    write a stub concurrency of 0)."""
+    snap = _load_snapshot_or_die(args.snapshot)
+    edge_matrix = load_json_file(EDGE_MATRIX, "edge matrix")
+    domain_to_edge = _build_domain_to_edge(edge_matrix)
+    force = bool(getattr(args, "force_template_rewrite", False))
+
+    actions: list[dict] = []
+    edge_synced: list[dict] = []
+    edge_skipped: list[dict] = []
+
+    # --- hop 2: edge operator concurrency ---
+    for edge_id, edge in sorted(snap.get("edges", {}).items()):
+        if edge.get("error") or edge.get("skipped_reason") or not edge.get("deployable"):
+            continue
+        sched_sum = edge.get("schedulable_concurrency_sum")
+        op_cur = edge.get("operator_user_concurrency")
+        if sched_sum is None or op_cur is None:
+            edge_skipped.append({"edge_id": edge_id,
+                                 "reason": "snapshot lacks operator/schedulable concurrency "
+                                           "(re-run snapshot with v4+)"})
+            continue
+        if sched_sum == 0:
+            edge_skipped.append({"edge_id": edge_id,
+                                 "reason": "edge Σ schedulable anthropic = 0; refusing to "
+                                           "drive operator concurrency to 0"})
+            continue
+        if op_cur == sched_sum and not force:
+            continue
+        step = len(actions) + 1
+        actions.append({
+            "step": step,
+            "kind": "edge_operator_concurrency",
+            "target": {"env": "edge", "edge_id": edge_id},
+            "sql_source": "rendered-from-live-schedulable-concurrency",
+            "variables": {"edge_id": edge_id, "schedulable_concurrency_sum": sched_sum},
+            "expected_after": {"operator_user_concurrency": sched_sum},
+        })
+        edge_synced.append({"edge_id": edge_id, "before": op_cur, "after": sched_sum})
+
+    # --- hop 3+4: prod stub concurrency mirror + prod operator ---
+    prod = snap.get("prod") or {}
+    prod_skipped_unmatched: list[dict] = []
+    prod_skipped_zero: list[dict] = []
+    stub_updates: list[dict] = []
+    stub_befores: list[dict] = []
+    if prod.get("error") or prod.get("skipped_reason"):
+        fail(f"snapshot.prod not captured: {prod.get('error') or prod.get('skipped_reason')}; "
+             "re-run snapshot without --skip-prod")
+
+    prod_live_sum = prod.get("schedulable_concurrency_sum")
+    prod_op_cur = prod.get("operator_user_concurrency")
+    if prod_live_sum is None or prod_op_cur is None:
+        fail("snapshot.prod lacks operator_user_concurrency / schedulable_concurrency_sum; "
+             "re-run snapshot with v4+")
+
+    delta = 0  # change to prod Σ schedulable from the stub concurrency writes
+    for stub in prod.get("anthropic_stubs", []):
+        dom = _normalize_base_url(stub.get("cred_base_url") or "")
+        edge_id = domain_to_edge.get(dom)
+        if not edge_id:
+            prod_skipped_unmatched.append({
+                "id": stub.get("id"), "name": stub.get("name"),
+                "cred_base_url": stub.get("cred_base_url"),
+                "reason": "base_url does not match any edge domain in edge-targets.json",
+            })
+            continue
+        edge = snap.get("edges", {}).get(edge_id) or {}
+        edge_sum = edge.get("schedulable_concurrency_sum")
+        if edge_sum is None:
+            prod_skipped_unmatched.append({
+                "id": stub.get("id"), "name": stub.get("name"),
+                "cred_base_url": stub.get("cred_base_url"), "matched_edge": edge_id,
+                "reason": f"edge {edge_id} not snapshotted with schedulable sum (planned/skipped?)",
+            })
+            continue
+        if edge_sum == 0:
+            prod_skipped_zero.append({
+                "id": stub.get("id"), "name": stub.get("name"), "matched_edge": edge_id,
+                "reason": f"edge {edge_id} Σ schedulable = 0; refusing to write stub concurrency 0",
+            })
+            continue
+        cur_conc = stub.get("concurrency")
+        if cur_conc != edge_sum or force:
+            stub_updates.append({"id": stub.get("id"), "name": stub.get("name"),
+                                 "concurrency": edge_sum, "matched_edge": edge_id})
+            stub_befores.append(_stub_before(stub))
+            # Only schedulable stubs contribute to prod Σ schedulable.
+            if stub.get("schedulable") is True:
+                delta += edge_sum - (cur_conc or 0)
+
+    expected_prod_operator = prod_live_sum + delta
+    prod_operator_needs_change = (prod_op_cur != expected_prod_operator) or force
+
+    if stub_updates or prod_operator_needs_change:
+        step = len(actions) + 1
+        # expected_after.stub_concurrency keyed by stub id (str) for verify lookup.
+        exp_stub = {str(u["id"]): u["concurrency"] for u in stub_updates}
+        actions.append({
+            "step": step,
+            "kind": "prod_concurrency_mirror",
+            "target": {"env": "prod"},
+            "sql_source": "rendered-from-live-schedulable-concurrency",
+            "variables": {
+                "stub_updates": [
+                    {"id": u["id"], "name": u["name"], "concurrency": u["concurrency"],
+                     "matched_edge": u["matched_edge"]}
+                    for u in stub_updates
+                ],
+            },
+            "expected_after": {
+                "stub_concurrency": exp_stub,
+                "operator_user_concurrency": expected_prod_operator,
+            },
+        })
+
+    plan = {
+        "version": PLAN_VERSION,
+        "kind": "concurrency_mirror",
+        "confirm_code": CONFIRM_CODE,
+        "intent": {
+            "scope": "edge-operator + prod-stub-concurrency + prod-operator cascade",
+            "basis": "Σ schedulable=true anthropic concurrency (live, per target)",
+            "topology_source": EDGE_MATRIX.name,
+            "force_template_rewrite": force,
+        },
+        "snapshot_captured_at": snap.get("captured_at"),
+        "plan_built_at": now_utc_iso(),
+        "noop": len(actions) == 0,
+        "summary": {
+            "total_steps": len(actions),
+            "edge_synced": len(edge_synced),
+            "stub_updates": len(stub_updates),
+            "prod_operator_change": bool(prod_operator_needs_change),
+            "skipped_edges": len(edge_skipped),
+            "skipped_unmatched_stubs": len(prod_skipped_unmatched),
+            "skipped_zero_edges": len(prod_skipped_zero),
+        },
+        "live_inputs": {
+            "edge_synced": edge_synced,
+            "edge_skipped": edge_skipped,
+            "prod_operator_before": prod_op_cur,
+            "prod_operator_expected": expected_prod_operator,
+            "prod_schedulable_sum_before": prod_live_sum,
+            "stub_before": stub_befores,
+            "skipped_unmatched_stubs": prod_skipped_unmatched,
+            "skipped_zero_edges": prod_skipped_zero,
+        },
+        "actions": actions,
+    }
+
+    out_str = json.dumps(plan, indent=2, ensure_ascii=False)
+    if args.out:
+        pathlib.Path(args.out).write_text(out_str)
+        print(f"plan-concurrency-mirror: written {args.out} "
+              f"({len(actions)} step(s); edge_synced={len(edge_synced)}, "
+              f"stub_updates={len(stub_updates)}, "
+              f"unmatched={len(prod_skipped_unmatched)})", file=sys.stderr)
+    else:
+        print(out_str)
+    return 0
+
+
+# --------------------------------------------------------------------------
 # Stage 4 — apply
 # --------------------------------------------------------------------------
 
 def render_admin_operator_concurrency_sync_sql() -> str:
-    """Sync ``users.concurrency`` for the operator account to summed Anthropic pool.
+    """Sync ``users.concurrency`` for the operator account to the live schedulable
+    Anthropic pool.
 
-    All non-soft-deleted ``accounts`` rows with ``platform='anthropic'`` including
-    ``oauth`` and ``api_key`` rows. Runs in the same transaction as tier-baseline SQL.
-    """
+    Sums ``concurrency`` over non-soft-deleted ``accounts`` rows with
+    ``platform='anthropic'`` AND ``schedulable=true`` — both ``oauth`` and
+    ``api-key`` types. The ``schedulable=true`` filter matches the scheduler's own
+    view: admin/diagnostic accounts parked unschedulable do not contribute serving
+    capacity, so the operator default must not count them. Runs in the same
+    transaction as tier-baseline SQL (surface A) and standalone for surface C
+    (``edge_operator_concurrency``)."""
     uid = ADMIN_OPERATOR_USER_CONCURRENCY_SYNC_ID
     return (
-        f"-- Align users.id={uid} concurrency to Σ all anthropic account concurrency\n"
+        f"-- Align users.id={uid} concurrency to Σ schedulable anthropic account concurrency\n"
         "UPDATE users u SET concurrency = agg.total::int, updated_at = NOW()\n"
         "FROM (\n"
         "  SELECT COALESCE(SUM(a.concurrency), 0)::bigint AS total\n"
         "  FROM accounts a\n"
         "  WHERE a.platform = 'anthropic'\n"
+        "    AND a.schedulable = true\n"
         "    AND a.deleted_at IS NULL\n"
         ") agg\n"
         f"WHERE u.id = {uid} AND u.deleted_at IS NULL;"
@@ -997,6 +1277,69 @@ def render_prod_stub_pool_sql(account_id: int, account_name: str,
     )
 
 
+def render_edge_operator_concurrency_sql(edge_id: str = "") -> str:
+    """Surface C, hop 2 (standalone): align an edge's ``users.id=1`` concurrency to
+    that edge's live Σ schedulable anthropic concurrency. Reuses the exact same
+    helper surface A injects into its tier transaction, so there is one rule for
+    the operator-concurrency value — running plan-concurrency-mirror without a tier
+    apply still self-heals edge operator drift."""
+    return (
+        f"-- Auto-generated by manage-anthropic-config.py at {now_utc_iso()}\n"
+        f"-- kind: edge_operator_concurrency, edge={edge_id or '(orchestrator)'}\n"
+        "BEGIN;\n"
+        f"{render_admin_operator_concurrency_sync_sql()}\n"
+        "COMMIT;"
+    )
+
+
+def render_prod_concurrency_mirror_sql(stub_updates: list[dict]) -> str:
+    """Surface C, hops 3+4 in ONE prod transaction: first set each mirror stub's
+    ``concurrency`` to its edge's Σ schedulable (literal ints from the snapshot),
+    then set prod ``users.id=1`` to prod's Σ schedulable — the operator sync runs
+    LAST so its subquery sees the just-written stub concurrencies (authoritative,
+    no Python re-sum). Ordering + atomicity matter: a crash mid-way leaves prod
+    consistent (all-or-nothing).
+
+    ``stub_updates`` items: ``{"id": int, "name": str, "concurrency": int}``.
+    Per-stub WHERE pins id + name + platform + type + deleted_at so a typo can
+    never land on the wrong row (same defence as render_prod_stub_pool_sql). An
+    empty ``stub_updates`` is allowed: it renders the operator sync alone, which
+    self-heals a prod ``users.id=1`` that drifted without any stub change."""
+    parts = [
+        f"-- Auto-generated by manage-anthropic-config.py at {now_utc_iso()}\n"
+        f"-- kind: prod_concurrency_mirror, stub_updates={len(stub_updates)}\n"
+        "BEGIN;\n"
+    ]
+    for upd in stub_updates:
+        sid = upd.get("id")
+        sname = upd.get("name")
+        sconc = upd.get("concurrency")
+        if not isinstance(sid, int):
+            fail(f"render_prod_concurrency_mirror_sql: stub id must be int, got {sid!r}")
+        if not isinstance(sname, str) or not sname:
+            fail(f"render_prod_concurrency_mirror_sql: stub name required, got {sname!r}")
+        if not isinstance(sconc, int) or sconc < 1:
+            fail(f"render_prod_concurrency_mirror_sql: stub concurrency must be int >= 1, "
+                 f"got {sconc!r} (refusing to ever write 0 — that would silently drain the stub)")
+        quoted_name = sname.replace("'", "''")
+        parts.append(
+            f"-- stub id={sid} name='{quoted_name}' → concurrency={sconc}\n"
+            "UPDATE accounts SET\n"
+            f"  concurrency = {sconc},\n"
+            "  updated_at = NOW()\n"
+            f"WHERE id = {sid}\n"
+            f"  AND name = '{quoted_name}'\n"
+            "  AND platform = 'anthropic'\n"
+            "  AND type = 'apikey'\n"
+            "  AND deleted_at IS NULL\n"
+            "RETURNING id, name, concurrency AS after_concurrency;\n"
+        )
+    # hop 4: prod operator sync — MUST run after the stub updates above.
+    parts.append(render_admin_operator_concurrency_sync_sql() + "\n")
+    parts.append("COMMIT;")
+    return "".join(parts)
+
+
 def cmd_apply(args: argparse.Namespace) -> int:
     plan_path = pathlib.Path(args.plan)
     plan = load_json_file(plan_path, "plan")
@@ -1038,8 +1381,18 @@ def cmd_apply(args: argparse.Namespace) -> int:
                 bool(v["pool_mode_enabled"]), int(v["pool_mode_retry_count"]),
             )
             region, instance_id, target_label = _resolve_prod_target()
+        elif kind == "edge_operator_concurrency":
+            edge_id = tgt["edge_id"]
+            label = f"step{step:02d}-edge-{edge_id}-{kind}".replace("/", "-")
+            sql = render_edge_operator_concurrency_sql(edge_id)
+            region, instance_id, target_label = _resolve_edge_target(edge_id, edge_matrix)
+        elif kind == "prod_concurrency_mirror":
+            label = f"step{step:02d}-prod-{kind}".replace("/", "-")
+            sql = render_prod_concurrency_mirror_sql(v.get("stub_updates") or [])
+            region, instance_id, target_label = _resolve_prod_target()
         else:
-            fail(f"unknown action.kind {kind!r} (orchestrator handles edge_account_tier | prod_stub_pool)")
+            fail(f"unknown action.kind {kind!r} (orchestrator handles edge_account_tier | "
+                 f"prod_stub_pool | edge_operator_concurrency | prod_concurrency_mirror)")
             return 2  # unreachable, pacifies static analysis
 
         sql_path = job_dir / f"{label}.sql"
@@ -1116,7 +1469,8 @@ def cmd_verify(args: argparse.Namespace) -> int:
     )
     print(f"verify: capturing fresh snapshot → {snap_path}", file=sys.stderr)
     plan_needs_prod = any(
-        (a.get("kind") == "prod_stub_pool") for a in (plan.get("actions") or [])
+        a.get("kind") in ("prod_stub_pool", "prod_concurrency_mirror")
+        for a in (plan.get("actions") or [])
     )
     snap_args = argparse.Namespace(
         out=str(snap_path),
@@ -1141,6 +1495,12 @@ def cmd_verify(args: argparse.Namespace) -> int:
                 if a.get("name") == tgt["account_name"]:
                     live = a
                     break
+            if live is None:
+                diffs.append("target not found in live snapshot")
+            else:
+                for k, want in exp.items():
+                    if live.get(k) != want:
+                        diffs.append(f"{k}: live={live.get(k)} expected={want}")
         elif kind == "prod_stub_pool":
             prod = snap.get("prod") or {}
             if prod.get("error") or prod.get("skipped_reason"):
@@ -1154,14 +1514,42 @@ def cmd_verify(args: argparse.Namespace) -> int:
                     if s.get("id") == want_id:
                         live = s
                         break
+                if live is None:
+                    diffs.append("target not found in live snapshot")
+                else:
+                    for k, want in exp.items():
+                        if live.get(k) != want:
+                            diffs.append(f"{k}: live={live.get(k)} expected={want}")
+        elif kind == "edge_operator_concurrency":
+            edge = snap.get("edges", {}).get(tgt["edge_id"], {})
+            if edge.get("error") or edge.get("skipped_reason") or not edge:
+                diffs.append(f"edge {tgt['edge_id']} not in live snapshot")
+            else:
+                want = exp.get("operator_user_concurrency")
+                got = edge.get("operator_user_concurrency")
+                if got != want:
+                    diffs.append(f"operator_user_concurrency: live={got} expected={want}")
+        elif kind == "prod_concurrency_mirror":
+            prod = snap.get("prod") or {}
+            if prod.get("error") or prod.get("skipped_reason"):
+                diffs.append(f"verify snapshot lacks prod view: "
+                             f"{prod.get('error') or prod.get('skipped_reason')}")
+            else:
+                by_id = {s.get("id"): s for s in prod.get("anthropic_stubs", [])}
+                for sid_str, want_conc in (exp.get("stub_concurrency") or {}).items():
+                    sid = int(sid_str)
+                    s = by_id.get(sid)
+                    if s is None:
+                        diffs.append(f"stub id={sid} not found in live prod snapshot")
+                    elif s.get("concurrency") != want_conc:
+                        diffs.append(f"stub id={sid} concurrency: live={s.get('concurrency')} "
+                                     f"expected={want_conc}")
+                want_op = exp.get("operator_user_concurrency")
+                got_op = prod.get("operator_user_concurrency")
+                if got_op != want_op:
+                    diffs.append(f"prod operator_user_concurrency: live={got_op} expected={want_op}")
         else:
             diffs.append(f"verify: unknown action.kind {kind!r}")
-        if live is None and not diffs:
-            diffs.append("target not found in live snapshot")
-        if live is not None:
-            for k, want in exp.items():
-                if live.get(k) != want:
-                    diffs.append(f"{k}: live={live.get(k)} expected={want}")
         if diffs:
             drift.append({
                 "step": action["step"],
@@ -1185,7 +1573,8 @@ def cmd_verify(args: argparse.Namespace) -> int:
         print(f"verify: drift_count={report['drift_count']}/{report['total_actions']}")
         for d in drift:
             tgt = d["target"]
-            print(f"  [DRIFT] step{d['step']:02d} {d['kind']} edge={tgt['edge_id']} account={tgt['account_name']}")
+            loc = " ".join(f"{k}={v}" for k, v in tgt.items() if k != "env")
+            print(f"  [DRIFT] step{d['step']:02d} {d['kind']} {loc}".rstrip())
             for diff in d["diffs"]:
                 print(f"      {diff}")
     return 1 if drift else 0
@@ -1268,6 +1657,22 @@ def main() -> int:
         ),
     )
     sp.set_defaults(handler=cmd_plan_stub_pool)
+
+    sp = sub.add_parser(
+        "plan-concurrency-mirror",
+        help="align edge operator + prod stub + prod operator concurrency to live "
+             "Σ schedulable anthropic (the four-hop capacity cascade)")
+    sp.add_argument("--snapshot", required=True)
+    sp.add_argument("--out", help="write plan JSON (otherwise stdout)")
+    sp.add_argument(
+        "--force-template-rewrite",
+        action="store_true",
+        help=(
+            "skip the already-aligned noop short-circuit and emit actions for every "
+            "edge/stub regardless of current concurrency. Use to force a re-sync."
+        ),
+    )
+    sp.set_defaults(handler=cmd_plan_concurrency_mirror)
 
     sp = sub.add_parser("apply",
                         help="execute a plan: render apply SQL from JSON, run via SSM")

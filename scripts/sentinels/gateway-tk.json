@@ -517,10 +517,11 @@
       "must_contain": [
         "SumConcurrencyAnthropic",
         "func (r *accountRepository) SumConcurrencyAnthropic",
+        "WHERE platform = $1 AND schedulable = true AND deleted_at IS NULL",
         "dbproxy.StatusEQ(service.StatusActive)",
         "entAcc.Edges.Proxy.Status == service.StatusActive"
       ],
-      "rationale": "TK proxy-status filter (upstream #2159): account preload paths MUST filter out non-active proxies on both the manual loadProxies query and the WithProxy() edge-preload branch. Disabled proxies leaking back into account.Proxy contradicts operator intent and re-routes traffic through proxies that were explicitly turned off (compliance/IP-rotation regression). SumConcurrencyAnthropic is operator-facing: admin concurrency for user id 1 mirrors Σ every non-deleted anthropic row (oauth + api-key); dropping the query silently desyncs control plane from edge tier apply injection."
+      "rationale": "TK proxy-status filter (upstream #2159): account preload paths MUST filter out non-active proxies on both the manual loadProxies query and the WithProxy() edge-preload branch. Disabled proxies leaking back into account.Proxy contradicts operator intent and re-routes traffic through proxies that were explicitly turned off (compliance/IP-rotation regression). SumConcurrencyAnthropic is operator-facing: admin concurrency for user id 1 mirrors Σ concurrency of non-deleted **schedulable=true** anthropic rows (2026-05-23: filter narrowed from Σ-all to Σ-schedulable so admin-bypass api-key stubs with schedulable=false are excluded). The `AND schedulable = true` clause is the load-bearing anchor: it MUST stay byte-identical to the operator-concurrency SQL emitted by ops/anthropic/manage-anthropic-config.py (render_admin_operator_concurrency_sync_sql + OPERATOR_CONCURRENCY_SQL) so the Go control plane (admin account CRUD → SyncAnthropicOperatorConcurrency) and the SSM apply pipeline share ONE Σ rule and never clobber each other. Dropping the query, or an upstream merge that 'simplifies' away the schedulable filter, silently desyncs the control plane from edge/prod tier apply injection."
     },
     {
       "path": "backend/internal/repository/account_repo_integration_test.go",
