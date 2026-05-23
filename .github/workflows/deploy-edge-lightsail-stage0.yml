@@ -31,6 +31,11 @@ on:
         description: "Must match instance_name from matrix (e.g. tokenkey-edge-uk1-ls)."
         required: true
         type: string
+      recreate:
+        description: "provision only: DESTROY existing instance + Static IP before recreate. Default false (fail-if-exists)."
+        required: false
+        type: boolean
+        default: false
       simple_release_override:
         description: "Allow single-arch manifest. Default false."
         required: false
@@ -57,6 +62,7 @@ jobs:
       INPUT_TAG: ${{ inputs.tag }}
       INPUT_CONFIRM_INSTANCE: ${{ inputs.confirm_instance }}
       INPUT_OVERRIDE: ${{ inputs.simple_release_override }}
+      INPUT_RECREATE: ${{ inputs.recreate }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -111,18 +117,26 @@ jobs:
         env:
           GHCR_OWNER: ${{ github.repository_owner }}
           ACME_EMAIL: ${{ vars.EDGE_ACME_EMAIL }}
-          MAIN_GATEWAY_ALLOWED_CIDR: ${{ vars.EDGE_MAIN_GATEWAY_ALLOWED_CIDR || '34.194.234.88/32' }}
+          MAIN_GATEWAY_ALLOWED_CIDR: ${{ vars.EDGE_MAIN_GATEWAY_ALLOWED_CIDR }}
           GHCR_PAT_SSM_NAME_OVERRIDE: ${{ vars.EDGE_GHCR_PAT_SSM_NAME }}
+          RECREATE: ${{ inputs.recreate }}
         run: |
           set -euo pipefail
           if [ -z "${ACME_EMAIL:-}" ]; then
-            echo "::error::EDGE_ACME_EMAIL required for provision"
+            echo "::error::EDGE_ACME_EMAIL required for provision (set Environment variable edge-${INPUT_EDGE_ID}.EDGE_ACME_EMAIL)"
+            exit 1
+          fi
+          if [ -z "${MAIN_GATEWAY_ALLOWED_CIDR:-}" ]; then
+            echo "::error::EDGE_MAIN_GATEWAY_ALLOWED_CIDR not set; this MUST mirror the current prod main-gateway egress IP/CIDR (no hard-coded default — see deploy/aws/lightsail/README.md)"
             exit 1
           fi
           if [ -n "${GHCR_PAT_SSM_NAME_OVERRIDE:-}" ]; then
             GHCR_PAT_SSM="${GHCR_PAT_SSM_NAME_OVERRIDE}"
           else
             GHCR_PAT_SSM="${{ steps.edge.outputs.ssm_prefix }}/ghcr/pat"
+          fi
+          if [ "${RECREATE:-false}" = "true" ]; then
+            echo "::warning::RECREATE=true — existing instance and Static IP will be DESTROYED"
           fi
           bash deploy/aws/lightsail/provision-edge.sh \
             "${{ steps.edge.outputs.edge_id }}" \
@@ -174,7 +188,10 @@ jobs:
         if: inputs.operation == 'upgrade' || inputs.operation == 'rollback' || inputs.operation == 'smoke'
         env:
           API_URL: ${{ steps.instance.outputs.api_url }}
-        run: bash ops/lightsail/external_health.sh "$API_URL"
+          SSM_PREFIX: ${{ steps.edge.outputs.ssm_prefix }}
+          AWS_REGION: ${{ steps.edge.outputs.lightsail_region }}
+          DOMAIN: ${{ steps.edge.outputs.domain }}
+        run: bash ops/stage0/external_health.sh "$API_URL"
 
       - name: Edge smoke
         if: inputs.operation == 'smoke' || inputs.operation == 'upgrade' || inputs.operation == 'rollback'

@@ -8,6 +8,7 @@ import sys
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 DEFAULT_MATRIX = REPO_ROOT / "deploy/aws/stage0/edge-targets.json"
+LIGHTSAIL_MATRIX = REPO_ROOT / "deploy/aws/lightsail/edge-targets-lightsail.json"
 
 
 def fail(message: str) -> None:
@@ -99,9 +100,20 @@ def resolve_target(data: dict, edge_id: str, *, confirm_stack: str = "", profile
     }
 
 
+def _load_lightsail_targets() -> dict:
+    if not LIGHTSAIL_MATRIX.is_file():
+        return {}
+    try:
+        payload = json.loads(LIGHTSAIL_MATRIX.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    return payload.get("targets") or {}
+
+
 def build_prod_ops_matrix(data: dict, *, selector: str, prod_region: str, prod_stack: str) -> tuple[dict, list[dict]]:
     selector = selector.strip() or "all"
     targets = data.get("targets") or {}
+    lightsail_targets = _load_lightsail_targets()
     include = []
     excluded = []
 
@@ -111,6 +123,7 @@ def build_prod_ops_matrix(data: dict, *, selector: str, prod_region: str, prod_s
             {
                 "target_id": f"edge-{edge_id}",
                 "target_kind": "edge",
+                "platform": "ec2",
                 "edge_id": edge_id,
                 "region": resolved["region"],
                 "stack": resolved["stack"],
@@ -120,11 +133,30 @@ def build_prod_ops_matrix(data: dict, *, selector: str, prod_region: str, prod_s
             }
         )
 
+    def include_lightsail_edge(edge_id: str, target: dict) -> None:
+        # Lightsail edges have no CloudFormation stack — INSTANCE_ID is resolved
+        # from ssm_prefix/ssm_managed_instance_id at diagnostics time. ApiUrl
+        # likewise has no CFN output; the workflow falls back to https://<domain>.
+        include.append(
+            {
+                "target_id": f"edge-{edge_id}-ls",
+                "target_kind": "edge",
+                "platform": "lightsail",
+                "edge_id": edge_id,
+                "region": str(target.get("lightsail_region") or ""),
+                "stack": "",
+                "domain": str(target.get("domain") or ""),
+                "ssm_prefix": str(target.get("ssm_prefix") or ""),
+                "purpose": str(target.get("purpose") or ""),
+            }
+        )
+
     if selector in ("all", "prod"):
         include.append(
             {
                 "target_id": "prod",
                 "target_kind": "prod",
+                "platform": "ec2",
                 "edge_id": "",
                 "region": prod_region,
                 "stack": prod_stack,
@@ -142,16 +174,31 @@ def build_prod_ops_matrix(data: dict, *, selector: str, prod_region: str, prod_s
                 include_edge(edge_id)
             else:
                 excluded.append({"target_id": f"edge-{edge_id}", "reason": "deployable=false"})
+        for edge_id, ls_target in sorted(lightsail_targets.items()):
+            if bool(ls_target.get("deployable")):
+                include_lightsail_edge(edge_id, ls_target)
+            else:
+                excluded.append({"target_id": f"edge-{edge_id}-ls", "reason": "lightsail deployable=false"})
     elif selector.startswith("edge:"):
         edge_id = selector.split(":", 1)[1].strip()
         if not edge_id:
             fail("target_selector edge: requires an edge id")
-        target = targets.get(edge_id)
-        if target is None:
-            fail(f"unknown edge target_selector {selector}; known edges: {', '.join(sorted(targets))}")
-        if not bool(target.get("deployable")):
-            fail(f"target_selector {selector} is planned but not deployable")
-        include_edge(edge_id)
+        # Allow lightsail-specific id "<edge_id>-ls" form too.
+        if edge_id.endswith("-ls"):
+            ls_id = edge_id[:-3]
+            ls_target = lightsail_targets.get(ls_id)
+            if ls_target is None:
+                fail(f"unknown lightsail edge target_selector {selector}; known: {', '.join(sorted(lightsail_targets))}")
+            if not bool(ls_target.get("deployable")):
+                fail(f"target_selector {selector} is planned but not deployable")
+            include_lightsail_edge(ls_id, ls_target)
+        else:
+            target = targets.get(edge_id)
+            if target is None:
+                fail(f"unknown edge target_selector {selector}; known edges: {', '.join(sorted(targets))}")
+            if not bool(target.get("deployable")):
+                fail(f"target_selector {selector} is planned but not deployable")
+            include_edge(edge_id)
     elif selector not in ("all", "prod"):
         fail(f"unsupported target_selector {selector}; expected all, prod, edge:*, or edge:<id>")
 

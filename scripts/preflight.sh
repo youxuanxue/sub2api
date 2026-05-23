@@ -756,7 +756,7 @@ if ! command -v python3 >/dev/null 2>&1; then
     errors=$((errors + 1))
 else
     _det_baseline_failed=0
-    for _det_dir in ops/observability ops/stage0 scripts deploy/aws/stage0; do
+    for _det_dir in ops/observability ops/stage0 scripts deploy/aws/stage0 deploy/aws/lightsail; do
         if ! python3 -m unittest discover -s "$_det_dir" -p 'test_*.py' -t "$_det_dir" >/dev/null 2>&1; then
             echo "  FAIL: $_det_dir unittest failed (re-run: python3 -m unittest discover -s $_det_dir -p 'test_*.py' -t $_det_dir -v)"
             errors=$((errors + 1))
@@ -766,6 +766,25 @@ else
     if [ "$_det_baseline_failed" -eq 0 ]; then
         echo "  ok: determinism-baseline suites (observability / stage0 / scripts / deploy.stage0)"
     fi
+fi
+
+# ---- sub2api: lightsail edge launch-script drift ----------------------------
+# Source of truth: deploy/aws/lightsail/render-bootstrap.sh + the four Stage0
+# inputs it embeds (docker-compose.yml, Caddyfile.edge, two ops shell scripts).
+# render-bootstrap --check fails if the committed generated-launch-script.sh
+# drifts from those sources, so an editor touching compose/Caddyfile cannot
+# accidentally ship a Lightsail Edge instance running yesterday's bytes.
+echo ""
+echo "=== sub2api: lightsail edge launch-script drift ==="
+if [ ! -x ./deploy/aws/lightsail/render-bootstrap.sh ]; then
+    echo "  FAIL: deploy/aws/lightsail/render-bootstrap.sh missing or not executable"
+    errors=$((errors + 1))
+elif ! bash ./deploy/aws/lightsail/render-bootstrap.sh --check >/dev/null 2>&1; then
+    echo "  FAIL: deploy/aws/lightsail/generated-launch-script.sh is missing or out of sync"
+    echo "        — run: bash deploy/aws/lightsail/render-bootstrap.sh && git add"
+    errors=$((errors + 1))
+else
+    echo "  ok: lightsail launch script in sync with Stage0 sources"
 fi
 
 # Headless agent stream redactor: scripts/agent/redact-stream.py sits between

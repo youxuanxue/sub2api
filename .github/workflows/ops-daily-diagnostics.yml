@@ -120,6 +120,7 @@ jobs:
       INCLUDE_ERROR_CLUSTERING: ${{ inputs.diagnostics_include_error_clustering || 'true' }}
       TARGET_ID: ${{ matrix.target_id }}
       TARGET_KIND: ${{ matrix.target_kind }}
+      TARGET_PLATFORM: ${{ matrix.platform }}
       EDGE_ID: ${{ matrix.edge_id }}
       TARGET_REGION: ${{ matrix.region }}
       STACK_NAME: ${{ matrix.stack }}
@@ -135,12 +136,13 @@ jobs:
           jq -n \
             --arg target_id "$TARGET_ID" \
             --arg target_kind "$TARGET_KIND" \
+            --arg platform "$TARGET_PLATFORM" \
             --arg edge_id "$EDGE_ID" \
             --arg region "$TARGET_REGION" \
             --arg stack "$STACK_NAME" \
             --arg domain "$TARGET_DOMAIN" \
             --arg ssm_prefix "$SSM_PREFIX" \
-            '{target_id:$target_id,target_kind:$target_kind,edge_id:$edge_id,region:$region,stack:$stack,domain:$domain,ssm_prefix:$ssm_prefix}' \
+            '{target_id:$target_id,target_kind:$target_kind,platform:$platform,edge_id:$edge_id,region:$region,stack:$stack,domain:$domain,ssm_prefix:$ssm_prefix}' \
             > "prod-ops-targets/$TARGET_ID/target.json"
           : > "prod-ops-targets/$TARGET_ID/findings.jsonl"
           : > "prod-ops-targets/$TARGET_ID/stdout.txt"
@@ -205,7 +207,23 @@ jobs:
 
           API_URL=""
           INSTANCE_ID=""
-          if ! INSTANCE_ID="$(run_aws_text 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue')"; then
+          if [ "${TARGET_PLATFORM:-ec2}" = "lightsail" ]; then
+            # Lightsail edges have no CloudFormation stack — INSTANCE_ID is the
+            # SSM Hybrid `mi-*` written by deploy-edge-lightsail-stage0.yml
+            # provision; ApiUrl always defaults to https://<domain>.
+            INSTANCE_ID="$(aws ssm get-parameter --region "$TARGET_REGION" \
+              --name "${SSM_PREFIX}/ssm_managed_instance_id" \
+              --query 'Parameter.Value' --output text 2>>"$STDERR" || echo None)"
+            if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
+              add_finding "lightsail_managed_instance" "manual_ops" "error" "Lightsail managed instance id missing for $TARGET_ID" "${SSM_PREFIX}/ssm_managed_instance_id is empty — has $TARGET_ID been provisioned via deploy-edge-lightsail-stage0.yml?" "lightsail-managed-instance|$TARGET_ID"
+              INSTANCE_ID=""
+            else
+              API_URL="https://$TARGET_DOMAIN"
+              jq --arg instance_id "$INSTANCE_ID" --arg api_url "$API_URL" \
+                '. + {instance_id:$instance_id, api_url:$api_url, api_url_source:"lightsail_domain"}' \
+                "$OUT/target.json" > "$OUT/target.tmp" && mv "$OUT/target.tmp" "$OUT/target.json"
+            fi
+          elif ! INSTANCE_ID="$(run_aws_text 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue')"; then
             add_finding "cloudformation_describe" "manual_ops" "error" "Could not describe stack $STACK_NAME" "CloudFormation describe-stacks failed in $TARGET_REGION for $STACK_NAME." "cloudformation|$STACK_NAME"
           elif [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
             add_finding "cloudformation_outputs" "manual_ops" "error" "Stack $STACK_NAME has no InstanceId output" "CloudFormation stack is present but InstanceId output is empty." "cloudformation-output|$STACK_NAME|InstanceId"
@@ -361,6 +379,11 @@ jobs:
 
             if [ "$INCLUDE_ERROR_CLUSTERING" != "true" ]; then
               add_finding "error_clustering" "skip" "info" "Error clustering skipped for $TARGET_ID" "diagnostics_include_error_clustering=false; runtime/health-only lightweight diagnostics." "error-clustering|$TARGET_ID|lightweight-skip"
+            elif [ "${TARGET_PLATFORM:-ec2}" = "lightsail" ]; then
+              # ops/stage0/deploy-error-clustering-binary.sh resolves InstanceId via
+              # CloudFormation; Lightsail edges have no CFN stack. Lightweight diagnostics
+              # (external health + runtime log signal counts) already ran above.
+              add_finding "error_clustering" "skip" "info" "Error clustering skipped for $TARGET_ID (lightsail)" "Lightsail edges have no CloudFormation stack; error_clustering installer is EC2/CFN-coupled. Health + log signals ran via SSM Hybrid managed instance." "error-clustering|$TARGET_ID|lightsail-skip"
             elif ! printf '%s' "$SINCE_HOURS" | grep -Eq '^[0-9]+$'; then
               add_finding "error_clustering_input" "manual_ops" "error" "Invalid since_hours input" "since_hours must be a positive integer, got: $SINCE_HOURS" "error-clustering-input|$SINCE_HOURS"
             else

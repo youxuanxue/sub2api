@@ -92,17 +92,29 @@ gh workflow run deploy-edge-lightsail-stage0.yml \
 | IaC | `stage0-edge-ec2.yaml` | Lightsail API + SSM 参数状态 |
 | 运维入口 | EC2 SSM（原生 instance profile） | SSM Hybrid（`mi-*`） |
 | 静态 IP | EIP + CFN Retain/IMPORT | Lightsail Static IP |
-| IP 污染轮换 | `tokenkey-stage0-edge-ip-rotation` skill（EIP） | **未实现**；需新 runbook |
+| IP 污染轮换 | `tokenkey-stage0-edge-ip-rotation` skill（EIP） | `tokenkey-stage0-edge-lightsail-ip-rotation` skill + `ops/lightsail/rotate-static-ip.sh` |
 | 区域 | 与 EC2 region 一一对应 | **Paris 无 Lightsail**；fra1 映射 Frankfurt |
 | 架构 | Graviton arm64（t4g） | Lightsail bundle 多为 x86（multi-arch 镜像仍可用） |
-| diagnostics | `ops-daily-diagnostics.yml` 矩阵 | **未接入**；需扩展矩阵或单独 workflow |
+| diagnostics | `ops-daily-diagnostics.yml` 矩阵 | `ops-daily-diagnostics.yml` 矩阵自动接入（按 `platform` 分支；error_clustering installer 暂仍 EC2 only） |
 | 成本 | ~$10–16/月（t4g.micro） | ~$12/月（micro bundle，因区域而异） |
 
 ## 本地校验
 
 ```bash
-bash deploy/aws/lightsail/render-bootstrap.sh --check
-python3 deploy/aws/lightsail/test_resolve_edge_lightsail_target.py
+bash deploy/aws/lightsail/render-bootstrap.sh --check       # 漂移门禁（已接入 preflight）
+python3 -m unittest discover -s deploy/aws/lightsail -p 'test_*.py' -t deploy/aws/lightsail
+python3 -m unittest deploy.aws.stage0.test_resolve_edge_target_prod_ops_matrix_lightsail -v
+PREFLIGHT_BASE=origin/main bash scripts/preflight.sh
 ```
 
-实机 provision/smoke 需账户内 Lightsail 权限与 PAT；Agent 环境**未验证**。
+实机 provision/smoke 需账户内 Lightsail 权限与 PAT；首跑由
+`tokenkey-stage0-edge-lightsail-expansion` skill 走 `operation=full` 驱动。
+
+## IP 污染轮换
+
+```bash
+bash ops/lightsail/rotate-static-ip.sh <edge_id>          # 计划（dry run）
+bash ops/lightsail/rotate-static-ip.sh <edge_id> --apply  # 三步 swap（destructive）
+```
+
+详见 `tokenkey-stage0-edge-lightsail-ip-rotation` skill。

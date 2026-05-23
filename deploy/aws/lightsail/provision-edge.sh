@@ -70,10 +70,18 @@ trap 'rm -f "$launch_env_file" "$user_data_file"' EXIT
   cat "$launch_body"
 } >"$user_data_file"
 
+# preflight-allow: swallow — get-instance returns non-zero when instance is absent,
+# which is the success path here. We then branch on whether stdout is empty.
 existing="$(aws lightsail get-instance --region "$LIGHTSAIL_REGION" --instance-name "$INSTANCE_NAME" 2>/dev/null || true)"
 if [[ -n "$existing" ]]; then
-  echo "instance ${INSTANCE_NAME} already exists; stopping for recreate"
-  aws lightsail stop-instance --region "$LIGHTSAIL_REGION" --instance-name "$INSTANCE_NAME" || true
+  if [[ "${RECREATE:-false}" != "true" ]]; then
+    echo "::error::instance ${INSTANCE_NAME} already exists in region ${LIGHTSAIL_REGION}." >&2
+    echo "  Set workflow input recreate=true to DESTROY + recreate (Static IP and SSM activation will be re-issued)." >&2
+    echo "  For tag changes use operation=upgrade instead — it preserves the instance and Static IP." >&2
+    exit 1
+  fi
+  echo "::warning::RECREATE=true — destroying existing instance ${INSTANCE_NAME}"
+  aws lightsail stop-instance --region "$LIGHTSAIL_REGION" --instance-name "$INSTANCE_NAME" >/dev/null
   deadline=$(( $(date +%s) + 300 ))
   while [[ $(date +%s) -lt $deadline ]]; do
     state="$(aws lightsail get-instance --region "$LIGHTSAIL_REGION" --instance-name "$INSTANCE_NAME" \
@@ -81,7 +89,12 @@ if [[ -n "$existing" ]]; then
     [[ "$state" == "stopped" ]] && break
     sleep 5
   done
-  aws lightsail delete-instance --region "$LIGHTSAIL_REGION" --instance-name "$INSTANCE_NAME" || true
+  aws lightsail delete-instance --region "$LIGHTSAIL_REGION" --instance-name "$INSTANCE_NAME" >/dev/null
+  # Also release any Static IP so allocate-static-ip below cannot reuse a stale binding
+  if aws lightsail get-static-ip --region "$LIGHTSAIL_REGION" --static-ip-name "$STATIC_IP_NAME" >/dev/null 2>&1; then
+    aws lightsail detach-static-ip --region "$LIGHTSAIL_REGION" --static-ip-name "$STATIC_IP_NAME" >/dev/null 2>&1 || true
+    aws lightsail release-static-ip --region "$LIGHTSAIL_REGION" --static-ip-name "$STATIC_IP_NAME" >/dev/null
+  fi
 fi
 
 user_data_payload="$(cat "$user_data_file")"

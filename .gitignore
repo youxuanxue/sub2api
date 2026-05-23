@@ -176,6 +176,3 @@ frontend/coverage/
 aicodex
 output/
 exports/
-
-# Lightsail generated bootstrap (deploy/aws/lightsail/render-bootstrap.sh)
-deploy/aws/lightsail/generated-launch-script.sh

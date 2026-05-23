@@ -7,6 +7,7 @@ stdlib-only.
 """
 from __future__ import annotations
 
+import os
 import pathlib
 import shutil
 import subprocess
@@ -16,8 +17,18 @@ import unittest
 _SCRIPT = pathlib.Path(__file__).resolve().parent / "release-decide-version.sh"
 
 
+def _scrubbed_env() -> dict:
+    env = dict(os.environ)
+    for key in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR"):
+        env.pop(key, None)
+    return env
+
+
 def _git(cwd: pathlib.Path, *args: str, check: bool = True) -> str:
-    proc = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=check)
+    proc = subprocess.run(
+        ["git", *args], cwd=cwd, env=_scrubbed_env(),
+        capture_output=True, text=True, check=check,
+    )
     return proc.stdout
 
 
@@ -28,7 +39,10 @@ class ReleaseDecideVersionTest(unittest.TestCase):
         self.origin = tmp / "origin.git"
         self.repo = tmp / "repo"
         # Bare origin
-        subprocess.run(["git", "init", "--bare", "-q", "-b", "main", str(self.origin)], check=True)
+        subprocess.run(
+            ["git", "init", "--bare", "-q", "-b", "main", str(self.origin)],
+            env=_scrubbed_env(), check=True,
+        )
         # Working repo
         self.repo.mkdir()
         _git(self.repo, "init", "-q", "-b", "main")
@@ -51,7 +65,8 @@ class ReleaseDecideVersionTest(unittest.TestCase):
     def _run(self) -> dict:
         proc = subprocess.run(
             ["bash", "scripts/release-decide-version.sh"],
-            cwd=self.repo, capture_output=True, text=True, check=False,
+            cwd=self.repo, env=_scrubbed_env(),
+            capture_output=True, text=True, check=False,
         )
         if proc.returncode != 0:
             raise AssertionError(
@@ -102,7 +117,8 @@ class ReleaseDecideVersionTest(unittest.TestCase):
         _git(self.repo, "push", "-q", "origin", "main")
         proc = subprocess.run(
             ["bash", "scripts/release-decide-version.sh", "--emit-suggested-bump"],
-            cwd=self.repo, capture_output=True, text=True, check=True,
+            cwd=self.repo, env=_scrubbed_env(),
+            capture_output=True, text=True, check=True,
         )
         self.assertIn("suggested_next_version=1.0.1", proc.stdout)
 

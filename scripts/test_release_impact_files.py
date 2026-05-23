@@ -8,6 +8,7 @@ stdlib-only.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import shutil
 import subprocess
@@ -17,8 +18,22 @@ import unittest
 _SCRIPT = pathlib.Path(__file__).resolve().parent / "release-impact-files.sh"
 
 
+def _scrubbed_env() -> dict:
+    # When this test runs from a git pre-commit hook the parent process exports
+    # GIT_DIR / GIT_INDEX_FILE / GIT_WORK_TREE pointing at the *outer* repo.
+    # Subprocess git would then ignore cwd= and operate on the outer repo,
+    # which both fails (the tmp repo has no commits yet) and is dangerous.
+    env = dict(os.environ)
+    for key in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR"):
+        env.pop(key, None)
+    return env
+
+
 def _run_git(cwd: pathlib.Path, *args: str) -> str:
-    proc = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True)
+    proc = subprocess.run(
+        ["git", *args], cwd=cwd, env=_scrubbed_env(),
+        capture_output=True, text=True, check=True,
+    )
     return proc.stdout
 
 
@@ -56,7 +71,8 @@ class ReleaseImpactFilesTest(unittest.TestCase):
     def _classify(self, base: str, head: str) -> dict:
         proc = subprocess.run(
             ["bash", "scripts/release-impact-files.sh", base, head],
-            cwd=self.repo, capture_output=True, text=True, check=True,
+            cwd=self.repo, env=_scrubbed_env(),
+            capture_output=True, text=True, check=True,
         )
         return json.loads(proc.stdout)
 

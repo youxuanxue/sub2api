@@ -63,14 +63,33 @@ if ! docker compose version >/dev/null 2>&1; then
 fi
 
 if ! rpm -q amazon-ssm-agent >/dev/null 2>&1; then
-  (yum -y install amazon-ssm-agent || dnf -y install amazon-ssm-agent) || true
+  if ! yum -y install amazon-ssm-agent && ! dnf -y install amazon-ssm-agent; then
+    echo "BOOTSTRAP_FAIL: cannot install amazon-ssm-agent" >&2
+    exit 1
+  fi
 fi
-systemctl enable amazon-ssm-agent || true
-/usr/bin/amazon-ssm-agent -register -y \
-  -id "${SSM_ACTIVATION_ID}" \
-  -code "${SSM_ACTIVATION_CODE}" \
-  -region "${LIGHTSAIL_REGION}" || true
-systemctl restart amazon-ssm-agent || true
+systemctl enable amazon-ssm-agent
+# Register against SSM Hybrid Activation. Fail fast on misconfigured activation —
+# silent || true here would mean provision waits 10 minutes before reporting,
+# while Lightsail clock + Static IP are already billing.
+if ! /usr/bin/amazon-ssm-agent -register -y \
+      -id "${SSM_ACTIVATION_ID}" \
+      -code "${SSM_ACTIVATION_CODE}" \
+      -region "${LIGHTSAIL_REGION}"; then
+  echo "BOOTSTRAP_FAIL: amazon-ssm-agent -register failed (activation id/code/region mismatch?)" >&2
+  exit 1
+fi
+systemctl restart amazon-ssm-agent
+for i in 1 2 3 4 5 6; do
+  if systemctl is-active --quiet amazon-ssm-agent; then break; fi
+  echo "amazon-ssm-agent not active yet (try ${i}/6) — sleep 5s"
+  sleep 5
+  systemctl restart amazon-ssm-agent || true
+done
+if ! systemctl is-active --quiet amazon-ssm-agent; then
+  echo "BOOTSTRAP_FAIL: amazon-ssm-agent failed to stay active after register" >&2
+  exit 1
+fi
 
 mkdir -p /var/lib/tokenkey/caddy/data /var/lib/tokenkey/caddy/config /var/lib/tokenkey/app
 LAUNCH_HEAD
@@ -166,12 +185,22 @@ echo "LIGHTSAIL_BOOTSTRAP_DONE $(date -u +%FT%TZ)"
 LAUNCH_TAIL
 
 if [[ "$mode" == "check" ]]; then
-  if [[ -f "$OUT" ]] && cmp -s "$OUT" "${OUT}.tmp"; then
+  if [[ ! -f "$OUT" ]]; then
+    echo "render-bootstrap: FAIL — ${OUT} missing (run 'bash deploy/aws/lightsail/render-bootstrap.sh' to (re)generate, then commit)" >&2
+    rm -f "${OUT}.tmp"
+    exit 1
+  fi
+  if cmp -s "$OUT" "${OUT}.tmp"; then
     echo "render-bootstrap: OK (no drift)"
     rm -f "${OUT}.tmp"
     exit 0
   fi
-  echo "render-bootstrap: drift detected (run without --check)" >&2
+  echo "render-bootstrap: FAIL — ${OUT} is out of sync with current template/sources" >&2
+  echo "  Run: bash deploy/aws/lightsail/render-bootstrap.sh && git add ${OUT}" >&2
+  if command -v diff >/dev/null 2>&1; then
+    echo "  Diff (first 40 lines):" >&2
+    diff -u "$OUT" "${OUT}.tmp" | head -40 >&2 || true
+  fi
   rm -f "${OUT}.tmp"
   exit 1
 fi
