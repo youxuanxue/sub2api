@@ -544,25 +544,39 @@ jobs:
           INSTANCE_ID="$(aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK_NAME" \
             --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)"
           if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
+            # No InstanceId in stack outputs is genuinely "already torn down" —
+            # delete-stack will be a no-op too. This is the only path where we
+            # legitimately skip snapshot (nothing to snapshot).
             echo "::warning::stack $STACK_NAME has no InstanceId output (already torn down?); skipping snapshot"
             echo "skipped=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # Resolve the actual root device name from the instance (NOT hard-coded
+          # /dev/xvda — AL2023 on t4g uses xvda today, but Nitro / future AMIs
+          # may use nvme0n1 etc.). Fail-fast if we cannot identify a root EBS,
+          # because the snapshot is a contract of decommission and an empty
+          # snapshot path would silently destroy the rollback window.
+          ROOT_DEV="$(aws ec2 describe-instances --region "$REGION" --instance-ids "$INSTANCE_ID" \
+            --query 'Reservations[0].Instances[0].RootDeviceName' --output text)"
+          if [ -z "$ROOT_DEV" ] || [ "$ROOT_DEV" = "None" ]; then
+            echo "::error::cannot resolve RootDeviceName for $INSTANCE_ID — refusing to decommission without an EBS snapshot"
+            exit 1
+          fi
           ROOT_VOL="$(aws ec2 describe-instances --region "$REGION" --instance-ids "$INSTANCE_ID" \
-            --query 'Reservations[0].Instances[0].BlockDeviceMappings[?DeviceName==`/dev/xvda`].Ebs.VolumeId' \
+            --query "Reservations[0].Instances[0].BlockDeviceMappings[?DeviceName=='${ROOT_DEV}'].Ebs.VolumeId" \
             --output text)"
           if [ -z "$ROOT_VOL" ] || [ "$ROOT_VOL" = "None" ]; then
-            echo "::warning::could not locate /dev/xvda EBS volume for $INSTANCE_ID; skipping snapshot"
-            echo "skipped=true" >> "$GITHUB_OUTPUT"
-            exit 0
+            echo "::error::instance $INSTANCE_ID has no EBS volume on RootDeviceName=$ROOT_DEV — refusing to decommission without an EBS snapshot"
+            exit 1
           fi
           TS="$(date -u +%Y%m%dT%H%M%SZ)"
           SNAP="$(aws ec2 create-snapshot --region "$REGION" --volume-id "$ROOT_VOL" \
-            --description "pre-decommission snapshot of $STACK_NAME root volume" \
-            --tag-specifications "ResourceType=snapshot,Tags=[{Key=Project,Value=tokenkey},{Key=EdgeId,Value=$EDGE_ID},{Key=Purpose,Value=pre-decommission-rollback},{Key=Stack,Value=$STACK_NAME},{Key=Timestamp,Value=$TS},{Key=RetentionDays,Value=30}]" \
+            --description "pre-decommission snapshot of $STACK_NAME root volume ($ROOT_DEV)" \
+            --tag-specifications "ResourceType=snapshot,Tags=[{Key=Project,Value=tokenkey},{Key=EdgeId,Value=$EDGE_ID},{Key=Purpose,Value=pre-decommission-rollback},{Key=Stack,Value=$STACK_NAME},{Key=RootDevice,Value=$ROOT_DEV},{Key=Timestamp,Value=$TS},{Key=RetentionDays,Value=30}]" \
             --query 'SnapshotId' --output text)"
           echo "snapshot_id=$SNAP" >> "$GITHUB_OUTPUT"
           echo "volume_id=$ROOT_VOL" >> "$GITHUB_OUTPUT"
+          echo "root_device=$ROOT_DEV" >> "$GITHUB_OUTPUT"
           echo "skipped=false" >> "$GITHUB_OUTPUT"
           # Wait up to 10 minutes for snapshot to reach 'pending' or 'completed' — we don't need full completion
           # to proceed with stack delete (snapshot is independent of the source volume); we just confirm AWS
@@ -573,7 +587,7 @@ jobs:
             case "$STATE" in pending|completed) break ;; esac
             sleep 10
           done
-          echo "snapshot $SNAP created (state=$STATE) for volume $ROOT_VOL"
+          echo "snapshot $SNAP created (state=$STATE) for volume $ROOT_VOL on $ROOT_DEV"
 
       - name: Read EIP allocation before decommission
         if: inputs.operation == 'decommission'
@@ -583,10 +597,10 @@ jobs:
           REGION: ${{ steps.edge.outputs.region }}
         run: |
           set -euo pipefail
-          # preflight-allow: swallow — describe-stacks may return non-zero for an
-          # already-deleted stack on retry; the empty alloc_id branch covers it.
+          # describe-stacks may return non-zero for an already-deleted stack
+          # on retry; the empty alloc_id branch below covers it.
           ALLOC="$(aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK_NAME" \
-            --query 'Stacks[0].Outputs[?OutputKey==`EipAllocationId`].OutputValue' --output text 2>/dev/null || true)"
+            --query 'Stacks[0].Outputs[?OutputKey==`EipAllocationId`].OutputValue' --output text 2>/dev/null || true)"  # preflight-allow: swallow
           if [ -z "$ALLOC" ] || [ "$ALLOC" = "None" ]; then
             echo "::warning::stack $STACK_NAME has no EipAllocationId output"
             echo "alloc_id=" >> "$GITHUB_OUTPUT"
@@ -621,7 +635,7 @@ jobs:
           # preflight-allow: swallow — already-released or already-associated-elsewhere
           # both surface as non-zero; we then check describe-addresses to confirm.
           if ! aws ec2 release-address --region "$REGION" --allocation-id "$ALLOC" 2>/tmp/release-err; then
-            cat /tmp/release-err >&2 || true
+            cat /tmp/release-err >&2 || true  # preflight-allow: swallow — best-effort stderr forwarding; file may be empty
             EXISTS="$(aws ec2 describe-addresses --region "$REGION" --allocation-ids "$ALLOC" --query 'Addresses' --output text 2>/dev/null || echo gone)"
             if [ -z "$EXISTS" ] || [ "$EXISTS" = "gone" ]; then
               echo "EIP $ALLOC already released (idempotent OK)"

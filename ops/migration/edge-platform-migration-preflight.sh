@@ -17,7 +17,7 @@
 set -euo pipefail
 
 EDGE_ID="${1:-}"
-shift || true
+shift || true  # preflight-allow: swallow — bash idiom; shifting past last arg is intentional no-op
 PHASE="plan"
 for arg in "$@"; do
   case "$arg" in
@@ -163,7 +163,7 @@ fi
 # ---- Cutover-phase DNS check ------------------------------------------------
 if [[ "$PHASE" == "cutover" || "$PHASE" == "decommission" ]]; then
   echo "--- DNS check (domain=$ec2_domain) ---"
-  LIVE_IP="$(dig +short A "$ec2_domain" @1.1.1.1 | tail -1 || true)"
+  LIVE_IP="$(dig +short A "$ec2_domain" @1.1.1.1 | tail -1 || true)"  # preflight-allow: swallow — empty result handled by next branch
   if [[ -z "$LIVE_IP" ]]; then
     fail "could not resolve A record for $ec2_domain"
   else

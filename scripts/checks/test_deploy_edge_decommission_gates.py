@@ -98,6 +98,50 @@ class DecommissionGatesTests(unittest.TestCase):
         self.assertIn("RetentionDays", self.text)
         self.assertRegex(self.text, r"Key=RetentionDays,Value=30")
 
+    def test_snapshot_resolves_root_device_dynamically(self):
+        # R-001: root device must NOT be hard-coded /dev/xvda in the
+        # describe-instances query. The decommission path resolves
+        # RootDeviceName from the instance first. Hard-coded device names
+        # silently break when the instance family / AMI shifts (e.g. AL2023
+        # on t4g → xvda today, but Nitro nvme0n1 tomorrow).
+        self.assertIn("RootDeviceName", self.text,
+                      "snapshot step must resolve RootDeviceName dynamically (R-001)")
+        # Defensive: the BlockDeviceMappings query must reference the dynamic
+        # ${ROOT_DEV} variable, not a hard-coded literal. We exclude lines that
+        # start with '#' so the regression-comment that explains "/dev/xvda
+        # today, nvme tomorrow" doesn't trip the gate.
+        snapshot_step = self._extract_step("Snapshot EBS root volume before decommission")
+        code_lines = [
+            line for line in snapshot_step.splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+        code_only = "\n".join(code_lines)
+        self.assertNotIn("/dev/xvda", code_only,
+                         "snapshot step must not hard-code /dev/xvda in any executable line (R-001)")
+        # And explicitly assert the query uses the variable substitution form.
+        self.assertIn("DeviceName=='${ROOT_DEV}'", code_only,
+                      "BlockDeviceMappings query must reference ${ROOT_DEV}, not a literal device path (R-001)")
+
+    def test_snapshot_failure_aborts_decommission(self):
+        # R-001 part 2: if we cannot identify the root EBS volume, we MUST fail
+        # the step (not log a warning and proceed). Snapshot is part of the
+        # decommission contract; a silent skip would destroy the operator's
+        # rollback window without their knowledge.
+        snapshot_step = self._extract_step("Snapshot EBS root volume before decommission")
+        self.assertIn("refusing to decommission without an EBS snapshot", snapshot_step,
+                      "snapshot step must fail-fast (not warn) when root EBS cannot be resolved (R-001)")
+
+    def _extract_step(self, name: str) -> str:
+        """Pull the run-block of a single named step by literal name."""
+        # Find the step header then the next "- name:" or end-of-file.
+        marker = f"- name: {name}"
+        start = self.text.find(marker)
+        self.assertGreater(start, 0, f"step '{name}' missing")
+        # End boundary: next step at the same indent level.
+        next_step = self.text.find("\n      - name:", start + len(marker))
+        end = next_step if next_step > 0 else len(self.text)
+        return self.text[start:end]
+
     def test_job_summary_includes_decommission_audit_block(self):
         self.assertIn("### Decommission audit", self.text)
         self.assertIn("pre-decommission EBS snapshot", self.text)

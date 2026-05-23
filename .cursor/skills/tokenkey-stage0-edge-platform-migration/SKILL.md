@@ -35,20 +35,19 @@ description: >-
 ## 调用参数
 
 ```text
-/tokenkey-stage0-edge-platform-migration edge_id=<id> direction=<ec2-to-lightsail|lightsail-to-ec2> [tag=X.Y.Z] [phase=<plan|provision|cutover|decommission|all>] [keep_eip=false]
+/tokenkey-stage0-edge-platform-migration edge_id=<id> [tag=X.Y.Z] [phase=<plan|provision|cutover|decommission|all>] [keep_eip=true]
 ```
 
 | 参数 | 语义 |
 |---|---|
 | `edge_id` | 要迁移的 edge，如 `uk1` / `us1` / `fra1` / `sg1` |
-| `direction` | `ec2-to-lightsail`：从 EC2/CFN 迁到 Lightsail；`lightsail-to-ec2`：反向 |
 | `tag` | 新平台 provision 用的 image tag（无 v 前缀） |
 | `phase` | 分阶段执行；默认 `all`（=plan→provision→cutover→decommission） |
-| `keep_eip` | 仅 ec2-to-lightsail：旧 EC2 EIP 是否保留（默认 true，便于回滚到 EC2） |
+| `keep_eip` | 旧 EC2 EIP 是否保留（默认 `true`，便于 30 天回滚窗内复用） |
+
+> **方向**：本 skill 当前**只实现 EC2 → Lightsail** 单向迁移。反向迁移（Lightsail → EC2）所需的 Lightsail decommission primitive 与 EC2 provision-from-snapshot 路径尚未建；首次需要反向时再补，避免在 API 上写一个未实现的选项（参见 §7）。
 
 ## 0) 前置（一次性 / 每个 AWS 账户）
-
-仅 EC2→Lightsail 方向；反向迁移用现有 EC2 skill。
 
 ```bash
 # 1) Lightsail IAM addon — 整个 AWS account 一次
@@ -206,8 +205,11 @@ dns_state      : api-<id>.tokenkey.dev → <ls_static_ip>
 | Decommission 工作流报 `requires deployable=false` | decommission | EC2 矩阵还没翻 false（不应发生于此 skill 路径） | 提 PR 翻矩阵 |
 | Decommission 后 EIP 还在账户里 | 迁移完 | `release_eip=false`（默认） | 单独 `aws ec2 release-address` 或留作下一个 edge 使用 |
 
-## 7) 反方向（Lightsail → EC2）
+## 7) 反方向（Lightsail → EC2）：未实现
 
-镜像本 skill 流程，只是：
-- Phase 2 用 `deploy-edge-stage0.yml operation=provision`（不是 lightsail workflow）
-- Phase 4 没有 EC2-style `decommission` 给 Lightsail；用 `aws lightsail delete-instance` + `aws lightsail release-static-ip`，或者把 Lightsail 矩阵翻 `deployable=false` 后再补一个 Lightsail decommission workflow op（**目前未实现**——首次 lightsail→ec2 时建工具）。
+本 skill **不主张提供未实现的 API**。反向迁移目前需要以下 primitive，均**尚未建**：
+
+1. Lightsail decommission workflow op（参照本 skill 创建的 `deploy-edge-stage0.yml operation=decommission`，给 `deploy-edge-lightsail-stage0.yml` 加一个对称 op；需要 instance snapshot + Static IP release）
+2. EC2 provision-from-snapshot（如果要从 Lightsail 迁回时复用此前 EC2 拍的 snap，CFN 模板需要支持 `--root-snapshot-id` 参数）
+
+**首次需要反向迁移时再补这两块**；不在本 skill 范围里画饼。
