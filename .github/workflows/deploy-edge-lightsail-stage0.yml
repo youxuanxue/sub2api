@@ -1,0 +1,225 @@
+name: Edge Lightsail Stage0 Deploy
+
+# Parallel Edge path on AWS Lightsail (not EC2/CFN). Shares image manifest
+# checks, SSM upgrade primitive, and smoke scripts with deploy-edge-stage0.yml.
+# See deploy/aws/lightsail/README.md and docs/spec-delta-edge-lightsail.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      edge_id:
+        description: "Edge target from deploy/aws/lightsail/edge-targets-lightsail.json (deployable=true)."
+        required: true
+        type: choice
+        options:
+          - uk1
+          - us1
+      operation:
+        description: "provision creates Lightsail instance; upgrade/rollback use SSM; smoke verifies."
+        required: true
+        type: choice
+        options:
+          - provision
+          - upgrade
+          - smoke
+          - rollback
+      tag:
+        description: "Image tag without v. Required for provision/upgrade/rollback."
+        required: false
+        type: string
+      confirm_instance:
+        description: "Must match instance_name from matrix (e.g. tokenkey-edge-uk1-ls)."
+        required: true
+        type: string
+      recreate:
+        description: "provision only: DESTROY existing instance + Static IP before recreate. Default false (fail-if-exists)."
+        required: false
+        type: boolean
+        default: false
+      simple_release_override:
+        description: "Allow single-arch manifest. Default false."
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+  packages: read
+
+concurrency:
+  group: deploy-edge-lightsail-${{ inputs.edge_id }}
+  cancel-in-progress: false
+
+jobs:
+  edge:
+    runs-on: ubuntu-latest
+    environment: edge-${{ inputs.edge_id }}
+    env:
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      INPUT_EDGE_ID: ${{ inputs.edge_id }}
+      INPUT_OPERATION: ${{ inputs.operation }}
+      INPUT_TAG: ${{ inputs.tag }}
+      INPUT_CONFIRM_INSTANCE: ${{ inputs.confirm_instance }}
+      INPUT_OVERRIDE: ${{ inputs.simple_release_override }}
+      INPUT_RECREATE: ${{ inputs.recreate }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Resolve Lightsail edge target
+        id: edge
+        run: |
+          set -euo pipefail
+          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
+            echo "::error::AWS_OIDC_ROLE_ARN repo variable not set"
+            exit 1
+          fi
+          python3 deploy/aws/lightsail/resolve-edge-lightsail-target.py \
+            --edge-id "$INPUT_EDGE_ID" \
+            --confirm-instance "$INPUT_CONFIRM_INSTANCE" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Validate operation inputs
+        run: |
+          set -euo pipefail
+          case "$INPUT_OPERATION" in
+            provision|upgrade|rollback)
+              if [ -z "${INPUT_TAG:-}" ]; then
+                echo "::error::tag is required for operation=$INPUT_OPERATION"
+                exit 1
+              fi
+              if ! printf '%s' "$INPUT_TAG" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+|-beta\.[0-9]+)?$'; then
+                echo "::error::tag must match X.Y.Z, got: $INPUT_TAG"
+                exit 1
+              fi
+              ;;
+            smoke) ;;
+            *) echo "::error::unsupported operation=$INPUT_OPERATION"; exit 1 ;;
+          esac
+
+      - name: Verify GHCR multi-arch manifest
+        if: inputs.operation == 'provision' || inputs.operation == 'upgrade' || inputs.operation == 'rollback'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash ops/stage0/verify_ghcr_manifest.sh "$INPUT_TAG" "$INPUT_OVERRIDE"
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ steps.edge.outputs.lightsail_region }}
+
+      - name: Provision Lightsail Edge
+        id: provision
+        if: inputs.operation == 'provision'
+        env:
+          GHCR_OWNER: ${{ github.repository_owner }}
+          ACME_EMAIL: ${{ vars.EDGE_ACME_EMAIL }}
+          MAIN_GATEWAY_ALLOWED_CIDR: ${{ vars.EDGE_MAIN_GATEWAY_ALLOWED_CIDR }}
+          GHCR_PAT_SSM_NAME_OVERRIDE: ${{ vars.EDGE_GHCR_PAT_SSM_NAME }}
+          RECREATE: ${{ inputs.recreate }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ACME_EMAIL:-}" ]; then
+            echo "::error::EDGE_ACME_EMAIL required for provision (set Environment variable edge-${INPUT_EDGE_ID}.EDGE_ACME_EMAIL)"
+            exit 1
+          fi
+          if [ -z "${MAIN_GATEWAY_ALLOWED_CIDR:-}" ]; then
+            echo "::error::EDGE_MAIN_GATEWAY_ALLOWED_CIDR not set; this MUST mirror the current prod main-gateway egress IP/CIDR (no hard-coded default — see deploy/aws/lightsail/README.md)"
+            exit 1
+          fi
+          if [ -n "${GHCR_PAT_SSM_NAME_OVERRIDE:-}" ]; then
+            GHCR_PAT_SSM="${GHCR_PAT_SSM_NAME_OVERRIDE}"
+          else
+            GHCR_PAT_SSM="${{ steps.edge.outputs.ssm_prefix }}/ghcr/pat"
+          fi
+          if [ "${RECREATE:-false}" = "true" ]; then
+            echo "::warning::RECREATE=true — existing instance and Static IP will be DESTROYED"
+          fi
+          bash deploy/aws/lightsail/provision-edge.sh \
+            "${{ steps.edge.outputs.edge_id }}" \
+            "$INPUT_TAG" \
+            "${{ steps.edge.outputs.lightsail_region }}" \
+            "${{ steps.edge.outputs.instance_name }}" \
+            "${{ steps.edge.outputs.static_ip_name }}" \
+            "${{ steps.edge.outputs.availability_zone }}" \
+            "${{ steps.edge.outputs.bundle_id }}" \
+            "${{ steps.edge.outputs.blueprint_id }}" \
+            "${{ steps.edge.outputs.domain }}" \
+            "$ACME_EMAIL" \
+            "${MAIN_GATEWAY_ALLOWED_CIDR}" \
+            "$GHCR_OWNER" \
+            "$GHCR_PAT_SSM" \
+            "${{ steps.edge.outputs.ssm_prefix }}"
+
+      - name: Resolve SSM managed instance + API URL
+        id: instance
+        if: inputs.operation != 'provision' || success()
+        env:
+          SSM_PREFIX: ${{ steps.edge.outputs.ssm_prefix }}
+          AWS_REGION: ${{ steps.edge.outputs.lightsail_region }}
+        run: |
+          set -euo pipefail
+          if [ "$INPUT_OPERATION" = "provision" ]; then
+            MID="${{ steps.provision.outputs.managed_instance_id }}"
+            API="${{ steps.provision.outputs.api_url }}"
+          else
+            MID="$(bash ops/lightsail/resolve_ssm_instance_id.sh "$SSM_PREFIX" "$AWS_REGION")"
+            API="https://${{ steps.edge.outputs.domain }}"
+          fi
+          if [ -z "$MID" ] || [ "$MID" = "None" ]; then
+            echo "::error::could not resolve SSM managed instance id"
+            exit 1
+          fi
+          echo "managed_instance_id=$MID" >> "$GITHUB_OUTPUT"
+          echo "api_url=$API" >> "$GITHUB_OUTPUT"
+
+      - name: Upgrade or rollback via shared SSM deploy primitive
+        id: ssm
+        if: inputs.operation == 'upgrade' || inputs.operation == 'rollback'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.managed_instance_id }}
+          STAGE0_SSM_OUTPUT_DIR: .
+        run: bash ops/stage0/deploy_via_ssm.sh "$INPUT_TAG" "$INSTANCE_ID" "deploy-edge-lightsail edge=$INPUT_EDGE_ID op=$INPUT_OPERATION"
+
+      - name: External Edge health check
+        if: inputs.operation == 'upgrade' || inputs.operation == 'rollback' || inputs.operation == 'smoke'
+        env:
+          API_URL: ${{ steps.instance.outputs.api_url }}
+          SSM_PREFIX: ${{ steps.edge.outputs.ssm_prefix }}
+          AWS_REGION: ${{ steps.edge.outputs.lightsail_region }}
+          DOMAIN: ${{ steps.edge.outputs.domain }}
+        run: bash ops/stage0/external_health.sh "$API_URL"
+
+      - name: Edge smoke
+        if: inputs.operation == 'smoke' || inputs.operation == 'upgrade' || inputs.operation == 'rollback'
+        env:
+          EDGE_ID: ${{ steps.edge.outputs.edge_id }}
+          EDGE_API_URL: ${{ steps.instance.outputs.api_url }}
+          EDGE_INSTANCE_ID: ${{ steps.instance.outputs.managed_instance_id }}
+          EDGE_SSM_PREFIX: ${{ steps.edge.outputs.ssm_prefix }}
+          MAIN_GATEWAY_BASE_URL: ${{ vars.EDGE_MAIN_GATEWAY_BASE_URL }}
+          MAIN_GATEWAY_EDGE_SMOKE_API_KEY: ${{ secrets.MAIN_GATEWAY_EDGE_SMOKE_API_KEY }}
+          POST_DEPLOY_SMOKE_CHAT_MODEL: ${{ vars.POST_DEPLOY_SMOKE_CHAT_MODEL || 'claude-sonnet-4-6' }}
+        run: bash ops/stage0/edge_post_deploy_smoke.sh
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## deploy-edge-lightsail-stage0"
+            echo "- platform: \`lightsail\`"
+            echo "- edge_id: \`${{ steps.edge.outputs.edge_id }}\`"
+            echo "- operation: \`$INPUT_OPERATION\`"
+            echo "- tag: \`${INPUT_TAG:-none}\`"
+            echo "- lightsail_region: \`${{ steps.edge.outputs.lightsail_region }}\`"
+            echo "- instance: \`${{ steps.edge.outputs.instance_name }}\`"
+            echo "- managed_instance_id: \`${{ steps.instance.outputs.managed_instance_id }}\`"
+            echo "- api: ${{ steps.instance.outputs.api_url }}"
+            echo "- ssm command id: \`${{ steps.ssm.outputs.command_id }}\`"
+            echo
+            echo "DNS: point \`${{ steps.edge.outputs.domain }}\` A record to Static IP after provision."
+            echo "IAM: requires \`cicd-oidc-lightsail-addon.yaml\` attached to GHA OIDC role."
+          } >> "$GITHUB_STEP_SUMMARY"

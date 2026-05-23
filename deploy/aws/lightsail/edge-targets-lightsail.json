@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "platform": "lightsail",
+  "default_profile": "edge-lightsail-minimal",
+  "max_monthly_budget_usd": 12,
+  "notes": [
+    "lightsail_region is the Lightsail API region (not always equal to EC2 edge region).",
+    "Paris (fra1) has no Lightsail region; map to eu-central-1 (Frankfurt) for PoC only.",
+    "bundle_id suffix varies by Lightsail region; resolve script picks bundle_id from matrix."
+  ],
+  "targets": {
+    "uk1": {
+      "deployable": false,
+      "profile": "edge-lightsail-minimal",
+      "lightsail_region": "eu-west-2",
+      "ec2_equivalent_region": "eu-west-2",
+      "availability_zone": "eu-west-2a",
+      "domain": "api-uk1.tokenkey.dev",
+      "instance_name": "tokenkey-edge-uk1-ls",
+      "static_ip_name": "tokenkey-edge-uk1-ls-ip",
+      "bundle_id": "micro_3_0",
+      "blueprint_id": "amazon_linux_2023",
+      "monthly_budget_usd": 12,
+      "ssm_prefix": "/tokenkey/lightsail/uk1",
+      "purpose": "uk-egress-lightsail-poc-planned (EC2 owns uk1 today; flip deployable=true only after taking EC2 uk1 deployable=false to avoid DNS collision)"
+    },
+    "us1": {
+      "deployable": false,
+      "profile": "edge-lightsail-minimal",
+      "lightsail_region": "us-west-2",
+      "ec2_equivalent_region": "us-west-2",
+      "availability_zone": "us-west-2a",
+      "domain": "api-us1.tokenkey.dev",
+      "instance_name": "tokenkey-edge-us1-ls",
+      "static_ip_name": "tokenkey-edge-us1-ls-ip",
+      "bundle_id": "micro_3_0",
+      "blueprint_id": "amazon_linux_2023",
+      "monthly_budget_usd": 12,
+      "ssm_prefix": "/tokenkey/lightsail/us1",
+      "purpose": "us-clean-egress-lightsail-poc-planned (EC2 owns us1 today; flip deployable=true only after taking EC2 us1 deployable=false to avoid DNS collision)"
+    },
+    "fra1": {
+      "deployable": false,
+      "profile": "edge-lightsail-minimal",
+      "lightsail_region": "eu-central-1",
+      "ec2_equivalent_region": "eu-west-3",
+      "availability_zone": "eu-central-1a",
+      "domain": "api-fra1.tokenkey.dev",
+      "instance_name": "tokenkey-edge-fra1-ls",
+      "static_ip_name": "tokenkey-edge-fra1-ls-ip",
+      "bundle_id": "micro_3_0",
+      "blueprint_id": "amazon_linux_2023",
+      "monthly_budget_usd": 12,
+      "ssm_prefix": "/tokenkey/lightsail/fra1",
+      "purpose": "frankfurt-lightsail-substitute-no-paris-region"
+    },
+    "sg1": {
+      "deployable": false,
+      "profile": "edge-lightsail-minimal",
+      "lightsail_region": "ap-southeast-1",
+      "ec2_equivalent_region": "ap-southeast-1",
+      "availability_zone": "ap-southeast-1a",
+      "domain": "api-sg1.tokenkey.dev",
+      "instance_name": "tokenkey-edge-sg1-ls",
+      "static_ip_name": "tokenkey-edge-sg1-ls-ip",
+      "bundle_id": "micro_3_0",
+      "blueprint_id": "amazon_linux_2023",
+      "monthly_budget_usd": 12,
+      "ssm_prefix": "/tokenkey/lightsail/sg1",
+      "purpose": "sg-egress-planned"
+    }
+  }
+}

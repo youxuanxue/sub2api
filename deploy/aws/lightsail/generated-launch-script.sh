@@ -1,0 +1,148 @@
+#!/bin/bash
+# tokenkey Edge Lightsail bootstrap — generated; do not hand-edit.
+set -euo pipefail
+exec > >(tee -a /var/log/tokenkey-lightsail-bootstrap.log) 2>&1
+echo "LIGHTSAIL_BOOTSTRAP_START $(date -u +%FT%TZ)"
+
+: "${EDGE_ID:?EDGE_ID required}"
+: "${API_DOMAIN:?API_DOMAIN required}"
+: "${ACME_EMAIL:?ACME_EMAIL required}"
+: "${MAIN_GATEWAY_ALLOWED_CIDR:?MAIN_GATEWAY_ALLOWED_CIDR required}"
+: "${TOKENKEY_IMAGE:?TOKENKEY_IMAGE required}"
+: "${GHCR_PULL_USER:?GHCR_PULL_USER required}"
+: "${GHCR_PAT_SSM_NAME:?GHCR_PAT_SSM_NAME required}"
+: "${LIGHTSAIL_REGION:?LIGHTSAIL_REGION required}"
+: "${SSM_ACTIVATION_ID:?SSM_ACTIVATION_ID required}"
+: "${SSM_ACTIVATION_CODE:?SSM_ACTIVATION_CODE required}"
+
+export ADMIN_EMAIL="${ADMIN_EMAIL:-admin@${API_DOMAIN}}"
+export TZ_VALUE="${TZ_VALUE:-UTC}"
+
+yum -y update || dnf -y update || true
+(yum -y install docker awscli openssl gzip tar || dnf -y install docker aws-cli openssl gzip tar) || true
+systemctl enable --now docker || true
+if ! command -v docker >/dev/null; then
+  (amazon-linux-extras install docker -y || dnf -y install docker) || true
+  systemctl enable --now docker || true
+fi
+if ! docker compose version >/dev/null 2>&1; then
+  mkdir -p /usr/local/lib/docker/cli-plugins
+  curl -fsSL "https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-$(uname -m)" \
+    -o /usr/local/lib/docker/cli-plugins/docker-compose
+  chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+fi
+
+if ! rpm -q amazon-ssm-agent >/dev/null 2>&1; then
+  if ! yum -y install amazon-ssm-agent && ! dnf -y install amazon-ssm-agent; then
+    echo "BOOTSTRAP_FAIL: cannot install amazon-ssm-agent" >&2
+    exit 1
+  fi
+fi
+systemctl enable amazon-ssm-agent
+# Register against SSM Hybrid Activation. Fail fast on misconfigured activation —
+# silent || true here would mean provision waits 10 minutes before reporting,
+# while Lightsail clock + Static IP are already billing.
+if ! /usr/bin/amazon-ssm-agent -register -y \
+      -id "${SSM_ACTIVATION_ID}" \
+      -code "${SSM_ACTIVATION_CODE}" \
+      -region "${LIGHTSAIL_REGION}"; then
+  echo "BOOTSTRAP_FAIL: amazon-ssm-agent -register failed (activation id/code/region mismatch?)" >&2
+  exit 1
+fi
+systemctl restart amazon-ssm-agent
+for i in 1 2 3 4 5 6; do
+  if systemctl is-active --quiet amazon-ssm-agent; then break; fi
+  echo "amazon-ssm-agent not active yet (try ${i}/6) — sleep 5s"
+  sleep 5
+  systemctl restart amazon-ssm-agent || true
+done
+if ! systemctl is-active --quiet amazon-ssm-agent; then
+  echo "BOOTSTRAP_FAIL: amazon-ssm-agent failed to stay active after register" >&2
+  exit 1
+fi
+
+mkdir -p /var/lib/tokenkey/caddy/data /var/lib/tokenkey/caddy/config /var/lib/tokenkey/app
+COMPOSE_GZB64='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'
+CADDY_GZB64='H4sIAAAAAAACA+1VzW4TMRA+7z7FKO0JdTebplRVJQQhDRCpf2qRCifLWU+ypl57sb3bplGeiztPxjgLaRqhigMSFy5ezzfjb37t3QFvblHf4hy+f4PBzTWMxAzh2nNas4ANuRDzqVQY78BQmVokYy091A4doG5cPXEepsbC7mJwOWYnF2eD8flyL4jDsxEbkXhKIteCCHYXQcveDz6Obgaf2eD09OJmdMKG45OrZQpXqPgcKu4LB9wiaOOhqidK5sGdJXfekt5I7V0ax4s4wpJL9dRVHO0Az0tkOYfC+8odd7tBThzlJPUsabL9lFcyVegd6tzOK58aO+sKaTH3xs7jZRw/SQaCJ50bgfDgvIDZg6ziOHpDjJ5iI20UgoYud45Iuy/WgDIzk1Z6tgamvJG50SktcUSxFsgFZfaL6vWQ5wUmQ0OZGgWdNvs9KPl9Qh151e+97B9mWbYHsixrzycKOxSJV66NwhpvckMSIb10v/30gycK14bysra8jzE3vY14ZUleNhNopECzLa8MVpRcKXOHgq2o/wJpZLE0Hpmsnh2V1ntBM6UQfhOExQatQ0b1uJ+vJ/z4KDvKVvpoqmpXMJojtA1XkPQCSL1QvmC1ldBt9xvo2rafuQ3YyxJN7aG3RqmdrK7gU3JFFsn4EhY/cyqM88tto3fG3nErUITdn5pehjbDwtGolPiM3QeigcWazFuuXWWsX92LthDRLWLFlWwQevttDo8Qk1RfRuOqHRwerHS5KSuLzkmjwUynAQvcWx3ZnjQ6URktoIPhcbHraw7SkeS8lblH0YGDrP+E6H8v/10vLX6tqTVsYkR7qegNYk4+EHmWnb1tjeh9W+mobBVVjh5H2pFM/4OSe/jijCZJUQsVjM/fXYRTy/gHk52xtHUGAAA='
+QA_B64='IyEvYmluL2Jhc2gKIyBSZWdlbmVyYXRlZCBpbnRvIHN0YWdlMC1zaW5nbGUtZWMyLnlhbWwgYnk6IGRlcGxveS9hd3Mvc3RhZ2UwL2J1aWxkLWNmbi5zaAojIFJldGVudGlvbiBpcyBzZXQgYXQgYm9vdCB2aWEgL2V0Yy90b2tlbmtleS9xYS1zdGFsZS1yZXRlbnRpb24uZW52IChRYVN0YWxlUmV0ZW50aW9uRGF5cykuCnNldCAtZXVvIHBpcGVmYWlsClJFVEVOVElPTl9EQVlTPSIke1RPS0VOS0VZX1FBX1NUQUxFX1JFVEVOVElPTl9EQVlTOi0xLjV9IgppZiAhIFtbICIke1JFVEVOVElPTl9EQVlTfSIgPX4gXigwfFsxLTldWzAtOV0qKShcLlswLTldKyk/JCBdXTsgdGhlbgogIGxvZ2dlciAtdCB0b2tlbmtleS1xYS1zdGFsZS1jbGVhbnVwICJpbnZhbGlkIFRPS0VOS0VZX1FBX1NUQUxFX1JFVEVOVElPTl9EQVlTPSR7VE9LRU5LRVlfUUFfU1RBTEVfUkVURU5USU9OX0RBWVM6LX0iCiAgZXhpdCAxCmZpCmlmIGF3ayAtdiBkPSIke1JFVEVOVElPTl9EQVlTfSIgJ0JFR0lOIHsgZXhpdCAhKGQgPT0gMCkgfSc7IHRoZW4KICBsb2dnZXIgLXQgdG9rZW5rZXktcWEtc3RhbGUtY2xlYW51cCAic2tpcCBkaXNhYmxlZCBRYVN0YWxlUmV0ZW50aW9uRGF5cz0wIgogIGV4aXQgMApmaQppZiAhIHN1ZG8gZG9ja2VyIHBzIC0tZm9ybWF0ICd7ey5OYW1lc319JyB8IGdyZXAgLXF4IHRva2Vua2V5LXBvc3RncmVzOyB0aGVuCiAgbG9nZ2VyIC10IHRva2Vua2V5LXFhLXN0YWxlLWNsZWFudXAgInNraXAgdG9rZW5rZXktcG9zdGdyZXMgbm90IHJ1bm5pbmciCiAgZXhpdCAwCmZpCmluc3RhbGwgLWQgLW0gMDc1NSAvdmFyL2xpYi90b2tlbmtleS9hcHAvcWFfYmxvYnMgL3Zhci9saWIvdG9rZW5rZXkvYXBwL3FhX2RscSAyPi9kZXYvbnVsbCB8fCB0cnVlCgpQR1BBU1M9IiQoc3VkbyBncmVwICdeUE9TVEdSRVNfUEFTU1dPUkQ9JyAvdmFyL2xpYi90b2tlbmtleS8uZW52IHwgY3V0IC1kPSAtZjItKSIKaWYgWyAteiAiJHtQR1BBU1N9IiBdOyB0aGVuCiAgbG9nZ2VyIC10IHRva2Vua2V5LXFhLXN0YWxlLWNsZWFudXAgInNraXAgbm8gUE9TVEdSRVNfUEFTU1dPUkQiCiAgZXhpdCAwCmZpCk5FVD0iJChzdWRvIGRvY2tlciBpbnNwZWN0IHRva2Vua2V5LXBvc3RncmVzIC0tZm9ybWF0ICd7e3JhbmdlICRrLCR2IDo9IC5OZXR3b3JrU2V0dGluZ3MuTmV0d29ya3N9fXt7JGt9fXt7ZW5kfX0nKSIKCmxvZ2dlciAtdCB0b2tlbmtleS1xYS1zdGFsZS1jbGVhbnVwICJxYV9yZWNvcmRzX2RlbGV0ZV9zdGFydCByZXRlbnRpb25fZGF5cz0ke1JFVEVOVElPTl9EQVlTfSIKaWYgISBzdWRvIGRvY2tlciBydW4gLS1ybSAtLW5ldHdvcmsgIiR7TkVUfSIgLWUgUEdQQVNTV09SRD0iJHtQR1BBU1N9IiBwb3N0Z3JlczoxNi1hbHBpbmUgXAogIHBzcWwgLWggdG9rZW5rZXktcG9zdGdyZXMgLVUgdG9rZW5rZXkgLWQgdG9rZW5rZXkgLXYgT05fRVJST1JfU1RPUD0xIFwKICAtYyAiREVMRVRFIEZST00gcWFfcmVjb3JkcyBXSEVSRSBjcmVhdGVkX2F0IDwgTk9XKCkgLSAoJyR7UkVURU5USU9OX0RBWVN9Jzo6bnVtZXJpYyAqIGludGVydmFsICcxIGRheScpOyI7IHRoZW4KICBsb2dnZXIgLXQgdG9rZW5rZXktcWEtc3RhbGUtY2xlYW51cCAicWFfcmVjb3Jkc19kZWxldGVfZmFpbGVkIgogIGV4aXQgMQpmaQoKIyBBbGlnbiBmaWxlIHBydW5pbmcgd2l0aCBmcmFjdGlvbmFsIGRheXMgKGZpbmQgLW10aW1lIGlzIHdob2xlIGRheXMgb25seSkuClBSVU5FX01JTlVURVM9IiQoYXdrIC12IGQ9IiR7UkVURU5USU9OX0RBWVN9IiAnQkVHSU4geyBwcmludGYgIiVkIiwgZCAqIDI0ICogNjAgKyAwLjUgfScpIgpzdWRvIGZpbmQgL3Zhci9saWIvdG9rZW5rZXkvYXBwL3FhX2Jsb2JzIC92YXIvbGliL3Rva2Vua2V5L2FwcC9xYV9kbHEgLW1pbmRlcHRoIDEgLXR5cGUgZiBcCiAgLW1taW4gKyIke1BSVU5FX01JTlVURVN9IiAtZGVsZXRlIDI+L2Rldi9udWxsIHx8IHRydWUKc3VkbyBmaW5kIC92YXIvbGliL3Rva2Vua2V5L2FwcC9xYV9ibG9icyAvdmFyL2xpYi90b2tlbmtleS9hcHAvcWFfZGxxIC1kZXB0aCAtbWluZGVwdGggMSAtdHlwZSBkIFwKICAtZW1wdHkgLWRlbGV0ZSAyPi9kZXYvbnVsbCB8fCB0cnVlCgpsb2dnZXIgLXQgdG9rZW5rZXktcWEtc3RhbGUtY2xlYW51cCAiY2xlYW51cF9kb25lIgo='
+PRUNE_B64='IyEvYmluL2Jhc2gKIyBUb2tlbktleSBTdGFnZTAg4oCUIHBydW5lIGxvY2FsIEdIQ1IgYXBwIGltYWdlIHRhZ3MgYWZ0ZXIgZWFjaCBjb21wb3NlIHB1bGwgKGlubmVyIHNjcmlwdCkuCiMgU2VydmVkIGZyb20gU1NNIC4uLi9naGNyLXBydW5lLmI2NCAoYmFzZTY0KTsgbG9hZGVyIGF0IC91c3IvbG9jYWwvYmluL3Rva2Vua2V5LXBydW5lLWdoY3ItYXBwLXRhZ3Muc2gKIyBmZXRjaGVzIGFuZCBleGVjcyB0aGlzIGZpbGUuIEtlZXBzIHRoZSBtb3N0IHJlY2VudCBLRUVQX04gdGFncyBieSBpbWFnZSBDcmVhdGVkIHRpbWUsIHBsdXMgZXZlcnkKIyB0YWcgZm9yIHRoZSBpbWFnZSBydW5uaW5nIGluIGNvbnRhaW5lciAidG9rZW5rZXkiLgojCiMgU291cmNlOiBkZXBsb3kvYXdzL3N0YWdlMC90b2tlbmtleS1wcnVuZS1naGNyLWFwcC10YWdzLnNoIOKAlCByZWZyZXNoIHZpYSBkZXBsb3kvYXdzL3N0YWdlMC9idWlsZC1jZm4uc2guCiMgT3B0aW9uYWw6IFRPS0VOS0VZX0dIQ1JfS0VFUF9UQUdTIGluIC92YXIvbGliL3Rva2Vua2V5Ly5lbnYgKGRlZmF1bHQgMTApLgoKc2V0IC1ldW8gcGlwZWZhaWwKCktFRVBfTj0iJHtUT0tFTktFWV9HSENSX0tFRVBfVEFHUzotMTB9IgpFTlZfRklMRT0iL3Zhci9saWIvdG9rZW5rZXkvLmVudiIKCmlmIFsgISAtZiAiJHtFTlZfRklMRX0iIF07IHRoZW4KICBlY2hvICJ0b2tlbmtleS1wcnVuZS1naGNyLWFwcC10YWdzOiBtaXNzaW5nICR7RU5WX0ZJTEV9IiA+JjIKICBleGl0IDAKZmkKCiMgc2hlbGxjaGVjayBkaXNhYmxlPVNDMTA5MApzZXQgLWEKLiAiJHtFTlZfRklMRX0iCnNldCArYQoKaWYgWyAteiAiJHtUT0tFTktFWV9JTUFHRTotfSIgXTsgdGhlbgogIGVjaG8gInRva2Vua2V5LXBydW5lLWdoY3ItYXBwLXRhZ3M6IFRPS0VOS0VZX0lNQUdFIGVtcHR5IiA+JjIKICBleGl0IDAKZmkKClJFUE89IiR7VE9LRU5LRVlfSU1BR0UlOip9IgppZiBbIC16ICIke1JFUE99IiBdIHx8IFsgIiR7UkVQT30iID0gIiR7VE9LRU5LRVlfSU1BR0V9IiBdOyB0aGVuCiAgZWNobyAidG9rZW5rZXktcHJ1bmUtZ2hjci1hcHAtdGFnczogY291bGQgbm90IHBhcnNlIHJlcG8gZnJvbSBUT0tFTktFWV9JTUFHRSIgPiYyCiAgZXhpdCAwCmZpCgpSVU5OSU5HX0lEPSIiCmlmIGRvY2tlciBpbnNwZWN0IHRva2Vua2V5ID4vZGV2L251bGwgMj4mMTsgdGhlbgogIFJVTk5JTkdfSUQ9IiQoZG9ja2VyIGluc3BlY3QgLWYgJ3t7LkltYWdlfX0nIHRva2Vua2V5KSIKZmkKCnNvcnRlZD0iJChta3RlbXApIgprZWVwZj0iJChta3RlbXApIgp0cmFwICdybSAtZiAiJHtzb3J0ZWR9IiAiJHtrZWVwZn0iJyBFWElUCgp3aGlsZSByZWFkIC1yIHJlZjsgZG8KICBbIC16ICIkcmVmIiBdICYmIGNvbnRpbnVlCiAgY2FzZSAiJHJlZiIgaW4gKic8bm9uZT4nKikgY29udGludWUgOzsgZXNhYwogIGN0aW1lPSIkKGRvY2tlciBpbnNwZWN0IC1mICd7ey5DcmVhdGVkfX0nICIkcmVmIiAyPi9kZXYvbnVsbCB8fCBlY2hvICcxOTcwLTAxLTAxVDAwOjAwOjAwWicpIgogIGlpZD0iJChkb2NrZXIgaW5zcGVjdCAtZiAne3suSWR9fScgIiRyZWYiIDI+L2Rldi9udWxsIHx8IHRydWUpIgogIHByaW50ZiAnJXNcdCVzXHQlc1xuJyAiJGN0aW1lIiAiJHJlZiIgIiRpaWQiCmRvbmUgPCA8KGRvY2tlciBpbWFnZXMgIiR7UkVQT30iIC0tZm9ybWF0ICd7ey5SZXBvc2l0b3J5fX06e3suVGFnfX0nIDI+L2Rldi9udWxsIHx8IHRydWUpIFwKICB8IExDX0FMTD1DIHNvcnQgLXQgIiQocHJpbnRmICdcdCcpIiAtazEsMXIgPiIke3NvcnRlZH0iCgo6ID4iJHtrZWVwZn0iCgp3aGlsZSBJRlM9IiQocHJpbnRmICdcdCcpIiByZWFkIC1yIF9jcmVmIHJlZiBpaWQ7IGRvCiAgWyAteiAiJHtyZWY6LX0iIF0gJiYgY29udGludWUKICBpZiBbIC1uICIke1JVTk5JTkdfSUR9IiBdICYmIFsgIiRpaWQiID0gIiR7UlVOTklOR19JRH0iIF07IHRoZW4KICAgIGVjaG8gIiRyZWYiID4+IiR7a2VlcGZ9IgogIGZpCmRvbmUgPCIke3NvcnRlZH0iCgp3aGlsZSBJRlM9IiQocHJpbnRmICdcdCcpIiByZWFkIC1yIF9jcmVmIHJlZiBfaWlkOyBkbwogIFsgLXogIiR7cmVmOi19IiBdICYmIGNvbnRpbnVlCiAga2NvdW50PTAKICBpZiBbIC1zICIke2tlZXBmfSIgXTsgdGhlbgogICAga2NvdW50PSQod2MgLWwgPCIke2tlZXBmfSIgfCB0ciAtZCAnICcpCiAgZmkKICBbICIke2tjb3VudH0iIC1nZSAiJHtLRUVQX059IiBdICYmIGJyZWFrCiAgaWYgISBncmVwIC1GeHEgIiRyZWYiICIke2tlZXBmfSIgMj4vZGV2L251bGw7IHRoZW4KICAgIGVjaG8gIiRyZWYiID4+IiR7a2VlcGZ9IgogIGZpCmRvbmUgPCIke3NvcnRlZH0iCgp3aGlsZSByZWFkIC1yIHJlZjsgZG8KICBbIC16ICIkcmVmIiBdICYmIGNvbnRpbnVlCiAgY2FzZSAiJHJlZiIgaW4gKic8bm9uZT4nKikgY29udGludWUgOzsgZXNhYwogIGlmICEgZ3JlcCAtRnhxICIkcmVmIiAiJHtrZWVwZn0iIDI+L2Rldi9udWxsOyB0aGVuCiAgICBkb2NrZXIgcm1pICIkcmVmIiAyPi9kZXYvbnVsbCB8fCB0cnVlCiAgZmkKZG9uZSA8IDwoZG9ja2VyIGltYWdlcyAiJHtSRVBPfSIgLS1mb3JtYXQgJ3t7LlJlcG9zaXRvcnl9fTp7ey5UYWd9fScgMj4vZGV2L251bGwgfHwgdHJ1ZSkKCmV4aXQgMAo='
+printf '%s' "$COMPOSE_GZB64" | base64 -d | gunzip > /var/lib/tokenkey/docker-compose.yml
+printf '%s' "$CADDY_GZB64" | base64 -d | gunzip > /var/lib/tokenkey/caddy/Caddyfile.template
+envsubst '${API_DOMAIN} ${ACME_EMAIL} ${MAIN_GATEWAY_ALLOWED_CIDR}' \
+  < /var/lib/tokenkey/caddy/Caddyfile.template > /var/lib/tokenkey/caddy/Caddyfile
+
+printf '%s' "$QA_B64" | base64 -d > /usr/local/bin/tokenkey-qa-stale-cleanup.sh
+chmod +x /usr/local/bin/tokenkey-qa-stale-cleanup.sh
+printf '%s' "$PRUNE_B64" | base64 -d > /usr/local/bin/tokenkey-prune-ghcr-app-tags-core.sh
+chmod +x /usr/local/bin/tokenkey-prune-ghcr-app-tags-core.sh
+
+SECRET_FILE=/var/lib/tokenkey/.env.secret
+if [ ! -f "$SECRET_FILE" ]; then
+  umask 077
+  gen_secret() { openssl rand -hex 32; }
+  gen_pwd() { openssl rand -hex 24; }
+  cat > "$SECRET_FILE" <<SECEOF
+POSTGRES_PASSWORD=$(gen_pwd)
+JWT_SECRET=$(gen_secret)
+TOTP_ENCRYPTION_KEY=$(gen_secret)
+SECEOF
+  chmod 0600 "$SECRET_FILE"
+fi
+set -a; . "$SECRET_FILE"; set +a
+
+cat > /var/lib/tokenkey/.env <<ENVEOF
+API_DOMAIN=${API_DOMAIN}
+ACME_EMAIL=${ACME_EMAIL}
+TZ=${TZ_VALUE}
+SERVER_MODE=release
+RUN_MODE=standard
+TOKENKEY_IMAGE=${TOKENKEY_IMAGE}
+POSTGRES_USER=tokenkey
+POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+POSTGRES_DB=tokenkey
+DATABASE_MAX_OPEN_CONNS=10
+DATABASE_MAX_IDLE_CONNS=2
+REDIS_PASSWORD=
+REDIS_DB=0
+REDIS_POOL_SIZE=64
+REDIS_MIN_IDLE_CONNS=2
+ADMIN_EMAIL=${ADMIN_EMAIL}
+ADMIN_PASSWORD=
+JWT_SECRET=${JWT_SECRET}
+JWT_EXPIRE_HOUR=1
+TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY}
+ENVEOF
+chmod 0600 /var/lib/tokenkey/.env
+
+GHCR_PAT="$(aws --region "${LIGHTSAIL_REGION}" ssm get-parameter \
+  --name "${GHCR_PAT_SSM_NAME}" --with-decryption \
+  --query Parameter.Value --output text)"
+echo "${GHCR_PAT}" | docker login ghcr.io -u "${GHCR_PULL_USER}" --password-stdin
+unset GHCR_PAT
+
+cat > /etc/systemd/system/tokenkey.service <<'UNITEOF'
+[Unit]
+Description=tokenkey edge lightsail stack (docker compose)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/var/lib/tokenkey
+EnvironmentFile=/var/lib/tokenkey/.env
+ExecStartPre=/usr/bin/docker compose --env-file /var/lib/tokenkey/.env pull
+ExecStart=/usr/bin/docker compose --env-file /var/lib/tokenkey/.env up -d --remove-orphans
+ExecStop=/usr/bin/docker compose --env-file /var/lib/tokenkey/.env down
+TimeoutStartSec=10min
+
+[Install]
+WantedBy=multi-user.target
+UNITEOF
+
+systemctl daemon-reload
+systemctl enable --now tokenkey.service
+sleep 30
+docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env ps || true
+echo "LIGHTSAIL_BOOTSTRAP_DONE $(date -u +%FT%TZ)"
