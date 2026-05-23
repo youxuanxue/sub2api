@@ -316,6 +316,14 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		line := scanner.Text()
 		refusalDetector.ObserveSSELine(line)
 		if payload, ok := extractOpenAISSEDataLine(line); ok {
+			// TK fix for upstream Wei-Shaw/sub2api#2298: drop empty / whitespace-only
+			// `data:` SSE frames before forwarding. The OpenAI Python SDK crashes
+			// on json.loads("") for the chat completions raw passthrough path the
+			// same way it does for /v1/responses. See openAISSEDataPayloadIsEmpty
+			// for the canonical rationale.
+			if openAISSEDataPayloadIsEmpty(payload) {
+				continue
+			}
 			trimmedPayload := strings.TrimSpace(payload)
 			if trimmedPayload != "[DONE]" {
 				usageOnlyChunk := isOpenAIChatUsageOnlyStreamChunk(payload)
