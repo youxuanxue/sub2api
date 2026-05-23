@@ -127,16 +127,16 @@
     "l1": {
       "baseline": {
         "account": {
-          "concurrency": 1,
-          "priority": 10,
+          "concurrency": 2,
+          "priority": 1,
           "rate_multiplier": 1.0
         },
         "extra": {
-          "base_rpm": 4,
-          "rpm_sticky_buffer": 4,
-          "max_sessions": 3,
+          "base_rpm": 7,
+          "rpm_sticky_buffer": 5,
+          "max_sessions": 30,
           "session_idle_timeout_minutes": 8,
-          "window_cost_limit": 120,
+          "window_cost_limit": 200,
           "window_cost_sticky_reserve": 0,
           "cache_ttl_override_enabled": false
         }
@@ -145,16 +145,16 @@
     "l2": {
       "baseline": {
         "account": {
-          "concurrency": 2,
-          "priority": 20,
+          "concurrency": 4,
+          "priority": 2,
           "rate_multiplier": 1.0
         },
         "extra": {
-          "base_rpm": 6,
-          "rpm_sticky_buffer": 6,
-          "max_sessions": 4,
+          "base_rpm": 14,
+          "rpm_sticky_buffer": 10,
+          "max_sessions": 60,
           "session_idle_timeout_minutes": 8,
-          "window_cost_limit": 220,
+          "window_cost_limit": 200,
           "window_cost_sticky_reserve": 0,
           "cache_ttl_override_enabled": false
         }
@@ -163,16 +163,16 @@
     "l3": {
       "baseline": {
         "account": {
-          "concurrency": 3,
-          "priority": 30,
+          "concurrency": 6,
+          "priority": 3,
           "rate_multiplier": 1.0
         },
         "extra": {
-          "base_rpm": 14,
-          "rpm_sticky_buffer": 11,
-          "max_sessions": 8,
+          "base_rpm": 21,
+          "rpm_sticky_buffer": 15,
+          "max_sessions": 90,
           "session_idle_timeout_minutes": 8,
-          "window_cost_limit": 400,
+          "window_cost_limit": 200,
           "window_cost_sticky_reserve": 0
         }
       }
@@ -181,7 +181,7 @@
       "baseline": {
         "account": {
           "concurrency": 8,
-          "priority": 50,
+          "priority": 4,
           "rate_multiplier": 1.0
         },
         "extra": {
@@ -189,7 +189,7 @@
           "rpm_sticky_buffer": 20,
           "max_sessions": 120,
           "session_idle_timeout_minutes": 8,
-          "window_cost_limit": 800,
+          "window_cost_limit": 200,
           "window_cost_sticky_reserve": 0
         }
       }
@@ -198,7 +198,7 @@
       "baseline": {
         "account": {
           "concurrency": 10,
-          "priority": 50,
+          "priority": 5,
           "rate_multiplier": 1.0
         },
         "extra": {
@@ -206,7 +206,7 @@
           "rpm_sticky_buffer": 20,
           "max_sessions": 150,
           "session_idle_timeout_minutes": 8,
-          "window_cost_limit": 1500,
+          "window_cost_limit": 200,
           "window_cost_sticky_reserve": 0
         }
       }
