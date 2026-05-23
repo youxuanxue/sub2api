@@ -20,6 +20,22 @@ description: >-
 
 环境识别（prod/edge 实例解析、容器名、SSM 执行、UTC+本地双写、小输出优先）与 `tokenkey-online-log-troubleshooting` 完全一致——本 skill 复用它的 §1/§2/§3，不重复；下面只写流量画像特有的部分。
 
+## 确定性基线（机械化 vs 真判断）
+
+按 dev-rules `rules/dev-rules-convention.mdc` §「skill / command 确定性基线」自审。
+
+| 步骤 | 类型 | 承载 |
+|---|---|---|
+| 解析 target（region / instance_id） | 机械 | `deploy/aws/stage0/resolve-edge-target.py` + describe-stacks |
+| SSM base64 投递 + send + poll（probe-caps.sh / probe-traffic-logs.sh / profile-traffic.py 都通过它发） | 机械 | `ops/observability/run-probe.sh` |
+| caps + 不可调度证据 + Redis 快照 + 近 2h 错误聚类 | 机械 | `ops/observability/probe-caps.sh`（输出每行一 JSON，`row_to_json`） |
+| 拉 access log + sticky.scheduler_entry → /tmp/acc.txt / /tmp/sse.txt | 机械 | `ops/observability/probe-traffic-logs.sh` |
+| 逐分钟重建 RPM / sticky / activeSess / conc | 机械 | `ops/observability/profile-traffic.py` |
+| 历史 cost-window 累计（5h gauge 校准） | 机械 | psql `usage_logs` 派生（SKILL §3 末段 SQL） |
+| §0 的 8 个 trap pattern（base_rpm 误判、列号陷阱、镜像账号链式失败、activeSess 上界） | 判断 | prompt（架构 + 历史现场判断） |
+| §4 解读规则（哪个 cap 触顶） | 判断 | prompt（依赖同时段的 503 / 粘性 vs 非粘性现象） |
+| 镜像账号双跳归因（prod cooldown → edge 实因） | 判断 | prompt（必须 edge 同时段画像，单跳不算结论） |
+
 ## 调用参数
 
 ```text
@@ -103,20 +119,24 @@ RPM 三区（代码 `Account.CheckRPMSchedulability` / `isAccountSchedulableForR
 
 字段名嵌在值旁，**物理不可能数错列**——这就是坑 6 的硬约束载体。
 
-调用（远端在 SSM 里跑）：
+调用（远端在 SSM 里跑，全部由 `run-probe.sh` 统一投递）：
 
 ```bash
-# 本地：base64 投递（SSM 唯一稳定方式，见 §3 同款）
-SCRIPT=ops/observability/probe-caps.sh
-B64=$(base64 -i "$SCRIPT" | tr -d '\n')
-CID=$(aws ssm send-command --region "$REGION" --instance-ids "$INSTANCE_ID" \
-  --document-name AWS-RunShellScript \
-  --parameters "commands=[\"echo $B64 | base64 -d > /tmp/probe-caps.sh && PLATFORM=anthropic bash /tmp/probe-caps.sh\"]" \
-  --query Command.CommandId --output text)
-# 轮询 get-command-invocation 取 StandardOutputContent。
+# prod / edge 都走同一个 wrapper；它负责 region/instance 解析 + base64 投递 + send + poll
+bash ops/observability/run-probe.sh \
+  --target prod \
+  --script ops/observability/probe-caps.sh \
+  --env PLATFORM=anthropic \
+  --env ERR_HOURS=2
+
+# edge 同款（planned edge 需 ALLOW_PLANNED=1）
+bash ops/observability/run-probe.sh \
+  --target edge:us1 \
+  --script ops/observability/probe-caps.sh \
+  --env PLATFORM=anthropic
 ```
 
-环境变量（脚本顶部 contract）：`PLATFORM`（默认 `anthropic`）、`ERR_HOURS`（默认 2）、`ERR_LIMIT`（默认 150）。新增字段只在脚本里改一次——不再回头同步 SKILL 文本。
+环境变量（脚本顶部 contract）：`PLATFORM`（默认 `anthropic`）、`ERR_HOURS`（默认 2）、`ERR_LIMIT`（默认 150）。新增字段只在脚本里改一次——不再回头同步 SKILL 文本。**禁止**手写 base64 投递 / send-command 调用：所有漂移点都收敛在 `run-probe.sh` 内。
 
 > **redis-cli stderr 噪声坑（实测）**：容器里设了 `REDISCLI_AUTH`，即使**不带** `-a`，`redis-cli` 仍可能往 **stderr** 刷 `AUTH failed: ERR AUTH <password> called without any password configured`。这是**无害噪声**——`StandardOutputContent` 是正确的；不要因 `StandardErrorContent` 非空就判失败。
 
@@ -152,17 +172,18 @@ min(UTC) | aN  :rpm/sR/conc/ok/bad … | nonStk actSess(g)
 
 末尾每账号一行 `acctN totals reqs=… rpm_max=… conc_max=… statuses={…}`。
 
-**投递方式（实测稳定）**：不要把多行 Python 直接塞进 SSM `--parameters` 的 JSON heredoc——引号会地狱级转义失败、`StandardOutputContent` 常空。固定用 **base64 投递**。
+**投递方式**：与 §1.1 同款——通过 `ops/observability/run-probe.sh` 包了 base64 投递 + 远端拉脚本 + env 注入；**禁止**手写完整的 base64 / send-command 链。
 
-`ACCTS` / `IDLE_MIN` 不让操作者手填——在远端用 psql 派生，再用 env 灌给 Python：
+`ACCTS` / `IDLE_MIN` 在远端按 psql 派生（不让 operator 手填）：
 
 ```bash
 PSQL='docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t'
-export ACCTS=$($PSQL -c "SELECT string_agg(id::text,',' ORDER BY id) FROM accounts WHERE platform='anthropic' AND schedulable AND status='active';")
-# session idle 取 MAX (宁宽勿窄)
-export IDLE_MIN=$($PSQL -c "SELECT COALESCE(MAX(NULLIF(extra->>'session_idle_timeout_minutes','')::int),5) FROM accounts WHERE platform='anthropic' AND schedulable AND status='active';")
+ACCTS=$($PSQL -c "SELECT string_agg(id::text, ',' ORDER BY id) FROM accounts WHERE platform='anthropic' AND schedulable AND status='active';")
+IDLE_MIN=$($PSQL -c "SELECT COALESCE(MAX(NULLIF(extra->>'session_idle_timeout_minutes','')::int), 5) FROM accounts WHERE platform='anthropic' AND schedulable AND status='active';")
 ACCTS=$ACCTS IDLE_MIN=$IDLE_MIN python3 /tmp/profile-traffic.py
 ```
+
+上面这段派生 + 调用是一份**远端**薄壳，由 §1.1 提到的 `run-probe.sh` 投递（脚本作为本机文件传输到远端 `/tmp/`）。如果以后这段薄壳被频繁复用，**应该**抽出为一个独立的 driver 脚本放进 `ops/observability/` 下，届时连同它一起加入 §1.1 的工具表；在那之前不要把这段派生 prose 当作另一份 contract。
 
 env 契约（脚本 docstring 是 ground truth，这里只列要点）：
 

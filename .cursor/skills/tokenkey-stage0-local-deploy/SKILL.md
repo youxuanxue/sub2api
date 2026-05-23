@@ -12,6 +12,20 @@ description: >-
 
 适用于本仓库（TokenKey fork of sub2api）。栈定义见 `deploy/aws/stage0/docker-compose.yml`、`deploy/aws/README.md`；发版与真机 Stage0 路径见 **`tokenkey-stage0-release-rollout`**。根目录 **`CLAUDE.md`** 仍为纪律来源（ARM、`new-api` sibling、pnpm 等）。
 
+## 确定性基线（机械化 vs 真判断）
+
+按 dev-rules `rules/dev-rules-convention.mdc` §「skill / command 确定性基线」自审。
+
+| 步骤 | 类型 | 承载 |
+|---|---|---|
+| 写 .cache 目录 / .env / Caddyfile / docker-compose.override.yml（幂等） | 机械 | `bash deploy/aws/stage0/local-bootstrap.sh [--reset \| --dry-run]` |
+| docker compose config / pull / up -d | 机械 | docker compose 标准命令链（见 §5） |
+| A 经 Caddy 探活 / B 绕开 Caddy / C 完整网关烟测 | 机械 | curl / `ops/stage0/post_deploy_smoke.sh` |
+| 本地代码与上一 tag 变更摘要 | 机械 | `bash scripts/release-rollout-summary.sh --mode local` |
+| 日常复用 vs 清盘判断（`down` vs `--reset`） | 判断 | prompt（保留 DB 数据的爆炸半径） |
+| 故障速查（GHCR 403 / postgres auth fail / exec format error） | 判断 | prompt（诊断分支） |
+| Caddy 8088 端口 / `pull_policy: never` 等本地与真机差异 | 判断 | prompt（设计判断） |
+
 ## 一次性跑完（原则）
 
 - **顺序做完（首次冷启动）**：`export` 路径变量 → §1 目录 → §2 `.env`（含密钥）→ §3 `Caddyfile` → §4 `docker-compose.override.yml` → **`docker compose … config --quiet`** → **`pull`** → **`up -d`** → **`docker compose ps` 等服务 healthy** → **本节「真实测试」A → B →（有网关 key 时再 C）** → 结束或 **§7a `down`**。**日常增量测**：见「日常复用」，往往只需 §5 **`up -d`**，停栈用 §7a，勿默认 `rm -rf`。**不要**在 `up -d` 刚返回就认为成功，须 **`docker compose ps`** 等服务 healthy。
@@ -76,15 +90,31 @@ export TOKENKEY_IMAGE_DEFAULT="ghcr.io/youxuanxue/sub2api:latest"
 - **`.env` 与已有 Postgres 数据必须一致**：`POSTGRES_PASSWORD`（以及库名/用户）在 **首次 init** 时写入数据目录；若你 **重新跑 §2 随机生成新密码** 但 **没有删 `postgres/`**，新 `.env` 与旧库 **不匹配**，Postgres 会认证失败。**想保留数据** → 保留原 `.env`，只改 `TOKENKEY_IMAGE` 等非 PG 字段；**想换一套库** → 走 §7b 删掉 `postgres/`（或整目录）后再 §2。
 - **`AUTO_SETUP`**：库已存在时通常不会重复造管理员；继续用原 **`ADMIN_EMAIL` / `ADMIN_PASSWORD`**（见 §2 当时写入的 `.env`）。
 
-## 1) 准备目录
+## 1) 准备目录 + 2) 生成密钥并写入 `.env` + 3) Caddyfile + 4) override（机械化）
+
+§1-§4 已合并为单条幂等脚本 `deploy/aws/stage0/local-bootstrap.sh`：
 
 ```bash
-export REPO_ROOT="$HOME/Codes/token/tk/sub2api"
-export TOKENKEY_STAGE0_LOCAL_ROOT="$HOME/Codes/token/tk/sub2api/.cache/tokenkey-stage0-local"
-mkdir -p "${TOKENKEY_STAGE0_LOCAL_ROOT}"/{caddy,app,postgres,pgdump,redis}
+# 首次或日常 bootstrap（已存在 .env 会自动保留 —— 防止覆盖 POSTGRES_PASSWORD）
+bash deploy/aws/stage0/local-bootstrap.sh
+
+# 看将要做什么（不写盘）
+bash deploy/aws/stage0/local-bootstrap.sh --dry-run
+
+# 想从「空栈」开始（删 DB / Redis / app 数据 + 重写 .env，等价老 §7b）
+bash deploy/aws/stage0/local-bootstrap.sh --reset
 ```
 
-## 2) 生成秘密并写入 `.env`
+行为契约（脚本顶部 docstring 是 ground truth）：
+
+- **幂等**：`.env` 已存在 ⇒ 不重写（保留 `POSTGRES_PASSWORD` 与已有 DB 数据兼容）；Caddyfile / override 每次重写（无密钥）。
+- **`--reset` 安全栏**：拒绝在 `$HOME` 外执行（需 `--i-know-what-im-doing` 强制）。
+- **不打印任何密钥**：密码只落到 `.env`（chmod 600）。
+- env 入口：`REPO_ROOT` / `TOKENKEY_STAGE0_LOCAL_ROOT` / `TOKENKEY_NEWAPI_PARENT` / `TOKENKEY_IMAGE` 均可显式覆盖。
+
+### 下面 §2-§4 是 prose 形式的旧版步骤，仅作为 `local-bootstrap.sh` 的设计参考；**默认请直接调用脚本，不要逐节复制 bash**。
+
+## 2) 生成秘密并写入 `.env`（已被 §1 脚本替代；保留作脚本作者参考）
 
 **何时跑本节**：**首次建站**或 **§7b 清空数据后**。**若 Postgres 数据目录已存在且要保留账号/业务数据**：**不要**整张覆盖 `.env` 或至少 **勿改 `POSTGRES_*`**（否则见「日常复用」与故障速查「password authentication failed」）。
 
@@ -306,24 +336,14 @@ curl -sS -H 'Content-Type: application/json' \
   "http://127.0.0.1:8088/api/v1/auth/login"
 ```
 
-## 完成后：当前代码与上一 tag 的变更摘要
+## 完成后：当前代码与上一 tag 的变更摘要（机械化）
 
-本地栈验证通过后（A+B，或 A+B+C），运行以下命令，向用户呈现"当前工作区相对上一个正式发版的差异"。目的是在本地测试阶段就识别高风险变更，不要等到发版才发现。
+本地栈验证通过后（A+B，或 A+B+C），调用与 release-rollout / upstream-merge 共享的摘要脚本：
 
 ```bash
-LAST_TAG=$(git tag --sort=-version:refname | grep '^v[0-9]' | head -1)
-BASE="${LAST_TAG:-origin/main}"
-echo "base: ${BASE}  head: $(git rev-parse --short HEAD)"
-
-# 尚未发版的提交（排除 VERSION bump）
-git log "${BASE}..HEAD" --oneline --no-merges \
-  | grep -v 'chore: bump VERSION' | grep -v '\[skip ci\]'
-
-# 变更文件统计
-git diff --stat "${BASE}..HEAD" -- backend/ frontend/src/ | tail -10
-
-# sentinel 文件有无改动
-git diff --name-only "${BASE}..HEAD" -- scripts/ | grep 'sentinels' || true
+bash scripts/release-rollout-summary.sh --mode local
+# 输出 markdown：Range（上个 v* tag → HEAD）/ Commits / Top changed files
+#               / Sentinel changes / Upstream file deletions
 ```
 
 基于输出，向用户呈现（无变更则跳过对应行）：

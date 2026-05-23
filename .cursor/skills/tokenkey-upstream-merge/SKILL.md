@@ -13,6 +13,20 @@ description: >-
 
 适用于 `merge/upstream-*` 分支。权威纪律仍以根目录 `CLAUDE.md` 与 `docs/global/tokenkey-opc-transformation-plan.md` 为准。
 
+## 确定性基线（机械化 vs 真判断）
+
+按 dev-rules `rules/dev-rules-convention.mdc` §「skill / command 确定性基线」自审。本 skill **绝大多数是真判断**（commit 形状、决策清单、red flags 都是架构 / 风险判断），机械化部分主要在「准备」和「完成后摘要」。
+
+| 步骤 | 类型 | 承载 |
+|---|---|---|
+| upstream drift / fetch / merge-tree dry-run | 机械 | `bash scripts/upstream/check-drift.sh` + `git merge-tree upstream/main HEAD` |
+| 生成代码（Ent / Wire / frontend dist） | 机械 | `go generate ./ent` / `go generate ./cmd/server` / `pnpm build` |
+| sentinel 一致性 + upstream-touch marker 强制 | 机械 | `bash scripts/preflight.sh`（含 sentinel registry + upstream-override-marker） |
+| 完成后摘要（upstream brought-in + TK ahead + backend diff stat for PR body §5.y） | 机械 | `bash scripts/release-rollout-summary.sh --mode upstream --fetch` |
+| Commit 形状（Harness / Invariant / OPC 三类） | 判断 | prompt（架构区分） |
+| §3 决策清单 7 项 | 判断 | prompt（每条都需爆炸半径 + 兼容度判断） |
+| §7 Red flags | 判断 + 机械门禁 | prompt + sentinel workflow `upstream-merge-pr-shape.yml` |
+
 ## 0. 流程心智（单入口）
 
 upstream 融合采用单入口自动化：周期任务统一由 `upstream-merge-agent-daily.yml` 驱动；
@@ -128,36 +142,18 @@ PR 前必须完成：
 - Backend stat top files: `<git diff --stat upstream/main..HEAD -- backend/ | head -5>`
 ```
 
-## 6. 完成后：本次 upstream merge 变更摘要
+## 6. 完成后：本次 upstream merge 变更摘要（机械化）
 
-PR 全部检查通过、准备合并（或刚完成合并）后，运行以下命令，然后向用户输出结构化摘要。
+PR 全部检查通过、准备合并（或刚完成合并）后，调用与 release-rollout / local-deploy 共享的摘要脚本（`--mode upstream` 启用 upstream 专属段，含 TK ahead 计数 + backend diff stat 满足 §5.y 审计需求）：
 
 ```bash
-# 先确保 upstream 已 fetch（未 fetch 时 merge-base 会出错）
-git fetch upstream --quiet
-
-# 1. upstream 本次带入了哪些提交
-MERGE_BASE=$(git merge-base HEAD upstream/main)
-echo "upstream 新带入提交："
-git log "${MERGE_BASE}..upstream/main" --oneline --no-merges | head -30
-
-# 2. upstream 触达的文件统计（backend 最关键）
-echo "upstream backend diff stat："
-git diff --stat "${MERGE_BASE}" upstream/main -- backend/ | tail -10
-
-# 3. TK ahead 数量（PR body 审计数据）
-echo "TK ahead commits: $(git log --oneline upstream/main..HEAD | wc -l | tr -d ' ')"
-
-# 4. 本次 PR 中 TK invariant / OPC 提交
-echo "本次 PR TK 提交（非 merge commit）："
-git log --oneline upstream/main..HEAD --no-merges | head -20
-
-# 5. sentinel 文件有无改动
-git diff --name-only upstream/main..HEAD -- scripts/ | grep 'sentinels' || \
-  echo "(no sentinel changes)"
-
-# 6. 是否删除了 upstream backend 文件（风险点）
-git diff --diff-filter=D --name-only upstream/main..HEAD -- backend/ || echo "(no upstream file deletions)"
+bash scripts/release-rollout-summary.sh --mode upstream --fetch
+# 输出 markdown：
+#   Summary / Range (merge_base..HEAD) / Commits
+#   Top changed files / Sentinel changes / Upstream file deletions
+#   Upstream brought in (merge_base..upstream/main)
+#   TK ahead count (PR body §5.y audit cadence)
+#   Backend diff stat vs upstream/main (PR body §5.y)
 ```
 
 基于输出，向用户呈现以下结构：

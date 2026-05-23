@@ -15,6 +15,25 @@ description: >-
 
 适用于本仓库（TokenKey fork of sub2api）。权威纪律见根目录 `CLAUDE.md`（发版、ARM、`new-api` 路径）。
 
+## 确定性基线（机械化 vs 真判断）
+
+按 dev-rules `rules/dev-rules-convention.mdc` §「skill / command 确定性基线」自审。
+
+| 步骤 | 类型 | 承载 |
+|---|---|---|
+| VERSION/tag 三态决策（tag-only / bump-and-tag / skip-bump-skip-tag） | 机械 | `scripts/release-decide-version.sh [--emit-suggested-bump]` |
+| 打 tag（含 skip-ci / VERSION 一致 / 分支 / sync 校验） | 机械 | `scripts/release-tag.sh vX.Y.Z` |
+| 读取 deployable edge 矩阵 | 机械 | `python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable` |
+| dispatch release.yml / deploy-stage0.yml / deploy-edge-stage0.yml + watch | 机械 | `gh workflow run` + `gh run watch --exit-status` |
+| 完整 prod smoke（/v1/models + chat + messages + gemini + openai-oauth 探针） | 机械 | `ops/stage0/post_deploy_smoke.sh`（需要 3 个 smoke key） |
+| Edge smoke 验收（external health / public runner 403 / SSM self-smoke） | 机械 | `ops/stage0/edge_post_deploy_smoke.sh` |
+| rollout 摘要（git log / diff stat / sentinel / deletion） | 机械 | `bash scripts/release-rollout-summary.sh --mode release` |
+| +5min/+10min/+15min Step A 文件分类 → 重点观察变量候选清单 | 机械 | `bash scripts/release-impact-files.sh PREV NEW` |
+| canary 顺序、prod approval 时机、smoke 模型回退 | 判断 | prompt（爆炸半径、用户入口顺序） |
+| verdict 评级（green/yellow/red） | 判断 | prompt（错误聚类 vs 基线、流量趋势） |
+| Step A → 「重点观察 trace 关键词」语义命名 | 判断 | prompt（文件→hook 名映射；脚本只给文件桶） |
+| `simple_release=true` / `[skip ci]` 等 hard rules | 判断 + 机械门禁 | prompt + `scripts/release-tag.sh` / preflight |
+
 ## 调用参数
 
 本 skill 默认按用户语义解析；用户未写完整参数时，先按下面语义补全，仍有歧义再问。
@@ -99,14 +118,23 @@ description: >-
 - GitHub Environment：**`prod`**、各 Edge 的 `edge-<edge_id>`（若有 Required reviewers，需人工批准）。新 edge 可参考已上线 edge 的变量/密钥结构，但 `EDGE_GHCR_PAT_SSM_NAME` 必须使用该 edge 自己的 SSM 路径。
 - **禁止**：VERSION bump / 发版 commit 的正文里出现字面量 `[skip ci]` 或 `[ci skip]`（任意位置都不行）。
 
-## 决策：要不要升 patch 版本
+## 决策：要不要升 patch 版本（机械化）
 
-1. `git fetch origin main --tags && git checkout main && git pull origin main --ff-only`
-2. 读已与 `origin/main` 对齐的 `backend/cmd/server/VERSION`（记为 `V`，无 `v` 前缀）。
-3. 用 `git ls-remote --tags origin "refs/tags/v${V}"` 判断远端是否已有 `v${V}`：
-   - **`v${V}` 尚不存在**：若 `main` 已含正确 `VERSION=V` 且已 push，可直接 `bash scripts/release-tag.sh v${V}`，无需 bump。
-   - **`v${V}` 已存在**，且 `origin/main` 比该 tag 更新：须把 `VERSION` 升到下一 patch，提交并 push，再对新版本执行 `release-tag.sh`。禁止复用已有远端 tag。
-   - **`origin/main` 与 `v${V}` 同一 commit**，仅某目标未部署该镜像：跳过 bump 与打 tag，直接按目标 dispatch deploy。
+`scripts/release-decide-version.sh` 输出 `action=tag-only|bump-and-tag|skip-bump-skip-tag` + `current_version=…` + `current_tag=…` + `reason=…`。模型直接消费这一段，不再现场比对 `git ls-remote` / VERSION 文件。
+
+```bash
+git fetch origin main --tags --quiet
+git checkout main && git pull origin main --ff-only
+bash scripts/release-decide-version.sh --emit-suggested-bump
+```
+
+按 action 路由：
+
+- `action=tag-only` → 直接 `bash scripts/release-tag.sh "$(cut -d= -f2 <<<\"$(grep ^current_tag …)\")"`
+- `action=bump-and-tag` → 把 `backend/cmd/server/VERSION` 改为脚本输出的 `suggested_next_version`，单提交 `chore: bump VERSION to X.Y.Z`（**禁止** `[skip ci]` 字面量）→ push → 再跑 `release-decide-version.sh`，转 `action=tag-only`
+- `action=skip-bump-skip-tag` → 跳过 release，直接走 deploy（同一镜像）
+
+`release-tag.sh` 自身也机械化校验 skip-ci / VERSION 一致 / 分支 / sync —— 不要手 `git tag`。
 
 ## 标准流程：release 新镜像
 
@@ -182,8 +210,12 @@ gh workflow run deploy-edge-stage0.yml \
    - b. 用 `POST_DEPLOY_SMOKE_API_KEY` 跑 `bash ops/stage0/post_deploy_smoke.sh` 一次（或 dispatch `ops-daily-diagnostics operation=diagnostics target_selector=prod diagnostics_log_since=20m`），拿到 anthropic / openai / gemini 账号统计 + 最近错误聚类。
    - c. 显式问运维方：本次每个 deployable Edge 在 prod 端是否预期可调度（main→edge-X 链路）；若**刻意不可调度**（隔离策略），后面对应的 main-via-edge 业务 smoke 必为 503 `"no available accounts"`，请提前在摘要里把它降级为"infra OK, business-link by design"而非 rollback 触发条件。
 1. 完成“标准流程：release 新镜像”，得到 `TARGET_TAG`。
-2. 读取 deployable 矩阵（按 `deploy/aws/stage0/edge-targets.json` 顺序）：
-   `python3 - <<'PY'\nimport json\nfrom pathlib import Path\np=Path('deploy/aws/stage0/edge-targets.json')\nd=json.loads(p.read_text())\nfor k,v in (d.get('targets') or {}).items():\n    if v.get('deployable'): print(k)\nPY`
+2. 读取 deployable 矩阵：
+
+   ```bash
+   python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable
+   # newline 分隔 deployable edge id（按 key 排序）
+   ```
 3. 取矩阵第一个 deployable Edge 作为 canary：dispatch `deploy-edge-stage0.yml operation=upgrade tag=$TARGET_TAG`，watch 到 success。
 4. 检查 canary Edge smoke 结果：external health、public runner relay path block、SSM self-smoke；若失败，停，不推进 prod，除非用户明确 override。
 5. 推进 prod deploy：优先使用 release 自动 queue 的 prod run；没有则手动 dispatch。watch 到 success。
@@ -278,22 +310,17 @@ prod smoke 失败：停，优先 rollback prod；不要继续 Edge rollout。Edg
 
 ### Step A：确定本次发版的「重点观察变量」
 
-跟进不跑固定 metric 集，而是基于本次 `git diff v${PREV}..v${NEW}` 决定要重点盯什么：
+跟进不跑固定 metric 集，而是基于本次 diff 决定要重点盯什么。文件桶分类是机械化（`release-impact-files.sh`），「桶内哪些 hook 名值得 grep」是判断（prompt）。
 
 ```bash
 PREV_TAG=$(git tag --sort=-version:refname | grep '^v[0-9]' | sed -n '2p')
 NEW_TAG=$(git tag --sort=-version:refname | grep '^v[0-9]' | head -1)
 
-git diff --name-only "${PREV_TAG}..${NEW_TAG}" -- \
-  'backend/internal/service/*.go' 'backend/internal/handler/**/*.go' \
-  'backend/internal/repository/*.go' 'backend/cmd/server/*.go' \
-  'backend/internal/config/*.go' 'backend/internal/middleware/*.go' \
-  | grep -v '_test\.go'
-
-git diff --name-only "${PREV_TAG}..${NEW_TAG}" -- 'frontend/src/' 'deploy/aws/stage0/'
+# 输出 JSON：buckets.backend_service / backend_handler / backend_schema / frontend_* / sentinels / ...
+bash scripts/release-impact-files.sh "${PREV_TAG}" "${NEW_TAG}"
 ```
 
-对每条 backend 改动，提取**有可观察 trace 的 hook 名**作为本次的“重点观察变量”，例如：
+JSON 出来后，对每个非空 bucket，**模型**按下表把改动文件映射到「重点观察 trace 关键词」。脚本只给桶（机械），关键词由模型按 hook 命名（判断）：
 
 | 改动类型 | 重点观察的 trace 关键词 |
 |---|---|
@@ -376,21 +403,14 @@ control plane：3/3 ticks green | <or list any failure tick>
 - 中间任意一次 verdict = red → 立刻汇报，停止后续 tick，等人工决定 rollback
 - 3 次窗口结束后会话**不再自动延期**；如需 +1h / +6h / +24h 跟踪由人工显式发起，不要在当前会话里自己延期否则会跨越上下文窗口
 
-## 完成后：rollout 摘要
+## 完成后：rollout 摘要（机械化）
 
-烟测全部完成后，运行以下命令，整理本次 release 变更：
+烟测全部完成后，由 `scripts/release-rollout-summary.sh` 渲染统一摘要（与 local-deploy / upstream-merge 共享同一脚本）：
 
 ```bash
-NEW_TAG=$(git tag --sort=-version:refname | grep '^v[0-9]' | head -1)
-PREV_TAG=$(git tag --sort=-version:refname | grep '^v[0-9]' | sed -n '2p')
-echo "range: ${PREV_TAG} → ${NEW_TAG}"
-
-git log "${PREV_TAG}..${NEW_TAG}" --oneline --no-merges \
-  | grep -v 'chore: bump VERSION' | grep -v '\[skip ci\]'
-
-git diff --stat "${PREV_TAG}..${NEW_TAG}" -- backend/ frontend/src/ | tail -10
-git diff --name-only "${PREV_TAG}..${NEW_TAG}" -- 'scripts/sentinels/*.json' 2>/dev/null || true
-git diff --diff-filter=D --name-only "${PREV_TAG}..${NEW_TAG}" -- backend/ || true
+bash scripts/release-rollout-summary.sh --mode release
+# 输出 markdown：Summary / Range / Commits（过滤 bump VERSION + [skip ci]）
+#               / Top changed files / Sentinel changes / Upstream file deletions
 ```
 
 向用户输出：
