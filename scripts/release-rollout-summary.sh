@@ -75,40 +75,43 @@ if [ "$FETCH" -eq 1 ]; then
   esac
 fi
 
-# Resolve BASE / HEAD per mode (with overrides)
-if [ -n "$BASE_OVERRIDE" ]; then
-  BASE="$BASE_OVERRIDE"
-elif [ "$MODE" = "upstream" ]; then
-  if ! git rev-parse upstream/main >/dev/null 2>&1; then
-    echo "[release-rollout-summary] ERROR: upstream/main not present locally; --fetch first or add upstream remote" >&2
-    exit 1
-  fi
-  BASE=$(git merge-base HEAD upstream/main)
-else
-  # release / local: previous v* tag
-  BASE=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
-  if [ -z "$BASE" ]; then
-    echo "[release-rollout-summary] ERROR: no v* tag found; pass --base explicitly" >&2
-    exit 1
-  fi
-fi
-
-if [ -n "$HEAD_OVERRIDE" ]; then
-  HEAD_REF="$HEAD_OVERRIDE"
-elif [ "$MODE" = "release" ]; then
-  # latest v* tag is the new tag; second-latest is base
-  # If --base override unset, base above already took head=tag(latest). Recompute:
-  if [ -z "$BASE_OVERRIDE" ]; then
-    LATEST=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
-    PREVIOUS=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed -n '2p')
-    HEAD_REF="$LATEST"
-    BASE="${PREVIOUS:-$LATEST}"
-  else
+# Resolve BASE / HEAD per mode. CLI overrides (--base / --head) are applied
+# last so they always win, regardless of which mode was selected.
+case "$MODE" in
+  upstream)
+    if ! git rev-parse upstream/main >/dev/null 2>&1; then
+      echo "[release-rollout-summary] ERROR: upstream/main not present locally; --fetch first or add upstream remote" >&2
+      exit 1
+    fi
+    BASE=$(git merge-base HEAD upstream/main)
     HEAD_REF="HEAD"
-  fi
-else
-  HEAD_REF="HEAD"
-fi
+    ;;
+  release)
+    # release mode wants the diff between the two most recent v* tags
+    # (previous → latest). HEAD points to the just-cut latest tag.
+    TAG_LIST=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)  # preflight-allow: swallow
+    LATEST=$(printf '%s\n' "$TAG_LIST" | head -1)
+    PREVIOUS=$(printf '%s\n' "$TAG_LIST" | sed -n '2p')
+    if [ -z "$LATEST" ]; then
+      echo "[release-rollout-summary] ERROR: no v* tag found; pass --base / --head explicitly" >&2
+      exit 1
+    fi
+    BASE="${PREVIOUS:-$LATEST}"
+    HEAD_REF="$LATEST"
+    ;;
+  local)
+    # local mode: BASE = latest v* tag, HEAD = working tree HEAD.
+    BASE=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)  # preflight-allow: swallow
+    if [ -z "$BASE" ]; then
+      echo "[release-rollout-summary] ERROR: no v* tag found; pass --base explicitly" >&2
+      exit 1
+    fi
+    HEAD_REF="HEAD"
+    ;;
+esac
+
+[ -n "$BASE_OVERRIDE" ] && BASE="$BASE_OVERRIDE"
+[ -n "$HEAD_OVERRIDE" ] && HEAD_REF="$HEAD_OVERRIDE"
 
 BASE_SHA=$(git rev-parse --short=12 "$BASE" 2>/dev/null) || {
   echo "[release-rollout-summary] ERROR: cannot resolve BASE=$BASE" >&2; exit 1; }
@@ -132,16 +135,16 @@ printf -- '- BASE sha: `%s`  HEAD sha: `%s`\n\n' "$BASE_SHA" "$HEAD_SHA"
 
 printf '### Commits\n\n'
 printf '```\n'
-git log "${BASE}..${HEAD_REF}" --oneline --no-merges 2>/dev/null | filter_commits || true
+git log "${BASE}..${HEAD_REF}" --oneline --no-merges 2>/dev/null | filter_commits || true  # preflight-allow: swallow
 printf '```\n\n'
 
 printf '### Top changed files (backend/, frontend/src/)\n\n'
 printf '```\n'
-git diff --stat "${BASE}..${HEAD_REF}" -- backend/ frontend/src/ 2>/dev/null | tail -11 || true
+git diff --stat "${BASE}..${HEAD_REF}" -- backend/ frontend/src/ 2>/dev/null | tail -11 || true  # preflight-allow: swallow
 printf '```\n\n'
 
 printf '### Sentinel changes\n\n'
-SENTINELS=$(git diff --name-only "${BASE}..${HEAD_REF}" -- 'scripts/sentinels/*.json' 2>/dev/null || true)
+SENTINELS=$(git diff --name-only "${BASE}..${HEAD_REF}" -- 'scripts/sentinels/*.json' 2>/dev/null || true)  # preflight-allow: swallow
 if [ -n "$SENTINELS" ]; then
   printf '```\n%s\n```\n\n' "$SENTINELS"
 else
@@ -149,7 +152,7 @@ else
 fi
 
 printf '### Upstream file deletions (backend/)\n\n'
-DELETIONS=$(git diff --diff-filter=D --name-only "${BASE}..${HEAD_REF}" -- backend/ 2>/dev/null || true)
+DELETIONS=$(git diff --diff-filter=D --name-only "${BASE}..${HEAD_REF}" -- backend/ 2>/dev/null || true)  # preflight-allow: swallow
 if [ -n "$DELETIONS" ]; then
   printf '```\n%s\n```\n\n' "$DELETIONS"
 else
@@ -159,7 +162,7 @@ fi
 if [ "$MODE" = "upstream" ]; then
   printf '### Upstream brought in (merge_base..upstream/main)\n\n'
   printf '```\n'
-  git log "${BASE}..upstream/main" --oneline --no-merges 2>/dev/null | head -30 || true
+  git log "${BASE}..upstream/main" --oneline --no-merges 2>/dev/null | head -30 || true  # preflight-allow: swallow
   printf '```\n\n'
 
   TK_AHEAD=$(git log --oneline upstream/main..HEAD 2>/dev/null | wc -l | tr -d ' ')
@@ -168,6 +171,6 @@ if [ "$MODE" = "upstream" ]; then
 
   printf '### Backend diff stat vs upstream/main (PR body §5.y)\n\n'
   printf '```\n'
-  git diff --stat upstream/main..HEAD -- backend/ 2>/dev/null | head -5 || true
+  git diff --stat upstream/main..HEAD -- backend/ 2>/dev/null | head -5 || true  # preflight-allow: swallow
   printf '```\n'
 fi

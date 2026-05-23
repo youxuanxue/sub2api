@@ -137,7 +137,7 @@ if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
   INSTANCE_ID=$(aws cloudformation describe-stack-resources \
     --region "$REGION" --stack-name "$STACK" \
     --query "StackResources[?ResourceType=='AWS::EC2::Instance']|[0].PhysicalResourceId" \
-    --output text 2>/dev/null || true)
+    --output text 2>/dev/null || true)  # preflight-allow: swallow
 fi
 if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
   echo "[run-probe] ERROR: could not resolve InstanceId from stack $STACK" >&2
@@ -187,7 +187,7 @@ echo "[run-probe] command_id=$CMD_ID" >&2
 # Wait without --no-cli-pager flag dependencies; AWS waiter handles polling.
 aws ssm wait command-executed \
   --region "$REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
-  >/dev/null 2>&1 || true
+  >/dev/null 2>&1 || true  # preflight-allow: swallow
 
 STATUS=$(aws ssm get-command-invocation \
   --region "$REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \

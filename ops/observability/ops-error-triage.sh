@@ -29,10 +29,20 @@ STATUS_MIN="${STATUS_MIN:-400}"
 TOP_KIND_LIMIT="${TOP_KIND_LIMIT:-50}"
 TOP_MIN_LIMIT="${TOP_MIN_LIMIT:-30}"
 
-# Sanity: window hours must be positive int
-case "$WINDOW_HOURS" in
-  ''|*[!0-9]*) echo "[ops-error-triage] ERROR: WINDOW_HOURS not positive int" >&2; exit 2 ;;
-esac
+# Sanity: all numeric envs must be positive int (fail-fast: malformed input must
+# not silently inject into the SQL templates below).
+for _name in WINDOW_HOURS STATUS_MIN TOP_KIND_LIMIT TOP_MIN_LIMIT; do
+  _val=$(eval "printf '%s' \"\${$_name}\"")
+  case "$_val" in
+    ''|*[!0-9]*) echo "[ops-error-triage] ERROR: $_name not positive int: '$_val'" >&2; exit 2 ;;
+  esac
+done
+
+# SQL-escape PATH_FILTER / MODEL_FILTER: double every embedded single quote so the
+# string literal we interpolate as '${VAR}' can survive an operator passing a
+# value containing apostrophes (and refuses to "break out" of the quote).
+PATH_FILTER_SQL="${PATH_FILTER//\'/\'\'}"
+MODEL_FILTER_SQL="${MODEL_FILTER//\'/\'\'}"
 
 echo "=== meta ==="
 printf 'window_hours=%s\npath_filter=%s\nmodel_filter=%s\nstatus_min=%s\n' \
@@ -60,8 +70,8 @@ WITH bounds AS (
   SELECT l.*
   FROM ops_error_logs l, bounds b
   WHERE l.created_at >= b.since AND l.created_at < b.until
-    AND ('${PATH_FILTER}'  = '' OR l.request_path     = '${PATH_FILTER}')
-    AND ('${MODEL_FILTER}' = '' OR l.requested_model  = '${MODEL_FILTER}')
+    AND ('${PATH_FILTER_SQL}'  = '' OR l.request_path     = '${PATH_FILTER_SQL}')
+    AND ('${MODEL_FILTER_SQL}' = '' OR l.requested_model  = '${MODEL_FILTER_SQL}')
 )
 SELECT row_to_json(t) FROM (
   SELECT
@@ -83,8 +93,8 @@ WITH bounds AS (
   SELECT l.*
   FROM ops_error_logs l, bounds b
   WHERE l.created_at >= b.since AND l.created_at < b.until
-    AND ('${PATH_FILTER}'  = '' OR l.request_path     = '${PATH_FILTER}')
-    AND ('${MODEL_FILTER}' = '' OR l.requested_model  = '${MODEL_FILTER}')
+    AND ('${PATH_FILTER_SQL}'  = '' OR l.request_path     = '${PATH_FILTER_SQL}')
+    AND ('${MODEL_FILTER_SQL}' = '' OR l.requested_model  = '${MODEL_FILTER_SQL}')
 )
 SELECT row_to_json(t) FROM (
   SELECT status_code, COUNT(*) AS n,
@@ -106,8 +116,8 @@ WITH bounds AS (
   SELECT l.*
   FROM ops_error_logs l, bounds b
   WHERE l.created_at >= b.since AND l.created_at < b.until
-    AND ('${PATH_FILTER}'  = '' OR l.request_path     = '${PATH_FILTER}')
-    AND ('${MODEL_FILTER}' = '' OR l.requested_model  = '${MODEL_FILTER}')
+    AND ('${PATH_FILTER_SQL}'  = '' OR l.request_path     = '${PATH_FILTER_SQL}')
+    AND ('${MODEL_FILTER_SQL}' = '' OR l.requested_model  = '${MODEL_FILTER_SQL}')
 ), events AS (
   SELECT l.id AS log_id, l.created_at, l.status_code,
          e.value AS ev
@@ -142,8 +152,8 @@ WITH bounds AS (
   SELECT l.*
   FROM ops_error_logs l, bounds b
   WHERE l.created_at >= b.since AND l.created_at < b.until
-    AND ('${PATH_FILTER}'  = '' OR l.request_path     = '${PATH_FILTER}')
-    AND ('${MODEL_FILTER}' = '' OR l.requested_model  = '${MODEL_FILTER}')
+    AND ('${PATH_FILTER_SQL}'  = '' OR l.request_path     = '${PATH_FILTER_SQL}')
+    AND ('${MODEL_FILTER_SQL}' = '' OR l.requested_model  = '${MODEL_FILTER_SQL}')
 )
 SELECT row_to_json(t) FROM (
   SELECT

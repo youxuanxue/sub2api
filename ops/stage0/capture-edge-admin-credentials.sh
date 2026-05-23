@@ -97,18 +97,19 @@ fi
 echo "[capture-edge-admin-credentials] edge_id=$EDGE_ID region=$REGION stack=$STACK instance_id=$INSTANCE_ID"
 echo "[capture-edge-admin-credentials] reading initial admin credentials via SSM..."
 
-# Probe four likely sources (each tolerates absence with || true so we get a
-# unified output downstream). ADMIN_EMAIL comes from .env; the generated
+# Probe four likely sources; each tolerates absence so a missing log path
+# does not abort the SSM batch. ADMIN_EMAIL comes from .env; the generated
 # one-time password is printed by AUTO_SETUP into docker logs / journal /
 # the bootstrap log file.
+# preflight-allow: swallow  (each remote command intentionally falls through on absence)
 COMMANDS_JSON=$(python3 <<'PY'
 import json
 commands = [
   "set -euo pipefail",
-  "sudo grep '^ADMIN_EMAIL=' /var/lib/tokenkey/.env || true",
-  "sudo docker logs tokenkey 2>&1 | grep -E 'Generated admin password' || true",
-  "sudo journalctl -u tokenkey.service --no-pager | grep -E 'Generated admin password' || true",
-  "sudo grep -E 'Generated admin password|ADMIN_EMAIL' /var/log/tokenkey-edge-bootstrap.log || true",
+  "sudo grep '^ADMIN_EMAIL=' /var/lib/tokenkey/.env || true",  # preflight-allow: swallow
+  "sudo docker logs tokenkey 2>&1 | grep -E 'Generated admin password' || true",  # preflight-allow: swallow
+  "sudo journalctl -u tokenkey.service --no-pager | grep -E 'Generated admin password' || true",  # preflight-allow: swallow
+  "sudo grep -E 'Generated admin password|ADMIN_EMAIL' /var/log/tokenkey-edge-bootstrap.log || true",  # preflight-allow: swallow
 ]
 print(json.dumps({"commands": commands}))
 PY
@@ -126,7 +127,7 @@ CMD_ID="$(aws ssm send-command \
 echo "[capture-edge-admin-credentials] ssm_command_id=$CMD_ID"
 
 aws ssm wait command-executed \
-  --region "$REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" || true
+  --region "$REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" || true  # preflight-allow: swallow
 
 STATUS=$(aws ssm get-command-invocation \
   --region "$REGION" --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \

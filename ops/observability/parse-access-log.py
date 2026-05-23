@@ -188,8 +188,6 @@ def main() -> int:
         ts = str(obj.get("completed_at") or "")
         # "2026-05-21T01:09:42.123Z" -> "2026-05-21T01:09:00Z" minute bucket
         if ts and len(ts) >= 16:
-            minute = ts[:16] + ":00Z" if not ts[16:].startswith(":00Z") else ts[:19] + "Z"
-            # Normalize to exactly 17+'Z' shape by truncating to minute and re-appending
             minute = ts[:16] + ":00Z"
             minute_status[(minute, sc_int)] += 1
 

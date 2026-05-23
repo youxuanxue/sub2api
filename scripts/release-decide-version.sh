@@ -95,8 +95,8 @@ if [ "$TAG_ON_ORIGIN" = "false" ]; then
   REASON="origin lacks $CURRENT_TAG; VERSION file already at $CURRENT_VERSION on main; run scripts/release-tag.sh"
 else
   # Tag exists. Compare its commit SHA with origin/main.
-  TAG_SHA=$(git -C "$REPO_ROOT" rev-parse "refs/tags/$CURRENT_TAG^{commit}" 2>/dev/null || true)
-  MAIN_SHA=$(git -C "$REPO_ROOT" rev-parse origin/main 2>/dev/null || true)
+  TAG_SHA=$(git -C "$REPO_ROOT" rev-parse "refs/tags/$CURRENT_TAG^{commit}" 2>/dev/null || true)  # preflight-allow: swallow
+  MAIN_SHA=$(git -C "$REPO_ROOT" rev-parse origin/main 2>/dev/null || true)  # preflight-allow: swallow
   if [ -z "$TAG_SHA" ] || [ -z "$MAIN_SHA" ]; then
     echo "[release-decide-version] ERROR: could not resolve tag/main SHAs" >&2
     exit 2
