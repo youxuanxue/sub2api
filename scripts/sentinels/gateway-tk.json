@@ -527,9 +527,9 @@
       "path": "backend/internal/repository/account_repo_integration_test.go",
       "must_contain": [
         "TestPreload_SkipsDisabledProxy",
-        "TestSumConcurrencyAnthropic_FilterByPlatform"
+        "TestSumConcurrencyAnthropic_FilterByPlatformAndSchedulable"
       ],
-      "rationale": "Focused regression for upstream #2159 covering both GetByID and ListWithFilters paths. Dropping this test lets the proxy filter regression sneak back through integration CI. SumConcurrencyAnthropic integration test asserts anthropic-vs-other platform boundary and excludes soft-deleted rows; SUM includes oauth and api-key anthropic rows for operator-user sync."
+      "rationale": "Focused regression for upstream #2159 covering both GetByID and ListWithFilters paths. Dropping this test lets the proxy filter regression sneak back through integration CI. SumConcurrencyAnthropic integration test asserts the anthropic-vs-other platform boundary, excludes soft-deleted rows, and (2026-05-23) excludes schedulable=false rows so the SUM mirrors only schedulable=true anthropic accounts for operator-user sync."
     },
     {
       "path": "backend/internal/repository/user_subscription_repo.go",
