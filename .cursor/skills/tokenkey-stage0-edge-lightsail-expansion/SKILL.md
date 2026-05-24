@@ -98,12 +98,17 @@ aws cloudformation deploy \
   --parameter-overrides GitHubOidcRoleName=tokenkey-gha-us-east-1-error-clustering
 ```
 
-### 1.4 落 GHCR PAT 到 SSM（每个 region 一次）
+### 1.4 GHCR auth（仅在镜像私有时需要）
+
+TokenKey 的 `ghcr.io/<owner>/sub2api` 当前是 **public**，Lightsail bootstrap 走 anonymous pull，**默认不需要 PAT**。workflow input `ghcr_pat_required` 默认 `false`。
+
+仅当镜像未来转私有时，落 PAT 并在 dispatch 时翻位：
 
 ```bash
 aws ssm put-parameter --region "<lightsail_region>" \
   --name "/tokenkey/lightsail/<edge_id>/ghcr/pat" \
   --type SecureString --value 'ghp_…'
+# 然后 provision 时加 -f ghcr_pat_required=true
 ```
 
 ### 1.5 GitHub Environment

@@ -45,6 +45,37 @@ class RenderBootstrapTests(unittest.TestCase):
             "register must not be guarded by || true (R-003).",
         )
 
+    def test_generated_artifact_skips_docker_login_when_pat_empty(self):
+        # Default: GHCR is public → bootstrap must take the anonymous path.
+        content = GENERATED.read_text(encoding="utf-8")
+        self.assertIn(
+            'if [ -n "${GHCR_PAT_SSM_NAME:-}" ]; then',
+            content,
+            "bootstrap must gate docker login on GHCR_PAT_SSM_NAME being non-empty",
+        )
+        self.assertIn(
+            "relying on anonymous pull for public image",
+            content,
+            "bootstrap must log the anonymous-pull branch when PAT is unset",
+        )
+        # The PRIVATE branch must still exist for the case GHCR turns private.
+        self.assertIn(
+            'docker login ghcr.io -u "${GHCR_PULL_USER}" --password-stdin',
+            content,
+            "bootstrap must retain the private-image docker login path",
+        )
+
+    def test_generated_artifact_does_not_require_ghcr_pat_ssm_name(self):
+        # The strict `: "${GHCR_PAT_SSM_NAME:?...}"` guard would break the
+        # anonymous-default invariant by aborting bootstrap when no PAT is
+        # configured. Assert it's gone.
+        content = GENERATED.read_text(encoding="utf-8")
+        self.assertNotIn(
+            '"${GHCR_PAT_SSM_NAME:?',
+            content,
+            "GHCR_PAT_SSM_NAME must not be a required env var (default = anonymous pull)",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

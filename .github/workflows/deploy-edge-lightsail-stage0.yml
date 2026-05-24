@@ -36,6 +36,11 @@ on:
         required: false
         type: boolean
         default: false
+      ghcr_pat_required:
+        description: "provision only: when true, fetch a PAT from /tokenkey/lightsail/<id>/ghcr/pat and docker login ghcr.io. Default false — TokenKey GHCR is public; anonymous pull works. Flip to true if the GHCR image ever becomes private."
+        required: false
+        type: boolean
+        default: false
       simple_release_override:
         description: "Allow single-arch manifest. Default false."
         required: false
@@ -130,10 +135,19 @@ jobs:
             echo "::error::EDGE_MAIN_GATEWAY_ALLOWED_CIDR not set; this MUST mirror the current prod main-gateway egress IP/CIDR (no hard-coded default — see deploy/aws/lightsail/README.md)"
             exit 1
           fi
-          if [ -n "${GHCR_PAT_SSM_NAME_OVERRIDE:-}" ]; then
-            GHCR_PAT_SSM="${GHCR_PAT_SSM_NAME_OVERRIDE}"
+          # GHCR auth: anonymous pull is the default (image is public). Set
+          # ghcr_pat_required=true OR Environment var EDGE_GHCR_PAT_SSM_NAME to
+          # opt back into docker-login-based auth (private-image scenario).
+          GHCR_PAT_SSM=""
+          if [ "${{ inputs.ghcr_pat_required }}" = "true" ] || [ -n "${GHCR_PAT_SSM_NAME_OVERRIDE:-}" ]; then
+            if [ -n "${GHCR_PAT_SSM_NAME_OVERRIDE:-}" ]; then
+              GHCR_PAT_SSM="${GHCR_PAT_SSM_NAME_OVERRIDE}"
+            else
+              GHCR_PAT_SSM="${{ steps.edge.outputs.ssm_prefix }}/ghcr/pat"
+            fi
+            echo "GHCR auth path: docker login via SSM SecureString $GHCR_PAT_SSM"
           else
-            GHCR_PAT_SSM="${{ steps.edge.outputs.ssm_prefix }}/ghcr/pat"
+            echo "GHCR auth path: anonymous (public image; no PAT needed)"
           fi
           if [ "${RECREATE:-false}" = "true" ]; then
             echo "::warning::RECREATE=true — existing instance and Static IP will be DESTROYED"

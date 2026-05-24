@@ -136,12 +136,16 @@ if [[ "$PHASE" == "provision" || "$PHASE" == "cutover" || "$PHASE" == "decommiss
     ok "$ADDON_STACK present in $ADDON_FOUND"
   fi
 
-  # GHCR PAT — required by Lightsail bootstrap to pull the image
+  # GHCR PAT is OPTIONAL: TokenKey's GHCR image is public, so anonymous pull
+  # works. Only check the PAT path when the workflow is configured to require
+  # auth (env var EDGE_GHCR_PAT_SSM_NAME set, or `ghcr_pat_required=true` at
+  # dispatch time). The preflight doesn't know the dispatch input, so we treat
+  # the PAT as a soft "info" check rather than a hard FAIL.
   GHCR_PAT_NAME="${ls_ssm_prefix}/ghcr/pat"
-  if ! aws ssm get-parameter --region "$ls_region" --name "$GHCR_PAT_NAME" --with-decryption >/dev/null 2>&1; then
-    fail "SSM SecureString $GHCR_PAT_NAME missing in $ls_region. One-time setup: aws ssm put-parameter --region $ls_region --name $GHCR_PAT_NAME --type SecureString --value 'ghp_...'"
+  if aws ssm get-parameter --region "$ls_region" --name "$GHCR_PAT_NAME" --with-decryption >/dev/null 2>&1; then
+    ok "GHCR PAT present at $GHCR_PAT_NAME (workflow may use it if ghcr_pat_required=true)"
   else
-    ok "GHCR PAT present at $GHCR_PAT_NAME"
+    echo "  info: no GHCR PAT at $GHCR_PAT_NAME — provision will use anonymous pull (TokenKey GHCR is public). If the image turns private, set EDGE_GHCR_PAT_SSM_NAME or dispatch with ghcr_pat_required=true after writing the PAT to SSM."
   fi
 
   # Lightsail instance must NOT already exist (else exclusivity is illusory)

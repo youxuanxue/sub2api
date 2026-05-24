@@ -56,17 +56,16 @@ aws cloudformation deploy \
   --region us-east-1 \
   --stack-name tokenkey-cicd-lightsail-addon \
   --template-file deploy/aws/cloudformation/cicd-oidc-lightsail-addon.yaml \
-  --parameter-overrides GitHubOidcRoleName=tokenkey-gha-us-east-1-error-clustering
+  --parameter-overrides GitHubOidcRoleName=tokenkey-gha-us-east-1-error-clustering \
+  --capabilities CAPABILITY_IAM
 
-# 2) 该 Lightsail region 一次性 PAT
-aws ssm put-parameter --region <lightsail_region> \
-  --name /tokenkey/lightsail/<edge_id>/ghcr/pat \
-  --type SecureString --value 'ghp_…'
-
-# 3) GitHub Environment edge-<edge_id> 已存在（与 EC2 共用），确认变量齐
+# 2) GitHub Environment edge-<edge_id> 已存在（与 EC2 共用），确认变量齐
 #    EDGE_ACME_EMAIL / EDGE_MAIN_GATEWAY_ALLOWED_CIDR / EDGE_MAIN_GATEWAY_BASE_URL
 #    secret: MAIN_GATEWAY_EDGE_SMOKE_API_KEY
 ```
+
+> **GHCR auth**：TokenKey 的 `ghcr.io/<owner>/sub2api` 当前是 public，anonymous pull 可用，**不需要 PAT**。workflow 默认 `ghcr_pat_required=false`。
+> 仅当镜像未来转 private 时：(a) 跑 `aws ssm put-parameter --region <ls_region> --name /tokenkey/lightsail/<edge_id>/ghcr/pat --type SecureString --value 'ghp_…'`；(b) dispatch provision 时加 `-f ghcr_pat_required=true`（或在 Environment 设 `EDGE_GHCR_PAT_SSM_NAME`）。
 
 可机械验证：
 
