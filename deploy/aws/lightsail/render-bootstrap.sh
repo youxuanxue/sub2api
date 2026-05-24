@@ -39,11 +39,15 @@ echo "LIGHTSAIL_BOOTSTRAP_START $(date -u +%FT%TZ)"
 : "${ACME_EMAIL:?ACME_EMAIL required}"
 : "${MAIN_GATEWAY_ALLOWED_CIDR:?MAIN_GATEWAY_ALLOWED_CIDR required}"
 : "${TOKENKEY_IMAGE:?TOKENKEY_IMAGE required}"
-: "${GHCR_PULL_USER:?GHCR_PULL_USER required}"
-: "${GHCR_PAT_SSM_NAME:?GHCR_PAT_SSM_NAME required}"
 : "${LIGHTSAIL_REGION:?LIGHTSAIL_REGION required}"
 : "${SSM_ACTIVATION_ID:?SSM_ACTIVATION_ID required}"
 : "${SSM_ACTIVATION_CODE:?SSM_ACTIVATION_CODE required}"
+# GHCR auth is OPTIONAL: when GHCR_PAT_SSM_NAME is empty the bootstrap relies
+# on anonymous pull (works for public ghcr.io/* images, which TokenKey
+# currently is). Set GHCR_PAT_SSM_NAME to an SSM SecureString name when the
+# image becomes private.
+: "${GHCR_PAT_SSM_NAME:=}"
+: "${GHCR_PULL_USER:=}"
 
 export ADMIN_EMAIL="${ADMIN_EMAIL:-admin@${API_DOMAIN}}"
 export TZ_VALUE="${TZ_VALUE:-UTC}"
@@ -150,11 +154,20 @@ TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY}
 ENVEOF
 chmod 0600 /var/lib/tokenkey/.env
 
-GHCR_PAT="$(aws --region "${LIGHTSAIL_REGION}" ssm get-parameter \
-  --name "${GHCR_PAT_SSM_NAME}" --with-decryption \
-  --query Parameter.Value --output text)"
-echo "${GHCR_PAT}" | docker login ghcr.io -u "${GHCR_PULL_USER}" --password-stdin
-unset GHCR_PAT
+if [ -n "${GHCR_PAT_SSM_NAME:-}" ]; then
+  # Private-image path: pull the PAT from SSM SecureString and docker login.
+  GHCR_PAT="$(aws --region "${LIGHTSAIL_REGION}" ssm get-parameter \
+    --name "${GHCR_PAT_SSM_NAME}" --with-decryption \
+    --query Parameter.Value --output text)"
+  echo "${GHCR_PAT}" | docker login ghcr.io -u "${GHCR_PULL_USER}" --password-stdin
+  unset GHCR_PAT
+else
+  # Public-image path (default for TokenKey GHCR): no docker login. Anonymous
+  # pull works because ghcr.io/* manifests are accessible via anonymous bearer.
+  # If the image ever turns private, set GHCR_PAT_SSM_NAME on the workflow side
+  # and the docker login branch above engages with no other changes.
+  echo "GHCR_PAT_SSM_NAME unset; relying on anonymous pull for public image ${TOKENKEY_IMAGE}"
+fi
 
 cat > /etc/systemd/system/tokenkey.service <<'UNITEOF'
 [Unit]

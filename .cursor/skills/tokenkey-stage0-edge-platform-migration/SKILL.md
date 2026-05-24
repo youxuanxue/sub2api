@@ -3,15 +3,16 @@ name: tokenkey-stage0-edge-platform-migration
 description: >-
   Migrate a TokenKey Stage0 Edge **from EC2/CFN to AWS Lightsail** on the same
   `<edge_id>`, sharing the DNS domain `api-<id>.tokenkey.dev`. Drives the full
-  sequence: pre-flight (read-only AWS checks), one-time IAM addon + GHCR PAT
-  setup, matrix flip (exclusivity gate enforces single-platform), Lightsail
-  provision + smoke without DNS cut, operator OAuth re-login on the fresh
-  edge DB, DNS cut at Porkbun, post-cut smoke from an independent vantage
-  point, and finally CFN-native decommission of the retired EC2 stack (auto
-  EBS snapshot, optional EIP release). EC2/CFN remains the default Edge path;
-  this skill exists for the one-way EC2→Lightsail migration. The reverse
-  direction (Lightsail→EC2) is intentionally NOT implemented — build at first
-  need rather than ship an unimplemented API; see §7.
+  sequence: pre-flight (read-only AWS checks), one-time IAM addon setup (GHCR
+  PAT only when the image is private — TokenKey GHCR is public by default),
+  matrix flip (exclusivity gate enforces single-platform), Lightsail provision
+  + smoke without DNS cut, operator OAuth re-login on the fresh edge DB, DNS
+  cut at Porkbun, post-cut smoke from an independent vantage point, and finally
+  CFN-native decommission of the retired EC2 stack (auto EBS snapshot, optional
+  EIP release). EC2/CFN remains the default Edge path; this skill exists for
+  the one-way EC2→Lightsail migration. The reverse direction (Lightsail→EC2)
+  is intentionally NOT implemented — build at first need rather than ship an
+  unimplemented API; see §7.
 ---
 
 # TokenKey：Edge 平台迁移全流程（EC2 → Lightsail，单向）
@@ -56,17 +57,16 @@ aws cloudformation deploy \
   --region us-east-1 \
   --stack-name tokenkey-cicd-lightsail-addon \
   --template-file deploy/aws/cloudformation/cicd-oidc-lightsail-addon.yaml \
-  --parameter-overrides GitHubOidcRoleName=tokenkey-gha-us-east-1-error-clustering
+  --parameter-overrides GitHubOidcRoleName=tokenkey-gha-us-east-1-error-clustering \
+  --capabilities CAPABILITY_IAM
 
-# 2) 该 Lightsail region 一次性 PAT
-aws ssm put-parameter --region <lightsail_region> \
-  --name /tokenkey/lightsail/<edge_id>/ghcr/pat \
-  --type SecureString --value 'ghp_…'
-
-# 3) GitHub Environment edge-<edge_id> 已存在（与 EC2 共用），确认变量齐
+# 2) GitHub Environment edge-<edge_id> 已存在（与 EC2 共用），确认变量齐
 #    EDGE_ACME_EMAIL / EDGE_MAIN_GATEWAY_ALLOWED_CIDR / EDGE_MAIN_GATEWAY_BASE_URL
 #    secret: MAIN_GATEWAY_EDGE_SMOKE_API_KEY
 ```
+
+> **GHCR auth**：TokenKey 的 `ghcr.io/<owner>/sub2api` 当前是 public，anonymous pull 可用，**不需要 PAT**。workflow 默认 `ghcr_pat_required=false`。
+> 仅当镜像未来转 private 时：(a) 跑 `aws ssm put-parameter --region <ls_region> --name /tokenkey/lightsail/<edge_id>/ghcr/pat --type SecureString --value 'ghp_…'`；(b) dispatch provision 时加 `-f ghcr_pat_required=true`（或在 Environment 设 `EDGE_GHCR_PAT_SSM_NAME`）。
 
 可机械验证：
 
