@@ -1,5 +1,9 @@
 # Anthropic OAuth Edge 账号稳定性配置对比（线上事实，2026-05-14）
 
+> **TokenKey 现行运维标准（Anthropic OAuth edge，与快照日期无关）**：每条 edge Anthropic OAuth 账号必须在 DB 绑定显式 TLS 模板；canonical **`tls_fingerprint_profiles.name`** 一律为 **`claude_cli_2_1_142_node24_20260515`**（字段体以 `deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json` 的 `shared_baseline.tls_profile` 为唯一真值源；对照副本见 `deploy/aws/stage0/claude_cli_2_1_142_node24_20260515.json`）。`ops/anthropic/manage-anthropic-config.py` 写入面 **(A)** 的 tier apply SQL 会按该名 `ON CONFLICT (name)` upsert 并写 `accounts.extra.tls_fingerprint_profile_id`。
+>
+> **与本文史实的关系**：下文表格与 §5 中出现的 **`claude_cli_nodejs24_fixed`** 是 **2026-05-14 当日** fra1 数据库里 **`tls_fingerprint_profiles.name` 的字面快照**，保留用于对照当时线上事实；运维与新账号回填应以文首 canonical 为准，避免继续手建旧名。
+>
 > 范围：只对比线上 `edge-fra1` 的 `cc-fr-fra-ec2-5-1-a` 与线上 `edge-uk1` 的 `cc-en-ld-ec2-16-1-a`。  
 > 原则：只使用本次从线上 AWS SSM + PostgreSQL + 容器日志读取到的事实；不引用历史文档、后台截图或本地猜测。  
 > 脱敏：OAuth token、refresh token、token_type、内部 token version、邮箱、account/org UUID 在本文中脱敏或局部描述，避免把线上身份与凭据写入仓库。
@@ -23,7 +27,7 @@
 稳定性配置层面：
 
 - 两边都已经是固定区域出口、无代理、Anthropic OAuth、默认分组、`concurrency=3`、`base_rpm=8`、串行用户消息队列、session masking、cache TTL override 到 `1h`。
-- fra1 已显式绑定 TLS profile `claude_cli_nodejs24_fixed`，但绑定发生在账号最后一次成功流量之后，因此尚无线上请求证明“绑定后 profile 被实际用于上游请求”。
+- fra1 已显式绑定 TLS profile **`claude_cli_nodejs24_fixed`**（2026-05-14 DB **字面名**；现行 TokenKey 统一为 **`claude_cli_2_1_142_node24_20260515`**，见文首），但绑定发生在账号最后一次成功流量之后，因此尚无线上请求证明“绑定后 profile 被实际用于上游请求”。
 - uk1 开启了 `enable_tls_fingerprint=true`，但没有显式 `tls_fingerprint_profile_id`，线上 `tls_fingerprint_profiles` 表为空；按当前产品语义这会退回内置默认 profile，但可审计性弱于 fra1。
 - uk1 镜像 `1.7.27` 落后 fra1 的 `1.7.31`，跨 edge 行为对比会混入版本差异。
 
@@ -81,7 +85,7 @@
 | 字段 | fra1 | uk1 | 作用 | 稳定性评价与建议 |
 |---|---:|---:|---|---|
 | `enable_tls_fingerprint` | `true` | `true` | 开启出站 TLS ClientHello 模拟。 | 正确。 |
-| `tls_fingerprint_profile_id` | `1` | 未见 | 绑定显式 TLS 模板。 | fra1 可审计性更好；uk1 建议创建并绑定同名固定 profile。 |
+| `tls_fingerprint_profile_id` | `1` | 未见 | 绑定显式 TLS 模板。 | fra1 可审计性更好；uk1 建议按 **`claude_cli_2_1_142_node24_20260515`**（tier baseline）创建/同步 profile 并绑定（见文首）；勿长期停留在“仅启用、无 profile 行”。 |
 | `base_rpm` | `8` | `8` | 账号基础 RPM 绿区上限。 | 稳定优先下合理。 |
 | `rpm_strategy` | `tiered` | `tiered` | RPM 三段：绿区、sticky-only、红区。 | 正确；比硬切更平滑。 |
 | `rpm_sticky_buffer` | `3` | `3` | 超过 base_rpm 后 sticky 请求缓冲。 | 偏紧；若目标是会话连续性，健康账号可试 `5`。若严格控流，保留 `3`。 |
@@ -103,12 +107,12 @@
 | 项目 | fra1 | uk1 | 稳定性解读 | 建议 |
 |---|---|---|---|---|
 | `enable_tls_fingerprint` | `true` | `true` | 两边都启用 TLS 指纹模拟。 | 正确。 |
-| 显式 `tls_fingerprint_profile_id` | `1` | 无 | fra1 已绑定固定模板；uk1 只启用但无显式模板。 | uk1 应补齐显式模板绑定。 |
-| `tls_fingerprint_profiles` 表 | 1 条：`claude_cli_nodejs24_fixed` | 0 条 | fra1 可审计、可复用；uk1 不可在后台看到具体模板。 | 标准化为显式 profile。 |
-| profile 特征 | Node.js 24.x 风格，`enable_grease=false`，ALPN `http/1.1`，TLS 1.3/1.2，X25519 | 无显式 profile | 固定 ClientHello 有助于减少账号流量形态漂移。 | 健康账号统一使用固定显式模板，不使用随机 profile。 |
+| 显式 `tls_fingerprint_profile_id` | `1` | 无 | fra1 已绑定固定模板；uk1 只启用但无显式模板。 | uk1 应补齐显式模板绑定（canonical：**`claude_cli_2_1_142_node24_20260515`**）。 |
+| `tls_fingerprint_profiles` 表 | 1 条：`claude_cli_nodejs24_fixed`（快照日 DB 字面名） | 0 条 | fra1 当时可审计；uk1 不可在后台看到具体模板。 | 新工作与跨 edge 对齐一律使用 **`claude_cli_2_1_142_node24_20260515`**（文首）；历史名仅存于本条快照语义。 |
+| profile 特征 | Node.js 24.x 风格，`enable_grease=false`，ALPN `http/1.1`，TLS 1.3/1.2，X25519 | 无显式 profile | 固定 ClientHello 有助于减少账号流量形态漂移。 | 健康账号一律绑定 **`claude_cli_2_1_142_node24_20260515`**（文首）；不使用随机或仅内置默认且无 DB 模板。 |
 | 线上转发日志 | 最后成功流量仍显示 `Built-in Default (Node.js 24.x)`，发生在绑定显式 profile 之前 | 未捕获到目标账号最近转发日志 | fra1 显式绑定后账号已 error，尚无 post-bind 流量证据。 | 需要健康账号产生请求后再验证日志。 |
 
-fra1 当前 profile 线上事实：
+fra1 **2026-05-14 采样** profile 线上事实（`name` 为当时 DB 字面；现行标准名为文首 **`claude_cli_2_1_142_node24_20260515`**）：
 
 ```text
 id = 1
@@ -173,7 +177,7 @@ created_at = 2026-05-14 01:57:37 UTC
 | `proxy_id` | `NULL` | edge 本身就是出口，减少代理变量。 |
 | `concurrency` | `3` | 当前两边一致，稳定优先。 |
 | `enable_tls_fingerprint` | `true` | 开启 TLS ClientHello 模拟。 |
-| `tls_fingerprint_profile_id` | 显式绑定固定 Node.js/Claude CLI profile | 可审计、可复用，避免“仅启用但看不到模板”。 |
+| `tls_fingerprint_profile_id` | 显式绑定 **`tls_fingerprint_profiles.name = claude_cli_2_1_142_node24_20260515`** | 与 tier baseline / 运维 skill 对齐；可审计、跨 edge 一致；避免「仅启用、无模板行」。 |
 | `user_msg_queue_mode` | `serialize` | 降低同一用户并发乱序和突刺。 |
 | `session_id_masking_enabled` | `true` | 降低 `metadata.user_id` session 部分频繁变化。 |
 | `cache_ttl_override_enabled` | `true` | 统一 cache token TTL 行为。 |
@@ -198,7 +202,7 @@ created_at = 2026-05-14 01:57:37 UTC
 
 | 事实 | 风险 | 建议 |
 |---|---|---|
-| uk1 `enable_tls_fingerprint=true` 但 `tls_fingerprint_profiles` 表为空，且账号无 `tls_fingerprint_profile_id` | 只能依赖内置默认；后台不可审计，不利于跨 edge 对齐。 | 在 uk1 创建与 fra1 同名同值 profile，并绑定新健康账号。旧 disabled 账号不建议继续修。 |
+| uk1 `enable_tls_fingerprint=true` 但 `tls_fingerprint_profiles` 表为空，且账号无 `tls_fingerprint_profile_id` | 只能依赖内置默认；后台不可审计，不利于跨 edge 对齐。 | 在 uk1 通过 tier baseline **`claude_cli_2_1_142_node24_20260515`** upsert profile 并绑定新健康账号（`manage-anthropic-config` 写入面 **(A)** 或等价流程）。旧 disabled 账号不建议继续修。 |
 
 ### P2：清理不要继承的历史状态
 
@@ -213,7 +217,7 @@ created_at = 2026-05-14 01:57:37 UTC
 1. 不再将这两个 `Organization disabled` 账号作为稳定性优化对象。
 2. 先把 uk1 升级到与 fra1 相同的线上版本，减少变量。
 3. 为每个 edge 新建健康 Anthropic OAuth 账号。
-4. 套用同一套稳定性基线：固定 edge、无代理、显式 TLS profile、serialize 队列、session masking、1h cache TTL、保守 RPM/session/window 限制。
+4. 套用同一套稳定性基线：固定 edge、无代理、显式 TLS profile（**`claude_cli_2_1_142_node24_20260515`**）、serialize 队列、session masking、1h cache TTL、保守 RPM/session/window 限制。
 5. 小流量 smoke：先 Haiku/Sonnet，再 Opus；观察 400/401/403/429/529 分类。
 6. 只有在账号 `status=active` 且产生新请求后，才验证 TLS profile 是否在转发日志中实际生效。
 
