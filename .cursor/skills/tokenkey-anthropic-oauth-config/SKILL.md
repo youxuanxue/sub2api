@@ -75,13 +75,15 @@ description: >-
 
 ### Anthropic OAuth：TLS fingerprint 模板（跨 edge 对齐）
 
-**仓库结论**（线上事实与分析见 [`docs/accounts/anthropic-oauth-edge-account-stability-2026-05-14.md`](docs/accounts/anthropic-oauth-edge-account-stability-2026-05-14.md)）：uk1 曾出现 `extra.enable_tls_fingerprint=true`，但 **`tls_fingerprint_profile_id` 未绑定**，且 **`tls_fingerprint_profiles` 表为空**——按当前产品语义会退回**内置默认** ClientHello；后台不可审计具体模板，**跨 edge 难对齐**，可运维性差（与仅「开了开关」但无 DB 模板记录的模式等价）。
+现行约定见 [`docs/accounts/anthropic-oauth-edge-guidelines.md`](docs/accounts/anthropic-oauth-edge-guidelines.md)。
 
-**标准要求**：每一条 **Anthropic、`type=oauth` 的边缘账号**，TLS ClientHello 必须绑定**显式** DB profile；**canonical 模板名固定为**：`claude_cli_2_1_142_node24_20260515`。完整字段集合以 **`deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json`** 的 `shared_baseline.tls_profile` 为单一真值源（与 **`deploy/aws/stage0/claude_cli_2_1_142_node24_20260515.json`** 对齐，可作对照/运维参考）。
+**反模式**：`enable_tls_fingerprint=true` 但 **`tls_fingerprint_profiles` 无对应模板行／账号无可靠 `tls_fingerprint_profile_id` 绑定** → 运行时会退回**内置默认** ClientHello，后台无法在模板表中点名在用参数；**不要用** **`tls_fingerprint_profile_id=-1`** 随机指纹跑生产 OAuth（库里每多一条模板，随机抽到其中一条的不确定性就上升）。
 
-**与本流水线的关系**：写入面 **(A)** 的 apply SQL（`check-edge-oauth-stability.py` / orchestrator 复用的 `generate_sql`）会 **`INSERT ... ON CONFLICT (name)`** upsert 上述 profile，再把 `accounts.extra.tls_fingerprint_profile_id` 设为对应行的 `id`；`snapshot → check → verify` 路径会把 live 侧的 `tls_profile.*` JSON 与 baseline **`tls_profile`** 块逐项比对。禁止长期处于「启用 TLS 指纹但无 profile 行 / 无 `tls_fingerprint_profile_id`」——与 uk 历史问题同型。
+**标准要求**：每一条 **Anthropic、`type=oauth` 的边缘账号**，必须绑定 **`tls_fingerprint_profiles.name = claude_cli_2_1_142_node24_20260515`**；字段体以 **`deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json`** 的 `shared_baseline.tls_profile` 为单一真值源（对照：`deploy/aws/stage0/claude_cli_2_1_142_node24_20260515.json`）。
 
-**admin UI**：新建或编辑 OAuth 账号时，`enable_tls_fingerprint` 与模板选择须与 canonical 名称一致；若库里尚无该模板行，先通过 **(A) apply**（或等价 SQL）写入 profile，再绑定账号。
+**与本流水线的关系**：写入面 **(A)**（`generate_sql`）会 **`ON CONFLICT (name)` upsert** canonical profile，并把 `accounts.extra.tls_fingerprint_profile_id` 写成对应行 **`id`**；`check` / `verify` 比对 live `tls_profile.*` vs baseline **`tls_profile`** 块。**弃用手建并排模板**：**已废止名** **`claude_cli_nodejs24_fixed`** 不得再绑定新账号；库中无主账号绑定其 id 时，须在 Admin 「TLS 指纹模板」删除该行。**删前**须确认无主账号 **`extra.tls_fingerprint_profile_id`** 仍指向该 id，否则运行时查找不到行→退回内置默认（silent 漂移）。
+
+**admin UI**：`enable_tls_fingerprint` + 下拉选 canonical 名一致；尚无模板行时先跑一次 **(A) apply**，再绑定账号。
 
 ## 1. 5 阶段流水线
 
@@ -360,7 +362,7 @@ operate 流程：
 - `backend/internal/service/account.go` `Account.IsPoolMode()`（pool_mode 的运行时语义：apikey/bedrock 前置 + credentials.pool_mode 解析）
 - `backend/internal/service/ratelimit_service.go` `handleAnthropicUpstreamError`（pool_mode 账号在 anthropic 平台上跳过 3/3 短窗阈值的代码路径）
 - `ops/anthropic/check-edge-oauth-stability.py`（`generate_sql`：`tls_profile` upsert + `extra.tls_fingerprint_profile_id` 绑定）
-- `docs/accounts/anthropic-oauth-edge-account-stability-2026-05-14.md`（uk 仅启用 TLS 无显式 profile / 空 `tls_fingerprint_profiles` 的结论与背景）
+- `docs/accounts/anthropic-oauth-edge-guidelines.md`（OAuth edge TLS + tier 现行约定短文）
 - `deploy/aws/stage0/claude_cli_2_1_142_node24_20260515.json`（canonical TLS profile JSON，与 tier baseline `shared_baseline.tls_profile` 对齐）
 - `deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json`（tier baseline 唯一真值源；apply SQL 运行时从它派生，无静态 SQL 模板）
 - `deploy/aws/stage0/anthropic-stub-pool-baselines.json`（stub pool 策略唯一真值源；apply SQL 运行时从它派生，无静态 SQL 模板）
