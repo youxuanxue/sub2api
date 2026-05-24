@@ -10,7 +10,7 @@
   ],
   "targets": {
     "uk1": {
-      "deployable": false,
+      "deployable": true,
       "profile": "edge-lightsail-minimal",
       "lightsail_region": "eu-west-2",
       "ec2_equivalent_region": "eu-west-2",
@@ -22,7 +22,7 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/uk1",
-      "purpose": "uk-egress-lightsail-poc-planned (EC2 owns uk1 today; flip deployable=true only after taking EC2 uk1 deployable=false to avoid DNS collision)"
+      "purpose": "uk-egress-lightsail (Phase 1 of EC2→Lightsail migration; EC2 uk1 deployable=false on deploy/aws/stage0/edge-targets.json; exclusivity gate enforces single-platform)"
     },
     "us1": {
       "deployable": false,
