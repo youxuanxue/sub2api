@@ -81,6 +81,15 @@ Resources:
               - ssm:CreateActivation
               - ssm:DeleteActivation
               - ssm:DescribeActivations
+              # AddTagsToResource / RemoveTagsFromResource / ListTagsForResource
+              # are required because `aws ssm create-activation --tags ...` does
+              # an inline AddTagsToResource call on the activation (and AWS's
+              # reverse-mapping reports the IAM role as the resource). Without
+              # these, create-activation fails with AccessDeniedException on
+              # ssm:AddTagsToResource even though the rest is permitted.
+              - ssm:AddTagsToResource
+              - ssm:RemoveTagsFromResource
+              - ssm:ListTagsForResource
             Resource: "*"
           - Sid: PassSsmHybridRoleToActivation
             # create-activation embeds the IAM role into the activation; AWS

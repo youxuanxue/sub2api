@@ -792,6 +792,22 @@ elif ! python3 ./scripts/checks/cfn-template-version.py; then
     errors=$((errors + 1))
 fi
 
+# ---- sub2api: Lightsail OIDC perm coverage -----------------------------------
+# Discover-by-failure on AWS implicit permission contracts is the OPC
+# anti-pattern that PRs #397/#398/#399 each fixed in isolation. This gate
+# text-checks the addon + base OIDC policies against the action list the
+# Lightsail edge workflow actually issues. Any drift (workflow gains a new
+# `aws <service> <command>` call without a matching policy update) fails
+# preflight before a workflow dispatch can hit AccessDenied at runtime.
+echo ""
+echo "=== sub2api: Lightsail OIDC perm coverage ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for OIDC perm coverage check)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/lightsail-oidc-perm-coverage.py --quiet; then
+    errors=$((errors + 1))
+fi
+
 # ---- sub2api: edge platform exclusivity -------------------------------------
 # EC2 Edge and Lightsail Edge intentionally share the same <edge_id> namespace,
 # the same GitHub Environment edge-<id>, and the same DNS domain
