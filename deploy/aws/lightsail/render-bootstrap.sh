@@ -213,7 +213,7 @@ if [[ "$mode" == "check" ]]; then
     echo "  Run: bash deploy/aws/lightsail/render-bootstrap.sh && git add ${OUT}" >&2
     if command -v diff >/dev/null 2>&1; then
       echo "  Diff (first 40 lines):" >&2
-      diff -u "$OUT" "${OUT}.tmp" | head -40 >&2 || true
+      diff -u "$OUT" "${OUT}.tmp" | head -40 >&2 || true  # preflight-allow: swallow — defensive SIGPIPE on head -40
     fi
     rm -f "${OUT}.tmp"
     exit 1
