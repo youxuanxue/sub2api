@@ -16,6 +16,11 @@ if [[ -z "${INSTANCE_ID}" ]]; then
   exit 1
 fi
 
+ssm_region_args=()
+if [[ -n "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" ]]; then
+  ssm_region_args=(--region "${AWS_REGION:-${AWS_DEFAULT_REGION}}")
+fi
+
 mkdir -p "${OUTPUT_DIR}"
 params_file="${OUTPUT_DIR}/ssm-params.json"
 stdout_file="${OUTPUT_DIR}/stdout.txt"
@@ -41,8 +46,8 @@ jq -n --arg tag "${TAG}" '{
   ]
 }' > "${params_file}"
 
-cmd_id="$(aws ssm send-command \
-  --instance-ids "${INSTANCE_ID}" \
+cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
+  --targets "Key=InstanceIds,Values=${INSTANCE_ID}" \
   --document-name AWS-RunShellScript \
   --comment "${COMMENT} tag=${TAG}" \
   --parameters "file://${params_file}" \
@@ -56,7 +61,7 @@ fi
 deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
 status="InProgress"
 while true; do
-  status="$(aws ssm get-command-invocation \
+  status="$(aws "${ssm_region_args[@]}" ssm get-command-invocation \
     --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
     --query 'Status' --output text 2>/dev/null || echo InProgress)"
   case "${status}" in
@@ -70,10 +75,10 @@ while true; do
   sleep 5
 done
 
-aws ssm get-command-invocation \
+aws "${ssm_region_args[@]}" ssm get-command-invocation \
   --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
   --query 'StandardOutputContent' --output text > "${stdout_file}"
-aws ssm get-command-invocation \
+aws "${ssm_region_args[@]}" ssm get-command-invocation \
   --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
   --query 'StandardErrorContent' --output text > "${stderr_file}"
 

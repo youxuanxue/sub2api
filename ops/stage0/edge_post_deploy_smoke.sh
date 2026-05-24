@@ -94,9 +94,10 @@ else
 fi
 
 jq -n --argjson commands "$(printf '%s\n' "${ssm_commands[@]}" | jq -R . | jq -s .)" '{commands:$commands}' > "${tmpdir}/edge-ssm.json"
+# Hybrid Lightsail nodes (mi-*): --instance-ids alone can yield StatusDetails=Undeliverable.
 cmd_id="$(aws ssm send-command \
   --region "${AWS_CLI_REGION}" \
-  --instance-ids "${EDGE_INSTANCE_ID}" \
+  --targets "Key=InstanceIds,Values=${EDGE_INSTANCE_ID}" \
   --document-name AWS-RunShellScript \
   --comment "edge-self-smoke edge=${EDGE_ID}" \
   --parameters "file://${tmpdir}/edge-ssm.json" \
@@ -163,7 +164,7 @@ log_cmd="sudo docker logs tokenkey-caddy --since 5m 2>&1 | tail -200 || true; su
 jq -n --arg cmd "${log_cmd}" '{commands:["set -euo pipefail", $cmd]}' > "${tmpdir}/edge-log-ssm.json"
 log_cmd_id="$(aws ssm send-command \
   --region "${AWS_CLI_REGION}" \
-  --instance-ids "${EDGE_INSTANCE_ID}" \
+  --targets "Key=InstanceIds,Values=${EDGE_INSTANCE_ID}" \
   --document-name AWS-RunShellScript \
   --comment "edge-log-confirm edge=${EDGE_ID}" \
   --parameters "file://${tmpdir}/edge-log-ssm.json" \
