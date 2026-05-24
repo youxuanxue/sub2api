@@ -195,6 +195,7 @@ jobs:
         if: inputs.operation == 'upgrade' || inputs.operation == 'rollback'
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.managed_instance_id }}
+          EDGE_ID: ${{ inputs.edge_id }}
           STAGE0_SSM_OUTPUT_DIR: .
         run: bash ops/stage0/deploy_via_ssm.sh "$INPUT_TAG" "$INSTANCE_ID" "deploy-edge-lightsail edge=$INPUT_EDGE_ID op=$INPUT_OPERATION"
 

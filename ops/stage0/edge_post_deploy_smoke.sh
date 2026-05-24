@@ -43,6 +43,39 @@ command -v aws >/dev/null 2>&1 || { echo "tk_edge_post_deploy_smoke: aws CLI not
 command -v jq >/dev/null 2>&1 || { echo "tk_edge_post_deploy_smoke: jq not on PATH" >&2; exit 1; }
 command -v curl >/dev/null 2>&1 || { echo "tk_edge_post_deploy_smoke: curl not on PATH" >&2; exit 1; }
 
+AWS_CLI_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
+if [[ -z "${AWS_CLI_REGION}" ]]; then
+  echo "tk_edge_post_deploy_smoke: AWS_REGION or AWS_DEFAULT_REGION is required for SSM" >&2
+  exit 1
+fi
+
+# After tag-targeted send-command, list-command-invocations supplies the mi-* for
+# get-command-invocation (required per managed node).
+resolve_primary_ssm_invocation_instance() {
+  local cmd_id="$1"
+  local cutoff=$(( $(date +%s) + 180 ))
+  while [[ $(date +%s) -lt "${cutoff}" ]]; do
+    local json n
+    json="$(aws ssm list-command-invocations \
+      --region "${AWS_CLI_REGION}" \
+      --command-id "${cmd_id}" \
+      --output json 2>/dev/null || echo '{"CommandInvocations":[]}')"
+    n="$(echo "${json}" | jq '.CommandInvocations | length')"
+    if [[ "${n}" -ge 1 ]]; then
+      if [[ "${n}" -ne 1 ]]; then
+        echo "tk_edge_post_deploy_smoke: expected exactly one SSM invocation for command=${cmd_id}, got ${n}" >&2
+        echo "${json}" | jq '.' >&2
+        exit 1
+      fi
+      echo "${json}" | jq -r '.CommandInvocations[0].InstanceId'
+      return 0
+    fi
+    sleep 3
+  done
+  echo "tk_edge_post_deploy_smoke: timed out resolving invocation for command=${cmd_id}" >&2
+  exit 1
+}
+
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "${tmpdir}"' EXIT
 
@@ -65,10 +98,13 @@ if [[ "${blocked_code}" != "403" ]]; then
   exit 1
 fi
 
+# Match deploy_via_ssm.sh: always run compose from workspace dir so plugin + env interpolation match operator playbooks.
 ssm_commands=(
   "set -euo pipefail"
-  "sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env ps"
-  "sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env exec -T tokenkey wget -qO- http://localhost:8080/health"
+  "cd /var/lib/tokenkey"
+  "sudo docker compose version"
+  "sudo docker compose -f docker-compose.yml --env-file .env ps"
+  "sudo docker compose -f docker-compose.yml --env-file .env exec -T tokenkey wget -qO- http://localhost:8080/health"
 )
 
 if [[ "${EDGE_SELF_SMOKE_MODE}" == "api" ]]; then
@@ -77,27 +113,44 @@ if [[ "${EDGE_SELF_SMOKE_MODE}" == "api" ]]; then
     exit 1
   fi
   ssm_commands+=(
-    "EDGE_KEY=\$(aws ssm get-parameter --name '${EDGE_SSM_PREFIX}/smoke/api-key' --with-decryption --query Parameter.Value --output text)"
-    "sudo docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env exec -T -e TOKENKEY_BASE_URL=http://localhost:8080 -e POST_DEPLOY_SMOKE_SKIP_FRONTEND=1 -e POST_DEPLOY_SMOKE_CHAT_MODEL=\"${POST_DEPLOY_SMOKE_CHAT_MODEL}\" -e POST_DEPLOY_SMOKE_API_KEY=\"\$EDGE_KEY\" tokenkey bash /app/ops/stage0/post_deploy_smoke.sh"
+    "EDGE_KEY=\$(aws ssm get-parameter --region \"${AWS_CLI_REGION}\" --name '${EDGE_SSM_PREFIX}/smoke/api-key' --with-decryption --query Parameter.Value --output text)"
+    "sudo docker compose -f docker-compose.yml --env-file .env exec -T -e TOKENKEY_BASE_URL=http://localhost:8080 -e POST_DEPLOY_SMOKE_SKIP_FRONTEND=1 -e POST_DEPLOY_SMOKE_CHAT_MODEL=\"${POST_DEPLOY_SMOKE_CHAT_MODEL}\" -e POST_DEPLOY_SMOKE_API_KEY=\"\$EDGE_KEY\" tokenkey bash /app/ops/stage0/post_deploy_smoke.sh"
   )
 else
   echo "tk_edge_post_deploy_smoke: edge API self-smoke skipped (set EDGE_SELF_SMOKE_MODE=api after Edge upstream/key setup)"
 fi
 
 jq -n --argjson commands "$(printf '%s\n' "${ssm_commands[@]}" | jq -R . | jq -s .)" '{commands:$commands}' > "${tmpdir}/edge-ssm.json"
+# Lightsail Hybrid (mi-*): target by activation-derived tags EdgeId + Platform so
+# we hit the live registration (Parameter Store mi-* alone can mismatch / undeliver).
+eff_instance_id="${EDGE_INSTANCE_ID}"
+declare -a send_targets_extra=()
+if [[ "${EDGE_INSTANCE_ID}" == mi-* ]]; then
+  send_targets_extra=(--targets "Key=tag:EdgeId,Values=${EDGE_ID}" "Key=tag:Platform,Values=lightsail")
+else
+  send_targets_extra=(--instance-ids "${EDGE_INSTANCE_ID}")
+fi
 cmd_id="$(aws ssm send-command \
-  --instance-ids "${EDGE_INSTANCE_ID}" \
+  --region "${AWS_CLI_REGION}" \
+  "${send_targets_extra[@]}" \
   --document-name AWS-RunShellScript \
   --comment "edge-self-smoke edge=${EDGE_ID}" \
   --parameters "file://${tmpdir}/edge-ssm.json" \
   --query 'Command.CommandId' --output text)"
+if [[ "${EDGE_INSTANCE_ID}" == mi-* ]]; then
+  eff_instance_id="$(resolve_primary_ssm_invocation_instance "${cmd_id}")"
+  if [[ "${eff_instance_id}" != "${EDGE_INSTANCE_ID}" ]]; then
+    echo "::warning::live SSM invocation instance ${eff_instance_id} != EDGE_INSTANCE_ID ${EDGE_INSTANCE_ID} (check /ssm_managed_instance_id Parameter Store)"
+  fi
+fi
 echo "tk_edge_post_deploy_smoke: edge self-smoke ssm command-id=${cmd_id}"
 
 deadline=$(( $(date +%s) + 180 ))
 status="InProgress"
 while true; do
   status="$(aws ssm get-command-invocation \
-    --command-id "${cmd_id}" --instance-id "${EDGE_INSTANCE_ID}" \
+    --region "${AWS_CLI_REGION}" \
+    --command-id "${cmd_id}" --instance-id "${eff_instance_id}" \
     --query 'Status' --output text 2>/dev/null || echo InProgress)"
   case "${status}" in
     Success|Failed|TimedOut|Cancelled) break ;;
@@ -109,11 +162,19 @@ while true; do
   sleep 5
 done
 aws ssm get-command-invocation \
-  --command-id "${cmd_id}" --instance-id "${EDGE_INSTANCE_ID}" \
+  --region "${AWS_CLI_REGION}" \
+  --command-id "${cmd_id}" --instance-id "${eff_instance_id}" \
   --query 'StandardOutputContent' --output text > "${tmpdir}/edge-stdout.txt"
 aws ssm get-command-invocation \
-  --command-id "${cmd_id}" --instance-id "${EDGE_INSTANCE_ID}" \
+  --region "${AWS_CLI_REGION}" \
+  --command-id "${cmd_id}" --instance-id "${eff_instance_id}" \
   --query 'StandardErrorContent' --output text > "${tmpdir}/edge-stderr.txt"
+invoke_details="$(aws ssm get-command-invocation \
+  --region "${AWS_CLI_REGION}" \
+  --command-id "${cmd_id}" --instance-id "${eff_instance_id}" \
+  --output json 2>/dev/null || echo '{}')"
+echo '--- edge self-smoke invocation (Status / ResponseCode / StatusDetails) ---'
+echo "${invoke_details}" | jq '{Status, ResponseCode, StatusDetails, ExecutionElapsedTime}'
 echo '--- edge self-smoke stdout (last 4KB) ---'
 tail -c 4096 "${tmpdir}/edge-stdout.txt"
 echo
@@ -142,16 +203,28 @@ bash ops/stage0/post_deploy_smoke.sh
 
 log_cmd="sudo docker logs tokenkey-caddy --since 5m 2>&1 | tail -200 || true; sudo docker logs tokenkey --since 5m 2>&1 | tail -200 || true; echo smoke_start_epoch=${start_epoch}"
 jq -n --arg cmd "${log_cmd}" '{commands:["set -euo pipefail", $cmd]}' > "${tmpdir}/edge-log-ssm.json"
+declare -a log_targets_extra=()
+log_eff_instance="${EDGE_INSTANCE_ID}"
+if [[ "${EDGE_INSTANCE_ID}" == mi-* ]]; then
+  log_targets_extra=(--targets "Key=tag:EdgeId,Values=${EDGE_ID}" "Key=tag:Platform,Values=lightsail")
+else
+  log_targets_extra=(--instance-ids "${EDGE_INSTANCE_ID}")
+fi
 log_cmd_id="$(aws ssm send-command \
-  --instance-ids "${EDGE_INSTANCE_ID}" \
+  --region "${AWS_CLI_REGION}" \
+  "${log_targets_extra[@]}" \
   --document-name AWS-RunShellScript \
   --comment "edge-log-confirm edge=${EDGE_ID}" \
   --parameters "file://${tmpdir}/edge-log-ssm.json" \
   --query 'Command.CommandId' --output text)"
+if [[ "${EDGE_INSTANCE_ID}" == mi-* ]]; then
+  log_eff_instance="$(resolve_primary_ssm_invocation_instance "${log_cmd_id}")"
+fi
 echo "tk_edge_post_deploy_smoke: edge log confirmation command-id=${log_cmd_id}"
 sleep 5
 aws ssm get-command-invocation \
-  --command-id "${log_cmd_id}" --instance-id "${EDGE_INSTANCE_ID}" \
+  --region "${AWS_CLI_REGION}" \
+  --command-id "${log_cmd_id}" --instance-id "${log_eff_instance}" \
   --query 'StandardOutputContent' --output text > "${tmpdir}/edge-logs.txt" || true
 if grep -E '(/v1/messages|/v1/chat/completions|/v1/models)' "${tmpdir}/edge-logs.txt" >/dev/null; then
   echo "tk_edge_post_deploy_smoke: confirmed recent Edge API traffic in ${EDGE_ID} logs"
