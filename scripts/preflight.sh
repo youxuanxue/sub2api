@@ -776,6 +776,22 @@ else
     fi
 fi
 
+# ---- sub2api: CloudFormation template version --------------------------------
+# AWS only accepts a single literal value for AWSTemplateFormatVersion. A typo
+# (e.g. 2010-10-09 vs the canonical 2010-09-09) parses as valid YAML, passes
+# local lint, but surfaces only at `aws cloudformation deploy / validate-template`
+# time with a misleading "is not a supported value" error. Real incident:
+# cicd-oidc-lightsail-addon.yaml shipped with 2010-10-09 in PR #380 and bypassed
+# two review rounds; the typo only blocked the actual migration setup days later.
+echo ""
+echo "=== sub2api: CloudFormation template version ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for CFN template version check)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/cfn-template-version.py; then
+    errors=$((errors + 1))
+fi
+
 # ---- sub2api: edge platform exclusivity -------------------------------------
 # EC2 Edge and Lightsail Edge intentionally share the same <edge_id> namespace,
 # the same GitHub Environment edge-<id>, and the same DNS domain

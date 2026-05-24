@@ -1,4 +1,4 @@
-AWSTemplateFormatVersion: "2010-10-09"
+AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
   Optional addon for TokenKey Edge Lightsail automation. Attaches an inline policy
   to the existing GitHub Actions OIDC role (from cicd-oidc.yaml) granting
