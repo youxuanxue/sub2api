@@ -77,6 +77,35 @@ gh workflow run deploy-edge-lightsail-stage0.yml \
   -f confirm_instance=tokenkey-edge-uk1-ls
 ```
 
+### 冒烟 / 本机 curl 对域名长期 `HTTP 000` 或 TCP 超时
+
+Lightsail **实例控制台「Networking」防火墙**必须与 EC2 Security Group 一样放行 **TCP 80、443**
+（Let’s Encrypt HTTP-01 与 HTTPS）。仅靠正确 DNS（A → Static IP）不够；若只开了 SSH，`curl https://api-…/health` 会与 GitHub runner 一致：约 130s 级连接超时。
+
+- 自检：`aws lightsail get-instance-port-states --region <region> --instance-name <instance_name>`
+- 一次性修复（与 provision 脚本行为一致）：  
+  `aws lightsail open-instance-public-ports --region <region> --instance-name <instance_name> --port-info fromPort=80,toPort=80,protocol=tcp,cidrs=0.0.0.0/0`  
+  再对 **443** 重复一条。
+- IaC：`provision-edge.sh` 会在 attach Static IP 后尝试打开 **80 / 443**；CI OIDC role 需在
+  `cicd-oidc-lightsail-addon.yaml` 中包含 `lightsail:OpenInstancePublicPorts`（与 `GetInstancePortStates`）。
+
+### Admin 登录 / 忘记密码
+
+- 抓首次启动生成的一次性口令（落盘 `~/Codes/keys/tokenkey-<edge_id>-admin-password.txt`）：  
+  `bash ops/stage0/capture-edge-admin-credentials.sh <edge_id>`（`auto` 会对 `deployable=true` 的 Lightsail edge 走 tag-SSM）。
+- 重置随机密码（同上 keys 文件）：  
+  `bash ops/stage0/reset-edge-admin-password.sh <edge_id>` 或 `--platform lightsail <edge_id>`。
+
+### 其它运维脚本（与 EC2 Edge 对齐）
+
+Lightsail Edge 启用后，沿用同一 **`edge_routing_matrix`/`edge_ssm_execution` 路由**：
+
+- **`python3 ops/stage0/edge_ssm_execution.py --repo-root . --edge-id uk1 [--format env|json]`**  
+  输出 SSM **`REGION`** + **`INSTANCE_ID`**（`mi-*` 来自 Parameter Store；EC2 为 `i-*`）。与 **`ops/stage0/edge_admin_resolve_target.py` auto** 规则一致。
+- **`ops/observability/run-probe.sh --target edge:<id>`**（默认 `ALLOW_PLANNED` 未设置）走上述脚本；若要探 **planned 仅 EC2 矩阵条目**，仍可设 **`ALLOW_PLANNED=1`** 走 **`resolve-edge-target.py` + CFN**。
+- **`ops/anthropic/manage-anthropic-config.py`**、**`rebalance-anthropic-priority.py`**、`snapshot`/`apply`/`check` **与 `check-edge-oauth-stability.py`**：**snapshot** / **护栏**在多矩阵下按 Lightsail **`deployable=true` 优先**解析实例（与 **`edge_routing_matrix.py`** 一致）。
+- **`python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable`**：列出 **EC2 ∪ Lightsail 有效 deployable** 的 edge id（可选 **`--lightsail-matrix`**）。
+
 ## 升级 / 回滚
 
 ```bash
@@ -122,7 +151,11 @@ PREFLIGHT_BASE=origin/main bash scripts/preflight.sh
 矩阵基线：**EC2 `uk1.deployable=false`**（`deploy/aws/stage0/edge-targets.json`），**Lightsail `uk1.deployable=true`**（本目录 `edge-targets-lightsail.json`）。
 同名域名只能由一个平台对外服务；两边的 `deployable` 同时为 `true` 会被 **`scripts/checks/edge-platform-exclusivity.py`** 拦下。
 
-**Porkbun（prod，`api-uk1.tokenkey.dev`）：** A 记录保持 **`16.61.87.51`** — 记录在 `edge-targets-lightsail.json` → `targets.uk1.porkbun_a_ipv4`，作为人工 DNS **唯一真值**。若它与 `aws lightsail get-static-ip` 读到的 Attach 不一致，先修 AWS 对齐再改 Porkbun，不得在未协调前提下漂移该 IP。
+**Porkbun（prod，`api-uk1.tokenkey.dev`）：** A 记录必须等于 Lightsail Static IP（`aws lightsail get-static-ip --static-ip-name tokenkey-edge-uk1-ls-ip` 的 `ipAddress`）。当前矩阵记在 `edge-targets-lightsail.json` → **`targets.uk1.porkbun_a_ipv4`**（**`18.135.59.111`**），作为人工 DNS **唯一真值**。
+
+**不能与 EC2 EIP 混用：** 旧 EC2 Edge 的 Elastic IP（例如历史 **`16.61.87.51` / `eipalloc-03b2653ddd57b9c93`**）**无法挂到 Lightsail 实例**。若 Porkbun 仍指向已游离的 EC2 EIP，公网会超时。迁到 Lightsail 后必须把 A 记录改到 **Lightsail Static IP**；不再需要的老 EIP 可通过 `release-address` 回收。
+
+核对顺序：先以 **`aws lightsail get-static-ip`** 为真，再改 Porkbun 与本仓库 `porkbun_a_ipv4`，不得在未核对前提下漂移。
 
 端到端实操（provision、旁路校验、DNS 核对、Anthropic OAuth 重建、Smoke、可选拆 EC2 栈）：**`.cursor/skills/tokenkey-stage0-edge-platform-migration/SKILL.md`**（等价副本在 `.claude/skills/…`）。
 Lightsail **首次**拉起实例用 `deploy-edge-lightsail-stage0.yml` **`operation=provision`**；镜像 tag 轮转用 **`upgrade` / `rollback`**。

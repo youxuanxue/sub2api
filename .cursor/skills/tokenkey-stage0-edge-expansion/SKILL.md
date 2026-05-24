@@ -177,12 +177,15 @@ gh run watch <run-id> --exit-status
 bash ops/stage0/capture-edge-admin-credentials.sh edge-<edge_id>
 # 或省略前缀：
 bash ops/stage0/capture-edge-admin-credentials.sh <edge_id>
+# 若 auto 选错路径，可强制：
+bash ops/stage0/capture-edge-admin-credentials.sh --platform lightsail uk1
+bash ops/stage0/capture-edge-admin-credentials.sh --platform ec2 fra1
 ```
 
-行为契约（脚本顶部 docstring 是 ground truth）：
+行为契约（脚本顶部说明为 ground truth）：
 
-- 自动解析 `region` / `stack` / `instance_id`（同 `reset-edge-admin-password.sh` 的解析链）。
-- 通过 SSM 探四个源（`/var/lib/tokenkey/.env` 的 `ADMIN_EMAIL`、`docker logs`、`journalctl`、`/var/log/tokenkey-edge-bootstrap.log` 的 `Generated admin password`）。
+- **路由**：`edge_admin_resolve_target.py` 读 **`deploy/aws/lightsail/edge-targets-lightsail.json`**（`deployable=true` + `lightsail_region`）与 **`deploy/aws/stage0/edge-targets.json`**。`platform=auto`（默认）时：**Lightsail 矩阵里该 edge `deployable=true` → 按 `EdgeId` + `Platform=lightsail` 走 tag-SSM（Hybrid `mi-*`）；否则走 EC2 CFN `InstanceId`**。可用 `--platform ec2|lightsail` 覆盖。
+- 通过 SSM 探源：`/var/lib/tokenkey/.env` 的 `ADMIN_EMAIL`、`docker logs`、`journalctl`、`/var/log/tokenkey-edge-bootstrap.log`、**`/var/log/tokenkey-lightsail-bootstrap.log`**。
 - 落到 `$HOME/Codes/keys/tokenkey-<edge_id>-admin-password.txt`（chmod 600）。
 - **从不打印密码** —— 只输出状态 + `CREDENTIAL_FILE` 路径。
 - Exit codes：`0` 抓到；`3` 日志已过期未找到（提示改跑 `reset-edge-admin-password.sh`）；`1`/`2` 用法/SSM 错。
@@ -193,6 +196,8 @@ bash ops/stage0/capture-edge-admin-credentials.sh <edge_id>
 
 ```bash
 bash ops/stage0/reset-edge-admin-password.sh edge-<edge_id>
+# Lightsail uk1 等对 auto 已为 lightsail；若只剩 EC2 stub 栈可强制：
+bash ops/stage0/reset-edge-admin-password.sh --platform lightsail uk1
 ```
 
 登录后立即改为长期密码。
@@ -301,13 +306,15 @@ bash scripts/preflight.sh
 
 ```bash
 bash ops/stage0/reset-edge-admin-password.sh edge-fra1
-# 或
 bash ops/stage0/reset-edge-admin-password.sh fra1
+# Lightsail：`auto`（默认）对 `edge-targets-lightsail.json` 中 deployable=true 的 edge 走 tag-SSM
+bash ops/stage0/reset-edge-admin-password.sh uk1
+bash ops/stage0/reset-edge-admin-password.sh --platform lightsail uk1
 ```
 
 行为：
-- 自动从 `deploy/aws/stage0/edge-targets.json` 解析 `region/stack`
-- 自动从 stack 输出解析 `InstanceId`
+- **`auto`（默认）**：若 Lightsail 矩阵中该 `edge_id` 为 `deployable=true`，则 `region=lightsail_region` + SSM tag `EdgeId` / `Platform=lightsail`；否则从 `edge-targets.json` 读 `region/stack` + CFN `InstanceId`。
+- 可用 `--platform ec2` / `--platform lightsail` 强制路径。
 - 通过 SSM 在实例上读取 `ADMIN_EMAIL`
 - 随机生成新密码并重置 admin（bcrypt/pgcrypto）
 - 保存 `email=...` / `password=...` 到 `$HOME/Codes/keys/tokenkey-<edge_id>-admin-password.txt`

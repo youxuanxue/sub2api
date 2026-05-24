@@ -131,8 +131,8 @@ bash ops/migration/edge-platform-migration-preflight.sh <edge_id> --phase=cutove
 
 按用户回答 ②（fresh-DB 起步），新 Lightsail 实例上的 Postgres 是空的，需要重新创建 Anthropic OAuth 账号：
 
-1. **手工 Porkbun**：`api-<edge_id>.tokenkey.dev` A 记录必须指向 **Lightsail Static IP**（与 `aws lightsail get-static-ip --static-ip-name tokenkey-edge-<edge_id>-ls-ip` 一致）。
-   **`edge_id=uk1`：** 运维固定 **`16.61.87.51`** — 记在 `deploy/aws/lightsail/edge-targets-lightsail.json` → `targets.uk1.porkbun_a_ipv4`；Lightsail attach 与该地址不一致时，先修 AWS，**不得以「人工保留旧 Porkbun」绕过**（否则会仍在打 EC2 EIP）。
+1. **手工 Porkbun**：`api-<edge_id>.tokenkey.dev` A 记录必须指向 **Lightsail Static IP**（与 `aws lightsail get-static-ip --static-ip-name tokenkey-edge-<edge_id>-ls-ip` 的 `ipAddress` 一致；**不能与 EC2 Elastic IP 互换**）。
+   **`edge_id=uk1`：** 记在 `deploy/aws/lightsail/edge-targets-lightsail.json` → `targets.uk1.porkbun_a_ipv4`，与 **`get-static-ip`** 的输出一致。**旧 EC2 的 EIP（例如 `16.61.87.51`）不能绑到 Lightsail**；仍以旧 A 记录指 EIP 会一直超时。漂移时以 AWS CLI 读到为准更新 Porkbun + 矩阵。
    等 TTL 收敛（常见约一分钟）。
 2. **独立观察点 smoke**（避开本地 DNS 缓存）：
    ```bash

@@ -46,7 +46,7 @@ class CaptureEdgeAdminCredentialsTest(unittest.TestCase):
             capture_output=True, text=True, check=False,
         )
         self.assertEqual(proc.returncode, 1)
-        self.assertIn("edge id must match", proc.stderr)
+        self.assertIn("invalid edge id", proc.stderr)
 
 
 if __name__ == "__main__":

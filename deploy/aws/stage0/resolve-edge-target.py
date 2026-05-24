@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import pathlib
 import sys
@@ -9,6 +10,16 @@ import sys
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 DEFAULT_MATRIX = REPO_ROOT / "deploy/aws/stage0/edge-targets.json"
 LIGHTSAIL_MATRIX = REPO_ROOT / "deploy/aws/lightsail/edge-targets-lightsail.json"
+
+_ROUT_SPEC = importlib.util.spec_from_file_location(
+    "deploy_edge_routing_matrix",
+    REPO_ROOT / "ops/stage0/edge_routing_matrix.py",
+)
+if _ROUT_SPEC is None or _ROUT_SPEC.loader is None:
+    raise RuntimeError("cannot load ops/stage0/edge_routing_matrix.py")
+_EDGE_ROUTING = importlib.util.module_from_spec(_ROUT_SPEC)
+sys.modules.setdefault(_ROUT_SPEC.name, _EDGE_ROUTING)
+_ROUT_SPEC.loader.exec_module(_EDGE_ROUTING)
 
 
 def fail(message: str) -> None:
@@ -226,10 +237,18 @@ def main() -> int:
     parser.add_argument("--prod-region", default="us-east-1")
     parser.add_argument("--prod-stack", default="tokenkey-prod-stage0")
     parser.add_argument(
+        "--lightsail-matrix",
+        default=str(LIGHTSAIL_MATRIX),
+        help=(
+            "Lightsail edges JSON (defaults to shipped deploy/aws/lightsail path). "
+            "Used only with --list-deployable for EC2∪Lightsail effective deployability."
+        ),
+    )
+    parser.add_argument(
         "--list-deployable",
         action="store_true",
         help=(
-            "Print one deployable edge id per line (deployable=true in the matrix). "
+            "Print one edge id per line that is effectively deployable (EC2 or Lightsail matrices). "
             "Mutually exclusive with --edge-id / --prod-ops-matrix. "
             "Stable output for shell consumers in skills/scripts; "
             "exits 0 even when no edges are deployable (prints nothing)."
@@ -242,10 +261,15 @@ def main() -> int:
     if args.list_deployable:
         if args.edge_id or args.prod_ops_matrix:
             fail("--list-deployable is mutually exclusive with --edge-id / --prod-ops-matrix")
-        targets = data.get("targets") or {}
-        for edge_id in sorted(targets):
-            if bool(targets[edge_id].get("deployable")):
-                print(edge_id)
+        ls_path = pathlib.Path(args.lightsail_matrix)
+        ls_targets_raw: dict = {}
+        if ls_path.is_file():
+            payload = json.loads(ls_path.read_text(encoding="utf-8"))
+            raw = payload.get("targets") or {}
+            ls_targets_raw = raw if isinstance(raw, dict) else {}
+        ids = _EDGE_ROUTING.iter_effective_deployable_edge_ids(data, ls_targets_raw)
+        for edge_id in ids:
+            print(edge_id)
         return 0
 
     if args.prod_ops_matrix:

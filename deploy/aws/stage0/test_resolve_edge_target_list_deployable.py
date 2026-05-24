@@ -19,10 +19,27 @@ def _run_with_matrix(matrix: dict, *args: str) -> subprocess.CompletedProcess:
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
         json.dump(matrix, fh)
         path = fh.name
-    return subprocess.run(
-        [sys.executable, str(_SCRIPT), "--matrix", path, *args],
-        capture_output=True, text=True, check=False,
-    )
+    with tempfile.NamedTemporaryFile("w", suffix="-ls.json", delete=False) as ls_fh:
+        json.dump({"targets": {}}, ls_fh)
+        ls_path = ls_fh.name
+    try:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(_SCRIPT),
+                "--lightsail-matrix",
+                ls_path,
+                "--matrix",
+                path,
+                *args,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    finally:
+        pathlib.Path(path).unlink(missing_ok=True)
+        pathlib.Path(ls_path).unlink(missing_ok=True)
 
 
 class ListDeployableTest(unittest.TestCase):

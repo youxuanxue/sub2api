@@ -62,6 +62,7 @@ from __future__ import annotations
 import argparse
 import base64
 import datetime as _dt
+import importlib.util
 import json
 import os
 import pathlib
@@ -80,6 +81,26 @@ CONFIRM_CODE = "yes-rebalance-anthropic-priority"
 
 PLAN_VERSION = 1
 SNAPSHOT_VERSION = 1
+
+_EDGE_SSM_SPEC = importlib.util.spec_from_file_location(
+    "tk_edge_ssm_execution_reb",
+    REPO_ROOT / "ops/stage0/edge_ssm_execution.py",
+)
+if _EDGE_SSM_SPEC is None or _EDGE_SSM_SPEC.loader is None:
+    raise RuntimeError("cannot load ops/stage0/edge_ssm_execution.py")
+_EDGE_SSM = importlib.util.module_from_spec(_EDGE_SSM_SPEC)
+sys.modules.setdefault(_EDGE_SSM_SPEC.name, _EDGE_SSM)
+_EDGE_SSM_SPEC.loader.exec_module(_EDGE_SSM)
+
+_EDGE_ROUT_SPEC = importlib.util.spec_from_file_location(
+    "tk_edge_routing_matrix_reb",
+    REPO_ROOT / "ops/stage0/edge_routing_matrix.py",
+)
+if _EDGE_ROUT_SPEC is None or _EDGE_ROUT_SPEC.loader is None:
+    raise RuntimeError("cannot load ops/stage0/edge_routing_matrix.py")
+_EDGE_ROUTING = importlib.util.module_from_spec(_EDGE_ROUT_SPEC)
+sys.modules.setdefault(_EDGE_ROUT_SPEC.name, _EDGE_ROUTING)
+_EDGE_ROUT_SPEC.loader.exec_module(_EDGE_ROUTING)
 
 # Tier band geometry: tier base priorities are consecutive integers
 # (l1=1 .. l5=5) in anthropic-oauth-stability-baselines-tiered.json.
@@ -133,10 +154,8 @@ def load_json_file(path: pathlib.Path, what: str) -> Any:
 
 
 # --------------------------------------------------------------------------
-# AWS / SSM plumbing  (shape mirrors manage-anthropic-config.py so an
-# operator who knows one knows the other; intentionally NOT a shared
-# library — these two orchestrators stay decoupled per OPC principle of
-# minimum shared mutable surface)
+# AWS / SSM helpers mirror manage-anthropic-config.py; edge routing + MI
+# resolution reuse ops/stage0/edge_* so Lightsail edges stay coherent.
 # --------------------------------------------------------------------------
 
 def resolve_instance_id(region: str, stack: str) -> str:
@@ -316,33 +335,53 @@ WHERE a.platform = 'anthropic'
 
 def cmd_snapshot(args: argparse.Namespace) -> int:
     edge_matrix = load_json_file(EDGE_MATRIX, "edge matrix")
-    edge_targets = edge_matrix.get("targets") or {}
+    ls_targets = _EDGE_ROUTING.load_lightsail_targets(REPO_ROOT)
+    ec2_targets = edge_matrix.get("targets") or {}
 
     edges: dict[str, dict] = {}
-    for eid, tgt in edge_targets.items():
-        if not tgt.get("deployable") and not args.allow_planned:
+
+    merged = _EDGE_ROUTING.merged_edge_ids(edge_matrix, ls_targets)
+    for eid in merged:
+        ec2_t = ec2_targets.get(eid)
+        ls_t = ls_targets.get(eid)
+        deploy = _EDGE_ROUTING.edge_effective_deployable(ec2_t, ls_t)
+
+        if not deploy and not args.allow_planned:
             edges[eid] = {
                 "deployable": False,
                 "skipped_reason": f"edge {eid} is planned; pass --allow-planned to include",
-                "region": tgt.get("region"), "stack": tgt.get("stack"),
+                "region": (ec2_t or {}).get("region") or (ls_t or {}).get("lightsail_region"),
+                "stack": (ec2_t or {}).get("stack") or "",
+            }
+            continue
+        if not deploy and args.allow_planned:
+            edges[eid] = {
+                "deployable": False,
+                "skipped_reason": f"edge {eid} is planned (--allow-planned)",
+                "region": (ec2_t or {}).get("region") or (ls_t or {}).get("lightsail_region"),
+                "stack": (ec2_t or {}).get("stack") or "",
             }
             continue
         try:
-            inst = resolve_instance_id(tgt["region"], tgt["stack"])
+            ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, eid)
         except SystemExit:
-            edges[eid] = {"error": f"could not resolve instance for edge {eid}"}
+            edges[eid] = {"error": f"could not resolve SSM instance for edge {eid}"}
             continue
-        print(f"snapshot: edge {eid} instance={inst}", file=sys.stderr)
+        print(
+            f"snapshot: edge {eid} instance={ident.instance_id} routing={ident.routing}",
+            file=sys.stderr,
+        )
         accts_raw, _ = ssm_run_sql(
-            tgt["region"], inst, EDGE_ACCOUNTS_SQL,
+            ident.region, ident.instance_id, EDGE_ACCOUNTS_SQL,
             f"snapshot: edge {eid} oauth accounts + utilization",
         )
         edges[eid] = {
             "deployable": True,
-            "instance_id": inst,
-            "region": tgt["region"],
-            "stack": tgt["stack"],
-            "domain": tgt.get("domain"),
+            "instance_id": ident.instance_id,
+            "region": ident.region,
+            "stack": ident.ec2_stack or (ec2_t or {}).get("stack") or "",
+            "domain": ident.domain,
+            "ssm_routing": ident.routing,
             "oauth_accounts": json.loads(accts_raw) if accts_raw else [],
         }
 
@@ -714,11 +753,9 @@ def render_apply_sql(account_name: str, new_priority: int) -> str:
     return header + body
 
 
-def _resolve_edge_target(edge_id: str, edge_matrix: dict) -> tuple[str, str, str]:
-    e = (edge_matrix.get("targets") or {}).get(edge_id)
-    if not e:
-        fail(f"edge {edge_id!r} not in edge-targets.json")
-    return e["region"], resolve_instance_id(e["region"], e["stack"]), f"edge:{edge_id}"
+def _resolve_edge_target(edge_id: str) -> tuple[str, str, str]:
+    ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, edge_id)
+    return ident.region, ident.instance_id, f"edge:{edge_id}"
 
 
 def cmd_apply(args: argparse.Namespace) -> int:
@@ -733,8 +770,6 @@ def cmd_apply(args: argparse.Namespace) -> int:
             f"--confirm mismatch.\n  Got:      {args.confirm!r}\n  Required: {CONFIRM_CODE!r}",
             code=2,
         )
-
-    edge_matrix = load_json_file(EDGE_MATRIX, "edge matrix")
 
     job_dir = pathlib.Path(args.job_dir) if args.job_dir else pathlib.Path(
         f"/tmp/anthropic-priority-apply-"
@@ -763,7 +798,7 @@ def cmd_apply(args: argparse.Namespace) -> int:
         sql = render_apply_sql(account_name, new_priority)
         sql_path.write_text(sql)
 
-        region, instance_id, target_label = _resolve_edge_target(edge_id, edge_matrix)
+        region, instance_id, target_label = _resolve_edge_target(edge_id)
         sql_b64 = base64.b64encode(sql.encode("utf-8")).decode("ascii")
         print(
             f"apply: step{step:02d} account_priority → {target_label} "
@@ -914,7 +949,7 @@ def main() -> int:
     )
     sp.add_argument("--out", help="write snapshot JSON (otherwise stdout)")
     sp.add_argument("--allow-planned", action="store_true",
-                    help="include planned edges (per edge-targets.json)")
+                    help="include planned edges from merged EC2 + Lightsail matrix keys")
     sp.set_defaults(handler=cmd_snapshot)
 
     sp = sub.add_parser(
@@ -947,7 +982,8 @@ def main() -> int:
     )
     sp.add_argument("--plan", required=True)
     sp.add_argument("--snapshot-out", help="path to write the fresh snapshot used for verify")
-    sp.add_argument("--allow-planned", action="store_true")
+    sp.add_argument("--allow-planned", action="store_true",
+                    help="re-snapshot using merged-matrix planned-edge inclusion rule")
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(handler=cmd_verify)
 

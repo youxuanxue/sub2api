@@ -18,8 +18,10 @@ SQL):
                       ``prod_concurrency_mirror`` (one prod tx)
 
 Topology (which edges exist, and which prod stub maps to which edge) is read
-ONLY from ``deploy/aws/stage0/edge-targets.json`` (each edge's ``domain`` field
-is the authoritative prod-stub↔edge link) and the pinned ``PROD_TARGET`` —
+from ``deploy/aws/stage0/edge-targets.json`` (each edge's ``domain`` field
+is the authoritative prod-stub↔edge link) plus ``deploy/aws/lightsail/edge-targets-lightsail.json``
+when an edge is live on Lightsail (auto route: LS ``deployable=true`` wins per
+``ops/stage0/edge_routing_matrix.py``). Prod is pinned separately as ``PROD_TARGET`` —
 never re-inferred from account names or ad-hoc slug parsing.
 
 Stages
@@ -133,6 +135,26 @@ def _load_guard_module():
 
 
 _GUARD = _load_guard_module()
+
+EDGE_SSM_SPEC = importlib.util.spec_from_file_location(
+    "tk_edge_ssm_execution",
+    REPO_ROOT / "ops/stage0/edge_ssm_execution.py",
+)
+if EDGE_SSM_SPEC is None or EDGE_SSM_SPEC.loader is None:
+    raise RuntimeError("cannot load ops/stage0/edge_ssm_execution.py")
+_EDGE_SSM = importlib.util.module_from_spec(EDGE_SSM_SPEC)
+sys.modules.setdefault(EDGE_SSM_SPEC.name, _EDGE_SSM)
+EDGE_SSM_SPEC.loader.exec_module(_EDGE_SSM)
+
+ROUTING_SPEC = importlib.util.spec_from_file_location(
+    "tk_edge_routing_matrix",
+    REPO_ROOT / "ops/stage0/edge_routing_matrix.py",
+)
+if ROUTING_SPEC is None or ROUTING_SPEC.loader is None:
+    raise RuntimeError("cannot load ops/stage0/edge_routing_matrix.py")
+_EDGE_ROUTING = importlib.util.module_from_spec(ROUTING_SPEC)
+sys.modules.setdefault(ROUTING_SPEC.name, _EDGE_ROUTING)
+ROUTING_SPEC.loader.exec_module(_EDGE_ROUTING)
 
 CONFIRM_CODE = "yes-apply-anthropic-config-cascade"
 
@@ -404,32 +426,53 @@ def _read_operator_concurrency(region: str, instance_id: str, label: str) -> dic
 
 def cmd_snapshot(args: argparse.Namespace) -> int:
     edge_matrix = load_json_file(EDGE_MATRIX, "edge matrix")
-    edge_targets = edge_matrix.get("targets") or {}
+    ls_targets = _EDGE_ROUTING.load_lightsail_targets(REPO_ROOT)
+    ec2_targets = edge_matrix.get("targets") or {}
 
     edges: dict[str, dict] = {}
-    for eid, tgt in edge_targets.items():
-        if not tgt.get("deployable") and not args.allow_planned:
+    merged = _EDGE_ROUTING.merged_edge_ids(edge_matrix, ls_targets)
+
+    for eid in merged:
+        ec2_t = ec2_targets.get(eid)
+        ls_t = ls_targets.get(eid)
+        deploy = _EDGE_ROUTING.edge_effective_deployable(ec2_t, ls_t)
+        if not deploy and not args.allow_planned:
             edges[eid] = {
                 "deployable": False,
                 "skipped_reason": f"edge {eid} is planned; pass --allow-planned to include",
-                "region": tgt.get("region"), "stack": tgt.get("stack"),
+                "region": (ec2_t or {}).get("region") or (ls_t or {}).get("lightsail_region"),
+                "stack": (ec2_t or {}).get("stack") or "",
+            }
+            continue
+        if not deploy and args.allow_planned:
+            edges[eid] = {
+                "deployable": False,
+                "skipped_reason": f"edge {eid} is planned (--allow-planned)",
+                "region": (ec2_t or {}).get("region") or (ls_t or {}).get("lightsail_region"),
+                "stack": (ec2_t or {}).get("stack") or "",
             }
             continue
         try:
-            inst = resolve_instance_id(tgt["region"], tgt["stack"])
+            ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, eid)
         except SystemExit:
-            edges[eid] = {"error": f"could not resolve instance for edge {eid}"}
+            edges[eid] = {"error": f"could not resolve SSM instance for edge {eid}"}
             continue
-        print(f"snapshot: edge {eid} instance={inst}", file=sys.stderr)
-        accts_raw, _ = ssm_run_sql(tgt["region"], inst, EDGE_ACCOUNTS_SQL,
-                                    f"snapshot: edge {eid} oauth accounts")
-        op = _read_operator_concurrency(tgt["region"], inst, f"edge {eid}")
+        print(
+            f"snapshot: edge {eid} instance={ident.instance_id} routing={ident.routing}",
+            file=sys.stderr,
+        )
+        accts_raw, _ = ssm_run_sql(
+            ident.region, ident.instance_id, EDGE_ACCOUNTS_SQL,
+            f"snapshot: edge {eid} oauth accounts",
+        )
+        op = _read_operator_concurrency(ident.region, ident.instance_id, f"edge {eid}")
         edges[eid] = {
             "deployable": True,
-            "instance_id": inst,
-            "region": tgt["region"],
-            "stack": tgt["stack"],
-            "domain": tgt.get("domain"),
+            "instance_id": ident.instance_id,
+            "region": ident.region,
+            "stack": ident.ec2_stack or (ec2_t or {}).get("stack") or "",
+            "domain": ident.domain,
+            "ssm_routing": ident.routing,
             "oauth_accounts": json.loads(accts_raw) if accts_raw else [],
             "operator_user_concurrency": op["operator_user_concurrency"],
             "schedulable_concurrency_sum": op["schedulable_concurrency_sum"],
@@ -507,11 +550,14 @@ def cmd_check(args: argparse.Namespace) -> int:
             if e.get("deployable") is not False and "error" not in e
         ])
     else:
-        matrix = load_json_file(EDGE_MATRIX, "edge matrix")
-        edge_ids = sorted([
-            eid for eid, t in (matrix.get("targets") or {}).items()
-            if t.get("deployable") or args.allow_planned
-        ])
+        edge_matrix = load_json_file(EDGE_MATRIX, "edge matrix")
+        ls_targets = _EDGE_ROUTING.load_lightsail_targets(REPO_ROOT)
+        if args.allow_planned:
+            edge_ids = _EDGE_ROUTING.merged_edge_ids(edge_matrix, ls_targets)
+        else:
+            edge_ids = _EDGE_ROUTING.iter_effective_deployable_edge_ids(
+                edge_matrix, ls_targets,
+            )
 
     sub_results: list[dict] = []
     for eid in edge_ids:
@@ -1218,11 +1264,9 @@ def render_edge_account_tier_sql(account_name: str, stability_tier: str, edge_id
     return header + body
 
 
-def _resolve_edge_target(edge_id: str, edge_matrix: dict) -> tuple[str, str, str]:
-    e = edge_matrix.get("targets", {}).get(edge_id)
-    if not e:
-        fail(f"edge {edge_id!r} not in edge-targets.json")
-    return e["region"], resolve_instance_id(e["region"], e["stack"]), f"edge:{edge_id}"
+def _resolve_edge_target(edge_id: str) -> tuple[str, str, str]:
+    ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, edge_id)
+    return ident.region, ident.instance_id, f"edge:{edge_id}"
 
 
 def _resolve_prod_target() -> tuple[str, str, str]:
@@ -1351,8 +1395,6 @@ def cmd_apply(args: argparse.Namespace) -> int:
             code=2,
         )
 
-    edge_matrix = load_json_file(EDGE_MATRIX, "edge matrix")
-
     job_dir = pathlib.Path(args.job_dir) if args.job_dir else pathlib.Path(
         f"/tmp/anthropic-apply-{_dt.datetime.now().strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
     )
@@ -1371,7 +1413,7 @@ def cmd_apply(args: argparse.Namespace) -> int:
             account_name = tgt["account_name"]
             label = f"step{step:02d}-edge-{edge_id}-{kind}-{account_name}".replace("/", "-")
             sql = render_edge_account_tier_sql(v["account_name"], v["stability_tier"], edge_id)
-            region, instance_id, target_label = _resolve_edge_target(edge_id, edge_matrix)
+            region, instance_id, target_label = _resolve_edge_target(edge_id)
         elif kind == "prod_stub_pool":
             account_id = v["account_id"]
             account_name = tgt["account_name"]
@@ -1385,7 +1427,7 @@ def cmd_apply(args: argparse.Namespace) -> int:
             edge_id = tgt["edge_id"]
             label = f"step{step:02d}-edge-{edge_id}-{kind}".replace("/", "-")
             sql = render_edge_operator_concurrency_sql(edge_id)
-            region, instance_id, target_label = _resolve_edge_target(edge_id, edge_matrix)
+            region, instance_id, target_label = _resolve_edge_target(edge_id)
         elif kind == "prod_concurrency_mirror":
             label = f"step{step:02d}-prod-{kind}".replace("/", "-")
             sql = render_prod_concurrency_mirror_sql(v.get("stub_updates") or [])
@@ -1595,14 +1637,15 @@ def main() -> int:
                         help="pull each deployable edge's anthropic OAuth accounts + prod anthropic api-key stubs into one JSON")
     sp.add_argument("--out", help="write snapshot JSON to this path (otherwise stdout)")
     sp.add_argument("--allow-planned", action="store_true",
-                    help="include planned edges (per edge-targets.json)")
+                    help="include planned edges from merged EC2 + Lightsail matrix keys")
     sp.add_argument("--skip-prod", action="store_true",
                     help="skip the prod stub query (offline / lab runs that only need edge data)")
     sp.set_defaults(handler=cmd_snapshot)
 
     sp = sub.add_parser("check", help="run edge OAuth stability guard for each edge in scope")
     sp.add_argument("--snapshot", help="snapshot JSON path; used to discover edge IDs in scope")
-    sp.add_argument("--allow-planned", action="store_true")
+    sp.add_argument("--allow-planned", action="store_true",
+                    help="expand edge IDs in scope via merged matrices (see snapshot)")
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(handler=cmd_check)
 
@@ -1687,7 +1730,8 @@ def main() -> int:
                         help="re-snapshot and compare every action's expected_after vs live")
     sp.add_argument("--plan", required=True)
     sp.add_argument("--snapshot-out", help="path to write the fresh snapshot used for verify")
-    sp.add_argument("--allow-planned", action="store_true")
+    sp.add_argument("--allow-planned", action="store_true",
+                    help="re-snapshot using merged-matrix planned-edge inclusion rule")
     sp.add_argument("--skip-prod", action="store_true",
                     help="skip the re-snapshot's prod query when the plan has no prod_stub_pool actions")
     sp.add_argument("--json", action="store_true")
