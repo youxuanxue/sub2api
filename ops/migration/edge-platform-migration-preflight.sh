@@ -131,9 +131,20 @@ if [[ "$PHASE" == "provision" || "$PHASE" == "cutover" || "$PHASE" == "decommiss
     fi
   done
   if [[ -z "$ADDON_FOUND" ]]; then
-    fail "$ADDON_STACK not deployed (checked us-east-1 and $ls_region). One-time setup: aws cloudformation deploy --region us-east-1 --stack-name $ADDON_STACK --template-file deploy/aws/cloudformation/cicd-oidc-lightsail-addon.yaml --parameter-overrides GitHubOidcRoleName=<gha-oidc-role>"
+    fail "$ADDON_STACK not deployed (checked us-east-1 and $ls_region). One-time setup: aws cloudformation deploy --region us-east-1 --stack-name $ADDON_STACK --template-file deploy/aws/cloudformation/cicd-oidc-lightsail-addon.yaml --parameter-overrides GitHubOidcRoleName=<gha-oidc-role> --capabilities CAPABILITY_NAMED_IAM"
   else
     ok "$ADDON_STACK present in $ADDON_FOUND"
+  fi
+
+  # SSM Hybrid managed-instance role: must exist before `aws ssm create-activation
+  # --iam-role` works during provision. The role is created by the addon CFN stack
+  # above; this is a defensive cross-check (the stack could have been deployed
+  # with an older template that didn't include the role).
+  SSM_HYBRID_ROLE="tokenkey-lightsail-ssm-hybrid"
+  if ! aws iam get-role --role-name "$SSM_HYBRID_ROLE" >/dev/null 2>&1; then
+    fail "IAM role $SSM_HYBRID_ROLE missing. The addon CFN stack creates it; redeploy with: aws cloudformation deploy --region us-east-1 --stack-name $ADDON_STACK --template-file deploy/aws/cloudformation/cicd-oidc-lightsail-addon.yaml --capabilities CAPABILITY_NAMED_IAM"
+  else
+    ok "SSM Hybrid managed-instance role $SSM_HYBRID_ROLE present"
   fi
 
   # GHCR PAT is OPTIONAL: TokenKey's GHCR image is public, so anonymous pull

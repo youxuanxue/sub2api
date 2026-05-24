@@ -58,7 +58,7 @@ aws cloudformation deploy \
   --stack-name tokenkey-cicd-lightsail-addon \
   --template-file deploy/aws/cloudformation/cicd-oidc-lightsail-addon.yaml \
   --parameter-overrides GitHubOidcRoleName=tokenkey-gha-us-east-1-error-clustering \
-  --capabilities CAPABILITY_IAM
+  --capabilities CAPABILITY_NAMED_IAM
 
 # 2) GitHub Environment edge-<edge_id> 已存在（与 EC2 共用），确认变量齐
 #    EDGE_ACME_EMAIL / EDGE_MAIN_GATEWAY_ALLOWED_CIDR / EDGE_MAIN_GATEWAY_BASE_URL

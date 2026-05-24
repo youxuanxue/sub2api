@@ -1,10 +1,13 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
-  Optional addon for TokenKey Edge Lightsail automation. Attaches an inline policy
-  to the existing GitHub Actions OIDC role (from cicd-oidc.yaml) granting
-  Lightsail provision APIs, SSM Hybrid Activation, managed-instance SendCommand,
-  and /tokenkey/lightsail/* Parameter Store writes. Deploy once per account;
-  does not modify prod EC2 Edge stacks.
+  Optional addon for TokenKey Edge Lightsail automation. Two resources:
+  (1) inline policy on the existing GitHub Actions OIDC role granting Lightsail
+  provision APIs, SSM Hybrid Activation, managed-instance SendCommand, iam:PassRole
+  on the Hybrid managed-instance role, and /tokenkey/lightsail/* Parameter Store
+  writes; (2) the SSM Hybrid managed-instance IAM role itself, which Lightsail
+  instances assume after `amazon-ssm-agent -register` so they can callback into
+  SSM (SendCommand stdout/stderr, parameter reads, etc.). Deploy once per
+  account; does not modify prod EC2 Edge stacks.
 
 Parameters:
   GitHubOidcRoleName:
@@ -13,6 +16,33 @@ Parameters:
     Description: Name of the existing GHA OIDC role from tokenkey-cicd-oidc stack.
 
 Resources:
+  # SSM Hybrid managed-instance role: assumed by amazon-ssm-agent -register
+  # on the Lightsail instance. The trust policy is the AWS canonical one for
+  # Systems Manager Hybrid Activations. AmazonSSMManagedInstanceCore gives the
+  # minimum set of permissions for SendCommand callbacks + heartbeat + the
+  # parameter reads the bootstrap user-data does (GHCR_PAT only — public images
+  # need no auth, but the read path is in the bootstrap regardless).
+  #
+  # RoleName is hard-coded (NOT parameterized) on purpose: provision-edge.sh
+  # carries the same literal as its fallback. Single source of truth — any
+  # rename has to land in the same PR for both files, no silent drift.
+  LightsailSsmHybridRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: tokenkey-lightsail-ssm-hybrid
+      Description: >-
+        Assumed by SSM Hybrid managed instances created from Lightsail Edge
+        provisioning. Trust policy is the canonical ssm.amazonaws.com form.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ssm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
   LightsailEdgeAddonPolicy:
     Type: AWS::IAM::Policy
     Properties:
@@ -48,6 +78,15 @@ Resources:
               - ssm:DeleteActivation
               - ssm:DescribeActivations
             Resource: "*"
+          - Sid: PassSsmHybridRoleToActivation
+            # create-activation embeds the IAM role into the activation; AWS
+            # requires the caller to have iam:PassRole on that role.
+            Effect: Allow
+            Action: iam:PassRole
+            Resource: !GetAtt LightsailSsmHybridRole.Arn
+            Condition:
+              StringEquals:
+                iam:PassedToService: ssm.amazonaws.com
           - Sid: SsmManagedInstanceCommand
             Effect: Allow
             Action:
@@ -70,3 +109,8 @@ Resources:
             Action:
               - ssm:DescribeInstanceInformation
             Resource: "*"
+
+Outputs:
+  SsmHybridRoleName:
+    Description: Name of the SSM Hybrid managed-instance role; pass to `aws ssm create-activation --iam-role`.
+    Value: !Ref LightsailSsmHybridRole
