@@ -11,10 +11,6 @@ Parameters:
     Type: String
     Default: tokenkey-gha-us-east-1-error-clustering
     Description: Name of the existing GHA OIDC role from tokenkey-cicd-oidc stack.
-  LightsailEdgeRegions:
-    Type: CommaDelimitedList
-    Default: "eu-west-2,us-west-2,eu-central-1,ap-southeast-1"
-    Description: Regions where Edge Lightsail instances may be provisioned.
 
 Resources:
   LightsailEdgeAddonPolicy:
@@ -74,8 +70,3 @@ Resources:
             Action:
               - ssm:DescribeInstanceInformation
             Resource: "*"
-
-Outputs:
-  AddonPolicyArn:
-    Description: ARN of the attached Lightsail Edge addon policy
-    Value: !Ref LightsailEdgeAddonPolicy
