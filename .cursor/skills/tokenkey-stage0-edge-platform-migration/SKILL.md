@@ -1,19 +1,20 @@
 ---
 name: tokenkey-stage0-edge-platform-migration
 description: >-
-  Migrate a TokenKey Stage0 Edge between platforms (EC2/CFN ↔ AWS Lightsail) on
-  the same `<edge_id>`, sharing the DNS domain `api-<id>.tokenkey.dev`. Drives
-  the full sequence: pre-flight (read-only AWS checks), one-time IAM addon +
-  GHCR PAT setup, matrix flip (exclusivity gate enforces single-platform), new
-  platform provision + smoke without DNS cut, operator OAuth re-login on the
-  fresh edge DB, DNS cut at Porkbun, post-cut smoke from an independent vantage
-  point, and finally CFN-native decommission of the retired platform (auto EBS
-  snapshot, optional EIP release). EC2/CFN remains the default Edge path; this
-  skill exists for migration to/from Lightsail (or future platforms) without
-  ad-hoc operator coordination.
+  Migrate a TokenKey Stage0 Edge **from EC2/CFN to AWS Lightsail** on the same
+  `<edge_id>`, sharing the DNS domain `api-<id>.tokenkey.dev`. Drives the full
+  sequence: pre-flight (read-only AWS checks), one-time IAM addon + GHCR PAT
+  setup, matrix flip (exclusivity gate enforces single-platform), Lightsail
+  provision + smoke without DNS cut, operator OAuth re-login on the fresh
+  edge DB, DNS cut at Porkbun, post-cut smoke from an independent vantage
+  point, and finally CFN-native decommission of the retired EC2 stack (auto
+  EBS snapshot, optional EIP release). EC2/CFN remains the default Edge path;
+  this skill exists for the one-way EC2→Lightsail migration. The reverse
+  direction (Lightsail→EC2) is intentionally NOT implemented — build at first
+  need rather than ship an unimplemented API; see §7.
 ---
 
-# TokenKey：Edge 平台迁移全流程（EC2 ↔ Lightsail）
+# TokenKey：Edge 平台迁移全流程（EC2 → Lightsail，单向）
 
 适用于 TokenKey fork of sub2api。本 skill **只迁移同一个 `<edge_id>` 在两个平台之间**（共享 DNS `api-<id>.tokenkey.dev`），不是"新增一个 edge"——后者用 `tokenkey-stage0-edge-expansion` 或 `tokenkey-stage0-edge-lightsail-expansion`。
 
