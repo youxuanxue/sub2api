@@ -76,6 +76,37 @@ class RenderBootstrapTests(unittest.TestCase):
             "GHCR_PAT_SSM_NAME must not be a required env var (default = anonymous pull)",
         )
 
+    def test_generated_artifact_under_lightsail_user_data_cap(self):
+        # Lightsail user-data hard limit is 16384 bytes. provision-edge.sh
+        # prepends ~500 bytes of `export VAR=...` env at dispatch time.
+        # Safety cap at 14336 bytes leaves room for env prefix to stay under.
+        # Phase 2 4th attempt hit InvalidInputException because the file was
+        # 15720 bytes — this regression test prevents recurrence.
+        size = GENERATED.stat().st_size
+        self.assertLessEqual(size, 14336,
+                             f"generated-launch-script.sh is {size} bytes; "
+                             "Lightsail user-data hard limit is 16384 bytes and "
+                             "provision-edge.sh adds ~500 bytes of env prefix, "
+                             "so stay under 14336 here. Options: gzip more aggressively, "
+                             "trim comments, or move payloads to SSM Parameter Store.")
+
+    def test_qa_and_prune_scripts_are_gzipped(self):
+        # Both ops scripts are now gzipped before base64-encoding (was raw
+        # base64 in earlier revisions, contributing ~3.7 KB of overhead).
+        # The decoder pipe `base64 -d | gunzip` is the test contract; if a
+        # future edit drops gunzip the bootstrap silently fails at runtime.
+        content = GENERATED.read_text(encoding="utf-8")
+        self.assertIn(
+            'printf \'%s\' "$QA_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-qa-stale-cleanup.sh',
+            content,
+            "QA_B64 must be gzip-decoded; otherwise user-data bloats past 16KB",
+        )
+        self.assertIn(
+            'printf \'%s\' "$PRUNE_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-prune-ghcr-app-tags-core.sh',
+            content,
+            "PRUNE_B64 must be gzip-decoded; otherwise user-data bloats past 16KB",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

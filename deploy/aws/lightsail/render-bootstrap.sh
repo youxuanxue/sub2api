@@ -22,10 +22,15 @@ for f in \
   [[ -f "$f" ]] || { echo "missing $f" >&2; exit 1; }
 done
 
+# All four embedded files are gzipped before base64 to keep user-data under
+# Lightsail's hard 16 KB limit. The two ops scripts (qa-stale-cleanup,
+# prune-ghcr-app-tags) used to ship as raw base64 — combined ~6.4 KB —
+# which pushed total user-data over 16 KB once env prefix and bootstrap
+# preamble were added. Gzip saves ~3.7 KB total.
 compose_b64="$(gzip -9n -c "${STAGE0}/docker-compose.yml" | base64 | tr -d '\n')"
 caddy_b64="$(gzip -9n -c "${STAGE0}/Caddyfile.edge" | base64 | tr -d '\n')"
-qa_b64="$(base64 <"${STAGE0}/tokenkey-qa-stale-cleanup.sh" | tr -d '\n')"
-prune_b64="$(base64 <"${STAGE0}/tokenkey-prune-ghcr-app-tags.sh" | tr -d '\n')"
+qa_b64="$(gzip -9n -c "${STAGE0}/tokenkey-qa-stale-cleanup.sh" | base64 | tr -d '\n')"
+prune_b64="$(gzip -9n -c "${STAGE0}/tokenkey-prune-ghcr-app-tags.sh" | base64 | tr -d '\n')"
 
 cat >"${OUT}.tmp" <<'LAUNCH_HEAD'
 #!/bin/bash
@@ -111,9 +116,9 @@ printf '%s' "$CADDY_GZB64" | base64 -d | gunzip > /var/lib/tokenkey/caddy/Caddyf
 envsubst '${API_DOMAIN} ${ACME_EMAIL} ${MAIN_GATEWAY_ALLOWED_CIDR}' \
   < /var/lib/tokenkey/caddy/Caddyfile.template > /var/lib/tokenkey/caddy/Caddyfile
 
-printf '%s' "$QA_B64" | base64 -d > /usr/local/bin/tokenkey-qa-stale-cleanup.sh
+printf '%s' "$QA_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-qa-stale-cleanup.sh
 chmod +x /usr/local/bin/tokenkey-qa-stale-cleanup.sh
-printf '%s' "$PRUNE_B64" | base64 -d > /usr/local/bin/tokenkey-prune-ghcr-app-tags-core.sh
+printf '%s' "$PRUNE_B64" | base64 -d | gunzip > /usr/local/bin/tokenkey-prune-ghcr-app-tags-core.sh
 chmod +x /usr/local/bin/tokenkey-prune-ghcr-app-tags-core.sh
 
 SECRET_FILE=/var/lib/tokenkey/.env.secret
@@ -203,19 +208,34 @@ if [[ "$mode" == "check" ]]; then
     rm -f "${OUT}.tmp"
     exit 1
   fi
-  if cmp -s "$OUT" "${OUT}.tmp"; then
-    echo "render-bootstrap: OK (no drift)"
+  if ! cmp -s "$OUT" "${OUT}.tmp"; then
+    echo "render-bootstrap: FAIL — ${OUT} is out of sync with current template/sources" >&2
+    echo "  Run: bash deploy/aws/lightsail/render-bootstrap.sh && git add ${OUT}" >&2
+    if command -v diff >/dev/null 2>&1; then
+      echo "  Diff (first 40 lines):" >&2
+      diff -u "$OUT" "${OUT}.tmp" | head -40 >&2 || true  # preflight-allow: swallow — defensive SIGPIPE on head -40
+    fi
     rm -f "${OUT}.tmp"
-    exit 0
+    exit 1
   fi
-  echo "render-bootstrap: FAIL — ${OUT} is out of sync with current template/sources" >&2
-  echo "  Run: bash deploy/aws/lightsail/render-bootstrap.sh && git add ${OUT}" >&2
-  if command -v diff >/dev/null 2>&1; then
-    echo "  Diff (first 40 lines):" >&2
-    diff -u "$OUT" "${OUT}.tmp" | head -40 >&2 || true
+  # Size guard: Lightsail user-data hard limit is 16 KB. provision-edge.sh
+  # prepends ~500 bytes of `export VAR=...` (activation id/code is the largest
+  # contributor — ~80 chars total). Cap the committed launch script at 14 KB
+  # (~14336 bytes) so the env prefix can never push the final user-data over.
+  # Hit before in Phase 2 4th attempt; this gate prevents recurrence.
+  size_bytes="$(wc -c <"$OUT" | tr -d ' ')"
+  if [[ "$size_bytes" -gt 14336 ]]; then
+    echo "render-bootstrap: FAIL — ${OUT} is ${size_bytes} bytes, exceeds 14336-byte safety cap" >&2
+    echo "  Lightsail user-data hard limit is 16384 bytes; provision-edge.sh adds" >&2
+    echo "  ~500 bytes of env prefix at dispatch time. Stay under 14336 bytes here." >&2
+    echo "  Options: gzip uncompressed embeds, trim comments, or move large content" >&2
+    echo "  out of user-data into SSM Parameter Store (fetch at bootstrap time)." >&2
+    rm -f "${OUT}.tmp"
+    exit 1
   fi
+  echo "render-bootstrap: OK (no drift; ${size_bytes} bytes of 14336-byte cap)"
   rm -f "${OUT}.tmp"
-  exit 1
+  exit 0
 fi
 
 mv "${OUT}.tmp" "$OUT"
