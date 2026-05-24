@@ -151,6 +151,20 @@ class LightsailAddonContractTests(unittest.TestCase):
         self.assertIn("tokenkey-lightsail-ssm-hybrid", self.text,
                       "default role name must match provision-edge.sh fallback")
 
+    def test_ssm_add_tags_to_resource_permitted(self):
+        # `aws ssm create-activation --tags ...` (provision-edge.sh passes tags
+        # at activation creation) makes an inline AddTagsToResource call. Without
+        # this action in the addon policy, create-activation fails with
+        # AccessDeniedException — surfaced in Phase 2 3rd attempt (run 26350611129).
+        # Pin the trio (Add / Remove / List) so the regression cannot return
+        # silently if someone trims the action list in the future.
+        self.assertIn("ssm:AddTagsToResource", self.text,
+                      "addon must grant ssm:AddTagsToResource (required by create-activation --tags)")
+        self.assertIn("ssm:RemoveTagsFromResource", self.text,
+                      "symmetric Remove for cleanup")
+        self.assertIn("ssm:ListTagsForResource", self.text,
+                      "audit reads")
+
 
 if __name__ == "__main__":
     unittest.main()
