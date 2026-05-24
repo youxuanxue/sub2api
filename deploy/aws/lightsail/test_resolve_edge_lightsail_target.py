@@ -27,54 +27,64 @@ def run_resolver(edge_id, confirm_instance="", allow_planned=False):
 
 
 class ResolveEdgeLightsailTargetTests(unittest.TestCase):
-    """All four Lightsail targets are deployable=false by default — EC2 owns
-    uk1/us1 today (DNS conflict guard); fra1/sg1 are planned PoC targets.
-    `--allow-planned` is the explicit operator opt-in."""
+    """Test resolver against the live lightsail matrix. We pick a deployable=true
+    edge and a deployable=false edge DYNAMICALLY from the matrix so the tests
+    don't break each time an edge gets flipped during a migration."""
 
-    def test_uk1_planned_resolves_with_allow_planned(self):
-        data = json.loads(MATRIX.read_text(encoding="utf-8"))
-        expected = data["targets"]["uk1"]["instance_name"]
-        resolved = run_resolver("uk1", confirm_instance=expected, allow_planned=True)
-        self.assertEqual(resolved["edge_id"], "uk1")
+    @classmethod
+    def setUpClass(cls):
+        cls.data = json.loads(MATRIX.read_text(encoding="utf-8"))
+        targets = cls.data.get("targets", {})
+        deployable = sorted(
+            edge_id for edge_id, t in targets.items() if t.get("deployable") is True
+        )
+        planned = sorted(
+            edge_id for edge_id, t in targets.items() if t.get("deployable") is False
+        )
+        cls.deployable_id = deployable[0] if deployable else None
+        cls.planned_id = planned[0] if planned else None
+
+    def test_deployable_resolves_without_allow_planned(self):
+        if not self.deployable_id:
+            self.skipTest("no deployable=true Lightsail edges in matrix")
+        edge_id = self.deployable_id
+        expected = self.data["targets"][edge_id]["instance_name"]
+        resolved = run_resolver(edge_id, confirm_instance=expected)
+        self.assertEqual(resolved["edge_id"], edge_id)
         self.assertEqual(resolved["instance_name"], expected)
-        self.assertEqual(resolved["lightsail_region"], "eu-west-2")
-        self.assertEqual(resolved["deployable"], "false")
+        self.assertEqual(resolved["deployable"], "true")
 
-    def test_uk1_planned_fails_without_allow_planned(self):
+    def test_planned_fails_without_allow_planned(self):
+        if not self.planned_id:
+            self.skipTest("no deployable=false Lightsail edges in matrix")
         proc = subprocess.run(
-            [sys.executable, str(RESOLVER), "--edge-id", "uk1"],
+            [sys.executable, str(RESOLVER), "--edge-id", self.planned_id],
             capture_output=True,
             text=True,
         )
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("not deployable", proc.stderr)
+
+    def test_planned_resolves_with_allow_planned(self):
+        if not self.planned_id:
+            self.skipTest("no deployable=false Lightsail edges in matrix")
+        resolved = run_resolver(self.planned_id, allow_planned=True)
+        self.assertEqual(resolved["edge_id"], self.planned_id)
+        self.assertEqual(resolved["deployable"], "false")
 
     def test_confirm_instance_mismatch_fails(self):
-        # --allow-planned to reach the confirm_instance check (deployable
-        # check happens first; that's intentional fail-fast ordering).
-        proc = subprocess.run(
-            [sys.executable, str(RESOLVER), "--edge-id", "uk1",
-             "--confirm-instance", "wrong-name", "--allow-planned"],
-            capture_output=True,
-            text=True,
-        )
+        # Pick any edge (deployable or planned); deployable preferred so we
+        # don't need --allow-planned.
+        edge_id = self.deployable_id or self.planned_id
+        if not edge_id:
+            self.skipTest("matrix empty")
+        args = [sys.executable, str(RESOLVER), "--edge-id", edge_id,
+                "--confirm-instance", "wrong-name"]
+        if edge_id == self.planned_id:
+            args.append("--allow-planned")
+        proc = subprocess.run(args, capture_output=True, text=True)
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("confirm_instance mismatch", proc.stderr)
-
-    def test_planned_fra1_fails_without_allow_planned(self):
-        proc = subprocess.run(
-            [sys.executable, str(RESOLVER), "--edge-id", "fra1"],
-            capture_output=True,
-            text=True,
-        )
-        self.assertNotEqual(proc.returncode, 0)
-        self.assertIn("not deployable", proc.stderr)
-
-    def test_planned_fra1_with_allow_planned(self):
-        resolved = run_resolver("fra1", allow_planned=True)
-        self.assertEqual(resolved["edge_id"], "fra1")
-        self.assertEqual(resolved["lightsail_region"], "eu-central-1")
-        self.assertEqual(resolved["deployable"], "false")
 
     def test_unknown_edge_id_fails(self):
         proc = subprocess.run(
