@@ -10,10 +10,15 @@ Description: >-
   account; does not modify prod EC2 Edge stacks.
 
 Parameters:
-  GitHubOidcRoleName:
-    Type: String
-    Default: tokenkey-gha-us-east-1-error-clustering
-    Description: Name of the existing GHA OIDC role from tokenkey-cicd-oidc stack.
+  GitHubOidcRoleNames:
+    Type: CommaDelimitedList
+    Default: "tokenkey-gha-us-east-1-error-clustering,tokenkey-gha-eu-west-2-error-clustering"
+    Description: >-
+      Comma-delimited list of existing GHA OIDC role names from
+      tokenkey-cicd-oidc stack. The Lightsail addon policy is attached to
+      ALL listed roles (AWS::IAM::Policy.Roles accepts a list). Default
+      covers both region-scoped OIDC roles currently in use; extend the
+      list when adding new region-scoped OIDC roles in the future.
 
 Resources:
   # SSM Hybrid managed-instance role: assumed by amazon-ssm-agent -register
@@ -47,8 +52,7 @@ Resources:
     Type: AWS::IAM::Policy
     Properties:
       PolicyName: tokenkey-lightsail-edge-addon
-      Roles:
-        - !Ref GitHubOidcRoleName
+      Roles: !Ref GitHubOidcRoleNames
       PolicyDocument:
         Version: "2012-10-17"
         Statement:

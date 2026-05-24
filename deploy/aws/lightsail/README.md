@@ -35,8 +35,9 @@ aws cloudformation deploy \
   --region us-east-1 \
   --stack-name tokenkey-cicd-lightsail-addon \
   --template-file deploy/aws/cloudformation/cicd-oidc-lightsail-addon.yaml \
-  --parameter-overrides GitHubOidcRoleName=tokenkey-gha-us-east-1-error-clustering \
   --capabilities CAPABILITY_NAMED_IAM
+# default GitHubOidcRoleNames covers both regional OIDC roles
+# (us-east-1 + eu-west-2); override only when adding new region-scoped roles.
 ```
 
 ### 2) 各 Edge region 写入 GHCR PAT
