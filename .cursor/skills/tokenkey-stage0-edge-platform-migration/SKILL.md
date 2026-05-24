@@ -77,22 +77,22 @@ bash ops/migration/edge-platform-migration-preflight.sh <edge_id> --phase=provis
 
 未通过则按报错指引补齐再进入 Phase 1。
 
-## 1) Phase plan：迁移意图落码
+## 1) Phase plan：迁移意图落码（矩阵独占）
 
-EC2→Lightsail 方向，前置假设：
-- EC2 `<edge_id>` 当前 `deployable=false`（已退役 ops 矩阵）
-- Lightsail `<edge_id>` 当前 `deployable=false`（PR #380 默认）
-- DNS `api-<id>.tokenkey.dev` 当前指向 EC2 EIP 或已经空
+EC2→Lightsail 方向，写入矩阵并通过 `scripts/checks/edge-platform-exclusivity.py` gate 后应保持：
 
-**机械检查**：
+| 矩阵文件 | `<edge_id>` 目标状态 |
+|---------|---------------------|
+| `deploy/aws/stage0/edge-targets.json` | **`deployable=false`**（将该 edge 移出 EC2 Stage0 prod/ops 自动矩阵；旧 CFN 栈可仍存在直至 Phase 4 拆除） |
+| `deploy/aws/lightsail/edge-targets-lightsail.json` | **`deployable=true`**（该 DNS 命名的运维入口切到 Lightsail workflow / SSM Hybrid） |
+
+**当前仓库 uk1 已完成上述翻转**（Lightsail 为 `api-uk1.tokenkey.dev` 权威）。若你还要迁 **us1 / fra1 / sg1**，才需要在 PR 里对自己的 `<edge_id>` 做同款翻位（仍建议 **分两笔 commit / 两个小 PR**：先只在 EC2 侧 `deployable=false` 合并通过，再在 Lightsail 侧 `deployable=true`，以便任何时刻 CI exclusivity gate 都为绿）。
+
+机械检查：
 
 ```bash
 bash ops/migration/edge-platform-migration-preflight.sh <edge_id> --phase=plan
 ```
-
-**手工 PR**：把 Lightsail `<edge_id>` 翻成 `deployable=true`，提交 PR。`edge-platform-exclusivity` preflight 会强制 EC2 同名仍是 `false`；CI 全绿后由操作员合并。
-
-> **不要在同一 PR 里同时翻两边的 deployable**——分两步可以让 exclusivity gate 始终强一致。
 
 ## 2) Phase provision：实机起 Lightsail，**不切 DNS**
 
@@ -131,7 +131,9 @@ bash ops/migration/edge-platform-migration-preflight.sh <edge_id> --phase=cutove
 
 按用户回答 ②（fresh-DB 起步），新 Lightsail 实例上的 Postgres 是空的，需要重新创建 Anthropic OAuth 账号：
 
-1. **手工 Porkbun**：把 `api-<edge_id>.tokenkey.dev` A 记录改成 Lightsail Static IP。等 1 分钟。
+1. **手工 Porkbun**：`api-<edge_id>.tokenkey.dev` A 记录必须指向 **Lightsail Static IP**（与 `aws lightsail get-static-ip --static-ip-name tokenkey-edge-<edge_id>-ls-ip` 一致）。
+   **`edge_id=uk1`：** 运维固定 **`16.61.87.51`** — 记在 `deploy/aws/lightsail/edge-targets-lightsail.json` → `targets.uk1.porkbun_a_ipv4`；Lightsail attach 与该地址不一致时，先修 AWS，**不得以「人工保留旧 Porkbun」绕过**（否则会仍在打 EC2 EIP）。
+   等 TTL 收敛（常见约一分钟）。
 2. **独立观察点 smoke**（避开本地 DNS 缓存）：
    ```bash
    curl -sS https://api-<edge_id>.tokenkey.dev/health   # 无 --resolve；走真实 DNS
