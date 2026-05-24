@@ -49,7 +49,8 @@
 ### 正向
 
 1. **provision**：workflow 创建 SSM Hybrid Activation → Lightsail 实例 launch script
-   注册 SSM → 写入 managed instance id → 分配 Static IP → DNS 后 smoke 通过
+   注册 SSM → **`DescribeInstanceInformation` 以本次 `ActivationId`（`ActivationIds` 过滤器）
+   主路径解析 `mi-*`（不可用「标签过滤器 + ResourceType」混用）；bootstrap `hostnamectl` 对齐 Lightsail `instance_name` 作为兜底** → 写入 managed instance id → 分配 Static IP → DNS 后 smoke 通过
 2. **upgrade**：从 SSM 读 `mi-*` → `deploy_via_ssm.sh` 换 tag → external health +
    `edge_post_deploy_smoke.sh` 通过
 3. **daily diagnostics**：`ops-daily-diagnostics.yml` 自动把 deployable Lightsail

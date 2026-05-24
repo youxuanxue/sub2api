@@ -16,6 +16,7 @@
       "ec2_equivalent_region": "eu-west-2",
       "availability_zone": "eu-west-2a",
       "domain": "api-uk1.tokenkey.dev",
+      "porkbun_a_ipv4": "16.61.87.51",
       "instance_name": "tokenkey-edge-uk1-ls",
       "static_ip_name": "tokenkey-edge-uk1-ls-ip",
       "bundle_id": "micro_3_0",

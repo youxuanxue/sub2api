@@ -5,6 +5,7 @@ exec > >(tee -a /var/log/tokenkey-lightsail-bootstrap.log) 2>&1
 echo "LIGHTSAIL_BOOTSTRAP_START $(date -u +%FT%TZ)"
 
 : "${EDGE_ID:?EDGE_ID required}"
+: "${INSTANCE_NAME:?INSTANCE_NAME required}"
 : "${API_DOMAIN:?API_DOMAIN required}"
 : "${ACME_EMAIL:?ACME_EMAIL required}"
 : "${MAIN_GATEWAY_ALLOWED_CIDR:?MAIN_GATEWAY_ALLOWED_CIDR required}"
@@ -18,6 +19,14 @@ echo "LIGHTSAIL_BOOTSTRAP_START $(date -u +%FT%TZ)"
 # image becomes private.
 : "${GHCR_PAT_SSM_NAME:=}"
 : "${GHCR_PULL_USER:=}"
+
+# Align kernel hostname with Lightsail instance name so SSM ComputerName-based
+# discovery matches provision-edge.sh fallbacks (AL2023 default is often a dhcp name).
+if command -v hostnamectl >/dev/null 2>&1; then
+  hostnamectl set-hostname "${INSTANCE_NAME}" || true
+else
+  hostname "${INSTANCE_NAME}" 2>/dev/null || true
+fi
 
 export ADMIN_EMAIL="${ADMIN_EMAIL:-admin@${API_DOMAIN}}"
 export TZ_VALUE="${TZ_VALUE:-UTC}"

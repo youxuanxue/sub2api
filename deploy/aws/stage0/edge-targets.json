@@ -16,7 +16,7 @@
       "snapshot_schedule": "none",
       "monthly_budget_usd": 16,
       "ssm_prefix": "/tokenkey/edge/uk1",
-      "purpose": "uk-egress-sample"
+      "purpose": "superseded-by-lightsail-uk1-ec2-matrix-stub; cf stack may linger until destroy via deploy-edge-stage0 decommission"
     },
     "us1": {
       "deployable": true,

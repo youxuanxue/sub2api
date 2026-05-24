@@ -80,6 +80,7 @@ ls_region="$(jq -r --arg id "$EDGE_ID" '.targets[$id].lightsail_region // ""' "$
 ls_instance="$(jq -r --arg id "$EDGE_ID" '.targets[$id].instance_name // ""' "$LS_MATRIX")"
 ls_static_ip_name="$(jq -r --arg id "$EDGE_ID" '.targets[$id].static_ip_name // ""' "$LS_MATRIX")"
 ls_ssm_prefix="$(jq -r --arg id "$EDGE_ID" '.targets[$id].ssm_prefix // ""' "$LS_MATRIX")"
+porkbun_pin="$(jq -r --arg id "$EDGE_ID" '.targets[$id].porkbun_a_ipv4 // empty' "$LS_MATRIX")"
 
 if [[ "$ec2_state" == "missing" ]]; then
   fail "edge_id $EDGE_ID has no entry in deploy/aws/stage0/edge-targets.json"
@@ -185,11 +186,18 @@ if [[ "$PHASE" == "cutover" || "$PHASE" == "decommission" ]]; then
     LS_IP="$(aws lightsail get-static-ip --region "$ls_region" --static-ip-name "$ls_static_ip_name" --query 'staticIp.ipAddress' --output text 2>/dev/null || echo "")"
     if [[ -z "$LS_IP" || "$LS_IP" == "None" ]]; then
       fail "Lightsail Static IP $ls_static_ip_name not allocated in $ls_region — provision incomplete"
-    elif [[ "$PHASE" == "cutover" ]]; then
+    fi
+    if [[ -n "$porkbun_pin" && "$LS_IP" != "$porkbun_pin" ]]; then
+      fail "Lightsail Static IP=$LS_IP but matrix porkbun_a_ipv4=$porkbun_pin — DNS Porkbun must match the pinned v4 once cutover completes; reconcile Lightsail attachment or update the matrix in a PR."
+    fi
+    if [[ -n "$porkbun_pin" && "$LS_IP" == "$porkbun_pin" ]]; then
+      ok "Lightsail Static IP matches matrix porkbun_a_ipv4 ($porkbun_pin)"
+    fi
+    if [[ "$PHASE" == "cutover" ]]; then
       if [[ "$LIVE_IP" == "$LS_IP" ]]; then
         ok "DNS already points $ec2_domain → Lightsail Static IP ($LS_IP)"
       else
-        echo "  info: DNS $ec2_domain currently → $LIVE_IP (Lightsail Static IP is $LS_IP); cutover will swap"
+        echo "  info: DNS $ec2_domain currently → $LIVE_IP (Lightsail Static IP is $LS_IP); cutover will swap${porkbun_pin:+ — target Porkbun A = $porkbun_pin per matrix}}"
       fi
     elif [[ "$PHASE" == "decommission" ]]; then
       if [[ "$LIVE_IP" != "$LS_IP" ]]; then

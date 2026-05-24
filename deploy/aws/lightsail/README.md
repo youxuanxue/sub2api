@@ -112,6 +112,21 @@ PREFLIGHT_BASE=origin/main bash scripts/preflight.sh
 实机 provision/smoke 需账户内 Lightsail 权限与 PAT；首跑由
 `tokenkey-stage0-edge-lightsail-expansion` skill 走 `operation=full` 驱动。
 
+### Provision：`SSM managed instance not registered within timeout`
+
+- **常见假阴性（已修复）**：`DescribeInstanceInformation` 不允许把「标签过滤器」与其它过滤器混在一起；也不得依赖 `ComputerName` 默认等于 Lightsail `instance_name`（AL2023 常为 DHCP hostname）。provision 脚本现以 **`ActivationIds` = 本次 Hybrid activation** 作为主查询，并在 bootstrap 里 `hostnamectl set-hostname` 对齐实例名。
+- **仍超时**：Lightsail 浏览器 SSH 查看 `/var/log/tokenkey-lightsail-bootstrap.log`；失败行以 `BOOTSTRAP_FAIL:` 开头。Workflow 末尾会打印 `describe-activations` 帮助判断 activation / 配额是否用尽。
+
+## uk1：`api-uk1.tokenkey.dev` 权威平台（Lightsail）
+
+矩阵基线：**EC2 `uk1.deployable=false`**（`deploy/aws/stage0/edge-targets.json`），**Lightsail `uk1.deployable=true`**（本目录 `edge-targets-lightsail.json`）。
+同名域名只能由一个平台对外服务；两边的 `deployable` 同时为 `true` 会被 **`scripts/checks/edge-platform-exclusivity.py`** 拦下。
+
+**Porkbun（prod，`api-uk1.tokenkey.dev`）：** A 记录保持 **`16.61.87.51`** — 记录在 `edge-targets-lightsail.json` → `targets.uk1.porkbun_a_ipv4`，作为人工 DNS **唯一真值**。若它与 `aws lightsail get-static-ip` 读到的 Attach 不一致，先修 AWS 对齐再改 Porkbun，不得在未协调前提下漂移该 IP。
+
+端到端实操（provision、旁路校验、DNS 核对、Anthropic OAuth 重建、Smoke、可选拆 EC2 栈）：**`.cursor/skills/tokenkey-stage0-edge-platform-migration/SKILL.md`**（等价副本在 `.claude/skills/…`）。
+Lightsail **首次**拉起实例用 `deploy-edge-lightsail-stage0.yml` **`operation=provision`**；镜像 tag 轮转用 **`upgrade` / `rollback`**。
+
 ## IP 污染轮换
 
 ```bash

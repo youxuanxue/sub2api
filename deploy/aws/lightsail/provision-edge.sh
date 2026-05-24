@@ -53,6 +53,7 @@ launch_env_file="$(mktemp)"
 trap 'rm -f "$launch_env_file"' EXIT
 cat >"$launch_env_file" <<EOF
 export EDGE_ID='${EDGE_ID}'
+export INSTANCE_NAME='${INSTANCE_NAME}'
 export API_DOMAIN='${API_DOMAIN}'
 export ACME_EMAIL='${ACME_EMAIL}'
 export MAIN_GATEWAY_ALLOWED_CIDR='${MAIN_GATEWAY_ALLOWED_CIDR}'
@@ -132,13 +133,25 @@ aws lightsail attach-static-ip \
 public_ip="$(aws lightsail get-static-ip --region "$LIGHTSAIL_REGION" --static-ip-name "$STATIC_IP_NAME" \
   --query 'staticIp.ipAddress' --output text)"
 
-echo "waiting for SSM managed instance registration (up to 10m)"
+echo "waiting for SSM managed instance registration (activation_id=${activation_id}, up to 15m)"
+echo "::notice::describe-instance-information must use EITHER tag filters OR non-tag filters — never combine (AWS API)."
 managed_id=""
-deadline=$(( $(date +%s) + 600 ))
+deadline=$(( $(date +%s) + 900 ))
 while [[ $(date +%s) -lt $deadline ]]; do
+  # Primary: ActivationIds uniquely identifies the Hybrid registration minted above
+  # (registration_limit=1). This avoids unreliable ComputerName fallback — AL2023 nodes
+  # often report dhcp hostnames unrelated to Lightsail instance_name.
   managed_id="$(aws ssm describe-instance-information \
     --region "$LIGHTSAIL_REGION" \
-    --filters "Key=tag:EdgeId,Values=${EDGE_ID}" "Key=ResourceType,Values=ManagedInstance" \
+    --filters "Key=ActivationIds,Values=${activation_id}" \
+    --query 'InstanceInformationList[0].InstanceId' --output text 2>/dev/null || true)"
+  if [[ -n "$managed_id" && "$managed_id" != "None" && "$managed_id" != "null" ]]; then
+    break
+  fi
+  # Secondary: activation tags propagate to MI but cannot combine with ResourceType.
+  managed_id="$(aws ssm describe-instance-information \
+    --region "$LIGHTSAIL_REGION" \
+    --filters "Key=tag:EdgeId,Values=${EDGE_ID}" \
     --query 'InstanceInformationList[0].InstanceId' --output text 2>/dev/null || true)"
   if [[ -n "$managed_id" && "$managed_id" != "None" && "$managed_id" != "null" ]]; then
     break
@@ -155,6 +168,9 @@ done
 
 if [[ -z "$managed_id" || "$managed_id" == "None" || "$managed_id" == "null" ]]; then
   echo "::error::SSM managed instance not registered within timeout; check /var/log/tokenkey-lightsail-bootstrap.log via Lightsail browser SSH"
+  echo "::notice::describe-activations (registration count / expiration):"
+  aws ssm describe-activations --region "$LIGHTSAIL_REGION" --no-paginate \
+    --filters "FilterKey=ActivationIds,FilterValues=${activation_id}" || true
   exit 1
 fi
 
