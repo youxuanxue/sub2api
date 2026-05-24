@@ -14,13 +14,6 @@ Parameters:
     Type: String
     Default: tokenkey-gha-us-east-1-error-clustering
     Description: Name of the existing GHA OIDC role from tokenkey-cicd-oidc stack.
-  SsmHybridRoleName:
-    Type: String
-    Default: tokenkey-lightsail-ssm-hybrid
-    Description: >-
-      Name of the IAM role that SSM Hybrid managed instances (mi-*) assume.
-      `aws ssm create-activation --iam-role <this>` requires the role to exist
-      with a trust policy permitting ssm.amazonaws.com to assume it.
 
 Resources:
   # SSM Hybrid managed-instance role: assumed by amazon-ssm-agent -register
@@ -29,10 +22,14 @@ Resources:
   # minimum set of permissions for SendCommand callbacks + heartbeat + the
   # parameter reads the bootstrap user-data does (GHCR_PAT only — public images
   # need no auth, but the read path is in the bootstrap regardless).
+  #
+  # RoleName is hard-coded (NOT parameterized) on purpose: provision-edge.sh
+  # carries the same literal as its fallback. Single source of truth — any
+  # rename has to land in the same PR for both files, no silent drift.
   LightsailSsmHybridRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Ref SsmHybridRoleName
+      RoleName: tokenkey-lightsail-ssm-hybrid
       Description: >-
         Assumed by SSM Hybrid managed instances created from Lightsail Edge
         provisioning. Trust policy is the canonical ssm.amazonaws.com form.
