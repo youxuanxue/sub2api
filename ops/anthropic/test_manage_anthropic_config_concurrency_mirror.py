@@ -295,6 +295,7 @@ class ApplyDispatchTest(unittest.TestCase):
         self.tmp = pathlib.Path(self._tmp.name)
         self._orig_ssm = mgr.ssm_run_sql_b64
         self._orig_resolve = mgr.resolve_instance_id
+        self._orig_resolve_edge = mgr._resolve_edge_target
         self.captured: list[dict] = []
 
         def fake_ssm(region, instance_id, sql_b64, comment):
@@ -307,10 +308,14 @@ class ApplyDispatchTest(unittest.TestCase):
 
         mgr.ssm_run_sql_b64 = fake_ssm
         mgr.resolve_instance_id = lambda region, stack: f"i-fake-{stack}"
+        mgr._resolve_edge_target = lambda edge_id: (
+            "us-west-2", f"i-fake-{edge_id}", f"edge:{edge_id}",
+        )
 
     def tearDown(self) -> None:
         mgr.ssm_run_sql_b64 = self._orig_ssm
         mgr.resolve_instance_id = self._orig_resolve
+        mgr._resolve_edge_target = self._orig_resolve_edge
         self._tmp.cleanup()
 
     def _apply(self, actions: list[dict]) -> None:

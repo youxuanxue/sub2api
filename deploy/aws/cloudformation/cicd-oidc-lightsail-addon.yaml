@@ -74,6 +74,9 @@ Resources:
               - lightsail:GetBlueprints
               - lightsail:GetBundles
               - lightsail:GetRegions
+              # Caddy/Let's Encrypt inbound; omitting firewall rules yields public HTTPS timeouts (DNS resolves, TCP never completes).
+              - lightsail:GetInstancePortStates
+              - lightsail:OpenInstancePublicPorts
             Resource: "*"
           - Sid: SsmHybridActivation
             Effect: Allow

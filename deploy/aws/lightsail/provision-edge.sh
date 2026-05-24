@@ -130,6 +130,21 @@ aws lightsail attach-static-ip \
   --static-ip-name "$STATIC_IP_NAME" \
   --instance-name "$INSTANCE_NAME"
 
+# Instance-level firewall (Lightsail "Networking"): distinct from EC2 SGs / Caddy allowlists.
+# Default blueprints commonly expose SSH only — without 80/443, public curls time out (~2m) despite correct DNS/static IP.
+echo "opening Lightsail public ports 80 and 443 (IPv4) on ${INSTANCE_NAME}"
+for port in 80 443; do
+  if aws lightsail open-instance-public-ports \
+    --region "$LIGHTSAIL_REGION" \
+    --instance-name "$INSTANCE_NAME" \
+    --port-info "fromPort=${port},toPort=${port},protocol=tcp,cidrs=0.0.0.0/0" >/dev/null; then
+    echo "lightsail firewall: TCP ${port} allowed from 0.0.0.0/0"
+  else
+    echo "::notice::open-instance-public-ports tcp/${port} failed or rule already exists — check:" >&2
+    echo "       aws lightsail get-instance-port-states --region ${LIGHTSAIL_REGION} --instance-name ${INSTANCE_NAME}" >&2
+  fi
+done
+
 public_ip="$(aws lightsail get-static-ip --region "$LIGHTSAIL_REGION" --static-ip-name "$STATIC_IP_NAME" \
   --query 'staticIp.ipAddress' --output text)"
 

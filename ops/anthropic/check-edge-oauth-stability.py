@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import importlib.util
 import json
 import pathlib
 import subprocess
@@ -13,6 +14,16 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 DEFAULT_MATRIX = REPO_ROOT / "deploy/aws/stage0/edge-targets.json"
 DEFAULT_BASELINE = REPO_ROOT / "deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json"
 CONFIRM_UPDATE = "yes-update-anthropic-stable-list"
+
+_ROUTING_SPEC = importlib.util.spec_from_file_location(
+    "tk_edge_routing_oauth_chk",
+    REPO_ROOT / "ops/stage0/edge_routing_matrix.py",
+)
+if _ROUTING_SPEC is None or _ROUTING_SPEC.loader is None:
+    raise RuntimeError("cannot load ops/stage0/edge_routing_matrix.py")
+_EDGE_ROUTING = importlib.util.module_from_spec(_ROUTING_SPEC)
+sys.modules.setdefault(_ROUTING_SPEC.name, _EDGE_ROUTING)
+_ROUTING_SPEC.loader.exec_module(_EDGE_ROUTING)
 
 
 class CheckError(Exception):
@@ -62,46 +73,170 @@ def run_cmd(args: list[str], *, input_text: str | None = None) -> str:
     return proc.stdout
 
 
-def resolve_edge(matrix: dict[str, Any], edge_id: str, *, allow_planned: bool = False) -> dict[str, Any]:
-    targets = matrix.get("targets") or {}
-    target = targets.get(edge_id)
-    if target is None:
-        fail(f"unknown edge_id {edge_id}; known edges: {', '.join(sorted(targets))}")
-    if not target.get("deployable") and not allow_planned:
+def resolve_edge(
+    ec2_matrix: dict[str, Any],
+    edge_id: str,
+    *,
+    ls_targets: dict[str, dict],
+    repo_root: pathlib.Path,
+    allow_planned: bool = False,
+) -> dict[str, Any]:
+    ec2_targets = ec2_matrix.get("targets") or {}
+    ec2_t = ec2_targets.get(edge_id)
+    ls_t = ls_targets.get(edge_id)
+
+    known_ec2 = sorted(ec2_targets.keys())
+    known_ls = sorted(ls_targets.keys())
+    if ec2_t is None and ls_t is None:
+        fail(
+            f"unknown edge_id {edge_id}; EC2 ids: {', '.join(known_ec2)}; "
+            f"Lightsail ids: {', '.join(known_ls) if known_ls else '(none)'}",
+        )
+
+    deploy = _EDGE_ROUTING.edge_effective_deployable(ec2_t, ls_t)
+
+    if not deploy and not allow_planned:
         fail(f"edge_id {edge_id} is planned but not deployable")
-    for key in ("region", "stack", "domain", "ssm_prefix"):
-        if not target.get(key):
-            fail(f"edge_id {edge_id} missing required field {key}")
+
+    if deploy:
+        mode, region, ec2_stack = _EDGE_ROUTING.resolve_route_tab(repo_root, edge_id, "auto")
+
+        if mode == "lightsail":
+            if not ls_t:
+                fail(f"route is lightsail for {edge_id} but Lightsail matrix entry missing")
+            for key in ("domain", "ssm_prefix", "lightsail_region"):
+                if not ls_t.get(key):
+                    fail(f"Lightsail matrix entry for {edge_id} missing required field {key}")
+            return {
+                "edge_id": edge_id,
+                "region": region,
+                "stack": "",
+                "domain": str(ls_t["domain"]),
+                "ssm_prefix": str(ls_t["ssm_prefix"]),
+                "routing": "lightsail",
+                "deployable": True,
+            }
+
+        assert ec2_t is not None
+        for key in ("region", "stack", "domain", "ssm_prefix"):
+            if not ec2_t.get(key):
+                fail(f"edge_id {edge_id} missing EC2 matrix field {key}")
+        return {
+            "edge_id": edge_id,
+            "region": region,
+            "stack": str(ec2_stack or ec2_t.get("stack") or ""),
+            "domain": ec2_t["domain"],
+            "ssm_prefix": ec2_t["ssm_prefix"],
+            "routing": "ec2",
+            "deployable": True,
+        }
+
+    # Planned: prefer EC2 row when present; otherwise Lightsail row.
+    assert not deploy
+
+    if ec2_t:
+        for key in ("region", "stack", "domain", "ssm_prefix"):
+            if not ec2_t.get(key):
+                fail(f"planned edge_id {edge_id} missing EC2 matrix field {key}")
+        return {
+            "edge_id": edge_id,
+            "region": ec2_t["region"],
+            "stack": ec2_t["stack"],
+            "domain": ec2_t["domain"],
+            "ssm_prefix": ec2_t["ssm_prefix"],
+            "routing": "ec2",
+            "deployable": False,
+        }
+
+    for key in ("lightsail_region", "domain", "ssm_prefix"):
+        if not ls_t.get(key):  # type: ignore[union-attr]
+            fail(f"planned edge_id {edge_id} missing Lightsail matrix field {key}")
     return {
         "edge_id": edge_id,
-        "region": target["region"],
-        "stack": target["stack"],
-        "domain": target["domain"],
-        "ssm_prefix": target["ssm_prefix"],
-        "deployable": bool(target.get("deployable")),
+        "region": str(ls_t["lightsail_region"]),  # type: ignore[index]
+        "stack": "",
+        "domain": str(ls_t["domain"]),
+        "ssm_prefix": str(ls_t["ssm_prefix"]),
+        "routing": "lightsail",
+        "deployable": False,
     }
 
 
-def resolve_edges(matrix: dict[str, Any], edge_id: str, *, allow_planned: bool = False) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
-    if edge_id != "all":
-        return [resolve_edge(matrix, edge_id, allow_planned=allow_planned)], []
+def resolve_edges(
+    ec2_matrix: dict[str, Any],
+    edge_id: str,
+    *,
+    repo_root: pathlib.Path,
+    allow_planned: bool = False,
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    ls_targets = _EDGE_ROUTING.load_lightsail_targets(repo_root)
 
-    targets = matrix.get("targets") or {}
+    if edge_id != "all":
+        return [
+            resolve_edge(
+                ec2_matrix,
+                edge_id,
+                ls_targets=ls_targets,
+                repo_root=repo_root,
+                allow_planned=allow_planned,
+            ),
+        ], []
+
+    ec2_targets = ec2_matrix.get("targets") or {}
     edges: list[dict[str, Any]] = []
     excluded: list[dict[str, str]] = []
-    for candidate in sorted(targets):
-        target = targets[candidate] or {}
-        deployable = bool(target.get("deployable"))
-        if not deployable and not allow_planned:
-            excluded.append({"edge_id": candidate, "reason": "deployable=false"})
+
+    for candidate in _EDGE_ROUTING.merged_edge_ids(ec2_matrix, ls_targets):
+        ec2_tgt = ec2_targets.get(candidate)
+        ls_tgt = ls_targets.get(candidate)
+
+        deploy = _EDGE_ROUTING.edge_effective_deployable(ec2_tgt, ls_tgt)
+        if not deploy and not allow_planned:
+            excluded.append({"edge_id": candidate, "reason": "not deployable (EC2 ∪ Lightsail matrices)"})
             continue
-        edges.append(resolve_edge(matrix, candidate, allow_planned=True))
+
+        edges.append(
+            resolve_edge(
+                ec2_matrix,
+                candidate,
+                ls_targets=ls_targets,
+                repo_root=repo_root,
+                allow_planned=True,
+            ),
+        )
+
     return edges, excluded
 
 
 def resolve_instance_id(edge: dict[str, Any], instance_id: str) -> str:
     if instance_id:
         return instance_id
+
+    routing = edge.get("routing") or ""
+
+    if not routing:
+        fail("internal error: missing routing on resolved edge topology")
+
+    if routing == "lightsail":
+        prefix = edge["ssm_prefix"]
+        pname = prefix.rstrip("/") + "/ssm_managed_instance_id"
+        mi = run_cmd([
+            "aws",
+            "ssm",
+            "get-parameter",
+            "--region",
+            edge["region"],
+            "--name",
+            pname,
+            "--query",
+            "Parameter.Value",
+            "--output",
+            "text",
+        ]).strip()
+        if not mi or mi == "None":
+            fail(f"could not resolve SSM managed instance from {pname}")
+        return mi
+
     out = run_cmd([
         "aws",
         "cloudformation",
@@ -613,7 +748,12 @@ def main() -> int:
     baseline = load_json(baseline_path)
     if default_tier and default_tier not in (baseline.get("tiers") or {}):
         fail(f"--default-tier={default_tier} not found in baseline tiers")
-    edges, excluded_edges = resolve_edges(matrix, args.edge_id, allow_planned=args.allow_planned)
+    edges, excluded_edges = resolve_edges(
+        matrix,
+        args.edge_id,
+        repo_root=REPO_ROOT,
+        allow_planned=args.allow_planned,
+    )
 
     if args.update_stable_list:
         if args.confirm != CONFIRM_UPDATE:

@@ -20,9 +20,12 @@
 #
 #   --target prod        resolves region+instance from CloudFormation
 #                        (stack=tokenkey-prod-stage0, region=us-east-1)
-#   --target edge:<id>   resolves from deploy/aws/stage0/edge-targets.json
-#                        and CloudFormation. Refuses planned (deployable=false)
-#                        unless caller exports ALLOW_PLANNED=1.
+#   --target edge:<id>   resolves via ops/stage0/edge_ssm_execution.py when
+#                        ALLOW_PLANNED is unset (EC2 CFN or Lightsail MI from
+#                        Parameter Store — same auto rule as admin reset).
+#                        If ALLOW_PLANNED=1, falls back to
+#                        deploy/aws/stage0/resolve-edge-target.py + CloudFormation
+#                        (planned edges; EC2-matrix shaped only).
 #
 # Env passthrough:
 #   --env FOO=bar appears as `FOO=bar` in the remote shell *before* the script
@@ -94,59 +97,79 @@ INSTANCE_ID=""
 if [ "$TARGET" = "prod" ]; then
   REGION="us-east-1"
   STACK="tokenkey-prod-stage0"
+  INSTANCE_ID=$(aws cloudformation describe-stacks \
+    --region "$REGION" --stack-name "$STACK" \
+    --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue" \
+    --output text 2>&1) || {
+    echo "[run-probe] ERROR: describe-stacks failed for $STACK in $REGION" >&2
+    printf '%s\n' "$INSTANCE_ID" >&2
+    exit 2
+  }
+  if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
+    INSTANCE_ID=$(aws cloudformation describe-stack-resources \
+      --region "$REGION" --stack-name "$STACK" \
+      --query "StackResources[?ResourceType=='AWS::EC2::Instance']|[0].PhysicalResourceId" \
+      --output text 2>/dev/null || true)
+  fi
 elif [[ "$TARGET" == edge:* ]]; then
   EDGE_ID="${TARGET#edge:}"
   if [ -z "$EDGE_ID" ]; then
     echo "[run-probe] ERROR: --target edge: requires an edge id" >&2
     exit 1
   fi
-  MATRIX="$REPO_ROOT/deploy/aws/stage0/edge-targets.json"
-  ALLOW_PLANNED_FLAG=""
   if [ "${ALLOW_PLANNED:-0}" = "1" ]; then
+    MATRIX="$REPO_ROOT/deploy/aws/stage0/edge-targets.json"
     ALLOW_PLANNED_FLAG="--allow-planned"
-  fi
-  # resolve-edge-target.py prints key=value; harvest region+stack
-  RESOLVED=$(python3 "$REPO_ROOT/deploy/aws/stage0/resolve-edge-target.py" \
-    --edge-id "$EDGE_ID" --matrix "$MATRIX" $ALLOW_PLANNED_FLAG 2>&1) || {
-    echo "[run-probe] ERROR: resolve-edge-target.py failed for edge_id=$EDGE_ID" >&2
-    printf '%s\n' "$RESOLVED" >&2
-    exit 1
-  }
-  REGION=$(printf '%s\n' "$RESOLVED" | awk -F= '/^region=/{print $2; exit}')
-  STACK=$(printf '%s\n' "$RESOLVED" | awk -F= '/^stack=/{print $2; exit}')
-  if [ -z "$REGION" ] || [ -z "$STACK" ]; then
-    echo "[run-probe] ERROR: could not parse region/stack from resolve-edge-target output" >&2
-    exit 1
+    RESOLVED=$(python3 "$REPO_ROOT/deploy/aws/stage0/resolve-edge-target.py" \
+      --edge-id "$EDGE_ID" --matrix "$MATRIX" $ALLOW_PLANNED_FLAG 2>&1) || {
+      echo "[run-probe] ERROR: resolve-edge-target.py failed for edge_id=$EDGE_ID" >&2
+      printf '%s\n' "$RESOLVED" >&2
+      exit 1
+    }
+    REGION=$(printf '%s\n' "$RESOLVED" | awk -F= '/^region=/{print $2; exit}')
+    STACK=$(printf '%s\n' "$RESOLVED" | awk -F= '/^stack=/{print $2; exit}')
+    if [ -z "$REGION" ] || [ -z "$STACK" ]; then
+      echo "[run-probe] ERROR: could not parse region/stack from resolve-edge-target output" >&2
+      exit 1
+    fi
+    INSTANCE_ID=$(aws cloudformation describe-stacks \
+      --region "$REGION" --stack-name "$STACK" \
+      --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue" \
+      --output text 2>&1) || {
+      echo "[run-probe] ERROR: describe-stacks failed for $STACK in $REGION" >&2
+      printf '%s\n' "$INSTANCE_ID" >&2
+      exit 2
+    }
+    if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
+      INSTANCE_ID=$(aws cloudformation describe-stack-resources \
+        --region "$REGION" --stack-name "$STACK" \
+        --query "StackResources[?ResourceType=='AWS::EC2::Instance']|[0].PhysicalResourceId" \
+        --output text 2>/dev/null || true)
+    fi
+  else
+    PYERR=$(mktemp)
+    if ! RES_LINES=$(python3 "$REPO_ROOT/ops/stage0/edge_ssm_execution.py" \
+        --repo-root "$REPO_ROOT" --edge-id "$EDGE_ID" --format env 2>"$PYERR"); then
+      echo "[run-probe] ERROR: edge_ssm_execution.py failed for edge_id=$EDGE_ID" >&2
+      cat "$PYERR" >&2
+      rm -f "$PYERR"
+      exit 1
+    fi
+    rm -f "$PYERR"
+    eval "$RES_LINES"
   fi
 else
   echo "[run-probe] ERROR: --target must be 'prod' or 'edge:<id>', got: $TARGET" >&2
   exit 1
 fi
 
-INSTANCE_ID=$(aws cloudformation describe-stacks \
-  --region "$REGION" --stack-name "$STACK" \
-  --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue" \
-  --output text 2>&1) || {
-  echo "[run-probe] ERROR: describe-stacks failed for $STACK in $REGION" >&2
-  printf '%s\n' "$INSTANCE_ID" >&2
-  exit 2
-}
-
-if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
-  # Fallback to describe-stack-resources for older stacks lacking InstanceId output
-  INSTANCE_ID=$(aws cloudformation describe-stack-resources \
-    --region "$REGION" --stack-name "$STACK" \
-    --query "StackResources[?ResourceType=='AWS::EC2::Instance']|[0].PhysicalResourceId" \
-    --output text 2>/dev/null || true)  # preflight-allow: swallow
-fi
-if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
-  echo "[run-probe] ERROR: could not resolve InstanceId from stack $STACK" >&2
+if [ -z "${INSTANCE_ID:-}" ] || [ "$INSTANCE_ID" = "None" ]; then
+  echo "[run-probe] ERROR: could not resolve instance id for target $TARGET" >&2
   exit 2
 fi
 
 # Build env prefix (e.g. "PLATFORM=anthropic ERR_HOURS=2")
 ENV_PREFIX=""
-for kv in "${ENVS[@]+"${ENVS[@]}"}"; do
   if [[ ! "$kv" =~ ^[A-Z_][A-Z0-9_]*= ]]; then
     echo "[run-probe] ERROR: --env must be KEY=VAL with uppercase KEY: $kv" >&2
     exit 1
