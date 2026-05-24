@@ -96,7 +96,8 @@ aws cloudformation deploy \
   --region us-east-1 \
   --stack-name tokenkey-cicd-lightsail-addon \
   --template-file deploy/aws/cloudformation/cicd-oidc-lightsail-addon.yaml \
-  --parameter-overrides GitHubOidcRoleName=tokenkey-gha-us-east-1-error-clustering
+  --parameter-overrides GitHubOidcRoleName=tokenkey-gha-us-east-1-error-clustering \
+  --capabilities CAPABILITY_NAMED_IAM
 ```
 
 ### 1.4 GHCR auth（仅在镜像私有时需要）

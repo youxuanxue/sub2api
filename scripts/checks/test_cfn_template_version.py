@@ -118,5 +118,43 @@ class CfnTemplateVersionTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
 
+class LightsailAddonContractTests(unittest.TestCase):
+    """The Lightsail addon CFN template carries two load-bearing resources
+    operations depend on. Regression-guard them at the structural level so a
+    future edit cannot silently drop the SSM Hybrid IAM role (which would make
+    `aws ssm create-activation --iam-role` fail at provision time)."""
+
+    ADDON = REPO_ROOT / "deploy/aws/cloudformation/cicd-oidc-lightsail-addon.yaml"
+
+    def setUp(self):
+        self.text = self.ADDON.read_text(encoding="utf-8")
+
+    def test_ssm_hybrid_role_resource_present(self):
+        self.assertIn("LightsailSsmHybridRole:", self.text,
+                      "addon must declare the SSM Hybrid managed-instance role")
+        self.assertIn("Service: ssm.amazonaws.com", self.text,
+                      "trust policy must allow ssm.amazonaws.com")
+        self.assertIn("arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore", self.text,
+                      "role must attach AmazonSSMManagedInstanceCore managed policy")
+
+    def test_passrole_for_ssm_activation_present(self):
+        # create-activation embeds the role into the activation, which requires
+        # the caller to have iam:PassRole on it (scoped to ssm.amazonaws.com).
+        self.assertIn("iam:PassRole", self.text,
+                      "OIDC role inline policy must grant iam:PassRole on the Hybrid role")
+        self.assertIn("iam:PassedToService: ssm.amazonaws.com", self.text,
+                      "PassRole must be scoped to ssm.amazonaws.com")
+
+    def test_hybrid_role_name_param_matches_provision_default(self):
+        # provision-edge.sh defaults SSM_HYBRID_ROLE_NAME to this value; if the
+        # addon's role name parameter default drifts, the dispatch will fail.
+        self.assertIn("tokenkey-lightsail-ssm-hybrid", self.text,
+                      "default role name must match provision-edge.sh fallback")
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
 if __name__ == "__main__":
     unittest.main()

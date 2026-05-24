@@ -18,6 +18,7 @@ GHCR_OWNER="${12:-${GHCR_OWNER:-}}"
 GHCR_PAT_SSM_NAME="${13:-${GHCR_PAT_SSM_NAME:-}}"
 SSM_PREFIX="${14:-${SSM_PREFIX:-}}"
 ACTIVATION_NAME="${15:-${ACTIVATION_NAME:-tokenkey-ls-${EDGE_ID}}}"
+SSM_HYBRID_ROLE_NAME="${16:-${SSM_HYBRID_ROLE_NAME:-tokenkey-lightsail-ssm-hybrid}}"
 
 if [[ -z "$EDGE_ID" || -z "$TAG" || -z "$LIGHTSAIL_REGION" || -z "$INSTANCE_NAME" ]]; then
   echo "provision-edge: missing required args" >&2
@@ -30,9 +31,13 @@ bash "${REPO_ROOT}/deploy/aws/lightsail/render-bootstrap.sh"
 TOKENKEY_IMAGE="ghcr.io/${GHCR_OWNER}/sub2api:${TAG}"
 GHCR_PULL_USER="${GHCR_OWNER}"
 
-echo "creating SSM hybrid activation name=${ACTIVATION_NAME} region=${LIGHTSAIL_REGION}"
+echo "creating SSM hybrid activation name=${ACTIVATION_NAME} region=${LIGHTSAIL_REGION} iam-role=${SSM_HYBRID_ROLE_NAME}"
+# --iam-role is required: AWS embeds the role into the activation so registered
+# managed instances (mi-*) can call back into SSM. The role is created by
+# cicd-oidc-lightsail-addon.yaml (one-time per account).
 activation_json="$(aws ssm create-activation \
   --region "$LIGHTSAIL_REGION" \
+  --iam-role "$SSM_HYBRID_ROLE_NAME" \
   --description "tokenkey lightsail edge ${EDGE_ID}" \
   --default-instance-name "${INSTANCE_NAME}" \
   --registration-limit 1 \
