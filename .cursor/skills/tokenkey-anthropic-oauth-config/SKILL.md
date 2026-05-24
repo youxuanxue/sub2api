@@ -362,6 +362,7 @@ operate 流程：
 - `ops/anthropic/check-edge-oauth-stability.py`（`generate_sql`：`tls_profile` upsert + `extra.tls_fingerprint_profile_id` 绑定）
 - `docs/accounts/anthropic-oauth-edge-account-stability-2026-05-14.md`（uk 仅启用 TLS 无显式 profile / 空 `tls_fingerprint_profiles` 的结论与背景）
 - `deploy/aws/stage0/claude_cli_2_1_142_node24_20260515.json`（canonical TLS profile JSON，与 tier baseline `shared_baseline.tls_profile` 对齐）
+- `deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json`（tier baseline 唯一真值源；apply SQL 运行时从它派生，无静态 SQL 模板）
 - `deploy/aws/stage0/anthropic-stub-pool-baselines.json`（stub pool 策略唯一真值源；apply SQL 运行时从它派生，无静态 SQL 模板）
 - `backend/internal/handler/admin/account_handler.go`
 - `backend/internal/service/admin_service.go`
