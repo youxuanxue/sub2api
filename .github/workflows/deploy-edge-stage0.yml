@@ -18,7 +18,7 @@ on:
           - fra1
           - us1
       operation:
-        description: "Operation to run. provision creates/updates CFN; upgrade only changes image tag via SSM; smoke verifies; rotate_egress_ip swaps the EIP via CFN-native UpdateStack with auto-revert on pollution."
+        description: "Operation to run. provision creates/updates CFN; upgrade only changes image tag via SSM; smoke verifies; rotate_egress_ip swaps the EIP via CFN-native UpdateStack with auto-revert on pollution; decommission permanently deletes the stack (gated by deployable=false + explicit confirm) — used for EC2→Lightsail migration."
         required: true
         type: choice
         options:
@@ -27,6 +27,7 @@ on:
           - smoke
           - rollback
           - rotate_egress_ip
+          - decommission
       tag:
         description: "Released image tag without leading v. Required for provision/upgrade/rollback."
         required: false
@@ -48,6 +49,16 @@ on:
         description: "Optional for operation=rotate_egress_ip. If set, skip allocation and swap directly to this pre-vetted allocation-id. Must match ^eipalloc-[0-9a-f]+$ and be in the edge's region."
         required: false
         type: string
+      i_understand_destroys_data:
+        description: "Required for operation=decommission. MUST be 'true' to acknowledge permanent deletion of EC2 instance + EBS volume + VPC. EBS is snapshotted before delete (30-day retention tag); EIP is preserved unless release_eip=true."
+        required: false
+        type: boolean
+        default: false
+      release_eip:
+        description: "Optional for operation=decommission. If true, also release the externally-allocated EIP after CFN delete. Default false (keeps EIP for re-use on another edge or for ip-history audit)."
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -71,6 +82,8 @@ jobs:
       INPUT_OVERRIDE: ${{ inputs.simple_release_override }}
       INPUT_ROTATION_REASON: ${{ inputs.rotation_reason }}
       INPUT_CANDIDATE_ALLOC: ${{ inputs.candidate_allocation_id }}
+      INPUT_UNDERSTAND_DESTROY: ${{ inputs.i_understand_destroys_data }}
+      INPUT_RELEASE_EIP: ${{ inputs.release_eip }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -84,9 +97,18 @@ jobs:
             echo "::error::AWS_OIDC_ROLE_ARN repo variable not set"
             exit 1
           fi
+          # decommission targets edges that are deployable=false (matrix gate
+          # for "this edge is shut down or being shut down"). Pass --allow-planned
+          # so the resolver doesn't reject it; the decommission step asserts
+          # deployable==false explicitly to keep the gate meaningful.
+          ALLOW_PLANNED=""
+          if [ "$INPUT_OPERATION" = "decommission" ]; then
+            ALLOW_PLANNED="--allow-planned"
+          fi
           python3 deploy/aws/stage0/resolve-edge-target.py \
             --edge-id "$INPUT_EDGE_ID" \
             --confirm-stack "$INPUT_CONFIRM_STACK" \
+            $ALLOW_PLANNED \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Validate operation inputs
@@ -112,6 +134,20 @@ jobs:
               fi
               if [ -n "${INPUT_CANDIDATE_ALLOC:-}" ] && ! printf '%s' "$INPUT_CANDIDATE_ALLOC" | grep -Eq '^eipalloc-[0-9a-f]{8,17}$'; then
                 echo "::error::candidate_allocation_id must match ^eipalloc-[0-9a-f]+$, got: $INPUT_CANDIDATE_ALLOC"
+                exit 1
+              fi
+              ;;
+            decommission)
+              if [ "${INPUT_UNDERSTAND_DESTROY}" != "true" ]; then
+                echo "::error::operation=decommission requires i_understand_destroys_data=true"
+                echo "::error::This will permanently DELETE the CloudFormation stack, EC2 instance, and EBS volume."
+                echo "::error::EBS root volume is snapshotted before delete (30-day retention tag). EIP is preserved unless release_eip=true."
+                exit 1
+              fi
+              if [ "${{ steps.edge.outputs.deployable }}" != "false" ]; then
+                echo "::error::operation=decommission requires the edge to be deployable=false in deploy/aws/stage0/edge-targets.json"
+                echo "::error::Currently: $INPUT_EDGE_ID deployable=${{ steps.edge.outputs.deployable }}"
+                echo "::error::Flip deployable=false (separate PR) before decommissioning. This prevents accidental destroy of an active edge."
                 exit 1
               fi
               ;;
@@ -495,6 +531,121 @@ jobs:
             echo "After the release, update \`released_on\` in the JSON entry to the release date and commit."
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Snapshot EBS root volume before decommission
+        if: inputs.operation == 'decommission'
+        id: decommission_snapshot
+        env:
+          STACK_NAME: ${{ steps.edge.outputs.stack }}
+          EDGE_ID: ${{ steps.edge.outputs.edge_id }}
+          REGION: ${{ steps.edge.outputs.region }}
+        run: |
+          set -euo pipefail
+          # Resolve InstanceId from stack outputs (the stack still exists at this point).
+          INSTANCE_ID="$(aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK_NAME" \
+            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)"
+          if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
+            # No InstanceId in stack outputs is genuinely "already torn down" —
+            # delete-stack will be a no-op too. This is the only path where we
+            # legitimately skip snapshot (nothing to snapshot).
+            echo "::warning::stack $STACK_NAME has no InstanceId output (already torn down?); skipping snapshot"
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Resolve the actual root device name from the instance (NOT hard-coded
+          # /dev/xvda — AL2023 on t4g uses xvda today, but Nitro / future AMIs
+          # may use nvme0n1 etc.). Fail-fast if we cannot identify a root EBS,
+          # because the snapshot is a contract of decommission and an empty
+          # snapshot path would silently destroy the rollback window.
+          ROOT_DEV="$(aws ec2 describe-instances --region "$REGION" --instance-ids "$INSTANCE_ID" \
+            --query 'Reservations[0].Instances[0].RootDeviceName' --output text)"
+          if [ -z "$ROOT_DEV" ] || [ "$ROOT_DEV" = "None" ]; then
+            echo "::error::cannot resolve RootDeviceName for $INSTANCE_ID — refusing to decommission without an EBS snapshot"
+            exit 1
+          fi
+          ROOT_VOL="$(aws ec2 describe-instances --region "$REGION" --instance-ids "$INSTANCE_ID" \
+            --query "Reservations[0].Instances[0].BlockDeviceMappings[?DeviceName=='${ROOT_DEV}'].Ebs.VolumeId" \
+            --output text)"
+          if [ -z "$ROOT_VOL" ] || [ "$ROOT_VOL" = "None" ]; then
+            echo "::error::instance $INSTANCE_ID has no EBS volume on RootDeviceName=$ROOT_DEV — refusing to decommission without an EBS snapshot"
+            exit 1
+          fi
+          TS="$(date -u +%Y%m%dT%H%M%SZ)"
+          SNAP="$(aws ec2 create-snapshot --region "$REGION" --volume-id "$ROOT_VOL" \
+            --description "pre-decommission snapshot of $STACK_NAME root volume ($ROOT_DEV)" \
+            --tag-specifications "ResourceType=snapshot,Tags=[{Key=Project,Value=tokenkey},{Key=EdgeId,Value=$EDGE_ID},{Key=Purpose,Value=pre-decommission-rollback},{Key=Stack,Value=$STACK_NAME},{Key=RootDevice,Value=$ROOT_DEV},{Key=Timestamp,Value=$TS},{Key=RetentionDays,Value=30}]" \
+            --query 'SnapshotId' --output text)"
+          echo "snapshot_id=$SNAP" >> "$GITHUB_OUTPUT"
+          echo "volume_id=$ROOT_VOL" >> "$GITHUB_OUTPUT"
+          echo "root_device=$ROOT_DEV" >> "$GITHUB_OUTPUT"
+          echo "skipped=false" >> "$GITHUB_OUTPUT"
+          # Wait up to 10 minutes for snapshot to reach 'pending' or 'completed' — we don't need full completion
+          # to proceed with stack delete (snapshot is independent of the source volume); we just confirm AWS
+          # accepted the request and the snapshot exists.
+          for i in 1 2 3 4 5 6; do
+            STATE="$(aws ec2 describe-snapshots --region "$REGION" --snapshot-ids "$SNAP" \
+              --query 'Snapshots[0].State' --output text 2>/dev/null || echo pending)"
+            case "$STATE" in pending|completed) break ;; esac
+            sleep 10
+          done
+          echo "snapshot $SNAP created (state=$STATE) for volume $ROOT_VOL on $ROOT_DEV"
+
+      - name: Read EIP allocation before decommission
+        if: inputs.operation == 'decommission'
+        id: decommission_eip
+        env:
+          STACK_NAME: ${{ steps.edge.outputs.stack }}
+          REGION: ${{ steps.edge.outputs.region }}
+        run: |
+          set -euo pipefail
+          # describe-stacks may return non-zero for an already-deleted stack
+          # on retry; the empty alloc_id branch below covers it.
+          ALLOC="$(aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK_NAME" \
+            --query 'Stacks[0].Outputs[?OutputKey==`EipAllocationId`].OutputValue' --output text 2>/dev/null || true)"  # preflight-allow: swallow
+          if [ -z "$ALLOC" ] || [ "$ALLOC" = "None" ]; then
+            echo "::warning::stack $STACK_NAME has no EipAllocationId output"
+            echo "alloc_id=" >> "$GITHUB_OUTPUT"
+          else
+            echo "alloc_id=$ALLOC" >> "$GITHUB_OUTPUT"
+            echo "EIP allocation pinned for downstream: $ALLOC"
+          fi
+
+      - name: Delete CloudFormation stack
+        if: inputs.operation == 'decommission'
+        env:
+          STACK_NAME: ${{ steps.edge.outputs.stack }}
+          REGION: ${{ steps.edge.outputs.region }}
+        run: |
+          set -euo pipefail
+          echo "deleting CFN stack $STACK_NAME in $REGION"
+          aws cloudformation delete-stack --region "$REGION" --stack-name "$STACK_NAME"
+          aws cloudformation wait stack-delete-complete --region "$REGION" --stack-name "$STACK_NAME"
+          echo "stack $STACK_NAME deleted"
+
+      - name: Release EIP (optional)
+        if: inputs.operation == 'decommission' && inputs.release_eip == true
+        env:
+          ALLOC: ${{ steps.decommission_eip.outputs.alloc_id }}
+          REGION: ${{ steps.edge.outputs.region }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ALLOC:-}" ]; then
+            echo "::warning::no EIP allocation captured; skipping release"
+            exit 0
+          fi
+          # preflight-allow: swallow — already-released or already-associated-elsewhere
+          # both surface as non-zero; we then check describe-addresses to confirm.
+          if ! aws ec2 release-address --region "$REGION" --allocation-id "$ALLOC" 2>/tmp/release-err; then
+            cat /tmp/release-err >&2 || true  # preflight-allow: swallow — best-effort stderr forwarding; file may be empty
+            EXISTS="$(aws ec2 describe-addresses --region "$REGION" --allocation-ids "$ALLOC" --query 'Addresses' --output text 2>/dev/null || echo gone)"
+            if [ -z "$EXISTS" ] || [ "$EXISTS" = "gone" ]; then
+              echo "EIP $ALLOC already released (idempotent OK)"
+            else
+              echo "::error::release-address failed for $ALLOC"
+              exit 1
+            fi
+          fi
+          echo "EIP $ALLOC released"
+
       - name: External Edge health check
         if: inputs.operation == 'upgrade' || inputs.operation == 'rollback' || inputs.operation == 'smoke'
         env:
@@ -526,6 +677,10 @@ jobs:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
           API_URL: ${{ steps.instance.outputs.api_url }}
           CMD_ID: ${{ steps.ssm.outputs.command_id }}
+          DECOMM_SNAPSHOT: ${{ steps.decommission_snapshot.outputs.snapshot_id }}
+          DECOMM_VOLUME: ${{ steps.decommission_snapshot.outputs.volume_id }}
+          DECOMM_EIP: ${{ steps.decommission_eip.outputs.alloc_id }}
+          DECOMM_RELEASED: ${{ inputs.release_eip }}
         run: |
           {
             echo "## deploy-edge-stage0"
@@ -541,6 +696,18 @@ jobs:
             echo "- instance: \`${INSTANCE_ID:-none}\`"
             echo "- api: ${API_URL:-none}"
             echo "- ssm command id: \`${CMD_ID:-none}\`"
+            if [ "$INPUT_OPERATION" = "decommission" ]; then
+              echo
+              echo "### Decommission audit"
+              echo "- pre-decommission EBS snapshot: \`${DECOMM_SNAPSHOT:-skipped}\`"
+              echo "- source volume: \`${DECOMM_VOLUME:-unknown}\`"
+              echo "- preserved EIP allocation: \`${DECOMM_EIP:-unknown}\`"
+              echo "- EIP released: \`${DECOMM_RELEASED:-false}\`"
+              echo
+              echo "**Rollback within 30 days:** the EBS snapshot is tagged with RetentionDays=30."
+              echo "Restore by re-provisioning the stack (operation=provision) and replacing the new root EBS with a"
+              echo "fresh volume created from this snapshot. If the EIP was preserved, the original public IP returns."
+            fi
             echo
-            echo "Rollback: dispatch operation=rollback with the previous tag. IP rotation: dispatch operation=rotate_egress_ip with rotation_reason set. Destroy is intentionally not available in this workflow."
+            echo "Rollback: dispatch operation=rollback with the previous tag. IP rotation: dispatch operation=rotate_egress_ip with rotation_reason set. Decommission permanently deletes the stack — gated by deployable=false in matrix + i_understand_destroys_data=true."
           } >> "$GITHUB_STEP_SUMMARY"

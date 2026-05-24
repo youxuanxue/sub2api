@@ -763,7 +763,7 @@ else
     # CalledProcessError. Strip these vars at the boundary so the suites behave
     # identically inside the hook and standalone.
     _det_baseline_failed=0
-    for _det_dir in ops/observability ops/stage0 scripts deploy/aws/stage0 deploy/aws/lightsail; do
+    for _det_dir in ops/observability ops/stage0 ops/migration scripts deploy/aws/stage0 deploy/aws/lightsail; do
         if ! env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR \
               python3 -m unittest discover -s "$_det_dir" -p 'test_*.py' -t "$_det_dir" >/dev/null 2>&1; then
             echo "  FAIL: $_det_dir unittest failed (re-run: env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE python3 -m unittest discover -s $_det_dir -p 'test_*.py' -t $_det_dir -v)"
