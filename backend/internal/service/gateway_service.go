@@ -1297,7 +1297,7 @@ func (s *GatewayService) applyClaudeCodeOAuthMimicryToBody(
 	normalizeOpts := claudeOAuthNormalizeOptions{stripSystemCacheControl: !systemRewritten}
 
 	if s.identityService != nil && c != nil && c.Request != nil {
-		if fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, c.Request.Header); err == nil && fp != nil {
+		if fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, c.Request.Header, s.tlsFingerprintProfileNameForAccount(account)); err == nil && fp != nil {
 			mimicMPT := false
 			if s.settingService != nil {
 				_, mimicMPT, _ = s.settingService.GetGatewayForwardingSettings(ctx)
@@ -4465,6 +4465,24 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	reqStream := parsed.Stream
 	originalModel := reqModel
 
+	// TK canonical-OAuth ingress gates (see gateway_service_tk_canonical_oauth_guard.go):
+	//   1. reject third-party SDK UAs that would silently drain a personal cc subscription
+	//   2. remap retired opus model ids to the current default so the upstream model mix
+	//      stays consistent with what real claude-cli/2.1.150 produces
+	// Scoped to anthropic OAuth + canonical TLS profile only.
+	if c != nil && s.isCanonicalAnthropicOAuth(account) {
+		if err := checkCanonicalIngressUA(c.Request.Header); err != nil {
+			return nil, err
+		}
+		if newModel, remapped := remapDeprecatedOpusOnCanonical(reqModel); remapped {
+			body = s.replaceModelInBody(body, newModel)
+			logger.LegacyPrintf("service.gateway",
+				"Canonical OAuth model remap: %s -> %s (account: %s)",
+				reqModel, newModel, account.Name)
+			reqModel = newModel
+		}
+	}
+
 	// === DEBUG: 打印客户端原始请求（headers + body 摘要）===
 	if c != nil {
 		s.debugLogGatewaySnapshot("CLIENT_ORIGINAL", c.Request.Header, body, map[string]string{
@@ -4509,7 +4527,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		// 两种情况下 enforceCacheControlLimit 都会兜底处理上限。
 		normalizeOpts := claudeOAuthNormalizeOptions{stripSystemCacheControl: !systemRewritten}
 		if s.identityService != nil {
-			fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, c.Request.Header)
+			fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, c.Request.Header, s.tlsFingerprintProfileNameForAccount(account))
 			if err == nil && fp != nil {
 				// metadata 透传开启时跳过 metadata 注入
 				_, mimicMPT, _ := s.settingService.GetGatewayForwardingSettings(ctx)
@@ -6234,7 +6252,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	}
 	if account.IsOAuth() && s.identityService != nil {
 		// 1. 获取或创建指纹（包含随机生成的ClientID）
-		fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, clientHeaders)
+		fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, clientHeaders, s.tlsFingerprintProfileNameForAccount(account))
 		if err != nil {
 			logger.LegacyPrintf("service.gateway", "Warning: failed to get fingerprint for account %d: %v", account.ID, err)
 			// 失败时降级为透传原始headers
@@ -9555,7 +9573,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	}
 	var ctFingerprint *Fingerprint
 	if account.IsOAuth() && s.identityService != nil {
-		fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, clientHeaders)
+		fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, clientHeaders, s.tlsFingerprintProfileNameForAccount(account))
 		if err == nil {
 			ctFingerprint = fp
 			if !ctEnableMPT {

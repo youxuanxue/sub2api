@@ -21,6 +21,37 @@
 
 可作字段对照的镜像 JSON：`deploy/aws/stage0/claude_cli_2_1_142_node24_20260515.json`。
 
+**HTTP 层（User-Agent / `x-stainless-*`）**：TLS 模板不决定出站 HTTP 指纹。账号绑定上述 canonical 模板时，网关会把 Redis `fingerprint:{accountID}` 的 HTTP 字段钉死在同一 JSON 的 `observed.*`（与 TLS 参数独立）；prod→edge 透传的多版本 ingress UA 不会改写上游 UA。`ops_error_logs.user_agent` 仍是入口侧客户端 UA，不是 `api.anthropic.com` 所见值。
+
+---
+
+## Canonical 路径上的客户端身份要求
+
+账号绑定 canonical TLS 模板后，**网关会拒绝来自明显的第三方 SDK / 通用 HTTP 客户端的 ingress 请求**，返回 HTTP `403 permission_error`，不进 failover、不打 Anthropic 上游。判定基于 ingress `User-Agent` 子串（大小写无关）。
+
+- **拒绝**：`OpenAI/Python`、`openai-python`、`httpx/`、`python-requests/`、`node-fetch`、`axios/`、`got (`、`undici`、`go-http-client`、`curl/`、`wget/`、`postman`、`insomnia`、`libcurl`、`okhttp`、`java/`、`reqwest/`、`aiohttp`
+- **放行**：`claude-cli/*`、`claude-code/*`、空 UA、未列入拒绝表的未知 UA（deny-list-only 策略——未来 cc 新变体无需改代码）
+
+权威列表：`backend/internal/service/gateway_service_tk_canonical_oauth_guard.go` 的 `canonicalIngressUAForbiddenSubstrings`。需要追加新条目时直接在该 slice 末尾添加（**append-only**），并同步单测 + sentinel。
+
+**理由**：canonical 账号对应的是 Anthropic 个人 Claude Code subscription，被第三方 SDK 大流量长时间使用会让 Anthropic 风控聚合识别为「订阅账号被批处理代理共享」——2026-05-25 edge-uk1 账号 `EN-LD-EC2-16-3` 的 hold 事件就是这个 cohort signal。需要绕过这层（如内部脚本 / OpenAI SDK 路径）：用 API-key 类账号或非 canonical TLS 的 OAuth 账号；不要让非 cc 客户端共用 cc subscription。
+
+---
+
+## Canonical 路径上的退役 opus 重映射
+
+canonical 路径上请求**已退役的 opus 模型**（`claude-opus-4-0` ~ `claude-opus-4-5*` ~ `claude-opus-4-6*`，含带日期后缀如 `claude-opus-4-6-20250930`）会**自动重映射为当前默认 `claude-opus-4-7`**。Sonnet 全系列、Haiku 全系列、当前默认 `claude-opus-4-7` 不动。
+
+行为细节：
+
+- **客户端透明**：流式 / 非流响应里的 `model` 字段会被改回客户端发的原始 id（依赖既有 `originalModel` ↔ `mappedModel` 框架；见 `gateway_service.go` 的 `handleStreamingResponse` / `handleNonStreamingResponse`）。
+- **本地 telemetry / billing 仍按 `originalModel` 记账**——`usage` / `ops_error_logs.requested_model` 看到的是客户端请求 id（4-6），不是重映射结果（4-7）。
+- **上游 Anthropic 实际看到 `claude-opus-4-7`**——这是收敛目的。
+
+权威列表：`backend/internal/service/gateway_service_tk_canonical_oauth_guard.go` 的 `canonicalDeprecatedOpusPrefixes` + `canonicalDefaultOpus`。
+
+**理由**：真实 `claude-cli/2.1.150` 默认只发 `claude-opus-4-7` / `claude-sonnet-4-6` / `claude-haiku-4-5-*`；同账号上同时出现 4-6 + 4-7 是「混合发行版客户端共享同一个 OAuth」的强 cohort signal——风控会聚合识别。Sonnet 4-5/4-6 与 Haiku 4-5 在真实 cc 客户端中均处于活跃状态，**仅 opus 退役系列**会被改写。
+
 ---
 
 ## 反模式（避免出现 silent 漂移）

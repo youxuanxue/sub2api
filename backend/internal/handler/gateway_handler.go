@@ -757,6 +757,14 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					return
 				}
 
+				// TK canonical-OAuth ingress UA reject: 403 immediately, no failover.
+				// See gateway_service_tk_canonical_oauth_guard.go.
+				var canonicalUARejectErr *service.CanonicalIngressUARejectedError
+				if errors.As(err, &canonicalUARejectErr) {
+					h.errorResponse(c, http.StatusForbidden, "permission_error", canonicalUARejectErr.Error())
+					return
+				}
+
 				var promptTooLongErr *service.PromptTooLongError
 				if errors.As(err, &promptTooLongErr) {
 					reqLog.Warn("gateway.prompt_too_long_from_antigravity",
