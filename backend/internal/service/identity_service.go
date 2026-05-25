@@ -74,21 +74,33 @@ func NewIdentityService(cache IdentityCache) *IdentityService {
 // GetOrCreateFingerprint 获取或创建账号的指纹
 // 如果缓存存在，检测user-agent版本，新版本则更新
 // 如果缓存不存在，生成随机ClientID并从请求头创建指纹，然后缓存
-func (s *IdentityService) GetOrCreateFingerprint(ctx context.Context, accountID int64, headers http.Header) (*Fingerprint, error) {
+//
+// tlsProfileName: 当账号绑定 canonical TLS 模板时传入模板名；HTTP 指纹将钉死在
+// observed 块，ingress User-Agent 不再驱动版本漂移（TokenKey B1）。
+func (s *IdentityService) GetOrCreateFingerprint(ctx context.Context, accountID int64, headers http.Header, tlsProfileName string) (*Fingerprint, error) {
+	pinCanonicalHTTP := IsCanonicalTLSProfileName(tlsProfileName)
+
 	// 尝试从缓存获取指纹
 	cached, err := s.cache.GetFingerprint(ctx, accountID)
 	if err == nil && cached != nil {
 		needWrite := false
 
-		// 检查客户端的user-agent是否是更新版本
-		clientUA := headers.Get("User-Agent")
-		if clientUA != "" && isNewerVersion(clientUA, cached.UserAgent) {
-			// 版本升级：merge 语义 — 仅更新请求中实际携带的字段，保留缓存值
-			// 避免缺失的头被硬编码默认值覆盖（如新 CLI 版本 + 旧 SDK 默认值的不一致）
-			mergeHeadersIntoFingerprint(cached, headers)
-			needWrite = true
-			logger.LegacyPrintf("service.identity", "Updated fingerprint for account %d: %s (merge update)", accountID, clientUA)
-		} else if time.Since(time.Unix(cached.UpdatedAt, 0)) > 24*time.Hour {
+		if pinCanonicalHTTP {
+			if applyCanonicalHTTPObserved(cached) {
+				needWrite = true
+			}
+		} else {
+			// 检查客户端的user-agent是否是更新版本
+			clientUA := headers.Get("User-Agent")
+			if clientUA != "" && isNewerVersion(clientUA, cached.UserAgent) {
+				// 版本升级：merge 语义 — 仅更新请求中实际携带的字段，保留缓存值
+				// 避免缺失的头被硬编码默认值覆盖（如新 CLI 版本 + 旧 SDK 默认值的不一致）
+				mergeHeadersIntoFingerprint(cached, headers)
+				needWrite = true
+				logger.LegacyPrintf("service.identity", "Updated fingerprint for account %d: %s (merge update)", accountID, clientUA)
+			}
+		}
+		if time.Since(time.Unix(cached.UpdatedAt, 0)) > 24*time.Hour {
 			// 距上次写入超过24小时，续期TTL
 			needWrite = true
 		}
@@ -103,7 +115,13 @@ func (s *IdentityService) GetOrCreateFingerprint(ctx context.Context, accountID 
 	}
 
 	// 缓存不存在或解析失败，创建新指纹
-	fp := s.createFingerprintFromHeaders(headers)
+	var fp *Fingerprint
+	if pinCanonicalHTTP {
+		fp = &Fingerprint{}
+		applyCanonicalHTTPObserved(fp)
+	} else {
+		fp = s.createFingerprintFromHeaders(headers)
+	}
 
 	// 生成随机ClientID
 	fp.ClientID = generateClientID()

@@ -345,6 +345,8 @@
         "logger.WriteSinkEvent(\"info\", \"http.access.sticky\", \"sticky.hash_source\"",
         "\"session_hash_short\": shortSessionHash(sessionHash)",
         "resolveOpsTLSFingerprintProfile(c, s.tlsFPProfileService, account)",
+        "tlsFingerprintProfileNameForAccount(account)",
+        "GetOrCreateFingerprint(ctx, account.ID, clientHeaders, s.tlsFingerprintProfileNameForAccount(account))",
         "applyClaudeCodeMimicHeaders(req *http.Request, _ bool)",
         "getHeaderRaw(req.Header, key) != \"\"",
         "signatureRetryAttempted := false",
@@ -972,6 +974,39 @@
         "service.TkEnrichClaudeIncidentMessage("
       ],
       "rationale": "Locks the incident-aware client-message hook in handleAnthropicFailoverExhausted — the native /v1/messages (Claude Code / claude-cli) exhausted path. Without this call a Claude API incident surfaces to the caller as a generic upstream error with no pointer to status.claude.com; an upstream merge that rewrites the exhausted handler would silently drop the redirect."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_canonical_http.go",
+      "must_contain": [
+        "func (s *GatewayService) tlsFingerprintProfileNameForAccount(account *Account) string"
+      ],
+      "rationale": "Resolves bound TLS profile name for OAuth HTTP fingerprint pinning (B1). Dropping this helper reverts GetOrCreateFingerprint to ingress-driven UA drift on prod→edge relay paths even when accounts bind claude_cli_2_1_142_node24_20260515."
+    },
+    {
+      "path": "backend/internal/service/identity_service_tk_canonical_http.go",
+      "must_contain": [
+        "canonicalTLSFingerprintProfileName",
+        "func IsCanonicalTLSProfileName(name string) bool",
+        "applyCanonicalHTTPObserved(fp *Fingerprint) bool",
+        "claude-cli/2.1.142 (external, sdk-cli)"
+      ],
+      "rationale": "Pins HTTP User-Agent and x-stainless-* to deploy/aws/stage0/claude_cli_2_1_142_node24_20260515.json observed block when the canonical TLS template is bound. Without this companion, Redis fingerprint:{accountID} learns ingress UA (e.g. claude-cli/2.1.150 from relay) and upstream HTTP/TLS fingerprints diverge."
+    },
+    {
+      "path": "backend/internal/service/identity_service_tk_canonical_http_test.go",
+      "must_contain": [
+        "TestGetOrCreateFingerprint_CanonicalProfile_DoesNotAdoptIngressUAUpgrade",
+        "TestGetOrCreateFingerprint_NonCanonical_StillMergesNewerIngressUA"
+      ],
+      "rationale": "Regression guard: canonical TLS profile must not merge newer ingress UA; non-canonical accounts keep merge semantics."
+    },
+    {
+      "path": "backend/internal/service/identity_service.go",
+      "must_contain": [
+        "pinCanonicalHTTP := IsCanonicalTLSProfileName(tlsProfileName)",
+        "applyCanonicalHTTPObserved(cached)"
+      ],
+      "rationale": "GetOrCreateFingerprint must accept tlsProfileName and skip ingress UA version upgrades when canonical TLS template is active."
     }
   ]
 }

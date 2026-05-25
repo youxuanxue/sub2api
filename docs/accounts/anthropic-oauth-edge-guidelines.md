@@ -21,6 +21,8 @@
 
 可作字段对照的镜像 JSON：`deploy/aws/stage0/claude_cli_2_1_142_node24_20260515.json`。
 
+**HTTP 层（User-Agent / `x-stainless-*`）**：TLS 模板不决定出站 HTTP 指纹。账号绑定上述 canonical 模板时，网关会把 Redis `fingerprint:{accountID}` 的 HTTP 字段钉死在同一 JSON 的 `observed.*`（与 TLS 参数独立）；prod→edge 透传的多版本 ingress UA 不会改写上游 UA。`ops_error_logs.user_agent` 仍是入口侧客户端 UA，不是 `api.anthropic.com` 所见值。
+
 ---
 
 ## 反模式（避免出现 silent 漂移）
