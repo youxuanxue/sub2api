@@ -4465,6 +4465,24 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	reqStream := parsed.Stream
 	originalModel := reqModel
 
+	// TK canonical-OAuth ingress gates (see gateway_service_tk_canonical_oauth_guard.go):
+	//   1. reject third-party SDK UAs that would silently drain a personal cc subscription
+	//   2. remap retired opus model ids to the current default so the upstream model mix
+	//      stays consistent with what real claude-cli/2.1.150 produces
+	// Scoped to anthropic OAuth + canonical TLS profile only.
+	if c != nil && s.isCanonicalAnthropicOAuth(account) {
+		if err := checkCanonicalIngressUA(c.Request.Header); err != nil {
+			return nil, err
+		}
+		if newModel, remapped := remapDeprecatedOpusOnCanonical(reqModel); remapped {
+			body = s.replaceModelInBody(body, newModel)
+			logger.LegacyPrintf("service.gateway",
+				"Canonical OAuth model remap: %s -> %s (account: %s)",
+				reqModel, newModel, account.Name)
+			reqModel = newModel
+		}
+	}
+
 	// === DEBUG: 打印客户端原始请求（headers + body 摘要）===
 	if c != nil {
 		s.debugLogGatewaySnapshot("CLIENT_ORIGINAL", c.Request.Header, body, map[string]string{

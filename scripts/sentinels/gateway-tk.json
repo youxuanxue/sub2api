@@ -347,6 +347,9 @@
         "resolveOpsTLSFingerprintProfile(c, s.tlsFPProfileService, account)",
         "tlsFingerprintProfileNameForAccount(account)",
         "GetOrCreateFingerprint(ctx, account.ID, clientHeaders, s.tlsFingerprintProfileNameForAccount(account))",
+        "s.isCanonicalAnthropicOAuth(account)",
+        "checkCanonicalIngressUA(c.Request.Header)",
+        "remapDeprecatedOpusOnCanonical(reqModel)",
         "applyClaudeCodeMimicHeaders(req *http.Request, _ bool)",
         "getHeaderRaw(req.Header, key) != \"\"",
         "signatureRetryAttempted := false",
@@ -1007,6 +1010,39 @@
         "applyCanonicalHTTPObserved(cached)"
       ],
       "rationale": "GetOrCreateFingerprint must accept tlsProfileName and skip ingress UA version upgrades when canonical TLS template is active."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_canonical_oauth_guard.go",
+      "must_contain": [
+        "type CanonicalIngressUARejectedError struct",
+        "canonicalIngressUAForbiddenSubstrings",
+        "func checkCanonicalIngressUA(headers http.Header) error",
+        "canonicalDefaultOpus = \"claude-opus-4-7\"",
+        "canonicalDeprecatedOpusPrefixes",
+        "func remapDeprecatedOpusOnCanonical(model string) (string, bool)",
+        "func (s *GatewayService) isCanonicalAnthropicOAuth(account *Account) bool"
+      ],
+      "rationale": "Canonical Anthropic OAuth ingress gates collapse the two cohort signals that drove the 2026-05-25 Anthropic hold on edge-uk1 (EN-LD-EC2-16-3): (1) third-party SDK UAs (OpenAI/Python, httpx, requests, axios, ...) silently draining a personal Claude Code subscription, and (2) retired opus model ids (claude-opus-4-6 / claude-opus-4-5*) routed alongside the current 4-7 default — a mix pattern real claude-cli/2.1.150 no longer produces. Both gates are scoped to OAuth + canonical TLS only via `isCanonicalAnthropicOAuth`; dropping the helper, the deny-list, or the deprecated-opus remap silently re-opens the abuse path while compiling clean. The forbidden-substring list is intentionally explicit and case-insensitive so a future SDK variant requires a one-line registry update rather than a rewrite."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_canonical_oauth_guard_test.go",
+      "must_contain": [
+        "TestCheckCanonicalIngressUA_AllowsClaudeCLIVariants",
+        "TestCheckCanonicalIngressUA_RejectsThirdPartySDKs",
+        "TestRemapDeprecatedOpusOnCanonical_RetiredOpusToCurrentDefault",
+        "TestRemapDeprecatedOpusOnCanonical_CurrentAndNonOpusUnchanged",
+        "TestRemapDeprecatedOpusOnCanonical_OpusPrefixIsolation"
+      ],
+      "rationale": "Focused regression anchors for canonical-OAuth ingress gates: (1) real claude-cli/claude-code UAs and unknown UAs pass (deny-list-only), (2) every named third-party SDK in the registry is rejected with the original UA preserved on the error, (3) the documented retired opus ids (4-6/4-5/4-4/4-3/4-2/4-1/4-0 with dated suffixes) remap to canonical default, (4) current opus 4-7 plus sonnet/haiku ids pass through unchanged, (5) the prefix-isolation case proves `claude-opus-4-65` (hypothetical future) is NOT collapsed into 4-6 because the prefix check requires either exact match or a trailing `-`."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler.go",
+      "must_contain": [
+        "var canonicalUARejectErr *service.CanonicalIngressUARejectedError",
+        "errors.As(err, &canonicalUARejectErr)",
+        "http.StatusForbidden, \"permission_error\""
+      ],
+      "rationale": "Handler MUST translate the canonical-OAuth UA-reject service error into an immediate HTTP 403 + `permission_error` body without falling into failover. Without this branch the rejection propagates as a generic upstream error and the failover loop retries the same forbidden ingress against other accounts, defeating the gate."
     }
   ]
 }
