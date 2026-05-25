@@ -38,8 +38,8 @@ func (r *fingerprintCacheRecorder) SetMaskedSessionID(context.Context, int64, st
 }
 
 func TestIsCanonicalTLSProfileName(t *testing.T) {
-	require.True(t, IsCanonicalTLSProfileName("claude_cli_2_1_142_node24_20260515"))
-	require.True(t, IsCanonicalTLSProfileName("  claude_cli_2_1_142_node24_20260515  "))
+	require.True(t, IsCanonicalTLSProfileName("claude_cli_2_1_150_node24_20260525"))
+	require.True(t, IsCanonicalTLSProfileName("  claude_cli_2_1_150_node24_20260525  "))
 	require.False(t, IsCanonicalTLSProfileName("claude_cli_nodejs24_fixed"))
 	require.False(t, IsCanonicalTLSProfileName(""))
 }

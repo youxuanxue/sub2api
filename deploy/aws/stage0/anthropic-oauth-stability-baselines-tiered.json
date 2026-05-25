@@ -51,8 +51,8 @@
       "custom_base_url"
     ],
     "tls_profile": {
-      "name": "claude_cli_2_1_142_node24_20260515",
-      "description": "TLS ClientHello from 2026-05-15 capture (ja3_hash=d871d02cecbde59abbf8f4806134addf). HTTP observed.user_agent aligned to 2026-05-24 CLI (2.1.150). runtime=node v24.3.0 darwin/arm64.",
+      "name": "claude_cli_2_1_150_node24_20260525",
+      "description": "TLS ClientHello from 2026-05-15 capture of cc 2.1.142 (ja3_hash=d871d02cecbde59abbf8f4806134addf, byte-identical through 2.1.150). HTTP observed.user_agent aligned to 2026-05-25 CLI (claude-cli/2.1.150). runtime=node v24.3.0 darwin/arm64.",
       "enable_grease": false,
       "cipher_suites": [
         4865,

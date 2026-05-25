@@ -983,7 +983,7 @@
       "must_contain": [
         "func (s *GatewayService) tlsFingerprintProfileNameForAccount(account *Account) string"
       ],
-      "rationale": "Resolves bound TLS profile name for OAuth HTTP fingerprint pinning (B1). Dropping this helper reverts GetOrCreateFingerprint to ingress-driven UA drift on prod→edge relay paths even when accounts bind claude_cli_2_1_142_node24_20260515."
+      "rationale": "Resolves bound TLS profile name for OAuth HTTP fingerprint pinning (B1). Dropping this helper reverts GetOrCreateFingerprint to ingress-driven UA drift on prod→edge relay paths even when accounts bind claude_cli_2_1_150_node24_20260525."
     },
     {
       "path": "backend/internal/service/identity_service_tk_canonical_http.go",
@@ -993,7 +993,7 @@
         "applyCanonicalHTTPObserved(fp *Fingerprint) bool",
         "claude-cli/2.1.150 (external, sdk-cli)"
       ],
-      "rationale": "Pins HTTP User-Agent and x-stainless-* to deploy/aws/stage0/claude_cli_2_1_142_node24_20260515.json observed block when the canonical TLS template is bound. Without this companion, Redis fingerprint:{accountID} learns ingress UA (e.g. claude-cli/2.1.150 from relay) and upstream HTTP/TLS fingerprints diverge."
+      "rationale": "Pins HTTP User-Agent and x-stainless-* to deploy/aws/stage0/claude_cli_2_1_150_node24_20260525.json observed block when the canonical TLS template is bound. Without this companion, Redis fingerprint:{accountID} learns ingress UA (e.g. claude-cli/2.1.150 from relay) and upstream HTTP/TLS fingerprints diverge."
     },
     {
       "path": "backend/internal/service/identity_service_tk_canonical_http_test.go",

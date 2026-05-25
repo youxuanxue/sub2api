@@ -13,13 +13,13 @@
 
 | 维度 | TokenKey 要求 |
 |---|---|
-| **`tls_fingerprint_profiles.name`** | **`claude_cli_2_1_142_node24_20260515`** |
+| **`tls_fingerprint_profiles.name`** | **`claude_cli_2_1_150_node24_20260525`** |
 | Profile 字段体（cipher、extensions、curves…） | 与 tier baseline JSON **`shared_baseline.tls_profile`** 一致 |
 | 账号 **`accounts.extra`** | `enable_tls_fingerprint=true`，且 **`tls_fingerprint_profile_id`** 指向上述模板对应的 DB 主键 |
 
 `(A)` 的 **`generate_sql`** 会 **`INSERT … ON CONFLICT (name)`** upsert canonical 模板，并把 `accounts.extra.tls_fingerprint_profile_id` 写成刚插入行的 `id`。
 
-可作字段对照的镜像 JSON：`deploy/aws/stage0/claude_cli_2_1_142_node24_20260515.json`。
+可作字段对照的镜像 JSON：`deploy/aws/stage0/claude_cli_2_1_150_node24_20260525.json`。
 
 **HTTP 层（User-Agent / `x-stainless-*`）**：TLS 模板不决定出站 HTTP 指纹。账号绑定上述 canonical 模板时，网关会把 Redis `fingerprint:{accountID}` 的 HTTP 字段钉死在同一 JSON 的 `observed.*`（与 TLS 参数独立）；prod→edge 透传的多版本 ingress UA 不会改写上游 UA。`ops_error_logs.user_agent` 仍是入口侧客户端 UA，不是 `api.anthropic.com` 所见值。
 

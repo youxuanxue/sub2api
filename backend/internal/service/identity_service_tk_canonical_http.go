@@ -7,11 +7,11 @@ import "strings"
 // block — not ingress clients (prod relay may forward mixed CLI/SDK UAs).
 //
 // TLS profiles only affect ClientHello; this companion pins the HTTP layer to
-// deploy/aws/stage0/claude_cli_2_1_142_node24_20260515.json observed.* values.
+// deploy/aws/stage0/claude_cli_2_1_150_node24_20260525.json observed.* values.
 
-const canonicalTLSFingerprintProfileName = "claude_cli_2_1_142_node24_20260515"
+const canonicalTLSFingerprintProfileName = "claude_cli_2_1_150_node24_20260525"
 
-// canonicalHTTPObserved matches deploy/aws/stage0/claude_cli_2_1_142_node24_20260515.json observed.
+// canonicalHTTPObserved matches deploy/aws/stage0/claude_cli_2_1_150_node24_20260525.json observed.
 var canonicalHTTPObserved = Fingerprint{
 	UserAgent:               "claude-cli/2.1.150 (external, sdk-cli)",
 	StainlessLang:           "js",
