@@ -43,11 +43,9 @@ func TestCheckCanonicalIngressUA_RejectsThirdPartySDKs(t *testing.T) {
 		"openai-python/1.2.3",
 		"httpx/0.27.0",
 		"python-requests/2.31.0",
-		"requests/2.31.0",
 		"node-fetch/2.6.1",
 		"axios/1.6.0",
 		"got (https://github.com/sindresorhus/got)",
-		"got/12.0.0",
 		"undici",
 		"Go-http-client/2.0",
 		"curl/8.4.0",
@@ -74,6 +72,26 @@ func TestCheckCanonicalIngressUA_RejectsThirdPartySDKs(t *testing.T) {
 		}
 		if rej != nil && rej.IngressUA != ua {
 			t.Errorf("ua=%q rejected but IngressUA=%q (lost original)", ua, rej.IngressUA)
+		}
+	}
+}
+
+// TestCheckCanonicalIngressUA_ShortPrefixesIntentionallyNotInDenyList documents
+// the deliberate trade-off behind R-003: short generic tokens like "got/" and
+// "requests/" are NOT in the deny-list because they would false-positive on
+// any legitimate UA containing those substrings ("forgot/...", "*-requests/...").
+// `python-requests/` and `got (` are the precise anchors that ARE pinned;
+// anything looser stays off-list.
+func TestCheckCanonicalIngressUA_ShortPrefixesIntentionallyNotInDenyList(t *testing.T) {
+	cases := []string{
+		"got/12.0.0",      // bare `got/` is too generic — let it pass
+		"requests/2.31.0", // bare `requests/` is too generic — `python-requests/` covers the real case
+	}
+	for _, ua := range cases {
+		h := http.Header{}
+		h.Set("User-Agent", ua)
+		if err := checkCanonicalIngressUA(h); err != nil {
+			t.Errorf("ua=%q must NOT be rejected (short-prefix carve-out), got %v", ua, err)
 		}
 	}
 }

@@ -602,6 +602,23 @@ else
     echo "  ok: tk_post_deploy_smoke.sh parses"
 fi
 
+# ---- sub2api: run-probe.sh --env loop regression guard ----------------------
+# PR #405 (c0ab27c9) silently dropped the `for kv in "${ENVS[@]+"${ENVS[@]}"}"; do`
+# line while restructuring EC2 vs Lightsail target resolution. The env-prefix
+# builder kept compiling but ran once with `kv` unbound under `set -u`, so every
+# `--env KEY=VAL` invocation failed before any SSM transport. PR #407 restored
+# the line; this static anchor prevents the same regression from recurring on
+# future wrapper refactors. Mechanical guard (no execution) — minimal noise.
+echo ""
+echo "=== sub2api: run-probe.sh --env loop regression guard ==="
+if ! grep -qE 'for[[:space:]]+kv[[:space:]]+in[[:space:]]+"\$\{ENVS\[@\]\+"\$\{ENVS\[@\]\}"\}"; do' ops/observability/run-probe.sh; then
+    echo "  FAIL: ops/observability/run-probe.sh missing the \`for kv in \"\${ENVS[@]+...}\"\` env loop"
+    echo "        (PR #405 c0ab27c9 regression shape — see PR #407 fix)"
+    errors=$((errors + 1))
+else
+    echo "  ok: run-probe.sh --env loop anchored"
+fi
+
 # ---- sub2api: workflow job-level if env-context drift -----------------------
 # GitHub Actions does NOT allow env references in jobs.<name>.if expressions
 # (env evaluates AFTER if). Such references make the entire workflow file

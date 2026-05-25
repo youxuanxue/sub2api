@@ -36,15 +36,19 @@ func (e *CanonicalIngressUARejectedError) Error() string {
 // rejected; everything else (including unknown UAs and empty UAs) is allowed.
 // Real Claude Code clients use "claude-cli/" or "claude-code/" prefixes and
 // will never match these substrings.
+//
+// Append-only at runtime. Entries are deliberately precise (avoiding short
+// generic tokens like "got/" or "requests/" that would false-positive on
+// legitimate UAs ending in those substrings) — favor missing a rare attacker
+// UA over rejecting a legitimate client. Generic third-party SDKs we cannot
+// rule out cleanly stay off the list.
 var canonicalIngressUAForbiddenSubstrings = []string{
 	"openai/python",
 	"openai-python",
 	"httpx/",
 	"python-requests/",
-	"requests/",
 	"node-fetch",
 	"axios/",
-	"got/",
 	"got (",
 	"undici",
 	"go-http-client",
