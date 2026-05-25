@@ -170,6 +170,7 @@ fi
 
 # Build env prefix (e.g. "PLATFORM=anthropic ERR_HOURS=2")
 ENV_PREFIX=""
+for kv in "${ENVS[@]+"${ENVS[@]}"}"; do
   if [[ ! "$kv" =~ ^[A-Z_][A-Z0-9_]*= ]]; then
     echo "[run-probe] ERROR: --env must be KEY=VAL with uppercase KEY: $kv" >&2
     exit 1
