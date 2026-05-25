@@ -69,6 +69,9 @@
    不会静默销毁；要销毁重建必须显式 `recreate=true`
 5. `EDGE_MAIN_GATEWAY_ALLOWED_CIDR` Environment 未配置 → provision step 立即报错
    （workflow 没有兜底默认；硬编码 prod IP 与 IP rotation 实践冲突，已彻底移除）
+6. 运维/CI 用错 **SSM 区域**（误用 `ec2_equivalent_region` 调 `aws ssm`，或与
+   `edge_ssm_execution.py` 解析出的 `REGION` 不一致）→ Parameter / managed instance
+   查空或 SendCommand 错目标；**Lightsail 路径下一律以矩阵 `lightsail_region` 为准**
 
 ### 回归
 

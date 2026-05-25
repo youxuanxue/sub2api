@@ -129,6 +129,15 @@ gh workflow run deploy-edge-lightsail-stage0.yml \
 | diagnostics | `ops-daily-diagnostics.yml` 矩阵 | `ops-daily-diagnostics.yml` 矩阵自动接入（按 `platform` 分支；error_clustering installer 暂仍 EC2 only） |
 | 成本 | ~$10–16/月（t4g.micro） | ~$12/月（micro bundle，因区域而异） |
 
+## 复盘：Lightsail 侧常见出错点（避免沿用 EC2 心智）
+
+以下来自线上/CI 与研发流程中的反复踩坑，**与「实例在 Lightsail、控制面在 SSM Hybrid」这一组合强相关**：
+
+1. **SSM / AWS CLI 的 `--region`**：凡针对该 edge 的 `aws ssm`（读 `/tokenkey/lightsail/<edge_id>/…`、后续 SendCommand 的前置解析），必须落在矩阵里的 **`lightsail_region`**。字段 **`ec2_equivalent_region` 只用于对账/文档**，不能拿来当 SSM region（否则会出现「实例与参数在同一区，但 CLI 跑到另一区」——包括 **GHA smoke** 里曾出现的 **region / 工作目录** 不一致类失败）。
+2. **GitHub Actions 里跑 smoke / compose**：确保 job 的 **`working-directory`**（或显式 `cd`）与脚本里相对路径一致（仓库根 vs `deploy/aws/stage0`）。错目录会表现为找不到 `docker-compose.yml`、或子脚本解析到错误 `REPO_ROOT`。
+3. **合并 PR 后的本地清理**：若使用 **squash merge**，`feature` 分支 tip **不是** `main` 的祖先，`git branch -d feature/...` 可能提示「未合并到 HEAD」。应先 `git checkout main && git pull --ff-only`，再对已确认进 `main` 的分支使用 **`git branch -D …`**（并 `git remote prune origin` 清 stale 跟踪分支）。
+4. **preflight 的 `silent-error-swallow` 警告**：`capture-edge-admin-credentials.sh`、`run-probe.sh` 等处对多路日志源 / 可选 `aws` 探测使用 `|| true`、`2>/dev/null` 属于**刻意**「多源尝试、缺一不必失败」。若新增类似写法且确属合法吞错，在对应行加 **`# preflight-allow: swallow`** 并写清理由，避免审查时误判。
+
 ## 本地校验
 
 ```bash
