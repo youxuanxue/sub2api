@@ -37,10 +37,10 @@ MAIN_GATEWAY_BASE_URL="${MAIN_GATEWAY_BASE_URL:-https://api.tokenkey.dev}"
 MAIN_GATEWAY_BASE_URL="${MAIN_GATEWAY_BASE_URL%/}"
 
 needs_chat_model=false
-if [[ "${EDGE_SMOKE_PHASE}" != "main-via-edge" || -n "${MAIN_GATEWAY_EDGE_SMOKE_API_KEY}" ]]; then
+if [[ "${EDGE_SMOKE_PHASE}" != "main-via-edge" && "${EDGE_SELF_SMOKE_MODE}" == "api" ]]; then
   needs_chat_model=true
 fi
-if [[ "${EDGE_SMOKE_PHASE}" != "main-via-edge" && "${EDGE_SELF_SMOKE_MODE}" == "api" ]]; then
+if [[ "${EDGE_SMOKE_PHASE}" != "infra" && -n "${MAIN_GATEWAY_EDGE_SMOKE_API_KEY}" ]]; then
   needs_chat_model=true
 fi
 

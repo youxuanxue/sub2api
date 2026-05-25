@@ -31,6 +31,7 @@ description: >-
 | prod 完整 smoke（CI 唯一验收源） | 机械 | `deploy-stage0.yml` job log 内 `tk_post_deploy_smoke: OK` |
 | Edge smoke 分阶段（infra / main-via-edge / full） | 机械 | `ops/stage0/edge_post_deploy_smoke.sh` + workflow `smoke_phase` |
 | 发版后跟进档位（skip / single / extended） | 机械 | `bash scripts/release-impact-files.sh PREV NEW` → `.followup.tier` |
+| rollout 摘要（git log / diff stat / sentinel / deletion） | 机械 | `bash scripts/release-rollout-summary.sh --mode release` |
 | canary 顺序、prod approval 时机、smoke 模型回退 | 判断 | prompt（爆炸半径、用户入口顺序） |
 | verdict 评级（green/yellow/red） | 判断 | prompt（错误聚类 vs 基线、流量趋势） |
 | Step A → 「重点观察 trace 关键词」语义命名 | 判断 | prompt（文件→hook 名映射；脚本只给文件桶） |
@@ -49,7 +50,7 @@ description: >-
 | `operation=check` | 只做预发布风险检查：对比上一个 release tag 到待发布 HEAD 的代码事实，判断上线 prod/Edge 的潜在影响；不 bump、不 tag、不 dispatch deploy。 |
 | `target=prod` | release（必要时 bump/tag/build）→ `deploy-stage0.yml -f tag=…`（绑定 **`prod`** Environment）→ prod smoke。 |
 | `target=edge-<edge_id>` | 默认 tag 已存在：用 **`bash scripts/stage0/dispatch-edge-deploy.sh`**（自动路由 EC2/Lightsail）→ watch → 按 phase 验收 smoke。`operation=smoke` 只 smoke；`operation=rollback` 用 `previous_tag`。不要手选 workflow 或手填 confirm_stack/confirm_instance。 |
-| `target=all` | release 一次 → 从 `deploy/aws/stage0/edge-targets.json` 读取 `deployable=true` 的 Edge 矩阵并按顺序 canary upgrade/smoke → prod deploy/smoke → main-gateway-via-edge smoke → 其余 Edge 类推。 |
+| `target=all` | release 一次 → `--list-deployable` 矩阵 → canary **upgrade (infra)** → prod deploy（CI smoke 验收）→ canary **main-via-edge 一次** → 其余 Edge **upgrade (infra only)** → followup 按 tier。 |
 
 如果用户只说“发版 / deploy 最新 / ship production”，默认 `target=prod operation=release`。如果用户说“全部 / 所有网关 / prod + edge / all”，默认 `target=all operation=release`。如果用户说“检查 / 预判 / 评估上线影响 / release check”，默认 `operation=check target=all`。
 
