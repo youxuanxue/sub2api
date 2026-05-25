@@ -619,6 +619,27 @@ else
     echo "  ok: run-probe.sh --env loop anchored"
 fi
 
+# ---- sub2api: ops/observability shell script syntax (batch) -----------------
+# ops/observability/*.sh are operator-facing probes invoked via SSM remote
+# execution; a syntax break here lands as a SSM "Status=Failed" with stderr
+# from the remote bash, which is much harder to diagnose than a local
+# `bash -n` failure. PR #408 added clear-canonical-fingerprint-cache.sh as
+# another such probe; locking the whole directory under `bash -n` is the
+# generalization of the run-probe.sh regression guard above (OPC: harden
+# the pattern, not the instance).
+echo ""
+echo "=== sub2api: ops/observability shell script syntax ==="
+ops_obs_scripts_checked=0
+for s in ops/observability/*.sh; do
+    [ -f "$s" ] || continue
+    if ! bash -n "$s" 2>/dev/null; then
+        echo "  FAIL: $s has bash syntax errors"
+        errors=$((errors + 1))
+    fi
+    ops_obs_scripts_checked=$((ops_obs_scripts_checked + 1))
+done
+echo "  ok: $ops_obs_scripts_checked script(s) parse"
+
 # ---- sub2api: workflow job-level if env-context drift -----------------------
 # GitHub Actions does NOT allow env references in jobs.<name>.if expressions
 # (env evaluates AFTER if). Such references make the entire workflow file

@@ -37,6 +37,16 @@ CANONICAL_NAME="${CANONICAL_NAME:-claude_cli_2_1_150_node24_20260525}"
 DB_USER="${POSTGRES_USER:-tokenkey}"
 DB_NAME="${POSTGRES_DB:-tokenkey}"
 
+# Reject any CANONICAL_NAME that is not snake_case + digits. Profile names in
+# this repository follow that shape by convention; tightening this here
+# protects the SQL below from any env-override injection attempt, even though
+# the env source is operator-controlled.
+if ! [[ "$CANONICAL_NAME" =~ ^[A-Za-z0-9_]+$ ]]; then
+  printf '{"status":"error","reason":"CANONICAL_NAME must match [A-Za-z0-9_]+ (got: %s)"}\n' \
+    "$CANONICAL_NAME"
+  exit 1
+fi
+
 # Step 1 — resolve canonical profile id from DB.
 PROFILE_ID=$(docker exec tokenkey-postgres psql -U "$DB_USER" -d "$DB_NAME" -X -A -t -c \
   "SELECT id FROM tls_fingerprint_profiles WHERE name = '$CANONICAL_NAME' LIMIT 1;" \
@@ -94,9 +104,6 @@ join_csv() {
 
 cleared_json=$(join_csv "${cleared_arr[@]:-}")
 skipped_json=$(join_csv "${skipped_arr[@]:-}")
-# Guard the "empty array printed as [,] because of unset expansion" edge case.
-[ "$cleared_json" = "[]" ] || [ "$cleared_json" = "[,]" ] && [ "${#cleared_arr[@]}" -eq 0 ] && cleared_json="[]"
-[ "$skipped_json" = "[]" ] || [ "$skipped_json" = "[,]" ] && [ "${#skipped_arr[@]}" -eq 0 ] && skipped_json="[]"
 
 printf '{"status":"ok","canonical_name":"%s","profile_id":%s,"cleared":%s,"skipped_already_empty":%s}\n' \
   "$CANONICAL_NAME" "$PROFILE_ID" "$cleared_json" "$skipped_json"
