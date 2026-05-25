@@ -13,7 +13,7 @@ const canonicalTLSFingerprintProfileName = "claude_cli_2_1_142_node24_20260515"
 
 // canonicalHTTPObserved matches deploy/aws/stage0/claude_cli_2_1_142_node24_20260515.json observed.
 var canonicalHTTPObserved = Fingerprint{
-	UserAgent:               "claude-cli/2.1.142 (external, sdk-cli)",
+	UserAgent:               "claude-cli/2.1.150 (external, sdk-cli)",
 	StainlessLang:           "js",
 	StainlessPackageVersion: "0.94.0",
 	StainlessOS:             "MacOS",
