@@ -35,6 +35,8 @@
 #   docs                   — docs/**, README*.md, *.md (root)
 #   other                  — everything else
 #
+# Also emits followup.tier (skip | single | extended) for post-release tick count.
+#
 # Files marked as deleted (D status) are listed in a separate "deleted" array
 # (alongside their bucket classification) so callers can show §5.x risk.
 #
@@ -157,12 +159,58 @@ for k in buckets:
 all_changes.sort(key=lambda r: r["path"])
 deleted.sort(key=lambda r: r["path"])
 
+HIGH_FOLLOWUP = {
+    "backend_handler",
+    "backend_service",
+    "backend_middleware",
+    "backend_integration",
+    "backend_relay",
+    "backend_schema",
+    "backend_config",
+}
+MEDIUM_FOLLOWUP = {
+    "backend_repository",
+    "backend_wire_gen",
+    "ci_workflows",
+    "deploy_stage0",
+    "sentinels",
+}
+LOW_ONLY = {
+    "docs",
+    "frontend_views",
+    "frontend_api",
+    "frontend_stores",
+    "frontend_other",
+    "other",
+}
+
+touched = {name for name, paths in buckets.items() if paths}
+if not touched:
+    followup_tier = "skip"
+    followup_reason = "no file changes in range"
+elif touched & HIGH_FOLLOWUP:
+    followup_tier = "extended"
+    followup_reason = "gateway/runtime/schema/config paths changed"
+elif touched & MEDIUM_FOLLOWUP:
+    followup_tier = "single"
+    followup_reason = "deploy/infra/repository/wire/sentinel paths changed"
+elif touched <= LOW_ONLY:
+    followup_tier = "skip"
+    followup_reason = "frontend/docs-only or low-impact paths"
+else:
+    followup_tier = "single"
+    followup_reason = "mixed low/medium impact; one +5min tick"
+
 output = {
     "range": {"base": base, "head": head_ref},
     "totals": {
         "files_changed": len(all_changes),
         "files_deleted": len(deleted),
         "buckets_touched": sum(1 for v in buckets.values() if v),
+    },
+    "followup": {
+        "tier": followup_tier,
+        "reason": followup_reason,
     },
     "buckets": buckets,
     "deleted": deleted,

@@ -46,6 +46,11 @@ on:
         required: false
         type: boolean
         default: false
+      smoke_phase:
+        description: "Edge smoke scope: infra | main-via-edge | full. Empty = auto (upgrade/rollback→infra, smoke→full)."
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -68,6 +73,7 @@ jobs:
       INPUT_CONFIRM_INSTANCE: ${{ inputs.confirm_instance }}
       INPUT_OVERRIDE: ${{ inputs.simple_release_override }}
       INPUT_RECREATE: ${{ inputs.recreate }}
+      INPUT_SMOKE_PHASE: ${{ inputs.smoke_phase }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -218,7 +224,19 @@ jobs:
           MAIN_GATEWAY_BASE_URL: ${{ vars.EDGE_MAIN_GATEWAY_BASE_URL }}
           MAIN_GATEWAY_EDGE_SMOKE_API_KEY: ${{ secrets.MAIN_GATEWAY_EDGE_SMOKE_API_KEY }}
           POST_DEPLOY_SMOKE_CHAT_MODEL: ${{ vars.POST_DEPLOY_SMOKE_CHAT_MODEL || 'claude-sonnet-4-6' }}
-        run: bash ops/stage0/edge_post_deploy_smoke.sh
+        run: |
+          set -euo pipefail
+          PHASE="${INPUT_SMOKE_PHASE:-}"
+          if [ -z "$PHASE" ]; then
+            case "$INPUT_OPERATION" in
+              smoke) PHASE=full ;;
+              upgrade|rollback) PHASE=infra ;;
+              *) PHASE=infra ;;
+            esac
+          fi
+          export EDGE_SMOKE_PHASE="$PHASE"
+          export SKIP_EXTERNAL_HEALTH=1
+          bash ops/stage0/edge_post_deploy_smoke.sh
 
       - name: Job summary
         if: always()
