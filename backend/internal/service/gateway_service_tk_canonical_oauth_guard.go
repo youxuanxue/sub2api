@@ -7,7 +7,7 @@ import (
 )
 
 // TokenKey canonical-OAuth ingress gates. When an Anthropic OAuth account binds
-// the canonical Claude Code TLS profile (claude_cli_2_1_142_node24_20260515),
+// the canonical Claude Code TLS profile (tk_canonical_cc_oauth),
 // only the real claude-cli / claude-sdk identity is allowed to route through it,
 // and only models that the current Claude Code CLI release actually emits are
 // accepted upstream. Both gates collapse the cohort signal that triggered the
