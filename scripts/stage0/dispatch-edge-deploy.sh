@@ -49,13 +49,6 @@ case "${OPERATION}" in
     ;;
 esac
 
-if [[ "${OPERATION}" == "rotate_egress_ip" || "${OPERATION}" == "decommission" ]]; then
-  if [[ "$(python3 scripts/stage0/resolve-edge-deploy-route.py --edge-id "${EDGE_ID}" --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["platform"])')" != "ec2" ]]; then
-    echo "dispatch-edge-deploy: operation=${OPERATION} is EC2-only; edge ${EDGE_ID} is not on EC2/CFN" >&2
-    exit 1
-  fi
-fi
-
 if [[ "${OPERATION}" == "provision" || "${OPERATION}" == "upgrade" || "${OPERATION}" == "rollback" ]]; then
   if [[ -z "${TAG}" ]]; then
     echo "dispatch-edge-deploy: --tag is required for operation=${OPERATION}" >&2
@@ -64,10 +57,27 @@ if [[ "${OPERATION}" == "provision" || "${OPERATION}" == "upgrade" || "${OPERATI
 fi
 
 ROUTE_JSON="$(python3 scripts/stage0/resolve-edge-deploy-route.py --edge-id "${EDGE_ID}" --json)"
-WORKFLOW="$(echo "${ROUTE_JSON}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["workflow_file"])')"
-CONFIRM_FLAG="$(echo "${ROUTE_JSON}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["confirm_flag"])')"
-CONFIRM_VALUE="$(echo "${ROUTE_JSON}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["confirm_value"])')"
-PLATFORM="$(echo "${ROUTE_JSON}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["platform"])')"
+mapfile -t _route_fields < <(
+  printf '%s' "${ROUTE_JSON}" | python3 -c '
+import json
+import sys
+
+payload = json.load(sys.stdin)
+for key in ("workflow_file", "confirm_flag", "confirm_value", "platform"):
+    print(payload[key])
+'
+)
+WORKFLOW="${_route_fields[0]}"
+CONFIRM_FLAG="${_route_fields[1]}"
+CONFIRM_VALUE="${_route_fields[2]}"
+PLATFORM="${_route_fields[3]}"
+
+if [[ "${OPERATION}" == "rotate_egress_ip" || "${OPERATION}" == "decommission" ]]; then
+  if [[ "${PLATFORM}" != "ec2" ]]; then
+    echo "dispatch-edge-deploy: operation=${OPERATION} is EC2-only; edge ${EDGE_ID} is not on EC2/CFN (platform=${PLATFORM})" >&2
+    exit 1
+  fi
+fi
 
 GH_ARGS=(
   workflow run "${WORKFLOW}"

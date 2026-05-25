@@ -331,29 +331,79 @@ bash scripts/release-impact-files.sh "${PREV_TAG}" "${NEW_TAG}"
 
 跟进基于本次 diff，不跑固定 metric 集。文件桶分类机械化（`release-impact-files.sh`），桶内 hook 名由模型按 release 内容命名（判断）。
 
-（bucket → hook 映射表同前，略）
+JSON 出来后，对每个非空 bucket，**模型**按下表把改动文件映射到「重点观察 trace 关键词」。脚本只给桶（机械），关键词由模型按 hook 命名（判断）：
+
+| 改动类型 | 重点观察的 trace 关键词 |
+|---|---|
+| 新背景 goroutine（如 `*_reaper.go`） | grep `XxxReaper` 启动日志、cycle 频率、Cleanup 退出消息 |
+| 新 gateway 路径 hook（如 `*_tk_signature_preempt.go`） | grep `applyXxxIfArmed` / `armXxxOnError` 触发次数、影响的 account_id 分布 |
+| 新错误处理分支（如 `*_silent_refusal.go`） | grep `silent_refusal` / 新增 `ops_error_logs.reason` 取值 |
+| Stream 行为改动（keepalive ticker、超时等） | 看 SSE 连接持续时间分布、`Gateway.StreamKeepaliveInterval` 是否实际启用 |
+| `wire.go` / `wire_gen.go` DI 变化 | 看启动日志 provider 顺序无 panic、新依赖构造无 nil |
+| `config.go` 新字段 | 在 prod / Edge `.env` 与 `.env.example` 对齐确认；进容器后只输出字段是否设置或 redacted 状态，不打印变量值 |
+| 数据库 schema / migrations | 新表/列的写入路径在 5 分钟窗口是否 surfacing 异常 |
+| 前端 frontend dist hash 变化 | embedded dist freshness + 关键页面 200 |
+
+把「重点观察变量」列在第一次跟进的开头，让 user 看到这一次跟进是按本次发版定制的，而非通用模板。
 
 ### Step B：每次 tick 的内容
 
 1. **控制面探活**：prod `/health` + `/api/v1/settings/public`；各 deployable Edge `/health`。
 2. **错误 + 流量快照**（最近 5m）：用 `/tokenkey-online-log-troubleshooting` 查聚类摘要。
 3. **重点 hook grep**（extended 时；single 可只做 1–2 条）
+   - 没看到触发 = 正常（流量未触达该路径）；触发频次明显高于基线 = 异常；触发后立即 5xx 跟随 = 异常
 
-### Step C：输出形状
+### Step C：每次 tick 的固定输出形状
 
-（同前 `verdict: green|yellow|red` 模板）
+每次跟进结束输出一段 5–12 行的简洁汇报，结构固定（占位符在执行时按 Step A 提取结果填实）：
+
+```text
+[+Nmin post-release ${NEW_TAG}]
+control plane: api 200 ✓ | settings/public 200 ✓ | <each deployable edge> 200 ✓
+errors (last 5m): <cluster summary by reason/status_code/platform, or "none">
+traffic (last 5m): N total | chat=X messages=Y models=Z
+new-code hooks:
+  - <hook 1 from Step A>: <grep result, or "no fires">
+  - <hook 2 from Step A>: <grep result, or "no activity">
+  - ...
+verdict: green | yellow | red — <one-line reason>
+```
+
+不要把上面模板照搬当输出：`new-code hooks` 的具体 hook 名由 Step A 的 diff 分析动态产出。纯前端 / 纯 chore release 没有 backend hook 时，直接写 `(no new backend hooks this release)`。
+
+`verdict` 判定原则：
+
+- **green**：control plane 全 200 + 错误聚类无新 cluster + 重点观察变量按预期触发或合理静默 + 流量量级与基线一致
+- **yellow**：control plane OK 但某条路径错误率上升 / 重点 hook 未按预期触发或频次异常 / 流量明显偏低或偏高 → 列出可疑 cluster + 建议是否需要人工触发更长窗口观察
+- **red**：control plane 任一点 fail / 错误聚类含 new type 且 rate 高于基线 2× / 重点 hook 触发后立即 5xx / 流量塌方 → **立即汇报，不再续 tick**，建议人工立即决定是否 rollback 到 `previous_tag`
 
 ### Step D：最后一次 tick 后的综合建议
 
-- `single`：一次 tick 后即给 summary。
-- `extended`：第 3 次 tick 后给 summary。
-- `skip`：跳过本节。
+- **`single`**：+5min 一次 tick 后立即给综合建议（1 tick）。
+- **`extended`**：第 3 次（+15min）tick 后立即给综合建议（3 ticks）。
+- **`skip`**：跳过本节。
+
+综合建议结构（按 tier 调整 tick 计数文案）：
+
+```text
+=== Post-release follow-up summary (${NEW_TAG}, <N> tick(s)) ===
+重点变更：<列出 Step A 的关键 hook / 配置项>
+control plane：<N>/<N> ticks green | <or list any failure tick>
+错误聚类汇总：<去重的 cluster + 频次趋势>
+流量趋势：<是否与基线一致>
+重点观察变量结论：<逐项 hook 是否按预期>
+综合 verdict: green / yellow / red
+建议：
+  - <green>: 发版稳定，无 follow-up。
+  - <yellow>: 列出 1-3 条需要在 24h / 1week 内再观察或修复的事项；建议是否人工触发 +1h / +6h 跟进。
+  - <red>: 列出可疑回归点，建议立即 `gh workflow run deploy-stage0.yml -f tag=${PREVIOUS_TAG}` rollback；其余 Edge 暂不批准 prod approval。
+```
 
 ### 调度纪律
 
-- `single`：最后一个 smoke 通过后 **+5min** 一次，green 即结束。
-- `extended`：+5 / +10 / +15min 三次；任意 red → 停后续 tick。
-- 更长窗口（+1h / +6h）仅人工显式发起。
+- **`single`**：最后一个 smoke 通过后 **+5min** 一次，green 即结束。
+- **`extended`**：+5 / +10 / +15min 三次；任意 red → 停后续 tick。
+- 更长窗口（+1h / +6h）仅人工显式发起；会话内不要自行无限延期。
 
 ## 完成后：rollout 摘要（机械化）
 
@@ -395,7 +445,7 @@ bash scripts/release-rollout-summary.sh --mode release
 | target=all 但 prod run 已自动 queue | 若在 Environment waiting，先等 Edge canary 成功再批准；若已开始，不中断，完成后摘要标记 prod 先行。 |
 | Edge `confirm_stack` mismatch | 停止；检查 `deploy/aws/stage0/edge-targets.json`，不要手改成别的栈名绕过。 |
 | Edge smoke 403 | public runner 访问 `/v1/models` 403 是预期；主网关来源 403 才查 `EDGE_MAIN_GATEWAY_ALLOWED_CIDR` 与 prod EIP。 |
-| main-via-edge smoke HTTP 503 `"no available accounts"` | 先在 prod 上确认对应账号（如 `cc-<edge_id>-oauth`）是否被设为可调度；这是 prod 路由策略，与本次镜像无关。若设计上就不可调度，把这条 smoke 从 hard-fail 降为"infra OK / business-link by design"，**不要 rollback**。若运维想恢复该链路，请按 `/tokenkey-anthropic-oauth-config` 调可调度位再 dispatch `deploy-edge-stage0.yml operation=smoke` 复验。 |
+| main-via-edge smoke HTTP 503 `"no available accounts"` | 先在 prod 上确认对应账号（如 `cc-<edge_id>-oauth`）是否被设为可调度；这是 prod 路由策略，与本次镜像无关。若设计上就不可调度，把这条 smoke 从 hard-fail 降为"infra OK / business-link by design"，**不要 rollback**。若运维想恢复该链路，请按 `/tokenkey-anthropic-oauth-config` 调可调度位再 `dispatch-edge-deploy.sh --operation smoke --smoke-phase main-via-edge` 复验。 |
 | `gh run watch` 被工具超时打断 | 用同一 run id 再执行 `gh run watch <id> --exit-status` 接到终态。 |
 | prod `Deploy via SSM Run-Command` 报 `AccessDenied(ssm:SendCommand)` | 先核对 `tokenkey-cicd-oidc` 的 `TargetInstanceId` 是否等于 `tokenkey-prod-stage0` 当前 `InstanceId`；不一致先更新 OIDC 栈参数再重跑 deploy。 |
 | prod smoke 报 `POST_DEPLOY_SMOKE_CHAT_MODEL not listed in GET /v1/models` | 不是代码回归，改 `prod` Environment 的 `POST_DEPLOY_SMOKE_CHAT_MODEL` 为该 key 可见模型（如 `gpt-5.5`）后重跑。 |
