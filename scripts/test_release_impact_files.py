@@ -149,6 +149,27 @@ class ReleaseImpactFilesTest(unittest.TestCase):
             "backend/internal/service/zzz.go",
         ])
 
+    def test_followup_tier_extended_for_handler_change(self) -> None:
+        head = self._commit({
+            "backend/internal/handler/gateway.go": "package handler\n",
+        }, "handler change")
+        out = self._classify(self.base_sha, head)
+        self.assertEqual(out["followup"]["tier"], "extended")
+
+    def test_followup_tier_skip_for_docs_only(self) -> None:
+        head = self._commit({
+            "docs/readme-note.md": "# note\n",
+        }, "docs only")
+        out = self._classify(self.base_sha, head)
+        self.assertEqual(out["followup"]["tier"], "skip")
+
+    def test_followup_tier_single_for_ci_workflow(self) -> None:
+        head = self._commit({
+            ".github/workflows/release.yml": "name: release\n",
+        }, "ci only")
+        out = self._classify(self.base_sha, head)
+        self.assertEqual(out["followup"]["tier"], "single")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,9 +4,10 @@ description: >-
   Drives TokenKey AWS Stage0 release and rollout across prod and Edge targets:
   sync main, decide VERSION/tag, run scripts/release-tag.sh, watch release.yml,
   deploy prod via deploy-stage0.yml, deploy/smoke deployable Edge targets
-  (dynamic edge matrix from deploy/aws/stage0/edge-targets.json) via
-  deploy-edge-stage0.yml, report structured smoke results, or run a pre-release
-  check of code facts and production impact risk.
+  (dynamic edge matrix from deploy/aws/stage0/edge-targets.json, EC2 or Lightsail
+  via scripts/stage0/dispatch-edge-deploy.sh) via platform-routed workflows,
+  report structured smoke results, or run a pre-release check of code facts and
+  production impact risk.
   Use when the user asks to release, deploy, smoke, rollback, check release
   risk, or roll out to prod, Edge regions, or all Stage0 targets.
 ---
@@ -24,11 +25,12 @@ description: >-
 | VERSION/tag 三态决策（tag-only / bump-and-tag / skip-bump-skip-tag） | 机械 | `scripts/release-decide-version.sh [--emit-suggested-bump]` |
 | 打 tag（含 skip-ci / VERSION 一致 / 分支 / sync 校验） | 机械 | `scripts/release-tag.sh vX.Y.Z` |
 | 读取 deployable edge 矩阵 | 机械 | `python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable` |
-| dispatch release.yml / deploy-stage0.yml / deploy-edge-stage0.yml + watch | 机械 | `gh workflow run` + `gh run watch --exit-status` |
-| 完整 prod smoke（/v1/models + chat + messages + gemini + openai-oauth 探针） | 机械 | `ops/stage0/post_deploy_smoke.sh`（需要 3 个 smoke key） |
-| Edge smoke 验收（external health / public runner 403 / SSM self-smoke） | 机械 | `ops/stage0/edge_post_deploy_smoke.sh` |
-| rollout 摘要（git log / diff stat / sentinel / deletion） | 机械 | `bash scripts/release-rollout-summary.sh --mode release` |
-| +5min/+10min/+15min Step A 文件分类 → 重点观察变量候选清单 | 机械 | `bash scripts/release-impact-files.sh PREV NEW` |
+| Edge dispatch 路由（EC2 vs Lightsail） | 机械 | `scripts/stage0/resolve-edge-deploy-route.py --edge-id <id> --json` |
+| Edge upgrade/smoke/rollback dispatch | 机械 | `bash scripts/stage0/dispatch-edge-deploy.sh --edge-id … --operation …` |
+| dispatch release.yml / deploy-stage0.yml + watch | 机械 | `gh workflow run` + `gh run watch --exit-status` |
+| prod 完整 smoke（CI 唯一验收源） | 机械 | `deploy-stage0.yml` job log 内 `tk_post_deploy_smoke: OK` |
+| Edge smoke 分阶段（infra / main-via-edge / full） | 机械 | `ops/stage0/edge_post_deploy_smoke.sh` + workflow `smoke_phase` |
+| 发版后跟进档位（skip / single / extended） | 机械 | `bash scripts/release-impact-files.sh PREV NEW` → `.followup.tier` |
 | canary 顺序、prod approval 时机、smoke 模型回退 | 判断 | prompt（爆炸半径、用户入口顺序） |
 | verdict 评级（green/yellow/red） | 判断 | prompt（错误聚类 vs 基线、流量趋势） |
 | Step A → 「重点观察 trace 关键词」语义命名 | 判断 | prompt（文件→hook 名映射；脚本只给文件桶） |
@@ -46,7 +48,7 @@ description: >-
 |---|---|
 | `operation=check` | 只做预发布风险检查：对比上一个 release tag 到待发布 HEAD 的代码事实，判断上线 prod/Edge 的潜在影响；不 bump、不 tag、不 dispatch deploy。 |
 | `target=prod` | release（必要时 bump/tag/build）→ `deploy-stage0.yml -f tag=…`（绑定 **`prod`** Environment）→ prod smoke。 |
-| `target=edge-<edge_id>` | 默认 tag 已存在：`deploy-edge-stage0.yml edge_id=<edge_id> operation=upgrade` → Edge smoke；`operation=smoke` 只 smoke；`operation=rollback` 用 `previous_tag`。`confirm_stack` 按矩阵取 `tokenkey-edge-<edge_id>-stage0`。 |
+| `target=edge-<edge_id>` | 默认 tag 已存在：用 **`bash scripts/stage0/dispatch-edge-deploy.sh`**（自动路由 EC2/Lightsail）→ watch → 按 phase 验收 smoke。`operation=smoke` 只 smoke；`operation=rollback` 用 `previous_tag`。不要手选 workflow 或手填 confirm_stack/confirm_instance。 |
 | `target=all` | release 一次 → 从 `deploy/aws/stage0/edge-targets.json` 读取 `deployable=true` 的 Edge 矩阵并按顺序 canary upgrade/smoke → prod deploy/smoke → main-gateway-via-edge smoke → 其余 Edge 类推。 |
 
 如果用户只说“发版 / deploy 最新 / ship production”，默认 `target=prod operation=release`。如果用户说“全部 / 所有网关 / prod + edge / all”，默认 `target=all operation=release`。如果用户说“检查 / 预判 / 评估上线影响 / release check”，默认 `operation=check target=all`。
@@ -91,7 +93,7 @@ description: >-
 2. **Edge canary：只取 deployable 矩阵第一个 Edge upgrade + infra smoke**：先在低成本、非用户入口的资源节点验证镜像能在 Graviton/Stage0/共享 compose 上启动，并验证 `/health`、Caddy allowlist、Edge self-smoke。
 3. **prod 主网关 upgrade + 完整 prod smoke**：主网关是唯一用户入口、计量计费面和体验中心；Edge canary 过后再升级 prod。
 4. **main gateway via Edge smoke**：prod 升级后再跑主网关经这个已通过 canary 的 Edge 业务 smoke，确认 `api.tokenkey.dev` 调度到 Edge 的真实链路。
-5. **其余 deployable Edge 顺序 rollout**：按 `deploy/aws/stage0/edge-targets.json` 顺序逐个 upgrade + smoke，失败即停。
+5. **其余 deployable Edge 顺序 rollout**：按矩阵逐个 **upgrade（infra smoke）**；失败即停。**main-via-edge 只在 canary 做一次**（见 `target=all` 执行顺序）。
 
 例外：
 
@@ -105,7 +107,7 @@ description: >-
 - **读 VERSION 前必须先** `fetch` + `pull --ff-only` **后的** `origin/main` 为准；在未更新的本地分支上读 `VERSION` 会与远端 tag 错位。
 - **`gh run watch` 要给够时间**：多架构 `release.yml` 常见十余分钟量级；Agent 应用 `--exit-status` 跟跑到结束，不要用默认短超时提前杀掉。
 - **Environment approval 不是失败**：`prod` / `edge-<edge_id>` run 卡在 `waiting` 时，需要人在 GitHub Actions 批准；批准后继续 watch。
-- **完整烟测密钥**：优先使用环境里已有的 smoke key，避免停下来向用户索要 key；详见 prod smoke 与 Edge smoke 章节。
+- **完整烟测密钥**：prod 完整 smoke 以 **CI `deploy-stage0` job log** 为唯一验收源；Agent 默认**不**在本地重跑 `post_deploy_smoke.sh`，除非 CI secret 缺失或日志无法解析。Edge main-via-edge 依赖 `MAIN_GATEWAY_EDGE_SMOKE_API_KEY`（canary 一次）。
 - **部署前先校验 OIDC 目标实例**：`tokenkey-cicd-oidc` 的 `TargetInstanceId` 必须等于 `tokenkey-prod-stage0` 当前 `InstanceId`；不一致会在 `Deploy via SSM Run-Command` 直接 `AccessDenied(ssm:SendCommand)`。
 - **禁止 `simple_release_override=true`**：prod / Edge 当前都跑 AWS Graviton arm64；单架构 manifest 会导致 `exec format error`。
 - **`gh` 连接抖动先做无代理重试**：若连续出现 `read ... 127.0.0.1:7890: connection reset by peer`，用一次性环境变量重试：`env -u HTTPS_PROXY -u https_proxy -u HTTP_PROXY -u http_proxy gh ...`，恢复后再继续 watch/dispatch。
@@ -171,116 +173,120 @@ gh workflow run deploy-stage0.yml \
 
 **target=all 注意**：如果 release 已自动 queue prod，而 Edge canary 尚未完成，不取消 prod run；若它卡在 `prod` Environment approval，先不要批准，等第一个 deployable Edge canary 成功后再批准。若 prod 已开始，继续完成，不强行中断，并在摘要标记“prod 已先行”。
 
-### edge-<edge_id>：Edge 资源节点
+### edge-<edge_id>：Edge 资源节点（EC2 或 Lightsail，单一 dispatch 入口）
 
-以 `deploy/aws/stage0/edge-targets.json` 为准。`deployable=true` 的 edge 才进入 rollout；`deployable=false` 仅作为 planned。
+以 `resolve-edge-target.py --list-deployable` 为准（已合并 EC2 ∪ Lightsail，Lightsail `deployable=true` 优先）。**禁止**手选 `deploy-edge-stage0.yml` vs `deploy-edge-lightsail-stage0.yml`——一律走 dispatch 脚本：
 
 ```bash
-# 单个 Edge upgrade（示例：edge_id=<edge_id>）
 TARGET_TAG=X.Y.Z
 EDGE_ID=<edge_id>
-CONFIRM_STACK="tokenkey-edge-${EDGE_ID}-stage0"
 
-gh workflow run deploy-edge-stage0.yml \
-  -f edge_id="$EDGE_ID" \
-  -f operation=upgrade \
-  -f tag="$TARGET_TAG" \
-  -f confirm_stack="$CONFIRM_STACK"
+# upgrade（默认 smoke_phase=infra）
+bash scripts/stage0/dispatch-edge-deploy.sh \
+  --edge-id "$EDGE_ID" \
+  --operation upgrade \
+  --tag "$TARGET_TAG"
 
-# 单个 Edge smoke only
-gh workflow run deploy-edge-stage0.yml \
-  -f edge_id="$EDGE_ID" \
-  -f operation=smoke \
-  -f confirm_stack="$CONFIRM_STACK"
+# smoke only（默认 smoke_phase=full；rollout 中按需显式传 phase）
+bash scripts/stage0/dispatch-edge-deploy.sh \
+  --edge-id "$EDGE_ID" \
+  --operation smoke \
+  --smoke-phase infra          # 或 main-via-edge | full
 
-# 单个 Edge rollback
-gh workflow run deploy-edge-stage0.yml \
-  -f edge_id="$EDGE_ID" \
-  -f operation=rollback \
-  -f tag="$PREVIOUS_TAG" \
-  -f confirm_stack="$CONFIRM_STACK"
+# rollback
+bash scripts/stage0/dispatch-edge-deploy.sh \
+  --edge-id "$EDGE_ID" \
+  --operation rollback \
+  --tag "$PREVIOUS_TAG"
 ```
 
-`provision` 只用于首次创建或 CloudFormation 参数/模板更新，不是日常 release rollout 默认操作。
+路由事实源（只读核对）：
+
+```bash
+python3 scripts/stage0/resolve-edge-deploy-route.py --edge-id "$EDGE_ID" --json
+# → platform, workflow_file, confirm_flag, confirm_value
+```
+
+`provision` / `rotate_egress_ip` / `decommission` 仍可直接 `gh workflow run`（非常规 rollout）；日常 release 只用上面的 dispatch 脚本。
 
 ## target=all 的执行顺序
 
-0. **预检 prod 业务通路（避免把账号问题当 release blocker）**：在动手起 release 之前先做一次只读探活，把"账号无可用 / main↔edge 链路刻意不可调度"等运维状态先暴露出来，避免后面 Edge canary 的 main-gateway-via-edge smoke 失败时被误诊为发布回归。
-   - a. `curl https://api.tokenkey.dev/health` 与 `/api/v1/settings/public` 期望 HTTP 200，确认控制面活。
-   - b. 用 `POST_DEPLOY_SMOKE_API_KEY` 跑 `bash ops/stage0/post_deploy_smoke.sh` 一次（或 dispatch `ops-daily-diagnostics operation=diagnostics target_selector=prod diagnostics_log_since=20m`），拿到 anthropic / openai / gemini 账号统计 + 最近错误聚类。
-   - c. 显式问运维方：本次每个 deployable Edge 在 prod 端是否预期可调度（main→edge-X 链路）；若**刻意不可调度**（隔离策略），后面对应的 main-via-edge 业务 smoke 必为 503 `"no available accounts"`，请提前在摘要里把它降级为"infra OK, business-link by design"而非 rollback 触发条件。
-1. 完成“标准流程：release 新镜像”，得到 `TARGET_TAG`。
+0. **轻量预检（非完整 prod smoke）**：在 release 之前只做控制面探活 + 账号/scheduling 状态快照，避免把运维状态误判成 release 回归。
+   - a. `curl https://api.tokenkey.dev/health` 与 `/api/v1/settings/public` 期望 HTTP 200。
+   - b. 可选：`gh workflow run ops-daily-diagnostics.yml -f operation=diagnostics -f target_selector=prod -f diagnostics_log_since=20m`（或只读查最近错误聚类），确认 anthropic/openai/gemini 账号池非空、无新 cluster。
+   - c. 向运维确认：各 deployable Edge 在 prod 端是否**预期可调度**；若刻意不可调度，canary 的 main-via-edge 503 `"no available accounts"` 记为 **by design**，不触发 rollback。
+1. 完成「标准流程：release 新镜像」，得到 `TARGET_TAG`。
 2. 读取 deployable 矩阵：
 
    ```bash
    python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable
-   # newline 分隔 deployable edge id（按 key 排序）
    ```
-3. 取矩阵第一个 deployable Edge 作为 canary：dispatch `deploy-edge-stage0.yml operation=upgrade tag=$TARGET_TAG`，watch 到 success。
-4. 检查 canary Edge smoke 结果：external health、public runner relay path block、SSM self-smoke；若失败，停，不推进 prod，除非用户明确 override。
-5. 推进 prod deploy：优先使用 release 自动 queue 的 prod run；没有则手动 dispatch。watch 到 success。
-6. 做 prod 完整 smoke（见下文）；若仅因 `POST_DEPLOY_SMOKE_CHAT_MODEL` 不在当前 key 的 `/v1/models` 可见列表而失败，先把对应 Environment 变量改到可见模型（如 `gpt-5.5`）再重跑，不要误判为发布回归。
-7. 对 canary Edge 再 dispatch `operation=smoke`，做 prod 升级后的 main-gateway-via-edge 验证；若缺 `MAIN_GATEWAY_EDGE_SMOKE_API_KEY`，只可标记“infra smoke 通过，主网关经 Edge 业务 smoke 未覆盖”。
-8. 其余 deployable Edge 顺序 upgrade + smoke；默认优先 `claude-sonnet-4-6`，若该 edge/key 不可见则切到该 key 的可见模型并重跑一次；失败即停。
-9. **会话内 3 次后置跟进（all 默认搭配）**：完成最后一个 smoke 后**不要结束会话**，按“完成后：会话里 +5min / +10min / +15min 后置跟进”段执行三次轻量诊断 + 综合建议。**不要**通过额外 GitHub Actions workflow 调度 post-release diagnostics；会话内跟进必须基于 `git diff v${PREV}..v${NEW}` 动态决定本次重点观察变量，避免固定 metric 集漏掉 release-specific hook。
+
+3. 取矩阵**第一个** deployable Edge 作为 canary：`dispatch-edge-deploy.sh --operation upgrade --tag=$TARGET_TAG`（**infra smoke**，workflow 默认 `smoke_phase=infra`），watch 到 success。
+4. 推进 prod deploy：优先使用 release 自动 queue 的 prod run；没有则手动 dispatch。watch 到 success。
+5. **prod 验收（CI 唯一源）**：在本次 `deploy-stage0` run log 搜索 `tk_post_deploy_smoke: OK`，并核对 models/chat/messages 等 shape（见「prod 真实测试」§A）。**不要**在本地再跑完整 `post_deploy_smoke.sh`，除非 CI secret 缺失或日志不可解析。
+6. **canary main-via-edge（仅此一次）**：`dispatch-edge-deploy.sh --operation smoke --smoke-phase main-via-edge`（prod 已升级后）。缺 `MAIN_GATEWAY_EDGE_SMOKE_API_KEY` 则标记 partial，不 rollback。
+7. **其余 deployable Edge**：逐个 `upgrade`（infra smoke only）；**不再**对每个 edge 跑 main-via-edge。
+8. **发版后跟进（按 diff 档位，非固定三轮）**：跑 `release-impact-files.sh` 读 `.followup.tier`：
+   - `skip` → 不跟进，直接 rollout summary。
+   - `single` → 仅 **+5min** 一次轻量诊断。
+   - `extended` → **+5 / +10 / +15min** 三轮（gateway/schema/config 类变更）。
 
 ## prod 真实测试
 
-部署 workflow 成功只说明流水线过了；Agent 仍需做验收（除非用户明确只要 CI）。
+部署 workflow 成功只说明流水线过了；**prod 完整网关烟测以 CI 为唯一 canonical 验收**（Jobs：一条路径一个意图）。
 
-### A — CI 日志中的完整网关烟测
+### A — CI 日志中的完整网关烟测（默认且充分）
 
-在本次 `deploy-stage0` run log 里搜索 `tk_post_deploy_smoke: OK`，并确认 `GET /v1/models`、`POST /v1/chat/completions`、`POST /v1/messages` 等为预期 HTTP。
-
-不要只看脚本 OK 或文本 marker。生产验收必须确认：
+在本次 `deploy-stage0` run log 里搜索 `tk_post_deploy_smoke: OK`，并确认：
 
 - `/v1/models`：`object=list` 且 `data` 非空。
-- `/v1/chat/completions`：`object=chat.completion`，`choices[]` 非空，`finish_reason` 合理，`usage` 存在。
-- `/v1/messages`：`type=message`，`role=assistant`，`content[]` 有文本，`stop_reason` 合理，`usage` 字段结构正确。
+- `/v1/chat/completions`：`object=chat.completion`，`choices[]` 非空，`usage` 存在。
+- `/v1/messages`：`type=message`，`role=assistant`，`content[]` 有文本，`usage` 存在。
+- Gemini / OpenAI OAuth 探针：workflow 已配置三个 secret 时应在 log 中出现对应 section（软警告 vs 硬失败见 `post_deploy_smoke.sh`）。
 
-### B — 本地快速探活（无密钥）
+若 CI 因 `POST_DEPLOY_SMOKE_CHAT_MODEL` 不在 key 的 `/v1/models` 列表失败：改 `prod` Environment 变量到可见模型后 **重跑 deploy-stage0**，不要本地对冲。
+
+### B — 本地快速探活（无密钥，可选）
+
+仅在 CI 不可达或需人工 double-check 时用：
 
 ```bash
 curl -sS -o /dev/null -w '%{http_code}\n' 'https://api.tokenkey.dev/health'
 curl -sS -o /dev/null -w '%{http_code}\n' 'https://api.tokenkey.dev/api/v1/settings/public'
 ```
 
-期望 200。
+期望 200。**不要**把本地完整 `post_deploy_smoke.sh` 当作默认 prod 验收（与 CI 重复）。
 
-### C — 本地完整烟测（prod API key）
+### C — 本地完整烟测（例外路径）
+
+仅当 **CI secret 未配置** 或 **无法读取 deploy-stage0 run log** 时启用：
 
 ```bash
 export TOKENKEY_BASE_URL=https://api.tokenkey.dev
-# 必填：POST_DEPLOY_SMOKE_API_KEY
-# 必填：POST_DEPLOY_SMOKE_GEMINI_API_KEY
-# 必填：POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY
+# POST_DEPLOY_SMOKE_API_KEY + GEMINI + OPENAI_OAUTH 三个 key 均必填
 bash ops/stage0/post_deploy_smoke.sh
 ```
 
-主 key 解析顺序：`POST_DEPLOY_SMOKE_API_KEY` → `ANTHROPIC_AUTH_TOKEN` → `TK_TOKEN` → `TOKENKEY_API_KEY`。不得打印完整 key；脚本只输出 `key_hint`。
-
-正式验收中三个 smoke key 均为必填；任一缺失不得视为 prod 完整验收通过。
-
-通过标准：
-
-- public settings：HTTP 200，JSON `code=0`。
-- frontend release asset shape：`scripts/checks/frontend-release-assets.py` 通过。
-- `/v1/models`：HTTP 200，`object=list`，`data` 非空。
-- `/v1/chat/completions`：HTTP 200，shape 正确，usage 存在。
-- `/v1/messages`：HTTP 200，shape 正确，usage 存在。
-- Gemini tool-schema 探针：HTTP 400/401/403/404 为硬失败；5xx/429/no available accounts 为软警告；缺 key 为阻塞。
-- OpenAI OAuth 探针：HTTP 200 + shape/marker/token totals；4xx 为硬失败；5xx/429 为软警告；缺 key 为阻塞。
+通过标准同 `ops/stage0/post_deploy_smoke.sh` 文档；缺 key 不得声称 prod 完整验收通过。
 
 ## Edge smoke 验收
 
-`deploy-edge-stage0.yml` 的 `Edge smoke` 调用 `ops/stage0/edge_post_deploy_smoke.sh`。验收时确认：
+Edge workflow 在 `external_health.sh` 之后调用 `edge_post_deploy_smoke.sh`，并传 `SKIP_EXTERNAL_HEALTH=1`（避免重复外网 `/health`）。
 
-- external `GET <EDGE_API_URL>/health` 为 200。
-- public runner `GET <EDGE_API_URL>/v1/models` 为 403，证明 Caddy relay path allowlist 生效。
-- SSM self-smoke 成功：容器 `docker compose ps` 正常，容器内 `http://localhost:8080/health` 成功。
-- 若 `EDGE_SELF_SMOKE_MODE=api` 且 Edge 本地 smoke key 配好，确认 Edge API self-smoke 成功。
-- 若 `MAIN_GATEWAY_EDGE_SMOKE_API_KEY` 已配置，确认 main gateway via Edge smoke 成功，并通过对应 Edge 的 Caddy/tokenkey 日志证明请求实际命中该节点。
-- 若 `MAIN_GATEWAY_EDGE_SMOKE_API_KEY` 未配置，只能声明“Edge infra smoke 通过”；不得声称主网关经 Edge 业务链路已验收。
+**分阶段（`EDGE_SMOKE_PHASE` / workflow `smoke_phase`）**：
+
+| phase | 何时用 | 验证内容 |
+|---|---|---|
+| `infra` | 每个 Edge **upgrade/rollback** 默认 | 公网 runner `/v1/models`→403；SSM 内 compose ps + localhost health；可选 Edge 本地 api self-smoke |
+| `main-via-edge` | **仅 canary**，且 **prod 已升级后** | 经 prod 主网关打到 Edge 的业务 smoke + Edge 日志确认 |
+| `full` | 单独 `operation=smoke` 且未指定 phase 时 | infra + main-via-edge |
+
+验收 checklist：
+
+- `infra`：workflow log 含 `tk_edge_post_deploy_smoke: OK phase=infra`。
+- `main-via-edge`：log 含 main gateway smoke 成功或明确 skip（缺 key）；日志确认 optional warning 可接受。
+- 非 canary Edge：**只需 infra**；不得因缺少 main-via-edge 判 fail。
 
 ## rollback
 
@@ -291,117 +297,62 @@ gh workflow run deploy-stage0.yml \
   -f tag="$PREVIOUS_TAG"
 ```
 
-- Edge rollback：`deploy-edge-stage0.yml operation=rollback`（按目标替换 `edge_id`，`confirm_stack=tokenkey-edge-<edge_id>-stage0`）。
+- Edge rollback：`bash scripts/stage0/dispatch-edge-deploy.sh --edge-id <id> --operation rollback --tag "$PREVIOUS_TAG"`。
 
 ```bash
 EDGE_ID=<edge_id>
-gh workflow run deploy-edge-stage0.yml \
-  -f edge_id="$EDGE_ID" \
-  -f operation=rollback \
-  -f tag="$PREVIOUS_TAG" \
-  -f confirm_stack="tokenkey-edge-${EDGE_ID}-stage0"
+bash scripts/stage0/dispatch-edge-deploy.sh \
+  --edge-id "$EDGE_ID" \
+  --operation rollback \
+  --tag "$PREVIOUS_TAG"
 ```
 
 prod smoke 失败：停，优先 rollback prod；不要继续 Edge rollout。Edge canary 失败：停，不批准/推进 prod，除非用户明确 override。
 
-## 完成后：会话里 +5min / +10min / +15min 后置跟进
+## 完成后：发版后跟进（按 diff 档位）
 
-发版 rollout 完成（prod smoke 通过 + main-via-edge smoke 通过）后**不要立即结束会话**，也**不要**把跟进推到后续 GitHub Actions run。在当前会话里做三次 5 分钟间隔的轻量跟进，最后基于 3 次观察给综合建议。
-
-### Step A：确定本次发版的「重点观察变量」
-
-跟进不跑固定 metric 集，而是基于本次 diff 决定要重点盯什么。文件桶分类是机械化（`release-impact-files.sh`），「桶内哪些 hook 名值得 grep」是判断（prompt）。
+**不要**每次发版固定 +5/+10/+15min 三轮。先机械化分档：
 
 ```bash
 PREV_TAG=$(git tag --sort=-version:refname | grep '^v[0-9]' | sed -n '2p')
 NEW_TAG=$(git tag --sort=-version:refname | grep '^v[0-9]' | head -1)
-
-# 输出 JSON：buckets.backend_service / backend_handler / backend_schema / frontend_* / sentinels / ...
 bash scripts/release-impact-files.sh "${PREV_TAG}" "${NEW_TAG}"
+# 读 JSON .followup.tier → skip | single | extended
 ```
 
-JSON 出来后，对每个非空 bucket，**模型**按下表把改动文件映射到「重点观察 trace 关键词」。脚本只给桶（机械），关键词由模型按 hook 命名（判断）：
-
-| 改动类型 | 重点观察的 trace 关键词 |
+| tier | 动作 |
 |---|---|
-| 新背景 goroutine（如 `*_reaper.go`） | grep `XxxReaper` 启动日志、cycle 频率、Cleanup 退出消息 |
-| 新 gateway 路径 hook（如 `*_tk_signature_preempt.go`） | grep `applyXxxIfArmed` / `armXxxOnError` 触发次数、影响的 account_id 分布 |
-| 新错误处理分支（如 `*_silent_refusal.go`） | grep `silent_refusal` / 新增 `ops_error_logs.reason` 取值 |
-| Stream 行为改动（keepalive ticker、超时等） | 看 SSE 连接持续时间分布、`Gateway.StreamKeepaliveInterval` 是否实际启用 |
-| `wire.go` / `wire_gen.go` DI 变化 | 看启动日志 provider 顺序无 panic、新依赖构造无 nil |
-| `config.go` 新字段 | 在 prod / Edge `.env` 与 `.env.example` 对齐确认；进容器后只输出字段是否设置或 redacted 状态，不打印变量值 |
-| 数据库 schema / migrations | 新表/列的写入路径在 5 分钟窗口是否 surfacing 异常 |
-| 前端 frontend dist hash 变化 | embedded dist freshness + 关键页面 200 |
+| `skip` | 不跟进；直接 rollout summary |
+| `single` | **仅 +5min** 一次轻量诊断 |
+| `extended` | **+5 / +10 / +15min** 三轮 |
 
-把“重点观察变量”列在第一次跟进的开头，让 user 看到这一次跟进是按本次发版定制的，而非通用模板。
+### Step A：重点观察变量（extended / single 时）
 
-### Step B：三次轻量跟进的节奏与内容
+跟进基于本次 diff，不跑固定 metric 集。文件桶分类机械化（`release-impact-files.sh`），桶内 hook 名由模型按 release 内容命名（判断）。
 
-调度：上线完成时立刻调度 +5min / +10min / +15min 三个时点的醒来，每次跟进做以下三件事：
+（bucket → hook 映射表同前，略）
 
-1. **控制面探活（本地，无密钥）**
-   - `curl -sS -o /dev/null -w '%{http_code}\n' 'https://api.tokenkey.dev/health'` 期望 200
-   - `curl -sS -o /dev/null -w '%{http_code}\n' 'https://api.tokenkey.dev/api/v1/settings/public'` 期望 200
-   - 每个 deployable Edge 也跑一次 `/health` 期望 200
+### Step B：每次 tick 的内容
 
-2. **错误 + 流量快照（最近 5 分钟窗口）**
-   - 用 `/tokenkey-online-log-troubleshooting` skill 查 `ops_error_logs` 最近 5 分钟错误聚类（按 `reason`、`status_code`、`platform` 三维聚）
-   - 主网关 docker logs 最近 5 分钟 `level=error` 或 status>=500 的 Top 3 路由
-   - 流量量级估算：最近 5 分钟总请求数、按 `/v1/chat/completions` / `/v1/messages` / `/v1/models` 分布
-   - 不要拉日志全文 — 只要聚类摘要，避免 context 爆
+1. **控制面探活**：prod `/health` + `/api/v1/settings/public`；各 deployable Edge `/health`。
+2. **错误 + 流量快照**（最近 5m）：用 `/tokenkey-online-log-troubleshooting` 查聚类摘要。
+3. **重点 hook grep**（extended 时；single 可只做 1–2 条）
 
-3. **本次「重点观察变量」的 trace**
-   - 对 Step A 提取的每条 hook 关键词，grep 主网关日志 5 分钟窗口的触发计数 + 任何异常 stacktrace
-   - 没看到触发 = 正常（流量未触达该路径）；触发频次明显高于基线（如 reaper 每秒跑一次）= 异常；触发后立即 5xx 跟随 = 异常
+### Step C：输出形状
 
-### Step C：每次跟进的固定输出形状
+（同前 `verdict: green|yellow|red` 模板）
 
-每次跟进结束输出一段 5–12 行的简洁汇报，结构固定（占位符在执行时按 Step A 提取结果填实）：
+### Step D：最后一次 tick 后的综合建议
 
-```text
-[+Nmin post-release ${NEW_TAG}]
-control plane: api 200 ✓ | settings/public 200 ✓ | <each deployable edge> 200 ✓
-errors (last 5m): <cluster summary by reason/status_code/platform, or "none">
-traffic (last 5m): N total | chat=X messages=Y models=Z
-new-code hooks:
-  - <hook 1 from Step A>: <grep result, or "no fires">
-  - <hook 2 from Step A>: <grep result, or "no activity">
-  - ...
-verdict: green | yellow | red — <one-line reason>
-```
-
-不要把上面模板照搬当输出：`new-code hooks` 的具体 hook 名由 Step A 的 diff 分析动态产出。纯前端 / 纯 chore release 没有 backend hook 时，直接写 `(no new backend hooks this release)`。
-
-`verdict` 判定原则：
-
-- **green**：control plane 全 200 + 错误聚类无新 cluster + 重点观察变量按预期触发或合理静默 + 流量量级与基线一致
-- **yellow**：control plane OK 但某条路径错误率上升 / 重点 hook 未按预期触发或频次异常 / 流量明显偏低或偏高 → 列出可疑 cluster + 建议是否需要人工触发更长窗口观察
-- **red**：control plane 任一点 fail / 错误聚类含新 type 且 rate 高于基线 2× / 重点 hook 触发后立即 5xx / 流量塌方 → **立即汇报，不再续 +5min**，建议人工立即决定是否 rollback 到 `previous_tag`
-
-### Step D：第 3 次跟进后的综合建议
-
-第 3 次（+15min）跟进汇报完后**立即**给综合建议（不再等更长窗口），结构：
-
-```text
-=== Post-release follow-up summary (${NEW_TAG}, 3 ticks over +15min) ===
-重点变更：<列出 Step A 的关键 hook / 配置项>
-control plane：3/3 ticks green | <or list any failure tick>
-错误聚类汇总：<去重的 cluster + 频次趋势>
-流量趋势：<是否与基线一致>
-重点观察变量结论：<逐项 hook 是否按预期>
-综合 verdict: green / yellow / red
-建议：
-  - <green>: 发版稳定，无 follow-up。
-  - <yellow>: 列出 1-3 条需要在 24h / 1week 内再观察或修复的事项；建议是否人工触发 +1h / +6h 跟进。
-  - <red>: 列出可疑回归点，建议立即 `gh workflow run deploy-stage0.yml -f tag=${PREVIOUS_TAG}` rollback；其余 Edge 暂不批准 prod approval。
-```
+- `single`：一次 tick 后即给 summary。
+- `extended`：第 3 次 tick 后给 summary。
+- `skip`：跳过本节。
 
 ### 调度纪律
 
-- 第 1 次跟进在最后一个 smoke 通过后 +5min ± 30s 启动（优先用 `ScheduleWakeup`，也可用三次明确的一次性调度；不要创建无限循环）
-- 第 2 / 3 次按 5 min 间隔自动续上
-- 中间任意一次 verdict = red → 立刻汇报，停止后续 tick，等人工决定 rollback
-- 3 次窗口结束后会话**不再自动延期**；如需 +1h / +6h / +24h 跟踪由人工显式发起，不要在当前会话里自己延期否则会跨越上下文窗口
+- `single`：最后一个 smoke 通过后 **+5min** 一次，green 即结束。
+- `extended`：+5 / +10 / +15min 三次；任意 red → 停后续 tick。
+- 更长窗口（+1h / +6h）仅人工显式发起。
 
 ## 完成后：rollout 摘要（机械化）
 
@@ -419,7 +370,7 @@ bash scripts/release-rollout-summary.sh --mode release
 
 | target | workflow | run id | tag | status | smoke |
 |---|---|---:|---|---|---|
-| edge-<edge_id>-canary（每个 deployable edge 一行） | deploy-edge-stage0 | ... | X.Y.Z | success/fail/skipped | infra / main-via-edge(按需) |
+| edge-<edge_id>-canary（每个 deployable edge 一行） | dispatch 脚本 → EC2/Lightsail workflow | ... | X.Y.Z | success/fail/skipped | infra / main-via-edge(仅 canary) |
 | prod | deploy-stage0 | ... | X.Y.Z | success/fail/skipped | full/partial |
 
 并补充：
@@ -454,9 +405,12 @@ bash scripts/release-rollout-summary.sh --mode release
 
 - `scripts/release-tag.sh` — tag 门禁。
 - `.github/workflows/release.yml` — multi-arch image build 与 prod auto-dispatch。
+- `scripts/stage0/dispatch-edge-deploy.sh` — 单一 Edge deploy dispatch（EC2/Lightsail 自动路由）。
+- `scripts/stage0/resolve-edge-deploy-route.py` — Edge → workflow + confirm 参数。
 - `.github/workflows/deploy-stage0.yml` — prod deploy。
-- `.github/workflows/deploy-edge-stage0.yml` — Edge upgrade/smoke/rollback。
-- `ops/stage0/post_deploy_smoke.sh` — prod 完整 smoke。
-- `ops/stage0/edge_post_deploy_smoke.sh` — Edge smoke wrapper。
+- `.github/workflows/deploy-edge-stage0.yml` — EC2 Edge deploy。
+- `.github/workflows/deploy-edge-lightsail-stage0.yml` — Lightsail Edge deploy。
+- `ops/stage0/post_deploy_smoke.sh` — prod 完整 smoke（CI canonical）。
+- `ops/stage0/edge_post_deploy_smoke.sh` — Edge smoke（infra / main-via-edge / full）。
 - `deploy/aws/README.md` — Stage0、Edge、多区域升级 SOP。
 - `.github/workflows/ops-stage0-pg-dump-refresh.yml` + `ops/stage0/pg_dump_refresh_via_ssm.sh` — in-place 同步 `deploy/aws/cloudformation/stage0-single-ec2.yaml` 里的 `tokenkey-pgdump.*` systemd unit 到 live 实例（不重建 EC2）；下次有类似 user-data 模板改动可参考此形状写一个 one-shot ops workflow。
