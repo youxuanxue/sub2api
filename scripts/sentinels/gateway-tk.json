@@ -983,17 +983,21 @@
       "must_contain": [
         "func (s *GatewayService) tlsFingerprintProfileNameForAccount(account *Account) string"
       ],
-      "rationale": "Resolves bound TLS profile name for OAuth HTTP fingerprint pinning (B1). Dropping this helper reverts GetOrCreateFingerprint to ingress-driven UA drift on prod→edge relay paths even when accounts bind claude_cli_2_1_142_node24_20260515."
+      "rationale": "Resolves bound TLS profile name for OAuth HTTP fingerprint pinning (B1). Dropping this helper reverts GetOrCreateFingerprint to ingress-driven UA drift on prod→edge relay paths even when accounts bind tk_canonical_cc_oauth."
     },
     {
       "path": "backend/internal/service/identity_service_tk_canonical_http.go",
       "must_contain": [
-        "canonicalTLSFingerprintProfileName",
+        "canonicalTLSFingerprintProfileName = \"tk_canonical_cc_oauth\"",
         "func IsCanonicalTLSProfileName(name string) bool",
-        "applyCanonicalHTTPObserved(fp *Fingerprint) bool",
-        "claude-cli/2.1.150 (external, sdk-cli)"
+        "applyCanonicalHTTPObserved(fp *Fingerprint, userAgent string) bool",
+        "ClaudeCodeUserAgentVersionEnv = \"CLAUDE_CODE_USER_AGENT_VERSION\"",
+        "func SetClaudeCodeUserAgentResolver(",
+        "func GetCanonicalUserAgentForContext(ctx context.Context) string",
+        "canonicalUAPrefix = \"claude-cli/\"",
+        "canonicalUASuffix = \" (external, sdk-cli)\""
       ],
-      "rationale": "Pins HTTP User-Agent and x-stainless-* to deploy/aws/stage0/claude_cli_2_1_142_node24_20260515.json observed block when the canonical TLS template is bound. Without this companion, Redis fingerprint:{accountID} learns ingress UA (e.g. claude-cli/2.1.150 from relay) and upstream HTTP/TLS fingerprints diverge."
+      "rationale": "Canonical Claude Code OAuth HTTP identity pinning. Anchors three independent guarantees: (1) the TLS profile id is stable (`tk_canonical_cc_oauth`) and never embeds cc CLI patch version — bumping cc UA never triggers DB profile rename + migration; (2) the UA is sourced through the 3-layer resolver (admin setting via SetClaudeCodeUserAgentResolver → CLAUDE_CODE_USER_AGENT_VERSION env → compile default), so a cc patch bump is an admin-UI change, not a code change + redeploy + SQL apply; (3) the prefix/suffix wrap (`claude-cli/...(external, sdk-cli)`) is fixed by design — only the version-only middle field is configurable. The two-arg signature of applyCanonicalHTTPObserved (fp + userAgent) is pinned because an upstream refactor that drops the userAgent parameter would silently fall back to a hardcoded literal and reintroduce the patch-version-bound regression."
     },
     {
       "path": "backend/internal/service/identity_service_tk_canonical_http_test.go",
@@ -1007,9 +1011,28 @@
       "path": "backend/internal/service/identity_service.go",
       "must_contain": [
         "pinCanonicalHTTP := IsCanonicalTLSProfileName(tlsProfileName)",
-        "applyCanonicalHTTPObserved(cached)"
+        "applyCanonicalHTTPObserved(cached, GetCanonicalUserAgentForContext(ctx))"
       ],
       "rationale": "GetOrCreateFingerprint must accept tlsProfileName and skip ingress UA version upgrades when canonical TLS template is active."
+    },
+    {
+      "path": "backend/internal/service/wire.go",
+      "must_contain": [
+        "SetClaudeCodeUserAgentResolver(svc.GetClaudeCodeUserAgentVersion)"
+      ],
+      "rationale": "ProvideSettingService MUST wire the Claude Code UA resolver so SettingService.GetClaudeCodeUserAgentVersion drives applyCanonicalHTTPObserved at runtime. Without this line the resolver stays nil and GetCanonicalUserAgentForContext silently falls back to the compile-time default — admin UI / API setting changes for the cc UA become a no-op while the field still appears editable, which is the worst failure mode (looks fine, isn't)."
+    },
+    {
+      "path": "backend/internal/service/setting_service.go",
+      "must_contain": [
+        "func (s *SettingService) GetClaudeCodeUserAgentVersion(ctx context.Context) string",
+        "SettingKeyClaudeCodeUserAgentVersion",
+        "claudeCodeUAVersionCache",
+        "claudeCodeUAVersionSF",
+        "NormalizeClaudeCodeUserAgentVersion",
+        "GetDefaultClaudeCodeUserAgentVersion()"
+      ],
+      "rationale": "SettingService surface for the Claude Code canonical OAuth UA runtime config: the getter, the SettingKey, the per-process cache + singleflight pair, and the normalization helper from the service package. All five anchors must stay together — dropping the getter strands the cache; dropping the cache breaks load amplification protection on hot fingerprint paths; dropping the normalize call lets a non-semver admin input poison the cache. Modeled on the existing AntigravityUserAgentVersion wiring in the same file; semantically symmetric so a reviewer can audit both at once."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_canonical_oauth_guard.go",

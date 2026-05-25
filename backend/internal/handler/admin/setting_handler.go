@@ -258,6 +258,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		EnableAnthropicCacheTTL1hInjection:     settings.EnableAnthropicCacheTTL1hInjection,
 		RewriteMessageCacheControl:             settings.RewriteMessageCacheControl,
 		AntigravityUserAgentVersion:            settings.AntigravityUserAgentVersion,
+		ClaudeCodeUserAgentVersion:             settings.ClaudeCodeUserAgentVersion,
 		OpenAICodexUserAgent:                   settings.OpenAICodexUserAgent,
 		WebSearchEmulationEnabled:              settings.WebSearchEmulationEnabled,
 		PaymentVisibleMethodAlipaySource:       settings.PaymentVisibleMethodAlipaySource,
@@ -583,6 +584,7 @@ type UpdateSettingsRequest struct {
 	StickyRoutingEnabled        *bool   `json:"sticky_routing_enabled"`
 	RewriteMessageCacheControl  *bool   `json:"rewrite_message_cache_control"`
 	AntigravityUserAgentVersion *string `json:"antigravity_user_agent_version"`
+	ClaudeCodeUserAgentVersion  *string `json:"claude_code_user_agent_version"`
 	OpenAICodexUserAgent        *string `json:"openai_codex_user_agent"`
 
 	// Payment visible method routing
@@ -1437,6 +1439,14 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			return
 		}
 	}
+	if req.ClaudeCodeUserAgentVersion != nil {
+		normalized := strings.TrimSpace(*req.ClaudeCodeUserAgentVersion)
+		req.ClaudeCodeUserAgentVersion = &normalized
+		if normalized != "" && !semverPattern.MatchString(normalized) {
+			response.Error(c, http.StatusBadRequest, "claude_code_user_agent_version must be empty or a valid semver (e.g. 2.1.150)")
+			return
+		}
+	}
 	if req.OpenAICodexUserAgent != nil {
 		normalized := strings.TrimSpace(*req.OpenAICodexUserAgent)
 		req.OpenAICodexUserAgent = &normalized
@@ -1650,6 +1660,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				return *req.AntigravityUserAgentVersion
 			}
 			return previousSettings.AntigravityUserAgentVersion
+		}(),
+		ClaudeCodeUserAgentVersion: func() string {
+			if req.ClaudeCodeUserAgentVersion != nil {
+				return *req.ClaudeCodeUserAgentVersion
+			}
+			return previousSettings.ClaudeCodeUserAgentVersion
 		}(),
 		OpenAICodexUserAgent: func() string {
 			if req.OpenAICodexUserAgent != nil {
@@ -2027,6 +2043,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		EnableAnthropicCacheTTL1hInjection:     updatedSettings.EnableAnthropicCacheTTL1hInjection,
 		RewriteMessageCacheControl:             updatedSettings.RewriteMessageCacheControl,
 		AntigravityUserAgentVersion:            updatedSettings.AntigravityUserAgentVersion,
+		ClaudeCodeUserAgentVersion:             updatedSettings.ClaudeCodeUserAgentVersion,
 		OpenAICodexUserAgent:                   updatedSettings.OpenAICodexUserAgent,
 		PaymentVisibleMethodAlipaySource:       updatedSettings.PaymentVisibleMethodAlipaySource,
 		PaymentVisibleMethodWxpaySource:        updatedSettings.PaymentVisibleMethodWxpaySource,
@@ -2489,6 +2506,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.AntigravityUserAgentVersion != after.AntigravityUserAgentVersion {
 		changed = append(changed, "antigravity_user_agent_version")
+	}
+	if before.ClaudeCodeUserAgentVersion != after.ClaudeCodeUserAgentVersion {
+		changed = append(changed, "claude_code_user_agent_version")
 	}
 	if before.OpenAICodexUserAgent != after.OpenAICodexUserAgent {
 		changed = append(changed, "openai_codex_user_agent")

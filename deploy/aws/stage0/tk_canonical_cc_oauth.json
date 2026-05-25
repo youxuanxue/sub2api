@@ -1,6 +1,6 @@
 {
-  "name": "claude_cli_2_1_142_node24_20260515",
-  "description": "TLS ClientHello captured from Claude Code CLI on 2026-05-15 (ja3_hash=d871d02cecbde59abbf8f4806134addf, unchanged through 2026-05-24). HTTP observed.user_agent refreshed 2026-05-24 to claude-cli/2.1.150. runtime=node v24.3.0 darwin/arm64.",
+  "name": "tk_canonical_cc_oauth",
+  "description": "TokenKey canonical Claude Code OAuth TLS profile. Stable id intentionally decoupled from cc CLI patch version: TLS ClientHello is byte-identical across 2.1.142 (2026-05-15 capture, ja3_hash=d871d02cecbde59abbf8f4806134addf) through 2.1.150 (2026-05-25), so a new patch release never triggers a rename. HTTP observed.user_agent below is a compile-time snapshot; the live wire UA is driven at runtime by SettingService.GetClaudeCodeUserAgentVersion (admin setting → env CLAUDE_CODE_USER_AGENT_VERSION → compile default). runtime=node v24.3.0 darwin/arm64.",
   "enable_grease": false,
   "cipher_suites": [
     4865,

@@ -8,7 +8,7 @@ description: >-
   sticky_buffer / max_sessions 等 account 字段 + enable_tls_fingerprint 与同名
   TLS profile UPSERT/bind）—— 来源
   anthropic-oauth-stability-baselines-tiered.json；canonical profile 名为
-  claude_cli_2_1_142_node24_20260515；同一事务把 users.id=1 的
+  tk_canonical_cc_oauth；同一事务把 users.id=1 的
   concurrency 更新为该 edge 库内 schedulable=true 的 anthropic 账号 concurrency 之和。
   (B) prod anthropic api-key 镜像 stub（base_url=api-*.tokenkey.dev 形状）的
   credentials.pool_mode + pool_mode_retry_count —— 来源 anthropic-stub-pool-baselines.json。
@@ -79,7 +79,7 @@ description: >-
 
 **反模式**：`enable_tls_fingerprint=true` 但 **`tls_fingerprint_profiles` 无对应模板行／账号无可靠 `tls_fingerprint_profile_id` 绑定** → 运行时会退回**内置默认** ClientHello，后台无法在模板表中点名在用参数；**不要用** **`tls_fingerprint_profile_id=-1`** 随机指纹跑生产 OAuth（库里每多一条模板，随机抽到其中一条的不确定性就上升）。
 
-**标准要求**：每一条 **Anthropic、`type=oauth` 的边缘账号**，必须绑定 **`tls_fingerprint_profiles.name = claude_cli_2_1_142_node24_20260515`**；字段体以 **`deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json`** 的 `shared_baseline.tls_profile` 为单一真值源（对照：`deploy/aws/stage0/claude_cli_2_1_142_node24_20260515.json`）。
+**标准要求**：每一条 **Anthropic、`type=oauth` 的边缘账号**，必须绑定 **`tls_fingerprint_profiles.name = tk_canonical_cc_oauth`**；字段体以 **`deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json`** 的 `shared_baseline.tls_profile` 为单一真值源（对照：`deploy/aws/stage0/tk_canonical_cc_oauth.json`）。
 
 **与本流水线的关系**：写入面 **(A)**（`generate_sql`）会 **`ON CONFLICT (name)` upsert** canonical profile，并把 `accounts.extra.tls_fingerprint_profile_id` 写成对应行 **`id`**；`check` / `verify` 比对 live `tls_profile.*` vs baseline **`tls_profile`** 块。**弃用手建并排模板**：**已废止名** **`claude_cli_nodejs24_fixed`** 不得再绑定新账号；库中无主账号绑定其 id 时，须在 Admin 「TLS 指纹模板」删除该行。**删前**须确认无主账号 **`extra.tls_fingerprint_profile_id`** 仍指向该 id，否则运行时查找不到行→退回内置默认（silent 漂移）。
 
@@ -321,7 +321,7 @@ operate 流程：
 | snapshot 失败 / SSM 拒绝（edge 或 prod） | 校验 EC2 instance 在跑 / `edge-targets.json` 或 `PROD_TARGET` 常量 / OIDC 权限。**仅排障 edge** 跑 `snapshot --skip-prod` 临时绕开 prod 失败 |
 | `apply --confirm` 拒绝 | 必须精确 `yes-apply-anthropic-config-cascade` |
 | tier baseline drift（check-edge-oauth-stability `extra_baseline_drift` / `account_field_drift`） | 单账号用 plan-edge-account-tier 重写到对应 tier；整个 tier 值漂移（多账号）用 `plan-tier-bump --tier lN` 一次性重写 |
-| `tls_profile` drift（`/tls_profile/...` 或 UK 模式：启用 TLS 却无 profile） | tier apply 会通过 `generate_sql` upsert `claude_cli_2_1_142_node24_20260515` 并绑定 `tls_fingerprint_profile_id`——走与上条相同的 **plan-tier-bump** / **plan-edge-account-tier** → apply → verify；参见上文 **Anthropic OAuth：TLS fingerprint 模板** |
+| `tls_profile` drift（`/tls_profile/...` 或 UK 模式：启用 TLS 却无 profile） | tier apply 会通过 `generate_sql` upsert `tk_canonical_cc_oauth` 并绑定 `tls_fingerprint_profile_id`——走与上条相同的 **plan-tier-bump** / **plan-edge-account-tier** → apply → verify；参见上文 **Anthropic OAuth：TLS fingerprint 模板** |
 | check guard 报 `status: drift` 且 `diffs[].path` 含 `/credentials/temp_unschedulable_rules`，但数值字段全等 | 加 `--force-template-rewrite` 让 plan 不再走 noop 短路，强制重写 credentials 端字段（snapshot/verify 不读 rules，所以默认 noop；这条 flag 是 escape hatch）。Apply 完跑一次 `check` 当真值 |
 | OAuth account `status=error/suspended` | OAuth 凭据问题（token 过期 / 403 / 上游禁用），见 OAuth 故障文档；不在本流水线范围 |
 | `plan-stub-pool` 输出 `skipped_unmatched` 含一个本应匹配的 stub | 检查它的 `cred_base_url` 实际值——多半是早期建账号时写错了（如多余 `/` 或大小写差异）。改 stub 的 `base_url` 通过 admin UI（**不**改 pattern；pattern 是策略，base_url 是个体配置）|
@@ -343,7 +343,7 @@ operate 流程：
 
 ## 6. 附录 B：baseline JSON 速查与 stable accounts
 
-- 写入面 (A) tier baseline：`deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json`（`tier_order: l1..l5`，每个 tier 含 `baseline.account.*` 与 `baseline.extra.*`，`shared_baseline.tls_profile.name` **必须为** `claude_cli_2_1_142_node24_20260515`；orchestrator 在 plan-edge-account-tier / plan-tier-bump 中读它算 expected_after，`generate_sql` 负责 profile upsert + `tls_fingerprint_profile_id` 绑定）
+- 写入面 (A) tier baseline：`deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json`（`tier_order: l1..l5`，每个 tier 含 `baseline.account.*` 与 `baseline.extra.*`，`shared_baseline.tls_profile.name` **必须为** `tk_canonical_cc_oauth`；orchestrator 在 plan-edge-account-tier / plan-tier-bump 中读它算 expected_after，`generate_sql` 负责 profile upsert + `tls_fingerprint_profile_id` 绑定）
 - 写入面 (B) stub pool baseline：`deploy/aws/stage0/anthropic-stub-pool-baselines.json`（`policy.base_url_pattern` regex + `pool_mode_enabled` + `pool_mode_retry_count`；orchestrator 在 plan-stub-pool 中读它算 expected_after）
 - 更新 stable_accounts 列表（仅人工确认后）：
   ```bash
@@ -363,7 +363,7 @@ operate 流程：
 - `backend/internal/service/ratelimit_service.go` `handleAnthropicUpstreamError`（pool_mode 账号在 anthropic 平台上跳过 3/3 短窗阈值的代码路径）
 - `ops/anthropic/check-edge-oauth-stability.py`（`generate_sql`：`tls_profile` upsert + `extra.tls_fingerprint_profile_id` 绑定）
 - `docs/accounts/anthropic-oauth-edge-guidelines.md`（OAuth edge TLS + tier 现行约定短文）
-- `deploy/aws/stage0/claude_cli_2_1_142_node24_20260515.json`（canonical TLS profile JSON，与 tier baseline `shared_baseline.tls_profile` 对齐）
+- `deploy/aws/stage0/tk_canonical_cc_oauth.json`（canonical TLS profile JSON，与 tier baseline `shared_baseline.tls_profile` 对齐）
 - `deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json`（tier baseline 唯一真值源；apply SQL 运行时从它派生，无静态 SQL 模板）
 - `deploy/aws/stage0/anthropic-stub-pool-baselines.json`（stub pool 策略唯一真值源；apply SQL 运行时从它派生，无静态 SQL 模板）
 - `backend/internal/handler/admin/account_handler.go`

@@ -13,15 +13,29 @@
 
 | 维度 | TokenKey 要求 |
 |---|---|
-| **`tls_fingerprint_profiles.name`** | **`claude_cli_2_1_142_node24_20260515`** |
+| **`tls_fingerprint_profiles.name`** | **`tk_canonical_cc_oauth`** |
 | Profile 字段体（cipher、extensions、curves…） | 与 tier baseline JSON **`shared_baseline.tls_profile`** 一致 |
 | 账号 **`accounts.extra`** | `enable_tls_fingerprint=true`，且 **`tls_fingerprint_profile_id`** 指向上述模板对应的 DB 主键 |
 
 `(A)` 的 **`generate_sql`** 会 **`INSERT … ON CONFLICT (name)`** upsert canonical 模板，并把 `accounts.extra.tls_fingerprint_profile_id` 写成刚插入行的 `id`。
 
-可作字段对照的镜像 JSON：`deploy/aws/stage0/claude_cli_2_1_142_node24_20260515.json`。
+可作字段对照的镜像 JSON：`deploy/aws/stage0/tk_canonical_cc_oauth.json`。
 
-**HTTP 层（User-Agent / `x-stainless-*`）**：TLS 模板不决定出站 HTTP 指纹。账号绑定上述 canonical 模板时，网关会把 Redis `fingerprint:{accountID}` 的 HTTP 字段钉死在同一 JSON 的 `observed.*`（与 TLS 参数独立）；prod→edge 透传的多版本 ingress UA 不会改写上游 UA。`ops_error_logs.user_agent` 仍是入口侧客户端 UA，不是 `api.anthropic.com` 所见值。
+**HTTP 层（User-Agent / `x-stainless-*`）**：TLS 模板不决定出站 HTTP 指纹。账号绑定 canonical 模板时，网关会把 Redis `fingerprint:{accountID}` 的 HTTP 字段钉死在 canonical observed 块（与 TLS 参数独立）；prod→edge 透传的多版本 ingress UA 不会改写上游 UA。`ops_error_logs.user_agent` 仍是入口侧客户端 UA，不是 `api.anthropic.com` 所见值。
+
+**Profile 命名稳定性**：profile 名 `tk_canonical_cc_oauth` 不含 cc CLI patch version——TLS ClientHello 跨 cc 2.1.142 → 2.1.150 等 patch release 字节不变（同 ja3_hash），换 patch version 不需要 DB profile rename / migration。
+
+**UA 运行期可配（三层解析）**：
+
+| 层 | 来源 | 优先级 |
+|---|---|---|
+| Admin setting | `claude_code_user_agent_version`（PATCH `/api/v1/admin/settings`） | 最高（next request 生效，不重启） |
+| 环境变量 | `CLAUDE_CODE_USER_AGENT_VERSION` | 进程启动期生效（重启进程，不重新部署） |
+| 编译期默认 | `DefaultClaudeCodeUserAgentVersion` 常量 | 兜底（仅当上述两层均缺失或非法） |
+
+只填**版本号**（如 `2.1.150`），prefix/suffix（`claude-cli/.../ (external, sdk-cli)`）由代码固定。Semver `^\d+\.\d+\.\d+$` 校验，非法值在 admin PATCH 阶段就被拒；下沉到 setting 后任何非法值再走 normalize fallback 到 default。
+
+**UA 变更后无需 SQL apply / Redis 清缓存**：`applyCanonicalHTTPObserved` 每次 OAuth forward 都会比对 Redis 缓存 UA 与当前 canonical UA，不一致即 in-place update。即 admin 改 setting → next request → Redis 自动 self-heal，无运维步骤。
 
 ---
 

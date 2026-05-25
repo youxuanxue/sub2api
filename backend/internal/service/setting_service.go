@@ -144,6 +144,18 @@ const openAICodexUserAgentCacheTTL = 60 * time.Second
 const openAICodexUserAgentErrorTTL = 5 * time.Second
 const openAICodexUserAgentDBTimeout = 5 * time.Second
 
+// cachedClaudeCodeUserAgentVersion 缓存 Claude Code CLI UA 版本号（进程内缓存，60s TTL）。
+// 与 cachedAntigravityUserAgentVersion 对称：cc CLI UA 高频随上游 patch release 漂移，
+// admin 修改后下次 hit 直达 next request；缓存 TTL 限制 setting read fan-out。
+type cachedClaudeCodeUserAgentVersion struct {
+	version   string
+	expiresAt int64 // unix nano
+}
+
+const claudeCodeUserAgentVersionCacheTTL = 60 * time.Second
+const claudeCodeUserAgentVersionErrorTTL = 5 * time.Second
+const claudeCodeUserAgentVersionDBTimeout = 5 * time.Second
+
 // DefaultSubscriptionGroupReader validates group references used by default subscriptions.
 type DefaultSubscriptionGroupReader interface {
 	GetByID(ctx context.Context, id int64) (*Group, error)
@@ -166,6 +178,8 @@ type SettingService struct {
 	antigravityUAVersionSF    singleflight.Group
 	openAICodexUACache        atomic.Value // *cachedOpenAICodexUserAgent
 	openAICodexUASF           singleflight.Group
+	claudeCodeUAVersionCache  atomic.Value // *cachedClaudeCodeUserAgentVersion
+	claudeCodeUAVersionSF     singleflight.Group
 }
 
 type ProviderDefaultGrantSettings struct {
@@ -824,6 +838,58 @@ func (s *SettingService) GetAntigravityUserAgentVersion(ctx context.Context) str
 		s.antigravityUAVersionCache.Store(&cachedAntigravityUserAgentVersion{
 			version:   version,
 			expiresAt: time.Now().Add(antigravityUserAgentVersionCacheTTL).UnixNano(),
+		})
+		return version, nil
+	})
+	if version, ok := result.(string); ok && version != "" {
+		return version
+	}
+	return fallback
+}
+
+// GetClaudeCodeUserAgentVersion 返回 Claude Code canonical OAuth 路径使用的
+// CLI User-Agent 版本号（不含 prefix/suffix）。
+// 后台设置优先；为空、缺失或非法时回退到 CLAUDE_CODE_USER_AGENT_VERSION / 内置默认值。
+// 该函数被注入为 ClaudeCodeUserAgentResolver；GetCanonicalUserAgentForContext
+// 会在每次 OAuth 转发时调用它。
+func (s *SettingService) GetClaudeCodeUserAgentVersion(ctx context.Context) string {
+	fallback := GetDefaultClaudeCodeUserAgentVersion()
+	if s == nil || s.settingRepo == nil {
+		return fallback
+	}
+	if cached, ok := s.claudeCodeUAVersionCache.Load().(*cachedClaudeCodeUserAgentVersion); ok && cached != nil {
+		if time.Now().UnixNano() < cached.expiresAt {
+			return cached.version
+		}
+	}
+
+	result, _, _ := s.claudeCodeUAVersionSF.Do("claude_code_user_agent_version", func() (any, error) {
+		if cached, ok := s.claudeCodeUAVersionCache.Load().(*cachedClaudeCodeUserAgentVersion); ok && cached != nil {
+			if time.Now().UnixNano() < cached.expiresAt {
+				return cached.version, nil
+			}
+		}
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), claudeCodeUserAgentVersionDBTimeout)
+		defer cancel()
+		value, err := s.settingRepo.GetValue(dbCtx, SettingKeyClaudeCodeUserAgentVersion)
+		if err != nil && !errors.Is(err, ErrSettingNotFound) {
+			slog.Warn("failed to get claude code user agent version setting", "error", err)
+			s.claudeCodeUAVersionCache.Store(&cachedClaudeCodeUserAgentVersion{
+				version:   fallback,
+				expiresAt: time.Now().Add(claudeCodeUserAgentVersionErrorTTL).UnixNano(),
+			})
+			return fallback, nil
+		}
+		version := NormalizeClaudeCodeUserAgentVersion(value)
+		if version == "" {
+			version = fallback
+		}
+		s.claudeCodeUAVersionCache.Store(&cachedClaudeCodeUserAgentVersion{
+			version:   version,
+			expiresAt: time.Now().Add(claudeCodeUserAgentVersionCacheTTL).UnixNano(),
 		})
 		return version, nil
 	})
@@ -1607,6 +1673,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyEnableAnthropicCacheTTL1hInjection] = strconv.FormatBool(settings.EnableAnthropicCacheTTL1hInjection)
 	updates[SettingKeyRewriteMessageCacheControl] = strconv.FormatBool(settings.RewriteMessageCacheControl)
 	updates[SettingKeyAntigravityUserAgentVersion] = antigravity.NormalizeUserAgentVersion(settings.AntigravityUserAgentVersion)
+	updates[SettingKeyClaudeCodeUserAgentVersion] = NormalizeClaudeCodeUserAgentVersion(settings.ClaudeCodeUserAgentVersion)
 	updates[SettingKeyOpenAICodexUserAgent] = strings.TrimSpace(settings.OpenAICodexUserAgent)
 	updates[SettingPaymentVisibleMethodAlipaySource] = settings.PaymentVisibleMethodAlipaySource
 	updates[SettingPaymentVisibleMethodWxpaySource] = settings.PaymentVisibleMethodWxpaySource
@@ -1696,6 +1763,15 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	s.antigravityUAVersionCache.Store(&cachedAntigravityUserAgentVersion{
 		version:   antigravityUserAgentVersion,
 		expiresAt: time.Now().Add(antigravityUserAgentVersionCacheTTL).UnixNano(),
+	})
+	s.claudeCodeUAVersionSF.Forget("claude_code_user_agent_version")
+	claudeCodeUserAgentVersion := NormalizeClaudeCodeUserAgentVersion(settings.ClaudeCodeUserAgentVersion)
+	if claudeCodeUserAgentVersion == "" {
+		claudeCodeUserAgentVersion = GetDefaultClaudeCodeUserAgentVersion()
+	}
+	s.claudeCodeUAVersionCache.Store(&cachedClaudeCodeUserAgentVersion{
+		version:   claudeCodeUserAgentVersion,
+		expiresAt: time.Now().Add(claudeCodeUserAgentVersionCacheTTL).UnixNano(),
 	})
 	s.openAICodexUASF.Forget("openai_codex_user_agent")
 	codexUA := strings.TrimSpace(settings.OpenAICodexUserAgent)
@@ -2465,6 +2541,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyEnableAnthropicCacheTTL1hInjection: "false",
 		SettingKeyRewriteMessageCacheControl:         strconv.FormatBool(s.defaultRewriteMessageCacheControl()),
 		SettingKeyAntigravityUserAgentVersion:        "",
+		SettingKeyClaudeCodeUserAgentVersion:         "",
 		SettingKeyOpenAICodexUserAgent:               "",
 		SettingPaymentVisibleMethodAlipaySource:      "",
 		SettingPaymentVisibleMethodWxpaySource:       "",
@@ -2972,6 +3049,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		result.RewriteMessageCacheControl = s.defaultRewriteMessageCacheControl()
 	}
 	result.AntigravityUserAgentVersion = antigravity.NormalizeUserAgentVersion(settings[SettingKeyAntigravityUserAgentVersion])
+	result.ClaudeCodeUserAgentVersion = NormalizeClaudeCodeUserAgentVersion(settings[SettingKeyClaudeCodeUserAgentVersion])
 	result.OpenAICodexUserAgent = strings.TrimSpace(settings[SettingKeyOpenAICodexUserAgent])
 
 	// Web search emulation: quick enabled check from the JSON config

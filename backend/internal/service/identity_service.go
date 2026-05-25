@@ -86,7 +86,7 @@ func (s *IdentityService) GetOrCreateFingerprint(ctx context.Context, accountID 
 		needWrite := false
 
 		if pinCanonicalHTTP {
-			if applyCanonicalHTTPObserved(cached) {
+			if applyCanonicalHTTPObserved(cached, GetCanonicalUserAgentForContext(ctx)) {
 				needWrite = true
 			}
 		} else {
@@ -118,7 +118,7 @@ func (s *IdentityService) GetOrCreateFingerprint(ctx context.Context, accountID 
 	var fp *Fingerprint
 	if pinCanonicalHTTP {
 		fp = &Fingerprint{}
-		applyCanonicalHTTPObserved(fp)
+		applyCanonicalHTTPObserved(fp, GetCanonicalUserAgentForContext(ctx))
 	} else {
 		fp = s.createFingerprintFromHeaders(headers)
 	}

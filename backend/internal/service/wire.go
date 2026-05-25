@@ -429,6 +429,7 @@ func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupReposit
 		logger.LegacyPrintf("service.setting", "Warning: load api key acl forwarded ip setting failed: %v", err)
 	}
 	antigravity.SetUserAgentVersionResolver(svc.GetAntigravityUserAgentVersion)
+	SetClaudeCodeUserAgentResolver(svc.GetClaudeCodeUserAgentVersion)
 	return svc
 }
 

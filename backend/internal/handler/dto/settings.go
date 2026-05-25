@@ -195,6 +195,7 @@ type SystemSettings struct {
 	StickyRoutingEnabled        bool   `json:"sticky_routing_enabled"`
 	RewriteMessageCacheControl  bool   `json:"rewrite_message_cache_control"`
 	AntigravityUserAgentVersion string `json:"antigravity_user_agent_version"`
+	ClaudeCodeUserAgentVersion  string `json:"claude_code_user_agent_version"`
 	OpenAICodexUserAgent        string `json:"openai_codex_user_agent"`
 
 	// Web Search Emulation
