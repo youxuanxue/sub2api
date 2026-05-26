@@ -414,6 +414,48 @@ func TestIncrementUserPlatformQuotaUsage_GuardsAgainstEmpty(t *testing.T) {
 	}
 }
 
+func TestIncrementUserPlatformQuotaUsage_SkipsUnsupportedPlatform(t *testing.T) {
+	fake := &fakeIncrCache{}
+	cfg := &config.Config{}
+	cfg.Billing.UserPlatformQuotaCacheTTLSeconds = 60
+	s := &BillingCacheService{
+		cache: fake,
+		cfg:   cfg,
+	}
+
+	s.IncrementUserPlatformQuotaUsage(1, PlatformNewAPI, 0.5)
+
+	if len(fake.calls) != 0 {
+		t.Errorf("unsupported platform must not incr cache, got %d calls", len(fake.calls))
+	}
+}
+
+type trackingQuotaRepo struct {
+	fakeQuotaRepo
+	getCalls int
+}
+
+func (t *trackingQuotaRepo) GetByUserPlatform(_ context.Context, _ int64, platform string) (*UserPlatformQuotaRecord, error) {
+	t.getCalls++
+	daily := 0.0
+	return &UserPlatformQuotaRecord{
+		Platform:      platform,
+		DailyLimitUSD: &daily,
+	}, nil
+}
+
+func TestCheckUserPlatformQuotaEligibility_SkipsUnsupportedPlatform(t *testing.T) {
+	repo := &trackingQuotaRepo{}
+	s := newServiceForPreflight(t, repo, nil)
+
+	if err := s.checkUserPlatformQuotaEligibility(context.Background(), 1, PlatformNewAPI); err != nil {
+		t.Fatalf("unsupported platform should pass eligibility, got %v", err)
+	}
+	if repo.getCalls != 0 {
+		t.Errorf("unsupported platform must not query repo, got %d calls", repo.getCalls)
+	}
+}
+
 // ── C-NEW-2: 订阅模式豁免 user×platform quota 检查 ──────────────────────────
 // 通过直接调用 checkUserPlatformQuotaEligibility 验证：
 // 1. standard 模式下 limit=0 → 拦截

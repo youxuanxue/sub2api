@@ -683,7 +683,7 @@ func (s *BillingCacheService) IncrementUserPlatformQuotaUsage(userID int64, plat
 	if s.cache == nil {
 		return
 	}
-	if platform == "" || cost <= 0 {
+	if platform == "" || cost <= 0 || !IsAllowedQuotaPlatform(platform) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cacheWriteTimeout)
@@ -1040,6 +1040,11 @@ func (s *BillingCacheService) checkUserPlatformQuotaEligibility(
 	platform string,
 ) error {
 	if platform == "" || s.userPlatformQuotaRepo == nil {
+		return nil
+	}
+	// Fifth-platform (e.g. newapi) quota is not in AllowedQuotaPlatforms yet; skip until
+	// schema CHECK + admin UI follow-up lands (avoids DB CHECK failures on post-billing incr).
+	if !IsAllowedQuotaPlatform(platform) {
 		return nil
 	}
 
