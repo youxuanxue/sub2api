@@ -39,9 +39,14 @@ concurrency:
 
 jobs:
   repair:
+    # Scheduled/push CI failures have no pull_requests[] entry; repairing them is
+    # impossible and just burns runner time (and fails on the same infra blips).
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'timed_out' || github.event.workflow_run.conclusion == 'cancelled')
+      (
+        (github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'timed_out' || github.event.workflow_run.conclusion == 'cancelled') &&
+        github.event.workflow_run.pull_requests[0] != null
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
