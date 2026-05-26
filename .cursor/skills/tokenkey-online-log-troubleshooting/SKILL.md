@@ -2,9 +2,9 @@
 name: tokenkey-online-log-troubleshooting
 description: >-
   Read-only TokenKey production/edge troubleshooting workflow for querying live
-  logs, ops_error_logs, Docker containers, SSM targets, CI/deploy runs, and
-  turning evidence into a stable root-cause summary without ad-hoc command
-  guessing.
+  logs, ops_error_logs, Docker containers, SSM targets, gateway UA/TLS
+  fingerprints, SUB2API_DEBUG_GATEWAY_BODY pulls, CI/deploy runs, and turning
+  evidence into a stable root-cause summary without ad-hoc command guessing.
 ---
 
 # TokenKey：线上日志查询与问题定位
@@ -23,6 +23,8 @@ description: >-
 | SSM base64 投递 + send-command + poll | 机械 | `ops/observability/run-probe.sh --target prod\|edge:<id> --script <probe.sh>` |
 | `ops_error_logs` 标准聚合（schema + by_status + upstream_events + 429-by-minute） | 机械 | `ops/observability/ops-error-triage.sh`（通过 run-probe.sh 投递） |
 | Docker access log 解析（status/model/minute/latency 直方图 + marker 计数） | 机械 | `ops/observability/parse-access-log.py --stdin\|--file\|--docker` |
+| Gateway UA/TLS / usage_logs / ops / docker 指纹交叉对比（窄时间窗） | 机械 | `ops/observability/probe-gateway-ua-tls-compare.sh`（通过 run-probe.sh 投递；`WINDOW_MINUTES` 收窄 DB 窗） |
+| `SUB2API_DEBUG_GATEWAY_BODY` 日志拉回本机（SSM gzip → S3 presigned PUT → 本地 gunzip） | 机械 | `ops/observability/fetch-gateway-debug-log.sh --target prod\|edge:<id>`（**本地** orchestrator，不走 run-probe） |
 | anthropic capacity / cap 与 schedulable 证据 | 机械 | `ops/observability/probe-caps.sh`（已有，通过 run-probe.sh 投递）/ `ops/anthropic/manage-anthropic-config.py snapshot` |
 | 时间窗规范（UTC ↔ Asia/Shanghai 双写） | 判断 | prompt（含报告口径，无机械抓手） |
 | 解读规则：final_status vs upstream events、镜像账号链式失败 | 判断 | prompt（架构判断，§0 列出 8 个 trap 已固化） |
@@ -39,7 +41,7 @@ description: >-
 | `target` | `prod`、`edge:us1` / `edge:uk1` / `edge:fra1`，或用户给出的域名。 |
 | `issue` | 用户描述的症状、错误 JSON、request_id、时间点或“昨晚/刚才”等自然语言。 |
 | `time_window` | 优先使用明确 ISO 区间；缺省时根据 issue 推断，并输出 UTC 与本地时间。 |
-| `scope` | 默认 `all`；可收窄到 `gateway`、`ops`、`deploy`、`ci`、`db`。 |
+| `scope` | 默认 `all`；可收窄到 `gateway`、`gateway_fingerprint`、`gateway_debug`、`ops`、`deploy`、`ci`、`db`。 |
 | `request_id` | 上游 request id 或 TokenKey request id；用于精确查日志。 |
 | `user_id` / `api_key_id` | 用户侧定位字段；没有就不要猜。 |
 | `model` / `path` | 过滤 `/v1/messages`、模型、OpenAI/Gemini/NewAPI 路径等。 |
@@ -168,6 +170,8 @@ WITH bounds AS (
 
 不要混用本地时区字符串和 DB UTC 字段。
 
+**窄窗口 outage（如 30 分钟 VM hang）**：除 Docker `--since` 外，对 DB 侧聚合优先用 `probe-gateway-ua-tls-compare.sh` 的 `WINDOW_MINUTES`（见 §5.1），不要用大 `LIMIT` 代替时间过滤。
+
 ## 4) `ops_error_logs` 标准 triage（机械化）
 
 聚合 SQL 由 `ops/observability/ops-error-triage.sh` 渲染（schema 探测 + summary + by_status + upstream_events + 429-by-minute），所有输出都是 `row_to_json(t)`，字段名嵌在值旁，下游用 `jq`/`json.loads` 按字段取，**禁止按列号读**。通过 §2 的 `run-probe.sh` 投递：
@@ -231,6 +235,73 @@ python3 ops/observability/parse-access-log.py --docker tokenkey --since 1h
 | `latency_ms` | `{n, p50, p90, p95, p99, max}` 或 `null` |
 
 确定性保证：同一份 stdin + 同一组 flag → 字节一致的 JSON（排序稳定、整数 ms、无 locale 浮点）。
+
+## 5.1) Gateway UA/TLS 指纹对比（机械化）
+
+`ops/observability/probe-gateway-ua-tls-compare.sh` 在同一 target 上交叉采样 **usage_logs**（含 TLS profile join）、**ops_system_logs**（gateway/http.access 组件）、**docker access log**（`http request completed` + UA/TLS 关键词行）。输出单个紧凑 JSON（SSM stdout ~24KiB 上限）；远端另写 `/tmp/tk-gateway-ua-tls-full.json` 供 SSH 拉全量（本 skill 默认不 dump）。
+
+通过 §2 `run-probe.sh` 投递：
+
+```bash
+# 默认：usage_logs LIMIT=500 + docker logs 48h + ops 48h
+bash ops/observability/run-probe.sh \
+  --target edge:uk1 \
+  --script ops/observability/probe-gateway-ua-tls-compare.sh \
+  --timeout-seconds 180
+
+# 窄时间窗（推荐：用户给了具体 outage 区间，如「07:20–07:36 UTC」≈ 20min）
+bash ops/observability/run-probe.sh \
+  --target edge:uk1 \
+  --script ops/observability/probe-gateway-ua-tls-compare.sh \
+  --env WINDOW_MINUTES=30 \
+  --timeout-seconds 180
+```
+
+env 契约（脚本 header 是 ground truth）：
+
+| env | 默认 | 含义 |
+|---|---|---|
+| `LIMIT` | 500 | `usage_logs` 行数上限（`ORDER BY ul.id DESC`；与 `WINDOW_MINUTES` 叠加时先时间过滤再 limit） |
+| `SINCE` | 48h | `docker logs tokenkey --since` 窗口 |
+| `WINDOW_MINUTES` | （空） | 正整数时：`usage_logs` 与 `ops_system_logs` 仅查 `now() - interval 'N minutes'` |
+| `CONTAINER` | tokenkey | Docker 容器名 |
+
+输出 schema 要点：
+
+| key | 含义 |
+|---|---|
+| `meta.window_minutes` | 生效的 DB 窄窗（未设则为 `null`） |
+| `usage_logs.summary` | UA/TLS/client_ip 计数与 gateway 样本 |
+| `ops_system_logs` | ops 侧 UA/TLS 相关字段聚合 |
+| `docker_access` | access log completed 行 summary + docker 错误 |
+| `docker_ua_tls_lines` | 含 UA/TLS 关键词的 docker 行样本（尾部截断） |
+
+**何时用**：edge 间 UA/TLS 行为差异、OAuth TLS fingerprint 是否生效、outage 窗口内 gateway 是否仍有 completed 行、与 §5 access log 解析互补（本 probe 偏 cross-table 指纹，parse-access-log 偏 status/latency 直方图）。
+
+## 5.2) Debug gateway body 日志拉回本机（机械化，本地 orchestrator）
+
+当容器已开启 `SUB2API_DEBUG_GATEWAY_BODY`（写入 `gateway_debug.log`，见 `gateway_service.go`）且需要**完整 request/response body** 做 deep triage 时使用。**不在 SSM stdout 里传输**——走 gzip + presigned S3 PUT + 本机 `aws s3 cp` + gunzip。
+
+```bash
+bash ops/observability/fetch-gateway-debug-log.sh --target edge:uk1
+bash ops/observability/fetch-gateway-debug-log.sh --target prod --out "$CLAUDE_JOB_DIR/gateway-debug"
+```
+
+CLI 契约：
+
+| 参数 / env | 默认 | 含义 |
+|---|---|---|
+| `--target` | （必填） | `prod` 或 `edge:<id>`（Lightsail/EC2 均经 `ops/stage0/edge_ssm_execution.py` 解析 instance） |
+| `--out` / `OUT_DIR` | `./.cache/gateway-debug` | 本机输出目录 |
+| `--log-path` / `LOG_PATH` | `/app/data/gateway_debug.log` | 容器内 debug 文件路径 |
+| `SSM_OUTPUT_S3_BUCKET` | layer-zip-repro-… | 临时对象桶（上传后脚本会 `aws s3 rm` 清理 key） |
+| `AWS_SSM_WAIT_MAX` | 900 | SSM 等待秒数 |
+
+成功时 stdout 最后一行是本地 `.log` 绝对路径；在本地用 `grep`/`jq`/`less` 分析，**报告里仍遵守 §0 脱敏**（不粘贴 Authorization、完整 API key、OAuth token）。
+
+**前置条件**：目标实例上 debug  env 已开启且文件存在；否则 SSM 会在 `docker exec tokenkey test -f …` 失败。未开启时先用 §5 / §5.1 聚合，或经 deploy/ops 流程临时开启（超出本 skill 只读边界，需显式确认）。
+
+**与 run-probe 的分工**：`run-probe.sh` 只回传远端 stdout 字节；本脚本需要本机 boto3 presign + S3 下载，因此是**开发者机器上运行的 orchestrator**，不要塞进 run-probe。
 
 ## 6) 配置与限额核对
 
@@ -328,6 +399,9 @@ needs input:
 | 误把 recovered upstream error 当故障 | 只看 `upstream_errors` | 必须同时看 final `status_code`。 |
 | 单窗口却 429 | CLI 内部多请求/多模型短峰 | 解析 access log by-minute，而不是按窗口数量判断。 |
 | CI 查错 run | branch/run 未定位 | `gh pr checks` → `gh run view`，按 PR head SHA / branch 过滤。 |
+| `probe-gateway-ua-tls-compare` DB 窗太宽 | 未设 `WINDOW_MINUTES`，outage 证据被 LIMIT 稀释 | 根据 issue 换算分钟数， `--env WINDOW_MINUTES=N`。 |
+| `fetch-gateway-debug-log` SSM Failed | debug 文件不存在或 env 未开 | 远端 `docker exec tokenkey test -f /app/data/gateway_debug.log`；无文件则勿拉 body。 |
+| S3 presign / curl PUT 失败 | 实例无外网或桶策略 | 读 SSM stderr；检查 `SSM_OUTPUT_S3_BUCKET` 与 IAM；勿改线上只为 bypass。 |
 
 ## 10) 交接给修复流程
 
