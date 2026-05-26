@@ -30,6 +30,7 @@ func tkOpenAICompatMessagesPOST(h *handler.Handlers) gin.HandlerFunc {
 func tkOpenAICompatCountTokensPOST(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if isOpenAICompatPlatform(getGroupPlatform(c)) {
+			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 			c.JSON(http.StatusNotFound, gin.H{
 				"type": "error",
 				"error": gin.H{
@@ -83,6 +84,7 @@ func tkOpenAICompatEmbeddingsHandler(h *handler.Handlers) gin.HandlerFunc {
 func tkOpenAICompatImageGenerationsHandler(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !isOpenAICompatPlatform(getGroupPlatform(c)) {
+			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 			c.JSON(http.StatusNotFound, gin.H{
 				"error": gin.H{
 					"type":    "invalid_request_error",
@@ -99,6 +101,7 @@ func tkOpenAICompatImageGenerationsHandler(h *handler.Handlers) gin.HandlerFunc 
 func tkOpenAICompatImageEditsHandler(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if getGroupPlatform(c) != service.PlatformOpenAI {
+			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 			c.JSON(http.StatusNotFound, gin.H{
 				"error": gin.H{
 					"type":    "invalid_request_error",
