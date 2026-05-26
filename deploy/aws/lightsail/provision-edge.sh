@@ -19,6 +19,7 @@ GHCR_PAT_SSM_NAME="${13:-${GHCR_PAT_SSM_NAME:-}}"
 SSM_PREFIX="${14:-${SSM_PREFIX:-}}"
 ACTIVATION_NAME="${15:-${ACTIVATION_NAME:-tokenkey-ls-${EDGE_ID}}}"
 SSM_HYBRID_ROLE_NAME="${16:-${SSM_HYBRID_ROLE_NAME:-tokenkey-lightsail-ssm-hybrid}}"
+SWAP_GIB="${SWAP_GIB:-2}"
 
 if [[ -z "$EDGE_ID" || -z "$TAG" || -z "$LIGHTSAIL_REGION" || -z "$INSTANCE_NAME" ]]; then
   echo "provision-edge: missing required args" >&2
@@ -65,6 +66,7 @@ export SSM_ACTIVATION_ID='${activation_id}'
 export SSM_ACTIVATION_CODE='${activation_code}'
 export ADMIN_EMAIL='admin@${API_DOMAIN}'
 export TZ_VALUE='UTC'
+export SWAP_SIZE_GIB='${SWAP_GIB}'
 EOF
 
 launch_body="${REPO_ROOT}/deploy/aws/lightsail/generated-launch-script.sh"

@@ -53,6 +53,7 @@ class ResolveEdgeLightsailTargetTests(unittest.TestCase):
         self.assertEqual(resolved["edge_id"], edge_id)
         self.assertEqual(resolved["instance_name"], expected)
         self.assertEqual(resolved["deployable"], "true")
+        self.assertEqual(resolved["swap_gib"], "2")
 
     def test_planned_fails_without_allow_planned(self):
         if not self.planned_id:

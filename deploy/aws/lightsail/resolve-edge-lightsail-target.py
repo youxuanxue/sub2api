@@ -75,10 +75,13 @@ def resolve_target(
     if budget > max_budget:
         fail(f"edge_id {edge_id} budget ${budget} exceeds max ${max_budget}")
 
+    swap_gib = int(target.get("swap_gib", 2))
+
     return {
         "edge_id": edge_id,
         "deployable": str(deployable).lower(),
         "profile": profile,
+        "swap_gib": swap_gib,
         "lightsail_region": target["lightsail_region"],
         "ec2_equivalent_region": target.get("ec2_equivalent_region", target["lightsail_region"]),
         "availability_zone": target["availability_zone"],

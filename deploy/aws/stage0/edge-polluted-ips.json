@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "description": "Permanent exclusion list of EIPs observed triggering upstream-API risk-blocks (Anthropic / OpenAI / Google / etc.). Any future allocate-address that returns one of these MUST immediately release-address and re-allocate. Source of truth for docs/deploy/tokenkey-edge-ip-history.md § 2. Update via the replacement runbook (§ 4 step 8) of the same doc.",
+  "description": "Permanent EIP exclusion registry for EC2 edge rotations. polluted[] = upstream-API risk-blocks (docs/deploy/tokenkey-edge-ip-history.md § 2). retired_excluded[] = operational retirements (migration cleanup, decommission) that must not be re-allocated but were not observed polluted (§ 2.1). allocate-clean-egress-eip.py unions both lists per region.",
   "polluted": [
     {
       "ip": "3.9.160.161",
@@ -17,14 +17,16 @@
       "retired_on": "2026-05-22",
       "released_on": "2026-05-22",
       "notes": "upstream-ip-pollution-2026-05-22; operator-confirmed egress pollution; EIP released after §4 rotation to 16.61.87.51; §5 IMPORT drift recovery completed same day."
-    },
+    }
+  ],
+  "retired_excluded": [
     {
       "ip": "16.61.87.51",
       "region": "eu-west-2",
       "previous_edge": "uk1",
       "retired_on": "2026-05-26",
       "released_on": "2026-05-26",
-      "notes": "Orphan EC2 EIP after uk1 EC2→Lightsail migration; DNS already on Lightsail Static IP 13.134.80.182; released during EC2 residual cleanup."
+      "notes": "Orphan EC2 EIP after uk1 EC2→Lightsail migration; DNS already on Lightsail Static IP 13.134.80.182; released during EC2 residual cleanup (not upstream pollution)."
     }
   ]
 }
