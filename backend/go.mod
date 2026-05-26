@@ -7,6 +7,7 @@ require (
 	github.com/Calcium-Ion/go-epay v0.0.4
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/QuantumNous/new-api v0.0.0-00010101000000-000000000000
+	github.com/alicebob/miniredis/v2 v2.38.0
 	github.com/alitto/pond/v2 v2.6.2
 	github.com/andybalholm/brotli v1.2.0
 	github.com/aws/aws-sdk-go-v2 v1.41.5
@@ -218,6 +219,7 @@ require (
 	github.com/waffo-com/waffo-pancake-sdk-go v0.2.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/yapingcat/gomedia v0.0.0-20240906162731-17feea57090c // indirect
+	github.com/yuin/gopher-lua v1.1.1 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	github.com/zclconf/go-cty v1.14.4 // indirect
 	github.com/zclconf/go-cty-yaml v1.1.0 // indirect
