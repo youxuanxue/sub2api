@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "description": "Anthropic group Claude Code client restriction policy. Applied by ops/anthropic/manage-anthropic-config.py (plan-group-claude-code-only) on every deployable edge Postgres and prod control-plane Postgres. claude_code_only=true means admin UI toggle ON under \"Claude Code 客户端限制\" → only official Claude Code clients may use the group (non-CC traffic hits ErrClaudeCodeOnly or fallback_group_id). See backend/internal/service/gateway_service.go ErrClaudeCodeOnly and groups.claude_code_only (migration 029).",
+  "policy": {
+    "platform": "anthropic",
+    "claude_code_only": true
+  },
+  "notes": {
+    "scope": "All non-deleted groups with platform=anthropic on each target DB. Does not touch non-anthropic groups.",
+    "fallback_group_id": "This pipeline only flips claude_code_only. Configure fallback_group_id per group in admin UI when non-CC clients need a downgrade path.",
+    "per_target": "Edge and prod each have their own groups table — plan emits one action per target that has any anthropic group not yet at claude_code_only=true."
+  }
+}
