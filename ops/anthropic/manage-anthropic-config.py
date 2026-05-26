@@ -16,6 +16,9 @@ SQL):
      — derived from live ``schedulable=true`` concurrency, no baseline file
      — action.kind = ``edge_operator_concurrency`` (per edge) /
                       ``prod_concurrency_mirror`` (one prod tx)
+  D. anthropic group Claude Code client restriction (Claude Code only)
+     — per ``anthropic-group-claude-code-baselines.json`` (``claude_code_only: true``)
+     — action.kind = ``anthropic_group_claude_code_only`` (one tx per edge + prod)
 
 Topology (which edges exist, and which prod stub maps to which edge) is read
 from ``deploy/aws/stage0/edge-targets.json`` (each edge's ``domain`` field
@@ -38,6 +41,9 @@ Stages
   3d. plan-concurrency-mirror — align edge operator concurrency + prod stub
                                concurrency + prod operator concurrency to live
                                Σ schedulable anthropic (idempotent)
+  3e. plan-group-claude-code-only — set claude_code_only=true on every
+                                   anthropic group on each deployable edge
+                                   and prod (admin UI: Claude Code only)
   4. apply    — render apply SQL from JSON, run via SSM, parse output
   5. verify   — re-snapshot, diff each expected_after vs live
 
@@ -105,6 +111,9 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 EDGE_MATRIX = REPO_ROOT / "deploy/aws/stage0/edge-targets.json"
 TIER_BASELINES = REPO_ROOT / "deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json"
 STUB_POOL_BASELINES = REPO_ROOT / "deploy/aws/stage0/anthropic-stub-pool-baselines.json"
+GROUP_CLAUDE_CODE_BASELINES = (
+    REPO_ROOT / "deploy/aws/stage0/anthropic-group-claude-code-baselines.json"
+)
 OPS_DIR = REPO_ROOT / "ops/anthropic"
 
 # prod is not an entry in edge-targets.json (which is the edge matrix).
@@ -159,7 +168,7 @@ ROUTING_SPEC.loader.exec_module(_EDGE_ROUTING)
 CONFIRM_CODE = "yes-apply-anthropic-config-cascade"
 
 PLAN_VERSION = 4
-SNAPSHOT_VERSION = 4
+SNAPSHOT_VERSION = 5
 
 # After each OAuth tier-baseline apply on an edge Postgres, bump the operator
 # (admin/default) user's row concurrency to match Σ anthropic account concurrency
@@ -394,6 +403,17 @@ WHERE a.platform = 'anthropic'
 # (never re-summed in Python) so the planner trusts one source. The sum mirrors
 # render_admin_operator_concurrency_sync_sql exactly (same platform + schedulable
 # + deleted_at predicate) — keep them in lockstep.
+ANTHROPIC_GROUPS_SQL = """
+SELECT COALESCE(jsonb_agg(jsonb_build_object(
+  'id', g.id, 'name', g.name, 'platform', g.platform,
+  'status', g.status, 'claude_code_only', g.claude_code_only,
+  'fallback_group_id', g.fallback_group_id
+) ORDER BY g.id), '[]'::jsonb)
+FROM groups g
+WHERE g.platform = 'anthropic'
+  AND g.deleted_at IS NULL;
+"""
+
 OPERATOR_CONCURRENCY_SQL = f"""
 SELECT jsonb_build_object(
   'operator_user_concurrency',
@@ -465,6 +485,10 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
             ident.region, ident.instance_id, EDGE_ACCOUNTS_SQL,
             f"snapshot: edge {eid} oauth accounts",
         )
+        groups_raw, _ = ssm_run_sql(
+            ident.region, ident.instance_id, ANTHROPIC_GROUPS_SQL,
+            f"snapshot: edge {eid} anthropic groups",
+        )
         op = _read_operator_concurrency(ident.region, ident.instance_id, f"edge {eid}")
         edges[eid] = {
             "deployable": True,
@@ -474,6 +498,7 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
             "domain": ident.domain,
             "ssm_routing": ident.routing,
             "oauth_accounts": json.loads(accts_raw) if accts_raw else [],
+            "anthropic_groups": json.loads(groups_raw) if groups_raw else [],
             "operator_user_concurrency": op["operator_user_concurrency"],
             "schedulable_concurrency_sum": op["schedulable_concurrency_sum"],
         }
@@ -487,6 +512,10 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
             print(f"snapshot: prod instance={prod_inst}", file=sys.stderr)
             stubs_raw, _ = ssm_run_sql(PROD_TARGET["region"], prod_inst, PROD_STUBS_SQL,
                                         "snapshot: prod anthropic stubs")
+            groups_raw, _ = ssm_run_sql(
+                PROD_TARGET["region"], prod_inst, ANTHROPIC_GROUPS_SQL,
+                "snapshot: prod anthropic groups",
+            )
             prod_op = _read_operator_concurrency(PROD_TARGET["region"], prod_inst, "prod")
             prod_view = {
                 "instance_id": prod_inst,
@@ -494,6 +523,7 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
                 "stack": PROD_TARGET["stack"],
                 "domain": PROD_TARGET["domain"],
                 "anthropic_stubs": json.loads(stubs_raw) if stubs_raw else [],
+                "anthropic_groups": json.loads(groups_raw) if groups_raw else [],
                 "operator_user_concurrency": prod_op["operator_user_concurrency"],
                 "schedulable_concurrency_sum": prod_op["schedulable_concurrency_sum"],
             }
@@ -602,8 +632,28 @@ def _load_snapshot_or_die(path: str) -> dict:
              f"(snapshot v1 cascaded prod stub fields aggregated from edges; "
              f"v2 dropped that, v3 re-added a prod READ view + stub pool-mode WRITE; "
              f"v4 added per-target operator_user_concurrency + schedulable_concurrency_sum "
-             f"for the concurrency-mirror surface)")
+             f"for the concurrency-mirror surface; "
+             f"v5 added per-target anthropic_groups for group claude-code-only surface)")
     return snap
+
+
+def _load_group_claude_code_policy() -> dict:
+    """Parse anthropic-group-claude-code-baselines.json — single source for
+    claude_code_only target value on anthropic groups."""
+    raw = load_json_file(GROUP_CLAUDE_CODE_BASELINES, "group claude code baselines")
+    if not isinstance(raw, dict):
+        fail("group claude code baselines: top-level must be an object")
+    if raw.get("schema_version") != 1:
+        fail(f"group claude code baselines: schema_version {raw.get('schema_version')!r} != 1")
+    pol = raw.get("policy")
+    if not isinstance(pol, dict):
+        fail("group claude code baselines: missing policy object")
+    if pol.get("platform") != "anthropic":
+        fail("group claude code baselines: policy.platform must be 'anthropic'")
+    if pol.get("claude_code_only") is not True:
+        fail("group claude code baselines: policy.claude_code_only must be true "
+             "(Claude Code client only)")
+    return pol
 
 
 def _load_stub_pool_policy() -> dict:
@@ -1210,9 +1260,150 @@ def cmd_plan_concurrency_mirror(args: argparse.Namespace) -> int:
     return 0
 
 
+def _groups_needing_claude_code_policy(anthropic_groups: list[dict], *,
+                                       want_claude_code_only: bool,
+                                       force: bool) -> list[dict]:
+    """Return anthropic groups that still need claude_code_only aligned to policy."""
+    out: list[dict] = []
+    for g in anthropic_groups or []:
+        cur = g.get("claude_code_only")
+        if cur is not want_claude_code_only or force:
+            out.append({
+                "id": g.get("id"),
+                "name": g.get("name"),
+                "claude_code_only_before": cur,
+            })
+    return out
+
+
+def cmd_plan_group_claude_code_only(args: argparse.Namespace) -> int:
+    """Surface D — set claude_code_only=true on every anthropic group on each
+    deployable edge and on prod (admin UI: Claude Code client only)."""
+    snap = _load_snapshot_or_die(args.snapshot)
+    policy = _load_group_claude_code_policy()
+    want = bool(policy["claude_code_only"])
+    force = bool(getattr(args, "force_template_rewrite", False))
+
+    actions: list[dict] = []
+    edge_changes: list[dict] = []
+    prod_changes: list[dict] = []
+
+    for edge_id, edge in sorted(snap.get("edges", {}).items()):
+        if edge.get("error") or edge.get("skipped_reason") or not edge.get("deployable"):
+            continue
+        groups = edge.get("anthropic_groups")
+        if groups is None:
+            fail(f"snapshot.edges.{edge_id} lacks anthropic_groups; re-run snapshot v5+")
+        need = _groups_needing_claude_code_policy(
+            groups, want_claude_code_only=want, force=force,
+        )
+        if not need:
+            continue
+        step = len(actions) + 1
+        actions.append({
+            "step": step,
+            "kind": "anthropic_group_claude_code_only",
+            "target": {"env": "edge", "edge_id": edge_id},
+            "sql_source": GROUP_CLAUDE_CODE_BASELINES.name,
+            "variables": {
+                "claude_code_only": want,
+                "groups_to_fix": need,
+            },
+            "expected_after": {
+                "anthropic_groups": {
+                    str(g["id"]): {"claude_code_only": want} for g in need
+                },
+            },
+        })
+        edge_changes.append({"edge_id": edge_id, "group_count": len(need),
+                             "names": [g["name"] for g in need]})
+
+    prod = snap.get("prod") or {}
+    if prod.get("error") or prod.get("skipped_reason"):
+        fail(f"snapshot.prod not captured: {prod.get('error') or prod.get('skipped_reason')}; "
+             "re-run snapshot without --skip-prod")
+    prod_groups = prod.get("anthropic_groups")
+    if prod_groups is None:
+        fail("snapshot.prod lacks anthropic_groups; re-run snapshot v5+")
+    prod_need = _groups_needing_claude_code_policy(
+        prod_groups, want_claude_code_only=want, force=force,
+    )
+    if prod_need:
+        step = len(actions) + 1
+        actions.append({
+            "step": step,
+            "kind": "anthropic_group_claude_code_only",
+            "target": {"env": "prod"},
+            "sql_source": GROUP_CLAUDE_CODE_BASELINES.name,
+            "variables": {
+                "claude_code_only": want,
+                "groups_to_fix": prod_need,
+            },
+            "expected_after": {
+                "anthropic_groups": {
+                    str(g["id"]): {"claude_code_only": want} for g in prod_need
+                },
+            },
+        })
+        prod_changes.append({"group_count": len(prod_need),
+                             "names": [g["name"] for g in prod_need]})
+
+    plan = {
+        "version": PLAN_VERSION,
+        "kind": "anthropic_group_claude_code_only",
+        "confirm_code": CONFIRM_CODE,
+        "intent": {
+            "scope": "all-anthropic-groups-on-each-target",
+            "policy_source": GROUP_CLAUDE_CODE_BASELINES.name,
+            "claude_code_only": want,
+            "force_template_rewrite": force,
+        },
+        "snapshot_captured_at": snap.get("captured_at"),
+        "plan_built_at": now_utc_iso(),
+        "noop": len(actions) == 0,
+        "summary": {
+            "total_steps": len(actions),
+            "edge_targets": len(edge_changes),
+            "prod_targets": 1 if prod_changes else 0,
+            "groups_to_fix_total": sum(c["group_count"] for c in edge_changes)
+            + sum(c["group_count"] for c in prod_changes),
+        },
+        "live_inputs": {
+            "edge_before": edge_changes,
+            "prod_before": prod_changes,
+        },
+        "actions": actions,
+    }
+
+    out_str = json.dumps(plan, indent=2, ensure_ascii=False)
+    if args.out:
+        pathlib.Path(args.out).write_text(out_str)
+        print(f"plan-group-claude-code-only: written {args.out} "
+              f"({len(actions)} step(s); groups_to_fix={plan['summary']['groups_to_fix_total']})",
+              file=sys.stderr)
+    else:
+        print(out_str)
+    return 0
+
+
 # --------------------------------------------------------------------------
 # Stage 4 — apply
 # --------------------------------------------------------------------------
+
+def render_anthropic_group_claude_code_sql(claude_code_only: bool) -> str:
+    """Bulk-flip anthropic groups to the policy claude_code_only value."""
+    val = "true" if claude_code_only else "false"
+    return (
+        f"-- Auto-generated by manage-anthropic-config.py at {now_utc_iso()}\n"
+        f"-- source of truth: {GROUP_CLAUDE_CODE_BASELINES.name}\n"
+        "BEGIN;\n"
+        f"UPDATE groups SET claude_code_only = {val}, updated_at = NOW()\n"
+        "WHERE platform = 'anthropic'\n"
+        "  AND claude_code_only IS DISTINCT FROM " + val + "\n"
+        "  AND deleted_at IS NULL;\n"
+        "COMMIT;\n"
+    )
+
 
 def render_admin_operator_concurrency_sync_sql() -> str:
     """Sync ``users.concurrency`` for the operator account to the live schedulable
@@ -1432,9 +1623,24 @@ def cmd_apply(args: argparse.Namespace) -> int:
             label = f"step{step:02d}-prod-{kind}".replace("/", "-")
             sql = render_prod_concurrency_mirror_sql(v.get("stub_updates") or [])
             region, instance_id, target_label = _resolve_prod_target()
+        elif kind == "anthropic_group_claude_code_only":
+            env = tgt.get("env")
+            want = bool(v.get("claude_code_only", True))
+            if env == "edge":
+                edge_id = tgt["edge_id"]
+                label = f"step{step:02d}-edge-{edge_id}-{kind}".replace("/", "-")
+                sql = render_anthropic_group_claude_code_sql(want)
+                region, instance_id, target_label = _resolve_edge_target(edge_id)
+            elif env == "prod":
+                label = f"step{step:02d}-prod-{kind}".replace("/", "-")
+                sql = render_anthropic_group_claude_code_sql(want)
+                region, instance_id, target_label = _resolve_prod_target()
+            else:
+                fail(f"anthropic_group_claude_code_only: unknown target.env {env!r}")
         else:
             fail(f"unknown action.kind {kind!r} (orchestrator handles edge_account_tier | "
-                 f"prod_stub_pool | edge_operator_concurrency | prod_concurrency_mirror)")
+                 f"prod_stub_pool | edge_operator_concurrency | prod_concurrency_mirror | "
+                 f"anthropic_group_claude_code_only)")
             return 2  # unreachable, pacifies static analysis
 
         sql_path = job_dir / f"{label}.sql"
@@ -1511,7 +1717,11 @@ def cmd_verify(args: argparse.Namespace) -> int:
     )
     print(f"verify: capturing fresh snapshot → {snap_path}", file=sys.stderr)
     plan_needs_prod = any(
-        a.get("kind") in ("prod_stub_pool", "prod_concurrency_mirror")
+        a.get("kind") in (
+            "prod_stub_pool",
+            "prod_concurrency_mirror",
+            "anthropic_group_claude_code_only",
+        )
         for a in (plan.get("actions") or [])
     )
     snap_args = argparse.Namespace(
@@ -1590,6 +1800,29 @@ def cmd_verify(args: argparse.Namespace) -> int:
                 got_op = prod.get("operator_user_concurrency")
                 if got_op != want_op:
                     diffs.append(f"prod operator_user_concurrency: live={got_op} expected={want_op}")
+        elif kind == "anthropic_group_claude_code_only":
+            exp_groups = exp.get("anthropic_groups") or {}
+            if tgt.get("env") == "edge":
+                view = snap.get("edges", {}).get(tgt.get("edge_id"), {})
+            elif tgt.get("env") == "prod":
+                view = snap.get("prod") or {}
+            else:
+                diffs.append(f"unknown target.env {tgt.get('env')!r}")
+                view = {}
+            if view.get("error") or view.get("skipped_reason"):
+                diffs.append(f"verify snapshot lacks target view: "
+                             f"{view.get('error') or view.get('skipped_reason')}")
+            else:
+                by_id = {g.get("id"): g for g in view.get("anthropic_groups", [])}
+                for gid_str, want_fields in exp_groups.items():
+                    gid = int(gid_str)
+                    g = by_id.get(gid)
+                    if g is None:
+                        diffs.append(f"group id={gid} not found in live snapshot")
+                        continue
+                    for fk, want_val in want_fields.items():
+                        if g.get(fk) != want_val:
+                            diffs.append(f"group id={gid} {fk}: live={g.get(fk)} expected={want_val}")
         else:
             diffs.append(f"verify: unknown action.kind {kind!r}")
         if diffs:
@@ -1716,6 +1949,19 @@ def main() -> int:
         ),
     )
     sp.set_defaults(handler=cmd_plan_concurrency_mirror)
+
+    sp = sub.add_parser(
+        "plan-group-claude-code-only",
+        help="set claude_code_only=true on every anthropic group (Claude Code client only)",
+    )
+    sp.add_argument("--snapshot", required=True)
+    sp.add_argument("--out", help="write plan JSON (otherwise stdout)")
+    sp.add_argument(
+        "--force-template-rewrite",
+        action="store_true",
+        help="re-emit actions even when live groups already have claude_code_only=true",
+    )
+    sp.set_defaults(handler=cmd_plan_group_claude_code_only)
 
     sp = sub.add_parser("apply",
                         help="execute a plan: render apply SQL from JSON, run via SSM")
