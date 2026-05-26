@@ -62,8 +62,8 @@ aws cloudformation deploy \
 # (us-east-1 + eu-west-2). Override only when adding new region-scoped roles.
 
 # 2) GitHub Environment edge-<edge_id> 已存在（与 EC2 共用），确认变量齐
-#    EDGE_ACME_EMAIL / EDGE_MAIN_GATEWAY_ALLOWED_CIDR / EDGE_MAIN_GATEWAY_BASE_URL
-#    secret: MAIN_GATEWAY_EDGE_SMOKE_API_KEY
+#    EDGE_ACME_EMAIL / EDGE_MAIN_GATEWAY_ALLOWED_CIDR / TK_SMOKE_EDGE_CANARY_KEY
+#    secret: TK_SMOKE_EDGE_CANARY_KEY
 ```
 
 > **GHCR auth**：TokenKey 的 `ghcr.io/<owner>/sub2api` 当前是 public，anonymous pull 可用，**不需要 PAT**。workflow 默认 `ghcr_pat_required=false`。

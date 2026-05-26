@@ -64,7 +64,7 @@ bash scripts/preflight.sh
 
 - 本机有 `gh`、`aws`（or `aws-vault`）、`jq`。
 - 仓库 var `AWS_OIDC_ROLE_ARN` 已配置；`vars.EDGE_ACME_EMAIL`、`vars.EDGE_MAIN_GATEWAY_ALLOWED_CIDR` 已在 `edge-<edge_id>` Environment 配齐（**EDGE_MAIN_GATEWAY_ALLOWED_CIDR 没有默认值**，workflow 会在缺失时 `::error::` 直接挂）。
-- `MAIN_GATEWAY_EDGE_SMOKE_API_KEY` secret 已在该 Environment 配置。
+- `TK_SMOKE_EDGE_CANARY_KEY` secret 已在该 Environment 配置。
 
 ## 1) Prepare：注册新 Lightsail edge
 
@@ -121,8 +121,9 @@ aws ssm put-parameter --region "<lightsail_region>" \
 
 - `EDGE_ACME_EMAIL`
 - `EDGE_MAIN_GATEWAY_ALLOWED_CIDR`（current prod main-gateway egress；**workflow 没有默认值**）
-- `EDGE_MAIN_GATEWAY_BASE_URL`
-- `MAIN_GATEWAY_EDGE_SMOKE_API_KEY`（secret）
+- `TK_SMOKE_EDGE_CANARY_KEY`（secret）
+
+Smoke base URL 与 Edge 本机 model 在代码内固定（`https://api.tokenkey.dev` / `claude-sonnet-4-6`），无需 Environment var。
 
 ### 1.6 PR + 落库
 

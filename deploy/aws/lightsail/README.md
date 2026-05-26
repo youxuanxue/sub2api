@@ -54,8 +54,8 @@ aws ssm put-parameter --region eu-west-2 \
 
 复用 `edge-uk1` / `edge-us1`（与 EC2 workflow 相同 Environment 名，但 **不要** 对同一 edge 混跑两种 provision）。
 
-Variables：`EDGE_ACME_EMAIL`、`EDGE_MAIN_GATEWAY_ALLOWED_CIDR`、`EDGE_MAIN_GATEWAY_BASE_URL`  
-Secrets：`MAIN_GATEWAY_EDGE_SMOKE_API_KEY`
+Variables：`EDGE_ACME_EMAIL`、`EDGE_MAIN_GATEWAY_ALLOWED_CIDR`  
+Secrets：`TK_SMOKE_EDGE_CANARY_KEY`
 
 ## 初次 Provision
 

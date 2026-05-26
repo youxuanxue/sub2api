@@ -109,32 +109,32 @@ jobs:
       - name: Post-deploy gateway smoke (API + Claude paths)
         env:
           TOKENKEY_BASE_URL: ${{ steps.instance.outputs.api_url }}
-          POST_DEPLOY_SMOKE_API_KEY: ${{ secrets.POST_DEPLOY_SMOKE_API_KEY }}
-          POST_DEPLOY_SMOKE_CHAT_MODEL: ${{ vars.POST_DEPLOY_SMOKE_CHAT_MODEL || 'claude-sonnet-4-6' }}
-          POST_DEPLOY_SMOKE_GEMINI_API_KEY: ${{ secrets.POST_DEPLOY_SMOKE_GEMINI_API_KEY }}
-          POST_DEPLOY_SMOKE_GEMINI_MODEL: ${{ vars.POST_DEPLOY_SMOKE_GEMINI_MODEL }}
-          POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY: ${{ secrets.POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY }}
-          POST_DEPLOY_SMOKE_OPENAI_OAUTH_MODEL: ${{ vars.POST_DEPLOY_SMOKE_OPENAI_OAUTH_MODEL }}
+          TK_SMOKE_PROD_ANTHROPIC_KEY: ${{ secrets.TK_SMOKE_PROD_ANTHROPIC_KEY }}
+          TK_SMOKE_PROD_GEMINI_KEY: ${{ secrets.TK_SMOKE_PROD_GEMINI_KEY }}
+          TK_SMOKE_PROD_OPENAI_OAUTH_KEY: ${{ secrets.TK_SMOKE_PROD_OPENAI_OAUTH_KEY }}
+          TK_SMOKE_PROD_ANTHROPIC_MODEL: ${{ vars.TK_SMOKE_PROD_ANTHROPIC_MODEL || 'claude-sonnet-4-6' }}
+          TK_SMOKE_PROD_GEMINI_MODEL: ${{ vars.TK_SMOKE_PROD_GEMINI_MODEL }}
+          TK_SMOKE_PROD_OPENAI_OAUTH_MODEL: ${{ vars.TK_SMOKE_PROD_OPENAI_OAUTH_MODEL }}
         run: |
           set -euo pipefail
-          if [ -z "${POST_DEPLOY_SMOKE_API_KEY:-}" ]; then
-            echo "::error::POST_DEPLOY_SMOKE_API_KEY repository secret is not set."
+          if [ -z "${TK_SMOKE_PROD_ANTHROPIC_KEY:-}" ]; then
+            echo "::error::TK_SMOKE_PROD_ANTHROPIC_KEY is not set in prod Environment."
             echo "Add a TokenKey user API key (sk-...) that is valid for this stack's gateway."
-            echo "See deploy/aws/README.md (post-deploy smoke) and docs/approved/deploy-stage0-workflow.md §5."
+            echo "See deploy/aws/README.md (Smoke config) and docs/approved/deploy-stage0-workflow.md §5."
             exit 1
           fi
-          if [ -z "${POST_DEPLOY_SMOKE_GEMINI_API_KEY:-}" ]; then
-            echo "::error::POST_DEPLOY_SMOKE_GEMINI_API_KEY repository secret is not set."
+          if [ -z "${TK_SMOKE_PROD_GEMINI_KEY:-}" ]; then
+            echo "::error::TK_SMOKE_PROD_GEMINI_KEY is not set in prod Environment."
             echo "Add a TokenKey API key bound to a gemini-platform group (e.g. gemini-pa) on this stack's gateway."
             echo "This probe guards the Anthropic→Gemini tool-schema cleanup regression."
-            echo "See deploy/aws/README.md (post-deploy smoke) and docs/approved/deploy-stage0-workflow.md §5."
+            echo "See deploy/aws/README.md (Smoke config) and docs/approved/deploy-stage0-workflow.md §5."
             exit 1
           fi
-          if [ -z "${POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY:-}" ]; then
-            echo "::error::POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY repository secret is not set."
+          if [ -z "${TK_SMOKE_PROD_OPENAI_OAUTH_KEY:-}" ]; then
+            echo "::error::TK_SMOKE_PROD_OPENAI_OAUTH_KEY is not set in prod Environment."
             echo "Add a TokenKey API key bound to an OpenAI OAuth/codex-platform group on this stack's gateway."
             echo "This probe guards the reasoning_tokens passthrough regression."
-            echo "See deploy/aws/README.md (post-deploy smoke) and docs/approved/deploy-stage0-workflow.md §5."
+            echo "See deploy/aws/README.md (Smoke config) and docs/approved/deploy-stage0-workflow.md §5."
             exit 1
           fi
           bash ops/stage0/post_deploy_smoke.sh

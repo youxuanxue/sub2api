@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# Shared helpers for Stage0 gateway smoke scripts.
+# Source from post_deploy_smoke.sh / edge_post_deploy_smoke.sh — do not execute directly.
+set -euo pipefail
+
+: "${GATEWAY_SMOKE_SUITE:=full}"
+
+# Canonical suite names (one runner, multiple deploy intents):
+#   full            — prod deploy-stage0: all gateway probes
+#   main-via-edge   — prod→edge canary: public + models + /v1/messages (claude-cli UA)
+#   quick           — manual gateway_smoke.sh equivalent: public + models + chat only
+if [[ -z "${_TK_SMOKE_LIB_LOADED:-}" ]]; then
+  _TK_SMOKE_LIB_LOADED=1
+
+  smoke_normalize_suite() {
+    case "${1:-full}" in
+      full|prod) echo "full" ;;
+      main-via-edge|edge-via-prod) echo "main-via-edge" ;;
+      quick|minimal) echo "quick" ;;
+      *)
+        echo "tk_smoke: unknown GATEWAY_SMOKE_SUITE='${1}' (want full|main-via-edge|quick)" >&2
+        return 1
+        ;;
+    esac
+  }
+
+  GATEWAY_SMOKE_SUITE="$(smoke_normalize_suite "${GATEWAY_SMOKE_SUITE}")"
+
+  smoke_suite_runs() {
+    local section="$1"
+    case "${GATEWAY_SMOKE_SUITE}" in
+      full)
+        return 0
+        ;;
+      main-via-edge)
+        case "${section}" in
+          public|models|messages) return 0 ;;
+          *) return 1 ;;
+        esac
+        ;;
+      quick)
+        case "${section}" in
+          public|models|chat) return 0 ;;
+          *) return 1 ;;
+        esac
+        ;;
+    esac
+    return 1
+  }
+
+  smoke_default_claude_user_agent() {
+    printf '%s' "${TK_SMOKE_CLAUDE_USER_AGENT:-claude-cli/2.1.150 (external, sdk-cli)}"
+  }
+
+  # soft_degrade_or_exit — see post_deploy_smoke.sh header for contract.
+  soft_degrade_or_exit() {
+    local label="$1" http="$2" resp_file="$3"
+    local err_msg
+    err_msg="$(jq -r '.error.message // empty' "${resp_file}" 2>/dev/null)"
+    case "${http}" in
+      200)
+        return 0
+        ;;
+      5*|429)
+        echo "::warning::tk_post_deploy_smoke: ${label} returned HTTP ${http} — runtime resource issue (likely no available accounts / upstream 5xx / rate-limit), NOT a control-plane regression." >&2
+        if [[ -n "${err_msg}" ]]; then
+          echo "  gateway message: ${err_msg}" >&2
+        fi
+        jq . "${resp_file}" >&2 2>/dev/null || cat "${resp_file}" >&2
+        echo "tk_post_deploy_smoke: ${label} section soft-skipped (HTTP ${http} is not a shape-regression signal)"
+        return 1
+        ;;
+      *)
+        case "${err_msg}" in
+          *"no available accounts"*)
+            echo "::warning::tk_post_deploy_smoke: ${label} returned HTTP ${http} with 'no available accounts' — pool exhausted, not a control-plane regression." >&2
+            jq . "${resp_file}" >&2 2>/dev/null || cat "${resp_file}" >&2
+            echo "tk_post_deploy_smoke: ${label} section soft-skipped (pool exhausted)"
+            return 1
+            ;;
+          *"restricted to Claude Code clients"*|*"/v1/messages only"*)
+            if [[ "${GATEWAY_SMOKE_SUITE}" == "main-via-edge" ]]; then
+              echo "::error::tk_post_deploy_smoke: ${label} returned HTTP ${http} — main-via-edge must use /v1/messages with a Claude Code User-Agent, not /v1/chat/completions." >&2
+            fi
+            echo "tk_post_deploy_smoke: ${label} failed" >&2
+            jq . "${resp_file}" >&2 2>/dev/null || cat "${resp_file}" >&2
+            exit 1
+            ;;
+          *)
+            echo "tk_post_deploy_smoke: ${label} failed" >&2
+            jq . "${resp_file}" >&2 2>/dev/null || cat "${resp_file}" >&2
+            exit 1
+            ;;
+        esac
+        ;;
+    esac
+  }
+
+  # smoke_pick_model_from_list FILE [OVERRIDE]
+  # Prints model id: prefer OVERRIDE when listed; else warn and keep auto pick (claude regex, else first).
+  smoke_pick_model_from_list() {
+    local models_file="$1"
+    local override="${2:-}"
+    local auto
+    auto="$(jq -r '(.data // []) as $d | ($d | map(select(.id|test("claude";"i"))) | .[0].id) // $d[0].id // empty' "${models_file}")"
+    if [[ -z "${auto}" || "${auto}" == "null" ]]; then
+      echo "tk_post_deploy_smoke: no model id in /v1/models" >&2
+      jq . "${models_file}" >&2 || true
+      return 1
+    fi
+    if [[ -n "${override}" ]]; then
+      if jq -e --arg m "${override}" '(.data // []) | any(.id == $m)' "${models_file}" >/dev/null 2>&1; then
+        printf '%s' "${override}"
+        return 0
+      fi
+      echo "::warning::tk_post_deploy_smoke: configured chat model '${override}' not listed for this key; using auto-selected model=${auto}" >&2
+      jq -r '(.data // [])[] | .id' "${models_file}" >&2 || true
+    fi
+    printf '%s' "${auto}"
+  }
+fi

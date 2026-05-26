@@ -34,7 +34,7 @@ description: >-
 - **数据要「跨多次本地测试」保留**：override 把 PG/Redis/app 绑到宿主机 **`${TOKENKEY_STAGE0_LOCAL_ROOT}/{postgres,redis,app}`**。**`docker compose … down`（不带 `-v`）只删容器，不删这些目录**，账号、订阅、网关 key 等会一直在。**不要**把每次跑本 skill 都当成要执行 §7 的 **`rm -rf`**——那是**有意清盘**才做。日常循环：§5 **`up -d`** ↔ §7a **`down`**，固定同一个 `TOKENKEY_STAGE0_LOCAL_ROOT`。
 - **`rm -rf "${TOKENKEY_STAGE0_LOCAL_ROOT}"`**：仅 **§7b 有意清空**时用，且 **确认路径**（默认 `.cache/tokenkey-stage0-local`）；勿对错误父目录执行。
 - **私有 GHCR**：`docker compose pull` tokenkey 镜像前应先在本机 **`docker login ghcr.io`**；Agent 若在沙箱里无法访问 daemon 或未继承登录态，需在可访问 Docker 的环境里执行 compose。
-- **`tk_post_deploy_smoke.sh`（与 prod 同款）**：见下文 **C**；需要 **可用的用户侧网关 API Key**（`POST_DEPLOY_SMOKE_API_KEY` 等）。纯 **AUTO_SETUP** 新栈往往还没有 key——此时 **只做 A+B 或再加管理员登录**即可，不要为了跑 C 而停下向人要 prod key。
+- **`tk_post_deploy_smoke.sh`（与 prod 同款）**：见下文 **C**；需要 **`TK_SMOKE_PROD_*` 三个 key**。纯 **AUTO_SETUP** 新栈往往还没有 key——此时 **只做 A+B 或再加管理员登录**即可。
 
 ## 本项目路径约定（本仓库克隆）
 
@@ -308,15 +308,14 @@ docker exec tokenkey wget -q -T 5 -O - http://localhost:8080/health
 ```bash
 cd “${REPO_ROOT}” # 须在含 scripts/ 的仓库根；未导出 REPO_ROOT 时见「本项目路径约定」
 export TOKENKEY_BASE_URL=http://127.0.0.1:8088    # 或 TK_GATEWAY_URL（脚本两个都识别）
-# 主 key：POST_DEPLOY_SMOKE_API_KEY → ANTHROPIC_AUTH_TOKEN → TK_TOKEN → TOKENKEY_API_KEY
-# 可选 Gemini 探针：POST_DEPLOY_SMOKE_GEMINI_API_KEY=sk-...
-# 可选 OpenAI OAuth 探针：POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY=sk-...
+# 对 prod 同款 key：TK_SMOKE_PROD_*（与 GitHub prod Environment 同名；secret 值须本机 export）
+# 可选 TK_SMOKE_GITHUB_ENV=prod 自动拉取 Environment variables
 bash ops/stage0/post_deploy_smoke.sh
 ```
 
 **前提**：须已有 **可用的用户侧网关 API Key**（新 AUTO_SETUP 栈通常没有——先在管理后台创建订阅用户与 key，或使用你专用于本地的测试 key）。**不得**打印完整 key；脚本只输出 `key_hint`。若缺 key：**不要卡住会话**，验收 **A+B**（及下方管理员登录）即可。
 
-**烟测 key**：与 prod skill § C 要求完全一致——`POST_DEPLOY_SMOKE_API_KEY`、`POST_DEPLOY_SMOKE_GEMINI_API_KEY`、`POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY` 三个均须导出，任一缺失不得视为验收通过。
+**烟测 key**：与 prod 一致——`TK_SMOKE_PROD_ANTHROPIC_KEY`、`TK_SMOKE_PROD_GEMINI_KEY`、`TK_SMOKE_PROD_OPENAI_OAUTH_KEY` 三个均须导出，任一缺失不得视为验收通过。
 
 **结构化验收要求**：与 prod skill § C 完全一致，以该节为准。唯一差异是 `TOKENKEY_BASE_URL=http://127.0.0.1:8088`（本地反代端口）。若有多个分组/key，按 key 分别记录 `key_hint`、group platform、`account_id/platform/model`；不要把一个 key 的通过误当成全部通过。
 

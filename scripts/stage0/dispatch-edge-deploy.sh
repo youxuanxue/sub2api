@@ -56,21 +56,18 @@ if [[ "${OPERATION}" == "provision" || "${OPERATION}" == "upgrade" || "${OPERATI
   fi
 fi
 
-ROUTE_JSON="$(python3 scripts/stage0/resolve-edge-deploy-route.py --edge-id "${EDGE_ID}" --json)"
-mapfile -t _route_fields < <(
-  printf '%s' "${ROUTE_JSON}" | python3 -c '
-import json
-import sys
-
-payload = json.load(sys.stdin)
-for key in ("workflow_file", "confirm_flag", "confirm_value", "platform"):
-    print(payload[key])
-'
-)
-WORKFLOW="${_route_fields[0]}"
-CONFIRM_FLAG="${_route_fields[1]}"
-CONFIRM_VALUE="${_route_fields[2]}"
-PLATFORM="${_route_fields[3]}"
+WORKFLOW=""
+CONFIRM_FLAG=""
+CONFIRM_VALUE=""
+PLATFORM=""
+while IFS='=' read -r key value; do
+  case "${key}" in
+    workflow_file) WORKFLOW="${value}" ;;
+    confirm_flag) CONFIRM_FLAG="${value}" ;;
+    confirm_value) CONFIRM_VALUE="${value}" ;;
+    platform) PLATFORM="${value}" ;;
+  esac
+done < <(python3 scripts/stage0/resolve-edge-deploy-route.py --edge-id "${EDGE_ID}")
 
 if [[ "${OPERATION}" == "rotate_egress_ip" || "${OPERATION}" == "decommission" ]]; then
   if [[ "${PLATFORM}" != "ec2" ]]; then
