@@ -2,7 +2,7 @@
 """
 TokenKey Anthropic OAuth tier-baseline + prod stub pool-mode orchestrator.
 
-One entrypoint, plan JSON as the only file between stages.  Three write
+One entrypoint, plan JSON as the only file between stages.  Four write
 surfaces, all JSON-derived (no static SQL templates, no operator-written
 SQL):
 
