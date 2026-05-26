@@ -47,6 +47,7 @@ IPs in this list have been observed triggering upstream-API risk-blocks (Anthrop
 | --- | --- | --- | --- | --- | --- |
 | `3.9.160.161` | eu-west-2 | 2026-05-20 | 2026-05-20 | edge-uk1 | First documented pollution. User-reported upstream-API risk-block. |
 | `35.177.124.150` | eu-west-2 | 2026-05-22 | 2026-05-22 | edge-uk1 | upstream-ip-pollution-2026-05-22; operator-confirmed egress pollution; EIP released after §4 rotation to 16.61.87.51; §5 IMPORT drift recovery completed same day. |
+| `16.61.87.51` | eu-west-2 | 2026-05-26 | 2026-05-26 | edge-uk1 | Orphan EC2 EIP after uk1 EC2→Lightsail migration; DNS already on Lightsail Static IP 13.134.80.182; released during EC2 residual cleanup. |
 <!-- END edge-ip-status:polluted -->
 
 To add an entry: edit `edge-polluted-ips.json` in the same PR as the EIP replacement, run `scripts/edge-ip-status.sh --markdown` and paste the regenerated tables. Preflight's `--check` mode catches a forgotten regeneration.

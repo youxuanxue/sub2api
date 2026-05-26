@@ -90,6 +90,13 @@ class RenderBootstrapTests(unittest.TestCase):
                              "so stay under 14336 here. Options: gzip more aggressively, "
                              "trim comments, or move payloads to SSM Parameter Store.")
 
+    def test_generated_artifact_configures_swap_like_ec2_edge(self):
+        content = GENERATED.read_text(encoding="utf-8")
+        self.assertIn("SWAP_SIZE_GIB=", content)
+        self.assertIn("mkswap /swapfile", content)
+        self.assertIn("swapon /swapfile", content)
+        self.assertIn("/swapfile none swap sw 0 0", content)
+
     def test_qa_and_prune_scripts_are_gzipped(self):
         # Both ops scripts are now gzipped before base64-encoding (was raw
         # base64 in earlier revisions, contributing ~3.7 KB of overhead).

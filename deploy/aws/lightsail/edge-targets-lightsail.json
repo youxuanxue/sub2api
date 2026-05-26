@@ -12,6 +12,7 @@
     "uk1": {
       "deployable": true,
       "profile": "edge-lightsail-minimal",
+      "swap_gib": 2,
       "lightsail_region": "eu-west-2",
       "ec2_equivalent_region": "eu-west-2",
       "availability_zone": "eu-west-2a",

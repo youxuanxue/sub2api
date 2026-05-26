@@ -126,6 +126,7 @@ gh workflow run deploy-edge-lightsail-stage0.yml \
 | IP 污染轮换 | `tokenkey-stage0-edge-ip-rotation` skill（EIP） | `tokenkey-stage0-edge-lightsail-ip-rotation` skill + `ops/lightsail/rotate-static-ip.sh` |
 | 区域 | 与 EC2 region 一一对应 | **Paris 无 Lightsail**；fra1 映射 Frankfurt |
 | 架构 | Graviton arm64（t4g） | Lightsail bundle 多为 x86（multi-arch 镜像仍可用） |
+| Swap | CFN user-data 配 **2 GiB** `/swapfile` | bootstrap 配 **2 GiB** `/swapfile`（与 EC2 `swap_gib` 对齐）；已运行实例可经 SSM 跑 `ops/lightsail/ensure-edge-swap.sh` |
 | diagnostics | `ops-daily-diagnostics.yml` 矩阵 | `ops-daily-diagnostics.yml` 矩阵自动接入（按 `platform` 分支；error_clustering installer 暂仍 EC2 only） |
 | 成本 | ~$10–16/月（t4g.micro） | ~$12/月（micro bundle，因区域而异） |
 
