@@ -5,14 +5,16 @@
 # Env:
 #   LIMIT          rows per source (default 500)
 #   SINCE          docker logs window (default 48h)
+#   WINDOW_MINUTES if set, usage_logs/ops filter to last N minutes (overrides LIMIT ordering scope)
 #   CONTAINER      gateway container (default tokenkey)
 set -u
 
 LIMIT="${LIMIT:-500}"
 SINCE="${SINCE:-48h}"
+WINDOW_MINUTES="${WINDOW_MINUTES:-}"
 CONTAINER="${CONTAINER:-tokenkey}"
 
-python3 - "$LIMIT" "$SINCE" "$CONTAINER" <<'PY'
+python3 - "$LIMIT" "$SINCE" "$CONTAINER" "$WINDOW_MINUTES" <<'PY'
 import json
 import re
 import subprocess
@@ -22,6 +24,13 @@ from collections import Counter
 limit = int(sys.argv[1])
 since = sys.argv[2]
 container = sys.argv[3]
+window_minutes = sys.argv[4].strip() if len(sys.argv) > 4 else ""
+time_where_ul = ""
+time_where_ops = ""
+if window_minutes.isdigit() and int(window_minutes) > 0:
+    interval = f"{int(window_minutes)} minutes"
+    time_where_ul = f"WHERE ul.created_at > now() - interval '{interval}'"
+    time_where_ops = f"AND created_at > now() - interval '{interval}'"
 
 marker_completed = "http request completed"
 json_re = re.compile(r"\{.*\}\s*$")
@@ -98,11 +107,13 @@ SELECT row_to_json(t) FROM (
   JOIN accounts a ON a.id = ul.account_id
   LEFT JOIN tls_fingerprint_profiles tfp
     ON tfp.id = NULLIF(a.extra->>'tls_fingerprint_profile_id', '')::bigint
+  {time_where_ul}
   ORDER BY ul.id DESC
   LIMIT {limit}
 ) t;
 """
 
+ops_window = time_where_ops or "AND created_at > now() - interval '48 hours'"
 ops_sql = f"""
 SELECT row_to_json(t) FROM (
   SELECT
@@ -116,7 +127,8 @@ SELECT row_to_json(t) FROM (
     model,
     extra
   FROM ops_system_logs
-  WHERE created_at > now() - interval '48 hours'
+  WHERE 1=1
+    {ops_window}
     AND (
       component ILIKE '%gateway%'
       OR component ILIKE '%http.access%'
@@ -294,7 +306,12 @@ def gateway_usage_samples(rows: list[dict], n: int = 40) -> list[dict]:
 
 # SSM StandardOutputContent is ~24KiB; keep stdout compact (summary only).
 out = {
-    "meta": {"limit": limit, "since": since, "container": container},
+    "meta": {
+        "limit": limit,
+        "since": since,
+        "container": container,
+        "window_minutes": int(window_minutes) if window_minutes.isdigit() else None,
+    },
     "usage_logs": {
         "summary": summarize_usage(usage_rows),
         "gateway_samples": gateway_usage_samples(usage_rows, n=12),
