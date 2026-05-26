@@ -93,6 +93,8 @@ var ProviderSet = wire.NewSet(
 	NewChannelMonitorRequestTemplateRepository,
 	NewContentModerationRepository,
 	NewAffiliateRepository,
+	NewUserPlatformQuotaRepository,     // T14: user × platform quota
+	NewUserPlatformQuotaServiceAdapter, // T14: adapter → service.UserPlatformQuotaRepository
 	// TK: pricing availability persistence — see docs/approved/pricing-availability-source-of-truth.md
 	NewModelAvailabilityRepository,
 
