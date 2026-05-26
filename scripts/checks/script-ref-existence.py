@@ -62,7 +62,7 @@ SCAN_EXTS = {
 }
 SCAN_BASENAMES = {
     "Dockerfile", "Dockerfile.goreleaser", "Makefile",
-    ".gitignore", ".goreleaser.yaml", ".goreleaser.simple.yaml",
+    ".gitignore", ".goreleaser.yaml", ".goreleaser.simple.yaml", ".goreleaser.full.yaml",
     "CLAUDE.md",
 }
 
