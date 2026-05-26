@@ -6,122 +6,73 @@
 #   /v1/messages, and (when configured) /v1/messages-with-tools through the
 #   Gemini bridge to catch tool-schema cleanup regressions.
 #
-# Usage:
+# GitHub config (canonical TK_SMOKE_* — see ops/stage0/smoke_env.sh):
+#   TK_SMOKE_PROD_ANTHROPIC_KEY / TK_SMOKE_PROD_GEMINI_KEY / TK_SMOKE_PROD_OPENAI_OAUTH_KEY
+#   TK_SMOKE_PROD_ANTHROPIC_MODEL / TK_SMOKE_PROD_GEMINI_MODEL / TK_SMOKE_PROD_OPENAI_OAUTH_MODEL
+#
+# Usage (CI injects TK_SMOKE_* directly):
 #   TOKENKEY_BASE_URL=https://api.example.com \
-#   POST_DEPLOY_SMOKE_API_KEY=sk-... \
-#   POST_DEPLOY_SMOKE_GEMINI_API_KEY=sk-... \              # optional, binds to gemini group
-#   POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY=sk-... \        # optional, binds to OpenAI OAuth/codex group
+#   TK_SMOKE_PROD_ANTHROPIC_KEY=sk-... \
 #   bash ops/stage0/post_deploy_smoke.sh
 #
-# Key resolution (first non-empty): POST_DEPLOY_SMOKE_API_KEY,
-# ANTHROPIC_AUTH_TOKEN, TK_TOKEN, TOKENKEY_API_KEY.
+# Local manual smoke from GitHub Environment (vars via gh; secrets exported locally):
+#   export TK_SMOKE_GITHUB_ENV=prod
+#   export TK_SMOKE_PROD_ANTHROPIC_KEY=sk-...   # same names as GitHub secrets
+#   export TK_SMOKE_PROD_GEMINI_KEY=sk-...
+#   export TK_SMOKE_PROD_OPENAI_OAUTH_KEY=sk-...
+#   bash ops/stage0/post_deploy_smoke.sh
 #
-# Optional Gemini regression check (skipped silently if unset):
-#   POST_DEPLOY_SMOKE_GEMINI_API_KEY  api_key bound to a gemini-platform group
-#                                     (e.g. gemini-pa); exercises the
-#                                     Anthropic→Gemini tool-schema cleanup.
-#   POST_DEPLOY_SMOKE_GEMINI_MODEL    default: gemini-3.1-pro-preview
+# Optional Gemini regression (skipped when TK_SMOKE_PROD_GEMINI_KEY unset):
+#   TK_SMOKE_PROD_GEMINI_MODEL    default: gemini-3.1-pro-preview
 #
-# Optional OpenAI OAuth (chatgpt.com codex backend) regression check:
-#   POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY  api_key bound to an OpenAI/codex
-#                                           OAuth-platform group; exercises
-#                                           account correctness end-to-end
-#                                           (HTTP 200 + content marker +
-#                                           usage totals) and surfaces the
-#                                           reasoning_tokens passthrough
-#                                           (warn-only by default — see
-#                                           section 7 inline comment).
-#   POST_DEPLOY_SMOKE_OPENAI_OAUTH_MODEL    default: gpt-5.4
-#   POST_DEPLOY_SMOKE_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS  default: 0
-#                                           Set to 1 to upgrade the
-#                                           reasoning_tokens=0 warn into a
-#                                           hard-fail (only when the
-#                                           configured account is known to
-#                                           emit reasoning_tokens).
+# Optional OpenAI OAuth regression (skipped when TK_SMOKE_PROD_OPENAI_OAUTH_KEY unset):
+#   TK_SMOKE_PROD_OPENAI_OAUTH_MODEL    default: gpt-5.4
+#   TK_SMOKE_PROD_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS  default: 0
 #
-# Main Anthropic-compat probes (/v1/chat/completions + /v1/messages):
-#   POST_DEPLOY_SMOKE_CHAT_MODEL  if set: must equal some .data[].id from
-#                                 GET /v1/models under the smoke API key.
-#                                 Overrides the default heuristic (prefer a
-#                                 model id matching /claude/i, else first list id).
+# Anthropic-compat probes:
+#   TK_SMOKE_PROD_ANTHROPIC_MODEL  preferred model; warn + auto pick when absent from /v1/models
+#   TK_SMOKE_CLAUDE_USER_AGENT     Claude Code UA for /v1/messages
+#
+# Suite matrix (GATEWAY_SMOKE_SUITE — one runner, deploy-intent driven):
+#   full (default)     prod deploy-stage0: all sections below
+#   main-via-edge      prod→edge canary: public + models + /v1/messages only
+#   quick              spot-check: public + models + chat only
+#
+# Edge infra SSM probes: ops/stage0/edge_post_deploy_smoke.sh (phase=infra)
+# Shared helpers: ops/stage0/smoke_lib.sh
 #
 # Never prints the full API key. Requires curl + jq on PATH.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=smoke_lib.sh
+source "${SCRIPT_DIR}/smoke_lib.sh"
+# shellcheck source=smoke_env.sh
+source "${SCRIPT_DIR}/smoke_env.sh"
+
 BASE="${TOKENKEY_BASE_URL:-${TK_GATEWAY_URL:-}}"
 BASE="${BASE%/}"
 
-API_KEY="${POST_DEPLOY_SMOKE_API_KEY:-${ANTHROPIC_AUTH_TOKEN:-${TK_TOKEN:-${TOKENKEY_API_KEY:-}}}}"
+API_KEY="${TK_SMOKE_PROD_ANTHROPIC_KEY:-}"
 
 if [[ -z "${BASE}" ]]; then
   echo "tk_post_deploy_smoke: set TOKENKEY_BASE_URL (or TK_GATEWAY_URL)" >&2
   exit 1
 fi
 if [[ -z "${API_KEY}" ]]; then
-  echo "tk_post_deploy_smoke: set POST_DEPLOY_SMOKE_API_KEY (or ANTHROPIC_AUTH_TOKEN / TK_TOKEN / TOKENKEY_API_KEY)" >&2
+  echo "tk_post_deploy_smoke: set TK_SMOKE_PROD_ANTHROPIC_KEY (or TK_SMOKE_GITHUB_ENV=prod with secrets exported locally)" >&2
   exit 1
 fi
 
 command -v curl >/dev/null 2>&1 || { echo "tk_post_deploy_smoke: curl not on PATH" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "tk_post_deploy_smoke: jq not on PATH" >&2; exit 1; }
 
-# soft_degrade_or_exit
-#   $1 = label (used in log/warning text, e.g. "/v1/chat/completions")
-#   $2 = HTTP status code from curl `%{http_code}`
-#   $3 = path to response body JSON file
-# return 0 = HTTP 200, caller should run shape + marker checks
-# return 1 = soft-degraded, caller should skip shape checks for this section
-# exit  1 = hard failure (4xx auth/route/payload, or unrecognized non-200)
-#
-# Soft-degrade contract: HTTP 5xx, 429, and gateway message containing
-# "no available accounts" are runtime-resource failures (pool dry, upstream
-# down, rate-limited) — they cannot indicate a control-plane shape regression
-# because the request never reached the scheduling pool in a way that could
-# have produced a malformed response. Treating them as deploy failures
-# conflates control-plane health with runtime-resource health (2026-05-06
-# Gemini false-positive postmortem; 2026-05-14..18 Edge smoke flap). 4xx
-# (auth/routing/payload) IS a control-plane regression and still hard-fails.
-soft_degrade_or_exit() {
-  local label="$1" http="$2" resp_file="$3"
-  local err_msg
-  err_msg="$(jq -r '.error.message // empty' "${resp_file}" 2>/dev/null)"
-  case "${http}" in
-    200)
-      return 0
-      ;;
-    5*|429)
-      echo "::warning::tk_post_deploy_smoke: ${label} returned HTTP ${http} — runtime resource issue (likely no available accounts / upstream 5xx / rate-limit), NOT a control-plane regression." >&2
-      if [[ -n "${err_msg}" ]]; then
-        echo "  gateway message: ${err_msg}" >&2
-      fi
-      jq . "${resp_file}" >&2 2>/dev/null || cat "${resp_file}" >&2
-      echo "tk_post_deploy_smoke: ${label} section soft-skipped (HTTP ${http} is not a shape-regression signal)"
-      return 1
-      ;;
-    *)
-      case "${err_msg}" in
-        *"no available accounts"*)
-          echo "::warning::tk_post_deploy_smoke: ${label} returned HTTP ${http} with 'no available accounts' — pool exhausted, not a control-plane regression." >&2
-          jq . "${resp_file}" >&2 2>/dev/null || cat "${resp_file}" >&2
-          echo "tk_post_deploy_smoke: ${label} section soft-skipped (pool exhausted)"
-          return 1
-          ;;
-        *)
-          echo "tk_post_deploy_smoke: ${label} failed" >&2
-          jq . "${resp_file}" >&2 2>/dev/null || cat "${resp_file}" >&2
-          exit 1
-          ;;
-      esac
-      ;;
-  esac
-}
-
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 
 prefix="$(printf '%s' "${API_KEY}" | head -c 6)"
 suffix="$(printf '%s' "${API_KEY}" | tail -c 4)"
-echo "tk_post_deploy_smoke: base_url=${BASE} key_hint=${prefix}…${suffix}"
+echo "tk_post_deploy_smoke: base_url=${BASE} suite=${GATEWAY_SMOKE_SUITE} key_hint=${prefix}…${suffix}"
 
 # --- 1) Public settings (cold path) ---
 pub_http=$(curl -sS -o "$tmpdir/pub.json" -w "%{http_code}" "${BASE}/api/v1/settings/public")
@@ -137,8 +88,8 @@ if [[ "${pub_code}" != "0" ]]; then
   exit 1
 fi
 
-# --- 2) Frontend release asset shape ---
-if [[ "${POST_DEPLOY_SMOKE_SKIP_FRONTEND:-}" != "1" ]]; then
+# --- 2) Frontend release asset shape (full suite only) ---
+if smoke_suite_runs frontend && [[ "${TK_SMOKE_SKIP_FRONTEND:-}" != "1" ]]; then
   # PR #307 relocated check-frontend-release-assets.py from ops/stage0/ to
   # scripts/checks/frontend-release-assets.py. The sed pass that updated
   # Dockerfile / frontend/package.json / .goreleaser*.yaml missed this
@@ -197,25 +148,13 @@ fi
 
 echo "tk_post_deploy_smoke: /v1/models shape object=${models_object} count=${models_count}"
 
-model="$(jq -r '(.data // []) as $d | ($d | map(select(.id|test("claude";"i"))) | .[0].id) // $d[0].id // empty' "$tmpdir/models.json")"
-if [[ -z "${model}" ]] || [[ "${model}" == "null" ]]; then
-  echo "tk_post_deploy_smoke: no model id in /v1/models" >&2
-  jq . "$tmpdir/models.json" >&2 || true
-  exit 1
-fi
-
-chat_model_override="${POST_DEPLOY_SMOKE_CHAT_MODEL:-}"
-if [[ -n "${chat_model_override}" ]]; then
-  if ! jq -e --arg m "${chat_model_override}" '(.data // []) | any(.id == $m)' "$tmpdir/models.json" >/dev/null 2>&1; then
-    echo "tk_post_deploy_smoke: POST_DEPLOY_SMOKE_CHAT_MODEL='${chat_model_override}' not listed in GET /v1/models for this key" >&2
-    jq -r '(.data // [])[] | .id' "$tmpdir/models.json" >&2 || true
-    exit 1
-  fi
-  model="${chat_model_override}"
-fi
+model="$(smoke_pick_model_from_list "$tmpdir/models.json" "${TK_SMOKE_PROD_ANTHROPIC_MODEL:-}")" || exit 1
 echo "tk_post_deploy_smoke: using model=${model}"
 
 # --- 4) OpenAI-compat chat ---
+if ! smoke_suite_runs chat; then
+  echo "tk_post_deploy_smoke: skip /v1/chat/completions (suite=${GATEWAY_SMOKE_SUITE})"
+else
 expect_openai="E2E-OPENAI-OK"
 payload="$(jq -n \
   --arg m "${model}" \
@@ -249,9 +188,14 @@ if ! printf '%s' "${chat_body}" | grep -Fq "${expect_openai}"; then
   exit 1
 fi
 fi  # end soft_degrade_or_exit guard
+fi  # end chat suite
 
 # --- 5) Anthropic Messages shape (Claude Code / x-api-key path) ---
+if ! smoke_suite_runs messages; then
+  echo "tk_post_deploy_smoke: skip /v1/messages (suite=${GATEWAY_SMOKE_SUITE})"
+else
 expect_anthropic="E2E-ANTHROPIC-OK"
+claude_ua="$(smoke_default_claude_user_agent)"
 apayload="$(jq -n \
   --arg m "${model}" \
   --arg x "${expect_anthropic}" \
@@ -261,6 +205,7 @@ msg_http=$(curl -sS -o "$tmpdir/msg.json" -w "%{http_code}" \
   -H "x-api-key: ${API_KEY}" \
   -H "anthropic-version: 2023-06-01" \
   -H "Content-Type: application/json" \
+  -H "User-Agent: ${claude_ua}" \
   -d "${apayload}" \
   "${BASE}/v1/messages")
 echo "tk_post_deploy_smoke: POST .../v1/messages -> HTTP ${msg_http}"
@@ -285,6 +230,7 @@ if ! printf '%s' "${msg_text}" | grep -Fq "${expect_anthropic}"; then
   exit 1
 fi
 fi  # end soft_degrade_or_exit guard
+fi  # end messages suite
 
 # --- 6) Gemini /v1/messages with tools (Anthropic→Gemini schema cleanup regression) ---
 # Validates tkCleanToolSchema strips Draft 2020 / OpenAPI 3.1 keywords that
@@ -305,11 +251,11 @@ fi  # end soft_degrade_or_exit guard
 #         would have been rejected with 400 BEFORE reaching the scheduling
 #         pool). Treating them as deploy failures conflates control-plane
 #         health with runtime-resource health.
-GEMINI_KEY="${POST_DEPLOY_SMOKE_GEMINI_API_KEY:-}"
-GEMINI_MODEL="${POST_DEPLOY_SMOKE_GEMINI_MODEL:-gemini-3.1-pro-preview}"
-GEMINI_MAX_TOKENS="${POST_DEPLOY_SMOKE_GEMINI_MAX_TOKENS:-8192}"
+GEMINI_KEY="${TK_SMOKE_PROD_GEMINI_KEY:-}"
+GEMINI_MODEL="${TK_SMOKE_PROD_GEMINI_MODEL:-gemini-3.1-pro-preview}"
+GEMINI_MAX_TOKENS="${TK_SMOKE_PROD_GEMINI_MAX_TOKENS:-8192}"
 
-if [[ -n "${GEMINI_KEY}" ]]; then
+if smoke_suite_runs gemini && [[ -n "${GEMINI_KEY}" ]]; then
   gemini_prefix="$(printf '%s' "${GEMINI_KEY}" | head -c 6)"
   gemini_suffix="$(printf '%s' "${GEMINI_KEY}" | tail -c 4)"
   echo "tk_post_deploy_smoke: gemini_key_hint=${gemini_prefix}…${gemini_suffix} gemini_model=${GEMINI_MODEL} max_tokens=${GEMINI_MAX_TOKENS}"
@@ -378,7 +324,7 @@ if [[ -n "${GEMINI_KEY}" ]]; then
         && [[ "${gemini_content_count}" -lt 1 ]] \
         && [[ "${gemini_stop}" == "max_tokens" ]] \
         && [[ "${gemini_output_tokens}" -gt 0 ]]; then
-      echo "::warning::tk_post_deploy_smoke: /v1/messages (gemini, with tools) returned HTTP 200 but content=[] with stop_reason=max_tokens (output_tokens=${gemini_output_tokens}) — reasoning model consumed budget before emitting text, NOT a schema regression. Consider raising POST_DEPLOY_SMOKE_GEMINI_MAX_TOKENS." >&2
+      echo "::warning::tk_post_deploy_smoke: /v1/messages (gemini, with tools) returned HTTP 200 but content=[] with stop_reason=max_tokens (output_tokens=${gemini_output_tokens}) — reasoning model consumed budget before emitting text, NOT a schema regression. Consider raising TK_SMOKE_PROD_GEMINI_MAX_TOKENS." >&2
       jq . "$tmpdir/gemini-msg.json" >&2 || true
       echo "tk_post_deploy_smoke: gemini section soft-skipped (reasoning model exhausted token budget without visible content)"
     elif [[ "${gemini_type}" != "message" ]] || [[ "${gemini_role}" != "assistant" ]] || [[ "${gemini_content_count}" -lt 1 ]]; then
@@ -399,7 +345,7 @@ if [[ -n "${GEMINI_KEY}" ]]; then
   # is broken; without auth/route working we cannot say anything about the
   # gateway behavior.
   elif [[ "${gemini_http}" == "401" || "${gemini_http}" == "403" || "${gemini_http}" == "404" ]]; then
-    echo "::error::tk_post_deploy_smoke: /v1/messages (gemini, with tools) returned HTTP ${gemini_http} — smoke key/route broken; fix POST_DEPLOY_SMOKE_GEMINI_API_KEY config or gateway routing." >&2
+    echo "::error::tk_post_deploy_smoke: /v1/messages (gemini, with tools) returned HTTP ${gemini_http} — smoke key/route broken; fix TK_SMOKE_PROD_GEMINI_KEY config or gateway routing." >&2
     jq . "$tmpdir/gemini-msg.json" >&2 2>/dev/null || cat "$tmpdir/gemini-msg.json" >&2
     exit 1
   # 5xx OR 429 OR gateway "no available accounts" → SOFT WARN. These cannot
@@ -420,8 +366,10 @@ if [[ -n "${GEMINI_KEY}" ]]; then
     jq . "$tmpdir/gemini-msg.json" >&2 2>/dev/null || cat "$tmpdir/gemini-msg.json" >&2
     echo "tk_post_deploy_smoke: gemini section soft-skipped (HTTP ${gemini_http} is not a schema-regression signal)"
   fi
+elif [[ -n "${GEMINI_KEY}" ]]; then
+  echo "tk_post_deploy_smoke: skip /v1/messages (gemini) — suite=${GATEWAY_SMOKE_SUITE}"
 else
-  echo "tk_post_deploy_smoke: skip /v1/messages (gemini) — POST_DEPLOY_SMOKE_GEMINI_API_KEY not set"
+  echo "tk_post_deploy_smoke: skip /v1/messages (gemini) — TK_SMOKE_PROD_GEMINI_KEY not set"
 fi
 
 # --- 7) OpenAI OAuth /v1/chat/completions account + token-count probe ---
@@ -442,7 +390,7 @@ fi
 #
 # When operators confirm a path that DOES emit reasoning_tokens (e.g. an
 # APIKey-direct OpenAI Responses account), set
-#   POST_DEPLOY_SMOKE_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS=1
+#   TK_SMOKE_PROD_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS=1
 # to upgrade the soft-warn to a hard-fail.
 #
 # Failure semantics:
@@ -452,10 +400,10 @@ fi
 #   400 / 401 / 403 / 404 → HARD FAIL. Smoke key/route/account broken.
 #   5xx / 429 / "no available accounts" / "rate" / "timeout" → SOFT WARN,
 #       exit 0. Runtime resource issue.
-OPENAI_OAUTH_KEY="${POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY:-}"
-OPENAI_OAUTH_MODEL="${POST_DEPLOY_SMOKE_OPENAI_OAUTH_MODEL:-gpt-5.4}"
+OPENAI_OAUTH_KEY="${TK_SMOKE_PROD_OPENAI_OAUTH_KEY:-}"
+OPENAI_OAUTH_MODEL="${TK_SMOKE_PROD_OPENAI_OAUTH_MODEL:-gpt-5.4}"
 
-if [[ -n "${OPENAI_OAUTH_KEY}" ]]; then
+if smoke_suite_runs openai_oauth && [[ -n "${OPENAI_OAUTH_KEY}" ]]; then
   oai_prefix="$(printf '%s' "${OPENAI_OAUTH_KEY}" | head -c 6)"
   oai_suffix="$(printf '%s' "${OPENAI_OAUTH_KEY}" | tail -c 4)"
   echo "tk_post_deploy_smoke: openai_oauth_key_hint=${oai_prefix}…${oai_suffix} openai_oauth_model=${OPENAI_OAUTH_MODEL}"
@@ -529,19 +477,19 @@ if [[ -n "${OPENAI_OAUTH_KEY}" ]]; then
     # this path). The unit tests guard the conversion logic; here we just
     # surface the value and allow operators to opt into a hard-fail when
     # they have a path that does emit reasoning_tokens.
-    require_reasoning="${POST_DEPLOY_SMOKE_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS:-0}"
+    require_reasoning="${TK_SMOKE_PROD_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS:-0}"
     if [[ "${oai_reasoning_tokens}" -gt 0 ]]; then
       echo "tk_post_deploy_smoke: /v1/chat/completions (openai oauth) reasoning_tokens=${oai_reasoning_tokens} (passthrough verified end-to-end)"
     elif [[ "${require_reasoning}" == "1" ]]; then
-      echo "::error::tk_post_deploy_smoke: /v1/chat/completions (openai oauth) usage.completion_tokens_details.reasoning_tokens is missing or 0 (got ${oai_reasoning_tokens}, completion_tokens=${oai_completion_tokens}) and POST_DEPLOY_SMOKE_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS=1 — apicompat ResponsesToChatCompletions reasoning_tokens passthrough has regressed. DO NOT promote this build." >&2
+      echo "::error::tk_post_deploy_smoke: /v1/chat/completions (openai oauth) usage.completion_tokens_details.reasoning_tokens is missing or 0 (got ${oai_reasoning_tokens}, completion_tokens=${oai_completion_tokens}) and TK_SMOKE_PROD_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS=1 — apicompat ResponsesToChatCompletions reasoning_tokens passthrough has regressed. DO NOT promote this build." >&2
       jq '.usage' "$tmpdir/openai-oauth-chat.json" >&2 || true
       exit 1
     else
-      echo "::warning::tk_post_deploy_smoke: /v1/chat/completions (openai oauth) reasoning_tokens=0; cannot verify passthrough end-to-end on this path (chatgpt.com codex OAuth backend does not break out reasoning tokens for our keys). Unit tests in apicompat/chatcompletions_responses_test.go are the regression guard. Set POST_DEPLOY_SMOKE_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS=1 to make this a hard-fail when you have an account that does emit them."
+      echo "::warning::tk_post_deploy_smoke: /v1/chat/completions (openai oauth) reasoning_tokens=0; cannot verify passthrough end-to-end on this path (chatgpt.com codex OAuth backend does not break out reasoning tokens for our keys). Unit tests in apicompat/chatcompletions_responses_test.go are the regression guard. Set TK_SMOKE_PROD_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS=1 to make this a hard-fail when you have an account that does emit them."
     fi
     echo "tk_post_deploy_smoke: /v1/chat/completions (openai oauth) shape object=${oai_object} choices=${oai_choices} finish_reason=${oai_finish} prompt_tokens=${oai_prompt_tokens} completion_tokens=${oai_completion_tokens} total_tokens=${oai_total_tokens} reasoning_tokens=${oai_reasoning_tokens}"
   elif [[ "${oai_http}" == "400" || "${oai_http}" == "401" || "${oai_http}" == "403" || "${oai_http}" == "404" ]]; then
-    echo "::error::tk_post_deploy_smoke: /v1/chat/completions (openai oauth) returned HTTP ${oai_http} — smoke key/route/account broken; fix POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY config or gateway routing." >&2
+    echo "::error::tk_post_deploy_smoke: /v1/chat/completions (openai oauth) returned HTTP ${oai_http} — smoke key/route/account broken; fix TK_SMOKE_PROD_OPENAI_OAUTH_KEY config or gateway routing." >&2
     jq . "$tmpdir/openai-oauth-chat.json" >&2 2>/dev/null || cat "$tmpdir/openai-oauth-chat.json" >&2
     exit 1
   else
@@ -557,8 +505,10 @@ if [[ -n "${OPENAI_OAUTH_KEY}" ]]; then
     jq . "$tmpdir/openai-oauth-chat.json" >&2 2>/dev/null || cat "$tmpdir/openai-oauth-chat.json" >&2
     echo "tk_post_deploy_smoke: openai oauth section soft-skipped (HTTP ${oai_http} is not a passthrough-regression signal)"
   fi
+elif [[ -n "${OPENAI_OAUTH_KEY}" ]]; then
+  echo "tk_post_deploy_smoke: skip /v1/chat/completions (openai oauth) — suite=${GATEWAY_SMOKE_SUITE}"
 else
-  echo "tk_post_deploy_smoke: skip /v1/chat/completions (openai oauth) — POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY not set"
+  echo "tk_post_deploy_smoke: skip /v1/chat/completions (openai oauth) — TK_SMOKE_PROD_OPENAI_OAUTH_KEY not set"
 fi
 
 echo "tk_post_deploy_smoke: OK"

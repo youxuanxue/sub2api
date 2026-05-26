@@ -221,9 +221,7 @@ jobs:
           EDGE_API_URL: ${{ steps.instance.outputs.api_url }}
           EDGE_INSTANCE_ID: ${{ steps.instance.outputs.managed_instance_id }}
           EDGE_SSM_PREFIX: ${{ steps.edge.outputs.ssm_prefix }}
-          MAIN_GATEWAY_BASE_URL: ${{ vars.EDGE_MAIN_GATEWAY_BASE_URL }}
-          MAIN_GATEWAY_EDGE_SMOKE_API_KEY: ${{ secrets.MAIN_GATEWAY_EDGE_SMOKE_API_KEY }}
-          POST_DEPLOY_SMOKE_CHAT_MODEL: ${{ vars.POST_DEPLOY_SMOKE_CHAT_MODEL || 'claude-sonnet-4-6' }}
+          TK_SMOKE_EDGE_CANARY_KEY: ${{ secrets.TK_SMOKE_EDGE_CANARY_KEY }}
         run: |
           set -euo pipefail
           PHASE="${INPUT_SMOKE_PHASE:-}"

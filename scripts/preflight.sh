@@ -598,11 +598,31 @@ fi
 # ---- sub2api: post-deploy smoke script (syntax only; no live HTTP) ----------
 echo ""
 echo "=== sub2api: post-deploy smoke script syntax ==="
-if ! bash -n ./ops/stage0/post_deploy_smoke.sh; then
-    echo "  FAIL: ops/stage0/post_deploy_smoke.sh has bash syntax errors"
+_smoke_syntax_ok=true
+for _smoke_script in \
+  ./ops/stage0/smoke_env.sh \
+  ./ops/stage0/load_smoke_github_env.sh \
+  ./ops/stage0/smoke_lib.sh \
+  ./ops/stage0/post_deploy_smoke.sh \
+  ./ops/stage0/edge_post_deploy_smoke.sh \
+  ./scripts/stage0/dispatch-edge-deploy.sh; do
+  if ! bash -n "${_smoke_script}"; then
+    echo "  FAIL: ${_smoke_script} has bash syntax errors"
     errors=$((errors + 1))
+    _smoke_syntax_ok=false
+  fi
+done
+if [[ "${_smoke_syntax_ok}" == "true" ]]; then
+  echo "  ok: stage0 smoke scripts parse"
+fi
+
+echo ""
+echo "=== sub2api: gateway smoke suite unit tests ==="
+if ! python3 -m unittest scripts.test_smoke_suite scripts.test_edge_smoke_phase_contract scripts.test_smoke_env scripts.test_load_smoke_github_env -q; then
+  echo "  FAIL: smoke suite contract tests"
+  errors=$((errors + 1))
 else
-    echo "  ok: tk_post_deploy_smoke.sh parses"
+  echo "  ok: smoke suite contract tests"
 fi
 
 # ---- sub2api: run-probe.sh --env loop regression guard ----------------------

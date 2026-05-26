@@ -113,13 +113,13 @@ Steps:
 7. **Post-deploy gateway smoke** — `ops/stage0/post_deploy_smoke.sh` against
    `${ApiUrl}`: public settings, authenticated `/v1/models`,
    `/v1/chat/completions`, and `/v1/messages` (Claude Code-style `x-api-key`).
-   Requires repository secret `POST_DEPLOY_SMOKE_API_KEY` (a user `sk-...`
-   valid on that stack). Fail-closed if the secret is missing or any step
+   Requires **`prod` Environment secrets** `TK_SMOKE_PROD_ANTHROPIC_KEY`,
+   `TK_SMOKE_PROD_GEMINI_KEY`, `TK_SMOKE_PROD_OPENAI_OAUTH_KEY` (user `sk-...`
+   valid on that stack). Fail-closed if any secret is missing or any step
    returns non-200 / unexpected body markers.
-   Optional add-on secrets (silently skipped when unset, do NOT fail deploy):
-   `POST_DEPLOY_SMOKE_GEMINI_API_KEY` covers the Anthropic→Gemini tool-schema
-   cleanup; `POST_DEPLOY_SMOKE_OPENAI_OAUTH_API_KEY` covers the OpenAI
-   OAuth/codex `usage.completion_tokens_details.reasoning_tokens` passthrough.
+   Optional var `TK_SMOKE_PROD_ANTHROPIC_MODEL` (default `claude-sonnet-4-6`).
+   Gemini / OpenAI OAuth model vars: `TK_SMOKE_PROD_GEMINI_MODEL`,
+   `TK_SMOKE_PROD_OPENAI_OAUTH_MODEL`.
 8. **Job summary** — write the deployed tag, the SSM command id, and a
    one-liner re-dispatch command for rollback. No auto-rollback (would
    mask transient failures).
@@ -154,11 +154,13 @@ After this PR merges, before the first dispatch:
 3. **(Optional) Override repo variables** if defaults don't fit:
    `vars.PROD_STACK_NAME`, `vars.AWS_REGION`.
 
-4. **Repository secret `POST_DEPLOY_SMOKE_API_KEY`** — a TokenKey user API key
-   (`sk-...`) that can authenticate to the gateway at the stack's `ApiUrl`
-   (same class of credential as Claude Code's `ANTHROPIC_AUTH_TOKEN`). The
-   deploy workflow fails if this secret is unset. See `deploy/aws/README.md`
-   (deploy-stage0 发版后网关烟测).
+4. **`prod` Environment smoke secrets** — configure in GitHub Settings →
+   Environments → `prod`:
+   - `TK_SMOKE_PROD_ANTHROPIC_KEY` — main gateway smoke key (`sk-...`)
+   - `TK_SMOKE_PROD_GEMINI_KEY` — Gemini schema probe key
+   - `TK_SMOKE_PROD_OPENAI_OAUTH_KEY` — OpenAI OAuth probe key
+   The deploy workflow fails if any is unset. See `deploy/aws/README.md`
+   (Smoke config).
 
 ## 6. Explicitly out of scope
 

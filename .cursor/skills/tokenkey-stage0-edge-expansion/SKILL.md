@@ -127,8 +127,10 @@ aws cloudformation deploy \
 - `AWS_OIDC_STACK_NAME`
 - `EDGE_ACME_EMAIL`
 - `EDGE_MAIN_GATEWAY_ALLOWED_CIDR`
-- `EDGE_MAIN_GATEWAY_BASE_URL`
+- `TK_SMOKE_EDGE_CANARY_KEY`（secret）
 - `EDGE_GHCR_PAT_SSM_NAME=/tokenkey/edge/<edge_id>/ghcr/pat`
+
+Smoke base URL（`https://api.tokenkey.dev`）与 Edge 本机 model（`claude-sonnet-4-6`）在代码内固定，无需 Environment var。
 
 注意：`EDGE_GHCR_PAT_SSM_NAME` 必须是该 edge 自己路径，不可复用别的 edge 路径。
 
@@ -224,7 +226,7 @@ gh workflow run deploy-edge-stage0.yml \
 1. `GET https://api-<edge_id>.tokenkey.dev/health` 为 200。
 2. public runner `GET /v1/models` 为 403（allowlist 生效）。
 3. SSM self-smoke 成功（容器与本地 health 正常）。
-4. 若配置 `MAIN_GATEWAY_EDGE_SMOKE_API_KEY`，则 main-gateway-via-edge 业务 smoke 也通过。
+4. 若配置 `TK_SMOKE_EDGE_CANARY_KEY`，则 main-gateway-via-edge 业务 smoke 也通过。
 
 若失败：
 - `ssm:SendCommand` AccessDenied：
