@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Allocate a fresh VPC EIP for an edge, refusing any allocation that lands on
-a known-polluted IP listed in deploy/aws/stage0/edge-polluted-ips.json.
+a known-excluded IP listed in deploy/aws/stage0/edge-polluted-ips.json
+(polluted[] or retired_excluded[]).
 
 Used by .github/workflows/deploy-edge-stage0.yml operation=rotate_egress_ip
 before the CloudFormation update-stack that binds the new allocation to the
@@ -44,18 +45,19 @@ def fail(msg: str, code: int = 3) -> None:
     sys.exit(code)
 
 
-def load_polluted_ips(region: str) -> set[str]:
-    if not POLLUTED_FILE.exists():
-        fail(f"missing polluted-IPs registry: {POLLUTED_FILE}")
+def load_excluded_ips(region: str, registry_path: pathlib.Path = POLLUTED_FILE) -> set[str]:
+    if not registry_path.exists():
+        fail(f"missing EIP exclusion registry: {registry_path}")
     try:
-        data = json.loads(POLLUTED_FILE.read_text())
+        data = json.loads(registry_path.read_text())
     except json.JSONDecodeError as e:
-        fail(f"malformed JSON in {POLLUTED_FILE}: {e}")
-    return {
-        entry["ip"]
-        for entry in data.get("polluted", [])
-        if entry.get("region") == region and "ip" in entry
-    }
+        fail(f"malformed JSON in {registry_path}: {e}")
+    excluded: set[str] = set()
+    for key in ("polluted", "retired_excluded"):
+        for entry in data.get(key, []):
+            if entry.get("region") == region and "ip" in entry:
+                excluded.add(entry["ip"])
+    return excluded
 
 
 def aws_ec2(region: str, *args: str) -> dict[str, Any]:
@@ -117,7 +119,7 @@ def main() -> int:
     parser.add_argument("--monthly-budget-usd", default="", help="MonthlyBudgetUsd tag value (e.g. '16'); blank to omit")
     args = parser.parse_args()
 
-    polluted = load_polluted_ips(args.region)
+    polluted = load_excluded_ips(args.region)
 
     sanitized_reason = _TAG_VALUE_UNSAFE.sub(" ", args.reason)[:200]
     extra_tags = (

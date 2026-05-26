@@ -49,7 +49,19 @@ IPs in this list have been observed triggering upstream-API risk-blocks (Anthrop
 | `35.177.124.150` | eu-west-2 | 2026-05-22 | 2026-05-22 | edge-uk1 | upstream-ip-pollution-2026-05-22; operator-confirmed egress pollution; EIP released after §4 rotation to 16.61.87.51; §5 IMPORT drift recovery completed same day. |
 <!-- END edge-ip-status:polluted -->
 
-To add an entry: edit `edge-polluted-ips.json` in the same PR as the EIP replacement, run `scripts/edge-ip-status.sh --markdown` and paste the regenerated tables. Preflight's `--check` mode catches a forgotten regeneration.
+To add a pollution entry: edit `edge-polluted-ips.json` `.polluted[]` in the same PR as the EIP replacement, run `scripts/edge-ip-status.sh --markdown` and paste the regenerated tables. Preflight's `--check` mode catches a forgotten regeneration.
+
+## 2.1 Retired excluded IPs (non-pollution operational retirements)
+
+IPs retired for operational reasons (migration cleanup, decommission) that were **not** observed triggering upstream-API risk-blocks. They are still refused on re-allocation — same mechanical gate as § 2 — but are tracked separately so the pollution audit trail stays accurate. Source: `edge-polluted-ips.json` `.retired_excluded[]`.
+
+<!-- BEGIN edge-ip-status:retired_excluded (generated from deploy/aws/stage0/edge-polluted-ips.json) -->
+| IP | Region | Retired on | Released on | Previously edge | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `16.61.87.51` | eu-west-2 | 2026-05-26 | 2026-05-26 | edge-uk1 | Orphan EC2 EIP after uk1 EC2→Lightsail migration; DNS already on Lightsail Static IP 13.134.80.182; released during EC2 residual cleanup (not upstream pollution). |
+<!-- END edge-ip-status:retired_excluded -->
+
+To add a retired-excluded entry: append to `.retired_excluded[]` in the same PR as the release, regenerate tables with `scripts/edge-ip-status.sh --markdown`.
 
 ## 3. CFN drift — current state
 

@@ -131,6 +131,7 @@ jobs:
           MAIN_GATEWAY_ALLOWED_CIDR: ${{ vars.EDGE_MAIN_GATEWAY_ALLOWED_CIDR }}
           GHCR_PAT_SSM_NAME_OVERRIDE: ${{ vars.EDGE_GHCR_PAT_SSM_NAME }}
           RECREATE: ${{ inputs.recreate }}
+          SWAP_GIB: ${{ steps.edge.outputs.swap_gib }}
         run: |
           set -euo pipefail
           if [ -z "${ACME_EMAIL:-}" ]; then

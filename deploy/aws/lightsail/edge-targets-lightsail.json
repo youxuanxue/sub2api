@@ -12,6 +12,7 @@
     "uk1": {
       "deployable": true,
       "profile": "edge-lightsail-minimal",
+      "swap_gib": 2,
       "lightsail_region": "eu-west-2",
       "ec2_equivalent_region": "eu-west-2",
       "availability_zone": "eu-west-2a",
@@ -28,6 +29,7 @@
     "us1": {
       "deployable": false,
       "profile": "edge-lightsail-minimal",
+      "swap_gib": 2,
       "lightsail_region": "us-west-2",
       "ec2_equivalent_region": "us-west-2",
       "availability_zone": "us-west-2a",
@@ -43,6 +45,7 @@
     "fra1": {
       "deployable": false,
       "profile": "edge-lightsail-minimal",
+      "swap_gib": 2,
       "lightsail_region": "eu-central-1",
       "ec2_equivalent_region": "eu-west-3",
       "availability_zone": "eu-central-1a",
@@ -58,6 +61,7 @@
     "sg1": {
       "deployable": false,
       "profile": "edge-lightsail-minimal",
+      "swap_gib": 2,
       "lightsail_region": "ap-southeast-1",
       "ec2_equivalent_region": "ap-southeast-1",
       "availability_zone": "ap-southeast-1a",
