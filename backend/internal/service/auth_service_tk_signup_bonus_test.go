@@ -25,7 +25,7 @@ func TestUS029_RegisterEmailPath_AppliesBonus_DefaultSetting(t *testing.T) {
 		SettingKeyRegistrationEnabled: "true",
 		SettingKeySignupBonusEnabled:  "true",
 		SettingKeySignupBonusBalance:  "1.00",
-	}, nil)
+	}, nil, nil)
 
 	_, user, err := svc.Register(context.Background(), "user@test.com", "password")
 	require.NoError(t, err)
@@ -45,7 +45,7 @@ func TestUS029_RegisterEmailPath_BonusDisabled_NoIncrement(t *testing.T) {
 		SettingKeyRegistrationEnabled: "true",
 		SettingKeySignupBonusEnabled:  "false",
 		SettingKeySignupBonusBalance:  "5.00", // even if amount is non-zero
-	}, nil)
+	}, nil, nil)
 
 	_, user, err := svc.Register(context.Background(), "user@test.com", "password")
 	require.NoError(t, err)
@@ -62,7 +62,7 @@ func TestUS029_RegisterEmailPath_BonusZero_NoIncrement(t *testing.T) {
 		SettingKeyRegistrationEnabled: "true",
 		SettingKeySignupBonusEnabled:  "true",
 		SettingKeySignupBonusBalance:  "0",
-	}, nil)
+	}, nil, nil)
 
 	_, user, err := svc.Register(context.Background(), "user@test.com", "password")
 	require.NoError(t, err)
@@ -82,7 +82,7 @@ func TestUS029_RegisterEmailPath_AdminChangedBonus_TakesEffectImmediately(t *tes
 		SettingKeySignupBonusEnabled:  "true",
 		SettingKeySignupBonusBalance:  "1.00",
 	}
-	svc := newAuthService(repo, settings, nil)
+	svc := newAuthService(repo, settings, nil, nil)
 
 	// First registration: default value
 	_, _, err := svc.Register(context.Background(), "user1@test.com", "password")
@@ -106,7 +106,7 @@ func TestUS029_RegisterEmailPath_NegativeBonus_ClampedToZero(t *testing.T) {
 		SettingKeyRegistrationEnabled: "true",
 		SettingKeySignupBonusEnabled:  "true",
 		SettingKeySignupBonusBalance:  "-99.99",
-	}, nil)
+	}, nil, nil)
 
 	_, user, err := svc.Register(context.Background(), "user@test.com", "password")
 	require.NoError(t, err)

@@ -151,7 +151,7 @@ func newOnboardingTestRouter(t *testing.T, withAuth bool, userID int64) (*gin.En
 	gin.SetMode(gin.TestMode)
 	repo := newOnboardingFakeUserRepo()
 	userSvc := service.NewUserService(repo, nil, nil, nil)
-	h := NewUserHandler(userSvc, nil, nil, nil, nil)
+	h := NewUserHandler(userSvc, nil, nil, nil, nil, nil)
 
 	r := gin.New()
 	if withAuth {

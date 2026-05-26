@@ -254,7 +254,7 @@ func TestAuthService_Login_DoesNotRequireTurnstileToken(t *testing.T) {
 	service := newAuthService(repo, map[string]string{
 		SettingKeyTurnstileEnabled:   "true",
 		SettingKeyTurnstileSecretKey: "secret",
-	}, nil)
+	}, nil, nil)
 
 	passwordHash, err := service.HashPassword("password123")
 	require.NoError(t, err)

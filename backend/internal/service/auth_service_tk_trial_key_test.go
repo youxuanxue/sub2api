@@ -45,7 +45,7 @@ func TestUS030_RegisterEmailPath_InvokesTrialKeyIssuer(t *testing.T) {
 	repo := &userRepoStub{nextID: 11}
 	svc := newAuthService(repo, map[string]string{
 		SettingKeyRegistrationEnabled: "true",
-	}, nil)
+	}, nil, nil)
 
 	issuer := &recordingTrialKeyIssuer{}
 	svc.SetTrialKeyIssuer(issuer)
@@ -63,7 +63,7 @@ func TestUS030_RegisterEmailPath_NoIssuerWired_NoPanic(t *testing.T) {
 	repo := &userRepoStub{nextID: 12}
 	svc := newAuthService(repo, map[string]string{
 		SettingKeyRegistrationEnabled: "true",
-	}, nil)
+	}, nil, nil)
 	// Intentionally NOT calling SetTrialKeyIssuer.
 
 	_, user, err := svc.Register(context.Background(), "u@test.com", "password")
@@ -77,7 +77,7 @@ func TestUS030_RegisterEmailPath_FailedCreate_SkipsIssuer(t *testing.T) {
 	repo := &userRepoStub{createErr: errors.New("db down")}
 	svc := newAuthService(repo, map[string]string{
 		SettingKeyRegistrationEnabled: "true",
-	}, nil)
+	}, nil, nil)
 
 	issuer := &recordingTrialKeyIssuer{}
 	svc.SetTrialKeyIssuer(issuer)
@@ -95,7 +95,7 @@ func TestUS030_RegisterEmailPath_RaceEmailExists_SkipsIssuer(t *testing.T) {
 	repo := &userRepoStub{createErr: ErrEmailExists}
 	svc := newAuthService(repo, map[string]string{
 		SettingKeyRegistrationEnabled: "true",
-	}, nil)
+	}, nil, nil)
 
 	issuer := &recordingTrialKeyIssuer{}
 	svc.SetTrialKeyIssuer(issuer)
