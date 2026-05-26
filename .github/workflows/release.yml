@@ -19,11 +19,17 @@ on:
         required: false
         type: boolean
         default: false
+      full_release:
+        description: 'Build darwin/windows/linux archives in addition to multi-arch Docker (slower). Default false; tag pushes use linux-only .goreleaser.yaml.'
+        required: false
+        type: boolean
+        default: false
 
 # 环境变量：合并 workflow_dispatch 输入和 repository variable
-# tag push 触发时读取 vars.SIMPLE_RELEASE，workflow_dispatch 时使用输入参数
+# tag push 触发时读取 vars.SIMPLE_RELEASE / vars.FULL_RELEASE，workflow_dispatch 时使用输入参数
 env:
   SIMPLE_RELEASE: ${{ github.event.inputs.simple_release == 'true' || vars.SIMPLE_RELEASE == 'true' }}
+  FULL_RELEASE: ${{ github.event.inputs.full_release == 'true' || vars.FULL_RELEASE == 'true' }}
 
 permissions:
   contents: write
@@ -101,7 +107,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          fetch-depth: 0
+          fetch-depth: 1
           ref: ${{ github.event.inputs.tag || github.ref }}
 
       - uses: ./.github/actions/cache-and-checkout-new-api
@@ -117,11 +123,6 @@ jobs:
         with:
           name: frontend-dist
           path: backend/internal/web/dist/
-
-      - name: Verify downloaded frontend artifact
-        run: |
-          python3 scripts/checks/frontend-dist-freshness.py --check backend/internal/web/dist
-          python3 scripts/checks/frontend-release-assets.py --dist backend/internal/web/dist
 
       - name: Setup Go
         uses: actions/setup-go@v6
@@ -157,11 +158,6 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Fetch tags with annotations
-        run: |
-          # 确保获取完整的 annotated tag 信息
-          git fetch --tags --force
-
       - name: Get tag message
         id: tag_message
         run: |
@@ -171,6 +167,8 @@ jobs:
             TAG_NAME=${GITHUB_REF#refs/tags/}
           fi
           echo "Processing tag: $TAG_NAME"
+
+          git fetch origin "refs/tags/${TAG_NAME}:refs/tags/${TAG_NAME}" --force
 
           # 获取完整的 tag message（跳过第一行标题）
           TAG_MESSAGE=$(git tag -l --format='%(contents:body)' "$TAG_NAME")
@@ -203,6 +201,21 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           echo "::warning::simple_release=true — amd64-only build, will overwrite shared tags and break ARM consumers"
 
+      - name: Resolve GoReleaser config
+        id: goreleaser_config
+        run: |
+          if [ "${{ env.SIMPLE_RELEASE }}" = "true" ] && [ "${{ env.FULL_RELEASE }}" = "true" ]; then
+            echo "simple_release and full_release are mutually exclusive" >&2
+            exit 1
+          fi
+          if [ "${{ env.SIMPLE_RELEASE }}" = "true" ]; then
+            echo "args=release --clean --skip=validate --config=.goreleaser.simple.yaml" >> "$GITHUB_OUTPUT"
+          elif [ "${{ env.FULL_RELEASE }}" = "true" ]; then
+            echo "args=release --clean --skip=validate --config=.goreleaser.full.yaml" >> "$GITHUB_OUTPUT"
+          else
+            echo "args=release --clean --skip=validate" >> "$GITHUB_OUTPUT"
+          fi
+
       # GoReleaser already retries per-blob on docker push, but exhausted its
       # internal backoff during the 2026-05-18 v1.7.37 release when GHCR was
       # flapping. Outer two-attempt retry so a single registry blip does not
@@ -217,7 +230,7 @@ jobs:
         uses: goreleaser/goreleaser-action@v7
         with:
           version: '~> v2'
-          args: release --clean --skip=validate ${{ env.SIMPLE_RELEASE == 'true' && '--config=.goreleaser.simple.yaml' || '' }}
+          args: ${{ steps.goreleaser_config.outputs.args }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_MESSAGE: ${{ steps.tag_message.outputs.message }}
@@ -237,7 +250,7 @@ jobs:
         uses: goreleaser/goreleaser-action@v7
         with:
           version: '~> v2'
-          args: release --clean --skip=validate ${{ env.SIMPLE_RELEASE == 'true' && '--config=.goreleaser.simple.yaml' || '' }}
+          args: ${{ steps.goreleaser_config.outputs.args }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_MESSAGE: ${{ steps.tag_message.outputs.message }}

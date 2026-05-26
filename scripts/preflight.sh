@@ -463,6 +463,9 @@ else
         # script-ref-existence_test.sh already printed which case(s) failed.
         errors=$((errors + 1))
     fi
+    if ! bash ./scripts/checks/ensure-new-api-sibling_test.sh; then
+        errors=$((errors + 1))
+    fi
 fi
 
 # ---- sub2api: upstream override marker --------------------------------------
