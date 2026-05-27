@@ -298,25 +298,16 @@ func resToChatHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 	state.Finalized = true
 	finishReason := "stop"
 
+	// Nested evt.Response.Usage takes precedence over top-level evt.Usage:
+	// upstream's spec puts usage under response.usage; some compat upstreams
+	// duplicate it at the top level (see ResponsesStreamEvent.Usage comment).
+	// When both are present, nested overrides top-level.
+	if evt.Usage != nil {
+		state.Usage = chatUsageFromResponsesUsage(evt.Usage)
+	}
 	if evt.Response != nil {
 		if evt.Response.Usage != nil {
-			u := evt.Response.Usage
-			usage := &ChatUsage{
-				PromptTokens:     u.InputTokens,
-				CompletionTokens: u.OutputTokens,
-				TotalTokens:      u.InputTokens + u.OutputTokens,
-			}
-			if u.InputTokensDetails != nil && u.InputTokensDetails.CachedTokens > 0 {
-				usage.PromptTokensDetails = &ChatTokenDetails{
-					CachedTokens: u.InputTokensDetails.CachedTokens,
-				}
-			}
-			if u.OutputTokensDetails != nil && u.OutputTokensDetails.ReasoningTokens > 0 {
-				usage.CompletionTokensDetails = &ChatCompletionTokenDetails{
-					ReasoningTokens: u.OutputTokensDetails.ReasoningTokens,
-				}
-			}
-			state.Usage = usage
+			state.Usage = chatUsageFromResponsesUsage(evt.Response.Usage)
 		}
 
 		switch evt.Response.Status {
@@ -348,6 +339,28 @@ func resToChatHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 	}
 
 	return chunks
+}
+
+func chatUsageFromResponsesUsage(u *ResponsesUsage) *ChatUsage {
+	if u == nil {
+		return nil
+	}
+	usage := &ChatUsage{
+		PromptTokens:     u.InputTokens,
+		CompletionTokens: u.OutputTokens,
+		TotalTokens:      u.InputTokens + u.OutputTokens,
+	}
+	if u.InputTokensDetails != nil && u.InputTokensDetails.CachedTokens > 0 {
+		usage.PromptTokensDetails = &ChatTokenDetails{
+			CachedTokens: u.InputTokensDetails.CachedTokens,
+		}
+	}
+	if u.OutputTokensDetails != nil && u.OutputTokensDetails.ReasoningTokens > 0 {
+		usage.CompletionTokensDetails = &ChatCompletionTokenDetails{
+			ReasoningTokens: u.OutputTokensDetails.ReasoningTokens,
+		}
+	}
+	return usage
 }
 
 func makeChatDeltaChunk(state *ResponsesEventToChatState, delta ChatDelta) ChatCompletionsChunk {

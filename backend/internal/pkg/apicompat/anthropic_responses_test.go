@@ -598,6 +598,37 @@ func TestResponsesEventToAnthropicEvents_ResponseDone(t *testing.T) {
 	assert.Nil(t, FinalizeResponsesAnthropicStream(state))
 }
 
+func TestResponsesEventToAnthropicEvents_TopLevelTerminalUsage(t *testing.T) {
+	state := NewResponsesEventToAnthropicState()
+	state.Model = "gpt-4o"
+
+	events := ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
+		Type: "response.completed",
+		Response: &ResponsesResponse{
+			Status: "completed",
+		},
+		Usage: &ResponsesUsage{
+			InputTokens:  20,
+			OutputTokens: 6,
+			InputTokensDetails: &ResponsesInputTokensDetails{
+				CachedTokens: 5,
+			},
+		},
+	}, state)
+
+	// TK US-027: terminal events always include an empty content block pair when
+	// no real content was emitted (anthropics/claude-code#24662).
+	require.Len(t, events, 4)
+	assert.Equal(t, "content_block_start", events[0].Type)
+	assert.Equal(t, "content_block_stop", events[1].Type)
+	assert.Equal(t, "message_delta", events[2].Type)
+	require.NotNil(t, events[2].Usage)
+	assert.Equal(t, 15, events[2].Usage.InputTokens)
+	assert.Equal(t, 5, events[2].Usage.CacheReadInputTokens)
+	assert.Equal(t, 6, events[2].Usage.OutputTokens)
+	assert.Equal(t, "message_stop", events[3].Type)
+}
+
 func TestResponsesEventToAnthropicEvents_ResponseDoneIncomplete(t *testing.T) {
 	state := NewResponsesEventToAnthropicState()
 	state.Model = "gpt-4o"
