@@ -39,7 +39,7 @@ var DroppedBetas = []string{}
 // DefaultBetaHeader Claude Code 客户端默认的 anthropic-beta header（Sonnet/Opus OAuth 回退）。
 const DefaultBetaHeader = BetaClaudeCode + "," + BetaOAuth + "," + BetaInterleavedThinking + "," +
 	BetaContextManagement + "," + BetaPromptCachingScope + "," + BetaAdvisorTool + "," +
-	BetaAdvancedToolUse + "," + BetaEffort + "," + BetaExtendedCacheTTL + "," + BetaCacheDiagnosis
+	BetaAdvancedToolUse + "," + BetaExtendedCacheTTL + "," + BetaCacheDiagnosis
 
 // MessageBetaHeaderNoTools /v1/messages 在无工具时的 beta header
 //
@@ -99,7 +99,6 @@ func FullClaudeCodeMimicryBetas() []string {
 		BetaPromptCachingScope,
 		BetaAdvisorTool,
 		BetaAdvancedToolUse,
-		BetaEffort,
 		BetaExtendedCacheTTL,
 		BetaCacheDiagnosis,
 	}

@@ -18,12 +18,12 @@ func TestFullClaudeCodeMimicryBetas_MatchesCC0152SonnetCapture(t *testing.T) {
 		"prompt-caching-scope-2026-01-05",
 		"advisor-tool-2026-03-01",
 		"advanced-tool-use-2025-11-20",
-		"effort-2025-11-24",
 		"extended-cache-ttl-2025-04-11",
 		"cache-diagnosis-2026-04-07",
 	}
 	require.Equal(t, want, FullClaudeCodeMimicryBetas())
 	require.Equal(t, want, splitBetaHeader(DefaultBetaHeader))
+	require.NotContains(t, FullClaudeCodeMimicryBetas(), BetaEffort)
 	require.NotContains(t, FullClaudeCodeMimicryBetas(), BetaFineGrainedToolStreaming)
 }
 

@@ -135,6 +135,7 @@ func TestFullClaudeCodeMimicryBetas_DoesNotDefaultRedactThinking(t *testing.T) {
 	require.Contains(t, required, claude.BetaAdvisorTool)
 	require.Contains(t, required, claude.BetaAdvancedToolUse)
 	require.Contains(t, required, claude.BetaCacheDiagnosis)
+	require.NotContains(t, required, claude.BetaEffort)
 }
 
 func TestGatewayService_getBetaHeader_HaikuDefaultMatchesCapture(t *testing.T) {

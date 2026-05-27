@@ -25,6 +25,7 @@ class CaptureCCFingerprintTest(unittest.TestCase):
         self.assertEqual(baseline["canonical_http"]["default_version"], "2.1.152")
         self.assertEqual(baseline["mimic_http"]["stainless_package_version"], "0.94.0")
         self.assertIn("claude-code-20250219", baseline["betas"]["sonnet_mimicry"])
+        self.assertNotIn("effort-2025-11-24", baseline["betas"]["sonnet_mimicry"])
         self.assertIn("claude-code-20250219", baseline["betas"]["haiku_mimicry"])
         self.assertNotIn("effort-2025-11-24", baseline["betas"]["haiku_mimicry"])
 
