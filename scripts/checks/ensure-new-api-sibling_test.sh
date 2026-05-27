@@ -2,6 +2,15 @@
 # Unit-style tests for scripts/ci/ensure-new-api-sibling.sh (symlink + cache layout).
 set -euo pipefail
 
+# When invoked from a git hook (pre-commit) or from inside a worktree, git
+# exports GIT_DIR / GIT_INDEX_FILE / GIT_WORK_TREE / GIT_OBJECT_DIRECTORY /
+# GIT_NAMESPACE pointing at the outer repository. The test workspace is a
+# temporary directory that runs `git init` of its own; if any of those env
+# vars leak through, the inner git refuses with "must be run in a work tree"
+# and test_migrates_legacy_real_sibling_dir regresses. Mirrors the scrub
+# pattern from scripts/checks/script-ref-existence_test.sh.
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_OBJECT_DIRECTORY GIT_NAMESPACE
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCRIPT="${ROOT}/scripts/ci/ensure-new-api-sibling.sh"
 TMP="$(mktemp -d)"
