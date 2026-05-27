@@ -1462,7 +1462,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		normalized := strings.TrimSpace(*req.ClaudeCodeUserAgentVersion)
 		req.ClaudeCodeUserAgentVersion = &normalized
 		if normalized != "" && !semverPattern.MatchString(normalized) {
-			response.Error(c, http.StatusBadRequest, "claude_code_user_agent_version must be empty or a valid semver (e.g. 2.1.150)")
+			response.Error(c, http.StatusBadRequest, "claude_code_user_agent_version must be empty or a valid semver (e.g. 2.1.152)")
 			return
 		}
 	}

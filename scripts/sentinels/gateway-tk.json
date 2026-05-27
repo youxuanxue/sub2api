@@ -1059,6 +1059,18 @@
       "rationale": "Focused regression anchors for canonical-OAuth ingress gates: (1) real claude-cli/claude-code UAs and unknown UAs pass (deny-list-only), (2) every named third-party SDK in the registry is rejected with the original UA preserved on the error, (3) the documented retired opus ids (4-6/4-5/4-4/4-3/4-2/4-1/4-0 with dated suffixes) remap to canonical default, (4) current opus 4-7 plus sonnet/haiku ids pass through unchanged, (5) the prefix-isolation case proves `claude-opus-4-65` (hypothetical future) is NOT collapsed into 4-6 because the prefix check requires either exact match or a trailing `-`."
     },
     {
+      "path": "backend/internal/pkg/claude/constants.go",
+      "must_contain": [
+        "BetaAdvisorTool",
+        "BetaAdvancedToolUse",
+        "BetaCacheDiagnosis",
+        "func FullClaudeCodeMimicryBetas()",
+        "func FullClaudeCodeHaikuMimicryBetas()",
+        "func JoinBetaHeader("
+      ],
+      "rationale": "OAuth Claude Code mimicry beta registry: Sonnet/Opus and Haiku sets must stay aligned with real cc CLI traffic (cc 2.1.152 capture). Dropping advisor/advanced-tool-use/cache-diagnosis or reverting Haiku to the legacy two-token header re-opens third-party cohort signals on OAuth subscriptions."
+    },
+    {
       "path": "backend/internal/handler/gateway_handler.go",
       "must_contain": [
         "var canonicalUARejectErr *service.CanonicalIngressUARejectedError",

@@ -52,7 +52,7 @@
     ],
     "tls_profile": {
       "name": "tk_canonical_cc_oauth",
-      "description": "TokenKey canonical Claude Code OAuth TLS profile. Stable id decoupled from cc CLI patch version (TLS ClientHello byte-identical 2.1.142 → 2.1.150). HTTP UA driven at runtime by SettingService.GetClaudeCodeUserAgentVersion. runtime=node v24.3.0 darwin/arm64. ja3_hash=d871d02cecbde59abbf8f4806134addf (2026-05-15 capture).",
+      "description": "TokenKey canonical Claude Code OAuth TLS profile. Stable id decoupled from cc CLI patch version (TLS ClientHello byte-identical 2.1.142 → 2.1.152). HTTP UA driven at runtime by SettingService.GetClaudeCodeUserAgentVersion. runtime=node v24.3.0 darwin/arm64. ja3_hash=d871d02cecbde59abbf8f4806134addf (2026-05-15 capture).",
       "enable_grease": false,
       "cipher_suites": [
         4865,
