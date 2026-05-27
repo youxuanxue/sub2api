@@ -33,6 +33,8 @@ description: >-
 | 步骤 | 类型 | 承载 |
 |---|---|---|
 | snapshot / check / plan / apply / verify | 机械 | `python3 ops/anthropic/manage-anthropic-config.py {snapshot\|check\|plan-*\|apply\|verify}` |
+| guard drift → 多账号 force-template plan（替代手工 plan-tier-bump × N + merge） | 机械 | `plan-guard-drift-fix` / 一键 `remediate-guard-drift` |
+| apply 后 settings UA + Redis `fingerprint:{id}` 同步（替代 `/tmp/tk-post-tls-db-redis.sh`） | 机械 | `apply --sync-runtime` 或独立 `sync-runtime --target …` |
 | baseline JSON 派生 SQL（无静态模板） | 机械 | orchestrator 内部 `effective_baseline_for_tier` + `generate_sql` |
 | stub_pool / concurrency-mirror 模板 SQL 渲染 | 机械 | orchestrator 内 `render_prod_stub_pool_sql` / `render_prod_concurrency_mirror_sql` |
 | confirm code 字面匹配 | 机械 | `--confirm yes-apply-anthropic-config-cascade` |
@@ -124,11 +126,44 @@ python3 $MGR plan-group-claude-code-only \
 # Stage 4 — Apply：渲染 SQL → SSM → 写入；失败即停
 python3 $MGR apply \
   --plan $JOBDIR/plan.json \
-  --confirm yes-apply-anthropic-config-cascade
+  --confirm yes-apply-anthropic-config-cascade \
+  --sync-runtime
+
+# Stage 4b（可选独立跑）— Runtime sync：settings UA + Redis fingerprint 缓存
+# UA semver 默认从 deploy/aws/stage0/tk_canonical_cc_oauth.json 解析
+python3 $MGR sync-runtime --target prod --snapshot $JOBDIR/snap.json
+python3 $MGR sync-runtime --target edge:uk1
+python3 $MGR sync-runtime --target all-deployable-and-prod --snapshot $JOBDIR/snap.json
 
 # Stage 5 — Verify：再 snapshot + 比对每个 action 的 expected_after vs live
 python3 $MGR verify --plan $JOBDIR/plan.json
 ```
+
+### Guard drift / TLS 模板漂移 — 推荐路径（替代手工 tier 合并）
+
+典型症状：`check` 报 `status=drift` 且 diff 只在 `/tls_profile/*` 或 credentials 侧，数值字段已对齐，`plan-tier-bump` 默认 noop。
+
+```bash
+# 3a) 从 check 报告生成一个 force-template-rewrite 多 action plan
+python3 $MGR plan-guard-drift-fix \
+  --snapshot $JOBDIR/snap.json \
+  --check-report $JOBDIR/check.json \
+  --out $JOBDIR/plan-guard-drift-fix.json
+
+# 3b) 或一键：snapshot → check → plan → apply(--sync-runtime) → verify → check
+python3 $MGR remediate-guard-drift \
+  --confirm yes-apply-anthropic-config-cascade \
+  --job-dir $JOBDIR/remediate
+```
+
+**不要**再手工：按 tier 循环 `plan-tier-bump --force-template-rewrite` → Python 合并 plan → 写 `/tmp/tk-post-tls-db-redis.sh` → 三次 `run-probe.sh`。
+
+`apply --sync-runtime` 在 DB 事务成功后，对 plan 中触及的 **edge + prod（默认）** 执行：
+
+1. `settings.claude_code_user_agent_version` UPSERT（semver 来自 `tk_canonical_cc_oauth.json`）
+2. `DEL fingerprint:{oauth_account_id}`（`env -u REDISCLI_AUTH` 避免容器空 AUTH 噪声）
+
+prod 无 OAuth 账号时只写 settings；edge 两者都写。HTTP UA 运行时 self-heal 见 `docs/accounts/anthropic-oauth-edge-guidelines.md`；apply 后清 Redis 是为了 TLS/模板变更后立刻丢弃 stale HTTP 指纹缓存。
 
 ### 各阶段语义
 
@@ -141,7 +176,10 @@ python3 $MGR verify --plan $JOBDIR/plan.json
 | plan-stub-pool | snap.json | `plan.json`：N 个 `kind=prod_stub_pool` action（base_url 匹配的全部 prod stub；已匹配跳过、非匹配单列 `skipped_unmatched`） | 0 / 2 |
 | plan-concurrency-mirror | snap.json | `plan.json`：每个漂移 edge 一个 `kind=edge_operator_concurrency` action + （若有 stub/prod operator 漂移）一个 `kind=prod_concurrency_mirror` action；全对齐则 `noop=true` | 0 / 2 |
 | plan-group-claude-code-only | snap.json | `plan.json`：每个仍有 `claude_code_only!=true` 的 deployable edge / prod 各一个 `kind=anthropic_group_claude_code_only` action；全已限制则 `noop=true` | 0 / 2 |
-| apply | plan.json + confirm | 逐 action 渲染 SQL → SSM 执行（按 kind 路由到 edge 或 prod）→ 写 `apply-report.json`；任一 step 失败即停 | 0 / 1 step failed / 2 |
+| plan-guard-drift-fix | snap.json + check.json（或重跑 guard） | 每个 `status=drift` 账号一个 `edge_account_tier` action（force template rewrite） | 0 / 2 |
+| apply | plan.json + confirm | 逐 action 渲染 SQL → SSM；可选 `--sync-runtime` 写 settings + 清 Redis | 0 / 1 step failed / 2 |
+| sync-runtime | target + 可选 snapshot | settings UA upsert + Redis `fingerprint:{id}` DEL | 0 / 1 |
+| remediate-guard-drift | confirm + job-dir | 上述全流程 artifact 落盘 | 0 / 1 |
 | verify | plan.json | 再 snapshot + 比对**每个** `actions[*].expected_after` vs live；drift 列表 | 0 / 1 drift / 2 |
 
 ### snapshot JSON 结构速查
@@ -348,7 +386,7 @@ operate 流程：
 | snapshot 失败 / SSM 拒绝（edge 或 prod） | 校验 EC2 instance 在跑 / `edge-targets.json` 或 `PROD_TARGET` 常量 / OIDC 权限。**仅排障 edge** 跑 `snapshot --skip-prod` 临时绕开 prod 失败 |
 | `apply --confirm` 拒绝 | 必须精确 `yes-apply-anthropic-config-cascade` |
 | tier baseline drift（check-edge-oauth-stability `extra_baseline_drift` / `account_field_drift`） | 单账号用 plan-edge-account-tier 重写到对应 tier；整个 tier 值漂移（多账号）用 `plan-tier-bump --tier lN` 一次性重写 |
-| `tls_profile` drift（`/tls_profile/...` 或 UK 模式：启用 TLS 却无 profile） | tier apply 会通过 `generate_sql` upsert `tk_canonical_cc_oauth` 并绑定 `tls_fingerprint_profile_id`——走与上条相同的 **plan-tier-bump** / **plan-edge-account-tier** → apply → verify；参见上文 **Anthropic OAuth：TLS fingerprint 模板** |
+| `tls_profile` drift（`/tls_profile/...` 或 UK 模式：启用 TLS 却无 profile） | tier apply 会通过 `generate_sql` upsert `tk_canonical_cc_oauth` 并绑定 `tls_fingerprint_profile_id`——用 **`plan-guard-drift-fix`** 或 **`remediate-guard-drift`**（含 `apply --sync-runtime`），不要手工按 tier 合并 plan | apply → verify → check |
 | check guard 报 `status: drift` 且 `diffs[].path` 含 `/credentials/temp_unschedulable_rules`，但数值字段全等 | 加 `--force-template-rewrite` 让 plan 不再走 noop 短路，强制重写 credentials 端字段（snapshot/verify 不读 rules，所以默认 noop；这条 flag 是 escape hatch）。Apply 完跑一次 `check` 当真值 |
 | OAuth account `status=error/suspended` | OAuth 凭据问题（token 过期 / 403 / 上游禁用），见 OAuth 故障文档；不在本流水线范围 |
 | `plan-stub-pool` 输出 `skipped_unmatched` 含一个本应匹配的 stub | 检查它的 `cred_base_url` 实际值——多半是早期建账号时写错了（如多余 `/` 或大小写差异）。改 stub 的 `base_url` 通过 admin UI（**不**改 pattern；pattern 是策略，base_url 是个体配置）|
@@ -384,7 +422,7 @@ operate 流程：
 ## 7. 扩展阅读
 
 - `ops/anthropic/manage-anthropic-config.py`（5 阶段 orchestrator，本 skill 唯一推荐入口；含三条写入面 `edge_account_tier` + `prod_stub_pool` + `edge_operator_concurrency`/`prod_concurrency_mirror` 的渲染、apply、verify）
-- `ops/anthropic/test_manage_anthropic_config_plan.py` / `test_manage_anthropic_config_stub_pool.py` / `test_manage_anthropic_config_concurrency_mirror.py`（plan 派生逻辑 + SQL 渲染 + apply 路由的单元测试，stdlib-only）
+- `ops/anthropic/test_manage_anthropic_config_plan.py` / `test_manage_anthropic_config_stub_pool.py` / `test_manage_anthropic_config_concurrency_mirror.py` / `test_manage_anthropic_config_runtime_sync.py`（plan 派生逻辑 + SQL 渲染 + apply 路由 + runtime sync 的单元测试，stdlib-only）
 - `deploy/aws/stage0/edge-targets.json`（拓扑真值源：每个 edge 的 `domain` 是写入面 C 的 stub↔edge 链接依据，稳定读取不推断）
 - `backend/internal/service/anthropic_operator_concurrency.go`（prod/控制面与脚本共享的 Σ schedulable→`users.id=1` 语义）
 - `backend/internal/service/account.go` `Account.IsPoolMode()`（pool_mode 的运行时语义：apikey/bedrock 前置 + credentials.pool_mode 解析）
