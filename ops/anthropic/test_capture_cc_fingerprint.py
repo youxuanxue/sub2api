@@ -26,8 +26,8 @@ class CaptureCCFingerprintTest(unittest.TestCase):
         self.assertEqual(baseline["mimic_http"]["stainless_package_version"], "0.94.0")
         self.assertIn("claude-code-20250219", baseline["betas"]["sonnet_mimicry"])
         self.assertNotIn("effort-2025-11-24", baseline["betas"]["sonnet_mimicry"])
-        self.assertIn("structured-outputs-2025-12-15", baseline["betas"]["haiku_mimicry"])
-        self.assertNotIn("claude-code-20250219", baseline["betas"]["haiku_mimicry"])
+        self.assertIn("claude-code-20250219", baseline["betas"]["haiku_mimicry"])
+        self.assertNotIn("effort-2025-11-24", baseline["betas"]["haiku_mimicry"])
 
     def test_diff_all_match_when_capture_matches_baseline(self) -> None:
         baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)

@@ -27,10 +27,9 @@ const (
 	BetaExtendedCacheTTL   = "extended-cache-ttl-2025-04-11"
 
 	// cc 2.1.152 抓包新增；fine-grained-tool-streaming 已从真实 CLI 流量中消失。
-	BetaAdvisorTool       = "advisor-tool-2026-03-01"
-	BetaAdvancedToolUse   = "advanced-tool-use-2025-11-20"
-	BetaStructuredOutputs = "structured-outputs-2025-12-15"
-	BetaCacheDiagnosis    = "cache-diagnosis-2026-04-07"
+	BetaAdvisorTool     = "advisor-tool-2026-03-01"
+	BetaAdvancedToolUse = "advanced-tool-use-2025-11-20"
+	BetaCacheDiagnosis  = "cache-diagnosis-2026-04-07"
 )
 
 // DroppedBetas 是转发时需要从 anthropic-beta header 中移除的 beta token 列表。
@@ -56,9 +55,10 @@ const MessageBetaHeaderWithTools = BetaClaudeCode + "," + BetaOAuth + "," + Beta
 // CountTokensBetaHeader count_tokens 请求使用的 anthropic-beta header
 const CountTokensBetaHeader = BetaClaudeCode + "," + BetaOAuth + "," + BetaInterleavedThinking + "," + BetaTokenCounting
 
-// HaikuBetaHeader Haiku 模型 OAuth 回退 anthropic-beta（对齐 cc 2.1.152 HTTP mitm 抓包顺序）。
+// HaikuBetaHeader Haiku 模型 OAuth 回退 anthropic-beta（对齐 cc 2.1.152 抓包顺序）。
 const HaikuBetaHeader = BetaOAuth + "," + BetaInterleavedThinking + "," + BetaContextManagement + "," +
-	BetaPromptCachingScope + "," + BetaAdvisorTool + "," + BetaStructuredOutputs + "," + BetaCacheDiagnosis
+	BetaPromptCachingScope + "," + BetaClaudeCode + "," + BetaAdvisorTool + "," +
+	BetaExtendedCacheTTL + "," + BetaCacheDiagnosis
 
 // APIKeyBetaHeader API-key 账号建议使用的 anthropic-beta header（不包含 oauth）
 const APIKeyBetaHeader = BetaClaudeCode + "," + BetaInterleavedThinking + "," + BetaFineGrainedToolStreaming
@@ -87,7 +87,7 @@ func JoinBetaHeader(betas []string) string {
 //
 // 使用建议：
 //   - OAuth 账号 + 非 haiku：追加这整份列表，再按需保留 client 带来的 beta。
-//   - OAuth 账号 + haiku：使用 FullClaudeCodeHaikuMimicryBetas（无 claude-code / effort / advanced-tool-use）。
+//   - OAuth 账号 + haiku：使用 FullClaudeCodeHaikuMimicryBetas（无 effort / advanced-tool-use）。
 //   - API-key 账号：不要使用本函数，参见 APIKeyBetaHeader。
 //   - 不默认加入 redact-thinking，避免上游抹除 thinking 内容；客户端显式传入时由合并逻辑保留。
 func FullClaudeCodeMimicryBetas() []string {
@@ -104,15 +104,16 @@ func FullClaudeCodeMimicryBetas() []string {
 	}
 }
 
-// FullClaudeCodeHaikuMimicryBetas 返回 Haiku 模型 OAuth mimicry 的 beta 列表（cc 2.1.152 HTTP mitm 抓包）。
+// FullClaudeCodeHaikuMimicryBetas 返回 Haiku 模型 OAuth mimicry 的 beta 列表（cc 2.1.152 抓包）。
 func FullClaudeCodeHaikuMimicryBetas() []string {
 	return []string{
 		BetaOAuth,
 		BetaInterleavedThinking,
 		BetaContextManagement,
 		BetaPromptCachingScope,
+		BetaClaudeCode,
 		BetaAdvisorTool,
-		BetaStructuredOutputs,
+		BetaExtendedCacheTTL,
 		BetaCacheDiagnosis,
 	}
 }

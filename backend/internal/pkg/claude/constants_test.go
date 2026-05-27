@@ -33,16 +33,15 @@ func TestFullClaudeCodeHaikuMimicryBetas_MatchesCC0152HaikuCapture(t *testing.T)
 		"interleaved-thinking-2025-05-14",
 		"context-management-2025-06-27",
 		"prompt-caching-scope-2026-01-05",
+		"claude-code-20250219",
 		"advisor-tool-2026-03-01",
-		"structured-outputs-2025-12-15",
+		"extended-cache-ttl-2025-04-11",
 		"cache-diagnosis-2026-04-07",
 	}
 	require.Equal(t, want, FullClaudeCodeHaikuMimicryBetas())
 	require.Equal(t, want, splitBetaHeader(HaikuBetaHeader))
-	require.NotContains(t, FullClaudeCodeHaikuMimicryBetas(), BetaClaudeCode)
 	require.NotContains(t, FullClaudeCodeHaikuMimicryBetas(), BetaEffort)
 	require.NotContains(t, FullClaudeCodeHaikuMimicryBetas(), BetaAdvancedToolUse)
-	require.NotContains(t, FullClaudeCodeHaikuMimicryBetas(), BetaExtendedCacheTTL)
 }
 
 func TestJoinBetaHeader(t *testing.T) {
