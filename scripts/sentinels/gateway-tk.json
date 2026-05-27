@@ -1063,6 +1063,7 @@
       "must_contain": [
         "BetaAdvisorTool",
         "BetaAdvancedToolUse",
+        "BetaStructuredOutputs",
         "BetaCacheDiagnosis",
         "func FullClaudeCodeMimicryBetas()",
         "func FullClaudeCodeHaikuMimicryBetas()",

@@ -6368,8 +6368,8 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 			// Non-haiku models MUST include claude-code beta for Anthropic to recognize
 			// this as a legitimate Claude Code request; without it, the request is
 			// rejected as third-party ("out of extra usage").
-			// Haiku also sends the cc 2.1.152 capture mimicry set (includes claude-code
-			// beta); token set/order differs from Sonnet (no effort / advanced-tool-use).
+			// Haiku mimicry set (cc 2.1.152 HTTP mitm): no claude-code / effort /
+			// advanced-tool-use; adds structured-outputs instead.
 			requiredBetas := claude.FullClaudeCodeHaikuMimicryBetas()
 			if !strings.Contains(strings.ToLower(modelID), "haiku") {
 				requiredBetas = claude.FullClaudeCodeMimicryBetas()
@@ -6514,7 +6514,7 @@ func (s *GatewayService) getBetaHeader(modelID string, clientBetaHeader string) 
 		return claude.BetaOAuth + "," + clientBetaHeader
 	}
 
-	// 客户端没传，根据模型生成（Haiku 使用 capture 顺序的 8-token 集合，含 claude-code beta）
+	// 客户端没传，根据模型生成（Haiku 使用 7-token HTTP mitm 抓包集合，无 claude-code）
 	if strings.Contains(strings.ToLower(modelID), "haiku") {
 		return claude.HaikuBetaHeader
 	}
