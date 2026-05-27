@@ -10,7 +10,7 @@ if [[ ! -x "$HOOK_SH" ]]; then
 fi
 
 # Consume sessionStart stdin (required by hook protocol).
-cat >/dev/null || true
+cat >/dev/null || true  # preflight-allow: swallow
 
 nohup bash "$HOOK_SH" >>"${REPO_ROOT}/.tls_list/cc-fingerprint-daily-hook.log" 2>&1 &
 exit 0

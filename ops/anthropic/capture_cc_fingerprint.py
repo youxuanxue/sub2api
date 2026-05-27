@@ -609,19 +609,16 @@ def check_env_failed(rows: list[EnvCheckRow]) -> bool:
 def write_tls_drift_spec(
     *,
     bundle_path: Path,
-    repo_root: Path | None = None,
+    repo_root: Path,
     out_path: Path | None = None,
 ) -> Path:
-    root = repo_root or REPO_ROOT
-    baseline = load_tokenkey_baseline(REPO_ROOT)
+    baseline = load_tokenkey_baseline(repo_root)
     bundle = load_capture_bundle(bundle_path)
     rows = diff_baseline_vs_capture(baseline, bundle)
     report = format_diff_report(rows, capture_path=str(bundle_path))
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
     cc_ver = bundle.get("cc_version") or "unknown"
-    out = out_path or (
-        repo_root / f"docs/spec-delta-cc-tls-drift-{stamp}.md"
-    )
+    out = out_path or (repo_root / f"docs/spec-delta-cc-tls-drift-{stamp}.md")
     cap_tls = bundle.get("tls") or {}
     body = "\n".join(
         [

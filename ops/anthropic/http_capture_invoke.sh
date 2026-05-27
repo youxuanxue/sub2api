@@ -40,7 +40,7 @@ fi
 
 CLAUDE_BIN="${CLAUDE_BIN:-$HOME/.local/bin/claude}"
 if [[ ! -x "$CLAUDE_BIN" ]]; then
-  CLAUDE_BIN="$(command -v claude || true)"
+  CLAUDE_BIN="$(command -v claude || true)"  # preflight-allow: swallow
 fi
 if [[ -z "$CLAUDE_BIN" || ! -x "$CLAUDE_BIN" ]]; then
   echo "error: Claude CLI not found (set CLAUDE_BIN)" >&2

@@ -58,7 +58,7 @@ if ! bash "$CAPTURE_SH" capture >>"$LOG_FILE" 2>&1; then
   exit 0
 fi
 
-bundle="$(ls -t "$OUT_DIR"/*-cc-capture.bundle.json 2>/dev/null | head -1 || true)"
+bundle="$(ls -t "$OUT_DIR"/*-cc-capture.bundle.json 2>/dev/null | head -1 || true)"  # preflight-allow: swallow
 if [[ -z "$bundle" ]]; then
   log "FAIL: no bundle under $OUT_DIR"
   printf '%s\n' "$today" >"$STATE_FILE"

@@ -284,6 +284,7 @@ main() {
       if [[ "${1:-}" == "env" ]]; then
         shift
         cmd_check_env "$@"
+        exit $?
       fi
       require_cmd python3
       exec python3 "$PY" check "$@"

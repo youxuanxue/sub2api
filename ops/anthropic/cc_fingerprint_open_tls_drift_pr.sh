@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Open a PR when daily cc TLS capture drifts from tk_canonical_cc_oauth baseline.
+# All branch / commit / push operations run inside an isolated git worktree so
+# the user's main checkout (and current branch) is never silently switched.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -26,28 +28,40 @@ fi
 
 stamp="$(date -u +%Y%m%d)"
 branch="feature/cc-tls-drift-${stamp}"
-spec_path="$(python3 "$PY" write-drift-spec --bundle "$bundle")"
 report="$(python3 "$PY" diff --bundle "$bundle")"
 
-git fetch origin main 2>/dev/null || git fetch origin master 2>/dev/null || true
+git fetch origin main 2>/dev/null || git fetch origin master 2>/dev/null || true  # preflight-allow: swallow
 base="main"
 if ! git show-ref --verify --quiet refs/remotes/origin/main; then
   base="master"
 fi
 
+WT_DIR="$REPO_ROOT/.tls_list/.drift-worktree-${stamp}-$$"
+_cleanup_worktree() {
+  if [[ -d "$WT_DIR" ]]; then
+    git worktree remove --force "$WT_DIR" 2>/dev/null || rm -rf "$WT_DIR"  # preflight-allow: swallow
+  fi
+}
+trap _cleanup_worktree EXIT
+
 if git show-ref --verify --quiet "refs/heads/${branch}"; then
-  git checkout "${branch}"
+  git worktree add "$WT_DIR" "${branch}"
 else
-  git checkout -B "${branch}" "origin/${base}" 2>/dev/null || git checkout -B "${branch}" "${base}"
+  git worktree add -B "${branch}" "$WT_DIR" "origin/${base}"
 fi
 
-git add "$spec_path"
-if git diff --cached --quiet; then
-  echo "error: nothing to commit for drift PR" >&2
-  exit 1
-fi
+spec_path="$(python3 "$PY" write-drift-spec --bundle "$bundle" \
+  --out "$WT_DIR/docs/spec-delta-cc-tls-drift-${stamp}.md")"
+spec_rel_path="${spec_path#"$WT_DIR/"}"
 
-git commit -m "$(cat <<EOF
+(
+  cd "$WT_DIR"
+  git add "$spec_rel_path"
+  if git diff --cached --quiet; then
+    echo "error: nothing to commit for drift PR" >&2
+    exit 1
+  fi
+  git commit -m "$(cat <<EOF
 docs: cc TLS drift evidence from daily capture (${stamp})
 
 Automated sessionStart hook detected ja3 drift vs tk_canonical_cc_oauth.
@@ -55,21 +69,23 @@ Follow tokenkey-cc-fingerprint-alignment skill to update profile + constants.
 
 EOF
 )"
+)
 
 if ! command -v gh >/dev/null 2>&1; then
-  echo "WARN: gh not installed; branch ${branch} committed locally only" >&2
+  echo "WARN: gh not installed; branch ${branch} committed in worktree only" >&2
   echo "$report"
   exit 0
 fi
 
 if ! gh auth status >/dev/null 2>&1; then
-  echo "WARN: gh not authenticated; branch ${branch} committed locally only" >&2
+  echo "WARN: gh not authenticated; branch ${branch} committed in worktree only" >&2
   echo "$report"
   exit 0
 fi
 
-git push -u origin "${branch}"
 pr_url="$(
+  cd "$WT_DIR"
+  git push -u origin "${branch}"
   gh pr create \
     --base "${base}" \
     --head "${branch}" \
@@ -77,7 +93,7 @@ pr_url="$(
     --body "$(cat <<EOF
 ## Summary
 - Daily cc TLS capture detected **ja3 drift** vs \`tk_canonical_cc_oauth\`.
-- Adds \`${spec_path#"$REPO_ROOT"/}\` with diff evidence; human/agent follow-up to update profile + HTTP constants.
+- Adds \`${spec_rel_path}\` with diff evidence; human/agent follow-up to update profile + HTTP constants.
 
 ## Risk
 Regular risk — TLS/HTTP fingerprint alignment (\`tokenkey-cc-fingerprint-alignment\`).

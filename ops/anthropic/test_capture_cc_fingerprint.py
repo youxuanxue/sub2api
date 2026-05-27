@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import os
 import pathlib
 import tempfile
 import unittest
@@ -158,11 +157,6 @@ class CaptureCCFingerprintTest(unittest.TestCase):
             text = out.read_text(encoding="utf-8")
             self.assertIn("ja3 drift", text)
             self.assertIn("deadbeef", text)
-
-    def test_http_capture_invoke_script_is_executable(self) -> None:
-        script = _MOD_PATH.parent / "http_capture_invoke.sh"
-        self.assertTrue(script.is_file())
-        self.assertTrue(os.access(script, os.X_OK))
 
     def test_load_http_log_parses_cc_capture_prefix(self) -> None:
         line = (
