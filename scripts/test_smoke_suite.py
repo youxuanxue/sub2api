@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import subprocess
 import tempfile
@@ -86,12 +87,14 @@ class SoftDegradeOrExitTest(unittest.TestCase):
             f'  echo MARKER=softskip\n'
             f'fi\n'
         )
+        env = os.environ.copy()
+        env["GATEWAY_SMOKE_SUITE"] = suite
         try:
             proc = subprocess.run(
                 ["bash", "-c", script],
                 capture_output=True,
                 text=True,
-                env={"GATEWAY_SMOKE_SUITE": suite, "PATH": "/usr/bin:/bin:/usr/local/bin"},
+                env=env,
                 check=False,
             )
         finally:
