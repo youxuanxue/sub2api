@@ -101,6 +101,63 @@ class CaptureCCFingerprintTest(unittest.TestCase):
             loaded = mod.load_capture_bundle(path)
             self.assertEqual(loaded["cc_version"], "2.1.152")
 
+    def test_has_tls_mismatch_true_only_for_tls_fields(self) -> None:
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        tls_rows = mod.diff_baseline_vs_capture(
+            baseline,
+            {
+                "schema_version": 1,
+                "cc_version": baseline["canonical_http"]["default_version"],
+                "tls": {"ja3_hash": "deadbeef", "ja3_raw": "771"},
+                "http": {},
+            },
+        )
+        self.assertTrue(mod.has_tls_mismatch(tls_rows))
+        http_rows = mod.diff_baseline_vs_capture(
+            baseline,
+            {
+                "schema_version": 1,
+                "cc_version": baseline["canonical_http"]["default_version"],
+                "tls": {
+                    "ja3_hash": baseline["tls"]["ja3_hash"],
+                    "ja3_raw": baseline["tls"]["ja3_raw"],
+                    "stainless_package_version": "0.70.0",
+                },
+                "http": {},
+            },
+        )
+        self.assertFalse(mod.has_tls_mismatch(http_rows))
+        self.assertTrue(mod.has_actionable_mismatch(http_rows))
+
+    def test_check_env_reports_launcher_paths(self) -> None:
+        rows = mod.run_check_env(relax_desktop=True, skip_egress=True)
+        components = {r.component for r in rows}
+        self.assertIn("cc0-here", components)
+        self.assertIn("claude0-here", components)
+        self.assertIn("cc0.gost", components)
+
+    def test_write_tls_drift_spec_creates_markdown(self) -> None:
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        bundle = mod.bundle_from_artifacts(
+            cc_version=baseline["canonical_http"]["default_version"],
+            tls_observed={
+                "ja3_hash": "deadbeefdeadbeefdeadbeefdeadbeef",
+                "ja3_raw": "771,4865",
+            },
+            http_by_variant={},
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle_path = pathlib.Path(tmp) / "bundle.json"
+            bundle_path.write_text(json.dumps(bundle), encoding="utf-8")
+            out = mod.write_tls_drift_spec(
+                bundle_path=bundle_path,
+                repo_root=mod.REPO_ROOT,
+                out_path=pathlib.Path(tmp) / "spec-delta.md",
+            )
+            text = out.read_text(encoding="utf-8")
+            self.assertIn("ja3 drift", text)
+            self.assertIn("deadbeef", text)
+
     def test_load_http_log_parses_cc_capture_prefix(self) -> None:
         line = (
             'CC_CAPTURE {"model":"claude-haiku-4-5-20251001",'

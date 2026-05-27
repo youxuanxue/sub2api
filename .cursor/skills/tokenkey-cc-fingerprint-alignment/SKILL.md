@@ -15,19 +15,57 @@ description: >-
 
 关联：`cc0-claude0-launcher` skill（cc0-here 环境）、`tokenkey-anthropic-oauth-config` skill（ja3 变更时的 TLS profile apply）、`docs/spec-delta-cc-canonical-ua-beta-2.1.152.md`（PR #423 实例）。
 
+## 自动化（每日 sessionStart）
+
+项目已注册 Cursor hook（`.cursor/hooks.json` → `sessionStart`）：
+
+- 每个 **UTC 日** 在 Agent 会话启动时后台跑一次（`ops/anthropic/cc_fingerprint_daily_hook.sh`）。
+- 先 `check env`（cc0 gost/SOCKS + claude0-here；Desktop 未开仅 WARN，见 `--relax-desktop`）。
+- 再 TLS `capture` + `check-tls`。
+- 若 **ja3 与 TokenKey baseline 不一致**，自动 `docs/spec-delta-cc-tls-drift-*.md` + `gh pr create`（需本机 `gh auth`）。
+- 日志：`.tls_list/cc-fingerprint-daily-hook.log`；漂移摘要：`.tls_list/cc-fingerprint-drift-alert.json`。
+- 自动开 PR 时,**所有 git 操作在 `git worktree add` 出的临时 worktree 里完成**(`.tls_list/.drift-worktree-${stamp}-$$`),user 当前 checkout / 当前分支不受影响;cleanup trap 兜底。
+
+### 控制 env vars
+
+| env var | 默认 | 作用 |
+|---|---|---|
+| `TOKENKEY_CC_DAILY_FORCE=1` | — | 强制重跑(忽略今日 STATE_FILE 锁) |
+| `TOKENKEY_CC_DAILY_STATE_DIR` | `~/.cache/tokenkey/` | 一日一锁文件位置;跨 worktree / 跨 sub2api clone 共享 |
+| `TOKENKEY_CC_DAILY_RELAX_DESKTOP` | `1` | Claude.app 未开时只 WARN(daily hook 默认开,手动 `check env` 默认严格) |
+| `TOKENKEY_CC_DAILY_SKIP_EGRESS` | `0` | 跳过 egress IP 校验 |
+| `TOKENKEY_CC_DAILY_DRY_RUN=1` | — | 直接调 `cc_fingerprint_open_tls_drift_pr.sh <bundle>` 时,跑 worktree + commit 但**跳过 git push + gh pr create**;输出 `DRY_RUN: would push ...`。用于第一次部署 / 调试 hook 链是否通,而不真的开 PR |
+
+仅 macOS + 已配置 `~/.config/cc0/env` 时执行;云端 Linux Agent 自动 skip。
+
+### 端到端 dry-run(operator 第一次装 hook 时)
+
+```bash
+# 1) 准备一个保证 drift 的 bundle(随便伪造 ja3_hash)
+cat > /tmp/dry-bundle.json <<'JSON'
+{"schema_version":1,"cc_version":"2.1.152","tls":{"ja3_hash":"deadbeef","ja3_raw":"771"},"http":{}}
+JSON
+
+# 2) 跑全流程(创建 worktree、写 spec-delta、commit),但不 push / 不开 PR
+TOKENKEY_CC_DAILY_DRY_RUN=1 bash ops/anthropic/cc_fingerprint_open_tls_drift_pr.sh /tmp/dry-bundle.json
+
+# 期望:`DRY_RUN: would push branch ...` + worktree 自动清理 + exit 0
+```
+
 ## 确定性基线（机械化 vs 真判断）
 
 | 步骤 | 类型 | 承载 |
 |---|---|---|
-| 读取 TokenKey baseline（ja3、UA 版本、stainless、mimicry beta 列表） | 机械 | `python3 ops/anthropic/capture_cc_fingerprint.py show-baseline` |
+| cc0-here / claude0-here 代理栈就绪 | 机械 | `bash ops/anthropic/capture-cc-fingerprint.sh check env` |
+| 读取 TokenKey baseline | 机械 | `python3 ops/anthropic/capture_cc_fingerprint.py show-baseline` |
 | TLS collector 采集 ClientHello | 机械 | `bash ops/anthropic/capture-cc-fingerprint.sh capture` |
 | HTTP mitm 采集 `/v1/messages` headers | 机械 | `bash ops/anthropic/capture-cc-fingerprint.sh capture --http` |
-| bundle 组装 + diff + `--check` 门禁 | 机械 | `capture_cc_fingerprint.py bundle-from-artifacts` / `diff` / `check` |
-| Phase 0 ingress cohort / admin UA | 机械 | `ops/observability/run-probe.sh` + admin settings / `usage_logs`（见 `tokenkey-online-log-troubleshooting` skill） |
-| ja3 变更 → TLS profile SQL apply | 机械 | `ops/anthropic/manage-anthropic-config.py plan/apply/verify` |
-| 代码修复位点（constants / identity / gateway） | 判断 + 清单 | 本 skill §4 |
+| bundle 组装 + diff + `--check` 门禁 | 机械 | `capture_cc_fingerprint.py` / `check-tls` |
+| 每日 TLS 漂移开 PR | 机械 | `ops/anthropic/cc_fingerprint_open_tls_drift_pr.sh` |
+| Phase 0 ingress cohort / admin UA | 机械 | `ops/observability/run-probe.sh` + admin settings |
+| ja3 变更 → TLS profile SQL apply | 机械 | `manage-anthropic-config.py plan/apply/verify` |
+| 代码修复位点 | 判断 + 清单 | 本 skill §4 |
 | 是否发版 / admin PATCH 先后 | 判断 | `tokenkey-stage0-release-rollout` skill |
-| PR 风险分级 / spec-delta 是否足够 | 判断 | `product-dev.mdc` |
 
 ## 调用参数
 
@@ -40,131 +78,116 @@ description: >-
 | `cc_version` | 目标 cc patch；缺省从 `claude --version` 读取 |
 | `http=true` | 同时跑 mitm HTTP（需 gost + cc0 OAuth） |
 | `phase0=true` | 抓包前先跑 ingress/admin 只读侦察 |
-| `open_pr=false` | 默认只 capture + diff + 修复建议；显式 true 才开分支提交 |
+| `open_pr=false` | 默认只 capture + diff；显式 true 才开分支提交 |
 
-## 0) 触发条件
+## 1) 环境检查（必须先过）
 
-- cc 新 patch（约每 2–4 天）
-- 同 OAuth 账号 `usage_logs.user_agent` 混多个 patch
-- `extra usage` / third-party 怀疑指纹而非并发
-- 上次对齐后 cc 升级
+```bash
+source ~/.config/cc0/env
+cd "$REPO_ROOT"
 
-## 1) Phase 0（只读，可选）
+# 严格：cc0 gost/SOCKS/egress + Claude Desktop 须由 claude0-here 拉起
+bash ops/anthropic/capture-cc-fingerprint.sh check env
 
-区分 **ingress**（客户端进来）与 **upstream**（TokenKey 发出）：
+# 仅 CLI 采集 / 每日 hook：Desktop 未开只 WARN
+bash ops/anthropic/capture-cc-fingerprint.sh check env --relax-desktop
+```
 
-1. 各 edge `claude_code_user_agent_version` admin setting
-2. canonical 账号 ingress UA cohort（120m 窗）
-3. 编译默认：`DefaultClaudeCodeUserAgentVersion`、`CLICurrentVersion`
+| 组件 | 含义 |
+|---|---|
+| `cc0-here` | launcher 存在；**cc0.gost** + **cc0.socks** 在监听；egress IP = `CC0_EXPECT_EGRESS_IP` |
+| `claude0-here` | launcher 存在；**Claude.app** 在跑且带 `--proxy-server` + `--disable-quic`（macOS） |
 
-**不在 Phase 0 改代码。**
+JSON：`python3 ops/anthropic/capture_cc_fingerprint.py check-env --json`
 
 ## 2) Ground truth 采集
 
 ### 2.1 环境
 
 ```bash
-source ~/.config/cc0/env   # CC0_GOST_HTTP_PORT, CC0_USER_OVERLAY, …
-~/.local/bin/claude --version   # TLS 采集默认用这个
-cc0-here --version              # HTTP mitm 路径用这个（需 gost + OAuth）
+~/.local/bin/claude --version
+~/.local/bin/cc0-here --version
 ```
 
-TLS 打 collector **不需要** gost；HTTP mitm 打 `api.anthropic.com` **必须** cc0-here（或 `CC0_HTTP_CLAUDE_BIN`）。
-
-Desktop 形状不同则 **`claude0-here`** 另抓一条 HTTP（本脚本默认 CLI）。
+TLS 打 collector **不需要** gost；HTTP mitm 打 `api.anthropic.com` 需 cc0 链（见 §HTTP 注意）。
 
 ### 2.2 一键采集 + diff
 
 ```bash
-cd "$REPO_ROOT"
-
-# TLS only（最低门槛；ja3 + collector 侧 stainless/UA）
 bash ops/anthropic/capture-cc-fingerprint.sh capture
-
-# TLS + HTTP（mitm：anthropic-beta 顺序 + X-Stainless-*）
 bash ops/anthropic/capture-cc-fingerprint.sh capture --http
 ```
 
-产出（默认 `$REPO_ROOT/.tls_list/`，gitignore）：
-
-- `*cc-capture.tls-observed.json` — collector `fingerprints[0]`
-- `*cc-capture.bundle.json` — diff 输入
-- 终端打印 `capture_cc_fingerprint.py diff` 报告
-
-### 2.3 仅 diff 已有 bundle
+### 2.3 门禁
 
 ```bash
-python3 ops/anthropic/capture_cc_fingerprint.py diff --bundle .tls_list/YYYYMMDD…-cc-capture.bundle.json
-python3 ops/anthropic/capture_cc_fingerprint.py check --bundle .tls_list/….bundle.json
-# exit 1 = 有关键 mismatch，需修代码或 TLS profile
+# 全量 HTTP+TLS 关键字段（beta 缺 capture 为 SKIP）
+python3 ops/anthropic/capture_cc_fingerprint.py check --bundle .tls_list/…-cc-capture.bundle.json
+
+# 仅 TLS ja3（每日 hook / 开 PR 用）
+bash ops/anthropic/capture-cc-fingerprint.sh check-tls --bundle .tls_list/….bundle.json
 ```
 
-### 2.4 手工组装 bundle（已有 hook 产物）
+### 2.4 HTTP mitm 链（已修复）
 
-```bash
-python3 ops/anthropic/capture_cc_fingerprint.py bundle-from-artifacts \
-  --tls-json .tls_list/20260527T….capture.json \
-  --http-log /tmp/http.log \
-  --cc-version 2.1.152 \
-  --out .tls_list/manual.bundle.json
+默认路径 **`ops/anthropic/http_capture_invoke.sh`**（`capture --http` 自动调用）：
+
+```text
+plain claude + CC0_USER_OVERLAY OAuth
+  → mitm :11803 (log anthropic-beta)
+  → gost :11800
+  → SOCKS :1093
+  → egress
 ```
+
+- 在 **`/tmp`** 下发起请求，避免 sub2api 仓库 SessionStart 短路。
+- 使用 `NODE_EXTRA_CA_CERTS` + `NODE_TLS_REJECT_UNAUTHORIZED=0`（**不走 cc0-here**，因 cc0 白名单不转发 CA）。
+- 采集前 `check env` 会校验 gost 在 `CC0_GOST_HTTP_PORT` 监听。
+- 覆盖 launcher：`CC0_HTTP_CLAUDE_BIN=/path/to/custom`（默认 `http_capture_invoke.sh`）。
 
 ## 3) 解读 diff 报告
 
 | 字段 | mismatch 含义 | 动作 |
 |---|---|---|
-| `tls.ja3_*` | ClientHello 变了 | 更新 `deploy/aws/stage0/tk_canonical_cc_oauth.json` → `manage-anthropic-config.py apply` |
+| `tls.ja3_*` | ClientHello 变了 | 更新 `tk_canonical_cc_oauth.json` → `manage-anthropic-config.py apply` |
 | `canonical.user_agent_version` | compile default 落后 | `identity_service_tk_canonical_http.go` + admin setting |
-| `mimic.cli_version` / mimic UA | mimic 路径落后 | `constants.go` `CLICurrentVersion` + `DefaultHeaders` + `identity_service.go` |
-| `*.stainless_package_version` | **不能从 UA 推断** | 以 mitm/collector 实测为准（#423：0.94.0） |
-| `betas.sonnet_mimicry` / `haiku_mimicry` | token 集合或**顺序**错 | `FullClaudeCode*MimicryBetas()` + `constants_test.go` |
+| `mimic.cli_version` / mimic UA | mimic 路径落后 | `constants.go` + `identity_service.go` |
+| `*.stainless_package_version` | 以实测为准 | mitm/collector |
+| `betas.*` | token 集合或顺序错 | `FullClaudeCode*MimicryBetas()` + tests |
 
-**ja3 相同 → 不改 DB cipher/extension 体**；只更新 profile description 里的 cc 版本说明即可。
+## 4) 代码修复清单（HTTP-only 型）
 
-## 4) 代码修复清单（HTTP-only 型，PR #423 型）
-
-1. `backend/internal/pkg/claude/constants.go` — beta、`DefaultHeaders`、`CLICurrentVersion`
-2. `backend/internal/service/identity_service_tk_canonical_http.go` — `DefaultClaudeCodeUserAgentVersion`、`canonicalHTTPObservedStatic`
-3. `backend/internal/service/identity_service.go` — mimic `defaultFingerprint`
-4. `backend/internal/service/gateway_service.go` — Haiku/Sonnet mimic beta；**注释必须与抓包一致**
-5. `backend/internal/pkg/claude/constants_test.go` — 抓包顺序回归
-6. `scripts/sentinels/gateway-tk.json` — beta registry 锚点
-7. `ops/stage0/smoke_lib.sh` — smoke UA 默认
-8. `docs/spec-delta-cc-<patch>.md` — Evidence 段写 ja3/stainless/beta 实测值
+1. `backend/internal/pkg/claude/constants.go`
+2. `backend/internal/service/identity_service_tk_canonical_http.go`
+3. `backend/internal/service/identity_service.go`
+4. `backend/internal/service/gateway_service.go`
+5. `backend/internal/pkg/claude/constants_test.go`
+6. `scripts/sentinels/gateway-tk.json`
+7. `ops/stage0/smoke_lib.sh`
+8. `docs/spec-delta-cc-<patch>.md`
 
 ## 5) 验证与 PR
 
 ```bash
 go test -tags=unit ./internal/pkg/claude/... -run TestFullClaudeCode
-go test -tags=unit ./internal/service/... -run 'TestGatewayService_getBetaHeader|TestNormalizeClaudeOAuthRequestBody_Haiku'
 python3 -m unittest discover -s ops/anthropic -p 'test_capture_cc_fingerprint.py' -t ops/anthropic
 ./scripts/preflight.sh
 ```
 
-分支：`feature/cc-canonical-ua-beta-<patch>`
-
-PR body：`Summary` / `Risk`（常规 HTTP 指纹；ja3 未变则无 migration）/ `Validation`（含 bundle path 或 Evidence 数值）
-
-合并后：
-
-1. Admin PATCH `claude_code_user_agent_version=<patch>`（canonical，无需 redeploy）
-2. Release + deploy（mimic compile default）
-3. Sonnet + Haiku smoke；24h `extra usage` 错误预算
+手动开 TLS 漂移 PR：`bash ops/anthropic/cc_fingerprint_open_tls_drift_pr.sh .tls_list/…-cc-capture.bundle.json`
 
 ## 6) 禁止事项
 
-- 未抓包就改 beta 列表或 stainless 版本
-- 假设「Haiku 不需要 claude-code beta」（必须以 mitm 为准）
-- 从 2.1.142 ja3 推断 2.1.152 ja3（必须 2.1.Z 实测）
+- 未抓包就改 beta / stainless
+- 从旧 patch 推断 ja3
 - ja3 变了却只改 HTTP 常量
-- 注释与 `FullClaudeCodeHaikuMimicryBetas()` 矛盾
+- 用 `cc0-here` 直接做 HTTP mitm（应走 `http_capture_invoke.sh`）
 
 ## 7) 流程图
 
 ```text
-Phase0(可选) → capture [--http] → bundle.json
-    → capture_cc_fingerprint.py check
-    → [ja3变?] manage-anthropic-config apply
+check env → capture [--http] → check / check-tls
+    → [ja3变?] manage-anthropic-config apply + drift PR
     → [HTTP drift?] constants + identity + gateway + tests
-    → spec-delta → preflight → PR → merge → admin UA → deploy → smoke
+    → spec-delta → preflight → merge → admin UA → deploy
 ```
