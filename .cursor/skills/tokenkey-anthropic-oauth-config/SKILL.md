@@ -386,7 +386,7 @@ operate 流程：
 | snapshot 失败 / SSM 拒绝（edge 或 prod） | 校验 EC2 instance 在跑 / `edge-targets.json` 或 `PROD_TARGET` 常量 / OIDC 权限。**仅排障 edge** 跑 `snapshot --skip-prod` 临时绕开 prod 失败 |
 | `apply --confirm` 拒绝 | 必须精确 `yes-apply-anthropic-config-cascade` |
 | tier baseline drift（check-edge-oauth-stability `extra_baseline_drift` / `account_field_drift`） | 单账号用 plan-edge-account-tier 重写到对应 tier；整个 tier 值漂移（多账号）用 `plan-tier-bump --tier lN` 一次性重写 |
-| `tls_profile` drift（`/tls_profile/...` 或 UK 模式：启用 TLS 却无 profile） | tier apply 会通过 `generate_sql` upsert `tk_canonical_cc_oauth` 并绑定 `tls_fingerprint_profile_id`——用 **`plan-guard-drift-fix`** 或 **`remediate-guard-drift`**（含 `apply --sync-runtime`），不要手工按 tier 合并 plan | apply → verify → check |
+| `tls_profile` drift（`/tls_profile/...` 或 UK 模式：启用 TLS 却无 profile） | tier apply 会通过 `generate_sql` upsert `tk_canonical_cc_oauth` 并绑定 `tls_fingerprint_profile_id`——用 **`plan-guard-drift-fix`** 或 **`remediate-guard-drift`**（含 `apply --sync-runtime`），不要手工按 tier 合并 plan |
 | check guard 报 `status: drift` 且 `diffs[].path` 含 `/credentials/temp_unschedulable_rules`，但数值字段全等 | 加 `--force-template-rewrite` 让 plan 不再走 noop 短路，强制重写 credentials 端字段（snapshot/verify 不读 rules，所以默认 noop；这条 flag 是 escape hatch）。Apply 完跑一次 `check` 当真值 |
 | OAuth account `status=error/suspended` | OAuth 凭据问题（token 过期 / 403 / 上游禁用），见 OAuth 故障文档；不在本流水线范围 |
 | `plan-stub-pool` 输出 `skipped_unmatched` 含一个本应匹配的 stub | 检查它的 `cred_base_url` 实际值——多半是早期建账号时写错了（如多余 `/` 或大小写差异）。改 stub 的 `base_url` 通过 admin UI（**不**改 pattern；pattern 是策略，base_url 是个体配置）|

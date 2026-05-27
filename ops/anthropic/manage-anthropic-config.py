@@ -983,9 +983,8 @@ def cmd_remediate_guard_drift(args: argparse.Namespace) -> int:
         job_dir=str(job_dir / "apply"),
         json=False,
         sync_runtime=not args.skip_runtime_sync,
-        no_sync_runtime_include_prod=args.skip_prod_runtime_sync,
+        skip_prod_runtime_sync=args.skip_prod_runtime_sync,
         sync_runtime_ua_version=None,
-        sync_runtime_target=None,
     ))
     if rc != 0:
         return rc
@@ -2090,10 +2089,8 @@ def cmd_apply(args: argparse.Namespace) -> int:
         )
         rt_targets = _runtime_sync_targets_from_plan(
             plan,
-            include_prod=not bool(getattr(args, "no_sync_runtime_include_prod", False)),
+            include_prod=not bool(getattr(args, "skip_prod_runtime_sync", False)),
         )
-        if not rt_targets and getattr(args, "sync_runtime_target", None):
-            rt_targets = [args.sync_runtime_target]
         if rt_targets:
             print(f"apply: sync-runtime targets={rt_targets} ua={ua_version}", file=sys.stderr)
             rt_ok, rt_results = _run_runtime_sync(rt_targets, ua_version, job_dir)
@@ -2395,7 +2392,7 @@ def main() -> int:
         ),
     )
     sp.add_argument(
-        "--no-sync-runtime-include-prod",
+        "--skip-prod-runtime-sync",
         action="store_true",
         help="with --sync-runtime, skip prod (edges only)",
     )
