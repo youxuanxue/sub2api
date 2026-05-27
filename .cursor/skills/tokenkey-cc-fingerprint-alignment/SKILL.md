@@ -24,9 +24,33 @@ description: >-
 - 再 TLS `capture` + `check-tls`。
 - 若 **ja3 与 TokenKey baseline 不一致**，自动 `docs/spec-delta-cc-tls-drift-*.md` + `gh pr create`（需本机 `gh auth`）。
 - 日志：`.tls_list/cc-fingerprint-daily-hook.log`；漂移摘要：`.tls_list/cc-fingerprint-drift-alert.json`。
-- 强制重跑：`TOKENKEY_CC_DAILY_FORCE=1`。
+- 自动开 PR 时,**所有 git 操作在 `git worktree add` 出的临时 worktree 里完成**(`.tls_list/.drift-worktree-${stamp}-$$`),user 当前 checkout / 当前分支不受影响;cleanup trap 兜底。
 
-仅 macOS + 已配置 `~/.config/cc0/env` 时执行；云端 Linux Agent 自动 skip。
+### 控制 env vars
+
+| env var | 默认 | 作用 |
+|---|---|---|
+| `TOKENKEY_CC_DAILY_FORCE=1` | — | 强制重跑(忽略今日 STATE_FILE 锁) |
+| `TOKENKEY_CC_DAILY_STATE_DIR` | `~/.cache/tokenkey/` | 一日一锁文件位置;跨 worktree / 跨 sub2api clone 共享 |
+| `TOKENKEY_CC_DAILY_RELAX_DESKTOP` | `1` | Claude.app 未开时只 WARN(daily hook 默认开,手动 `check env` 默认严格) |
+| `TOKENKEY_CC_DAILY_SKIP_EGRESS` | `0` | 跳过 egress IP 校验 |
+| `TOKENKEY_CC_DAILY_DRY_RUN=1` | — | 直接调 `cc_fingerprint_open_tls_drift_pr.sh <bundle>` 时,跑 worktree + commit 但**跳过 git push + gh pr create**;输出 `DRY_RUN: would push ...`。用于第一次部署 / 调试 hook 链是否通,而不真的开 PR |
+
+仅 macOS + 已配置 `~/.config/cc0/env` 时执行;云端 Linux Agent 自动 skip。
+
+### 端到端 dry-run(operator 第一次装 hook 时)
+
+```bash
+# 1) 准备一个保证 drift 的 bundle(随便伪造 ja3_hash)
+cat > /tmp/dry-bundle.json <<'JSON'
+{"schema_version":1,"cc_version":"2.1.152","tls":{"ja3_hash":"deadbeef","ja3_raw":"771"},"http":{}}
+JSON
+
+# 2) 跑全流程(创建 worktree、写 spec-delta、commit),但不 push / 不开 PR
+TOKENKEY_CC_DAILY_DRY_RUN=1 bash ops/anthropic/cc_fingerprint_open_tls_drift_pr.sh /tmp/dry-bundle.json
+
+# 期望:`DRY_RUN: would push branch ...` + worktree 自动清理 + exit 0
+```
 
 ## 确定性基线（机械化 vs 真判断）
 
