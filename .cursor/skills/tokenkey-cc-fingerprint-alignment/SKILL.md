@@ -23,7 +23,7 @@ description: >-
 | TLS collector 采集 ClientHello | 机械 | `bash ops/anthropic/capture-cc-fingerprint.sh capture` |
 | HTTP mitm 采集 `/v1/messages` headers | 机械 | `bash ops/anthropic/capture-cc-fingerprint.sh capture --http` |
 | bundle 组装 + diff + `--check` 门禁 | 机械 | `capture_cc_fingerprint.py bundle-from-artifacts` / `diff` / `check` |
-| Phase 0 ingress cohort / admin UA | 机械 | `ops/observability/probe-us1-cc-ua-setting.sh` 等（可选） |
+| Phase 0 ingress cohort / admin UA | 机械 | `ops/observability/run-probe.sh` + admin settings / `usage_logs`（见 `tokenkey-online-log-troubleshooting` skill） |
 | ja3 变更 → TLS profile SQL apply | 机械 | `ops/anthropic/manage-anthropic-config.py plan/apply/verify` |
 | 代码修复位点（constants / identity / gateway） | 判断 + 清单 | 本 skill §4 |
 | 是否发版 / admin PATCH 先后 | 判断 | `tokenkey-stage0-release-rollout` skill |

@@ -111,14 +111,14 @@ run_tls_capture() {
     NODE_TLS_REJECT_UNAUTHORIZED=0 \
     "$claude_bin" --bare --setting-sources local --settings "$settings" \
     -p 'test' --model "$MODEL" --allowedTools '' --max-budget-usd 0.15 \
-    >"$work/claude-tls.out" 2>"$work/claude-tls.err" || true
+    >"$work/claude-tls.out" 2>"$work/claude-tls.err" || true  # preflight-allow: swallow
 
   curl -fsS --max-time 30 "$COLLECTOR_API_ORIGIN/api/latest?token=$token" >"$work/latest.json"
   local count
   count="$(jq -r '.count // 0' "$work/latest.json")"
   if [[ "${count:-0}" == "0" ]]; then
     echo "error: TLS collector recorded no fingerprint (token=$token)" >&2
-    sed -n '1,5p' "$work/claude-tls.err" >&2 || true
+    sed -n '1,5p' "$work/claude-tls.err" >&2 || true  # preflight-allow: swallow
     exit 1
   fi
   jq '.fingerprints[0]' "$work/latest.json" >"$work/tls-observed.json"
@@ -138,7 +138,7 @@ run_http_capture() {
     exit 1
   fi
 
-  pkill -f "mitmdump.*${MITM_PORT}" 2>/dev/null || true
+  pkill -f "mitmdump.*${MITM_PORT}" 2>/dev/null || true  # preflight-allow: swallow
   sleep 1
   : >"$http_log"
   CC_CAPTURE_HTTP_LOG="$http_log" \
@@ -161,14 +161,14 @@ run_http_capture() {
       NO_PROXY="127.0.0.1,localhost" no_proxy="127.0.0.1,localhost" \
       NODE_EXTRA_CA_CERTS="$ca" \
       "$claude_bin" -p 'Reply OK' --model "$model" --max-budget-usd 0.15 --output-format text \
-      </dev/null >"$work/claude-${model##*-}.out" 2>"$work/claude-${model##*-}.err" || true
+      </dev/null >"$work/claude-${model##*-}.out" 2>"$work/claude-${model##*-}.err" || true  # preflight-allow: swallow
   }
 
   run_one_http "$MODEL"
   run_one_http "$SONNET_MODEL"
   sleep 2
-  kill "$mitm_pid" 2>/dev/null || true
-  wait "$mitm_pid" 2>/dev/null || true
+  kill "$mitm_pid" 2>/dev/null || true  # preflight-allow: swallow
+  wait "$mitm_pid" 2>/dev/null || true  # preflight-allow: swallow
 
   if ! grep -q '"anthropic_beta"' "$http_log" 2>/dev/null; then
     echo "error: HTTP mitm log empty — check gost on port $GOST_PORT and cc0-here OAuth" >&2
@@ -228,8 +228,8 @@ cmd_capture() {
   python3 "$PY" bundle-from-artifacts "${bundle_args[@]}"
 
   echo "bundle=$bundle_path"
-  python3 "$PY" diff --bundle "$bundle_path" --check || true
   python3 "$PY" diff --bundle "$bundle_path"
+  python3 "$PY" check --bundle "$bundle_path"
   trap - EXIT
   cleanup_work
 }

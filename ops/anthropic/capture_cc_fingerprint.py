@@ -175,14 +175,21 @@ def _parse_http_log_line(line: str) -> dict[str, Any] | None:
         return None
 
 
+def _http_variant(model: str) -> str | None:
+    model_l = (model or "").lower()
+    if "haiku" in model_l:
+        return "haiku"
+    if model_l:
+        return "sonnet"
+    return None
+
+
 def _pick_http_by_model(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     out: dict[str, dict[str, Any]] = {}
     for rec in records:
-        model = (rec.get("model") or "").lower()
-        if "haiku" in model and "haiku" not in out:
-            out["haiku"] = rec
-        elif "haiku" not in model and "sonnet" not in out and model:
-            out["sonnet"] = rec
+        variant = _http_variant(str(rec.get("model") or ""))
+        if variant and variant not in out:
+            out[variant] = rec
     return out
 
 
@@ -274,7 +281,7 @@ def diff_baseline_vs_capture(
             canon_ver,
             cap_cc,
             "match" if canon_ver == cap_cc else "mismatch",
-            critical=True,
+            critical="canonical.user_agent_version" in CRITICAL_HTTP_FIELDS,
         )
     )
     rows.append(
@@ -283,7 +290,7 @@ def diff_baseline_vs_capture(
             mimic_ver,
             cap_cc,
             "match" if mimic_ver == cap_cc else "mismatch",
-            critical=True,
+            critical="mimic.cli_version" in CRITICAL_HTTP_FIELDS,
         )
     )
 
@@ -302,7 +309,7 @@ def diff_baseline_vs_capture(
             canon_stainless,
             cap_stainless,
             "match" if canon_stainless == cap_stainless else "mismatch",
-            critical=True,
+            critical="canonical.stainless_package_version" in CRITICAL_HTTP_FIELDS,
         )
     )
     rows.append(
@@ -311,7 +318,7 @@ def diff_baseline_vs_capture(
             mimic_stainless,
             cap_stainless,
             "match" if mimic_stainless == cap_stainless else "mismatch",
-            critical=True,
+            critical="mimic.stainless_package_version" in CRITICAL_HTTP_FIELDS,
         )
     )
 
@@ -325,7 +332,7 @@ def diff_baseline_vs_capture(
                     ",".join(baseline["betas"][beta_key]),
                     "",
                     "missing_capture",
-                    critical=True,
+                    critical=f"betas.{beta_key}" in CRITICAL_HTTP_FIELDS,
                     note=f"Run HTTP mitm capture with --http for {variant}",
                 )
             )
@@ -339,7 +346,7 @@ def diff_baseline_vs_capture(
                 ",".join(tk_betas),
                 ",".join(cap_betas),
                 status,
-                critical=True,
+                critical=f"betas.{beta_key}" in CRITICAL_HTTP_FIELDS,
             )
         )
 
