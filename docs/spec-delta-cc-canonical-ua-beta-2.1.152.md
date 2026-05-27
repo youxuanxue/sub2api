@@ -48,7 +48,7 @@ Related TK docs: `docs/accounts/anthropic-oauth-edge-guidelines.md`. Prior mimic
 - TLS cipher/extension bodies in `tk_canonical_cc_oauth` DB profile.
 - `RewriteUserID` / JSON `metadata.user_id` rewrite logic ([#766](https://github.com/Wei-Shaw/sub2api/issues/766)).
 - Monotonic global UA cache across all mimic clients ([#580](https://github.com/Wei-Shaw/sub2api/issues/580) full fix).
-- `backend/migrations/129_seed_claude_code_template.sql` **「Claude Code 伪装」** channel monitor template (still UA 2.1.114, partial beta) — separate bump if used in prod.
+- `backend/migrations/129_seed_claude_code_template.sql` legacy **「Claude Code 伪装」** row (UA 2.1.114) — left untouched; follow-up **tk_011** seeds **「Claude Code 伪装 2.1.152」**.
 
 ## Scenarios
 
@@ -86,7 +86,7 @@ Run after PR #423 merges and on each deployable edge (prod + edge matrix):
 | 4 | Upstream beta (Haiku) | Same on `claude-haiku-4-5-*` | 8-token set; no `effort` / `advanced-tool-use` |
 | 5 | Error budget | `ops_error_logs` / alerts for `extra usage`, `third-party apps now draw` | Rate not **worse** than pre-deploy baseline; if up, inspect client mix / IP / concurrency (not beta list) |
 | 6 | Ingress cohort | SQL on `usage_logs.user_agent` for canonical accounts (120m window) | Trend toward single cc patch version on ingress; upstream already unified |
-| 7 | Template drift | If `channel_monitor_request_templates` 「Claude Code 伪装」 is used | Bump template or disable; do not rely on migration-129 seed alone |
+| 7 | Template drift | If still on migration-129 「Claude Code 伪装」 | Switch monitor to **「Claude Code 伪装 2.1.152」** (tk_011) or edit headers manually |
 | 8 | Middle proxy | Confirm no layer between cc and TokenKey rewrites UA without rewriting `metadata.user_id` | Avoid #766 pattern |
 | 9 | Client env | Users on OAuth direct cc | No stray `ANTHROPIC_API_KEY` / conflicting `ANTHROPIC_AUTH_TOKEN` in shell or `.claude/settings.json` env |
 
@@ -96,7 +96,7 @@ Run after PR #423 merges and on each deployable edge (prod + edge matrix):
 
 - Global monotonic UA cache for non-canonical mimic ([#580](https://github.com/Wei-Shaw/sub2api/issues/580)).
 - `#766`-class user_id rewrite when ingress UA is stripped by middle boxes.
-- Migration-129 monitor template version bump.
+- tk_011 monitor template seed (operators still on migration-129 「Claude Code 伪装」 must switch manually).
 - cc patch release cadence (~days): expect next bump via admin setting first, then compile default on following release.
 
 ## Validation
