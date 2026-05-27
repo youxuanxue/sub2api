@@ -83,6 +83,8 @@ const (
 	FieldDefaultMappedModel = "default_mapped_model"
 	// FieldMessagesDispatchModelConfig holds the string denoting the messages_dispatch_model_config field in the database.
 	FieldMessagesDispatchModelConfig = "messages_dispatch_model_config"
+	// FieldModelsListConfig holds the string denoting the models_list_config field in the database.
+	FieldModelsListConfig = "models_list_config"
 	// FieldStickyRoutingMode holds the string denoting the sticky_routing_mode field in the database.
 	FieldStickyRoutingMode = "sticky_routing_mode"
 	// FieldRpmLimit holds the string denoting the rpm_limit field in the database.
@@ -199,6 +201,7 @@ var Columns = []string{
 	FieldRequirePrivacySet,
 	FieldDefaultMappedModel,
 	FieldMessagesDispatchModelConfig,
+	FieldModelsListConfig,
 	FieldStickyRoutingMode,
 	FieldRpmLimit,
 	FieldMessagesCompactionEnabled,
@@ -286,6 +289,8 @@ var (
 	DefaultMappedModelValidator func(string) error
 	// DefaultMessagesDispatchModelConfig holds the default value on creation for the "messages_dispatch_model_config" field.
 	DefaultMessagesDispatchModelConfig domain.OpenAIMessagesDispatchModelConfig
+	// DefaultModelsListConfig holds the default value on creation for the "models_list_config" field.
+	DefaultModelsListConfig domain.GroupModelsListConfig
 	// DefaultRpmLimit holds the default value on creation for the "rpm_limit" field.
 	DefaultRpmLimit int
 )

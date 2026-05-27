@@ -560,9 +560,15 @@ export interface AdminGroup extends Group {
   // OpenAI Messages 调度配置（仅 openai 平台使用）
   default_mapped_model?: string
   messages_dispatch_model_config?: OpenAIMessagesDispatchModelConfig
+  models_list_config?: ModelsListConfig
 
   // 分组排序
   sort_order: number
+}
+
+export interface ModelsListConfig {
+  enabled: boolean
+  models: string[]
 }
 
 export interface ApiKey {
@@ -646,6 +652,13 @@ export interface CreateGroupRequest {
   supported_model_scopes?: string[]
   messages_compaction_enabled?: boolean | null
   messages_compaction_input_tokens_threshold?: number | null
+  models_list_config?: ModelsListConfig
+  allow_messages_dispatch?: boolean
+  default_mapped_model?: string
+  messages_dispatch_model_config?: OpenAIMessagesDispatchModelConfig
+  model_routing?: Record<string, number[]> | null
+  model_routing_enabled?: boolean
+  rpm_limit?: number
   require_oauth_only?: boolean
   require_privacy_set?: boolean
   // 上游 prompt cache 粘性路由策略 (auto | passthrough | off)
@@ -678,6 +691,13 @@ export interface UpdateGroupRequest {
   supported_model_scopes?: string[]
   messages_compaction_enabled?: boolean | null
   messages_compaction_input_tokens_threshold?: number | null
+  models_list_config?: ModelsListConfig
+  allow_messages_dispatch?: boolean
+  default_mapped_model?: string
+  messages_dispatch_model_config?: OpenAIMessagesDispatchModelConfig
+  model_routing?: Record<string, number[]> | null
+  model_routing_enabled?: boolean
+  rpm_limit?: number
   require_oauth_only?: boolean
   require_privacy_set?: boolean
   sticky_routing_mode?: 'auto' | 'passthrough' | 'off'

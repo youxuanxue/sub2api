@@ -22,7 +22,7 @@ type anthropic404AccountRepoStub struct {
 	rateLimitCalls      int
 }
 
-func (r *anthropic404AccountRepoStub) SetModelRateLimit(_ context.Context, id int64, scope string, resetAt time.Time) error {
+func (r *anthropic404AccountRepoStub) SetModelRateLimit(_ context.Context, id int64, scope string, resetAt time.Time, reason ...string) error {
 	r.modelRateLimitCalls++
 	r.lastAccountID = id
 	r.lastScope = scope

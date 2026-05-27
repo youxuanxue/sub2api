@@ -2397,6 +2397,12 @@ export default {
         finalPricePreview: '最终单张价格预览',
         notConfigured: '未配置'
       },
+      modelsList: {
+        title: '自定义 /v1/models 模型列表',
+        hint: '仅影响 /v1/models 展示结果，不影响白名单模型调用和账号调度。',
+        loading: '正在加载模型列表...',
+        empty: '暂无可展示模型'
+      },
       claudeCode: {
         title: 'Claude Code 客户端限制',
         tooltip:
@@ -3251,6 +3257,7 @@ export default {
         usageWindows: '用量窗口',
         proxy: '代理',
         lastUsed: '最近使用',
+        createdAt: '创建时间',
         expiresAt: '过期时间',
         actions: '操作'
       },
@@ -3703,6 +3710,8 @@ export default {
         '启用后，上游 401 / 403 / 429 / 502 / 503 / 504 错误先在同账号原地重试 N 次（N=下方"同账号重试次数"，默认 1），让上游池有机会自我轮换到下一个成员；耗尽后自然 failover 到下一个本地账号。Anthropic 账号继续受 3/3 短窗保护，但 cooldown 改为指数退避：首次 30 秒、第二次 2 分钟、第三次起 10 分钟，避免单次抖动导致 10 分钟整组不可用，同时持续故障仍能升级到长冷却。适用于上游指向另一套 TokenKey / 兼容网关账号池的场景。',
       poolModeRetryCount: '同账号重试次数',
       poolModeRetryCountHint: '池模式下对所有平台生效（含 Anthropic）。1 = 同账号试 1 次再切下一账号；0 = 完全不原地重试，立即 failover；默认 {default}，最大 {max}。次数越多对真实上游的压力越大，转发到自我轮换的池时建议保持低值。',
+      poolModeRetryStatusCodes: '同账号重试状态码',
+      poolModeRetryStatusCodesHint: '仅在池模式下生效。以英文逗号分隔的 HTTP 状态码（100-599），命中时触发同账号重试。留空使用默认值（{default}）。',
       customErrorCodes: '自定义错误码',
       customErrorCodesHint: '仅对选中的错误码停止调度',
       customErrorCodesWarning: '仅选中的错误码会停止调度，其他错误将返回 500。',

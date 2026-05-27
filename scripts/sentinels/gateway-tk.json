@@ -793,7 +793,7 @@
       "path": "backend/internal/service/openai_gateway_service.go",
       "must_contain": [
         "upstream Wei-Shaw/sub2api#1318",
-        "shouldDisable := s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body)"
+        "shouldDisable := s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, reqModel)"
       ],
       "rationale": "openai_passthrough error handling (handleErrorResponsePassthrough) MUST propagate HandleUpstreamError's shouldDisable signal: when the rate-limit service decides the account must stop scheduling (temp-unsched rule match, 402 deactivated_workspace, OAuth 401, organization-disabled 400, ...) the current request must return UpstreamFailoverError so the handler retries on another account. Before upstream #1318, the signal was discarded with `_ =` and only the side effect on the account fired — the in-flight request was completed against the now-disabled account, surfacing to the client as the raw upstream error. After upstream cooldown-scheduling merge, the call site routes through handleOpenAIAccountUpstreamError (companion openai_account_runtime_block_fastpath.go) which still forwards shouldDisable from rateLimitService.HandleUpstreamError. Pinning the companion call (not `_ =`) catches passthrough regressions without bloating the hotspot file. Behavior is exercised end-to-end by TestOpenAIGatewayService_OpenAIPassthrough_TempUnschedRuleTriggersFailover (which is pinned by its own sentinel below)."
     },
