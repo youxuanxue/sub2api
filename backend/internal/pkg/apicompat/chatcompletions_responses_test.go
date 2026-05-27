@@ -961,6 +961,35 @@ func TestResponsesEventToChatChunks_TopLevelTerminalUsage(t *testing.T) {
 	assert.Equal(t, 4, chunks[1].Usage.PromptTokensDetails.CachedTokens)
 }
 
+// Top-level evt.Usage path must preserve OutputTokensDetails.ReasoningTokens —
+// some compat upstreams put usage at the top level of the terminal event
+// rather than nested under response.usage, and clients still need
+// completion_tokens_details.reasoning_tokens for transparency.
+func TestResponsesEventToChatChunks_TopLevelTerminalUsageReasoningTokens(t *testing.T) {
+	state := NewResponsesEventToChatState()
+	state.Model = "gpt-5.4"
+	state.IncludeUsage = true
+
+	chunks := ResponsesEventToChatChunks(&ResponsesStreamEvent{
+		Type: "response.completed",
+		Response: &ResponsesResponse{
+			Status: "completed",
+		},
+		Usage: &ResponsesUsage{
+			InputTokens:  10,
+			OutputTokens: 300,
+			TotalTokens:  310,
+			OutputTokensDetails: &ResponsesOutputTokensDetails{
+				ReasoningTokens: 256,
+			},
+		},
+	}, state)
+	require.Len(t, chunks, 2)
+	require.NotNil(t, chunks[1].Usage)
+	require.NotNil(t, chunks[1].Usage.CompletionTokensDetails)
+	assert.Equal(t, 256, chunks[1].Usage.CompletionTokensDetails.ReasoningTokens)
+}
+
 func TestResponsesEventToChatChunks_ResponseDoneIncomplete(t *testing.T) {
 	state := NewResponsesEventToChatState()
 	state.Model = "gpt-4o"

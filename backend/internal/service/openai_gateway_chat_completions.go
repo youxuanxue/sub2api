@@ -512,6 +512,9 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 		}
 		refusalDetector.ObservePayload([]byte(payload))
 
+		// Nested evt.Response.Usage takes precedence over top-level evt.Usage:
+		// upstream's spec puts usage under response.usage; some compat upstreams
+		// duplicate it at the top level. When both are present, nested overrides.
 		isTerminalEvent := isOpenAICompatResponsesTerminalEvent(event.Type)
 		if isTerminalEvent {
 			if event.Usage != nil {

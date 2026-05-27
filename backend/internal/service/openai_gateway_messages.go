@@ -857,7 +857,9 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			}
 		}
 
-
+		// Nested evt.Response.Usage takes precedence over top-level evt.Usage:
+		// upstream's spec puts usage under response.usage; some compat upstreams
+		// duplicate it at the top level. When both are present, nested wins.
 		isTerminalEvent := isOpenAICompatResponsesTerminalEvent(event.Type)
 		if isTerminalEvent {
 			if event.Response != nil {
