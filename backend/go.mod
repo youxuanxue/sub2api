@@ -216,7 +216,7 @@ require (
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.2.12 // indirect
-	github.com/waffo-com/waffo-pancake-sdk-go v0.2.0 // indirect
+	github.com/waffo-com/waffo-pancake-sdk-go v0.3.1 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/yapingcat/gomedia v0.0.0-20240906162731-17feea57090c // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
