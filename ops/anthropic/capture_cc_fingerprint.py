@@ -7,6 +7,9 @@ against live repo constants (constants.go, identity_service*, tk_canonical JSON)
 Subcommands:
   diff    Compare --bundle to TokenKey baseline; human report on stdout.
   check   Same as diff but exits 1 when actionable mismatches exist.
+  check-env  Verify cc0-here / claude0-here launchers and proxy stack are up.
+  check-tls  Exit 1 when bundle TLS ja3 fields mismatch TokenKey baseline.
+  write-drift-spec  Write docs/spec-delta-cc-tls-drift-*.md from a drift bundle.
   bundle-from-artifacts  Build bundle JSON from TLS capture + HTTP log files.
 
 stdlib-only except when invoked as __main__ with no network.
@@ -15,7 +18,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import shutil
+import socket
+import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -51,6 +58,13 @@ class DiffRow:
     status: str  # match | mismatch | missing_capture | missing_tokenkey
     critical: bool
     note: str = ""
+
+
+@dataclass(frozen=True)
+class EnvCheckRow:
+    component: str
+    status: str  # ok | fail | warn | skip
+    detail: str = ""
 
 
 def _read_text(path: Path) -> str:
@@ -119,7 +133,8 @@ def load_tokenkey_baseline(repo_root: Path | None = None) -> dict[str, Any]:
     constants_src = _read_text(root / CONSTANTS_GO.relative_to(REPO_ROOT))
     canonical_src = _read_text(root / IDENTITY_CANONICAL_GO.relative_to(REPO_ROOT))
     identity_src = _read_text(root / IDENTITY_GO.relative_to(REPO_ROOT))
-    tls_profile = json.loads(_read_text(root / TLS_PROFILE_JSON.relative_to(REPO_ROOT)))
+    tls_profile_path = root / TLS_PROFILE_JSON.relative_to(REPO_ROOT)
+    tls_profile = json.loads(_read_text(tls_profile_path))
 
     mimic_ua = _extract_map_string(constants_src, "User-Agent")
     observed = tls_profile.get("observed") or {}
@@ -391,6 +406,333 @@ def has_actionable_mismatch(rows: list[DiffRow]) -> bool:
     return any(r.status == "mismatch" and r.critical for r in rows)
 
 
+def has_tls_mismatch(rows: list[DiffRow]) -> bool:
+    return any(
+        r.field.startswith("tls.") and r.status == "mismatch" for r in rows
+    )
+
+
+def _tcp_open(host: str, port: int, *, timeout: float = 2.0) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _parse_host_port(endpoint: str, *, default_host: str) -> tuple[str, int]:
+    if ":" not in endpoint:
+        raise ValueError(f"expected host:port, got {endpoint!r}")
+    host, port_s = endpoint.rsplit(":", 1)
+    host = host.strip() or default_host
+    return host, int(port_s)
+
+
+def _launcher_path(name: str) -> Path:
+    local = Path.home() / ".local" / "bin" / name
+    if local.is_file() and os.access(local, os.X_OK):
+        return local
+    found = shutil.which(name)
+    if found:
+        return Path(found)
+    return local
+
+
+def _curl_ipify_via_proxy(proxy_url: str, *, timeout: int = 8) -> str:
+    proc = subprocess.run(
+        [
+            "curl",
+            "-fsS",
+            "--max-time",
+            str(timeout),
+            "--proxy",
+            proxy_url,
+            "https://api.ipify.org",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError((proc.stderr or proc.stdout or "curl failed").strip())
+    return proc.stdout.strip()
+
+
+def _claude_desktop_proxy_argv() -> tuple[bool, str]:
+    if sys.platform != "darwin":
+        return False, "Claude Desktop check is macOS-only"
+    proc = subprocess.run(
+        ["pgrep", "-x", "Claude"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        return False, "Claude.app is not running (start with claude0-here)"
+    pid = (proc.stdout or "").strip().splitlines()[0]
+    ps = subprocess.run(
+        ["ps", "-p", pid, "-ww", "-o", "command="],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    cmd = (ps.stdout or "").strip()
+    if "--proxy-server" not in cmd or "--disable-quic" not in cmd:
+        return (
+            False,
+            "Claude running without claude0-here proxy flags (--proxy-server, --disable-quic)",
+        )
+    return True, f"PID {pid} uses claude0-here Chromium proxy flags"
+
+
+def run_check_env(
+    *,
+    relax_desktop: bool = False,
+    skip_egress: bool = False,
+) -> list[EnvCheckRow]:
+    """Verify cc0-here (CLI proxy stack) and claude0-here (Desktop) readiness."""
+    rows: list[EnvCheckRow] = []
+    env_file = Path.home() / ".config" / "cc0" / "env"
+    if env_file.is_file():
+        rows.append(EnvCheckRow("cc0.env", "ok", str(env_file)))
+    else:
+        rows.append(
+            EnvCheckRow(
+                "cc0.env",
+                "warn",
+                f"missing {env_file} (using defaults)",
+            )
+        )
+
+    socks = os.environ.get("CC0_SOCKS5", "127.0.0.1:1093")
+    gost_host = os.environ.get("CC0_GOST_HTTP_HOST", "127.0.0.1")
+    gost_port = int(os.environ.get("CC0_GOST_HTTP_PORT", "11800"))
+    expect_ip = os.environ.get("CC0_EXPECT_EGRESS_IP", "13.134.80.182")
+    try:
+        socks_host, socks_port = _parse_host_port(socks, default_host="127.0.0.1")
+    except ValueError as exc:
+        rows.append(EnvCheckRow("cc0.socks", "fail", str(exc)))
+        socks_host, socks_port = "127.0.0.1", 1093
+
+    for label, name in (("cc0-here", "cc0-here"), ("claude0-here", "claude0-here")):
+        path = _launcher_path(name)
+        if path.is_file() and os.access(path, os.X_OK):
+            rows.append(EnvCheckRow(label, "ok", str(path)))
+        else:
+            rows.append(EnvCheckRow(label, "fail", f"not executable: {path}"))
+
+    if _tcp_open(socks_host, socks_port):
+        rows.append(EnvCheckRow("cc0.socks", "ok", f"listening {socks_host}:{socks_port}"))
+    else:
+        rows.append(
+            EnvCheckRow(
+                "cc0.socks",
+                "fail",
+                f"no listener on {socks_host}:{socks_port} (fingerprint browser SOCKS)",
+            )
+        )
+
+    gost_url = f"http://{gost_host}:{gost_port}"
+    if _tcp_open(gost_host, gost_port):
+        rows.append(EnvCheckRow("cc0.gost", "ok", f"listening {gost_url}"))
+    else:
+        rows.append(
+            EnvCheckRow(
+                "cc0.gost",
+                "fail",
+                f"no listener on {gost_url} (run cc0-here once or cc0-gost)",
+            )
+        )
+
+    if shutil.which("curl") and _tcp_open(gost_host, gost_port):
+        try:
+            observed = _curl_ipify_via_proxy(gost_url)
+            if skip_egress:
+                rows.append(
+                    EnvCheckRow(
+                        "cc0.egress",
+                        "skip",
+                        f"observed {observed} (egress check skipped)",
+                    )
+                )
+            elif observed == expect_ip:
+                rows.append(
+                    EnvCheckRow("cc0.egress", "ok", f"egress {observed} via gost")
+                )
+            else:
+                rows.append(
+                    EnvCheckRow(
+                        "cc0.egress",
+                        "fail",
+                        f"egress {observed} != expected {expect_ip}",
+                    )
+                )
+        except RuntimeError as exc:
+            rows.append(EnvCheckRow("cc0.egress", "fail", str(exc)))
+    elif not shutil.which("curl"):
+        rows.append(EnvCheckRow("cc0.egress", "skip", "curl not installed"))
+    else:
+        rows.append(EnvCheckRow("cc0.egress", "skip", "gost not listening"))
+
+    ok_desktop, detail = _claude_desktop_proxy_argv()
+    if ok_desktop:
+        rows.append(EnvCheckRow("claude0-here.desktop", "ok", detail))
+    elif relax_desktop:
+        rows.append(EnvCheckRow("claude0-here.desktop", "warn", detail))
+    else:
+        rows.append(EnvCheckRow("claude0-here.desktop", "fail", detail))
+
+    return rows
+
+
+def format_check_env_report(rows: list[EnvCheckRow]) -> str:
+    lines = ["TokenKey cc fingerprint check-env"]
+    fail = sum(1 for r in rows if r.status == "fail")
+    warn = sum(1 for r in rows if r.status == "warn")
+    ok = sum(1 for r in rows if r.status == "ok")
+    lines.append(f"ok={ok} warn={warn} fail={fail}")
+    lines.append("")
+    for r in rows:
+        flag = {"ok": "OK", "fail": "FAIL", "warn": "WARN", "skip": "SKIP"}.get(
+            r.status, r.status.upper()
+        )
+        lines.append(f"{flag} {r.component}")
+        if r.detail:
+            lines.append(f"  {r.detail}")
+    return "\n".join(lines)
+
+
+def check_env_failed(rows: list[EnvCheckRow]) -> bool:
+    return any(r.status == "fail" for r in rows)
+
+
+def write_tls_drift_spec(
+    *,
+    bundle_path: Path,
+    repo_root: Path | None = None,
+    out_path: Path | None = None,
+) -> Path:
+    root = repo_root or REPO_ROOT
+    baseline = load_tokenkey_baseline(REPO_ROOT)
+    bundle = load_capture_bundle(bundle_path)
+    rows = diff_baseline_vs_capture(baseline, bundle)
+    report = format_diff_report(rows, capture_path=str(bundle_path))
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    cc_ver = bundle.get("cc_version") or "unknown"
+    out = out_path or (
+        repo_root / f"docs/spec-delta-cc-tls-drift-{stamp}.md"
+    )
+    cap_tls = bundle.get("tls") or {}
+    body = "\n".join(
+        [
+            "---",
+            "title: cc TLS drift (automated daily capture)",
+            f"cc_version: {cc_ver}",
+            f"bundle: {bundle_path.name}",
+            "status: draft",
+            "---",
+            "",
+            "# spec-delta: cc TLS drift (automated)",
+            "",
+            "## Background",
+            "",
+            "Daily `sessionStart` hook captured real cc TLS ClientHello and found",
+            "ja3 drift vs `deploy/aws/stage0/tk_canonical_cc_oauth.json`.",
+            "",
+            "## Delta",
+            "",
+            "- MODIFIED: TLS profile `tk_canonical_cc_oauth` (ja3 / cipher material)",
+            "- MODIFIED: HTTP constants if `canonical.user_agent_version` also drifted",
+            "",
+            "## Evidence (capture)",
+            "",
+            f"- ja3_hash (captured): `{cap_tls.get('ja3_hash', '')}`",
+            f"- ja3_hash (tokenkey): `{baseline['tls']['ja3_hash']}`",
+            f"- ja3_raw (captured): `{cap_tls.get('ja3_raw', '')}`",
+            "",
+            "## Diff report",
+            "",
+            "```text",
+            report,
+            "```",
+            "",
+            "## Validation",
+            "",
+            "- `bash ops/anthropic/capture-cc-fingerprint.sh capture`",
+            "- `ops/anthropic/manage-anthropic-config.py plan/apply/verify` on deployable edges",
+            "- `./scripts/preflight.sh`",
+            "",
+        ]
+    )
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(body, encoding="utf-8")
+    return out
+
+
+def cmd_check_env(args: argparse.Namespace) -> int:
+    rows = run_check_env(
+        relax_desktop=args.relax_desktop,
+        skip_egress=args.skip_egress,
+    )
+    if args.json:
+        payload = {
+            "ok": not check_env_failed(rows),
+            "rows": [
+                {"component": r.component, "status": r.status, "detail": r.detail}
+                for r in rows
+            ],
+        }
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print(format_check_env_report(rows))
+    return 1 if check_env_failed(rows) else 0
+
+
+def cmd_check_tls(args: argparse.Namespace) -> int:
+    baseline = load_tokenkey_baseline(Path(args.repo_root) if args.repo_root else None)
+    bundle = load_capture_bundle(Path(args.bundle))
+    rows = diff_baseline_vs_capture(baseline, bundle)
+    if args.json:
+        tls_rows = [r for r in rows if r.field.startswith("tls.")]
+        print(
+            json.dumps(
+                {
+                    "tls_mismatch": has_tls_mismatch(rows),
+                    "rows": [
+                        {
+                            "field": r.field,
+                            "status": r.status,
+                            "tokenkey": r.tokenkey,
+                            "captured": r.captured,
+                        }
+                        for r in tls_rows
+                    ],
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    else:
+        print(format_diff_report(rows, capture_path=str(args.bundle)))
+    return 1 if has_tls_mismatch(rows) else 0
+
+
+def cmd_write_drift_spec(args: argparse.Namespace) -> int:
+    root = Path(args.repo_root) if args.repo_root else REPO_ROOT
+    out = (
+        Path(args.out)
+        if args.out
+        else None
+    )
+    path = write_tls_drift_spec(
+        bundle_path=Path(args.bundle),
+        repo_root=root,
+        out_path=out,
+    )
+    print(path)
+    return 0
+
+
 def cmd_diff(args: argparse.Namespace) -> int:
     baseline = load_tokenkey_baseline(Path(args.repo_root) if args.repo_root else None)
     bundle = load_capture_bundle(Path(args.bundle))
@@ -447,6 +789,41 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--bundle", required=True)
     check.add_argument("--repo-root", default="")
     check.set_defaults(func=lambda a: cmd_diff(argparse.Namespace(**{**vars(a), "check": True})))
+
+    env = sub.add_parser(
+        "check-env",
+        help="Verify cc0-here / claude0-here launchers and proxy stack",
+    )
+    env.add_argument(
+        "--relax-desktop",
+        action="store_true",
+        help="Claude.app not running is WARN, not FAIL (hook / headless)",
+    )
+    env.add_argument(
+        "--skip-egress",
+        action="store_true",
+        help="Skip CC0_EXPECT_EGRESS_IP check",
+    )
+    env.add_argument("--json", action="store_true", help="Machine-readable report")
+    env.set_defaults(func=cmd_check_env)
+
+    tls = sub.add_parser(
+        "check-tls",
+        help="Exit 1 when bundle TLS ja3 mismatches TokenKey baseline",
+    )
+    tls.add_argument("--bundle", required=True)
+    tls.add_argument("--repo-root", default="")
+    tls.add_argument("--json", action="store_true")
+    tls.set_defaults(func=cmd_check_tls)
+
+    drift = sub.add_parser(
+        "write-drift-spec",
+        help="Write docs/spec-delta-cc-tls-drift-*.md from capture bundle",
+    )
+    drift.add_argument("--bundle", required=True)
+    drift.add_argument("--repo-root", default="")
+    drift.add_argument("--out", default="")
+    drift.set_defaults(func=cmd_write_drift_spec)
 
     bfa = sub.add_parser(
         "bundle-from-artifacts",

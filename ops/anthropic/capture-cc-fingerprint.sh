@@ -21,9 +21,12 @@ usage() {
   cat <<'EOF'
 Usage:
   capture-cc-fingerprint.sh capture [--http] [--out-dir DIR]
-  capture-cc-fingerprint.sh diff --bundle PATH [--check]
+  capture-cc-fingerprint.sh check env [--relax-desktop] [--skip-egress] [--json]
   capture-cc-fingerprint.sh check --bundle PATH
+  capture-cc-fingerprint.sh check-tls --bundle PATH [--json]
+  capture-cc-fingerprint.sh diff --bundle PATH [--check]
   capture-cc-fingerprint.sh show-baseline
+  capture-cc-fingerprint.sh daily-hook   # sessionStart: TLS capture + drift PR (internal)
 
 Environment (capture):
   CC0_USER_OVERLAY          cc0 overlay (default: ~/.cache/cc0/claude-user-overlay)
@@ -234,22 +237,45 @@ cmd_capture() {
   cleanup_work
 }
 
+cmd_check_env() {
+  require_cmd python3
+  local args=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --relax-desktop|--skip-egress|--json) args+=("$1"); shift ;;
+      *) echo "unknown check env arg: $1" >&2; usage; exit 1 ;;
+    esac
+  done
+  exec python3 "$PY" check-env "${args[@]}"
+}
+
 main() {
   local cmd="${1:-}"
   shift || true
   case "$cmd" in
     capture) cmd_capture "$@" ;;
+    check)
+      if [[ "${1:-}" == "env" ]]; then
+        shift
+        cmd_check_env "$@"
+      fi
+      require_cmd python3
+      exec python3 "$PY" check "$@"
+      ;;
+    check-tls)
+      require_cmd python3
+      exec python3 "$PY" check-tls "$@"
+      ;;
     diff)
       require_cmd python3
       exec python3 "$PY" diff "$@"
       ;;
-    check)
-      require_cmd python3
-      exec python3 "$PY" check "$@"
-      ;;
     show-baseline)
       require_cmd python3
       exec python3 "$PY" show-baseline "$@"
+      ;;
+    daily-hook)
+      exec bash "$SCRIPT_DIR/cc_fingerprint_daily_hook.sh"
       ;;
     -h|--help|"") usage ;;
     *) echo "unknown command: $cmd" >&2; usage; exit 1 ;;
