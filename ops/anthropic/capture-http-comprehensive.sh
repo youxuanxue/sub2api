@@ -122,14 +122,14 @@ for v, betas in sorted(by_variant.items()):
 PY
 
 # Pick last TLS bundle or run quick TLS - use latest tls-observed if exists
-tls_json="$(ls -t "$OUT_DIR"/*-cc-capture.tls-observed.json 2>/dev/null | head -1 || true)"
+tls_json="$(ls -t "$OUT_DIR"/*-cc-capture.tls-observed.json 2>/dev/null | head -1 || true)"  # preflight-allow: swallow
 if [[ -z "$tls_json" ]]; then
   echo "note: no tls-observed.json; run capture-cc-fingerprint.sh capture for TLS bundle" >&2
   exit 0
 fi
 
-cc_ver="$(jq -r '.cc_version // empty' "$(ls -t "$OUT_DIR"/*-cc-capture.bundle.json 2>/dev/null | head -1)" 2>/dev/null || true)"
-[[ -z "$cc_ver" ]] && cc_ver="$("$HOME/.local/bin/claude" --version 2>/dev/null | awk '{print $1}' || true)"
+cc_ver="$(jq -r '.cc_version // empty' "$(ls -t "$OUT_DIR"/*-cc-capture.bundle.json 2>/dev/null | head -1)" 2>/dev/null || true)"  # preflight-allow: swallow
+[[ -z "$cc_ver" ]] && cc_ver="$("$HOME/.local/bin/claude" --version 2>/dev/null | awk '{print $1}' || true)"  # preflight-allow: swallow
 
 bundle="$OUT_DIR/${stamp}-cc-capture.bundle.json"
 python3 "$PY" bundle-from-artifacts \
