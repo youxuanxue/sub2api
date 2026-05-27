@@ -79,12 +79,31 @@ if [[ -z "${_TK_SMOKE_LIB_LOADED:-}" ]]; then
             return 1
             ;;
           *"restricted to Claude Code clients"*|*"/v1/messages only"*)
+            # claude_code_only group policy: the configured Anthropic key is
+            # bound to a group that allows /v1/messages with a Claude Code UA
+            # only. Two cases:
+            #   main-via-edge suite — this branch should be unreachable
+            #     (smoke_suite_runs gates out non-messages sections), so a
+            #     claude_code_only hit here means the smoke runner itself is
+            #     misconfigured. Hard fail to surface the config bug.
+            #   full / quick suite — /v1/chat/completions against a
+            #     claude_code_only-restricted key is policy-correct rejection,
+            #     not a control-plane regression. The /v1/messages section
+            #     (Claude Code UA) still runs and is the canonical signal for
+            #     this key's group. Soft-skip with a warning.
             if [[ "${GATEWAY_SMOKE_SUITE}" == "main-via-edge" ]]; then
               echo "::error::tk_post_deploy_smoke: ${label} returned HTTP ${http} — main-via-edge must use /v1/messages with a Claude Code User-Agent, not /v1/chat/completions." >&2
+              echo "tk_post_deploy_smoke: ${label} failed" >&2
+              jq . "${resp_file}" >&2 2>/dev/null || cat "${resp_file}" >&2
+              exit 1
             fi
-            echo "tk_post_deploy_smoke: ${label} failed" >&2
+            echo "::warning::tk_post_deploy_smoke: ${label} returned HTTP ${http} — configured key is bound to a Claude Code-only group (claude_code_only policy); /v1/messages section will cover this key. Soft-skipped." >&2
+            if [[ -n "${err_msg}" ]]; then
+              echo "  gateway message: ${err_msg}" >&2
+            fi
             jq . "${resp_file}" >&2 2>/dev/null || cat "${resp_file}" >&2
-            exit 1
+            echo "tk_post_deploy_smoke: ${label} section soft-skipped (claude_code_only policy; /v1/messages probe is the canonical signal)"
+            return 1
             ;;
           *)
             echo "tk_post_deploy_smoke: ${label} failed" >&2
