@@ -8,7 +8,10 @@ CAPTURE_SH="$SCRIPT_DIR/capture-cc-fingerprint.sh"
 PY="$SCRIPT_DIR/capture_cc_fingerprint.py"
 PR_SH="$SCRIPT_DIR/cc_fingerprint_open_tls_drift_pr.sh"
 OUT_DIR="${TOKENKEY_CC_CAPTURE_OUT_DIR:-$REPO_ROOT/.tls_list}"
-STATE_FILE="$OUT_DIR/.cc-fingerprint-daily-last"
+# STATE_FILE lives outside any single worktree so the once-per-UTC-day lock
+# is shared across multiple sub2api checkouts / worktrees on the same host.
+STATE_DIR="${TOKENKEY_CC_DAILY_STATE_DIR:-$HOME/.cache/tokenkey}"
+STATE_FILE="$STATE_DIR/cc-fingerprint-daily-last"
 LOG_FILE="$OUT_DIR/cc-fingerprint-daily-hook.log"
 ALERT_FILE="$OUT_DIR/cc-fingerprint-drift-alert.json"
 
@@ -16,7 +19,7 @@ log() {
   echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*" | tee -a "$LOG_FILE"
 }
 
-mkdir -p "$OUT_DIR"
+mkdir -p "$OUT_DIR" "$STATE_DIR"
 : >>"$LOG_FILE"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
