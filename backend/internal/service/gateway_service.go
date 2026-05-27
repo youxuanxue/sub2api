@@ -4490,7 +4490,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	// TK canonical-OAuth ingress gates (see gateway_service_tk_canonical_oauth_guard.go):
 	//   1. reject third-party SDK UAs that would silently drain a personal cc subscription
 	//   2. remap retired opus model ids to the current default so the upstream model mix
-	//      stays consistent with what real claude-cli/2.1.150 produces
+	//      stays consistent with what real claude-cli/2.1.152 produces
 	// Scoped to anthropic OAuth + canonical TLS profile only.
 	if c != nil && s.isCanonicalAnthropicOAuth(account) {
 		if err := checkCanonicalIngressUA(c.Request.Header); err != nil {
@@ -6369,7 +6369,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 			// this as a legitimate Claude Code request; without it, the request is
 			// rejected as third-party ("out of extra usage").
 			// Haiku models are exempt from third-party detection and don't need it.
-			requiredBetas := []string{claude.BetaOAuth, claude.BetaInterleavedThinking}
+			requiredBetas := claude.FullClaudeCodeHaikuMimicryBetas()
 			if !strings.Contains(strings.ToLower(modelID), "haiku") {
 				requiredBetas = claude.FullClaudeCodeMimicryBetas()
 			}
