@@ -104,6 +104,9 @@ Run after PR #423 merges and on each deployable edge (prod + edge matrix):
 ### Automated (CI / preflight)
 
 ```bash
+bash ops/anthropic/capture-cc-fingerprint.sh capture          # TLS collector → bundle → diff
+bash ops/anthropic/capture-cc-fingerprint.sh capture --http   # + cc0-here mitm beta/stainless
+python3 ops/anthropic/capture_cc_fingerprint.py check --bundle .tls_list/*-cc-capture.bundle.json
 go test -tags=unit ./internal/pkg/claude/... -run 'TestFullClaudeCode'
 go test -tags=unit ./internal/service/... -run 'TestFullClaudeCode|TestGatewayService_getBetaHeader|TestNormalizeClaudeOAuthRequestBody_Haiku'
 python3 scripts/sentinels/check-gateway-tk.py   # or full ./scripts/preflight.sh
