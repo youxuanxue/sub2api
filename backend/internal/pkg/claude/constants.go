@@ -125,7 +125,7 @@ var DefaultHeaders = map[string]string{
 	// that Claude Code-scoped OAuth credentials are rejected as "non-CLI" usage.
 	"User-Agent":                                "claude-cli/2.1.152 (external, cli)",
 	"X-Stainless-Lang":                          "js",
-	"X-Stainless-Package-Version":               "0.70.0",
+	"X-Stainless-Package-Version":               "0.94.0",
 	"X-Stainless-OS":                            "Linux",
 	"X-Stainless-Arch":                          "arm64",
 	"X-Stainless-Runtime":                       "node",

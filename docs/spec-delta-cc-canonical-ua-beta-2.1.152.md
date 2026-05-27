@@ -35,6 +35,7 @@ Related TK docs: `docs/accounts/anthropic-oauth-edge-guidelines.md`. Prior mimic
 - `FullClaudeCodeMimicryBetas()` Sonnet/Opus set: **10 tokens**, order matches cc 2.1.152; adds advisor / advanced-tool-use / cache-diagnosis.
 - `DefaultBetaHeader`, `HaikuBetaHeader`: rebuilt from the new mimicry functions (no `fine-grained-tool-streaming` on OAuth paths).
 - OAuth mimic path (`gateway_service.go`): Haiku uses `FullClaudeCodeHaikuMimicryBetas()` instead of `{oauth, interleaved}` only.
+- Mimic `DefaultHeaders` / default fingerprint `X-Stainless-Package-Version`: **0.70.0 → 0.94.0** (matches cc 2.1.152 capture; canonical path already 0.94.0).
 - Smoke default UA: `ops/stage0/smoke_lib.sh` → `claude-cli/2.1.152 (external, sdk-cli)`.
 - TLS profile snapshot text: `deploy/aws/stage0/tk_canonical_cc_oauth.json`, tier baseline description strings.
 
@@ -116,5 +117,6 @@ python3 scripts/sentinels/check-gateway-tk.py   # or full ./scripts/preflight.sh
 
 ### Evidence pointers
 
-- cc0 mitm capture session (2026-05-27): Sonnet/Opus 10-token beta list; Haiku 8-token list; TLS ClientHello unchanged vs 2.1.142 profile.
+- **cc 2.1.152 cc0 mitm** (2026-05-27, gost → api.anthropic.com `/v1/messages`): Haiku `anthropic-beta` 8-token capture order; `X-Stainless-Package-Version: 0.94.0` (not 0.70.0); Sonnet/Opus 10-token beta list.
+- **cc 2.1.152 TLS collector** (2026-05-27, `tls.sub2api.org:8090`): `ja3_hash=d871d02cecbde59abbf8f4806134addf`, `ja3_raw=771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49161-49171-49162-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-21,29-23-24,0` — **identical** to cc 2.1.142 / 2.1.150 captures in `.tls_list/`; no DB TLS profile migration.
 - us1 Phase 0: unset admin setting → compile default 2.1.150; ingress mix 2.1.150 / 2.1.152 on same account.
