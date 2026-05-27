@@ -146,7 +146,12 @@ def main() -> int:
     src = Path(sys.argv[1])
     dst = Path(sys.argv[2])
     entries = []
-    for line in src.read_text(encoding="utf-8").splitlines():
+    # Split only on "\n" (the producer separator), NOT str.splitlines(): the
+    # latter also breaks on Unicode line boundaries (U+2028/U+2029/U+0085),
+    # which json.dumps(ensure_ascii=False) keeps raw inside string values — an
+    # upstream issue title/body containing U+2028 would otherwise split one
+    # valid JSON record across "lines" and raise "Unterminated string".
+    for line in src.read_text(encoding="utf-8").split("\n"):
         if not line.strip():
             continue
         entries.append(classify(json.loads(line)))
