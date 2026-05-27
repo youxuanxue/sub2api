@@ -104,14 +104,22 @@ python3 ops/anthropic/capture_cc_fingerprint.py check --bundle .tls_list/…-cc-
 bash ops/anthropic/capture-cc-fingerprint.sh check-tls --bundle .tls_list/….bundle.json
 ```
 
-### 2.4 HTTP mitm 与 cc0 链
+### 2.4 HTTP mitm 链（已修复）
 
-`cc0-here` **禁止**覆盖 `HTTP_PROXY`（必须指向 gost）。HTTP 采集应：
+默认路径 **`ops/anthropic/http_capture_invoke.sh`**（`capture --http` 自动调用）：
 
-- mitm 监听 `11803`，upstream = 真实 gost `11800`；或
-- 设 `CC0_GOST_HTTP_PORT=11803` 且 `CC0_SKIP_EGRESS_CHECK=1` 让 cc0 经 mitm（需 Node 信任 mitm CA，当前 cc0 未转发 `NODE_EXTRA_CA_CERTS`）。
+```text
+plain claude + CC0_USER_OVERLAY OAuth
+  → mitm :11803 (log anthropic-beta)
+  → gost :11800
+  → SOCKS :1093
+  → egress
+```
 
-在 sub2api 仓库 cwd 内短 prompt 可能不走 `/v1/messages`；HTTP 探测请 `cd /tmp`。
+- 在 **`/tmp`** 下发起请求，避免 sub2api 仓库 SessionStart 短路。
+- 使用 `NODE_EXTRA_CA_CERTS` + `NODE_TLS_REJECT_UNAUTHORIZED=0`（**不走 cc0-here**，因 cc0 白名单不转发 CA）。
+- 采集前 `check env` 会校验 gost 在 `CC0_GOST_HTTP_PORT` 监听。
+- 覆盖 launcher：`CC0_HTTP_CLAUDE_BIN=/path/to/custom`（默认 `http_capture_invoke.sh`）。
 
 ## 3) 解读 diff 报告
 
@@ -149,7 +157,7 @@ python3 -m unittest discover -s ops/anthropic -p 'test_capture_cc_fingerprint.py
 - 未抓包就改 beta / stainless
 - 从旧 patch 推断 ja3
 - ja3 变了却只改 HTTP 常量
-- 用 `cc0-here` 时强塞 `HTTP_PROXY=mitm` 而不改 `CC0_GOST_HTTP_PORT`
+- 用 `cc0-here` 直接做 HTTP mitm（应走 `http_capture_invoke.sh`）
 
 ## 7) 流程图
 

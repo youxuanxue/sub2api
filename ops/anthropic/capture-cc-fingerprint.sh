@@ -7,6 +7,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PY="$SCRIPT_DIR/capture_cc_fingerprint.py"
 MITM_ADDON="$SCRIPT_DIR/mitm_cc_http_headers.py"
+HTTP_INVOKE="$SCRIPT_DIR/http_capture_invoke.sh"
 
 COLLECTOR_ORIGIN="${TOKENKEY_TLS_PROFILE_COLLECTOR_ORIGIN:-https://tls.sub2api.org}"
 COLLECTOR_API_ORIGIN="${TOKENKEY_TLS_PROFILE_COLLECTOR_API_ORIGIN:-https://tls.sub2api.org}"
@@ -35,8 +36,10 @@ Environment (capture):
   CLAUDE_BIN                TLS 采集用 claude（默认 ~/.local/bin/claude）；HTTP 用 cc0-here
   CC0_HTTP_CLAUDE_BIN       覆盖 HTTP mitm 路径的 launcher（默认 cc0-here）
   TOKENKEY_CC_CAPTURE_MODEL / TOKENKEY_CC_CAPTURE_SONNET_MODEL
+  TOKENKEY_CC_HTTP_CAPTURE_PROMPT  HTTP probe prompt (default: Say only the word PONG)
 
-Requires: python3, jq, curl, claude CLI. HTTP capture also needs mitmdump + cc0 gost chain.
+Requires: python3, jq, curl, claude CLI. HTTP capture also needs mitmdump + gost on CC0_GOST_HTTP_PORT
+  (mitm upstream -> gost -> SOCKS). Uses http_capture_invoke.sh (plain claude + overlay OAuth).
 EOF
 }
 
@@ -64,16 +67,43 @@ resolve_claude_bin() {
   exit 1
 }
 
-resolve_http_claude_bin() {
+resolve_http_invoke() {
   if [[ -n "${CC0_HTTP_CLAUDE_BIN:-}" ]]; then
     echo "$CC0_HTTP_CLAUDE_BIN"
     return
   fi
-  if command -v cc0-here >/dev/null 2>&1; then
-    echo "cc0-here"
+  if [[ -x "$HTTP_INVOKE" ]]; then
+    echo "$HTTP_INVOKE"
     return
   fi
-  resolve_claude_bin
+  echo "error: HTTP capture invoke script missing: $HTTP_INVOKE" >&2
+  exit 1
+}
+
+_cc0_port_open() {
+  local host="$1" port="$2"
+  python3 - "$host" "$port" <<'PY' 2>/dev/null
+import socket, sys
+host, port = sys.argv[1], int(sys.argv[2])
+s = socket.socket()
+s.settimeout(2)
+try:
+    s.connect((host, port))
+except OSError:
+    raise SystemExit(1)
+finally:
+    s.close()
+PY
+}
+
+require_gost_for_http() {
+  local host="${CC0_GOST_HTTP_HOST:-127.0.0.1}"
+  local port="${CC0_GOST_HTTP_PORT:-11800}"
+  if _cc0_port_open "$host" "$port"; then
+    return 0
+  fi
+  echo "error: gost not listening on http://${host}:${port} (start cc0-here or cc0-gost)" >&2
+  exit 1
 }
 
 run_tls_capture() {
@@ -132,18 +162,24 @@ run_http_capture() {
   local http_log="$work/http.log"
   local ca="${HOME}/.mitmproxy/mitmproxy-ca-cert.pem"
   local mitm_pid=""
-  local claude_bin
-  claude_bin="$(resolve_http_claude_bin)"
+  local http_invoke
+  http_invoke="$(resolve_http_invoke)"
 
   require_cmd mitmdump
+  require_gost_for_http
   if [[ ! -f "$ca" ]]; then
     echo "error: mitm CA missing at $ca — run mitmdump once to generate" >&2
+    exit 1
+  fi
+  if [[ ! -x "$http_invoke" ]]; then
+    echo "error: HTTP invoke not executable: $http_invoke" >&2
     exit 1
   fi
 
   pkill -f "mitmdump.*${MITM_PORT}" 2>/dev/null || true  # preflight-allow: swallow
   sleep 1
   : >"$http_log"
+  # Chain: claude -> mitm (log headers) -> gost (CC0_GOST_HTTP_PORT) -> SOCKS -> egress
   CC_CAPTURE_HTTP_LOG="$http_log" \
     mitmdump --mode "upstream:http://127.0.0.1:${GOST_PORT}" \
     -s "$MITM_ADDON" --listen-port "$MITM_PORT" \
@@ -151,20 +187,9 @@ run_http_capture() {
   mitm_pid=$!
   sleep 2
 
-  local proxy="http://127.0.0.1:${MITM_PORT}"
-  local overlay="${CC0_USER_OVERLAY:-$HOME/.cache/cc0/claude-user-overlay}"
-
   run_one_http() {
     local model="$1"
-    env -i \
-      PATH="$PATH" HOME="$HOME" TERM="${TERM:-xterm}" SHELL="${SHELL:-/bin/sh}" \
-      CLAUDE_CONFIG_DIR="$overlay" \
-      HTTP_PROXY="$proxy" HTTPS_PROXY="$proxy" \
-      http_proxy="$proxy" https_proxy="$proxy" \
-      NO_PROXY="127.0.0.1,localhost" no_proxy="127.0.0.1,localhost" \
-      NODE_EXTRA_CA_CERTS="$ca" \
-      "$claude_bin" -p 'Reply OK' --model "$model" --max-budget-usd 0.15 --output-format text \
-      </dev/null >"$work/claude-${model##*-}.out" 2>"$work/claude-${model##*-}.err" || true  # preflight-allow: swallow
+    "$http_invoke" --mitm-port "$MITM_PORT" --model "$model" --work-dir "$work" || true  # preflight-allow: swallow
   }
 
   run_one_http "$MODEL"
@@ -174,7 +199,8 @@ run_http_capture() {
   wait "$mitm_pid" 2>/dev/null || true  # preflight-allow: swallow
 
   if ! grep -q '"anthropic_beta"' "$http_log" 2>/dev/null; then
-    echo "error: HTTP mitm log empty — check gost on port $GOST_PORT and cc0-here OAuth" >&2
+    echo "error: HTTP mitm log empty — run 'check env', ensure gost+OAuth overlay, retry from neutral cwd" >&2
+    sed -n '1,6p' "$work/claude-"*.err 2>/dev/null | sed 's/^/  /' >&2 || true  # preflight-allow: swallow
     exit 1
   fi
   echo "$http_log"
