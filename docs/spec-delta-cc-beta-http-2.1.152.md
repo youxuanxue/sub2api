@@ -4,32 +4,41 @@
 
 HTTP mitm capture (`capture --http` via `http_capture_invoke.sh`) on cc 2.1.152
 shows the Sonnet OAuth mimic `anthropic-beta` set no longer carries `effort`.
-Two independent captures (06:30Z pre-#427 chain, and 08:50Z/08:53Z on the
-merged #427 chain) agree on the Sonnet token set, so the drop is stable.
+Every capture taken (06:30Z pre-#427 chain, plus 11 captures on the merged #427
+chain) agrees on the Sonnet token set, so the drop is stable and unimodal.
 
 ## Delta
 
 - MODIFIED: `FullClaudeCodeMimicryBetas()` / `DefaultBetaHeader` — Sonnet without `effort`
 
-## Haiku deliberately NOT changed (scope cut)
+## Haiku deliberately NOT changed — it is bimodal (scope cut)
 
-An earlier draft of this work also rewrote the Haiku mimic set (drop
-`claude-code` + `extended-cache-ttl`, add `structured-outputs`) based on a
-single pre-#427 capture (`20260527T063010Z`). That change was dropped because
-it is **not reproducible** on the canonical post-#427 capture chain:
+An earlier draft also rewrote the Haiku mimic set (drop `claude-code` +
+`extended-cache-ttl`, add `structured-outputs`) from a single capture. That was
+dropped because cc 2.1.152 Haiku emits **two different beta sets that alternate**
+across captures on the same canonical chain:
 
-- `20260527T085040Z` and `20260527T085322Z` (two consecutive captures on the
-  merged #427 HTTP chain) both return the **8-token** Haiku set
-  (`oauth, interleaved-thinking, context-management, prompt-caching-scope,
-  claude-code-20250219, advisor-tool, extended-cache-ttl-2025-04-11,
-  cache-diagnosis`) — identical to the current repo baseline.
-- The `structured-outputs` 7-token Haiku set appears **only** in the single
-  pre-#427 `20260527T063010Z` bundle.
+- **Variant A (8 tokens)**: `oauth, interleaved-thinking, context-management,
+  prompt-caching-scope, claude-code-20250219, advisor-tool,
+  extended-cache-ttl-2025-04-11, cache-diagnosis` — the current repo baseline.
+- **Variant B (7 tokens)**: `oauth, interleaved-thinking, context-management,
+  prompt-caching-scope, advisor-tool, structured-outputs-2025-12-15,
+  cache-diagnosis` — what #428 originally aligned to.
 
-Changing Haiku to the non-reproducible set would drift mimicry away from
-observed real traffic. Re-investigate before touching Haiku: whether the
-pre-#427 chain invoked Haiku via a different request path, or whether cc emits
-request-dependent Haiku beta sets.
+Measured distribution over 11 post-#427 captures (same prompt, same model,
+`http_capture_invoke.sh`): **A ≈ 7, B ≈ 4** (~60/40). Both are real, current cc
+traffic. Sonnet never varied across the same runs.
+
+A single `HaikuBetaHeader` constant cannot match a bimodal distribution: picking
+A mismatches ~40% of real Haiku traffic, picking B mismatches ~60%. Swapping
+main A → #428 B does not reduce drift, it only changes which half mismatches.
+
+**Likely root cause (to confirm before any Haiku alignment):** cc fires more
+than one Haiku request per session (e.g. the main response plus a background
+task such as title generation), each with its own beta set, and the capture
+records one per run (last-wins by model). If so, "the canonical Haiku beta set"
+is ill-defined until the capture tool records *all* Haiku requests per session
+instead of last-wins — that tooling gap should be closed first.
 
 ## Scenarios
 
@@ -47,5 +56,6 @@ bash ops/anthropic/capture-cc-fingerprint.sh capture --http
 python3 ops/anthropic/capture_cc_fingerprint.py check --bundle .tls_list/*-cc-capture.bundle.json
 ```
 
-Evidence bundles (local, gitignored): `20260527T063010Z` (pre-#427, Haiku divergent),
-`20260527T085040Z` / `20260527T085322Z` (post-#427, Sonnet drop confirmed, Haiku stable).
+Evidence bundles (local, gitignored): Sonnet drop confirmed on every capture;
+Haiku variant A in `20260527T085040Z` / `20260527T085322Z`, variant B in
+`20260527T063010Z` / `20260527T090751Z` (and alternating thereafter).
