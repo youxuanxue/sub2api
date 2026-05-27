@@ -60,6 +60,7 @@ TOKENKEY_CC_DAILY_DRY_RUN=1 bash ops/anthropic/cc_fingerprint_open_tls_drift_pr.
 | 读取 TokenKey baseline | 机械 | `python3 ops/anthropic/capture_cc_fingerprint.py show-baseline` |
 | TLS collector 采集 ClientHello | 机械 | `bash ops/anthropic/capture-cc-fingerprint.sh capture` |
 | HTTP mitm 采集 `/v1/messages` headers | 机械 | `bash ops/anthropic/capture-cc-fingerprint.sh capture --http` |
+| 多请求 beta 一致性校验（haiku/sonnet/opus 各 N 次） | 机械 | `bash ops/anthropic/capture-http-comprehensive.sh` |
 | bundle 组装 + diff + `--check` 门禁 | 机械 | `capture_cc_fingerprint.py` / `check-tls` |
 | 每日 TLS 漂移开 PR | 机械 | `ops/anthropic/cc_fingerprint_open_tls_drift_pr.sh` |
 | Phase 0 ingress cohort / admin UA | 机械 | `ops/observability/run-probe.sh` + admin settings |
@@ -144,6 +145,17 @@ plain claude + CC0_USER_OVERLAY OAuth
 - 使用 `NODE_EXTRA_CA_CERTS` + `NODE_TLS_REJECT_UNAUTHORIZED=0`（**不走 cc0-here**，因 cc0 白名单不转发 CA）。
 - 采集前 `check env` 会校验 gost 在 `CC0_GOST_HTTP_PORT` 监听。
 - 覆盖 launcher：`CC0_HTTP_CLAUDE_BIN=/path/to/custom`（默认 `http_capture_invoke.sh`）。
+
+### 2.5 多请求 beta 一致性校验（可选，深查 beta 抖动）
+
+`capture --http` 是**单次**抓包做 diff/check。当怀疑 cc 对同一 model **跨请求**发出不一致的 `anthropic-beta`（灰度 / 分裂），用 comprehensive 跨 haiku/sonnet/opus 各跑 N 次并统计每族 beta 是否全一致：
+
+```bash
+bash ops/anthropic/capture-http-comprehensive.sh
+# 调整每族请求数：TOKENKEY_CC_CAPTURE_HAIKU_N / _SONNET_N / _OPUS_N（默认 3/3/2）
+```
+
+输出每个 model 族的 `N requests, M unique beta header(s)` + `OK/WARN`；末尾自动用最新 `tls-observed` bundle 跑一次 repo `diff` / `check`。复用 §2.4 同一条 mitm 链（gost + cc0 OAuth）。
 
 ## 3) 解读 diff 报告
 
