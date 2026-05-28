@@ -19,6 +19,9 @@ SQL):
   D. anthropic group Claude Code client restriction (Claude Code only)
      — per ``anthropic-group-claude-code-baselines.json`` (``claude_code_only: true``)
      — action.kind = ``anthropic_group_claude_code_only`` (one tx per edge + prod)
+  E. edge operator (``users.id=1``) balance floor
+     — per ``anthropic-edge-operator-balance-baselines.json``
+     — action.kind = ``edge_operator_balance`` (edge only; when live balance < threshold → default)
 
 Topology (which edges exist, and which prod stub maps to which edge) is read
 from ``deploy/aws/stage0/edge-targets.json`` (each edge's ``domain`` field
@@ -44,6 +47,8 @@ Stages
   3e. plan-group-claude-code-only — set claude_code_only=true on every
                                    anthropic group on each deployable edge
                                    and prod (admin UI: Claude Code only)
+  3f. plan-edge-operator-balance — top up edge users.id=1 balance when
+                                   live balance < min_balance_threshold
   4. apply    — render apply SQL from JSON, run via SSM, parse output
                (optional ``--sync-runtime`` post-step: settings UA + Redis
                fingerprint cache flush on affected edges + prod)
@@ -128,6 +133,9 @@ STUB_POOL_BASELINES = REPO_ROOT / "deploy/aws/stage0/anthropic-stub-pool-baselin
 GROUP_CLAUDE_CODE_BASELINES = (
     REPO_ROOT / "deploy/aws/stage0/anthropic-group-claude-code-baselines.json"
 )
+EDGE_OPERATOR_BALANCE_BASELINES = (
+    REPO_ROOT / "deploy/aws/stage0/anthropic-edge-operator-balance-baselines.json"
+)
 CANONICAL_UA_JSON = REPO_ROOT / "deploy/aws/stage0/tk_canonical_cc_oauth.json"
 RUNTIME_SYNC_SETTING_KEY = "claude_code_user_agent_version"
 OPS_DIR = REPO_ROOT / "ops/anthropic"
@@ -184,7 +192,7 @@ ROUTING_SPEC.loader.exec_module(_EDGE_ROUTING)
 CONFIRM_CODE = "yes-apply-anthropic-config-cascade"
 
 PLAN_VERSION = 4
-SNAPSHOT_VERSION = 5
+SNAPSHOT_VERSION = 6
 
 # After each OAuth tier-baseline apply on an edge Postgres, bump the operator
 # (admin/default) user's row concurrency to match Σ anthropic account concurrency
@@ -657,6 +665,38 @@ def _read_operator_concurrency(region: str, instance_id: str, label: str) -> dic
     }
 
 
+OPERATOR_BALANCE_SQL = f"""
+SELECT jsonb_build_object(
+  'operator_user_balance',
+    (SELECT balance::float8 FROM users
+      WHERE id = {ADMIN_OPERATOR_USER_CONCURRENCY_SYNC_ID} AND deleted_at IS NULL),
+  'operator_user_exists',
+    EXISTS(SELECT 1 FROM users WHERE id = {ADMIN_OPERATOR_USER_CONCURRENCY_SYNC_ID}
+      AND deleted_at IS NULL)
+);
+"""
+
+
+def _read_operator_balance(region: str, instance_id: str, label: str) -> dict:
+    """Pull users.id=1 balance for edge operator balance surface (E)."""
+    raw, _ = ssm_run_sql(region, instance_id, OPERATOR_BALANCE_SQL,
+                         f"snapshot: {label} operator balance")
+    try:
+        obj = json.loads(raw) if raw else {}
+    except json.JSONDecodeError:
+        obj = {}
+    bal = obj.get("operator_user_balance")
+    if bal is not None:
+        try:
+            bal = float(bal)
+        except (TypeError, ValueError):
+            bal = None
+    return {
+        "operator_user_balance": bal,
+        "operator_user_exists": bool(obj.get("operator_user_exists")),
+    }
+
+
 def cmd_snapshot(args: argparse.Namespace) -> int:
     edge_matrix = load_json_file(EDGE_MATRIX, "edge matrix")
     ls_targets = _EDGE_ROUTING.load_lightsail_targets(REPO_ROOT)
@@ -703,6 +743,7 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
             f"snapshot: edge {eid} anthropic groups",
         )
         op = _read_operator_concurrency(ident.region, ident.instance_id, f"edge {eid}")
+        bal = _read_operator_balance(ident.region, ident.instance_id, f"edge {eid}")
         edges[eid] = {
             "deployable": True,
             "instance_id": ident.instance_id,
@@ -714,6 +755,8 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
             "anthropic_groups": json.loads(groups_raw) if groups_raw else [],
             "operator_user_concurrency": op["operator_user_concurrency"],
             "schedulable_concurrency_sum": op["schedulable_concurrency_sum"],
+            "operator_user_balance": bal["operator_user_balance"],
+            "operator_user_exists": bal["operator_user_exists"],
         }
 
     prod_view: dict[str, Any]
@@ -784,19 +827,135 @@ def _run_guard(argv: list[str], description: str) -> dict[str, Any]:
     return out
 
 
+def _load_operator_balance_policy() -> dict:
+    """Parse anthropic-edge-operator-balance-baselines.json."""
+    raw = load_json_file(EDGE_OPERATOR_BALANCE_BASELINES, "edge operator balance baselines")
+    if not isinstance(raw, dict):
+        fail("edge operator balance baselines: top-level must be an object")
+    if raw.get("schema_version") != 1:
+        fail(f"edge operator balance baselines: schema_version {raw.get('schema_version')!r} != 1")
+    pol = raw.get("policy")
+    if not isinstance(pol, dict):
+        fail("edge operator balance baselines: policy must be an object")
+    uid = int(pol.get("operator_user_id", ADMIN_OPERATOR_USER_CONCURRENCY_SYNC_ID))
+    if uid != ADMIN_OPERATOR_USER_CONCURRENCY_SYNC_ID:
+        fail(f"edge operator balance baselines: operator_user_id must be {ADMIN_OPERATOR_USER_CONCURRENCY_SYNC_ID}")
+    try:
+        threshold = float(pol["min_balance_threshold"])
+        default_bal = float(pol["default_balance"])
+    except (KeyError, TypeError, ValueError) as e:
+        fail(f"edge operator balance baselines: invalid policy numbers: {e}")
+    if threshold < 0 or default_bal < threshold:
+        fail("edge operator balance baselines: default_balance must be >= min_balance_threshold")
+    return {
+        "operator_user_id": uid,
+        "min_balance_threshold": threshold,
+        "default_balance": default_bal,
+    }
+
+
+def _operator_balance_needs_top_up(live_balance: float | None, *, threshold: float) -> bool:
+    if live_balance is None:
+        return True
+    return float(live_balance) < float(threshold)
+
+
+def _balance_violations_from_snapshot(snap: dict, policy: dict) -> list[dict]:
+    """Surface E check: deployable edges whose operator balance is below threshold."""
+    threshold = policy["min_balance_threshold"]
+    out: list[dict] = []
+    for edge_id, edge in sorted(snap.get("edges", {}).items()):
+        if edge.get("error") or edge.get("skipped_reason") or not edge.get("deployable"):
+            continue
+        if edge.get("operator_user_exists") is False:
+            out.append({
+                "edge_id": edge_id,
+                "status": "error",
+                "reason": f"users.id={policy['operator_user_id']} missing",
+            })
+            continue
+        bal = edge.get("operator_user_balance")
+        if _operator_balance_needs_top_up(bal, threshold=threshold):
+            out.append({
+                "edge_id": edge_id,
+                "status": "violation",
+                "operator_user_balance": bal,
+                "min_balance_threshold": threshold,
+                "default_balance": policy["default_balance"],
+            })
+    return out
+
+
+def _run_balance_checks_live(edge_ids: list[str], policy: dict) -> list[dict]:
+    """Live SSM balance read per edge (used when check runs without a snapshot)."""
+    out: list[dict] = []
+    threshold = policy["min_balance_threshold"]
+    for eid in edge_ids:
+        try:
+            ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, eid)
+        except SystemExit:
+            out.append({"edge_id": eid, "status": "error", "reason": "could not resolve SSM instance"})
+            continue
+        live = _read_operator_balance(ident.region, ident.instance_id, f"edge {eid}")
+        if not live.get("operator_user_exists"):
+            out.append({
+                "edge_id": eid,
+                "status": "error",
+                "reason": f"users.id={policy['operator_user_id']} missing",
+            })
+            continue
+        bal = live.get("operator_user_balance")
+        if _operator_balance_needs_top_up(bal, threshold=threshold):
+            out.append({
+                "edge_id": eid,
+                "status": "violation",
+                "operator_user_balance": bal,
+                "min_balance_threshold": threshold,
+                "default_balance": policy["default_balance"],
+            })
+    return out
+
+
 def cmd_check(args: argparse.Namespace) -> int:
     snapshot = load_json_file(pathlib.Path(args.snapshot), "snapshot") if args.snapshot else None
     edge_ids = _edge_ids_for_check(snapshot, bool(args.allow_planned))
     report = _run_check_guards(edge_ids, bool(args.allow_planned))
+    policy = _load_operator_balance_policy()
+    if snapshot is not None:
+        if snapshot.get("version") != SNAPSHOT_VERSION:
+            fail(f"check --snapshot: version {snapshot.get('version')} != {SNAPSHOT_VERSION} "
+                 "(re-run snapshot for operator_user_balance)")
+        balance_items = _balance_violations_from_snapshot(snapshot, policy)
+    else:
+        balance_items = _run_balance_checks_live(edge_ids, policy)
+    balance_violation = any(x.get("status") == "violation" for x in balance_items)
+    balance_error = any(x.get("status") == "error" for x in balance_items)
+    report["operator_balance"] = {
+        "policy_source": EDGE_OPERATOR_BALANCE_BASELINES.name,
+        "min_balance_threshold": policy["min_balance_threshold"],
+        "default_balance": policy["default_balance"],
+        "violation_count": sum(1 for x in balance_items if x.get("status") == "violation"),
+        "error_count": sum(1 for x in balance_items if x.get("status") == "error"),
+        "items": balance_items,
+    }
+    report["any_violation"] = bool(report.get("any_violation")) or balance_violation or balance_error
     if args.json:
         print(json.dumps(report, indent=2, ensure_ascii=False))
     else:
         any_violation = report.get("any_violation")
-        print(f"check: any_violation={any_violation} guards_run={len(report.get('guards', []))} edges={edge_ids}")
+        print(f"check: any_violation={any_violation} guards_run={len(report.get('guards', []))} "
+              f"edges={edge_ids} balance_violations={report['operator_balance']['violation_count']}")
         for sr in report.get("guards", []):
             ec = sr.get("exit_code")
             status = "OK" if ec == 0 else (sr.get("skipped_reason", "?") if ec is None else f"FAIL exit={ec}")
             print(f"  [{status}] {sr.get('description')}")
+        for item in balance_items:
+            st = item.get("status")
+            if st == "violation":
+                print(f"  [BALANCE] edge={item['edge_id']} balance={item.get('operator_user_balance')} "
+                      f"< threshold={policy['min_balance_threshold']}")
+            elif st == "error":
+                print(f"  [BALANCE-ERR] edge={item['edge_id']}: {item.get('reason')}")
     return 1 if report.get("any_violation") else 0
 
 
@@ -1023,7 +1182,8 @@ def _load_snapshot_or_die(path: str) -> dict:
              f"v2 dropped that, v3 re-added a prod READ view + stub pool-mode WRITE; "
              f"v4 added per-target operator_user_concurrency + schedulable_concurrency_sum "
              f"for the concurrency-mirror surface; "
-             f"v5 added per-target anthropic_groups for group claude-code-only surface)")
+             f"v5 added per-target anthropic_groups for group claude-code-only surface; "
+             f"v6 added per-edge operator_user_balance + operator_user_exists for surface E)")
     return snap
 
 
@@ -1788,6 +1948,126 @@ def cmd_plan_group_claude_code_only(args: argparse.Namespace) -> int:
 
 
 # --------------------------------------------------------------------------
+# Stage 3f — plan-edge-operator-balance (surface E)
+# --------------------------------------------------------------------------
+
+def render_edge_operator_balance_sql(
+    balance: float,
+    *,
+    user_id: int = ADMIN_OPERATOR_USER_CONCURRENCY_SYNC_ID,
+) -> str:
+    """Set users.id=1 balance when below policy threshold (edge control planes only)."""
+    bal_lit = f"{float(balance):.8f}".rstrip("0").rstrip(".")
+    return (
+        f"-- Auto-generated by manage-anthropic-config.py at {now_utc_iso()}\n"
+        f"-- source of truth: {EDGE_OPERATOR_BALANCE_BASELINES.name}\n"
+        f"-- kind: edge_operator_balance\n"
+        "BEGIN;\n"
+        "DO $$\n"
+        "DECLARE rows int;\n"
+        "BEGIN\n"
+        f"  UPDATE users SET balance = {bal_lit}::numeric, updated_at = NOW()\n"
+        f"    WHERE id = {int(user_id)} AND deleted_at IS NULL;\n"
+        "  GET DIAGNOSTICS rows = ROW_COUNT;\n"
+        f"  IF rows = 0 THEN RAISE EXCEPTION 'users.id={int(user_id)} not found'; END IF;\n"
+        "END $$;\n"
+        f"SELECT id, balance::float8 AS after_balance FROM users "
+        f"WHERE id = {int(user_id)} AND deleted_at IS NULL;\n"
+        "COMMIT;\n"
+    )
+
+
+def _invalidate_operator_balance_cache(region: str, instance_id: str, user_id: int, label: str) -> bool:
+    """DEL billing:balance:{user_id} so the next read picks up the DB value."""
+    shell = (
+        "# Generated by manage-anthropic-config.py (post edge_operator_balance apply)\n"
+        "set -u\n"
+        "RC='env -u REDISCLI_AUTH sudo docker exec tokenkey-redis redis-cli'\n"
+        f"echo \"=== billing_balance_del user_id={user_id} ===\"\n"
+        f"$RC DEL \"billing:balance:{int(user_id)}\" || true\n"
+    )
+    _stdout, _cid, ok, _stderr = ssm_run_shell(region, instance_id, shell, label)
+    return ok
+
+
+def cmd_plan_edge_operator_balance(args: argparse.Namespace) -> int:
+    """Surface E — top up edge ``users.id=1`` balance when live < min_balance_threshold."""
+    snap = _load_snapshot_or_die(args.snapshot)
+    policy = _load_operator_balance_policy()
+    threshold = policy["min_balance_threshold"]
+    default_bal = policy["default_balance"]
+    force = bool(getattr(args, "force_template_rewrite", False))
+
+    actions: list[dict] = []
+    edge_changes: list[dict] = []
+    skipped: list[dict] = []
+
+    for edge_id, edge in sorted(snap.get("edges", {}).items()):
+        if edge.get("error") or edge.get("skipped_reason") or not edge.get("deployable"):
+            continue
+        if edge.get("operator_user_exists") is False:
+            fail(f"snapshot.edges.{edge_id}: users.id={policy['operator_user_id']} missing; "
+                 "create admin user before balance top-up")
+        live_bal = edge.get("operator_user_balance")
+        if live_bal is None and "operator_user_balance" not in edge:
+            fail(f"snapshot.edges.{edge_id} lacks operator_user_balance; re-run snapshot v6+")
+        needs = _operator_balance_needs_top_up(live_bal, threshold=threshold)
+        if not needs and not force:
+            skipped.append({"edge_id": edge_id, "balance": live_bal, "reason": "already >= threshold"})
+            continue
+        if not needs and force:
+            skipped.append({"edge_id": edge_id, "balance": live_bal, "reason": "force skipped: already >= threshold"})
+            continue
+        step = len(actions) + 1
+        actions.append({
+            "step": step,
+            "kind": "edge_operator_balance",
+            "target": {"env": "edge", "edge_id": edge_id},
+            "sql_source": EDGE_OPERATOR_BALANCE_BASELINES.name,
+            "variables": {
+                "operator_user_id": policy["operator_user_id"],
+                "default_balance": default_bal,
+                "min_balance_threshold": threshold,
+                "live_balance_before": live_bal,
+            },
+            "expected_after": {"operator_user_balance": default_bal},
+        })
+        edge_changes.append({"edge_id": edge_id, "before": live_bal, "after": default_bal})
+
+    plan = {
+        "version": PLAN_VERSION,
+        "kind": "edge_operator_balance",
+        "confirm_code": CONFIRM_CODE,
+        "intent": {
+            "scope": "deployable-edge-operator-balance-floor",
+            "policy_source": EDGE_OPERATOR_BALANCE_BASELINES.name,
+            "min_balance_threshold": threshold,
+            "default_balance": default_bal,
+            "force_template_rewrite": force,
+        },
+        "snapshot_captured_at": snap.get("captured_at"),
+        "plan_built_at": now_utc_iso(),
+        "noop": len(actions) == 0,
+        "summary": {
+            "total_steps": len(actions),
+            "edges_to_top_up": len(edge_changes),
+            "skipped_ok": len(skipped),
+        },
+        "live_inputs": {"edge_changes": edge_changes, "skipped": skipped},
+        "actions": actions,
+    }
+
+    out_str = json.dumps(plan, indent=2, ensure_ascii=False)
+    if args.out:
+        pathlib.Path(args.out).write_text(out_str)
+        print(f"plan-edge-operator-balance: written {args.out} "
+              f"({len(actions)} step(s); skipped_ok={len(skipped)})", file=sys.stderr)
+    else:
+        print(out_str)
+    return 0
+
+
+# --------------------------------------------------------------------------
 # Stage 4 — apply
 # --------------------------------------------------------------------------
 
@@ -2038,10 +2318,18 @@ def cmd_apply(args: argparse.Namespace) -> int:
                 region, instance_id, target_label = _resolve_prod_target()
             else:
                 fail(f"anthropic_group_claude_code_only: unknown target.env {env!r}")
+        elif kind == "edge_operator_balance":
+            edge_id = tgt["edge_id"]
+            label = f"step{step:02d}-edge-{edge_id}-{kind}".replace("/", "-")
+            default_bal = float(v["default_balance"])
+            sql = render_edge_operator_balance_sql(
+                default_bal, user_id=int(v.get("operator_user_id", ADMIN_OPERATOR_USER_CONCURRENCY_SYNC_ID)),
+            )
+            region, instance_id, target_label = _resolve_edge_target(edge_id)
         else:
             fail(f"unknown action.kind {kind!r} (orchestrator handles edge_account_tier | "
                  f"prod_stub_pool | edge_operator_concurrency | prod_concurrency_mirror | "
-                 f"anthropic_group_claude_code_only)")
+                 f"anthropic_group_claude_code_only | edge_operator_balance)")
             return 2  # unreachable, pacifies static analysis
 
         sql_path = job_dir / f"{label}.sql"
@@ -2076,6 +2364,16 @@ def cmd_apply(args: argparse.Namespace) -> int:
                 f"--instance-id {instance_id} --command-id {cid}"
             )
         results.append(result)
+        if result["ok"] and kind == "edge_operator_balance":
+            uid = int(v.get("operator_user_id", ADMIN_OPERATOR_USER_CONCURRENCY_SYNC_ID))
+            cache_ok = _invalidate_operator_balance_cache(
+                region, instance_id, uid,
+                f"apply step {step} edge_operator_balance cache flush on {target_label}",
+            )
+            result["billing_cache_invalidate_ok"] = cache_ok
+            if not cache_ok:
+                result["ok"] = False
+                result["error"] = "billing:balance Redis DEL failed after balance UPDATE"
         if not result["ok"]:
             print(f"apply: step{step:02d} FAILED — stopping. cid={cid}", file=sys.stderr)
             break
@@ -2246,6 +2544,17 @@ def cmd_verify(args: argparse.Namespace) -> int:
                     for fk, want_val in want_fields.items():
                         if g.get(fk) != want_val:
                             diffs.append(f"group id={gid} {fk}: live={g.get(fk)} expected={want_val}")
+        elif kind == "edge_operator_balance":
+            edge = snap.get("edges", {}).get(tgt["edge_id"], {})
+            if edge.get("error") or edge.get("skipped_reason") or not edge:
+                diffs.append(f"edge {tgt['edge_id']} not in live snapshot")
+            else:
+                want = float(exp.get("operator_user_balance"))
+                got = edge.get("operator_user_balance")
+                if got is None:
+                    diffs.append("operator_user_balance missing in live snapshot")
+                elif abs(float(got) - want) > 1e-6:
+                    diffs.append(f"operator_user_balance: live={got} expected={want}")
         else:
             diffs.append(f"verify: unknown action.kind {kind!r}")
         if diffs:
@@ -2385,6 +2694,19 @@ def main() -> int:
         help="re-emit actions even when live groups already have claude_code_only=true",
     )
     sp.set_defaults(handler=cmd_plan_group_claude_code_only)
+
+    sp = sub.add_parser(
+        "plan-edge-operator-balance",
+        help="top up edge users.id=1 balance when below policy min_balance_threshold",
+    )
+    sp.add_argument("--snapshot", required=True)
+    sp.add_argument("--out", help="write plan JSON (otherwise stdout)")
+    sp.add_argument(
+        "--force-template-rewrite",
+        action="store_true",
+        help="reserved; no-op when balance already >= threshold (use plan only when check reports violation)",
+    )
+    sp.set_defaults(handler=cmd_plan_edge_operator_balance)
 
     sp = sub.add_parser("apply",
                         help="execute a plan: render apply SQL from JSON, run via SSM")

@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "description": "Edge control-plane operator (users.id=1) balance floor. When live balance falls below min_balance_threshold, apply resets to default_balance so admin API usage on edge-* does not stall on insufficient balance.",
+  "policy": {
+    "operator_user_id": 1,
+    "min_balance_threshold": 100,
+    "default_balance": 9999999
+  }
+}
