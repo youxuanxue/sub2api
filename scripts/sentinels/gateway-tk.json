@@ -388,9 +388,26 @@
       "path": "backend/internal/handler/gateway_helper.go",
       "must_contain": [
         "c.Set(service.ClaudeCodeParsedRequestGinKey, parsedReq)",
-        "c.Get(service.ClaudeCodeParsedRequestGinKey)"
+        "c.Get(service.ClaudeCodeParsedRequestGinKey)",
+        "SetClaudeDesktopGatewayClient(ctx, service.IsClaudeDesktopGatewayUserAgent(ua))"
       ],
-      "rationale": "Claude Code parsed request snapshot must remain on the canonical Gin key so service-layer tkEnsure can recover session UUID when outbound serialization loses metadata.user_id."
+      "rationale": "Claude Code parsed request snapshot must remain on the canonical Gin key so service-layer tkEnsure can recover session UUID when outbound serialization loses metadata.user_id. Desktop 3p custom-gateway traffic (Electron UA) must set IsClaudeDesktopGatewayClient on the same hot path so claude_code_only groups accept health checks without masquerading as claude-cli."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "IsClaudeCodeClient(ctx) || IsClaudeDesktopGatewayClient(ctx)"
+      ],
+      "rationale": "claude_code_only group resolution must allow Claude Code CLI and Claude Desktop 3p inference-gateway clients; dropping the Desktop branch blocks Electron health probes that lack CC system prompts and metadata.user_id."
+    },
+    {
+      "path": "backend/internal/service/claude_desktop_gateway_client.go",
+      "must_contain": [
+        "IsClaudeDesktopGatewayUserAgent",
+        "claudeDesktopGatewayUAPattern",
+        "IsClaudeDesktopGatewayClient"
+      ],
+      "rationale": "Dedicated Desktop 3p gateway client detector (Electron + Claude/<version> UA). Keeps claude_code_only bypass separate from Claude Code CLI validation so Desktop never needs to spoof claude-cli fingerprints."
     },
     {
       "path": "backend/internal/handler/gateway_handler_tk_selection.go",
