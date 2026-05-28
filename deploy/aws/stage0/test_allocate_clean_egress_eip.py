@@ -23,26 +23,23 @@ class LoadExcludedIPsTests(unittest.TestCase):
     def setUpClass(cls):
         cls.mod = load_module()
 
-    def test_live_registry_separates_pollution_from_retired_excluded(self):
+    def test_live_registry_lists_polluted_ips_only(self):
         data = json.loads(REGISTRY.read_text(encoding="utf-8"))
         polluted_ips = {e["ip"] for e in data["polluted"]}
-        retired_ips = {e["ip"] for e in data.get("retired_excluded", [])}
-        self.assertNotIn("16.61.87.51", polluted_ips)
-        self.assertIn("16.61.87.51", retired_ips)
+        self.assertIn("3.9.160.161", polluted_ips)
+        self.assertIn("35.177.124.150", polluted_ips)
+        self.assertNotIn("retired_excluded", data)
 
-    def test_load_excluded_ips_unions_both_lists_for_region(self):
+    def test_load_excluded_ips_for_region(self):
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
             json.dump(
-                {
-                    "polluted": [{"ip": "1.2.3.4", "region": "eu-west-2"}],
-                    "retired_excluded": [{"ip": "5.6.7.8", "region": "eu-west-2"}],
-                },
+                {"polluted": [{"ip": "1.2.3.4", "region": "eu-west-2"}]},
                 fh,
             )
             path = Path(fh.name)
         try:
             excluded = self.mod.load_excluded_ips("eu-west-2", registry_path=path)
-            self.assertEqual(excluded, {"1.2.3.4", "5.6.7.8"})
+            self.assertEqual(excluded, {"1.2.3.4"})
             self.assertEqual(self.mod.load_excluded_ips("us-west-2", registry_path=path), set())
         finally:
             path.unlink(missing_ok=True)

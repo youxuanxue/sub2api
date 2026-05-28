@@ -19,13 +19,10 @@ description: >-
 The deploy workflow now owns rotation end-to-end; this skill is a thin wrapper
 that decides _which workflow input to pass_, not a sequence of bash commands.
 
-The previous v1 runbook in
-[`docs/deploy/tokenkey-edge-ip-history.md`](../../../docs/deploy/tokenkey-edge-ip-history.md)
-is retained as the **historical & recovery reference** — read it only if (a)
-you are doing the one-time per-stack migration via
-[`deploy/aws/stage0/migrate-edge-eip-to-parameter.sh`](../../../deploy/aws/stage0/migrate-edge-eip-to-parameter.sh)
-on a stack that has not yet been converted to EIP-as-parameter, or (b) the
-v2 path failed in a way that requires hand-recovery (rare).
+Polluted IP registry:
+[`deploy/aws/stage0/edge-polluted-ips.json`](../../../deploy/aws/stage0/edge-polluted-ips.json)
+(human-readable table in
+[`docs/deploy/tokenkey-edge-ip-history.md`](../../../docs/deploy/tokenkey-edge-ip-history.md)).
 
 ## Why this is short now
 
@@ -156,8 +153,6 @@ follow_up:
 
 ## v1 (legacy) reference
 
-The previous procedure — throwaway-nano probe, manual `associate-address`,
-drift-lock flag, `recover-drift` Phase 2 detach + IMPORT — is documented in
-[`docs/deploy/tokenkey-edge-ip-history.md`](../../../docs/deploy/tokenkey-edge-ip-history.md).
-After all edges have been migrated to the parameter shape, that document
-becomes pure history.
+Retired polluted IPs are recorded in
+[`edge-polluted-ips.json`](../../../deploy/aws/stage0/edge-polluted-ips.json)
+when dispatching `rotate_egress_ip` (same PR as the rotation).

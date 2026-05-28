@@ -24,7 +24,7 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/uk1",
-      "purpose": "uk-egress-lightsail (Phase 1 of EC2→Lightsail migration; EC2 uk1 deployable=false on deploy/aws/stage0/edge-targets.json; exclusivity gate enforces single-platform)"
+      "purpose": "uk-egress-lightsail"
     },
     "us1": {
       "deployable": false,

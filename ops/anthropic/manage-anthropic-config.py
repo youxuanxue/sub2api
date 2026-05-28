@@ -1462,12 +1462,22 @@ def _normalize_base_url(base_url: str) -> str:
     return s.rstrip("/")
 
 
-def _build_domain_to_edge(edge_matrix: dict) -> dict[str, str]:
-    """Authoritative prod-stub↔edge link, read straight from edge-targets.json:
-    map each edge's ``domain`` to its edge id. This is the ONLY place the two-hop
-    topology is resolved — never inferred from account names or ad-hoc slugs."""
+def _build_domain_to_edge(
+    edge_matrix: dict,
+    ls_targets: dict[str, dict] | None = None,
+) -> dict[str, str]:
+    """Authoritative prod-stub↔edge link from EC2 + Lightsail edge matrices.
+
+    Map each edge's ``domain`` to its edge id. Lightsail-only edges (e.g. uk1
+    after EC2 decommission) contribute from the Lightsail matrix; EC2-only
+    edges (e.g. us1 before cutover) come from edge-targets.json. Never inferred
+    from account names or ad-hoc slugs."""
     out: dict[str, str] = {}
     for eid, tgt in (edge_matrix.get("targets") or {}).items():
+        dom = _normalize_base_url(tgt.get("domain") or "")
+        if dom:
+            out[dom] = eid
+    for eid, tgt in (ls_targets or {}).items():
         dom = _normalize_base_url(tgt.get("domain") or "")
         if dom:
             out[dom] = eid
@@ -1491,7 +1501,8 @@ def cmd_plan_concurrency_mirror(args: argparse.Namespace) -> int:
     write a stub concurrency of 0)."""
     snap = _load_snapshot_or_die(args.snapshot)
     edge_matrix = load_json_file(EDGE_MATRIX, "edge matrix")
-    domain_to_edge = _build_domain_to_edge(edge_matrix)
+    ls_targets = _EDGE_ROUTING.load_lightsail_targets(REPO_ROOT)
+    domain_to_edge = _build_domain_to_edge(edge_matrix, ls_targets)
     force = bool(getattr(args, "force_template_rewrite", False))
 
     actions: list[dict] = []

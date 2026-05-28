@@ -714,13 +714,8 @@ else
 fi
 
 # ---- sub2api: edge-ip-status doc / live AWS drift ---------------------------
-# Source of truth: deploy/aws/stage0/edge-targets.json + edge-polluted-ips.json
-# + live AWS state. The script's --check mode reconciles
-# docs/deploy/tokenkey-edge-ip-history.md § 1 / § 2 tables against generated
-# output. Skips gracefully (exit 0) when AWS credentials are unavailable so
-# preflight stays usable on dev laptops without AWS configured; in CI / on
-# operator machines with creds, it catches forgotten regenerations after an
-# EIP rotation.
+# Source of truth: deploy/aws/stage0/edge-polluted-ips.json. The script's --check
+# mode reconciles docs/deploy/tokenkey-edge-ip-history.md polluted table only.
 echo ""
 echo "=== sub2api: edge-ip-status doc / live AWS drift ==="
 if [ ! -x ./scripts/edge-ip-status.sh ]; then
