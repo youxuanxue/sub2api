@@ -171,6 +171,22 @@ class CaptureCCFingerprintTest(unittest.TestCase):
             self.assertIn("haiku", picked)
             self.assertIn("oauth-2025-04-20", picked["haiku"]["anthropic_beta"])
 
+    def test_load_http_log_last_wins_per_variant(self) -> None:
+        lines = [
+            'CC_CAPTURE {"model":"claude-haiku-4-5-20251001","anthropic_beta":"legacy-variant"}',
+            'CC_CAPTURE {"model":"claude-haiku-4-5-20251001","anthropic_beta":"dominant-variant"}',
+            'CC_CAPTURE {"model":"claude-sonnet-4-20250514","anthropic_beta":"sonnet-first"}',
+            'CC_CAPTURE {"model":"claude-sonnet-4-20250514","anthropic_beta":"sonnet-last"}',
+            'CC_CAPTURE {"model":"claude-opus-4-5-20251101","anthropic_beta":"opus-with-effort"}',
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            log = pathlib.Path(tmp) / "http.log"
+            log.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            picked = mod.load_http_log(log)
+            self.assertEqual("dominant-variant", picked["haiku"]["anthropic_beta"])
+            self.assertEqual("sonnet-last", picked["sonnet"]["anthropic_beta"])
+            self.assertEqual("opus-with-effort", picked["opus"]["anthropic_beta"])
+
 
 if __name__ == "__main__":
     unittest.main()

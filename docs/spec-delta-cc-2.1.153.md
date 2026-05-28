@@ -4,13 +4,14 @@
 
 cc 2.1.153 mitm + TLS capture (2026-05-28, cc0 → gost → socks) shows HTTP fingerprint drift from PR #423 baseline (2.1.152). TLS ClientHello is **unchanged** (same ja3_hash); no DB TLS profile migration.
 
-Prior `docs/spec-delta-cc-beta-http-2.1.152.md` documented bimodal Haiku beta on 2.1.152. cc 2.1.153 Haiku capture is **unimodal** on the new 8-token set (no `claude-code`, no `extended-cache-ttl`; adds `thinking-token-count` + `structured-outputs`).
+Prior `docs/spec-delta-cc-beta-http-2.1.152.md` documented bimodal Haiku beta on 2.1.152. cc 2.1.153 Haiku capture is **bimodal** on two 9-token sets (both include `thinking-token-count`); PR targets dominant **structured-outputs** variant B (~73% in comprehensive runs).
 
 ## Delta
 
 ### ADDED
 
 - `BetaThinkingTokenCount`, `BetaStructuredOutputs` in `constants.go`.
+- `capture_cc_fingerprint._pick_http_by_model`: **last-wins** per variant (was first-wins) so comprehensive → bundle `check` uses the final haiku/sonnet record, not the opening one.
 
 ### MODIFIED
 

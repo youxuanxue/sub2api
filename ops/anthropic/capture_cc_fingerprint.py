@@ -194,16 +194,25 @@ def _http_variant(model: str) -> str | None:
     model_l = (model or "").lower()
     if "haiku" in model_l:
         return "haiku"
+    if "opus" in model_l:
+        return "opus"
+    if "sonnet" in model_l:
+        return "sonnet"
     if model_l:
         return "sonnet"
     return None
 
 
 def _pick_http_by_model(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Pick one HTTP record per model family (haiku / sonnet).
+
+    Last-wins: comprehensive capture logs many requests per variant; the final
+    record matches what single-shot ``capture --http`` would leave on the wire.
+    """
     out: dict[str, dict[str, Any]] = {}
     for rec in records:
         variant = _http_variant(str(rec.get("model") or ""))
-        if variant and variant not in out:
+        if variant:
             out[variant] = rec
     return out
 
