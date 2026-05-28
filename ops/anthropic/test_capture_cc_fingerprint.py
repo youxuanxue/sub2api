@@ -22,11 +22,11 @@ class CaptureCCFingerprintTest(unittest.TestCase):
     def test_load_tokenkey_baseline_has_expected_keys(self) -> None:
         baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
         self.assertEqual(baseline["tls"]["ja3_hash"], "d871d02cecbde59abbf8f4806134addf")
-        self.assertEqual(baseline["canonical_http"]["default_version"], "2.1.152")
+        self.assertEqual(baseline["canonical_http"]["default_version"], "2.1.153")
         self.assertEqual(baseline["mimic_http"]["stainless_package_version"], "0.94.0")
         self.assertIn("claude-code-20250219", baseline["betas"]["sonnet_mimicry"])
         self.assertNotIn("effort-2025-11-24", baseline["betas"]["sonnet_mimicry"])
-        self.assertIn("claude-code-20250219", baseline["betas"]["haiku_mimicry"])
+        self.assertIn("thinking-token-count-2026-05-13", baseline["betas"]["haiku_mimicry"])
         self.assertNotIn("effort-2025-11-24", baseline["betas"]["haiku_mimicry"])
 
     def test_diff_all_match_when_capture_matches_baseline(self) -> None:
@@ -86,7 +86,7 @@ class CaptureCCFingerprintTest(unittest.TestCase):
     def test_bundle_roundtrip_write_and_load(self) -> None:
         baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
         bundle = mod.bundle_from_artifacts(
-            cc_version="2.1.152",
+            cc_version=baseline["canonical_http"]["default_version"],
             tls_observed={
                 "ja3_hash": baseline["tls"]["ja3_hash"],
                 "ja3_raw": baseline["tls"]["ja3_raw"],
@@ -100,7 +100,7 @@ class CaptureCCFingerprintTest(unittest.TestCase):
             path = pathlib.Path(tmp) / "bundle.json"
             path.write_text(json.dumps(bundle), encoding="utf-8")
             loaded = mod.load_capture_bundle(path)
-            self.assertEqual(loaded["cc_version"], "2.1.152")
+            self.assertEqual(loaded["cc_version"], baseline["canonical_http"]["default_version"])
 
     def test_has_tls_mismatch_true_only_for_tls_fields(self) -> None:
         baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
