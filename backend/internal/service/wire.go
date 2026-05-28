@@ -9,6 +9,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/google/wire"
 	"github.com/redis/go-redis/v9"
@@ -430,6 +431,7 @@ func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupReposit
 	}
 	antigravity.SetUserAgentVersionResolver(svc.GetAntigravityUserAgentVersion)
 	SetClaudeCodeUserAgentResolver(svc.GetClaudeCodeUserAgentVersion)
+	claude.SetClaudeCodeMimicryBetasResolver(svc.GetClaudeCodeMimicryBetas)
 	return svc
 }
 

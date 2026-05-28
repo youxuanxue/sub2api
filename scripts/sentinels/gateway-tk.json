@@ -1030,9 +1030,10 @@
     {
       "path": "backend/internal/service/wire.go",
       "must_contain": [
-        "SetClaudeCodeUserAgentResolver(svc.GetClaudeCodeUserAgentVersion)"
+        "SetClaudeCodeUserAgentResolver(svc.GetClaudeCodeUserAgentVersion)",
+        "claude.SetClaudeCodeMimicryBetasResolver(svc.GetClaudeCodeMimicryBetas)"
       ],
-      "rationale": "ProvideSettingService MUST wire the Claude Code UA resolver so SettingService.GetClaudeCodeUserAgentVersion drives applyCanonicalHTTPObserved at runtime. Without this line the resolver stays nil and GetCanonicalUserAgentForContext silently falls back to the compile-time default — admin UI / API setting changes for the cc UA become a no-op while the field still appears editable, which is the worst failure mode (looks fine, isn't)."
+      "rationale": "ProvideSettingService MUST wire the Claude Code UA resolver so SettingService.GetClaudeCodeUserAgentVersion drives applyCanonicalHTTPObserved at runtime. Without this line the resolver stays nil and GetCanonicalUserAgentForContext silently falls back to the compile-time default — admin UI / API setting changes for the cc UA become a no-op while the field still appears editable, which is the worst failure mode (looks fine, isn't). The mimicry resolver wires settings.claude_code_http_mimicry_manifest into gateway OAuth beta merge (GetFullClaudeCode*MimicryBetasForContext); without it sync-runtime HTTP apply is a no-op."
     },
     {
       "path": "backend/internal/service/setting_service.go",
@@ -1045,6 +1046,34 @@
         "GetDefaultClaudeCodeUserAgentVersion()"
       ],
       "rationale": "SettingService surface for the Claude Code canonical OAuth UA runtime config: the getter, the SettingKey, the per-process cache + singleflight pair, and the normalization helper from the service package. All five anchors must stay together — dropping the getter strands the cache; dropping the cache breaks load amplification protection on hot fingerprint paths; dropping the normalize call lets a non-semver admin input poison the cache. Modeled on the existing AntigravityUserAgentVersion wiring in the same file; semantically symmetric so a reviewer can audit both at once."
+    },
+    {
+      "path": "backend/internal/service/setting_service.go",
+      "must_contain": [
+        "func (s *SettingService) GetClaudeCodeMimicryBetas(ctx context.Context)",
+        "SettingKeyClaudeCodeHTTPMimicryManifest",
+        "claudeCodeMimicryManifestCache",
+        "claudeCodeMimicryManifestSF"
+      ],
+      "rationale": "Runtime OAuth anthropic-beta mimicry manifest: settings key + getter + cache/singleflight. sync-runtime upserts claude_code_http_mimicry_manifest from anthropic-http-mimicry-baselines.json; gateway reads via GetClaudeCodeMimicryBetas without redeploy."
+    },
+    {
+      "path": "backend/internal/pkg/claude/mimicry_runtime.go",
+      "must_contain": [
+        "SetClaudeCodeMimicryBetasResolver",
+        "GetFullClaudeCodeMimicryBetasForContext",
+        "GetFullClaudeCodeHaikuMimicryBetasForContext"
+      ],
+      "rationale": "Gateway must call context-aware mimicry getters so runtime manifest overrides compile-time FullClaudeCode*MimicryBetas after cc patch capture."
+    },
+    {
+      "path": "deploy/aws/stage0/anthropic-http-mimicry-baselines.json",
+      "must_contain": [
+        "\"sonnet_opus\"",
+        "\"haiku\"",
+        "\"cc_version\""
+      ],
+      "rationale": "Single JSON source for HTTP mimicry runtime sync (plan-http-mimicry-sync / sync-runtime). Bumped with cc capture PR; applied to edges without image release."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_canonical_oauth_guard.go",

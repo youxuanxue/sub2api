@@ -156,6 +156,15 @@ const claudeCodeUserAgentVersionCacheTTL = 60 * time.Second
 const claudeCodeUserAgentVersionErrorTTL = 5 * time.Second
 const claudeCodeUserAgentVersionDBTimeout = 5 * time.Second
 
+type cachedClaudeCodeHTTPMimicryManifest struct {
+	manifest  *ClaudeCodeHTTPMimicryManifest
+	expiresAt int64 // unix nano
+}
+
+const claudeCodeMimicryManifestCacheTTL = 60 * time.Second
+const claudeCodeMimicryManifestErrorTTL = 5 * time.Second
+const claudeCodeMimicryManifestDBTimeout = 5 * time.Second
+
 // DefaultSubscriptionGroupReader validates group references used by default subscriptions.
 type DefaultSubscriptionGroupReader interface {
 	GetByID(ctx context.Context, id int64) (*Group, error)
@@ -178,8 +187,10 @@ type SettingService struct {
 	antigravityUAVersionSF    singleflight.Group
 	openAICodexUACache        atomic.Value // *cachedOpenAICodexUserAgent
 	openAICodexUASF           singleflight.Group
-	claudeCodeUAVersionCache  atomic.Value // *cachedClaudeCodeUserAgentVersion
-	claudeCodeUAVersionSF     singleflight.Group
+	claudeCodeUAVersionCache       atomic.Value // *cachedClaudeCodeUserAgentVersion
+	claudeCodeUAVersionSF          singleflight.Group
+	claudeCodeMimicryManifestCache atomic.Value // *cachedClaudeCodeHTTPMimicryManifest
+	claudeCodeMimicryManifestSF    singleflight.Group
 }
 
 // DefaultPlatformQuotaSetting 单 platform 三档限额（nil = 沿用上层；0 = 显式禁用；>0 = 上限）
@@ -923,6 +934,58 @@ func (s *SettingService) GetClaudeCodeUserAgentVersion(ctx context.Context) stri
 		return version
 	}
 	return fallback
+}
+
+// GetClaudeCodeMimicryBetas returns runtime OAuth mimicry beta lists from
+// settings.claude_code_http_mimicry_manifest. ok=false when unset or invalid.
+func (s *SettingService) GetClaudeCodeMimicryBetas(ctx context.Context) (sonnetOpus, haiku []string, ok bool) {
+	if s == nil || s.settingRepo == nil {
+		return nil, nil, false
+	}
+	if cached, hit := s.claudeCodeMimicryManifestCache.Load().(*cachedClaudeCodeHTTPMimicryManifest); hit && cached != nil {
+		if time.Now().UnixNano() < cached.expiresAt {
+			if cached.manifest != nil {
+				return cached.manifest.SonnetOpus, cached.manifest.Haiku, true
+			}
+			return nil, nil, false
+		}
+	}
+
+	result, _, _ := s.claudeCodeMimicryManifestSF.Do("claude_code_http_mimicry_manifest", func() (any, error) {
+		if cached, hit := s.claudeCodeMimicryManifestCache.Load().(*cachedClaudeCodeHTTPMimicryManifest); hit && cached != nil {
+			if time.Now().UnixNano() < cached.expiresAt {
+				if cached.manifest != nil {
+					return cached.manifest, nil
+				}
+				return (*ClaudeCodeHTTPMimicryManifest)(nil), nil
+			}
+		}
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), claudeCodeMimicryManifestDBTimeout)
+		defer cancel()
+		value, err := s.settingRepo.GetValue(dbCtx, SettingKeyClaudeCodeHTTPMimicryManifest)
+		if err != nil && !errors.Is(err, ErrSettingNotFound) {
+			slog.Warn("failed to get claude code http mimicry manifest setting", "error", err)
+			s.claudeCodeMimicryManifestCache.Store(&cachedClaudeCodeHTTPMimicryManifest{
+				manifest:  nil,
+				expiresAt: time.Now().Add(claudeCodeMimicryManifestErrorTTL).UnixNano(),
+			})
+			return (*ClaudeCodeHTTPMimicryManifest)(nil), nil
+		}
+		manifest := ParseClaudeCodeHTTPMimicryManifest(value)
+		s.claudeCodeMimicryManifestCache.Store(&cachedClaudeCodeHTTPMimicryManifest{
+			manifest:  manifest,
+			expiresAt: time.Now().Add(claudeCodeMimicryManifestCacheTTL).UnixNano(),
+		})
+		return manifest, nil
+	})
+	manifest, _ := result.(*ClaudeCodeHTTPMimicryManifest)
+	if manifest == nil {
+		return nil, nil, false
+	}
+	return manifest.SonnetOpus, manifest.Haiku, true
 }
 
 // GetOpenAICodexUserAgent 返回 OpenAI Codex 上游请求使用的 User-Agent。
@@ -1851,6 +1914,7 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 		version:   claudeCodeUserAgentVersion,
 		expiresAt: time.Now().Add(claudeCodeUserAgentVersionCacheTTL).UnixNano(),
 	})
+	s.claudeCodeMimicryManifestSF.Forget("claude_code_http_mimicry_manifest")
 	s.openAICodexUASF.Forget("openai_codex_user_agent")
 	codexUA := strings.TrimSpace(settings.OpenAICodexUserAgent)
 	if codexUA == "" {
