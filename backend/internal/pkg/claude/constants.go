@@ -7,7 +7,7 @@ import "strings"
 
 // Beta header 常量
 //
-// 这里的常量对齐真实 Claude Code CLI 的最新流量（截至 2026-05，cc 2.1.153 抓包）。
+// 这里的常量对齐真实 Claude Code CLI 的最新流量（截至 2026-05，cc 2.1.154 抓包）。
 // Anthropic 上游会基于 anthropic-beta 的完整集合判定请求来源；
 // 缺少任何"官方 Claude Code 请求才会带"的 beta，都会被降级到第三方额度，
 // 对应报错：`Third-party apps now draw from your extra usage, not your plan limits.`
@@ -31,7 +31,7 @@ const (
 	BetaAdvancedToolUse = "advanced-tool-use-2025-11-20"
 	BetaCacheDiagnosis  = "cache-diagnosis-2026-04-07"
 
-	// cc 2.1.153 抓包新增。
+	// cc 2.1.154 抓包新增。
 	BetaThinkingTokenCount = "thinking-token-count-2026-05-13"
 	BetaStructuredOutputs  = "structured-outputs-2025-12-15"
 )
@@ -59,7 +59,7 @@ const MessageBetaHeaderWithTools = BetaClaudeCode + "," + BetaOAuth + "," + Beta
 // CountTokensBetaHeader count_tokens 请求使用的 anthropic-beta header
 const CountTokensBetaHeader = BetaClaudeCode + "," + BetaOAuth + "," + BetaInterleavedThinking + "," + BetaTokenCounting
 
-// HaikuBetaHeader Haiku 模型 OAuth 回退 anthropic-beta（对齐 cc 2.1.153 抓包顺序）。
+// HaikuBetaHeader Haiku 模型 OAuth 回退 anthropic-beta（对齐 cc 2.1.154 抓包顺序）。
 const HaikuBetaHeader = BetaOAuth + "," + BetaInterleavedThinking + "," + BetaThinkingTokenCount + "," +
 	BetaContextManagement + "," + BetaPromptCachingScope + "," + BetaAdvisorTool + "," +
 	BetaStructuredOutputs + "," + BetaCacheDiagnosis
@@ -78,7 +78,7 @@ const DefaultCacheControlTTL = "5m"
 // CLICurrentVersion 是 sub2api 当前对外伪装的 Claude Code CLI 版本号（三段 semver）。
 // 用于 billing attribution block 中的 cc_version=X.Y.Z.{fp} 前缀以及 fingerprint 计算。
 // 必须与 DefaultHeaders["User-Agent"] 中的版本号严格一致；不一致会被 Anthropic 判第三方。
-const CLICurrentVersion = "2.1.153"
+const CLICurrentVersion = "2.1.154"
 
 // JoinBetaHeader joins beta tokens into the wire anthropic-beta header value.
 func JoinBetaHeader(betas []string) string {
@@ -87,7 +87,7 @@ func JoinBetaHeader(betas []string) string {
 
 // FullClaudeCodeMimicryBetas 返回最"像"真实 Claude Code CLI 的完整 beta 列表（Sonnet/Opus），
 // 用于 OAuth 账号伪装成 Claude Code 时使用。
-// 顺序与 cc 2.1.153 /v1/messages 抓包一致。
+// 顺序与 cc 2.1.154 /v1/messages 抓包一致。
 //
 // 使用建议：
 //   - OAuth 账号 + 非 haiku：追加这整份列表，再按需保留 client 带来的 beta。
@@ -109,7 +109,7 @@ func FullClaudeCodeMimicryBetas() []string {
 	}
 }
 
-// FullClaudeCodeHaikuMimicryBetas 返回 Haiku 模型 OAuth mimicry 的 beta 列表（cc 2.1.153 抓包）。
+// FullClaudeCodeHaikuMimicryBetas 返回 Haiku 模型 OAuth mimicry 的 beta 列表（cc 2.1.154 抓包）。
 func FullClaudeCodeHaikuMimicryBetas() []string {
 	return []string{
 		BetaOAuth,
@@ -127,7 +127,7 @@ func FullClaudeCodeHaikuMimicryBetas() []string {
 var DefaultHeaders = map[string]string{
 	// Keep these in sync with recent Claude CLI traffic to reduce the chance
 	// that Claude Code-scoped OAuth credentials are rejected as "non-CLI" usage.
-	"User-Agent":                                "claude-cli/2.1.153 (external, cli)",
+	"User-Agent":                                "claude-cli/2.1.154 (external, cli)",
 	"X-Stainless-Lang":                          "js",
 	"X-Stainless-Package-Version":               "0.94.0",
 	"X-Stainless-OS":                            "Linux",
