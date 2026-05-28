@@ -62,6 +62,7 @@ TOKENKEY_CC_DAILY_DRY_RUN=1 bash ops/anthropic/cc_fingerprint_open_tls_drift_pr.
 | HTTP mitm 采集 `/v1/messages` headers | 机械 | `bash ops/anthropic/capture-cc-fingerprint.sh capture --http` |
 | 多请求 beta 一致性校验（haiku/sonnet/opus 各 N 次） | 机械 | `bash ops/anthropic/capture-http-comprehensive.sh` |
 | bundle 组装 + diff + `--check` 门禁 | 机械 | `capture_cc_fingerprint.py` / `check-tls` |
+| HTTP 漂移修复 + spec-delta PR | 机械 | 分支 + commit + `gh pr create`（见 §5） |
 | 每日 TLS 漂移开 PR | 机械 | `ops/anthropic/cc_fingerprint_open_tls_drift_pr.sh` |
 | Phase 0 ingress cohort / admin UA | 机械 | `ops/observability/run-probe.sh` + admin settings |
 | ja3 变更 → TLS profile SQL apply | 机械 | `manage-anthropic-config.py plan/apply/verify` |
@@ -71,15 +72,18 @@ TOKENKEY_CC_DAILY_DRY_RUN=1 bash ops/anthropic/cc_fingerprint_open_tls_drift_pr.
 ## 调用参数
 
 ```text
-/tokenkey-cc-fingerprint-alignment cc_version=<optional> [http=true] [phase0=true] [open_pr=false]
+/tokenkey-cc-fingerprint-alignment cc_version=<optional> [http=false] [phase0=true] [open_pr=false]
 ```
 
-| 参数 | 语义 |
-|---|---|
-| `cc_version` | 目标 cc patch；缺省从 `claude --version` 读取 |
-| `http=true` | 同时跑 mitm HTTP（需 gost + cc0 OAuth） |
-| `phase0=true` | 抓包前先跑 ingress/admin 只读侦察 |
-| `open_pr=false` | 默认只 capture + diff；显式 true 才开分支提交 |
+| 参数 | 默认 | 语义 |
+|---|---|---|
+| `cc_version` | `claude --version` | 目标 cc patch |
+| `http` | **true** | 跑 mitm HTTP（需 gost + cc0 OAuth）；`http=false` 仅 TLS |
+| `phase0` | false | 抓包前先跑 ingress/admin 只读侦察；`phase0=true` 启用 |
+| `open_pr` | **true** | 漂移时修代码 + spec-delta + 开 PR；`open_pr=false` 仅 capture + diff |
+| comprehensive | **true**（内建） | 每次完整跑法在 HTTP capture 后**必跑** `capture-http-comprehensive.sh`（排查 beta 灰度/分裂）；无单独 opt-out 参数 |
+
+**默认完整链路（无参数调用）：** check env → capture `--http` → comprehensive beta 一致性 → diff/check → [有 drift] 修代码 + 测试 + preflight + 开 PR。
 
 ## 1) 环境检查（必须先过）
 
@@ -112,11 +116,11 @@ JSON：`python3 ops/anthropic/capture_cc_fingerprint.py check-env --json`
 
 TLS 打 collector **不需要** gost；HTTP mitm 打 `api.anthropic.com` 需 cc0 链（见 §HTTP 注意）。
 
-### 2.2 一键采集 + diff
+### 2.2 一键采集 + diff（默认含 HTTP）
 
 ```bash
-bash ops/anthropic/capture-cc-fingerprint.sh capture
 bash ops/anthropic/capture-cc-fingerprint.sh capture --http
+# 仅 TLS：bash ops/anthropic/capture-cc-fingerprint.sh capture
 ```
 
 ### 2.3 门禁
@@ -146,16 +150,19 @@ plain claude + CC0_USER_OVERLAY OAuth
 - 采集前 `check env` 会校验 gost 在 `CC0_GOST_HTTP_PORT` 监听。
 - 覆盖 launcher：`CC0_HTTP_CLAUDE_BIN=/path/to/custom`（默认 `http_capture_invoke.sh`）。
 
-### 2.5 多请求 beta 一致性校验（可选，深查 beta 抖动）
+### 2.5 多请求 beta 一致性校验（默认必跑）
 
-`capture --http` 是**单次**抓包做 diff/check。当怀疑 cc 对同一 model **跨请求**发出不一致的 `anthropic-beta`（灰度 / 分裂），用 comprehensive 跨 haiku/sonnet/opus 各跑 N 次并统计每族 beta 是否全一致：
+`capture --http` 是**单次**抓包做 diff/check。完整 skill 跑法在单次 capture 之后**必须**再跑 comprehensive，跨 haiku/sonnet/opus 各 N 次并统计每族 beta 是否全一致（排查灰度 / 分裂）：
 
 ```bash
 bash ops/anthropic/capture-http-comprehensive.sh
 # 调整每族请求数：TOKENKEY_CC_CAPTURE_HAIKU_N / _SONNET_N / _OPUS_N（默认 3/3/2）
+# 深查时重复多轮（例如 5 次）以确认跨 session 稳定
 ```
 
 输出每个 model 族的 `N requests, M unique beta header(s)` + `OK/WARN`；末尾自动用最新 `tls-observed` bundle 跑一次 repo `diff` / `check`。复用 §2.4 同一条 mitm 链（gost + cc0 OAuth）。
+
+任一 model 族出现 `WARN`（多种 beta）→ 在 PR / spec-delta 中记录分布，**禁止**在未抓包证据下改 beta 常量。
 
 ## 3) 解读 diff 报告
 
@@ -178,7 +185,7 @@ bash ops/anthropic/capture-http-comprehensive.sh
 7. `ops/stage0/smoke_lib.sh`
 8. `docs/spec-delta-cc-<patch>.md`
 
-## 5) 验证与 PR
+## 5) 验证与 PR（默认 open_pr=true）
 
 ```bash
 go test -tags=unit ./internal/pkg/claude/... -run TestFullClaudeCode
@@ -186,7 +193,11 @@ python3 -m unittest discover -s ops/anthropic -p 'test_capture_cc_fingerprint.py
 ./scripts/preflight.sh
 ```
 
-手动开 TLS 漂移 PR：`bash ops/anthropic/cc_fingerprint_open_tls_drift_pr.sh .tls_list/…-cc-capture.bundle.json`
+**HTTP 漂移（默认）：** 修 §4 清单 → spec-delta → 分支 → commit → push → `gh pr create`。
+
+**TLS 漂移：** `bash ops/anthropic/cc_fingerprint_open_tls_drift_pr.sh .tls_list/…-cc-capture.bundle.json`（worktree 隔离，不影响当前 checkout）。
+
+`open_pr=false` 时只跑到 capture + comprehensive + diff/check，不写代码、不开 PR。
 
 ## 6) 禁止事项
 
@@ -194,12 +205,14 @@ python3 -m unittest discover -s ops/anthropic -p 'test_capture_cc_fingerprint.py
 - 从旧 patch 推断 ja3
 - ja3 变了却只改 HTTP 常量
 - 用 `cc0-here` 直接做 HTTP mitm（应走 `http_capture_invoke.sh`）
+- 跳过 comprehensive 直接开 PR（beta 分裂未验证）
 
 ## 7) 流程图
 
 ```text
-check env → capture [--http] → check / check-tls
-    → [ja3变?] manage-anthropic-config apply + drift PR
-    → [HTTP drift?] constants + identity + gateway + tests
-    → spec-delta → preflight → merge → admin UA → deploy
+check env → capture --http → comprehensive (beta consistency)
+    → check / check-tls
+    → [ja3变?] manage-anthropic-config apply + TLS drift PR
+    → [HTTP drift?] constants + identity + tests + spec-delta
+    → preflight → open PR (default) → merge → admin UA → deploy
 ```
