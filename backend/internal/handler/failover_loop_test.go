@@ -894,6 +894,22 @@ func TestHandleFailoverError_Forbidden403FailFast(t *testing.T) {
 		require.Equal(t, 1, fs.SwitchCount)
 	})
 
+	t.Run("403_tokenkeyInsufficientBalanceJSON_走原failover路径切账号", func(t *testing.T) {
+		fs := NewFailoverState(5, false)
+		mock := &mockTempUnscheduler{}
+		body := []byte(`{"code":"INSUFFICIENT_BALANCE","message":"Insufficient account balance"}`)
+		err := newTestFailoverErrWithBody(403, true, body)
+
+		action := fs.HandleFailoverError(context.Background(), mock, 46, "anthropic", 1, err)
+		require.Equal(t, FailoverContinue, action, "第一次应同账号 retry，不应 fail-fast")
+		require.Equal(t, 0, fs.SwitchCount)
+
+		action = fs.HandleFailoverError(context.Background(), mock, 46, "anthropic", 1, err)
+		require.Equal(t, FailoverContinue, action, "retry 用尽后应 failover 到其他 stub 账号")
+		require.Equal(t, 1, fs.SwitchCount)
+		require.Contains(t, fs.FailedAccountIDs, int64(46))
+	})
+
 	t.Run("非403_不触发fail-fast", func(t *testing.T) {
 		fs := NewFailoverState(5, false)
 		mock := &mockTempUnscheduler{}
@@ -943,5 +959,7 @@ func TestHandleFailoverError_Forbidden403FailFast(t *testing.T) {
 			"gemini shape")
 		require.True(t, looksLikeStructuredErrorJSON([]byte(`{"error":{}}`)),
 			"任何有 error object 的 JSON 都视为结构化错误")
+		require.True(t, looksLikeStructuredErrorJSON([]byte(`{"code":"INSUFFICIENT_BALANCE","message":"Insufficient account balance"}`)),
+			"TokenKey middleware shape")
 	})
 }
