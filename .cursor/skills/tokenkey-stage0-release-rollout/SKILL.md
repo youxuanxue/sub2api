@@ -6,8 +6,9 @@ description: >-
   deploy prod via deploy-stage0.yml, deploy/smoke deployable Edge targets
   (dynamic edge matrix from deploy/aws/stage0/edge-targets.json, EC2 or Lightsail
   via scripts/stage0/dispatch-edge-deploy.sh) via platform-routed workflows,
-  report structured smoke results, or run a pre-release check of code facts and
-  production impact risk.
+  report structured smoke results, run post-release Anthropic OAuth config
+  check (manage-anthropic-config.py snapshot+check; see tokenkey-anthropic-oauth-config),
+  or run a pre-release check of code facts and production impact risk.
   Use when the user asks to release, deploy, smoke, rollback, check release
   risk, or roll out to prod, Edge regions, or all Stage0 targets.
 ---
@@ -32,6 +33,7 @@ description: >-
 | Edge smoke 分阶段（infra / main-via-edge / full） | 机械 | `ops/stage0/edge_post_deploy_smoke.sh` + workflow `smoke_phase`；main-via-edge 用 `GATEWAY_SMOKE_SUITE=main-via-edge`（/v1/messages + Claude UA，不走 chat） |
 | 发版前 smoke 模型校验 | 机械 | `python3 scripts/stage0/check_smoke_config.py`（`TK_SMOKE_PROD_ANTHROPIC_MODEL` ∈ `/v1/models`） |
 | 发版后跟进档位（skip / single / extended） | 机械 | `bash scripts/release-impact-files.sh PREV NEW` → `.followup.tier` |
+| **发版后 Anthropic OAuth 配置检查（snapshot → check）** | 机械 | `python3 ops/anthropic/manage-anthropic-config.py snapshot` + `check --snapshot`（见 §「发版后 Anthropic OAuth 配置检查」；canonical：`/tokenkey-anthropic-oauth-config`） |
 | rollout 摘要（git log / diff stat / sentinel / deletion） | 机械 | `bash scripts/release-rollout-summary.sh --mode release` |
 | canary 顺序、prod approval 时机、smoke 模型回退 | 判断 | prompt（爆炸半径、用户入口顺序） |
 | verdict 评级（green/yellow/red） | 判断 | prompt（错误聚类 vs 基线、流量趋势） |
@@ -43,15 +45,16 @@ description: >-
 本 skill 默认按用户语义解析；用户未写完整参数时，先按下面语义补全，仍有歧义再问。
 
 ```text
-/tokenkey-stage0-release-rollout target=<prod|edge-<edge_id>|all> [tag=X.Y.Z] [operation=<check|release|deploy|smoke|rollback>] [previous_tag=X.Y.Z]
+/tokenkey-stage0-release-rollout target=<prod|edge-<edge_id>|all> [tag=X.Y.Z] [operation=<check|release|deploy|smoke|rollback>] [previous_tag=X.Y.Z] [anthropic_config_check=false]
 ```
 
 | 参数 | 语义 |
 |---|---|
 | `operation=check` | 只做预发布风险检查：对比上一个 release tag 到待发布 HEAD 的代码事实，判断上线 prod/Edge 的潜在影响；不 bump、不 tag、不 dispatch deploy。 |
-| `target=prod` | release（必要时 bump/tag/build）→ `deploy-stage0.yml -f tag=…`（绑定 **`prod`** Environment）→ prod smoke。 |
+| `target=prod` | release（必要时 bump/tag/build）→ `deploy-stage0.yml -f tag=…`（绑定 **`prod`** Environment）→ prod smoke → **默认** Anthropic OAuth snapshot/check。 |
 | `target=edge-<edge_id>` | 默认 tag 已存在：用 **`bash scripts/stage0/dispatch-edge-deploy.sh`**（自动路由 EC2/Lightsail）→ watch → 按 phase 验收 smoke。`operation=smoke` 只 smoke；`operation=rollback` 用 `previous_tag`。不要手选 workflow 或手填 confirm_stack/confirm_instance。 |
-| `target=all` | release 一次 → `--list-deployable` 矩阵 → canary **upgrade (infra)** → prod deploy（CI smoke 验收）→ canary **main-via-edge 一次** → 其余 Edge **upgrade (infra only)** → followup 按 tier。 |
+| `target=all` | release 一次 → `--list-deployable` 矩阵 → canary **upgrade (infra)** → prod deploy（CI smoke 验收）→ canary **main-via-edge 一次** → 其余 Edge **upgrade (infra only)** → followup 按 tier → **默认** Anthropic OAuth snapshot/check。 |
+| `anthropic_config_check` | 默认 **true**（`operation=release` 且 smoke 验收通过后）。跑 `/tokenkey-anthropic-oauth-config` 的 **Stage 1–2 only**（snapshot + check，只读）。`anthropic_config_check=false` 跳过。`operation=check/smoke/rollback` 默认不跑。 |
 
 如果用户只说“发版 / deploy 最新 / ship production”，默认 `target=prod operation=release`。如果用户说“全部 / 所有网关 / prod + edge / all”，默认 `target=all operation=release`。如果用户说“检查 / 预判 / 评估上线影响 / release check”，默认 `operation=check target=all`。
 
@@ -105,7 +108,7 @@ description: >-
 
 ## 一次性跑完（原则）
 
-- **顺序做完**：同步 → 决策 VERSION/tag →（按需 bump+push）→ `release-tag.sh` → **watch 到 release 成功** → 根据 `target` dispatch 对应 deploy workflow → **watch 到 deploy/smoke 成功** → **再做本地/日志验收**。不要在 workflow 绿灯后就结束会话。
+- **顺序做完**：同步 → 决策 VERSION/tag →（按需 bump+push）→ `release-tag.sh` → **watch 到 release 成功** → 根据 `target` dispatch 对应 deploy workflow → **watch 到 deploy/smoke 成功** → **Anthropic OAuth snapshot/check（默认）** → **再做本地/日志验收 / followup**。不要在 workflow 绿灯后就结束会话。
 - **读 VERSION 前必须先** `fetch` + `pull --ff-only` **后的** `origin/main` 为准；在未更新的本地分支上读 `VERSION` 会与远端 tag 错位。
 - **`gh run watch` 要给够时间**：多架构 `release.yml` 常见十余分钟量级；Agent 应用 `--exit-status` 跟跑到结束，不要用默认短超时提前杀掉。
 - **Environment approval 不是失败**：`prod` / `edge-<edge_id>` run 卡在 `waiting` 时，需要人在 GitHub Actions 批准；批准后继续 watch。
@@ -236,6 +239,7 @@ python3 scripts/stage0/resolve-edge-deploy-route.py --edge-id "$EDGE_ID" --json
    - `skip` → 不跟进，直接 rollout summary。
    - `single` → 仅 **+5min** 一次轻量诊断。
    - `extended` → **+5 / +10 / +15min** 三轮（gateway/schema/config 类变更）。
+9. **Anthropic OAuth 配置检查（默认，在 followup 之前）**：见 §「发版后 Anthropic OAuth 配置检查」。smoke 全绿后立即跑；violations 不触发 rollback，写入 rollout 摘要为 **yellow** 并指向 `/tokenkey-anthropic-oauth-config` 修复路径。
 
 ## prod 真实测试
 
@@ -279,6 +283,8 @@ bash ops/stage0/post_deploy_smoke.sh
 校验 GitHub Environment 配齐（不跑 HTTP）：`bash ops/stage0/load_smoke_github_env.sh --check prod`
 
 通过标准同 `ops/stage0/post_deploy_smoke.sh` 文档；缺 key 不得声称 prod 完整验收通过。
+
+**prod release 默认下一步**：prod smoke 在 CI log 确认 `tk_post_deploy_smoke: OK` 后，立即跑 §「发版后 Anthropic OAuth 配置检查」（除非 `anthropic_config_check=false`）。
 
 ## Smoke 架构（单一 runner + suite）
 
@@ -445,6 +451,61 @@ control plane：<N>/<N> ticks green | <or list any failure tick>
 - **`extended`**：+5 / +10 / +15min 三次；任意 red → 停后续 tick。
 - 更长窗口（+1h / +6h）仅人工显式发起；会话内不要自行无限延期。
 
+## 发版后 Anthropic OAuth 配置检查（默认）
+
+**触发**（同时满足）：
+
+- `operation=release`（非 check / smoke-only / rollback）
+- 本次请求的 deploy + smoke 已验收通过（prod CI `tk_post_deploy_smoke: OK`；`target=edge-*` 对应 phase OK；`target=all` 至少 prod + canary infra OK）
+- 未显式 `anthropic_config_check=false`
+
+**不做什么**：本段**只读**——不 `apply`、不 `sync-runtime`、不改 live DB/Redis。修复路径交给 canonical skill **`/tokenkey-anthropic-oauth-config`**（plan → apply → verify）。
+
+**机械化命令**（artifact 落盘，便于 rollout 摘要引用）：
+
+```bash
+NEW_TAG="${NEW_TAG:-$(git tag --sort=-version:refname | grep '^v[0-9]' | head -1 | sed 's/^v//')}"
+JOBDIR="${JOBDIR:-/tmp/tk-post-release-${NEW_TAG}-$$}"
+MGR=ops/anthropic/manage-anthropic-config.py
+mkdir -p "$JOBDIR"
+
+python3 "$MGR" snapshot --out "$JOBDIR/post-release-snap.json"
+SNAP_RC=$?
+
+CHECK_RC=0
+if [[ "$SNAP_RC" -eq 0 ]]; then
+  python3 "$MGR" check --snapshot "$JOBDIR/post-release-snap.json" --json \
+    | tee "$JOBDIR/post-release-check.json" >/dev/null
+  CHECK_RC=${PIPESTATUS[0]}
+else
+  echo "post-release anthropic check: SKIP (snapshot failed rc=$SNAP_RC)" >&2
+fi
+```
+
+**exit 语义**（写入 rollout 摘要）：
+
+| snapshot | check | 摘要 verdict | 动作 |
+|---|---|---|---|
+| 0 | 0 | **green** — `any_violation=false` | 无需 OAuth 流水线 |
+| 0 | 1 | **yellow** — live 与 repo baseline 漂移 / operator balance 低 | 打开 `/tokenkey-anthropic-oauth-config`：`plan-*` → `apply --confirm …` → `verify`；TLS/UA 漂移常见路径：`plan-guard-drift-fix` 或 `remediate-guard-drift --sync-runtime` |
+| ≠0 或 check 无法跑 | — | **yellow** — SSM/OIDC 只读失败 | 不 rollback 镜像；记 `JOBDIR` 路径，人工补 snapshot/check |
+
+**与 cc 指纹发版的常见联动**（如 #438 类 UA/TLS baseline JSON 已 merge 但 live 未 sync）：
+
+- check 报 `extra_baseline_drift` / `/tls_profile/*` → `remediate-guard-drift`（含 `apply --sync-runtime`）或最小 `sync-runtime --target all-deployable-and-prod`
+- check 全绿但 compile default UA 已升 patch → 可选（非默认）跑 `sync-runtime` 让 settings + Redis fingerprint 立刻对齐；**仍不**在本 skill 默认路径自动 apply tier/stub/group 写入
+
+**报告形状**（固定块，贴进 rollout 摘要）：
+
+```text
+=== Post-release Anthropic OAuth config check (${NEW_TAG}) ===
+snapshot: OK | FAIL rc=N → $JOBDIR/post-release-snap.json
+check:    OK | VIOLATION | SKIP → $JOBDIR/post-release-check.json
+balance_violations: <from check JSON operator_balance.violation_count>
+guard_failures: <count guards with exit_code != 0>
+next: none | /tokenkey-anthropic-oauth-config <plan kind>
+```
+
 ## 完成后：rollout 摘要（机械化）
 
 烟测全部完成后，由 `scripts/release-rollout-summary.sh` 渲染统一摘要（与 local-deploy / upstream-merge 共享同一脚本）：
@@ -463,11 +524,13 @@ bash scripts/release-rollout-summary.sh --mode release
 |---|---|---:|---|---|---|
 | edge-<edge_id>-canary（每个 deployable edge 一行） | dispatch 脚本 → EC2/Lightsail workflow | ... | X.Y.Z | success/fail/skipped | infra / main-via-edge(仅 canary) |
 | prod | deploy-stage0 | ... | X.Y.Z | success/fail/skipped | full/partial |
+| anthropic-oauth-config | manage-anthropic-config.py | — | — | check OK / violation / skip | snapshot+check（只读） |
 
 并补充：
 
 - **有效提交**：feat/fix/chore 分类。
 - **影响面与验证重点**：Gemini、OpenAI OAuth、pricing/model-list、frontend、sentinel、upstream 删除等按实际变更列出。
+- **Anthropic OAuth 配置检查**：§「发版后 Anthropic OAuth 配置检查」固定块；violation 时列 `post-release-check.json` 里的 edge / guard / balance 摘要。
 - **未部署或未覆盖目标**：例如某些 edge 仍 `deployable=false`、用户只要求 prod、缺少 main-gateway-via-edge smoke secret、等待人工审批等。
 
 ## release 之后 main 是否还有提交
@@ -491,8 +554,12 @@ bash scripts/release-rollout-summary.sh --mode release
 | prod smoke 报 Anthropic model not listed in GET /v1/models | 不是代码回归，改 **`prod`** Environment 的 **`TK_SMOKE_PROD_ANTHROPIC_MODEL`** 为该 key 可见模型后重跑。 |
 | `gh` 请求持续报 `read ... 127.0.0.1:7890: connection reset by peer` | 先用 `env -u HTTPS_PROXY -u https_proxy -u HTTP_PROXY -u http_proxy gh <cmd>` 做无代理重试；恢复后再继续 watch。 |
 | 无代理后 dispatch 报 `HTTP 403 Must have admin rights to Repository` | `gh` 可能切到另一个账号；先 `env -u GH_TOKEN ... gh auth status`，必要时 `gh auth switch -u <repo-owner>` 后重试 dispatch。 |
+| 发版后 Anthropic `check` 报 violation（tier/TLS/stub pool/balance） | **不要** rollback 镜像；按 `/tokenkey-anthropic-oauth-config` 从 `$JOBDIR/post-release-check.json` 派生 plan → apply → verify。TLS/UA 漂移优先 `remediate-guard-drift --sync-runtime`。 |
+| 发版后 Anthropic `snapshot` SSM 失败 | 记 yellow；prod/Edge 镜像仍有效。补 OIDC/实例在线后重跑 snapshot+check，或 `snapshot --skip-prod` 仅 edge。 |
 
 ## 扩展阅读（按需打开）
+
+- `.cursor/skills/tokenkey-anthropic-oauth-config/SKILL.md` — 发版后 check violation 的 plan/apply/verify canonical 路径。
 
 - `scripts/release-tag.sh` — tag 门禁。
 - `.github/workflows/release.yml` — multi-arch image build 与 prod auto-dispatch。
