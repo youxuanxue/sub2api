@@ -884,6 +884,29 @@ else
     echo "  ok: lightsail launch script in sync with Stage0 sources"
 fi
 
+# ---- sub2api: stage0 CFN base64 drift ---------------------------------------
+# Source of truth: deploy/aws/stage0/build-cfn.sh + its inputs
+# (docker-compose.yml, Caddyfile, Caddyfile.edge, tokenkey-qa-stale-cleanup.sh,
+# tokenkey-prune-ghcr-app-tags.sh). build-cfn.sh --check fails if the
+# committed gzip|base64 segments in stage0-single-ec2.yaml and
+# stage0-edge-ec2.yaml drift from those sources, so an editor touching
+# compose/Caddyfile cannot accidentally ship a fresh EC2 stack running
+# yesterday's bytes. Mirrors the lightsail launch-script drift gate above —
+# deploy/aws/README.md §3.5 explicitly mandates this as the mechanical
+# enforcement of "编辑后必须运行 build-cfn.sh".
+echo ""
+echo "=== sub2api: stage0 CFN base64 drift ==="
+if [ ! -x ./deploy/aws/stage0/build-cfn.sh ]; then
+    echo "  FAIL: deploy/aws/stage0/build-cfn.sh missing or not executable"
+    errors=$((errors + 1))
+elif ! bash ./deploy/aws/stage0/build-cfn.sh --check >/dev/null 2>&1; then
+    echo "  FAIL: deploy/aws/cloudformation/stage0-{single,edge}-ec2.yaml carries stale gzip|base64"
+    echo "        — run: bash deploy/aws/stage0/build-cfn.sh && git add deploy/aws/cloudformation/"
+    errors=$((errors + 1))
+else
+    echo "  ok: stage0 CFN gzip|base64 segments in sync with sources"
+fi
+
 # Headless agent stream redactor: scripts/agent/redact-stream.py sits between
 # `claude -p` and `tee` in upstream-merge-agent-daily.yml / pr-repair-agent.yml
 # /agent-draft-pr/action.yml, scrubbing secrets out of the agent's stdout

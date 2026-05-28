@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"net"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -11,14 +12,12 @@ import (
 // RegisterCommonRoutes 注册通用路由（健康检查、状态等）
 func RegisterCommonRoutes(r *gin.Engine) {
 	// /health: 就绪探针（readiness）。
-	// drain 模式下返回 503 + 当前 in-flight，Caddy 的 health_passive 据此立刻摘除 upstream，
-	// 同时让 deploy 脚本可以通过它确认 SIGUSR1 已生效。
+	// drain 模式下 503，Caddy 的 passive 检查据此立刻摘除 upstream。
+	// 注意：body 不带 in_flight 数；那是内部状态，由 /health/inflight 提供，
+	// /health 是公开端点，只反映 ready/draining 二态。
 	r.GET("/health", func(c *gin.Context) {
 		if middleware.IsDraining() {
-			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"status":    "draining",
-				"in_flight": middleware.InFlightCount(),
-			})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "draining"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -31,10 +30,15 @@ func RegisterCommonRoutes(r *gin.Engine) {
 		c.JSON(http.StatusOK, gin.H{"status": "alive"})
 	})
 
-	// /health/inflight: 排空遥测。
-	// 发版脚本 docker exec 进容器轮询此值，等到 in_flight=0 再真正停容器。
-	// 不暴露任何业务信息，纯计数。
+	// /health/inflight: 排空遥测，**仅限 loopback**。
+	// 发版脚本走 `docker exec tokenkey wget http://localhost:8080/...` 命中容器
+	// 自己的 loopback，RemoteAddr=127.0.0.1；Caddy → container 走 docker bridge
+	// IP（172.x），命中下面的 404 分支。这样 in_flight 计数不会经公网暴露。
 	r.GET("/health/inflight", func(c *gin.Context) {
+		if !isLoopbackRemote(c.Request.RemoteAddr) {
+			c.Status(http.StatusNotFound)
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{
 			"in_flight": middleware.InFlightCount(),
 			"draining":  middleware.IsDraining(),
@@ -57,4 +61,24 @@ func RegisterCommonRoutes(r *gin.Engine) {
 			},
 		})
 	})
+}
+
+// isLoopbackRemote 判断 http.Request.RemoteAddr 是否来自本地回环。
+// 使用 RemoteAddr 而不是 c.ClientIP() 是故意的：ClientIP 会走 trusted_proxies
+// 链跳过 X-Forwarded-For，本地探针不需要那一层；RemoteAddr 是 raw TCP 源，
+// docker exec 进 container 走 loopback 直接命中。
+func isLoopbackRemote(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		// 没带 port 直接尝试整串
+		host = remoteAddr
+	}
+	if host == "" {
+		return false
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback()
 }

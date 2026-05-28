@@ -1,10 +1,34 @@
 #!/usr/bin/env bash
+#
+# Stage0 SSM deploy primitive.
+#
+# Scope of this script:
+#   1. Patch /var/lib/tokenkey/.env to point at the new image tag.
+#   2. Send SIGUSR1 to tokenkey → wait for /health/inflight to report
+#      draining=true && in_flight=0 (pre-drain so live SSE finishes).
+#   3. `docker compose pull tokenkey` + `compose up -d --no-deps tokenkey`.
+#   4. Wait for container.Health.Status=healthy; rollback on ERR.
+#
+# What this script INTENTIONALLY DOES NOT DO:
+#   - It does NOT refresh /var/lib/tokenkey/docker-compose.yml.
+#   - It does NOT refresh /var/lib/tokenkey/caddy/Caddyfile.
+#   Both files are written once at instance launch by UserData (gzip+base64
+#   decoded from SSM Parameter Store; see stage0-{single,edge}-ec2.yaml +
+#   build-cfn.sh). After editing the source files in this repo, existing
+#   prod/edge hosts still run the OLD copies on disk until the operator
+#   either re-provisions the instance OR runs a manual sync (decode the
+#   SSM Parameter value and write to /var/lib/tokenkey/). The image-tag
+#   bump in step 1 alone is NOT enough to apply new compose/Caddy directives.
+#
+# See deploy/aws/README.md § "升级 / 发版" and the per-PR change notes when
+# the compose or Caddyfile diff matters for take-effect timing.
+
 set -euo pipefail
 
 TAG="${1:-${INPUT_TAG:-}}"
 INSTANCE_ID="${2:-${INSTANCE_ID:-}}"
 COMMENT="${3:-${SSM_COMMENT:-deploy-stage0}}"
-# Default bumped 300 -> 480 to cover pre-drain (≤ ~70s) + image pull + container
+# Default bumped 300 -> 480 to cover pre-drain (≤ ~76s) + image pull + container
 # start + healthcheck (≤ start_period 60s) + headroom on a slow link.
 TIMEOUT_SECONDS="${STAGE0_SSM_TIMEOUT_SECONDS:-480}"
 OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.}"
@@ -64,8 +88,7 @@ jq -n --arg tag "${TAG}" '{
     ("sudo sed -i '\''s|sub2api:[^[:space:]]*|sub2api:" + $tag + "|'\'' /var/lib/tokenkey/.env"),
     "echo === pre-drain: SIGUSR1 + wait in_flight=0 ===",
     "sudo docker kill -s USR1 tokenkey 2>/dev/null || echo \"pre-drain: container not running (first deploy?)\"",
-    "for i in 1 2 3 4 5 6 7 8; do code=$(sudo docker exec tokenkey wget -q -O /dev/null -S http://localhost:8080/health 2>&1 | awk '\''/HTTP/{print $2}'\'' | tail -1); echo \"pre-drain: /health=$code try=$i\"; [ \"$code\" = 503 ] && break; sleep 2; done",
-    "for i in $(seq 1 30); do n=$(sudo docker exec tokenkey wget -q -O - http://localhost:8080/health/inflight 2>/dev/null | sed -n '\''s/.*\"in_flight\":\\([0-9]*\\).*/\\1/p'\''); echo \"pre-drain: in_flight=${n:-?} try=$i/30\"; [ \"${n:-1}\" = 0 ] && break; sleep 2; done",
+    "for i in $(seq 1 38); do body=$(sudo docker exec tokenkey wget -q -O - http://localhost:8080/health/inflight 2>/dev/null); n=$(printf '\''%s'\'' \"$body\" | sed -n '\''s/.*\"in_flight\":\\([0-9]*\\).*/\\1/p'\''); if printf '\''%s'\'' \"$body\" | grep -q '\''\"draining\":true'\''; then d=true; else d=false; fi; echo \"pre-drain: draining=$d in_flight=${n:-?} try=$i/38\"; [ \"$d\" = true ] && [ \"${n:-1}\" = 0 ] && break; sleep 2; done",
     "cd /var/lib/tokenkey && sudo docker compose --env-file .env pull tokenkey",
     "cd /var/lib/tokenkey && sudo docker compose --env-file .env up -d --no-deps tokenkey",
     "for i in 1 2 3 4 5 6 7 8 9 10 11 12; do s=$(sudo docker inspect tokenkey --format '\''{{.State.Health.Status}}'\'' 2>/dev/null || echo missing); echo \"try $i: $s\"; [ \"$s\" = healthy ] && break; sleep 5; done",
