@@ -42,7 +42,12 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     if not path.exists():
         return rows
-    for line in path.read_text(encoding="utf-8").splitlines():
+    # Split only on "\n" (the producer separator), NOT str.splitlines(): the
+    # latter also breaks on Unicode line boundaries (U+2028/U+2029/U+0085).
+    # json.dumps(ensure_ascii=False) keeps those raw inside string values, so an
+    # upstream issue title/body containing U+2028 would split one valid JSON
+    # record across "lines" and raise JSONDecodeError: Unterminated string.
+    for line in path.read_text(encoding="utf-8").split("\n"):
         if line.strip():
             rows.append(json.loads(line))
     return rows

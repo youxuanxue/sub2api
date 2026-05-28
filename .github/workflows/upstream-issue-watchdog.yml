@@ -8,6 +8,8 @@ on:
       - '.cache/upstream/*.json'
       - 'scripts/upstream/issue-*.py'
       - '.github/workflows/upstream-issue-watchdog.yml'
+    paths-ignore:
+      - 'backend/cmd/server/VERSION'
   schedule:
     # 05:20 Asia/Shanghai. GitHub cron is UTC. Runs after the daily upstream merge agent.
     - cron: '20 21 * * *'
