@@ -13,9 +13,11 @@
 (tk_upstream) {
 	reverse_proxy tokenkey:8080 {
 		flush_interval -1
-		# 健康检查策略同 prod Caddyfile：主动看 /health/live (liveness)，
-		# 发版 drain 通过 passive 检查 + lb_try_duration 让客户端重试到新容器。
-		health_uri /health/live
+		# 健康检查策略同 prod Caddyfile：active 走 /health（drain-aware），
+		# SIGUSR1 → /health=503 让 Caddy active 立刻把 upstream 摘除；docker
+		# healthcheck 用 /health/live 避免 drain → docker restart；passive 5xx
+		# + lb_try_duration 覆盖 stop→start 真空期。
+		health_uri /health
 		health_interval 5s
 		health_timeout 3s
 		fail_duration 5s
