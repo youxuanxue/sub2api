@@ -389,9 +389,10 @@
       "must_contain": [
         "c.Set(service.ClaudeCodeParsedRequestGinKey, parsedReq)",
         "c.Get(service.ClaudeCodeParsedRequestGinKey)",
-        "SetClaudeDesktopGatewayClient(ctx, service.IsClaudeDesktopGatewayUserAgent(ua))"
+        "isDesktopGateway := service.IsClaudeDesktopGatewayUserAgent(ua)",
+        "SetClaudeDesktopGatewayClient(ctx, isDesktopGateway)"
       ],
-      "rationale": "Claude Code parsed request snapshot must remain on the canonical Gin key so service-layer tkEnsure can recover session UUID when outbound serialization loses metadata.user_id. Desktop 3p custom-gateway traffic (Electron UA) must set IsClaudeDesktopGatewayClient on the same hot path so claude_code_only groups accept health checks without masquerading as claude-cli."
+      "rationale": "Claude Code parsed request snapshot must remain on the canonical Gin key so service-layer tkEnsure can recover session UUID when outbound serialization loses metadata.user_id. Desktop 3p custom-gateway traffic (Electron UA) must set IsClaudeDesktopGatewayClient on the non-CLI fast path as well as the Claude CLI path so claude_code_only groups accept health checks without masquerading as claude-cli."
     },
     {
       "path": "backend/internal/service/gateway_service.go",

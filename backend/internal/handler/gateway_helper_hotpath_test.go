@@ -147,6 +147,7 @@ func TestSetClaudeCodeClientContext_FastPathAndStrictPath(t *testing.T) {
 
 		SetClaudeCodeClientContext(c, validClaudeCodeBodyJSON(), nil)
 		require.False(t, service.IsClaudeCodeClient(c.Request.Context()))
+		require.False(t, service.IsClaudeDesktopGatewayClient(c.Request.Context()))
 	})
 
 	t.Run("cli_non_messages_path_sets_true", func(t *testing.T) {
