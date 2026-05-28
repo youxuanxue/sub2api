@@ -19,7 +19,7 @@ description: >-
 
 | 步骤 | 类型 | 承载 |
 |---|---|---|
-| 解析 prod / edge target（region / instance_id / domain） | 机械 | `deploy/aws/stage0/resolve-edge-target.py --edge-id <id>` + `aws cloudformation describe-stacks` |
+| 解析 prod / edge target（region / instance_id / domain） | 机械 | `resolve-edge-target.py` + `resolve-edge-lightsail-target.py`；Lightsail 用 tag-SSM `EdgeId`/`Platform=lightsail` |
 | SSM base64 投递 + send-command + poll | 机械 | `ops/observability/run-probe.sh --target prod\|edge:<id> --script <probe.sh>` |
 | `ops_error_logs` 标准聚合（schema + by_status + upstream_events + 429-by-minute） | 机械 | `ops/observability/ops-error-triage.sh`（通过 run-probe.sh 投递） |
 | Docker access log 解析（status/model/minute/latency 直方图 + marker 计数） | 机械 | `ops/observability/parse-access-log.py --stdin\|--file\|--docker` |
@@ -70,25 +70,37 @@ description: >-
 
 ### 1.1 Edge target
 
-Edge 矩阵权威文件：`deploy/aws/stage0/edge-targets.json`。
+**双矩阵**：EC2 `deploy/aws/stage0/edge-targets.json`；Lightsail `deploy/aws/lightsail/edge-targets-lightsail.json`。Lightsail `deployable=true` 优先（uk1、us2、…）。
 
-优先用脚本解析（输出是 `key=value` 行，**没有 `--json` flag**——别加，会 `unrecognized arguments` 报错；要结构化就直接读 `edge-targets.json`）：
+```bash
+python3 scripts/stage0/resolve-edge-deploy-route.py --edge-id "$EDGE_ID" --json
+# → platform, workflow_file, region, domain, confirm_value
+```
+
+EC2 路径仍可用（输出 `key=value` 行，**没有 `--json`**）：
 
 ```bash
 python3 deploy/aws/stage0/resolve-edge-target.py --edge-id "$EDGE_ID"
 # 加 --allow-planned 才会解析 deployable:false 的 planned edge
 ```
 
-脚本给出：`edge_id` `deployable` `region` `domain` `ssm_prefix` `stack` 等。**注意脚本不输出 `instance_id`**——和 prod 一样要从 CloudFormation 单独取（同 §1.2）：
+**Lightsail 路径**（`platform=lightsail`）：
+
+```bash
+python3 deploy/aws/lightsail/resolve-edge-lightsail-target.py --edge-id "$EDGE_ID"
+# SSM 目标：tag EdgeId=<id> + Platform=lightsail → managed instance mi-*
+# 不要对 uk1 再查 tokenkey-edge-uk1-stage0 CFN InstanceId
+```
+
+EC2-only：从 CloudFormation 取 instance id（同 §1.2 模式）：
 
 ```bash
 REGION=<上面解析出的 region>; STACK=<上面解析出的 stack>
 IID=$(aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK" \
   --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue" --output text)
-# 回退：若 Outputs 无 InstanceId，用 describe-stack-resources 取 AWS::EC2::Instance 的 PhysicalResourceId
 ```
 
-最终必须确认：`edge_id` / `deployable` / `region` / `instance_id` / `domain` / `ssm_prefix` / `stack`。
+最终必须确认：`edge_id` / `platform` / `deployable` / `region` / `instance_id`（`i-*` 或 `mi-*`）/ `domain`。
 
 planned edge 默认不查；除非用户显式允许 `allow_planned=true`。
 
@@ -402,6 +414,9 @@ needs input:
 | `probe-gateway-ua-tls-compare` DB 窗太宽 | 未设 `WINDOW_MINUTES`，outage 证据被 LIMIT 稀释 | 根据 issue 换算分钟数， `--env WINDOW_MINUTES=N`。 |
 | `fetch-gateway-debug-log` SSM Failed | debug 文件不存在或 env 未开 | 远端 `docker exec tokenkey test -f /app/data/gateway_debug.log`；无文件则勿拉 body。 |
 | S3 presign / curl PUT 失败 | 实例无外网或桶策略 | 读 SSM stderr；检查 `SSM_OUTPUT_S3_BUCKET` 与 IAM；勿改线上只为 bypass。 |
+| 公网 `curl https://api-<edge>.tokenkey.dev` **连接超时** | Lightsail 防火墙缺 **TCP 443**（80 可能已开；SSM 内 curl 仍正常） | `aws lightsail get-instance-port-states`；`bash ops/stage0/verify-edge-lightsail-network.sh <id> --fix-443` |
+| DNS 已指 Static IP 但 **TLS handshake 失败** / 证书错误 | provision 早于 DNS → ACME NXDOMAIN；Caddy 未续签 | DNS 生效后 `verify-edge-lightsail-network.sh <id> --renew-cert` |
+| Edge SSM 找不到 instance | uk1 等已迁 Lightsail，仍查 EC2 CFN stack | `resolve-edge-deploy-route.py --json`；Lightsail 用 tag SSM `mi-*` |
 
 ## 10) 交接给修复流程
 

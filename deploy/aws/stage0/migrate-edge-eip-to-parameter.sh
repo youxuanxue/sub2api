@@ -22,7 +22,7 @@
 # Usage:
 #   bash deploy/aws/stage0/migrate-edge-eip-to-parameter.sh <edge_id> [--apply]
 #
-#     edge_id  — uk1 | us1 | fra1 | sg1 (must exist in edge-targets.json)
+#     edge_id  — us1 | fra1 | sg1 (must exist in edge-targets.json)
 #     --apply  — actually run aws cloudformation deploy. Without it the script
 #                does a read-only dry-run that prints the planned parameters
 #                and exits 0. The dry-run still calls aws cloudformation
@@ -80,7 +80,6 @@ esac
 # Resolve the CFN execution role from the OIDC stack (same lookup as
 # operation=provision in deploy-edge-stage0.yml).
 case "$EDGE_ID" in
-  uk1)  ROLE_OUTPUT_KEY=EdgeUk1CloudFormationExecutionRoleArn ;;
   fra1) ROLE_OUTPUT_KEY=EdgeFra1CloudFormationExecutionRoleArn ;;
   us1)  ROLE_OUTPUT_KEY=EdgeUs1CloudFormationExecutionRoleArn ;;
   *)

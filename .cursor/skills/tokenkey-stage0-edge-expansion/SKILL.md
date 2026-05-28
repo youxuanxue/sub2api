@@ -1,15 +1,26 @@
 ---
 name: tokenkey-stage0-edge-expansion
 description: >-
-  End-to-end runbook for adding a new AWS Stage0 Edge gateway beyond existing
-  uk1/fra1: prepare metadata and IAM/OIDC scope, provision edge stack, set DNS,
-  run smoke/upgrade/rollback via deploy-edge-stage0.yml, and report structured
-  acceptance results with known failure patterns.
+  End-to-end runbook for adding a new AWS Stage0 Edge gateway on the **EC2/CloudFormation**
+  path: prepare metadata and IAM/OIDC scope, provision edge stack, set DNS,
+  run smoke/upgrade/rollback via deploy-edge-stage0.yml. For Lightsail edges use
+  tokenkey-stage0-edge-lightsail-expansion; for EC2→Lightsail migration use
+  tokenkey-stage0-edge-platform-migration.
 ---
 
-# TokenKey：新增任意 Edge 网关全流程（uk1/fra1 之外）
+# TokenKey：新增 EC2/CFN Edge 网关全流程
 
-适用于本仓库（TokenKey fork of sub2api）。目标是把一个新 edge（例如 us1/sg1 或未来任意 `<edge_id>`）从“计划中”推进到“可 provision + 可 smoke + 可回滚”。
+适用于本仓库（TokenKey fork of sub2api）。目标是把一个新 **EC2/CloudFormation** edge（例如 `us1`、`fra1`、`sg1`）从“计划中”推进到“可 provision + 可 smoke + 可回滚”。
+
+**路由表（先选对 skill）：**
+
+| 场景 | Skill |
+|---|---|
+| 新 edge，Lightsail（us2/us3/us4、已迁 uk1 等） | `tokenkey-stage0-edge-lightsail-expansion` |
+| 新 edge，EC2/CFN（当前 deployable：`us1` 等） | **本 skill** |
+| 同一 `edge_id` 从 EC2 迁到 Lightsail | `tokenkey-stage0-edge-platform-migration` |
+| EC2 Elastic IP 污染轮换 | `tokenkey-stage0-edge-ip-rotation` |
+| Lightsail Static IP 污染轮换 | `tokenkey-stage0-edge-lightsail-ip-rotation` |
 
 权威纪律以仓库根 `CLAUDE.md` 为准（ARM、多架构发布、release/deploy 顺序、禁止绕过 preflight）。
 
@@ -21,7 +32,7 @@ description: >-
 |---|---|---|
 | edge-targets.json / deploy-edge-stage0.yml / cicd-oidc.yaml / GitHub Environment / SSM 参数 5 个文件的差量编辑 | 判断 | prompt（IAM/OIDC scope、跨区 ARN、CFN role 命名是架构决定） |
 | Provision dispatch + watch | 机械 | `gh workflow run deploy-edge-stage0.yml ...` + `gh run watch --exit-status` |
-| 抓初始 admin 邮箱+密码并落本地 keys 文件 | 机械 | `bash ops/stage0/capture-edge-admin-credentials.sh <edge_id>` |
+| 抓初始 admin 邮箱+密码并落本地 keys 文件 | 机械 | `bash ops/stage0/ensure-edge-admin-credentials.sh --platform ec2 <edge_id>`（或 `capture-edge-admin-credentials.sh`） |
 | Smoke / Upgrade / Rollback dispatch | 机械 | `gh workflow run deploy-edge-stage0.yml`（参数化） |
 | 故障速查（OIDC subject / CFN role output / cloud-init / ssm doc ARN） | 判断 | prompt（诊断分支） |
 
@@ -88,7 +99,7 @@ description: >-
 2. `Provision or update Edge stack` 步骤中的 `case "$EDGE_ID"` 新增映射：
    - `CFN_ROLE_OUTPUT_KEY=Edge<PascalCaseEdgeId>CloudFormationExecutionRoleArn`
 
-### 1.3 更新 OIDC / IAM 模板（代码）
+### 1.3 更新 OIDC / IAM 模板（代码，**仅 EC2/CFN edge**）
 
 编辑 `deploy/aws/cloudformation/cicd-oidc.yaml`：
 1. `AllowedSubjects` 默认列表加入：`repo:youxuanxue/sub2api:environment:edge-<edge_id>`。
@@ -104,6 +115,8 @@ description: >-
 - edge 的 `AWS-RunShellScript` 文档 ARN 必须用该 edge 区域：
   - `arn:aws:ssm:${EdgeXRegion}::document/AWS-RunShellScript`
 - 不能写成 `${AWS::Region}`（这会在 us-east-1 OIDC 栈场景导致跨区 `ssm:SendCommand` 被拒）。
+
+> **Lightsail-only edge**（矩阵只在 `edge-targets-lightsail.json` 且 `deployable=true`）：**跳过**本节 CFN execution role / `EdgeXTargetInstanceId`——只需 `AllowedSubjects` 含 `environment:edge-<id>`（见 `tokenkey-stage0-edge-lightsail-expansion` §1.5a）。`uk1` 已完成 EC2→Lightsail，**不要**再为 uk1 加 EC2 IAM。
 
 ### 1.4 部署 OIDC 控制栈
 
@@ -122,7 +135,7 @@ aws cloudformation deploy \
 
 ### 1.5 GitHub Environment 准备
 
-新建环境：`edge-<edge_id>`，并配置变量（参考 `edge-uk1`/`edge-fra1`）：
+新建环境：`edge-<edge_id>`，并配置变量（参考 `edge-us1` / `edge-fra1`）：
 - `AWS_OIDC_ROLE_ARN`
 - `AWS_OIDC_STACK_NAME`
 - `EDGE_ACME_EMAIL`
@@ -176,12 +189,9 @@ gh run watch <run-id> --exit-status
 ### 3.2 线上日志保存（机械化）
 
 ```bash
-bash ops/stage0/capture-edge-admin-credentials.sh edge-<edge_id>
-# 或省略前缀：
+bash ops/stage0/ensure-edge-admin-credentials.sh --platform ec2 <edge_id>
+# 或 capture（auto 路由）；Lightsail deployable edge 用 --platform lightsail
 bash ops/stage0/capture-edge-admin-credentials.sh <edge_id>
-# 若 auto 选错路径，可强制：
-bash ops/stage0/capture-edge-admin-credentials.sh --platform lightsail uk1
-bash ops/stage0/capture-edge-admin-credentials.sh --platform ec2 fra1
 ```
 
 行为契约（脚本顶部说明为 ground truth）：
@@ -262,9 +272,10 @@ gh workflow run deploy-edge-stage0.yml \
 按以下顺序执行：
 1. 完成 Prepare（1.1~1.6）
 2. 执行 Provision
-3. 配置并确认 DNS 生效
-4. 执行 Smoke
-5. 输出结构化结果：
+3. Admin 账密（`ensure-edge-admin-credentials.sh --platform ec2 <edge_id>`）
+4. 配置并确认 DNS 生效
+5. 执行 Smoke
+6. 输出结构化结果：
    - edge_id / region / stack / domain
    - provision run id + status
    - smoke run id + status
@@ -289,6 +300,7 @@ bash scripts/preflight.sh
 | provision 报找不到 CFN role output | workflow 未加 `CFN_ROLE_OUTPUT_KEY` 映射 | 更新 `.github/workflows/deploy-edge-stage0.yml` |
 | cloud-init 拉镜像失败 | `EDGE_GHCR_PAT_SSM_NAME` 错路径或参数缺失 | 在目标 region 写入 `.../edge/<edge_id>/ghcr/pat` |
 | smoke 外部 health 000 | DNS 未生效或服务未起来 | 先查 DNS，再查实例 `tokenkey.service` / compose |
+| smoke 外部 health **连接超时**（Lightsail） | 走错 skill；或 443 未开 | 用 `tokenkey-stage0-edge-lightsail-expansion` §2.2 |
 | smoke 报 `ssm:SendCommand` 拒绝 | 实例 ARN/文档 ARN 策略不匹配 | 回填 `<EdgeXTargetInstanceId>`，并确保文档 ARN 用 `<EdgeXRegion>` |
 
 ## 扩展阅读

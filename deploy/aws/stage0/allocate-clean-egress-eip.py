@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Allocate a fresh VPC EIP for an edge, refusing any allocation that lands on
-a known-excluded IP listed in deploy/aws/stage0/edge-polluted-ips.json
-(polluted[] or retired_excluded[]).
+a known-excluded IP listed in deploy/aws/stage0/edge-polluted-ips.json (polluted[]).
 
 Used by .github/workflows/deploy-edge-stage0.yml operation=rotate_egress_ip
 before the CloudFormation update-stack that binds the new allocation to the
@@ -53,10 +52,9 @@ def load_excluded_ips(region: str, registry_path: pathlib.Path = POLLUTED_FILE) 
     except json.JSONDecodeError as e:
         fail(f"malformed JSON in {registry_path}: {e}")
     excluded: set[str] = set()
-    for key in ("polluted", "retired_excluded"):
-        for entry in data.get(key, []):
-            if entry.get("region") == region and "ip" in entry:
-                excluded.add(entry["ip"])
+    for entry in data.get("polluted", []):
+        if entry.get("region") == region and "ip" in entry:
+            excluded.add(entry["ip"])
     return excluded
 
 

@@ -15,17 +15,16 @@ description: >-
 
 # TokenKey: rotate an edge gateway's egress EIP
 
+**EC2/CFN only.** Lightsail Static IP 轮换见 `tokenkey-stage0-edge-lightsail-ip-rotation`（**uk1 已迁 Lightsail**，勿对本 skill  dispatch `rotate_egress_ip`）。
+
 **v2 (OPC).** Replaces the v1 manual multi-step nano-probe / CFN-IMPORT runbook.
 The deploy workflow now owns rotation end-to-end; this skill is a thin wrapper
 that decides _which workflow input to pass_, not a sequence of bash commands.
 
-The previous v1 runbook in
-[`docs/deploy/tokenkey-edge-ip-history.md`](../../../docs/deploy/tokenkey-edge-ip-history.md)
-is retained as the **historical & recovery reference** — read it only if (a)
-you are doing the one-time per-stack migration via
-[`deploy/aws/stage0/migrate-edge-eip-to-parameter.sh`](../../../deploy/aws/stage0/migrate-edge-eip-to-parameter.sh)
-on a stack that has not yet been converted to EIP-as-parameter, or (b) the
-v2 path failed in a way that requires hand-recovery (rare).
+Polluted IP registry:
+[`deploy/aws/stage0/edge-polluted-ips.json`](../../../deploy/aws/stage0/edge-polluted-ips.json)
+(human-readable table in
+[`docs/deploy/tokenkey-edge-ip-history.md`](../../../docs/deploy/tokenkey-edge-ip-history.md)).
 
 ## Why this is short now
 
@@ -55,7 +54,11 @@ gh workflow run deploy-edge-stage0.yml \
 
 `edge_id` matches a key in
 [`deploy/aws/stage0/edge-targets.json`](../../../deploy/aws/stage0/edge-targets.json)
-(normalize `edge-uk1` → `uk1`). `rotation_reason` is required and ends up on
+with **`deployable=true`** (normalize `edge-uk1` → `uk1`). If the edge is
+Lightsail-authoritative (uk1 / us2 / … in
+[`edge-targets-lightsail.json`](../../../deploy/aws/lightsail/edge-targets-lightsail.json)),
+stop and use `tokenkey-stage0-edge-lightsail-ip-rotation` instead.
+`rotation_reason` is required and ends up on
 the new EIP's `tokenkey:replaces-reason` tag and in the run summary's
 `edge-polluted-ips.json` snippet.
 
@@ -113,7 +116,9 @@ The workflow itself enforces the data-plane invariants. This skill must still
 refuse when:
 
 1. The normalized `edge_id` is not a key in
-   [`deploy/aws/stage0/edge-targets.json`](../../../deploy/aws/stage0/edge-targets.json).
+   [`deploy/aws/stage0/edge-targets.json`](../../../deploy/aws/stage0/edge-targets.json)
+   with **`deployable=true`**, or the edge is Lightsail-authoritative in
+   `edge-targets-lightsail.json` (use lightsail-ip-rotation skill).
 2. `rotation_reason` is empty or only whitespace.
 3. The target stack has not been migrated yet (`describe-stacks` shows no
    `EipAllocationId` parameter) — direct the operator to
@@ -156,8 +161,6 @@ follow_up:
 
 ## v1 (legacy) reference
 
-The previous procedure — throwaway-nano probe, manual `associate-address`,
-drift-lock flag, `recover-drift` Phase 2 detach + IMPORT — is documented in
-[`docs/deploy/tokenkey-edge-ip-history.md`](../../../docs/deploy/tokenkey-edge-ip-history.md).
-After all edges have been migrated to the parameter shape, that document
-becomes pure history.
+Retired polluted IPs are recorded in
+[`edge-polluted-ips.json`](../../../deploy/aws/stage0/edge-polluted-ips.json)
+when dispatching `rotate_egress_ip` (same PR as the rotation).

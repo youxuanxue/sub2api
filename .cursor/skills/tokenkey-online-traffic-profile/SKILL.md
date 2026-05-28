@@ -44,14 +44,16 @@ description: >-
 
 | 参数 | 语义 |
 |---|---|
-| `target` | `prod`、`edge:us1`/`edge:uk1`/…、`all-edges`（= `edge-targets.json` 中所有 `deployable:true` 的 edge，先解析再逐个跑；当前实际只有 us1），或域名。决定 region/instance。 |
+| `target` | `prod`、`edge:us1`/`edge:uk1`/…、`all-edges`（= 双矩阵 merge 后所有 `deployable:true` 的 edge），或域名。决定 region/instance（EC2 `i-*` 或 Lightsail `mi-*`）。 |
 | `hours` | 回看小时数。注意 docker logs 仅覆盖容器 `Up` 时长——先 `docker ps` 看 `tokenkey` 启动多久，超出部分日志不存在。 |
 | `minutes` | 亚小时窗口；用户说"过去 30 分钟"用 `minutes=30`，直接转 `docker logs --since 32m`（多拉 2min 缓冲让按 `completed_at` 过滤的边界分钟完整）。给了 `minutes` 就忽略 `hours`。 |
 | `account` | 账号 id 或 name；`all` 则先列该 platform 的可调度账号再画像。 |
 
 默认：`hours=1`、`account=all`、`path=/v1/messages`、`mode=只读`、桶=分钟。planned edge 不查除非 `allow_planned=true`。当前桶只支持分钟；需要 5-min 等更粗桶就在分钟输出上做 rollup，不要靠 `FMT` 偷桥（`strftime` 无法表达 5-min 桶）。
 
-> **target=all-edges 的解析**：可调度集 = `deploy/aws/stage0/edge-targets.json` 里 `deployable:true` 的条目（用 `resolve-edge-target.py` 或直接读 JSON）。**不要**对 `deployable:false` 的 planned edge（uk1/sg1/fra1 等）跑画像，除非 `allow_planned=true`。当前矩阵下 `all-edges` 实际只解析出 us1。
+> **target=all-edges 的解析**：可调度集 = `python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable`（**已合并 EC2 ∪ Lightsail**，Lightsail `deployable=true` 优先）。典型 deployable 集：`us1`（EC2）、`uk1`/`us2`/`us3`/`us4`（Lightsail）等——以 live 矩阵为准。**不要**对 `deployable:false` 的 planned edge 跑画像，除非 `allow_planned=true`。
+
+> **Lightsail edge SSM**：`uk1` 等用 Hybrid managed instance（tag `EdgeId` + `Platform=lightsail`），**不要**查 `tokenkey-edge-uk1-stage0` CFN `InstanceId`。
 
 ## 0) 为什么必须"逐分钟重建"，不能只看 gauge
 

@@ -14,7 +14,6 @@ on:
         options:
           # Keep in sync with cicd-oidc AllowedSubjects (environment:edge-*) + CFN execution role mapping below.
           # Planned edges remain in edge-targets.json until bootstrap widens IAM + adds GitHub Environments.
-          - uk1
           - fra1
           - us1
       operation:
@@ -33,7 +32,7 @@ on:
         required: false
         type: string
       confirm_stack:
-        description: "Must exactly match the target stack name from the matrix (e.g. tokenkey-edge-uk1-stage0)."
+        description: "Must exactly match the target stack name from the matrix (e.g. tokenkey-edge-us1-stage0)."
         required: true
         type: string
       simple_release_override:
@@ -208,7 +207,6 @@ jobs:
           fi
           AWS_OIDC_STACK_NAME="${AWS_OIDC_STACK_NAME:-tokenkey-cicd-oidc}"
           case "${EDGE_ID}" in
-            uk1) CFN_ROLE_OUTPUT_KEY=EdgeUk1CloudFormationExecutionRoleArn ;;
             fra1) CFN_ROLE_OUTPUT_KEY=EdgeFra1CloudFormationExecutionRoleArn ;;
             us1) CFN_ROLE_OUTPUT_KEY=EdgeUs1CloudFormationExecutionRoleArn ;;
             *)
@@ -307,7 +305,6 @@ jobs:
           set -euo pipefail
           AWS_OIDC_STACK_NAME="${AWS_OIDC_STACK_NAME:-tokenkey-cicd-oidc}"
           case "${EDGE_ID}" in
-            uk1) CFN_ROLE_OUTPUT_KEY=EdgeUk1CloudFormationExecutionRoleArn ;;
             fra1) CFN_ROLE_OUTPUT_KEY=EdgeFra1CloudFormationExecutionRoleArn ;;
             us1) CFN_ROLE_OUTPUT_KEY=EdgeUs1CloudFormationExecutionRoleArn ;;
             *)

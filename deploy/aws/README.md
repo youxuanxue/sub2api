@@ -87,16 +87,26 @@ curl -sS -o /dev/null -w '%{http_code}\n' "https://${DOMAIN}/health"
 # 期望 200；首次若 503 是 LE 还在签证书，等 1–2 min
 ```
 
-## Edge Stage 0（uk1 + fra1）
+## Edge Stage 0（EC2 + Lightsail）
 
 Edge 子网关不是第二个用户入口。区域域名（如 `api-uk1.tokenkey.dev`、`api-fra1.tokenkey.dev`）只作为 `api.tokenkey.dev` 背后的区域资源节点，默认 API 路径只允许主网关 EIP 访问。
 
-首批 Edge 矩阵在 `deploy/aws/stage0/edge-targets.json`，`uk1` 与 **`fra1`（法国巴黎 `eu-west-3`，域名仍为 `api-fra1.tokenkey.dev`）** 为 `deployable=true`：
+**uk1** 已 exclusively 在 Lightsail（`deploy/aws/lightsail/edge-targets-lightsail.json`，workflow `deploy-edge-lightsail-stage0.yml`）。**EC2 矩阵**（`deploy/aws/stage0/edge-targets.json`）不再包含 uk1。
+
+当前 EC2 Edge 矩阵示例：
 
 ```text
-uk1  -> eu-west-2 -> api-uk1.tokenkey.dev  -> tokenkey-edge-uk1-stage0  -> edge-minimal
-fra1 -> eu-west-3 -> api-fra1.tokenkey.dev -> tokenkey-edge-fra1-stage0 -> edge-minimal
+us1  -> us-west-2 -> api-us1.tokenkey.dev  -> tokenkey-edge-us1-stage0  -> edge-minimal (deployable)
+fra1 -> eu-west-3 -> api-fra1.tokenkey.dev -> tokenkey-edge-fra1-stage0 -> edge-minimal (planned)
 ```
+
+uk1 Lightsail：
+
+```text
+uk1 -> eu-west-2 -> api-uk1.tokenkey.dev -> tokenkey-edge-uk1-ls -> deploy-edge-lightsail-stage0.yml
+```
+
+见 [`.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/SKILL.md`](../../.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/SKILL.md)。
 
 Edge workflow 使用独立入口 `.github/workflows/deploy-edge-stage0.yml`，但不是第二套部署逻辑：prod/test 和 Edge 都调用同一批共享脚本：
 
@@ -112,48 +122,11 @@ ops/stage0/external_health.sh
 
 **GitHub**：每种 Edge 绑定 Environment `edge-<edge_id>`（例如 `edge-uk1`、`edge-fra1`），请在仓库 Settings → Environments 里按需配置 Required reviewer。**`edge-fra1` 的 Variables / Secrets 可与 `edge-uk1` 逐项相同复制**（`EDGE_ACME_EMAIL`、`EDGE_MAIN_GATEWAY_ALLOWED_CIDR`、`TK_SMOKE_EDGE_CANARY_KEY` 等）；**例外**：不要在 fra1 复制一条指向 uk1 路径的 **`EDGE_GHCR_PAT_SSM_NAME`**——该项若在 uk1 里设为 `/tokenkey/edge/uk1/ghcr/pat`，fra1 Environment 应**不设**该变量（workflow 会按矩阵自动用 `/tokenkey/edge/fra1/ghcr/pat`）。仓库级 **`AWS_OIDC_ROLE_ARN`**、**`AWS_OIDC_STACK_REGION`/`AWS_REGION`** 仍与各 Edge 共用，无需按 Environment 重复。
 
-**IAM**：更新 `deploy/aws/cloudformation/cicd-oidc.yaml` 并重部署 **`tokenkey-cicd-oidc`**（部署区域须与仓库变量 **`AWS_OIDC_STACK_REGION`** 一致；未设置时 workflow 使用 `vars.AWS_REGION`，再没有则用 `us-east-1`，与 `docs/approved/deploy-stage0-workflow.md` 默认一致）。模板会为 uk1 / fra1 各输出一个 Edge CloudFormation execution role；Edge workload 仍在各自 `region`（矩阵字段）。
+**IAM**：更新 `deploy/aws/cloudformation/cicd-oidc.yaml` 并重部署 **`tokenkey-cicd-oidc`**（部署区域须与仓库变量 **`AWS_OIDC_STACK_REGION`** 一致；未设置时 workflow 使用 `vars.AWS_REGION`，再没有则用 `us-east-1`，与 `docs/approved/deploy-stage0-workflow.md` 默认一致）。EC2 Edge（fra1 / us1）各有一个 CloudFormation execution role；Lightsail uk1 走独立 addon（`cicd-oidc-lightsail-addon.yaml`）。
 
-### uk1 初次创建顺序
+### uk1（Lightsail，非 EC2）
 
-```bash
-TAG=X.Y.Z
-
-# 0) 前置：eu-west-2 写入 GHCR PAT，路径默认 /tokenkey/edge/uk1/ghcr/pat
-aws ssm put-parameter --region eu-west-2 \
-  --name /tokenkey/edge/uk1/ghcr/pat --type SecureString \
-  --value 'ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
-
-# 1) GitHub Environment edge-uk1 配置 Required reviewer；仓库/环境变量配置：
-#    EDGE_ACME_EMAIL=ops@tokenkey.dev
-#    EDGE_MAIN_GATEWAY_ALLOWED_CIDR=34.194.234.88/32   # apply 前确认仍是主网关固定出口
-
-# 2) 先更新 OIDC/IAM stack：允许 edge-uk1 Environment，并创建 CloudFormation execution role。
-#    provision 完成拿到 uk1 InstanceId 后，再回填 EdgeUk1TargetInstanceId 才能跑 upgrade/smoke/rollback 的 SSM 命令。
-aws cloudformation deploy --region "${AWS_OIDC_STACK_REGION:-us-east-1}" \
-  --stack-name tokenkey-cicd-oidc \
-  --template-file deploy/aws/cloudformation/cicd-oidc.yaml \
-  --capabilities CAPABILITY_NAMED_IAM
-
-# 3) Dispatch Edge provision；confirm_stack 必须精确匹配，避免误点错栈。
-#    provision 只创建/更新 stack，不跑外部 health/smoke，因为 DNS A 记录此时还未指向新 EIP。
-gh workflow run deploy-edge-stage0.yml \
-  -f edge_id=uk1 \
-  -f operation=provision \
-  -f tag=$TAG \
-  -f confirm_stack=tokenkey-edge-uk1-stage0
-
-# 4) 从 workflow summary 取新 EIP 的 PublicIP（provision 步骤自动分配并打印 JSON），手工把 api-uk1.tokenkey.dev A 记录指向该 IP。
-#    也可以从 stack 反查：
-#      ALLOC=$(aws cloudformation describe-stacks --region "${REGION}" --stack-name tokenkey-edge-uk1-stage0 \
-#               --query 'Stacks[0].Outputs[?OutputKey==`EipAllocationId`].OutputValue' --output text)
-#      aws ec2 describe-addresses --region "${REGION}" --allocation-ids "$ALLOC" --query 'Addresses[0].PublicIp' --output text
-# 5) DNS 生效后 dispatch smoke；默认先跑 external health + infra smoke + API path block 检查。
-gh workflow run deploy-edge-stage0.yml \
-  -f edge_id=uk1 \
-  -f operation=smoke \
-  -f confirm_stack=tokenkey-edge-uk1-stage0
-```
+使用 `deploy-edge-lightsail-stage0.yml` + `edge-targets-lightsail.json`。勿再 dispatch `deploy-edge-stage0.yml` 的 uk1。
 
 ### fra1（法国巴黎）初次创建顺序
 
@@ -188,15 +161,7 @@ gh workflow run deploy-edge-stage0.yml \
   -f confirm_stack=tokenkey-edge-fra1-stage0
 ```
 
-后续升级（uk1 / fra1）不改 CFN 参数，走同一 SSM 原地升级 primitive：
-
-```bash
-gh workflow run deploy-edge-stage0.yml \
-  -f edge_id=uk1 \
-  -f operation=upgrade \
-  -f tag=$TAG \
-  -f confirm_stack=tokenkey-edge-uk1-stage0
-```
+后续升级（fra1 / us1 EC2）不改 CFN 参数，走同一 SSM 原地升级 primitive：
 
 ```bash
 gh workflow run deploy-edge-stage0.yml \
@@ -206,8 +171,8 @@ gh workflow run deploy-edge-stage0.yml \
   -f confirm_stack=tokenkey-edge-fra1-stage0
 ```
 
-`us1/sg1` 仍在 `edge-targets.json` 中保留为 planned（`deployable=false`）。`deploy-edge-stage0.yml`
-的 dispatch **choice** 仅列出当前已接通 OIDC / CFN 的 **`uk1` / `fra1`**；启用其它 Edge 时先在矩阵设
+`sg1` 仍在 `edge-targets.json` 中保留为 planned（`deployable=false`）。`deploy-edge-stage0.yml`
+的 dispatch **choice** 列出当前 EC2 可操作的 **`fra1` / `us1`**；启用其它 EC2 Edge 时先在矩阵设
 `deployable=true`，扩展 **`tokenkey-cicd-oidc`**（trust `environment:edge-<id>` + CFN execution role output）、
 GitHub **Environment**，并把该 `edge_id` 加入 workflow **choice** 与本仓库 provision 步骤里的 CFN role **case**。
 

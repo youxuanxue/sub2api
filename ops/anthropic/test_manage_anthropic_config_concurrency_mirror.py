@@ -93,10 +93,10 @@ class NormalizeAndDomainMapTest(unittest.TestCase):
         self.assertNotIn("", m)
 
     def test_real_edge_targets_domains_map(self) -> None:
-        # The shipped edge-targets.json is the single source of truth; us1/uk1
-        # must resolve from their domain so a prod stub can find its edge.
+        # EC2 matrix owns us1; uk1 is Lightsail-only after EC2 decommission.
         matrix = mgr.load_json_file(mgr.EDGE_MATRIX, "edge matrix")
-        m = mgr._build_domain_to_edge(matrix)
+        ls_targets = mgr._EDGE_ROUTING.load_lightsail_targets(mgr.REPO_ROOT)
+        m = mgr._build_domain_to_edge(matrix, ls_targets)
         self.assertEqual(m.get("api-us1.tokenkey.dev"), "us1")
         self.assertEqual(m.get("api-uk1.tokenkey.dev"), "uk1")
 

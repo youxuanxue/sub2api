@@ -8,7 +8,7 @@
 # the edge is already a perfectly source-IP-controlled probe. One fewer
 # ephemeral resource, one fewer IAM scope, one fewer thing that can leak.
 #
-# Probe signal (per docs/deploy/tokenkey-edge-ip-history.md § 4 step 4):
+# Probe signal (see tokenkey-stage0-edge-ip-rotation skill):
 #   * clean → Anthropic returns 401/400 with provider-shaped JSON
 #   * polluted → 403 with Cloudflare challenge HTML in the body
 #

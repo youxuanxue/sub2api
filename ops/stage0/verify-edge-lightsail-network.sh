@@ -1,0 +1,195 @@
+#!/usr/bin/env bash
+# verify-edge-lightsail-network.sh — Post-provision / post-DNS checks for Lightsail edges.
+#
+# Confirms Lightsail instance firewall allows TCP 80+443 and (optionally) public HTTPS
+# /health succeeds. Can open missing 443 and restart Caddy when DNS was late (ACME NXDOMAIN).
+#
+# Usage:
+#   bash ops/stage0/verify-edge-lightsail-network.sh <edge_id> [--fix-443] [--renew-cert]
+#
+# Exit codes:
+#   0 — ports OK (+ health OK when DNS resolves to static IP)
+#   1 — usage / matrix error
+#   2 — AWS or curl failure after remediation attempts
+#   3 — ports still wrong after --fix-443 (permissions?)
+
+set -euo pipefail
+
+_OPS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${_OPS_DIR}/../.." && pwd)"
+RESOLVE="${REPO_ROOT}/deploy/aws/lightsail/resolve-edge-lightsail-target.py"
+
+FIX_443=false
+RENEW_CERT=false
+EDGE_ID=""
+
+usage() {
+  cat <<'EOF'
+Usage:
+  bash ops/stage0/verify-edge-lightsail-network.sh <edge_id> [--fix-443] [--renew-cert]
+
+Checks:
+  - Lightsail public ports 80 and 443 are open
+  - dig @1.1.1.1 A record matches static IP (when DNS exists)
+  - curl https://api-<edge_id>.tokenkey.dev/health (best effort)
+
+Options:
+  --fix-443     call open-instance-public-ports for TCP 443 if missing
+  --renew-cert  restart tokenkey-caddy via SSM (after DNS cutover / ACME retry)
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    --fix-443)
+      FIX_443=true
+      shift
+      ;;
+    --renew-cert)
+      RENEW_CERT=true
+      shift
+      ;;
+    -*)
+      echo "[verify-edge-lightsail-network] ERROR: unknown flag: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+    *)
+      if [[ -z "$EDGE_ID" ]]; then
+        EDGE_ID="${1#edge-}"
+      else
+        echo "[verify-edge-lightsail-network] ERROR: unexpected arg: $1" >&2
+        exit 1
+      fi
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$EDGE_ID" ]]; then
+  usage >&2
+  exit 1
+fi
+
+if [[ ! "$EDGE_ID" =~ ^[a-z]{2,4}[0-9]+$ ]]; then
+  echo "[verify-edge-lightsail-network] ERROR: invalid edge id: $EDGE_ID" >&2
+  exit 1
+fi
+
+for tool in aws jq python3 curl dig; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "[verify-edge-lightsail-network] ERROR: required tool missing: $tool" >&2
+    exit 2
+  fi
+done
+
+_resolve_kv() {
+  python3 "$RESOLVE" --edge-id "$EDGE_ID" | awk -F= -v k="$1" '$1==k {print $2; exit}'
+}
+
+lightsail_region="$(_resolve_kv lightsail_region)"
+instance_name="$(_resolve_kv instance_name)"
+domain="$(_resolve_kv domain)"
+static_ip_name="$(_resolve_kv static_ip_name)"
+
+REGION="${lightsail_region:?}"
+INSTANCE="${instance_name:?}"
+DOMAIN="${domain:?}"
+STATIC_IP_NAME="${static_ip_name:?}"
+
+STATIC_IP="$(aws lightsail get-static-ip --region "$REGION" --static-ip-name "$STATIC_IP_NAME" \
+  --query 'staticIp.ipAddress' --output text 2>/dev/null || echo "")"
+if [[ -z "$STATIC_IP" || "$STATIC_IP" == "None" ]]; then
+  echo "[verify-edge-lightsail-network] ERROR: could not resolve static IP for ${STATIC_IP_NAME}" >&2
+  exit 2
+fi
+
+port_open() {
+  local port="$1"
+  aws lightsail get-instance-port-states --region "$REGION" --instance-name "$INSTANCE" \
+    --query "portStates[?fromPort==\`${port}\` && toPort==\`${port}\` && state=='open'] | length(@)" \
+    --output text 2>/dev/null | grep -qv '^0$'
+}
+
+echo "[verify-edge-lightsail-network] edge_id=${EDGE_ID} region=${REGION} instance=${INSTANCE}"
+echo "[verify-edge-lightsail-network] domain=${DOMAIN} static_ip=${STATIC_IP}"
+
+missing_ports=()
+port_open 80 || missing_ports+=("80")
+port_open 443 || missing_ports+=("443")
+
+if [[ ${#missing_ports[@]} -gt 0 ]]; then
+  echo "[verify-edge-lightsail-network] WARN: firewall missing open TCP: ${missing_ports[*]}" >&2
+  if $FIX_443; then
+    for port in "${missing_ports[@]}"; do
+      echo "[verify-edge-lightsail-network] opening TCP ${port}..."
+      aws lightsail open-instance-public-ports \
+        --region "$REGION" \
+        --instance-name "$INSTANCE" \
+        --port-info "fromPort=${port},toPort=${port},protocol=tcp,cidrs=0.0.0.0/0" >/dev/null \
+        || echo "[verify-edge-lightsail-network] WARN: open-instance-public-ports tcp/${port} failed" >&2
+    done
+    missing_ports=()
+    port_open 80 || missing_ports+=("80")
+    port_open 443 || missing_ports+=("443")
+  fi
+fi
+
+if [[ ${#missing_ports[@]} -gt 0 ]]; then
+  echo "[verify-edge-lightsail-network] FAIL: still missing TCP ${missing_ports[*]}" >&2
+  exit 3
+fi
+echo "[verify-edge-lightsail-network] ok: firewall TCP 80 and 443 open"
+
+if $RENEW_CERT; then
+  echo "[verify-edge-lightsail-network] restarting tokenkey-caddy via SSM..."
+  PARAM_BODY="$(mktemp)"
+  cleanup_param() { rm -f "${PARAM_BODY}"; }
+  trap cleanup_param EXIT
+  python3 - <<'PY' >"${PARAM_BODY}"
+import json, sys
+json.dump({"commands": ["sudo docker restart tokenkey-caddy", "sleep 15"]}, sys.stdout)
+PY
+  COMMAND_ID="$(aws ssm send-command \
+    --region "$REGION" \
+    --targets "Key=tag:EdgeId,Values=${EDGE_ID}" "Key=tag:Platform,Values=lightsail" \
+    --document-name AWS-RunShellScript \
+    --comment "verify-edge-lightsail-network renew cert ${EDGE_ID}" \
+    --parameters "file://${PARAM_BODY}" \
+    --query Command.CommandId --output text)"
+  MI="$(aws ssm list-command-invocations --region "$REGION" --command-id "$COMMAND_ID" --details \
+    --query 'CommandInvocations[0].InstanceId' --output text)"
+  aws ssm wait command-executed --region "$REGION" --command-id "$COMMAND_ID" --instance-id "$MI" || true
+  STATUS="$(aws ssm get-command-invocation --region "$REGION" --command-id "$COMMAND_ID" \
+    --instance-id "$MI" --query Status --output text)"
+  if [[ "$STATUS" != "Success" ]]; then
+    echo "[verify-edge-lightsail-network] WARN: caddy restart SSM status=${STATUS}" >&2
+  else
+    echo "[verify-edge-lightsail-network] ok: tokenkey-caddy restarted"
+  fi
+fi
+
+DNS_IP="$(dig +short "$DOMAIN" @1.1.1.1 | head -n1 || true)"
+if [[ -n "$DNS_IP" && "$DNS_IP" != "$STATIC_IP" ]]; then
+  echo "[verify-edge-lightsail-network] WARN: DNS ${DOMAIN} → ${DNS_IP} (expected ${STATIC_IP})" >&2
+elif [[ -z "$DNS_IP" ]]; then
+  echo "[verify-edge-lightsail-network] WARN: no DNS A record for ${DOMAIN} yet" >&2
+else
+  echo "[verify-edge-lightsail-network] ok: DNS points at static IP"
+fi
+
+if [[ -n "$DNS_IP" ]]; then
+  if curl -sk --max-time 20 --noproxy '*' "https://${DOMAIN}/health" | grep -q '"status"'; then
+    echo "[verify-edge-lightsail-network] ok: https://${DOMAIN}/health"
+    exit 0
+  fi
+  echo "[verify-edge-lightsail-network] WARN: HTTPS health failed — if DNS was late, rerun with --renew-cert" >&2
+  exit 2
+fi
+
+echo "[verify-edge-lightsail-network] ok: firewall; DNS/HTTPS not verified (no A record)"
+exit 0

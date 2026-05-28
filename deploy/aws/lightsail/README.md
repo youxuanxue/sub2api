@@ -92,7 +92,7 @@ Lightsail **实例控制台「Networking」防火墙**必须与 EC2 Security Gro
 ### Admin 登录 / 忘记密码
 
 - 抓首次启动生成的一次性口令（落盘 `~/Codes/keys/tokenkey-<edge_id>-admin-password.txt`）：  
-  `bash ops/stage0/capture-edge-admin-credentials.sh <edge_id>`（`auto` 会对 `deployable=true` 的 Lightsail edge 走 tag-SSM）。
+  `bash ops/stage0/ensure-edge-admin-credentials.sh --platform lightsail <edge_id>`（先试 capture，日志缺失则 reset；**禁止打印 password**）。
 - 重置随机密码（同上 keys 文件）：  
   `bash ops/stage0/reset-edge-admin-password.sh <edge_id>` 或 `--platform lightsail <edge_id>`。
 

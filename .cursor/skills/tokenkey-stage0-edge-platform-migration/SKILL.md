@@ -94,29 +94,41 @@ EC2→Lightsail 方向，写入矩阵并通过 `scripts/checks/edge-platform-exc
 bash ops/migration/edge-platform-migration-preflight.sh <edge_id> --phase=plan
 ```
 
+**uk1 已完成迁移后**：`--phase=plan` 对 `uk1` **应失败**（EC2 矩阵无 deployable uk1、Lightsail 已为权威）——若仍通过说明矩阵或 preflight 漂移，先修再 decommission。
+
 ## 2) Phase provision：实机起 Lightsail，**不切 DNS**
 
 合并完矩阵 PR 后，dispatch Lightsail provision：
 
 ```bash
 TAG=<current_prod_tag>
+CONFIRM=$(python3 deploy/aws/lightsail/resolve-edge-lightsail-target.py \
+  --edge-id <edge_id> | awk -F= '/^instance_name=/{print $2}')
 gh workflow run deploy-edge-lightsail-stage0.yml \
   -f edge_id=<edge_id> \
   -f operation=provision \
   -f tag=$TAG \
-  -f confirm_instance=tokenkey-edge-<edge_id>-ls
+  -f confirm_instance="$CONFIRM"
 gh run watch --exit-status $(gh run list -w deploy-edge-lightsail-stage0.yml -L 1 --json databaseId -q '.[0].databaseId')
 ```
 
-Job summary 输出 Static IP；**不要立刻改 DNS**。先用 `--resolve` 旁路验证：
+Job summary 输出 Static IP；**不要立刻改 DNS**。先用 `--resolve` 旁路验证（`static_ip_name` / `instance_name` 以 matrix 为准，勿硬编码 `tokenkey-edge-<edge_id>-ls-ip`）：
 
 ```bash
-LS_IP=$(aws lightsail get-static-ip --region <ls_region> \
-  --static-ip-name tokenkey-edge-<edge_id>-ls-ip \
+LS_REGION=$(python3 deploy/aws/lightsail/resolve-edge-lightsail-target.py --edge-id <edge_id> | awk -F= '/^lightsail_region=/{print $2}')
+STATIC_IP_NAME=$(python3 deploy/aws/lightsail/resolve-edge-lightsail-target.py --edge-id <edge_id> | awk -F= '/^static_ip_name=/{print $2}')
+LS_IP=$(aws lightsail get-static-ip --region "$LS_REGION" \
+  --static-ip-name "$STATIC_IP_NAME" \
   --query 'staticIp.ipAddress' --output text)
 curl -sS --resolve api-<edge_id>.tokenkey.dev:443:$LS_IP \
   https://api-<edge_id>.tokenkey.dev/health
 # 应当 200 + 含 tokenkey 字段
+```
+
+Provision 后在本机落 admin 账密（**禁止打印 password**）：
+
+```bash
+bash ops/stage0/ensure-edge-admin-credentials.sh --platform lightsail <edge_id>
 ```
 
 **机械验证**：
@@ -131,22 +143,28 @@ bash ops/migration/edge-platform-migration-preflight.sh <edge_id> --phase=cutove
 
 按用户回答 ②（fresh-DB 起步），新 Lightsail 实例上的 Postgres 是空的，需要重新创建 Anthropic OAuth 账号：
 
-1. **手工 Porkbun**：`api-<edge_id>.tokenkey.dev` A 记录必须指向 **Lightsail Static IP**（与 `aws lightsail get-static-ip --static-ip-name tokenkey-edge-<edge_id>-ls-ip` 的 `ipAddress` 一致；**不能与 EC2 Elastic IP 互换**）。
+1. **手工 Porkbun**：`api-<edge_id>.tokenkey.dev` A 记录必须指向 **Lightsail Static IP**（与 matrix `static_ip_name` 的 `get-static-ip` `ipAddress` 一致；**不能与 EC2 Elastic IP 互换**）。
    **`edge_id=uk1`：** 记在 `deploy/aws/lightsail/edge-targets-lightsail.json` → `targets.uk1.porkbun_a_ipv4`，与 **`get-static-ip`** 的输出一致。**旧 EC2 的 EIP（例如 `16.61.87.51`）不能绑到 Lightsail**；仍以旧 A 记录指 EIP 会一直超时。漂移时以 AWS CLI 读到为准更新 Porkbun + 矩阵。
    等 TTL 收敛（常见约一分钟）。
-2. **独立观察点 smoke**（避开本地 DNS 缓存）：
+2. **ACME / Caddy**（DNS 晚于 provision 时必做）：
+   ```bash
+   bash ops/stage0/verify-edge-lightsail-network.sh <edge_id> --renew-cert
+   ```
+3. **独立观察点 smoke**（避开本地 DNS 缓存）：
    ```bash
    curl -sS https://api-<edge_id>.tokenkey.dev/health   # 无 --resolve；走真实 DNS
    ```
-3. **管理员 UI**：登录 `https://api-<edge_id>.tokenkey.dev/admin`（管理员密码在 provision 输出的 `.env.secret`，由 `tokenkey-stage0-edge-lightsail-expansion` skill 提示的 SSH 取回）：
+4. **管理员 UI**：登录 `https://api-<edge_id>.tokenkey.dev/admin`（账密见 `~/Codes/keys/tokenkey-<edge_id>-admin-password.txt`，由 `ensure-edge-admin-credentials.sh` 落盘，**禁止 SSH 读 `.env.secret` 并粘贴密码**）：
    - 重新登录所有 Anthropic OAuth 账号（旧 EC2 token 失效，新 edge DB 没有）
    - 跑 `tokenkey-anthropic-oauth-config` skill 的 plan-edge-account-tier 把 tier baseline 写进新库
-4. **prod stub 一致性**：`api-<edge_id>.tokenkey.dev` 域名不变，所以 prod 的 anthropic api-key stub 不需要改。但底下 edge DB 是新的；跑 `tokenkey-anthropic-oauth-config` skill 的 verify 步骤确认 stub.concurrency 等镜像值与新 edge 一致。
-5. **smoke workflow**：
+5. **prod stub 一致性**：`api-<edge_id>.tokenkey.dev` 域名不变，所以 prod 的 anthropic api-key stub 不需要改。但底下 edge DB 是新的；跑 `tokenkey-anthropic-oauth-config` skill 的 verify 步骤确认 stub.concurrency 等镜像值与新 edge 一致。
+6. **smoke workflow**：
    ```bash
+   CONFIRM=$(python3 deploy/aws/lightsail/resolve-edge-lightsail-target.py \
+     --edge-id <edge_id> | awk -F= '/^instance_name=/{print $2}')
    gh workflow run deploy-edge-lightsail-stage0.yml \
      -f edge_id=<edge_id> -f operation=smoke \
-     -f confirm_instance=tokenkey-edge-<edge_id>-ls
+     -f confirm_instance="$CONFIRM"
    ```
 
 **机械验证**：
@@ -180,7 +198,21 @@ Workflow 自动：
 
 > **回滚窗**：在快照保留期内（30 天），可以通过 `operation=provision` 重新建栈，并把新 root EBS 替换为 snapshot 还原。EIP 若保留，公网 IP 可以无缝接回。
 
-## 5) Acceptance（机械化输出）
+## 5) Phase zero-compat：矩阵 / IAM / 污染 IP 收尾（decommission 后）
+
+EC2 栈删除后，同一 PR（或紧随其后的 chore PR）完成 **零兼容** 清理，避免 CI / OIDC / ops 仍引用已退役 EC2：
+
+| 动作 | 文件 / 命令 |
+|---|---|
+| 从 EC2 矩阵 **删除** `<edge_id>` 行（不仅是 `deployable=false`） | `deploy/aws/stage0/edge-targets.json` |
+| 从 `cicd-oidc.yaml` **删除** 该 edge 的 CFN execution role、`EdgeXTargetInstanceId`、区域 `ssm:SendCommand` 语句 | `deploy/aws/cloudformation/cicd-oidc.yaml` |
+| **Live deploy** OIDC stack（Default 改不够） | `aws cloudformation deploy ... --parameter-overrides AllowedSubjects=...`（去掉 `environment:edge-<id>` 若该 id 仅 Lightsail） |
+| 退役 EC2 EIP 写入污染 registry | `deploy/aws/stage0/edge-polluted-ips.json` |
+| preflight 回归 | `bash ops/migration/edge-platform-migration-preflight.sh <edge_id> --phase=plan` → **应失败** |
+
+**uk1 参考**：EC2 矩阵已删 uk1、`tokenkey-cfn-eu-west-2-edge-uk1-stage0` 角色已移除；新 uk1 仅 Lightsail + OIDC `environment:edge-uk1`。
+
+## 6) Acceptance（机械化输出）
 
 完成迁移后给一个 6 行 acceptance：
 
@@ -192,11 +224,12 @@ new_platform   : lightsail (instance=tokenkey-edge-<id>-ls, region=<ls_region>)
 old_ip_handling: kept (alloc=eipalloc-…) | released
 ebs_snapshot   : snap-… (RetentionDays=30, expires <ts+30d>)
 dns_state      : api-<id>.tokenkey.dev → <ls_static_ip>
+zero_compat    : ec2 matrix row removed | cicd-oidc IAM cleaned | polluted IP recorded
 ```
 
 数据来自 workflow Job summary + preflight 输出，不要手抄常量。
 
-## 6) 已知失败模式与定位
+## 7) 已知失败模式与定位
 
 | 现象 | 阶段 | 根因 | 处理 |
 |---|---|---|---|
@@ -208,8 +241,9 @@ dns_state      : api-<id>.tokenkey.dev → <ls_static_ip>
 | `DNS … still points at <old_ip>` | decommission preflight | cutover 未完成 | 回 Phase 3 完成 DNS swap |
 | Decommission 工作流报 `requires deployable=false` | decommission | EC2 矩阵还没翻 false（不应发生于此 skill 路径） | 提 PR 翻矩阵 |
 | Decommission 后 EIP 还在账户里 | 迁移完 | `release_eip=false`（默认） | 单独 `aws ec2 release-address` 或留作下一个 edge 使用 |
+| 公网 HTTPS 超时 / TLS 失败 | cutover | 443 防火墙或 ACME NXDOMAIN | `verify-edge-lightsail-network.sh --fix-443` / `--renew-cert` |
 
-## 7) 反方向（Lightsail → EC2）：未实现
+## 8) 反方向（Lightsail → EC2）：未实现
 
 本 skill **不主张提供未实现的 API**。反向迁移目前需要以下 primitive，均**尚未建**：
 

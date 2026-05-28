@@ -128,15 +128,25 @@ class PreflightPlanPhaseTests(unittest.TestCase):
             self.assertNotEqual(proc.returncode, 0)
             self.assertIn("must be deployable=true", proc.stderr)
 
-    def test_real_repo_uk1_plan_passes(self):
-        """Smoke against the actual repo matrices — uk1 should be plan-OK
-        (both currently deployable=false). If this fails, someone has changed
-        the matrices in a way that breaks the migration starting precondition."""
+    def test_real_repo_us1_plan_passes(self):
+        """Smoke against the actual repo matrices — us1 is the live EC2 edge
+        with a paired Lightsail row (both deployable=false on LS side). If this
+        fails, someone has broken the migration starting precondition."""
+        proc = subprocess.run(
+            ["bash", str(SCRIPT), "us1", "--phase=plan"],
+            capture_output=True, text=True, env=_scrubbed_env(),
+        )
+        self.assertEqual(proc.returncode, 0, f"stderr: {proc.stderr}\nstdout: {proc.stdout}")
+
+    def test_real_repo_uk1_fails_without_ec2_row(self):
+        """uk1 EC2 row was removed after Lightsail cutover — migration preflight
+        must fail loudly rather than pretend EC2 still exists."""
         proc = subprocess.run(
             ["bash", str(SCRIPT), "uk1", "--phase=plan"],
             capture_output=True, text=True, env=_scrubbed_env(),
         )
-        self.assertEqual(proc.returncode, 0, f"stderr: {proc.stderr}\nstdout: {proc.stdout}")
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("no entry in deploy/aws/stage0/edge-targets.json", proc.stderr)
 
 
 if __name__ == "__main__":
