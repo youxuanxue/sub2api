@@ -4984,6 +4984,8 @@ export default {
         group: 'Group',
         user: 'User',
         account: 'Account',
+        apiKey: 'API Key',
+        clientIp: 'Client IP',
         latency: 'Request Duration',
         businessLimited: 'Business Limited',
         requestPath: 'Request Path',
@@ -5044,8 +5046,15 @@ export default {
           model: 'Model',
           duration: 'Duration',
           status: 'Status',
+          requester: 'Requester',
           requestId: 'Request ID',
           actions: 'Actions'
+        },
+        requester: {
+          anonymous: 'Anonymous',
+          key: 'Key',
+          group: 'Group',
+          account: 'Upstream'
         }
       },
       alertEvents: {

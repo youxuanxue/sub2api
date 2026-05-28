@@ -102,10 +102,20 @@ WITH combined AS (
     ul.api_key_id AS api_key_id,
     ul.account_id AS account_id,
     ul.group_id AS group_id,
+    -- TK: See upstream Wei-Shaw/sub2api#2410 — surface human-readable request
+    -- attribution (who is calling) next to the raw IDs so ops can locate the
+    -- user/key/account without a manual DB lookup.
+    COALESCE(u.email, '') AS user_email,
+    COALESCE(u.username, '') AS username,
+    COALESCE(k.name, '') AS api_key_name,
+    COALESCE(g.name, '') AS group_name,
+    COALESCE(a.name, '') AS account_name,
     ul.stream AS stream
   FROM usage_logs ul
   LEFT JOIN groups g ON g.id = ul.group_id
   LEFT JOIN accounts a ON a.id = ul.account_id
+  LEFT JOIN users u ON u.id = ul.user_id
+  LEFT JOIN api_keys k ON k.id = ul.api_key_id
   WHERE ul.created_at >= $1 AND ul.created_at < $2
 
   UNION ALL
@@ -126,10 +136,17 @@ WITH combined AS (
     o.api_key_id AS api_key_id,
     o.account_id AS account_id,
     o.group_id AS group_id,
+    COALESCE(u.email, '') AS user_email,
+    COALESCE(u.username, '') AS username,
+    COALESCE(k.name, '') AS api_key_name,
+    COALESCE(g.name, '') AS group_name,
+    COALESCE(a.name, '') AS account_name,
     o.stream AS stream
   FROM ops_error_logs o
   LEFT JOIN groups g ON g.id = o.group_id
   LEFT JOIN accounts a ON a.id = o.account_id
+  LEFT JOIN users u ON u.id = o.user_id
+  LEFT JOIN api_keys k ON k.id = o.api_key_id
   WHERE o.created_at >= $1 AND o.created_at < $2
     AND COALESCE(o.status_code, 0) >= 400
 )
@@ -175,6 +192,11 @@ SELECT
   api_key_id,
   account_id,
   group_id,
+  user_email,
+  username,
+  api_key_name,
+  group_name,
+  account_name,
   stream
 FROM combined
 %s
@@ -226,6 +248,12 @@ LIMIT $%d OFFSET $%d
 			accountID sql.NullInt64
 			groupID   sql.NullInt64
 
+			userEmail   sql.NullString
+			username    sql.NullString
+			apiKeyName  sql.NullString
+			groupName   sql.NullString
+			accountName sql.NullString
+
 			stream bool
 		)
 
@@ -245,6 +273,11 @@ LIMIT $%d OFFSET $%d
 			&apiKeyID,
 			&accountID,
 			&groupID,
+			&userEmail,
+			&username,
+			&apiKeyName,
+			&groupName,
+			&accountName,
 			&stream,
 		); err != nil {
 			return nil, 0, err
@@ -268,6 +301,12 @@ LIMIT $%d OFFSET $%d
 			APIKeyID:  toInt64Ptr(apiKeyID),
 			AccountID: toInt64Ptr(accountID),
 			GroupID:   toInt64Ptr(groupID),
+
+			UserEmail:   strings.TrimSpace(userEmail.String),
+			Username:    strings.TrimSpace(username.String),
+			APIKeyName:  strings.TrimSpace(apiKeyName.String),
+			GroupName:   strings.TrimSpace(groupName.String),
+			AccountName: strings.TrimSpace(accountName.String),
 
 			Stream: stream,
 		}

@@ -129,6 +129,13 @@ export interface OpsRequestDetail {
   account_id?: number | null
   group_id?: number | null
 
+  // Human-readable request attribution (upstream #2410).
+  user_email?: string
+  username?: string
+  api_key_name?: string
+  account_name?: string
+  group_name?: string
+
   stream?: boolean
 }
 
@@ -909,7 +916,9 @@ export interface OpsErrorLog {
 
   user_id?: number | null
   user_email: string
+  username?: string
   api_key_id?: number | null
+  api_key_name?: string
   account_id?: number | null
   account_name: string
   group_id?: number | null

@@ -1332,8 +1332,11 @@ func openAICompactSupportTier(account *Account) int {
 }
 
 // isOpenAIAccountEligibleForRequest centralises schedulable / compat-pool / model /
-// compact-support checks used during OpenAI-compat account selection.
-func isOpenAIAccountEligibleForRequest(account *Account, requestedModel string, groupPlatform string, requireCompact bool) bool {
+// compact-support checks used during OpenAI-compat account selection. The model
+// check is per-model rate-limit aware (IsSchedulableForModelWithContext) so an
+// account cooled on one model (upstream 404 per-model cooldown, commit a31b5074)
+// stays eligible for its other models.
+func isOpenAIAccountEligibleForRequest(ctx context.Context, account *Account, requestedModel string, groupPlatform string, requireCompact bool) bool {
 	if account == nil || !account.IsSchedulable() {
 		return false
 	}
@@ -1343,8 +1346,13 @@ func isOpenAIAccountEligibleForRequest(account *Account, requestedModel string, 
 	if !account.IsOpenAICompatPoolMember(groupPlatform) {
 		return false
 	}
-	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
-		return false
+	if requestedModel != "" {
+		if !account.IsModelSupported(requestedModel) {
+			return false
+		}
+		if !account.IsSchedulableForModelWithContext(ctx, requestedModel) {
+			return false
+		}
 	}
 	if requireCompact && openAICompactSupportTier(account) == 0 {
 		return false
@@ -1495,7 +1503,7 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 	//
 	// P0-2 (docs/bugs/2026-04-23-newapi-fifth-platform-audit.md):
 	// 跨平台 sticky binding 必须主动清理 Redis 映射（与 scheduler 路径对称）。
-	if !isOpenAIAccountEligibleForRequest(account, requestedModel, groupPlatform, requireCompact) {
+	if !isOpenAIAccountEligibleForRequest(ctx, account, requestedModel, groupPlatform, requireCompact) {
 		if !account.IsOpenAICompatPoolMember(groupPlatform) {
 			_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 		}
@@ -1719,7 +1727,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 				if !clearSticky && !account.IsOpenAICompatPoolMember(groupPlatform) {
 					_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 				}
-				if !clearSticky && isOpenAIAccountEligibleForRequest(account, requestedModel, groupPlatform, requireCompact) {
+				if !clearSticky && isOpenAIAccountEligibleForRequest(ctx, account, requestedModel, groupPlatform, requireCompact) {
 					account = s.recheckOpenAICompatAccountFromDB(ctx, account, requestedModel, groupPlatform, requireCompact)
 					if account == nil {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
@@ -1771,6 +1779,12 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			continue
 		}
 		if requestedModel != "" && !acc.IsModelSupported(requestedModel) {
+			continue
+		}
+		// Per-model rate-limit cooldown (upstream 404 per-model cooldown, a31b5074):
+		// skip accounts cooled on this specific model while leaving them eligible
+		// for their other models.
+		if requestedModel != "" && !acc.IsSchedulableForModelWithContext(ctx, requestedModel) {
 			continue
 		}
 		if needsUpstreamCheck && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, acc, requestedModel, requireCompact) {
@@ -1980,7 +1994,7 @@ func (s *OpenAIGatewayService) resolveFreshOpenAICompatAccount(ctx context.Conte
 		}
 		fresh = current
 	}
-	if !isOpenAIAccountEligibleForRequest(fresh, requestedModel, groupPlatform, requireCompact) {
+	if !isOpenAIAccountEligibleForRequest(ctx, fresh, requestedModel, groupPlatform, requireCompact) {
 		return nil
 	}
 	if s.isOpenAIAccountRuntimeBlocked(fresh) {
@@ -1999,7 +2013,7 @@ func (s *OpenAIGatewayService) recheckOpenAICompatAccountFromDB(ctx context.Cont
 		groupPlatform = PlatformOpenAI
 	}
 	if s.schedulerSnapshot == nil || s.accountRepo == nil {
-		if !isOpenAIAccountEligibleForRequest(account, requestedModel, groupPlatform, requireCompact) {
+		if !isOpenAIAccountEligibleForRequest(ctx, account, requestedModel, groupPlatform, requireCompact) {
 			return nil
 		}
 		return account
@@ -2008,7 +2022,7 @@ func (s *OpenAIGatewayService) recheckOpenAICompatAccountFromDB(ctx context.Cont
 	if err != nil || latest == nil {
 		return nil
 	}
-	if !isOpenAIAccountEligibleForRequest(latest, requestedModel, groupPlatform, requireCompact) {
+	if !isOpenAIAccountEligibleForRequest(ctx, latest, requestedModel, groupPlatform, requireCompact) {
 		return nil
 	}
 	if s.isOpenAIAccountRuntimeBlocked(latest) {
@@ -3746,6 +3760,41 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		return true
 	}
 
+	// TK: See upstream Wei-Shaw/sub2api#2245 — optional short-stream buffer. When
+	// gateway.responses_short_stream_buffer_bytes > 0, hold the first body content
+	// in a byte-bounded window before the first flush. If the upstream EOFs inside
+	// that window without a terminal event, the request fails over cleanly instead
+	// of shipping a half-finished HTTP 200 SSE that strict Responses clients reject
+	// with "stream closed before response.completed". Default 0 keeps the prior
+	// behavior: preamble events still buffer, body content still flushes per-line.
+	shortStreamThreshold := 0
+	if s.cfg != nil {
+		shortStreamThreshold = s.cfg.Gateway.ResponsesShortStreamBufferBytes
+	}
+	shortStreamBuffering := shortStreamThreshold > 0
+	shortStreamReleased := false
+	heldContentLines := make([]string, 0, 8)
+	heldContentBytes := 0
+	releaseHeldContent := func() {
+		shortStreamReleased = true
+		if !writePendingLines() {
+			heldContentLines = heldContentLines[:0]
+			return
+		}
+		for _, held := range heldContentLines {
+			if _, err := fmt.Fprintln(w, held); err != nil {
+				clientDisconnected = true
+				logger.LegacyPrintf("service.openai_gateway", "[OpenAI passthrough] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
+				break
+			}
+			clientOutputStarted = true
+		}
+		heldContentLines = heldContentLines[:0]
+		if clientOutputStarted && !clientDisconnected {
+			flusher.Flush()
+		}
+	}
+
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
 	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
@@ -3814,6 +3863,17 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		if !clientDisconnected {
 			if !clientOutputStarted && !lineStartsClientOutput {
 				pendingLines = append(pendingLines, line)
+				continue
+			}
+			if shortStreamBuffering && !shortStreamReleased {
+				// Hold body content until the window fills or a terminal event
+				// arrives. A stream that dies inside the window leaves nothing
+				// flushed, so the caller can fail over (see scanner-end block).
+				heldContentLines = append(heldContentLines, line)
+				heldContentBytes += len(line)
+				if sawTerminalEvent || sawDone || forceFlushFailedEvent || heldContentBytes >= shortStreamThreshold {
+					releaseHeldContent()
+				}
 				continue
 			}
 			if !clientOutputStarted && len(pendingLines) > 0 {

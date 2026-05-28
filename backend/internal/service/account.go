@@ -835,7 +835,8 @@ func (a *Account) IsCustomErrorCodesEnabled() bool {
 
 // IsPoolMode 检查 API Key / Bedrock 账号是否启用池模式。
 // 池模式下，上游错误不标记本地账号状态，行为对所有平台统一：
-//   - 401 / 403 / 429 / 502 / 503 / 504：在同账号 in-place retry N 次
+//   - 401 / 403 / 429（默认）或 per-account pool_mode_retry_status_codes 配置的
+//     状态码：在同账号 in-place retry N 次
 //     （N = GetPoolModeRetryCount，默认 1，最大 10；见 isPoolModeRetryableStatus）；
 //   - retry 全部用尽后由上层 failover 自然切下一账号，不写入
 //     temp_unschedulable_until / rate_limited_at / error 等本地状态字段；
@@ -914,13 +915,14 @@ func parsePoolModeRetryCount(value any) int {
 // 401 / 403 / 429: 上游池内当前命中的账号 token 失效 / 被封 / 限流，再打同
 // 一上游 URL 大概率轮换到下个池成员。
 //
-// 502 / 503 / 504: 上游池前置代理（如另一台 TokenKey / 兼容网关）的瞬时
-// 不可调度（"No available accounts"、网关无后端等），retry 让池内调度
-// 自我修复。
+// 502 / 503 / 504 不在默认内：转发型拓扑（指向另一台 TokenKey / 兼容网关）
+// 的前置代理瞬时不可调度可能需要同账号重试，但默认开启会改变所有部署的行为，
+// 因此交由 per-account 的 pool_mode_retry_status_codes 显式配置（上游
+// configurable-retry 特性 21033dce）。
 //
 // 500 / 501 不在内：500 通常是上游业务 bug，501 是 Not Implemented，
 // 两者重试均无意义且会加剧 upstream 压力。
-var defaultPoolModeRetryableStatusCodes = []int{401, 403, 429, 502, 503, 504}
+var defaultPoolModeRetryableStatusCodes = []int{401, 403, 429}
 
 // isPoolModeRetryableStatus 池模式下应触发同账号重试的状态码（默认列表）。
 func isPoolModeRetryableStatus(statusCode int) bool {

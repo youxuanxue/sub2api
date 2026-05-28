@@ -114,8 +114,8 @@ type CreateGroupRequest struct {
 	DefaultMappedModel          string                                    `json:"default_mapped_model"`
 	MessagesDispatchModelConfig service.OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config"`
 	// 上游 prompt cache 粘性路由策略：auto | passthrough | off（详见 docs/approved/sticky-routing.md）
-	StickyRoutingMode string `json:"sticky_routing_mode" binding:"omitempty,oneof=auto passthrough off"`
-	ModelsListConfig  service.GroupModelsListConfig                     `json:"models_list_config"`
+	StickyRoutingMode string                        `json:"sticky_routing_mode" binding:"omitempty,oneof=auto passthrough off"`
+	ModelsListConfig  service.GroupModelsListConfig `json:"models_list_config"`
 	// 分组 RPM 上限（0 = 不限制）
 	RPMLimit int `json:"rpm_limit"`
 	// OpenAI /v1/messages 自动压缩策略（nil = 未配置）
