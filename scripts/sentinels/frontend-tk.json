@@ -308,6 +308,14 @@
         "must_not_contain"
       ],
       "rationale": "The ProxiesView ad-banner sentinel above uses both `must_contain` (positive anchor on the TK override comment) and `must_not_contain` (negative anchor blocking re-introduction of the upstream banner render/import). If a future check-frontend-tk.py refactor drops the must_not_contain handler, the negative side of the ad-banner guard becomes a silent no-op. Anchoring the literal token here forces any such refactor to either keep handling must_not_contain or remove this sentinel deliberately."
+    },
+    {
+      "path": "frontend/src/views/admin/ops/components/OpsRequestDetailsModal.vue",
+      "must_contain": [
+        "requesterPrimary",
+        "requesterMeta"
+      ],
+      "rationale": "TK ops request-attribution column (upstream Wei-Shaw/sub2api#2410). The admin request-details drill-down shows a Requester column built from requesterPrimary (user email/username) + requesterMeta (api key / group / upstream account names) so operators can identify who is calling without a DB lookup. These names ride on the user_email/username/api_key_name/group_name/account_name fields the request-details query joins; an upstream merge that rewrites this modal would silently drop the attribution UI. The sentinel forces the merge to keep (or deliberately remove) the requester helpers."
     }
   ]
 }

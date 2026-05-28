@@ -1078,6 +1078,14 @@
         "http.StatusForbidden, \"permission_error\""
       ],
       "rationale": "Handler MUST translate the canonical-OAuth UA-reject service error into an immediate HTTP 403 + `permission_error` body without falling into failover. Without this branch the rejection propagates as a generic upstream error and the failover loop retries the same forbidden ingress against other accounts, defeating the gate."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "ResponsesShortStreamBufferBytes",
+        "shortStreamBuffering"
+      ],
+      "rationale": "TK short-stream buffer on the OpenAI Responses passthrough (upstream Wei-Shaw/sub2api#2245). When gateway.responses_short_stream_buffer_bytes>0, handleStreamingResponsePassthrough holds the first body content in a byte window before the first flush, so an upstream that EOFs before a terminal event fails over cleanly instead of shipping a half-finished HTTP 200 SSE that strict Responses clients reject with 'stream closed before response.completed'. An upstream merge that rewrites the passthrough streaming loop could silently drop this guard; the sentinel forces the merge to keep (or deliberately remove) the buffer wiring."
     }
   ]
 }

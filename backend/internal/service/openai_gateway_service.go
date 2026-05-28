@@ -3737,6 +3737,41 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		return true
 	}
 
+	// TK: See upstream Wei-Shaw/sub2api#2245 — optional short-stream buffer. When
+	// gateway.responses_short_stream_buffer_bytes > 0, hold the first body content
+	// in a byte-bounded window before the first flush. If the upstream EOFs inside
+	// that window without a terminal event, the request fails over cleanly instead
+	// of shipping a half-finished HTTP 200 SSE that strict Responses clients reject
+	// with "stream closed before response.completed". Default 0 keeps the prior
+	// behavior: preamble events still buffer, body content still flushes per-line.
+	shortStreamThreshold := 0
+	if s.cfg != nil {
+		shortStreamThreshold = s.cfg.Gateway.ResponsesShortStreamBufferBytes
+	}
+	shortStreamBuffering := shortStreamThreshold > 0
+	shortStreamReleased := false
+	heldContentLines := make([]string, 0, 8)
+	heldContentBytes := 0
+	releaseHeldContent := func() {
+		shortStreamReleased = true
+		if !writePendingLines() {
+			heldContentLines = heldContentLines[:0]
+			return
+		}
+		for _, held := range heldContentLines {
+			if _, err := fmt.Fprintln(w, held); err != nil {
+				clientDisconnected = true
+				logger.LegacyPrintf("service.openai_gateway", "[OpenAI passthrough] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
+				break
+			}
+			clientOutputStarted = true
+		}
+		heldContentLines = heldContentLines[:0]
+		if clientOutputStarted && !clientDisconnected {
+			flusher.Flush()
+		}
+	}
+
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
 	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
@@ -3805,6 +3840,17 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		if !clientDisconnected {
 			if !clientOutputStarted && !lineStartsClientOutput {
 				pendingLines = append(pendingLines, line)
+				continue
+			}
+			if shortStreamBuffering && !shortStreamReleased {
+				// Hold body content until the window fills or a terminal event
+				// arrives. A stream that dies inside the window leaves nothing
+				// flushed, so the caller can fail over (see scanner-end block).
+				heldContentLines = append(heldContentLines, line)
+				heldContentBytes += len(line)
+				if sawTerminalEvent || sawDone || forceFlushFailedEvent || heldContentBytes >= shortStreamThreshold {
+					releaseHeldContent()
+				}
 				continue
 			}
 			if !clientOutputStarted && len(pendingLines) > 0 {

@@ -221,7 +221,9 @@ SELECT
   COALESCE(e.error_message, ''),
   e.user_id,
   COALESCE(u.email, ''),
+  COALESCE(u.username, ''),
   e.api_key_id,
+  COALESCE(k.name, ''),
   e.account_id,
   COALESCE(a.name, ''),
   e.group_id,
@@ -239,6 +241,7 @@ LEFT JOIN accounts a ON e.account_id = a.id
 LEFT JOIN groups g ON e.group_id = g.id
 LEFT JOIN users u ON e.user_id = u.id
 LEFT JOIN users u2 ON e.resolved_by_user_id = u2.id
+LEFT JOIN api_keys k ON e.api_key_id = k.id
 ` + where + `
 ORDER BY e.created_at DESC
 LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
@@ -261,6 +264,8 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 		var groupID sql.NullInt64
 		var groupName string
 		var userEmail string
+		var username string
+		var apiKeyName string
 		var resolvedAt sql.NullTime
 		var resolvedBy sql.NullInt64
 		var resolvedByName string
@@ -285,7 +290,9 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 			&item.Message,
 			&userID,
 			&userEmail,
+			&username,
 			&apiKeyID,
+			&apiKeyName,
 			&accountID,
 			&accountName,
 			&groupID,
@@ -320,10 +327,12 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 			item.UserID = &v
 		}
 		item.UserEmail = userEmail
+		item.Username = username
 		if apiKeyID.Valid {
 			v := apiKeyID.Int64
 			item.APIKeyID = &v
 		}
+		item.APIKeyName = apiKeyName
 		if accountID.Valid {
 			v := accountID.Int64
 			item.AccountID = &v
@@ -386,7 +395,9 @@ SELECT
   e.is_business_limited,
   e.user_id,
   COALESCE(u.email, ''),
+  COALESCE(u.username, ''),
   e.api_key_id,
+  COALESCE(k.name, ''),
   e.account_id,
   COALESCE(a.name, ''),
   e.group_id,
@@ -409,6 +420,7 @@ FROM ops_error_logs e
 LEFT JOIN users u ON e.user_id = u.id
 LEFT JOIN accounts a ON e.account_id = a.id
 LEFT JOIN groups g ON e.group_id = g.id
+LEFT JOIN api_keys k ON e.api_key_id = k.id
 WHERE e.id = $1
 LIMIT 1`
 
@@ -454,7 +466,9 @@ LIMIT 1`
 		&out.IsBusinessLimited,
 		&userID,
 		&out.UserEmail,
+		&out.Username,
 		&apiKeyID,
+		&out.APIKeyName,
 		&accountID,
 		&out.AccountName,
 		&groupID,
