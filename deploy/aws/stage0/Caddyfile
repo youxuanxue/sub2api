@@ -26,14 +26,28 @@ ${API_DOMAIN} {
 
 	reverse_proxy tokenkey:8080 {
 		flush_interval -1
+		# Active health 走 /health（drain-aware）：SIGUSR1 → /health=503 →
+		# Caddy active 立刻把 upstream 摘除，发版排空窗口期间 0 新流量打到老
+		# 容器。注意：docker healthcheck 用 /health/live（不受 drain 影响），
+		# 避免 drain 触发 docker 自动 restart；Caddy active health 没有 auto-
+		# restart 副作用，只决定要不要继续转发，所以 drain-aware 是正确选择。
 		health_uri /health
-		health_interval 30s
-		health_timeout 10s
+		health_interval 5s
+		health_timeout 3s
+		# Passive health（top-level，不能放进 sub-block）：业务请求 5xx 也会
+		# 触发，覆盖 stop→start 短暂真空期里 dial 失败 / 502 的场景。
+		fail_duration 5s
+		max_fails 1
+		unhealthy_status 502 503 504
+		# 落进 unhealthy 后，新请求重试最多 30s，覆盖 stop→start 的真空期。
+		lb_try_duration 30s
+		lb_try_interval 1s
 		header_up X-Real-IP {remote_host}
 		header_up X-Forwarded-For {remote_host}
 		header_up X-Forwarded-Proto {scheme}
 		header_up X-Forwarded-Host {host}
 		transport http {
+			dial_timeout 5s
 			keepalive 120s
 			keepalive_idle_conns 64
 			compression off

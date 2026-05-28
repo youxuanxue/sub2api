@@ -7,6 +7,37 @@
 	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
 }
 
+# Edge upstream snippet：所有反代到 tokenkey:8080 的 block 共享这一份配置，
+# 避免 `handle @allowed_relay` 和 fallback `handle {}` 各维护一份导致漂移。
+# 改这里就改了两个 handle；prod Caddyfile 因为只一个 upstream block 没用 snippet。
+(tk_upstream) {
+	reverse_proxy tokenkey:8080 {
+		flush_interval -1
+		# 健康检查策略同 prod Caddyfile：active 走 /health（drain-aware），
+		# SIGUSR1 → /health=503 让 Caddy active 立刻把 upstream 摘除；docker
+		# healthcheck 用 /health/live 避免 drain → docker restart；passive 5xx
+		# + lb_try_duration 覆盖 stop→start 真空期。
+		health_uri /health
+		health_interval 5s
+		health_timeout 3s
+		fail_duration 5s
+		max_fails 1
+		unhealthy_status 502 503 504
+		lb_try_duration 30s
+		lb_try_interval 1s
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-Host {host}
+		transport http {
+			dial_timeout 5s
+			keepalive 120s
+			keepalive_idle_conns 64
+			compression off
+		}
+	}
+}
+
 ${API_DOMAIN} {
 	encode zstd gzip
 
@@ -37,21 +68,7 @@ ${API_DOMAIN} {
 	}
 
 	handle @allowed_relay {
-		reverse_proxy tokenkey:8080 {
-			flush_interval -1
-			health_uri /health
-			health_interval 30s
-			health_timeout 10s
-			header_up X-Real-IP {remote_host}
-			header_up X-Forwarded-For {remote_host}
-			header_up X-Forwarded-Proto {scheme}
-			header_up X-Forwarded-Host {host}
-			transport http {
-				keepalive 120s
-				keepalive_idle_conns 64
-				compression off
-			}
-		}
+		import tk_upstream
 	}
 
 	handle @relay_paths {
@@ -59,21 +76,7 @@ ${API_DOMAIN} {
 	}
 
 	handle {
-		reverse_proxy tokenkey:8080 {
-			flush_interval -1
-			health_uri /health
-			health_interval 30s
-			health_timeout 10s
-			header_up X-Real-IP {remote_host}
-			header_up X-Forwarded-For {remote_host}
-			header_up X-Forwarded-Proto {scheme}
-			header_up X-Forwarded-Host {host}
-			transport http {
-				keepalive 120s
-				keepalive_idle_conns 64
-				compression off
-			}
-		}
+		import tk_upstream
 	}
 
 	request_body {
