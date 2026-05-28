@@ -196,14 +196,29 @@ if ! smoke_suite_runs messages; then
 else
 expect_anthropic="E2E-ANTHROPIC-OK"
 claude_ua="$(smoke_default_claude_user_agent)"
+# Claude Code client shape: required by ClaudeCodeValidator (Step 4) so that
+# groups with claude_code_only=true (e.g. cc-edges in prod) accept the smoke
+# request. See backend/internal/service/claude_code_validator.go.
+#  - system: Dice similarity >= 0.5 vs canonical Claude Code prompts
+#  - anthropic-beta + X-App: non-empty (canonical claude-code-20250219)
+#  - metadata.user_id: JSON form parsable by ParseMetadataUserID
+claude_cc_system="You are Claude Code, Anthropic's official CLI for Claude."
+claude_cc_meta_user_id='{"device_id":"0000000000000000000000000000000000000000000000000000000000000001","account_uuid":"","session_id":"00000000-0000-0000-0000-000000000001"}'
 apayload="$(jq -n \
   --arg m "${model}" \
   --arg x "${expect_anthropic}" \
-  '{model:$m,max_tokens:96,messages:[{role:"user",content:("Reply with exactly: " + $x)}]}')"
+  --arg sys "${claude_cc_system}" \
+  --arg uid "${claude_cc_meta_user_id}" \
+  '{model:$m,max_tokens:96,
+    system:[{type:"text",text:$sys}],
+    messages:[{role:"user",content:("Reply with exactly: " + $x)}],
+    metadata:{user_id:$uid}}')"
 
 msg_http=$(curl -sS -o "$tmpdir/msg.json" -w "%{http_code}" \
   -H "x-api-key: ${API_KEY}" \
   -H "anthropic-version: 2023-06-01" \
+  -H "anthropic-beta: claude-code-20250219" \
+  -H "X-App: cli" \
   -H "Content-Type: application/json" \
   -H "User-Agent: ${claude_ua}" \
   -d "${apayload}" \
