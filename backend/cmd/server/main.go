@@ -184,19 +184,60 @@ func runMainServer() {
 
 	log.Printf("Server started on %s", app.Server.Addr)
 
+	// SIGUSR1：进入 drain 模式，但不退出。
+	// 发版流程用 `docker kill -s USR1 tokenkey` 触发，让 /health 立刻翻 503，
+	// Caddy 的 passive health 据此摘除 upstream；进程继续把已经在跑的请求处理完。
+	// 这样在真正 stop 之前给了 SSE 等长流自然结束的窗口。
+	drainCh := make(chan os.Signal, 1)
+	signal.Notify(drainCh, syscall.SIGUSR1)
+	go func() {
+		for range drainCh {
+			if middleware.IsDraining() {
+				log.Println("SIGUSR1 received; already draining")
+				continue
+			}
+			middleware.SetDrain(true)
+			log.Println("SIGUSR1 received; drain mode activated (/health -> 503)")
+		}
+	}()
+
 	// 等待中断信号
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
+	// SIGTERM 兜底：即便 deploy 没发 SIGUSR1，停机前也把 drain 拉起，让外层
+	// 反代有机会从最新的 /health 看到 503 后立刻摘除 upstream（仅几百毫秒级窗口，
+	// 不影响排空，但避免「stop 瞬间客户端拿到 502」的尖刺）。
+	middleware.SetDrain(true)
 	log.Println("Shutting down server...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownTimeout := resolveShutdownTimeout()
+	log.Printf("Graceful shutdown timeout=%s", shutdownTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
 	if err := app.Server.Shutdown(ctx); err != nil {
-		log.Fatalf("Server forced to shutdown: %v", err)
+		// 注意：这里改成非 Fatal，避免在已经接收到的请求还没全部退出时被 cancel
+		// 误判为「致命」。docker stop 会有自己的 stop_grace_period 兜底。
+		log.Printf("Server shutdown returned: %v (in_flight=%d)", err, middleware.InFlightCount())
 	}
 
 	log.Println("Server exited")
+}
+
+// resolveShutdownTimeout 读取 TOKENKEY_SHUTDOWN_TIMEOUT_SECONDS（默认 120s）。
+// docker-compose 端配 stop_grace_period=180s，留 30s 余量给 docker 自己收尾。
+func resolveShutdownTimeout() time.Duration {
+	const defaultTimeout = 120 * time.Second
+	raw := strings.TrimSpace(os.Getenv("TOKENKEY_SHUTDOWN_TIMEOUT_SECONDS"))
+	if raw == "" {
+		return defaultTimeout
+	}
+	secs, err := strconv.Atoi(raw)
+	if err != nil || secs <= 0 {
+		log.Printf("Invalid TOKENKEY_SHUTDOWN_TIMEOUT_SECONDS=%q, falling back to %s", raw, defaultTimeout)
+		return defaultTimeout
+	}
+	return time.Duration(secs) * time.Second
 }

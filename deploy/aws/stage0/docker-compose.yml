@@ -35,6 +35,11 @@ services:
     container_name: tokenkey
     pull_policy: always
     restart: unless-stopped
+    # 发版优雅停机：deploy 脚本会先发 SIGUSR1 让进程进入 drain，等 /health 翻 503、
+    # in_flight=0 后才走 `docker stop`，此时 SIGTERM + 下面 180s 的 grace period 保证
+    # 长 SSE 能跑完。app 端 TOKENKEY_SHUTDOWN_TIMEOUT_SECONDS=150 比 grace 少 30s，
+    # 给 docker stop 自己留 SIGKILL 缓冲。
+    stop_grace_period: 180s
     ulimits:
       nofile:
         soft: 100000
@@ -69,6 +74,7 @@ services:
       - JWT_EXPIRE_HOUR=${JWT_EXPIRE_HOUR:-1}
       - TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY:?TOTP_ENCRYPTION_KEY is required (openssl rand -hex 32)}
       - TZ=${TZ:-UTC}
+      - TOKENKEY_SHUTDOWN_TIMEOUT_SECONDS=${TOKENKEY_SHUTDOWN_TIMEOUT_SECONDS:-150}
     depends_on:
       postgres:
         condition: service_healthy
@@ -76,12 +82,14 @@ services:
         condition: service_healthy
     networks:
       - tokenkey-network
+    # Docker 探针指向 /health/live（liveness），不被 drain 影响——避免 deploy
+    # pre-drain 阶段触发 docker 自动 restart。Caddy 那边也指向 /health/live。
     healthcheck:
-      test: ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
+      test: ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "http://localhost:8080/health/live"]
+      interval: 10s
+      timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 60s
 
   postgres:
     image: postgres:18-alpine

@@ -26,14 +26,26 @@ ${API_DOMAIN} {
 
 	reverse_proxy tokenkey:8080 {
 		flush_interval -1
-		health_uri /health
-		health_interval 30s
-		health_timeout 10s
+		# 主动健康检查指向 liveness（/health/live），仅判断 process 是否活着；
+		# drain 信号通过下面 passive 检查传递——一旦真实请求拿到 503 立刻把
+		# upstream 摘除，发版排空窗口的客户端会落进 lb_try_duration 队列等新容器起来。
+		health_uri /health/live
+		health_interval 5s
+		health_timeout 3s
+		# Passive health（top-level，不能放进 sub-block）。/health 在 drain 期间
+		# 返回 503，业务请求 5xx 也会触发。
+		fail_duration 5s
+		max_fails 1
+		unhealthy_status 502 503 504
+		# 落进 unhealthy 后，新请求重试最多 30s，覆盖 stop→start 的真空期。
+		lb_try_duration 30s
+		lb_try_interval 1s
 		header_up X-Real-IP {remote_host}
 		header_up X-Forwarded-For {remote_host}
 		header_up X-Forwarded-Proto {scheme}
 		header_up X-Forwarded-Host {host}
 		transport http {
+			dial_timeout 5s
 			keepalive 120s
 			keepalive_idle_conns 64
 			compression off

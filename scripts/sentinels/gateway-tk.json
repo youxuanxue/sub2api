@@ -11,6 +11,15 @@
       "rationale": "Setup-wizard HTTP server must use the std-lib http.Server.Protocols + SetUnencryptedHTTP2 path (Go 1.24+) instead of the deprecated x/net/http2/h2c.NewHandler. This anchors the migration done as part of the x/net v0.55.0 bump (GO-2026-5026 fix): there is no http2.Server tuning here, so the std-lib API is a clean replacement. Reintroducing h2c.NewHandler in main.go would put back a deprecated import for no benefit; this sentinel catches an upstream merge that copies the old shape back over our migration."
     },
     {
+      "path": "backend/cmd/server/main.go",
+      "must_contain": [
+        "syscall.SIGUSR1",
+        "middleware.SetDrain(true)",
+        "TOKENKEY_SHUTDOWN_TIMEOUT_SECONDS"
+      ],
+      "rationale": "Zero-downtime release plumbing: SIGUSR1 flips middleware.SetDrain(true) so /health returns 503 and Caddy's passive health check immediately detaches the upstream, while the env-tunable TOKENKEY_SHUTDOWN_TIMEOUT_SECONDS (default 120s) extends http.Server.Shutdown so in-flight SSE streams finish naturally. Removing any of these silently reintroduces the 'docker compose up -d --no-deps tokenkey kills live SSE' release-disruption symptom that this PR is built to fix (deploy/aws/stage0/docker-compose.yml stop_grace_period=180s + ops/stage0/deploy_via_ssm.sh pre-drain loop depend on the SIGUSR1 contract)."
+    },
+    {
       "path": "backend/internal/server/http.go",
       "must_contain": [
         "http2.ConfigureServer(server, &http2.Server{",

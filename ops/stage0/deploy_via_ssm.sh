@@ -4,7 +4,9 @@ set -euo pipefail
 TAG="${1:-${INPUT_TAG:-}}"
 INSTANCE_ID="${2:-${INSTANCE_ID:-}}"
 COMMENT="${3:-${SSM_COMMENT:-deploy-stage0}}"
-TIMEOUT_SECONDS="${STAGE0_SSM_TIMEOUT_SECONDS:-300}"
+# Default bumped 300 -> 480 to cover pre-drain (≤ ~70s) + image pull + container
+# start + healthcheck (≤ start_period 60s) + headroom on a slow link.
+TIMEOUT_SECONDS="${STAGE0_SSM_TIMEOUT_SECONDS:-480}"
 OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.}"
 
 if [[ -z "${TAG}" ]]; then
@@ -60,6 +62,10 @@ jq -n --arg tag "${TAG}" '{
     "rollback() { rc=$?; echo \"::warning::deploy failed; restoring previous tokenkey image\"; if [ -f \"$BACKUP\" ]; then sudo cp -a \"$BACKUP\" /var/lib/tokenkey/.env; cd /var/lib/tokenkey && sudo docker compose --env-file .env up -d --no-deps tokenkey || true; for i in 1 2 3 4 5 6 7 8 9 10 11 12; do s=$(sudo docker inspect tokenkey --format '\''{{.State.Health.Status}}'\'' 2>/dev/null || echo missing); echo \"rollback try $i: $s\"; [ \"$s\" = healthy ] && break; sleep 5; done; sudo docker logs tokenkey --since 2m 2>&1 | tail -50 || true; fi; exit $rc; }",
     "trap rollback ERR",
     ("sudo sed -i '\''s|sub2api:[^[:space:]]*|sub2api:" + $tag + "|'\'' /var/lib/tokenkey/.env"),
+    "echo === pre-drain: SIGUSR1 + wait in_flight=0 ===",
+    "sudo docker kill -s USR1 tokenkey 2>/dev/null || echo \"pre-drain: container not running (first deploy?)\"",
+    "for i in 1 2 3 4 5 6 7 8; do code=$(sudo docker exec tokenkey wget -q -O /dev/null -S http://localhost:8080/health 2>&1 | awk '\''/HTTP/{print $2}'\'' | tail -1); echo \"pre-drain: /health=$code try=$i\"; [ \"$code\" = 503 ] && break; sleep 2; done",
+    "for i in $(seq 1 30); do n=$(sudo docker exec tokenkey wget -q -O - http://localhost:8080/health/inflight 2>/dev/null | sed -n '\''s/.*\"in_flight\":\\([0-9]*\\).*/\\1/p'\''); echo \"pre-drain: in_flight=${n:-?} try=$i/30\"; [ \"${n:-1}\" = 0 ] && break; sleep 2; done",
     "cd /var/lib/tokenkey && sudo docker compose --env-file .env pull tokenkey",
     "cd /var/lib/tokenkey && sudo docker compose --env-file .env up -d --no-deps tokenkey",
     "for i in 1 2 3 4 5 6 7 8 9 10 11 12; do s=$(sudo docker inspect tokenkey --format '\''{{.State.Health.Status}}'\'' 2>/dev/null || echo missing); echo \"try $i: $s\"; [ \"$s\" = healthy ] && break; sleep 5; done",

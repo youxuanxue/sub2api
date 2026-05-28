@@ -55,6 +55,9 @@ func SetupRouter(
 	r.Use(middleware2.RequestLogger())
 	r.Use(middleware2.Logger())
 	r.Use(middleware2.CORS(cfg.CORS))
+	// InFlightTracker 统计仍在跑的业务请求，发版 pre-drain 阶段会轮询此值。
+	// 放在 CORS 之后：OPTIONS preflight 被 CORS 直接 abort，不计入并发数。
+	r.Use(middleware2.InFlightTracker())
 	r.Use(middleware2.SecurityHeaders(cfg.Security.CSP, func() []string {
 		if p := cachedFrameOrigins.Load(); p != nil {
 			return *p
