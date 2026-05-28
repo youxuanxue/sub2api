@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -212,18 +213,20 @@ func sleepWithContext(ctx context.Context, d time.Duration) bool {
 }
 
 // looksLikeStructuredErrorJSON 判断上游 ResponseBody 是否为某种 platform 的结构化
-// 错误 JSON（anthropic / openai / gemini 任一）。
+// 错误 JSON（anthropic / openai / gemini / TokenKey middleware 任一）。
 //
 // 兼容的错误 shape:
 //
 //   - anthropic: {"type":"error","error":{"type":"...","message":"..."}}
 //   - openai:    {"error":{"message":"...","type":"...","code":"..."}}
 //   - gemini:    {"error":{"code":403,"message":"...","status":"..."}}
+//   - tokenkey:  {"code":"INSUFFICIENT_BALANCE","message":"Insufficient account balance"}
+//     （prod stub → edge/api 节点 auth middleware 返回；账号级 billing/usage 错误，应 failover）
 //
-// 命中策略：有效 JSON 且顶层有 `error` 字段（object）即视为结构化错误，
-// 走原 failover 切账号路径；anthropic 顶层 `"type":"error"` 不再强制要求。
+// 命中策略：有效 JSON 且顶层有 `error` 字段（object），或同时有非空 `code`+`message`
+// 字符串字段，即视为结构化错误，走原 failover 切账号路径。
 //
-// 任何其他形态（空 body、HTML、Cloudflare 错误页、纯文本、合法 JSON 但无 error 字段）
+// 任何其他形态（空 body、HTML、Cloudflare 错误页、纯文本、合法 JSON 但无上述字段）
 // 都视为"非结构化错误"，在 403 场景下触发 fail-fast。
 func looksLikeStructuredErrorJSON(body []byte) bool {
 	if len(body) == 0 {
@@ -232,5 +235,10 @@ func looksLikeStructuredErrorJSON(body []byte) bool {
 	if !json.Valid(body) {
 		return false
 	}
-	return gjson.GetBytes(body, "error").IsObject()
+	if gjson.GetBytes(body, "error").IsObject() {
+		return true
+	}
+	code := strings.TrimSpace(gjson.GetBytes(body, "code").String())
+	msg := strings.TrimSpace(gjson.GetBytes(body, "message").String())
+	return code != "" && msg != ""
 }
