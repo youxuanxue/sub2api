@@ -6,11 +6,11 @@
     "platform": "anthropic",
     "account_type": "apikey",
     "pool_mode_enabled": true,
-    "pool_mode_retry_count": 1
+    "pool_mode_retry_count": 3
   },
   "notes": {
     "no_min_account_gate": "Pool mode is unconditionally on for matching stubs regardless of how many schedulable accounts the target edge currently has. Rationale (2026-05-23): even with a single edge account, same-account retry is still strictly better than cooldown-on-first-503 (the alternative the keyword threshold rule produces); the win of avoiding chained cooldown does not depend on edge fan-out.",
     "out_of_scope_fields": "This pipeline writes ONLY credentials.pool_mode + credentials.pool_mode_retry_count. Other stub fields (base_url, concurrency, priority, group bindings) remain admin-UI / out-of-band per skill §2.",
-    "retry_count_choice": "1 = one in-place retry per failure (two attempts total). Larger values amplify cross-region RTT and pile retries onto the stub's local concurrency cap. If empirically needed, bump here and re-apply — never edit per-stub credentials by hand."
+    "retry_count_choice": "3 = three in-place retries per failure (four attempts total on the same account). Larger values amplify cross-region RTT and pile retries onto the stub's local concurrency cap. If empirically needed, bump here and re-apply — never edit per-stub credentials by hand."
   }
 }

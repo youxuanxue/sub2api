@@ -546,7 +546,7 @@ func (e *UpstreamFailoverError) Error() string {
 // 由 handler 层在同账号重试全部用尽、切换账号时调用。
 //
 // 池模式账号同样进入此路径（2026-05-21 revision of PR #333）：retry 用尽
-// 才进 TempUnschedule，而 pool_mode 默认 pool_mode_retry_count=1 已经
+// 才进 TempUnschedule，而 pool_mode 默认 pool_mode_retry_count=3 已经
 // 给了池一次自愈机会；用尽仍失败时不再回避本地状态写入。
 //
 // 本函数只处理 RetryableOnSameAccount 的两个状态码：

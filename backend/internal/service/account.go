@@ -837,7 +837,7 @@ func (a *Account) IsCustomErrorCodesEnabled() bool {
 // 池模式下，上游错误不标记本地账号状态，行为对所有平台统一：
 //   - 401 / 403 / 429（默认）或 per-account pool_mode_retry_status_codes 配置的
 //     状态码：在同账号 in-place retry N 次
-//     （N = GetPoolModeRetryCount，默认 1，最大 10；见 isPoolModeRetryableStatus）；
+//     （N = GetPoolModeRetryCount，默认 3，最大 10；见 isPoolModeRetryableStatus）；
 //   - retry 全部用尽后由上层 failover 自然切下一账号，不写入
 //     temp_unschedulable_until / rate_limited_at / error 等本地状态字段；
 //   - Anthropic 平台额外跳过 handleAnthropicUpstreamError 内的 3/3
@@ -858,16 +858,15 @@ func (a *Account) IsPoolMode() bool {
 
 const (
 	// defaultPoolModeRetryCount 默认同账号 retry 次数（每账号可在 UI 覆盖到 0..max）。
-	// 选择 1：转发 stub → 上游账号池场景下，池每次会轮换成员，1 次 retry 大概率
-	// 命中不同后端；3 次会无谓放大 3 倍 upstream 流量。运维确认上游单后端时再调高。
-	defaultPoolModeRetryCount = 1
+	// 选择 3：与 admin UI 新建默认值一致；转发 stub → 上游账号池时给池内轮换更多机会。
+	defaultPoolModeRetryCount = 3
 	maxPoolModeRetryCount     = 10
 )
 
 // GetPoolModeRetryCount 返回池模式同账号重试次数。
-// 未配置或配置非法时回退为默认值 1；小于 0 按 0 处理；过大则截断到 10。
+// 未配置或配置非法时回退为默认值 3；小于 0 按 0 处理；过大则截断到 10。
 //
-// 注意：非 pool_mode 账号也会拿到 defaultPoolModeRetryCount=1，但实际不被消费——
+// 注意：非 pool_mode 账号也会拿到 defaultPoolModeRetryCount=3，但实际不被消费——
 // 各平台 gateway 路径中 `RetryableOnSameAccount` 都 gated on
 // `account.IsPoolMode()`（见 gateway_service.go / openai_gateway_*.go），
 // 因此非 pool_mode 账号的 same-account retry 不会触发。

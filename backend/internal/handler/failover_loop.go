@@ -66,7 +66,7 @@ func NewFailoverState(maxSwitches int, hasBoundSession bool) *FailoverState {
 //
 // sameAccountRetryLimit 是本账号的同账号 retry 上限。生产路径应传
 // account.GetPoolModeRetryCount()（pool_mode 账号读 credentials.pool_mode_retry_count，
-// 非 pool_mode 返回 defaultPoolModeRetryCount=1）。传 0 表示"不允许同账号 retry，
+// 非 pool_mode 返回 defaultPoolModeRetryCount=3）。传 0 表示"不允许同账号 retry，
 // 立即 failover"——这是 UI hint 承诺的语义（i18n: "0 = 不原地重试"）。负数同样
 // 视为 0；不做隐式升值，避免运维显式禁用 retry 时被悄悄改成 1 次。
 func (s *FailoverState) HandleFailoverError(
