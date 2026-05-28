@@ -835,7 +835,8 @@ func (a *Account) IsCustomErrorCodesEnabled() bool {
 
 // IsPoolMode 检查 API Key / Bedrock 账号是否启用池模式。
 // 池模式下，上游错误不标记本地账号状态，行为对所有平台统一：
-//   - 401 / 403 / 429 / 502 / 503 / 504：在同账号 in-place retry N 次
+//   - 401 / 403 / 429（默认）或 per-account pool_mode_retry_status_codes 配置的
+//     状态码：在同账号 in-place retry N 次
 //     （N = GetPoolModeRetryCount，默认 1，最大 10；见 isPoolModeRetryableStatus）；
 //   - retry 全部用尽后由上层 failover 自然切下一账号，不写入
 //     temp_unschedulable_until / rate_limited_at / error 等本地状态字段；
@@ -908,24 +909,101 @@ func parsePoolModeRetryCount(value any) int {
 	return defaultPoolModeRetryCount
 }
 
-// isPoolModeRetryableStatus 池模式下应触发同账号重试的状态码。
+// defaultPoolModeRetryableStatusCodes 池模式下默认触发同账号重试的状态码。
+// 未在 Account.Credentials 中显式配置 pool_mode_retry_status_codes 时使用。
 //
 // 401 / 403 / 429: 上游池内当前命中的账号 token 失效 / 被封 / 限流，再打同
 // 一上游 URL 大概率轮换到下个池成员。
 //
-// 502 / 503 / 504: 上游池前置代理（如另一台 TokenKey / 兼容网关）的瞬时
-// 不可调度（"No available accounts"、网关无后端等），retry 让池内调度
-// 自我修复。
+// 502 / 503 / 504 不在默认内：转发型拓扑（指向另一台 TokenKey / 兼容网关）
+// 的前置代理瞬时不可调度可能需要同账号重试，但默认开启会改变所有部署的行为，
+// 因此交由 per-account 的 pool_mode_retry_status_codes 显式配置（上游
+// configurable-retry 特性 21033dce）。
 //
 // 500 / 501 不在内：500 通常是上游业务 bug，501 是 Not Implemented，
 // 两者重试均无意义且会加剧 upstream 压力。
+var defaultPoolModeRetryableStatusCodes = []int{401, 403, 429}
+
+// isPoolModeRetryableStatus 池模式下应触发同账号重试的状态码（默认列表）。
 func isPoolModeRetryableStatus(statusCode int) bool {
-	switch statusCode {
-	case 401, 403, 429, 502, 503, 504:
-		return true
-	default:
-		return false
+	for _, c := range defaultPoolModeRetryableStatusCodes {
+		if c == statusCode {
+			return true
+		}
 	}
+	return false
+}
+
+// GetPoolModeRetryStatusCodes 返回账号自定义的池模式同账号重试状态码列表。
+//
+// 返回值语义：
+//   - nil：未配置 → 调用方应回退到默认值 [401, 403, 429]
+//   - 长度为 0 的切片：管理员显式置空 → 关闭按状态码触发的同账号重试
+//   - 非空切片：去重、过滤为合法 HTTP 状态码（100-599）后的覆盖列表
+func (a *Account) GetPoolModeRetryStatusCodes() []int {
+	if a == nil || a.Credentials == nil {
+		return nil
+	}
+	raw, ok := a.Credentials["pool_mode_retry_status_codes"]
+	if !ok || raw == nil {
+		return nil
+	}
+	arr, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	seen := make(map[int]struct{}, len(arr))
+	codes := make([]int, 0, len(arr))
+	for _, v := range arr {
+		var code int
+		switch n := v.(type) {
+		case float64:
+			code = int(n)
+		case int:
+			code = n
+		case int64:
+			code = int(n)
+		case json.Number:
+			i, err := n.Int64()
+			if err != nil {
+				continue
+			}
+			code = int(i)
+		case string:
+			i, err := strconv.Atoi(strings.TrimSpace(n))
+			if err != nil {
+				continue
+			}
+			code = i
+		default:
+			continue
+		}
+		if code < 100 || code > 599 {
+			continue
+		}
+		if _, exists := seen[code]; exists {
+			continue
+		}
+		seen[code] = struct{}{}
+		codes = append(codes, code)
+	}
+	sort.Ints(codes)
+	return codes
+}
+
+// IsPoolModeRetryableStatus 在账号上下文中判断给定状态码是否应触发同账号重试。
+// 若账号未配置 pool_mode_retry_status_codes，则回退到默认列表。
+func (a *Account) IsPoolModeRetryableStatus(statusCode int) bool {
+	codes := a.GetPoolModeRetryStatusCodes()
+	if codes == nil {
+		return isPoolModeRetryableStatus(statusCode)
+	}
+	for _, c := range codes {
+		if c == statusCode {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *Account) GetCustomErrorCodes() []int {

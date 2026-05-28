@@ -30,7 +30,7 @@ func (s *stubGeminiTKAccountRepo) SetRateLimited(ctx context.Context, id int64, 
 	return nil
 }
 
-func (s *stubGeminiTKAccountRepo) SetModelRateLimit(ctx context.Context, id int64, modelKey string, resetAt time.Time) error {
+func (s *stubGeminiTKAccountRepo) SetModelRateLimit(ctx context.Context, id int64, modelKey string, resetAt time.Time, reason ...string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.modelRateLimitCalls = append(s.modelRateLimitCalls, modelRateLimitCall{accountID: id, modelKey: modelKey, resetAt: resetAt})

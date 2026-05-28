@@ -98,10 +98,11 @@ if [[ -n "$existing" ]]; then
     sleep 5
   done
   aws lightsail delete-instance --region "$LIGHTSAIL_REGION" --instance-name "$INSTANCE_NAME" >/dev/null
-  # Also release any Static IP so allocate-static-ip below cannot reuse a stale binding
+  # Detach only — keep the allocated Static IP (and its address) for re-attach below.
+  # Releasing would force allocate-static-ip to mint a new address, breaking
+  # pre-provisioned / DNS-pinned IPs (edge-us2/us3/us4 Lightsail rollout).
   if aws lightsail get-static-ip --region "$LIGHTSAIL_REGION" --static-ip-name "$STATIC_IP_NAME" >/dev/null 2>&1; then
     aws lightsail detach-static-ip --region "$LIGHTSAIL_REGION" --static-ip-name "$STATIC_IP_NAME" >/dev/null 2>&1 || true
-    aws lightsail release-static-ip --region "$LIGHTSAIL_REGION" --static-ip-name "$STATIC_IP_NAME" >/dev/null
   fi
 fi
 

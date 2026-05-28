@@ -8,6 +8,7 @@ import (
 )
 
 type OpenAIMessagesDispatchModelConfig = domain.OpenAIMessagesDispatchModelConfig
+type GroupModelsListConfig = domain.GroupModelsListConfig
 
 type Group struct {
 	ID             int64
@@ -61,6 +62,7 @@ type Group struct {
 	RequirePrivacySet           bool // 调度时仅允许 privacy 已成功设置的账号（OpenAI/Antigravity/Anthropic/Gemini）
 	DefaultMappedModel          string
 	MessagesDispatchModelConfig OpenAIMessagesDispatchModelConfig
+	ModelsListConfig            GroupModelsListConfig
 
 	// Upstream prompt-cache sticky routing strategy: "auto" | "passthrough" | "off".
 	// Default empty / "auto" — see docs/approved/sticky-routing.md §3.1.
