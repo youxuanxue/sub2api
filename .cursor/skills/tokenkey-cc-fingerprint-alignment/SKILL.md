@@ -66,8 +66,9 @@ TOKENKEY_CC_DAILY_DRY_RUN=1 bash ops/anthropic/cc_fingerprint_open_tls_drift_pr.
 | 每日 TLS 漂移开 PR | 机械 | `ops/anthropic/cc_fingerprint_open_tls_drift_pr.sh` |
 | Phase 0 ingress cohort / admin UA | 机械 | `ops/observability/run-probe.sh` + admin settings |
 | ja3 变更 → TLS profile SQL apply | 机械 | `manage-anthropic-config.py plan/apply/verify` |
+| HTTP beta 漂移 → runtime manifest apply | 机械 | `plan-http-mimicry-sync` + `sync-runtime` 或 `cc_fingerprint_apply_http_runtime.sh` |
 | 代码修复位点 | 判断 + 清单 | 本 skill §4 |
-| 是否发版 / admin PATCH 先后 | 判断 | `tokenkey-stage0-release-rollout` skill |
+| merge 后是否立刻 sync-runtime | 判断 | HTTP drift PR merge 后**默认先 apply**（无发版）；compile default 跟下一班 release |
 
 ## 调用参数
 
@@ -172,14 +173,14 @@ bash ops/anthropic/capture-http-comprehensive.sh
 | `canonical.user_agent_version` | compile default 落后 | `identity_service_tk_canonical_http.go` + admin setting |
 | `mimic.cli_version` / mimic UA | mimic 路径落后 | `constants.go` + `identity_service.go` |
 | `*.stainless_package_version` | 以实测为准 | mitm/collector |
-| `betas.*` | token 集合或顺序错 | `FullClaudeCode*MimicryBetas()` + tests |
+| `betas.*` | token 集合或顺序错 | `anthropic-http-mimicry-baselines.json` + `constants.go` + tests |
 
 ## 4) 代码修复清单（HTTP-only 型）
 
-1. `backend/internal/pkg/claude/constants.go`
-2. `backend/internal/service/identity_service_tk_canonical_http.go`
-3. `backend/internal/service/identity_service.go`
-4. `backend/internal/service/gateway_service.go`
+1. `deploy/aws/stage0/anthropic-http-mimicry-baselines.json`（runtime 真值源；与 capture 对齐）
+2. `backend/internal/pkg/claude/constants.go`（compile default；下一班 release 追上）
+3. `backend/internal/service/identity_service_tk_canonical_http.go`
+4. `backend/internal/service/identity_service.go`
 5. `backend/internal/pkg/claude/constants_test.go`
 6. `scripts/sentinels/gateway-tk.json`
 7. `ops/stage0/smoke_lib.sh`
@@ -193,7 +194,13 @@ python3 -m unittest discover -s ops/anthropic -p 'test_capture_cc_fingerprint.py
 ./scripts/preflight.sh
 ```
 
-**HTTP 漂移（默认）：** 修 §4 清单 → spec-delta → 分支 → commit → push → `gh pr create`。
+**HTTP 漂移（默认）：** 修 §4 清单 → spec-delta → 分支 → commit → push → `gh pr create` → **merge 后立刻**：
+
+```bash
+bash ops/anthropic/cc_fingerprint_apply_http_runtime.sh
+```
+
+无需为对齐 beta/UA 专门发版；`constants.go` 在下一班 release 追上 compile default 即可。
 
 **TLS 漂移：** `bash ops/anthropic/cc_fingerprint_open_tls_drift_pr.sh .tls_list/…-cc-capture.bundle.json`（worktree 隔离，不影响当前 checkout）。
 
@@ -213,6 +220,8 @@ python3 -m unittest discover -s ops/anthropic -p 'test_capture_cc_fingerprint.py
 check env → capture --http → comprehensive (beta consistency)
     → check / check-tls
     → [ja3变?] manage-anthropic-config apply + TLS drift PR
-    → [HTTP drift?] constants + identity + tests + spec-delta
-    → preflight → open PR (default) → merge → admin UA → deploy
+    → [HTTP drift?] baselines.json + constants + tests + spec-delta
+    → preflight → open PR (default) → merge
+    → sync-runtime / cc_fingerprint_apply_http_runtime.sh（无发版）
+    → [可选] 下一班 release 更新 compile default
 ```

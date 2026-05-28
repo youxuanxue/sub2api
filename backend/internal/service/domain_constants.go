@@ -449,6 +449,9 @@ const (
 	// 版本号（空值使用环境变量 CLAUDE_CODE_USER_AGENT_VERSION 或编译期默认）。
 	// 仅 version 字段可配，prefix/suffix（`claude-cli/...(external, sdk-cli)`）固定。
 	SettingKeyClaudeCodeUserAgentVersion = "claude_code_user_agent_version"
+	// SettingKeyClaudeCodeHTTPMimicryManifest JSON manifest for OAuth mimicry
+	// anthropic-beta lists (sonnet_opus + haiku). Empty → compile-time defaults.
+	SettingKeyClaudeCodeHTTPMimicryManifest = "claude_code_http_mimicry_manifest"
 	// SettingKeyOpenAICodexUserAgent OpenAI Codex 完整 User-Agent（空值使用内置默认）
 	// 当客户端 UA 被识别为浏览器（Chrome/Firefox/Safari/Edge 等）时，转发给 OpenAI 上游前会替换为此值，
 	// 用于避免 Cloudflare 对浏览器型 UA 的质询拦截。

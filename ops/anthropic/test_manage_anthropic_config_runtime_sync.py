@@ -20,7 +20,26 @@ class RuntimeSyncShellTest(unittest.TestCase):
         shell = mgr.render_runtime_sync_shell("2.1.152")
         self.assertIn("env -u REDISCLI_AUTH", shell)
         self.assertIn("claude_code_user_agent_version", shell)
+        self.assertIn("claude_code_http_mimicry_manifest", shell)
         self.assertIn("fingerprint:${id}", shell)
+
+    def test_http_mimicry_manifest_from_baseline(self) -> None:
+        manifest = json.loads(mgr._http_mimicry_manifest_json())
+        self.assertEqual(1, manifest["schema_version"])
+        self.assertRegex(manifest["cc_version"], r"^\d+\.\d+\.\d+$")
+        self.assertGreaterEqual(len(manifest["sonnet_opus"]), 1)
+        self.assertGreaterEqual(len(manifest["haiku"]), 1)
+
+    def test_plan_http_mimicry_sync_writes_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = pathlib.Path(tmp) / "plan.json"
+            rc = mgr.cmd_plan_http_mimicry_sync(
+                __import__("argparse").Namespace(out=str(out)),
+            )
+            self.assertEqual(rc, 0)
+            plan = json.loads(out.read_text())
+            self.assertEqual("http_mimicry_runtime_sync", plan["intent"]["kind"])
+            self.assertEqual(1, len(plan["actions"]))
 
     def test_canonical_ua_version_from_repo_json(self) -> None:
         ver = mgr._canonical_claude_code_ua_version()

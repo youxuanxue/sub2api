@@ -6370,9 +6370,9 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 			// rejected as third-party ("out of extra usage").
 			// Haiku also sends the cc 2.1.152 capture mimicry set (includes claude-code
 			// beta); token set/order differs from Sonnet (no effort / advanced-tool-use).
-			requiredBetas := claude.FullClaudeCodeHaikuMimicryBetas()
+			requiredBetas := claude.GetFullClaudeCodeHaikuMimicryBetasForContext(ctx)
 			if !strings.Contains(strings.ToLower(modelID), "haiku") {
-				requiredBetas = claude.FullClaudeCodeMimicryBetas()
+				requiredBetas = claude.GetFullClaudeCodeMimicryBetasForContext(ctx)
 			}
 			setHeaderRaw(req.Header, "anthropic-beta", mergeAnthropicBetaDropping(requiredBetas, incomingBeta, effectiveDropSet))
 		} else {
@@ -9755,7 +9755,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 			applyClaudeCodeMimicHeaders(req, false)
 
 			incomingBeta := getHeaderRaw(req.Header, "anthropic-beta")
-			requiredBetas := append(claude.FullClaudeCodeMimicryBetas(), claude.BetaTokenCounting)
+			requiredBetas := append(claude.GetFullClaudeCodeMimicryBetasForContext(ctx), claude.BetaTokenCounting)
 			setHeaderRaw(req.Header, "anthropic-beta", mergeAnthropicBetaDropping(requiredBetas, incomingBeta, ctEffectiveDropSet))
 		} else {
 			clientBetaHeader := getHeaderRaw(req.Header, "anthropic-beta")
