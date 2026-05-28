@@ -17,11 +17,11 @@ import (
 const (
 	EndpointMessages          = "/v1/messages"
 	EndpointChatCompletions   = "/v1/chat/completions"
+	EndpointEmbeddings        = "/v1/embeddings"
 	EndpointResponses         = "/v1/responses"
 	EndpointImagesGenerations = "/v1/images/generations"
 	EndpointImagesEdits       = "/v1/images/edits"
 	EndpointGeminiModels      = "/v1beta/models"
-	EndpointEmbeddings        = "/v1/embeddings"
 )
 
 // gin.Context keys used by the middleware and helpers below.
@@ -46,6 +46,8 @@ func NormalizeInboundEndpoint(path string) string {
 		return normalized
 	}
 	switch {
+	case strings.Contains(path, EndpointEmbeddings):
+		return EndpointEmbeddings
 	case strings.Contains(path, EndpointChatCompletions):
 		return EndpointChatCompletions
 	case strings.Contains(path, EndpointMessages):
@@ -79,7 +81,7 @@ func DeriveUpstreamEndpoint(inbound, rawRequestPath, platform string) string {
 
 	switch platform {
 	case service.PlatformOpenAI, service.PlatformNewAPI:
-		if inbound == EndpointImagesGenerations || inbound == EndpointImagesEdits {
+		if inbound == EndpointEmbeddings || inbound == EndpointImagesGenerations || inbound == EndpointImagesEdits {
 			return inbound
 		}
 		if upstream, ok := tkDeriveOpenAITokenKeyUpstream(inbound); ok {
