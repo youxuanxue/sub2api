@@ -810,6 +810,15 @@ type GatewayConfig struct {
 	// MaxLineSize: 上游 SSE 单行最大字节数（0使用默认值）
 	MaxLineSize int `mapstructure:"max_line_size"`
 
+	// ResponsesShortStreamBufferBytes: OpenAI Responses 透传流式的短流缓冲阈值（字节）。
+	// 见 upstream Wei-Shaw/sub2api#2245 的「可选防御性优化」：上游返回 HTTP 200 +
+	// text/event-stream，却在 response.completed 等终止事件前就 EOF 时，严格客户端会
+	// 报 "stream closed before response.completed"。本配置启用后，透传层会把首批正文
+	// 内容暂存到该字节窗口内再下发；若上游在窗口内提前 EOF 且未见终止事件，则触发
+	// failover（干净重试）而非把残缺的 200 短流下发给客户端。0 表示禁用（默认，保持
+	// 现有 prod 行为：preamble 事件仍会缓冲，正文内容仍逐行立即下发）。
+	ResponsesShortStreamBufferBytes int `mapstructure:"responses_short_stream_buffer_bytes"`
+
 	// 是否记录上游错误响应体摘要（避免输出请求内容）
 	LogUpstreamErrorBody bool `mapstructure:"log_upstream_error_body"`
 	// 上游错误响应体记录最大字节数（超过会截断）
@@ -1887,6 +1896,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.max_account_switches_gemini", 3)
 	viper.SetDefault("gateway.force_codex_cli", false)
 	viper.SetDefault("gateway.codex_image_generation_bridge_enabled", false)
+	viper.SetDefault("gateway.responses_short_stream_buffer_bytes", 0)
 	viper.SetDefault("gateway.openai_passthrough_allow_timeout_headers", false)
 	// OpenAI Responses WebSocket（默认开启；可通过 force_http 紧急回滚）
 	viper.SetDefault("gateway.openai_ws.enabled", true)

@@ -5135,6 +5135,8 @@ export default {
         group: '分组',
         user: '用户',
         account: '账号',
+        apiKey: 'API Key',
+        clientIp: '客户端 IP',
         latency: '请求时长',
         businessLimited: '业务限制',
         requestPath: '请求路径',
@@ -5195,8 +5197,15 @@ export default {
           model: '模型',
           duration: '耗时',
           status: '状态码',
+          requester: '请求方',
           requestId: '请求ID',
           actions: '操作'
+        },
+        requester: {
+          anonymous: '匿名',
+          key: 'Key',
+          group: '分组',
+          account: '上游账号'
         }
       },
       alertEvents: {

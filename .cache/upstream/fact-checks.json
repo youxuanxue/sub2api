@@ -149,7 +149,7 @@
         "backend/internal/service/gateway_forward_as_responses_tk_content_type_test.go",
         "backend/internal/service/gateway_forward_as_chat_completions_tk_content_type_test.go",
         "backend/internal/service/openai_images_responses.go",
-        "scripts/check-buffered-content-type-leak.py"
+        "scripts/checks/buffered-content-type-leak.py"
       ],
       "fixed_if_all_present": [
         "backend/internal/service/openai_gateway_chat_completions.go:Wei-Shaw/sub2api#1311",
@@ -160,7 +160,7 @@
         "backend/internal/service/gateway_forward_as_responses_tk_content_type_test.go:TestHandleResponsesBufferedStreamingResponse_NonStream_ReturnsApplicationJSONContentType",
         "backend/internal/service/gateway_forward_as_chat_completions_tk_content_type_test.go:TestHandleCCBufferedFromAnthropic_NonStream_ReturnsApplicationJSONContentType",
         "backend/internal/service/openai_images_responses.go:Wei-Shaw/sub2api#1311",
-        "scripts/check-buffered-content-type-leak.py:def scan_file"
+        "scripts/checks/buffered-content-type-leak.py:def scan_file"
       ]
     },
     {
@@ -357,13 +357,13 @@
       "fixed_by": [
         "backend/internal/service/openai_gateway_messages.go",
         "backend/internal/service/openai_gateway_messages_tk_terminal_event_test.go",
-        "scripts/terminal-sentinels.json"
+        "scripts/sentinels/terminal.json"
       ],
       "fixed_if_all_present": [
         "backend/internal/service/openai_gateway_messages.go:See upstream Wei-Shaw/sub2api#1322",
         "backend/internal/service/openai_gateway_messages.go:\"response.cancelled\", \"response.canceled\"",
         "backend/internal/service/openai_gateway_messages_tk_terminal_event_test.go:TestIsOpenAICompatResponsesTerminalEvent_FullSet",
-        "scripts/terminal-sentinels.json:openai_compat_responses_terminal_helper"
+        "scripts/sentinels/terminal.json:openai_compat_responses_terminal_helper"
       ]
     },
     {
@@ -376,7 +376,7 @@
       ],
       "fixed_if_all_present": [
         "backend/internal/service/openai_gateway_service.go:upstream Wei-Shaw/sub2api#1318",
-        "backend/internal/service/openai_gateway_service.go:shouldDisable = s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, body)",
+        "backend/internal/service/openai_gateway_service.go:shouldDisable := s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body)",
         "backend/internal/service/openai_oauth_passthrough_test.go:TestOpenAIGatewayService_OpenAIPassthrough_TempUnschedRuleTriggersFailover"
       ]
     },
