@@ -15,7 +15,7 @@ description: >-
   (C) prod stub concurrency 镜像（plan-concurrency-mirror）：把 edge users.id=1 与
   对应 prod stub.concurrency 与 prod users.id=1 都对齐为「Σ schedulable=true anthropic
   concurrency」的四跳级联——值从 live 派生，不引入新 baseline JSON；stub↔edge 链接按
-  edge-targets.json 的 domain 字段稳定匹配，不推断。
+  EC2 + Lightsail 双矩阵 merge 的 domain 字段稳定匹配，不推断。
   (D) anthropic group Claude Code 客户端限制（plan-group-claude-code-only）：每个
   deployable edge + prod 上全部 platform=anthropic 的 groups.claude_code_only=true
   （admin UI 开关 ON → 仅允许 Claude Code 客户端）—— 来源 anthropic-group-claude-code-baselines.json。
@@ -47,7 +47,7 @@ description: >-
 |---|---|---|---|
 | (A) edge OAuth tier baseline | `anthropic-oauth-stability-baselines-tiered.json` | `edge_account_tier` | 每个 deployable edge 上 `type=oauth` 账号的 `extra.*`（含 TLS 启用与 `tls_fingerprint_profile_id` 绑定）+ `concurrency` + `priority` + `stability_tier` 字段；并对 `shared_baseline.tls_profile.name` 做 `tls_fingerprint_profiles` UPSERT 后绑定账号；事务末尾同步 `users.id=1.concurrency = Σ schedulable anthropic.concurrency` |
 | (B) prod stub pool_mode | `anthropic-stub-pool-baselines.json` | `prod_stub_pool` | 每个 prod `type=apikey` 且 `credentials.base_url` 匹配 `api-*.tokenkey.dev` 的镜像 stub 的 `credentials.pool_mode` + `credentials.pool_mode_retry_count` 字段 |
-| (C) prod stub concurrency 镜像 | **无 JSON——值从 live 派生**；stub↔edge 链接来自 `edge-targets.json` 的 `domain` | `edge_operator_concurrency` + `prod_concurrency_mirror` | 四跳级联：每个 deployable edge 的 `users.id=1.concurrency`、对应 prod stub 的 `concurrency`、prod 的 `users.id=1.concurrency` 全部对齐为「该库 Σ schedulable=true anthropic concurrency」 |
+| (C) prod stub concurrency 镜像 | **无 JSON——值从 live 派生**；stub↔edge 链接来自 EC2 + Lightsail 双矩阵 merge 的 `domain` | `edge_operator_concurrency` + `prod_concurrency_mirror` | 四跳级联：每个 deployable edge 的 `users.id=1.concurrency`、对应 prod stub 的 `concurrency`、prod 的 `users.id=1.concurrency` 全部对齐为「该库 Σ schedulable=true anthropic concurrency」 |
 | (D) anthropic group Claude Code only | `anthropic-group-claude-code-baselines.json` | `anthropic_group_claude_code_only` | 每个 deployable edge + prod 上全部 `platform=anthropic` 且尚未 `claude_code_only=true` 的 group → `claude_code_only=true`（admin UI：「Claude Code 客户端限制」开 → 仅 Claude Code） |
 
 写入面 (A)/(C) 都把 **`users.id=1` 的用户并发** 对齐为该库 **`platform=anthropic AND schedulable=true` 账号** concurrency 之和（**不含**被 admin 设为 `schedulable=false` 的账号，例如 edge 上仅供 admin 旁路的 api-key）；**prod 控制面**（admin 网页创建/更新/删除账号、批量编辑）由 **`AdminService` + `SumConcurrencyAnthropic` / `SyncAnthropicOperatorConcurrency`** 在写库成功后执行**相同** Σ 规则并 `BatchSetConcurrency`。脚本与后端控制面共用同一条 Σ 规则（`SumConcurrencyAnthropic` 已加 `AND schedulable = true`），互不覆盖。流水线固化在 `ops/anthropic/manage-anthropic-config.py`（edge + prod SSM apply）与后端 `anthropic_operator_concurrency.go`（共享语义）。
@@ -275,7 +275,7 @@ python3 $MGR verify --plan $JOBDIR/plan.json                   # drift_count 必
 | 3 | prod 对应 stub `.concurrency` | `prod_concurrency_mirror`（同一 prod 事务，先于 #4） | prod |
 | 4 | prod `users.id=1.concurrency` | `prod_concurrency_mirror`（子查询，权威，在 #3 之后） | prod |
 
-**stub↔edge 链接**：按 `deploy/aws/stage0/edge-targets.json` 每个 edge 的 `domain` 字段（如 `api-us1.tokenkey.dev`）匹配 prod stub 的 `credentials.base_url`——**稳定读取部署配置，不做 slug 推断、不每次重新校验拓扑**。匹配不上的 stub（tokensea / deepseek 等第三方）不进 `stub_updates`。
+**stub↔edge 链接**：合并 **`deploy/aws/stage0/edge-targets.json`** 与 **`deploy/aws/lightsail/edge-targets-lightsail.json`** 的 `domain` 字段（Lightsail `deployable=true` 覆盖同 id EC2 行）匹配 prod stub 的 `credentials.base_url`——**稳定读取部署配置，不做 slug 推断、不每次重新校验拓扑**。匹配不上的 stub（tokensea / deepseek 等第三方）不进 `stub_updates`。
 
 ```bash
 python3 $MGR snapshot --out $JOBDIR/snap.json
@@ -383,7 +383,7 @@ operate 流程：
 
 | 现象 | 处理 |
 |---|---|
-| snapshot 失败 / SSM 拒绝（edge 或 prod） | 校验 EC2 instance 在跑 / `edge-targets.json` 或 `PROD_TARGET` 常量 / OIDC 权限。**仅排障 edge** 跑 `snapshot --skip-prod` 临时绕开 prod 失败 |
+| snapshot 失败 / SSM 拒绝（edge 或 prod） | 校验实例在跑（EC2 CFN 或 Lightsail Hybrid `mi-*`）/ 双矩阵 domain 或 `PROD_TARGET` / OIDC 权限。**仅排障 edge** 跑 `snapshot --skip-prod` 临时绕开 prod 失败 |
 | `apply --confirm` 拒绝 | 必须精确 `yes-apply-anthropic-config-cascade` |
 | tier baseline drift（check-edge-oauth-stability `extra_baseline_drift` / `account_field_drift`） | 单账号用 plan-edge-account-tier 重写到对应 tier；整个 tier 值漂移（多账号）用 `plan-tier-bump --tier lN` 一次性重写 |
 | `tls_profile` drift（`/tls_profile/...` 或 UK 模式：启用 TLS 却无 profile） | tier apply 会通过 `generate_sql` upsert `tk_canonical_cc_oauth` 并绑定 `tls_fingerprint_profile_id`——用 **`plan-guard-drift-fix`** 或 **`remediate-guard-drift`**（含 `apply --sync-runtime`），不要手工按 tier 合并 plan |
@@ -423,7 +423,7 @@ operate 流程：
 
 - `ops/anthropic/manage-anthropic-config.py`（5 阶段 orchestrator，本 skill 唯一推荐入口；含三条写入面 `edge_account_tier` + `prod_stub_pool` + `edge_operator_concurrency`/`prod_concurrency_mirror` 的渲染、apply、verify）
 - `ops/anthropic/test_manage_anthropic_config_plan.py` / `test_manage_anthropic_config_stub_pool.py` / `test_manage_anthropic_config_concurrency_mirror.py` / `test_manage_anthropic_config_runtime_sync.py`（plan 派生逻辑 + SQL 渲染 + apply 路由 + runtime sync 的单元测试，stdlib-only）
-- `deploy/aws/stage0/edge-targets.json`（拓扑真值源：每个 edge 的 `domain` 是写入面 C 的 stub↔edge 链接依据，稳定读取不推断）
+- `deploy/aws/stage0/edge-targets.json` + `deploy/aws/lightsail/edge-targets-lightsail.json`（拓扑真值源：merge 后的 `domain` 是写入面 C 的 stub↔edge 链接依据）
 - `backend/internal/service/anthropic_operator_concurrency.go`（prod/控制面与脚本共享的 Σ schedulable→`users.id=1` 语义）
 - `backend/internal/service/account.go` `Account.IsPoolMode()`（pool_mode 的运行时语义：apikey/bedrock 前置 + credentials.pool_mode 解析）
 - `backend/internal/service/ratelimit_service.go` `handleAnthropicUpstreamError`（pool_mode 账号在 anthropic 平台上跳过 3/3 短窗阈值的代码路径）

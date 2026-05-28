@@ -15,6 +15,8 @@ description: >-
 
 # TokenKey: rotate an edge gateway's egress EIP
 
+**EC2/CFN only.** Lightsail Static IP 轮换见 `tokenkey-stage0-edge-lightsail-ip-rotation`（**uk1 已迁 Lightsail**，勿对本 skill  dispatch `rotate_egress_ip`）。
+
 **v2 (OPC).** Replaces the v1 manual multi-step nano-probe / CFN-IMPORT runbook.
 The deploy workflow now owns rotation end-to-end; this skill is a thin wrapper
 that decides _which workflow input to pass_, not a sequence of bash commands.
@@ -52,7 +54,11 @@ gh workflow run deploy-edge-stage0.yml \
 
 `edge_id` matches a key in
 [`deploy/aws/stage0/edge-targets.json`](../../../deploy/aws/stage0/edge-targets.json)
-(normalize `edge-uk1` → `uk1`). `rotation_reason` is required and ends up on
+with **`deployable=true`** (normalize `edge-uk1` → `uk1`). If the edge is
+Lightsail-authoritative (uk1 / us2 / … in
+[`edge-targets-lightsail.json`](../../../deploy/aws/lightsail/edge-targets-lightsail.json)),
+stop and use `tokenkey-stage0-edge-lightsail-ip-rotation` instead.
+`rotation_reason` is required and ends up on
 the new EIP's `tokenkey:replaces-reason` tag and in the run summary's
 `edge-polluted-ips.json` snippet.
 
@@ -110,7 +116,9 @@ The workflow itself enforces the data-plane invariants. This skill must still
 refuse when:
 
 1. The normalized `edge_id` is not a key in
-   [`deploy/aws/stage0/edge-targets.json`](../../../deploy/aws/stage0/edge-targets.json).
+   [`deploy/aws/stage0/edge-targets.json`](../../../deploy/aws/stage0/edge-targets.json)
+   with **`deployable=true`**, or the edge is Lightsail-authoritative in
+   `edge-targets-lightsail.json` (use lightsail-ip-rotation skill).
 2. `rotation_reason` is empty or only whitespace.
 3. The target stack has not been migrated yet (`describe-stacks` shows no
    `EipAllocationId` parameter) — direct the operator to

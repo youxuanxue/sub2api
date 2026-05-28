@@ -1,13 +1,15 @@
 ---
 name: tokenkey-stage0-edge-lightsail-ip-rotation
 description: >-
-  Rotate the egress Static IP of a TokenKey Stage0 Lightsail Edge (uk1-ls /
-  us1-ls / fra1-ls / sg1-ls) when the live IP has been risk-blocked
-  ("polluted") by Anthropic / OpenAI / Google. Mirrors the EC2 EIP rotation
-  posture: a single primitive (ops/lightsail/rotate-static-ip.sh) swaps the
-  Static IP, the operator updates Porkbun DNS, and external verification runs
-  from a clean-egress host. No CloudFormation drift step because Lightsail
-  Edge is not CloudFormation-owned.
+  Rotate the egress Static IP of a TokenKey Stage0 Lightsail Edge (uk1 /
+  us1 / us2 / fra1 / sg1 / …) when the live IP has been risk-blocked
+  ("polluted") by Anthropic / OpenAI / Google. Matrix `instance_name` /
+  `static_ip_name` may differ from default `tokenkey-edge-<id>-ls` (adopt
+  path). Mirrors the EC2 EIP rotation posture: a single primitive
+  (ops/lightsail/rotate-static-ip.sh) swaps the Static IP, the operator
+  updates Porkbun DNS, restarts Caddy if needed, and external verification
+  runs from a clean-egress host. No CloudFormation drift step because
+  Lightsail Edge is not CloudFormation-owned.
 ---
 
 # TokenKey：Lightsail Edge 静态 IP 轮换（污染快速恢复）
@@ -46,6 +48,8 @@ aws sts get-caller-identity   # 确认目标账户
 ```
 
 确认 edge 已经在 `deploy/aws/lightsail/edge-targets-lightsail.json` 里 `deployable=true`，且 `ssm_prefix/public_ip` 与 `aws lightsail get-static-ip` 报告的 ipAddress 一致；不一致先用 `aws ssm put-parameter` 把 SSM 修对，再开始轮换。
+
+**Adopt 命名**：`instance_name` / `static_ip_name` 以 matrix 为准（如 `us2` → `tokenkey-edge-us-va1-ls` / `StaticIp-2`），不要假设 `tokenkey-edge-<edge_id>-ls-ip`。
 
 ## 1) Plan
 
@@ -88,9 +92,15 @@ bash ops/lightsail/rotate-static-ip.sh <edge_id> --apply
 
 > **同账户 IP 池注意**：Lightsail 在同账户同 region 复用 IP 池，新分配的 IP 极少撞回相同的旧 IP，但概率不是零。如果 NEW ip 仍被污染，重跑一次 swap 即可（旧 IP 已 release，不会回收到自己手里）。
 
-## 3) DNS
+## 3) DNS 与 Caddy
 
-去 Porkbun 把 `api-<edge_id>.tokenkey.dev` 的 A 记录改成 NEW ip。等 1 分钟。
+去 Porkbun 把 `api-<edge_id>.tokenkey.dev` 的 A 记录改成 NEW ip。等 `dig +short @1.1.1.1` 指向 NEW ip（常见约 1 分钟）。
+
+IP 变更后重启 Caddy 以刷新 ACME / 绑定：
+
+```bash
+bash ops/stage0/verify-edge-lightsail-network.sh <edge_id> --renew-cert
+```
 
 ## 4) Verify（独立观察点）
 
@@ -104,9 +114,11 @@ curl -sS --resolve api-<edge_id>.tokenkey.dev:443:<new_ip> \
 应当 200。然后跑一次 workflow smoke：
 
 ```bash
+CONFIRM=$(python3 deploy/aws/lightsail/resolve-edge-lightsail-target.py \
+  --edge-id <edge_id> | awk -F= '/^instance_name=/{print $2}')
 gh workflow run deploy-edge-lightsail-stage0.yml \
   -f edge_id=<edge_id> -f operation=smoke \
-  -f confirm_instance=tokenkey-edge-<edge_id>-ls
+  -f confirm_instance="$CONFIRM"
 gh run watch --exit-status $(gh run list -w deploy-edge-lightsail-stage0.yml -L 1 --json databaseId -q '.[0].databaseId')
 ```
 

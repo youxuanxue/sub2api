@@ -205,14 +205,14 @@ aws ssm send-command --region eu-west-2 --instance-ids i-xxx \
   "edges": {
     "uk1": {
       "deployable": true,
-      "instance_id": "i-0abc...",
+      "instance_id": "mi-0abc...",
       "region": "eu-west-2",
-      "stack": "tokenkey-edge-uk1-stage0",
+      "platform": "lightsail",
       "domain": "api-uk1.tokenkey.dev",
       "oauth_accounts": [
         {
           "id": 123,
-          "name": "en-ld-ec2-16-1-b",
+          "name": "en-ld-ls-16-1-b",
           "platform": "anthropic",
           "type": "oauth",
           "status": "active",

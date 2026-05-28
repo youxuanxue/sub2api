@@ -27,6 +27,8 @@ description: >-
 | 渲染 user-data（launch script） | 机械 | `deploy/aws/lightsail/render-bootstrap.sh`（drift gate 已接入 preflight） |
 | Provision dispatch + watch | 机械 | `gh workflow run deploy-edge-lightsail-stage0.yml` + `gh run watch --exit-status` |
 | 升级/回滚/烟测 dispatch | 机械 | 同上（operation 参数化） |
+| Provision 后落盘 admin 账密 | 机械 | `bash ops/stage0/ensure-edge-admin-credentials.sh --platform lightsail <edge_id>` |
+| 防火墙 443 + DNS 后 HTTPS / ACME 验收 | 机械 | `bash ops/stage0/verify-edge-lightsail-network.sh <edge_id> [--fix-443] [--renew-cert]` |
 | matrix 编辑 / IAM scope / GHCR PAT 落 SSM | 判断 | prompt（成本/区域/权限是架构决定） |
 | DNS A 记录指向 Lightsail Static IP | 判断 | prompt（Porkbun 手工步骤） |
 | 故障定位（SSM Hybrid 注册未完成 / Lightsail 配额 / GHCR PAT 失效） | 判断 | prompt（诊断分支） |
@@ -45,7 +47,7 @@ description: >-
 | `operation=provision` | 创建 Lightsail 实例 + 分配 Static IP + 等 SSM Hybrid 注册完成。默认 fail-if-exists；要销毁重建须 `recreate=true`（destructive）。 |
 | `operation=smoke` | 不动实例，复用 `ops/stage0/external_health.sh` + `ops/stage0/edge_post_deploy_smoke.sh`。 |
 | `operation=upgrade` / `rollback` | 通过共享 `ops/stage0/deploy_via_ssm.sh` 换 tag，与 EC2 完全相同 primitive。 |
-| `operation=full` | prepare → provision → DNS（手工）→ smoke 闭环。 |
+| `operation=full` | prepare → provision → admin creds → firewall 443 → DNS（手工）→ renew cert（若 DNS 晚于 provision）→ smoke 闭环。 |
 
 默认行为：
 - "新增 Lightsail edge X" → `operation=full`
@@ -184,6 +186,16 @@ aws iam get-role --role-name tokenkey-gha-us-east-1-error-clustering \
 
 新 edge **若不跑 smoke**，可跳过 `TK_SMOKE_EDGE_CANARY_KEY`（见 §1.5 说明；uk1/us1 以外的 edge 默认不配）。
 
+#### 1.3b Lightsail-only edge：**不要**加 EC2 CFN execution role
+
+`us2` / `us3` / `us4`、已完成 EC2→Lightsail 的 `uk1` 等 **只在 Lightsail 矩阵 `deployable=true`** 的 edge：
+
+- OIDC 只需 `cicd-oidc.yaml` → `AllowedSubjects` 含 `environment:edge-<id>`（§1.5a）。
+- **不要**在 `cicd-oidc.yaml` 新增 `Edge<PascalCase>CloudFormationExecutionRoleArn` / `EdgeXTargetInstanceId` / 区域 SSM `ssm:SendCommand` 到 EC2 instance ARN——那是 EC2/CFN 路径（`tokenkey-stage0-edge-expansion`）。
+- 运维入口：`deploy-edge-lightsail-stage0.yml` + SSM Hybrid tag `EdgeId` / `Platform=lightsail`。
+
+若误加了 uk1 EC2 IAM 又已迁移到 Lightsail，Phase 5 收尾见 `tokenkey-stage0-edge-platform-migration` §5。
+
 ### 1.6 PR + 落库
 
 ```bash
@@ -233,9 +245,45 @@ workflow 仍打印 “Static IP will be DESTROYED” 警告语，但 `provision-
 
 **批量 US edge**（如 us2/us3/us4）：按 edge 顺序逐个 dispatch + watch（concurrency 按 edge_id 分组，可并行，但 prepare/OIDC 未完成前不要并发）。
 
-## 3) DNS
+### 2.1 Admin 账密落盘（provision 后必做，禁止打印密码）
 
-手工把 `api-<edge_id>.tokenkey.dev` A 记录指到上一步输出的 Static IP（Porkbun）。等 1 分钟生效。
+GHA workflow **不会**写 operator 本机的 `~/Codes/keys/`。每个新 edge provision 成功后，在本机执行（**stdout 不输出 password**）：
+
+```bash
+bash ops/stage0/ensure-edge-admin-credentials.sh --platform lightsail <edge_id>
+# 或等价：capture 失败 (exit 3) 时再跑 reset-edge-admin-password.sh
+ls -l "$HOME/Codes/keys/tokenkey-<edge_id>-admin-password.txt"   # chmod 600，含 email= / password=
+```
+
+验收：`email=admin@api-<edge_id>.tokenkey.dev` 与 uk1/us1 文件格式一致。**禁止**在 PR、GHA log、聊天里粘贴 `password=` 行。
+
+### 2.2 防火墙 TCP 443（provision 后必验）
+
+`provision-edge.sh` 会尝试开放 80/443，但 **443 可能未生效**（us2 实案：公网 HTTPS 超时、实例内 curl 正常）。
+
+```bash
+bash ops/stage0/verify-edge-lightsail-network.sh <edge_id> --fix-443
+# 机械验收：Lightsail get-instance-port-states 中 TCP 80 与 443 均为 open
+```
+
+**禁止**在 443 未开时进入 DNS/smoke——现象是连接超时，不是应用 5xx。
+
+### 2.3 新 edge Anthropic baseline（OAuth 账号就绪后）
+
+DNS cutover 且 admin 可登录后，按 `tokenkey-anthropic-oauth-config` 对新 edge 跑 tier baseline + concurrency mirror verify（Lightsail 矩阵 `deployable=true` 的 edge 已纳入双矩阵 domain 链接）。
+
+## 3) DNS 与 ACME 时序
+
+手工把 `api-<edge_id>.tokenkey.dev` A 记录指到 Static IP（Porkbun）。等 `dig +short @1.1.1.1` 指向该 IP（常见约 1 分钟）。
+
+**Adopt 路径常见坑**：provision **早于 DNS** → Caddy ACME 对 NXDOMAIN 失败 → DNS 生效后公网 TLS handshake 仍失败。
+
+```bash
+bash ops/stage0/verify-edge-lightsail-network.sh <edge_id> --renew-cert
+# 等价：SSM docker restart tokenkey-caddy，等 ~15s 后 curl https://api-<id>.tokenkey.dev/health
+```
+
+验收：`curl -sk https://api-<edge_id>.tokenkey.dev/health` → `{"status":"ok"}`。
 
 ## 4) Smoke
 
@@ -259,9 +307,11 @@ gh run watch --exit-status $(gh run list -w deploy-edge-lightsail-stage0.yml -L 
 
 ```bash
 TAG=<new_tag>
+CONFIRM=$(python3 deploy/aws/lightsail/resolve-edge-lightsail-target.py \
+  --edge-id <edge_id> | awk -F= '/^instance_name=/{print $2}')
 gh workflow run deploy-edge-lightsail-stage0.yml \
   -f edge_id=<edge_id> -f operation=upgrade -f tag=$TAG \
-  -f confirm_instance=tokenkey-edge-<edge_id>-ls
+  -f confirm_instance="$CONFIRM"
 ```
 
 回滚把 `operation=rollback` + 把 `tag` 设成上一个 prod tag。
@@ -276,6 +326,8 @@ gh workflow run deploy-edge-lightsail-stage0.yml \
 | `provision` 步骤 fail，managed instance 未注册 | SSM Hybrid activation expired / 网络不通 | Lightsail 浏览器 SSH 看 `/var/log/tokenkey-lightsail-bootstrap.log`；`BOOTSTRAP_FAIL: ` 行即根因 |
 | GHA `smoke` / SSM 步骤失败，本机同 tag 却正常 | **`aws` / workflow 用了错的 `--region`**（误用 `ec2_equivalent_region`）或 job **工作目录**与脚本相对路径不一致 | 用 `python3 ops/stage0/edge_ssm_execution.py --repo-root . --edge-id <id> --format env` 核对输出的 **`REGION`**；workflow 里凡 SSM 调用必须与之一致；检查 `defaults.run.working-directory` / `cd` |
 | `external_health` 报 5xx | Caddy 还在签证书 / docker compose 起不来 | `ssh` 进实例 `docker compose -f /var/lib/tokenkey/docker-compose.yml ps` |
+| 公网 `curl https://api-<id>.tokenkey.dev` **连接超时** | Lightsail 防火墙 **缺 TCP 443**（80 可能已开） | §2.2 `verify-edge-lightsail-network.sh --fix-443` |
+| DNS 已指 Static IP 但 **TLS handshake 失败** | provision 时 DNS 为 NXDOMAIN，ACME 未签成功 | §3 `--renew-cert` 重启 `tokenkey-caddy` |
 | Static IP 已分配但 attach 失败 | 旧 instance 还在持有该 Static IP | `aws lightsail detach-static-ip` 再重 attach；或 `recreate=true` 重来 |
 | GHCR pull 401 | PAT 过期 / 写错 SSM 路径 | 用 1.4 重新 put-parameter |
 | Squash 合并后 `git branch -d feature/...` 拒绝删除 | Squash 不产生「分支 tip 是 main 祖先」关系 | `git checkout main && git pull --ff-only` 后 `git branch -D feature/...`；`git remote prune origin` |
@@ -289,7 +341,21 @@ edge_id        : <id>
 lightsail_region: <region>
 domain         : api-<id>.tokenkey.dev
 managed_instance: mi-XXXXXXXXXXXXXXXXX
-last_smoke_run : <gh run URL>
+firewall_443   : open (verify-edge-lightsail-network.sh)
+https_health   : ok | pending-dns | tls-renew-required
+admin_credentials_file: ~/Codes/keys/tokenkey-<id>-admin-password.txt (§2.1; password not printed)
+last_smoke_run : <gh run URL or skipped>
 ```
 
-数据来自 workflow Job summary，不要在 SKILL 里手抄常量。
+## 8) `operation=full` 编号清单
+
+1. §1 Prepare（matrix + workflow choice + OIDC §1.5a + lightsail addon §1.3）
+2. §2 Provision（GHA + watch）
+3. §2.1 Admin 账密（`ensure-edge-admin-credentials.sh`）
+4. §2.2 防火墙 443（`verify-edge-lightsail-network.sh --fix-443`）
+5. §3 DNS A 记录 → Static IP
+6. §3 ACME（若 TLS 失败：`--renew-cert`）
+7. §4 Smoke（或 uk1/us1 以外 edge 仅 `curl /health`）
+8. §7 Acceptance 输出
+
+数据来自 workflow Job summary + verify 脚本，不要在 SKILL 里手抄常量。

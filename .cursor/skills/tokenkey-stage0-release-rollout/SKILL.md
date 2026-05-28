@@ -222,6 +222,7 @@ python3 scripts/stage0/resolve-edge-deploy-route.py --edge-id "$EDGE_ID" --json
 
    ```bash
    python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable
+   # EC2 ∪ Lightsail 合并；Lightsail deployable=true 优先（uk1、us2、us3、us4、…）
    ```
 
 3. 取矩阵**第一个** deployable Edge 作为 canary：`dispatch-edge-deploy.sh --operation upgrade --tag=$TARGET_TAG`（**infra smoke**，workflow 默认 `smoke_phase=infra`），watch 到 success。
@@ -229,6 +230,8 @@ python3 scripts/stage0/resolve-edge-deploy-route.py --edge-id "$EDGE_ID" --json
 5. **prod 验收（CI 唯一源）**：在本次 `deploy-stage0` run log 搜索 `tk_post_deploy_smoke: OK`，并核对 models/chat/messages 等 shape（见「prod 真实测试」§A）。**不要**在本地再跑完整 `post_deploy_smoke.sh`，除非 CI secret 缺失或日志不可解析。
 6. **canary main-via-edge（仅此一次）**：`dispatch-edge-deploy.sh --operation smoke --smoke-phase main-via-edge`（prod 已升级后）。缺 **`TK_SMOKE_EDGE_CANARY_KEY`** 则标记 partial，不 rollback。
 7. **其余 deployable Edge**：逐个 `upgrade`（infra smoke only）；**不再**对每个 edge 跑 main-via-edge。
+   - **main-via-edge canary** 仍通常仅 **uk1 / us1**（需 `TK_SMOKE_EDGE_CANARY_KEY`）。
+   - **us2 / us3 / us4** 等 Lightsail-only edge：rollout 以 infra smoke + 可选 `curl https://api-<id>.tokenkey.dev/health` 为准；勿因缺 canary secret 判失败。
 8. **发版后跟进（按 diff 档位，非固定三轮）**：跑 `release-impact-files.sh` 读 `.followup.tier`：
    - `skip` → 不跟进，直接 rollout summary。
    - `single` → 仅 **+5min** 一次轻量诊断。
