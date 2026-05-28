@@ -2259,7 +2259,7 @@ func (s *GatewayService) resolveGatewayGroup(ctx context.Context, groupID *int64
 			return nil, nil, err
 		}
 
-		if !group.ClaudeCodeOnly || IsClaudeCodeClient(ctx) {
+		if !group.ClaudeCodeOnly || IsClaudeCodeClient(ctx) || IsClaudeDesktopGatewayClient(ctx) {
 			return group, &currentID, nil
 		}
 
@@ -2271,7 +2271,7 @@ func (s *GatewayService) resolveGatewayGroup(ctx context.Context, groupID *int64
 }
 
 // checkClaudeCodeRestriction 检查分组的 Claude Code 客户端限制
-// 如果分组启用了 claude_code_only 且请求不是来自 Claude Code 客户端：
+// 如果分组启用了 claude_code_only 且请求不是来自 Claude Code 或 Claude Desktop 3p 网关客户端：
 //   - 有降级分组：返回降级分组的 ID
 //   - 无降级分组：返回 ErrClaudeCodeOnly 错误
 func (s *GatewayService) checkClaudeCodeRestriction(ctx context.Context, groupID *int64) (*Group, *int64, error) {

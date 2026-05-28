@@ -38,6 +38,9 @@ const (
 	// IsClaudeCodeClient 标识当前请求是否来自 Claude Code 客户端
 	IsClaudeCodeClient Key = "ctx_is_claude_code_client"
 
+	// IsClaudeDesktopGatewayClient 标识当前请求是否来自 Claude Desktop 自定义推理网关（3p）
+	IsClaudeDesktopGatewayClient Key = "ctx_is_claude_desktop_gateway_client"
+
 	// ThinkingEnabled 标识当前请求是否开启 thinking（用于 Antigravity 最终模型名推导与模型维度限流）
 	ThinkingEnabled Key = "ctx_thinking_enabled"
 	// Group 认证后的分组信息，由 API Key 认证中间件设置
