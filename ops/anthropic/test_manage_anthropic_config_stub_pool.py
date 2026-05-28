@@ -167,11 +167,11 @@ class RenderProdStubPoolSqlTest(unittest.TestCase):
     """
 
     def test_sql_contains_policy_values_and_safe_where(self) -> None:
-        sql = mgr.render_prod_stub_pool_sql(42, "cc-us1", True, 1)
+        sql = mgr.render_prod_stub_pool_sql(42, "cc-us1", True, 3)
         self.assertIn("UPDATE accounts SET", sql)
         self.assertIn("credentials = credentials || jsonb_build_object", sql)
         self.assertIn("'pool_mode', true::boolean", sql)
-        self.assertIn("'pool_mode_retry_count', 1::int", sql)
+        self.assertIn("'pool_mode_retry_count', 3::int", sql)
         self.assertIn("WHERE id = 42", sql)
         self.assertIn("AND name = 'cc-us1'", sql)
         self.assertIn("AND platform = 'anthropic'", sql)
@@ -183,7 +183,7 @@ class RenderProdStubPoolSqlTest(unittest.TestCase):
         self.assertIn("\nCOMMIT;", sql)
 
     def test_sql_quotes_apostrophes_in_name(self) -> None:
-        sql = mgr.render_prod_stub_pool_sql(99, "weird'name", True, 1)
+        sql = mgr.render_prod_stub_pool_sql(99, "weird'name", True, 3)
         # ' → '' (SQL-standard quoting)
         self.assertIn("AND name = 'weird''name'", sql)
         # And the audit comment also carries the quoted form
@@ -191,7 +191,7 @@ class RenderProdStubPoolSqlTest(unittest.TestCase):
 
     def test_renderer_rejects_non_int_id(self) -> None:
         with self.assertRaises(SystemExit):
-            mgr.render_prod_stub_pool_sql("42", "cc-us1", True, 1)  # type: ignore[arg-type]
+            mgr.render_prod_stub_pool_sql("42", "cc-us1", True, 3)  # type: ignore[arg-type]
 
 
 class ApplyDispatchTest(unittest.TestCase):
