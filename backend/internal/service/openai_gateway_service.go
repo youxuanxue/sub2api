@@ -919,7 +919,17 @@ func SnapshotOpenAICompatibilityFallbackMetrics() OpenAICompatibilityFallbackMet
 }
 
 func (s *OpenAIGatewayService) detectCodexClientRestriction(c *gin.Context, account *Account) CodexClientRestrictionDetectionResult {
-	return s.getCodexClientRestrictionDetector().Detect(c, account)
+	var globalAllowedClients []string
+	if s != nil && s.settingService != nil {
+		ctx := context.Background()
+		if c != nil && c.Request != nil {
+			ctx = c.Request.Context()
+		}
+		if s.settingService.IsOpenAIAllowClaudeCodeCodexPluginEnabled(ctx) {
+			globalAllowedClients = []string{openai.AllowedClientClaudeCode}
+		}
+	}
+	return s.getCodexClientRestrictionDetector().Detect(c, account, globalAllowedClients)
 }
 
 func getAPIKeyIDFromContext(c *gin.Context) int64 {

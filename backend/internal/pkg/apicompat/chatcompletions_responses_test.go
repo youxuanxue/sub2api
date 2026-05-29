@@ -724,32 +724,6 @@ func TestResponsesToChatCompletions_ReasoningTokens(t *testing.T) {
 	assert.Equal(t, 150, chat.Usage.CompletionTokensDetails.ReasoningTokens)
 }
 
-func TestResponsesToChatCompletions_ReasoningTokens(t *testing.T) {
-	resp := &ResponsesResponse{
-		ID:     "resp_reasoning",
-		Status: "completed",
-		Output: []ResponsesOutput{
-			{
-				Type:    "message",
-				Content: []ResponsesContentPart{{Type: "output_text", Text: "ping"}},
-			},
-		},
-		Usage: &ResponsesUsage{
-			InputTokens:  24,
-			OutputTokens: 33,
-			TotalTokens:  57,
-			OutputTokensDetails: &ResponsesOutputTokensDetails{
-				ReasoningTokens: 32,
-			},
-		},
-	}
-
-	chat := ResponsesToChatCompletions(resp, "gpt-5.5")
-	require.NotNil(t, chat.Usage)
-	assert.Equal(t, 33, chat.Usage.CompletionTokens)
-	require.NotNil(t, chat.Usage.CompletionTokensDetails)
-	assert.Equal(t, 32, chat.Usage.CompletionTokensDetails.ReasoningTokens)
-}
 
 func TestResponsesToChatCompletions_AllTokenDetailsPassThrough(t *testing.T) {
 	// Covers the full OpenAI CompletionUsage detail field set so future audio
@@ -1022,31 +996,6 @@ func TestResponsesEventToChatChunks_CompletedWithReasoningTokens(t *testing.T) {
 	assert.Equal(t, 256, chunks[1].Usage.CompletionTokensDetails.ReasoningTokens)
 }
 
-func TestResponsesEventToChatChunks_CompletedWithReasoningTokens(t *testing.T) {
-	state := NewResponsesEventToChatState()
-	state.Model = "gpt-5.5"
-	state.IncludeUsage = true
-
-	chunks := ResponsesEventToChatChunks(&ResponsesStreamEvent{
-		Type: "response.completed",
-		Response: &ResponsesResponse{
-			Status: "completed",
-			Usage: &ResponsesUsage{
-				InputTokens:  24,
-				OutputTokens: 33,
-				TotalTokens:  57,
-				OutputTokensDetails: &ResponsesOutputTokensDetails{
-					ReasoningTokens: 32,
-				},
-			},
-		},
-	}, state)
-	require.Len(t, chunks, 2)
-
-	require.NotNil(t, chunks[1].Usage)
-	require.NotNil(t, chunks[1].Usage.CompletionTokensDetails)
-	assert.Equal(t, 32, chunks[1].Usage.CompletionTokensDetails.ReasoningTokens)
-}
 
 func TestResponsesEventToChatChunks_ResponseDone(t *testing.T) {
 	state := NewResponsesEventToChatState()
