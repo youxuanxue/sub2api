@@ -1156,6 +1156,85 @@
         "shortStreamBuffering"
       ],
       "rationale": "TK short-stream buffer on the OpenAI Responses passthrough (upstream Wei-Shaw/sub2api#2245). When gateway.responses_short_stream_buffer_bytes>0, handleStreamingResponsePassthrough holds the first body content in a byte window before the first flush, so an upstream that EOFs before a terminal event fails over cleanly instead of shipping a half-finished HTTP 200 SSE that strict Responses clients reject with 'stream closed before response.completed'. An upstream merge that rewrites the passthrough streaming loop could silently drop this guard; the sentinel forces the merge to keep (or deliberately remove) the buffer wiring."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service_tk_sticky_group.go",
+      "must_contain": [
+        "func openaiStickyAccountStillInGroup",
+        "return !known"
+      ],
+      "rationale": "TK#1934: OpenAI-compat sticky bindings must be invalidated when the bound account drifts out of the group. The conservative 'empty membership = keep' rule (return !known) avoids falsely clearing healthy snapshot-served bindings. An upstream merge that removes this helper would reopen the group-switch sticky leak (404/wrong-group billing/503)."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "openaiStickyAccountStillInGroup(account, *groupID)",
+        "s.tkApplyImplicitThrottleCooldown(ctx, account, resp.StatusCode)"
+      ],
+      "rationale": "TK#1934 sticky group-drift guard call (tryStickySessionHit + Layer-1 inline) and TK#2727 opt-in implicit-throttle cooldown hook in handleFailoverSideEffects. Both are thin injection points that an upstream merge could silently drop."
+    },
+    {
+      "path": "backend/internal/service/openai_account_scheduler.go",
+      "must_contain": [
+        "openaiStickyAccountStillInGroup(account, *req.GroupID)"
+      ],
+      "rationale": "TK#1934: scheduler selectBySessionHash must apply the same group-membership guard as tryStickySessionHit, or the advanced scheduler path reopens the group-switch sticky leak."
+    },
+    {
+      "path": "backend/internal/service/channel_monitor_checker.go",
+      "must_contain": [
+        "func extractAnthropicText",
+        "return extractAnthropicText(respBytes), string(respBytes), status, nil"
+      ],
+      "rationale": "TK#1946: Anthropic monitor challenge extraction must skip leading thinking blocks (extractAnthropicText) instead of the static content.0.text path, or a healthy account with extended thinking is misjudged as a challenge mismatch and kicked out of the pool."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "topLevelCacheControl := gjson.GetBytes(out, \"cache_control\").Exists()",
+        "logTokenCostPricingMissing(billingModel, apiKey, result, err)"
+      ],
+      "rationale": "TK#2013: enforceCacheControlLimit must count a non-standard top-level cache_control toward the 4-block limit (else Anthropic 400 'Found 5'). TK#1833/#1544: calculateTokenCost must surface pricing-missing as an observable marked zero-cost record instead of a silent ActualCost:0 revenue leak."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_billing_pricing_missing.go",
+      "must_contain": [
+        "func logTokenCostPricingMissing",
+        "gateway_usage.pricing_missing_record_zero_cost"
+      ],
+      "rationale": "TK#1833/#1544: structured observability for pricing-missing token-cost calculation, at parity with the OpenAI record-usage path. Removing this returns the gateway to a silent free-usage leak for unpriced models."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "tkIsAnthropicClientInducedBadRequest(responseBody)",
+        "s.tkClampOpenAIRateLimitReset(ctx, account.ID"
+      ],
+      "rationale": "TK#2608: client-induced Anthropic 400 invalid_request_error must not advance the per-account cooldown counter (else an external caller can pause a shared OAuth subscription account). TK#1981: opt-in clamp of long OpenAI 429 resets so released accounts are re-probed by traffic instead of idling."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_client_induced_400.go",
+      "must_contain": [
+        "func tkIsAnthropicClientInducedBadRequest",
+        "invalid_request_error"
+      ],
+      "rationale": "TK#2608: the predicate distinguishing client-induced 400s from account-level punishment. Removing it reopens the external account-disable abuse vector."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service_tk_implicit_throttle.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) tkApplyImplicitThrottleCooldown",
+        "SettingKeyOpenAIImplicitThrottleCooldownSeconds"
+      ],
+      "rationale": "TK#2727: opt-in (default OFF) cross-request cooldown for implicitly-throttled OpenAI-compat accounts. Default OFF means merging is behavior-neutral; the sentinel guards the capability against silent upstream-merge deletion."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_openai_reset_clamp.go",
+      "must_contain": [
+        "func (s *RateLimitService) tkClampOpenAIRateLimitReset",
+        "SettingKeyOpenAIMaxRateLimitCooldownSeconds"
+      ],
+      "rationale": "TK#1981: opt-in (default OFF) clamp of long OpenAI 429 reset windows. Guards the capability against silent upstream-merge deletion."
     }
   ]
 }

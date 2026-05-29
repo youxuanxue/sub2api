@@ -284,7 +284,44 @@ func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt
 	if provider == MonitorProviderOpenAI && apiMode == MonitorAPIModeResponses {
 		return extractOpenAIResponsesText(respBytes), string(respBytes), status, nil
 	}
+	if provider == MonitorProviderAnthropic {
+		return extractAnthropicText(respBytes), string(respBytes), status, nil
+	}
 	return gjson.GetBytes(respBytes, adapter.textPath).String(), string(respBytes), status, nil
+}
+
+// extractAnthropicText aggregates the assistant text from an Anthropic
+// /v1/messages response.
+//
+// TK (upstream Wei-Shaw/sub2api#1946): content[0] is NOT always the text block.
+// When extended thinking is enabled the first block is a "thinking" (or
+// "redacted_thinking") block, so the static gjson path "content.0.text" resolves
+// to an empty string — the monitor then reads the challenge answer as "" and
+// marks a perfectly healthy account as failed ("challenge mismatch, got \"\"").
+// On an Anthropic-OAuth-heavy deployment that false-negative kicks healthy
+// accounts out of the schedulable pool and amplifies 503s. Mirror
+// extractOpenAIResponsesText: walk the content array, skip non-text blocks
+// (thinking / tool_use / …), and concatenate the text blocks; fall back to the
+// legacy path when no text block is present.
+func extractAnthropicText(respBytes []byte) string {
+	var texts []string
+	content := gjson.GetBytes(respBytes, "content")
+	if content.IsArray() {
+		content.ForEach(func(_, block gjson.Result) bool {
+			blockType := block.Get("type").String()
+			if blockType != "" && blockType != "text" {
+				return true
+			}
+			if text := block.Get("text").String(); strings.TrimSpace(text) != "" {
+				texts = append(texts, text)
+			}
+			return true
+		})
+	}
+	if len(texts) > 0 {
+		return strings.Join(texts, "")
+	}
+	return gjson.GetBytes(respBytes, providerAdapters[MonitorProviderAnthropic].textPath).String()
 }
 
 // extractOpenAIResponsesText 聚合 Responses API 的最终 assistant 文本。
