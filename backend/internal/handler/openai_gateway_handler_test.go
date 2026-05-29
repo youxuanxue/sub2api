@@ -882,8 +882,16 @@ func TestOpenAIResponsesWebSocket_ContentModerationBlocksFirstFrame(t *testing.T
 		require.Equal(t, coderws.StatusPolicyViolation, closeErr.Code)
 		require.Contains(t, closeErr.Reason, "内容审计测试阻断")
 	}
-	logs := repo.logSnapshot()
-	require.Len(t, logs, 1)
+	// The WS block path persists the moderation log from a background
+	// goroutine, so the client read returning the block frame does not
+	// guarantee the log has landed yet. Wait for it like the decision path
+	// above instead of asserting synchronously (race fixed: was a flaky
+	// require.Len that passed only by timing luck).
+	var logs []service.ContentModerationLog
+	require.Eventually(t, func() bool {
+		logs = repo.logSnapshot()
+		return len(logs) == 1
+	}, time.Second, 10*time.Millisecond)
 	require.True(t, logs[0].Flagged)
 	require.Equal(t, service.ContentModerationActionBlock, logs[0].Action)
 	require.Equal(t, "bad prompt", logs[0].InputExcerpt)
