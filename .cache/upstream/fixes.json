@@ -53,7 +53,7 @@
         "backend/internal/service/gateway_forward_as_responses_tk_content_type_test.go",
         "backend/internal/service/gateway_forward_as_chat_completions_tk_content_type_test.go",
         "backend/internal/service/openai_images_responses.go",
-        "scripts/check-buffered-content-type-leak.py"
+        "scripts/checks/buffered-content-type-leak.py"
       ],
       "summary": "Non-stream buffered SSE->JSON handlers in both the OpenAI gateway (/v1/chat/completions, /v1/messages) and the Anthropic-backed gateway forward paths (Responses, Chat Completions) now explicitly set Content-Type: application/json after WriteFilteredHeaders. Without this, the upstream SSE Content-Type (text/event-stream) leaks onto JSON bodies because gin's render.writeContentType only writes when no Content-Type is set, breaking OpenAI-SDK consumers that branch on Content-Type."
     },
@@ -72,7 +72,7 @@
       "fixed_by": [
         "backend/internal/service/openai_gateway_messages.go",
         "backend/internal/service/openai_gateway_messages_tk_terminal_event_test.go",
-        "scripts/terminal-sentinels.json"
+        "scripts/sentinels/terminal.json"
       ],
       "summary": "isOpenAICompatResponsesTerminalEvent (driver for the OpenAI-compat Anthropic Messages and Chat Completions streaming handlers) now recognizes the full six-event terminal set, including response.cancelled / response.canceled. Without this, an upstream that ends the Responses SSE with a legitimate cancellation falls through to 'stream usage incomplete: missing terminal event', producing a spurious openai.forward_failed ops_error_logs entry and skipping clean finalization. Symmetric with openAIStreamEventIsTerminal (gateway_service.go), openai_ws_forwarder.go, and openai_ws_v2/passthrough_relay.go."
     },
