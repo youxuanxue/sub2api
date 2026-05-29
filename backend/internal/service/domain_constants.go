@@ -118,6 +118,27 @@ const (
 	// tool_choice forces tool use). Defaults to true. See
 	// gateway_anthropic_request_normalize_tk.go for the rules.
 	SettingKeyAnthropicRequestNormalizeEnabled = "tk_anthropic_request_normalize_enabled"
+
+	// SettingKeyOpenAIImplicitThrottleCooldownSeconds enables an opt-in,
+	// cross-request cooldown for OpenAI-compat accounts being implicitly throttled
+	// by the upstream (repeated 5xx / header-timeout with no explicit 429).
+	// Default "" / "0" = disabled (no production behavior change). When set to a
+	// positive integer N, an account that triggers a failover-worthy 5xx is
+	// benched (temp_unschedulable) for N seconds so subsequent requests skip it
+	// instead of repeatedly landing on the same throttled account. See
+	// openai_gateway_service_tk_implicit_throttle.go (upstream Wei-Shaw/sub2api#2727).
+	SettingKeyOpenAIImplicitThrottleCooldownSeconds = "tk_openai_implicit_throttle_cooldown_seconds"
+
+	// SettingKeyOpenAIMaxRateLimitCooldownSeconds caps how long an OpenAI-compat
+	// account may stay rate-limited from a single upstream 429 reset. Default ""
+	// / "0" = disabled (trust the upstream reset verbatim — current behavior).
+	// When set to a positive integer N, an upstream reset farther out than N
+	// seconds (e.g. a 7-day window-exhaustion reset) is clamped to now+N so the
+	// account re-enters the pool after N seconds and is re-probed by natural
+	// request traffic instead of sitting idle until the full upstream reset. If it
+	// is still limited it simply 429s again and is re-cooled. See
+	// ratelimit_service_tk_openai_reset_clamp.go (upstream Wei-Shaw/sub2api#1981).
+	SettingKeyOpenAIMaxRateLimitCooldownSeconds = "tk_openai_max_rate_limit_cooldown_seconds"
 )
 
 // LinuxDoConnectSyntheticEmailDomain 是 LinuxDo Connect 用户的合成邮箱后缀（RFC 保留域名）。

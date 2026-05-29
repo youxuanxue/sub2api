@@ -165,6 +165,31 @@ func TestEnforceCacheControlLimit_CountsToolsAndPreservesMessageAnchorsFirst(t *
 	require.False(t, gjson.GetBytes(result, "tools.0.cache_control").Exists())
 }
 
+// upstream Wei-Shaw/sub2api#2013: a non-standard top-level cache_control plus 4
+// nested blocks is 5 blocks on the wire; the count must include the top-level
+// field and trim it first so Anthropic does not 400 with "max 4 blocks, Found 5".
+func TestEnforceCacheControlLimit_CountsTopLevelAndTrimsItFirst(t *testing.T) {
+	body := []byte(`{"cache_control":{"type":"ephemeral"},"system":[{"type":"text","text":"sys","cache_control":{"type":"ephemeral"}}],"messages":[{"role":"user","content":[{"type":"text","text":"m1","cache_control":{"type":"ephemeral"}},{"type":"text","text":"m2","cache_control":{"type":"ephemeral"}},{"type":"text","text":"m3","cache_control":{"type":"ephemeral"}}]}]}`)
+
+	result := enforceCacheControlLimit(body)
+
+	require.Equal(t, 4, strings.Count(string(result), `"cache_control"`), "must be trimmed to the 4-block limit")
+	require.False(t, gjson.GetBytes(result, "cache_control").Exists(), "non-standard top-level cache_control trimmed first")
+	require.True(t, gjson.GetBytes(result, "system.0.cache_control").Exists(), "legitimate nested anchors preserved")
+	require.True(t, gjson.GetBytes(result, "messages.0.content.2.cache_control").Exists())
+}
+
+// Regression: top-level cache_control + 3 nested = 4 total (at the limit) must be
+// preserved as-is — the top-level field is honored when it does not overflow.
+func TestEnforceCacheControlLimit_TopLevelPreservedWhenWithinLimit(t *testing.T) {
+	body := []byte(`{"cache_control":{"type":"ephemeral"},"system":[{"type":"text","text":"sys","cache_control":{"type":"ephemeral"}}],"messages":[{"role":"user","content":[{"type":"text","text":"m1","cache_control":{"type":"ephemeral"}},{"type":"text","text":"m2","cache_control":{"type":"ephemeral"}}]}]}`)
+
+	result := enforceCacheControlLimit(body)
+
+	require.Equal(t, 4, strings.Count(string(result), `"cache_control"`))
+	require.True(t, gjson.GetBytes(result, "cache_control").Exists(), "top-level cache_control preserved when total <= 4")
+}
+
 func TestInjectAnthropicCacheControlTTL1h_OnlyUpdatesExistingEphemeralCacheControl(t *testing.T) {
 	body := []byte(`{"alpha":1,"cache_control":{"type":"ephemeral"},"system":[{"type":"text","text":"sys","cache_control":{"type":"ephemeral","ttl":"5m"}},{"type":"text","text":"plain"}],"messages":[{"role":"user","content":[{"type":"text","text":"hi","cache_control":{"type":"ephemeral"}},{"type":"text","text":"non","cache_control":{"type":"persistent","ttl":"5m"}}]}],"tools":[{"name":"a","input_schema":{},"cache_control":{"type":"ephemeral"}}],"omega":2}`)
 

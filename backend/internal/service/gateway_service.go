@@ -4292,7 +4292,18 @@ func enforceCacheControlLimit(body []byte) []byte {
 		logger.LegacyPrintf("service.gateway", "%s", item.log)
 	}
 
+	// TK (upstream Wei-Shaw/sub2api#1946 sibling #2013): a top-level
+	// "cache_control" field (non-standard — real Claude Code never sends it, but
+	// some clients do) is forwarded to Anthropic (see forceEphemeralCacheControlTTL)
+	// and counted by the API toward the 4-block limit. The original count omitted
+	// it, so "top-level cache_control + 4 nested blocks" was 5 on the wire while we
+	// only counted 4 → no trimming → Anthropic 400 "max 4 blocks, Found 5".
+	topLevelCacheControl := gjson.GetBytes(out, "cache_control").Exists()
+
 	count := len(messagePaths) + len(toolPaths) + len(systemPaths)
+	if topLevelCacheControl {
+		count++
+	}
 	if count <= maxCacheControlBlocks {
 		if modified {
 			return out
@@ -4300,8 +4311,16 @@ func enforceCacheControlLimit(body []byte) []byte {
 		return body
 	}
 
-	// 超限：优先从 tools 中移除，再从 messages 中移除，最后才从 system 中移除。
+	// 超限：优先移除非标准的顶层 cache_control，再从 tools、messages，最后 system 中移除。
 	remaining := count - maxCacheControlBlocks
+	if topLevelCacheControl && remaining > 0 {
+		if next, ok := deleteJSONPathBytes(out, "cache_control"); ok {
+			out = next
+			modified = true
+			remaining--
+			logger.LegacyPrintf("service.gateway", "[Warning] Removed non-standard top-level cache_control to satisfy %d-block limit", maxCacheControlBlocks)
+		}
+	}
 	for i := len(toolPaths) - 1; i >= 0 && remaining > 0; i-- {
 		path := toolPaths[i]
 		if !gjson.GetBytes(out, path).Exists() {
@@ -8981,7 +9000,19 @@ func (s *GatewayService) calculateTokenCost(
 		cost, err = s.billingService.CalculateCost(billingModel, tokens, multiplier)
 	}
 	if err != nil {
-		logger.LegacyPrintf("service.gateway", "Calculate cost failed: %v", err)
+		// TK (upstream Wei-Shaw/sub2api#1833 / #1544): surface pricing-missing as a
+		// structured, observable zero-cost record instead of a silent ActualCost:0
+		// leak — at parity with the OpenAI record-usage path. See
+		// logTokenCostPricingMissing.
+		logTokenCostPricingMissing(billingModel, apiKey, result, err)
+		if isUsagePricingUnavailableError(err) {
+			return &CostBreakdown{BillingMode: string(BillingModeToken)}
+		}
+		// Non-pricing-missing errors deliberately retain upstream gateway's
+		// "swallow and record zero" semantics (the OpenAI record-usage path
+		// instead propagates such errors). We keep the legacy behavior here to
+		// avoid failing usage recording on unexpected cost-calc errors; only the
+		// pricing-missing case above is upgraded to an observable marked record.
 		return &CostBreakdown{ActualCost: 0}
 	}
 	return cost

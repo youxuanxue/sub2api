@@ -378,6 +378,13 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
 		return nil, nil
 	}
+	// TK (upstream#1934): symmetric with tryStickySessionHit — invalidate sticky
+	// bindings whose bound account has drifted out of this group (group switch /
+	// removed from group). See openaiStickyAccountStillInGroup.
+	if req.GroupID != nil && !openaiStickyAccountStillInGroup(account, *req.GroupID) {
+		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
+		return nil, nil
+	}
 	// P0-1: 与 tryStickySessionHit 对称——upstream 渠道限制（BillingModelSourceUpstream）
 	// 必须在 sticky HIT 后再校验一次；否则上游已对该模型限流的 sticky-bound 账号
 	// 仍会持续被命中。
