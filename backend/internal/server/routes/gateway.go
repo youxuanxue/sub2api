@@ -100,7 +100,6 @@ func RegisterGatewayRoutes(
 		codexDirect.GET("/responses", h.OpenAIGateway.ResponsesWebSocket)
 	}
 
-
 	// Antigravity 模型列表
 	r.GET("/antigravity/models", bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.Gateway.AntigravityModels)
 
