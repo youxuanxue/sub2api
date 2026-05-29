@@ -16,7 +16,7 @@ Parameters:
     Description: GitHub <owner>/<repo> allowed to assume the role.
   AllowedSubjects:
     Type: CommaDelimitedList
-    Default: "repo:youxuanxue/sub2api:ref:refs/heads/main,repo:youxuanxue/sub2api:environment:prod,repo:youxuanxue/sub2api:environment:edge-uk1,repo:youxuanxue/sub2api:environment:edge-fra1,repo:youxuanxue/sub2api:environment:edge-us1,repo:youxuanxue/sub2api:environment:edge-us2,repo:youxuanxue/sub2api:environment:edge-us3,repo:youxuanxue/sub2api:environment:edge-us4"
+    Default: "repo:youxuanxue/sub2api:ref:refs/heads/main,repo:youxuanxue/sub2api:environment:prod,repo:youxuanxue/sub2api:environment:edge-uk1,repo:youxuanxue/sub2api:environment:edge-fra1,repo:youxuanxue/sub2api:environment:edge-us1,repo:youxuanxue/sub2api:environment:edge-us2,repo:youxuanxue/sub2api:environment:edge-us3,repo:youxuanxue/sub2api:environment:edge-us4,repo:youxuanxue/sub2api:environment:edge-us5"
     Description: >-
       Full OIDC sub claims (StringLike patterns) allowed to assume the role.
       Default allows main (for ops-daily-diagnostics.yml),
