@@ -42,7 +42,6 @@
     <form
       v-if="step === 1"
       id="create-account-form"
-      novalidate
       @submit.prevent="handleSubmit"
       class="space-y-5"
     >
@@ -148,50 +147,7 @@
             <Icon name="cloud" size="sm" />
             Antigravity
           </button>
-          <!--
-            5th platform: New API (US-017, prototype). Picks up styling from
-            CREATE_ACCOUNT_PLATFORM_SEGMENT_ACTIVE (cyan) so it stays consistent
-            with the gatewayPlatforms.ts constant (single source of truth per CLAUDE.md §5).
-          -->
-          <button
-            type="button"
-            @click="form.platform = 'newapi'"
-            :class="[
-              'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
-              form.platform === 'newapi'
-                ? 'bg-white text-cyan-600 shadow-sm dark:bg-dark-600 dark:text-cyan-400'
-                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
-            ]"
-          >
-            <Icon name="server" size="sm" />
-            {{ PLATFORM_LABELS.newapi }}
-          </button>
         </div>
-      </div>
-
-      <!-- newapi: channel fields directly under platform picker (avoid scrolling past other platforms). -->
-      <div v-if="form.platform === 'newapi'" class="space-y-4">
-        <AccountNewApiPlatformFields
-          v-model:channelType="newapiChannelType"
-          v-model:baseUrl="newapiBaseUrl"
-          v-model:apiKey="newapiApiKey"
-          v-model:modelMapping="newapiModelMapping"
-          v-model:statusCodeMapping="newapiStatusCodeMapping"
-          v-model:openaiOrganization="newapiOpenAIOrganization"
-          v-model:allowedModels="newapiAllowedModels"
-          v-model:pricingStatusByModel="newapiUpstreamModelPricingStatus"
-          v-model:modelMappings="newapiModelMappings"
-          v-model:restrictionMode="newapiRestrictionMode"
-          :channel-type-options="newapiChannelTypeOptions"
-          :channel-types-loading="newapiChannelTypesLoading"
-          :channel-types-error="newapiChannelTypesError"
-          :selected-channel-type-base-url="newapiSelectedBaseUrl"
-          :fetch-models-enabled="newapiFetchModelsEnabled"
-          :fetch-models-disabled="newapiFetchModelsDisabled"
-          :fetch-models-loading="newapiFetchModelsLoading"
-          variant="create"
-          @fetch-models="newapiHandleFetchUpstreamModels"
-        />
       </div>
 
       <!-- Account Type Selection (Anthropic) -->
@@ -1052,14 +1008,8 @@
         </div>
       </div>
 
-      <!--
-        API Key input (only for apikey type, excluding Antigravity which has its own fields).
-        For newapi, base_url + api_key + models live inside AccountNewApiPlatformFields above.
-        Without this short-circuit, switching from OpenAI/Key → NewAPI would render TWO
-        base_url and TWO api_key inputs (the lower one with a misleading anthropic placeholder),
-        only one of which is actually submitted.
-      -->
-      <div v-if="form.type === 'apikey' && form.platform !== 'antigravity' && form.platform !== 'newapi'" class="space-y-4">
+      <!-- API Key input (only for apikey type, excluding Antigravity which has its own fields) -->
+      <div v-if="form.type === 'apikey' && form.platform !== 'antigravity'" class="space-y-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
@@ -2685,6 +2635,32 @@
             />
           </button>
         </div>
+        <div
+          v-if="codexCLIOnlyEnabled"
+          class="mt-4 flex items-center justify-between border-l-2 border-gray-200 pl-4 dark:border-dark-600"
+        >
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.openai.codexCLIOnlyAllowClaudeCode') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openai.codexCLIOnlyAllowClaudeCodeDesc') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            @click="codexCLIOnlyAllowClaudeCodeEnabled = !codexCLIOnlyAllowClaudeCodeEnabled"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              codexCLIOnlyAllowClaudeCodeEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                codexCLIOnlyAllowClaudeCodeEnabled ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
       </div>
 
       <!-- OpenAI Compact 能力配置 -->
@@ -2703,44 +2679,6 @@
             <Select v-model="openAICompactMode" :options="openAICompactModeOptions" />
           </div>
         </div>
-        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
-          <div class="flex items-center justify-between">
-            <div>
-              <label class="input-label mb-0">{{ t('admin.accounts.openai.messagesCompactionEnabled') }}</label>
-              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {{ t('admin.accounts.openai.messagesCompactionEnabledDesc') }}
-              </p>
-            </div>
-            <button
-              type="button"
-              @click="openAIMessagesCompactionEnabled = !openAIMessagesCompactionEnabled"
-              :class="[
-                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                openAIMessagesCompactionEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-              ]"
-            >
-              <span
-                :class="[
-                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                  openAIMessagesCompactionEnabled ? 'translate-x-5' : 'translate-x-0'
-                ]"
-              />
-            </button>
-          </div>
-          <div v-if="openAIMessagesCompactionEnabled" class="mt-3">
-            <label class="input-label">{{ t('admin.accounts.openai.messagesCompactionThreshold') }}</label>
-            <input
-              v-model.number="openAIMessagesCompactionInputTokensThreshold"
-              type="number"
-              min="1"
-              step="1"
-              class="input"
-              :placeholder="t('admin.accounts.openai.messagesCompactionThresholdPlaceholder')"
-            />
-            <p class="input-hint">{{ t('admin.accounts.openai.messagesCompactionThresholdHint') }}</p>
-          </div>
-        </div>
-
         <div>
           <label class="input-label">{{ t('admin.accounts.openai.compactModelMapping') }}</label>
           <p class="input-hint">{{ t('admin.accounts.openai.compactModelMappingDesc') }}</p>
@@ -2767,7 +2705,7 @@
       <!-- OpenAI APIKey Responses API support mode -->
       <div
         v-if="form.platform === 'openai' && accountCategory === 'apikey'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between gap-4">
           <div>
@@ -2780,9 +2718,37 @@
             <Select
               v-model="openAIResponsesMode"
               :options="openAIResponsesModeOptions"
+              :disabled="!openAITextGenerationCapabilityEnabled"
               data-testid="openai-responses-mode-select"
             />
           </div>
+        </div>
+        <p
+          v-if="!openAITextGenerationCapabilityEnabled"
+          class="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
+          data-testid="openai-responses-mode-not-applicable"
+        >
+          {{ t('admin.accounts.openai.responsesModeTextDisabledHint') }}
+        </p>
+        <div>
+          <label class="input-label mb-2 block">{{ t('admin.accounts.openai.endpointCapabilities') }}</label>
+          <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <label
+              v-for="option in openAIEndpointCapabilityOptions"
+              :key="option.value"
+              class="flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-dark-600"
+            >
+              <input
+                type="checkbox"
+                class="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500"
+                :data-testid="`openai-endpoint-capability-${option.value}`"
+                :checked="openAIEndpointCapabilities.includes(option.value)"
+                @change="toggleOpenAIEndpointCapability(option.value, $event)"
+              />
+              <span class="text-gray-700 dark:text-gray-200">{{ option.label }}</span>
+            </label>
+          </div>
+          <p class="input-hint">{{ t('admin.accounts.openai.endpointCapabilitiesDesc') }}</p>
         </div>
       </div>
 
@@ -3260,7 +3226,8 @@ import type {
   CreateAccountRequest,
   CodexSessionImportMessage,
   OpenAICompactMode,
-  OpenAIResponsesMode
+  OpenAIResponsesMode,
+  OpenAIEndpointCapability
 } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -3284,9 +3251,6 @@ import {
   type OpenAIWSMode
 } from '@/utils/openaiWsMode'
 import OAuthAuthorizationFlow from './OAuthAuthorizationFlow.vue'
-import AccountNewApiPlatformFields from './AccountNewApiPlatformFields.vue'
-import { useTkAccountNewApiPlatform } from '@/composables/useTkAccountNewApiPlatform'
-import { PLATFORM_LABELS } from '@/composables/usePlatformOptions'
 
 // Type for exposed OAuthAuthorizationFlow component
 // Note: defineExpose automatically unwraps refs, so we use the unwrapped types
@@ -3440,12 +3404,12 @@ const interceptWarmupRequests = ref(false)
 const autoPauseOnExpired = ref(true)
 const openaiPassthroughEnabled = ref(false)
 const openAICompactMode = ref<OpenAICompactMode>('auto')
-const openAIMessagesCompactionEnabled = ref(false)
-const openAIMessagesCompactionInputTokensThreshold = ref<number | null>(null)
 const openAIResponsesMode = ref<OpenAIResponsesMode>('auto')
+const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>(['chat_completions', 'embeddings'])
 const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const codexCLIOnlyEnabled = ref(false)
+const codexCLIOnlyAllowClaudeCodeEnabled = ref(false)
 const anthropicPassthroughEnabled = ref(false)
 const webSearchEmulationMode = ref('default')
 const webSearchGlobalEnabled = ref(false)
@@ -3487,35 +3451,6 @@ const vertexProjectId = ref('')
 const vertexClientEmail = ref('')
 const vertexLocation = ref('global')
 const vertexServiceAccountDragActive = ref(false)
-
-// 第五平台 newapi 的全部表单状态 + 副作用（catalog / fetch / 校验 / 提交拼装）
-// 都收口在 composable，让本上游大文件保持「模板 + wiring」形态。
-const {
-  channelType: newapiChannelType,
-  baseUrl: newapiBaseUrl,
-  apiKey: newapiApiKey,
-  modelMapping: newapiModelMapping,
-  statusCodeMapping: newapiStatusCodeMapping,
-  openaiOrganization: newapiOpenAIOrganization,
-  allowedModels: newapiAllowedModels,
-  upstreamModelPricingStatus: newapiUpstreamModelPricingStatus,
-  modelMappings: newapiModelMappings,
-  restrictionMode: newapiRestrictionMode,
-  channelTypeOptions: newapiChannelTypeOptions,
-  channelTypesLoading: newapiChannelTypesLoading,
-  channelTypesError: newapiChannelTypesError,
-  selectedChannelTypeBaseUrl: newapiSelectedBaseUrl,
-  fetchModelsEnabled: newapiFetchModelsEnabled,
-  fetchModelsDisabled: newapiFetchModelsDisabled,
-  fetchModelsLoading: newapiFetchModelsLoading,
-  bootstrap: newapiBootstrap,
-  reset: newapiReset,
-  buildSubmitBundle: newapiBuildSubmitBundle,
-  handleFetchUpstreamModels: newapiHandleFetchUpstreamModels,
-} = useTkAccountNewApiPlatform({
-  isNewapi: () => form.platform === 'newapi',
-})
-
 const tempUnschedEnabled = ref(false)
 const tempUnschedRules = ref<TempUnschedRuleForm[]>([])
 const getModelMappingKey = createStableObjectKeyResolver<ModelMapping>('create-model-mapping')
@@ -3534,6 +3469,58 @@ const openAIResponsesModeOptions = computed(() => [
   { value: 'force_responses', label: t('admin.accounts.openai.responsesModeForceResponses') },
   { value: 'force_chat_completions', label: t('admin.accounts.openai.responsesModeForceChatCompletions') }
 ])
+const openAITextEndpointCapabilityLabel = computed(() => {
+  if (openAIResponsesMode.value === 'force_responses') {
+    return t('admin.accounts.openai.capabilityResponses')
+  }
+  if (openAIResponsesMode.value === 'force_chat_completions') {
+    return t('admin.accounts.openai.capabilityChatCompletions')
+  }
+  return t('admin.accounts.openai.capabilityTextAuto')
+})
+const openAIEndpointCapabilityOptions = computed<{ value: OpenAIEndpointCapability; label: string }[]>(() => [
+  { value: 'chat_completions', label: openAITextEndpointCapabilityLabel.value },
+  { value: 'embeddings', label: t('admin.accounts.openai.capabilityEmbeddings') }
+])
+const openAITextGenerationCapabilityEnabled = computed(() =>
+  openAIEndpointCapabilities.value.includes('chat_completions')
+)
+
+const normalizeOpenAIEndpointCapabilities = (values: OpenAIEndpointCapability[]) => {
+  const allowed: OpenAIEndpointCapability[] = ['chat_completions', 'embeddings']
+  const selected = allowed.filter((value) => values.includes(value))
+  return selected.length > 0 ? selected : allowed
+}
+
+const toggleOpenAIEndpointCapability = (capability: OpenAIEndpointCapability, event?: Event) => {
+  if (openAIEndpointCapabilities.value.includes(capability)) {
+    if (openAIEndpointCapabilities.value.length <= 1) {
+      const input = event?.target as HTMLInputElement | null
+      if (input) input.checked = true
+      return
+    }
+    openAIEndpointCapabilities.value = openAIEndpointCapabilities.value.filter(
+      (value) => value !== capability
+    )
+    if (!openAITextGenerationCapabilityEnabled.value) {
+      openAIResponsesMode.value = 'auto'
+    }
+    return
+  }
+  openAIEndpointCapabilities.value = normalizeOpenAIEndpointCapabilities([
+    ...openAIEndpointCapabilities.value,
+    capability
+  ])
+}
+
+const applyOpenAIEndpointCapabilities = (credentials: Record<string, unknown>) => {
+  const capabilities = normalizeOpenAIEndpointCapabilities(openAIEndpointCapabilities.value)
+  if (capabilities.length === 2) {
+    delete credentials.openai_capabilities
+    return
+  }
+  credentials.openai_capabilities = capabilities
+}
 
 function buildAntigravityExtra(): Record<string, unknown> | undefined {
   const extra: Record<string, unknown> = {}
@@ -3544,29 +3531,6 @@ function buildAntigravityExtra(): Record<string, unknown> | undefined {
 
 const buildOpenAICompactModelMapping = () =>
   buildModelMappingObject('mapping', [], openAICompactModelMappings.value)
-
-const normalizeOpenAIMessagesCompactionThreshold = (): number | null => {
-  const value = openAIMessagesCompactionInputTokensThreshold.value
-  if (value === null || value === undefined || value === 0 || Number.isNaN(value)) {
-    return null
-  }
-  const normalized = Math.trunc(Number(value))
-  return normalized >= 1 ? normalized : null
-}
-
-const validateOpenAIMessagesCompactionForm = (): boolean => {
-  if (form.platform !== 'openai') {
-    return true
-  }
-  if (!openAIMessagesCompactionEnabled.value) {
-    return true
-  }
-  if (normalizeOpenAIMessagesCompactionThreshold() === null) {
-    appStore.showError(t('admin.accounts.openai.messagesCompactionThresholdRequired'))
-    return false
-  }
-  return true
-}
 
 const showMixedChannelWarning = ref(false)
 const mixedChannelWarningDetails = ref<{ groupName: string; currentPlatform: string; otherPlatform: string } | null>(
@@ -3731,10 +3695,6 @@ const isOAuthFlow = computed(() => {
   if (form.platform === 'anthropic' && accountCategory.value === 'bedrock') {
     return false
   }
-  // newapi (5th platform) is API-key only — no OAuth flow.
-  if (form.platform === 'newapi') {
-    return false
-  }
   return accountCategory.value === 'oauth-based'
 })
 
@@ -3774,8 +3734,6 @@ watch(
         .catch(() => { tlsFingerprintProfiles.value = [] })
       // Modal opened - fill related models
       allowedModels.value = [...getModelsByPlatform(form.platform)]
-      // 第五平台 newapi：触发一次（已缓存）的 channel-type catalog 加载
-      newapiBootstrap()
       // Antigravity: 默认使用映射模式并填充默认映射
       if (form.platform === 'antigravity') {
         antigravityModelRestrictionMode.value = 'mapping'
@@ -3842,18 +3800,6 @@ watch(
       antigravityWhitelistModels.value = []
       accountCategory.value = 'oauth-based'
       antigravityAccountType.value = 'oauth'
-    } else if (newPlatform === 'newapi') {
-      // D1: newapi 是 apikey-only，把 accountCategory 翻到 apikey 让 watcher A
-      // 把 form.type 同步成 'apikey'，与 submit 路径硬编码的 type:'apikey'
-      // 对齐；否则路径 1 (fresh open + 直接点 NewAPI) 会因 form.type='oauth'
-      // 隐藏掉模型区。
-      accountCategory.value = 'apikey'
-      allowOverages.value = false
-      antigravityWhitelistModels.value = []
-      antigravityModelMappings.value = []
-      antigravityModelRestrictionMode.value = 'mapping'
-      // newapi 自身的字段重置由 composable.reset() 在 resetForm 中负责，
-      // 平台切换不清除已填字段（避免误触切换造成数据丢失）。
     } else {
       allowOverages.value = false
       antigravityWhitelistModels.value = []
@@ -3884,11 +3830,11 @@ watch(
     }
     if (newPlatform !== 'openai') {
       openaiPassthroughEnabled.value = false
-      openAIMessagesCompactionEnabled.value = false
-      openAIMessagesCompactionInputTokensThreshold.value = null
+      openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
       openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
       openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
       codexCLIOnlyEnabled.value = false
+      codexCLIOnlyAllowClaudeCodeEnabled.value = false
     }
     if (newPlatform !== 'anthropic') {
       anthropicPassthroughEnabled.value = false
@@ -3909,6 +3855,7 @@ watch(
   ([category, platform]) => {
     if (platform === 'openai' && category !== 'oauth-based') {
       codexCLIOnlyEnabled.value = false
+      codexCLIOnlyAllowClaudeCodeEnabled.value = false
     }
     if (platform !== 'anthropic' || category !== 'apikey') {
       anthropicPassthroughEnabled.value = false
@@ -4284,12 +4231,12 @@ const resetForm = () => {
   autoPauseOnExpired.value = true
   openaiPassthroughEnabled.value = false
   openAICompactMode.value = 'auto'
-  openAIMessagesCompactionEnabled.value = false
-  openAIMessagesCompactionInputTokensThreshold.value = null
   openAIResponsesMode.value = 'auto'
+  openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
   openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   codexCLIOnlyEnabled.value = false
+  codexCLIOnlyAllowClaudeCodeEnabled.value = false
   anthropicPassthroughEnabled.value = false
   webSearchEmulationMode.value = 'default'
   // Reset quota control state
@@ -4315,8 +4262,10 @@ const resetForm = () => {
   antigravityAccountType.value = 'oauth'
   upstreamBaseUrl.value = ''
   upstreamApiKey.value = ''
-  // 第五平台 newapi 字段重置由 composable 统一管理
-  newapiReset()
+  vertexServiceAccountJson.value = ''
+  vertexProjectId.value = ''
+  vertexClientEmail.value = ''
+  vertexLocation.value = 'global'
   tempUnschedEnabled.value = false
   tempUnschedRules.value = []
   geminiOAuthType.value = 'code_assist'
@@ -4366,23 +4315,26 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
   } else {
     delete extra.codex_cli_only
   }
+  if (
+    accountCategory.value === 'oauth-based' &&
+    codexCLIOnlyEnabled.value &&
+    codexCLIOnlyAllowClaudeCodeEnabled.value
+  ) {
+    extra.codex_cli_only_allowed_clients = ['claude_code']
+  } else {
+    delete extra.codex_cli_only_allowed_clients
+  }
   if (openAICompactMode.value !== 'auto') {
     extra.openai_compact_mode = openAICompactMode.value
   } else {
     delete extra.openai_compact_mode
   }
-  if (openAIMessagesCompactionEnabled.value) {
-    const threshold = normalizeOpenAIMessagesCompactionThreshold()
-    if (threshold !== null) {
-      extra.messages_compaction_enabled = true
-      extra.messages_compaction_input_tokens_threshold = threshold
-    }
-  } else {
-    delete extra.messages_compaction_enabled
-    delete extra.messages_compaction_input_tokens_threshold
-  }
 
-  if (accountCategory.value === 'apikey' && openAIResponsesMode.value !== 'auto') {
+  if (
+    accountCategory.value === 'apikey' &&
+    openAITextGenerationCapabilityEnabled.value &&
+    openAIResponsesMode.value !== 'auto'
+  ) {
     extra.openai_responses_mode = openAIResponsesMode.value
   } else {
     delete extra.openai_responses_mode
@@ -4408,33 +4360,6 @@ const buildAnthropicExtra = (base?: Record<string, unknown>): Record<string, unk
     extra.web_search_emulation = webSearchEmulationMode.value
   }
 
-  return Object.keys(extra).length > 0 ? extra : undefined
-}
-
-const buildAPIKeyOrBedrockExtra = (base?: Record<string, unknown>): Record<string, unknown> | undefined => {
-  const extra: Record<string, unknown> = { ...(base || {}) }
-  if (editQuotaLimit.value != null && editQuotaLimit.value > 0) {
-    extra.quota_limit = editQuotaLimit.value
-  }
-  if (editQuotaDailyLimit.value != null && editQuotaDailyLimit.value > 0) {
-    extra.quota_daily_limit = editQuotaDailyLimit.value
-  }
-  if (editQuotaWeeklyLimit.value != null && editQuotaWeeklyLimit.value > 0) {
-    extra.quota_weekly_limit = editQuotaWeeklyLimit.value
-  }
-  if (editDailyResetMode.value === 'fixed') {
-    extra.quota_daily_reset_mode = 'fixed'
-    extra.quota_daily_reset_hour = editDailyResetHour.value ?? 0
-  }
-  if (editWeeklyResetMode.value === 'fixed') {
-    extra.quota_weekly_reset_mode = 'fixed'
-    extra.quota_weekly_reset_day = editWeeklyResetDay.value ?? 1
-    extra.quota_weekly_reset_hour = editWeeklyResetHour.value ?? 0
-  }
-  if (editDailyResetMode.value === 'fixed' || editWeeklyResetMode.value === 'fixed') {
-    extra.quota_reset_timezone = editResetTimezone.value || 'UTC'
-  }
-  writeQuotaNotifyToExtra(extra, 'create')
   return Object.keys(extra).length > 0 ? extra : undefined
 }
 
@@ -4536,9 +4461,6 @@ const handleSubmit = async () => {
       appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
       return
     }
-    if (!validateOpenAIMessagesCompactionForm()) {
-      return
-    }
     const canContinue = await ensureAntigravityMixedChannelConfirmed(async () => {
       step.value = 2
     })
@@ -4546,10 +4468,6 @@ const handleSubmit = async () => {
       return
     }
     step.value = 2
-    return
-  }
-
-  if (!validateOpenAIMessagesCompactionForm()) {
     return
   }
 
@@ -4612,35 +4530,6 @@ const handleSubmit = async () => {
     applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
 
     await createAccountAndFinish('anthropic', 'bedrock' as AccountType, credentials)
-    return
-  }
-
-  // 第五平台 newapi：直接走 apikey 路径，channel_type 上浮到顶层（admin_service
-  // 强制 > 0）；表单校验 + credentials 拼装 + JSON 校验都委托给 composable。
-  if (form.platform === 'newapi') {
-    if (!form.name.trim()) {
-      appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
-      return
-    }
-    const bundle = newapiBuildSubmitBundle('create')
-    if (!bundle) return
-    await doCreateAccount({
-      name: form.name,
-      notes: form.notes,
-      platform: 'newapi',
-      type: 'apikey',
-      channel_type: bundle.channelType,
-      credentials: bundle.credentials,
-      extra: buildAPIKeyOrBedrockExtra(),
-      proxy_id: form.proxy_id,
-      concurrency: form.concurrency,
-      load_factor: form.load_factor ?? undefined,
-      priority: form.priority,
-      rate_multiplier: form.rate_multiplier,
-      group_ids: form.group_ids,
-      expires_at: form.expires_at,
-      auto_pause_on_expired: autoPauseOnExpired.value
-    })
     return
   }
 
@@ -4736,6 +4625,7 @@ const handleSubmit = async () => {
     }
   }
   if (form.platform === 'openai') {
+    applyOpenAIEndpointCapabilities(credentials)
     const compactModelMapping = buildOpenAICompactModelMapping()
     if (compactModelMapping) {
       credentials.compact_model_mapping = compactModelMapping
@@ -4826,10 +4716,41 @@ const createAccountAndFinish = async (
     return
   }
   // Inject quota limits for apikey/bedrock accounts
-  const finalExtra = (type === 'apikey' || type === 'bedrock')
-    ? buildAPIKeyOrBedrockExtra(extra)
-    : extra
+  let finalExtra = extra
+  if (type === 'apikey' || type === 'bedrock') {
+    const quotaExtra: Record<string, unknown> = { ...(extra || {}) }
+    if (editQuotaLimit.value != null && editQuotaLimit.value > 0) {
+      quotaExtra.quota_limit = editQuotaLimit.value
+    }
+    if (editQuotaDailyLimit.value != null && editQuotaDailyLimit.value > 0) {
+      quotaExtra.quota_daily_limit = editQuotaDailyLimit.value
+    }
+    if (editQuotaWeeklyLimit.value != null && editQuotaWeeklyLimit.value > 0) {
+      quotaExtra.quota_weekly_limit = editQuotaWeeklyLimit.value
+    }
+    // Quota reset mode config
+    if (editDailyResetMode.value === 'fixed') {
+      quotaExtra.quota_daily_reset_mode = 'fixed'
+      quotaExtra.quota_daily_reset_hour = editDailyResetHour.value ?? 0
+    }
+    if (editWeeklyResetMode.value === 'fixed') {
+      quotaExtra.quota_weekly_reset_mode = 'fixed'
+      quotaExtra.quota_weekly_reset_day = editWeeklyResetDay.value ?? 1
+      quotaExtra.quota_weekly_reset_hour = editWeeklyResetHour.value ?? 0
+    }
+    if (editDailyResetMode.value === 'fixed' || editWeeklyResetMode.value === 'fixed') {
+      quotaExtra.quota_reset_timezone = editResetTimezone.value || 'UTC'
+    }
+    // Quota notify config
+    writeQuotaNotifyToExtra(quotaExtra, 'create')
+    if (Object.keys(quotaExtra).length > 0) {
+      finalExtra = quotaExtra
+    }
+  }
   if (platform === 'openai') {
+    if (type === 'apikey') {
+      applyOpenAIEndpointCapabilities(credentials)
+    }
     const compactModelMapping = buildOpenAICompactModelMapping()
     if (compactModelMapping) {
       credentials.compact_model_mapping = compactModelMapping

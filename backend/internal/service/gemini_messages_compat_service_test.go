@@ -780,18 +780,6 @@ func TestParseGeminiRateLimitResetTime(t *testing.T) {
 			wantNil: true,
 		},
 		{
-			name:        "RetryInfo.retryDelay 结构化解析",
-			input:       `{"error":{"details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"30s"}]}}`,
-			wantNil:     false,
-			approxDelta: 30,
-		},
-		{
-			name:        "metadata.retryDelay 结构化解析",
-			input:       `{"error":{"details":[{"metadata":{"retryDelay":"9.4s"}}]}}`,
-			wantNil:     false,
-			approxDelta: 10,
-		},
-		{
 			name:        "regex 回退匹配",
 			input:       `Please retry in 30s`,
 			wantNil:     false,
@@ -845,67 +833,107 @@ func TestParseGeminiRateLimitResetTime(t *testing.T) {
 	}
 }
 
-func TestShouldDropGeminiInternalText(t *testing.T) {
-	require.True(t, shouldDropGeminiInternalText(`{"signature":"abc","type":"thinking"}`))
-	require.True(t, shouldDropGeminiInternalText(` {"type":"thinking","signature":"x","thinking":"..."} `))
-	require.False(t, shouldDropGeminiInternalText(`{"type":"text","signature":"abc"}`))
-	require.False(t, shouldDropGeminiInternalText(`{"type":"thinking"}`)) // no signature → not filtered
-	require.False(t, shouldDropGeminiInternalText("normal visible text"))
-	require.False(t, shouldDropGeminiInternalText(""))
-}
+// TestGeminiMessagesHandleStreamingResponse_ClosesToolBlockBeforeText guards the
+// tool→text ordering in the Gemini→Anthropic (messages) streaming bridge. When
+// Gemini emits a functionCall part followed by a text part, the tool_use content
+// block must be closed before the text block opens; otherwise the Anthropic SSE
+// stream contains overlapping content blocks. The chat-completions sibling
+// already enforces this via closeOpenTool().
+func TestGeminiMessagesHandleStreamingResponse_ClosesToolBlockBeforeText(t *testing.T) {
+	gin.SetMode(gin.TestMode)
 
-func TestConvertClaudeMessagesToGeminiContents_DropsThinkingBlocks(t *testing.T) {
-	messages := []any{
-		map[string]any{
-			"role": "assistant",
-			"content": []any{
-				map[string]any{"type": "thinking", "thinking": "internal chain", "signature": "abc"},
-				map[string]any{"type": "text", "text": "visible answer"},
-			},
-		},
+	upstreamBody := `data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"get_weather","args":{"city":"SF"}}}]}}]}` + "\n\n" +
+		`data: {"candidates":[{"content":{"parts":[{"text":"All done."}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":3}}` + "\n\n" +
+		"data: [DONE]\n\n"
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
 	}
-	toolUseIDToName := map[string]string{}
-	parts, err := convertClaudeMessagesToGeminiContents(messages, toolUseIDToName)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	svc := &GeminiMessagesCompatService{}
+	result, err := svc.handleStreamingResponse(c, resp, time.Now(), "claude-3-5-sonnet")
 	require.NoError(t, err)
-	require.Len(t, parts, 1)
+	require.NotNil(t, result)
 
-	gParts, ok := parts[0].(map[string]any)["parts"].([]any)
-	require.True(t, ok)
-	// Only the text block survives; thinking block is dropped.
-	require.Len(t, gParts, 1)
-	txt, _ := gParts[0].(map[string]any)["text"].(string)
-	require.Equal(t, "visible answer", txt)
-}
+	events := parseAnthropicContentBlockEvents(t, rec.Body.String())
 
-func TestConvertGeminiToClaudeMessage_FiltersInternalThinkingAndNormalizesToolArgs(t *testing.T) {
-	geminiResp := map[string]any{
-		"candidates": []any{map[string]any{
-			"finishReason": "STOP",
-			"content": map[string]any{
-				"parts": []any{
-					map[string]any{"text": `{"signature":"abc","type":"thinking"}`},
-					map[string]any{"text": "visible answer"},
-					map[string]any{"functionCall": map[string]any{"name": "Read", "args": "not-json"}},
-				},
-			},
-		}},
+	// Anthropic allows at most one content block open at a time: every
+	// content_block_start must be matched by a content_block_stop before the
+	// next start. Replay the lifecycle and assert there is no overlap.
+	open := -1
+	blockTypes := map[int]string{}
+	textStarted := false
+	toolClosed := false
+	toolClosedBeforeText := false
+	for _, ev := range events {
+		switch ev.event {
+		case "content_block_start":
+			require.Equalf(t, -1, open,
+				"content block %d opened while block %d was still open (overlapping blocks)", ev.index, open)
+			open = ev.index
+			blockTypes[ev.index] = ev.blockType
+			if ev.blockType == "text" {
+				textStarted = true
+				if toolClosed {
+					toolClosedBeforeText = true
+				}
+			}
+		case "content_block_stop":
+			require.Equalf(t, open, ev.index,
+				"content_block_stop index %d does not match the open block %d", ev.index, open)
+			if blockTypes[ev.index] == "tool_use" {
+				toolClosed = true
+			}
+			open = -1
+		}
 	}
 
-	resp, usage := convertGeminiToClaudeMessage(geminiResp, "claude-sonnet-4-6", []byte(`{"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":1}}`))
-	require.NotNil(t, usage)
-	content, ok := resp["content"].([]any)
-	require.True(t, ok)
-	require.Len(t, content, 2)
+	require.True(t, textStarted, "expected a text content block to be emitted after the tool call")
+	require.True(t, toolClosedBeforeText, "tool_use block must be closed before the text block starts")
+	require.Equal(t, -1, open, "stream ended with a content block still open")
+}
 
-	textBlock, ok := content[0].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "text", textBlock["type"])
-	require.Equal(t, "visible answer", textBlock["text"])
+type anthropicContentBlockEvent struct {
+	event     string
+	index     int
+	blockType string
+}
 
-	toolBlock, ok := content[1].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "tool_use", toolBlock["type"])
-	input, ok := toolBlock["input"].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, 0, len(input))
+// parseAnthropicContentBlockEvents extracts content_block_start/stop events (with
+// their index and, for starts, the content block type) from an Anthropic SSE body.
+func parseAnthropicContentBlockEvents(t *testing.T, raw string) []anthropicContentBlockEvent {
+	t.Helper()
+	var events []anthropicContentBlockEvent
+	for _, chunk := range strings.Split(raw, "\n\n") {
+		var eventName, dataLine string
+		for _, line := range strings.Split(chunk, "\n") {
+			switch {
+			case strings.HasPrefix(line, "event:"):
+				eventName = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+			case strings.HasPrefix(line, "data:"):
+				dataLine = strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			}
+		}
+		if eventName != "content_block_start" && eventName != "content_block_stop" {
+			continue
+		}
+		var payload struct {
+			Index        int `json:"index"`
+			ContentBlock struct {
+				Type string `json:"type"`
+			} `json:"content_block"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(dataLine), &payload))
+		events = append(events, anthropicContentBlockEvent{
+			event:     eventName,
+			index:     payload.Index,
+			blockType: payload.ContentBlock.Type,
+		})
+	}
+	return events
 }
