@@ -399,6 +399,46 @@ needs input:
 需要更明确的 time_window 或 request_id；当前 24h 聚合无法区分多个用户/事件。
 ```
 
+## 8.5) 发版后核验：按改动集查日志信号（模板：upstream-issue-remediation / PR #455）
+
+发版滚动后，按「每个修复 → 一个固定日志 marker」核验是否生效、有无异常。Target 解析见 §1，SSM 执行见 §2；默认查 **prod main gateway**（这批默认开启项主要落在 Anthropic 主力路径），edge 同款换 target。机械化：marker 是固定串，直接 `grep -F` 计数，不拼 SQL、不靠记忆。
+
+```bash
+# 统一取一段窗口的 docker logs（6h 示例），多次 grep 复用
+docker logs tokenkey --since 6h > /tmp/tk.log 2>&1
+
+# #2608 客户端诱发 400 跳过账号惩罚（Anthropic 主力）。预期：与畸形请求量相当；
+#        且不应再出现「健康账号被 invalid_request 400 冷却」。
+grep -Fc 'anthropic_client_induced_400_skip_penalty' /tmp/tk.log
+
+# #1833/#1544 无定价模型零计费告警。它会“暴露”当前正在免费跑的模型——
+#        据此配渠道定价才是真正止血（本修复只让泄漏可见，不改扣费金额）。
+grep -F 'gateway_usage.pricing_missing_record_zero_cost' /tmp/tk.log \
+  | grep -oE '"billing_model":"[^"]*"' | sort | uniq -c | sort -rn
+grep -Fc 'gateway_usage.cost_calculation_failed_record_zero_cost' /tmp/tk.log   # 非 pricing-missing 计算失败，应≈0
+
+# #2727 隐式限流跨请求 bench（opt-in；默认关 → 应为 0，除非已设 >0）
+grep -Fc 'openai_implicit_throttle_cooldown_applied' /tmp/tk.log
+grep -Fc 'openai_implicit_throttle_cooldown_failed'  /tmp/tk.log    # SetTempUnschedulable 失败，应为 0
+
+# #1981 限流 reset 钳制（opt-in；默认关 → 应为 0）。命中时确认被钳的原始 reset 确是超长窗口。
+grep -F 'openai_rate_limit_reset_clamped' /tmp/tk.log \
+  | grep -oE '"original_reset":"[^"]*"' | head
+```
+
+无独立 marker、需间接核验的两项：
+
+| 修复 | 为何无专用日志 | 间接核验 |
+|---|---|---|
+| **#1934** sticky 切组 | 复用既有 sticky 删除路径，无新行 | OpenAI/newapi sticky failover 率 / `decision.Layer` 分布有无异常上升（§5 parse-access-log by-minute）；预期几乎无变化（仅平台 openai/newapi，不碰 Anthropic） |
+| **#1946** 监控 thinking-block | 提取层改动，无新行 | Anthropic 渠道监控「测试失败」误报是否下降（渠道监控结果 / ops_error_logs 里 challenge mismatch 计数应降） |
+
+opt-in 开关确认（这批默认关，部署后未显式配置则应保持关）：
+
+- `#2727` `tk_openai_implicit_throttle_cooldown_seconds`、`#1981` `tk_openai_max_rate_limit_cooldown_seconds`：上面两组 marker 计数为 0 即证明仍默认关；要启用先设对应 SettingKey 再复查 marker 出现。
+
+> 按 §0「配置收敛≠线上稳定」：marker 计数只证明代码路径被走到，真实稳定仍需对照 final `status_code`、503 率、账号可调度数（§4 / §5 / §6）。本节 marker 串以 `backend/internal/service/*` 的 `slog`/`zap` 调用为 ground truth；改了日志文案需同步本节。
+
 ## 9) 常见失败与固定处理
 
 | 现象 | 常见原因 | 固定处理 |
