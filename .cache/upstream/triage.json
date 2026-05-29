@@ -638,7 +638,7 @@
       "upstream": "Wei-Shaw/sub2api#1493",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/1493",
       "title": "`/v1/responses` 流式正常，但非流式可能返回 `output=[]`",
-      "impact": "needs_review",
+      "impact": "fixed",
       "categories": [
         "rate_limit_cooldown",
         "billing_usage",
@@ -646,8 +646,8 @@
         "account_pool_health",
         "security"
       ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Manually verified during deep upstream-issue triage; fixed in TokenKey (see fixes.json).",
       "updated_at": "2026-04-07T15:16:26Z"
     },
     {
@@ -729,13 +729,13 @@
       "upstream": "Wei-Shaw/sub2api#1525",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/1525",
       "title": "opencode被claude识别为第三方客户端",
-      "impact": "needs_review",
+      "impact": "fixed",
       "categories": [
         "claude_mimicry",
         "billing_usage"
       ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Manually verified during deep upstream-issue triage; fixed in TokenKey (see fixes.json).",
       "updated_at": "2026-05-04T20:14:46Z"
     },
     {
@@ -793,12 +793,12 @@
       "upstream": "Wei-Shaw/sub2api#1544",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/1544",
       "title": "[BUG] 系统中出现未配置的模型,并且计费为 0.",
-      "impact": "needs_review",
+      "impact": "fixed",
       "categories": [
         "billing_usage"
       ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Manually verified during deep upstream-issue triage; fixed in TokenKey (see fixes.json).",
       "updated_at": "2026-04-10T09:09:16Z"
     },
     {
@@ -868,14 +868,14 @@
       "upstream": "Wei-Shaw/sub2api#1574",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/1574",
       "title": "更新到Sub2API 0.1.110后，仍然会触发第三方系统的问题，更新前的一个版本不会遇到这个问题，小请求（<2500 tokens）成功，大请求会被 Anthropic 拒绝",
-      "impact": "needs_review",
+      "impact": "fixed",
       "categories": [
         "claude_mimicry",
         "billing_usage",
         "security"
       ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Manually verified during deep upstream-issue triage; fixed in TokenKey (see fixes.json).",
       "updated_at": "2026-04-11T11:50:08Z"
     },
     {
@@ -971,12 +971,12 @@
       "upstream": "Wei-Shaw/sub2api#1651",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/1651",
       "title": "[Bug] v0.1.112 下 `/v1/chat/completions` 会把请求模型静默改写为 `gpt-5.4`（如 `gpt-5.4-mini -> gpt-5.4`）",
-      "impact": "needs_review",
+      "impact": "fixed",
       "categories": [
         "billing_usage"
       ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Manually verified during deep upstream-issue triage; fixed in TokenKey (see fixes.json).",
       "updated_at": "2026-04-24T14:22:37Z"
     },
     {
@@ -1094,14 +1094,14 @@
       "upstream": "Wei-Shaw/sub2api#1715",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/1715",
       "title": "请问应该如何配置claude code的oauth比较安全呢，我使用了一段时间配置了两次，两次都掉订阅被ban了，账号倒是没被ban，想知道如何应该合理的配置，我觉得我能理解的选项都选了，还是被ban了，还只是20刀的账户",
-      "impact": "needs_review",
+      "impact": "fixed",
       "categories": [
         "claude_mimicry",
         "image_oauth",
         "security"
       ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Manually verified during deep upstream-issue triage; fixed in TokenKey (see fixes.json).",
       "updated_at": "2026-04-22T09:09:07Z"
     },
     {
@@ -1274,12 +1274,12 @@
       "upstream": "Wei-Shaw/sub2api#1833",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/1833",
       "title": "不扣费",
-      "impact": "needs_review",
+      "impact": "fixed",
       "categories": [
         "billing_usage"
       ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Manually verified during deep upstream-issue triage; fixed in TokenKey (see fixes.json).",
       "updated_at": "2026-04-24T08:46:58Z"
     },
     {
@@ -1620,37 +1620,37 @@
       "upstream": "Wei-Shaw/sub2api#1934",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/1934",
       "title": "切组后旧 sticky session 没失效，导致一直调用已经被切出去的账号",
-      "impact": "needs_review",
+      "impact": "fixed",
       "categories": [
         "rate_limit_cooldown"
       ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Manually verified during deep upstream-issue triage; fixed in TokenKey (see fixes.json).",
       "updated_at": "2026-04-25T03:35:59Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#1941",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/1941",
       "title": "【BUG】如果用户填写的模型错误，就不会有计费发生，但是还是能正常使用。",
-      "impact": "needs_review",
+      "impact": "fixed",
       "categories": [
         "billing_usage"
       ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Manually verified during deep upstream-issue triage; fixed in TokenKey (see fixes.json).",
       "updated_at": "2026-04-25T05:54:39Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#1946",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/1946",
       "title": "【bug】anthropic监控渠道取值逻辑问题，text并不永远是content.0.text",
-      "impact": "needs_review",
+      "impact": "fixed",
       "categories": [
         "billing_usage",
         "security"
       ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Manually verified during deep upstream-issue triage; fixed in TokenKey (see fixes.json).",
       "updated_at": "2026-05-07T08:30:05Z"
     },
     {
@@ -1768,12 +1768,12 @@
       "upstream": "Wei-Shaw/sub2api#1981",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/1981",
       "title": "限流账号无主动探活，可用账号被长期闲置",
-      "impact": "needs_review",
+      "impact": "fixed",
       "categories": [
         "rate_limit_cooldown"
       ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Manually verified during deep upstream-issue triage; fixed in TokenKey (see fixes.json).",
       "updated_at": "2026-04-26T02:45:43Z"
     },
     {
@@ -1929,13 +1929,13 @@
       "upstream": "Wei-Shaw/sub2api#2013",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/2013",
       "title": "claude top level cache control not working",
-      "impact": "needs_review",
+      "impact": "fixed",
       "categories": [
         "image_oauth",
         "security"
       ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Manually verified during deep upstream-issue triage; fixed in TokenKey (see fixes.json).",
       "updated_at": "2026-04-27T01:47:00Z"
     },
     {
@@ -2823,14 +2823,14 @@
       "upstream": "Wei-Shaw/sub2api#2380",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/2380",
       "title": "Fix Claude Code thinking signature fallback for API key cross-channel routes",
-      "impact": "needs_review",
+      "impact": "fixed",
       "categories": [
         "claude_mimicry",
         "rate_limit_cooldown",
         "image_oauth"
       ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Manually verified during deep upstream-issue triage; fixed in TokenKey (see fixes.json).",
       "updated_at": "2026-05-11T17:13:46Z"
     },
     {
@@ -3157,12 +3157,12 @@
       "upstream": "Wei-Shaw/sub2api#2608",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/2608",
       "title": "严重bug能导致系统内订阅账号都用不了",
-      "impact": "needs_review",
+      "impact": "fixed",
       "categories": [
         "rate_limit_cooldown"
       ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Manually verified during deep upstream-issue triage; fixed in TokenKey (see fixes.json).",
       "updated_at": "2026-05-20T09:07:39Z"
     },
     {
@@ -3355,13 +3355,13 @@
       "upstream": "Wei-Shaw/sub2api#2727",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/2727",
       "title": "请求反复打到同一个已经限流的账户上去",
-      "impact": "needs_review",
+      "impact": "fixed",
       "categories": [
         "rate_limit_cooldown",
         "image_oauth"
       ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Manually verified during deep upstream-issue triage; fixed in TokenKey (see fixes.json).",
       "updated_at": "2026-05-26T10:36:34Z"
     },
     {

@@ -395,6 +395,106 @@
         "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go:TestRateLimitService_HandleUpstreamError_OpenAI403CloudflareChallengeSkipsCooldown",
         "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go:TestRateLimitService_HandleUpstreamError_OpenAI403RealAccountErrorStillCoolsDown"
       ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1934",
+      "severity": "medium",
+      "summary": "Sticky bindings are namespaced by (groupID, sessionHash) but resolved by global account ID; after an account is moved out of the group the stale binding kept routing the group's traffic at it. All three sticky fast paths now invalidate a binding whose bound account has known group membership excluding groupID (conservative: empty membership kept).",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service_tk_sticky_group.go",
+        "backend/internal/service/openai_gateway_service.go",
+        "backend/internal/service/openai_account_scheduler.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_gateway_service_tk_sticky_group.go:func openaiStickyAccountStillInGroup",
+        "backend/internal/service/openai_gateway_service.go:openaiStickyAccountStillInGroup(account, *groupID)",
+        "backend/internal/service/openai_account_scheduler.go:openaiStickyAccountStillInGroup(account, *req.GroupID)",
+        "backend/internal/service/openai_gateway_service_tk_sticky_group_test.go:TestUS1934_Sticky_GroupDrift_ClearsBinding_Legacy"
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1946",
+      "severity": "medium",
+      "summary": "Anthropic monitor challenge extraction no longer assumes content[0] is the text block; extractAnthropicText skips thinking/redacted_thinking blocks and aggregates text, so a healthy account with extended thinking is not misjudged as a challenge mismatch and kicked out of the pool.",
+      "fixed_by": [
+        "backend/internal/service/channel_monitor_checker.go",
+        "backend/internal/service/channel_monitor_checker.go",
+        "backend/internal/service/channel_monitor_checker_tk_anthropic_text_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/channel_monitor_checker.go:func extractAnthropicText",
+        "backend/internal/service/channel_monitor_checker.go:return extractAnthropicText(respBytes), string(respBytes), status, nil",
+        "backend/internal/service/channel_monitor_checker_tk_anthropic_text_test.go:thinking block before text block"
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2013",
+      "severity": "medium",
+      "summary": "enforceCacheControlLimit now counts a non-standard top-level cache_control toward the 4-block limit and trims it first, fixing Anthropic 400 'max 4 blocks, Found 5' when a client sends top-level cache_control plus 4 nested blocks.",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_body_order_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/gateway_service.go:topLevelCacheControl := gjson.GetBytes(out, \"cache_control\").Exists()",
+        "backend/internal/service/gateway_body_order_test.go:TestEnforceCacheControlLimit_CountsTopLevelAndTrimsItFirst"
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1833",
+      "severity": "high",
+      "summary": "calculateTokenCost no longer silently bills zero on ErrModelPricingUnavailable; it emits a structured gateway_usage.pricing_missing_record_zero_cost warning and marks BillingMode, at parity with the OpenAI record-usage path. Closes the free-usage leak for non-builtin models (GLM/qwen/deepseek over /v1/messages) with no configured pricing.",
+      "fixed_by": [
+        "backend/internal/service/gateway_service_tk_billing_pricing_missing.go",
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_service_tk_billing_pricing_missing_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/gateway_service_tk_billing_pricing_missing.go:func logTokenCostPricingMissing",
+        "backend/internal/service/gateway_service.go:logTokenCostPricingMissing(billingModel, apiKey, result, err)",
+        "backend/internal/service/gateway_service_tk_billing_pricing_missing_test.go:TestCalculateTokenCost_PricingMissing_RecordsObservableZeroCost"
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2608",
+      "severity": "high",
+      "summary": "Client-induced Anthropic 400 invalid_request_error no longer advances the per-account cooldown counter, so a caller can no longer pause a shared OAuth subscription account by spamming malformed requests. Account-level 400s (org disabled / credit / KYC) and atypical 400s still go through the normal threshold path.",
+      "fixed_by": [
+        "backend/internal/service/ratelimit_service_tk_client_induced_400.go",
+        "backend/internal/service/ratelimit_service.go",
+        "backend/internal/service/ratelimit_service_tk_client_induced_400_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/ratelimit_service_tk_client_induced_400.go:func tkIsAnthropicClientInducedBadRequest",
+        "backend/internal/service/ratelimit_service.go:tkIsAnthropicClientInducedBadRequest(responseBody)",
+        "backend/internal/service/ratelimit_service_tk_client_induced_400_test.go:Anthropic400ClientInduced_DoesNotPenalizeAccount"
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2727",
+      "severity": "medium",
+      "summary": "Opt-in (default OFF via tk_openai_implicit_throttle_cooldown_seconds) cross-request cooldown: an OpenAI-compat account that returns a failover-worthy 5xx (implicit throttle / header-timeout with no 429) is briefly benched so subsequent requests skip it. The deliberately-unbounded OpenAIResponseHeaderTimeout default is intentionally NOT changed.",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service_tk_implicit_throttle.go",
+        "backend/internal/service/openai_gateway_service.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_gateway_service_tk_implicit_throttle.go:func (s *OpenAIGatewayService) tkApplyImplicitThrottleCooldown",
+        "backend/internal/service/openai_gateway_service.go:s.tkApplyImplicitThrottleCooldown(ctx, account, resp.StatusCode)"
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1981",
+      "severity": "medium",
+      "summary": "Opt-in (default OFF via tk_openai_max_rate_limit_cooldown_seconds) clamp of long OpenAI 429 resets (e.g. 7d window exhaustion) so released accounts re-enter the pool after the ceiling and are re-probed by live traffic instead of idling — 'traffic as the probe', no separate background prober.",
+      "fixed_by": [
+        "backend/internal/service/ratelimit_service_tk_openai_reset_clamp.go",
+        "backend/internal/service/ratelimit_service.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/ratelimit_service_tk_openai_reset_clamp.go:func (s *RateLimitService) tkClampOpenAIRateLimitReset",
+        "backend/internal/service/ratelimit_service.go:s.tkClampOpenAIRateLimitReset(ctx, account.ID"
+      ]
     }
   ]
 }
