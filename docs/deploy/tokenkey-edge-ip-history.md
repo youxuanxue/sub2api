@@ -15,4 +15,5 @@ Active edge EIP rotation runbook: [`.cursor/skills/tokenkey-stage0-edge-ip-rotat
 | --- | --- | --- |
 | `3.9.160.161` | eu-west-2 | upstream API risk-block (2026-05-20) |
 | `35.177.124.150` | eu-west-2 | upstream API risk-block (2026-05-22) |
+| `100.48.129.133` | us-east-1 | Lightsail edge-us2 StaticIp-2 upstream API risk-block (2026-05-29) |
 <!-- END edge-ip-status:polluted -->

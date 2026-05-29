@@ -11,6 +11,11 @@
       "ip": "35.177.124.150",
       "region": "eu-west-2",
       "notes": "upstream API risk-block (2026-05-22)"
+    },
+    {
+      "ip": "100.48.129.133",
+      "region": "us-east-1",
+      "notes": "Lightsail edge-us2 StaticIp-2 upstream API risk-block (2026-05-29)"
     }
   ]
 }
