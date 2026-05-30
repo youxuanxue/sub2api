@@ -1013,9 +1013,10 @@
     {
       "path": "backend/internal/handler/openai_gateway_handler.go",
       "must_contain": [
-        "service.TkEnrichClaudeIncidentMessage("
+        "service.TkEnrichClaudeIncidentMessage(",
+        "service.TkStripEncryptedReasoningForFailover("
       ],
-      "rationale": "Locks the incident-aware client-message hook in handleAnthropicFailoverExhausted — the native /v1/messages (Claude Code / claude-cli) exhausted path. Without this call a Claude API incident surfaces to the caller as a generic upstream error with no pointer to status.claude.com; an upstream merge that rewrites the exhausted handler would silently drop the redirect."
+      "rationale": "Locks two TK hooks in the OpenAI gateway handler. (1) TkEnrichClaudeIncidentMessage in handleAnthropicFailoverExhausted — the native /v1/messages (Claude Code / claude-cli) exhausted path; without it a Claude API incident surfaces to the caller as a generic upstream error with no pointer to status.claude.com. (2) TkStripEncryptedReasoningForFailover at the Responses failover boundary — strips a previous account's reasoning encrypted_content before re-dispatching to a freshly-selected account, so the new account's first hop does not draw a 400 invalid_encrypted_content. An upstream merge that rewrites the failover loop would silently drop either hook."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_canonical_http.go",
@@ -1235,6 +1236,14 @@
         "SettingKeyOpenAIMaxRateLimitCooldownSeconds"
       ],
       "rationale": "TK#1981: opt-in (default OFF) clamp of long OpenAI 429 reset windows. Guards the capability against silent upstream-merge deletion."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_tk_failover_encrypted_reasoning.go",
+      "must_contain": [
+        "func TkStripEncryptedReasoningForFailover",
+        "trimOpenAIEncryptedReasoningItems("
+      ],
+      "rationale": "Failover-boundary stripper for OpenAI Responses reasoning encrypted_content. encrypted_content is bound to the account that produced it; when the Responses failover loop switches accounts the carried value draws a 400 invalid_encrypted_content from the new account. This helper (called from openai_gateway_handler.go, gated on an actual account switch) reuses trimOpenAIEncryptedReasoningItems to drop it proactively, skipping the doomed first hop. Behaviour-neutral on the happy path (fast-path no-op when the marker is absent) and the per-account invalid_encrypted_content retry remains a backstop, so this is a latency/ops-noise optimization — but the sentinel guards the file against silent upstream-merge deletion that would reintroduce the per-switch 400 storm."
     }
   ]
 }

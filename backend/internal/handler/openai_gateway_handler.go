@@ -325,8 +325,17 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		forwardStart := time.Now()
 		// 应用渠道模型映射到请求体
 		forwardBody := body
+		// TK: after an account switch, the carried reasoning encrypted_content is
+		// bound to a previous account and would draw a 400 invalid_encrypted_content
+		// from the freshly-selected one. Strip it proactively so the new account's
+		// first hop succeeds instead of eating that 400 + per-account retry. Only on
+		// failover (len(failedAccountIDs) > 0) — the sticky-preferred first account
+		// keeps its valid encrypted_content. Fast path is a no-op when absent.
+		if len(failedAccountIDs) > 0 {
+			forwardBody = service.TkStripEncryptedReasoningForFailover(forwardBody)
+		}
 		if channelMapping.Mapped {
-			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
+			forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
 		}
 		writerSizeBeforeForward := c.Writer.Size()
 		result, err := func() (*service.OpenAIForwardResult, error) {
