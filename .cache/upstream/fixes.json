@@ -374,8 +374,7 @@
       "fixed_by": [
         "backend/internal/service/openai_gateway_service_tk_sticky_group.go",
         "backend/internal/service/openai_gateway_service.go",
-        "backend/internal/service/openai_account_scheduler.go",
-        "backend/internal/service/openai_gateway_service_tk_sticky_group_test.go"
+        "backend/internal/service/openai_account_scheduler.go"
       ],
       "summary": "Sticky bindings are namespaced by (groupID, sessionHash) but resolved by global account ID; after an account is moved out of the group the stale binding kept routing the group's traffic at it. All three sticky fast paths now invalidate a binding whose bound account has known group membership excluding groupID (conservative: empty membership kept)."
     },
@@ -384,6 +383,7 @@
       "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
       "status": "fixed_in_tokenkey",
       "fixed_by": [
+        "backend/internal/service/channel_monitor_checker.go",
         "backend/internal/service/channel_monitor_checker.go",
         "backend/internal/service/channel_monitor_checker_tk_anthropic_text_test.go"
       ],
@@ -437,9 +437,7 @@
       "status": "fixed_in_tokenkey",
       "fixed_by": [
         "backend/internal/service/openai_gateway_service_tk_implicit_throttle.go",
-        "backend/internal/service/openai_gateway_service.go",
-        "backend/internal/service/domain_constants.go",
-        "backend/internal/service/openai_gateway_service_tk_implicit_throttle_test.go"
+        "backend/internal/service/openai_gateway_service.go"
       ],
       "summary": "Opt-in (default OFF via tk_openai_implicit_throttle_cooldown_seconds) cross-request cooldown: an OpenAI-compat account that returns a failover-worthy 5xx (implicit throttle / header-timeout with no 429) is briefly benched so subsequent requests skip it. The deliberately-unbounded OpenAIResponseHeaderTimeout default is intentionally NOT changed."
     },
@@ -449,9 +447,7 @@
       "status": "fixed_in_tokenkey",
       "fixed_by": [
         "backend/internal/service/ratelimit_service_tk_openai_reset_clamp.go",
-        "backend/internal/service/ratelimit_service.go",
-        "backend/internal/service/domain_constants.go",
-        "backend/internal/service/ratelimit_service_tk_openai_reset_clamp_test.go"
+        "backend/internal/service/ratelimit_service.go"
       ],
       "summary": "Opt-in (default OFF via tk_openai_max_rate_limit_cooldown_seconds) clamp of long OpenAI 429 resets (e.g. 7d window exhaustion) so released accounts re-enter the pool after the ceiling and are re-probed by live traffic instead of idling — 'traffic as the probe', no separate background prober."
     },
