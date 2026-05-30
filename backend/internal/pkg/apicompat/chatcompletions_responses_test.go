@@ -724,7 +724,6 @@ func TestResponsesToChatCompletions_ReasoningTokens(t *testing.T) {
 	assert.Equal(t, 150, chat.Usage.CompletionTokensDetails.ReasoningTokens)
 }
 
-
 func TestResponsesToChatCompletions_AllTokenDetailsPassThrough(t *testing.T) {
 	// Covers the full OpenAI CompletionUsage detail field set so future audio
 	// and prediction-outputs responses propagate without further changes.
@@ -995,7 +994,6 @@ func TestResponsesEventToChatChunks_CompletedWithReasoningTokens(t *testing.T) {
 	require.NotNil(t, chunks[1].Usage.CompletionTokensDetails)
 	assert.Equal(t, 256, chunks[1].Usage.CompletionTokensDetails.ReasoningTokens)
 }
-
 
 func TestResponsesEventToChatChunks_ResponseDone(t *testing.T) {
 	state := NewResponsesEventToChatState()

@@ -6510,6 +6510,12 @@ func (s *GatewayService) buildUpstreamRequestAnthropicVertex(
 // that this no-ctx pure function intentionally does not depend on. This mirror uses the
 // static claude.FullClaudeCodeMimicryBetas() and exists so the OAuth/mimic/API-key beta
 // branches stay unit-tested; keep the two in sync when the beta policy changes.
+//
+// (buildUpstreamRequest / buildCountTokensRequest) are the deferred cc-fingerprint
+// reconciliation (PR #456). golangci `unused` analyzes the non-test build, so a
+// test-only-referenced function reads as unused here.
+//
+//nolint:unused // Exercised by gateway_context_management_test.go; the prod call sites
 func (s *GatewayService) computeFinalAnthropicBeta(
 	tokenType string,
 	mimicClaudeCode bool,
@@ -6556,6 +6562,10 @@ func (s *GatewayService) computeFinalAnthropicBeta(
 // count_tokens-specific rules: OAuth mimic always appends BetaTokenCounting (no haiku
 // exclusion), and OAuth passthrough fills in the count-tokens beta. Same pure-function
 // caveat as computeFinalAnthropicBeta re: the live path's context-aware variant.
+//
+// (buildCountTokensRequest) is the deferred cc-fingerprint reconciliation (PR #456).
+//
+//nolint:unused // Exercised by gateway_context_management_test.go; prod wiring
 func (s *GatewayService) computeFinalCountTokensAnthropicBeta(
 	tokenType string,
 	mimicClaudeCode bool,

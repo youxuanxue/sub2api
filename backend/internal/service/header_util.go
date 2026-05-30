@@ -110,6 +110,12 @@ func addHeaderRaw(h http.Header, key, value string) {
 // deleteHeaderAllForms removes a header in all common key forms (raw, wire casing,
 // canonical) so subsequent setHeaderRaw will not coexist with a passthrough value
 // written under a different casing.
+//
+// Its call sites (the buildUpstreamRequest / buildCountTokensRequest final-beta write)
+// are part of the deferred cc-fingerprint reconciliation (PR #456) — kept so that wiring
+// does not have to re-import it.
+//
+//nolint:unused // Imported from upstream's anthropic-beta context_management refactor.
 func deleteHeaderAllForms(h http.Header, key string) {
 	if h == nil || key == "" {
 		return
