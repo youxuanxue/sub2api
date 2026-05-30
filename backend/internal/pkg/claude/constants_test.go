@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestFullClaudeCodeMimicryBetas_MatchesCC0156SonnetCapture(t *testing.T) {
+func TestFullClaudeCodeMimicryBetas_MatchesCC0157SonnetCapture(t *testing.T) {
 	want := []string{
 		"claude-code-20250219",
 		"oauth-2025-04-20",
@@ -28,7 +28,7 @@ func TestFullClaudeCodeMimicryBetas_MatchesCC0156SonnetCapture(t *testing.T) {
 	require.NotContains(t, FullClaudeCodeMimicryBetas(), BetaFineGrainedToolStreaming)
 }
 
-func TestFullClaudeCodeHaikuMimicryBetas_MatchesCC0156HaikuCapture(t *testing.T) {
+func TestFullClaudeCodeHaikuMimicryBetas_MatchesCC0157HaikuCapture(t *testing.T) {
 	want := []string{
 		"oauth-2025-04-20",
 		"interleaved-thinking-2025-05-14",
