@@ -2062,6 +2062,21 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 					continue
 				}
 
+				// Close an open tool_use block before starting text. HEAD tracks tool
+				// and text blocks separately (openToolIndex vs openBlockIndex), so —
+				// mirroring the functionCall branch that closes the open text block —
+				// the text path must explicitly stop openToolIndex, or a tool→text
+				// turn emits overlapping Anthropic content blocks (SSE contract break).
+				if openToolIndex >= 0 {
+					writeSSE(c.Writer, "content_block_stop", map[string]any{
+						"type":  "content_block_stop",
+						"index": openToolIndex,
+					})
+					openToolIndex = -1
+					openToolName = ""
+					seenToolJSON = ""
+				}
+
 				if openBlockType != "text" {
 					if openBlockIndex >= 0 {
 						writeSSE(c.Writer, "content_block_stop", map[string]any{

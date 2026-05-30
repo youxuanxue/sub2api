@@ -171,9 +171,16 @@ fi
 # `!account.IsOpenAI()`; the canonical predicate is
 # `!account.IsOpenAICompatPoolMember(groupPlatform)`. The bare form silently
 # rejects newapi accounts even for newapi groups.
+#
+# Exemption: lines annotated `// compat-pool-exempt:` are platform-specific
+# predicates that are NOT pool-membership scheduling filters — e.g. the OpenAI
+# quota auto-pause gate keys off codex 5h/7d usage windows that only exist on
+# `openai` accounts (newapi accounts carry no such fields and must never be
+# auto-paused by this path). The exemption is line-scoped and self-documenting.
 drift2_hits="$(grep -nE '!\s*account\.IsOpenAI\(\)' \
     backend/internal/service/openai_account_scheduler.go \
-    backend/internal/service/openai_gateway_service.go 2>/dev/null || true)"
+    backend/internal/service/openai_gateway_service.go 2>/dev/null \
+    | grep -v 'compat-pool-exempt' || true)"
 if [ -n "$drift2_hits" ]; then
     echo "  FAIL: scheduling filter still uses bare !account.IsOpenAI()"
     echo "        — switch to !account.IsOpenAICompatPoolMember(groupPlatform):"

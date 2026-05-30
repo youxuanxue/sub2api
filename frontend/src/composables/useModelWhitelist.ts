@@ -18,12 +18,29 @@ const openaiModels = [
   'gpt-image-1', 'gpt-image-1.5', 'gpt-image-2'
 ]
 
+// NewAPI（第五平台）—— 独立维护白名单，不与 openai 共享同一数组引用。
+// 当前内容与 openai 基本对齐，后续允许按 newapi 供应侧单独演进。
+const newapiModels = [
+  'gpt-3.5-turbo', 'gpt-3.5-turbo-0125', 'gpt-3.5-turbo-1106', 'gpt-3.5-turbo-16k',
+  'gpt-4', 'gpt-4-turbo', 'gpt-4-turbo-preview',
+  'gpt-4o', 'gpt-4o-2024-08-06', 'gpt-4o-2024-11-20',
+  'gpt-4o-mini', 'gpt-4o-mini-2024-07-18',
+  'gpt-4.5-preview',
+  'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano',
+  'o1', 'o1-preview', 'o1-mini', 'o1-pro',
+  'o3', 'o3-mini', 'o3-pro',
+  'o4-mini',
+  'gpt-5.2', 'gpt-5.2-2025-12-11', 'gpt-5.2-chat-latest',
+  'gpt-5.2-pro', 'gpt-5.2-pro-2025-12-11',
+  'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-2026-03-05',
+  'gpt-5.3-codex', 'gpt-5.3-codex-spark',
+  'gpt-4o-audio-preview', 'gpt-4o-realtime-preview',
+  // GPT Image 系列
+  'gpt-image-1', 'gpt-image-1.5', 'gpt-image-2'
+]
+
 // Anthropic Claude
 export const claudeModels = [
-  'claude-3-5-sonnet-20241022', 'claude-3-5-sonnet-20240620',
-  'claude-3-5-haiku-20241022',
-  'claude-3-7-sonnet-20250219',
-  'claude-sonnet-4-20250514', 'claude-opus-4-20250514',
   'claude-opus-4-1-20250805',
   'claude-sonnet-4-5-20250929', 'claude-haiku-4-5-20251001',
   'claude-opus-4-5-20251101',
@@ -234,14 +251,12 @@ export const allModels = allModelsList.map(m => ({ value: m, label: m }))
 // =====================
 
 const anthropicPresetMappings = [
-  { label: 'Sonnet 4', from: 'claude-sonnet-4-20250514', to: 'claude-sonnet-4-20250514', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400' },
   { label: 'Sonnet 4.5', from: 'claude-sonnet-4-5-20250929', to: 'claude-sonnet-4-5-20250929', color: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400' },
   { label: 'Sonnet 4.6', from: 'claude-sonnet-4-6', to: 'claude-sonnet-4-6', color: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400' },
   { label: 'Opus 4.5', from: 'claude-opus-4-5-20251101', to: 'claude-opus-4-5-20251101', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400' },
   { label: 'Opus 4.6', from: 'claude-opus-4-6', to: 'claude-opus-4-6', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400' },
   { label: 'Opus 4.7', from: 'claude-opus-4-7', to: 'claude-opus-4-7', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400' },
   { label: 'Opus 4.8', from: 'claude-opus-4-8', to: 'claude-opus-4-8', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400' },
-  { label: 'Haiku 3.5', from: 'claude-3-5-haiku-20241022', to: 'claude-3-5-haiku-20241022', color: 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400' },
   { label: 'Haiku 4.5', from: 'claude-haiku-4-5-20251001', to: 'claude-haiku-4-5-20251001', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' },
   { label: 'Opus->Sonnet', from: 'claude-opus-4-6', to: 'claude-sonnet-4-5-20250929', color: 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400' }
 ]
@@ -255,6 +270,21 @@ const openaiPresetMappings = [
   { label: 'GPT-5.3 Codex Spark', from: 'gpt-5.3-codex-spark', to: 'gpt-5.3-codex-spark', color: 'bg-teal-100 text-teal-700 hover:bg-teal-200 dark:bg-teal-900/30 dark:text-teal-400' },
   { label: 'GPT-5.2', from: 'gpt-5.2', to: 'gpt-5.2', color: 'bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400' },
   { label: 'GPT-5.5', from: 'gpt-5.5', to: 'gpt-5.5', color: 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400' },
+  { label: 'GPT-5.4', from: 'gpt-5.4', to: 'gpt-5.4', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
+  { label: 'Haiku→5.4', from: 'claude-haiku-4-5-20251001', to: 'gpt-5.4', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  { label: 'Opus→5.4', from: 'claude-opus-4-6', to: 'gpt-5.4', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400' },
+  { label: 'Sonnet→5.4', from: 'claude-sonnet-4-6', to: 'gpt-5.4', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400' }
+]
+
+// NewAPI（第五平台）默认映射独立维护，避免与 openai 共用同一配置对象。
+const newapiPresetMappings = [
+  { label: 'GPT-4o', from: 'gpt-4o', to: 'gpt-4o', color: 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400' },
+  { label: 'GPT-4o Mini', from: 'gpt-4o-mini', to: 'gpt-4o-mini', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400' },
+  { label: 'GPT-4.1', from: 'gpt-4.1', to: 'gpt-4.1', color: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400' },
+  { label: 'o1', from: 'o1', to: 'o1', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400' },
+  { label: 'o3', from: 'o3', to: 'o3', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  { label: 'GPT-5.3 Codex Spark', from: 'gpt-5.3-codex-spark', to: 'gpt-5.3-codex-spark', color: 'bg-teal-100 text-teal-700 hover:bg-teal-200 dark:bg-teal-900/30 dark:text-teal-400' },
+  { label: 'GPT-5.2', from: 'gpt-5.2', to: 'gpt-5.2', color: 'bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400' },
   { label: 'GPT-5.4', from: 'gpt-5.4', to: 'gpt-5.4', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
   { label: 'Haiku→5.4', from: 'claude-haiku-4-5-20251001', to: 'gpt-5.4', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' },
   { label: 'Opus→5.4', from: 'claude-opus-4-6', to: 'gpt-5.4', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400' },
@@ -356,7 +386,10 @@ export const commonErrorCodes = [
 // 按平台获取模型
 export function getModelsByPlatform(platform: string): string[] {
   switch (platform) {
-    case 'openai': return openaiModels
+    case 'openai':
+      return openaiModels
+    case 'newapi':
+      return newapiModels
     case 'anthropic':
     case 'claude': return claudeModels
     case 'gemini': return geminiModels
@@ -383,6 +416,7 @@ export function getModelsByPlatform(platform: string): string[] {
 // 按平台获取预设映射
 export function getPresetMappingsByPlatform(platform: string) {
   if (platform === 'openai') return openaiPresetMappings
+  if (platform === 'newapi') return newapiPresetMappings
   if (platform === 'gemini') return geminiPresetMappings
   if (platform === 'antigravity') return antigravityPresetMappings
   if (platform === 'bedrock') return bedrockPresetMappings
@@ -392,6 +426,19 @@ export function getPresetMappingsByPlatform(platform: string) {
 // =====================
 // 构建模型映射对象（用于 API）
 // =====================
+
+// normalizeModelID 容忍 #128 之后从后端可能拿到的两种 model 列表形态：
+// 纯字符串数组 ["gpt-5"] 以及对象数组 [{ id: "gpt-5", pricing_status }]。
+// 只提取 trimmed `id` 字段，确保 buildModelMappingObject 写出的
+// model_mapping 始终是 string→string，避免后端持久化里混入对象项。
+function normalizeModelID(value: unknown): string {
+  if (typeof value === 'string') return value.trim()
+  if (value && typeof value === 'object') {
+    const raw = (value as Record<string, unknown>).id
+    return typeof raw === 'string' ? raw.trim() : ''
+  }
+  return ''
+}
 
 // isValidWildcardPattern 校验通配符格式：* 只能放在末尾
 // 导出供表单组件使用实时校验
@@ -437,20 +484,24 @@ export function splitModelMappingObject(
 
 export function buildModelMappingObject(
   mode: ModelRestrictionMode,
-  allowedModels: string[],
+  // unknown[] (not string[]) on purpose: callers may pass either trimmed
+  // strings or `{ id, pricing_status, ... }` objects coming back from
+  // #128 model-pricing responses. normalizeModelID below is the single
+  // sanitizer.
+  allowedModels: unknown[],
   modelMappings: ModelMappingEntry[]
 ): Record<string, string> | null {
   const mapping: Record<string, string> = {}
 
   if (mode === 'whitelist' || mode === 'combined') {
-    for (const model of allowedModels) {
-      const normalizedModel = model.trim()
-      if (!normalizedModel) continue
+    for (const item of allowedModels) {
+      const model = normalizeModelID(item)
+      if (!model) continue
       // whitelist 模式的本意是"精确模型列表"，如果用户输入了通配符（如 claude-*），
       // 写入 model_mapping 会导致 GetMappedModel() 把真实模型映射成 "claude-*"，从而转发失败。
       // 因此这里跳过包含通配符的条目。
-      if (!normalizedModel.includes('*')) {
-        mapping[normalizedModel] = normalizedModel
+      if (!model.includes('*')) {
+        mapping[model] = model
       }
     }
   }

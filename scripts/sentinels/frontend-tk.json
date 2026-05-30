@@ -316,6 +316,15 @@
         "requesterMeta"
       ],
       "rationale": "TK ops request-attribution column (upstream Wei-Shaw/sub2api#2410). The admin request-details drill-down shows a Requester column built from requesterPrimary (user email/username) + requesterMeta (api key / group / upstream account names) so operators can identify who is calling without a DB lookup. These names ride on the user_email/username/api_key_name/group_name/account_name fields the request-details query joins; an upstream merge that rewrites this modal would silently drop the attribution UI. The sentinel forces the merge to keep (or deliberately remove) the requester helpers."
+    },
+    {
+      "path": "frontend/src/components/account/EditAccountModal.vue",
+      "must_contain": [
+        "auto_pause_5h_threshold",
+        "auto_pause_7d_threshold",
+        "openAIEndpointCapabilities"
+      ],
+      "rationale": "Post-2026-05-29 upstream merge: EditAccountModal was 3-way re-merged after the original merge took upstream wholesale and dropped TK customizations. This guards the upstream features TK adopted in that re-merge — per-account 5h/7d quota auto-pause threshold persistence (auto_pause_5h/7d_threshold, paired with the backend shouldAutoPauseOpenAIAccountByQuota gate) and the OpenAI endpoint-capability selection (openAIEndpointCapabilities). A future merge that re-overwrites this modal must keep them or the admin loses the auto-pause / capability controls. The TK compaction/pricing literals are guarded by the existing frontend-tk + newapi sentinels."
     }
   ]
 }

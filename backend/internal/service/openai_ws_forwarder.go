@@ -369,7 +369,12 @@ func openAIWSEventMayContainToolCalls(eventType string) bool {
 }
 
 func openAIWSEventShouldParseUsage(eventType string) bool {
-	return eventType == "response.completed" || strings.TrimSpace(eventType) == "response.completed"
+	switch strings.TrimSpace(eventType) {
+	case "response.completed", "response.done", "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
+		return true
+	default:
+		return false
+	}
 }
 
 func parseOpenAIWSEventEnvelope(message []byte) (eventType string, responseID string, response gjson.Result) {
@@ -2484,6 +2489,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		imageInputSize     string
 		payloadBytes       int
 	}
+	ingressSessionOriginalModel := ""
 
 	applyPayloadMutation := func(current []byte, path string, value any) ([]byte, error) {
 		next, err := sjson.SetBytes(current, path, value)
@@ -2547,12 +2553,21 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		}
 
 		originalModel := strings.TrimSpace(values[1].String())
+		modelMissing := originalModel == ""
 		if originalModel == "" {
-			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(
-				coderws.StatusPolicyViolation,
-				"model is required in response.create payload",
-				nil,
-			)
+			// 入站 WS 长会话里，部分客户端只在第一轮 response.create 上声明
+			// model，后续 turn 复用同一 session-level model。为避免因省略
+			// model 直接断开用户连接，这里回落到上一轮已通过校验的客户端模型，
+			// 并在下方写回上游 payload，保证账号模型映射/fast policy/图片权限
+			// 仍按同一模型执行。
+			originalModel = ingressSessionOriginalModel
+			if originalModel == "" {
+				return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(
+					coderws.StatusPolicyViolation,
+					"model is required in response.create payload",
+					nil,
+				)
+			}
 		}
 		promptCacheKey := strings.TrimSpace(values[2].String())
 		previousResponseID := strings.TrimSpace(values[3].String())
@@ -2572,7 +2587,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			normalized = next
 		}
 		upstreamModel := normalizeOpenAIModelForUpstream(account, account.GetMappedModel(originalModel))
-		if upstreamModel != originalModel {
+		if modelMissing || upstreamModel != originalModel {
 			next, setErr := applyPayloadMutation(normalized, "model", upstreamModel)
 			if setErr != nil {
 				return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", setErr)
@@ -2635,6 +2650,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			)
 		}
 		normalized = policyApplied
+		ingressSessionOriginalModel = originalModel
 
 		return openAIWSClientPayload{
 			payloadRaw:         normalized,
@@ -3915,7 +3931,10 @@ func isOpenAIWSTokenEvent(eventType string) bool {
 	if strings.HasPrefix(eventType, "response.output") {
 		return true
 	}
-	return eventType == "response.completed" || eventType == "response.done"
+	// 终止事件（response.completed/done/failed/...）由 isOpenAIWSTerminalEvent 单独处理。
+	// 不能把它们当作 token event，否则当上游没有可识别的 delta 时，
+	// firstTokenMs 会被填到终止时刻，等于把"总耗时"误报为"首 token 延迟"。
+	return false
 }
 
 func replaceOpenAIWSMessageModel(message []byte, fromModel, toModel string) []byte {
@@ -3988,6 +4007,26 @@ func (s *OpenAIGatewayService) SelectAccountByPreviousResponseID(
 	excludedIDs map[int64]struct{},
 	requireCompact bool,
 ) (*AccountSelectionResult, error) {
+	return s.selectAccountByPreviousResponseIDForCapability(ctx, groupID, previousResponseID, requestedModel, excludedIDs, "", requireCompact)
+}
+
+// selectAccountByPreviousResponseIDForCapability is SelectAccountByPreviousResponseID
+// with an added OpenAI-compatible endpoint-capability gate. Following the
+// accountSupportsOpenAICapabilities rationale, the capability filter is applied to
+// native OpenAI accounts only so `newapi` accounts are never fail-closed. A capability
+// mismatch (e.g. an embeddings request landing on a chat-only previous_response
+// account) returns nil WITHOUT clearing the binding: the request falls through to
+// normal scheduling while the sticky chain is preserved (the window/capability may be
+// satisfiable again on a later turn).
+func (s *OpenAIGatewayService) selectAccountByPreviousResponseIDForCapability(
+	ctx context.Context,
+	groupID *int64,
+	previousResponseID string,
+	requestedModel string,
+	excludedIDs map[int64]struct{},
+	requiredCapability OpenAIEndpointCapability,
+	requireCompact bool,
+) (*AccountSelectionResult, error) {
 	if s == nil {
 		return nil, nil
 	}
@@ -4031,6 +4070,20 @@ func (s *OpenAIGatewayService) SelectAccountByPreviousResponseID(
 		return nil, nil
 	}
 	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
+		return nil, nil
+	}
+	if account.IsOpenAI() && !account.SupportsOpenAIEndpointCapability(requiredCapability) {
+		// Capability mismatch (e.g. embeddings request on a chat-only sticky account):
+		// keep the binding (transient) and fall through to normal scheduling.
+		return nil, nil
+	}
+	// Quota auto-pause must also gate the previous_response_id sticky path; otherwise an
+	// account over its 5h/7d threshold keeps serving the same response chain even though
+	// normal scheduling skips it. Pause is transient, so fall through to normal scheduling
+	// WITHOUT deleting the binding (the window may reset before the next turn). This early
+	// return also pre-empts the DB-recheck below, which would otherwise treat the paused
+	// account as gone and clear the sticky binding.
+	if paused, _ := shouldAutoPauseOpenAIAccountByQuota(ctx, account); paused {
 		return nil, nil
 	}
 	account = s.recheckOpenAICompatAccountFromDB(ctx, account, requestedModel, groupPlatform, requireCompact)

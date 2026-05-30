@@ -4,92 +4,156 @@
   "sentinels": [
     {
       "path": "backend/internal/domain/constants.go",
-      "must_contain": ["PlatformNewAPI"],
+      "must_contain": [
+        "PlatformNewAPI"
+      ],
       "rationale": "Identity constant for the fifth platform string `newapi`. Removing it collapses every 5-platform invariant in the codebase."
     },
     {
       "path": "backend/internal/service/account_tk_compat_pool.go",
-      "must_contain": ["IsOpenAICompatPoolMember", "OpenAICompatPlatforms"],
+      "must_contain": [
+        "IsOpenAICompatPoolMember",
+        "OpenAICompatPlatforms"
+      ],
       "rationale": "TK companion that partitions the OpenAI-compat scheduling pool by `group.platform`. Without it, scheduling falls back to bare `IsOpenAI()` and silently excludes all newapi accounts (the original P0 regression that triggered docs/approved/newapi-as-fifth-platform.md)."
     },
     {
       "path": "backend/internal/service/openai_gateway_service_tk_newapi_pool.go",
-      "must_contain": ["listOpenAICompatSchedulableAccounts", "resolveGroupPlatform"],
+      "must_contain": [
+        "listOpenAICompatSchedulableAccounts",
+        "resolveGroupPlatform"
+      ],
       "rationale": "TK companion that fetches candidate accounts using the group's actual platform instead of hardcoded `PlatformOpenAI`. Without it, `group.platform=newapi` requests get an empty pool."
     },
     {
       "path": "backend/internal/service/sticky_session_injector.go",
-      "must_contain": ["StickyKeyFromClientHeaders", "StickyKeySourceClientXSessionID", "X-Session-Id"],
+      "must_contain": [
+        "StickyKeyFromClientHeaders",
+        "StickyKeySourceClientXSessionID",
+        "X-Session-Id"
+      ],
       "rationale": "Shared sticky-key ingress parser for prod-to-edge NewAPI/Anthropic forwarding. Without this helper, prod-injected X-Session-Id can drift from DeriveStickyKey priority and edge falls back to volatile message-content hashes."
     },
     {
       "path": "backend/internal/service/gateway_request.go",
-      "must_contain": ["ExplicitStickyKey", "PromptCacheKey", "prompt_cache_key", "RequestID", "ClientRequestID", "StripCountTokensUnsupportedFields", "countTokensUnsupportedTopLevelFields", "\"context_management\""],
+      "must_contain": [
+        "ExplicitStickyKey",
+        "PromptCacheKey",
+        "prompt_cache_key",
+        "RequestID",
+        "ClientRequestID",
+        "StripCountTokensUnsupportedFields",
+        "countTokensUnsupportedTopLevelFields",
+        "\"context_management\""
+      ],
       "rationale": "ParsedRequest must preserve explicit sticky identity and top-level prompt_cache_key so the Anthropic edge ingress can consume prod-forwarded sticky signals without reparsing or falling back to message content; request correlation IDs are also load-bearing inputs for sticky-source evidence indexing. StripCountTokensUnsupportedFields + its declarative field list are TK defensive sanitize for the Anthropic count_tokens endpoint (strips temperature/top_p/top_k/stop_sequences/max_tokens/stream/metadata/service_tier/context_management that Anthropic rejects with `Extra inputs are not permitted`). `context_management` MUST stay in the list because the OAuth mimic path (normalizeClaudeOAuthRequestBody) actively injects it for Sonnet/Opus thinking on /v1/messages; without it, count_tokens 400s every OAuth request (2026-05-18 09:10:30 prod trace). Dropping any symbol regresses the 2026-05-18 prod incident where claude-cli leaked `temperature` into count_tokens and the resulting 400 burst tripped the per-account upstream-error breaker (see gateway_service.go sentinel for the matching call sites + 400 exemption + post-normalize final-strip)."
     },
     {
       "path": "backend/internal/service/gateway_service.go",
-      "must_contain": ["parsed.ExplicitStickyKey.Value", "StickyKeySourceClientPromptCacheKey", "message_content_fallback", "logger.WriteSinkEvent(\"info\", \"http.access.sticky\", \"sticky.hash_source\"", "\"client_request_id\":  parsed.ClientRequestID"],
+      "must_contain": [
+        "parsed.ExplicitStickyKey.Value",
+        "StickyKeySourceClientPromptCacheKey",
+        "message_content_fallback",
+        "logger.WriteSinkEvent(\"info\", \"http.access.sticky\", \"sticky.hash_source\"",
+        "\"client_request_id\":  parsed.ClientRequestID"
+      ],
       "rationale": "Anthropic GenerateSessionHash must prefer metadata.user_id, then explicit headers, then prompt_cache_key before the message-content fallback. Losing this priority recreates the max_sessions exhaustion incident on edge OAuth accounts. The sticky-source sink event emission is also load-bearing for request-id based production debugging."
     },
     {
       "path": "backend/internal/handler/gateway_handler_tk_selection.go",
-      "must_contain": ["TkPrepareParsedRequestSessionInputs", "StickyKeyFromClientHeaders", "SessionContext", "parsedReq.RequestID = strings.TrimSpace(requestID)", "parsedReq.ClientRequestID = strings.TrimSpace(clientRequestID)"],
+      "must_contain": [
+        "TkPrepareParsedRequestSessionInputs",
+        "StickyKeyFromClientHeaders",
+        "SessionContext",
+        "parsedReq.RequestID = strings.TrimSpace(requestID)",
+        "parsedReq.ClientRequestID = strings.TrimSpace(clientRequestID)"
+      ],
       "rationale": "Anthropic handlers share this TK companion to populate group, explicit sticky headers, and context before account selection. Without the shared hook, /v1/messages or count_tokens can skip the prod-forwarded sticky identity. Request correlation IDs are part of the same load-bearing contract for sticky-source observability evidence."
     },
     {
       "path": "backend/internal/service/openai_messages_dispatch_tk_newapi.go",
-      "must_contain": ["isOpenAICompatPlatformGroup"],
+      "must_contain": [
+        "isOpenAICompatPlatformGroup"
+      ],
       "rationale": "TK companion that decides whether `messages_dispatch_model_config` is preserved. Without it, newapi groups have their dispatch config silently wiped on save."
     },
     {
       "path": "backend/internal/service/admin_service_tk_newapi_save.go",
-      "must_contain": ["resolveNewAPIMoonshotBaseURLOnSave"],
+      "must_contain": [
+        "resolveNewAPIMoonshotBaseURLOnSave"
+      ],
       "rationale": "TK companion invoked from admin_service.go CreateAccount/UpdateAccount that pins newapi/Moonshot accounts to the regional base_url their API key actually accepts. Without it, admins silently save accounts with the wrong region (api.moonshot.cn vs .ai), and the relay hot path 401s every request because it deliberately does not do per-request region fallback. Build-break alone is insufficient: an upstream merge that simultaneously removes the call sites would silently regress this without compile failure."
     },
     {
       "path": "backend/internal/integration/newapi/channel_types.go",
-      "must_contain": ["package newapi"],
+      "must_contain": [
+        "package newapi"
+      ],
       "rationale": "Channel-type catalog backing the fifth-platform admin UI. The integration package is the entire fifth-platform glue layer; if this file disappears the catalog dropdown is empty and bridge selection breaks."
     },
     {
       "path": "backend/internal/relay/bridge/video_relay.go",
-      "must_contain": ["DispatchVideoSubmit", "DispatchVideoFetch", "IsVideoSupportedChannelType"],
+      "must_contain": [
+        "DispatchVideoSubmit",
+        "DispatchVideoFetch",
+        "IsVideoSupportedChannelType"
+      ],
       "rationale": "Bridge for the asynchronous video task pipeline (POST /v1/video/generations + GET /v1/video/generations/:task_id and the OpenAI-compat /v1/videos aliases) — currently the only newapi pathway for VolcEngine / DoubaoVideo video generation. Without these symbols the gateway routes silently 5xx because no other code drives task adaptors. An upstream merge that drops this file regresses every Volcengine video customer."
     },
     {
       "path": "backend/internal/service/video_task_registry.go",
-      "must_contain": ["VideoTaskCache", "VideoTaskRecord"],
+      "must_contain": [
+        "VideoTaskCache",
+        "VideoTaskRecord"
+      ],
       "rationale": "Service-side interface (VideoTaskCache) + DTO (VideoTaskRecord) for the video task registry. Concrete impl lives in repository/video_task_cache.go (Redis-backed; depguard forbids service from importing redis directly). Removing this file collapses the entire video-fetch path: handler can't compile, dispatch helper can't compile, registry routing pin disappears."
     },
     {
       "path": "backend/internal/repository/video_task_cache.go",
-      "must_contain": ["NewVideoTaskCache", "videoTaskRedisCache", "videoTaskMemCache"],
+      "must_contain": [
+        "NewVideoTaskCache",
+        "videoTaskRedisCache",
+        "videoTaskMemCache"
+      ],
       "rationale": "Repository-side concrete impl of service.VideoTaskCache. Two implementations: redis-backed for production (single source of truth across replicas) and in-memory for unit tests (rdb=nil). NewVideoTaskCache is the constructor wired in repository/wire.go. An upstream merge that drops this file silently 404s every video task GET because no impl is registered."
     },
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_video.go",
-      "must_contain": ["ForwardAsVideoSubmitDispatched", "ForwardAsVideoFetchDispatched", "BridgeEndpointVideoSubmit", "BridgeEndpointVideoFetch"],
+      "must_contain": [
+        "ForwardAsVideoSubmitDispatched",
+        "ForwardAsVideoFetchDispatched",
+        "BridgeEndpointVideoSubmit",
+        "BridgeEndpointVideoFetch"
+      ],
       "rationale": "TK companion that wires the bridge's video submit/fetch into OpenAIGatewayService. Endpoint eligibility now flows through backend/internal/engine/* via BuildDispatchPlan + BridgeEndpointEnabled, so the old tkBridgeEndpointEnabled helper is intentionally gone. These symbols still guard the load-bearing video submit/fetch bridge entry points; removing them silently regresses async video routing for newapi-backed channels."
     },
     {
       "path": "backend/internal/integration/newapi/fusion.go",
-      "must_contain": ["package newapi"],
+      "must_contain": [
+        "package newapi"
+      ],
       "rationale": "Bridge fusion logic that wires QuantumNous/new-api adaptors into TK's relay. Removing this file disables the entire upstream new-api capability."
     },
     {
       "path": "backend/internal/handler/endpoint.go",
-      "must_contain": ["service.PlatformNewAPI"],
+      "must_contain": [
+        "service.PlatformNewAPI"
+      ],
       "rationale": "Endpoint resolution must list `newapi` in the OpenAI-compat case branch. Without it, gateway endpoint inference for newapi groups returns empty strings and routing fails."
     },
     {
       "path": "frontend/src/constants/gatewayPlatforms.ts",
-      "must_contain": ["'newapi'", "OPENAI_COMPAT_PLATFORMS"],
+      "must_contain": [
+        "'newapi'",
+        "OPENAI_COMPAT_PLATFORMS"
+      ],
       "rationale": "Canonical 5-platform enumeration consumed by every admin UI picker, filter, and segmented control. Dropping `newapi` here silently removes the platform from every selector."
     },
     {
       "path": "frontend/src/composables/usePlatformOptions.ts",
-      "must_contain": ["newapi:"],
+      "must_contain": [
+        "newapi:"
+      ],
       "rationale": "Shared composable that builds platform option lists for admin pickers/filters. The `newapi:` label entry is what surfaces the fifth platform's display name."
     },
     {
@@ -188,6 +252,14 @@
         "buildAccountFallbackEntry"
       ],
       "rationale": "Post-#325/#326 bridge: /api/v1/me/pricing-catalog (Your Menu) falls back to accounts.credentials.model_mapping whitelist entries when no channel-configured pricing covers the target group's models. Without these symbols, openai/newapi accounts whose operator only configured the admin 'model whitelist' (gateway routing limit) — but never created a Channel row + channel_model_pricing entry — render an empty pricing menu for users holding keys on that group, even though the gateway is happy to serve those models. This is the regression behind the TK 2026-05-21 local-stack incident: 17 GPT-family models in the GPT account's whitelist showed zero rows in /pricing until the bridge landed."
+    },
+    {
+      "path": "backend/internal/service/openai_account_scheduler.go",
+      "must_contain": [
+        "func accountSupportsOpenAICapabilities",
+        "account.IsOpenAI() && !account.SupportsOpenAIEndpointCapability"
+      ],
+      "rationale": "TK reconciliation of upstream endpoint-capability gating onto the fifth-platform scheduler. accountSupportsOpenAICapabilities applies the OpenAI endpoint-capability filter to native `openai` accounts ONLY (`account.IsOpenAI() && !...`), so `newapi` accounts (platform != openai, !IsOpenAI) are never fail-closed out of chat/embeddings scheduling. If a future merge drops the IsOpenAI() guard and applies SupportsOpenAIEndpointCapability unconditionally, every newapi account would be filtered out of the compat pool — a total fifth-platform outage. Must survive future upstream merges."
     }
   ]
 }
