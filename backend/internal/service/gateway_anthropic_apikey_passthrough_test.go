@@ -607,7 +607,15 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_CountTokensFiltersGenerationF
 	require.Equal(t, "sys", gjson.GetBytes(sentBody, "system.0.text").String())
 	require.Equal(t, "hello", gjson.GetBytes(sentBody, "messages.0.content").String())
 	require.Equal(t, "tool", gjson.GetBytes(sentBody, "tools.0.name").String())
-	require.Equal(t, int64(1024), gjson.GetBytes(sentBody, "max_tokens").Int())
+	// max_tokens is a generation-only field the Anthropic count_tokens endpoint REJECTS
+	// with `max_tokens: Extra inputs are not permitted` (HTTP 400) — verified against the
+	// live API + anthropics/claude-code#14156. TokenKey's StripCountTokensUnsupportedFields
+	// strips it proactively (prod incident 2026-05-18 / PR #280: a client schema bug forwarding
+	// generation fields 400'd and tripped the per-account upstream-error breaker). The upstream
+	// fix (#2764) omitted max_tokens from its strip set in error; this assertion reflects the
+	// correct, fingerprint/ops-verified behavior. See the sibling test at ~L551.
+	require.False(t, gjson.GetBytes(sentBody, "max_tokens").Exists(),
+		"max_tokens must be stripped from the count_tokens upstream payload (Anthropic rejects it)")
 	require.Equal(t, "enabled", gjson.GetBytes(sentBody, "thinking.type").String())
 }
 

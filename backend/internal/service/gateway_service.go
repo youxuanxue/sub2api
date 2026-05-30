@@ -6317,6 +6317,21 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	if fingerprint != nil {
 		body = syncBillingHeaderVersion(body, fingerprint.UserAgent)
 	}
+	// 能力维度 body sanitize（与最终 anthropic-beta header 对称）：最终 beta 不含
+	// context-management 时 strip body.context_management。必须在 CCH 签名之前（hash
+	// 要覆盖 strip 后的 body）且在 NewRequest 之前。
+	//
+	// 注意 haiku 的 header/body 非对称：computeFinalAnthropicBeta 的 haiku 分支刻意
+	// 不含 context-management —— 这正是 body 侧需要的（Anthropic 对 haiku 的
+	// body.context_management 返回 400），而下方 inline 块仍按 mimicry 给 header
+	// 带上 haiku 的 context-management beta（指纹对齐）。
+	{
+		ctxMgmtDropSet := mergeDropSets(s.getBetaPolicyFilterSet(ctx, c, account, modelID))
+		finalBetaForBody, _ := s.computeFinalAnthropicBeta(tokenType, mimicClaudeCode, modelID, clientHeaders, body, ctxMgmtDropSet)
+		if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, finalBetaForBody); changed {
+			body = sanitized
+		}
+	}
 	// CCH 签名：将 cch=00000 占位符替换为 xxHash64 签名（需在所有 body 修改之后）
 	if enableCCH {
 		body = signBillingHeaderCCH(body)
@@ -9844,6 +9859,17 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	// 同步 billing header cc_version 与实际发送的 User-Agent 版本
 	if ctFingerprint != nil && ctEnableFP {
 		body = syncBillingHeaderVersion(body, ctFingerprint.UserAgent)
+	}
+	// 能力维度 body sanitize（与 count_tokens 最终 anthropic-beta header 对称）；必须在
+	// CCH 签名前。注：count_tokens 路径 ForwardCountTokens 已用 StripCountTokensUnsupportedFields
+	// 无条件剥离 context_management（Anthropic count_tokens 拒收该字段），此处对直接调用方
+	// 与未走 Forward 的入口做能力维度兜底。
+	{
+		ctxMgmtDropSet := mergeDropSets(s.getBetaPolicyFilterSet(ctx, c, account, modelID))
+		finalBetaForBody, _ := s.computeFinalCountTokensAnthropicBeta(tokenType, mimicClaudeCode, modelID, clientHeaders, body, ctxMgmtDropSet)
+		if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, finalBetaForBody); changed {
+			body = sanitized
+		}
 	}
 	if ctEnableCCH {
 		body = signBillingHeaderCCH(body)
