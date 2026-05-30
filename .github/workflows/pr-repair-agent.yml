@@ -39,13 +39,19 @@ concurrency:
 
 jobs:
   repair:
-    # Scheduled/push CI failures have no pull_requests[] entry; repairing them is
-    # impossible and just burns runner time (and fails on the same infra blips).
+    # Gate on the CI run being PR-triggered (event == 'pull_request'), NOT on
+    # workflow_run.pull_requests[0] != null. GitHub populates that array
+    # unreliably for pull_request-triggered runs — empirically EMPTY for some
+    # same-repo PRs (e.g. merge/upstream-* PR #456's CI runs all reported
+    # pull_requests=[] while sibling PRs reported 1), which silently skipped the
+    # entire repair job. The `event == 'pull_request'` check still excludes
+    # scheduled/push CI failures (no PR to repair) without depending on the flaky
+    # array; the resolve step below recovers the PR number from the head SHA.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (
         (github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'timed_out' || github.event.workflow_run.conclusion == 'cancelled') &&
-        github.event.workflow_run.pull_requests[0] != null
+        github.event.workflow_run.event == 'pull_request'
       )
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -84,6 +90,27 @@ jobs:
             FAILED_RUN_ID="$(jq -r '.workflow_run.id' "$GITHUB_EVENT_PATH")"
             WORKFLOW_NAME="$(jq -r '.workflow_run.name' "$GITHUB_EVENT_PATH")"
             RUN_URL="$(jq -r '.workflow_run.html_url' "$GITHUB_EVENT_PATH")"
+
+            # Fallback: workflow_run.pull_requests[] is frequently EMPTY for
+            # pull_request-triggered runs (confirmed for merge/upstream-* PR #456).
+            # Recover the PR number from the failed run's head commit — the
+            # commits/{sha}/pulls API is the most reliable cross-branch resolver —
+            # falling back to the head branch. Open PRs targeting main only.
+            if [ -z "$PR_NUMBER" ]; then
+              HEAD_SHA="$(jq -r '.workflow_run.head_sha // empty' "$GITHUB_EVENT_PATH")"
+              HEAD_BRANCH="$(jq -r '.workflow_run.head_branch // empty' "$GITHUB_EVENT_PATH")"
+              if [ -n "$HEAD_SHA" ]; then
+                PR_NUMBER="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/pulls" \
+                  --jq 'map(select(.state == "open" and .base.ref == "main")) | .[0].number // empty' 2>/dev/null || true)"
+              fi
+              if [ -z "$PR_NUMBER" ] && [ -n "$HEAD_BRANCH" ]; then
+                PR_NUMBER="$(gh pr list --state open --base main --head "$HEAD_BRANCH" \
+                  --json number --jq '.[0].number // empty' 2>/dev/null || true)"
+              fi
+              if [ -n "$PR_NUMBER" ]; then
+                echo "resolved PR #$PR_NUMBER from head ${HEAD_SHA:-$HEAD_BRANCH} (workflow_run.pull_requests was empty)" >&2
+              fi
+            fi
           fi
 
           if [ -z "$PR_NUMBER" ]; then
