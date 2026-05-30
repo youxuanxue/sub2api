@@ -30,6 +30,10 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # Bound well above a normal prod SSM upgrade (~5-10 min) but far below the
+    # 6h GHA default, so a hung describe-stacks / health-poll can't hold the
+    # cancel-in-progress:false prod concurrency lock for hours.
+    timeout-minutes: 30
     # GitHub Environment binding for prod only:
     #   1. Adds environment:prod to the OIDC sub claim (IAM trust in cicd-oidc.yaml).
     #   2. Pauses for Required reviewers when configured on the prod Environment.
@@ -58,6 +62,39 @@ jobs:
           fi
           NAME="${{ vars.PROD_STACK_NAME || 'tokenkey-prod-stage0' }}"
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Validate prod smoke secrets (before touching prod)
+        # Fail fast BEFORE the SSM image swap: a missing smoke secret is a config
+        # error, not a deploy failure. Validating here (instead of inside the
+        # post-deploy smoke step that runs AFTER deploy_via_ssm.sh) means a
+        # missing secret never leaves a freshly-swapped image live behind a red
+        # "smoke" run that actually means "secret not configured".
+        env:
+          TK_SMOKE_PROD_ANTHROPIC_KEY: ${{ secrets.TK_SMOKE_PROD_ANTHROPIC_KEY }}
+          TK_SMOKE_PROD_GEMINI_KEY: ${{ secrets.TK_SMOKE_PROD_GEMINI_KEY }}
+          TK_SMOKE_PROD_OPENAI_OAUTH_KEY: ${{ secrets.TK_SMOKE_PROD_OPENAI_OAUTH_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TK_SMOKE_PROD_ANTHROPIC_KEY:-}" ]; then
+            echo "::error::TK_SMOKE_PROD_ANTHROPIC_KEY is not set in prod Environment."
+            echo "Add a TokenKey user API key (sk-...) that is valid for this stack's gateway."
+            echo "See deploy/aws/README.md (Smoke config) and docs/approved/deploy-stage0-workflow.md §5."
+            exit 1
+          fi
+          if [ -z "${TK_SMOKE_PROD_GEMINI_KEY:-}" ]; then
+            echo "::error::TK_SMOKE_PROD_GEMINI_KEY is not set in prod Environment."
+            echo "Add a TokenKey API key bound to a gemini-platform group (e.g. gemini-pa) on this stack's gateway."
+            echo "This probe guards the Anthropic→Gemini tool-schema cleanup regression."
+            echo "See deploy/aws/README.md (Smoke config) and docs/approved/deploy-stage0-workflow.md §5."
+            exit 1
+          fi
+          if [ -z "${TK_SMOKE_PROD_OPENAI_OAUTH_KEY:-}" ]; then
+            echo "::error::TK_SMOKE_PROD_OPENAI_OAUTH_KEY is not set in prod Environment."
+            echo "Add a TokenKey API key bound to an OpenAI OAuth/codex-platform group on this stack's gateway."
+            echo "This probe guards the reasoning_tokens passthrough regression."
+            echo "See deploy/aws/README.md (Smoke config) and docs/approved/deploy-stage0-workflow.md §5."
+            exit 1
+          fi
 
       - name: Verify GHCR multi-arch manifest
         # Shared with deploy-edge-stage0.yml so prod and Edge never grow
@@ -117,26 +154,9 @@ jobs:
           TK_SMOKE_PROD_OPENAI_OAUTH_MODEL: ${{ vars.TK_SMOKE_PROD_OPENAI_OAUTH_MODEL }}
         run: |
           set -euo pipefail
-          if [ -z "${TK_SMOKE_PROD_ANTHROPIC_KEY:-}" ]; then
-            echo "::error::TK_SMOKE_PROD_ANTHROPIC_KEY is not set in prod Environment."
-            echo "Add a TokenKey user API key (sk-...) that is valid for this stack's gateway."
-            echo "See deploy/aws/README.md (Smoke config) and docs/approved/deploy-stage0-workflow.md §5."
-            exit 1
-          fi
-          if [ -z "${TK_SMOKE_PROD_GEMINI_KEY:-}" ]; then
-            echo "::error::TK_SMOKE_PROD_GEMINI_KEY is not set in prod Environment."
-            echo "Add a TokenKey API key bound to a gemini-platform group (e.g. gemini-pa) on this stack's gateway."
-            echo "This probe guards the Anthropic→Gemini tool-schema cleanup regression."
-            echo "See deploy/aws/README.md (Smoke config) and docs/approved/deploy-stage0-workflow.md §5."
-            exit 1
-          fi
-          if [ -z "${TK_SMOKE_PROD_OPENAI_OAUTH_KEY:-}" ]; then
-            echo "::error::TK_SMOKE_PROD_OPENAI_OAUTH_KEY is not set in prod Environment."
-            echo "Add a TokenKey API key bound to an OpenAI OAuth/codex-platform group on this stack's gateway."
-            echo "This probe guards the reasoning_tokens passthrough regression."
-            echo "See deploy/aws/README.md (Smoke config) and docs/approved/deploy-stage0-workflow.md §5."
-            exit 1
-          fi
+          # Secret presence is validated up front in "Validate prod smoke secrets"
+          # (before the SSM image swap); here we just run the smoke against the
+          # already-deployed image.
           bash ops/stage0/post_deploy_smoke.sh
 
       - name: Job summary

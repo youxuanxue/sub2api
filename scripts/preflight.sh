@@ -793,6 +793,22 @@ fi
 [ "$_tag_ok" = 1 ] && echo "  ok: prod + Edge deploy workflows share the tag-format gate ($_tag_script)"
 unset _tag_script _tag_files _tag_ok _f
 
+echo ""
+echo "=== sub2api: Stage0 deploy job timeouts ==="
+# Every Stage0 deploy job has cancel-in-progress:false concurrency, so a hung
+# step (describe-stacks / health-poll) would hold the prod/edge lock to the 6h
+# GHA default without a job-level timeout-minutes. Assert the cap stays present.
+_dt_ok=1
+for _df in .github/workflows/deploy-stage0.yml .github/workflows/deploy-edge-stage0.yml .github/workflows/deploy-edge-lightsail-stage0.yml; do
+    [ -f "$_df" ] || continue
+    if ! grep -q '^    timeout-minutes:' "$_df"; then
+        echo "  FAIL: $_df job is missing timeout-minutes (a hang would hold the deploy concurrency lock up to the 6h GHA default)"
+        errors=$((errors + 1)); _dt_ok=0
+    fi
+done
+[ "$_dt_ok" = 1 ] && echo "  ok: all Stage0 deploy jobs declare a job-level timeout-minutes"
+unset _dt_ok _df
+
 # Anthropic OAuth tier baseline values now live in exactly one place: the JSON
 # source of truth. The apply SQL is generated from it at runtime (orchestrator
 # reuses the guard's generate_sql), so there is no second hand-aligned copy to
