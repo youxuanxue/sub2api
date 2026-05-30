@@ -1737,6 +1737,13 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 		return nil
 	}
+	// TK (upstream#1934): invalidate sticky bindings whose bound account has
+	// drifted out of this group (group switch / removed from group). See
+	// openaiStickyAccountStillInGroup. The load-balance path is unaffected.
+	if groupID != nil && !openaiStickyAccountStillInGroup(account, *groupID) {
+		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+		return nil
+	}
 	if groupID != nil && s.needsUpstreamChannelRestrictionCheck(ctx, groupID) &&
 		s.isUpstreamModelRestrictedByChannel(ctx, *groupID, account, requestedModel, requireCompact) {
 		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
@@ -1951,6 +1958,10 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 					if account == nil {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 					} else if s.isOpenAIAccountRuntimeBlocked(account) {
+						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+					} else if groupID != nil && !openaiStickyAccountStillInGroup(account, *groupID) {
+						// TK (upstream#1934): bound account drifted out of this
+						// group — invalidate (symmetric with tryStickySessionHit).
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 					} else if needsUpstreamCheck && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, account, requestedModel, requireCompact) {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
@@ -2364,9 +2375,12 @@ func (s *OpenAIGatewayService) handleFailoverSideEffects(ctx context.Context, re
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if len(requestedModel) > 0 {
 		s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, requestedModel[0])
-		return
+	} else {
+		s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body)
 	}
-	s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body)
+	// TK (upstream#2727): opt-in cross-request cooldown for implicitly-throttled
+	// accounts (repeated 5xx / header-timeout with no explicit 429). Default OFF.
+	s.tkApplyImplicitThrottleCooldown(ctx, account, resp.StatusCode)
 }
 
 // Forward forwards request to OpenAI API

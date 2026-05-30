@@ -312,7 +312,17 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			s.handleAuthError(ctx, account, msg)
 			shouldDisable = true
 		} else if account.Platform == PlatformAnthropic {
-			shouldDisable = s.handleAnthropicUpstreamError(ctx, account, statusCode, upstreamMsg, responseBody)
+			// TK (upstream#2608): a client-induced invalid_request_error must NOT
+			// advance the per-account cooldown counter — otherwise any caller can
+			// pause a shared OAuth subscription account by sending malformed 400s.
+			// Account-level 400s (org disabled / credit / KYC) are handled above;
+			// only atypical 400s still go through the normal threshold path.
+			if tkIsAnthropicClientInducedBadRequest(responseBody) {
+				slog.Info("anthropic_client_induced_400_skip_penalty",
+					"account_id", account.ID, "status_code", statusCode)
+			} else {
+				shouldDisable = s.handleAnthropicUpstreamError(ctx, account, statusCode, upstreamMsg, responseBody)
+			}
 		}
 		// 其他 400 错误（如参数问题）不处理，不禁用账号
 	case 401:
@@ -1328,12 +1338,15 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 		persistOpenAI429PlanType(ctx, s.accountRepo, account, responseBody)
 		s.persistOpenAICodexSnapshot(ctx, account, headers)
 		if resetAt := s.calculateOpenAI429ResetTime(headers); resetAt != nil {
-			s.notifyAccountSchedulingBlocked(account, *resetAt, "429")
-			if err := s.accountRepo.SetRateLimited(ctx, account.ID, *resetAt); err != nil {
+			// TK (upstream#1981): opt-in clamp of long upstream resets (e.g. 7d
+			// window exhaustion) so released accounts are not idled. Default OFF.
+			clamped := s.tkClampOpenAIRateLimitReset(ctx, account.ID, *resetAt)
+			s.notifyAccountSchedulingBlocked(account, clamped, "429")
+			if err := s.accountRepo.SetRateLimited(ctx, account.ID, clamped); err != nil {
 				slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
 				return false
 			}
-			slog.Info("openai_account_rate_limited", "account_id", account.ID, "reset_at", *resetAt)
+			slog.Info("openai_account_rate_limited", "account_id", account.ID, "reset_at", clamped)
 			return true
 		}
 	}
@@ -1373,6 +1386,8 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 			// 尝试解析 OpenAI 的 usage_limit_reached 错误
 			if resetAt := parseOpenAIRateLimitResetTime(responseBody); resetAt != nil {
 				resetTime := time.Unix(*resetAt, 0)
+				// TK (upstream#1981): opt-in clamp (default OFF) — see header path above.
+				resetTime = s.tkClampOpenAIRateLimitReset(ctx, account.ID, resetTime)
 				s.notifyAccountSchedulingBlocked(account, resetTime, "429")
 				if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetTime); err != nil {
 					slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)

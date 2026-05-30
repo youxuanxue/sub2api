@@ -7,10 +7,10 @@ import (
 )
 
 func TestParseClaudeCodeHTTPMimicryManifest_Valid(t *testing.T) {
-	raw := `{"schema_version":1,"cc_version":"2.1.156","sonnet_opus":["oauth-2025-04-20","claude-code-20250219"],"haiku":["oauth-2025-04-20"]}`
+	raw := `{"schema_version":1,"cc_version":"2.1.157","sonnet_opus":["oauth-2025-04-20","claude-code-20250219"],"haiku":["oauth-2025-04-20"]}`
 	m := ParseClaudeCodeHTTPMimicryManifest(raw)
 	require.NotNil(t, m)
-	require.Equal(t, "2.1.156", m.CCVersion)
+	require.Equal(t, "2.1.157", m.CCVersion)
 	require.Equal(t, []string{"oauth-2025-04-20", "claude-code-20250219"}, m.SonnetOpus)
 	require.Equal(t, []string{"oauth-2025-04-20"}, m.Haiku)
 }
