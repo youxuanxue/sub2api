@@ -1,28 +1,7 @@
 ---
 name: tokenkey-anthropic-oauth-config
 description: >-
-  TokenKey Anthropic 配置写入流水线（snapshot → check → plan → apply → verify）。
-  **五条写入面**，都由同一个脚本 ops/anthropic/manage-anthropic-config.py 编排，且都
-  "JSON 派生 SQL、无静态模板、operator 不写 SQL"：
-  (A) edge anthropic OAuth account 的 tier baseline（concurrency / base_rpm /
-  sticky_buffer / max_sessions 等 account 字段 + enable_tls_fingerprint 与同名
-  TLS profile UPSERT/bind）—— 来源
-  anthropic-oauth-stability-baselines-tiered.json；canonical profile 名为
-  tk_canonical_cc_oauth；同一事务把 users.id=1 的
-  concurrency 更新为该 edge 库内 schedulable=true 的 anthropic 账号 concurrency 之和。
-  (B) prod anthropic api-key 镜像 stub（base_url=api-*.tokenkey.dev 形状）的
-  credentials.pool_mode + pool_mode_retry_count —— 来源 anthropic-stub-pool-baselines.json。
-  (C) prod stub concurrency 镜像（plan-concurrency-mirror）：把 edge users.id=1 与
-  对应 prod stub.concurrency 与 prod users.id=1 都对齐为「Σ schedulable=true anthropic
-  concurrency」的四跳级联——值从 live 派生，不引入新 baseline JSON；stub↔edge 链接按
-  EC2 + Lightsail 双矩阵 merge 的 domain 字段稳定匹配，不推断。
-  (D) anthropic group Claude Code 客户端限制（plan-group-claude-code-only）：每个
-  deployable edge + prod 上全部 platform=anthropic 的 groups.claude_code_only=true
-  （admin UI 开关 ON → 仅允许 Claude Code 客户端）—— 来源 anthropic-group-claude-code-baselines.json。
-  group.rpm_limit 不由本流水线写——admin UI 直接独立设置。
-  (E) edge 控制面 admin 用户余额（plan-edge-operator-balance）：每个 deployable edge 上
-  users.id=1 的 balance 若 < 100 则重置为 9999999 —— 来源
-  anthropic-edge-operator-balance-baselines.json；仅 edge，不写 prod。
+  TokenKey Anthropic 配置写入流水线（snapshot → check → plan → apply → verify），由 ops/anthropic/manage-anthropic-config.py 统一编排，五条写入面均「JSON 派生 SQL、operator 不写 SQL」：(A) edge OAuth account tier baseline（concurrency/base_rpm/sticky_buffer/max_sessions + enable_tls_fingerprint 绑定 tk_canonical_cc_oauth profile，并把 users.id=1 concurrency 对齐为 schedulable anthropic 账号之和，来源 anthropic-oauth-stability-baselines-tiered.json）；(B) prod api-key 镜像 stub 的 pool_mode + pool_mode_retry_count；(C) prod stub concurrency 镜像（plan-concurrency-mirror，四跳级联，值从 live 派生）；(D) anthropic group claude_code_only（plan-group-claude-code-only，仅 Claude Code 客户端；rpm_limit 不由本流水线写）；(E) edge admin 余额（plan-edge-operator-balance，<100 重置 9999999，仅 edge）。Use when 提到 TokenKey Anthropic 配置写入、manage-anthropic-config、tier baseline、pool_mode、concurrency mirror、claude_code_only、edge operator balance。
 ---
 
 # TokenKey：Anthropic 配置流水线
