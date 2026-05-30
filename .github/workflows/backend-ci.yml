@@ -161,10 +161,23 @@ jobs:
           version: v2.9
           args: --enable-only gosec --concurrency=4 --timeout=30m
           working-directory: backend
+      - name: Note gosec scope (push/PR runs)
+        # Honesty signal: on push/PR this job runs ONLY govulncheck — gosec static
+        # analysis is gated to schedule/dispatch above. Without this note a green
+        # `backend-security` check on a PR reads as "gosec passed" when it never
+        # ran. Zero-cost; surfaces the gap in the log + step summary.
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        run: |
+          echo "::notice title=gosec scope::gosec static analysis runs weekly (Mon 03:00 UTC) and on manual dispatch — NOT on push/PR. This run executed govulncheck only."
+          echo "ℹ️ \`backend-security\` on push/PR runs **govulncheck only**. gosec static analysis runs weekly (Mon 03:00 UTC) + manual dispatch (\`suite: security\`)." >> "$GITHUB_STEP_SUMMARY"
       - name: Run govulncheck
         working-directory: backend
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          # Pin govulncheck (was @latest). An unpinned @latest is non-reproducible
+          # and a supply-chain surface — a bad upstream release would silently
+          # break or poison this gate. Contrast golangci-lint (pinned v2.9) and
+          # new-api (pinned by SHA). Bump deliberately.
+          go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
           govulncheck ./...
 
   frontend-security:
@@ -188,7 +201,26 @@ jobs:
       - name: Run pnpm audit
         working-directory: frontend
         run: |
+          # `pnpm audit` exits non-zero when advisories are found — that is
+          # EXPECTED here; the exception checker (next step) decides pass/fail.
+          # But a registry/network failure ALSO exits non-zero with empty/garbage
+          # output, which the checker would then pass VACUOUSLY (empty audit =
+          # "no vulns"). So: run, ignore the advisory exit, then assert the output
+          # is real audit JSON (parses + has a recognized top-level key) before
+          # trusting it. Fail loudly if the audit did not actually run.
           pnpm audit --prod --audit-level=high --json > audit.json || true
+          python3 - <<'PY'
+          import json, sys
+          try:
+              with open("audit.json") as fh:
+                  data = json.load(fh)
+          except Exception as exc:
+              sys.stderr.write(f"::error title=pnpm audit::audit.json is not valid JSON ({exc}); pnpm audit failed to run (registry/network?). Failing instead of passing vacuously.\n")
+              sys.exit(1)
+          if not (isinstance(data, dict) and any(k in data for k in ("advisories", "vulnerabilities", "metadata"))):
+              sys.stderr.write("::error title=pnpm audit::audit.json parsed but lacks advisories/vulnerabilities/metadata; not a real audit result. Failing instead of passing vacuously.\n")
+              sys.exit(1)
+          PY
       - name: Check audit exceptions
         run: |
           python tools/check_pnpm_audit_exceptions.py \

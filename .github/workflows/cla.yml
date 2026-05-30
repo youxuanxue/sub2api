@@ -6,8 +6,12 @@ on:
   pull_request_target:
     types: [opened, reopened, closed, synchronize]
 
+# Least-privilege: CLA sign/lock only needs to write the signature store
+# (contents), comment/label PRs (pull-requests), and set the CLA status check
+# (statuses). `actions: write` was over-granted and unused — dropped. This block
+# runs in pull_request_target context (base-repo secrets + write token even on
+# fork PRs), so the scope is deliberately minimal.
 permissions:
-  actions: write
   contents: write
   pull-requests: write
   statuses: write
@@ -30,7 +34,11 @@ jobs:
           (github.event.comment.body == 'recheck' ||
            github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA') ||
           github.event_name == 'pull_request_target'
-        uses: contributor-assistant/github-action@v2.6.1
+        # Pinned to the v2.6.1 commit SHA (was the mutable @v2.6.1 tag). This
+        # action receives a write-scoped GITHUB_TOKEN in pull_request_target
+        # context; a re-pointed tag (account compromise / dependency confusion)
+        # would hand that token to attacker-controlled code. Bump deliberately.
+        uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -112,7 +120,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: "Lock merged PR"
-        uses: contributor-assistant/github-action@v2.6.1
+        # Pinned to the v2.6.1 commit SHA (see cla-check rationale above).
+        uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:

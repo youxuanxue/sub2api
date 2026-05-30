@@ -31,6 +31,19 @@ env:
   SIMPLE_RELEASE: ${{ github.event.inputs.simple_release == 'true' || vars.SIMPLE_RELEASE == 'true' }}
   FULL_RELEASE: ${{ github.event.inputs.full_release == 'true' || vars.FULL_RELEASE == 'true' }}
 
+# Serialize the ENTIRE release pipeline. Two concurrent releases — e.g. a tag
+# push plus the §9.2 recovery dispatch `gh workflow run release.yml -f tag=...`,
+# or two tags landing close together — would otherwise race non-atomically on
+# the shared :latest / :X / :X.Y / :X.Y.Z image tags (last-writer-wins, no
+# signal on which build the manifest ends up pointing at) AND on the
+# `[skip ci]` VERSION writeback that sync-version-file pushes directly to main.
+# A single global group + cancel-in-progress:false queues releases instead of
+# racing; releases are infrequent and are meant to be serial. See CLAUDE.md
+# §9.1 (arch manifest) / §9.2 (VERSION writeback).
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 permissions:
   contents: write
   packages: write
