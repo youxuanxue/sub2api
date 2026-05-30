@@ -272,7 +272,10 @@ cmd_check_env() {
       *) echo "unknown check env arg: $1" >&2; usage; exit 1 ;;
     esac
   done
-  exec python3 "$PY" check-env "${args[@]}"
+  if ((${#args[@]})); then
+    exec python3 "$PY" check-env "${args[@]}"
+  fi
+  exec python3 "$PY" check-env
 }
 
 main() {

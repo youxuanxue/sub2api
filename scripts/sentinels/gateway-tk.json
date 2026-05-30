@@ -1139,7 +1139,7 @@
         "func FullClaudeCodeHaikuMimicryBetas()",
         "func JoinBetaHeader("
       ],
-      "rationale": "OAuth Claude Code mimicry beta registry: Sonnet/Opus and Haiku sets must stay aligned with real cc CLI traffic (cc 2.1.157 capture). Dropping thinking-token-count / structured-outputs or reverting Haiku to the legacy claude-code + extended-cache-ttl set re-opens third-party cohort signals on OAuth subscriptions."
+      "rationale": "OAuth Claude Code mimicry beta registry: Sonnet/Opus and Haiku sets must stay aligned with real cc CLI traffic (cc 2.1.158 capture). Dropping thinking-token-count / structured-outputs or reverting Haiku to the legacy claude-code + extended-cache-ttl set re-opens third-party cohort signals on OAuth subscriptions."
     },
     {
       "path": "backend/internal/handler/gateway_handler.go",

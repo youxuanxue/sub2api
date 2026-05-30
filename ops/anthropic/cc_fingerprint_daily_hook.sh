@@ -47,8 +47,14 @@ env_flags=()
 [[ "$relax" == "1" ]] && env_flags+=(--relax-desktop)
 [[ "$skip_egress" == "1" ]] && env_flags+=(--skip-egress)
 
-log "check env (${env_flags[*]})"
-if ! bash "$CAPTURE_SH" check env "${env_flags[@]}" >>"$LOG_FILE" 2>&1; then
+if ((${#env_flags[@]})); then
+  log "check env (${env_flags[*]})"
+  check_env_cmd=(bash "$CAPTURE_SH" check env "${env_flags[@]}")
+else
+  log "check env (no flags)"
+  check_env_cmd=(bash "$CAPTURE_SH" check env)
+fi
+if ! "${check_env_cmd[@]}" >>"$LOG_FILE" 2>&1; then
   log "FAIL: check-env — start cc0-here / claude0-here stack before daily capture"
   printf '%s\n' "$today" >"$STATE_FILE"
   exit 0
