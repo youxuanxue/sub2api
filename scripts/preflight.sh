@@ -751,6 +751,43 @@ else
     echo "  ok: no Edge Stage0 workflow present"
 fi
 
+echo ""
+echo "=== sub2api: Stage0 deploy tag-validation sharing ==="
+# The X.Y.Z(-rc.N/-beta.N) release-tag gate is a single shared script so the
+# three deploy workflows never grow divergent copies (the Lightsail copy had
+# already drifted to a shorter error message). This sentinel fails closed if any
+# deploy workflow stops calling it or re-inlines the regex.
+_tag_script="ops/stage0/validate-deploy-tag.sh"
+_tag_files=".github/workflows/deploy-stage0.yml .github/workflows/deploy-edge-stage0.yml .github/workflows/deploy-edge-lightsail-stage0.yml"
+_tag_ok=1
+if [ ! -x "$_tag_script" ]; then
+    echo "  FAIL: $_tag_script missing or not executable (shared tag-format gate)"
+    errors=$((errors + 1)); _tag_ok=0
+fi
+for _f in $_tag_files; do
+    [ -f "$_f" ] || continue
+    if ! grep -q "$_tag_script" "$_f"; then
+        echo "  FAIL: $_f must call $_tag_script (do not re-inline the tag regex)"
+        errors=$((errors + 1)); _tag_ok=0
+    fi
+    if grep -Fq '[0-9]+\.[0-9]+\.[0-9]+' "$_f"; then
+        echo "  FAIL: $_f re-inlines the X.Y.Z tag regex; call $_tag_script instead"
+        errors=$((errors + 1)); _tag_ok=0
+    fi
+done
+if [ -x "$_tag_script" ]; then
+    if ! bash "$_tag_script" 1.2.3 >/dev/null 2>&1 || ! bash "$_tag_script" 1.2.3-rc.4 >/dev/null 2>&1; then
+        echo "  FAIL: $_tag_script rejected a well-formed tag (1.2.3 / 1.2.3-rc.4)"
+        errors=$((errors + 1)); _tag_ok=0
+    fi
+    if bash "$_tag_script" 1.2 >/dev/null 2>&1 || bash "$_tag_script" "" >/dev/null 2>&1; then
+        echo "  FAIL: $_tag_script accepted a malformed/empty tag"
+        errors=$((errors + 1)); _tag_ok=0
+    fi
+fi
+[ "$_tag_ok" = 1 ] && echo "  ok: prod + Edge deploy workflows share the tag-format gate ($_tag_script)"
+unset _tag_script _tag_files _tag_ok _f
+
 # Anthropic OAuth tier baseline values now live in exactly one place: the JSON
 # source of truth. The apply SQL is generated from it at runtime (orchestrator
 # reuses the guard's generate_sql), so there is no second hand-aligned copy to
