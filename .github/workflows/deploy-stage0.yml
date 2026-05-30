@@ -48,10 +48,10 @@ jobs:
         id: stack
         run: |
           set -euo pipefail
-          if ! printf '%s' "$INPUT_TAG" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+|-beta\.[0-9]+)?$'; then
-            echo "::error::tag must match X.Y.Z (optionally -rc.N / -beta.N), got: $INPUT_TAG"
-            exit 1
-          fi
+          # Tag-format gate: single source of truth shared with the two Edge
+          # deploy workflows (prevents the regex/message drift that had already
+          # crept into deploy-edge-lightsail-stage0.yml).
+          bash ops/stage0/validate-deploy-tag.sh "$INPUT_TAG"
           if [ -z "${OIDC_ROLE_ARN:-}" ]; then
             echo "::error::AWS_OIDC_ROLE_ARN repo variable not set; configure per docs/approved/deploy-stage0-workflow.md §5"
             exit 1

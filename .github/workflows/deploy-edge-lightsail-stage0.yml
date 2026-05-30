@@ -105,10 +105,10 @@ jobs:
                 echo "::error::tag is required for operation=$INPUT_OPERATION"
                 exit 1
               fi
-              if ! printf '%s' "$INPUT_TAG" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+|-beta\.[0-9]+)?$'; then
-                echo "::error::tag must match X.Y.Z, got: $INPUT_TAG"
-                exit 1
-              fi
+              # Tag-format gate: shared with prod + EC2-edge deploy workflows.
+              # (Was an inline regex whose error message had drifted shorter than
+              # the other two — now the canonical message from the shared script.)
+              bash ops/stage0/validate-deploy-tag.sh "$INPUT_TAG"
               ;;
             smoke) ;;
             *) echo "::error::unsupported operation=$INPUT_OPERATION"; exit 1 ;;
