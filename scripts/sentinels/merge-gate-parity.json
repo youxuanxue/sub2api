@@ -1,0 +1,16 @@
+{
+  "rationale": "The merge/upstream-* PR-shape gate (.github/workflows/upstream-merge-pr-shape.yml checks 4-13) runs the SAME sentinel / contract checks that scripts/preflight.sh runs locally, deliberately, so a green local preflight implies a green merge gate. The two are hand-maintained copies that could drift (a 14th sentinel added to one but not the other). This manifest is the single list that keeps them coupled: scripts/checks/merge-gate-parity.py asserts every script here is invoked in BOTH files, and that every scripts/sentinels/check-*.py referenced by the workflow is listed here. Adding a new merge-gate sentinel means wiring it into preflight.sh + upstream-merge-pr-shape.yml + this list, or merge-gate-parity fails closed. This replaces collapsing the workflow into a `preflight --sentinels-only` call, which would have touched the merge-gate machinery itself. Merge-topology checks 1-3 (merge-commit ancestry, PR-body cadence, skip-ci-marker) are NOT in this set — they need PR base/head/body data preflight does not have.",
+  "scripts": [
+    "scripts/sentinels/check-newapi.py",
+    "scripts/sentinels/check-brand.py",
+    "scripts/sentinels/check-frontend-tk.py",
+    "scripts/sentinels/check-gateway-tk.py",
+    "scripts/sentinels/check-redaction-version.py",
+    "scripts/sentinels/check-trajectory-hooks.py",
+    "scripts/sentinels/check-terminal-events.py",
+    "scripts/sentinels/check-engine-facade.py",
+    "scripts/sentinels/check-pricing-availability.py",
+    "scripts/sentinels/check-registry-update-gate.py",
+    "scripts/checks/buffered-content-type-leak.py"
+  ]
+}
