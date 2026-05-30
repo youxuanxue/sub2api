@@ -16,7 +16,9 @@ on:
       - 'backend/.golangci.yml'
       - 'backend/Makefile'
       - 'backend/Dockerfile'
-      - '.cache/upstream/*.json'
+      # NOTE: do NOT add '.cache/upstream/*.json' here. The watchdog itself
+      # force-pushes a cache-refresh PR touching those files; merging it would
+      # re-trigger the watchdog (self-retrigger loop, deduped only internally).
       - 'scripts/upstream/issue-*.py'
       - '.github/workflows/upstream-issue-watchdog.yml'
   schedule:
@@ -36,10 +38,12 @@ on:
         description: "Optional Wei-Shaw/sub2api issue number to force-review/fix"
         required: false
         type: string
-  workflow_run:
-    workflows:
-      - Daily Upstream Merge Agent
-    types: [completed]
+  # NOTE: deliberately NO `workflow_run` trigger off "Daily Upstream Merge
+  # Agent". The cron above (21:20 UTC) is the single source of truth for the
+  # daily scan and runs ~80 min after the merge agent regardless of whether it
+  # ran. Chaining workflow_run on top of the cron made the scan double-fire
+  # every day (same paginated upstream fetch + duplicate force-push to the
+  # fixed cache branch). One trigger source only.
 
 permissions:
   contents: write
@@ -53,7 +57,6 @@ concurrency:
 
 jobs:
   scan:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     outputs:
