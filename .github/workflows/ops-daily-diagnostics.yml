@@ -689,12 +689,12 @@ jobs:
         continue-on-error: true
         uses: ./.github/actions/run-headless-agent
         with:
-          prompt-file: /tmp/claude-issue-prompt.txt
+          prompt_file: /tmp/claude-issue-prompt.txt
           model: "opus[1m]"
-          max-budget-usd: "1.00"
-          allowed-tools: "Read Grep Glob"
-          auth-token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-          output-file: claude-issue-diagnosis.jsonl
+          max_budget_usd: "1.00"
+          allowed_tools: "Read Grep Glob"
+          auth_token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          output_file: claude-issue-diagnosis.jsonl
 
       - name: Extract Claude diagnosis
         if: steps.claude_token.outputs.present == 'true'

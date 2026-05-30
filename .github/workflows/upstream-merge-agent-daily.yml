@@ -261,22 +261,22 @@ jobs:
         id: agent_attempt_1
         # Shared headless-agent scaffold (CLI install + origin/main redactor
         # staging fail-closed + canonical thinking-env + claude→redact→tee).
-        # fail-on-error:false preserves the prior `set +e` + PIPESTATUS flow so
-        # the contract/retry logic below branches on the captured exit_code
+        # fail_on_error:false preserves the prior exit-code-capture (PIPESTATUS)
+        # flow so the contract/retry logic below branches on the captured exit_code
         # (steps.agent_attempt_1.outputs.exit_code) instead of hard-failing.
         # Model/budget rationale (sonnet-4-6 @ $20, was opus[1m] @ $8 which
         # burned its cap in 16 min — run 25417602884, 2026-05-06): see git
         # history of this file.
         uses: ./.github/actions/run-headless-agent
         with:
-          prompt-file: /tmp/upstream-merge-agent-prompt.txt
+          prompt_file: /tmp/upstream-merge-agent-prompt.txt
           model: "claude-sonnet-4-6"
-          max-budget-usd: "20.00"
-          allowed-tools: "Bash Read Write Edit Grep Glob"
-          auth-token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-          gh-token: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
-          output-file: /tmp/upstream-merge-agent-output-attempt1.txt
-          fail-on-error: "false"
+          max_budget_usd: "20.00"
+          allowed_tools: "Bash Read Write Edit Grep Glob"
+          auth_token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          gh_token: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+          output_file: /tmp/upstream-merge-agent-output-attempt1.txt
+          fail_on_error: "false"
 
       - name: Snapshot attempt 1 output as canonical
         if: steps.drift_check.outputs.status == 'need_merge'
@@ -363,18 +363,18 @@ jobs:
       - name: Run Claude upstream merge agent (attempt 2)
         if: always() && steps.drift_check.outputs.status == 'need_merge' && (steps.contract_after_attempt_1.outcome != 'success' || steps.contract_after_attempt_1.outputs.contract_ok != 'true')
         id: agent_attempt_2
-        # Shared headless-agent scaffold; fail-on-error:false so the final
+        # Shared headless-agent scaffold; fail_on_error:false so the final
         # contract/exit logic branches on steps.agent_attempt_2.outputs.exit_code.
         uses: ./.github/actions/run-headless-agent
         with:
-          prompt-file: /tmp/upstream-merge-agent-retry-prompt.txt
+          prompt_file: /tmp/upstream-merge-agent-retry-prompt.txt
           model: "claude-sonnet-4-6"
-          max-budget-usd: "20.00"
-          allowed-tools: "Bash Read Write Edit Grep Glob"
-          auth-token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-          gh-token: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
-          output-file: /tmp/upstream-merge-agent-output-attempt2.txt
-          fail-on-error: "false"
+          max_budget_usd: "20.00"
+          allowed_tools: "Bash Read Write Edit Grep Glob"
+          auth_token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          gh_token: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+          output_file: /tmp/upstream-merge-agent-output-attempt2.txt
+          fail_on_error: "false"
 
       - name: Append attempt 2 output to canonical
         if: always() && steps.drift_check.outputs.status == 'need_merge' && (steps.contract_after_attempt_1.outcome != 'success' || steps.contract_after_attempt_1.outputs.contract_ok != 'true')

@@ -294,16 +294,16 @@ jobs:
         if: steps.target.outputs.skip != 'true'
         # Shared headless-agent scaffold (CLI install + origin/main redactor
         # staging fail-closed + canonical thinking-env + claude→redact→tee).
-        # fail-on-error defaults true → preserves the prior hard-fail behavior.
+        # fail_on_error defaults true → preserves the prior hard-fail behavior.
         uses: ./.github/actions/run-headless-agent
         with:
-          prompt-file: /tmp/pr-repair-prompt.txt
+          prompt_file: /tmp/pr-repair-prompt.txt
           model: "opus[1m]"
-          max-budget-usd: "8.00"
-          allowed-tools: "Bash Read Write Edit Grep Glob"
-          auth-token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-          gh-token: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
-          output-file: /tmp/pr-repair-agent-output.txt
+          max_budget_usd: "8.00"
+          allowed_tools: "Bash Read Write Edit Grep Glob"
+          auth_token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          gh_token: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+          output_file: /tmp/pr-repair-agent-output.txt
 
       - name: Upload repair artifacts
         if: always()

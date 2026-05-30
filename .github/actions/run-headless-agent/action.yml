@@ -11,33 +11,33 @@ description: >-
   MAX_THINKING_TOKENS=16000 and omitted set -o pipefail + autocompact).
 
 inputs:
-  prompt-file:
+  prompt_file:
     description: Path to the file holding the agent prompt (read via cat).
     required: true
   model:
     description: ANTHROPIC_MODEL / --model (e.g. "opus[1m]", "claude-sonnet-4-6"). No default — callers state it explicitly (CLAUDE.md §4).
     required: true
-  max-budget-usd:
+  max_budget_usd:
     description: --max-budget-usd cap. No default — callers state it explicitly (CLAUDE.md §4 headless discipline).
     required: true
-  allowed-tools:
+  allowed_tools:
     description: --allowedTools whitelist, space-separated (e.g. "Read Grep Glob" or "Bash Read Write Edit Grep Glob").
     required: true
-  auth-token:
+  auth_token:
     description: TokenKey gateway token consumed as ANTHROPIC_AUTH_TOKEN. Pass from secrets.
     required: true
-  output-file:
+  output_file:
     description: Where to tee the redacted JSONL transcript. The caller uploads it as an artifact.
     required: true
-  base-url:
+  base_url:
     description: Claude Code gateway base URL.
     required: false
     default: "https://api.tokenkey.dev"
-  gh-token:
+  gh_token:
     description: Optional GH_TOKEN exported into the agent env (for agents that git-push / call gh). Empty = not set.
     required: false
     default: ""
-  fail-on-error:
+  fail_on_error:
     description: >-
       "true" (default) fails the step when the agent exits non-zero. "false"
       exposes the agent exit code as the `exit_code` output and the step
@@ -48,7 +48,7 @@ inputs:
 
 outputs:
   exit_code:
-    description: The agent's exit code (PIPESTATUS[0]), set regardless of fail-on-error.
+    description: The agent's exit code (PIPESTATUS[0]), set regardless of fail_on_error.
     value: ${{ steps.agent.outputs.exit_code }}
 
 runs:
@@ -66,7 +66,7 @@ runs:
         # it can't leak into the agent's `git add -A`). FAIL-CLOSED: if
         # origin/main lacks it, refuse to run rather than upload unredacted.
         set -euo pipefail
-        git fetch origin main --depth=1 >/dev/null 2>&1 || true
+        git fetch origin main --depth=1 >/dev/null 2>&1 || true  # preflight-allow: swallow — best-effort fetch; the fail-closed `git show` below is the real gate
         if git show origin/main:scripts/agent/redact-stream.py > "${RUNNER_TEMP}/redact-agent-stream.py" 2>/dev/null; then
           echo "ok: staged scripts/agent/redact-stream.py from origin/main"
         else
@@ -77,16 +77,16 @@ runs:
     - name: Install Claude Code CLI
       shell: bash
       env:
-        ANTHROPIC_AUTH_TOKEN: ${{ inputs.auth-token }}
+        ANTHROPIC_AUTH_TOKEN: ${{ inputs.auth_token }}
       run: bash scripts/agent/setup-claude-code.sh
 
     - name: Run Claude agent
       id: agent
       shell: bash
       env:
-        ANTHROPIC_AUTH_TOKEN: ${{ inputs.auth-token }}
-        ANTHROPIC_BASE_URL: ${{ inputs.base-url }}
-        GH_TOKEN: ${{ inputs.gh-token }}
+        ANTHROPIC_AUTH_TOKEN: ${{ inputs.auth_token }}
+        ANTHROPIC_BASE_URL: ${{ inputs.base_url }}
+        GH_TOKEN: ${{ inputs.gh_token }}
         ANTHROPIC_MODEL: ${{ inputs.model }}
         # Canonical thinking-env — the single source of truth this action exists
         # to enforce. Keep here, not in callers.
@@ -96,11 +96,11 @@ runs:
         CLAUDE_CODE_ATTRIBUTION_HEADER: "0"
         # Inputs mapped to env (not interpolated into the run script) to avoid
         # shell-injection from input values.
-        PROMPT_FILE: ${{ inputs.prompt-file }}
-        MAX_BUDGET_USD: ${{ inputs.max-budget-usd }}
-        ALLOWED_TOOLS: ${{ inputs.allowed-tools }}
-        OUTPUT_FILE: ${{ inputs.output-file }}
-        FAIL_ON_ERROR: ${{ inputs.fail-on-error }}
+        PROMPT_FILE: ${{ inputs.prompt_file }}
+        MAX_BUDGET_USD: ${{ inputs.max_budget_usd }}
+        ALLOWED_TOOLS: ${{ inputs.allowed_tools }}
+        OUTPUT_FILE: ${{ inputs.output_file }}
+        FAIL_ON_ERROR: ${{ inputs.fail_on_error }}
       run: |
         # claude CLI has no --output flag — pipe stdout. `set -o pipefail`
         # propagates claude's exit code through the redactor pipeline.
@@ -112,7 +112,7 @@ runs:
         # --exclude-dynamic-system-prompt-sections stabilizes the system-prompt
         # prefix for ephemeral prompt-cache hits across runs.
         set -o pipefail
-        set +e
+        set +e  # preflight-allow: swallow — deliberate exit-code capture; PIPESTATUS read below, then set -e restored
         claude -p "$(cat "${PROMPT_FILE}")" \
           --model "${ANTHROPIC_MODEL}" \
           --max-budget-usd "${MAX_BUDGET_USD}" \
