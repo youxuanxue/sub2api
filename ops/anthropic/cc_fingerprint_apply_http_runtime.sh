@@ -11,7 +11,7 @@ mkdir -p "$JOBDIR"
 cd "$REPO_ROOT"
 
 echo "cc_fingerprint_apply_http_runtime: snapshot → sync-runtime (all deployable + prod)" >&2
-python3 "$MGR" snapshot --out "$JOBDIR/snap.json" --json
+python3 "$MGR" snapshot --out "$JOBDIR/snap.json"
 
 python3 "$MGR" sync-runtime \
   --target all-deployable-and-prod \
