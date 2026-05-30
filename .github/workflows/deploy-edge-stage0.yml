@@ -76,6 +76,10 @@ concurrency:
 jobs:
   edge:
     runs-on: ubuntu-latest
+    # Above the heaviest op (CFN provision / rotate_egress_ip with SSM + egress
+    # verification, ~10-20 min) but far below the 6h GHA default, so a hung step
+    # can't hold the cancel-in-progress:false edge concurrency lock for hours.
+    timeout-minutes: 60
     environment: edge-${{ inputs.edge_id }}
     env:
       OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
@@ -264,7 +268,12 @@ jobs:
 
       - name: Resolve Edge instance + API URL
         id: instance
-        if: inputs.operation != 'provision' || success()
+        # No explicit `if:` — GitHub then auto-applies success(), so this resolve
+        # runs for every op only when all prior steps succeeded (for non-provision
+        # ops the provision step is skipped, not failed, so success() holds). The
+        # previous `if: inputs.operation != 'provision' || success()` contained a
+        # status function, which suppressed the auto-success() and made it run even
+        # after a prior step failed for non-provision ops.
         env:
           STACK_NAME: ${{ steps.edge.outputs.stack }}
         run: |
