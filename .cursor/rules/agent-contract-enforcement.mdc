@@ -5,11 +5,11 @@ alwaysApply: true
 
 # Agent Contract Enforcement
 
-## Design Principles (Jobs simplicity + OPC automation)
+## Design Principles (Jobs simplicity + deterministic automated ops)
 
 - **Minimal WebUI/API/CLI/MCP surface (Jobs)**: every public page, endpoint, command, MCP tool, parameter, and exported symbol must have at least one real consumer. Speculative or "just in case" exports are forbidden — delete them.
 - **One canonical path per intent (Jobs)**: do not provide multiple UI flows / endpoints / CLI commands that achieve the same outcome. Pick one shape and stick to it.
-- **Contract regeneration is automated (OPC)**: no manual editing of `docs/agent_integration.md` or contract tables. Drift is detected and fixed by running the generator, not by hand.
+- **Contract regeneration is automated (确定性自动化运营和运维)**: no manual editing of `docs/agent_integration.md` or contract tables. Drift is detected and fixed by running the generator, not by hand.
 
 ## Enforcement Rules
 
