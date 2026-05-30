@@ -353,7 +353,10 @@ jobs:
           # rename/move of TestUS077_QAEvidenceDatasetCheck_* would make this check
           # pass vacuously (the one fail-open check among 4-13). Assert ≥1 match
           # first via -list, then run the focused tests.
-          MATCHED=$(cd backend && go test -tags=unit ./internal/observability/qa -list 'TestUS077_QAEvidenceDatasetCheck_' 2>/dev/null | grep -c '^TestUS077_QAEvidenceDatasetCheck_' || true)
+          # grep -c exits 1 on a zero count, and GHA bash runs set -e -o pipefail,
+          # so the trailing fallback below lets the count reach MATCHED before the
+          # explicit assertion can report a clean "matched ZERO tests" error.
+          MATCHED=$(cd backend && go test -tags=unit ./internal/observability/qa -list 'TestUS077_QAEvidenceDatasetCheck_' 2>/dev/null | grep -c '^TestUS077_QAEvidenceDatasetCheck_' || true)  # preflight-allow: swallow
           if [ "${MATCHED:-0}" -lt 1 ]; then
             echo "::error::-run 'TestUS077_QAEvidenceDatasetCheck_' matched ZERO tests (renamed / moved / deleted?)."
             echo "::error::go test -run with no matches exits 0; this assertion stops that fail-open."
