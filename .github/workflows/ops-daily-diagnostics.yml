@@ -659,12 +659,6 @@ jobs:
             : > claude-issue-diagnosis.jsonl
           fi
 
-      - name: Install Claude Code CLI
-        if: steps.claude_token.outputs.present == 'true'
-        env:
-          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-        run: bash scripts/agent/setup-claude-code.sh
-
       - name: Build read-only diagnosis prompt
         if: steps.claude_token.outputs.present == 'true'
         run: |
@@ -687,25 +681,20 @@ jobs:
       - name: Run Claude read-only diagnosis
         if: steps.claude_token.outputs.present == 'true'
         id: claude_run
+        # continue-on-error stays: a failed diagnosis falls back to deterministic
+        # issue bodies. Via the shared action this now also gains set -o pipefail
+        # (previously omitted here, so a claude failure was masked by tee's exit
+        # code) and the canonical thinking-env (was MAX_THINKING_TOKENS=16000;
+        # the $1 budget still caps cost) + the origin/main fail-closed redactor.
         continue-on-error: true
-        env:
-          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-          ANTHROPIC_BASE_URL: https://api.tokenkey.dev
-          CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING: "1"
-          MAX_THINKING_TOKENS: "16000"
-          CLAUDE_CODE_ATTRIBUTION_HEADER: "0"
-          ANTHROPIC_MODEL: opus[1m]
-        run: |
-          set -o pipefail
-          claude -p "$(cat /tmp/claude-issue-prompt.txt)" \
-            --model "opus[1m]" \
-            --max-budget-usd "1.00" \
-            --output-format stream-json --verbose \
-            --exclude-dynamic-system-prompt-sections \
-            --allowedTools "Read Grep Glob" \
-            2>&1 \
-            | python3 scripts/agent/redact-stream.py \
-            | tee claude-issue-diagnosis.jsonl
+        uses: ./.github/actions/run-headless-agent
+        with:
+          prompt_file: /tmp/claude-issue-prompt.txt
+          model: "opus[1m]"
+          max_budget_usd: "1.00"
+          allowed_tools: "Read Grep Glob"
+          auth_token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          output_file: claude-issue-diagnosis.jsonl
 
       - name: Extract Claude diagnosis
         if: steps.claude_token.outputs.present == 'true'
