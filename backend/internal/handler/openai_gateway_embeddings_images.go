@@ -279,7 +279,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 		userAgent := c.GetHeader("User-Agent")
 		clientIP := ip.GetClientIP(c)
 
-		h.submitUsageRecordTask(func(ctx context.Context) {
+		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			upstreamModelForUsage := ""
 			if result != nil {
 				upstreamModelForUsage = result.UpstreamModel
@@ -577,7 +577,7 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 		userAgent := c.GetHeader("User-Agent")
 		clientIP := ip.GetClientIP(c)
 
-		h.submitUsageRecordTask(func(ctx context.Context) {
+		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			upstreamModelForUsage := ""
 			if result != nil {
 				upstreamModelForUsage = result.UpstreamModel

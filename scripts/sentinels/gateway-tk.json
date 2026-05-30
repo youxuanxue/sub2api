@@ -1159,6 +1159,15 @@
       "rationale": "TK short-stream buffer on the OpenAI Responses passthrough (upstream Wei-Shaw/sub2api#2245). When gateway.responses_short_stream_buffer_bytes>0, handleStreamingResponsePassthrough holds the first body content in a byte window before the first flush, so an upstream that EOFs before a terminal event fails over cleanly instead of shipping a half-finished HTTP 200 SSE that strict Responses clients reject with 'stream closed before response.completed'. An upstream merge that rewrites the passthrough streaming loop could silently drop this guard; the sentinel forces the merge to keep (or deliberately remove) the buffer wiring."
     },
     {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "func shouldAutoPauseOpenAIAccountByQuota",
+        "compat-pool-exempt",
+        "openAIQuotaWindowReset"
+      ],
+      "rationale": "TK reconciliation of upstream 5h/7d quota auto-pause (commit ead471d64) onto the fifth-platform scheduler. shouldAutoPauseOpenAIAccountByQuota keys off codex usage windows and is scoped to native openai accounts (the `compat-pool-exempt` line guards the scripts/preflight.sh compat-pool drift check from flagging the legitimate !account.IsOpenAI() usage-window predicate); a future merge that broadens it to the compat pool would wrongly auto-pause newapi accounts. openAIQuotaWindowReset is the stale-window guard that prevents a paused account from staying paused forever after its window resets (paused accounts stop receiving requests, so their snapshot never refreshes). These must survive future upstream merges."
+      },
+      {
       "path": "backend/internal/service/openai_gateway_service_tk_sticky_group.go",
       "must_contain": [
         "func openaiStickyAccountStillInGroup",

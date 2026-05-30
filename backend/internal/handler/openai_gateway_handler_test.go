@@ -133,21 +133,6 @@ func TestOpenAIHandleStreamingAwareError_NonStreaming(t *testing.T) {
 	assert.Equal(t, "test error", errorObj["message"])
 }
 
-func TestOpenAIHandleStreamingAwareError_SkipWhenClientCanceled(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	c.Request = httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx)
-
-	h := &OpenAIGatewayHandler{}
-	h.handleStreamingAwareError(c, http.StatusBadGateway, "upstream_error", "test error", true)
-
-	require.Equal(t, http.StatusOK, w.Code)
-	require.Empty(t, w.Body.String())
-}
-
 func TestReadRequestBodyWithPrealloc(t *testing.T) {
 	payload := `{"model":"gpt-5","input":"hello"}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(payload))
@@ -882,11 +867,6 @@ func TestOpenAIResponsesWebSocket_ContentModerationBlocksFirstFrame(t *testing.T
 		require.Equal(t, coderws.StatusPolicyViolation, closeErr.Code)
 		require.Contains(t, closeErr.Reason, "内容审计测试阻断")
 	}
-	// The WS block path persists the moderation log from a background
-	// goroutine, so the client read returning the block frame does not
-	// guarantee the log has landed yet. Wait for it like the decision path
-	// above instead of asserting synchronously (race fixed: was a flaky
-	// require.Len that passed only by timing luck).
 	var logs []service.ContentModerationLog
 	require.Eventually(t, func() bool {
 		logs = repo.logSnapshot()

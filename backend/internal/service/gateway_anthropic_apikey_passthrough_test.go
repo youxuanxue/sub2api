@@ -551,6 +551,74 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ModelMappingPreservesOtherFie
 	require.False(t, gjson.GetBytes(sentBody, "max_tokens").Exists(), "max_tokens 是 count_tokens 端点不允许的字段，应被 StripCountTokensUnsupportedFields 剥除")
 }
 
+func TestGatewayService_AnthropicAPIKeyPassthrough_CountTokensFiltersGenerationFields(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", nil)
+
+	body := []byte(`{"model":"claude-sonnet-4-20250514","system":[{"type":"text","text":"sys"}],"messages":[{"role":"user","content":"hello"}],"tools":[{"name":"tool","input_schema":{"type":"object"}}],"temperature":0.7,"top_p":0.9,"top_k":40,"stream":true,"stop_sequences":["END"],"max_tokens":1024,"thinking":{"type":"enabled","budget_tokens":5000}}`)
+	parsed := &ParsedRequest{
+		Body:  body,
+		Model: "claude-sonnet-4-20250514",
+	}
+
+	upstreamRespBody := `{"input_tokens":42}`
+	upstream := &anthropicHTTPUpstreamRecorder{
+		resp: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(upstreamRespBody)),
+		},
+	}
+
+	svc := &GatewayService{
+		cfg:              &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}},
+		httpUpstream:     upstream,
+		rateLimitService: &RateLimitService{},
+	}
+
+	account := &Account{
+		ID:          302,
+		Name:        "count-token-filter-test",
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "upstream-key",
+			"base_url": "https://api.anthropic.com",
+		},
+		Extra:       map[string]any{"anthropic_passthrough": true},
+		Status:      StatusActive,
+		Schedulable: true,
+	}
+
+	err := svc.ForwardCountTokens(context.Background(), c, account, parsed)
+	require.NoError(t, err)
+
+	sentBody := upstream.lastBody
+	require.False(t, gjson.GetBytes(sentBody, "temperature").Exists())
+	require.False(t, gjson.GetBytes(sentBody, "top_p").Exists())
+	require.False(t, gjson.GetBytes(sentBody, "top_k").Exists())
+	require.False(t, gjson.GetBytes(sentBody, "stream").Exists())
+	require.False(t, gjson.GetBytes(sentBody, "stop_sequences").Exists())
+	require.Equal(t, "claude-sonnet-4-20250514", gjson.GetBytes(sentBody, "model").String())
+	require.Equal(t, "sys", gjson.GetBytes(sentBody, "system.0.text").String())
+	require.Equal(t, "hello", gjson.GetBytes(sentBody, "messages.0.content").String())
+	require.Equal(t, "tool", gjson.GetBytes(sentBody, "tools.0.name").String())
+	// max_tokens is a generation-only field the Anthropic count_tokens endpoint REJECTS
+	// with `max_tokens: Extra inputs are not permitted` (HTTP 400) — verified against the
+	// live API + anthropics/claude-code#14156. TokenKey's StripCountTokensUnsupportedFields
+	// strips it proactively (prod incident 2026-05-18 / PR #280: a client schema bug forwarding
+	// generation fields 400'd and tripped the per-account upstream-error breaker). The upstream
+	// fix (#2764) omitted max_tokens from its strip set in error; this assertion reflects the
+	// correct, fingerprint/ops-verified behavior. See the sibling test at ~L551.
+	require.False(t, gjson.GetBytes(sentBody, "max_tokens").Exists(),
+		"max_tokens must be stripped from the count_tokens upstream payload (Anthropic rejects it)")
+	require.Equal(t, "enabled", gjson.GetBytes(sentBody, "thinking.type").String())
+}
+
 // TestGatewayService_AnthropicAPIKeyPassthrough_EmptyModelSkipsMapping
 // 确保空模型名不会触发映射逻辑
 func TestGatewayService_AnthropicAPIKeyPassthrough_EmptyModelSkipsMapping(t *testing.T) {

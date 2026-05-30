@@ -105,6 +105,9 @@ var (
 	// （applyUsageBilling 在 repo==nil 时 fallback）路径下的失败次数；
 	// 与 DB Incr 失败分开计数，便于区分"主路径暂时故障"vs"基础设施长期未配齐"。
 	userPlatformQuotaDBIncrLegacyErrorTotal atomic.Int64
+	// userPlatformQuotaSentinelSetCacheErrorTotal 统计 checkUserPlatformQuotaEligibility
+	// 在 DB 无行时回填 sentinel cache entry 写 Redis 失败的次数（phase A）。
+	userPlatformQuotaSentinelSetCacheErrorTotal atomic.Int64
 )
 
 func GatewayWindowCostPrefetchStats() (cacheHit, cacheMiss, batchSQL, fallback, errCount int64) {
@@ -127,13 +130,15 @@ func GatewayModelsListCacheStats() (cacheHit, cacheMiss, store int64) {
 	return modelsListCacheHitTotal.Load(), modelsListCacheMissTotal.Load(), modelsListCacheStoreTotal.Load()
 }
 
-// GatewayUserPlatformQuotaIncrStats 返回 (mainPathErr, legacyPathErr)。
+// GatewayUserPlatformQuotaIncrStats 返回 (mainPathErr, legacyPathErr, sentinelSetErr)。
 // mainPathErr：finalizePostUsageBilling 异步 goroutine 写 DB 失败累计次数；
-// legacyPathErr：postUsageBilling fallback 路径写 DB 失败累计次数。
+// legacyPathErr：postUsageBilling fallback 路径写 DB 失败累计次数；
+// sentinelSetErr：DB 无行时回填 sentinel cache entry 写 Redis 失败累计次数。
 // ops 监控面板可以按"持续上升斜率"做告警阈值。
-func GatewayUserPlatformQuotaIncrStats() (mainPathErr, legacyPathErr int64) {
+func GatewayUserPlatformQuotaIncrStats() (mainPathErr, legacyPathErr, sentinelSetErr int64) {
 	return userPlatformQuotaDBIncrErrorTotal.Load(),
-		userPlatformQuotaDBIncrLegacyErrorTotal.Load()
+		userPlatformQuotaDBIncrLegacyErrorTotal.Load(),
+		userPlatformQuotaSentinelSetCacheErrorTotal.Load()
 }
 
 func openAIStreamEventIsTerminal(data string) bool {
@@ -5461,6 +5466,17 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 		targetURL = validatedURL + "/v1/messages?beta=true"
 	}
 
+	// 能力维度 body sanitize：透传路径上 anthropic-beta header 原样透传客户端值，
+	// 依此决定是否保留 body 中的 context_management。避免"客户端 body 带字段但
+	// header 忘记带 beta token"的客户端 bug 在透传场景下让上游 400。
+	clientBeta := ""
+	if c != nil && c.Request != nil {
+		clientBeta = getHeaderRaw(c.Request.Header, "anthropic-beta")
+	}
+	if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, clientBeta); changed {
+		body = sanitized
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -6320,6 +6336,21 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	if fingerprint != nil {
 		body = syncBillingHeaderVersion(body, fingerprint.UserAgent)
 	}
+	// 能力维度 body sanitize（与最终 anthropic-beta header 对称）：最终 beta 不含
+	// context-management 时 strip body.context_management。必须在 CCH 签名之前（hash
+	// 要覆盖 strip 后的 body）且在 NewRequest 之前。
+	//
+	// 注意 haiku 的 header/body 非对称：computeFinalAnthropicBeta 的 haiku 分支刻意
+	// 不含 context-management —— 这正是 body 侧需要的（Anthropic 对 haiku 的
+	// body.context_management 返回 400），而下方 inline 块仍按 mimicry 给 header
+	// 带上 haiku 的 context-management beta（指纹对齐）。
+	{
+		ctxMgmtDropSet := mergeDropSets(s.getBetaPolicyFilterSet(ctx, c, account, modelID))
+		finalBetaForBody, _ := s.computeFinalAnthropicBeta(tokenType, mimicClaudeCode, modelID, clientHeaders, body, ctxMgmtDropSet)
+		if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, finalBetaForBody); changed {
+			body = sanitized
+		}
+	}
 	// CCH 签名：将 cch=00000 占位符替换为 xxHash64 签名（需在所有 body 修改之后）
 	if enableCCH {
 		body = signBillingHeaderCCH(body)
@@ -6450,6 +6481,15 @@ func (s *GatewayService) buildUpstreamRequestAnthropicVertex(
 	if err != nil {
 		return nil, err
 	}
+	// 能力维度 body sanitize：Vertex 透传路径按客户端 anthropic-beta header 决定
+	// 是否保留 body 中的 context_management（与 Anthropic 直连 / Bedrock 路径对称）。
+	clientBeta := ""
+	if c != nil && c.Request != nil {
+		clientBeta = getHeaderRaw(c.Request.Header, "anthropic-beta")
+	}
+	if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(vertexBody, clientBeta); changed {
+		vertexBody = sanitized
+	}
 	fullURL, err := buildVertexAnthropicURL(account.VertexProjectID(), account.VertexLocation(modelID), modelID, reqStream)
 	if err != nil {
 		return nil, err
@@ -6493,6 +6533,113 @@ func (s *GatewayService) buildUpstreamRequestAnthropicVertex(
 	})
 
 	return req, nil
+}
+
+// computeFinalAnthropicBeta computes the final anthropic-beta header sent upstream
+// for the Messages path, as a pure (side-effect-free) function for unit coverage.
+//
+// NOTE: the live forwarding path (forwardClaudeRequest) keeps its own inline
+// computation that uses the context-aware claude.GetFullClaudeCodeMimicryBetasForContext(ctx)
+// variant — a TokenKey customization for per-request Claude Code fingerprint alignment
+// that this no-ctx pure function intentionally does not depend on. This mirror uses the
+// static claude.FullClaudeCodeMimicryBetas() and exists so the OAuth/mimic/API-key beta
+// branches stay unit-tested; keep the two in sync when the beta policy changes.
+//
+// (buildUpstreamRequest / buildCountTokensRequest) are the deferred cc-fingerprint
+// reconciliation (PR #456). golangci `unused` analyzes the non-test build, so a
+// test-only-referenced function reads as unused here.
+//
+//nolint:unused // Exercised by gateway_context_management_test.go; the prod call sites
+func (s *GatewayService) computeFinalAnthropicBeta(
+	tokenType string,
+	mimicClaudeCode bool,
+	modelID string,
+	clientHeaders http.Header,
+	body []byte,
+	effectiveDropSet map[string]struct{},
+) (string, bool) {
+	clientBeta := ""
+	if clientHeaders != nil {
+		clientBeta = getHeaderRaw(clientHeaders, "anthropic-beta")
+	}
+
+	if tokenType == "oauth" {
+		if mimicClaudeCode {
+			// mimic 路径：原代码跳过白名单透传，incomingBeta 总是空字符串。
+			// 这里传空 string 以严格对齐原行为。
+			requiredBetas := []string{claude.BetaOAuth, claude.BetaInterleavedThinking}
+			if !strings.Contains(strings.ToLower(modelID), "haiku") {
+				requiredBetas = claude.FullClaudeCodeMimicryBetas()
+			}
+			return mergeAnthropicBetaDropping(requiredBetas, "", effectiveDropSet), true
+		}
+		// 真 Claude Code 客户端透传路径
+		return stripBetaTokensWithSet(s.getBetaHeader(modelID, clientBeta), effectiveDropSet), true
+	}
+
+	// API-key accounts
+	if clientBeta != "" {
+		return stripBetaTokensWithSet(clientBeta, effectiveDropSet), true
+	}
+	if s.cfg != nil && s.cfg.Gateway.InjectBetaForAPIKey {
+		if requestNeedsBetaFeatures(body) {
+			if beta := defaultAPIKeyBetaHeader(body); beta != "" {
+				return beta, true
+			}
+		}
+	}
+	return "", false
+}
+
+// computeFinalCountTokensAnthropicBeta is the count_tokens-path counterpart of
+// computeFinalAnthropicBeta. Same OAuth/mimic/API-key structure, plus the two
+// count_tokens-specific rules: OAuth mimic always appends BetaTokenCounting (no haiku
+// exclusion), and OAuth passthrough fills in the count-tokens beta. Same pure-function
+// caveat as computeFinalAnthropicBeta re: the live path's context-aware variant.
+//
+// (buildCountTokensRequest) is the deferred cc-fingerprint reconciliation (PR #456).
+//
+//nolint:unused // Exercised by gateway_context_management_test.go; prod wiring
+func (s *GatewayService) computeFinalCountTokensAnthropicBeta(
+	tokenType string,
+	mimicClaudeCode bool,
+	modelID string,
+	clientHeaders http.Header,
+	body []byte,
+	effectiveDropSet map[string]struct{},
+) (string, bool) {
+	clientBeta := ""
+	if clientHeaders != nil {
+		clientBeta = getHeaderRaw(clientHeaders, "anthropic-beta")
+	}
+
+	if tokenType == "oauth" {
+		if mimicClaudeCode {
+			requiredBetas := append(claude.FullClaudeCodeMimicryBetas(), claude.BetaTokenCounting)
+			return mergeAnthropicBetaDropping(requiredBetas, clientBeta, effectiveDropSet), true
+		}
+		if clientBeta == "" {
+			return claude.CountTokensBetaHeader, true
+		}
+		beta := s.getBetaHeader(modelID, clientBeta)
+		if !strings.Contains(beta, claude.BetaTokenCounting) {
+			beta = beta + "," + claude.BetaTokenCounting
+		}
+		return stripBetaTokensWithSet(beta, effectiveDropSet), true
+	}
+
+	// API-key accounts
+	if clientBeta != "" {
+		return stripBetaTokensWithSet(clientBeta, effectiveDropSet), true
+	}
+	if s.cfg != nil && s.cfg.Gateway.InjectBetaForAPIKey {
+		if requestNeedsBetaFeatures(body) {
+			if beta := defaultAPIKeyBetaHeader(body); beta != "" {
+				return beta, true
+			}
+		}
+	}
+	return "", false
 }
 
 // getBetaHeader 处理anthropic-beta header
@@ -9644,6 +9791,16 @@ func (s *GatewayService) buildCountTokensRequestAnthropicAPIKeyPassthrough(
 		targetURL = validatedURL + "/v1/messages/count_tokens?beta=true"
 	}
 
+	// 能力维度 body sanitize：透传路径按客户端 anthropic-beta header 决定是否保留
+	// body 中的 context_management（与 buildUpstreamRequestAnthropicAPIKeyPassthrough 对称）。
+	clientBeta := ""
+	if c != nil && c.Request != nil {
+		clientBeta = getHeaderRaw(c.Request.Header, "anthropic-beta")
+	}
+	if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, clientBeta); changed {
+		body = sanitized
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -9733,6 +9890,17 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	// 同步 billing header cc_version 与实际发送的 User-Agent 版本
 	if ctFingerprint != nil && ctEnableFP {
 		body = syncBillingHeaderVersion(body, ctFingerprint.UserAgent)
+	}
+	// 能力维度 body sanitize（与 count_tokens 最终 anthropic-beta header 对称）；必须在
+	// CCH 签名前。注：count_tokens 路径 ForwardCountTokens 已用 StripCountTokensUnsupportedFields
+	// 无条件剥离 context_management（Anthropic count_tokens 拒收该字段），此处对直接调用方
+	// 与未走 Forward 的入口做能力维度兜底。
+	{
+		ctxMgmtDropSet := mergeDropSets(s.getBetaPolicyFilterSet(ctx, c, account, modelID))
+		finalBetaForBody, _ := s.computeFinalCountTokensAnthropicBeta(tokenType, mimicClaudeCode, modelID, clientHeaders, body, ctxMgmtDropSet)
+		if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, finalBetaForBody); changed {
+			body = sanitized
+		}
 	}
 	if ctEnableCCH {
 		body = signBillingHeaderCCH(body)
