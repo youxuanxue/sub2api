@@ -417,11 +417,6 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: frontend
 
-      - name: Install Claude Code CLI
-        env:
-          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-        run: bash scripts/agent/setup-claude-code.sh
-
       - name: Configure git identity
         run: |
           git config user.name "tk-upstream-issue-fix-agent[bot]"
@@ -480,25 +475,18 @@ jobs:
           printf '\n```\n' >> /tmp/upstream-issue-fix-prompt.txt
 
       - name: Run Claude upstream issue fix agent
-        env:
-          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-          ANTHROPIC_BASE_URL: https://api.tokenkey.dev
-          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
-          CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING: "1"
-          MAX_THINKING_TOKENS: "31999"
-          CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE: "60"
-          CLAUDE_CODE_ATTRIBUTION_HEADER: "0"
-          ANTHROPIC_MODEL: "claude-sonnet-4-6"
-        run: |
-          set -o pipefail
-          claude -p "$(cat /tmp/upstream-issue-fix-prompt.txt)" --allowedTools "Bash Read Write Edit Grep Glob" \
-            --model "claude-sonnet-4-6" \
-            --max-budget-usd "20.00" \
-            --output-format stream-json --verbose \
-            --exclude-dynamic-system-prompt-sections \
-            2>&1 \
-            | python3 scripts/agent/redact-stream.py \
-            | tee /tmp/upstream-issue-fix-agent-output.txt
+        # Shared headless-agent scaffold (CLI install + origin/main redactor
+        # staging fail-closed + canonical thinking-env + claude→redact→tee).
+        # fail-on-error defaults true → preserves the prior hard-fail behavior.
+        uses: ./.github/actions/run-headless-agent
+        with:
+          prompt-file: /tmp/upstream-issue-fix-prompt.txt
+          model: "claude-sonnet-4-6"
+          max-budget-usd: "20.00"
+          allowed-tools: "Bash Read Write Edit Grep Glob"
+          auth-token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          gh-token: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+          output-file: /tmp/upstream-issue-fix-agent-output.txt
 
       - uses: actions/upload-artifact@v4
         if: always()

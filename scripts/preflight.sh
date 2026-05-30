@@ -971,6 +971,49 @@ else
 fi
 
 echo ""
+echo "=== sub2api: headless-agent composite sharing ==="
+# The headless `claude -p` scaffold (CLI install + origin/main redactor staging +
+# canonical thinking-env + claude->redact->tee) lives in ONE composite action so
+# the four agent workflows can't re-grow divergent copies (they had already
+# drifted: ops-daily-diagnostics ran MAX_THINKING_TOKENS=16000 + omitted
+# set -o pipefail). Fail closed if any agent workflow re-inlines `claude -p` or
+# stops using the action, or if the composite loses its single-source
+# thinking-env / pipefail / fail-closed redactor.
+_hac_action=".github/actions/run-headless-agent/action.yml"
+_hac_files=".github/workflows/pr-repair-agent.yml .github/workflows/upstream-issue-watchdog.yml .github/workflows/upstream-merge-agent-daily.yml .github/workflows/ops-daily-diagnostics.yml"
+_hac_ok=1
+if [ ! -f "$_hac_action" ]; then
+    echo "  FAIL: $_hac_action missing (the shared headless-agent scaffold)"
+    errors=$((errors + 1)); _hac_ok=0
+else
+    grep -q 'MAX_THINKING_TOKENS: "31999"' "$_hac_action" || {
+        echo "  FAIL: $_hac_action lost the canonical MAX_THINKING_TOKENS=31999 single source"
+        errors=$((errors + 1)); _hac_ok=0; }
+    grep -q 'set -o pipefail' "$_hac_action" || {
+        echo "  FAIL: $_hac_action lost set -o pipefail (claude exit code would be masked by tee)"
+        errors=$((errors + 1)); _hac_ok=0; }
+    grep -q 'refusing to run the agent unredacted' "$_hac_action" || {
+        echo "  FAIL: $_hac_action redactor lost its fail-closed refusal"
+        errors=$((errors + 1)); _hac_ok=0; }
+    if grep -q 'for line in sys.stdin' "$_hac_action"; then
+        echo "  FAIL: $_hac_action redactor reintroduced a passthrough fallback (must stay fail-closed)"
+        errors=$((errors + 1)); _hac_ok=0
+    fi
+fi
+for _f in $_hac_files; do
+    [ -f "$_f" ] || continue
+    grep -q 'run-headless-agent' "$_f" || {
+        echo "  FAIL: $_f must run the agent via ./.github/actions/run-headless-agent"
+        errors=$((errors + 1)); _hac_ok=0; }
+    if grep -q 'claude -p' "$_f"; then
+        echo "  FAIL: $_f re-inlines 'claude -p'; use the run-headless-agent action instead"
+        errors=$((errors + 1)); _hac_ok=0
+    fi
+done
+[ "$_hac_ok" = 1 ] && echo "  ok: agent workflows share the run-headless-agent composite (single-source scaffold)"
+unset _hac_action _hac_files _hac_ok _f
+
+echo ""
 if [ "$errors" -eq 0 ]; then
     echo "=== preflight (with sub2api checks): PASS ==="
     exit 0

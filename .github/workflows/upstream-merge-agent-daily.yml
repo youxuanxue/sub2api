@@ -90,11 +90,6 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: frontend
 
-      - name: Install Claude Code CLI
-        env:
-          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-        run: bash scripts/agent/setup-claude-code.sh
-
       - name: Configure git identity
         run: |
           git config user.name "tk-upstream-agent[bot]"
@@ -264,72 +259,28 @@ jobs:
       - name: Run Claude upstream merge agent (attempt 1)
         if: steps.drift_check.outputs.status == 'need_merge'
         id: agent_attempt_1
-        env:
-          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-          ANTHROPIC_BASE_URL: https://api.tokenkey.dev
-          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
-          CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING: "1"
-          MAX_THINKING_TOKENS: "31999"
-          CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE: "60"
-          CLAUDE_CODE_ATTRIBUTION_HEADER: "0"
-          ANTHROPIC_MODEL: "claude-sonnet-4-6"
-        run: |
-          # claude CLI has no --output flag — pipe stdout instead. tee keeps
-          # CI logs live (helpful for long agent runs); pipefail propagates
-          # claude's exit code through the pipeline so the step actually
-          # fails when the agent fails.
-          # --allowedTools is required in headless: without it Claude prompt-mode run
-          # defaults to interactive `default` permission mode and rejects
-          # every tool call with "This command requires approval", so the
-          # agent runs the SOP read-only and never produces a PR
-          # (run 25415454229 / job 74548660906, 2026-05-06). Whitelist the
-          # work toolkit explicitly per global CLAUDE.md §5 ("严格遵守
-          # --allowedTools 限制"); WebFetch/WebSearch/Skill stay denied.
-          # scripts/agent/redact-stream.py scrubs secrets from the stream
-          # before tee writes the artifact: Actions log masking does NOT
-          # apply to bytes that hit disk via tee, so without this filter
-          # the public artifact can leak ANTHROPIC_AUTH_TOKEN / GH_TOKEN
-          # if the agent ever echoes them (e.g. an accidental `printenv`).
-          # Model+budget retuning (run 25417602884, 2026-05-06): the agent
-          # under opus[1m] burned its $8 cap in 16 min and hit
-          # `Exceeded USD budget` mid-SOP without producing a PR. The
-          # cache-creation fee for a single fresh Claude prompt-mode run is ~$0.75
-          # at opus[1m] (40k-token system prompt × ~$18.75/M write rate),
-          # so $8 left only ~$7 for actual work. Sonnet 4.6 is roughly
-          # 5× cheaper, and $20 gives the SOP enough headroom to fetch
-          # upstream, run preflight, resolve conflicts, push, and open a
-          # PR even on a busy upstream day.
-          # --output-format stream-json + --verbose makes the agent
-          # transcript (every tool_use, tool_result, thinking block, and
-          # the final result with total_cost_usd / errors / permission
-          # denials) land in the artifact as JSONL. Without it, `claude
-          # -p` only writes the final reply text — on `Exceeded USD
-          # budget` failures the artifact contains a single line and
-          # debugging is impossible. The redactor still scrubs token
-          # patterns inside JSON strings line-by-line.
-          # --exclude-dynamic-system-prompt-sections hoists per-machine
-          # bits (cwd, env info, memory paths, git status) out of the
-          # system prompt into the first user message, keeping the
-          # system prompt prefix stable across runs. Within the 1h
-          # ephemeral cache TTL this lets re-dispatches and chained
-          # workflow_run agents hit the prompt cache instead of paying
-          # the ~$0.15 / 40k-token cache-creation fee. Daily cron runs
-          # are 24h apart so cache is already cold for them, but the
-          # flag is harmless on miss.
-          set -o pipefail
-          set +e
-          claude -p "$(cat /tmp/upstream-merge-agent-prompt.txt)" --allowedTools "Bash Read Write Edit Grep Glob" \
-            --model "claude-sonnet-4-6" \
-            --max-budget-usd "20.00" \
-            --output-format stream-json --verbose \
-            --exclude-dynamic-system-prompt-sections \
-            2>&1 \
-            | python3 scripts/agent/redact-stream.py \
-            | tee /tmp/upstream-merge-agent-output-attempt1.txt
-          exit_code=${PIPESTATUS[0]}
-          set -e
-          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
-          cp /tmp/upstream-merge-agent-output-attempt1.txt /tmp/upstream-merge-agent-output.txt
+        # Shared headless-agent scaffold (CLI install + origin/main redactor
+        # staging fail-closed + canonical thinking-env + claude→redact→tee).
+        # fail-on-error:false preserves the prior `set +e` + PIPESTATUS flow so
+        # the contract/retry logic below branches on the captured exit_code
+        # (steps.agent_attempt_1.outputs.exit_code) instead of hard-failing.
+        # Model/budget rationale (sonnet-4-6 @ $20, was opus[1m] @ $8 which
+        # burned its cap in 16 min — run 25417602884, 2026-05-06): see git
+        # history of this file.
+        uses: ./.github/actions/run-headless-agent
+        with:
+          prompt-file: /tmp/upstream-merge-agent-prompt.txt
+          model: "claude-sonnet-4-6"
+          max-budget-usd: "20.00"
+          allowed-tools: "Bash Read Write Edit Grep Glob"
+          auth-token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          gh-token: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+          output-file: /tmp/upstream-merge-agent-output-attempt1.txt
+          fail-on-error: "false"
+
+      - name: Snapshot attempt 1 output as canonical
+        if: steps.drift_check.outputs.status == 'need_merge'
+        run: cp /tmp/upstream-merge-agent-output-attempt1.txt /tmp/upstream-merge-agent-output.txt
 
       - name: Update checkpoint after attempt 1
         if: always() && steps.drift_check.outputs.status == 'need_merge'
@@ -412,30 +363,22 @@ jobs:
       - name: Run Claude upstream merge agent (attempt 2)
         if: always() && steps.drift_check.outputs.status == 'need_merge' && (steps.contract_after_attempt_1.outcome != 'success' || steps.contract_after_attempt_1.outputs.contract_ok != 'true')
         id: agent_attempt_2
-        env:
-          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-          ANTHROPIC_BASE_URL: https://api.tokenkey.dev
-          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
-          CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING: "1"
-          MAX_THINKING_TOKENS: "31999"
-          CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE: "60"
-          CLAUDE_CODE_ATTRIBUTION_HEADER: "0"
-          ANTHROPIC_MODEL: "claude-sonnet-4-6"
-        run: |
-          set -o pipefail
-          set +e
-          claude -p "$(cat /tmp/upstream-merge-agent-retry-prompt.txt)" --allowedTools "Bash Read Write Edit Grep Glob" \
-            --model "claude-sonnet-4-6" \
-            --max-budget-usd "20.00" \
-            --output-format stream-json --verbose \
-            --exclude-dynamic-system-prompt-sections \
-            2>&1 \
-            | python3 scripts/agent/redact-stream.py \
-            | tee /tmp/upstream-merge-agent-output-attempt2.txt
-          exit_code=${PIPESTATUS[0]}
-          set -e
-          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
-          cat /tmp/upstream-merge-agent-output-attempt2.txt >> /tmp/upstream-merge-agent-output.txt
+        # Shared headless-agent scaffold; fail-on-error:false so the final
+        # contract/exit logic branches on steps.agent_attempt_2.outputs.exit_code.
+        uses: ./.github/actions/run-headless-agent
+        with:
+          prompt-file: /tmp/upstream-merge-agent-retry-prompt.txt
+          model: "claude-sonnet-4-6"
+          max-budget-usd: "20.00"
+          allowed-tools: "Bash Read Write Edit Grep Glob"
+          auth-token: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          gh-token: ${{ secrets.UPSTREAM_MERGE_GH_TOKEN }}
+          output-file: /tmp/upstream-merge-agent-output-attempt2.txt
+          fail-on-error: "false"
+
+      - name: Append attempt 2 output to canonical
+        if: always() && steps.drift_check.outputs.status == 'need_merge' && (steps.contract_after_attempt_1.outcome != 'success' || steps.contract_after_attempt_1.outputs.contract_ok != 'true')
+        run: cat /tmp/upstream-merge-agent-output-attempt2.txt >> /tmp/upstream-merge-agent-output.txt
 
       - name: Verify preflight on target branch (final)
         id: preflight_final
