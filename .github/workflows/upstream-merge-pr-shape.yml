@@ -175,17 +175,13 @@ jobs:
           # chain: local gate-fix commits plus the upstream merge commit. Imported
           # upstream history may legitimately contain upstream release-sync
           # messages, and rewriting those commits would violate §5.y.
-          OFFENDERS=$(git log --first-parent --format='%H %s' "$BASE".."$HEAD" | \
-            grep -E '\[skip ci\]|\[ci skip\]' || true)
-
-          if [ -n "$OFFENDERS" ]; then
-            echo "::error::Found first-parent commits with literal '[skip ci]' / '[ci skip]':"
-            echo "$OFFENDERS" | while read line; do echo "::error::  $line"; done
-            echo "::error::Per §9.2, a commit that may later be tagged must not carry [skip ci]."
-            echo "::error::Rewrite the offending commit messages (use e.g. 'skip-ci' or remove entirely)."
-            exit 1
-          fi
-          echo "OK: no PR first-parent commits carry literal [skip ci] / [ci skip]."
+          # Single matcher shared with main-ancestry-guard.yml Check 3 and
+          # scripts/preflight.sh — scripts/checks/skip-ci-marker.py — so the two
+          # guards can no longer drift on grep engine or scan scope. This PR's
+          # title/body are already covered by main-ancestry-guard (base==main),
+          # so here we scan only the first-parent commit chain. --first-parent
+          # (inside the script) preserves imported upstream release-sync messages.
+          python3 ./scripts/checks/skip-ci-marker.py --commits-range "$BASE..$HEAD"
 
       - name: Check 4 — newapi sentinels still intact after merge
         run: |
@@ -196,8 +192,8 @@ jobs:
           # load-bearing fifth-platform surface — fix the merge to restore
           # the file/symbol, do NOT delete the sentinel entry to make the
           # check pass.
-          if [ ! -x ./scripts/sentinels/check-newapi.py ]; then
-            echo "::error::scripts/sentinels/check-newapi.py missing or not executable."
+          if [ ! -f ./scripts/sentinels/check-newapi.py ]; then
+            echo "::error::scripts/sentinels/check-newapi.py missing."
             echo "::error::Per CLAUDE.md §5.x, this guard cannot be silently disabled."
             exit 1
           fi
@@ -215,8 +211,8 @@ jobs:
           # identities like `sub2api` / `newapi` are still valid in internal
           # route / image / repo identities; this check only protects outward
           # TokenKey brand surfaces from drifting apart again.
-          if [ ! -x ./scripts/sentinels/check-brand.py ]; then
-            echo "::error::scripts/sentinels/check-brand.py missing or not executable."
+          if [ ! -f ./scripts/sentinels/check-brand.py ]; then
+            echo "::error::scripts/sentinels/check-brand.py missing."
             echo "::error::Per the TokenKey OPC baseline, this guard cannot be silently disabled."
             exit 1
           fi
@@ -235,8 +231,8 @@ jobs:
           # divergences (sidebar geometry, fluid table mode, sticky-edge-hints
           # opt-out) that would otherwise compile cleanly even if reverted —
           # the regression only surfaces visually.
-          if [ ! -x ./scripts/sentinels/check-frontend-tk.py ]; then
-            echo "::error::scripts/sentinels/check-frontend-tk.py missing or not executable."
+          if [ ! -f ./scripts/sentinels/check-frontend-tk.py ]; then
+            echo "::error::scripts/sentinels/check-frontend-tk.py missing."
             echo "::error::Per CLAUDE.md §5 minimum-invasion guidance, this guard cannot be silently disabled."
             exit 1
           fi
@@ -254,8 +250,8 @@ jobs:
           # preflight implies a green check here. Guards small TK gateway/service
           # hooks in upstream-shaped hotspot files that compile cleanly even if
           # reverted, with regressions only surfacing in production behavior.
-          if [ ! -x ./scripts/sentinels/check-gateway-tk.py ]; then
-            echo "::error::scripts/sentinels/check-gateway-tk.py missing or not executable."
+          if [ ! -f ./scripts/sentinels/check-gateway-tk.py ]; then
+            echo "::error::scripts/sentinels/check-gateway-tk.py missing."
             echo "::error::Per CLAUDE.md §5 minimum-invasion guidance, this guard cannot be silently disabled."
             exit 1
           fi
@@ -274,8 +270,8 @@ jobs:
           # here. Failure means the merge changed logredact's default sensitive
           # keys or version literals without moving the outward QA contract in
           # lockstep.
-          if [ ! -x ./scripts/sentinels/check-redaction-version.py ]; then
-            echo "::error::scripts/sentinels/check-redaction-version.py missing or not executable."
+          if [ ! -f ./scripts/sentinels/check-redaction-version.py ]; then
+            echo "::error::scripts/sentinels/check-redaction-version.py missing."
             echo "::error::Per the Evidence Spine contract, this guard cannot be silently disabled."
             exit 1
           fi
@@ -293,8 +289,8 @@ jobs:
           # registry" check, so a green local preflight implies a green Check 7
           # here. Failure means the merge dropped gateway trajectory/qa capture
           # wiring or the QA middleware stopped terminating in CaptureFromContext.
-          if [ ! -x ./scripts/sentinels/check-trajectory-hooks.py ]; then
-            echo "::error::scripts/sentinels/check-trajectory-hooks.py missing or not executable."
+          if [ ! -f ./scripts/sentinels/check-trajectory-hooks.py ]; then
+            echo "::error::scripts/sentinels/check-trajectory-hooks.py missing."
             echo "::error::Per the Evidence Spine contract, this guard cannot be silently disabled."
             exit 1
           fi
@@ -313,8 +309,8 @@ jobs:
           # here. Failure means the merge regressed stable terminal helpers,
           # `[DONE]` emission, or the focused terminal assertions that protect
           # Evidence Spine completion semantics.
-          if [ ! -x ./scripts/sentinels/check-terminal-events.py ]; then
-            echo "::error::scripts/sentinels/check-terminal-events.py missing or not executable."
+          if [ ! -f ./scripts/sentinels/check-terminal-events.py ]; then
+            echo "::error::scripts/sentinels/check-terminal-events.py missing."
             echo "::error::Per the Evidence Spine contract, this guard cannot be silently disabled."
             exit 1
           fi
@@ -333,8 +329,8 @@ jobs:
           # here. Failure means bridge/provider selection truth drifted back
           # into hotspot gateway service files instead of staying behind the
           # shared Engine facade.
-          if [ ! -x ./scripts/sentinels/check-engine-facade.py ]; then
-            echo "::error::scripts/sentinels/check-engine-facade.py missing or not executable."
+          if [ ! -f ./scripts/sentinels/check-engine-facade.py ]; then
+            echo "::error::scripts/sentinels/check-engine-facade.py missing."
             echo "::error::Per the Engine Spine contract, this guard cannot be silently disabled."
             exit 1
           fi
@@ -353,6 +349,16 @@ jobs:
           # a green Check 10 here. Failure means the export artifact or standalone
           # validator drifted and the H1/H2/H3/D1 / structural contract is no
           # longer mechanically enforced.
+          # `go test -run <regex>` exits 0 when the regex matches ZERO tests, so a
+          # rename/move of TestUS077_QAEvidenceDatasetCheck_* would make this check
+          # pass vacuously (the one fail-open check among 4-13). Assert ≥1 match
+          # first via -list, then run the focused tests.
+          MATCHED=$(cd backend && go test -tags=unit ./internal/observability/qa -list 'TestUS077_QAEvidenceDatasetCheck_' 2>/dev/null | grep -c '^TestUS077_QAEvidenceDatasetCheck_' || true)
+          if [ "${MATCHED:-0}" -lt 1 ]; then
+            echo "::error::-run 'TestUS077_QAEvidenceDatasetCheck_' matched ZERO tests (renamed / moved / deleted?)."
+            echo "::error::go test -run with no matches exits 0; this assertion stops that fail-open."
+            exit 1
+          fi
           (cd backend && go test -tags=unit ./internal/observability/qa -run 'TestUS077_QAEvidenceDatasetCheck_' -count=1)
 
       - name: Check 11 — pricing-availability sentinels still intact after merge

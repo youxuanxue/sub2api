@@ -576,6 +576,11 @@ if ! command -v python3 >/dev/null 2>&1; then
 elif ! command -v go >/dev/null 2>&1; then
     echo "  FAIL: go not on PATH (required to run QA evidence dataset regression tests)"
     errors=$((errors + 1))
+elif [ "$(cd backend && go test -tags=unit ./internal/observability/qa -list 'TestUS077_QAEvidenceDatasetCheck_' 2>/dev/null | grep -c '^TestUS077_QAEvidenceDatasetCheck_')" -lt 1 ]; then
+    # `go test -run <regex>` exits 0 on ZERO matches — a rename/move would pass
+    # vacuously. Assert ≥1 match before trusting the -run result below.
+    echo "  FAIL: -run 'TestUS077_QAEvidenceDatasetCheck_' matched ZERO tests (renamed/moved?); go test -run exits 0 on no match"
+    errors=$((errors + 1))
 elif ! (cd backend && go test -tags=unit ./internal/observability/qa -run 'TestUS077_QAEvidenceDatasetCheck_' -count=1); then
     errors=$((errors + 1))
 else
@@ -1012,6 +1017,43 @@ for _f in $_hac_files; do
 done
 [ "$_hac_ok" = 1 ] && echo "  ok: agent workflows share the run-headless-agent composite (single-source scaffold)"
 unset _hac_action _hac_files _hac_ok _f
+
+echo ""
+echo "=== sub2api: skip-ci marker (local commits) ==="
+# Local pre-catch of the §9.2 bracketed [skip ci] / [ci skip] marker in this
+# branch's own commits, using the SAME matcher the two PR-gate workflows call
+# (scripts/checks/skip-ci-marker.py). PR title/body are only visible to the
+# workflows, so locally we scan commit messages only.
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by skip-ci-marker.py)"
+    errors=$((errors + 1))
+else
+    _skipci_base="${PREFLIGHT_BASE:-origin/main}"
+    python3 ./scripts/checks/skip-ci-marker.py --commits-range "${_skipci_base}..HEAD" --quiet
+    _skipci_rc=$?
+    if [ "$_skipci_rc" -eq 1 ]; then
+        errors=$((errors + 1))
+    elif [ "$_skipci_rc" -eq 2 ]; then
+        echo "  skip: cannot resolve ${_skipci_base}..HEAD (fetch origin/main); the PR gate enforces this"
+    else
+        echo "  ok: no bracketed [skip ci] / [ci skip] in ${_skipci_base}..HEAD commits"
+    fi
+    unset _skipci_base _skipci_rc
+fi
+
+echo ""
+echo "=== sub2api: merge-gate sentinel parity ==="
+# Keeps upstream-merge-pr-shape.yml checks 4-13 and preflight's sentinel set
+# mechanically coupled (manifest: scripts/sentinels/merge-gate-parity.json) so a
+# new merge-gate sentinel can't be wired into one file but not the other.
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by merge-gate-parity.py)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/merge-gate-parity.py --quiet; then
+    errors=$((errors + 1))
+else
+    echo "  ok: merge-gate sentinels in sync (preflight <-> upstream-merge-pr-shape)"
+fi
 
 echo ""
 if [ "$errors" -eq 0 ]; then

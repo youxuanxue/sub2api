@@ -188,31 +188,15 @@ jobs:
           # The bracketed form `[skip ci]` / `[ci skip]` is what GitHub
           # matches literally, and the only form this check rejects.
 
-          fail=0
-          check_source () {
-            local label="$1"
-            local text="$2"
-            if printf '%s' "$text" | grep -Fq -e '[skip ci]' -e '[ci skip]'; then
-              echo "::error::$label contains a bracketed skip-ci / ci-skip marker."
-              echo "::error::This would land in the squash-merge commit body and"
-              echo "::error::silently disable release.yml on any future tag of that commit."
-              echo "::error::Replace the bracketed form with an unbracketed form when"
-              echo "::error::discussing the marker — e.g. 'skip-ci' (hyphen)."
-              fail=1
-            else
-              echo "OK: $label clean"
-            fi
-          }
-
-          check_source "PR title" "$PR_TITLE"
-          check_source "PR body"  "$PR_BODY"
-          # Use --first-parent so imported upstream history (second-parent
-          # of a `merge/upstream-*` merge commit) does NOT count — upstream's
-          # own `chore: sync VERSION to X.Y.Z [skip ci]` commits are by
-          # contract preserved and would otherwise wrongly trip this gate
-          # on every upstream merge. This matches the documented intent in
-          # upstream-merge-pr-shape.yml Check 3 ("Imported upstream history
-          # is allowed to keep upstream's own release-sync messages").
-          check_source "PR commit messages" "$(git log --first-parent --format='%B' "$BASE".."$HEAD")"
-
-          exit $fail
+          # Single matcher shared with upstream-merge-pr-shape.yml Check 3 and
+          # scripts/preflight.sh — scripts/checks/skip-ci-marker.py — so the two
+          # guards can no longer drift on grep engine (-F vs -E) or scan scope.
+          # This guard passes the strictest source set: title + body + commits.
+          # --commits-range uses --first-parent inside the script so imported
+          # upstream history (second parent of a merge/upstream-* merge commit)
+          # does NOT count — upstream's own `chore: sync VERSION ... [skip ci]`
+          # commits are preserved by contract.
+          python3 ./scripts/checks/skip-ci-marker.py \
+            --title "$PR_TITLE" \
+            --body "$PR_BODY" \
+            --commits-range "$BASE..$HEAD"
