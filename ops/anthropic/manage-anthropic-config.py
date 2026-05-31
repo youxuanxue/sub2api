@@ -191,10 +191,24 @@ _EDGE_ROUTING = importlib.util.module_from_spec(ROUTING_SPEC)
 sys.modules.setdefault(ROUTING_SPEC.name, _EDGE_ROUTING)
 ROUTING_SPEC.loader.exec_module(_EDGE_ROUTING)
 
+# Reuse the embed sentinel's JSON->effective-tier-row mapping as the single
+# source for expected tier-table values. check-tier-baseline-embed.py already
+# guarantees this JSON == Go embed == tk_012 migration seed (preflight gate),
+# so "live tiers table vs effective_tiers_from_json(...)" == "live vs git".
+TIER_EMBED_SPEC = importlib.util.spec_from_file_location(
+    "tk_tier_baseline_embed",
+    REPO_ROOT / "scripts/sentinels/check-tier-baseline-embed.py",
+)
+if TIER_EMBED_SPEC is None or TIER_EMBED_SPEC.loader is None:
+    raise RuntimeError("cannot load scripts/sentinels/check-tier-baseline-embed.py")
+_TIER_EMBED = importlib.util.module_from_spec(TIER_EMBED_SPEC)
+sys.modules.setdefault(TIER_EMBED_SPEC.name, _TIER_EMBED)
+TIER_EMBED_SPEC.loader.exec_module(_TIER_EMBED)
+
 CONFIRM_CODE = "yes-apply-anthropic-config-cascade"
 
 PLAN_VERSION = 4
-SNAPSHOT_VERSION = 6
+SNAPSHOT_VERSION = 7
 
 # After each OAuth tier-baseline apply on an edge Postgres, bump the operator
 # (admin/default) user's row concurrency to match Σ anthropic account concurrency
@@ -731,6 +745,42 @@ WHERE g.platform = 'anthropic'
   AND g.deleted_at IS NULL;
 """
 
+# tiers reference table (PR #472): the single per-node source for tier strategy
+# values (base_rpm / max_sessions / ...). Seeded from the Go embed baseline on
+# startup (ensureSeededFromBaseline, git->DB), admin-editable via PUT
+# /api/v1/admin/tiers/:id. snapshot pulls it so the tier_table_drift check can
+# compare live rows vs the git baseline without re-querying. Column names mirror
+# the tiers table / check-tier-baseline-embed.effective_tiers_from_json.
+TIERS_SQL = """
+SELECT COALESCE(jsonb_agg(jsonb_build_object(
+  'name', t.name,
+  'concurrency', t.concurrency,
+  'priority', t.priority,
+  'rate_multiplier', t.rate_multiplier,
+  'base_rpm', t.base_rpm,
+  'max_sessions', t.max_sessions,
+  'rpm_sticky_buffer', t.rpm_sticky_buffer,
+  'session_idle_timeout_minutes', t.session_idle_timeout_minutes,
+  'window_cost_limit', t.window_cost_limit,
+  'window_cost_sticky_reserve', t.window_cost_sticky_reserve,
+  'cache_ttl_override_enabled', t.cache_ttl_override_enabled,
+  'cache_ttl_override_target', t.cache_ttl_override_target,
+  'tls_profile_name', t.tls_profile_name
+) ORDER BY t.name), '[]'::jsonb)
+FROM tiers t
+WHERE t.deleted_at IS NULL;
+"""
+
+
+def _read_tiers(region: str, instance_id: str, label: str) -> list[dict]:
+    """Pull the live `tiers` reference-table rows for one node (edge or prod)."""
+    raw, _ = ssm_run_sql(region, instance_id, TIERS_SQL, f"snapshot: {label} tiers table")
+    try:
+        return json.loads(raw) if raw else []
+    except json.JSONDecodeError:
+        return []
+
+
 OPERATOR_CONCURRENCY_SQL = f"""
 SELECT jsonb_build_object(
   'operator_user_concurrency',
@@ -840,6 +890,7 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
         )
         op = _read_operator_concurrency(ident.region, ident.instance_id, f"edge {eid}")
         bal = _read_operator_balance(ident.region, ident.instance_id, f"edge {eid}")
+        tiers = _read_tiers(ident.region, ident.instance_id, f"edge {eid}")
         edges[eid] = {
             "deployable": True,
             "instance_id": ident.instance_id,
@@ -849,6 +900,7 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
             "ssm_routing": ident.routing,
             "oauth_accounts": json.loads(accts_raw) if accts_raw else [],
             "anthropic_groups": json.loads(groups_raw) if groups_raw else [],
+            "tiers": tiers,
             "operator_user_concurrency": op["operator_user_concurrency"],
             "schedulable_concurrency_sum": op["schedulable_concurrency_sum"],
             "operator_user_balance": bal["operator_user_balance"],
@@ -869,6 +921,7 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
                 "snapshot: prod anthropic groups",
             )
             prod_op = _read_operator_concurrency(PROD_TARGET["region"], prod_inst, "prod")
+            prod_tiers = _read_tiers(PROD_TARGET["region"], prod_inst, "prod")
             prod_view = {
                 "instance_id": prod_inst,
                 "region": PROD_TARGET["region"],
@@ -876,6 +929,7 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
                 "domain": PROD_TARGET["domain"],
                 "anthropic_stubs": json.loads(stubs_raw) if stubs_raw else [],
                 "anthropic_groups": json.loads(groups_raw) if groups_raw else [],
+                "tiers": prod_tiers,
                 "operator_user_concurrency": prod_op["operator_user_concurrency"],
                 "schedulable_concurrency_sum": prod_op["schedulable_concurrency_sum"],
             }
@@ -1012,6 +1066,113 @@ def _run_balance_checks_live(edge_ids: list[str], policy: dict) -> list[dict]:
     return out
 
 
+# --------------------------------------------------------------------------
+# tier_table_drift: live `tiers` reference table vs git baseline
+# --------------------------------------------------------------------------
+# Post-#472 the per-tier strategy values (base_rpm / max_sessions / ...) live in
+# the per-node `tiers` table, seeded from the Go embed baseline on startup and
+# overlaid onto accounts at read time. The table is admin-editable
+# (PUT /api/v1/admin/tiers/:id), and such edits go live fleet-wide via pub/sub
+# but are silently reverted on the next restart/deploy by ensureSeededFromBaseline.
+# This surface REVEALS such backend edits (live tier row != git) and WARNS that a
+# deploy will revert them. We compare exactly the keys OverlayExtra writes
+# (_GUARD.TIER_MANAGED_EXTRA_KEYS) — the runtime-authoritative tier strategy —
+# against effective_tiers_from_json (the same JSON the embed sentinel pins to the
+# Go embed + tk_012 migration seed, so expected == git).
+
+TIER_TABLE_COMPARE_KEYS = sorted(_GUARD.TIER_MANAGED_EXTRA_KEYS)
+
+
+def _tier_val_eq(expected: Any, actual: Any) -> bool:
+    """Numeric-aware equality (28 == 28.0); exact otherwise (bools/strings)."""
+    if isinstance(expected, bool) or isinstance(actual, bool):
+        return expected == actual
+    try:
+        return float(expected) == float(actual)
+    except (TypeError, ValueError):
+        return expected == actual
+
+
+def _load_expected_tiers() -> dict[str, dict]:
+    """Effective per-tier rows from the git baseline JSON (single source, anchored
+    to Go embed + migration by scripts/sentinels/check-tier-baseline-embed.py)."""
+    doc = load_json_file(TIER_BASELINES, "tier baseline")
+    return _TIER_EMBED.effective_tiers_from_json(doc)
+
+
+def _tier_table_drift_items(node_label: str, live_tiers: list[dict] | None,
+                            expected_by_tier: dict[str, dict]) -> list[dict]:
+    """Diff one node's live tiers rows vs the git baseline. Returns drift/missing/
+    extra items, each carrying a human warning. Empty list == node matches git."""
+    items: list[dict] = []
+    live_by_name = {t.get("name"): t for t in (live_tiers or []) if isinstance(t, dict)}
+    for tier_name, exp in sorted(expected_by_tier.items()):
+        live = live_by_name.get(tier_name)
+        if live is None:
+            items.append({
+                "node": node_label, "tier": tier_name, "status": "missing",
+                "warning": (f"tier {tier_name} on {node_label} is missing from the live "
+                            f"tiers table; the git baseline defines it — a fresh seed "
+                            f"(restart/deploy) will recreate it"),
+            })
+            continue
+        diffs = [
+            {"path": f"/{k}", "expected": exp.get(k), "actual": live.get(k)}
+            for k in TIER_TABLE_COMPARE_KEYS
+            if not _tier_val_eq(exp.get(k), live.get(k))
+        ]
+        if diffs:
+            summary = ", ".join(f"{d['path'].lstrip('/')} {d['expected']}->{d['actual']}" for d in diffs)
+            items.append({
+                "node": node_label, "tier": tier_name, "status": "drift", "diffs": diffs,
+                "warning": (f"tier {tier_name} on {node_label} modified via backend admin "
+                            f"({summary}); diverges from git single-source; will be reverted "
+                            f"on next restart/deploy (ensureSeededFromBaseline)"),
+            })
+    for tier_name in sorted(set(live_by_name) - set(expected_by_tier)):
+        items.append({
+            "node": node_label, "tier": tier_name, "status": "extra",
+            "warning": (f"tier {tier_name} on {node_label} exists in the live tiers table "
+                        f"but not in git baseline; created via backend admin; it will not "
+                        f"survive a fresh seed"),
+        })
+    return items
+
+
+def _tier_table_drift_from_snapshot(snap: dict, expected_by_tier: dict[str, dict]) -> list[dict]:
+    items: list[dict] = []
+    for edge_id, edge in sorted(snap.get("edges", {}).items()):
+        if edge.get("error") or edge.get("skipped_reason") or not edge.get("deployable"):
+            continue
+        items.extend(_tier_table_drift_items(f"edge:{edge_id}", edge.get("tiers"), expected_by_tier))
+    prod = snap.get("prod") or {}
+    if not prod.get("error") and not prod.get("skipped_reason"):
+        items.extend(_tier_table_drift_items("prod", prod.get("tiers"), expected_by_tier))
+    return items
+
+
+def _run_tier_table_checks_live(edge_ids: list[str], expected_by_tier: dict[str, dict]) -> list[dict]:
+    """Live SSM tiers-table read per node (used when check runs without a snapshot)."""
+    items: list[dict] = []
+    for eid in edge_ids:
+        try:
+            ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, eid)
+        except SystemExit:
+            items.append({"node": f"edge:{eid}", "tier": "*", "status": "error",
+                          "warning": f"could not resolve SSM instance for edge {eid}"})
+            continue
+        live = _read_tiers(ident.region, ident.instance_id, f"edge {eid}")
+        items.extend(_tier_table_drift_items(f"edge:{eid}", live, expected_by_tier))
+    try:
+        prod_inst = resolve_instance_id(PROD_TARGET["region"], PROD_TARGET["stack"])
+        prod_live = _read_tiers(PROD_TARGET["region"], prod_inst, "prod")
+        items.extend(_tier_table_drift_items("prod", prod_live, expected_by_tier))
+    except SystemExit:
+        items.append({"node": "prod", "tier": "*", "status": "error",
+                      "warning": "could not resolve SSM instance for prod"})
+    return items
+
+
 def cmd_check(args: argparse.Namespace) -> int:
     snapshot = load_json_file(pathlib.Path(args.snapshot), "snapshot") if args.snapshot else None
     edge_ids = _edge_ids_for_check(snapshot, bool(args.allow_planned))
@@ -1034,13 +1195,30 @@ def cmd_check(args: argparse.Namespace) -> int:
         "error_count": sum(1 for x in balance_items if x.get("status") == "error"),
         "items": balance_items,
     }
-    report["any_violation"] = bool(report.get("any_violation")) or balance_violation or balance_error
+    # tier_table_drift: live tiers table vs git baseline (reveal backend edits)
+    expected_tiers = _load_expected_tiers()
+    if snapshot is not None:
+        tier_items = _tier_table_drift_from_snapshot(snapshot, expected_tiers)
+    else:
+        tier_items = _run_tier_table_checks_live(edge_ids, expected_tiers)
+    tier_table_violation = any(x.get("status") in ("drift", "missing", "extra", "error") for x in tier_items)
+    report["tier_table_drift"] = {
+        "policy_source": TIER_BASELINES.name,
+        "compare_keys": TIER_TABLE_COMPARE_KEYS,
+        "violation_count": sum(1 for x in tier_items if x.get("status") in ("drift", "missing", "extra")),
+        "error_count": sum(1 for x in tier_items if x.get("status") == "error"),
+        "items": tier_items,
+    }
+    report["any_violation"] = (
+        bool(report.get("any_violation")) or balance_violation or balance_error or tier_table_violation
+    )
     if args.json:
         print(json.dumps(report, indent=2, ensure_ascii=False))
     else:
         any_violation = report.get("any_violation")
         print(f"check: any_violation={any_violation} guards_run={len(report.get('guards', []))} "
-              f"edges={edge_ids} balance_violations={report['operator_balance']['violation_count']}")
+              f"edges={edge_ids} balance_violations={report['operator_balance']['violation_count']} "
+              f"tier_table_drift={report['tier_table_drift']['violation_count']}")
         for sr in report.get("guards", []):
             ec = sr.get("exit_code")
             status = "OK" if ec == 0 else (sr.get("skipped_reason", "?") if ec is None else f"FAIL exit={ec}")
@@ -1052,6 +1230,8 @@ def cmd_check(args: argparse.Namespace) -> int:
                       f"< threshold={policy['min_balance_threshold']}")
             elif st == "error":
                 print(f"  [BALANCE-ERR] edge={item['edge_id']}: {item.get('reason')}")
+        for item in tier_items:
+            print(f"  [TIER-{item.get('status', '?').upper()}] {item.get('warning')}")
     return 1 if report.get("any_violation") else 0
 
 
@@ -1279,7 +1459,9 @@ def _load_snapshot_or_die(path: str) -> dict:
              f"v4 added per-target operator_user_concurrency + schedulable_concurrency_sum "
              f"for the concurrency-mirror surface; "
              f"v5 added per-target anthropic_groups for group claude-code-only surface; "
-             f"v6 added per-edge operator_user_balance + operator_user_exists for surface E)")
+             f"v6 added per-edge operator_user_balance + operator_user_exists for surface E; "
+             f"v7 added per-node tiers table rows for the tier_table_drift surface "
+             f"(live tiers vs git baseline; post-#472 tier reference-table model))")
     return snap
 
 

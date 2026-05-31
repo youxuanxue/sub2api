@@ -58,11 +58,23 @@ MGR=ops/anthropic/manage-anthropic-config.py
 # Stage 1 — Snapshot：拉所有 deployable edge 的 anthropic OAuth account + prod anthropic api-key stub 状态到 JSON
 python3 $MGR snapshot --out $JOBDIR/snap.json
 
-# Stage 2 — Check（联查）：每个 edge 跑 OAuth 稳定性 guard，只读出 tier baseline / TLS / 余额漂移
+# Stage 2 — Check（联查）：每个 edge 跑 OAuth 稳定性 guard，只读出 TLS / 余额 /
+#   tier 表（vs git）漂移
 python3 $MGR check --snapshot $JOBDIR/snap.json
-#   退出码：0 全绿 / 1 violation（含 tls_profile drift、operator_balance 低于门槛等）/ 2 error
-#   注意：check 只“报告”漂移。tier 数值漂移 → admin UI ApplyTier；并发/pool_mode/余额漂移
-#         → 后端 reconciler 自愈（§3）；只有 TLS 模板漂移与 HTTP UA 由本 skill 修。
+#   退出码：0 全绿 / 1 violation（含 tls_profile drift、operator_balance 低于门槛、
+#           tier_table_drift 等）/ 2 error
+#   注意：check 只“报告”漂移。修复入口分流：
+#     - tls_profile 漂移 → 本 skill Stage 3（plan-guard-drift-fix / remediate-guard-drift）
+#     - operator_balance / pool_mode / concurrency 漂移 → 后端 reconciler 自愈（§3）
+#     - tier_table_drift（live `tiers` 表 != git baseline）→ tier 行被 admin 后台改过
+#       （PUT /admin/tiers/:id），下次重启/发版会被 ensureSeededFromBaseline 回刷；
+#       要么撤销后台改动、要么把改动落进 git baseline JSON 再发版。
+#   ⚠️ check **不再** diff 账号持久化 extra 的 8 个 tier-managed 键（base_rpm /
+#      max_sessions / rpm_sticky_buffer / session_idle_timeout_minutes /
+#      window_cost_limit / window_cost_sticky_reserve / cache_ttl_override_*）：
+#      PR #472 后这些值在 `tiers` 表、运行时 overlay 到账号、写路径剥离，账号 extra
+#      为 null 是**正确态**。它们的正确性由 tier_table_drift（tier 表 vs git）保证，
+#      不再按账号比对（旧逻辑对每个账号每次都假报，已重构）。
 
 # Stage 3 — TLS 模板修复（仅当 check 报 /tls_profile/* 漂移或“启用 TLS 却无 profile”）
 #   3a) 从 check 报告生成 force-template-rewrite 多 action plan：
@@ -200,7 +212,9 @@ operate 流程：
 | `apply --confirm` 拒绝 | 必须精确 `yes-apply-anthropic-config-cascade` |
 | `tls_profile` drift（`/tls_profile/...` 或 UK 模式：启用 TLS 却无 profile） | 用 **`plan-guard-drift-fix`** 或 **`remediate-guard-drift`**（含 `apply --sync-runtime`）force-template-rewrite，不要手工拼 SQL |
 | check guard 报 `status: drift` 且 `diffs[].path` 含 `/credentials/temp_unschedulable_rules`，但数值字段全等 | guard-drift force-template-rewrite 会重写 credentials 端字段；apply 完跑一次 `check` 当真值 |
-| check 报 `extra_baseline_drift` / `account_field_drift`（tier 数值漂移） | **不**用本 skill 修——走 admin UI `ApplyTier` 重设该账号 tier（§3）；reconciler 只报告不重写 |
+| check guard 对账号 `extra.base_rpm` / `max_sessions` 等报 drift | **不应再发生**：PR #472 后这 8 个 tier-managed 键由 `tiers` 表 overlay、账号侧不持久化，guard 已停止比对它们（旧逻辑假报）。若仍看到，说明 guard 未更新——核对 `check-edge-oauth-stability.py` 的 `TIER_MANAGED_EXTRA_KEYS` 排除逻辑 |
+| check 报 `tier_table_drift`（live `tiers` 表 != git baseline，violation/exit 1） | tier 行被 admin 后台改过（`PUT /admin/tiers/:id`），全副本即时生效但下次重启/发版被 `ensureSeededFromBaseline` 回刷。看 `items[].warning` 定位 node/tier/字段；**撤销后台改动**（admin UI 改回），或若是有意调整就**把新值落进 git baseline JSON**（`deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json` + 同步 embed/迁移，过 `check-tier-baseline-embed.py`）再发版固化 |
+| check 报账号 `account_field_drift`（非 tier-managed 字段，如 priority / concurrency） | concurrency 由 reconciler 自愈（§3）；其余账号级字段走 admin UI |
 | check 报 `operator_balance` 低于门槛 / pool_mode / concurrency 漂移 | 由后端 reconciler 自愈（§3）；若持续未自愈，查该节点 reconciler leader 锁 / slog 日志，不要手工 plan |
 | HTTP UA / mimicry 未生效 | `sync-runtime --target …`（或先 `plan-http-mimicry-sync` 核对 manifest）；确认 `anthropic-http-mimicry-baselines.json` 的 `cc_version` 已是目标版本 |
 | OAuth account `status=error/suspended` | OAuth 凭据问题（token 过期 / 403 / 上游禁用），见 OAuth 故障文档；不在本流水线范围 |
