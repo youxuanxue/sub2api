@@ -1218,9 +1218,11 @@
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
         "tkIsAnthropicClientInducedBadRequest(responseBody)",
-        "s.tkClampOpenAIRateLimitReset(ctx, account.ID"
+        "s.tkClampOpenAIRateLimitReset(ctx, account.ID",
+        "tkIsDownstreamNoAvailableAccounts(upstreamMsg, responseBody)",
+        "anthropic_downstream_no_available_accounts_skip_penalty"
       ],
-      "rationale": "TK#2608: client-induced Anthropic 400 invalid_request_error must not advance the per-account cooldown counter (else an external caller can pause a shared OAuth subscription account). TK#1981: opt-in clamp of long OpenAI 429 resets so released accounts are re-probed by traffic instead of idling."
+      "rationale": "TK#2608: client-induced Anthropic 400 invalid_request_error must not advance the per-account cooldown counter (else an external caller can pause a shared OAuth subscription account). TK#1981: opt-in clamp of long OpenAI 429 resets so released accounts are re-probed by traffic instead of idling. Prod incident 2026-05-31: a downstream 503 whose body is our own 'no available accounts' pool-exhaustion signal (a thin edge bursting on parallel haiku background requests, surfaced through a prod per-edge mirror stub) must fail over to the next stub WITHOUT advancing the anthropic_upstream_error counter — else a 3-503 edge burst trips the 3/3 ladder and cools the whole edge stub for 10 minutes, collapsing the prod pool (self-inflicted 503 amplifier)."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_client_induced_400.go",
@@ -1229,6 +1231,14 @@
         "invalid_request_error"
       ],
       "rationale": "TK#2608: the predicate distinguishing client-induced 400s from account-level punishment. Removing it reopens the external account-disable abuse vector."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_downstream_no_available.go",
+      "must_contain": [
+        "func tkIsDownstreamNoAvailableAccounts",
+        "ErrNoAvailableAccounts.Error()"
+      ],
+      "rationale": "Prod incident 2026-05-31: the predicate distinguishing a downstream gateway's own 'no available accounts' pool-exhaustion 503 (transient edge capacity blip on a forwarded-to pool) from a genuine account-health upstream error. Removing it lets a brief edge-side haiku burst trip the 3/3 anthropic_upstream_error ladder and 10-minute-cool the prod mirror stub for that whole edge, reintroducing the self-inflicted 503 amplifier."
     },
     {
       "path": "backend/internal/service/openai_gateway_service_tk_implicit_throttle.go",
