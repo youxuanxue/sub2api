@@ -1364,10 +1364,9 @@
       "path": "backend/internal/handler/edge_tk_capacity_handler.go",
       "must_contain": [
         "func (h *EdgeCapacityHandler) GetSchedulingCapacity(",
-        "SumConcurrencyAnthropicByGroup(",
-        "anthropicDefaultGroupName"
+        "SumConcurrencyAnthropic("
       ],
-      "rationale": "Edge capacity read endpoint (surface C): GET /api/v1/edge/scheduling-capacity exposes Σ schedulable anthropic concurrency so prod's reconciler can mirror a live edge's capacity onto its stub. The pool now partitions by group — capacity counts ONLY the anthropic-default scheduling pool (SumConcurrencyAnthropicByGroup(\"anthropic-default\")), not every anthropic row; a silent revert to the unscoped sum would over-count cross-group accounts. Read-only, off the gateway billing/concurrency chain. Silent deletion would break the prod concurrency-mirror without a compile error (prod would just stop converging)."
+      "rationale": "Edge capacity read endpoint (surface C): GET /api/v1/edge/scheduling-capacity exposes the GLOBAL Σ schedulable anthropic concurrency (SumConcurrencyAnthropic, schedulable=true filter) so prod's reconciler can mirror a live edge's capacity onto its stub. This is the SAME canonical rule as the operator-Σ alignment (anthropic_operator_concurrency.go). It must NOT use a by-group sum: the prior SumConcurrencyAnthropicByGroup(\"anthropic-default\") hardcoded a group name that does not exist on edges (their anthropic group is \"default\"), so the endpoint always returned 0 and prod's mirror never converged since #472 — a silent always-no-op. Read-only, off the gateway billing/concurrency chain; the schedulable=true filter already excludes admin-bypass api-keys. Silent deletion or a revert to the by-group sum would break the prod concurrency-mirror without a compile error (prod would just stop converging)."
     },
     {
       "path": "backend/internal/server/middleware/edge_capacity_auth_tk.go",
