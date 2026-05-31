@@ -19,11 +19,18 @@ type schedulingCapacityReader interface {
 }
 
 // anthropicDefaultGroupName is the group whose schedulable anthropic concurrency
-// surface-C reports. On every edge the anthropic accounts live in the group named
-// "default" (verified live: SumConcurrencyAnthropicByGroup("default") matches the
-// edge's real schedulable Σ, while the earlier "anthropic-default" guess never
-// matched and made the endpoint return 0 — see PR #476 / its revert). Counting
-// only this group keeps prod's mirror scoped to the default scheduling pool rather
+// surface-C reports. Edges keep their anthropic accounts in an operator-managed
+// group named exactly "default" (verified live: SumConcurrencyAnthropicByGroup(
+// "default") matches the edge's real schedulable Σ; "anthropic-default" returned
+// 0 — see PR #476 and its revert).
+//
+// This INTENTIONALLY differs from the "<platform>-default" convention used by the
+// simple-mode seed (repository.ensureSimpleModeDefaultGroups) and admin auto-bind
+// (adminServiceImpl.CreateAccount), which would name it "anthropic-default". The
+// edge pool is curated by the operator, not those paths, so this endpoint pins
+// "default" by deployment fact. Do NOT "correct" it to "anthropic-default" to match
+// the seed convention — that reintroduces the silent always-0 no-op (#472/#476).
+// Counting only this group keeps prod's mirror scoped to the live edge pool rather
 // than every anthropic row.
 const anthropicDefaultGroupName = "default"
 
