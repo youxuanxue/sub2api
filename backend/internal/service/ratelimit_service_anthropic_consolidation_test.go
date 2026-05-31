@@ -488,4 +488,3 @@ func TestOpsAlertEvaluator_AnthropicCooldownTierEscalationCount_ReflectsLadderWr
 	require.InDelta(t, 2.0, value, 0.0001,
 		"two tier>=1 trips must surface as escalation_count=2 to ops alerts")
 }
-

@@ -3256,6 +3256,15 @@ export default {
       privacyAntigravitySet: 'Telemetry and marketing emails disabled',
       privacyAntigravityFailed: 'Privacy setting failed',
       setPrivacy: 'Set Privacy',
+      setTierDialog: {
+        menuItem: 'Set Tier',
+        title: 'Set Account Tier',
+        selectLabel: 'Select tier',
+        applyButton: 'Apply',
+        applySuccess: 'Tier applied (this deployment only)',
+        applyFailed: 'Failed to apply tier',
+        localScopeWarning: 'Applies only to this deployment’s database; other edges / prod still need the ops/anthropic pipeline fan-out.'
+      },
       subscriptionAbnormal: 'Abnormal',
       subscriptionExpires: 'Expires',
       // Capacity status tooltips
@@ -6697,6 +6706,52 @@ export default {
       loadFailed: 'Failed to load profiles',
       saveFailed: 'Failed to save profile',
       deleteFailed: 'Failed to delete profile'
+    },
+
+    tierTemplates: {
+      title: 'Tier Templates',
+      description: 'Anthropic OAuth stability tiers (l1..l5). Accounts reference a tier by id; per-tier limits resolve at runtime.',
+      projectionBanner: 'Tiers are a projection of the git baseline. Edits here apply immediately and fan out to referencing accounts, but the ops/anthropic pipeline re-asserts these rows from git on its next run — use UI edits for emergency/local changes only.',
+      createTier: 'Create Tier',
+      editTier: 'Edit Tier',
+      deleteTier: 'Delete Tier',
+      noTiers: 'No tiers configured',
+
+      columns: {
+        name: 'Name',
+        concurrency: 'Concurrency',
+        baseRpm: 'Base RPM',
+        maxSessions: 'Max Sessions',
+        tlsProfile: 'TLS Profile',
+        actions: 'Actions'
+      },
+
+      form: {
+        name: 'Name',
+        description: 'Description',
+        concurrency: 'Concurrency',
+        priority: 'Priority',
+        priorityHint: 'Projection only — the window pipeline owns accounts.priority',
+        rateMultiplier: 'Rate Multiplier',
+        baseRpm: 'Base RPM',
+        maxSessions: 'Max Sessions',
+        rpmStickyBuffer: 'RPM Sticky Buffer',
+        sessionIdleTimeoutMinutes: 'Session Idle Timeout (min)',
+        windowCostLimit: 'Window Cost Limit',
+        windowCostStickyReserve: 'Window Cost Sticky Reserve',
+        cacheTtlOverrideEnabled: 'Cache TTL Override',
+        tlsProfileName: 'TLS Profile Name',
+        tlsProfileNameHint: 'Pipeline upserts the profile by name and backfills the id',
+        tlsProfileId: 'TLS Profile ID'
+      },
+
+      deleteConfirmMessage: 'Are you sure you want to delete tier "{name}"? Accounts bound to it will fall back to their persisted extra values.',
+      createSuccess: 'Tier created successfully',
+      updateSuccess: 'Tier updated successfully',
+      deleteSuccess: 'Tier deleted successfully',
+      loadFailed: 'Failed to load tiers',
+      saveFailed: 'Failed to save tier',
+      deleteFailed: 'Failed to delete tier'
     }
   },
 

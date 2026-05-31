@@ -317,7 +317,8 @@ type UpdateAccountInput struct {
 	GroupIDs              *[]int64
 	ExpiresAt             *int64
 	AutoPauseOnExpired    *bool
-	SkipMixedChannelCheck bool // 跳过混合渠道检查（用户已确认风险）
+	SkipMixedChannelCheck bool   // 跳过混合渠道检查（用户已确认风险）
+	TierID                *int64 // TK: bind anthropic-oauth stability tier (tiers table); 0 clears
 }
 
 // BulkUpdateAccountsInput describes the payload for bulk updating accounts.
@@ -2680,6 +2681,14 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			return nil, errors.New("rate_multiplier must be >= 0")
 		}
 		account.RateMultiplier = input.RateMultiplier
+	}
+	if input.TierID != nil {
+		// 0 表示解绑 tier（清空），>0 绑定具体档位。
+		if *input.TierID <= 0 {
+			account.TierID = nil
+		} else {
+			account.TierID = input.TierID
+		}
 	}
 	if input.LoadFactor != nil {
 		if *input.LoadFactor <= 0 {

@@ -29,6 +29,9 @@ linters:
             - "!**/internal/service/ops_cleanup_service.go"
             - "!**/internal/service/ops_metrics_collector.go"
             - "!**/internal/service/ops_scheduled_report_service.go"
+            # TK: per-node anthropic config reconciler needs redis for its
+            # leader lock (SetNX + Lua release), same as the ops services above.
+            - "!**/internal/service/anthropic_config_reconciler.go"
             - "!**/internal/service/wire.go"
           deny:
             - pkg: github.com/Wei-Shaw/sub2api/internal/repository

@@ -34,6 +34,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/securitysecret"
 	"github.com/Wei-Shaw/sub2api/ent/setting"
 	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
+	"github.com/Wei-Shaw/sub2api/ent/tier"
 	"github.com/Wei-Shaw/sub2api/ent/tlsfingerprintprofile"
 	"github.com/Wei-Shaw/sub2api/ent/usagecleanuptask"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
@@ -1709,6 +1710,87 @@ func init() {
 	tlsfingerprintprofileDescEnableGrease := tlsfingerprintprofileFields[2].Descriptor()
 	// tlsfingerprintprofile.DefaultEnableGrease holds the default value on creation for the enable_grease field.
 	tlsfingerprintprofile.DefaultEnableGrease = tlsfingerprintprofileDescEnableGrease.Default.(bool)
+	tierMixin := schema.Tier{}.Mixin()
+	tierMixinFields0 := tierMixin[0].Fields()
+	_ = tierMixinFields0
+	tierFields := schema.Tier{}.Fields()
+	_ = tierFields
+	// tierDescCreatedAt is the schema descriptor for created_at field.
+	tierDescCreatedAt := tierMixinFields0[0].Descriptor()
+	// tier.DefaultCreatedAt holds the default value on creation for the created_at field.
+	tier.DefaultCreatedAt = tierDescCreatedAt.Default.(func() time.Time)
+	// tierDescUpdatedAt is the schema descriptor for updated_at field.
+	tierDescUpdatedAt := tierMixinFields0[1].Descriptor()
+	// tier.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	tier.DefaultUpdatedAt = tierDescUpdatedAt.Default.(func() time.Time)
+	// tier.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	tier.UpdateDefaultUpdatedAt = tierDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// tierDescName is the schema descriptor for name field.
+	tierDescName := tierFields[0].Descriptor()
+	// tier.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	tier.NameValidator = func() func(string) error {
+		validators := tierDescName.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(name string) error {
+			for _, fn := range fns {
+				if err := fn(name); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// tierDescConcurrency is the schema descriptor for concurrency field.
+	tierDescConcurrency := tierFields[2].Descriptor()
+	// tier.DefaultConcurrency holds the default value on creation for the concurrency field.
+	tier.DefaultConcurrency = tierDescConcurrency.Default.(int)
+	// tierDescPriority is the schema descriptor for priority field.
+	tierDescPriority := tierFields[3].Descriptor()
+	// tier.DefaultPriority holds the default value on creation for the priority field.
+	tier.DefaultPriority = tierDescPriority.Default.(int)
+	// tierDescRateMultiplier is the schema descriptor for rate_multiplier field.
+	tierDescRateMultiplier := tierFields[4].Descriptor()
+	// tier.DefaultRateMultiplier holds the default value on creation for the rate_multiplier field.
+	tier.DefaultRateMultiplier = tierDescRateMultiplier.Default.(float64)
+	// tierDescBaseRpm is the schema descriptor for base_rpm field.
+	tierDescBaseRpm := tierFields[5].Descriptor()
+	// tier.DefaultBaseRpm holds the default value on creation for the base_rpm field.
+	tier.DefaultBaseRpm = tierDescBaseRpm.Default.(int)
+	// tierDescMaxSessions is the schema descriptor for max_sessions field.
+	tierDescMaxSessions := tierFields[6].Descriptor()
+	// tier.DefaultMaxSessions holds the default value on creation for the max_sessions field.
+	tier.DefaultMaxSessions = tierDescMaxSessions.Default.(int)
+	// tierDescRpmStickyBuffer is the schema descriptor for rpm_sticky_buffer field.
+	tierDescRpmStickyBuffer := tierFields[7].Descriptor()
+	// tier.DefaultRpmStickyBuffer holds the default value on creation for the rpm_sticky_buffer field.
+	tier.DefaultRpmStickyBuffer = tierDescRpmStickyBuffer.Default.(int)
+	// tierDescSessionIdleTimeoutMinutes is the schema descriptor for session_idle_timeout_minutes field.
+	tierDescSessionIdleTimeoutMinutes := tierFields[8].Descriptor()
+	// tier.DefaultSessionIdleTimeoutMinutes holds the default value on creation for the session_idle_timeout_minutes field.
+	tier.DefaultSessionIdleTimeoutMinutes = tierDescSessionIdleTimeoutMinutes.Default.(int)
+	// tierDescWindowCostLimit is the schema descriptor for window_cost_limit field.
+	tierDescWindowCostLimit := tierFields[9].Descriptor()
+	// tier.DefaultWindowCostLimit holds the default value on creation for the window_cost_limit field.
+	tier.DefaultWindowCostLimit = tierDescWindowCostLimit.Default.(float64)
+	// tierDescWindowCostStickyReserve is the schema descriptor for window_cost_sticky_reserve field.
+	tierDescWindowCostStickyReserve := tierFields[10].Descriptor()
+	// tier.DefaultWindowCostStickyReserve holds the default value on creation for the window_cost_sticky_reserve field.
+	tier.DefaultWindowCostStickyReserve = tierDescWindowCostStickyReserve.Default.(float64)
+	// tierDescCacheTTLOverrideEnabled is the schema descriptor for cache_ttl_override_enabled field.
+	tierDescCacheTTLOverrideEnabled := tierFields[11].Descriptor()
+	// tier.DefaultCacheTTLOverrideEnabled holds the default value on creation for the cache_ttl_override_enabled field.
+	tier.DefaultCacheTTLOverrideEnabled = tierDescCacheTTLOverrideEnabled.Default.(bool)
+	// tierDescCacheTTLOverrideTarget is the schema descriptor for cache_ttl_override_target field.
+	tierDescCacheTTLOverrideTarget := tierFields[12].Descriptor()
+	// tier.CacheTTLOverrideTargetValidator is a validator for the "cache_ttl_override_target" field. It is called by the builders before save.
+	tier.CacheTTLOverrideTargetValidator = tierDescCacheTTLOverrideTarget.Validators[0].(func(string) error)
+	// tierDescTLSProfileName is the schema descriptor for tls_profile_name field.
+	tierDescTLSProfileName := tierFields[13].Descriptor()
+	// tier.TLSProfileNameValidator is a validator for the "tls_profile_name" field. It is called by the builders before save.
+	tier.TLSProfileNameValidator = tierDescTLSProfileName.Validators[0].(func(string) error)
 	usagecleanuptaskMixin := schema.UsageCleanupTask{}.Mixin()
 	usagecleanuptaskMixinFields0 := usagecleanuptaskMixin[0].Fields()
 	_ = usagecleanuptaskMixinFields0

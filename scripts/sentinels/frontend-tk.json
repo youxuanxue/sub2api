@@ -325,6 +325,62 @@
         "openAIEndpointCapabilities"
       ],
       "rationale": "Post-2026-05-29 upstream merge: EditAccountModal was 3-way re-merged after the original merge took upstream wholesale and dropped TK customizations. This guards the upstream features TK adopted in that re-merge — per-account 5h/7d quota auto-pause threshold persistence (auto_pause_5h/7d_threshold, paired with the backend shouldAutoPauseOpenAIAccountByQuota gate) and the OpenAI endpoint-capability selection (openAIEndpointCapabilities). A future merge that re-overwrites this modal must keep them or the admin loses the auto-pause / capability controls. The TK compaction/pricing literals are guarded by the existing frontend-tk + newapi sentinels."
+    },
+    {
+      "path": "frontend/src/constants/accountTierOptions.tk.ts",
+      "must_contain": [
+        "ACCOUNT_TIER_OPTIONS"
+      ],
+      "rationale": "TK-only tier dropdown options (l1..l5) for the admin 'Set Tier' action. Display labels only — the backend embedded baseline owns the numeric tier values. Guards the constant against silent upstream-merge deletion that would break the tier modal import."
+    },
+    {
+      "path": "frontend/src/composables/useTkAccountTier.ts",
+      "must_contain": [
+        "applyAccountTier",
+        "setTierDialog"
+      ],
+      "rationale": "TK-only composable owning the per-account 'Set Tier' flow: opens/closes the modal, calls adminAPI.accounts.applyAccountTier, surfaces success/error toasts. Keeps AccountsView.vue thin (template + wiring) per CLAUDE.md §5. Guards the composable against silent upstream-merge deletion that would orphan the AccountsView tier wiring."
+    },
+    {
+      "path": "frontend/src/components/admin/account/AccountTierModal.vue",
+      "must_contain": [
+        "setTierDialog",
+        "tierOptions"
+      ],
+      "rationale": "TK-only modal for the admin 'Set Tier' action. Thin template that renders the tier options and the local-deployment-only scope warning (applying a tier writes ONLY this deployment's DB; fleet fan-out still needs the ops/anthropic pipeline). Guards against silent upstream-merge deletion."
+    },
+    {
+      "path": "frontend/src/api/admin/tier.ts",
+      "must_contain": [
+        "/admin/tiers",
+        "export const tierAPI"
+      ],
+      "rationale": "TK-only API client for the tier reference-table CRUD (/admin/tiers). Mirrors api/admin/tlsFingerprintProfile.ts. Backs the Tier Templates management modal; silent upstream-merge deletion would break the modal's list/create/update/delete calls."
+    },
+    {
+      "path": "frontend/src/components/admin/account/TierTemplatesModal.vue",
+      "must_contain": [
+        "admin.tierTemplates.title",
+        "adminAPI.tiers",
+        "projectionBanner"
+      ],
+      "rationale": "TK-only full CRUD modal for the tier reference table (mirrors TLSFingerprintProfilesModal.vue). Renders the git-projection banner (UI edits are emergency/local; the ops/anthropic pipeline re-asserts from git). Mounted from AccountsView.vue. Guards against silent upstream-merge deletion."
+    },
+    {
+      "path": "frontend/src/i18n/locales/en.ts",
+      "must_contain": [
+        "tierTemplates: {",
+        "createTier: 'Create Tier'"
+      ],
+      "rationale": "TK-only i18n DEFINITIONS for the Tier Templates modal. The TierTemplatesModal.vue sentinel only proves the component references admin.tierTemplates.*; this anchors the actual en.ts translations so an upstream merge that rewrites locales can't silently drop the block (which would render raw i18n keys in the modal)."
+    },
+    {
+      "path": "frontend/src/i18n/locales/zh.ts",
+      "must_contain": [
+        "tierTemplates: {",
+        "createTier: '创建 Tier'"
+      ],
+      "rationale": "TK-only i18n DEFINITIONS (zh) for the Tier Templates modal — the zh counterpart of the en.ts tierTemplates anchor. Guards against an upstream locale-file rewrite silently dropping the block."
     }
   ]
 }

@@ -678,6 +678,17 @@ export async function setPrivacy(id: number): Promise<Account> {
   return data
 }
 
+/**
+ * TokenKey-only: apply an embedded stability-tier baseline to a single anthropic
+ * account on THIS deployment (concurrency / priority / extra + canonical TLS
+ * fingerprint binding + operator-concurrency Σ sync). Does NOT propagate to
+ * other edges/prod — fleet fan-out stays with the ops/anthropic pipeline.
+ */
+export async function applyAccountTier(id: number, tier: string): Promise<Account> {
+  const { data } = await apiClient.post<Account>(`/admin/accounts/${id}/apply-tier`, { tier })
+  return data
+}
+
 export const accountsAPI = {
   list,
   listWithEtag,
@@ -690,6 +701,7 @@ export const accountsAPI = {
   testAccount,
   refreshCredentials,
   applyOAuthCredentials,
+  applyAccountTier,
   getStats,
   clearError,
   getUsage,

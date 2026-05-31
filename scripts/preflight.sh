@@ -427,6 +427,26 @@ else
     echo "  ok: anthropic baseline JSON in sync with ratelimit_service.go constants"
 fi
 
+# ---- sub2api: embedded tier/stub baseline ↔ deploy source single-source ------
+# The backend embeds the tier baseline + stub-pool policy (backend/internal/
+# baseline/) so the in-process ApplyTier UI action and the per-node config
+# reconciler derive desired account config without an operator laptop / SSM
+# round-trip. go:embed cannot reach outside the backend module, so those JSONs
+# are COPIES of the canonical deploy/aws/stage0 sources. This guard makes any
+# drift between copy and source a hard failure (single-source discipline,
+# CLAUDE.md §10 / memory "anthropic tier baseline 单一源").
+echo ""
+echo "=== sub2api: embedded tier baseline single-source ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for tier baseline embed check)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/sentinels/check-tier-baseline-embed.py --quiet; then
+    # check-tier-baseline-embed.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: embedded tier/stub baselines match deploy/aws/stage0 sources"
+fi
+
 # ---- sub2api: sentinel registry update gate ---------------------------------
 # Existing sentinel checks prove current guarded literals still exist. This gate
 # proves PRs that modify guarded/hotspot files also update the matching registry,

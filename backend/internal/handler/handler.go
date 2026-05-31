@@ -38,6 +38,8 @@ type AdminHandlers struct {
 	Payment                *admin.PaymentHandler
 	Affiliate              *admin.AffiliateHandler
 	TKChannel              *admin.TKChannelAdminHandler
+	// TK: anthropic-oauth stability tier reference table CRUD — see tier_handler_tk.go.
+	Tier *admin.TierHandler
 }
 
 // Handlers contains all HTTP handlers
@@ -65,6 +67,8 @@ type Handlers struct {
 	MePricingCatalog *MePricingCatalogHandler
 	// TK: user-facing QA export (issue #59 / docs/approved/ops-unified-contract.md §2).
 	QA *QAHandler
+	// TK: internal edge capacity read (surface C) — see edge_tk_capacity_handler.go.
+	EdgeCapacity *EdgeCapacityHandler
 }
 
 // BuildInfo contains build-time information

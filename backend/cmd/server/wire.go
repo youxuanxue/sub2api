@@ -84,6 +84,9 @@ func provideCleanup(
 	// TK fix for upstream Wei-Shaw/sub2api#2538 — see
 	// internal/service/scheduler_rate_limit_reaper.go.
 	schedulerRateLimitReaper *service.SchedulerRateLimitReaper,
+	// TK: per-node anthropic config self-healer — see
+	// internal/service/anthropic_config_reconciler.go.
+	anthropicConfigReconciler *service.AnthropicConfigReconciler,
 	tokenRefresh *service.TokenRefreshService,
 	accountExpiry *service.AccountExpiryService,
 	subscriptionExpiry *service.SubscriptionExpiryService,
@@ -182,6 +185,12 @@ func provideCleanup(
 			{"SchedulerRateLimitReaper", func() error {
 				if schedulerRateLimitReaper != nil {
 					schedulerRateLimitReaper.Stop()
+				}
+				return nil
+			}},
+			{"AnthropicConfigReconciler", func() error {
+				if anthropicConfigReconciler != nil {
+					anthropicConfigReconciler.Stop()
 				}
 				return nil
 			}},

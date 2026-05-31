@@ -88,6 +88,8 @@ var ProviderSet = wire.NewSet(
 	NewUserGroupRateRepository,
 	NewErrorPassthroughRepository,
 	NewTLSFingerprintProfileRepository,
+	// TK: anthropic-oauth stability tier reference table — see tier_repo.go / tier_service.go.
+	NewTierRepository,
 	NewChannelRepository,
 	NewChannelMonitorRepository,
 	NewChannelMonitorRequestTemplateRepository,
@@ -129,7 +131,9 @@ var ProviderSet = wire.NewSet(
 	NewRefreshTokenCache,
 	NewErrorPassthroughCache,
 	NewTLSFingerprintProfileCache,
+	NewTierCache,
 	NewContentModerationHashCache,
+	NewSettingPubSub,
 
 	// Encryptors
 	NewAESEncryptor,

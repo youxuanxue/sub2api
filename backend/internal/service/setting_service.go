@@ -210,6 +210,11 @@ type SettingService struct {
 	// instance owns its own cache, no shared package-level state.
 	openAIQuotaAutoPauseSettingsCache atomic.Value // *cachedOpenAIQuotaAutoPauseSettings
 	openAIQuotaAutoPauseSettingsSF    singleflight.Group
+
+	// settingsPubSub fans out settings-write events across replicas (TK-only,
+	// see setting_service_tk_pubsub.go). nil when pub/sub is disabled — the
+	// existing 60s per-cache TTL remains the fallback.
+	settingsPubSub *settingsPubSubHub
 }
 
 // DefaultPlatformQuotaSetting 单 platform 三档限额（nil = 沿用上层；0 = 显式禁用；>0 = 上限）
@@ -1986,6 +1991,10 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	if s.onUpdate != nil {
 		s.onUpdate() // Invalidate cache after settings update
 	}
+	// TK: fan out to peer replicas so a UA (or any SystemSettings) edit invalidates
+	// their in-process caches within seconds. No-op when pub/sub is disabled or while
+	// applying a remote refresh (loop guard). See setting_service_tk_pubsub.go.
+	s.notifySettingsPubSub()
 }
 
 func (s *SettingService) defaultRewriteMessageCacheControl() bool {

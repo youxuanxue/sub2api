@@ -1253,6 +1253,135 @@
         "trimOpenAIEncryptedReasoningItems("
       ],
       "rationale": "Failover-boundary stripper for OpenAI Responses reasoning encrypted_content. encrypted_content is bound to the account that produced it; when the Responses failover loop switches accounts the carried value draws a 400 invalid_encrypted_content from the new account. This helper (called from openai_gateway_handler.go, gated on an actual account switch) reuses trimOpenAIEncryptedReasoningItems to drop it proactively, skipping the doomed first hop. Behaviour-neutral on the happy path (fast-path no-op when the marker is absent) and the per-account invalid_encrypted_content retry remains a backstop, so this is a latency/ops-noise optimization — but the sentinel guards the file against silent upstream-merge deletion that would reintroduce the per-switch 400 storm."
+    },
+    {
+      "path": "backend/internal/service/account_tier_service_tk.go",
+      "must_contain": [
+        "func (s *AccountTierService) ApplyTier(",
+        "extra[\"enable_tls_fingerprint\"] = true",
+        "AccountTierExtraKey"
+      ],
+      "rationale": "TK per-account tier-apply service: the UI 'Set Tier' action that replaces the high-frequency ops/anthropic SSM fan-out for a single deployment. ApplyTier derives the desired account config from the embedded tier baseline (concurrency/priority/rate_multiplier + merged extra + shared credentials), upserts the canonical TLS fingerprint profile, pins enable_tls_fingerprint + tls_fingerprint_profile_id + stability_tier on extra, and persists via the existing UpdateAccount path (which runs the operator-Σ sync). Writes ONLY this deployment's DB. Silent upstream-merge deletion would break the admin Set-Tier UI flow."
+    },
+    {
+      "path": "backend/internal/handler/admin/account_handler_tk_tier.go",
+      "must_contain": [
+        "func (h *AccountHandler) ApplyTier(c *gin.Context)",
+        "h.accountTierService.ApplyTier("
+      ],
+      "rationale": "HTTP handler for POST /admin/accounts/:id/apply-tier (the admin Set-Tier action). Thin companion so account_handler.go stays close to upstream shape. Guards against silent upstream-merge deletion that would orphan the tier route."
+    },
+    {
+      "path": "backend/internal/server/routes/admin_tk_tier_routes.go",
+      "must_contain": [
+        "func registerTKAccountTierRoutes(",
+        "accounts.POST(\"/:id/apply-tier\", h.Admin.Account.ApplyTier)",
+        "func registerTKTierTemplateRoutes(",
+        "tiers.GET(\"\", h.Admin.Tier.List)"
+      ],
+      "rationale": "Route registration for (1) the per-account tier-apply action and (2) the tier-template reference-table CRUD (GET/POST/PUT/DELETE /admin/tiers), both called from admin.go. A silent upstream-merge deletion of either helper or its call site would unregister the endpoints while leaving the handlers compiled-but-unreachable."
+    },
+    {
+      "path": "backend/internal/service/tier_service.go",
+      "must_contain": [
+        "func NewTierService(",
+        "func (s *TierService) ApplyTierExtra(",
+        "func (s *TierService) ResolveConcurrency("
+      ],
+      "rationale": "Tier reference-table service (the git-baseline projection). ApplyTierExtra is the repo-load-boundary overlay that resolves per-tier base_rpm/max_sessions/window-cost/cache-ttl into in-memory Account.Extra so a tier-row edit fans out to every referencing account with ZERO account writes (decision 1). ResolveConcurrency feeds the reconciler Step-T value-sync. Silent deletion would silently break 'edit a tier, all accounts reflect it within seconds' and fall back to stale persisted extra."
+    },
+    {
+      "path": "backend/internal/repository/tier_cache.go",
+      "must_contain": [
+        "func NewTierCache(",
+        "tiers_updated",
+        "func (c *tierCache) SubscribeUpdates("
+      ],
+      "rationale": "Redis-backed tier cache + pub/sub ('tiers_updated' channel) mirroring the TLS-profile cache. The SubscribeUpdates fan-out is what makes a tier-row edit propagate across replicas within seconds; losing it would silently regress to the 24h TTL."
+    },
+    {
+      "path": "backend/internal/handler/admin/tier_handler_tk.go",
+      "must_contain": [
+        "func NewTierHandler(",
+        "func (h *TierHandler) Create(",
+        "func (h *TierHandler) Delete("
+      ],
+      "rationale": "Admin CRUD handler for the tier reference table (the 'Tier 模板' management surface, mirroring TLSFingerprintProfile). Writes go through TierService → invalidateAndNotify pub/sub. Silent upstream-merge deletion would orphan the /admin/tiers routes."
+    },
+    {
+      "path": "backend/internal/service/setting_service_tk_pubsub.go",
+      "must_contain": [
+        "type SettingPubSub interface",
+        "func (s *SettingService) EnableSettingsPubSub(",
+        "func (s *SettingService) notifySettingsPubSub(",
+        "func (s *SettingService) applyRemoteSettingsRefresh("
+      ],
+      "rationale": "Cross-replica SystemSettings fan-out (decision 6), service-layer half. A SystemSettings write (e.g. the Claude Code / Antigravity HTTP UA version) publishes via the SettingPubSub bus; peer replicas reload from DB and repopulate caches within seconds instead of waiting out the 60s TTL. The suppress loop-guard in applyRemoteSettingsRefresh prevents a publish→subscribe→publish storm. redis lives in the repository impl (setting_pubsub.go) so the service layer stays redis-free (depguard). Silent deletion would silently regress UA edits to 60s cross-replica propagation."
+    },
+    {
+      "path": "backend/internal/repository/setting_pubsub.go",
+      "must_contain": [
+        "settings_updated",
+        "func NewSettingPubSub(",
+        "service.SettingPubSub"
+      ],
+      "rationale": "Cross-replica SystemSettings fan-out (decision 6), repository-layer redis impl of service.SettingPubSub over the 'settings_updated' channel. Mirrors the tier/TLS-profile cache pub/sub. Silent deletion would disconnect the fan-out and silently regress to the 60s TTL."
+    },
+    {
+      "path": "backend/internal/service/setting_service.go",
+      "must_contain": [
+        "settingsPubSub *settingsPubSubHub",
+        "s.notifySettingsPubSub()"
+      ],
+      "rationale": "The two upstream-file injection points for the TK settings pub/sub (companion in setting_service_tk_pubsub.go): the struct field and the notify call at the tail of refreshCachedSettings. An upstream merge that rewrites the SettingService struct or refreshCachedSettings would drop these and silently disable cross-replica settings fan-out without a compile error (the companion's methods would still build)."
+    },
+    {
+      "path": "backend/internal/repository/account_repo.go",
+      "must_contain": [
+        "tierResolver service.TierExtraResolver",
+        "r.tierResolver.ApplyTierExtra(out)"
+      ],
+      "rationale": "The single repo-load-boundary (accountsToService) where tier per-tier config is overlaid into in-memory Account.Extra (decision 1). If an upstream merge drops the resolver field or the ApplyTierExtra call, tier-bound accounts silently stop resolving live tier values and fall back to stale persisted extra — no compile error."
+    },
+    {
+      "path": "backend/internal/service/tls_fingerprint_profile_service_tk.go",
+      "must_contain": [
+        "func (s *TLSFingerprintProfileService) GetOrUpsertByName("
+      ],
+      "rationale": "Upsert-by-name for the canonical TLS fingerprint profile (tk_canonical_cc_oauth). ApplyTier and the config reconciler depend on this to resolve a real profile id — without it the runtime would silently fall back to the built-in default ClientHello. Guards against silent deletion on upstream merge of the tls profile service file."
+    },
+    {
+      "path": "backend/internal/handler/edge_tk_capacity_handler.go",
+      "must_contain": [
+        "func (h *EdgeCapacityHandler) GetSchedulingCapacity(",
+        "SumConcurrencyAnthropicByGroup(",
+        "anthropicDefaultGroupName"
+      ],
+      "rationale": "Edge capacity read endpoint (surface C): GET /api/v1/edge/scheduling-capacity exposes Σ schedulable anthropic concurrency so prod's reconciler can mirror a live edge's capacity onto its stub. The pool now partitions by group — capacity counts ONLY the anthropic-default scheduling pool (SumConcurrencyAnthropicByGroup(\"anthropic-default\")), not every anthropic row; a silent revert to the unscoped sum would over-count cross-group accounts. Read-only, off the gateway billing/concurrency chain. Silent deletion would break the prod concurrency-mirror without a compile error (prod would just stop converging)."
+    },
+    {
+      "path": "backend/internal/server/middleware/edge_capacity_auth_tk.go",
+      "must_contain": [
+        "func NewEdgeCapacityAuthMiddleware("
+      ],
+      "rationale": "Lightweight api-key auth for the edge capacity endpoint — deliberately NOT the gateway billing/concurrency/rate-limit chain (the read must carry no scheduling side effects). Silent deletion would either expose the capacity read unauthenticated or break its mounting."
+    },
+    {
+      "path": "backend/internal/server/routes/edge_tk_routes.go",
+      "must_contain": [
+        "func RegisterTKEdgeRoutes(",
+        "edge.GET(\"/scheduling-capacity\", h.EdgeCapacity.GetSchedulingCapacity)"
+      ],
+      "rationale": "Mounts the edge capacity endpoint behind the lightweight api-key middleware, called once from router.go. Silent upstream-merge deletion of this helper or its call site would unregister the surface-C read side."
+    },
+    {
+      "path": "backend/internal/service/anthropic_config_reconciler.go",
+      "must_contain": [
+        "func (r *AnthropicConfigReconciler) reconcileConcurrencyMirror(",
+        "skip, never write 0",
+        "func (r *AnthropicConfigReconciler) reportTierDrift("
+      ],
+      "rationale": "Per-node in-process self-healer that drops the ops/anthropic high-frequency safe-item writes into the backend: operator-Σ alignment, prod stub pool_mode, edge balance floor, and the surface-C concurrency mirror — plus REPORT-ONLY tier drift (never silently rewrites a UI-set tier). The surface-C 'never write 0 on a failed edge read' invariant and the report-only tier-drift boundary are load-bearing correctness properties; a silent upstream-merge deletion or weakening must be caught."
     }
   ]
 }

@@ -149,4 +149,3 @@ func TestIsModelPriced_VendorPrefixDoesNotLeakAcrossFamilies(t *testing.T) {
 	require.False(t, svc.IsModelPriced("/gpt-4o-mini", "newapi"),
 		"empty vendor must not enable the fallback")
 }
-

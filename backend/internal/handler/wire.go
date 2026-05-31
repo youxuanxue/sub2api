@@ -42,6 +42,7 @@ func ProvideAdminHandlers(
 	paymentHandler *admin.PaymentHandler,
 	affiliateHandler *admin.AffiliateHandler,
 	tkChannelHandler *admin.TKChannelAdminHandler,
+	tierHandler *admin.TierHandler,
 ) *AdminHandlers {
 	return &AdminHandlers{
 		Dashboard:              dashboardHandler,
@@ -75,6 +76,7 @@ func ProvideAdminHandlers(
 		Payment:                paymentHandler,
 		Affiliate:              affiliateHandler,
 		TKChannel:              tkChannelHandler,
+		Tier:                   tierHandler,
 	}
 }
 
@@ -167,6 +169,14 @@ func ProvideOpenAIGatewayHandler(
 	return h
 }
 
+// ProvideEdgeCapacityHandler adapts the wire-provided service.AccountRepository
+// (which satisfies the handler's narrow schedulingCapacityReader interface) to
+// the edge capacity handler. A dedicated provider avoids needing a wire.Bind for
+// the unexported interface and keeps NewEdgeCapacityHandler unit-test friendly.
+func ProvideEdgeCapacityHandler(accountRepo service.AccountRepository) *EdgeCapacityHandler {
+	return NewEdgeCapacityHandler(accountRepo)
+}
+
 // ProvideHandlers creates the Handlers struct
 func ProvideHandlers(
 	authHandler *AuthHandler,
@@ -189,6 +199,7 @@ func ProvideHandlers(
 	pricingCatalogHandler *PricingCatalogHandler,
 	mePricingCatalogHandler *MePricingCatalogHandler,
 	qaHandler *QAHandler,
+	edgeCapacityHandler *EdgeCapacityHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 ) *Handlers {
@@ -213,6 +224,7 @@ func ProvideHandlers(
 		PricingCatalog:   pricingCatalogHandler,
 		MePricingCatalog: mePricingCatalogHandler,
 		QA:               qaHandler,
+		EdgeCapacity:     edgeCapacityHandler,
 	}
 }
 
@@ -240,6 +252,8 @@ var ProviderSet = wire.NewSet(
 	NewMePricingCatalogHandler,
 	ProvideTKGatewayHandlerModelList,
 	NewQAHandler,
+	// TK: internal edge capacity read (surface C) — see edge_tk_capacity_handler.go.
+	ProvideEdgeCapacityHandler,
 
 	// Admin handlers
 	admin.NewDashboardHandler,
@@ -273,6 +287,8 @@ var ProviderSet = wire.NewSet(
 	admin.NewTKChannelAdminHandler,
 	admin.NewPaymentHandler,
 	admin.NewAffiliateHandler,
+	// TK: anthropic-oauth stability tier reference table CRUD — see tier_handler_tk.go.
+	admin.NewTierHandler,
 
 	// AdminHandlers and Handlers constructors
 	ProvideAdminHandlers,

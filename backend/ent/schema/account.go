@@ -197,6 +197,14 @@ func (Account) Fields() []ent.Field {
 		// channel_type: New API adaptor channel type (>0 selects adaptor; 0 = legacy path)
 		field.Int("channel_type").
 			Default(0),
+
+		// tier_id: TokenKey anthropic OAuth 稳定性档位引用（可空）。
+		// 绑定到 tiers 表，运行时按 id 解析 per-tier 配置（base_rpm / max_sessions /
+		// window_cost_limit 等）。仅 anthropic OAuth 账号使用；apikey / 其它平台为 NULL。
+		field.Int64("tier_id").
+			Optional().
+			Nillable().
+			Comment("TK: bound anthropic-oauth stability tier id (tiers table)."),
 	}
 }
 
@@ -236,5 +244,6 @@ func (Account) Indexes() []ent.Index {
 		index.Fields("platform", "priority"),
 		index.Fields("priority", "status"),
 		index.Fields("deleted_at"), // 软删除查询优化
+		index.Fields("tier_id"),    // TK: 按 tier 反查引用账号（reconciler 值同步）
 	}
 }

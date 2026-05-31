@@ -57,13 +57,13 @@ func TestIsCanonicalTLSProfileName(t *testing.T) {
 
 func TestNormalizeClaudeCodeUserAgentVersion(t *testing.T) {
 	cases := map[string]string{
-		"2.1.150":          "2.1.150",
-		"  2.1.150  ":      "2.1.150",
-		"2.1.150-rc.1":     "", // suffix not allowed
-		"v2.1.150":         "", // v-prefix not allowed
-		"2.1":              "", // 2-part semver not allowed
-		"2.1.150.b91":      "", // 4-part not allowed
-		"":                 "",
+		"2.1.150":           "2.1.150",
+		"  2.1.150  ":       "2.1.150",
+		"2.1.150-rc.1":      "", // suffix not allowed
+		"v2.1.150":          "", // v-prefix not allowed
+		"2.1":               "", // 2-part semver not allowed
+		"2.1.150.b91":       "", // 4-part not allowed
+		"":                  "",
 		"OpenAI/Python 1.0": "",
 	}
 	for in, want := range cases {

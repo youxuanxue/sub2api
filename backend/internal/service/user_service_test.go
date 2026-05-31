@@ -200,13 +200,13 @@ func (m *mockUserRepo) RemoveGroupFromAllowedGroups(context.Context, int64) (int
 	return 0, nil
 }
 
-func (m *mockUserRepo) BatchSetConcurrency(context.Context, []int64, int) (int, error)    { return 0, nil }
-func (m *mockUserRepo) BatchAddConcurrency(context.Context, []int64, int) (int, error)    { return 0, nil }
-func (m *mockUserRepo) AddGroupToAllowedGroups(context.Context, int64, int64) error       { return nil }
-func (m *mockUserRepo) UpdateTotpSecret(context.Context, int64, *string) error            { return nil }
-func (m *mockUserRepo) EnableTotp(context.Context, int64) error                           { return nil }
-func (m *mockUserRepo) DisableTotp(context.Context, int64) error                          { return nil }
-func (m *mockUserRepo) MarkOnboardingTourSeen(context.Context, int64) error               { return nil }
+func (m *mockUserRepo) BatchSetConcurrency(context.Context, []int64, int) (int, error) { return 0, nil }
+func (m *mockUserRepo) BatchAddConcurrency(context.Context, []int64, int) (int, error) { return 0, nil }
+func (m *mockUserRepo) AddGroupToAllowedGroups(context.Context, int64, int64) error    { return nil }
+func (m *mockUserRepo) UpdateTotpSecret(context.Context, int64, *string) error         { return nil }
+func (m *mockUserRepo) EnableTotp(context.Context, int64) error                        { return nil }
+func (m *mockUserRepo) DisableTotp(context.Context, int64) error                       { return nil }
+func (m *mockUserRepo) MarkOnboardingTourSeen(context.Context, int64) error            { return nil }
 func (m *mockUserRepo) ListUserAuthIdentities(context.Context, int64) ([]UserAuthIdentityRecord, error) {
 	out := make([]UserAuthIdentityRecord, len(m.identities))
 	copy(out, m.identities)

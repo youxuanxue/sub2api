@@ -228,6 +228,24 @@ func ProvideSchedulerRateLimitReaper(
 	return svc
 }
 
+// ProvideAnthropicConfigReconciler creates and starts the TK per-node anthropic
+// config self-healer. Adapts the wire-provided concrete repos / admin service
+// (which satisfy the reconciler's narrow interfaces) and Start()s the ticker.
+// See anthropic_config_reconciler.go for the boundary doctrine (writes ONLY this
+// deployment's DB; tier drift is report-only).
+func ProvideAnthropicConfigReconciler(
+	accountRepo AccountRepository,
+	userRepo UserRepository,
+	adminSvc AdminService,
+	tierSvc *TierService,
+	cfg *config.Config,
+	redisClient *redis.Client,
+) *AnthropicConfigReconciler {
+	rec := NewAnthropicConfigReconciler(accountRepo, userRepo, adminSvc, tierSvc, cfg, redisClient)
+	rec.Start()
+	return rec
+}
+
 // ProvideRateLimitService creates RateLimitService with optional dependencies.
 func ProvideRateLimitService(
 	accountRepo AccountRepository,
@@ -422,13 +440,16 @@ func ProvideBackupService(
 }
 
 // ProvideSettingService wires SettingService with group reader and proxy repo.
-func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupRepository, proxyRepo ProxyRepository, cfg *config.Config) *SettingService {
+func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupRepository, proxyRepo ProxyRepository, pubsub SettingPubSub, cfg *config.Config) *SettingService {
 	svc := NewSettingService(settingRepo, cfg)
 	svc.SetDefaultSubscriptionGroupReader(groupRepo)
 	svc.SetProxyRepository(proxyRepo)
 	if err := svc.LoadAPIKeyACLTrustForwardedIPSetting(context.Background()); err != nil {
 		logger.LegacyPrintf("service.setting", "Warning: load api key acl forwarded ip setting failed: %v", err)
 	}
+	// TK: fan out SystemSettings writes (e.g. HTTP UA version) across replicas via
+	// Redis pub/sub so a change is reflected within seconds, not the 60s cache TTL.
+	svc.EnableSettingsPubSub(context.Background(), pubsub)
 	antigravity.SetUserAgentVersionResolver(svc.GetAntigravityUserAgentVersion)
 	SetClaudeCodeUserAgentResolver(svc.GetClaudeCodeUserAgentVersion)
 	claude.SetClaudeCodeMimicryBetasResolver(svc.GetClaudeCodeMimicryBetas)
@@ -530,6 +551,7 @@ var ProviderSet = wire.NewSet(
 	// TK fix for upstream Wei-Shaw/sub2api#2538 — see
 	// scheduler_rate_limit_reaper.go.
 	ProvideSchedulerRateLimitReaper,
+	ProvideAnthropicConfigReconciler,
 	NewIdentityService,
 	NewCRSSyncService,
 	ProvideUpdateService,
@@ -546,6 +568,10 @@ var ProviderSet = wire.NewSet(
 	NewTotpService,
 	NewErrorPassthroughService,
 	NewTLSFingerprintProfileService,
+	// TK: anthropic-oauth stability tier reference service (CRUD + pub/sub + resolver).
+	NewTierService,
+	wire.Bind(new(TierExtraResolver), new(*TierService)),
+	NewAccountTierService,
 	NewDigestSessionStore,
 	ProvideIdempotencyCoordinator,
 	ProvideSystemOperationLockService,

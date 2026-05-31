@@ -48,7 +48,7 @@ func newAvailabilityTestService(t *testing.T) (*PricingAvailabilityService, *mem
 
 type fakeClock struct{ now time.Time }
 
-func (f *fakeClock) Now() time.Time      { return f.now }
+func (f *fakeClock) Now() time.Time          { return f.now }
 func (f *fakeClock) Advance(d time.Duration) { f.now = f.now.Add(d) }
 
 // TestRecordOutcome_SuccessTransitionsToOK 钉住成功路径：untested → ok，
