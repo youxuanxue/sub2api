@@ -970,6 +970,23 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 // in case 400, OAuth 401 refresh, 429 retry-after cooldown, 529 overload)
 // live outside this function and are unaffected.
 func (s *RateLimitService) handleAnthropicUpstreamError(ctx context.Context, account *Account, statusCode int, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
+	// TK (prod incident 2026-05-31): a 503 whose body is the downstream gateway's
+	// own "no available accounts" pool-exhaustion signal is a transient capacity
+	// blip on the *forwarded-to* pool (e.g. a thin edge bursting on parallel haiku
+	// background requests), NOT a health problem with THIS forwarding stub account.
+	// Advancing the per-account anthropic_upstream_error counter would let a 3-503
+	// edge burst trip the 3/3 ladder and cool the whole edge stub for 10 minutes
+	// (tier=2), collapsing the prod pool — a self-inflicted 503 amplifier. Fail the
+	// in-flight request over to the next stub (return true) but leave stub health
+	// untouched: no counter advance, no SetTempUnschedulable. See
+	// tkIsDownstreamNoAvailableAccounts.
+	if statusCode == http.StatusServiceUnavailable && tkIsDownstreamNoAvailableAccounts(upstreamMsg, responseBody) {
+		slog.Info("anthropic_downstream_no_available_accounts_skip_penalty",
+			"account_id", account.ID,
+			"status_code", statusCode)
+		return true
+	}
+
 	// TK: when status.claude.com reports a non-operational Claude API, the error is
 	// Anthropic's fault, not the account's. Skip writing temp_unschedulable_until so
 	// account health scores are not penalised during upstream incidents.
