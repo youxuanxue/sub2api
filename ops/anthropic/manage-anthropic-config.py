@@ -767,8 +767,7 @@ SELECT COALESCE(jsonb_agg(jsonb_build_object(
   'cache_ttl_override_target', t.cache_ttl_override_target,
   'tls_profile_name', t.tls_profile_name
 ) ORDER BY t.name), '[]'::jsonb)
-FROM tiers t
-WHERE t.deleted_at IS NULL;
+FROM tiers t;
 """
 
 
