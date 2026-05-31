@@ -166,6 +166,28 @@ WHERE platform = $1 AND schedulable = true AND deleted_at IS NULL`
 	return sum.Int64, nil
 }
 
+// SumConcurrencyAnthropicByGroup returns Σ concurrency for schedulable anthropic
+// accounts that belong to the named group (e.g. "default"). Surface-C:
+// the edge capacity endpoint reports only the default-group pool so prod mirrors
+// the right number.
+func (r *accountRepository) SumConcurrencyAnthropicByGroup(ctx context.Context, groupName string) (int64, error) {
+	const q = `
+SELECT COALESCE(SUM(a.concurrency), 0)::bigint
+FROM accounts a
+JOIN account_groups ag ON ag.account_id = a.id
+JOIN groups g ON g.id = ag.group_id
+WHERE a.platform = $1 AND a.schedulable = true AND a.deleted_at IS NULL
+  AND g.name = $2 AND g.deleted_at IS NULL`
+	var sum sql.NullInt64
+	if err := scanSingleRow(ctx, r.sql, q, []any{domain.PlatformAnthropic, groupName}, &sum); err != nil {
+		return 0, fmt.Errorf("sum anthropic concurrency by group %q: %w", groupName, err)
+	}
+	if !sum.Valid {
+		return 0, nil
+	}
+	return sum.Int64, nil
+}
+
 func (r *accountRepository) GetByID(ctx context.Context, id int64) (*service.Account, error) {
 	m, err := r.client.Account.Query().Where(dbaccount.IDEQ(id)).Only(ctx)
 	if err != nil {

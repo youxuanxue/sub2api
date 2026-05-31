@@ -15,8 +15,24 @@ import (
 // endpoint needs. service.AccountRepository satisfies it; a small interface keeps
 // the handler unit-testable without stubbing the whole repository surface.
 type schedulingCapacityReader interface {
-	SumConcurrencyAnthropic(ctx context.Context) (int64, error)
+	SumConcurrencyAnthropicByGroup(ctx context.Context, groupName string) (int64, error)
 }
+
+// anthropicDefaultGroupName is the group whose schedulable anthropic concurrency
+// surface-C reports. Edges keep their anthropic accounts in an operator-managed
+// group named exactly "default" (verified live: SumConcurrencyAnthropicByGroup(
+// "default") matches the edge's real schedulable Σ; "anthropic-default" returned
+// 0 — see PR #476 and its revert).
+//
+// This INTENTIONALLY differs from the "<platform>-default" convention used by the
+// simple-mode seed (repository.ensureSimpleModeDefaultGroups) and admin auto-bind
+// (adminServiceImpl.CreateAccount), which would name it "anthropic-default". The
+// edge pool is curated by the operator, not those paths, so this endpoint pins
+// "default" by deployment fact. Do NOT "correct" it to "anthropic-default" to match
+// the seed convention — that reintroduces the silent always-0 no-op (#472/#476).
+// Counting only this group keeps prod's mirror scoped to the live edge pool rather
+// than every anthropic row.
+const anthropicDefaultGroupName = "default"
 
 // EdgeCapacityHandler serves the TokenKey "scheduling capacity" read endpoint
 // that prod's anthropic-config reconciler (surface C) calls over HTTP to mirror
@@ -63,14 +79,7 @@ func (h *EdgeCapacityHandler) GetSchedulingCapacity(c *gin.Context) {
 		return
 	}
 
-	// Global Σ schedulable anthropic concurrency — the canonical "edge serving
-	// capacity" number (same rule as the operator-Σ alignment in
-	// anthropic_operator_concurrency.go). The prior by-group sum hardcoded a
-	// group name ("anthropic-default") that does not exist on edges (their
-	// anthropic group is "default"), so the endpoint always returned 0 and prod's
-	// surface-C mirror never converged. SumConcurrencyAnthropic already filters
-	// schedulable=true, so the admin-bypass api-key (schedulable=false) is excluded.
-	total, err := h.accounts.SumConcurrencyAnthropic(c.Request.Context())
+	total, err := h.accounts.SumConcurrencyAnthropicByGroup(c.Request.Context(), anthropicDefaultGroupName)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "failed to read scheduling capacity")
 		return
