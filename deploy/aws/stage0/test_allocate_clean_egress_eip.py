@@ -28,6 +28,8 @@ class LoadExcludedIPsTests(unittest.TestCase):
         polluted_ips = {e["ip"] for e in data["polluted"]}
         self.assertIn("3.9.160.161", polluted_ips)
         self.assertIn("35.177.124.150", polluted_ips)
+        self.assertIn("16.61.87.51", polluted_ips)
+        self.assertIn("18.135.59.111", polluted_ips)
         self.assertNotIn("retired_excluded", data)
 
     def test_load_excluded_ips_for_region(self):

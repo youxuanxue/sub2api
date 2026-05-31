@@ -1,20 +1,40 @@
 {
   "schema_version": 2,
-  "description": "EC2 edge EIP exclusion registry. allocate-clean-egress-eip.py refuses any fresh allocation that lands on these IPs (per region).",
+  "description": "Edge egress IP exclusion registry (EC2 EIP + Lightsail Static IP). allocate-clean-egress-eip.py and ops/lightsail/rotate-static-ip.sh refuse fresh allocations that land on these IPs (per region).",
   "polluted": [
     {
       "ip": "3.9.160.161",
       "region": "eu-west-2",
+      "platform": "ec2",
+      "edge_id": "uk1",
       "notes": "upstream API risk-block (2026-05-20)"
     },
     {
       "ip": "35.177.124.150",
       "region": "eu-west-2",
+      "platform": "ec2",
+      "edge_id": "uk1",
       "notes": "upstream API risk-block (2026-05-22)"
+    },
+    {
+      "ip": "16.61.87.51",
+      "region": "eu-west-2",
+      "platform": "ec2",
+      "edge_id": "uk1",
+      "notes": "EC2 uk1 orphan EIP released 2026-05-26 after EC2→Lightsail migration (not upstream pollution; exclude from re-allocation)"
+    },
+    {
+      "ip": "18.135.59.111",
+      "region": "eu-west-2",
+      "platform": "lightsail",
+      "edge_id": "uk1",
+      "notes": "Lightsail edge-uk1 tokenkey-edge-uk1-ls-ip superseded 2026-05-26; released after matrix correction to 13.134.80.182"
     },
     {
       "ip": "100.48.129.133",
       "region": "us-east-1",
+      "platform": "lightsail",
+      "edge_id": "us2",
       "notes": "Lightsail edge-us2 StaticIp-2 upstream API risk-block (2026-05-29)"
     }
   ]

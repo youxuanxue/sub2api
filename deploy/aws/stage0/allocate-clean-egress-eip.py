@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Allocate a fresh VPC EIP for an edge, refusing any allocation that lands on
 a known-excluded IP listed in deploy/aws/stage0/edge-polluted-ips.json (polluted[]).
+Lightsail Static IP rotations use the same registry via record-polluted-ip.py.
 
 Used by .github/workflows/deploy-edge-stage0.yml operation=rotate_egress_ip
 before the CloudFormation update-stack that binds the new allocation to the
