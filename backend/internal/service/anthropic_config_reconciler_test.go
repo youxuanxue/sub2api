@@ -44,13 +44,6 @@ func (s *reconcilerAccountStub) SumConcurrencyAnthropic(ctx context.Context) (in
 	return s.sum, nil
 }
 
-func (s *reconcilerAccountStub) SumConcurrencyAnthropicByGroup(context.Context, string) (int64, error) {
-	if s.sumErr != nil {
-		return 0, s.sumErr
-	}
-	return s.sum, nil
-}
-
 func (s *reconcilerAccountStub) BulkUpdate(ctx context.Context, ids []int64, updates AccountBulkUpdate) (int64, error) {
 	if s.bulkErr != nil {
 		return 0, s.bulkErr
