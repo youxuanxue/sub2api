@@ -56,8 +56,9 @@
 3. **daily diagnostics**：`ops-daily-diagnostics.yml` 自动把 deployable Lightsail
    edge 接入矩阵，复用 SSM SendCommand 跑 docker ps / 健康 / 日志信号计数；同
    一份 ops-report 同时覆盖 prod + EC2 edge + Lightsail edge
-4. **IP rotation**：`ops/lightsail/rotate-static-ip.sh <edge_id> --apply` 三步换 IP
-   并把 `${ssm_prefix}/public_ip` 同步更新
+4. **IP rotation**：`ops/lightsail/rotate-static-ip.sh <edge_id> --apply` 三步换 IP、
+   拒绝落在 exclusion registry 的候选 IP、自动 append 旧 IP 到
+   `deploy/aws/stage0/edge-polluted-ips.json`，并把 `${ssm_prefix}/public_ip` 同步更新
 
 ### 负向
 

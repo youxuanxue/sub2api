@@ -24,6 +24,8 @@ EC2 路径见 `tokenkey-stage0-edge-ip-rotation`。Lightsail 路径**没有 Clou
 | 解析 edge → region / instance / static IP name / domain | 机械 | `ops/lightsail/rotate-static-ip.sh`（jq 读 `edge-targets-lightsail.json`） |
 | 计划输出（dry run） | 机械 | 同上脚本默认行为（无 `--apply`） |
 | 三步 swap（allocate → detach → attach → release） | 机械 | 同上脚本 `--apply` |
+| 候选 IP 撞 exclusion registry 时重试 | 机械 | 同上脚本（默认最多 5 次） |
+| 释放旧 IP 后写入 exclusion registry | 机械 | [`deploy/aws/stage0/record-polluted-ip.py`](../../../deploy/aws/stage0/record-polluted-ip.py)（由 rotate 脚本调用） |
 | 把 ssm_prefix/public_ip 改成新 IP | 机械 | 同上脚本 |
 | Porkbun DNS A 记录更新 | 真判断 | prompt（人工操作 Porkbun） |
 | 外部干净出口验证 | 真判断 | prompt（选择哪个 observation host 取决于运营当时态势） |
@@ -76,21 +78,24 @@ ssm_prefix        : /tokenkey/lightsail/uk1
 ## 2) Swap
 
 ```bash
-bash ops/lightsail/rotate-static-ip.sh <edge_id> --apply
+bash ops/lightsail/rotate-static-ip.sh <edge_id> --apply --reason 'upstream-api-risk-block-YYYY-MM-DD'
 ```
 
 脚本顺序：
 
-1. `aws lightsail allocate-static-ip` 新名字
+1. `aws lightsail allocate-static-ip` 新名字（若候选 IP 已在 [`edge-polluted-ips.json`](../../../deploy/aws/stage0/edge-polluted-ips.json) 则 release 并重试）
 2. `aws lightsail detach-static-ip` 旧名字
 3. `aws lightsail attach-static-ip` 新名字到 instance
 4. `aws lightsail get-static-ip` 读出 NEW ip
 5. `aws ssm put-parameter` 写 `${ssm_prefix}/public_ip = <new_ip>`
 6. `aws lightsail release-static-ip` 旧名字（**该 IP 进入 AWS pool**）
+7. `record-polluted-ip.py append` 把旧 IP 写入 exclusion registry（**记得 commit JSON + 跑 `scripts/edge-ip-status.sh --check`**）
 
 输出最后会打印 NEW ip 和 DNS / smoke 提示。
 
-> **同账户 IP 池注意**：Lightsail 在同账户同 region 复用 IP 池，新分配的 IP 极少撞回相同的旧 IP，但概率不是零。如果 NEW ip 仍被污染，重跑一次 swap 即可（旧 IP 已 release，不会回收到自己手里）。
+> **同账户 IP 池注意**：Lightsail 在同账户同 region 复用 IP 池。rotate 脚本会查
+> [`edge-polluted-ips.json`](../../../deploy/aws/stage0/edge-polluted-ips.json) 并在候选 IP
+> 已登记时自动重试；释放的旧 IP 也会自动 append 进 registry，避免再次撞回。
 
 ## 3) DNS 与 Caddy
 
