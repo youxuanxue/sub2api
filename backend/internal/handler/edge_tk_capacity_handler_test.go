@@ -15,13 +15,13 @@ import (
 )
 
 type capacityReaderStub struct {
-	sum    int64
-	err    error
-	called bool
+	sum       int64
+	err       error
+	lastGroup string
 }
 
-func (s *capacityReaderStub) SumConcurrencyAnthropic(_ context.Context) (int64, error) {
-	s.called = true
+func (s *capacityReaderStub) SumConcurrencyAnthropicByGroup(_ context.Context, groupName string) (int64, error) {
+	s.lastGroup = groupName
 	return s.sum, s.err
 }
 
@@ -52,12 +52,9 @@ func TestEdgeCapacityHandler_ReturnsTotalConcurrency(t *testing.T) {
 	require.Equal(t, "anthropic", env.Data.Platform)
 	require.Equal(t, int64(42), env.Data.TotalConcurrency)
 	require.NotZero(t, env.Data.TS)
-	// Regression: surface-C must read the GLOBAL Σ schedulable anthropic
-	// concurrency (SumConcurrencyAnthropic), not a by-group sum. The prior
-	// by-group call hardcoded "anthropic-default", a group that does not exist on
-	// edges (their group is "default"), so the endpoint always returned 0 and the
-	// prod mirror never converged.
-	require.True(t, stub.called, "must call SumConcurrencyAnthropic (global schedulable Σ)")
+	// Surface-C: capacity counts only the "default" scheduling pool (the group
+	// every edge's anthropic accounts actually belong to).
+	require.Equal(t, "default", stub.lastGroup)
 }
 
 func TestEdgeCapacityHandler_DefaultsToAnthropic(t *testing.T) {

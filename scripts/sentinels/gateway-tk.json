@@ -1364,9 +1364,10 @@
       "path": "backend/internal/handler/edge_tk_capacity_handler.go",
       "must_contain": [
         "func (h *EdgeCapacityHandler) GetSchedulingCapacity(",
-        "SumConcurrencyAnthropic("
+        "SumConcurrencyAnthropicByGroup(",
+        "anthropicDefaultGroupName"
       ],
-      "rationale": "Edge capacity read endpoint (surface C): GET /api/v1/edge/scheduling-capacity exposes the GLOBAL Σ schedulable anthropic concurrency (SumConcurrencyAnthropic, schedulable=true filter) so prod's reconciler can mirror a live edge's capacity onto its stub. This is the SAME canonical rule as the operator-Σ alignment (anthropic_operator_concurrency.go). It must NOT use a by-group sum: the prior SumConcurrencyAnthropicByGroup(\"anthropic-default\") hardcoded a group name that does not exist on edges (their anthropic group is \"default\"), so the endpoint always returned 0 and prod's mirror never converged since #472 — a silent always-no-op. Read-only, off the gateway billing/concurrency chain; the schedulable=true filter already excludes admin-bypass api-keys. Silent deletion or a revert to the by-group sum would break the prod concurrency-mirror without a compile error (prod would just stop converging)."
+      "rationale": "Edge capacity read endpoint (surface C): GET /api/v1/edge/scheduling-capacity exposes Σ schedulable anthropic concurrency so prod's reconciler can mirror a live edge's capacity onto its stub. The pool partitions by group — capacity counts ONLY the default scheduling pool (SumConcurrencyAnthropicByGroup with anthropicDefaultGroupName = \"default\", the group every edge's anthropic accounts actually belong to), not every anthropic row across all groups; a silent switch to the unscoped global sum would over-count cross-group accounts. The group name MUST stay \"default\": an earlier \"anthropic-default\" guess matched no group and made the endpoint always return 0 (PR #476, then its revert). Read-only, off the gateway billing/concurrency chain. Silent deletion would break the prod concurrency-mirror without a compile error (prod would just stop converging)."
     },
     {
       "path": "backend/internal/server/middleware/edge_capacity_auth_tk.go",
