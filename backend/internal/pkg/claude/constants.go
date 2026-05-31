@@ -7,7 +7,7 @@ import "strings"
 
 // Beta header 常量
 //
-// 这里的常量对齐真实 Claude Code CLI 的最新流量（截至 2026-05，cc 2.1.159 抓包）。
+// 这里的常量对齐真实 Claude Code CLI 的最新流量（截至 2026-06，cc 2.1.159 抓包）。
 // Anthropic 上游会基于 anthropic-beta 的完整集合判定请求来源；
 // 缺少任何"官方 Claude Code 请求才会带"的 beta，都会被降级到第三方额度，
 // 对应报错：`Third-party apps now draw from your extra usage, not your plan limits.`

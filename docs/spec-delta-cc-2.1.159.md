@@ -4,7 +4,7 @@
 **Skill:** `/tokenkey-cc-fingerprint-alignment`
 **Type:** HTTP-only (User-Agent / canonical version); TLS ja3 unchanged
 **Capture egress:** cc0 SOCKS chain → 16.147.170.3
-**Capture bundle:** `.tls_list/20260601-143052-cc-capture.bundle.json`
+**Capture bundle:** `.tls_list/20260531T232715Z-cc-capture.bundle.json`
 
 ## Ground truth (captured)
 
@@ -19,19 +19,20 @@
 | TLS ja3_hash | d871d02cecbde59abbf8f4806134addf | d871d02cecbde59abbf8f4806134addf |
 
 Comprehensive beta consistency (`ops/anthropic/capture-http-comprehensive.sh`): haiku ×3,
-sonnet ×3, opus ×2 — each family **1 unique beta header**, no split/canary. UA stable at
+sonnet ×6, opus ×2 — each family **1 unique beta header**, no split/canary. UA stable at
 `claude-cli/2.1.159 (external, cli)` across all requests.
 
 ## Changed files
 
-- `backend/internal/pkg/claude/constants.go` — `MimicClaudeCodeCLIVersion`, `CanonicalClaudeCodeVersion`, `DefaultClaudeCodeUserAgentVersion`
-- `backend/internal/service/identity_service_tk_canonical_http.go` — `canonicalCCVersion`, `fallbackCanonicalCCVersion`
-- `backend/internal/service/identity_service.go` — `mimicClaudeCodeVersion`
-- `backend/internal/pkg/claude/constants_test.go` — expected UA strings
-- `deploy/aws/stage0/anthropic-http-mimicry-baselines.json` — runtime truth source
-
-Sentinel registry (`scripts/sentinels/gateway-tk.json`) and smoke lib
-(`ops/stage0/smoke_lib.sh`) carry no pinned cc version string — no change needed.
+- `backend/internal/pkg/claude/constants.go` — `CLICurrentVersion`, `DefaultHeaders["User-Agent"]`, capture-date / cc-version comments
+- `backend/internal/service/identity_service.go` — `defaultFingerprint.UserAgent`
+- `backend/internal/service/identity_service_tk_canonical_http.go` — `DefaultClaudeCodeUserAgentVersion`
+- `backend/internal/service/gateway_context_management_test.go` — cc-version reference in test comments
+- `deploy/aws/stage0/anthropic-http-mimicry-baselines.json` — `cc_version` (runtime truth source)
+- `deploy/aws/stage0/tk_canonical_cc_oauth.json` — `observed.user_agent` + capture-range note in `description`
+- `ops/anthropic/test_capture_cc_fingerprint.py` — `canonical_http.default_version` baseline assertion
+- `ops/stage0/smoke_lib.sh` — `smoke_default_claude_user_agent` default UA
+- `scripts/sentinels/gateway-tk.json` — mimicry-beta sentinel `rationale` cc-version reference
 
 ## Validation
 
