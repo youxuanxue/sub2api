@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 import SubscriptionsView from '../SubscriptionsView.vue'
+import { GATEWAY_PLATFORMS } from '@/constants/gatewayPlatforms'
 
 const { listSubscriptions, getAllGroups, searchUsers } = vi.hoisted(() => {
   return {
@@ -135,7 +136,7 @@ describe('US-026: SubscriptionsView platform filter must include the fifth platf
     expect(newapiOption?.label).toBe('Extension Engine')
   })
 
-  it('exposes exactly the 5 canonical platforms + sentinel "all" entry (no extras, no missing)', async () => {
+  it('exposes exactly the canonical platforms + sentinel "all" entry (no extras, no missing)', async () => {
     mount(SubscriptionsView, {
       global: {
         stubs: {
@@ -160,14 +161,10 @@ describe('US-026: SubscriptionsView platform filter must include the fifth platf
       (s) => s.placeholder === 'admin.subscriptions.allPlatforms',
     )
     expect(platformSelect).toBeDefined()
-    expect(platformSelect!.options).toHaveLength(6)
+    expect(platformSelect!.options).toHaveLength(GATEWAY_PLATFORMS.length + 1)
     expect(platformSelect!.options.map((o) => o.value)).toEqual([
       '',
-      'anthropic',
-      'openai',
-      'gemini',
-      'antigravity',
-      'newapi',
+      ...GATEWAY_PLATFORMS,
     ])
   })
 })

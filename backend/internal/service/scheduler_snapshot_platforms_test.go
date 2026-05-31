@@ -21,6 +21,7 @@ func TestAllSchedulingPlatforms_IncludesNewAPI(t *testing.T) {
 		PlatformOpenAI:      false,
 		PlatformAntigravity: false,
 		PlatformNewAPI:      false,
+		PlatformKiro:        false,
 	}
 	for _, p := range got {
 		if _, ok := want[p]; !ok {
@@ -138,6 +139,7 @@ func TestRebuildByGroupIDs_RebuildsNewAPIBucket(t *testing.T) {
 		PlatformOpenAI:      {},
 		PlatformAntigravity: {},
 		PlatformNewAPI:      {},
+		PlatformKiro:        {},
 	}
 	for _, b := range cache.locks {
 		if b.GroupID != groupID {
@@ -183,6 +185,7 @@ func TestDefaultBuckets_IncludesNewAPI(t *testing.T) {
 		PlatformOpenAI:      {},
 		PlatformAntigravity: {},
 		PlatformNewAPI:      {},
+		PlatformKiro:        {},
 	}
 	for _, b := range buckets {
 		if b.GroupID != 0 { // we only care about the platform-default seed buckets

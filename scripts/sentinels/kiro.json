@@ -1,0 +1,175 @@
+{
+  "version": 1,
+  "rationale": "Load-bearing files and symbols that anchor TokenKey's sixth platform `kiro` (AWS Kiro / CodeWhisperer). Kiro rides on a vendored protocol layer (internal/integration/kiro, sourced from Quorinex/Kiro-Go under MIT) exposed through the native Anthropic /v1/messages path, plus thin TK-only injection points. If any sentinel below is missing, the platform either silently disappears from scheduling/UI or fails at runtime. Single source of truth read by both `scripts/preflight.sh` (kiro sentinel registry section) and `.github/workflows/upstream-merge-pr-shape.yml` (on `merge/upstream-*` PRs). Adding a new load-bearing surface for kiro MUST add a sentinel here in the same commit.",
+  "sentinels": [
+    {
+      "path": "backend/internal/domain/constants.go",
+      "must_contain": [
+        "PlatformKiro"
+      ],
+      "rationale": "Identity constant for the sixth platform string `kiro`. Removing it collapses every kiro invariant (scheduling pool partition, Forward dispatch branch, account validation)."
+    },
+    {
+      "path": "backend/internal/engine/provider.go",
+      "must_contain": [
+        "PlatformKiro"
+      ],
+      "rationale": "Kiro must be in AllSchedulingPlatforms() so background sweeps/snapshot hydration include the kiro-only pool; it must NOT be in OpenAICompatPlatforms() (kiro speaks CodeWhisperer, not OpenAI-compat). Losing the AllSchedulingPlatforms entry silently drops kiro accounts from rate-limit reaping and snapshot scheduling."
+    },
+    {
+      "path": "backend/internal/pkg/kiro/constants.go",
+      "must_contain": [
+        "StreamingUserAgent",
+        "BuildUserAgent",
+        "DefaultKiroIDEVersion"
+      ],
+      "rationale": "TK-side canonical KiroIDE client identity + User-Agent builder used for fingerprint mimicry. If dropped, kiro egress loses its KiroIDE-<ver> UA and is trivially distinguishable from the real client."
+    },
+    {
+      "path": "backend/internal/integration/kiro/VENDORED_FROM.md",
+      "must_contain": [
+        "Quorinex/Kiro-Go"
+      ],
+      "rationale": "Provenance + re-vendor procedure for the MIT-licensed protocol layer. Deleting it severs the audit trail required to re-sync the vendored Kiro protocol when the upstream Kiro client changes."
+    },
+    {
+      "path": "backend/internal/integration/kiro/translator.go",
+      "must_contain": [
+        "func ClaudeToKiro",
+        "func KiroToClaudeResponse"
+      ],
+      "rationale": "Anthropic <-> Kiro request/response translation. Without it the /v1/messages -> CodeWhisperer bridge cannot build a payload or decode the reply."
+    },
+    {
+      "path": "backend/internal/integration/kiro/client.go",
+      "must_contain": [
+        "func CallKiroAPIWithDoer",
+        "func parseEventStream",
+        "HTTPDoer"
+      ],
+      "rationale": "Streaming call entry + hand-rolled AWS EventStream binary decoder + the HTTPDoer injection seam that lets the TK gateway supply a TLS/proxy-aware doer. Losing parseEventStream breaks all streaming responses; losing the HTTPDoer seam breaks fingerprint/proxy egress."
+    },
+    {
+      "path": "backend/internal/service/account_tk_kiro.go",
+      "must_contain": [
+        "func (a *Account) IsKiro()",
+        "toKiroProtoAccount"
+      ],
+      "rationale": "Account-domain predicate + the mapper that converts a TK account's credentials into the vendored kiroproto.Account. Losing IsKiro() removes kiro from the Forward dispatch branch and the scheduling pool; losing toKiroProtoAccount breaks every upstream call."
+    },
+    {
+      "path": "backend/internal/service/kiro_gateway_service.go",
+      "must_contain": [
+        "type KiroGatewayService",
+        "func (s *KiroGatewayService) Forward",
+        "IsKiroEnabled"
+      ],
+      "rationale": "The sixth-platform forwarder: translates /v1/messages onto the Kiro EventStream upstream and enforces the second ToS/enable gate (IsKiroEnabled). Losing it makes every kiro request fail or, worse, bypass the enable gate."
+    },
+    {
+      "path": "backend/internal/service/kiro_sse_encoder.go",
+      "must_contain": [
+        "kiroSSEEncoder",
+        "message_start",
+        "content_block_delta"
+      ],
+      "rationale": "Translates Kiro callbacks into the canonical Anthropic SSE event sequence. Losing it breaks streaming /v1/messages response shape for kiro accounts (clients hang or mis-parse)."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "account.IsKiro()",
+        "kiroGateway"
+      ],
+      "rationale": "The Forward() dispatch injection point (next to IsBedrock) + the GatewayService.kiroGateway field. An upstream merge that rewrites Forward() or NewGatewayService() must preserve this branch, or kiro accounts silently fall through to the Anthropic path and fail."
+    },
+    {
+      "path": "backend/internal/handler/admin/account_handler_tk_kiro_validate.go",
+      "must_contain": [
+        "func tkValidateKiroAccountCreate",
+        "tos_acknowledged"
+      ],
+      "rationale": "First of the two ToS gates: account creation is rejected unless credentials.tos_acknowledged is true. Losing this lets kiro accounts be created without explicit ToS acknowledgement (compliance regression)."
+    },
+    {
+      "path": "backend/internal/service/setting_service_tk_kiro.go",
+      "must_contain": [
+        "func (s *SettingService) IsKiroEnabled",
+        "SettingKeyKiroEnabled"
+      ],
+      "rationale": "The default-off kiro enable flag read by the Forward gate. Losing it would either hard-disable kiro or (if defaulted wrong) enable outbound forwarding without the operator opt-in."
+    },
+    {
+      "path": "backend/internal/service/kiro_token_refresher.go",
+      "must_contain": [
+        "type KiroTokenRefresher",
+        "kiro:account:",
+        "func (r *KiroTokenRefresher) Refresh"
+      ],
+      "rationale": "Implements OAuthRefreshExecutor for kiro (1h SSO tokens, social + IdC endpoints). Losing it stops kiro token auto-refresh; accounts silently expire and drop out of the pool with no recovery."
+    },
+    {
+      "path": "backend/internal/service/token_refresh_service.go",
+      "must_contain": [
+        "NewKiroTokenRefresher"
+      ],
+      "rationale": "Registration of KiroTokenRefresher into the background refresh ticker's refreshers[]/executors[]. An upstream merge that rewrites NewTokenRefreshService must preserve this line, or kiro refresh never runs even though the refresher type still exists."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler.go",
+      "must_contain": [
+        "account.IsKiro()"
+      ],
+      "rationale": "The RPM-increment gate (both the streaming and non-streaming paths) admits kiro accounts via `|| account.IsKiro()`. An upstream merge that rewrites these gates must preserve the kiro arm, or kiro accounts skip RPM accounting and bypass the per-account rate limit."
+    },
+    {
+      "path": "backend/internal/service/wire.go",
+      "must_contain": [
+        "NewKiroGatewayService"
+      ],
+      "rationale": "Wire provider registration for the kiro forwarder (NewKiroGatewayService). Dropping it de-wires the gateway's kiro branch dependency. (The KiroTokenRefresher is constructed inside NewTokenRefreshService, not via wire — its registration is guarded by the token_refresh_service.go sentinel entry instead.)"
+    },
+    {
+      "path": "backend/internal/handler/admin/account_handler_tk_kiro_validate_test.go",
+      "must_contain": [
+        "tkValidateKiroAccountCreate"
+      ],
+      "rationale": "Load-bearing QA evidence for the account-creation ToS gate (matches the *_tk_*.go hotspot rule). Losing it removes the regression guard around the first ToS acknowledgement check."
+    },
+    {
+      "path": "frontend/src/constants/gatewayPlatforms.ts",
+      "must_contain": [
+        "'kiro'"
+      ],
+      "rationale": "Kiro's membership in GATEWAY_PLATFORMS. Removing it drops kiro from every admin platform picker/badge (the same silent-UI-regression mode the newapi frontend sentinels guard)."
+    },
+    {
+      "path": "frontend/src/composables/usePlatformOptions.ts",
+      "must_contain": [
+        "kiro:"
+      ],
+      "rationale": "Kiro's brand label entry. Without it the kiro platform renders an untranslated key or is dropped from option lists."
+    },
+    {
+      "path": "frontend/src/components/account/CreateAccountModal.vue",
+      "must_contain": [
+        "AccountKiroPlatformFields"
+      ],
+      "rationale": "The kiro branch + field component wiring in the account-create modal. Losing it makes operators unable to create kiro accounts from the admin UI."
+    },
+    {
+      "path": "frontend/src/i18n/locales/en.ts",
+      "must_contain": [
+        "kiroPlatform"
+      ],
+      "rationale": "English i18n strings for the kiro account form (labels, ToS copy, validation messages). Losing them surfaces raw i18n keys in the UI."
+    },
+    {
+      "path": "frontend/src/i18n/locales/zh.ts",
+      "must_contain": [
+        "kiroPlatform"
+      ],
+      "rationale": "Chinese i18n strings for the kiro account form. Kept paired with en.ts so the two locales never drift for kiro."
+    }
+  ]
+}

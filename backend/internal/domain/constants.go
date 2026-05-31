@@ -23,6 +23,12 @@ const (
 	PlatformGemini      = "gemini"
 	PlatformAntigravity = "antigravity"
 	PlatformNewAPI      = "newapi"
+	// PlatformKiro is the sixth platform: AWS Kiro / CodeWhisperer subscriptions
+	// relayed via the vendored protocol layer in internal/integration/kiro.
+	// Kiro speaks the CodeWhisperer EventStream protocol (not OpenAI-compatible),
+	// so it is exposed through the native Anthropic /v1/messages path and schedules
+	// in its own isolated pool — it is intentionally NOT an OpenAI-compat member.
+	PlatformKiro = "kiro"
 )
 
 // Account type constants

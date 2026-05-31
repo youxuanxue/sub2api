@@ -186,6 +186,7 @@ func TestAllSchedulingPlatforms(t *testing.T) {
 		domain.PlatformOpenAI:      false,
 		domain.PlatformAntigravity: false,
 		domain.PlatformNewAPI:      false,
+		domain.PlatformKiro:        false,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("AllSchedulingPlatforms() returned %d entries, want %d: %v", len(got), len(want), got)

@@ -15,6 +15,15 @@ linters:
     paths:
       - ent/.*
       - cmd/server/wire_gen(_test)?\.go
+      # TK: vendored Kiro/CodeWhisperer protocol layer (sixth platform). These
+      # six files are kept byte-for-byte aligned with upstream Quorinex/Kiro-Go
+      # per internal/integration/kiro/VENDORED_FROM.md (only the mechanical
+      # package-rename + shim redirects documented there are applied), so they
+      # must be exempt from lint the same way generated code (ent/.*, wire_gen)
+      # is — re-vendoring would otherwise fight errcheck/gofmt/unused. shim.go is
+      # the TK-authored vendor seam (mirrors the upstream config/logger/auth
+      # packages) and is exempted with them; the golden tests stay linted.
+      - internal/integration/kiro/(client|headers|refresh|rest|shim|translator)\.go
 
   settings:
     depguard:
@@ -137,6 +146,8 @@ formatters:
     paths:
       - ent/.*
       - cmd/server/wire_gen(_test)?\.go
+      # TK: vendored Kiro layer — see the linters.exclusions note above.
+      - internal/integration/kiro/(client|headers|refresh|rest|shim|translator)\.go
   settings:
     gofmt:
       # Simplify code: gofmt with `-s` option.

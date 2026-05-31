@@ -361,6 +361,7 @@ export interface SystemSettings {
   email_verify_enabled: boolean;
   registration_email_suffix_whitelist: string[];
   promo_code_enabled: boolean;
+  kiro_enabled: boolean; // TK: Kiro 第六平台转发门禁（默认 false / ToS）
   password_reset_enabled: boolean;
   frontend_url: string;
   invitation_code_enabled: boolean;
@@ -628,6 +629,7 @@ export interface UpdateSettingsRequest {
   email_verify_enabled?: boolean;
   registration_email_suffix_whitelist?: string[];
   promo_code_enabled?: boolean;
+  kiro_enabled?: boolean; // TK: Kiro 第六平台转发门禁（默认 false / ToS）
   password_reset_enabled?: boolean;
   frontend_url?: string;
   invitation_code_enabled?: boolean;

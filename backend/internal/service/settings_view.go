@@ -16,6 +16,7 @@ type SystemSettings struct {
 	EmailVerifyEnabled               bool
 	RegistrationEmailSuffixWhitelist []string
 	PromoCodeEnabled                 bool
+	KiroEnabled                      bool // TK: Kiro 第六平台转发门禁（默认 false / ToS）
 	PasswordResetEnabled             bool
 	FrontendURL                      string
 	InvitationCodeEnabled            bool
