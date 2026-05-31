@@ -1813,10 +1813,6 @@ func (s *stubAccountRepo) SumConcurrencyAnthropic(context.Context) (int64, error
 	return 0, nil
 }
 
-func (s *stubAccountRepo) SumConcurrencyAnthropicByGroup(context.Context, string) (int64, error) {
-	return 0, nil
-}
-
 func (s *stubAccountRepo) ListCRSAccountIDs(ctx context.Context) (map[string]int64, error) {
 	return nil, errors.New("not implemented")
 }

@@ -71,12 +71,11 @@ type AccountRepository interface {
 	UpdateExtra(ctx context.Context, id int64, updates map[string]any) error
 	BulkUpdate(ctx context.Context, ids []int64, updates AccountBulkUpdate) (int64, error)
 
-	// SumConcurrencyAnthropic returns Σ concurrency for all anthropic rows (oauth + apikey,
-	// excluding non-Anthropic platforms and soft-deleted accounts). Matches edge apply injection.
+	// SumConcurrencyAnthropic returns Σ concurrency for schedulable anthropic
+	// accounts (oauth + apikey; schedulable=true, excluding soft-deleted and
+	// admin-bypass schedulable=false rows). The canonical edge serving-capacity /
+	// operator-Σ number; also surface-C's edge scheduling-capacity endpoint.
 	SumConcurrencyAnthropic(ctx context.Context) (int64, error)
-	// SumConcurrencyAnthropicByGroup returns Σ concurrency for schedulable anthropic
-	// accounts in the named group (surface-C: edge capacity counts only the default group).
-	SumConcurrencyAnthropicByGroup(ctx context.Context, groupName string) (int64, error)
 	// IncrementQuotaUsed 原子递增 API Key 账号的配额用量（总/日/周）
 	IncrementQuotaUsed(ctx context.Context, id int64, amount float64) error
 	// ResetQuotaUsed 重置 API Key 账号所有维度的配额用量为 0
