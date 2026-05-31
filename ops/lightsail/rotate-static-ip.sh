@@ -91,8 +91,17 @@ if [[ -z "$region" || -z "$instance_name" || -z "$static_ip_name" || -z "$domain
 fi
 
 is_excluded_ip() {
-  local ip="$1"
+  local ip="$1" rc
   python3 "$RECORD_PY" is-excluded --ip "$ip" --region "$region" --registry "$REGISTRY"
+  rc=$?
+  case "$rc" in
+    0) return 0 ;;
+    1) return 1 ;;
+    *)
+      echo "::error::exclusion registry check failed for ${ip} (exit ${rc})" >&2
+      exit 1
+      ;;
+  esac
 }
 
 # Read the live IP before any mutation so the verification gate is honest.
