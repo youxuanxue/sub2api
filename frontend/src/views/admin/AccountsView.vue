@@ -331,7 +331,7 @@
       :show="tierCtl.show.value"
       :account="tierCtl.target.value"
       :model-value="tierCtl.selectedTier.value"
-      :tier-options="tierCtl.tierOptions"
+      :tier-options="tierCtl.tierOptions.value"
       :submitting="tierCtl.submitting.value"
       @update:model-value="(v: string) => (tierCtl.selectedTier.value = v)"
       @apply="tierCtl.apply"

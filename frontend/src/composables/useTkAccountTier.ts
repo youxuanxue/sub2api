@@ -10,6 +10,7 @@ import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api'
 import { useAppStore } from '@/stores'
 import { ACCOUNT_TIER_OPTIONS } from '@/constants/accountTierOptions.tk'
+import type { AccountTierOption } from '@/constants/accountTierOptions.tk'
 import type { Account } from '@/types'
 
 export function useTkAccountTier(onApplied: (account: Account) => void) {
@@ -21,7 +22,27 @@ export function useTkAccountTier(onApplied: (account: Account) => void) {
   const selectedTier = ref<string>('')
   const submitting = ref(false)
 
-  const tierOptions = ACCOUNT_TIER_OPTIONS
+  // Single source of truth: per-tier hints are derived from the live tiers table,
+  // not a hand-synced constant (which drifts when the baseline is bumped). The
+  // static ACCOUNT_TIER_OPTIONS is only a label fallback if the fetch fails.
+  const tierOptions = ref<AccountTierOption[]>([...ACCOUNT_TIER_OPTIONS])
+
+  async function loadTierOptions() {
+    try {
+      const tiers = await adminAPI.tiers.list()
+      if (Array.isArray(tiers) && tiers.length > 0) {
+        tierOptions.value = tiers.map(tier => ({
+          value: tier.name,
+          label: tier.name.toUpperCase(),
+          hint: `concurrency ${tier.concurrency} · base_rpm ${tier.base_rpm} · max_sessions ${tier.max_sessions}`
+        }))
+      }
+    } catch (error) {
+      // Keep the static label fallback; authoritative per-tier numbers are also
+      // visible in the Tier Templates modal.
+      console.error('Failed to load tier options:', error)
+    }
+  }
 
   function open(account: Account) {
     target.value = account
@@ -29,6 +50,7 @@ export function useTkAccountTier(onApplied: (account: Account) => void) {
     const current = (account.extra as Record<string, unknown> | undefined)?.stability_tier
     selectedTier.value = typeof current === 'string' ? current : ''
     show.value = true
+    loadTierOptions()
   }
 
   function close() {
