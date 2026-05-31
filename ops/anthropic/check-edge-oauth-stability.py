@@ -15,6 +15,27 @@ DEFAULT_MATRIX = REPO_ROOT / "deploy/aws/stage0/edge-targets.json"
 DEFAULT_BASELINE = REPO_ROOT / "deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json"
 CONFIRM_UPDATE = "yes-update-anthropic-stable-list"
 
+# Tier-managed extra keys: since PR #472's tier reference-table model these
+# strategy values live in the `tiers` table and are overlaid onto an account's
+# in-memory Extra at the load boundary (read path), and STRIPPED on the write
+# path (TierManagedExtraStripped) — so they are intentionally absent from a
+# tier-managed account's persisted `extra` JSONB. This guard therefore must NOT
+# diff them against the per-account baseline (doing so reported false "drift"
+# for every account whose extra was correctly stripped). The tier VALUES are
+# validated instead by manage-anthropic-config.py's tier_table_drift section
+# (live `tiers` table vs git baseline). Mirror of Go
+# model.TierManagedExtraKeys (backend/internal/model/tier.go); keep in lockstep.
+TIER_MANAGED_EXTRA_KEYS = frozenset({
+    "base_rpm",
+    "max_sessions",
+    "rpm_sticky_buffer",
+    "session_idle_timeout_minutes",
+    "window_cost_limit",
+    "window_cost_sticky_reserve",
+    "cache_ttl_override_enabled",
+    "cache_ttl_override_target",
+})
+
 _ROUTING_SPEC = importlib.util.spec_from_file_location(
     "tk_edge_routing_oauth_chk",
     REPO_ROOT / "ops/stage0/edge_routing_matrix.py",
@@ -561,7 +582,15 @@ def compare_live_to_baseline(live: dict[str, Any], baseline: dict[str, Any]) -> 
     diffs: list[dict[str, Any]] = []
     diffs.extend(diff_dict("account", base.get("account") or {}, live.get("account") or {}))
     diffs.extend(diff_dict("credentials", base.get("credentials") or {}, live.get("credentials") or {}))
-    diffs.extend(diff_dict("extra", base.get("extra") or {}, live.get("extra") or {}))
+    # Exclude tier-managed keys (base_rpm / max_sessions / ...): post-#472 they
+    # are tier-table + runtime-overlay managed and stripped from the persisted
+    # account.extra, so diffing them here is a guaranteed false positive. Their
+    # values are validated by manage-anthropic-config.py tier_table_drift.
+    account_extra_baseline = {
+        k: v for k, v in (base.get("extra") or {}).items()
+        if k not in TIER_MANAGED_EXTRA_KEYS
+    }
+    diffs.extend(diff_dict("extra", account_extra_baseline, live.get("extra") or {}))
     diffs.extend(diff_absent("extra", base.get("extra_absent") or [], live.get("extra") or {}))
     diffs.extend(diff_dict("tls_profile", base.get("tls_profile") or {}, live.get("tls_profile") or {}))
     return diffs
