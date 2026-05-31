@@ -365,6 +365,22 @@
         "projectionBanner"
       ],
       "rationale": "TK-only full CRUD modal for the tier reference table (mirrors TLSFingerprintProfilesModal.vue). Renders the git-projection banner (UI edits are emergency/local; the ops/anthropic pipeline re-asserts from git). Mounted from AccountsView.vue. Guards against silent upstream-merge deletion."
+    },
+    {
+      "path": "frontend/src/i18n/locales/en.ts",
+      "must_contain": [
+        "tierTemplates: {",
+        "createTier: 'Create Tier'"
+      ],
+      "rationale": "TK-only i18n DEFINITIONS for the Tier Templates modal. The TierTemplatesModal.vue sentinel only proves the component references admin.tierTemplates.*; this anchors the actual en.ts translations so an upstream merge that rewrites locales can't silently drop the block (which would render raw i18n keys in the modal)."
+    },
+    {
+      "path": "frontend/src/i18n/locales/zh.ts",
+      "must_contain": [
+        "tierTemplates: {",
+        "createTier: '创建 Tier'"
+      ],
+      "rationale": "TK-only i18n DEFINITIONS (zh) for the Tier Templates modal — the zh counterpart of the en.ts tierTemplates anchor. Guards against an upstream locale-file rewrite silently dropping the block."
     }
   ]
 }
