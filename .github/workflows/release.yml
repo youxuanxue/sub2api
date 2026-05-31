@@ -142,7 +142,36 @@ jobs:
         with:
           go-version-file: backend/go.mod
           check-latest: false
-          cache-dependency-path: backend/go.sum
+          # Build/module cache is handled by the rolling cache step below, NOT
+          # by setup-go's built-in cache. setup-go keys its cache on go.sum and
+          # is IMMUTABLE: once the go.sum-keyed entry exists it is never
+          # re-saved. Because that entry is first written by an amd64-only run,
+          # the arm64 cross-compile objects stay perpetually cold and GoReleaser
+          # recompiles the full arm64 package set every release (~3m40s
+          # "building binaries", ~79% of the GoReleaser step). Disabling it here
+          # lets the rolling cache below own GOCACHE + GOMODCACHE.
+          cache: false
+
+      # Rolling Go cache for the cross-arch (amd64+arm64) GoReleaser compile.
+      # A run_id-unique SAVE key means the cache is ALWAYS re-saved at post-job;
+      # the restore-keys fall back to the most recent warm snapshot — which
+      # already holds BOTH arches' object files from the previous release — so a
+      # typical release only recompiles changed packages + relinks, instead of
+      # rebuilding arm64 from scratch. Go's cache is content-addressed, so a
+      # stale entry (e.g. after a .new-api-ref bump) is simply unused, never
+      # wrong. First run after this change is a one-time cold build; budget note:
+      # each release writes a fresh ~1-2GB entry under the 10GB repo cache limit,
+      # GHA LRU-evicts the oldest, the freshest (what we need) always survives.
+      - name: Rolling Go build cache (amd64 + arm64 cross-compile)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-release-${{ hashFiles('backend/go.sum') }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-go-release-${{ hashFiles('backend/go.sum') }}-
+            ${{ runner.os }}-go-release-
 
       - name: Verify Go version
         run: |
