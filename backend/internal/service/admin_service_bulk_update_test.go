@@ -261,6 +261,13 @@ func (s *bulkAccountRepoAnthropicSum) SumConcurrencyAnthropic(context.Context) (
 	return s.anthropicConcurrencySum, nil
 }
 
+func (s *bulkAccountRepoAnthropicSum) SumConcurrencyAnthropicByGroup(context.Context, string) (int64, error) {
+	if s.anthropicConcurrencyErr != nil {
+		return 0, s.anthropicConcurrencyErr
+	}
+	return s.anthropicConcurrencySum, nil
+}
+
 // TestBulkUpdateAccounts_SyncAnthropicOperatorConcurrency 验证 userRepo 齐备时，
 // 批量成功后会把管理员用户（users.id=AnthropicOperatorConcurrencyUserID）的并发写成 Σ anthropic accounts。
 func TestBulkUpdateAccounts_SyncAnthropicOperatorConcurrency(t *testing.T) {

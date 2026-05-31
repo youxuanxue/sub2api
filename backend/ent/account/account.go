@@ -73,6 +73,8 @@ const (
 	FieldSessionWindowStatus = "session_window_status"
 	// FieldChannelType holds the string denoting the channel_type field in the database.
 	FieldChannelType = "channel_type"
+	// FieldTierID holds the string denoting the tier_id field in the database.
+	FieldTierID = "tier_id"
 	// EdgeGroups holds the string denoting the groups edge name in mutations.
 	EdgeGroups = "groups"
 	// EdgeProxy holds the string denoting the proxy edge name in mutations.
@@ -143,6 +145,7 @@ var Columns = []string{
 	FieldSessionWindowEnd,
 	FieldSessionWindowStatus,
 	FieldChannelType,
+	FieldTierID,
 }
 
 var (
@@ -346,6 +349,11 @@ func BySessionWindowStatus(opts ...sql.OrderTermOption) OrderOption {
 // ByChannelType orders the results by the channel_type field.
 func ByChannelType(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldChannelType, opts...).ToFunc()
+}
+
+// ByTierID orders the results by the tier_id field.
+func ByTierID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTierID, opts...).ToFunc()
 }
 
 // ByGroupsCount orders the results by groups count.

@@ -80,6 +80,9 @@ func RegisterAdminRoutes(
 		// TLS 指纹模板管理
 		registerTLSFingerprintProfileRoutes(admin, h)
 
+		// TK: anthropic-oauth 稳定性档位（tier 模板）管理
+		registerTKTierTemplateRoutes(admin, h)
+
 		// API Key 管理
 		registerAdminAPIKeyRoutes(admin, h)
 
@@ -326,6 +329,10 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		accounts.POST("/exchange-setup-token-code", h.Admin.OAuth.ExchangeSetupTokenCode)
 		accounts.POST("/cookie-auth", h.Admin.OAuth.CookieAuth)
 		accounts.POST("/setup-token-cookie-auth", h.Admin.OAuth.SetupTokenCookieAuth)
+
+		// TK: per-account "Apply Tier" action (local deployment only). Kept in a
+		// *_tk_* companion so this file stays close to upstream shape.
+		registerTKAccountTierRoutes(accounts, h)
 	}
 }
 

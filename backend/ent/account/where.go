@@ -190,6 +190,11 @@ func ChannelType(v int) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldChannelType, v))
 }
 
+// TierID applies equality check predicate on the "tier_id" field. It's identical to TierIDEQ.
+func TierID(v int64) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldTierID, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldCreatedAt, v))
@@ -1538,6 +1543,56 @@ func ChannelTypeLT(v int) predicate.Account {
 // ChannelTypeLTE applies the LTE predicate on the "channel_type" field.
 func ChannelTypeLTE(v int) predicate.Account {
 	return predicate.Account(sql.FieldLTE(FieldChannelType, v))
+}
+
+// TierIDEQ applies the EQ predicate on the "tier_id" field.
+func TierIDEQ(v int64) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldTierID, v))
+}
+
+// TierIDNEQ applies the NEQ predicate on the "tier_id" field.
+func TierIDNEQ(v int64) predicate.Account {
+	return predicate.Account(sql.FieldNEQ(FieldTierID, v))
+}
+
+// TierIDIn applies the In predicate on the "tier_id" field.
+func TierIDIn(vs ...int64) predicate.Account {
+	return predicate.Account(sql.FieldIn(FieldTierID, vs...))
+}
+
+// TierIDNotIn applies the NotIn predicate on the "tier_id" field.
+func TierIDNotIn(vs ...int64) predicate.Account {
+	return predicate.Account(sql.FieldNotIn(FieldTierID, vs...))
+}
+
+// TierIDGT applies the GT predicate on the "tier_id" field.
+func TierIDGT(v int64) predicate.Account {
+	return predicate.Account(sql.FieldGT(FieldTierID, v))
+}
+
+// TierIDGTE applies the GTE predicate on the "tier_id" field.
+func TierIDGTE(v int64) predicate.Account {
+	return predicate.Account(sql.FieldGTE(FieldTierID, v))
+}
+
+// TierIDLT applies the LT predicate on the "tier_id" field.
+func TierIDLT(v int64) predicate.Account {
+	return predicate.Account(sql.FieldLT(FieldTierID, v))
+}
+
+// TierIDLTE applies the LTE predicate on the "tier_id" field.
+func TierIDLTE(v int64) predicate.Account {
+	return predicate.Account(sql.FieldLTE(FieldTierID, v))
+}
+
+// TierIDIsNil applies the IsNil predicate on the "tier_id" field.
+func TierIDIsNil() predicate.Account {
+	return predicate.Account(sql.FieldIsNull(FieldTierID))
+}
+
+// TierIDNotNil applies the NotNil predicate on the "tier_id" field.
+func TierIDNotNil() predicate.Account {
+	return predicate.Account(sql.FieldNotNull(FieldTierID))
 }
 
 // HasGroups applies the HasEdge predicate on the "groups" edge.

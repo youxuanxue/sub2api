@@ -51,6 +51,10 @@ type accountRepository struct {
 	// Used to proactively sync account snapshot to cache when status changes,
 	// ensuring sticky sessions can promptly detect unavailable accounts.
 	schedulerCache service.SchedulerCache
+	// tierResolver overlays per-tier config (base_rpm / max_sessions / ...) onto an
+	// account's in-memory Extra at the load boundary (accountsToService), so the
+	// runtime getters resolve tier values without account writes. nil-safe.
+	tierResolver service.TierExtraResolver
 }
 
 var schedulerNeutralExtraKeyPrefixes = []string{
@@ -68,14 +72,14 @@ var schedulerNeutralExtraKeys = map[string]struct{}{
 
 // NewAccountRepository 创建账户仓储实例。
 // 这是对外暴露的构造函数，返回接口类型以便于依赖注入。
-func NewAccountRepository(client *dbent.Client, sqlDB *sql.DB, schedulerCache service.SchedulerCache) service.AccountRepository {
-	return newAccountRepositoryWithSQL(client, sqlDB, schedulerCache)
+func NewAccountRepository(client *dbent.Client, sqlDB *sql.DB, schedulerCache service.SchedulerCache, tierResolver service.TierExtraResolver) service.AccountRepository {
+	return newAccountRepositoryWithSQL(client, sqlDB, schedulerCache, tierResolver)
 }
 
 // newAccountRepositoryWithSQL 是内部构造函数，支持依赖注入 SQL 执行器。
 // 这种设计便于单元测试时注入 mock 对象。
-func newAccountRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor, schedulerCache service.SchedulerCache) *accountRepository {
-	return &accountRepository{client: client, sql: sqlq, schedulerCache: schedulerCache}
+func newAccountRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor, schedulerCache service.SchedulerCache, tierResolver service.TierExtraResolver) *accountRepository {
+	return &accountRepository{client: client, sql: sqlq, schedulerCache: schedulerCache, tierResolver: tierResolver}
 }
 
 func (r *accountRepository) Create(ctx context.Context, account *service.Account) error {
@@ -155,6 +159,28 @@ WHERE platform = $1 AND schedulable = true AND deleted_at IS NULL`
 	var sum sql.NullInt64
 	if err := scanSingleRow(ctx, r.sql, q, []any{domain.PlatformAnthropic}, &sum); err != nil {
 		return 0, fmt.Errorf("sum anthropic concurrency: %w", err)
+	}
+	if !sum.Valid {
+		return 0, nil
+	}
+	return sum.Int64, nil
+}
+
+// SumConcurrencyAnthropicByGroup returns Σ concurrency for schedulable anthropic
+// accounts that belong to the named group (e.g. "anthropic-default"). Surface-C:
+// the edge capacity endpoint reports only the default-group pool so prod mirrors
+// the right number.
+func (r *accountRepository) SumConcurrencyAnthropicByGroup(ctx context.Context, groupName string) (int64, error) {
+	const q = `
+SELECT COALESCE(SUM(a.concurrency), 0)::bigint
+FROM accounts a
+JOIN account_groups ag ON ag.account_id = a.id
+JOIN groups g ON g.id = ag.group_id
+WHERE a.platform = $1 AND a.schedulable = true AND a.deleted_at IS NULL
+  AND g.name = $2 AND g.deleted_at IS NULL`
+	var sum sql.NullInt64
+	if err := scanSingleRow(ctx, r.sql, q, []any{domain.PlatformAnthropic, groupName}, &sum); err != nil {
+		return 0, fmt.Errorf("sum anthropic concurrency by group %q: %w", groupName, err)
 	}
 	if !sum.Valid {
 		return 0, nil
@@ -342,13 +368,21 @@ func (r *accountRepository) Update(ctx context.Context, account *service.Account
 		schedulable = false
 	}
 
+	// TK: strip tier-overlaid extra keys before persisting so the in-memory
+	// runtime overlay (base_rpm / max_sessions / ...) never leaks to the DB
+	// ("零账号写"). No-op for non-tier-managed accounts.
+	extraToPersist := account.Extra
+	if r.tierResolver != nil {
+		extraToPersist = r.tierResolver.TierManagedExtraStripped(account)
+	}
+
 	builder := r.client.Account.UpdateOneID(account.ID).
 		SetName(account.Name).
 		SetNillableNotes(account.Notes).
 		SetPlatform(account.Platform).
 		SetType(account.Type).
 		SetCredentials(normalizeJSONMap(account.Credentials)).
-		SetExtra(normalizeJSONMap(account.Extra)).
+		SetExtra(normalizeJSONMap(extraToPersist)).
 		SetConcurrency(account.Concurrency).
 		SetPriority(account.Priority).
 		SetStatus(account.Status).
@@ -370,6 +404,11 @@ func (r *accountRepository) Update(ctx context.Context, account *service.Account
 		builder.SetProxyID(*account.ProxyID)
 	} else {
 		builder.ClearProxyID()
+	}
+	if account.TierID != nil {
+		builder.SetTierID(*account.TierID)
+	} else {
+		builder.ClearTierID()
 	}
 	if account.LastUsedAt != nil {
 		builder.SetLastUsedAt(*account.LastUsedAt)
@@ -1630,6 +1669,11 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 		if ags, ok := accountGroupsByAccount[acc.ID]; ok {
 			out.AccountGroups = ags
 		}
+		// TK: overlay per-tier config (base_rpm / max_sessions / ...) onto the
+		// in-memory Extra so runtime getters resolve tier values; nil-safe.
+		if r.tierResolver != nil {
+			r.tierResolver.ApplyTierExtra(out)
+		}
 		outAccounts = append(outAccounts, *out)
 	}
 
@@ -1808,6 +1852,7 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 		SessionWindowEnd:        m.SessionWindowEnd,
 		SessionWindowStatus:     derefString(m.SessionWindowStatus),
 		ChannelType:             m.ChannelType,
+		TierID:                  m.TierID,
 	}
 }
 

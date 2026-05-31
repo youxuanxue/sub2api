@@ -77,6 +77,8 @@ type Account struct {
 	SessionWindowStatus *string `json:"session_window_status,omitempty"`
 	// ChannelType holds the value of the "channel_type" field.
 	ChannelType int `json:"channel_type,omitempty"`
+	// TK: bound anthropic-oauth stability tier id (tiers table).
+	TierID *int64 `json:"tier_id,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the AccountQuery when eager-loading is set.
 	Edges        AccountEdges `json:"edges"`
@@ -147,7 +149,7 @@ func (*Account) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case account.FieldRateMultiplier:
 			values[i] = new(sql.NullFloat64)
-		case account.FieldID, account.FieldProxyID, account.FieldConcurrency, account.FieldLoadFactor, account.FieldPriority, account.FieldChannelType:
+		case account.FieldID, account.FieldProxyID, account.FieldConcurrency, account.FieldLoadFactor, account.FieldPriority, account.FieldChannelType, account.FieldTierID:
 			values[i] = new(sql.NullInt64)
 		case account.FieldName, account.FieldNotes, account.FieldPlatform, account.FieldType, account.FieldStatus, account.FieldErrorMessage, account.FieldTempUnschedulableReason, account.FieldSessionWindowStatus:
 			values[i] = new(sql.NullString)
@@ -367,6 +369,13 @@ func (_m *Account) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.ChannelType = int(value.Int64)
 			}
+		case account.FieldTierID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field tier_id", values[i])
+			} else if value.Valid {
+				_m.TierID = new(int64)
+				*_m.TierID = value.Int64
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -539,6 +548,11 @@ func (_m *Account) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("channel_type=")
 	builder.WriteString(fmt.Sprintf("%v", _m.ChannelType))
+	builder.WriteString(", ")
+	if v := _m.TierID; v != nil {
+		builder.WriteString("tier_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
 	builder.WriteByte(')')
 	return builder.String()
 }

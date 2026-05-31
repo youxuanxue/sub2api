@@ -124,6 +124,7 @@ var (
 		{Name: "session_window_end", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "session_window_status", Type: field.TypeString, Nullable: true, Size: 20},
 		{Name: "channel_type", Type: field.TypeInt, Default: 0},
+		{Name: "tier_id", Type: field.TypeInt64, Nullable: true},
 		{Name: "proxy_id", Type: field.TypeInt64, Nullable: true},
 	}
 	// AccountsTable holds the schema information for the "accounts" table.
@@ -134,7 +135,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "accounts_proxies_proxy",
-				Columns:    []*schema.Column{AccountsColumns[29]},
+				Columns:    []*schema.Column{AccountsColumns[30]},
 				RefColumns: []*schema.Column{ProxiesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
@@ -158,7 +159,7 @@ var (
 			{
 				Name:    "account_proxy_id",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[29]},
+				Columns: []*schema.Column{AccountsColumns[30]},
 			},
 			{
 				Name:    "account_priority",
@@ -204,6 +205,11 @@ var (
 				Name:    "account_deleted_at",
 				Unique:  false,
 				Columns: []*schema.Column{AccountsColumns[3]},
+			},
+			{
+				Name:    "account_tier_id",
+				Unique:  false,
+				Columns: []*schema.Column{AccountsColumns[29]},
 			},
 		},
 	}
@@ -1383,6 +1389,33 @@ var (
 		Columns:    TLSFingerprintProfilesColumns,
 		PrimaryKey: []*schema.Column{TLSFingerprintProfilesColumns[0]},
 	}
+	// TiersColumns holds the columns for the "tiers" table.
+	TiersColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "name", Type: field.TypeString, Unique: true, Size: 100},
+		{Name: "description", Type: field.TypeString, Nullable: true, Size: 2147483647},
+		{Name: "concurrency", Type: field.TypeInt, Default: 3},
+		{Name: "priority", Type: field.TypeInt, Default: 50},
+		{Name: "rate_multiplier", Type: field.TypeFloat64, Default: 1, SchemaType: map[string]string{"postgres": "decimal(10,4)"}},
+		{Name: "base_rpm", Type: field.TypeInt, Default: 0},
+		{Name: "max_sessions", Type: field.TypeInt, Default: 0},
+		{Name: "rpm_sticky_buffer", Type: field.TypeInt, Default: 0},
+		{Name: "session_idle_timeout_minutes", Type: field.TypeInt, Default: 8},
+		{Name: "window_cost_limit", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(10,4)"}},
+		{Name: "window_cost_sticky_reserve", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(10,4)"}},
+		{Name: "cache_ttl_override_enabled", Type: field.TypeBool, Default: false},
+		{Name: "cache_ttl_override_target", Type: field.TypeString, Nullable: true, Size: 20},
+		{Name: "tls_profile_name", Type: field.TypeString, Nullable: true, Size: 100},
+		{Name: "tls_profile_id", Type: field.TypeInt64, Nullable: true},
+	}
+	// TiersTable holds the schema information for the "tiers" table.
+	TiersTable = &schema.Table{
+		Name:       "tiers",
+		Columns:    TiersColumns,
+		PrimaryKey: []*schema.Column{TiersColumns[0]},
+	}
 	// UsageCleanupTasksColumns holds the columns for the "usage_cleanup_tasks" table.
 	UsageCleanupTasksColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -1898,6 +1931,7 @@ var (
 		SettingsTable,
 		SubscriptionPlansTable,
 		TLSFingerprintProfilesTable,
+		TiersTable,
 		UsageCleanupTasksTable,
 		UsageLogsTable,
 		UsersTable,
@@ -2016,6 +2050,9 @@ func init() {
 	}
 	TLSFingerprintProfilesTable.Annotation = &entsql.Annotation{
 		Table: "tls_fingerprint_profiles",
+	}
+	TiersTable.Annotation = &entsql.Annotation{
+		Table: "tiers",
 	}
 	UsageCleanupTasksTable.Annotation = &entsql.Annotation{
 		Table: "usage_cleanup_tasks",

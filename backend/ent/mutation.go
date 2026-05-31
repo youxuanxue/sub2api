@@ -41,6 +41,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/securitysecret"
 	"github.com/Wei-Shaw/sub2api/ent/setting"
 	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
+	"github.com/Wei-Shaw/sub2api/ent/tier"
 	"github.com/Wei-Shaw/sub2api/ent/tlsfingerprintprofile"
 	"github.com/Wei-Shaw/sub2api/ent/usagecleanuptask"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
@@ -91,6 +92,7 @@ const (
 	TypeSetting                       = "Setting"
 	TypeSubscriptionPlan              = "SubscriptionPlan"
 	TypeTLSFingerprintProfile         = "TLSFingerprintProfile"
+	TypeTier                          = "Tier"
 	TypeUsageCleanupTask              = "UsageCleanupTask"
 	TypeUsageLog                      = "UsageLog"
 	TypeUser                          = "User"
@@ -2314,6 +2316,8 @@ type AccountMutation struct {
 	session_window_status     *string
 	channel_type              *int
 	addchannel_type           *int
+	tier_id                   *int64
+	addtier_id                *int64
 	clearedFields             map[string]struct{}
 	groups                    map[int64]struct{}
 	removedgroups             map[int64]struct{}
@@ -3766,6 +3770,76 @@ func (m *AccountMutation) ResetChannelType() {
 	m.addchannel_type = nil
 }
 
+// SetTierID sets the "tier_id" field.
+func (m *AccountMutation) SetTierID(i int64) {
+	m.tier_id = &i
+	m.addtier_id = nil
+}
+
+// TierID returns the value of the "tier_id" field in the mutation.
+func (m *AccountMutation) TierID() (r int64, exists bool) {
+	v := m.tier_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTierID returns the old "tier_id" field's value of the Account entity.
+// If the Account object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AccountMutation) OldTierID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTierID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTierID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTierID: %w", err)
+	}
+	return oldValue.TierID, nil
+}
+
+// AddTierID adds i to the "tier_id" field.
+func (m *AccountMutation) AddTierID(i int64) {
+	if m.addtier_id != nil {
+		*m.addtier_id += i
+	} else {
+		m.addtier_id = &i
+	}
+}
+
+// AddedTierID returns the value that was added to the "tier_id" field in this mutation.
+func (m *AccountMutation) AddedTierID() (r int64, exists bool) {
+	v := m.addtier_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearTierID clears the value of the "tier_id" field.
+func (m *AccountMutation) ClearTierID() {
+	m.tier_id = nil
+	m.addtier_id = nil
+	m.clearedFields[account.FieldTierID] = struct{}{}
+}
+
+// TierIDCleared returns if the "tier_id" field was cleared in this mutation.
+func (m *AccountMutation) TierIDCleared() bool {
+	_, ok := m.clearedFields[account.FieldTierID]
+	return ok
+}
+
+// ResetTierID resets all changes to the "tier_id" field.
+func (m *AccountMutation) ResetTierID() {
+	m.tier_id = nil
+	m.addtier_id = nil
+	delete(m.clearedFields, account.FieldTierID)
+}
+
 // AddGroupIDs adds the "groups" edge to the Group entity by ids.
 func (m *AccountMutation) AddGroupIDs(ids ...int64) {
 	if m.groups == nil {
@@ -3935,7 +4009,7 @@ func (m *AccountMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *AccountMutation) Fields() []string {
-	fields := make([]string, 0, 29)
+	fields := make([]string, 0, 30)
 	if m.created_at != nil {
 		fields = append(fields, account.FieldCreatedAt)
 	}
@@ -4023,6 +4097,9 @@ func (m *AccountMutation) Fields() []string {
 	if m.channel_type != nil {
 		fields = append(fields, account.FieldChannelType)
 	}
+	if m.tier_id != nil {
+		fields = append(fields, account.FieldTierID)
+	}
 	return fields
 }
 
@@ -4089,6 +4166,8 @@ func (m *AccountMutation) Field(name string) (ent.Value, bool) {
 		return m.SessionWindowStatus()
 	case account.FieldChannelType:
 		return m.ChannelType()
+	case account.FieldTierID:
+		return m.TierID()
 	}
 	return nil, false
 }
@@ -4156,6 +4235,8 @@ func (m *AccountMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldSessionWindowStatus(ctx)
 	case account.FieldChannelType:
 		return m.OldChannelType(ctx)
+	case account.FieldTierID:
+		return m.OldTierID(ctx)
 	}
 	return nil, fmt.Errorf("unknown Account field %s", name)
 }
@@ -4368,6 +4449,13 @@ func (m *AccountMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetChannelType(v)
 		return nil
+	case account.FieldTierID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTierID(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Account field %s", name)
 }
@@ -4391,6 +4479,9 @@ func (m *AccountMutation) AddedFields() []string {
 	if m.addchannel_type != nil {
 		fields = append(fields, account.FieldChannelType)
 	}
+	if m.addtier_id != nil {
+		fields = append(fields, account.FieldTierID)
+	}
 	return fields
 }
 
@@ -4409,6 +4500,8 @@ func (m *AccountMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedRateMultiplier()
 	case account.FieldChannelType:
 		return m.AddedChannelType()
+	case account.FieldTierID:
+		return m.AddedTierID()
 	}
 	return nil, false
 }
@@ -4452,6 +4545,13 @@ func (m *AccountMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddChannelType(v)
+		return nil
+	case account.FieldTierID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddTierID(v)
 		return nil
 	}
 	return fmt.Errorf("unknown Account numeric field %s", name)
@@ -4505,6 +4605,9 @@ func (m *AccountMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(account.FieldSessionWindowStatus) {
 		fields = append(fields, account.FieldSessionWindowStatus)
+	}
+	if m.FieldCleared(account.FieldTierID) {
+		fields = append(fields, account.FieldTierID)
 	}
 	return fields
 }
@@ -4564,6 +4667,9 @@ func (m *AccountMutation) ClearField(name string) error {
 		return nil
 	case account.FieldSessionWindowStatus:
 		m.ClearSessionWindowStatus()
+		return nil
+	case account.FieldTierID:
+		m.ClearTierID()
 		return nil
 	}
 	return fmt.Errorf("unknown Account nullable field %s", name)
@@ -4659,6 +4765,9 @@ func (m *AccountMutation) ResetField(name string) error {
 		return nil
 	case account.FieldChannelType:
 		m.ResetChannelType()
+		return nil
+	case account.FieldTierID:
+		m.ResetTierID()
 		return nil
 	}
 	return fmt.Errorf("unknown Account field %s", name)
@@ -38070,6 +38179,1609 @@ func (m *TLSFingerprintProfileMutation) ClearEdge(name string) error {
 // It returns an error if the edge is not defined in the schema.
 func (m *TLSFingerprintProfileMutation) ResetEdge(name string) error {
 	return fmt.Errorf("unknown TLSFingerprintProfile edge %s", name)
+}
+
+// TierMutation represents an operation that mutates the Tier nodes in the graph.
+type TierMutation struct {
+	config
+	op                              Op
+	typ                             string
+	id                              *int64
+	created_at                      *time.Time
+	updated_at                      *time.Time
+	name                            *string
+	description                     *string
+	concurrency                     *int
+	addconcurrency                  *int
+	priority                        *int
+	addpriority                     *int
+	rate_multiplier                 *float64
+	addrate_multiplier              *float64
+	base_rpm                        *int
+	addbase_rpm                     *int
+	max_sessions                    *int
+	addmax_sessions                 *int
+	rpm_sticky_buffer               *int
+	addrpm_sticky_buffer            *int
+	session_idle_timeout_minutes    *int
+	addsession_idle_timeout_minutes *int
+	window_cost_limit               *float64
+	addwindow_cost_limit            *float64
+	window_cost_sticky_reserve      *float64
+	addwindow_cost_sticky_reserve   *float64
+	cache_ttl_override_enabled      *bool
+	cache_ttl_override_target       *string
+	tls_profile_name                *string
+	tls_profile_id                  *int64
+	addtls_profile_id               *int64
+	clearedFields                   map[string]struct{}
+	done                            bool
+	oldValue                        func(context.Context) (*Tier, error)
+	predicates                      []predicate.Tier
+}
+
+var _ ent.Mutation = (*TierMutation)(nil)
+
+// tierOption allows management of the mutation configuration using functional options.
+type tierOption func(*TierMutation)
+
+// newTierMutation creates new mutation for the Tier entity.
+func newTierMutation(c config, op Op, opts ...tierOption) *TierMutation {
+	m := &TierMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeTier,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withTierID sets the ID field of the mutation.
+func withTierID(id int64) tierOption {
+	return func(m *TierMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *Tier
+		)
+		m.oldValue = func(ctx context.Context) (*Tier, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().Tier.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withTier sets the old Tier of the mutation.
+func withTier(node *Tier) tierOption {
+	return func(m *TierMutation) {
+		m.oldValue = func(context.Context) (*Tier, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m TierMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m TierMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *TierMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *TierMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().Tier.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *TierMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *TierMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the Tier entity.
+// If the Tier object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TierMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *TierMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *TierMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *TierMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the Tier entity.
+// If the Tier object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TierMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *TierMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetName sets the "name" field.
+func (m *TierMutation) SetName(s string) {
+	m.name = &s
+}
+
+// Name returns the value of the "name" field in the mutation.
+func (m *TierMutation) Name() (r string, exists bool) {
+	v := m.name
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldName returns the old "name" field's value of the Tier entity.
+// If the Tier object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TierMutation) OldName(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldName is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldName requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldName: %w", err)
+	}
+	return oldValue.Name, nil
+}
+
+// ResetName resets all changes to the "name" field.
+func (m *TierMutation) ResetName() {
+	m.name = nil
+}
+
+// SetDescription sets the "description" field.
+func (m *TierMutation) SetDescription(s string) {
+	m.description = &s
+}
+
+// Description returns the value of the "description" field in the mutation.
+func (m *TierMutation) Description() (r string, exists bool) {
+	v := m.description
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDescription returns the old "description" field's value of the Tier entity.
+// If the Tier object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TierMutation) OldDescription(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDescription is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDescription requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDescription: %w", err)
+	}
+	return oldValue.Description, nil
+}
+
+// ClearDescription clears the value of the "description" field.
+func (m *TierMutation) ClearDescription() {
+	m.description = nil
+	m.clearedFields[tier.FieldDescription] = struct{}{}
+}
+
+// DescriptionCleared returns if the "description" field was cleared in this mutation.
+func (m *TierMutation) DescriptionCleared() bool {
+	_, ok := m.clearedFields[tier.FieldDescription]
+	return ok
+}
+
+// ResetDescription resets all changes to the "description" field.
+func (m *TierMutation) ResetDescription() {
+	m.description = nil
+	delete(m.clearedFields, tier.FieldDescription)
+}
+
+// SetConcurrency sets the "concurrency" field.
+func (m *TierMutation) SetConcurrency(i int) {
+	m.concurrency = &i
+	m.addconcurrency = nil
+}
+
+// Concurrency returns the value of the "concurrency" field in the mutation.
+func (m *TierMutation) Concurrency() (r int, exists bool) {
+	v := m.concurrency
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldConcurrency returns the old "concurrency" field's value of the Tier entity.
+// If the Tier object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TierMutation) OldConcurrency(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldConcurrency is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldConcurrency requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldConcurrency: %w", err)
+	}
+	return oldValue.Concurrency, nil
+}
+
+// AddConcurrency adds i to the "concurrency" field.
+func (m *TierMutation) AddConcurrency(i int) {
+	if m.addconcurrency != nil {
+		*m.addconcurrency += i
+	} else {
+		m.addconcurrency = &i
+	}
+}
+
+// AddedConcurrency returns the value that was added to the "concurrency" field in this mutation.
+func (m *TierMutation) AddedConcurrency() (r int, exists bool) {
+	v := m.addconcurrency
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetConcurrency resets all changes to the "concurrency" field.
+func (m *TierMutation) ResetConcurrency() {
+	m.concurrency = nil
+	m.addconcurrency = nil
+}
+
+// SetPriority sets the "priority" field.
+func (m *TierMutation) SetPriority(i int) {
+	m.priority = &i
+	m.addpriority = nil
+}
+
+// Priority returns the value of the "priority" field in the mutation.
+func (m *TierMutation) Priority() (r int, exists bool) {
+	v := m.priority
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPriority returns the old "priority" field's value of the Tier entity.
+// If the Tier object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TierMutation) OldPriority(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPriority is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPriority requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPriority: %w", err)
+	}
+	return oldValue.Priority, nil
+}
+
+// AddPriority adds i to the "priority" field.
+func (m *TierMutation) AddPriority(i int) {
+	if m.addpriority != nil {
+		*m.addpriority += i
+	} else {
+		m.addpriority = &i
+	}
+}
+
+// AddedPriority returns the value that was added to the "priority" field in this mutation.
+func (m *TierMutation) AddedPriority() (r int, exists bool) {
+	v := m.addpriority
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetPriority resets all changes to the "priority" field.
+func (m *TierMutation) ResetPriority() {
+	m.priority = nil
+	m.addpriority = nil
+}
+
+// SetRateMultiplier sets the "rate_multiplier" field.
+func (m *TierMutation) SetRateMultiplier(f float64) {
+	m.rate_multiplier = &f
+	m.addrate_multiplier = nil
+}
+
+// RateMultiplier returns the value of the "rate_multiplier" field in the mutation.
+func (m *TierMutation) RateMultiplier() (r float64, exists bool) {
+	v := m.rate_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRateMultiplier returns the old "rate_multiplier" field's value of the Tier entity.
+// If the Tier object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TierMutation) OldRateMultiplier(ctx context.Context) (v float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRateMultiplier is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRateMultiplier requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRateMultiplier: %w", err)
+	}
+	return oldValue.RateMultiplier, nil
+}
+
+// AddRateMultiplier adds f to the "rate_multiplier" field.
+func (m *TierMutation) AddRateMultiplier(f float64) {
+	if m.addrate_multiplier != nil {
+		*m.addrate_multiplier += f
+	} else {
+		m.addrate_multiplier = &f
+	}
+}
+
+// AddedRateMultiplier returns the value that was added to the "rate_multiplier" field in this mutation.
+func (m *TierMutation) AddedRateMultiplier() (r float64, exists bool) {
+	v := m.addrate_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRateMultiplier resets all changes to the "rate_multiplier" field.
+func (m *TierMutation) ResetRateMultiplier() {
+	m.rate_multiplier = nil
+	m.addrate_multiplier = nil
+}
+
+// SetBaseRpm sets the "base_rpm" field.
+func (m *TierMutation) SetBaseRpm(i int) {
+	m.base_rpm = &i
+	m.addbase_rpm = nil
+}
+
+// BaseRpm returns the value of the "base_rpm" field in the mutation.
+func (m *TierMutation) BaseRpm() (r int, exists bool) {
+	v := m.base_rpm
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBaseRpm returns the old "base_rpm" field's value of the Tier entity.
+// If the Tier object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TierMutation) OldBaseRpm(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBaseRpm is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBaseRpm requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBaseRpm: %w", err)
+	}
+	return oldValue.BaseRpm, nil
+}
+
+// AddBaseRpm adds i to the "base_rpm" field.
+func (m *TierMutation) AddBaseRpm(i int) {
+	if m.addbase_rpm != nil {
+		*m.addbase_rpm += i
+	} else {
+		m.addbase_rpm = &i
+	}
+}
+
+// AddedBaseRpm returns the value that was added to the "base_rpm" field in this mutation.
+func (m *TierMutation) AddedBaseRpm() (r int, exists bool) {
+	v := m.addbase_rpm
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetBaseRpm resets all changes to the "base_rpm" field.
+func (m *TierMutation) ResetBaseRpm() {
+	m.base_rpm = nil
+	m.addbase_rpm = nil
+}
+
+// SetMaxSessions sets the "max_sessions" field.
+func (m *TierMutation) SetMaxSessions(i int) {
+	m.max_sessions = &i
+	m.addmax_sessions = nil
+}
+
+// MaxSessions returns the value of the "max_sessions" field in the mutation.
+func (m *TierMutation) MaxSessions() (r int, exists bool) {
+	v := m.max_sessions
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMaxSessions returns the old "max_sessions" field's value of the Tier entity.
+// If the Tier object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TierMutation) OldMaxSessions(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMaxSessions is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMaxSessions requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMaxSessions: %w", err)
+	}
+	return oldValue.MaxSessions, nil
+}
+
+// AddMaxSessions adds i to the "max_sessions" field.
+func (m *TierMutation) AddMaxSessions(i int) {
+	if m.addmax_sessions != nil {
+		*m.addmax_sessions += i
+	} else {
+		m.addmax_sessions = &i
+	}
+}
+
+// AddedMaxSessions returns the value that was added to the "max_sessions" field in this mutation.
+func (m *TierMutation) AddedMaxSessions() (r int, exists bool) {
+	v := m.addmax_sessions
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetMaxSessions resets all changes to the "max_sessions" field.
+func (m *TierMutation) ResetMaxSessions() {
+	m.max_sessions = nil
+	m.addmax_sessions = nil
+}
+
+// SetRpmStickyBuffer sets the "rpm_sticky_buffer" field.
+func (m *TierMutation) SetRpmStickyBuffer(i int) {
+	m.rpm_sticky_buffer = &i
+	m.addrpm_sticky_buffer = nil
+}
+
+// RpmStickyBuffer returns the value of the "rpm_sticky_buffer" field in the mutation.
+func (m *TierMutation) RpmStickyBuffer() (r int, exists bool) {
+	v := m.rpm_sticky_buffer
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRpmStickyBuffer returns the old "rpm_sticky_buffer" field's value of the Tier entity.
+// If the Tier object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TierMutation) OldRpmStickyBuffer(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRpmStickyBuffer is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRpmStickyBuffer requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRpmStickyBuffer: %w", err)
+	}
+	return oldValue.RpmStickyBuffer, nil
+}
+
+// AddRpmStickyBuffer adds i to the "rpm_sticky_buffer" field.
+func (m *TierMutation) AddRpmStickyBuffer(i int) {
+	if m.addrpm_sticky_buffer != nil {
+		*m.addrpm_sticky_buffer += i
+	} else {
+		m.addrpm_sticky_buffer = &i
+	}
+}
+
+// AddedRpmStickyBuffer returns the value that was added to the "rpm_sticky_buffer" field in this mutation.
+func (m *TierMutation) AddedRpmStickyBuffer() (r int, exists bool) {
+	v := m.addrpm_sticky_buffer
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRpmStickyBuffer resets all changes to the "rpm_sticky_buffer" field.
+func (m *TierMutation) ResetRpmStickyBuffer() {
+	m.rpm_sticky_buffer = nil
+	m.addrpm_sticky_buffer = nil
+}
+
+// SetSessionIdleTimeoutMinutes sets the "session_idle_timeout_minutes" field.
+func (m *TierMutation) SetSessionIdleTimeoutMinutes(i int) {
+	m.session_idle_timeout_minutes = &i
+	m.addsession_idle_timeout_minutes = nil
+}
+
+// SessionIdleTimeoutMinutes returns the value of the "session_idle_timeout_minutes" field in the mutation.
+func (m *TierMutation) SessionIdleTimeoutMinutes() (r int, exists bool) {
+	v := m.session_idle_timeout_minutes
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSessionIdleTimeoutMinutes returns the old "session_idle_timeout_minutes" field's value of the Tier entity.
+// If the Tier object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TierMutation) OldSessionIdleTimeoutMinutes(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSessionIdleTimeoutMinutes is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSessionIdleTimeoutMinutes requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSessionIdleTimeoutMinutes: %w", err)
+	}
+	return oldValue.SessionIdleTimeoutMinutes, nil
+}
+
+// AddSessionIdleTimeoutMinutes adds i to the "session_idle_timeout_minutes" field.
+func (m *TierMutation) AddSessionIdleTimeoutMinutes(i int) {
+	if m.addsession_idle_timeout_minutes != nil {
+		*m.addsession_idle_timeout_minutes += i
+	} else {
+		m.addsession_idle_timeout_minutes = &i
+	}
+}
+
+// AddedSessionIdleTimeoutMinutes returns the value that was added to the "session_idle_timeout_minutes" field in this mutation.
+func (m *TierMutation) AddedSessionIdleTimeoutMinutes() (r int, exists bool) {
+	v := m.addsession_idle_timeout_minutes
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetSessionIdleTimeoutMinutes resets all changes to the "session_idle_timeout_minutes" field.
+func (m *TierMutation) ResetSessionIdleTimeoutMinutes() {
+	m.session_idle_timeout_minutes = nil
+	m.addsession_idle_timeout_minutes = nil
+}
+
+// SetWindowCostLimit sets the "window_cost_limit" field.
+func (m *TierMutation) SetWindowCostLimit(f float64) {
+	m.window_cost_limit = &f
+	m.addwindow_cost_limit = nil
+}
+
+// WindowCostLimit returns the value of the "window_cost_limit" field in the mutation.
+func (m *TierMutation) WindowCostLimit() (r float64, exists bool) {
+	v := m.window_cost_limit
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldWindowCostLimit returns the old "window_cost_limit" field's value of the Tier entity.
+// If the Tier object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TierMutation) OldWindowCostLimit(ctx context.Context) (v float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldWindowCostLimit is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldWindowCostLimit requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldWindowCostLimit: %w", err)
+	}
+	return oldValue.WindowCostLimit, nil
+}
+
+// AddWindowCostLimit adds f to the "window_cost_limit" field.
+func (m *TierMutation) AddWindowCostLimit(f float64) {
+	if m.addwindow_cost_limit != nil {
+		*m.addwindow_cost_limit += f
+	} else {
+		m.addwindow_cost_limit = &f
+	}
+}
+
+// AddedWindowCostLimit returns the value that was added to the "window_cost_limit" field in this mutation.
+func (m *TierMutation) AddedWindowCostLimit() (r float64, exists bool) {
+	v := m.addwindow_cost_limit
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetWindowCostLimit resets all changes to the "window_cost_limit" field.
+func (m *TierMutation) ResetWindowCostLimit() {
+	m.window_cost_limit = nil
+	m.addwindow_cost_limit = nil
+}
+
+// SetWindowCostStickyReserve sets the "window_cost_sticky_reserve" field.
+func (m *TierMutation) SetWindowCostStickyReserve(f float64) {
+	m.window_cost_sticky_reserve = &f
+	m.addwindow_cost_sticky_reserve = nil
+}
+
+// WindowCostStickyReserve returns the value of the "window_cost_sticky_reserve" field in the mutation.
+func (m *TierMutation) WindowCostStickyReserve() (r float64, exists bool) {
+	v := m.window_cost_sticky_reserve
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldWindowCostStickyReserve returns the old "window_cost_sticky_reserve" field's value of the Tier entity.
+// If the Tier object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TierMutation) OldWindowCostStickyReserve(ctx context.Context) (v float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldWindowCostStickyReserve is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldWindowCostStickyReserve requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldWindowCostStickyReserve: %w", err)
+	}
+	return oldValue.WindowCostStickyReserve, nil
+}
+
+// AddWindowCostStickyReserve adds f to the "window_cost_sticky_reserve" field.
+func (m *TierMutation) AddWindowCostStickyReserve(f float64) {
+	if m.addwindow_cost_sticky_reserve != nil {
+		*m.addwindow_cost_sticky_reserve += f
+	} else {
+		m.addwindow_cost_sticky_reserve = &f
+	}
+}
+
+// AddedWindowCostStickyReserve returns the value that was added to the "window_cost_sticky_reserve" field in this mutation.
+func (m *TierMutation) AddedWindowCostStickyReserve() (r float64, exists bool) {
+	v := m.addwindow_cost_sticky_reserve
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetWindowCostStickyReserve resets all changes to the "window_cost_sticky_reserve" field.
+func (m *TierMutation) ResetWindowCostStickyReserve() {
+	m.window_cost_sticky_reserve = nil
+	m.addwindow_cost_sticky_reserve = nil
+}
+
+// SetCacheTTLOverrideEnabled sets the "cache_ttl_override_enabled" field.
+func (m *TierMutation) SetCacheTTLOverrideEnabled(b bool) {
+	m.cache_ttl_override_enabled = &b
+}
+
+// CacheTTLOverrideEnabled returns the value of the "cache_ttl_override_enabled" field in the mutation.
+func (m *TierMutation) CacheTTLOverrideEnabled() (r bool, exists bool) {
+	v := m.cache_ttl_override_enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCacheTTLOverrideEnabled returns the old "cache_ttl_override_enabled" field's value of the Tier entity.
+// If the Tier object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TierMutation) OldCacheTTLOverrideEnabled(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCacheTTLOverrideEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCacheTTLOverrideEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCacheTTLOverrideEnabled: %w", err)
+	}
+	return oldValue.CacheTTLOverrideEnabled, nil
+}
+
+// ResetCacheTTLOverrideEnabled resets all changes to the "cache_ttl_override_enabled" field.
+func (m *TierMutation) ResetCacheTTLOverrideEnabled() {
+	m.cache_ttl_override_enabled = nil
+}
+
+// SetCacheTTLOverrideTarget sets the "cache_ttl_override_target" field.
+func (m *TierMutation) SetCacheTTLOverrideTarget(s string) {
+	m.cache_ttl_override_target = &s
+}
+
+// CacheTTLOverrideTarget returns the value of the "cache_ttl_override_target" field in the mutation.
+func (m *TierMutation) CacheTTLOverrideTarget() (r string, exists bool) {
+	v := m.cache_ttl_override_target
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCacheTTLOverrideTarget returns the old "cache_ttl_override_target" field's value of the Tier entity.
+// If the Tier object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TierMutation) OldCacheTTLOverrideTarget(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCacheTTLOverrideTarget is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCacheTTLOverrideTarget requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCacheTTLOverrideTarget: %w", err)
+	}
+	return oldValue.CacheTTLOverrideTarget, nil
+}
+
+// ClearCacheTTLOverrideTarget clears the value of the "cache_ttl_override_target" field.
+func (m *TierMutation) ClearCacheTTLOverrideTarget() {
+	m.cache_ttl_override_target = nil
+	m.clearedFields[tier.FieldCacheTTLOverrideTarget] = struct{}{}
+}
+
+// CacheTTLOverrideTargetCleared returns if the "cache_ttl_override_target" field was cleared in this mutation.
+func (m *TierMutation) CacheTTLOverrideTargetCleared() bool {
+	_, ok := m.clearedFields[tier.FieldCacheTTLOverrideTarget]
+	return ok
+}
+
+// ResetCacheTTLOverrideTarget resets all changes to the "cache_ttl_override_target" field.
+func (m *TierMutation) ResetCacheTTLOverrideTarget() {
+	m.cache_ttl_override_target = nil
+	delete(m.clearedFields, tier.FieldCacheTTLOverrideTarget)
+}
+
+// SetTLSProfileName sets the "tls_profile_name" field.
+func (m *TierMutation) SetTLSProfileName(s string) {
+	m.tls_profile_name = &s
+}
+
+// TLSProfileName returns the value of the "tls_profile_name" field in the mutation.
+func (m *TierMutation) TLSProfileName() (r string, exists bool) {
+	v := m.tls_profile_name
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTLSProfileName returns the old "tls_profile_name" field's value of the Tier entity.
+// If the Tier object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TierMutation) OldTLSProfileName(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTLSProfileName is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTLSProfileName requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTLSProfileName: %w", err)
+	}
+	return oldValue.TLSProfileName, nil
+}
+
+// ClearTLSProfileName clears the value of the "tls_profile_name" field.
+func (m *TierMutation) ClearTLSProfileName() {
+	m.tls_profile_name = nil
+	m.clearedFields[tier.FieldTLSProfileName] = struct{}{}
+}
+
+// TLSProfileNameCleared returns if the "tls_profile_name" field was cleared in this mutation.
+func (m *TierMutation) TLSProfileNameCleared() bool {
+	_, ok := m.clearedFields[tier.FieldTLSProfileName]
+	return ok
+}
+
+// ResetTLSProfileName resets all changes to the "tls_profile_name" field.
+func (m *TierMutation) ResetTLSProfileName() {
+	m.tls_profile_name = nil
+	delete(m.clearedFields, tier.FieldTLSProfileName)
+}
+
+// SetTLSProfileID sets the "tls_profile_id" field.
+func (m *TierMutation) SetTLSProfileID(i int64) {
+	m.tls_profile_id = &i
+	m.addtls_profile_id = nil
+}
+
+// TLSProfileID returns the value of the "tls_profile_id" field in the mutation.
+func (m *TierMutation) TLSProfileID() (r int64, exists bool) {
+	v := m.tls_profile_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTLSProfileID returns the old "tls_profile_id" field's value of the Tier entity.
+// If the Tier object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *TierMutation) OldTLSProfileID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTLSProfileID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTLSProfileID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTLSProfileID: %w", err)
+	}
+	return oldValue.TLSProfileID, nil
+}
+
+// AddTLSProfileID adds i to the "tls_profile_id" field.
+func (m *TierMutation) AddTLSProfileID(i int64) {
+	if m.addtls_profile_id != nil {
+		*m.addtls_profile_id += i
+	} else {
+		m.addtls_profile_id = &i
+	}
+}
+
+// AddedTLSProfileID returns the value that was added to the "tls_profile_id" field in this mutation.
+func (m *TierMutation) AddedTLSProfileID() (r int64, exists bool) {
+	v := m.addtls_profile_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearTLSProfileID clears the value of the "tls_profile_id" field.
+func (m *TierMutation) ClearTLSProfileID() {
+	m.tls_profile_id = nil
+	m.addtls_profile_id = nil
+	m.clearedFields[tier.FieldTLSProfileID] = struct{}{}
+}
+
+// TLSProfileIDCleared returns if the "tls_profile_id" field was cleared in this mutation.
+func (m *TierMutation) TLSProfileIDCleared() bool {
+	_, ok := m.clearedFields[tier.FieldTLSProfileID]
+	return ok
+}
+
+// ResetTLSProfileID resets all changes to the "tls_profile_id" field.
+func (m *TierMutation) ResetTLSProfileID() {
+	m.tls_profile_id = nil
+	m.addtls_profile_id = nil
+	delete(m.clearedFields, tier.FieldTLSProfileID)
+}
+
+// Where appends a list predicates to the TierMutation builder.
+func (m *TierMutation) Where(ps ...predicate.Tier) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the TierMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *TierMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.Tier, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *TierMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *TierMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (Tier).
+func (m *TierMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *TierMutation) Fields() []string {
+	fields := make([]string, 0, 17)
+	if m.created_at != nil {
+		fields = append(fields, tier.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, tier.FieldUpdatedAt)
+	}
+	if m.name != nil {
+		fields = append(fields, tier.FieldName)
+	}
+	if m.description != nil {
+		fields = append(fields, tier.FieldDescription)
+	}
+	if m.concurrency != nil {
+		fields = append(fields, tier.FieldConcurrency)
+	}
+	if m.priority != nil {
+		fields = append(fields, tier.FieldPriority)
+	}
+	if m.rate_multiplier != nil {
+		fields = append(fields, tier.FieldRateMultiplier)
+	}
+	if m.base_rpm != nil {
+		fields = append(fields, tier.FieldBaseRpm)
+	}
+	if m.max_sessions != nil {
+		fields = append(fields, tier.FieldMaxSessions)
+	}
+	if m.rpm_sticky_buffer != nil {
+		fields = append(fields, tier.FieldRpmStickyBuffer)
+	}
+	if m.session_idle_timeout_minutes != nil {
+		fields = append(fields, tier.FieldSessionIdleTimeoutMinutes)
+	}
+	if m.window_cost_limit != nil {
+		fields = append(fields, tier.FieldWindowCostLimit)
+	}
+	if m.window_cost_sticky_reserve != nil {
+		fields = append(fields, tier.FieldWindowCostStickyReserve)
+	}
+	if m.cache_ttl_override_enabled != nil {
+		fields = append(fields, tier.FieldCacheTTLOverrideEnabled)
+	}
+	if m.cache_ttl_override_target != nil {
+		fields = append(fields, tier.FieldCacheTTLOverrideTarget)
+	}
+	if m.tls_profile_name != nil {
+		fields = append(fields, tier.FieldTLSProfileName)
+	}
+	if m.tls_profile_id != nil {
+		fields = append(fields, tier.FieldTLSProfileID)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *TierMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case tier.FieldCreatedAt:
+		return m.CreatedAt()
+	case tier.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case tier.FieldName:
+		return m.Name()
+	case tier.FieldDescription:
+		return m.Description()
+	case tier.FieldConcurrency:
+		return m.Concurrency()
+	case tier.FieldPriority:
+		return m.Priority()
+	case tier.FieldRateMultiplier:
+		return m.RateMultiplier()
+	case tier.FieldBaseRpm:
+		return m.BaseRpm()
+	case tier.FieldMaxSessions:
+		return m.MaxSessions()
+	case tier.FieldRpmStickyBuffer:
+		return m.RpmStickyBuffer()
+	case tier.FieldSessionIdleTimeoutMinutes:
+		return m.SessionIdleTimeoutMinutes()
+	case tier.FieldWindowCostLimit:
+		return m.WindowCostLimit()
+	case tier.FieldWindowCostStickyReserve:
+		return m.WindowCostStickyReserve()
+	case tier.FieldCacheTTLOverrideEnabled:
+		return m.CacheTTLOverrideEnabled()
+	case tier.FieldCacheTTLOverrideTarget:
+		return m.CacheTTLOverrideTarget()
+	case tier.FieldTLSProfileName:
+		return m.TLSProfileName()
+	case tier.FieldTLSProfileID:
+		return m.TLSProfileID()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *TierMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case tier.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case tier.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case tier.FieldName:
+		return m.OldName(ctx)
+	case tier.FieldDescription:
+		return m.OldDescription(ctx)
+	case tier.FieldConcurrency:
+		return m.OldConcurrency(ctx)
+	case tier.FieldPriority:
+		return m.OldPriority(ctx)
+	case tier.FieldRateMultiplier:
+		return m.OldRateMultiplier(ctx)
+	case tier.FieldBaseRpm:
+		return m.OldBaseRpm(ctx)
+	case tier.FieldMaxSessions:
+		return m.OldMaxSessions(ctx)
+	case tier.FieldRpmStickyBuffer:
+		return m.OldRpmStickyBuffer(ctx)
+	case tier.FieldSessionIdleTimeoutMinutes:
+		return m.OldSessionIdleTimeoutMinutes(ctx)
+	case tier.FieldWindowCostLimit:
+		return m.OldWindowCostLimit(ctx)
+	case tier.FieldWindowCostStickyReserve:
+		return m.OldWindowCostStickyReserve(ctx)
+	case tier.FieldCacheTTLOverrideEnabled:
+		return m.OldCacheTTLOverrideEnabled(ctx)
+	case tier.FieldCacheTTLOverrideTarget:
+		return m.OldCacheTTLOverrideTarget(ctx)
+	case tier.FieldTLSProfileName:
+		return m.OldTLSProfileName(ctx)
+	case tier.FieldTLSProfileID:
+		return m.OldTLSProfileID(ctx)
+	}
+	return nil, fmt.Errorf("unknown Tier field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *TierMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case tier.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case tier.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case tier.FieldName:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetName(v)
+		return nil
+	case tier.FieldDescription:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDescription(v)
+		return nil
+	case tier.FieldConcurrency:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetConcurrency(v)
+		return nil
+	case tier.FieldPriority:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPriority(v)
+		return nil
+	case tier.FieldRateMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRateMultiplier(v)
+		return nil
+	case tier.FieldBaseRpm:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBaseRpm(v)
+		return nil
+	case tier.FieldMaxSessions:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMaxSessions(v)
+		return nil
+	case tier.FieldRpmStickyBuffer:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRpmStickyBuffer(v)
+		return nil
+	case tier.FieldSessionIdleTimeoutMinutes:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSessionIdleTimeoutMinutes(v)
+		return nil
+	case tier.FieldWindowCostLimit:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetWindowCostLimit(v)
+		return nil
+	case tier.FieldWindowCostStickyReserve:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetWindowCostStickyReserve(v)
+		return nil
+	case tier.FieldCacheTTLOverrideEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCacheTTLOverrideEnabled(v)
+		return nil
+	case tier.FieldCacheTTLOverrideTarget:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCacheTTLOverrideTarget(v)
+		return nil
+	case tier.FieldTLSProfileName:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTLSProfileName(v)
+		return nil
+	case tier.FieldTLSProfileID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTLSProfileID(v)
+		return nil
+	}
+	return fmt.Errorf("unknown Tier field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *TierMutation) AddedFields() []string {
+	var fields []string
+	if m.addconcurrency != nil {
+		fields = append(fields, tier.FieldConcurrency)
+	}
+	if m.addpriority != nil {
+		fields = append(fields, tier.FieldPriority)
+	}
+	if m.addrate_multiplier != nil {
+		fields = append(fields, tier.FieldRateMultiplier)
+	}
+	if m.addbase_rpm != nil {
+		fields = append(fields, tier.FieldBaseRpm)
+	}
+	if m.addmax_sessions != nil {
+		fields = append(fields, tier.FieldMaxSessions)
+	}
+	if m.addrpm_sticky_buffer != nil {
+		fields = append(fields, tier.FieldRpmStickyBuffer)
+	}
+	if m.addsession_idle_timeout_minutes != nil {
+		fields = append(fields, tier.FieldSessionIdleTimeoutMinutes)
+	}
+	if m.addwindow_cost_limit != nil {
+		fields = append(fields, tier.FieldWindowCostLimit)
+	}
+	if m.addwindow_cost_sticky_reserve != nil {
+		fields = append(fields, tier.FieldWindowCostStickyReserve)
+	}
+	if m.addtls_profile_id != nil {
+		fields = append(fields, tier.FieldTLSProfileID)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *TierMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case tier.FieldConcurrency:
+		return m.AddedConcurrency()
+	case tier.FieldPriority:
+		return m.AddedPriority()
+	case tier.FieldRateMultiplier:
+		return m.AddedRateMultiplier()
+	case tier.FieldBaseRpm:
+		return m.AddedBaseRpm()
+	case tier.FieldMaxSessions:
+		return m.AddedMaxSessions()
+	case tier.FieldRpmStickyBuffer:
+		return m.AddedRpmStickyBuffer()
+	case tier.FieldSessionIdleTimeoutMinutes:
+		return m.AddedSessionIdleTimeoutMinutes()
+	case tier.FieldWindowCostLimit:
+		return m.AddedWindowCostLimit()
+	case tier.FieldWindowCostStickyReserve:
+		return m.AddedWindowCostStickyReserve()
+	case tier.FieldTLSProfileID:
+		return m.AddedTLSProfileID()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *TierMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case tier.FieldConcurrency:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddConcurrency(v)
+		return nil
+	case tier.FieldPriority:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddPriority(v)
+		return nil
+	case tier.FieldRateMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRateMultiplier(v)
+		return nil
+	case tier.FieldBaseRpm:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddBaseRpm(v)
+		return nil
+	case tier.FieldMaxSessions:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddMaxSessions(v)
+		return nil
+	case tier.FieldRpmStickyBuffer:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRpmStickyBuffer(v)
+		return nil
+	case tier.FieldSessionIdleTimeoutMinutes:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddSessionIdleTimeoutMinutes(v)
+		return nil
+	case tier.FieldWindowCostLimit:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddWindowCostLimit(v)
+		return nil
+	case tier.FieldWindowCostStickyReserve:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddWindowCostStickyReserve(v)
+		return nil
+	case tier.FieldTLSProfileID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddTLSProfileID(v)
+		return nil
+	}
+	return fmt.Errorf("unknown Tier numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *TierMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(tier.FieldDescription) {
+		fields = append(fields, tier.FieldDescription)
+	}
+	if m.FieldCleared(tier.FieldCacheTTLOverrideTarget) {
+		fields = append(fields, tier.FieldCacheTTLOverrideTarget)
+	}
+	if m.FieldCleared(tier.FieldTLSProfileName) {
+		fields = append(fields, tier.FieldTLSProfileName)
+	}
+	if m.FieldCleared(tier.FieldTLSProfileID) {
+		fields = append(fields, tier.FieldTLSProfileID)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *TierMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *TierMutation) ClearField(name string) error {
+	switch name {
+	case tier.FieldDescription:
+		m.ClearDescription()
+		return nil
+	case tier.FieldCacheTTLOverrideTarget:
+		m.ClearCacheTTLOverrideTarget()
+		return nil
+	case tier.FieldTLSProfileName:
+		m.ClearTLSProfileName()
+		return nil
+	case tier.FieldTLSProfileID:
+		m.ClearTLSProfileID()
+		return nil
+	}
+	return fmt.Errorf("unknown Tier nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *TierMutation) ResetField(name string) error {
+	switch name {
+	case tier.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case tier.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case tier.FieldName:
+		m.ResetName()
+		return nil
+	case tier.FieldDescription:
+		m.ResetDescription()
+		return nil
+	case tier.FieldConcurrency:
+		m.ResetConcurrency()
+		return nil
+	case tier.FieldPriority:
+		m.ResetPriority()
+		return nil
+	case tier.FieldRateMultiplier:
+		m.ResetRateMultiplier()
+		return nil
+	case tier.FieldBaseRpm:
+		m.ResetBaseRpm()
+		return nil
+	case tier.FieldMaxSessions:
+		m.ResetMaxSessions()
+		return nil
+	case tier.FieldRpmStickyBuffer:
+		m.ResetRpmStickyBuffer()
+		return nil
+	case tier.FieldSessionIdleTimeoutMinutes:
+		m.ResetSessionIdleTimeoutMinutes()
+		return nil
+	case tier.FieldWindowCostLimit:
+		m.ResetWindowCostLimit()
+		return nil
+	case tier.FieldWindowCostStickyReserve:
+		m.ResetWindowCostStickyReserve()
+		return nil
+	case tier.FieldCacheTTLOverrideEnabled:
+		m.ResetCacheTTLOverrideEnabled()
+		return nil
+	case tier.FieldCacheTTLOverrideTarget:
+		m.ResetCacheTTLOverrideTarget()
+		return nil
+	case tier.FieldTLSProfileName:
+		m.ResetTLSProfileName()
+		return nil
+	case tier.FieldTLSProfileID:
+		m.ResetTLSProfileID()
+		return nil
+	}
+	return fmt.Errorf("unknown Tier field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *TierMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *TierMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *TierMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *TierMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *TierMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *TierMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *TierMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown Tier unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *TierMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown Tier edge %s", name)
 }
 
 // UsageCleanupTaskMutation represents an operation that mutates the UsageCleanupTask nodes in the graph.

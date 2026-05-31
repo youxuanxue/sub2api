@@ -24,7 +24,7 @@ func (s *GatewayRoutingSuite) SetupTest() {
 	s.ctx = context.Background()
 	tx := testEntTx(s.T())
 	s.client = tx.Client()
-	s.accountRepo = newAccountRepositoryWithSQL(s.client, tx, nil)
+	s.accountRepo = newAccountRepositoryWithSQL(s.client, tx, nil, nil)
 }
 
 func TestGatewayRoutingSuite(t *testing.T) {

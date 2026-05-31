@@ -3292,6 +3292,15 @@ export default {
       privacyAntigravitySet: '已关闭遥测和营销邮件',
       privacyAntigravityFailed: '隐私设置失败',
       setPrivacy: '设置隐私',
+      setTierDialog: {
+        menuItem: '设置 Tier',
+        title: '设置账号 Tier',
+        selectLabel: '选择 Tier 档位',
+        applyButton: '应用',
+        applySuccess: 'Tier 已应用（仅当前部署生效）',
+        applyFailed: 'Tier 应用失败',
+        localScopeWarning: '仅对当前部署的数据库生效；其它 edge / prod 仍需通过 ops/anthropic 流水线扇出。'
+      },
       subscriptionAbnormal: '异常',
       subscriptionExpires: '到期',
       // 容量状态提示
@@ -6849,6 +6858,52 @@ export default {
       loadFailed: '加载模板失败',
       saveFailed: '保存模板失败',
       deleteFailed: '删除模板失败'
+    },
+
+    tierTemplates: {
+      title: 'Tier 模板',
+      description: 'Anthropic OAuth 稳定性档位（l1..l5）。账号按 id 引用 tier，per-tier 参数运行时解析。',
+      projectionBanner: 'tier 是 git baseline 的投影。此处编辑会立即生效并 fan-out 到引用账号，但 ops/anthropic 流水线下次运行会从 git 重断言这些行——UI 编辑仅用于应急/本地变更。',
+      createTier: '创建 Tier',
+      editTier: '编辑 Tier',
+      deleteTier: '删除 Tier',
+      noTiers: '暂无 Tier',
+
+      columns: {
+        name: '名称',
+        concurrency: '并发',
+        baseRpm: '基础 RPM',
+        maxSessions: '最大会话',
+        tlsProfile: 'TLS 模板',
+        actions: '操作'
+      },
+
+      form: {
+        name: '名称',
+        description: '描述',
+        concurrency: '并发',
+        priority: '优先级',
+        priorityHint: '仅投影——accounts.priority 由 window 流水线写入',
+        rateMultiplier: '速率倍数',
+        baseRpm: '基础 RPM',
+        maxSessions: '最大会话',
+        rpmStickyBuffer: 'RPM 粘性缓冲',
+        sessionIdleTimeoutMinutes: '会话空闲超时（分钟）',
+        windowCostLimit: '窗口成本上限',
+        windowCostStickyReserve: '窗口成本粘性预留',
+        cacheTtlOverrideEnabled: '缓存 TTL 覆盖',
+        tlsProfileName: 'TLS 模板名称',
+        tlsProfileNameHint: '流水线按名 upsert 模板并回填 id',
+        tlsProfileId: 'TLS 模板 ID'
+      },
+
+      deleteConfirmMessage: '确定要删除 Tier "{name}" 吗？绑定它的账号将回退到其持久化的 extra 值。',
+      createSuccess: 'Tier 创建成功',
+      updateSuccess: 'Tier 更新成功',
+      deleteSuccess: 'Tier 删除成功',
+      loadFailed: '加载 Tier 失败',
+      saveFailed: '保存 Tier 失败',
+      deleteFailed: '删除 Tier 失败'
     }
   },
 

@@ -43,6 +43,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/securitysecret"
 	"github.com/Wei-Shaw/sub2api/ent/setting"
 	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
+	"github.com/Wei-Shaw/sub2api/ent/tier"
 	"github.com/Wei-Shaw/sub2api/ent/tlsfingerprintprofile"
 	"github.com/Wei-Shaw/sub2api/ent/usagecleanuptask"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
@@ -119,6 +120,8 @@ type Client struct {
 	SubscriptionPlan *SubscriptionPlanClient
 	// TLSFingerprintProfile is the client for interacting with the TLSFingerprintProfile builders.
 	TLSFingerprintProfile *TLSFingerprintProfileClient
+	// Tier is the client for interacting with the Tier builders.
+	Tier *TierClient
 	// UsageCleanupTask is the client for interacting with the UsageCleanupTask builders.
 	UsageCleanupTask *UsageCleanupTaskClient
 	// UsageLog is the client for interacting with the UsageLog builders.
@@ -175,6 +178,7 @@ func (c *Client) init() {
 	c.Setting = NewSettingClient(c.config)
 	c.SubscriptionPlan = NewSubscriptionPlanClient(c.config)
 	c.TLSFingerprintProfile = NewTLSFingerprintProfileClient(c.config)
+	c.Tier = NewTierClient(c.config)
 	c.UsageCleanupTask = NewUsageCleanupTaskClient(c.config)
 	c.UsageLog = NewUsageLogClient(c.config)
 	c.User = NewUserClient(c.config)
@@ -304,6 +308,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		Setting:                       NewSettingClient(cfg),
 		SubscriptionPlan:              NewSubscriptionPlanClient(cfg),
 		TLSFingerprintProfile:         NewTLSFingerprintProfileClient(cfg),
+		Tier:                          NewTierClient(cfg),
 		UsageCleanupTask:              NewUsageCleanupTaskClient(cfg),
 		UsageLog:                      NewUsageLogClient(cfg),
 		User:                          NewUserClient(cfg),
@@ -360,6 +365,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		Setting:                       NewSettingClient(cfg),
 		SubscriptionPlan:              NewSubscriptionPlanClient(cfg),
 		TLSFingerprintProfile:         NewTLSFingerprintProfileClient(cfg),
+		Tier:                          NewTierClient(cfg),
 		UsageCleanupTask:              NewUsageCleanupTaskClient(cfg),
 		UsageLog:                      NewUsageLogClient(cfg),
 		User:                          NewUserClient(cfg),
@@ -405,7 +411,7 @@ func (c *Client) Use(hooks ...Hook) {
 		c.PaymentAuditLog, c.PaymentOrder, c.PaymentProviderInstance,
 		c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage, c.Proxy, c.QARecord,
 		c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
-		c.TLSFingerprintProfile, c.UsageCleanupTask, c.UsageLog, c.User,
+		c.TLSFingerprintProfile, c.Tier, c.UsageCleanupTask, c.UsageLog, c.User,
 		c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
 		c.UserPlatformQuota, c.UserSubscription,
 	} {
@@ -425,7 +431,7 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.PaymentAuditLog, c.PaymentOrder, c.PaymentProviderInstance,
 		c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage, c.Proxy, c.QARecord,
 		c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
-		c.TLSFingerprintProfile, c.UsageCleanupTask, c.UsageLog, c.User,
+		c.TLSFingerprintProfile, c.Tier, c.UsageCleanupTask, c.UsageLog, c.User,
 		c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
 		c.UserPlatformQuota, c.UserSubscription,
 	} {
@@ -494,6 +500,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.SubscriptionPlan.mutate(ctx, m)
 	case *TLSFingerprintProfileMutation:
 		return c.TLSFingerprintProfile.mutate(ctx, m)
+	case *TierMutation:
+		return c.Tier.mutate(ctx, m)
 	case *UsageCleanupTaskMutation:
 		return c.UsageCleanupTask.mutate(ctx, m)
 	case *UsageLogMutation:
@@ -4987,6 +4995,139 @@ func (c *TLSFingerprintProfileClient) mutate(ctx context.Context, m *TLSFingerpr
 	}
 }
 
+// TierClient is a client for the Tier schema.
+type TierClient struct {
+	config
+}
+
+// NewTierClient returns a client for the Tier from the given config.
+func NewTierClient(c config) *TierClient {
+	return &TierClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `tier.Hooks(f(g(h())))`.
+func (c *TierClient) Use(hooks ...Hook) {
+	c.hooks.Tier = append(c.hooks.Tier, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `tier.Intercept(f(g(h())))`.
+func (c *TierClient) Intercept(interceptors ...Interceptor) {
+	c.inters.Tier = append(c.inters.Tier, interceptors...)
+}
+
+// Create returns a builder for creating a Tier entity.
+func (c *TierClient) Create() *TierCreate {
+	mutation := newTierMutation(c.config, OpCreate)
+	return &TierCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of Tier entities.
+func (c *TierClient) CreateBulk(builders ...*TierCreate) *TierCreateBulk {
+	return &TierCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *TierClient) MapCreateBulk(slice any, setFunc func(*TierCreate, int)) *TierCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &TierCreateBulk{err: fmt.Errorf("calling to TierClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*TierCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &TierCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for Tier.
+func (c *TierClient) Update() *TierUpdate {
+	mutation := newTierMutation(c.config, OpUpdate)
+	return &TierUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *TierClient) UpdateOne(_m *Tier) *TierUpdateOne {
+	mutation := newTierMutation(c.config, OpUpdateOne, withTier(_m))
+	return &TierUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *TierClient) UpdateOneID(id int64) *TierUpdateOne {
+	mutation := newTierMutation(c.config, OpUpdateOne, withTierID(id))
+	return &TierUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for Tier.
+func (c *TierClient) Delete() *TierDelete {
+	mutation := newTierMutation(c.config, OpDelete)
+	return &TierDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *TierClient) DeleteOne(_m *Tier) *TierDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *TierClient) DeleteOneID(id int64) *TierDeleteOne {
+	builder := c.Delete().Where(tier.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &TierDeleteOne{builder}
+}
+
+// Query returns a query builder for Tier.
+func (c *TierClient) Query() *TierQuery {
+	return &TierQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeTier},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a Tier entity by its id.
+func (c *TierClient) Get(ctx context.Context, id int64) (*Tier, error) {
+	return c.Query().Where(tier.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *TierClient) GetX(ctx context.Context, id int64) *Tier {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *TierClient) Hooks() []Hook {
+	return c.hooks.Tier
+}
+
+// Interceptors returns the client interceptors.
+func (c *TierClient) Interceptors() []Interceptor {
+	return c.inters.Tier
+}
+
+func (c *TierClient) mutate(ctx context.Context, m *TierMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&TierCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&TierUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&TierUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&TierDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown Tier mutation op: %q", m.Op())
+	}
+}
+
 // UsageCleanupTaskClient is a client for the UsageCleanupTask schema.
 type UsageCleanupTaskClient struct {
 	config
@@ -6483,8 +6624,8 @@ type (
 		Group, IdempotencyRecord, IdentityAdoptionDecision, ModelAvailability,
 		PaymentAuditLog, PaymentOrder, PaymentProviderInstance, PendingAuthSession,
 		PromoCode, PromoCodeUsage, Proxy, QARecord, RedeemCode, SecuritySecret,
-		Setting, SubscriptionPlan, TLSFingerprintProfile, UsageCleanupTask, UsageLog,
-		User, UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,
+		Setting, SubscriptionPlan, TLSFingerprintProfile, Tier, UsageCleanupTask,
+		UsageLog, User, UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,
 		UserPlatformQuota, UserSubscription []ent.Hook
 	}
 	inters struct {
@@ -6494,8 +6635,8 @@ type (
 		Group, IdempotencyRecord, IdentityAdoptionDecision, ModelAvailability,
 		PaymentAuditLog, PaymentOrder, PaymentProviderInstance, PendingAuthSession,
 		PromoCode, PromoCodeUsage, Proxy, QARecord, RedeemCode, SecuritySecret,
-		Setting, SubscriptionPlan, TLSFingerprintProfile, UsageCleanupTask, UsageLog,
-		User, UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,
+		Setting, SubscriptionPlan, TLSFingerprintProfile, Tier, UsageCleanupTask,
+		UsageLog, User, UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,
 		UserPlatformQuota, UserSubscription []ent.Interceptor
 	}
 )

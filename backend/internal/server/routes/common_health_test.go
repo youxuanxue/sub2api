@@ -144,12 +144,12 @@ func TestHealthInflight_404_OffLoopback(t *testing.T) {
 
 	// 模拟 Caddy → container 的请求（Docker bridge IP），不应能拿到 inflight。
 	cases := []string{
-		"172.18.0.5:54321",     // 典型 docker bridge
-		"10.0.1.42:443",        // VPC 内网
-		"192.0.2.1:80",         // 公网（TEST-NET-1）
-		"2001:db8::1:42",       // IPv6 公网
-		"203.0.113.5:443",      // TEST-NET-3
-		"unparseable",          // 异常 RemoteAddr 也要拒
+		"172.18.0.5:54321", // 典型 docker bridge
+		"10.0.1.42:443",    // VPC 内网
+		"192.0.2.1:80",     // 公网（TEST-NET-1）
+		"2001:db8::1:42",   // IPv6 公网
+		"203.0.113.5:443",  // TEST-NET-3
+		"unparseable",      // 异常 RemoteAddr 也要拒
 	}
 	for _, ra := range cases {
 		w := httptest.NewRecorder()

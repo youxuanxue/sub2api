@@ -524,6 +524,33 @@ func (_u *AccountUpdate) AddChannelType(v int) *AccountUpdate {
 	return _u
 }
 
+// SetTierID sets the "tier_id" field.
+func (_u *AccountUpdate) SetTierID(v int64) *AccountUpdate {
+	_u.mutation.ResetTierID()
+	_u.mutation.SetTierID(v)
+	return _u
+}
+
+// SetNillableTierID sets the "tier_id" field if the given value is not nil.
+func (_u *AccountUpdate) SetNillableTierID(v *int64) *AccountUpdate {
+	if v != nil {
+		_u.SetTierID(*v)
+	}
+	return _u
+}
+
+// AddTierID adds value to the "tier_id" field.
+func (_u *AccountUpdate) AddTierID(v int64) *AccountUpdate {
+	_u.mutation.AddTierID(v)
+	return _u
+}
+
+// ClearTierID clears the value of the "tier_id" field.
+func (_u *AccountUpdate) ClearTierID() *AccountUpdate {
+	_u.mutation.ClearTierID()
+	return _u
+}
+
 // AddGroupIDs adds the "groups" edge to the Group entity by IDs.
 func (_u *AccountUpdate) AddGroupIDs(ids ...int64) *AccountUpdate {
 	_u.mutation.AddGroupIDs(ids...)
@@ -833,6 +860,15 @@ func (_u *AccountUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.AddedChannelType(); ok {
 		_spec.AddField(account.FieldChannelType, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.TierID(); ok {
+		_spec.SetField(account.FieldTierID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedTierID(); ok {
+		_spec.AddField(account.FieldTierID, field.TypeInt64, value)
+	}
+	if _u.mutation.TierIDCleared() {
+		_spec.ClearField(account.FieldTierID, field.TypeInt64)
 	}
 	if _u.mutation.GroupsCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -1478,6 +1514,33 @@ func (_u *AccountUpdateOne) AddChannelType(v int) *AccountUpdateOne {
 	return _u
 }
 
+// SetTierID sets the "tier_id" field.
+func (_u *AccountUpdateOne) SetTierID(v int64) *AccountUpdateOne {
+	_u.mutation.ResetTierID()
+	_u.mutation.SetTierID(v)
+	return _u
+}
+
+// SetNillableTierID sets the "tier_id" field if the given value is not nil.
+func (_u *AccountUpdateOne) SetNillableTierID(v *int64) *AccountUpdateOne {
+	if v != nil {
+		_u.SetTierID(*v)
+	}
+	return _u
+}
+
+// AddTierID adds value to the "tier_id" field.
+func (_u *AccountUpdateOne) AddTierID(v int64) *AccountUpdateOne {
+	_u.mutation.AddTierID(v)
+	return _u
+}
+
+// ClearTierID clears the value of the "tier_id" field.
+func (_u *AccountUpdateOne) ClearTierID() *AccountUpdateOne {
+	_u.mutation.ClearTierID()
+	return _u
+}
+
 // AddGroupIDs adds the "groups" edge to the Group entity by IDs.
 func (_u *AccountUpdateOne) AddGroupIDs(ids ...int64) *AccountUpdateOne {
 	_u.mutation.AddGroupIDs(ids...)
@@ -1817,6 +1880,15 @@ func (_u *AccountUpdateOne) sqlSave(ctx context.Context) (_node *Account, err er
 	}
 	if value, ok := _u.mutation.AddedChannelType(); ok {
 		_spec.AddField(account.FieldChannelType, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.TierID(); ok {
+		_spec.SetField(account.FieldTierID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedTierID(); ok {
+		_spec.AddField(account.FieldTierID, field.TypeInt64, value)
+	}
+	if _u.mutation.TierIDCleared() {
+		_spec.ClearField(account.FieldTierID, field.TypeInt64)
 	}
 	if _u.mutation.GroupsCleared() {
 		edge := &sqlgraph.EdgeSpec{

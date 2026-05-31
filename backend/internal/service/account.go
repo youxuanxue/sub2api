@@ -54,6 +54,10 @@ type Account struct {
 
 	ChannelType int // New API channel type (>0 means use New API adaptor bridge)
 
+	// TierID 绑定的 anthropic-oauth 稳定性档位 id（tiers 表）；nil = 未绑定。
+	// 运行时由 TierExtraResolver 在账号加载边界按此解析 per-tier 配置 overlay 进 Extra。
+	TierID *int64
+
 	Proxy         *Proxy
 	AccountGroups []AccountGroup
 	GroupIDs      []int64

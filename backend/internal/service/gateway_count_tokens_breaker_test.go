@@ -166,9 +166,9 @@ func TestGatewayService_ForwardCountTokens_OAuthMimicInjectionGetsStripped(t *te
 	}
 
 	svc := &GatewayService{
-		cfg:                 &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}},
-		httpUpstream:        upstream,
-		rateLimitService:    &RateLimitService{},
+		cfg:                  &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}},
+		httpUpstream:         upstream,
+		rateLimitService:     &RateLimitService{},
 		responseHeaderFilter: compileResponseHeaderFilter(&config.Config{}),
 	}
 

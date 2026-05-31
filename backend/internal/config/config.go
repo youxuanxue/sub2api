@@ -1144,6 +1144,22 @@ type GatewaySchedulingConfig struct {
 	// 用作首个 tick 之前 / wall-clock 跳跃后的安全窗口；正常运行时 reaper 会维护 lastTick
 	// 状态并使用 (lastTick, now] 精确扫描。0 使用默认 30 秒。
 	RateLimitReaperLookbackSeconds int `mapstructure:"rate_limit_reaper_lookback_seconds"`
+
+	// AnthropicConfigReconcilerIntervalSeconds 本机 Anthropic 配置自愈 reconciler 周期（秒）。
+	// 把 ops/anthropic 流水线的高频「安全项」写入下沉为每节点 in-process 自愈：operator Σ
+	// 并发对齐、prod 镜像 stub 的 pool_mode、edge operator 余额地板、surface-C 并发镜像；
+	// 单账号 tier 漂移仅 slog 上报不重写。<=0 禁用 reconciler goroutine；viper.SetDefault
+	// 提供 300 秒默认。仅写本部署自己的库。
+	AnthropicConfigReconcilerIntervalSeconds int `mapstructure:"anthropic_config_reconciler_interval_seconds"`
+
+	// AnthropicConfigReconcilerConcurrencyMirrorEnabled 开启 surface-C 并发镜像消费端
+	// （prod：经 HTTP 实时拉每个镜像 stub 指向的 edge capacity，把 stub.concurrency 收敛为
+	// edge 的 live Σschedulable）。仅在 prod 部署开启；edge 无匹配 stub 时天然空转。默认 false。
+	AnthropicConfigReconcilerConcurrencyMirrorEnabled bool `mapstructure:"anthropic_config_reconciler_concurrency_mirror_enabled"`
+
+	// AnthropicConfigReconcilerBalanceFloorEnabled 开启 edge operator（users.id=1）余额地板
+	// 自愈（余额 < 阈值则重置为默认值）。仅在 edge 部署开启。默认 false。
+	AnthropicConfigReconcilerBalanceFloorEnabled bool `mapstructure:"anthropic_config_reconciler_balance_floor_enabled"`
 }
 
 func (s *ServerConfig) Address() string {
@@ -2011,6 +2027,9 @@ func setDefaults() {
 	// TK fix for upstream Wei-Shaw/sub2api#2538 — see SchedulingConfig.RateLimitReaper* docs.
 	viper.SetDefault("gateway.scheduling.rate_limit_reaper_interval_seconds", 5)
 	viper.SetDefault("gateway.scheduling.rate_limit_reaper_lookback_seconds", 30)
+	viper.SetDefault("gateway.scheduling.anthropic_config_reconciler_interval_seconds", 300)
+	viper.SetDefault("gateway.scheduling.anthropic_config_reconciler_concurrency_mirror_enabled", false)
+	viper.SetDefault("gateway.scheduling.anthropic_config_reconciler_balance_floor_enabled", false)
 	viper.SetDefault("gateway.usage_record.worker_count", 128)
 	viper.SetDefault("gateway.usage_record.queue_size", 16384)
 	viper.SetDefault("gateway.usage_record.task_timeout_seconds", 5)
