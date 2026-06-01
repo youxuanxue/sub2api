@@ -28,11 +28,14 @@ type RateLimitService struct {
 	timeoutCounterCache                TimeoutCounterCache
 	openAI403CounterCache              OpenAI403CounterCache
 	anthropicUpstreamErrorCounterCache AnthropicUpstreamErrorCounterCache
-	settingService                     *SettingService
-	tokenCacheInvalidator              TokenCacheInvalidator
-	runtimeBlocker                     AccountRuntimeBlocker
-	usageCacheMu                       sync.RWMutex
-	usageCache                         map[int64]*geminiUsageCacheEntry
+	// TK: 「token 被成功刷新过却仍持续 401」计数器，用于把 OAuth 401 静默 flap
+	// 升级为 error 永久停调度。逻辑在 ratelimit_service_tk_oauth401.go。
+	oauth401AfterRefreshCounter OAuth401AfterRefreshCounterCache
+	settingService              *SettingService
+	tokenCacheInvalidator       TokenCacheInvalidator
+	runtimeBlocker              AccountRuntimeBlocker
+	usageCacheMu                sync.RWMutex
+	usageCache                  map[int64]*geminiUsageCacheEntry
 }
 
 type AccountRuntimeBlocker interface {
@@ -387,6 +390,13 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			// tryRecoverFromRefreshRace 重读 DB 发现 currentRT == usedRT 也救不回来，账号被错误 disable。
 			// 这里仅依赖 InvalidateToken + SetTempUnschedulable 让账号在冷却期内不被调度，
 			// 冷却结束后由 token_provider 的 NeedsRefresh / token_refresh_service 走带分布式锁的正路刷新。
+			// TK: 「refresh 端点成功却仍 401」盲区——若同一窗口内换发的新 token 仍 401，
+			// 判定 grant 被上游实质吊销，升级为 error 永久停调度 + 告警（提示手工重授权），
+			// 不再无限 temp_unschedulable flap。详见 ratelimit_service_tk_oauth401.go。
+			if s.tkTryEscalateRevokedOAuth401(ctx, account, upstreamMsg) {
+				shouldDisable = true
+				break
+			}
 			msg := "Authentication failed (401): invalid or expired credentials"
 			if upstreamMsg != "" {
 				msg = "OAuth 401: " + upstreamMsg
@@ -1953,6 +1963,9 @@ func (s *RateLimitService) UpdateSessionWindow(ctx context.Context, account *Acc
 	}
 	if status == "allowed" || status == "allowed_warning" {
 		s.ResetAnthropicUpstreamErrorCounter(ctx, account.ID)
+		// TK: 成功响应即清掉「refresh 后仍 401」的 baseline，避免一次良性瞬时 401
+		// 的 baseline 残留到下一次瞬时 401 凑成误升级。
+		s.ResetOAuth401AfterRefreshCounter(ctx, account.ID)
 	}
 }
 
@@ -1978,6 +1991,7 @@ func (s *RateLimitService) ClearRateLimit(ctx context.Context, accountID int64) 
 	}
 	s.ResetOpenAI403Counter(ctx, accountID)
 	s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)
+	s.ResetOAuth401AfterRefreshCounter(ctx, accountID)
 	s.notifyAccountSchedulingBlockCleared(accountID)
 	return nil
 }
@@ -2035,6 +2049,7 @@ func (s *RateLimitService) RecoverAccountState(ctx context.Context, accountID in
 	if result.ClearedError || result.ClearedRateLimit {
 		s.ResetOpenAI403Counter(ctx, accountID)
 		s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)
+		s.ResetOAuth401AfterRefreshCounter(ctx, accountID)
 		if result.ClearedError && !result.ClearedRateLimit {
 			s.notifyAccountSchedulingBlockCleared(accountID)
 		}
@@ -2063,6 +2078,7 @@ func (s *RateLimitService) ClearTempUnschedulable(ctx context.Context, accountID
 		slog.Warn("clear_model_rate_limits_on_temp_unsched_reset_failed", "account_id", accountID, "error", err)
 	}
 	s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)
+	s.ResetOAuth401AfterRefreshCounter(ctx, accountID)
 	s.notifyAccountSchedulingBlockCleared(accountID)
 	return nil
 }

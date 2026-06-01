@@ -1339,6 +1339,17 @@ type RateLimitConfig struct {
 	// AnthropicErrorWindowMinutes 控制阈值短窗口长度（默认 1 分钟）。零值或负值
 	// 回退到内置默认。
 	AnthropicErrorWindowMinutes int `mapstructure:"anthropic_error_window_minutes"`
+
+	// OAuth401AfterRefreshDisableThreshold 控制「token 被成功刷新过却仍持续 401」
+	// 升级为 error 永久停调度的阈值。token 版本闸门已过滤掉过期/并发/同 token 突发，
+	// 故默认 1：第一次 401 种 baseline、其后一次版本递增的 401（=一个完整 flap 周期）
+	// 即判定 grant 被吊销并升级。可线上调 2/3 换取更多缓冲。零值或负值回退到默认 1。
+	OAuth401AfterRefreshDisableThreshold int `mapstructure:"oauth_401_after_refresh_disable_threshold"`
+
+	// OAuth401AfterRefreshWindowMinutes 控制上面 baseline token 版本的存活窗口（默认
+	// 60 分钟）。跨窗口的 401 会重新种 baseline 而非升级，防止几小时前的良性瞬时 401
+	// 与今天一次新瞬时 401 凑成误升级。零值或负值回退到默认 60。
+	OAuth401AfterRefreshWindowMinutes int `mapstructure:"oauth_401_after_refresh_window_minutes"`
 }
 
 // APIKeyAuthCacheConfig API Key 认证缓存配置

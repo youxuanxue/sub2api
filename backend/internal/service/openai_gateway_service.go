@@ -5884,6 +5884,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	}
 	if s.rateLimitService != nil && input.Account != nil && input.Account.Platform == PlatformOpenAI {
 		s.rateLimitService.ResetOpenAI403Counter(ctx, input.Account.ID)
+		// TK: 成功响应即清掉「refresh 后仍 401」baseline（OpenAI OAuth 账号同样会走该升级路径）。
+		s.rateLimitService.ResetOAuth401AfterRefreshCounter(ctx, input.Account.ID)
 	}
 
 	apiKey := input.APIKey
