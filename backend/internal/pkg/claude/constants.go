@@ -109,7 +109,7 @@ func FullClaudeCodeMimicryBetas() []string {
 	}
 }
 
-// FullClaudeCodeHaikuMimicryBetas 返回 Haiku 模型 OAuth mimicry 的 beta 列表（cc 2.1.159 structured-outputs 抓包）。
+// FullClaudeCodeHaikuMimicryBetas 返回 Haiku 模型 OAuth mimicry 的 beta 列表（近期 cc structured-outputs 抓包）。
 func FullClaudeCodeHaikuMimicryBetas() []string {
 	return []string{
 		BetaOAuth,
