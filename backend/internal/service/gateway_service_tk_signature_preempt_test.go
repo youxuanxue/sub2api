@@ -217,3 +217,31 @@ func TestHasAnthropicSigPreemptCache_Setter(t *testing.T) {
 	s.SetAnthropicSigPreemptCache(&fakeSigPreemptCache{})
 	require.True(t, s.HasAnthropicSigPreemptCache())
 }
+
+// TestApplyPreempt_Armed_PreservesToolUseThinking pins the end-to-end contract:
+// even when the per-account preempt is armed (300s cooldown), a request whose
+// assistant turn contains tool_use must NOT have its thinking blocks stripped —
+// stripping there orphans the tool_use and makes Claude Code report malformed
+// tool calls (live edge-us1: 139 signed thinking + 216 tool_use forwarded as 0).
+// Complements TestApplyPreempt_Armed_StripsThinkingBlocks (the no-tool case that
+// is still safely stripped).
+func TestApplyPreempt_Armed_PreservesToolUseThinking(t *testing.T) {
+	cache := &fakeSigPreemptCache{}
+	cache.armed.Store(true)
+	s := &GatewayService{tkAnthropicSigPreemptCache: cache}
+	c := newTestGin()
+
+	body := []byte(`{"model":"claude-opus-4-1","thinking":{"type":"enabled"},"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"tool reasoning","signature":"sigTOOL"},{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"ls"}}]}]}`)
+
+	out := s.applySigPreemptIfArmed(context.Background(), c, newTestAccount(), body)
+
+	// Tool-coupled thinking + its signature must pass through verbatim.
+	require.Contains(t, string(out), `"type":"thinking"`, "tool-coupled thinking must NOT be stripped while preempt is armed")
+	require.Contains(t, string(out), "sigTOOL", "signature must pass through verbatim")
+	require.Contains(t, string(out), `"type":"tool_use"`, "tool_use must remain")
+	// Top-level thinking must stay enabled (a preserved thinking block requires it).
+	require.Contains(t, string(out), `"thinking":{"type":"enabled"}`, "top-level thinking must stay enabled")
+	// Body unchanged → no signature_preempt_applied event (armed-but-nothing-to-strip stays silent).
+	require.False(t, hasOpsEventKind(c, "signature_preempt_applied"), "no applied event when nothing is safely strippable")
+	require.True(t, bytes.Equal(out, body), "armed preempt must be a no-op for a tool-coupled thinking request")
+}
