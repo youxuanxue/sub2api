@@ -224,6 +224,36 @@ Resources:
                     "aws:ResourceTag/Project": tokenkey
                     "aws:RequestedRegion":
                       - !Ref EdgeUs1Region
+              - Sid: SnapshotEbsRootBeforeDecommission
+                # decommission op (deploy-edge-stage0.yml operation=decommission)
+                # snapshots the edge root EBS volume before delete-stack as a
+                # 30-day rollback artifact. CreateSnapshot covers the source
+                # volume + the new snapshot; DescribeSnapshots is the readiness
+                # poll. Neither supports useful resource-level scoping here, so
+                # gate on edge regions only (add new edge regions as they land).
+                Effect: Allow
+                Action:
+                  - ec2:CreateSnapshot
+                  - ec2:DescribeSnapshots
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    "aws:RequestedRegion":
+                      - !Ref EdgeUs1Region
+              - Sid: TagSnapshotOnCreate
+                # the snapshot step passes --tag-specifications, so CreateTags
+                # is checked with ec2:CreateAction=CreateSnapshot. Mirror the
+                # AllocateAddress tag gate above so we cannot tag arbitrary
+                # pre-existing resources.
+                Effect: Allow
+                Action:
+                  - ec2:CreateTags
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    "ec2:CreateAction": CreateSnapshot
+                    "aws:RequestedRegion":
+                      - !Ref EdgeUs1Region
               - Sid: DescribeStackForInstanceLookup
                 Effect: Allow
                 Action:
