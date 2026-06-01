@@ -1172,6 +1172,135 @@ def _run_tier_table_checks_live(edge_ids: list[str], expected_by_tier: dict[str,
     return items
 
 
+# --------------------------------------------------------------------------
+# http_ua_drift: live settings UA / mimicry manifest vs baseline JSON
+# --------------------------------------------------------------------------
+# `sync-runtime` pushes settings.claude_code_user_agent_version +
+# settings.claude_code_http_mimicry_manifest to each node; nothing READ them
+# back, so `check` could stay all-green while the fleet's live UA was a stale
+# cc version (observed 2026-06: fleet on 2.1.158 while baseline was 2.1.159,
+# check green throughout). This surface reads the same two setting keys live
+# and diffs them against the single-source baseline JSON, so a fleet that has
+# not been sync-runtime'd after a cc bump now fails check. Always reads LIVE
+# (even with --snapshot): UA is a deploy-level runtime knob updated out of band
+# from snapshot, and a stale snapshot is exactly how the blind spot hid.
+
+# Mirror render_runtime_sync_shell's settings read (row_to_json beside values,
+# no column-number reads). One row per present key.
+SETTINGS_UA_SQL = f"""
+SELECT COALESCE(jsonb_object_agg(key, value), '{{}}'::jsonb)
+FROM (
+  SELECT key, value FROM settings
+  WHERE key IN ('{RUNTIME_SYNC_SETTING_KEY}', '{RUNTIME_SYNC_MIMICRY_SETTING_KEY}')
+) t;
+""".strip()
+
+
+def _read_http_ua_settings(region: str, instance_id: str, label: str) -> dict:
+    """Pull the two cc-fingerprint setting keys for one node. Missing keys are
+    simply absent from the returned dict (caller treats absent as drift)."""
+    raw, _ = ssm_run_sql(region, instance_id, SETTINGS_UA_SQL, f"check: {label} http ua settings")
+    try:
+        return json.loads(raw) if raw else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def _http_ua_drift_items(node_label: str, live_settings: dict, expected: dict) -> list[dict]:
+    """Diff one node's live UA setting + mimicry manifest vs the baseline JSON.
+    Returns drift items (status=drift), each with the offending field. Empty == match."""
+    items: list[dict] = []
+    exp_ver = str(expected["cc_version"]).strip()
+
+    live_ua = live_settings.get(RUNTIME_SYNC_SETTING_KEY)
+    if live_ua is None:
+        items.append({
+            "node": node_label, "field": RUNTIME_SYNC_SETTING_KEY, "status": "drift",
+            "expected": exp_ver, "actual": None,
+            "warning": (f"{node_label}: settings.{RUNTIME_SYNC_SETTING_KEY} unset; "
+                        f"run sync-runtime (expected {exp_ver})"),
+        })
+    elif str(live_ua).strip() != exp_ver:
+        items.append({
+            "node": node_label, "field": RUNTIME_SYNC_SETTING_KEY, "status": "drift",
+            "expected": exp_ver, "actual": str(live_ua).strip(),
+            "warning": (f"{node_label}: live UA {str(live_ua).strip()} != baseline {exp_ver}; "
+                        f"run sync-runtime"),
+        })
+
+    # Manifest is stored as a JSON string in settings.value; parse and compare
+    # the version-relevant fields (cc_version + the two beta lists).
+    live_manifest_raw = live_settings.get(RUNTIME_SYNC_MIMICRY_SETTING_KEY)
+    exp_manifest = {
+        "cc_version": exp_ver,
+        "sonnet_opus": list(expected["sonnet_opus"]),
+        "haiku": list(expected["haiku"]),
+    }
+    if live_manifest_raw is None:
+        items.append({
+            "node": node_label, "field": RUNTIME_SYNC_MIMICRY_SETTING_KEY, "status": "drift",
+            "expected": exp_manifest, "actual": None,
+            "warning": (f"{node_label}: settings.{RUNTIME_SYNC_MIMICRY_SETTING_KEY} unset; "
+                        f"run sync-runtime"),
+        })
+    else:
+        try:
+            live_manifest = (json.loads(live_manifest_raw)
+                             if isinstance(live_manifest_raw, str) else live_manifest_raw)
+        except (json.JSONDecodeError, TypeError):
+            live_manifest = None
+        if not isinstance(live_manifest, dict):
+            items.append({
+                "node": node_label, "field": RUNTIME_SYNC_MIMICRY_SETTING_KEY, "status": "drift",
+                "expected": exp_manifest, "actual": str(live_manifest_raw)[:120],
+                "warning": (f"{node_label}: {RUNTIME_SYNC_MIMICRY_SETTING_KEY} not valid JSON object; "
+                            f"run sync-runtime"),
+            })
+        else:
+            mismatched = [
+                k for k in ("cc_version", "sonnet_opus", "haiku")
+                if live_manifest.get(k) != exp_manifest[k]
+            ]
+            if mismatched:
+                items.append({
+                    "node": node_label, "field": RUNTIME_SYNC_MIMICRY_SETTING_KEY, "status": "drift",
+                    "expected": {k: exp_manifest[k] for k in mismatched},
+                    "actual": {k: live_manifest.get(k) for k in mismatched},
+                    "warning": (f"{node_label}: mimicry manifest drift ({', '.join(mismatched)}); "
+                                f"run sync-runtime"),
+                })
+    return items
+
+
+def _run_http_ua_checks_live(edge_ids: list[str], expected: dict) -> list[dict]:
+    """Live SSM settings read per node (edge + prod). Always live: UA is updated
+    out of band from snapshot. SSM failures degrade to status=error (counted like
+    tier/balance errors), never silently treated as in-sync."""
+    items: list[dict] = []
+    for eid in edge_ids:
+        try:
+            ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, eid)
+        except SystemExit:
+            items.append({"node": f"edge:{eid}", "field": "*", "status": "error",
+                          "warning": f"could not resolve SSM instance for edge {eid}"})
+            continue
+        try:
+            live = _read_http_ua_settings(ident.region, ident.instance_id, f"edge {eid}")
+        except SystemExit:
+            items.append({"node": f"edge:{eid}", "field": "*", "status": "error",
+                          "warning": f"could not read settings for edge {eid}"})
+            continue
+        items.extend(_http_ua_drift_items(f"edge:{eid}", live, expected))
+    try:
+        prod_inst = resolve_instance_id(PROD_TARGET["region"], PROD_TARGET["stack"])
+        prod_live = _read_http_ua_settings(PROD_TARGET["region"], prod_inst, "prod")
+        items.extend(_http_ua_drift_items("prod", prod_live, expected))
+    except SystemExit:
+        items.append({"node": "prod", "field": "*", "status": "error",
+                      "warning": "could not resolve / read settings for prod"})
+    return items
+
+
 def cmd_check(args: argparse.Namespace) -> int:
     snapshot = load_json_file(pathlib.Path(args.snapshot), "snapshot") if args.snapshot else None
     edge_ids = _edge_ids_for_check(snapshot, bool(args.allow_planned))
@@ -1208,8 +1337,22 @@ def cmd_check(args: argparse.Namespace) -> int:
         "error_count": sum(1 for x in tier_items if x.get("status") == "error"),
         "items": tier_items,
     }
+    # http_ua_drift: live settings UA + mimicry manifest vs baseline JSON.
+    # Always live (UA is updated out of band from snapshot; a stale snapshot is
+    # exactly how the blind spot hid).
+    http_ua_expected = _load_http_mimicry_baseline()
+    http_ua_items = _run_http_ua_checks_live(edge_ids, http_ua_expected)
+    http_ua_violation = any(x.get("status") in ("drift", "error") for x in http_ua_items)
+    report["http_ua_drift"] = {
+        "policy_source": HTTP_MIMICRY_BASELINES.name,
+        "expected_cc_version": str(http_ua_expected["cc_version"]).strip(),
+        "violation_count": sum(1 for x in http_ua_items if x.get("status") == "drift"),
+        "error_count": sum(1 for x in http_ua_items if x.get("status") == "error"),
+        "items": http_ua_items,
+    }
     report["any_violation"] = (
-        bool(report.get("any_violation")) or balance_violation or balance_error or tier_table_violation
+        bool(report.get("any_violation")) or balance_violation or balance_error
+        or tier_table_violation or http_ua_violation
     )
     if args.json:
         print(json.dumps(report, indent=2, ensure_ascii=False))
@@ -1217,7 +1360,8 @@ def cmd_check(args: argparse.Namespace) -> int:
         any_violation = report.get("any_violation")
         print(f"check: any_violation={any_violation} guards_run={len(report.get('guards', []))} "
               f"edges={edge_ids} balance_violations={report['operator_balance']['violation_count']} "
-              f"tier_table_drift={report['tier_table_drift']['violation_count']}")
+              f"tier_table_drift={report['tier_table_drift']['violation_count']} "
+              f"http_ua_drift={report['http_ua_drift']['violation_count']}")
         for sr in report.get("guards", []):
             ec = sr.get("exit_code")
             status = "OK" if ec == 0 else (sr.get("skipped_reason", "?") if ec is None else f"FAIL exit={ec}")
@@ -1231,6 +1375,8 @@ def cmd_check(args: argparse.Namespace) -> int:
                 print(f"  [BALANCE-ERR] edge={item['edge_id']}: {item.get('reason')}")
         for item in tier_items:
             print(f"  [TIER-{item.get('status', '?').upper()}] {item.get('warning')}")
+        for item in http_ua_items:
+            print(f"  [UA-{item.get('status', '?').upper()}] {item.get('warning')}")
     return 1 if report.get("any_violation") else 0
 
 
