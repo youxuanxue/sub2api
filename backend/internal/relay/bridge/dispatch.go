@@ -43,6 +43,10 @@ type DispatchOutcome struct {
 	Duration        time.Duration
 	AdaptorRelayFmt types.RelayFormat
 	AdaptorAPIType  int
+	// ImageCount is the number of images requested (image generations only, default 1).
+	// Propagated so the gateway bills per-image (output_cost_per_image) instead of by
+	// tokens; without it imagen via the bridge silently falls back to token billing.
+	ImageCount int
 }
 
 func installBodyStorage(c *gin.Context, body []byte) error {
@@ -244,6 +248,11 @@ func DispatchImageGenerations(_ context.Context, c *gin.Context, in ChannelConte
 		apiType = relayInfo.ApiType
 	}
 
+	imageCount := 1
+	if req.N != nil && *req.N > 0 {
+		imageCount = int(*req.N)
+	}
+
 	return &DispatchOutcome{
 		Usage:           usage,
 		Model:           req.Model,
@@ -252,6 +261,7 @@ func DispatchImageGenerations(_ context.Context, c *gin.Context, in ChannelConte
 		Duration:        dur,
 		AdaptorRelayFmt: types.RelayFormatOpenAIImage,
 		AdaptorAPIType:  apiType,
+		ImageCount:      imageCount,
 	}, nil
 }
 

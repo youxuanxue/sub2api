@@ -924,6 +924,33 @@ func (s *BillingService) getImageUnitPrice(model string, imageSize string, group
 	return s.getDefaultImagePrice(model, normalizedSize)
 }
 
+// CalculateVideoCost prices a video generation as duration(seconds) × per-second rate,
+// where the per-second rate comes from the LiteLLM table (e.g. veo `output_cost_per_second`,
+// resolved via the provider-prefix fallback in GetModelPricing). Callers pass the requested
+// duration (handlers default to a conservative 8s when the request omits it). When no
+// per-second price exists the cost is zero — an unpriced model must never block the request,
+// and the real spend ceiling is the upstream provider budget, not this internal estimate.
+func (s *BillingService) CalculateVideoCost(model string, seconds int64, rateMultiplier float64) *CostBreakdown {
+	if seconds <= 0 {
+		seconds = 1
+	}
+	perSecond := 0.0
+	if s.pricingService != nil {
+		if pricing := s.pricingService.GetModelPricing(model); pricing != nil {
+			perSecond = pricing.OutputCostPerSecond
+		}
+	}
+	totalCost := perSecond * float64(seconds)
+	if rateMultiplier < 0 {
+		rateMultiplier = 0
+	}
+	return &CostBreakdown{
+		TotalCost:   totalCost,
+		ActualCost:  totalCost * rateMultiplier,
+		BillingMode: "video",
+	}
+}
+
 // getDefaultImagePrice 获取 LiteLLM 默认图片价格
 func (s *BillingService) getDefaultImagePrice(model string, imageSize string) float64 {
 	basePrice := 0.0

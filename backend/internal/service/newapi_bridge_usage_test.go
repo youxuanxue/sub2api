@@ -96,3 +96,55 @@ func TestNewAPIBridgeChannelInput_OmitsEmptyForwardingCredentials(t *testing.T) 
 		t.Fatalf("StatusCodeMappingJSON should be empty when not configured, got %q", in.StatusCodeMappingJSON)
 	}
 }
+
+// TestNewAPIBridgeChannelInput_VertexServiceAccount pins #0: a channel_type 41
+// (VertexAI) account with a service-account JSON forwards the SA JSON as the channel
+// key, signals VertexKeyType=json, and carries the account's region — so new-api's
+// Vertex adaptor authenticates via JWT against Cloud Billing (the only way the GCP
+// trial credit is spendable; the Gemini Developer API ch24 prepay path does not accept it).
+func TestNewAPIBridgeChannelInput_VertexServiceAccount(t *testing.T) {
+	saJSON := `{"type":"service_account","project_id":"tk-proj","client_email":"x@tk-proj.iam.gserviceaccount.com","private_key":"-----BEGIN PRIVATE KEY-----\nAAA\n-----END PRIVATE KEY-----\n"}`
+	account := &Account{
+		ID:          9,
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeServiceAccount,
+		ChannelType: 41,
+		Credentials: map[string]any{
+			"base_url":             "https://us-central1-aiplatform.googleapis.com",
+			"service_account_json": saJSON,
+			"location":             "us-central1",
+		},
+	}
+	in := newAPIBridgeChannelInput(account, 1, "google")
+	if in.ChannelType != 41 {
+		t.Fatalf("ChannelType: want 41, got %d", in.ChannelType)
+	}
+	if in.VertexKeyType != "json" {
+		t.Fatalf("VertexKeyType: want json, got %q", in.VertexKeyType)
+	}
+	if in.VertexLocation != "us-central1" {
+		t.Fatalf("VertexLocation: want us-central1, got %q", in.VertexLocation)
+	}
+	if in.APIKey != saJSON {
+		t.Fatalf("APIKey must carry the service-account JSON, got %q", in.APIKey)
+	}
+}
+
+// TestNewAPIBridgeChannelInput_NonVertexUntouched ensures a non-vertex account (ch24,
+// plain api_key) gets no SA passthrough (VertexKeyType empty, api_key intact).
+func TestNewAPIBridgeChannelInput_NonVertexUntouched(t *testing.T) {
+	account := &Account{
+		ID:          10,
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: 24,
+		Credentials: map[string]any{"base_url": "https://generativelanguage.googleapis.com", "api_key": "sk-x"},
+	}
+	in := newAPIBridgeChannelInput(account, 1, "google")
+	if in.VertexKeyType != "" {
+		t.Fatalf("VertexKeyType must be empty for non-vertex, got %q", in.VertexKeyType)
+	}
+	if in.APIKey != "sk-x" {
+		t.Fatalf("APIKey: want sk-x, got %q", in.APIKey)
+	}
+}

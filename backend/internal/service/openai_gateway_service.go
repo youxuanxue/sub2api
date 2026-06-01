@@ -230,19 +230,22 @@ type OpenAIForwardResult struct {
 	ServiceTier *string
 	// ReasoningEffort is extracted from request body (reasoning.effort) or derived from model suffix.
 	// Stored for usage records display; nil means not provided / not applicable.
-	ReasoningEffort    *string
-	Stream             bool
-	OpenAIWSMode       bool
-	ResponseHeaders    http.Header
-	Duration           time.Duration
-	FirstTokenMs       *int
-	ImageCount         int
-	ImageSize          string
-	ImageInputSize     string
-	ImageOutputSize    string
-	ImageOutputSizes   []string
-	ImageSizeSource    string
-	ImageSizeBreakdown map[string]int
+	ReasoningEffort  *string
+	Stream           bool
+	OpenAIWSMode     bool
+	ResponseHeaders  http.Header
+	Duration         time.Duration
+	FirstTokenMs     *int
+	ImageCount       int
+	ImageSize        string
+	ImageInputSize   string
+	ImageOutputSize  string
+	ImageOutputSizes []string
+	ImageSizeSource  string
+	// VideoDurationSeconds, when set (>0), routes cost to per-second video billing
+	// (veo etc.). Handlers populate it from the submit request's duration (default 8s).
+	VideoDurationSeconds *int64
+	ImageSizeBreakdown   map[string]int
 	// StopReason is the Anthropic-shaped stop reason returned to the client
 	// ("end_turn" / "max_tokens" / "tool_use"). Recorded for the access log
 	// so we can verify that "incomplete" upstream responses surface as
@@ -6109,6 +6112,9 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	serviceTier string,
 ) (*CostBreakdown, error) {
 	billingModel := firstUsageBillingModel(billingModels)
+	if result != nil && result.VideoDurationSeconds != nil && *result.VideoDurationSeconds > 0 {
+		return s.calculateOpenAIVideoCost(billingModel, *result.VideoDurationSeconds, multiplier), nil
+	}
 	if result != nil && result.ImageCount > 0 {
 		return s.calculateOpenAIImageCost(ctx, billingModel, apiKey, result, imageMultiplier), nil
 	}
@@ -6166,6 +6172,18 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageTokenCost(
 		})
 	}
 	return s.billingService.CalculateCostWithServiceTier(billingModel, tokens, multiplier, serviceTier)
+}
+
+// calculateOpenAIVideoCost prices async video generation (veo) per second. Duration comes
+// from the submit request (default 8s); the per-second rate is resolved from the LiteLLM
+// table. Mirrors calculateOpenAIImageCost's zero-cost-on-missing-price posture so an
+// unpriced video model never blocks the request.
+func (s *OpenAIGatewayService) calculateOpenAIVideoCost(
+	billingModel string,
+	seconds int64,
+	multiplier float64,
+) *CostBreakdown {
+	return s.billingService.CalculateVideoCost(billingModel, seconds, multiplier)
 }
 
 func (s *OpenAIGatewayService) calculateOpenAIImageCost(

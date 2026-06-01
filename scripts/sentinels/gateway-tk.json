@@ -1505,6 +1505,14 @@
         "v24.3.0"
       ],
       "rationale": "defaultFingerprint fallback identity must match the canonical block (canonicalHTTPObservedStatic): UA suffix (external, sdk-cli) and node v24.3.0. Kept as an explicit literal (not a func derivation) so ops/anthropic/capture_cc_fingerprint.py can statically read it; consistency with canonical is locked by identity_canonical_consistency_test.go."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_tk_video.go",
+      "must_contain": [
+        "videoRequestedSeconds",
+        "VideoDurationSeconds"
+      ],
+      "rationale": "Per-second video (veo) billing: VideoSubmit records usage with the requested duration (default 8s via videoRequestedSeconds) so the cost path bills duration x per-second rate. Without this anchor veo silently bills $0 (no tokens, no per-second branch)."
     }
   ]
 }

@@ -6,6 +6,7 @@ import (
 
 	newapicommon "github.com/QuantumNous/new-api/common"
 	newapiconstant "github.com/QuantumNous/new-api/constant"
+	newapidto "github.com/QuantumNous/new-api/dto"
 	"github.com/gin-gonic/gin"
 )
 
@@ -32,6 +33,13 @@ type ChannelContextInput struct {
 	// UserGroup / UsingGroup optional, for affinity/logging alignment.
 	UserGroup  string
 	UsingGroup string
+	// VertexKeyType selects how new-api's VertexAI adaptor (channel_type 41) authenticates:
+	// "json" = service-account JSON (APIKey carries the SA JSON), "api_key" = plain key.
+	// Empty leaves new-api's default; only set for channel_type 41 service-account accounts.
+	VertexKeyType string
+	// VertexLocation is the Vertex region (e.g. "us-central1") read by new-api as ApiVersion
+	// for channel_type 41 (see InitChannelMeta: ApiVersion = c.GetString("region")).
+	VertexLocation string
 }
 
 // PopulateContextKeys sets New API constant context keys on the Gin context so GenRelayInfo / InitChannelMeta work.
@@ -62,6 +70,20 @@ func PopulateContextKeys(c *gin.Context, in ChannelContextInput) {
 	}
 	if in.StatusCodeMappingJSON != "" && in.StatusCodeMappingJSON != "{}" {
 		c.Set("status_code_mapping", in.StatusCodeMappingJSON)
+	}
+
+	// VertexAI (channel_type 41) service-account passthrough: new-api's InitChannelMeta
+	// reads VertexKeyType from ContextKeyChannelOtherSetting and the region from the
+	// "region" gin key. The SA JSON itself rides on ContextKeyChannelKey (in.APIKey).
+	if in.VertexKeyType != "" {
+		keyType := newapidto.VertexKeyTypeAPIKey
+		if in.VertexKeyType == string(newapidto.VertexKeyTypeJSON) {
+			keyType = newapidto.VertexKeyTypeJSON
+		}
+		newapicommon.SetContextKey(c, newapiconstant.ContextKeyChannelOtherSetting, newapidto.ChannelOtherSettings{VertexKeyType: keyType})
+	}
+	if in.VertexLocation != "" {
+		c.Set("region", in.VertexLocation)
 	}
 }
 

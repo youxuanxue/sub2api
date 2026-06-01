@@ -260,6 +260,37 @@
         "account.IsOpenAI() && !account.SupportsOpenAIEndpointCapability"
       ],
       "rationale": "TK reconciliation of upstream endpoint-capability gating onto the fifth-platform scheduler. accountSupportsOpenAICapabilities applies the OpenAI endpoint-capability filter to native `openai` accounts ONLY (`account.IsOpenAI() && !...`), so `newapi` accounts (platform != openai, !IsOpenAI) are never fail-closed out of chat/embeddings scheduling. If a future merge drops the IsOpenAI() guard and applies SupportsOpenAIEndpointCapability unconditionally, every newapi account would be filtered out of the compat pool — a total fifth-platform outage. Must survive future upstream merges."
+    },
+    {
+      "path": "backend/internal/relay/bridge/context_input.go",
+      "must_contain": [
+        "VertexKeyType",
+        "ContextKeyChannelOtherSetting"
+      ],
+      "rationale": "VertexAI (channel_type 41) service-account passthrough: the newapi bridge sets new-api's ChannelOtherSettings.VertexKeyType (via ContextKeyChannelOtherSetting) and the region gin key so the Vertex adaptor authenticates via JWT. Without it ch41 reverts to api_key mode and fails; this is also the only path by which the GCP trial credit is spendable (Gemini Developer API ch24 prepay does not accept Cloud Billing credits)."
+    },
+    {
+      "path": "backend/internal/service/newapi_bridge_usage.go",
+      "must_contain": [
+        "ChannelTypeVertexAi",
+        "IsVertexServiceAccount",
+        "VertexServiceAccountJSON"
+      ],
+      "rationale": "newAPIBridgeChannelInput forwards the service-account JSON as the channel key and signals VertexKeyType=json + region for channel_type 41. Removing this silently reverts Vertex accounts to broken api_key auth."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch.go",
+      "must_contain": [
+        "ImageCount: out.ImageCount"
+      ],
+      "rationale": "Per-image billing for imagen via the newapi bridge: ForwardAsImageGenerationsDispatched must propagate bridge.DispatchOutcome.ImageCount onto OpenAIForwardResult, otherwise the gateway's `result.ImageCount > 0` branch never fires and imagen bills by tokens instead of output_cost_per_image (silent under-charge). Pairs with the TK media pricing overlay (without a resolvable per-image price the count is moot; without the count the resolved price never applies). An upstream merge restructuring the bridge image dispatch could drop this one line."
+    },
+    {
+      "path": "backend/internal/service/pricing_service.go",
+      "must_contain": [
+        "applyTKMediaPricingOverlay(result)"
+      ],
+      "rationale": "TK media (image/video) pricing overlay injection point inside parsePricingData — the single choke-point both the remote (Wei-Shaw) and disk-fallback load paths funnel through. The production price source is a TRIMMED litellm mirror that drops provider-prefixed keys and token-less media entries, so imagen-*/veo-* resolve to nothing there; this fill-only overlay (companion pricing_service_tk_media_overlay.go, embedded tk_media_pricing_overlay.json) supplies the bare-name entries so per-image / per-second billing applies. If an upstream merge restructures parsePricingData and drops this one-line call, imagen silently reverts to the $0.134 default and veo to $0. The companion file's go:embed also makes the overlay JSON's presence build-enforced."
     }
   ]
 }

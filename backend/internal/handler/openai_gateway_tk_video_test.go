@@ -109,3 +109,24 @@ func TestVideoFetch_MissingTaskID_Returns400(t *testing.T) {
 		t.Fatalf("expected 400, got %d", w.Code)
 	}
 }
+
+func TestVideoRequestedSeconds(t *testing.T) {
+	cases := []struct {
+		body string
+		want int64
+	}{
+		{`{"model":"veo-3.1-generate-preview","prompt":"x"}`, 8}, // default
+		{`{"seconds":4}`, 4},          // numeric
+		{`{"seconds":"6"}`, 6},        // string numeric
+		{`{"duration_seconds":5}`, 5}, // alt key
+		{`{"duration":3}`, 3},         // alt key
+		{`{"seconds":120}`, 60},       // clamp upper
+		{`{"seconds":0}`, 8},          // non-positive → default
+		{`{"seconds":4.6}`, 5},        // float rounds
+	}
+	for _, c := range cases {
+		if got := videoRequestedSeconds([]byte(c.body)); got != c.want {
+			t.Errorf("videoRequestedSeconds(%s)=%d want %d", c.body, got, c.want)
+		}
+	}
+}
