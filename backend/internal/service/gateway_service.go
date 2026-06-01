@@ -4872,6 +4872,63 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 					resp.Body = io.NopCloser(bytes.NewReader(respBody))
 					break
 				}
+
+				// anthropic-beta self-heal: upstream retired/renamed a beta token
+				// we pin for Claude Code mimicry → hard 400 on every request to
+				// this account. Drop the named token(s) and retry once so a beta
+				// retirement degrades gracefully instead of blacking out the
+				// account until the manifest is reshipped. See
+				// gateway_service_tk_beta_selfheal.go and claude-code#53855.
+				if rejected := parseRejectedAnthropicBetas(respBody); len(rejected) > 0 {
+					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+						Platform:           account.Platform,
+						AccountID:          account.ID,
+						AccountName:        account.Name,
+						UpstreamStatusCode: resp.StatusCode,
+						UpstreamRequestID:  resp.Header.Get("x-request-id"),
+						UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
+						Kind:               "anthropic_beta_rejected",
+						Message:            extractUpstreamErrorMessage(respBody),
+						Detail: func() string {
+							if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+								return truncateString(string(respBody), s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes)
+							}
+							return ""
+						}(),
+					})
+					if time.Since(retryStart) < maxRetryElapsed {
+						logger.LegacyPrintf("service.gateway", "[warn] Account %d: upstream rejected anthropic-beta token(s) %v; retrying once with them dropped (manifest needs update)", account.ID, rejected)
+						betaRetryCtx, releaseBetaRetryCtx := detachStreamUpstreamContext(ctx, reqStream)
+						betaRetryCtx = withBetaSelfHealDrop(betaRetryCtx, rejected)
+						betaRetryReq, buildErr := s.buildUpstreamRequest(betaRetryCtx, c, account, body, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
+						releaseBetaRetryCtx()
+						if buildErr == nil {
+							betaRetryResp, retryErr := s.httpUpstream.DoWithTLS(betaRetryReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
+							if retryErr == nil {
+								if betaRetryResp.StatusCode < 400 {
+									logger.LegacyPrintf("service.gateway", "Account %d: anthropic-beta self-heal succeeded after dropping %v", account.ID, rejected)
+									resp = betaRetryResp
+									break
+								}
+								if betaRetryResp.Body != nil {
+									_ = betaRetryResp.Body.Close()
+								}
+								logger.LegacyPrintf("service.gateway", "Account %d: anthropic-beta self-heal retry still failed (status=%d)", account.ID, betaRetryResp.StatusCode)
+							} else {
+								if betaRetryResp != nil && betaRetryResp.Body != nil {
+									_ = betaRetryResp.Body.Close()
+								}
+								logger.LegacyPrintf("service.gateway", "Account %d: anthropic-beta self-heal retry request failed: %v", account.ID, retryErr)
+							}
+						} else {
+							logger.LegacyPrintf("service.gateway", "Account %d: anthropic-beta self-heal build request failed: %v", account.ID, buildErr)
+						}
+					}
+					// Self-heal did not produce a success: restore the original
+					// 400 body and fall through to standard error handling.
+					resp.Body = io.NopCloser(bytes.NewReader(respBody))
+				}
+
 				// 不是签名错误（或整流器已关闭），继续检查 budget 约束
 				errMsg := extractUpstreamErrorMessage(respBody)
 				if isThinkingBudgetConstraintError(errMsg) && s.settingService.IsBudgetRectifierEnabled(ctx) {
@@ -6353,7 +6410,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	// body.context_management 返回 400），而下方 inline 块仍按 mimicry 给 header
 	// 带上 haiku 的 context-management beta（指纹对齐）。
 	{
-		ctxMgmtDropSet := mergeDropSets(s.getBetaPolicyFilterSet(ctx, c, account, modelID))
+		ctxMgmtDropSet := mergeDropSets(s.getBetaPolicyFilterSet(ctx, c, account, modelID), betaSelfHealDropTokens(ctx)...)
 		finalBetaForBody, _ := s.computeFinalAnthropicBeta(tokenType, mimicClaudeCode, modelID, clientHeaders, body, ctxMgmtDropSet)
 		if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, finalBetaForBody); changed {
 			body = sanitized
@@ -6409,9 +6466,11 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 		applyClaudeOAuthHeaderDefaults(req)
 	}
 
-	// Build effective drop set: merge static defaults with dynamic beta policy filter rules
+	// Build effective drop set: merge static defaults with dynamic beta policy filter rules,
+	// plus any anthropic-beta self-heal drops injected by a beta-rejection retry (see
+	// gateway_service_tk_beta_selfheal.go).
 	policyFilterSet := s.getBetaPolicyFilterSet(ctx, c, account, modelID)
-	effectiveDropSet := mergeDropSets(policyFilterSet)
+	effectiveDropSet := mergeDropSets(policyFilterSet, betaSelfHealDropTokens(ctx)...)
 
 	// 处理 anthropic-beta header（OAuth 账号需要包含 oauth beta）
 	if tokenType == "oauth" {
