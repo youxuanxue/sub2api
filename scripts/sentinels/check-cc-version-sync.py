@@ -20,9 +20,9 @@ Two classes of derived copy:
    on a cc bump; this guard just refuses to let them drift):
      - backend/internal/pkg/claude/constants.go
          CLICurrentVersion             = "X.Y.Z"
-         DefaultHeaders["User-Agent"]  = "claude-cli/X.Y.Z (external, cli)"
+         DefaultHeaders["User-Agent"]  = "claude-cli/X.Y.Z (external, sdk-cli)"
      - backend/internal/service/identity_service.go
-         defaultFingerprint.UserAgent  = "claude-cli/X.Y.Z (external, cli)"
+         defaultFingerprint.UserAgent  = "claude-cli/X.Y.Z (external, sdk-cli)"
      - backend/internal/service/identity_service_tk_canonical_http.go
          DefaultClaudeCodeUserAgentVersion = "X.Y.Z"
 
@@ -81,11 +81,11 @@ _PARSE_TARGETS = {
     ),
     'constants.go DefaultHeaders["User-Agent"]': (
         CONSTANTS_GO,
-        re.compile(r'"User-Agent":\s*"claude-cli/(\d+\.\d+\.\d+) \(external, cli\)"'),
+        re.compile(r'"User-Agent":\s*"claude-cli/(\d+\.\d+\.\d+) \(external, sdk-cli\)"'),
     ),
     "identity_service.go defaultFingerprint.UserAgent": (
         IDENTITY_GO,
-        re.compile(r'UserAgent:\s*"claude-cli/(\d+\.\d+\.\d+) \(external, cli\)"'),
+        re.compile(r'UserAgent:\s*"claude-cli/(\d+\.\d+\.\d+) \(external, sdk-cli\)"'),
     ),
     "identity_service_tk_canonical_http.go DefaultClaudeCodeUserAgentVersion": (
         CANONICAL_HTTP_GO,

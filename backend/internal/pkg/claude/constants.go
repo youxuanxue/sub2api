@@ -123,17 +123,24 @@ func FullClaudeCodeHaikuMimicryBetas() []string {
 	}
 }
 
-// DefaultHeaders 是 Claude Code 客户端默认请求头。
+// DefaultHeaders 是 Claude Code 客户端默认请求头（fingerprint 缺失时的兜底）。
+//
+// 单一真值来源纪律：OS / arch / runtime / runtime-version / UA 后缀 等"身份"字段
+// 必须与 service 包的 canonical 抓包（canonicalHTTPObservedStatic +
+// canonicalUASuffix，与唯一的 TLS ClientHello 同批抓取）逐字节一致。否则当
+// fingerprint=nil 走兜底路径时，会发出 canonical TLS（Node24/MacOS 形态）+ Linux
+// 头的自相矛盾指纹——比完全不伪装更容易被 Anthropic 判 third-party。
+// 这一致性由 identity_canonical_consistency_test.go 机械锁死：任何一处漂移即测试失败。
+// 包依赖方向为 service → claude，claude 无法反向 import service，故这里以同步字面量
+// 承载，由守卫测试强制对齐。
 var DefaultHeaders = map[string]string{
-	// Keep these in sync with recent Claude CLI traffic to reduce the chance
-	// that Claude Code-scoped OAuth credentials are rejected as "non-CLI" usage.
-	"User-Agent":                                "claude-cli/2.1.159 (external, cli)",
+	"User-Agent":                                "claude-cli/2.1.159 (external, sdk-cli)",
 	"X-Stainless-Lang":                          "js",
 	"X-Stainless-Package-Version":               "0.94.0",
-	"X-Stainless-OS":                            "Linux",
+	"X-Stainless-OS":                            "MacOS",
 	"X-Stainless-Arch":                          "arm64",
 	"X-Stainless-Runtime":                       "node",
-	"X-Stainless-Runtime-Version":               "v24.13.0",
+	"X-Stainless-Runtime-Version":               "v24.3.0",
 	"X-Stainless-Retry-Count":                   "0",
 	"X-Stainless-Timeout":                       "600",
 	"X-App":                                     "cli",

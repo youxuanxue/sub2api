@@ -25,14 +25,26 @@ var (
 )
 
 // 默认指纹值（当客户端未提供时使用）
+// defaultFingerprint 是 createFingerprintFromHeaders 在客户端头缺失时的兜底身份。
+//
+// 单一真值来源纪律：身份字段（OS/arch/runtime/lang/pkg/UA 后缀）必须与权威的
+// canonicalHTTPObservedStatic（与唯一 TLS ClientHello 同批抓包）逐字节一致。
+// 历史上这里曾是 Linux/v24.13.0/(external, cli) 的第二套真值，与 canonical 的
+// MacOS/v24.3.0/(external, sdk-cli) 冲突——当 fingerprint 走兜底时会发出 TLS 与
+// HTTP 头自相矛盾的指纹（Mac 级 TLS + Linux 头）。现收敛到 canonical 取值。
+//
+// 这里刻意保留显式 struct 字面量（而非 func 派生 canonical）：
+// ops/anthropic/capture_cc_fingerprint.py 通过静态文本抓取本变量的 `UserAgent:`
+// / `StainlessPackageVersion:` 字面量做指纹基线巡检，computed 值会让它失明。
+// 字面量与 canonical 的一致性改由 identity_canonical_consistency_test.go 机械锁死。
 var defaultFingerprint = Fingerprint{
-	UserAgent:               "claude-cli/2.1.159 (external, cli)",
+	UserAgent:               "claude-cli/2.1.159 (external, sdk-cli)",
 	StainlessLang:           "js",
 	StainlessPackageVersion: "0.94.0",
-	StainlessOS:             "Linux",
+	StainlessOS:             "MacOS",
 	StainlessArch:           "arm64",
 	StainlessRuntime:        "node",
-	StainlessRuntimeVersion: "v24.13.0",
+	StainlessRuntimeVersion: "v24.3.0",
 }
 
 // Fingerprint represents account fingerprint data

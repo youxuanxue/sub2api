@@ -1166,8 +1166,8 @@
         "openAIQuotaWindowReset"
       ],
       "rationale": "TK reconciliation of upstream 5h/7d quota auto-pause (commit ead471d64) onto the fifth-platform scheduler. shouldAutoPauseOpenAIAccountByQuota keys off codex usage windows and is scoped to native openai accounts (the `compat-pool-exempt` line guards the scripts/preflight.sh compat-pool drift check from flagging the legitimate !account.IsOpenAI() usage-window predicate); a future merge that broadens it to the compat pool would wrongly auto-pause newapi accounts. openAIQuotaWindowReset is the stale-window guard that prevents a paused account from staying paused forever after its window resets (paused accounts stop receiving requests, so their snapshot never refreshes). These must survive future upstream merges."
-      },
-      {
+    },
+    {
       "path": "backend/internal/service/openai_gateway_service_tk_sticky_group.go",
       "must_contain": [
         "func openaiStickyAccountStillInGroup",
@@ -1401,6 +1401,55 @@
         "topLevelThinkingExists"
       ],
       "rationale": "Anthropic tool-use contract guard in FilterThinkingBlocksForRetry: during a tool-use loop the thinking/redacted_thinking blocks of an assistant message that ALSO contains tool_use must be passed back unchanged (signature included). msgHasToolUse gates per-message preservation; deleteTopLevelThinking is computed as topLevelThinkingExists && !anyThinkingPreserved so top-level thinking stays enabled whenever a tool-coupled block survives (deleting it then would be a mid-turn thinking-toggle the API rejects). Only pure-reasoning turns (no tool_use, which the API permits omitting) are downgraded to text. Captured live on edge-us1: 139 signed thinking + 216 tool_use forwarded as 0 thinking via the SigPreempt blanket strip, orphaning the tool_use and making Claude Code report malformed tool calls. A silent upstream-merge that reverts this to an unconditional strip reinstates that regression; the unrecoverable case (bad signature on a tool-coupled block) is handled by FilterSignatureSensitiveBlocksForRetry, which downgrades thinking AND its dependent tool blocks together."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_beta_selfheal.go",
+      "must_contain": [
+        "parseRejectedAnthropicBetas",
+        "withBetaSelfHealDrop",
+        "betaSelfHealDropTokens"
+      ],
+      "rationale": "anthropic-beta self-heal: when upstream retires/renames a pinned beta token, the mimicry request hard-400s on every call to the account (claude-code#53855). This file parses the rejected token(s) and threads a per-retry drop set through the request context. Losing it to an upstream merge silently reverts a beta retirement back into a full-account outage."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "parseRejectedAnthropicBetas(respBody)",
+        "betaSelfHealDropTokens(ctx)"
+      ],
+      "rationale": "Injection points for the anthropic-beta self-heal: the 400-block retry branch (parseRejectedAnthropicBetas) and the two mergeDropSets calls that honor the context-injected drop set (betaSelfHealDropTokens). An upstream merge dropping these hooks disables the self-heal even if the companion file survives."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_usage_policy.go",
+      "must_contain": [
+        "tkIsAnthropicUsagePolicyBlock",
+        "handleAnthropicUsagePolicyBlock",
+        "anthropic_usage_policy_block"
+      ],
+      "rationale": "Anthropic usage-policy / cyber-safeguard classifier blocks are a distinct risk signal but frequently false positives (claude-code#60366). This classifies them by body, emits a dedicated ops signal, and applies only a short de-prioritization instead of the harsh 3/3 ladder or a permanent disable. Losing it regresses a benign block back into a 10-min account cooldown."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "tkIsAnthropicUsagePolicyBlock(upstreamMsg, responseBody)"
+      ],
+      "rationale": "Injection point in HandleUpstreamError: the usage-policy classifier must run before the generic status switch so a policy block never advances the anthropic 3/3 error ladder. An upstream merge dropping this call routes policy blocks back through the harsh ladder."
+    },
+    {
+      "path": "backend/internal/pkg/claude/constants.go",
+      "must_contain": [
+        "(external, sdk-cli)",
+        "v24.3.0"
+      ],
+      "rationale": "Single-source-of-truth for the Claude Code mimicry identity: DefaultHeaders must carry the canonical UA suffix (external, sdk-cli) and node v24.3.0 so a fingerprint-fallback request stays consistent with the single canonical TLS ClientHello. An upstream merge reverting these to the old Linux/(external, cli)/v24.13.0 values reintroduces a self-contradicting TLS-vs-HTTP fingerprint. Also locked by identity_canonical_consistency_test.go."
+    },
+    {
+      "path": "backend/internal/service/identity_service.go",
+      "must_contain": [
+        "(external, sdk-cli)",
+        "v24.3.0"
+      ],
+      "rationale": "defaultFingerprint fallback identity must match the canonical block (canonicalHTTPObservedStatic): UA suffix (external, sdk-cli) and node v24.3.0. Kept as an explicit literal (not a func derivation) so ops/anthropic/capture_cc_fingerprint.py can statically read it; consistency with canonical is locked by identity_canonical_consistency_test.go."
     }
   ]
 }

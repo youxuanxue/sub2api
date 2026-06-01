@@ -294,6 +294,17 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		upstreamMsg = truncateForLog([]byte(upstreamMsg), 512)
 	}
 
+	// TK: Anthropic usage-policy / cyber-safeguard classifier blocks are a
+	// distinct RISK SIGNAL, not generic jitter — but also frequently false
+	// positives (#60366: even "hi" trips it). Classify by body before the
+	// generic status switch so they emit a dedicated ops signal and a SHORT
+	// de-prioritization, instead of advancing the harsh anthropic 3/3 ladder
+	// (which would cool a healthy account for up to 10 min) or permanently
+	// disabling it. See ratelimit_service_tk_usage_policy.go.
+	if account.Platform == PlatformAnthropic && tkIsAnthropicUsagePolicyBlock(upstreamMsg, responseBody) {
+		return s.handleAnthropicUsagePolicyBlock(ctx, account, statusCode, upstreamMsg, responseBody)
+	}
+
 	switch statusCode {
 	case 400:
 		// "organization has been disabled" → 永久禁用
