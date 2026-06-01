@@ -178,7 +178,10 @@
         "if !account.ShouldHandleErrorCode(statusCode) && account.Platform != PlatformAnthropic {",
         "s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)",
         "IsClaudeAPIIncident()",
-        "anthropic_upstream_error_incident_skip_cooldown"
+        "anthropic_upstream_error_incident_skip_cooldown",
+        "s.tkTryEscalateRevokedOAuth401(ctx, account, upstreamMsg)",
+        "s.ResetOAuth401AfterRefreshCounter(ctx, account.ID)",
+        "s.ResetOAuth401AfterRefreshCounter(ctx, accountID)"
       ],
       "rationale": "Anthropic model-not-found 404s must stay model-scoped instead of falling through as an unprotected upstream error or disabling the whole OAuth account. Anthropic 429s without reset metadata must use the configurable short cooldown unless the body is the known third-party/extra-usage rejection, otherwise production can repeatedly hit the same account with no local backoff. Anthropic upstream errors must feed the TK short-window counter (anchored by `anthropicUpstreamErrorWindowMinutes` — intentionally short at 1 minute so transient bursts clear quickly) and mark the account temporarily unschedulable after three hits so a single bad Edge/OAuth account cannot produce repeated upstream 400/403/5xx responses before the scheduler removes it. **Pool-mode policy (2026-05-21 revision of PR #333, anchored by `anthropicCooldownTierLadder`)**: the prior PR #333 carve-out (which let pool_mode accounts early-return before the counter via `anthropic_upstream_error_pool_mode_skipped`) is removed. PR #333's blanket immunity left ops with no mechanical signal that a stub was failing, leaving cc-edges (single-member exclusive group) vulnerable to silently routing all traffic to a dead upstream pool. The replacement is **tiered exponential cooldown**: first cooldown in a 30-min window is 30s (transient jitter shrugged off without the 10-min outage that motivated PR #248's reversal), second is 2 min, third+ is 10 min. The two carve-outs on `HandleUpstreamError` entry (`account.Platform != PlatformAnthropic` on both the pool-mode early-return AND the custom-error-codes allowlist guard) MUST stay so Anthropic 4xx/5xx still enter the dispatch — without them an upstream merge that 'simplifies' the early-returns would silently restore PR #333's broken immunity. `IncrementAnthropicCooldownTier` and `ResetAnthropicCooldownTier` are anchored separately because they are the load-bearing seams for tier escalation; a Redis client refactor that drops them would silently collapse the ladder back to a fixed 30s cooldown. The `ResetAnthropicUpstreamErrorCounter` call MUST be invoked from recovery hotpaths (ClearRateLimit, RecoverAccountState, ClearTempUnschedulable, UpdateSessionWindow allowed status) so a healed account does not carry stale strikes OR stale tier escalation. OpenAI burst 429s (Codex headers present but neither 5h nor 7d window at 100% used+with-reset) must call the TK companion TkRecordOpenAI429BurstFallthrough and return nil so handle429 falls back to the short cooldown, otherwise transient throttle surges turn into multi-day 503 windows (upstream #2258). Upstream merges in this large service file can compile cleanly while dropping any of these protections, so the sentinel anchors all policies in the hotspot file. Upstream-incident guard: when status.claude.com reports Claude API non-operational, `handleAnthropicUpstreamError` calls `IsClaudeAPIIncident()` and delegates to the existing `skipCooldownWrite=true` seam — account health scores are not penalised during Anthropic-caused incidents. The slog key `anthropic_upstream_error_incident_skip_cooldown` is the observability anchor."
     },
@@ -216,16 +219,19 @@
       "path": "backend/internal/service/wire.go",
       "must_contain": [
         "anthropicUpstreamErrorCounterCache AnthropicUpstreamErrorCounterCache,",
-        "svc.SetAnthropicUpstreamErrorCounterCache(anthropicUpstreamErrorCounterCache)"
+        "svc.SetAnthropicUpstreamErrorCounterCache(anthropicUpstreamErrorCounterCache)",
+        "oauth401AfterRefreshCounterCache OAuth401AfterRefreshCounterCache,",
+        "svc.SetOAuth401AfterRefreshCounter(oauth401AfterRefreshCounterCache)"
       ],
-      "rationale": "ProvideRateLimitService MUST keep the Anthropic upstream-error counter parameter and the SetAnthropicUpstreamErrorCounterCache wire call. If an upstream merge drops either line, handleAnthropicUpstreamError silently falls through (nil counter → returns false → no temp_unschedulable) and the burst protection becomes a NOOP that compiles cleanly and passes all current unit tests. The literal parameter declaration is what wire.go regen sees; the Set call is what hands the dependency to the runtime service."
+      "rationale": "ProvideRateLimitService MUST keep the Anthropic upstream-error counter parameter and the SetAnthropicUpstreamErrorCounterCache wire call. It MUST likewise keep the OAuth401AfterRefreshCounterCache parameter + SetOAuth401AfterRefreshCounter call; if an upstream merge drops either, the revoked-OAuth-401 escalation fails open (nil counter → tkTryEscalateRevokedOAuth401 returns false → infinite flap) while compiling clean and passing current tests. If an upstream merge drops either line, handleAnthropicUpstreamError silently falls through (nil counter → returns false → no temp_unschedulable) and the burst protection becomes a NOOP that compiles cleanly and passes all current unit tests. The literal parameter declaration is what wire.go regen sees; the Set call is what hands the dependency to the runtime service."
     },
     {
       "path": "backend/internal/repository/wire.go",
       "must_contain": [
-        "NewAnthropicUpstreamErrorCounterCache"
+        "NewAnthropicUpstreamErrorCounterCache",
+        "NewOAuth401AfterRefreshCounterCache"
       ],
-      "rationale": "ProviderSet MUST register the Anthropic upstream-error counter constructor; without it `wire` regen fails to satisfy the service.AnthropicUpstreamErrorCounterCache dependency added in service/wire.go and falls back to the stale wire_gen.go until someone forces a regen. Anchoring the literal here makes the missing provider obvious on first sentinel run instead of waiting for a wire regen drift."
+      "rationale": "ProviderSet MUST register the Anthropic upstream-error counter constructor AND NewOAuth401AfterRefreshCounterCache; without it `wire` regen fails to satisfy the service.AnthropicUpstreamErrorCounterCache dependency added in service/wire.go and falls back to the stale wire_gen.go until someone forces a regen. Anchoring the literal here makes the missing provider obvious on first sentinel run instead of waiting for a wire regen drift."
     },
     {
       "path": "backend/internal/service/ratelimit_service_403_test.go",
@@ -271,6 +277,54 @@
         "ResetAnthropicCooldownTier"
       ],
       "rationale": "Shared test stub for the Anthropic upstream-error counter interface lives next to the OpenAI 403 counter stub. The stub must satisfy BOTH the error-count methods AND the cooldown-tier methods; an upstream merge that mass-rewrites this test file could drop either pair and silently break the entire 403 test bundle with a compile error masked by build tag (the //go:build unit gate hides the failure from non-unit jobs)."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_oauth401.go",
+      "must_contain": [
+        "func (s *RateLimitService) tkTryEscalateRevokedOAuth401(",
+        "account.GetCredentialAsInt64(\"_token_version\")",
+        "s.oauth401AfterRefreshCounter.RecordOAuth401AfterRefresh(",
+        "oauth_401_after_refresh_revoked",
+        "manual re-authorization required",
+        "s.handleAuthError(ctx, account, msg)",
+        "oauth401AfterRefreshDisableThresholdDefault",
+        "oauth401AfterRefreshWindowMinutesDefault",
+        "func (s *RateLimitService) SetOAuth401AfterRefreshCounter(",
+        "func (s *RateLimitService) ResetOAuth401AfterRefreshCounter("
+      ],
+      "rationale": "TK companion holding the OAuth 'refresh endpoint succeeds but the freshly minted token still 401s' escalation (effective grant revocation). The flap it fixes is silent: the gateway 401 handler only writes temp_unschedulable while the background refresh treats a successful refresh as healthy (only invalid_grant hits SetError), so a revoked grant whose refresh still 200s bounces active<->temp_unschedulable forever with status=active, no error and no alert (observed draining single-account edge-uk1 into intermittent 503). The escalation is load-bearing and MUST survive upstream merges: (1) the _token_version gate (GetCredentialAsInt64) distinguishes 'a NEW token still 401s' from benign expiry/concurrent bursts — without it the counter would permanently disable accounts on ordinary transient 401s; (2) RecordOAuth401AfterRefresh feeds the windowed version-gated counter; (3) at threshold it calls handleAuthError (SetError + scheduling-blocked alert) with a message prompting manual re-authorization; (4) the oauth_401_after_refresh_revoked slog marker is the ops observability anchor. Dropping any anchor silently restores the infinite-flap blind spot, which compiles clean and passes the pre-existing 401 cooldown tests."
+    },
+    {
+      "path": "backend/internal/service/oauth_401_after_refresh_counter.go",
+      "must_contain": [
+        "type OAuth401AfterRefreshCounterCache interface",
+        "RecordOAuth401AfterRefresh",
+        "ResetOAuth401AfterRefresh"
+      ],
+      "rationale": "Interface seam for the version-gated 'refresh-success-but-still-401' counter. RecordOAuth401AfterRefresh carries the token version so the Redis layer can gate counting on version advancement; ResetOAuth401AfterRefresh clears the baseline on success/recovery. If an upstream merge drops this seam, ProvideRateLimitService can no longer inject the counter and tkTryEscalateRevokedOAuth401 fails open (nil counter → no escalation), silently restoring the flap."
+    },
+    {
+      "path": "backend/internal/repository/oauth_401_after_refresh_counter_cache.go",
+      "must_contain": [
+        "oauth_401_after_refresh:account:",
+        "NewOAuth401AfterRefreshCounterCache",
+        "if ver > stored then",
+        "RecordOAuth401AfterRefresh",
+        "ResetOAuth401AfterRefresh"
+      ],
+      "rationale": "Redis-backed atomic counter using a Hash {ver,count} + Lua script. The `if ver > stored then` branch is the load-bearing version gate: it only increments when the token used by this 401 is newer than the one recorded at the previous 401 (a successful refresh happened in between yet it still 401'd). The oauth_401_after_refresh:account: key prefix must stay stable so all app replicas share the same baseline/count. A refactor that drops the version comparison would turn the counter into a naive 401 counter and start permanently disabling accounts on ordinary transient/expiry 401s."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_oauth401_test.go",
+      "must_contain": [
+        "TestRateLimitService_OAuth401AfterRefresh_EscalatesAtThreshold",
+        "TestRateLimitService_OAuth401AfterRefresh_SeedFallsThroughToCooldown",
+        "TestRateLimitService_OAuth401AfterRefresh_MissingTokenVersionFallsThrough",
+        "TestRateLimitService_OAuth401AfterRefresh_CounterErrorFailsOpen",
+        "TestRateLimitService_OAuth401AfterRefresh_ThresholdAndWindowConfigurable",
+        "TestRateLimitService_OAuth401AfterRefresh_ClearRateLimitResets"
+      ],
+      "rationale": "Focused regressions proving the version-gated escalation: a version-bumped 401 at threshold escalates to SetError with a manual-re-authorization message; a seed/first 401 and a missing _token_version both fall through to the existing temp_unschedulable cooldown (no false permanent disable); a counter error fails open to cooldown; the threshold/window are configurable; and ClearRateLimit resets the baseline. Dropping these lets an upstream merge silently revert the escalation back to infinite flap, or — worse — let the version gate regress into permanently disabling healthy accounts on transient 401s, without any unit signal."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_openai_burst.go",
@@ -375,7 +429,7 @@
       "must_not_contain": [
         "x-stainless-helper-method"
       ],
-      "rationale": "Main gateway upstream builders must invoke unified TK Claude session-header sync after API-key passthrough, OAuth forward, count_tokens forward, and Vertex Anthropic forward paths diverge upstream merge conflicts. Sticky-source sink event emission is also load-bearing for prod request_id/client_request_id evidence correlation. TLS fingerprint profile resolution must pass through the ops helper so upstream_errors JSON records the profile id/name used by failed Anthropic OAuth attempts; otherwise Node24/Node25 candidate canaries cannot be attributed after a profile switch. Claude Code OAuth mimicry must preserve captured real CLI User-Agent/X-Stainless fingerprint values and only fill missing defaults; reverting to unconditional defaults reintroduces version downgrade/header fingerprint drift. API Key passthrough must keep a single guarded thinking-signature 400 retry that records passthrough ops evidence and downgrades stale cross-upstream thinking blocks before surfacing the error; dropping this makes GPT专线 → cc-edges group switches expose invalid thinking signatures to clients. The obsolete x-stainless-helper-method header must stay absent because current real Claude Code traffic does not emit it and reintroducing it increases OAuth fingerprint risk. Haiku 4.5 context_management auto-injection must stay exempt (upstream #2506): Anthropic rejects context_management for claude-haiku-4-5-* with HTTP 400 even when thinking.type is enabled, and the body rewrite must mirror the existing Haiku exemption in the anthropic-beta header path. count_tokens forwarding must pre-strip Anthropic-unsupported top-level fields (temperature/top_p/top_k/stop_sequences/max_tokens/stream/metadata/service_tier/context_management) AND must run a second silent strip AFTER normalizeClaudeOAuthRequestBody injects mimic defaults (temperature=1 / max_tokens=128000 / context_management=...); without this second strip, OAuth-account count_tokens still 400s because normalize undoes the early sanitize (2026-05-18 09:10:30 prod trace). The 400-exempt clause excludes count_tokens 400 from the anthropic_upstream_error breaker — both ForwardCountTokens and the API-key passthrough variant — so a single client schema bug cannot accumulate to threshold and trip `anthropic_upstream_error_temp_unschedulable`, taking the account schedulable=false for the cooldown window (reproduced as the 2026-05-18 cc-us1-oauth → group cc-edges incident)."
+      "rationale": "Main gateway upstream builders must invoke unified TK Claude session-header sync after API-key passthrough, OAuth forward, count_tokens forward, and Vertex Anthropic forward paths diverge upstream merge conflicts. Sticky-source sink event emission is also load-bearing for prod request_id/client_request_id evidence correlation. TLS fingerprint profile resolution must pass through the ops helper so upstream_errors JSON records the profile id/name used by failed Anthropic OAuth attempts; otherwise Node24/Node25 candidate canaries cannot be attributed after a profile switch. Claude Code OAuth mimicry must preserve captured real CLI User-Agent/X-Stainless fingerprint values and only fill missing defaults; reverting to unconditional defaults reintroduces version downgrade/header fingerprint drift. API Key passthrough must keep a single guarded thinking-signature 400 retry that records passthrough ops evidence and downgrades stale cross-upstream thinking blocks before surfacing the error; dropping this makes GPT专线 → cc-edges group switches expose invalid thinking signatures to clients. The obsolete x-stainless-helper-method header must stay absent because current real Claude Code traffic does not emit it and reintroducing it increases OAuth fingerprint risk. Haiku 4.5 context_management auto-injection must stay exempt (upstream #2506): Anthropic rejects context_management for claude-haiku-4-5-* with HTTP 400 even when thinking.type is enabled, and the body rewrite must mirror the existing Haiku exemption in the anthropic-beta header path. count_tokens forwarding must pre-strip Anthropic-unsupported top-level fields (temperature/top_p/top_k/stop_sequences/max_tokens/stream/metadata/service_tier/context_management) AND must run a second silent strip AFTER normalizeClaudeOAuthRequestBody injects mimic defaults (temperature=1 / max_tokens=128000 / context_management=...); without this second strip, OAuth-account count_tokens still 400s because normalize undoes the early sanitize (2026-05-18 09:10:30 prod trace). The 400-exempt clause excludes count_tokens 400 from the anthropic_upstream_error breaker — both ForwardCountTokens and the API-key passthrough variant — so a single client schema bug cannot accumulate to threshold and trip `anthropic_upstream_error_temp_unschedulable`, taking the account schedulable=false for the cooldown window (reproduced as the 2026-05-18 cc-us1-oauth → group cc-edges incident). OAuth-401-revocation guard: the 401 branch calls `tkTryEscalateRevokedOAuth401(ctx, account, upstreamMsg)` before the temp_unschedulable cooldown so a refresh-succeeds-but-token-still-401 grant is escalated to SetError instead of flapping forever; `ResetOAuth401AfterRefreshCounter` MUST be invoked from the same recovery/success hotpaths as the Anthropic counter (allowed status, ClearRateLimit, RecoverAccountState, ClearTempUnschedulable) so a healed account drops its stale baseline. Both anchors keep an upstream merge from silently reverting the escalation back to the infinite-flap blind spot. See the dedicated ratelimit_service_tk_oauth401.go sentinel for the companion logic."
     },
     {
       "path": "backend/internal/service/header_util.go",
@@ -451,9 +505,10 @@
         "openAICompatSSEFrameParser",
         "openAICompatPayloadWithEventType",
         "extractOpenAISSEEventLine",
-        "TkEnrichForbiddenMessage("
+        "TkEnrichForbiddenMessage(",
+        "s.rateLimitService.ResetOAuth401AfterRefreshCounter(ctx, input.Account.ID)"
       ],
-      "rationale": "Upstream PR #2530 introduced the SSE frame parser for Responses API typed events. These types/functions must survive future upstream merges: openAICompatSSEFrameParser buffers event:/data: pairs so typed events (response.completed, response.failed) are recognised before [DONE]; openAICompatPayloadWithEventType injects the event type into the JSON payload for downstream Responses SSE consumers; extractOpenAISSEEventLine extracts the event: field. Dropping any of these silently breaks Responses SSE terminal detection. Also locks the TkEnrichForbiddenMessage hook in handleErrorResponse's case-403 branch so the 403 client message keeps body-size context."
+      "rationale": "Upstream PR #2530 introduced the SSE frame parser for Responses API typed events. The OpenAI success path also resets the revoked-OAuth-401 baseline (ResetOAuth401AfterRefreshCounter) for OpenAI OAuth accounts — which go through the same escalation branch — so a single transient 401 that seeded a baseline is cleared on the next 200 instead of lingering toward a false escalation. These types/functions must survive future upstream merges: openAICompatSSEFrameParser buffers event:/data: pairs so typed events (response.completed, response.failed) are recognised before [DONE]; openAICompatPayloadWithEventType injects the event type into the JSON payload for downstream Responses SSE consumers; extractOpenAISSEEventLine extracts the event: field. Dropping any of these silently breaks Responses SSE terminal detection. Also locks the TkEnrichForbiddenMessage hook in handleErrorResponse's case-403 branch so the 403 client message keeps body-size context."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions.go",
