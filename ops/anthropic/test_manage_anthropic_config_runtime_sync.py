@@ -23,6 +23,30 @@ class RuntimeSyncShellTest(unittest.TestCase):
         self.assertIn("claude_code_http_mimicry_manifest", shell)
         self.assertIn("fingerprint:${id}", shell)
 
+    def test_render_runtime_sync_shell_persists_valid_json_manifest(self) -> None:
+        # Regression: the manifest UPSERT must be delivered as base64 SQL piped to
+        # psql, never inlined into `psql -c "..."`. Inlining stripped the JSON's
+        # double-quotes against the -c "..." wrapper and persisted an invalid-JSON
+        # value (unfixable http_ua_drift). Decode the blob and confirm the value
+        # round-trips as JSON.
+        import base64
+        import re
+
+        shell = mgr.render_runtime_sync_shell("2.1.159")
+        self.assertIn("docker exec -i tokenkey-postgres", shell)  # stdin pipe needs -i
+        lines = shell.splitlines()
+        idx = next(i for i, l in enumerate(lines) if "settings_upsert_http_mimicry" in l)
+        m = re.search(r"echo (\S+) \| base64 -d \| \$PSQL", lines[idx + 1])
+        self.assertIsNotNone(m, "manifest must be base64-piped to psql, not inlined")
+        sql = base64.b64decode(m.group(1)).decode("utf-8")
+        json_blob = re.search(r"\{.*\}", sql)
+        self.assertIsNotNone(json_blob)
+        parsed = json.loads(json_blob.group(0))  # must NOT raise — guards the quote bug
+        expected = json.loads(mgr._http_mimicry_manifest_json())
+        self.assertEqual(parsed["cc_version"], expected["cc_version"])
+        self.assertEqual(parsed["sonnet_opus"], expected["sonnet_opus"])
+        self.assertEqual(parsed["haiku"], expected["haiku"])
+
     def test_http_mimicry_manifest_from_baseline(self) -> None:
         manifest = json.loads(mgr._http_mimicry_manifest_json())
         self.assertEqual(1, manifest["schema_version"])
