@@ -1392,6 +1392,15 @@
         "func (r *AnthropicConfigReconciler) reportTierDrift("
       ],
       "rationale": "Per-node in-process self-healer that drops the ops/anthropic high-frequency safe-item writes into the backend: operator-Σ alignment, prod stub pool_mode, edge balance floor, and the surface-C concurrency mirror — plus REPORT-ONLY tier drift (never silently rewrites a UI-set tier). The surface-C 'never write 0 on a failed edge read' invariant and the report-only tier-drift boundary are load-bearing correctness properties; a silent upstream-merge deletion or weakening must be caught."
+    },
+    {
+      "path": "backend/internal/service/gateway_request.go",
+      "must_contain": [
+        "msgHasToolUse",
+        "anyThinkingPreserved",
+        "topLevelThinkingExists"
+      ],
+      "rationale": "Anthropic tool-use contract guard in FilterThinkingBlocksForRetry: during a tool-use loop the thinking/redacted_thinking blocks of an assistant message that ALSO contains tool_use must be passed back unchanged (signature included). msgHasToolUse gates per-message preservation; deleteTopLevelThinking is computed as topLevelThinkingExists && !anyThinkingPreserved so top-level thinking stays enabled whenever a tool-coupled block survives (deleting it then would be a mid-turn thinking-toggle the API rejects). Only pure-reasoning turns (no tool_use, which the API permits omitting) are downgraded to text. Captured live on edge-us1: 139 signed thinking + 216 tool_use forwarded as 0 thinking via the SigPreempt blanket strip, orphaning the tool_use and making Claude Code report malformed tool calls. A silent upstream-merge that reverts this to an unconditional strip reinstates that regression; the unrecoverable case (bad signature on a tool-coupled block) is handled by FilterSignatureSensitiveBlocksForRetry, which downgrades thinking AND its dependent tool blocks together."
     }
   ]
 }
