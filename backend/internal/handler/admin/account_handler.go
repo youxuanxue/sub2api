@@ -531,6 +531,10 @@ func (h *AccountHandler) Create(c *gin.Context) {
 		response.BadRequest(c, msg)
 		return
 	}
+	if msg := tkValidateKiroAccountCreate(req.Platform, req.Credentials); msg != "" {
+		response.BadRequest(c, msg)
+		return
+	}
 	// base_rpm 输入校验：负值归零，超过 10000 截断
 	sanitizeExtraBaseRPM(req.Extra)
 

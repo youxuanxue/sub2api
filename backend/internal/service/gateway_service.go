@@ -621,6 +621,9 @@ type GatewayService struct {
 	// TK: per-account thinking-block signature_error preempt cache. Injected via
 	// SetAnthropicSigPreemptCache (TK companion). nil = feature disabled.
 	tkAnthropicSigPreemptCache AnthropicSignaturePreemptCache
+	// TK: Kiro (sixth platform) forwarder. Routes IsKiro() accounts to the
+	// vendored CodeWhisperer EventStream protocol layer.
+	kiroGateway *KiroGatewayService
 }
 
 // NewGatewayService creates a new GatewayService
@@ -652,6 +655,7 @@ func NewGatewayService(
 	resolver *ModelPricingResolver,
 	balanceNotifyService *BalanceNotifyService,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
+	kiroGateway *KiroGatewayService,
 ) *GatewayService {
 	userGroupRateTTL := resolveUserGroupRateCacheTTL(cfg)
 	modelsListTTL := resolveModelsListCacheTTL(cfg)
@@ -688,6 +692,7 @@ func NewGatewayService(
 		resolver:              resolver,
 		balanceNotifyService:  balanceNotifyService,
 		userPlatformQuotaRepo: userPlatformQuotaRepo,
+		kiroGateway:           kiroGateway,
 	}
 	svc.userGroupRateResolver = newUserGroupRateResolver(
 		userGroupRateRepo,
@@ -4490,6 +4495,10 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 
 	if account != nil && account.IsBedrock() {
 		return s.forwardBedrock(ctx, c, account, parsed, startTime)
+	}
+
+	if account != nil && account.IsKiro() {
+		return s.kiroGateway.Forward(ctx, c, account, parsed, startTime)
 	}
 
 	// Beta policy: evaluate once; block check + cache filter set for buildUpstreamRequest.

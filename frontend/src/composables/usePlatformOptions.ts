@@ -8,6 +8,7 @@ export const PLATFORM_LABELS: Record<AccountPlatform, string> = {
   gemini: 'Gemini',
   antigravity: 'Antigravity',
   newapi: 'Extension Engine',
+  kiro: 'Kiro',
 }
 
 export function getPlatformLabel(platform: string | null | undefined): string {

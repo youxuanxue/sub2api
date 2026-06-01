@@ -166,6 +166,24 @@
             <Icon name="server" size="sm" />
             {{ PLATFORM_LABELS.newapi }}
           </button>
+          <!--
+            6th platform: Kiro (OAuth-token paste). Picks up styling from
+            CREATE_ACCOUNT_PLATFORM_SEGMENT_ACTIVE (indigo) so it stays consistent
+            with the gatewayPlatforms.ts constant (single source of truth per CLAUDE.md §5).
+          -->
+          <button
+            type="button"
+            @click="form.platform = 'kiro'"
+            :class="[
+              'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+              form.platform === 'kiro'
+                ? 'bg-white text-indigo-600 shadow-sm dark:bg-dark-600 dark:text-indigo-400'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+          >
+            <Icon name="sparkles" size="sm" />
+            {{ PLATFORM_LABELS.kiro }}
+          </button>
         </div>
       </div>
 
@@ -191,6 +209,22 @@
           :fetch-models-loading="newapiFetchModelsLoading"
           variant="create"
           @fetch-models="newapiHandleFetchUpstreamModels"
+        />
+      </div>
+
+      <!-- kiro (6th platform): OAuth credential fields directly under platform picker. -->
+      <div v-if="form.platform === 'kiro'" class="space-y-4">
+        <AccountKiroPlatformFields
+          v-model:accessToken="kiroAccessToken"
+          v-model:refreshToken="kiroRefreshToken"
+          v-model:region="kiroRegion"
+          v-model:authMethod="kiroAuthMethod"
+          v-model:machineId="kiroMachineId"
+          v-model:clientId="kiroClientId"
+          v-model:clientSecret="kiroClientSecret"
+          v-model:profileArn="kiroProfileArn"
+          v-model:tosAcknowledged="kiroTosAcknowledged"
+          variant="create"
         />
       </div>
 
@@ -1059,7 +1093,7 @@
         base_url and TWO api_key inputs (the lower one with a misleading anthropic placeholder),
         only one of which is actually submitted.
       -->
-      <div v-if="form.type === 'apikey' && form.platform !== 'antigravity' && form.platform !== 'newapi'" class="space-y-4">
+      <div v-if="form.type === 'apikey' && form.platform !== 'antigravity' && form.platform !== 'newapi' && form.platform !== 'kiro'" class="space-y-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
@@ -3341,6 +3375,8 @@ import {
 import OAuthAuthorizationFlow from './OAuthAuthorizationFlow.vue'
 import AccountNewApiPlatformFields from './AccountNewApiPlatformFields.vue'
 import { useTkAccountNewApiPlatform } from '@/composables/useTkAccountNewApiPlatform'
+import AccountKiroPlatformFields from './AccountKiroPlatformFields.vue'
+import { useTkAccountKiroPlatform } from '@/composables/useTkAccountKiroPlatform'
 import { PLATFORM_LABELS } from '@/composables/usePlatformOptions'
 
 // Type for exposed OAuthAuthorizationFlow component
@@ -3572,6 +3608,22 @@ const {
 } = useTkAccountNewApiPlatform({
   isNewapi: () => form.platform === 'newapi',
 })
+
+// 第六平台 kiro 的全部表单状态 + 校验 + credentials 拼装收口在 composable，
+// 让本上游大文件保持「模板 + wiring」形态。
+const {
+  accessToken: kiroAccessToken,
+  refreshToken: kiroRefreshToken,
+  region: kiroRegion,
+  authMethod: kiroAuthMethod,
+  machineId: kiroMachineId,
+  clientId: kiroClientId,
+  clientSecret: kiroClientSecret,
+  profileArn: kiroProfileArn,
+  tosAcknowledged: kiroTosAcknowledged,
+  reset: kiroReset,
+  buildSubmitBundle: kiroBuildSubmitBundle,
+} = useTkAccountKiroPlatform()
 
 const tempUnschedEnabled = ref(false)
 const tempUnschedRules = ref<TempUnschedRuleForm[]>([])
@@ -3844,6 +3896,10 @@ const isOAuthFlow = computed(() => {
   if (form.platform === 'newapi') {
     return false
   }
+  // kiro (6th platform) creates by pasting OAuth tokens directly — no interactive OAuth step.
+  if (form.platform === 'kiro') {
+    return false
+  }
   return accountCategory.value === 'oauth-based'
 })
 
@@ -3917,6 +3973,11 @@ watch(
       form.type = 'bedrock' as AccountType
       return
     }
+    // kiro (6th platform): always oauth type (token paste), regardless of addMethod.
+    if (form.platform === 'kiro') {
+      form.type = 'oauth'
+      return
+    }
     if ((form.platform === 'gemini' || form.platform === 'anthropic') && category === 'service_account') {
       form.type = 'service_account' as AccountType
     } else if (category === 'oauth-based') {
@@ -3963,6 +4024,16 @@ watch(
       antigravityModelRestrictionMode.value = 'mapping'
       // newapi 自身的字段重置由 composable.reset() 在 resetForm 中负责，
       // 平台切换不清除已填字段（避免误触切换造成数据丢失）。
+    } else if (newPlatform === 'kiro') {
+      // 第六平台 kiro：oauth-token 直填，accountCategory 设为 oauth-based 让
+      // watcher A 把 form.type 同步成 'oauth'（与后端 type=oauth 契约对齐），
+      // 同时避免渲染通用 apikey / 配额块。kiro 字段重置由 composable.reset()
+      // 在 resetForm 中负责，平台切换不清除已填字段。
+      accountCategory.value = 'oauth-based'
+      allowOverages.value = false
+      antigravityWhitelistModels.value = []
+      antigravityModelMappings.value = []
+      antigravityModelRestrictionMode.value = 'mapping'
     } else {
       allowOverages.value = false
       antigravityWhitelistModels.value = []
@@ -4431,6 +4502,8 @@ const resetForm = () => {
   upstreamApiKey.value = ''
   // 第五平台 newapi 字段重置由 composable 统一管理
   newapiReset()
+  // 第六平台 kiro 字段重置由 composable 统一管理
+  kiroReset()
   tempUnschedEnabled.value = false
   tempUnschedRules.value = []
   geminiOAuthType.value = 'code_assist'
@@ -4757,6 +4830,34 @@ const handleSubmit = async () => {
       platform: 'newapi',
       type: 'apikey',
       channel_type: bundle.channelType,
+      credentials: bundle.credentials,
+      extra: buildAPIKeyOrBedrockExtra(),
+      proxy_id: form.proxy_id,
+      concurrency: form.concurrency,
+      load_factor: form.load_factor ?? undefined,
+      priority: form.priority,
+      rate_multiplier: form.rate_multiplier,
+      group_ids: form.group_ids,
+      expires_at: form.expires_at,
+      auto_pause_on_expired: autoPauseOnExpired.value
+    })
+    return
+  }
+
+  // 第六平台 kiro：oauth-token 直填，type=oauth；表单校验 + credentials 拼装
+  // （含 tos_acknowledged 强制勾选）都委托给 composable。
+  if (form.platform === 'kiro') {
+    if (!form.name.trim()) {
+      appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
+      return
+    }
+    const bundle = kiroBuildSubmitBundle('create')
+    if (!bundle) return
+    await doCreateAccount({
+      name: form.name,
+      notes: form.notes,
+      platform: 'kiro',
+      type: 'oauth',
       credentials: bundle.credentials,
       extra: buildAPIKeyOrBedrockExtra(),
       proxy_id: form.proxy_id,

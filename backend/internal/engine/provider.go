@@ -52,5 +52,6 @@ func AllSchedulingPlatforms() []string {
 		domain.PlatformOpenAI,
 		domain.PlatformAntigravity,
 		domain.PlatformNewAPI,
+		domain.PlatformKiro,
 	}
 }

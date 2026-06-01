@@ -335,6 +335,25 @@ else
     echo "  ok: all newapi sentinels intact"
 fi
 
+# ---- sub2api: kiro sentinel registry ----------------------------------------
+# Source of truth: scripts/sentinels/kiro.json. Verifies that every load-bearing
+# surface of the sixth platform (`kiro`, AWS Kiro / CodeWhisperer) — the vendored
+# protocol layer (internal/integration/kiro), PlatformKiro identity, the
+# KiroGatewayService Forward injection point, IsKiro, the KiroTokenRefresher, and
+# the ToS gate — is still present. Same failure mode as the newapi guard: an
+# upstream merge silently dropping a file or injection branch.
+echo ""
+echo "=== sub2api: kiro sentinel registry ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required to read kiro.json)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/sentinels/check-kiro.py --quiet; then
+    # check-kiro.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: all kiro sentinels intact"
+fi
+
 # ---- sub2api: brand sentinel registry ---------------------------------------
 # Source of truth: scripts/sentinels/brand.json. Verifies that outward TokenKey
 # brand surfaces (default title, deploy/operator docs, image metadata,

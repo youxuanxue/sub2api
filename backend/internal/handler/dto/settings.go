@@ -31,6 +31,7 @@ type SystemSettings struct {
 	EmailVerifyEnabled               bool                     `json:"email_verify_enabled"`
 	RegistrationEmailSuffixWhitelist []string                 `json:"registration_email_suffix_whitelist"`
 	PromoCodeEnabled                 bool                     `json:"promo_code_enabled"`
+	KiroEnabled                      bool                     `json:"kiro_enabled"` // TK: Kiro 第六平台转发门禁（默认 false / ToS）
 	PasswordResetEnabled             bool                     `json:"password_reset_enabled"`
 	FrontendURL                      string                   `json:"frontend_url"`
 	InvitationCodeEnabled            bool                     `json:"invitation_code_enabled"`

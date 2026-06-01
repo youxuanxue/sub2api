@@ -3955,6 +3955,36 @@ export default {
         jsonInvalid: '不是合法 JSON',
         jsonObjectRequired: '必须是 JSON 对象'
       },
+      // Kiro（第六平台）账号凭证字段
+      kiroPlatform: {
+        accessToken: 'Access Token',
+        accessTokenPlaceholder: 'Kiro OAuth access token',
+        refreshToken: 'Refresh Token',
+        refreshTokenPlaceholder: 'Kiro OAuth refresh token',
+        tokenEditHint: '留空表示保留当前值',
+        region: 'Region',
+        regionHint: 'Kiro 使用的 AWS region，默认 us-east-1。',
+        authMethod: '认证方式',
+        authMethodSocial: 'Social（社交登录）',
+        authMethodIdc: 'IdC（IAM Identity Center）',
+        authMethodHint: 'IdC 方式需填写下方 Client ID 与 Client Secret。',
+        machineId: 'Machine ID（可选）',
+        machineIdPlaceholder: '设备指纹标识',
+        machineIdHint: '可选的设备指纹，随请求一起发送。',
+        clientId: 'Client ID',
+        clientIdPlaceholder: 'IdC OAuth client ID',
+        clientSecret: 'Client Secret',
+        clientSecretPlaceholder: 'IdC OAuth client secret',
+        profileArn: 'Profile ARN（可选）',
+        profileArnPlaceholder: 'arn:aws:codewhisperer:...',
+        profileArnHint: '留空则由后端自动获取。',
+        tosAcknowledge: '我已确认阅读并接受 Kiro 服务条款，并知悉使用该账号的合规风险。',
+        pleaseEnterAccessToken: '请输入 Kiro access token',
+        pleaseEnterRefreshToken: '请输入 Kiro refresh token',
+        pleaseEnterClientId: '请输入 IdC Client ID',
+        pleaseEnterClientSecret: '请输入 IdC Client Secret',
+        pleaseAcknowledgeTos: '创建账号前请先勾选确认 Kiro 服务条款'
+      },
       // OAuth flow
       oauth: {
         title: 'Claude 账号授权',
@@ -5695,6 +5725,13 @@ export default {
         payment: '支付设置',
       },
       features: {
+        kiro: {
+          title: 'Kiro（第六平台）',
+          description: 'AWS Kiro / CodeWhisperer 订阅的网关转发开关（platform=kiro）。默认关闭；这是第二道 ToS 门禁（第一道是创建账号时的逐账号 ToS 确认）。',
+          enabled: '启用 Kiro 转发',
+          enabledHint: '关闭时，所有 Kiro 请求会在网关被拒绝并返回 “kiro platform is disabled”，不会有任何流量出站。',
+          tosWarning: '启用后将向 AWS Kiro / CodeWhisperer 转发流量。开启前请确认你的使用符合 Kiro 服务条款（ToS）。',
+        },
         channelMonitor: {
           title: '渠道监控',
           description: '定期对配置的渠道发起健康检查，向用户展示可用性与延迟。关闭后调度器停止扫描，用户端列表为空。',

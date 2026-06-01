@@ -3818,6 +3818,36 @@ export default {
         jsonInvalid: 'Must be valid JSON',
         jsonObjectRequired: 'Must be a JSON object'
       },
+      // Kiro (6th platform) account credential fields
+      kiroPlatform: {
+        accessToken: 'Access Token',
+        accessTokenPlaceholder: 'Kiro OAuth access token',
+        refreshToken: 'Refresh Token',
+        refreshTokenPlaceholder: 'Kiro OAuth refresh token',
+        tokenEditHint: 'Leave empty to keep the current value',
+        region: 'Region',
+        regionHint: 'AWS region for Kiro, defaults to us-east-1.',
+        authMethod: 'Auth Method',
+        authMethodSocial: 'Social (social login)',
+        authMethodIdc: 'IdC (IAM Identity Center)',
+        authMethodHint: 'IdC requires Client ID and Client Secret below.',
+        machineId: 'Machine ID (optional)',
+        machineIdPlaceholder: 'Device fingerprint identifier',
+        machineIdHint: 'Optional device fingerprint sent with requests.',
+        clientId: 'Client ID',
+        clientIdPlaceholder: 'IdC OAuth client ID',
+        clientSecret: 'Client Secret',
+        clientSecretPlaceholder: 'IdC OAuth client secret',
+        profileArn: 'Profile ARN (optional)',
+        profileArnPlaceholder: 'arn:aws:codewhisperer:...',
+        profileArnHint: 'Leave empty to let the backend resolve it automatically.',
+        tosAcknowledge: 'I confirm I have read and accept the Kiro terms of service and the compliance risks of using this account.',
+        pleaseEnterAccessToken: 'Please enter the Kiro access token',
+        pleaseEnterRefreshToken: 'Please enter the Kiro refresh token',
+        pleaseEnterClientId: 'Please enter the IdC Client ID',
+        pleaseEnterClientSecret: 'Please enter the IdC Client Secret',
+        pleaseAcknowledgeTos: 'Please acknowledge the Kiro terms of service before creating the account'
+      },
       // OAuth flow
       oauth: {
         title: 'Claude Account Authorization',
@@ -5536,6 +5566,13 @@ export default {
         payment: 'Payment',
       },
       features: {
+        kiro: {
+          title: 'Kiro (Sixth Platform)',
+          description: 'Gateway forwarding for AWS Kiro / CodeWhisperer subscriptions (platform=kiro). Off by default; this is the second ToS gate (the first is the per-account ToS acknowledgement required at account creation).',
+          enabled: 'Enable Kiro Forwarding',
+          enabledHint: 'When off, every Kiro request is rejected at the gateway with "kiro platform is disabled" — no traffic egresses.',
+          tosWarning: 'Enabling forwards traffic to AWS Kiro / CodeWhisperer. Ensure your usage complies with the Kiro Terms of Service before turning this on.',
+        },
         channelMonitor: {
           title: 'Channel Monitor',
           description: 'Periodically probe configured channels and surface availability / latency to users. Turning it off stops the scheduler and returns an empty list on the user page.',

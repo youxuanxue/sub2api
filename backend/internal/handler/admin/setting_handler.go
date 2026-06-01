@@ -124,6 +124,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		EmailVerifyEnabled:                     settings.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:       settings.RegistrationEmailSuffixWhitelist,
 		PromoCodeEnabled:                       settings.PromoCodeEnabled,
+		KiroEnabled:                            settings.KiroEnabled,
 		PasswordResetEnabled:                   settings.PasswordResetEnabled,
 		FrontendURL:                            settings.FrontendURL,
 		InvitationCodeEnabled:                  settings.InvitationCodeEnabled,
@@ -391,6 +392,7 @@ type UpdateSettingsRequest struct {
 	EmailVerifyEnabled               bool                         `json:"email_verify_enabled"`
 	RegistrationEmailSuffixWhitelist []string                     `json:"registration_email_suffix_whitelist"`
 	PromoCodeEnabled                 bool                         `json:"promo_code_enabled"`
+	KiroEnabled                      bool                         `json:"kiro_enabled"` // TK: Kiro 第六平台转发门禁（默认 false / ToS）
 	PasswordResetEnabled             bool                         `json:"password_reset_enabled"`
 	FrontendURL                      string                       `json:"frontend_url"`
 	InvitationCodeEnabled            bool                         `json:"invitation_code_enabled"`
@@ -1494,6 +1496,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		EmailVerifyEnabled:               req.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist: req.RegistrationEmailSuffixWhitelist,
 		PromoCodeEnabled:                 req.PromoCodeEnabled,
+		KiroEnabled:                      req.KiroEnabled,
 		PasswordResetEnabled:             req.PasswordResetEnabled,
 		FrontendURL:                      req.FrontendURL,
 		InvitationCodeEnabled:            req.InvitationCodeEnabled,
@@ -1949,6 +1952,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		EmailVerifyEnabled:                     updatedSettings.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:       updatedSettings.RegistrationEmailSuffixWhitelist,
 		PromoCodeEnabled:                       updatedSettings.PromoCodeEnabled,
+		KiroEnabled:                            updatedSettings.KiroEnabled,
 		PasswordResetEnabled:                   updatedSettings.PasswordResetEnabled,
 		FrontendURL:                            updatedSettings.FrontendURL,
 		InvitationCodeEnabled:                  updatedSettings.InvitationCodeEnabled,
@@ -2203,6 +2207,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.PromoCodeEnabled != after.PromoCodeEnabled {
 		changed = append(changed, "promo_code_enabled")
+	}
+	if before.KiroEnabled != after.KiroEnabled {
+		changed = append(changed, "kiro_enabled")
 	}
 	if before.InvitationCodeEnabled != after.InvitationCodeEnabled {
 		changed = append(changed, "invitation_code_enabled")

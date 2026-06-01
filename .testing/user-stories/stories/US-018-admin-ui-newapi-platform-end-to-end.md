@@ -38,7 +38,7 @@
 Vitest specs (test names are descriptive in JS-land — convention `it('...')` not
 `TestUSXXX_*`; story IDs are referenced in the `describe(...)` block instead):
 
-- `frontend/src/composables/__tests__/usePlatformOptions.spec.ts`::`exposes exactly the 5 canonical gateway platforms in GATEWAY_PLATFORMS order` *(AC-001)*
+- `frontend/src/composables/__tests__/usePlatformOptions.spec.ts`::`exposes exactly the canonical gateway platforms in GATEWAY_PLATFORMS order` *(AC-001)*
 - `frontend/src/composables/__tests__/usePlatformOptions.spec.ts`::`includes newapi (the bug we are fixing — admin pickers used to drop it)` *(AC-001)*
 - `frontend/src/composables/__tests__/usePlatformOptions.spec.ts`::`optionsWithAll prepends the localized "all" sentinel and preserves order` *(AC-002)*
 - `frontend/src/components/common/__tests__/PlatformTypeBadge.spec.ts`::`renders newapi as "New API" with cyan styling (the bug we are fixing)` *(AC-003)*

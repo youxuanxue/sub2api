@@ -1,7 +1,7 @@
 import type { AccountPlatform } from '@/types'
 
 /** Ordered account/group platforms, including the independent fifth platform `newapi`. */
-export const GATEWAY_PLATFORMS = ['anthropic', 'openai', 'gemini', 'antigravity', 'newapi'] as const satisfies readonly AccountPlatform[]
+export const GATEWAY_PLATFORMS = ['anthropic', 'openai', 'gemini', 'antigravity', 'newapi', 'kiro'] as const satisfies readonly AccountPlatform[]
 
 /**
  * Platforms that participate in the OpenAI-compatible HTTP request shape
@@ -53,6 +53,7 @@ export const CREATE_ACCOUNT_PLATFORM_SEGMENT_ACTIVE: Record<AccountPlatform, str
   antigravity:
     'bg-white text-purple-600 shadow-sm dark:bg-dark-600 dark:text-purple-400',
   newapi: 'bg-white text-cyan-600 shadow-sm dark:bg-dark-600 dark:text-cyan-400',
+  kiro: 'bg-white text-indigo-600 shadow-sm dark:bg-dark-600 dark:text-indigo-400',
 }
 
 export const CREATE_ACCOUNT_PLATFORM_SEGMENT_BASE =
@@ -69,6 +70,7 @@ const SOFT_BADGE: Record<string, string> = {
   gemini: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
   antigravity: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
   newapi: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300',
+  kiro: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300',
 }
 
 const LABEL_TEXT: Record<string, string> = {
@@ -77,6 +79,7 @@ const LABEL_TEXT: Record<string, string> = {
   gemini: 'text-blue-600 dark:text-blue-400',
   antigravity: 'text-purple-600 dark:text-purple-400',
   newapi: 'text-cyan-600 dark:text-cyan-400',
+  kiro: 'text-indigo-600 dark:text-indigo-400',
 }
 
 const TABLE_CELL_BASE =

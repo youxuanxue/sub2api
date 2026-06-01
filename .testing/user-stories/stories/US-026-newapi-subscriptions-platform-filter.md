@@ -61,7 +61,7 @@
 ## Linked Tests
 
 - `frontend/src/views/admin/__tests__/us026SubscriptionsViewPlatformFilter.spec.ts`::`includes newapi in the platform filter options (regression: hardcoded 4-platform list silently dropped fifth platform)` (AC-001)
-- `frontend/src/views/admin/__tests__/us026SubscriptionsViewPlatformFilter.spec.ts`::`exposes exactly the 5 canonical platforms + sentinel "all" entry (no extras, no missing)` (AC-002)
+- `frontend/src/views/admin/__tests__/us026SubscriptionsViewPlatformFilter.spec.ts`::`exposes exactly the canonical platforms + sentinel "all" entry (no extras, no missing)` (AC-002)
 - 运行命令: `pnpm vitest run src/views/admin/__tests__/us026SubscriptionsViewPlatformFilter.spec.ts`
 
 ## Evidence

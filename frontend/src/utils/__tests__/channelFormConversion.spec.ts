@@ -305,7 +305,7 @@ describe('channelFormConversion (US-017 — round-trip preserves all 5 gateway p
     expect(Object.keys(payload.model_mapping)).toEqual(['anthropic'])
   })
 
-  it('returns sections in GATEWAY_PLATFORMS canonical order (anthropic → openai → gemini → antigravity → newapi)', () => {
+  it('returns active sections in GATEWAY_PLATFORMS canonical order (anthropic → openai → gemini → antigravity → newapi)', () => {
     const channel = makeChannel({
       group_ids: [5, 1, 3, 2, 4],
       model_mapping: {
@@ -317,8 +317,14 @@ describe('channelFormConversion (US-017 — round-trip preserves all 5 gateway p
       },
     })
 
+    // Only the platforms present in the channel are emitted, but they must
+    // follow GATEWAY_PLATFORMS canonical order. (Platforms with no group /
+    // mapping in this channel — e.g. kiro — are intentionally absent.)
+    const expectedActive = GATEWAY_PLATFORMS.filter((p) =>
+      ['anthropic', 'openai', 'gemini', 'antigravity', 'newapi'].includes(p),
+    )
     const sections = apiToFormSections(channel, ALL_GROUPS)
-    expect(sections.map((s) => s.platform)).toEqual([...GATEWAY_PLATFORMS])
+    expect(sections.map((s) => s.platform)).toEqual(expectedActive)
   })
 
   it('drops empty model_pricing entries (models.length === 0) instead of posting them to the backend', () => {
