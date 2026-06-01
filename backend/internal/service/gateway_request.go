@@ -522,8 +522,20 @@ func FilterThinkingBlocksForRetry(body []byte) []byte {
 
 	modified := false
 
-	// Disable top-level thinking mode for retry to avoid structural/signature constraints upstream.
-	deleteTopLevelThinking := gjson.Get(jsonStr, "thinking").Exists()
+	// Anthropic tool-use contract: during a tool-use loop you MUST send the thinking
+	// blocks back, unchanged with their signature, for any assistant message that
+	// contains tool_use ("the thinking blocks capture Claude's step-by-step reasoning
+	// that led to tool requests"). Stripping them orphans the tool_use, which breaks
+	// interleaved-thinking clients (Claude Code reports the tool call as malformed) and
+	// can itself trigger upstream 400s. So we only strip thinking from assistant turns
+	// WITHOUT tool_use (earlier pure-reasoning turns, which the API allows omitting),
+	// and we keep top-level thinking enabled whenever any tool-coupled thinking block is
+	// preserved (deleting it while thinking blocks remain is a mid-turn toggle conflict).
+	// The genuinely-unrecoverable case (a bad signature on a tool-coupled thinking block)
+	// is handled by the contract-complete FilterSignatureSensitiveBlocksForRetry, which
+	// downgrades thinking AND its dependent tool blocks together.
+	topLevelThinkingExists := gjson.Get(jsonStr, "thinking").Exists()
+	anyThinkingPreserved := false
 
 	for i := 0; i < len(messages); i++ {
 		msgMap, ok := messages[i].(map[string]any)
@@ -536,6 +548,20 @@ func FilterThinkingBlocksForRetry(body []byte) []byte {
 		if !ok {
 			// String content or other format - keep as is
 			continue
+		}
+
+		// Detect tool_use in this assistant message; if present, its thinking blocks
+		// must be preserved verbatim (signature included) per the contract above.
+		msgHasToolUse := false
+		if role == "assistant" {
+			for _, b := range content {
+				if bm, ok := b.(map[string]any); ok {
+					if t, _ := bm["type"].(string); t == "tool_use" {
+						msgHasToolUse = true
+						break
+					}
+				}
+			}
 		}
 
 		// 延迟分配：只有检测到需要修改的块，才构建新 slice。
@@ -575,24 +601,38 @@ func FilterThinkingBlocksForRetry(body []byte) []byte {
 			}
 
 			// Convert thinking blocks to text (preserve content) and drop redacted_thinking.
+			// EXCEPT when the assistant message also contains tool_use: there the thinking
+			// blocks are contractually required and must pass through verbatim (signature kept).
 			switch blockType {
-			case "thinking":
-				modifiedThisMsg = true
-				ensureNewContent(bi)
-				thinkingText, _ := blockMap["thinking"].(string)
-				if thinkingText != "" {
-					newContent = append(newContent, map[string]any{"type": "text", "text": thinkingText})
+			case "thinking", "redacted_thinking":
+				if msgHasToolUse {
+					anyThinkingPreserved = true
+					if newContent != nil {
+						newContent = append(newContent, block)
+					}
+					continue
 				}
-				continue
-			case "redacted_thinking":
 				modifiedThisMsg = true
 				ensureNewContent(bi)
+				if blockType == "thinking" {
+					thinkingText, _ := blockMap["thinking"].(string)
+					if thinkingText != "" {
+						newContent = append(newContent, map[string]any{"type": "text", "text": thinkingText})
+					}
+				}
 				continue
 			}
 
 			// Handle blocks without type discriminator but with a "thinking" field.
 			if blockType == "" {
 				if rawThinking, hasThinking := blockMap["thinking"]; hasThinking {
+					if msgHasToolUse {
+						anyThinkingPreserved = true
+						if newContent != nil {
+							newContent = append(newContent, block)
+						}
+						continue
+					}
 					modifiedThisMsg = true
 					ensureNewContent(bi)
 					switch v := rawThinking.(type) {
@@ -659,6 +699,11 @@ func FilterThinkingBlocksForRetry(body []byte) []byte {
 			msgMap["content"] = newContent
 		}
 	}
+
+	// Only disable top-level thinking when we did NOT preserve any tool-coupled thinking
+	// block. Deleting it while signed thinking blocks remain in the body is a mid-turn
+	// thinking toggle that the API rejects ("thinking blocks present but thinking off").
+	deleteTopLevelThinking := topLevelThinkingExists && !anyThinkingPreserved
 
 	if !modified && !deleteTopLevelThinking {
 		// Avoid rewriting JSON when no changes are needed.

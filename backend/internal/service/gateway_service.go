@@ -4813,8 +4813,16 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 									}(),
 								})
 								msg2 := extractUpstreamErrorMessage(retryRespBody)
-								if looksLikeToolSignatureError(msg2) && time.Since(retryStart) < maxRetryElapsed {
-									logger.LegacyPrintf("service.gateway", "Account %d: signature retry still failing and looks tool-related, retrying with tool blocks downgraded", account.ID)
+								// FilterThinkingBlocksForRetry now preserves thinking in tool-coupled
+								// assistant turns (contract requirement), so for any request carrying
+								// tool_use a lingering signature error can only be cleared by the
+								// contract-complete downgrade (thinking + dependent tool blocks → text).
+								// Escalate whenever the error looks tool-related OR the request itself
+								// contains tool_use, not just when upstream names a tool in the message.
+								reqHasToolUse := bytes.Contains(body, []byte(`"type":"tool_use"`)) ||
+									bytes.Contains(body, []byte(`"type": "tool_use"`))
+								if (looksLikeToolSignatureError(msg2) || reqHasToolUse) && time.Since(retryStart) < maxRetryElapsed {
+									logger.LegacyPrintf("service.gateway", "Account %d: signature retry still failing with tool_use present, retrying with tool blocks downgraded", account.ID)
 									filteredBody2 := FilterSignatureSensitiveBlocksForRetry(body)
 									retryCtx2, releaseRetryCtx2 := detachStreamUpstreamContext(ctx, reqStream)
 									retryReq2, buildErr2 := s.buildUpstreamRequest(retryCtx2, c, account, filteredBody2, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
