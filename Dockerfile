@@ -27,10 +27,15 @@ WORKDIR /build/sub2api/frontend
 
 # Install pnpm and Python used by the frontend freshness manifest step.
 # Python is TK-specific: scripts/checks/frontend-dist-freshness.py runs during
-# the frontend build to fail-fast on stale embedded dist. pnpm@latest keeps the
-# image aligned with the maintainer's local toolchain — pnpm-lock.yaml shape is
-# the actual reproducibility anchor (`pnpm install --frozen-lockfile` below).
-RUN apk add --no-cache python3 && corepack enable && corepack prepare pnpm@latest --activate
+# the frontend build to fail-fast on stale embedded dist.
+# pnpm is pinned to major 9 to match CI (.github/workflows/backend-ci.yml uses
+# pnpm/action-setup version: 9) and pnpm-lock.yaml (lockfileVersion 9.0). Do NOT
+# use pnpm@latest: pnpm 10 stopped reading package.json's `pnpm.overrides`
+# (it moved to a top-level `overrides` / pnpm-workspace.yaml), so the still-present
+# `pnpm.overrides` block makes `pnpm install --frozen-lockfile` below hard-fail with
+# ERR_PNPM_LOCKFILE_CONFIG_MISMATCH. The lockfile is the reproducibility anchor; the
+# pnpm major must match the version that produced it.
+RUN apk add --no-cache python3 && corepack enable && corepack prepare pnpm@9 --activate
 
 # Install dependencies first (better caching)
 COPY sub2api/frontend/package.json sub2api/frontend/pnpm-lock.yaml ./
