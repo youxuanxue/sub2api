@@ -73,6 +73,7 @@ type LiteLLMModelPricing struct {
 	SupportsPromptCaching               bool    `json:"supports_prompt_caching"`
 	OutputCostPerImage                  float64 `json:"output_cost_per_image"`       // 图片生成模型每张图片价格
 	OutputCostPerImageToken             float64 `json:"output_cost_per_image_token"` // 图片输出 token 价格
+	OutputCostPerSecond                 float64 `json:"output_cost_per_second"`      // 视频生成模型每秒价格（veo 等）
 }
 
 // PricingRemoteClient 远程价格数据获取接口
@@ -97,6 +98,7 @@ type LiteLLMRawEntry struct {
 	SupportsPromptCaching               bool     `json:"supports_prompt_caching"`
 	OutputCostPerImage                  *float64 `json:"output_cost_per_image"`
 	OutputCostPerImageToken             *float64 `json:"output_cost_per_image_token"`
+	OutputCostPerSecond                 *float64 `json:"output_cost_per_second"`
 }
 
 // PricingService 动态价格服务
@@ -372,8 +374,12 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 			continue
 		}
 
-		// 只保留有有效价格的条目
-		if entry.InputCostPerToken == nil && entry.OutputCostPerToken == nil {
+		// 只保留有有效价格的条目。除 token 价外，也保留纯图片(每图/每图token)与
+		// 纯视频(每秒)模型 —— 否则 imagen-4.0-* / veo-* 这类无 token 价的条目会被整体丢弃，
+		// 导致下游按裸名匹配时根本找不到（命中错误兜底价）。
+		if entry.InputCostPerToken == nil && entry.OutputCostPerToken == nil &&
+			entry.OutputCostPerImage == nil && entry.OutputCostPerImageToken == nil &&
+			entry.OutputCostPerSecond == nil {
 			continue
 		}
 
@@ -413,6 +419,9 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		}
 		if entry.OutputCostPerImageToken != nil {
 			pricing.OutputCostPerImageToken = *entry.OutputCostPerImageToken
+		}
+		if entry.OutputCostPerSecond != nil {
+			pricing.OutputCostPerSecond = *entry.OutputCostPerSecond
 		}
 
 		result[modelName] = pricing
@@ -575,7 +584,57 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 		return s.matchOpenAIModel(lookupCandidates[0])
 	}
 
+	// 6. Provider-prefixed 回退：裸名（如 "imagen-4.0-generate-001" / "veo-3.1-generate-preview"）
+	// 匹配 LiteLLM 表里带 provider 前缀的 key（"gemini/imagen-4.0-generate-001"、
+	// "vertex_ai/imagen-4.0-generate-001"）。多 provider 命中时取最高单价，计费保守不少收。
+	if pricing := s.matchByProviderPrefix(lookupCandidates[0]); pricing != nil {
+		return pricing
+	}
+
 	return nil
+}
+
+// matchByProviderPrefix 用裸模型名匹配 LiteLLM 表里 "<provider>/.../<model>" 形态的 key
+// （按最后一段精确相等，兼容 "gemini/x" 与 "aiml/google/x" 这类多段前缀），命中多个时取最高价。
+// 仅扫描含 "/" 的 key（裸 key 已在精确匹配阶段尝试过），避免回退误配裸名条目。
+func (s *PricingService) matchByProviderPrefix(bareModel string) *LiteLLMModelPricing {
+	bareModel = strings.ToLower(strings.TrimSpace(bareModel))
+	if bareModel == "" {
+		return nil
+	}
+	var best *LiteLLMModelPricing
+	var bestCost float64
+	for key, pricing := range s.pricingData {
+		if pricing == nil || !strings.Contains(key, "/") {
+			continue
+		}
+		if lastSegment(strings.ToLower(key)) != bareModel {
+			continue
+		}
+		if cost := comparablePricingCost(pricing); best == nil || cost > bestCost {
+			best = pricing
+			bestCost = cost
+		}
+	}
+	return best
+}
+
+// comparablePricingCost 取一个可比单价用于在同名多 provider 变体间挑最高价。
+// 优先级：每图 > 每秒(视频) > 每输出 token > 每输入 token。
+func comparablePricingCost(p *LiteLLMModelPricing) float64 {
+	if p == nil {
+		return 0
+	}
+	if p.OutputCostPerImage > 0 {
+		return p.OutputCostPerImage
+	}
+	if p.OutputCostPerSecond > 0 {
+		return p.OutputCostPerSecond
+	}
+	if p.OutputCostPerToken > 0 {
+		return p.OutputCostPerToken
+	}
+	return p.InputCostPerToken
 }
 
 func (s *PricingService) buildModelLookupCandidates(modelLower string) []string {

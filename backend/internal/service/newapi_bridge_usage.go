@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	newapitypes "github.com/QuantumNous/new-api/types"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
@@ -83,6 +84,21 @@ func newAPIBridgeChannelInput(account *Account, userID int64, groupLabel string)
 	// effectively disable the feature, mirroring upstream new-api semantics.
 	organization := strings.TrimSpace(account.GetCredential("openai_organization"))
 	statusCodeMappingJSON := strings.TrimSpace(account.GetCredential("status_code_mapping"))
+
+	// VertexAI (channel_type 41) service-account: forward the SA JSON as the channel key
+	// and signal new-api's adaptor to use JWT auth + the account's region. The Gemini
+	// Developer API (channel_type 24, plain API key) needs none of this. project_id is
+	// derived by new-api from the SA JSON, so it is not passed separately.
+	vertexKeyType := ""
+	vertexLocation := ""
+	if account.ChannelType == newapiconstant.ChannelTypeVertexAi && account.IsVertexServiceAccount() {
+		if saJSON := account.VertexServiceAccountJSON(); saJSON != "" {
+			apiKey = saJSON
+			vertexKeyType = string(dto.VertexKeyTypeJSON)
+			vertexLocation = account.VertexLocation("")
+		}
+	}
+
 	return bridge.ChannelContextInput{
 		ChannelType:           account.ChannelType,
 		ChannelID:             int(account.ID),
@@ -94,5 +110,7 @@ func newAPIBridgeChannelInput(account *Account, userID int64, groupLabel string)
 		UserID:                int(userID),
 		UserGroup:             groupLabel,
 		UsingGroup:            groupLabel,
+		VertexKeyType:         vertexKeyType,
+		VertexLocation:        vertexLocation,
 	}
 }

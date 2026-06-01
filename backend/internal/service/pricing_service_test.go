@@ -287,3 +287,62 @@ func TestListModelNamesByProvider_EmptyCatalog(t *testing.T) {
 	require.NotNil(t, got)
 	require.Empty(t, got)
 }
+
+func TestGetModelPricing_BareNameMatchesProviderPrefixedHighestPrice(t *testing.T) {
+	svc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"gemini/imagen-4.0-generate-001":    {OutputCostPerImage: 0.04, Mode: "image_generation"},
+			"vertex_ai/imagen-4.0-generate-001": {OutputCostPerImage: 0.06, Mode: "image_generation"},
+		},
+	}
+	got := svc.GetModelPricing("imagen-4.0-generate-001")
+	require.NotNil(t, got)
+	// 多 provider 命中取最高价（保守计费）
+	require.InDelta(t, 0.06, got.OutputCostPerImage, 1e-12)
+}
+
+func TestGetModelPricing_BareNameMatchesMultiSegmentPrefix(t *testing.T) {
+	svc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"aiml/google/imagen-4.0-ultra-generate-001": {OutputCostPerImage: 0.05, Mode: "image_generation"},
+		},
+	}
+	got := svc.GetModelPricing("imagen-4.0-ultra-generate-001")
+	require.NotNil(t, got)
+	require.InDelta(t, 0.05, got.OutputCostPerImage, 1e-12)
+}
+
+func TestGetModelPricing_VideoBareNameMatchesPerSecondHighestPrice(t *testing.T) {
+	svc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"gemini/veo-3.1-generate-preview":    {OutputCostPerSecond: 0.40, Mode: "video_generation"},
+			"vertex_ai/veo-3.1-generate-preview": {OutputCostPerSecond: 0.30, Mode: "video_generation"},
+		},
+	}
+	got := svc.GetModelPricing("veo-3.1-generate-preview")
+	require.NotNil(t, got)
+	require.InDelta(t, 0.40, got.OutputCostPerSecond, 1e-12)
+}
+
+func TestGetModelPricing_ProviderPrefixFallbackNoFalseMatch(t *testing.T) {
+	svc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"gemini/imagen-4.0-generate-001": {OutputCostPerImage: 0.04},
+		},
+	}
+	require.Nil(t, svc.GetModelPricing("nonexistent-model-xyz"))
+}
+
+func TestParsePricingData_ParsesOutputCostPerSecond(t *testing.T) {
+	svc := &PricingService{}
+	data, err := svc.parsePricingData([]byte(`{
+		"gemini/veo-3.1-generate-preview": {
+			"output_cost_per_second": 0.4,
+			"litellm_provider": "gemini",
+			"mode": "video_generation"
+		}
+	}`))
+	require.NoError(t, err)
+	require.NotNil(t, data["gemini/veo-3.1-generate-preview"])
+	require.InDelta(t, 0.4, data["gemini/veo-3.1-generate-preview"].OutputCostPerSecond, 1e-12)
+}

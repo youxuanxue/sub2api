@@ -212,13 +212,19 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 
 	userAgent := c.GetHeader("User-Agent")
 	clientIP := ip.GetClientIP(c)
+	// Per-second video billing (veo etc.): we record at submit using the requested
+	// duration (default 8s) rather than at fetch — the submit path already holds the
+	// full billing context (apiKey/user/account/subscription), and 8s is veo's
+	// conservative max so we never under-charge when the field is omitted.
+	videoSeconds := videoRequestedSeconds(body)
 	h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 		if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 			Result: &service.OpenAIForwardResult{
-				Model:         outcome.OriginModel,
-				UpstreamModel: outcome.UpstreamModel,
-				Stream:        false,
-				Duration:      outcome.Duration,
+				Model:                outcome.OriginModel,
+				UpstreamModel:        outcome.UpstreamModel,
+				Stream:               false,
+				Duration:             outcome.Duration,
+				VideoDurationSeconds: &videoSeconds,
 			},
 			APIKey:           apiKey,
 			User:             apiKey.User,
@@ -329,4 +335,27 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 // upstream's id) when surfaced in logs and dashboards.
 func generateVideoTaskID() string {
 	return "vt_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+}
+
+// videoRequestedSeconds extracts the requested video duration (seconds) from an
+// OpenAI-compat video request body, trying the common field spellings. Falls back to a
+// conservative 8s (veo's max) so per-second billing never under-charges when the client
+// omits the field; clamped to a sane [1,60] range.
+func videoRequestedSeconds(body []byte) int64 {
+	for _, key := range []string{"seconds", "duration_seconds", "duration"} {
+		r := gjson.GetBytes(body, key)
+		if !r.Exists() {
+			continue
+		}
+		// Float() parses both JSON numbers and numeric strings ("6"); round to nearest
+		// so fractional durations bill up rather than truncate down.
+		if f := r.Float(); f > 0 {
+			n := int64(f + 0.5)
+			if n > 60 {
+				n = 60
+			}
+			return n
+		}
+	}
+	return 8
 }
