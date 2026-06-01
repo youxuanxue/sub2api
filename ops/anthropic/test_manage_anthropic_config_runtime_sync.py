@@ -139,5 +139,80 @@ class GuardDriftPlanTest(unittest.TestCase):
             self.assertTrue(plan["intent"]["force_template_rewrite"])
 
 
+class HttpUaDriftTest(unittest.TestCase):
+    """Live HTTP UA / mimicry-manifest drift comparison (the check blind spot
+    that let the fleet run a stale cc UA while `check` stayed green)."""
+
+    EXPECTED = {
+        "cc_version": "2.1.159",
+        "sonnet_opus": ["claude-code-20250219", "oauth-2025-04-20"],
+        "haiku": ["oauth-2025-04-20"],
+    }
+
+    def _manifest(self, **over) -> str:
+        m = {
+            "schema_version": 1,
+            "cc_version": self.EXPECTED["cc_version"],
+            "sonnet_opus": list(self.EXPECTED["sonnet_opus"]),
+            "haiku": list(self.EXPECTED["haiku"]),
+        }
+        m.update(over)
+        return json.dumps(m, separators=(",", ":"))
+
+    def test_in_sync_no_drift(self) -> None:
+        live = {
+            "claude_code_user_agent_version": "2.1.159",
+            "claude_code_http_mimicry_manifest": self._manifest(),
+        }
+        self.assertEqual([], mgr._http_ua_drift_items("edge:us1", live, self.EXPECTED))
+
+    def test_stale_ua_version_is_drift(self) -> None:
+        live = {
+            "claude_code_user_agent_version": "2.1.158",  # stale — the real incident
+            "claude_code_http_mimicry_manifest": self._manifest(),
+        }
+        items = mgr._http_ua_drift_items("edge:us1", live, self.EXPECTED)
+        self.assertEqual(1, len(items))
+        self.assertEqual("drift", items[0]["status"])
+        self.assertEqual("claude_code_user_agent_version", items[0]["field"])
+        self.assertEqual("2.1.158", items[0]["actual"])
+
+    def test_unset_ua_is_drift(self) -> None:
+        items = mgr._http_ua_drift_items("prod", {}, self.EXPECTED)
+        # both UA and manifest unset -> two drift items
+        fields = {i["field"] for i in items}
+        self.assertEqual(
+            {"claude_code_user_agent_version", "claude_code_http_mimicry_manifest"}, fields
+        )
+        self.assertTrue(all(i["status"] == "drift" for i in items))
+
+    def test_manifest_cc_version_drift(self) -> None:
+        live = {
+            "claude_code_user_agent_version": "2.1.159",
+            "claude_code_http_mimicry_manifest": self._manifest(cc_version="2.1.158"),
+        }
+        items = mgr._http_ua_drift_items("edge:us1", live, self.EXPECTED)
+        self.assertEqual(1, len(items))
+        self.assertEqual("claude_code_http_mimicry_manifest", items[0]["field"])
+
+    def test_manifest_beta_set_drift(self) -> None:
+        live = {
+            "claude_code_user_agent_version": "2.1.159",
+            "claude_code_http_mimicry_manifest": self._manifest(haiku=["oauth-2025-04-20", "extra-beta"]),
+        }
+        items = mgr._http_ua_drift_items("edge:us1", live, self.EXPECTED)
+        self.assertEqual(1, len(items))
+        self.assertIn("haiku", items[0]["warning"])
+
+    def test_manifest_invalid_json_is_drift(self) -> None:
+        live = {
+            "claude_code_user_agent_version": "2.1.159",
+            "claude_code_http_mimicry_manifest": "{not-json",
+        }
+        items = mgr._http_ua_drift_items("edge:us1", live, self.EXPECTED)
+        self.assertEqual(1, len(items))
+        self.assertEqual("drift", items[0]["status"])
+
+
 if __name__ == "__main__":
     unittest.main()

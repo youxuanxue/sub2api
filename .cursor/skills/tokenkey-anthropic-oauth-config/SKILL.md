@@ -58,13 +58,18 @@ MGR=ops/anthropic/manage-anthropic-config.py
 # Stage 1 — Snapshot：拉所有 deployable edge 的 anthropic OAuth account + prod anthropic api-key stub 状态到 JSON
 python3 $MGR snapshot --out $JOBDIR/snap.json
 
-# Stage 2 — Check（联查）：每个 edge 跑 OAuth 稳定性 guard，只读出 TLS / 余额 /
-#   tier 表（vs git）漂移
+# Stage 2 — Check（联查）：每个 edge 跑 OAuth 稳定性 guard，读出 TLS / 余额 /
+#   tier 表（vs git）/ HTTP UA + mimicry manifest 漂移
 python3 $MGR check --snapshot $JOBDIR/snap.json
 #   退出码：0 全绿 / 1 violation（含 tls_profile drift、operator_balance 低于门槛、
-#           tier_table_drift 等）/ 2 error
+#           tier_table_drift、http_ua_drift 等）/ 2 error
 #   注意：check 只“报告”漂移。修复入口分流：
 #     - tls_profile 漂移 → 本 skill Stage 3（plan-guard-drift-fix / remediate-guard-drift）
+#     - http_ua_drift（live settings.claude_code_user_agent_version / mimicry manifest
+#       != deploy/aws/stage0/anthropic-http-mimicry-baselines.json）→ 本 skill Stage 4
+#       `sync-runtime`。这是把「最关键的 HTTP 指纹配置」纳入 check 的覆盖面：cc bump 合并后
+#       若忘记 sync-runtime，fleet live UA 会停在旧版本而 check 旧版**不会报**——现已会 violation。
+#       **始终 live 读**（即使传 --snapshot）：UA 是部署级运行时旋钮，snapshot 不抓它。
 #     - operator_balance / pool_mode / concurrency 漂移 → 后端 reconciler 自愈（§3）
 #     - tier_table_drift（live `tiers` 表 != git baseline）→ tier 行被 admin 后台改过
 #       （PUT /admin/tiers/:id），下次重启/发版会被 ensureSeededFromBaseline 回刷；
@@ -112,7 +117,7 @@ prod 无 OAuth 账号时只写 settings；edge 两者都写。HTTP UA 运行时 
 | 阶段 | 输入 | 输出 | exit |
 |---|---|---|---|
 | snapshot | EC2/Lightsail SSM 权限 | `snap.json`：`edges.*.oauth_accounts` + `prod.anthropic_stubs`，**字段名嵌在值旁**（jsonb_agg） | 0 / 2 error |
-| check | snap.json | 每个 edge 跑 `check-edge-oauth-stability.py` + `operator_balance` 段（live 或 snapshot v6）；**只读报告** | 0 ok / 1 violation / 2 error |
+| check | snap.json | 每 edge 跑 `check-edge-oauth-stability.py`（含 `tls_profile` diff）+ `operator_balance` + `tier_table_drift` + `http_ua_drift`（**始终 live 读** settings UA + mimicry manifest vs baseline JSON）；**报告**，drift/error 计入 violation | 0 ok / 1 violation / 2 error |
 | plan-guard-drift-fix | snap.json + check.json（或重跑 guard） | 每个 `status=drift` 账号一个 `edge_account_tier` action（force template rewrite，重写 TLS profile + 绑定 + credentials 模板字段） | 0 / 2 |
 | remediate-guard-drift | confirm + job-dir | 上述全流程（snapshot → check → plan → apply --sync-runtime → verify → check）artifact 落盘 | 0 / 1 |
 | apply | plan.json + confirm | 逐 action 渲染 SQL → SSM；可选 `--sync-runtime` 写 settings + 清 Redis | 0 / 1 step failed / 2 |
@@ -216,7 +221,7 @@ operate 流程：
 | check 报 `tier_table_drift`（live `tiers` 表 != git baseline，violation/exit 1） | tier 行被 admin 后台改过（`PUT /admin/tiers/:id`），全副本即时生效但下次重启/发版被 `ensureSeededFromBaseline` 回刷。看 `items[].warning` 定位 node/tier/字段；**撤销后台改动**（admin UI 改回），或若是有意调整就**把新值落进 git baseline JSON**（`deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json` + 同步 embed/迁移，过 `check-tier-baseline-embed.py`）再发版固化 |
 | check 报账号 `account_field_drift`（非 tier-managed 字段，如 priority / concurrency） | concurrency 由 reconciler 自愈（§3）；其余账号级字段走 admin UI |
 | check 报 `operator_balance` 低于门槛 / pool_mode / concurrency 漂移 | 由后端 reconciler 自愈（§3）；若持续未自愈，查该节点 reconciler leader 锁 / slog 日志，不要手工 plan |
-| HTTP UA / mimicry 未生效 | `sync-runtime --target …`（或先 `plan-http-mimicry-sync` 核对 manifest）；确认 `anthropic-http-mimicry-baselines.json` 的 `cc_version` 已是目标版本 |
+| check 报 `http_ua_drift` / HTTP UA 未生效 | `sync-runtime --target …`（或先 `plan-http-mimicry-sync` 核对 manifest）；确认 `anthropic-http-mimicry-baselines.json` 的 `cc_version` 已是目标版本。典型成因：cc 版本 bump PR 合并后忘了跑 sync-runtime，fleet live UA 仍停在旧版本——check 现在会 violation（exit 1），不再假绿 |
 | OAuth account `status=error/suspended` | OAuth 凭据问题（token 过期 / 403 / 上游禁用），见 OAuth 故障文档；不在本流水线范围 |
 | verify drift | operator 决定再 apply 或回滚（用 admin 前端按 plan.live_inputs.* 的 before 反向写回） |
 
