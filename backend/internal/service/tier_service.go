@@ -144,7 +144,7 @@ func (s *TierService) ApplyTierExtra(account *Account) {
 	if s == nil || account == nil || account.TierID == nil || *account.TierID <= 0 {
 		return
 	}
-	if account.Platform != PlatformAnthropic || account.Type != AccountTypeOAuth {
+	if !account.IsAnthropicOAuthOrSetupToken() {
 		return
 	}
 	t := s.lookupByID(*account.TierID)
@@ -159,13 +159,12 @@ func (s *TierService) ApplyTierExtra(account *Account) {
 
 // TierManagedExtraStripped 返回剥离 tier-overlay 键后的 extra 副本（写路径在
 // repo.Update 调用），保证内存 overlay 不持久化到账号。非 tier-managed 账号
-// （无 tier_id / 非 anthropic-oauth）原样返回。
+// （无 tier_id / 非 anthropic-oauth/setup-token）原样返回。
 func (s *TierService) TierManagedExtraStripped(account *Account) map[string]any {
 	if account == nil {
 		return nil
 	}
-	if account.TierID == nil || *account.TierID <= 0 ||
-		account.Platform != PlatformAnthropic || account.Type != AccountTypeOAuth {
+	if account.TierID == nil || *account.TierID <= 0 || !account.IsAnthropicOAuthOrSetupToken() {
 		return account.Extra
 	}
 	if account.Extra == nil {

@@ -1271,7 +1271,7 @@
         "extra[\"enable_tls_fingerprint\"] = true",
         "AccountTierExtraKey"
       ],
-      "rationale": "TK per-account tier-apply service: the UI 'Set Tier' action that replaces the high-frequency ops/anthropic SSM fan-out for a single deployment. ApplyTier derives the desired account config from the embedded tier baseline (concurrency/priority/rate_multiplier + merged extra + shared credentials), upserts the canonical TLS fingerprint profile, pins enable_tls_fingerprint + tls_fingerprint_profile_id + stability_tier on extra, and persists via the existing UpdateAccount path (which runs the operator-Σ sync). Writes ONLY this deployment's DB. Silent upstream-merge deletion would break the admin Set-Tier UI flow."
+      "rationale": "TK per-account tier-apply service: the UI 'Set Tier' action that replaces the high-frequency ops/anthropic SSM fan-out for a single deployment. ApplyTier accepts anthropic OAuth AND setup-token accounts (both are subject to 5h window + session control per Account.IsAnthropicOAuthOrSetupToken); api-key / mirror stubs and other platforms are rejected. It derives the desired account config from the embedded tier baseline (concurrency/priority/rate_multiplier + merged extra + shared credentials), upserts the canonical TLS fingerprint profile, pins enable_tls_fingerprint + tls_fingerprint_profile_id + stability_tier on extra, and persists via the existing UpdateAccount path (which runs the operator-Σ sync). Writes ONLY this deployment's DB. Silent upstream-merge deletion would break the admin Set-Tier UI flow."
     },
     {
       "path": "backend/internal/handler/admin/account_handler_tk_tier.go",
