@@ -39,9 +39,11 @@ func NewAccountTierService(adminSvc AdminService, tierSvc *TierService, tlsSvc *
 	return &AccountTierService{adminSvc: adminSvc, tierSvc: tierSvc, tlsSvc: tlsSvc}
 }
 
-// ApplyTier binds the given account to `tier`. Only anthropic OAUTH accounts are
-// accepted (apikey mirror stubs and other platforms are rejected — applying a
-// tier to a stub would wipe its base_url/pool_mode).
+// ApplyTier binds the given account to `tier`. Only anthropic OAUTH and
+// setup-token accounts are accepted — these are the two types subject to 5h
+// window + session control (see Account.IsAnthropicOAuthOrSetupToken). apikey
+// mirror stubs and other platforms are rejected — applying a tier to a stub
+// would wipe its base_url/pool_mode.
 func (s *AccountTierService) ApplyTier(ctx context.Context, accountID int64, tier string) (*Account, error) {
 	if s == nil || s.adminSvc == nil || s.tierSvc == nil {
 		return nil, fmt.Errorf("account tier service unavailable")
@@ -57,8 +59,8 @@ func (s *AccountTierService) ApplyTier(ctx context.Context, accountID int64, tie
 	if account.Platform != PlatformAnthropic {
 		return nil, fmt.Errorf("apply-tier is only supported for anthropic accounts (account %d is platform %q)", accountID, account.Platform)
 	}
-	if account.Type != AccountTypeOAuth {
-		return nil, fmt.Errorf("apply-tier is only supported for anthropic OAuth accounts (account %d is type %q); tier does not apply to api-key / mirror-stub accounts", accountID, account.Type)
+	if account.Type != AccountTypeOAuth && account.Type != AccountTypeSetupToken {
+		return nil, fmt.Errorf("apply-tier is only supported for anthropic OAuth / setup-token accounts (account %d is type %q); tier does not apply to api-key / mirror-stub accounts", accountID, account.Type)
 	}
 
 	row, err := s.tierSvc.GetByName(ctx, tier)

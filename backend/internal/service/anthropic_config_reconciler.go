@@ -278,7 +278,7 @@ func (r *AnthropicConfigReconciler) reconcileTierConcurrency(ctx context.Context
 	}
 	for i := range accounts {
 		a := &accounts[i]
-		if a.TierID == nil || *a.TierID <= 0 || a.Type != AccountTypeOAuth {
+		if a.TierID == nil || *a.TierID <= 0 || !a.IsAnthropicOAuthOrSetupToken() {
 			continue
 		}
 		want, ok := r.tiers.ResolveConcurrency(*a.TierID)
@@ -485,12 +485,12 @@ func (r *AnthropicConfigReconciler) reconcileBalanceFloor(ctx context.Context) {
 // reportTierDrift is REPORT ONLY. In the reference-table model per-tier numeric
 // config is resolved at runtime (overlay) and concurrency is value-synced by Step
 // T, so per-field drift no longer exists. The remaining meaningful signal is a
-// MIGRATION GAP: an anthropic OAUTH account carrying the legacy stability_tier
-// label but with no tier_id binding (not tier-resolved at runtime).
+// MIGRATION GAP: an anthropic OAUTH / setup-token account carrying the legacy
+// stability_tier label but with no tier_id binding (not tier-resolved at runtime).
 func (r *AnthropicConfigReconciler) reportTierDrift(accounts []Account) {
 	for i := range accounts {
 		a := &accounts[i]
-		if a.Type != AccountTypeOAuth {
+		if !a.IsAnthropicOAuthOrSetupToken() {
 			continue
 		}
 		if a.TierID != nil && *a.TierID > 0 {

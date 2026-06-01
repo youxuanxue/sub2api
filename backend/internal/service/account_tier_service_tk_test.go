@@ -105,6 +105,51 @@ func TestApplyTier_RejectsApikeyStub(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestApplyTier_SetupTokenBindsTier(t *testing.T) {
+	// Regression: setup-token anthropic accounts are subject to the same 5h
+	// window + session control as OAuth (Account.IsAnthropicOAuthOrSetupToken)
+	// and MUST be tier-eligible. PR #472's over-narrow Type==oauth gate rejected
+	// them; this asserts they now bind.
+	admin := &stubAdminServiceForTier{getAccount: &Account{
+		ID:       9,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeSetupToken,
+	}}
+	svc := NewAccountTierService(admin, tierServiceWithL4(t), nil)
+
+	_, err := svc.ApplyTier(context.Background(), 9, "l4")
+	require.NoError(t, err)
+	require.NotNil(t, admin.updateInput)
+	require.NotNil(t, admin.updateInput.TierID)
+	require.Equal(t, int64(4), *admin.updateInput.TierID, "setup-token must bind tier_id")
+	require.NotNil(t, admin.updateInput.Concurrency)
+	require.Equal(t, 8, *admin.updateInput.Concurrency, "setup-token must value-sync concurrency from tier")
+}
+
+func TestApplyTierExtra_OverlaysSetupToken(t *testing.T) {
+	// Runtime overlay must apply to setup-token accounts too, otherwise a bound
+	// setup-token account would read base_rpm/max_sessions == 0 (unlimited).
+	tierID := int64(4)
+	acct := &Account{Platform: PlatformAnthropic, Type: AccountTypeSetupToken, TierID: &tierID}
+	tierServiceWithL4(t).ApplyTierExtra(acct)
+	require.Equal(t, 28, parseExtraInt(acct.Extra["base_rpm"]), "setup-token overlay must set base_rpm from tier")
+	require.Equal(t, 120, parseExtraInt(acct.Extra["max_sessions"]), "setup-token overlay must set max_sessions from tier")
+}
+
+func TestTierManagedExtraStripped_StripsSetupTokenOverlay(t *testing.T) {
+	// Write path must strip overlaid tier-managed keys for setup-token too, so the
+	// in-memory overlay is never persisted back onto the account.
+	tierID := int64(4)
+	acct := &Account{
+		Platform: PlatformAnthropic, Type: AccountTypeSetupToken, TierID: &tierID,
+		Extra: map[string]any{"base_rpm": 28, "rpm_strategy": "tiered"},
+	}
+	out := tierServiceWithL4(t).TierManagedExtraStripped(acct)
+	_, hasBaseRPM := out["base_rpm"]
+	require.False(t, hasBaseRPM, "tier-managed base_rpm must be stripped for setup-token write path")
+	require.Equal(t, "tiered", out["rpm_strategy"], "non-tier extra preserved")
+}
+
 func TestApplyTier_OAuthBindsTierAndValueSyncsConcurrency(t *testing.T) {
 	admin := &stubAdminServiceForTier{getAccount: &Account{
 		ID:       7,
