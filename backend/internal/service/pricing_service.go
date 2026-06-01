@@ -435,6 +435,10 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		return nil, fmt.Errorf("no valid pricing entries found")
 	}
 
+	// TK: fill-only overlay for media (image/video) models the trimmed runtime source
+	// drops (imagen-*/veo-*). See pricing_service_tk_media_overlay.go.
+	applyTKMediaPricingOverlay(result)
+
 	return result, nil
 }
 
@@ -584,9 +588,10 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 		return s.matchOpenAIModel(lookupCandidates[0])
 	}
 
-	// 6. Provider-prefixed 回退：裸名（如 "imagen-4.0-generate-001" / "veo-3.1-generate-preview"）
-	// 匹配 LiteLLM 表里带 provider 前缀的 key（"gemini/imagen-4.0-generate-001"、
-	// "vertex_ai/imagen-4.0-generate-001"）。多 provider 命中时取最高单价，计费保守不少收。
+	// 6. Provider-prefixed 最后兜底：仅当运行时源恰好带前缀 key（"gemini/imagen-4.0-*"、
+	// "vertex_ai/imagen-4.0-*"）时才命中。注意这不是媒体计价的主路径——生产源（Wei-Shaw 镜像）
+	// 把这些前缀 key 全裁掉了，真正让 imagen-*/veo-* 解析出价的是 always-merged 的 TK overlay
+	// （见 pricing_service_tk_media_overlay.go），overlay 注入的裸名已在上面第 1 步 exact-match 命中。
 	if pricing := s.matchByProviderPrefix(lookupCandidates[0]); pricing != nil {
 		return pricing
 	}
@@ -619,8 +624,9 @@ func (s *PricingService) matchByProviderPrefix(bareModel string) *LiteLLMModelPr
 	return best
 }
 
-// comparablePricingCost 取一个可比单价用于在同名多 provider 变体间挑最高价。
-// 优先级：每图 > 每秒(视频) > 每输出 token > 每输入 token。
+// comparablePricingCost 取一个可比单价，仅用于第 6 步兜底里同名多 provider 变体的挑选。
+// 此处取最高价是「无法确定实际承接 provider 时的保守猜测」，不是计价语义的主张——主路径
+// （TK overlay）已固化按实际承接 provider（Vertex ch41）的价。优先级：每图 > 每秒(视频) > 每输出 token > 每输入 token。
 func comparablePricingCost(p *LiteLLMModelPricing) float64 {
 	if p == nil {
 		return 0

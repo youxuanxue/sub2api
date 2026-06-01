@@ -245,5 +245,8 @@ func (s *OpenAIGatewayService) ForwardAsImageGenerationsDispatched(
 		Stream:        false,
 		Duration:      out.Duration,
 		Usage:         openAIUsageFromNewAPIDTO(out.Usage),
+		// Drives per-image billing (output_cost_per_image); without it imagen via the
+		// bridge silently bills by tokens. See bridge.DispatchOutcome.ImageCount.
+		ImageCount: out.ImageCount,
 	}, nil
 }

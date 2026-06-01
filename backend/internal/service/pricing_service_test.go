@@ -346,3 +346,45 @@ func TestParsePricingData_ParsesOutputCostPerSecond(t *testing.T) {
 	require.NotNil(t, data["gemini/veo-3.1-generate-preview"])
 	require.InDelta(t, 0.4, data["gemini/veo-3.1-generate-preview"].OutputCostPerSecond, 1e-12)
 }
+
+// TestParsePricingData_TKMediaOverlayMergesWhenSourceLacksMedia proves the
+// load-bearing production path: the runtime source (Wei-Shaw mirror) carries NO
+// imagen/veo entries at all — not bare, not provider-prefixed — yet imagen-*/veo-*
+// must still resolve to a real price via the always-merged TK overlay. This is what
+// makes the feature work in prod (matchByProviderPrefix has nothing to match there).
+func TestParsePricingData_TKMediaOverlayMergesWhenSourceLacksMedia(t *testing.T) {
+	svc := &PricingService{}
+	// Wei-Shaw-shaped source: only mainstream token models, no media, no "/" keys.
+	body := []byte(`{
+		"gpt-4o": {"input_cost_per_token": 0.0000025, "output_cost_per_token": 0.00001, "litellm_provider": "openai"},
+		"claude-3-7-sonnet-20250219": {"input_cost_per_token": 0.000003, "output_cost_per_token": 0.000015, "litellm_provider": "anthropic"}
+	}`)
+	pricingData, err := svc.parsePricingData(body)
+	require.NoError(t, err)
+	svc.pricingData = pricingData
+
+	img := svc.GetModelPricing("imagen-4.0-generate-001")
+	require.NotNil(t, img, "overlay must supply imagen even when the source lacks it")
+	require.Equal(t, "image_generation", img.Mode)
+	require.Greater(t, img.OutputCostPerImage, 0.0)
+
+	vid := svc.GetModelPricing("veo-3.1-generate-001")
+	require.NotNil(t, vid, "overlay must supply veo even when the source lacks it")
+	require.Equal(t, "video_generation", vid.Mode)
+	require.Greater(t, vid.OutputCostPerSecond, 0.0)
+}
+
+// TestParsePricingData_TKMediaOverlayIsFillOnly proves the overlay never overwrites
+// the loaded source: the day the source carries a bare media key natively, the source
+// value wins and the overlay entry is ignored (self-deprecating).
+func TestParsePricingData_TKMediaOverlayIsFillOnly(t *testing.T) {
+	svc := &PricingService{}
+	body := []byte(`{
+		"imagen-4.0-generate-001": {"output_cost_per_image": 0.99, "mode": "image_generation", "litellm_provider": "vertex_ai"}
+	}`)
+	pricingData, err := svc.parsePricingData(body)
+	require.NoError(t, err)
+	got := pricingData["imagen-4.0-generate-001"]
+	require.NotNil(t, got)
+	require.InDelta(t, 0.99, got.OutputCostPerImage, 1e-12) // source wins, not the overlay's value
+}
