@@ -447,6 +447,27 @@ else
     echo "  ok: embedded tier/stub baselines match deploy/aws/stage0 sources"
 fi
 
+# ---- sub2api: cc version string single-source -------------------------------
+# A cc CLI patch bump (e.g. 2.1.158 -> 2.1.159) used to require hand-editing
+# ~10 files; PR #482 shipped 5 wrong dead-value edits because nothing checked
+# them. Source of truth is anthropic-http-mimicry-baselines.json cc_version;
+# check-cc-version-sync.py proves every Go compile default + dead snapshot
+# agrees, and its --selftest keeps the guard's own parse/write logic honest.
+echo ""
+echo "=== sub2api: cc version string single-source ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for cc version sync check)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/sentinels/check-cc-version-sync.py --selftest >/dev/null; then
+    echo "  FAIL: check-cc-version-sync.py self-test failed"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/sentinels/check-cc-version-sync.py --quiet; then
+    # check-cc-version-sync.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: cc_version in anthropic-http-mimicry-baselines.json synced to all copies"
+fi
+
 # ---- sub2api: sentinel registry update gate ---------------------------------
 # Existing sentinel checks prove current guarded literals still exist. This gate
 # proves PRs that modify guarded/hotspot files also update the matching registry,
