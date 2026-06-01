@@ -36,6 +36,13 @@
       "platform": "lightsail",
       "edge_id": "us2",
       "notes": "Lightsail edge-us2 StaticIp-2 upstream API risk-block (2026-05-29)"
+    },
+    {
+      "ip": "52.47.52.132",
+      "region": "eu-west-3",
+      "platform": "ec2",
+      "edge_id": "fra1",
+      "notes": "EC2 fra1 EIP released 2026-06-01 on EC2 decommission (fra1 goes Lightsail-only; not upstream pollution; exclude from re-allocation)"
     }
   ]
 }
