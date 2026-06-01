@@ -69,25 +69,23 @@ func disableOpenAITraining(ctx context.Context, clientFactory PrivacyClientFacto
 		return PrivacyModeFailed
 	}
 
-	if resp.StatusCode == 403 || resp.StatusCode == 503 {
-		body := resp.String()
-		if strings.Contains(body, "cloudflare") || strings.Contains(body, "cf-") || strings.Contains(body, "Just a moment") {
-			slog.Warn("openai_privacy_cf_blocked", "status", resp.StatusCode)
-			return PrivacyModeCFBlocked
-		}
-	}
-
-	if !resp.IsSuccessState() {
+	// TK: classification (incl. broadened anti-bot/CF-challenge detection) lives in
+	// openai_privacy_tk_classify.go to keep this upstream file a thin call site.
+	switch mode := classifyOpenAIPrivacyResponse(resp.StatusCode, resp.GetContentType(), resp.String()); mode {
+	case PrivacyModeCFBlocked:
+		slog.Warn("openai_privacy_cf_blocked", "status", resp.StatusCode, "content_type", resp.GetContentType())
+		return mode
+	case PrivacyModeTrainingOff:
+		slog.Info("openai_privacy_training_disabled")
+		return mode
+	default:
 		// truncate at 2000B (was 200B): OpenAI privacy API failure responses can include
 		// nested HTML/JSON error envelopes, request-id, and rate-limit hints; 200B routinely
 		// cut these off mid-key and forced operators to re-enable debug logging to root-cause
 		// (see prod incident on 2026-04: "Privacy not set" loop on GPT-A1).
-		slog.Warn("openai_privacy_failed", "status", resp.StatusCode, "body", truncate(resp.String(), 2000))
-		return PrivacyModeFailed
+		slog.Warn("openai_privacy_failed", "status", resp.StatusCode, "content_type", resp.GetContentType(), "body", truncate(resp.String(), 2000))
+		return mode
 	}
-
-	slog.Info("openai_privacy_training_disabled")
-	return PrivacyModeTrainingOff
 }
 
 // ChatGPTAccountInfo 从 chatgpt.com/backend-api/accounts/check 获取的账号信息

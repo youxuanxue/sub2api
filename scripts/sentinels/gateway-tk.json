@@ -1513,6 +1513,13 @@
         "VideoDurationSeconds"
       ],
       "rationale": "Per-second video (veo) billing: VideoSubmit records usage with the requested duration (default 8s via videoRequestedSeconds) so the cost path bills duration x per-second rate. Without this anchor veo silently bills $0 (no tokens, no per-second branch)."
+    },
+    {
+      "path": "backend/internal/service/openai_privacy_service.go",
+      "must_contain": [
+        "classifyOpenAIPrivacyResponse(resp.StatusCode, resp.GetContentType(), resp.String())"
+      ],
+      "rationale": "The OpenAI 'disable training data sharing' PATCH to chatgpt.com/backend-api gets served an OpenAI-branded Cloudflare anti-bot interstitial (gray logo SVG + <meta http-equiv=refresh>, status 403) from a datacenter egress IP. That page contains NONE of the legacy cloudflare/cf-/Just-a-moment markers, so the original inline detection mis-recorded it as training_set_failed (red 'Fail') instead of training_set_cf_blocked (yellow 'CF' — blocked, retryable, not an account fault). disableOpenAITraining now delegates classification to classifyOpenAIPrivacyResponse in openai_privacy_tk_classify.go (broadened HTML / <html> / cf / meta-refresh detection). An upstream merge that restores the old inline 3-marker block here compiles clean but silently reverts the fix and leaves the companion file as dead code — this sentinel catches that revert."
     }
   ]
 }
