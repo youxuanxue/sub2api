@@ -3187,7 +3187,6 @@ export default {
         capacity: '容量',
         todayStats: '今日',
         state: '状态',
-        concurrency: '并发',
         priority: '优先级',
         groups: '分组',
         lastUsed: '最近使用'

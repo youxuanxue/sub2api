@@ -3112,7 +3112,6 @@ export default {
         capacity: 'Capacity',
         todayStats: 'Today',
         state: 'State',
-        concurrency: 'Concurrency',
         priority: 'Priority',
         groups: 'Groups',
         lastUsed: 'Last Used'

@@ -35,13 +35,6 @@ export function accountStateLabel(a: EdgeAccountSummary): string {
 }
 
 /**
- * Variant for an edge's reachability pill.
- */
-export function edgeStatusVariant(e: EdgeAccountsResult): StatusVariant {
-  return e.ok ? 'success' : 'danger'
-}
-
-/**
  * Count of effectively-schedulable accounts in an edge slice.
  */
 export function schedulableCount(e: EdgeAccountsResult): number {
