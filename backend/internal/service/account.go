@@ -1004,11 +1004,14 @@ func (a *Account) GetPoolModeRetryStatusCodes() []int {
 }
 
 // IsPoolModeRetryableStatus 在账号上下文中判断给定状态码是否应触发同账号重试。
-// 若账号未配置 pool_mode_retry_status_codes，则回退到默认列表。
+// 若账号未配置 pool_mode_retry_status_codes，则回退到 TK 默认列表
+// （tkDefaultPoolModeRetryableStatusCodes = {401,403,429,503,529}，见
+// account_tk_pool_retry.go；在 upstream {401,403,429} 上追加转发 stub 需要的
+// 503/529）。显式配置仍然优先覆盖（显式空列表可关闭全部）。
 func (a *Account) IsPoolModeRetryableStatus(statusCode int) bool {
 	codes := a.GetPoolModeRetryStatusCodes()
 	if codes == nil {
-		return isPoolModeRetryableStatus(statusCode)
+		return tkIsPoolModeRetryableStatus(statusCode)
 	}
 	for _, c := range codes {
 		if c == statusCode {

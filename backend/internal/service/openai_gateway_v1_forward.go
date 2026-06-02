@@ -169,9 +169,11 @@ func (s *OpenAIGatewayService) forwardOpenAIV1JSON(
 				s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
 			}
 			return nil, &UpstreamFailoverError{
-				StatusCode:             resp.StatusCode,
-				ResponseBody:           respBody,
-				RetryableOnSameAccount: account.IsPoolMode() && (isPoolModeRetryableStatus(resp.StatusCode) || isOpenAITransientProcessingError(resp.StatusCode, upstreamMsg, respBody)),
+				StatusCode:   resp.StatusCode,
+				ResponseBody: respBody,
+				// TK: 用 account 级判定（含 TK 默认 503/529 + per-account 覆写）而非
+				// 裸 pkg 默认，与其它 pool 路径一致（见 account_tk_pool_retry.go）。
+				RetryableOnSameAccount: account.IsPoolMode() && (account.IsPoolModeRetryableStatus(resp.StatusCode) || isOpenAITransientProcessingError(resp.StatusCode, upstreamMsg, respBody)),
 			}
 		}
 		return s.handleErrorResponse(ctx, resp, c, account, body)
