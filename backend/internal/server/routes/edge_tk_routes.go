@@ -27,4 +27,11 @@ func RegisterTKEdgeRoutes(v1 *gin.RouterGroup, h *handler.Handlers, apiKeyServic
 	edge := v1.Group("/edge")
 	edge.Use(middleware2.NewEdgeCapacityAuthMiddleware(apiKeyService))
 	edge.GET("/scheduling-capacity", h.EdgeCapacity.GetSchedulingCapacity)
+
+	// Read-only account inventory for prod's cross-edge admin overview. Same
+	// lightweight api-key auth, same side-effect-free posture as capacity. The
+	// handler returns a credential-free DTO; see edge_tk_accounts_handler.go.
+	if h.EdgeAccounts != nil {
+		edge.GET("/accounts", h.EdgeAccounts.ListAccounts)
+	}
 }

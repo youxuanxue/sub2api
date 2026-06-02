@@ -482,6 +482,7 @@ export default {
     availableChannels: 'Available Channels',
     subscriptions: 'Subscriptions',
     accounts: 'Accounts',
+    edgeAccounts: 'Edge Accounts',
     proxies: 'Proxies',
     redeemCodes: 'Redeem Codes',
     ops: 'Ops',
@@ -3093,6 +3094,28 @@ export default {
     },
 
     // Accounts
+    edgeAccounts: {
+      title: 'Edge Accounts',
+      description: 'Read-only overview of accounts on each edge deployment',
+      refresh: 'Refresh',
+      lastFetched: 'Last fetched',
+      noEdges: 'No edges discovered (no anthropic mirror stubs configured on this deployment).',
+      edgeEmpty: 'No accounts on this edge.',
+      summaryEdges: '{ok}/{total} edges reachable',
+      summaryAccounts: '{count} accounts',
+      summaryFailed: '{count} unreachable',
+      accountCount: '{count} accounts',
+      schedulableCount: '{count} schedulable',
+      columns: {
+        name: 'Name',
+        platformType: 'Platform / Type',
+        state: 'State',
+        concurrency: 'Concurrency',
+        priority: 'Priority',
+        groups: 'Groups',
+        lastUsed: 'Last Used'
+      }
+    },
     accounts: {
       title: 'Account Management',
       description: 'Manage AI platform accounts and credentials',

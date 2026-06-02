@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"net/http"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
@@ -255,6 +256,14 @@ func ProvideAnthropicConfigReconciler(
 	rec := NewAnthropicConfigReconciler(accountRepo, userRepo, adminSvc, tierSvc, cfg, redisClient)
 	rec.Start()
 	return rec
+}
+
+// ProvideEdgeAccountsAggregator creates the prod-side cross-edge read-only
+// account aggregator. It owns its own short-timeout HTTP client (constructed
+// here rather than wired) to avoid colliding with other *http.Client providers
+// in the type graph. accountRepo satisfies the narrow edgeAccountsStore.
+func ProvideEdgeAccountsAggregator(accountRepo AccountRepository) *EdgeAccountsAggregator {
+	return NewEdgeAccountsAggregator(accountRepo, &http.Client{Timeout: edgeAccountsHTTPTO})
 }
 
 // ProvideRateLimitService creates RateLimitService with optional dependencies.
@@ -566,6 +575,8 @@ var ProviderSet = wire.NewSet(
 	// scheduler_rate_limit_reaper.go.
 	ProvideSchedulerRateLimitReaper,
 	ProvideAnthropicConfigReconciler,
+	// TK: prod-side cross-edge read-only account overview — see edge_accounts_aggregator_tk.go.
+	ProvideEdgeAccountsAggregator,
 	NewIdentityService,
 	NewCRSSyncService,
 	ProvideUpdateService,

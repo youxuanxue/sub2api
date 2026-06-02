@@ -83,6 +83,9 @@ func RegisterAdminRoutes(
 		// TK: anthropic-oauth 稳定性档位（tier 模板）管理
 		registerTKTierTemplateRoutes(admin, h)
 
+		// TK: 跨 edge 只读账号总览
+		registerTKEdgeAccountsRoutes(admin, h)
+
 		// API Key 管理
 		registerAdminAPIKeyRoutes(admin, h)
 

@@ -40,6 +40,8 @@ type AdminHandlers struct {
 	TKChannel              *admin.TKChannelAdminHandler
 	// TK: anthropic-oauth stability tier reference table CRUD — see tier_handler_tk.go.
 	Tier *admin.TierHandler
+	// TK: prod-side cross-edge read-only account overview — see edge_accounts_handler_tk.go.
+	EdgeAccounts *admin.EdgeAccountsHandler
 }
 
 // Handlers contains all HTTP handlers
@@ -69,6 +71,8 @@ type Handlers struct {
 	QA *QAHandler
 	// TK: internal edge capacity read (surface C) — see edge_tk_capacity_handler.go.
 	EdgeCapacity *EdgeCapacityHandler
+	// TK: internal edge read-only account inventory — see edge_tk_accounts_handler.go.
+	EdgeAccounts *EdgeAccountsHandler
 }
 
 // BuildInfo contains build-time information

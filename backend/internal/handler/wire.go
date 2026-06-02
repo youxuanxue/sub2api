@@ -43,6 +43,7 @@ func ProvideAdminHandlers(
 	affiliateHandler *admin.AffiliateHandler,
 	tkChannelHandler *admin.TKChannelAdminHandler,
 	tierHandler *admin.TierHandler,
+	edgeAccountsHandler *admin.EdgeAccountsHandler,
 ) *AdminHandlers {
 	return &AdminHandlers{
 		Dashboard:              dashboardHandler,
@@ -77,6 +78,7 @@ func ProvideAdminHandlers(
 		Affiliate:              affiliateHandler,
 		TKChannel:              tkChannelHandler,
 		Tier:                   tierHandler,
+		EdgeAccounts:           edgeAccountsHandler,
 	}
 }
 
@@ -177,6 +179,21 @@ func ProvideEdgeCapacityHandler(accountRepo service.AccountRepository) *EdgeCapa
 	return NewEdgeCapacityHandler(accountRepo)
 }
 
+// ProvideEdgeAccountsHandler adapts the wire-provided service.AccountRepository
+// (which satisfies the handler's narrow edgeAccountsReader interface) to the
+// edge accounts read handler. Mirrors ProvideEdgeCapacityHandler.
+func ProvideEdgeAccountsHandler(accountRepo service.AccountRepository) *EdgeAccountsHandler {
+	return NewEdgeAccountsHandler(accountRepo)
+}
+
+// ProvideTKEdgeAccountsAdminHandler adapts the wire-provided concrete
+// *service.EdgeAccountsAggregator (which satisfies the admin handler's narrow
+// interface) to the prod-side cross-edge account overview handler. A dedicated
+// provider avoids a wire.Bind for the unexported interface.
+func ProvideTKEdgeAccountsAdminHandler(agg *service.EdgeAccountsAggregator) *admin.EdgeAccountsHandler {
+	return admin.NewEdgeAccountsHandler(agg)
+}
+
 // ProvideHandlers creates the Handlers struct
 func ProvideHandlers(
 	authHandler *AuthHandler,
@@ -200,6 +217,7 @@ func ProvideHandlers(
 	mePricingCatalogHandler *MePricingCatalogHandler,
 	qaHandler *QAHandler,
 	edgeCapacityHandler *EdgeCapacityHandler,
+	edgeAccountsHandler *EdgeAccountsHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 ) *Handlers {
@@ -225,6 +243,7 @@ func ProvideHandlers(
 		MePricingCatalog: mePricingCatalogHandler,
 		QA:               qaHandler,
 		EdgeCapacity:     edgeCapacityHandler,
+		EdgeAccounts:     edgeAccountsHandler,
 	}
 }
 
@@ -254,6 +273,8 @@ var ProviderSet = wire.NewSet(
 	NewQAHandler,
 	// TK: internal edge capacity read (surface C) — see edge_tk_capacity_handler.go.
 	ProvideEdgeCapacityHandler,
+	// TK: internal edge read-only account inventory — see edge_tk_accounts_handler.go.
+	ProvideEdgeAccountsHandler,
 
 	// Admin handlers
 	admin.NewDashboardHandler,
@@ -289,6 +310,8 @@ var ProviderSet = wire.NewSet(
 	admin.NewAffiliateHandler,
 	// TK: anthropic-oauth stability tier reference table CRUD — see tier_handler_tk.go.
 	admin.NewTierHandler,
+	// TK: prod-side cross-edge read-only account overview — see edge_accounts_handler_tk.go.
+	ProvideTKEdgeAccountsAdminHandler,
 
 	// AdminHandlers and Handlers constructors
 	ProvideAdminHandlers,
