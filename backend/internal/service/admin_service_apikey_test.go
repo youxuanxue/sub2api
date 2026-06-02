@@ -89,6 +89,10 @@ func (s *userRepoStubForGroupUpdate) DisableTotp(context.Context, int64) error {
 func (s *userRepoStubForGroupUpdate) MarkOnboardingTourSeen(context.Context, int64) error {
 	panic("unexpected")
 }
+
+func (s *userRepoStubForGroupUpdate) GetByIDIncludeDeleted(ctx context.Context, id int64) (*User, error) {
+	panic("unexpected GetByIDIncludeDeleted call")
+}
 func (s *userRepoStubForGroupUpdate) ListUserAuthIdentities(context.Context, int64) ([]UserAuthIdentityRecord, error) {
 	panic("unexpected")
 }

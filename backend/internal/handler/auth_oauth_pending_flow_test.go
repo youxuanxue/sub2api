@@ -2918,6 +2918,10 @@ func (r *oauthPendingFlowUserRepo) MarkOnboardingTourSeen(ctx context.Context, u
 	return r.client.User.UpdateOneID(userID).SetOnboardingTourSeenAt(now).Exec(ctx)
 }
 
+func (r *oauthPendingFlowUserRepo) GetByIDIncludeDeleted(ctx context.Context, id int64) (*service.User, error) {
+	return r.GetByID(ctx, id)
+}
+
 func oauthPendingFlowServiceUser(entity *dbent.User) *service.User {
 	if entity == nil {
 		return nil

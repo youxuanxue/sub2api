@@ -41,7 +41,7 @@ func TestGatewayService_ForwardCountTokens_400DoesNotTripUpstreamErrorBreaker(t 
 	// 即便客户端送的 body 本身没有 unsupported 字段，中继站/上游也可能因别的
 	// 原因返回 400；这种 400 同样不应该熔断 account。
 	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}]}`)
-	parsed := &ParsedRequest{Body: body, Model: "claude-opus-4-7"}
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-opus-4-7"}
 
 	upstreamRespBody := `{"type":"error","error":{"type":"invalid_request_error","message":"temperature: Extra inputs are not permitted"}}`
 	upstream := &anthropicHTTPUpstreamRecorder{
@@ -95,7 +95,7 @@ func TestGatewayService_ForwardCountTokens_429StillTripsUpstreamErrorBreaker(t *
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", nil)
 
 	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}]}`)
-	parsed := &ParsedRequest{Body: body, Model: "claude-opus-4-7"}
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-opus-4-7"}
 
 	upstreamRespBody := `{"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}`
 	upstream := &anthropicHTTPUpstreamRecorder{
@@ -155,7 +155,7 @@ func TestGatewayService_ForwardCountTokens_OAuthMimicInjectionGetsStripped(t *te
 	c.Request.Header.Set("User-Agent", "anthropic-sdk-python/0.42.0 python/3.12.0")
 	// thinking enabled → normalize 还会注入 context_management（Sonnet/Opus，非 Haiku）
 	body := []byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hi"}],"thinking":{"type":"enabled","budget_tokens":2000}}`)
-	parsed := &ParsedRequest{Body: body, Model: "claude-sonnet-4-5", ThinkingEnabled: true}
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-sonnet-4-5", ThinkingEnabled: true}
 
 	upstream := &anthropicHTTPUpstreamRecorder{
 		resp: &http.Response{

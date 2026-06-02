@@ -188,7 +188,7 @@ func TestKiroGatewayService_Forward_NonStreaming(t *testing.T) {
 		"max_tokens": 16,
 		"stream":     false,
 	})
-	parsed := &ParsedRequest{Body: body, Model: "claude-sonnet-4", Stream: false}
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-sonnet-4", Stream: false}
 
 	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
 	require.NoError(t, err)
@@ -225,7 +225,7 @@ func TestKiroGatewayService_Forward_Streaming(t *testing.T) {
 		"max_tokens": 16,
 		"stream":     true,
 	})
-	parsed := &ParsedRequest{Body: body, Model: "claude-sonnet-4", Stream: true}
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-sonnet-4", Stream: true}
 
 	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
 	require.NoError(t, err)
@@ -252,7 +252,7 @@ func TestKiroGatewayService_Forward_DisabledErrors(t *testing.T) {
 	upstream := &kiroFakeUpstream{body: nil}
 	svc := NewKiroGatewayService(upstream, nil, newKiroSettingService("false", nil))
 
-	parsed := &ParsedRequest{Body: []byte(`{"model":"claude-sonnet-4"}`), Model: "claude-sonnet-4"}
+	parsed := &ParsedRequest{Body: NewRequestBodyRef([]byte(`{"model":"claude-sonnet-4"}`)), Model: "claude-sonnet-4"}
 	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
 	require.Error(t, err)
 	require.Nil(t, result)

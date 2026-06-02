@@ -80,7 +80,7 @@ func (s *KiroGatewayService) Forward(
 	kiroAcct := account.toKiroProtoAccount()
 
 	var req kiroproto.ClaudeRequest
-	if err := json.Unmarshal(parsed.Body, &req); err != nil {
+	if err := json.Unmarshal(parsed.Body.Bytes(), &req); err != nil {
 		return nil, fmt.Errorf("kiro forward: parse request body: %w", err)
 	}
 
