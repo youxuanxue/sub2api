@@ -481,6 +481,7 @@ export default {
     availableChannels: '可用渠道',
     subscriptions: '订阅管理',
     accounts: '账号管理',
+    edgeAccounts: 'Edge 账号',
     proxies: 'IP管理',
     redeemCodes: '兑换码',
     ops: '运维监控',
@@ -3168,6 +3169,28 @@ export default {
     },
 
     // Accounts Management
+    edgeAccounts: {
+      title: 'Edge 账号',
+      description: '只读查看各 edge 部署下的账号情况',
+      refresh: '刷新',
+      lastFetched: '最近拉取',
+      noEdges: '未发现任何 edge（本部署未配置 anthropic mirror stub）。',
+      edgeEmpty: '该 edge 下没有账号。',
+      summaryEdges: '{ok}/{total} 个 edge 可达',
+      summaryAccounts: '共 {count} 个账号',
+      summaryFailed: '{count} 个不可达',
+      accountCount: '{count} 个账号',
+      schedulableCount: '{count} 个可调度',
+      columns: {
+        name: '名称',
+        platformType: '平台 / 类型',
+        state: '状态',
+        concurrency: '并发',
+        priority: '优先级',
+        groups: '分组',
+        lastUsed: '最近使用'
+      }
+    },
     accounts: {
       title: '账号管理',
       description: '管理 AI 平台账号和 Cookie',

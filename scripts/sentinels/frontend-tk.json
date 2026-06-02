@@ -381,6 +381,54 @@
         "createTier: '创建 Tier'"
       ],
       "rationale": "TK-only i18n DEFINITIONS (zh) for the Tier Templates modal — the zh counterpart of the en.ts tierTemplates anchor. Guards against an upstream locale-file rewrite silently dropping the block."
+    },
+    {
+      "path": "frontend/src/api/admin/edgeAccounts.ts",
+      "must_contain": [
+        "'/admin/edge-accounts'",
+        "export const edgeAccountsAPI"
+      ],
+      "rationale": "TK-only API client for the cross-edge read-only account overview (GET /admin/edge-accounts). Mirrors api/admin/tier.ts. Backs the Edge Accounts admin page; silent upstream-merge deletion would break its list call."
+    },
+    {
+      "path": "frontend/src/composables/useTkEdgeAccounts.ts",
+      "must_contain": [
+        "export function useTkEdgeAccounts",
+        "adminAPI.edgeAccounts.list"
+      ],
+      "rationale": "TK-only composable owning the Edge Accounts overview flow (state + the single fan-out API call). Keeps EdgeAccountsView.vue thin (template + wiring) per CLAUDE.md §5. Guards against silent upstream-merge deletion that would orphan the view."
+    },
+    {
+      "path": "frontend/src/views/admin/EdgeAccountsView.vue",
+      "must_contain": [
+        "useTkEdgeAccounts",
+        "admin.edgeAccounts.title"
+      ],
+      "rationale": "TK-only read-only admin page grouping accounts by edge. Renders the per-edge ok/failed/timeout state and a credential-free account table. Guards against silent upstream-merge deletion of the view."
+    },
+    {
+      "path": "frontend/src/components/layout/AppSidebar.vue",
+      "must_contain": [
+        "/admin/edge-accounts",
+        "nav.edgeAccounts"
+      ],
+      "rationale": "The Edge Accounts nav entry is a TK-only admin sidebar item. AppSidebar.vue is a large upstream-shaped file; an upstream merge could silently drop this single nav line while keeping the build green, hiding the page from operators. Anchors the path + label key."
+    },
+    {
+      "path": "frontend/src/i18n/locales/en.ts",
+      "must_contain": [
+        "edgeAccounts: 'Edge Accounts'",
+        "title: 'Edge Accounts'"
+      ],
+      "rationale": "TK-only English i18n for the Edge Accounts page: the nav label (edgeAccounts) and the admin.edgeAccounts.title definition. Locked in lockstep with the zh.ts counterpart so an upstream locale merge cannot drop one language and leave raw i18n key paths in the operator UI."
+    },
+    {
+      "path": "frontend/src/i18n/locales/zh.ts",
+      "must_contain": [
+        "edgeAccounts: 'Edge 账号'",
+        "title: 'Edge 账号'"
+      ],
+      "rationale": "TK-only Chinese i18n for the Edge Accounts page — the zh counterpart of the en.ts edge-accounts anchor. Guards against an upstream locale-file rewrite silently dropping the block."
     }
   ]
 }

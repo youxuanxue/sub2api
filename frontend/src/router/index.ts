@@ -511,6 +511,19 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    // TK: cross-edge read-only account overview — see EdgeAccountsView.vue.
+    path: '/admin/edge-accounts',
+    name: 'AdminEdgeAccounts',
+    component: () => import('@/views/admin/EdgeAccountsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Edge Accounts',
+      titleKey: 'admin.edgeAccounts.title',
+      descriptionKey: 'admin.edgeAccounts.description'
+    }
+  },
+  {
     path: '/admin/announcements',
     name: 'AdminAnnouncements',
     component: () => import('@/views/admin/AnnouncementsView.vue'),

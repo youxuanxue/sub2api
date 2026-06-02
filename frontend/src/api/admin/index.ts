@@ -32,6 +32,7 @@ import adminPaymentAPI from './payment'
 import affiliatesAPI from './affiliates'
 import riskControlAPI from './riskControl'
 import tierAPI from './tier'
+import edgeAccountsAPI from './edgeAccounts'
 
 /**
  * Unified admin API object for convenient access
@@ -65,7 +66,8 @@ export const adminAPI = {
   payment: adminPaymentAPI,
   affiliates: affiliatesAPI,
   riskControl: riskControlAPI,
-  tiers: tierAPI
+  tiers: tierAPI,
+  edgeAccounts: edgeAccountsAPI
 }
 
 export {
@@ -97,7 +99,8 @@ export {
   adminPaymentAPI,
   affiliatesAPI,
   riskControlAPI,
-  tierAPI
+  tierAPI,
+  edgeAccountsAPI
 }
 
 export default adminAPI
@@ -109,3 +112,9 @@ export type { BackupAgentHealth, DataManagementConfig } from './dataManagement'
 export type { TLSFingerprintProfile, CreateProfileRequest, UpdateProfileRequest } from './tlsFingerprintProfile'
 export type { ContentModerationConfig, ContentModerationLog, ModerationMode } from './riskControl'
 export type { Tier, TierRequest } from './tier'
+export type {
+  EdgeAccountSummary,
+  EdgeAccountsResult,
+  EdgeAccountsAggregate,
+  EdgeAccountsListParams
+} from './edgeAccounts'
