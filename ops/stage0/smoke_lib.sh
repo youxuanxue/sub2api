@@ -49,7 +49,7 @@ if [[ -z "${_TK_SMOKE_LIB_LOADED:-}" ]]; then
   }
 
   smoke_default_claude_user_agent() {
-    printf '%s' "${TK_SMOKE_CLAUDE_USER_AGENT:-claude-cli/2.1.160 (external, sdk-cli)}"
+    printf '%s' "${TK_SMOKE_CLAUDE_USER_AGENT:-claude-cli/2.1.161 (external, sdk-cli)}"
   }
 
   # soft_degrade_or_exit — see post_deploy_smoke.sh header for contract.
