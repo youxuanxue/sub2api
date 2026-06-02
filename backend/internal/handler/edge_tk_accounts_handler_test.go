@@ -12,21 +12,24 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
-type edgeAccountsReaderStub struct {
+type edgeAccountsListerStub struct {
 	accounts     []service.Account
 	err          error
 	lastPlatform string
+	lastStatus   string
 }
 
-func (s *edgeAccountsReaderStub) ListByPlatform(_ context.Context, platform string) ([]service.Account, error) {
+func (s *edgeAccountsListerStub) ListAccounts(_ context.Context, _, _ int, platform, _, status, _ string, _ int64, _, _, _ string) ([]service.Account, int64, error) {
 	s.lastPlatform = platform
-	return s.accounts, s.err
+	s.lastStatus = status
+	return s.accounts, int64(len(s.accounts)), s.err
 }
 
 func performEdgeAccountsRequest(t *testing.T, h *EdgeAccountsHandler, query string) *httptest.ResponseRecorder {
@@ -75,11 +78,13 @@ func richAccount() service.Account {
 }
 
 func TestEdgeAccountsHandler_ReturnsSanitizedAccounts(t *testing.T) {
-	stub := &edgeAccountsReaderStub{accounts: []service.Account{richAccount()}}
-	h := NewEdgeAccountsHandler(stub)
+	stub := &edgeAccountsListerStub{accounts: []service.Account{richAccount()}}
+	h := NewEdgeAccountsHandler(stub, nil, nil, nil, nil)
 	w := performEdgeAccountsRequest(t, h, "?platform=anthropic")
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Equal(t, service.PlatformAnthropic, stub.lastPlatform)
+	// MUST list all statuses (status filter empty) to mirror the edge admin page.
+	require.Equal(t, "", stub.lastStatus)
 
 	var env struct {
 		Data edgeAccountsResponse `json:"data"`
@@ -105,8 +110,8 @@ func TestEdgeAccountsHandler_ReturnsSanitizedAccounts(t *testing.T) {
 // TestEdgeAccountsHandler_NeverLeaksCredentials is the load-bearing security
 // assertion: the raw response bytes must not contain ANY credential value or key.
 func TestEdgeAccountsHandler_NeverLeaksCredentials(t *testing.T) {
-	stub := &edgeAccountsReaderStub{accounts: []service.Account{richAccount()}}
-	h := NewEdgeAccountsHandler(stub)
+	stub := &edgeAccountsListerStub{accounts: []service.Account{richAccount()}}
+	h := NewEdgeAccountsHandler(stub, nil, nil, nil, nil)
 	w := performEdgeAccountsRequest(t, h, "?platform=anthropic")
 	require.Equal(t, http.StatusOK, w.Code)
 
@@ -121,30 +126,114 @@ func TestEdgeAccountsHandler_NeverLeaksCredentials(t *testing.T) {
 	}
 }
 
+// ---- runtime-gauge enrichment ----
+
+type fakeConcReader struct{ m map[int64]int }
+
+func (f fakeConcReader) GetAccountConcurrencyBatch(_ context.Context, _ []int64) (map[int64]int, error) {
+	return f.m, nil
+}
+
+type fakeSessReader struct{ m map[int64]int }
+
+func (f fakeSessReader) GetActiveSessionCountBatch(_ context.Context, _ []int64, _ map[int64]time.Duration) (map[int64]int, error) {
+	return f.m, nil
+}
+
+type fakeRPMReader struct{ m map[int64]int }
+
+func (f fakeRPMReader) GetRPMBatch(_ context.Context, _ []int64) (map[int64]int, error) {
+	return f.m, nil
+}
+
+type fakeUsageReader struct {
+	today map[int64]*service.WindowStats
+	wcost float64
+}
+
+func (f fakeUsageReader) GetAccountWindowStats(_ context.Context, _ int64, _ time.Time) (*usagestats.AccountStats, error) {
+	return &usagestats.AccountStats{StandardCost: f.wcost}, nil
+}
+
+func (f fakeUsageReader) GetTodayStatsBatch(_ context.Context, _ []int64) (map[int64]*service.WindowStats, error) {
+	return f.today, nil
+}
+
+func richOAuthAccount() service.Account {
+	return service.Account{
+		ID:       7,
+		Name:     "edge-oauth-1",
+		Platform: service.PlatformAnthropic,
+		Type:     service.AccountTypeOAuth,
+		Status:   service.StatusActive,
+		Extra: map[string]any{
+			"window_cost_limit": 600.0,
+			"max_sessions":      150,
+			"base_rpm":          56,
+		},
+		Concurrency: 12,
+		Priority:    5,
+		Schedulable: true,
+		CreatedAt:   time.Now(),
+	}
+}
+
+func TestEdgeAccountsHandler_EnrichesRuntimeGauges(t *testing.T) {
+	stub := &edgeAccountsListerStub{accounts: []service.Account{richOAuthAccount()}}
+	h := NewEdgeAccountsHandler(
+		stub,
+		fakeConcReader{m: map[int64]int{7: 3}},
+		fakeSessReader{m: map[int64]int{7: 4}},
+		fakeRPMReader{m: map[int64]int{7: 9}},
+		fakeUsageReader{today: map[int64]*service.WindowStats{7: {Requests: 80, Tokens: 65_900_000, Cost: 36.53, UserCost: 36.53}}, wcost: 36.53},
+	)
+	w := performEdgeAccountsRequest(t, h, "?platform=anthropic")
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var env struct {
+		Data edgeAccountsResponse `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	require.Len(t, env.Data.Accounts, 1)
+	got := env.Data.Accounts[0]
+
+	require.Equal(t, 3, got.CurrentConcurrency)
+	require.NotNil(t, got.ActiveSessions)
+	require.Equal(t, 4, *got.ActiveSessions)
+	require.NotNil(t, got.CurrentRPM)
+	require.Equal(t, 9, *got.CurrentRPM)
+	require.NotNil(t, got.CurrentWindowCost)
+	require.Equal(t, 36.53, *got.CurrentWindowCost)
+	require.NotNil(t, got.TodayStats)
+	require.Equal(t, int64(80), got.TodayStats.Requests)
+	require.Equal(t, int64(65_900_000), got.TodayStats.Tokens)
+	require.Equal(t, 36.53, got.TodayStats.Cost)
+	require.Equal(t, 36.53, got.TodayStats.UserCost)
+}
+
 func TestEdgeAccountsHandler_RejectsUnknownPlatform(t *testing.T) {
-	h := NewEdgeAccountsHandler(&edgeAccountsReaderStub{})
+	h := NewEdgeAccountsHandler(&edgeAccountsListerStub{}, nil, nil, nil, nil)
 	w := performEdgeAccountsRequest(t, h, "?platform=bogus")
 	require.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 func TestEdgeAccountsHandler_DefaultsToAnthropic(t *testing.T) {
-	stub := &edgeAccountsReaderStub{}
-	h := NewEdgeAccountsHandler(stub)
+	stub := &edgeAccountsListerStub{}
+	h := NewEdgeAccountsHandler(stub, nil, nil, nil, nil)
 	w := performEdgeAccountsRequest(t, h, "")
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Equal(t, service.PlatformAnthropic, stub.lastPlatform)
 }
 
 func TestEdgeAccountsHandler_ListError(t *testing.T) {
-	h := NewEdgeAccountsHandler(&edgeAccountsReaderStub{err: errors.New("db down")})
+	h := NewEdgeAccountsHandler(&edgeAccountsListerStub{err: errors.New("db down")}, nil, nil, nil, nil)
 	w := performEdgeAccountsRequest(t, h, "?platform=anthropic")
 	require.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
 func TestEdgeAccountsHandler_NilReader(t *testing.T) {
-	h := NewEdgeAccountsHandler(nil)
+	h := NewEdgeAccountsHandler(nil, nil, nil, nil, nil)
 	w := performEdgeAccountsRequest(t, h, "?platform=anthropic")
 	require.Equal(t, http.StatusInternalServerError, w.Code)
-	// sanity: the body should not look like a normal success envelope
 	require.False(t, strings.Contains(w.Body.String(), `"accounts"`))
 }

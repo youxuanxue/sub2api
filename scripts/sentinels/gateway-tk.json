@@ -1445,9 +1445,10 @@
       "must_contain": [
         "func (h *EdgeAccountsHandler) ListAccounts(",
         "func toEdgeAccountDTO(",
-        "edgeAccountsSupportedPlatforms"
+        "edgeAccountsSupportedPlatforms",
+        "func (h *EdgeAccountsHandler) collectRuntimeGauges("
       ],
-      "rationale": "Edge read-only account inventory endpoint: GET /api/v1/edge/accounts returns each edge's accounts so prod's admin Edge Accounts overview can enumerate the fleet. Credential-free by construction — toEdgeAccountDTO builds an allowlist edgeAccountDTO with NO Credentials/Extra/Proxy/Notes member, so leakage is structurally impossible rather than merely redacted. A silent upstream-merge deletion would break the prod overview without a compile error; a refactor that reintroduces a Credentials field would regress the no-leak guarantee (covered additionally by the raw-bytes assertion in edge_tk_accounts_handler_test.go). Mounted behind the lightweight edge api-key auth, off the gateway billing/concurrency chain."
+      "rationale": "Edge read-only account inventory endpoint: GET /api/v1/edge/accounts returns each edge's accounts (with live capacity/today gauges) so prod's admin Edge Accounts overview can mirror the per-edge /admin/accounts page. Credential-free by construction — toEdgeAccountDTO builds an allowlist edgeAccountDTO with NO Credentials/Extra/Proxy/Notes member, so leakage is structurally impossible rather than merely redacted (raw-bytes assertion in the test). Two load-bearing properties: (1) it lists via adminService.ListAccounts with an EMPTY status filter — NOT the repository ListByPlatform which pins status=active and would silently hide disabled/errored accounts, making the overview show fewer rows than the edge's own admin page (the bug fixed alongside the gauge work); (2) collectRuntimeGauges batch-reads current_concurrency/window_cost/active_sessions/current_rpm + today_stats from this edge's local Redis/DB, mirroring admin AccountHandler.List — dropping it regresses the overview to static-only fields. Mounted behind the lightweight edge api-key auth, off the gateway billing/concurrency chain."
     },
     {
       "path": "backend/internal/service/edge_accounts_aggregator_tk.go",

@@ -3184,6 +3184,8 @@ export default {
       columns: {
         name: '名称',
         platformType: '平台 / 类型',
+        capacity: '容量',
+        todayStats: '今日',
         state: '状态',
         concurrency: '并发',
         priority: '优先级',

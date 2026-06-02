@@ -402,9 +402,11 @@
       "path": "frontend/src/views/admin/EdgeAccountsView.vue",
       "must_contain": [
         "useTkEdgeAccounts",
-        "admin.edgeAccounts.title"
+        "admin.edgeAccounts.title",
+        "AccountCapacityCell",
+        "toAccountLike"
       ],
-      "rationale": "TK-only read-only admin page grouping accounts by edge. Renders the per-edge ok/failed/timeout state and a credential-free account table. Guards against silent upstream-merge deletion of the view."
+      "rationale": "TK-only read-only admin page grouping accounts by edge. Renders the per-edge ok/failed/timeout state and a credential-free account table that REUSES the real admin AccountCapacityCell (+ AccountTodayStatsCell) via toAccountLike, so the overview's capacity/today gauges stay pixel-aligned with the per-edge /admin/accounts page. Guards against silent upstream-merge deletion of the view or a refactor that drops the cell reuse (which would regress the page back to a sparse static table)."
     },
     {
       "path": "frontend/src/components/layout/AppSidebar.vue",

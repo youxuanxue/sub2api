@@ -50,48 +50,19 @@ type edgeAccountsStore interface {
 	ListByPlatform(ctx context.Context, platform string) ([]Account, error)
 }
 
-// EdgeAccountSummary is prod's decode target for one account returned by an edge.
-// It mirrors handler.edgeAccountDTO's wire shape (cross-deployment JSON contract).
-// Kept as a prod-local struct rather than a shared type because the two sides are
-// separate deployments whose only coupling is this JSON shape.
-type EdgeAccountSummary struct {
-	ID                      int64      `json:"id"`
-	Name                    string     `json:"name"`
-	Platform                string     `json:"platform"`
-	Type                    string     `json:"type"`
-	ChannelType             int        `json:"channel_type,omitempty"`
-	Status                  string     `json:"status"`
-	Schedulable             bool       `json:"schedulable"`
-	IsSchedulable           bool       `json:"is_schedulable"`
-	Concurrency             int        `json:"concurrency"`
-	Priority                int        `json:"priority"`
-	RateMultiplier          float64    `json:"rate_multiplier"`
-	ErrorMessage            string     `json:"error_message,omitempty"`
-	LastUsedAt              *time.Time `json:"last_used_at,omitempty"`
-	ExpiresAt               *time.Time `json:"expires_at,omitempty"`
-	CreatedAt               time.Time  `json:"created_at"`
-	SessionWindowStatus     string     `json:"session_window_status,omitempty"`
-	SessionWindowEnd        *time.Time `json:"session_window_end,omitempty"`
-	TempUnschedulableUntil  *time.Time `json:"temp_unschedulable_until,omitempty"`
-	TempUnschedulableReason string     `json:"temp_unschedulable_reason,omitempty"`
-	RateLimitedAt           *time.Time `json:"rate_limited_at,omitempty"`
-	RateLimitResetAt        *time.Time `json:"rate_limit_reset_at,omitempty"`
-	OverloadUntil           *time.Time `json:"overload_until,omitempty"`
-	WindowCostLimit         float64    `json:"window_cost_limit,omitempty"`
-	MaxSessions             int        `json:"max_sessions,omitempty"`
-	BaseRPM                 int        `json:"base_rpm,omitempty"`
-	TierID                  *int64     `json:"tier_id,omitempty"`
-	Groups                  []string   `json:"groups,omitempty"`
-}
-
 // EdgeAccountsResult is one edge's slice of the aggregate. OK distinguishes a
 // reachable edge (even with zero accounts) from an unreachable one (Error set).
+//
+// Accounts is carried as opaque json.RawMessage: the per-account shape (the
+// sanitized, credential-free edgeAccountDTO with its live capacity/today gauges)
+// is owned solely by the edge handler and the frontend TS type. Prod just relays
+// it verbatim, so adding an account field never requires touching this file.
 type EdgeAccountsResult struct {
-	EdgeID   string               `json:"edge_id"`
-	BaseURL  string               `json:"base_url"`
-	OK       bool                 `json:"ok"`
-	Error    string               `json:"error,omitempty"`
-	Accounts []EdgeAccountSummary `json:"accounts"`
+	EdgeID   string            `json:"edge_id"`
+	BaseURL  string            `json:"base_url"`
+	OK       bool              `json:"ok"`
+	Error    string            `json:"error,omitempty"`
+	Accounts []json.RawMessage `json:"accounts"`
 }
 
 // EdgeAccountsAggregate is the full cross-edge payload returned to the admin UI.
@@ -235,7 +206,7 @@ func edgeIDFromBaseURL(baseURL string) string {
 // x-api-key auth and an 8s timeout. Any failure → {ok:false, error}, never a
 // panic and never a failed aggregate.
 func (a *EdgeAccountsAggregator) fetchEdgeAccounts(ctx context.Context, t edgeTarget, platform string) EdgeAccountsResult {
-	res := EdgeAccountsResult{EdgeID: t.edgeID, BaseURL: t.baseURL, Accounts: []EdgeAccountSummary{}}
+	res := EdgeAccountsResult{EdgeID: t.edgeID, BaseURL: t.baseURL, Accounts: []json.RawMessage{}}
 	if a.http == nil {
 		res.Error = "no http client"
 		return res
@@ -267,7 +238,7 @@ func (a *EdgeAccountsAggregator) fetchEdgeAccounts(ctx context.Context, t edgeTa
 	}
 	var env struct {
 		Data struct {
-			Accounts []EdgeAccountSummary `json:"accounts"`
+			Accounts []json.RawMessage `json:"accounts"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &env); err != nil {

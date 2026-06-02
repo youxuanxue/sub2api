@@ -4,27 +4,36 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/sync/errgroup"
 )
 
-// edgeAccountsReader is the narrow read-only dependency the edge accounts
-// endpoint needs. service.AccountRepository satisfies it via ListByPlatform.
-// Reusing the existing repository method means NO change to the AccountRepository
-// interface — and therefore zero churn on its mocks/stubs (CLAUDE.md rule 6).
-type edgeAccountsReader interface {
-	ListByPlatform(ctx context.Context, platform string) ([]service.Account, error)
+// edgeAccountsMaxPageSize bounds the single-page listing. Edges host a handful
+// of operator-curated accounts, so one large page returns the whole inventory.
+const edgeAccountsMaxPageSize = 1000
+
+// edgeAccountsLister is the narrow read-only dependency the edge accounts
+// endpoint needs. service.AdminService satisfies it via ListAccounts.
+//
+// It MUST be ListAccounts (status filter = ""), NOT the repository's
+// ListByPlatform: ListByPlatform pins status = "active" and therefore hides
+// disabled / errored accounts, making this endpoint show fewer rows than the
+// edge's own /admin/accounts page. The prod overview must mirror that page's
+// full inventory, so it reuses the exact same lister the admin page uses.
+type edgeAccountsLister interface {
+	ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode, sortBy, sortOrder string) ([]service.Account, int64, error)
 }
 
 // edgeAccountsSupportedPlatforms is the allowlist this read endpoint accepts.
 // Edges are anthropic-centric today; the gate keeps a prod misconfig loud
 // (400) rather than silently returning an empty list for a typo'd platform.
-// Mirrors the capacity endpoint's "reject unsupported, never default silently"
-// posture (see edge_tk_capacity_handler.go).
 var edgeAccountsSupportedPlatforms = map[string]struct{}{
 	service.PlatformAnthropic:   {},
 	service.PlatformOpenAI:      {},
@@ -32,9 +41,33 @@ var edgeAccountsSupportedPlatforms = map[string]struct{}{
 	service.PlatformAntigravity: {},
 }
 
+// The runtime-gauge readers below mirror the dependencies admin AccountHandler
+// uses to enrich its list (see handler/admin/account_handler.go List() — the
+// reference block this endpoint replicates). Each is OPTIONAL (nil-safe): a nil
+// reader simply skips that gauge so the endpoint degrades to the static fields
+// rather than failing. They read THIS edge's local Redis/DB, which is exactly
+// the per-edge live state the prod overview wants to surface.
+type edgeConcurrencyReader interface {
+	GetAccountConcurrencyBatch(ctx context.Context, accountIDs []int64) (map[int64]int, error)
+}
+
+type edgeSessionReader interface {
+	GetActiveSessionCountBatch(ctx context.Context, accountIDs []int64, idleTimeouts map[int64]time.Duration) (map[int64]int, error)
+}
+
+type edgeRPMReader interface {
+	GetRPMBatch(ctx context.Context, accountIDs []int64) (map[int64]int, error)
+}
+
+type edgeUsageReader interface {
+	GetAccountWindowStats(ctx context.Context, accountID int64, startTime time.Time) (*usagestats.AccountStats, error)
+	GetTodayStatsBatch(ctx context.Context, accountIDs []int64) (map[int64]*service.WindowStats, error)
+}
+
 // EdgeAccountsHandler serves the TokenKey read-only "edge accounts" endpoint
 // that prod's cross-edge admin overview calls over HTTP to enumerate each
-// edge's account inventory. It is the list sibling of EdgeCapacityHandler.
+// edge's account inventory + live capacity/today gauges. It is the list sibling
+// of EdgeCapacityHandler.
 //
 // Like the capacity endpoint it is mounted behind the dedicated lightweight
 // api-key check (middleware/edge_capacity_auth_tk.go), NOT the gateway
@@ -46,18 +79,45 @@ var edgeAccountsSupportedPlatforms = map[string]struct{}{
 // than merely redacted. The edge_tk_accounts_handler_test.go asserts the raw
 // bytes carry no credential substrings.
 type EdgeAccountsHandler struct {
-	accounts edgeAccountsReader
+	accounts    edgeAccountsLister
+	concurrency edgeConcurrencyReader
+	sessions    edgeSessionReader
+	rpm         edgeRPMReader
+	usage       edgeUsageReader
 }
 
-// NewEdgeAccountsHandler wires the edge accounts handler.
-func NewEdgeAccountsHandler(accounts edgeAccountsReader) *EdgeAccountsHandler {
-	return &EdgeAccountsHandler{accounts: accounts}
+// NewEdgeAccountsHandler wires the edge accounts handler. The runtime-gauge
+// readers may be nil (the endpoint then returns static fields only).
+func NewEdgeAccountsHandler(
+	accounts edgeAccountsLister,
+	concurrency edgeConcurrencyReader,
+	sessions edgeSessionReader,
+	rpm edgeRPMReader,
+	usage edgeUsageReader,
+) *EdgeAccountsHandler {
+	return &EdgeAccountsHandler{
+		accounts:    accounts,
+		concurrency: concurrency,
+		sessions:    sessions,
+		rpm:         rpm,
+		usage:       usage,
+	}
+}
+
+// edgeTodayStats mirrors service.WindowStats minus standard_cost (the overview
+// shows account cost "A" and user cost "U", matching AccountTodayStatsCell).
+type edgeTodayStats struct {
+	Requests int64   `json:"requests"`
+	Tokens   int64   `json:"tokens"`
+	Cost     float64 `json:"cost"`
+	UserCost float64 `json:"user_cost"`
 }
 
 // edgeAccountDTO is the on-the-wire, sanitized read-model for one edge account.
 // It deliberately omits every credential-bearing field. Timestamps marshal as
-// RFC3339 (nil → omitted). Optional anthropic-tier scalars are omitempty so the
-// payload stays small for non-anthropic accounts.
+// RFC3339 (nil → omitted). The current_* / today_stats fields are live gauges
+// computed from this edge's local Redis/DB; the *_limit / max_* / base_* fields
+// are the configured caps the gauges render against.
 type edgeAccountDTO struct {
 	ID             int64   `json:"id"`
 	Name           string  `json:"name"`
@@ -86,9 +146,22 @@ type edgeAccountDTO struct {
 	RateLimitResetAt *time.Time `json:"rate_limit_reset_at,omitempty"`
 	OverloadUntil    *time.Time `json:"overload_until,omitempty"`
 
-	WindowCostLimit float64 `json:"window_cost_limit,omitempty"`
-	MaxSessions     int     `json:"max_sessions,omitempty"`
-	BaseRPM         int     `json:"base_rpm,omitempty"`
+	// Configured caps (anthropic oauth/setup-token).
+	WindowCostLimit           float64 `json:"window_cost_limit,omitempty"`
+	WindowCostStickyReserve   float64 `json:"window_cost_sticky_reserve,omitempty"`
+	MaxSessions               int     `json:"max_sessions,omitempty"`
+	SessionIdleTimeoutMinutes int     `json:"session_idle_timeout_minutes,omitempty"`
+	BaseRPM                   int     `json:"base_rpm,omitempty"`
+	RPMStrategy               string  `json:"rpm_strategy,omitempty"`
+	RPMStickyBuffer           int     `json:"rpm_sticky_buffer,omitempty"`
+
+	// Live gauges (this edge's local Redis/DB). Pointers so "feature off" (nil)
+	// is distinguishable from a real 0; current_concurrency is always present.
+	CurrentConcurrency int             `json:"current_concurrency"`
+	CurrentWindowCost  *float64        `json:"current_window_cost,omitempty"`
+	ActiveSessions     *int            `json:"active_sessions,omitempty"`
+	CurrentRPM         *int            `json:"current_rpm,omitempty"`
+	TodayStats         *edgeTodayStats `json:"today_stats,omitempty"`
 
 	TierID *int64   `json:"tier_id,omitempty"`
 	Groups []string `json:"groups,omitempty"`
@@ -114,15 +187,22 @@ func (h *EdgeAccountsHandler) ListAccounts(c *gin.Context) {
 		return
 	}
 
-	accounts, err := h.accounts.ListByPlatform(c.Request.Context(), platform)
+	ctx := c.Request.Context()
+	// status="" → all statuses (active/disabled/errored), matching the edge's own
+	// /admin/accounts page. priority asc mirrors the admin default ordering.
+	accounts, _, err := h.accounts.ListAccounts(ctx, 1, edgeAccountsMaxPageSize, platform, "", "", "", 0, "", "priority", "asc")
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "failed to list accounts")
 		return
 	}
 
+	runtime := h.collectRuntimeGauges(ctx, accounts)
+
 	dtos := make([]edgeAccountDTO, 0, len(accounts))
 	for i := range accounts {
-		dtos = append(dtos, toEdgeAccountDTO(&accounts[i]))
+		dto := toEdgeAccountDTO(&accounts[i])
+		runtime.apply(&accounts[i], &dto)
+		dtos = append(dtos, dto)
 	}
 
 	response.Success(c, edgeAccountsResponse{
@@ -132,42 +212,180 @@ func (h *EdgeAccountsHandler) ListAccounts(c *gin.Context) {
 	})
 }
 
-// toEdgeAccountDTO maps a service.Account to the sanitized read-model. It reads
-// ONLY non-sensitive fields/getters — Credentials/Extra/Proxy/Notes are never
-// touched. The anthropic window/session/rpm scalars come from Extra-backed
-// getters and are 0 (→ omitted) for platforms that don't use them.
+// edgeRuntimeGauges holds the batch-collected live values keyed by account id.
+type edgeRuntimeGauges struct {
+	concurrency map[int64]int
+	windowCost  map[int64]float64
+	sessions    map[int64]int
+	rpm         map[int64]int
+	today       map[int64]*service.WindowStats
+}
+
+// apply copies the per-account gauges onto the DTO, mirroring the admin
+// AccountWithConcurrency assembly (current_* only set when the feature applies).
+func (g *edgeRuntimeGauges) apply(acc *service.Account, dto *edgeAccountDTO) {
+	if g == nil {
+		return
+	}
+	dto.CurrentConcurrency = g.concurrency[acc.ID]
+	if g.windowCost != nil {
+		if cost, ok := g.windowCost[acc.ID]; ok {
+			dto.CurrentWindowCost = &cost
+		}
+	}
+	if g.sessions != nil {
+		if n, ok := g.sessions[acc.ID]; ok {
+			dto.ActiveSessions = &n
+		}
+	}
+	if g.rpm != nil {
+		if n, ok := g.rpm[acc.ID]; ok {
+			dto.CurrentRPM = &n
+		}
+	}
+	if g.today != nil {
+		if ws, ok := g.today[acc.ID]; ok && ws != nil {
+			dto.TodayStats = &edgeTodayStats{
+				Requests: ws.Requests,
+				Tokens:   ws.Tokens,
+				Cost:     ws.Cost,
+				UserCost: ws.UserCost,
+			}
+		}
+	}
+}
+
+// collectRuntimeGauges batch-reads the live capacity/today gauges for the given
+// accounts from this edge's local Redis/DB. It replicates the gating and batch
+// strategy of admin AccountHandler.List (account_handler.go:278-386): concurrency
+// + today-stats for all accounts; window-cost / sessions / rpm only for anthropic
+// OAuth/setup-token accounts with the corresponding cap configured. Every reader
+// is nil-safe and partial failure is swallowed (the gauge is simply absent).
+func (h *EdgeAccountsHandler) collectRuntimeGauges(ctx context.Context, accounts []service.Account) *edgeRuntimeGauges {
+	g := &edgeRuntimeGauges{concurrency: map[int64]int{}}
+	if len(accounts) == 0 {
+		return g
+	}
+
+	accountIDs := make([]int64, len(accounts))
+	for i := range accounts {
+		accountIDs[i] = accounts[i].ID
+	}
+
+	// Concurrency: cheap Redis ZCARD, all accounts.
+	if h.concurrency != nil {
+		if cc, err := h.concurrency.GetAccountConcurrencyBatch(ctx, accountIDs); err == nil && cc != nil {
+			g.concurrency = cc
+		}
+	}
+
+	// Today stats: batch SQL, all accounts.
+	if h.usage != nil {
+		if ts, err := h.usage.GetTodayStatsBatch(ctx, accountIDs); err == nil && ts != nil {
+			g.today = ts
+		}
+	}
+
+	// Gate window-cost / sessions / rpm by anthropic OAuth/setup-token + cap.
+	windowCostIDs := make([]int64, 0)
+	sessionIDs := make([]int64, 0)
+	rpmIDs := make([]int64, 0)
+	idleTimeouts := make(map[int64]time.Duration)
+	for i := range accounts {
+		acc := &accounts[i]
+		if !acc.IsAnthropicOAuthOrSetupToken() {
+			continue
+		}
+		if acc.GetWindowCostLimit() > 0 {
+			windowCostIDs = append(windowCostIDs, acc.ID)
+		}
+		if acc.GetMaxSessions() > 0 {
+			sessionIDs = append(sessionIDs, acc.ID)
+			idleTimeouts[acc.ID] = time.Duration(acc.GetSessionIdleTimeoutMinutes()) * time.Minute
+		}
+		if acc.GetBaseRPM() > 0 {
+			rpmIDs = append(rpmIDs, acc.ID)
+		}
+	}
+
+	if len(rpmIDs) > 0 && h.rpm != nil {
+		if m, err := h.rpm.GetRPMBatch(ctx, rpmIDs); err == nil {
+			g.rpm = m
+		}
+	}
+	if len(sessionIDs) > 0 && h.sessions != nil {
+		if m, err := h.sessions.GetActiveSessionCountBatch(ctx, sessionIDs, idleTimeouts); err == nil {
+			g.sessions = m
+		}
+	}
+	if len(windowCostIDs) > 0 && h.usage != nil {
+		g.windowCost = make(map[int64]float64)
+		var mu sync.Mutex
+		eg, egctx := errgroup.WithContext(ctx)
+		eg.SetLimit(10)
+		for i := range accounts {
+			acc := &accounts[i]
+			if !acc.IsAnthropicOAuthOrSetupToken() || acc.GetWindowCostLimit() <= 0 {
+				continue
+			}
+			accCopy := acc
+			eg.Go(func() error {
+				startTime := accCopy.GetCurrentWindowStartTime()
+				stats, err := h.usage.GetAccountWindowStats(egctx, accCopy.ID, startTime)
+				if err == nil && stats != nil {
+					mu.Lock()
+					g.windowCost[accCopy.ID] = stats.StandardCost
+					mu.Unlock()
+				}
+				return nil // partial failure tolerated
+			})
+		}
+		_ = eg.Wait()
+	}
+
+	return g
+}
+
+// toEdgeAccountDTO maps a service.Account to the sanitized read-model's static
+// fields. It reads ONLY non-sensitive fields/getters — Credentials/Extra/Proxy/
+// Notes are never touched. The live current_* gauges are attached separately by
+// edgeRuntimeGauges.apply.
 func toEdgeAccountDTO(a *service.Account) edgeAccountDTO {
 	dto := edgeAccountDTO{
-		ID:                      a.ID,
-		Name:                    a.Name,
-		Platform:                a.Platform,
-		Type:                    a.Type,
-		ChannelType:             a.ChannelType,
-		Status:                  a.Status,
-		Schedulable:             a.Schedulable,
-		IsSchedulable:           a.IsSchedulable(),
-		Concurrency:             a.Concurrency,
-		Priority:                a.Priority,
-		RateMultiplier:          a.BillingRateMultiplier(),
-		ErrorMessage:            a.ErrorMessage,
-		LastUsedAt:              a.LastUsedAt,
-		ExpiresAt:               a.ExpiresAt,
-		CreatedAt:               a.CreatedAt,
-		SessionWindowStatus:     a.SessionWindowStatus,
-		SessionWindowEnd:        a.SessionWindowEnd,
-		TempUnschedulableUntil:  a.TempUnschedulableUntil,
-		TempUnschedulableReason: a.TempUnschedulableReason,
-		RateLimitedAt:           a.RateLimitedAt,
-		RateLimitResetAt:        a.RateLimitResetAt,
-		OverloadUntil:           a.OverloadUntil,
-		WindowCostLimit:         a.GetWindowCostLimit(),
-		MaxSessions:             a.GetMaxSessions(),
-		BaseRPM:                 a.GetBaseRPM(),
-		TierID:                  a.TierID,
+		ID:                        a.ID,
+		Name:                      a.Name,
+		Platform:                  a.Platform,
+		Type:                      a.Type,
+		ChannelType:               a.ChannelType,
+		Status:                    a.Status,
+		Schedulable:               a.Schedulable,
+		IsSchedulable:             a.IsSchedulable(),
+		Concurrency:               a.Concurrency,
+		Priority:                  a.Priority,
+		RateMultiplier:            a.BillingRateMultiplier(),
+		ErrorMessage:              a.ErrorMessage,
+		LastUsedAt:                a.LastUsedAt,
+		ExpiresAt:                 a.ExpiresAt,
+		CreatedAt:                 a.CreatedAt,
+		SessionWindowStatus:       a.SessionWindowStatus,
+		SessionWindowEnd:          a.SessionWindowEnd,
+		TempUnschedulableUntil:    a.TempUnschedulableUntil,
+		TempUnschedulableReason:   a.TempUnschedulableReason,
+		RateLimitedAt:             a.RateLimitedAt,
+		RateLimitResetAt:          a.RateLimitResetAt,
+		OverloadUntil:             a.OverloadUntil,
+		WindowCostLimit:           a.GetWindowCostLimit(),
+		WindowCostStickyReserve:   a.GetWindowCostStickyReserve(),
+		MaxSessions:               a.GetMaxSessions(),
+		SessionIdleTimeoutMinutes: a.GetSessionIdleTimeoutMinutes(),
+		BaseRPM:                   a.GetBaseRPM(),
+		RPMStrategy:               a.GetRPMStrategy(),
+		RPMStickyBuffer:           a.GetRPMStickyBuffer(),
+		TierID:                    a.TierID,
 	}
-	for _, g := range a.Groups {
-		if g != nil && strings.TrimSpace(g.Name) != "" {
-			dto.Groups = append(dto.Groups, g.Name)
+	for _, grp := range a.Groups {
+		if grp != nil && strings.TrimSpace(grp.Name) != "" {
+			dto.Groups = append(dto.Groups, grp.Name)
 		}
 	}
 	return dto

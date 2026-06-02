@@ -39,11 +39,30 @@ export interface EdgeAccountSummary {
   rate_limited_at?: string
   rate_limit_reset_at?: string
   overload_until?: string
+  // Configured caps (anthropic oauth/setup-token).
   window_cost_limit?: number
+  window_cost_sticky_reserve?: number
   max_sessions?: number
+  session_idle_timeout_minutes?: number
   base_rpm?: number
+  rpm_strategy?: string
+  rpm_sticky_buffer?: number
+  // Live gauges from the edge's local Redis/DB (align with the per-edge admin page).
+  current_concurrency?: number
+  current_window_cost?: number
+  active_sessions?: number
+  current_rpm?: number
+  today_stats?: EdgeTodayStats
   tier_id?: number
   groups?: string[]
+}
+
+/** Today's usage for one account (mirrors backend WindowStats subset). */
+export interface EdgeTodayStats {
+  requests: number
+  tokens: number
+  cost: number
+  user_cost: number
 }
 
 /**
