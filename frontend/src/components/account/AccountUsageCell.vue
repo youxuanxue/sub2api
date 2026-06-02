@@ -514,11 +514,18 @@ const props = withDefaults(
     todayStats?: WindowStats | null
     todayStatsLoading?: boolean
     manualRefreshToken?: number
+    // TK: when provided (even null), the cell renders this usage verbatim and
+    // skips its own /usage fetch. Used by the cross-edge Edge Accounts overview,
+    // whose accounts live on a remote edge and are NOT queryable via this
+    // deployment's /admin/accounts/:id/usage. Absent (undefined) = upstream
+    // self-fetch behavior, unchanged.
+    usageOverride?: AccountUsageInfo | null
   }>(),
   {
     todayStats: null,
     todayStatsLoading: false,
-    manualRefreshToken: 0
+    manualRefreshToken: 0,
+    usageOverride: undefined
   }
 )
 
@@ -531,7 +538,12 @@ onBeforeUnmount(() => { unmounted.value = true })
 const loading = ref(false)
 const activeQueryLoading = ref(false)
 const error = ref<string | null>(null)
-const usageInfo = ref<AccountUsageInfo | null>(null)
+const usageInfo = ref<AccountUsageInfo | null>(props.usageOverride !== undefined ? props.usageOverride : null)
+// TK: keep usageInfo in sync with an injected override (Edge Accounts overview).
+watch(
+  () => props.usageOverride,
+  (v) => { if (v !== undefined) usageInfo.value = v }
+)
 const rootRef = ref<HTMLElement | null>(null)
 const isDesktopViewport = ref(
   typeof window === 'undefined' ? true : window.matchMedia(desktopViewportQuery).matches
@@ -552,6 +564,9 @@ const showUsageWindows = computed(() => {
 })
 
 const shouldFetchUsage = computed(() => {
+  // TK: an injected usageOverride (even null) means the caller supplies usage;
+  // never self-fetch in that mode.
+  if (props.usageOverride !== undefined) return false
   if (props.account.platform === 'anthropic') {
     return props.account.type === 'oauth' || props.account.type === 'setup-token'
   }

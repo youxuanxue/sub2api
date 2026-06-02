@@ -3110,7 +3110,7 @@ export default {
         name: 'Name',
         platformType: 'Platform / Type',
         capacity: 'Capacity',
-        todayStats: 'Today',
+        usageWindows: 'Usage Windows',
         state: 'State',
         priority: 'Priority',
         groups: 'Groups',
