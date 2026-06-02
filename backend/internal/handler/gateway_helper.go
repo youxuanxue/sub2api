@@ -75,8 +75,12 @@ func claudeCodeBodyMapFromParsedRequest(parsedReq *service.ParsedRequest) map[st
 	bodyMap := map[string]any{
 		"model": parsedReq.Model,
 	}
-	if parsedReq.System != nil || parsedReq.HasSystem {
-		bodyMap["system"] = parsedReq.System
+	if parsedReq.HasSystem {
+		if system, ok := parsedReq.SystemValue(); ok {
+			bodyMap["system"] = system
+		} else {
+			bodyMap["system"] = nil
+		}
 	}
 	if parsedReq.MetadataUserID != "" {
 		bodyMap["metadata"] = map[string]any{"user_id": parsedReq.MetadataUserID}
@@ -84,14 +88,15 @@ func claudeCodeBodyMapFromParsedRequest(parsedReq *service.ParsedRequest) map[st
 	return bodyMap
 }
 
+// claudeCodeBodyMapFromContextCache 从 Gin context 中恢复已解析的请求体快照，
+// 供 SetClaudeCodeClientContext 在 parsedReq 缺失时回退使用。
+// 必须保留 c.Get(service.ClaudeCodeParsedRequestGinKey) 这一读取点（gateway-tk sentinel
+// 守护）：service 层 tkEnsure 依赖该 canonical key 在出站序列化丢失 metadata.user_id 时
+// 恢复 session UUID。
+// 注：上游 requestView 惰性解码已移除旧的 OpenAIParsedRequestBodyKey body-map 缓存。
 func claudeCodeBodyMapFromContextCache(c *gin.Context) map[string]any {
 	if c == nil {
 		return nil
-	}
-	if cached, ok := c.Get(service.OpenAIParsedRequestBodyKey); ok {
-		if bodyMap, ok := cached.(map[string]any); ok {
-			return bodyMap
-		}
 	}
 	if cached, ok := c.Get(service.ClaudeCodeParsedRequestGinKey); ok {
 		switch v := cached.(type) {

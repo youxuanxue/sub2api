@@ -30,6 +30,9 @@ func (s *onboardingUserRepoStub) Create(context.Context, *User) error { panic("u
 func (s *onboardingUserRepoStub) GetByID(context.Context, int64) (*User, error) {
 	panic("unexpected GetByID")
 }
+func (s *onboardingUserRepoStub) GetByIDIncludeDeleted(context.Context, int64) (*User, error) {
+	panic("unexpected GetByIDIncludeDeleted")
+}
 func (s *onboardingUserRepoStub) GetByEmail(context.Context, string) (*User, error) {
 	panic("unexpected GetByEmail")
 }

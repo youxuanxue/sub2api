@@ -177,6 +177,10 @@ func (s *userRepoStub) MarkOnboardingTourSeen(ctx context.Context, userID int64)
 	panic("unexpected MarkOnboardingTourSeen call")
 }
 
+func (s *userRepoStub) GetByIDIncludeDeleted(ctx context.Context, id int64) (*User, error) {
+	return s.GetByID(ctx, id)
+}
+
 type groupRepoStub struct {
 	affectedUserIDs []int64
 	deleteErr       error

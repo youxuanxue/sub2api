@@ -65,6 +65,9 @@ func (r *onboardingFakeUserRepo) Create(context.Context, *service.User) error {
 func (r *onboardingFakeUserRepo) GetByID(context.Context, int64) (*service.User, error) {
 	panic("unexpected GetByID")
 }
+func (r *onboardingFakeUserRepo) GetByIDIncludeDeleted(context.Context, int64) (*service.User, error) {
+	panic("unexpected GetByIDIncludeDeleted")
+}
 func (r *onboardingFakeUserRepo) GetByEmail(context.Context, string) (*service.User, error) {
 	panic("unexpected GetByEmail")
 }
