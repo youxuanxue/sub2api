@@ -84,10 +84,125 @@ func TestGatewayService_ForwardCountTokens_400DoesNotTripUpstreamErrorBreaker(t 
 	require.Equal(t, 0, repo.tempCalls, "count_tokens 400 must not mark account temp_unschedulable")
 }
 
-// TestGatewayService_ForwardCountTokens_429StillTripsUpstreamErrorBreaker
-// 反向回归：count_tokens 端的 429（真实容量信号）仍然应该计入 breaker。
-// 这保证 #3 修复只豁免 400，不破坏正常的容量保护。
-func TestGatewayService_ForwardCountTokens_429StillTripsUpstreamErrorBreaker(t *testing.T) {
+// TestGatewayService_ForwardCountTokens_CapacityErrorsFailoverNoBreaker
+// 契约更新（count_tokens failover 修复，见 gateway_handler_tk_count_tokens_failover.go）：
+// count_tokens 是请求前预检端点，其 429/529 容量类错误现在
+//   (a) **不再**计入 anthropic_upstream_error breaker（不熔断主力账号——一次预检的
+//       529 把主力账号 temp_unschedulable/overload 10 分钟会拖垮整组；现场 edge us1
+//       acct1 因单次 count_tokens 529 被罚下、acct4 空闲）；
+//   (b) 返回 *UpstreamFailoverError 且**不写客户端响应**，交由 handler 的 failover
+//       loop 换号 / 池内轮换。
+//
+// 这反转了旧测试 “429StillTripsUpstreamErrorBreaker” 的契约：轮换交给 failover，
+// 状态写入交给真正的 /v1/messages 路径。
+func TestGatewayService_ForwardCountTokens_CapacityErrorsFailoverNoBreaker(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cases := []struct {
+		name    string
+		status  int
+		respMsg string
+	}{
+		{name: "429 rate limit", status: http.StatusTooManyRequests, respMsg: "rate_limit_error"},
+		{name: "529 overloaded", status: 529, respMsg: "overloaded_error"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", nil)
+
+			body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}]}`)
+			parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-opus-4-7"}
+
+			upstreamRespBody := `{"type":"error","error":{"type":"` + tc.respMsg + `","message":"x"}}`
+			upstream := &anthropicHTTPUpstreamRecorder{
+				resp: &http.Response{
+					StatusCode: tc.status,
+					Header:     http.Header{"Content-Type": []string{"application/json"}},
+					Body:       io.NopCloser(strings.NewReader(upstreamRespBody)),
+				},
+			}
+
+			counter := &anthropicUpstreamErrorCounterCacheStub{counts: []int64{1}}
+			repo := &rateLimitAccountRepoStub{}
+			rateLimit := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+			rateLimit.SetAnthropicUpstreamErrorCounterCache(counter)
+
+			svc := &GatewayService{
+				cfg:              &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}},
+				httpUpstream:     upstream,
+				rateLimitService: rateLimit,
+			}
+
+			account := &Account{
+				ID:          502,
+				Name:        "ct-capacity-failover",
+				Platform:    PlatformAnthropic,
+				Type:        AccountTypeAPIKey,
+				Concurrency: 1,
+				Credentials: map[string]any{
+					"api_key":  "k",
+					"base_url": "https://api.anthropic.com",
+				},
+				Status:      StatusActive,
+				Schedulable: true,
+			}
+
+			err := svc.ForwardCountTokens(context.Background(), c, account, parsed)
+
+			// (b) 返回 *UpstreamFailoverError，状态码透传。
+			var fe *UpstreamFailoverError
+			require.ErrorAs(t, err, &fe)
+			require.Equal(t, tc.status, fe.StatusCode)
+			// 非 pool_mode 账号 → 普通换号（不在同账号上重试）。
+			require.False(t, fe.RetryableOnSameAccount)
+			// 未向客户端写入响应（默认 200，交由 handler 耗尽时回写）。
+			require.Equal(t, http.StatusOK, rec.Code, "count_tokens failover must not write a client response at service layer")
+			// (a) 不计入 breaker。
+			require.Empty(t, counter.incrementIDs, "count_tokens %d must not feed the anthropic_upstream_error breaker", tc.status)
+			require.Equal(t, 0, repo.tempCalls, "count_tokens %d must not mark account temp_unschedulable", tc.status)
+		})
+	}
+}
+
+// TestGatewayService_WriteCountTokensFailoverError 锁定 failover 耗尽时回写的
+// count_tokens 错误形状（{type:error,error:{type,message}}）与状态码/文案映射。
+func TestGatewayService_WriteCountTokensFailoverError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &GatewayService{}
+
+	cases := []struct {
+		status  int
+		wantMsg string
+	}{
+		{status: http.StatusTooManyRequests, wantMsg: "Rate limit exceeded"},
+		{status: 529, wantMsg: "Service overloaded"},
+		{status: http.StatusInternalServerError, wantMsg: "Upstream request failed"},
+	}
+	for _, tc := range cases {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		svc.WriteCountTokensFailoverError(c, &UpstreamFailoverError{StatusCode: tc.status})
+		require.Equal(t, tc.status, rec.Code)
+		require.Equal(t, "error", gjson.GetBytes(rec.Body.Bytes(), "type").String())
+		require.Equal(t, "upstream_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+		require.Equal(t, tc.wantMsg, gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
+	}
+
+	// nil failoverErr 兜底为 502。
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	svc.WriteCountTokensFailoverError(c, nil)
+	require.Equal(t, http.StatusBadGateway, rec.Code)
+}
+
+// TestGatewayService_ForwardCountTokens_PoolModeRetryableStatus
+// pool_mode stub 把 529 显式配进 pool_mode_retry_status_codes 时，count_tokens 的
+// 529 失败应标记 RetryableOnSameAccount=true，使 handler 在同一 stub 上重试
+// （= 池内轮换到下个上游成员），而不是直接换 prod 账号。
+func TestGatewayService_ForwardCountTokens_PoolModeRetryableStatus(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	rec := httptest.NewRecorder()
@@ -97,42 +212,41 @@ func TestGatewayService_ForwardCountTokens_429StillTripsUpstreamErrorBreaker(t *
 	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}]}`)
 	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-opus-4-7"}
 
-	upstreamRespBody := `{"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}`
 	upstream := &anthropicHTTPUpstreamRecorder{
 		resp: &http.Response{
-			StatusCode: http.StatusTooManyRequests,
+			StatusCode: 529,
 			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(upstreamRespBody)),
+			Body:       io.NopCloser(strings.NewReader(`{"type":"error","error":{"type":"overloaded_error","message":"x"}}`)),
 		},
 	}
-
-	counter := &anthropicUpstreamErrorCounterCacheStub{counts: []int64{1}}
-	repo := &rateLimitAccountRepoStub{}
-	rateLimit := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
-	rateLimit.SetAnthropicUpstreamErrorCounterCache(counter)
 
 	svc := &GatewayService{
 		cfg:              &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}},
 		httpUpstream:     upstream,
-		rateLimitService: rateLimit,
+		rateLimitService: &RateLimitService{},
 	}
 
 	account := &Account{
-		ID:          502,
-		Name:        "ct-429-still-counts",
+		ID:          701,
+		Name:        "cc-us1-pool-stub",
 		Platform:    PlatformAnthropic,
 		Type:        AccountTypeAPIKey,
 		Concurrency: 1,
 		Credentials: map[string]any{
-			"api_key":  "k",
-			"base_url": "https://api.anthropic.com",
+			"api_key":                      "k",
+			"base_url":                     "https://api-us1.tokenkey.dev",
+			"pool_mode":                    true,
+			"pool_mode_retry_status_codes": []any{float64(529), float64(503)},
 		},
 		Status:      StatusActive,
 		Schedulable: true,
 	}
 
-	_ = svc.ForwardCountTokens(context.Background(), c, account, parsed)
-	require.Equal(t, []int64{502}, counter.incrementIDs, "count_tokens 429 must still feed the anthropic_upstream_error counter (capacity signal)")
+	err := svc.ForwardCountTokens(context.Background(), c, account, parsed)
+	var fe *UpstreamFailoverError
+	require.ErrorAs(t, err, &fe)
+	require.Equal(t, 529, fe.StatusCode)
+	require.True(t, fe.RetryableOnSameAccount, "pool_mode stub with 529 in retry codes must retry same account (pool rotation)")
 }
 
 // TestGatewayService_ForwardCountTokens_OAuthMimicInjectionGetsStripped

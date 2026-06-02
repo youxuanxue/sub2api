@@ -9803,11 +9803,9 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 
 	// 处理错误响应
 	if resp.StatusCode >= 400 {
-		// 标记账号状态（429/529 等容量/凭证类错误才计入熔断）。
-		// count_tokens 端点的 400 是客户端 body schema 错误（Anthropic 返回
-		// invalid_request_error），与账号容量/凭证无关——不应触发 account 级
-		// temp_unschedulable，否则会拖垮整个分组（参见生产事故 2026-05-18）。
-		if resp.StatusCode != http.StatusBadRequest {
+		// 标记账号状态。count_tokens 预检端点的 400/429/529 不计入熔断
+		// （tkCountTokensSkipBreaker，见 gateway_service_tk_count_tokens_failover.go）。
+		if !tkCountTokensSkipBreaker(resp.StatusCode) {
 			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
 		}
 
@@ -9839,7 +9837,14 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 			)
 		}
 
-		// 返回简化的错误响应
+		// TK: count_tokens 与 /v1/messages 一致地具备账号 failover。可 failover 的
+		// 状态码返回 *UpstreamFailoverError 且不写客户端响应（此处尚未写入任何字节，
+		// 重试安全），交由 handler 的 failover loop 换号 / 池内轮换 / 耗尽。
+		if fe := s.tkCountTokensFailoverError(account, resp, respBody); fe != nil {
+			return fe
+		}
+
+		// 非 failover 错误（如 400/404/501）：保持原行为，直接写客户端。
 		errMsg := "Upstream request failed"
 		switch resp.StatusCode {
 		case 429:
@@ -9925,9 +9930,9 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 	}
 
 	if resp.StatusCode >= 400 {
-		// 同 ForwardCountTokens：count_tokens 400 是 client schema 错误，不
-		// 应触发 account 级熔断（参见生产事故 2026-05-18）。
-		if s.rateLimitService != nil && resp.StatusCode != http.StatusBadRequest {
+		// 同 ForwardCountTokens：count_tokens 预检端点的 400/429/529 不计入熔断
+		// （tkCountTokensSkipBreaker）。
+		if s.rateLimitService != nil && !tkCountTokensSkipBreaker(resp.StatusCode) {
 			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
 		}
 
@@ -9978,6 +9983,12 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 				safeUpstreamURL(upstreamReq.URL.String()),
 				truncateForLog(respBody, s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes),
 			)
+		}
+
+		// TK: passthrough count_tokens 也具备账号 failover（与 ForwardCountTokens
+		// 一致，共用 tkCountTokensFailoverError）。尚未写入响应体，failover 安全。
+		if fe := s.tkCountTokensFailoverError(account, resp, respBody); fe != nil {
+			return fe
 		}
 
 		errMsg := "Upstream request failed"

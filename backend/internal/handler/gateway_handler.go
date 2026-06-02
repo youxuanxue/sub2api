@@ -1764,22 +1764,9 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 	TkPrepareParsedRequestSessionInputs(c, apiKey, parsedReq)
 	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
 
-	// 选择支持该模型的账号
-	account, err := h.gatewayService.SelectAccountForModel(c.Request.Context(), apiKey.GroupID, sessionHash, parsedReq.Model)
-	if err != nil {
-		reqLog.Warn("gateway.count_tokens_select_account_failed", zap.Error(err))
-		markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-		h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable")
-		return
-	}
-	setOpsSelectedAccount(c, account.ID, account.Platform)
-
-	// 转发请求（不记录使用量）
-	if err := h.gatewayService.ForwardCountTokens(c.Request.Context(), c, account, parsedReq); err != nil {
-		reqLog.Error("gateway.count_tokens_forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
-		// 错误响应已在 ForwardCountTokens 中处理
-		return
-	}
+	// 选号 + 转发，带账号 failover（与 /v1/messages 一致；pool_mode stub 自动走
+	// 池内轮换）。见 gateway_handler_tk_count_tokens_failover.go。
+	h.forwardCountTokensWithFailover(c, reqLog, apiKey, sessionHash, parsedReq)
 }
 
 // InterceptType 表示请求拦截类型
