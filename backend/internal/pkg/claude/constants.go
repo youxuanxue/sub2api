@@ -7,7 +7,8 @@ import "strings"
 
 // Beta header 常量
 //
-// 这里的常量对齐真实 Claude Code CLI 的最新流量（截至 2026-06，cc 2.1.160 抓包）。
+// 这里的常量对齐真实 Claude Code CLI 的最新流量；具体 cc patch 见 CLICurrentVersion
+// 与 deploy/aws/stage0/anthropic-http-mimicry-baselines.json 的 cc_version（单一真值源）。
 // Anthropic 上游会基于 anthropic-beta 的完整集合判定请求来源；
 // 缺少任何"官方 Claude Code 请求才会带"的 beta，都会被降级到第三方额度，
 // 对应报错：`Third-party apps now draw from your extra usage, not your plan limits.`
@@ -59,8 +60,9 @@ const MessageBetaHeaderWithTools = BetaClaudeCode + "," + BetaOAuth + "," + Beta
 // CountTokensBetaHeader count_tokens 请求使用的 anthropic-beta header
 const CountTokensBetaHeader = BetaClaudeCode + "," + BetaOAuth + "," + BetaInterleavedThinking + "," + BetaTokenCounting
 
-// HaikuBetaHeader Haiku 模型 OAuth 回退 anthropic-beta（对齐 cc 2.1.160 structured-outputs 抓包顺序；
-// 2.1.160 实测 haiku 存在服务端 A/B 灰度，structured-outputs 变体为多数态，详见 docs/spec-delta-cc-2.1.160.md）。
+// HaikuBetaHeader Haiku 模型 OAuth 回退 anthropic-beta（structured-outputs 变体）。
+// 历史观察：2026-06 / cc 2.1.160 实测 haiku 存在服务端 A/B 灰度，structured-outputs
+// 为多数态，故选它；分布详见 docs/spec-delta-cc-2.1.160.md。
 const HaikuBetaHeader = BetaOAuth + "," + BetaInterleavedThinking + "," + BetaThinkingTokenCount + "," +
 	BetaContextManagement + "," + BetaPromptCachingScope + "," + BetaAdvisorTool + "," +
 	BetaStructuredOutputs + "," + BetaCacheDiagnosis
@@ -88,7 +90,7 @@ func JoinBetaHeader(betas []string) string {
 
 // FullClaudeCodeMimicryBetas 返回最"像"真实 Claude Code CLI 的完整 beta 列表（Sonnet/Opus），
 // 用于 OAuth 账号伪装成 Claude Code 时使用。
-// 顺序与 cc 2.1.160 /v1/messages 抓包一致。
+// 顺序与近期 cc /v1/messages 抓包一致（patch 见 CLICurrentVersion / baselines.json）。
 //
 // 使用建议：
 //   - OAuth 账号 + 非 haiku：追加这整份列表，再按需保留 client 带来的 beta。

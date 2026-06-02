@@ -67,7 +67,8 @@ TOKENKEY_CC_DAILY_DRY_RUN=1 bash ops/anthropic/cc_fingerprint_open_tls_drift_pr.
 | Phase 0 ingress cohort / admin UA | 机械 | `ops/observability/run-probe.sh` + admin settings |
 | ja3 变更 → TLS profile SQL apply | 机械 | `manage-anthropic-config.py plan/apply/verify` |
 | HTTP beta 漂移 → runtime manifest apply | 机械 | `plan-http-mimicry-sync` + `sync-runtime` 或 `cc_fingerprint_apply_http_runtime.sh` |
-| 代码修复位点 | 判断 + 清单 | 本 skill §4 |
+| 仅 UA/版本漂移修复 | 机械 | 编辑 baselines.json `cc_version` → `check-cc-version-sync.py --write`（自动改 6 份副本，§4.1）|
+| beta 集合漂移修复位点 | 判断 + 清单 | 本 skill §4.2（需抓包证据）|
 | merge 后是否立刻 sync-runtime | 判断 | HTTP drift PR merge 后**默认先 apply**（无发版）；compile default 跟下一班 release |
 
 ## 调用参数
@@ -177,24 +178,42 @@ bash ops/anthropic/capture-http-comprehensive.sh
 
 ## 4) 代码修复清单（HTTP-only 型）
 
-1. `deploy/aws/stage0/anthropic-http-mimicry-baselines.json`（runtime 真值源；与 capture 对齐）
-2. `backend/internal/pkg/claude/constants.go`（compile default；下一班 release 追上）
-3. `backend/internal/service/identity_service_tk_canonical_http.go`
-4. `backend/internal/service/identity_service.go`
-5. `backend/internal/pkg/claude/constants_test.go`
-6. `scripts/sentinels/gateway-tk.json`
-7. `ops/stage0/smoke_lib.sh`
-8. `docs/spec-delta-cc-<patch>.md`
+### 4.1 仅 UA / 版本漂移（最常见的 cc patch bump）
+
+单一真值源 + 守卫自动生成，**人手只碰 2 个文件**：
+
+1. 编辑 `deploy/aws/stage0/anthropic-http-mimicry-baselines.json` 的 `cc_version`（唯一手改源）。
+2. 跑 `python3 scripts/sentinels/check-cc-version-sync.py --write` —— 自动重写全部 6 份副本：
+   - 4 个 Go 编译默认值：`constants.go` 的 `CLICurrentVersion` + `DefaultHeaders["User-Agent"]`、
+     `identity_service.go` 的 `defaultFingerprint.UserAgent`、
+     `identity_service_tk_canonical_http.go` 的 `DefaultClaudeCodeUserAgentVersion`。
+   - 2 个死快照：`ops/stage0/smoke_lib.sh`、`deploy/aws/stage0/tk_canonical_cc_oauth.json` 的 `observed.user_agent`。
+3. 写 `docs/spec-delta-cc-<patch>.md`（人工记录，含 comprehensive 的 beta 分布）。
+
+> skill 总是跑 `--write` 并 **review 生成的 diff**（编译兜底 UA 值值得扫一眼）。
+> `check-cc-version-sync.py`（check 模式）在 preflight / CI 兜底防漂移——手工漏跑 `--write` 会被拦。
+> `test_capture_cc_fingerprint.py` 的版本断言已派生自 `cc_version`，无需手改。
+
+### 4.2 beta 集合漂移（comprehensive 抓到稳定新 token，且非 A/B 灰度）
+
+`--write` 只同步版本字符串，**不碰 beta 列表**。beta 真变了才手改，且必须有抓包证据（见 §6）：
+
+- `deploy/aws/stage0/anthropic-http-mimicry-baselines.json` 的 `sonnet_opus` / `haiku` 数组。
+- `backend/internal/pkg/claude/constants.go` 的 beta 常量 + `HaikuBetaHeader` / `FullClaudeCode*MimicryBetas()`。
+- claude 包对应单测。
+- 若新增 load-bearing 面：`scripts/sentinels/gateway-tk.json`。
+- `docs/spec-delta-cc-<patch>.md` 记录 token 集合与分布。
 
 ## 5) 验证与 PR（默认 open_pr=true）
 
 ```bash
+python3 scripts/sentinels/check-cc-version-sync.py --selftest && python3 scripts/sentinels/check-cc-version-sync.py
 go test -tags=unit ./internal/pkg/claude/... -run TestFullClaudeCode
 python3 -m unittest discover -s ops/anthropic -p 'test_capture_cc_fingerprint.py' -t ops/anthropic
 ./scripts/preflight.sh
 ```
 
-**HTTP 漂移（默认）：** 修 §4 清单 → spec-delta → 分支 → commit → push → `gh pr create` → **merge 后立刻**：
+**HTTP 漂移（默认）：** 修 §4 清单（仅版本走 4.1 的 `--write`；beta 变了再走 4.2）→ spec-delta → 分支 → commit → push → `gh pr create` → **merge 后立刻**：
 
 ```bash
 bash ops/anthropic/cc_fingerprint_apply_http_runtime.sh
@@ -220,7 +239,8 @@ bash ops/anthropic/cc_fingerprint_apply_http_runtime.sh
 check env → capture --http → comprehensive (beta consistency)
     → check / check-tls
     → [ja3变?] manage-anthropic-config apply + TLS drift PR
-    → [HTTP drift?] baselines.json + constants + tests + spec-delta
+    → [仅UA/版本?] 编辑 baselines.json cc_version → check-cc-version-sync --write（自动改全部副本）→ spec-delta
+    → [beta集合变?] baselines 数组 + constants betas + tests + spec-delta（§4.2，需抓包证据）
     → preflight → open PR (default) → merge
     → sync-runtime / cc_fingerprint_apply_http_runtime.sh（无发版）
     → [可选] 下一班 release 更新 compile default
