@@ -22,7 +22,7 @@ class CaptureCCFingerprintTest(unittest.TestCase):
     def test_load_tokenkey_baseline_has_expected_keys(self) -> None:
         baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
         self.assertEqual(baseline["tls"]["ja3_hash"], "d871d02cecbde59abbf8f4806134addf")
-        self.assertEqual(baseline["canonical_http"]["default_version"], "2.1.159")
+        self.assertEqual(baseline["canonical_http"]["default_version"], "2.1.160")
         self.assertEqual(baseline["mimic_http"]["stainless_package_version"], "0.94.0")
         self.assertIn("claude-code-20250219", baseline["betas"]["sonnet_mimicry"])
         self.assertNotIn("effort-2025-11-24", baseline["betas"]["sonnet_mimicry"])
