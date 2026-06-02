@@ -53,8 +53,22 @@ export interface EdgeAccountSummary {
   active_sessions?: number
   current_rpm?: number
   today_stats?: EdgeTodayStats
+  // Passive 5h/7d usage windows (anthropic oauth/setup-token), source="passive".
+  usage?: EdgeUsageWindows
   tier_id?: number
   groups?: string[]
+}
+
+/** Passive usage windows for one account (mirrors backend edgeUsageWindows). */
+export interface EdgeUsageWindows {
+  source: string
+  five_hour?: EdgeUsageProgress
+  seven_day?: EdgeUsageProgress
+}
+
+export interface EdgeUsageProgress {
+  utilization: number
+  resets_at?: string | null
 }
 
 /** Today's usage for one account (mirrors backend WindowStats subset). */

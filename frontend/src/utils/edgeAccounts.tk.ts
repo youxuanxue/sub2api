@@ -6,7 +6,7 @@
  */
 
 import type { EdgeAccountSummary, EdgeAccountsResult } from '@/api/admin/edgeAccounts'
-import type { Account, WindowStats } from '@/types'
+import type { Account, WindowStats, AccountUsageInfo } from '@/types'
 
 export type StatusVariant = 'success' | 'warning' | 'danger' | 'neutral'
 
@@ -98,5 +98,25 @@ export function toWindowStats(s: EdgeAccountSummary): WindowStats | null {
     tokens: s.today_stats.tokens,
     cost: s.today_stats.cost,
     user_cost: s.today_stats.user_cost
+  }
+}
+
+/**
+ * Builds the AccountUsageInfo shape AccountUsageCell renders (5h/7d bars), from
+ * the edge DTO's passive `usage`. Returns null when the edge reported no usage
+ * windows (non-oauth accounts) — passing null as usageOverride still suppresses
+ * the cell's self-fetch (the account lives on a remote edge). The countdown is
+ * derived from resets_at by UsageProgressBar, so remaining_seconds is inert.
+ */
+export function toUsageInfo(s: EdgeAccountSummary): AccountUsageInfo | null {
+  if (!s.usage) return null
+  const mk = (p?: { utilization: number; resets_at?: string | null }) =>
+    p ? { utilization: p.utilization, resets_at: p.resets_at ?? null, remaining_seconds: 0 } : null
+  return {
+    source: s.usage.source === 'active' ? 'active' : 'passive',
+    updated_at: null,
+    five_hour: mk(s.usage.five_hour),
+    seven_day: mk(s.usage.seven_day),
+    seven_day_sonnet: null
   }
 }

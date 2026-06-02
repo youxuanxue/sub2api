@@ -62,6 +62,10 @@ type edgeRPMReader interface {
 type edgeUsageReader interface {
 	GetAccountWindowStats(ctx context.Context, accountID int64, startTime time.Time) (*usagestats.AccountStats, error)
 	GetTodayStatsBatch(ctx context.Context, accountIDs []int64) (map[int64]*service.WindowStats, error)
+	// GetPassiveUsage builds the 5h/7d usage windows from the account's persisted
+	// passive samples (Extra), with NO upstream Anthropic API call — the same
+	// "被动采样" source the per-edge admin page shows.
+	GetPassiveUsage(ctx context.Context, accountID int64) (*service.UsageInfo, error)
 }
 
 // EdgeAccountsHandler serves the TokenKey read-only "edge accounts" endpoint
@@ -163,8 +167,26 @@ type edgeAccountDTO struct {
 	CurrentRPM         *int            `json:"current_rpm,omitempty"`
 	TodayStats         *edgeTodayStats `json:"today_stats,omitempty"`
 
+	// Passive 5h/7d usage windows (anthropic oauth/setup-token). Source is always
+	// "passive" — read from persisted Extra samples, no upstream API call.
+	Usage *edgeUsageWindows `json:"usage,omitempty"`
+
 	TierID *int64   `json:"tier_id,omitempty"`
 	Groups []string `json:"groups,omitempty"`
+}
+
+// edgeUsageWindows mirrors the minimal subset of service.UsageInfo the usage
+// cell reads (utilization + reset per window); window_stats is supplied
+// frontend-side from today_stats, so it is not duplicated here.
+type edgeUsageWindows struct {
+	Source   string             `json:"source"`
+	FiveHour *edgeUsageProgress `json:"five_hour,omitempty"`
+	SevenDay *edgeUsageProgress `json:"seven_day,omitempty"`
+}
+
+type edgeUsageProgress struct {
+	Utilization float64    `json:"utilization"`
+	ResetsAt    *time.Time `json:"resets_at,omitempty"`
 }
 
 // edgeAccountsResponse is the data envelope returned to the prod aggregator.
@@ -214,11 +236,12 @@ func (h *EdgeAccountsHandler) ListAccounts(c *gin.Context) {
 
 // edgeRuntimeGauges holds the batch-collected live values keyed by account id.
 type edgeRuntimeGauges struct {
-	concurrency map[int64]int
-	windowCost  map[int64]float64
-	sessions    map[int64]int
-	rpm         map[int64]int
-	today       map[int64]*service.WindowStats
+	concurrency  map[int64]int
+	windowCost   map[int64]float64
+	sessions     map[int64]int
+	rpm          map[int64]int
+	today        map[int64]*service.WindowStats
+	usageWindows map[int64]*service.UsageInfo
 }
 
 // apply copies the per-account gauges onto the DTO, mirroring the admin
@@ -253,6 +276,26 @@ func (g *edgeRuntimeGauges) apply(acc *service.Account, dto *edgeAccountDTO) {
 			}
 		}
 	}
+	if g.usageWindows != nil {
+		if u, ok := g.usageWindows[acc.ID]; ok && u != nil {
+			dto.Usage = toEdgeUsageWindows(u)
+		}
+	}
+}
+
+// toEdgeUsageWindows maps the passive UsageInfo to the DTO's window subset.
+func toEdgeUsageWindows(u *service.UsageInfo) *edgeUsageWindows {
+	w := &edgeUsageWindows{Source: u.Source}
+	if u.FiveHour != nil {
+		w.FiveHour = &edgeUsageProgress{Utilization: u.FiveHour.Utilization, ResetsAt: u.FiveHour.ResetsAt}
+	}
+	if u.SevenDay != nil {
+		w.SevenDay = &edgeUsageProgress{Utilization: u.SevenDay.Utilization, ResetsAt: u.SevenDay.ResetsAt}
+	}
+	if w.FiveHour == nil && w.SevenDay == nil {
+		return nil
+	}
+	return w
 }
 
 // collectRuntimeGauges batch-reads the live capacity/today gauges for the given
@@ -341,6 +384,35 @@ func (h *EdgeAccountsHandler) collectRuntimeGauges(ctx context.Context, accounts
 			})
 		}
 		_ = eg.Wait()
+	}
+
+	// Passive 5h/7d usage windows: anthropic OAuth/setup-token only, read from
+	// persisted Extra samples (no upstream API). errgroup-bounded like window-cost.
+	if h.usage != nil {
+		var mu sync.Mutex
+		eg, egctx := errgroup.WithContext(ctx)
+		eg.SetLimit(10)
+		usage := make(map[int64]*service.UsageInfo)
+		for i := range accounts {
+			acc := &accounts[i]
+			if !acc.IsAnthropicOAuthOrSetupToken() {
+				continue
+			}
+			id := acc.ID
+			eg.Go(func() error {
+				info, err := h.usage.GetPassiveUsage(egctx, id)
+				if err == nil && info != nil {
+					mu.Lock()
+					usage[id] = info
+					mu.Unlock()
+				}
+				return nil // partial failure tolerated
+			})
+		}
+		_ = eg.Wait()
+		if len(usage) > 0 {
+			g.usageWindows = usage
+		}
 	}
 
 	return g

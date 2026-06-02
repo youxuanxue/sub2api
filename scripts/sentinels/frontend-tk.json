@@ -404,9 +404,19 @@
         "useTkEdgeAccounts",
         "admin.edgeAccounts.title",
         "AccountCapacityCell",
-        "toAccountLike"
+        "AccountUsageCell",
+        "toAccountLike",
+        "toUsageInfo"
       ],
-      "rationale": "TK-only read-only admin page grouping accounts by edge. Renders the per-edge ok/failed/timeout state and a credential-free account table that REUSES the real admin AccountCapacityCell (+ AccountTodayStatsCell) via toAccountLike, so the overview's capacity/today gauges stay pixel-aligned with the per-edge /admin/accounts page. Guards against silent upstream-merge deletion of the view or a refactor that drops the cell reuse (which would regress the page back to a sparse static table)."
+      "rationale": "TK-only read-only admin page grouping accounts by edge. Renders the per-edge ok/failed/timeout state and a credential-free account table that REUSES the real admin AccountCapacityCell + AccountUsageCell (today + 5h/7d windows) via toAccountLike / toUsageInfo, so the overview's capacity + usage-window gauges stay pixel-aligned with the per-edge /admin/accounts page. Guards against silent upstream-merge deletion of the view or a refactor that drops the cell reuse (which would regress the page back to a sparse static table)."
+    },
+    {
+      "path": "frontend/src/components/account/AccountUsageCell.vue",
+      "must_contain": [
+        "usageOverride?: AccountUsageInfo | null",
+        "if (props.usageOverride !== undefined) return false"
+      ],
+      "rationale": "TK injection point: AccountUsageCell normally self-fetches /admin/accounts/:id/usage, which is wrong for the cross-edge Edge Accounts overview (those accounts live on a remote edge, not queryable via THIS deployment). The optional usageOverride prop lets the overview inject the edge's passive UsageInfo and skip the self-fetch (the shouldFetchUsage short-circuit). An upstream merge that rewrites this large cell and drops the prop or the short-circuit would silently re-enable the self-fetch — every edge account would then 404 its usage and the 5h/7d bars would vanish (or worse, hammer prod's /usage for non-existent ids). These two anchors pin the contract; the rest of the cell stays upstream-shaped."
     },
     {
       "path": "frontend/src/components/layout/AppSidebar.vue",

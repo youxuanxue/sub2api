@@ -3185,7 +3185,7 @@ export default {
         name: '名称',
         platformType: '平台 / 类型',
         capacity: '容量',
-        todayStats: '今日',
+        usageWindows: '用量窗口',
         state: '状态',
         priority: '优先级',
         groups: '分组',

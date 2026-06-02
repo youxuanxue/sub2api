@@ -147,8 +147,9 @@ func (f fakeRPMReader) GetRPMBatch(_ context.Context, _ []int64) (map[int64]int,
 }
 
 type fakeUsageReader struct {
-	today map[int64]*service.WindowStats
-	wcost float64
+	today   map[int64]*service.WindowStats
+	wcost   float64
+	passive *service.UsageInfo
 }
 
 func (f fakeUsageReader) GetAccountWindowStats(_ context.Context, _ int64, _ time.Time) (*usagestats.AccountStats, error) {
@@ -157,6 +158,10 @@ func (f fakeUsageReader) GetAccountWindowStats(_ context.Context, _ int64, _ tim
 
 func (f fakeUsageReader) GetTodayStatsBatch(_ context.Context, _ []int64) (map[int64]*service.WindowStats, error) {
 	return f.today, nil
+}
+
+func (f fakeUsageReader) GetPassiveUsage(_ context.Context, _ int64) (*service.UsageInfo, error) {
+	return f.passive, nil
 }
 
 func richOAuthAccount() service.Account {
@@ -185,7 +190,11 @@ func TestEdgeAccountsHandler_EnrichesRuntimeGauges(t *testing.T) {
 		fakeConcReader{m: map[int64]int{7: 3}},
 		fakeSessReader{m: map[int64]int{7: 4}},
 		fakeRPMReader{m: map[int64]int{7: 9}},
-		fakeUsageReader{today: map[int64]*service.WindowStats{7: {Requests: 80, Tokens: 65_900_000, Cost: 36.53, UserCost: 36.53}}, wcost: 36.53},
+		fakeUsageReader{
+			today:   map[int64]*service.WindowStats{7: {Requests: 80, Tokens: 65_900_000, Cost: 36.53, UserCost: 36.53}},
+			wcost:   36.53,
+			passive: &service.UsageInfo{Source: "passive", FiveHour: &service.UsageProgress{Utilization: 2}, SevenDay: &service.UsageProgress{Utilization: 4}},
+		},
 	)
 	w := performEdgeAccountsRequest(t, h, "?platform=anthropic")
 	require.Equal(t, http.StatusOK, w.Code)
@@ -209,6 +218,13 @@ func TestEdgeAccountsHandler_EnrichesRuntimeGauges(t *testing.T) {
 	require.Equal(t, int64(65_900_000), got.TodayStats.Tokens)
 	require.Equal(t, 36.53, got.TodayStats.Cost)
 	require.Equal(t, 36.53, got.TodayStats.UserCost)
+
+	require.NotNil(t, got.Usage)
+	require.Equal(t, "passive", got.Usage.Source)
+	require.NotNil(t, got.Usage.FiveHour)
+	require.Equal(t, 2.0, got.Usage.FiveHour.Utilization)
+	require.NotNil(t, got.Usage.SevenDay)
+	require.Equal(t, 4.0, got.Usage.SevenDay.Utilization)
 }
 
 func TestEdgeAccountsHandler_RejectsUnknownPlatform(t *testing.T) {

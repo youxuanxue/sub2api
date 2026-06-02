@@ -91,7 +91,7 @@
                   <th class="px-4 py-2 text-left font-medium">{{ t('admin.edgeAccounts.columns.name') }}</th>
                   <th class="px-4 py-2 text-left font-medium">{{ t('admin.edgeAccounts.columns.platformType') }}</th>
                   <th class="px-4 py-2 text-left font-medium">{{ t('admin.edgeAccounts.columns.capacity') }}</th>
-                  <th class="px-4 py-2 text-left font-medium">{{ t('admin.edgeAccounts.columns.todayStats') }}</th>
+                  <th class="px-4 py-2 text-left font-medium">{{ t('admin.edgeAccounts.columns.usageWindows') }}</th>
                   <th class="px-4 py-2 text-left font-medium">{{ t('admin.edgeAccounts.columns.state') }}</th>
                   <th class="px-4 py-2 text-right font-medium">{{ t('admin.edgeAccounts.columns.priority') }}</th>
                   <th class="px-4 py-2 text-left font-medium">{{ t('admin.edgeAccounts.columns.groups') }}</th>
@@ -115,7 +115,11 @@
                     <AccountCapacityCell :account="toAccountLike(acct)" />
                   </td>
                   <td class="px-4 py-2 align-top">
-                    <AccountTodayStatsCell :stats="toWindowStats(acct)" />
+                    <AccountUsageCell
+                      :account="toAccountLike(acct)"
+                      :today-stats="toWindowStats(acct)"
+                      :usage-override="toUsageInfo(acct)"
+                    />
                   </td>
                   <td class="px-4 py-2 align-top">
                     <span :class="['inline-flex rounded-full px-2 py-0.5 text-xs font-medium', stateBadgeClass(acct)]">
@@ -154,10 +158,10 @@ import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
-import AccountTodayStatsCell from '@/components/account/AccountTodayStatsCell.vue'
+import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { useTkEdgeAccounts } from '@/composables/useTkEdgeAccounts'
-import { accountStateLabel, accountStatusVariant, schedulableCount, toAccountLike, toWindowStats } from '@/utils/edgeAccounts.tk'
+import { accountStateLabel, accountStatusVariant, schedulableCount, toAccountLike, toWindowStats, toUsageInfo } from '@/utils/edgeAccounts.tk'
 import type { EdgeAccountSummary } from '@/api/admin/edgeAccounts'
 
 const { t } = useI18n()
