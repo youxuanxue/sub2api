@@ -9803,18 +9803,9 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 
 	// 处理错误响应
 	if resp.StatusCode >= 400 {
-		// 标记账号状态。count_tokens 是请求前的预检端点，不应因它的瞬时容量类
-		// 错误熔断主力账号：
-		//   - 400：客户端 body schema 错误（Anthropic 返回 invalid_request_error），
-		//     与账号容量/凭证无关（生产事故 2026-05-18）。
-		//   - 429/529（TK 扩展）：上游限流/过载是 transient，且 count_tokens 现已
-		//     具备账号级 failover（见下方返回 *UpstreamFailoverError）。让一次预检
-		//     的 529 把主力账号 temp_unschedulable/overload 10 分钟会拖垮整组
-		//     （现场：edge us1 acct1 因单次 count_tokens 529 被罚下，acct4 空闲）。
-		//     轮换交给 failover loop，状态写入交给真正的 /v1/messages 路径。
-		if resp.StatusCode != http.StatusBadRequest &&
-			resp.StatusCode != http.StatusTooManyRequests &&
-			resp.StatusCode != 529 {
+		// 标记账号状态。count_tokens 预检端点的 400/429/529 不计入熔断
+		// （tkCountTokensSkipBreaker，见 gateway_service_tk_count_tokens_failover.go）。
+		if !tkCountTokensSkipBreaker(resp.StatusCode) {
 			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
 		}
 
@@ -9846,19 +9837,11 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 			)
 		}
 
-		// TK: 让 count_tokens 与 /v1/messages 一致地具备账号 failover。对可
-		// failover 的状态码（401/403/429/529/5xx）返回 *UpstreamFailoverError 而
-		// 不写客户端响应，交由 handler 的 failover loop 决定换号 / 池内轮换 / 耗尽。
-		// pool_mode stub（prod cc-us1 → edge）透回的 529/503 也走这条：
-		// RetryableOnSameAccount 命中时在同一 stub 上重试，即池内轮换到下个成员。
-		// 此处尚未向客户端写入任何字节，failover 重试安全。
-		if s.shouldFailoverUpstreamError(resp.StatusCode) {
-			return &UpstreamFailoverError{
-				StatusCode:             resp.StatusCode,
-				ResponseBody:           respBody,
-				ResponseHeaders:        resp.Header,
-				RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
-			}
+		// TK: count_tokens 与 /v1/messages 一致地具备账号 failover。可 failover 的
+		// 状态码返回 *UpstreamFailoverError 且不写客户端响应（此处尚未写入任何字节，
+		// 重试安全），交由 handler 的 failover loop 换号 / 池内轮换 / 耗尽。
+		if fe := s.tkCountTokensFailoverError(account, resp, respBody); fe != nil {
+			return fe
 		}
 
 		// 非 failover 错误（如 400/404/501）：保持原行为，直接写客户端。
@@ -9947,14 +9930,9 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 	}
 
 	if resp.StatusCode >= 400 {
-		// 同 ForwardCountTokens：count_tokens 预检端点不因 400(client schema)/
-		// 429(限流)/529(过载) 熔断主力账号——transient 容量错误交给下方的
-		// failover，状态写入交给真正的 /v1/messages 路径（生产事故 2026-05-18 +
-		// edge us1 单次 count_tokens 529 罚下 acct1 现场）。
-		if s.rateLimitService != nil &&
-			resp.StatusCode != http.StatusBadRequest &&
-			resp.StatusCode != http.StatusTooManyRequests &&
-			resp.StatusCode != 529 {
+		// 同 ForwardCountTokens：count_tokens 预检端点的 400/429/529 不计入熔断
+		// （tkCountTokensSkipBreaker）。
+		if s.rateLimitService != nil && !tkCountTokensSkipBreaker(resp.StatusCode) {
 			s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
 		}
 
@@ -10008,16 +9986,9 @@ func (s *GatewayService) forwardCountTokensAnthropicAPIKeyPassthrough(ctx contex
 		}
 
 		// TK: passthrough count_tokens 也具备账号 failover（与 ForwardCountTokens
-		// 一致）。pool_mode prod stub 透回 edge 的 529/503 在此返回
-		// *UpstreamFailoverError，由 handler loop 做池内轮换 / 换号 / 耗尽。
-		// 尚未写入响应体，failover 安全。
-		if s.shouldFailoverUpstreamError(resp.StatusCode) {
-			return &UpstreamFailoverError{
-				StatusCode:             resp.StatusCode,
-				ResponseBody:           respBody,
-				ResponseHeaders:        resp.Header,
-				RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
-			}
+		// 一致，共用 tkCountTokensFailoverError）。尚未写入响应体，failover 安全。
+		if fe := s.tkCountTokensFailoverError(account, resp, respBody); fe != nil {
+			return fe
 		}
 
 		errMsg := "Upstream request failed"

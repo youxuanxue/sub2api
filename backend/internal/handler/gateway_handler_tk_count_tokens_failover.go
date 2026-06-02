@@ -32,13 +32,11 @@ func (h *GatewayHandler) forwardCountTokensWithFailover(
 	sessionHash string,
 	parsedReq *service.ParsedRequest,
 ) {
+	// 调用方（CountTokens handler）已保证 parsedReq 非空且 body 已解析；这里直接用。
 	fs := NewFailoverState(h.maxAccountSwitches, sessionHash != "")
 
 	// 原始 body/model 快照，用于换号重试前还原（见上方说明）。
-	var originalBody []byte
-	if parsedReq != nil && parsedReq.Body != nil {
-		originalBody = append([]byte(nil), parsedReq.Body.Bytes()...)
-	}
+	originalBody := append([]byte(nil), parsedReq.Body.Bytes()...)
 	originalModel := parsedReq.Model
 
 	first := true
