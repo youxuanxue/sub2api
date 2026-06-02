@@ -22,7 +22,14 @@ class CaptureCCFingerprintTest(unittest.TestCase):
     def test_load_tokenkey_baseline_has_expected_keys(self) -> None:
         baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
         self.assertEqual(baseline["tls"]["ja3_hash"], "d871d02cecbde59abbf8f4806134addf")
-        self.assertEqual(baseline["canonical_http"]["default_version"], "2.1.160")
+        # default_version is derived from the Go const, which check-cc-version-sync.py
+        # keeps == cc_version in the source JSON. Assert that invariant rather than
+        # hard-coding the patch — so a cc bump never has to touch this test.
+        source_cc = json.loads(
+            (mod.REPO_ROOT / "deploy/aws/stage0/anthropic-http-mimicry-baselines.json")
+            .read_text(encoding="utf-8")
+        )["cc_version"]
+        self.assertEqual(baseline["canonical_http"]["default_version"], source_cc)
         self.assertEqual(baseline["mimic_http"]["stainless_package_version"], "0.94.0")
         self.assertIn("claude-code-20250219", baseline["betas"]["sonnet_mimicry"])
         self.assertNotIn("effort-2025-11-24", baseline["betas"]["sonnet_mimicry"])
