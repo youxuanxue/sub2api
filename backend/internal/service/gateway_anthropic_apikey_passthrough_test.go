@@ -679,6 +679,7 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_CountTokens404PassthroughNotE
 		statusCode      int
 		respBody        string
 		wantPassthrough bool
+		wantFailover    bool
 	}{
 		{
 			name:            "404 endpoint not found passes through as 404",
@@ -705,10 +706,14 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_CountTokens404PassthroughNotE
 			wantPassthrough: false,
 		},
 		{
-			name:            "500 internal error does not passthrough",
+			// 契约更新（count_tokens failover 修复）：5xx 现在是 failover-eligible，
+			// ForwardCountTokens 返回 *UpstreamFailoverError 且不写客户端响应，
+			// 交由 handler 的 failover loop 换号。
+			name:            "500 internal error triggers failover",
 			statusCode:      http.StatusInternalServerError,
 			respBody:        `{"error":{"message":"internal error","type":"api_error"}}`,
 			wantPassthrough: false,
+			wantFailover:    true,
 		},
 	}
 
@@ -764,6 +769,13 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_CountTokens404PassthroughNotE
 				errObj, ok := errResp["error"].(map[string]any)
 				require.True(t, ok)
 				require.Equal(t, "not_found_error", errObj["type"])
+			} else if tt.wantFailover {
+				// failover-eligible：返回 *UpstreamFailoverError，状态码透传，
+				// 服务层不写客户端响应（默认 200，交由 handler 耗尽时回写）。
+				var fe *UpstreamFailoverError
+				require.ErrorAs(t, err, &fe)
+				require.Equal(t, tt.statusCode, fe.StatusCode)
+				require.Equal(t, http.StatusOK, rec.Code, "failover errors must not write a client response at service layer")
 			} else {
 				require.Error(t, err)
 				require.Equal(t, tt.statusCode, rec.Code)
