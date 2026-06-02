@@ -277,7 +277,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	mePricingCatalogHandler := handler.NewMePricingCatalogHandler(mePricingCatalogService)
 	qaHandler := handler.NewQAHandler(qaService)
 	edgeCapacityHandler := handler.ProvideEdgeCapacityHandler(accountRepository)
-	handlerEdgeAccountsHandler := handler.ProvideEdgeAccountsHandler(accountRepository)
+	handlerEdgeAccountsHandler := handler.ProvideEdgeAccountsHandler(adminService, concurrencyService, sessionLimitCache, rpmCache, accountUsageService)
 	idempotencyCoordinator := service.ProvideIdempotencyCoordinator(idempotencyRepository, configConfig)
 	idempotencyCleanupService := service.ProvideIdempotencyCleanupService(idempotencyRepository, configConfig)
 	handlers := handler.ProvideHandlers(authHandler, userHandler, apiKeyHandler, usageHandler, redeemHandler, subscriptionHandler, announcementHandler, channelMonitorUserHandler, adminHandlers, gatewayHandler, openAIGatewayHandler, handlerSettingHandler, totpHandler, handlerPaymentHandler, paymentWebhookHandler, availableChannelHandler, qaService, pricingCatalogHandler, mePricingCatalogHandler, qaHandler, edgeCapacityHandler, handlerEdgeAccountsHandler, idempotencyCoordinator, idempotencyCleanupService)

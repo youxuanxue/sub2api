@@ -179,11 +179,19 @@ func ProvideEdgeCapacityHandler(accountRepo service.AccountRepository) *EdgeCapa
 	return NewEdgeCapacityHandler(accountRepo)
 }
 
-// ProvideEdgeAccountsHandler adapts the wire-provided service.AccountRepository
-// (which satisfies the handler's narrow edgeAccountsReader interface) to the
-// edge accounts read handler. Mirrors ProvideEdgeCapacityHandler.
-func ProvideEdgeAccountsHandler(accountRepo service.AccountRepository) *EdgeAccountsHandler {
-	return NewEdgeAccountsHandler(accountRepo)
+// ProvideEdgeAccountsHandler adapts the wire-provided account repository plus the
+// live-gauge services (concurrency / session-limit / rpm / usage — the same set
+// admin AccountHandler uses) to the edge accounts read handler. The gauge readers
+// let the edge endpoint surface per-edge capacity/today figures that align with
+// the per-edge admin accounts page. Mirrors ProvideEdgeCapacityHandler in shape.
+func ProvideEdgeAccountsHandler(
+	adminService service.AdminService,
+	concurrencyService *service.ConcurrencyService,
+	sessionLimitCache service.SessionLimitCache,
+	rpmCache service.RPMCache,
+	accountUsageService *service.AccountUsageService,
+) *EdgeAccountsHandler {
+	return NewEdgeAccountsHandler(adminService, concurrencyService, sessionLimitCache, rpmCache, accountUsageService)
 }
 
 // ProvideTKEdgeAccountsAdminHandler adapts the wire-provided concrete

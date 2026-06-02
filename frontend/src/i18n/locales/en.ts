@@ -3109,8 +3109,9 @@ export default {
       columns: {
         name: 'Name',
         platformType: 'Platform / Type',
+        capacity: 'Capacity',
+        todayStats: 'Today',
         state: 'State',
-        concurrency: 'Concurrency',
         priority: 'Priority',
         groups: 'Groups',
         lastUsed: 'Last Used'

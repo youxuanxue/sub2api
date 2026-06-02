@@ -114,6 +114,7 @@ export type { ContentModerationConfig, ContentModerationLog, ModerationMode } fr
 export type { Tier, TierRequest } from './tier'
 export type {
   EdgeAccountSummary,
+  EdgeTodayStats,
   EdgeAccountsResult,
   EdgeAccountsAggregate,
   EdgeAccountsListParams

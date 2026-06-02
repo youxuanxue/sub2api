@@ -90,8 +90,9 @@
                 <tr>
                   <th class="px-4 py-2 text-left font-medium">{{ t('admin.edgeAccounts.columns.name') }}</th>
                   <th class="px-4 py-2 text-left font-medium">{{ t('admin.edgeAccounts.columns.platformType') }}</th>
+                  <th class="px-4 py-2 text-left font-medium">{{ t('admin.edgeAccounts.columns.capacity') }}</th>
+                  <th class="px-4 py-2 text-left font-medium">{{ t('admin.edgeAccounts.columns.todayStats') }}</th>
                   <th class="px-4 py-2 text-left font-medium">{{ t('admin.edgeAccounts.columns.state') }}</th>
-                  <th class="px-4 py-2 text-right font-medium">{{ t('admin.edgeAccounts.columns.concurrency') }}</th>
                   <th class="px-4 py-2 text-right font-medium">{{ t('admin.edgeAccounts.columns.priority') }}</th>
                   <th class="px-4 py-2 text-left font-medium">{{ t('admin.edgeAccounts.columns.groups') }}</th>
                   <th class="px-4 py-2 text-left font-medium">{{ t('admin.edgeAccounts.columns.lastUsed') }}</th>
@@ -99,29 +100,34 @@
               </thead>
               <tbody class="divide-y divide-gray-50 dark:divide-dark-700/50">
                 <tr v-for="acct in edge.accounts" :key="acct.id" class="hover:bg-gray-50 dark:hover:bg-dark-700/40">
-                  <td class="px-4 py-2">
+                  <td class="px-4 py-2 align-top">
                     <div class="font-medium text-gray-900 dark:text-white">{{ acct.name }}</div>
                     <div v-if="acct.error_message" class="mt-0.5 max-w-xs truncate text-xs text-red-500" :title="acct.error_message">
                       {{ acct.error_message }}
                     </div>
                   </td>
-                  <td class="px-4 py-2 text-gray-600 dark:text-gray-300">
+                  <td class="px-4 py-2 align-top text-gray-600 dark:text-gray-300">
                     <span>{{ acct.platform }}</span>
                     <span class="text-gray-400 dark:text-gray-500"> / {{ acct.type }}</span>
                     <span v-if="acct.channel_type" class="text-gray-400 dark:text-gray-500"> · ch{{ acct.channel_type }}</span>
                   </td>
-                  <td class="px-4 py-2">
+                  <td class="px-4 py-2 align-top">
+                    <AccountCapacityCell :account="toAccountLike(acct)" />
+                  </td>
+                  <td class="px-4 py-2 align-top">
+                    <AccountTodayStatsCell :stats="toWindowStats(acct)" />
+                  </td>
+                  <td class="px-4 py-2 align-top">
                     <span :class="['inline-flex rounded-full px-2 py-0.5 text-xs font-medium', stateBadgeClass(acct)]">
                       {{ accountStateLabel(acct) }}
                     </span>
                   </td>
-                  <td class="px-4 py-2 text-right text-gray-700 dark:text-gray-200">{{ acct.concurrency }}</td>
-                  <td class="px-4 py-2 text-right text-gray-700 dark:text-gray-200">{{ acct.priority }}</td>
-                  <td class="px-4 py-2 text-gray-600 dark:text-gray-300">
+                  <td class="px-4 py-2 align-top text-right text-gray-700 dark:text-gray-200">{{ acct.priority }}</td>
+                  <td class="px-4 py-2 align-top text-gray-600 dark:text-gray-300">
                     <span v-if="acct.groups && acct.groups.length">{{ acct.groups.join(', ') }}</span>
                     <span v-else class="text-gray-300 dark:text-gray-600">—</span>
                   </td>
-                  <td class="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">
+                  <td class="px-4 py-2 align-top text-xs text-gray-500 dark:text-gray-400">
                     {{ acct.last_used_at ? formatRelativeTime(acct.last_used_at) : '—' }}
                   </td>
                 </tr>
@@ -147,9 +153,11 @@ import { onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
+import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
+import AccountTodayStatsCell from '@/components/account/AccountTodayStatsCell.vue'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { useTkEdgeAccounts } from '@/composables/useTkEdgeAccounts'
-import { accountStateLabel, accountStatusVariant, schedulableCount } from '@/utils/edgeAccounts.tk'
+import { accountStateLabel, accountStatusVariant, schedulableCount, toAccountLike, toWindowStats } from '@/utils/edgeAccounts.tk'
 import type { EdgeAccountSummary } from '@/api/admin/edgeAccounts'
 
 const { t } = useI18n()

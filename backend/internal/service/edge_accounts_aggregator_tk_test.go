@@ -108,9 +108,10 @@ func TestEdgeAccountsAggregator_FanoutDedupAndErrorIsolation(t *testing.T) {
 	require.Empty(t, out.Edges[0].Accounts)
 
 	// us1: ok with one account; the FIRST stub's api_key is used (dedup kept first).
+	// Accounts are opaque json.RawMessage passthrough — assert on the raw JSON.
 	require.True(t, out.Edges[1].OK)
 	require.Len(t, out.Edges[1].Accounts, 1)
-	require.Equal(t, int64(11), out.Edges[1].Accounts[0].ID)
+	require.Contains(t, string(out.Edges[1].Accounts[0]), `"id":11`)
 
 	require.Equal(t, "key-us1", doer.keysSeen["api-us1.tokenkey.dev"])
 	require.Equal(t, "key-fra1", doer.keysSeen["api-fra1.tokenkey.dev"])
