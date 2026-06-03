@@ -1654,6 +1654,13 @@
       "rationale": "Pure, fork-only UTF-8 / lone-surrogate sanitizer core (claude-code #60168 / #63885 / #64777), kept in a *_tk_*.go companion out of upstream-owned gateway_request.go (rule §5). TkSanitizeRequestBodyUTF8 rewrites lone JSON surrogate escapes and invalid raw UTF-8 to U+FFFD while preserving valid pairs / escaped backslashes and returning clean bodies byte-identical (changed=false, zero alloc). Anchor the two pure functions + the logging wrapper so an upstream refactor that consolidates body rewrites cannot delete this surface and silently re-expose the 'str is not valid UTF-8: surrogate' 400. Exhaustively covered by gateway_request_tk_utf8_test.go."
     },
     {
+      "path": "backend/internal/server/http.go",
+      "must_contain": [
+        "tkResolveTrustedProxies(cfg.Server.TrustedProxies)"
+      ],
+      "rationale": "TokenKey 默认信任 loopback + 私网代理网段，使 gin c.ClientIP() 在 Caddy/nginx/Docker 反代后解析真实客户端 IP（Wei-Shaw/sub2api#1326 / #2410）。真实逻辑在 http_tk_trusted_proxies.go；http.go 仅薄注入一次 tkResolveTrustedProxies 调用。若上游 merge 把此分支回退为 SetTrustedProxies(nil)，按 IP 分桶的认证端点限流（rate_limiter.go）会塌缩成单一 docker 网桥桶、支付审计 IP 失真——此 sentinel 捕获该回退。"
+    },
+    {
       "path": "backend/internal/service/gateway_service.go",
       "must_contain": [
         "if bare, aliased := tkStripContextWindowModelAlias(reqModel); aliased {",

@@ -24,8 +24,13 @@ server:
   # 用于生成邮件中的外部链接（例如：重置密码链接）的前端基础地址
   # Example: "https://example.com"
   frontend_url: ""
-  # Trusted proxies for X-Forwarded-For parsing (CIDR/IP). Empty disables trusted proxies.
-  # 信任的代理地址（CIDR/IP 格式），用于解析 X-Forwarded-For 头。留空则禁用代理信任。
+  # Trusted proxies for X-Forwarded-For parsing (CIDR/IP).
+  # Empty/unset = auto-trust loopback + private ranges (127/8, 10/8, 172.16/12,
+  # 192.168/16, ::1, fc00::/7) so client IP resolves correctly behind Caddy/nginx/Docker.
+  # Set explicit CIDRs to override. Set ["none"] (or off/disabled) to fully disable trust.
+  # 信任的代理地址（CIDR/IP 格式），用于解析 X-Forwarded-For 头。
+  # 留空 = 自动信任 loopback + 私网网段（Caddy/nginx/Docker 反代后真实客户端 IP 才正确）；
+  # 填具体 CIDR 可覆盖；填 ["none"]（或 off/disabled）则完全关闭代理信任。
   trusted_proxies: []
   # Global max request body size in bytes (default: 256MB)
   # 全局最大请求体大小（字节，默认 256MB）

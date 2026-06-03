@@ -4,8 +4,8 @@
   "generated_from": "GitHub REST API issues?state=open; pull requests excluded",
   "rationale": "TokenKey-local triage cache for upstream open issues. Use this file before re-triaging upstream issues; update entries when TokenKey fixes, dismisses, or reclassifies an issue.",
   "counts": {
-    "needs_review": 411,
-    "fixed": 36,
+    "needs_review": 410,
+    "fixed": 37,
     "needs_prod_validation": 2,
     "medium": 123,
     "not_applicable": 1,
@@ -311,19 +311,6 @@
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
       "updated_at": "2026-03-26T06:47:06Z"
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#1326",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/1326",
-      "title": "使用容器部署并使用nginx反代，sub2api日志显示请求ip为docker 网桥网关ip",
-      "impact": "needs_review",
-      "categories": [
-        "rate_limit_cooldown",
-        "billing_usage"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-05-25T11:39:52Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#1331",
@@ -6711,6 +6698,19 @@
       "tokenkey_status": "fixed_in_tokenkey",
       "rationale": "isOpenAICompatResponsesTerminalEvent (driver for the OpenAI-compat Anthropic Messages and Chat Completions streaming handlers) now recognizes the full six-event terminal set, including response.cancelled / response.canceled. Without this, an upstream that ends the Responses SSE with a legitimate cancellation falls through to 'stream usage incomplete: missing terminal event', producing a spurious openai.forward_failed ops_error_logs entry and skipping clean finalization. Symmetric with openAIStreamEventIsTerminal (gateway_service.go), openai_ws_forwarder.go, and openai_ws_v2/passthrough_relay.go.",
       "updated_at": "2026-03-26T08:41:35Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1326",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/1326",
+      "title": "使用容器部署并使用nginx反代，sub2api日志显示请求ip为docker 网桥网关ip",
+      "impact": "fixed",
+      "categories": [
+        "rate_limit_cooldown",
+        "billing_usage"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "反代/容器部署下真实客户端 IP 失真：server.trusted_proxies 出厂为空 → gin SetTrustedProxies(nil) → c.ClientIP() 退回 docker 网桥 IP（172.x）。修复把“未配置”语义改为默认信任 loopback + 私网网段（可被显式配置或 none/off/disabled 哨兵覆盖），使 c.ClientIP() 在反代后沿 X-Forwarded-For 解析真实客户端、直连公网时忽略伪造 XFF（防伪造）。同时修好按 IP 分桶的认证端点限流（rate_limiter.go）与支付审计 IP。 Fixed by youxuanxue/sub2api (branch: fix/edge-real-client-ip).",
+      "updated_at": "2026-05-25T11:39:52Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#1471",
