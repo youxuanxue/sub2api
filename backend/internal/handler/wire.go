@@ -194,6 +194,18 @@ func ProvideEdgeAccountsHandler(
 	return NewEdgeAccountsHandler(adminService, concurrencyService, sessionLimitCache, rpmCache, accountUsageService)
 }
 
+// ProvideEdgeAdminSessionHandler adapts the wire-provided concrete services
+// (which satisfy the handler's narrow lookup/minter interfaces) to the edge
+// admin-session mint handler. A dedicated provider avoids wire.Bind for the
+// unexported interfaces; mirrors ProvideEdgeAccountsHandler in shape.
+func ProvideEdgeAdminSessionHandler(
+	apiKeyService *service.APIKeyService,
+	userService *service.UserService,
+	authService *service.AuthService,
+) *EdgeAdminSessionHandler {
+	return NewEdgeAdminSessionHandler(apiKeyService, userService, authService)
+}
+
 // ProvideTKEdgeAccountsAdminHandler adapts the wire-provided concrete
 // *service.EdgeAccountsAggregator (which satisfies the admin handler's narrow
 // interface) to the prod-side cross-edge account overview handler. A dedicated
@@ -226,6 +238,7 @@ func ProvideHandlers(
 	qaHandler *QAHandler,
 	edgeCapacityHandler *EdgeCapacityHandler,
 	edgeAccountsHandler *EdgeAccountsHandler,
+	edgeAdminSessionHandler *EdgeAdminSessionHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 ) *Handlers {
@@ -252,6 +265,7 @@ func ProvideHandlers(
 		QA:               qaHandler,
 		EdgeCapacity:     edgeCapacityHandler,
 		EdgeAccounts:     edgeAccountsHandler,
+		EdgeAdminSession: edgeAdminSessionHandler,
 	}
 }
 
@@ -283,6 +297,8 @@ var ProviderSet = wire.NewSet(
 	ProvideEdgeCapacityHandler,
 	// TK: internal edge read-only account inventory — see edge_tk_accounts_handler.go.
 	ProvideEdgeAccountsHandler,
+	// TK: edge admin-session mint for prod→edge "manage accounts" handoff — see edge_tk_admin_session_handler.go.
+	ProvideEdgeAdminSessionHandler,
 
 	// Admin handlers
 	admin.NewDashboardHandler,

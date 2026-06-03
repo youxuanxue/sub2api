@@ -18,6 +18,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -30,6 +31,10 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/baseline"
 )
+
+// ErrEdgeNotFound is returned when an edge_id does not resolve to a known mirror
+// stub (so the prod admin handler can map it to a 404 rather than a 500).
+var ErrEdgeNotFound = errors.New("edge not found")
 
 const (
 	// edgeAccountsHTTPTO bounds a single edge read. Matches surface-C's 8s budget.
@@ -250,4 +255,89 @@ func (a *EdgeAccountsAggregator) fetchEdgeAccounts(ctx context.Context, t edgeTa
 		res.Accounts = env.Data.Accounts
 	}
 	return res
+}
+
+// EdgeAdminSession is the minted handoff result for one edge: the short-lived
+// admin JWT plus the edge's base_url so the caller can build the handoff URL.
+type EdgeAdminSession struct {
+	EdgeID    string `json:"edge_id"`
+	BaseURL   string `json:"base_url"`
+	Token     string `json:"token"`
+	ExpiresIn int    `json:"expires_in"`
+}
+
+// resolveTarget discovers the mirror-stub edges and returns the one whose derived
+// edge_id matches. ErrEdgeNotFound when no stub matches.
+func (a *EdgeAccountsAggregator) resolveTarget(ctx context.Context, edgeID string) (edgeTarget, error) {
+	edgeID = strings.ToLower(strings.TrimSpace(edgeID))
+	if a == nil || a.accounts == nil || edgeID == "" {
+		return edgeTarget{}, ErrEdgeNotFound
+	}
+	stubs, err := a.accounts.ListByPlatform(ctx, PlatformAnthropic)
+	if err != nil {
+		return edgeTarget{}, err
+	}
+	_, re, err := baseline.LoadStubPoolBaseline()
+	if err != nil {
+		return edgeTarget{}, err
+	}
+	for _, t := range discoverEdgeTargets(stubs, re) {
+		if t.edgeID == edgeID {
+			return t, nil
+		}
+	}
+	return edgeTarget{}, ErrEdgeNotFound
+}
+
+// MintAdminSession resolves the edge by id and POSTs to its /api/v1/edge/admin-session
+// with the mirror-stub x-api-key, returning the short-lived admin JWT + base_url.
+// This is the write-direction sibling of fetchEdgeAccounts: same discovery, same
+// x-api-key auth, same per-call timeout and failure isolation.
+func (a *EdgeAccountsAggregator) MintAdminSession(ctx context.Context, edgeID string) (*EdgeAdminSession, error) {
+	t, err := a.resolveTarget(ctx, edgeID)
+	if err != nil {
+		return nil, err
+	}
+	if a.http == nil {
+		return nil, errors.New("no http client")
+	}
+	endpoint := t.baseURL + "/api/v1/edge/admin-session"
+	reqCtx, cancel := context.WithTimeout(ctx, edgeAccountsHTTPTO)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, endpoint, nil)
+	if err != nil {
+		return nil, errors.New("build request failed")
+	}
+	req.Header.Set("x-api-key", t.apiKey)
+
+	resp, err := a.http.Do(req)
+	if err != nil {
+		return nil, errors.New("request failed: " + err.Error())
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, errors.New("edge returned http " + strconv.Itoa(resp.StatusCode))
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+	if err != nil {
+		return nil, errors.New("read body failed")
+	}
+	var env struct {
+		Data struct {
+			Token     string `json:"token"`
+			ExpiresIn int    `json:"expires_in"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &env); err != nil {
+		return nil, errors.New("decode body failed")
+	}
+	if env.Data.Token == "" {
+		return nil, errors.New("edge returned empty token")
+	}
+	return &EdgeAdminSession{
+		EdgeID:    t.edgeID,
+		BaseURL:   t.baseURL,
+		Token:     env.Data.Token,
+		ExpiresIn: env.Data.ExpiresIn,
+	}, nil
 }
