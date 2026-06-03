@@ -178,21 +178,108 @@ class CaptureCCFingerprintTest(unittest.TestCase):
             self.assertIn("haiku", picked)
             self.assertIn("oauth-2025-04-20", picked["haiku"]["anthropic_beta"])
 
-    def test_load_http_log_last_wins_per_variant(self) -> None:
+    def test_load_http_log_dominant_variant_wins(self) -> None:
+        # Haiku is bimodal (A x2, B x1) -> dominant A wins, deterministically,
+        # not the last sample (B). Sonnet is unimodal.
         lines = [
-            'CC_CAPTURE {"model":"claude-haiku-4-5-20251001","anthropic_beta":"legacy-variant"}',
-            'CC_CAPTURE {"model":"claude-haiku-4-5-20251001","anthropic_beta":"dominant-variant"}',
-            'CC_CAPTURE {"model":"claude-sonnet-4-20250514","anthropic_beta":"sonnet-first"}',
-            'CC_CAPTURE {"model":"claude-sonnet-4-20250514","anthropic_beta":"sonnet-last"}',
-            'CC_CAPTURE {"model":"claude-opus-4-5-20251101","anthropic_beta":"opus-with-effort"}',
+            'CC_CAPTURE {"model":"claude-haiku-4-5-20251001","anthropic_beta":"variant-A"}',
+            'CC_CAPTURE {"model":"claude-haiku-4-5-20251001","anthropic_beta":"variant-B"}',
+            'CC_CAPTURE {"model":"claude-haiku-4-5-20251001","anthropic_beta":"variant-A"}',
+            'CC_CAPTURE {"model":"claude-sonnet-4-20250514","anthropic_beta":"sonnet-only"}',
+            'CC_CAPTURE {"model":"claude-opus-4-5-20251101","anthropic_beta":"opus-only"}',
         ]
         with tempfile.TemporaryDirectory() as tmp:
             log = pathlib.Path(tmp) / "http.log"
             log.write_text("\n".join(lines) + "\n", encoding="utf-8")
             picked = mod.load_http_log(log)
-            self.assertEqual("dominant-variant", picked["haiku"]["anthropic_beta"])
-            self.assertEqual("sonnet-last", picked["sonnet"]["anthropic_beta"])
-            self.assertEqual("opus-with-effort", picked["opus"]["anthropic_beta"])
+            self.assertEqual("variant-A", picked["haiku"]["anthropic_beta"])
+            self.assertEqual("sonnet-only", picked["sonnet"]["anthropic_beta"])
+            self.assertEqual("opus-only", picked["opus"]["anthropic_beta"])
+
+    def test_aggregate_http_records_keeps_full_distribution(self) -> None:
+        records = [
+            {"model": "claude-haiku-4-5-20251001", "anthropic_beta": "A"},
+            {"model": "claude-haiku-4-5-20251001", "anthropic_beta": "B"},
+            {"model": "claude-haiku-4-5-20251001", "anthropic_beta": "A"},
+            {"model": "claude-haiku-4-5-20251001", "anthropic_beta": "A"},
+            {"model": "claude-haiku-4-5-20251001", "anthropic_beta": "B"},
+        ]
+        dist = mod.aggregate_http_records(records)
+        haiku = dist["haiku"]
+        self.assertEqual(5, haiku["total_requests"])
+        self.assertEqual(2, len(haiku["unique"]))
+        # Ordered by descending count; A (3) before B (2).
+        self.assertEqual("A", haiku["unique"][0]["anthropic_beta"])
+        self.assertEqual(3, haiku["unique"][0]["count"])
+        self.assertEqual("B", haiku["unique"][1]["anthropic_beta"])
+        self.assertEqual(2, haiku["unique"][1]["count"])
+        # serialize_http_variants drops the raw record but keeps header + count.
+        ser = mod.serialize_http_variants(dist)
+        self.assertNotIn("record", ser["haiku"]["unique"][0])
+        self.assertEqual(3, ser["haiku"]["unique"][0]["count"])
+
+    def test_diff_bimodal_baseline_matches_one_is_needs_investigation(self) -> None:
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        haiku_betas = ",".join(baseline["betas"]["haiku_mimicry"])
+        other = "oauth-2025-04-20,structured-outputs-2025-12-15"
+        capture = {
+            "schema_version": 1,
+            "cc_version": baseline["canonical_http"]["default_version"],
+            "tls": {
+                "ja3_hash": baseline["tls"]["ja3_hash"],
+                "ja3_raw": baseline["tls"]["ja3_raw"],
+                "stainless_package_version": baseline["canonical_http"][
+                    "stainless_package_version"
+                ],
+            },
+            "http": {"haiku": {"anthropic_beta": haiku_betas}},
+            "http_variants": {
+                "haiku": {
+                    "total_requests": 11,
+                    "unique": [
+                        {"anthropic_beta": haiku_betas, "count": 7},
+                        {"anthropic_beta": other, "count": 4},
+                    ],
+                }
+            },
+        }
+        rows = mod.diff_baseline_vs_capture(baseline, capture)
+        haiku_row = next(r for r in rows if r.field == "betas.haiku_mimicry")
+        self.assertEqual("needs_investigation", haiku_row.status)
+        # Bimodal field must NOT fail check/diff against one arbitrary sample.
+        self.assertFalse(mod.has_actionable_mismatch(rows))
+        self.assertTrue(mod.has_needs_investigation(rows))
+        report = mod.format_diff_report(rows)
+        self.assertIn("INVESTIGATE", report)
+        self.assertIn("needs_investigation=1", report)
+
+    def test_diff_bimodal_baseline_matches_none_is_mismatch(self) -> None:
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        capture = {
+            "schema_version": 1,
+            "cc_version": baseline["canonical_http"]["default_version"],
+            "tls": {
+                "ja3_hash": baseline["tls"]["ja3_hash"],
+                "ja3_raw": baseline["tls"]["ja3_raw"],
+                "stainless_package_version": baseline["canonical_http"][
+                    "stainless_package_version"
+                ],
+            },
+            "http_variants": {
+                "haiku": {
+                    "total_requests": 4,
+                    "unique": [
+                        {"anthropic_beta": "drift-x", "count": 3},
+                        {"anthropic_beta": "drift-y", "count": 1},
+                    ],
+                }
+            },
+        }
+        rows = mod.diff_baseline_vs_capture(baseline, capture)
+        haiku_row = next(r for r in rows if r.field == "betas.haiku_mimicry")
+        self.assertEqual("mismatch", haiku_row.status)
+        # Baseline matches no observed variant -> genuine, actionable drift.
+        self.assertTrue(mod.has_actionable_mismatch(rows))
 
 
 if __name__ == "__main__":
