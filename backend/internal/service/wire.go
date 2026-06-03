@@ -633,6 +633,11 @@ var ProviderSet = wire.NewSet(
 	// Same shape as ProvideTKGatewayPricingAvailability; consumed by
 	// provideCleanup in cmd/server/wire.go so wire forces evaluation.
 	ProvideTKGatewayAnthropicSigPreempt,
+	// TokenKey: account-incident → Feishu notifier. Builds the notifier, starts
+	// its digest ticker, and wires it onto RateLimitService post-construction.
+	// Returns the instance so provideCleanup (cmd/server/wire.go) can Stop() the
+	// ticker at shutdown — same lifecycle shape as ChannelMonitorRunner.
+	ProvideTKAccountIncidentNotifier,
 )
 
 // TKAuthServiceColdStartReady is a wire sentinel: holding it proves that
@@ -759,4 +764,37 @@ func ProvideTKGatewayAnthropicSigPreempt(
 		gw.SetAnthropicSigPreemptCache(cache)
 	}
 	return TKGatewayAnthropicSigPreemptReady{}
+}
+
+// ProvideTKAccountIncidentNotifier builds the account-incident Feishu notifier,
+// starts its background digest ticker, and wires it onto RateLimitService
+// post-construction. It returns the concrete instance (not a sentinel) so
+// provideCleanup can Stop() the ticker at shutdown — mirroring the
+// ChannelMonitorRunner lifecycle shape rather than the setter-only sentinel
+// pattern.
+//
+// Node identity (prod / edge-<id>) is derived from server.frontend_url so no new
+// env / deploy-template change is needed. Setter is nil-safe; if rl is nil the
+// notifier is still returned (and Stopped) without being attached.
+func ProvideTKAccountIncidentNotifier(
+	rl *RateLimitService,
+	ops *OpsService,
+	cfg *config.Config,
+) *TKAccountIncidentNotifier {
+	site := "unknown"
+	if cfg != nil {
+		site = siteFromFrontendURL(cfg.Server.FrontendURL)
+	}
+	// Pass a nil interface (not a typed-nil *OpsService) when ops is absent so the
+	// notifier's `cfgProvider != nil` guards short-circuit cleanly.
+	var provider opsFeishuConfigProvider
+	if ops != nil {
+		provider = ops
+	}
+	n := newTKAccountIncidentNotifier(provider, site)
+	n.Start()
+	if rl != nil {
+		rl.SetAccountIncidentNotifier(n)
+	}
+	return n
 }

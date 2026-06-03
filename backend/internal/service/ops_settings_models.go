@@ -40,6 +40,9 @@ type OpsFeishuAlertConfig struct {
 	SigningSecretConfigured bool   `json:"signing_secret_configured"`
 	RateLimitPerHour        int    `json:"rate_limit_per_hour"`
 	CooldownSeconds         int    `json:"cooldown_seconds"`
+	// AccountIncidentDigestSeconds 控制账号失效事件中「临时冷却」类（429/529/temp）
+	// 聚合摘要的 flush 间隔（秒）。永久失效类即时单发，不受此值影响。默认 600。
+	AccountIncidentDigestSeconds int `json:"account_incident_digest_seconds"`
 }
 
 // OpsEmailNotificationConfigUpdateRequest allows partial updates, while the

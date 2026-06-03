@@ -39,14 +39,56 @@ func (n *opsFeishuNotifier) sendAlert(ctx context.Context, cfg OpsFeishuAlertCon
 	if n == nil {
 		n = newOpsFeishuNotifier()
 	}
-	client := n.httpClient
-	if client == nil {
-		client = &http.Client{Timeout: opsFeishuWebhookTimeout}
-	}
-
 	payload, err := n.buildPayload(cfg, rule, event)
 	if err != nil {
 		return err
+	}
+	return sendFeishuPayload(ctx, n.httpClient, cfg, payload)
+}
+
+// feishuCardPayload builds the interactive-card envelope (header template/title
+// + lark_md body) and signs it when a secret is configured. Both the ops alert
+// path (buildPayload) and the account-incident path reuse it so the card shape +
+// signing live in one place.
+func feishuCardPayload(cfg OpsFeishuAlertConfig, now func() time.Time, headerTemplate, headerTitle, markdownBody string) map[string]any {
+	if now == nil {
+		now = time.Now
+	}
+	payload := map[string]any{
+		"msg_type": "interactive",
+		"card": map[string]any{
+			"header": map[string]any{
+				"template": headerTemplate,
+				"title": map[string]any{
+					"tag":     "plain_text",
+					"content": headerTitle,
+				},
+			},
+			"elements": []map[string]any{
+				{
+					"tag": "div",
+					"text": map[string]any{
+						"tag":     "lark_md",
+						"content": markdownBody,
+					},
+				},
+			},
+		},
+	}
+	if secret := strings.TrimSpace(cfg.SigningSecret); secret != "" {
+		timestamp := strconv.FormatInt(now().Unix(), 10)
+		payload["timestamp"] = timestamp
+		payload["sign"] = signFeishuWebhook(timestamp, secret)
+	}
+	return payload
+}
+
+// sendFeishuPayload is the shared low-level sender: marshal → POST → interpret
+// the Feishu response. Reused by the ops alert path and the account-incident
+// path so the HTTP / error-sanitization logic lives in exactly one place.
+func sendFeishuPayload(ctx context.Context, client opsFeishuHTTPDoer, cfg OpsFeishuAlertConfig, payload map[string]any) error {
+	if client == nil {
+		client = &http.Client{Timeout: opsFeishuWebhookTimeout}
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -87,33 +129,11 @@ func (n *opsFeishuNotifier) buildPayload(cfg OpsFeishuAlertConfig, rule *OpsAler
 		return nil, errors.New("missing alert context")
 	}
 	text := buildOpsFeishuAlertText(rule, event)
-	payload := map[string]any{
-		"msg_type": "interactive",
-		"card": map[string]any{
-			"header": map[string]any{
-				"template": "red",
-				"title": map[string]any{
-					"tag":     "plain_text",
-					"content": "TokenKey P0 告警",
-				},
-			},
-			"elements": []map[string]any{
-				{
-					"tag": "div",
-					"text": map[string]any{
-						"tag":     "lark_md",
-						"content": text,
-					},
-				},
-			},
-		},
+	now := time.Now
+	if n != nil && n.now != nil {
+		now = n.currentTime
 	}
-	if secret := strings.TrimSpace(cfg.SigningSecret); secret != "" {
-		timestamp := strconv.FormatInt(n.currentTime().Unix(), 10)
-		payload["timestamp"] = timestamp
-		payload["sign"] = signFeishuWebhook(timestamp, secret)
-	}
-	return payload, nil
+	return feishuCardPayload(cfg, now, "red", "TokenKey P0 告警", text), nil
 }
 
 func (n *opsFeishuNotifier) currentTime() time.Time {
