@@ -5455,6 +5455,8 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	var resp *http.Response
 	retryStart := time.Now()
 	signatureRetryAttempted := false
+	budgetRetryAttempted := false
+	adaptiveRetryAttempted := false
 	for attempt := 1; attempt <= maxRetryAttempts; attempt++ {
 		upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, input.RequestStream)
 		upstreamReq, wireBody, err := s.buildUpstreamRequestAnthropicAPIKeyPassthrough(upstreamCtx, c, account, input.Body, token)
@@ -5527,6 +5529,73 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 					logger.LegacyPrintf("service.gateway", "Anthropic passthrough account %d: thinking blocks have invalid signature, retrying with filtered blocks", account.ID)
 					continue
 				}
+
+				// Parity with main Forward(): self-heal thinking-shape 400s on the
+				// passthrough path too. Model gate reads the model from the body that
+				// actually 400'd (wireBody = mapped model sent upstream).
+				errMsg := extractUpstreamErrorMessage(respBody)
+				modelForRepair := gjson.GetBytes(wireBody, "model").String()
+
+				// Budget-constraint repair (budget_tokens too small). RectifyThinkingBudget
+				// is model-aware: opus-4.7+ → adaptive (no budget), others → enabled+32000.
+				if !budgetRetryAttempted && attempt < maxRetryAttempts && time.Since(retryStart) < maxRetryElapsed &&
+					isThinkingBudgetConstraintError(errMsg) && s.settingService.IsBudgetRectifierEnabled(ctx) {
+					if rectified, applied := RectifyThinkingBudget(input.Body, modelForRepair); applied {
+						appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+							Platform:           account.Platform,
+							AccountID:          account.ID,
+							AccountName:        account.Name,
+							UpstreamStatusCode: resp.StatusCode,
+							UpstreamRequestID:  resp.Header.Get("x-request-id"),
+							UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
+							Passthrough:        true,
+							Kind:               "budget_constraint_error",
+							Message:            errMsg,
+							Detail: func() string {
+								if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+									return truncateString(string(respBody), s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes)
+								}
+								return ""
+							}(),
+						})
+						budgetRetryAttempted = true
+						input.Body = rectified
+						setOpsUpstreamRequestBody(c, input.Body)
+						logger.LegacyPrintf("service.gateway", "Anthropic passthrough account %d: budget_tokens constraint, retrying with rectified thinking budget", account.ID)
+						continue
+					}
+				}
+
+				// Opus 4.7+ reject thinking.type=enabled (only adaptive). Reactive repair
+				// mirrors the main path's 4th priority; hard-gated by isOpus47OrNewer.
+				if !adaptiveRetryAttempted && attempt < maxRetryAttempts && time.Since(retryStart) < maxRetryElapsed &&
+					isThinkingTypeAdaptiveRequiredError(errMsg) && isOpus47OrNewer(modelForRepair) && s.settingService.IsBudgetRectifierEnabled(ctx) {
+					if rectified, applied := RectifyThinkingTypeAdaptive(input.Body); applied {
+						appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+							Platform:           account.Platform,
+							AccountID:          account.ID,
+							AccountName:        account.Name,
+							UpstreamStatusCode: resp.StatusCode,
+							UpstreamRequestID:  resp.Header.Get("x-request-id"),
+							UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
+							Passthrough:        true,
+							Kind:               "thinking_type_adaptive_error",
+							Message:            errMsg,
+							Detail: func() string {
+								if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+									return truncateString(string(respBody), s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes)
+								}
+								return ""
+							}(),
+						})
+						adaptiveRetryAttempted = true
+						input.Body = rectified
+						setOpsUpstreamRequestBody(c, input.Body)
+						logger.LegacyPrintf("service.gateway", "Anthropic passthrough account %d: thinking.type.enabled unsupported on %s, retrying with thinking.type=adaptive", account.ID, modelForRepair)
+						continue
+					}
+				}
+
 				resp.Body = io.NopCloser(bytes.NewReader(respBody))
 			}
 		}

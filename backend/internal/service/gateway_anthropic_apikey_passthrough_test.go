@@ -1120,6 +1120,86 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_Signature400Ret
 	require.Equal(t, "cached thought", gjson.GetBytes(upstream.bodies[1], "messages.1.content.0.text").String())
 }
 
+// Parity with the main Forward() path: the passthrough path must also self-heal the
+// Opus 4.7+ "thinking.type.enabled is not supported" 400 by retrying with adaptive.
+func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_AdaptiveRequired400RetriesWithAdaptive(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	body := []byte(`{"model":"claude-opus-4-8","thinking":{"type":"enabled","budget_tokens":1024},"max_tokens":2048,"messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]}`)
+	upstreamJSON := `{"id":"msg_adaptive_ok","type":"message","usage":{"input_tokens":3,"output_tokens":2}}`
+	upstream := &anthropicHTTPUpstreamSequenceRecorder{resps: []*http.Response{
+		{
+			StatusCode: http.StatusBadRequest,
+			Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid-adaptive-bad"}},
+			Body:       io.NopCloser(strings.NewReader(`{"type":"error","error":{"type":"invalid_request_error","message":"\"thinking.type.enabled\" is not supported for this model. Use \"thinking.type.adaptive\" and \"output_config.effort\" to control thinking behavior."}}`)),
+		},
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid-adaptive-ok"}},
+			Body:       io.NopCloser(strings.NewReader(upstreamJSON)),
+		},
+	}}
+	settingSvc := NewSettingService(&anthropicPassthroughSettingRepoStub{values: map[string]string{}}, &config.Config{})
+	svc := &GatewayService{
+		cfg:              &config.Config{},
+		httpUpstream:     upstream,
+		rateLimitService: &RateLimitService{},
+		settingService:   settingSvc,
+	}
+
+	result, err := svc.forwardAnthropicAPIKeyPassthrough(context.Background(), c, newAnthropicAPIKeyAccountForTest(), body, "claude-opus-4-8", "claude-opus-4-8", false, time.Now())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, upstreamJSON, rec.Body.String())
+	require.Len(t, upstream.bodies, 2)
+	require.Equal(t, "enabled", gjson.GetBytes(upstream.bodies[0], "thinking.type").String(), "first attempt preserves client manual thinking")
+	require.Equal(t, "adaptive", gjson.GetBytes(upstream.bodies[1], "thinking.type").String(), "retry converts to adaptive")
+	require.False(t, gjson.GetBytes(upstream.bodies[1], "thinking.budget_tokens").Exists(), "retry drops budget_tokens")
+}
+
+// Parity with the main Forward() path: the passthrough path must also self-heal a
+// budget_tokens-too-small 400. For a non-opus-4.7 model this rectifies to enabled+32000.
+func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_BudgetConstraint400Retries(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	body := []byte(`{"model":"claude-sonnet-4-5","thinking":{"type":"enabled","budget_tokens":100},"max_tokens":1024,"messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]}`)
+	upstreamJSON := `{"id":"msg_budget_ok","type":"message","usage":{"input_tokens":3,"output_tokens":2}}`
+	upstream := &anthropicHTTPUpstreamSequenceRecorder{resps: []*http.Response{
+		{
+			StatusCode: http.StatusBadRequest,
+			Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid-budget-bad"}},
+			Body:       io.NopCloser(strings.NewReader(`{"type":"error","error":{"type":"invalid_request_error","message":"thinking.budget_tokens: Input should be greater than or equal to 1024"}}`)),
+		},
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid-budget-ok"}},
+			Body:       io.NopCloser(strings.NewReader(upstreamJSON)),
+		},
+	}}
+	settingSvc := NewSettingService(&anthropicPassthroughSettingRepoStub{values: map[string]string{}}, &config.Config{})
+	svc := &GatewayService{
+		cfg:              &config.Config{},
+		httpUpstream:     upstream,
+		rateLimitService: &RateLimitService{},
+		settingService:   settingSvc,
+	}
+
+	result, err := svc.forwardAnthropicAPIKeyPassthrough(context.Background(), c, newAnthropicAPIKeyAccountForTest(), body, "claude-sonnet-4-5", "claude-sonnet-4-5", false, time.Now())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, upstreamJSON, rec.Body.String())
+	require.Len(t, upstream.bodies, 2)
+	require.Equal(t, int64(100), gjson.GetBytes(upstream.bodies[0], "thinking.budget_tokens").Int(), "first attempt preserves client budget")
+	require.Equal(t, "enabled", gjson.GetBytes(upstream.bodies[1], "thinking.type").String())
+	require.Equal(t, int64(BudgetRectifyBudgetTokens), gjson.GetBytes(upstream.bodies[1], "thinking.budget_tokens").Int(), "retry rectifies budget to 32000")
+}
+
 func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_InvalidTokenType(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
