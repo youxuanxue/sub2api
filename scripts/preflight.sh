@@ -707,6 +707,17 @@ if [[ "${_smoke_syntax_ok}" == "true" ]]; then
   echo "  ok: stage0 smoke scripts parse"
 fi
 
+# ---- sub2api: SSM host command script parses (deploy/sync primitives) --------
+# The jq `commands` array these scripts send to AWS-RunShellScript is joined and
+# run on the host; "JSON valid" locally does NOT catch host-shell syntax errors
+# (e.g. unquoted parens in an echo — the #512 bug caught only by a us1 canary).
+echo ""
+echo "=== sub2api: SSM host command script parse ==="
+if ! bash ./scripts/checks/check-stage0-ssm-host-parse.sh; then
+  echo "  FAIL: an SSM host command script has a shell syntax error"
+  errors=$((errors + 1))
+fi
+
 echo ""
 echo "=== sub2api: gateway smoke suite unit tests ==="
 if ! python3 -m unittest scripts.test_smoke_suite scripts.test_edge_smoke_phase_contract scripts.test_smoke_env scripts.test_load_smoke_github_env -q; then
