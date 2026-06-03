@@ -181,12 +181,14 @@ import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { useTkEdgeAccounts } from '@/composables/useTkEdgeAccounts'
 import { schedulableCount, toAccountLike, toWindowStats, toUsageInfo } from '@/utils/edgeAccounts.tk'
+import { GATEWAY_PLATFORMS } from '@/constants/gatewayPlatforms'
 
 const { t } = useI18n()
 
-// Concrete platforms the filter offers besides "all". Raw values match the
-// platform/type column and the backend allowlist (edge_tk_accounts_handler.go).
-const PLATFORM_OPTIONS = ['anthropic', 'openai', 'gemini', 'antigravity', 'newapi', 'kiro'] as const
+// Concrete platforms the filter offers besides "all". Sourced from the canonical
+// GATEWAY_PLATFORMS list (single source of truth, mirrors the backend allowlist
+// in edge_tk_accounts_handler.go) so a new platform never silently goes stale here.
+const PLATFORM_OPTIONS = GATEWAY_PLATFORMS
 
 const {
   platform,
