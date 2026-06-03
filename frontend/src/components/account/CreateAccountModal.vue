@@ -1138,6 +1138,17 @@
           <p class="input-hint">{{ t('admin.accounts.gemini.tier.aiStudioHint') }}</p>
         </div>
 
+        <!-- TK: edge mirror-stub pool selector (anthropic apikey only) -->
+        <div v-if="form.platform === 'anthropic'">
+          <label class="input-label">{{ t('admin.accounts.anthropic.mirrorPlatform') }}</label>
+          <select v-model="mirrorPlatform" class="input">
+            <option v-for="opt in MIRROR_PLATFORM_OPTIONS" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
+          </select>
+          <p class="input-hint">{{ t('admin.accounts.anthropic.mirrorPlatformHint') }}</p>
+        </div>
+
         <!-- Model Restriction Section (Antigravity 已在上层条件排除) -->
         <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
           <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
@@ -3364,6 +3375,7 @@ import { applyInterceptWarmup } from '@/components/account/credentialsBuilder'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
+import { MIRROR_PLATFORM_OPTIONS, type MirrorPlatform } from '@/constants/mirrorPlatformOptions.tk'
 import {
   OPENAI_WS_MODE_CTX_POOL,
   OPENAI_WS_MODE_OFF,
@@ -3488,6 +3500,9 @@ const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_acco
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
+// TK: edge mirror-stub pool selector (anthropic + apikey only). See
+// constants/mirrorPlatformOptions.tk.ts.
+const mirrorPlatform = ref<MirrorPlatform>('anthropic')
 
 const syncPreviewCredentials = computed(() => {
   if (!apiKeyValue.value) return undefined
@@ -4449,6 +4464,7 @@ const resetForm = () => {
   addMethod.value = 'oauth'
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
+  mirrorPlatform.value = 'anthropic'
   editQuotaLimit.value = null
   editQuotaDailyLimit.value = null
   editQuotaWeeklyLimit.value = null
@@ -4965,6 +4981,11 @@ const handleSubmit = async () => {
   }
   if (form.platform === 'gemini') {
     credentials.tier_id = geminiTierAIStudio.value
+  }
+  // TK: edge mirror-stub pool selector (surface-C). Only anthropic apikey stubs
+  // participate; default 'anthropic' keeps non-stub accounts unaffected.
+  if (form.platform === 'anthropic') {
+    credentials.mirror_platform = mirrorPlatform.value
   }
 
   // Add model mapping if configured（OpenAI 开启自动透传时不应用）

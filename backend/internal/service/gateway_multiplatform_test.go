@@ -203,6 +203,10 @@ func (m *mockAccountRepoForPlatform) SumConcurrencyAnthropicByGroup(context.Cont
 	return 0, nil
 }
 
+func (m *mockAccountRepoForPlatform) SumConcurrencyByPlatform(context.Context, string) (int64, error) {
+	return 0, nil
+}
+
 // Verify interface implementation
 var _ AccountRepository = (*mockAccountRepoForPlatform)(nil)
 

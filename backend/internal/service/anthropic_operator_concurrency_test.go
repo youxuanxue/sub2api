@@ -27,6 +27,13 @@ func (a *accountRepoSumStub) SumConcurrencyAnthropicByGroup(context.Context, str
 	return a.sum, nil
 }
 
+func (a *accountRepoSumStub) SumConcurrencyByPlatform(context.Context, string) (int64, error) {
+	if a.err != nil {
+		return 0, a.err
+	}
+	return a.sum, nil
+}
+
 type recordingUserRepoStub struct {
 	UserRepository
 

@@ -3595,6 +3595,9 @@ export default {
         apiKeyPassthrough: 'Auto passthrough (auth only)',
         apiKeyPassthroughDesc:
           'Only applies to Anthropic API Key accounts. When enabled, messages/count_tokens are forwarded in passthrough mode with auth replacement only, while billing/concurrency/audit and safety filtering are preserved. Disable to roll back immediately.',
+        mirrorPlatform: 'Mirror platform',
+        mirrorPlatformHint:
+          'Only for edge "mirror stub" accounts (base URL points at an internal api-<edge>.tokenkey.dev host). Declares which edge pool this stub mirrors its concurrency from: Anthropic (default) or Kiro. Leave Anthropic for normal API Key accounts.',
         webSearchEmulation: 'Web Search Emulation',
         webSearchEmulationDesc:
           'Enable web search emulation for this API Key account. When a pure web_search request is detected, the gateway calls a third-party search API and constructs the response locally. Default follows channel config.',

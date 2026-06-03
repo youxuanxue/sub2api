@@ -188,6 +188,26 @@ WHERE a.platform = $1 AND a.schedulable = true AND a.deleted_at IS NULL
 	return sum.Int64, nil
 }
 
+// SumConcurrencyByPlatform returns Σ concurrency for schedulable accounts of the
+// given platform across all groups (no group join). Surface-C uses this for
+// non-anthropic edge pools (e.g. kiro), where every schedulable account of that
+// platform IS the operator pool, so the anthropic "default"-group scoping
+// (SumConcurrencyAnthropicByGroup) does not apply.
+func (r *accountRepository) SumConcurrencyByPlatform(ctx context.Context, platform string) (int64, error) {
+	const q = `
+SELECT COALESCE(SUM(concurrency), 0)::bigint
+FROM accounts
+WHERE platform = $1 AND schedulable = true AND deleted_at IS NULL`
+	var sum sql.NullInt64
+	if err := scanSingleRow(ctx, r.sql, q, []any{platform}, &sum); err != nil {
+		return 0, fmt.Errorf("sum concurrency by platform %q: %w", platform, err)
+	}
+	if !sum.Valid {
+		return 0, nil
+	}
+	return sum.Int64, nil
+}
+
 func (r *accountRepository) GetByID(ctx context.Context, id int64) (*service.Account, error) {
 	m, err := r.client.Account.Query().Where(dbaccount.IDEQ(id)).Only(ctx)
 	if err != nil {

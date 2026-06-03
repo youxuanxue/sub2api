@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -389,7 +390,12 @@ func (r *AnthropicConfigReconciler) reconcileConcurrencyMirror(ctx context.Conte
 		if baseURL == "" || apiKey == "" {
 			continue
 		}
-		total, ok := r.fetchEdgeCapacity(ctx, baseURL, apiKey)
+		// A mirror stub's transport platform is always anthropic-apikey, but the
+		// edge pool it represents (its capacity source) may differ — kiro rides the
+		// same relay shape. credentials.mirror_platform declares which edge pool to
+		// mirror; absent → anthropic (back-compat: every existing stub stays correct).
+		platform := mirrorCapacityPlatform(a.GetCredential("mirror_platform"))
+		total, ok := r.fetchEdgeCapacity(ctx, baseURL, apiKey, platform)
 		if !ok {
 			// Hard rule: failure/timeout/5xx/<1 → skip, never write 0.
 			continue
@@ -408,13 +414,30 @@ func (r *AnthropicConfigReconciler) reconcileConcurrencyMirror(ctx context.Conte
 	}
 }
 
-// fetchEdgeCapacity GETs {base_url}/api/v1/edge/scheduling-capacity?platform=anthropic
+// mirrorCapacityPlatform normalizes a stub's credentials.mirror_platform into the
+// edge capacity platform query value. ONLY empty/whitespace maps to "anthropic"
+// (the historical default — every pre-existing mirror stub keeps mirroring the
+// anthropic pool). A non-empty value is passed through verbatim (lower/trimmed)
+// rather than coerced to a known platform: the edge endpoint is the authoritative
+// validator and rejects anything it does not support, so an unknown/typo'd value
+// (e.g. "openai", "kir0") makes fetchEdgeCapacity see a 4xx and skip — never write
+// 0, never silently mirror the wrong pool. Coercing unknowns to "anthropic" here
+// would reintroduce the exact silent-wrong-pool bug this surface exists to kill.
+func mirrorCapacityPlatform(raw string) string {
+	p := strings.ToLower(strings.TrimSpace(raw))
+	if p == "" {
+		return "anthropic"
+	}
+	return p
+}
+
+// fetchEdgeCapacity GETs {base_url}/api/v1/edge/scheduling-capacity?platform={platform}
 // with x-api-key auth. Returns (total, true) only on a 2xx with total_concurrency >= 1.
-func (r *AnthropicConfigReconciler) fetchEdgeCapacity(ctx context.Context, baseURL, apiKey string) (int, bool) {
+func (r *AnthropicConfigReconciler) fetchEdgeCapacity(ctx context.Context, baseURL, apiKey, platform string) (int, bool) {
 	if r.http == nil {
 		return 0, false
 	}
-	endpoint := strings.TrimRight(baseURL, "/") + "/api/v1/edge/scheduling-capacity?platform=anthropic"
+	endpoint := strings.TrimRight(baseURL, "/") + "/api/v1/edge/scheduling-capacity?platform=" + url.QueryEscape(platform)
 	reqCtx, cancel := context.WithTimeout(ctx, anthropicReconcilerHTTPTO)
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, endpoint, nil)

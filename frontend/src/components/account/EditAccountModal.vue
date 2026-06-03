@@ -97,6 +97,16 @@
             />
             <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
           </div>
+          <!-- TK: edge mirror-stub pool selector (anthropic apikey only) -->
+          <div v-if="account.platform === 'anthropic'">
+            <label class="input-label">{{ t('admin.accounts.anthropic.mirrorPlatform') }}</label>
+            <select v-model="editMirrorPlatform" class="input">
+              <option v-for="opt in MIRROR_PLATFORM_OPTIONS" :key="opt.value" :value="opt.value">
+                {{ opt.label }}
+              </option>
+            </select>
+            <p class="input-hint">{{ t('admin.accounts.anthropic.mirrorPlatformHint') }}</p>
+          </div>
         </template>
 
         <!--
@@ -2418,6 +2428,11 @@ import { formatDateTime, formatDateTimeLocalInput, parseDateTimeLocalInput } fro
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
 import {
+  MIRROR_PLATFORM_OPTIONS,
+  normalizeMirrorPlatform,
+  type MirrorPlatform
+} from '@/constants/mirrorPlatformOptions.tk'
+import {
   OPENAI_WS_MODE_CTX_POOL,
   OPENAI_WS_MODE_OFF,
   OPENAI_WS_MODE_PASSTHROUGH,
@@ -2479,6 +2494,9 @@ interface TempUnschedRuleForm {
 const submitting = ref(false)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
+// TK: edge mirror-stub pool selector (anthropic + apikey only). See
+// constants/mirrorPlatformOptions.tk.ts.
+const editMirrorPlatform = ref<MirrorPlatform>('anthropic')
 // 第五平台 newapi：表单状态 + 副作用统一收口在 composable。
 // EditModal 多传一个 storedAccount，让「获取模型列表」在用户没重新输入 api_key 时走 stored
 // credential 路径——与上游 new-api 的 channel 编辑体验一致。
@@ -3143,6 +3161,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
           ? 'https://generativelanguage.googleapis.com'
           : 'https://api.anthropic.com'
     editBaseUrl.value = (credentials.base_url as string) || platformDefaultUrl
+    // TK: edge mirror-stub pool (default anthropic for non-stub accounts).
+    editMirrorPlatform.value = normalizeMirrorPlatform(credentials.mirror_platform)
 
     // 第五平台 newapi：把现有账号的 channel_type / credentials 一次性灌进
     // composable，模式（whitelist / mapping）由 composable 自行推断。
@@ -3791,6 +3811,10 @@ const handleSubmit = async () => {
         } else if (!hasExistingApiKey) {
           appStore.showError(t('admin.accounts.apiKeyIsRequired'))
           return
+        }
+        // TK: edge mirror-stub pool selector (surface-C). anthropic apikey only.
+        if (props.account.platform === 'anthropic') {
+          newCredentials.mirror_platform = editMirrorPlatform.value
         }
         if (shouldApplyModelMapping) {
           const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)

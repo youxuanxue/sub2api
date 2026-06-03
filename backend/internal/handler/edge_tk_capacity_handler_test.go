@@ -15,14 +15,21 @@ import (
 )
 
 type capacityReaderStub struct {
-	sum       int64
-	err       error
-	lastGroup string
+	sum          int64
+	platformSum  int64
+	err          error
+	lastGroup    string
+	lastPlatform string
 }
 
 func (s *capacityReaderStub) SumConcurrencyAnthropicByGroup(_ context.Context, groupName string) (int64, error) {
 	s.lastGroup = groupName
 	return s.sum, s.err
+}
+
+func (s *capacityReaderStub) SumConcurrencyByPlatform(_ context.Context, platform string) (int64, error) {
+	s.lastPlatform = platform
+	return s.platformSum, s.err
 }
 
 func performCapacityRequest(t *testing.T, h *EdgeCapacityHandler, query string) *httptest.ResponseRecorder {
@@ -67,6 +74,30 @@ func TestEdgeCapacityHandler_RejectsUnsupportedPlatform(t *testing.T) {
 	h := NewEdgeCapacityHandler(&capacityReaderStub{sum: 7})
 	w := performCapacityRequest(t, h, "?platform=openai")
 	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestEdgeCapacityHandler_KiroUsesPlatformWideSum(t *testing.T) {
+	// kiro mirrors the edge's whole schedulable kiro pool (no "default"-group
+	// scoping), so it must read SumConcurrencyByPlatform("kiro"), never the
+	// anthropic-group sum that would (wrongly) hand the kiro stub the anthropic
+	// number — the bug this fix closes.
+	stub := &capacityReaderStub{sum: 22, platformSum: 6}
+	h := NewEdgeCapacityHandler(stub)
+	w := performCapacityRequest(t, h, "?platform=kiro")
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var env struct {
+		Data struct {
+			Platform         string `json:"platform"`
+			TotalConcurrency int64  `json:"total_concurrency"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	require.Equal(t, "kiro", env.Data.Platform)
+	require.Equal(t, int64(6), env.Data.TotalConcurrency)
+	require.Equal(t, "kiro", stub.lastPlatform)
+	// The anthropic-group path must NOT have been taken for a kiro request.
+	require.Empty(t, stub.lastGroup)
 }
 
 func TestEdgeCapacityHandler_RepoErrorIs500(t *testing.T) {
