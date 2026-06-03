@@ -1558,6 +1558,14 @@
         "classifyOpenAIPrivacyResponse(resp.StatusCode, resp.GetContentType(), resp.String())"
       ],
       "rationale": "The OpenAI 'disable training data sharing' PATCH to chatgpt.com/backend-api gets served an OpenAI-branded Cloudflare anti-bot interstitial (gray logo SVG + <meta http-equiv=refresh>, status 403) from a datacenter egress IP. That page contains NONE of the legacy cloudflare/cf-/Just-a-moment markers, so the original inline detection mis-recorded it as training_set_failed (red 'Fail') instead of training_set_cf_blocked (yellow 'CF' — blocked, retryable, not an account fault). disableOpenAITraining now delegates classification to classifyOpenAIPrivacyResponse in openai_privacy_tk_classify.go (broadened HTML / <html> / cf / meta-refresh detection). An upstream merge that restores the old inline 3-marker block here compiles clean but silently reverts the fix and leaves the companion file as dead code — this sentinel catches that revert."
+    },
+    {
+      "path": "backend/internal/service/account_usage_service.go",
+      "must_contain": [
+        "func parseExtraSampledAt(",
+        "if found && account.SessionWindowStart != nil {"
+      ],
+      "rationale": "Passive 5h-window staleness guard in estimateSetupTokenUsage: session_window_utilization is a passive sample from the last upstream response; if it was sampled BEFORE the current SessionWindowStart (window rolled but not yet re-sampled — the writer's clear-on-roll only fires on expiry-driven init, not header-driven window changes), it belongs to a prior window and would show a misleading high % on a fresh window (observed live: a just-rolled 5h window showing 99%). The guard drops such samples and falls back to status-based estimation. Load-bearing for BOTH the per-edge /admin/accounts page and the cross-edge Edge Accounts overview (both read GetPassiveUsage→estimateSetupTokenUsage); an upstream merge that removes the guard or parseExtraSampledAt silently reintroduces the stale-99% display."
     }
   ]
 }
