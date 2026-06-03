@@ -1652,6 +1652,22 @@
         "func TkSanitizeRequestBody(body []byte, account *Account) []byte {"
       ],
       "rationale": "Pure, fork-only UTF-8 / lone-surrogate sanitizer core (claude-code #60168 / #63885 / #64777), kept in a *_tk_*.go companion out of upstream-owned gateway_request.go (rule §5). TkSanitizeRequestBodyUTF8 rewrites lone JSON surrogate escapes and invalid raw UTF-8 to U+FFFD while preserving valid pairs / escaped backslashes and returning clean bodies byte-identical (changed=false, zero alloc). Anchor the two pure functions + the logging wrapper so an upstream refactor that consolidates body rewrites cannot delete this surface and silently re-expose the 'str is not valid UTF-8: surrogate' 400. Exhaustively covered by gateway_request_tk_utf8_test.go."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "if bare, aliased := tkStripContextWindowModelAlias(reqModel); aliased {",
+        "if bare, aliased := tkStripContextWindowModelAlias(input.RequestModel); aliased {"
+      ],
+      "rationale": "Wiring of the Claude Code [1m] context-window alias strip (claude-code #60913) into the three Anthropic forward paths — Forward + count_tokens (reqModel) and the APIKey passthrough (input.RequestModel). Each is a one-line hook in an upstream-shaped file that compiles clean if dropped, so an upstream merge could silently revert it and re-expose the 404 + silent 200K downgrade. Anchor both call shapes so the regression is caught at merge time; the pure stripper itself is guarded by the gateway_anthropic_context_window_alias_tk.go sentinel."
+    },
+    {
+      "path": "backend/internal/service/gateway_anthropic_context_window_alias_tk.go",
+      "must_contain": [
+        "func tkStripContextWindowModelAlias(model string) (string, bool) {",
+        "var tkContextWindowAliasSuffix = regexp.MustCompile("
+      ],
+      "rationale": "Pure, fork-only Claude Code context-window model-alias stripper (claude-code #60913 / #50803 / #53031 / #55504 / #34143), kept in a *_tk_*.go companion out of upstream-owned gateway_service.go (rule §5). tkStripContextWindowModelAlias removes a trailing bracketed alias such as '[1m]' that cc serializes verbatim into the API model field on resume/continue/compact — Anthropic answers 404 not_found_error and the client silently falls back to the bare 200K model (paid 1M context lost, no error surfaced). The trailing-anchored regexp keeps a legitimate id (never contains brackets) a byte-for-byte no-op; the context-1m beta header flows through separately so the bare id still activates the 1M window. Anchor the pure function + the regexp guard so an upstream refactor that consolidates model normalization cannot delete this surface and silently re-expose the 404 + 200K downgrade. Exhaustively covered by gateway_anthropic_context_window_alias_tk_test.go."
     }
   ]
 }
