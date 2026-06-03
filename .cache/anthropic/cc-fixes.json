@@ -12,6 +12,17 @@
         "backend/internal/service/gateway_request_thinking_adaptive_test.go"
       ],
       "summary": "Opus 4.7+ thinking.type=enabled 400 self-healed to thinking.type=adaptive on both the Forward and APIKey passthrough paths; model-aware RectifyThinkingBudget; hard-gated by isOpus47OrNewer."
+    },
+    {
+      "upstream": "anthropics/claude-code#60168, anthropics/claude-code#63885, anthropics/claude-code#64777",
+      "tokenkey_pr": "youxuanxue/sub2api (UTF-8/surrogate self-heal)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_request_tk_utf8.go",
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_request_tk_utf8_test.go"
+      ],
+      "summary": "Unpaired UTF-16 surrogate / invalid raw UTF-8 in the request body (macOS screenshot drag, truncated pasted runes) self-healed pre-flight to U+FFFD before forward, preventing the upstream 'str is not valid UTF-8: surrogate code point' 400. TkSanitizeRequestBody wired ahead of StripEmptyTextBlocks on the Forward, APIKey passthrough, and count_tokens paths. Valid surrogate pairs and escaped backslashes preserved; clean bodies returned unchanged (changed=false, zero alloc)."
     }
   ]
 }
