@@ -235,6 +235,27 @@ func (c *schedulerCache) DeleteAccount(ctx context.Context, accountID int64) err
 	return c.rdb.Del(ctx, schedulerAccountKey(id), schedulerAccountMetaKey(id)).Err()
 }
 
+// UpdateLastUsed 仅刷新调度热路径实际读取的 slim metadata 键
+// （sched:meta:<id>），不再触碰完整账号键（sched:acc:<id>）。
+//
+// 背景（upstream Wei-Shaw/sub2api#1723）：
+// 旧实现每次 LastUsedAt bump 都要对完整账号键做 MGET + 反序列化 + 重新
+// marshal + SET，仅为改一个时间戳字段。实测完整账号 JSON 单条 3-12 KB，
+// 单部署 6.5 天即向 Redis 写入 1.85 TB（SET 占全部命令 58.6%），在多机
+// 跨公网连 Redis 的部署里直接转化为带宽账单，单机部署则是无谓的
+// CPU / 网络开销与调度延迟。TokenKey 此前还在同一路径额外重写了 meta 键，
+// 把读写放大又加重一层。
+//
+// 安全性：调度热读 GetSnapshot 只 MGET sched:meta:<id> 做 LRU(LastUsedAt)
+// tiebreak；完整账号键 sched:acc:<id> 只在 sticky 命中后 hydrate 凭据
+// （getSchedulableAccount / hydrateSelectedAccount）时读取，用于转发而非
+// LRU 决策。因此完整键的 LastUsedAt 略微陈旧无害——它会在下一次快照重建
+// （SetSnapshot）或任意账号变更（SetAccount）时随完整账号一并刷新。
+// sched:acc 与 sched:meta 始终成对写入/删除（writeAccounts / DeleteAccount）
+// 且均无 TTL，故 meta 存在即 full 存在，不存在二者漂移。
+//
+// 效果：单次 LastUsedAt 更新的读写载荷从 ~12 KB 降到 slim meta 量级
+// （~1 KB），去掉了完整账号键的整段读 + 写放大。
 func (c *schedulerCache) UpdateLastUsed(ctx context.Context, updates map[int64]time.Time) error {
 	if len(updates) == 0 {
 		return nil
@@ -243,7 +264,7 @@ func (c *schedulerCache) UpdateLastUsed(ctx context.Context, updates map[int64]t
 	keys := make([]string, 0, len(updates))
 	ids := make([]int64, 0, len(updates))
 	for id := range updates {
-		keys = append(keys, schedulerAccountKey(strconv.FormatInt(id, 10)))
+		keys = append(keys, schedulerAccountMetaKey(strconv.FormatInt(id, 10)))
 		ids = append(ids, id)
 	}
 
@@ -262,16 +283,13 @@ func (c *schedulerCache) UpdateLastUsed(ctx context.Context, updates map[int64]t
 			return err
 		}
 		account.LastUsedAt = ptrTime(updates[ids[i]])
-		updated, err := json.Marshal(account)
-		if err != nil {
-			return err
-		}
+		// 解出的已是 slim meta；重新 buildSchedulerMetadataAccount 保持
+		// 白名单形状幂等，避免任何字段漂移写回。
 		metaPayload, err := json.Marshal(buildSchedulerMetadataAccount(*account))
 		if err != nil {
 			return err
 		}
-		pipe.Set(ctx, keys[i], updated, 0)
-		pipe.Set(ctx, schedulerAccountMetaKey(strconv.FormatInt(ids[i], 10)), metaPayload, 0)
+		pipe.Set(ctx, keys[i], metaPayload, 0)
 	}
 	_, err = pipe.Exec(ctx)
 	return err
