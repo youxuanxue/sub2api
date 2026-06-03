@@ -495,6 +495,23 @@
         "backend/internal/service/ratelimit_service_tk_openai_reset_clamp.go:func (s *RateLimitService) tkClampOpenAIRateLimitReset",
         "backend/internal/service/ratelimit_service.go:s.tkClampOpenAIRateLimitReset(ctx, account.ID"
       ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1723",
+      "tokenkey_pr": "youxuanxue/sub2api#525",
+      "severity": "high",
+      "summary": "schedulerCache.UpdateLastUsed 不再读改写完整账号键 sched:acc:<id>（3-12 KB JSON），只刷调度热路径 LRU 实际读取的 slim metadata 键 sched:meta:<id>，消除每次 LastUsedAt bump 的 Redis 读写放大（upstream 实测单部署 6.5 天 1.85 TB）。完整账号键的 LastUsedAt 由快照重建 / 账号变更刷新，不参与 LRU。",
+      "fixed_by": [
+        "backend/internal/repository/scheduler_cache.go",
+        "backend/internal/repository/scheduler_cache_integration_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/repository/scheduler_cache.go:背景（upstream Wei-Shaw/sub2api#1723）",
+        "backend/internal/repository/scheduler_cache.go:去掉了完整账号键的整段读 + 写放大",
+        "backend/internal/repository/scheduler_cache.go:schedulerAccountMetaKey(strconv.FormatInt(id, 10))",
+        "backend/internal/repository/scheduler_cache_integration_test.go:TestSchedulerCacheUpdateLastUsedOnlyTouchesMetaKey",
+        "backend/internal/repository/scheduler_cache_integration_test.go:UpdateLastUsed 不得重写完整账号键"
+      ]
     }
   ]
 }
