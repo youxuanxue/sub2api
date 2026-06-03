@@ -4,8 +4,8 @@
   "generated_from": "GitHub REST API issues?state=open; pull requests excluded",
   "rationale": "TokenKey-local triage cache for upstream open issues. Use this file before re-triaging upstream issues; update entries when TokenKey fixes, dismisses, or reclassifies an issue.",
   "counts": {
-    "needs_review": 388,
-    "fixed": 35,
+    "needs_review": 382,
+    "fixed": 41,
     "needs_prod_validation": 2,
     "medium": 121,
     "not_applicable": 1,
@@ -2475,13 +2475,13 @@
       "upstream": "Wei-Shaw/sub2api#225",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/225",
       "title": "nvalid_request_error messages.13.content.0.thinking.cache_control: Extra inputs are not permitted",
-      "impact": "needs_review",
+      "impact": "fixed",
       "categories": [
         "claude_mimicry"
       ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-01-10T02:34:10Z"
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Verified against TokenKey code in anthropic-upstream-audit pass (2026-06-03); see .cache/upstream/fixes.json for fix locations.",
+      "updated_at": "2026-06-03T00:00:00Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2250",
@@ -3381,15 +3381,15 @@
       "upstream": "Wei-Shaw/sub2api#2754",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/2754",
       "title": "Haiku OAuth mimic mode should use full Claude Code beta headers",
-      "impact": "needs_review",
+      "impact": "fixed",
       "categories": [
         "claude_mimicry",
         "billing_usage",
         "image_oauth"
       ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-05-25T06:23:09Z"
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Verified against TokenKey code in anthropic-upstream-audit pass (2026-06-03); see .cache/upstream/fixes.json for fix locations.",
+      "updated_at": "2026-06-03T00:00:00Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2759",
@@ -4016,15 +4016,15 @@
       "upstream": "Wei-Shaw/sub2api#392",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/392",
       "title": "Claude Code 账号登录 即使开启 TLS 指纹模拟仍报错 \"authorized for use with Claude Code\"",
-      "impact": "needs_review",
+      "impact": "fixed",
       "categories": [
         "claude_mimicry",
         "image_oauth",
         "security"
       ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-03-06T10:05:03Z"
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Verified against TokenKey code in anthropic-upstream-audit pass (2026-06-03); see .cache/upstream/fixes.json for fix locations.",
+      "updated_at": "2026-06-03T00:00:00Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#396",
@@ -4262,14 +4262,14 @@
       "upstream": "Wei-Shaw/sub2api#599",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/599",
       "title": "[BUG] FilterThinkingBlocksForRetry 未移除 thinking_strategy 字段导致重试仍然 400",
-      "impact": "needs_review",
+      "impact": "fixed",
       "categories": [
         "claude_mimicry",
         "rate_limit_cooldown"
       ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-02-25T06:32:27Z"
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Verified against TokenKey code in anthropic-upstream-audit pass (2026-06-03); see .cache/upstream/fixes.json for fix locations.",
+      "updated_at": "2026-06-03T00:00:00Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#614",
@@ -4342,14 +4342,14 @@
       "upstream": "Wei-Shaw/sub2api#656",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/656",
       "title": "Anthropic 兼容上游在 count_tokens 路径非标准返回时，Claude Code 会失败",
-      "impact": "needs_review",
+      "impact": "fixed",
       "categories": [
         "claude_mimicry",
         "security"
       ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-02-26T13:14:12Z"
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Verified against TokenKey code in anthropic-upstream-audit pass (2026-06-03); see .cache/upstream/fixes.json for fix locations.",
+      "updated_at": "2026-06-03T00:00:00Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#671",
@@ -4593,15 +4593,15 @@
       "upstream": "Wei-Shaw/sub2api#851",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/851",
       "title": "[Bug] 重试过滤 thinking block 时未同步移除 context_management 的 clear_thinking 策略，导致 400 错误",
-      "impact": "needs_review",
+      "impact": "fixed",
       "categories": [
         "claude_mimicry",
         "rate_limit_cooldown",
         "security"
       ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-03-08T13:16:41Z"
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "Verified against TokenKey code in anthropic-upstream-audit pass (2026-06-03); see .cache/upstream/fixes.json for fix locations.",
+      "updated_at": "2026-06-03T00:00:00Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#857",

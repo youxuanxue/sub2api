@@ -306,16 +306,30 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		}
 	}
 
-	selection, err := s.selectBySessionHash(ctx, req)
+	markStickyHit := func(sel *AccountSelectionResult) {
+		decision.Layer = openAIAccountScheduleLayerSessionSticky
+		decision.StickySessionHit = true
+		decision.SelectedAccountID = sel.Account.ID
+		decision.SelectedAccountType = sel.Account.Type
+	}
+
+	stickySel, err := s.selectBySessionHash(ctx, req)
 	if err != nil {
 		return nil, decision, err
 	}
-	if selection != nil && selection.Account != nil {
-		decision.Layer = openAIAccountScheduleLayerSessionSticky
-		decision.StickySessionHit = true
-		decision.SelectedAccountID = selection.Account.ID
-		decision.SelectedAccountType = selection.Account.Type
-		return selection, decision, nil
+	// sticky 真拿到并发槽 → 照旧返回（缓存最优 happy path，连开关都不读）。
+	if stickySel != nil && stickySel.Acquired {
+		markStickyHit(stickySel)
+		return stickySel, decision, nil
+	}
+
+	// sticky 没拿到槽：要么槽满只给了 WaitPlan，要么 sticky 未命中（nil）。
+	// upstream #2859：槽满逃逸开启时，先试全池；池里有空账号就去办，避免把用户
+	// 困在堵塞的 sticky 账号上排队。开关关闭时退回今日行为（在 sticky 上排队）。
+	stickyWaitPlan := stickySel != nil && stickySel.Account != nil
+	if stickyWaitPlan && !s.stickySlotFullEscapeEnabled(ctx) {
+		markStickyHit(stickySel)
+		return stickySel, decision, nil
 	}
 
 	selection, candidateCount, topK, loadSkew, err := s.selectByLoadBalance(ctx, req)
@@ -326,11 +340,33 @@ func (s *defaultOpenAIAccountScheduler) Select(
 	if err != nil {
 		return nil, decision, err
 	}
+	// 池里有空账号 → 逃逸到它（#2859 的修复点）。
+	if selection != nil && selection.Acquired && selection.Account != nil {
+		decision.SelectedAccountID = selection.Account.ID
+		decision.SelectedAccountType = selection.Account.Type
+		return selection, decision, nil
+	}
+	// 全池也满 → 回到 sticky 的 WaitPlan（缓存仍热，不比今天差）。
+	if stickyWaitPlan {
+		markStickyHit(stickySel)
+		return stickySel, decision, nil
+	}
+	// 既无可逃逸的空账号也无 sticky WaitPlan：返回 load-balance 自身结果
+	// （其 WaitPlan 或 nil），保持原行为。
 	if selection != nil && selection.Account != nil {
 		decision.SelectedAccountID = selection.Account.ID
 		decision.SelectedAccountType = selection.Account.Type
 	}
 	return selection, decision, nil
+}
+
+// stickySlotFullEscapeEnabled 报告是否启用 sticky 槽满逃逸（upstream #2859）。
+// fail-open 默认 true：未接 SettingService 的测试/装配按默认开。
+func (s *defaultOpenAIAccountScheduler) stickySlotFullEscapeEnabled(ctx context.Context) bool {
+	if s == nil || s.service == nil || s.service.settingService == nil {
+		return true
+	}
+	return s.service.settingService.IsStickySlotFullEscapeEnabled(ctx)
 }
 
 func (s *defaultOpenAIAccountScheduler) selectBySessionHash(

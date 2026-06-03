@@ -518,6 +518,63 @@
         "backend/internal/service/gateway_service_tk_canonical_oauth_guard.go"
       ],
       "summary": "Already mitigated by the full mimicry stack (fingerprint alignment + billing attribution block + system rewrite + canonical UA guard + sticky routing). No single patch — maintained via the cc-fingerprint-alignment skill. NOTE: subscription-ban risk is existential; verify online (no third-party 400s) per 'config convergence != online stability'."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#225",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go"
+      ],
+      "summary": "thinking 块上挂 cache_control（Extra inputs are not permitted 400）：collectCacheControlPaths 判定 type==thinking 的 cache_control 归入 invalidThinking，enforceCacheControlLimit 在计数前无条件删除（覆盖 system + messages）。同根 #2013。"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#599",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_request.go"
+      ],
+      "summary": "FilterThinkingBlocksForRetry 在禁用顶层 thinking 时删除 thinking 字段并把 thinking 块降级为 text；当前 schema 的 thinking_strategy 对应 context_management.edits 的 clear_thinking_20251015，由 removeThinkingDependentContextStrategies 一并清理（见 #851）。有专项单测护栏。"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#851",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_request.go"
+      ],
+      "summary": "removeThinkingDependentContextStrategies 从 context_management.edits 移除 clear_thinking_20251015（edits 清空时删整键），在 FilterThinkingBlocksForRetry fast-path/完整路径及 FilterSignatureSensitiveBlocksForRetry 三处调用；另有 sanitizeAnthropicBodyForBetaTokens 按 anthropic-beta 是否含 context-management-2025-06-27 决定 strip。TestFilterThinkingBlocksForRetry_RemovesClearThinkingStrategy 等护栏。"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#656",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: worktree-anthropic-upstream-audit)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_beta_test.go"
+      ],
+      "summary": "isCountTokensUnsupported404 放宽：除标准 404 外，对中转站把 NoResourceFoundException/No static resource 包装进 HTTP 400/500 的非标准返回也识别为端点不支持（收窄到同时提及 count_tokens + Spring 强信号，刻意不认裸 'not found'，保留 invalid_request_error/#2109 temperature 不被误吞，含 raw-body 兜底）；并在主路径 ForwardCountTokens 的 >=400 分支熔断/failover 之前接入，返回 404 让 Claude Code fallback 本地估算。新增 4 个单测用例。"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2754",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: worktree-anthropic-upstream-audit)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/pkg/claude/constants.go"
+      ],
+      "summary": "设计性差异非缺陷：Haiku OAuth mimic 刻意用独立 beta 集 FullClaudeCodeHaikuMimicryBetas（cc 2.1.160 structured-outputs 抓包，OMITS claude-code beta + advanced-tool-use，加 structured-outputs），运行时可经 claude_code_http_mimicry_manifest 热改。修正 gateway_service.go 误导注释（原称 Haiku 'includes claude-code beta'/'cc 2.1.152' 与实际 token 集矛盾）。无行为变更；如未来抓包确认 Haiku 真带 claude-code beta，改常量或下发 manifest。"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#392",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_service_tk_canonical_oauth_guard.go"
+      ],
+      "summary": "'authorized for use with Claude Code' 是 OAuth 凭证 scope 错误，TLS 指纹对齐是必要非充分条件。已有识别 isClaudeCodeCredentialScopeError + ingress canonical OAuth guard（拒第三方 SDK UA / 重映射退役 opus）+ 完整 mimicry 栈（同 #1574/#1525/#1715）压制。线上复发用 cc-fingerprint-alignment skill 抓包核对 beta/UA/system 三层。"
     }
   ]
 }

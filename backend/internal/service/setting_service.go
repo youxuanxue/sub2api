@@ -2270,6 +2270,58 @@ func (s *SettingService) IsStickyRoutingEnabled(ctx context.Context) bool {
 	return true
 }
 
+// stickySlotFullEscapeCache 缓存 sticky 槽满逃逸开关（进程内 atomic.Value，60s TTL）
+type stickySlotFullEscapeCacheEntry struct {
+	enabled   bool
+	expiresAt int64 // unix nano
+}
+
+var stickySlotFullEscapeCache atomic.Value // *stickySlotFullEscapeCacheEntry
+var stickySlotFullEscapeSF singleflight.Group
+
+// IsStickySlotFullEscapeEnabled 返回 sticky 绑定账号并发槽满时是否先试全池再排队
+// （upstream #2859）。默认 true（fail-open）：setting 缺失或 DB 出错时按默认开。
+// 见 docs/approved/sticky-routing.md §11.5。
+func (s *SettingService) IsStickySlotFullEscapeEnabled(ctx context.Context) bool {
+	if s == nil || s.settingRepo == nil {
+		return true
+	}
+	if cached, ok := stickySlotFullEscapeCache.Load().(*stickySlotFullEscapeCacheEntry); ok && cached != nil {
+		if time.Now().UnixNano() < cached.expiresAt {
+			return cached.enabled
+		}
+	}
+	val, _, _ := stickySlotFullEscapeSF.Do("sticky_slot_full_escape_enabled", func() (any, error) {
+		if cached, ok := stickySlotFullEscapeCache.Load().(*stickySlotFullEscapeCacheEntry); ok && cached != nil {
+			if time.Now().UnixNano() < cached.expiresAt {
+				return cached.enabled, nil
+			}
+		}
+		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stickyRoutingDBTimeout)
+		defer cancel()
+		raw, err := s.settingRepo.GetValue(dbCtx, SettingKeyStickySlotFullEscapeEnabled)
+		if err != nil {
+			slog.Warn("failed to get sticky slot-full escape setting", "error", err)
+			stickySlotFullEscapeCache.Store(&stickySlotFullEscapeCacheEntry{
+				enabled:   true,
+				expiresAt: time.Now().Add(stickyRoutingErrorTTL).UnixNano(),
+			})
+			return true, nil
+		}
+		// 空字符串 => 从未设置 => 默认 true（opt-out，不是 opt-in）。
+		enabled := strings.TrimSpace(raw) != "false"
+		stickySlotFullEscapeCache.Store(&stickySlotFullEscapeCacheEntry{
+			enabled:   enabled,
+			expiresAt: time.Now().Add(stickyRoutingCacheTTL).UnixNano(),
+		})
+		return enabled, nil
+	})
+	if b, ok := val.(bool); ok {
+		return b
+	}
+	return true
+}
+
 // IsRewriteMessageCacheControlEnabled 检查是否启用 messages cache_control 改写。
 func (s *SettingService) IsRewriteMessageCacheControlEnabled(ctx context.Context) bool {
 	return s.getGatewayForwardingSettingsCached(ctx).rewriteMessageCacheControl

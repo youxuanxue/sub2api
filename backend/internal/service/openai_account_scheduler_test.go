@@ -1144,8 +1144,33 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionSticky(t *testin
 	}
 }
 
+// slotEscapeSettingRepo 是只为 #2859 escape 开关服务的 settingRepo 桩：仅对
+// SettingKeyStickySlotFullEscapeEnabled 返回配置值，其余 key 返回空（取默认）。
+// 刻意定义在本无 build-tag 文件，使其在 no-tag(golangci) / unit / integration
+// 三种构建下都可见——SessionStickyBusyKeepsSticky（无 tag）与 US2859 用例
+// （//go:build unit，openai_account_scheduler_tk_slot_full_escape_test.go）共用。
+type slotEscapeSettingRepo struct {
+	SettingRepository
+	val string
+}
+
+func (r *slotEscapeSettingRepo) GetValue(_ context.Context, key string) (string, error) {
+	if key == SettingKeyStickySlotFullEscapeEnabled {
+		return r.val, nil
+	}
+	return "", nil
+}
+
+// 注意（upstream #2859）：本测试钉的是 sticky 槽满逃逸**关闭**（opt-out）时的契约
+// ——槽满即在原 sticky 账号排队、即使池里有空账号也不切换（缓存亲和优先）。
+// 这曾是默认行为；自 #2859 起默认改为「槽满先试全池」（见
+// docs/approved/sticky-routing.md §11.5），新默认行为由
+// openai_account_scheduler_tk_slot_full_escape_test.go 的 US2859 用例覆盖。
+// 因此此处显式把 escape 开关设为 false，保留对 opt-out 模式的回归保护。
 func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyBusyKeepsSticky(t *testing.T) {
 	ctx := context.Background()
+	stickySlotFullEscapeCache.Store(&stickySlotFullEscapeCacheEntry{expiresAt: 0})
+	t.Cleanup(func() { stickySlotFullEscapeCache.Store(&stickySlotFullEscapeCacheEntry{expiresAt: 0}) })
 	groupID := int64(10100)
 	accounts := []Account{
 		{
@@ -1200,6 +1225,8 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyBusyKeepsS
 		cfg:                cfg,
 		rateLimitService:   newOpenAIAdvancedSchedulerRateLimitService("true"),
 		concurrencyService: NewConcurrencyService(concurrencyCache),
+		// #2859: 显式关闭槽满逃逸以钉住 opt-out 模式（keep-sticky）契约。
+		settingService: &SettingService{settingRepo: &slotEscapeSettingRepo{val: "false"}},
 	}
 
 	selection, decision, err := svc.SelectAccountWithScheduler(
