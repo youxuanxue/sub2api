@@ -85,6 +85,7 @@ jq -n --arg tag "${TAG}" '{
     "rollback() { rc=$?; echo \"::warning::deploy failed; restoring previous tokenkey image\"; if [ -f \"$BACKUP\" ]; then sudo cp -a \"$BACKUP\" /var/lib/tokenkey/.env; cd /var/lib/tokenkey && sudo docker compose --env-file .env up -d --no-deps --force-recreate tokenkey || true; for i in 1 2 3 4 5 6 7 8 9 10 11 12; do s=$(sudo docker inspect tokenkey --format '\''{{.State.Health.Status}}'\'' 2>/dev/null || echo missing); echo \"rollback try $i: $s\"; [ \"$s\" = healthy ] && break; sleep 5; done; sudo docker logs tokenkey --since 2m 2>&1 | tail -50 || true; fi; exit $rc; }",
     "trap rollback ERR",
     ("sudo sed -i '\''s|sub2api:[^[:space:]]*|sub2api:" + $tag + "|'\'' /var/lib/tokenkey/.env"),
+    "if ! grep -q '\''^SERVER_FRONTEND_URL='\'' /var/lib/tokenkey/.env; then d=$(sed -n '\''s/^API_DOMAIN=//p'\'' /var/lib/tokenkey/.env | head -1); if [ -n \"$d\" ]; then echo \"SERVER_FRONTEND_URL=https://$d\" | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo \"ensured SERVER_FRONTEND_URL=https://$d\"; else echo \"API_DOMAIN empty; skip SERVER_FRONTEND_URL backfill\"; fi; else echo \"SERVER_FRONTEND_URL already present\"; fi",
     "echo \"=== pull new image BEFORE drain (old container keeps serving 100% traffic) ===\"",
     "cd /var/lib/tokenkey && sudo docker compose --env-file .env pull tokenkey",
     "echo === pre-drain: SIGUSR1 + wait in_flight=0 ===",
