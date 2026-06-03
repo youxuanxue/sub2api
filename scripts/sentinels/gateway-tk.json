@@ -1659,6 +1659,22 @@
         "tkResolveTrustedProxies(cfg.Server.TrustedProxies)"
       ],
       "rationale": "TokenKey 默认信任 loopback + 私网代理网段，使 gin c.ClientIP() 在 Caddy/nginx/Docker 反代后解析真实客户端 IP（Wei-Shaw/sub2api#1326 / #2410）。真实逻辑在 http_tk_trusted_proxies.go；http.go 仅薄注入一次 tkResolveTrustedProxies 调用。若上游 merge 把此分支回退为 SetTrustedProxies(nil)，按 IP 分桶的认证端点限流（rate_limiter.go）会塌缩成单一 docker 网桥桶、支付审计 IP 失真——此 sentinel 捕获该回退。"
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "if bare, aliased := tkStripContextWindowModelAlias(reqModel); aliased {",
+        "if bare, aliased := tkStripContextWindowModelAlias(input.RequestModel); aliased {"
+      ],
+      "rationale": "Wiring of the Claude Code [1m] context-window alias strip (claude-code #60913) into the three Anthropic forward paths — Forward + count_tokens (reqModel) and the APIKey passthrough (input.RequestModel). Each is a one-line hook in an upstream-shaped file that compiles clean if dropped, so an upstream merge could silently revert it and re-expose the 404 + silent 200K downgrade. Anchor both call shapes so the regression is caught at merge time; the pure stripper itself is guarded by the gateway_anthropic_context_window_alias_tk.go sentinel."
+    },
+    {
+      "path": "backend/internal/service/gateway_anthropic_context_window_alias_tk.go",
+      "must_contain": [
+        "func tkStripContextWindowModelAlias(model string) (string, bool) {",
+        "var tkContextWindowAliasSuffix = regexp.MustCompile("
+      ],
+      "rationale": "Pure, fork-only Claude Code context-window model-alias stripper (claude-code #60913 / #50803 / #53031 / #55504 / #34143), kept in a *_tk_*.go companion out of upstream-owned gateway_service.go (rule §5). tkStripContextWindowModelAlias removes a trailing bracketed alias such as '[1m]' that cc serializes verbatim into the API model field on resume/continue/compact — Anthropic answers 404 not_found_error and the client silently falls back to the bare 200K model (paid 1M context lost, no error surfaced). The trailing-anchored regexp keeps a legitimate id (never contains brackets) a byte-for-byte no-op; the context-1m beta header flows through separately so the bare id still activates the 1M window. Anchor the pure function + the regexp guard so an upstream refactor that consolidates model normalization cannot delete this surface and silently re-expose the 404 + 200K downgrade. Exhaustively covered by gateway_anthropic_context_window_alias_tk_test.go."
     }
   ]
 }

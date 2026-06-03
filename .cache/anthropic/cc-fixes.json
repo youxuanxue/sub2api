@@ -3,6 +3,17 @@
   "rationale": "TokenKey-local registry of anthropics/claude-code issues this gateway has already addressed. Use this file before re-triaging a claude-code issue; the anthropic-cc-issue-watchdog reads it to mark issues fixed_in_tokenkey when the paired fact-check needles are present on main.",
   "issues": [
     {
+      "upstream": "anthropics/claude-code#60913",
+      "tokenkey_pr": "youxuanxue/sub2api ([1m] context-window model-alias strip)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_anthropic_context_window_alias_tk.go",
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_anthropic_context_window_alias_tk_test.go"
+      ],
+      "summary": "Claude Code serializes the 1M-context model alias suffix verbatim into the API model field on resume/continue/compact (e.g. 'claude-opus-4-8[1m]'); Anthropic answers 404 not_found_error and the client silently downgrades to the bare 200K model (24h proxy capture: 9 aliased -> 404, 5697 bare -> 200). TokenKey strips the trailing bracketed alias pre-flight at the earliest model-resolution point of all three Anthropic forward paths (Forward, APIKey passthrough, count_tokens); the context-1m beta header passes through separately so the bare id still gets the 1M window. Same alias-handling fragility upstream: #50803/#53031/#55504/#34143."
+    },
+    {
       "upstream": "anthropics/claude-code#61348",
       "tokenkey_pr": "youxuanxue/sub2api#514, youxuanxue/sub2api#518",
       "status": "fixed_in_tokenkey",
