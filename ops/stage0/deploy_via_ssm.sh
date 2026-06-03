@@ -16,6 +16,14 @@
 #   3. Send SIGUSR1 to tokenkey → wait for /health/inflight to report
 #      draining=true && in_flight=0 (pre-drain so live SSE finishes). Only now
 #      does Caddy active health (health_uri /health) remove the old upstream.
+#      SKIPPED when the outgoing container is not `healthy`: a crash-looping /
+#      unhealthy container has no in-flight to drain (Caddy already flipped it
+#      out at /health!=200), and SIGUSR1 + the inflight-wait would block the
+#      full ~76s on a container whose `docker exec wget` never answers —
+#      starving the new container's health window and tripping the rollback
+#      trap, which then restores the (broken) previous image. That exact loop
+#      kept uk1 pinned to a crash-looping image on 2026-06-03; gating the drain
+#      on old-container health lets a deploy recover an already-broken node.
 #   4. `compose up -d --no-deps --force-recreate tokenkey`. The image is
 #      already on disk from step 2, so this is just stop-old + start-new.
 #      `--force-recreate` is load-bearing: step 3 already flipped drainFlag=true
@@ -82,15 +90,15 @@ jq -n --arg tag "${TAG}" '{
     ("echo === deploy stage0 to tag=" + $tag + " ==="),
     ("BACKUP=/var/lib/tokenkey/.env.before-" + $tag),
     "sudo cp -a /var/lib/tokenkey/.env \"$BACKUP\"",
-    "rollback() { rc=$?; echo \"::warning::deploy failed; restoring previous tokenkey image\"; if [ -f \"$BACKUP\" ]; then sudo cp -a \"$BACKUP\" /var/lib/tokenkey/.env; cd /var/lib/tokenkey && sudo docker compose --env-file .env up -d --no-deps --force-recreate tokenkey || true; for i in 1 2 3 4 5 6 7 8 9 10 11 12; do s=$(sudo docker inspect tokenkey --format '\''{{.State.Health.Status}}'\'' 2>/dev/null || echo missing); echo \"rollback try $i: $s\"; [ \"$s\" = healthy ] && break; sleep 5; done; sudo docker logs tokenkey --since 2m 2>&1 | tail -50 || true; fi; exit $rc; }",
+    "rollback() { rc=$?; echo \"::warning::deploy failed; restoring previous tokenkey image\"; if [ -f \"$BACKUP\" ]; then sudo cp -a \"$BACKUP\" /var/lib/tokenkey/.env; cd /var/lib/tokenkey && sudo docker compose --env-file .env up -d --no-deps --force-recreate tokenkey || true; for i in 1 2 3 4 5 6 7 8 9 10 11 12; do s=$(sudo docker inspect tokenkey --format '\''{{.State.Health.Status}}'\'' 2>/dev/null || echo missing); echo \"rollback try $i: $s\"; [ \"$s\" = healthy ] && break; sleep 5; done; [ \"$s\" = healthy ] || echo \"::error::rollback restored the previous image but it is ALSO not healthy (health=$s) — node requires MANUAL intervention; do NOT assume service is restored\"; sudo docker logs tokenkey --since 2m 2>&1 | tail -50 || true; fi; exit $rc; }",
     "trap rollback ERR",
     ("sudo sed -i '\''s|sub2api:[^[:space:]]*|sub2api:" + $tag + "|'\'' /var/lib/tokenkey/.env"),
     "if ! grep -q '\''^SERVER_FRONTEND_URL='\'' /var/lib/tokenkey/.env; then d=$(sed -n '\''s/^API_DOMAIN=//p'\'' /var/lib/tokenkey/.env | head -1); if [ -n \"$d\" ]; then echo \"SERVER_FRONTEND_URL=https://$d\" | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo \"ensured SERVER_FRONTEND_URL=https://$d\"; else echo \"API_DOMAIN empty; skip SERVER_FRONTEND_URL backfill\"; fi; else echo \"SERVER_FRONTEND_URL already present\"; fi",
     "echo \"=== pull new image BEFORE drain (old container keeps serving 100% traffic) ===\"",
     "cd /var/lib/tokenkey && sudo docker compose --env-file .env pull tokenkey",
-    "echo === pre-drain: SIGUSR1 + wait in_flight=0 ===",
-    "sudo docker kill -s USR1 tokenkey 2>/dev/null || echo \"pre-drain: container not running (first deploy?)\"",
-    "for i in $(seq 1 38); do body=$(sudo docker exec tokenkey wget -q -T 3 -O - http://localhost:8080/health/inflight 2>/dev/null); n=$(printf '\''%s'\'' \"$body\" | sed -n '\''s/.*\"in_flight\":\\([0-9]*\\).*/\\1/p'\''); if printf '\''%s'\'' \"$body\" | grep -q '\''\"draining\":true'\''; then d=true; else d=false; fi; echo \"pre-drain: draining=$d in_flight=${n:-?} try=$i/38\"; [ \"$d\" = true ] && [ \"${n:-1}\" = 0 ] && break; sleep 2; done",
+    "echo \"=== pre-drain: SIGUSR1 + wait in_flight=0 (only when outgoing container healthy) ===\"",
+    "OLD_HEALTH=$(sudo docker inspect tokenkey --format '\''{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}'\'' 2>/dev/null || echo missing); echo \"pre-drain: outgoing container health=$OLD_HEALTH\"",
+    "if [ \"$OLD_HEALTH\" = healthy ]; then sudo docker kill -s USR1 tokenkey 2>/dev/null || true; for i in $(seq 1 38); do body=$(sudo docker exec tokenkey wget -q -T 3 -O - http://localhost:8080/health/inflight 2>/dev/null); n=$(printf '\''%s'\'' \"$body\" | sed -n '\''s/.*\"in_flight\":\\([0-9]*\\).*/\\1/p'\''); if printf '\''%s'\'' \"$body\" | grep -q '\''\"draining\":true'\''; then d=true; else d=false; fi; echo \"pre-drain: draining=$d in_flight=${n:-?} try=$i/38\"; [ \"$d\" = true ] && [ \"${n:-1}\" = 0 ] && break; sleep 2; done; else echo \"pre-drain SKIPPED: outgoing container not healthy (health=$OLD_HEALTH) — Caddy already flipped it out, nothing to drain; straight to recreate (avoids burning the ~76s drain budget on a crash-looping container, which previously starved the new container health window and tripped the rollback trap — uk1 2026-06-03)\"; fi",
     "echo \"=== swap: stop-old + start-new (image already on disk from pull above) ===\"",
     "cd /var/lib/tokenkey && sudo docker compose --env-file .env up -d --no-deps --force-recreate tokenkey",
     "for i in 1 2 3 4 5 6 7 8 9 10 11 12; do s=$(sudo docker inspect tokenkey --format '\''{{.State.Health.Status}}'\'' 2>/dev/null || echo missing); echo \"try $i: $s\"; [ \"$s\" = healthy ] && break; sleep 5; done",
