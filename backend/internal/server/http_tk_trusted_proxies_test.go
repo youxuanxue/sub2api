@@ -5,8 +5,10 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/gin-gonic/gin"
 )
 
@@ -21,13 +23,13 @@ func TestTkResolveTrustedProxies(t *testing.T) {
 			name:      "empty defaults to private ranges",
 			in:        nil,
 			wantTrust: true,
-			want:      tkDefaultTrustedProxies,
+			want:      ip.PrivateCIDRs,
 		},
 		{
 			name:      "all blank defaults to private ranges",
 			in:        []string{"", "   "},
 			wantTrust: true,
-			want:      tkDefaultTrustedProxies,
+			want:      ip.PrivateCIDRs,
 		},
 		{
 			name:      "explicit list wins",
@@ -61,7 +63,7 @@ func TestTkResolveTrustedProxies(t *testing.T) {
 			if trust != tc.wantTrust {
 				t.Fatalf("trust = %v, want %v", trust, tc.wantTrust)
 			}
-			if !equalStrings(got, tc.want) {
+			if !slices.Equal(got, tc.want) {
 				t.Fatalf("proxies = %v, want %v", got, tc.want)
 			}
 		})
@@ -129,16 +131,4 @@ func TestTkTrustedProxiesClientIPResolution(t *testing.T) {
 			}
 		})
 	}
-}
-
-func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }

@@ -1,6 +1,10 @@
 package server
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
+)
 
 // http_tk_trusted_proxies.go (TokenKey-only companion)
 //
@@ -20,16 +24,12 @@ import "strings"
 //
 // 显式配置仍以运维为准；运维可用关闭哨兵（none/off/disabled）强制回到“信任链关闭”。
 
-// tkDefaultTrustedProxies 是运维未显式配置 trusted_proxies 时默认信任的网段，
-// 覆盖 loopback + RFC1918 私网 + IPv6 ULA（与 internal/pkg/ip/ip.go 的私网集合一致）。
-// 反向代理（Caddy/nginx/Docker bridge）必然落在这些网段内。
-var tkDefaultTrustedProxies = []string{
-	"127.0.0.0/8",
-	"::1/128",
-	"10.0.0.0/8",
-	"172.16.0.0/12",
-	"192.168.0.0/16",
-	"fc00::/7",
+// tkDefaultTrustedProxies 返回运维未显式配置 trusted_proxies 时默认信任的网段
+// （loopback + RFC1918 私网 + IPv6 ULA）。唯一来源是 ip.PrivateCIDRs——反向代理
+// （Caddy/nginx/Docker bridge）必然落在这些网段内。返回副本，避免调用方/gin
+// 意外改动共享的包级切片。
+func tkDefaultTrustedProxies() []string {
+	return append([]string(nil), ip.PrivateCIDRs...)
 }
 
 // tkTrustedProxyOptOutTokens 是运维显式关闭信任链的哨兵值（大小写不敏感）。
@@ -64,7 +64,7 @@ func tkResolveTrustedProxies(configured []string) (proxies []string, trust bool)
 		cleaned = append(cleaned, v)
 	}
 	if len(cleaned) == 0 {
-		return tkDefaultTrustedProxies, true
+		return tkDefaultTrustedProxies(), true
 	}
 	return cleaned, true
 }
