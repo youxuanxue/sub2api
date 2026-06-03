@@ -15,6 +15,8 @@ const (
 	opsAlertEvaluatorLeaderLockTTLDefault = 30 * time.Second
 	opsFeishuAlertRateLimitPerHourDefault = 3
 	opsFeishuAlertCooldownSecondsDefault  = 3600
+	// 账号失效事件「临时冷却」聚合摘要的默认 flush 间隔（秒）。
+	opsFeishuAccountIncidentDigestSecondsDefault = 600
 )
 
 // =========================
@@ -208,9 +210,10 @@ func validateOpsEmailNotificationConfig(cfg *OpsEmailNotificationConfig) error {
 
 func defaultOpsFeishuAlertConfig() OpsFeishuAlertConfig {
 	return OpsFeishuAlertConfig{
-		Enabled:          false,
-		RateLimitPerHour: opsFeishuAlertRateLimitPerHourDefault,
-		CooldownSeconds:  opsFeishuAlertCooldownSecondsDefault,
+		Enabled:                      false,
+		RateLimitPerHour:             opsFeishuAlertRateLimitPerHourDefault,
+		CooldownSeconds:              opsFeishuAlertCooldownSecondsDefault,
+		AccountIncidentDigestSeconds: opsFeishuAccountIncidentDigestSecondsDefault,
 	}
 }
 
@@ -227,6 +230,7 @@ func updateOpsFeishuAlertConfig(dst *OpsFeishuAlertConfig, req *OpsFeishuAlertCo
 	}
 	dst.RateLimitPerHour = req.RateLimitPerHour
 	dst.CooldownSeconds = req.CooldownSeconds
+	dst.AccountIncidentDigestSeconds = req.AccountIncidentDigestSeconds
 }
 
 func normalizeOpsFeishuAlertConfig(cfg *OpsFeishuAlertConfig) {
@@ -243,6 +247,9 @@ func normalizeOpsFeishuAlertConfig(cfg *OpsFeishuAlertConfig) {
 	if cfg.CooldownSeconds == 0 {
 		cfg.CooldownSeconds = opsFeishuAlertCooldownSecondsDefault
 	}
+	if cfg.AccountIncidentDigestSeconds == 0 {
+		cfg.AccountIncidentDigestSeconds = opsFeishuAccountIncidentDigestSecondsDefault
+	}
 }
 
 func validateOpsFeishuAlertConfig(cfg OpsFeishuAlertConfig) error {
@@ -257,6 +264,9 @@ func validateOpsFeishuAlertConfig(cfg OpsFeishuAlertConfig) error {
 	}
 	if cfg.CooldownSeconds < 60 || cfg.CooldownSeconds > 86400 {
 		return errors.New("feishu.cooldown_seconds must be between 60 and 86400")
+	}
+	if cfg.AccountIncidentDigestSeconds < 30 || cfg.AccountIncidentDigestSeconds > 86400 {
+		return errors.New("feishu.account_incident_digest_seconds must be between 30 and 86400")
 	}
 	return nil
 }

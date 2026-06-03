@@ -1566,6 +1566,29 @@
         "if found && account.SessionWindowStart != nil {"
       ],
       "rationale": "Passive 5h-window staleness guard in estimateSetupTokenUsage: session_window_utilization is a passive sample from the last upstream response; if it was sampled BEFORE the current SessionWindowStart (window rolled but not yet re-sampled — the writer's clear-on-roll only fires on expiry-driven init, not header-driven window changes), it belongs to a prior window and would show a misleading high % on a fresh window (observed live: a just-rolled 5h window showing 99%). The guard drops such samples and falls back to status-based estimation. Load-bearing for BOTH the per-edge /admin/accounts page and the cross-edge Edge Accounts overview (both read GetPassiveUsage→estimateSetupTokenUsage); an upstream merge that removes the guard or parseExtraSampledAt silently reintroduces the stale-99% display."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "s.notifyAccountIncident(account, until, reason, IncidentKindUnknown)"
+      ],
+      "rationale": "账号失效 → 飞书告警的唯一挂钩点。notifyAccountSchedulingBlocked 是所有 13 个账号失效/冷却场景（auth_error / oauth_401 / 429 / 529 / 403temp / temp / custom / stream_timeout）的汇聚点；这一行把失效事件上报给 AccountIncidentNotifier（永久失效即时 P0 红头卡片、临时冷却聚合低频橙头摘要）。上游合并若重写 notifyAccountSchedulingBlocked 并丢掉此行，会让账号失效告警静默失效——运营再也收不到『某账号该重新 OAuth / 查 bug』，且无编译错误、极难发现。本 sentinel 捕获该 revert。"
+    },
+    {
+      "path": "backend/internal/service/account_incident_notifier_tk.go",
+      "must_contain": [
+        "func (n *TKAccountIncidentNotifier) NotifyAccountIncident(",
+        "func classifyIncident("
+      ],
+      "rationale": "账号失效 → 飞书告警的核心实现（TK-only，无上游对应）。NotifyAccountIncident 按 classifyIncident 的派生形态分流：永久失效（status=error 终态）即时单条 P0；临时冷却（429/529/...自愈）写聚合 buffer 由后台 ticker flush 成低频摘要，保住信噪比不刷屏。classifyIncident 把底层 reason 字符串映射成 (形态, 去重类, 中文文案, 运营建议)。整文件易在大重构/上游合并中被整体误删——删掉等于告警链路断裂。"
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_incident.go",
+      "must_contain": [
+        "func (s *RateLimitService) SetAccountIncidentNotifier(",
+        "func (s *RateLimitService) notifyAccountIncident("
+      ],
+      "rationale": "把 AccountIncidentNotifier 注入 RateLimitService 的 glue：wire ProvideTKAccountIncidentNotifier 在构造后调 SetAccountIncidentNotifier 回填，挂钩点（ratelimit_service.go）经 notifyAccountIncident 转发。删掉会让挂钩行编译失败或静默 no-op，账号失效告警链路断裂。"
     }
   ]
 }

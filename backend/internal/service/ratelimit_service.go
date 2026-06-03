@@ -34,8 +34,11 @@ type RateLimitService struct {
 	settingService              *SettingService
 	tokenCacheInvalidator       TokenCacheInvalidator
 	runtimeBlocker              AccountRuntimeBlocker
-	usageCacheMu                sync.RWMutex
-	usageCache                  map[int64]*geminiUsageCacheEntry
+	// TK: 账号失效事件 → 飞书即时告警。挂钩在 notifyAccountSchedulingBlocked,
+	// 实现在 account_incident_notifier_tk.go / ratelimit_service_tk_incident.go。
+	incidentNotifier AccountIncidentNotifier
+	usageCacheMu     sync.RWMutex
+	usageCache       map[int64]*geminiUsageCacheEntry
 }
 
 type AccountRuntimeBlocker interface {
@@ -223,6 +226,8 @@ func (s *RateLimitService) notifyAccountSchedulingBlocked(account *Account, unti
 		return
 	}
 	s.runtimeBlocker.BlockAccountScheduling(account, until, reason)
+	// TK: 同一汇聚点上报账号失效事件给飞书（kind 由 reason 在 classifyIncident 内精确派生）。
+	s.notifyAccountIncident(account, until, reason, IncidentKindUnknown)
 }
 
 func (s *RateLimitService) notifyAccountSchedulingBlockCleared(accountID int64) {
