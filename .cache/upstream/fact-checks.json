@@ -376,7 +376,7 @@
       ],
       "fixed_if_all_present": [
         "backend/internal/service/openai_gateway_service.go:upstream Wei-Shaw/sub2api#1318",
-        "backend/internal/service/openai_gateway_service.go:shouldDisable := s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body)",
+        "backend/internal/service/openai_gateway_service.go:shouldDisable := s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body",
         "backend/internal/service/openai_oauth_passthrough_test.go:TestOpenAIGatewayService_OpenAIPassthrough_TempUnschedRuleTriggersFailover"
       ]
     },
