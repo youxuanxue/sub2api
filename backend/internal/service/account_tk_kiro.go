@@ -16,6 +16,31 @@ func (a *Account) IsKiro() bool {
 	return a.Platform == PlatformKiro
 }
 
+// CanonicalKiroTLSProfileName is the name of the TLS fingerprint profile captured
+// from a real Kiro IDE ClientHello (deploy/aws/stage0/tk_canonical_kiro_ide.json,
+// seeded by migration tk_014). It is intentionally distinct from the Claude Code
+// canonical profile (tk_canonical_cc_oauth): Kiro bundles Node 22.x while cc ships
+// Node 24.x, so their JA3 differ and the profiles must not be shared.
+const CanonicalKiroTLSProfileName = "tk_canonical_kiro_ide"
+
+// isKiroTLSFingerprintEnabled reports whether TLS fingerprint masking is active for
+// this Kiro account. It is default-on: Kiro egresses to AWS CodeWhisperer where a
+// Go-default ClientHello stands out and raises the ban risk (the community-observed
+// failure mode). Operators can opt out per-account by setting
+// extra.enable_tls_fingerprint=false. The profile is resolved by name in
+// TLSFingerprintProfileService.ResolveTLSProfile when no explicit
+// extra.tls_fingerprint_profile_id is bound.
+func (a *Account) isKiroTLSFingerprintEnabled() bool {
+	if a.Extra != nil {
+		if v, ok := a.Extra["enable_tls_fingerprint"]; ok {
+			if enabled, ok := v.(bool); ok {
+				return enabled
+			}
+		}
+	}
+	return true
+}
+
 // ---- Typed credential getters (Kiro) ----
 
 // GetKiroAccessToken returns the Kiro OAuth access token.

@@ -83,9 +83,26 @@
       "path": "backend/internal/service/account_tk_kiro.go",
       "must_contain": [
         "func (a *Account) IsKiro()",
-        "toKiroProtoAccount"
+        "toKiroProtoAccount",
+        "func (a *Account) isKiroTLSFingerprintEnabled()",
+        "CanonicalKiroTLSProfileName"
       ],
-      "rationale": "Account-domain predicate + the mapper that converts a TK account's credentials into the vendored kiroproto.Account. Losing IsKiro() removes kiro from the Forward dispatch branch and the scheduling pool; losing toKiroProtoAccount breaks every upstream call."
+      "rationale": "Account-domain predicate + the mapper that converts a TK account's credentials into the vendored kiroproto.Account, plus the default-on TLS-fingerprint gate (isKiroTLSFingerprintEnabled) and the canonical Kiro IDE profile name. Losing IsKiro() removes kiro from the Forward dispatch branch and the scheduling pool; losing toKiroProtoAccount breaks every upstream call; losing the TLS gate / CanonicalKiroTLSProfileName silently drops kiro back to a Go-default JA3 (ban risk)."
+    },
+    {
+      "path": "backend/internal/service/account.go",
+      "must_contain": [
+        "a.isKiroTLSFingerprintEnabled()"
+      ],
+      "rationale": "The kiro arm of IsTLSFingerprintEnabled() — a thin injection into a large upstream-shaped file. An upstream merge that rewrites IsTLSFingerprintEnabled must preserve this branch, or kiro accounts silently lose TLS fingerprint masking and egress with a Go-default ClientHello."
+    },
+    {
+      "path": "backend/internal/service/tls_fingerprint_profile_service.go",
+      "must_contain": [
+        "func (s *TLSFingerprintProfileService) GetProfileByName(",
+        "GetProfileByName(CanonicalKiroTLSProfileName)"
+      ],
+      "rationale": "ResolveTLSProfile resolves the canonical kiro profile BY NAME for kiro accounts (no explicit profile_id binding) and must fall back to nil (plain TLS) rather than the Node 24.x cc-shaped default. Losing this branch makes kiro either lose masking or, worse, wear the wrong (cc) fingerprint."
     },
     {
       "path": "backend/internal/service/kiro_gateway_service.go",
@@ -165,6 +182,14 @@
         "tkValidateKiroAccountCreate"
       ],
       "rationale": "Load-bearing QA evidence for the account-creation ToS gate (matches the *_tk_*.go hotspot rule). Losing it removes the regression guard around the first ToS acknowledgement check."
+    },
+    {
+      "path": "backend/internal/service/account_tk_kiro_tls_test.go",
+      "must_contain": [
+        "TestKiroTLSFingerprintEnabledByDefault",
+        "TestResolveTLSProfile_KiroByName"
+      ],
+      "rationale": "Load-bearing QA evidence for the kiro TLS-fingerprint gate (matches the *_tk_*.go hotspot rule). Guards the default-on/opt-out behavior and the by-name canonical-profile resolution; losing it removes the regression guard that keeps kiro from silently reverting to a Go-default JA3 or wearing the wrong (cc) fingerprint."
     },
     {
       "path": "frontend/src/constants/gatewayPlatforms.ts",
