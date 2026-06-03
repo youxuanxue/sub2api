@@ -21,11 +21,16 @@ KIRO_HOSTS="${TOKENKEY_KIRO_CAPTURE_HOSTS:-$KIRO_HOSTS_DEFAULT}"
 OUT_DIR="${TOKENKEY_KIRO_CAPTURE_OUT_DIR:-$REPO_ROOT/.kiro_tls}"
 IFACE="${TOKENKEY_KIRO_CAPTURE_IFACE:-}"
 CAPTURE_SECONDS="${TOKENKEY_KIRO_CAPTURE_SECONDS:-60}"
+# When the Kiro IDE egresses through a system/local proxy (Electron follows the
+# macOS system proxy), its real ClientHello travels in the clear on loopback to
+# the proxy's local port before the proxy encrypts it onward — so capture lo0 +
+# `tcp port <proxy>` instead of the direct-egress amazonaws-IP filter on en0.
+PROXY_PORT="${TOKENKEY_KIRO_CAPTURE_PROXY_PORT:-}"
 
 usage() {
   cat <<'EOF'
 Usage:
-  capture-kiro-fingerprint.sh capture [--iface IF] [--seconds N] [--out-dir DIR] [--http-log FILE]
+  capture-kiro-fingerprint.sh capture [--iface IF] [--proxy-port N] [--seconds N] [--out-dir DIR] [--http-log FILE]
   capture-kiro-fingerprint.sh diff --bundle PATH [--check]
   capture-kiro-fingerprint.sh check --bundle PATH
   capture-kiro-fingerprint.sh check-tls --bundle PATH
@@ -33,16 +38,29 @@ Usage:
   capture-kiro-fingerprint.sh emit-profile --bundle PATH      # write tk_canonical_kiro_ide.json
 
 capture flow:
-  1. resolves the Kiro CodeWhisperer host IPs
-  2. starts tcpdump on the TLS handshake to those IPs
-  3. prompts you to trigger ONE request from the real Kiro IDE
-  4. tshark extracts the ClientHello -> tshark TSV
-  5. capture_kiro_fingerprint.py computes ja3 + assembles the bundle, then diffs
+  1. direct egress (default): resolve the Kiro CodeWhisperer host IPs, capture en0;
+     proxied egress (--proxy-port N, e.g. a Clash/system proxy on 7890): capture
+     lo0 + `tcp port N` so the cleartext loopback ClientHello is seen.
+  2. prompts you to trigger ONE request from the real Kiro IDE
+  3. tshark extracts the ClientHello (SNI restricted to the Kiro hosts) -> TSV
+  4. capture_kiro_fingerprint.py computes ja3 + assembles the bundle, then diffs
 
 Requires: python3, tcpdump, tshark, dig (or host). tcpdump needs sudo/root on macOS.
 The optional --http-log FILE is a line-JSON log produced by mitm_kiro_http_headers.py
 (only usable if the Kiro IDE honors HTTP_PROXY + a trusted MITM CA).
 EOF
+}
+
+# tshark display-filter clause restricting ClientHellos to the Kiro endpoints,
+# so unrelated amazonaws SNIs (iam/sts/ssm/...) sharing the same proxy hop are
+# excluded.
+kiro_sni_filter() {
+  local host clause=""
+  for host in $KIRO_HOSTS; do
+    [[ -n "$clause" ]] && clause="$clause || "
+    clause="${clause}tls.handshake.extensions_server_name==\"$host\""
+  done
+  echo "tls.handshake.type==1 && ( $clause )"
 }
 
 require_cmd() {
@@ -77,6 +95,7 @@ cmd_capture() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --iface) IFACE="$2"; shift 2 ;;
+      --proxy-port) PROXY_PORT="$2"; shift 2 ;;
       --seconds) CAPTURE_SECONDS="$2"; shift 2 ;;
       --out-dir) OUT_DIR="$2"; shift 2 ;;
       --http-log) http_log="$2"; shift 2 ;;
@@ -95,14 +114,22 @@ cmd_capture() {
   tsv="$OUT_DIR/${stamp}-kiro.tshark.tsv"
   bundle="$OUT_DIR/${stamp}-kiro-capture.bundle.json"
 
-  echo "Resolving Kiro CodeWhisperer host IPs ..."
-  ips="$(resolve_ips)"
-  if [[ -z "$ips" ]]; then
-    echo "error: could not resolve any IP for: $KIRO_HOSTS" >&2
-    exit 1
+  if [[ -n "$PROXY_PORT" ]]; then
+    # Proxied egress: the cleartext ClientHello is on loopback to the proxy port.
+    [[ -z "$IFACE" ]] && IFACE="lo0"
+    filter="tcp port $PROXY_PORT"
+    echo "Proxied capture: iface=$IFACE filter='$filter' (Kiro -> system proxy :$PROXY_PORT)"
+  else
+    echo "Resolving Kiro CodeWhisperer host IPs (direct egress) ..."
+    ips="$(resolve_ips)"
+    if [[ -z "$ips" ]]; then
+      echo "error: could not resolve any IP for: $KIRO_HOSTS" >&2
+      echo "  (if the Kiro IDE egresses through a system/local proxy, pass --proxy-port N)" >&2
+      exit 1
+    fi
+    echo "IPs:"; echo "$ips" | sed 's/^/  /'
+    filter="$(build_pcap_filter "$ips")"
   fi
-  echo "IPs:"; echo "$ips" | sed 's/^/  /'
-  filter="$(build_pcap_filter "$ips")"
   [[ -n "$IFACE" ]] && iface_arg=(-i "$IFACE")
 
   echo
@@ -125,10 +152,12 @@ cmd_capture() {
   fi
 
   echo "Extracting ClientHello via tshark ..."
-  # First ClientHello whose SNI is an amazonaws host. Fixed field order MUST match
-  # TSHARK_FIELDS in capture_kiro_fingerprint.py.
+  # ClientHellos whose SNI is one of the Kiro endpoints (excludes unrelated
+  # amazonaws SNIs sharing the proxy hop). Fixed field order MUST match
+  # TSHARK_FIELDS in capture_kiro_fingerprint.py. tshark dissects the TLS even
+  # through the HTTP-CONNECT / SOCKS proxy preamble on the loopback hop.
   tshark -r "$pcap" \
-    -Y 'tls.handshake.type==1 && tls.handshake.extensions_server_name contains "amazonaws"' \
+    -Y "$(kiro_sni_filter)" \
     -T fields -E header=y -E separator='	' -E aggregator=, \
     -e tls.handshake.version \
     -e tls.handshake.ciphersuite \
@@ -137,9 +166,9 @@ cmd_capture() {
     -e tls.handshake.extensions_ec_point_format \
     -e tls.handshake.sig_hash_alg \
     -e tls.handshake.extensions_alpn_str \
-    -e tls.handshake.extensions_supported_version \
+    -e tls.handshake.extensions.supported_version \
     -e tls.handshake.extensions_key_share_group \
-    -e tls.handshake.extensions_psk_ke_modes \
+    -e tls.extension.psk_ke_mode \
     -e tls.handshake.extensions_server_name \
     > "$tsv"
 

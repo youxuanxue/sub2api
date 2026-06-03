@@ -182,3 +182,6 @@ frontend/coverage/
 aicodex
 output/
 exports/
+
+# Kiro fingerprint capture artifacts (pcap/bundle), parallel to .tls_list/
+.kiro_tls/

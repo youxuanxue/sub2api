@@ -60,9 +60,9 @@ TSHARK_FIELDS = (
     "tls.handshake.extensions_ec_point_format",
     "tls.handshake.sig_hash_alg",
     "tls.handshake.extensions_alpn_str",
-    "tls.handshake.extensions_supported_version",
+    "tls.handshake.extensions.supported_version",
     "tls.handshake.extensions_key_share_group",
-    "tls.handshake.extensions_psk_ke_modes",
+    "tls.extension.psk_ke_mode",
     "tls.handshake.extensions_server_name",
 )
 
@@ -244,9 +244,9 @@ def parse_tshark_tsv(tsv_text: str) -> dict[str, Any]:
         "point_formats": _parse_int_list(cell.get("tls.handshake.extensions_ec_point_format", "")),
         "signature_algorithms": _parse_int_list(cell.get("tls.handshake.sig_hash_alg", "")),
         "alpn_protocols": _parse_str_list(cell.get("tls.handshake.extensions_alpn_str", "")),
-        "supported_versions": _parse_int_list(cell.get("tls.handshake.extensions_supported_version", "")),
+        "supported_versions": _parse_int_list(cell.get("tls.handshake.extensions.supported_version", "")),
         "key_share_groups": _parse_int_list(cell.get("tls.handshake.extensions_key_share_group", "")),
-        "psk_modes": _parse_int_list(cell.get("tls.handshake.extensions_psk_ke_modes", "")),
+        "psk_modes": _parse_int_list(cell.get("tls.extension.psk_ke_mode", "")),
         "server_name": (_parse_str_list(cell.get("tls.handshake.extensions_server_name", "")) or [""])[0],
     }
 
