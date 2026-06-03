@@ -132,13 +132,13 @@
           "rate_multiplier": 1.0
         },
         "extra": {
-          "base_rpm": 14,
-          "rpm_sticky_buffer": 5,
-          "max_sessions": 30,
+          "base_rpm": 21,
+          "rpm_sticky_buffer": 8,
+          "max_sessions": 45,
           "session_idle_timeout_minutes": 8,
-          "window_cost_limit": 600,
+          "window_cost_limit": 800,
           "window_cost_sticky_reserve": 0,
-          "cache_ttl_override_enabled": false
+          "cache_ttl_override_enabled": true
         }
       }
     },
@@ -150,13 +150,13 @@
           "rate_multiplier": 1.0
         },
         "extra": {
-          "base_rpm": 28,
-          "rpm_sticky_buffer": 10,
-          "max_sessions": 60,
+          "base_rpm": 42,
+          "rpm_sticky_buffer": 15,
+          "max_sessions": 90,
           "session_idle_timeout_minutes": 8,
-          "window_cost_limit": 600,
+          "window_cost_limit": 800,
           "window_cost_sticky_reserve": 0,
-          "cache_ttl_override_enabled": false
+          "cache_ttl_override_enabled": true
         }
       }
     },
@@ -168,11 +168,11 @@
           "rate_multiplier": 1.0
         },
         "extra": {
-          "base_rpm": 42,
-          "rpm_sticky_buffer": 15,
-          "max_sessions": 90,
+          "base_rpm": 63,
+          "rpm_sticky_buffer": 23,
+          "max_sessions": 120,
           "session_idle_timeout_minutes": 8,
-          "window_cost_limit": 600,
+          "window_cost_limit": 800,
           "window_cost_sticky_reserve": 0
         }
       }
@@ -185,11 +185,11 @@
           "rate_multiplier": 1.0
         },
         "extra": {
-          "base_rpm": 56,
-          "rpm_sticky_buffer": 20,
-          "max_sessions": 120,
+          "base_rpm": 84,
+          "rpm_sticky_buffer": 30,
+          "max_sessions": 150,
           "session_idle_timeout_minutes": 8,
-          "window_cost_limit": 600,
+          "window_cost_limit": 800,
           "window_cost_sticky_reserve": 0
         }
       }
@@ -202,11 +202,11 @@
           "rate_multiplier": 1.0
         },
         "extra": {
-          "base_rpm": 56,
-          "rpm_sticky_buffer": 20,
-          "max_sessions": 150,
+          "base_rpm": 84,
+          "rpm_sticky_buffer": 30,
+          "max_sessions": 180,
           "session_idle_timeout_minutes": 8,
-          "window_cost_limit": 600,
+          "window_cost_limit": 800,
           "window_cost_sticky_reserve": 0
         }
       }
