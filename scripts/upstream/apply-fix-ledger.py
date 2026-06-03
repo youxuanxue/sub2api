@@ -21,9 +21,12 @@ the next daily watchdog run, and lets preflight GATE it so a fix can't merge
 half-recorded:
 
   --apply   author runs once after adding a fact-check; reconciles
-            fixes.json + triage.json from fact-checks.json. Uses the SAME
-            engine functions as the daily watchdog, so the output is
-            byte-identical — no dual-writer churn.
+            fixes.json + triage.json from fact-checks.json using the SAME
+            engine functions (ensure_fixed_entry / update_triage_fixed) as the
+            daily watchdog. The fixed-status it writes is idempotent with the
+            watchdog's, so the two never fight. (The daily run additionally
+            regenerates triage from fresh upstream issues, so triage.json may
+            still evolve over time — that is the refresh, not churn from here.)
 
   --check --commits-range A..B
             preflight drift gate, scoped to the issues THIS PR declares it
