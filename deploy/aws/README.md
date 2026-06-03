@@ -43,6 +43,26 @@ CFN 模板已把 `docker-compose.yml`、`Caddyfile`、`deploy/aws/stage0/tokenke
 >
 > 否则 CFN 模板里的 base64 段会与源文件漂移。CI 上加 `bash deploy/aws/stage0/build-cfn.sh --check` 兜底。
 
+### 把 Caddyfile 改动落到「已经在跑」的主机（热同步）
+
+`deploy-stage0.yml` / `deploy_via_ssm.sh` **只换镜像，不刷新 Caddyfile**——Caddyfile 是开机时由 UserData 从 SSM Parameter 渲染一次的。所以改了 `lb_try_duration` 这类指令后，现有 prod/edge 主机要等下次重建才生效。两条生效路径：
+
+- **下次重建生效（reboot durability）**：`build-cfn.sh` 已把新 Caddyfile 嵌进 CFN 模板的 SSM 段；一次普通 `update-stack`（或重新 provision / EIP 轮换）就把新 blob 推进 Parameter Store，下次开机渲染即新值。更新 SSM Parameter 资源**不会**替换实例（UserData 只在启动时跑）。
+- **立刻生效（live host）**：跑热同步脚本，在运行中的主机上按开机同样的方式重渲染 Caddyfile 并 `caddy reload`（零断连）：
+
+```bash
+# prod（EC2 instance-id 从 deploy-stage0 的 Resolve target 步骤拿，或 describe-stacks）
+bash ops/stage0/sync_caddyfile_via_ssm.sh prod <instance-id>
+
+# edge（EC2）
+bash ops/stage0/sync_caddyfile_via_ssm.sh edge <instance-id>
+
+# edge（Lightsail Hybrid，按 EdgeId tag 寻址）
+EDGE_ID=<edge> bash ops/stage0/sync_caddyfile_via_ssm.sh edge <mi-id>
+```
+
+脚本复刻开机渲染：`API_DOMAIN`/`ACME_EMAIL` 取自主机 `.env`；edge 的 `MAIN_GATEWAY_ALLOWED_CIDR`（不在 `.env`）从当前 Caddyfile 的 `remote_ip` 行反读以原样保留 allowlist。先在一次性 caddy 容器里 `caddy validate`，通过才**就地**写回（`cat > Caddyfile` 保 inode，避免 bind-mount 单文件换 inode 后容器看不到），再 `caddy reload`；任一步失败自动回滚到备份并 reload。
+
 ## Quick Start
 
 完整步骤在主文档 §3.5。最小操作如下：

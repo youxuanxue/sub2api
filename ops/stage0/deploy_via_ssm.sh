@@ -4,17 +4,27 @@
 #
 # Scope of this script:
 #   1. Patch /var/lib/tokenkey/.env to point at the new image tag.
-#   2. Send SIGUSR1 to tokenkey → wait for /health/inflight to report
-#      draining=true && in_flight=0 (pre-drain so live SSE finishes).
-#   3. `docker compose pull tokenkey` + `compose up -d --no-deps
-#      --force-recreate tokenkey`. `--force-recreate` is load-bearing:
-#      step 2 already flipped drainFlag=true on the running container,
-#      and there is no SetDrain(false) call site — only a fresh process
-#      can clear drain. Without --force-recreate, a same-tag re-deploy
-#      (sed is a no-op when $tag matches the live image) would leave the
-#      container running with /health=503 indefinitely until manual
-#      `docker restart`. Always recreate.
-#   4. Wait for container.Health.Status=healthy; rollback on ERR (which
+#   2. `docker compose pull tokenkey` — pull the new image BEFORE draining,
+#      while the old container is still healthy and serving 100% of traffic.
+#      Pull is the single largest variable in the swap (large multi-arch Go
+#      image + slow disk/link, can be tens of seconds). Doing it here keeps it
+#      OUT of the new-request blackout window: Caddy's active health only flips
+#      the old container out once /health=503 (step 3), so any work done before
+#      that costs zero client-facing downtime. Previously pull ran AFTER drain,
+#      adding its full duration to the window that clients spend queued in
+#      Caddy's lb_try_duration (→ 502 + client retries once it overran 30s).
+#   3. Send SIGUSR1 to tokenkey → wait for /health/inflight to report
+#      draining=true && in_flight=0 (pre-drain so live SSE finishes). Only now
+#      does Caddy active health (health_uri /health) remove the old upstream.
+#   4. `compose up -d --no-deps --force-recreate tokenkey`. The image is
+#      already on disk from step 2, so this is just stop-old + start-new.
+#      `--force-recreate` is load-bearing: step 3 already flipped drainFlag=true
+#      on the running container, and there is no SetDrain(false) call site —
+#      only a fresh process can clear drain. Without --force-recreate, a
+#      same-tag re-deploy (sed is a no-op when $tag matches the live image)
+#      would leave the container running with /health=503 indefinitely until
+#      manual `docker restart`. Always recreate.
+#   5. Wait for container.Health.Status=healthy; rollback on ERR (which
 #      also uses --force-recreate for the same reason).
 #
 # What this script INTENTIONALLY DOES NOT DO:
@@ -24,9 +34,11 @@
 #   decoded from SSM Parameter Store; see stage0-{single,edge}-ec2.yaml +
 #   build-cfn.sh). After editing the source files in this repo, existing
 #   prod/edge hosts still run the OLD copies on disk until the operator
-#   either re-provisions the instance OR runs a manual sync (decode the
-#   SSM Parameter value and write to /var/lib/tokenkey/). The image-tag
+#   either re-provisions the instance OR runs a manual sync. The image-tag
 #   bump in step 1 alone is NOT enough to apply new compose/Caddy directives.
+#   For Caddyfile directive changes (e.g. lb_try_duration) the deterministic
+#   hot-sync path is ops/stage0/sync_caddyfile_via_ssm.sh, which re-renders the
+#   repo Caddyfile on a LIVE host and `caddy reload`s with no connection drop.
 #
 # See deploy/aws/README.md § "升级 / 发版" and the per-PR change notes when
 # the compose or Caddyfile diff matters for take-effect timing.
@@ -94,10 +106,12 @@ jq -n --arg tag "${TAG}" '{
     "rollback() { rc=$?; echo \"::warning::deploy failed; restoring previous tokenkey image\"; if [ -f \"$BACKUP\" ]; then sudo cp -a \"$BACKUP\" /var/lib/tokenkey/.env; cd /var/lib/tokenkey && sudo docker compose --env-file .env up -d --no-deps --force-recreate tokenkey || true; for i in 1 2 3 4 5 6 7 8 9 10 11 12; do s=$(sudo docker inspect tokenkey --format '\''{{.State.Health.Status}}'\'' 2>/dev/null || echo missing); echo \"rollback try $i: $s\"; [ \"$s\" = healthy ] && break; sleep 5; done; sudo docker logs tokenkey --since 2m 2>&1 | tail -50 || true; fi; exit $rc; }",
     "trap rollback ERR",
     ("sudo sed -i '\''s|sub2api:[^[:space:]]*|sub2api:" + $tag + "|'\'' /var/lib/tokenkey/.env"),
+    "echo === pull new image BEFORE drain (old container keeps serving 100% traffic) ===",
+    "cd /var/lib/tokenkey && sudo docker compose --env-file .env pull tokenkey",
     "echo === pre-drain: SIGUSR1 + wait in_flight=0 ===",
     "sudo docker kill -s USR1 tokenkey 2>/dev/null || echo \"pre-drain: container not running (first deploy?)\"",
     "for i in $(seq 1 38); do body=$(sudo docker exec tokenkey wget -q -T 3 -O - http://localhost:8080/health/inflight 2>/dev/null); n=$(printf '\''%s'\'' \"$body\" | sed -n '\''s/.*\"in_flight\":\\([0-9]*\\).*/\\1/p'\''); if printf '\''%s'\'' \"$body\" | grep -q '\''\"draining\":true'\''; then d=true; else d=false; fi; echo \"pre-drain: draining=$d in_flight=${n:-?} try=$i/38\"; [ \"$d\" = true ] && [ \"${n:-1}\" = 0 ] && break; sleep 2; done",
-    "cd /var/lib/tokenkey && sudo docker compose --env-file .env pull tokenkey",
+    "echo === swap: stop-old + start-new (image already on disk from pull above) ===",
     "cd /var/lib/tokenkey && sudo docker compose --env-file .env up -d --no-deps --force-recreate tokenkey",
     "for i in 1 2 3 4 5 6 7 8 9 10 11 12; do s=$(sudo docker inspect tokenkey --format '\''{{.State.Health.Status}}'\'' 2>/dev/null || echo missing); echo \"try $i: $s\"; [ \"$s\" = healthy ] && break; sleep 5; done",
     "FINAL=$(sudo docker inspect tokenkey --format '\''{{.State.Health.Status}}'\'' 2>/dev/null || echo missing)",
