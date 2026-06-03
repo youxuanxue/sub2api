@@ -15,6 +15,13 @@
 #
 # This guard closes the gap: run each script with a stubbed `aws` so it emits
 # its params file WITHOUT touching AWS, then `bash -n` the joined commands.
+#
+# Scope (explicit, not silent): covers the two prod/edge MUTATION primitives.
+# edge_post_deploy_smoke.sh also builds an SSM `commands` array, but is left out
+# on purpose — its array is assembled inside functions behind many runtime env
+# vars (no clean "args -> params file" entrypoint to stub), and an unparseable
+# smoke probe fails LOUDLY in CI/deploy rather than silently breaking prod. Add
+# it here if that calculus changes.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
