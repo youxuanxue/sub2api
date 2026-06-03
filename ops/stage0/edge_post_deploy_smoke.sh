@@ -19,6 +19,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=smoke_env.sh
 source "${SCRIPT_DIR}/smoke_env.sh"
+# Shared SSM "resolve managed-instance after tag-targeted send" helper.
+# shellcheck source=ssm_resolve_invocation_mi.inc.sh
+source "${SCRIPT_DIR}/ssm_resolve_invocation_mi.inc.sh"
 
 EDGE_ID="${EDGE_ID:-}"
 EDGE_API_URL="${EDGE_API_URL:-}"
@@ -63,31 +66,6 @@ if [[ -z "${AWS_CLI_REGION}" ]]; then
   echo "tk_edge_post_deploy_smoke: AWS_REGION or AWS_DEFAULT_REGION is required for SSM" >&2
   exit 1
 fi
-
-resolve_primary_ssm_invocation_instance() {
-  local cmd_id="$1"
-  local cutoff=$(( $(date +%s) + 180 ))
-  while [[ $(date +%s) -lt "${cutoff}" ]]; do
-    local json n
-    json="$(aws ssm list-command-invocations \
-      --region "${AWS_CLI_REGION}" \
-      --command-id "${cmd_id}" \
-      --output json 2>/dev/null || echo '{"CommandInvocations":[]}')"
-    n="$(echo "${json}" | jq '.CommandInvocations | length')"
-    if [[ "${n}" -ge 1 ]]; then
-      if [[ "${n}" -ne 1 ]]; then
-        echo "tk_edge_post_deploy_smoke: expected exactly one SSM invocation for command=${cmd_id}, got ${n}" >&2
-        echo "${json}" | jq '.' >&2
-        exit 1
-      fi
-      echo "${json}" | jq -r '.CommandInvocations[0].InstanceId'
-      return 0
-    fi
-    sleep 3
-  done
-  echo "tk_edge_post_deploy_smoke: timed out resolving invocation for command=${cmd_id}" >&2
-  exit 1
-}
 
 run_infra_smoke() {
   if [[ "${SKIP_EXTERNAL_HEALTH}" != "1" ]]; then
@@ -148,7 +126,7 @@ run_infra_smoke() {
     --parameters "file://${tmpdir}/edge-ssm.json" \
     --query 'Command.CommandId' --output text)"
   if [[ "${EDGE_INSTANCE_ID}" == mi-* ]]; then
-    eff_instance_id="$(resolve_primary_ssm_invocation_instance "${cmd_id}")"
+    eff_instance_id="$(ssm_resolve_invocation_mi "${AWS_CLI_REGION}" "${cmd_id}")"
     if [[ "${eff_instance_id}" != "${EDGE_INSTANCE_ID}" ]]; then
       echo "::warning::live SSM invocation instance ${eff_instance_id} != EDGE_INSTANCE_ID ${EDGE_INSTANCE_ID} (check /ssm_managed_instance_id Parameter Store)"
     fi
@@ -232,7 +210,7 @@ run_main_via_edge_smoke() {
     --parameters "file://${tmpdir}/edge-log-ssm.json" \
     --query 'Command.CommandId' --output text)"
   if [[ "${EDGE_INSTANCE_ID}" == mi-* ]]; then
-    log_eff_instance="$(resolve_primary_ssm_invocation_instance "${log_cmd_id}")"
+    log_eff_instance="$(ssm_resolve_invocation_mi "${AWS_CLI_REGION}" "${log_cmd_id}")"
   fi
   echo "tk_edge_post_deploy_smoke: edge log confirmation command-id=${log_cmd_id}"
   sleep 5

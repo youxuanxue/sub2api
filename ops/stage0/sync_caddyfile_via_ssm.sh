@@ -66,6 +66,10 @@ OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${HERE}/../.." && pwd)"
 
+# Shared SSM "resolve managed-instance after tag-targeted send" helper.
+# shellcheck source=ssm_resolve_invocation_mi.inc.sh
+source "${HERE}/ssm_resolve_invocation_mi.inc.sh"
+
 case "${KIND}" in
   prod) CADDY_SRC="${REPO_ROOT}/deploy/aws/stage0/Caddyfile" ;;
   edge) CADDY_SRC="${REPO_ROOT}/deploy/aws/stage0/Caddyfile.edge" ;;
@@ -92,31 +96,6 @@ ssm_region_args=()
 if [[ -n "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" ]]; then
   ssm_region_args=(--region "${AWS_REGION:-${AWS_DEFAULT_REGION}}")
 fi
-
-# Identical to deploy_via_ssm.sh: after a tag-targeted send (Lightsail Hybrid),
-# discover the concrete managed-instance id for get-command-invocation.
-resolve_ssm_primary_invocation_instance() {
-  local cmd_id="$1"
-  local cutoff=$(( $(date +%s) + 180 ))
-  while [[ $(date +%s) -lt "${cutoff}" ]]; do
-    local json n
-    json="$(aws "${ssm_region_args[@]}" ssm list-command-invocations \
-      --command-id "${cmd_id}" --output json 2>/dev/null || echo '{"CommandInvocations":[]}')"
-    n="$(echo "${json}" | jq '.CommandInvocations | length')"
-    if [[ "${n}" -ge 1 ]]; then
-      if [[ "${n}" -ne 1 ]]; then
-        echo "sync_caddyfile_via_ssm: expected exactly one SSM invocation for command=${cmd_id}, got ${n}" >&2
-        echo "${json}" | jq '.' >&2
-        exit 1
-      fi
-      echo "${json}" | jq -r '.CommandInvocations[0].InstanceId'
-      return 0
-    fi
-    sleep 3
-  done
-  echo "sync_caddyfile_via_ssm: timed out resolving invocation instance for command=${cmd_id}" >&2
-  exit 1
-}
 
 mkdir -p "${OUTPUT_DIR}"
 params_file="${OUTPUT_DIR}/ssm-params.json"
@@ -171,7 +150,7 @@ if [[ "${INSTANCE_ID}" == mi-* && -n "${EDGE_ID:-}" ]]; then
     --comment "${COMMENT} kind=${KIND}" \
     --parameters "file://${params_file}" \
     --query 'Command.CommandId' --output text)"
-  eff_instance_id="$(resolve_ssm_primary_invocation_instance "${cmd_id}")"
+  eff_instance_id="$(ssm_resolve_invocation_mi "${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" "${cmd_id}")"
   if [[ "${eff_instance_id}" != "${INSTANCE_ID}" ]]; then
     echo "::warning::SSM send resolved instance ${eff_instance_id}; caller passed ${INSTANCE_ID}"
   fi
