@@ -46,12 +46,14 @@ check_one() {
   local label="$1" out="$2"
   shift 2
   mkdir -p "${tmp}/${out}"
+  # We only need the params file; the stub run may exit nonzero (no real AWS).
+  # The missing-file case is handled explicitly below.
   PATH="${stub}:${PATH}" STAGE0_SSM_OUTPUT_DIR="${tmp}/${out}" AWS_REGION=us-east-1 \
-    "$@" >/dev/null 2>"${tmp}/${out}/err" || true
+    "$@" >/dev/null 2>"${tmp}/${out}/err" || true  # preflight-allow: swallow
   local pf="${tmp}/${out}/ssm-params.json"
   if [[ ! -f "${pf}" ]]; then
     echo "  FAIL: ${label} — no ssm-params.json emitted (stub run aborted before params generation)" >&2
-    tail -3 "${tmp}/${out}/err" 2>/dev/null | sed 's/^/      /' >&2 || true
+    tail -3 "${tmp}/${out}/err" 2>/dev/null | sed 's/^/      /' >&2 || true  # preflight-allow: swallow (diagnostic only)
     rc=1
     return
   fi
