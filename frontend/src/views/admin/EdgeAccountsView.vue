@@ -105,6 +105,12 @@
                     <div v-if="acct.error_message" class="mt-0.5 max-w-xs truncate text-xs text-red-500" :title="acct.error_message">
                       {{ acct.error_message }}
                     </div>
+                    <!-- temp-unschedulable reason shown inline: the reused AccountStatusIndicator's
+                         temp-unsched badge opens an admin modal we don't have here (read-only), so
+                         surface the reason passively rather than behind an inert click. -->
+                    <div v-if="acct.temp_unschedulable_reason" class="mt-0.5 max-w-xs truncate text-xs text-amber-600 dark:text-amber-400" :title="acct.temp_unschedulable_reason">
+                      {{ acct.temp_unschedulable_reason }}
+                    </div>
                   </td>
                   <td class="px-4 py-2 align-top text-gray-600 dark:text-gray-300">
                     <span>{{ acct.platform }}</span>
