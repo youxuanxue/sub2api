@@ -159,6 +159,9 @@ func (m *sessionWindowMockRepo) SumConcurrencyAnthropic(context.Context) (int64,
 func (m *sessionWindowMockRepo) SumConcurrencyAnthropicByGroup(context.Context, string) (int64, error) {
 	panic("unexpected")
 }
+func (m *sessionWindowMockRepo) SumConcurrencyByPlatform(context.Context, string) (int64, error) {
+	panic("unexpected")
+}
 
 // newRateLimitServiceForTest creates a RateLimitService with the given mock repo.
 func newRateLimitServiceForTest(repo AccountRepository) *RateLimitService {

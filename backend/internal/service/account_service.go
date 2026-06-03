@@ -77,6 +77,11 @@ type AccountRepository interface {
 	// SumConcurrencyAnthropicByGroup returns Σ concurrency for schedulable anthropic
 	// accounts in the named group (surface-C: edge capacity counts only the default group).
 	SumConcurrencyAnthropicByGroup(ctx context.Context, groupName string) (int64, error)
+	// SumConcurrencyByPlatform returns Σ concurrency for schedulable accounts of the
+	// given platform across all groups (surface-C: edge capacity for non-anthropic
+	// pools — e.g. kiro — where the edge is single-pool-per-platform and the
+	// anthropic "default"-group scoping does not apply).
+	SumConcurrencyByPlatform(ctx context.Context, platform string) (int64, error)
 	// IncrementQuotaUsed 原子递增 API Key 账号的配额用量（总/日/周）
 	IncrementQuotaUsed(ctx context.Context, id int64, amount float64) error
 	// ResetQuotaUsed 重置 API Key 账号所有维度的配额用量为 0

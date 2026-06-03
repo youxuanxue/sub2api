@@ -16,6 +16,7 @@ import (
 // the handler unit-testable without stubbing the whole repository surface.
 type schedulingCapacityReader interface {
 	SumConcurrencyAnthropicByGroup(ctx context.Context, groupName string) (int64, error)
+	SumConcurrencyByPlatform(ctx context.Context, platform string) (int64, error)
 }
 
 // anthropicDefaultGroupName is the group whose schedulable anthropic concurrency
@@ -63,10 +64,14 @@ type edgeCapacityResponse struct {
 
 // GetSchedulingCapacity handles GET /api/v1/edge/scheduling-capacity.
 //
-// Only platform=anthropic is supported today (the only fleet surface whose prod
-// stub concurrency must mirror a live edge). An unsupported / missing platform
-// is rejected rather than silently defaulting, so a prod misconfig surfaces
-// loudly instead of writing a wrong number.
+// platform selects which edge pool's live Σ schedulable concurrency to report,
+// mirroring the prod stub's credentials.mirror_platform:
+//   - anthropic: the operator-curated "default" group (see anthropicDefaultGroupName).
+//   - kiro: all schedulable kiro accounts (the edge is single-pool-per-platform for
+//     kiro, so no group scoping — counting every kiro row IS the live pool).
+//
+// An unsupported / missing platform is rejected rather than silently defaulting,
+// so a prod misconfig surfaces loudly instead of writing a wrong number.
 func (h *EdgeCapacityHandler) GetSchedulingCapacity(c *gin.Context) {
 	if h == nil || h.accounts == nil {
 		response.Error(c, http.StatusInternalServerError, "edge capacity handler unavailable")
@@ -74,12 +79,21 @@ func (h *EdgeCapacityHandler) GetSchedulingCapacity(c *gin.Context) {
 	}
 
 	platform := strings.ToLower(strings.TrimSpace(c.DefaultQuery("platform", "anthropic")))
-	if platform != "anthropic" {
-		response.Error(c, http.StatusBadRequest, "unsupported platform (only anthropic)")
+	ctx := c.Request.Context()
+
+	var (
+		total int64
+		err   error
+	)
+	switch platform {
+	case "anthropic":
+		total, err = h.accounts.SumConcurrencyAnthropicByGroup(ctx, anthropicDefaultGroupName)
+	case "kiro":
+		total, err = h.accounts.SumConcurrencyByPlatform(ctx, "kiro")
+	default:
+		response.Error(c, http.StatusBadRequest, "unsupported platform (only anthropic, kiro)")
 		return
 	}
-
-	total, err := h.accounts.SumConcurrencyAnthropicByGroup(c.Request.Context(), anthropicDefaultGroupName)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "failed to read scheduling capacity")
 		return

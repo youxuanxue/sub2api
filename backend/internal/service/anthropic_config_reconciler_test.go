@@ -51,6 +51,13 @@ func (s *reconcilerAccountStub) SumConcurrencyAnthropicByGroup(context.Context, 
 	return s.sum, nil
 }
 
+func (s *reconcilerAccountStub) SumConcurrencyByPlatform(context.Context, string) (int64, error) {
+	if s.sumErr != nil {
+		return 0, s.sumErr
+	}
+	return s.sum, nil
+}
+
 func (s *reconcilerAccountStub) BulkUpdate(ctx context.Context, ids []int64, updates AccountBulkUpdate) (int64, error) {
 	if s.bulkErr != nil {
 		return 0, s.bulkErr
@@ -233,6 +240,71 @@ func TestReconciler_SurfaceC_MirrorsConcurrency(t *testing.T) {
 	require.Contains(t, doer.lastURL, "/api/v1/edge/scheduling-capacity")
 	require.Contains(t, doer.lastURL, "platform=anthropic")
 	require.Equal(t, "sk-edge-key", doer.lastAuth, "must authenticate with the stub's relay api_key")
+}
+
+// A kiro mirror stub rides the same anthropic-apikey transport but declares
+// credentials.mirror_platform=kiro, so surface-C must query the edge's kiro pool
+// (?platform=kiro) — not the anthropic pool. This is the bug the fix closes: both
+// stubs otherwise read the same anthropic number (22).
+func TestReconciler_SurfaceC_KiroStub_QueriesKiroPlatform(t *testing.T) {
+	stub := Account{
+		ID:          22,
+		Name:        "kiro-edge-us1",
+		Platform:    PlatformAnthropic, // transport platform is always anthropic-apikey
+		Type:        AccountTypeAPIKey,
+		Concurrency: 22, // wrong (anthropic) number it currently shows
+		Credentials: map[string]any{
+			"base_url":        "https://api-us1.tokenkey.dev",
+			"api_key":         "sk-edge-key",
+			"mirror_platform": "kiro",
+		},
+	}
+	acc := &reconcilerAccountStub{accounts: []Account{stub}, sum: 22}
+	usr := &reconcilerUserStub{user: &User{ID: 1, Concurrency: 22}}
+	r := newTestReconciler(acc, usr, &reconcilerBalanceStub{}, mirrorEnabledCfg(true, false))
+	doer := &fakeDoer{status: 200, body: `{"code":0,"message":"ok","data":{"platform":"kiro","total_concurrency":6,"ts":1}}`}
+	r.http = doer
+
+	r.runOnce(context.Background())
+
+	require.Contains(t, doer.lastURL, "platform=kiro", "kiro stub must query the edge kiro pool, not anthropic")
+	require.NotContains(t, doer.lastURL, "platform=anthropic")
+
+	var concWrites int
+	for _, call := range acc.bulkCalls {
+		if call.updates.Concurrency != nil {
+			concWrites++
+			require.Equal(t, 6, *call.updates.Concurrency, "kiro stub must mirror the edge kiro Σ (6), not anthropic (22)")
+			require.Equal(t, []int64{22}, call.ids)
+		}
+	}
+	require.Equal(t, 1, concWrites)
+}
+
+// Absent credentials.mirror_platform, a stub keeps mirroring the anthropic pool —
+// every pre-existing stub stays correct with zero data migration.
+func TestReconciler_SurfaceC_DefaultsToAnthropicWhenUnset(t *testing.T) {
+	stub := Account{
+		ID:          23,
+		Name:        "cc-us1",
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 8,
+		Credentials: map[string]any{
+			"base_url": "https://api-us1.tokenkey.dev",
+			"api_key":  "sk-edge-key",
+		},
+	}
+	acc := &reconcilerAccountStub{accounts: []Account{stub}, sum: 8}
+	usr := &reconcilerUserStub{user: &User{ID: 1, Concurrency: 8}}
+	r := newTestReconciler(acc, usr, &reconcilerBalanceStub{}, mirrorEnabledCfg(true, false))
+	doer := &fakeDoer{status: 200, body: `{"code":0,"message":"ok","data":{"platform":"anthropic","total_concurrency":5,"ts":1}}`}
+	r.http = doer
+
+	r.runOnce(context.Background())
+
+	require.Contains(t, doer.lastURL, "platform=anthropic")
+	require.NotContains(t, doer.lastURL, "platform=kiro")
 }
 
 func TestReconciler_SurfaceC_NeverWritesZeroOnFailure(t *testing.T) {

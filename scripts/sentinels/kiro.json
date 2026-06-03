@@ -3,6 +3,36 @@
   "rationale": "Load-bearing files and symbols that anchor TokenKey's sixth platform `kiro` (AWS Kiro / CodeWhisperer). Kiro rides on a vendored protocol layer (internal/integration/kiro, sourced from Quorinex/Kiro-Go under MIT) exposed through the native Anthropic /v1/messages path, plus thin TK-only injection points. If any sentinel below is missing, the platform either silently disappears from scheduling/UI or fails at runtime. Single source of truth read by both `scripts/preflight.sh` (kiro sentinel registry section) and `.github/workflows/upstream-merge-pr-shape.yml` (on `merge/upstream-*` PRs). Adding a new load-bearing surface for kiro MUST add a sentinel here in the same commit.",
   "sentinels": [
     {
+      "path": "backend/internal/handler/edge_tk_capacity_handler.go",
+      "must_contain": [
+        "case \"kiro\":",
+        "SumConcurrencyByPlatform"
+      ],
+      "rationale": "Surface-C edge capacity endpoint must report the kiro pool's live Σ (platform-wide schedulable sum) so prod's kiro mirror stub mirrors the right number. Losing the kiro dispatch arm makes a kiro stub's ?platform=kiro request 400, and surface-C falls back to leaving the stub's concurrency stale (or, if the prod default regressed, hands the kiro stub the anthropic number again — the exact bug this surface closes)."
+    },
+    {
+      "path": "backend/internal/service/anthropic_config_reconciler.go",
+      "must_contain": [
+        "func mirrorCapacityPlatform",
+        "mirror_platform"
+      ],
+      "rationale": "Prod side of surface-C: reads each mirror stub's credentials.mirror_platform (default anthropic) and queries the matching edge pool. Losing mirrorCapacityPlatform collapses the anthropic/kiro distinction so every mirror stub queries ?platform=anthropic again and a kiro stub silently mirrors the anthropic Σ."
+    },
+    {
+      "path": "backend/internal/repository/account_repo.go",
+      "must_contain": [
+        "func (r *accountRepository) SumConcurrencyByPlatform"
+      ],
+      "rationale": "Platform-wide schedulable Σ reader that backs the kiro arm of the edge capacity endpoint (the kiro pool is not group-scoped like anthropic's \"default\"). Losing it breaks ?platform=kiro capacity reads, so prod's kiro mirror stub can no longer mirror the edge kiro pool. (account_repo.go is also a gateway-tk hotspot — dual-covered on purpose.)"
+    },
+    {
+      "path": "backend/internal/handler/edge_tk_capacity_handler_test.go",
+      "must_contain": [
+        "TestEdgeCapacityHandler_KiroUsesPlatformWideSum"
+      ],
+      "rationale": "Load-bearing QA evidence that the kiro capacity arm reads SumConcurrencyByPlatform(\"kiro\") and never the anthropic-group sum — the exact regression (kiro stub mirrors the anthropic number) this surface closes. Matches the *_tk_*_test.go hotspot-evidence rule."
+    },
+    {
       "path": "backend/internal/domain/constants.go",
       "must_contain": [
         "PlatformKiro"
@@ -153,9 +183,25 @@
     {
       "path": "frontend/src/components/account/CreateAccountModal.vue",
       "must_contain": [
-        "AccountKiroPlatformFields"
+        "AccountKiroPlatformFields",
+        "mirror_platform"
       ],
-      "rationale": "The kiro branch + field component wiring in the account-create modal. Losing it makes operators unable to create kiro accounts from the admin UI."
+      "rationale": "The kiro branch + field component wiring in the account-create modal, plus the surface-C mirror-stub pool selector that writes credentials.mirror_platform. Losing AccountKiroPlatformFields makes operators unable to create kiro accounts; losing the mirror_platform injection means a new edge kiro stub silently defaults to the anthropic pool."
+    },
+    {
+      "path": "frontend/src/components/account/EditAccountModal.vue",
+      "must_contain": [
+        "editMirrorPlatform"
+      ],
+      "rationale": "Surface-C mirror-stub pool selector in the account-edit modal — the operator's only no-SQL way to set credentials.mirror_platform=kiro on an existing edge stub (e.g. kiro-edge-us1). Losing it strands the live fix: the kiro stub keeps mirroring the anthropic Σ."
+    },
+    {
+      "path": "frontend/src/constants/mirrorPlatformOptions.tk.ts",
+      "must_contain": [
+        "MIRROR_PLATFORM_OPTIONS",
+        "normalizeMirrorPlatform"
+      ],
+      "rationale": "TK-only options + backend-aligned default normalizer for the surface-C mirror-stub pool selector (anthropic/kiro), consumed by both account modals. Losing it breaks the mirror_platform UI and the anthropic-default fallback."
     },
     {
       "path": "frontend/src/i18n/locales/en.ts",
