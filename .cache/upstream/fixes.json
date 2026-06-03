@@ -3,6 +3,25 @@
   "rationale": "TokenKey-local registry of upstream Wei-Shaw/sub2api issues that this fork has already addressed. Use this when triaging upstream open issues so already-fixed upstream reports are not repeatedly selected for TokenKey work.",
   "issues": [
     {
+      "upstream": "Wei-Shaw/sub2api#225",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go"
+      ],
+      "summary": "thinking 块上挂 cache_control（Extra inputs are not permitted 400）：collectCacheControlPaths 判定 type==thinking 的 cache_control 归入 invalidThinking，enforceCacheControlLimit 在计数前无条件删除（覆盖 system + messages）。同根 #2013。"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#392",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_service_tk_canonical_oauth_guard.go"
+      ],
+      "summary": "'authorized for use with Claude Code' 是 OAuth 凭证 scope 错误，TLS 指纹对齐是必要非充分条件。已有识别 isClaudeCodeCredentialScopeError + ingress canonical OAuth guard（拒第三方 SDK UA / 重映射退役 opus）+ 完整 mimicry 栈（同 #1574/#1525/#1715）压制。线上复发用 cc-fingerprint-alignment skill 抓包核对 beta/UA/system 三层。"
+    },
+    {
       "upstream": "Wei-Shaw/sub2api#580",
       "tokenkey_pr": "youxuanxue/sub2api#223",
       "status": "fixed_in_tokenkey",
@@ -14,6 +33,15 @@
       "summary": "Preserved captured real Claude CLI User-Agent and X-Stainless fingerprint values when applying mimicry defaults, avoiding version downgrade churn."
     },
     {
+      "upstream": "Wei-Shaw/sub2api#599",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_request.go"
+      ],
+      "summary": "FilterThinkingBlocksForRetry 在禁用顶层 thinking 时删除 thinking 字段并把 thinking 块降级为 text；当前 schema 的 thinking_strategy 对应 context_management.edits 的 clear_thinking_20251015，由 removeThinkingDependentContextStrategies 一并清理（见 #851）。有专项单测护栏。"
+    },
+    {
       "upstream": "Wei-Shaw/sub2api#641",
       "status": "fixed_in_tokenkey",
       "fixed_by": [
@@ -21,6 +49,25 @@
         "backend/internal/service/gemini_messages_compat_service_tk_oauth_cooldown_test.go"
       ],
       "summary": "Gemini 429 with no quotaResetDelay/retryDelay uses tier cooldown for all Gemini OAuth accounts (google_one + aistudio OAuth + code_assist), not just Code Assist; PST-midnight fallback is reserved for API Key accounts."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#656",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: worktree-anthropic-upstream-audit)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_beta_test.go"
+      ],
+      "summary": "isCountTokensUnsupported404 放宽：除标准 404 外，对中转站把 NoResourceFoundException/No static resource 包装进 HTTP 400/500 的非标准返回也识别为端点不支持（收窄到同时提及 count_tokens + Spring 强信号，刻意不认裸 'not found'，保留 invalid_request_error/#2109 temperature 不被误吞，含 raw-body 兜底）；并在主路径 ForwardCountTokens 的 >=400 分支熔断/failover 之前接入，返回 404 让 Claude Code fallback 本地估算。新增 4 个单测用例。"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#851",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_request.go"
+      ],
+      "summary": "removeThinkingDependentContextStrategies 从 context_management.edits 移除 clear_thinking_20251015（edits 清空时删整键），在 FilterThinkingBlocksForRetry fast-path/完整路径及 FilterSignatureSensitiveBlocksForRetry 三处调用；另有 sanitizeAnthropicBodyForBetaTokens 按 anthropic-beta 是否含 context-management-2025-06-27 决定 strip。TestFilterThinkingBlocksForRetry_RemovesClearThinkingStrategy 等护栏。"
     },
     {
       "upstream": "Wei-Shaw/sub2api#1170",
@@ -86,6 +133,74 @@
       "summary": "OpenAI /v1/responses sendErrorEvent now prepends a blank line before the synthetic data: line, so any in-flight upstream SSE event whose terminating blank line was never sent is closed before the synthetic event is written. Without this, the unterminated `data:` line and the synthetic `data:` line merge into a single SSE event whose payload contains two concatenated JSON objects, which downstream OpenAI-compatible SDKs (Codex, OpenCode, etc.) reject with malformed JSON."
     },
     {
+      "upstream": "Wei-Shaw/sub2api#1493",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service.go"
+      ],
+      "summary": "Already fixed: /v1/responses non-stream empty output is reconstructed from SSE deltas via reconstructResponseOutputFromSSE (handleSSEToJSON detects empty output and rebuilds)."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1525",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_service_tk_canonical_oauth_guard.go"
+      ],
+      "summary": "Already fixed (same root as #1574): opencode and other third-party clients are forced onto the Claude Code fingerprint (UA/x-stainless/x-app) + billing block + system rewrite; canonical-TLS accounts additionally 403 non-CC UAs at ingress."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1544",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service_tk_billing_pricing_missing.go",
+        "backend/internal/service/gateway_service.go"
+      ],
+      "summary": "Same fix as #1833 — Anthropic/generic token-cost path made symmetric with the OpenAI path's observable pricing_missing_record_zero_cost behavior instead of a silent ActualCost:0."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1574",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go"
+      ],
+      "summary": "Already fixed: non-Claude-Code OAuth clients have system unconditionally rewritten into a 2-block (billing attribution + CC prompt) shape with original system demoted to messages, eliminating the 'CC prompt without billing block' inconsistency that triggered third-party detection on large requests."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1651",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_codex_transform.go",
+        "backend/internal/service/openai_model_alias.go"
+      ],
+      "summary": "Already fixed: /v1/chat/completions no longer silently rewrites gpt-5.4-mini to gpt-5.4 for upstream — normalization only applies to OAuth/Codex accounts and -mini/-nano/codex variants are explicitly preserved (TestNormalizeCodexModel_RemovedModelsFallbackToSupportedTargets)."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1715",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_service_tk_canonical_oauth_guard.go"
+      ],
+      "summary": "Already mitigated by the full mimicry stack (fingerprint alignment + billing attribution block + system rewrite + canonical UA guard + sticky routing). No single patch — maintained via the cc-fingerprint-alignment skill. NOTE: subscription-ban risk is existential; verify online (no third-party 400s) per 'config convergence != online stability'."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1723",
+      "tokenkey_pr": "youxuanxue/sub2api#525",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/repository/scheduler_cache.go",
+        "backend/internal/repository/scheduler_cache_integration_test.go"
+      ],
+      "summary": "schedulerCache.UpdateLastUsed 不再读改写完整账号键 sched:acc:<id>（3-12 KB JSON），只刷调度热路径 LRU 实际读取的 slim metadata 键 sched:meta:<id>，消除每次 LastUsedAt bump 的 Redis 读写放大（upstream 实测单部署 6.5 天 1.85 TB）。完整账号键的 LastUsedAt 由快照重建 / 账号变更刷新，不参与 LRU。"
+    },
+    {
       "upstream": "Wei-Shaw/sub2api#1824",
       "status": "fixed_in_tokenkey",
       "fixed_by": [
@@ -95,6 +210,17 @@
       "summary": "OpenAI 403 handler skips the per-account counter + temp_unschedulable + SetError writes when the response body matches a Cloudflare / Arkose challenge keyword (cloudflare / just a moment / arkoselabs / funcaptcha / challenge-platform). Failover still proceeds for the in-flight request; the OAuth account stays in the pool for unrelated traffic."
     },
     {
+      "upstream": "Wei-Shaw/sub2api#1833",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service_tk_billing_pricing_missing.go",
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_service_tk_billing_pricing_missing_test.go"
+      ],
+      "summary": "calculateTokenCost no longer silently bills zero on ErrModelPricingUnavailable; it emits a structured gateway_usage.pricing_missing_record_zero_cost warning and marks BillingMode, at parity with the OpenAI record-usage path. Closes the free-usage leak for non-builtin models (GLM/qwen/deepseek over /v1/messages) with no configured pricing."
+    },
+    {
       "upstream": "Wei-Shaw/sub2api#1925",
       "status": "fixed_in_tokenkey",
       "fixed_by": [
@@ -102,6 +228,58 @@
         "backend/internal/service/account_test_service_openai_test.go"
       ],
       "summary": "OpenAI /responses account testing requires a terminal response.completed/response.done event; early EOF before completion fails the account test."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1934",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service_tk_sticky_group.go",
+        "backend/internal/service/openai_gateway_service.go",
+        "backend/internal/service/openai_account_scheduler.go"
+      ],
+      "summary": "Sticky bindings are namespaced by (groupID, sessionHash) but resolved by global account ID; after an account is moved out of the group the stale binding kept routing the group's traffic at it. All three sticky fast paths now invalidate a binding whose bound account has known group membership excluding groupID (conservative: empty membership kept)."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1941",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_model_alias.go",
+        "backend/internal/service/openai_gateway_service.go"
+      ],
+      "summary": "Already fixed: typo model names no longer silently bill zero — usageBillingModelCandidates uses canonical+normalized candidates and pricing-missing emits a structured warning."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1946",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/channel_monitor_checker.go",
+        "backend/internal/service/channel_monitor_checker.go",
+        "backend/internal/service/channel_monitor_checker_tk_anthropic_text_test.go"
+      ],
+      "summary": "Anthropic monitor challenge extraction no longer assumes content[0] is the text block; extractAnthropicText skips thinking/redacted_thinking blocks and aggregates text, so a healthy account with extended thinking is not misjudged as a challenge mismatch and kicked out of the pool."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1981",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/ratelimit_service_tk_openai_reset_clamp.go",
+        "backend/internal/service/ratelimit_service.go"
+      ],
+      "summary": "Opt-in (default OFF via tk_openai_max_rate_limit_cooldown_seconds) clamp of long OpenAI 429 resets (e.g. 7d window exhaustion) so released accounts re-enter the pool after the ceiling and are re-probed by live traffic instead of idling — 'traffic as the probe', no separate background prober."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2013",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_body_order_test.go"
+      ],
+      "summary": "enforceCacheControlLimit now counts a non-standard top-level cache_control toward the 4-block limit and trims it first, fixing Anthropic 400 'max 4 blocks, Found 5' when a client sends top-level cache_control plus 4 nested blocks."
     },
     {
       "upstream": "Wei-Shaw/sub2api#2055",
@@ -230,6 +408,16 @@
         "scripts/gateway-tk-sentinels.json"
       ],
       "summary": "GetIntervalPricing overlays the matched interval onto BasePricing (which carries channel flat defaults via the #2107 fix), so channel CacheReadPrice/CacheWritePrice/ImageOutputPrice survive in-range matches instead of being silently dropped to 0. Symmetric in-range counterpart to the #2107 out-of-range fix."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2380",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/settings_view.go",
+        "backend/internal/service/gateway_service.go"
+      ],
+      "summary": "Already fixed (commit 67e426f7): API-key cross-channel thinking-signature rectifier defaults APIKeySignatureEnabled=true and legacy settings backfill from defaults, so cross-channel routes no longer 400 on thinking signature by default."
     },
     {
       "upstream": "Wei-Shaw/sub2api#2383",
@@ -368,59 +556,6 @@
       "summary": "OpenAI Chat Completions raw passthrough detects upstream silent refusal (empty stream/response with finish_reason=stop and zero usage) and emits an ops_error_logs row with Kind=silent_refusal. Conservative predicate: no content / no tool_calls / no reasoning / no refusal / no chunk-level error / zero usage / finish_reason=stop. Stream path keeps the client-visible bytes untouched (headers already flushed); buffered path will keep flexibility to harden later. The categorical ops signal turns the previously invisible 'ghost stream' (gpt-5.5 above input budget) into a dashboard-pivotable event."
     },
     {
-      "upstream": "Wei-Shaw/sub2api#1934",
-      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
-      "status": "fixed_in_tokenkey",
-      "fixed_by": [
-        "backend/internal/service/openai_gateway_service_tk_sticky_group.go",
-        "backend/internal/service/openai_gateway_service.go",
-        "backend/internal/service/openai_account_scheduler.go"
-      ],
-      "summary": "Sticky bindings are namespaced by (groupID, sessionHash) but resolved by global account ID; after an account is moved out of the group the stale binding kept routing the group's traffic at it. All three sticky fast paths now invalidate a binding whose bound account has known group membership excluding groupID (conservative: empty membership kept)."
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#1946",
-      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
-      "status": "fixed_in_tokenkey",
-      "fixed_by": [
-        "backend/internal/service/channel_monitor_checker.go",
-        "backend/internal/service/channel_monitor_checker.go",
-        "backend/internal/service/channel_monitor_checker_tk_anthropic_text_test.go"
-      ],
-      "summary": "Anthropic monitor challenge extraction no longer assumes content[0] is the text block; extractAnthropicText skips thinking/redacted_thinking blocks and aggregates text, so a healthy account with extended thinking is not misjudged as a challenge mismatch and kicked out of the pool."
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#2013",
-      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
-      "status": "fixed_in_tokenkey",
-      "fixed_by": [
-        "backend/internal/service/gateway_service.go",
-        "backend/internal/service/gateway_body_order_test.go"
-      ],
-      "summary": "enforceCacheControlLimit now counts a non-standard top-level cache_control toward the 4-block limit and trims it first, fixing Anthropic 400 'max 4 blocks, Found 5' when a client sends top-level cache_control plus 4 nested blocks."
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#1833",
-      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
-      "status": "fixed_in_tokenkey",
-      "fixed_by": [
-        "backend/internal/service/gateway_service_tk_billing_pricing_missing.go",
-        "backend/internal/service/gateway_service.go",
-        "backend/internal/service/gateway_service_tk_billing_pricing_missing_test.go"
-      ],
-      "summary": "calculateTokenCost no longer silently bills zero on ErrModelPricingUnavailable; it emits a structured gateway_usage.pricing_missing_record_zero_cost warning and marks BillingMode, at parity with the OpenAI record-usage path. Closes the free-usage leak for non-builtin models (GLM/qwen/deepseek over /v1/messages) with no configured pricing."
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#1544",
-      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
-      "status": "fixed_in_tokenkey",
-      "fixed_by": [
-        "backend/internal/service/gateway_service_tk_billing_pricing_missing.go",
-        "backend/internal/service/gateway_service.go"
-      ],
-      "summary": "Same fix as #1833 — Anthropic/generic token-cost path made symmetric with the OpenAI path's observable pricing_missing_record_zero_cost behavior instead of a silent ActualCost:0."
-    },
-    {
       "upstream": "Wei-Shaw/sub2api#2608",
       "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
       "status": "fixed_in_tokenkey",
@@ -442,121 +577,6 @@
       "summary": "Opt-in (default OFF via tk_openai_implicit_throttle_cooldown_seconds) cross-request cooldown: an OpenAI-compat account that returns a failover-worthy 5xx (implicit throttle / header-timeout with no 429) is briefly benched so subsequent requests skip it. The deliberately-unbounded OpenAIResponseHeaderTimeout default is intentionally NOT changed."
     },
     {
-      "upstream": "Wei-Shaw/sub2api#1981",
-      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
-      "status": "fixed_in_tokenkey",
-      "fixed_by": [
-        "backend/internal/service/ratelimit_service_tk_openai_reset_clamp.go",
-        "backend/internal/service/ratelimit_service.go"
-      ],
-      "summary": "Opt-in (default OFF via tk_openai_max_rate_limit_cooldown_seconds) clamp of long OpenAI 429 resets (e.g. 7d window exhaustion) so released accounts re-enter the pool after the ceiling and are re-probed by live traffic instead of idling — 'traffic as the probe', no separate background prober."
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#1651",
-      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
-      "status": "fixed_in_tokenkey",
-      "fixed_by": [
-        "backend/internal/service/openai_codex_transform.go",
-        "backend/internal/service/openai_model_alias.go"
-      ],
-      "summary": "Already fixed: /v1/chat/completions no longer silently rewrites gpt-5.4-mini to gpt-5.4 for upstream — normalization only applies to OAuth/Codex accounts and -mini/-nano/codex variants are explicitly preserved (TestNormalizeCodexModel_RemovedModelsFallbackToSupportedTargets)."
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#1941",
-      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
-      "status": "fixed_in_tokenkey",
-      "fixed_by": [
-        "backend/internal/service/openai_model_alias.go",
-        "backend/internal/service/openai_gateway_service.go"
-      ],
-      "summary": "Already fixed: typo model names no longer silently bill zero — usageBillingModelCandidates uses canonical+normalized candidates and pricing-missing emits a structured warning."
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#1493",
-      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
-      "status": "fixed_in_tokenkey",
-      "fixed_by": [
-        "backend/internal/service/openai_gateway_service.go"
-      ],
-      "summary": "Already fixed: /v1/responses non-stream empty output is reconstructed from SSE deltas via reconstructResponseOutputFromSSE (handleSSEToJSON detects empty output and rebuilds)."
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#2380",
-      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
-      "status": "fixed_in_tokenkey",
-      "fixed_by": [
-        "backend/internal/service/settings_view.go",
-        "backend/internal/service/gateway_service.go"
-      ],
-      "summary": "Already fixed (commit 67e426f7): API-key cross-channel thinking-signature rectifier defaults APIKeySignatureEnabled=true and legacy settings backfill from defaults, so cross-channel routes no longer 400 on thinking signature by default."
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#1574",
-      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
-      "status": "fixed_in_tokenkey",
-      "fixed_by": [
-        "backend/internal/service/gateway_service.go"
-      ],
-      "summary": "Already fixed: non-Claude-Code OAuth clients have system unconditionally rewritten into a 2-block (billing attribution + CC prompt) shape with original system demoted to messages, eliminating the 'CC prompt without billing block' inconsistency that triggered third-party detection on large requests."
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#1525",
-      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
-      "status": "fixed_in_tokenkey",
-      "fixed_by": [
-        "backend/internal/service/gateway_service.go",
-        "backend/internal/service/gateway_service_tk_canonical_oauth_guard.go"
-      ],
-      "summary": "Already fixed (same root as #1574): opencode and other third-party clients are forced onto the Claude Code fingerprint (UA/x-stainless/x-app) + billing block + system rewrite; canonical-TLS accounts additionally 403 non-CC UAs at ingress."
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#1715",
-      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
-      "status": "fixed_in_tokenkey",
-      "fixed_by": [
-        "backend/internal/service/gateway_service.go",
-        "backend/internal/service/gateway_service_tk_canonical_oauth_guard.go"
-      ],
-      "summary": "Already mitigated by the full mimicry stack (fingerprint alignment + billing attribution block + system rewrite + canonical UA guard + sticky routing). No single patch — maintained via the cc-fingerprint-alignment skill. NOTE: subscription-ban risk is existential; verify online (no third-party 400s) per 'config convergence != online stability'."
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#225",
-      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
-      "status": "fixed_in_tokenkey",
-      "fixed_by": [
-        "backend/internal/service/gateway_service.go"
-      ],
-      "summary": "thinking 块上挂 cache_control（Extra inputs are not permitted 400）：collectCacheControlPaths 判定 type==thinking 的 cache_control 归入 invalidThinking，enforceCacheControlLimit 在计数前无条件删除（覆盖 system + messages）。同根 #2013。"
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#599",
-      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
-      "status": "fixed_in_tokenkey",
-      "fixed_by": [
-        "backend/internal/service/gateway_request.go"
-      ],
-      "summary": "FilterThinkingBlocksForRetry 在禁用顶层 thinking 时删除 thinking 字段并把 thinking 块降级为 text；当前 schema 的 thinking_strategy 对应 context_management.edits 的 clear_thinking_20251015，由 removeThinkingDependentContextStrategies 一并清理（见 #851）。有专项单测护栏。"
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#851",
-      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
-      "status": "fixed_in_tokenkey",
-      "fixed_by": [
-        "backend/internal/service/gateway_request.go"
-      ],
-      "summary": "removeThinkingDependentContextStrategies 从 context_management.edits 移除 clear_thinking_20251015（edits 清空时删整键），在 FilterThinkingBlocksForRetry fast-path/完整路径及 FilterSignatureSensitiveBlocksForRetry 三处调用；另有 sanitizeAnthropicBodyForBetaTokens 按 anthropic-beta 是否含 context-management-2025-06-27 决定 strip。TestFilterThinkingBlocksForRetry_RemovesClearThinkingStrategy 等护栏。"
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#656",
-      "tokenkey_pr": "youxuanxue/sub2api (branch: worktree-anthropic-upstream-audit)",
-      "status": "fixed_in_tokenkey",
-      "fixed_by": [
-        "backend/internal/service/gateway_service.go",
-        "backend/internal/service/gateway_beta_test.go"
-      ],
-      "summary": "isCountTokensUnsupported404 放宽：除标准 404 外，对中转站把 NoResourceFoundException/No static resource 包装进 HTTP 400/500 的非标准返回也识别为端点不支持（收窄到同时提及 count_tokens + Spring 强信号，刻意不认裸 'not found'，保留 invalid_request_error/#2109 temperature 不被误吞，含 raw-body 兜底）；并在主路径 ForwardCountTokens 的 >=400 分支熔断/failover 之前接入，返回 404 让 Claude Code fallback 本地估算。新增 4 个单测用例。"
-    },
-    {
       "upstream": "Wei-Shaw/sub2api#2754",
       "tokenkey_pr": "youxuanxue/sub2api (branch: worktree-anthropic-upstream-audit)",
       "status": "fixed_in_tokenkey",
@@ -565,16 +585,6 @@
         "backend/internal/pkg/claude/constants.go"
       ],
       "summary": "设计性差异非缺陷：Haiku OAuth mimic 刻意用独立 beta 集 FullClaudeCodeHaikuMimicryBetas（cc 2.1.160 structured-outputs 抓包，OMITS claude-code beta + advanced-tool-use，加 structured-outputs），运行时可经 claude_code_http_mimicry_manifest 热改。修正 gateway_service.go 误导注释（原称 Haiku 'includes claude-code beta'/'cc 2.1.152' 与实际 token 集矛盾）。无行为变更；如未来抓包确认 Haiku 真带 claude-code beta，改常量或下发 manifest。"
-    },
-    {
-      "upstream": "Wei-Shaw/sub2api#392",
-      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
-      "status": "fixed_in_tokenkey",
-      "fixed_by": [
-        "backend/internal/service/gateway_service.go",
-        "backend/internal/service/gateway_service_tk_canonical_oauth_guard.go"
-      ],
-      "summary": "'authorized for use with Claude Code' 是 OAuth 凭证 scope 错误，TLS 指纹对齐是必要非充分条件。已有识别 isClaudeCodeCredentialScopeError + ingress canonical OAuth guard（拒第三方 SDK UA / 重映射退役 opus）+ 完整 mimicry 栈（同 #1574/#1525/#1715）压制。线上复发用 cc-fingerprint-alignment skill 抓包核对 beta/UA/system 三层。"
     }
   ]
 }
