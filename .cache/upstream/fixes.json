@@ -124,6 +124,17 @@
       "summary": "isOpenAICompatResponsesTerminalEvent (driver for the OpenAI-compat Anthropic Messages and Chat Completions streaming handlers) now recognizes the full six-event terminal set, including response.cancelled / response.canceled. Without this, an upstream that ends the Responses SSE with a legitimate cancellation falls through to 'stream usage incomplete: missing terminal event', producing a spurious openai.forward_failed ops_error_logs entry and skipping clean finalization. Symmetric with openAIStreamEventIsTerminal (gateway_service.go), openai_ws_forwarder.go, and openai_ws_v2/passthrough_relay.go."
     },
     {
+      "upstream": "Wei-Shaw/sub2api#1326",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/edge-real-client-ip)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/server/http_tk_trusted_proxies.go",
+        "backend/internal/server/http.go",
+        "backend/internal/server/http_tk_trusted_proxies_test.go"
+      ],
+      "summary": "反代/容器部署下真实客户端 IP 失真：server.trusted_proxies 出厂为空 → gin SetTrustedProxies(nil) → c.ClientIP() 退回 docker 网桥 IP（172.x）。修复把“未配置”语义改为默认信任 loopback + 私网网段（可被显式配置或 none/off/disabled 哨兵覆盖），使 c.ClientIP() 在反代后沿 X-Forwarded-For 解析真实客户端、直连公网时忽略伪造 XFF（防伪造）。同时修好按 IP 分桶的认证端点限流（rate_limiter.go）与支付审计 IP。"
+    },
+    {
       "upstream": "Wei-Shaw/sub2api#1471",
       "status": "fixed_in_tokenkey",
       "fixed_by": [

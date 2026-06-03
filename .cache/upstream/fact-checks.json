@@ -512,6 +512,23 @@
         "backend/internal/repository/scheduler_cache_integration_test.go:TestSchedulerCacheUpdateLastUsedOnlyTouchesMetaKey",
         "backend/internal/repository/scheduler_cache_integration_test.go:UpdateLastUsed 不得重写完整账号键"
       ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1326",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/edge-real-client-ip)",
+      "severity": "high",
+      "summary": "反代/容器部署下真实客户端 IP 失真：server.trusted_proxies 出厂为空 → gin SetTrustedProxies(nil) → c.ClientIP() 退回 docker 网桥 IP（172.x）。修复把“未配置”语义改为默认信任 loopback + 私网网段（可被显式配置或 none/off/disabled 哨兵覆盖），使 c.ClientIP() 在反代后沿 X-Forwarded-For 解析真实客户端、直连公网时忽略伪造 XFF（防伪造）。同时修好按 IP 分桶的认证端点限流（rate_limiter.go）与支付审计 IP。",
+      "fixed_by": [
+        "backend/internal/server/http_tk_trusted_proxies.go",
+        "backend/internal/server/http.go",
+        "backend/internal/server/http_tk_trusted_proxies_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/server/http_tk_trusted_proxies.go:func tkResolveTrustedProxies(configured []string) (proxies []string, trust bool)",
+        "backend/internal/server/http_tk_trusted_proxies.go:Wei-Shaw/sub2api#1326",
+        "backend/internal/server/http.go:tkResolveTrustedProxies(cfg.Server.TrustedProxies)",
+        "backend/internal/server/http_tk_trusted_proxies_test.go:TestTkTrustedProxiesClientIPResolution"
+      ]
     }
   ]
 }
