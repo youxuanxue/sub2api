@@ -22,7 +22,7 @@
         "backend/internal/service/gateway_service.go",
         "backend/internal/service/gateway_request_tk_utf8_test.go"
       ],
-      "summary": "Unpaired UTF-16 surrogate / invalid raw UTF-8 in the request body (macOS screenshot drag, truncated pasted runes) self-healed pre-flight to U+FFFD before forward, preventing the upstream 'str is not valid UTF-8: surrogate code point' 400. TkSanitizeRequestBody wired ahead of StripEmptyTextBlocks on the Forward, APIKey passthrough, and count_tokens paths. Valid surrogate pairs and escaped backslashes preserved; clean bodies returned unchanged (changed=false, zero alloc)."
+      "summary": "Unpaired UTF-16 surrogate / invalid raw UTF-8 in the request body self-healed pre-flight to U+FFFD before forward, preventing the upstream 'str is not valid UTF-8: surrogate code point' 400. Wired ahead of StripEmptyTextBlocks on the Forward, APIKey passthrough, and count_tokens paths."
     }
   ]
 }
