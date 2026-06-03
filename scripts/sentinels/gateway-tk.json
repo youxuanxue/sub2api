@@ -1589,6 +1589,35 @@
         "func (s *RateLimitService) notifyAccountIncident("
       ],
       "rationale": "把 AccountIncidentNotifier 注入 RateLimitService 的 glue：wire ProvideTKAccountIncidentNotifier 在构造后调 SetAccountIncidentNotifier 回填，挂钩点（ratelimit_service.go）经 notifyAccountIncident 转发。删掉会让挂钩行编译失败或静默 no-op，账号失效告警链路断裂。"
+    },
+    {
+      "path": "backend/internal/service/openai_account_scheduler.go",
+      "must_contain": [
+        "func (s *defaultOpenAIAccountScheduler) stickySlotFullEscapeEnabled",
+        "if stickySel != nil && stickySel.Acquired {",
+        "if stickyWaitPlan && !s.stickySlotFullEscapeEnabled(ctx) {",
+        "if selection != nil && selection.Acquired && selection.Account != nil {"
+      ],
+      "rationale": "TK #2859 sticky slot-full escape (OpenAI/newapi advanced scheduler). Upstream selectBySessionHash returns a WaitPlan unconditionally when the sticky-bound account's concurrency slot is full, trapping the user on a busy account even when free accounts exist. The caller now dispatches on result.Acquired: sticky slot acquired -> return sticky (happy path, cache-optimal, zero added cost); slot full -> try load-balance FIRST and escape to a free (Acquired) account; only when the whole pool is full fall back to the sticky WaitPlan (cache still warm). Gated by gateway.sticky_routing.slot_full_escape_enabled (default true, fail-open) for instant rollback. These anchors keep an upstream merge from silently reverting the Acquired-based dispatch back to upstream's immediate-WaitPlan trap. anthropic main gateway path is intentionally NOT changed (it already escapes on wait_queue_full). See docs/approved/sticky-routing.md §11.5."
+    },
+    {
+      "path": "backend/internal/service/setting_service.go",
+      "must_contain": [
+        "func (s *SettingService) IsStickySlotFullEscapeEnabled",
+        "SettingKeyStickySlotFullEscapeEnabled",
+        "var stickySlotFullEscapeCache atomic.Value"
+      ],
+      "rationale": "TK #2859 sticky slot-full escape global toggle reader. Default true / fail-open (missing setting or DB error => enabled), mirroring IsStickyRoutingEnabled with its own 60s atomic+singleflight cache. The scheduler escape (openai_account_scheduler.go) reads this; the scheduler helper also has a nil-safe true fallback, but dropping this reader silently removes the admin-toggle / instant-rollback capability that the #2859 design promises. Anchor the reader + SettingKey + the cache var so the default-on, reversible contract survives upstream merges."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "func isCountTokensUnsupported404(statusCode int, body []byte) bool {",
+        "strings.Contains(msg, \"noresourcefoundexception\")",
+        "strings.Contains(msg, \"no static resource\")",
+        "count_tokens (status=%d), returning 404"
+      ],
+      "rationale": "TK #656 count_tokens non-standard not-found fallback. Some Chinese Anthropic-compatible relays that do not support /v1/messages/count_tokens wrap a Spring NoResourceFoundException / 'No static resource v1/messages/count_tokens' into a non-standard HTTP 400/500 instead of a clean 404. isCountTokensUnsupported404 is widened to recognize these (narrowed to count_tokens-endpoint mention + strong Spring not-found signals so a real invalid_request_error like #2109 temperature is NOT swallowed; includes raw-body fallback), and the main ForwardCountTokens path short-circuits to 404 BEFORE the breaker/failover so Claude Code falls back to local token estimation while the account is neither penalized nor wasted on failover (same posture as the passthrough variant). Anchor the widened strong-signal predicates + the main-path 404 short-circuit log so an upstream merge cannot silently narrow it back to status==404-only and re-break these relays."
     }
   ]
 }

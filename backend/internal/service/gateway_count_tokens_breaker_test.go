@@ -84,6 +84,64 @@ func TestGatewayService_ForwardCountTokens_400DoesNotTripUpstreamErrorBreaker(t 
 	require.Equal(t, 0, repo.tempCalls, "count_tokens 400 must not mark account temp_unschedulable")
 }
 
+// TestGatewayService_ForwardCountTokens_Wrapped404ReturnsNotFound 验证 #656 主路径短路：
+// 中转站不支持 count_tokens 端点、把 Spring NoResourceFoundException 包装进非标准的
+// HTTP 400 返回时，ForwardCountTokens 应在熔断/failover **之前**短路，返回 HTTP 404
+// （not_found_error）让 Claude Code 回退到本地 token 估算，且既不熔断也不罚下账号。
+// 这条覆盖的是 #656 的主路径接线（谓词本身由 TestIsCountTokensUnsupported404 覆盖）。
+func TestGatewayService_ForwardCountTokens_Wrapped404ReturnsNotFound(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", nil)
+
+	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}]}`)
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-opus-4-7"}
+
+	// 中转站把 Spring NoResourceFoundException / 404 NOT_FOUND 包装进 HTTP 400（非标准）。
+	upstreamRespBody := `{"error":{"message":"404 NOT_FOUND \"NoResourceFoundException: No static resource v1/messages/count_tokens.\""}}`
+	upstream := &anthropicHTTPUpstreamRecorder{
+		resp: &http.Response{
+			StatusCode: http.StatusBadRequest,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(upstreamRespBody)),
+		},
+	}
+
+	counter := &anthropicUpstreamErrorCounterCacheStub{counts: []int64{1, 2, 3}}
+	repo := &rateLimitAccountRepoStub{}
+	rateLimit := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	rateLimit.SetAnthropicUpstreamErrorCounterCache(counter)
+
+	svc := &GatewayService{
+		cfg:              &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}},
+		httpUpstream:     upstream,
+		rateLimitService: rateLimit,
+	}
+
+	account := &Account{
+		ID:          502,
+		Name:        "ct-wrapped-404",
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "k",
+			"base_url": "https://relay.example.com",
+		},
+		Status:      StatusActive,
+		Schedulable: true,
+	}
+
+	err := svc.ForwardCountTokens(context.Background(), c, account, parsed)
+	require.NoError(t, err, "wrapped-404 应短路并返回 nil（已写 404 响应），不作为错误冒泡")
+	require.Equal(t, http.StatusNotFound, rec.Code, "应短路返回 HTTP 404 让客户端本地估算")
+	require.Contains(t, rec.Body.String(), "not_found_error")
+	require.Empty(t, counter.incrementIDs, "端点不支持不应熔断账号（短路在熔断之前）")
+	require.Equal(t, 0, repo.tempCalls, "端点不支持不应 temp_unschedulable 账号")
+}
+
 // TestGatewayService_ForwardCountTokens_CapacityErrorsFailoverNoBreaker
 // 契约更新（count_tokens failover 修复，见 gateway_handler_tk_count_tokens_failover.go）：
 // count_tokens 是请求前预检端点，其 429/529 容量类错误现在

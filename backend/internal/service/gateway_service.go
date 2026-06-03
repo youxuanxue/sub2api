@@ -6734,8 +6734,15 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 			// Non-haiku models MUST include claude-code beta for Anthropic to recognize
 			// this as a legitimate Claude Code request; without it, the request is
 			// rejected as third-party ("out of extra usage").
-			// Haiku also sends the cc 2.1.152 capture mimicry set (includes claude-code
-			// beta); token set/order differs from Sonnet (no effort / advanced-tool-use).
+			//
+			// Haiku uses a DISTINCT beta set (FullClaudeCodeHaikuMimicryBetas), captured
+			// from cc 2.1.160 Haiku traffic where the server runs an A/B with
+			// structured-outputs as the majority state (see HaikuBetaHeader /
+			// docs/spec-delta-cc-2.1.160.md). That set deliberately OMITS claude-code beta
+			// and advanced-tool-use, and adds structured-outputs — it is NOT the Sonnet/Opus
+			// token set. Do not "fix" this to add claude-code beta without a fresh Haiku
+			// capture: the runtime claude_code_http_mimicry_manifest setting can override
+			// the list hot if a future cc Haiku build changes the cohort.
 			requiredBetas := claude.GetFullClaudeCodeHaikuMimicryBetasForContext(ctx)
 			if !strings.Contains(strings.ToLower(modelID), "haiku") {
 				requiredBetas = claude.GetFullClaudeCodeMimicryBetasForContext(ctx)
@@ -7617,17 +7624,45 @@ func extractUpstreamErrorCode(body []byte) string {
 }
 
 func isCountTokensUnsupported404(statusCode int, body []byte) bool {
-	if statusCode != http.StatusNotFound {
-		return false
-	}
 	msg := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(body)))
+	if msg == "" {
+		// 部分中转站返回非 JSON 的 Spring 错误串（extractUpstreamErrorMessage 取不到
+		// 结构化 message），回退到原始 body 扫描。仍受下方 count_tokens 端点特征收窄。
+		msg = strings.ToLower(string(body))
+	}
 	if msg == "" {
 		return false
 	}
-	if strings.Contains(msg, "/v1/messages/count_tokens") {
-		return true
+
+	switch statusCode {
+	case http.StatusNotFound:
+		// 标准 404（原行为）：count_tokens 端点路径出现，或 count_tokens + not found。
+		if strings.Contains(msg, "/v1/messages/count_tokens") {
+			return true
+		}
+		return strings.Contains(msg, "count_tokens") && strings.Contains(msg, "not found")
+	case http.StatusBadRequest, http.StatusInternalServerError:
+		// TK(#656): 部分国产 Anthropic 兼容中转站不支持 count_tokens 端点时，把
+		// "NoResourceFoundException / No static resource v1/messages/count_tokens"
+		// 语义包装进非标准的 HTTP 400/500 返回，而非标准 404。
+		//
+		// 收窄到「同时提及 count_tokens 端点 + Spring 风格的资源不存在强信号」：
+		//   - 必须命中 count_tokens（端点特征），避免误吞错误 base_url 的通用 404；
+		//   - 只认 NoResourceFoundException / no static resource / no resource found
+		//     这类强信号，**刻意不认裸 "not found"**——后者可能是上游对真正的
+		//     invalid_request_error 的描述性文案（见单测 "non-404 invalid_request"：
+		//     400 + invalid_request_error + "Not found: /v1/messages/count_tokens"
+		//     必须返回 false，不能误吞客户端 body schema 错误，如 #2109 的
+		//     temperature 字段错误）。
+		if !strings.Contains(msg, "count_tokens") {
+			return false
+		}
+		return strings.Contains(msg, "noresourcefoundexception") ||
+			strings.Contains(msg, "no static resource") ||
+			strings.Contains(msg, "no resource found")
+	default:
+		return false
 	}
-	return strings.Contains(msg, "count_tokens") && strings.Contains(msg, "not found")
 }
 
 func (s *GatewayService) readUpstreamErrorBody(resp *http.Response) ([]byte, error) {
@@ -9926,6 +9961,20 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 
 	// 处理错误响应
 	if resp.StatusCode >= 400 {
+		// TK(#656): 部分国产 Anthropic 兼容中转站不支持 count_tokens 端点时，把
+		// 404/NoResourceFoundException 语义包装进非标准的 400/500 返回。优先在熔断与
+		// failover 之前短路：返回 404 让 Claude Code fallback 到本地 token 估算（与
+		// passthrough 路径一致），既不罚下账号（500-wrap 不计入熔断），也不浪费
+		// failover 名额（同组其他账号多半同一上游、同样不支持）。
+		if isCountTokensUnsupported404(resp.StatusCode, respBody) {
+			logger.LegacyPrintf("service.gateway",
+				"[count_tokens] Upstream does not support count_tokens (status=%d), returning 404: account=%d name=%s msg=%s",
+				resp.StatusCode, account.ID, account.Name,
+				truncateString(sanitizeUpstreamErrorMessage(extractUpstreamErrorMessage(respBody)), 512))
+			s.countTokensError(c, http.StatusNotFound, "not_found_error", "count_tokens endpoint is not supported by upstream")
+			return nil
+		}
+
 		// 标记账号状态。count_tokens 预检端点的 400/429/529 不计入熔断
 		// （tkCountTokensSkipBreaker，见 gateway_service_tk_count_tokens_failover.go）。
 		if !tkCountTokensSkipBreaker(resp.StatusCode) {

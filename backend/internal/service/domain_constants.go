@@ -462,6 +462,10 @@ const (
 	// 当为 false 时所有分组一律退化为 passthrough（仅透传客户端已送的 sticky 字段，不派生）。
 	// 详见 docs/approved/sticky-routing.md §3.2。
 	SettingKeyStickyRoutingEnabled = "gateway.sticky_routing.enabled"
+	// SettingKeyStickySlotFullEscapeEnabled 控制 sticky 绑定账号并发槽满时是否先试
+	// 全池再排队（upstream #2859，默认 true）。为 false 时退回今日行为：槽满即在
+	// 原 sticky 账号上排队。详见 docs/approved/sticky-routing.md §11.5。
+	SettingKeyStickySlotFullEscapeEnabled = "gateway.sticky_routing.slot_full_escape_enabled"
 	// SettingKeyEnableAnthropicCacheTTL1hInjection 是否对 Anthropic OAuth/SetupToken 请求体注入 1h cache_control ttl（默认 false）
 	SettingKeyEnableAnthropicCacheTTL1hInjection = "enable_anthropic_cache_ttl_1h_injection"
 	// SettingKeyRewriteMessageCacheControl 是否改写 messages[*].content[*].cache_control（默认 false）

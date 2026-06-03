@@ -376,3 +376,24 @@ type CacheStats struct {
   - R5: main/master 分支上禁止 `approved_by: pending`（其他分支允许）
 - **执行链**：`dev-rules/templates/preflight.sh § 7` 调用上述脚本；`scripts/preflight.sh`（项目 wrapper）→ dev-rules 模板 → § 7；`pre-commit` hook 与 CI（`.github/workflows/backend-ci.yml` `preflight` job）同步运行。
 - **演进路径**：本机制 2026-04-19 由 sub2api 项目级实现上提到 dev-rules submodule。
+
+## 11.5 槽满逃逸（upstream #2859，2026-06-03 增补）
+
+sticky 账号并发槽满时，upstream 让用户**原地排队**（`StickySessionMaxWaiting` 深度，默认 3），
+即使池里有空账号也不切换。#2859 改为 **OpenAI/newapi 高级调度器：槽满先试全池、有空账号即
+逃逸、全池满才回退 sticky `WaitPlan`**（缓存仍热，不比原行为差）。开关
+`gateway.sticky_routing.slot_full_escape_enabled`（默认 true / fail-open，可即时回滚）。
+anthropic 主网关路径**不动**（上游已在 `wait_queue_full` 时逃逸）。代码：
+`openai_account_scheduler.go` 的 `Select` 按 `result.Acquired` 分流 + `IsStickySlotFullEscapeEnabled`。
+
+**决策记录（勿重蹈，A/B/C vs upstream）**：
+
+- 队列机制（sticky + `MaxWaiting` + `WaitPlan`）是 **upstream Wei-Shaw/sub2api 的设计**，非 TK 自造。
+  TK 用最小 override（**A 方案**）止血，不删上游分支。
+- **不要删 `MaxWaiting` 队列（B）或把 sticky 重写成 load-balance 软加分（C）**：二者局部更简，但在 fork 里
+  净删 / 重写上游 = 永久 merge 债（CLAUDE.md §5.x / §5.y）。其简化价值应作为 PR 推 upstream，让 TK 零冲突继承。
+- **不要把 `StickySessionMaxWaiting` 设为 0** 来"关掉队列"：(1) `config.go` 校验 `<=0` 直接 fatal，app 起不来；
+  (2) 两条 sticky 路径结构不同——OpenAI `selectBySessionHash` 槽满时**无条件**返回 `WaitPlan`（0 → 用户被拒、
+  非逃逸），anthropic gateway 才有 `waitingCount < MaxWaiting` 门（0 → 逃逸）。同一配置值在两路径行为相反，是埋雷。
+  逃逸决策必须放在"知道池里有没有空账号"的调度代码点，一个全局整数表达不了。
+- 逃逸 / `#656` 谓词的 load-bearing 锚点见 `scripts/sentinels/gateway-tk.json`（防上游 merge 静默回退）。
