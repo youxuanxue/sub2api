@@ -40,7 +40,7 @@ SELECT severity, enabled, count(*)
 FROM ops_alert_rules
 GROUP BY severity, enabled
 ORDER BY severity, enabled;
-" 2>/dev/null || true
+" 2>/dev/null || echo "(ops_alert_rules aggregation skipped)"
 
 echo "=== recent_alert_events_14d (severity,status,count) ==="
 psql -F $'\t' -c "

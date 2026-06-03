@@ -258,6 +258,14 @@ func (n *TKAccountIncidentNotifier) digestInterval() time.Duration {
 
 // flushDigest 取出并清空 buffer,有内容则异步发一条摘要;空则跳过。
 func (n *TKAccountIncidentNotifier) flushDigest() {
+	// 单次 flush 的 panic 必须就地兜住,不能传播到 digestLoop——否则其函数级 recover
+	// 会让整个聚合 goroutine 退出,临时冷却摘要永久静默。持锁区只做 map 取数+清空、
+	// 不会 panic,故 recover 兜的是 unlock 之后的排序/构造/发送,无持锁 panic 死锁路径。
+	defer func() {
+		if r := recover(); r != nil {
+			logger.LegacyPrintf("service.account_incident", "[AccountIncident] flushDigest panic recovered: %v", r)
+		}
+	}()
 	n.mu.Lock()
 	if len(n.digest) == 0 {
 		n.mu.Unlock()
