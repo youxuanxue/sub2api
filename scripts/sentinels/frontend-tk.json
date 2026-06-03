@@ -386,9 +386,10 @@
       "path": "frontend/src/api/admin/edgeAccounts.ts",
       "must_contain": [
         "'/admin/edge-accounts'",
-        "export const edgeAccountsAPI"
+        "export const edgeAccountsAPI",
+        "adminSession"
       ],
-      "rationale": "TK-only API client for the cross-edge read-only account overview (GET /admin/edge-accounts). Mirrors api/admin/tier.ts. Backs the Edge Accounts admin page; silent upstream-merge deletion would break its list call. The EdgeAccountSummary type carries notes (the non-credential operator 备注) and is platform-agnostic — the page defaults to the backend 'all' sentinel so every platform's accounts are listed, not just anthropic."
+      "rationale": "TK-only API client for the cross-edge read-only account overview (GET /admin/edge-accounts) plus the manage-accounts handoff (POST /admin/edge-accounts/:edge/admin-session, the adminSession method). Mirrors api/admin/tier.ts. Backs the Edge Accounts admin page; silent upstream-merge deletion would break its list or adminSession call. The EdgeAccountSummary type carries notes (the non-credential operator 备注) and is platform-agnostic — the page defaults to the backend 'all' sentinel so every platform's accounts are listed, not just anthropic."
     },
     {
       "path": "frontend/src/composables/useTkEdgeAccounts.ts",
@@ -408,13 +409,25 @@
         "admin.edgeAccounts.platformFilter",
         "setPlatform",
         "acct.notes",
+        "openEdgeManage",
+        "admin.edgeAccounts.manageAccounts",
         "AccountCapacityCell",
         "AccountUsageCell",
         "AccountStatusIndicator",
         "toAccountLike",
         "toUsageInfo"
       ],
-      "rationale": "TK-only read-only admin page grouping accounts by edge. Renders the per-edge ok/failed/timeout state and a credential-free account table that REUSES the real admin AccountCapacityCell + AccountUsageCell (today + 5h/7d windows) via toAccountLike / toUsageInfo, so the overview's capacity + usage-window gauges stay pixel-aligned with the per-edge /admin/accounts page. Guards against silent upstream-merge deletion of the view or a refactor that drops the cell reuse (which would regress the page back to a sparse static table). Also reuses AccountStatusIndicator for the 状态 column (instead of a hand-rolled badge) so it matches the per-edge admin page's status semantics; dropping it would regress status display. The platformFilter dropdown (bound through setPlatform) and the acct.notes line under the name are load-bearing: the page defaults to ALL platforms (not anthropic-only) and shows the operator 备注 like the per-edge admin page — dropping either anchor regresses the cross-platform overview or hides the remark."
+      "rationale": "TK-only read-only admin page grouping accounts by edge. Renders the per-edge ok/failed/timeout state and a credential-free account table that REUSES the real admin AccountCapacityCell + AccountUsageCell (today + 5h/7d windows) via toAccountLike / toUsageInfo, so the overview's capacity + usage-window gauges stay pixel-aligned with the per-edge /admin/accounts page. Guards against silent upstream-merge deletion of the view or a refactor that drops the cell reuse (which would regress the page back to a sparse static table). Also reuses AccountStatusIndicator for the 状态 column (instead of a hand-rolled badge) so it matches the per-edge admin page's status semantics; dropping it would regress status display. The platformFilter dropdown (bound through setPlatform) and the acct.notes line under the name are load-bearing: the page defaults to ALL platforms (not anthropic-only) and shows the operator 备注 like the per-edge admin page — dropping either anchor regresses the cross-platform overview or hides the remark. openEdgeManage + the manageAccounts button are the jump-to-manage entry: they mint a handoff and open the edge's own /admin/accounts in a new tab; dropping them removes cross-edge account management."
+    },
+    {
+      "path": "frontend/src/views/admin/EdgeHandoffView.vue",
+      "must_contain": [
+        "tk_session",
+        "authStore.setToken",
+        "history.replaceState",
+        "safeNext"
+      ],
+      "rationale": "TK-only edge admin-session handoff landing. Consumes the short-lived JWT from the URL FRAGMENT (tk_session), establishes the session on THIS (edge) origin via authStore.setToken, then redirects to the edge's own /admin/accounts. THREE load-bearing security properties: (1) history.replaceState scrubs the token from the address bar / history immediately on load so a leaked URL can't be replayed from the bar; (2) safeNext rejects protocol-relative / external redirect targets (open-redirect guard) — only same-origin absolute paths are followed; (3) the token is read from the fragment (never a query param) so it is never sent to the server / logged. Silent deletion or weakening of any of these is a token-leak / open-redirect regression. Pairs with edge_tk_admin_session_handler.go (mint) + buildEdgeHandoffURL (prod)."
     },
     {
       "path": "frontend/src/components/account/AccountUsageCell.vue",

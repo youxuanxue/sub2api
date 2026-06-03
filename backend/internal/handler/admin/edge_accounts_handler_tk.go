@@ -2,6 +2,9 @@ package admin
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -14,6 +17,7 @@ import (
 // *service.EdgeAccountsAggregator satisfies it.
 type edgeAccountsAggregator interface {
 	Aggregate(ctx context.Context, platform string) (*service.EdgeAccountsAggregate, error)
+	MintAdminSession(ctx context.Context, edgeID string) (*service.EdgeAdminSession, error)
 }
 
 // EdgeAccountsHandler serves the prod admin "Edge Accounts" read-only overview:
@@ -53,4 +57,58 @@ func (h *EdgeAccountsHandler) List(c *gin.Context) {
 		return
 	}
 	response.Success(c, agg)
+}
+
+// adminSessionResponse is returned to the prod admin UI: a ready-to-open handoff
+// URL on the target edge that auto-logs-in and lands on its /admin/accounts page.
+type adminSessionResponse struct {
+	EdgeID     string `json:"edge_id"`
+	HandoffURL string `json:"handoff_url"`
+	ExpiresIn  int    `json:"expires_in"`
+}
+
+// MintAdminSession POST /api/v1/admin/edge-accounts/:edge/admin-session
+//
+// Forwards to the target edge to mint a short-lived admin JWT (using the
+// mirror-stub api-key prod already holds), then returns a handoff URL the UI
+// opens in a new tab. The token rides in the URL FRAGMENT so it never reaches an
+// edge access log / Referer. Admin-JWT gated (inherited from the /admin group):
+// only a prod admin can drive a cross-edge management jump.
+func (h *EdgeAccountsHandler) MintAdminSession(c *gin.Context) {
+	if h == nil || h.aggregator == nil {
+		response.Error(c, http.StatusInternalServerError, "edge accounts handler unavailable")
+		return
+	}
+	edgeID := strings.ToLower(strings.TrimSpace(c.Param("edge")))
+	if edgeID == "" {
+		response.Error(c, http.StatusBadRequest, "edge id required")
+		return
+	}
+
+	session, err := h.aggregator.MintAdminSession(c.Request.Context(), edgeID)
+	if err != nil {
+		if errors.Is(err, service.ErrEdgeNotFound) {
+			response.Error(c, http.StatusNotFound, "edge not found")
+			return
+		}
+		// Edge unreachable / non-2xx / decode failure — isolate as a bad gateway,
+		// never a prod-side 500 that masks "the edge said no".
+		response.Error(c, http.StatusBadGateway, "failed to mint edge admin session")
+		return
+	}
+
+	response.Success(c, adminSessionResponse{
+		EdgeID:     session.EdgeID,
+		HandoffURL: buildEdgeHandoffURL(session.BaseURL, session.Token),
+		ExpiresIn:  session.ExpiresIn,
+	})
+}
+
+// buildEdgeHandoffURL assembles the edge SPA handoff entry. Token + next live in
+// the FRAGMENT (after #) so they are never sent to the server, logged, or leaked
+// via Referer; the edge's EdgeHandoffView consumes and scrubs them on load.
+func buildEdgeHandoffURL(baseURL, token string) string {
+	base := strings.TrimRight(baseURL, "/")
+	frag := "tk_session=" + url.QueryEscape(token) + "&next=" + url.QueryEscape("/admin/accounts")
+	return base + "/admin/edge-handoff#" + frag
 }

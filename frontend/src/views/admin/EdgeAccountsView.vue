@@ -91,6 +91,18 @@
                 · {{ t('admin.edgeAccounts.schedulableCount', { count: schedulableCount(edge) }) }}
               </span>
               <span v-else class="text-red-600 dark:text-red-400">{{ edge.error }}</span>
+              <!-- Jump into this edge's own /admin/accounts, auto-logged-in, to
+                   create/edit accounts natively (incl. OAuth) on the edge itself. -->
+              <button
+                v-if="edge.ok"
+                type="button"
+                class="btn btn-secondary btn-sm inline-flex items-center gap-1"
+                :disabled="managingEdge === edge.edge_id"
+                @click="openEdgeManage(edge.edge_id)"
+              >
+                <Icon name="link" size="sm" :class="managingEdge === edge.edge_id ? 'animate-pulse' : ''" />
+                {{ t('admin.edgeAccounts.manageAccounts') }}
+              </button>
             </div>
           </div>
 
@@ -172,6 +184,7 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -182,8 +195,38 @@ import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { useTkEdgeAccounts } from '@/composables/useTkEdgeAccounts'
 import { schedulableCount, toAccountLike, toWindowStats, toUsageInfo } from '@/utils/edgeAccounts.tk'
 import { GATEWAY_PLATFORMS } from '@/constants/gatewayPlatforms'
+import { adminAPI } from '@/api/admin'
+import { useAppStore } from '@/stores/app'
 
 const { t } = useI18n()
+const appStore = useAppStore()
+
+// Which edge is currently minting a handoff (disables its button). Opening the
+// edge's own /admin/accounts in a new tab keeps this read-only overview open for
+// managing several edges in sequence.
+const managingEdge = ref<string | null>(null)
+
+async function openEdgeManage(edgeId: string) {
+  if (managingEdge.value) return
+  managingEdge.value = edgeId
+  // Open the tab synchronously inside the click so the browser doesn't treat the
+  // post-await window.open as a popup; navigate it once the URL is minted.
+  const tab = window.open('', '_blank')
+  try {
+    const res = await adminAPI.edgeAccounts.adminSession(edgeId)
+    if (tab) {
+      tab.location.href = res.handoff_url
+    } else {
+      // Popup blocked — fall back to same-tab navigation.
+      window.location.href = res.handoff_url
+    }
+  } catch {
+    if (tab) tab.close()
+    appStore.showError(t('admin.edgeAccounts.manageFailed'))
+  } finally {
+    managingEdge.value = null
+  }
+}
 
 // Concrete platforms the filter offers besides "all". Sourced from the canonical
 // GATEWAY_PLATFORMS list (single source of truth, mirrors the backend allowlist

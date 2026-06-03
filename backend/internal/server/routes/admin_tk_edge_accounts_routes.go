@@ -19,4 +19,7 @@ func registerTKEdgeAccountsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		return
 	}
 	admin.GET("/edge-accounts", h.Admin.EdgeAccounts.List)
+	// Mint a handoff URL to manage accounts on a specific edge (jump + auto-login
+	// into that edge's own /admin/accounts). Admin JWT inherited from /admin.
+	admin.POST("/edge-accounts/:edge/admin-session", h.Admin.EdgeAccounts.MintAdminSession)
 }

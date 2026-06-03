@@ -3101,6 +3101,13 @@ export default {
       lastFetched: 'Last fetched',
       platformFilter: 'Platform',
       allPlatforms: 'All platforms',
+      manageAccounts: 'Manage accounts',
+      manageFailed: 'Failed to open this edge for management',
+      handoff: {
+        signingIn: 'Signing in to this edge…',
+        failed: 'Sign-in failed or the link expired.',
+        goLogin: 'Go to login'
+      },
       noEdges: 'No edges discovered (no anthropic mirror stubs configured on this deployment).',
       edgeEmpty: 'No accounts on this edge.',
       summaryEdges: '{ok}/{total} edges reachable',
