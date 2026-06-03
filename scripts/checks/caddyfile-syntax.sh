@@ -29,6 +29,37 @@ if ! docker info >/dev/null 2>&1; then
   exit 0
 fi
 
+CADDY_IMAGE="caddy:2-alpine"
+
+# Ensure the caddy image is on disk BEFORE the per-file `docker run`, with retry.
+# Otherwise every `docker run` re-pulls from Docker Hub, and a transient registry
+# timeout (registry-1.docker.io context-deadline) is misreported as "caddy adapt
+# failed" — i.e. a CI flake, not a Caddyfile error. Returns: 0 image ready,
+# 1 image genuinely unreachable after retries.
+ensure_caddy_image() {
+  if docker image inspect "$CADDY_IMAGE" >/dev/null 2>&1; then
+    return 0
+  fi
+  local attempt
+  for attempt in 1 2 3; do
+    if docker pull "$CADDY_IMAGE" >/dev/null 2>&1; then
+      return 0
+    fi
+    echo "warn: docker pull $CADDY_IMAGE attempt ${attempt}/3 failed; retrying..." >&2
+    sleep "$((attempt * 5))"
+  done
+  return 1
+}
+
+if ! ensure_caddy_image; then
+  # Could not fetch the image after retries → registry/network outage, not a
+  # config error. Do NOT fail the gate on Docker Hub being down (that is the
+  # flake this guard exists to avoid). Skip loudly; a real Caddyfile error during
+  # an outage is still caught by the local pre-commit run (image usually cached).
+  echo "warn: could not pull $CADDY_IMAGE after retries (registry/network issue) — SKIPPING Caddyfile syntax check (infra, not a config error)" >&2
+  exit 0
+fi
+
 # Use deterministic placeholder values for stage0 templates that are rendered via envsubst in Cloud-Init.
 export API_DOMAIN="api.example.com"
 export ACME_EMAIL="ops@example.com"
@@ -52,7 +83,7 @@ adapt_with_caddy() {
   local file="$1"
   docker run --rm \
     -v "$file:/work/Caddyfile:ro" \
-    caddy:2-alpine \
+    "$CADDY_IMAGE" \
     caddy adapt --config /work/Caddyfile --adapter caddyfile >/dev/null
 }
 
