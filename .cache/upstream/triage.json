@@ -4,13 +4,13 @@
   "generated_from": "GitHub REST API issues?state=open; pull requests excluded",
   "rationale": "TokenKey-local triage cache for upstream open issues. Use this file before re-triaging upstream issues; update entries when TokenKey fixes, dismisses, or reclassifies an issue.",
   "counts": {
-    "needs_review": 410,
+    "needs_review": 412,
     "fixed": 37,
     "needs_prod_validation": 2,
     "medium": 123,
     "not_applicable": 1,
     "low": 110,
-    "unknown_low_signal": 462
+    "unknown_low_signal": 463
   },
   "issues": [
     {
@@ -3324,7 +3324,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-03T06:43:51Z"
+      "updated_at": "2026-06-03T13:48:49Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2753",
@@ -3793,7 +3793,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-01T07:46:52Z"
+      "updated_at": "2026-06-03T12:47:29Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#293",
@@ -4078,6 +4078,32 @@
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
       "updated_at": "2026-06-03T08:18:37Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3014",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/3014",
+      "title": "bug(openai): codex_cli_only 未拦截 /v1/chat/completions 兼容入口",
+      "impact": "needs_review",
+      "categories": [
+        "claude_mimicry",
+        "image_oauth",
+        "security"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-06-03T11:47:42Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3015",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/3015",
+      "title": "预热下周GPT-5.6 及 6月2日，OAI官方将下线5.2、5.3 codex 希望调整维护 Oauth账号 里的 同步支持最新模型 列表",
+      "impact": "needs_review",
+      "categories": [
+        "image_oauth"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-06-03T12:08:36Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#308",
@@ -8129,7 +8155,7 @@
       ],
       "tokenkey_status": "not_prioritized",
       "rationale": "Appears to be enhancement/docs/UI request rather than severe online service risk.",
-      "updated_at": "2026-06-01T10:04:03Z"
+      "updated_at": "2026-06-03T13:37:28Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2733",
@@ -8261,7 +8287,7 @@
       ],
       "tokenkey_status": "not_prioritized",
       "rationale": "Appears to be enhancement/docs/UI request rather than severe online service risk.",
-      "updated_at": "2026-06-01T12:49:25Z"
+      "updated_at": "2026-06-03T13:47:19Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2982",
@@ -11978,7 +12004,7 @@
       "categories": [],
       "tokenkey_status": "not_prioritized",
       "rationale": "No high-signal production-risk keywords in this pass.",
-      "updated_at": "2026-06-03T09:58:51Z"
+      "updated_at": "2026-06-03T11:03:59Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#3011",
@@ -11989,6 +12015,16 @@
       "tokenkey_status": "not_prioritized",
       "rationale": "No high-signal production-risk keywords in this pass.",
       "updated_at": "2026-06-03T09:59:41Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3013",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/3013",
+      "title": "[BUG]web端的setup安装引导似乎会有问题",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_prioritized",
+      "rationale": "No high-signal production-risk keywords in this pass.",
+      "updated_at": "2026-06-03T11:45:54Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#305",
