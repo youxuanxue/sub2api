@@ -12,6 +12,12 @@ Subcommands:
   write-drift-spec  Write docs/spec-delta-cc-tls-drift-*.md from a drift bundle.
   bundle-from-artifacts  Build bundle JSON from TLS capture + HTTP log files.
 
+HTTP betas are recorded as a full per-model-family distribution (not last-wins):
+cc is bimodal on Haiku — two beta sets alternate across requests in one session
+(youxuanxue/sub2api#429). A bimodal field whose baseline matches one observed
+variant is reported as ``needs_investigation`` (non-blocking), never a hard
+mismatch against one arbitrary sample.
+
 stdlib-only except when invoked as __main__ with no network.
 """
 from __future__ import annotations
@@ -203,27 +209,99 @@ def _http_variant(model: str) -> str | None:
     return None
 
 
-def _pick_http_by_model(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    """Pick one HTTP record per model family (haiku / sonnet).
+def aggregate_http_records(
+    records: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Group HTTP records by model family, keeping the FULL per-variant
+    distribution of ``anthropic-beta`` headers (not last-wins).
 
-    Last-wins: comprehensive capture logs many requests per variant; the final
-    record matches what single-shot ``capture --http`` would leave on the wire.
+    cc fires more than one request per model family per session (the main
+    response plus background tasks such as title generation), and the Haiku beta
+    set is *bimodal* — two sets alternate across requests on the same model (see
+    youxuanxue/sub2api#429). Last-wins collapses that to a single arbitrary
+    sample, so a single capture can "prove" either set. This keeps every
+    observed variant with its occurrence count so the diff can flag a bimodal
+    field for investigation instead of hard-failing against one half of real
+    traffic.
+
+    Returns ``{variant: {"total_requests": N, "unique": [
+        {"anthropic_beta": header, "count": C, "record": rec}, ...]}}`` with
+    ``unique`` ordered by descending count, ties broken by first appearance
+    (deterministic — no reliance on dict insertion luck or wall-clock).
     """
-    out: dict[str, dict[str, Any]] = {}
+    grouped: dict[str, list[dict[str, Any]]] = {}
     for rec in records:
         variant = _http_variant(str(rec.get("model") or ""))
         if variant:
-            out[variant] = rec
+            grouped.setdefault(variant, []).append(rec)
+    out: dict[str, dict[str, Any]] = {}
+    for variant, recs in grouped.items():
+        # header -> [count, first_index, representative_record]
+        counts: dict[str, list[Any]] = {}
+        for idx, rec in enumerate(recs):
+            beta = str(rec.get("anthropic_beta", "") or "")
+            entry = counts.get(beta)
+            if entry is None:
+                counts[beta] = [1, idx, rec]
+            else:
+                entry[0] += 1
+        unique = sorted(counts.items(), key=lambda kv: (-kv[1][0], kv[1][1]))
+        out[variant] = {
+            "total_requests": len(recs),
+            "unique": [
+                {"anthropic_beta": beta, "count": meta[0], "record": meta[2]}
+                for beta, meta in unique
+            ],
+        }
     return out
 
 
-def load_http_log(path: Path) -> dict[str, dict[str, Any]]:
+def _dominant_record(dist_variant: dict[str, Any]) -> dict[str, Any]:
+    """Most-frequent beta-set record for a variant (deterministic tie-break)."""
+    unique = dist_variant.get("unique") or []
+    return unique[0]["record"] if unique else {}
+
+
+def serialize_http_variants(
+    dist: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Bundle-friendly distribution: drop the raw record, keep header + count."""
+    return {
+        variant: {
+            "total_requests": v.get("total_requests", 0),
+            "unique": [
+                {
+                    "anthropic_beta": u.get("anthropic_beta", ""),
+                    "count": u.get("count", 0),
+                }
+                for u in (v.get("unique") or [])
+            ],
+        }
+        for variant, v in dist.items()
+    }
+
+
+def load_http_records(path: Path) -> list[dict[str, Any]]:
+    """Parse all HTTP mitm log lines into raw records (order preserved)."""
     records: list[dict[str, Any]] = []
     for line in path.read_text(encoding="utf-8").splitlines():
         rec = _parse_http_log_line(line)
         if rec:
             records.append(rec)
-    return _pick_http_by_model(records)
+    return records
+
+
+def load_http_log(path: Path) -> dict[str, dict[str, Any]]:
+    """Dominant-variant representative record per model family.
+
+    Distribution-aware replacement for the old last-wins picker: when a family
+    is bimodal the *most frequent* beta set wins (ties broken by first
+    appearance), a deterministic strict improvement over the arbitrary last
+    sample. Use :func:`aggregate_http_records` / :func:`serialize_http_variants`
+    to retain the full distribution for the bundle.
+    """
+    dist = aggregate_http_records(load_http_records(path))
+    return {variant: _dominant_record(v) for variant, v in dist.items()}
 
 
 def bundle_from_artifacts(
@@ -231,6 +309,7 @@ def bundle_from_artifacts(
     cc_version: str,
     tls_observed: dict[str, Any],
     http_by_variant: dict[str, dict[str, Any]] | None = None,
+    http_variants: dict[str, dict[str, Any]] | None = None,
     collector_url: str = "",
 ) -> dict[str, Any]:
     return {
@@ -246,7 +325,11 @@ def bundle_from_artifacts(
                 "stainless_package_version", ""
             ),
         },
+        # ``http`` keeps one representative (dominant) record per family for the
+        # legacy single-sample diff path; ``http_variants`` keeps the full
+        # per-family beta distribution so bimodal fields stay visible (#429).
         "http": http_by_variant or {},
+        "http_variants": http_variants or {},
     }
 
 
@@ -347,32 +430,91 @@ def diff_baseline_vs_capture(
     )
 
     http = capture.get("http") or {}
+    variants = capture.get("http_variants") or {}
     for variant, beta_key in (("haiku", "haiku_mimicry"), ("sonnet", "sonnet_mimicry")):
         rec = http.get(variant)
-        if not rec:
+        dist = variants.get(variant) or {}
+        unique = dist.get("unique") or []
+        tk_betas = baseline["betas"][beta_key]
+        is_critical = f"betas.{beta_key}" in CRITICAL_HTTP_FIELDS
+
+        # Resolve the observed beta-set distribution. Prefer the full per-family
+        # distribution (http_variants); fall back to the single representative
+        # record for legacy bundles that predate #429.
+        if unique:
+            observed_sets = [_beta_list(u.get("anthropic_beta", "")) for u in unique]
+            counts = [int(u.get("count", 0)) for u in unique]
+            total = int(dist.get("total_requests", sum(counts)))
+        elif rec is not None:
+            observed_sets = [_beta_list(rec.get("anthropic_beta", ""))]
+            counts = [1]
+            total = 1
+        else:
             rows.append(
                 DiffRow(
                     f"betas.{beta_key}",
-                    ",".join(baseline["betas"][beta_key]),
+                    ",".join(tk_betas),
                     "",
                     "missing_capture",
-                    critical=f"betas.{beta_key}" in CRITICAL_HTTP_FIELDS,
+                    critical=is_critical,
                     note=f"Run HTTP mitm capture with --http for {variant}",
                 )
             )
             continue
-        tk_betas = baseline["betas"][beta_key]
-        cap_betas = _beta_list(rec.get("anthropic_beta", ""))
-        status = "match" if tk_betas == cap_betas else "mismatch"
-        rows.append(
-            DiffRow(
-                f"betas.{beta_key}",
-                ",".join(tk_betas),
-                ",".join(cap_betas),
-                status,
-                critical=f"betas.{beta_key}" in CRITICAL_HTTP_FIELDS,
+
+        matches = [tk_betas == s for s in observed_sets]
+        if len(observed_sets) == 1:
+            # Unimodal — the classic hard match/mismatch.
+            rows.append(
+                DiffRow(
+                    f"betas.{beta_key}",
+                    ",".join(tk_betas),
+                    ",".join(observed_sets[0]),
+                    "match" if matches[0] else "mismatch",
+                    critical=is_critical,
+                )
             )
+            continue
+
+        # Bimodal (or worse): cc alternates >1 beta set across requests on the
+        # same model. Do NOT hard-fail against one arbitrary half of traffic —
+        # that is exactly the #429 sampling artifact. If the baseline matches
+        # ANY observed variant it is a deliberate decision point, not a drift.
+        summary = f"{total} requests, {len(observed_sets)} unique beta header(s)"
+        captured = " | ".join(
+            f"[{c}x] {','.join(s)}" for c, s in zip(counts, observed_sets)
         )
+        if any(matches):
+            idx = matches.index(True)
+            rows.append(
+                DiffRow(
+                    f"betas.{beta_key}",
+                    ",".join(tk_betas),
+                    captured,
+                    "needs_investigation",
+                    critical=is_critical,
+                    note=(
+                        f"bimodal — {summary}; baseline matches variant "
+                        f"{idx + 1}/{len(observed_sets)} ({counts[idx]}x). Decide the "
+                        f"canonical {variant} target deliberately "
+                        f"(youxuanxue/sub2api#429); do not hard-align to one sample."
+                    ),
+                )
+            )
+        else:
+            rows.append(
+                DiffRow(
+                    f"betas.{beta_key}",
+                    ",".join(tk_betas),
+                    captured,
+                    "mismatch",
+                    critical=is_critical,
+                    note=(
+                        f"bimodal — {summary}; baseline matches NONE of the observed "
+                        f"variants. Re-capture and realign (youxuanxue/sub2api#429)."
+                    ),
+                )
+            )
 
     return rows
 
@@ -383,21 +525,44 @@ def format_diff_report(rows: list[DiffRow], *, capture_path: str = "") -> str:
         lines.append(f"capture: {capture_path}")
     mismatches = [r for r in rows if r.status == "mismatch" and r.critical]
     missing = [r for r in rows if r.status == "missing_capture" and r.critical]
+    investigate = [r for r in rows if r.status == "needs_investigation"]
     matches = [r for r in rows if r.status == "match"]
 
-    lines.append(f"match={len(matches)} mismatch={len(mismatches)} missing_capture={len(missing)}")
+    lines.append(
+        f"match={len(matches)} mismatch={len(mismatches)} "
+        f"needs_investigation={len(investigate)} missing_capture={len(missing)}"
+    )
     lines.append("")
     for r in rows:
-        flag = {"match": "OK", "mismatch": "FAIL", "missing_capture": "SKIP"}.get(
-            r.status, r.status
+        flag = {
+            "match": "OK",
+            "mismatch": "FAIL",
+            "needs_investigation": "INVESTIGATE",
+            "missing_capture": "SKIP",
+        }.get(r.status, r.status)
+        crit = (
+            " [critical]"
+            if r.critical and r.status in ("mismatch", "missing_capture")
+            else ""
         )
-        crit = " [critical]" if r.critical and r.status != "match" else ""
         lines.append(f"{flag}{crit} {r.field}")
         if r.status != "match":
             lines.append(f"  tokenkey: {r.tokenkey[:200]}")
             lines.append(f"  captured: {r.captured[:200]}")
             if r.note:
                 lines.append(f"  note: {r.note}")
+    if investigate:
+        lines.append("")
+        lines.append(
+            "note: bimodal beta field(s) observed — NOT a hard mismatch (exit 0)."
+        )
+        lines.append(
+            "  Characterize the A/B variants (request purpose / tool presence /"
+        )
+        lines.append(
+            "  server gating) before changing any beta constant"
+            " (youxuanxue/sub2api#429)."
+        )
     if mismatches:
         lines.append("")
         lines.append("action: update backend/internal/pkg/claude/constants.go,")
@@ -412,7 +577,13 @@ def format_diff_report(rows: list[DiffRow], *, capture_path: str = "") -> str:
 
 
 def has_actionable_mismatch(rows: list[DiffRow]) -> bool:
+    # needs_investigation (bimodal beta field, #429) is deliberately NOT
+    # actionable — it must not fail check/diff against one arbitrary sample.
     return any(r.status == "mismatch" and r.critical for r in rows)
+
+
+def has_needs_investigation(rows: list[DiffRow]) -> bool:
+    return any(r.status == "needs_investigation" for r in rows)
 
 
 def has_tls_mismatch(rows: list[DiffRow]) -> bool:
@@ -756,12 +927,16 @@ def cmd_bundle_from_artifacts(args: argparse.Namespace) -> int:
     if "fingerprints" in tls_data:
         observed = (tls_data.get("fingerprints") or [None])[0] or observed
     http_by_variant: dict[str, dict[str, Any]] = {}
+    http_variants: dict[str, dict[str, Any]] = {}
     if args.http_log:
-        http_by_variant = load_http_log(Path(args.http_log))
+        dist = aggregate_http_records(load_http_records(Path(args.http_log)))
+        http_by_variant = {v: _dominant_record(d) for v, d in dist.items()}
+        http_variants = serialize_http_variants(dist)
     bundle = bundle_from_artifacts(
         cc_version=args.cc_version or _ua_version(observed.get("user_agent", "")),
         tls_observed=observed,
         http_by_variant=http_by_variant,
+        http_variants=http_variants,
         collector_url=args.collector or "",
     )
     out = Path(args.out)

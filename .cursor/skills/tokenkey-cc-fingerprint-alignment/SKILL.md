@@ -166,6 +166,13 @@ bash ops/anthropic/capture-http-comprehensive.sh
 
 任一 model 族出现 `WARN`（多种 beta）→ 在 PR / spec-delta 中记录分布，**禁止**在未抓包证据下改 beta 常量。
 
+> **双峰（bimodal）beta 不再被当成硬 mismatch。** `bundle-from-artifacts` 现在把每个 model 族的**全量** beta 分布写进 bundle 的 `http_variants`（不再 last-wins 取一条样本）。`diff` / `check` 对一个族的判定规则：
+> - 单一 beta 集合 → 老逻辑 `OK` / `FAIL`。
+> - 出现 ≥2 种 beta 集合且 baseline 命中其中之一 → `INVESTIGATE`（`needs_investigation`，**不**计入 `has_actionable_mismatch`，`check` 退 0）。报告里给出 `[Nx] <beta>` 计数分布 + #429 提示。
+> - 出现 ≥2 种但 baseline 一个都不命中 → 仍是 `FAIL`（真漂移，需重抓重对齐）。
+>
+> 即：cc Haiku 的 A/B 灰度不会再让 `check` 因为抓到哪半边而忽红忽绿。要改 `HaikuBetaHeader` 仍需先刻画 A/B 差异（请求用途 / 工具存在性 / 服务端 gating），见 youxuanxue/sub2api#429。
+
 ## 3) 解读 diff 报告
 
 | 字段 | mismatch 含义 | 动作 |
@@ -174,7 +181,8 @@ bash ops/anthropic/capture-http-comprehensive.sh
 | `canonical.user_agent_version` | compile default 落后 | `identity_service_tk_canonical_http.go` + admin setting |
 | `mimic.cli_version` / mimic UA | mimic 路径落后 | `constants.go` + `identity_service.go` |
 | `*.stainless_package_version` | 以实测为准 | mitm/collector |
-| `betas.*` | token 集合或顺序错 | `anthropic-http-mimicry-baselines.json` + `constants.go` + tests |
+| `betas.*` (`FAIL`) | token 集合或顺序错（且非双峰，或 baseline 一个变体都不命中）| `anthropic-http-mimicry-baselines.json` + `constants.go` + tests |
+| `betas.*` (`INVESTIGATE`) | 该族 beta **双峰**，baseline 命中其一 → 非硬错（exit 0）| 先刻画 A/B 差异，再按 #429 决定 canonical；勿凭单样本对齐 |
 
 ## 4) 代码修复清单（HTTP-only 型）
 
