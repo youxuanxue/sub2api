@@ -3,12 +3,13 @@
 #
 # Exercises the same paths Claude Code uses against TokenKey:
 #   public settings, frontend release assets, /v1/models, /v1/chat/completions,
-#   /v1/messages, and (when configured) /v1/messages-with-tools through the
-#   Gemini bridge to catch tool-schema cleanup regressions.
+#   /v1/messages, (when configured) /v1/messages-with-tools through the Gemini
+#   bridge to catch tool-schema cleanup regressions, and the Kiro (sixth
+#   platform) /v1/messages relay path.
 #
 # GitHub config (canonical TK_SMOKE_* — see ops/stage0/smoke_env.sh):
-#   TK_SMOKE_PROD_ANTHROPIC_KEY / TK_SMOKE_PROD_GEMINI_KEY / TK_SMOKE_PROD_OPENAI_OAUTH_KEY
-#   TK_SMOKE_PROD_ANTHROPIC_MODEL / TK_SMOKE_PROD_GEMINI_MODEL / TK_SMOKE_PROD_OPENAI_OAUTH_MODEL
+#   TK_SMOKE_PROD_ANTHROPIC_KEY / TK_SMOKE_PROD_GEMINI_KEY / TK_SMOKE_PROD_OPENAI_OAUTH_KEY / TK_SMOKE_PROD_KIRO_KEY
+#   TK_SMOKE_PROD_ANTHROPIC_MODEL / TK_SMOKE_PROD_GEMINI_MODEL / TK_SMOKE_PROD_OPENAI_OAUTH_MODEL / TK_SMOKE_PROD_KIRO_MODEL
 #
 # Usage (CI injects TK_SMOKE_* directly):
 #   TOKENKEY_BASE_URL=https://api.example.com \
@@ -28,6 +29,11 @@
 # Optional OpenAI OAuth regression (skipped when TK_SMOKE_PROD_OPENAI_OAUTH_KEY unset):
 #   TK_SMOKE_PROD_OPENAI_OAUTH_MODEL    default: gpt-5.4
 #   TK_SMOKE_PROD_OPENAI_OAUTH_REQUIRE_REASONING_TOKENS  default: 0
+#
+# Kiro sixth-platform probe (skipped when TK_SMOKE_PROD_KIRO_KEY unset; in prod
+# CI the key is hard-required by deploy-stage0.yml, same tier as the others):
+#   TK_SMOKE_PROD_KIRO_KEY    TokenKey API key bound to a kiro group
+#   TK_SMOKE_PROD_KIRO_MODEL  kiro-served model; default: claude-sonnet-4-6
 #
 # Anthropic-compat probes:
 #   TK_SMOKE_PROD_ANTHROPIC_MODEL  preferred model; warn + auto pick when absent from /v1/models
@@ -524,6 +530,79 @@ elif [[ -n "${OPENAI_OAUTH_KEY}" ]]; then
   echo "tk_post_deploy_smoke: skip /v1/chat/completions (openai oauth) — suite=${GATEWAY_SMOKE_SUITE}"
 else
   echo "tk_post_deploy_smoke: skip /v1/chat/completions (openai oauth) — TK_SMOKE_PROD_OPENAI_OAUTH_KEY not set"
+fi
+
+# --- 8) Kiro (sixth platform) Messages probe (anthropic-apikey relay) ---
+# Kiro accounts egress to AWS CodeWhisperer behind the anthropic-apikey relay
+# shape, so a Kiro group is reached via POST /v1/messages with a TokenKey API
+# key bound to that group (kiro rides the same relay as Anthropic, NOT newapi).
+# v1.7.64 turned on Kiro TLS-fingerprint masking by default
+# (account_tk_kiro.go isKiroTLSFingerprintEnabled + migration tk_014 seed of
+# tk_canonical_kiro_ide) and a per-account concurrency floor (tk_015); this
+# section is the deploy-time end-to-end guard for that forwarding path.
+#
+# The request carries the same Claude Code client shape as the Anthropic
+# section so a claude_code_only-restricted Kiro group still accepts it; the
+# inbound UA does not affect the TokenKey->CodeWhisperer leg (the kiro identity
+# service rewrites the upstream fingerprint).
+#
+# Failure semantics reuse the shared soft_degrade_or_exit (same as the
+# Anthropic /v1/messages section): 200 + valid shape + marker -> OK;
+# 400/401/403/404 -> HARD FAIL (smoke key / route / kiro-group binding broken);
+# 5xx / 429 / "no available accounts" -> SOFT WARN, exit 0 (Kiro pool resource
+# issue, not a control-plane regression).
+KIRO_KEY="${TK_SMOKE_PROD_KIRO_KEY:-}"
+KIRO_MODEL="${TK_SMOKE_PROD_KIRO_MODEL:-claude-sonnet-4-6}"
+if smoke_suite_runs kiro && [[ -n "${KIRO_KEY}" ]]; then
+  kiro_prefix="$(printf '%s' "${KIRO_KEY}" | head -c 6)"
+  kiro_suffix="$(printf '%s' "${KIRO_KEY}" | tail -c 4)"
+  echo "tk_post_deploy_smoke: kiro_key_hint=${kiro_prefix}…${kiro_suffix} kiro_model=${KIRO_MODEL}"
+  expect_kiro="E2E-KIRO-OK"
+  kiro_ua="$(smoke_default_claude_user_agent)"
+  kiro_cc_system="You are Claude Code, Anthropic's official CLI for Claude."
+  kiro_cc_meta_user_id='{"device_id":"0000000000000000000000000000000000000000000000000000000000000001","account_uuid":"","session_id":"00000000-0000-0000-0000-000000000001"}'
+  kiro_payload="$(jq -n \
+    --arg m "${KIRO_MODEL}" \
+    --arg x "${expect_kiro}" \
+    --arg sys "${kiro_cc_system}" \
+    --arg uid "${kiro_cc_meta_user_id}" \
+    '{model:$m,max_tokens:96,
+      system:[{type:"text",text:$sys}],
+      messages:[{role:"user",content:("Reply with exactly: " + $x)}],
+      metadata:{user_id:$uid}}')"
+  kiro_http=$(curl -sS -o "$tmpdir/kiro-msg.json" -w "%{http_code}" \
+    -H "x-api-key: ${KIRO_KEY}" \
+    -H "anthropic-version: 2023-06-01" \
+    -H "anthropic-beta: claude-code-20250219" \
+    -H "X-App: cli" \
+    -H "Content-Type: application/json" \
+    -H "User-Agent: ${kiro_ua}" \
+    -d "${kiro_payload}" \
+    "${BASE}/v1/messages")
+  echo "tk_post_deploy_smoke: POST .../v1/messages (kiro) -> HTTP ${kiro_http}"
+  if soft_degrade_or_exit "/v1/messages (kiro)" "${kiro_http}" "$tmpdir/kiro-msg.json"; then
+    kiro_type="$(jq -r '.type // empty' "$tmpdir/kiro-msg.json")"
+    kiro_role="$(jq -r '.role // empty' "$tmpdir/kiro-msg.json")"
+    kiro_content_count="$(jq -r '(.content // []) | length' "$tmpdir/kiro-msg.json")"
+    kiro_stop="$(jq -r '.stop_reason // empty' "$tmpdir/kiro-msg.json")"
+    kiro_usage_keys="$(jq -r 'if (.usage? | type) == "object" then (.usage | keys | join(",")) else "missing" end' "$tmpdir/kiro-msg.json")"
+    if [[ "${kiro_type}" != "message" ]] || [[ "${kiro_role}" != "assistant" ]] || [[ "${kiro_content_count}" -lt 1 ]] || [[ -z "${kiro_stop}" ]] || [[ "${kiro_usage_keys}" == "missing" ]]; then
+      echo "tk_post_deploy_smoke: /v1/messages (kiro) shape invalid (type=${kiro_type:-missing} role=${kiro_role:-missing} content=${kiro_content_count} stop_reason=${kiro_stop:-missing} usage=${kiro_usage_keys})" >&2
+      jq . "$tmpdir/kiro-msg.json" >&2 || true
+      exit 1
+    fi
+    echo "tk_post_deploy_smoke: /v1/messages (kiro) shape type=${kiro_type} role=${kiro_role} content=${kiro_content_count} stop_reason=${kiro_stop} usage_keys=${kiro_usage_keys}"
+    kiro_text="$(jq -r '[.content[]? | select(.type == "text") | .text] | add // empty' "$tmpdir/kiro-msg.json")"
+    if ! printf '%s' "${kiro_text}" | grep -Fq "${expect_kiro}"; then
+      echo "tk_post_deploy_smoke: /v1/messages (kiro) response missing expected marker '${expect_kiro}' (text below)" >&2
+      printf '%s\n' "${kiro_text}" >&2
+      exit 1
+    fi
+  fi  # end soft_degrade_or_exit guard
+elif [[ -n "${KIRO_KEY}" ]]; then
+  echo "tk_post_deploy_smoke: skip /v1/messages (kiro) — suite=${GATEWAY_SMOKE_SUITE}"
+else
+  echo "tk_post_deploy_smoke: skip /v1/messages (kiro) — TK_SMOKE_PROD_KIRO_KEY not set"
 fi
 
 echo "tk_post_deploy_smoke: OK"
