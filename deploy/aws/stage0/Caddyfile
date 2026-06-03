@@ -39,8 +39,14 @@ ${API_DOMAIN} {
 		fail_duration 5s
 		max_fails 1
 		unhealthy_status 502 503 504
-		# 落进 unhealthy 后，新请求重试最多 30s，覆盖 stop→start 的真空期。
-		lb_try_duration 30s
+		# 落进 unhealthy 后，新请求在 Caddy 侧排队重试最多 120s，覆盖整个发版
+		# 真空期 = pre-drain 等 in_flight=0（最多 ~76s）+ stop→start + 新容器
+		# 启动/迁移/healthcheck。30s 在 prod 负载下会被 pre-drain 单独吃满，队列
+		# 超时后回 502 → 客户端 `Retrying ... attempt N/10` 重试。抬到 120s 让客
+		# 户端「多等一下」而不是被赶走（请求在连接建立阶段挂起，对长 SSE 无副
+		# 作用，真正的响应体此时还没开始写）。注意：pull 已挪到 drain 之前（见
+		# ops/stage0/deploy_via_ssm.sh），不再计入这个真空期。
+		lb_try_duration 120s
 		lb_try_interval 1s
 		header_up X-Real-IP {remote_host}
 		header_up X-Forwarded-For {remote_host}
