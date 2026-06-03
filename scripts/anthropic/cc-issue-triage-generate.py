@@ -9,7 +9,7 @@ vocabulary, an EXCLUDE pre-pass plus gateway-relevance keyword groups.
 
 Safety posture (intentional, do NOT "fix"): a keyword match only ever yields
 impact="needs_review" / status="candidate_unverified". The watchdog's
-is_unresolved_high() gate (scripts/anthropic/cc-issue-watchdog.py) promotes an
+is_unresolved_high() gate (the shared scripts/upstream/issue-watchdog.py) promotes an
 issue to a fix candidate ONLY when impact ∈ {critical, high} AND status is an
 unresolved status — which the automated keyword path never emits. Promotion to a
 fix target therefore requires a human-pinned MANUAL_TRIAGE entry. Daily cron is

@@ -65,8 +65,10 @@ def issue_number(upstream: str) -> int:
 
 
 def issue_url(upstream: str) -> str:
-    number = issue_number(upstream)
-    return f"https://github.com/Wei-Shaw/sub2api/issues/{number}"
+    # The repo is carried in the ref itself ("owner/name#NNN"), so this works for
+    # any watched repo (Wei-Shaw/sub2api, anthropics/claude-code, …) with no flag.
+    repo, _, number = upstream.rpartition("#")
+    return f"https://github.com/{repo}/issues/{number}"
 
 
 def sh(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -223,9 +225,9 @@ def agent_input(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def report_markdown(report: dict[str, Any]) -> str:
+def report_markdown(report: dict[str, Any], title: str = "# Upstream Issue Watchdog Report") -> str:
     lines = [
-        "# Upstream Issue Watchdog Report",
+        title,
         "",
         f"- Run URL: {report.get('run_url') or 'n/a'}",
         f"- Repository SHA: `{report.get('repo_sha') or 'unknown'}`",
@@ -288,6 +290,10 @@ def main() -> int:
     parser.add_argument("--report-md", required=True, type=Path)
     parser.add_argument("--agent-input-json", type=Path)
     parser.add_argument("--force-upstream-issue", default="")
+    # Watched-repo display title for the markdown report. The repo for issue URLs is
+    # derived from each ref, so this is the only repo-specific knob — defaults keep
+    # the upstream (Wei-Shaw) watchdog behavior unchanged.
+    parser.add_argument("--report-title", default="# Upstream Issue Watchdog Report")
     args = parser.parse_args()
 
     upstream_rows = load_jsonl(args.upstream_issues)
@@ -358,7 +364,7 @@ def main() -> int:
         "selected_issue": selected,
     }
     write_json(args.report_json, report)
-    args.report_md.write_text(report_markdown(report), encoding="utf-8")
+    args.report_md.write_text(report_markdown(report, args.report_title), encoding="utf-8")
     if args.agent_input_json:
         write_json(args.agent_input_json, agent_input(report))
 

@@ -147,7 +147,9 @@ jobs:
           python3 scripts/anthropic/cc-issue-triage-generate.py \
             .cache/anthropic-cc-issue-watchdog/upstream-open-issues.jsonl \
             .cache/anthropic/cc-triage.json
-          python3 scripts/anthropic/cc-issue-watchdog.py \
+          # Shared watchdog engine (repo for issue URLs is derived from each ref;
+          # only the display title differs). See scripts/upstream/issue-watchdog.py.
+          python3 scripts/upstream/issue-watchdog.py \
             --upstream-issues .cache/anthropic-cc-issue-watchdog/upstream-issues.jsonl \
             --triage .cache/anthropic/cc-triage.json \
             --fixes .cache/anthropic/cc-fixes.json \
@@ -155,6 +157,7 @@ jobs:
             --report-json .cache/anthropic-cc-issue-watchdog/report.json \
             --report-md .cache/anthropic-cc-issue-watchdog/report.md \
             --agent-input-json .cache/anthropic-cc-issue-watchdog/agent-input.json \
+            --report-title "# Anthropic Claude-Code Issue Watchdog Report" \
             --force-upstream-issue "${FORCE_UPSTREAM_ISSUE:-}"
           python3 -m json.tool .cache/anthropic/cc-triage.json >/dev/null
           python3 -m json.tool .cache/anthropic/cc-fixes.json >/dev/null
@@ -233,9 +236,9 @@ jobs:
           base_labels = {
               'automated': ('C5DEF5', 'Automated signal'),
               'needs-triage': ('FBCA04', 'Needs human triage'),
-              'cc-issue-watchdog': ('BFD4F2', 'Upstream issue watchdog signal'),
-              'cc-status:needs-tokenkey-fix': ('D73A4A', 'Upstream issue still needs TokenKey fix'),
-              'cc-status:fixed-in-tokenkey': ('0E8A16', 'Upstream issue is fixed in TokenKey'),
+              'cc-issue-watchdog': ('BFD4F2', 'Claude-Code issue watchdog signal'),
+              'cc-status:needs-tokenkey-fix': ('D73A4A', 'Claude-Code issue still needs TokenKey fix'),
+              'cc-status:fixed-in-tokenkey': ('0E8A16', 'Claude-Code issue is fixed in TokenKey'),
               'cc-risk:high': ('B60205', 'High-risk upstream issue'),
               'cc-risk:critical': ('8B0000', 'Critical upstream issue'),
           }
@@ -249,12 +252,12 @@ jobs:
               sig_label = f'cc-sig:{signature}'
               risk_label = f"cc-risk:{label_safe(item.get('impact') or 'high')}"
               ensure_label(number_label, 'BFD4F2', f'anthropics/claude-code issue {number}')
-              ensure_label(sig_label, 'BFD4F2', 'Upstream issue watchdog signature')
-              ensure_label(risk_label, 'B60205', 'Upstream issue risk level')
+              ensure_label(sig_label, 'BFD4F2', 'Claude-Code issue watchdog signature')
+              ensure_label(risk_label, 'B60205', 'Claude-Code issue risk level')
 
               title = f"[cc-issue] {item['upstream']} {item.get('title') or 'needs TokenKey review'}"[:250]
               body = '\n'.join([
-                  '## Upstream issue watchdog finding',
+                  '## Claude-Code issue watchdog finding',
                   '',
                   f"- Upstream: {item['url']}",
                   f"- TokenKey status: `{item.get('tokenkey_status')}`",
@@ -268,7 +271,7 @@ jobs:
                   '',
                   '## Expected automation',
                   '',
-                  f"The upstream issue watchdog will attempt one scoped PR on branch `fix/cc-issue-{number}` when fix mode is enabled.",
+                  f"The Claude-Code issue watchdog will attempt one scoped PR on branch `fix/cc-issue-{number}` when fix mode is enabled.",
               ]) + '\n'
               body_path = pathlib.Path(f'.cache/anthropic-cc-issue-watchdog/issue-{number}.md')
               body_path.write_text(body, encoding='utf-8')
@@ -314,12 +317,12 @@ jobs:
           set -euo pipefail
           echo "cache_pr_url=" >> "$GITHUB_OUTPUT"
           if [ "${{ steps.watchdog.outputs.cache_changed }}" != "true" ]; then
-            if git diff --quiet -- scripts/anthropic/cc-issue-triage-generate.py .cache/anthropic/cc-fact-checks.json scripts/anthropic/cc-issue-watchdog.py .github/workflows/anthropic-cc-issue-watchdog.yml; then
+            if git diff --quiet -- scripts/anthropic/cc-issue-triage-generate.py .cache/anthropic/cc-fact-checks.json .github/workflows/anthropic-cc-issue-watchdog.yml; then
               echo "No substantive upstream issue cache changes to propose."
               exit 0
             fi
           fi
-          if git diff --quiet -- scripts/anthropic/cc-issue-triage-generate.py .cache/anthropic/cc-triage.json .cache/anthropic/cc-fixes.json .cache/anthropic/cc-fact-checks.json scripts/anthropic/cc-issue-watchdog.py .github/workflows/anthropic-cc-issue-watchdog.yml; then
+          if git diff --quiet -- scripts/anthropic/cc-issue-triage-generate.py .cache/anthropic/cc-triage.json .cache/anthropic/cc-fixes.json .cache/anthropic/cc-fact-checks.json .github/workflows/anthropic-cc-issue-watchdog.yml; then
             echo "No upstream issue cache changes to propose."
             exit 0
           fi
@@ -330,7 +333,7 @@ jobs:
           # path that intentionally commits curated `.cache/anthropic/cc-*.json`
           # snapshots (2026-05-19 watchdog regression: previously broken when
           # the .gitignore began catching these paths).
-          git add -f scripts/anthropic/cc-issue-triage-generate.py .cache/anthropic/cc-triage.json .cache/anthropic/cc-fixes.json .cache/anthropic/cc-fact-checks.json scripts/anthropic/cc-issue-watchdog.py .github/workflows/anthropic-cc-issue-watchdog.yml
+          git add -f scripts/anthropic/cc-issue-triage-generate.py .cache/anthropic/cc-triage.json .cache/anthropic/cc-fixes.json .cache/anthropic/cc-fact-checks.json .github/workflows/anthropic-cc-issue-watchdog.yml
           git commit -m "chore: refresh upstream issue cache"
           git push --force-with-lease origin "$BRANCH"
 
@@ -349,7 +352,7 @@ jobs:
           - [x] `python3 -m json.tool .cache/anthropic/cc-triage.json`
           - [x] `python3 -m json.tool .cache/anthropic/cc-fixes.json`
           - [x] `python3 -m json.tool .cache/anthropic/cc-fact-checks.json`
-          - [x] `python3 -m py_compile scripts/anthropic/cc-issue-watchdog.py`
+          - [x] `python3 -m py_compile scripts/upstream/issue-watchdog.py`
           - [x] `python3 -m json.tool .cache/anthropic-cc-issue-watchdog/report.json`
           - [x] `python3 -m json.tool .cache/anthropic-cc-issue-watchdog/agent-input.json`
           EOF
