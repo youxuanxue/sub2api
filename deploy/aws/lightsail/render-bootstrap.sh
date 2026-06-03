@@ -48,10 +48,8 @@ echo "LIGHTSAIL_BOOTSTRAP_START $(date -u +%FT%TZ)"
 : "${LIGHTSAIL_REGION:?LIGHTSAIL_REGION required}"
 : "${SSM_ACTIVATION_ID:?SSM_ACTIVATION_ID required}"
 : "${SSM_ACTIVATION_CODE:?SSM_ACTIVATION_CODE required}"
-# GHCR auth is OPTIONAL: when GHCR_PAT_SSM_NAME is empty the bootstrap relies
-# on anonymous pull (works for public ghcr.io/* images, which TokenKey
-# currently is). Set GHCR_PAT_SSM_NAME to an SSM SecureString name when the
-# image becomes private.
+# GHCR auth is OPTIONAL: empty GHCR_PAT_SSM_NAME -> anonymous pull (public
+# ghcr.io image). Set it to an SSM SecureString name if the image goes private.
 : "${GHCR_PAT_SSM_NAME:=}"
 : "${GHCR_PULL_USER:=}"
 
@@ -157,6 +155,7 @@ set -a; . "$SECRET_FILE"; set +a
 
 cat > /var/lib/tokenkey/.env <<ENVEOF
 API_DOMAIN=${API_DOMAIN}
+SERVER_FRONTEND_URL=https://${API_DOMAIN}
 ACME_EMAIL=${ACME_EMAIL}
 TZ=${TZ_VALUE}
 SERVER_MODE=release

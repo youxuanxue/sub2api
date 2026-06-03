@@ -12,12 +12,51 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
 
 const opsFeishuWebhookTimeout = 5 * time.Second
+
+// opsDashboardPath is the admin SPA route for the ops dashboard (frontend
+// router name "AdminOps"). Appended to a node's public base URL to build the
+// alert card's deep-link.
+const opsDashboardPath = "/admin/ops"
+
+// opsNodeShortLabelRe extracts the edge id from a node's public host, e.g.
+// api-us1.tokenkey.dev -> us1. A bare api.<domain> (prod) has no edge id and
+// falls back to "prod".
+var opsNodeShortLabelRe = regexp.MustCompile(`^api-([a-z0-9]+)\.`)
+
+// deriveOpsNodeIdentity turns a node's public base URL (config.Server.FrontendURL,
+// e.g. https://api-us1.tokenkey.dev) into a short label + ops dashboard deep-link
+// for the alert card. TokenKey runs prod + multiple edges, each evaluating its
+// own local metrics and posting to the same Feishu group, so without this every
+// P0 card is indistinguishable. An empty/unparseable URL degrades to
+// ("overall", "") — the label is still shown, the link is omitted.
+func deriveOpsNodeIdentity(frontendURL string) (label string, dashboardURL string) {
+	raw := strings.TrimSpace(frontendURL)
+	if raw == "" {
+		return "overall", ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Hostname() == "" {
+		return "overall", ""
+	}
+	host := parsed.Hostname()
+	switch {
+	case opsNodeShortLabelRe.MatchString(host):
+		label = opsNodeShortLabelRe.FindStringSubmatch(host)[1]
+	case strings.HasPrefix(host, "api."):
+		label = "prod"
+	default:
+		label = host
+	}
+	dashboardURL = strings.TrimRight(raw, "/") + opsDashboardPath
+	return label, dashboardURL
+}
 
 type opsFeishuHTTPDoer interface {
 	Do(req *http.Request) (*http.Response, error)
@@ -35,11 +74,11 @@ func newOpsFeishuNotifier() *opsFeishuNotifier {
 	}
 }
 
-func (n *opsFeishuNotifier) sendAlert(ctx context.Context, cfg OpsFeishuAlertConfig, rule *OpsAlertRule, event *OpsAlertEvent) error {
+func (n *opsFeishuNotifier) sendAlert(ctx context.Context, cfg OpsFeishuAlertConfig, frontendURL string, rule *OpsAlertRule, event *OpsAlertEvent) error {
 	if n == nil {
 		n = newOpsFeishuNotifier()
 	}
-	payload, err := n.buildPayload(cfg, rule, event)
+	payload, err := n.buildPayload(cfg, frontendURL, rule, event)
 	if err != nil {
 		return err
 	}
@@ -124,16 +163,21 @@ func sendFeishuPayload(ctx context.Context, client opsFeishuHTTPDoer, cfg OpsFei
 	return nil
 }
 
-func (n *opsFeishuNotifier) buildPayload(cfg OpsFeishuAlertConfig, rule *OpsAlertRule, event *OpsAlertEvent) (map[string]any, error) {
+func (n *opsFeishuNotifier) buildPayload(cfg OpsFeishuAlertConfig, frontendURL string, rule *OpsAlertRule, event *OpsAlertEvent) (map[string]any, error) {
 	if rule == nil || event == nil {
 		return nil, errors.New("missing alert context")
 	}
-	text := buildOpsFeishuAlertText(rule, event)
+	nodeLabel, dashboardURL := deriveOpsNodeIdentity(frontendURL)
+	text := buildOpsFeishuAlertText(rule, event, nodeLabel, dashboardURL)
 	now := time.Now
 	if n != nil && n.now != nil {
 		now = n.currentTime
 	}
-	return feishuCardPayload(cfg, now, "red", "TokenKey P0 告警", text), nil
+	title := "TokenKey P0 告警"
+	if nodeLabel != "" && nodeLabel != "overall" {
+		title = title + " · " + nodeLabel
+	}
+	return feishuCardPayload(cfg, now, "red", title, text), nil
 }
 
 func (n *opsFeishuNotifier) currentTime() time.Time {
@@ -143,7 +187,7 @@ func (n *opsFeishuNotifier) currentTime() time.Time {
 	return time.Now()
 }
 
-func buildOpsFeishuAlertText(rule *OpsAlertRule, event *OpsAlertEvent) string {
+func buildOpsFeishuAlertText(rule *OpsAlertRule, event *OpsAlertEvent, nodeLabel, dashboardURL string) string {
 	metricValue := "-"
 	thresholdValue := fmt.Sprintf("%.2f", rule.Threshold)
 	if event.MetricValue != nil {
@@ -156,7 +200,18 @@ func buildOpsFeishuAlertText(rule *OpsAlertRule, event *OpsAlertEvent) string {
 	if dimensions == "" {
 		dimensions = "overall"
 	}
-	return fmt.Sprintf("**规则**：%s\n**指标**：%s %s %s\n**当前值**：%s\n**范围**：%s\n**时间**：%s\n\n**建议**：打开 Ops Dashboard 检查账号可用性 / 网关健康，并处理该 P0 rule 指向的容量问题。",
+	if strings.TrimSpace(nodeLabel) == "" {
+		nodeLabel = "overall"
+	}
+	// dashboardURL is our own constructed URL (base + opsDashboardPath); render
+	// it as a lark_md link. When the node has no frontend_url configured we fall
+	// back to plain prose so the card still reads cleanly.
+	advice := "打开 Ops Dashboard 检查账号可用性 / 网关健康，并处理该 P0 rule 指向的容量问题。"
+	if strings.TrimSpace(dashboardURL) != "" {
+		advice = fmt.Sprintf("[打开 Ops Dashboard](%s) 检查账号可用性 / 网关健康，并处理该 P0 rule 指向的容量问题。", dashboardURL)
+	}
+	return fmt.Sprintf("**节点**：%s\n**规则**：%s\n**指标**：%s %s %s\n**当前值**：%s\n**范围**：%s\n**时间**：%s\n\n**建议**：%s",
+		escapeFeishuText(nodeLabel),
 		escapeFeishuText(strings.TrimSpace(rule.Name)),
 		escapeFeishuText(strings.TrimSpace(rule.MetricType)),
 		escapeFeishuText(strings.TrimSpace(rule.Operator)),
@@ -164,6 +219,7 @@ func buildOpsFeishuAlertText(rule *OpsAlertRule, event *OpsAlertEvent) string {
 		escapeFeishuText(metricValue),
 		escapeFeishuText(dimensions),
 		escapeFeishuText(event.FiredAt.Format(time.RFC3339)),
+		advice,
 	)
 }
 

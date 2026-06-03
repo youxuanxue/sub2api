@@ -76,7 +76,15 @@ func (s *OpsAlertEvaluatorService) maybeSendAlertFeishu(ctx context.Context, run
 	if notifier == nil {
 		notifier = newOpsFeishuNotifier()
 	}
-	if err := notifier.sendAlert(ctx, cfg.Feishu, rule, event); err != nil {
+	// Per-node public base URL → card node label + ops dashboard deep-link.
+	// Every node posts to the same Feishu group, so this is what tells prod
+	// apart from each edge. Empty when frontend_url is unset (graceful fallback
+	// to "overall" / no link in deriveOpsNodeIdentity).
+	frontendURL := ""
+	if s.cfg != nil {
+		frontendURL = s.cfg.Server.FrontendURL
+	}
+	if err := notifier.sendAlert(ctx, cfg.Feishu, frontendURL, rule, event); err != nil {
 		logger.LegacyPrintf("service.ops_alert_evaluator", "[OpsAlertEvaluator] feishu alert send failed event_id=%d rule_id=%d error=%s", event.ID, rule.ID, err.Error())
 		return false
 	}

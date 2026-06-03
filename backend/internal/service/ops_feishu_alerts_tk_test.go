@@ -159,7 +159,7 @@ func TestOpsFeishuNotifierBuildsSignedPayload(t *testing.T) {
 
 	now := time.Unix(1700000000, 0).UTC()
 	notifier := &opsFeishuNotifier{now: func() time.Time { return now }}
-	payload, err := notifier.buildPayload(OpsFeishuAlertConfig{SigningSecret: "signing-secret"}, testOpsFeishuRule(), testOpsFeishuEvent(1))
+	payload, err := notifier.buildPayload(OpsFeishuAlertConfig{SigningSecret: "signing-secret"}, "", testOpsFeishuRule(), testOpsFeishuEvent(1))
 	require.NoError(t, err)
 	require.Equal(t, "interactive", payload["msg_type"])
 	require.Equal(t, "1700000000", payload["timestamp"])
@@ -169,6 +169,40 @@ func TestOpsFeishuNotifierBuildsSignedPayload(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(body), "TokenKey P0")
 	require.Contains(t, string(body), "group_available_accounts")
+}
+
+func TestOpsFeishuNotifierIncludesNodeIdentityAndLink(t *testing.T) {
+	t.Parallel()
+
+	now := time.Unix(1700000000, 0).UTC()
+	notifier := &opsFeishuNotifier{now: func() time.Time { return now }}
+
+	// Configured edge node: label derived from host, card carries the deep-link
+	// and a node-suffixed header so it is distinguishable from other nodes.
+	payload, err := notifier.buildPayload(OpsFeishuAlertConfig{}, "https://api-us1.tokenkey.dev", testOpsFeishuRule(), testOpsFeishuEvent(1))
+	require.NoError(t, err)
+	body, err := json.Marshal(payload)
+	require.NoError(t, err)
+	require.Contains(t, string(body), "TokenKey P0 告警 · us1")
+	require.Contains(t, string(body), "**节点**")
+	require.Contains(t, string(body), "us1")
+	require.Contains(t, string(body), "https://api-us1.tokenkey.dev/admin/ops")
+
+	// prod bare host -> "prod" label.
+	prodPayload, err := notifier.buildPayload(OpsFeishuAlertConfig{}, "https://api.tokenkey.dev", testOpsFeishuRule(), testOpsFeishuEvent(1))
+	require.NoError(t, err)
+	prodBody, err := json.Marshal(prodPayload)
+	require.NoError(t, err)
+	require.Contains(t, string(prodBody), "TokenKey P0 告警 · prod")
+
+	// Unconfigured node (empty frontend_url): degrade to "overall", no header
+	// suffix, no link.
+	bare, err := notifier.buildPayload(OpsFeishuAlertConfig{}, "", testOpsFeishuRule(), testOpsFeishuEvent(1))
+	require.NoError(t, err)
+	bareBody, err := json.Marshal(bare)
+	require.NoError(t, err)
+	require.NotContains(t, string(bareBody), "/admin/ops")
+	require.NotContains(t, string(bareBody), "告警 · ")
 }
 
 func TestOpsFeishuNotifierSanitizesWebhookErrors(t *testing.T) {
