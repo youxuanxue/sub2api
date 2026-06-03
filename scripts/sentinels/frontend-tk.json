@@ -406,10 +406,11 @@
         "admin.edgeAccounts.title",
         "AccountCapacityCell",
         "AccountUsageCell",
+        "AccountStatusIndicator",
         "toAccountLike",
         "toUsageInfo"
       ],
-      "rationale": "TK-only read-only admin page grouping accounts by edge. Renders the per-edge ok/failed/timeout state and a credential-free account table that REUSES the real admin AccountCapacityCell + AccountUsageCell (today + 5h/7d windows) via toAccountLike / toUsageInfo, so the overview's capacity + usage-window gauges stay pixel-aligned with the per-edge /admin/accounts page. Guards against silent upstream-merge deletion of the view or a refactor that drops the cell reuse (which would regress the page back to a sparse static table)."
+      "rationale": "TK-only read-only admin page grouping accounts by edge. Renders the per-edge ok/failed/timeout state and a credential-free account table that REUSES the real admin AccountCapacityCell + AccountUsageCell (today + 5h/7d windows) via toAccountLike / toUsageInfo, so the overview's capacity + usage-window gauges stay pixel-aligned with the per-edge /admin/accounts page. Guards against silent upstream-merge deletion of the view or a refactor that drops the cell reuse (which would regress the page back to a sparse static table). Also reuses AccountStatusIndicator for the 状态 column (instead of a hand-rolled badge) so it matches the per-edge admin page's status semantics; dropping it would regress status display."
     },
     {
       "path": "frontend/src/components/account/AccountUsageCell.vue",

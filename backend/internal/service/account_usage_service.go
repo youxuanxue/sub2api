@@ -436,13 +436,7 @@ func (s *AccountUsageService) GetPassiveUsage(ctx context.Context, accountID int
 	info.Source = "passive"
 
 	// 设置采样时间
-	if raw, ok := account.Extra["passive_usage_sampled_at"]; ok {
-		if str, ok := raw.(string); ok {
-			if t, err := time.Parse(time.RFC3339, str); err == nil {
-				info.UpdatedAt = &t
-			}
-		}
-	}
+	info.UpdatedAt = parseExtraSampledAt(account.Extra["passive_usage_sampled_at"])
 
 	// 构建 7d 窗口（从被动采样数据）
 	util7d := parseExtraFloat64(account.Extra["passive_usage_7d_utilization"])
@@ -1283,6 +1277,18 @@ func (s *AccountUsageService) estimateSetupTokenUsage(account *Account) *UsageIn
 			}
 		}
 
+		// 陈旧采样护栏：session_window_utilization 是上次上游响应的被动采样值。
+		// 若它的采样时间早于当前窗口开始（窗口已滚动但尚未被新请求重新采样——
+		// 写入侧的 clear-on-roll 仅在过期驱动的 init 触发，header 驱动的窗口变更
+		// 不触发），它属于上一个窗口，会在刚重置的新窗口上显示误导性高利用率
+		// （线上观察到刚滚动的 5h 窗口显示 99%）。此时丢弃该值，回退状态估算。
+		if found && account.SessionWindowStart != nil {
+			if sampled := parseExtraSampledAt(account.Extra["passive_usage_sampled_at"]); sampled != nil && sampled.Before(*account.SessionWindowStart) {
+				found = false
+				utilization = 0 // clear the stale value; the status fallback below re-derives it
+			}
+		}
+
 		// 如果没有存储的 utilization，回退到状态估算
 		if !found {
 			switch account.SessionWindowStatus {
@@ -1308,6 +1314,21 @@ func (s *AccountUsageService) estimateSetupTokenUsage(account *Account) *UsageIn
 
 	// Setup Token无法获取7d数据
 	return info
+}
+
+// parseExtraSampledAt parses the passive_usage_sampled_at Extra value (an
+// RFC3339 string written by the gateway's passive sampler) into a time, or nil
+// when absent/unparseable.
+func parseExtraSampledAt(raw any) *time.Time {
+	str, ok := raw.(string)
+	if !ok {
+		return nil
+	}
+	t, err := time.Parse(time.RFC3339, str)
+	if err != nil {
+		return nil
+	}
+	return &t
 }
 
 func buildGeminiUsageProgress(used, limit int64, resetAt time.Time, tokens int64, cost float64, now time.Time) *UsageProgress {

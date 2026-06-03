@@ -122,9 +122,7 @@
                     />
                   </td>
                   <td class="px-4 py-2 align-top">
-                    <span :class="['inline-flex rounded-full px-2 py-0.5 text-xs font-medium', stateBadgeClass(acct)]">
-                      {{ accountStateLabel(acct) }}
-                    </span>
+                    <AccountStatusIndicator :account="toAccountLike(acct)" />
                   </td>
                   <td class="px-4 py-2 align-top text-right text-gray-700 dark:text-gray-200">{{ acct.priority }}</td>
                   <td class="px-4 py-2 align-top text-gray-600 dark:text-gray-300">
@@ -158,10 +156,10 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
+import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { useTkEdgeAccounts } from '@/composables/useTkEdgeAccounts'
-import { accountStateLabel, accountStatusVariant, schedulableCount, toAccountLike, toWindowStats, toUsageInfo } from '@/utils/edgeAccounts.tk'
-import type { EdgeAccountSummary } from '@/api/admin/edgeAccounts'
+import { schedulableCount, toAccountLike, toWindowStats, toUsageInfo } from '@/utils/edgeAccounts.tk'
 
 const { t } = useI18n()
 
@@ -175,16 +173,5 @@ const {
   totalAccounts,
   fetch
 } = useTkEdgeAccounts()
-
-const STATE_BADGE_CLASSES: Record<string, string> = {
-  success: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
-  warning: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
-  danger: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
-  neutral: 'bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-gray-300'
-}
-
-function stateBadgeClass(a: EdgeAccountSummary): string {
-  return STATE_BADGE_CLASSES[accountStatusVariant(a)] ?? STATE_BADGE_CLASSES.neutral
-}
 // Initial fetch + periodic auto-refresh are owned by useTkEdgeAccounts.
 </script>
