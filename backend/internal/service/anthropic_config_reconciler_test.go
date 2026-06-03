@@ -281,6 +281,28 @@ func TestReconciler_SurfaceC_KiroStub_QueriesKiroPlatform(t *testing.T) {
 	require.Equal(t, 1, concWrites)
 }
 
+// mirrorCapacityPlatform: only empty/whitespace defaults to anthropic; any
+// non-empty value is passed through verbatim (lower/trimmed) so an unknown/typo'd
+// value reaches the edge, 4xx's, and is skipped — never silently coerced to the
+// anthropic pool (which would reintroduce the silent-wrong-pool bug).
+func TestMirrorCapacityPlatform(t *testing.T) {
+	cases := map[string]string{
+		"":          "anthropic",
+		"   ":       "anthropic",
+		"anthropic": "anthropic",
+		"Anthropic": "anthropic",
+		"kiro":      "kiro",
+		" KIRO ":    "kiro",
+		"openai":    "openai", // unsupported today → passthrough, edge will 4xx
+		"kir0":      "kir0",   // typo → passthrough, NOT coerced to anthropic
+	}
+	for raw, want := range cases {
+		if got := mirrorCapacityPlatform(raw); got != want {
+			t.Errorf("mirrorCapacityPlatform(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}
+
 // Absent credentials.mirror_platform, a stub keeps mirroring the anthropic pool —
 // every pre-existing stub stays correct with zero data migration.
 func TestReconciler_SurfaceC_DefaultsToAnthropicWhenUnset(t *testing.T) {

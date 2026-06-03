@@ -415,17 +415,20 @@ func (r *AnthropicConfigReconciler) reconcileConcurrencyMirror(ctx context.Conte
 }
 
 // mirrorCapacityPlatform normalizes a stub's credentials.mirror_platform into the
-// edge capacity platform query value. Empty/unknown → "anthropic" (the historical
-// default — every pre-existing mirror stub keeps mirroring the anthropic pool).
-// An unknown value still degrades to anthropic here; the edge endpoint is the
-// authoritative validator and rejects anything it does not support.
+// edge capacity platform query value. ONLY empty/whitespace maps to "anthropic"
+// (the historical default — every pre-existing mirror stub keeps mirroring the
+// anthropic pool). A non-empty value is passed through verbatim (lower/trimmed)
+// rather than coerced to a known platform: the edge endpoint is the authoritative
+// validator and rejects anything it does not support, so an unknown/typo'd value
+// (e.g. "openai", "kir0") makes fetchEdgeCapacity see a 4xx and skip — never write
+// 0, never silently mirror the wrong pool. Coercing unknowns to "anthropic" here
+// would reintroduce the exact silent-wrong-pool bug this surface exists to kill.
 func mirrorCapacityPlatform(raw string) string {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "kiro":
-		return "kiro"
-	default:
+	p := strings.ToLower(strings.TrimSpace(raw))
+	if p == "" {
 		return "anthropic"
 	}
+	return p
 }
 
 // fetchEdgeCapacity GETs {base_url}/api/v1/edge/scheduling-capacity?platform={platform}
