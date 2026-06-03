@@ -18,7 +18,8 @@ description: >-
 **kiro 常量 + DB TLS profile** 当待对齐对象。**禁止从 UA 版本号推断 ja3**。
 
 关联：`docs/accounts/kiro-tls-fingerprint-alignment-design.md`（两阶段设计 + Phase 2 开闸清单）、
-`tokenkey-cc-fingerprint-alignment`（anthropic 平行 skill）。
+`tokenkey-cc-fingerprint-alignment`（anthropic 平行 skill）、
+`tokenkey-fingerprint-alignment-all`（umbrella：cc+kiro 一次对齐、合一个 PR）。
 
 ## 为什么与 cc 不同
 
