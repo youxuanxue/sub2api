@@ -4568,19 +4568,22 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	// resume/continue/compact. Anthropic rejects it with 404 not_found_error and
 	// the client silently downgrades to the bare 200K model (claude-code #60913).
 	// Done before model mapping / scheduling / pricing so every consumer sees the
-	// bare id; originalModel keeps the client's literal alias so the response model
-	// echoes back what the client sent. The context-1m beta header is sent
-	// separately and passes through, so the bare model still gets the 1M window.
+	// bare id. originalModel is stripped too: it feeds the billing/quota key
+	// (ForwardResult.Model -> forwardResultBillingModel) and the response model
+	// echo — the bracketed alias has no pricing entry, so billing on it would
+	// resolve to zero/fallback cost, and the bare id is also what real Anthropic
+	// returns. The context-1m beta header is sent separately and passes through,
+	// so the bare model still gets the 1M window.
 	// See gateway_anthropic_context_window_alias_tk.go.
 	if account.Platform == PlatformAnthropic {
 		if bare, aliased := tkStripContextWindowModelAlias(reqModel); aliased {
 			if err := replaceBody(s.replaceModelInBody(body, bare)); err != nil {
 				return nil, err
 			}
-			reqModel, parsed.Model = bare, bare
 			logger.LegacyPrintf("service.gateway",
 				"TK context-window alias stripped before forward (prevents Anthropic 404 + silent 200K fallback, claude-code #60913): %s -> %s account=%d",
-				originalModel, bare, account.ID)
+				reqModel, bare, account.ID)
+			reqModel, parsed.Model, originalModel = bare, bare, bare
 		}
 	}
 
@@ -5441,10 +5444,13 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	// TK: strip the Claude Code 1M-context model alias ("...[1m]") before forward
 	// so the API-key passthrough path does not 404 + silently downgrade to 200K
 	// (claude-code #60913). Mirrors the Forward path; bare ids are a no-op.
+	// input.OriginalModel is stripped too because it is the billing/quota key
+	// (RecordUsageInput.Model below) — the bracketed alias has no pricing entry.
 	// See gateway_anthropic_context_window_alias_tk.go.
 	if bare, aliased := tkStripContextWindowModelAlias(input.RequestModel); aliased {
 		input.Body = s.replaceModelInBody(input.Body, bare)
 		input.RequestModel = bare
+		input.OriginalModel = bare
 		if input.Parsed != nil {
 			input.Parsed.Model = bare
 		}

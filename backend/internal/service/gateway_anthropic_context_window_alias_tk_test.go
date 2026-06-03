@@ -4,6 +4,7 @@ package service
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/tidwall/gjson"
@@ -95,4 +96,29 @@ func TestTkStripContextWindowModelAlias_WireBodyRewrite(t *testing.T) {
 			t.Fatalf("bare model unexpectedly reported as aliased")
 		}
 	})
+}
+
+// TestTkStripContextWindowModelAlias_BillingModelIsBare guards the claude-code#60913
+// billing regression. The Forward / passthrough paths feed the (stripped) model into
+// forwardResultBillingModel, whose result is the pricing/quota key. If the alias
+// survived, billing would resolve `claude-opus-4-8[1m]` — which has no pricing entry —
+// to zero/fallback cost, leaking quota on exactly the 1M requests this fix newly lets
+// succeed. After stripping, the billing key must be the bare id.
+func TestTkStripContextWindowModelAlias_BillingModelIsBare(t *testing.T) {
+	clientModel := "claude-opus-4-8[1m]"
+	bare, aliased := tkStripContextWindowModelAlias(clientModel)
+	if !aliased || bare != "claude-opus-4-8" {
+		t.Fatalf("strip = (%q, %v); want (claude-opus-4-8, true)", bare, aliased)
+	}
+
+	// forwardResultBillingModel prefers the requested (ForwardResult.Model) value;
+	// the Forward path now assigns the bare id to originalModel -> ForwardResult.Model,
+	// so the billing key is bare and resolves against a real pricing entry.
+	billing := forwardResultBillingModel(bare, bare)
+	if billing != "claude-opus-4-8" {
+		t.Fatalf("billing model = %q; want claude-opus-4-8", billing)
+	}
+	if strings.ContainsAny(billing, "[]") {
+		t.Fatalf("billing model still carries a context-window alias: %q", billing)
+	}
 }
