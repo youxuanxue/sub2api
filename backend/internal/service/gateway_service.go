@@ -4749,8 +4749,12 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	// 调试日志：记录即将转发的账号信息
 	logger.LegacyPrintf("service.gateway", "[Forward] Using account: ID=%d Name=%s Platform=%s Type=%s TLSFingerprint=%v Proxy=%s",
 		account.ID, account.Name, account.Platform, account.Type, tlsProfile, proxyURL)
-	// Pre-filter: strip empty text blocks (including nested in tool_result) to prevent upstream 400.
-	if err := replaceBody(StripEmptyTextBlocks(body)); err != nil {
+	// Pre-filter: sanitize invalid UTF-8 / lone surrogate escapes (prevents the
+	// upstream "str is not valid UTF-8: surrogate" 400 — claude-code #60168 /
+	// #63885 / #64777), THEN strip empty text blocks (including nested in
+	// tool_result). Sanitize runs first because StripEmptyTextBlocks parses the
+	// body as JSON; both prevent an upstream 400 before the first call.
+	if err := replaceBody(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account))); err != nil {
 		return nil, err
 	}
 
@@ -5413,8 +5417,11 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	if c != nil {
 		c.Set("anthropic_passthrough", true)
 	}
-	// Pre-filter: strip empty text blocks (including nested in tool_result) to prevent upstream 400.
-	input.Body = StripEmptyTextBlocks(input.Body)
+	// Pre-filter: sanitize invalid UTF-8 / lone surrogate escapes (claude-code
+	// #60168 / #63885 / #64777), THEN strip empty text blocks (including nested
+	// in tool_result). Sanitize runs first because StripEmptyTextBlocks parses
+	// the body as JSON; both prevent an upstream 400.
+	input.Body = StripEmptyTextBlocks(TkSanitizeRequestBody(input.Body, account))
 	if input.Parsed != nil {
 		// 透传分支也会改写实际 wire body，成功 usage hash 依赖这里同步当前 body。
 		if err := input.Parsed.ReplaceBody(input.Body); err != nil {
@@ -9758,8 +9765,11 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	}
 	reqModel := parsed.Model
 
-	// Pre-filter: strip empty text blocks to prevent upstream 400.
-	if err := replaceBody(StripEmptyTextBlocks(body)); err != nil {
+	// Pre-filter: sanitize invalid UTF-8 / lone surrogate escapes (claude-code
+	// #60168 / #63885 / #64777), THEN strip empty text blocks. Sanitize runs
+	// first because StripEmptyTextBlocks parses the body as JSON; both prevent
+	// an upstream 400 (here also guarding the per-account upstream-error breaker).
+	if err := replaceBody(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account))); err != nil {
 		return err
 	}
 

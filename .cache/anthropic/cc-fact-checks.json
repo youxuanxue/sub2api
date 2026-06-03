@@ -20,6 +20,24 @@
         "backend/internal/service/gateway_service.go:Kind:               \"thinking_type_adaptive_error\",",
         "backend/internal/service/gateway_request_thinking_adaptive_test.go:func TestRectifyThinkingTypeAdaptive"
       ]
+    },
+    {
+      "upstream": "anthropics/claude-code#60168, anthropics/claude-code#63885, anthropics/claude-code#64777",
+      "severity": "high",
+      "tokenkey_pr": "youxuanxue/sub2api (UTF-8/surrogate self-heal)",
+      "summary": "Unpaired UTF-16 surrogate / invalid raw UTF-8 in the request body self-healed pre-flight to U+FFFD before forward, preventing the upstream 'str is not valid UTF-8: surrogate code point' 400. Wired ahead of StripEmptyTextBlocks on the Forward, APIKey passthrough, and count_tokens paths.",
+      "fixed_by": [
+        "backend/internal/service/gateway_request_tk_utf8.go",
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_request_tk_utf8_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/gateway_request_tk_utf8.go:func TkSanitizeRequestBodyUTF8",
+        "backend/internal/service/gateway_request_tk_utf8.go:func tkReplaceLoneSurrogateEscapes",
+        "backend/internal/service/gateway_request_tk_utf8.go:func TkSanitizeRequestBody",
+        "backend/internal/service/gateway_service.go:StripEmptyTextBlocks(TkSanitizeRequestBody(",
+        "backend/internal/service/gateway_request_tk_utf8_test.go:func TestTkSanitizeRequestBodyUTF8_LoneSurrogateEscapes"
+      ]
     }
   ]
 }
