@@ -104,6 +104,18 @@ python3 ops/kiro/capture_kiro_fingerprint.py emit-profile \
 bash ops/kiro/capture-kiro-fingerprint.sh check --bundle .kiro_tls/<stamp>...bundle.json
 ```
 
+**Propagating an update to the live wire.** The profile is encoded in two places
+with distinct roles: `tk_canonical_kiro_ide.json` is the capture/diff baseline +
+provenance (read by `capture_kiro_fingerprint.py` and humans), and the
+`tls_fingerprint_profiles` DB row (seeded by `tk_014`) is what the runtime dialer
+uses. They are **not auto-synced.** After a re-capture, `emit-profile` refreshes
+only the JSON; to change the live JA3 you must also update the DB row — either via
+the admin TLS-fingerprint-profile UI, or a follow-up migration that re-seeds with
+`ON CONFLICT (name) DO UPDATE SET ...` (the `tk_014` `DO NOTHING` seed sets the
+initial value only). This is the same JSON-source / DB-runtime split cc uses; cc
+auto-syncs via `manage-anthropic-config sync-runtime` (GetOrUpsertByName), kiro
+does the propagation step explicitly.
+
 ### First real capture (provenance)
 
 Captured 2026-06-03 from a real Kiro IDE on macOS (Node 22.22.0), proxied egress

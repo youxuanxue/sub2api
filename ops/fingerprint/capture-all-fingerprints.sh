@@ -61,7 +61,9 @@ KIRO_STATUS="skipped"
 # Run cc.
 if [[ "$SKIP_CC" == "0" ]]; then
   echo "############ Claude Code (anthropic) ############"
-  bash "$CC" capture "${CC_ARGS[@]}"
+  # ${CC_ARGS[@]+...} keeps the empty-array expansion safe under `set -u` on
+  # macOS's default bash 3.2 (a bare "${CC_ARGS[@]}" aborts with "unbound variable").
+  bash "$CC" capture ${CC_ARGS[@]+"${CC_ARGS[@]}"}
   rc=$?
   case "$rc" in
     0) CC_STATUS="aligned" ;;
@@ -73,7 +75,7 @@ fi
 # Run kiro.
 if [[ "$SKIP_KIRO" == "0" ]]; then
   echo "############ Kiro IDE (kiro) ############"
-  bash "$KIRO" capture "${KIRO_ARGS[@]}"
+  bash "$KIRO" capture ${KIRO_ARGS[@]+"${KIRO_ARGS[@]}"}
   rc=$?
   case "$rc" in
     0) KIRO_STATUS="aligned" ;;

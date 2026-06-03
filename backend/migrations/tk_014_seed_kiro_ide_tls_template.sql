@@ -16,8 +16,20 @@
 --
 -- Idempotent: ON CONFLICT (name) DO NOTHING — never clobbers an operator edit.
 -- Keep the arrays byte-identical to tk_canonical_kiro_ide.json (order-sensitive:
--- cipher and extension order drive the JA3). Refresh both together via the
--- ops/kiro capture toolchain if a future Kiro IDE release shifts the fingerprint.
+-- cipher and extension order drive the JA3).
+--
+-- UPDATING after a Kiro IDE release shifts the fingerprint (the two encodings of
+-- the profile — this seed and deploy/aws/stage0/tk_canonical_kiro_ide.json — are
+-- NOT auto-synced; the JSON is the capture/diff baseline + provenance, this row is
+-- the runtime source):
+--   1. re-capture and `ops/kiro/capture_kiro_fingerprint.py emit-profile` to refresh
+--      the JSON, then
+--   2. propagate to the live DB row by EITHER editing the profile in the admin TLS
+--      fingerprint UI, OR shipping a follow-up migration that re-seeds with
+--      `ON CONFLICT (name) DO UPDATE SET ...` (this DO NOTHING seed only sets the
+--      initial value and will not re-apply).
+-- emit-profile alone updates only the JSON; step 2 is required or the wire keeps
+-- the old JA3.
 
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '10min';

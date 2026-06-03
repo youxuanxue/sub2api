@@ -50,7 +50,10 @@ bash ops/kiro/capture-kiro-fingerprint.sh capture --proxy-port 7890 --seconds 75
 
 # 用真实抓包落盘 canonical profile：
 python3 ops/kiro/capture_kiro_fingerprint.py emit-profile --bundle .kiro_tls/<stamp>-kiro-capture.bundle.json
-#   → 写 deploy/aws/stage0/tk_canonical_kiro_ide.json
+#   → 只写 deploy/aws/stage0/tk_canonical_kiro_ide.json（抓包/diff 基线 + provenance）
+#   ⚠️ 更新线上 JA3 还需把 DB 行同步：首次由 migration tk_014 seed；后续更新走 admin
+#      TLS profile UI，或新 migration 用 ON CONFLICT (name) DO UPDATE 重灌（tk_014 是
+#      DO NOTHING 只初始化）。emit-profile 单独不改 DB。详见 design doc。
 
 # 后续漂移检测（Kiro IDE 升级后）：
 bash ops/kiro/capture-kiro-fingerprint.sh check --bundle .kiro_tls/<stamp>...bundle.json

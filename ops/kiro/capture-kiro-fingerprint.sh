@@ -71,9 +71,9 @@ resolve_ips() {
   local host ip ips=""
   for host in $KIRO_HOSTS; do
     if command -v dig >/dev/null 2>&1; then
-      ip="$(dig +short "$host" A | grep -E '^[0-9.]+$' || true)"
+      ip="$(dig +short "$host" A | grep -E '^[0-9.]+$' || true)"  # preflight-allow: swallow (no A record -> empty, errored explicitly downstream)
     else
-      ip="$(host "$host" 2>/dev/null | awk '/has address/ {print $4}' || true)"
+      ip="$(host "$host" 2>/dev/null | awk '/has address/ {print $4}' || true)"  # preflight-allow: swallow (host(1) absent/!resolve -> empty)
     fi
     ips="$ips $ip"
   done
@@ -136,7 +136,9 @@ cmd_capture() {
   echo "Starting tcpdump for up to ${CAPTURE_SECONDS}s (sudo may prompt) ..."
   echo "  filter: $filter"
   # -G + -W 1 stops after one CAPTURE_SECONDS window; capture only handshake bytes.
-  sudo tcpdump "${iface_arg[@]}" -s 0 -w "$pcap" -G "$CAPTURE_SECONDS" -W 1 "$filter" \
+  # ${iface_arg[@]+...} keeps the empty-array expansion safe under `set -u` on
+  # macOS's default bash 3.2 (bare expansion would abort with "unbound variable").
+  sudo tcpdump ${iface_arg[@]+"${iface_arg[@]}"} -s 0 -w "$pcap" -G "$CAPTURE_SECONDS" -W 1 "$filter" \
     >/dev/null 2>"$OUT_DIR/${stamp}-tcpdump.err" &
   local tcpdump_pid=$!
   sleep 1
@@ -144,7 +146,7 @@ cmd_capture() {
   echo
   echo ">>> NOW trigger ONE request from the real Kiro IDE (e.g. ask it anything)."
   echo ">>> Waiting for tcpdump to finish (or Ctrl-C tcpdump window after the request)."
-  wait "$tcpdump_pid" 2>/dev/null || true  # tcpdump exits at window end
+  wait "$tcpdump_pid" 2>/dev/null || true  # preflight-allow: swallow (tcpdump exits via -G/-W window; pcap content checked next)
 
   if [[ ! -s "$pcap" ]]; then
     echo "error: empty pcap — no handshake captured. Check --iface and that Kiro made a request." >&2
@@ -192,7 +194,7 @@ cmd_capture() {
 
 main() {
   local cmd="${1:-}"
-  shift || true
+  shift || true  # preflight-allow: swallow (no-arg invocation -> nothing to shift)
   case "$cmd" in
     capture) cmd_capture "$@" ;;
     diff)         require_cmd python3; exec python3 "$PY" diff "$@" ;;
