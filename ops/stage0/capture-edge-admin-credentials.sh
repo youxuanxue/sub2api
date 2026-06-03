@@ -23,8 +23,8 @@ set -euo pipefail
 
 _OPS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${_OPS_DIR}/../.." && pwd)"
-# shellcheck source=edge_admin_ssm_invocation_mi.inc.sh
-source "${_OPS_DIR}/edge_admin_ssm_invocation_mi.inc.sh"
+# shellcheck source=ssm_resolve_invocation_mi.inc.sh
+source "${_OPS_DIR}/ssm_resolve_invocation_mi.inc.sh"
 
 usage() {
   cat <<'EOF'
@@ -148,7 +148,7 @@ if [[ "${RES_MODE}" == lightsail ]]; then
     --comment "capture initial edge admin credentials (${EDGE_ID} lightsail)" \
     --parameters "file://${PARAM_BODY}" \
     --query Command.CommandId --output text)"
-  INSTANCE_ID_SSM="$(edge_admin_resolve_ssm_invocation_mi "${REGION}" "${COMMAND_ID}")"
+  INSTANCE_ID_SSM="$(ssm_resolve_invocation_mi "${REGION}" "${COMMAND_ID}")"
 else
   COMMAND_ID="$(aws ssm send-command \
     --region "$REGION" \

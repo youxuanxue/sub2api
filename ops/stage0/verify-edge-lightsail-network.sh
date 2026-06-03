@@ -161,6 +161,9 @@ PY
     --comment "verify-edge-lightsail-network renew cert ${EDGE_ID}" \
     --parameters "file://${PARAM_BODY}" \
     --query Command.CommandId --output text)"
+  # NB: intentionally NOT ssm_resolve_invocation_mi.inc.sh — this path uses a
+  # one-shot --details read + `ssm wait command-executed` rather than the shared
+  # 180s poll loop (different control flow, not a duplicate to converge).
   MI="$(aws ssm list-command-invocations --region "$REGION" --command-id "$COMMAND_ID" --details \
     --query 'CommandInvocations[0].InstanceId' --output text)"
   aws ssm wait command-executed --region "$REGION" --command-id "$COMMAND_ID" --instance-id "$MI" || true
