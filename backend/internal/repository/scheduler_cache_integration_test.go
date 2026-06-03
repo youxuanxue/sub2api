@@ -4,6 +4,7 @@ package repository
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -112,4 +113,80 @@ func TestSchedulerCacheSnapshotUsesSlimMetadataButKeepsFullAccount(t *testing.T)
 	require.Equal(t, strings.Repeat("x", 4096), full.GetCredential("huge_blob"))
 	require.Len(t, full.AccountGroups, 1)
 	require.NotNil(t, full.AccountGroups[0].Group)
+}
+
+// TestSchedulerCacheUpdateLastUsedOnlyTouchesMetaKey 回归保护 upstream
+// Wei-Shaw/sub2api#1723：UpdateLastUsed 只应刷新调度热路径读取的 slim meta
+// 键（sched:meta:<id>），绝不重写完整账号键（sched:acc:<id>）。重写完整账号
+// JSON（实测 3-12 KB）仅为 bump 一个时间戳，会造成巨大的 Redis 读写放大。
+func TestSchedulerCacheUpdateLastUsedOnlyTouchesMetaKey(t *testing.T) {
+	ctx := context.Background()
+	rdb := testRedis(t)
+	cache := NewSchedulerCache(rdb)
+
+	bucket := service.SchedulerBucket{GroupID: 3, Platform: service.PlatformAnthropic, Mode: service.SchedulerModeSingle}
+	t0 := time.Now().UTC().Truncate(time.Second).Add(-time.Hour)
+	t1 := t0.Add(time.Hour)
+
+	account := service.Account{
+		ID:          202,
+		Name:        "claude-lru",
+		Platform:    service.PlatformAnthropic,
+		Type:        service.AccountTypeOAuth,
+		Status:      service.StatusActive,
+		Schedulable: true,
+		Concurrency: 2,
+		Priority:    1,
+		LastUsedAt:  &t0,
+		Credentials: map[string]any{
+			"api_key":      "anthropic-api-key",
+			"access_token": "secret-access-token",
+			"huge_blob":    strings.Repeat("x", 8192),
+		},
+		Extra: map[string]any{
+			"base_rpm":         28,
+			"max_sessions":     30,
+			"mixed_scheduling": true,
+		},
+		GroupIDs: []int64{bucket.GroupID},
+		AccountGroups: []service.AccountGroup{
+			{AccountID: 202, GroupID: bucket.GroupID, Priority: 1},
+		},
+	}
+
+	require.NoError(t, cache.SetSnapshot(ctx, bucket, []service.Account{account}))
+
+	fullKey := schedulerAccountKey(strconv.FormatInt(account.ID, 10))
+	rawBefore, err := rdb.Get(ctx, fullKey).Result()
+	require.NoError(t, err)
+	require.NotEmpty(t, rawBefore)
+
+	// 触发 LastUsedAt bump（调度热路径每个 flush 周期都会走到这里）。
+	require.NoError(t, cache.UpdateLastUsed(ctx, map[int64]time.Time{account.ID: t1}))
+
+	// 核心断言：完整账号键的字节必须完全不变 —— 没有写放大。
+	rawAfter, err := rdb.Get(ctx, fullKey).Result()
+	require.NoError(t, err)
+	require.Equal(t, rawBefore, rawAfter,
+		"UpdateLastUsed 不得重写完整账号键 sched:acc:<id>（#1723 写放大回归）")
+
+	// 调度 LRU 读取的 meta 键必须反映新的 LastUsedAt。
+	snapshot, hit, err := cache.GetSnapshot(ctx, bucket)
+	require.NoError(t, err)
+	require.True(t, hit)
+	require.Len(t, snapshot, 1)
+	require.NotNil(t, snapshot[0].LastUsedAt)
+	require.True(t, snapshot[0].LastUsedAt.Equal(t1),
+		"meta 键的 LastUsedAt 应被刷新为最新值，供 LRU tiebreak 使用")
+
+	// 完整账号键仍可 hydrate 出完整凭据；其 LastUsedAt 保持旧值是被接受的
+	// 契约——它不参与 LRU，会在下次快照重建/账号变更时刷新。
+	full, err := cache.GetAccount(ctx, account.ID)
+	require.NoError(t, err)
+	require.NotNil(t, full)
+	require.Equal(t, "secret-access-token", full.GetCredential("access_token"))
+	require.Equal(t, strings.Repeat("x", 8192), full.GetCredential("huge_blob"))
+	require.NotNil(t, full.LastUsedAt)
+	require.True(t, full.LastUsedAt.Equal(t0),
+		"完整账号键的 LastUsedAt 在 UpdateLastUsed 后保持旧值（不重写即不刷新，契约如此）")
 }
