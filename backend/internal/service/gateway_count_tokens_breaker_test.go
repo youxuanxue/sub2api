@@ -105,6 +105,9 @@ func TestGatewayService_ForwardCountTokens_CapacityErrorsFailoverNoBreaker(t *te
 	}{
 		{name: "429 rate limit", status: http.StatusTooManyRequests, respMsg: "rate_limit_error"},
 		{name: "529 overloaded", status: 529, respMsg: "overloaded_error"},
+		// 503（pool stub prod→edge 透回的 no-available-accounts）与主路径口径对齐：
+		// transient 容量错误交 failover 轮换，不熔断主力账号。
+		{name: "503 unavailable", status: http.StatusServiceUnavailable, respMsg: "overloaded_error"},
 	}
 
 	for _, tc := range cases {

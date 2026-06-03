@@ -5040,7 +5040,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 						}(),
 					})
 
-					rectifiedBody, applied := RectifyThinkingBudget(body)
+					rectifiedBody, applied := RectifyThinkingBudget(body, reqModel)
 					if applied && time.Since(retryStart) < maxRetryElapsed {
 						logger.LegacyPrintf("service.gateway", "Account %d: detected budget_tokens constraint error, retrying with rectified budget (budget_tokens=%d, max_tokens=%d)", account.ID, BudgetRectifyBudgetTokens, BudgetRectifyMaxTokens)
 						budgetRetryCtx, releaseBudgetRetryCtx := detachStreamUpstreamContext(ctx, reqStream)
@@ -5066,6 +5066,60 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 							logger.LegacyPrintf("service.gateway", "Account %d: budget rectifier retry failed: %v", account.ID, retryErr)
 						} else {
 							logger.LegacyPrintf("service.gateway", "Account %d: budget rectifier retry build failed: %v", account.ID, buildErr)
+						}
+					}
+				}
+
+				// 第 4 级修复：Opus 4.7+ 拒绝手动思考 thinking:{type:"enabled",budget_tokens:N}，
+				// 仅收 {type:"adaptive"}（官方文档 + CC issue #61348）。某些客户端（旧版 cc、
+				// Claude for Mac、第三方 SDK）仍发老格式 → 上游 400 挂会话。反应式自愈：只在上游
+				// 真的回该 400 时把 enabled→adaptive 重试一次，happy path 一字节不碰。复用 budget
+				// 整流总开关（thinking-type 与 thinking-budget 同属思考整流，共用 kill-switch，
+				// 不新增配置面），并硬门控 isOpus47OrNewer(reqModel) 防误伤 sonnet / opus-4.6。
+				if isThinkingTypeAdaptiveRequiredError(errMsg) && isOpus47OrNewer(reqModel) && s.settingService.IsBudgetRectifierEnabled(ctx) {
+					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+						Platform:           account.Platform,
+						AccountID:          account.ID,
+						AccountName:        account.Name,
+						UpstreamStatusCode: resp.StatusCode,
+						UpstreamRequestID:  resp.Header.Get("x-request-id"),
+						UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
+						Kind:               "thinking_type_adaptive_error",
+						Message:            errMsg,
+						Detail: func() string {
+							if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+								return truncateString(string(respBody), s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes)
+							}
+							return ""
+						}(),
+					})
+
+					adaptiveBody, applied := RectifyThinkingTypeAdaptive(body)
+					if applied && time.Since(retryStart) < maxRetryElapsed {
+						logger.LegacyPrintf("service.gateway", "Account %d: detected thinking.type.enabled-unsupported error on %s, retrying with thinking.type=adaptive", account.ID, reqModel)
+						adaptiveRetryCtx, releaseAdaptiveRetryCtx := detachStreamUpstreamContext(ctx, reqStream)
+						adaptiveRetryReq, adaptiveWireBody, buildErr := s.buildUpstreamRequest(adaptiveRetryCtx, c, account, adaptiveBody, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
+						releaseAdaptiveRetryCtx()
+						if buildErr == nil {
+							adaptiveRetryResp, retryErr := s.httpUpstream.DoWithTLS(adaptiveRetryReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
+							if retryErr == nil {
+								if adaptiveRetryResp.StatusCode < 400 {
+									// adaptive 修正请求成功后，ParsedRequest 也要描述被接受的修正版。
+									lastWireBody = adaptiveWireBody
+									if err := replaceBody(adaptiveWireBody); err != nil {
+										_ = adaptiveRetryResp.Body.Close()
+										return nil, err
+									}
+								}
+								resp = adaptiveRetryResp
+								break
+							}
+							if adaptiveRetryResp != nil && adaptiveRetryResp.Body != nil {
+								_ = adaptiveRetryResp.Body.Close()
+							}
+							logger.LegacyPrintf("service.gateway", "Account %d: thinking adaptive rectifier retry failed: %v", account.ID, retryErr)
+						} else {
+							logger.LegacyPrintf("service.gateway", "Account %d: thinking adaptive rectifier retry build failed: %v", account.ID, buildErr)
 						}
 					}
 				}

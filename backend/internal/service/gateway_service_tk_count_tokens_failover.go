@@ -12,15 +12,18 @@ import (
 // count_tokens 是请求前的预检端点，不应因它的错误熔断主力账号：
 //   - 400：客户端 body schema 错误（Anthropic invalid_request_error），与账号
 //     容量/凭证无关（生产事故 2026-05-18）。
-//   - 429/529：上游限流/过载是 transient，轮换交给 count_tokens 的 failover loop，
-//     状态写入交给真正的 /v1/messages 路径（现场：edge us1 单次 count_tokens 529
-//     罚下 acct1 而 acct4 空闲）。
+//   - 429/529/503：上游限流/过载/无可用账号是 transient，轮换交给 count_tokens 的
+//     failover loop，状态写入交给真正的 /v1/messages 路径（现场：edge us1 单次
+//     count_tokens 529 罚下 acct1 而 acct4 空闲）。503 与主路径口径对齐——
+//     shouldFailoverUpstreamError 对 >=500 一律 failover，pool stub（prod→edge）
+//     透回的 503（no available accounts）同属容量类瞬时错误，不应熔断主力账号。
 //
 // 由 ForwardCountTokens 与 forwardCountTokensAnthropicAPIKeyPassthrough 共用，
 // 保证两条路径的豁免集合不漂移。
 func tkCountTokensSkipBreaker(statusCode int) bool {
 	return statusCode == http.StatusBadRequest ||
 		statusCode == http.StatusTooManyRequests ||
+		statusCode == http.StatusServiceUnavailable ||
 		statusCode == 529
 }
 

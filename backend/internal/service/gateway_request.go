@@ -7,6 +7,7 @@ import (
 	"math"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"unsafe"
 
@@ -1333,11 +1334,29 @@ func isThinkingBudgetConstraintError(errMsg string) bool {
 // It sets thinking.budget_tokens = 32000, thinking.type = "enabled" (unless adaptive),
 // and ensures max_tokens >= 32001.
 // Returns (modified body, true) if changes were applied, or (original body, false) if not.
-func RectifyThinkingBudget(body []byte) ([]byte, bool) {
+//
+// Model-aware: for Opus 4.7+ (isOpus47OrNewer), manual thinking (type "enabled" +
+// budget_tokens) is rejected with a 400 — only "adaptive" is accepted. Forcing "enabled"
+// here would emit a fresh adaptive-required 400. So for those models we produce the
+// adaptive shape (type=adaptive, no budget_tokens) instead, mirroring sanitizeBedrockThinking.
+func RectifyThinkingBudget(body []byte, modelID string) ([]byte, bool) {
 	// If thinking type is "adaptive", skip rectification entirely
 	thinkingType := gjson.GetBytes(body, "thinking.type").String()
 	if thinkingType == "adaptive" {
 		return body, false
+	}
+
+	// Opus 4.7+ only accepts adaptive: never force "enabled"/budget_tokens for these models.
+	if isOpus47OrNewer(modelID) {
+		modified, changed := RectifyThinkingTypeAdaptive(body)
+		// Still honor a sane max_tokens floor so a tiny client max_tokens doesn't choke thinking.
+		if maxTokens := gjson.GetBytes(modified, "max_tokens").Int(); maxTokens > 0 && maxTokens < int64(BudgetRectifyMinMaxTokens) {
+			if result, err := sjson.SetBytes(modified, "max_tokens", BudgetRectifyMaxTokens); err == nil {
+				modified = result
+				changed = true
+			}
+		}
+		return modified, changed
 	}
 
 	modified := body
@@ -1370,4 +1389,70 @@ func RectifyThinkingBudget(body []byte) ([]byte, bool) {
 	}
 
 	return modified, changed
+}
+
+// =========================
+// Thinking Type Adaptive Rectifier (Opus 4.7+)
+// =========================
+
+// isOpus47OrNewer reports whether modelID is Claude Opus 4.7 or newer. For these models
+// Anthropic rejects manual thinking (`thinking:{type:"enabled",budget_tokens:N}`) with a
+// 400 and only accepts `{type:"adaptive"}` (per docs; CC issue anthropics/claude-code#61348).
+// Opus 4.6 / Sonnet 4.x still accept "enabled" (merely deprecated) — must NOT match here.
+// Reuses the package-level claudeVersionRe (defined in bedrock_request.go) so the version
+// pattern has a single source; this is the platform-neutral sibling of isBedrockOpus47OrNewer.
+func isOpus47OrNewer(modelID string) bool {
+	lower := strings.ToLower(modelID)
+	if !strings.Contains(lower, "opus") {
+		return false
+	}
+	matches := claudeVersionRe.FindStringSubmatch(lower)
+	if matches == nil {
+		return false
+	}
+	major, _ := strconv.Atoi(matches[1])
+	minor, _ := strconv.Atoi(matches[2])
+	return major > 4 || (major == 4 && minor >= 7)
+}
+
+// isThinkingTypeAdaptiveRequiredError detects the Opus 4.7+ upstream 400 whose message is:
+//
+//	"thinking.type.enabled" is not supported for this model. Use "thinking.type.adaptive"
+//	and "output_config.effort" to control thinking behavior.
+//
+// Anchored on the literal "thinking.type.enabled" (no other Anthropic error carries it),
+// guarded by "not supported" / "adaptive" so it cannot collide with
+// isThinkingBudgetConstraintError (which matches ">= 1024").
+func isThinkingTypeAdaptiveRequiredError(errMsg string) bool {
+	m := strings.ToLower(errMsg)
+	if !strings.Contains(m, "thinking.type.enabled") {
+		return false
+	}
+	return strings.Contains(m, "not supported") || strings.Contains(m, "adaptive")
+}
+
+// RectifyThinkingTypeAdaptive converts a manual thinking request into the adaptive shape
+// required by Opus 4.7+: thinking.type "enabled" -> "adaptive", dropping budget_tokens
+// (adaptive controls depth via the effort parameter, not budget_tokens). Surgical sjson
+// edits preserve every other byte (incl. signed thinking blocks). Returns (body,false)
+// when there is nothing to convert (no thinking, or already adaptive).
+func RectifyThinkingTypeAdaptive(body []byte) ([]byte, bool) {
+	thinking := gjson.GetBytes(body, "thinking")
+	if !thinking.Exists() || !thinking.IsObject() {
+		return body, false
+	}
+	if thinking.Get("type").String() != "enabled" {
+		return body, false
+	}
+
+	modified := body
+	if result, err := sjson.SetBytes(modified, "thinking.type", "adaptive"); err == nil {
+		modified = result
+	} else {
+		return body, false
+	}
+	if result, err := sjson.DeleteBytes(modified, "thinking.budget_tokens"); err == nil {
+		modified = result
+	}
+	return modified, true
 }
