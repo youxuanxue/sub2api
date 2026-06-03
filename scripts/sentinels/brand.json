@@ -4,63 +4,91 @@
   "sentinels": [
     {
       "path": "frontend/index.html",
-      "must_contain": ["<title>TokenKey"],
+      "must_contain": [
+        "<title>TokenKey"
+      ],
       "rationale": "Default embedded SPA browser tab title before JS runs; regressing to Sub2API breaks the single-product narrative for every fresh load."
     },
     {
       "path": "frontend/src/router/title.ts",
-      "must_contain": ["'TokenKey'", "trimmed.toLowerCase() === 'sub2api'"],
+      "must_contain": [
+        "'TokenKey'",
+        "trimmed.toLowerCase() === 'sub2api'"
+      ],
       "rationale": "SPA `document.title` fallback when site_name is unset or upstream's default site_name leaks through; drifting back to Sub2API re-splits admin tab branding from the embedded index.html default."
     },
     {
       "path": "frontend/src/composables/usePlatformOptions.ts",
-      "must_contain": ["newapi: 'Extension Engine'"],
+      "must_contain": [
+        "newapi: 'Extension Engine'"
+      ],
       "rationale": "Fifth platform admin display label: degrades `newapi` from an external product name to Extension Engine while keeping the platform key `newapi` for routing/API."
     },
     {
       "path": "docs/PAYMENT.md",
-      "must_contain": ["TokenKey has a built-in payment system"],
+      "must_contain": [
+        "TokenKey has a built-in payment system"
+      ],
       "rationale": "Public payment guide is an external operator-facing surface; the opening sentence should stay aligned with the TokenKey product brand."
     },
     {
       "path": "deploy/README.md",
-      "must_contain": ["# TokenKey Deployment Files", "deploying TokenKey"],
+      "must_contain": [
+        "# TokenKey Deployment Files",
+        "deploying TokenKey"
+      ],
       "rationale": "Deployment overview is an outward operator-facing entry point; its title and opening sentence should stay aligned with the TokenKey product brand."
     },
     {
       "path": "deploy/DOCKER.md",
-      "must_contain": ["# TokenKey Docker Image", "TokenKey is an AI"],
+      "must_contain": [
+        "# TokenKey Docker Image",
+        "TokenKey is an AI"
+      ],
       "rationale": "Docker Hub/operator documentation is an external product surface; its title and opening sentence should stay aligned with the TokenKey brand."
     },
     {
       "path": "deploy/install.sh",
-      "must_contain": ["TokenKey Installation Script", "TokenKey 安装脚本"],
+      "must_contain": [
+        "TokenKey Installation Script",
+        "TokenKey 安装脚本"
+      ],
       "rationale": "The one-click installer is an operator-visible setup surface; its bilingual title must stay aligned with the TokenKey product brand."
     },
     {
       "path": "deploy/sub2api.service",
-      "must_contain": ["Description=TokenKey - AI API Gateway Platform"],
+      "must_contain": [
+        "Description=TokenKey - AI API Gateway Platform"
+      ],
       "rationale": "The systemd unit description is shown to operators in service tooling and should present the outward TokenKey product brand while keeping the compatibility unit filename unchanged."
     },
     {
       "path": "deploy/sub2api-datamanagementd.service",
-      "must_contain": ["Description=TokenKey Data Management Daemon"],
+      "must_contain": [
+        "Description=TokenKey Data Management Daemon"
+      ],
       "rationale": "The datamanagementd unit description is operator-visible and should use the TokenKey outward brand while preserving the compatibility unit filename."
     },
     {
       "path": "Dockerfile",
-      "must_contain": ["LABEL description=\"TokenKey - AI API Gateway Platform\""],
-      "rationale": "The root runtime image label is an external metadata surface and should reflect the TokenKey brand while preserving image names and source URLs."
+      "must_contain": [
+        "LABEL description=\"TokenKey - AI API Gateway Platform\""
+      ],
+      "rationale": "The root runtime image label is an external metadata surface and should reflect the TokenKey brand while preserving image names and source URLs. (The golang:<ver>-alpine builder tag in this file is a build/security pin, bumped independently — e.g. for Go stdlib CVE patches — and is NOT a brand anchor; only the LABEL is brand-load-bearing.)"
     },
     {
       "path": "deploy/Dockerfile",
-      "must_contain": ["LABEL description=\"TokenKey - AI API Gateway Platform\""],
-      "rationale": "The deploy runtime image label is external metadata and should reflect the TokenKey brand while preserving image names and source URLs."
+      "must_contain": [
+        "LABEL description=\"TokenKey - AI API Gateway Platform\""
+      ],
+      "rationale": "The deploy runtime image label is external metadata and should reflect the TokenKey brand while preserving image names and source URLs. (The golang:<ver>-alpine builder tag in this file is a build/security pin, bumped independently — e.g. for Go stdlib CVE patches — and is NOT a brand anchor; only the LABEL is brand-load-bearing.)"
     },
     {
       "path": "Dockerfile.goreleaser",
-      "must_contain": ["LABEL description=\"TokenKey - AI API Gateway Platform\""],
-      "rationale": "The release image label is external metadata and should reflect the TokenKey brand while preserving image names and source URLs."
+      "must_contain": [
+        "LABEL description=\"TokenKey - AI API Gateway Platform\""
+      ],
+      "rationale": "The release image label is external metadata and should reflect the TokenKey brand while preserving image names and source URLs. (The golang:<ver>-alpine builder tag in this file is a build/security pin, bumped independently — e.g. for Go stdlib CVE patches — and is NOT a brand anchor; only the LABEL is brand-load-bearing.)"
     }
   ]
 }
