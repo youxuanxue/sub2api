@@ -4563,6 +4563,27 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	reqStream := parsed.Stream
 	originalModel := reqModel
 
+	// TK: strip the Claude Code 1M-context model alias suffix (e.g.
+	// "claude-opus-4-8[1m]") that cc serializes verbatim into the model field on
+	// resume/continue/compact. Anthropic rejects it with 404 not_found_error and
+	// the client silently downgrades to the bare 200K model (claude-code #60913).
+	// Done before model mapping / scheduling / pricing so every consumer sees the
+	// bare id; originalModel keeps the client's literal alias so the response model
+	// echoes back what the client sent. The context-1m beta header is sent
+	// separately and passes through, so the bare model still gets the 1M window.
+	// See gateway_anthropic_context_window_alias_tk.go.
+	if account.Platform == PlatformAnthropic {
+		if bare, aliased := tkStripContextWindowModelAlias(reqModel); aliased {
+			if err := replaceBody(s.replaceModelInBody(body, bare)); err != nil {
+				return nil, err
+			}
+			reqModel, parsed.Model = bare, bare
+			logger.LegacyPrintf("service.gateway",
+				"TK context-window alias stripped before forward (prevents Anthropic 404 + silent 200K fallback, claude-code #60913): %s -> %s account=%d",
+				originalModel, bare, account.ID)
+		}
+	}
+
 	// TK canonical-OAuth ingress gates (see gateway_service_tk_canonical_oauth_guard.go):
 	//   1. reject third-party SDK UAs that would silently drain a personal cc subscription
 	//   2. remap retired opus model ids to the current default so the upstream model mix
@@ -5416,6 +5437,19 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 
 	if c != nil {
 		c.Set("anthropic_passthrough", true)
+	}
+	// TK: strip the Claude Code 1M-context model alias ("...[1m]") before forward
+	// so the API-key passthrough path does not 404 + silently downgrade to 200K
+	// (claude-code #60913). Mirrors the Forward path; bare ids are a no-op.
+	// See gateway_anthropic_context_window_alias_tk.go.
+	if bare, aliased := tkStripContextWindowModelAlias(input.RequestModel); aliased {
+		input.Body = s.replaceModelInBody(input.Body, bare)
+		input.RequestModel = bare
+		if input.Parsed != nil {
+			input.Parsed.Model = bare
+		}
+		logger.LegacyPrintf("service.gateway",
+			"TK context-window alias stripped on APIKey passthrough (claude-code #60913): -> %s account=%d", bare, account.ID)
 	}
 	// Pre-filter: sanitize invalid UTF-8 / lone surrogate escapes (claude-code
 	// #60168 / #63885 / #64777), THEN strip empty text blocks (including nested
@@ -9764,6 +9798,21 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		return nil
 	}
 	reqModel := parsed.Model
+
+	// TK: strip the Claude Code 1M-context model alias ("...[1m]") before forward
+	// so count_tokens does not 404 on the bracketed id and trip the per-account
+	// upstream-error breaker (claude-code #60913). Mirrors the Forward path; bare
+	// ids are a no-op. See gateway_anthropic_context_window_alias_tk.go.
+	if account != nil && account.Platform == PlatformAnthropic {
+		if bare, aliased := tkStripContextWindowModelAlias(reqModel); aliased {
+			if err := replaceBody(s.replaceModelInBody(body, bare)); err != nil {
+				return err
+			}
+			reqModel, parsed.Model = bare, bare
+			logger.LegacyPrintf("service.gateway",
+				"TK context-window alias stripped on count_tokens (claude-code #60913): -> %s account=%d", bare, account.ID)
+		}
+	}
 
 	// Pre-filter: sanitize invalid UTF-8 / lone surrogate escapes (claude-code
 	// #60168 / #63885 / #64777), THEN strip empty text blocks. Sanitize runs
