@@ -57,11 +57,11 @@ CREATE INDEX IF NOT EXISTS ix_accounts_tier_id ON accounts (tier_id) WHERE delet
 -- preflight/CI failure (plan risk #6 — tiers-table-vs-git projection drift).
 INSERT INTO tiers (name, concurrency, priority, rate_multiplier, base_rpm, max_sessions, rpm_sticky_buffer, session_idle_timeout_minutes, window_cost_limit, window_cost_sticky_reserve, cache_ttl_override_enabled, cache_ttl_override_target, tls_profile_name)
 VALUES
-    ('l1',  4, 1, 1.0, 14,  30,  5, 8, 600, 0, false, '1h', 'tk_canonical_cc_oauth'),
-    ('l2',  6, 2, 1.0, 28,  60, 10, 8, 600, 0, false, '1h', 'tk_canonical_cc_oauth'),
-    ('l3',  8, 3, 1.0, 42,  90, 15, 8, 600, 0, true,  '1h', 'tk_canonical_cc_oauth'),
-    ('l4', 10, 4, 1.0, 56, 120, 20, 8, 600, 0, true,  '1h', 'tk_canonical_cc_oauth'),
-    ('l5', 12, 5, 1.0, 56, 150, 20, 8, 600, 0, true,  '1h', 'tk_canonical_cc_oauth')
+    ('l1',  4, 1, 1.0, 21,  45,  8, 8, 800, 0, true, '1h', 'tk_canonical_cc_oauth'),
+    ('l2',  6, 2, 1.0, 42,  90, 15, 8, 800, 0, true, '1h', 'tk_canonical_cc_oauth'),
+    ('l3',  8, 3, 1.0, 63, 120, 23, 8, 800, 0, true, '1h', 'tk_canonical_cc_oauth'),
+    ('l4', 10, 4, 1.0, 84, 150, 30, 8, 800, 0, true, '1h', 'tk_canonical_cc_oauth'),
+    ('l5', 12, 5, 1.0, 84, 180, 30, 8, 800, 0, true, '1h', 'tk_canonical_cc_oauth')
 ON CONFLICT (name) DO NOTHING;
 
 -- Backfill tier_id for existing anthropic OAuth accounts that carry the legacy

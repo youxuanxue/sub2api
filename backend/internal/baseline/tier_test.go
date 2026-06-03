@@ -26,33 +26,42 @@ func TestLoadTierBaselineDoc(t *testing.T) {
 	}
 }
 
+// TestEffectiveBaselineForTier verifies the MERGE MECHANISM (shared_baseline +
+// per-tier overlay), not specific numeric values. Effective account fields and
+// tier-only extra keys are compared against the loaded doc itself, so legitimate
+// baseline value changes (e.g. an across-the-board RPM bump) never require a test
+// edit — the JSON stays the single source of truth.
 func TestEffectiveBaselineForTier(t *testing.T) {
-	// l4 baseline from anthropic-oauth-stability-baselines-tiered.json:
-	// account.concurrency=10 priority=4; extra.base_rpm=56 max_sessions=120 rpm_sticky_buffer=20
+	doc, err := LoadTierBaselineDoc()
+	if err != nil {
+		t.Fatalf("LoadTierBaselineDoc: %v", err)
+	}
 	eff, err := EffectiveBaselineForTier("L4") // case-insensitive
 	if err != nil {
 		t.Fatalf("EffectiveBaselineForTier: %v", err)
 	}
-	if eff.Concurrency != 10 || eff.Priority != 4 {
-		t.Fatalf("l4 concurrency/priority = %d/%d want 10/4", eff.Concurrency, eff.Priority)
+	tier := doc.Tiers["l4"]
+	// account fields wired from tiers[l4].baseline.account (self-consistent, no magic numbers)
+	if eff.Concurrency != tier.Baseline.Account.Concurrency || eff.Priority != tier.Baseline.Account.Priority {
+		t.Fatalf("l4 concurrency/priority = %d/%d want %d/%d",
+			eff.Concurrency, eff.Priority, tier.Baseline.Account.Concurrency, tier.Baseline.Account.Priority)
 	}
-	if eff.RateMultiplier != 1.0 {
-		t.Fatalf("l4 rate_multiplier = %v want 1.0", eff.RateMultiplier)
+	if eff.RateMultiplier != tier.Baseline.Account.RateMultiplier {
+		t.Fatalf("l4 rate_multiplier = %v want %v", eff.RateMultiplier, tier.Baseline.Account.RateMultiplier)
 	}
-	// shared extra key present
+	// shared extra keys carried into the merge
 	if v, _ := eff.Extra["rpm_strategy"].(string); v != "tiered" {
 		t.Fatalf("expected shared extra rpm_strategy=tiered, got %v", eff.Extra["rpm_strategy"])
 	}
-	// shared enable_tls_fingerprint present
 	if v, _ := eff.Extra["enable_tls_fingerprint"].(bool); !v {
 		t.Fatalf("expected enable_tls_fingerprint=true in merged extra")
 	}
-	// tier-specific extra overrides/adds: base_rpm=56 (JSON number -> float64)
-	if v, _ := eff.Extra["base_rpm"].(float64); v != 56 {
-		t.Fatalf("l4 base_rpm = %v want 56", eff.Extra["base_rpm"])
+	// tier-only extra overlaid: value equals the per-tier source (mechanism, not a literal)
+	if eff.Extra["base_rpm"] != tier.Baseline.Extra["base_rpm"] {
+		t.Fatalf("l4 base_rpm = %v want %v (overlaid from tier)", eff.Extra["base_rpm"], tier.Baseline.Extra["base_rpm"])
 	}
-	if v, _ := eff.Extra["max_sessions"].(float64); v != 120 {
-		t.Fatalf("l4 max_sessions = %v want 120", eff.Extra["max_sessions"])
+	if eff.Extra["max_sessions"] != tier.Baseline.Extra["max_sessions"] {
+		t.Fatalf("l4 max_sessions = %v want %v (overlaid from tier)", eff.Extra["max_sessions"], tier.Baseline.Extra["max_sessions"])
 	}
 	// credentials carried from shared_baseline
 	if _, ok := eff.Credentials["temp_unschedulable_rules"]; !ok {
@@ -68,14 +77,48 @@ func TestEffectiveBaselineForTier(t *testing.T) {
 	}
 }
 
-func TestEffectiveBaselineForTier_LowerOverridesShared(t *testing.T) {
-	// l1 sets cache_ttl_override_enabled=false, overriding shared true.
-	eff, err := EffectiveBaselineForTier("l1")
+// TestTierLadderInvariants asserts structural invariants that hold regardless of
+// the exact numeric baselines, so value-only changes don't churn this test:
+//   - every tier loads and carries the required positive extra caps
+//   - shared extra keys are overlaid onto every tier
+//   - priority follows tier order (l1..l5 -> 1..5)
+//   - the RPM / session / cost ladder is monotonic non-decreasing l1 -> l5
+func TestTierLadderInvariants(t *testing.T) {
+	order, err := TierOrder()
 	if err != nil {
-		t.Fatalf("EffectiveBaselineForTier l1: %v", err)
+		t.Fatalf("TierOrder: %v", err)
 	}
-	if v, ok := eff.Extra["cache_ttl_override_enabled"].(bool); !ok || v {
-		t.Fatalf("l1 cache_ttl_override_enabled = %v want false", eff.Extra["cache_ttl_override_enabled"])
+	requiredCaps := []string{"base_rpm", "rpm_sticky_buffer", "max_sessions", "window_cost_limit"}
+	ladder := []string{"base_rpm", "max_sessions", "window_cost_limit"}
+	prev := map[string]float64{}
+	for i, name := range order {
+		eff, err := EffectiveBaselineForTier(name)
+		if err != nil {
+			t.Fatalf("EffectiveBaselineForTier %q: %v", name, err)
+		}
+		if eff.Priority != i+1 {
+			t.Fatalf("%s priority = %d want %d (tier order)", name, eff.Priority, i+1)
+		}
+		if eff.Concurrency <= 0 {
+			t.Fatalf("%s concurrency = %d want > 0", name, eff.Concurrency)
+		}
+		// shared overlay present on every tier
+		if v, _ := eff.Extra["rpm_strategy"].(string); v != "tiered" {
+			t.Fatalf("%s missing shared rpm_strategy=tiered", name)
+		}
+		for _, k := range requiredCaps {
+			v, ok := eff.Extra[k].(float64)
+			if !ok || v <= 0 {
+				t.Fatalf("%s extra[%q] = %v want float64 > 0", name, k, eff.Extra[k])
+			}
+		}
+		for _, k := range ladder {
+			v := eff.Extra[k].(float64)
+			if v < prev[k] {
+				t.Fatalf("%s extra[%q] = %v < lower tier %v (ladder must be non-decreasing)", name, k, v, prev[k])
+			}
+			prev[k] = v
+		}
 	}
 }
 
