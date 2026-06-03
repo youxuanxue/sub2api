@@ -21,6 +21,17 @@ Compared pairs (semantic JSON equality — key order / whitespace ignored):
   deploy/aws/stage0/anthropic-stub-pool-baselines.json
     == backend/internal/baseline/anthropic-stub-pool-baselines.json
 
+Third assertion (migration immutability):
+  backend/migrations/tk_012_...sql tiers seed == FROZEN_TK012_SEED (its original,
+  already-applied values). The seed is the fresh-DB bootstrap projection only; the
+  live source of truth for tier values is the JSON, which TierService.ensure-
+  SeededFromBaseline UPSERTs into the tiers table on every boot. tk_012 is an
+  applied migration and is therefore IMMUTABLE (CLAUDE.md §2 / §5.x) — editing it
+  to "re-sync" with a raised JSON is what broke uk1 on 2026-06-03 (boot-time
+  checksum-mismatch outage). This guard fails BEFORE release if anyone edits the
+  frozen seed again. To raise live baselines, edit the JSON only (never tk_012);
+  add a NEW migration if a fresh-DB seed change is truly required.
+
 Exit codes:
   0  — every embedded copy matches its deploy source.
   1  — drift detected (semantic mismatch).
@@ -53,11 +64,7 @@ PAIRS = [
     "anthropic-stub-pool-baselines.json",
 ]
 
-# Column order of the tk_012 `INSERT INTO tiers (...)` seed. The migration seed
-# is the pre-startup bootstrap projection of the git baseline JSON; it MUST equal
-# the JSON-derived effective per-tier values (otherwise a fresh DB boots with
-# stale tier numbers until ensureSeededFromBaseline runs). Guarding it here makes
-# a JSON edit that is not mirrored into the seed a hard failure (plan risk #6).
+# Column order of the tk_012 `INSERT INTO tiers (...)` seed.
 SEED_COLUMNS = [
     "name",
     "concurrency",
@@ -73,6 +80,21 @@ SEED_COLUMNS = [
     "cache_ttl_override_target",
     "tls_profile_name",
 ]
+
+# FROZEN_TK012_SEED — the original, already-applied tk_012 tiers seed (the values
+# present when tk_012 first ran against every existing DB; == git tag v1.7.64).
+# tk_012 is an applied migration → IMMUTABLE (CLAUDE.md §2 / §5.x). The seed must
+# stay byte-equal to this forever; raising live tier baselines is done via the
+# JSON (ensureSeededFromBaseline UPSERTs it on boot), never by editing tk_012.
+# Re-syncing the seed to a raised JSON broke uk1 on 2026-06-03 (checksum-mismatch
+# boot outage); this constant makes that a preflight/CI failure before release.
+FROZEN_TK012_SEED = {
+    "l1": {"name": "l1", "concurrency": 4, "priority": 1, "rate_multiplier": 1.0, "base_rpm": 14, "max_sessions": 30, "rpm_sticky_buffer": 5, "session_idle_timeout_minutes": 8, "window_cost_limit": 600, "window_cost_sticky_reserve": 0, "cache_ttl_override_enabled": False, "cache_ttl_override_target": "1h", "tls_profile_name": "tk_canonical_cc_oauth"},
+    "l2": {"name": "l2", "concurrency": 6, "priority": 2, "rate_multiplier": 1.0, "base_rpm": 28, "max_sessions": 60, "rpm_sticky_buffer": 10, "session_idle_timeout_minutes": 8, "window_cost_limit": 600, "window_cost_sticky_reserve": 0, "cache_ttl_override_enabled": False, "cache_ttl_override_target": "1h", "tls_profile_name": "tk_canonical_cc_oauth"},
+    "l3": {"name": "l3", "concurrency": 8, "priority": 3, "rate_multiplier": 1.0, "base_rpm": 42, "max_sessions": 90, "rpm_sticky_buffer": 15, "session_idle_timeout_minutes": 8, "window_cost_limit": 600, "window_cost_sticky_reserve": 0, "cache_ttl_override_enabled": True, "cache_ttl_override_target": "1h", "tls_profile_name": "tk_canonical_cc_oauth"},
+    "l4": {"name": "l4", "concurrency": 10, "priority": 4, "rate_multiplier": 1.0, "base_rpm": 56, "max_sessions": 120, "rpm_sticky_buffer": 20, "session_idle_timeout_minutes": 8, "window_cost_limit": 600, "window_cost_sticky_reserve": 0, "cache_ttl_override_enabled": True, "cache_ttl_override_target": "1h", "tls_profile_name": "tk_canonical_cc_oauth"},
+    "l5": {"name": "l5", "concurrency": 12, "priority": 5, "rate_multiplier": 1.0, "base_rpm": 56, "max_sessions": 150, "rpm_sticky_buffer": 20, "session_idle_timeout_minutes": 8, "window_cost_limit": 600, "window_cost_sticky_reserve": 0, "cache_ttl_override_enabled": True, "cache_ttl_override_target": "1h", "tls_profile_name": "tk_canonical_cc_oauth"},
+}
 
 
 def fatal(msg: str, code: int = 2) -> "None":
@@ -96,12 +118,18 @@ def canonical(obj: object) -> str:
 
 
 def effective_tiers_from_json(doc: dict) -> dict[str, dict]:
-    """Compute the effective per-tier seed row from the tier baseline JSON.
+    """Compute the effective per-tier row from the tier baseline JSON.
 
     Mirrors backend/internal/baseline/tier.go EffectiveBaselineForTier:
     extra = shared_baseline.extra overlaid with tiers[id].baseline.extra;
     concurrency/priority/rate_multiplier come from tiers[id].baseline.account;
     tls_profile_name comes from shared_baseline.tls_profile.name.
+
+    NOTE: this is the LIVE-tier source of truth (it equals what
+    ensureSeededFromBaseline UPSERTs into the tiers table on boot). It is used by
+    ops/anthropic/manage-anthropic-config.py (_load_expected_tiers) for live
+    tiers-TABLE drift detection — NOT for the frozen tk_012 migration seed, which
+    is immutable and guarded against FROZEN_TK012_SEED above.
     """
     shared = doc.get("shared_baseline") or {}
     shared_extra = shared.get("extra") or {}
@@ -174,9 +202,10 @@ def _num_eq(a: object, b: object) -> bool:
         return a == b
 
 
-def diff_seed_vs_effective(
-    seed: dict[str, dict], effective: dict[str, dict]
+def diff_seed_vs_frozen(
+    seed: dict[str, dict], frozen: dict[str, dict]
 ) -> list[str]:
+    """Diff the parsed tk_012 seed against its immutable frozen original."""
     problems: list[str] = []
     NUMERIC = {
         "concurrency",
@@ -189,20 +218,20 @@ def diff_seed_vs_effective(
         "window_cost_limit",
         "window_cost_sticky_reserve",
     }
-    missing = set(effective) - set(seed)
-    extra = set(seed) - set(effective)
+    missing = set(frozen) - set(seed)
+    extra = set(seed) - set(frozen)
     for t in sorted(missing):
-        problems.append(f"tier {t}: present in JSON, missing from tk_012 seed")
+        problems.append(f"tier {t}: present in frozen original, missing from tk_012 seed")
     for t in sorted(extra):
-        problems.append(f"tier {t}: present in tk_012 seed, missing from JSON")
-    for t in sorted(set(seed) & set(effective)):
-        s, e = seed[t], effective[t]
+        problems.append(f"tier {t}: present in tk_012 seed, not in frozen original")
+    for t in sorted(set(seed) & set(frozen)):
+        s, e = seed[t], frozen[t]
         for col in SEED_COLUMNS:
             sv, ev = s.get(col), e.get(col)
             equal = _num_eq(sv, ev) if col in NUMERIC else (sv == ev)
             if not equal:
                 problems.append(
-                    f"tier {t}.{col}: seed={sv!r} != JSON-effective={ev!r}"
+                    f"tier {t}.{col}: seed={sv!r} != frozen-original={ev!r}"
                 )
     return problems
 
@@ -224,17 +253,15 @@ def main() -> int:
         ok_all = ok_all and ok
         results.append((name, ok))
 
-    # Third assertion: tk_012 migration seed == embedded tier-baseline effective values.
+    # Third assertion: tk_012 migration seed == its FROZEN original (immutability).
     seed_problems: list[str] = []
     if not MIGRATION_PATH.is_file():
         fatal(f"file not found: {MIGRATION_PATH.relative_to(REPO_ROOT)}")
-    embed_tier_doc = load_json(EMBED_DIR / TIER_BASELINE_NAME)
-    effective = effective_tiers_from_json(embed_tier_doc)
     seed = parse_migration_seed(MIGRATION_PATH.read_text(encoding="utf-8"))
-    seed_problems = diff_seed_vs_effective(seed, effective)
+    seed_problems = diff_seed_vs_frozen(seed, FROZEN_TK012_SEED)
     seed_ok = not seed_problems
     ok_all = ok_all and seed_ok
-    results.append(("tk_012 seed == embedded tier-baseline effective", seed_ok))
+    results.append(("tk_012 seed == frozen original (immutable)", seed_ok))
 
     if args.json:
         print(json.dumps({"ok": ok_all, "pairs": {n: o for n, o in results}, "seed_problems": seed_problems}, indent=2, sort_keys=True))
@@ -244,23 +271,24 @@ def main() -> int:
         if not args.quiet:
             for name, _ in results[:2]:
                 print(f"OK: embedded {name} matches deploy/aws/stage0 source")
-            print("OK: tk_012 migration seed matches embedded tier-baseline effective values")
+            print("OK: tk_012 migration seed matches its frozen original (immutable)")
         return 0
 
     if seed_problems:
         print(
-            "FAIL: tk_012 tiers seed DRIFT vs embedded tier baseline "
-            f"({TIER_BASELINE_NAME}):",
+            "FAIL: tk_012 tiers seed was EDITED — an applied migration is immutable "
+            "(CLAUDE.md §2 / §5.x). Editing it breaks the boot-time migration "
+            "checksum guard on every already-migrated DB (uk1 outage, 2026-06-03):",
             file=sys.stderr,
         )
         for p in seed_problems:
             print(f"  {p}", file=sys.stderr)
         print(
-            "Fix: update the INSERT INTO tiers (...) VALUES rows in "
-            "backend/migrations/tk_012_create_tiers_and_account_tier_id.sql to match "
-            "the JSON-derived effective values (shared_baseline.extra overlaid with "
-            "tiers[id].baseline.extra; concurrency/priority/rate_multiplier from "
-            "tiers[id].baseline.account).",
+            "Fix: restore tk_012_create_tiers_and_account_tier_id.sql to its original "
+            "seed (FROZEN_TK012_SEED). To raise LIVE tier baselines, edit ONLY the "
+            f"tier baseline JSON ({TIER_BASELINE_NAME}) — TierService.ensureSeeded"
+            "FromBaseline UPSERTs it into the tiers table on boot. If a fresh-DB seed "
+            "change is genuinely needed, add a NEW migration (never edit tk_012).",
             file=sys.stderr,
         )
         if all(ok for _, ok in results[:2]):
