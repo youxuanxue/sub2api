@@ -73,6 +73,7 @@ jobs:
           TK_SMOKE_PROD_ANTHROPIC_KEY: ${{ secrets.TK_SMOKE_PROD_ANTHROPIC_KEY }}
           TK_SMOKE_PROD_GEMINI_KEY: ${{ secrets.TK_SMOKE_PROD_GEMINI_KEY }}
           TK_SMOKE_PROD_OPENAI_OAUTH_KEY: ${{ secrets.TK_SMOKE_PROD_OPENAI_OAUTH_KEY }}
+          TK_SMOKE_PROD_KIRO_KEY: ${{ secrets.TK_SMOKE_PROD_KIRO_KEY }}
         run: |
           set -euo pipefail
           if [ -z "${TK_SMOKE_PROD_ANTHROPIC_KEY:-}" ]; then
@@ -92,6 +93,13 @@ jobs:
             echo "::error::TK_SMOKE_PROD_OPENAI_OAUTH_KEY is not set in prod Environment."
             echo "Add a TokenKey API key bound to an OpenAI OAuth/codex-platform group on this stack's gateway."
             echo "This probe guards the reasoning_tokens passthrough regression."
+            echo "See deploy/aws/README.md (Smoke config) and docs/approved/deploy-stage0-workflow.md §5."
+            exit 1
+          fi
+          if [ -z "${TK_SMOKE_PROD_KIRO_KEY:-}" ]; then
+            echo "::error::TK_SMOKE_PROD_KIRO_KEY is not set in prod Environment."
+            echo "Add a TokenKey API key bound to a kiro-platform group on this stack's gateway."
+            echo "This probe guards the kiro (sixth platform) /v1/messages relay path, incl. the default-on TLS-fingerprint masking shipped in v1.7.64."
             echo "See deploy/aws/README.md (Smoke config) and docs/approved/deploy-stage0-workflow.md §5."
             exit 1
           fi
@@ -149,9 +157,11 @@ jobs:
           TK_SMOKE_PROD_ANTHROPIC_KEY: ${{ secrets.TK_SMOKE_PROD_ANTHROPIC_KEY }}
           TK_SMOKE_PROD_GEMINI_KEY: ${{ secrets.TK_SMOKE_PROD_GEMINI_KEY }}
           TK_SMOKE_PROD_OPENAI_OAUTH_KEY: ${{ secrets.TK_SMOKE_PROD_OPENAI_OAUTH_KEY }}
+          TK_SMOKE_PROD_KIRO_KEY: ${{ secrets.TK_SMOKE_PROD_KIRO_KEY }}
           TK_SMOKE_PROD_ANTHROPIC_MODEL: ${{ vars.TK_SMOKE_PROD_ANTHROPIC_MODEL || 'claude-sonnet-4-6' }}
           TK_SMOKE_PROD_GEMINI_MODEL: ${{ vars.TK_SMOKE_PROD_GEMINI_MODEL }}
           TK_SMOKE_PROD_OPENAI_OAUTH_MODEL: ${{ vars.TK_SMOKE_PROD_OPENAI_OAUTH_MODEL }}
+          TK_SMOKE_PROD_KIRO_MODEL: ${{ vars.TK_SMOKE_PROD_KIRO_MODEL || 'claude-sonnet-4-6' }}
         run: |
           set -euo pipefail
           # Secret presence is validated up front in "Validate prod smoke secrets"
