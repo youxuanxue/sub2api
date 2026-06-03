@@ -29,6 +29,8 @@ export interface EdgeAccountSummary {
   priority: number
   rate_multiplier: number
   error_message?: string
+  // Operator 备注 (admin remark), mirrors the admin accounts page. Non-credential.
+  notes?: string
   last_used_at?: string
   expires_at?: string
   created_at: string

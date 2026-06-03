@@ -3099,6 +3099,8 @@ export default {
       description: 'Read-only overview of accounts on each edge deployment',
       refresh: 'Refresh',
       lastFetched: 'Last fetched',
+      platformFilter: 'Platform',
+      allPlatforms: 'All platforms',
       noEdges: 'No edges discovered (no anthropic mirror stubs configured on this deployment).',
       edgeEmpty: 'No accounts on this edge.',
       summaryEdges: '{ok}/{total} edges reachable',

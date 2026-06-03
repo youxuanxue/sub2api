@@ -8,6 +8,17 @@
           <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ t('admin.edgeAccounts.description') }}</p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
+          <label class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+            <span>{{ t('admin.edgeAccounts.platformFilter') }}</span>
+            <select
+              class="input input-sm w-36"
+              :value="platform"
+              @change="setPlatform(($event.target as HTMLSelectElement).value)"
+            >
+              <option value="all">{{ t('admin.edgeAccounts.allPlatforms') }}</option>
+              <option v-for="p in PLATFORM_OPTIONS" :key="p" :value="p">{{ p }}</option>
+            </select>
+          </label>
           <span v-if="lastFetchedAt" class="text-xs text-gray-400 dark:text-gray-500">
             {{ t('admin.edgeAccounts.lastFetched') }}: {{ formatDateTime(lastFetchedAt) }}
           </span>
@@ -111,6 +122,10 @@
                     <div v-if="acct.temp_unschedulable_reason" class="mt-0.5 max-w-xs truncate text-xs text-amber-600 dark:text-amber-400" :title="acct.temp_unschedulable_reason">
                       {{ acct.temp_unschedulable_reason }}
                     </div>
+                    <!-- Operator 备注, mirroring the admin accounts page name cell. -->
+                    <div v-if="acct.notes" class="mt-0.5 block max-w-xs truncate text-xs text-gray-500 dark:text-gray-400" :title="acct.notes">
+                      {{ acct.notes }}
+                    </div>
                   </td>
                   <td class="px-4 py-2 align-top text-gray-600 dark:text-gray-300">
                     <span>{{ acct.platform }}</span>
@@ -169,7 +184,12 @@ import { schedulableCount, toAccountLike, toWindowStats, toUsageInfo } from '@/u
 
 const { t } = useI18n()
 
+// Concrete platforms the filter offers besides "all". Raw values match the
+// platform/type column and the backend allowlist (edge_tk_accounts_handler.go).
+const PLATFORM_OPTIONS = ['anthropic', 'openai', 'gemini', 'antigravity', 'newapi', 'kiro'] as const
+
 const {
+  platform,
   edges,
   loading,
   error,
@@ -177,7 +197,8 @@ const {
   okEdges,
   failedEdges,
   totalAccounts,
-  fetch
+  fetch,
+  setPlatform
 } = useTkEdgeAccounts()
 // Initial fetch + periodic auto-refresh are owned by useTkEdgeAccounts.
 </script>

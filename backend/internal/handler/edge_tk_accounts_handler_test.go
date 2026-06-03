@@ -49,12 +49,14 @@ func richAccount() service.Account {
 	mult := 1.5
 	tierID := int64(7)
 	expires := time.Now().Add(24 * time.Hour)
+	notes := "operator remark for edge-acct-1"
 	return service.Account{
 		ID:       42,
 		Name:     "edge-acct-1",
 		Platform: service.PlatformAnthropic,
 		Type:     service.AccountTypeAPIKey,
 		Status:   service.StatusActive,
+		Notes:    &notes,
 		Credentials: map[string]any{
 			"api_key":       "sk-super-secret-key",
 			"access_token":  "at-secret",
@@ -105,6 +107,9 @@ func TestEdgeAccountsHandler_ReturnsSanitizedAccounts(t *testing.T) {
 	require.Equal(t, []string{"default", "vip"}, got.Groups)
 	require.NotNil(t, got.TierID)
 	require.Equal(t, int64(7), *got.TierID)
+	// The 备注 is surfaced so the overview's name cell matches the admin page.
+	require.NotNil(t, got.Notes)
+	require.Equal(t, "operator remark for edge-acct-1", *got.Notes)
 }
 
 // TestEdgeAccountsHandler_NeverLeaksCredentials is the load-bearing security
@@ -233,12 +238,39 @@ func TestEdgeAccountsHandler_RejectsUnknownPlatform(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-func TestEdgeAccountsHandler_DefaultsToAnthropic(t *testing.T) {
+// platform=all is the overview default: it must map to an EMPTY ListAccounts
+// platform filter so every platform's accounts come back in one read.
+func TestEdgeAccountsHandler_AllPlatformQueriesEveryPlatform(t *testing.T) {
+	stub := &edgeAccountsListerStub{accounts: []service.Account{richAccount()}}
+	h := NewEdgeAccountsHandler(stub, nil, nil, nil, nil)
+	w := performEdgeAccountsRequest(t, h, "?platform=all")
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, "", stub.lastPlatform) // "all" → no platform filter
+
+	var env struct {
+		Data edgeAccountsResponse `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	require.Equal(t, "all", env.Data.Platform) // echoes the requested sentinel
+}
+
+// A concrete non-anthropic platform must be accepted and passed through verbatim
+// (newapi/kiro are first-class edge platforms now, not just anthropic).
+func TestEdgeAccountsHandler_AcceptsNewAPIPlatform(t *testing.T) {
+	stub := &edgeAccountsListerStub{}
+	h := NewEdgeAccountsHandler(stub, nil, nil, nil, nil)
+	w := performEdgeAccountsRequest(t, h, "?platform=newapi")
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, service.PlatformNewAPI, stub.lastPlatform)
+}
+
+// Bare request (no ?platform=) defaults to the "all" sentinel → empty filter.
+func TestEdgeAccountsHandler_DefaultsToAll(t *testing.T) {
 	stub := &edgeAccountsListerStub{}
 	h := NewEdgeAccountsHandler(stub, nil, nil, nil, nil)
 	w := performEdgeAccountsRequest(t, h, "")
 	require.Equal(t, http.StatusOK, w.Code)
-	require.Equal(t, service.PlatformAnthropic, stub.lastPlatform)
+	require.Equal(t, "", stub.lastPlatform)
 }
 
 func TestEdgeAccountsHandler_ListError(t *testing.T) {

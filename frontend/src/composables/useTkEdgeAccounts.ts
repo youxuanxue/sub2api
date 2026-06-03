@@ -18,7 +18,10 @@ import type { EdgeAccountsResult } from '@/api/admin/edgeAccounts'
 // enough to track the per-edge page without hammering the fan-out.
 const AUTO_REFRESH_MS = 30_000
 
-export function useTkEdgeAccounts(initialPlatform = 'anthropic') {
+// 'all' is the sentinel the backend maps to an empty platform filter (every
+// platform). The page defaults to it so the overview is complete; the filter
+// narrows to a single platform.
+export function useTkEdgeAccounts(initialPlatform = 'all') {
   const platform = ref(initialPlatform)
   const edges = ref<EdgeAccountsResult[]>([])
   const loading = ref(false)
@@ -47,6 +50,14 @@ export function useTkEdgeAccounts(initialPlatform = 'anthropic') {
     }
   }
 
+  // Switch the platform filter and immediately refetch (the auto-refresh would
+  // otherwise leave the old platform's rows on screen for up to AUTO_REFRESH_MS).
+  function setPlatform(p: string) {
+    if (p === platform.value) return
+    platform.value = p
+    void fetch()
+  }
+
   // Periodic auto-refresh; skip when the tab is hidden or a fetch is in flight.
   const { pause, resume } = useIntervalFn(
     () => {
@@ -72,6 +83,7 @@ export function useTkEdgeAccounts(initialPlatform = 'anthropic') {
     okEdges,
     failedEdges,
     totalAccounts,
-    fetch
+    fetch,
+    setPlatform
   }
 }

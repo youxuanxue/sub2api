@@ -388,29 +388,33 @@
         "'/admin/edge-accounts'",
         "export const edgeAccountsAPI"
       ],
-      "rationale": "TK-only API client for the cross-edge read-only account overview (GET /admin/edge-accounts). Mirrors api/admin/tier.ts. Backs the Edge Accounts admin page; silent upstream-merge deletion would break its list call."
+      "rationale": "TK-only API client for the cross-edge read-only account overview (GET /admin/edge-accounts). Mirrors api/admin/tier.ts. Backs the Edge Accounts admin page; silent upstream-merge deletion would break its list call. The EdgeAccountSummary type carries notes (the non-credential operator 备注) and is platform-agnostic — the page defaults to the backend 'all' sentinel so every platform's accounts are listed, not just anthropic."
     },
     {
       "path": "frontend/src/composables/useTkEdgeAccounts.ts",
       "must_contain": [
         "export function useTkEdgeAccounts",
         "adminAPI.edgeAccounts.list",
-        "useIntervalFn"
+        "useIntervalFn",
+        "function setPlatform"
       ],
-      "rationale": "TK-only composable owning the Edge Accounts overview flow (state + the single fan-out API call + periodic auto-refresh). Keeps EdgeAccountsView.vue thin (template + wiring) per CLAUDE.md §5. The useIntervalFn anchor pins the auto-refresh: without it the page only fetched on mount and showed stale snapshots (e.g. a 5h-window utilization captured right after a window roll) that diverged from the always-fresh per-edge admin page. Guards against silent upstream-merge deletion that would orphan the view or drop the freshness."
+      "rationale": "TK-only composable owning the Edge Accounts overview flow (state + the single fan-out API call + periodic auto-refresh). Keeps EdgeAccountsView.vue thin (template + wiring) per CLAUDE.md §5. The useIntervalFn anchor pins the auto-refresh: without it the page only fetched on mount and showed stale snapshots (e.g. a 5h-window utilization captured right after a window roll) that diverged from the always-fresh per-edge admin page. Defaults to the 'all' platform sentinel (every platform, not just anthropic); setPlatform switches the filter and refetches immediately so the rows don't lag a full auto-refresh interval. Guards against silent upstream-merge deletion that would orphan the view, drop the freshness, or re-pin the page to anthropic-only."
     },
     {
       "path": "frontend/src/views/admin/EdgeAccountsView.vue",
       "must_contain": [
         "useTkEdgeAccounts",
         "admin.edgeAccounts.title",
+        "admin.edgeAccounts.platformFilter",
+        "setPlatform",
+        "acct.notes",
         "AccountCapacityCell",
         "AccountUsageCell",
         "AccountStatusIndicator",
         "toAccountLike",
         "toUsageInfo"
       ],
-      "rationale": "TK-only read-only admin page grouping accounts by edge. Renders the per-edge ok/failed/timeout state and a credential-free account table that REUSES the real admin AccountCapacityCell + AccountUsageCell (today + 5h/7d windows) via toAccountLike / toUsageInfo, so the overview's capacity + usage-window gauges stay pixel-aligned with the per-edge /admin/accounts page. Guards against silent upstream-merge deletion of the view or a refactor that drops the cell reuse (which would regress the page back to a sparse static table). Also reuses AccountStatusIndicator for the 状态 column (instead of a hand-rolled badge) so it matches the per-edge admin page's status semantics; dropping it would regress status display."
+      "rationale": "TK-only read-only admin page grouping accounts by edge. Renders the per-edge ok/failed/timeout state and a credential-free account table that REUSES the real admin AccountCapacityCell + AccountUsageCell (today + 5h/7d windows) via toAccountLike / toUsageInfo, so the overview's capacity + usage-window gauges stay pixel-aligned with the per-edge /admin/accounts page. Guards against silent upstream-merge deletion of the view or a refactor that drops the cell reuse (which would regress the page back to a sparse static table). Also reuses AccountStatusIndicator for the 状态 column (instead of a hand-rolled badge) so it matches the per-edge admin page's status semantics; dropping it would regress status display. The platformFilter dropdown (bound through setPlatform) and the acct.notes line under the name are load-bearing: the page defaults to ALL platforms (not anthropic-only) and shows the operator 备注 like the per-edge admin page — dropping either anchor regresses the cross-platform overview or hides the remark."
     },
     {
       "path": "frontend/src/components/account/AccountUsageCell.vue",
