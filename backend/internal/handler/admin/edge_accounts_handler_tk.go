@@ -34,8 +34,10 @@ func NewEdgeAccountsHandler(aggregator edgeAccountsAggregator) *EdgeAccountsHand
 	return &EdgeAccountsHandler{aggregator: aggregator}
 }
 
-// List GET /api/v1/admin/edge-accounts?platform=anthropic
+// List GET /api/v1/admin/edge-accounts?platform=all
 //
+// Defaults to "all" — every platform's accounts across the fleet — so the
+// overview is complete by default; a concrete ?platform= narrows to one.
 // Per-edge failures are carried inside the payload (edges[].ok / .error); a 500
 // is only returned when discovery itself fails (e.g. the local account list read
 // or the baseline regex load).
@@ -44,7 +46,7 @@ func (h *EdgeAccountsHandler) List(c *gin.Context) {
 		response.Error(c, 500, "edge accounts handler unavailable")
 		return
 	}
-	platform := strings.ToLower(strings.TrimSpace(c.DefaultQuery("platform", service.PlatformAnthropic)))
+	platform := strings.ToLower(strings.TrimSpace(c.DefaultQuery("platform", "all")))
 	agg, err := h.aggregator.Aggregate(c.Request.Context(), platform)
 	if err != nil {
 		response.Error(c, 500, "failed to aggregate edge accounts")

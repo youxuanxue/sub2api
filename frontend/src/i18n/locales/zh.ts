@@ -3174,6 +3174,8 @@ export default {
       description: '只读查看各 edge 部署下的账号情况',
       refresh: '刷新',
       lastFetched: '最近拉取',
+      platformFilter: '平台',
+      allPlatforms: '全部平台',
       noEdges: '未发现任何 edge（本部署未配置 anthropic mirror stub）。',
       edgeEmpty: '该 edge 下没有账号。',
       summaryEdges: '{ok}/{total} 个 edge 可达',
