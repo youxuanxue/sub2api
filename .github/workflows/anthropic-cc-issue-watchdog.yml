@@ -316,14 +316,23 @@ jobs:
         run: |
           set -euo pipefail
           echo "cache_pr_url=" >> "$GITHUB_OUTPUT"
-          if [ "${{ steps.watchdog.outputs.cache_changed }}" != "true" ]; then
-            if git diff --quiet -- scripts/anthropic/cc-issue-triage-generate.py .cache/anthropic/cc-fact-checks.json .github/workflows/anthropic-cc-issue-watchdog.yml; then
-              echo "No substantive upstream issue cache changes to propose."
-              exit 0
-            fi
+          # Decide whether to propose a cache PR from two independent signals:
+          #  - substantive cache change: steps.watchdog.outputs.cache_changed is the
+          #    updated_at-scrubbed comparison (true only when triage/fixes CONTENT
+          #    really changed, not when GitHub merely re-stamped issue updated_at —
+          #    that scrub is what prevents a daily no-op PR), AND it returns true when
+          #    .cache/anthropic/cc-triage.json is new/untracked (HEAD-missing → true).
+          #  - script/workflow change: a plain tracked-file diff.
+          # Do NOT gate on `git diff` of cc-triage.json itself: on the first run it is
+          # brand-new and gitignored/untracked, and `git diff` (tracked-only) is blind
+          # to it — that previously deadlocked the bootstrap (never staged → never
+          # tracked → never a PR). cache_changed already covers it.
+          meta_changed=false
+          if ! git diff --quiet -- scripts/anthropic/cc-issue-triage-generate.py .github/workflows/anthropic-cc-issue-watchdog.yml; then
+            meta_changed=true
           fi
-          if git diff --quiet -- scripts/anthropic/cc-issue-triage-generate.py .cache/anthropic/cc-triage.json .cache/anthropic/cc-fixes.json .cache/anthropic/cc-fact-checks.json .github/workflows/anthropic-cc-issue-watchdog.yml; then
-            echo "No upstream issue cache changes to propose."
+          if [ "${{ steps.watchdog.outputs.cache_changed }}" != "true" ] && [ "$meta_changed" != "true" ]; then
+            echo "No substantive claude-code issue cache changes to propose."
             exit 0
           fi
 
@@ -334,7 +343,7 @@ jobs:
           # snapshots (2026-05-19 watchdog regression: previously broken when
           # the .gitignore began catching these paths).
           git add -f scripts/anthropic/cc-issue-triage-generate.py .cache/anthropic/cc-triage.json .cache/anthropic/cc-fixes.json .cache/anthropic/cc-fact-checks.json .github/workflows/anthropic-cc-issue-watchdog.yml
-          git commit -m "chore: refresh upstream issue cache"
+          git commit -m "chore: refresh claude-code issue cache"
           git push --force-with-lease origin "$BRANCH"
 
           cat > .cache/anthropic-cc-issue-watchdog/cache-pr-body.md <<'EOF'
@@ -361,9 +370,9 @@ jobs:
           if [ -n "$EXISTING" ]; then
             NUMBER="$(jq -r '.number' <<<"$EXISTING")"
             URL="$(jq -r '.url' <<<"$EXISTING")"
-            gh pr edit "$NUMBER" --title "chore: refresh upstream issue cache" --body-file .cache/anthropic-cc-issue-watchdog/cache-pr-body.md
+            gh pr edit "$NUMBER" --title "chore: refresh claude-code issue cache" --body-file .cache/anthropic-cc-issue-watchdog/cache-pr-body.md
           else
-            URL="$(gh pr create --base main --head "$BRANCH" --title "chore: refresh upstream issue cache" --body-file .cache/anthropic-cc-issue-watchdog/cache-pr-body.md)"
+            URL="$(gh pr create --base main --head "$BRANCH" --title "chore: refresh claude-code issue cache" --body-file .cache/anthropic-cc-issue-watchdog/cache-pr-body.md)"
           fi
           echo "cache_pr_url=$URL" >> "$GITHUB_OUTPUT"
           echo "cache PR: $URL"
