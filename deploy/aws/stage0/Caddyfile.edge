@@ -23,7 +23,7 @@
 		fail_duration 5s
 		max_fails 1
 		unhealthy_status 502 503 504
-		lb_try_duration 120s
+		lb_try_duration 30s
 		lb_try_interval 1s
 		header_up X-Real-IP {remote_host}
 		header_up X-Forwarded-For {remote_host}
