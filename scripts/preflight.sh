@@ -1165,6 +1165,41 @@ else
 fi
 
 echo ""
+echo "=== sub2api: fix-ledger consistency (Upstream-Fixes / Anthropic-Fixes) ==="
+# Trailer-scoped drift gate for the issue-watchdog ledgers. When a commit in
+# this branch declares it closes an upstream/anthropic issue via an
+# `Upstream-Fixes:` / `Anthropic-Fixes:` trailer, require that the matching
+# fact-check entry exists, its anchors resolve, and fixes/triage already
+# reflect it (author ran `apply-fix-ledger.py --apply`). Unrelated PRs that do
+# not carry the trailer are not gated — pre-existing cosmetic drift / anchor
+# rot in OTHER ledger entries stays the daily watchdog's job. Same script runs
+# in --apply mode to do the propagation, so固化 lands inside the fix PR rather
+# than waiting for the next daily *-issue-watchdog.yml run.
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for apply-fix-ledger.py)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/upstream/apply-fix-ledger.py --selftest >/dev/null; then
+    echo "  FAIL: apply-fix-ledger.py self-test failed"
+    errors=$((errors + 1))
+else
+    _fl_base="${PREFLIGHT_BASE:-origin/main}"
+    for _fl_ledger in upstream anthropic; do
+        python3 ./scripts/upstream/apply-fix-ledger.py --ledger "$_fl_ledger" \
+            --check --commits-range "${_fl_base}..HEAD" --quiet
+        _fl_rc=$?
+        if [ "$_fl_rc" -eq 1 ]; then
+            # apply-fix-ledger.py already printed the actionable problem list.
+            errors=$((errors + 1))
+        elif [ "$_fl_rc" -eq 2 ]; then
+            echo "  skip[$_fl_ledger]: cannot resolve ${_fl_base}..HEAD (fetch origin/main); the PR gate enforces this"
+        else
+            echo "  ok[$_fl_ledger]: declared fixes have consistent fact-checks"
+        fi
+    done
+    unset _fl_base _fl_ledger _fl_rc
+fi
+
+echo ""
 echo "=== sub2api: merge-gate sentinel parity ==="
 # Keeps upstream-merge-pr-shape.yml checks 4-13 and preflight's sentinel set
 # mechanically coupled (manifest: scripts/sentinels/merge-gate-parity.json) so a
