@@ -94,6 +94,12 @@ temp/
 # and read by CI; lives under .cache/ to signal "regenerated data, not source code").
 !.cache/upstream/
 !.cache/upstream/**
+# Whitelisted: anthropics/claude-code issue triage cache (refreshed by
+# anthropic-cc-issue-watchdog.yml and read by CI). Only cc-*.json live under
+# .cache/anthropic/; the watchdog scratch dir is the sibling
+# .cache/anthropic-cc-issue-watchdog/ (stays ignored).
+!.cache/anthropic/
+!.cache/anthropic/**
 .dev/
 .serena/
 

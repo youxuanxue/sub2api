@@ -296,6 +296,23 @@ else
     echo "  ok: no buffered SSE->JSON Content-Type leak antipattern"
 fi
 
+# ---- sub2api: anthropic claude-code issue cache JSON --------------------------
+# The .cache/anthropic/cc-*.json triage ledger (refreshed by
+# anthropic-cc-issue-watchdog.yml, hand-curated for cc-fixes / cc-fact-checks) must
+# stay valid JSON with its required top-level keys. The workflow json-validates
+# inline; this gate catches a hand-edit before push. Source: scripts/checks/cc-issue-cache-json.py.
+echo ""
+echo "=== sub2api: anthropic cc-issue cache JSON ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required to run cc-issue-cache-json.py)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/cc-issue-cache-json.py --quiet; then
+    # cc-issue-cache-json.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: anthropic cc-issue cache files valid"
+fi
+
 # ---- sub2api: OpsUpstreamErrorEvent.Kind suffix antipattern ----------------
 # Guards against the regression pattern that surfaced in prod ops_error_logs:
 # storage metadata (e.g. ":request_body_truncated") appended onto the
