@@ -524,6 +524,19 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    // TK: edge admin-session handoff landing — consumes the short-lived token in
+    // the URL fragment, logs in on THIS (edge) origin, then redirects to the
+    // edge's own /admin/accounts. requiresAuth:false because it is establishing
+    // the session. See EdgeHandoffView.vue and edge_tk_admin_session_handler.go.
+    path: '/admin/edge-handoff',
+    name: 'AdminEdgeHandoff',
+    component: () => import('@/views/admin/EdgeHandoffView.vue'),
+    meta: {
+      requiresAuth: false,
+      title: 'Signing in…'
+    }
+  },
+  {
     path: '/admin/announcements',
     name: 'AdminAnnouncements',
     component: () => import('@/views/admin/AnnouncementsView.vue'),

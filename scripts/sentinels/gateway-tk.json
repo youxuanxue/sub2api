@@ -1438,9 +1438,19 @@
       "must_contain": [
         "func RegisterTKEdgeRoutes(",
         "edge.GET(\"/scheduling-capacity\", h.EdgeCapacity.GetSchedulingCapacity)",
-        "edge.GET(\"/accounts\", h.EdgeAccounts.ListAccounts)"
+        "edge.GET(\"/accounts\", h.EdgeAccounts.ListAccounts)",
+        "edge.POST(\"/admin-session\", h.EdgeAdminSession.Mint)"
       ],
-      "rationale": "Mounts the edge capacity endpoint AND the read-only edge accounts endpoint behind the same lightweight api-key middleware, called once from router.go. Silent upstream-merge deletion of this helper or either GET call site would unregister the surface-C concurrency-mirror read (/scheduling-capacity) or the cross-edge account-overview read (/accounts)."
+      "rationale": "Mounts the edge capacity endpoint, the read-only edge accounts endpoint, AND the admin-session mint endpoint behind the same lightweight api-key middleware, called once from router.go. Silent upstream-merge deletion of any call site would unregister the surface-C concurrency-mirror read (/scheduling-capacity), the cross-edge account-overview read (/accounts), or the prod→edge 'manage accounts' handoff mint (/admin-session)."
+    },
+    {
+      "path": "backend/internal/handler/edge_tk_admin_session_handler.go",
+      "must_contain": [
+        "func (h *EdgeAdminSessionHandler) Mint(",
+        "user.IsAdmin()",
+        "GenerateEdgeAdminSessionToken("
+      ],
+      "rationale": "Edge admin-session mint endpoint (POST /api/v1/edge/admin-session): turns the read-only cross-edge overview into a jump-and-manage console. Prod holds this edge's mirror-stub api-key and POSTs here to mint a SHORT-LIVED admin JWT, then opens the edge's own /admin/accounts already logged in — so account create/edit/delete + OAuth run natively on the edge (prod re-implements nothing). LOAD-BEARING SECURITY: this endpoint ELEVATES the edge api-key group (read-only for capacity/accounts) into one that can obtain an admin session, so the `user.IsAdmin()` gate is the irreducible guard — a plain relay key must NOT mint a session. Dropping the IsAdmin check, or widening the TTL away from the short GenerateEdgeAdminSessionToken minter, is a privilege-escalation regression that must be caught."
     },
     {
       "path": "backend/internal/handler/edge_tk_accounts_handler.go",
@@ -1448,15 +1458,17 @@
         "func (h *EdgeAccountsHandler) ListAccounts(",
         "func toEdgeAccountDTO(",
         "edgeAccountsSupportedPlatforms",
+        "func edgeAccountsListFilter(",
         "func (h *EdgeAccountsHandler) collectRuntimeGauges(",
         "h.usage.GetPassiveUsage("
       ],
-      "rationale": "Edge read-only account inventory endpoint: GET /api/v1/edge/accounts returns each edge's accounts (with live capacity/today gauges + passive 5h/7d usage windows) so prod's admin Edge Accounts overview can mirror the per-edge /admin/accounts page. The GetPassiveUsage call reads persisted Extra samples (source=passive, NO upstream API) for the 5h/7d windows — dropping it removes the usage bars. Credential-free by construction — toEdgeAccountDTO builds an allowlist edgeAccountDTO with NO Credentials/Extra/Proxy/Notes member, so leakage is structurally impossible rather than merely redacted (raw-bytes assertion in the test). Two load-bearing properties: (1) it lists via adminService.ListAccounts with an EMPTY status filter — NOT the repository ListByPlatform which pins status=active and would silently hide disabled/errored accounts, making the overview show fewer rows than the edge's own admin page (the bug fixed alongside the gauge work); (2) collectRuntimeGauges batch-reads current_concurrency/window_cost/active_sessions/current_rpm + today_stats from this edge's local Redis/DB, mirroring admin AccountHandler.List — dropping it regresses the overview to static-only fields. Mounted behind the lightweight edge api-key auth, off the gateway billing/concurrency chain."
+      "rationale": "Edge read-only account inventory endpoint: GET /api/v1/edge/accounts returns each edge's accounts (with live capacity/today gauges + passive 5h/7d usage windows) so prod's admin Edge Accounts overview can mirror the per-edge /admin/accounts page. The GetPassiveUsage call reads persisted Extra samples (source=passive, NO upstream API) for the 5h/7d windows — dropping it removes the usage bars. Credential-free by construction — toEdgeAccountDTO builds an allowlist edgeAccountDTO with NO Credentials/Extra/Proxy member, so credential leakage is structurally impossible rather than merely redacted (raw-bytes assertion in the test); the one operator-text field it does carry is Notes, the non-credential 备注 the admin accounts page shows. Three load-bearing properties: (1) it lists via adminService.ListAccounts with an EMPTY status filter — NOT the repository ListByPlatform which pins status=active and would silently hide disabled/errored accounts, making the overview show fewer rows than the edge's own admin page (the bug fixed alongside the gauge work); (2) collectRuntimeGauges batch-reads current_concurrency/window_cost/active_sessions/current_rpm + today_stats from this edge's local Redis/DB, mirroring admin AccountHandler.List — dropping it regresses the overview to static-only fields; (3) the 'all' platform sentinel (edgeAccountsListFilter maps it to an EMPTY ListAccounts platform filter) returns every platform's accounts in one read — the overview's default — and edgeAccountsSupportedPlatforms allows all six platforms (anthropic/openai/gemini/antigravity/newapi/kiro); a silent merge that re-pins this to anthropic-only would regress the cross-platform overview. Mounted behind the lightweight edge api-key auth, off the gateway billing/concurrency chain."
     },
     {
       "path": "backend/internal/service/edge_accounts_aggregator_tk.go",
       "must_contain": [
         "func (a *EdgeAccountsAggregator) Aggregate(",
+        "func (a *EdgeAccountsAggregator) MintAdminSession(",
         "func isAnthropicMirrorStub(",
         "req.Header.Set(\"x-api-key\", t.apiKey)",
         "never a failed aggregate"
@@ -1467,17 +1479,20 @@
       "path": "backend/internal/handler/admin/edge_accounts_handler_tk.go",
       "must_contain": [
         "func (h *EdgeAccountsHandler) List(",
+        "func (h *EdgeAccountsHandler) MintAdminSession(",
+        "func buildEdgeHandoffURL(",
         "func NewEdgeAccountsHandler("
       ],
-      "rationale": "Prod admin handler for GET /api/v1/admin/edge-accounts. Sits behind the admin JWT (the /admin group), NOT the lightweight edge api-key: the broad cross-fleet view is admin-only while the per-edge api-key only ever reads a single edge. Credentials never traverse this path (the aggregator only decodes the edges' already-sanitized DTOs). Silent upstream-merge deletion would remove the prod overview backend."
+      "rationale": "Prod admin handler for GET /api/v1/admin/edge-accounts (overview) and POST /api/v1/admin/edge-accounts/:edge/admin-session (manage-accounts handoff). Sits behind the admin JWT (the /admin group), NOT the lightweight edge api-key: the broad cross-fleet view + the jump-to-manage mint are admin-only. Credentials never traverse the read path (the aggregator only decodes the edges' already-sanitized DTOs). buildEdgeHandoffURL is load-bearing: the short-lived token MUST ride in the URL FRAGMENT (after #) so it never reaches an edge access log / Referer — moving it to a query param is a token-leak regression. Silent upstream-merge deletion would remove the prod overview backend or the manage handoff."
     },
     {
       "path": "backend/internal/server/routes/admin_tk_edge_accounts_routes.go",
       "must_contain": [
         "func registerTKEdgeAccountsRoutes(",
-        "admin.GET(\"/edge-accounts\", h.Admin.EdgeAccounts.List)"
+        "admin.GET(\"/edge-accounts\", h.Admin.EdgeAccounts.List)",
+        "admin.POST(\"/edge-accounts/:edge/admin-session\", h.Admin.EdgeAccounts.MintAdminSession)"
       ],
-      "rationale": "Registers the prod admin cross-edge account overview route (admin JWT inherited from the /admin group), called once from admin.go. Silent upstream-merge deletion of this helper or its call site would unregister the overview."
+      "rationale": "Registers the prod admin cross-edge account overview route AND the manage-accounts handoff mint route (admin JWT inherited from the /admin group), called once from admin.go. Silent upstream-merge deletion of this helper or either call site would unregister the overview or the jump-to-manage handoff."
     },
     {
       "path": "backend/internal/service/anthropic_config_reconciler.go",

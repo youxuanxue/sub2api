@@ -8,6 +8,17 @@
           <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ t('admin.edgeAccounts.description') }}</p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
+          <label class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+            <span>{{ t('admin.edgeAccounts.platformFilter') }}</span>
+            <select
+              class="input input-sm w-36"
+              :value="platform"
+              @change="setPlatform(($event.target as HTMLSelectElement).value)"
+            >
+              <option value="all">{{ t('admin.edgeAccounts.allPlatforms') }}</option>
+              <option v-for="p in PLATFORM_OPTIONS" :key="p" :value="p">{{ p }}</option>
+            </select>
+          </label>
           <span v-if="lastFetchedAt" class="text-xs text-gray-400 dark:text-gray-500">
             {{ t('admin.edgeAccounts.lastFetched') }}: {{ formatDateTime(lastFetchedAt) }}
           </span>
@@ -80,6 +91,18 @@
                 · {{ t('admin.edgeAccounts.schedulableCount', { count: schedulableCount(edge) }) }}
               </span>
               <span v-else class="text-red-600 dark:text-red-400">{{ edge.error }}</span>
+              <!-- Jump into this edge's own /admin/accounts, auto-logged-in, to
+                   create/edit accounts natively (incl. OAuth) on the edge itself. -->
+              <button
+                v-if="edge.ok"
+                type="button"
+                class="btn btn-secondary btn-sm inline-flex items-center gap-1"
+                :disabled="managingEdge === edge.edge_id"
+                @click="openEdgeManage(edge.edge_id)"
+              >
+                <Icon name="link" size="sm" :class="managingEdge === edge.edge_id ? 'animate-pulse' : ''" />
+                {{ t('admin.edgeAccounts.manageAccounts') }}
+              </button>
             </div>
           </div>
 
@@ -110,6 +133,10 @@
                          surface the reason passively rather than behind an inert click. -->
                     <div v-if="acct.temp_unschedulable_reason" class="mt-0.5 max-w-xs truncate text-xs text-amber-600 dark:text-amber-400" :title="acct.temp_unschedulable_reason">
                       {{ acct.temp_unschedulable_reason }}
+                    </div>
+                    <!-- Operator 备注, mirroring the admin accounts page name cell. -->
+                    <div v-if="acct.notes" class="mt-0.5 block max-w-xs truncate text-xs text-gray-500 dark:text-gray-400" :title="acct.notes">
+                      {{ acct.notes }}
                     </div>
                   </td>
                   <td class="px-4 py-2 align-top text-gray-600 dark:text-gray-300">
@@ -157,6 +184,7 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -166,10 +194,47 @@ import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { useTkEdgeAccounts } from '@/composables/useTkEdgeAccounts'
 import { schedulableCount, toAccountLike, toWindowStats, toUsageInfo } from '@/utils/edgeAccounts.tk'
+import { GATEWAY_PLATFORMS } from '@/constants/gatewayPlatforms'
+import { adminAPI } from '@/api/admin'
+import { useAppStore } from '@/stores/app'
 
 const { t } = useI18n()
+const appStore = useAppStore()
+
+// Which edge is currently minting a handoff (disables its button). Opening the
+// edge's own /admin/accounts in a new tab keeps this read-only overview open for
+// managing several edges in sequence.
+const managingEdge = ref<string | null>(null)
+
+async function openEdgeManage(edgeId: string) {
+  if (managingEdge.value) return
+  managingEdge.value = edgeId
+  // Open the tab synchronously inside the click so the browser doesn't treat the
+  // post-await window.open as a popup; navigate it once the URL is minted.
+  const tab = window.open('', '_blank')
+  try {
+    const res = await adminAPI.edgeAccounts.adminSession(edgeId)
+    if (tab) {
+      tab.location.href = res.handoff_url
+    } else {
+      // Popup blocked — fall back to same-tab navigation.
+      window.location.href = res.handoff_url
+    }
+  } catch {
+    if (tab) tab.close()
+    appStore.showError(t('admin.edgeAccounts.manageFailed'))
+  } finally {
+    managingEdge.value = null
+  }
+}
+
+// Concrete platforms the filter offers besides "all". Sourced from the canonical
+// GATEWAY_PLATFORMS list (single source of truth, mirrors the backend allowlist
+// in edge_tk_accounts_handler.go) so a new platform never silently goes stale here.
+const PLATFORM_OPTIONS = GATEWAY_PLATFORMS
 
 const {
+  platform,
   edges,
   loading,
   error,
@@ -177,7 +242,8 @@ const {
   okEdges,
   failedEdges,
   totalAccounts,
-  fetch
+  fetch,
+  setPlatform
 } = useTkEdgeAccounts()
 // Initial fetch + periodic auto-refresh are owned by useTkEdgeAccounts.
 </script>

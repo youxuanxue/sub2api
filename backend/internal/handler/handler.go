@@ -73,6 +73,9 @@ type Handlers struct {
 	EdgeCapacity *EdgeCapacityHandler
 	// TK: internal edge read-only account inventory — see edge_tk_accounts_handler.go.
 	EdgeAccounts *EdgeAccountsHandler
+	// TK: edge admin-session mint for the prod→edge "manage accounts" handoff —
+	// see edge_tk_admin_session_handler.go.
+	EdgeAdminSession *EdgeAdminSessionHandler
 }
 
 // BuildInfo contains build-time information

@@ -31,14 +31,34 @@ type edgeAccountsLister interface {
 	ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode, sortBy, sortOrder string) ([]service.Account, int64, error)
 }
 
+// edgeAccountsAllPlatforms is the sentinel that returns every platform's
+// accounts in one read (the overview's default). It maps to an empty platform
+// filter in ListAccounts — see edgeAccountsListFilter.
+const edgeAccountsAllPlatforms = "all"
+
 // edgeAccountsSupportedPlatforms is the allowlist this read endpoint accepts.
-// Edges are anthropic-centric today; the gate keeps a prod misconfig loud
-// (400) rather than silently returning an empty list for a typo'd platform.
+// The gate keeps a prod misconfig loud (400) rather than silently returning an
+// empty list for a typo'd platform. "all" returns the full cross-platform
+// inventory the prod overview shows by default; the per-platform values let the
+// UI narrow to a single platform.
 var edgeAccountsSupportedPlatforms = map[string]struct{}{
+	edgeAccountsAllPlatforms:    {},
 	service.PlatformAnthropic:   {},
 	service.PlatformOpenAI:      {},
 	service.PlatformGemini:      {},
 	service.PlatformAntigravity: {},
+	service.PlatformNewAPI:      {},
+	service.PlatformKiro:        {},
+}
+
+// edgeAccountsListFilter maps the requested platform to the ListAccounts filter
+// value: the "all" sentinel becomes "" (no platform filter → every platform),
+// any concrete platform passes through unchanged.
+func edgeAccountsListFilter(platform string) string {
+	if platform == edgeAccountsAllPlatforms {
+		return ""
+	}
+	return platform
 }
 
 // The runtime-gauge readers below mirror the dependencies admin AccountHandler
@@ -79,9 +99,11 @@ type edgeUsageReader interface {
 //
 // CREDENTIALS ARE NEVER EXPOSED: the response DTO (edgeAccountDTO) is built
 // field-by-field from a non-sensitive allowlist and has no Credentials / Extra
-// / Proxy / Notes member at all, so leakage is structurally impossible rather
-// than merely redacted. The edge_tk_accounts_handler_test.go asserts the raw
-// bytes carry no credential substrings.
+// / Proxy member at all, so leakage is structurally impossible rather than
+// merely redacted. The single operator-text field it does carry is Notes (the
+// 备注 the admin accounts page shows) — a non-credential remark, surfaced so the
+// overview's name cell matches that page. The edge_tk_accounts_handler_test.go
+// asserts the raw bytes carry no credential substrings.
 type EdgeAccountsHandler struct {
 	accounts    edgeAccountsLister
 	concurrency edgeConcurrencyReader
@@ -135,6 +157,9 @@ type edgeAccountDTO struct {
 	Priority       int     `json:"priority"`
 	RateMultiplier float64 `json:"rate_multiplier"`
 	ErrorMessage   string  `json:"error_message,omitempty"`
+	// Notes is the operator 备注 (admin remark), mirroring the admin accounts
+	// page's name cell. Non-credential; nil when unset.
+	Notes *string `json:"notes,omitempty"`
 
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
 	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
@@ -203,7 +228,7 @@ func (h *EdgeAccountsHandler) ListAccounts(c *gin.Context) {
 		return
 	}
 
-	platform := strings.ToLower(strings.TrimSpace(c.DefaultQuery("platform", service.PlatformAnthropic)))
+	platform := strings.ToLower(strings.TrimSpace(c.DefaultQuery("platform", edgeAccountsAllPlatforms)))
 	if _, ok := edgeAccountsSupportedPlatforms[platform]; !ok {
 		response.Error(c, http.StatusBadRequest, "unsupported platform")
 		return
@@ -212,7 +237,8 @@ func (h *EdgeAccountsHandler) ListAccounts(c *gin.Context) {
 	ctx := c.Request.Context()
 	// status="" → all statuses (active/disabled/errored), matching the edge's own
 	// /admin/accounts page. priority asc mirrors the admin default ordering.
-	accounts, _, err := h.accounts.ListAccounts(ctx, 1, edgeAccountsMaxPageSize, platform, "", "", "", 0, "", "priority", "asc")
+	// platform="all" → "" filter (every platform); a concrete platform narrows.
+	accounts, _, err := h.accounts.ListAccounts(ctx, 1, edgeAccountsMaxPageSize, edgeAccountsListFilter(platform), "", "", "", 0, "", "priority", "asc")
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "failed to list accounts")
 		return
@@ -436,6 +462,7 @@ func toEdgeAccountDTO(a *service.Account) edgeAccountDTO {
 		Priority:                  a.Priority,
 		RateMultiplier:            a.BillingRateMultiplier(),
 		ErrorMessage:              a.ErrorMessage,
+		Notes:                     a.Notes,
 		LastUsedAt:                a.LastUsedAt,
 		ExpiresAt:                 a.ExpiresAt,
 		CreatedAt:                 a.CreatedAt,

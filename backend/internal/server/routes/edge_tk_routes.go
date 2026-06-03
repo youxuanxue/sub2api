@@ -34,4 +34,11 @@ func RegisterTKEdgeRoutes(v1 *gin.RouterGroup, h *handler.Handlers, apiKeyServic
 	if h.EdgeAccounts != nil {
 		edge.GET("/accounts", h.EdgeAccounts.ListAccounts)
 	}
+
+	// Mint a short-lived admin JWT for prod's "manage accounts" handoff. Same
+	// lightweight api-key auth, but the handler additionally requires the key's
+	// owner to be an admin before minting — see edge_tk_admin_session_handler.go.
+	if h.EdgeAdminSession != nil {
+		edge.POST("/admin-session", h.EdgeAdminSession.Mint)
+	}
 }
