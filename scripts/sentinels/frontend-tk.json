@@ -394,9 +394,10 @@
       "path": "frontend/src/composables/useTkEdgeAccounts.ts",
       "must_contain": [
         "export function useTkEdgeAccounts",
-        "adminAPI.edgeAccounts.list"
+        "adminAPI.edgeAccounts.list",
+        "useIntervalFn"
       ],
-      "rationale": "TK-only composable owning the Edge Accounts overview flow (state + the single fan-out API call). Keeps EdgeAccountsView.vue thin (template + wiring) per CLAUDE.md §5. Guards against silent upstream-merge deletion that would orphan the view."
+      "rationale": "TK-only composable owning the Edge Accounts overview flow (state + the single fan-out API call + periodic auto-refresh). Keeps EdgeAccountsView.vue thin (template + wiring) per CLAUDE.md §5. The useIntervalFn anchor pins the auto-refresh: without it the page only fetched on mount and showed stale snapshots (e.g. a 5h-window utilization captured right after a window roll) that diverged from the always-fresh per-edge admin page. Guards against silent upstream-merge deletion that would orphan the view or drop the freshness."
     },
     {
       "path": "frontend/src/views/admin/EdgeAccountsView.vue",

@@ -153,7 +153,6 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -187,6 +186,5 @@ const STATE_BADGE_CLASSES: Record<string, string> = {
 function stateBadgeClass(a: EdgeAccountSummary): string {
   return STATE_BADGE_CLASSES[accountStatusVariant(a)] ?? STATE_BADGE_CLASSES.neutral
 }
-
-onMounted(fetch)
+// Initial fetch + periodic auto-refresh are owned by useTkEdgeAccounts.
 </script>
