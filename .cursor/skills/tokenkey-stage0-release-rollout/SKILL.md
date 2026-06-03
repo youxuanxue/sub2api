@@ -31,7 +31,7 @@ description: >-
 | dispatch release.yml / deploy-stage0.yml + watch | 机械 | `gh workflow run` + `gh run watch --exit-status` |
 | prod 完整 smoke（CI 唯一验收源） | 机械 | `deploy-stage0.yml` job log 内 `tk_post_deploy_smoke: OK`（`GATEWAY_SMOKE_SUITE=full`） |
 | Edge smoke 分阶段（infra / main-via-edge / full） | 机械 | `ops/stage0/edge_post_deploy_smoke.sh` + workflow `smoke_phase`；main-via-edge 用 `GATEWAY_SMOKE_SUITE=main-via-edge`（/v1/messages + Claude UA，不走 chat） |
-| 发版前 smoke 模型校验 | 机械 | `python3 scripts/stage0/check_smoke_config.py`（`TK_SMOKE_PROD_ANTHROPIC_MODEL` ∈ `/v1/models`） |
+| 发版前 smoke 模型校验 | 机械 | `python3 scripts/stage0/check_smoke_config.py`（`TK_SMOKE_PROD_ANTHROPIC_MODEL` 及 `TK_SMOKE_PROD_KIRO_MODEL` ∈ 各自 key 的 `/v1/models`） |
 | 发版后跟进档位（skip / single / extended） | 机械 | `bash scripts/release-impact-files.sh PREV NEW` → `.followup.tier` |
 | **发版后 Anthropic OAuth 配置检查（snapshot → check）** | 机械 | `python3 ops/anthropic/manage-anthropic-config.py snapshot` + `check --snapshot`（见 §「发版后 Anthropic OAuth 配置检查」；canonical：`/tokenkey-anthropic-oauth-config`） |
 | rollout 摘要（git log / diff stat / sentinel / deletion） | 机械 | `bash scripts/release-rollout-summary.sh --mode release` |
@@ -294,7 +294,7 @@ bash ops/stage0/post_deploy_smoke.sh
 | `ops/stage0/smoke_lib.sh` | 共享 soft-degrade、model pick、suite gating |
 | `ops/stage0/edge_post_deploy_smoke.sh` | Edge **infra** SSM + **main-via-edge** 编排（调用 post_deploy） |
 | `ops/stage0/gateway_smoke.sh` | 手动 quick 探活（有 key 时 `GATEWAY_SMOKE_SUITE=quick` 委托 post_deploy） |
-| `scripts/stage0/check_smoke_config.py` | 发版前校验 `TK_SMOKE_PROD_ANTHROPIC_MODEL` ∈ `/v1/models` |
+| `scripts/stage0/check_smoke_config.py` | 发版前校验 `TK_SMOKE_PROD_ANTHROPIC_MODEL`（+ 配置了 kiro 时 `TK_SMOKE_PROD_KIRO_MODEL`）∈ 各自 key 的 `/v1/models` |
 | `ops/stage0/smoke_env.sh` | GitHub `TK_SMOKE_*` 默认值与导出（`TK_SMOKE_GITHUB_ENV` 触发 gh 拉 variables） |
 | `ops/stage0/load_smoke_github_env.sh` | 从 GitHub Environment 拉 `TK_SMOKE_*` variables；`--check` 校验 secrets/vars 已配置 |
 
@@ -302,8 +302,10 @@ bash ops/stage0/post_deploy_smoke.sh
 
 | Environment | Secrets | Vars |
 |---|---|---|
-| **`prod`** | `TK_SMOKE_PROD_ANTHROPIC_KEY`, `TK_SMOKE_PROD_GEMINI_KEY`, `TK_SMOKE_PROD_OPENAI_OAUTH_KEY` | `TK_SMOKE_PROD_ANTHROPIC_MODEL`, `TK_SMOKE_PROD_GEMINI_MODEL`, `TK_SMOKE_PROD_OPENAI_OAUTH_MODEL` |
+| **`prod`** | `TK_SMOKE_PROD_ANTHROPIC_KEY`, `TK_SMOKE_PROD_GEMINI_KEY`, `TK_SMOKE_PROD_OPENAI_OAUTH_KEY`, `TK_SMOKE_PROD_KIRO_KEY` | `TK_SMOKE_PROD_ANTHROPIC_MODEL`, `TK_SMOKE_PROD_GEMINI_MODEL`, `TK_SMOKE_PROD_OPENAI_OAUTH_MODEL`, `TK_SMOKE_PROD_KIRO_MODEL` |
 | **`edge-<id>`** | `TK_SMOKE_EDGE_CANARY_KEY` | —（base URL 与 local model 见下） |
+
+> 四把 prod smoke key（含 **`TK_SMOKE_PROD_KIRO_KEY`** = 绑定 kiro group 的 TokenKey API key）都是 `deploy-stage0.yml` 硬前置——缺任意一把，发版在镜像切换前 `::error::` 失败。`TK_SMOKE_PROD_KIRO_MODEL` 默认 `claude-sonnet-4-6`。
 
 **Edge smoke 固定值（代码内）：** `TK_SMOKE_EDGE_CANARY_BASE_URL=https://api.tokenkey.dev`，`TK_SMOKE_EDGE_LOCAL_CHAT_MODEL=claude-sonnet-4-6`。
 

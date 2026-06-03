@@ -28,6 +28,14 @@ def prod_anthropic_model() -> str:
     return _env("TK_SMOKE_PROD_ANTHROPIC_MODEL")
 
 
+def prod_kiro_key() -> str:
+    return _env("TK_SMOKE_PROD_KIRO_KEY")
+
+
+def prod_kiro_model() -> str:
+    return _env("TK_SMOKE_PROD_KIRO_MODEL")
+
+
 def edge_canary_key() -> str:
     return _env("TK_SMOKE_EDGE_CANARY_KEY")
 
