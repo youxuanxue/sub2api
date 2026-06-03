@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "rationale": "Declarative TokenKey code-fact checks for anthropics/claude-code issues. The anthropic-cc-issue-watchdog greps each path:literal-substring needle on current main; when ALL needles for an entry are present it marks the issue fixed_verified (a missing needle is a safe false-negative — the issue re-surfaces as a candidate, never a silent false-positive).",
+  "checks": [
+    {
+      "upstream": "anthropics/claude-code#61348",
+      "severity": "high",
+      "tokenkey_pr": "youxuanxue/sub2api#514, youxuanxue/sub2api#518",
+      "summary": "Opus 4.7+ thinking.type=enabled 400 self-healed to thinking.type=adaptive on both the Forward and APIKey passthrough paths; model-aware RectifyThinkingBudget; hard-gated by isOpus47OrNewer.",
+      "fixed_by": [
+        "backend/internal/service/gateway_request.go",
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_request_thinking_adaptive_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/gateway_request.go:func isThinkingTypeAdaptiveRequiredError",
+        "backend/internal/service/gateway_request.go:func RectifyThinkingTypeAdaptive",
+        "backend/internal/service/gateway_request.go:func isOpus47OrNewer",
+        "backend/internal/service/gateway_request.go:if isOpus47OrNewer(modelID) {",
+        "backend/internal/service/gateway_service.go:Kind:               \"thinking_type_adaptive_error\",",
+        "backend/internal/service/gateway_request_thinking_adaptive_test.go:func TestRectifyThinkingTypeAdaptive"
+      ]
+    }
+  ]
+}
