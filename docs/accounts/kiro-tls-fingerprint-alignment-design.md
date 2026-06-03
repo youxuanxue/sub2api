@@ -85,9 +85,14 @@ follow-up commit once a real Kiro IDE ClientHello is captured).
 ## Capture runbook
 
 ```bash
-# On a host running a real, logged-in Kiro IDE (tcpdump needs sudo):
+# On a host running a real, logged-in Kiro IDE (tcpdump needs sudo).
+# Direct egress:
 bash ops/kiro/capture-kiro-fingerprint.sh capture --iface en0 --seconds 60
-#   → trigger ONE Kiro IDE request when prompted
+# Proxied egress (Electron follows the macOS system proxy, e.g. Clash on 7890 —
+# the cleartext ClientHello is on loopback to the proxy port before it is
+# re-encrypted onward, so capture lo0 + that port):
+bash ops/kiro/capture-kiro-fingerprint.sh capture --proxy-port 7890 --seconds 75
+#   → trigger ONE Kiro IDE request when prompted (e.g. send a Kiro chat message)
 #   → prints ja3_hash + a diff (first capture = "missing_tokenkey", non-actionable)
 
 # Commit the canonical profile from the real capture:
@@ -98,6 +103,19 @@ python3 ops/kiro/capture_kiro_fingerprint.py emit-profile \
 # Re-run later to detect drift (e.g. after a Kiro IDE update):
 bash ops/kiro/capture-kiro-fingerprint.sh check --bundle .kiro_tls/<stamp>...bundle.json
 ```
+
+### First real capture (provenance)
+
+Captured 2026-06-03 from a real Kiro IDE on macOS (Node 22.22.0), proxied egress
+via the system proxy on `127.0.0.1:7890`, SNI `q.us-east-1.amazonaws.com` (the
+`EndpointKiroIDE` primary), 6 byte-identical ClientHellos in the window:
+
+- `ja3_hash = 51bddd625044f75a235ba857ac8b0145`, no GREASE.
+
+This **differs** from the cc canonical (`d871d02cecbde59abbf8f4806134addf`, Node
+24.3) — Kiro carries one extra cipher (`0xc027`), a different cipher order, and a
+different extension set (no `16`/ALPN, no `5`/status_request, no `18`/SCT) — which
+confirms the profiles must not be shared.
 
 ## Phase 2 (follow-up PR — open the gate)
 
