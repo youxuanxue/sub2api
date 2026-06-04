@@ -40,6 +40,21 @@ aws cloudformation describe-stacks --stack-name "$STACK" \
 
 ---
 
+## Agent 协同契约（Agent 执行本 runbook 时的边界）
+
+本 runbook 既给人读、也给 Agent 照跑。**触发**：发版 `ops/stage0/deploy_via_ssm.sh` 的自动 rollback 也救不回（SSM 日志 `node requires MANUAL intervention`）、或 external_health / smoke 失败——**单次救不回即入本 runbook**（不必等「反复 N 次」）。来路见 `.cursor/skills/tokenkey-stage0-release-rollout/SKILL.md` 的 `## rollback` 段。
+
+| 步骤 | Agent 可否自主 |
+|---|---|
+| 只读诊断（`ops/observability/run-probe.sh --target prod` 看容器 / 日志 / `ops_error_logs`） | ✅ 自主 |
+| §1 容器重启（`docker compose up -d`）、§2 `reboot-instances` | ✅ 自主（低风险、可逆） |
+| §last 恢复后验证（`ops/stage0/post_deploy_smoke.sh` + `ops/stage0/measure_deploy_blackout.sh`） | ✅ 自主 |
+| §3 CFN `execute-change-set`（换实例） | ⛔ **先 plan、等人类批**：Agent 跑 `create-change-set` + `describe-change-set` 预览（确认 `DataVolume` 不在变更列表 = 卷被保留），把变更呈给人类，**批准后**才 execute |
+| §4 动数据卷（`create-volume` / `detach-volume` / `attach-volume`，含快照与 RPO 选择） | ⛔ **先 plan、等人类批**：选哪个快照、丢多少增量是判断题，Agent 列候选快照 + RPO 影响，人类拍板 |
+| §DNS 切换（Porkbun A 记录） | ⛔ **人类执行**：Porkbun 凭证不在 repo |
+
+原则：**只读与可逆步骤 Agent 自主推进；不可逆 / 高爆炸半径步骤（CFN execute、动卷、切 DNS）一律 plan → 人类批 → execute**——这是确定性自动化唯一保留的人工介入点。命令细节见下方对应章节，本契约不复述。
+
 ## 1. 容器挂 / app unhealthy（实例还在）— 非灾难
 
 不是灾难，先排除。SSM 进实例看容器与日志：

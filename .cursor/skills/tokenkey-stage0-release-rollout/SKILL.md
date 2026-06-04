@@ -358,6 +358,8 @@ bash scripts/stage0/dispatch-edge-deploy.sh \
 
 prod smoke 失败：停，优先 rollback prod；不要继续 Edge rollout。Edge canary 失败：停，不批准/推进 prod，除非用户明确 override。
 
+**自动 rollback 也救不回 → 切灾难恢复（单次救不回即切，不必等"反复 N 次"）**：`deploy-stage0.yml` 调的 `ops/stage0/deploy_via_ssm.sh` 已内置 rollback ERR trap（失败自动恢复上一镜像）。当它**也救不回**——SSM 日志出现 `::error::…node requires MANUAL intervention`——或 dispatch rollback 到 `previous_tag` 后 external_health / smoke 仍失败，说明这已不是镜像级问题（整机 / OS / 数据卷 / 迁移 checksum 钉死）。此时切到 `deploy/aws/RUNBOOK-disaster-recovery.md`，按其 **§Agent 协同契约** 执行（Agent 自主跑只读/可逆步骤、高风险步骤先 plan 再等人类批）——具体边界与命令以该 runbook 为唯一权威，本段不复述。
+
 ## 完成后：发版后跟进（按 diff 档位）
 
 **不要**每次发版固定 +5/+10/+15min 三轮。先机械化分档：
