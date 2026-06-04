@@ -383,6 +383,112 @@ SELECT jsonb_pretty(jsonb_build_object(
 """.strip()
 
 
+def _guard_live_payload_object_sql(*, target_from: str) -> str:
+    """JSON object for one OAuth account row; ``target_from`` is a FROM clause source
+    (e.g. ``target`` CTE, or ``(SELECT * FROM accounts WHERE id = t.id) target``)."""
+    return f"""
+jsonb_build_object(
+  'found', EXISTS(SELECT 1 FROM {target_from}),
+  'account', (
+    SELECT CASE WHEN COUNT(*) = 0 THEN NULL ELSE jsonb_build_object(
+      'id', max(id),
+      'name', max(name),
+      'platform', max(platform),
+      'type', max(type),
+      'proxy_id', max(proxy_id),
+      'concurrency', max(concurrency),
+      'load_factor', max(load_factor),
+      'priority', max(priority),
+      'rate_multiplier', max(rate_multiplier),
+      'auto_pause_on_expired', bool_or(auto_pause_on_expired),
+      'channel_type', max(channel_type),
+      'stability_tier', max(NULLIF(extra->>'stability_tier', '')),
+      'status', max(status),
+      'error_message', max(error_message),
+      'last_used_at', max(last_used_at)
+    ) END
+    FROM {target_from}
+  ),
+  'credentials', (
+    SELECT COALESCE(jsonb_object_agg(key, value ORDER BY key), '{{}}'::jsonb)
+    FROM {target_from}, jsonb_each(credentials)
+    WHERE key IN (
+      'intercept_warmup_requests',
+      'temp_unschedulable_enabled',
+      'temp_unschedulable_rules'
+    )
+  ),
+  'extra', (
+    SELECT COALESCE(jsonb_object_agg(key, value ORDER BY key), '{{}}'::jsonb)
+    FROM {target_from}, jsonb_each(extra)
+    WHERE key IN (
+      'enable_tls_fingerprint',
+      'tls_fingerprint_profile_id',
+      'base_rpm',
+      'rpm_strategy',
+      'rpm_sticky_buffer',
+      'user_msg_queue_mode',
+      'max_sessions',
+      'session_idle_timeout_minutes',
+      'session_id_masking_enabled',
+      'cache_ttl_override_enabled',
+      'cache_ttl_override_target',
+      'window_cost_limit',
+      'window_cost_sticky_reserve',
+      'custom_base_url_enabled',
+      'custom_base_url'
+    )
+  ),
+  'groups', (
+    SELECT jsonb_build_object(
+      'ids', COALESCE(jsonb_agg(g.id ORDER BY g.id), '[]'::jsonb),
+      'names', COALESCE(jsonb_agg(g.name ORDER BY g.name), '[]'::jsonb)
+    )
+    FROM {target_from} t
+    LEFT JOIN account_groups ag ON ag.account_id = t.id
+    LEFT JOIN groups g ON g.id = ag.group_id
+    WHERE g.id IS NOT NULL
+  ),
+  'tls_profile', (
+    SELECT CASE WHEN p.id IS NULL THEN NULL ELSE jsonb_build_object(
+      'name', p.name,
+      'description', p.description,
+      'enable_grease', p.enable_grease,
+      'cipher_suites', COALESCE(p.cipher_suites, '[]'::jsonb),
+      'curves', COALESCE(p.curves, '[]'::jsonb),
+      'point_formats', COALESCE(p.point_formats, '[]'::jsonb),
+      'signature_algorithms', COALESCE(p.signature_algorithms, '[]'::jsonb),
+      'alpn_protocols', COALESCE(p.alpn_protocols, '[]'::jsonb),
+      'supported_versions', COALESCE(p.supported_versions, '[]'::jsonb),
+      'key_share_groups', COALESCE(p.key_share_groups, '[]'::jsonb),
+      'psk_modes', COALESCE(p.psk_modes, '[]'::jsonb),
+      'extensions', COALESCE(p.extensions, '[]'::jsonb)
+    ) END
+    FROM {target_from} t
+    LEFT JOIN tls_fingerprint_profiles p
+      ON p.id = NULLIF(t.extra->>'tls_fingerprint_profile_id', '')::bigint
+  )
+)
+""".strip()
+
+
+def build_all_oauth_guard_live_batch_query() -> str:
+    """One round-trip: live guard payload for every anthropic OAuth account on the node."""
+    payload = _guard_live_payload_object_sql(
+        target_from="(SELECT * FROM accounts WHERE id = t.id) target"
+    )
+    return f"""
+SELECT COALESCE(jsonb_agg(
+  jsonb_build_object('account_name', t.name) || ({payload}),
+  '[]'::jsonb
+)
+FROM accounts t
+WHERE t.platform = 'anthropic'
+  AND t.type = 'oauth'
+  AND t.deleted_at IS NULL;
+""".strip()
+
+
 def run_remote_query(edge: dict[str, Any], instance_id: str, sql: str, *, comment: str) -> tuple[str, str]:
     remote = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -t -A -v ON_ERROR_STOP=1"
     command = f"set -euo pipefail\n{remote} <<'SQL'\n{sql}\nSQL"
