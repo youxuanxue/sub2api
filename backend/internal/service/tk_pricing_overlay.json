@@ -1,8 +1,26 @@
 {
   "_meta": {
-    "note": "TK-owned media (image/video) pricing overlay. fill-only: merged into PricingService AFTER any source load (Wei-Shaw remote OR disk fallback), and ONLY for keys the source does not already carry. The Wei-Shaw runtime mirror is a TRIMMED litellm mirror that drops provider-prefixed keys and token-less media entries, so imagen-*/veo-* resolve to nothing there. Price = vertex_ai provider (TK media flow routes through Vertex ch41); falls back to gemini only when no vertex variant exists. Self-deprecating: the day the source carries a bare key natively, the source value wins and the entry below is ignored.",
-    "provenance": "BerriAI/litellm model_prices_and_context_window.json, captured 2026-06-01",
-    "regen": "manual curation; no auto-sync (media models are few + slow-moving). If they proliferate, add provider-aware sync."
+    "note": "TK-owned pricing overlay for models the runtime price source lacks. fill-only: merged into PricingService AFTER any source load (Wei-Shaw remote OR disk fallback), and ONLY for keys the source does not already carry. The Wei-Shaw runtime mirror is a TRIMMED litellm mirror that drops provider-prefixed keys and token-less media entries, so imagen-*/veo-* resolve to nothing there; litellm itself also lags new provider models (deepseek-v4-*), which then bill $0. Media price = vertex_ai provider (TK media flow routes through Vertex ch41); falls back to gemini only when no vertex variant exists. Text price = provider official list price. Self-deprecating: the day the source carries a bare key natively, the source value wins and the entry below is ignored. fill-only cannot CORRECT wrong source prices (deepseek-chat/reasoner still carry the pre-V4 rate in the mirror) — use channel pricing (DB) for that.",
+    "provenance": "media: BerriAI/litellm model_prices_and_context_window.json, captured 2026-06-01; deepseek-v4-*: https://api-docs.deepseek.com/quick_start/pricing, captured 2026-06-04 (cache-hit input = cache_read; cache writes billed as normal input, no separate write fee)",
+    "regen": "manual curation; no auto-sync (entries are few + slow-moving). If they proliferate, add provider-aware sync."
+  },
+  "deepseek-v4-flash": {
+    "litellm_provider": "deepseek",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000014,
+    "output_cost_per_token": 0.00000028,
+    "cache_read_input_token_cost": 0.0000000028,
+    "supports_prompt_caching": true,
+    "source": "https://api-docs.deepseek.com/quick_start/pricing (2026-06-04: in $0.14/M cache-miss, $0.0028/M cache-hit, out $0.28/M)"
+  },
+  "deepseek-v4-pro": {
+    "litellm_provider": "deepseek",
+    "mode": "chat",
+    "input_cost_per_token": 0.000000435,
+    "output_cost_per_token": 0.00000087,
+    "cache_read_input_token_cost": 0.000000003625,
+    "supports_prompt_caching": true,
+    "source": "https://api-docs.deepseek.com/quick_start/pricing (2026-06-04: in $0.435/M cache-miss, $0.003625/M cache-hit, out $0.87/M)"
   },
   "imagen-3.0-capability-001": {
     "litellm_provider": "vertex_ai",
