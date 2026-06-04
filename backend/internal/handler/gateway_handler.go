@@ -325,7 +325,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						zap.String("platform", platform),
 						zap.Error(err),
 					)
-					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts: "+err.Error(), streamStarted)
+					h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", "No available accounts: "+err.Error(), streamStarted)
 					return
 				}
 				action := fs.HandleSelectionExhausted(c.Request.Context())
@@ -374,7 +374,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						zap.String("model", reqModel),
 						zap.String("platform", platform),
 					)
-					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
+					h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", "No available accounts", streamStarted)
 					return
 				}
 				accountWaitCounted := false
@@ -589,7 +589,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						zap.Bool("fallback_used", fallbackUsed),
 						zap.Error(err),
 					)
-					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts: "+err.Error(), streamStarted)
+					h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", "No available accounts: "+err.Error(), streamStarted)
 					return
 				}
 				action := fs.HandleSelectionExhausted(c.Request.Context())
@@ -638,7 +638,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						zap.String("model", reqModel),
 						zap.String("platform", platform),
 					)
-					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
+					h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", "No available accounts", streamStarted)
 					return
 				}
 				accountWaitCounted := false

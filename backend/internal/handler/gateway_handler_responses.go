@@ -182,7 +182,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		if err != nil {
 			if len(fs.FailedAccountIDs) == 0 {
 				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-				h.responsesErrorResponse(c, http.StatusServiceUnavailable, "api_error", "No available accounts: "+err.Error())
+				h.responsesErrorResponse(c, tkNoAvailableAccounts(c), "api_error", "No available accounts: "+err.Error())
 				return
 			}
 			action := fs.HandleSelectionExhausted(c.Request.Context())
@@ -208,7 +208,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		if !selection.Acquired {
 			if selection.WaitPlan == nil {
 				markOpsRoutingCapacityLimited(c)
-				h.responsesErrorResponse(c, http.StatusServiceUnavailable, "api_error", "No available accounts")
+				h.responsesErrorResponse(c, tkNoAvailableAccounts(c), "api_error", "No available accounts")
 				return
 			}
 			accountReleaseFunc, err = h.concurrencyHelper.AcquireAccountSlotWithWaitTimeout(
