@@ -81,7 +81,12 @@ func TestEffectiveBaselineForTier(t *testing.T) {
 // the exact numeric baselines, so value-only changes don't churn this test:
 //   - every tier loads and carries the required positive extra caps
 //   - shared extra keys are overlaid onto every tier
-//   - priority follows tier order (l1..l5 -> 1..5)
+//   - tier priority is UNIFORM across tiers (caps-only tiers): stability tier
+//     gates rate caps only, NOT scheduling order. Account scheduling order is
+//     owned by the window-rebalance pipeline (accounts.priority); a uniform tier
+//     base means tier no longer biases cross-tier scheduling. Asserting
+//     uniformity (not a specific value) stays value-agnostic while catching an
+//     accidental drift back to a per-tier priority ladder.
 //   - the RPM / session / cost ladder is monotonic non-decreasing l1 -> l5
 func TestTierLadderInvariants(t *testing.T) {
 	order, err := TierOrder()
@@ -91,13 +96,17 @@ func TestTierLadderInvariants(t *testing.T) {
 	requiredCaps := []string{"base_rpm", "rpm_sticky_buffer", "max_sessions", "window_cost_limit"}
 	ladder := []string{"base_rpm", "max_sessions", "window_cost_limit"}
 	prev := map[string]float64{}
+	var firstPriority int
 	for i, name := range order {
 		eff, err := EffectiveBaselineForTier(name)
 		if err != nil {
 			t.Fatalf("EffectiveBaselineForTier %q: %v", name, err)
 		}
-		if eff.Priority != i+1 {
-			t.Fatalf("%s priority = %d want %d (tier order)", name, eff.Priority, i+1)
+		if i == 0 {
+			firstPriority = eff.Priority
+		}
+		if eff.Priority != firstPriority {
+			t.Fatalf("%s priority = %d want %d (tier priority must be uniform — caps-only tiers; scheduling order is owned by window-rebalance)", name, eff.Priority, firstPriority)
 		}
 		if eff.Concurrency <= 0 {
 			t.Fatalf("%s concurrency = %d want > 0", name, eff.Concurrency)

@@ -16,7 +16,10 @@ window_cost_limit / stability_tier) remains the write surface of
 ops/anthropic/manage-anthropic-config.py and MUST NOT be co-written.
 
 Re-apply after every tier-baseline apply — the tier-baseline template
-resets priority to the tier base (l1=1, l2=2, l3=3, l4=4, l5=5).
+resets priority to the tier base. Tier bases are now UNIFORM (all tiers
+base=1: caps-only tiers — stability tier gates rate caps, not scheduling
+order), so the reset puts every tier on the same base and this pipeline's
+within-tier window rank is what orders accounts.
 
 Stages
 ------
@@ -102,11 +105,15 @@ _EDGE_ROUTING = importlib.util.module_from_spec(_EDGE_ROUT_SPEC)
 sys.modules.setdefault(_EDGE_ROUT_SPEC.name, _EDGE_ROUTING)
 _EDGE_ROUT_SPEC.loader.exec_module(_EDGE_ROUTING)
 
-# Tier band geometry: tier base priorities are consecutive integers
-# (l1=1 .. l5=5) in anthropic-oauth-stability-baselines-tiered.json.
-# Rebalance assigns new_priority = tier_base + rank within the same
-# stability_tier bucket only; keep per-tier account counts modest so
-# rank offsets do not collide with another tier's scheduling intent.
+# Tier band geometry: tier base priorities are now UNIFORM (all tiers base=1)
+# in anthropic-oauth-stability-baselines-tiered.json — stability tier gates
+# rate caps only, not scheduling order (caps-only tiers). Rebalance still
+# assigns new_priority = tier_base + rank within the same stability_tier
+# bucket; with a uniform base every tier shares the same 1+rank band, so
+# accounts are ordered purely by within-tier window-remaining rank and
+# cross-tier priority collisions are expected BY DESIGN (the scheduler
+# tie-breaks among equal priorities). MAX_PER_TIER_PER_EDGE still bounds the
+# rank so any single tier's band stays small.
 MAX_PER_TIER_PER_EDGE = 10
 
 # psql \set account_name '...' 不是绑定参数——仅允许 slug 形态名，
