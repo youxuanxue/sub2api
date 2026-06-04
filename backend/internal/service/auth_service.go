@@ -1573,11 +1573,16 @@ func (s *AuthService) RefreshTokenPair(ctx context.Context, refreshToken string)
 		return nil, ErrTokenRevoked
 	}
 
-	// Token轮转：立即使旧Token失效
-	if err := s.refreshTokenCache.DeleteRefreshToken(ctx, tokenHash); err != nil {
-		logger.LegacyPrintf("service.auth", "[Auth] Failed to delete old refresh token: %v", err)
-		// 继续处理，不影响主流程
+	// TK: 宽限期内对已轮转 token 的并发/重复刷新，幂等重发新 token 对，不判重放。
+	// 放在 active/version 安全校验之后，确保被禁用/改密的账号仍会在上面被撤销。
+	// 详见 auth_service_tk_refresh_grace.go。
+	if data.RotatedAt != nil {
+		return s.tkReissueWithinGrace(ctx, user, data)
 	}
+
+	// Token轮转：标记旧Token已轮转并保留极短宽限窗口（替代立即硬删），让宽限期内的
+	// 并发刷新走上面的幂等分支，而非被误判为重放攻击。窗口后由 Redis TTL 自动失效。
+	s.tkMarkRotatedWithGrace(ctx, tokenHash, data)
 
 	// 生成新的Token对，保持同一个家族ID
 	pair, err := s.GenerateTokenPair(ctx, user, data.FamilyID)
