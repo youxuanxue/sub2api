@@ -527,6 +527,12 @@ type ForwardResult struct {
 	ClientDisconnect bool // 客户端是否在流式传输过程中断开
 	ReasoningEffort  *string
 
+	// BillingTier is an optional billing-tier label persisted onto the usage log.
+	// TK: the Kiro (sixth platform) path sets "kiro-estimated" to mark that the
+	// token counts were estimated locally (Kiro upstream reports credits only,
+	// never tokens). Empty means no tier label (the common token-billing case).
+	BillingTier string
+
 	// 图片生成计费字段（图片生成模型使用）
 	ImageCount         int    // 生成的图片数量
 	ImageSize          string // 最终计费尺寸 "1K", "2K", "4K"
@@ -9592,6 +9598,7 @@ func (s *GatewayService) buildRecordUsageLog(
 		RequestedModel:        requestedModel,
 		UpstreamModel:         optionalNonEqualStringPtr(result.UpstreamModel, result.Model),
 		ReasoningEffort:       result.ReasoningEffort,
+		BillingTier:           optionalTrimmedStringPtr(result.BillingTier),
 		InboundEndpoint:       optionalTrimmedStringPtr(input.InboundEndpoint),
 		UpstreamEndpoint:      optionalTrimmedStringPtr(input.UpstreamEndpoint),
 		InputTokens:           result.Usage.InputTokens,
