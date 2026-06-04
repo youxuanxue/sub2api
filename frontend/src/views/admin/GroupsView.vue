@@ -1103,7 +1103,6 @@
             {{ t("admin.groups.openaiMessages.allowDispatchHint") }}
           </p>
 
-
           <div class="mt-4 rounded-xl border border-gray-200 p-4 dark:border-dark-600">
             <div class="flex items-center justify-between">
               <div>
