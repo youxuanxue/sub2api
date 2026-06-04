@@ -17,12 +17,13 @@ import (
 // --- stubs -------------------------------------------------------------------
 
 type reconcilerAccountStub struct {
-	accounts  []Account
-	sum       int64
-	bulkCalls []bulkUpdateCall
-	listErr   error
-	sumErr    error
-	bulkErr   error
+	accounts   []Account            // default list (back-compat for existing tests)
+	byPlatform map[string][]Account // optional per-platform override (runOnce now lists anthropic AND kiro)
+	sum        int64
+	bulkCalls  []bulkUpdateCall
+	listErr    error
+	sumErr     error
+	bulkErr    error
 }
 
 type bulkUpdateCall struct {
@@ -33,6 +34,9 @@ type bulkUpdateCall struct {
 func (s *reconcilerAccountStub) ListByPlatform(ctx context.Context, platform string) ([]Account, error) {
 	if s.listErr != nil {
 		return nil, s.listErr
+	}
+	if s.byPlatform != nil {
+		return s.byPlatform[platform], nil // absent platform → empty list
 	}
 	return s.accounts, nil
 }
@@ -426,4 +430,48 @@ func TestReconciler_BalanceFloor_DisabledByConfig(t *testing.T) {
 	r.runOnce(context.Background())
 
 	require.Empty(t, bal.setCalls, "balance floor must be a no-op when the toggle is off")
+}
+
+// --- kiro priority baseline self-heal ---------------------------------------
+
+func TestReconciler_KiroPriorityBaseline_ValueSync(t *testing.T) {
+	kiroAcct := Account{ID: 70, Name: "kiro-a", Platform: PlatformKiro, Type: AccountTypeOAuth, Priority: 3}
+	acc := &reconcilerAccountStub{byPlatform: map[string][]Account{PlatformKiro: {kiroAcct}}}
+	usr := &reconcilerUserStub{user: &User{ID: 1, Concurrency: 0}}
+	r := newTestReconciler(acc, usr, &reconcilerBalanceStub{}, mirrorEnabledCfg(false, false))
+
+	r.runOnce(context.Background())
+
+	require.Len(t, acc.bulkCalls, 1, "kiro account with priority!=10 must be value-synced")
+	require.Equal(t, []int64{70}, acc.bulkCalls[0].ids)
+	require.NotNil(t, acc.bulkCalls[0].updates.Priority)
+	require.Equal(t, 10, *acc.bulkCalls[0].updates.Priority, "kiro priority must be hard-enforced to baseline 10")
+	require.Nil(t, acc.bulkCalls[0].updates.Concurrency, "priority sync must not touch concurrency")
+}
+
+func TestReconciler_KiroPriorityBaseline_AlreadyAligned_NoWrite(t *testing.T) {
+	kiroAcct := Account{ID: 71, Name: "kiro-b", Platform: PlatformKiro, Type: AccountTypeOAuth, Priority: 10}
+	acc := &reconcilerAccountStub{byPlatform: map[string][]Account{PlatformKiro: {kiroAcct}}}
+	usr := &reconcilerUserStub{user: &User{ID: 1, Concurrency: 0}}
+	r := newTestReconciler(acc, usr, &reconcilerBalanceStub{}, mirrorEnabledCfg(false, false))
+
+	r.runOnce(context.Background())
+
+	require.Empty(t, acc.bulkCalls, "kiro account already at baseline 10 must not be written")
+}
+
+func TestReconciler_KiroPriorityBaseline_NonKiroUntouched(t *testing.T) {
+	anth := Account{ID: 72, Name: "anth", Platform: PlatformAnthropic, Type: AccountTypeOAuth, Priority: 5}
+	acc := &reconcilerAccountStub{byPlatform: map[string][]Account{
+		PlatformAnthropic: {anth},
+		// kiro absent → empty list → no kiro writes
+	}}
+	usr := &reconcilerUserStub{user: &User{ID: 1, Concurrency: 0}}
+	r := newTestReconciler(acc, usr, &reconcilerBalanceStub{}, mirrorEnabledCfg(false, false))
+
+	r.runOnce(context.Background())
+
+	for _, c := range acc.bulkCalls {
+		require.Nil(t, c.updates.Priority, "non-kiro accounts must never receive a priority value-sync")
+	}
 }
