@@ -170,9 +170,10 @@ func TestRefreshTokenPair_AfterGraceExpiry_StillDetectsReplay(t *testing.T) {
 	}
 }
 
-func TestRefreshTokenPair_RotatedPastGrace_RevokesEvenIfRecordSurvives(t *testing.T) {
-	// 防御性：即便底层缓存未按 TTL 驱逐（这里记录仍在但 RotatedAt 已超窗口），
-	// 也必须按重放处理并撤销 family——重放窗口由代码判定，不依赖缓存过期时序。
+func TestRefreshTokenPair_RotatedPastGrace_InvalidWithoutFamilyNuke(t *testing.T) {
+	// 防御性：即便底层缓存未按 TTL 驱逐（记录仍在但 RotatedAt 已超窗口），重放窗口也由
+	// 代码判定而非缓存过期时序——必须给出与"token 不存在"重放路径完全一致的结果：
+	// ErrRefreshTokenInvalid，且**不**撤销 family（否则会误伤同 family 刚签发的活跃会话）。
 	cache := newStatefulRefreshCache()
 	user := activeUser()
 	raw := seedToken(cache, user)
@@ -184,8 +185,8 @@ func TestRefreshTokenPair_RotatedPastGrace_RevokesEvenIfRecordSurvives(t *testin
 	if !errors.Is(err, ErrRefreshTokenInvalid) {
 		t.Fatalf("rotated token past grace must be ErrRefreshTokenInvalid, got: %v", err)
 	}
-	if len(cache.deletedFamily) == 0 {
-		t.Fatalf("rotated token past grace must revoke the token family")
+	if len(cache.deletedFamily) != 0 {
+		t.Fatalf("past-grace replay must NOT nuke the family (mirrors not-found path), deleted=%v", cache.deletedFamily)
 	}
 }
 

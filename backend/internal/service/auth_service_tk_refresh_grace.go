@@ -38,16 +38,19 @@ func (s *AuthService) tkMarkRotatedWithGrace(ctx context.Context, tokenHash stri
 }
 
 // tkRefreshRotatedWithinGrace 处理对一个已轮转 token 的再次刷新。仅当仍在宽限窗口内
-// 才视为"同一次刷新"的并发/重复，保持同一 family 幂等重发一对有效 token、不报重放；
-// 一旦超出窗口，即按真正的重放攻击处理（撤销整个 family）。
+// 才视为"同一次刷新"的并发/重复，保持同一 family 幂等重发一对有效 token、不报重放。
 //
 // 宽限边界在这里显式判定（time.Since(RotatedAt)），不依赖底层缓存的 TTL 驱逐时序——
 // 这样重放检测的窗口由代码而非 Redis 过期这一副作用保证，对未来更换/新增缓存后端
-// （含可能的内存兜底）依然成立。user/active/version 校验在调用点已通过。
+// （含可能的内存兜底）依然成立。
+//
+// 超出窗口时与原始的"token 不存在"重放路径保持完全一致：返回 ErrRefreshTokenInvalid，
+// 不撤销 family。正常情况下 Redis 已按 TTL 驱逐该记录、走 RefreshTokenPair 里的 not-found
+// 分支；这里是记录意外存活时的兜底，必须给出与那条分支相同的结果，否则一个迟到的过期标签页
+// 会连带把同 family 里刚签发的有效 token 一起删掉、误伤活跃会话。user/active/version
+// 校验在调用点已通过。
 func (s *AuthService) tkRefreshRotatedWithinGrace(ctx context.Context, user *User, data *RefreshTokenData) (*TokenPairWithUser, error) {
 	if data.RotatedAt == nil || time.Since(*data.RotatedAt) > tkRefreshRotationGrace {
-		// 超出宽限窗口：真正的重放，撤销整个 family（与原始重放检测语义一致）。
-		_ = s.refreshTokenCache.DeleteTokenFamily(ctx, data.FamilyID)
 		return nil, ErrRefreshTokenInvalid
 	}
 	pair, err := s.GenerateTokenPair(ctx, user, data.FamilyID)
