@@ -3426,6 +3426,45 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
 
 # --------------------------------------------------------------------------
+# SQL self-check registry
+#
+# Every SQL-generating symbol in this module MUST appear in iter_self_check_sql()
+# (with representative args) or in SELF_CHECK_EXEMPT — scripts/checks/
+# ops-sql-coverage.py fails otherwise, so a new generator cannot ship without a
+# real-Postgres execution test (ops/anthropic/test_ops_sql_execute.py). This is
+# the fleet-wide guard for the PR #563 class: generated SQL that is syntactically
+# invalid but passes mocked/substring tests.
+# --------------------------------------------------------------------------
+SELF_CHECK_EXEMPT: dict[str, str] = {
+    "ssm_run_sql": "executes SQL over SSM, does not build it",
+}
+
+
+def iter_self_check_sql() -> list[tuple[str, str]]:
+    """(label, rendered_sql) for every SQL generator, with representative args
+    that exercise the escaping paths. Header timestamps vary per call — consumers
+    validate structure / executability, never golden bytes."""
+    nasty = "weird'name"
+    return [
+        ("EDGE_ACCOUNTS_SQL", EDGE_ACCOUNTS_SQL),
+        ("PROD_STUBS_SQL", PROD_STUBS_SQL),
+        ("ANTHROPIC_GROUPS_SQL", ANTHROPIC_GROUPS_SQL),
+        ("TIERS_SQL", TIERS_SQL),
+        ("OPERATOR_CONCURRENCY_SQL", OPERATOR_CONCURRENCY_SQL),
+        ("OPERATOR_BALANCE_SQL", OPERATOR_BALANCE_SQL),
+        ("SETTINGS_UA_SQL", SETTINGS_UA_SQL),
+        ("render_edge_operator_balance_sql", render_edge_operator_balance_sql(123.45)),
+        ("render_anthropic_group_claude_code_sql", render_anthropic_group_claude_code_sql(True)),
+        ("render_admin_operator_concurrency_sync_sql", render_admin_operator_concurrency_sync_sql()),
+        ("render_edge_account_tier_sql", render_edge_account_tier_sql(nasty, "l5", "us1")),
+        ("render_prod_stub_pool_sql", render_prod_stub_pool_sql(42, nasty, True, 3)),
+        ("render_edge_operator_concurrency_sql", render_edge_operator_concurrency_sql("us1")),
+        ("render_prod_concurrency_mirror_sql",
+         render_prod_concurrency_mirror_sql([{"id": 42, "name": nasty, "concurrency": 10}])),
+    ]
+
+
+# --------------------------------------------------------------------------
 # Dispatch
 # --------------------------------------------------------------------------
 
