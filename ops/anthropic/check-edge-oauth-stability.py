@@ -384,8 +384,13 @@ SELECT jsonb_pretty(jsonb_build_object(
 
 
 def _guard_live_payload_object_sql(*, target_from: str) -> str:
-    """JSON object for one OAuth account row; ``target_from`` is a FROM clause source
-    (e.g. ``target`` CTE, or ``(SELECT * FROM accounts WHERE id = t.id) target``)."""
+    """JSON object for one OAuth account row.
+
+    ``target_from`` must be a single relation NAME that is safe to re-alias —
+    fragments here do both ``FROM {target_from}`` and ``FROM {target_from} t``,
+    so an already-aliased subquery (``(SELECT …) target``) would double-alias.
+    Pass a CTE name (``target``): the per-account ``build_live_query`` and the
+    batch ``build_all_oauth_guard_live_batch_query`` both bind one that way."""
     return f"""
 jsonb_build_object(
   'found', EXISTS(SELECT 1 FROM {target_from}),
