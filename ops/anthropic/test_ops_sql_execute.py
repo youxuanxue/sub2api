@@ -78,42 +78,39 @@ def _load(path: pathlib.Path):
 
 
 def _have_backend() -> bool:
-    return bool(os.environ.get("TK_SQL_EXEC_PSQL")) or bool(
-        shutil.which("docker") and shutil.which("psql")
-    )
+    # Docker path runs psql INSIDE the container (docker exec) — no host psql,
+    # no port mapping, no host->container networking (the fragile bits that fail
+    # in CI). So docker alone is enough; host psql is only needed for the
+    # explicit TK_SQL_EXEC_PSQL opt-in DSN.
+    if os.environ.get("TK_SQL_EXEC_PSQL"):
+        return bool(shutil.which("psql"))
+    return bool(shutil.which("docker"))
 
 
 @unittest.skipUnless(
     _have_backend(),
-    "needs TK_SQL_EXEC_PSQL or docker+psql to execute generated SQL on a real Postgres",
+    "needs TK_SQL_EXEC_PSQL(+psql) or docker to execute generated SQL on a real Postgres",
 )
 class OpsSqlExecuteTest(unittest.TestCase):
     _container: str | None = None
-    conninfo: str = ""
+    _dsn: str = ""  # set when using an external Postgres via TK_SQL_EXEC_PSQL
 
     @classmethod
     def setUpClass(cls) -> None:
-        dsn = os.environ.get("TK_SQL_EXEC_PSQL")
-        if dsn:
-            cls.conninfo = dsn
-        else:
-            # Provision a throwaway Postgres. A flaky/unavailable docker daemon
-            # (image pull offline, no DinD, etc.) must SKIP — never red the gate
-            # on infra; the static coverage check + any TK_SQL_EXEC_PSQL run stay
-            # authoritative.
-            cls._container = "tk-ops-sql-" + str(os.getpid())
-            try:
+        # Any infra problem (no docker daemon, image pull offline, connection
+        # failure, schema rejected) must SKIP — never red the gate on infra. The
+        # static coverage check stays the always-on floor.
+        try:
+            dsn = os.environ.get("TK_SQL_EXEC_PSQL")
+            if dsn:
+                cls._dsn = dsn
+            else:
+                cls._container = "tk-ops-sql-" + str(os.getpid())
                 subprocess.run(
                     ["docker", "run", "-d", "--rm", "--name", cls._container,
-                     "-p", "127.0.0.1::5432", "-e", "POSTGRES_PASSWORD=x", "-e", "POSTGRES_DB=t",
-                     "postgres:16-alpine"],
+                     "-e", "POSTGRES_PASSWORD=x", "-e", "POSTGRES_DB=t", "postgres:16-alpine"],
                     check=True, capture_output=True, text=True,
                 )
-                port = subprocess.run(
-                    ["docker", "port", cls._container, "5432/tcp"],
-                    check=True, capture_output=True, text=True,
-                ).stdout.strip().rsplit(":", 1)[-1]
-                cls.conninfo = f"postgresql://postgres:x@127.0.0.1:{port}/t"
                 ready = False
                 deadline = time.time() + 60
                 while time.time() < deadline:
@@ -124,23 +121,29 @@ class OpsSqlExecuteTest(unittest.TestCase):
                     time.sleep(1)
                 if not ready:
                     raise RuntimeError("postgres did not become ready in 60s")
-            except (subprocess.CalledProcessError, RuntimeError, OSError) as exc:
-                cls.tearDownClass()
-                raise unittest.SkipTest(f"docker postgres unavailable: {exc}")
-        cls._psql(cls, SCHEMA)  # type: ignore[arg-type]
+            schema = cls._run_sql(cls, SCHEMA)  # type: ignore[arg-type]
+            if schema.returncode != 0:
+                raise RuntimeError(f"schema setup failed: {schema.stderr.strip()}")
+        except (subprocess.CalledProcessError, RuntimeError, OSError) as exc:
+            cls.tearDownClass()
+            raise unittest.SkipTest(f"postgres backend unavailable: {exc}")
 
     @classmethod
     def tearDownClass(cls) -> None:
         if cls._container:
             subprocess.run(["docker", "rm", "-f", cls._container], capture_output=True)
+            cls._container = None
 
-    def _psql(self, sql: str) -> subprocess.CompletedProcess:
+    def _run_sql(self, sql: str) -> subprocess.CompletedProcess:
         if not sql.strip().endswith(";"):
             sql += ";"
-        return subprocess.run(
-            ["psql", self.conninfo, "-v", "ON_ERROR_STOP=1", "-q", "-t", "-A", "-f", "-"],
-            input=sql, text=True, capture_output=True,
-        )
+        base = ["psql", "-v", "ON_ERROR_STOP=1", "-q", "-t", "-A", "-f", "-"]
+        if self._container:  # run psql inside the container — robust, no networking
+            cmd = ["docker", "exec", "-i", self._container,
+                   "psql", "-U", "postgres", "-d", "t", "-v", "ON_ERROR_STOP=1", "-q", "-t", "-A"]
+        else:
+            cmd = ["psql", self._dsn, *base[1:]]
+        return subprocess.run(cmd, input=sql, text=True, capture_output=True)
 
     def test_every_generated_sql_executes(self) -> None:
         total = 0
@@ -149,7 +152,7 @@ class OpsSqlExecuteTest(unittest.TestCase):
             for label, sql in mod.iter_self_check_sql():
                 total += 1
                 with self.subTest(generator=f"{path.name}:{label}"):
-                    proc = self._psql(sql)
+                    proc = self._run_sql(sql)
                     self.assertEqual(
                         proc.returncode, 0,
                         f"Postgres rejected {path.name}:{label}:\n{proc.stderr}\n---\n{sql}",
@@ -160,7 +163,7 @@ class OpsSqlExecuteTest(unittest.TestCase):
         # Prove the gate has teeth: an unbalanced COALESCE( (the PR #563 shape)
         # must be rejected by Postgres.
         broken = "SELECT COALESCE(jsonb_agg(jsonb_build_object('x', 1)), '[]'::jsonb FROM accounts;"
-        proc = self._psql(broken)
+        proc = self._run_sql(broken)
         self.assertNotEqual(proc.returncode, 0, "corrupted SQL should be rejected")
 
 
