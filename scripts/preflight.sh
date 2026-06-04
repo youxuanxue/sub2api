@@ -1037,6 +1037,37 @@ else
     echo "  ok: no edge_id is deployable=true on both EC2 and Lightsail"
 fi
 
+# ---- sub2api: ops SQL generator coverage ------------------------------------
+# Gate B (static half). Every SQL-generating symbol in an ops module must be
+# enumerated in that module's iter_self_check_sql() (so the real-Postgres
+# execution test ops/anthropic/test_ops_sql_execute.py runs it) or exempted with
+# a reason. Forces the PR #563 class (generated SQL that Postgres rejects but
+# mocked/substring tests pass) into a real-parser gate fleet-wide.
+echo ""
+echo "=== sub2api: ops SQL generator coverage ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for ops SQL coverage check)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/ops-sql-coverage.py; then
+    # ops-sql-coverage.py already printed the actionable failure.
+    errors=$((errors + 1))
+fi
+
+# ---- sub2api: workflow edge coverage ----------------------------------------
+# Gate C. Per-edge workflows carry hardcoded choice option lists (GitHub Actions
+# cannot compute them dynamically); a new deployable edge in the matrices would
+# silently become un-covered. Source: scripts/checks/workflow-edge-coverage.py
+# + workflow-edge-coverage.json (registry + opt-outs).
+echo ""
+echo "=== sub2api: workflow edge coverage ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for workflow edge coverage check)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/workflow-edge-coverage.py; then
+    # workflow-edge-coverage.py already printed the actionable failure.
+    errors=$((errors + 1))
+fi
+
 # ---- sub2api: lightsail edge launch-script drift ----------------------------
 # Source of truth: deploy/aws/lightsail/render-bootstrap.sh + the four Stage0
 # inputs it embeds (docker-compose.yml, Caddyfile.edge, two ops shell scripts).

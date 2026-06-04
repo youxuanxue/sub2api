@@ -857,6 +857,31 @@ def format_diff(diffs: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+# --------------------------------------------------------------------------
+# SQL self-check registry — see manage-anthropic-config.py for the doctrine.
+# Every SQL-generating symbol here must be enumerated or exempted-with-reason;
+# scripts/checks/ops-sql-coverage.py enforces it.
+# --------------------------------------------------------------------------
+SELF_CHECK_EXEMPT: dict[str, str] = {
+    "run_remote_query": "executes a query over SSM, does not build SQL",
+}
+
+
+def iter_self_check_sql() -> list[tuple[str, str]]:
+    """(label, rendered_sql) for every SQL generator with representative args."""
+    nasty = "weird'name"
+    baseline = load_json(
+        REPO_ROOT / "deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json"
+    )
+    effective = effective_baseline_for_tier(baseline, "l5")
+    return [
+        ("build_account_names_query", build_account_names_query()),
+        ("build_live_query", build_live_query(nasty)),
+        ("build_all_oauth_guard_live_batch_query", build_all_oauth_guard_live_batch_query()),
+        ("generate_sql", generate_sql({"edge_id": "us1"}, nasty, effective)),
+    ]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Check Edge Anthropic OAuth account stability baseline drift.")
     parser.add_argument("--edge-id", required=True)

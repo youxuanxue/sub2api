@@ -940,6 +940,24 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
 
 # --------------------------------------------------------------------------
+# SQL self-check registry — see manage-anthropic-config.py for the doctrine.
+# --------------------------------------------------------------------------
+SELF_CHECK_EXEMPT: dict[str, str] = {
+    "ssm_run_sql": "executes SQL over SSM, does not build it",
+}
+
+
+def iter_self_check_sql() -> list[tuple[str, str]]:
+    """(label, rendered_sql) for every SQL generator with representative args.
+    render_apply_sql enforces a safe-name regex, so the representative name is
+    a regex-valid one (escaping is validated, not bypassed)."""
+    return [
+        ("EDGE_ACCOUNTS_SQL", EDGE_ACCOUNTS_SQL),
+        ("render_apply_sql", render_apply_sql("cc-us1_acct", 42)),
+    ]
+
+
+# --------------------------------------------------------------------------
 # Dispatch
 # --------------------------------------------------------------------------
 
