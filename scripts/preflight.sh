@@ -1246,6 +1246,22 @@ else
 fi
 
 echo ""
+echo "=== sub2api: release/warm Go cache key parity ==="
+# Keeps the cross-arch Go build-cache contract between backend-ci.yml's
+# `warm-release-cache` job (SAVES on main) and release.yml (RESTORE-ONLY on the
+# tag ref) mechanically coupled: identical key prefix + correct save/restore
+# directionality. Drift silently reverts the release speed-up to a cold arm64
+# compile with no error (the exact class that went unnoticed before PR #576).
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by release-cache-key-parity.py)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/release-cache-key-parity.py --quiet; then
+    errors=$((errors + 1))
+else
+    echo "  ok: release/warm cache key prefix + directionality in sync"
+fi
+
+echo ""
 if [ "$errors" -eq 0 ]; then
     echo "=== preflight (with sub2api checks): PASS ==="
     exit 0

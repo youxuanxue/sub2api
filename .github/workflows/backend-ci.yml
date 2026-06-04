@@ -250,6 +250,73 @@ jobs:
           CURRENT_PIN="$(tr -d '[:space:]' < .new-api-ref)"
           bash scripts/upstream/bump-new-api.sh "$CURRENT_PIN"
 
+  # Warm the cross-arch (amd64+arm64) Go build cache that release.yml consumes.
+  #
+  # WHY THIS JOB EXISTS: release.yml is triggered by `tag push`, so it runs on
+  # `refs/tags/vX.Y.Z`. GitHub Actions scopes cache restore to the current ref
+  # plus the DEFAULT BRANCH only — a cache saved on one tag ref is invisible to
+  # the next tag's run. The "rolling" cache release.yml saved on its own tag ref
+  # was therefore NEVER restored across releases (verified: every release logged
+  # `Cache not found for input keys: Linux-go-release-...`), so every release
+  # cold-compiled the full arm64 package set (~4m, ~79% of the GoReleaser step).
+  #
+  # Saving the same-keyed cache HERE — on `main`, the default branch — makes it
+  # readable from every tag-triggered release run. release.yml now restores it
+  # (restore-only) and only recompiles changed packages + relinks.
+  #
+  # Runs only on push to main (where the save lands on the default-branch ref);
+  # PR runs are pointless because their cache is PR-ref-scoped and release can't
+  # read it.
+  warm-release-cache:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/cache-and-checkout-new-api
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          # The rolling cache below owns GOCACHE + GOMODCACHE; setup-go's
+          # go.sum-keyed cache is immutable and would never refresh the arm64
+          # cross-compile objects (same reasoning as release.yml).
+          cache: false
+      # Rolling cache: a run_id-unique SAVE key always re-saves at post-job; the
+      # restore-keys seed from the previous main warm cache so the build is
+      # incremental, not cold. Key prefix is IDENTICAL to release.yml's
+      # restore-keys so release restores exactly this entry. Go's cache is
+      # content-addressed, so a stale entry is unused, never wrong.
+      - name: Rolling Go build cache (amd64 + arm64 cross-compile)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-release-${{ hashFiles('backend/go.sum') }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-go-release-${{ hashFiles('backend/go.sum') }}-
+            ${{ runner.os }}-go-release-
+      - name: Verify Go version
+        run: |
+          go version | grep -q 'go1.26.4'
+      # Compile cmd/server for BOTH release arches to populate the cache.
+      # Flags mirror .goreleaser.yaml (CGO_ENABLED=0, linux) — but WITHOUT
+      # `-tags=embed`, so no frontend dist/ is required (embed_off.go satisfies
+      # `//go:build !embed`). The embed-gated files are a handful of tiny
+      # packages that recompile during release; deps + stdlib + all relay/
+      # service/handler objects — the ~79% bulk — are cached identically.
+      - name: Warm cross-arch Go build cache
+        working-directory: backend
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+        run: |
+          for arch in amd64 arm64; do
+            echo "::group::go build linux/${arch}"
+            GOARCH="${arch}" go build -o /dev/null ./cmd/server
+            echo "::endgroup::"
+          done
+
   compile-smoke:
     if: (github.event_name == 'schedule' && github.event.schedule == '17 9 * * TUE') || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'weekly-smoke'))
     runs-on: ubuntu-latest
