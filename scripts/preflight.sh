@@ -408,23 +408,24 @@ else
     echo "  ok: all pricing-availability sentinels intact"
 fi
 
-# ---- sub2api: media pricing overlay -----------------------------------------
-# Source of truth: backend/internal/service/tk_media_pricing_overlay.json. The
+# ---- sub2api: pricing overlay -----------------------------------------------
+# Source of truth: backend/internal/service/tk_pricing_overlay.json. The
 # production price source (Wei-Shaw mirror) is a trimmed litellm that drops
-# provider-prefixed + token-less media entries, so imagen-*/veo-* resolve to a
-# wrong default unless this fill-only overlay supplies them. Assert the overlay
+# provider-prefixed + token-less media entries (and litellm itself lags new
+# provider models like deepseek-v4-*), so those models resolve to a wrong
+# default or $0 unless this fill-only overlay supplies them. Assert the overlay
 # is non-empty, anchors are present, and no entry ships a $0 price. CLAUDE.md
 # §「升级原则」: a soft rule that bit us once becomes a mechanical gate.
 echo ""
-echo "=== sub2api: media pricing overlay ==="
+echo "=== sub2api: pricing overlay ==="
 if ! command -v python3 >/dev/null 2>&1; then
-    echo "  FAIL: python3 not on PATH (required to validate tk_media_pricing_overlay.json)"
+    echo "  FAIL: python3 not on PATH (required to validate tk_pricing_overlay.json)"
     errors=$((errors + 1))
-elif ! python3 ./scripts/checks/media-pricing-overlay.py --quiet; then
-    # media-pricing-overlay.py already printed the actionable failure.
+elif ! python3 ./scripts/checks/pricing-overlay.py --quiet; then
+    # pricing-overlay.py already printed the actionable failure.
     errors=$((errors + 1))
 else
-    echo "  ok: media pricing overlay valid (anchors present, no \$0)"
+    echo "  ok: pricing overlay valid (anchors present, no \$0)"
 fi
 
 # ---- sub2api: frontend TK sentinel registry ---------------------------------

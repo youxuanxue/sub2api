@@ -435,9 +435,10 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		return nil, fmt.Errorf("no valid pricing entries found")
 	}
 
-	// TK: fill-only overlay for media (image/video) models the trimmed runtime source
-	// drops (imagen-*/veo-*). See pricing_service_tk_media_overlay.go.
-	applyTKMediaPricingOverlay(result)
+	// TK: fill-only overlay for models the trimmed runtime source lacks — media
+	// (imagen-*/veo-*) and text models litellm has not yet catalogued (deepseek-v4-*).
+	// See pricing_service_tk_overlay.go.
+	applyTKPricingOverlay(result)
 
 	return result, nil
 }
@@ -591,7 +592,7 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 	// 6. Provider-prefixed 最后兜底：仅当运行时源恰好带前缀 key（"gemini/imagen-4.0-*"、
 	// "vertex_ai/imagen-4.0-*"）时才命中。注意这不是媒体计价的主路径——生产源（Wei-Shaw 镜像）
 	// 把这些前缀 key 全裁掉了，真正让 imagen-*/veo-* 解析出价的是 always-merged 的 TK overlay
-	// （见 pricing_service_tk_media_overlay.go），overlay 注入的裸名已在上面第 1 步 exact-match 命中。
+	// （见 pricing_service_tk_overlay.go），overlay 注入的裸名已在上面第 1 步 exact-match 命中。
 	if pricing := s.matchByProviderPrefix(lookupCandidates[0]); pricing != nil {
 		return pricing
 	}

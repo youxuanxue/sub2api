@@ -283,14 +283,14 @@
       "must_contain": [
         "ImageCount: out.ImageCount"
       ],
-      "rationale": "Per-image billing for imagen via the newapi bridge: ForwardAsImageGenerationsDispatched must propagate bridge.DispatchOutcome.ImageCount onto OpenAIForwardResult, otherwise the gateway's `result.ImageCount > 0` branch never fires and imagen bills by tokens instead of output_cost_per_image (silent under-charge). Pairs with the TK media pricing overlay (without a resolvable per-image price the count is moot; without the count the resolved price never applies). An upstream merge restructuring the bridge image dispatch could drop this one line."
+      "rationale": "Per-image billing for imagen via the newapi bridge: ForwardAsImageGenerationsDispatched must propagate bridge.DispatchOutcome.ImageCount onto OpenAIForwardResult, otherwise the gateway's `result.ImageCount > 0` branch never fires and imagen bills by tokens instead of output_cost_per_image (silent under-charge). Pairs with the TK pricing overlay (without a resolvable per-image price the count is moot; without the count the resolved price never applies). An upstream merge restructuring the bridge image dispatch could drop this one line."
     },
     {
       "path": "backend/internal/service/pricing_service.go",
       "must_contain": [
-        "applyTKMediaPricingOverlay(result)"
+        "applyTKPricingOverlay(result)"
       ],
-      "rationale": "TK media (image/video) pricing overlay injection point inside parsePricingData — the single choke-point both the remote (Wei-Shaw) and disk-fallback load paths funnel through. The production price source is a TRIMMED litellm mirror that drops provider-prefixed keys and token-less media entries, so imagen-*/veo-* resolve to nothing there; this fill-only overlay (companion pricing_service_tk_media_overlay.go, embedded tk_media_pricing_overlay.json) supplies the bare-name entries so per-image / per-second billing applies. If an upstream merge restructures parsePricingData and drops this one-line call, imagen silently reverts to the $0.134 default and veo to $0. The companion file's go:embed also makes the overlay JSON's presence build-enforced."
+      "rationale": "TK pricing overlay injection point inside parsePricingData — the single choke-point both the remote (Wei-Shaw) and disk-fallback load paths funnel through. The production price source is a TRIMMED litellm mirror that drops provider-prefixed keys and token-less media entries (and litellm itself lags new provider models like deepseek-v4-*), so those models resolve to nothing there; this fill-only overlay (companion pricing_service_tk_overlay.go, embedded tk_pricing_overlay.json) supplies the bare-name entries so per-image / per-second / per-token billing applies. If an upstream merge restructures parsePricingData and drops this one-line call, imagen silently reverts to the $0.134 default, veo to $0, and deepseek-v4-* to $0 (pricing_missing_record_zero_cost). The companion file's go:embed also makes the overlay JSON's presence build-enforced."
     }
   ]
 }
