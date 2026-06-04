@@ -18,6 +18,8 @@ on:
           - us3
           - us4
           - us5
+          - us6
+          - us7
       operation:
         description: "provision creates Lightsail instance; upgrade/rollback use SSM; smoke verifies."
         required: true
