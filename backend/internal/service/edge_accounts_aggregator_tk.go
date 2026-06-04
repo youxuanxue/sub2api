@@ -257,13 +257,15 @@ func (a *EdgeAccountsAggregator) fetchEdgeAccounts(ctx context.Context, t edgeTa
 	return res
 }
 
-// EdgeAdminSession is the minted handoff result for one edge: the short-lived
-// admin JWT plus the edge's base_url so the caller can build the handoff URL.
+// EdgeAdminSession is the minted handoff result for one edge: the renewable admin
+// session (access + refresh) plus the edge's base_url so the caller can build the
+// handoff URL.
 type EdgeAdminSession struct {
-	EdgeID    string `json:"edge_id"`
-	BaseURL   string `json:"base_url"`
-	Token     string `json:"token"`
-	ExpiresIn int    `json:"expires_in"`
+	EdgeID       string `json:"edge_id"`
+	BaseURL      string `json:"base_url"`
+	Token        string `json:"token"`
+	RefreshToken string `json:"refresh_token"`
+	ExpiresIn    int    `json:"expires_in"`
 }
 
 // resolveTarget discovers the mirror-stub edges and returns the one whose derived
@@ -324,8 +326,9 @@ func (a *EdgeAccountsAggregator) MintAdminSession(ctx context.Context, edgeID st
 	}
 	var env struct {
 		Data struct {
-			Token     string `json:"token"`
-			ExpiresIn int    `json:"expires_in"`
+			Token        string `json:"token"`
+			RefreshToken string `json:"refresh_token"`
+			ExpiresIn    int    `json:"expires_in"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &env); err != nil {
@@ -335,9 +338,10 @@ func (a *EdgeAccountsAggregator) MintAdminSession(ctx context.Context, edgeID st
 		return nil, errors.New("edge returned empty token")
 	}
 	return &EdgeAdminSession{
-		EdgeID:    t.edgeID,
-		BaseURL:   t.baseURL,
-		Token:     env.Data.Token,
-		ExpiresIn: env.Data.ExpiresIn,
+		EdgeID:       t.edgeID,
+		BaseURL:      t.baseURL,
+		Token:        env.Data.Token,
+		RefreshToken: env.Data.RefreshToken,
+		ExpiresIn:    env.Data.ExpiresIn,
 	}, nil
 }

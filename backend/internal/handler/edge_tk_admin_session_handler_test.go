@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -36,12 +35,16 @@ func (s userLookupStub) GetByID(_ context.Context, _ int64) (*service.User, erro
 }
 
 type sessionMinterStub struct {
-	token string
-	err   error
+	pair *service.TokenPair
+	err  error
 }
 
-func (s sessionMinterStub) GenerateEdgeAdminSessionToken(_ *service.User, _ time.Duration) (string, error) {
-	return s.token, s.err
+func (s sessionMinterStub) GenerateEdgeAdminSessionTokenPair(_ context.Context, _ *service.User) (*service.TokenPair, error) {
+	return s.pair, s.err
+}
+
+func mintedPair() *service.TokenPair {
+	return &service.TokenPair{AccessToken: "minted.jwt.value", RefreshToken: "rt_minted", ExpiresIn: 3600}
 }
 
 func performAdminSessionRequest(t *testing.T, h *EdgeAdminSessionHandler, apiKey string) *httptest.ResponseRecorder {
@@ -61,11 +64,11 @@ func adminUser() *service.User {
 	return &service.User{ID: 1, Email: "admin@edge", Role: service.RoleAdmin, Status: service.StatusActive}
 }
 
-func TestEdgeAdminSession_AdminKeyMintsToken(t *testing.T) {
+func TestEdgeAdminSession_AdminKeyMintsRenewableSession(t *testing.T) {
 	h := NewEdgeAdminSessionHandler(
 		apiKeyLookupStub{apiKey: &service.APIKey{UserID: 1}},
 		userLookupStub{user: adminUser()},
-		sessionMinterStub{token: "minted.jwt.value"},
+		sessionMinterStub{pair: mintedPair()},
 	)
 	w := performAdminSessionRequest(t, h, "admin-key")
 	require.Equal(t, http.StatusOK, w.Code)
@@ -75,6 +78,7 @@ func TestEdgeAdminSession_AdminKeyMintsToken(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
 	require.Equal(t, "minted.jwt.value", env.Data.Token)
+	require.Equal(t, "rt_minted", env.Data.RefreshToken)
 	require.Greater(t, env.Data.ExpiresIn, 0)
 }
 
@@ -83,7 +87,7 @@ func TestEdgeAdminSession_NonAdminForbidden(t *testing.T) {
 	h := NewEdgeAdminSessionHandler(
 		apiKeyLookupStub{apiKey: &service.APIKey{UserID: 2}},
 		userLookupStub{user: nonAdmin},
-		sessionMinterStub{token: "should-not-be-minted"},
+		sessionMinterStub{pair: &service.TokenPair{AccessToken: "should-not-be-minted"}},
 	)
 	w := performAdminSessionRequest(t, h, "user-key")
 	require.Equal(t, http.StatusForbidden, w.Code)
@@ -95,7 +99,7 @@ func TestEdgeAdminSession_DisabledAdminForbidden(t *testing.T) {
 	h := NewEdgeAdminSessionHandler(
 		apiKeyLookupStub{apiKey: &service.APIKey{UserID: 1}},
 		userLookupStub{user: disabled},
-		sessionMinterStub{token: "x"},
+		sessionMinterStub{pair: mintedPair()},
 	)
 	w := performAdminSessionRequest(t, h, "k")
 	require.Equal(t, http.StatusForbidden, w.Code)
@@ -111,7 +115,7 @@ func TestEdgeAdminSession_InvalidKeyUnauthorized(t *testing.T) {
 	h := NewEdgeAdminSessionHandler(
 		apiKeyLookupStub{err: errors.New("not found")},
 		userLookupStub{user: adminUser()},
-		sessionMinterStub{token: "x"},
+		sessionMinterStub{pair: mintedPair()},
 	)
 	w := performAdminSessionRequest(t, h, "bad")
 	require.Equal(t, http.StatusUnauthorized, w.Code)
