@@ -11,20 +11,24 @@ usage() {
 Usage:
   bash ops/stage0/reset-edge-admin-password.sh [--platform auto|ec2|lightsail] edge-<id>
   bash ops/stage0/reset-edge-admin-password.sh [--platform auto|ec2|lightsail] <id>
+  bash ops/stage0/reset-edge-admin-password.sh prod
 
 Examples:
   bash ops/stage0/reset-edge-admin-password.sh uk1              # auto: Lightsail when deployable=true in lightsail matrix
   bash ops/stage0/reset-edge-admin-password.sh --platform ec2 fra1
   bash ops/stage0/reset-edge-admin-password.sh --platform lightsail uk1
+  bash ops/stage0/reset-edge-admin-password.sh prod            # prod main gateway (tokenkey-prod-stage0, us-east-1)
 
 Behavior:
+  - Target is an edge id (e.g. uk1, us6) or the literal "prod" (prod Stage0 gateway).
   - Uses deploy/aws/lightsail/edge-targets-lightsail.json vs deploy/aws/stage0/edge-targets.json:
       * Platform "auto": Lightsail region + Tag SSM targets when ls target exists and deployable=true;
                         otherwise EC2 region + InstanceId from CloudFormation Outputs.
       * EC2/Lightsail: force that resolution path via --platform.
+      * "prod": fixed EC2 stack tokenkey-prod-stage0 in us-east-1 (--platform ignored).
   - Reads ADMIN_EMAIL from /var/lib/tokenkey/.env on the instance (same stack layout EC2 vs Lightsail).
   - Resets admin password via PostgreSQL (pgcrypto bcrypt).
-  - Saves email/password to $HOME/Codes/keys/tokenkey-<id>-admin-password.txt
+  - Saves email/password to $HOME/Codes/keys/tokenkey-<id>-admin-password.txt (prod -> tokenkey-prod-admin-password.txt)
   - Never prints the new password.
 
 Requires: aws cli, openssl, jq, python3 (and $HOME/Codes/keys/)
@@ -77,8 +81,8 @@ auto | ec2 | lightsail) ;;
   ;;
 esac
 
-if [[ ! "$EDGE_ID" =~ ^[a-z]{2,4}[0-9]+$ ]]; then
-  echo "[error] edge id must match ^[a-z]{2,4}[0-9]+$: $EDGE_ID" >&2
+if [[ "$EDGE_ID" != "prod" && ! "$EDGE_ID" =~ ^[a-z]{2,4}[0-9]+$ ]]; then
+  echo "[error] target must be 'prod' or an edge id matching ^[a-z]{2,4}[0-9]+$: $EDGE_ID" >&2
   exit 1
 fi
 

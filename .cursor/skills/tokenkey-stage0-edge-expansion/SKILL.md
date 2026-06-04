@@ -214,6 +214,13 @@ bash ops/stage0/reset-edge-admin-password.sh --platform lightsail uk1
 
 登录后立即改为长期密码。
 
+**prod 主网关同脚本**：目标传字面量 `prod` 即可（解析到固定 EC2 栈 `tokenkey-prod-stage0` / `us-east-1`，`--platform` 忽略），落盘 `tokenkey-prod-admin-password.txt`：
+
+```bash
+bash ops/stage0/reset-edge-admin-password.sh prod        # 轮换 prod admin 密码
+bash ops/stage0/ensure-edge-admin-credentials.sh prod    # capture 必 miss(日志已滚动)→自动 fallback 到 reset
+```
+
 ## 4) DNS
 
 从 stack 输出拿到公网 IP（或 EIP），配置：

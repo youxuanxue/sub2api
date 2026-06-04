@@ -6,7 +6,11 @@
 # falls back to reset-edge-admin-password.sh. Neither path prints the password.
 #
 # Usage:
-#   bash ops/stage0/ensure-edge-admin-credentials.sh [--platform auto|ec2|lightsail] <edge_id>
+#   bash ops/stage0/ensure-edge-admin-credentials.sh [--platform auto|ec2|lightsail] <edge_id|prod>
+#
+# Target is an edge id (e.g. uk1, us6) or the literal "prod" (tokenkey-prod-stage0).
+# For prod the bootstrap log is usually rotated, so capture misses and this falls
+# straight through to reset (rotate) — saved as tokenkey-prod-admin-password.txt.
 #
 # Exit codes: same as capture (0 ok) or reset (0 ok); propagates 1/2 transport errors.
 
@@ -21,8 +25,10 @@ usage() {
 Usage:
   bash ops/stage0/ensure-edge-admin-credentials.sh [--platform auto|ec2|lightsail] edge-<id>
   bash ops/stage0/ensure-edge-admin-credentials.sh [--platform auto|ec2|lightsail] <id>
+  bash ops/stage0/ensure-edge-admin-credentials.sh prod
 
-Writes: $HOME/Codes/keys/tokenkey-<edge_id>-admin-password.txt (chmod 600)
+Target is an edge id (e.g. uk1, us6) or the literal "prod" (tokenkey-prod-stage0, us-east-1).
+Writes: $HOME/Codes/keys/tokenkey-<edge_id>-admin-password.txt (chmod 600; prod -> tokenkey-prod-admin-password.txt)
 Never prints the password.
 EOF
 }

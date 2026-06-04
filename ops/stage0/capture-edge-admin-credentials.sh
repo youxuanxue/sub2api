@@ -31,8 +31,12 @@ usage() {
 Usage:
   bash ops/stage0/capture-edge-admin-credentials.sh [--platform auto|ec2|lightsail] edge-<id>
   bash ops/stage0/capture-edge-admin-credentials.sh [--platform auto|ec2|lightsail] <id>
+  bash ops/stage0/capture-edge-admin-credentials.sh prod
 
+Target is an edge id (e.g. uk1, us6) or the literal "prod" (tokenkey-prod-stage0, us-east-1).
 Lightsail probes also try /var/log/tokenkey-lightsail-bootstrap.log (EC2 bootstrap uses tokenkey-edge-bootstrap.log).
+prod's bootstrap log is typically long rotated, so capture exits 3 there and ensure-edge-admin-credentials
+falls back to reset-edge-admin-password (rotate). To rotate prod directly use reset-edge-admin-password.sh prod.
 
 Requires: aws, jq, python3, $HOME/Codes/keys/
 EOF
@@ -80,8 +84,8 @@ auto | ec2 | lightsail) ;;
   ;;
 esac
 
-if [[ ! "$EDGE_ID" =~ ^[a-z]{2,4}[0-9]+$ ]]; then
-  echo "[capture-edge-admin-credentials] ERROR: invalid edge id: $EDGE_ID" >&2
+if [[ "$EDGE_ID" != "prod" && ! "$EDGE_ID" =~ ^[a-z]{2,4}[0-9]+$ ]]; then
+  echo "[capture-edge-admin-credentials] ERROR: invalid edge id (or use 'prod'): $EDGE_ID" >&2
   exit 1
 fi
 
