@@ -25,6 +25,8 @@ class EnsureEdgeAdminCredentialsTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0)
         self.assertIn("ensure-edge-admin-credentials.sh", proc.stdout)
         self.assertIn("Never prints the password", proc.stdout)
+        # prod is a supported target (capture misses -> falls back to reset).
+        self.assertIn("prod", proc.stdout)
 
     def test_missing_arg_shows_usage(self) -> None:
         proc = subprocess.run(

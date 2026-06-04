@@ -32,6 +32,8 @@ class CaptureEdgeAdminCredentialsTest(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0)
         self.assertIn("capture-edge-admin-credentials.sh", proc.stdout)
+        # prod is a supported target (resolves to tokenkey-prod-stage0).
+        self.assertIn("prod", proc.stdout)
 
     def test_missing_arg_shows_usage(self) -> None:
         proc = subprocess.run(
