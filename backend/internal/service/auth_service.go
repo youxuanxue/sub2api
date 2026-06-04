@@ -1573,11 +1573,11 @@ func (s *AuthService) RefreshTokenPair(ctx context.Context, refreshToken string)
 		return nil, ErrTokenRevoked
 	}
 
-	// TK: 宽限期内对已轮转 token 的并发/重复刷新，幂等重发新 token 对，不判重放。
+	// TK: 已轮转的 token：宽限窗口内的并发/重复刷新幂等重发，超窗口按真正的重放处理。
 	// 放在 active/version 安全校验之后，确保被禁用/改密的账号仍会在上面被撤销。
 	// 详见 auth_service_tk_refresh_grace.go。
 	if data.RotatedAt != nil {
-		return s.tkReissueWithinGrace(ctx, user, data)
+		return s.tkRefreshRotatedWithinGrace(ctx, user, data)
 	}
 
 	// Token轮转：标记旧Token已轮转并保留极短宽限窗口（替代立即硬删），让宽限期内的

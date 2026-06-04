@@ -170,6 +170,25 @@ func TestRefreshTokenPair_AfterGraceExpiry_StillDetectsReplay(t *testing.T) {
 	}
 }
 
+func TestRefreshTokenPair_RotatedPastGrace_RevokesEvenIfRecordSurvives(t *testing.T) {
+	// 防御性：即便底层缓存未按 TTL 驱逐（这里记录仍在但 RotatedAt 已超窗口），
+	// 也必须按重放处理并撤销 family——重放窗口由代码判定，不依赖缓存过期时序。
+	cache := newStatefulRefreshCache()
+	user := activeUser()
+	raw := seedToken(cache, user)
+	stale := time.Now().Add(-(tkRefreshRotationGrace + time.Second))
+	cache.store[hashToken(raw)].RotatedAt = &stale
+	svc := newTestAuthServiceForGrace(&userRepoStub{user: user}, cache)
+
+	_, err := svc.RefreshTokenPair(context.Background(), raw)
+	if !errors.Is(err, ErrRefreshTokenInvalid) {
+		t.Fatalf("rotated token past grace must be ErrRefreshTokenInvalid, got: %v", err)
+	}
+	if len(cache.deletedFamily) == 0 {
+		t.Fatalf("rotated token past grace must revoke the token family")
+	}
+}
+
 func TestRefreshTokenPair_TokenVersionMismatch_StillRevokes(t *testing.T) {
 	cache := newStatefulRefreshCache()
 	user := activeUser()
