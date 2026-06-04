@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/model"
 
 	"github.com/stretchr/testify/require"
 )
@@ -122,15 +123,117 @@ func (d *fakeDoer) Do(req *http.Request) (*http.Response, error) {
 }
 
 func newTestReconciler(acc *reconcilerAccountStub, usr *reconcilerUserStub, bal *reconcilerBalanceStub, cfg *config.Config) *AnthropicConfigReconciler {
-	r := NewAnthropicConfigReconciler(acc, usr, bal, nil, cfg, nil)
+	r := NewAnthropicConfigReconciler(acc, usr, bal, nil, nil, nil, nil, cfg, nil)
 	return r
 }
 
+// --- Step baseline (account shared_baseline self-heal) stubs + tests ----------
+
+type stubTierApplier struct {
+	calls []int64 // account ids ApplyTier was invoked on
+}
+
+func (s *stubTierApplier) ApplyTier(ctx context.Context, accountID int64, tier string) (*Account, error) {
+	s.calls = append(s.calls, accountID)
+	return &Account{ID: accountID}, nil
+}
+
+type stubTLSByID struct {
+	byID map[int64]*model.TLSFingerprintProfile
+}
+
+func (s *stubTLSByID) GetByID(ctx context.Context, id int64) (*model.TLSFingerprintProfile, error) {
+	return s.byID[id], nil
+}
+
+func baselineSelfHealReconciler(applier *stubTierApplier, tls *stubTLSByID) *AnthropicConfigReconciler {
+	tiers := &stubTierConcurrency{names: map[int64]string{2: "l2"}} // tier_id 2 → "l2"
+	return NewAnthropicConfigReconciler(nil, nil, nil, tiers, applier, tls, nil, nil, nil)
+}
+
+func tierID2() *int64 { v := int64(2); return &v }
+
+func TestReconcileAccountBaselineDrift_HealsUnboundTLS(t *testing.T) {
+	applier := &stubTierApplier{}
+	r := baselineSelfHealReconciler(applier, &stubTLSByID{})
+	// tier-bound oauth account with priority=1 but NO tls binding → drift.
+	accts := []Account{{
+		ID: 7, Platform: PlatformAnthropic, Type: AccountTypeOAuth, TierID: tierID2(),
+		Priority: 1,
+		Extra:    map[string]any{"enable_tls_fingerprint": true},
+	}}
+	r.reconcileAccountBaselineDrift(context.Background(), accts)
+	require.Equal(t, []int64{7}, applier.calls, "unbound TLS must trigger ApplyTier self-heal")
+}
+
+func TestReconcileAccountBaselineDrift_HealsPriorityDrift(t *testing.T) {
+	applier := &stubTierApplier{}
+	tls := &stubTLSByID{byID: map[int64]*model.TLSFingerprintProfile{5: {ID: 5, Name: "tk_canonical_cc_oauth"}}}
+	r := baselineSelfHealReconciler(applier, tls)
+	// fully bound + credentials present, but priority=2 (≠ baseline 1) → drift.
+	accts := []Account{{
+		ID: 8, Platform: PlatformAnthropic, Type: AccountTypeSetupToken, TierID: tierID2(),
+		Priority:    2,
+		Extra:       map[string]any{"enable_tls_fingerprint": true, "tls_fingerprint_profile_id": int64(5)},
+		Credentials: map[string]any{"temp_unschedulable_enabled": true, "temp_unschedulable_rules": []any{}, "intercept_warmup_requests": true},
+	}}
+	r.reconcileAccountBaselineDrift(context.Background(), accts)
+	require.Equal(t, []int64{8}, applier.calls, "priority drift must trigger ApplyTier self-heal")
+}
+
+func TestReconcileAccountBaselineDrift_SkipsAligned(t *testing.T) {
+	applier := &stubTierApplier{}
+	tls := &stubTLSByID{byID: map[int64]*model.TLSFingerprintProfile{5: {ID: 5, Name: "tk_canonical_cc_oauth"}}}
+	r := baselineSelfHealReconciler(applier, tls)
+	// fully aligned: priority=1, bound to canonical row, flag on, creds template present.
+	accts := []Account{{
+		ID: 9, Platform: PlatformAnthropic, Type: AccountTypeOAuth, TierID: tierID2(),
+		Priority:    1,
+		Extra:       map[string]any{"enable_tls_fingerprint": true, "tls_fingerprint_profile_id": int64(5)},
+		Credentials: map[string]any{"temp_unschedulable_enabled": true, "temp_unschedulable_rules": []any{}, "intercept_warmup_requests": true},
+	}}
+	r.reconcileAccountBaselineDrift(context.Background(), accts)
+	require.Empty(t, applier.calls, "aligned account must NOT be re-applied (skip-if-aligned)")
+}
+
+func TestReconcileAccountBaselineDrift_HealsDanglingBinding(t *testing.T) {
+	applier := &stubTierApplier{}
+	// id 5 bound but the profile row does not exist (deleted) → dangling.
+	r := baselineSelfHealReconciler(applier, &stubTLSByID{byID: map[int64]*model.TLSFingerprintProfile{}})
+	accts := []Account{{
+		ID: 10, Platform: PlatformAnthropic, Type: AccountTypeOAuth, TierID: tierID2(),
+		Priority:    1,
+		Extra:       map[string]any{"enable_tls_fingerprint": true, "tls_fingerprint_profile_id": int64(5)},
+		Credentials: map[string]any{"temp_unschedulable_enabled": true, "temp_unschedulable_rules": []any{}, "intercept_warmup_requests": true},
+	}}
+	r.reconcileAccountBaselineDrift(context.Background(), accts)
+	require.Equal(t, []int64{10}, applier.calls, "dangling TLS binding must trigger ApplyTier self-heal")
+}
+
+func TestReconcileAccountBaselineDrift_SkipsApikeyStub(t *testing.T) {
+	applier := &stubTierApplier{}
+	r := baselineSelfHealReconciler(applier, &stubTLSByID{})
+	// apikey mirror stub is not OAuth/setup-token → never re-applied.
+	accts := []Account{{
+		ID: 11, Platform: PlatformAnthropic, Type: AccountTypeAPIKey, TierID: tierID2(), Priority: 9,
+	}}
+	r.reconcileAccountBaselineDrift(context.Background(), accts)
+	require.Empty(t, applier.calls, "apikey stub must be skipped")
+}
+
 // stubTierConcurrency is a minimal reconcilerTierResolver for Step T tests.
-type stubTierConcurrency struct{ conc map[int64]int }
+type stubTierConcurrency struct {
+	conc  map[int64]int
+	names map[int64]string
+}
 
 func (s *stubTierConcurrency) ResolveConcurrency(tierID int64) (int, bool) {
 	v, ok := s.conc[tierID]
+	return v, ok
+}
+
+func (s *stubTierConcurrency) ResolveName(tierID int64) (string, bool) {
+	v, ok := s.names[tierID]
 	return v, ok
 }
 

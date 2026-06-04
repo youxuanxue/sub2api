@@ -250,10 +250,13 @@ func ProvideAnthropicConfigReconciler(
 	userRepo UserRepository,
 	adminSvc AdminService,
 	tierSvc *TierService,
+	tierApplier *AccountTierService,
+	tlsSvc *TLSFingerprintProfileService,
+	settingSvc *SettingService,
 	cfg *config.Config,
 	redisClient *redis.Client,
 ) *AnthropicConfigReconciler {
-	rec := NewAnthropicConfigReconciler(accountRepo, userRepo, adminSvc, tierSvc, cfg, redisClient)
+	rec := NewAnthropicConfigReconciler(accountRepo, userRepo, adminSvc, tierSvc, tierApplier, tlsSvc, settingSvc, cfg, redisClient)
 	rec.Start()
 	return rec
 }

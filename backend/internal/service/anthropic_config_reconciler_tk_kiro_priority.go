@@ -10,10 +10,11 @@ import (
 // reconcileKiroPriorityBaseline HARD-ENFORCES every active kiro account's priority
 // column to kiro.DefaultKiroAccountPriority (value-sync, skip-if-aligned) — the same
 // shape as Step T's tier-concurrency value-sync. This is a kiro-scoped concept: kiro
-// schedules in its own isolated pool and is NOT in the anthropic window-rebalance
-// pipeline, so writing kiro priority here does NOT violate the reconciler's rule that
-// it never writes anthropic priority. BulkUpdate auto-enqueues a scheduler_outbox
-// event so the live snapshot picks up the corrected priority.
+// schedules in its own isolated pool with its OWN priority baseline constant,
+// distinct from the anthropic tier baseline that Step baseline value-syncs. Both
+// platforms now value-sync priority from their respective baselines; this step just
+// carries kiro's. BulkUpdate auto-enqueues a scheduler_outbox event so the live
+// snapshot picks up the corrected priority.
 //
 // It lives on the anthropic-named reconciler purely to reuse its ticker + redis leader
 // lock + account store + BulkUpdate outbox path (most minimal; no new goroutine or

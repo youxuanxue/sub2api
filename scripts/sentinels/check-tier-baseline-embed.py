@@ -20,6 +20,8 @@ Compared pairs (semantic JSON equality — key order / whitespace ignored):
     == backend/internal/baseline/anthropic-oauth-stability-baselines-tiered.json
   deploy/aws/stage0/anthropic-stub-pool-baselines.json
     == backend/internal/baseline/anthropic-stub-pool-baselines.json
+  deploy/aws/stage0/anthropic-http-mimicry-baselines.json
+    == backend/internal/baseline/anthropic-http-mimicry-baselines.json
 
 Third assertion (migration immutability):
   backend/migrations/tk_012_...sql tiers seed == FROZEN_TK012_SEED (its original,
@@ -62,6 +64,10 @@ TIER_BASELINE_NAME = "anthropic-oauth-stability-baselines-tiered.json"
 PAIRS = [
     "anthropic-oauth-stability-baselines-tiered.json",
     "anthropic-stub-pool-baselines.json",
+    # HTTP mimicry baseline (UA version + per-model betas) — embedded so the
+    # config reconciler self-heals settings.claude_code_user_agent_version /
+    # claude_code_http_mimicry_manifest toward it without an operator sync-runtime.
+    "anthropic-http-mimicry-baselines.json",
 ]
 
 # Column order of the tk_012 `INSERT INTO tiers (...)` seed.
@@ -269,7 +275,7 @@ def main() -> int:
 
     if ok_all:
         if not args.quiet:
-            for name, _ in results[:2]:
+            for name, _ in results[: len(PAIRS)]:
                 print(f"OK: embedded {name} matches deploy/aws/stage0 source")
             print("OK: tk_012 migration seed matches its frozen original (immutable)")
         return 0
@@ -291,7 +297,7 @@ def main() -> int:
             "change is genuinely needed, add a NEW migration (never edit tk_012).",
             file=sys.stderr,
         )
-        if all(ok for _, ok in results[:2]):
+        if all(ok for _, ok in results[: len(PAIRS)]):
             return 1
 
     print("FAIL: embedded anthropic baseline DRIFT vs deploy/aws/stage0 source", file=sys.stderr)
