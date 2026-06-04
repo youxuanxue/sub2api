@@ -34,11 +34,18 @@ ${API_DOMAIN} {
 		health_uri /health
 		health_interval 5s
 		health_timeout 3s
-		# Passive health（top-level，不能放进 sub-block）：业务请求 5xx 也会
-		# 触发，覆盖 stop→start 短暂真空期里 dial 失败 / 502 的场景。
+		# Passive health（top-level，不能放进 sub-block）：覆盖 stop→start 短暂
+		# 真空期里 dial 失败 / 502 / gateway-timeout 504 的场景。
+		# 故意 NOT 含 503：app 的 503（no available accounts / overloaded）是
+		# 应用层的合法响应，不代表后端进程坏了。单上游下，因一个 503 把唯一后端
+		# 标 unhealthy 零 failover 收益（无处可转），只会让后续请求落进
+		# lb_try_duration 干等 30s——一个 per-request 503 被放大成全节点停摆
+		# （503 风暴时每个 503 重新点燃 5s unhealthy 窗，后端持续 down）。真宕机
+		# 仍由 502/504 兜住；发版排空走 active health（drain → /health=503），与
+		# 被动 unhealthy_status 无关，不受影响。
 		fail_duration 5s
 		max_fails 1
-		unhealthy_status 502 503 504
+		unhealthy_status 502 504
 		# 落进 unhealthy 后，新请求在 Caddy 侧排队重试最多 30s，覆盖 stop→start
 		# 的短真空期。曾抬到 120s 想盖住整个发版空窗（含 pre-drain ≤76s），但
 		# lb_try_duration 对 Caddy 无差别：真宕机时它会把每个请求干等放大 4 倍、
