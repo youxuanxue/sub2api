@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -18,18 +17,22 @@ import (
 //
 // It is the write-companion that turns the read-only cross-edge overview into a
 // jump-and-manage console: prod's admin holds this edge's mirror-stub api-key and
-// POSTs here to mint a SHORT-LIVED admin JWT, then opens the edge's own
-// /admin/accounts page already logged in (see frontend EdgeHandoffView). The
-// edge's account create/edit/delete + OAuth flows then run natively against THIS
-// edge's own DB/Redis/egress — prod re-implements nothing.
+// POSTs here to mint a RENEWABLE admin session (access + refresh), then opens the
+// edge's own /admin/accounts page already logged in (see frontend EdgeHandoffView).
+// The edge's account create/edit/delete + OAuth flows then run natively against
+// THIS edge's own DB/Redis/egress — prod re-implements nothing.
 //
 // SECURITY POSTURE — this endpoint deliberately ELEVATES the edge api-key group
 // (which was read-only/side-effect-free for /scheduling-capacity and /accounts)
-// into a credential that can obtain an admin session. Two guards bound that:
+// into a credential that can obtain an admin session. The irreducible guard:
 //   - the presented api-key's OWNER must be an admin user on this edge
-//     (user.IsAdmin()); a plain relay key cannot mint a session;
-//   - the minted JWT is short-lived (service.EdgeAdminSessionTTL) and only grants
-//     a session — it performs no writes itself.
+//     (user.IsAdmin()); a plain relay key cannot mint a session.
+//
+// The mint issues the SAME token pair a normal login does (access + refresh, via
+// AuthService.GenerateEdgeAdminSessionTokenPair) so the edge session self-renews
+// and the operator is not bounced to login mid-task. The refresh token rides in
+// the handoff URL fragment (never sent to the server) and is scrubbed on load —
+// same exposure as the OAuth login callbacks.
 //
 // Mounted behind the same lightweight edge api-key middleware as the reads, so
 // the mirror-stub key prod already holds is the only secret (zero new secret).
@@ -51,10 +54,10 @@ type userByIDLookup interface {
 	GetByID(ctx context.Context, id int64) (*service.User, error)
 }
 
-// edgeAdminSessionMinter mints the short-lived admin JWT. *service.AuthService
-// satisfies it via GenerateEdgeAdminSessionToken.
+// edgeAdminSessionMinter mints the renewable admin session (access + refresh).
+// *service.AuthService satisfies it via GenerateEdgeAdminSessionTokenPair.
 type edgeAdminSessionMinter interface {
-	GenerateEdgeAdminSessionToken(user *service.User, ttl time.Duration) (string, error)
+	GenerateEdgeAdminSessionTokenPair(ctx context.Context, user *service.User) (*service.TokenPair, error)
 }
 
 // NewEdgeAdminSessionHandler wires the edge admin-session mint handler.
@@ -63,9 +66,12 @@ func NewEdgeAdminSessionHandler(apiKeys apiKeyByKeyLookup, users userByIDLookup,
 }
 
 // edgeAdminSessionResponse is the mint result returned to prod's forwarder.
+// Token is the access JWT; RefreshToken lets the edge SPA self-renew the session;
+// ExpiresIn is the access token lifetime in seconds.
 type edgeAdminSessionResponse struct {
-	Token     string `json:"token"`
-	ExpiresIn int    `json:"expires_in"`
+	Token        string `json:"token"`
+	RefreshToken string `json:"refresh_token"`
+	ExpiresIn    int    `json:"expires_in"`
 }
 
 // Mint handles POST /api/v1/edge/admin-session. The api-key was already validated
@@ -101,15 +107,16 @@ func (h *EdgeAdminSessionHandler) Mint(c *gin.Context) {
 		return
 	}
 
-	token, err := h.minter.GenerateEdgeAdminSessionToken(user, service.EdgeAdminSessionTTL)
-	if err != nil {
+	pair, err := h.minter.GenerateEdgeAdminSessionTokenPair(ctx, user)
+	if err != nil || pair == nil {
 		response.Error(c, http.StatusInternalServerError, "failed to mint admin session")
 		return
 	}
 
 	response.Success(c, edgeAdminSessionResponse{
-		Token:     token,
-		ExpiresIn: int(service.EdgeAdminSessionTTL / time.Second),
+		Token:        pair.AccessToken,
+		RefreshToken: pair.RefreshToken,
+		ExpiresIn:    pair.ExpiresIn,
 	})
 }
 

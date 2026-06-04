@@ -20,6 +20,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
+import { persistOAuthTokenContext } from '@/api/auth'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -39,14 +40,18 @@ function goLogin() {
 }
 
 onMounted(async () => {
-  // The token rides in the URL fragment so it never hits the server / logs.
+  // The token + refresh_token ride in the URL fragment so they never hit the
+  // server / logs. refresh_token + expires_in make the edge session self-renewing
+  // (like a normal login) so the operator is not bounced to login mid-task.
   const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash
   const params = new URLSearchParams(hash)
   const token = params.get('tk_session')?.trim() || ''
+  const refreshToken = params.get('refresh_token')?.trim() || ''
+  const expiresIn = Number.parseInt(params.get('expires_in')?.trim() || '', 10)
   const next = safeNext(params.get('next'))
 
-  // Scrub the fragment immediately, before any await, so the token is not left
-  // in the address bar / browser history.
+  // Scrub the fragment immediately, before any await, so the token + refresh_token
+  // are not left in the address bar / browser history.
   try {
     history.replaceState(null, '', window.location.pathname + window.location.search)
   } catch {
@@ -59,6 +64,13 @@ onMounted(async () => {
   }
 
   try {
+    // Persist refresh_token + expires_at BEFORE setToken: setToken reads them from
+    // localStorage and schedules proactive refresh, so the handoff session renews
+    // itself instead of hard-expiring. Mirrors the OAuth callback flow.
+    persistOAuthTokenContext({
+      refresh_token: refreshToken || undefined,
+      expires_in: Number.isFinite(expiresIn) && expiresIn > 0 ? expiresIn : undefined
+    })
     await authStore.setToken(token)
     await router.replace(next)
   } catch {

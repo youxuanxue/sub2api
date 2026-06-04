@@ -1448,9 +1448,9 @@
       "must_contain": [
         "func (h *EdgeAdminSessionHandler) Mint(",
         "user.IsAdmin()",
-        "GenerateEdgeAdminSessionToken("
+        "GenerateEdgeAdminSessionTokenPair("
       ],
-      "rationale": "Edge admin-session mint endpoint (POST /api/v1/edge/admin-session): turns the read-only cross-edge overview into a jump-and-manage console. Prod holds this edge's mirror-stub api-key and POSTs here to mint a SHORT-LIVED admin JWT, then opens the edge's own /admin/accounts already logged in — so account create/edit/delete + OAuth run natively on the edge (prod re-implements nothing). LOAD-BEARING SECURITY: this endpoint ELEVATES the edge api-key group (read-only for capacity/accounts) into one that can obtain an admin session, so the `user.IsAdmin()` gate is the irreducible guard — a plain relay key must NOT mint a session. Dropping the IsAdmin check, or widening the TTL away from the short GenerateEdgeAdminSessionToken minter, is a privilege-escalation regression that must be caught."
+      "rationale": "Edge admin-session mint endpoint (POST /api/v1/edge/admin-session): turns the read-only cross-edge overview into a jump-and-manage console. Prod holds this edge's mirror-stub api-key and POSTs here to mint a RENEWABLE admin session (access + refresh), then opens the edge's own /admin/accounts already logged in — so account create/edit/delete + OAuth run natively on the edge (prod re-implements nothing). The renewable session (GenerateEdgeAdminSessionTokenPair) is intentional: a single short-lived token hard-expired mid-task and bounced the operator to the edge login page. LOAD-BEARING SECURITY: this endpoint ELEVATES the edge api-key group (read-only for capacity/accounts) into one that can obtain an admin session, so the `user.IsAdmin()` gate is the irreducible guard — a plain relay key must NOT mint a session. Dropping the IsAdmin check is a privilege-escalation regression that must be caught (the session being renewable does not widen WHO can obtain it; the refresh token rides the URL fragment, scrubbed on load, same exposure as the OAuth login callbacks)."
     },
     {
       "path": "backend/internal/handler/edge_tk_accounts_handler.go",

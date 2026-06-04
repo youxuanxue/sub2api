@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -99,16 +100,25 @@ func (h *EdgeAccountsHandler) MintAdminSession(c *gin.Context) {
 
 	response.Success(c, adminSessionResponse{
 		EdgeID:     session.EdgeID,
-		HandoffURL: buildEdgeHandoffURL(session.BaseURL, session.Token),
+		HandoffURL: buildEdgeHandoffURL(session.BaseURL, session.Token, session.RefreshToken, session.ExpiresIn),
 		ExpiresIn:  session.ExpiresIn,
 	})
 }
 
-// buildEdgeHandoffURL assembles the edge SPA handoff entry. Token + next live in
-// the FRAGMENT (after #) so they are never sent to the server, logged, or leaked
-// via Referer; the edge's EdgeHandoffView consumes and scrubs them on load.
-func buildEdgeHandoffURL(baseURL, token string) string {
+// buildEdgeHandoffURL assembles the edge SPA handoff entry. The access token,
+// refresh token, expires_in, and next all live in the FRAGMENT (after #) so they
+// are never sent to the server, logged, or leaked via Referer; the edge's
+// EdgeHandoffView consumes them, establishes a self-renewing session, and scrubs
+// the fragment on load. refresh_token / expires_in are omitted when empty so an
+// older edge (single-token mint) still produces a valid, if non-renewing, URL.
+func buildEdgeHandoffURL(baseURL, token, refreshToken string, expiresIn int) string {
 	base := strings.TrimRight(baseURL, "/")
 	frag := "tk_session=" + url.QueryEscape(token) + "&next=" + url.QueryEscape("/admin/accounts")
+	if refreshToken != "" {
+		frag += "&refresh_token=" + url.QueryEscape(refreshToken)
+	}
+	if expiresIn > 0 {
+		frag += "&expires_in=" + strconv.Itoa(expiresIn)
+	}
 	return base + "/admin/edge-handoff#" + frag
 }
