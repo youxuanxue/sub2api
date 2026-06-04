@@ -126,21 +126,18 @@ type NormalizedCodexLimits struct {
 	Window7dMinutes *int
 }
 
-func normalizeCodexFiveHourUsedPercent(raw *float64) *float64 {
-	if raw == nil {
-		return nil
-	}
-	// OpenAI's 5h Codex quota header is remaining%, despite the upstream header
-	// name saying "used"; the canonical codex_5h_used_percent field stores used%.
-	used := 100 - *raw
-	if used < 0 {
-		used = 0
-	}
-	return &used
-}
-
 // Normalize converts primary/secondary fields to canonical 5h/7d fields.
 // Strategy: Compare window_minutes to determine which is 5h vs 7d.
+//
+// Both the 5h and 7d `x-codex-*-used-percent` headers carry **used** percent
+// (higher = more consumed), matching the literal header name. An earlier change
+// (b65dde63, 2026-05-31) assumed the 5h header was remaining% and applied
+// `100-raw`; that was wrong. Disproved by prod capture on 2026-06-04
+// (GPT-pro1: 5h window=300min raw used=1; GPT-pro2: raw used=0) plus the
+// physical constraint that the 5h window is a sub-interval of 7d — a 5h that is
+// 99% used cannot coexist with a 7d that is 1% used. 5h is now passed through
+// like 7d. Do NOT reintroduce a 100-raw inversion without a fresh raw-header
+// capture proving remaining% semantics.
 // Returns nil if snapshot is nil or has no useful data.
 func (s *OpenAICodexUsageSnapshot) Normalize() *NormalizedCodexLimits {
 	if s == nil {
@@ -197,7 +194,7 @@ func (s *OpenAICodexUsageSnapshot) Normalize() *NormalizedCodexLimits {
 
 	// Assign values
 	if use5hFromPrimary {
-		result.Used5hPercent = normalizeCodexFiveHourUsedPercent(s.PrimaryUsedPercent)
+		result.Used5hPercent = s.PrimaryUsedPercent
 		result.Reset5hSeconds = s.PrimaryResetAfterSeconds
 		result.Window5hMinutes = s.PrimaryWindowMinutes
 		result.Used7dPercent = s.SecondaryUsedPercent
@@ -207,7 +204,7 @@ func (s *OpenAICodexUsageSnapshot) Normalize() *NormalizedCodexLimits {
 		result.Used7dPercent = s.PrimaryUsedPercent
 		result.Reset7dSeconds = s.PrimaryResetAfterSeconds
 		result.Window7dMinutes = s.PrimaryWindowMinutes
-		result.Used5hPercent = normalizeCodexFiveHourUsedPercent(s.SecondaryUsedPercent)
+		result.Used5hPercent = s.SecondaryUsedPercent
 		result.Reset5hSeconds = s.SecondaryResetAfterSeconds
 		result.Window5hMinutes = s.SecondaryWindowMinutes
 	}
@@ -6224,7 +6221,9 @@ func ParseCodexRateLimitHeaders(headers http.Header) *OpenAICodexUsageSnapshot {
 		return nil
 	}
 
-	// Primary (weekly) limits
+	// Primary window limits. The 5h/7d window assignment is NOT fixed to
+	// primary/secondary — Normalize() decides it from window_minutes. used-percent
+	// is consumed%. (prod commonly sends primary=5h(300min), secondary=7d(10080min).)
 	if v := parseFloat("x-codex-primary-used-percent"); v != nil {
 		snapshot.PrimaryUsedPercent = v
 		hasData = true
@@ -6238,7 +6237,7 @@ func ParseCodexRateLimitHeaders(headers http.Header) *OpenAICodexUsageSnapshot {
 		hasData = true
 	}
 
-	// Secondary (5h) limits
+	// Secondary window limits (window assignment via Normalize(); used-percent is consumed%).
 	if v := parseFloat("x-codex-secondary-used-percent"); v != nil {
 		snapshot.SecondaryUsedPercent = v
 		hasData = true

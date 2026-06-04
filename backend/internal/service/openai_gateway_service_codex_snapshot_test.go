@@ -104,11 +104,14 @@ func TestBuildCodexUsageExtraUpdates_UsesSnapshotUpdatedAt(t *testing.T) {
 	}
 }
 
-func TestBuildCodexUsageExtraUpdates_NormalizesFiveHourRemainingToUsedPercent(t *testing.T) {
+// 5h used-percent is passed through as consumed% (same as 7d), NOT inverted.
+// Here primary window=10080(7d), secondary window=300(5h): 7d=primary used=93,
+// 5h=secondary used=6. See Normalize() doc for the b65dde63 inversion regression.
+func TestBuildCodexUsageExtraUpdates_FiveHourUsedPercentPassthrough(t *testing.T) {
 	primaryUsed := 93.0
 	primaryReset := 86400
 	primaryWindow := 10080
-	secondaryRemaining := 6.0
+	secondaryUsed := 6.0
 	secondaryReset := 3600
 	secondaryWindow := 300
 
@@ -116,7 +119,7 @@ func TestBuildCodexUsageExtraUpdates_NormalizesFiveHourRemainingToUsedPercent(t 
 		PrimaryUsedPercent:         &primaryUsed,
 		PrimaryResetAfterSeconds:   &primaryReset,
 		PrimaryWindowMinutes:       &primaryWindow,
-		SecondaryUsedPercent:       &secondaryRemaining,
+		SecondaryUsedPercent:       &secondaryUsed,
 		SecondaryResetAfterSeconds: &secondaryReset,
 		SecondaryWindowMinutes:     &secondaryWindow,
 		UpdatedAt:                  "2026-05-30T07:04:09Z",
@@ -130,8 +133,8 @@ func TestBuildCodexUsageExtraUpdates_NormalizesFiveHourRemainingToUsedPercent(t 
 	if got := updates["codex_secondary_used_percent"]; got != 6.0 {
 		t.Fatalf("codex_secondary_used_percent = %v, want raw upstream value 6", got)
 	}
-	if got := updates["codex_5h_used_percent"]; got != 94.0 {
-		t.Fatalf("codex_5h_used_percent = %v, want 94", got)
+	if got := updates["codex_5h_used_percent"]; got != 6.0 {
+		t.Fatalf("codex_5h_used_percent = %v, want 6 (used%% passthrough, no 100-raw inversion)", got)
 	}
 	if got := updates["codex_7d_used_percent"]; got != 93.0 {
 		t.Fatalf("codex_7d_used_percent = %v, want 93", got)
@@ -223,4 +226,56 @@ func TestBuildCodexUsageExtraUpdates_WithoutNormalizedWindowFields(t *testing.T)
 	if _, ok := updates["codex_7d_reset_at"]; ok {
 		t.Fatalf("did not expect codex_7d_reset_at in updates: %v", updates["codex_7d_reset_at"])
 	}
+}
+
+// TestNormalize_ProdLayoutUsedPercentPassthrough pins used-percent semantics to
+// the real prod header layout captured 2026-06-04 (prod i-0e4a90677f0450277):
+// GPT-pro1 primary(window=300min, used=1) + secondary(window=10080min, used=1);
+// GPT-pro2 primary(window=300min, used=0). primary IS the 5h window (smaller),
+// secondary IS the 7d window. used-percent is consumed%, passed through as-is.
+// Regression guard against the b65dde63 100-raw inversion that rendered these
+// idle accounts as 99%/100% and (for raw=0) tripped is5hExhausted.
+func TestNormalize_ProdLayoutUsedPercentPassthrough(t *testing.T) {
+	win5h := 300
+	win7d := 10080
+
+	t.Run("GPT-pro1 idle: 5h=1 7d=1", func(t *testing.T) {
+		used := 1.0
+		snapshot := &OpenAICodexUsageSnapshot{
+			PrimaryUsedPercent:     &used,
+			PrimaryWindowMinutes:   &win5h, // 5h (smaller window)
+			SecondaryUsedPercent:   &used,
+			SecondaryWindowMinutes: &win7d, // 7d
+		}
+		n := snapshot.Normalize()
+		if n == nil {
+			t.Fatal("expected non-nil normalized")
+		}
+		if n.Used5hPercent == nil || *n.Used5hPercent != 1.0 {
+			t.Fatalf("Used5hPercent = %v, want 1 (consumed%%, no 100-raw inversion)", n.Used5hPercent)
+		}
+		if n.Used7dPercent == nil || *n.Used7dPercent != 1.0 {
+			t.Fatalf("Used7dPercent = %v, want 1", n.Used7dPercent)
+		}
+		if n.Window5hMinutes == nil || *n.Window5hMinutes != 300 {
+			t.Fatalf("Window5hMinutes = %v, want 300 (5h is the smaller window)", n.Window5hMinutes)
+		}
+	})
+
+	t.Run("GPT-pro2 idle: 5h=0 must NOT invert to 100", func(t *testing.T) {
+		used := 0.0
+		snapshot := &OpenAICodexUsageSnapshot{
+			PrimaryUsedPercent:     &used,
+			PrimaryWindowMinutes:   &win5h, // 5h
+			SecondaryUsedPercent:   &used,
+			SecondaryWindowMinutes: &win7d, // 7d
+		}
+		n := snapshot.Normalize()
+		if n == nil {
+			t.Fatal("expected non-nil normalized")
+		}
+		if n.Used5hPercent == nil || *n.Used5hPercent != 0.0 {
+			t.Fatalf("Used5hPercent = %v, want 0 (must NOT invert to 100 / trip is5hExhausted)", n.Used5hPercent)
+		}
+	})
 }
