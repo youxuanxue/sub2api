@@ -473,19 +473,25 @@ jsonb_build_object(
 
 
 def build_all_oauth_guard_live_batch_query() -> str:
-    """One round-trip: live guard payload for every anthropic OAuth account on the node."""
-    payload = _guard_live_payload_object_sql(
-        target_from="(SELECT * FROM accounts WHERE id = t.id) target"
-    )
+    """One round-trip: live guard payload for every anthropic OAuth account on the node.
+
+    Per row we bind a correlated ``target`` CTE (same name the payload fragments
+    reference), mirroring the single-account ``build_live_query`` shape so the
+    shared ``_guard_live_payload_object_sql`` projection stays valid verbatim.
+    """
+    payload = _guard_live_payload_object_sql(target_from="target")
     return f"""
 SELECT COALESCE(jsonb_agg(
-  jsonb_build_object('account_name', t.name) || ({payload}),
-  '[]'::jsonb
-)
-FROM accounts t
-WHERE t.platform = 'anthropic'
-  AND t.type = 'oauth'
-  AND t.deleted_at IS NULL;
+  jsonb_build_object('account_name', a.name) || (
+    WITH target AS (SELECT * FROM accounts WHERE id = a.id)
+    SELECT {payload}
+  )
+  ORDER BY a.name
+), '[]'::jsonb)
+FROM accounts a
+WHERE a.platform = 'anthropic'
+  AND a.type = 'oauth'
+  AND a.deleted_at IS NULL;
 """.strip()
 
 

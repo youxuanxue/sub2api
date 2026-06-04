@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import pathlib
+import re
+import shutil
+import subprocess
 import time
 import unittest
 from unittest import mock
@@ -36,18 +40,116 @@ class ParallelOrderedTest(unittest.TestCase):
         self.assertEqual(len(seen), 5)
 
 
-class SqlBundleTest(unittest.TestCase):
-    def test_sql_select_body_strips_leading_select(self) -> None:
-        self.assertEqual(
-            mgr._sql_select_body("SELECT 1 AS x"),
-            "1 AS x",
+# --------------------------------------------------------------------------
+# Generated-SQL structural validity — deterministic, DB-less guard.
+#
+# Substring assertions (assertIn 'jsonb_agg') cannot tell valid SQL from a
+# Postgres syntax error. These three checks map 1:1 to the syntax bugs that
+# shipped past the mocked tests and only surfaced against a real Postgres:
+#   * unbalanced parens          -> an unclosed COALESCE(... aggregate
+#   * a ';' inside the statement -> a reused SELECT … ; embedded in a subquery
+#   * a (subquery) value missing -> _sql_*_body stripping the leading SELECT,
+#     a leading SELECT/WITH         yielding `(COALESCE(...) FROM ...)`
+# All generated capture/guard SQL must pass them.
+# --------------------------------------------------------------------------
+def _assert_sql_structural(test: unittest.TestCase, sql: str) -> None:
+    test.assertEqual(
+        sql.count("("), sql.count(")"),
+        f"unbalanced parentheses in generated SQL:\n{sql}",
+    )
+    body = sql.rstrip()
+    if body.endswith(";"):
+        body = body[:-1]
+    test.assertNotIn(
+        ";", body,
+        f"interior ';' (statement terminator inside a subquery) in:\n{sql}",
+    )
+    # Every `'key', (` scalar-subquery value must open with SELECT or WITH.
+    for m in re.finditer(r"'\w+',\s*\(\s*([A-Za-z]+)", sql):
+        test.assertIn(
+            m.group(1).upper(), {"SELECT", "WITH"},
+            f"subquery value does not begin with SELECT/WITH (token "
+            f"{m.group(1)!r}) in:\n{sql}",
         )
+
+
+def _generated_sqls() -> dict[str, str]:
+    return {
+        "EDGE_CAPTURE_BUNDLE_SQL": mgr.EDGE_CAPTURE_BUNDLE_SQL,
+        "PROD_CAPTURE_BUNDLE_SQL": mgr.PROD_CAPTURE_BUNDLE_SQL,
+        "guard_batch": guard.build_all_oauth_guard_live_batch_query(),
+    }
+
+
+class SqlBundleTest(unittest.TestCase):
+    def test_sql_as_subquery_keeps_select_strips_terminator(self) -> None:
+        # Must keep SELECT (so `(...)` is a valid subquery) and drop the
+        # trailing ';' (a ';' inside `(...)` is a syntax error).
+        self.assertEqual(mgr._sql_as_subquery("SELECT 1 AS x;"), "SELECT 1 AS x")
+        self.assertEqual(
+            mgr._sql_as_subquery("\nSELECT a FROM t WHERE b;\n"),
+            "SELECT a FROM t WHERE b",
+        )
+
+    def test_generated_capture_and_guard_sql_are_structurally_valid(self) -> None:
+        for name, sql in _generated_sqls().items():
+            with self.subTest(sql=name):
+                _assert_sql_structural(self, sql)
 
     def test_edge_capture_bundle_aggregates_snapshot_fragments(self) -> None:
         sql = mgr.EDGE_CAPTURE_BUNDLE_SQL
         self.assertIn("oauth_accounts", sql)
         self.assertIn("anthropic_groups", sql)
         self.assertIn("operator_balance", sql)
+
+
+@unittest.skipUnless(
+    os.environ.get("TK_SQL_EXEC_PSQL") and shutil.which("psql"),
+    "set TK_SQL_EXEC_PSQL=<conninfo> with a reachable empty Postgres to "
+    "execute generated SQL against a real parser",
+)
+class GeneratedSqlExecutesOnPostgresTest(unittest.TestCase):
+    """Authoritative artifact check: parse+execute every generated query on a
+    real Postgres (the structural test above is the always-on DB-less floor).
+
+    The DSN points at any empty Postgres; this test creates the minimal schema
+    the queries touch, runs them under ON_ERROR_STOP, and fails on any syntax
+    or column-resolution error."""
+
+    _SCHEMA = """
+CREATE TABLE accounts(id bigint, name text, platform text, type text, status text,
+  schedulable boolean, concurrency int, load_factor numeric, priority int, channel_type int,
+  rate_multiplier numeric, auto_pause_on_expired boolean, proxy_id bigint, error_message text,
+  last_used_at timestamptz, credentials jsonb DEFAULT '{}', extra jsonb DEFAULT '{}',
+  deleted_at timestamptz);
+CREATE TABLE groups(id bigint, name text, platform text, status text, claude_code_only boolean,
+  fallback_group_id bigint, deleted_at timestamptz);
+CREATE TABLE account_groups(account_id bigint, group_id bigint);
+CREATE TABLE users(id bigint, balance numeric, concurrency int, deleted_at timestamptz);
+CREATE TABLE tiers(name text, concurrency int, priority int, rate_multiplier numeric, base_rpm int,
+  rpm_sticky_buffer int, max_sessions int, session_idle_timeout_minutes int, window_cost_limit int,
+  window_cost_sticky_reserve int, cache_ttl_override_enabled boolean, cache_ttl_override_target text,
+  tls_profile_name text);
+CREATE TABLE tls_fingerprint_profiles(id bigint, name text, description text, enable_grease boolean,
+  cipher_suites jsonb, curves jsonb, point_formats jsonb, signature_algorithms jsonb,
+  alpn_protocols jsonb, supported_versions jsonb, key_share_groups jsonb, psk_modes jsonb,
+  extensions jsonb);
+"""
+
+    def _psql(self, sql: str) -> None:
+        conninfo = os.environ["TK_SQL_EXEC_PSQL"]
+        proc = subprocess.run(
+            ["psql", conninfo, "-v", "ON_ERROR_STOP=1", "-q", "-t", "-A", "-f", "-"],
+            input=sql, text=True, capture_output=True,
+        )
+        if proc.returncode != 0:
+            self.fail(f"psql rejected generated SQL:\n{proc.stderr}\n---\n{sql}")
+
+    def test_all_generated_sql_executes(self) -> None:
+        self._psql(self._SCHEMA)
+        for name, sql in _generated_sqls().items():
+            with self.subTest(sql=name):
+                self._psql(sql if sql.rstrip().endswith(";") else sql + ";")
 
 
 class GuardBatchTest(unittest.TestCase):

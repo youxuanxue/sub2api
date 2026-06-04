@@ -918,30 +918,35 @@ def _read_operator_balance(region: str, instance_id: str, label: str) -> dict:
     }
 
 
-def _sql_select_body(sql: str) -> str:
-    """Strip the leading SELECT so the fragment can sit inside jsonb_build_object."""
+def _sql_as_subquery(sql: str) -> str:
+    """Normalize a standalone ``SELECT … ;`` statement into a scalar-subquery body.
+
+    The leading ``SELECT`` is kept (so the fragment is a valid subquery once
+    wrapped in ``(...)`` inside ``jsonb_build_object``) and the trailing
+    statement terminator is dropped — a ``;`` inside ``(...)`` is a syntax error.
+    """
     body = sql.strip()
-    if body.upper().startswith("SELECT "):
-        return body[7:].strip()
+    if body.endswith(";"):
+        body = body[:-1].rstrip()
     return body
 
 
 EDGE_CAPTURE_BUNDLE_SQL = f"""
 SELECT jsonb_build_object(
-  'oauth_accounts', ({_sql_select_body(EDGE_ACCOUNTS_SQL)}),
-  'anthropic_groups', ({_sql_select_body(ANTHROPIC_GROUPS_SQL)}),
-  'tiers', ({_sql_select_body(TIERS_SQL)}),
-  'operator_concurrency', ({_sql_select_body(OPERATOR_CONCURRENCY_SQL)}),
-  'operator_balance', ({_sql_select_body(OPERATOR_BALANCE_SQL)})
+  'oauth_accounts', ({_sql_as_subquery(EDGE_ACCOUNTS_SQL)}),
+  'anthropic_groups', ({_sql_as_subquery(ANTHROPIC_GROUPS_SQL)}),
+  'tiers', ({_sql_as_subquery(TIERS_SQL)}),
+  'operator_concurrency', ({_sql_as_subquery(OPERATOR_CONCURRENCY_SQL)}),
+  'operator_balance', ({_sql_as_subquery(OPERATOR_BALANCE_SQL)})
 );
 """.strip()
 
 PROD_CAPTURE_BUNDLE_SQL = f"""
 SELECT jsonb_build_object(
-  'anthropic_stubs', ({_sql_select_body(PROD_STUBS_SQL)}),
-  'anthropic_groups', ({_sql_select_body(ANTHROPIC_GROUPS_SQL)}),
-  'tiers', ({_sql_select_body(TIERS_SQL)}),
-  'operator_concurrency', ({_sql_select_body(OPERATOR_CONCURRENCY_SQL)})
+  'anthropic_stubs', ({_sql_as_subquery(PROD_STUBS_SQL)}),
+  'anthropic_groups', ({_sql_as_subquery(ANTHROPIC_GROUPS_SQL)}),
+  'tiers', ({_sql_as_subquery(TIERS_SQL)}),
+  'operator_concurrency', ({_sql_as_subquery(OPERATOR_CONCURRENCY_SQL)})
 );
 """.strip()
 
