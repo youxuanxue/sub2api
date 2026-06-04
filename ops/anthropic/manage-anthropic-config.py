@@ -64,6 +64,8 @@ Guard-drift remediation (replaces manual plan-tier-bump × N + merge):
                          account whose guard status is ``drift``
   remediate-guard-drift — snapshot → check → plan-guard-drift-fix → apply
                           (--sync-runtime) → verify → check
+                          (P0: bundle snapshot + batch guard + parallel edges;
+                          --parallel-edges N default 6; --legacy-guard for旧路径)
 
 History
 -------
@@ -124,7 +126,9 @@ import pathlib
 import re
 import subprocess
 import sys
-from typing import Any
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, Callable
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 EDGE_MATRIX = REPO_ROOT / "deploy/aws/stage0/edge-targets.json"
@@ -215,6 +219,7 @@ SNAPSHOT_VERSION = 7
 # (all types incl. api-key) on that same DB — avoids drift when Anthropic pool sizing changes.
 
 ADMIN_OPERATOR_USER_CONCURRENCY_SYNC_ID = 1
+DEFAULT_PARALLEL_EDGES = 6
 
 
 # --------------------------------------------------------------------------
@@ -439,6 +444,39 @@ def ssm_run_shell(region: str, instance_id: str, shell_script: str, comment: str
     return stdout, cid, success, stderr
 
 
+def _parallel_edges_workers(requested: int | None) -> int:
+    if requested is None or requested < 1:
+        return DEFAULT_PARALLEL_EDGES
+    return requested
+
+
+def _run_parallel_ordered(
+    items: list[Any],
+    fn: Callable[[Any], Any],
+    workers: int,
+    *,
+    label: str,
+) -> list[Any]:
+    """Run ``fn`` over ``items`` with a thread pool; return results in input order."""
+    if not items:
+        return []
+    if workers <= 1 or len(items) == 1:
+        return [fn(item) for item in items]
+    workers = min(workers, len(items))
+    out: list[Any | None] = [None] * len(items)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(fn, item): idx for idx, item in enumerate(items)}
+        for fut in as_completed(futures):
+            idx = futures[fut]
+            try:
+                out[idx] = fut.result()
+            except SystemExit:
+                raise
+            except Exception as exc:
+                fail(f"{label} parallel task {idx} failed: {exc}")
+    return out  # type: ignore[return-value]
+
+
 # --------------------------------------------------------------------------
 # Runtime sync (settings UA + Redis fingerprint cache)
 # --------------------------------------------------------------------------
@@ -590,37 +628,54 @@ def _deployable_edge_targets_from_snapshot(snap: dict) -> list[str]:
     return out
 
 
+def _runtime_sync_one_target(
+    target: str,
+    ua_version: str,
+    job_dir: pathlib.Path | None,
+    *,
+    mimicry_manifest_json: str | None,
+) -> dict[str, Any]:
+    label, region, instance_id = _resolve_runtime_sync_target(target)
+    shell = render_runtime_sync_shell(ua_version, mimicry_manifest_json)
+    if job_dir is not None:
+        safe = target.replace(":", "-")
+        (job_dir / f"sync-runtime-{safe}.sh").write_text(shell)
+    stdout, cid, ok, stderr = ssm_run_shell(
+        region, instance_id, shell,
+        f"sync-runtime {label} ua={ua_version}",
+    )
+    if not ok:
+        print(f"sync-runtime: FAILED on {label} cid={cid}", file=sys.stderr)
+    return {
+        "target": target,
+        "target_label": label,
+        "ssm_command_id": cid,
+        "ok": ok,
+        "stdout_preview": stdout[-1200:],
+        "stderr_preview": stderr,
+    }
+
+
 def _run_runtime_sync(
     targets: list[str],
     ua_version: str,
     job_dir: pathlib.Path | None,
     *,
     mimicry_manifest_json: str | None = None,
+    parallel_edges: int | None = None,
 ) -> tuple[bool, list[dict]]:
-    results: list[dict] = []
-    ok_all = True
-    for target in targets:
-        label, region, instance_id = _resolve_runtime_sync_target(target)
-        shell = render_runtime_sync_shell(ua_version, mimicry_manifest_json)
-        if job_dir is not None:
-            safe = target.replace(":", "-")
-            (job_dir / f"sync-runtime-{safe}.sh").write_text(shell)
-        stdout, cid, ok, stderr = ssm_run_shell(
-            region, instance_id, shell,
-            f"sync-runtime {label} ua={ua_version}",
+    if not targets:
+        return True, []
+    workers = _parallel_edges_workers(parallel_edges)
+    print(f"sync-runtime: {len(targets)} target(s) parallel_workers={workers}", file=sys.stderr)
+
+    def _work(target: str) -> dict[str, Any]:
+        return _runtime_sync_one_target(
+            target, ua_version, job_dir, mimicry_manifest_json=mimicry_manifest_json,
         )
-        results.append({
-            "target": target,
-            "target_label": label,
-            "ssm_command_id": cid,
-            "ok": ok,
-            "stdout_preview": stdout[-1200:],
-            "stderr_preview": stderr,
-        })
-        if not ok:
-            ok_all = False
-            print(f"sync-runtime: FAILED on {label} cid={cid}", file=sys.stderr)
-            break
+
+    results = _run_parallel_ordered(targets, _work, workers, label="sync-runtime")
+    ok_all = all(r.get("ok") for r in results)
     return ok_all, results
 
 
@@ -670,7 +725,11 @@ def cmd_sync_runtime(args: argparse.Namespace) -> int:
         job_dir.mkdir(parents=True, exist_ok=True)
     manifest_json = _http_mimicry_manifest_json()
     ok, results = _run_runtime_sync(
-        targets, ua_version, job_dir, mimicry_manifest_json=manifest_json,
+        targets,
+        ua_version,
+        job_dir,
+        mimicry_manifest_json=manifest_json,
+        parallel_edges=getattr(args, "parallel_edges", None),
     )
     report = {
         "version": 1,
@@ -859,6 +918,145 @@ def _read_operator_balance(region: str, instance_id: str, label: str) -> dict:
     }
 
 
+def _sql_as_subquery(sql: str) -> str:
+    """Normalize a standalone ``SELECT … ;`` statement into a scalar-subquery body.
+
+    The leading ``SELECT`` is kept (so the fragment is a valid subquery once
+    wrapped in ``(...)`` inside ``jsonb_build_object``) and the trailing
+    statement terminator is dropped — a ``;`` inside ``(...)`` is a syntax error.
+    """
+    body = sql.strip()
+    if body.endswith(";"):
+        body = body[:-1].rstrip()
+    return body
+
+
+EDGE_CAPTURE_BUNDLE_SQL = f"""
+SELECT jsonb_build_object(
+  'oauth_accounts', ({_sql_as_subquery(EDGE_ACCOUNTS_SQL)}),
+  'anthropic_groups', ({_sql_as_subquery(ANTHROPIC_GROUPS_SQL)}),
+  'tiers', ({_sql_as_subquery(TIERS_SQL)}),
+  'operator_concurrency', ({_sql_as_subquery(OPERATOR_CONCURRENCY_SQL)}),
+  'operator_balance', ({_sql_as_subquery(OPERATOR_BALANCE_SQL)})
+);
+""".strip()
+
+PROD_CAPTURE_BUNDLE_SQL = f"""
+SELECT jsonb_build_object(
+  'anthropic_stubs', ({_sql_as_subquery(PROD_STUBS_SQL)}),
+  'anthropic_groups', ({_sql_as_subquery(ANTHROPIC_GROUPS_SQL)}),
+  'tiers', ({_sql_as_subquery(TIERS_SQL)}),
+  'operator_concurrency', ({_sql_as_subquery(OPERATOR_CONCURRENCY_SQL)})
+);
+""".strip()
+
+
+def _parse_operator_balance_obj(obj: dict) -> dict:
+    bal = obj.get("operator_user_balance")
+    if bal is not None:
+        try:
+            bal = float(bal)
+        except (TypeError, ValueError):
+            bal = None
+    return {
+        "operator_user_balance": bal,
+        "operator_user_exists": bool(obj.get("operator_user_exists")),
+    }
+
+
+def _capture_edge_bundle(
+    eid: str,
+    ident: Any,
+    *,
+    ec2_stack: str,
+) -> dict[str, Any]:
+    """One SSM round-trip per edge for snapshot fields."""
+    raw, _ = ssm_run_sql(
+        ident.region,
+        ident.instance_id,
+        EDGE_CAPTURE_BUNDLE_SQL,
+        f"snapshot bundle: edge {eid}",
+    )
+    try:
+        bundle = json.loads(raw) if raw else {}
+    except json.JSONDecodeError:
+        bundle = {}
+    op = bundle.get("operator_concurrency") or {}
+    bal = _parse_operator_balance_obj(bundle.get("operator_balance") or {})
+    tiers_raw = bundle.get("tiers")
+    return {
+        "deployable": True,
+        "instance_id": ident.instance_id,
+        "region": ident.region,
+        "stack": ident.ec2_stack or ec2_stack or "",
+        "domain": ident.domain,
+        "ssm_routing": ident.routing,
+        "oauth_accounts": bundle.get("oauth_accounts") or [],
+        "anthropic_groups": bundle.get("anthropic_groups") or [],
+        "tiers": tiers_raw if isinstance(tiers_raw, list) else [],
+        "operator_user_concurrency": op.get("operator_user_concurrency"),
+        "schedulable_concurrency_sum": op.get("schedulable_concurrency_sum"),
+        "operator_user_balance": bal["operator_user_balance"],
+        "operator_user_exists": bal["operator_user_exists"],
+    }
+
+
+def _capture_prod_bundle(region: str, prod_inst: str) -> dict[str, Any]:
+    raw, _ = ssm_run_sql(
+        region,
+        prod_inst,
+        PROD_CAPTURE_BUNDLE_SQL,
+        "snapshot bundle: prod",
+    )
+    try:
+        bundle = json.loads(raw) if raw else {}
+    except json.JSONDecodeError:
+        bundle = {}
+    op = bundle.get("operator_concurrency") or {}
+    tiers_raw = bundle.get("tiers")
+    return {
+        "instance_id": prod_inst,
+        "region": region,
+        "stack": PROD_TARGET["stack"],
+        "domain": PROD_TARGET["domain"],
+        "anthropic_stubs": bundle.get("anthropic_stubs") or [],
+        "anthropic_groups": bundle.get("anthropic_groups") or [],
+        "tiers": tiers_raw if isinstance(tiers_raw, list) else [],
+        "operator_user_concurrency": op.get("operator_user_concurrency"),
+        "schedulable_concurrency_sum": op.get("schedulable_concurrency_sum"),
+    }
+
+
+def _snapshot_edge_task(task: tuple[str, dict | None, dict | None, bool, bool]) -> tuple[str, dict]:
+    """Worker for parallel snapshot: (eid, ec2_t, ls_t, deploy, allow_planned)."""
+    eid, ec2_t, ls_t, deploy, allow_planned = task
+    region = (ec2_t or {}).get("region") or (ls_t or {}).get("lightsail_region")
+    stack = (ec2_t or {}).get("stack") or ""
+    if not deploy and not allow_planned:
+        return eid, {
+            "deployable": False,
+            "skipped_reason": f"edge {eid} is planned; pass --allow-planned to include",
+            "region": region,
+            "stack": stack,
+        }
+    if not deploy and allow_planned:
+        return eid, {
+            "deployable": False,
+            "skipped_reason": f"edge {eid} is planned (--allow-planned)",
+            "region": region,
+            "stack": stack,
+        }
+    try:
+        ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, eid)
+    except SystemExit:
+        return eid, {"error": f"could not resolve SSM instance for edge {eid}"}
+    print(
+        f"snapshot: edge {eid} instance={ident.instance_id} routing={ident.routing} (bundle)",
+        file=sys.stderr,
+    )
+    return eid, _capture_edge_bundle(eid, ident, ec2_stack=stack)
+
+
 def cmd_snapshot(args: argparse.Namespace) -> int:
     edge_matrix = load_json_file(EDGE_MATRIX, "edge matrix")
     ls_targets = _EDGE_ROUTING.load_lightsail_targets(REPO_ROOT)
@@ -866,62 +1064,19 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
 
     edges: dict[str, dict] = {}
     merged = _EDGE_ROUTING.merged_edge_ids(edge_matrix, ls_targets)
-
+    workers = _parallel_edges_workers(getattr(args, "parallel_edges", None))
+    tasks: list[tuple[str, dict | None, dict | None, bool, bool]] = []
     for eid in merged:
         ec2_t = ec2_targets.get(eid)
         ls_t = ls_targets.get(eid)
         deploy = _EDGE_ROUTING.edge_effective_deployable(ec2_t, ls_t)
-        if not deploy and not args.allow_planned:
-            edges[eid] = {
-                "deployable": False,
-                "skipped_reason": f"edge {eid} is planned; pass --allow-planned to include",
-                "region": (ec2_t or {}).get("region") or (ls_t or {}).get("lightsail_region"),
-                "stack": (ec2_t or {}).get("stack") or "",
-            }
-            continue
-        if not deploy and args.allow_planned:
-            edges[eid] = {
-                "deployable": False,
-                "skipped_reason": f"edge {eid} is planned (--allow-planned)",
-                "region": (ec2_t or {}).get("region") or (ls_t or {}).get("lightsail_region"),
-                "stack": (ec2_t or {}).get("stack") or "",
-            }
-            continue
-        try:
-            ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, eid)
-        except SystemExit:
-            edges[eid] = {"error": f"could not resolve SSM instance for edge {eid}"}
-            continue
-        print(
-            f"snapshot: edge {eid} instance={ident.instance_id} routing={ident.routing}",
-            file=sys.stderr,
-        )
-        accts_raw, _ = ssm_run_sql(
-            ident.region, ident.instance_id, EDGE_ACCOUNTS_SQL,
-            f"snapshot: edge {eid} oauth accounts",
-        )
-        groups_raw, _ = ssm_run_sql(
-            ident.region, ident.instance_id, ANTHROPIC_GROUPS_SQL,
-            f"snapshot: edge {eid} anthropic groups",
-        )
-        op = _read_operator_concurrency(ident.region, ident.instance_id, f"edge {eid}")
-        bal = _read_operator_balance(ident.region, ident.instance_id, f"edge {eid}")
-        tiers = _read_tiers(ident.region, ident.instance_id, f"edge {eid}")
-        edges[eid] = {
-            "deployable": True,
-            "instance_id": ident.instance_id,
-            "region": ident.region,
-            "stack": ident.ec2_stack or (ec2_t or {}).get("stack") or "",
-            "domain": ident.domain,
-            "ssm_routing": ident.routing,
-            "oauth_accounts": json.loads(accts_raw) if accts_raw else [],
-            "anthropic_groups": json.loads(groups_raw) if groups_raw else [],
-            "tiers": tiers,
-            "operator_user_concurrency": op["operator_user_concurrency"],
-            "schedulable_concurrency_sum": op["schedulable_concurrency_sum"],
-            "operator_user_balance": bal["operator_user_balance"],
-            "operator_user_exists": bal["operator_user_exists"],
-        }
+        tasks.append((eid, ec2_t, ls_t, deploy, bool(args.allow_planned)))
+    if tasks:
+        print(f"snapshot: {len(tasks)} edge(s) parallel_workers={workers}", file=sys.stderr)
+        for eid, edge in _run_parallel_ordered(
+            tasks, _snapshot_edge_task, workers, label="snapshot",
+        ):
+            edges[eid] = edge
 
     prod_view: dict[str, Any]
     if getattr(args, "skip_prod", False):
@@ -929,26 +1084,8 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
     else:
         try:
             prod_inst = resolve_instance_id(PROD_TARGET["region"], PROD_TARGET["stack"])
-            print(f"snapshot: prod instance={prod_inst}", file=sys.stderr)
-            stubs_raw, _ = ssm_run_sql(PROD_TARGET["region"], prod_inst, PROD_STUBS_SQL,
-                                        "snapshot: prod anthropic stubs")
-            groups_raw, _ = ssm_run_sql(
-                PROD_TARGET["region"], prod_inst, ANTHROPIC_GROUPS_SQL,
-                "snapshot: prod anthropic groups",
-            )
-            prod_op = _read_operator_concurrency(PROD_TARGET["region"], prod_inst, "prod")
-            prod_tiers = _read_tiers(PROD_TARGET["region"], prod_inst, "prod")
-            prod_view = {
-                "instance_id": prod_inst,
-                "region": PROD_TARGET["region"],
-                "stack": PROD_TARGET["stack"],
-                "domain": PROD_TARGET["domain"],
-                "anthropic_stubs": json.loads(stubs_raw) if stubs_raw else [],
-                "anthropic_groups": json.loads(groups_raw) if groups_raw else [],
-                "tiers": prod_tiers,
-                "operator_user_concurrency": prod_op["operator_user_concurrency"],
-                "schedulable_concurrency_sum": prod_op["schedulable_concurrency_sum"],
-            }
+            print(f"snapshot: prod instance={prod_inst} (bundle)", file=sys.stderr)
+            prod_view = _capture_prod_bundle(PROD_TARGET["region"], prod_inst)
         except SystemExit:
             print("snapshot: prod failed to resolve instance (skipping prod view; "
                   "plan-stub-pool will fail-loud if invoked)", file=sys.stderr)
@@ -1321,7 +1458,12 @@ def _run_http_ua_checks_live(edge_ids: list[str], expected: dict) -> list[dict]:
 def cmd_check(args: argparse.Namespace) -> int:
     snapshot = load_json_file(pathlib.Path(args.snapshot), "snapshot") if args.snapshot else None
     edge_ids = _edge_ids_for_check(snapshot, bool(args.allow_planned))
-    report = _run_check_guards(edge_ids, bool(args.allow_planned))
+    report = _run_check_guards(
+        edge_ids,
+        bool(args.allow_planned),
+        parallel_edges=getattr(args, "parallel_edges", None),
+        legacy_guard=bool(getattr(args, "legacy_guard", False)),
+    )
     policy = _load_operator_balance_policy()
     if snapshot is not None:
         if snapshot.get("version") != SNAPSHOT_VERSION:
@@ -1410,15 +1552,165 @@ def _edge_ids_for_check(snapshot: dict | None, allow_planned: bool) -> list[str]
     return _EDGE_ROUTING.iter_effective_deployable_edge_ids(edge_matrix, ls_targets)
 
 
-def _run_check_guards(edge_ids: list[str], allow_planned: bool) -> dict:
-    sub_results: list[dict] = []
-    for eid in edge_ids:
-        sub_results.append(_run_guard(
+def _guard_items_from_batch(
+    edge_id: str,
+    edge_meta: dict[str, Any],
+    batch_rows: list[Any],
+    baseline: dict[str, Any],
+    *,
+    default_tier: str = "",
+) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    if not batch_rows:
+        items.append({
+            "edge": {**edge_meta},
+            "account_name": "all",
+            "status": "ok",
+            "diff_count": 0,
+            "diffs": [],
+            "accounts_found": 0,
+            "sql_path": None,
+        })
+        return items
+    for row in batch_rows:
+        if not isinstance(row, dict):
+            continue
+        account_name = str(
+            row.get("account_name") or (row.get("account") or {}).get("name") or ""
+        ).strip()
+        live = {k: v for k, v in row.items() if k != "account_name"}
+        try:
+            effective = _GUARD.resolve_effective_baseline(
+                baseline,
+                live,
+                edge_id=edge_id,
+                account_name=account_name,
+                default_tier=default_tier,
+            )
+            diffs = _GUARD.compare_live_to_baseline(live, effective)
+            items.append({
+                "edge": {**edge_meta},
+                "account_name": account_name,
+                "account_stability_tier": (live.get("account") or {}).get("stability_tier"),
+                "baseline_tier": effective.get("selected_tier"),
+                "tier_source": effective.get("tier_source"),
+                "status": "ok" if not diffs else "drift",
+                "diff_count": len(diffs),
+                "diffs": diffs,
+                "sql_path": None,
+            })
+        except _GUARD.CheckError as exc:
+            items.append({
+                "edge": {**edge_meta},
+                "account_name": account_name,
+                "status": "error",
+                "diff_count": 0,
+                "diffs": [],
+                "error_message": exc.args[0] if exc.args else "unknown error",
+                "sql_path": None,
+            })
+    return items
+
+
+def _run_guard_batch_for_edge(eid: str, allow_planned: bool) -> dict[str, Any]:
+    """One SSM round-trip per edge; local compare (same semantics as guard --account-name all)."""
+    baseline = load_json_file(TIER_BASELINES, "tier baseline")
+    try:
+        ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, eid)
+    except SystemExit:
+        return {
+            "exit_code": 2,
+            "description": f"edge-oauth-stability edge={eid}",
+            "report": None,
+        }
+    raw, cid = ssm_run_sql(
+        ident.region,
+        ident.instance_id,
+        _GUARD.build_all_oauth_guard_live_batch_query(),
+        f"guard batch edge={eid}",
+    )
+    try:
+        batch_rows = json.loads(raw) if raw else []
+    except json.JSONDecodeError:
+        batch_rows = []
+    if not isinstance(batch_rows, list):
+        batch_rows = []
+    edge_meta = {
+        "edge_id": eid,
+        "region": ident.region,
+        "instance_id": ident.instance_id,
+        "allow_planned": allow_planned,
+    }
+    items = _guard_items_from_batch(eid, edge_meta, batch_rows, baseline)
+    drift_count = sum(1 for x in items if x.get("status") == "drift")
+    error_count = sum(1 for x in items if x.get("status") == "error")
+    exit_code = 1 if drift_count or error_count else 0
+    report = {
+        "mode": "batch",
+        "selector": {
+            "edge_id": eid,
+            "account_name": "all",
+            "allow_planned": allow_planned,
+        },
+        "summary": {
+            "edge_total": 1,
+            "excluded_edge_total": 0,
+            "account_result_total": len(items),
+            "ok_count": sum(1 for x in items if x.get("status") == "ok"),
+            "drift_count": drift_count,
+            "error_count": error_count,
+        },
+        "excluded_edges": [],
+        "items": items,
+        "ssm_command_id": cid,
+    }
+    return {
+        "exit_code": exit_code,
+        "description": f"edge-oauth-stability edge={eid}",
+        "report": report,
+    }
+
+
+def _run_check_guards(
+    edge_ids: list[str],
+    allow_planned: bool,
+    *,
+    parallel_edges: int | None = None,
+    legacy_guard: bool = False,
+) -> dict:
+    workers = _parallel_edges_workers(parallel_edges)
+
+    def _legacy_one(eid: str) -> dict[str, Any]:
+        return _run_guard(
             ["python3", str(OPS_DIR / "check-edge-oauth-stability.py"),
              "--edge-id", eid, "--account-name", "all", "--json"]
             + (["--allow-planned"] if allow_planned else []),
             f"edge-oauth-stability edge={eid}",
-        ))
+        )
+
+    def _batch_one(eid: str) -> dict[str, Any]:
+        return _run_guard_batch_for_edge(eid, allow_planned)
+
+    if legacy_guard:
+        print(
+            f"check-guards: legacy subprocess {len(edge_ids)} edge(s) "
+            f"parallel_workers={workers}",
+            file=sys.stderr,
+        )
+        sub_results = _run_parallel_ordered(
+            edge_ids, _legacy_one, workers, label="guard-legacy",
+        )
+        guard_mode = "legacy-subprocess"
+    else:
+        print(
+            f"check-guards: batch-ssm {len(edge_ids)} edge(s) parallel_workers={workers}",
+            file=sys.stderr,
+        )
+        sub_results = _run_parallel_ordered(
+            edge_ids, _batch_one, workers, label="guard-batch",
+        )
+        guard_mode = "batch-ssm"
+
     any_violation = any(sr.get("exit_code", 0) not in (0, None) for sr in sub_results)
     return {
         "version": 2,
@@ -1426,6 +1718,7 @@ def _run_check_guards(edge_ids: list[str], allow_planned: bool) -> dict:
         "edges_in_scope": edge_ids,
         "any_violation": any_violation,
         "guards": sub_results,
+        "guard_mode": guard_mode,
     }
 
 
@@ -1470,7 +1763,12 @@ def cmd_plan_guard_drift_fix(args: argparse.Namespace) -> int:
         check_report = load_json_file(pathlib.Path(args.check_report), "check report")
     else:
         edge_ids = _edge_ids_for_check(snap, bool(args.allow_planned))
-        check_report = _run_check_guards(edge_ids, bool(args.allow_planned))
+        check_report = _run_check_guards(
+            edge_ids,
+            bool(args.allow_planned),
+            parallel_edges=getattr(args, "parallel_edges", None),
+            legacy_guard=bool(getattr(args, "legacy_guard", False)),
+        )
     drift_accounts = _iter_guard_drift_accounts(check_report)
     tiers = _load_tier_baselines()
     actions: list[dict] = []
@@ -1536,16 +1834,30 @@ def cmd_remediate_guard_drift(args: argparse.Namespace) -> int:
     check_path = job_dir / "check.json"
     plan_path = job_dir / "plan-guard-drift-fix.json"
 
-    print(f"remediate: job_dir={job_dir}", file=sys.stderr)
+    parallel = getattr(args, "parallel_edges", None)
+    legacy_guard = bool(getattr(args, "legacy_guard", False))
+    print(
+        f"remediate: job_dir={job_dir} parallel_edges={_parallel_edges_workers(parallel)} "
+        f"guard_mode={'legacy-subprocess' if legacy_guard else 'batch-ssm'}",
+        file=sys.stderr,
+    )
     rc = cmd_snapshot(argparse.Namespace(
-        out=str(snap_path), allow_planned=args.allow_planned, skip_prod=False,
+        out=str(snap_path),
+        allow_planned=args.allow_planned,
+        skip_prod=False,
+        parallel_edges=parallel,
     ))
     if rc != 0:
         return rc
 
     snap = load_json_file(snap_path, "snapshot")
     edge_ids = _edge_ids_for_check(snap, bool(args.allow_planned))
-    check_report = _run_check_guards(edge_ids, bool(args.allow_planned))
+    check_report = _run_check_guards(
+        edge_ids,
+        bool(args.allow_planned),
+        parallel_edges=parallel,
+        legacy_guard=legacy_guard,
+    )
     check_path.write_text(json.dumps(check_report, indent=2, ensure_ascii=False))
     if not check_report.get("any_violation"):
         print("remediate: check clean — nothing to apply", file=sys.stderr)
@@ -1582,6 +1894,7 @@ def cmd_remediate_guard_drift(args: argparse.Namespace) -> int:
         sync_runtime=not args.skip_runtime_sync,
         skip_prod_runtime_sync=args.skip_prod_runtime_sync,
         sync_runtime_ua_version=None,
+        parallel_edges=parallel,
     ))
     if rc != 0:
         return rc
@@ -1592,11 +1905,17 @@ def cmd_remediate_guard_drift(args: argparse.Namespace) -> int:
         allow_planned=args.allow_planned,
         skip_prod=False,
         json=False,
+        parallel_edges=parallel,
     ))
     if rc != 0:
         return rc
 
-    final_check = _run_check_guards(edge_ids, bool(args.allow_planned))
+    final_check = _run_check_guards(
+        edge_ids,
+        bool(args.allow_planned),
+        parallel_edges=parallel,
+        legacy_guard=legacy_guard,
+    )
     (job_dir / "check-after.json").write_text(
         json.dumps(final_check, indent=2, ensure_ascii=False)
     )
@@ -2696,6 +3015,147 @@ def render_prod_concurrency_mirror_sql(stub_updates: list[dict]) -> str:
     return "".join(parts)
 
 
+def _apply_group_instance_key(action: dict) -> tuple[str, str, str]:
+    """Group key (region, instance_id, label) — same instance runs steps serially."""
+    kind = action["kind"]
+    tgt = action["target"]
+    if kind == "edge_account_tier":
+        edge_id = tgt["edge_id"]
+        region, instance_id, label = _resolve_edge_target(edge_id)
+        return region, instance_id, label
+    if kind == "edge_operator_concurrency":
+        edge_id = tgt["edge_id"]
+        region, instance_id, label = _resolve_edge_target(edge_id)
+        return region, instance_id, label
+    if kind == "edge_operator_balance":
+        edge_id = tgt["edge_id"]
+        region, instance_id, label = _resolve_edge_target(edge_id)
+        return region, instance_id, label
+    if kind in ("prod_stub_pool", "prod_concurrency_mirror"):
+        region, instance_id, label = _resolve_prod_target()
+        return region, instance_id, label
+    if kind == "anthropic_group_claude_code_only":
+        if tgt.get("env") == "edge":
+            edge_id = tgt["edge_id"]
+            region, instance_id, label = _resolve_edge_target(edge_id)
+            return region, instance_id, label
+        region, instance_id, label = _resolve_prod_target()
+        return region, instance_id, label
+    fail(f"unknown action.kind {kind!r}")
+
+
+def _execute_apply_action(action: dict, job_dir: pathlib.Path) -> dict[str, Any]:
+    step = action["step"]
+    kind = action["kind"]
+    tgt = action["target"]
+    v = action.get("variables", {})
+    if kind == "edge_account_tier":
+        edge_id = tgt["edge_id"]
+        account_name = tgt["account_name"]
+        label = f"step{step:02d}-edge-{edge_id}-{kind}-{account_name}".replace("/", "-")
+        sql = render_edge_account_tier_sql(v["account_name"], v["stability_tier"], edge_id)
+        region, instance_id, target_label = _resolve_edge_target(edge_id)
+    elif kind == "prod_stub_pool":
+        account_id = v["account_id"]
+        account_name = tgt["account_name"]
+        label = f"step{step:02d}-prod-{kind}-{account_name}".replace("/", "-")
+        sql = render_prod_stub_pool_sql(
+            int(account_id), account_name,
+            bool(v["pool_mode_enabled"]), int(v["pool_mode_retry_count"]),
+        )
+        region, instance_id, target_label = _resolve_prod_target()
+    elif kind == "edge_operator_concurrency":
+        edge_id = tgt["edge_id"]
+        label = f"step{step:02d}-edge-{edge_id}-{kind}".replace("/", "-")
+        sql = render_edge_operator_concurrency_sql(edge_id)
+        region, instance_id, target_label = _resolve_edge_target(edge_id)
+    elif kind == "prod_concurrency_mirror":
+        label = f"step{step:02d}-prod-{kind}".replace("/", "-")
+        sql = render_prod_concurrency_mirror_sql(v.get("stub_updates") or [])
+        region, instance_id, target_label = _resolve_prod_target()
+    elif kind == "anthropic_group_claude_code_only":
+        env = tgt.get("env")
+        want = bool(v.get("claude_code_only", True))
+        if env == "edge":
+            edge_id = tgt["edge_id"]
+            label = f"step{step:02d}-edge-{edge_id}-{kind}".replace("/", "-")
+            sql = render_anthropic_group_claude_code_sql(want)
+            region, instance_id, target_label = _resolve_edge_target(edge_id)
+        elif env == "prod":
+            label = f"step{step:02d}-prod-{kind}".replace("/", "-")
+            sql = render_anthropic_group_claude_code_sql(want)
+            region, instance_id, target_label = _resolve_prod_target()
+        else:
+            fail(f"anthropic_group_claude_code_only: unknown target.env {env!r}")
+    elif kind == "edge_operator_balance":
+        edge_id = tgt["edge_id"]
+        label = f"step{step:02d}-edge-{edge_id}-{kind}".replace("/", "-")
+        default_bal = float(v["default_balance"])
+        sql = render_edge_operator_balance_sql(
+            default_bal,
+            user_id=int(v.get("operator_user_id", ADMIN_OPERATOR_USER_CONCURRENCY_SYNC_ID)),
+        )
+        region, instance_id, target_label = _resolve_edge_target(edge_id)
+    else:
+        fail(f"unknown action.kind {kind!r} (orchestrator handles edge_account_tier | "
+             f"prod_stub_pool | edge_operator_concurrency | prod_concurrency_mirror | "
+             f"anthropic_group_claude_code_only | edge_operator_balance)")
+
+    sql_path = job_dir / f"{label}.sql"
+    sql_path.write_text(sql)
+    sql_b64 = base64.b64encode(sql.encode("utf-8")).decode("ascii")
+    print(f"apply: step{step:02d} {kind} → {target_label}  (sql={sql_path})",
+          file=sys.stderr)
+    stdout, cid, ssm_ok, stderr = ssm_run_sql_b64(
+        region, instance_id, sql_b64,
+        f"apply step {step} {kind} on {target_label}",
+    )
+    result: dict[str, Any] = {
+        "step": step,
+        "kind": kind,
+        "target_label": target_label,
+        "sql_path": str(sql_path),
+        "ssm_command_id": cid,
+        "ssm_ok": ssm_ok,
+        "stdout_preview": stdout[-1200:],
+        "stderr_preview": stderr,
+        "expected_after": action.get("expected_after"),
+        "ok": ssm_ok,
+    }
+    if not ssm_ok:
+        result["error"] = (
+            "SSM ResponseCode != 0; remote SQL likely failed (DO-block RAISE or "
+            "psql ON_ERROR_STOP). Inspect via: "
+            f"aws ssm get-command-invocation --region {region} "
+            f"--instance-id {instance_id} --command-id {cid}"
+        )
+    if result["ok"] and kind == "edge_operator_balance":
+        uid = int(v.get("operator_user_id", ADMIN_OPERATOR_USER_CONCURRENCY_SYNC_ID))
+        cache_ok = _invalidate_operator_balance_cache(
+            region, instance_id, uid,
+            f"apply step {step} edge_operator_balance cache flush on {target_label}",
+        )
+        result["billing_cache_invalidate_ok"] = cache_ok
+        if not cache_ok:
+            result["ok"] = False
+            result["error"] = "billing:balance Redis DEL failed after balance UPDATE"
+    if not result["ok"]:
+        print(f"apply: step{step:02d} FAILED. cid={cid}", file=sys.stderr)
+    return result
+
+
+def _execute_apply_group(actions: list[dict], job_dir: pathlib.Path) -> list[dict]:
+    """Serial apply on one Postgres instance (one edge or prod)."""
+    ordered = sorted(actions, key=lambda a: a["step"])
+    results: list[dict] = []
+    for action in ordered:
+        result = _execute_apply_action(action, job_dir)
+        results.append(result)
+        if not result["ok"]:
+            break
+    return results
+
+
 def cmd_apply(args: argparse.Namespace) -> int:
     plan_path = pathlib.Path(args.plan)
     plan = load_json_file(plan_path, "plan")
@@ -2713,110 +3173,35 @@ def cmd_apply(args: argparse.Namespace) -> int:
     job_dir.mkdir(parents=True, exist_ok=True)
     print(f"apply: job_dir={job_dir}", file=sys.stderr)
 
-    results: list[dict] = []
-    actions = plan.get("actions") or []
+    actions = sorted(plan.get("actions") or [], key=lambda a: a["step"])
+    groups: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
     for action in actions:
-        step = action["step"]
-        kind = action["kind"]
-        tgt = action["target"]
-        v = action.get("variables", {})
-        if kind == "edge_account_tier":
-            edge_id = tgt["edge_id"]
-            account_name = tgt["account_name"]
-            label = f"step{step:02d}-edge-{edge_id}-{kind}-{account_name}".replace("/", "-")
-            sql = render_edge_account_tier_sql(v["account_name"], v["stability_tier"], edge_id)
-            region, instance_id, target_label = _resolve_edge_target(edge_id)
-        elif kind == "prod_stub_pool":
-            account_id = v["account_id"]
-            account_name = tgt["account_name"]
-            label = f"step{step:02d}-prod-{kind}-{account_name}".replace("/", "-")
-            sql = render_prod_stub_pool_sql(
-                int(account_id), account_name,
-                bool(v["pool_mode_enabled"]), int(v["pool_mode_retry_count"]),
-            )
-            region, instance_id, target_label = _resolve_prod_target()
-        elif kind == "edge_operator_concurrency":
-            edge_id = tgt["edge_id"]
-            label = f"step{step:02d}-edge-{edge_id}-{kind}".replace("/", "-")
-            sql = render_edge_operator_concurrency_sql(edge_id)
-            region, instance_id, target_label = _resolve_edge_target(edge_id)
-        elif kind == "prod_concurrency_mirror":
-            label = f"step{step:02d}-prod-{kind}".replace("/", "-")
-            sql = render_prod_concurrency_mirror_sql(v.get("stub_updates") or [])
-            region, instance_id, target_label = _resolve_prod_target()
-        elif kind == "anthropic_group_claude_code_only":
-            env = tgt.get("env")
-            want = bool(v.get("claude_code_only", True))
-            if env == "edge":
-                edge_id = tgt["edge_id"]
-                label = f"step{step:02d}-edge-{edge_id}-{kind}".replace("/", "-")
-                sql = render_anthropic_group_claude_code_sql(want)
-                region, instance_id, target_label = _resolve_edge_target(edge_id)
-            elif env == "prod":
-                label = f"step{step:02d}-prod-{kind}".replace("/", "-")
-                sql = render_anthropic_group_claude_code_sql(want)
-                region, instance_id, target_label = _resolve_prod_target()
-            else:
-                fail(f"anthropic_group_claude_code_only: unknown target.env {env!r}")
-        elif kind == "edge_operator_balance":
-            edge_id = tgt["edge_id"]
-            label = f"step{step:02d}-edge-{edge_id}-{kind}".replace("/", "-")
-            default_bal = float(v["default_balance"])
-            sql = render_edge_operator_balance_sql(
-                default_bal, user_id=int(v.get("operator_user_id", ADMIN_OPERATOR_USER_CONCURRENCY_SYNC_ID)),
-            )
-            region, instance_id, target_label = _resolve_edge_target(edge_id)
-        else:
-            fail(f"unknown action.kind {kind!r} (orchestrator handles edge_account_tier | "
-                 f"prod_stub_pool | edge_operator_concurrency | prod_concurrency_mirror | "
-                 f"anthropic_group_claude_code_only | edge_operator_balance)")
-            return 2  # unreachable, pacifies static analysis
+        groups[_apply_group_instance_key(action)].append(action)
 
-        sql_path = job_dir / f"{label}.sql"
-        sql_path.write_text(sql)
-        sql_b64 = base64.b64encode(sql.encode("utf-8")).decode("ascii")
-        print(f"apply: step{step:02d} {kind} → {target_label}  (sql={sql_path})",
-              file=sys.stderr)
-        stdout, cid, ssm_ok, stderr = ssm_run_sql_b64(
-            region, instance_id, sql_b64,
-            f"apply step {step} {kind} on {target_label}",
+    workers = _parallel_edges_workers(getattr(args, "parallel_edges", None))
+    group_items = list(groups.items())
+    if len(group_items) > 1 and workers > 1:
+        apply_workers = min(workers, len(group_items))
+        print(
+            f"apply: {len(actions)} step(s) in {len(group_items)} instance group(s) "
+            f"parallel_workers={apply_workers}",
+            file=sys.stderr,
         )
-        # edge_account_tier template returns relation rows, not jsonb — we
-        # trust the transaction commit and defer field-level verification
-        # to Stage 5 verify.
-        result = {
-            "step": step,
-            "kind": kind,
-            "target_label": target_label,
-            "sql_path": str(sql_path),
-            "ssm_command_id": cid,
-            "ssm_ok": ssm_ok,
-            "stdout_preview": stdout[-1200:],
-            "stderr_preview": stderr,
-            "expected_after": action.get("expected_after"),
-            "ok": ssm_ok,
-        }
-        if not ssm_ok:
-            result["error"] = (
-                "SSM ResponseCode != 0; remote SQL likely failed (DO-block RAISE or "
-                "psql ON_ERROR_STOP). Inspect via: "
-                f"aws ssm get-command-invocation --region {region} "
-                f"--instance-id {instance_id} --command-id {cid}"
-            )
-        results.append(result)
-        if result["ok"] and kind == "edge_operator_balance":
-            uid = int(v.get("operator_user_id", ADMIN_OPERATOR_USER_CONCURRENCY_SYNC_ID))
-            cache_ok = _invalidate_operator_balance_cache(
-                region, instance_id, uid,
-                f"apply step {step} edge_operator_balance cache flush on {target_label}",
-            )
-            result["billing_cache_invalidate_ok"] = cache_ok
-            if not cache_ok:
-                result["ok"] = False
-                result["error"] = "billing:balance Redis DEL failed after balance UPDATE"
-        if not result["ok"]:
-            print(f"apply: step{step:02d} FAILED — stopping. cid={cid}", file=sys.stderr)
-            break
+        group_results = _run_parallel_ordered(
+            group_items,
+            lambda item: _execute_apply_group(item[1], job_dir),
+            apply_workers,
+            label="apply",
+        )
+    else:
+        group_results = [
+            _execute_apply_group(item[1], job_dir) for item in group_items
+        ]
+
+    results: list[dict] = []
+    for gr in group_results:
+        results.extend(gr)
+    results.sort(key=lambda r: r["step"])
 
     success = all(r["ok"] for r in results) and len(results) == len(actions)
     report = {
@@ -2848,7 +3233,11 @@ def cmd_apply(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             rt_ok, rt_results = _run_runtime_sync(
-                rt_targets, ua_version, job_dir, mimicry_manifest_json=manifest_json,
+                rt_targets,
+                ua_version,
+                job_dir,
+                mimicry_manifest_json=manifest_json,
+                parallel_edges=getattr(args, "parallel_edges", None),
             )
             runtime_sync_report = {
                 "ua_version": ua_version,
@@ -2897,6 +3286,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
         out=str(snap_path),
         allow_planned=args.allow_planned,
         skip_prod=not plan_needs_prod and bool(getattr(args, "skip_prod", False)),
+        parallel_edges=getattr(args, "parallel_edges", None),
     )
     rc = cmd_snapshot(snap_args)
     if rc != 0:
@@ -3039,6 +3429,27 @@ def cmd_verify(args: argparse.Namespace) -> int:
 # Dispatch
 # --------------------------------------------------------------------------
 
+def _add_parallel_edges_arg(sp: argparse.ArgumentParser) -> None:
+    sp.add_argument(
+        "--parallel-edges",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            f"max concurrent edge/target workers for SSM I/O "
+            f"(default {DEFAULT_PARALLEL_EDGES})"
+        ),
+    )
+
+
+def _add_legacy_guard_arg(sp: argparse.ArgumentParser) -> None:
+    sp.add_argument(
+        "--legacy-guard",
+        action="store_true",
+        help="use per-account subprocess guard (slow); default is one batch SSM per edge",
+    )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__.split("\n\n", 1)[0] if __doc__ else "",
@@ -3053,6 +3464,7 @@ def main() -> int:
                     help="include planned edges from merged EC2 + Lightsail matrix keys")
     sp.add_argument("--skip-prod", action="store_true",
                     help="skip the prod stub query (offline / lab runs that only need edge data)")
+    _add_parallel_edges_arg(sp)
     sp.set_defaults(handler=cmd_snapshot)
 
     sp = sub.add_parser("check", help="run edge OAuth stability guard for each edge in scope")
@@ -3060,6 +3472,8 @@ def main() -> int:
     sp.add_argument("--allow-planned", action="store_true",
                     help="expand edge IDs in scope via merged matrices (see snapshot)")
     sp.add_argument("--json", action="store_true")
+    _add_parallel_edges_arg(sp)
+    _add_legacy_guard_arg(sp)
     sp.set_defaults(handler=cmd_check)
 
     sp = sub.add_parser("plan-edge-account-tier",
@@ -3182,6 +3596,7 @@ def main() -> int:
         "--sync-runtime-ua-version",
         help="override UA semver for sync-runtime (default: parse tk_canonical_cc_oauth.json)",
     )
+    _add_parallel_edges_arg(sp)
     sp.set_defaults(handler=cmd_apply)
 
     sp = sub.add_parser(
@@ -3211,6 +3626,7 @@ def main() -> int:
     sp.add_argument("--job-dir", help="write rendered remote shell scripts here")
     sp.add_argument("--out", help="write JSON report")
     sp.add_argument("--json", action="store_true")
+    _add_parallel_edges_arg(sp)
     sp.set_defaults(handler=cmd_sync_runtime)
 
     sp = sub.add_parser(
@@ -3248,6 +3664,8 @@ def main() -> int:
         action="store_true",
         help="sync-runtime on edges only (omit prod)",
     )
+    _add_parallel_edges_arg(sp)
+    _add_legacy_guard_arg(sp)
     sp.set_defaults(handler=cmd_remediate_guard_drift)
 
     sp = sub.add_parser("verify",
@@ -3259,6 +3677,7 @@ def main() -> int:
     sp.add_argument("--skip-prod", action="store_true",
                     help="skip the re-snapshot's prod query when the plan has no prod_stub_pool actions")
     sp.add_argument("--json", action="store_true")
+    _add_parallel_edges_arg(sp)
     sp.set_defaults(handler=cmd_verify)
 
     args = ap.parse_args()

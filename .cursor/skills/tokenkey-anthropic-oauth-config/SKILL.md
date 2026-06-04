@@ -91,9 +91,12 @@ python3 $MGR apply  --plan $JOBDIR/plan-guard-drift-fix.json \
   --confirm yes-apply-anthropic-config-cascade --sync-runtime
 python3 $MGR verify --plan $JOBDIR/plan-guard-drift-fix.json     # drift_count 必须=0
 #   3b) 或一键：snapshot → check → plan → apply(--sync-runtime) → verify → check
+#   默认 P0 加速：每 edge 1 次 SSM bundle snapshot + 1 次 batch guard；跨 edge 并行
+#   （--parallel-edges N，默认 6）；apply/sync-runtime 按 instance 分组并行。
 python3 $MGR remediate-guard-drift \
   --confirm yes-apply-anthropic-config-cascade \
   --job-dir $JOBDIR/remediate
+# 回退旧路径（慢）：加 --legacy-guard，snapshot/guard 仍并行但 guard 恢复 1+N SSM/edge
 
 # Stage 4 — HTTP UA / mimicry 运行时同步（settings + Redis 指纹缓存）
 # UA semver + mimicry manifest 默认从 deploy/aws/stage0/anthropic-http-mimicry-baselines.json 解析
