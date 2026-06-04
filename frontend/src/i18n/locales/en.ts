@@ -2335,6 +2335,10 @@ export default {
         title: 'OpenAI Messages Dispatch',
         allowDispatch: 'Allow /v1/messages dispatch',
         allowDispatchHint: 'When enabled, API keys in this OpenAI group can dispatch requests through /v1/messages endpoint',
+        defaultMappedModel: 'Default Mapped Model (claude fallback)',
+        defaultMappedModelPlaceholder: 'e.g., gpt-5.5 (empty = no fallback)',
+        defaultMappedModelHint:
+          'When a claude-family model reaches this group via /v1/chat/completions and no account-level mapping matches, rewrite it to this model; empty forwards the original name upstream.',
         familyMappingTitle: 'Family Default Mapping',
         familyMappingHint: 'Requests that match the Opus, Sonnet, or Haiku families will prefer the target model configured here.',
         opusModel: 'Opus Target Model',
