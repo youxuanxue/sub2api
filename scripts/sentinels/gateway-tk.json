@@ -1699,6 +1699,35 @@
         "defaultOpenAIMessagesDispatchOpusMappedModel   = \"gpt-5.5\""
       ],
       "rationale": "Code-default opus family mapping must stay gpt-5.5 (TK override of the upstream gpt-5.4 default; gpt-5.4 returned upstream 404 model_not_found on Codex OAuth accounts). This default is the zero-config fleet-wide fallback for claude-named requests on BOTH /v1/messages dispatch and /v1/chat/completions; an upstream merge restoring gpt-5.4 compiles clean but silently re-breaks opus traffic. Frontend mirror: frontend/src/views/admin/groupsMessagesDispatch.ts."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) enforceCodexClientRestriction(ctx context.Context, c *gin.Context, account *Account, body []byte) error {",
+        "if err := s.enforceCodexClientRestriction(ctx, c, account, body); err != nil {"
+      ],
+      "rationale": "codex_cli_only (only Codex official clients) must be enforced at EVERY OpenAI gateway forward entry point through the single helper enforceCodexClientRestriction — not only on /v1/responses (Forward). Upstream Wei-Shaw/sub2api#3014: enforcement living only inside Forward let plain clients reach a restricted OAuth account via the /v1/chat/completions compat entry (internally converted to Responses), bypassing the policy. Anchor the helper definition + the Forward call site so a future merge/refactor cannot drop the shared enforcement back into a single endpoint and silently re-open the bypass. The rejection returns a plain error (NOT *UpstreamFailoverError) so handlers do not fail over to another account and re-bypass the per-account policy. Regression test: TestForwardAsChatCompletions_CodexCliOnlyBlocksCompatEntry."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions.go",
+      "must_contain": [
+        "if err := s.enforceCodexClientRestriction(ctx, c, account, body); err != nil {"
+      ],
+      "rationale": "ForwardAsChatCompletions must run enforceCodexClientRestriction at the very top, before any upstream-forward branch — this is the entry that upstream Wei-Shaw/sub2api#3014 reported as bypassable (a restricted OAuth account reachable by non-Codex clients via /v1/chat/completions). Removing this call re-opens the access-control bypass. No-op for accounts that have not enabled codex_cli_only."
+    },
+    {
+      "path": "backend/internal/service/openai_images_responses.go",
+      "must_contain": [
+        "if err := s.enforceCodexClientRestriction(ctx, c, account, nil); err != nil {"
+      ],
+      "rationale": "forwardOpenAIImagesOAuth must run enforceCodexClientRestriction so codex_cli_only also covers the image generation/edit OAuth entry (/v1/images/*), preventing the same-class bypass as upstream Wei-Shaw/sub2api#3014 via an image surface. No-op for accounts that have not enabled codex_cli_only."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler.go",
+      "must_contain": [
+        "if service.HasOpsClientBusinessLimited(c) {"
+      ],
+      "rationale": "ensureForwardErrorResponse must short-circuit when a client-business-limited rejection (codex_cli_only / IP restriction / feature gate) already wrote a complete client-facing response. Without this guard the fallback appends another error frame and corrupts the committed body into `{\"error\":...}event: response.failed...` (gin does not block writes after commit). Introduced with the upstream Wei-Shaw/sub2api#3014 fix; removing it brings back the dirty-403 body."
     }
   ]
 }

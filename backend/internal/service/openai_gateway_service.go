@@ -948,6 +948,39 @@ func (s *OpenAIGatewayService) detectCodexClientRestriction(c *gin.Context, acco
 	return s.getCodexClientRestrictionDetector().Detect(c, account, globalAllowedClients)
 }
 
+// errCodexClientRestricted 标记请求因账号 codex_cli_only 策略被拒绝。
+// 它是普通错误（非 *UpstreamFailoverError），所以网关 handler 不会据此切换账号——
+// 对一个受限账号 failover 到另一个账号会绕过运营对该账号的本地策略预期
+// （见 upstream Wei-Shaw/sub2api#3014 建议修复第 5 点）。
+var errCodexClientRestricted = errors.New("codex_cli_only restriction: only codex official clients are allowed")
+
+// enforceCodexClientRestriction 在 OpenAI 网关任一转发入口执行账号的 codex_cli_only 策略。
+//
+// 当账号开启 codex_cli_only 且请求客户端不在放行名单内时，写出 403 并返回
+// errCodexClientRestricted，调用方据此直接 return，不再转发上游、也不 failover。
+// 请求被放行（或账号未开启该策略）时返回 nil——对未开启策略的账号是零成本 no-op。
+//
+// 该 helper 是 codex_cli_only 在所有 OpenAI 网关入口的单一执行点：/responses
+// (Forward)、/v1/chat/completions (ForwardAsChatCompletions)、图片 OAuth 路径
+// (forwardOpenAIImagesOAuth) 共用同一套检测，避免任何兼容入口绕过限制。
+// 见 upstream Wei-Shaw/sub2api#3014：此前限制只在 /responses 生效，普通客户端
+// 可通过 /v1/chat/completions 兼容入口继续使用受限账号。
+func (s *OpenAIGatewayService) enforceCodexClientRestriction(ctx context.Context, c *gin.Context, account *Account, body []byte) error {
+	restrictionResult := s.detectCodexClientRestriction(c, account)
+	logCodexCLIOnlyDetection(ctx, c, account, getAPIKeyIDFromContext(c), restrictionResult, body)
+	if restrictionResult.Enabled && !restrictionResult.Matched {
+		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": gin.H{
+				"type":    "forbidden_error",
+				"message": "This account only allows Codex official clients",
+			},
+		})
+		return errCodexClientRestricted
+	}
+	return nil
+}
+
 func getAPIKeyIDFromContext(c *gin.Context) int64 {
 	if c == nil {
 		return 0
@@ -2437,18 +2470,10 @@ func (s *OpenAIGatewayService) handleFailoverSideEffects(ctx context.Context, re
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
 	startTime := time.Now()
 
-	restrictionResult := s.detectCodexClientRestriction(c, account)
-	apiKeyID := getAPIKeyIDFromContext(c)
-	logCodexCLIOnlyDetection(ctx, c, account, apiKeyID, restrictionResult, body)
-	if restrictionResult.Enabled && !restrictionResult.Matched {
-		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": gin.H{
-				"type":    "forbidden_error",
-				"message": "This account only allows Codex official clients",
-			},
-		})
-		return nil, errors.New("codex_cli_only restriction: only codex official clients are allowed")
+	// codex_cli_only 在所有 OpenAI 网关入口共用 enforceCodexClientRestriction 执行
+	// （/responses、/v1/chat/completions、图片 OAuth），避免兼容入口绕过限制。
+	if err := s.enforceCodexClientRestriction(ctx, c, account, body); err != nil {
+		return nil, err
 	}
 
 	originalBody := body

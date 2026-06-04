@@ -1130,6 +1130,12 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 	if err := validateOpenAIImagesModel(requestModel); err != nil {
 		return nil, err
 	}
+	// codex_cli_only 同样覆盖图片 OAuth 入口：受限账号的图片生成/编辑请求也只允许
+	// 官方客户端，避免经 /v1/images/* 绕过 /responses 上的限制。见
+	// upstream Wei-Shaw/sub2api#3014。未开启策略的账号是零成本 no-op。
+	if err := s.enforceCodexClientRestriction(ctx, c, account, nil); err != nil {
+		return nil, err
+	}
 	logger.LegacyPrintf(
 		"service.openai_gateway",
 		"[OpenAI] Images request routing request_model=%s endpoint=%s account_type=%s uploads=%d",
