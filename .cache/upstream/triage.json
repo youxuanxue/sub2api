@@ -4,13 +4,13 @@
   "generated_from": "GitHub REST API issues?state=open; pull requests excluded",
   "rationale": "TokenKey-local triage cache for upstream open issues. Use this file before re-triaging upstream issues; update entries when TokenKey fixes, dismisses, or reclassifies an issue.",
   "counts": {
-    "needs_review": 409,
-    "fixed": 38,
+    "needs_review": 414,
+    "fixed": 39,
     "needs_prod_validation": 2,
     "medium": 123,
     "not_applicable": 1,
     "low": 110,
-    "unknown_low_signal": 462
+    "unknown_low_signal": 466
   },
   "issues": [
     {
@@ -1614,7 +1614,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-02T01:51:43Z"
+      "updated_at": "2026-06-04T13:07:05Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#1956",
@@ -3311,7 +3311,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-03T06:43:51Z"
+      "updated_at": "2026-06-03T13:48:49Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2753",
@@ -3618,7 +3618,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-01T03:00:47Z"
+      "updated_at": "2026-06-04T09:50:01Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2859",
@@ -3780,7 +3780,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-01T07:46:52Z"
+      "updated_at": "2026-06-03T12:47:29Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#293",
@@ -3828,7 +3828,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-02T17:19:46Z"
+      "updated_at": "2026-06-04T02:43:34Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2942",
@@ -3993,18 +3993,6 @@
       "updated_at": "2026-01-19T10:03:26Z"
     },
     {
-      "upstream": "Wei-Shaw/sub2api#2990",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2990",
-      "title": "调度器内存缓存在账户限流恢复后未同步，导致 no available accounts 需要重启才能恢复",
-      "impact": "needs_review",
-      "categories": [
-        "rate_limit_cooldown"
-      ],
-      "tokenkey_status": "candidate_unverified",
-      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-03T05:32:36Z"
-    },
-    {
       "upstream": "Wei-Shaw/sub2api#2991",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/2991",
       "title": "OpenAI Responses encrypted context can fail when routed across upstream accounts",
@@ -4039,7 +4027,7 @@
       ],
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
-      "updated_at": "2026-06-03T08:38:51Z"
+      "updated_at": "2026-06-04T07:36:59Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2996",
@@ -4065,6 +4053,80 @@
       "tokenkey_status": "candidate_unverified",
       "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
       "updated_at": "2026-06-03T08:18:37Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3015",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/3015",
+      "title": "预热下周GPT-5.6 及 6月2日，OAI官方将下线5.2、5.3 codex 希望调整维护 Oauth账号 里的 同步支持最新模型 列表",
+      "impact": "needs_review",
+      "categories": [
+        "image_oauth"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-06-04T06:21:42Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3024",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/3024",
+      "title": "怎么让sub2api返回原始错误",
+      "impact": "needs_review",
+      "categories": [
+        "rate_limit_cooldown"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-06-04T03:26:36Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3030",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/3030",
+      "title": "antigravity账号下，使用claude-opus-4-8映射到claude-opus-4-6-thinking的INVALID_ARGUMENT问题",
+      "impact": "needs_review",
+      "categories": [
+        "claude_mimicry"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-06-04T07:46:47Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3031",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/3031",
+      "title": "antigravity中Oauth的账号，在几小时或者几分钟就自动异常，页面提示401，手动重置又可以继续使用",
+      "impact": "needs_review",
+      "categories": [
+        "image_oauth"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-06-04T18:06:00Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3033",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/3033",
+      "title": "ccmax莫名报mimo限流",
+      "impact": "needs_review",
+      "categories": [
+        "rate_limit_cooldown",
+        "image_oauth"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-06-04T08:57:30Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3038",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/3038",
+      "title": "OpenAI侧频繁返回 invalid_encrypted_content",
+      "impact": "needs_review",
+      "categories": [
+        "rate_limit_cooldown",
+        "image_oauth"
+      ],
+      "tokenkey_status": "candidate_unverified",
+      "rationale": "Keyword match for production-sensitive area; not yet manually verified against TokenKey code.",
+      "updated_at": "2026-06-04T14:49:55Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#308",
@@ -6700,19 +6762,6 @@
       "updated_at": "2026-03-26T08:41:35Z"
     },
     {
-      "upstream": "Wei-Shaw/sub2api#1326",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/1326",
-      "title": "使用容器部署并使用nginx反代，sub2api日志显示请求ip为docker 网桥网关ip",
-      "impact": "fixed",
-      "categories": [
-        "rate_limit_cooldown",
-        "billing_usage"
-      ],
-      "tokenkey_status": "fixed_in_tokenkey",
-      "rationale": "反代/容器部署下真实客户端 IP 失真：server.trusted_proxies 出厂为空 → gin SetTrustedProxies(nil) → c.ClientIP() 退回 docker 网桥 IP（172.x）。修复把“未配置”语义改为默认信任 loopback + 私网网段（可被显式配置或 none/off/disabled 哨兵覆盖），使 c.ClientIP() 在反代后沿 X-Forwarded-For 解析真实客户端、直连公网时忽略伪造 XFF（防伪造）。同时修好按 IP 分桶的认证端点限流（rate_limiter.go）与支付审计 IP。 Fixed by youxuanxue/sub2api (branch: fix/edge-real-client-ip).",
-      "updated_at": "2026-05-25T11:39:52Z"
-    },
-    {
       "upstream": "Wei-Shaw/sub2api#1471",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/1471",
       "title": "OpenAI /v1/responses streaming can emit malformed SSE after stream_read_error",
@@ -7107,6 +7156,33 @@
       "tokenkey_status": "fixed_in_tokenkey",
       "rationale": "Opt-in (default OFF via tk_openai_implicit_throttle_cooldown_seconds) cross-request cooldown: an OpenAI-compat account that returns a failover-worthy 5xx (implicit throttle / header-timeout with no 429) is briefly benched so subsequent requests skip it. The deliberately-unbounded OpenAIResponseHeaderTimeout default is intentionally NOT changed.",
       "updated_at": "2026-05-26T10:36:34Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3014",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/3014",
+      "title": "bug(openai): codex_cli_only 未拦截 /v1/chat/completions 兼容入口",
+      "impact": "fixed",
+      "categories": [
+        "claude_mimicry",
+        "image_oauth",
+        "security"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "codex_cli_only 访问控制绕过：限制此前只在 /v1/responses (Forward) 生效，普通非 Codex 客户端可经 /v1/chat/completions 兼容入口（内部转 Responses 后转发）继续使用受限 OAuth 账号。修复抽出共享 enforceCodexClientRestriction，在所有 OpenAI 网关转发入口统一执行：/responses、/v1/chat/completions、图片 OAuth 路径（forwardOpenAIImagesOAuth）；拒绝返回普通错误而非 *UpstreamFailoverError，确保不会 failover 到另一个账号而再次绕过策略。同时修掉既有脏 403：业务限流类拒绝已写完整响应时，handler 兜底 ensureForwardErrorResponse 不再追加错误帧污染 body。未开启 codex_cli_only 的账号为零成本 no-op。",
+      "updated_at": "2026-06-03T11:47:42Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3025",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/3025",
+      "title": "fix: OAuth/pro 账号 5h Codex 用量百分比显示异常 (疑似 100-raw 反转)",
+      "impact": "fixed",
+      "categories": [
+        "rate_limit_cooldown",
+        "image_oauth"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "OAuth/pro 账号 5h Codex 用量百分比显示异常（100-raw 反转）：上游 x-codex-*-used-percent（5h 与 7d）都直接携带 used%（消耗百分比），此前 b65dde63 误以为是 remaining% 而对 5h 套了 used=100-raw 反算，导致空闲号在 admin 账号卡显示 99%/100%，并误触 is5hExhausted 给 raw=0 账号挂上数小时 429 cooldown。#568 移除反算，5h 与 7d 对称直传 used%；窗口归属由 Normalize() 按 window_minutes 判定，非固定 primary/secondary。已由 scripts/sentinels/gateway-tk.json 钉住，防 merge/重构再加回反算。 Fixed by youxuanxue/sub2api#568.",
+      "updated_at": "2026-06-04T03:37:36Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#580",
@@ -8129,7 +8205,7 @@
       ],
       "tokenkey_status": "not_prioritized",
       "rationale": "Appears to be enhancement/docs/UI request rather than severe online service risk.",
-      "updated_at": "2026-06-01T10:04:03Z"
+      "updated_at": "2026-06-04T00:24:15Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2733",
@@ -8261,7 +8337,7 @@
       ],
       "tokenkey_status": "not_prioritized",
       "rationale": "Appears to be enhancement/docs/UI request rather than severe online service risk.",
-      "updated_at": "2026-06-01T12:49:25Z"
+      "updated_at": "2026-06-03T14:27:11Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2982",
@@ -11298,7 +11374,7 @@
       "categories": [],
       "tokenkey_status": "not_prioritized",
       "rationale": "No high-signal production-risk keywords in this pass.",
-      "updated_at": "2026-05-20T06:29:15Z"
+      "updated_at": "2026-06-04T14:53:11Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2584",
@@ -11511,16 +11587,6 @@
       "updated_at": "2026-05-23T07:02:00Z"
     },
     {
-      "upstream": "Wei-Shaw/sub2api#2719",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2719",
-      "title": "管理员分级权限",
-      "impact": "unknown_low_signal",
-      "categories": [],
-      "tokenkey_status": "not_prioritized",
-      "rationale": "No high-signal production-risk keywords in this pass.",
-      "updated_at": "2026-05-23T08:55:20Z"
-    },
-    {
       "upstream": "Wei-Shaw/sub2api#272",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/272",
       "title": "安装流程 又问题吗？",
@@ -11558,7 +11624,7 @@
       "categories": [],
       "tokenkey_status": "not_prioritized",
       "rationale": "No high-signal production-risk keywords in this pass.",
-      "updated_at": "2026-05-24T09:32:31Z"
+      "updated_at": "2026-06-04T07:05:12Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2745",
@@ -11778,7 +11844,7 @@
       "categories": [],
       "tokenkey_status": "not_prioritized",
       "rationale": "No high-signal production-risk keywords in this pass.",
-      "updated_at": "2026-05-30T04:09:29Z"
+      "updated_at": "2026-06-04T11:57:49Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2878",
@@ -11958,7 +12024,7 @@
       "categories": [],
       "tokenkey_status": "not_prioritized",
       "rationale": "No high-signal production-risk keywords in this pass.",
-      "updated_at": "2026-06-03T09:51:52Z"
+      "updated_at": "2026-06-04T06:18:44Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#3008",
@@ -11978,7 +12044,7 @@
       "categories": [],
       "tokenkey_status": "not_prioritized",
       "rationale": "No high-signal production-risk keywords in this pass.",
-      "updated_at": "2026-06-03T09:58:51Z"
+      "updated_at": "2026-06-03T11:03:59Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#3011",
@@ -11989,6 +12055,56 @@
       "tokenkey_status": "not_prioritized",
       "rationale": "No high-signal production-risk keywords in this pass.",
       "updated_at": "2026-06-03T09:59:41Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3013",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/3013",
+      "title": "[BUG]web端的setup安装引导似乎会有问题",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_prioritized",
+      "rationale": "No high-signal production-risk keywords in this pass.",
+      "updated_at": "2026-06-03T11:45:54Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3019",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/3019",
+      "title": "team 号 json导入，只显示更新，是新增账号！这个怎么解决？哪位大哥告诉下 谢谢",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_prioritized",
+      "rationale": "No high-signal production-risk keywords in this pass.",
+      "updated_at": "2026-06-04T00:53:15Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3021",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/3021",
+      "title": "[BUG] v0.1.133版本，当我移除了用户以后，用户的apikey没有被移除",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_prioritized",
+      "rationale": "No high-signal production-risk keywords in this pass.",
+      "updated_at": "2026-06-04T02:43:48Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3023",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/3023",
+      "title": "team号额度显示错误-剩余和使用额度显示相反",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_prioritized",
+      "rationale": "No high-signal production-risk keywords in this pass.",
+      "updated_at": "2026-06-04T03:23:21Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3029",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/3029",
+      "title": "k8s部署",
+      "impact": "unknown_low_signal",
+      "categories": [],
+      "tokenkey_status": "not_prioritized",
+      "rationale": "No high-signal production-risk keywords in this pass.",
+      "updated_at": "2026-06-04T07:31:36Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#305",
