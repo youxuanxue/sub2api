@@ -2338,7 +2338,7 @@ export default {
         familyMappingTitle: 'Family Default Mapping',
         familyMappingHint: 'Requests that match the Opus, Sonnet, or Haiku families will prefer the target model configured here.',
         opusModel: 'Opus Target Model',
-        opusModelPlaceholder: 'e.g., gpt-5.4',
+        opusModelPlaceholder: 'e.g., gpt-5.5',
         sonnetModel: 'Sonnet Target Model',
         sonnetModelPlaceholder: 'e.g., gpt-5.3-codex',
         haikuModel: 'Haiku Target Model',

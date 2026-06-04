@@ -4244,6 +4244,7 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.allow_messages_dispatch =
     group.allow_messages_dispatch ||
     messagesDispatchFormState.allow_messages_dispatch;
+  editForm.default_mapped_model = group.default_mapped_model || "";
   editForm.opus_mapped_model = messagesDispatchFormState.opus_mapped_model;
   editForm.sonnet_mapped_model = messagesDispatchFormState.sonnet_mapped_model;
   editForm.haiku_mapped_model = messagesDispatchFormState.haiku_mapped_model;

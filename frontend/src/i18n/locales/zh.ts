@@ -2421,7 +2421,7 @@ export default {
         familyMappingTitle: '系列默认映射',
         familyMappingHint: '当请求命中 Opus、Sonnet、Haiku 系列时，会优先使用这里配置的目标模型。',
         opusModel: 'Opus 映射模型',
-        opusModelPlaceholder: '例如: gpt-5.4',
+        opusModelPlaceholder: '例如: gpt-5.5',
         sonnetModel: 'Sonnet 映射模型',
         sonnetModelPlaceholder: '例如: gpt-5.3-codex',
         haikuModel: 'Haiku 映射模型',

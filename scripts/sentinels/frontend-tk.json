@@ -468,6 +468,20 @@
         "capacity.today.tooltip"
       ],
       "rationale": "TK adds a today-usage badge (tokens·$cost) for ALL account types in the capacity column (admin accounts page + edge accounts page). The `todayStats` prop and the `admin.accounts.capacity.today.tooltip` i18n key are the TK-only contract; an upstream merge that rewrites this capacity cell could silently drop the today-usage badge — it would compile fine, just lose the feature (and the deliberate 0-value grey-out that surfaces anomalies like kiro's current 0-billing). Sentinel guards that the badge survives upstream convergence."
+    },
+    {
+      "path": "frontend/src/views/admin/GroupsView.vue",
+      "must_contain": [
+        "editForm.default_mapped_model = group.default_mapped_model || \"\";"
+      ],
+      "rationale": "Group edit modal must populate default_mapped_model from the loaded group before save. The update payload spreads editForm (payload = {...editForm}), and the backend UpdateGroupRequest field is *string, so an unpopulated '' is an explicit clear: dropping this line silently wipes a configured group-level claude fallback (consumed by /v1/chat/completions via resolveOpenAIForwardDefaultMappedModel) on ANY unrelated group edit. Anchors the regression fixed in PR #566 R-001."
+    },
+    {
+      "path": "frontend/src/views/admin/groupsMessagesDispatch.ts",
+      "must_contain": [
+        "opus_mapped_model: \"gpt-5.5\","
+      ],
+      "rationale": "Frontend mirror of the Go code-default opus family mapping (backend/internal/service/openai_messages_dispatch.go defaultOpenAIMessagesDispatchOpusMappedModel = gpt-5.5). The admin form prefills this value when group config is empty; if the two copies drift the UI shows a default the gateway will not apply. Keep both sides in lockstep."
     }
   ]
 }

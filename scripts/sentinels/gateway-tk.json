@@ -1685,6 +1685,20 @@
         "Do NOT reintroduce a 100-raw inversion"
       ],
       "rationale": "Codex 5h/7d usage-window used-percent must stay a straight passthrough of the upstream x-codex-*-used-percent headers (consumed%), NOT inverted. Commit b65dde63 (2026-05-31) wrapped 5h in normalizeCodexFiveHourUsedPercent (used=100-raw) on the wrong assumption the header was remaining%; that rendered idle accounts as 99%/100% on the admin account card AND tripped is5hExhausted (ratelimit_service.go) for raw=0 accounts, applying a bogus multi-hour 429 cooldown. Disproved by prod capture 2026-06-04 (i-0e4a90677f0450277): GPT-pro1 5h window=300min raw used=1, GPT-pro2 used=0, both barely used; plus the physical constraint that the 5h window is a sub-interval of 7d. Anchor the two passthrough assignments plus the do-not-reintroduce warning so a future upstream merge or refactor cannot silently re-add the inversion. Regression test: TestNormalize_ProdLayoutUsedPercentPassthrough."
+    },
+    {
+      "path": "backend/internal/handler/openai_chat_completions.go",
+      "must_contain": [
+        "promptCacheKey, resolveOpenAIMessagesDispatchMappedModel(apiKey, reqModel))"
+      ],
+      "rationale": "/v1/chat/completions must pass the messages-dispatch claude fallback (exact overrides > group family overrides > code-default family constants via Group.ResolveMessagesDispatchModel) into ForwardAsChatCompletionsDispatched instead of a hardcoded empty string. The fallback only fires for claude-family model names when account-level model_mapping misses (service resolveOpenAIForwardModel), so dropping this one-line hook compiles clean but silently regresses claude-named requests on openai groups back to verbatim upstream forwarding (ChatGPT/Codex 400). The anchor includes the surrounding args because the same helper name also appears legitimately on the /v1/messages dispatch path."
+    },
+    {
+      "path": "backend/internal/service/openai_messages_dispatch.go",
+      "must_contain": [
+        "defaultOpenAIMessagesDispatchOpusMappedModel   = \"gpt-5.5\""
+      ],
+      "rationale": "Code-default opus family mapping must stay gpt-5.5 (TK override of the upstream gpt-5.4 default; gpt-5.4 returned upstream 404 model_not_found on Codex OAuth accounts). This default is the zero-config fleet-wide fallback for claude-named requests on BOTH /v1/messages dispatch and /v1/chat/completions; an upstream merge restoring gpt-5.4 compiles clean but silently re-breaks opus traffic. Frontend mirror: frontend/src/views/admin/groupsMessagesDispatch.ts."
     }
   ]
 }
