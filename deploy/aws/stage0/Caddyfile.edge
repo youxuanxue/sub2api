@@ -15,14 +15,14 @@
 		flush_interval -1
 		# 健康检查策略同 prod Caddyfile：active 走 /health（drain-aware），
 		# SIGUSR1 → /health=503 让 Caddy active 立刻把 upstream 摘除；docker
-		# healthcheck 用 /health/live 避免 drain → docker restart；passive 5xx
-		# + lb_try_duration 覆盖 stop→start 真空期。
+		# healthcheck 用 /health/live 避免 drain → docker restart；passive 只认
+		# 502/504（故意不含 503——理由详见 prod Caddyfile）覆盖真空期。
 		health_uri /health
 		health_interval 5s
 		health_timeout 3s
 		fail_duration 5s
 		max_fails 1
-		unhealthy_status 502 503 504
+		unhealthy_status 502 504
 		lb_try_duration 30s
 		lb_try_interval 1s
 		header_up X-Real-IP {remote_host}
