@@ -159,7 +159,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 	}
 
 	if err := kiroproto.CallKiroAPIWithDoer(doer, kiroAcct, payload, callback); err != nil {
-		return nil, fmt.Errorf("kiro upstream call failed: %w", err)
+		return nil, classifyKiroForwardError(err, model)
 	}
 	if callbackErr != nil {
 		return nil, fmt.Errorf("kiro stream error: %w", callbackErr)
@@ -242,7 +242,11 @@ func (s *KiroGatewayService) forwardStreaming(
 		}
 	}
 
-	enc.writeMessageStart()
+	// message_start is emitted lazily on first content (see kiroSSEEncoder
+	// ensureBlock / writeToolUse). Emitting it eagerly here would set
+	// enc.started=true before the upstream call, defeating the post-call
+	// `!enc.started` guard and turning an upstream 400 (e.g. INVALID_MODEL_ID)
+	// into a clean empty 200 stream that the handler never sees as an error.
 
 	callback := &kiroproto.KiroStreamCallback{
 		OnText: func(text string, isThinking bool) {
@@ -283,15 +287,21 @@ func (s *KiroGatewayService) forwardStreaming(
 
 	// If the upstream failed before producing any content, surface the error so
 	// the handler can decide on failover instead of emitting a half-finished
-	// SSE stream. (Once content has begun we close out the stream cleanly.)
+	// SSE stream. (Once content has begun — enc.started — we close out the
+	// stream cleanly because the client has already received a 200 + bytes.)
+	// classifyKiroForwardError maps a recognized HTTP 400 INVALID_MODEL_ID into
+	// a typed *KiroInvalidModelError so the handler can return a clean 400.
 	if callErr != nil && !enc.started {
-		return nil, fmt.Errorf("kiro upstream call failed: %w", callErr)
+		return nil, classifyKiroForwardError(callErr, model)
 	}
 
 	// Estimate token usage (Kiro upstream returns credits only — see estimate.go).
 	inputTokens := kiroproto.EstimateInputTokens(req)
 	outputToks := kiroproto.EstimateOutputTokens(textBuf, thinkingBuf, toolUses)
 
+	// Upstream succeeded but produced no content (enc.started still false):
+	// emit message_start lazily here so the closing events form a valid stream.
+	enc.writeMessageStart()
 	enc.closeOpenBlock()
 	enc.writeMessageDelta(outputToks)
 	enc.writeMessageStop()
