@@ -1103,22 +1103,6 @@
             {{ t("admin.groups.openaiMessages.allowDispatchHint") }}
           </p>
 
-          <div class="mt-3">
-            <label class="input-label">{{
-              t("admin.groups.openaiMessages.defaultMappedModel")
-            }}</label>
-            <input
-              v-model.trim="createForm.default_mapped_model"
-              type="text"
-              class="input"
-              :placeholder="
-                t('admin.groups.openaiMessages.defaultMappedModelPlaceholder')
-              "
-            />
-            <p class="input-hint">
-              {{ t("admin.groups.openaiMessages.defaultMappedModelHint") }}
-            </p>
-          </div>
 
           <div class="mt-4 rounded-xl border border-gray-200 p-4 dark:border-dark-600">
             <div class="flex items-center justify-between">
@@ -2474,23 +2458,6 @@
             {{ t("admin.groups.openaiMessages.allowDispatchHint") }}
           </p>
 
-          <div class="mt-3">
-            <label class="input-label">{{
-              t("admin.groups.openaiMessages.defaultMappedModel")
-            }}</label>
-            <input
-              v-model.trim="editForm.default_mapped_model"
-              type="text"
-              class="input"
-              :placeholder="
-                t('admin.groups.openaiMessages.defaultMappedModelPlaceholder')
-              "
-            />
-            <p class="input-hint">
-              {{ t("admin.groups.openaiMessages.defaultMappedModelHint") }}
-            </p>
-          </div>
-
           <div class="mt-4 rounded-xl border border-gray-200 p-4 dark:border-dark-600">
             <div class="flex items-center justify-between">
               <div>
@@ -3526,7 +3493,6 @@ const createForm = reactive({
   fallback_group_id_on_invalid_request: null as number | null,
   // OpenAI Messages 调度配置（仅 openai 平台使用）
   allow_messages_dispatch: false,
-  default_mapped_model: '',
   opus_mapped_model: createMessagesDispatchDefaults.opus_mapped_model,
   sonnet_mapped_model: createMessagesDispatchDefaults.sonnet_mapped_model,
   haiku_mapped_model: createMessagesDispatchDefaults.haiku_mapped_model,

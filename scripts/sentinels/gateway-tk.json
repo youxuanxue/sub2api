@@ -1689,9 +1689,16 @@
     {
       "path": "backend/internal/handler/openai_chat_completions.go",
       "must_contain": [
-        "resolveOpenAIForwardDefaultMappedModel(apiKey, \"\")"
+        "promptCacheKey, resolveOpenAIMessagesDispatchMappedModel(apiKey, reqModel))"
       ],
-      "rationale": "/v1/chat/completions must pass the group-level default_mapped_model into ForwardAsChatCompletionsDispatched instead of a hardcoded empty string. The fallback only fires for claude-family model names when account-level model_mapping misses (service resolveOpenAIForwardModel), so dropping this one-line hook compiles clean but silently regresses claude-named requests on openai groups back to verbatim upstream forwarding (ChatGPT/Codex 400). Companion helper lives in openai_gateway_tk_default_mapped_model.go."
+      "rationale": "/v1/chat/completions must pass the messages-dispatch claude fallback (exact overrides > group family overrides > code-default family constants via Group.ResolveMessagesDispatchModel) into ForwardAsChatCompletionsDispatched instead of a hardcoded empty string. The fallback only fires for claude-family model names when account-level model_mapping misses (service resolveOpenAIForwardModel), so dropping this one-line hook compiles clean but silently regresses claude-named requests on openai groups back to verbatim upstream forwarding (ChatGPT/Codex 400). The anchor includes the surrounding args because the same helper name also appears legitimately on the /v1/messages dispatch path."
+    },
+    {
+      "path": "backend/internal/service/openai_messages_dispatch.go",
+      "must_contain": [
+        "defaultOpenAIMessagesDispatchOpusMappedModel   = \"gpt-5.5\""
+      ],
+      "rationale": "Code-default opus family mapping must stay gpt-5.5 (TK override of the upstream gpt-5.4 default; gpt-5.4 returned upstream 404 model_not_found on Codex OAuth accounts). This default is the zero-config fleet-wide fallback for claude-named requests on BOTH /v1/messages dispatch and /v1/chat/completions; an upstream merge restoring gpt-5.4 compiles clean but silently re-breaks opus traffic. Frontend mirror: frontend/src/views/admin/groupsMessagesDispatch.ts."
     }
   ]
 }

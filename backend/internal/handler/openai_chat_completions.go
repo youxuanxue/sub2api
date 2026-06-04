@@ -193,7 +193,10 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.ForwardAsChatCompletionsDispatched(c.Request.Context(), c, account, forwardBody, promptCacheKey, resolveOpenAIForwardDefaultMappedModel(apiKey, ""))
+			// TK: claude 系模型名落到 openai 组且账号级映射未命中时，复用
+			// /v1/messages dispatch 的解析链（精确覆盖 > 组级家族覆写 > 代码
+			// 常量默认）作为兜底，代码默认值全网生效、无需节点配置。
+			return h.gatewayService.ForwardAsChatCompletionsDispatched(c.Request.Context(), c, account, forwardBody, promptCacheKey, resolveOpenAIMessagesDispatchMappedModel(apiKey, reqModel))
 		}()
 
 		forwardDurationMs := time.Since(forwardStart).Milliseconds()
