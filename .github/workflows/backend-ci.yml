@@ -313,10 +313,9 @@ jobs:
         run: |
           for arch in amd64 arm64; do
             echo "::group::go build linux/${arch}"
-            GOARCH="${arch}" go build ./cmd/server
+            GOARCH="${arch}" go build -o /dev/null ./cmd/server
             echo "::endgroup::"
           done
-          rm -f sub2api
 
   compile-smoke:
     if: (github.event_name == 'schedule' && github.event.schedule == '17 9 * * TUE') || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'weekly-smoke'))
