@@ -152,23 +152,28 @@ jobs:
           # lets the rolling cache below own GOCACHE + GOMODCACHE.
           cache: false
 
-      # Rolling Go cache for the cross-arch (amd64+arm64) GoReleaser compile.
-      # A run_id-unique SAVE key means the cache is ALWAYS re-saved at post-job;
-      # the restore-keys fall back to the most recent warm snapshot — which
-      # already holds BOTH arches' object files from the previous release — so a
-      # typical release only recompiles changed packages + relinks, instead of
-      # rebuilding arm64 from scratch. Go's cache is content-addressed, so a
+      # RESTORE-ONLY cross-arch (amd64+arm64) Go build cache.
+      #
+      # Release runs on a tag ref (`refs/tags/vX.Y.Z`). GitHub Actions scopes
+      # cache restore to the current ref + the DEFAULT BRANCH only, so a cache
+      # SAVED here (on the tag ref) is invisible to the next tag's release — the
+      # old `actions/cache@v4` save was pure dead weight (every release logged
+      # `Cache not found` and cold-compiled arm64 from scratch, ~4m). The warm
+      # cache is now produced by the `warm-release-cache` job in backend-ci.yml
+      # on push to `main` (the default branch), which IS readable from tag runs.
+      #
+      # `actions/cache/restore` (no post-job save) consumes that main-warmed
+      # entry via the shared `Linux-go-release-` key prefix and stops generating
+      # dead tag-scoped caches. Go's cache is content-addressed, so a slightly
       # stale entry (e.g. after a .new-api-ref bump) is simply unused, never
-      # wrong. First run after this change is a one-time cold build; budget note:
-      # each release writes a fresh ~1-2GB entry under the 10GB repo cache limit,
-      # GHA LRU-evicts the oldest, the freshest (what we need) always survives.
-      - name: Rolling Go build cache (amd64 + arm64 cross-compile)
-        uses: actions/cache@v4
+      # wrong — release recompiles only changed packages + relinks.
+      - name: Restore cross-arch Go build cache (warmed on main)
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: ${{ runner.os }}-go-release-${{ hashFiles('backend/go.sum') }}-${{ github.run_id }}
+          key: ${{ runner.os }}-go-release-${{ hashFiles('backend/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-release-${{ hashFiles('backend/go.sum') }}-
             ${{ runner.os }}-go-release-
