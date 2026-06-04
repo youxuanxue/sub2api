@@ -1881,6 +1881,14 @@ func (h *OpenAIGatewayHandler) ensureForwardErrorResponse(c *gin.Context, stream
 	if c == nil || c.Writer == nil {
 		return false
 	}
+	// 客户端业务限流类拒绝（codex_cli_only / IP 限制 / feature gate 等）在 service 层
+	// 已写出一个完整的客户端响应（如 403 JSON）。此处若再补写错误帧，会把已提交的
+	// 响应体污染成 `{"error":...}event: response.failed...` 这种畸形内容
+	// （gin 不阻止 commit 之后的写入）。这类拒绝不依赖兜底补写，直接跳过。
+	// 见 upstream Wei-Shaw/sub2api#3014。
+	if service.HasOpsClientBusinessLimited(c) {
+		return false
+	}
 	// 旧实现在 Writer.Written 时直接 return false，导致 ping 已 flush 之后的
 	// 上游错误（http2 timeout、连接中断等）完全无法把错误传给客户端——
 	// HTTP 200 已锁死，TCP 直接 EOF，Codex CLI 报 "stream closed before response.completed"。

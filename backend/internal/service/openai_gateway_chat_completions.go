@@ -64,6 +64,14 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	promptCacheKey string,
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
+	// codex_cli_only 必须在入口处执行，且要早于任何上游转发分支——否则普通客户端
+	// 可经 /v1/chat/completions 兼容入口（内部转 Responses 后转发）绕过只在
+	// /responses 生效的限制。见 upstream Wei-Shaw/sub2api#3014。
+	// 对未开启该策略的账号（含 APIKey 账号）是零成本 no-op。
+	if err := s.enforceCodexClientRestriction(ctx, c, account, body); err != nil {
+		return nil, err
+	}
+
 	// 入口分流：APIKey 账号 + 强制或已探测确认上游不支持 Responses，走 CC 直转。
 	// 自动模式下标记缺失（未探测）按"现状即证据"原则继续走下方原 Responses 转换路径。
 	if account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra) {

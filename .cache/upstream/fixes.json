@@ -596,6 +596,30 @@
         "backend/internal/pkg/claude/constants.go"
       ],
       "summary": "设计性差异非缺陷：Haiku OAuth mimic 刻意用独立 beta 集 FullClaudeCodeHaikuMimicryBetas（cc 2.1.160 structured-outputs 抓包，OMITS claude-code beta + advanced-tool-use，加 structured-outputs），运行时可经 claude_code_http_mimicry_manifest 热改。修正 gateway_service.go 误导注释（原称 Haiku 'includes claude-code beta'/'cc 2.1.152' 与实际 token 集矛盾）。无行为变更；如未来抓包确认 Haiku 真带 claude-code beta，改常量或下发 manifest。"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3014",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service.go",
+        "backend/internal/service/openai_gateway_chat_completions.go",
+        "backend/internal/service/openai_images_responses.go",
+        "backend/internal/handler/openai_gateway_handler.go",
+        "backend/internal/service/openai_gateway_service_codex_cli_only_test.go",
+        "backend/internal/handler/openai_gateway_handler_test.go"
+      ],
+      "summary": "codex_cli_only 访问控制绕过：限制此前只在 /v1/responses (Forward) 生效，普通非 Codex 客户端可经 /v1/chat/completions 兼容入口（内部转 Responses 后转发）继续使用受限 OAuth 账号。修复抽出共享 enforceCodexClientRestriction，在所有 OpenAI 网关转发入口统一执行：/responses、/v1/chat/completions、图片 OAuth 路径（forwardOpenAIImagesOAuth）；拒绝返回普通错误而非 *UpstreamFailoverError，确保不会 failover 到另一个账号而再次绕过策略。同时修掉既有脏 403：业务限流类拒绝已写完整响应时，handler 兜底 ensureForwardErrorResponse 不再追加错误帧污染 body。未开启 codex_cli_only 的账号为零成本 no-op。"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3025",
+      "tokenkey_pr": "youxuanxue/sub2api#568",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service.go",
+        "backend/internal/service/openai_gateway_service_codex_snapshot_test.go",
+        "scripts/sentinels/gateway-tk.json"
+      ],
+      "summary": "OAuth/pro 账号 5h Codex 用量百分比显示异常（100-raw 反转）：上游 x-codex-*-used-percent（5h 与 7d）都直接携带 used%（消耗百分比），此前 b65dde63 误以为是 remaining% 而对 5h 套了 used=100-raw 反算，导致空闲号在 admin 账号卡显示 99%/100%，并误触 is5hExhausted 给 raw=0 账号挂上数小时 429 cooldown。#568 移除反算，5h 与 7d 对称直传 used%；窗口归属由 Normalize() 按 window_minutes 判定，非固定 primary/secondary。已由 scripts/sentinels/gateway-tk.json 钉住，防 merge/重构再加回反算。"
     }
   ]
 }
