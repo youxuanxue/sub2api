@@ -1728,6 +1728,15 @@
         "if service.HasOpsClientBusinessLimited(c) {"
       ],
       "rationale": "ensureForwardErrorResponse must short-circuit when a client-business-limited rejection (codex_cli_only / IP restriction / feature gate) already wrote a complete client-facing response. Without this guard the fallback appends another error frame and corrupts the committed body into `{\"error\":...}event: response.failed...` (gin does not block writes after commit). Introduced with the upstream Wei-Shaw/sub2api#3014 fix; removing it brings back the dirty-403 body."
+    },
+    {
+      "path": "backend/internal/handler/no_available_accounts_tk.go",
+      "must_contain": [
+        "func tkNoAvailableAccounts",
+        "http.StatusTooManyRequests",
+        "Retry-After"
+      ],
+      "rationale": "Empty-pool fast-fail returns 429+Retry-After (not 503) so Caddy passive-health on the single Stage0 upstream does not conflate an empty scheduling pool with a backend outage and stall all traffic incl. the dashboard. An upstream merge re-introducing 503 at the account-select call sites regresses the prod flood-containment fix (PR #572 / IP 58.213.121.60 1540 RPM incident)."
     }
   ]
 }
