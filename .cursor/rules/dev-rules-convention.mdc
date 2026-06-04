@@ -25,6 +25,7 @@ alwaysApply: true
 ~/.claude/commands/   → dev-rules/commands/
 ~/.claude/CLAUDE.md   → dev-rules/global/CLAUDE.md
 ~/.claude/skills      → ~/.cursor/skills
+~/.local/bin/<name>   → dev-rules/global/bin/<name>（CLI launcher；secret 留本机 ~/.claude/*.json 不入库）
 ~/.codex/AGENTS.md    → dev-rules/global/CLAUDE.md（Codex 与 Claude 同一宪法）
 ~/.codex/skills/<name>→ ~/.cursor/skills/<name>（逐个叠加，不动 Codex 自带 .system/default.rules）
 ```
