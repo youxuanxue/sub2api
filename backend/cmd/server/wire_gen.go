@@ -295,7 +295,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	opsScheduledReportService := service.ProvideOpsScheduledReportService(opsService, userService, emailService, redisClient, configConfig)
 	rateLimitExpiryRepository := repository.NewRateLimitExpiryRepository(db)
 	schedulerRateLimitReaper := service.ProvideSchedulerRateLimitReaper(rateLimitExpiryRepository, configConfig)
-	anthropicConfigReconciler := service.ProvideAnthropicConfigReconciler(accountRepository, userRepository, adminService, tierService, configConfig, redisClient)
+	anthropicConfigReconciler := service.ProvideAnthropicConfigReconciler(accountRepository, userRepository, adminService, tierService, accountTierService, tlsFingerprintProfileService, settingService, configConfig, redisClient)
 	tokenRefreshService := service.ProvideTokenRefreshService(accountRepository, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, compositeTokenCacheInvalidator, schedulerCache, configConfig, tempUnschedCache, privacyClientFactory, proxyRepository, oAuthRefreshAPI, openAIGatewayService)
 	accountExpiryService := service.ProvideAccountExpiryService(accountRepository)
 	subscriptionExpiryService := service.ProvideSubscriptionExpiryService(userSubscriptionRepository, settingRepository, notificationEmailService)

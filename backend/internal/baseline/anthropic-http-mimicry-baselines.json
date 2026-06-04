@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "cc_version": "2.1.162",
+  "description": "Canonical OAuth HTTP mimicry betas for Claude Code CLI. Live wire values are driven at runtime by settings.claude_code_http_mimicry_manifest (sync-runtime / plan-http-mimicry-sync). Compile-time defaults in backend/internal/pkg/claude/constants.go catch up on the release train.",
+  "sonnet_opus": [
+    "claude-code-20250219",
+    "oauth-2025-04-20",
+    "interleaved-thinking-2025-05-14",
+    "thinking-token-count-2026-05-13",
+    "context-management-2025-06-27",
+    "prompt-caching-scope-2026-01-05",
+    "advisor-tool-2026-03-01",
+    "advanced-tool-use-2025-11-20",
+    "extended-cache-ttl-2025-04-11",
+    "cache-diagnosis-2026-04-07"
+  ],
+  "haiku": [
+    "oauth-2025-04-20",
+    "interleaved-thinking-2025-05-14",
+    "thinking-token-count-2026-05-13",
+    "context-management-2025-06-27",
+    "prompt-caching-scope-2026-01-05",
+    "advisor-tool-2026-03-01",
+    "structured-outputs-2025-12-15",
+    "cache-diagnosis-2026-04-07"
+  ]
+}

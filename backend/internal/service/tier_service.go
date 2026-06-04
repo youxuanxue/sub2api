@@ -189,6 +189,16 @@ func (s *TierService) ResolveConcurrency(tierID int64) (int, bool) {
 	return t.Concurrency, true
 }
 
+// ResolveName 返回 tier id 对应的名字（如 "l4"），未知 id 返回 false。
+// reconciler 的账号 baseline 自愈用它把 tier_id 反解成名字再 ApplyTier（按名重应用）。
+func (s *TierService) ResolveName(tierID int64) (string, bool) {
+	t := s.lookupByID(tierID)
+	if t == nil {
+		return "", false
+	}
+	return t.Name, true
+}
+
 func (s *TierService) lookupByID(id int64) *model.Tier {
 	s.localMu.RLock()
 	t := s.byID[id]

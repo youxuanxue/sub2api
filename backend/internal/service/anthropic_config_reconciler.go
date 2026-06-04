@@ -9,9 +9,17 @@ package service
 //   - It ONLY ever writes THIS deployment's own database. It never pretends to
 //     cover the fleet — fleet fan-out stays with the Python pipeline.
 //   - Safe items are self-healed (operator Σ, stub pool_mode, edge balance floor,
-//     surface-C concurrency mirror). A single account's tier field drift is
-//     REPORTED ONLY (slog.Warn) — never silently rewritten, because tier is set
-//     explicitly via the admin UI ApplyTier action.
+//     surface-C concurrency mirror). A single account's tier NUMERIC field drift
+//     (base_rpm / max_sessions / window — overlaid at runtime from the tiers
+//     table) is REPORTED ONLY (slog.Warn) — never silently rewritten, because the
+//     tier NUMBER is set explicitly via the admin UI ApplyTier action.
+//   - shared_baseline INFRASTRUCTURE, by contrast, IS self-healed (Step baseline):
+//     the canonical TLS profile's existence + the account's binding to it, the
+//     credentials self-protection template, and the (post-#551 uniform) priority.
+//     These are tier-independent and were the root cause of silent built-in-default
+//     TLS fallback when an account was created without the profile row present.
+//     Self-heal re-runs the SAME complete write path (ApplyTier), so any creation
+//     path (admin UI, bare SQL) converges.
 //   - surface C (concurrency mirror) NEVER writes 0 on a failed/timed-out/5xx
 //     edge read — it skips the stub and leaves the prior value intact.
 
@@ -29,6 +37,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/baseline"
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/model"
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -85,24 +94,52 @@ type httpDoer interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
-// reconcilerTierResolver resolves a tier's desired concurrency (Step T value-sync).
-// *TierService satisfies it; nil-safe (Step T no-ops when absent).
+// reconcilerTierResolver resolves a tier's desired concurrency (Step T value-sync)
+// and its name (Step baseline self-heal, which re-applies the tier by name).
+// *TierService satisfies it; nil-safe (steps no-op when absent).
 type reconcilerTierResolver interface {
 	ResolveConcurrency(tierID int64) (int, bool)
+	ResolveName(tierID int64) (string, bool)
+}
+
+// reconcilerTierApplier re-applies a tier onto an account — the single complete
+// "materialize shared_baseline" write path (TLS profile ensure+bind, credentials
+// template, extra flags, priority, concurrency). *AccountTierService satisfies it.
+// nil-safe (Step baseline no-ops when absent).
+type reconcilerTierApplier interface {
+	ApplyTier(ctx context.Context, accountID int64, tier string) (*Account, error)
+}
+
+// reconcilerTLSProfileResolver reads a TLS profile by id so the baseline drift
+// check can detect a DANGLING binding (id set but the row was deleted / renamed).
+// *TLSFingerprintProfileService satisfies it. nil → that sub-check is skipped.
+type reconcilerTLSProfileResolver interface {
+	GetByID(ctx context.Context, id int64) (*model.TLSFingerprintProfile, error)
+}
+
+// reconcilerMimicrySettings self-heals the deployment-level Claude Code UA +
+// mimicry manifest settings toward the embedded baseline (the in-process
+// equivalent of ops `sync-runtime`). *SettingService satisfies it. nil → Step UA
+// no-ops.
+type reconcilerMimicrySettings interface {
+	EnsureClaudeCodeMimicryBaseline(ctx context.Context) (bool, error)
 }
 
 // AnthropicConfigReconciler runs a single ticker that, each tick, acquires a
 // redis leader lock (best-effort; degrades to lockless on no redis) and runs the
 // safe-item self-heal + tier-drift report against the local DB.
 type AnthropicConfigReconciler struct {
-	accounts   reconcilerAccountStore
-	users      reconcilerUserStore
-	balance    reconcilerBalanceSetter
-	tiers      reconcilerTierResolver
-	cfg        *config.Config
-	redis      *redis.Client
-	http       httpDoer
-	instanceID string
+	accounts    reconcilerAccountStore
+	users       reconcilerUserStore
+	balance     reconcilerBalanceSetter
+	tiers       reconcilerTierResolver
+	tierApplier reconcilerTierApplier
+	tlsProfiles reconcilerTLSProfileResolver
+	mimicry     reconcilerMimicrySettings
+	cfg         *config.Config
+	redis       *redis.Client
+	http        httpDoer
+	instanceID  string
 
 	stopCh   chan struct{}
 	stopOnce sync.Once
@@ -114,24 +151,32 @@ type AnthropicConfigReconciler struct {
 
 // NewAnthropicConfigReconciler constructs the reconciler. A nil accounts/users
 // store produces a no-op on Start, keeping wire wiring safe for minimal test deps.
+// tierApplier/tlsProfiles may be nil — the baseline self-heal step degrades to a
+// no-op (applier absent) or skips the dangling-binding sub-check (resolver absent).
 func NewAnthropicConfigReconciler(
 	accounts reconcilerAccountStore,
 	users reconcilerUserStore,
 	balance reconcilerBalanceSetter,
 	tiers reconcilerTierResolver,
+	tierApplier reconcilerTierApplier,
+	tlsProfiles reconcilerTLSProfileResolver,
+	mimicry reconcilerMimicrySettings,
 	cfg *config.Config,
 	redisClient *redis.Client,
 ) *AnthropicConfigReconciler {
 	return &AnthropicConfigReconciler{
-		accounts:   accounts,
-		users:      users,
-		balance:    balance,
-		tiers:      tiers,
-		cfg:        cfg,
-		redis:      redisClient,
-		http:       &http.Client{Timeout: anthropicReconcilerHTTPTO},
-		instanceID: uuid.NewString(),
-		stopCh:     make(chan struct{}),
+		accounts:    accounts,
+		users:       users,
+		balance:     balance,
+		tiers:       tiers,
+		tierApplier: tierApplier,
+		tlsProfiles: tlsProfiles,
+		mimicry:     mimicry,
+		cfg:         cfg,
+		redis:       redisClient,
+		http:        &http.Client{Timeout: anthropicReconcilerHTTPTO},
+		instanceID:  uuid.NewString(),
+		stopCh:      make(chan struct{}),
 	}
 }
 
@@ -249,6 +294,13 @@ func (r *AnthropicConfigReconciler) runOnce(ctx context.Context) {
 	// Step A so the operator Σ reflects any concurrency it just re-asserted.
 	r.reconcileTierConcurrency(ctx, accounts)
 
+	// Step baseline: self-heal shared_baseline INFRASTRUCTURE (canonical TLS
+	// profile existence + binding, credentials self-protection template, uniform
+	// priority) for tier-bound anthropic OAuth/setup-token accounts by re-running
+	// ApplyTier when drifted. Idempotent; the single complete write path. This is
+	// what makes "operator just sets the tier" yield a fully-configured account.
+	r.reconcileAccountBaselineDrift(ctx, accounts)
+
 	// Step C: surface-C concurrency mirror (prod). Runs before the operator Σ
 	// sync so the Σ reflects any concurrency it just wrote.
 	if r.cfg != nil && r.cfg.Gateway.Scheduling.AnthropicConfigReconcilerConcurrencyMirrorEnabled {
@@ -271,6 +323,25 @@ func (r *AnthropicConfigReconciler) runOnce(ctx context.Context) {
 	// own kiro account list (the list above is anthropic-only). Kiro-scoped; does
 	// not touch anthropic priority (owned by the window-rebalance pipeline).
 	r.reconcileKiroPriorityBaseline(ctx)
+
+	// Step UA: self-heal the deployment-level Claude Code UA + mimicry manifest
+	// settings toward the embedded baseline (in-process `sync-runtime`). Runs once
+	// per tick (deployment-scoped, not per-account) so a fresh node auto-acquires
+	// the canonical UA without an operator round-trip.
+	r.reconcileClaudeCodeMimicry(ctx)
+}
+
+// reconcileClaudeCodeMimicry self-heals the Claude Code UA / mimicry settings.
+// nil-safe (no-op when the SettingService dep is absent).
+func (r *AnthropicConfigReconciler) reconcileClaudeCodeMimicry(ctx context.Context) {
+	if r == nil || r.mimicry == nil {
+		return
+	}
+	if changed, err := r.mimicry.EnsureClaudeCodeMimicryBaseline(ctx); err != nil {
+		slog.Warn("anthropic config reconciler: claude code mimicry self-heal failed", "err", err)
+	} else if changed {
+		slog.Info("anthropic config reconciler: claude code mimicry settings self-healed (local deployment only)")
+	}
 }
 
 // reconcileTierConcurrency value-syncs each tier-bound anthropic OAUTH account's
