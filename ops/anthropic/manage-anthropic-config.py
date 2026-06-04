@@ -3453,6 +3453,8 @@ def iter_self_check_sql() -> list[tuple[str, str]]:
         ("OPERATOR_CONCURRENCY_SQL", OPERATOR_CONCURRENCY_SQL),
         ("OPERATOR_BALANCE_SQL", OPERATOR_BALANCE_SQL),
         ("SETTINGS_UA_SQL", SETTINGS_UA_SQL),
+        ("EDGE_CAPTURE_BUNDLE_SQL", EDGE_CAPTURE_BUNDLE_SQL),
+        ("PROD_CAPTURE_BUNDLE_SQL", PROD_CAPTURE_BUNDLE_SQL),
         ("render_edge_operator_balance_sql", render_edge_operator_balance_sql(123.45)),
         ("render_anthropic_group_claude_code_sql", render_anthropic_group_claude_code_sql(True)),
         ("render_admin_operator_concurrency_sync_sql", render_admin_operator_concurrency_sync_sql()),

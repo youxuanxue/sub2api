@@ -877,6 +877,7 @@ def iter_self_check_sql() -> list[tuple[str, str]]:
     return [
         ("build_account_names_query", build_account_names_query()),
         ("build_live_query", build_live_query(nasty)),
+        ("build_all_oauth_guard_live_batch_query", build_all_oauth_guard_live_batch_query()),
         ("generate_sql", generate_sql({"edge_id": "us1"}, nasty, effective)),
     ]
 
