@@ -193,7 +193,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.ForwardAsChatCompletionsDispatched(c.Request.Context(), c, account, forwardBody, promptCacheKey, "")
+			return h.gatewayService.ForwardAsChatCompletionsDispatched(c.Request.Context(), c, account, forwardBody, promptCacheKey, resolveOpenAIForwardDefaultMappedModel(apiKey, ""))
 		}()
 
 		forwardDurationMs := time.Since(forwardStart).Milliseconds()

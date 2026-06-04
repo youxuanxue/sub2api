@@ -1685,6 +1685,13 @@
         "Do NOT reintroduce a 100-raw inversion"
       ],
       "rationale": "Codex 5h/7d usage-window used-percent must stay a straight passthrough of the upstream x-codex-*-used-percent headers (consumed%), NOT inverted. Commit b65dde63 (2026-05-31) wrapped 5h in normalizeCodexFiveHourUsedPercent (used=100-raw) on the wrong assumption the header was remaining%; that rendered idle accounts as 99%/100% on the admin account card AND tripped is5hExhausted (ratelimit_service.go) for raw=0 accounts, applying a bogus multi-hour 429 cooldown. Disproved by prod capture 2026-06-04 (i-0e4a90677f0450277): GPT-pro1 5h window=300min raw used=1, GPT-pro2 used=0, both barely used; plus the physical constraint that the 5h window is a sub-interval of 7d. Anchor the two passthrough assignments plus the do-not-reintroduce warning so a future upstream merge or refactor cannot silently re-add the inversion. Regression test: TestNormalize_ProdLayoutUsedPercentPassthrough."
+    },
+    {
+      "path": "backend/internal/handler/openai_chat_completions.go",
+      "must_contain": [
+        "resolveOpenAIForwardDefaultMappedModel(apiKey, \"\")"
+      ],
+      "rationale": "/v1/chat/completions must pass the group-level default_mapped_model into ForwardAsChatCompletionsDispatched instead of a hardcoded empty string. The fallback only fires for claude-family model names when account-level model_mapping misses (service resolveOpenAIForwardModel), so dropping this one-line hook compiles clean but silently regresses claude-named requests on openai groups back to verbatim upstream forwarding (ChatGPT/Codex 400). Companion helper lives in openai_gateway_tk_default_mapped_model.go."
     }
   ]
 }
