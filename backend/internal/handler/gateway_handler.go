@@ -787,6 +787,15 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					return
 				}
 
+				// Kiro upstream rejected the model (HTTP 400 INVALID_MODEL_ID):
+				// return 400 immediately with a clear message, no failover (every
+				// Kiro account rejects the same unknown model identically).
+				var kiroInvalidModelErr *service.KiroInvalidModelError
+				if errors.As(err, &kiroInvalidModelErr) {
+					h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", kiroInvalidModelErr.ClientMessage())
+					return
+				}
+
 				// TK canonical-OAuth ingress UA reject: 403 immediately, no failover.
 				// See gateway_service_tk_canonical_oauth_guard.go.
 				var canonicalUARejectErr *service.CanonicalIngressUARejectedError

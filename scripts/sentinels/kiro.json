@@ -109,18 +109,21 @@
       "must_contain": [
         "type KiroGatewayService",
         "func (s *KiroGatewayService) Forward",
-        "IsKiroEnabled"
+        "IsKiroEnabled",
+        "callErr != nil && !enc.started",
+        "classifyKiroForwardError"
       ],
-      "rationale": "The sixth-platform forwarder: translates /v1/messages onto the Kiro EventStream upstream and enforces the second ToS/enable gate (IsKiroEnabled). Losing it makes every kiro request fail or, worse, bypass the enable gate."
+      "rationale": "The sixth-platform forwarder: translates /v1/messages onto the Kiro EventStream upstream and enforces the second ToS/enable gate (IsKiroEnabled). The `callErr != nil && !enc.started` guard + classifyKiroForwardError are load-bearing: message_start is emitted lazily (see kiro_sse_encoder ensureBlock/writeToolUse), so an upstream failure before any content arrives surfaces an error instead of the old empty-but-200 SSE stream (the 'pre-content 400 returns a clean 200 lie' bug). An upstream merge that reintroduces an eager enc.writeMessageStart() before the upstream call, or drops the classifier, regresses this."
     },
     {
       "path": "backend/internal/service/kiro_sse_encoder.go",
       "must_contain": [
         "kiroSSEEncoder",
         "message_start",
-        "content_block_delta"
+        "content_block_delta",
+        "func (e *kiroSSEEncoder) ensureBlock"
       ],
-      "rationale": "Translates Kiro callbacks into the canonical Anthropic SSE event sequence. Losing it breaks streaming /v1/messages response shape for kiro accounts (clients hang or mis-parse)."
+      "rationale": "Translates Kiro callbacks into the canonical Anthropic SSE event sequence. Losing it breaks streaming /v1/messages response shape for kiro accounts (clients hang or mis-parse). ensureBlock (and writeToolUse) lazily call writeMessageStart on first content; writeMessageStart is idempotent (`if e.started { return }`). This laziness is what keeps enc.started false on a pre-content upstream 400 so the gateway service can surface the error instead of a clean empty 200 stream."
     },
     {
       "path": "backend/internal/service/gateway_service.go",
@@ -165,9 +168,19 @@
     {
       "path": "backend/internal/handler/gateway_handler.go",
       "must_contain": [
-        "account.IsKiro()"
+        "account.IsKiro()",
+        "service.KiroInvalidModelError"
       ],
-      "rationale": "The RPM-increment gate (both the streaming and non-streaming paths) admits kiro accounts via `|| account.IsKiro()`. An upstream merge that rewrites these gates must preserve the kiro arm, or kiro accounts skip RPM accounting and bypass the per-account rate limit."
+      "rationale": "The RPM-increment gate (both the streaming and non-streaming paths) admits kiro accounts via `|| account.IsKiro()`. An upstream merge that rewrites these gates must preserve the kiro arm, or kiro accounts skip RPM accounting and bypass the per-account rate limit. The KiroInvalidModelError errors.As branch returns a clean 400 invalid_request_error (no cross-account failover) when the Kiro upstream rejects the model; losing it reverts to the silent empty-200 / failover-churn behavior."
+    },
+    {
+      "path": "backend/internal/service/kiro_gateway_service_tk_errors.go",
+      "must_contain": [
+        "type KiroInvalidModelError",
+        "func classifyKiroForwardError",
+        "INVALID_MODEL_ID"
+      ],
+      "rationale": "TK-only typed error + classifier for the Kiro upstream HTTP 400 INVALID_MODEL_ID rejection. classifyKiroForwardError is called from both forwardStreaming and forwardNonStreaming; the handler errors.As-es the typed *KiroInvalidModelError to emit a model-scoped 400. Losing this file makes kiro model-unsupported errors fall back to the generic forward-error path (opaque 500 / unwanted failover)."
     },
     {
       "path": "backend/internal/service/wire.go",
