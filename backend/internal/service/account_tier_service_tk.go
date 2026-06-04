@@ -35,16 +35,21 @@ const AccountTierExtraKey = "stability_tier"
 //     MergePreservingSensitiveCreds in UpdateAccount;
 //   - write the shared_baseline extra mimicry/template flags (enable_tls_
 //     fingerprint / rpm_strategy / session_id_masking_enabled / ...);
-//   - value-sync priority to the tier baseline (post-#551 all tiers are uniform
-//     priority=1; the old "priority owned by window-rebalance pipeline" carve-out
-//     no longer applies to anthropic — see reconciler kiro-priority for the same
-//     shape).
+//   - (operator-explicit ApplyTier ONLY) seed priority from the tier baseline.
+//     priority is a DYNAMIC runtime signal owned by the window-rebalance pipeline
+//     (ops/anthropic/rebalance-anthropic-priority.py): git baseline wins only at
+//     the apply/发版 moment, and the reconciler self-heal path
+//     (ReapplyBaselineInfra) deliberately does NOT touch priority — reverting it
+//     every tick would flatten the window-aware ordering rebalance just computed.
+//     Contrast kiro, which has no rebalance pipeline and is hard-pinned by
+//     reconcileKiroPriorityBaseline.
 //
 // It NEVER copies the tier-managed NUMERIC extra keys (base_rpm / max_sessions /
 // window / cache_ttl_override_*) into the account — those overlay at runtime from
 // the tiers table (model.IsTierManagedExtraKey strips them). Fleet fan-out stays
 // with the ops/anthropic pipeline; the per-node reconciler re-asserts this same
-// complete shape (it calls ApplyTier) so any creation path self-heals.
+// complete shape via ReapplyBaselineInfra (everything EXCEPT priority) so any
+// creation path self-heals without flattening the window-rebalance ordering.
 type AccountTierService struct {
 	adminSvc AdminService
 	tierSvc  *TierService
@@ -56,12 +61,34 @@ func NewAccountTierService(adminSvc AdminService, tierSvc *TierService, tlsSvc *
 	return &AccountTierService{adminSvc: adminSvc, tierSvc: tierSvc, tlsSvc: tlsSvc}
 }
 
-// ApplyTier binds the given account to `tier`. Only anthropic OAUTH and
+// ApplyTier is the operator-explicit path (admin UI "apply tier" / deploy seed).
+// It materializes the full shared_baseline AND seeds priority from the tier
+// baseline — this is the single git-is-source-of-truth moment for priority. Use
+// it when an operator deliberately (re)applies a tier; between applies the
+// window-rebalance pipeline owns runtime priority.
+func (s *AccountTierService) ApplyTier(ctx context.Context, accountID int64, tier string) (*Account, error) {
+	return s.applyTier(ctx, accountID, tier, true /* syncPriority */)
+}
+
+// ReapplyBaselineInfra is the reconciler self-heal path. It re-asserts the
+// shared_baseline INFRASTRUCTURE (TLS profile ensure+bind, credentials
+// self-protection template, extra mimicry flags, concurrency) but DELIBERATELY
+// does NOT touch priority: priority is a dynamic runtime signal owned by the
+// window-rebalance pipeline, and value-syncing it here on every tick would revert
+// rebalance's window-aware ordering back to the uniform baseline. Steady-state
+// self-heal must converge the infra without fighting the rebalance pipeline.
+func (s *AccountTierService) ReapplyBaselineInfra(ctx context.Context, accountID int64, tier string) (*Account, error) {
+	return s.applyTier(ctx, accountID, tier, false /* syncPriority */)
+}
+
+// applyTier binds the given account to `tier`. Only anthropic OAUTH and
 // setup-token accounts are accepted — these are the two types subject to 5h
 // window + session control (see Account.IsAnthropicOAuthOrSetupToken). apikey
 // mirror stubs and other platforms are rejected — applying a tier to a stub
-// would wipe its base_url/pool_mode.
-func (s *AccountTierService) ApplyTier(ctx context.Context, accountID int64, tier string) (*Account, error) {
+// would wipe its base_url/pool_mode. syncPriority gates whether priority is
+// value-synced to the tier baseline (true on the operator path, false on the
+// reconciler self-heal path); see ApplyTier / ReapplyBaselineInfra.
+func (s *AccountTierService) applyTier(ctx context.Context, accountID int64, tier string, syncPriority bool) (*Account, error) {
 	if s == nil || s.adminSvc == nil || s.tierSvc == nil {
 		return nil, fmt.Errorf("account tier service unavailable")
 	}
@@ -149,15 +176,20 @@ func (s *AccountTierService) ApplyTier(ctx context.Context, accountID int64, tie
 	tierID := row.ID
 	concurrency := row.Concurrency
 	rateMultiplier := row.RateMultiplier
-	priority := eff.Priority // post-#551 uniform baseline priority (value-sync)
 
 	input := &UpdateAccountInput{
 		TierID:         &tierID,
 		Concurrency:    &concurrency, // value-sync from tier (hot-path column)
-		Priority:       &priority,    // value-sync to baseline (post-#551 uniform)
 		RateMultiplier: &rateMultiplier,
 		Credentials:    creds,
 		Extra:          extra,
+	}
+	// priority is seeded from the tier baseline ONLY on the operator-explicit
+	// path (syncPriority). The reconciler self-heal path leaves priority untouched
+	// so the window-rebalance pipeline's runtime ordering is not flattened.
+	if syncPriority {
+		priority := eff.Priority
+		input.Priority = &priority
 	}
 
 	updated, err := s.adminSvc.UpdateAccount(ctx, accountID, input)
@@ -165,13 +197,13 @@ func (s *AccountTierService) ApplyTier(ctx context.Context, accountID int64, tie
 		return nil, err
 	}
 
-	slog.Info("account tier applied — full baseline materialized (local deployment only)",
+	slog.Info("account tier applied — baseline materialized (local deployment only)",
 		"account_id", accountID,
 		"account_name", account.Name,
 		"tier", row.Name,
 		"tier_id", tierID,
 		"concurrency", concurrency,
-		"priority", priority,
+		"priority_synced", syncPriority,
 		"tls_fingerprint_profile_id", tlsProfileID,
 	)
 	return updated, nil

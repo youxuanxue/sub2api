@@ -21,6 +21,14 @@ base=1: caps-only tiers — stability tier gates rate caps, not scheduling
 order), so the reset puts every tier on the same base and this pipeline's
 within-tier window rank is what orders accounts.
 
+Runtime ownership: this pipeline is the authoritative writer of
+accounts.priority between tier applies. The backend per-node config
+reconciler (AccountTierService.ReapplyBaselineInfra, called from
+anthropic_config_reconciler.go) deliberately does NOT self-heal priority —
+only the operator-explicit ApplyTier path seeds the git baseline at apply
+time, so the reconciler never reverts the window rank this pipeline writes.
+Do NOT re-introduce a per-tick priority revert in the reconciler.
+
 Stages
 ------
   1. snapshot — pull each deployable edge's anthropic OAuth accounts +

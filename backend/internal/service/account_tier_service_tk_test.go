@@ -231,6 +231,33 @@ func TestApplyTier_OAuthBindsTierAndValueSyncsConcurrency(t *testing.T) {
 	require.False(t, hasBaseRPM, "tier-managed numeric extra must NOT be copied onto the account")
 }
 
+// TestReapplyBaselineInfra_DoesNotTouchPriority is the regression guarding the
+// reconciler self-heal path: it must re-assert the shared_baseline infrastructure
+// (tier_id / concurrency / TLS binding / extra flags) WITHOUT writing priority —
+// priority is owned at runtime by the window-rebalance pipeline, and value-syncing
+// it on every reconciler tick would flatten rebalance's window-aware ordering.
+func TestReapplyBaselineInfra_DoesNotTouchPriority(t *testing.T) {
+	admin := &stubAdminServiceForTier{getAccount: &Account{
+		ID:       7,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeOAuth,
+		Priority: 3, // a rebalance-assigned runtime priority that must survive
+	}}
+	svc := NewAccountTierService(admin, tierServiceWithL4(t), tlsServiceWithRepo(t, &stubTLSRepo{}))
+
+	_, err := svc.ReapplyBaselineInfra(context.Background(), 7, "l4")
+	require.NoError(t, err)
+	require.NotNil(t, admin.updateInput)
+
+	in := admin.updateInput
+	require.NotNil(t, in.TierID)
+	require.Equal(t, int64(4), *in.TierID, "self-heal still binds tier_id")
+	require.NotNil(t, in.Concurrency)
+	require.Equal(t, 8, *in.Concurrency, "self-heal still value-syncs concurrency")
+	require.Equal(t, true, in.Extra["enable_tls_fingerprint"], "self-heal still asserts infra flags")
+	require.Nil(t, in.Priority, "self-heal must NOT write priority (window-rebalance owns it)")
+}
+
 // TestApplyTier_CreatesAndBindsCanonicalTLSProfile is the regression for the
 // reported bug: operator added an OAuth account + set tier, but the
 // tls_fingerprint_profiles table had no tk_canonical_cc_oauth row, so the

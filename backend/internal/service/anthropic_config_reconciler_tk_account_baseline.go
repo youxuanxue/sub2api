@@ -10,17 +10,21 @@ import (
 // reconcileAccountBaselineDrift self-heals the shared_baseline INFRASTRUCTURE for
 // every tier-bound anthropic OAuth/setup-token account on THIS node: the canonical
 // TLS profile's existence + the account's binding to it, the credentials
-// self-protection template, and the (post-#551 uniform) priority. When any drift
-// is detected it re-runs the SAME complete write path the admin UI uses
-// (AccountTierService.ApplyTier), so a missing TLS profile row, a dangling
-// binding, a missing 403 self-protection rule, or a stale priority all converge —
-// no matter how the account was created (admin UI, bare SQL, partial apply).
+// self-protection template, and the extra mimicry flags. When any drift is
+// detected it re-runs ReapplyBaselineInfra (the infra subset of the admin UI's
+// ApplyTier), so a missing TLS profile row, a dangling binding, or a missing 403
+// self-protection rule all converge — no matter how the account was created
+// (admin UI, bare SQL, partial apply).
 //
-// It deliberately does NOT touch tier NUMERIC fields (base_rpm / max_sessions /
-// window) — those overlay at runtime from the tiers table and stay report-only
+// It deliberately does NOT touch priority: priority is a dynamic runtime signal
+// owned by the window-rebalance pipeline (ops/anthropic/rebalance-anthropic-
+// priority.py); the git baseline seeds it only on the operator-explicit ApplyTier
+// path, and reverting it on every tick would flatten the window-aware ordering.
+// It also does NOT touch tier NUMERIC fields (base_rpm / max_sessions / window) —
+// those overlay at runtime from the tiers table and stay report-only
 // (reportTierDrift). Mirrors reconcileKiroPriorityBaseline's skip-if-aligned shape
-// and reuses the reconciler's ticker + redis leader lock; ApplyTier itself
-// enqueues the snapshot-rebuild outbox event via UpdateAccount.
+// and reuses the reconciler's ticker + redis leader lock; ReapplyBaselineInfra
+// itself enqueues the snapshot-rebuild outbox event via UpdateAccount.
 func (r *AnthropicConfigReconciler) reconcileAccountBaselineDrift(ctx context.Context, accounts []Account) {
 	if r == nil || r.tierApplier == nil || r.tiers == nil {
 		return // applier/resolver not wired (minimal test deps) → no-op
@@ -44,12 +48,12 @@ func (r *AnthropicConfigReconciler) reconcileAccountBaselineDrift(ctx context.Co
 		if reason == "" {
 			continue // aligned → skip (no write)
 		}
-		if _, err := r.tierApplier.ApplyTier(ctx, a.ID, tierName); err != nil {
-			slog.Warn("anthropic config reconciler: account baseline self-heal (ApplyTier) failed",
+		if _, err := r.tierApplier.ReapplyBaselineInfra(ctx, a.ID, tierName); err != nil {
+			slog.Warn("anthropic config reconciler: account baseline self-heal (ReapplyBaselineInfra) failed",
 				"account_id", a.ID, "account_name", a.Name, "tier", tierName, "reason", reason, "err", err)
 			continue
 		}
-		slog.Info("anthropic config reconciler: account baseline self-healed via ApplyTier (local deployment only)",
+		slog.Info("anthropic config reconciler: account baseline self-healed via ReapplyBaselineInfra (local deployment only)",
 			"account_id", a.ID, "account_name", a.Name, "tier", tierName, "reason", reason)
 	}
 }
@@ -59,10 +63,10 @@ func (r *AnthropicConfigReconciler) reconcileAccountBaselineDrift(ctx context.Co
 // account-side (cheap) plus an optional dangling-binding lookup; on a TLS resolver
 // error it conservatively does NOT report drift (never flap on a transient read).
 func (r *AnthropicConfigReconciler) accountBaselineDriftReason(ctx context.Context, a *Account, eff *baseline.EffectiveTierBaseline) string {
-	// priority: post-#551 uniform baseline value (value-synced).
-	if a.Priority != eff.Priority {
-		return "priority"
-	}
+	// priority is intentionally NOT checked here: it is a dynamic runtime signal
+	// owned by the window-rebalance pipeline. Self-healing it on every tick would
+	// flatten rebalance's window-aware ordering back to the uniform baseline. It is
+	// seeded from the git baseline only on the operator-explicit ApplyTier path.
 	// enable_tls_fingerprint flag must be on.
 	if v, _ := a.Extra["enable_tls_fingerprint"].(bool); !v {
 		return "tls_fingerprint_disabled"

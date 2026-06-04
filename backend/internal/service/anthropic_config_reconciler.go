@@ -102,12 +102,13 @@ type reconcilerTierResolver interface {
 	ResolveName(tierID int64) (string, bool)
 }
 
-// reconcilerTierApplier re-applies a tier onto an account — the single complete
-// "materialize shared_baseline" write path (TLS profile ensure+bind, credentials
-// template, extra flags, priority, concurrency). *AccountTierService satisfies it.
-// nil-safe (Step baseline no-ops when absent).
+// reconcilerTierApplier re-asserts the shared_baseline INFRASTRUCTURE onto an
+// account (TLS profile ensure+bind, credentials template, extra flags,
+// concurrency) WITHOUT touching priority — priority is owned at runtime by the
+// window-rebalance pipeline, so the per-tick self-heal must not revert it.
+// *AccountTierService satisfies it. nil-safe (Step baseline no-ops when absent).
 type reconcilerTierApplier interface {
-	ApplyTier(ctx context.Context, accountID int64, tier string) (*Account, error)
+	ReapplyBaselineInfra(ctx context.Context, accountID int64, tier string) (*Account, error)
 }
 
 // reconcilerTLSProfileResolver reads a TLS profile by id so the baseline drift
@@ -295,10 +296,11 @@ func (r *AnthropicConfigReconciler) runOnce(ctx context.Context) {
 	r.reconcileTierConcurrency(ctx, accounts)
 
 	// Step baseline: self-heal shared_baseline INFRASTRUCTURE (canonical TLS
-	// profile existence + binding, credentials self-protection template, uniform
-	// priority) for tier-bound anthropic OAuth/setup-token accounts by re-running
-	// ApplyTier when drifted. Idempotent; the single complete write path. This is
-	// what makes "operator just sets the tier" yield a fully-configured account.
+	// profile existence + binding, credentials self-protection template, extra
+	// mimicry flags) for tier-bound anthropic OAuth/setup-token accounts by
+	// re-running ReapplyBaselineInfra when drifted. Idempotent. priority is NOT in
+	// this set — it is a dynamic runtime signal owned by the window-rebalance
+	// pipeline, and reverting it every tick would flatten that ordering.
 	r.reconcileAccountBaselineDrift(ctx, accounts)
 
 	// Step C: surface-C concurrency mirror (prod). Runs before the operator Σ
@@ -349,10 +351,11 @@ func (r *AnthropicConfigReconciler) reconcileClaudeCodeMimicry(ctx context.Conte
 // concurrency column from its tier row. concurrency stays a persisted column on
 // the scheduler hot path; the tier table is the write-source. BulkUpdate already
 // enqueues an outbox account_changed event → snapshot rebuild. It does NOT write
-// priority — priority is value-synced to the uniform post-#551 baseline by Step
-// baseline (reconcileAccountBaselineDrift → ApplyTier). Note: CRSSyncService
-// (on-demand admin import) and the admin UI also set anthropic-oauth priority;
-// Step baseline intentionally reconverges those to the uniform tier baseline.
+// priority — anthropic priority is a dynamic runtime signal owned by the
+// window-rebalance pipeline (ops/anthropic/rebalance-anthropic-priority.py); the
+// git baseline seeds it only on the operator-explicit ApplyTier path, and Step
+// baseline (ReapplyBaselineInfra) does NOT reconverge it. (kiro is the opposite —
+// hard-pinned by reconcileKiroPriorityBaseline, no rebalance pipeline.)
 func (r *AnthropicConfigReconciler) reconcileTierConcurrency(ctx context.Context, accounts []Account) {
 	if r.tiers == nil {
 		return
