@@ -329,6 +329,11 @@ func shouldBypassEmbeddedFrontend(path string) bool {
 		strings.HasPrefix(trimmed, "/antigravity/") ||
 		strings.HasPrefix(trimmed, "/setup/") ||
 		trimmed == "/health" ||
+		// /health/live (docker healthcheck) 与 /health/inflight (deploy drain 轮询)
+		// 是真 JSON 探针端点，必须绕过 SPA fallback——否则被 catch-all 中间件返回
+		// index.html，deploy_via_ssm.sh 的 in_flight=0 等待会空转满 ~76s（已在
+		// prod 1.7.68 实测坐实）。见 internal/server/routes/common.go 的注册。
+		strings.HasPrefix(trimmed, "/health/") ||
 		trimmed == "/responses" ||
 		strings.HasPrefix(trimmed, "/responses/") ||
 		strings.HasPrefix(trimmed, "/images/")
