@@ -460,6 +460,14 @@
         "title: 'Edge 账号'"
       ],
       "rationale": "TK-only Chinese i18n for the Edge Accounts page — the zh counterpart of the en.ts edge-accounts anchor. Guards against an upstream locale-file rewrite silently dropping the block."
+    },
+    {
+      "path": "frontend/src/components/account/AccountCapacityCell.vue",
+      "must_contain": [
+        "todayStats",
+        "capacity.today.tooltip"
+      ],
+      "rationale": "TK adds a today-usage badge (tokens·$cost) for ALL account types in the capacity column (admin accounts page + edge accounts page). The `todayStats` prop and the `admin.accounts.capacity.today.tooltip` i18n key are the TK-only contract; an upstream merge that rewrites this capacity cell could silently drop the today-usage badge — it would compile fine, just lose the feature (and the deliberate 0-value grey-out that surfaces anomalies like kiro's current 0-billing). Sentinel guards that the badge survives upstream convergence."
     }
   ]
 }
