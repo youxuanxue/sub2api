@@ -320,8 +320,9 @@ func (r *AnthropicConfigReconciler) runOnce(ctx context.Context) {
 	r.reportTierDrift(accounts)
 
 	// Step kiro-priority: HARD-ENFORCE kiro account priority baseline. Fetches its
-	// own kiro account list (the list above is anthropic-only). Kiro-scoped; does
-	// not touch anthropic priority (owned by the window-rebalance pipeline).
+	// own kiro account list (the list above is anthropic-only). Kiro-scoped; the
+	// anthropic-side priority value-sync lives in Step baseline above (kiro
+	// schedules in its own isolated pool).
 	r.reconcileKiroPriorityBaseline(ctx)
 
 	// Step UA: self-heal the deployment-level Claude Code UA + mimicry manifest
@@ -347,8 +348,11 @@ func (r *AnthropicConfigReconciler) reconcileClaudeCodeMimicry(ctx context.Conte
 // reconcileTierConcurrency value-syncs each tier-bound anthropic OAUTH account's
 // concurrency column from its tier row. concurrency stays a persisted column on
 // the scheduler hot path; the tier table is the write-source. BulkUpdate already
-// enqueues an outbox account_changed event → snapshot rebuild. NEVER writes
-// priority (owned by the window-rebalance pipeline).
+// enqueues an outbox account_changed event → snapshot rebuild. It does NOT write
+// priority — priority is value-synced to the uniform post-#551 baseline by Step
+// baseline (reconcileAccountBaselineDrift → ApplyTier). Note: CRSSyncService
+// (on-demand admin import) and the admin UI also set anthropic-oauth priority;
+// Step baseline intentionally reconverges those to the uniform tier baseline.
 func (r *AnthropicConfigReconciler) reconcileTierConcurrency(ctx context.Context, accounts []Account) {
 	if r.tiers == nil {
 		return
