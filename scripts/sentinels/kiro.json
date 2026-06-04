@@ -82,6 +82,15 @@
       "rationale": "Anthropic <-> Kiro request/response translation. Without it the /v1/messages -> CodeWhisperer bridge cannot build a payload or decode the reply."
     },
     {
+      "path": "backend/internal/integration/kiro/estimate.go",
+      "must_contain": [
+        "func EstimateInputTokens",
+        "func EstimateOutputTokens",
+        "KiroEstimatedBillingTier"
+      ],
+      "rationale": "Local cl100k_base token estimation for kiro billing. The Kiro EventStream upstream reports credits only (never tokens), so without this estimator every kiro request bills input=output=cost=0 (100% free). Losing EstimateInputTokens/EstimateOutputTokens silently regresses kiro back to free; losing KiroEstimatedBillingTier drops the billing_tier=\"kiro-estimated\" provenance label operators use to distinguish estimated from upstream-reported billing."
+    },
+    {
       "path": "backend/internal/integration/kiro/client.go",
       "must_contain": [
         "func CallKiroAPIWithDoer",
@@ -120,26 +129,33 @@
       "must_contain": [
         "type KiroGatewayService",
         "func (s *KiroGatewayService) Forward",
-        "IsKiroEnabled"
+        "IsKiroEnabled",
+        "kiroproto.EstimateInputTokens",
+        "kiroproto.EstimateOutputTokens",
+        "BillingTier:   kiroproto.KiroEstimatedBillingTier",
+        "callErr != nil && !enc.started",
+        "classifyKiroForwardError"
       ],
-      "rationale": "The sixth-platform forwarder: translates /v1/messages onto the Kiro EventStream upstream and enforces the second ToS/enable gate (IsKiroEnabled). Losing it makes every kiro request fail or, worse, bypass the enable gate."
+      "rationale": "The sixth-platform forwarder: translates /v1/messages onto the Kiro EventStream upstream and enforces the second ToS/enable gate (IsKiroEnabled). It estimates token usage locally (EstimateInputTokens/EstimateOutputTokens) and stamps ForwardResult.BillingTier=\"kiro-estimated\", because the Kiro upstream reports credits only — without these calls both forward paths return Usage{0,0} and kiro bills as 100% free. The `callErr != nil && !enc.started` guard + classifyKiroForwardError are equally load-bearing: message_start is emitted lazily (see kiro_sse_encoder ensureBlock/writeToolUse), so an upstream failure before any content arrives surfaces a typed error instead of the old empty-but-200 SSE stream (the 'pre-content 400 returns a clean 200 lie' bug). An upstream merge that drops the estimate/BillingTier wiring (regresses kiro to free billing), reintroduces an eager enc.writeMessageStart() before the upstream call, or drops the classifier, regresses one of these."
     },
     {
       "path": "backend/internal/service/kiro_sse_encoder.go",
       "must_contain": [
         "kiroSSEEncoder",
         "message_start",
-        "content_block_delta"
+        "content_block_delta",
+        "func (e *kiroSSEEncoder) ensureBlock"
       ],
-      "rationale": "Translates Kiro callbacks into the canonical Anthropic SSE event sequence. Losing it breaks streaming /v1/messages response shape for kiro accounts (clients hang or mis-parse)."
+      "rationale": "Translates Kiro callbacks into the canonical Anthropic SSE event sequence. Losing it breaks streaming /v1/messages response shape for kiro accounts (clients hang or mis-parse). ensureBlock (and writeToolUse) lazily call writeMessageStart on first content; writeMessageStart is idempotent (`if e.started { return }`). This laziness is what keeps enc.started false on a pre-content upstream 400 so the gateway service can surface the error instead of a clean empty 200 stream."
     },
     {
       "path": "backend/internal/service/gateway_service.go",
       "must_contain": [
         "account.IsKiro()",
-        "kiroGateway"
+        "kiroGateway",
+        "BillingTier:           optionalTrimmedStringPtr(result.BillingTier)"
       ],
-      "rationale": "The Forward() dispatch injection point (next to IsBedrock) + the GatewayService.kiroGateway field. An upstream merge that rewrites Forward() or NewGatewayService() must preserve this branch, or kiro accounts silently fall through to the Anthropic path and fail."
+      "rationale": "The Forward() dispatch injection point (next to IsBedrock) + the GatewayService.kiroGateway field, plus the ForwardResult.BillingTier -> UsageLog.BillingTier passthrough in buildRecordUsageLog that persists the kiro \"kiro-estimated\" provenance label. An upstream merge that rewrites Forward()/NewGatewayService() must preserve the dispatch branch (or kiro accounts fall through to the Anthropic path and fail); an upstream merge that rewrites buildRecordUsageLog must preserve the BillingTier line (or kiro usage logs lose the estimated-billing label even though estimation still runs)."
     },
     {
       "path": "backend/internal/handler/admin/account_handler_tk_kiro_validate.go",
@@ -176,9 +192,19 @@
     {
       "path": "backend/internal/handler/gateway_handler.go",
       "must_contain": [
-        "account.IsKiro()"
+        "account.IsKiro()",
+        "service.KiroInvalidModelError"
       ],
-      "rationale": "The RPM-increment gate (both the streaming and non-streaming paths) admits kiro accounts via `|| account.IsKiro()`. An upstream merge that rewrites these gates must preserve the kiro arm, or kiro accounts skip RPM accounting and bypass the per-account rate limit."
+      "rationale": "The RPM-increment gate (both the streaming and non-streaming paths) admits kiro accounts via `|| account.IsKiro()`. An upstream merge that rewrites these gates must preserve the kiro arm, or kiro accounts skip RPM accounting and bypass the per-account rate limit. The KiroInvalidModelError errors.As branch returns a clean 400 invalid_request_error (no cross-account failover) when the Kiro upstream rejects the model; losing it reverts to the silent empty-200 / failover-churn behavior."
+    },
+    {
+      "path": "backend/internal/service/kiro_gateway_service_tk_errors.go",
+      "must_contain": [
+        "type KiroInvalidModelError",
+        "func classifyKiroForwardError",
+        "INVALID_MODEL_ID"
+      ],
+      "rationale": "TK-only typed error + classifier for the Kiro upstream HTTP 400 INVALID_MODEL_ID rejection. classifyKiroForwardError is called from both forwardStreaming and forwardNonStreaming; the handler errors.As-es the typed *KiroInvalidModelError to emit a model-scoped 400. Losing this file makes kiro model-unsupported errors fall back to the generic forward-error path (opaque 500 / unwanted failover)."
     },
     {
       "path": "backend/internal/service/wire.go",

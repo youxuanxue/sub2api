@@ -104,6 +104,7 @@ const (
 	PlatformGemini      Platform = "gemini"
 	PlatformAntigravity Platform = "antigravity"
 	PlatformNewapi      Platform = "newapi"
+	PlatformKiro        Platform = "kiro"
 )
 
 func (pl Platform) String() string {
@@ -113,7 +114,7 @@ func (pl Platform) String() string {
 // PlatformValidator is a validator for the "platform" field enum values. It is called by the builders before save.
 func PlatformValidator(pl Platform) error {
 	switch pl {
-	case PlatformOpenai, PlatformAnthropic, PlatformGemini, PlatformAntigravity, PlatformNewapi:
+	case PlatformOpenai, PlatformAnthropic, PlatformGemini, PlatformAntigravity, PlatformNewapi, PlatformKiro:
 		return nil
 	default:
 		return fmt.Errorf("modelavailability: invalid enum value for platform field: %q", pl)

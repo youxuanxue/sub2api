@@ -195,8 +195,12 @@ func TestKiroGatewayService_Forward_NonStreaming(t *testing.T) {
 	require.NotNil(t, result)
 	require.True(t, upstream.gotRequest)
 	require.False(t, result.Stream)
-	require.Equal(t, 12, result.Usage.InputTokens)
-	require.Equal(t, 5, result.Usage.OutputTokens)
+	// Kiro upstream reports credits only (never tokens); usage is estimated
+	// locally from request/response content, so token counts must be positive
+	// and the billing tier marked as estimated.
+	require.Positive(t, result.Usage.InputTokens)
+	require.Positive(t, result.Usage.OutputTokens)
+	require.Equal(t, "kiro-estimated", result.BillingTier)
 	require.Equal(t, "claude-sonnet-4", result.Model)
 	require.NotEmpty(t, result.RequestID)
 
@@ -231,8 +235,10 @@ func TestKiroGatewayService_Forward_Streaming(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.True(t, result.Stream)
-	require.Equal(t, 8, result.Usage.InputTokens)
-	require.Equal(t, 3, result.Usage.OutputTokens)
+	// Estimated usage (Kiro upstream reports credits only).
+	require.Positive(t, result.Usage.InputTokens)
+	require.Positive(t, result.Usage.OutputTokens)
+	require.Equal(t, "kiro-estimated", result.BillingTier)
 
 	out := rec.Body.String()
 	require.Contains(t, out, "event: message_start")
@@ -242,6 +248,123 @@ func TestKiroGatewayService_Forward_Streaming(t *testing.T) {
 	require.Contains(t, out, "event: content_block_stop")
 	require.Contains(t, out, "event: message_delta")
 	require.Contains(t, out, "event: message_stop")
+}
+
+// kiroStatusUpstream returns a canned non-200 response with a fixed body,
+// modeling the Kiro upstream rejecting a request (e.g. 400 INVALID_MODEL_ID).
+// The vendored CallKiroAPIWithDoer reads the body into its error string, so all
+// three endpoints in the fallback list see the same rejection.
+type kiroStatusUpstream struct {
+	status int
+	body   string
+}
+
+func (u *kiroStatusUpstream) Do(*http.Request, string, int64, int) (*http.Response, error) {
+	return nil, fmt.Errorf("unexpected Do call")
+}
+
+func (u *kiroStatusUpstream) DoWithTLS(_ *http.Request, _ string, _ int64, _ int, _ *tlsfingerprint.Profile) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: u.status,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(bytes.NewReader([]byte(u.body))),
+	}, nil
+}
+
+// Bug2: upstream returns 400 INVALID_MODEL_ID *before* any content is produced.
+// The fix makes message_start lazy, so enc.started stays false and Forward must
+// return a typed *KiroInvalidModelError instead of closing out a clean empty
+// 200 SSE stream (the old "200 lie").
+func TestKiroGatewayService_Forward_Streaming_InvalidModel_NoEmpty200(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	upstream := &kiroStatusUpstream{
+		status: http.StatusBadRequest,
+		body:   `{"reason":"INVALID_MODEL_ID","message":"model not found"}`,
+	}
+	svc := NewKiroGatewayService(upstream, nil, newKiroSettingService("true", nil))
+
+	body, _ := json.Marshal(map[string]any{
+		"model":      "claude-haiku-4.5",
+		"messages":   []map[string]any{{"role": "user", "content": "hi"}},
+		"max_tokens": 16,
+		"stream":     true,
+	})
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-haiku-4.5", Stream: true}
+
+	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
+	require.Error(t, err)
+	require.Nil(t, result)
+
+	// Error must be the typed invalid-model error carrying status 400 + model.
+	var invalidModelErr *KiroInvalidModelError
+	require.ErrorAs(t, err, &invalidModelErr)
+	require.Equal(t, 400, invalidModelErr.StatusCode)
+	require.Equal(t, "claude-haiku-4.5", invalidModelErr.Model)
+	require.Contains(t, invalidModelErr.ClientMessage(), "not supported by Kiro")
+
+	// No SSE was written: the old bug emitted message_start eagerly and returned
+	// a clean empty 200 stream. The fix must write nothing to the client.
+	require.Empty(t, rec.Body.String(), "no SSE bytes may be written before a pre-content 400")
+	require.NotContains(t, rec.Body.String(), "message_start")
+}
+
+func TestKiroGatewayService_Forward_NonStreaming_InvalidModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	upstream := &kiroStatusUpstream{
+		status: http.StatusBadRequest,
+		body:   `{"reason":"INVALID_MODEL_ID"}`,
+	}
+	svc := NewKiroGatewayService(upstream, nil, newKiroSettingService("true", nil))
+
+	body, _ := json.Marshal(map[string]any{
+		"model":    "claude-haiku-4.5",
+		"messages": []map[string]any{{"role": "user", "content": "hi"}},
+		"stream":   false,
+	})
+	parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-haiku-4.5", Stream: false}
+
+	result, err := svc.Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
+	require.Error(t, err)
+	require.Nil(t, result)
+	var invalidModelErr *KiroInvalidModelError
+	require.ErrorAs(t, err, &invalidModelErr)
+	require.Equal(t, "claude-haiku-4.5", invalidModelErr.Model)
+}
+
+func TestClassifyKiroForwardError(t *testing.T) {
+	// 400 + INVALID_MODEL_ID → typed error.
+	err := classifyKiroForwardError(
+		fmt.Errorf("HTTP 400 from CodeWhisperer: {\"reason\":\"INVALID_MODEL_ID\"}"),
+		"claude-haiku-4.5",
+	)
+	var invalidModelErr *KiroInvalidModelError
+	require.ErrorAs(t, err, &invalidModelErr)
+	require.Equal(t, "claude-haiku-4.5", invalidModelErr.Model)
+
+	// 400 without the INVALID_MODEL_ID marker → generic wrapped error, NOT typed.
+	other := classifyKiroForwardError(
+		fmt.Errorf("HTTP 400 from CodeWhisperer: {\"reason\":\"THROTTLED\"}"),
+		"claude-haiku-4.5",
+	)
+	require.Error(t, other)
+	require.NotErrorAs(t, other, &invalidModelErr)
+	require.Contains(t, other.Error(), "kiro upstream call failed")
+
+	// 500 with the marker substring → still not classified as invalid-model.
+	notFourHundred := classifyKiroForwardError(
+		fmt.Errorf("HTTP 500 from CodeWhisperer: INVALID_MODEL_ID"),
+		"claude-haiku-4.5",
+	)
+	require.NotErrorAs(t, notFourHundred, &invalidModelErr)
+
+	// nil passes through.
+	require.NoError(t, classifyKiroForwardError(nil, "m"))
 }
 
 func TestKiroGatewayService_Forward_DisabledErrors(t *testing.T) {

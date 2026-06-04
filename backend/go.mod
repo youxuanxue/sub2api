@@ -42,6 +42,7 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/redis v0.40.0
 	github.com/tidwall/gjson v1.18.0
 	github.com/tidwall/sjson v1.2.5
+	github.com/tiktoken-go/tokenizer v0.6.2
 	github.com/waffo-com/waffo-go v1.3.1
 	github.com/wechatpay-apiv3/wechatpay-go v0.2.21
 	github.com/zeromicro/go-zero v1.9.4
@@ -135,7 +136,6 @@ require (
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/google/go-tpm v0.9.8 // indirect
-	github.com/google/subcommands v1.2.0 // indirect
 	github.com/grafana/pyroscope-go v1.2.7 // indirect
 	github.com/grafana/pyroscope-go/godeltaprof v0.1.9 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.3 // indirect
@@ -211,7 +211,6 @@ require (
 	github.com/testcontainers/testcontainers-go v0.40.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.0 // indirect
-	github.com/tiktoken-go/tokenizer v0.6.2 // indirect
 	github.com/tinylib/msgp v1.6.3 // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect

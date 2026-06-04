@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -112,9 +113,9 @@ func (s *KiroGatewayService) Forward(
 	}
 
 	if req.Stream {
-		return s.forwardStreaming(ctx, c, doer, kiroAcct, payload, requestID, model, startTime)
+		return s.forwardStreaming(ctx, c, doer, kiroAcct, payload, &req, requestID, model, startTime)
 	}
-	return s.forwardNonStreaming(ctx, c, doer, kiroAcct, payload, requestID, model, startTime)
+	return s.forwardNonStreaming(ctx, c, doer, kiroAcct, payload, &req, requestID, model, startTime)
 }
 
 // forwardNonStreaming accumulates text/thinking/tool-use then writes a single
@@ -125,6 +126,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 	doer kiroproto.HTTPDoer,
 	kiroAcct *kiroproto.Account,
 	payload *kiroproto.KiroPayload,
+	req *kiroproto.ClaudeRequest,
 	requestID, model string,
 	startTime time.Time,
 ) (*ForwardResult, error) {
@@ -132,8 +134,6 @@ func (s *KiroGatewayService) forwardNonStreaming(
 		textBuf     string
 		thinkingBuf string
 		toolUses    []kiroproto.KiroToolUse
-		inputTokens int
-		outputToks  int
 		callbackErr error
 	)
 
@@ -148,9 +148,10 @@ func (s *KiroGatewayService) forwardNonStreaming(
 		OnToolUse: func(tu kiroproto.KiroToolUse) {
 			toolUses = append(toolUses, tu)
 		},
-		OnComplete: func(in, out int) {
-			inputTokens = in
-			outputToks = out
+		// Kiro upstream reports no token usage; OnComplete(in,out) is always (0,0).
+		// We estimate token usage locally below instead of trusting these values.
+		OnCredits: func(credits float64) {
+			logKiroCredits(kiroAcct, model, credits)
 		},
 		OnError: func(err error) {
 			callbackErr = err
@@ -158,11 +159,15 @@ func (s *KiroGatewayService) forwardNonStreaming(
 	}
 
 	if err := kiroproto.CallKiroAPIWithDoer(doer, kiroAcct, payload, callback); err != nil {
-		return nil, fmt.Errorf("kiro upstream call failed: %w", err)
+		return nil, classifyKiroForwardError(err, model)
 	}
 	if callbackErr != nil {
 		return nil, fmt.Errorf("kiro stream error: %w", callbackErr)
 	}
+
+	// Estimate token usage (Kiro upstream returns credits only — see estimate.go).
+	inputTokens := kiroproto.EstimateInputTokens(req)
+	outputToks := kiroproto.EstimateOutputTokens(textBuf, thinkingBuf, toolUses)
 
 	resp := kiroproto.KiroToClaudeResponse(
 		textBuf, thinkingBuf, false, toolUses, inputTokens, outputToks, model,
@@ -181,6 +186,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 		UpstreamModel: kiroproto.MapModel(model),
 		Stream:        false,
 		Duration:      time.Since(startTime),
+		BillingTier:   kiroproto.KiroEstimatedBillingTier,
 	}, nil
 }
 
@@ -194,6 +200,7 @@ func (s *KiroGatewayService) forwardStreaming(
 	doer kiroproto.HTTPDoer,
 	kiroAcct *kiroproto.Account,
 	payload *kiroproto.KiroPayload,
+	req *kiroproto.ClaudeRequest,
 	requestID, model string,
 	startTime time.Time,
 ) (*ForwardResult, error) {
@@ -221,8 +228,9 @@ func (s *KiroGatewayService) forwardStreaming(
 
 	var (
 		mu          sync.Mutex
-		inputTokens int
-		outputToks  int
+		textBuf     string
+		thinkingBuf string
+		toolUses    []kiroproto.KiroToolUse
 		callbackErr error
 		firstTokMs  *int
 	)
@@ -234,7 +242,11 @@ func (s *KiroGatewayService) forwardStreaming(
 		}
 	}
 
-	enc.writeMessageStart()
+	// message_start is emitted lazily on first content (see kiroSSEEncoder
+	// ensureBlock / writeToolUse). Emitting it eagerly here would set
+	// enc.started=true before the upstream call, defeating the post-call
+	// `!enc.started` guard and turning an upstream 400 (e.g. INVALID_MODEL_ID)
+	// into a clean empty 200 stream that the handler never sees as an error.
 
 	callback := &kiroproto.KiroStreamCallback{
 		OnText: func(text string, isThinking bool) {
@@ -242,8 +254,10 @@ func (s *KiroGatewayService) forwardStreaming(
 			defer mu.Unlock()
 			markFirstToken()
 			if isThinking {
+				thinkingBuf += text
 				enc.writeThinkingDelta(text)
 			} else {
+				textBuf += text
 				enc.writeTextDelta(text)
 			}
 		},
@@ -251,13 +265,13 @@ func (s *KiroGatewayService) forwardStreaming(
 			mu.Lock()
 			defer mu.Unlock()
 			markFirstToken()
+			toolUses = append(toolUses, tu)
 			enc.writeToolUse(tu)
 		},
-		OnComplete: func(in, out int) {
-			mu.Lock()
-			defer mu.Unlock()
-			inputTokens = in
-			outputToks = out
+		// Kiro upstream reports no token usage; OnComplete(in,out) is always (0,0).
+		// We estimate token usage locally below instead of trusting these values.
+		OnCredits: func(credits float64) {
+			logKiroCredits(kiroAcct, model, credits)
 		},
 		OnError: func(err error) {
 			mu.Lock()
@@ -273,11 +287,21 @@ func (s *KiroGatewayService) forwardStreaming(
 
 	// If the upstream failed before producing any content, surface the error so
 	// the handler can decide on failover instead of emitting a half-finished
-	// SSE stream. (Once content has begun we close out the stream cleanly.)
+	// SSE stream. (Once content has begun — enc.started — we close out the
+	// stream cleanly because the client has already received a 200 + bytes.)
+	// classifyKiroForwardError maps a recognized HTTP 400 INVALID_MODEL_ID into
+	// a typed *KiroInvalidModelError so the handler can return a clean 400.
 	if callErr != nil && !enc.started {
-		return nil, fmt.Errorf("kiro upstream call failed: %w", callErr)
+		return nil, classifyKiroForwardError(callErr, model)
 	}
 
+	// Estimate token usage (Kiro upstream returns credits only — see estimate.go).
+	inputTokens := kiroproto.EstimateInputTokens(req)
+	outputToks := kiroproto.EstimateOutputTokens(textBuf, thinkingBuf, toolUses)
+
+	// Upstream succeeded but produced no content (enc.started still false):
+	// emit message_start lazily here so the closing events form a valid stream.
+	enc.writeMessageStart()
 	enc.closeOpenBlock()
 	enc.writeMessageDelta(outputToks)
 	enc.writeMessageStop()
@@ -298,5 +322,21 @@ func (s *KiroGatewayService) forwardStreaming(
 		Stream:        true,
 		Duration:      time.Since(startTime),
 		FirstTokenMs:  firstTokMs,
+		BillingTier:   kiroproto.KiroEstimatedBillingTier,
 	}, nil
+}
+
+// logKiroCredits records the Kiro upstream credits cost at info level for
+// observability. Credits are NOT used for billing (we estimate tokens instead);
+// this is a passive side channel to reconcile estimated cost against upstream.
+func logKiroCredits(account *kiroproto.Account, model string, credits float64) {
+	var accountID string
+	if account != nil {
+		accountID = account.ID
+	}
+	slog.Info("kiro upstream credits",
+		"account_id", accountID,
+		"model", model,
+		"credits", credits,
+	)
 }

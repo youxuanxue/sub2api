@@ -3365,6 +3365,9 @@ export default {
           exceeded: '配额已用完，账号暂停调度',
           normal: '配额正常'
         },
+        today: {
+          tooltip: '今日用量：{requests} 次请求 · 计费 {cost}'
+        },
       },
       clearRateLimit: '清除速率限制',
       resetQuota: '重置配额',

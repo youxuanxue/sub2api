@@ -72,11 +72,15 @@ func (e *kiroSSEEncoder) writeMessageStart() {
 }
 
 // ensureBlock opens a content block of the requested kind, closing any
-// previously open block of a different kind first.
+// previously open block of a different kind first. It lazily emits message_start
+// on first content so that an upstream failure occurring before any content
+// arrives leaves enc.started == false (the caller's `!enc.started` guard then
+// surfaces the error instead of closing out a clean empty 200 stream).
 func (e *kiroSSEEncoder) ensureBlock(kind kiroBlockKind) {
 	if e.openBlock == kind {
 		return
 	}
+	e.writeMessageStart()
 	e.closeOpenBlock()
 
 	var cb map[string]any
@@ -125,6 +129,7 @@ func (e *kiroSSEEncoder) writeThinkingDelta(text string) {
 // Kiro delivers tool uses whole (not incrementally), so the input is serialized
 // as a single partial_json delta.
 func (e *kiroSSEEncoder) writeToolUse(tu kiroproto.KiroToolUse) {
+	e.writeMessageStart()
 	e.closeOpenBlock()
 	e.stopReason = "tool_use"
 
