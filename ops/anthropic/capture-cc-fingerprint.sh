@@ -265,6 +265,13 @@ cmd_capture() {
 
 cmd_check_env() {
   require_cmd python3
+  # Honor the operator's egress/proxy config (CC0_EXPECT_EGRESS_IP, CC0_SOCKS5,
+  # CC0_GOST_HTTP_*) instead of the python fallbacks. Matches capture-http-
+  # comprehensive.sh; without this the check reports a stale default egress IP.
+  if [[ -f "${HOME}/.config/cc0/env" ]]; then
+    # shellcheck disable=SC1091
+    source "${HOME}/.config/cc0/env"
+  fi
   local args=()
   while [[ $# -gt 0 ]]; do
     case "$1" in

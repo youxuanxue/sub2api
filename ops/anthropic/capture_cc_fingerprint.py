@@ -687,7 +687,9 @@ def run_check_env(
     socks = os.environ.get("CC0_SOCKS5", "127.0.0.1:1093")
     gost_host = os.environ.get("CC0_GOST_HTTP_HOST", "127.0.0.1")
     gost_port = int(os.environ.get("CC0_GOST_HTTP_PORT", "11800"))
-    expect_ip = os.environ.get("CC0_EXPECT_EGRESS_IP", "13.134.80.182")
+    # Fallback only — the operator's ~/.config/cc0/env CC0_EXPECT_EGRESS_IP wins.
+    # Current canonical cc0 SOCKS-chain egress (see docs/spec-delta-cc-2.1.16x.md).
+    expect_ip = os.environ.get("CC0_EXPECT_EGRESS_IP", "16.147.170.3")
     try:
         socks_host, socks_port = _parse_host_port(socks, default_host="127.0.0.1")
     except ValueError as exc:
