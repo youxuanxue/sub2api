@@ -130,10 +130,10 @@ func newTestReconciler(acc *reconcilerAccountStub, usr *reconcilerUserStub, bal 
 // --- Step baseline (account shared_baseline self-heal) stubs + tests ----------
 
 type stubTierApplier struct {
-	calls []int64 // account ids ApplyTier was invoked on
+	calls []int64 // account ids ReapplyBaselineInfra was invoked on
 }
 
-func (s *stubTierApplier) ApplyTier(ctx context.Context, accountID int64, tier string) (*Account, error) {
+func (s *stubTierApplier) ReapplyBaselineInfra(ctx context.Context, accountID int64, tier string) (*Account, error) {
 	s.calls = append(s.calls, accountID)
 	return &Account{ID: accountID}, nil
 }
@@ -166,11 +166,14 @@ func TestReconcileAccountBaselineDrift_HealsUnboundTLS(t *testing.T) {
 	require.Equal(t, []int64{7}, applier.calls, "unbound TLS must trigger ApplyTier self-heal")
 }
 
-func TestReconcileAccountBaselineDrift_HealsPriorityDrift(t *testing.T) {
+func TestReconcileAccountBaselineDrift_IgnoresPriorityDrift(t *testing.T) {
 	applier := &stubTierApplier{}
 	tls := &stubTLSByID{byID: map[int64]*model.TLSFingerprintProfile{5: {ID: 5, Name: "tk_canonical_cc_oauth"}}}
 	r := baselineSelfHealReconciler(applier, tls)
-	// fully bound + credentials present, but priority=2 (≠ baseline 1) → drift.
+	// fully bound infra + credentials present, but priority=2 (≠ baseline 1).
+	// priority is owned by the window-rebalance pipeline at runtime, so a drifted
+	// priority on an otherwise-aligned account must NOT trigger self-heal —
+	// otherwise the reconciler would flatten rebalance's window-aware ordering.
 	accts := []Account{{
 		ID: 8, Platform: PlatformAnthropic, Type: AccountTypeSetupToken, TierID: tierID2(),
 		Priority:    2,
@@ -178,7 +181,7 @@ func TestReconcileAccountBaselineDrift_HealsPriorityDrift(t *testing.T) {
 		Credentials: map[string]any{"temp_unschedulable_enabled": true, "temp_unschedulable_rules": []any{}, "intercept_warmup_requests": true},
 	}}
 	r.reconcileAccountBaselineDrift(context.Background(), accts)
-	require.Equal(t, []int64{8}, applier.calls, "priority drift must trigger ApplyTier self-heal")
+	require.Empty(t, applier.calls, "priority drift alone must NOT trigger self-heal (rebalance owns runtime priority)")
 }
 
 func TestReconcileAccountBaselineDrift_SkipsAligned(t *testing.T) {
