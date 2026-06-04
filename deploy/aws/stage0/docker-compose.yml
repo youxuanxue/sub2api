@@ -14,7 +14,8 @@
 
 services:
   caddy:
-    image: caddy:2-alpine
+    # Custom Caddy + caddy-ratelimit; see deploy/caddy/Dockerfile + caddy-image.yml.
+    image: ghcr.io/youxuanxue/tokenkey-caddy:2.11.4-ratelimit
     container_name: tokenkey-caddy
     restart: unless-stopped
     ports:

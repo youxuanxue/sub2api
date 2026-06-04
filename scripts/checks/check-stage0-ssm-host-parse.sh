@@ -16,7 +16,8 @@
 # This guard closes the gap: run each script with a stubbed `aws` so it emits
 # its params file WITHOUT touching AWS, then `bash -n` the joined commands.
 #
-# Scope (explicit, not silent): covers the two prod/edge MUTATION primitives.
+# Scope (explicit, not silent): covers the prod/edge MUTATION primitives
+# (deploy_via_ssm, sync_caddyfile_via_ssm prod+edge, sync_caddy_image_via_ssm).
 # edge_post_deploy_smoke.sh also builds an SSM `commands` array, but is left out
 # on purpose — its array is assembled inside functions behind many runtime env
 # vars (no clean "args -> params file" entrypoint to stub), and an unparseable
@@ -73,8 +74,9 @@ check_one() {
   echo "  ok: ${label} host script parses"
 }
 
-check_one "deploy_via_ssm.sh"               deploy    bash "${OPS}/deploy_via_ssm.sh" 1.0.0 i-0stub probe
-check_one "sync_caddyfile_via_ssm.sh prod"  sync-prod bash "${OPS}/sync_caddyfile_via_ssm.sh" prod i-0stub probe
-check_one "sync_caddyfile_via_ssm.sh edge"  sync-edge bash "${OPS}/sync_caddyfile_via_ssm.sh" edge i-0stub probe
+check_one "deploy_via_ssm.sh"               deploy     bash "${OPS}/deploy_via_ssm.sh" 1.0.0 i-0stub probe
+check_one "sync_caddyfile_via_ssm.sh prod"  sync-prod  bash "${OPS}/sync_caddyfile_via_ssm.sh" prod i-0stub probe
+check_one "sync_caddyfile_via_ssm.sh edge"  sync-edge  bash "${OPS}/sync_caddyfile_via_ssm.sh" edge i-0stub probe
+check_one "sync_caddy_image_via_ssm.sh"     sync-image bash "${OPS}/sync_caddy_image_via_ssm.sh" i-0stub probe
 
 exit "${rc}"

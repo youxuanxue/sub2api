@@ -5,11 +5,22 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 # We validate all load-bearing Caddyfile sources used by local/stage0 deploy flows.
+# The prod Caddyfile uses the `rate_limit` directive (github.com/mholt/caddy-ratelimit),
+# which stock caddy:2-alpine cannot parse — it must be adapted with the custom image
+# built from deploy/caddy/Dockerfile (see CUSTOM_FILES below). The other two stay on
+# stock caddy.
 FILES=(
   "deploy/Caddyfile"
   "deploy/aws/stage0/Caddyfile"
   "deploy/aws/stage0/Caddyfile.edge"
 )
+
+# Caddyfiles that require the custom (ratelimit) caddy binary to adapt.
+CUSTOM_FILES=(
+  "deploy/aws/stage0/Caddyfile"
+)
+
+CADDY_DOCKERFILE="deploy/caddy/Dockerfile"
 
 if ! command -v docker >/dev/null 2>&1; then
   if [ -n "${CI:-}" ]; then
@@ -60,6 +71,36 @@ if ! ensure_caddy_image; then
   exit 0
 fi
 
+# Custom caddy image (stock + caddy-ratelimit) for Caddyfiles that use rate_limit.
+# Built locally from deploy/caddy/Dockerfile (hermetic — no GHCR dependency, so the
+# PR that introduces rate_limit validates without a chicken-and-egg on the published
+# image). Tagged by a hash of the Dockerfile so the xcaddy build (Go compile, ~1-2m)
+# only re-runs when the Dockerfile changes; otherwise it's an instant image-inspect
+# hit. Empty CUSTOM_CADDY_IMAGE means "could not build" → skip-loudly downstream.
+CUSTOM_CADDY_IMAGE=""
+ensure_custom_caddy_image() {
+  if [ ! -f "$REPO_ROOT/$CADDY_DOCKERFILE" ]; then
+    echo "FAIL: missing $CADDY_DOCKERFILE (needed to adapt rate_limit Caddyfiles)" >&2
+    return 2
+  fi
+  local hash tag attempt
+  hash="$(sha256sum "$REPO_ROOT/$CADDY_DOCKERFILE" | cut -c1-12)"
+  tag="tokenkey-caddy-ratelimit:${hash}"
+  if docker image inspect "$tag" >/dev/null 2>&1; then
+    CUSTOM_CADDY_IMAGE="$tag"
+    return 0
+  fi
+  for attempt in 1 2 3; do
+    if docker build -q -f "$REPO_ROOT/$CADDY_DOCKERFILE" -t "$tag" "$REPO_ROOT/deploy/caddy" >/dev/null 2>&1; then
+      CUSTOM_CADDY_IMAGE="$tag"
+      return 0
+    fi
+    echo "warn: docker build $tag attempt ${attempt}/3 failed (xcaddy module fetch?); retrying..." >&2
+    sleep "$((attempt * 5))"
+  done
+  return 1
+}
+
 # Use deterministic placeholder values for stage0 templates that are rendered via envsubst in Cloud-Init.
 export API_DOMAIN="api.example.com"
 export ACME_EMAIL="ops@example.com"
@@ -80,11 +121,20 @@ render_template() {
 }
 
 adapt_with_caddy() {
-  local file="$1"
+  local file="$1" image="$2"
   docker run --rm \
     -v "$file:/work/Caddyfile:ro" \
-    "$CADDY_IMAGE" \
+    "$image" \
     caddy adapt --config /work/Caddyfile --adapter caddyfile >/dev/null
+}
+
+# Does $rel need the custom (ratelimit) image?
+needs_custom_image() {
+  local rel="$1" c
+  for c in "${CUSTOM_FILES[@]}"; do
+    [ "$c" = "$rel" ] && return 0
+  done
+  return 1
 }
 
 failures=0
@@ -96,10 +146,28 @@ for rel in "${FILES[@]}"; do
     continue
   fi
 
+  image="$CADDY_IMAGE"
+  if needs_custom_image "$rel"; then
+    if [ -z "$CUSTOM_CADDY_IMAGE" ]; then
+      ensure_custom_caddy_image
+      rc=$?
+      if [ "$rc" = 2 ]; then
+        failures=$((failures + 1))
+        continue
+      elif [ "$rc" != 0 ]; then
+        # Build failed after retries → module-fetch/network outage, not a config
+        # error. Skip this file loudly (same posture as the stock-image pull skip).
+        echo "warn: could not build custom caddy image after retries — SKIPPING syntax check for $rel (infra, not a config error)" >&2
+        continue
+      fi
+    fi
+    image="$CUSTOM_CADDY_IMAGE"
+  fi
+
   rendered="$WORK_DIR/.caddy-$(basename "$rel").rendered"
   render_template "$src" "$rendered"
 
-  if ! adapt_with_caddy "$rendered"; then
+  if ! adapt_with_caddy "$rendered" "$image"; then
     echo "FAIL: caddy adapt failed for $rel" >&2
     failures=$((failures + 1))
   fi

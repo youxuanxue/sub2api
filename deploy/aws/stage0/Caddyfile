@@ -20,6 +20,25 @@ ${API_DOMAIN} {
 	}
 	header @static ?Cache-Control "public, max-age=31536000, immutable"
 
+	# Per-IP rate limit (github.com/mholt/caddy-ratelimit — baked into the custom
+	# image referenced by docker-compose.yml; stock caddy can't parse this).
+	# WHY: a single source flooding one model with an empty account pool drove a
+	# 503 + retry storm (one IP peaked 1540 RPM = 62% of 24h traffic). This caps
+	# any one client at the cheapest layer, before auth/DB/scheduling, and returns
+	# 429 (clients back off) instead of melting the node.
+	# THRESHOLD 120 req / 60s: data-justified — across 88 prod IPs over 24h the
+	# legit peak-RPM p95 was 71; 120 sits well above it (zero false positives) and
+	# crushes the 1540-RPM outlier. `key {remote_host}` = real client IP (Caddy
+	# already overwrites X-Forwarded-For with {remote_host}). Sliding-window; the
+	# module orders `rate_limit` before reverse_proxy by default — no `order` needed.
+	rate_limit {
+		zone per_ip {
+			key    {remote_host}
+			window 1m
+			events 120
+		}
+	}
+
 	tls {
 		protocols tls1.2 tls1.3
 	}
