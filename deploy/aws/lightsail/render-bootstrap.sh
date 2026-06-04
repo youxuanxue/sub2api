@@ -53,8 +53,8 @@ echo "LIGHTSAIL_BOOTSTRAP_START $(date -u +%FT%TZ)"
 : "${GHCR_PAT_SSM_NAME:=}"
 : "${GHCR_PULL_USER:=}"
 
-# Align kernel hostname with Lightsail instance name so SSM ComputerName-based
-# discovery matches provision-edge.sh fallbacks (AL2023 default is often a dhcp name).
+# Align kernel hostname with the Lightsail instance name for SSM discovery
+# (matches provision-edge.sh; AL2023 default is often a dhcp name).
 if command -v hostnamectl >/dev/null 2>&1; then
   hostnamectl set-hostname "${INSTANCE_NAME}" || true
 else
