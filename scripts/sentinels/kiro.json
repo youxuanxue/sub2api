@@ -14,9 +14,10 @@
       "path": "backend/internal/service/anthropic_config_reconciler.go",
       "must_contain": [
         "func mirrorCapacityPlatform",
-        "mirror_platform"
+        "mirror_platform",
+        "r.reconcileKiroPriorityBaseline(ctx)"
       ],
-      "rationale": "Prod side of surface-C: reads each mirror stub's credentials.mirror_platform (default anthropic) and queries the matching edge pool. Losing mirrorCapacityPlatform collapses the anthropic/kiro distinction so every mirror stub queries ?platform=anthropic again and a kiro stub silently mirrors the anthropic Σ."
+      "rationale": "Prod side of surface-C: reads each mirror stub's credentials.mirror_platform (default anthropic) and queries the matching edge pool. Losing mirrorCapacityPlatform collapses the anthropic/kiro distinction so every mirror stub queries ?platform=anthropic again and a kiro stub silently mirrors the anthropic Σ. The r.reconcileKiroPriorityBaseline(ctx) call in runOnce is the wiring of the kiro priority self-heal step; losing the call leaves the step defined but never run."
     },
     {
       "path": "backend/internal/repository/account_repo.go",
@@ -51,9 +52,19 @@
       "must_contain": [
         "StreamingUserAgent",
         "BuildUserAgent",
-        "DefaultKiroIDEVersion"
+        "DefaultKiroIDEVersion",
+        "DefaultKiroAccountPriority"
       ],
-      "rationale": "TK-side canonical KiroIDE client identity + User-Agent builder used for fingerprint mimicry. If dropped, kiro egress loses its KiroIDE-<ver> UA and is trivially distinguishable from the real client."
+      "rationale": "TK-side canonical KiroIDE client identity + User-Agent builder used for fingerprint mimicry. If dropped, kiro egress loses its KiroIDE-<ver> UA and is trivially distinguishable from the real client. DefaultKiroAccountPriority is the single-source baseline the config reconciler hard-enforces onto every kiro account's priority; losing it would drop the kiro priority self-heal."
+    },
+    {
+      "path": "backend/internal/service/anthropic_config_reconciler_tk_kiro_priority.go",
+      "must_contain": [
+        "func (r *AnthropicConfigReconciler) reconcileKiroPriorityBaseline",
+        "ListByPlatform(ctx, PlatformKiro)",
+        "DefaultKiroAccountPriority"
+      ],
+      "rationale": "Kiro priority baseline self-heal: value-syncs every active kiro account's priority to kiro.DefaultKiroAccountPriority each reconciler tick (kiro is in neither the tier system nor the window-rebalance pipeline). Losing this step means kiro account priority silently regresses to the 0 zero-value on DB rebuild / new account creation. The call site is guarded by the reconcileKiroPriorityBaseline anchor on anthropic_config_reconciler.go."
     },
     {
       "path": "backend/internal/integration/kiro/VENDORED_FROM.md",

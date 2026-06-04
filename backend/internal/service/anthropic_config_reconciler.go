@@ -266,6 +266,11 @@ func (r *AnthropicConfigReconciler) runOnce(ctx context.Context) {
 
 	// Step tier-drift: REPORT ONLY.
 	r.reportTierDrift(accounts)
+
+	// Step kiro-priority: HARD-ENFORCE kiro account priority baseline. Fetches its
+	// own kiro account list (the list above is anthropic-only). Kiro-scoped; does
+	// not touch anthropic priority (owned by the window-rebalance pipeline).
+	r.reconcileKiroPriorityBaseline(ctx)
 }
 
 // reconcileTierConcurrency value-syncs each tier-bound anthropic OAUTH account's
