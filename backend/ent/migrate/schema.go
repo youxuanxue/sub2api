@@ -813,7 +813,7 @@ var (
 		{Name: "id", Type: field.TypeInt64, Increment: true},
 		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
-		{Name: "platform", Type: field.TypeEnum, Enums: []string{"openai", "anthropic", "gemini", "antigravity", "newapi"}},
+		{Name: "platform", Type: field.TypeEnum, Enums: []string{"openai", "anthropic", "gemini", "antigravity", "newapi", "kiro"}},
 		{Name: "model_id", Type: field.TypeString, Size: 200},
 		{Name: "status", Type: field.TypeEnum, Enums: []string{"ok", "stale", "unreachable", "untested"}, Default: "untested"},
 		{Name: "last_seen_ok_at", Type: field.TypeTime, Nullable: true},
