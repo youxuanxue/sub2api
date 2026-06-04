@@ -322,7 +322,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		}
 		if selection == nil || selection.Account == nil {
 			markOpsRoutingCapacityLimited(c)
-			h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
+			h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", "No available accounts", streamStarted)
 			return
 		}
 		if previousResponseID != "" && selection != nil && selection.Account != nil {
@@ -756,7 +756,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		}
 		if selection == nil || selection.Account == nil {
 			markOpsRoutingCapacityLimited(c)
-			h.anthropicStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
+			h.anthropicStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", "No available accounts", streamStarted)
 			return
 		}
 		account := selection.Account
@@ -1071,7 +1071,7 @@ func (h *OpenAIGatewayHandler) acquireResponsesAccountSlot(
 ) (func(), bool) {
 	if selection == nil || selection.Account == nil {
 		markOpsRoutingCapacityLimited(c)
-		h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", *streamStarted)
+		h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", "No available accounts", *streamStarted)
 		return nil, false
 	}
 
@@ -1082,7 +1082,7 @@ func (h *OpenAIGatewayHandler) acquireResponsesAccountSlot(
 	}
 	if selection.WaitPlan == nil {
 		markOpsRoutingCapacityLimited(c)
-		h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", *streamStarted)
+		h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", "No available accounts", *streamStarted)
 		return nil, false
 	}
 

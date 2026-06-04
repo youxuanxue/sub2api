@@ -173,7 +173,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 			}
 		}
 		if selection == nil || selection.Account == nil {
-			h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
+			h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", "No available accounts", streamStarted)
 			return
 		}
 		account := selection.Account
@@ -471,7 +471,7 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 			}
 		}
 		if selection == nil || selection.Account == nil {
-			h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
+			h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", "No available accounts", streamStarted)
 			return
 		}
 		account := selection.Account
