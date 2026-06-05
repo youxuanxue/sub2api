@@ -84,12 +84,18 @@ export interface EdgeTodayStats {
 /**
  * One edge's slice of the aggregate. `ok` distinguishes a reachable edge (even
  * with zero accounts) from an unreachable one (`error` set).
+ *
+ * `stub_schedulable` mirrors the prod-side mirror stub's own scheduling toggle —
+ * prod's "route traffic to this edge / don't" switch. When false the stub was
+ * 关调度 (taken out of prod rotation) while the edge itself stays reachable, so the
+ * overview flags it; see backend service.EdgeAccountsResult.StubSchedulable.
  */
 export interface EdgeAccountsResult {
   edge_id: string
   base_url: string
   ok: boolean
   error?: string
+  stub_schedulable: boolean
   accounts: EdgeAccountSummary[]
 }
 

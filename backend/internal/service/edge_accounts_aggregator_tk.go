@@ -62,12 +62,22 @@ type edgeAccountsStore interface {
 // sanitized, credential-free edgeAccountDTO with its live capacity/today gauges)
 // is owned solely by the edge handler and the frontend TS type. Prod just relays
 // it verbatim, so adding an account field never requires touching this file.
+//
+// StubSchedulable mirrors the prod-side mirror stub's own scheduling toggle (the
+// account whose api-key prod uses to reach this edge). It is the operator's
+// "route prod traffic to this edge / don't" switch: turning scheduling off on the
+// stub (关调度) takes the edge out of prod rotation while leaving the edge itself
+// reachable. The overview lists the edge's own accounts regardless, so without
+// surfacing this the operator can't tell from the overview that prod has stopped
+// routing here. It is false only when the stub is reachable-but-paused; a fully
+// disabled stub is dropped from the aggregate entirely (see discoverEdgeTargets).
 type EdgeAccountsResult struct {
-	EdgeID   string            `json:"edge_id"`
-	BaseURL  string            `json:"base_url"`
-	OK       bool              `json:"ok"`
-	Error    string            `json:"error,omitempty"`
-	Accounts []json.RawMessage `json:"accounts"`
+	EdgeID          string            `json:"edge_id"`
+	BaseURL         string            `json:"base_url"`
+	OK              bool              `json:"ok"`
+	Error           string            `json:"error,omitempty"`
+	StubSchedulable bool              `json:"stub_schedulable"`
+	Accounts        []json.RawMessage `json:"accounts"`
 }
 
 // EdgeAccountsAggregate is the full cross-edge payload returned to the admin UI.
@@ -89,11 +99,14 @@ func NewEdgeAccountsAggregator(accounts edgeAccountsStore, client httpDoer) *Edg
 	return &EdgeAccountsAggregator{accounts: accounts, http: client}
 }
 
-// edgeTarget is a deduped {base_url, api_key, edge_id} discovered from a stub.
+// edgeTarget is a deduped {base_url, api_key, edge_id} discovered from a stub,
+// plus the stub's own scheduling toggle so the overview can show whether prod is
+// still routing to this edge (see EdgeAccountsResult.StubSchedulable).
 type edgeTarget struct {
-	edgeID  string
-	baseURL string
-	apiKey  string
+	edgeID      string
+	baseURL     string
+	apiKey      string
+	schedulable bool
 }
 
 // Aggregate discovers mirror-stub edges and concurrently reads each edge's
@@ -176,9 +189,10 @@ func discoverEdgeTargets(accounts []Account, re *regexp.Regexp) []edgeTarget {
 		}
 		seen[baseURL] = struct{}{}
 		targets = append(targets, edgeTarget{
-			edgeID:  edgeIDFromBaseURL(baseURL),
-			baseURL: baseURL,
-			apiKey:  apiKey,
+			edgeID:      edgeIDFromBaseURL(baseURL),
+			baseURL:     baseURL,
+			apiKey:      apiKey,
+			schedulable: acct.Schedulable,
 		})
 	}
 	return targets
@@ -221,7 +235,7 @@ func edgeIDFromBaseURL(baseURL string) string {
 // x-api-key auth and an 8s timeout. Any failure → {ok:false, error}, never a
 // panic and never a failed aggregate.
 func (a *EdgeAccountsAggregator) fetchEdgeAccounts(ctx context.Context, t edgeTarget, platform string) EdgeAccountsResult {
-	res := EdgeAccountsResult{EdgeID: t.edgeID, BaseURL: t.baseURL, Accounts: []json.RawMessage{}}
+	res := EdgeAccountsResult{EdgeID: t.edgeID, BaseURL: t.baseURL, StubSchedulable: t.schedulable, Accounts: []json.RawMessage{}}
 	if a.http == nil {
 		res.Error = "no http client"
 		return res

@@ -387,9 +387,10 @@
       "must_contain": [
         "'/admin/edge-accounts'",
         "export const edgeAccountsAPI",
-        "adminSession"
+        "adminSession",
+        "stub_schedulable: boolean"
       ],
-      "rationale": "TK-only API client for the cross-edge read-only account overview (GET /admin/edge-accounts) plus the manage-accounts handoff (POST /admin/edge-accounts/:edge/admin-session, the adminSession method). Mirrors api/admin/tier.ts. Backs the Edge Accounts admin page; silent upstream-merge deletion would break its list or adminSession call. The EdgeAccountSummary type carries notes (the non-credential operator 备注) and is platform-agnostic — the page defaults to the backend 'all' sentinel so every platform's accounts are listed, not just anthropic."
+      "rationale": "TK-only API client for the cross-edge read-only account overview (GET /admin/edge-accounts) plus the manage-accounts handoff (POST /admin/edge-accounts/:edge/admin-session, the adminSession method). Mirrors api/admin/tier.ts. Backs the Edge Accounts admin page; silent upstream-merge deletion would break its list or adminSession call. The EdgeAccountSummary type carries notes (the non-credential operator 备注) and is platform-agnostic — the page defaults to the backend 'all' sentinel so every platform's accounts are listed, not just anthropic. The EdgeAccountsResult type carries stub_schedulable — the prod-side stub's scheduling toggle — so the view can flag an edge whose stub was 关调度 (out of prod rotation but still reachable); dropping it would silently regress that visibility."
     },
     {
       "path": "frontend/src/composables/useTkEdgeAccounts.ts",
@@ -415,9 +416,11 @@
         "AccountUsageCell",
         "AccountStatusIndicator",
         "toAccountLike",
-        "toUsageInfo"
+        "toUsageInfo",
+        "!edge.stub_schedulable",
+        "admin.edgeAccounts.stubPaused"
       ],
-      "rationale": "TK-only read-only admin page grouping accounts by edge. Renders the per-edge ok/failed/timeout state and a credential-free account table that REUSES the real admin AccountCapacityCell + AccountUsageCell (today + 5h/7d windows) via toAccountLike / toUsageInfo, so the overview's capacity + usage-window gauges stay pixel-aligned with the per-edge /admin/accounts page. Guards against silent upstream-merge deletion of the view or a refactor that drops the cell reuse (which would regress the page back to a sparse static table). Also reuses AccountStatusIndicator for the 状态 column (instead of a hand-rolled badge) so it matches the per-edge admin page's status semantics; dropping it would regress status display. The platformFilter dropdown (bound through setPlatform) and the acct.notes line under the name are load-bearing: the page defaults to ALL platforms (not anthropic-only) and shows the operator 备注 like the per-edge admin page — dropping either anchor regresses the cross-platform overview or hides the remark. openEdgeManage + the manageAccounts button are the jump-to-manage entry: they mint a handoff and open the edge's own /admin/accounts in a new tab; dropping them removes cross-edge account management."
+      "rationale": "TK-only read-only admin page grouping accounts by edge. Renders the per-edge ok/failed/timeout state and a credential-free account table that REUSES the real admin AccountCapacityCell + AccountUsageCell (today + 5h/7d windows) via toAccountLike / toUsageInfo, so the overview's capacity + usage-window gauges stay pixel-aligned with the per-edge /admin/accounts page. Guards against silent upstream-merge deletion of the view or a refactor that drops the cell reuse (which would regress the page back to a sparse static table). Also reuses AccountStatusIndicator for the 状态 column (instead of a hand-rolled badge) so it matches the per-edge admin page's status semantics; dropping it would regress status display. The platformFilter dropdown (bound through setPlatform) and the acct.notes line under the name are load-bearing: the page defaults to ALL platforms (not anthropic-only) and shows the operator 备注 like the per-edge admin page — dropping either anchor regresses the cross-platform overview or hides the remark. openEdgeManage + the manageAccounts button are the jump-to-manage entry: they mint a handoff and open the edge's own /admin/accounts in a new tab; dropping them removes cross-edge account management. The edge-header stubPaused badge (shown when !edge.stub_schedulable) is the one signal that a stub was 关调度 — prod stopped routing to a still-reachable edge; dropping it re-hides that state, the gap this surfacing closed."
     },
     {
       "path": "frontend/src/views/admin/EdgeHandoffView.vue",
