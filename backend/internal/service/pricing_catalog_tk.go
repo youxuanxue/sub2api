@@ -227,6 +227,11 @@ func buildCatalogFromBytes(data []byte, modTime time.Time) *PublicCatalogRespons
 		if e.InputCostPerToken == nil && e.OutputCostPerToken == nil {
 			continue
 		}
+		// TokenKey: prune retired/unservable claude + gpt rows. Other
+		// vendors pass through. See pricing_catalog_supported_models_tk.go.
+		if !isPublicCatalogModelSupported(e.LiteLLMProvider, name) {
+			continue
+		}
 		models = append(models, catalogModelFromEntry(name, &e))
 	}
 

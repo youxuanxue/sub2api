@@ -16,9 +16,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Fixture uses servable claude/gpt IDs (claude-opus-4-6, gpt-5.4) so the
+// public-catalog support filter (pricing_catalog_supported_models_tk.go)
+// keeps them — the parser test validates parsing mechanics, not the filter.
 const litellmFixtureJSON = `{
   "sample_spec": {"input_cost_per_token": 1.0},
-  "claude-sonnet-4.5": {
+  "claude-opus-4-6": {
     "input_cost_per_token": 0.000003,
     "output_cost_per_token": 0.000015,
     "cache_read_input_token_cost": 0.0000003,
@@ -30,7 +33,7 @@ const litellmFixtureJSON = `{
     "supports_tool_choice": true,
     "supports_prompt_caching": true
   },
-  "gpt-4o-mini": {
+  "gpt-5.4": {
     "input_cost_per_token": 0.00000015,
     "output_cost_per_token": 0.0000006,
     "litellm_provider": "openai",
@@ -61,7 +64,7 @@ func TestPricingCatalogService_ParsesLiteLLMShape(t *testing.T) {
 
 	// Sorted alphabetically by model_id, so claude- < gpt-.
 	claude := resp.Data[0]
-	assert.Equal(t, "claude-sonnet-4.5", claude.ModelID)
+	assert.Equal(t, "claude-opus-4-6", claude.ModelID)
 	assert.Equal(t, "anthropic", claude.Vendor)
 	assert.Equal(t, "USD", claude.Pricing.Currency)
 	// per-token (3e-6) * 1000 == 0.003 per 1k.
@@ -74,11 +77,72 @@ func TestPricingCatalogService_ParsesLiteLLMShape(t *testing.T) {
 	assert.ElementsMatch(t, []string{"vision", "tool_use", "prompt_caching"}, claude.Capabilities)
 
 	gpt := resp.Data[1]
-	assert.Equal(t, "gpt-4o-mini", gpt.ModelID)
+	assert.Equal(t, "gpt-5.4", gpt.ModelID)
 	assert.Equal(t, "openai", gpt.Vendor)
 	// supports_function_calling alone also yields tool_use.
 	assert.Contains(t, gpt.Capabilities, "tool_use")
 	assert.Contains(t, gpt.Capabilities, "vision")
+}
+
+// TestPublicCatalog_FiltersUnservableClaudeAndGpt covers the support filter
+// (pricing_catalog_supported_models_tk.go): retired/unservable claude + gpt
+// rows are pruned, servable ones kept, and every non-claude/gpt vendor passes
+// through untouched.
+func TestPublicCatalog_FiltersUnservableClaudeAndGpt(t *testing.T) {
+	const fixture = `{
+	  "claude-opus-4-8":           {"input_cost_per_token":0.000005,"output_cost_per_token":0.000025,"litellm_provider":"anthropic"},
+	  "claude-3-haiku-20240307":   {"input_cost_per_token":0.00000025,"output_cost_per_token":0.00000125,"litellm_provider":"anthropic"},
+	  "claude-opus-4-6-20260205":  {"input_cost_per_token":0.000003,"output_cost_per_token":0.000015,"litellm_provider":"anthropic"},
+	  "gpt-5.4":                   {"input_cost_per_token":0.0000005,"output_cost_per_token":0.000002,"litellm_provider":"openai"},
+	  "gpt-4o":                    {"input_cost_per_token":0.0000025,"output_cost_per_token":0.00001,"litellm_provider":"openai"},
+	  "gpt-3.5-turbo":             {"input_cost_per_token":0.0000005,"output_cost_per_token":0.0000015,"litellm_provider":"openai"},
+	  "gemini-2.5-pro":            {"input_cost_per_token":0.00000125,"output_cost_per_token":0.00001,"litellm_provider":"vertex_ai-language-models"},
+	  "deepseek-chat":             {"input_cost_per_token":0.0000003,"output_cost_per_token":0.0000011,"litellm_provider":"deepseek"}
+	}`
+	s := &PricingCatalogService{}
+	s.SetSourceForTesting(func() ([]byte, time.Time, bool) {
+		return []byte(fixture), time.Date(2026, 6, 5, 0, 0, 0, 0, time.UTC), true
+	})
+	resp := s.BuildPublicCatalog(context.Background())
+	require.NotNil(t, resp)
+
+	got := make(map[string]bool, len(resp.Data))
+	for _, m := range resp.Data {
+		got[m.ModelID] = true
+	}
+	// Servable claude/gpt kept.
+	assert.True(t, got["claude-opus-4-8"], "servable claude kept")
+	assert.True(t, got["gpt-5.4"], "servable gpt kept")
+	// Retired / dated-dup / unservable claude+gpt pruned.
+	assert.False(t, got["claude-3-haiku-20240307"], "retired claude pruned")
+	assert.False(t, got["claude-opus-4-6-20260205"], "dated-snapshot claude pruned")
+	assert.False(t, got["gpt-4o"], "unservable gpt pruned")
+	assert.False(t, got["gpt-3.5-turbo"], "legacy gpt pruned")
+	// Other vendors untouched (filter only curates claude + gpt families).
+	assert.True(t, got["gemini-2.5-pro"], "gemini vendor passes through")
+	assert.True(t, got["deepseek-chat"], "non-curated vendor passes through")
+}
+
+func TestIsPublicCatalogModelSupported(t *testing.T) {
+	cases := []struct {
+		vendor, model string
+		want          bool
+	}{
+		{"anthropic", "claude-opus-4-8", true},
+		{"anthropic", "claude-3-haiku-20240307", false},
+		{"anthropic", "claude-opus-4-6-20260205", false},
+		{"openai", "gpt-5.4", true},
+		{"openai", "gpt-image-2", true},
+		{"openai", "gpt-4o", false},
+		{"azure_openai", "gpt-4", false}, // azure_openai → openai platform, gated
+		{"vertex_ai-language-models", "gemini-2.5-pro", true}, // other vendor: pass-through
+		{"deepseek", "deepseek-chat", true},
+		{"", "anything", true}, // unknown vendor: pass-through
+	}
+	for _, c := range cases {
+		assert.Equalf(t, c.want, isPublicCatalogModelSupported(c.vendor, c.model),
+			"vendor=%q model=%q", c.vendor, c.model)
+	}
 }
 
 func TestPricingCatalogService_EmptyOrUnparseableSourceReturnsEmptyList(t *testing.T) {
