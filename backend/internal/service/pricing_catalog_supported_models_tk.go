@@ -53,13 +53,19 @@ var supportedAnthropicCatalogModels = map[string]struct{}{
 // (gpt-image-*) are not chat/responses-probeable; they are kept on the
 // canonical openai.DefaultModels basis (recently added, actively served).
 var supportedOpenAICatalogModels = map[string]struct{}{
-	"gpt-5.5":             {},
-	"gpt-5.5-pro":         {},
-	"gpt-5.4":             {},
-	"gpt-5.4-pro":         {},
-	"gpt-5.4-mini":        {},
+	"gpt-5.5":      {},
+	"gpt-5.5-pro":  {},
+	"gpt-5.4":      {},
+	"gpt-5.4-pro":  {},
+	"gpt-5.4-mini": {},
+	// Codex-family + gpt-5.2 are canonical openai.DefaultModels. The probe
+	// could not confirm them (chat/completions rejects codex routing; the
+	// minimal /v1/responses shape 502s), so they are kept on the advertised
+	// (canonical) basis rather than dropped on an inconclusive probe — same
+	// keep-on-canonical rationale as the image models below.
 	"gpt-5.3-codex":       {},
 	"gpt-5.3-codex-spark": {},
+	"gpt-5.2":             {},
 	"gpt-5.1":             {},
 	"gpt-5.1-chat-latest": {},
 	"gpt-5":               {},
