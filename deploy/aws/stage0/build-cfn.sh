@@ -155,13 +155,12 @@ refresh_template() {
     />>> BOOTSTRAP_GZB64_SSM_PART2 START/ { print; print new_bootstrap2_ssm; skip = 1; next }
     />>> BOOTSTRAP_GZB64_SSM_PART2 END/ { skip = 0; print; next }
     />>> USERDATA_LAUNCHER START/ {
-      print
       while ((getline line < userdata_file) > 0) print line
       close(userdata_file)
       skip = 1
       next
     }
-    />>> USERDATA_LAUNCHER END/ { skip = 0; print; next }
+    />>> USERDATA_LAUNCHER END/ { skip = 0; next }
     { if (!skip) print }
   ' "${src}" > "${dst}"
   rm -f "${userdata_tmp}"
