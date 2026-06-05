@@ -238,5 +238,103 @@ class HttpUaDriftTest(unittest.TestCase):
         self.assertEqual("drift", items[0]["status"])
 
 
+class RedisCacheDriftTest(unittest.TestCase):
+    """Redis cached config blob (tls_fingerprint_profiles / tiers) vs DB drift —
+    the surface that catches the silent built-in-default fallback when a DB row
+    is written without invalidating the cache (DB-correct, runtime-wrong)."""
+
+    TLS_DB = ('[{"id":1,"name":"tk_canonical_cc_oauth",'
+              '"updated_at":"2026-06-04T10:00:00.000000Z"}]')
+    TIERS_DB = '[{"name":"l5","updated_at":"2026-06-04T10:00:00.000000Z"}]'
+
+    def _state(self, tls_redis, tls_db=None, tiers_redis="[]", tiers_db="[]"):
+        return {
+            "tls_redis": tls_redis, "tls_db": self.TLS_DB if tls_db is None else tls_db,
+            "tiers_redis": tiers_redis, "tiers_db": tiers_db,
+        }
+
+    def test_in_sync_no_drift(self) -> None:
+        synced = ('[{"id":1,"name":"tk_canonical_cc_oauth",'
+                  '"updated_at":"2026-06-04T10:00:00.000000Z"}]')
+        self.assertEqual([], mgr._redis_cache_drift_items("edge:us1", self._state(synced)))
+
+    def test_cold_cache_is_not_drift(self) -> None:
+        # key absent (empty GET) -> read-through repopulates from DB; never drift.
+        self.assertEqual([], mgr._redis_cache_drift_items("edge:us1", self._state("")))
+
+    def test_missing_in_cache_is_keyset_drift(self) -> None:
+        # DB has profile id=1, cache holds none -> stale cache, runtime falls back.
+        items = mgr._redis_cache_drift_items("edge:us1", self._state("[]"))
+        self.assertTrue(any(i["status"] == "drift" and i["field"] == "key-set" for i in items))
+        self.assertTrue(any("MISSING" in i["warning"] for i in items))
+
+    def test_extra_in_cache_is_keyset_drift(self) -> None:
+        extra = ('[{"id":1,"name":"tk_canonical_cc_oauth","updated_at":"2026-06-04T10:00:00.000000Z"},'
+                 '{"id":99,"name":"ghost","updated_at":"2026-06-04T10:00:00.000000Z"}]')
+        items = mgr._redis_cache_drift_items("edge:us1", self._state(extra))
+        self.assertTrue(any(i["field"] == "key-set" and "EXTRA" in i["warning"] for i in items))
+
+    def test_stale_updated_at_is_drift(self) -> None:
+        # cache copy is an hour older than DB -> STALE.
+        stale = ('[{"id":1,"name":"tk_canonical_cc_oauth",'
+                 '"updated_at":"2026-06-04T09:00:00.000000Z"}]')
+        items = mgr._redis_cache_drift_items("edge:us1", self._state(stale))
+        hits = [i for i in items if i["status"] == "drift" and i["field"].endswith(":updated_at")]
+        self.assertEqual(1, len(hits))
+        self.assertIn("STALE", hits[0]["warning"])
+
+    def test_name_mismatch_for_shared_id_is_drift(self) -> None:
+        wrong = ('[{"id":1,"name":"claude_cli_nodejs24_fixed",'
+                 '"updated_at":"2026-06-04T10:00:00.000000Z"}]')
+        items = mgr._redis_cache_drift_items("edge:us1", self._state(wrong))
+        self.assertTrue(any(i["field"].endswith(":name") for i in items))
+
+    def test_invalid_redis_blob_is_error(self) -> None:
+        items = mgr._redis_cache_drift_items("edge:us1", self._state("not-json"))
+        self.assertTrue(any(i["status"] == "error" for i in items))
+
+    def test_tiers_stale_path(self) -> None:
+        synced = ('[{"id":1,"name":"tk_canonical_cc_oauth",'
+                  '"updated_at":"2026-06-04T10:00:00.000000Z"}]')
+        tiers_stale = '[{"name":"l5","updated_at":"2026-06-04T08:00:00.000000Z"}]'
+        items = mgr._redis_cache_drift_items(
+            "edge:us1", self._state(synced, tiers_redis=tiers_stale, tiers_db=self.TIERS_DB))
+        self.assertTrue(any(i["cache"] == "tiers" and "STALE" in i["warning"] for i in items))
+
+    def test_go_nanos_vs_pg_micros_within_tolerance(self) -> None:
+        # Go RFC3339Nano cached vs PG to_char micros DB — same instant, no drift.
+        nano = ('[{"id":1,"name":"tk_canonical_cc_oauth",'
+                '"updated_at":"2026-06-04T10:00:00.123456789Z"}]')
+        db = ('[{"id":1,"name":"tk_canonical_cc_oauth",'
+              '"updated_at":"2026-06-04T10:00:00.123456Z"}]')
+        self.assertEqual([], mgr._redis_cache_drift_items("edge:us1", self._state(nano, tls_db=db)))
+
+    def test_section_parser_splits_on_markers(self) -> None:
+        out = "\n".join([
+            "@@RDRIFT:tls_redis", '[{"id":1}]', "@@RDRIFT:tls_ttl", "82800",
+            "@@RDRIFT:tiers_redis", "[]", "@@RDRIFT:end",
+        ])
+        sec = mgr._parse_redis_drift_sections(out)
+        self.assertEqual('[{"id":1}]', sec["tls_redis"])
+        self.assertEqual("82800", sec["tls_ttl"])
+        self.assertEqual("[]", sec["tiers_redis"])
+
+    def test_shell_base64_round_trips_to_exact_sql(self) -> None:
+        import base64 as _b64
+        import re as _re
+        sh = mgr.render_redis_cache_drift_shell()
+        self.assertIn("env -u REDISCLI_AUTH", sh)
+        b64s = _re.findall(r"echo ([A-Za-z0-9+/=]+) \| base64 -d \| \$PSQL", sh)
+        self.assertEqual(2, len(b64s))
+        decoded = [_b64.b64decode(x).decode() for x in b64s]
+        self.assertEqual(mgr.REDIS_DRIFT_TLS_DB_SQL, decoded[0])
+        self.assertEqual(mgr.REDIS_DRIFT_TIERS_DB_SQL, decoded[1])
+
+    def test_new_db_sql_registered_in_self_check(self) -> None:
+        labels = {label for label, _ in mgr.iter_self_check_sql()}
+        self.assertIn("REDIS_DRIFT_TLS_DB_SQL", labels)
+        self.assertIn("REDIS_DRIFT_TIERS_DB_SQL", labels)
+
+
 if __name__ == "__main__":
     unittest.main()

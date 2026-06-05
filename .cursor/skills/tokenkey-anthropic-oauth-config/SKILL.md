@@ -27,7 +27,7 @@ description: >-
 | 跨账号脑补现状 | snapshot 总是先拉**一次** SSM live，check/plan 派生于 snapshot，不允许凭"我记得它是 …" 现场断言 | `_load_snapshot_or_die` 强制版本号校验 |
 | 误触发的破坏性 apply | `--confirm yes-apply-anthropic-config-cascade` 字面匹配；缺失或拼错都 fail | `CONFIRM_CODE` 常量 |
 
-需要查"现在 live 状态"时**只用 `manage-anthropic-config.py snapshot`**——不要现场拼 psql/redis-cli。临时排障如必须直查，遵循同源 traffic-profile skill §1.1 的 row_to_json 固化脚本流程，不要写多列 `\|` 分隔 SELECT。
+需要查"现在 live 状态"时**只用 `manage-anthropic-config.py snapshot`**（DB 持久化态）或 **`check`**（DB + Redis blob 比对，含 `redis_cache_drift`）——不要现场拼 psql/redis-cli。Redis 缓存与 DB 的一致性已由 `check` 的 `redis_cache_drift` 子项固化覆盖（`tls_fingerprint_profiles` / `tiers` blob vs DB 表），不再需要手搓 redis-cli 比对。临时排障如必须直查，遵循同源 traffic-profile skill §1.1 的 row_to_json 固化脚本流程，不要写多列 `\|` 分隔 SELECT。
 
 `apply` 任一 step 失败 → STOP，`apply-report.json` 列出已完成 + 未完成 step。verify 必须跑；drift → operator 决定补 apply 或回滚。
 
@@ -59,10 +59,10 @@ MGR=ops/anthropic/manage-anthropic-config.py
 python3 $MGR snapshot --out $JOBDIR/snap.json
 
 # Stage 2 — Check（联查）：每个 edge 跑 OAuth 稳定性 guard，读出 TLS / 余额 /
-#   tier 表（vs git）/ HTTP UA + mimicry manifest 漂移
+#   tier 表（vs git）/ HTTP UA + mimicry manifest / Redis 缓存 blob vs DB 漂移
 python3 $MGR check --snapshot $JOBDIR/snap.json
 #   退出码：0 全绿 / 1 violation（含 tls_profile drift、operator_balance 低于门槛、
-#           tier_table_drift、http_ua_drift 等）/ 2 error
+#           tier_table_drift、http_ua_drift、redis_cache_drift 等）/ 2 error
 #   注意：check 只“报告”漂移。修复入口分流：
 #     - tls_profile 漂移 → 本 skill Stage 3（plan-guard-drift-fix / remediate-guard-drift）
 #     - http_ua_drift（live settings.claude_code_user_agent_version / mimicry manifest
@@ -70,6 +70,13 @@ python3 $MGR check --snapshot $JOBDIR/snap.json
 #       `sync-runtime`。这是把「最关键的 HTTP 指纹配置」纳入 check 的覆盖面：cc bump 合并后
 #       若忘记 sync-runtime，fleet live UA 会停在旧版本而 check 旧版**不会报**——现已会 violation。
 #       **始终 live 读**（即使传 --snapshot）：UA 是部署级运行时旋钮，snapshot 不抓它。
+#     - redis_cache_drift（live Redis blob `tls_fingerprint_profiles` / `tiers` vs 各节点
+#       DB 权威表）→ DB 改了行但没失效 Redis 缓存（裸 SQL INSERT/UPDATE 或重构漏调
+#       Invalidate/NotifyUpdate）会让 `ResolveTLSProfile` 服务 stale blob，运行时**静默
+#       回退内置默认 ClientHello**（DB 对、运行时错）。guard 与旧 check 只读 DB，看不到
+#       这条；现在 check 同时读 Redis blob + DB 表逐节点比对 count / (id,name) 集合 /
+#       updated_at stale。冷缓存（key 缺失）**不**算漂移（读穿会从 DB 重建）。修复=对该节点
+#       `DEL <key>` + `PUBLISH <key>_updated`（或重启）；**始终 live 读**，snapshot 不抓 Redis。
 #     - operator_balance / pool_mode / concurrency 漂移 → 后端 reconciler 自愈（§3）
 #     - tier_table_drift（live `tiers` 表 != git baseline）→ tier 行被 admin 后台改过
 #       （PUT /admin/tiers/:id），下次重启/发版会被 ensureSeededFromBaseline 回刷；
@@ -120,7 +127,7 @@ prod 无 OAuth 账号时只写 settings；edge 两者都写。HTTP UA 运行时 
 | 阶段 | 输入 | 输出 | exit |
 |---|---|---|---|
 | snapshot | EC2/Lightsail SSM 权限 | `snap.json`：`edges.*.oauth_accounts` + `prod.anthropic_stubs`，**字段名嵌在值旁**（jsonb_agg） | 0 / 2 error |
-| check | snap.json | 每 edge 跑 `check-edge-oauth-stability.py`（含 `tls_profile` diff）+ `operator_balance` + `tier_table_drift` + `http_ua_drift`（**始终 live 读** settings UA + mimicry manifest vs baseline JSON）；**报告**，drift/error 计入 violation | 0 ok / 1 violation / 2 error |
+| check | snap.json | 每 edge 跑 `check-edge-oauth-stability.py`（含 `tls_profile` diff）+ `operator_balance` + `tier_table_drift` + `http_ua_drift` + `redis_cache_drift`（**始终 live 读**：UA settings/mimicry manifest vs baseline JSON；Redis blob `tls_fingerprint_profiles`/`tiers` vs 各节点 DB 表）；**报告**，drift/error 计入 violation | 0 ok / 1 violation / 2 error |
 | plan-guard-drift-fix | snap.json + check.json（或重跑 guard） | 每个 `status=drift` 账号一个 `edge_account_tier` action（force template rewrite，重写 TLS profile + 绑定 + credentials 模板字段） | 0 / 2 |
 | remediate-guard-drift | confirm + job-dir | 上述全流程（snapshot → check → plan → apply --sync-runtime → verify → check）artifact 落盘 | 0 / 1 |
 | apply | plan.json + confirm | 逐 action 渲染 SQL → SSM；可选 `--sync-runtime` 写 settings + 清 Redis | 0 / 1 step failed / 2 |
@@ -225,6 +232,7 @@ operate 流程：
 | check 报账号 `account_field_drift`（非 tier-managed 字段，如 priority / concurrency） | concurrency 由 reconciler 自愈（§3）；其余账号级字段走 admin UI |
 | check 报 `operator_balance` 低于门槛 / pool_mode / concurrency 漂移 | 由后端 reconciler 自愈（§3）；若持续未自愈，查该节点 reconciler leader 锁 / slog 日志，不要手工 plan |
 | check 报 `http_ua_drift` / HTTP UA 未生效 | `sync-runtime --target …`（或先 `plan-http-mimicry-sync` 核对 manifest）；确认 `anthropic-http-mimicry-baselines.json` 的 `cc_version` 已是目标版本。典型成因：cc 版本 bump PR 合并后忘了跑 sync-runtime，fleet live UA 仍停在旧版本——check 现在会 violation（exit 1），不再假绿 |
+| check 报 `redis_cache_drift`（live Redis blob != 该节点 DB 表，violation/exit 1） | DB 行被改但没失效 Redis 缓存（裸 SQL INSERT/UPDATE，或重构漏调 `Invalidate()`/`NotifyUpdate()`）→ `ResolveTLSProfile` 服务 stale blob，运行时**静默回退内置默认 ClientHello**。看 `items[].warning` 定位 `node` + `cache`（`tls_fingerprint_profiles`/`tiers`）+ 漂移类型（`key-set` 缺/多、`:name`、`:updated_at` STALE）。止血：对该节点 `DEL <cache>` + `PUBLISH <cache>_updated`（如 `DEL tls_fingerprint_profiles && PUBLISH tls_fingerprint_profiles_updated`；同时 DEL 有空窗，再 PUBLISH 一次零中断）或重启容器；根治走 `remediate-guard-drift`（写 DB 时带失效）。`status=error`=该节点 SSM/解析失败，非干净判定，重跑或查节点。冷缓存（key 缺失）不报 |
 | OAuth account `status=error/suspended` | OAuth 凭据问题（token 过期 / 403 / 上游禁用），见 OAuth 故障文档；不在本流水线范围 |
 | verify drift | operator 决定再 apply 或回滚（用 admin 前端按 plan.live_inputs.* 的 before 反向写回） |
 
