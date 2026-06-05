@@ -1,0 +1,229 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  tokenkey Stage 0 data layer (ledger off the app box) — RDS PostgreSQL,
+  single-AZ by default (MultiAZ=true is an online upgrade, no re-migration).
+  Lifecycle is DECOUPLED from the app stack (tokenkey-prod-stage0): app
+  resize/replace must never touch the ledger. Imports VPC/subnets/SG from the
+  app stack Exports. DeletionPolicy/UpdateReplacePolicy=Retain everywhere data
+  lives. Redis intentionally stays on the app box (≈3MB of rebuildable
+  cache/counters); its extraction trigger is documented in
+  docs/deploy/aws-data-layer-migration.md — this template reserves no
+  ElastiCache resources until that trigger fires.
+  Runtime config (DATABASE_HOST/SSLMODE/password/COMPOSE_PROFILES) is NOT
+  carried by CFN parameters — single source of truth is the SSM SecureString
+  /<project>/<env>/stage0/data-layer-env (anti split-brain; see the ImageTag
+  rollback incident class).
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: tokenkey
+  Environment:
+    Type: String
+    Default: prod
+    AllowedPattern: '^[a-z0-9-]+$'
+
+  PgEngineVersion:
+    Type: String
+    Default: '18.1'
+    Description: >-
+      RDS PostgreSQL engine version. Pick the highest available major (18.x
+      preferred — matches the postgres:18-alpine container the dump comes
+      from; pg_dump client major MUST be >= server major). Verify with:
+      aws rds describe-db-engine-versions --engine postgres
+      --query 'DBEngineVersions[*].EngineVersion'
+  PgInstanceClass:
+    Type: String
+    Default: db.t4g.small
+    Description: 2 vCPU / 2 GiB Graviton. Measured load (2026-06) is ~35K req/day; 100x is ~40 writes/s avg — still fine. Resize online when CloudWatch says so.
+  PgAllocatedStorage:
+    Type: Number
+    Default: 20
+    Description: GiB. Ledger is ~1.5 GiB after ops-log pruning (measured 2026-06).
+  PgMaxAllocatedStorage:
+    Type: Number
+    Default: 200
+    Description: >-
+      Storage autoscaling ceiling (GiB). NOTE measured growth math: ledger
+      grows ~1.3 KiB/request => 100x traffic ≈ 4.5 GiB/day ≈ 1.6 TiB/year.
+      No RDS size survives an unbounded detail ledger — the retention/partition
+      backlog item (docs/deploy/aws-data-layer-migration.md §backlog) MUST land
+      before 100x. This ceiling is a fuse, not a plan.
+  PgMultiAZ:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: >-
+      Single-AZ by default (accepted: RDS failure/maintenance = 10-30 min
+      outage; PITR still bounds data loss to ~5 min). Flip to true online —
+      no re-migration — once traffic/revenue justifies ~2x instance cost.
+  PgBackupRetentionDays:
+    Type: Number
+    Default: 7
+    Description: Automated backups + PITR window (RPO ~5 min). The on-box 2h pgdump timer stays as a second, independent restore path.
+  PgMasterPasswordSsmName:
+    Type: String
+    Default: /tokenkey/prod/stage0/rds-master-password
+    Description: >-
+      SecureString holding the master user password. Create BEFORE deploying
+      this stack (aws ssm put-parameter --type SecureString). The same value
+      must later appear as POSTGRES_PASSWORD in the data-layer-env overlay.
+      Dynamic reference keeps the secret out of template/parameter history.
+  AlarmSnsTopicArn:
+    Type: String
+    Default: ''
+    Description: Optional SNS topic for the four data-layer alarms (reuse the app-stack/Feishu topic).
+
+Conditions:
+  AlarmTopicProvided: !Not [!Equals [!Ref AlarmSnsTopicArn, '']]
+  PgIsMultiAZ: !Equals [!Ref PgMultiAZ, 'true']
+
+Resources:
+  DataSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: !Sub '${ProjectName} ${Environment} data layer — two private subnets (RDS requires >=2 AZs even for single-AZ instances)'
+      SubnetIds: !Split
+        - ','
+        - Fn::ImportValue: !Sub '${ProjectName}-${Environment}-PrivateSubnetIds'
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+
+  DataSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub '${ProjectName} ${Environment} data layer — ingress ONLY from the app SG (no CIDR rules, no public access)'
+      VpcId:
+        Fn::ImportValue: !Sub '${ProjectName}-${Environment}-VpcId'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId:
+            Fn::ImportValue: !Sub '${ProjectName}-${Environment}-AppSecurityGroupId'
+          Description: PostgreSQL from app instances only
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectName}-${Environment}-data-sg'}
+
+  # 账本本体。Retain 双保险：栈删除/替换都不带走数据。
+  PgInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      DBInstanceIdentifier: !Sub '${ProjectName}-${Environment}-ledger'
+      Engine: postgres
+      EngineVersion: !Ref PgEngineVersion
+      DBInstanceClass: !Ref PgInstanceClass
+      DBName: tokenkey
+      MasterUsername: tokenkey
+      MasterUserPassword: !Sub '{{resolve:ssm-secure:${PgMasterPasswordSsmName}}}'
+      AllocatedStorage: !Ref PgAllocatedStorage
+      MaxAllocatedStorage: !Ref PgMaxAllocatedStorage
+      StorageType: gp3
+      StorageEncrypted: true
+      MultiAZ: !If [PgIsMultiAZ, true, false]
+      PubliclyAccessible: false
+      DBSubnetGroupName: !Ref DataSubnetGroup
+      VPCSecurityGroups: [!Ref DataSecurityGroup]
+      BackupRetentionPeriod: !Ref PgBackupRetentionDays
+      # 低峰锚点跟随仓库既有约定（qa-stale-cleanup timer 04:15 UTC "low-traffic window"）。
+      PreferredBackupWindow: 04:30-05:00
+      PreferredMaintenanceWindow: sun:05:30-sun:06:30
+      AutoMinorVersionUpgrade: true
+      CopyTagsToSnapshot: true
+      DeletionProtection: true
+      EnableCloudwatchLogsExports: [postgresql]
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+
+  # --- 数据层告警（没有告警的托管 = 客户先于你发现故障）---------------------
+  PgCpuAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-rds-cpu'
+      AlarmDescription: RDS CPU >= 80% for 15 min — check slow queries / consider resize.
+      Namespace: AWS/RDS
+      MetricName: CPUUtilization
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      Threshold: 80
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: breaching
+      Dimensions:
+        - {Name: DBInstanceIdentifier, Value: !Ref PgInstance}
+      AlarmActions: !If [AlarmTopicProvided, [!Ref AlarmSnsTopicArn], !Ref AWS::NoValue]
+
+  PgConnectionsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-rds-connections'
+      AlarmDescription: >-
+        RDS connections >= 180 (app DATABASE_MAX_OPEN_CONNS=50 per replica;
+        db.t4g.small max_connections ~225). Fires before the wall, not at it.
+      Namespace: AWS/RDS
+      MetricName: DatabaseConnections
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      Threshold: 180
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      Dimensions:
+        - {Name: DBInstanceIdentifier, Value: !Ref PgInstance}
+      AlarmActions: !If [AlarmTopicProvided, [!Ref AlarmSnsTopicArn], !Ref AWS::NoValue]
+
+  PgFreeableMemoryAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-rds-freeable-memory'
+      AlarmDescription: RDS freeable memory < 200 MiB — swap risk; resize before latency degrades.
+      Namespace: AWS/RDS
+      MetricName: FreeableMemory
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      Threshold: 209715200
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+      Dimensions:
+        - {Name: DBInstanceIdentifier, Value: !Ref PgInstance}
+      AlarmActions: !If [AlarmTopicProvided, [!Ref AlarmSnsTopicArn], !Ref AWS::NoValue]
+
+  PgFreeStorageAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-rds-free-storage'
+      AlarmDescription: >-
+        RDS free storage < 5 GiB. Autoscaling buys time up to
+        PgMaxAllocatedStorage, but the real fix is the usage_logs
+        retention/partition backlog item — do not just raise the ceiling.
+      Namespace: AWS/RDS
+      MetricName: FreeStorageSpace
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      Threshold: 5368709120
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+      Dimensions:
+        - {Name: DBInstanceIdentifier, Value: !Ref PgInstance}
+      AlarmActions: !If [AlarmTopicProvided, [!Ref AlarmSnsTopicArn], !Ref AWS::NoValue]
+
+Outputs:
+  PgEndpointAddress:
+    Description: Write this as DATABASE_HOST into the data-layer-env SSM overlay (cutover script does it)
+    Value: !GetAtt PgInstance.Endpoint.Address
+  PgEndpointPort:
+    Description: DATABASE_PORT for the overlay
+    Value: !GetAtt PgInstance.Endpoint.Port
+  PgInstanceIdentifier:
+    Description: RDS instance identifier (PITR restore target name base)
+    Value: !Ref PgInstance

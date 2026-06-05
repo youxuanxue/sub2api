@@ -23,11 +23,17 @@ stderr_file="${OUTPUT_DIR}/stderr.txt"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PG_DUMP_SRC="${SCRIPT_DIR}/../../deploy/aws/stage0/tokenkey-pgdump.sh"
+WRAPPERS_SRC="${SCRIPT_DIR}/../../deploy/aws/stage0/tokenkey-data-wrappers.sh"
 [[ -f "${PG_DUMP_SRC}" ]] || { echo "missing ${PG_DUMP_SRC}" >&2; exit 1; }
+[[ -f "${WRAPPERS_SRC}" ]] || { echo "missing ${WRAPPERS_SRC}" >&2; exit 1; }
 
 # Encode each payload to single-line base64 so embedding into the JSON command
 # array is shell-quoting-safe. tr -d strips both GNU and BSD base64 wrapping.
 PG_DUMP_SH_B64="$(base64 <"${PG_DUMP_SRC}" | tr -d '\n')"
+# tokenkey-pgdump.sh calls the tokenkey-pg_dump wrapper — ship the wrapper
+# installer in the SAME command so this primitive carries its own dependency
+# (no ordering coupling with install_data_wrappers_via_ssm.sh fan-out).
+WRAPPERS_SH_B64="$(base64 <"${WRAPPERS_SRC}" | tr -d '\n')"
 
 PG_SERVICE_B64="$(cat <<'PSEOF' | base64 | tr -d '\n'
 [Unit]
@@ -62,12 +68,16 @@ TEMPLATE_SHA="${GITHUB_SHA:-local}"
 
 jq -n \
   --arg sh "${PG_DUMP_SH_B64}" \
+  --arg wrappers "${WRAPPERS_SH_B64}" \
   --arg svc "${PG_SERVICE_B64}" \
   --arg tmr "${PG_TIMER_B64}" \
   --arg sha "${TEMPLATE_SHA}" \
   '{
     commands: [
       "set -euo pipefail",
+      "echo === install/refresh data wrappers (tokenkey-pgdump.sh depends on tokenkey-pg_dump) ===",
+      ("echo " + $wrappers + " | base64 -d > /tmp/tokenkey-data-wrappers.sh"),
+      "sudo bash /tmp/tokenkey-data-wrappers.sh && rm -f /tmp/tokenkey-data-wrappers.sh",
       "echo === pg_dump refresh: every 2h, max 12 rolling files ===",
       ("echo " + $sh + " | base64 -d | sudo tee /usr/local/bin/tokenkey-pgdump.sh > /dev/null"),
       "sudo chmod +x /usr/local/bin/tokenkey-pgdump.sh",

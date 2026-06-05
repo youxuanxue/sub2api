@@ -1,0 +1,23 @@
+# =============================================================================
+# tokenkey · AWS Stage 0 — 外部数据层 override（账本出机到 RDS 后启用）
+# -----------------------------------------------------------------------------
+# 激活方式：/var/lib/tokenkey/.env 写
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.external-db.yml
+#   COMPOSE_PROFILES=localredis            # 去掉 localpg → 本机 PG 不启动
+#   DATABASE_HOST=<rds-endpoint>
+#   DATABASE_SSLMODE=require
+# （上述由 SSM overlay /tokenkey/<env>/stage0/data-layer-env 单一真相驱动，
+#   bootstrap 每次 boot 叠加；cutover 脚本切换时同步热写。）
+#
+# 为什么需要本文件：基础 compose 里 tokenkey 依赖 profile 门控的 postgres——
+# compose 不允许 always-enabled 服务 depends_on 一个未激活 profile 的服务，
+# 所以外部模式必须用 !override 把依赖重置为只剩 redis（本机 Redis 仍保留）。
+# !override 需要 docker compose >= v2.24（prod 实测 v2.29.7）。
+# 详见 docs/deploy/aws-data-layer-migration.md。
+# =============================================================================
+
+services:
+  tokenkey:
+    depends_on: !override
+      redis:
+        condition: service_healthy
