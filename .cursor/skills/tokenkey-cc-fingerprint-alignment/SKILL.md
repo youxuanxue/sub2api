@@ -67,7 +67,7 @@ TOKENKEY_CC_DAILY_DRY_RUN=1 bash ops/anthropic/cc_fingerprint_open_tls_drift_pr.
 | Phase 0 ingress cohort / admin UA | 机械 | `ops/observability/run-probe.sh` + admin settings |
 | ja3 变更 → TLS profile SQL apply | 机械 | `manage-anthropic-config.py plan/apply/verify` |
 | HTTP beta 漂移 → runtime manifest apply | 机械 | `plan-http-mimicry-sync` + `sync-runtime` 或 `cc_fingerprint_apply_http_runtime.sh` |
-| 仅 UA/版本漂移修复 | 机械 | 编辑 baselines.json `cc_version` → `check-cc-version-sync.py --write`（自动改 6 份副本，§4.1）|
+| 仅 UA/版本漂移修复 | 机械 | 编辑 baselines.json `cc_version` → `check-cc-version-sync.py --write`（自动改 7 份副本，§4.1）|
 | beta 集合漂移修复位点 | 判断 + 清单 | 本 skill §4.2（需抓包证据）|
 | merge 后是否立刻 sync-runtime | 判断 | HTTP drift PR merge 后**默认先 apply**（无发版）；compile default 跟下一班 release |
 
@@ -191,11 +191,13 @@ bash ops/anthropic/capture-http-comprehensive.sh
 单一真值源 + 守卫自动生成，**人手只碰 2 个文件**：
 
 1. 编辑 `deploy/aws/stage0/anthropic-http-mimicry-baselines.json` 的 `cc_version`（唯一手改源）。
-2. 跑 `python3 scripts/sentinels/check-cc-version-sync.py --write` —— 自动重写全部 6 份副本：
+2. 跑 `python3 scripts/sentinels/check-cc-version-sync.py --write` —— 自动重写全部 7 份副本：
    - 4 个 Go 编译默认值：`constants.go` 的 `CLICurrentVersion` + `DefaultHeaders["User-Agent"]`、
      `identity_service.go` 的 `defaultFingerprint.UserAgent`、
      `identity_service_tk_canonical_http.go` 的 `DefaultClaudeCodeUserAgentVersion`。
    - 2 个死快照：`ops/stage0/smoke_lib.sh`、`deploy/aws/stage0/tk_canonical_cc_oauth.json` 的 `observed.user_agent`。
+   - 1 个 go:embed 镜像（load-bearing，reconciler 自愈目标）：`backend/internal/baseline/anthropic-http-mimicry-baselines.json`
+     与 deploy 源 byte-identical 同步。
 3. 写 `docs/spec-delta-cc-<patch>.md`（人工记录，含 comprehensive 的 beta 分布）。
 
 > skill 总是跑 `--write` 并 **review 生成的 diff**（编译兜底 UA 值值得扫一眼）。
