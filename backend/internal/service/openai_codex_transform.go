@@ -833,9 +833,21 @@ func normalizeOpenAIResponsesImageOnlyModel(reqBody map[string]any) bool {
 	return modified
 }
 
+// chatGPTOAuthUpstreamModelNames maps internal canonical model names to the
+// identifiers accepted by the ChatGPT OAuth backend (chatgpt.com).
+// The ChatGPT internal Codex API requires "codex-mini-latest" and rejects
+// "gpt-5.3-codex" with 400 "not supported when using Codex with a ChatGPT account".
+var chatGPTOAuthUpstreamModelNames = map[string]string{
+	"gpt-5.3-codex": "codex-mini-latest",
+}
+
 func normalizeOpenAIModelForUpstream(account *Account, model string) string {
 	if account == nil || account.Type == AccountTypeOAuth {
-		return normalizeCodexModel(model)
+		normalized := normalizeCodexModel(model)
+		if upstream, ok := chatGPTOAuthUpstreamModelNames[normalized]; ok {
+			return upstream
+		}
+		return normalized
 	}
 	return strings.TrimSpace(model)
 }

@@ -268,6 +268,30 @@ func TestNormalizeOpenAIModelForUpstream(t *testing.T) {
 			want:    "codex-auto-review",
 		},
 		{
+			name:    "oauth maps gpt-5.3-codex to codex-mini-latest for ChatGPT backend",
+			account: &Account{Type: AccountTypeOAuth},
+			model:   "gpt-5.3-codex",
+			want:    "codex-mini-latest",
+		},
+		{
+			name:    "oauth maps gpt-5.3 alias to codex-mini-latest for ChatGPT backend",
+			account: &Account{Type: AccountTypeOAuth},
+			model:   "gpt-5.3",
+			want:    "codex-mini-latest",
+		},
+		{
+			name:    "oauth maps codex-mini-latest alias to codex-mini-latest for ChatGPT backend",
+			account: &Account{Type: AccountTypeOAuth},
+			model:   "codex-mini-latest",
+			want:    "codex-mini-latest",
+		},
+		{
+			name:    "oauth spark model not remapped",
+			account: &Account{Type: AccountTypeOAuth},
+			model:   "gpt-5.3-codex-spark",
+			want:    "gpt-5.3-codex-spark",
+		},
+		{
 			name:    "apikey preserves custom compatible model",
 			account: &Account{Type: AccountTypeAPIKey},
 			model:   "gemini-3-flash-preview",
