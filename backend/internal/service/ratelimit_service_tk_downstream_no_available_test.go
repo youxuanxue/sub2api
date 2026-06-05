@@ -23,6 +23,14 @@ func TestTkIsDownstreamNoAvailableAccounts(t *testing.T) {
 	require.False(t, tkIsDownstreamNoAvailableAccounts("", []byte(`{}`)))
 }
 
+func TestTkSkipDownstreamNoAvailableAccountsPenalty(t *testing.T) {
+	body := []byte(`{"type":"error","error":{"type":"api_error","message":"No available accounts: no available accounts"}}`)
+	require.True(t, tkSkipDownstreamNoAvailableAccountsPenalty(http.StatusServiceUnavailable, "", body))
+	require.True(t, tkSkipDownstreamNoAvailableAccountsPenalty(http.StatusTooManyRequests, "", body))
+	require.False(t, tkSkipDownstreamNoAvailableAccountsPenalty(http.StatusBadGateway, "", body))
+	require.False(t, tkSkipDownstreamNoAvailableAccountsPenalty(http.StatusTooManyRequests, "", []byte(`{"error":{"type":"rate_limit_error","message":"slow down"}}`)))
+}
+
 // prod incident 2026-05-31: a downstream edge stub returning 503 "no available
 // accounts" (a transient edge pool-capacity blip) must fail the request over to
 // the next stub WITHOUT advancing the per-account cooldown counter or cooling the
@@ -44,6 +52,29 @@ func TestRateLimitService_HandleUpstreamError_DownstreamNoAvailable_DoesNotPenal
 	require.Equal(t, 0, repo.tempCalls, "downstream no-available 503 must never write temp_unschedulable")
 	require.Equal(t, 0, repo.setErrorCalls)
 	require.Empty(t, counter.incrementIDs, "downstream no-available 503 must NOT advance the cooldown counter")
+}
+
+// prod 2026-06: empty-pool fast-fail now returns 429+Retry-After (not 503). The
+// prod mirror stub must fail over without handle429 cooldown or Feishu "限流冷却".
+func TestRateLimitService_HandleUpstreamError_DownstreamNoAvailable429_DoesNotPenalizeStub(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	counter := &anthropicUpstreamErrorCounterCacheStub{counts: []int64{1, 2, 3, 4, 5}}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetAnthropicUpstreamErrorCounterCache(counter)
+	account := &Account{ID: 4042, Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+
+	body := []byte(`{"type":"error","error":{"type":"api_error","message":"No available accounts: no available accounts"}}`)
+	headers := http.Header{}
+	headers.Set("Retry-After", "5")
+	for i := 0; i < 5; i++ {
+		shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusTooManyRequests, headers, body)
+		require.True(t, shouldDisable, "iteration %d: downstream 429 no-available must fail over to the next stub", i)
+	}
+
+	require.Equal(t, 0, repo.setRateLimitedCalls, "downstream no-available 429 must not write SetRateLimited")
+	require.Equal(t, 0, repo.tempCalls, "downstream no-available 429 must never write temp_unschedulable")
+	require.Equal(t, 0, repo.setErrorCalls)
+	require.Empty(t, counter.incrementIDs, "downstream no-available 429 must NOT advance the cooldown counter")
 }
 
 // Regression: a genuine Anthropic upstream 503 (no "no available accounts" body)
