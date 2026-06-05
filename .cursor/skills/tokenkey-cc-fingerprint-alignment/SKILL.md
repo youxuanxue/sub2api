@@ -69,7 +69,7 @@ TOKENKEY_CC_DAILY_DRY_RUN=1 bash ops/anthropic/cc_fingerprint_open_tls_drift_pr.
 | HTTP beta 漂移 → runtime manifest apply | 机械 | `plan-http-mimicry-sync` + `sync-runtime` 或 `cc_fingerprint_apply_http_runtime.sh` |
 | 仅 UA/版本漂移修复 | 机械 | 编辑 baselines.json `cc_version` → `check-cc-version-sync.py --write`（自动改 7 份副本，§4.1）|
 | beta 集合漂移修复位点 | 判断 + 清单 | 本 skill §4.2（需抓包证据）|
-| merge 后是否立刻 sync-runtime | 判断 | HTTP drift PR merge 后**默认先 apply**（无发版）；compile default 跟下一班 release |
+| merge 后是否立刻 sync-runtime | 判断 | HTTP drift PR merge 后**默认先 apply**（无发版）；compile default 跟下一班 release。前提：节点二进制含棘轮修复（见 §5 ⚠️，v1.7.72 及更早不含）——旧二进制节点会被 reconciler 一个 tick 回滚，只能等发版 |
 
 ## 调用参数
 
@@ -229,7 +229,15 @@ python3 -m unittest discover -s ops/anthropic -p 'test_capture_cc_fingerprint.py
 bash ops/anthropic/cc_fingerprint_apply_http_runtime.sh
 ```
 
-无需为对齐 beta/UA 专门发版；`constants.go` 在下一班 release 追上 compile default 即可。
+无需为对齐 beta/UA 专门发版；`constants.go` / embedded baseline 在下一班 release 追上 compile default 即可。
+
+> ⚠️ **热更新生效前提：节点二进制含 mimicry selfheal 单调棘轮修复（v1.7.72 及更早版本均不含）。** 旧版 reconciler 的
+> `EnsureClaudeCodeMimicryBaseline` 是无方向覆写（`!= wantUA` 即改回 embedded 值），会在一个
+> tick 内把 sync-runtime 写入的新 UA **回滚到旧版本**（2026-06-05 在 2.1.163→2.1.165 bump 实证：
+> apply 9/9 成功、数小时后 8/9 节点被拉回）。棘轮版只把「旧于 embedded」的值拉上来，新值幸存。
+> 若 fleet 还有旧版二进制节点：对那些节点 apply 是无效操作，唯一持久路径是发版（embedded
+> baseline 随镜像更新后 reconciler 自动推平，连 apply 都不用跑）。check 的 `http_ua_drift` 在
+> 「已合并未发版」窗口对旧二进制节点必然报 violation——这是真实状态，不是误报。
 
 **TLS 漂移：** `bash ops/anthropic/cc_fingerprint_open_tls_drift_pr.sh .tls_list/…-cc-capture.bundle.json`（worktree 隔离，不影响当前 checkout）。
 

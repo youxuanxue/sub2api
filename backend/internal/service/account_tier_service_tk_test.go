@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/baseline"
 	"github.com/Wei-Shaw/sub2api/internal/model"
 
 	"github.com/stretchr/testify/require"
@@ -88,7 +89,7 @@ func tierServiceWithL4(t *testing.T) *TierService {
 }
 
 // stubTLSRepo is an in-memory TLSFingerprintProfileRepository for unit tests.
-// It lets us exercise GetOrUpsertByName (create-if-absent / update-in-place)
+// It lets us exercise GetOrCreateByName (create-if-absent, content-preserving)
 // without a DB. Create assigns a monotonic id; Update replaces by id.
 type stubTLSRepo struct {
 	rows   []*model.TLSFingerprintProfile
@@ -262,7 +263,7 @@ func TestReapplyBaselineInfra_DoesNotTouchPriority(t *testing.T) {
 // reported bug: operator added an OAuth account + set tier, but the
 // tls_fingerprint_profiles table had no tk_canonical_cc_oauth row, so the
 // account ran on the built-in default ClientHello. ApplyTier must now CREATE the
-// canonical profile (GetOrUpsertByName) and bind the account to its id.
+// canonical profile (GetOrCreateByName) and bind the account to its id.
 func TestApplyTier_CreatesAndBindsCanonicalTLSProfile(t *testing.T) {
 	admin := &stubAdminServiceForTier{getAccount: &Account{
 		ID: 7, Platform: PlatformAnthropic, Type: AccountTypeOAuth,
@@ -306,9 +307,10 @@ func TestApplyTier_WritesCredentialsTemplate(t *testing.T) {
 	require.Equal(t, "ref-xyz", in.Credentials["refresh_token"], "OAuth refresh_token preserved")
 }
 
-// TestApplyTier_Idempotent re-applies the same tier: the second call must UPDATE
-// the existing canonical profile in place (not create a duplicate), keeping the
-// same bound id — this is the property the reconciler self-heal relies on.
+// TestApplyTier_Idempotent re-applies the same tier: the second call must reuse
+// the existing canonical profile row (no duplicate create, NO content rewrite),
+// keeping the same bound id — this is the property the reconciler self-heal
+// relies on.
 func TestApplyTier_Idempotent(t *testing.T) {
 	admin := &stubAdminServiceForTier{getAccount: &Account{
 		ID: 7, Platform: PlatformAnthropic, Type: AccountTypeOAuth,
@@ -325,9 +327,43 @@ func TestApplyTier_Idempotent(t *testing.T) {
 	secondID := parseExtraInt(admin.updateInput.Extra["tls_fingerprint_profile_id"])
 
 	require.Equal(t, 1, tlsRepo.create, "second apply must NOT create a duplicate profile")
-	require.GreaterOrEqual(t, tlsRepo.update, 1, "second apply updates the existing profile in place")
+	require.Equal(t, 0, tlsRepo.update, "re-apply must NOT rewrite the existing profile content")
 	require.Equal(t, firstID, secondID, "bound profile id is stable across re-apply")
 	require.Len(t, tlsRepo.rows, 1, "exactly one canonical profile row")
+}
+
+// TestApplyTier_PreservesExistingProfileContent is the regression for the
+// stale-embedded-baseline rollback: the ops pipeline has pushed a NEWER canonical
+// fingerprint into the existing row (content differs from this binary's embedded
+// baseline); a subsequent ApplyTier / reconciler self-heal on this (older) binary
+// must bind to the row WITHOUT rewriting its content back to the embedded copy.
+func TestApplyTier_PreservesExistingProfileContent(t *testing.T) {
+	admin := &stubAdminServiceForTier{getAccount: &Account{
+		ID: 7, Platform: PlatformAnthropic, Type: AccountTypeOAuth,
+	}}
+
+	// Seed the canonical row with content that DIFFERS from the embedded baseline
+	// (simulates a fleet-wide ops apply of a newer captured fingerprint).
+	eff, err := baseline.EffectiveBaselineForTier("l4")
+	require.NoError(t, err)
+	opsPushed := eff.CanonicalTLSProfile()
+	opsPushed.CipherSuites = append([]uint16{0xCCCC}, opsPushed.CipherSuites...) // newer ja3
+	tlsRepo := &stubTLSRepo{}
+	seeded, err := tlsRepo.Create(context.Background(), opsPushed)
+	require.NoError(t, err)
+	tlsRepo.create = 0 // reset counter; only post-seed calls count
+
+	svc := NewAccountTierService(admin, tierServiceWithL4(t), tlsServiceWithRepo(t, tlsRepo))
+	_, err = svc.ApplyTier(context.Background(), 7, "l4")
+	require.NoError(t, err)
+
+	require.Equal(t, 0, tlsRepo.create, "existing row must not be duplicated")
+	require.Equal(t, 0, tlsRepo.update, "existing row content must NOT be rewritten from the embedded baseline")
+	require.Len(t, tlsRepo.rows, 1)
+	require.Equal(t, uint16(0xCCCC), tlsRepo.rows[0].CipherSuites[0],
+		"ops-pushed newer fingerprint must survive ApplyTier on an older binary")
+	boundID := parseExtraInt(admin.updateInput.Extra["tls_fingerprint_profile_id"])
+	require.Equal(t, int(seeded.ID), boundID, "account binds the existing (ops-owned) row id")
 }
 
 // TestApplyTier_FailsLoudWithoutTLSService: an unbound canonical profile is the
