@@ -37,6 +37,15 @@ class BuildCfnSizeTest(unittest.TestCase):
             f"prod UserData body is {len(body.encode())} bytes; EC2 limit is {EC2_USERDATA_LIMIT}",
         )
 
+    def test_prod_userdata_shebang_is_first_line(self) -> None:
+        body = _extract_userdata_body(CFN_MAIN.read_text())
+        first = next((ln.strip() for ln in body.splitlines() if ln.strip()), "")
+        self.assertEqual(
+            first,
+            "#!/bin/bash",
+            "cloud-init only runs UserData as a shell script when shebang is the first non-empty line",
+        )
+
     def test_bootstrap_gzip_b64_fits_two_ssm_standard_parts(self) -> None:
         raw = (STAGE0 / "stage0-ec2-bootstrap.sh").read_bytes()
         b64 = __import__("base64").b64encode(gzip.compress(raw, 9)).decode()
@@ -63,7 +72,7 @@ class BuildCfnSizeTest(unittest.TestCase):
         for marker in (
             "BOOTSTRAP_GZB64_SSM_PART1 START",
             "BOOTSTRAP_GZB64_SSM_PART2 START",
-            "USERDATA_LAUNCHER START",
+            "USERDATA_LAUNCHER markers",
         ):
             self.assertIn(marker, text)
 
