@@ -154,6 +154,16 @@ func discoverEdgeTargets(accounts []Account, re *regexp.Regexp) []edgeTarget {
 		if !isAnthropicMirrorStub(acct, re) {
 			continue
 		}
+		// Skip operator-disabled stubs: a disabled mirror stub means the edge was
+		// deliberately taken out of rotation (e.g. a decommissioned region whose
+		// DNS no longer resolves). Fanning out to it every refresh only ever
+		// surfaces a permanent failure card and risks an 8s timeout if its host
+		// blackholes — neither is useful on a read-only overview. 'error' (a
+		// transient runtime state) is intentionally NOT skipped: the edge may
+		// still be reachable, and another stub for the same base_url may cover it.
+		if acct.Status == StatusDisabled {
+			continue
+		}
 		baseURL := normalizeEdgeBaseURL(acct.GetCredential("base_url"))
 		apiKey := strings.TrimSpace(acct.GetCredential("api_key"))
 		if baseURL == "" || apiKey == "" {

@@ -1482,9 +1482,10 @@
         "func (a *EdgeAccountsAggregator) MintAdminSession(",
         "func isAnthropicMirrorStub(",
         "req.Header.Set(\"x-api-key\", t.apiKey)",
-        "never a failed aggregate"
+        "never a failed aggregate",
+        "if acct.Status == StatusDisabled {"
       ],
-      "rationale": "Prod-side cross-edge aggregator (consumer of GET /api/v1/edge/accounts). Discovers edges via the local anthropic mirror stubs (same {base_url, api_key} pairs surface-C uses — zero new secret) and fans out concurrently. Two load-bearing properties: (1) per-edge failure isolation — a timeout/non-2xx/decode error on one edge yields {ok:false,error} and never fails the whole aggregate; (2) it authenticates each edge with the stub's x-api-key. A silent upstream-merge weakening (e.g. propagating a single edge error to the whole response, or dropping the mirror-stub predicate) must be caught."
+      "rationale": "Prod-side cross-edge aggregator (consumer of GET /api/v1/edge/accounts). Discovers edges via the local anthropic mirror stubs (same {base_url, api_key} pairs surface-C uses — zero new secret) and fans out concurrently. Load-bearing properties: (1) per-edge failure isolation — a timeout/non-2xx/decode error on one edge yields {ok:false,error} and never fails the whole aggregate; (2) it authenticates each edge with the stub's x-api-key; (3) operator-disabled mirror stubs are skipped at discovery so a decommissioned edge (dead DNS / blackholed host) cannot drag every refresh into the per-edge 8s timeout. A silent upstream-merge weakening (e.g. propagating a single edge error to the whole response, dropping the mirror-stub predicate, or re-polling disabled stubs) must be caught."
     },
     {
       "path": "backend/internal/handler/admin/edge_accounts_handler_tk.go",
