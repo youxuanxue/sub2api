@@ -18,11 +18,14 @@
 #   STAGE0_SSM_OUTPUT_DIR             directory to write ssm output files (default: .)
 #
 # Example:
-#   INSTANCE_ID=i-0abc... ops/stage0/sync_docs_pages.sh i-0abc... docs/USER_GUIDE_CLAUDE_CODE.md
+#   INSTANCE_ID=i-0abc... ops/stage0/sync_docs_pages.sh i-0abc... docs/public/USER_GUIDE_CLAUDE_CODE.md
 #
-# The target slug is derived by stripping the docs/ prefix and .md suffix, then
+# IMPORTANT: only docs/public/* files may be synced. Passing any other path
+# (docs/approved/, docs/ops/, docs/spec-delta-*, etc.) is rejected with an error.
+#
+# The target slug is derived by stripping the docs/public/ prefix and .md suffix, then
 # lowercasing and replacing underscores with hyphens:
-#   docs/USER_GUIDE_CLAUDE_CODE.md  →  user-guide-claude-code
+#   docs/public/USER_GUIDE_CLAUDE_CODE.md  →  user-guide-claude-code
 #
 # After the sync, register the page in Admin → Settings → custom_menu_items:
 #   { "label": "Claude Code 接入指南", "url": "md:user-guide-claude-code", "icon": "book" }
@@ -43,14 +46,27 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${HERE}/../.." && pwd)"
 
 # Default docs to sync if none specified.
+# Only files under docs/public/ are eligible — docs/ root and subdirectories
+# (approved/, ops/, spec-delta-*, accounts/, etc.) contain internal content
+# and must never be synced to the public pages endpoint.
 SYNC_DOCS_DEFAULT=(
-  "docs/USER_GUIDE_CLAUDE_CODE.md"
+  "docs/public/USER_GUIDE_CLAUDE_CODE.md"
 )
 
 FILES=("$@")
 if [[ ${#FILES[@]} -eq 0 ]]; then
   FILES=("${SYNC_DOCS_DEFAULT[@]}")
 fi
+
+# Safety gate: only docs/public/* may be synced to the public pages endpoint.
+# Internal docs (docs/approved/, docs/ops/, docs/spec-delta-*, etc.) must never
+# be synced — reject anything outside docs/public/ with a hard error.
+for f in "${FILES[@]}"; do
+  case "$f" in
+    docs/public/*) ;;
+    *) echo "::error::only docs/public/* files may be synced to pages (got: $f)" >&2; exit 1 ;;
+  esac
+done
 
 # Derive slug from filename: strip docs/ prefix, strip .md, lowercase, _ → -
 derive_slug() {

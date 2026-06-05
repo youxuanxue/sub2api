@@ -1,12 +1,15 @@
 name: sync-docs-to-pages
 
-# Sync docs/*.md files to the prod server's pages directory whenever they
+# Sync docs/public/*.md files to the prod server's pages directory whenever they
 # change on main. Pages are served by GET /api/v1/pages/:slug and rendered
 # by the CustomPageView component. After first-time setup (registering the
 # slug in custom_menu_items via Admin → Settings), subsequent content updates
 # happen automatically through this workflow.
 #
-# Slug derivation: docs/USER_GUIDE_CLAUDE_CODE.md → user-guide-claude-code
+# IMPORTANT: only docs/public/* files are synced. Internal docs (docs/approved/,
+# docs/ops/, docs/spec-delta-*, docs/accounts/, etc.) must never appear here.
+#
+# Slug derivation: docs/public/USER_GUIDE_CLAUDE_CODE.md → user-guide-claude-code
 # Page URL in TokenKey UI: /pages/user-guide-claude-code
 # Admin menu entry: { "url": "md:user-guide-claude-code", ... }
 
@@ -14,11 +17,14 @@ on:
   push:
     branches: [main]
     paths:
-      - 'docs/**/*.md'
+      - 'docs/public/**'    # only user-facing public docs; docs/ root and
+                            # subdirectories (approved/, ops/, spec-delta-*,
+                            # accounts/, etc.) contain internal content and
+                            # must never be auto-synced to prod pages.
   workflow_dispatch:
     inputs:
       files:
-        description: 'Space-separated list of docs/*.md files to sync (leave empty for defaults)'
+        description: 'Space-separated list of docs/public/*.md files to sync (leave empty for defaults)'
         required: false
         default: ''
 
@@ -91,3 +97,5 @@ jobs:
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
           echo '{ "label": "Claude Code 接入指南", "url": "md:user-guide-claude-code", "icon": "book" }' >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Only \`docs/public/**\` files are eligible for sync. docs/ root and internal subdirectories are never synced." >> "$GITHUB_STEP_SUMMARY"
