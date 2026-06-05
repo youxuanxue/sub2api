@@ -3115,6 +3115,9 @@ export default {
       summaryFailed: '{count} unreachable',
       accountCount: '{count} accounts',
       schedulableCount: '{count} schedulable',
+      stubPaused: 'Scheduling off',
+      stubPausedHint:
+        'The prod-side stub for this edge is paused (关调度) — prod no longer routes traffic here, though the edge itself stays reachable.',
       columns: {
         name: 'Name',
         platformType: 'Platform / Type',

@@ -83,6 +83,16 @@
             <div class="flex min-w-0 items-center gap-3">
               <span :class="['inline-block h-2.5 w-2.5 flex-shrink-0 rounded-full', edge.ok ? 'bg-green-500' : 'bg-red-500']"></span>
               <span class="font-semibold text-gray-900 dark:text-white">{{ edge.edge_id }}</span>
+              <!-- The prod-side mirror stub for this edge was 关调度: the edge stays
+                   reachable but prod no longer routes traffic to it. Orthogonal to
+                   the ok/unreachable dot, so flag it explicitly here. -->
+              <span
+                v-if="!edge.stub_schedulable"
+                class="inline-flex flex-shrink-0 items-center rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                :title="t('admin.edgeAccounts.stubPausedHint')"
+              >
+                {{ t('admin.edgeAccounts.stubPaused') }}
+              </span>
               <span class="truncate text-xs text-gray-400 dark:text-gray-500">{{ edge.base_url }}</span>
             </div>
             <div class="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">

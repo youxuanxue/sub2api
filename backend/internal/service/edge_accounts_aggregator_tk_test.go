@@ -58,10 +58,14 @@ func (f *fakeEdgeDoer) Do(req *http.Request) (*http.Response, error) {
 }
 
 func mirrorStub(id int64, baseURL, apiKey string) Account {
+	// A normal active mirror stub is schedulable (prod routes to its edge); the
+	// "关调度" cases flip Schedulable to false explicitly.
 	return Account{
-		ID:       id,
-		Platform: PlatformAnthropic,
-		Type:     AccountTypeAPIKey,
+		ID:          id,
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
 		Credentials: map[string]any{
 			"base_url": baseURL,
 			"api_key":  apiKey,
@@ -102,14 +106,17 @@ func TestEdgeAccountsAggregator_FanoutDedupAndErrorIsolation(t *testing.T) {
 	require.Equal(t, "fra1", out.Edges[0].EdgeID)
 	require.Equal(t, "us1", out.Edges[1].EdgeID)
 
-	// fra1: transport error → ok:false, isolated (aggregate still succeeds).
+	// fra1: transport error → ok:false, isolated (aggregate still succeeds). The
+	// stub's scheduling toggle is reported regardless of reachability.
 	require.False(t, out.Edges[0].OK)
 	require.Contains(t, out.Edges[0].Error, "request failed")
 	require.Empty(t, out.Edges[0].Accounts)
+	require.True(t, out.Edges[0].StubSchedulable)
 
 	// us1: ok with one account; the FIRST stub's api_key is used (dedup kept first).
 	// Accounts are opaque json.RawMessage passthrough — assert on the raw JSON.
 	require.True(t, out.Edges[1].OK)
+	require.True(t, out.Edges[1].StubSchedulable)
 	require.Len(t, out.Edges[1].Accounts, 1)
 	require.Contains(t, string(out.Edges[1].Accounts[0]), `"id":11`)
 
@@ -154,6 +161,44 @@ func TestEdgeAccountsAggregator_SkipsDisabledStub(t *testing.T) {
 	require.Equal(t, "key-us6", doer.keysSeen["api-us6.tokenkey.dev"])
 	// us7 in 'error' state is still reachable and was polled.
 	require.Equal(t, "key-us7", doer.keysSeen["api-us7.tokenkey.dev"])
+}
+
+// TestEdgeAccountsAggregator_PausedStubStillListedButFlagged covers the operator
+// "关调度" case: the prod-side stub for an edge has scheduling turned off but is
+// still active. Unlike a fully disabled stub (dropped from the aggregate), a
+// paused stub's edge is still reachable, so it must STILL be polled and listed —
+// just flagged StubSchedulable=false so the overview shows prod has stopped
+// routing there. This is the gap the fix closes: before, the paused state was
+// invisible on the cross-edge overview.
+func TestEdgeAccountsAggregator_PausedStubStillListedButFlagged(t *testing.T) {
+	paused := mirrorStub(1, "https://api-us4.tokenkey.dev", "key-us4")
+	paused.Schedulable = false // 关调度: active but taken out of prod rotation
+	active := mirrorStub(2, "https://api-us1.tokenkey.dev", "key-us1")
+
+	store := &edgeAccountsStoreStub{accounts: []Account{paused, active}}
+	doer := &fakeEdgeDoer{bodyByHost: map[string]string{
+		"api-us4.tokenkey.dev": `{"code":0,"data":{"accounts":[{"id":41,"name":"x"}]}}`,
+		"api-us1.tokenkey.dev": `{"code":0,"data":{"accounts":[]}}`,
+	}}
+
+	agg := NewEdgeAccountsAggregator(store, doer)
+	out, err := agg.Aggregate(context.Background(), "anthropic")
+	require.NoError(t, err)
+
+	// Both edges present (sorted): us1 (schedulable) and us4 (paused).
+	require.Len(t, out.Edges, 2)
+	require.Equal(t, "us1", out.Edges[0].EdgeID)
+	require.Equal(t, "us4", out.Edges[1].EdgeID)
+
+	// us4 was still polled (reachable) and its accounts listed — the pause does
+	// not hide the edge, only flags it.
+	require.Equal(t, "key-us4", doer.keysSeen["api-us4.tokenkey.dev"])
+	require.True(t, out.Edges[1].OK)
+	require.Len(t, out.Edges[1].Accounts, 1)
+
+	// The pause is now visible: us4 flagged not-schedulable, us1 schedulable.
+	require.False(t, out.Edges[1].StubSchedulable)
+	require.True(t, out.Edges[0].StubSchedulable)
 }
 
 func TestEdgeAccountsAggregator_Non2xxIsError(t *testing.T) {

@@ -3190,6 +3190,8 @@ export default {
       summaryFailed: '{count} 个不可达',
       accountCount: '{count} 个账号',
       schedulableCount: '{count} 个可调度',
+      stubPaused: '调度已关闭',
+      stubPausedHint: '该 edge 在 prod 侧的 stub 已关调度——prod 不再向其调度流量，但该 edge 本身仍可达。',
       columns: {
         name: '名称',
         platformType: '平台 / 类型',
