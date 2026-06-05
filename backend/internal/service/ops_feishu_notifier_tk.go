@@ -218,7 +218,7 @@ func buildOpsFeishuAlertText(rule *OpsAlertRule, event *OpsAlertEvent, nodeLabel
 		escapeFeishuText(thresholdValue),
 		escapeFeishuText(metricValue),
 		escapeFeishuText(dimensions),
-		escapeFeishuText(event.FiredAt.Format(time.RFC3339)),
+		escapeFeishuText(formatAlertTime(event.FiredAt)),
 		advice,
 	)
 }

@@ -128,6 +128,14 @@ func TestClassifyIncident(t *testing.T) {
 	}
 }
 
+func TestFormatAlertTime(t *testing.T) {
+	t.Parallel()
+	utc := time.Date(2026, 6, 5, 10, 31, 34, 0, time.UTC)
+	got := formatAlertTime(utc)
+	require.Contains(t, got, "2026-06-05T10:31:34Z")
+	require.Contains(t, got, "北京时间 18:31:34")
+}
+
 func TestSiteFromFrontendURL(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
