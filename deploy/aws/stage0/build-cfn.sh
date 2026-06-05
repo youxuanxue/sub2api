@@ -13,6 +13,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${HERE}/../../.." && pwd)"
 COMPOSE_SRC="${HERE}/docker-compose.yml"
+COMPOSE_EXT_SRC="${HERE}/docker-compose.external-db.yml"
+WRAPPERS_SRC="${HERE}/tokenkey-data-wrappers.sh"
 CADDY_SRC="${HERE}/Caddyfile"
 EDGE_CADDY_SRC="${HERE}/Caddyfile.edge"
 QA_CLEANUP_SRC="${HERE}/tokenkey-qa-stale-cleanup.sh"
@@ -33,7 +35,7 @@ if [[ "${1:-}" == "--check" ]]; then
 fi
 
 required=(
-  "${COMPOSE_SRC}" "${CADDY_SRC}" "${EDGE_CADDY_SRC}"
+  "${COMPOSE_SRC}" "${COMPOSE_EXT_SRC}" "${WRAPPERS_SRC}" "${CADDY_SRC}" "${EDGE_CADDY_SRC}"
   "${QA_CLEANUP_SRC}" "${PGDUMP_SRC}" "${PRUNE_SRC}" "${BOOTSTRAP_SRC}" "${LAUNCHER_SRC}"
   "${CFN_FILE}" "${EDGE_CFN_FILE}"
 )
@@ -73,6 +75,8 @@ split_b64_for_ssm() {
 }
 
 COMPOSE_GZB64="$(encode_gzb64 "${COMPOSE_SRC}")"
+COMPOSE_EXT_GZB64="$(encode_gzb64 "${COMPOSE_EXT_SRC}")"
+WRAPPERS_GZB64="$(encode_gzb64 "${WRAPPERS_SRC}")"
 CADDY_GZB64="$(encode_gzb64 "${CADDY_SRC}")"
 EDGE_CADDY_GZB64="$(encode_gzb64 "${EDGE_CADDY_SRC}")"
 QA_CLEANUP_B64="$(encode_b64 "${QA_CLEANUP_SRC}")"
@@ -93,6 +97,8 @@ check_ssm_len() {
 }
 
 check_ssm_len compose "${COMPOSE_GZB64}"
+check_ssm_len compose_ext "${COMPOSE_EXT_GZB64}"
+check_ssm_len data_wrappers "${WRAPPERS_GZB64}"
 check_ssm_len caddy "${CADDY_GZB64}"
 check_ssm_len edge_caddy "${EDGE_CADDY_GZB64}"
 check_ssm_len qa "${QA_CLEANUP_B64}"
@@ -121,6 +127,8 @@ refresh_template() {
   local caddy_blob="$3"
   local indent='      '
   local new_compose="${indent}Value: '${COMPOSE_GZB64}'"
+  local new_compose_ext="${indent}Value: '${COMPOSE_EXT_GZB64}'"
+  local new_wrappers="${indent}Value: '${WRAPPERS_GZB64}'"
   local new_caddy="${indent}Value: '${caddy_blob}'"
   local new_qa="${indent}Value: '${QA_CLEANUP_B64}'"
   local new_pgdump="${indent}Value: '${PGDUMP_B64}'"
@@ -132,6 +140,8 @@ refresh_template() {
   printf '%s\n' "${USERDATA_BODY}" >"${userdata_tmp}"
 
   awk -v new_compose_ssm="${new_compose}" \
+      -v new_compose_ext_ssm="${new_compose_ext}" \
+      -v new_wrappers_ssm="${new_wrappers}" \
       -v new_caddy_ssm="${new_caddy}" \
       -v new_qa_ssm="${new_qa}" \
       -v new_pgdump_ssm="${new_pgdump}" \
@@ -142,6 +152,10 @@ refresh_template() {
     BEGIN { skip = 0 }
     />>> COMPOSE_GZB64_SSM START/ { print; print new_compose_ssm; skip = 1; next }
     />>> COMPOSE_GZB64_SSM END/ { skip = 0; print; next }
+    />>> COMPOSE_EXT_GZB64_SSM START/ { print; print new_compose_ext_ssm; skip = 1; next }
+    />>> COMPOSE_EXT_GZB64_SSM END/ { skip = 0; print; next }
+    />>> DATA_WRAPPERS_B64_PARAM START/ { print; print new_wrappers_ssm; skip = 1; next }
+    />>> DATA_WRAPPERS_B64_PARAM END/ { skip = 0; print; next }
     />>> CADDY_GZB64_SSM START/ { print; print new_caddy_ssm; skip = 1; next }
     />>> CADDY_GZB64_SSM END/ { skip = 0; print; next }
     />>> QA_CLEANUP_B64_PARAM START/ { print; print new_qa_ssm; skip = 1; next }
@@ -203,6 +217,8 @@ edge_body_bytes=$(awk '
 
 echo "stage0 CFN refreshed."
 echo "  compose gzip+base64 (SSM): ${#COMPOSE_GZB64} chars"
+echo "  compose external-db gzip+base64 (SSM): ${#COMPOSE_EXT_GZB64} chars"
+echo "  data wrappers gzip+base64 (SSM): ${#WRAPPERS_GZB64} chars"
 echo "  caddy gzip+base64 (SSM): ${#CADDY_GZB64} chars"
 echo "  edge caddy gzip+base64 (SSM): ${#EDGE_CADDY_GZB64} chars"
 echo "  qa cleanup base64 (SSM): ${#QA_CLEANUP_B64} chars"

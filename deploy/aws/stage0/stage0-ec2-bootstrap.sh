@@ -141,10 +141,18 @@ cd /var/lib/tokenkey
 
 # --- 3. docker-compose + Caddy from SSM ---------------------------------
 COMPOSE_PARAM="${STAGE0_PREFIX}/docker-compose.gzip.b64"
+COMPOSE_EXT_PARAM="${STAGE0_PREFIX}/docker-compose-external-db.gzip.b64"
 CADDY_PARAM="${STAGE0_PREFIX}/caddyfile.template.gzip.b64"
 COMPOSE_B64="$(aws ssm get-parameter --name "${COMPOSE_PARAM}" --region "${REGION}" --query Parameter.Value --output text)"
 CADDY_B64="$(aws ssm get-parameter --name "${CADDY_PARAM}" --region "${REGION}" --query Parameter.Value --output text)"
 printf '%s' "${COMPOSE_B64}" | base64 -d | gunzip > docker-compose.yml
+# 外部数据层 override（账本出机后经 .env 的 COMPOSE_FILE 激活；本机模式下仅落盘备用）。
+# 参数缺失时容忍跳过（edge 栈可能没有该参数；prod 由 build-cfn 保证存在）。
+if COMPOSE_EXT_B64="$(aws ssm get-parameter --name "${COMPOSE_EXT_PARAM}" --region "${REGION}" --query Parameter.Value --output text 2>/dev/null)"; then
+  printf '%s' "${COMPOSE_EXT_B64}" | base64 -d | gunzip > docker-compose.external-db.yml
+else
+  echo "no ${COMPOSE_EXT_PARAM}; skipping external-db override download"
+fi
 printf '%s' "${CADDY_B64}" | base64 -d | gunzip > caddy/Caddyfile.template
 API_DOMAIN="${API_DOMAIN}" ACME_EMAIL="${ACME_EMAIL}" \
   envsubst '$API_DOMAIN $ACME_EMAIL' \
@@ -221,12 +229,19 @@ TOKENKEY_IMAGE=${TOKENKEY_IMAGE}
 POSTGRES_USER=tokenkey
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 POSTGRES_DB=tokenkey
+DATABASE_HOST=postgres
+DATABASE_PORT=5432
+DATABASE_SSLMODE=disable
 DATABASE_MAX_OPEN_CONNS=50
 DATABASE_MAX_IDLE_CONNS=10
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_ENABLE_TLS=false
 REDIS_PASSWORD=
 REDIS_DB=0
 REDIS_POOL_SIZE=1024
 REDIS_MIN_IDLE_CONNS=10
+COMPOSE_PROFILES=localpg,localredis
 ADMIN_EMAIL=${ADMIN_EMAIL}
 ADMIN_PASSWORD=
 JWT_SECRET=${JWT_SECRET}
@@ -234,6 +249,36 @@ JWT_EXPIRE_HOUR=1
 TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY}
 ENVEOF
 chmod 0600 /var/lib/tokenkey/.env
+
+# --- 4b. data-layer overlay（SSM 单一真相）--------------------------------
+# 账本出机（RDS）后，外部数据层配置的唯一真相是 SecureString
+# ${STAGE0_PREFIX}/data-layer-env（KEY=VALUE 行集：DATABASE_HOST/SSLMODE、
+# COMPOSE_PROFILES、COMPOSE_FILE、POSTGRES_PASSWORD 等）。每次实例首启在
+# .env 默认值之上叠加，保证 reboot/replace 永不静默回退本机模式（split-brain
+# 防护——CFN 参数双真相是 ImageTag 退版事故的同构，禁止改回 CFN 参数承载）。
+# 参数不存在 = 本机数据层模式（与历史行为逐字节一致）。
+# 写入约束：overlay 的 VALUE 不得包含 '|'（下面 sed 的定界符）。
+DATA_LAYER_PARAM="${STAGE0_PREFIX}/data-layer-env"
+if OVERLAY="$(aws ssm get-parameter --name "${DATA_LAYER_PARAM}" --region "${REGION}" --with-decryption --query Parameter.Value --output text 2>/dev/null)"; then
+  while IFS= read -r line; do
+    case "${line}" in ''|'#'*) continue ;; esac
+    key="${line%%=*}"
+    if grep -q "^${key}=" /var/lib/tokenkey/.env; then
+      sed -i "s|^${key}=.*|${line}|" /var/lib/tokenkey/.env
+    else
+      printf '%s\n' "${line}" >> /var/lib/tokenkey/.env
+    fi
+  done <<< "${OVERLAY}"
+  echo "Applied data-layer overlay from ${DATA_LAYER_PARAM}"
+  # 外部 PG 模式（COMPOSE_PROFILES 无 localpg）：预拉 psql 客户端镜像，
+  # 否则新机首次用 tokenkey-psql/tokenkey-pg_dump 要现场拉取。
+  if ! grep -q '^COMPOSE_PROFILES=.*localpg' /var/lib/tokenkey/.env; then
+    PG_CLIENT_IMAGE="$(grep -m1 '^TOKENKEY_PG_CLIENT_IMAGE=' /var/lib/tokenkey/.env | cut -d= -f2- || true)"
+    docker pull "${PG_CLIENT_IMAGE:-postgres:18-alpine}" || true
+  fi
+else
+  echo "No data-layer overlay at ${DATA_LAYER_PARAM}; local data-layer mode"
+fi
 
 # --- 5. GHCR private-image login ----------------------------------------
 GHCR_PAT="$(aws --region "${REGION}" ssm get-parameter \
@@ -247,6 +292,18 @@ PGDUMP_B64_PARAM_NAME="${STAGE0_PREFIX}/pgdump.b64"
 RAW="$(aws ssm get-parameter --name "${PGDUMP_B64_PARAM_NAME}" --region "${REGION}" --query Parameter.Value --output text)"
 printf '%s' "${RAW}" | base64 -d > /usr/local/bin/tokenkey-pgdump.sh
 chmod +x /usr/local/bin/tokenkey-pgdump.sh
+
+# 数据层 CLI seam（tokenkey-psql / tokenkey-pg_dump / tokenkey-redis-cli）。
+# 单一源 deploy/aws/stage0/tokenkey-data-wrappers.sh，build-cfn 嵌入；
+# 存量舰队由 ops/stage0/install_data_wrappers_via_ssm.sh fan-out 同一文件。
+WRAPPERS_PARAM_NAME="${STAGE0_PREFIX}/data-wrappers.gzip.b64"
+if RAW="$(aws ssm get-parameter --name "${WRAPPERS_PARAM_NAME}" --region "${REGION}" --query Parameter.Value --output text 2>/dev/null)"; then
+  printf '%s' "${RAW}" | base64 -d | gunzip > /tmp/tokenkey-data-wrappers.sh
+  bash /tmp/tokenkey-data-wrappers.sh
+  rm -f /tmp/tokenkey-data-wrappers.sh
+else
+  echo "no ${WRAPPERS_PARAM_NAME}; skipping data wrappers install"
+fi
 
 install -m 0755 /dev/stdin /usr/local/bin/tokenkey-disk-metrics.sh <<'DISKEOF'
 #!/bin/bash

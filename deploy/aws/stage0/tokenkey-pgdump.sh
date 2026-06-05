@@ -13,7 +13,10 @@ find "${DUMP_DIR}" -maxdepth 1 -type f -name 'tokenkey-*.sql.gz' -size -2k -dele
 find "${DUMP_DIR}" -maxdepth 1 -type f -name 'pre-*.dump' -delete 2>/dev/null || true
 
 set -o pipefail
-if ! docker exec tokenkey-postgres pg_dump -U tokenkey -d tokenkey --format=plain --no-owner \
+# 经统一 seam（tokenkey-pg_dump，本机容器/外部 RDS 两模式通杀）；账本出机后
+# 本脚本继续作为 RDS PITR 之外的滚动冷备双保险。旧 docker exec 直连容器的
+# 写法在外部模式下没有 tokenkey-postgres 容器，禁止回退。
+if ! /usr/local/bin/tokenkey-pg_dump --format=plain --no-owner \
     | gzip -9 > "${PART}"; then
   rm -f "${PART}"
   exit 1

@@ -1118,6 +1118,16 @@ else
     else
         echo "  ok: stage0 EC2 UserData under 16 KiB (launcher + SSM bootstrap split)"
     fi
+    # Data-layer compose two-mode gate (local localpg,localredis vs external
+    # RDS override via COMPOSE_FILE). Skips itself cleanly when docker compose
+    # is unavailable on the runner, so this never reds on infra absence.
+    if ! python3 ./deploy/aws/stage0/test_compose_data_layer_modes.py >/dev/null 2>&1; then
+        echo "  FAIL: stage0 compose data-layer two-mode gate"
+        echo "        — run: python3 deploy/aws/stage0/test_compose_data_layer_modes.py"
+        errors=$((errors + 1))
+    else
+        echo "  ok: stage0 compose local/external data-layer modes behave as designed"
+    fi
 fi
 
 # Headless agent stream redactor: scripts/agent/redact-stream.py sits between

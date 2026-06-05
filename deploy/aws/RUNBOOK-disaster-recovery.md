@@ -18,6 +18,25 @@ prod 栈出厂就带三层保护，**恢复前先确认能否用更轻的一层*
 **RPO**（最坏数据丢失）：daily 快照 = ≤24h；关键发版/迁移期建议临时切 `SnapshotSchedule=hourly`（见 §5）。
 **RTO**（恢复时长）：场景 A 约 5–15 min（CFN 实例替换 + bootstrap 拉镜像起容器）；场景 B 约 +5–10 min（从快照建卷）。
 
+### 0.x 账本出机（RDS 模式）后的恢复语义 — prod 切换后以本小节覆盖下文 PG 相关描述
+
+prod 账本迁到 RDS（`tokenkey-data-stage0` 栈，SOP：`docs/deploy/aws-data-layer-migration.md`）之后：
+
+| 故障 | RDS 模式下的恢复 | 替代了原文的什么 |
+|---|---|---|
+| **PG 数据损坏 / 误删数据** | RDS PITR（7 天窗口，**RPO ~5 min**）：`aws rds restore-db-instance-to-point-in-time` 到新实例 → `TK_DATA_PG_HOST=<新 endpoint> cutover_data_layer_via_ssm.sh apply` 重指 | §4 从 DLM 快照恢复 PG 的部分（RPO ≤24h）——DLM 快照仍覆盖卷上其余数据（Caddy/.env.secret/Redis/pgdump） |
+| **RDS 实例故障** | 单 AZ：AWS 自动恢复（10–30 min 停机，已声明接受）；升 `MultiAZ=true`（在线参数）后 <60s 自动切换 | 无对应——本机模式下 PG 与实例同生死 |
+| **app 实例坏 / 替换（§3）** | 照 §3 执行，**账本零风险**（在 RDS 上）；新机 bootstrap 从 SSM overlay `/tokenkey/prod/stage0/data-layer-env` 自动渲染外部模式（单一真相，防 split-brain） | §3 中「数据零丢失依赖卷 Retain」对 PG 的部分 |
+| **整 AZ 不可用** | app 照 §3/§4 在别的 AZ 重建；RDS 单 AZ 实例若恰在故障 AZ → PITR 恢复到健康 AZ | §4 |
+
+**双保险仍然在**：2h 一次的 pgdump timer 已自动改走 RDS（wrapper 读 .env），
+`/var/lib/tokenkey/pgdump/` 滚动 12 份——RDS 全不可用的极端场景用它冷恢复。
+**回滚期注意**：切换后 14 天内本机 postgres 数据卷保留，
+`ops/stage0/cutover_data_layer_via_ssm.sh rollback` 一条命令回本机模式（丢切换后写入）。
+**Exports 锁定**：app 栈的 `VpcId/PrivateSubnetIds/AppSecurityGroupId` 被数据栈
+Import，改网络拓扑先 delete 数据栈（RDS 资源 Retain + DeletionProtection，不丢数据）。
+edge 与未切换环境仍按下文原文执行（本机 PG 语义不变）。
+
 恢复决策树（从上往下，命中即停）：
 
 ```

@@ -199,6 +199,27 @@ gh workflow run deploy-edge-stage0.yml \
 `deployable=true`，扩展 **`tokenkey-cicd-oidc`**（trust `environment:edge-<id>` + CFN execution role output）、
 GitHub **Environment**，并把该 `edge_id` 加入 workflow **choice** 与本仓库 provision 步骤里的 CFN role **case**。
 
+## 数据层（账本 RDS 出机）
+
+prod 的 PostgreSQL 账本运行在独立 CFN 栈 **`tokenkey-data-stage0`**
+（`deploy/aws/cloudformation/stage0-data.yaml`：RDS 单节点起步、PITR 7 天 RPO ~5min、
+`MultiAZ=true` 在线可升、Retain + DeletionProtection）。Redis 留在 prod 机
+（全为可重建缓存/计数器；出机触发器=上第二 app 副本前）。要点：
+
+- **运行时数据层配置唯一真相 = SSM SecureString `/tokenkey/prod/stage0/data-layer-env`**，
+  CFN 参数不携带任何数据层 endpoint/模式（防 ImageTag 退版同构的 split-brain）。
+  bootstrap 每次实例首启读取叠加 `.env`；切换/回滚用
+  `ops/stage0/cutover_data_layer_via_ssm.sh apply|rollback`（唯一 seam）。
+- compose 单份双模式：本机 `COMPOSE_PROFILES=localpg,localredis`（edge/默认），
+  外部 `localredis` + `docker-compose.external-db.yml`（经 `.env` 的 `COMPOSE_FILE`）。
+  两模式行为由 `deploy/aws/stage0/test_compose_data_layer_modes.py` 门禁（preflight）。
+- ops 脚本访问数据层的唯一 seam 是 `tokenkey-psql` / `tokenkey-pg_dump` /
+  `tokenkey-redis-cli`（单源 `deploy/aws/stage0/tokenkey-data-wrappers.sh`，
+  新机 bootstrap 安装，存量舰队用 `ops/stage0/install_data_wrappers_via_ssm.sh`）。
+  **禁止**新增 `docker exec tokenkey-postgres` 直连（外部模式下无此容器）。
+- 完整迁移/回滚/恢复 SOP：`docs/deploy/aws-data-layer-migration.md`；
+  RDS 模式的灾难恢复语义：`RUNBOOK-disaster-recovery.md` §0.x。
+
 ## 升级 / 发版（生产 Stage0）
 
 | Stack                       | `ImageTag` 来源                            | `ApiDomain`             |
