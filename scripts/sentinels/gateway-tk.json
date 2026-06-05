@@ -501,6 +501,14 @@
       "rationale": "Focused regression anchors for upstream #2500 covering both function_call and hop-2 item_reference replay ids with real nanoid-shaped call_<id> values."
     },
     {
+      "path": "backend/internal/service/openai_codex_transform.go",
+      "must_contain": [
+        "chatGPTOAuthUpstreamModelNames",
+        "codex-mini-latest"
+      ],
+      "rationale": "ChatGPT OAuth backend rejects gpt-5.3-codex with 400 'not supported when using Codex with a ChatGPT account'; the accepted wire name is codex-mini-latest. This reverse-mapping table in normalizeOpenAIModelForUpstream is the only gate preventing the internal canonical name from leaking to the upstream API."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_service.go",
       "must_contain": [
         "openAICompatSSEFrame",
