@@ -311,13 +311,14 @@ class RedisCacheDriftTest(unittest.TestCase):
 
     def test_section_parser_splits_on_markers(self) -> None:
         out = "\n".join([
-            "@@RDRIFT:tls_redis", '[{"id":1}]', "@@RDRIFT:tls_ttl", "82800",
-            "@@RDRIFT:tiers_redis", "[]", "@@RDRIFT:end",
+            "@@RDRIFT:tls_redis", '[{"id":1}]',
+            "@@RDRIFT:tiers_redis", "[]",
+            "@@RDRIFT:tls_db", '[{"id":1,"name":"x"}]', "@@RDRIFT:end",
         ])
         sec = mgr._parse_redis_drift_sections(out)
         self.assertEqual('[{"id":1}]', sec["tls_redis"])
-        self.assertEqual("82800", sec["tls_ttl"])
         self.assertEqual("[]", sec["tiers_redis"])
+        self.assertEqual('[{"id":1,"name":"x"}]', sec["tls_db"])
 
     def test_shell_base64_round_trips_to_exact_sql(self) -> None:
         import base64 as _b64
@@ -329,6 +330,16 @@ class RedisCacheDriftTest(unittest.TestCase):
         decoded = [_b64.b64decode(x).decode() for x in b64s]
         self.assertEqual(mgr.REDIS_DRIFT_TLS_DB_SQL, decoded[0])
         self.assertEqual(mgr.REDIS_DRIFT_TIERS_DB_SQL, decoded[1])
+
+    def test_shell_does_not_swallow_redis_failures(self) -> None:
+        # R-001 regression: a redis-cli failure must propagate (abort the shell
+        # under set -euo pipefail -> SSM fails -> status=error), never be swallowed
+        # into an empty blob that parses as a clean cold cache (false all-green).
+        sh = mgr.render_redis_cache_drift_shell()
+        self.assertNotIn("|| true", sh)
+        self.assertNotIn("2>/dev/null", sh)
+        self.assertIn("$RC GET tls_fingerprint_profiles\n", sh)
+        self.assertIn("$RC GET tiers\n", sh)
 
     def test_new_db_sql_registered_in_self_check(self) -> None:
         labels = {label for label, _ in mgr.iter_self_check_sql()}
