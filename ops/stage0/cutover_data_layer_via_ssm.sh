@@ -168,9 +168,9 @@ EOF
       "echo \"=== stop local postgres (container only; data volume kept for rollback) ===\"",
       "sudo docker stop tokenkey-postgres || true",
       "echo \"=== verify: wrapper now answers from RDS ===\"",
-      "ONE=$(sudo tokenkey-psql -X -A -t -c \"select 1\")",
+      "ONE=$(sudo /usr/local/bin/tokenkey-psql -X -A -t -c \"select 1\")",
       "[ \"$ONE\" = \"1\" ] || { echo \"::error::tokenkey-psql probe failed against RDS\"; exit 1; }",
-      "sudo tokenkey-psql -X -A -t -c \"select count(*) from users\" | sed \"s/^/users rows: /\"",
+      "sudo /usr/local/bin/tokenkey-psql -X -A -t -c \"select count(*) from users\" | sed \"s/^/users rows: /\"",
       "sudo docker ps --filter name=tokenkey --format \"{{.Names}}\\t{{.Status}}\"",
       "trap - ERR",
       "echo \"=== cutover apply done ===\""
@@ -198,7 +198,7 @@ else # rollback
       "sudo docker compose --env-file .env up -d --no-deps --force-recreate tokenkey",
       "for i in $(seq 1 18); do H=$(sudo docker inspect tokenkey --format \"{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}\" 2>/dev/null || echo none); echo \"tokenkey health: $H\"; [ \"$H\" = healthy ] && break; [ $i -eq 18 ] && { echo \"::error::tokenkey not healthy after rollback\"; exit 1; }; sleep 5; done",
       "echo \"=== verify: wrapper answers from the local container again ===\"",
-      "ONE=$(sudo tokenkey-psql -X -A -t -c \"select 1\")",
+      "ONE=$(sudo /usr/local/bin/tokenkey-psql -X -A -t -c \"select 1\")",
       "[ \"$ONE\" = \"1\" ] || { echo \"::error::tokenkey-psql probe failed after rollback\"; exit 1; }",
       "sudo docker ps --filter name=tokenkey --format \"{{.Names}}\\t{{.Status}}\"",
       "echo \"=== cutover rollback done ===\""

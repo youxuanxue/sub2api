@@ -75,9 +75,9 @@ jq -n --arg b64 "${WRAPPERS_B64}" '{
     "sudo bash /tmp/tokenkey-data-wrappers.sh",
     "rm -f /tmp/tokenkey-data-wrappers.sh",
     "echo \"=== verify (read-only probes against the current data layer) ===\"",
-    "ONE=$(sudo tokenkey-psql -X -A -t -c \"select 1\")",
+    "ONE=$(sudo /usr/local/bin/tokenkey-psql -X -A -t -c \"select 1\")",
     "[ \"$ONE\" = \"1\" ] || { echo \"::error::tokenkey-psql probe failed (got: $ONE)\"; exit 1; }",
-    "PONG=$(sudo tokenkey-redis-cli ping)",
+    "PONG=$(sudo /usr/local/bin/tokenkey-redis-cli ping)",
     "[ \"$PONG\" = \"PONG\" ] || { echo \"::error::tokenkey-redis-cli probe failed (got: $PONG)\"; exit 1; }",
     "echo \"=== wrappers installed and verified ===\""
   ]

@@ -128,8 +128,9 @@ Resources:
       DBSubnetGroupName: !Ref DataSubnetGroup
       VPCSecurityGroups: [!Ref DataSecurityGroup]
       BackupRetentionPeriod: !Ref PgBackupRetentionDays
-      PreferredBackupWindow: 08:30-09:00
-      PreferredMaintenanceWindow: sun:09:30-sun:10:30
+      # 低峰锚点跟随仓库既有约定（qa-stale-cleanup timer 04:15 UTC "low-traffic window"）。
+      PreferredBackupWindow: 04:30-05:00
+      PreferredMaintenanceWindow: sun:05:30-sun:06:30
       AutoMinorVersionUpgrade: true
       CopyTagsToSnapshot: true
       DeletionProtection: true

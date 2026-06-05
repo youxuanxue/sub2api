@@ -59,17 +59,27 @@ autoscaling 上限（200GB）是保险丝，不是方案。
 
 > 全程管理员本地凭证（同 resize SOP 理由——OIDC CI role 无 CFN/RDS 权限）。
 
-1. ⛔ **app 栈更新**（加私有子网 + Exports，Instance 必须零变更）：
+1. ⛔ **app 栈更新**（加私有子网 + Exports，Instance 必须零变更）。
+   **铁律**：既有参数全部 `UsePreviousValue`（尤其 ImageTag——6 月 5 日退版事故）；
+   新增的 PrivateSubnet*Cidr 参数自动取模板默认值。用确定性派生而不是手敲参数表：
    ```bash
+   PARAMS=$(aws cloudformation describe-stacks --region us-east-1 \
+     --stack-name tokenkey-prod-stage0 \
+     --query 'Stacks[0].Parameters[].{ParameterKey:ParameterKey,UsePreviousValue:`true`}' \
+     --output json)
    aws cloudformation create-change-set --region us-east-1 \
      --stack-name tokenkey-prod-stage0 \
+     --change-set-name data-layer-private-subnets \
      --template-body file://deploy/aws/cloudformation/stage0-single-ec2.yaml \
      --capabilities CAPABILITY_IAM \
-     --use-previous-template-defaults 2>/dev/null || true  # 参数沿用现值，ImageTag 严禁带新值
-   aws cloudformation describe-change-set ...   # 人工确认：Instance 不出现，或 Action!=Modify/Replace；DataVolume 不出现
-   aws cloudformation execute-change-set ...
+     --parameters "${PARAMS}"
+   aws cloudformation describe-change-set --region us-east-1 \
+     --stack-name tokenkey-prod-stage0 --change-set-name data-layer-private-subnets \
+     --query 'Changes[].{Action:ResourceChange.Action,Resource:ResourceChange.LogicalResourceId,Replacement:ResourceChange.Replacement}'
+   # 人工确认：Instance / DataVolume 不出现在变更列表；只有 PrivateSubnet*/RouteTable*/Assoc*/SSM Parameter*/Outputs
+   aws cloudformation execute-change-set --region us-east-1 \
+     --stack-name tokenkey-prod-stage0 --change-set-name data-layer-private-subnets
    ```
-   **铁律**：参数全部 `UsePreviousValue`（尤其 ImageTag——6 月 5 日退版事故）。
 2. 生成并写入 RDS 主密码（值仅存 SSM，不落终端历史）：
    ```bash
    aws ssm put-parameter --region us-east-1 --type SecureString \
@@ -94,20 +104,23 @@ autoscaling 上限（200GB）是保险丝，不是方案。
    dump 不带死元组，无需 VACUUM FULL）：
    ```bash
    # 经 SSM 在 prod 上（按保留期裁剪，阈值按当时情况定，先 SELECT count 预览）
-   sudo tokenkey-psql -c "DELETE FROM ops_system_logs WHERE created_at < now() - interval '14 days'"
-   sudo tokenkey-psql -c "DELETE FROM ops_error_logs  WHERE created_at < now() - interval '14 days'"
+   sudo /usr/local/bin/tokenkey-psql -c "DELETE FROM ops_system_logs WHERE created_at < now() - interval '14 days'"
+   sudo /usr/local/bin/tokenkey-psql -c "DELETE FROM ops_error_logs  WHERE created_at < now() - interval '14 days'"
    ```
-6. **预检 + 演练（不切流）**，经 SSM 在 prod 上：
+6. **预检 + 演练（不切流）**，经 SSM 在 prod 上。**密码不内联进命令**
+   （SSM command history 可见）——在主机上从 SecureString 现取：
    ```bash
+   RDSPW=$(sudo aws ssm get-parameter --region us-east-1 --with-decryption \
+     --name /tokenkey/prod/stage0/rds-master-password --query Parameter.Value --output text)
+   NET=$(sudo docker network ls --format '{{.Name}}' | grep -m1 'tokenkey-network$')
    # 连通 + TLS（容器网络出口直连 RDS）
-   sudo docker run --rm --network "$(sudo docker network ls --format '{{.Name}}' | grep -m1 'tokenkey-network$')" \
-     -e PGPASSWORD=<rds-pwd> postgres:<major>-alpine \
+   sudo docker run --rm --network "$NET" -e PGPASSWORD="$RDSPW" postgres:<major>-alpine \
      psql "host=<rds-endpoint> sslmode=require user=tokenkey dbname=tokenkey" -c 'select version()'
    # 扩展（best-effort，rds master user 有权限）
    ... -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm'
    # 完整 dump→restore 演练 + 行数对账 + 计时（结果决定 C 阶段窗口时长与公告）
-   time (sudo tokenkey-pg_dump --format=plain --no-owner | \
-     sudo docker run --rm -i --network <同上> -e PGPASSWORD=<rds-pwd> postgres:<major>-alpine \
+   time (sudo /usr/local/bin/tokenkey-pg_dump --format=plain --no-owner | \
+     sudo docker run --rm -i --network "$NET" -e PGPASSWORD="$RDSPW" postgres:<major>-alpine \
        psql "host=<rds-endpoint> sslmode=require user=tokenkey dbname=tokenkey" -v ON_ERROR_STOP=1 -q)
    # 对账后清掉演练数据（重建库），保持 C 阶段 restore 进空库
    ```
@@ -116,6 +129,10 @@ autoscaling 上限（200GB）是保险丝，不是方案。
    再碰 prod。
 
 ## 阶段 C：切换窗口（时长 = B6 实测 + 缓冲）⛔
+
+> **硬前置**：阶段 A 全部完成——尤其 **PR2 已合并且舰队 wrapper 已 fan-out**。
+> PR2 之前 `tokenkey-qa-stale-cleanup.sh` 等仍 `docker exec tokenkey-postgres`
+> 直连容器，切换后会静默 no-op / 报错。缺任一前置不得进入本阶段。
 
 1. 公告维护窗口（低峰时段）。
 2. drain：`sudo docker kill -s USR1 tokenkey`，轮询
