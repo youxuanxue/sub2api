@@ -382,12 +382,14 @@ func resolveTargetGroupID(
 //  1. Channel pricing — walk active channels mapped to the target group,
 //     keep platform-matching SupportedModels, dedupe by model_id with the
 //     cheaper-wins rule.
-//  2. Account whitelist fallback — for each schedulable account on the
-//     target group, synthesize a row per whitelisted model_id that the
-//     channel loop did not already cover. Channel pricing always wins on
-//     conflict. Bridges the admin "model whitelist" UX (gateway routing
-//     limit) into Your-Menu when operators have not configured channel
-//     pricing for that group.
+//  2. Account fallback — for each schedulable account on the target
+//     group, synthesize rows the channel loop did not already cover.
+//     Restricted accounts contribute their model_mapping whitelist;
+//     unrestricted native OAuth accounts (empty model_mapping) contribute
+//     the platform's canonical model list. Channel pricing always wins on
+//     conflict. This is what populates Your-Menu for Anthropic OAuth
+//     groups, which have no channels and no whitelist. See
+//     fillWhitelistFallback for the branch detail.
 //  3. LiteLLM metadata join — vendor / context_window / capabilities /
 //     max_output_tokens applied to every row, regardless of source.
 func (s *MePricingCatalogService) buildModelsForGroup(
@@ -473,22 +475,37 @@ func (s *MePricingCatalogService) buildModelsForGroup(
 	return out
 }
 
-// fillWhitelistFallback inserts account-derived menu rows for any model
-// listed in a schedulable account's whitelist (credentials.model_mapping
-// entries with from === to) that is not already present in bestByModel.
+// fillWhitelistFallback inserts account-derived menu rows for each
+// schedulable account on the target group, branching on whether the
+// account restricts its model set:
+//
+//   - Restricted account (non-empty credentials.model_mapping) — emit one
+//     row per whitelist entry (from === to). Mapping-mode entries
+//     (from != to) are routing rewrites, not user-visible offerings, so
+//     they contribute nothing (see parseWhitelistFromCredentials).
+//   - Unrestricted account (empty/absent model_mapping = all models
+//     allowed, the native OAuth case) — emit the platform's canonical
+//     model list (claude/openai/gemini/antigravity default models, the
+//     same source gateway `/v1/models` uses). This is what fixes the
+//     empty "Your Menu" for Anthropic OAuth groups: those accounts are
+//     not channels and carry no whitelist, so before this branch both
+//     the channel stage and the whitelist stage produced nothing.
 //
 // Channel-configured rows ALWAYS win on conflict — we never overwrite an
 // existing key. The catalog index is passed in so the price/metadata
 // lookup uses the same source the metadata-join stage does, keeping
 // catalog reads to one round-trip per call.
 //
-// When the catalog has no entry for a whitelisted model_id, vendor-prefix
-// stripping (matches OpenRouter / Azure "<vendor>/<family-version>"
-// style — same predicate as IsModelPriced § PR #326) is retried before
-// giving up. If both lookups miss, the row is still emitted with nil
-// prices: admin-visible whitelist coverage takes priority over hiding
-// unpriced models. MePricingPrice's contract treats nil as "—" in the
-// UI, distinct from a real 0.0 free-subscription price.
+// When the catalog has no entry for a model_id, vendor-prefix stripping
+// (matches OpenRouter / Azure "<vendor>/<family-version>" style — same
+// predicate as IsModelPriced § PR #326) is retried before giving up. If
+// both lookups miss, the row is still emitted with nil prices: reachable
+// coverage takes priority over hiding unpriced models. MePricingPrice's
+// contract treats nil as "—" in the UI, distinct from a real 0.0
+// free-subscription price.
+//
+// An empty schedulable pool emits nothing — the menu stays empty rather
+// than advertising models a dead group cannot actually serve.
 //
 // Errors from the account source are absorbed: the fallback is
 // best-effort and must not block the main pricing-catalog response.
@@ -506,19 +523,74 @@ func (s *MePricingCatalogService) fillWhitelistFallback(
 	if err != nil || len(accounts) == 0 {
 		return
 	}
+	platformDefaults := platformDefaultModelIDs(targetGroup.Platform)
 	for i := range accounts {
 		a := &accounts[i]
 		if !accountInGroupScope(a, targetGroup.Platform) {
 			continue
 		}
-		whitelist := parseWhitelistFromCredentials(a.Credentials)
-		for _, modelID := range whitelist {
-			if _, exists := bestByModel[modelID]; exists {
-				continue
+		if accountHasModelRestriction(a.Credentials) {
+			for _, modelID := range parseWhitelistFromCredentials(a.Credentials) {
+				addFallbackModel(bestByModel, modelID, effectiveRate, metaByID)
 			}
-			bestByModel[modelID] = buildAccountFallbackEntry(modelID, effectiveRate, metaByID)
+			continue
+		}
+		// Unrestricted native account → canonical platform model list.
+		for _, modelID := range platformDefaults {
+			if targetGroup.Platform == PlatformAnthropic {
+				if _, deprecated := tkIsDeprecatedAnthropicModel(modelID); deprecated {
+					continue
+				}
+			}
+			addFallbackModel(bestByModel, modelID, effectiveRate, metaByID)
 		}
 	}
+}
+
+// addFallbackModel synthesizes one fallback menu row for modelID unless a
+// higher-priority source (a channel-priced row, or an earlier account)
+// already covers it. Channel rows always win on conflict.
+func addFallbackModel(
+	bestByModel map[string]MePricingModel,
+	modelID string,
+	effectiveRate float64,
+	metaByID map[string]PublicCatalogModel,
+) {
+	if _, exists := bestByModel[modelID]; exists {
+		return
+	}
+	bestByModel[modelID] = buildAccountFallbackEntry(modelID, effectiveRate, metaByID)
+}
+
+// platformDefaultModelIDs returns the canonical model-ID list for a native
+// platform, reusing the single source of truth that gateway `/v1/models`
+// uses (defaultModelsListCandidateIDs). Only the four native platforms
+// that own a canonical list are returned; newapi (and any unknown
+// platform) returns nil because it is channel / channel_type driven —
+// routing defaultModelsListCandidateIDs's default arm (which returns the
+// Claude list) for a newapi group would leak Claude models into an
+// OpenAI-compatible menu.
+func platformDefaultModelIDs(platform string) []string {
+	switch platform {
+	case PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity:
+		return defaultModelsListCandidateIDs(platform)
+	default:
+		return nil
+	}
+}
+
+// accountHasModelRestriction reports whether an account restricts its
+// model set via a non-empty credentials.model_mapping. This mirrors
+// Account.IsModelSupported's whitelist semantics: an empty/absent mapping
+// means "all models allowed" (unrestricted), a non-empty mapping is a
+// whitelist. Defensive against malformed JSON — a non-object value is
+// treated as no restriction.
+func accountHasModelRestriction(creds map[string]any) bool {
+	if creds == nil {
+		return false
+	}
+	raw, ok := creds["model_mapping"].(map[string]any)
+	return ok && len(raw) > 0
 }
 
 // accountInGroupScope encodes the cross-platform leak guard for the
