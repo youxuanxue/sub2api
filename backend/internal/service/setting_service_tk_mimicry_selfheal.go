@@ -19,6 +19,15 @@ import (
 // ops pipeline's `sync-runtime`, so a freshly-deployed node acquires the canonical
 // UA + betas WITHOUT an operator round-trip (the check's http_ua_drift gate).
 //
+// Healing is a MONOTONIC RATCHET, not a directionless overwrite: each key heals
+// only when its current value is unset/invalid or carries a cc_version OLDER
+// than the embedded baseline. A NEWER value is left untouched — it means the ops
+// sync-runtime hot-updated the fleet ahead of this binary's release train, and
+// clobbering it would roll the live UA back on every tick until the next deploy
+// (observed in production on the 2.1.163→2.1.165 bump: 8/9 nodes reverted within
+// hours). Deliberate downgrades go through deleting the settings keys (unset →
+// reseeded from baseline), not through writing an older value.
+//
 // Comparison is SEMANTIC (parse + field compare), not byte-exact, so it never
 // fights the Python sync-runtime when both write equivalent JSON. Returns whether
 // it wrote anything. Caches are invalidated on write so the change takes effect
@@ -58,24 +67,36 @@ func (s *SettingService) EnsureClaudeCodeMimicryBaseline(ctx context.Context) (b
 
 	changed := false
 
-	// --- UA version ---
+	// --- UA version (monotonic: heal only unset/invalid/older) ---
 	curUARaw, err := s.settingRepo.GetValue(ctx, SettingKeyClaudeCodeUserAgentVersion)
 	if err != nil && !errors.Is(err, ErrSettingNotFound) {
 		return false, fmt.Errorf("read %s: %w", SettingKeyClaudeCodeUserAgentVersion, err)
 	}
-	if NormalizeClaudeCodeUserAgentVersion(curUARaw) != wantUA {
+	curUA := NormalizeClaudeCodeUserAgentVersion(curUARaw)
+	effectiveUA := wantUA // what the DB carries after this tick (for cache refresh)
+	switch {
+	case curUA == "" || CompareVersions(curUA, wantUA) < 0:
 		if err := s.settingRepo.Set(ctx, SettingKeyClaudeCodeUserAgentVersion, wantUA); err != nil {
 			return changed, fmt.Errorf("write %s: %w", SettingKeyClaudeCodeUserAgentVersion, err)
 		}
 		changed = true
+	case CompareVersions(curUA, wantUA) > 0:
+		effectiveUA = curUA
+		// Newer than this binary's baseline: hot-updated via sync-runtime ahead
+		// of the release train. Leave it — see the ratchet contract above.
+		slog.Debug("claude code mimicry UA setting newer than embedded baseline; preserving",
+			"current", curUA, "baseline", wantUA)
 	}
 
-	// --- mimicry manifest (semantic compare) ---
+	// --- mimicry manifest (monotonic on its own cc_version; semantic compare at par) ---
 	curManifestRaw, err := s.settingRepo.GetValue(ctx, SettingKeyClaudeCodeHTTPMimicryManifest)
 	if err != nil && !errors.Is(err, ErrSettingNotFound) {
 		return changed, fmt.Errorf("read %s: %w", SettingKeyClaudeCodeHTTPMimicryManifest, err)
 	}
-	if !mimicryManifestEquivalent(ParseClaudeCodeHTTPMimicryManifest(curManifestRaw), wantManifest) {
+	curManifest := ParseClaudeCodeHTTPMimicryManifest(curManifestRaw)
+	manifestNewer := curManifest != nil &&
+		CompareVersions(NormalizeClaudeCodeUserAgentVersion(curManifest.CCVersion), wantManifest.CCVersion) > 0
+	if !manifestNewer && !mimicryManifestEquivalent(curManifest, wantManifest) {
 		encoded, err := json.Marshal(wantManifest)
 		if err != nil {
 			return changed, fmt.Errorf("marshal desired mimicry manifest: %w", err)
@@ -87,9 +108,9 @@ func (s *SettingService) EnsureClaudeCodeMimicryBaseline(ctx context.Context) (b
 	}
 
 	if changed {
-		s.invalidateClaudeCodeMimicryCaches(wantUA)
+		s.invalidateClaudeCodeMimicryCaches(effectiveUA)
 		slog.Info("claude code mimicry runtime self-healed to baseline (local deployment only)",
-			"cc_version", wantUA)
+			"cc_version", effectiveUA)
 	}
 	return changed, nil
 }

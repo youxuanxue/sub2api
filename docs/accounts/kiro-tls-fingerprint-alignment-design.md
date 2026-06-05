@@ -113,7 +113,7 @@ only the JSON; to change the live JA3 you must also update the DB row — either
 the admin TLS-fingerprint-profile UI, or a follow-up migration that re-seeds with
 `ON CONFLICT (name) DO UPDATE SET ...` (the `tk_014` `DO NOTHING` seed sets the
 initial value only). This is the same JSON-source / DB-runtime split cc uses; cc
-auto-syncs via `manage-anthropic-config sync-runtime` (GetOrUpsertByName), kiro
+auto-syncs via `manage-anthropic-config sync-runtime` (GetOrCreateByName for row existence; content owned by the ops pipeline), kiro
 does the propagation step explicitly.
 
 ### First real capture (provenance)

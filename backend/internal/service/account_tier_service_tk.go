@@ -24,8 +24,9 @@ const AccountTierExtraKey = "stability_tier"
 //   - value-sync account.concurrency from the tier row (concurrency stays a
 //     persisted column on the scheduler hot path; see reconciler Step T for the
 //     steady-state re-assertion);
-//   - ensure the canonical TLS fingerprint profile ROW EXISTS (GetOrUpsertByName
-//     from the embedded shared_baseline) and pin account.extra.tls_fingerprint_
+//   - ensure the canonical TLS fingerprint profile ROW EXISTS (GetOrCreateByName
+//     from the embedded shared_baseline; an existing row's CONTENT is preserved —
+//     it is owned by the ops pipeline) and pin account.extra.tls_fingerprint_
 //     profile_id to it. This fixes the historical root cause: the old path only
 //     *looked up* the id (GetByName) and silently left the binding empty when the
 //     row was missing, so the account ran on the built-in default ClientHello;
@@ -123,16 +124,18 @@ func (s *AccountTierService) applyTier(ctx context.Context, accountID int64, tie
 		return nil, fmt.Errorf("load tier baseline %q: %w", row.Name, err)
 	}
 
-	// Ensure the canonical TLS profile ROW EXISTS (upsert by name) and bind its id.
-	// GetOrUpsertByName creates-if-absent and returns the row id — this is the fix
-	// for "tls_fingerprint_profiles has no tk_canonical_cc_oauth" → silent fallback
-	// to the built-in default ClientHello. A missing TLS service or a failed upsert
-	// is now FATAL (return error): an unbound canonical profile is exactly the bug
-	// we are eliminating, so it must not pass silently.
+	// Ensure the canonical TLS profile ROW EXISTS (create-if-missing) and bind its
+	// id — this is the fix for "tls_fingerprint_profiles has no tk_canonical_cc_oauth"
+	// → silent fallback to the built-in default ClientHello. An EXISTING row's
+	// content is NOT rewritten from this binary's embedded baseline: content is
+	// owned by the ops pipeline (see GetOrCreateByName), so an older binary can
+	// never roll a fleet-updated fingerprint back. A missing TLS service or a
+	// failed create is FATAL (return error): an unbound canonical profile is
+	// exactly the bug we are eliminating, so it must not pass silently.
 	if s.tlsSvc == nil {
 		return nil, fmt.Errorf("tls fingerprint service unavailable; cannot ensure canonical profile %q", eff.TLSProfileName)
 	}
-	prof, err := s.tlsSvc.GetOrUpsertByName(ctx, eff.CanonicalTLSProfile())
+	prof, err := s.tlsSvc.GetOrCreateByName(ctx, eff.CanonicalTLSProfile())
 	if err != nil {
 		return nil, fmt.Errorf("ensure canonical TLS profile %q: %w", eff.TLSProfileName, err)
 	}

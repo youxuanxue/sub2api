@@ -28,14 +28,26 @@ func (s *TLSFingerprintProfileService) GetByName(ctx context.Context, name strin
 	return nil, nil
 }
 
-// GetOrUpsertByName upserts a profile keyed by Name (the equivalent of the
-// orchestrator's `ON CONFLICT (name) DO UPDATE`): if a row with desired.Name
-// exists it is updated in place (preserving its ID), otherwise it is created.
-// Returns the persisted profile WITH a valid ID. Going through the service (not
-// the repo directly) ensures the in-process local cache is invalidated so
-// ResolveTLSProfile sees the new/updated row immediately — this is what prevents
-// the silent fallback to the built-in default ClientHello after a tier apply.
-func (s *TLSFingerprintProfileService) GetOrUpsertByName(ctx context.Context, desired *model.TLSFingerprintProfile) (*model.TLSFingerprintProfile, error) {
+// GetOrCreateByName ensures a profile row with desired.Name EXISTS and returns
+// it with a valid ID. If the row already exists it is returned AS-IS — its
+// content is deliberately NOT rewritten from the caller's (embedded-baseline)
+// copy. Content ownership is split:
+//
+//   - Row EXISTENCE + account binding: this service / ApplyTier / the account
+//     baseline reconciler. Creating a missing row is what prevents the silent
+//     fallback to the built-in default ClientHello after a tier apply.
+//   - Row CONTENT (the actual ClientHello fields): the ops pipeline
+//     (manage-anthropic-config apply / remediate-guard-drift), which upserts the
+//     fleet to the latest captured canonical fingerprint.
+//
+// The previous update-in-place semantics let a node running an OLDER binary
+// (older embedded TLS baseline) silently roll the canonical row BACK on any
+// ApplyTier click or account-infra-drift tick after the ops pipeline had pushed
+// a newer fingerprint fleet-wide — the same stale-embedded-baseline failure
+// mode as the mimicry UA ratchet (see EnsureClaudeCodeMimicryBaseline). Going
+// through the service (not the repo directly) keeps the in-process local cache
+// invalidated on create so ResolveTLSProfile sees the new row immediately.
+func (s *TLSFingerprintProfileService) GetOrCreateByName(ctx context.Context, desired *model.TLSFingerprintProfile) (*model.TLSFingerprintProfile, error) {
 	if desired == nil {
 		return nil, fmt.Errorf("tls profile is nil")
 	}
@@ -47,8 +59,7 @@ func (s *TLSFingerprintProfileService) GetOrUpsertByName(ctx context.Context, de
 		return nil, err
 	}
 	if existing != nil {
-		desired.ID = existing.ID
-		return s.Update(ctx, desired)
+		return existing, nil
 	}
 	return s.Create(ctx, desired)
 }
