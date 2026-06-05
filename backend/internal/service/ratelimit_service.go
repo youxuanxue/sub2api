@@ -460,6 +460,15 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 	case 404:
 		shouldDisable = s.handle404(ctx, account, upstreamMsg, responseBody)
 	case 429:
+		// TK (prod 2026-06): edges empty-pool fast-fail is 429+Retry-After, not
+		// 503. Same downstream-exhaustion semantics as handleAnthropicUpstreamError
+		// skip path — do not classify as upstream rate-limit cooldown / Feishu 429.
+		if account.Platform == PlatformAnthropic && tkSkipDownstreamNoAvailableAccountsPenalty(statusCode, upstreamMsg, responseBody) {
+			slog.Info("anthropic_downstream_no_available_accounts_skip_penalty",
+				"account_id", account.ID,
+				"status_code", statusCode)
+			return true
+		}
 		// handle429 returns true when SetRateLimited landed on an upstream-
 		// provided reset time. If so, suppress the ladder's parallel
 		// SetTempUnschedulable write (last-write-wins would otherwise
@@ -1006,7 +1015,7 @@ func (s *RateLimitService) handleAnthropicUpstreamError(ctx context.Context, acc
 	// in-flight request over to the next stub (return true) but leave stub health
 	// untouched: no counter advance, no SetTempUnschedulable. See
 	// tkIsDownstreamNoAvailableAccounts.
-	if statusCode == http.StatusServiceUnavailable && tkIsDownstreamNoAvailableAccounts(upstreamMsg, responseBody) {
+	if tkSkipDownstreamNoAvailableAccountsPenalty(statusCode, upstreamMsg, responseBody) {
 		slog.Info("anthropic_downstream_no_available_accounts_skip_penalty",
 			"account_id", account.ID,
 			"status_code", statusCode)
