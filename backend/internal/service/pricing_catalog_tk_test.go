@@ -103,7 +103,12 @@ func TestPublicCatalog_FiltersUnservableClaudeAndGpt(t *testing.T) {
 	s.SetSourceForTesting(func() ([]byte, time.Time, bool) {
 		return []byte(fixture), time.Date(2026, 6, 5, 0, 0, 0, 0, time.UTC), true
 	})
-	resp := s.BuildPublicCatalog(context.Background())
+	// BuildPublicCatalog is the full priced set (also backs IsModelPriced); the
+	// public /pricing presentation filter is FilterPublicCatalogToServable.
+	full := s.BuildPublicCatalog(context.Background())
+	require.NotNil(t, full)
+	require.True(t, len(full.Data) >= 8, "BuildPublicCatalog must stay unfiltered (full priced set)")
+	resp := FilterPublicCatalogToServable(full)
 	require.NotNil(t, resp)
 
 	got := make(map[string]bool, len(resp.Data))
@@ -132,7 +137,9 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		{"anthropic", "claude-3-haiku-20240307", false},
 		{"anthropic", "claude-opus-4-6-20260205", false},
 		{"openai", "gpt-5.4", true},
-		{"openai", "gpt-image-2", true},
+		{"openai", "gpt-5-mini", true},      // servable extra beyond canonical
+		{"openai", "gpt-5.2", false},        // canonical but probe-unservable (502)
+		{"openai", "gpt-image-2", false},    // not servable on a probeable path
 		{"openai", "gpt-4o", false},
 		{"azure_openai", "gpt-4", false}, // azure_openai → openai platform, gated
 		{"vertex_ai-language-models", "gemini-2.5-pro", true}, // other vendor: pass-through

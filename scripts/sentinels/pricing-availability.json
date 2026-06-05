@@ -33,14 +33,14 @@
       "rationale": "This TK companion file is the single implementation of TkRecordFailureFromErr — the helper that extracts upstream HTTP status from UpstreamFailoverError and forwards it to the availability classifier. If this file is lost (e.g. an upstream merge that removes all untracked files), all 5 tap call sites compile against a missing function and the build fails. The file also contains the UpstreamFailoverError unwrap logic that makes model_not_found classification work correctly (R-004 fix from review-20260506)."
     },
     {
-      "path": "backend/internal/service/pricing_catalog_tk.go",
-      "must_contain": ["if !isPublicCatalogModelSupported(e.LiteLLMProvider, name) {"],
-      "rationale": "The public /pricing catalog prunes retired/unservable claude + gpt rows so customers only see models TokenKey can actually serve (empirical 2026-06-05 probe; the upstream litellm mirror carries 22 anthropic + 123 openai entries, most dead). The filter call lives one line inside buildCatalogFromBytes; an upstream merge that rewrites the parse loop would silently restore the full unservable list and customers would again pick claude-3-*/gpt-4o and hit 400/404. Pins the call site so the prune cannot be lost."
+      "path": "backend/internal/handler/pricing_catalog_handler_tk.go",
+      "must_contain": ["service.FilterPublicCatalogToServable("],
+      "rationale": "The public /pricing endpoint prunes retired/unservable claude + gpt rows so customers only see models TokenKey can actually serve (empirical 2026-06-05 probe). The filter is PRESENTATION-ONLY — applied in GetPublicCatalog after BuildPublicCatalog, deliberately NOT in the shared parse (which also backs IsModelPriced billing/gateway filtering). An upstream merge that rewrites GetPublicCatalog could silently drop the call and restore the full unservable list (customers again pick claude-3-*/gpt-4o and hit 400/404). Pins the call site."
     },
     {
       "path": "backend/internal/service/pricing_catalog_supported_models_tk.go",
-      "must_contain": ["func isPublicCatalogModelSupported(", "supportedAnthropicCatalogModels", "supportedOpenAICatalogModels"],
-      "rationale": "Single source for the public-catalog claude + gpt support allowlists (empirical servability snapshot, see file header for probe provenance). Losing this file makes pricing_catalog_tk.go's filter call fail to compile; losing the allowlist vars would silently widen the catalog back to the full unservable litellm set. Other vendors (gemini, deepseek, …) intentionally pass through — the filter only curates the two families the operator asked to prune."
+      "must_contain": ["func isPublicCatalogModelSupported(", "func FilterPublicCatalogToServable(", "func supportedCatalogModelIDsForPlatform(", "supportedAnthropicCatalogModels", "supportedOpenAICatalogModels"],
+      "rationale": "Single source for the empirically-servable claude + gpt sets, shared by the public /pricing presentation filter (FilterPublicCatalogToServable) and the Your-Menu unrestricted-account fallback (supportedCatalogModelIDsForPlatform). Losing the allowlist vars would silently widen both surfaces back to the full unservable set; losing the funcs breaks both call sites. Other vendors (gemini, deepseek, …) intentionally pass through — only the claude + gpt families are curated."
     },
     {
       "path": "backend/internal/service/pricing_catalog_tk_test.go",

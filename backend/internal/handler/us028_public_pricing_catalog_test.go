@@ -58,7 +58,7 @@ func sampleCatalog() *service.PublicCatalogResponse {
 		Object: "list",
 		Data: []service.PublicCatalogModel{
 			{
-				ModelID: "claude-sonnet-4.5",
+				ModelID: "claude-opus-4-8",
 				Vendor:  "anthropic",
 				Pricing: service.PublicCatalogPricing{
 					Currency:          "USD",
@@ -72,7 +72,7 @@ func sampleCatalog() *service.PublicCatalogResponse {
 				Capabilities:    []string{"vision", "tool_use", "prompt_caching"},
 			},
 			{
-				ModelID: "gpt-4o-mini",
+				ModelID: "gpt-5.4",
 				Vendor:  "openai",
 				Pricing: service.PublicCatalogPricing{
 					Currency:          "USD",

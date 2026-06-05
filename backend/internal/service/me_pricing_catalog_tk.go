@@ -564,29 +564,31 @@ func addFallbackModel(
 	bestByModel[modelID] = buildAccountFallbackEntry(modelID, effectiveRate, metaByID)
 }
 
-// platformDefaultModelIDs returns the canonical model-ID list for a native
-// platform whose accounts are unrestricted by default, reusing the single
-// source of truth that gateway `/v1/models` uses
-// (defaultModelsListCandidateIDs).
+// platformDefaultModelIDs returns the model-ID list an unrestricted native
+// account contributes to Your Menu.
 //
-// Only anthropic / openai / gemini are eligible: for these three an empty
-// credentials.model_mapping genuinely means "all platform models allowed"
-// (resolveModelMapping returns nil), so accountHasModelRestriction's
-// raw-credentials read is an exact mirror of the gateway's
-// len(GetModelMapping())==0 routability test — listed == accessible holds.
+// Anthropic / OpenAI use the empirically-servable allowlist
+// (supportedCatalogModelIDsForPlatform) — the SAME source the public /pricing
+// catalog filters by — so both surfaces advertise exactly the models that
+// passed a live prod probe (operator directive: "实测通过的才行"). This
+// supersedes the earlier canonical-list fallback, which advertised
+// upstream-rejected models (e.g. gpt-5.2, gpt-4o) that 400/502 at runtime.
+//
+// Gemini uses its canonical list (defaultModelsListCandidateIDs): it was not
+// probed, and an empty credentials.model_mapping genuinely means "all gemini
+// models allowed" (resolveModelMapping returns nil), so canonical is the best
+// available list until a probe adds gemini to the empirical set.
 //
 // Antigravity is deliberately EXCLUDED: resolveModelMapping injects
 // domain.DefaultAntigravityModelMapping for an antigravity account with no
-// explicit mapping, so such an account is effectively whitelist-restricted
-// to that mapping's keys. Emitting antigravity.DefaultModels() here could
-// list models the default mapping does not accept, breaking listed ==
-// accessible. newapi (and any unknown platform) also returns nil — it is
-// channel / channel_type driven, and falling into defaultModelsListCandidateIDs's
-// default arm (which returns the Claude list) would leak Claude models into
-// an OpenAI-compatible menu.
+// explicit mapping, so such an account is effectively whitelist-restricted to
+// that mapping's keys. newapi (and any unknown platform) also returns nil —
+// it is channel / channel_type driven.
 func platformDefaultModelIDs(platform string) []string {
 	switch platform {
-	case PlatformAnthropic, PlatformOpenAI, PlatformGemini:
+	case PlatformAnthropic, PlatformOpenAI:
+		return supportedCatalogModelIDsForPlatform(platform)
+	case PlatformGemini:
 		return defaultModelsListCandidateIDs(platform)
 	default:
 		return nil

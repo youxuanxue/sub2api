@@ -8,7 +8,6 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 
 	"github.com/stretchr/testify/assert"
@@ -827,14 +826,15 @@ func modelIDsOf(models []MePricingModel) []string {
 	return ids
 }
 
-// TestBuildForUser_AnthropicUnrestricted_ListsCanonicalModels is the core
+// TestBuildForUser_AnthropicUnrestricted_ListsServableModels is the core
 // fix for the user_id=16 incident: a native Anthropic OAuth account carries
 // no channel and no model_mapping whitelist (empty = all models allowed),
 // so before the platform-default fallback both the channel stage and the
-// whitelist stage produced nothing and the menu was empty. The menu must
-// now list the gateway's canonical Claude model set (the same source
-// /v1/models uses), with catalog prices joined where available.
-func TestBuildForUser_AnthropicUnrestricted_ListsCanonicalModels(t *testing.T) {
+// whitelist stage produced nothing and the menu was empty. The menu must now
+// list the empirically-servable Claude set — the SAME source the public
+// /pricing catalog filters by (supportedAnthropicCatalogModels) — with
+// catalog prices joined where available.
+func TestBuildForUser_AnthropicUnrestricted_ListsServableModels(t *testing.T) {
 	gAnthropic := mkGroupForMe(40, "default", "anthropic", 1.0)
 	k1 := mkKeyForMe(1, 16, "default", ptrI(40))
 	// nil whitelist → creds has no model_mapping → unrestricted account.
@@ -855,10 +855,10 @@ func TestBuildForUser_AnthropicUnrestricted_ListsCanonicalModels(t *testing.T) {
 	resp, err := svc.BuildForUser(context.Background(), 16, MePricingCatalogOptions{})
 	require.NoError(t, err)
 
-	want := claude.DefaultModelIDs()
+	want := supportedCatalogModelIDsForPlatform(PlatformAnthropic)
 	sort.Strings(want)
 	assert.Equal(t, want, modelIDsOf(resp.Models),
-		"menu must equal the canonical Claude model set")
+		"menu must equal the empirically-servable Claude set (same source as public catalog)")
 
 	byID := map[string]MePricingModel{}
 	for _, m := range resp.Models {
@@ -870,6 +870,8 @@ func TestBuildForUser_AnthropicUnrestricted_ListsCanonicalModels(t *testing.T) {
 	assert.InDelta(t, 0.005, *byID["claude-opus-4-8"].YourPrice.InputPer1K, 1e-9)
 	// A model not in the catalog still surfaces (name is what the user needs).
 	require.Contains(t, byID, "claude-sonnet-4-6")
+	// Servable extra beyond canonical DefaultModels is included (claude-opus-4-1).
+	require.Contains(t, byID, "claude-opus-4-1")
 	// Deprecated IDs are never advertised.
 	assert.NotContains(t, byID, "claude-3-5-haiku-20241022",
 		"deprecated models must not appear in the menu")
