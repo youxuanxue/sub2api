@@ -16,6 +16,7 @@ COMPOSE_SRC="${HERE}/docker-compose.yml"
 CADDY_SRC="${HERE}/Caddyfile"
 EDGE_CADDY_SRC="${HERE}/Caddyfile.edge"
 QA_CLEANUP_SRC="${HERE}/tokenkey-qa-stale-cleanup.sh"
+PGDUMP_SRC="${HERE}/tokenkey-pgdump.sh"
 PRUNE_SRC="${HERE}/tokenkey-prune-ghcr-app-tags.sh"
 BOOTSTRAP_SRC="${HERE}/stage0-ec2-bootstrap.sh"
 LAUNCHER_SRC="${HERE}/stage0-ec2-userdata-launcher.sub.sh"
@@ -33,7 +34,7 @@ fi
 
 required=(
   "${COMPOSE_SRC}" "${CADDY_SRC}" "${EDGE_CADDY_SRC}"
-  "${QA_CLEANUP_SRC}" "${PRUNE_SRC}" "${BOOTSTRAP_SRC}" "${LAUNCHER_SRC}"
+  "${QA_CLEANUP_SRC}" "${PGDUMP_SRC}" "${PRUNE_SRC}" "${BOOTSTRAP_SRC}" "${LAUNCHER_SRC}"
   "${CFN_FILE}" "${EDGE_CFN_FILE}"
 )
 for f in "${required[@]}"; do
@@ -75,6 +76,7 @@ COMPOSE_GZB64="$(encode_gzb64 "${COMPOSE_SRC}")"
 CADDY_GZB64="$(encode_gzb64 "${CADDY_SRC}")"
 EDGE_CADDY_GZB64="$(encode_gzb64 "${EDGE_CADDY_SRC}")"
 QA_CLEANUP_B64="$(encode_b64 "${QA_CLEANUP_SRC}")"
+PGDUMP_B64="$(encode_b64 "${PGDUMP_SRC}")"
 PRUNE_B64="$(encode_b64 "${PRUNE_SRC}")"
 BOOTSTRAP_GZB64="$(encode_gzb64 "${BOOTSTRAP_SRC}")"
 
@@ -94,6 +96,7 @@ check_ssm_len compose "${COMPOSE_GZB64}"
 check_ssm_len caddy "${CADDY_GZB64}"
 check_ssm_len edge_caddy "${EDGE_CADDY_GZB64}"
 check_ssm_len qa "${QA_CLEANUP_B64}"
+check_ssm_len pgdump "${PGDUMP_B64}"
 check_ssm_len prune "${PRUNE_B64}"
 check_ssm_len bootstrap_part1 "${BOOTSTRAP_PART1}"
 check_ssm_len bootstrap_part2 "${BOOTSTRAP_PART2}"
@@ -120,6 +123,7 @@ refresh_template() {
   local new_compose="${indent}Value: '${COMPOSE_GZB64}'"
   local new_caddy="${indent}Value: '${caddy_blob}'"
   local new_qa="${indent}Value: '${QA_CLEANUP_B64}'"
+  local new_pgdump="${indent}Value: '${PGDUMP_B64}'"
   local new_prune="${indent}Value: '${PRUNE_B64}'"
   local new_bootstrap1="${indent}Value: '${BOOTSTRAP_PART1}'"
   local new_bootstrap2="${indent}Value: '${BOOTSTRAP_PART2}'"
@@ -130,6 +134,7 @@ refresh_template() {
   awk -v new_compose_ssm="${new_compose}" \
       -v new_caddy_ssm="${new_caddy}" \
       -v new_qa_ssm="${new_qa}" \
+      -v new_pgdump_ssm="${new_pgdump}" \
       -v new_prune_ssm="${new_prune}" \
       -v new_bootstrap1_ssm="${new_bootstrap1}" \
       -v new_bootstrap2_ssm="${new_bootstrap2}" \
@@ -141,6 +146,8 @@ refresh_template() {
     />>> CADDY_GZB64_SSM END/ { skip = 0; print; next }
     />>> QA_CLEANUP_B64_PARAM START/ { print; print new_qa_ssm; skip = 1; next }
     />>> QA_CLEANUP_B64_PARAM END/ { skip = 0; print; next }
+    />>> PGDUMP_B64_PARAM START/ { print; print new_pgdump_ssm; skip = 1; next }
+    />>> PGDUMP_B64_PARAM END/ { skip = 0; print; next }
     />>> GHCR_PRUNE_B64_PARAM START/ { print; print new_prune_ssm; skip = 1; next }
     />>> GHCR_PRUNE_B64_PARAM END/ { skip = 0; print; next }
     />>> BOOTSTRAP_GZB64_SSM_PART1 START/ { print; print new_bootstrap1_ssm; skip = 1; next }
@@ -200,6 +207,7 @@ echo "  compose gzip+base64 (SSM): ${#COMPOSE_GZB64} chars"
 echo "  caddy gzip+base64 (SSM): ${#CADDY_GZB64} chars"
 echo "  edge caddy gzip+base64 (SSM): ${#EDGE_CADDY_GZB64} chars"
 echo "  qa cleanup base64 (SSM): ${#QA_CLEANUP_B64} chars"
+echo "  pgdump base64 (SSM): ${#PGDUMP_B64} chars"
 echo "  ghcr prune base64 (SSM): ${#PRUNE_B64} chars"
 echo "  bootstrap gzip+base64 (SSM total): ${#BOOTSTRAP_GZB64} chars (part1=${#BOOTSTRAP_PART1}, part2=${#BOOTSTRAP_PART2})"
 echo "  prod UserData launcher: ${USERDATA_BYTES} bytes (EC2 limit ${EC2_USERDATA_LIMIT})"
