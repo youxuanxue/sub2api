@@ -1510,13 +1510,14 @@ def render_redis_cache_drift_shell() -> str:
     DB SQL is base64-piped to psql (never inlined into -c "...") so the embedded
     double-quotes in to_char(...) survive -- same delivery as render_runtime_sync_shell.
 
-    Deliberately NO `|| true` / `2>/dev/null` on the redis reads: under the
-    wrapper's `set -euo pipefail`, a redis-cli failure (container down / auth /
-    wrong host) MUST abort the shell so the SSM invocation fails and the node
-    degrades to status=error. Swallowing it would turn an unreachable Redis into
-    an empty blob that parses as a (clean) cold cache -- a false all-green, the
-    exact silent-failure class this surface exists to catch. A genuinely missing
-    key returns empty with exit 0, so the cold-cache path is preserved."""
+    The redis reads run bare -- no exit-status suppression, no stderr redirect.
+    Under the wrapper's `set -euo pipefail` a redis-cli failure (container down /
+    auth / wrong host) MUST abort the shell so the SSM invocation fails and the
+    node degrades to status=error. Suppressing the exit status would turn an
+    unreachable Redis into an empty blob that parses as a (clean) cold cache -- a
+    false all-green, the exact silent-failure class this surface exists to catch.
+    A genuinely missing key returns empty with exit 0, so the cold-cache path
+    holds."""
     tls_db_b64 = base64.b64encode(REDIS_DRIFT_TLS_DB_SQL.encode("utf-8")).decode("ascii")
     tiers_db_b64 = base64.b64encode(REDIS_DRIFT_TIERS_DB_SQL.encode("utf-8")).decode("ascii")
     m = _REDIS_DRIFT_MARKER
