@@ -46,6 +46,15 @@ func (a *Account) isModelRateLimitedWithContext(ctx context.Context, requestedMo
 		}
 	case PlatformGemini:
 		modelKey = resolveFinalGeminiModelKey(ctx, requestedModel)
+	case PlatformAnthropic:
+		// TK G4: a unified-window 429 (opus 5h/7d exhausted) is cooled at
+		// (account × model class) scope, not the whole account. Honour the
+		// class-scope key alongside the exact-model-name key so a cooled opus
+		// keeps sibling sonnet/haiku schedulable. See
+		// ratelimit_service_tk_model_cooldown.go.
+		if a.tkAnthropicModelClassRateLimitActive(requestedModel) {
+			return true
+		}
 	}
 	modelKey = strings.TrimSpace(modelKey)
 	if modelKey == "" {
@@ -81,6 +90,13 @@ func (a *Account) GetModelRateLimitRemainingTimeWithContext(ctx context.Context,
 		if familyRemaining := a.getRateLimitRemainingForKey(antigravityGeminiModelRateLimitKey); familyRemaining > remaining {
 			return familyRemaining
 		}
+	}
+	// TK G4: surface the longer of the exact-model and model-class cooldowns
+	// so retry/backoff hints reflect the real time-to-availability for an
+	// Anthropic unified-window class cooldown. See
+	// ratelimit_service_tk_model_cooldown.go.
+	if classRemaining := a.tkAnthropicModelClassRateLimitRemaining(requestedModel); classRemaining > remaining {
+		return classRemaining
 	}
 	return remaining
 }

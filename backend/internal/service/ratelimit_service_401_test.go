@@ -35,6 +35,28 @@ type rateLimitAccountRepoStub struct {
 	// TempUnschedulableReason holds the prior 403 TempUnschedState so
 	// wasTempUnschedByStatusCode(reason, 403) returns true.
 	tempReasonOnGet string
+
+	// TK G4: track per-(account × scope) model-rate-limit writes so tests can
+	// assert that an Anthropic unified-window 429 cools the model class scope
+	// instead of the whole account.
+	modelRateLimitCalls []rateLimitStubModelCall
+	modelRateLimitErr   error
+}
+
+type rateLimitStubModelCall struct {
+	accountID int64
+	scope     string
+	resetAt   time.Time
+	reason    string
+}
+
+func (r *rateLimitAccountRepoStub) SetModelRateLimit(ctx context.Context, id int64, scope string, resetAt time.Time, reason ...string) error {
+	call := rateLimitStubModelCall{accountID: id, scope: scope, resetAt: resetAt}
+	if len(reason) > 0 {
+		call.reason = reason[0]
+	}
+	r.modelRateLimitCalls = append(r.modelRateLimitCalls, call)
+	return r.modelRateLimitErr
 }
 
 func (r *rateLimitAccountRepoStub) SetError(ctx context.Context, id int64, errorMsg string) error {
