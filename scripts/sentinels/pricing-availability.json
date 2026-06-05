@@ -39,8 +39,8 @@
     },
     {
       "path": "backend/internal/service/pricing_catalog_supported_models_tk.go",
-      "must_contain": ["func isPublicCatalogModelSupported(", "func FilterPublicCatalogToServable(", "func supportedCatalogModelIDsForPlatform(", "supportedAnthropicCatalogModels", "supportedOpenAICatalogModels"],
-      "rationale": "Single source for the empirically-servable claude + gpt sets, shared by the public /pricing presentation filter (FilterPublicCatalogToServable) and the Your-Menu unrestricted-account fallback (supportedCatalogModelIDsForPlatform). Losing the allowlist vars would silently widen both surfaces back to the full unservable set; losing the funcs breaks both call sites. Other vendors (gemini, deepseek, …) intentionally pass through — only the claude + gpt families are curated."
+      "must_contain": ["func isPublicCatalogModelSupported(", "func FilterPublicCatalogToServable(", "func supportedCatalogModelIDsForPlatform(", "supportedAnthropicCatalogModels", "supportedOpenAICatalogModels", "servable-allowlist:begin anthropic", "servable-allowlist:begin openai"],
+      "rationale": "Single source for the empirically-servable claude + gpt sets, shared by the public /pricing presentation filter (FilterPublicCatalogToServable) and the Your-Menu unrestricted-account fallback (supportedCatalogModelIDsForPlatform). Losing the allowlist vars would silently widen both surfaces back to the full unservable set; losing the funcs breaks both call sites. The `servable-allowlist:begin/end` splice markers are load-bearing for ops/pricing/refresh-servable-allowlist.py (it rewrites the maps between them); an upstream merge that drops the markers would break the re-runnable refresh. Other vendors (gemini, deepseek, …) intentionally pass through — only the claude + gpt families are curated."
     },
     {
       "path": "backend/internal/service/pricing_catalog_tk_test.go",

@@ -952,6 +952,36 @@ else
     echo "  ok: ops/anthropic unittest suite (tier plan + oauth priority rebalance)"
 fi
 
+# Servable-model allowlist generator (ops/pricing). The deterministic glue
+# (candidate split, dated-snapshot de-dup, Go map splice) has a stdlib-only
+# selftest; the Go allowlist must keep its splice markers so the generator can
+# always rewrite it. Same "no soft rule without a check" discipline as the ops
+# SQL-generator gate.
+echo ""
+echo "=== sub2api: servable-allowlist generator selftest ==="
+_servable_go="backend/internal/service/pricing_catalog_supported_models_tk.go"
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by servable-allowlist selftest)"
+    errors=$((errors + 1))
+elif ! python3 ops/pricing/refresh-servable-allowlist.py selftest >/dev/null 2>&1; then
+    echo "  FAIL: ops/pricing/refresh-servable-allowlist.py selftest failed (re-run: python3 ops/pricing/refresh-servable-allowlist.py selftest)"
+    errors=$((errors + 1))
+else
+    _markers_ok=1
+    for _m in "servable-allowlist:begin anthropic" "servable-allowlist:end anthropic" \
+        "servable-allowlist:begin openai" "servable-allowlist:end openai"; do
+        if ! grep -qF "$_m" "$_servable_go"; then
+            echo "  FAIL: splice marker missing in $_servable_go: $_m"
+            _markers_ok=0
+        fi
+    done
+    if [ "$_markers_ok" -eq 1 ]; then
+        echo "  ok: servable-allowlist generator selftest + Go splice markers intact"
+    else
+        errors=$((errors + 1))
+    fi
+fi
+
 # Determinism-baseline observability/release/stage0 helpers (added 2026-05 to
 # back the SKILL.md mechanization migration per dev-rules §"skill / command
 # 确定性基线"). Same pattern as the ops/anthropic suite: stdlib-only unittest,

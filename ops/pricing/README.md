@@ -1,0 +1,65 @@
+# Servable-model allowlist refresh
+
+The public `/pricing` catalog and the per-user "Your Menu" only show claude +
+gpt models that are **currently servable through TokenKey** — established by a
+live prod probe, not by the canonical `DefaultModels` lists. The two allowlists
+live in
+`backend/internal/service/pricing_catalog_supported_models_tk.go`
+(between `servable-allowlist:begin/end <platform>` markers) and are
+**regenerated** by the tooling here. Last probe: 2026-06-05.
+
+## Files
+
+| File | Role |
+| --- | --- |
+| `probe-servable-models.sh` | Runs ON the prod host (via `ops/observability/run-probe.sh`). Pulls the edge-us7 relay key + the GPT-line key from the DB (never printed), sends one minimal real request per candidate model, emits `platform⇥model⇥http⇥verdict` TSV. A model is **servable** iff it returns a real `200`. |
+| `refresh-servable-allowlist.py` | Orchestrator: derives candidates from the litellm catalog, runs the probe, keeps `verdict==servable`, de-duplicates dated snapshots, and splices the two Go maps. `selftest` covers all deterministic glue (no prod). |
+
+## Re-run (operator, needs AWS creds for prod SSM)
+
+```bash
+# 0. preview the candidate split (no prod)
+python3 ops/pricing/refresh-servable-allowlist.py candidates
+
+# 1. probe + rewrite the Go allowlist in one shot
+python3 ops/pricing/refresh-servable-allowlist.py run
+
+# 2. review the Go diff, then open a PR (or pass --open-pr to step 1)
+cd backend && go test -tags=unit ./internal/service/ -run PublicCatalog
+git diff backend/internal/service/pricing_catalog_supported_models_tk.go
+```
+
+Split the steps when you want to inspect the raw verdicts first:
+
+```bash
+python3 ops/pricing/refresh-servable-allowlist.py probe | tee /tmp/servable.tsv
+python3 ops/pricing/refresh-servable-allowlist.py apply --results /tmp/servable.tsv
+```
+
+## Classification & de-dup rules
+
+- `200` → **servable** (kept). `400/404 + retired/not-found/"not supported when
+  using Codex"` → unsupported. `429/502/503` → inconclusive (capacity / wrong
+  protocol / no account on the probed group). `401/403` → auth_error (probe
+  setup wrong, not a model signal — fix and re-run).
+- De-dup: when both a non-dated form and its dated snapshot serve
+  (`-YYYYMMDD` for anthropic, `-YYYY-MM-DD` for openai), keep only the
+  non-dated; drop `-thinking` pricing pseudo-entries.
+- OpenAI candidates are routed by family: `*codex*` → `/v1/responses`,
+  `*image*` → `/v1/images/generations` (best-effort — the GPT-line group has no
+  image account, so these read inconclusive and drop), everything else →
+  `/v1/chat/completions`.
+
+## Caveats
+
+- The probe tests anthropic through the **edge-us7** relay and openai through
+  the **GPT-line** group only. Models served exclusively by another group
+  (e.g. an image / dedicated-codex pool) read inconclusive here and are
+  dropped; provide that group's key and extend the probe to re-add them.
+- This is a snapshot. Re-run after the served fleet changes (new model family,
+  account/tier changes, an upstream sunset).
+
+See also `.cursor/skills/tokenkey-online-log-troubleshooting` for the prod
+read-only access posture and `ops/observability/run-probe.sh` for the SSM
+transport. Probe-shape gotchas (claude-cli UA gate, `metadata.user_id` string,
+codex `/v1/responses`) are documented in the probe script header.
