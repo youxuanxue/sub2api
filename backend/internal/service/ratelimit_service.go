@@ -1425,14 +1425,8 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 		}
 
 		// 更新 session window：优先使用 5h-reset 头精确计算，否则从 resetAt 反推
-		windowEnd := result.resetAt
-		if result.fiveHourReset != nil {
-			windowEnd = *result.fiveHourReset
-		}
-		windowStart := windowEnd.Add(-5 * time.Hour)
-		if err := s.accountRepo.UpdateSessionWindow(ctx, account.ID, &windowStart, &windowEnd, "rejected"); err != nil {
-			slog.Warn("rate_limit_update_session_window_failed", "account_id", account.ID, "error", err)
-		}
+		// （与模型级冷却路径共用 tkUpdateAnthropic5hSessionWindow，保证两条路径写入一致）
+		s.tkUpdateAnthropic5hSessionWindow(ctx, account.ID, result)
 
 		slog.Info("anthropic_account_rate_limited", "account_id", account.ID, "reset_at", result.resetAt, "reset_in", time.Until(result.resetAt).Truncate(time.Second))
 		return true

@@ -108,6 +108,11 @@ func TestG4_OpusUnifiedWindow429_CoolsModelClassNotAccount(t *testing.T) {
 	require.Equal(t, tkModelClassScope("opus"), call.scope)
 	require.Equal(t, tkAnthropicModelCooldownReason, call.reason)
 	require.WithinDuration(t, time.Unix(resetAt, 0), call.resetAt, 2*time.Second)
+	// account-global 5h window is still recorded (operator usage gauge depends
+	// on it) — only the cooldown SCOPE narrowed, not the window signal.
+	require.Equal(t, 1, repo.updateSessionWindowCalls,
+		"model-scoped cooldown must still record the account-global 5h session window")
+	require.Equal(t, "rejected", repo.lastSessionWindowStatus)
 }
 
 func TestG4_OpusCooled_SonnetHaikuStillSchedulable(t *testing.T) {

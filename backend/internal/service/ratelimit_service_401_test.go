@@ -41,6 +41,11 @@ type rateLimitAccountRepoStub struct {
 	// instead of the whole account.
 	modelRateLimitCalls []rateLimitStubModelCall
 	modelRateLimitErr   error
+
+	// TK G4: assert the account-global 5h session window is still recorded on
+	// the model-scoped cooldown path (operator usage gauge depends on it).
+	updateSessionWindowCalls int
+	lastSessionWindowStatus  string
 }
 
 type rateLimitStubModelCall struct {
@@ -57,6 +62,12 @@ func (r *rateLimitAccountRepoStub) SetModelRateLimit(ctx context.Context, id int
 	}
 	r.modelRateLimitCalls = append(r.modelRateLimitCalls, call)
 	return r.modelRateLimitErr
+}
+
+func (r *rateLimitAccountRepoStub) UpdateSessionWindow(ctx context.Context, id int64, start, end *time.Time, status string) error {
+	r.updateSessionWindowCalls++
+	r.lastSessionWindowStatus = status
+	return nil
 }
 
 func (r *rateLimitAccountRepoStub) SetError(ctx context.Context, id int64, errorMsg string) error {

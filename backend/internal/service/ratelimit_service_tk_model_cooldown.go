@@ -145,6 +145,16 @@ func (s *RateLimitService) tkTryAnthropicModelScopedCooldown(
 		return false
 	}
 
+	// The unified 5h window is exhausted at the ACCOUNT level (it's the shared
+	// window across all model classes — that's exactly why upstream 429'd).
+	// Even though the cooldown is scoped to the model class for SCHEDULING, the
+	// account's 5h-window state is account-global truth and must still be
+	// recorded, so the Setup-Token usage gauge (estimateSetupTokenUsage, fed by
+	// SessionWindow*) keeps reflecting reality. This mirrors the account-level
+	// path's UpdateSessionWindow write — only the cooldown scope changed, not
+	// the window signal.
+	s.tkUpdateAnthropic5hSessionWindow(ctx, account.ID, result)
+
 	slog.Info("anthropic_model_class_rate_limited",
 		"account_id", account.ID,
 		"scope", scopeKey,
@@ -152,6 +162,25 @@ func (s *RateLimitService) tkTryAnthropicModelScopedCooldown(
 		"reset_at", resetAt,
 		"reset_in", time.Until(resetAt).Truncate(time.Second))
 	return true
+}
+
+// tkUpdateAnthropic5hSessionWindow records the account-global 5h window as
+// "rejected" from an Anthropic unified-window 429 result. Shared by the
+// model-scoped cooldown path and the account-level path so the Setup-Token
+// usage estimation stays consistent regardless of cooldown scope. Prefers the
+// precise 5h-reset header; otherwise back-derives the window from resetAt.
+func (s *RateLimitService) tkUpdateAnthropic5hSessionWindow(ctx context.Context, accountID int64, result *anthropic429Result) {
+	if s == nil || s.accountRepo == nil || result == nil {
+		return
+	}
+	windowEnd := result.resetAt
+	if result.fiveHourReset != nil {
+		windowEnd = *result.fiveHourReset
+	}
+	windowStart := windowEnd.Add(-5 * time.Hour)
+	if err := s.accountRepo.UpdateSessionWindow(ctx, accountID, &windowStart, &windowEnd, "rejected"); err != nil {
+		slog.Warn("rate_limit_update_session_window_failed", "account_id", accountID, "error", err)
+	}
 }
 
 // tkAnthropicModelClassRateLimitActive reports whether the account is in a
