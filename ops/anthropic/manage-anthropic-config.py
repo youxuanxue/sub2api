@@ -1350,16 +1350,6 @@ FROM (
 """.strip()
 
 
-def _read_http_ua_settings(region: str, instance_id: str, label: str) -> dict:
-    """Pull the two cc-fingerprint setting keys for one node. Missing keys are
-    simply absent from the returned dict (caller treats absent as drift)."""
-    raw, _ = ssm_run_sql(region, instance_id, SETTINGS_UA_SQL, f"check: {label} http ua settings")
-    try:
-        return json.loads(raw) if raw else {}
-    except json.JSONDecodeError:
-        return {}
-
-
 def _http_ua_drift_items(node_label: str, live_settings: dict, expected: dict) -> list[dict]:
     """Diff one node's live UA setting + mimicry manifest vs the baseline JSON.
     Returns drift items (status=drift), each with the offending field. Empty == match."""
@@ -1426,33 +1416,309 @@ def _http_ua_drift_items(node_label: str, live_settings: dict, expected: dict) -
     return items
 
 
-def _run_http_ua_checks_live(edge_ids: list[str], expected: dict) -> list[dict]:
-    """Live SSM settings read per node (edge + prod). Always live: UA is updated
-    out of band from snapshot. SSM failures degrade to status=error (counted like
-    tier/balance errors), never silently treated as in-sync."""
-    items: list[dict] = []
-    for eid in edge_ids:
-        try:
-            ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, eid)
-        except SystemExit:
-            items.append({"node": f"edge:{eid}", "field": "*", "status": "error",
-                          "warning": f"could not resolve SSM instance for edge {eid}"})
+# --------------------------------------------------------------------------
+# redis_cache_drift: Redis cached config blobs vs DB authoritative tables
+# --------------------------------------------------------------------------
+# tls_fingerprint_profiles and tiers are each cached in Redis as ONE serialized
+# blob (backend/internal/repository/tls_fingerprint_profile_cache.go key
+# "tls_fingerprint_profiles"; tier_cache.go key "tiers"; both TTL 24h, both with
+# a pub/sub invalidation channel). The runtime reads the blob, not the table:
+# ResolveTLSProfile serves whatever the cache holds. If a row is written to the
+# DB table without the matching cache Invalidate()/NotifyUpdate() (a bare SQL
+# INSERT/UPDATE, or a refactor that drops the invalidation call), the cache goes
+# stale and the gateway silently falls back to the built-in default ClientHello
+# -- DB-correct, runtime-wrong. `check` and the OAuth stability guard both read
+# DB only, so this exact failure mode (the observed tls_profile_cache silent
+# fallback) was invisible to every drift surface. This one reads the Redis blob
+# AND the authoritative DB table live per node and flags: a profile/tier present
+# in one but not the other (key-set), a name mismatch for a shared id, or a DB
+# row whose updated_at is newer than the cached copy (stale). A COLD cache (key
+# absent) is NOT drift: read-through repopulates from DB on the next access.
+# Always live (even with --snapshot): Redis state is not captured by snapshot,
+# and a stale snapshot is exactly how the blind spot would hide.
+
+REDIS_DRIFT_STALE_TOLERANCE_S = 2.0  # absorb sub-second Go-JSON vs PG to_char jitter
+REDIS_DRIFT_TLS_CACHE_KEY = "tls_fingerprint_profiles"
+REDIS_DRIFT_TIERS_CACHE_KEY = "tiers"
+REDIS_DRIFT_CACHE_NAMES = [REDIS_DRIFT_TLS_CACHE_KEY, REDIS_DRIFT_TIERS_CACHE_KEY]
+
+# Authoritative DB reads. updated_at rendered as UTC ISO so it lines up with the
+# Go time.Time JSON in the cached blob; jsonb_agg keeps field names beside values.
+REDIS_DRIFT_TLS_DB_SQL = """
+SELECT COALESCE(jsonb_agg(jsonb_build_object(
+  'id', id,
+  'name', name,
+  'updated_at', to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+) ORDER BY id), '[]'::jsonb)
+FROM tls_fingerprint_profiles;
+""".strip()
+
+REDIS_DRIFT_TIERS_DB_SQL = """
+SELECT COALESCE(jsonb_agg(jsonb_build_object(
+  'name', name,
+  'updated_at', to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+) ORDER BY name), '[]'::jsonb)
+FROM tiers;
+""".strip()
+
+# One psql round-trip per node gathers every DB-side live-drift input -- the UA /
+# mimicry settings (http_ua_drift) AND the authoritative tls/tier tables
+# (redis_cache_drift) -- as a single jsonb object, mirroring EDGE_CAPTURE_BUNDLE_SQL.
+# Folding these into one query (and one SSM shell, see render_live_node_probe_shell)
+# is the perf lever: http_ua_drift and redis_cache_drift used to each open their
+# own per-node SSM wave (~7-8s/node round-trip each), so a check paid two full
+# fleet-wide SSM passes for data that lives on the same box.
+LIVE_NODE_DB_BUNDLE_SQL = f"""
+SELECT jsonb_build_object(
+  'settings', ({_sql_as_subquery(SETTINGS_UA_SQL)}),
+  'tls_db', ({_sql_as_subquery(REDIS_DRIFT_TLS_DB_SQL)}),
+  'tiers_db', ({_sql_as_subquery(REDIS_DRIFT_TIERS_DB_SQL)})
+);
+""".strip()
+
+_LIVE_PROBE_MARKER = "@@LIVE:"
+
+
+def render_live_node_probe_shell() -> str:
+    """Remote read-only shell: ONE SSM round-trip that gathers every always-live
+    drift input for a node -- the two Redis config blobs (redis_cache_drift) plus
+    a single psql bundle of settings + tls/tier DB tables (http_ua_drift +
+    redis_cache_drift's authoritative side). @@LIVE: markers delimit sections.
+
+    DB SQL is base64-piped to psql (never inlined into -c "...") so the embedded
+    double-quotes in to_char(...) survive -- same delivery as render_runtime_sync_shell.
+
+    The redis reads run bare -- no exit-status suppression, no stderr redirect.
+    Under the wrapper's `set -euo pipefail` a redis-cli failure (container down /
+    auth / wrong host) MUST abort the shell so the SSM invocation fails and the
+    node degrades to status=error. Suppressing the exit status would turn an
+    unreachable Redis into an empty blob that parses as a (clean) cold cache -- a
+    false all-green, the exact silent-failure class redis_cache_drift exists to
+    catch. A genuinely missing key returns empty with exit 0, so the cold-cache
+    path holds."""
+    db_bundle_b64 = base64.b64encode(LIVE_NODE_DB_BUNDLE_SQL.encode("utf-8")).decode("ascii")
+    m = _LIVE_PROBE_MARKER
+    return (
+        "# Generated by manage-anthropic-config.py check (live node probe: http_ua + redis_cache_drift)\n"
+        "PSQL='sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1'\n"
+        "RC='env -u REDISCLI_AUTH sudo docker exec tokenkey-redis redis-cli'\n"
+        f"echo '{m}tls_redis'\n"
+        f"$RC GET {REDIS_DRIFT_TLS_CACHE_KEY}\n"
+        f"echo '{m}tiers_redis'\n"
+        f"$RC GET {REDIS_DRIFT_TIERS_CACHE_KEY}\n"
+        f"echo '{m}db_bundle'\n"
+        f"echo {db_bundle_b64} | base64 -d | $PSQL\n"
+        f"echo '{m}end'\n"
+    )
+
+
+def _parse_live_probe_sections(out: str) -> dict[str, str]:
+    """Split @@LIVE:-delimited output into {section: text}. Content between a
+    marker line and the next marker (or EOF) is that section's body, stripped."""
+    sections: dict[str, list[str]] = {}
+    current: str | None = None
+    for line in (out or "").splitlines():
+        stripped = line.strip()
+        if stripped.startswith(_LIVE_PROBE_MARKER):
+            current = stripped[len(_LIVE_PROBE_MARKER):]
+            sections.setdefault(current, [])
             continue
-        try:
-            live = _read_http_ua_settings(ident.region, ident.instance_id, f"edge {eid}")
-        except SystemExit:
-            items.append({"node": f"edge:{eid}", "field": "*", "status": "error",
-                          "warning": f"could not read settings for edge {eid}"})
-            continue
-        items.extend(_http_ua_drift_items(f"edge:{eid}", live, expected))
+        if current is not None:
+            sections[current].append(line)
+    return {k: "\n".join(v).strip() for k, v in sections.items()}
+
+
+def _parse_utc_ts(value: str | None) -> float | None:
+    """Parse an ISO-8601 UTC timestamp (Go RFC3339Nano or PG to_char form) to an
+    epoch float. Returns None if absent/unparseable (caller skips staleness)."""
+    if not value:
+        return None
+    s = value.strip().strip('"')
+    if not s:
+        return None
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
     try:
-        prod_inst = resolve_instance_id(PROD_TARGET["region"], PROD_TARGET["stack"])
-        prod_live = _read_http_ua_settings(PROD_TARGET["region"], prod_inst, "prod")
-        items.extend(_http_ua_drift_items("prod", prod_live, expected))
-    except SystemExit:
-        items.append({"node": "prod", "field": "*", "status": "error",
-                      "warning": "could not resolve / read settings for prod"})
+        dt = _dt.datetime.fromisoformat(s)
+    except ValueError:
+        for fmt in ("%Y-%m-%dT%H:%M:%S.%f%z", "%Y-%m-%dT%H:%M:%S%z",
+                    "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"):
+            try:
+                dt = _dt.datetime.strptime(s, fmt)
+                break
+            except ValueError:
+                continue
+        else:
+            return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=_dt.timezone.utc)
+    return dt.timestamp()
+
+
+def _load_redis_drift_blob(raw: str) -> "tuple[list[dict] | None, str | None]":
+    """(parsed_list, error). Empty raw -> (None, None) == cold cache (not drift).
+    Non-JSON / non-array -> (None, "<reason>")."""
+    s = (raw or "").strip()
+    if not s:
+        return None, None
+    try:
+        parsed = json.loads(s)
+    except json.JSONDecodeError:
+        return None, f"not JSON ({s[:60]})"
+    if not isinstance(parsed, list):
+        return None, f"not a JSON array ({type(parsed).__name__})"
+    return parsed, None
+
+
+def _redis_one_cache_drift(node_label: str, cache_key: str, key_field: str,
+                           redis_raw: str, db_raw: str) -> list[dict]:
+    """Diff one Redis cache blob vs its authoritative DB table. Pure."""
+    items: list[dict] = []
+    redis_list, rerr = _load_redis_drift_blob(redis_raw)
+    if rerr is not None:
+        items.append({"node": node_label, "cache": cache_key, "field": "blob", "status": "error",
+                      "warning": f"{node_label}: redis {cache_key} blob {rerr}"})
+        return items
+    if redis_list is None:
+        # cold cache: key absent. read-through repopulates from DB -> not drift.
+        return items
+    db_list, derr = _load_redis_drift_blob(db_raw)
+    if derr is not None or db_list is None:
+        items.append({"node": node_label, "cache": cache_key, "field": "db", "status": "error",
+                      "warning": f"{node_label}: {cache_key} authoritative DB read failed ({derr or 'empty'})"})
+        return items
+    rmap = {r.get(key_field): r for r in redis_list if r.get(key_field) is not None}
+    dmap = {d.get(key_field): d for d in db_list if d.get(key_field) is not None}
+    exp_keys = [str(x) for x in sorted(dmap, key=str)]
+    act_keys = [str(x) for x in sorted(rmap, key=str)]
+    missing = sorted(set(dmap) - set(rmap), key=str)  # in DB, not in cache
+    extra = sorted(set(rmap) - set(dmap), key=str)    # in cache, not in DB
+    if missing:
+        items.append({"node": node_label, "cache": cache_key, "field": "key-set", "status": "drift",
+                      "expected": exp_keys, "actual": act_keys,
+                      "warning": (f"{node_label}: {cache_key} cache MISSING {key_field}(s) "
+                                  f"{[str(x) for x in missing]} present in DB -> stale cache, runtime "
+                                  f"falls back to built-in default; DEL {cache_key} + PUBLISH "
+                                  f"{cache_key}_updated (or restart)")})
+    if extra:
+        items.append({"node": node_label, "cache": cache_key, "field": "key-set", "status": "drift",
+                      "expected": exp_keys, "actual": act_keys,
+                      "warning": (f"{node_label}: {cache_key} cache has EXTRA {key_field}(s) "
+                                  f"{[str(x) for x in extra]} absent from DB -> stale cache; "
+                                  f"DEL {cache_key} + PUBLISH {cache_key}_updated")})
+    for k in sorted(set(rmap) & set(dmap), key=str):
+        r, d = rmap[k], dmap[k]
+        if "name" in d and r.get("name") != d.get("name"):
+            items.append({"node": node_label, "cache": cache_key, "field": f"{key_field}={k}:name",
+                          "status": "drift", "expected": d.get("name"), "actual": r.get("name"),
+                          "warning": (f"{node_label}: {cache_key} {key_field}={k} name redis="
+                                      f"{r.get('name')} != db={d.get('name')} -> stale cache")})
+        rt = _parse_utc_ts(r.get("updated_at"))
+        dt = _parse_utc_ts(d.get("updated_at"))
+        if rt is not None and dt is not None and dt - rt > REDIS_DRIFT_STALE_TOLERANCE_S:
+            label = d.get("name") or k
+            items.append({"node": node_label, "cache": cache_key, "field": f"{key_field}={k}:updated_at",
+                          "status": "drift", "expected": d.get("updated_at"), "actual": r.get("updated_at"),
+                          "warning": (f"{node_label}: {cache_key} '{label}' STALE -- DB updated_at "
+                                      f"{d.get('updated_at')} newer than cached {r.get('updated_at')} by "
+                                      f"{int(dt - rt)}s -> runtime serves old config; DEL {cache_key} + "
+                                      f"PUBLISH {cache_key}_updated")})
     return items
+
+
+def _redis_cache_drift_items(node_label: str, state: dict) -> list[dict]:
+    """Pure diff of one node's Redis cached blobs vs authoritative DB tables.
+    Empty == in sync (or cold cache). Unit-tested without SSM."""
+    items: list[dict] = []
+    items.extend(_redis_one_cache_drift(node_label, REDIS_DRIFT_TLS_CACHE_KEY, "id",
+                                        state.get("tls_redis", ""), state.get("tls_db", "")))
+    items.extend(_redis_one_cache_drift(node_label, REDIS_DRIFT_TIERS_CACHE_KEY, "name",
+                                        state.get("tiers_redis", ""), state.get("tiers_db", "")))
+    return items
+
+
+# --------------------------------------------------------------------------
+# Unified live-node probe: one parallel SSM pass feeds BOTH http_ua_drift and
+# redis_cache_drift (they are both always-live, per-node, and read from the same
+# box). Folding them avoids paying two fleet-wide SSM waves per check.
+# --------------------------------------------------------------------------
+_PROBE_PROD_SENTINEL = "\x00prod"  # node id distinct from any real edge id
+
+
+def _live_bundle_from_output(out: str) -> dict:
+    """Pure parse of one node's probe stdout into the bundle consumed by the two
+    drift surfaces: {settings:{...}, tls_redis, tls_db, tiers_redis, tiers_db}.
+    The DB arrays arrive parsed inside the psql jsonb bundle; they are
+    re-serialized to JSON strings so _redis_cache_drift_items' string-in contract
+    stays unchanged. Unit-tested without SSM."""
+    sec = _parse_live_probe_sections(out)
+    try:
+        db = json.loads(sec.get("db_bundle", "") or "{}")
+    except json.JSONDecodeError:
+        db = {}
+    if not isinstance(db, dict):
+        db = {}
+    settings = db.get("settings")
+    return {
+        "settings": settings if isinstance(settings, dict) else {},
+        "tls_redis": sec.get("tls_redis", ""),
+        "tiers_redis": sec.get("tiers_redis", ""),
+        "tls_db": json.dumps(db.get("tls_db") if db.get("tls_db") is not None else []),
+        "tiers_db": json.dumps(db.get("tiers_db") if db.get("tiers_db") is not None else []),
+    }
+
+
+def _read_live_node_bundle(region: str, instance_id: str, label: str) -> "dict | None":
+    """One SSM round-trip per node -> parsed bundle (via _live_bundle_from_output),
+    or None on SSM failure."""
+    out, _cid, success, _err = ssm_run_shell(
+        region, instance_id, render_live_node_probe_shell(), f"check: {label} live node probe")
+    if not success:
+        return None
+    return _live_bundle_from_output(out)
+
+
+def _run_live_node_checks(edge_ids: list[str], ua_expected: dict, *,
+                          parallel_edges: int | None = None) -> "tuple[list[dict], list[dict]]":
+    """ONE parallel SSM pass over all nodes (edges + prod) computing BOTH
+    http_ua_drift and redis_cache_drift from a single per-node probe -- replaces
+    the two former independent, per-node SSM waves (http_ua was also sequential).
+    SSM failure degrades BOTH surfaces to status=error for that node (never
+    silently in-sync). Always live: probe inputs are not captured by snapshot.
+    Returns (http_ua_items, redis_items)."""
+    nodes = list(edge_ids) + [_PROBE_PROD_SENTINEL]
+
+    def _probe(node: str) -> "tuple[list[dict], list[dict]]":
+        label = "prod" if node == _PROBE_PROD_SENTINEL else f"edge:{node}"
+        try:
+            if node == _PROBE_PROD_SENTINEL:
+                region = PROD_TARGET["region"]
+                instance_id = resolve_instance_id(region, PROD_TARGET["stack"])
+            else:
+                ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, node)
+                region, instance_id = ident.region, ident.instance_id
+            bundle = _read_live_node_bundle(region, instance_id, label)
+        except (SystemExit, Exception):  # noqa: BLE001 - degrade, never abort the whole check
+            bundle = None
+        if bundle is None:
+            err = f"live node probe SSM read failed for {label}"
+            return (
+                [{"node": label, "field": "*", "status": "error", "warning": err}],
+                [{"node": label, "cache": "*", "field": "*", "status": "error", "warning": err}],
+            )
+        return (
+            _http_ua_drift_items(label, bundle["settings"], ua_expected),
+            _redis_cache_drift_items(label, bundle),
+        )
+
+    workers = _parallel_edges_workers(parallel_edges)
+    results = _run_parallel_ordered(nodes, _probe, workers, label="live-node-probe")
+    http_items: list[dict] = []
+    redis_items: list[dict] = []
+    for hu, rd in results:
+        http_items.extend(hu or [])
+        redis_items.extend(rd or [])
+    return http_items, redis_items
 
 
 def cmd_check(args: argparse.Namespace) -> int:
@@ -1496,11 +1762,14 @@ def cmd_check(args: argparse.Namespace) -> int:
         "error_count": sum(1 for x in tier_items if x.get("status") == "error"),
         "items": tier_items,
     }
-    # http_ua_drift: live settings UA + mimicry manifest vs baseline JSON.
-    # Always live (UA is updated out of band from snapshot; a stale snapshot is
-    # exactly how the blind spot hid).
+    # http_ua_drift + redis_cache_drift share ONE parallel per-node SSM probe
+    # (both always-live, both read the same box). Always live: the probe inputs
+    # (settings UA/manifest, Redis blobs) are updated out of band from snapshot,
+    # and a stale snapshot is exactly how each blind spot hid. A cold Redis cache
+    # (key absent) is not drift.
     http_ua_expected = _load_http_mimicry_baseline()
-    http_ua_items = _run_http_ua_checks_live(edge_ids, http_ua_expected)
+    http_ua_items, redis_items = _run_live_node_checks(
+        edge_ids, http_ua_expected, parallel_edges=getattr(args, "parallel_edges", None))
     http_ua_violation = any(x.get("status") in ("drift", "error") for x in http_ua_items)
     report["http_ua_drift"] = {
         "policy_source": HTTP_MIMICRY_BASELINES.name,
@@ -1509,9 +1778,17 @@ def cmd_check(args: argparse.Namespace) -> int:
         "error_count": sum(1 for x in http_ua_items if x.get("status") == "error"),
         "items": http_ua_items,
     }
+    redis_violation = any(x.get("status") in ("drift", "error") for x in redis_items)
+    report["redis_cache_drift"] = {
+        "caches": REDIS_DRIFT_CACHE_NAMES,
+        "stale_tolerance_seconds": REDIS_DRIFT_STALE_TOLERANCE_S,
+        "violation_count": sum(1 for x in redis_items if x.get("status") == "drift"),
+        "error_count": sum(1 for x in redis_items if x.get("status") == "error"),
+        "items": redis_items,
+    }
     report["any_violation"] = (
         bool(report.get("any_violation")) or balance_violation or balance_error
-        or tier_table_violation or http_ua_violation
+        or tier_table_violation or http_ua_violation or redis_violation
     )
     if args.json:
         print(json.dumps(report, indent=2, ensure_ascii=False))
@@ -1520,7 +1797,8 @@ def cmd_check(args: argparse.Namespace) -> int:
         print(f"check: any_violation={any_violation} guards_run={len(report.get('guards', []))} "
               f"edges={edge_ids} balance_violations={report['operator_balance']['violation_count']} "
               f"tier_table_drift={report['tier_table_drift']['violation_count']} "
-              f"http_ua_drift={report['http_ua_drift']['violation_count']}")
+              f"http_ua_drift={report['http_ua_drift']['violation_count']} "
+              f"redis_cache_drift={report['redis_cache_drift']['violation_count']}")
         for sr in report.get("guards", []):
             ec = sr.get("exit_code")
             status = "OK" if ec == 0 else (sr.get("skipped_reason", "?") if ec is None else f"FAIL exit={ec}")
@@ -1536,6 +1814,8 @@ def cmd_check(args: argparse.Namespace) -> int:
             print(f"  [TIER-{item.get('status', '?').upper()}] {item.get('warning')}")
         for item in http_ua_items:
             print(f"  [UA-{item.get('status', '?').upper()}] {item.get('warning')}")
+        for item in redis_items:
+            print(f"  [REDIS-{item.get('status', '?').upper()}] {item.get('warning')}")
     return 1 if report.get("any_violation") else 0
 
 
@@ -3453,6 +3733,9 @@ def iter_self_check_sql() -> list[tuple[str, str]]:
         ("OPERATOR_CONCURRENCY_SQL", OPERATOR_CONCURRENCY_SQL),
         ("OPERATOR_BALANCE_SQL", OPERATOR_BALANCE_SQL),
         ("SETTINGS_UA_SQL", SETTINGS_UA_SQL),
+        ("REDIS_DRIFT_TLS_DB_SQL", REDIS_DRIFT_TLS_DB_SQL),
+        ("REDIS_DRIFT_TIERS_DB_SQL", REDIS_DRIFT_TIERS_DB_SQL),
+        ("LIVE_NODE_DB_BUNDLE_SQL", LIVE_NODE_DB_BUNDLE_SQL),
         ("EDGE_CAPTURE_BUNDLE_SQL", EDGE_CAPTURE_BUNDLE_SQL),
         ("PROD_CAPTURE_BUNDLE_SQL", PROD_CAPTURE_BUNDLE_SQL),
         ("render_edge_operator_balance_sql", render_edge_operator_balance_sql(123.45)),
