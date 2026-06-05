@@ -327,7 +327,7 @@ func buildAccountIncidentPermanentText(site string, account *Account, reason str
 		escapeFeishuText(accountGroupNames(account)),
 		escapeFeishuText(cls.kindZh),
 		escapeFeishuText(strings.TrimSpace(reason)),
-		escapeFeishuText(now.Format(time.RFC3339)),
+		escapeFeishuText(formatAlertTime(now)),
 		escapeFeishuText(cls.advice),
 	)
 }
@@ -335,7 +335,7 @@ func buildAccountIncidentPermanentText(site string, account *Account, reason str
 func buildAccountIncidentDigestText(site string, entries []*accountIncidentDigestEntry, now time.Time) string {
 	lines := make([]string, 0, len(entries)+1)
 	lines = append(lines, fmt.Sprintf("**节点**：%s\n**时间**：%s\n\n临时冷却（自愈类）聚合摘要：",
-		escapeFeishuText(site), escapeFeishuText(now.Format(time.RFC3339))))
+		escapeFeishuText(site), escapeFeishuText(formatAlertTime(now))))
 	for _, e := range entries {
 		samples := strings.Join(e.accountSamples, ", ")
 		if len(e.accountIDs) > len(e.accountSamples) {
@@ -377,6 +377,13 @@ func accountGroupNames(account *Account) string {
 		return "-"
 	}
 	return strings.Join(names, ",")
+}
+
+var bjLoc = time.FixedZone("Asia/Shanghai", 8*60*60)
+
+func formatAlertTime(t time.Time) string {
+	bj := t.In(bjLoc)
+	return fmt.Sprintf("%s（北京时间 %s）", t.UTC().Format(time.RFC3339), bj.Format("15:04:05"))
 }
 
 func accountIncidentDedupeKey(site string, accountID int64, reasonClass string) string {
