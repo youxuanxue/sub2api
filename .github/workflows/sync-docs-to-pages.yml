@@ -28,6 +28,10 @@ on:
         required: false
         default: ''
 
+permissions:
+  contents: read
+  id-token: write   # required for OIDC → AWS credentials exchange
+
 concurrency:
   group: sync-docs-to-pages
   cancel-in-progress: true
