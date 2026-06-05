@@ -1350,16 +1350,6 @@ FROM (
 """.strip()
 
 
-def _read_http_ua_settings(region: str, instance_id: str, label: str) -> dict:
-    """Pull the two cc-fingerprint setting keys for one node. Missing keys are
-    simply absent from the returned dict (caller treats absent as drift)."""
-    raw, _ = ssm_run_sql(region, instance_id, SETTINGS_UA_SQL, f"check: {label} http ua settings")
-    try:
-        return json.loads(raw) if raw else {}
-    except json.JSONDecodeError:
-        return {}
-
-
 def _http_ua_drift_items(node_label: str, live_settings: dict, expected: dict) -> list[dict]:
     """Diff one node's live UA setting + mimicry manifest vs the baseline JSON.
     Returns drift items (status=drift), each with the offending field. Empty == match."""
@@ -1426,35 +1416,6 @@ def _http_ua_drift_items(node_label: str, live_settings: dict, expected: dict) -
     return items
 
 
-def _run_http_ua_checks_live(edge_ids: list[str], expected: dict) -> list[dict]:
-    """Live SSM settings read per node (edge + prod). Always live: UA is updated
-    out of band from snapshot. SSM failures degrade to status=error (counted like
-    tier/balance errors), never silently treated as in-sync."""
-    items: list[dict] = []
-    for eid in edge_ids:
-        try:
-            ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, eid)
-        except SystemExit:
-            items.append({"node": f"edge:{eid}", "field": "*", "status": "error",
-                          "warning": f"could not resolve SSM instance for edge {eid}"})
-            continue
-        try:
-            live = _read_http_ua_settings(ident.region, ident.instance_id, f"edge {eid}")
-        except SystemExit:
-            items.append({"node": f"edge:{eid}", "field": "*", "status": "error",
-                          "warning": f"could not read settings for edge {eid}"})
-            continue
-        items.extend(_http_ua_drift_items(f"edge:{eid}", live, expected))
-    try:
-        prod_inst = resolve_instance_id(PROD_TARGET["region"], PROD_TARGET["stack"])
-        prod_live = _read_http_ua_settings(PROD_TARGET["region"], prod_inst, "prod")
-        items.extend(_http_ua_drift_items("prod", prod_live, expected))
-    except SystemExit:
-        items.append({"node": "prod", "field": "*", "status": "error",
-                      "warning": "could not resolve / read settings for prod"})
-    return items
-
-
 # --------------------------------------------------------------------------
 # redis_cache_drift: Redis cached config blobs vs DB authoritative tables
 # --------------------------------------------------------------------------
@@ -1500,12 +1461,29 @@ SELECT COALESCE(jsonb_agg(jsonb_build_object(
 FROM tiers;
 """.strip()
 
-_REDIS_DRIFT_MARKER = "@@RDRIFT:"
+# One psql round-trip per node gathers every DB-side live-drift input -- the UA /
+# mimicry settings (http_ua_drift) AND the authoritative tls/tier tables
+# (redis_cache_drift) -- as a single jsonb object, mirroring EDGE_CAPTURE_BUNDLE_SQL.
+# Folding these into one query (and one SSM shell, see render_live_node_probe_shell)
+# is the perf lever: http_ua_drift and redis_cache_drift used to each open their
+# own per-node SSM wave (~7-8s/node round-trip each), so a check paid two full
+# fleet-wide SSM passes for data that lives on the same box.
+LIVE_NODE_DB_BUNDLE_SQL = f"""
+SELECT jsonb_build_object(
+  'settings', ({_sql_as_subquery(SETTINGS_UA_SQL)}),
+  'tls_db', ({_sql_as_subquery(REDIS_DRIFT_TLS_DB_SQL)}),
+  'tiers_db', ({_sql_as_subquery(REDIS_DRIFT_TIERS_DB_SQL)})
+);
+""".strip()
+
+_LIVE_PROBE_MARKER = "@@LIVE:"
 
 
-def render_redis_cache_drift_shell() -> str:
-    """Remote read-only shell: dump the two Redis config blobs and the two
-    authoritative DB tables, delimited by @@RDRIFT: markers for the parser.
+def render_live_node_probe_shell() -> str:
+    """Remote read-only shell: ONE SSM round-trip that gathers every always-live
+    drift input for a node -- the two Redis config blobs (redis_cache_drift) plus
+    a single psql bundle of settings + tls/tier DB tables (http_ua_drift +
+    redis_cache_drift's authoritative side). @@LIVE: markers delimit sections.
 
     DB SQL is base64-piped to psql (never inlined into -c "...") so the embedded
     double-quotes in to_char(...) survive -- same delivery as render_runtime_sync_shell.
@@ -1515,37 +1493,34 @@ def render_redis_cache_drift_shell() -> str:
     auth / wrong host) MUST abort the shell so the SSM invocation fails and the
     node degrades to status=error. Suppressing the exit status would turn an
     unreachable Redis into an empty blob that parses as a (clean) cold cache -- a
-    false all-green, the exact silent-failure class this surface exists to catch.
-    A genuinely missing key returns empty with exit 0, so the cold-cache path
-    holds."""
-    tls_db_b64 = base64.b64encode(REDIS_DRIFT_TLS_DB_SQL.encode("utf-8")).decode("ascii")
-    tiers_db_b64 = base64.b64encode(REDIS_DRIFT_TIERS_DB_SQL.encode("utf-8")).decode("ascii")
-    m = _REDIS_DRIFT_MARKER
+    false all-green, the exact silent-failure class redis_cache_drift exists to
+    catch. A genuinely missing key returns empty with exit 0, so the cold-cache
+    path holds."""
+    db_bundle_b64 = base64.b64encode(LIVE_NODE_DB_BUNDLE_SQL.encode("utf-8")).decode("ascii")
+    m = _LIVE_PROBE_MARKER
     return (
-        "# Generated by manage-anthropic-config.py check (redis_cache_drift)\n"
+        "# Generated by manage-anthropic-config.py check (live node probe: http_ua + redis_cache_drift)\n"
         "PSQL='sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1'\n"
         "RC='env -u REDISCLI_AUTH sudo docker exec tokenkey-redis redis-cli'\n"
         f"echo '{m}tls_redis'\n"
         f"$RC GET {REDIS_DRIFT_TLS_CACHE_KEY}\n"
         f"echo '{m}tiers_redis'\n"
         f"$RC GET {REDIS_DRIFT_TIERS_CACHE_KEY}\n"
-        f"echo '{m}tls_db'\n"
-        f"echo {tls_db_b64} | base64 -d | $PSQL\n"
-        f"echo '{m}tiers_db'\n"
-        f"echo {tiers_db_b64} | base64 -d | $PSQL\n"
+        f"echo '{m}db_bundle'\n"
+        f"echo {db_bundle_b64} | base64 -d | $PSQL\n"
         f"echo '{m}end'\n"
     )
 
 
-def _parse_redis_drift_sections(out: str) -> dict[str, str]:
-    """Split @@RDRIFT:-delimited output into {section: text}. Content between a
+def _parse_live_probe_sections(out: str) -> dict[str, str]:
+    """Split @@LIVE:-delimited output into {section: text}. Content between a
     marker line and the next marker (or EOF) is that section's body, stripped."""
     sections: dict[str, list[str]] = {}
     current: str | None = None
     for line in (out or "").splitlines():
         stripped = line.strip()
-        if stripped.startswith(_REDIS_DRIFT_MARKER):
-            current = stripped[len(_REDIS_DRIFT_MARKER):]
+        if stripped.startswith(_LIVE_PROBE_MARKER):
+            current = stripped[len(_LIVE_PROBE_MARKER):]
             sections.setdefault(current, [])
             continue
         if current is not None:
@@ -1662,51 +1637,88 @@ def _redis_cache_drift_items(node_label: str, state: dict) -> list[dict]:
     return items
 
 
-def _read_redis_cache_state(region: str, instance_id: str, label: str) -> "dict | None":
-    """One SSM shell per node -> parsed sections, or None on SSM failure."""
-    out, _cid, success, _err = ssm_run_shell(
-        region, instance_id, render_redis_cache_drift_shell(), f"check: {label} redis cache drift")
-    if not success:
-        return None
-    sec = _parse_redis_drift_sections(out)
+# --------------------------------------------------------------------------
+# Unified live-node probe: one parallel SSM pass feeds BOTH http_ua_drift and
+# redis_cache_drift (they are both always-live, per-node, and read from the same
+# box). Folding them avoids paying two fleet-wide SSM waves per check.
+# --------------------------------------------------------------------------
+_PROBE_PROD_SENTINEL = "\x00prod"  # node id distinct from any real edge id
+
+
+def _live_bundle_from_output(out: str) -> dict:
+    """Pure parse of one node's probe stdout into the bundle consumed by the two
+    drift surfaces: {settings:{...}, tls_redis, tls_db, tiers_redis, tiers_db}.
+    The DB arrays arrive parsed inside the psql jsonb bundle; they are
+    re-serialized to JSON strings so _redis_cache_drift_items' string-in contract
+    stays unchanged. Unit-tested without SSM."""
+    sec = _parse_live_probe_sections(out)
+    try:
+        db = json.loads(sec.get("db_bundle", "") or "{}")
+    except json.JSONDecodeError:
+        db = {}
+    if not isinstance(db, dict):
+        db = {}
+    settings = db.get("settings")
     return {
-        "tls_redis": sec.get("tls_redis", ""), "tls_db": sec.get("tls_db", ""),
-        "tiers_redis": sec.get("tiers_redis", ""), "tiers_db": sec.get("tiers_db", ""),
+        "settings": settings if isinstance(settings, dict) else {},
+        "tls_redis": sec.get("tls_redis", ""),
+        "tiers_redis": sec.get("tiers_redis", ""),
+        "tls_db": json.dumps(db.get("tls_db") if db.get("tls_db") is not None else []),
+        "tiers_db": json.dumps(db.get("tiers_db") if db.get("tiers_db") is not None else []),
     }
 
 
-def _run_redis_cache_checks_live(edge_ids: list[str], *, parallel_edges: int | None = None) -> list[dict]:
-    """Live Redis-blob vs DB diff per node (edges + prod). Parallel across edges.
-    SSM failures degrade to status=error (never silently in-sync). Always live."""
-    def _one_edge(eid: str) -> list[dict]:
+def _read_live_node_bundle(region: str, instance_id: str, label: str) -> "dict | None":
+    """One SSM round-trip per node -> parsed bundle (via _live_bundle_from_output),
+    or None on SSM failure."""
+    out, _cid, success, _err = ssm_run_shell(
+        region, instance_id, render_live_node_probe_shell(), f"check: {label} live node probe")
+    if not success:
+        return None
+    return _live_bundle_from_output(out)
+
+
+def _run_live_node_checks(edge_ids: list[str], ua_expected: dict, *,
+                          parallel_edges: int | None = None) -> "tuple[list[dict], list[dict]]":
+    """ONE parallel SSM pass over all nodes (edges + prod) computing BOTH
+    http_ua_drift and redis_cache_drift from a single per-node probe -- replaces
+    the two former independent, per-node SSM waves (http_ua was also sequential).
+    SSM failure degrades BOTH surfaces to status=error for that node (never
+    silently in-sync). Always live: probe inputs are not captured by snapshot.
+    Returns (http_ua_items, redis_items)."""
+    nodes = list(edge_ids) + [_PROBE_PROD_SENTINEL]
+
+    def _probe(node: str) -> "tuple[list[dict], list[dict]]":
+        label = "prod" if node == _PROBE_PROD_SENTINEL else f"edge:{node}"
         try:
-            ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, eid)
-            state = _read_redis_cache_state(ident.region, ident.instance_id, f"edge {eid}")
+            if node == _PROBE_PROD_SENTINEL:
+                region = PROD_TARGET["region"]
+                instance_id = resolve_instance_id(region, PROD_TARGET["stack"])
+            else:
+                ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, node)
+                region, instance_id = ident.region, ident.instance_id
+            bundle = _read_live_node_bundle(region, instance_id, label)
         except (SystemExit, Exception):  # noqa: BLE001 - degrade, never abort the whole check
-            return [{"node": f"edge:{eid}", "cache": "*", "field": "*", "status": "error",
-                     "warning": f"could not resolve/read redis cache for edge {eid}"}]
-        if state is None:
-            return [{"node": f"edge:{eid}", "cache": "*", "field": "*", "status": "error",
-                     "warning": f"redis cache SSM read failed for edge {eid}"}]
-        return _redis_cache_drift_items(f"edge:{eid}", state)
+            bundle = None
+        if bundle is None:
+            err = f"live node probe SSM read failed for {label}"
+            return (
+                [{"node": label, "field": "*", "status": "error", "warning": err}],
+                [{"node": label, "cache": "*", "field": "*", "status": "error", "warning": err}],
+            )
+        return (
+            _http_ua_drift_items(label, bundle["settings"], ua_expected),
+            _redis_cache_drift_items(label, bundle),
+        )
 
     workers = _parallel_edges_workers(parallel_edges)
-    per_edge = _run_parallel_ordered(list(edge_ids), _one_edge, workers, label="redis-cache-drift")
-    items: list[dict] = []
-    for lst in per_edge:
-        items.extend(lst or [])
-    try:
-        prod_inst = resolve_instance_id(PROD_TARGET["region"], PROD_TARGET["stack"])
-        state = _read_redis_cache_state(PROD_TARGET["region"], prod_inst, "prod")
-        if state is None:
-            items.append({"node": "prod", "cache": "*", "field": "*", "status": "error",
-                          "warning": "redis cache SSM read failed for prod"})
-        else:
-            items.extend(_redis_cache_drift_items("prod", state))
-    except SystemExit:
-        items.append({"node": "prod", "cache": "*", "field": "*", "status": "error",
-                      "warning": "could not resolve / read redis cache for prod"})
-    return items
+    results = _run_parallel_ordered(nodes, _probe, workers, label="live-node-probe")
+    http_items: list[dict] = []
+    redis_items: list[dict] = []
+    for hu, rd in results:
+        http_items.extend(hu or [])
+        redis_items.extend(rd or [])
+    return http_items, redis_items
 
 
 def cmd_check(args: argparse.Namespace) -> int:
@@ -1750,11 +1762,14 @@ def cmd_check(args: argparse.Namespace) -> int:
         "error_count": sum(1 for x in tier_items if x.get("status") == "error"),
         "items": tier_items,
     }
-    # http_ua_drift: live settings UA + mimicry manifest vs baseline JSON.
-    # Always live (UA is updated out of band from snapshot; a stale snapshot is
-    # exactly how the blind spot hid).
+    # http_ua_drift + redis_cache_drift share ONE parallel per-node SSM probe
+    # (both always-live, both read the same box). Always live: the probe inputs
+    # (settings UA/manifest, Redis blobs) are updated out of band from snapshot,
+    # and a stale snapshot is exactly how each blind spot hid. A cold Redis cache
+    # (key absent) is not drift.
     http_ua_expected = _load_http_mimicry_baseline()
-    http_ua_items = _run_http_ua_checks_live(edge_ids, http_ua_expected)
+    http_ua_items, redis_items = _run_live_node_checks(
+        edge_ids, http_ua_expected, parallel_edges=getattr(args, "parallel_edges", None))
     http_ua_violation = any(x.get("status") in ("drift", "error") for x in http_ua_items)
     report["http_ua_drift"] = {
         "policy_source": HTTP_MIMICRY_BASELINES.name,
@@ -1763,12 +1778,6 @@ def cmd_check(args: argparse.Namespace) -> int:
         "error_count": sum(1 for x in http_ua_items if x.get("status") == "error"),
         "items": http_ua_items,
     }
-    # redis_cache_drift: Redis cached config blobs (tls_fingerprint_profiles,
-    # tiers) vs the authoritative DB tables. Always live -- Redis state is not in
-    # snapshot, and a stale cache is exactly how the built-in-default fallback
-    # hid from DB-only surfaces. A cold cache (key absent) is not drift.
-    redis_items = _run_redis_cache_checks_live(
-        edge_ids, parallel_edges=getattr(args, "parallel_edges", None))
     redis_violation = any(x.get("status") in ("drift", "error") for x in redis_items)
     report["redis_cache_drift"] = {
         "caches": REDIS_DRIFT_CACHE_NAMES,
@@ -3726,6 +3735,7 @@ def iter_self_check_sql() -> list[tuple[str, str]]:
         ("SETTINGS_UA_SQL", SETTINGS_UA_SQL),
         ("REDIS_DRIFT_TLS_DB_SQL", REDIS_DRIFT_TLS_DB_SQL),
         ("REDIS_DRIFT_TIERS_DB_SQL", REDIS_DRIFT_TIERS_DB_SQL),
+        ("LIVE_NODE_DB_BUNDLE_SQL", LIVE_NODE_DB_BUNDLE_SQL),
         ("EDGE_CAPTURE_BUNDLE_SQL", EDGE_CAPTURE_BUNDLE_SQL),
         ("PROD_CAPTURE_BUNDLE_SQL", PROD_CAPTURE_BUNDLE_SQL),
         ("render_edge_operator_balance_sql", render_edge_operator_balance_sql(123.45)),
