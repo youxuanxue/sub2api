@@ -1222,8 +1222,18 @@ func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status i
 	routingCapacityLimited := isOpsRoutingCapacityLimited(c)
 	clientBusinessLimited := service.HasOpsClientBusinessLimited(c)
 	upstreamError := hasOpsUpstreamErrorContext(c)
-	if upstreamError && !routingCapacityLimited {
+	// TK: an upstream client-induced request rejection (invalid_request_error /
+	// request_too_large / 413 / unsupported-model-for-account) is caller-fault, not
+	// provider health. Own it to the client (request phase) instead of relabeling
+	// it as upstream/provider, so it stays OUT of upstream_error_rate and the
+	// provider-health P0 capacity alert. See tkUpstreamClientInducedRejection
+	// (prod P0 2026-06-05; mirrors the #602 amplifier boundary).
+	clientInducedUpstream := upstreamError && tkUpstreamClientInducedRejection(c)
+	if upstreamError && !routingCapacityLimited && !clientInducedUpstream {
 		phase = "upstream"
+	}
+	if clientInducedUpstream && !routingCapacityLimited {
+		phase = "request"
 	}
 	if clientBusinessLimited && !upstreamError && !routingCapacityLimited {
 		phase = "auth"
