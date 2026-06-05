@@ -41,7 +41,10 @@ jobs:
     name: sync docs → prod pages
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment: prod
+    # No `environment: prod` here intentionally: this workflow runs on push to
+    # main (OIDC sub = ref:refs/heads/main, which cicd-oidc.yaml trusts) and
+    # must not block on the prod Environment approval gate — that gate is only
+    # appropriate for irreversible production deploys, not idempotent doc syncs.
     env:
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
       OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
