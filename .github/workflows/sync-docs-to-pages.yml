@@ -1,0 +1,101 @@
+name: sync-docs-to-pages
+
+# Sync docs/public/*.md files to the prod server's pages directory whenever they
+# change on main. Pages are served by GET /api/v1/pages/:slug and rendered
+# by the CustomPageView component. After first-time setup (registering the
+# slug in custom_menu_items via Admin → Settings), subsequent content updates
+# happen automatically through this workflow.
+#
+# IMPORTANT: only docs/public/* files are synced. Internal docs (docs/approved/,
+# docs/ops/, docs/spec-delta-*, docs/accounts/, etc.) must never appear here.
+#
+# Slug derivation: docs/public/USER_GUIDE_CLAUDE_CODE.md → user-guide-claude-code
+# Page URL in TokenKey UI: /pages/user-guide-claude-code
+# Admin menu entry: { "url": "md:user-guide-claude-code", ... }
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/public/**'    # only user-facing public docs; docs/ root and
+                            # subdirectories (approved/, ops/, spec-delta-*,
+                            # accounts/, etc.) contain internal content and
+                            # must never be auto-synced to prod pages.
+  workflow_dispatch:
+    inputs:
+      files:
+        description: 'Space-separated list of docs/public/*.md files to sync (leave empty for defaults)'
+        required: false
+        default: ''
+
+concurrency:
+  group: sync-docs-to-pages
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    name: sync docs → prod pages
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: prod
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve prod instance ID
+        id: instance
+        env:
+          STACK_NAME: ${{ vars.PROD_STACK_NAME || 'tokenkey-prod-stage0' }}
+        run: |
+          set -euo pipefail
+          ID=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
+            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)
+          if [ -z "$ID" ] || [ "$ID" = "None" ]; then
+            echo "::error::could not resolve InstanceId from stack $STACK_NAME"
+            exit 1
+          fi
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+          echo "prod instance: $ID (stack: $STACK_NAME)"
+
+      - name: Sync docs files to prod pages
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          STAGE0_SSM_OUTPUT_DIR: .
+        run: |
+          set -euo pipefail
+          INPUT_FILES="${{ inputs.files }}"
+          if [ -n "$INPUT_FILES" ]; then
+            # shellcheck disable=SC2086
+            bash ops/stage0/sync_docs_pages.sh "$INSTANCE_ID" $INPUT_FILES
+          else
+            bash ops/stage0/sync_docs_pages.sh "$INSTANCE_ID"
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Docs → Pages Sync" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f sync-docs-pages-stdout.txt ]; then
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            cat sync-docs-pages-stdout.txt >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Note:** If this is the first time syncing a slug, register it in Admin → Settings → 自定义菜单 as:" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          echo '{ "label": "Claude Code 接入指南", "url": "md:user-guide-claude-code", "icon": "book" }' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Only \`docs/public/**\` files are eligible for sync. docs/ root and internal subdirectories are never synced." >> "$GITHUB_STEP_SUMMARY"
