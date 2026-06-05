@@ -120,6 +120,42 @@ func TestEdgeAccountsAggregator_FanoutDedupAndErrorIsolation(t *testing.T) {
 	require.NotContains(t, doer.keysSeen, "example.com")
 }
 
+func TestEdgeAccountsAggregator_SkipsDisabledStub(t *testing.T) {
+	disabled := mirrorStub(1, "https://api-fra1.tokenkey.dev", "key-fra1")
+	disabled.Status = StatusDisabled
+	// us6 has a disabled stub listed before an active one for the same base_url:
+	// the disabled one is skipped, the active one still covers the edge.
+	us6Disabled := mirrorStub(2, "https://api-us6.tokenkey.dev", "key-us6-old")
+	us6Disabled.Status = StatusDisabled
+	us6Active := mirrorStub(3, "https://api-us6.tokenkey.dev", "key-us6")
+	us6Active.Status = StatusActive
+	// us7's only stub is in 'error' (transient) — must NOT be skipped.
+	us7Err := mirrorStub(4, "https://api-us7.tokenkey.dev", "key-us7")
+	us7Err.Status = "error"
+
+	store := &edgeAccountsStoreStub{accounts: []Account{disabled, us6Disabled, us6Active, us7Err}}
+	doer := &fakeEdgeDoer{bodyByHost: map[string]string{
+		"api-us6.tokenkey.dev": `{"code":0,"data":{"accounts":[]}}`,
+		"api-us7.tokenkey.dev": `{"code":0,"data":{"accounts":[]}}`,
+	}}
+
+	agg := NewEdgeAccountsAggregator(store, doer)
+	out, err := agg.Aggregate(context.Background(), "anthropic")
+	require.NoError(t, err)
+
+	// fra1 (disabled-only) dropped entirely; us6 + us7 remain (sorted).
+	require.Len(t, out.Edges, 2)
+	require.Equal(t, "us6", out.Edges[0].EdgeID)
+	require.Equal(t, "us7", out.Edges[1].EdgeID)
+
+	// Disabled fra1 was never polled.
+	require.NotContains(t, doer.keysSeen, "api-fra1.tokenkey.dev")
+	// us6 used the ACTIVE stub's key (the disabled one ahead of it was skipped).
+	require.Equal(t, "key-us6", doer.keysSeen["api-us6.tokenkey.dev"])
+	// us7 in 'error' state is still reachable and was polled.
+	require.Equal(t, "key-us7", doer.keysSeen["api-us7.tokenkey.dev"])
+}
+
 func TestEdgeAccountsAggregator_Non2xxIsError(t *testing.T) {
 	store := &edgeAccountsStoreStub{accounts: []Account{
 		mirrorStub(1, "https://api-us1.tokenkey.dev", "key-us1"),
