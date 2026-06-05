@@ -53,3 +53,48 @@ func tkSkipDownstreamNoAvailableAccountsPenalty(statusCode int, upstreamMsg stri
 	}
 	return tkIsDownstreamNoAvailableAccounts(upstreamMsg, responseBody)
 }
+
+// tkDownstreamAllAccountsExhaustedNeedle is TokenKey's own failover-exhausted
+// client message (handler.handleCCFailoverExhausted / handleResponsesFailoverExhausted
+// and the chat/responses select-failure fallbacks), emitted as "server_error" /
+// "upstream_error" with HTTP 502 when a downstream gateway's failover loop ran out
+// of candidates. Like ErrNoAvailableAccounts it is a TokenKey-generated string the
+// real provider APIs never emit.
+const tkDownstreamAllAccountsExhaustedNeedle = "all available accounts exhausted"
+
+// tkIsDownstreamAllAccountsExhausted reports whether an error is the downstream
+// gateway's own failover-exhausted capacity signal — the sibling of
+// tkIsDownstreamNoAvailableAccounts. "no available accounts" means the downstream
+// pool had nothing schedulable to even try; "all available accounts exhausted"
+// means its failover loop tried every candidate and they were all (transiently)
+// unavailable. Both are TokenKey-internal *downstream capacity* signals, not a
+// health problem with THIS forwarding stub and not a genuine provider error.
+func tkIsDownstreamAllAccountsExhausted(upstreamMsg string, responseBody []byte) bool {
+	if strings.Contains(strings.ToLower(upstreamMsg), tkDownstreamAllAccountsExhaustedNeedle) {
+		return true
+	}
+	return strings.Contains(strings.ToLower(string(responseBody)), tkDownstreamAllAccountsExhaustedNeedle)
+}
+
+// tkSkipDownstreamFailoverExhaustedPenalty (TK — G2, narrow) generalises the
+// no-available skip to the second downstream capacity envelope. It is the only
+// addition over the pre-existing no-available skip: a forwarding stub that
+// receives the downstream gateway's own "all available accounts exhausted" signal
+// must fail over to the next stub without advancing the per-account
+// anthropic_upstream_error 3/3 ladder — the stub itself is healthy; the
+// forwarded-to edge pool transiently ran dry.
+//
+// Status set is deliberately wider than the no-available skip (429 OR any 5xx):
+// the failover-exhausted envelope is written as HTTP 502, whereas the empty-pool
+// fast-fail is 429 (or legacy 503). Crucially this matches ONLY on TokenKey's own
+// capacity string — a raw edge-infra 5xx (Caddy 502 HTML, connection reset) or a
+// genuine provider error carries no such phrase, so it still flows through the
+// tiered cooldown and keeps the beneficial "route away from a broken edge"
+// behaviour (PR #333 / 2026-05-21). This is the explicit scope chosen for G2:
+// exempt TokenKey downstream *capacity* signals, never genuine failures.
+func tkSkipDownstreamFailoverExhaustedPenalty(statusCode int, upstreamMsg string, responseBody []byte) bool {
+	if statusCode != http.StatusTooManyRequests && statusCode < 500 {
+		return false
+	}
+	return tkIsDownstreamAllAccountsExhausted(upstreamMsg, responseBody)
+}

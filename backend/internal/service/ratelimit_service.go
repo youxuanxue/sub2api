@@ -459,12 +459,35 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		shouldDisable = s.handle403(ctx, account, upstreamMsg, responseBody)
 	case 404:
 		shouldDisable = s.handle404(ctx, account, upstreamMsg, responseBody)
+	case 413:
+		// TK (G1): an upstream 413 request_too_large is purely a caller-side
+		// problem — the request body exceeded Anthropic's own cap after already
+		// clearing TokenKey's local body-limit middleware. It is never an
+		// account-health problem, so it must NOT advance the anthropic 3/3 ladder
+		// (default case below would). Skip the penalty and fail the oversize
+		// request back to the client unchanged. Non-Anthropic platforms keep the
+		// pre-existing no-op behaviour for 413.
+		if account.Platform == PlatformAnthropic {
+			slog.Info("anthropic_request_too_large_skip_penalty",
+				"account_id", account.ID,
+				"status_code", statusCode)
+		}
 	case 429:
 		// TK (prod 2026-06): edges empty-pool fast-fail is 429+Retry-After, not
 		// 503. Same downstream-exhaustion semantics as handleAnthropicUpstreamError
 		// skip path — do not classify as upstream rate-limit cooldown / Feishu 429.
 		if account.Platform == PlatformAnthropic && tkSkipDownstreamNoAvailableAccountsPenalty(statusCode, upstreamMsg, responseBody) {
 			slog.Info("anthropic_downstream_no_available_accounts_skip_penalty",
+				"account_id", account.ID,
+				"status_code", statusCode)
+			return true
+		}
+		// TK (G2, narrow): the sibling downstream capacity signal — a forwarded
+		// "all available accounts exhausted" envelope — is also a downstream-pool
+		// blip, not stub health. Skip the ladder/cooldown and fail over. Raw infra
+		// 5xx and genuine provider errors carry no such phrase and still count.
+		if account.Platform == PlatformAnthropic && tkSkipDownstreamFailoverExhaustedPenalty(statusCode, upstreamMsg, responseBody) {
+			slog.Info("anthropic_downstream_failover_exhausted_skip_penalty",
 				"account_id", account.ID,
 				"status_code", statusCode)
 			return true
@@ -1017,6 +1040,20 @@ func (s *RateLimitService) handleAnthropicUpstreamError(ctx context.Context, acc
 	// tkIsDownstreamNoAvailableAccounts.
 	if tkSkipDownstreamNoAvailableAccountsPenalty(statusCode, upstreamMsg, responseBody) {
 		slog.Info("anthropic_downstream_no_available_accounts_skip_penalty",
+			"account_id", account.ID,
+			"status_code", statusCode)
+		return true
+	}
+
+	// TK (G2, narrow): sibling downstream capacity signal. A forwarded
+	// "all available accounts exhausted" envelope (HTTP 502 from a downstream
+	// gateway's failover-exhausted path) is a downstream-pool blip, not stub
+	// health — fail over without advancing the 3/3 ladder. Matches ONLY TokenKey's
+	// own capacity phrase, so raw edge-infra 5xx and genuine provider errors still
+	// count and keep the route-away cooldown (PR #333). See
+	// tkSkipDownstreamFailoverExhaustedPenalty.
+	if tkSkipDownstreamFailoverExhaustedPenalty(statusCode, upstreamMsg, responseBody) {
+		slog.Info("anthropic_downstream_failover_exhausted_skip_penalty",
 			"account_id", account.ID,
 			"status_code", statusCode)
 		return true
