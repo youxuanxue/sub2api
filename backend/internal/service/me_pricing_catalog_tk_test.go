@@ -5,8 +5,10 @@ package service
 import (
 	"context"
 	"errors"
+	"sort"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 
 	"github.com/stretchr/testify/assert"
@@ -809,6 +811,131 @@ func TestBuildForUser_AccountWhitelist_NewapiRequiresChannelType(t *testing.T) {
 	require.Len(t, resp.Models, 1, "channel_type=0 newapi account must be filtered out (no adaptor target)")
 	assert.Equal(t, "qwen-3-max", resp.Models[0].ModelID,
 		"only the channel_type>0 newapi account surfaces — matches scheduler IsOpenAICompatPoolMember")
+}
+
+// ----- platform-default fallback (unrestricted native OAuth accounts) -----
+
+// modelIDsOf collects the model_id set of a menu for order-independent
+// comparison (buildModelsForGroup sorts alpha; the canonical list is in
+// declaration order).
+func modelIDsOf(models []MePricingModel) []string {
+	ids := make([]string, 0, len(models))
+	for _, m := range models {
+		ids = append(ids, m.ModelID)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// TestBuildForUser_AnthropicUnrestricted_ListsCanonicalModels is the core
+// fix for the user_id=16 incident: a native Anthropic OAuth account carries
+// no channel and no model_mapping whitelist (empty = all models allowed),
+// so before the platform-default fallback both the channel stage and the
+// whitelist stage produced nothing and the menu was empty. The menu must
+// now list the gateway's canonical Claude model set (the same source
+// /v1/models uses), with catalog prices joined where available.
+func TestBuildForUser_AnthropicUnrestricted_ListsCanonicalModels(t *testing.T) {
+	gAnthropic := mkGroupForMe(40, "default", "anthropic", 1.0)
+	k1 := mkKeyForMe(1, 16, "default", ptrI(40))
+	// nil whitelist → creds has no model_mapping → unrestricted account.
+	acct := mkAccountWithWhitelist(11, "claude-oauth", "anthropic", 0, nil)
+	require.False(t, accountHasModelRestriction(acct.Credentials),
+		"empty model_mapping must read as unrestricted")
+	catalog := &PublicCatalogResponse{
+		Data: []PublicCatalogModel{
+			mkPublicCatalogModel("claude-opus-4-8", "Anthropic", 0.005, 0.025, 0),
+		},
+	}
+	svc := newServiceWithAccounts(
+		&fakeKeyAccess{groups: []Group{gAnthropic}, keys: []APIKey{k1}},
+		&fakeChannelLister{},
+		&fakeCatalogProvider{resp: catalog},
+		&fakeAccountSource{accounts: []Account{acct}},
+	)
+	resp, err := svc.BuildForUser(context.Background(), 16, MePricingCatalogOptions{})
+	require.NoError(t, err)
+
+	want := claude.DefaultModelIDs()
+	sort.Strings(want)
+	assert.Equal(t, want, modelIDsOf(resp.Models),
+		"menu must equal the canonical Claude model set")
+
+	byID := map[string]MePricingModel{}
+	for _, m := range resp.Models {
+		byID[m.ModelID] = m
+	}
+	// Catalog-priced model gets its price joined (× rate 1.0).
+	require.Contains(t, byID, "claude-opus-4-8")
+	require.NotNil(t, byID["claude-opus-4-8"].YourPrice.InputPer1K)
+	assert.InDelta(t, 0.005, *byID["claude-opus-4-8"].YourPrice.InputPer1K, 1e-9)
+	// A model not in the catalog still surfaces (name is what the user needs).
+	require.Contains(t, byID, "claude-sonnet-4-6")
+	// Deprecated IDs are never advertised.
+	assert.NotContains(t, byID, "claude-3-5-haiku-20241022",
+		"deprecated models must not appear in the menu")
+}
+
+// TestBuildForUser_AnthropicRestricted_RegistryNotMixedIn guards the
+// branch boundary: an Anthropic account WITH a whitelist is restricted to
+// exactly those models — the canonical platform list must not leak in.
+func TestBuildForUser_AnthropicRestricted_RegistryNotMixedIn(t *testing.T) {
+	gAnthropic := mkGroupForMe(40, "default", "anthropic", 1.0)
+	k1 := mkKeyForMe(1, 16, "default", ptrI(40))
+	acct := mkAccountWithWhitelist(11, "claude-oauth", "anthropic", 0, []string{"claude-opus-4-8"})
+	catalog := &PublicCatalogResponse{
+		Data: []PublicCatalogModel{
+			mkPublicCatalogModel("claude-opus-4-8", "Anthropic", 0.005, 0.025, 0),
+		},
+	}
+	svc := newServiceWithAccounts(
+		&fakeKeyAccess{groups: []Group{gAnthropic}, keys: []APIKey{k1}},
+		&fakeChannelLister{},
+		&fakeCatalogProvider{resp: catalog},
+		&fakeAccountSource{accounts: []Account{acct}},
+	)
+	resp, err := svc.BuildForUser(context.Background(), 16, MePricingCatalogOptions{})
+	require.NoError(t, err)
+	require.Len(t, resp.Models, 1, "restricted account → only its whitelist, no canonical list")
+	assert.Equal(t, "claude-opus-4-8", resp.Models[0].ModelID)
+}
+
+// TestBuildForUser_EmptyPool_StaysEmpty confirms a group with no
+// schedulable accounts advertises nothing — we do not list models a dead
+// group cannot serve.
+func TestBuildForUser_EmptyPool_StaysEmpty(t *testing.T) {
+	gAnthropic := mkGroupForMe(40, "default", "anthropic", 1.0)
+	k1 := mkKeyForMe(1, 16, "default", ptrI(40))
+	svc := newServiceWithAccounts(
+		&fakeKeyAccess{groups: []Group{gAnthropic}, keys: []APIKey{k1}},
+		&fakeChannelLister{},
+		&fakeCatalogProvider{resp: &PublicCatalogResponse{}},
+		&fakeAccountSource{accounts: []Account{}},
+	)
+	resp, err := svc.BuildForUser(context.Background(), 16, MePricingCatalogOptions{})
+	require.NoError(t, err)
+	assert.Empty(t, resp.Models)
+}
+
+// TestBuildForUser_NewapiUnrestricted_NoCanonicalLeak pins the platform
+// scoping: newapi is channel/channel_type driven and owns no canonical
+// model list, so an unrestricted newapi account must NOT fall back to the
+// Claude default arm of defaultModelsListCandidateIDs.
+func TestBuildForUser_NewapiUnrestricted_NoCanonicalLeak(t *testing.T) {
+	gNewapi := mkGroupForMe(50, "newapi-pro", "newapi", 1.0)
+	k1 := mkKeyForMe(1, 16, "newapi-key", ptrI(50))
+	// channel_type>0 so the account IS in scope — isolates the platform
+	// registry decision from the pool-membership decision.
+	acct := mkAccountWithWhitelist(11, "newapi-oauth", "newapi", 31, nil)
+	require.False(t, accountHasModelRestriction(acct.Credentials))
+	svc := newServiceWithAccounts(
+		&fakeKeyAccess{groups: []Group{gNewapi}, keys: []APIKey{k1}},
+		&fakeChannelLister{},
+		&fakeCatalogProvider{resp: &PublicCatalogResponse{}},
+		&fakeAccountSource{accounts: []Account{acct}},
+	)
+	resp, err := svc.BuildForUser(context.Background(), 16, MePricingCatalogOptions{})
+	require.NoError(t, err)
+	assert.Empty(t, resp.Models, "newapi has no canonical list — no Claude models may leak in")
 }
 
 // TestBuildForUser_ChannelsErrorDoesNotKillFallback documents the
