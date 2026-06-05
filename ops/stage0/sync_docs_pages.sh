@@ -106,11 +106,14 @@ REMOTE_SCRIPT=$(printf '%s\n' "${remote_cmds[@]}")
 # Build SSM params JSON — write to ${OUTPUT_DIR}/ssm-params.json (same
 # convention as deploy_via_ssm.sh / sync_caddyfile_via_ssm.sh so the
 # check-stage0-ssm-host-parse.sh guard can validate the host script syntax).
+# Format: {"commands": ["cmd1", "cmd2", ...]} — flat array, NOT the
+# {"commands": {"Value": [...], "Type": "StringList"}} dict form which
+# causes a botocore ParamValidation error with aws-cli v2.
 mkdir -p "${OUTPUT_DIR}"
 params_file="${OUTPUT_DIR}/ssm-params.json"
 
 jq -n --arg script "$REMOTE_SCRIPT" \
-  '{"commands": {"Value": [$script], "Type": "StringList"}}' \
+  '{"commands": [$script]}' \
   > "$params_file"
 
 region_args=()
