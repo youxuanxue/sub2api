@@ -196,9 +196,13 @@ def gather(
     # mirrors the WHOLE document — beta lists included, not just cc_version).
     embedded_cc = load_source_version(embedded_path)
     embedded_ok = _read(embedded_path) == _read(source_json)
+    embedded_found = embedded_cc
+    if not embedded_ok and embedded_cc == expected:
+        # cc_version agrees but bytes differ — beta lists (or formatting) drifted.
+        embedded_found = f"{embedded_cc} (same cc_version, bytes differ — beta lists drifted?)"
     findings.append(
         {"label": "backend/internal/baseline mirror (byte-identical)", "kind": "embedded-mirror",
-         "found": embedded_cc, "ok": embedded_ok}
+         "found": embedded_found, "ok": embedded_ok}
     )
     return findings
 
@@ -435,6 +439,26 @@ def run_selftest() -> int:
             + write_embedded_mirror(source_json=src, embedded_path=embedded)
         )
         expect(again == [], f"second write should be a no-op, got {again}")
+
+        # byte-only drift: source beta list edited, cc_version unchanged —
+        # the mirror must still be flagged (and the message must say why).
+        src.write_text(
+            json.dumps({"schema_version": 1, "cc_version": "9.9.9", "haiku": ["new-beta"]}),
+            encoding="utf-8",
+        )
+        findings = gather(
+            expected, source_json=src, parse_targets=targets,
+            smoke_path=smoke, canonical_tls_path=tls, embedded_path=embedded,
+        )
+        mirror = next(f for f in findings if f["kind"] == "embedded-mirror")
+        expect(not mirror["ok"], "byte-only drift (same cc_version) must be caught")
+        expect("bytes differ" in str(mirror["found"]), f"drift message should explain bytes differ, got {mirror['found']!r}")
+        changed_embedded = write_embedded_mirror(source_json=src, embedded_path=embedded)
+        expect(len(changed_embedded) == 1, "write must heal byte-only drift")
+        expect(
+            embedded.read_text(encoding="utf-8") == src.read_text(encoding="utf-8"),
+            "embedded mirror must be byte-identical after byte-only heal",
+        )
 
     if failures:
         print("SELFTEST FAIL:", file=sys.stderr)
