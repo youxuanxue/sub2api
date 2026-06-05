@@ -31,6 +31,21 @@
       "path": "backend/internal/handler/gateway_handler_tk_forward_error.go",
       "must_contain": ["TkRecordFailureFromErr", "UpstreamFailoverError"],
       "rationale": "This TK companion file is the single implementation of TkRecordFailureFromErr — the helper that extracts upstream HTTP status from UpstreamFailoverError and forwards it to the availability classifier. If this file is lost (e.g. an upstream merge that removes all untracked files), all 5 tap call sites compile against a missing function and the build fails. The file also contains the UpstreamFailoverError unwrap logic that makes model_not_found classification work correctly (R-004 fix from review-20260506)."
+    },
+    {
+      "path": "backend/internal/handler/pricing_catalog_handler_tk.go",
+      "must_contain": ["service.FilterPublicCatalogToServable("],
+      "rationale": "The public /pricing endpoint prunes retired/unservable claude + gpt rows so customers only see models TokenKey can actually serve (empirical 2026-06-05 probe). The filter is PRESENTATION-ONLY — applied in GetPublicCatalog after BuildPublicCatalog, deliberately NOT in the shared parse (which also backs IsModelPriced billing/gateway filtering). An upstream merge that rewrites GetPublicCatalog could silently drop the call and restore the full unservable list (customers again pick claude-3-*/gpt-4o and hit 400/404). Pins the call site."
+    },
+    {
+      "path": "backend/internal/service/pricing_catalog_supported_models_tk.go",
+      "must_contain": ["func isPublicCatalogModelSupported(", "func FilterPublicCatalogToServable(", "func supportedCatalogModelIDsForPlatform(", "supportedAnthropicCatalogModels", "supportedOpenAICatalogModels"],
+      "rationale": "Single source for the empirically-servable claude + gpt sets, shared by the public /pricing presentation filter (FilterPublicCatalogToServable) and the Your-Menu unrestricted-account fallback (supportedCatalogModelIDsForPlatform). Losing the allowlist vars would silently widen both surfaces back to the full unservable set; losing the funcs breaks both call sites. Other vendors (gemini, deepseek, …) intentionally pass through — only the claude + gpt families are curated."
+    },
+    {
+      "path": "backend/internal/service/pricing_catalog_tk_test.go",
+      "must_contain": ["TestPublicCatalog_FiltersUnservableClaudeAndGpt", "TestIsPublicCatalogModelSupported"],
+      "rationale": "Regression coverage for the public-catalog support filter: asserts retired/unservable claude+gpt rows are pruned, servable ones kept, and non-curated vendors pass through. Pinned so an upstream merge that rewrites the catalog test file cannot silently drop the filter's regression guard. (This file also matches the *_tk_*.go hotspot via its _tk_test.go suffix, so the registry-update gate requires it to be tracked in a sentinel registry; pricing-availability is its correct domain.)"
     }
   ]
 }

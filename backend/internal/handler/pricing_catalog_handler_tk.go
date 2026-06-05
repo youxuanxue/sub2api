@@ -91,6 +91,11 @@ func (h *PricingCatalogHandler) GetPublicCatalog(c *gin.Context) {
 		})
 		return
 	}
+	// TokenKey: prune the public display to the empirically-servable claude +
+	// gpt sets (other vendors pass through). Presentation-only — the full
+	// priced catalog from BuildPublicCatalog still backs IsModelPriced and the
+	// Your-Menu metadata join. See pricing_catalog_supported_models_tk.go.
+	resp = service.FilterPublicCatalogToServable(resp)
 	// DecorateWithAvailability is nil-safe; when availability == nil (Phase 1
 	// with flag off) returns resp unchanged.
 	resp = service.DecorateWithAvailability(ctx, resp, h.availability)
