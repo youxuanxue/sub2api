@@ -1829,6 +1829,45 @@
         "a.tkAnthropicModelClassRateLimitRemaining(requestedModel)"
       ],
       "rationale": "G4 read-side gate. The scheduler's IsSchedulableForModelWithContext -> isModelRateLimitedWithContext gate must honour the Anthropic model-class scope key alongside the exact-model-name key, so a cooled opus class keeps sibling sonnet/haiku schedulable (and GetModelRateLimitRemainingTimeWithContext surfaces the class cooldown for retry hints). An upstream merge that rewrites this read path would drop the class-scope check and make the write-side G4 cooldown invisible to scheduling; this sentinel anchors the read injection."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_tk_client_induced_upstream.go",
+      "must_contain": [
+        "func tkUpstreamClientInducedRejection(c *gin.Context) bool",
+        "func tkOpsIsAccountLevel4xx(lower string) bool",
+        "if status == 413 {",
+        "if status != 400 && status != 422 {",
+        "invalid_request_error",
+        "request_too_large",
+        "is not supported when using"
+      ],
+      "rationale": "Prod P0 2026-06-05T14:21Z (upstream_error_rate=40.32% overall, false page): a client looping models the Codex/ChatGPT-OAuth backend cannot serve made OpenAI return 400 invalid_request_error ('The X model is not supported when using Codex with a ChatGPT account.'); classifyOpsErrorLog relabelled every error carrying an upstream status code as phase=upstream / error_owner=provider, so these caller-fault rejections flooded the provider-health metric. This predicate (mirroring the #602 amplifier boundary in ratelimit_service_tk_client_induced_400.go) classifies invalid_request_error / request_too_large / 413 / unsupported-model-for-account as client-induced while KEEPING account-level 4xx (organization disabled / credit balance / identity verification) provider-owned. Dropping the 413 arm re-arms the oversized-body false-page; dropping the account-level guard would stop counting genuine account-health 400s; dropping the predicate restores the original false-P0."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger.go",
+      "must_contain": [
+        "clientInducedUpstream := upstreamError && tkUpstreamClientInducedRejection(c)",
+        "if upstreamError && !routingCapacityLimited && !clientInducedUpstream {",
+        "if clientInducedUpstream && !routingCapacityLimited {"
+      ],
+      "rationale": "Injection point in classifyOpsErrorLog: an upstream client-induced 4xx must NOT take the upstream/provider phase override (which feeds error_owner=provider -> upstream_error_rate), and must instead be owned to the client (phase=request). routingCapacityLimited still wins last so 'no available accounts' SLA-exclusion is preserved. An upstream merge that rewrites this classifier and copies back the unconditional 'if upstreamError { phase = upstream }' shape silently restores the prod P0 false page; this sentinel anchors both the guard and the client-induced branch."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_tk_client_induced_upstream_test.go",
+      "must_contain": [
+        "TestClassifyOpsUpstreamClientInducedRejectionOwnedByClient",
+        "TestClassifyOpsGenuineUpstreamErrorsStayProvider",
+        "TestClassifyOpsRoutingCapacityWinsOverClientInduced"
+      ],
+      "rationale": "Focused regressions proving the boundary: (1) upstream 400 invalid_request_error (structured body), the /v1/responses wrapped-upstream_error message shape, 413 request_too_large, and a generic invalid_request_error all classify as error_owner=client; (2) genuine upstream 5xx/401/403 and account-level 400s (organization disabled / credit balance) stay error_owner=provider so they keep counting toward upstream_error_rate; (3) routing-capacity 'no available accounts' still wins over the client-induced branch. Dropping these lets an upstream merge silently revert the prod-P0 fix through the classifier."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "case 400, 404, 413, 422:",
+        "errMsg = \"Upstream rejected the request\""
+      ],
+      "rationale": "Bug B (prod P0 2026-06-05): the native OpenAI error handler handleErrorResponse (used by /v1/responses) must pass a client-induced upstream 4xx (400/404/413/422 — e.g. Codex/ChatGPT-OAuth 'model is not supported when using Codex with a ChatGPT account') through with its REAL status + the actionable upstream message, instead of the legacy default that masked every non-special status as a generic 502 'Upstream request failed'. This is parity with handleCompatErrorResponse (used by /v1/chat/completions, which already passes these through) and pairs with the ops-classification fix. 401/402/403 stay masked as 502 on purpose (account-side auth/billing/access). An upstream merge that rewrites the status switch and drops this case re-introduces the 400->502 surfacing bug; this sentinel anchors the case and its fallback message."
     }
   ]
 }

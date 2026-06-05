@@ -4593,6 +4593,27 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 		statusCode = http.StatusTooManyRequests
 		errType = "rate_limit_error"
 		errMsg = "Upstream rate limit exceeded, please retry later"
+	case 400, 404, 413, 422:
+		// TK (Bug B / prod P0 2026-06-05): a client-induced upstream request
+		// rejection (bad model / params / oversized body, e.g. Codex/ChatGPT-OAuth
+		// "The 'gpt-4o' model is not supported when using Codex with a ChatGPT
+		// account.") must pass through with its REAL status + the actionable
+		// upstream message, not be masked as a generic 502 "Upstream request
+		// failed". This brings the native /v1/responses path (handleErrorResponse)
+		// to parity with handleCompatErrorResponse — which /v1/chat/completions
+		// already uses and which already passes these through — and pairs with the
+		// ops-classification fix keeping these caller-fault 4xx out of
+		// upstream_error_rate. 401/402/403 stay masked as 502 on purpose: they are
+		// account-side (auth/billing/access) and must not leak to the caller.
+		statusCode = resp.StatusCode
+		errType = "invalid_request_error"
+		if resp.StatusCode == 404 {
+			errType = "not_found_error"
+		}
+		errMsg = upstreamMsg
+		if strings.TrimSpace(errMsg) == "" {
+			errMsg = "Upstream rejected the request"
+		}
 	default:
 		statusCode = http.StatusBadGateway
 		errType = "upstream_error"
