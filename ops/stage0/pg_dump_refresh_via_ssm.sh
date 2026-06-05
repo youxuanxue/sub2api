@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Push refreshed pg_dump cadence (every 2h, ≤12 rolling files) into a running
-# Stage0 EC2 via SSM Run-Command. Mirrors the user-data segment in
-# deploy/aws/cloudformation/stage0-single-ec2.yaml so the live timer matches
-# the template-of-record without rebuilding the EC2.
+# Stage0 EC2 via SSM Run-Command. Mirrors deploy/aws/stage0/tokenkey-pgdump.sh
+# and systemd units from stage0-ec2-bootstrap.sh so the live timer matches the
+# template-of-record without rebuilding the EC2.
 
 set -euo pipefail
 
@@ -21,46 +21,13 @@ params_file="${OUTPUT_DIR}/ssm-params.json"
 stdout_file="${OUTPUT_DIR}/stdout.txt"
 stderr_file="${OUTPUT_DIR}/stderr.txt"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PG_DUMP_SRC="${SCRIPT_DIR}/../../deploy/aws/stage0/tokenkey-pgdump.sh"
+[[ -f "${PG_DUMP_SRC}" ]] || { echo "missing ${PG_DUMP_SRC}" >&2; exit 1; }
+
 # Encode each payload to single-line base64 so embedding into the JSON command
 # array is shell-quoting-safe. tr -d strips both GNU and BSD base64 wrapping.
-PG_DUMP_SH_B64="$(cat <<'PGEOF' | base64 | tr -d '\n'
-#!/bin/bash
-set -euo pipefail
-DUMP_DIR=/var/lib/tokenkey/pgdump
-TS=$(date -u +%Y%m%dT%H%M%SZ)
-OUT="${DUMP_DIR}/tokenkey-${TS}.sql.gz"
-PART="${OUT}.part"
-rm -f "${PART}"
-
-# Remove bogus sub-kib dumps from failed runs (e.g. disk full).
-find "${DUMP_DIR}" -maxdepth 1 -type f -name 'tokenkey-*.sql.gz' -size -2k -delete 2>/dev/null || true
-# Remove legacy pre-*.dump files left by older manual pre-migration snapshots.
-find "${DUMP_DIR}" -maxdepth 1 -type f -name 'pre-*.dump' -delete 2>/dev/null || true
-
-set -o pipefail
-if ! docker exec tokenkey-postgres pg_dump -U tokenkey -d tokenkey --format=plain --no-owner \
-    | gzip -9 > "${PART}"; then
-  rm -f "${PART}"
-  exit 1
-fi
-
-SZ=$(wc -c < "${PART}")
-if [ "${SZ}" -lt 2048 ]; then
-  rm -f "${PART}"
-  exit 1
-fi
-
-mv -f "${PART}" "${OUT}"
-
-# Past 24h by mtime, and at most 12 rolling tokenkey-*.sql.gz (2h cadence).
-find "${DUMP_DIR}" -maxdepth 1 -type f -name 'tokenkey-*.sql.gz' -mmin +1440 -delete 2>/dev/null || true
-while IFS= read -r _oldf; do
-  [ -z "${_oldf}" ] && continue
-  rm -f "${_oldf}"
-done < <(find "${DUMP_DIR}" -maxdepth 1 -type f -name 'tokenkey-*.sql.gz' -printf '%T@\t%p\n' 2>/dev/null \
-  | sort -nr | tail -n +13 | cut -f2-)
-PGEOF
-)"
+PG_DUMP_SH_B64="$(base64 <"${PG_DUMP_SRC}" | tr -d '\n')"
 
 PG_SERVICE_B64="$(cat <<'PSEOF' | base64 | tr -d '\n'
 [Unit]
@@ -118,7 +85,7 @@ jq -n \
       "echo --- timer unit definition ---",
       "sudo systemctl cat tokenkey-pgdump.timer --no-pager || true",
       ("echo --- in-place sync trace ---"),
-      ("echo Live tokenkey-pgdump.{sh,service,timer} now match deploy/aws/cloudformation/stage0-single-ec2.yaml@" + $sha + " on $(hostname)")
+      ("echo Live tokenkey-pgdump.{sh,service,timer} now match deploy/aws/stage0/tokenkey-pgdump.sh@" + $sha + " on $(hostname)")
     ]
   }' > "${params_file}"
 

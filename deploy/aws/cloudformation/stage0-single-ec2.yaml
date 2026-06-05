@@ -2,9 +2,9 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   tokenkey (sub2api fork) Stage 0: single EC2 (Graviton) in 1 AZ + EIP, Caddy +
   app + PostgreSQL + Redis via docker-compose. Daily EBS snapshot via DLM
-  (optional hourly). Self-contained: docker-compose.yml and Caddyfile are
-  embedded in UserData (gzip+base64); QA cleanup script is shipped as base64 in
-  an SSM Parameter (bootstrapping reads it) so UserData stays under EC2 limits.
+  (optional hourly).   Self-contained: docker-compose.yml, Caddyfile, and the EC2 bootstrap script
+  are gzip+base64 in SSM Parameters; UserData is a thin launcher (≤16 KiB) that
+  fetches bootstrap from SSM at first boot. QA/GHCR prune scripts also live in SSM.
   The source repo can stay private.
   Application image is pulled from a GitHub Container Registry (GHCR) private
   repo; the PAT is read from SSM Parameter Store at runtime.
@@ -13,9 +13,9 @@ Description: >
 # Regenerating embedded blocks:
 #   After editing  deploy/aws/stage0/docker-compose.yml,  Caddyfile,  or
 #   docker-compose.yml, Caddyfile, tokenkey-qa-stale-cleanup.sh,
-#   tokenkey-prune-ghcr-app-tags.sh, run
-#   bash deploy/aws/stage0/build-cfn.sh to refresh SSM Parameter Value markers
-#   (COMPOSE_GZB64_SSM / CADDY_GZB64_SSM / QA_CLEANUP_B64_PARAM / GHCR_PRUNE_B64_PARAM).
+#   stage0-ec2-bootstrap.sh, stage0-ec2-userdata-launcher.sub.sh,
+#   tokenkey-prune-ghcr-app-tags.sh, run bash deploy/aws/stage0/build-cfn.sh to
+#   refresh SSM embeds + the thin UserData launcher (USERDATA_LAUNCHER markers).
 #
 # Fn::Sub escaping inside the UserData bash:
 #   The UserData lives inside Fn::Base64: !Sub | ... so CFN scans it for
@@ -320,6 +320,28 @@ Resources:
       Value: 'IyEvYmluL2Jhc2gKIyBUb2tlbktleSBTdGFnZTAg4oCUIHBydW5lIGxvY2FsIEdIQ1IgYXBwIGltYWdlIHRhZ3MgYWZ0ZXIgZWFjaCBjb21wb3NlIHB1bGwgKGlubmVyIHNjcmlwdCkuCiMgU2VydmVkIGZyb20gU1NNIC4uLi9naGNyLXBydW5lLmI2NCAoYmFzZTY0KTsgbG9hZGVyIGF0IC91c3IvbG9jYWwvYmluL3Rva2Vua2V5LXBydW5lLWdoY3ItYXBwLXRhZ3Muc2gKIyBmZXRjaGVzIGFuZCBleGVjcyB0aGlzIGZpbGUuIEtlZXBzIHRoZSBtb3N0IHJlY2VudCBLRUVQX04gdGFncyBieSBpbWFnZSBDcmVhdGVkIHRpbWUsIHBsdXMgZXZlcnkKIyB0YWcgZm9yIHRoZSBpbWFnZSBydW5uaW5nIGluIGNvbnRhaW5lciAidG9rZW5rZXkiLgojCiMgU291cmNlOiBkZXBsb3kvYXdzL3N0YWdlMC90b2tlbmtleS1wcnVuZS1naGNyLWFwcC10YWdzLnNoIOKAlCByZWZyZXNoIHZpYSBkZXBsb3kvYXdzL3N0YWdlMC9idWlsZC1jZm4uc2guCiMgT3B0aW9uYWw6IFRPS0VOS0VZX0dIQ1JfS0VFUF9UQUdTIGluIC92YXIvbGliL3Rva2Vua2V5Ly5lbnYgKGRlZmF1bHQgMTApLgoKc2V0IC1ldW8gcGlwZWZhaWwKCktFRVBfTj0iJHtUT0tFTktFWV9HSENSX0tFRVBfVEFHUzotMTB9IgpFTlZfRklMRT0iL3Zhci9saWIvdG9rZW5rZXkvLmVudiIKCmlmIFsgISAtZiAiJHtFTlZfRklMRX0iIF07IHRoZW4KICBlY2hvICJ0b2tlbmtleS1wcnVuZS1naGNyLWFwcC10YWdzOiBtaXNzaW5nICR7RU5WX0ZJTEV9IiA+JjIKICBleGl0IDAKZmkKCiMgc2hlbGxjaGVjayBkaXNhYmxlPVNDMTA5MApzZXQgLWEKLiAiJHtFTlZfRklMRX0iCnNldCArYQoKaWYgWyAteiAiJHtUT0tFTktFWV9JTUFHRTotfSIgXTsgdGhlbgogIGVjaG8gInRva2Vua2V5LXBydW5lLWdoY3ItYXBwLXRhZ3M6IFRPS0VOS0VZX0lNQUdFIGVtcHR5IiA+JjIKICBleGl0IDAKZmkKClJFUE89IiR7VE9LRU5LRVlfSU1BR0UlOip9IgppZiBbIC16ICIke1JFUE99IiBdIHx8IFsgIiR7UkVQT30iID0gIiR7VE9LRU5LRVlfSU1BR0V9IiBdOyB0aGVuCiAgZWNobyAidG9rZW5rZXktcHJ1bmUtZ2hjci1hcHAtdGFnczogY291bGQgbm90IHBhcnNlIHJlcG8gZnJvbSBUT0tFTktFWV9JTUFHRSIgPiYyCiAgZXhpdCAwCmZpCgpSVU5OSU5HX0lEPSIiCmlmIGRvY2tlciBpbnNwZWN0IHRva2Vua2V5ID4vZGV2L251bGwgMj4mMTsgdGhlbgogIFJVTk5JTkdfSUQ9IiQoZG9ja2VyIGluc3BlY3QgLWYgJ3t7LkltYWdlfX0nIHRva2Vua2V5KSIKZmkKCnNvcnRlZD0iJChta3RlbXApIgprZWVwZj0iJChta3RlbXApIgp0cmFwICdybSAtZiAiJHtzb3J0ZWR9IiAiJHtrZWVwZn0iJyBFWElUCgp3aGlsZSByZWFkIC1yIHJlZjsgZG8KICBbIC16ICIkcmVmIiBdICYmIGNvbnRpbnVlCiAgY2FzZSAiJHJlZiIgaW4gKic8bm9uZT4nKikgY29udGludWUgOzsgZXNhYwogIGN0aW1lPSIkKGRvY2tlciBpbnNwZWN0IC1mICd7ey5DcmVhdGVkfX0nICIkcmVmIiAyPi9kZXYvbnVsbCB8fCBlY2hvICcxOTcwLTAxLTAxVDAwOjAwOjAwWicpIgogIGlpZD0iJChkb2NrZXIgaW5zcGVjdCAtZiAne3suSWR9fScgIiRyZWYiIDI+L2Rldi9udWxsIHx8IHRydWUpIgogIHByaW50ZiAnJXNcdCVzXHQlc1xuJyAiJGN0aW1lIiAiJHJlZiIgIiRpaWQiCmRvbmUgPCA8KGRvY2tlciBpbWFnZXMgIiR7UkVQT30iIC0tZm9ybWF0ICd7ey5SZXBvc2l0b3J5fX06e3suVGFnfX0nIDI+L2Rldi9udWxsIHx8IHRydWUpIFwKICB8IExDX0FMTD1DIHNvcnQgLXQgIiQocHJpbnRmICdcdCcpIiAtazEsMXIgPiIke3NvcnRlZH0iCgo6ID4iJHtrZWVwZn0iCgp3aGlsZSBJRlM9IiQocHJpbnRmICdcdCcpIiByZWFkIC1yIF9jcmVmIHJlZiBpaWQ7IGRvCiAgWyAteiAiJHtyZWY6LX0iIF0gJiYgY29udGludWUKICBpZiBbIC1uICIke1JVTk5JTkdfSUR9IiBdICYmIFsgIiRpaWQiID0gIiR7UlVOTklOR19JRH0iIF07IHRoZW4KICAgIGVjaG8gIiRyZWYiID4+IiR7a2VlcGZ9IgogIGZpCmRvbmUgPCIke3NvcnRlZH0iCgp3aGlsZSBJRlM9IiQocHJpbnRmICdcdCcpIiByZWFkIC1yIF9jcmVmIHJlZiBfaWlkOyBkbwogIFsgLXogIiR7cmVmOi19IiBdICYmIGNvbnRpbnVlCiAga2NvdW50PTAKICBpZiBbIC1zICIke2tlZXBmfSIgXTsgdGhlbgogICAga2NvdW50PSQod2MgLWwgPCIke2tlZXBmfSIgfCB0ciAtZCAnICcpCiAgZmkKICBbICIke2tjb3VudH0iIC1nZSAiJHtLRUVQX059IiBdICYmIGJyZWFrCiAgaWYgISBncmVwIC1GeHEgIiRyZWYiICIke2tlZXBmfSIgMj4vZGV2L251bGw7IHRoZW4KICAgIGVjaG8gIiRyZWYiID4+IiR7a2VlcGZ9IgogIGZpCmRvbmUgPCIke3NvcnRlZH0iCgp3aGlsZSByZWFkIC1yIHJlZjsgZG8KICBbIC16ICIkcmVmIiBdICYmIGNvbnRpbnVlCiAgY2FzZSAiJHJlZiIgaW4gKic8bm9uZT4nKikgY29udGludWUgOzsgZXNhYwogIGlmICEgZ3JlcCAtRnhxICIkcmVmIiAiJHtrZWVwZn0iIDI+L2Rldi9udWxsOyB0aGVuCiAgICBkb2NrZXIgcm1pICIkcmVmIiAyPi9kZXYvbnVsbCB8fCB0cnVlCiAgZmkKZG9uZSA8IDwoZG9ja2VyIGltYWdlcyAiJHtSRVBPfSIgLS1mb3JtYXQgJ3t7LlJlcG9zaXRvcnl9fTp7ey5UYWd9fScgMj4vZGV2L251bGwgfHwgdHJ1ZSkKCmV4aXQgMAo='
       # >>> GHCR_PRUNE_B64_PARAM END <<<
 
+  TokenkeyStage0BootstrapGzipB64Part1Parameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/${Environment}/stage0/bootstrap.sh.gzip.b64.part1'
+      Type: String
+      Tier: Standard
+      Description: !Sub '${ProjectName} Stage0 bootstrap.sh gzip|base64 part 1; refresh via build-cfn.sh'
+      # >>> BOOTSTRAP_GZB64_SSM_PART1 START (regenerated by build-cfn.sh) <<<
+      Value: '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'
+      # >>> BOOTSTRAP_GZB64_SSM_PART1 END <<<
+
+  TokenkeyStage0BootstrapGzipB64Part2Parameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/${Environment}/stage0/bootstrap.sh.gzip.b64.part2'
+      Type: String
+      Tier: Standard
+      Description: !Sub '${ProjectName} Stage0 bootstrap.sh gzip|base64 part 2; refresh via build-cfn.sh'
+      # >>> BOOTSTRAP_GZB64_SSM_PART2 START (regenerated by build-cfn.sh) <<<
+      Value: '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'
+      # >>> BOOTSTRAP_GZB64_SSM_PART2 END <<<
+
   ElasticIP:
     Type: AWS::EC2::EIP
     DependsOn: IGWAttach
@@ -337,6 +359,8 @@ Resources:
       - TokenkeyStage0CaddyGzipB64Parameter
       - TokenkeyQaStaleCleanupScriptB64Parameter
       - TokenkeyGhcrPruneScriptB64Parameter
+      - TokenkeyStage0BootstrapGzipB64Part1Parameter
+      - TokenkeyStage0BootstrapGzipB64Part2Parameter
     Properties:
       InstanceType: !Ref InstanceType
       ImageId: !Ref AmazonLinux2023Arm64Ami
@@ -360,468 +384,41 @@ Resources:
         - {Key: Backup, Value: stage0}
       UserData:
         Fn::Base64: !Sub |
+          # >>> USERDATA_LAUNCHER START (regenerated by build-cfn.sh) <<<
           #!/bin/bash
-          # tokenkey Stage 0 bootstrap (inlined; no external repo fetch).
-          # See the Fn::Sub escaping notes at the top of this CFN template.
+          # Thin EC2 UserData launcher — embedded in stage0-single-ec2.yaml via build-cfn.sh.
+          # Fn::Sub replaces ${ApiDomain} etc; bash uses ${!TK_*} for runtime expansion.
           set -euxo pipefail
           exec > >(tee -a /var/log/tokenkey-bootstrap.log) 2>&1
-
-          API_DOMAIN='${ApiDomain}'
-          ACME_EMAIL='${AcmeEmail}'
-          ADMIN_EMAIL='${AdminEmail}'
-          [ -z "${!ADMIN_EMAIL}" ] && ADMIN_EMAIL="admin@${!API_DOMAIN}"
-          TZ_VALUE='${Timezone}'
-          REGION='${AWS::Region}'
-          GHCR_OWNER='${GhcrOwner}'
-          GHCR_IMAGE_NAME='${GhcrImageName}'
-          IMAGE_TAG='${ImageTag}'
-          GHCR_PULL_USER='${GhcrPullUser}'
-          GHCR_PAT_SSM_NAME='${GhcrPatSsmName}'
-          TOKENKEY_IMAGE="ghcr.io/${!GHCR_OWNER}/${!GHCR_IMAGE_NAME}:${!IMAGE_TAG}"
-
-          # --- 1. system packages -------------------------------------------------
-          dnf -y update
-          dnf -y install docker git jq gettext openssl
-          ARCH="$(uname -m)"
-          case "${!ARCH}" in
-            aarch64) CWA_ARCH="arm64" ;;
-            x86_64)  CWA_ARCH="amd64" ;;
-            *) echo "unsupported arch ${!ARCH}" >&2; exit 1 ;;
-          esac
-          dnf -y install "https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/${!CWA_ARCH}/latest/amazon-cloudwatch-agent.rpm" || true
-          systemctl enable --now docker
-
-          # Compose v2 plugin (AL2023 dnf has no docker-compose-plugin)
-          DOCKER_COMPOSE_VERSION="v2.29.7"
-          mkdir -p /usr/local/lib/docker/cli-plugins
-          curl -fsSL "https://github.com/docker/compose/releases/download/${!DOCKER_COMPOSE_VERSION}/docker-compose-linux-$(uname -m)" \
-            -o /usr/local/lib/docker/cli-plugins/docker-compose
-          chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
-          usermod -aG docker ec2-user
-
-          # --- 2a. attach + mount persistent data volume (persistent data volume hardening) -
-          # Attach is done here instead of AWS::EC2::VolumeAttachment. During
-          # instance replacement CloudFormation creates the new instance before
-          # deleting the old attachment; a separate VolumeAttachment resource
-          # therefore races with the still-attached EBS volume and fails with
-          # AlreadyExists. UserData can wait until the old instance releases it.
-          DATA_VOLUME_ID='${DataVolume}'
-          DATA_DEVICE='/dev/sdf'
-          IMDS_TOKEN="$(curl -fsS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")"
-          INSTANCE_ID="$(curl -fsS -H "X-aws-ec2-metadata-token: ${!IMDS_TOKEN}" http://169.254.169.254/latest/meta-data/instance-id)"
-          ATTACHED_TO=""
-          ATTACH_STATE=""
-          for attempt in $(seq 1 90); do
-            read -r ATTACHED_TO ATTACH_STATE < <(aws ec2 describe-volumes \
-              --region "${!REGION}" \
-              --volume-ids "${!DATA_VOLUME_ID}" \
-              --query 'Volumes[0].Attachments[0].[InstanceId,State]' \
-              --output text 2>/dev/null || echo "None None")
-            if [ "${!ATTACHED_TO}" = "${!INSTANCE_ID}" ]; then
-              echo "tokenkey data volume ${!DATA_VOLUME_ID} already attached to this instance (${!ATTACH_STATE})"
-              break
-            fi
-            if [ -z "${!ATTACHED_TO}" ] || [ "${!ATTACHED_TO}" = "None" ]; then
-              echo "attaching tokenkey data volume ${!DATA_VOLUME_ID} to ${!INSTANCE_ID}"
-              aws ec2 attach-volume \
-                --region "${!REGION}" \
-                --volume-id "${!DATA_VOLUME_ID}" \
-                --instance-id "${!INSTANCE_ID}" \
-                --device "${!DATA_DEVICE}"
-              break
-            fi
-            echo "waiting for tokenkey data volume ${!DATA_VOLUME_ID}; currently ${!ATTACH_STATE} on ${!ATTACHED_TO}"
-            sleep 10
-          done
-          if [ "${!ATTACHED_TO}" != "${!INSTANCE_ID}" ]; then
-            for attempt in $(seq 1 60); do
-              read -r ATTACHED_TO ATTACH_STATE < <(aws ec2 describe-volumes \
-                --region "${!REGION}" \
-                --volume-ids "${!DATA_VOLUME_ID}" \
-                --query 'Volumes[0].Attachments[0].[InstanceId,State]' \
-                --output text 2>/dev/null || echo "None None")
-              [ "${!ATTACHED_TO}" = "${!INSTANCE_ID}" ] && break
-              sleep 5
-            done
-          fi
-          if [ "${!ATTACHED_TO}" != "${!INSTANCE_ID}" ]; then
-            echo "FATAL: tokenkey data volume ${!DATA_VOLUME_ID} did not attach to ${!INSTANCE_ID}" >&2
-            exit 1
-          fi
-
-          # On AL2023 NVMe, /dev/sdf surfaces as /dev/nvme1n1 (or another
-          # non-root nvme device). Wait for the kernel to enumerate it.
-          DATA_DEV=""
-          for attempt in 1 2 3 4 5 6 7 8 9; do
-            for cand in /dev/nvme1n1 /dev/nvme2n1 /dev/nvme3n1 /dev/xvdf /dev/sdf; do
-              if [ -b "${!cand}" ]; then
-                # Skip if this is the root device (e.g. nvme0n1 is always root)
-                ROOT_DEV="$(findmnt -no SOURCE / | sed 's/p[0-9]*$//')"
-                if [ "${!cand}" != "${!ROOT_DEV}" ]; then
-                  DATA_DEV="${!cand}"
-                  break
-                fi
-              fi
-            done
-            [ -n "${!DATA_DEV}" ] && break
-            sleep 10
-          done
-          if [ -z "${!DATA_DEV}" ]; then
-            echo "FATAL: tokenkey data volume not attached within 90s" >&2
-            exit 1
-          fi
-          echo "tokenkey data volume detected at ${!DATA_DEV}"
-
-          # Format the volume only if it has no filesystem (first boot).
-          # blkid exits 2 when the device has no recognised superblock.
-          if ! blkid "${!DATA_DEV}" >/dev/null 2>&1; then
-            echo "Formatting ${!DATA_DEV} as ext4 (first-time provisioning)"
-            mkfs.ext4 -L tokenkey-data "${!DATA_DEV}"
-          else
-            echo "Reusing existing filesystem on ${!DATA_DEV} (preserved across instance replacement)"
-          fi
-          DATA_UUID="$(blkid -o value -s UUID "${!DATA_DEV}" || true)"
-          if [ -z "${!DATA_UUID}" ]; then
-            echo "FATAL: unable to read UUID from ${!DATA_DEV}" >&2
-            exit 1
-          fi
-
-          install -d -m 0755 -o root -g root /var/lib/tokenkey
-          mount "${!DATA_DEV}" /var/lib/tokenkey
-          # Persist via fstab using UUID. This avoids both NVMe renumbering
-          # and accidental mis-mounts if multiple volumes share the same label.
-          if ! grep -q '/var/lib/tokenkey' /etc/fstab; then
-            echo "UUID=${!DATA_UUID} /var/lib/tokenkey ext4 defaults,nofail,x-systemd.device-timeout=90 0 2" >> /etc/fstab
-          fi
-
-          # --- 2b. data directory layout (idempotent: pre-existing dirs survive) -
-          install -d -m 0755 /var/lib/tokenkey/app
-          install -d -m 0700 /var/lib/tokenkey/postgres
-          install -d -m 0755 /var/lib/tokenkey/redis
-          install -d -m 0755 /var/lib/tokenkey/pgdump
-          install -d -m 0755 /var/lib/tokenkey/caddy
-          install -d -m 0755 /var/lib/tokenkey/caddy/data
-          install -d -m 0755 /var/lib/tokenkey/caddy/config
-          install -d -m 0755 /var/lib/tokenkey/logs
-          cd /var/lib/tokenkey
-
-          # --- 3. docker-compose + Caddy from SSM (gzip base64); keeps UserData small ---
-          COMPOSE_PARAM='/${ProjectName}/${Environment}/stage0/docker-compose.gzip.b64'
-          CADDY_PARAM='/${ProjectName}/${Environment}/stage0/caddyfile.template.gzip.b64'
-          COMPOSE_B64="$(aws ssm get-parameter --name "${!COMPOSE_PARAM}" --region "${!REGION}" --query Parameter.Value --output text)"
-          CADDY_B64="$(aws ssm get-parameter --name "${!CADDY_PARAM}" --region "${!REGION}" --query Parameter.Value --output text)"
-          printf '%s' "${!COMPOSE_B64}" | base64 -d | gunzip > docker-compose.yml
-          printf '%s' "${!CADDY_B64}" | base64 -d | gunzip > caddy/Caddyfile.template
-          API_DOMAIN="${!API_DOMAIN}" ACME_EMAIL="${!ACME_EMAIL}" \
-            envsubst '${!API_DOMAIN} ${!ACME_EMAIL}' \
-            < caddy/Caddyfile.template > caddy/Caddyfile
-
-          install -d -m 0755 /etc/tokenkey
-          printf 'TOKENKEY_QA_STALE_RETENTION_DAYS=%s\n' '${QaStaleRetentionDays}' > /etc/tokenkey/qa-stale-retention.env
-          QA_B64_PARAM_NAME='/${ProjectName}/${Environment}/stage0/qa-stale-cleanup.b64'
-          RAW="$(aws ssm get-parameter --name "${!QA_B64_PARAM_NAME}" --region "${!REGION}" --query Parameter.Value --output text)"
-          printf '%s' "${!RAW}" | base64 -d > /usr/local/bin/tokenkey-qa-stale-cleanup.sh
-          chmod +x /usr/local/bin/tokenkey-qa-stale-cleanup.sh
-
-          printf '%s\n' '/${ProjectName}/${Environment}/stage0/ghcr-prune.b64' > /etc/tokenkey/ghcr-prune-ssm.path
-          cat > /usr/local/bin/tokenkey-prune-ghcr-app-tags.sh <<'LOADEREOF'
-          #!/bin/bash
-          set -euo pipefail
-          PATHFILE=/etc/tokenkey/ghcr-prune-ssm.path
-          if [ ! -f "$PATHFILE" ]; then
-            echo "tokenkey-prune-ghcr-app-tags: missing path file" >&2
-            exit 0
-          fi
-          IMDS_TOKEN="$(curl -fsS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")"
-          REGION="$(curl -fsS -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://169.254.169.254/latest/meta-data/placement/region)"
-          PNAME="$(tr -d '\n' <"$PATHFILE")"
-          RAW="$(aws ssm get-parameter --name "$PNAME" --region "$REGION" --query Parameter.Value --output text)"
+          
+          export TK_API_DOMAIN='${ApiDomain}'
+          export TK_ACME_EMAIL='${AcmeEmail}'
+          export TK_ADMIN_EMAIL='${AdminEmail}'
+          export TK_TZ='${Timezone}'
+          export TK_AWS_REGION='${AWS::Region}'
+          export TK_GHCR_OWNER='${GhcrOwner}'
+          export TK_GHCR_IMAGE_NAME='${GhcrImageName}'
+          export TK_IMAGE_TAG='${ImageTag}'
+          export TK_GHCR_PULL_USER='${GhcrPullUser}'
+          export TK_GHCR_PAT_SSM_NAME='${GhcrPatSsmName}'
+          export TK_DATA_VOLUME_ID='${DataVolume}'
+          export TK_PROJECT_NAME='${ProjectName}'
+          export TK_ENVIRONMENT='${Environment}'
+          export TK_QA_STALE_RETENTION_DAYS='${QaStaleRetentionDays}'
+          export TK_TOKENKEY_IMAGE="ghcr.io/${GhcrOwner}/${GhcrImageName}:${ImageTag}"
+          export TK_STAGE0_PREFIX='/${ProjectName}/${Environment}/stage0'
+          
+          B64=""
+          B64+="$(aws ssm get-parameter --name "${!TK_STAGE0_PREFIX}/bootstrap.sh.gzip.b64.part1" --region "${!TK_AWS_REGION}" --query Parameter.Value --output text)"
+          B64+="$(aws ssm get-parameter --name "${!TK_STAGE0_PREFIX}/bootstrap.sh.gzip.b64.part2" --region "${!TK_AWS_REGION}" --query Parameter.Value --output text)"
           TMP="$(mktemp)"
-          cleanup() { rm -f "$TMP"; }
+          cleanup() { rm -f "${!TMP}"; }
           trap cleanup EXIT
-          printf '%s' "$RAW" | base64 -d >"$TMP"
-          chmod +x "$TMP"
-          exec bash "$TMP"
-          LOADEREOF
-          chmod +x /usr/local/bin/tokenkey-prune-ghcr-app-tags.sh
+          printf '%s' "${!B64}" | base64 -d | gunzip > "${!TMP}"
+          chmod +x "${!TMP}"
+          exec bash "${!TMP}"
+          # >>> USERDATA_LAUNCHER END <<<
 
-          # --- 4. secrets + .env (split: persistent vs per-boot) ----------------
-          # Two-file strategy (persistent data volume hardening / issue #8):
-          #
-          #   /var/lib/tokenkey/.env.secret  → POSTGRES_PASSWORD, JWT_SECRET,
-          #                                    TOTP_ENCRYPTION_KEY. Generated
-          #                                    EXACTLY ONCE on first boot of a
-          #                                    fresh data volume; on subsequent
-          #                                    boots (including instance
-          #                                    replacement triggered by ImageTag
-          #                                    change) we re-source these so
-          #                                    PostgreSQL data + JWT-issued
-          #                                    sessions + TOTP records survive.
-          #   /var/lib/tokenkey/.env         → CFN-parameter-driven config
-          #                                    (TOKENKEY_IMAGE, API_DOMAIN, …).
-          #                                    Regenerated every boot to pick
-          #                                    up parameter changes.
-          #
-          # NEVER include secrets in /var/lib/tokenkey/.env — that file is
-          # rewritten by every cfn-init and would clobber persisted creds if
-          # we ever got the order wrong.
-          SECRET_FILE=/var/lib/tokenkey/.env.secret
-          if [ ! -f "${!SECRET_FILE}" ]; then
-            umask 077
-            if [ -f /var/lib/tokenkey/.env ] \
-              && grep -q '^POSTGRES_PASSWORD=' /var/lib/tokenkey/.env \
-              && grep -q '^JWT_SECRET=' /var/lib/tokenkey/.env \
-              && grep -q '^TOTP_ENCRYPTION_KEY=' /var/lib/tokenkey/.env; then
-              echo "Seeding ${!SECRET_FILE} from legacy /var/lib/tokenkey/.env"
-              {
-                grep -m1 '^POSTGRES_PASSWORD=' /var/lib/tokenkey/.env
-                grep -m1 '^JWT_SECRET=' /var/lib/tokenkey/.env
-                grep -m1 '^TOTP_ENCRYPTION_KEY=' /var/lib/tokenkey/.env
-              } > "${!SECRET_FILE}"
-            else
-              echo "Generating new persistent secrets at ${!SECRET_FILE} (first boot of data volume)"
-              gen_secret() { openssl rand -hex 32; }
-              gen_pwd()    { openssl rand -hex 24; }
-              cat > "${!SECRET_FILE}" <<SECEOF
-          POSTGRES_PASSWORD=$(gen_pwd)
-          JWT_SECRET=$(gen_secret)
-          TOTP_ENCRYPTION_KEY=$(gen_secret)
-          SECEOF
-            fi
-            chmod 0600 "${!SECRET_FILE}"
-            chown root:root "${!SECRET_FILE}"
-          else
-            echo "Reusing existing persistent secrets from ${!SECRET_FILE} (data volume preserved across instance replacement)"
-          fi
-          # shellcheck disable=SC1090
-          set -a; . "${!SECRET_FILE}"; set +a
-
-          cat > /var/lib/tokenkey/.env <<ENVEOF
-          API_DOMAIN=${!API_DOMAIN}
-          SERVER_FRONTEND_URL=https://${!API_DOMAIN}
-          ACME_EMAIL=${!ACME_EMAIL}
-          TZ=${!TZ_VALUE}
-          SERVER_MODE=release
-          RUN_MODE=standard
-          TOKENKEY_IMAGE=${!TOKENKEY_IMAGE}
-          POSTGRES_USER=tokenkey
-          POSTGRES_PASSWORD=${!POSTGRES_PASSWORD}
-          POSTGRES_DB=tokenkey
-          DATABASE_MAX_OPEN_CONNS=50
-          DATABASE_MAX_IDLE_CONNS=10
-          REDIS_PASSWORD=
-          REDIS_DB=0
-          REDIS_POOL_SIZE=1024
-          REDIS_MIN_IDLE_CONNS=10
-          ADMIN_EMAIL=${!ADMIN_EMAIL}
-          ADMIN_PASSWORD=
-          JWT_SECRET=${!JWT_SECRET}
-          JWT_EXPIRE_HOUR=1
-          TOTP_ENCRYPTION_KEY=${!TOTP_ENCRYPTION_KEY}
-          ENVEOF
-          chmod 0600 /var/lib/tokenkey/.env
-
-          # --- 5. GHCR private-image login -------------------------------------
-          # Read PAT from SSM SecureString; never echo it. EC2 IAM role has minimal access.
-          GHCR_PAT="$(aws --region "${!REGION}" ssm get-parameter \
-            --name "${!GHCR_PAT_SSM_NAME}" --with-decryption \
-            --query Parameter.Value --output text)"
-          echo "${!GHCR_PAT}" | docker login ghcr.io -u "${!GHCR_PULL_USER}" --password-stdin
-          unset GHCR_PAT
-
-          # --- 6. systemd units ------------------------------------------------
-          cat > /etc/systemd/system/tokenkey.service <<'UNITEOF'
-          [Unit]
-          Description=tokenkey stack (docker compose)
-          Requires=docker.service
-          After=docker.service network-online.target
-          Wants=network-online.target
-
-          [Service]
-          Type=oneshot
-          RemainAfterExit=yes
-          WorkingDirectory=/var/lib/tokenkey
-          EnvironmentFile=/var/lib/tokenkey/.env
-          ExecStartPre=/usr/bin/docker compose --env-file /var/lib/tokenkey/.env pull
-          ExecStart=/usr/bin/docker compose --env-file /var/lib/tokenkey/.env up -d --remove-orphans
-          ExecStartPost=-/usr/local/bin/tokenkey-prune-ghcr-app-tags.sh
-          ExecStop=/usr/bin/docker compose --env-file /var/lib/tokenkey/.env down
-          TimeoutStartSec=10min
-
-          [Install]
-          WantedBy=multi-user.target
-          UNITEOF
-
-          # pg_dump every 2h (application-consistent backup); keep rolling 24h + max 12 files.
-          cat > /usr/local/bin/tokenkey-pgdump.sh <<'PGEOF'
-          #!/bin/bash
-          set -euo pipefail
-          DUMP_DIR=/var/lib/tokenkey/pgdump
-          TS=$(date -u +%Y%m%dT%H%M%SZ)
-          OUT="${!DUMP_DIR}/tokenkey-${!TS}.sql.gz"
-          PART="${!OUT}.part"
-          rm -f "${!PART}"
-
-          # Remove bogus sub-kib dumps from failed runs (e.g. disk full).
-          find "${!DUMP_DIR}" -maxdepth 1 -type f -name 'tokenkey-*.sql.gz' -size -2k -delete 2>/dev/null || true
-          # Remove legacy pre-*.dump files left by older manual pre-migration snapshots.
-          find "${!DUMP_DIR}" -maxdepth 1 -type f -name 'pre-*.dump' -delete 2>/dev/null || true
-
-          set -o pipefail
-          if ! docker exec tokenkey-postgres pg_dump -U tokenkey -d tokenkey --format=plain --no-owner \
-              | gzip -9 > "${!PART}"; then
-            rm -f "${!PART}"
-            exit 1
-          fi
-
-          SZ=$(wc -c < "${!PART}")
-          if [ "${!SZ}" -lt 2048 ]; then
-            rm -f "${!PART}"
-            exit 1
-          fi
-
-          mv -f "${!PART}" "${!OUT}"
-
-          # Past 24h by mtime, and at most 12 rolling tokenkey-*.sql.gz (2h cadence).
-          find "${!DUMP_DIR}" -maxdepth 1 -type f -name 'tokenkey-*.sql.gz' -mmin +1440 -delete 2>/dev/null || true
-          while IFS= read -r _oldf; do
-            [ -z "${!_oldf}" ] && continue
-            rm -f "${!_oldf}"
-          done < <(find "${!DUMP_DIR}" -maxdepth 1 -type f -name 'tokenkey-*.sql.gz' -printf '%T@\t%p\n' 2>/dev/null \
-            | sort -nr | tail -n +13 | cut -f2-)
-          PGEOF
-          chmod +x /usr/local/bin/tokenkey-pgdump.sh
-
-          cat > /usr/local/bin/tokenkey-disk-metrics.sh <<'DISKEOF'
-          #!/bin/bash
-          set -euo pipefail
-          IMDS_TOKEN="$(curl -fsS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")"
-          REGION="$(curl -fsS -H "X-aws-ec2-metadata-token: ${!IMDS_TOKEN}" http://169.254.169.254/latest/meta-data/placement/region)"
-          IID="$(curl -fsS -H "X-aws-ec2-metadata-token: ${!IMDS_TOKEN}" http://169.254.169.254/latest/meta-data/instance-id)"
-          USED="$(df -P /var/lib/tokenkey 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5}')"
-          [ -z "${!USED}" ] && exit 0
-          aws cloudwatch put-metric-data --region "${!REGION}" \
-            --namespace tokenkey/EC2 \
-            --metric-data "MetricName=DataVolumeUsedPercent,Value=${!USED},Unit=Percent,Dimensions=[{Name=InstanceId,Value=${!IID}}]"
-          DISKEOF
-          chmod +x /usr/local/bin/tokenkey-disk-metrics.sh
-
-          cat > /etc/systemd/system/tokenkey-disk-metrics.service <<'DMSEOF'
-          [Unit]
-          Description=Publish tokenkey DataVolume used_percent to CloudWatch
-          After=network-online.target tokenkey.service
-          Wants=network-online.target
-
-          [Service]
-          Type=oneshot
-          ExecStart=/usr/local/bin/tokenkey-disk-metrics.sh
-          DMSEOF
-
-          cat > /etc/systemd/system/tokenkey-disk-metrics.timer <<'DMTEOF'
-          [Unit]
-          Description=Publish DataVolume disk metric every 5 minutes
-
-          [Timer]
-          OnBootSec=3min
-          OnUnitActiveSec=5min
-          RandomizedDelaySec=30
-          Persistent=true
-
-          [Install]
-          WantedBy=timers.target
-          DMTEOF
-
-          cat > /etc/systemd/system/tokenkey-pgdump.service <<'PSEOF'
-          [Unit]
-          Description=tokenkey pg_dump (every 2 hours)
-          After=tokenkey.service
-          Requires=tokenkey.service
-
-          [Service]
-          Type=oneshot
-          ExecStart=/usr/local/bin/tokenkey-pgdump.sh
-          PSEOF
-
-          cat > /etc/systemd/system/tokenkey-pgdump.timer <<'PTEOF'
-          [Unit]
-          Description=Run tokenkey-pgdump every 2 hours
-
-          [Timer]
-          OnCalendar=*-*-* 00,02,04,06,08,10,12,14,16,18,20,22:00:00
-          Persistent=true
-          RandomizedDelaySec=2min
-
-          [Install]
-          WantedBy=timers.target
-          PTEOF
-
-          # Daily QA stale cleanup script is decoded in section 3 from QA_CLEANUP_GZB64 (build-cfn.sh).
-          # GHCR app image prune inner script is in SSM .../ghcr-prune.b64; loader in /usr/local/bin/tokenkey-prune-ghcr-app-tags.sh (build-cfn.sh).
-
-          cat > /etc/systemd/system/tokenkey-qa-stale-cleanup.service <<'QASVEOF'
-          [Unit]
-          Description=Prune QA records and blob trees older than retention
-          After=network-online.target tokenkey.service
-          Wants=network-online.target
-          Requires=tokenkey.service
-
-          [Service]
-          Type=oneshot
-          EnvironmentFile=-/etc/tokenkey/qa-stale-retention.env
-          ExecStart=/usr/local/bin/tokenkey-qa-stale-cleanup.sh
-          QASVEOF
-
-          cat > /etc/systemd/system/tokenkey-qa-stale-cleanup.timer <<'QATIMEOF'
-          [Unit]
-          Description=Daily QA stale cleanup (low-traffic window)
-
-          [Timer]
-          OnCalendar=*-*-* 04:15:00
-          RandomizedDelaySec=30min
-          Persistent=true
-
-          [Install]
-          WantedBy=timers.target
-          QATIMEOF
-
-          # --- 7. CloudWatch Agent ---------------------------------------------
-          cat > /opt/aws/amazon-cloudwatch-agent/etc/tokenkey.json <<'CWEOF'
-          {
-            "logs": {
-              "logs_collected": {
-                "files": {
-                  "collect_list": [
-                    {"file_path": "/var/log/tokenkey-bootstrap.log", "log_group_name": "/tokenkey/bootstrap", "log_stream_name": "{instance_id}"},
-                    {"file_path": "/var/log/cloud-init-output.log", "log_group_name": "/tokenkey/cloud-init", "log_stream_name": "{instance_id}"}
-                  ]
-                }
-              }
-            },
-            "metrics": {
-              "namespace": "tokenkey/EC2",
-              "append_dimensions": {"InstanceId": "${!aws:InstanceId}"},
-              "metrics_collected": {
-                "mem":  {"measurement": ["mem_used_percent"]},
-                "disk": {"measurement": ["used_percent"], "resources": ["/", "/var/lib/tokenkey"]}
-              }
-            }
-          }
-          CWEOF
-
-          systemctl daemon-reload
-          systemctl enable --now tokenkey.service
-          systemctl enable --now tokenkey-pgdump.timer
-          systemctl enable --now tokenkey-disk-metrics.timer
-          systemctl enable --now tokenkey-qa-stale-cleanup.timer
-          if [ -x /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl ]; then
-            /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
-              -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/tokenkey.json -s || true
-          fi
-
-          sleep 30
-          ( docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env ps || true ) \
-            >> /var/log/tokenkey-bootstrap.log 2>&1
-          echo "BOOTSTRAP_DONE $(date -u +%FT%TZ)" >> /var/log/tokenkey-bootstrap.log
 
   # ---------------------------------------------------------------------------
   # Persistent data volume (persistent data volume hardening / issue #8)

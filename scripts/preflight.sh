@@ -1092,6 +1092,8 @@ fi
 # Source of truth: deploy/aws/stage0/build-cfn.sh + its inputs
 # (docker-compose.yml, Caddyfile, Caddyfile.edge, tokenkey-qa-stale-cleanup.sh,
 # tokenkey-prune-ghcr-app-tags.sh). build-cfn.sh --check fails if the
+# embedded SSM blobs or thin UserData launcher drift. Also run
+# python3 deploy/aws/stage0/test_build_cfn.py for the 16 KiB UserData gate.
 # committed gzip|base64 segments in stage0-single-ec2.yaml and
 # stage0-edge-ec2.yaml drift from those sources, so an editor touching
 # compose/Caddyfile cannot accidentally ship a fresh EC2 stack running
@@ -1109,6 +1111,13 @@ elif ! bash ./deploy/aws/stage0/build-cfn.sh --check >/dev/null 2>&1; then
     errors=$((errors + 1))
 else
     echo "  ok: stage0 CFN gzip|base64 segments in sync with sources"
+    if ! python3 ./deploy/aws/stage0/test_build_cfn.py >/dev/null 2>&1; then
+        echo "  FAIL: stage0 EC2 UserData / bootstrap SSM size gate"
+        echo "        — run: python3 deploy/aws/stage0/test_build_cfn.py"
+        errors=$((errors + 1))
+    else
+        echo "  ok: stage0 EC2 UserData under 16 KiB (launcher + SSM bootstrap split)"
+    fi
 fi
 
 # Headless agent stream redactor: scripts/agent/redact-stream.py sits between
