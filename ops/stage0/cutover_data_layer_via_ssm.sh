@@ -112,15 +112,21 @@ COMPOSE_PROFILES=localredis
 COMPOSE_FILE=docker-compose.yml:docker-compose.external-db.yml
 EOF
 )"
-  # bootstrap applies the overlay with sed — '|' (delimiter) and '&' (replacement
-  # metachar) in values would corrupt .env. Refuse them up front.
+  # The overlay is consumed three ways, each with its own metachar hazard, so a
+  # narrow "reject '|' and '&'" check is not enough:
+  #   1. bootstrap/cutover apply it with `sed "s|^KEY=.*|KEY=VALUE|"` — '|'
+  #      (delimiter), '&' (replacement = whole match) and '\' corrupt it;
+  #   2. the data wrappers `. /var/lib/tokenkey/.env` (POSIX source) — any shell
+  #      metachar (space, $, `, ;, <, >, (), quotes, #, *, ?) breaks it;
+  #   3. compose `${VAR:?}` interpolation re-expands a literal '$'.
+  # Every legitimate value here is an endpoint / port / sslmode / image tag /
+  # compose path, and the SOP generates the RDS password with `openssl rand -hex`
+  # (hex only), so a conservative allowlist covers all valid inputs and refuses
+  # anything that would pass validation yet break a downstream consumer.
   while IFS= read -r line; do
-    if [[ "${line}" == *'|'* || "${line}" == *'&'* ]]; then
-      echo "::error::overlay line contains sed-unsafe character ('|' or '&'): ${line%%=*}=…" >&2
-      exit 1
-    fi
-    if ! [[ "${line}" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
-      echo "::error::overlay line is not KEY=VALUE: ${line}" >&2
+    [[ -z "${line}" ]] && continue
+    if ! [[ "${line}" =~ ^[A-Za-z_][A-Za-z0-9_]*=[A-Za-z0-9_.:/-]*$ ]]; then
+      echo "::error::overlay line invalid — need KEY=VALUE with VALUE in [A-Za-z0-9_.:/-] (RDS password must be hex, e.g. openssl rand -hex 24): ${line%%=*}=…" >&2
       exit 1
     fi
   done <<< "${OVERLAY_CONTENT}"

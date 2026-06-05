@@ -228,13 +228,23 @@ if [[ "$mode" == "check" ]]; then
     rm -f "${OUT}.tmp"
     exit 1
   fi
-  if ! cmp -s "$OUT" "${OUT}.tmp"; then
+  # Compare DECODED payloads, not the re-compressed bytes: gzip DEFLATE output
+  # is not stable across implementations/versions (Apple gzip vs GNU gzip on
+  # large inputs; python zlib by version), so a byte cmp would false-red on a
+  # macOS dev box while CI is green. normalize-embeds.py replaces each blob with
+  # sha256 of its decoded content (identical everywhere) and keeps every other
+  # line verbatim, so real content/structure drift is still caught.
+  command -v python3 >/dev/null 2>&1 || {
+    echo "render-bootstrap --check needs python3 for decode-based drift verification" >&2
+    rm -f "${OUT}.tmp"
+    exit 1
+  }
+  norm() { python3 "${STAGE0}/normalize-embeds.py" < "$1"; }
+  if ! diff -q <(norm "$OUT") <(norm "${OUT}.tmp") >/dev/null; then
     echo "render-bootstrap: FAIL — ${OUT} is out of sync with current template/sources" >&2
     echo "  Run: bash deploy/aws/lightsail/render-bootstrap.sh && git add ${OUT}" >&2
-    if command -v diff >/dev/null 2>&1; then
-      echo "  Diff (first 40 lines):" >&2
-      diff -u "$OUT" "${OUT}.tmp" | head -40 >&2 || true  # preflight-allow: swallow — defensive SIGPIPE on head -40
-    fi
+    echo "  Diff (first 40 lines, decoded-normalized):" >&2
+    diff -u <(norm "$OUT") <(norm "${OUT}.tmp") | head -40 >&2 || true  # preflight-allow: swallow — defensive SIGPIPE on head -40
     rm -f "${OUT}.tmp"
     exit 1
   fi

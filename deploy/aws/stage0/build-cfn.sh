@@ -189,14 +189,25 @@ refresh_template "${EDGE_CFN_FILE}" "${tmp_edge}" "${EDGE_CADDY_GZB64}"
 
 if [[ "${mode}" == "check" ]]; then
   drift=0
-  if ! diff -q "${CFN_FILE}" "${tmp_main}" >/dev/null; then
+  # Compare DECODED payloads, not the re-compressed bytes. gzip DEFLATE is an
+  # implementation/version artifact (Apple gzip vs GNU gzip diverge on large
+  # inputs; python zlib varies by version), so byte-comparing the embed would
+  # false-red on macOS while CI is green. normalize-embeds.py replaces each blob
+  # with sha256 of its decoded content — identical on every platform — and keeps
+  # structural lines verbatim. See its header for the measured evidence.
+  command -v python3 >/dev/null 2>&1 || {
+    echo "build-cfn --check needs python3 for decode-based drift verification" >&2
+    exit 2
+  }
+  norm() { python3 "${HERE}/normalize-embeds.py" < "$1"; }
+  if ! diff -q <(norm "${CFN_FILE}") <(norm "${tmp_main}") >/dev/null; then
     echo "stage0 CFN drift detected — run: bash deploy/aws/stage0/build-cfn.sh" >&2
-    diff -u "${CFN_FILE}" "${tmp_main}" | head -n 80 >&2 || true
+    diff -u <(norm "${CFN_FILE}") <(norm "${tmp_main}") | head -n 80 >&2 || true
     drift=1
   fi
-  if ! diff -q "${EDGE_CFN_FILE}" "${tmp_edge}" >/dev/null; then
+  if ! diff -q <(norm "${EDGE_CFN_FILE}") <(norm "${tmp_edge}") >/dev/null; then
     echo "edge Stage0 CFN drift detected — run: bash deploy/aws/stage0/build-cfn.sh" >&2
-    diff -u "${EDGE_CFN_FILE}" "${tmp_edge}" | head -n 80 >&2 || true
+    diff -u <(norm "${EDGE_CFN_FILE}") <(norm "${tmp_edge}") | head -n 80 >&2 || true
     drift=1
   fi
   if [[ "${drift}" -eq 0 ]]; then

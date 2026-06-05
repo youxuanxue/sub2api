@@ -450,6 +450,13 @@ if [ -x /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl ]; then
 fi
 
 sleep 30
-( docker compose -f /var/lib/tokenkey/docker-compose.yml --env-file /var/lib/tokenkey/.env ps || true ) \
+# Diagnostic ps in whatever data-layer mode .env declares: external mode sets
+# COMPOSE_FILE (base:override) in .env, so include the override file too —
+# otherwise `ps` parses base-only with COMPOSE_PROFILES=localredis and errors on
+# the profile-gated postgres dependency (swallowed by `|| true`, but noisy).
+PS_FILES="-f /var/lib/tokenkey/docker-compose.yml"
+grep -q '^COMPOSE_FILE=.*external-db' /var/lib/tokenkey/.env 2>/dev/null \
+  && PS_FILES="${PS_FILES} -f /var/lib/tokenkey/docker-compose.external-db.yml"
+( docker compose ${PS_FILES} --env-file /var/lib/tokenkey/.env ps || true ) \
   >> /var/log/tokenkey-bootstrap.log 2>&1
 echo "BOOTSTRAP_DONE $(date -u +%FT%TZ)" >> /var/log/tokenkey-bootstrap.log
