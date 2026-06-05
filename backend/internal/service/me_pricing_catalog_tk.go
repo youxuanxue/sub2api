@@ -63,14 +63,16 @@ type MePricingCatalogProvider interface {
 }
 
 // MePricingAccountSource is the slice of *AccountService that BuildForUser
-// needs for the account-whitelist fallback. Defined as an interface so unit
-// tests can inject fakes without constructing a full AccountService.
+// needs for the account fallback. Defined as an interface so unit tests can
+// inject fakes without constructing a full AccountService.
 //
-// The fallback turns each account's `credentials.model_mapping` whitelist
-// entries (from === to) into menu rows when no channel-configured pricing
-// covers that model under the target group. This bridges the admin "model
-// whitelist" UX (gateway routing limit) into the user-facing "Your Menu"
-// surface — see TK incident 2026-05-21.
+// The fallback (see fillAccountFallback) turns each schedulable account into
+// menu rows when no channel-configured pricing covers the target group:
+// a restricted account contributes its `credentials.model_mapping` whitelist
+// entries (from === to), bridging the admin "model whitelist" UX into "Your
+// Menu" (TK incident 2026-05-21); an unrestricted native OAuth account
+// (empty model_mapping) contributes the platform's canonical model list,
+// which is what fixes the empty menu for Anthropic OAuth groups.
 type MePricingAccountSource interface {
 	ListSchedulableByGroupID(ctx context.Context, groupID int64) ([]Account, error)
 }
@@ -389,7 +391,7 @@ func resolveTargetGroupID(
 //     the platform's canonical model list. Channel pricing always wins on
 //     conflict. This is what populates Your-Menu for Anthropic OAuth
 //     groups, which have no channels and no whitelist. See
-//     fillWhitelistFallback for the branch detail.
+//     fillAccountFallback for the branch detail.
 //  3. LiteLLM metadata join — vendor / context_window / capabilities /
 //     max_output_tokens applied to every row, regardless of source.
 func (s *MePricingCatalogService) buildModelsForGroup(
@@ -451,7 +453,7 @@ func (s *MePricingCatalogService) buildModelsForGroup(
 
 	// Stage 2: account-whitelist fallback (channel-priced rows are
 	// authoritative; this only fills gaps).
-	s.fillWhitelistFallback(ctx, targetGroup, effectiveRate, bestByModel, metaByID)
+	s.fillAccountFallback(ctx, targetGroup, effectiveRate, bestByModel, metaByID)
 
 	// Stage 3: LiteLLM metadata join — applied uniformly to all rows.
 	for _, m := range bestByModel {
@@ -475,7 +477,7 @@ func (s *MePricingCatalogService) buildModelsForGroup(
 	return out
 }
 
-// fillWhitelistFallback inserts account-derived menu rows for each
+// fillAccountFallback inserts account-derived menu rows for each
 // schedulable account on the target group, branching on whether the
 // account restricts its model set:
 //
@@ -509,7 +511,7 @@ func (s *MePricingCatalogService) buildModelsForGroup(
 //
 // Errors from the account source are absorbed: the fallback is
 // best-effort and must not block the main pricing-catalog response.
-func (s *MePricingCatalogService) fillWhitelistFallback(
+func (s *MePricingCatalogService) fillAccountFallback(
 	ctx context.Context,
 	targetGroup Group,
 	effectiveRate float64,
@@ -563,16 +565,28 @@ func addFallbackModel(
 }
 
 // platformDefaultModelIDs returns the canonical model-ID list for a native
-// platform, reusing the single source of truth that gateway `/v1/models`
-// uses (defaultModelsListCandidateIDs). Only the four native platforms
-// that own a canonical list are returned; newapi (and any unknown
-// platform) returns nil because it is channel / channel_type driven —
-// routing defaultModelsListCandidateIDs's default arm (which returns the
-// Claude list) for a newapi group would leak Claude models into an
-// OpenAI-compatible menu.
+// platform whose accounts are unrestricted by default, reusing the single
+// source of truth that gateway `/v1/models` uses
+// (defaultModelsListCandidateIDs).
+//
+// Only anthropic / openai / gemini are eligible: for these three an empty
+// credentials.model_mapping genuinely means "all platform models allowed"
+// (resolveModelMapping returns nil), so accountHasModelRestriction's
+// raw-credentials read is an exact mirror of the gateway's
+// len(GetModelMapping())==0 routability test — listed == accessible holds.
+//
+// Antigravity is deliberately EXCLUDED: resolveModelMapping injects
+// domain.DefaultAntigravityModelMapping for an antigravity account with no
+// explicit mapping, so such an account is effectively whitelist-restricted
+// to that mapping's keys. Emitting antigravity.DefaultModels() here could
+// list models the default mapping does not accept, breaking listed ==
+// accessible. newapi (and any unknown platform) also returns nil — it is
+// channel / channel_type driven, and falling into defaultModelsListCandidateIDs's
+// default arm (which returns the Claude list) would leak Claude models into
+// an OpenAI-compatible menu.
 func platformDefaultModelIDs(platform string) []string {
 	switch platform {
-	case PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity:
+	case PlatformAnthropic, PlatformOpenAI, PlatformGemini:
 		return defaultModelsListCandidateIDs(platform)
 	default:
 		return nil
