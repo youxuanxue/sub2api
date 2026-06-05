@@ -76,5 +76,6 @@ check_one() {
 check_one "deploy_via_ssm.sh"               deploy    bash "${OPS}/deploy_via_ssm.sh" 1.0.0 i-0stub probe
 check_one "sync_caddyfile_via_ssm.sh prod"  sync-prod bash "${OPS}/sync_caddyfile_via_ssm.sh" prod i-0stub probe
 check_one "sync_caddyfile_via_ssm.sh edge"  sync-edge bash "${OPS}/sync_caddyfile_via_ssm.sh" edge i-0stub probe
+check_one "sync_docs_pages.sh"              sync-docs bash "${OPS}/sync_docs_pages.sh" i-0stub
 
 exit "${rc}"
