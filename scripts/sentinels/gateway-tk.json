@@ -1800,6 +1800,34 @@
         "Retry-After"
       ],
       "rationale": "Empty-pool fast-fail returns 429+Retry-After (not 503) so Caddy passive-health on the single Stage0 upstream does not conflate an empty scheduling pool with a backend outage and stall all traffic incl. the dashboard. An upstream merge re-introducing 503 at the account-select call sites regresses the prod flood-containment fix (PR #572 / IP 58.213.121.60 1540 RPM incident)."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_model_cooldown.go",
+      "must_contain": [
+        "func tkAnthropicModelClass(model string) string",
+        "anthropicModelClassRateLimitPrefix = \"anthropic:class:\"",
+        "func (s *RateLimitService) tkTryAnthropicModelScopedCooldown(",
+        "SetModelRateLimit(ctx, account.ID, scopeKey, resetAt, tkAnthropicModelCooldownReason)",
+        "func (a *Account) tkAnthropicModelClassRateLimitActive(requestedModel string) bool"
+      ],
+      "rationale": "G4 model-dimension cooldown companion. Anthropic OAuth accounts share a unified 5h/7d window across model classes; when opus exhausts it, upstream returns a unified-window 429 and the LEGACY behaviour cooled the WHOLE account (SetRateLimited), taking healthy sonnet/haiku offline (prod edge us6, account edge-ls-oh-3-d). This file scopes that cooldown to (account x model class) via the existing model_rate_limits store with an 'anthropic:class:<opus|sonnet|haiku>' scope key (mirrors the antigravity 'antigravity:gemini' family-key precedent). Losing tkTryAnthropicModelScopedCooldown / tkAnthropicModelClass on an upstream merge would silently re-introduce the account-level amplification; this sentinel catches that."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "if len(requestedModel) > 0 && s.tkTryAnthropicModelScopedCooldown(ctx, account, requestedModel[0], result) {",
+        "rateLimitSet := s.handle429(ctx, account, headers, responseBody, requestedModel...)"
+      ],
+      "rationale": "G4 injection point in the upstream-shaped handle429 / case-429 dispatch. The Anthropic per-window (5h/7d) branch must try the (account x model class) cooldown BEFORE the account-level SetRateLimited fallback, and the dispatch must thread requestedModel into handle429. An upstream merge that rewrites the 429 path or drops the requestedModel passthrough would silently revert G4 back to account-level cooldown; this sentinel anchors both the call and the threading."
+    },
+    {
+      "path": "backend/internal/service/model_rate_limit.go",
+      "must_contain": [
+        "case PlatformAnthropic:",
+        "if a.tkAnthropicModelClassRateLimitActive(requestedModel) {",
+        "a.tkAnthropicModelClassRateLimitRemaining(requestedModel)"
+      ],
+      "rationale": "G4 read-side gate. The scheduler's IsSchedulableForModelWithContext -> isModelRateLimitedWithContext gate must honour the Anthropic model-class scope key alongside the exact-model-name key, so a cooled opus class keeps sibling sonnet/haiku schedulable (and GetModelRateLimitRemainingTimeWithContext surfaces the class cooldown for retry hints). An upstream merge that rewrites this read path would drop the class-scope check and make the write-side G4 cooldown invisible to scheduling; this sentinel anchors the read injection."
     }
   ]
 }

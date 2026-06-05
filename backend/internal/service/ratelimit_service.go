@@ -498,7 +498,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		// race a less-precise local cooldown over the just-written reset).
 		// The 3/3 + tier counters still advance so persistent failure
 		// still escalates.
-		rateLimitSet := s.handle429(ctx, account, headers, responseBody)
+		rateLimitSet := s.handle429(ctx, account, headers, responseBody, requestedModel...)
 		if account.Platform == PlatformAnthropic {
 			shouldDisable = s.handleAnthropicUpstreamErrorWithOptions(ctx, account, statusCode, upstreamMsg, responseBody, rateLimitSet)
 		} else {
@@ -1421,7 +1421,7 @@ func findAnthropicNotFoundModel(text string) string {
 // advance so persistent failure still escalates — only the
 // SetTempUnschedulable write is suppressed when the more authoritative
 // SetRateLimited has just landed.
-func (s *RateLimitService) handle429(ctx context.Context, account *Account, headers http.Header, responseBody []byte) bool {
+func (s *RateLimitService) handle429(ctx context.Context, account *Account, headers http.Header, responseBody []byte, requestedModel ...string) bool {
 	// 1. OpenAI 平台：优先尝试解析 x-codex-* 响应头（用于 rate_limit_exceeded）
 	if account.Platform == PlatformOpenAI {
 		persistOpenAI429PlanType(ctx, s.accountRepo, account, responseBody)
@@ -1442,6 +1442,19 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 
 	// 2. Anthropic 平台：尝试解析 per-window 头（5h / 7d），选择实际触发的窗口
 	if result := calculateAnthropic429ResetTime(headers); result != nil {
+		// TK G4: a unified-window (5h/7d) exhaustion is tied to a specific
+		// model class (typically opus, which burns the shared window
+		// fastest). When we know the requested model's class, cool only
+		// (account × class) instead of the whole account, so healthy
+		// sonnet/haiku on the same account keep scheduling. Returns true
+		// (authoritative) when the model-scoped write landed, so the caller
+		// still suppresses the 3/3 ladder cooldown. Falls through to the
+		// account-level path below when the model class is unknown (e.g. no
+		// model context at the call site) or the write failed.
+		// See ratelimit_service_tk_model_cooldown.go.
+		if len(requestedModel) > 0 && s.tkTryAnthropicModelScopedCooldown(ctx, account, requestedModel[0], result) {
+			return true
+		}
 		s.notifyAccountSchedulingBlocked(account, result.resetAt, "429")
 		if err := s.accountRepo.SetRateLimited(ctx, account.ID, result.resetAt); err != nil {
 			slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
@@ -1449,14 +1462,8 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 		}
 
 		// 更新 session window：优先使用 5h-reset 头精确计算，否则从 resetAt 反推
-		windowEnd := result.resetAt
-		if result.fiveHourReset != nil {
-			windowEnd = *result.fiveHourReset
-		}
-		windowStart := windowEnd.Add(-5 * time.Hour)
-		if err := s.accountRepo.UpdateSessionWindow(ctx, account.ID, &windowStart, &windowEnd, "rejected"); err != nil {
-			slog.Warn("rate_limit_update_session_window_failed", "account_id", account.ID, "error", err)
-		}
+		// （与模型级冷却路径共用 tkUpdateAnthropic5hSessionWindow，保证两条路径写入一致）
+		s.tkUpdateAnthropic5hSessionWindow(ctx, account.ID, result)
 
 		slog.Info("anthropic_account_rate_limited", "account_id", account.ID, "reset_at", result.resetAt, "reset_in", time.Until(result.resetAt).Truncate(time.Second))
 		return true
