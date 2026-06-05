@@ -151,7 +151,17 @@ func (a *EdgeAccountsAggregator) Aggregate(ctx context.Context, platform string)
 	}
 	wg.Wait()
 
-	sort.Slice(results, func(i, j int) bool { return results[i].EdgeID < results[j].EdgeID })
+	// Scheduling-off edges (the prod stub is active-but-关调度, so prod has stopped
+	// routing there) sink to the bottom of the overview: the operator's live,
+	// in-rotation edges surface first, paused ones cluster at the end next to their
+	// amber "调度已关闭" badge. Within each band the order stays stable by edge_id so
+	// the list is deterministic across refreshes.
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].StubSchedulable != results[j].StubSchedulable {
+			return results[i].StubSchedulable // schedulable (true) before paused (false)
+		}
+		return results[i].EdgeID < results[j].EdgeID
+	})
 	out.Edges = results
 	return out, nil
 }

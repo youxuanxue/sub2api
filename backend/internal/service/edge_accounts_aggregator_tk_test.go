@@ -185,7 +185,9 @@ func TestEdgeAccountsAggregator_PausedStubStillListedButFlagged(t *testing.T) {
 	out, err := agg.Aggregate(context.Background(), "anthropic")
 	require.NoError(t, err)
 
-	// Both edges present (sorted): us1 (schedulable) and us4 (paused).
+	// Both edges present; the schedulable edge surfaces first and the paused one
+	// sinks to the bottom (here us1 < us4 by edge_id too — see the dedicated sink
+	// test below for the case where the paused edge has the smaller edge_id).
 	require.Len(t, out.Edges, 2)
 	require.Equal(t, "us1", out.Edges[0].EdgeID)
 	require.Equal(t, "us4", out.Edges[1].EdgeID)
@@ -199,6 +201,40 @@ func TestEdgeAccountsAggregator_PausedStubStillListedButFlagged(t *testing.T) {
 	// The pause is now visible: us4 flagged not-schedulable, us1 schedulable.
 	require.False(t, out.Edges[1].StubSchedulable)
 	require.True(t, out.Edges[0].StubSchedulable)
+}
+
+// TestEdgeAccountsAggregator_PausedStubsSinkBelowEdgeID proves the ordering is
+// driven by scheduling state FIRST, edge_id only as a within-band tiebreak: a
+// paused edge sinks to the bottom even when its edge_id sorts ahead of the live
+// edges. Here fra1 (paused) is lexically smaller than sg1/us1 (schedulable), so a
+// plain edge_id sort would have put fra1 first; the fix sinks it last instead so
+// the operator's in-rotation edges always surface at the top of the overview.
+func TestEdgeAccountsAggregator_PausedStubsSinkBelowEdgeID(t *testing.T) {
+	fra1 := mirrorStub(1, "https://api-fra1.tokenkey.dev", "key-fra1")
+	fra1.Schedulable = false // 关调度, but smallest edge_id
+	us1 := mirrorStub(2, "https://api-us1.tokenkey.dev", "key-us1")
+	sg1 := mirrorStub(3, "https://api-sg1.tokenkey.dev", "key-sg1")
+
+	store := &edgeAccountsStoreStub{accounts: []Account{fra1, us1, sg1}}
+	doer := &fakeEdgeDoer{bodyByHost: map[string]string{
+		"api-fra1.tokenkey.dev": `{"code":0,"data":{"accounts":[]}}`,
+		"api-us1.tokenkey.dev":  `{"code":0,"data":{"accounts":[]}}`,
+		"api-sg1.tokenkey.dev":  `{"code":0,"data":{"accounts":[]}}`,
+	}}
+
+	agg := NewEdgeAccountsAggregator(store, doer)
+	out, err := agg.Aggregate(context.Background(), "anthropic")
+	require.NoError(t, err)
+
+	// Schedulable band first (sg1 < us1 by edge_id), paused fra1 sinks last
+	// despite having the smallest edge_id of the three.
+	require.Len(t, out.Edges, 3)
+	require.Equal(t, "sg1", out.Edges[0].EdgeID)
+	require.True(t, out.Edges[0].StubSchedulable)
+	require.Equal(t, "us1", out.Edges[1].EdgeID)
+	require.True(t, out.Edges[1].StubSchedulable)
+	require.Equal(t, "fra1", out.Edges[2].EdgeID)
+	require.False(t, out.Edges[2].StubSchedulable)
 }
 
 func TestEdgeAccountsAggregator_Non2xxIsError(t *testing.T) {
