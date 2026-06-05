@@ -43,6 +43,16 @@ Single hand-edited source: `deploy/aws/stage0/anthropic-http-mimicry-baselines.j
 - `ops/stage0/smoke_lib.sh` — dead snapshot
 - `backend/internal/baseline/anthropic-http-mimicry-baselines.json` — embedded copy (byte-identical to deploy source)
 
+### Guard hardening (review finding R-001, fixed in-PR)
+
+The embedded `backend/internal/baseline/` mirror is **load-bearing** (the per-node
+reconciler `EnsureClaudeCodeMimicryBaseline` self-heals fleet settings toward it),
+yet it was hand-`cp`'d on this bump and the previous one (#579) — the exact
+forgotten-copy failure mode `check-cc-version-sync.py` exists to kill. This PR adds
+it to the guard as a 7th copy: check mode requires byte-identity with the deploy
+source (preflight/CI fails on drift), `--write` auto-copies it. Selftest covers
+drift → write → idempotency. SKILL.md copy counts updated 6 → 7.
+
 ### NOT CHANGED
 
 - TLS: `tk_canonical_cc_oauth.json` ja3 profile — unchanged (no ClientHello drift).

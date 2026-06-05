@@ -35,6 +35,15 @@ for the dead snapshots, which needs no embed. check mode still runs in preflight
      - deploy/aws/stage0/tk_canonical_cc_oauth.json   observed.user_agent
      - ops/stage0/smoke_lib.sh                        smoke_default_claude_user_agent default
 
+3. Embedded go:embed mirror — byte-compared to the source JSON, and AUTO-COPIED
+   by --write. This copy is LOAD-BEARING, not a dead snapshot: the per-node
+   config reconciler (EnsureClaudeCodeMimicryBaseline) self-heals the live
+   settings.claude_code_user_agent_version toward it, so a stale mirror would
+   actively fight sync-runtime and roll the fleet UA back after a deploy.
+   Before this entry the mirror was hand-cp'd on every bump (PR #579, #593) —
+   the same forgotten-copy failure mode this guard exists to kill:
+     - backend/internal/baseline/anthropic-http-mimicry-baselines.json
+
 Exit codes:
   0  — every copy agrees with cc_version.
   1  — drift detected (some copy != cc_version).
@@ -49,7 +58,7 @@ Usage:
 
 cc bump workflow (see tokenkey-cc-fingerprint-alignment skill):
   1. edit cc_version in anthropic-http-mimicry-baselines.json  (the ONE hand-edit)
-  2. run this script with --write  (regenerates all 6 copies: 4 Go defaults + 2 dead snapshots)
+  2. run this script with --write  (regenerates all 7 copies: 4 Go defaults + 2 dead snapshots + embedded mirror)
   3. re-run this script (--check)  — must exit 0; preflight enforces it
 """
 from __future__ import annotations
@@ -71,6 +80,9 @@ CANONICAL_HTTP_GO = (
 )
 CANONICAL_TLS_JSON = REPO_ROOT / "deploy" / "aws" / "stage0" / "tk_canonical_cc_oauth.json"
 SMOKE_LIB_SH = REPO_ROOT / "ops" / "stage0" / "smoke_lib.sh"
+EMBEDDED_JSON = (
+    REPO_ROOT / "backend" / "internal" / "baseline" / "anthropic-http-mimicry-baselines.json"
+)
 
 SEMVER_RE = re.compile(r"\d+\.\d+\.\d+")
 
@@ -158,6 +170,7 @@ def gather(
     parse_targets: dict[str, tuple[Path, re.Pattern[str]]] = _PARSE_TARGETS,
     smoke_path: Path = SMOKE_LIB_SH,
     canonical_tls_path: Path = CANONICAL_TLS_JSON,
+    embedded_path: Path = EMBEDDED_JSON,
 ) -> list[dict[str, object]]:
     findings: list[dict[str, object]] = []
     for label, (path, regex) in parse_targets.items():
@@ -178,6 +191,14 @@ def gather(
     findings.append(
         {"label": "tk_canonical_cc_oauth.json observed.user_agent", "kind": "dead",
          "found": observed_found, "ok": observed_found == expected}
+    )
+    # Embedded go:embed mirror: must be byte-identical to the source JSON (it
+    # mirrors the WHOLE document — beta lists included, not just cc_version).
+    embedded_cc = load_source_version(embedded_path)
+    embedded_ok = _read(embedded_path) == _read(source_json)
+    findings.append(
+        {"label": "backend/internal/baseline mirror (byte-identical)", "kind": "embedded-mirror",
+         "found": embedded_cc, "ok": embedded_ok}
     )
     return findings
 
@@ -215,6 +236,21 @@ def write_dead_snapshots(
         changed.append(_rel(canonical_tls_path))
 
     return changed
+
+
+def write_embedded_mirror(
+    *,
+    source_json: Path = SOURCE_JSON,
+    embedded_path: Path = EMBEDDED_JSON,
+) -> list[str]:
+    """Byte-copy the source JSON into the go:embed mirror. Returns changed files."""
+    src_text = _read(source_json)
+    if not embedded_path.is_file():
+        raise CheckError(f"file not found: {_rel(embedded_path)}")
+    if embedded_path.read_text(encoding="utf-8") != src_text:
+        embedded_path.write_text(src_text, encoding="utf-8")
+        return [_rel(embedded_path)]
+    return []
 
 
 def write_go_defaults(
@@ -291,7 +327,7 @@ def run_check(args: argparse.Namespace) -> int:
 
 def run_write(args: argparse.Namespace) -> int:
     expected = load_source_version()
-    changed = write_dead_snapshots(expected) + write_go_defaults(expected)
+    changed = write_dead_snapshots(expected) + write_go_defaults(expected) + write_embedded_mirror()
     if changed:
         for c in sorted(set(changed)):
             print(f"wrote {c} -> cc_version={expected}")
@@ -325,8 +361,13 @@ def run_selftest() -> int:
         smoke = root / "smoke_lib.sh"
         tls = root / "tk.json"
         go_const = root / "constants.go"
+        embedded = root / "embedded.json"
 
         src.write_text(json.dumps({"schema_version": 1, "cc_version": "9.9.9"}), encoding="utf-8")
+        # Embedded mirror starts stale (old version + different bytes).
+        embedded.write_text(
+            json.dumps({"schema_version": 1, "cc_version": "1.0.0"}), encoding="utf-8"
+        )
         smoke.write_text(
             'printf \'%s\' "${TK_SMOKE_CLAUDE_USER_AGENT:-claude-cli/1.0.0 (external, sdk-cli)}"\n',
             encoding="utf-8",
@@ -358,23 +399,40 @@ def run_selftest() -> int:
             ),
         }
 
-        # before write: drift expected (smoke/tls/go all 1.0.0 != 9.9.9)
-        findings = gather(expected, parse_targets=targets, smoke_path=smoke, canonical_tls_path=tls)
+        # before write: drift expected (smoke/tls/go/embedded all 1.0.0 != 9.9.9)
+        findings = gather(
+            expected, source_json=src, parse_targets=targets,
+            smoke_path=smoke, canonical_tls_path=tls, embedded_path=embedded,
+        )
         expect(all(not f["ok"] for f in findings), "pre-write: all copies should drift")
 
-        # --write regenerates the dead snapshots AND rewrites the Go defaults
+        # --write regenerates the dead snapshots, rewrites the Go defaults,
+        # AND byte-copies the embedded mirror
         changed_dead = write_dead_snapshots(expected, smoke_path=smoke, canonical_tls_path=tls)
         expect(len(changed_dead) == 2, f"dead write should change 2 files, got {changed_dead}")
         changed_go = write_go_defaults(expected, parse_targets=targets)
         expect(len(changed_go) == 1, f"go write should change the one file once, got {changed_go}")
+        changed_embedded = write_embedded_mirror(source_json=src, embedded_path=embedded)
+        expect(
+            len(changed_embedded) == 1,
+            f"embedded write should change the mirror, got {changed_embedded}",
+        )
+        expect(
+            embedded.read_text(encoding="utf-8") == src.read_text(encoding="utf-8"),
+            "embedded mirror must be byte-identical to source after write",
+        )
 
-        findings = gather(expected, parse_targets=targets, smoke_path=smoke, canonical_tls_path=tls)
-        expect(all(f["ok"] for f in findings), "post-write: all copies (dead + go) should match")
+        findings = gather(
+            expected, source_json=src, parse_targets=targets,
+            smoke_path=smoke, canonical_tls_path=tls, embedded_path=embedded,
+        )
+        expect(all(f["ok"] for f in findings), "post-write: all copies (dead + go + embedded) should match")
 
         # idempotent: a second --write touches nothing
         again = (
             write_dead_snapshots(expected, smoke_path=smoke, canonical_tls_path=tls)
             + write_go_defaults(expected, parse_targets=targets)
+            + write_embedded_mirror(source_json=src, embedded_path=embedded)
         )
         expect(again == [], f"second write should be a no-op, got {again}")
 
