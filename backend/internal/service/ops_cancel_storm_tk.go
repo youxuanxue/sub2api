@@ -122,8 +122,9 @@ type cancelStormDetector struct {
 	cachedCfg    *CancelStormConfig
 	cfgFetchedAt time.Time
 
-	mu     sync.Mutex
-	states map[int64]*cancelStormWindow
+	mu          sync.Mutex
+	states      map[int64]*cancelStormWindow
+	lastSweepAt time.Time
 }
 
 func newCancelStormDetector(settingRepo SettingRepository, cfgProvider opsFeishuConfigProvider, siteID string) *cancelStormDetector {
@@ -246,12 +247,18 @@ func (d *cancelStormDetector) observe(apiKeyID int64, apiKeyName, model string, 
 	}
 }
 
-// sweepLocked bounds memory by dropping keys idle beyond a few windows. Only runs
-// when the map grows large, so steady state pays nothing. Caller holds d.mu.
+// sweepLocked bounds memory by dropping keys idle beyond a few windows. It only
+// engages once the map grows past the cap AND at most once per window, so the
+// O(n) scan is amortized and never runs on the per-request hot path under d.mu in
+// steady state. Caller holds d.mu.
 func (d *cancelStormDetector) sweepLocked(now time.Time, window time.Duration) {
 	if len(d.states) < cancelStormMaxTrackedKeys {
 		return
 	}
+	if !d.lastSweepAt.IsZero() && now.Sub(d.lastSweepAt) < window {
+		return
+	}
+	d.lastSweepAt = now
 	cutoff := 4 * window
 	for id, w := range d.states {
 		if now.Sub(w.lastSeen) > cutoff {
