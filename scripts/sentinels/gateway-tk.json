@@ -145,7 +145,7 @@
       "must_contain": [
         "case 404:",
         "s.handle404(ctx, account, upstreamMsg, responseBody)",
-        "isAnthropicModelNotFound404",
+        "IsAnthropicModelNotFound404",
         "anthropic_model_not_found_skip_penalty",
         "isAnthropicExtraUsage429",
         "s.apply429FallbackRateLimit(ctx, account, \"no_reset_time\")",
@@ -1900,7 +1900,7 @@
     {
       "path": "backend/internal/service/gateway_service.go",
       "must_contain": [
-        "isAnthropicModelNotFound404(body, upstreamMsg)",
+        "IsAnthropicModelNotFound404(body, upstreamMsg)",
         "errMsg = TkUnsupportedModelMessage(model)"
       ],
       "rationale": "Path B client contract (prod P0 2026-06-06, edge us5): handleErrorResponse maps an Anthropic upstream 404 model-not-found to the SAME 400 invalid_request_error 'Unsupported model: X' as scheduler path A (TkUnsupportedModelMessage), instead of the generic 502 default. Paired with the ratelimit skip (shouldDisable=false, no failover wrap) this turns one bad-model request into one immediate 400 with zero failover/cooldown/pool-drain. An upstream merge that drops this case-404 branch re-buries the bad model name as a 502; this sentinel pins the branch."
@@ -1909,9 +1909,9 @@
       "path": "backend/internal/handler/ops_error_logger_tk_client_induced_upstream.go",
       "must_contain": [
         "if status == 404 {",
-        "strings.Contains(combined, \"not_found_error\")"
+        "service.IsAnthropicModelNotFound404([]byte(body), msg)"
       ],
-      "rationale": "Path B metric truth (prod P0 2026-06-06, edge us5 upstream_error_rate=100%): an upstream 404 model-not-found is caller-fault, so tkUpstreamClientInducedRejection classifies it client-owned (phase=request) and it drops out of upstream_excl behind upstream_error_rate. The captured upstream status stays 404 even though the client gets a 400, so this MUST live in the classifier. An upstream merge that reverts the 404 branch to provider-owned re-fires the P0 on bad-model traffic; this sentinel pins the branch."
+      "rationale": "Path B metric truth (prod P0 2026-06-06, edge us5 upstream_error_rate=100%): an upstream 404 model-not-found is caller-fault, so tkUpstreamClientInducedRejection classifies it client-owned (phase=request) and it drops out of upstream_excl behind upstream_error_rate. It reuses the SAME service.IsAnthropicModelNotFound404 predicate as the gateway response path (B-2) so the metric classification can never drift from the client-facing 400 decision. The captured upstream status stays 404 even though the client gets a 400, so this MUST live in the classifier. An upstream merge that reverts the 404 branch to provider-owned re-fires the P0 on bad-model traffic; this sentinel pins the branch."
     }
   ]
 }

@@ -7862,7 +7862,7 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 		// path A (service.TkUnsupportedModelMessage). This keeps it client-owned
 		// (phase=request), out of upstream_error_rate, and stops retry storms.
 		// Any other 404 stays the generic upstream failure.
-		if account.Platform == PlatformAnthropic && isAnthropicModelNotFound404(body, upstreamMsg) {
+		if account.Platform == PlatformAnthropic && IsAnthropicModelNotFound404(body, upstreamMsg) {
 			model := ""
 			if len(requestedModel) > 0 {
 				model = requestedModel[0]

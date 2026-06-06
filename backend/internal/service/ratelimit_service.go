@@ -1362,7 +1362,7 @@ func (s *RateLimitService) handle404(ctx context.Context, account *Account, upst
 	if account.Platform != PlatformAnthropic {
 		return false
 	}
-	if !isAnthropicModelNotFound404(responseBody, upstreamMsg) {
+	if !IsAnthropicModelNotFound404(responseBody, upstreamMsg) {
 		return false
 	}
 	// TK (prod P0 2026-06-06, edge us5): an Anthropic 404 model-not-found is a
@@ -1380,7 +1380,7 @@ func (s *RateLimitService) handle404(ctx context.Context, account *Account, upst
 	return false
 }
 
-func isAnthropicModelNotFound404(responseBody []byte, upstreamMsg string) bool {
+func IsAnthropicModelNotFound404(responseBody []byte, upstreamMsg string) bool {
 	errorType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(responseBody, "error.type").String()))
 	if errorType == "not_found_error" {
 		return true
@@ -2261,9 +2261,10 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 	// edge-wide outage. Skip the penalty (mirrors the client-induced 400 / 413
 	// exemptions tkIsAnthropicClientInducedBadRequest #2608 and G1). The caller's
 	// gateway error mapping surfaces this as a 400 invalid_request to the client.
+	// Skip silently here: the single skip-log (anthropic_model_not_found_skip_penalty)
+	// is emitted by handle404, the case-404 sink HandleUpstreamError always reaches
+	// for a 404, so we avoid double-logging on the common requestedModel path.
 	if account.Platform == PlatformAnthropic {
-		slog.Info("anthropic_model_not_found_skip_penalty",
-			"account_id", account.ID, "requested_model", strings.TrimSpace(requestedModel))
 		return false
 	}
 	modelKey := modelRateLimitKeyForUpstreamModelNotFound(ctx, account, requestedModel)

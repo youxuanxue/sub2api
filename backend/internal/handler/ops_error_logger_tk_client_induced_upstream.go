@@ -56,12 +56,10 @@ func tkUpstreamClientInducedRejection(c *gin.Context) bool {
 		if combined == "" || tkOpsIsAccountLevel4xx(combined) {
 			return false
 		}
-		if et := strings.ToLower(strings.TrimSpace(gjson.Get(body, "error.type").String())); et == "not_found_error" {
-			return true
-		}
-		return strings.Contains(combined, "not_found_error") ||
-			(strings.Contains(combined, "model") &&
-				(strings.Contains(combined, "not found") || strings.Contains(combined, "unknown model")))
+		// Reuse the SAME predicate the gateway response path uses (B-2,
+		// service.handleErrorResponse) so this metric classification can never
+		// drift from the client-facing 400 "Unsupported model" decision.
+		return service.IsAnthropicModelNotFound404([]byte(body), msg)
 	}
 	// Only request-validation 4xx are caller-fault. 401/403 and any 5xx stay
 	// provider-owned (account auth / availability / genuine upstream failure); 404
