@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "rationale": "Data-layer capacity verdict thresholds — the deterministic form of #587's Trigger B (\"ledger outgrows local PG capacity\"). The signal is the LEDGER's growth runway against the data volume's free space, NOT current total disk % (which is polluted by OS/docker images/ops logs). Verdict feeds ops-daily-diagnostics as a finding; 'trigger' means it is time to evaluate the RDS extraction in #587 (after the off-box dump + failover-rehearsal gates).",
+  "thresholds": {
+    "months_to_volume_full": {
+      "approaching": 6,
+      "trigger": 3,
+      "unit": "months",
+      "note": "df_avail / monthly_ledger_growth. <=trigger months of runway => evaluate RDS now."
+    },
+    "usage_logs_pct_of_volume": {
+      "approaching": 25,
+      "trigger": 40,
+      "unit": "percent",
+      "note": "Absolute guard: usage_logs alone occupying this share of the data volume."
+    }
+  }
+}

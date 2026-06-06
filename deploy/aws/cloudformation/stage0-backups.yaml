@@ -1,0 +1,110 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  tokenkey (sub2api fork) Stage 0: off-box pg_dump backup bucket for the PG
+  ledger. Standalone stack so the live prod instance stack is NOT modified —
+  the bucket policy grants the existing app InstanceRole s3:PutObject via an
+  account-root principal narrowed by an aws:PrincipalArn condition (same-account
+  S3 either/or authorization), so no update-stack on tokenkey-prod-stage0.
+  tokenkey-pgdump.sh (hourly) copies each fresh dump here when
+  TOKENKEY_PGDUMP_S3_URI is set in /var/lib/tokenkey/.env. Lifecycle expires
+  copies after RetentionDays; no versioning (each key is a unique timestamp).
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: tokenkey
+  Environment:
+    Type: String
+    Default: prod
+  RetentionDays:
+    Type: Number
+    Default: 7
+    MinValue: 1
+    MaxValue: 365
+    Description: Days to keep each pg_dump copy before lifecycle expiry.
+  AppInstanceRolePattern:
+    Type: String
+    Default: tokenkey-prod-stage0-InstanceRole-*
+    Description: >
+      IAM role NAME pattern (not ARN) of the app instance role allowed to write
+      backups. CFN auto-suffixes the prod InstanceRole, so a StringLike pattern
+      avoids hardcoding the suffix. The bucket policy grants this role only.
+
+Resources:
+  PgdumpBackupBucket:
+    Type: AWS::S3::Bucket
+    # Retain on stack delete so backups are not lost by an accidental teardown.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub '${ProjectName}-${Environment}-pgdump-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Suspended
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-pgdump-copies
+            Status: Enabled
+            ExpirationInDays: !Ref RetentionDays
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+
+  PgdumpBackupBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref PgdumpBackupBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # Enforce TLS for all access.
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt PgdumpBackupBucket.Arn
+              - !Sub '${PgdumpBackupBucket.Arn}/*'
+            Condition:
+              Bool:
+                'aws:SecureTransport': 'false'
+          # Grant the app instance role write (and read-for-restore) on the
+          # prod/pgdump/* prefix. Principal=account-root narrowed by
+          # aws:PrincipalArn StringLike to the InstanceRole name pattern, so we
+          # never need the CFN-generated role suffix and never touch the
+          # instance stack. Same-account: this resource policy alone authorizes.
+          - Sid: AllowAppInstanceRolePutGet
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+            Action:
+              - 's3:PutObject'
+              - 's3:GetObject'
+            Resource: !Sub '${PgdumpBackupBucket.Arn}/${Environment}/pgdump/*'
+            Condition:
+              StringLike:
+                'aws:PrincipalArn': !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AppInstanceRolePattern}'
+          - Sid: AllowAppInstanceRoleList
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+            Action: 's3:ListBucket'
+            Resource: !GetAtt PgdumpBackupBucket.Arn
+            Condition:
+              StringLike:
+                'aws:PrincipalArn': !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AppInstanceRolePattern}'
+
+Outputs:
+  BucketName:
+    Description: pg_dump backup bucket name.
+    Value: !Ref PgdumpBackupBucket
+  PgdumpS3Uri:
+    Description: Set this as TOKENKEY_PGDUMP_S3_URI in /var/lib/tokenkey/.env on the app host.
+    Value: !Sub 's3://${PgdumpBackupBucket}/${Environment}/pgdump'
