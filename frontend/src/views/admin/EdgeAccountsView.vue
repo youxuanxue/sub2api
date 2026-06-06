@@ -57,21 +57,21 @@
             {{ t('admin.edgeAccounts.summaryFailed', { count: failedEdges.length }) }}
           </span>
 
-          <!-- Aggregated configured caps across all currently-schedulable accounts
-               (sum of each account's configured concurrency / base RPM / sessions —
-               capacity that can take traffic now, not live usage). -->
-          <template v-if="configTotals.count">
+          <!-- Aggregated current/capacity across all currently-schedulable accounts:
+               Σ(live gauge) / Σ(configured cap) for concurrency / base RPM / sessions,
+               mirroring AccountCapacityCell's per-account "current/capacity" shape. -->
+          <template v-if="totals.count">
             <span class="self-center text-xs text-gray-400 dark:text-gray-500">
-              {{ t('admin.edgeAccounts.summaryConfigLabel', { count: configTotals.count }) }}
+              {{ t('admin.edgeAccounts.summaryConfigLabel', { count: totals.count }) }}
             </span>
             <span class="rounded-md bg-primary-50 px-3 py-1 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300">
-              {{ t('admin.edgeAccounts.summaryConcurrency', { value: configTotals.concurrency }) }}
+              {{ t('admin.edgeAccounts.summaryConcurrency', { current: totals.concurrency.current, value: totals.concurrency.max }) }}
             </span>
             <span class="rounded-md bg-primary-50 px-3 py-1 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300">
-              {{ t('admin.edgeAccounts.summaryBaseRpm', { base: configTotals.baseRpm, sticky: configTotals.stickyRpm }) }}
+              {{ t('admin.edgeAccounts.summaryBaseRpm', { current: totals.rpm.current, base: totals.rpm.base, sticky: totals.rpm.sticky }) }}
             </span>
             <span class="rounded-md bg-primary-50 px-3 py-1 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300">
-              {{ t('admin.edgeAccounts.summarySessions', { value: configTotals.sessions }) }}
+              {{ t('admin.edgeAccounts.summarySessions', { current: totals.sessions.current, value: totals.sessions.max }) }}
             </span>
           </template>
         </div>
@@ -281,7 +281,7 @@ const {
   okEdges,
   failedEdges,
   totalAccounts,
-  configTotals,
+  totals,
   fetch,
   setPlatform
 } = useTkEdgeAccounts()

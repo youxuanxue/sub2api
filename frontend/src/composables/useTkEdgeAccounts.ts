@@ -34,32 +34,55 @@ export function useTkEdgeAccounts(initialPlatform = 'all') {
     edges.value.reduce((n, e) => n + e.accounts.length, 0)
   )
 
-  // Fleet-wide configured caps across all currently-schedulable accounts on
-  // reachable edges. It is the sum of each account's *configured* limits — the
-  // capacity that can take traffic right now — NOT live usage. Paused / disabled /
-  // temp-unschedulable accounts are excluded (is_schedulable === false) so the
-  // totals reflect only schedulable capacity. The active platform filter is already
-  // applied upstream (the backend scopes `edges` to it), so this needs no extra
-  // filtering. stickyRpm is base_rpm + rpm_sticky_buffer (the effective RPM ceiling
-  // a sticky-routed request may reach), mirroring AccountCapacityCell's rpm display.
-  const configTotals = computed(() => {
+  // Fleet-wide live-vs-capacity totals across all currently-schedulable accounts
+  // on reachable edges. Each metric carries both the summed *current* live gauge
+  // and the summed *configured* cap, so the header reads "current/capacity" — the
+  // same shape AccountCapacityCell shows per account, just aggregated. Paused /
+  // disabled / temp-unschedulable accounts are excluded (is_schedulable === false)
+  // so the totals reflect only schedulable capacity. The active platform filter is
+  // already applied upstream (the backend scopes `edges` to it), so this needs no
+  // extra filtering.
+  //
+  // Live gauges (current_concurrency / current_rpm / active_sessions) and their
+  // caps only ever populate for the same accounts (e.g. RPM/sessions are
+  // anthropic-oauth-only), so summing `?? 0` keeps current and capacity over an
+  // identical account set — accounts without a metric contribute 0 to both sides.
+  // rpm.sticky is Σ(base_rpm + rpm_sticky_buffer) — the effective RPM ceiling a
+  // sticky-routed request may reach — mirroring AccountCapacityCell's rpm display.
+  //
+  // No utilization colouring on these aggregates: a fleet sum at 50% can still hide
+  // an individual account pinned at its cap, so a green/red badge here would mislead.
+  // The honest signal is the raw current/capacity pair; per-account hot spots stay
+  // visible in each row's own coloured badge.
+  const totals = computed(() => {
     let count = 0
     let concurrency = 0
+    let curConcurrency = 0
     let baseRpm = 0
     let stickyRpm = 0
+    let curRpm = 0
     let sessions = 0
+    let curSessions = 0
     for (const e of edges.value) {
       if (!e.ok) continue
       for (const a of e.accounts) {
         if (!a.is_schedulable) continue
         count++
         concurrency += a.concurrency ?? 0
+        curConcurrency += a.current_concurrency ?? 0
         baseRpm += a.base_rpm ?? 0
         stickyRpm += (a.base_rpm ?? 0) + (a.rpm_sticky_buffer ?? 0)
+        curRpm += a.current_rpm ?? 0
         sessions += a.max_sessions ?? 0
+        curSessions += a.active_sessions ?? 0
       }
     }
-    return { count, concurrency, baseRpm, stickyRpm, sessions }
+    return {
+      count,
+      concurrency: { current: curConcurrency, max: concurrency },
+      rpm: { current: curRpm, base: baseRpm, sticky: stickyRpm },
+      sessions: { current: curSessions, max: sessions }
+    }
   })
 
   async function fetch() {
@@ -111,7 +134,7 @@ export function useTkEdgeAccounts(initialPlatform = 'all') {
     okEdges,
     failedEdges,
     totalAccounts,
-    configTotals,
+    totals,
     fetch,
     setPlatform
   }
