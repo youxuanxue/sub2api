@@ -1167,9 +1167,8 @@ type PublicSettingsInjectionPayload struct {
 	BalanceLowNotifyThreshold        float64                  `json:"balance_low_notify_threshold"`
 	BalanceLowNotifyRechargeURL      string                   `json:"balance_low_notify_recharge_url"`
 	PricingCatalogPublic             bool                     `json:"pricing_catalog_public"`
-	SignupBonusEnabled               bool                     `json:"signup_bonus_enabled"`
-	SignupBonusBalanceDisplayUSD     float64                  `json:"signup_bonus_balance_usd"`
-	RiskControlEnabled               bool                     `json:"risk_control_enabled"`
+	SignupBonusEnabled           bool    `json:"signup_bonus_enabled"`
+	SignupBonusBalanceDisplayUSD float64 `json:"signup_bonus_balance_usd"`
 
 	// Feature flags — MUST match the opt-in/opt-out registry in
 	// frontend/src/utils/featureFlags.ts. Missing a field here is the bug

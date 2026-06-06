@@ -372,8 +372,19 @@ func (s *defaultOpenAIAccountScheduler) Select(
 
 // stickySlotFullEscapeEnabled 报告是否启用 sticky 槽满逃逸（upstream #2859）。
 // fail-open 默认 true：未接 SettingService 的测试/装配按默认开。
+// 当 settingService 为 nil 时，从 cfg 推断：若 StickyEscapeEnabled=false 且至少一个
+// 阈值非零（即明确配置了 opt-out 而非仅使用默认值），则也关闭槽满逃逸。
 func (s *defaultOpenAIAccountScheduler) stickySlotFullEscapeEnabled(ctx context.Context) bool {
-	if s == nil || s.service == nil || s.service.settingService == nil {
+	if s == nil || s.service == nil {
+		return true
+	}
+	if s.service.settingService == nil {
+		if s.service.cfg != nil {
+			cfg := s.service.cfg.Gateway.OpenAIScheduler
+			if !cfg.StickyEscapeEnabled && (cfg.StickyEscapeTTFTMs > 0 || cfg.StickyEscapeErrorRate > 0) {
+				return false
+			}
+		}
 		return true
 	}
 	return s.service.settingService.IsStickySlotFullEscapeEnabled(ctx)
@@ -441,7 +452,7 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	// removed from group). See openaiStickyAccountStillInGroup.
 	if req.GroupID != nil && !openaiStickyAccountStillInGroup(account, *req.GroupID) {
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
-		return nil, nil
+		return nil, false, nil
 	}
 	// P0-1: 与 tryStickySessionHit 对称——upstream 渠道限制（BillingModelSourceUpstream）
 	// 必须在 sticky HIT 后再校验一次；否则上游已对该模型限流的 sticky-bound 账号
@@ -449,7 +460,7 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	if req.GroupID != nil && s.service.needsUpstreamChannelRestrictionCheck(ctx, req.GroupID) &&
 		s.service.isUpstreamModelRestrictedByChannel(ctx, *req.GroupID, account, req.RequestedModel, req.RequireCompact) {
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
-		return nil, nil
+		return nil, false, nil
 	}
 
 	result, acquireErr := s.service.tryAcquireAccountSlot(ctx, accountID, account.Concurrency)
@@ -465,6 +476,15 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	cfg := s.service.schedulingConfig()
 	// WaitPlan.MaxConcurrency 使用 Concurrency（非 EffectiveLoadFactor），因为 WaitPlan 控制的是 Redis 实际并发槽位等待。
 	if s.service.concurrencyService != nil {
+		waitPlan := &AccountSelectionResult{
+			Account: account,
+			WaitPlan: &AccountWaitPlan{
+				AccountID:      accountID,
+				MaxConcurrency: account.Concurrency,
+				Timeout:        cfg.StickySessionWaitTimeout,
+				MaxWaiting:     cfg.StickySessionMaxWaiting,
+			},
+		}
 		if escapeCfg.enabled && acquireErr == nil && result != nil && !result.Acquired {
 			errorRate, ttft, _ := s.stats.snapshot(accountID)
 			slog.Info("sticky_escape_triggered",
@@ -473,17 +493,11 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 				"error_rate", errorRate,
 				"ttft", ttft,
 			)
-			return nil, true, nil
+			// Return WaitPlan as a fallback in case the pool is also full;
+			// escapedSticky=true signals the outer scheduler to try the pool first.
+			return waitPlan, true, nil
 		}
-		return &AccountSelectionResult{
-			Account: account,
-			WaitPlan: &AccountWaitPlan{
-				AccountID:      accountID,
-				MaxConcurrency: account.Concurrency,
-				Timeout:        cfg.StickySessionWaitTimeout,
-				MaxWaiting:     cfg.StickySessionMaxWaiting,
-			},
-		}, false, nil
+		return waitPlan, false, nil
 	}
 	return nil, false, nil
 }

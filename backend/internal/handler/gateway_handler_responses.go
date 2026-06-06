@@ -94,9 +94,11 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 	// /v1/responses is an OpenAI-shape endpoint that this fork only serves for
 	// Anthropic platform groups (see function doc above) — forwarding goes to
 	// the Anthropic upstream, so guards match against PlatformAnthropic.
-	if reject, msg := TkEvalBodyGuard(reqLog, h.cfg.Gateway.UpstreamBodyGuards, domain.PlatformAnthropic, reqModel, len(body)); reject {
-		h.responsesErrorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", msg)
-		return
+	if h.cfg != nil {
+		if reject, msg := TkEvalBodyGuard(reqLog, h.cfg.Gateway.UpstreamBodyGuards, domain.PlatformAnthropic, reqModel, len(body)); reject {
+			h.responsesErrorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", msg)
+			return
+		}
 	}
 
 	// 解析渠道级模型映射
