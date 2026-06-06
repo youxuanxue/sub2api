@@ -101,6 +101,17 @@ Resources:
             Action: 's3:ListBucket'
             Resource: !GetAtt PgdumpBackupBucket.Arn
 
+  # NOTE — the .env SECRETS off-box (SSM SecureString, a DIFFERENT blast radius than this
+  # dump bucket so the decryption keys are not co-located with the ciphertext) needs an
+  # IDENTITY grant (ssm:PutParameter), because SSM Parameters have no resource policy — a
+  # bucket-style same-account either/or grant is impossible. That grant therefore canNOT
+  # live in this standalone stack without an iam:CreatePolicy capability no available
+  # principal has. Its DURABLE home is the prod InstanceRole in stage0-single-ec2.yaml
+  # (ssm:PutParameter on .../stage0/env-secrets-backup), applied on the next prod CFN
+  # update; until then it is mirrored as a manual inline policy (EnvSecretsBackup) added
+  # on the role via the IAM console. See ops/stage0/backup-env-secrets-via-ssm.sh +
+  # RUNBOOK §4.4. The EnvSecretsSsmParam output below documents the param name to wire.
+
 Outputs:
   BucketName:
     Description: pg_dump backup bucket name.
@@ -108,3 +119,6 @@ Outputs:
   PgdumpS3Uri:
     Description: Set this as TOKENKEY_PGDUMP_S3_URI in /var/lib/tokenkey/.env on the app host.
     Value: !Sub 's3://${PgdumpBackupBucket}/${Environment}/pgdump'
+  EnvSecretsSsmParam:
+    Description: Set this as TOKENKEY_ENV_SECRETS_SSM in /var/lib/tokenkey/.env; SecureString holding the off-box .env secrets.
+    Value: !Sub '/${ProjectName}/${Environment}/stage0/env-secrets-backup'
