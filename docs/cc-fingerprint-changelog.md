@@ -37,3 +37,4 @@ re-document it per patch — note "A/B unchanged" in the row instead.
 | 2.1.165 | 2026-06-05 | pure UA | 2.1.163 → 2.1.165. TLS/beta unchanged. |
 | 2.1.166 | 2026-06-06 | pure UA | 2.1.165 → 2.1.166. TLS/beta unchanged. |
 | 2.1.167 | 2026-06-06 | pure UA | 2.1.166 → 2.1.167. TLS/beta unchanged; Haiku A/B 8/11 vs 3/11 (per #429). Capture egress 16.147.170.3. |
+| 2.1.168 | 2026-06-07 | pure UA | 2.1.167 → 2.1.168. TLS ja3 unchanged; sonnet beta unchanged; Haiku A/B bimodal 2/3 vs 1/3, baseline matches a variant (per #429). Capture egress 52.15.35.197. |
