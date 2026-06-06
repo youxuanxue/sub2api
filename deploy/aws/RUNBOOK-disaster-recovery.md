@@ -175,6 +175,32 @@ aws ssm start-session --target <NewInstanceId>
 
 完成后走 §last 验证。
 
+### 4.4 兜底：从 off-box S3 pg_dump 恢复账本（RPO ≤1h，DESTRUCTIVE）
+
+**何时用**：DLM 快照也丢了 / 太旧，或需要把账本**干净重建**进一个新 PG。`tokenkey-pgdump.sh` 每小时把逻辑 dump 推到 S3（`stage0-backups.yaml` 栈的桶，保留 7 天），所以这是比 DLM（最长 24h）更新的账本副本。**仅恢复 PostgreSQL 账本**（逻辑 dump）；Redis 可重建；`.env` 密钥须来自恢复卷/密钥库，**不要重新生成**（否则旧 PG/JWT/2FA 失效）。丢失「最近一次 hourly dump → 故障」之间的写入（≤1h）。
+
+```bash
+# 桶名 = backups 栈输出；URI 前缀 s3://<bucket>/prod/pgdump/
+BUCKET=$(aws cloudformation describe-stacks --region us-east-1 \
+  --stack-name tokenkey-stage0-backups \
+  --query "Stacks[0].Outputs[?OutputKey=='BucketName'].OutputValue" --output text)
+LATEST=$(aws s3 ls "s3://$BUCKET/prod/pgdump/" | sort | tail -1 | awk '{print $4}')
+aws s3 cp "s3://$BUCKET/prod/pgdump/$LATEST" /tmp/restore.sql.gz
+
+# SSM 进目标实例后（DESTRUCTIVE：重建 tokenkey 库）——先停 app 释放连接：
+sudo docker stop tokenkey
+sudo docker exec -i tokenkey-postgres psql -U tokenkey -d postgres -v ON_ERROR_STOP=1 \
+  -c "DROP DATABASE IF EXISTS tokenkey;" -c "CREATE DATABASE tokenkey OWNER tokenkey;"
+gunzip -c /tmp/restore.sql.gz | sudo docker exec -i tokenkey-postgres \
+  psql -U tokenkey -d tokenkey -v ON_ERROR_STOP=1
+sudo docker start tokenkey
+curl -fsS http://localhost:8080/health/live && echo " live-ok"
+```
+
+> 优先级：数据卷/快照健在时一律走 §3/§4.1-4.3（带回 `.env.secret`、Redis、完整状态）。§4.4 是「卷+快照都没了」或「需要干净账本」的最后一手。
+
+完成后走 §last 验证。
+
 ---
 
 ## DNS 切换（仅当公网 IP 变了）

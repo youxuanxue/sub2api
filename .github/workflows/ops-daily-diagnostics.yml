@@ -246,6 +246,23 @@ jobs:
             fi
           fi
 
+          # Data-layer capacity (prod only): the deterministic form of #587 Trigger B.
+          # Read-only probe via run-probe.sh -> verdict.py -> finding. Isolated and
+          # non-fatal: a probe failure only drops the capacity finding, never the run.
+          if [ "$TARGET_ID" = "prod" ]; then
+            CAP_OUT="$(bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-data-layer-capacity.sh --comment "daily data-layer capacity" --timeout-seconds 120 2>>"$STDERR" || true)"
+            CAP_VERDICT="$(printf '%s' "$CAP_OUT" | python3 ops/observability/data_layer_capacity_verdict.py 2>>"$STDERR" || echo '{}')"
+            printf 'data_layer_capacity: %s\n' "$CAP_VERDICT" >> "$STDOUT"
+            CAP_V="$(printf '%s' "$CAP_VERDICT" | jq -r '.verdict // "unknown"')"
+            CAP_S="$(printf '%s' "$CAP_VERDICT" | jq -r '.summary // "no verdict"')"
+            case "$CAP_V" in
+              green) add_finding "data_layer_capacity" "ok" "info" "Data-layer capacity OK ($TARGET_ID)" "$CAP_S" "data-capacity|$TARGET_ID" ;;
+              approaching) add_finding "data_layer_capacity" "warning" "warning" "Data-layer capacity approaching RDS trigger ($TARGET_ID)" "$CAP_S" "data-capacity|$TARGET_ID" ;;
+              trigger) add_finding "data_layer_capacity" "issue_candidate" "error" "Data-layer capacity hit RDS trigger ($TARGET_ID)" "$CAP_S — evaluate #587 RDS extraction (run off-box dump + failover rehearsal gates first)" "data-capacity|$TARGET_ID" ;;
+              *) add_finding "data_layer_capacity" "skip" "info" "Data-layer capacity inconclusive ($TARGET_ID)" "$CAP_S" "data-capacity|$TARGET_ID" ;;
+            esac
+          fi
+
           if [ "$TARGET_KIND" = "edge" ] && [ -n "$API_URL" ]; then
             BLOCKED_CODE="$(curl -sS -o "$OUT/edge-blocked.json" -w '%{http_code}' -H 'Authorization: Bearer tk_edge_smoke_should_not_work' "$API_URL/v1/models" 2>>"$STDERR" || echo 000)"
             if [ "$BLOCKED_CODE" = "403" ]; then

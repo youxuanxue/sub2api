@@ -762,6 +762,24 @@ else
     echo "  ok: run-probe.sh --env loop anchored"
 fi
 
+# ---- sub2api: data-layer capacity verdict selftest -------------------------
+# The capacity probe's threshold logic (green/approaching/trigger = #587 Trigger B)
+# lives in data_layer_capacity_verdict.py and is consumed by ops-daily-diagnostics.
+# Run its fixture selftest so a threshold/logic regression fails preflight instead
+# of silently mis-verdicting prod capacity. Read-only, no AWS.
+echo ""
+echo "=== sub2api: data-layer capacity verdict selftest ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for data-layer capacity selftest)"
+    errors=$((errors + 1))
+elif ! python3 ./ops/observability/data_layer_capacity_verdict.py --selftest >/dev/null 2>&1; then
+    echo "  FAIL: data-layer capacity verdict selftest"
+    echo "        — run: python3 ops/observability/data_layer_capacity_verdict.py --selftest"
+    errors=$((errors + 1))
+else
+    echo "  ok: data-layer capacity verdict green/approaching/trigger fixtures pass"
+fi
+
 # ---- sub2api: workflow job-level if env-context drift -----------------------
 # GitHub Actions does NOT allow env references in jobs.<name>.if expressions
 # (env evaluates AFTER if). Such references make the entire workflow file
