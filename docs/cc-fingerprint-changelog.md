@@ -23,7 +23,7 @@ re-document it per patch — note "A/B unchanged" in the row instead.
 
 | cc version | date (UTC) | type | note |
 |---|---|---|---|
-| 2.1.152 | 2026-04 (PR #423) | **decision** | Canonical OAuth UA + beta architecture established. Records: [`spec-delta-cc-canonical-ua-beta-2.1.152.md`](spec-delta-cc-canonical-ua-beta-2.1.152.md), [`spec-delta-cc-beta-http-2.1.152.md`](spec-delta-cc-beta-http-2.1.152.md) (first bimodal Haiku observation). Runtime mechanism: [`spec-delta-cc-http-mimicry-runtime.md`](spec-delta-cc-http-mimicry-runtime.md). |
+| 2.1.152 | 2026-05-27 (PR #423) | **decision** | Canonical OAuth UA + beta architecture established. Records: [`spec-delta-cc-canonical-ua-beta-2.1.152.md`](spec-delta-cc-canonical-ua-beta-2.1.152.md), [`spec-delta-cc-beta-http-2.1.152.md`](spec-delta-cc-beta-http-2.1.152.md) (first bimodal Haiku observation). Runtime mechanism: [`spec-delta-cc-http-mimicry-runtime.md`](spec-delta-cc-http-mimicry-runtime.md). |
 | 2.1.153 | 2026-05-28 | **decision** | Haiku beta **set** changed: added `thinking-token-count` + `structured-outputs`, dropped `claude-code` + `extended-cache-ttl`; `last-wins` variant pick. Record: [`spec-delta-cc-2.1.153.md`](spec-delta-cc-2.1.153.md). |
 | 2.1.154 | 2026-05-29 | pure UA | 2.1.153 → 2.1.154. TLS/beta unchanged. |
 | 2.1.156 | 2026-05-29 | pure UA | 2.1.154 → 2.1.156. TLS/beta unchanged. |
