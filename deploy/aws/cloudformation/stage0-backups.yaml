@@ -22,13 +22,18 @@ Parameters:
     MinValue: 1
     MaxValue: 365
     Description: Days to keep each pg_dump copy before lifecycle expiry.
-  AppInstanceRolePattern:
+  AppInstanceRoleArn:
     Type: String
-    Default: tokenkey-prod-stage0-InstanceRole-*
     Description: >
-      IAM role NAME pattern (not ARN) of the app instance role allowed to write
-      backups. CFN auto-suffixes the prod InstanceRole, so a StringLike pattern
-      avoids hardcoding the suffix. The bucket policy grants this role only.
+      Exact IAM role ARN of the app instance role allowed to write backups, e.g.
+      arn:aws:iam::<acct>:role/tokenkey-prod-stage0-InstanceRole-XXXX (get it from
+      `aws cloudformation describe-stack-resources --stack-name tokenkey-prod-stage0
+      --query "StackResources[?LogicalResourceId=='InstanceRole'].PhysicalResourceId"`).
+      Must be the ROLE ARN named DIRECTLY as the bucket-policy Principal: an
+      account-root principal (arn:...:root) is only a delegation and would still
+      require an identity-based policy, which we deliberately avoid (no prod
+      instance-stack update). Naming the role ARN directly makes the bucket policy
+      alone sufficient (same-account resource-based grant).
 
 Resources:
   PgdumpBackupBucket:
@@ -76,30 +81,25 @@ Resources:
               Bool:
                 'aws:SecureTransport': 'false'
           # Grant the app instance role write (and read-for-restore) on the
-          # prod/pgdump/* prefix. Principal=account-root narrowed by
-          # aws:PrincipalArn StringLike to the InstanceRole name pattern, so we
-          # never need the CFN-generated role suffix and never touch the
-          # instance stack. Same-account: this resource policy alone authorizes.
+          # prod/pgdump/* prefix. The role ARN is named DIRECTLY as Principal —
+          # same-account resource-based grant is then sufficient on its own, so we
+          # never touch the prod instance stack. (An account-root principal is only
+          # a delegation and would ALSO require an identity policy — verified the
+          # hard way: it AccessDenied'd s3:PutObject on first activation.)
           - Sid: AllowAppInstanceRolePutGet
             Effect: Allow
             Principal:
-              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+              AWS: !Ref AppInstanceRoleArn
             Action:
               - 's3:PutObject'
               - 's3:GetObject'
             Resource: !Sub '${PgdumpBackupBucket.Arn}/${Environment}/pgdump/*'
-            Condition:
-              StringLike:
-                'aws:PrincipalArn': !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AppInstanceRolePattern}'
           - Sid: AllowAppInstanceRoleList
             Effect: Allow
             Principal:
-              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+              AWS: !Ref AppInstanceRoleArn
             Action: 's3:ListBucket'
             Resource: !GetAtt PgdumpBackupBucket.Arn
-            Condition:
-              StringLike:
-                'aws:PrincipalArn': !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AppInstanceRolePattern}'
 
 Outputs:
   BucketName:
