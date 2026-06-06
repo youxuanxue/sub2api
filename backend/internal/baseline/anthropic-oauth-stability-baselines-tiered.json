@@ -163,7 +163,7 @@
     "l3": {
       "baseline": {
         "account": {
-          "concurrency": 15,
+          "concurrency": 12,
           "priority": 1,
           "rate_multiplier": 1.0
         },
@@ -180,7 +180,7 @@
     "l4": {
       "baseline": {
         "account": {
-          "concurrency": 15,
+          "concurrency": 16,
           "priority": 1,
           "rate_multiplier": 1.0
         },
@@ -197,7 +197,7 @@
     "l5": {
       "baseline": {
         "account": {
-          "concurrency": 15,
+          "concurrency": 20,
           "priority": 1,
           "rate_multiplier": 1.0
         },
