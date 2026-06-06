@@ -201,10 +201,15 @@
               >
                 {{ row.extra?.email_address || row.extra?.email || row.credentials?.email }}
               </span>
+              <span
+                v-if="row.notes"
+                class="mt-0.5 max-w-[10rem] whitespace-pre-wrap break-words text-xs text-gray-400 dark:text-gray-500"
+                :title="row.notes"
+              >{{ row.notes }}</span>
             </div>
           </template>
           <template #cell-notes="{ value }">
-            <span v-if="value" :title="value" class="block max-w-xs truncate text-sm text-gray-600 dark:text-gray-300">{{ value }}</span>
+            <span v-if="value" :title="value" class="block max-w-xs whitespace-pre-wrap break-words text-sm text-gray-600 dark:text-gray-300">{{ value }}</span>
             <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
           </template>
           <template #cell-platform_type="{ row }">
