@@ -3376,10 +3376,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 
 	if selected == nil {
 		stats := s.logDetailedSelectionFailure(ctx, groupID, sessionHash, requestedModel, platform, accounts, excludedIDs, false)
-		if requestedModel != "" {
-			return nil, fmt.Errorf("%w supporting model: %s (%s)", ErrNoAvailableAccounts, requestedModel, summarizeSelectionFailureStats(stats))
-		}
-		return nil, ErrNoAvailableAccounts
+		return nil, tkWrapSelectionFailure(requestedModel, stats)
 	}
 
 	// 4. 建立粘性绑定
@@ -3641,10 +3638,7 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 
 	if selected == nil {
 		stats := s.logDetailedSelectionFailure(ctx, groupID, sessionHash, requestedModel, nativePlatform, accounts, excludedIDs, true)
-		if requestedModel != "" {
-			return nil, fmt.Errorf("%w supporting model: %s (%s)", ErrNoAvailableAccounts, requestedModel, summarizeSelectionFailureStats(stats))
-		}
-		return nil, ErrNoAvailableAccounts
+		return nil, tkWrapSelectionFailure(requestedModel, stats)
 	}
 
 	// 4. 建立粘性绑定
@@ -7857,6 +7851,33 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 		statusCode = http.StatusServiceUnavailable
 		errType = "overloaded_error"
 		errMsg = "Upstream service overloaded, please retry later"
+	case 404:
+		// TK (prod P0 2026-06-06, edge us5): an Anthropic upstream 404
+		// model-not-found is a CLIENT error — the caller requested a model name
+		// nobody serves (e.g. the bare alias "opus"). With the account-cooldown
+		// penalty skipped (HandleUpstreamModelNotFound/handle404 above return false
+		// for Anthropic, so shouldDisable=false and we are NOT wrapped as a
+		// failover error), surface it to the client as the SAME 400
+		// invalid_request_error "Unsupported model: X" contract as the scheduler
+		// path A (service.TkUnsupportedModelMessage). This keeps it client-owned
+		// (phase=request), out of upstream_error_rate, and stops retry storms.
+		// Any other 404 stays the generic upstream failure.
+		if account.Platform == PlatformAnthropic && IsAnthropicModelNotFound404(body, upstreamMsg) {
+			model := ""
+			if len(requestedModel) > 0 {
+				model = requestedModel[0]
+			}
+			if strings.TrimSpace(model) == "" {
+				model = extractAnthropicNotFoundModel(body, upstreamMsg)
+			}
+			statusCode = http.StatusBadRequest
+			errType = TkUnsupportedModelErrType
+			errMsg = TkUnsupportedModelMessage(model)
+		} else {
+			statusCode = http.StatusBadGateway
+			errType = "upstream_error"
+			errMsg = "Upstream request failed"
+		}
 	case 500, 502, 503, 504:
 		statusCode = http.StatusBadGateway
 		errType = "upstream_error"

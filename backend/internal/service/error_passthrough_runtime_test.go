@@ -62,6 +62,65 @@ func TestGatewayHandleErrorResponse_NoRuleKeepsDefault(t *testing.T) {
 	assert.Equal(t, "Upstream request failed", errField["message"])
 }
 
+// TK (prod P0 2026-06-06, edge us5): an Anthropic upstream 404 model-not-found
+// (bare "opus" on an empty-mapping passthrough account) must surface to the client
+// as the unified 400 invalid_request_error "Unsupported model: X" (path B), the
+// same contract as the scheduler path A — NOT the generic 502 "Upstream request
+// failed". nil rateLimitService here mirrors the post-fix shouldDisable=false path
+// (HandleUpstreamModelNotFound/handle404 skip the Anthropic penalty).
+func TestGatewayHandleErrorResponse_Anthropic404ModelNotFoundReturns400Unsupported(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	svc := &GatewayService{}
+	respBody := []byte(`{"type":"error","error":{"type":"not_found_error","message":"model: opus"}}`)
+	resp := &http.Response{
+		StatusCode: http.StatusNotFound,
+		Body:       io.NopCloser(bytes.NewReader(respBody)),
+		Header:     http.Header{},
+	}
+	account := &Account{ID: 12, Platform: PlatformAnthropic, Type: AccountTypeOAuth}
+
+	_, err := svc.handleErrorResponse(context.Background(), resp, c, account, "opus")
+	require.Error(t, err)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	errField, ok := payload["error"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "invalid_request_error", errField["type"])
+	assert.Equal(t, "Unsupported model: opus", errField["message"])
+}
+
+// A non-model-not-found Anthropic 404 keeps the generic 502 default (only
+// model-not-found is caller-fault).
+func TestGatewayHandleErrorResponse_Anthropic404NonModelKeeps502(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	svc := &GatewayService{}
+	respBody := []byte(`{"error":{"message":"resource not found"}}`)
+	resp := &http.Response{
+		StatusCode: http.StatusNotFound,
+		Body:       io.NopCloser(bytes.NewReader(respBody)),
+		Header:     http.Header{},
+	}
+	account := &Account{ID: 13, Platform: PlatformAnthropic, Type: AccountTypeOAuth}
+
+	_, err := svc.handleErrorResponse(context.Background(), resp, c, account, "claude-opus-4-8")
+	require.Error(t, err)
+	assert.Equal(t, http.StatusBadGateway, rec.Code)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	errField, ok := payload["error"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "upstream_error", errField["type"])
+}
+
 // Bug B (prod P0 2026-06-05): the native OpenAI error path (handleErrorResponse,
 // used by /v1/responses) must pass a client-induced upstream 4xx through with its
 // REAL status + the actionable upstream message instead of masking it as a generic

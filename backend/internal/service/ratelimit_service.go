@@ -72,7 +72,6 @@ const geminiPrecheckCacheTTL = time.Minute
 const (
 	defaultRateLimit429CooldownSeconds = 5
 	maxRateLimit429CooldownSeconds     = 7200
-	anthropic404ModelCooldown          = 24 * time.Hour
 )
 
 var anthropicNotFoundModelPattern = regexp.MustCompile(`(?i)model:\s*([A-Za-z0-9._:/-]+)`)
@@ -1363,24 +1362,25 @@ func (s *RateLimitService) handle404(ctx context.Context, account *Account, upst
 	if account.Platform != PlatformAnthropic {
 		return false
 	}
-	if !isAnthropicModelNotFound404(responseBody, upstreamMsg) {
+	if !IsAnthropicModelNotFound404(responseBody, upstreamMsg) {
 		return false
 	}
-	modelName := extractAnthropicNotFoundModel(responseBody, upstreamMsg)
-	if modelName == "" {
-		slog.Warn("anthropic_404_model_not_found_without_model", "account_id", account.ID, "upstream_msg", upstreamMsg)
-		return false
-	}
-	resetAt := time.Now().Add(anthropic404ModelCooldown)
-	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, modelName, resetAt); err != nil {
-		slog.Warn("anthropic_404_model_rate_limit_failed", "account_id", account.ID, "model", modelName, "error", err)
-		return false
-	}
-	slog.Warn("anthropic_404_model_rate_limited", "account_id", account.ID, "model", modelName, "reset_at", resetAt)
-	return true
+	// TK (prod P0 2026-06-06, edge us5): an Anthropic 404 model-not-found is a
+	// CLIENT error (a model name no Anthropic account can serve — the catalog is
+	// global, not per-account), so cooling account×model only drains a thin pool
+	// into "No available accounts" 429s. Skip the penalty here too — this is the
+	// fall-through gate reached when HandleUpstreamModelNotFound is bypassed
+	// (no requestedModel at the call site). See the same rationale on
+	// HandleUpstreamModelNotFound; the gateway error mapping surfaces a 400
+	// invalid_request to the client. shouldDisable=false keeps the account
+	// schedulable and avoids wrapping the 404 as an UpstreamFailoverError.
+	slog.Info("anthropic_model_not_found_skip_penalty",
+		"account_id", account.ID,
+		"requested_model", strings.TrimSpace(extractAnthropicNotFoundModel(responseBody, upstreamMsg)))
+	return false
 }
 
-func isAnthropicModelNotFound404(responseBody []byte, upstreamMsg string) bool {
+func IsAnthropicModelNotFound404(responseBody []byte, upstreamMsg string) bool {
 	errorType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(responseBody, "error.type").String()))
 	if errorType == "not_found_error" {
 		return true
@@ -2247,6 +2247,24 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 		return false
 	}
 	if !isUpstreamModelNotFoundError(statusCode, responseBody) {
+		return false
+	}
+	// TK (prod P0 2026-06-06, edge us5): for Anthropic, an upstream 404
+	// model-not-found is a CLIENT error (the caller asked for a model name that
+	// does not exist, e.g. the bare alias "opus" instead of "claude-opus-4-8"),
+	// not a per-account availability gap. Unlike OpenAI/newapi/antigravity
+	// channels — whose per-account model catalogs genuinely differ, which is why
+	// this cooldown exists — every Anthropic subscription/apikey account shares
+	// Anthropic's GLOBAL catalog, so the same bad name 404s on ALL accounts.
+	// Cooling account×model therefore drains a thin edge pool into
+	// "No available accounts" 429s and amplifies one misconfigured client into an
+	// edge-wide outage. Skip the penalty (mirrors the client-induced 400 / 413
+	// exemptions tkIsAnthropicClientInducedBadRequest #2608 and G1). The caller's
+	// gateway error mapping surfaces this as a 400 invalid_request to the client.
+	// Skip silently here: the single skip-log (anthropic_model_not_found_skip_penalty)
+	// is emitted by handle404, the case-404 sink HandleUpstreamError always reaches
+	// for a 404, so we avoid double-logging on the common requestedModel path.
+	if account.Platform == PlatformAnthropic {
 		return false
 	}
 	modelKey := modelRateLimitKeyForUpstreamModelNotFound(ctx, account, requestedModel)
