@@ -180,6 +180,14 @@ var anthropicCooldownTierLadder = []time.Duration{
 	10 * time.Minute,
 }
 
+// anthropicCooldownEscalationSlotMaxSeconds is the placeholder TTL a threshold
+// trip uses to win the per-account escalation slot before its real cooldown is
+// known. It equals the longest ladder cooldown so that a crash between winning
+// the slot and shrinking it to the real cooldown can over-suppress escalation
+// by at most one max-cooldown window — never under-protect. See issue #623 and
+// AnthropicUpstreamErrorCounterCache.AcquireAnthropicCooldownEscalationSlot.
+var anthropicCooldownEscalationSlotMaxSeconds = int(anthropicCooldownTierLadder[len(anthropicCooldownTierLadder)-1].Seconds())
+
 // NewRateLimitService 创建RateLimitService实例
 func NewRateLimitService(accountRepo AccountRepository, usageRepo UsageLogRepository, cfg *config.Config, geminiQuotaService *GeminiQuotaService, tempUnschedCache TempUnschedCache) *RateLimitService {
 	return &RateLimitService{
@@ -1117,6 +1125,37 @@ func (s *RateLimitService) handleAnthropicUpstreamErrorWithOptions(ctx context.C
 		return false
 	}
 
+	// Escalation slot (issue #623): only escalate the tier / (re)apply a cooldown
+	// once per *failure episode*. A single fast burst — e.g. an edge rolling-
+	// upgrade swap window throwing several 503s in a few seconds — otherwise
+	// re-runs this block per error and climbs 30s → 2min → 10min within seconds,
+	// even though errors #2..n are racing in-flight requests from the SAME
+	// episode that error #1 already cooled the account for. We win the slot atomically;
+	// a loser fails the in-flight request over (return true) WITHOUT advancing the
+	// tier or rewriting the cooldown. The slot auto-clears when the cooldown would
+	// have expired (shrunk below), so a genuine re-trip after the account is
+	// rescheduled is a new episode and escalates again — matching the ladder's
+	// documented "repeatedly trips ... inside 30 min" intent. Best-effort: on a
+	// Redis error we fall through and escalate as before so a persistent failure is
+	// never under-protected by a guard outage.
+	acquiredSlot := false
+	if won, slotErr := s.anthropicUpstreamErrorCounterCache.AcquireAnthropicCooldownEscalationSlot(ctx, account.ID, anthropicCooldownEscalationSlotMaxSeconds); slotErr != nil {
+		slog.Warn("anthropic_cooldown_escalation_slot_acquire_failed",
+			"account_id", account.ID,
+			"status_code", statusCode,
+			"error", slotErr)
+	} else if !won {
+		slog.Info("anthropic_upstream_error_escalation_suppressed_active_cooldown",
+			"account_id", account.ID,
+			"status_code", statusCode,
+			"count", count,
+			"threshold", threshold,
+			"pool_mode", account.IsPoolMode())
+		return true
+	} else {
+		acquiredSlot = true
+	}
+
 	// Pick the cooldown duration based on how many times this same account
 	// has tripped the threshold inside the last anthropicCooldownTierTTLMinutes.
 	// Best-effort: any Redis failure falls back to the shortest tier so we
@@ -1135,6 +1174,18 @@ func (s *RateLimitService) handleAnthropicUpstreamErrorWithOptions(ctx context.C
 		}
 	}
 	cooldown := anthropicCooldownTierLadder[tierIndex]
+
+	// Shrink the escalation slot to exactly this cooldown so the NEXT escalation
+	// can only happen after the account would have been rescheduled. Best-effort.
+	if acquiredSlot {
+		if ttlErr := s.anthropicUpstreamErrorCounterCache.SetAnthropicCooldownEscalationSlotTTL(ctx, account.ID, int(cooldown.Seconds())); ttlErr != nil {
+			slog.Warn("anthropic_cooldown_escalation_slot_ttl_failed",
+				"account_id", account.ID,
+				"status_code", statusCode,
+				"cooldown_seconds", int(cooldown.Seconds()),
+				"error", ttlErr)
+		}
+	}
 
 	// Emit a global "tier >= 1" escalation signal so ops_alert_evaluator can
 	// surface "persistent failure rising" without scanning every per-account
@@ -2079,6 +2130,12 @@ func (s *RateLimitService) ResetAnthropicUpstreamErrorCounter(ctx context.Contex
 	// 10-min escalation state forward.
 	if err := s.anthropicUpstreamErrorCounterCache.ResetAnthropicCooldownTier(ctx, accountID); err != nil {
 		slog.Warn("anthropic_cooldown_tier_reset_failed", "account_id", accountID, "error", err)
+	}
+	// And clear the per-episode escalation slot (issue #623) so a healed account
+	// can immediately cool again if it starts failing right after recovery,
+	// instead of waiting out a stale slot left from the previous episode.
+	if err := s.anthropicUpstreamErrorCounterCache.ResetAnthropicCooldownEscalationSlot(ctx, accountID); err != nil {
+		slog.Warn("anthropic_cooldown_escalation_slot_reset_failed", "account_id", accountID, "error", err)
 	}
 }
 

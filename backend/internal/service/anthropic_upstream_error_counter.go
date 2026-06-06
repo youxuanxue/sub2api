@@ -31,4 +31,26 @@ type AnthropicUpstreamErrorCounterCache interface {
 	// the most recent window) or the cache backend is unhealthy.
 	IncrementAnthropicCooldownTierEscalations(ctx context.Context, ttlMinutes int) (int64, error)
 	GetAnthropicCooldownTierEscalations(ctx context.Context) (int64, error)
+
+	// Escalation slot is a per-account guard that lets the tier ladder escalate
+	// at most once per *failure episode* instead of once per error. A single
+	// fast burst — e.g. an edge rolling-upgrade swap window throwing several
+	// 503s in a few seconds (issue #623) — would otherwise re-run the threshold
+	// block per error and climb 30s → 2min → 10min within seconds, even though
+	// errors #2..n are racing in-flight requests from the SAME episode that
+	// error #1 already cooled the account for.
+	//
+	// AcquireAnthropicCooldownEscalationSlot does an atomic SET-if-absent with a
+	// placeholder TTL and returns whether THIS caller won the slot. The winner
+	// performs the escalation, then calls SetAnthropicCooldownEscalationSlotTTL
+	// to shrink the slot to exactly the cooldown it applied, so the slot
+	// auto-clears the moment the account would be rescheduled — a genuine
+	// re-trip after the cooldown expires is a new episode and escalates again
+	// (the ladder's documented "repeatedly trips ... inside 30 min" intent).
+	// Losers fail the in-flight request over without advancing the tier.
+	// Both are best-effort: a Redis failure must never under-protect a genuine
+	// persistent failure, so the caller falls back to escalating on error.
+	AcquireAnthropicCooldownEscalationSlot(ctx context.Context, accountID int64, ttlSeconds int) (bool, error)
+	SetAnthropicCooldownEscalationSlotTTL(ctx context.Context, accountID int64, ttlSeconds int) error
+	ResetAnthropicCooldownEscalationSlot(ctx context.Context, accountID int64) error
 }
