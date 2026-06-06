@@ -483,6 +483,7 @@ func TestOpsAlertEvaluator_AnthropicCooldownTierEscalationCount_ReflectsLadderWr
 		time.Now().UTC(),
 		"",
 		nil,
+		0,
 	)
 	require.True(t, ok, "metric must be reportable when the cache is wired")
 	require.InDelta(t, 2.0, value, 0.0001,
