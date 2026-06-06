@@ -5,6 +5,18 @@
 > 这是「冷重建」runbook，不是热备。100 用户阶段刻意选它——便宜、够用、零常驻技术债。
 > 真正的零停机发版（蓝绿）见 `docs/deploy/blue-green-zero-downtime-backlog.md`（已封存、阈值触发）。
 
+## 恢复资产地图（先看这里——重建/恢复从这里找东西）
+
+| 要恢复的东西 | 存在哪（去这里找） | 用哪节 |
+|---|---|---|
+| **PG 账本**（唯一不可再生）| ① 本机 EBS 卷 `/var/lib/tokenkey/postgres`（随机器）② DLM 快照（tag `Backup=stage0`，每日保留 7 天）③ **离机 S3** `s3://tokenkey-prod-pgdump-<acct>/prod/pgdump/`（每小时，保留 7 天，RPO ≤1h，**唯一离机副本**）| §3 / §4 / §4.4 |
+| **`.env` 密钥**（POSTGRES_PASSWORD / JWT_SECRET / TOTP_ENCRYPTION_KEY）| 本机 EBS 卷 `/var/lib/tokenkey/.env` + 上述 DLM 快照。**离机副本：TODO（issue #621）**——卷+快照全丢时这是缺口，重生成会废 2FA/会话/加密字段 | §3 / §4 随卷带回 |
+| **CFN 模板 / compose / 脚本 / Caddyfile** | 本仓库 `deploy/aws/cloudformation/` + `deploy/aws/stage0/`（build-cfn 嵌入 SSM Parameters，首启拉取）| §3 换机即重建 |
+| **S3 备份桶本身** | CFN 栈 `tokenkey-stage0-backups`（`deploy/aws/cloudformation/stage0-backups.yaml`）| — |
+| **Redis**（计数/缓存）| 不备份——可重建，新机起来自然重填 | — |
+
+> 「哪种故障 → 用哪节」的决策树见 §0 下方。最常见是 §3（实例死、卷在 → 换机零丢失）；S3 dump（§4.4）是卷+快照都没了的最后一手。
+
 ## 0. 先理解已有的韧性能力（多数故障不需要本 runbook 的重活）
 
 prod 栈出厂就带三层保护，**恢复前先确认能否用更轻的一层**：

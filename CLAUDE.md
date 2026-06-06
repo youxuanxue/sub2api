@@ -345,6 +345,10 @@ section only records sub2api-specific choices.
 
 ## Key Reference
 
+### Disaster recovery / 数据重建从哪找
+
+prod 数据层要恢复/重建时，**先看 `deploy/aws/RUNBOOK-disaster-recovery.md` 顶部的「恢复资产地图」**——一张表说清每份备份（PG 账本、`.env` 密钥、CFN 模板、S3 离机 dump）存在哪、用哪节恢复。最常见 §3（实例死卷在→换机零丢失）；离机最后一手是 §4.4（S3 `s3://tokenkey-prod-pgdump-<acct>/prod/pgdump/`，hourly，RPO ≤1h）。
+
 ### Current Gateway Flow
 
 ```
