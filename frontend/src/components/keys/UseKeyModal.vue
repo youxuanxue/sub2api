@@ -474,7 +474,16 @@ const currentFiles = computed((): FileConfig[] => {
 
 function generateAnthropicFiles(baseUrl: string, apiKey: string): FileConfig[] {
   // Recommended defaults (TokenKey + Claude Code; see code.claude.com env docs):
-  //   - model opus[1m] + DISABLE_ADAPTIVE_THINKING + fixed MAX_THINKING_TOKENS: 稳定思考预算
+  //   - model claude-opus-4-8[1m] + DISABLE_ADAPTIVE_THINKING + fixed MAX_THINKING_TOKENS: 稳定思考预算
+  //     NOTE: the model id MUST be a real, empirically-servable Anthropic id
+  //     (see backend supportedAnthropicCatalogModels, regenerated from a live
+  //     prod probe). A bare alias like `opus` is NOT servable: the gateway
+  //     strips the trailing `[1m]` context-window suffix (gateway_anthropic_
+  //     context_window_alias_tk.go) so `opus[1m]` collapses to `opus`, which is
+  //     rejected upstream as model-not-found and surfaced as 400 invalid_request
+  //     (PR #617). `claude-opus-4-8[1m]` collapses to the servable
+  //     `claude-opus-4-8` while the separate `context-1m-2025-08-07` beta header
+  //     still activates the 1M window.
   //   - CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE=60: 约 60% 上下文占用时触发自动压缩（1M 窗口下更稳）
   //   - 不默认开 DISABLE_NONESSENTIAL_TRAFFIC: 直连 Anthropic 时它会把 cache TTL 从 1h 砍到 5min
   let path: string
@@ -485,7 +494,7 @@ function generateAnthropicFiles(baseUrl: string, apiKey: string): FileConfig[] {
       path = 'Terminal'
       content = `export ANTHROPIC_BASE_URL="${baseUrl}"
 export ANTHROPIC_AUTH_TOKEN="${apiKey}"
-export ANTHROPIC_MODEL="opus[1m]"
+export ANTHROPIC_MODEL="claude-opus-4-8[1m]"
 
 # 防降智 + 控成本（详见 hint）
 export CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1
@@ -501,7 +510,7 @@ export CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE=60
       path = 'Command Prompt'
       content = `set ANTHROPIC_BASE_URL=${baseUrl}
 set ANTHROPIC_AUTH_TOKEN=${apiKey}
-set ANTHROPIC_MODEL=opus[1m]
+set ANTHROPIC_MODEL=claude-opus-4-8[1m]
 
 set CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1
 set MAX_THINKING_TOKENS=31999
@@ -516,7 +525,7 @@ REM set CLAUDE_CODE_MAKE_NO_MISTAKES=1`
       path = 'PowerShell'
       content = `$env:ANTHROPIC_BASE_URL="${baseUrl}"
 $env:ANTHROPIC_AUTH_TOKEN="${apiKey}"
-$env:ANTHROPIC_MODEL="opus[1m]"
+$env:ANTHROPIC_MODEL="claude-opus-4-8[1m]"
 
 $env:CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING="1"
 $env:MAX_THINKING_TOKENS="31999"
@@ -537,7 +546,7 @@ $env:CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE="60"
     : '%userprofile%\\.claude\\settings.json'
 
   const vscodeContent = `{
-  "model": "opus[1m]",
+  "model": "claude-opus-4-8[1m]",
   "effortLevel": "high",
   "env": {
     "ANTHROPIC_BASE_URL": "${baseUrl}",
@@ -691,23 +700,16 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
       }
     }
   }
+  // NOTE: keep this catalog aligned with the empirically-servable OpenAI set
+  // (backend supportedOpenAICatalogModels, regenerated from a live prod probe —
+  // PR #608). gpt-5.2 was dropped here because the probe returned 502 on the
+  // chat/completions path opencode uses and it is retired from the servable
+  // allowlist + public catalog + Your Menu. gpt-5.3-codex / codex-mini-latest
+  // are intentionally LEFT for now: they 502 on the API-key chat/completions
+  // path but carry a codex-ws ChatGPT-OAuth reverse-mapping
+  // (normalizeOpenAIModelForUpstream, scripts/sentinels/gateway-tk.json), so
+  // their true servability needs a codex-ws probe before removal.
   const openaiModels = {
-    'gpt-5.2': {
-      name: 'GPT-5.2',
-      limit: {
-        context: 400000,
-        output: 128000
-      },
-      options: {
-        store: false
-      },
-      variants: {
-        low: {},
-        medium: {},
-        high: {},
-        xhigh: {}
-      }
-    },
     'gpt-5.5': {
       name: 'GPT-5.5',
       limit: {

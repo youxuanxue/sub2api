@@ -486,6 +486,13 @@
         "opus_mapped_model: \"gpt-5.5\","
       ],
       "rationale": "Frontend mirror of the Go code-default opus family mapping (backend/internal/service/openai_messages_dispatch.go defaultOpenAIMessagesDispatchOpusMappedModel = gpt-5.5). The admin form prefills this value when group config is empty; if the two copies drift the UI shows a default the gateway will not apply. Keep both sides in lockstep."
+    },
+    {
+      "path": "frontend/src/components/keys/UseKeyModal.vue",
+      "must_contain": [
+        "claude-opus-4-8[1m]"
+      ],
+      "rationale": "The 'Use API Key' modal recommends ANTHROPIC_MODEL for Claude Code. The base id MUST be an empirically-servable Anthropic model (backend supportedAnthropicCatalogModels, regenerated from a live prod probe — PR #608), NOT a bare alias. The gateway strips the trailing [1m] context-window suffix (gateway_anthropic_context_window_alias_tk.go), so a bare 'opus[1m]' collapses to 'opus' and is rejected as a non-servable model name → 400 invalid_request (PR #617), while the user silently never gets 1M context. Pinning the servable id catches a regression back to the bare alias on upstream merge or careless edit. Advance this needle (and the modal's export/settings strings) together when the servable opus generation moves past claude-opus-4-8."
     }
   ]
 }
