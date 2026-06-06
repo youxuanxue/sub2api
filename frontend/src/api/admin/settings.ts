@@ -567,7 +567,6 @@ export interface SystemSettings {
   openai_codex_user_agent: string;
   openai_allow_claude_code_codex_plugin: boolean;
   web_search_emulation_enabled?: boolean;
-  openai_fast_policy_settings?: OpenAIFastPolicySettings;
 
   // Payment configuration
   payment_enabled: boolean;
@@ -812,7 +811,6 @@ export interface UpdateSettingsRequest {
   rewrite_message_cache_control?: boolean;
   antigravity_user_agent_version?: string;
   web_search_emulation_enabled?: boolean;
-  openai_fast_policy_settings?: OpenAIFastPolicySettings;
   openai_codex_user_agent?: string;
   openai_allow_claude_code_codex_plugin?: boolean;
   // Payment configuration
