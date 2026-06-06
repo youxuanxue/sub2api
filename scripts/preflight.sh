@@ -780,6 +780,30 @@ else
     echo "  ok: data-layer capacity verdict green/approaching/trigger fixtures pass"
 fi
 
+# ---- sub2api: pgdump timer cadence parity ----------------------------------
+# The tokenkey-pgdump systemd timer is defined in TWO places that must stay in
+# sync: the first-boot copy in stage0-ec2-bootstrap.sh and the live-host refresh
+# in ops/stage0/pg_dump_refresh_via_ssm.sh. A cadence change to one but not the
+# other silently leaves prod on a stale schedule. Compare the pgdump timer's
+# OnCalendar line across both (value-agnostic — extract + equal, so the cadence
+# can change freely as long as both move together).
+echo ""
+echo "=== sub2api: pgdump timer cadence parity ==="
+_pgdump_boot_cal="$(awk '/tokenkey-pgdump\.timer/{f=1} f&&/OnCalendar=/{print; exit}' deploy/aws/stage0/stage0-ec2-bootstrap.sh 2>/dev/null)"
+_pgdump_refresh_cal="$(grep -m1 'OnCalendar=' ops/stage0/pg_dump_refresh_via_ssm.sh 2>/dev/null)"
+if [ -z "${_pgdump_boot_cal}" ] || [ -z "${_pgdump_refresh_cal}" ]; then
+    echo "  FAIL: could not extract pgdump timer OnCalendar from both sources"
+    echo "        boot='${_pgdump_boot_cal}' refresh='${_pgdump_refresh_cal}'"
+    errors=$((errors + 1))
+elif [ "${_pgdump_boot_cal}" != "${_pgdump_refresh_cal}" ]; then
+    echo "  FAIL: pgdump timer cadence drift between bootstrap and pg_dump_refresh"
+    echo "        bootstrap:        ${_pgdump_boot_cal}"
+    echo "        pg_dump_refresh:  ${_pgdump_refresh_cal}"
+    errors=$((errors + 1))
+else
+    echo "  ok: pgdump timer cadence in sync (${_pgdump_boot_cal})"
+fi
+
 # ---- sub2api: workflow job-level if env-context drift -----------------------
 # GitHub Actions does NOT allow env references in jobs.<name>.if expressions
 # (env evaluates AFTER if). Such references make the entire workflow file

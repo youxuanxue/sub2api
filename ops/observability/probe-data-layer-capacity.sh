@@ -37,7 +37,8 @@ SELECT 'PGSTATS '||row_to_json(t)::text FROM (
 " 2>&1
 
 echo "=== DFSTATS (data volume) ==="
-# Host df of the data dir (where PG data lives); bytes via -B1. Field-named JSON.
-df -B1 "${DATA_DIR}" 2>/dev/null | awk 'NR==2 {
+# Host df of the data dir (where PG data lives); bytes via -B1. -P (POSIX) forces
+# one line per filesystem so a long device name can't wrap and mis-shift columns.
+df -P -B1 "${DATA_DIR}" 2>/dev/null | awk 'NR==2 {
   printf "DFSTATS {\"df_total_bytes\":%s,\"df_used_bytes\":%s,\"df_avail_bytes\":%s,\"df_mount\":\"%s\"}\n", $2, $3, $4, $6
 }'

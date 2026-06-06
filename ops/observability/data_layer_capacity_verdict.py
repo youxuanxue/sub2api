@@ -49,8 +49,23 @@ def compute_verdict(stats: dict, thresholds: dict) -> dict:
 
     avg_row = usage_logs_bytes / usage_logs_rows if usage_logs_rows > 0 else 0.0
     monthly_growth = rows_30d * avg_row  # ~bytes added to usage_logs per 30 days
+
+    # No volume data (df missing / probe partial failure) => inconclusive, NOT a
+    # trigger. Guard on df_total only: df_total>0 with df_avail==0 is a genuinely
+    # full disk and SHOULD still trigger below.
+    if df_total <= 0:
+        return {
+            "verdict": "unknown",
+            "usage_logs_gib": round(usage_logs_bytes / 1024**3, 3),
+            "monthly_growth_gib": round(monthly_growth / 1024**3, 3),
+            "months_to_volume_full": None,
+            "usage_logs_pct_of_volume": None,
+            "df_avail_gib": None,
+            "summary": "no volume (df) data from probe — capacity verdict inconclusive",
+        }
+
     months_to_full = (df_avail / monthly_growth) if monthly_growth > 0 else math.inf
-    pct_of_volume = (usage_logs_bytes / df_total * 100.0) if df_total > 0 else 0.0
+    pct_of_volume = usage_logs_bytes / df_total * 100.0
 
     m = thresholds["months_to_volume_full"]
     p = thresholds["usage_logs_pct_of_volume"]
@@ -128,6 +143,20 @@ _FIXTURES = [
         {"usage_logs_bytes": 50 * 1024**2, "usage_logs_rows": 1000,
          "usage_logs_rows_30d": 0, "df_total_bytes": 30 * 1024**3, "df_avail_bytes": 25 * 1024**3},
         "green",
+    ),
+    (
+        "unknown_missing_df",
+        # probe failed to read df (no DFSTATS) + nonzero growth: must NOT false-trigger
+        {"usage_logs_bytes": 5 * 1024**3, "usage_logs_rows": 8_000_000,
+         "usage_logs_rows_30d": 2_000_000, "df_total_bytes": 0, "df_avail_bytes": 0},
+        "unknown",
+    ),
+    (
+        "trigger_disk_genuinely_full",
+        # df present (df_total>0) but df_avail==0 => genuinely full => trigger is correct
+        {"usage_logs_bytes": 5 * 1024**3, "usage_logs_rows": 8_000_000,
+         "usage_logs_rows_30d": 2_000_000, "df_total_bytes": 30 * 1024**3, "df_avail_bytes": 0},
+        "trigger",
     ),
 ]
 
