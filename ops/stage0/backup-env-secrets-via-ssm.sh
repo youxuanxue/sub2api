@@ -6,8 +6,12 @@
 # the dump script is already at the SSM Standard-tier embed-size limit, and we do NOT
 # want to co-locate the decryption keys with the S3 ledger dump (different blast
 # radius). The instance does the PutParameter ITSELF (plaintext never leaves the host
-# / never appears in this command's SSM output) using the ssm:PutParameter grant from
-# the AppInstanceSecretBackupPolicy ManagedPolicy in stage0-backups.yaml.
+# / never appears in this command's SSM output) using the ssm:PutParameter grant on the
+# prod InstanceRole. Durable home: stage0-single-ec2.yaml (applied on the next prod CFN
+# update); until then mirrored as a manual inline policy (EnvSecretsBackup) on the role
+# via the IAM console. If the prod instance/role is ever REPLACED before the CFN update
+# lands, re-add that inline policy (ssm:PutParameter on .../stage0/env-secrets-backup)
+# or this script's PutParameter step will AccessDenied. See RUNBOOK §4.4.
 #
 # Run this:
 #   - once at activation (after deploying stage0-backups.yaml), and

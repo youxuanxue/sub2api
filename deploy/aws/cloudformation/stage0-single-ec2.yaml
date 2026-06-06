@@ -267,6 +267,17 @@ Resources:
                 Action:
                   - ssm:GetParameter
                 Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectName}/${Environment}/stage0/*'
+              # Off-box the .env SECRETS (POSTGRES_PASSWORD/JWT_SECRET/TOTP_ENCRYPTION_KEY)
+              # to an SSM SecureString via ops/stage0/backup-env-secrets-via-ssm.sh. Only
+              # PutParameter is new here — GetParameter on this param is already covered by
+              # the stage0/* read above. This is the DURABLE home for the grant (survives
+              # instance/role replacement). Until the prod stack is next CFN-updated, the
+              # identical grant is mirrored as a manual inline policy (EnvSecretsBackup) on
+              # this role via the IAM console — see RUNBOOK §4.4 / the ops script header.
+              - Effect: Allow
+                Action:
+                  - ssm:PutParameter
+                Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectName}/${Environment}/stage0/env-secrets-backup'
       Tags:
         - {Key: Project, Value: !Ref ProjectName}
 

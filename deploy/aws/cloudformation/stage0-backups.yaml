@@ -101,28 +101,16 @@ Resources:
             Action: 's3:ListBucket'
             Resource: !GetAtt PgdumpBackupBucket.Arn
 
-  # Off-box the .env SECRETS (POSTGRES_PASSWORD/JWT_SECRET/TOTP_ENCRYPTION_KEY) to an
-  # SSM SecureString — a DIFFERENT blast radius than the S3 dump bucket, so the
-  # decryption keys are not co-located with the ciphertext they protect. Granted as a
-  # standalone ManagedPolicy attached to the existing app InstanceRole BY NAME (derived
-  # from the ARN), so the prod instance stack is not updated. SSM Parameters have no
-  # resource policy, so this identity grant is the only way; default aws/ssm KMS key
-  # needs no extra kms perms here. The instance does PutParameter itself (plaintext
-  # never leaves the host). See tokenkey-pgdump.sh secret off-box block + RUNBOOK §4.4.
-  AppInstanceSecretBackupPolicy:
-    Type: AWS::IAM::ManagedPolicy
-    Properties:
-      Roles:
-        - !Select [1, !Split ['role/', !Ref AppInstanceRoleArn]]
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Sid: PutGetEnvSecretsBackup
-            Effect: Allow
-            Action:
-              - 'ssm:PutParameter'
-              - 'ssm:GetParameter'
-            Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectName}/${Environment}/stage0/env-secrets-backup'
+  # NOTE — the .env SECRETS off-box (SSM SecureString, a DIFFERENT blast radius than this
+  # dump bucket so the decryption keys are not co-located with the ciphertext) needs an
+  # IDENTITY grant (ssm:PutParameter), because SSM Parameters have no resource policy — a
+  # bucket-style same-account either/or grant is impossible. That grant therefore canNOT
+  # live in this standalone stack without an iam:CreatePolicy capability no available
+  # principal has. Its DURABLE home is the prod InstanceRole in stage0-single-ec2.yaml
+  # (ssm:PutParameter on .../stage0/env-secrets-backup), applied on the next prod CFN
+  # update; until then it is mirrored as a manual inline policy (EnvSecretsBackup) added
+  # on the role via the IAM console. See ops/stage0/backup-env-secrets-via-ssm.sh +
+  # RUNBOOK §4.4. The EnvSecretsSsmParam output below documents the param name to wire.
 
 Outputs:
   BucketName:

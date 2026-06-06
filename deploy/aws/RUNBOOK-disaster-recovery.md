@@ -11,6 +11,7 @@
 |---|---|---|
 | **PG 账本**（唯一不可再生）| ① 本机 EBS 卷 `/var/lib/tokenkey/postgres`（随机器）② DLM 快照（tag `Backup=stage0`，每日保留 7 天）③ **离机 S3** `s3://tokenkey-prod-pgdump-<acct>/prod/pgdump/`（每小时，保留 7 天，RPO ≤1h，**唯一离机副本**）| §3 / §4 / §4.4 |
 | **`.env` 密钥**（POSTGRES_PASSWORD / JWT_SECRET / TOTP_ENCRYPTION_KEY）| ① 本机 EBS 卷 `/var/lib/tokenkey/.env` + DLM 快照 ② **离机 SSM SecureString** `/tokenkey/prod/stage0/env-secrets-backup`（KMS 加密，与 S3 dump 桶不同爆炸半径；运营用 `ops/stage0/backup-env-secrets-via-ssm.sh` 在激活+密钥轮转时 push，变更检测幂等）| §3 / §4 随卷带回；总损见 §4.4 |
+| ↳ *push 授权*（`ssm:PutParameter`，仅离机 push 用，恢复不需要）| durable 在 prod InstanceRole（`stage0-single-ec2.yaml`，下次 prod CFN 更新生效）；当前临时为角色上手工内联策略 `EnvSecretsBackup`。**⚠️ §3 换机重建角色后，若 CFN 更新尚未落地，需在 IAM 控制台把该内联策略加回（`ssm:PutParameter` on `.../stage0/env-secrets-backup`），否则离机 push 静默失效**（已离机的旧值仍可正常 §4.4 取回）| §3 后重加 |
 | **CFN 模板 / compose / 脚本 / Caddyfile** | 本仓库 `deploy/aws/cloudformation/` + `deploy/aws/stage0/`（build-cfn 嵌入 SSM Parameters，首启拉取）| §3 换机即重建 |
 | **S3 备份桶本身** | CFN 栈 `tokenkey-stage0-backups`（`deploy/aws/cloudformation/stage0-backups.yaml`）| — |
 | **Redis**（计数/缓存）| 不备份——可重建，新机起来自然重填 | — |
