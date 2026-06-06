@@ -42,8 +42,30 @@ func tkUpstreamClientInducedRejection(c *gin.Context) bool {
 	if status == 413 {
 		return true
 	}
-	// Only request-validation 4xx are caller-fault. 401/403/404 and any 5xx stay
-	// provider-owned (account auth / availability / genuine upstream failure).
+	// TK (prod P0 2026-06-06, edge us5): an upstream 404 model-not-found is
+	// caller-fault — the client asked for a model name that does not exist (e.g.
+	// the bare alias "opus" on an empty-mapping passthrough account, forwarded and
+	// rejected by Anthropic with not_found_error). The gateway now returns a 400
+	// "Unsupported model" to the client (handleErrorResponse), but the captured
+	// upstream status is still 404, so it must be classified client-owned HERE or
+	// it keeps counting toward upstream_error_rate (the us5 P0 driver: 5×502 over a
+	// tiny SLA denominator = 100%). Mirrors the 400 invalid_request case below.
+	if status == 404 {
+		body, msg := tkOpsUpstreamErrorText(c)
+		combined := strings.ToLower(strings.TrimSpace(msg + "\n" + body))
+		if combined == "" || tkOpsIsAccountLevel4xx(combined) {
+			return false
+		}
+		if et := strings.ToLower(strings.TrimSpace(gjson.Get(body, "error.type").String())); et == "not_found_error" {
+			return true
+		}
+		return strings.Contains(combined, "not_found_error") ||
+			(strings.Contains(combined, "model") &&
+				(strings.Contains(combined, "not found") || strings.Contains(combined, "unknown model")))
+	}
+	// Only request-validation 4xx are caller-fault. 401/403 and any 5xx stay
+	// provider-owned (account auth / availability / genuine upstream failure); 404
+	// model-not-found is handled as caller-fault just above.
 	if status != 400 && status != 422 {
 		return false
 	}

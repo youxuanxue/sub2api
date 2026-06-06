@@ -77,6 +77,24 @@ func TestClassifyOpsUpstreamClientInducedRejectionOwnedByClient(t *testing.T) {
 		require.Equal(t, "request", phase)
 		require.Equal(t, "client", errorOwner)
 	})
+
+	// TK (prod P0 2026-06-06, edge us5): bare "opus" on empty-mapping passthrough
+	// accounts → upstream 404 not_found_error. The gateway returns a client 400
+	// "Unsupported model", but the captured upstream status is still 404; it must
+	// be owned by the client or it keeps driving upstream_error_rate.
+	t.Run("anthropic upstream 404 model-not-found is client-induced", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Set(service.OpsUpstreamErrorsKey, []*service.OpsUpstreamErrorEvent{{
+			UpstreamStatusCode:   http.StatusNotFound,
+			UpstreamResponseBody: `{"type":"error","error":{"type":"not_found_error","message":"model: opus"}}`,
+		}})
+
+		phase, _, errorOwner, _ := classifyOpsErrorLog(c, "api_error", "Unsupported model: opus", "", http.StatusBadRequest)
+
+		require.Equal(t, "request", phase)
+		require.Equal(t, "client", errorOwner, "must NOT be provider — otherwise it feeds upstream_error_rate")
+	})
 }
 
 func TestClassifyOpsGenuineUpstreamErrorsStayProvider(t *testing.T) {
@@ -94,6 +112,8 @@ func TestClassifyOpsGenuineUpstreamErrorsStayProvider(t *testing.T) {
 		{"upstream 403 forbidden", http.StatusForbidden, "forbidden", "upstream_error", http.StatusForbidden},
 		{"account-level 400 organization disabled", http.StatusBadRequest, "This organization has been disabled.", "api_error", http.StatusBadRequest},
 		{"account-level 400 credit balance", http.StatusBadRequest, "Your credit balance is too low to access the API.", "api_error", http.StatusBadRequest},
+		// A generic 404 that is NOT a model-not-found (no "model" signal) stays provider.
+		{"generic upstream 404 not model-not-found", http.StatusNotFound, "resource not found", "upstream_error", http.StatusBadGateway},
 	}
 
 	for _, tc := range cases {

@@ -35,6 +35,6 @@ func (h *GatewayHandler) tkWriteUnsupportedModelIfApplicable(c *gin.Context, err
 			zap.Error(err),
 		)
 	}
-	h.handleStreamingAwareError(c, http.StatusBadRequest, "invalid_request_error", "Unsupported model: "+reqModel, streamStarted)
+	h.handleStreamingAwareError(c, http.StatusBadRequest, service.TkUnsupportedModelErrType, service.TkUnsupportedModelMessage(reqModel), streamStarted)
 	return true
 }

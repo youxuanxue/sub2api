@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // ErrUnsupportedModel reports that account selection failed solely because the
@@ -25,6 +26,29 @@ import (
 // handler.isOpsNoAvailableAccountError (which matches that phrase) would relabel
 // it as routing-capacity instead of a client request error.
 var ErrUnsupportedModel = errors.New("unsupported model")
+
+// TkUnsupportedModelErrType / TkUnsupportedModelMessage are the SINGLE SOURCE of
+// the client-facing "unserveable model" contract, shared by the two emission
+// points so they return a byte-identical response:
+//   - path A (whitelist accounts): scheduler selection fails with model_unsupported
+//     → handler.tkWriteUnsupportedModelIfApplicable;
+//   - path B (passthrough accounts): the model is forwarded and the upstream
+//     answers 404 model-not-found → service.handleErrorResponse (prod P0
+//     2026-06-06 edge us5: bare "opus" on empty-mapping OAuth accounts).
+//
+// Both surface 400 invalid_request_error "Unsupported model: <name>", classified
+// client-owned (phase=request) and kept out of upstream_error_rate.
+const TkUnsupportedModelErrType = "invalid_request_error"
+
+// TkUnsupportedModelMessage builds the client-facing message for an unserveable
+// model name (single source so path A and path B never drift).
+func TkUnsupportedModelMessage(model string) string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return "Unsupported model"
+	}
+	return "Unsupported model: " + model
+}
 
 // tkSelectionFailedDueToUnsupportedModel reports whether a failed account
 // selection was caused PURELY by "no account serves this model name", as opposed
