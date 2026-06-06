@@ -156,6 +156,8 @@ aws ssm put-parameter --region "<lightsail_region>" \
 
 Smoke base URL 与 Edge 本机 model 在代码内固定（`https://api.tokenkey.dev` / `claude-sonnet-4-6`），无需 Environment var。
 
+**飞书告警:不要按 edge 配。** webhook/secret 是**仓库级** secrets `TK_FEISHU_WEBHOOK_URL` / `TK_FEISHU_SIGNING_SECRET`(配一次,对所有 `edge-*` / `prod` Environment 可见),部署时由 `ops/stage0/sync-feishu-config.sh` 自动注入新边并启用 + 写后回读自验(配不齐则部署红)。别在 `edge-<id>` Environment 建同名密钥(会覆盖 repo 级)。新边 provision/upgrade 后即具备账号失效 / P0 告警能力,无手工步骤。详见 `deploy/aws/README.md` §「飞书告警自动接入」。
+
 **US 多 region edge**（`us-east-1` / `us-east-2` / `us-west-2`）：Environment 的 `AWS_OIDC_ROLE_ARN`
 与 `edge-us1` 相同（`tokenkey-gha-us-east-1-error-clustering`）；Lightsail API region 由 matrix
 `lightsail_region` 决定，与 OIDC role region 无关。
