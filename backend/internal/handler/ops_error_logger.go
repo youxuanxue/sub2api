@@ -554,6 +554,11 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		c.Writer = w
 		c.Next()
 
+		// TK: per-API-key cancel-storm detector. Runs on every terminal outcome
+		// (success + >=400), independent of the ops-monitoring master switch and
+		// of IgnoreContextCanceled log-skipping. No-op unless its own mode is on.
+		tkObserveCancelStorm(c, ops)
+
 		if ops == nil {
 			return
 		}
