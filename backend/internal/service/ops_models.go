@@ -51,9 +51,9 @@ type OpsErrorLog struct {
 	UserEmail string `json:"user_email"`
 	// TK: See upstream Wei-Shaw/sub2api#2410 — carry username + API key name so ops
 	// can identify the caller (and which key) without a separate DB lookup.
-	Username  string `json:"username"`
-	APIKeyID  *int64 `json:"api_key_id"`
-	AccountID *int64 `json:"account_id"`
+	Username    string `json:"username"`
+	APIKeyID    *int64 `json:"api_key_id"`
+	AccountID   *int64 `json:"account_id"`
 	AccountName string `json:"account_name"`
 	GroupID     *int64 `json:"group_id"`
 	GroupName   string `json:"group_name"`

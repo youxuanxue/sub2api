@@ -15,6 +15,11 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
+      # TK: backend imports github.com/QuantumNous/new-api via the ../../new-api
+      # replace directive (CLAUDE.md §4). govulncheck loads all packages, so the
+      # sibling clone must be present or package loading fails. Same composite
+      # action used by every Go job in backend-ci.yml.
+      - uses: ./.github/actions/cache-and-checkout-new-api
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
