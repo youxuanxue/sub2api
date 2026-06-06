@@ -201,15 +201,19 @@
         "ResetAnthropicCooldownTier",
         "IncrementAnthropicCooldownTierEscalations",
         "GetAnthropicCooldownTierEscalations",
-        "AnthropicCooldownTierEscalationsKey"
+        "AnthropicCooldownTierEscalationsKey",
+        "AcquireAnthropicCooldownEscalationSlot",
+        "SetAnthropicCooldownEscalationSlotTTL",
+        "ResetAnthropicCooldownEscalationSlot"
       ],
-      "rationale": "Interface seam for (a) per-account Anthropic upstream-error short-window counting, (b) per-account cooldown-tier escalation (30s → 2min → 10min), and (c) global tier>=1 escalation aggregation for ops alerts. If an upstream merge drops the tier methods, handleAnthropicUpstreamError silently collapses back to a fixed cooldown — losing the persistent-failure escalation that replaces PR #333's removed pool_mode immunity. The global escalation pair (Increment/Get) + exported key constant `AnthropicCooldownTierEscalationsKey` are the contract ops_alert_evaluator's `anthropic_cooldown_tier_escalation_count` metric reads from; dropping any one silently disables the alert."
+      "rationale": "Interface seam for (a) per-account Anthropic upstream-error short-window counting, (b) per-account cooldown-tier escalation (30s → 2min → 10min), and (c) global tier>=1 escalation aggregation for ops alerts. If an upstream merge drops the tier methods, handleAnthropicUpstreamError silently collapses back to a fixed cooldown — losing the persistent-failure escalation that replaces PR #333's removed pool_mode immunity. The global escalation pair (Increment/Get) + exported key constant `AnthropicCooldownTierEscalationsKey` are the contract ops_alert_evaluator's `anthropic_cooldown_tier_escalation_count` metric reads from; dropping any one silently disables the alert. The escalation-slot trio (Acquire/SetTTL/Reset, issue #623) is the per-episode guard that stops a single fast 5xx burst — e.g. an edge rolling-upgrade swap window — from climbing 30s→2min→10min within seconds; dropping it silently reintroduces that self-noise amplifier."
     },
     {
       "path": "backend/internal/repository/anthropic_upstream_error_counter_cache.go",
       "must_contain": [
         "anthropic_upstream_error_count:account:",
         "anthropic_cooldown_tier:account:",
+        "anthropic_cooldown_escalation_slot:account:",
         "service.AnthropicCooldownTierEscalationsKey",
         "NewAnthropicUpstreamErrorCounterCache",
         "IncrementAnthropicUpstreamErrorCount",
@@ -217,9 +221,12 @@
         "IncrementAnthropicCooldownTier",
         "ResetAnthropicCooldownTier",
         "IncrementAnthropicCooldownTierEscalations",
-        "GetAnthropicCooldownTierEscalations"
+        "GetAnthropicCooldownTierEscalations",
+        "AcquireAnthropicCooldownEscalationSlot",
+        "SetAnthropicCooldownEscalationSlotTTL",
+        "ResetAnthropicCooldownEscalationSlot"
       ],
-      "rationale": "Redis-backed atomic counters for (1) the per-account Anthropic upstream-error short window, (2) the per-account cooldown-tier escalation window, and (3) the global tier>=1 escalation aggregator that drives ops_alert_evaluator's anthropic_cooldown_tier_escalation_count metric. All three prefixes/keys (`anthropic_upstream_error_count:account:`, `anthropic_cooldown_tier:account:`, `AnthropicCooldownTierEscalationsKey` — the latter exported from the service package so the evaluator's Redis fallback and the repository writer share a single literal) must remain stable so all app replicas share the same threshold + tier + escalation state."
+      "rationale": "Redis-backed atomic counters for (1) the per-account Anthropic upstream-error short window, (2) the per-account cooldown-tier escalation window, (3) the global tier>=1 escalation aggregator that drives ops_alert_evaluator's anthropic_cooldown_tier_escalation_count metric, and (4) the per-episode escalation slot (`anthropic_cooldown_escalation_slot:account:`, issue #623) implemented as an atomic SET-NX guard so a single fast 5xx burst escalates the tier at most once instead of once per error. All prefixes/keys (`anthropic_upstream_error_count:account:`, `anthropic_cooldown_tier:account:`, `anthropic_cooldown_escalation_slot:account:`, `AnthropicCooldownTierEscalationsKey` — the latter exported from the service package so the evaluator's Redis fallback and the repository writer share a single literal) must remain stable so all app replicas share the same threshold + tier + escalation + slot state."
     },
     {
       "path": "backend/internal/service/wire.go",

@@ -157,6 +157,18 @@ type anthropicUpstreamErrorCounterCacheStub struct {
 	// total of the escalations slice length so reads stay consistent with
 	// writes without a real Redis backend.
 	escalationTTLMinutes []int
+
+	// Per-episode escalation slot guard (issue #623). slotResults scripts the
+	// AcquireAnthropicCooldownEscalationSlot return values in order; an empty
+	// slice means the slot is always free (won=true), preserving the default
+	// "escalate on every threshold trip" behaviour for tests that don't model
+	// bursts. slotErr forces an acquire error to exercise the best-effort
+	// fall-through path.
+	slotResults    []bool
+	slotErr        error
+	slotAcquireIDs []int64
+	slotTTLSeconds []int
+	slotResetCalls []int64
 }
 
 func (s *anthropicUpstreamErrorCounterCacheStub) IncrementAnthropicUpstreamErrorCount(_ context.Context, accountID int64, windowMinutes int) (int64, error) {
@@ -201,6 +213,29 @@ func (s *anthropicUpstreamErrorCounterCacheStub) IncrementAnthropicCooldownTierE
 
 func (s *anthropicUpstreamErrorCounterCacheStub) GetAnthropicCooldownTierEscalations(_ context.Context) (int64, error) {
 	return int64(len(s.escalationTTLMinutes)), nil
+}
+
+func (s *anthropicUpstreamErrorCounterCacheStub) AcquireAnthropicCooldownEscalationSlot(_ context.Context, accountID int64, _ int) (bool, error) {
+	s.slotAcquireIDs = append(s.slotAcquireIDs, accountID)
+	if s.slotErr != nil {
+		return false, s.slotErr
+	}
+	if len(s.slotResults) == 0 {
+		return true, nil
+	}
+	won := s.slotResults[0]
+	s.slotResults = s.slotResults[1:]
+	return won, nil
+}
+
+func (s *anthropicUpstreamErrorCounterCacheStub) SetAnthropicCooldownEscalationSlotTTL(_ context.Context, _ int64, ttlSeconds int) error {
+	s.slotTTLSeconds = append(s.slotTTLSeconds, ttlSeconds)
+	return nil
+}
+
+func (s *anthropicUpstreamErrorCounterCacheStub) ResetAnthropicCooldownEscalationSlot(_ context.Context, accountID int64) error {
+	s.slotResetCalls = append(s.slotResetCalls, accountID)
+	return nil
 }
 
 func (r *tokenCacheInvalidatorRecorder) InvalidateToken(ctx context.Context, account *Account) error {

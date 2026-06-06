@@ -3,14 +3,16 @@ package repository
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/redis/go-redis/v9"
 )
 
 const (
-	anthropicUpstreamErrorCounterPrefix = "anthropic_upstream_error_count:account:"
-	anthropicCooldownTierPrefix         = "anthropic_cooldown_tier:account:"
+	anthropicUpstreamErrorCounterPrefix   = "anthropic_upstream_error_count:account:"
+	anthropicCooldownTierPrefix           = "anthropic_cooldown_tier:account:"
+	anthropicCooldownEscalationSlotPrefix = "anthropic_cooldown_escalation_slot:account:"
 )
 
 var anthropicUpstreamErrorCounterIncrScript = redis.NewScript(`
@@ -93,4 +95,29 @@ func (c *anthropicUpstreamErrorCounterCache) GetAnthropicCooldownTierEscalations
 		return 0, fmt.Errorf("get anthropic cooldown tier escalations: %w", err)
 	}
 	return val, nil
+}
+
+func (c *anthropicUpstreamErrorCounterCache) AcquireAnthropicCooldownEscalationSlot(ctx context.Context, accountID int64, ttlSeconds int) (bool, error) {
+	key := fmt.Sprintf("%s%d", anthropicCooldownEscalationSlotPrefix, accountID)
+	if ttlSeconds < 1 {
+		ttlSeconds = 1
+	}
+	ok, err := c.rdb.SetNX(ctx, key, 1, time.Duration(ttlSeconds)*time.Second).Result()
+	if err != nil {
+		return false, fmt.Errorf("acquire anthropic cooldown escalation slot: %w", err)
+	}
+	return ok, nil
+}
+
+func (c *anthropicUpstreamErrorCounterCache) SetAnthropicCooldownEscalationSlotTTL(ctx context.Context, accountID int64, ttlSeconds int) error {
+	key := fmt.Sprintf("%s%d", anthropicCooldownEscalationSlotPrefix, accountID)
+	if ttlSeconds < 1 {
+		ttlSeconds = 1
+	}
+	return c.rdb.Expire(ctx, key, time.Duration(ttlSeconds)*time.Second).Err()
+}
+
+func (c *anthropicUpstreamErrorCounterCache) ResetAnthropicCooldownEscalationSlot(ctx context.Context, accountID int64) error {
+	key := fmt.Sprintf("%s%d", anthropicCooldownEscalationSlotPrefix, accountID)
+	return c.rdb.Del(ctx, key).Err()
 }
