@@ -230,6 +230,17 @@ jobs:
           DOMAIN: ${{ steps.edge.outputs.domain }}
         run: bash ops/stage0/external_health.sh "$API_URL"
 
+      - name: Sync Feishu alert config
+        # Inject the shared Feishu webhook/secret into this node's
+        # ops_email_notification_config and enable alerting (idempotent). The
+        # script verifies the write and exits non-zero if not applied, so a node
+        # that cannot alert FAILS the deploy (gate for the us7 silent-mute gap).
+        if: inputs.operation == 'provision' || inputs.operation == 'upgrade' || inputs.operation == 'rollback' || inputs.operation == 'smoke'
+        env:
+          TK_FEISHU_WEBHOOK_URL: ${{ secrets.TK_FEISHU_WEBHOOK_URL }}
+          TK_FEISHU_SIGNING_SECRET: ${{ secrets.TK_FEISHU_SIGNING_SECRET }}
+        run: bash ops/stage0/sync-feishu-config.sh --platform lightsail "${{ steps.edge.outputs.edge_id }}"
+
       - name: Edge smoke
         if: inputs.operation == 'smoke' || inputs.operation == 'upgrade' || inputs.operation == 'rollback'
         env:

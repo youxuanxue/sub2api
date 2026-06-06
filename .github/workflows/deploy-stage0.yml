@@ -151,6 +151,16 @@ jobs:
           API_URL: ${{ steps.instance.outputs.api_url }}
         run: bash ops/stage0/external_health.sh "$API_URL"
 
+      - name: Sync Feishu alert config
+        # Inject the shared Feishu webhook/secret into prod's
+        # ops_email_notification_config and enable alerting (idempotent). The
+        # script verifies the write and exits non-zero if not applied, so a node
+        # that cannot alert FAILS the deploy (gate for the us7 silent-mute gap).
+        env:
+          TK_FEISHU_WEBHOOK_URL: ${{ secrets.TK_FEISHU_WEBHOOK_URL }}
+          TK_FEISHU_SIGNING_SECRET: ${{ secrets.TK_FEISHU_SIGNING_SECRET }}
+        run: bash ops/stage0/sync-feishu-config.sh prod
+
       - name: Post-deploy gateway smoke (API + Claude paths)
         env:
           TOKENKEY_BASE_URL: ${{ steps.instance.outputs.api_url }}

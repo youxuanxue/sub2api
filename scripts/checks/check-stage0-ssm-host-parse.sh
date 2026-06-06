@@ -16,7 +16,8 @@
 # This guard closes the gap: run each script with a stubbed `aws` so it emits
 # its params file WITHOUT touching AWS, then `bash -n` the joined commands.
 #
-# Scope (explicit, not silent): covers the two prod/edge MUTATION primitives.
+# Scope (explicit, not silent): covers the prod/edge MUTATION primitives
+# (deploy image, sync Caddyfile, sync docs, sync Feishu config).
 # edge_post_deploy_smoke.sh also builds an SSM `commands` array, but is left out
 # on purpose — its array is assembled inside functions behind many runtime env
 # vars (no clean "args -> params file" entrypoint to stub), and an unparseable
@@ -77,5 +78,11 @@ check_one "deploy_via_ssm.sh"               deploy    bash "${OPS}/deploy_via_ss
 check_one "sync_caddyfile_via_ssm.sh prod"  sync-prod bash "${OPS}/sync_caddyfile_via_ssm.sh" prod i-0stub probe
 check_one "sync_caddyfile_via_ssm.sh edge"  sync-edge bash "${OPS}/sync_caddyfile_via_ssm.sh" edge i-0stub probe
 check_one "sync_docs_pages.sh"              sync-docs bash "${OPS}/sync_docs_pages.sh" i-0stub
+# sync-feishu-config.sh requires the shared webhook/secret in env; pass dummies so
+# it reaches params emission (the stubbed aws makes the later verify exit nonzero,
+# which check_one swallows — we only assert the joined host script parses).
+check_one "sync-feishu-config.sh"           sync-feishu \
+  env TK_FEISHU_WEBHOOK_URL=https://example.test/hook TK_FEISHU_SIGNING_SECRET=dummy \
+  bash "${OPS}/sync-feishu-config.sh" prod
 
 exit "${rc}"
