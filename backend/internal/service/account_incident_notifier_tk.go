@@ -36,6 +36,10 @@ const (
 // AccountIncidentNotifier 是注入给 RateLimitService 的最小通知面（仿 AccountRuntimeBlocker）。
 type AccountIncidentNotifier interface {
 	NotifyAccountIncident(account *Account, until time.Time, reason string, kind AccountIncidentKind)
+	// NotifyAccountRecovered 在账号"真实清除事件"(ClearRateLimit / RecoverAccountState /
+	// admin 重测恢复)时调用,对此前告警过的账号发一条即时恢复绿卡。事件驱动:纯定时器
+	// 到期自愈不经此路径,也不播报(原冷却卡已写明 until)。未告警账号调用为 no-op。
+	NotifyAccountRecovered(accountID int64)
 }
 
 const (
@@ -47,7 +51,21 @@ const (
 	accountIncidentDigestSecondsFallback = 600
 	// 摘要里每个 reasonClass 展示的账号名样例上限。
 	accountIncidentDigestMaxSamples = 8
+	// 同账号恢复绿卡去重窗口,防 admin 批量恢复 / 重复 clear 刷屏。
+	accountIncidentRecoveryDedupeWindow = 5 * time.Minute
+	// 活跃台账内存修剪:临时冷却 until 过期超过此宽限仍无 clear 事件 → 静默删除(不发卡)。
+	accountIncidentActiveStaleGrace = time.Hour
 )
+
+// activeIncident 是"当前处于告警状态"的账号事件台账条目,用于事件驱动恢复 + 内存修剪。
+// 仅记录,不参与时间触发恢复;until 仅供 pruneStaleActive 内存修剪用(永久失效 until 为零值)。
+type activeIncident struct {
+	label       string
+	reasonClass string
+	kindZh      string
+	kind        AccountIncidentKind
+	until       time.Time
+}
 
 // incidentClass 是 reason 经分类后的派生信息。
 type incidentClass struct {
@@ -78,6 +96,10 @@ func classifyIncident(reason string, until time.Time, kind AccountIncidentKind) 
 		return incidentClass{true, IncidentKindTemporaryCooldown, "403", "OpenAI 403 临时冷却", "检查 IP/账号风控状态"}
 	case "temp_unschedulable", "stream_timeout_temp_unschedulable":
 		return incidentClass{true, IncidentKindTemporaryCooldown, "temp", "临时不可调度", "观察是否自愈"}
+	case "429_model_class":
+		// G4(#600)模型维度 cooldown：单模型类(如 opus)打穿 5h/7d 用量窗口,只冷却该模型类,
+		// 账号其它模型仍可调度。不能复用兜底的"账号临时冷却"——那会误报成整账号下线。
+		return incidentClass{true, IncidentKindTemporaryCooldown, "429_model_class", "模型类限流冷却（账号其它模型仍可调度）", "单模型类(如 opus)用量窗口耗尽;账号其它模型不受影响,关注是否反复触发"}
 	}
 	// 未知 reason: 显式 kind 优先,缺省再看 until。
 	k := kind
@@ -118,10 +140,12 @@ type TKAccountIncidentNotifier struct {
 	siteID      string
 	now         func() time.Time
 
-	mu          sync.Mutex
-	permSentAt  map[string]time.Time                   // 永久失效去重: key -> 上次发送
-	permLimiter *slidingWindowLimiter                  // 永久失效防爆量
-	digest      map[string]*accountIncidentDigestEntry // reasonClass -> 聚合条目
+	mu             sync.Mutex
+	permSentAt     map[string]time.Time                   // 永久失效去重: key -> 上次发送
+	permLimiter    *slidingWindowLimiter                  // 永久失效防爆量
+	digest         map[string]*accountIncidentDigestEntry // reasonClass -> 聚合条目
+	active         map[int64]map[string]*activeIncident   // accountID -> reasonClass -> 活跃事件(恢复台账)
+	recoverySentAt map[int64]time.Time                    // 恢复绿卡去重: accountID -> 上次发送
 
 	stopCh   chan struct{}
 	stopOnce sync.Once
@@ -129,14 +153,16 @@ type TKAccountIncidentNotifier struct {
 
 func newTKAccountIncidentNotifier(cfgProvider opsFeishuConfigProvider, siteID string) *TKAccountIncidentNotifier {
 	n := &TKAccountIncidentNotifier{
-		cfgProvider: cfgProvider,
-		httpClient:  &http.Client{Timeout: opsFeishuWebhookTimeout},
-		siteID:      strings.TrimSpace(siteID),
-		now:         time.Now,
-		permSentAt:  map[string]time.Time{},
-		permLimiter: newSlidingWindowLimiter(accountIncidentPermanentRatePerHour, time.Hour),
-		digest:      map[string]*accountIncidentDigestEntry{},
-		stopCh:      make(chan struct{}),
+		cfgProvider:    cfgProvider,
+		httpClient:     &http.Client{Timeout: opsFeishuWebhookTimeout},
+		siteID:         strings.TrimSpace(siteID),
+		now:            time.Now,
+		permSentAt:     map[string]time.Time{},
+		permLimiter:    newSlidingWindowLimiter(accountIncidentPermanentRatePerHour, time.Hour),
+		digest:         map[string]*accountIncidentDigestEntry{},
+		active:         map[int64]map[string]*activeIncident{},
+		recoverySentAt: map[int64]time.Time{},
+		stopCh:         make(chan struct{}),
 	}
 	if n.siteID == "" {
 		n.siteID = "unknown"
@@ -170,11 +196,69 @@ func (n *TKAccountIncidentNotifier) NotifyAccountIncident(account *Account, unti
 	if !cls.alert {
 		return
 	}
+	n.trackActive(account, cls, until)
 	if cls.kind == IncidentKindPermanentDisable {
 		n.handlePermanent(account, reason, cls)
 		return
 	}
 	n.recordTemporary(account, cls)
+}
+
+// trackActive 登记/刷新账号的活跃事件台账(按 reasonClass 去重)。无论永久卡是否被去重抑制,
+// 账号确实处于该事件态,故台账无条件登记——恢复绿卡据此判断"是否值得发"。
+func (n *TKAccountIncidentNotifier) trackActive(account *Account, cls incidentClass, until time.Time) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	byClass := n.active[account.ID]
+	if byClass == nil {
+		byClass = map[string]*activeIncident{}
+		n.active[account.ID] = byClass
+	}
+	byClass[cls.reasonClass] = &activeIncident{
+		label:       accountIncidentLabel(account),
+		reasonClass: cls.reasonClass,
+		kindZh:      cls.kindZh,
+		kind:        cls.kind,
+		until:       until,
+	}
+}
+
+// NotifyAccountRecovered 对此前告警过的账号发一条即时恢复绿卡(事件驱动)。
+// 仅当该账号在 active 台账里有条目才发(未告警账号 no-op);发后清掉该账号的 active 与
+// permSentAt(让未来 re-disable 能立即重新告警,不被 1h 永久去重窗压住)。短窗内重复 clear
+// 不重发绿卡但仍清理台账。
+func (n *TKAccountIncidentNotifier) NotifyAccountRecovered(accountID int64) {
+	if n == nil || accountID <= 0 {
+		return
+	}
+	now := n.currentTime()
+	n.mu.Lock()
+	byClass := n.active[accountID]
+	if len(byClass) == 0 {
+		n.mu.Unlock()
+		return
+	}
+	recovered := make([]*activeIncident, 0, len(byClass))
+	for _, inc := range byClass {
+		recovered = append(recovered, inc)
+	}
+	// 清台账 + 重置永久去重(无论是否重发卡)。
+	delete(n.active, accountID)
+	for _, inc := range recovered {
+		delete(n.permSentAt, accountIncidentDedupeKey(n.siteID, accountID, inc.reasonClass))
+	}
+	if last, ok := n.recoverySentAt[accountID]; ok && now.Sub(last) < accountIncidentRecoveryDedupeWindow {
+		n.mu.Unlock()
+		return
+	}
+	n.recoverySentAt[accountID] = now
+	n.mu.Unlock()
+
+	sort.Slice(recovered, func(i, j int) bool { return recovered[i].reasonClass < recovered[j].reasonClass })
+	label := recovered[0].label
+	title := fmt.Sprintf("TokenKey 账号恢复 [%s]", n.siteID)
+	body := buildAccountIncidentRecoveryText(n.siteID, label, recovered, now)
+	n.send(title, "green", body, fmt.Sprintf("account_id=%d recovered", accountID))
 }
 
 // handlePermanent: 同步只做内存去重判定,命中后异步发即时单条 P0 卡片。
@@ -238,6 +322,32 @@ func (n *TKAccountIncidentNotifier) digestLoop() {
 			return
 		case <-timer.C:
 			n.flushDigest()
+			n.pruneStaleActive()
+		}
+	}
+}
+
+// pruneStaleActive 静默修剪活跃台账:临时冷却条目 until 过期超过 accountIncidentActiveStaleGrace
+// 仍无 clear 事件(纯定时器自愈)→ 删除,且**不发恢复卡**(按设计决策,定时器到期不播报)。
+// 永久条目(until 零值)不在此修剪,只能由 NotifyAccountRecovered 清。顺带修剪恢复去重台账。
+func (n *TKAccountIncidentNotifier) pruneStaleActive() {
+	now := n.currentTime()
+	staleBefore := now.Add(-accountIncidentActiveStaleGrace)
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	for id, byClass := range n.active {
+		for rc, inc := range byClass {
+			if !inc.until.IsZero() && inc.until.Before(staleBefore) {
+				delete(byClass, rc)
+			}
+		}
+		if len(byClass) == 0 {
+			delete(n.active, id)
+		}
+	}
+	for id, t := range n.recoverySentAt {
+		if t.Before(now.Add(-accountIncidentRecoveryDedupeWindow)) {
+			delete(n.recoverySentAt, id)
 		}
 	}
 }
@@ -345,6 +455,19 @@ func buildAccountIncidentDigestText(site string, entries []*accountIncidentDiges
 			escapeFeishuText(e.kindZh), e.count, len(e.accountIDs), escapeFeishuText(samples)))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func buildAccountIncidentRecoveryText(site, label string, recovered []*activeIncident, now time.Time) string {
+	kinds := make([]string, 0, len(recovered))
+	for _, inc := range recovered {
+		kinds = append(kinds, inc.kindZh)
+	}
+	return fmt.Sprintf("**节点**：%s\n**账号**：%s\n**时间**：%s\n\n账号已恢复调度。此前事件：%s",
+		escapeFeishuText(site),
+		escapeFeishuText(label),
+		escapeFeishuText(formatAlertTime(now)),
+		escapeFeishuText(strings.Join(kinds, "、")),
+	)
 }
 
 func accountIncidentLabel(account *Account) string {

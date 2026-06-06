@@ -231,10 +231,14 @@ func (s *RateLimitService) notifyAccountSchedulingBlocked(account *Account, unti
 }
 
 func (s *RateLimitService) notifyAccountSchedulingBlockCleared(accountID int64) {
-	if s == nil || s.runtimeBlocker == nil || accountID <= 0 {
+	if s == nil || accountID <= 0 {
 		return
 	}
-	s.runtimeBlocker.ClearAccountSchedulingBlock(accountID)
+	if s.runtimeBlocker != nil {
+		s.runtimeBlocker.ClearAccountSchedulingBlock(accountID)
+	}
+	// TK: 账号真实清除事件 → 飞书恢复绿卡(事件驱动,仅对此前告警过的账号)。
+	s.notifyAccountRecovered(accountID)
 }
 
 // ErrorPolicyResult 表示错误策略检查的结果
