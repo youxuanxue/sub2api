@@ -250,7 +250,7 @@ jobs:
           # Read-only probe via run-probe.sh -> verdict.py -> finding. Isolated and
           # non-fatal: a probe failure only drops the capacity finding, never the run.
           if [ "$TARGET_ID" = "prod" ]; then
-            CAP_OUT="$(bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-data-layer-capacity.sh --comment "daily data-layer capacity" --timeout-seconds 120 2>>"$STDERR" || true)"
+            CAP_OUT="$(bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-data-layer-capacity.sh --comment "daily data-layer capacity" --timeout-seconds 120 2>>"$STDERR" || true)"  # preflight-allow: swallow — probe failure -> unknown verdict (surfaced as a finding), never breaks the run
             CAP_VERDICT="$(printf '%s' "$CAP_OUT" | python3 ops/observability/data_layer_capacity_verdict.py 2>>"$STDERR" || echo '{}')"
             printf 'data_layer_capacity: %s\n' "$CAP_VERDICT" >> "$STDOUT"
             CAP_V="$(printf '%s' "$CAP_VERDICT" | jq -r '.verdict // "unknown"')"

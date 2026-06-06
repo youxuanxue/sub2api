@@ -20,7 +20,7 @@ PSQL='docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t'
 DATA_DIR="${TOKENKEY_DATA_DIR:-/var/lib/tokenkey}"
 
 echo "=== docker ps (tokenkey stack) ==="
-docker ps --filter name=tokenkey --format '{{.Names}}\t{{.Status}}' 2>/dev/null || true
+docker ps --filter name=tokenkey --format '{{.Names}}\t{{.Status}}' 2>/dev/null || true  # preflight-allow: swallow — diagnostic header only
 
 echo "=== PGSTATS (field names embedded) ==="
 # Single JSON object; dedup table may be absent on some hosts -> COALESCE via to_regclass.
