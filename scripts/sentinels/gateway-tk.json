@@ -1854,10 +1854,11 @@
       "path": "backend/internal/handler/ops_error_logger.go",
       "must_contain": [
         "clientInducedUpstream := upstreamError && tkUpstreamClientInducedRejection(c)",
-        "if upstreamError && !routingCapacityLimited && !clientInducedUpstream {",
-        "if clientInducedUpstream && !routingCapacityLimited {"
+        "clientCanceledUpstream := upstreamError && tkUpstreamClientCanceled(c)",
+        "if upstreamError && !routingCapacityLimited && !clientInducedUpstream && !clientCanceledUpstream {",
+        "if (clientInducedUpstream || clientCanceledUpstream) && !routingCapacityLimited {"
       ],
-      "rationale": "Injection point in classifyOpsErrorLog: an upstream client-induced 4xx must NOT take the upstream/provider phase override (which feeds error_owner=provider -> upstream_error_rate), and must instead be owned to the client (phase=request). routingCapacityLimited still wins last so 'no available accounts' SLA-exclusion is preserved. An upstream merge that rewrites this classifier and copies back the unconditional 'if upstreamError { phase = upstream }' shape silently restores the prod P0 false page; this sentinel anchors both the guard and the client-induced branch."
+      "rationale": "Injection point in classifyOpsErrorLog: an upstream client-induced 4xx (tkUpstreamClientInducedRejection) AND a client/caller disconnect with no upstream status (tkUpstreamClientCanceled, issue #625) must NOT take the upstream/provider phase override (which feeds error_owner=provider -> upstream_error_rate), and must instead be owned to the client (phase=request). routingCapacityLimited still wins last so 'no available accounts' SLA-exclusion is preserved. An upstream merge that rewrites this classifier and copies back the unconditional 'if upstreamError { phase = upstream }' shape silently restores the prod P0 false page (and the quad-edge context-canceled false P0); this sentinel anchors the guard plus both the client-induced and client-canceled branches."
     },
     {
       "path": "backend/internal/handler/ops_error_logger_tk_client_induced_upstream_test.go",
@@ -1912,6 +1913,26 @@
         "service.IsAnthropicModelNotFound404([]byte(body), msg)"
       ],
       "rationale": "Path B metric truth (prod P0 2026-06-06, edge us5 upstream_error_rate=100%): an upstream 404 model-not-found is caller-fault, so tkUpstreamClientInducedRejection classifies it client-owned (phase=request) and it drops out of upstream_excl behind upstream_error_rate. It reuses the SAME service.IsAnthropicModelNotFound404 predicate as the gateway response path (B-2) so the metric classification can never drift from the client-facing 400 decision. The captured upstream status stays 404 even though the client gets a 400, so this MUST live in the classifier. An upstream merge that reverts the 404 branch to provider-owned re-fires the P0 on bad-model traffic; this sentinel pins the branch."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_tk_client_canceled.go",
+      "must_contain": [
+        "func tkUpstreamClientCanceled(c *gin.Context) bool",
+        "if tkOpsUpstreamStatusCode(c) != 0 {",
+        "errors.Is(reqErr, context.Canceled)",
+        "deadline exceeded",
+        "context canceled"
+      ],
+      "rationale": "Issue #625 (prod + us2/us3/uk1 quad P0 2026-06-06T07:00-07:16Z, false page): one client issuing non-streaming claude-opus-4-6 with a timeout shorter than opus latency cancelled mid-flight; the outbound request failed with `context canceled` and NO upstream HTTP status, so classifyOpsErrorLog relabelled it phase=upstream / error_owner=provider and it counted toward upstream_error_rate. Because prod relays the same request to edges via cc-* stub accounts, one cancel propagated down the chain and prod + every relayed edge each recorded a 502 -> simultaneous false P0 across the fleet. This predicate owns a client/caller disconnect to the client (phase=request) so it drops out of upstream_error_rate, mirroring tkUpstreamClientInducedRejection. The status gate (only status 0) keeps real upstream 5xx provider-owned; the deadline-exceeded/timeout exclusion keeps server-side timeouts provider-owned (genuine slowness evidence). Dropping the deadline exclusion would silently hide real upstream timeouts; dropping the predicate restores the quad-P0 false page."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_tk_client_canceled_test.go",
+      "must_contain": [
+        "TestClassifyOpsUpstreamClientCanceledOwnedByClient",
+        "TestClassifyOpsUpstreamDeadlineExceededStaysProvider",
+        "TestClassifyOpsUpstream5xxWithStatusStaysProviderNotCancel"
+      ],
+      "rationale": "Focused regressions proving the issue #625 boundary: (1) a status-0 `context canceled` transport error (and an inbound Request.Context() cancel with no cancel signature in the message) classify as error_owner=client so they drop out of upstream_error_rate; (2) status-0 `context deadline exceeded` and `i/o timeout` stay error_owner=provider so genuine upstream slowness keeps counting; (3) a real upstream 5xx WITH a status code stays provider via the status gate. Dropping these lets an upstream merge silently revert the quad-P0 fix through the classifier."
     }
   ]
 }

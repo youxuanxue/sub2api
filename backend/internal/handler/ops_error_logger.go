@@ -1229,10 +1229,17 @@ func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status i
 	// provider-health P0 capacity alert. See tkUpstreamClientInducedRejection
 	// (prod P0 2026-06-05; mirrors the #602 amplifier boundary).
 	clientInducedUpstream := upstreamError && tkUpstreamClientInducedRejection(c)
-	if upstreamError && !routingCapacityLimited && !clientInducedUpstream {
+	// TK (issue #625): a client/caller disconnect mid-flight surfaces as an upstream
+	// transport error with NO upstream HTTP status (context canceled). It is
+	// caller-fault, not provider health — own it to the client so one canceling
+	// client (and its prod->edge relay fan-out) cannot flood upstream_error_rate.
+	// See tkUpstreamClientCanceled (quad P0 2026-06-06; deadline-exceeded stays
+	// provider-owned).
+	clientCanceledUpstream := upstreamError && tkUpstreamClientCanceled(c)
+	if upstreamError && !routingCapacityLimited && !clientInducedUpstream && !clientCanceledUpstream {
 		phase = "upstream"
 	}
-	if clientInducedUpstream && !routingCapacityLimited {
+	if (clientInducedUpstream || clientCanceledUpstream) && !routingCapacityLimited {
 		phase = "request"
 	}
 	if clientBusinessLimited && !upstreamError && !routingCapacityLimited {
