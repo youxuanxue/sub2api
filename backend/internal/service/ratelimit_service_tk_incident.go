@@ -16,11 +16,14 @@ func (s *RateLimitService) SetAccountIncidentNotifier(n AccountIncidentNotifier)
 	s.incidentNotifier = n
 }
 
-func (s *RateLimitService) notifyAccountIncident(account *Account, until time.Time, reason string, kind AccountIncidentKind) {
+// notifyAccountIncident forwards to the notifier. The optional detail carries an
+// upstream-dimension hint (Anthropic 5h/7d window or model class) the digest
+// renders; variadic so non-enriched call sites stay unchanged.
+func (s *RateLimitService) notifyAccountIncident(account *Account, until time.Time, reason string, kind AccountIncidentKind, detail ...string) {
 	if s == nil || s.incidentNotifier == nil || account == nil {
 		return
 	}
-	s.incidentNotifier.NotifyAccountIncident(account, until, reason, kind)
+	s.incidentNotifier.NotifyAccountIncident(account, until, reason, kind, detail...)
 }
 
 // notifyAccountRecovered 在账号真实清除事件(ClearRateLimit / RecoverAccountState /

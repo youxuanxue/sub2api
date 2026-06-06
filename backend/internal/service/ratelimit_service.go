@@ -228,13 +228,19 @@ func (s *RateLimitService) SetAccountRuntimeBlocker(blocker AccountRuntimeBlocke
 	s.runtimeBlocker = blocker
 }
 
-func (s *RateLimitService) notifyAccountSchedulingBlocked(account *Account, until time.Time, reason string) {
+// notifyAccountSchedulingBlocked is the single funnel for every account
+// cooldown/disable. The optional detail (variadic so existing call sites stay
+// untouched) carries an upstream-dimension hint — e.g. the Anthropic 5h/7d
+// usage window or the model class — that the Feishu digest renders so operators
+// see WHICH upstream limit fired. detail is intentionally NOT forwarded to
+// BlockAccountScheduling: the runtime blocker keys off the stable reason string.
+func (s *RateLimitService) notifyAccountSchedulingBlocked(account *Account, until time.Time, reason string, detail ...string) {
 	if s == nil || s.runtimeBlocker == nil || account == nil {
 		return
 	}
 	s.runtimeBlocker.BlockAccountScheduling(account, until, reason)
 	// TK: 同一汇聚点上报账号失效事件给飞书（kind 由 reason 在 classifyIncident 内精确派生）。
-	s.notifyAccountIncident(account, until, reason, IncidentKindUnknown)
+	s.notifyAccountIncident(account, until, reason, IncidentKindUnknown, detail...)
 }
 
 func (s *RateLimitService) notifyAccountSchedulingBlockCleared(accountID int64) {
@@ -1510,7 +1516,8 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 		if len(requestedModel) > 0 && s.tkTryAnthropicModelScopedCooldown(ctx, account, requestedModel[0], result) {
 			return true
 		}
-		s.notifyAccountSchedulingBlocked(account, result.resetAt, "429")
+		// TK: 账号级 429 附上触发的上游用量窗口（5h/7d），进飞书摘要细分。
+		s.notifyAccountSchedulingBlocked(account, result.resetAt, "429", tkAnthropicWindowLabel(result))
 		if err := s.accountRepo.SetRateLimited(ctx, account.ID, result.resetAt); err != nil {
 			slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
 			return false
@@ -1704,6 +1711,11 @@ func (s *RateLimitService) calculateOpenAI429ResetTime(headers http.Header) *tim
 type anthropic429Result struct {
 	resetAt       time.Time  // The correct reset time to use for SetRateLimited
 	fiveHourReset *time.Time // 5h window reset timestamp (for session window calculation), nil if not available
+	// window labels which unified usage window actually triggered the 429
+	// ("5h" / "7d" / "" when undetermined). TK: surfaced into the account
+	// cooldown Feishu digest so operators see WHICH upstream usage window
+	// rate-limited the account (not an internal rpm/concurrency/session cap).
+	window string
 }
 
 // calculateAnthropic429ResetTime parses Anthropic's per-window rate-limit headers
@@ -1746,18 +1758,25 @@ func calculateAnthropic429ResetTime(headers http.Header) *anthropic429Result {
 	)
 
 	// Select the correct reset time based on which window(s) are exceeded.
+	// window records which window the cooldown is attributed to (for the
+	// account-incident Feishu digest); it tracks the same branch as chosen.
 	var chosen *time.Time
+	var window string
 	switch {
 	case is5hExceeded && is7dExceeded:
 		// Both exceeded → prefer 7d (longer cooldown), fall back to 5h
 		chosen = reset7d
+		window = "7d"
 		if chosen == nil {
 			chosen = reset5h
+			window = "5h"
 		}
 	case is5hExceeded:
 		chosen = reset5h
+		window = "5h"
 	case is7dExceeded:
 		chosen = reset7d
+		window = "7d"
 	default:
 		// Neither flag clearly exceeded — pick the sooner reset as best guess
 		chosen = pickSooner(reset5h, reset7d)
@@ -1766,7 +1785,7 @@ func calculateAnthropic429ResetTime(headers http.Header) *anthropic429Result {
 	if chosen == nil {
 		return nil
 	}
-	return &anthropic429Result{resetAt: *chosen, fiveHourReset: reset5h}
+	return &anthropic429Result{resetAt: *chosen, fiveHourReset: reset5h, window: window}
 }
 
 // isAnthropicWindowExceeded checks whether a given Anthropic rate-limit window

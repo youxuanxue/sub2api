@@ -35,7 +35,11 @@ const (
 
 // AccountIncidentNotifier 是注入给 RateLimitService 的最小通知面（仿 AccountRuntimeBlocker）。
 type AccountIncidentNotifier interface {
-	NotifyAccountIncident(account *Account, until time.Time, reason string, kind AccountIncidentKind)
+	// detail (variadic, optional) is an upstream-dimension hint — e.g. the
+	// Anthropic 5h/7d usage window or the rate-limited model class — that the
+	// temporary-cooldown digest renders so operators see WHICH upstream limit
+	// fired. Variadic keeps non-enriched call sites untouched.
+	NotifyAccountIncident(account *Account, until time.Time, reason string, kind AccountIncidentKind, detail ...string)
 	// NotifyAccountRecovered 在账号"真实清除事件"(ClearRateLimit / RecoverAccountState /
 	// admin 重测恢复)时调用,对此前告警过的账号发一条即时恢复绿卡。事件驱动:纯定时器
 	// 到期自愈不经此路径,也不播报(原冷却卡已写明 until)。未告警账号调用为 no-op。
@@ -116,9 +120,13 @@ func classifyIncident(reason string, until time.Time, kind AccountIncidentKind) 
 	return incidentClass{true, IncidentKindTemporaryCooldown, "other", "账号临时冷却", "观察是否自愈"}
 }
 
-// accountIncidentDigestEntry 是临时冷却聚合 buffer 的单个 reasonClass 条目。
+// accountIncidentDigestEntry 是临时冷却聚合 buffer 的单个 (reasonClass × detail) 条目。
+// detail 是上游限流维度提示（如 Anthropic 5h/7d 用量窗口、被限流的模型类），用于把同一
+// reasonClass 下不同维度（如 opus·5h 与 sonnet·7d）拆成独立行,让运营一眼看清是哪个上游
+// 维度触发的冷却。空 detail 退化为按 reasonClass 聚合（与历史行为一致）。
 type accountIncidentDigestEntry struct {
 	reasonClass    string
+	detail         string
 	kindZh         string
 	advice         string
 	accountIDs     map[int64]struct{}
@@ -126,6 +134,15 @@ type accountIncidentDigestEntry struct {
 	count          int
 	firstAt        time.Time
 	lastAt         time.Time
+}
+
+// accountIncidentDigestKey 合成 digest 聚合键。detail 为空时退化为 reasonClass,保持历史
+// 键名（如 "429"）不变,使既有按 reasonClass 取数的调用与测试不受影响。
+func accountIncidentDigestKey(reasonClass, detail string) string {
+	if detail == "" {
+		return reasonClass
+	}
+	return reasonClass + "\x1f" + detail
 }
 
 // opsFeishuConfigProvider 是 notifier 读取飞书配置的最小面（*OpsService 天然满足）。
@@ -188,7 +205,7 @@ func (n *TKAccountIncidentNotifier) Stop() {
 	})
 }
 
-func (n *TKAccountIncidentNotifier) NotifyAccountIncident(account *Account, until time.Time, reason string, kind AccountIncidentKind) {
+func (n *TKAccountIncidentNotifier) NotifyAccountIncident(account *Account, until time.Time, reason string, kind AccountIncidentKind, detail ...string) {
 	if n == nil || account == nil {
 		return
 	}
@@ -198,10 +215,15 @@ func (n *TKAccountIncidentNotifier) NotifyAccountIncident(account *Account, unti
 	}
 	n.trackActive(account, cls, until)
 	if cls.kind == IncidentKindPermanentDisable {
+		// 永久失效是整账号下线,无上游维度细分语义 → 忽略 detail。
 		n.handlePermanent(account, reason, cls)
 		return
 	}
-	n.recordTemporary(account, cls)
+	d := ""
+	if len(detail) > 0 {
+		d = strings.TrimSpace(detail[0])
+	}
+	n.recordTemporary(account, cls, d)
 }
 
 // trackActive 登记/刷新账号的活跃事件台账(按 reasonClass 去重)。无论永久卡是否被去重抑制,
@@ -282,21 +304,24 @@ func (n *TKAccountIncidentNotifier) handlePermanent(account *Account, reason str
 	n.send(title, "red", body, fmt.Sprintf("account_id=%d reason=%s", account.ID, reason))
 }
 
-// recordTemporary: 仅写入聚合 buffer,不立即发。
-func (n *TKAccountIncidentNotifier) recordTemporary(account *Account, cls incidentClass) {
+// recordTemporary: 仅写入聚合 buffer,不立即发。detail 把同一 reasonClass 下不同上游
+// 维度（如 opus·5h、sonnet·7d）拆成独立条目。
+func (n *TKAccountIncidentNotifier) recordTemporary(account *Account, cls incidentClass, detail string) {
 	now := n.currentTime()
+	key := accountIncidentDigestKey(cls.reasonClass, detail)
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	entry := n.digest[cls.reasonClass]
+	entry := n.digest[key]
 	if entry == nil {
 		entry = &accountIncidentDigestEntry{
 			reasonClass: cls.reasonClass,
+			detail:      detail,
 			kindZh:      cls.kindZh,
 			advice:      cls.advice,
 			accountIDs:  map[int64]struct{}{},
 			firstAt:     now,
 		}
-		n.digest[cls.reasonClass] = entry
+		n.digest[key] = entry
 	}
 	entry.count++
 	entry.lastAt = now
@@ -388,7 +413,12 @@ func (n *TKAccountIncidentNotifier) flushDigest() {
 	n.digest = map[string]*accountIncidentDigestEntry{}
 	n.mu.Unlock()
 
-	sort.Slice(entries, func(i, j int) bool { return entries[i].reasonClass < entries[j].reasonClass })
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].reasonClass != entries[j].reasonClass {
+			return entries[i].reasonClass < entries[j].reasonClass
+		}
+		return entries[i].detail < entries[j].detail
+	})
 	now := n.currentTime()
 	title := fmt.Sprintf("TokenKey 账号临时冷却摘要 [%s]", n.siteID)
 	body := buildAccountIncidentDigestText(n.siteID, entries, now)
@@ -443,7 +473,7 @@ func buildAccountIncidentPermanentText(site string, account *Account, reason str
 }
 
 func buildAccountIncidentDigestText(site string, entries []*accountIncidentDigestEntry, now time.Time) string {
-	lines := make([]string, 0, len(entries)+1)
+	lines := make([]string, 0, len(entries)+2)
 	lines = append(lines, fmt.Sprintf("**节点**：%s\n**时间**：%s\n\n临时冷却（自愈类）聚合摘要：",
 		escapeFeishuText(site), escapeFeishuText(formatAlertTime(now))))
 	for _, e := range entries {
@@ -451,9 +481,19 @@ func buildAccountIncidentDigestText(site string, entries []*accountIncidentDiges
 		if len(e.accountIDs) > len(e.accountSamples) {
 			samples += fmt.Sprintf(" 等共%d个", len(e.accountIDs))
 		}
+		// detail（如 "opus·5h 窗口"）以 ｜ 分隔追加到类型后,把同一类型不同上游维度
+		// 拆成可区分的行;无 detail 时退化为历史形态。
+		label := e.kindZh
+		if e.detail != "" {
+			label = e.kindZh + "｜" + e.detail
+		}
 		lines = append(lines, fmt.Sprintf("- **%s**：%d 次 / %d 账号（%s）",
-			escapeFeishuText(e.kindZh), e.count, len(e.accountIDs), escapeFeishuText(samples)))
+			escapeFeishuText(label), e.count, len(e.accountIDs), escapeFeishuText(samples)))
 	}
+	// 认知纠正脚注:本摘要里的冷却全部是「上游对账号的限流/冷却」(账号级用量窗口 5h/7d
+	// 或上游错误策略),不是 TK 内部 rpm/并发/会话 配额。内部配额超限不会冷却账号,而是在
+	// 请求侧快速失败(HTTP 429 no available accounts),根本不进本摘要。详见 account 冷却汇聚点。
+	lines = append(lines, "\n说明：以上均为「上游对账号的限流/冷却」（账号级用量窗口 5h/7d 或上游错误策略），非 TK 内部 rpm/并发/会话 配额——内部配额超限只会让请求侧快速失败（HTTP 429 no available accounts），不计入本摘要。")
 	return strings.Join(lines, "\n")
 }
 

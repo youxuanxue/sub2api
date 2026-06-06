@@ -1659,9 +1659,9 @@
     {
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
-        "s.notifyAccountIncident(account, until, reason, IncidentKindUnknown)"
+        "s.notifyAccountIncident(account, until, reason, IncidentKindUnknown, detail...)"
       ],
-      "rationale": "账号失效 → 飞书告警的唯一挂钩点。notifyAccountSchedulingBlocked 是所有 13 个账号失效/冷却场景（auth_error / oauth_401 / 429 / 529 / 403temp / temp / custom / stream_timeout）的汇聚点；这一行把失效事件上报给 AccountIncidentNotifier（永久失效即时 P0 红头卡片、临时冷却聚合低频橙头摘要）。上游合并若重写 notifyAccountSchedulingBlocked 并丢掉此行，会让账号失效告警静默失效——运营再也收不到『某账号该重新 OAuth / 查 bug』，且无编译错误、极难发现。本 sentinel 捕获该 revert。"
+      "rationale": "账号失效 → 飞书告警的唯一挂钩点。notifyAccountSchedulingBlocked 是所有 13 个账号失效/冷却场景（auth_error / oauth_401 / 429 / 529 / 403temp / temp / custom / stream_timeout）的汇聚点；这一行把失效事件上报给 AccountIncidentNotifier（永久失效即时 P0 红头卡片、临时冷却聚合低频橙头摘要）。末尾的 detail... 透传上游限流维度提示（Anthropic 5h/7d 用量窗口、被限流的模型类）进飞书摘要，变参故非 enriched 挂钩点不受影响。上游合并若重写 notifyAccountSchedulingBlocked 并丢掉此行，会让账号失效告警静默失效——运营再也收不到『某账号该重新 OAuth / 查 bug』，且无编译错误、极难发现。本 sentinel 捕获该 revert。"
     },
     {
       "path": "backend/internal/service/account_incident_notifier_tk.go",

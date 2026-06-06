@@ -127,7 +127,8 @@ func (s *RateLimitService) tkTryAnthropicModelScopedCooldown(
 	if account.Platform != PlatformAnthropic {
 		return false
 	}
-	scopeKey := tkAnthropicModelClassScopeKeyForModel(requestedModel)
+	class := tkAnthropicModelClass(requestedModel)
+	scopeKey := tkAnthropicModelClassScopeKey(class)
 	if scopeKey == "" {
 		// Unknown model class (or no model context at the call site): cannot
 		// safely narrow the cooldown — fall back to account-level so we never
@@ -136,7 +137,8 @@ func (s *RateLimitService) tkTryAnthropicModelScopedCooldown(
 	}
 
 	resetAt := result.resetAt
-	s.notifyAccountSchedulingBlocked(account, resetAt, "429_model_class")
+	// detail = 模型类[·窗口]，让飞书摘要直接显示被限流的是哪个模型类与上游用量窗口。
+	s.notifyAccountSchedulingBlocked(account, resetAt, "429_model_class", tkAnthropicModelCooldownDetail(class, result))
 	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, scopeKey, resetAt, tkAnthropicModelCooldownReason); err != nil {
 		slog.Warn("anthropic_model_class_rate_limit_failed",
 			"account_id", account.ID,
@@ -210,4 +212,30 @@ func (a *Account) tkAnthropicModelClassRateLimitRemaining(requestedModel string)
 		return 0
 	}
 	return a.getRateLimitRemainingForKey(scopeKey)
+}
+
+// tkAnthropicWindowLabel renders the unified usage window that triggered an
+// Anthropic 429 as a human-facing Feishu digest detail ("5h 窗口" / "7d 窗口"),
+// or "" when the window can't be determined. This is the operator-facing answer
+// to "which upstream dimension exceeded its limit" for account-level 429
+// cooldowns — it is the upstream usage window, NOT a TK internal cap.
+func tkAnthropicWindowLabel(result *anthropic429Result) string {
+	if result == nil || result.window == "" {
+		return ""
+	}
+	return result.window + " 窗口"
+}
+
+// tkAnthropicModelCooldownDetail renders the model-class 429 cooldown digest
+// detail as "<class>·<window> 窗口" (e.g. "opus·5h 窗口"), degrading to just the
+// class when the window is unknown, or to just the window when the class is
+// unknown. Empty when neither is known.
+func tkAnthropicModelCooldownDetail(class string, result *anthropic429Result) string {
+	if class == anthropicModelClassUnknown {
+		return tkAnthropicWindowLabel(result)
+	}
+	if w := tkAnthropicWindowLabel(result); w != "" {
+		return class + "·" + w
+	}
+	return class
 }
