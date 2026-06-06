@@ -700,23 +700,16 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
       }
     }
   }
+  // NOTE: keep this catalog aligned with the empirically-servable OpenAI set
+  // (backend supportedOpenAICatalogModels, regenerated from a live prod probe —
+  // PR #608). gpt-5.2 was dropped here because the probe returned 502 on the
+  // chat/completions path opencode uses and it is retired from the servable
+  // allowlist + public catalog + Your Menu. gpt-5.3-codex / codex-mini-latest
+  // are intentionally LEFT for now: they 502 on the API-key chat/completions
+  // path but carry a codex-ws ChatGPT-OAuth reverse-mapping
+  // (normalizeOpenAIModelForUpstream, scripts/sentinels/gateway-tk.json), so
+  // their true servability needs a codex-ws probe before removal.
   const openaiModels = {
-    'gpt-5.2': {
-      name: 'GPT-5.2',
-      limit: {
-        context: 400000,
-        output: 128000
-      },
-      options: {
-        store: false
-      },
-      variants: {
-        low: {},
-        medium: {},
-        high: {},
-        xhigh: {}
-      }
-    },
     'gpt-5.5': {
       name: 'GPT-5.5',
       limit: {
