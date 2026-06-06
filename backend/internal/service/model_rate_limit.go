@@ -100,6 +100,10 @@ func (a *Account) modelRateLimitKeysForRequest(ctx context.Context, requestedMod
 		if openAIImageGenerationRateLimitApplies(ctx, requestedModel, modelKey) && modelKey != openAIImageGenerationRateLimitKey {
 			keys = append(keys, openAIImageGenerationRateLimitKey)
 		}
+	case PlatformAnthropic:
+		if classKey := tkAnthropicModelClassScopeKeyForModel(requestedModel); classKey != "" && classKey != modelKey {
+			keys = append(keys, classKey)
+		}
 	}
 	return keys
 }
