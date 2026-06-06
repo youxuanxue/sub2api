@@ -10,7 +10,7 @@
 | 要恢复的东西 | 存在哪（去这里找） | 用哪节 |
 |---|---|---|
 | **PG 账本**（唯一不可再生）| ① 本机 EBS 卷 `/var/lib/tokenkey/postgres`（随机器）② DLM 快照（tag `Backup=stage0`，每日保留 7 天）③ **离机 S3** `s3://tokenkey-prod-pgdump-<acct>/prod/pgdump/`（每小时，保留 7 天，RPO ≤1h，**唯一离机副本**）| §3 / §4 / §4.4 |
-| **`.env` 密钥**（POSTGRES_PASSWORD / JWT_SECRET / TOTP_ENCRYPTION_KEY）| 本机 EBS 卷 `/var/lib/tokenkey/.env` + 上述 DLM 快照。**离机副本：TODO（issue #621）**——卷+快照全丢时这是缺口，重生成会废 2FA/会话/加密字段 | §3 / §4 随卷带回 |
+| **`.env` 密钥**（POSTGRES_PASSWORD / JWT_SECRET / TOTP_ENCRYPTION_KEY）| ① 本机 EBS 卷 `/var/lib/tokenkey/.env` + DLM 快照 ② **离机 SSM SecureString** `/tokenkey/prod/stage0/env-secrets-backup`（KMS 加密，与 S3 dump 桶不同爆炸半径；运营用 `ops/stage0/backup-env-secrets-via-ssm.sh` 在激活+密钥轮转时 push，变更检测幂等）| §3 / §4 随卷带回；总损见 §4.4 |
 | **CFN 模板 / compose / 脚本 / Caddyfile** | 本仓库 `deploy/aws/cloudformation/` + `deploy/aws/stage0/`（build-cfn 嵌入 SSM Parameters，首启拉取）| §3 换机即重建 |
 | **S3 备份桶本身** | CFN 栈 `tokenkey-stage0-backups`（`deploy/aws/cloudformation/stage0-backups.yaml`）| — |
 | **Redis**（计数/缓存）| 不备份——可重建，新机起来自然重填 | — |
@@ -189,9 +189,16 @@ aws ssm start-session --target <NewInstanceId>
 
 ### 4.4 兜底：从 off-box S3 pg_dump 恢复账本（RPO ≤1h，DESTRUCTIVE）
 
-**何时用**：DLM 快照也丢了 / 太旧，或需要把账本**干净重建**进一个新 PG。`tokenkey-pgdump.sh` 每小时把逻辑 dump 推到 S3（`stage0-backups.yaml` 栈的桶，保留 7 天），所以这是比 DLM（最长 24h）更新的账本副本。**仅恢复 PostgreSQL 账本**（逻辑 dump）；Redis 可重建；`.env` 密钥须来自恢复卷/密钥库，**不要重新生成**（否则旧 PG/JWT/2FA 失效）。丢失「最近一次 hourly dump → 故障」之间的写入（≤1h）。
+**何时用**：DLM 快照也丢了 / 太旧，或需要把账本**干净重建**进一个新 PG。`tokenkey-pgdump.sh` 每小时把逻辑 dump 推到 S3（`stage0-backups.yaml` 栈的桶，保留 7 天），所以这是比 DLM（最长 24h）更新的账本副本。**仅恢复 PostgreSQL 账本**（逻辑 dump）；Redis 可重建。丢失「最近一次 hourly dump → 故障」之间的写入（≤1h）。**总损（卷+快照都没）时**，`.env` 密钥从离机 SSM SecureString 取回（下方第 0 步）——**不要重新生成**（否则旧 PG/JWT/2FA 失效）。
 
 ```bash
+# 0) 总损时先取回 .env 密钥（离机 SSM SecureString，与 dump 桶不同爆炸半径）。
+#    若恢复卷健在（§4.1-4.3），密钥随卷回来，跳过此步。新机/干净 PG 必须先放对密钥
+#    再恢复库（PG 用 POSTGRES_PASSWORD 初始化）。
+aws ssm get-parameter --region us-east-1 --name /tokenkey/prod/stage0/env-secrets-backup \
+  --with-decryption --query Parameter.Value --output text | sudo tee -a /var/lib/tokenkey/.env >/dev/null
+#    （上面把 3 行 KEY=VALUE 追加进 .env；若已有同名键先去重再追加。）
+
 # 桶名 = backups 栈输出；URI 前缀 s3://<bucket>/prod/pgdump/
 BUCKET=$(aws cloudformation describe-stacks --region us-east-1 \
   --stack-name tokenkey-stage0-backups \
