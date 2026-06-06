@@ -200,6 +200,65 @@ func TestNotifyTemporaryBuffersUntilFlush(t *testing.T) {
 	n.mu.Unlock()
 }
 
+func TestModelClassCooldownDetailSubdividesDigest(t *testing.T) {
+	doer := &blockingFeishuDoer{done: make(chan struct{}, 1)}
+	n := newTestNotifier(&fakeIncidentConfigProvider{cfg: enabledFeishuConfig()}, doer, time.Unix(1700000000, 0))
+
+	// Same reasonClass (429_model_class) but two different upstream dimensions →
+	// must NOT collapse into one line; the operator needs to see opus vs sonnet.
+	n.NotifyAccountIncident(testAccount(1, "edge-ls-oh-3-d", "anthropic"), time.Now().Add(time.Hour), "429_model_class", IncidentKindUnknown, "opus·5h 窗口")
+	n.NotifyAccountIncident(testAccount(2, "cc-main", "anthropic"), time.Now().Add(time.Hour), "429_model_class", IncidentKindUnknown, "sonnet·7d 窗口")
+
+	n.mu.Lock()
+	require.Len(t, n.digest, 2, "two distinct details must produce two digest entries")
+	n.mu.Unlock()
+
+	n.flushDigest()
+	select {
+	case <-doer.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("digest flush did not send within 2s")
+	}
+	body := doer.lastBody()
+	require.Contains(t, body, "模型类限流冷却")
+	require.Contains(t, body, "opus·5h 窗口")
+	require.Contains(t, body, "sonnet·7d 窗口")
+	require.Contains(t, body, "edge-ls-oh-3-d")
+}
+
+func TestAccount429WindowDetailRendered(t *testing.T) {
+	doer := &blockingFeishuDoer{done: make(chan struct{}, 1)}
+	n := newTestNotifier(&fakeIncidentConfigProvider{cfg: enabledFeishuConfig()}, doer, time.Unix(1700000000, 0))
+
+	n.NotifyAccountIncident(testAccount(55, "cc-us6", "anthropic"), time.Now().Add(time.Hour), "429", IncidentKindUnknown, "5h 窗口")
+
+	n.flushDigest()
+	select {
+	case <-doer.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("digest flush did not send within 2s")
+	}
+	body := doer.lastBody()
+	require.Contains(t, body, "限流冷却（429）｜5h 窗口")
+	require.Contains(t, body, "cc-us6")
+	// Footer must correct the rpm/concurrency/session misconception (Q2).
+	require.Contains(t, body, "非 TK 内部 rpm/并发/会话 配额")
+	require.Contains(t, body, "no available accounts")
+}
+
+func TestEmptyDetailKeepsLegacyDigestKey(t *testing.T) {
+	doer := &blockingFeishuDoer{}
+	n := newTestNotifier(&fakeIncidentConfigProvider{cfg: enabledFeishuConfig()}, doer, time.Unix(1700000000, 0))
+
+	// No detail (e.g. OpenAI / fallback 429) must still aggregate under the bare
+	// reasonClass key, preserving historical behaviour.
+	n.NotifyAccountIncident(testAccount(9, "openai-1", "openai"), time.Now().Add(time.Minute), "429", IncidentKindUnknown)
+	n.mu.Lock()
+	require.NotNil(t, n.digest["429"], "empty-detail 429 must key under bare reasonClass")
+	require.Equal(t, "", n.digest["429"].detail)
+	n.mu.Unlock()
+}
+
 func TestFlushEmptyBufferDoesNotSend(t *testing.T) {
 	doer := &blockingFeishuDoer{}
 	n := newTestNotifier(&fakeIncidentConfigProvider{cfg: enabledFeishuConfig()}, doer, time.Unix(1700000000, 0))
