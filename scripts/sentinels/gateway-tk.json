@@ -1876,6 +1876,20 @@
         "errMsg = \"Upstream rejected the request\""
       ],
       "rationale": "Bug B (prod P0 2026-06-05): the native OpenAI error handler handleErrorResponse (used by /v1/responses) must pass a client-induced upstream 4xx (400/404/413/422 — e.g. Codex/ChatGPT-OAuth 'model is not supported when using Codex with a ChatGPT account') through with its REAL status + the actionable upstream message, instead of the legacy default that masked every non-special status as a generic 502 'Upstream request failed'. This is parity with handleCompatErrorResponse (used by /v1/chat/completions, which already passes these through) and pairs with the ops-classification fix. 401/402/403 stay masked as 502 on purpose (account-side auth/billing/access). An upstream merge that rewrites the status switch and drops this case re-introduces the 400->502 surfacing bug; this sentinel anchors the case and its fallback message."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "tkWrapSelectionFailure(requestedModel, stats)"
+      ],
+      "rationale": "Unsupported-model classification (prod 2026-06-06, user_id=16 sent the bare name 'opus'): both terminal 'selected == nil' branches in SelectAccountWithLoadAwareness route through tkWrapSelectionFailure, which returns service.ErrUnsupportedModel (handler -> HTTP 400 invalid_request_error) when selection failed PURELY because no account serves the requested model name (model_unsupported>0, model_rate_limited==0, unschedulable==0), and the original ErrNoAvailableAccounts (429) otherwise. An upstream merge that rewrites these return points back to the bare 'return nil, ErrNoAvailableAccounts' / fmt.Errorf shape silently reverts the fix: unsupported model names again surface as a misleading rate_limit_error/429 (the new gateway_service_tk_unsupported_model.go would still compile, just unused). This sentinel pins the call sites."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler.go",
+      "must_contain": [
+        "h.tkWriteUnsupportedModelIfApplicable(c, err, reqModel, streamStarted, reqLog)"
+      ],
+      "rationale": "Handler half of the unsupported-model fix: the /v1/messages select-account-failure branches (Anthropic + Gemini) call tkWriteUnsupportedModelIfApplicable BEFORE markOpsRoutingCapacityLimitedIfNoAvailable, mapping service.ErrUnsupportedModel to HTTP 400 invalid_request_error (ops phase=request, client-owned) instead of the 429 'No available accounts' path. An upstream merge that overwrites this hotspot drops the early-return and the fix dies silently (the TK companion file still compiles, just unused). This sentinel pins the call sites."
     }
   ]
 }

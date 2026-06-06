@@ -3376,10 +3376,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 
 	if selected == nil {
 		stats := s.logDetailedSelectionFailure(ctx, groupID, sessionHash, requestedModel, platform, accounts, excludedIDs, false)
-		if requestedModel != "" {
-			return nil, fmt.Errorf("%w supporting model: %s (%s)", ErrNoAvailableAccounts, requestedModel, summarizeSelectionFailureStats(stats))
-		}
-		return nil, ErrNoAvailableAccounts
+		return nil, tkWrapSelectionFailure(requestedModel, stats)
 	}
 
 	// 4. 建立粘性绑定
@@ -3641,10 +3638,7 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 
 	if selected == nil {
 		stats := s.logDetailedSelectionFailure(ctx, groupID, sessionHash, requestedModel, nativePlatform, accounts, excludedIDs, true)
-		if requestedModel != "" {
-			return nil, fmt.Errorf("%w supporting model: %s (%s)", ErrNoAvailableAccounts, requestedModel, summarizeSelectionFailureStats(stats))
-		}
-		return nil, ErrNoAvailableAccounts
+		return nil, tkWrapSelectionFailure(requestedModel, stats)
 	}
 
 	// 4. 建立粘性绑定
