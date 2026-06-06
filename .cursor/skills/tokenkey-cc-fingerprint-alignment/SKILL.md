@@ -198,7 +198,10 @@ bash ops/anthropic/capture-http-comprehensive.sh
    - 2 个死快照：`ops/stage0/smoke_lib.sh`、`deploy/aws/stage0/tk_canonical_cc_oauth.json` 的 `observed.user_agent`。
    - 1 个 go:embed 镜像（load-bearing，reconciler 自愈目标）：`backend/internal/baseline/anthropic-http-mimicry-baselines.json`
      与 deploy 源 byte-identical 同步。
-3. 写 `docs/spec-delta-cc-<patch>.md`（人工记录，含 comprehensive 的 beta 分布）。
+3. **不写**独立 spec-delta（纯版本 bump 没有行为变更意图）。记录由提交信息
+   + `baselines.json` `cc_version` + `.tls_list/*-cc-capture.bundle.json` 天然承载；
+   只在 `docs/cc-fingerprint-changelog.md` **追加一行**（版本｜日期｜`pure UA`｜
+   `A→B, TLS/beta 未变`，含 comprehensive 的 haiku A/B 计数）。一行，不是一文件。
 
 > skill 总是跑 `--write` 并 **review 生成的 diff**（编译兜底 UA 值值得扫一眼）。
 > `check-cc-version-sync.py`（check 模式）在 preflight / CI 兜底防漂移——手工漏跑 `--write` 会被拦。
@@ -212,7 +215,11 @@ bash ops/anthropic/capture-http-comprehensive.sh
 - `backend/internal/pkg/claude/constants.go` 的 beta 常量 + `HaikuBetaHeader` / `FullClaudeCode*MimicryBetas()`。
 - claude 包对应单测。
 - 若新增 load-bearing 面：`scripts/sentinels/gateway-tk.json`。
-- `docs/spec-delta-cc-<patch>.md` 记录 token 集合与分布。
+- **写/更新一份按主题命名的决策记录** `docs/spec-delta-cc-<topic>.md`（如
+  `…-haiku-beta-ab.md`、`…-canonical-ua.md`；不要用版本号命名、不要一 patch 一份），
+  记录 token 集合、分布与抉择理由，并就地更新；代码按稳定名引用它。在
+  `docs/cc-fingerprint-changelog.md` 追加一行、type 标 `decision` 并链到该记录。
+  （bimodal Haiku A/B 已在 `spec-delta-cc-2.1.160.md` + #429 刻画，勿逐 patch 重述。）
 
 ## 5) 验证与 PR（默认 open_pr=true）
 
@@ -223,7 +230,7 @@ python3 -m unittest discover -s ops/anthropic -p 'test_capture_cc_fingerprint.py
 ./scripts/preflight.sh
 ```
 
-**HTTP 漂移（默认）：** 修 §4 清单（仅版本走 4.1 的 `--write`；beta 变了再走 4.2）→ spec-delta → 分支 → commit → push → `gh pr create` → **merge 后立刻**：
+**HTTP 漂移（默认）：** 修 §4 清单（仅版本走 4.1 的 `--write` + changelog 一行；beta 变了再走 4.2 写主题决策记录）→ 分支 → commit → push → `gh pr create` → **merge 后立刻**：
 
 ```bash
 bash ops/anthropic/cc_fingerprint_apply_http_runtime.sh
@@ -257,8 +264,8 @@ bash ops/anthropic/cc_fingerprint_apply_http_runtime.sh
 check env → capture --http → comprehensive (beta consistency)
     → check / check-tls
     → [ja3变?] manage-anthropic-config apply + TLS drift PR
-    → [仅UA/版本?] 编辑 baselines.json cc_version → check-cc-version-sync --write（自动改全部副本）→ spec-delta
-    → [beta集合变?] baselines 数组 + constants betas + tests + spec-delta（§4.2，需抓包证据）
+    → [仅UA/版本?] 编辑 baselines.json cc_version → check-cc-version-sync --write（自动改全部副本）→ changelog 追加一行（不写独立 spec-delta）
+    → [beta集合变?] baselines 数组 + constants betas + tests + 主题命名 spec-delta 决策记录 + changelog 一行（§4.2，需抓包证据）
     → preflight → open PR (default) → merge
     → sync-runtime / cc_fingerprint_apply_http_runtime.sh（无发版）
     → [可选] 下一班 release 更新 compile default
