@@ -36,7 +36,16 @@
 #      also uses --force-recreate for the same reason).
 #
 # What this script INTENTIONALLY DOES NOT DO:
-#   - It does NOT refresh /var/lib/tokenkey/docker-compose.yml.
+#   - It does NOT wholesale-refresh /var/lib/tokenkey/docker-compose.yml.
+#     (Exception: it DOES self-heal one specific, additive line — the
+#     `SERVER_FRONTEND_URL=${SERVER_FRONTEND_URL:-}` env mapping in the tokenkey
+#     service — when absent. Edges provisioned before that mapping was added to
+#     the compose template carried a stale compose: the .env backfill below set
+#     SERVER_FRONTEND_URL, but with no compose mapping the var never reached the
+#     container, so alert cards showed node=unknown on us1/us2/us3/us4/us5/uk1
+#     [2026-06-06]. The insert is guarded by `! grep -q SERVER_FRONTEND_URL`, so
+#     it is a no-op on already-correct edges, and additive [one env line after
+#     the TZ line], so it cannot break an otherwise-valid compose.)
 #   - It does NOT refresh /var/lib/tokenkey/caddy/Caddyfile.
 #   Both files are written once at instance launch by UserData (gzip+base64
 #   decoded from SSM Parameter Store; see stage0-{single,edge}-ec2.yaml +
@@ -94,6 +103,7 @@ jq -n --arg tag "${TAG}" '{
     "trap rollback ERR",
     ("sudo sed -i '\''s|sub2api:[^[:space:]]*|sub2api:" + $tag + "|'\'' /var/lib/tokenkey/.env"),
     "if ! grep -q '\''^SERVER_FRONTEND_URL='\'' /var/lib/tokenkey/.env; then d=$(sed -n '\''s/^API_DOMAIN=//p'\'' /var/lib/tokenkey/.env | head -1); if [ -n \"$d\" ]; then echo \"SERVER_FRONTEND_URL=https://$d\" | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo \"ensured SERVER_FRONTEND_URL=https://$d\"; else echo \"API_DOMAIN empty; skip SERVER_FRONTEND_URL backfill\"; fi; else echo \"SERVER_FRONTEND_URL already present\"; fi",
+    ("if [ -f /var/lib/tokenkey/docker-compose.yml ] && ! grep -q '\''SERVER_FRONTEND_URL'\'' /var/lib/tokenkey/docker-compose.yml; then sudo cp -a /var/lib/tokenkey/docker-compose.yml /var/lib/tokenkey/docker-compose.yml.compose-before-" + $tag + "; sudo sed -i '\''/^      - TZ=/a\\      - SERVER_FRONTEND_URL=${SERVER_FRONTEND_URL:-}'\'' /var/lib/tokenkey/docker-compose.yml; if grep -q '\''SERVER_FRONTEND_URL'\'' /var/lib/tokenkey/docker-compose.yml; then echo ensured-compose-SERVER_FRONTEND_URL-mapping; else echo '\''::warning::failed to insert compose SERVER_FRONTEND_URL mapping'\''; fi; else echo compose-SERVER_FRONTEND_URL-mapping-present-or-no-compose; fi"),
     "echo \"=== pull new image BEFORE drain (old container keeps serving 100% traffic) ===\"",
     "cd /var/lib/tokenkey && sudo docker compose --env-file .env pull tokenkey",
     "echo \"=== pre-drain: SIGUSR1 + wait in_flight=0 (only when outgoing container healthy) ===\"",
