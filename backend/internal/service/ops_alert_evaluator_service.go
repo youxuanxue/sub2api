@@ -243,7 +243,7 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 		windowStart := safeEnd.Add(-time.Duration(windowMinutes) * time.Minute)
 		windowEnd := safeEnd
 
-		metricValue, ok := s.computeRuleMetric(ctx, rule, systemMetrics, windowStart, windowEnd, scopePlatform, scopeGroupID)
+		metricValue, ok := s.computeRuleMetric(ctx, rule, systemMetrics, windowStart, windowEnd, scopePlatform, scopeGroupID, runtimeCfg.RateRuleMinSamples)
 		if !ok {
 			s.resetRuleState(rule.ID, now)
 			continue
@@ -461,9 +461,19 @@ func (s *OpsAlertEvaluatorService) computeRuleMetric(
 	end time.Time,
 	platform string,
 	groupID *int64,
+	rateRuleMinSamples int,
 ) (float64, bool) {
 	if rule == nil {
 		return 0, false
+	}
+	// Sample floor for ratio metrics: a window with fewer than this many
+	// SLA-counted requests is too sparse to yield a trustworthy rate, so the
+	// rule is skipped (ok=false) instead of firing on a misleading 100% (false
+	// P0 on low-traffic edges, 2026-06-06 us2/us5). Always at least 1 so the
+	// >0 denominator guard still holds when the floor is unset.
+	rateSampleFloor := int64(rateRuleMinSamples)
+	if rateSampleFloor < 1 {
+		rateSampleFloor = 1
 	}
 	switch strings.TrimSpace(rule.MetricType) {
 	case "cpu_usage_percent":
@@ -614,17 +624,17 @@ func (s *OpsAlertEvaluatorService) computeRuleMetric(
 
 	switch strings.TrimSpace(rule.MetricType) {
 	case "success_rate":
-		if overview.RequestCountSLA <= 0 {
+		if overview.RequestCountSLA < rateSampleFloor {
 			return 0, false
 		}
 		return overview.SLA * 100, true
 	case "error_rate":
-		if overview.RequestCountSLA <= 0 {
+		if overview.RequestCountSLA < rateSampleFloor {
 			return 0, false
 		}
 		return overview.ErrorRate * 100, true
 	case "upstream_error_rate":
-		if overview.RequestCountSLA <= 0 {
+		if overview.RequestCountSLA < rateSampleFloor {
 			return 0, false
 		}
 		return overview.UpstreamErrorRate * 100, true

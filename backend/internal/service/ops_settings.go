@@ -13,6 +13,11 @@ import (
 const (
 	opsAlertEvaluatorLeaderLockKeyDefault = "ops:alert:evaluator:leader"
 	opsAlertEvaluatorLeaderLockTTLDefault = 30 * time.Second
+	// opsAlertRateRuleMinSamplesDefault is the default minimum SLA-counted
+	// request count in a rule window below which ratio metrics (success_rate /
+	// error_rate / upstream_error_rate) are not evaluated. See
+	// OpsAlertRuntimeSettings.RateRuleMinSamples.
+	opsAlertRateRuleMinSamplesDefault     = 20
 	opsFeishuAlertRateLimitPerHourDefault = 3
 	opsFeishuAlertCooldownSecondsDefault  = 3600
 	// 账号失效事件「临时冷却」聚合摘要的默认 flush 间隔（秒）。
@@ -298,6 +303,7 @@ func (c *OpsEmailNotificationConfig) ForResponse() *OpsEmailNotificationConfig {
 func defaultOpsAlertRuntimeSettings() *OpsAlertRuntimeSettings {
 	return &OpsAlertRuntimeSettings{
 		EvaluationIntervalSeconds: 60,
+		RateRuleMinSamples:        opsAlertRateRuleMinSamplesDefault,
 		DistributedLock: OpsDistributedLockSettings{
 			Enabled:    true,
 			Key:        opsAlertEvaluatorLeaderLockKeyDefault,
@@ -403,6 +409,11 @@ func (s *OpsService) GetOpsAlertRuntimeSettings(ctx context.Context) (*OpsAlertR
 	if cfg.EvaluationIntervalSeconds <= 0 {
 		cfg.EvaluationIntervalSeconds = defaultCfg.EvaluationIntervalSeconds
 	}
+	// 0 / missing on a legacy settings row → fill the default floor so the
+	// false-P0 guard applies without requiring operators to re-save settings.
+	if cfg.RateRuleMinSamples <= 0 {
+		cfg.RateRuleMinSamples = defaultCfg.RateRuleMinSamples
+	}
 	normalizeOpsDistributedLockSettings(&cfg.DistributedLock, opsAlertEvaluatorLeaderLockKeyDefault, defaultCfg.DistributedLock.TTLSeconds)
 	normalizeOpsAlertSilencingSettings(&cfg.Silencing)
 
@@ -423,6 +434,9 @@ func (s *OpsService) UpdateOpsAlertRuntimeSettings(ctx context.Context, cfg *Ops
 	if cfg.EvaluationIntervalSeconds < 1 || cfg.EvaluationIntervalSeconds > int((24*time.Hour).Seconds()) {
 		return nil, errors.New("evaluation_interval_seconds must be between 1 and 86400")
 	}
+	if cfg.RateRuleMinSamples < 0 || cfg.RateRuleMinSamples > 1_000_000 {
+		return nil, errors.New("rate_rule_min_samples must be between 0 and 1000000")
+	}
 	if cfg.DistributedLock.Enabled {
 		if err := validateOpsDistributedLockSettings(cfg.DistributedLock); err != nil {
 			return nil, err
@@ -435,6 +449,9 @@ func (s *OpsService) UpdateOpsAlertRuntimeSettings(ctx context.Context, cfg *Ops
 	}
 
 	defaultCfg := defaultOpsAlertRuntimeSettings()
+	if cfg.RateRuleMinSamples <= 0 {
+		cfg.RateRuleMinSamples = defaultCfg.RateRuleMinSamples
+	}
 	normalizeOpsDistributedLockSettings(&cfg.DistributedLock, opsAlertEvaluatorLeaderLockKeyDefault, defaultCfg.DistributedLock.TTLSeconds)
 	normalizeOpsAlertSilencingSettings(&cfg.Silencing)
 

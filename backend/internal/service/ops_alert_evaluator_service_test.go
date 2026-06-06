@@ -201,7 +201,57 @@ func TestComputeRuleMetricNewIndicators(t *testing.T) {
 			rule := &OpsAlertRule{
 				MetricType: tt.metricType,
 			}
-			gotValue, gotOK := svc.computeRuleMetric(ctx, rule, nil, start, end, platform, tt.groupID)
+			gotValue, gotOK := svc.computeRuleMetric(ctx, rule, nil, start, end, platform, tt.groupID, 0)
+			require.Equal(t, tt.wantOK, gotOK)
+			if !tt.wantOK {
+				return
+			}
+			require.InDelta(t, tt.wantValue, gotValue, 0.0001)
+		})
+	}
+}
+
+// TestComputeRuleMetricRateSampleFloor pins the false-P0 guard: a ratio metric
+// (upstream_error_rate) over a window holding fewer SLA-counted requests than
+// the configured floor must return ok=false so the rule is skipped, instead of
+// reporting a misleading 100% on near-empty low-traffic windows (2026-06-06
+// us2/us5 incident: 19 / 1 requests in ~25min yet upstream_error_rate=100%).
+func TestComputeRuleMetricRateSampleFloor(t *testing.T) {
+	t.Parallel()
+
+	start := time.Now().UTC().Add(-5 * time.Minute)
+	end := time.Now().UTC()
+	ctx := context.Background()
+
+	tests := []struct {
+		name       string
+		requestSLA int64
+		minSamples int
+		wantOK     bool
+		wantValue  float64
+	}{
+		{name: "below floor is skipped (us2: 19 reqs, floor 20)", requestSLA: 19, minSamples: 20, wantOK: false},
+		{name: "single request is skipped (us5: 1 req, floor 20)", requestSLA: 1, minSamples: 20, wantOK: false},
+		{name: "at floor is evaluated", requestSLA: 20, minSamples: 20, wantOK: true, wantValue: 100},
+		{name: "above floor is evaluated", requestSLA: 200, minSamples: 20, wantOK: true, wantValue: 100},
+		{name: "floor unset (0) falls back to legacy >0 guard, evaluates 1 req", requestSLA: 1, minSamples: 0, wantOK: true, wantValue: 100},
+		{name: "floor unset (0) still skips empty window", requestSLA: 0, minSamples: 0, wantOK: false},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			svc := &OpsAlertEvaluatorService{
+				opsRepo: &stubOpsRepo{overview: &OpsDashboardOverview{
+					RequestCountSLA:   tt.requestSLA,
+					UpstreamErrorRate: 1.0, // 100% of the (few) requests failed upstream
+				}},
+			}
+			rule := &OpsAlertRule{MetricType: "upstream_error_rate"}
+
+			gotValue, gotOK := svc.computeRuleMetric(ctx, rule, nil, start, end, "", nil, tt.minSamples)
 			require.Equal(t, tt.wantOK, gotOK)
 			if !tt.wantOK {
 				return
