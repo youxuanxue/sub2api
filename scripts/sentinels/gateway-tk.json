@@ -1822,10 +1822,11 @@
         "func tkAnthropicModelClass(model string) string",
         "anthropicModelClassRateLimitPrefix = \"anthropic:class:\"",
         "func (s *RateLimitService) tkTryAnthropicModelScopedCooldown(",
+        "if result.window == anthropicUnifiedWindow5h || result.window == anthropicUnifiedWindow7d {",
         "SetModelRateLimit(ctx, account.ID, scopeKey, resetAt, tkAnthropicModelCooldownReason)",
         "func (a *Account) tkAnthropicModelClassRateLimitActive(requestedModel string) bool"
       ],
-      "rationale": "G4 model-dimension cooldown companion. Anthropic OAuth accounts share a unified 5h/7d window across model classes; when opus exhausts it, upstream returns a unified-window 429 and the LEGACY behaviour cooled the WHOLE account (SetRateLimited), taking healthy sonnet/haiku offline (prod edge us6, account edge-ls-oh-3-d). This file scopes that cooldown to (account x model class) via the existing model_rate_limits store with an 'anthropic:class:<opus|sonnet|haiku>' scope key (mirrors the antigravity 'antigravity:gemini' family-key precedent). Losing tkTryAnthropicModelScopedCooldown / tkAnthropicModelClass on an upstream merge would silently re-introduce the account-level amplification; this sentinel catches that."
+      "rationale": "G4 model-dimension cooldown companion. Anthropic OAuth accounts share a unified 5h/7d window across model classes. The model-scoped cooldown is ONLY correct for a genuine per-class sub-bucket limit; an account-wide unified window (anthropic-ratelimit-unified-{5h,7d}-* with NO class suffix) is shared and blocks every class even when that class's own sub-bucket is allowed (direct upstream probe edge-us3 account a1, 2026-06-06: unified-7d-status=rejected returned 429 to a sonnet request while unified-7d_sonnet-status=allowed). The 'if result.window == anthropicUnifiedWindow5h || ...7d' guard makes tkTryAnthropicModelScopedCooldown DECLINE (return false -> caller does account-level SetRateLimited) for account-wide windows, so all classes are cooled; model-scoping survives only for window=='' (per-class sub-bucket). Losing that guard re-introduces the bug where a 7d-exhausted account leaves haiku falsely schedulable and unmarked. Losing tkTryAnthropicModelScopedCooldown / tkAnthropicModelClass on an upstream merge would silently re-introduce the original account-level amplification; this sentinel catches both."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
