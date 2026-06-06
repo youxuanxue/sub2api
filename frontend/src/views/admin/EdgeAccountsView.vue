@@ -1,53 +1,80 @@
 <template>
   <AppLayout>
     <div class="space-y-6">
-      <!-- Header -->
-      <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h1 class="text-2xl font-semibold text-gray-900 dark:text-white">{{ t('admin.edgeAccounts.title') }}</h1>
-          <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ t('admin.edgeAccounts.description') }}</p>
-        </div>
-        <div class="flex flex-wrap items-center gap-2">
-          <label class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-            <span>{{ t('admin.edgeAccounts.platformFilter') }}</span>
-            <select
-              class="input input-sm w-36"
-              :value="platform"
-              @change="setPlatform(($event.target as HTMLSelectElement).value)"
+      <!-- Sticky header + summary: pinned just below the global AppHeader (h-16 =
+           top-16) so the operator can hit 刷新 and read the fleet totals at any
+           scroll depth in the per-edge list. Negative margins bleed the opaque
+           backdrop to the edges of the main padding so scrolled cards never peek
+           through; z-20 stays under AppHeader's z-30. -->
+      <div
+        class="sticky top-16 z-20 -mx-4 space-y-4 bg-gray-50/95 px-4 pb-4 pt-1 backdrop-blur md:-mx-6 md:px-6 lg:-mx-8 lg:px-8 dark:bg-dark-950/95"
+      >
+        <!-- Header -->
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h1 class="text-2xl font-semibold text-gray-900 dark:text-white">{{ t('admin.edgeAccounts.title') }}</h1>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ t('admin.edgeAccounts.description') }}</p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <label class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+              <span>{{ t('admin.edgeAccounts.platformFilter') }}</span>
+              <select
+                class="input input-sm w-36"
+                :value="platform"
+                @change="setPlatform(($event.target as HTMLSelectElement).value)"
+              >
+                <option value="all">{{ t('admin.edgeAccounts.allPlatforms') }}</option>
+                <option v-for="p in PLATFORM_OPTIONS" :key="p" :value="p">{{ p }}</option>
+              </select>
+            </label>
+            <span v-if="lastFetchedAt" class="text-xs text-gray-400 dark:text-gray-500">
+              {{ t('admin.edgeAccounts.lastFetched') }}: {{ formatDateTime(lastFetchedAt) }}
+            </span>
+            <button
+              type="button"
+              class="btn btn-secondary inline-flex items-center gap-2"
+              :disabled="loading"
+              @click="fetch"
             >
-              <option value="all">{{ t('admin.edgeAccounts.allPlatforms') }}</option>
-              <option v-for="p in PLATFORM_OPTIONS" :key="p" :value="p">{{ p }}</option>
-            </select>
-          </label>
-          <span v-if="lastFetchedAt" class="text-xs text-gray-400 dark:text-gray-500">
-            {{ t('admin.edgeAccounts.lastFetched') }}: {{ formatDateTime(lastFetchedAt) }}
-          </span>
-          <button
-            type="button"
-            class="btn btn-secondary inline-flex items-center gap-2"
-            :disabled="loading"
-            @click="fetch"
-          >
-            <Icon name="refresh" size="sm" :class="loading ? 'animate-spin' : ''" />
-            {{ t('admin.edgeAccounts.refresh') }}
-          </button>
+              <Icon name="refresh" size="sm" :class="loading ? 'animate-spin' : ''" />
+              {{ t('admin.edgeAccounts.refresh') }}
+            </button>
+          </div>
         </div>
-      </div>
 
-      <!-- Summary bar -->
-      <div v-if="!loading || edges.length" class="flex flex-wrap gap-3 text-sm">
-        <span class="rounded-md bg-gray-100 px-3 py-1 text-gray-700 dark:bg-dark-700 dark:text-gray-200">
-          {{ t('admin.edgeAccounts.summaryEdges', { ok: okEdges.length, total: edges.length }) }}
-        </span>
-        <span class="rounded-md bg-gray-100 px-3 py-1 text-gray-700 dark:bg-dark-700 dark:text-gray-200">
-          {{ t('admin.edgeAccounts.summaryAccounts', { count: totalAccounts }) }}
-        </span>
-        <span
-          v-if="failedEdges.length"
-          class="rounded-md bg-red-100 px-3 py-1 text-red-700 dark:bg-red-900/40 dark:text-red-300"
-        >
-          {{ t('admin.edgeAccounts.summaryFailed', { count: failedEdges.length }) }}
-        </span>
+        <!-- Summary bar -->
+        <div v-if="!loading || edges.length" class="flex flex-wrap items-center gap-3 text-sm">
+          <span class="rounded-md bg-gray-100 px-3 py-1 text-gray-700 dark:bg-dark-700 dark:text-gray-200">
+            {{ t('admin.edgeAccounts.summaryEdges', { ok: okEdges.length, total: edges.length }) }}
+          </span>
+          <span class="rounded-md bg-gray-100 px-3 py-1 text-gray-700 dark:bg-dark-700 dark:text-gray-200">
+            {{ t('admin.edgeAccounts.summaryAccounts', { count: totalAccounts }) }}
+          </span>
+          <span
+            v-if="failedEdges.length"
+            class="rounded-md bg-red-100 px-3 py-1 text-red-700 dark:bg-red-900/40 dark:text-red-300"
+          >
+            {{ t('admin.edgeAccounts.summaryFailed', { count: failedEdges.length }) }}
+          </span>
+
+          <!-- Aggregated configured caps across all currently-schedulable accounts
+               (sum of each account's configured concurrency / base RPM / sessions —
+               capacity that can take traffic now, not live usage). -->
+          <template v-if="configTotals.count">
+            <span class="self-center text-xs text-gray-400 dark:text-gray-500">
+              {{ t('admin.edgeAccounts.summaryConfigLabel', { count: configTotals.count }) }}
+            </span>
+            <span class="rounded-md bg-primary-50 px-3 py-1 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300">
+              {{ t('admin.edgeAccounts.summaryConcurrency', { value: configTotals.concurrency }) }}
+            </span>
+            <span class="rounded-md bg-primary-50 px-3 py-1 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300">
+              {{ t('admin.edgeAccounts.summaryBaseRpm', { base: configTotals.baseRpm, sticky: configTotals.stickyRpm }) }}
+            </span>
+            <span class="rounded-md bg-primary-50 px-3 py-1 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300">
+              {{ t('admin.edgeAccounts.summarySessions', { value: configTotals.sessions }) }}
+            </span>
+          </template>
+        </div>
       </div>
 
       <!-- Loading -->
@@ -144,8 +171,10 @@
                     <div v-if="acct.temp_unschedulable_reason" class="mt-0.5 max-w-xs truncate text-xs text-amber-600 dark:text-amber-400" :title="acct.temp_unschedulable_reason">
                       {{ acct.temp_unschedulable_reason }}
                     </div>
-                    <!-- Operator 备注, mirroring the admin accounts page name cell. -->
-                    <div v-if="acct.notes" class="mt-0.5 block max-w-xs truncate text-xs text-gray-500 dark:text-gray-400" :title="acct.notes">
+                    <!-- Operator 备注, mirroring the admin accounts page name cell.
+                         whitespace-pre-wrap break-words (not truncate) so multi-line
+                         notes render verbatim, matching the #618 AccountsView fix. -->
+                    <div v-if="acct.notes" class="mt-0.5 block max-w-xs whitespace-pre-wrap break-words text-xs text-gray-500 dark:text-gray-400" :title="acct.notes">
                       {{ acct.notes }}
                     </div>
                   </td>
@@ -252,6 +281,7 @@ const {
   okEdges,
   failedEdges,
   totalAccounts,
+  configTotals,
   fetch,
   setPlatform
 } = useTkEdgeAccounts()
