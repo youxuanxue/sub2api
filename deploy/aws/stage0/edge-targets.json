@@ -16,7 +16,7 @@
       "snapshot_schedule": "none",
       "monthly_budget_usd": 16,
       "ssm_prefix": "/tokenkey/edge/us1",
-      "purpose": "clean-us-egress-planned"
+      "purpose": "RETIRED 2026-06-07: EC2 stack decommissioned (instance terminated, EIP 16.147.170.3 released, EBS snap-09294f99e52c67dba kept 30d). Accounts migrated to us6 Lightsail; cc/codex fingerprint egress migrated to 52.15.35.197. Tombstone kept (deployable=false) because us1 is the last EC2 edge; full EC2-path removal (workflow options/role-maps, cicd-oidc EdgeUs1*, resolver branch) is a separate decision."
     }
   }
 }

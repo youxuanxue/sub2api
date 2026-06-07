@@ -43,6 +43,13 @@
       "platform": "ec2",
       "edge_id": "fra1",
       "notes": "EC2 fra1 EIP released 2026-06-01 on EC2 decommission (fra1 goes Lightsail-only; not upstream pollution; exclude from re-allocation)"
+    },
+    {
+      "ip": "16.147.170.3",
+      "region": "us-west-2",
+      "platform": "ec2",
+      "edge_id": "us1",
+      "notes": "EC2 us1 EIP released 2026-06-07 on edge retirement (accounts migrated to us6 Lightsail; cc/codex fingerprint egress migrated to 52.15.35.197; not upstream pollution; exclude from re-allocation)"
     }
   ]
 }
