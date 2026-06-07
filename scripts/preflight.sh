@@ -909,21 +909,20 @@ fi
 
 echo ""
 echo "=== sub2api: Stage0 deployment primitive sharing ==="
-if [ -f .github/workflows/deploy-edge-stage0.yml ]; then
-    if ! grep -q 'ops/stage0/deploy_via_ssm.sh' .github/workflows/deploy-stage0.yml; then
-        echo "  FAIL: deploy-stage0.yml must use ops/stage0/deploy_via_ssm.sh"
-        errors=$((errors + 1))
-    elif ! grep -q 'ops/stage0/deploy_via_ssm.sh' .github/workflows/deploy-edge-stage0.yml; then
-        echo "  FAIL: deploy-edge-stage0.yml must use ops/stage0/deploy_via_ssm.sh"
-        errors=$((errors + 1))
-    elif grep -q 'docker compose --env-file .* up -d --no-deps tokenkey' .github/workflows/deploy-stage0.yml .github/workflows/deploy-edge-stage0.yml; then
-        echo "  FAIL: Stage0 workflows must not inline tokenkey SSM deploy commands; use ops/stage0/deploy_via_ssm.sh"
-        errors=$((errors + 1))
-    else
-        echo "  ok: prod deploy-stage0 and Edge workflows share the Stage0 SSM deploy primitive"
-    fi
+# EC2 edge path removed 2026-06-07 (deploy-edge-stage0.yml deleted); edges are
+# Lightsail-only. prod (deploy-stage0.yml) + Lightsail edge (deploy-edge-lightsail-stage0.yml)
+# must share the SSM deploy primitive and never inline the compose deploy command.
+if ! grep -q 'ops/stage0/deploy_via_ssm.sh' .github/workflows/deploy-stage0.yml; then
+    echo "  FAIL: deploy-stage0.yml must use ops/stage0/deploy_via_ssm.sh"
+    errors=$((errors + 1))
+elif ! grep -q 'ops/stage0/deploy_via_ssm.sh' .github/workflows/deploy-edge-lightsail-stage0.yml; then
+    echo "  FAIL: deploy-edge-lightsail-stage0.yml must use ops/stage0/deploy_via_ssm.sh"
+    errors=$((errors + 1))
+elif grep -q 'docker compose --env-file .* up -d --no-deps tokenkey' .github/workflows/deploy-stage0.yml .github/workflows/deploy-edge-lightsail-stage0.yml; then
+    echo "  FAIL: Stage0 workflows must not inline tokenkey SSM deploy commands; use ops/stage0/deploy_via_ssm.sh"
+    errors=$((errors + 1))
 else
-    echo "  ok: no Edge Stage0 workflow present"
+    echo "  ok: prod deploy-stage0 and Lightsail edge workflow share the Stage0 SSM deploy primitive"
 fi
 
 echo ""
@@ -933,7 +932,7 @@ echo "=== sub2api: Stage0 deploy tag-validation sharing ==="
 # already drifted to a shorter error message). This sentinel fails closed if any
 # deploy workflow stops calling it or re-inlines the regex.
 _tag_script="ops/stage0/validate-deploy-tag.sh"
-_tag_files=".github/workflows/deploy-stage0.yml .github/workflows/deploy-edge-stage0.yml .github/workflows/deploy-edge-lightsail-stage0.yml"
+_tag_files=".github/workflows/deploy-stage0.yml .github/workflows/deploy-edge-lightsail-stage0.yml"
 _tag_ok=1
 if [ ! -x "$_tag_script" ]; then
     echo "  FAIL: $_tag_script missing or not executable (shared tag-format gate)"
@@ -969,7 +968,7 @@ echo "=== sub2api: Stage0 deploy job timeouts ==="
 # step (describe-stacks / health-poll) would hold the prod/edge lock to the 6h
 # GHA default without a job-level timeout-minutes. Assert the cap stays present.
 _dt_ok=1
-for _df in .github/workflows/deploy-stage0.yml .github/workflows/deploy-edge-stage0.yml .github/workflows/deploy-edge-lightsail-stage0.yml; do
+for _df in .github/workflows/deploy-stage0.yml .github/workflows/deploy-edge-lightsail-stage0.yml; do
     [ -f "$_df" ] || continue
     if ! grep -q '^    timeout-minutes:' "$_df"; then
         echo "  FAIL: $_df job is missing timeout-minutes (a hang would hold the deploy concurrency lock up to the 6h GHA default)"
@@ -1063,7 +1062,7 @@ else
     # CalledProcessError. Strip these vars at the boundary so the suites behave
     # identically inside the hook and standalone.
     _det_baseline_failed=0
-    for _det_dir in ops/observability ops/stage0 ops/migration scripts deploy/aws/stage0 deploy/aws/lightsail; do
+    for _det_dir in ops/observability ops/stage0 scripts deploy/aws/stage0 deploy/aws/lightsail; do
         if ! env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR \
               python3 -m unittest discover -s "$_det_dir" -p 'test_*.py' -t "$_det_dir" >/dev/null 2>&1; then
             echo "  FAIL: $_det_dir unittest failed (re-run: env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE python3 -m unittest discover -s $_det_dir -p 'test_*.py' -t $_det_dir -v)"

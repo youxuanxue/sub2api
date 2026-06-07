@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "description": "Edge egress IP exclusion registry (EC2 EIP + Lightsail Static IP). allocate-clean-egress-eip.py and ops/lightsail/rotate-static-ip.sh refuse fresh allocations that land on these IPs (per region).",
+  "description": "Edge egress IP exclusion registry (Lightsail Static IP; legacy EC2 EIP entries retained as history). ops/lightsail/rotate-static-ip.sh refuses fresh allocations that land on these IPs and record-polluted-ip.py appends to it (per region). The EC2 edge path was removed 2026-06-07.",
   "polluted": [
     {
       "ip": "3.9.160.161",

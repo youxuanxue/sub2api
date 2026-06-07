@@ -3,7 +3,7 @@
 Permanent list of **excluded** edge egress IPs (EC2 EIP and Lightsail Static IP). Do not bind these addresses to any edge again.
 
 - **Source of truth:** [`deploy/aws/stage0/edge-polluted-ips.json`](../../deploy/aws/stage0/edge-polluted-ips.json)
-- **Enforcement:** [`deploy/aws/stage0/allocate-clean-egress-eip.py`](../../deploy/aws/stage0/allocate-clean-egress-eip.py) (EC2 `rotate_egress_ip` path); [`deploy/aws/stage0/record-polluted-ip.py`](../../deploy/aws/stage0/record-polluted-ip.py) + [`ops/lightsail/rotate-static-ip.sh`](../../ops/lightsail/rotate-static-ip.sh) (Lightsail Static IP rotation)
+- **Enforcement:** [`deploy/aws/stage0/record-polluted-ip.py`](../../deploy/aws/stage0/record-polluted-ip.py) + [`ops/lightsail/rotate-static-ip.sh`](../../ops/lightsail/rotate-static-ip.sh) (Lightsail Static IP rotation). The EC2 `rotate_egress_ip` path (`allocate-clean-egress-eip.py`) was removed 2026-06-07 when edges went Lightsail-only; legacy EC2 EIP rows are retained below as history.
 - **Regenerate table:** `scripts/edge-ip-status.sh --markdown` (paste polluted block below if it drifted)
 
 Active edge EIP rotation runbook: [`.cursor/skills/tokenkey-stage0-edge-ip-rotation/SKILL.md`](../../.cursor/skills/tokenkey-stage0-edge-ip-rotation/SKILL.md).

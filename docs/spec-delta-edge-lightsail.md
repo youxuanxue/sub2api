@@ -1,14 +1,16 @@
-# Edge Lightsail 并行部署路径（spec delta）
+# Edge Lightsail 部署路径（spec delta）
+
+> **2026-06-07 更新：Lightsail 是 edge 的唯一路径。** EC2/CFN 的 edge 路径已移除
+> （`deploy-edge-stage0.yml`、`stage0-edge-ec2.yaml`、EIP 轮换工具已删除，
+> `edge-targets.json` 清空为 stub）。本 delta 此前把 Lightsail 描述为「与 EC2 并行的
+> 实验路径」——该定位已废止；现在它是 edge 的唯一实现。**prod 主网关仍是 EC2/CFN，不受影响。**
 
 ## Background
 
-现有 Edge Stage0 基于 EC2 + CloudFormation + SSM Run-Command，与 prod 共享
-`ops/stage0/deploy_via_ssm.sh`、烟测与 diagnostics 入口。项目规划文档
-`docs/deploy/tokenkey-multiregion-egress-gateway-plan.md` §6.1 已判定
-**EC2/CFN 为默认 Edge 路径**（OPC：多 Edge 时避免 N 套 runbook 漂移）。
-
-本 delta 新增 **与 EC2 并行的 Lightsail Edge 路径**，用于成本/区域覆盖实验；
-**不替换** `deploy-edge-stage0.yml` 与 `stage0-edge-ec2.yaml`。
+最初 Edge Stage0 基于 EC2 + CloudFormation + SSM Run-Command，与 prod 共享
+`ops/stage0/deploy_via_ssm.sh`、烟测与 diagnostics 入口；本 delta 当初新增 Lightsail
+作为并行降本/区域覆盖路径。此后多 Edge 全部收敛到 Lightsail，EC2 edge 路径整体退役，
+Lightsail 成为唯一 edge 实现（与 prod 仍共享上述 SSM/smoke/diagnostics primitive）。
 
 ## Delta
 
@@ -76,8 +78,8 @@
 
 ### 回归
 
-- 现有 `deploy-edge-stage0.yml` + EC2 Edge 栈不受影响
-- prod / EC2 edge 在 ops-daily-diagnostics 的处理路径未变（platform=ec2 走 CFN 分支）
+- prod 主网关（EC2/CFN）不受影响——本 delta 只动 edge。
+- （历史）此前与 EC2 edge 并存时，EC2 edge 在 ops-daily-diagnostics 走 CFN 分支；2026-06-07 EC2 edge 路径移除后，edge 全部走 Lightsail（platform=lightsail）分支。
 
 ## Validation
 

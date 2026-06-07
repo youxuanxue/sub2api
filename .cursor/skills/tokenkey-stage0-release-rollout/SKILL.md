@@ -4,8 +4,9 @@ description: >-
   Drives TokenKey AWS Stage0 release and rollout across prod and Edge targets:
   sync main, decide VERSION/tag, run scripts/release-tag.sh, watch release.yml,
   deploy prod via deploy-stage0.yml, deploy/smoke deployable Edge targets
-  (dynamic edge matrix from deploy/aws/stage0/edge-targets.json, EC2 or Lightsail
-  via scripts/stage0/dispatch-edge-deploy.sh) via platform-routed workflows,
+  (dynamic edge matrix from deploy/aws/lightsail/edge-targets-lightsail.json;
+  edges are Lightsail-only, dispatched via scripts/stage0/dispatch-edge-deploy.sh
+  to deploy-edge-lightsail-stage0.yml),
   report structured smoke results, run post-release Anthropic OAuth config
   check (manage-anthropic-config.py snapshot+check; see tokenkey-anthropic-oauth-config),
   or run a pre-release check of code facts and production impact risk.
@@ -26,7 +27,7 @@ description: >-
 | VERSION/tag 三态决策（tag-only / bump-and-tag / skip-bump-skip-tag） | 机械 | `scripts/release-decide-version.sh [--emit-suggested-bump]` |
 | 打 tag（含 skip-ci / VERSION 一致 / 分支 / sync 校验） | 机械 | `scripts/release-tag.sh vX.Y.Z` |
 | 读取 deployable edge 矩阵 | 机械 | `python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable` |
-| Edge dispatch 路由（EC2 vs Lightsail） | 机械 | `scripts/stage0/resolve-edge-deploy-route.py --edge-id <id> --json` |
+| Edge dispatch 路由（edges 均为 Lightsail） | 机械 | `scripts/stage0/resolve-edge-deploy-route.py --edge-id <id> --json` |
 | Edge upgrade/smoke/rollback dispatch | 机械 | `bash scripts/stage0/dispatch-edge-deploy.sh --edge-id … --operation …` |
 | dispatch release.yml / deploy-stage0.yml + watch | 机械 | `gh workflow run` + `gh run watch --exit-status` |
 | prod 完整 smoke（CI 唯一验收源） | 机械 | `deploy-stage0.yml` job log 内 `tk_post_deploy_smoke: OK`（`GATEWAY_SMOKE_SUITE=full`） |
@@ -52,7 +53,7 @@ description: >-
 |---|---|
 | `operation=check` | 只做预发布风险检查：对比上一个 release tag 到待发布 HEAD 的代码事实，判断上线 prod/Edge 的潜在影响；不 bump、不 tag、不 dispatch deploy。 |
 | `target=prod` | release（必要时 bump/tag/build）→ `deploy-stage0.yml -f tag=…`（绑定 **`prod`** Environment）→ prod smoke → **默认** Anthropic OAuth snapshot/check。 |
-| `target=edge-<edge_id>` | 默认 tag 已存在：用 **`bash scripts/stage0/dispatch-edge-deploy.sh`**（自动路由 EC2/Lightsail）→ watch → 按 phase 验收 smoke。`operation=smoke` 只 smoke；`operation=rollback` 用 `previous_tag`。不要手选 workflow 或手填 confirm_stack/confirm_instance。 |
+| `target=edge-<edge_id>` | 默认 tag 已存在：用 **`bash scripts/stage0/dispatch-edge-deploy.sh`**（edges 均为 Lightsail，路由到 `deploy-edge-lightsail-stage0.yml`）→ watch → 按 phase 验收 smoke。`operation=smoke` 只 smoke；`operation=rollback` 用 `previous_tag`。不要手选 workflow 或手填 confirm_instance。 |
 | `target=all` | release 一次 → `--list-deployable` 矩阵 → canary **upgrade (infra)** → prod deploy（CI smoke 验收）→ canary **main-via-edge 一次** → 其余 Edge **upgrade (infra only)** → followup 按 tier → **默认** Anthropic OAuth snapshot/check。 |
 | `anthropic_config_check` | 默认 **true**（`operation=release` 且 smoke 验收通过后）。跑 `/tokenkey-anthropic-oauth-config` 的 **Stage 1–2 only**（snapshot + check，只读）。`anthropic_config_check=false` 跳过。`operation=check/smoke/rollback` 默认不跑。 |
 
@@ -74,7 +75,7 @@ description: >-
    - `git log --oneline --decorate ${PREV_TAG}..${NEW_REF}`。
    - `git diff --stat ${PREV_TAG}..${NEW_REF}`。
    - `git diff --name-status ${PREV_TAG}..${NEW_REF}`。
-4. 单独确认发布/部署契约是否变化：检查 `release.yml`、`deploy-stage0.yml`、`deploy-edge-stage0.yml`、Dockerfile、`backend/go.mod` / `go.sum`、`frontend/package.json` / lockfile、`backend/cmd/server/VERSION`、`deploy/` 是否有 diff。
+4. 单独确认发布/部署契约是否变化：检查 `release.yml`、`deploy-stage0.yml`、`deploy-edge-lightsail-stage0.yml`、Dockerfile、`backend/go.mod` / `go.sum`、`frontend/package.json` / lockfile、`backend/cmd/server/VERSION`、`deploy/` 是否有 diff。
 5. 按运行时影响面读代码事实，而不是只看提交标题：
    - 后端请求路径：gateway、auth、rate limit、scheduler、quota/billing、model-list/pricing、newapi bridge、middleware。
    - 前端线上路径：登录/注册、admin settings、API client、嵌入 dist freshness。
@@ -121,7 +122,7 @@ description: >-
 ## 前置条件
 
 - 工作目录：仓库根目录（含 `backend/`、`scripts/release-tag.sh`）。
-- 网络、`git`、`gh` 已认证且对远端可写；`gh` 能 dispatch `release.yml`、`deploy-stage0.yml`、`deploy-edge-stage0.yml`。
+- 网络、`git`、`gh` 已认证且对远端可写；`gh` 能 dispatch `release.yml`、`deploy-stage0.yml`、`deploy-edge-lightsail-stage0.yml`。
 - GitHub Environment：**`prod`**、各 Edge 的 `edge-<edge_id>`（若有 Required reviewers，需人工批准）。新 edge 可参考已上线 edge 的变量/密钥结构，但 `EDGE_GHCR_PAT_SSM_NAME` 必须使用该 edge 自己的 SSM 路径。
 - **禁止**：VERSION bump / 发版 commit 的正文里出现字面量 `[skip ci]` 或 `[ci skip]`（任意位置都不行）。
 
@@ -178,9 +179,9 @@ gh workflow run deploy-stage0.yml \
 
 **target=all 注意**：如果 release 已自动 queue prod，而 Edge canary 尚未完成，不取消 prod run；若它卡在 `prod` Environment approval，先不要批准，等第一个 deployable Edge canary 成功后再批准。若 prod 已开始，继续完成，不强行中断，并在摘要标记“prod 已先行”。
 
-### edge-<edge_id>：Edge 资源节点（EC2 或 Lightsail，单一 dispatch 入口）
+### edge-<edge_id>：Edge 资源节点（Lightsail，单一 dispatch 入口）
 
-以 `resolve-edge-target.py --list-deployable` 为准（已合并 EC2 ∪ Lightsail，Lightsail `deployable=true` 优先）。**禁止**手选 `deploy-edge-stage0.yml` vs `deploy-edge-lightsail-stage0.yml`——一律走 dispatch 脚本：
+以 `resolve-edge-target.py --list-deployable` 为准（edges 均为 Lightsail，`deployable=true`）。**禁止**手选 workflow——一律走 dispatch 脚本（它路由到 `deploy-edge-lightsail-stage0.yml`）：
 
 ```bash
 TARGET_TAG=X.Y.Z
@@ -225,7 +226,7 @@ python3 scripts/stage0/resolve-edge-deploy-route.py --edge-id "$EDGE_ID" --json
 
    ```bash
    python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable
-   # EC2 ∪ Lightsail 合并；Lightsail deployable=true 优先（uk1、us2、us3、us4、…）
+   # edges 均为 Lightsail deployable=true（uk1、us2、us3、us4、…）
    ```
 
 3. 取矩阵**第一个** deployable Edge 作为 canary：`dispatch-edge-deploy.sh --operation upgrade --tag=$TARGET_TAG`（**infra smoke**，workflow 默认 `smoke_phase=infra`），watch 到 success。
@@ -526,7 +527,7 @@ bash scripts/release-rollout-summary.sh --mode release
 
 | target | workflow | run id | tag | status | smoke |
 |---|---|---:|---|---|---|
-| edge-<edge_id>-canary（每个 deployable edge 一行） | dispatch 脚本 → EC2/Lightsail workflow | ... | X.Y.Z | success/fail/skipped | infra / main-via-edge(仅 canary) |
+| edge-<edge_id>-canary（每个 deployable edge 一行） | dispatch 脚本 → deploy-edge-lightsail-stage0 | ... | X.Y.Z | success/fail/skipped | infra / main-via-edge(仅 canary) |
 | prod | deploy-stage0 | ... | X.Y.Z | success/fail/skipped | full/partial |
 | anthropic-oauth-config | manage-anthropic-config.py | — | — | check OK / violation / skip | snapshot+check（只读） |
 
@@ -567,11 +568,10 @@ bash scripts/release-rollout-summary.sh --mode release
 
 - `scripts/release-tag.sh` — tag 门禁。
 - `.github/workflows/release.yml` — multi-arch image build 与 prod auto-dispatch。
-- `scripts/stage0/dispatch-edge-deploy.sh` — 单一 Edge deploy dispatch（EC2/Lightsail 自动路由）。
+- `scripts/stage0/dispatch-edge-deploy.sh` — 单一 Edge deploy dispatch（edges 均为 Lightsail）。
 - `scripts/stage0/resolve-edge-deploy-route.py` — Edge → workflow + confirm 参数。
 - `.github/workflows/deploy-stage0.yml` — prod deploy。
-- `.github/workflows/deploy-edge-stage0.yml` — EC2 Edge deploy。
-- `.github/workflows/deploy-edge-lightsail-stage0.yml` — Lightsail Edge deploy。
+- `.github/workflows/deploy-edge-lightsail-stage0.yml` — Lightsail Edge deploy（edges 唯一路径）。
 - `ops/stage0/post_deploy_smoke.sh` — prod 完整 smoke（CI canonical）。
 - `ops/stage0/edge_post_deploy_smoke.sh` — Edge smoke（infra / main-via-edge / full）。
 - `deploy/aws/README.md` — Stage0、Edge、多区域升级 SOP。
