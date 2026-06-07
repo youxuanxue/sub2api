@@ -1,14 +1,14 @@
 ---
 name: tokenkey-stage0-edge-lightsail-expansion
 description: >-
-  End-to-end runbook for adding a TokenKey Stage0 Edge gateway on AWS Lightsail
-  (parallel to the EC2/CFN path): register the edge in
+  End-to-end runbook for adding a TokenKey Stage0 Edge gateway on AWS Lightsail —
+  the SOLE Edge deploy path (the EC2/CFN edge path was retired 2026-06-07; prod
+  stays EC2/CFN). Register the edge in
   deploy/aws/lightsail/edge-targets-lightsail.json, ensure the one-time
   Lightsail IAM addon is in place (GHCR PAT only needed when the image is
   private — TokenKey GHCR is public so default provision uses anonymous pull),
   provision via deploy-edge-lightsail-stage0.yml, point DNS, smoke, and
-  upgrade/rollback. EC2/CFN remains the default Edge path; this skill covers
-  the Lightsail parallel path only.
+  upgrade/rollback.
 ---
 
 # TokenKey：新增 Lightsail Edge 网关全流程
@@ -193,7 +193,7 @@ aws iam get-role --role-name tokenkey-gha-us-east-1-error-clustering \
 `us2` / `us3` / `us4`、已完成 EC2→Lightsail 的 `uk1` 等 **只在 Lightsail 矩阵 `deployable=true`** 的 edge：
 
 - OIDC 只需 `cicd-oidc.yaml` → `AllowedSubjects` 含 `environment:edge-<id>`（§1.5a）。
-- **不要**在 `cicd-oidc.yaml` 新增 `Edge<PascalCase>CloudFormationExecutionRoleArn` / `EdgeXTargetInstanceId` / 区域 SSM `ssm:SendCommand` 到 EC2 instance ARN——那是 EC2/CFN 路径（`tokenkey-stage0-edge-expansion`）。
+- **不要**在 `cicd-oidc.yaml` 新增 `Edge<PascalCase>CloudFormationExecutionRoleArn` / `EdgeXTargetInstanceId` / 区域 SSM `ssm:SendCommand` 到 EC2 instance ARN——那是已于 2026-06-07 退役的 EC2/CFN edge 路径,不要复活。
 - 运维入口：`deploy-edge-lightsail-stage0.yml` + SSM Hybrid tag `EdgeId` / `Platform=lightsail`。
 
 若误加了 uk1 EC2 IAM 又已迁移到 Lightsail，Phase 5 收尾见 `tokenkey-stage0-edge-platform-migration` §5。

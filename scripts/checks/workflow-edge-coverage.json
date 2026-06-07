@@ -12,13 +12,13 @@
       "option_prefix": "edge-",
       "required_set": "all-deployable",
       "opt_out_edges": [
-        {"id": "uk1", "reason": "pg_dump refresh piloted on us1 only; fleet-wide cadence is a separate ops decision"},
-        {"id": "us2", "reason": "pg_dump refresh piloted on us1 only; fleet-wide cadence is a separate ops decision"},
-        {"id": "us3", "reason": "pg_dump refresh piloted on us1 only; fleet-wide cadence is a separate ops decision"},
-        {"id": "us4", "reason": "pg_dump refresh piloted on us1 only; fleet-wide cadence is a separate ops decision"},
-        {"id": "us5", "reason": "pg_dump refresh piloted on us1 only; fleet-wide cadence is a separate ops decision"},
-        {"id": "us6", "reason": "pg_dump refresh piloted on us1 only; fleet-wide cadence is a separate ops decision"},
-        {"id": "us7", "reason": "pg_dump refresh piloted on us1 only; fleet-wide cadence is a separate ops decision"}
+        {"id": "uk1", "reason": "pg_dump SSM cadence not yet extended to Lightsail edges; fleet-wide cadence is a separate ops decision (us1 EC2 pilot retired 2026-06-07)"},
+        {"id": "us2", "reason": "pg_dump SSM cadence not yet extended to Lightsail edges; fleet-wide cadence is a separate ops decision (us1 EC2 pilot retired 2026-06-07)"},
+        {"id": "us3", "reason": "pg_dump SSM cadence not yet extended to Lightsail edges; fleet-wide cadence is a separate ops decision (us1 EC2 pilot retired 2026-06-07)"},
+        {"id": "us4", "reason": "pg_dump SSM cadence not yet extended to Lightsail edges; fleet-wide cadence is a separate ops decision (us1 EC2 pilot retired 2026-06-07)"},
+        {"id": "us5", "reason": "pg_dump SSM cadence not yet extended to Lightsail edges; fleet-wide cadence is a separate ops decision (us1 EC2 pilot retired 2026-06-07)"},
+        {"id": "us6", "reason": "pg_dump SSM cadence not yet extended to Lightsail edges; fleet-wide cadence is a separate ops decision (us1 EC2 pilot retired 2026-06-07)"},
+        {"id": "us7", "reason": "pg_dump SSM cadence not yet extended to Lightsail edges; fleet-wide cadence is a separate ops decision (us1 EC2 pilot retired 2026-06-07)"}
       ]
     }
   }
