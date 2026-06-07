@@ -97,6 +97,14 @@ if [[ -n "$existing" ]]; then
     [[ "$state" == "stopped" ]] && break
     sleep 5
   done
+  # Detach the Static IP BEFORE delete-instance — keep the allocated Static IP
+  # (and its address) for re-attach below. Detaching AFTER delete is too late:
+  # the original DNS-pinned address gets lost and the allocate-if-missing path
+  # mints a brand-new address (observed on uk2/uk3: 16.61.60.65/18.171.106.144
+  # → fresh addresses across recreate). Order matters — detach first, then delete.
+  if aws lightsail get-static-ip --region "$LIGHTSAIL_REGION" --static-ip-name "$STATIC_IP_NAME" >/dev/null 2>&1; then
+    aws lightsail detach-static-ip --region "$LIGHTSAIL_REGION" --static-ip-name "$STATIC_IP_NAME" >/dev/null 2>&1 || true
+  fi
   aws lightsail delete-instance --region "$LIGHTSAIL_REGION" --instance-name "$INSTANCE_NAME" >/dev/null
   # Deregister stale SSM managed-instance(s) for this edge. delete-instance drops
   # the Lightsail instance but its SSM managed-instance (mi-*) registration
@@ -112,12 +120,6 @@ if [[ -n "$existing" ]]; then
     echo "deregistering stale SSM managed-instance ${stale_mi} (EdgeId=${EDGE_ID})"
     aws ssm deregister-managed-instance --region "$LIGHTSAIL_REGION" --instance-id "$stale_mi" >/dev/null 2>&1 || true
   done
-  # Detach only — keep the allocated Static IP (and its address) for re-attach below.
-  # Releasing would force allocate-static-ip to mint a new address, breaking
-  # pre-provisioned / DNS-pinned IPs (edge-us2/us3/us4 Lightsail rollout).
-  if aws lightsail get-static-ip --region "$LIGHTSAIL_REGION" --static-ip-name "$STATIC_IP_NAME" >/dev/null 2>&1; then
-    aws lightsail detach-static-ip --region "$LIGHTSAIL_REGION" --static-ip-name "$STATIC_IP_NAME" >/dev/null 2>&1 || true
-  fi
 fi
 
 user_data_payload="$(cat "$user_data_file")"
