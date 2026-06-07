@@ -17,14 +17,13 @@ deploy/aws/
 ├── README.md                         本文件（quick start）
 ├── cloudformation/
 │   ├── stage0-single-ec2.yaml        主站/test Stage 0 CFN：compose+Caddyfile gzip+base64 内嵌 UserData
-│   ├── stage0-edge-ec2.yaml          Edge Stage 0 CFN：共享 compose，Edge Caddy API path allowlist
 │   └── cicd-oidc.yaml                GitHub Actions OIDC + SSM/CFN 最小权限
 └── stage0/
     ├── docker-compose.yml            源真：Caddy + tokenkey + PostgreSQL + Redis（主站与 Edge 共用）
     ├── Caddyfile                     主站/test Caddy：LE 自动签证书 + 反代到 tokenkey:8080
-    ├── Caddyfile.edge                Edge Caddy：/v1/*、/api/* 默认只允许主网关 EIP
-    ├── edge-targets.json             Edge 矩阵：uk1 / fra1 deployable；us1 / sg1 planned
-    ├── resolve-edge-target.py        workflow 解析 Edge 目标并 fail-before-AWS
+    ├── Caddyfile.edge                Edge Caddy：/v1/*、/api/* 默认只允许主网关出口；Lightsail edge 复用
+    ├── edge-targets.json             EC2 edge 矩阵（2026-06-07 已清空：edges 改 Lightsail，见 deploy/aws/lightsail/edge-targets-lightsail.json；文件保留为空 stub 供 resolver 不致缺文件 hard-fail）
+    ├── resolve-edge-target.py        workflow 解析 Edge 目标并 fail-before-AWS（合并读 Lightsail 矩阵）
     ├── .env.example                  环境变量模板（生产 .env 由 Cloud-Init 自动生成；本地调试可复制使用）
     └── build-cfn.sh                  把 docker-compose.yml + Caddyfile(.edge) + QA 清理 / GHCR prune 等脚本注入 CFN（含 SSM 段）
 ```
@@ -54,10 +53,7 @@ CFN 模板已把 `docker-compose.yml`、`Caddyfile`、`deploy/aws/stage0/tokenke
 # prod（EC2 instance-id 从 deploy-stage0 的 Resolve target 步骤拿，或 describe-stacks）
 bash ops/stage0/sync_caddyfile_via_ssm.sh prod <instance-id>
 
-# edge（EC2）
-bash ops/stage0/sync_caddyfile_via_ssm.sh edge <instance-id>
-
-# edge（Lightsail Hybrid，按 EdgeId tag 寻址）
+# edge（Lightsail Hybrid，按 EdgeId tag 寻址；edges 均为 Lightsail）
 EDGE_ID=<edge> bash ops/stage0/sync_caddyfile_via_ssm.sh edge <mi-id>
 ```
 
@@ -110,28 +106,25 @@ curl -sS -o /dev/null -w '%{http_code}\n' "https://${DOMAIN}/health"
 # 期望 200；首次若 503 是 LE 还在签证书，等 1–2 min
 ```
 
-## Edge Stage 0（EC2 + Lightsail）
+## Edge Stage 0（Lightsail-only）
 
-Edge 子网关不是第二个用户入口。区域域名（如 `api-uk1.tokenkey.dev`、`api-fra1.tokenkey.dev`）只作为 `api.tokenkey.dev` 背后的区域资源节点，默认 API 路径只允许主网关 EIP 访问。
+> **2026-06-07：edges 改为 Lightsail 唯一路径。** EC2/CFN 的 **Edge** 矩阵已退役（`deploy-edge-stage0.yml`、`stage0-edge-ec2.yaml`、EIP 轮换工具已删除，`edge-targets.json` 清空为 stub）。**prod 主网关仍是 EC2/CFN（`tokenkey-prod-stage0`），不受影响**——本节只讲 edge。
 
-**uk1** 已 exclusively 在 Lightsail（`deploy/aws/lightsail/edge-targets-lightsail.json`，workflow `deploy-edge-lightsail-stage0.yml`）。**EC2 矩阵**（`deploy/aws/stage0/edge-targets.json`）不再包含 uk1。
+Edge 子网关不是第二个用户入口。区域域名（如 `api-uk1.tokenkey.dev`、`api-us2.tokenkey.dev`）只作为 `api.tokenkey.dev` 背后的区域资源节点，默认 API 路径只允许主网关出口访问。
 
-当前 EC2 Edge 矩阵示例：
-
-```text
-us1  -> us-west-2 -> api-us1.tokenkey.dev  -> tokenkey-edge-us1-stage0  -> edge-minimal (deployable)
-fra1 -> eu-west-3 -> api-fra1.tokenkey.dev -> tokenkey-edge-fra1-stage0 -> edge-minimal (planned)
-```
-
-uk1 Lightsail：
+所有 edge 都在 Lightsail（矩阵 `deploy/aws/lightsail/edge-targets-lightsail.json`，workflow `deploy-edge-lightsail-stage0.yml`）。当前 edge 矩阵示例：
 
 ```text
 uk1 -> eu-west-2 -> api-uk1.tokenkey.dev -> tokenkey-edge-uk1-ls -> deploy-edge-lightsail-stage0.yml
+us2 -> us-east-1 -> api-us2.tokenkey.dev -> tokenkey-edge-us2-ls -> deploy-edge-lightsail-stage0.yml
 ```
 
-见 [`.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/SKILL.md`](../../.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/SKILL.md)。
+新增 edge / 升级 / 回滚 / IP 轮换的端到端流程见
+[`.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/SKILL.md`](../../.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/SKILL.md)
+与 [`deploy/aws/lightsail/README.md`](lightsail/README.md)。日常发版 rollout 经
+`scripts/stage0/dispatch-edge-deploy.sh`（路由到 `deploy-edge-lightsail-stage0.yml`）。
 
-Edge workflow 使用独立入口 `.github/workflows/deploy-edge-stage0.yml`，但不是第二套部署逻辑：prod/test 和 Edge 都调用同一批共享脚本：
+Edge 不是第二套部署逻辑：prod/test 和 Edge 都调用同一批共享脚本：
 
 ```text
 ops/stage0/verify_ghcr_manifest.sh
@@ -160,59 +153,17 @@ ops/stage0/sync-feishu-config.sh
   只读核对用 `bash ops/observability/probe-alert-config.sh`（看 `feishu_enabled`/`feishu_webhook_present`/`feishu_secret_present`）。
   脚本绝不打印 webhook/secret。
 
-**IAM**：更新 `deploy/aws/cloudformation/cicd-oidc.yaml` 并重部署 **`tokenkey-cicd-oidc`**（部署区域须与仓库变量 **`AWS_OIDC_STACK_REGION`** 一致；未设置时 workflow 使用 `vars.AWS_REGION`，再没有则用 `us-east-1`，与 `docs/approved/deploy-stage0-workflow.md` 默认一致）。EC2 Edge（fra1 / us1）各有一个 CloudFormation execution role；Lightsail uk1 走独立 addon（`cicd-oidc-lightsail-addon.yaml`）。
+**IAM**：prod 的 OIDC/SSM/CFN 权限仍在 `deploy/aws/cloudformation/cicd-oidc.yaml`（**`tokenkey-cicd-oidc`**，部署区域须与仓库变量 **`AWS_OIDC_STACK_REGION`** 一致；未设置时 workflow 使用 `vars.AWS_REGION`，再没有则用 `us-east-1`，与 `docs/approved/deploy-stage0-workflow.md` 默认一致）。**所有 Lightsail edge** 走独立一次性 addon（`cicd-oidc-lightsail-addon.yaml`，Lightsail API + SSM Hybrid Activation 权限），不再有按 edge 的 CFN execution role。
 
-### uk1（Lightsail，非 EC2）
+### 新增 / 初次创建 edge（Lightsail）
 
-使用 `deploy-edge-lightsail-stage0.yml` + `edge-targets-lightsail.json`。勿再 dispatch `deploy-edge-stage0.yml` 的 uk1。
+所有 edge 的 provision / DNS / smoke / 升级 / 回滚都走 `deploy-edge-lightsail-stage0.yml` +
+`edge-targets-lightsail.json`。一次性 IAM addon、GHCR PAT 路径（`/tokenkey/lightsail/<edge_id>/ghcr/pat`）、
+端口放行（80/443）、Static IP / DNS 核对、Anthropic OAuth 重建等完整步骤见
+[`deploy/aws/lightsail/README.md`](lightsail/README.md) 与
+[`.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/SKILL.md`](../../.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/SKILL.md)（`operation=full`）。
 
-### fra1（法国巴黎）初次创建顺序
-
-与 uk1 相同流程，区域与栈名换为矩阵中的 fra1；GHCR PAT 写在 **`eu-west-3`**：
-
-```bash
-TAG=X.Y.Z
-
-# 0) eu-west-3：GHCR PAT（路径默认 /tokenkey/edge/fra1/ghcr/pat）
-aws ssm put-parameter --region eu-west-3 \
-  --name /tokenkey/edge/fra1/ghcr/pat --type SecureString \
-  --value 'ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
-
-# 1) GitHub Environment edge-fra1：Variables / Secrets 与 edge-uk1 **逐项复制**即可（见本节开头「GitHub」段；
-#    勿把 uk1 专属的 EDGE_GHCR_PAT_SSM_NAME=/tokenkey/edge/uk1/... 抄到 fra1；fra1 侧省略该项）。
-#    Required reviewer 等与 uk1 对齐。
-
-# 2) 重部署 tokenkey-cicd-oidc（含 fra1 的 CFN execution role + OIDC trust environment:edge-fra1）。
-#    provision 完成后把 EdgeFra1TargetInstanceId 填成 fra1 实例 ID，再 upgrade/smoke。
-
-# 3) provision
-gh workflow run deploy-edge-stage0.yml \
-  -f edge_id=fra1 \
-  -f operation=provision \
-  -f tag=$TAG \
-  -f confirm_stack=tokenkey-edge-fra1-stage0
-
-# 4) DNS：api-fra1.tokenkey.dev A → 新 EIP；生效后 smoke
-gh workflow run deploy-edge-stage0.yml \
-  -f edge_id=fra1 \
-  -f operation=smoke \
-  -f confirm_stack=tokenkey-edge-fra1-stage0
-```
-
-后续升级（fra1 / us1 EC2）不改 CFN 参数，走同一 SSM 原地升级 primitive：
-
-```bash
-gh workflow run deploy-edge-stage0.yml \
-  -f edge_id=fra1 \
-  -f operation=upgrade \
-  -f tag=$TAG \
-  -f confirm_stack=tokenkey-edge-fra1-stage0
-```
-
-`sg1` 仍在 `edge-targets.json` 中保留为 planned（`deployable=false`）。`deploy-edge-stage0.yml`
-的 dispatch **choice** 列出当前 EC2 可操作的 **`fra1` / `us1`**；启用其它 EC2 Edge 时先在矩阵设
-`deployable=true`，扩展 **`tokenkey-cicd-oidc`**（trust `environment:edge-<id>` + CFN execution role output）、
-GitHub **Environment**，并把该 `edge_id` 加入 workflow **choice** 与本仓库 provision 步骤里的 CFN role **case**。
+IP 被上游污染需轮换 Static IP：[`.cursor/skills/tokenkey-stage0-edge-lightsail-ip-rotation/SKILL.md`](../../.cursor/skills/tokenkey-stage0-edge-lightsail-ip-rotation/SKILL.md) + `ops/lightsail/rotate-static-ip.sh`。
 
 ## 升级 / 发版（生产 Stage0）
 
@@ -834,8 +785,8 @@ GitHub Actions 不再用长期 AWS 凭证，**OIDC 临时换 STS** → `ssm:Send
 ### Workflow 行为
 
 - 触发：每天 02:00 UTC cron + 手动 `workflow_dispatch`。
-- 默认 operation：`diagnostics`，覆盖 prod + `deploy/aws/stage0/edge-targets.json` 里 `deployable=true` 的 Edge（当前 `uk1` / `fra1`）。
-- 手动 target selector：`all`、`prod`、`edge:*`、`edge:<id>`；planned Edge（例如 `us1` / `sg1`）在 `deployable=false` 时只进入 excluded summary。
+- 默认 operation：`diagnostics`，覆盖 prod + `deploy/aws/lightsail/edge-targets-lightsail.json` 里 `deployable=true` 的 Lightsail Edge（edges 均为 Lightsail；`deploy/aws/stage0/edge-targets.json` 已清空为 stub）。
+- 手动 target selector：`all`、`prod`、`edge:*`、`edge:<id>`；`deployable=false` 的 Edge 只进入 excluded summary。
 - 输出：每个目标上传 `prod-ops-target-<target>-<run_id>` artifact，汇总上传 `prod-ops-report-<run_id>`。
 - Issue 决策：`issue_candidate` / `manual_ops` findings 会创建或更新 GitHub Issue，使用 `ops-sig:*`、`target:*`、`finding:*` label 去重；error cluster 继续附带 `cluster-sig:*`。
 - 可选 Claude 诊断：`ANTHROPIC_AUTH_TOKEN` 存在时，workflow 可运行只读 Claude diagnosis 改善 issue 内容；该 job 无 AWS OIDC、无 repo 写权限，只允许 `Read/Grep/Glob`。

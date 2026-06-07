@@ -11,7 +11,6 @@ import unittest
 _REPO = pathlib.Path(__file__).resolve().parents[3]
 STAGE0 = _REPO / "deploy/aws/stage0"
 CFN_MAIN = _REPO / "deploy/aws/cloudformation/stage0-single-ec2.yaml"
-CFN_EDGE = _REPO / "deploy/aws/cloudformation/stage0-edge-ec2.yaml"
 
 EC2_USERDATA_LIMIT = 16384
 SSM_STANDARD_LIMIT = 4096

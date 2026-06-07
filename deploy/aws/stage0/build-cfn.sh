@@ -14,14 +14,12 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${HERE}/../../.." && pwd)"
 COMPOSE_SRC="${HERE}/docker-compose.yml"
 CADDY_SRC="${HERE}/Caddyfile"
-EDGE_CADDY_SRC="${HERE}/Caddyfile.edge"
 QA_CLEANUP_SRC="${HERE}/tokenkey-qa-stale-cleanup.sh"
 PGDUMP_SRC="${HERE}/tokenkey-pgdump.sh"
 PRUNE_SRC="${HERE}/tokenkey-prune-ghcr-app-tags.sh"
 BOOTSTRAP_SRC="${HERE}/stage0-ec2-bootstrap.sh"
 LAUNCHER_SRC="${HERE}/stage0-ec2-userdata-launcher.sub.sh"
 CFN_FILE="${REPO_ROOT}/deploy/aws/cloudformation/stage0-single-ec2.yaml"
-EDGE_CFN_FILE="${REPO_ROOT}/deploy/aws/cloudformation/stage0-edge-ec2.yaml"
 
 EC2_USERDATA_LIMIT=16384
 SSM_STANDARD_VALUE_LIMIT=4096
@@ -33,9 +31,9 @@ if [[ "${1:-}" == "--check" ]]; then
 fi
 
 required=(
-  "${COMPOSE_SRC}" "${CADDY_SRC}" "${EDGE_CADDY_SRC}"
+  "${COMPOSE_SRC}" "${CADDY_SRC}"
   "${QA_CLEANUP_SRC}" "${PGDUMP_SRC}" "${PRUNE_SRC}" "${BOOTSTRAP_SRC}" "${LAUNCHER_SRC}"
-  "${CFN_FILE}" "${EDGE_CFN_FILE}"
+  "${CFN_FILE}"
 )
 for f in "${required[@]}"; do
   [[ -f "${f}" ]] || { echo "missing ${f}" >&2; exit 1; }
@@ -74,7 +72,6 @@ split_b64_for_ssm() {
 
 COMPOSE_GZB64="$(encode_gzb64 "${COMPOSE_SRC}")"
 CADDY_GZB64="$(encode_gzb64 "${CADDY_SRC}")"
-EDGE_CADDY_GZB64="$(encode_gzb64 "${EDGE_CADDY_SRC}")"
 QA_CLEANUP_B64="$(encode_b64 "${QA_CLEANUP_SRC}")"
 PGDUMP_B64="$(encode_b64 "${PGDUMP_SRC}")"
 PRUNE_B64="$(encode_b64 "${PRUNE_SRC}")"
@@ -94,7 +91,6 @@ check_ssm_len() {
 
 check_ssm_len compose "${COMPOSE_GZB64}"
 check_ssm_len caddy "${CADDY_GZB64}"
-check_ssm_len edge_caddy "${EDGE_CADDY_GZB64}"
 check_ssm_len qa "${QA_CLEANUP_B64}"
 check_ssm_len pgdump "${PGDUMP_B64}"
 check_ssm_len prune "${PRUNE_B64}"
@@ -167,22 +163,15 @@ refresh_template() {
 }
 
 tmp_main="$(mktemp)"
-tmp_edge="$(mktemp)"
-trap 'rm -f "${tmp_main}" "${tmp_edge}"' EXIT
+trap 'rm -f "${tmp_main}"' EXIT
 
 refresh_template "${CFN_FILE}" "${tmp_main}" "${CADDY_GZB64}"
-refresh_template "${EDGE_CFN_FILE}" "${tmp_edge}" "${EDGE_CADDY_GZB64}"
 
 if [[ "${mode}" == "check" ]]; then
   drift=0
   if ! diff -q "${CFN_FILE}" "${tmp_main}" >/dev/null; then
     echo "stage0 CFN drift detected — run: bash deploy/aws/stage0/build-cfn.sh" >&2
     diff -u "${CFN_FILE}" "${tmp_main}" | head -n 80 >&2 || true
-    drift=1
-  fi
-  if ! diff -q "${EDGE_CFN_FILE}" "${tmp_edge}" >/dev/null; then
-    echo "edge Stage0 CFN drift detected — run: bash deploy/aws/stage0/build-cfn.sh" >&2
-    diff -u "${EDGE_CFN_FILE}" "${tmp_edge}" | head -n 80 >&2 || true
     drift=1
   fi
   if [[ "${drift}" -eq 0 ]]; then
@@ -192,25 +181,16 @@ if [[ "${mode}" == "check" ]]; then
 fi
 
 mv "${tmp_main}" "${CFN_FILE}"
-mv "${tmp_edge}" "${EDGE_CFN_FILE}"
 trap - EXIT
-
-edge_body_bytes=$(awk '
-  /UserData:/ { in_userdata = 1; next }
-  /^  [A-Z]/ { if (in_userdata) exit }
-  { if (in_userdata) print }
-' "${EDGE_CFN_FILE}" | wc -c | awk '{print $1}')
 
 echo "stage0 CFN refreshed."
 echo "  compose gzip+base64 (SSM): ${#COMPOSE_GZB64} chars"
 echo "  caddy gzip+base64 (SSM): ${#CADDY_GZB64} chars"
-echo "  edge caddy gzip+base64 (SSM): ${#EDGE_CADDY_GZB64} chars"
 echo "  qa cleanup base64 (SSM): ${#QA_CLEANUP_B64} chars"
 echo "  pgdump base64 (SSM): ${#PGDUMP_B64} chars"
 echo "  ghcr prune base64 (SSM): ${#PRUNE_B64} chars"
 echo "  bootstrap gzip+base64 (SSM total): ${#BOOTSTRAP_GZB64} chars (part1=${#BOOTSTRAP_PART1}, part2=${#BOOTSTRAP_PART2})"
 echo "  prod UserData launcher: ${USERDATA_BYTES} bytes (EC2 limit ${EC2_USERDATA_LIMIT})"
-echo "  edge UserData body (raw): ${edge_body_bytes} bytes (EC2 limit ${EC2_USERDATA_LIMIT})"
-if (( USERDATA_BYTES > USERDATA_WARN_BYTES )) || (( edge_body_bytes > USERDATA_WARN_BYTES )); then
+if (( USERDATA_BYTES > USERDATA_WARN_BYTES )); then
   echo "WARNING: UserData approaching EC2 limit." >&2
 fi

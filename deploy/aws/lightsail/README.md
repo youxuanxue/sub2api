@@ -1,10 +1,10 @@
-# Edge Stage0 on AWS Lightsail（并行路径）
+# Edge Stage0 on AWS Lightsail（edges 唯一路径）
 
-> **默认路径仍是 EC2/CFN**（`deploy-edge-stage0.yml`）。本目录是 Lightsail 实验/降本并行栈；
-> 规划依据见 `docs/deploy/tokenkey-multiregion-egress-gateway-plan.md` §6.1 与
-> `docs/spec-delta-edge-lightsail.md`。
+> **Lightsail 是 edge 的唯一路径**（2026-06-07 起；EC2/CFN 的 edge 路径已移除）。
+> **prod 主网关仍是 EC2/CFN（`tokenkey-prod-stage0`），不在本目录范围。**
+> 背景见 `docs/spec-delta-edge-lightsail.md` 与 `docs/deploy/tokenkey-multiregion-egress-gateway-plan.md` §6（已标 superseded）。
 
-Lightsail Edge 与 EC2 Edge **共用**：
+Lightsail Edge 与 prod Stage0 **共用**：
 
 - `deploy/aws/stage0/docker-compose.yml`、`Caddyfile.edge`
 - `ops/stage0/verify_ghcr_manifest.sh`、`deploy_via_ssm.sh`、`edge_post_deploy_smoke.sh`
@@ -167,7 +167,7 @@ PREFLIGHT_BASE=origin/main bash scripts/preflight.sh
 
 核对顺序：先以 **`aws lightsail get-static-ip`** 为真，再改 Porkbun 与本仓库 `porkbun_a_ipv4`，不得在未核对前提下漂移。
 
-端到端实操（provision、旁路校验、DNS 核对、Anthropic OAuth 重建、Smoke、可选拆 EC2 栈）：**`.cursor/skills/tokenkey-stage0-edge-platform-migration/SKILL.md`**（等价副本在 `.claude/skills/…`）。
+端到端实操（provision、旁路校验、DNS 核对、Anthropic OAuth 重建、Smoke）：**`.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/SKILL.md`**（等价副本在 `.claude/skills/…`）。
 Lightsail **首次**拉起实例用 `deploy-edge-lightsail-stage0.yml` **`operation=provision`**；镜像 tag 轮转用 **`upgrade` / `rollback`**。
 
 ## IP 污染轮换

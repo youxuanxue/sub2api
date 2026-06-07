@@ -1,12 +1,6 @@
 {
   "_doc": "Gate C registry: per-edge workflows whose hardcoded choice options must stay in sync with the deployable edge matrices (GitHub Actions cannot compute choice options dynamically). scripts/checks/workflow-edge-coverage.py enforces that every deployable edge appears as an option (modulo explicit opt_out_edges with a reason), and that no opt_out is stale. Adding a deployable edge to deploy/aws/stage0/edge-targets.json or deploy/aws/lightsail/edge-targets-lightsail.json fails preflight until the workflow covers it or opts it out here.",
   "workflows": {
-    ".github/workflows/deploy-edge-stage0.yml": {
-      "input": "edge_id",
-      "option_prefix": "",
-      "required_set": "ec2-deployable",
-      "opt_out_edges": []
-    },
     ".github/workflows/deploy-edge-lightsail-stage0.yml": {
       "input": "edge_id",
       "option_prefix": "",

@@ -273,6 +273,13 @@ Edge TokenKey 已暴露 /v1/chat/completions 和 /v1/messages 等网关入口。
 
 ## 6. 标准 EC2/CFN Edge 部署形态
 
+> **SUPERSEDED 2026-06-07：本节「EC2/CFN 为默认 Edge 路径」的判定已废止。** edges 改为
+> **Lightsail-only**（EC2/CFN 的 edge 路径、workflow `deploy-edge-stage0.yml`、模板
+> `stage0-edge-ec2.yaml`、EIP 轮换工具均已删除，`edge-targets.json` 清空为 stub）。
+> **prod 主网关仍是 EC2/CFN，不受影响。** 现行 edge 形态见 `docs/spec-delta-edge-lightsail.md`、
+> `deploy/aws/lightsail/README.md` 与 skill `tokenkey-stage0-edge-lightsail-expansion`。
+> 以下历史正文保留作设计沿革记录。
+
 ### 6.1 为什么选择 EC2/CFN，但默认最低成本 profile
 
 Lightsail London 2GB 约 $12/月，单个 Edge PoC 很有吸引力；但当前目标已经变成多 Edge：英国、新加坡、法兰克福、美国 clean，后续还可能加日本/欧洲其他区域。多个 Lightsail/runbook 会制造长期手工状态，不符合 OPC。
