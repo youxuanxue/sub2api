@@ -192,6 +192,40 @@ if [[ -z "$managed_id" || "$managed_id" == "None" || "$managed_id" == "null" ]];
   exit 1
 fi
 
+# SSM registration (mi-*) only proves the agent is up — the docker compose stack
+# (postgres + app) is still pulling/starting via bootstrap user-data. Without
+# this gate the workflow's next steps (Sync Feishu alert config does
+# `docker exec tokenkey-postgres ...`) race the stack and fail with
+# "No such container: tokenkey-postgres" on a fresh provision. Wait until both
+# tokenkey-postgres and the tokenkey app container report healthy before
+# declaring provision complete.
+echo "waiting for docker compose stack health (tokenkey + tokenkey-postgres) on ${managed_id} (up to 6m)"
+stack_check_json="$(mktemp)"
+cat > "$stack_check_json" <<'JSON'
+{"commands":["docker ps --filter name=tokenkey-postgres --filter health=healthy --format '{{.Names}}' | grep -qx tokenkey-postgres","docker ps --filter name=tokenkey --filter health=healthy --format '{{.Names}}' | grep -qx tokenkey","echo STACK_READY"]}
+JSON
+stack_ready=false
+stack_deadline=$(( $(date +%s) + 360 ))
+while [[ $(date +%s) -lt $stack_deadline ]]; do
+  chk_id="$(aws ssm send-command --region "$LIGHTSAIL_REGION" --instance-ids "$managed_id" \
+    --document-name AWS-RunShellScript --parameters "file://${stack_check_json}" \
+    --query 'Command.CommandId' --output text 2>/dev/null || true)"
+  if [[ -n "$chk_id" && "$chk_id" != "None" ]]; then
+    sleep 8
+    chk_out="$(aws ssm get-command-invocation --region "$LIGHTSAIL_REGION" \
+      --command-id "$chk_id" --instance-id "$managed_id" \
+      --query 'StandardOutputContent' --output text 2>/dev/null || true)"
+    if grep -q STACK_READY <<<"$chk_out"; then stack_ready=true; break; fi
+  fi
+  sleep 12
+done
+rm -f "$stack_check_json"
+if [[ "$stack_ready" != true ]]; then
+  echo "::error::docker compose stack did not reach healthy (tokenkey + tokenkey-postgres) within timeout; check /var/log/tokenkey-lightsail-bootstrap.log"
+  exit 1
+fi
+echo "docker compose stack healthy on ${managed_id}"
+
 put_param() {
   local name="$1" value="$2"
   aws ssm put-parameter --region "$LIGHTSAIL_REGION" --name "$name" --type String \
