@@ -196,14 +196,14 @@
     "l5": {
       "baseline": {
         "account": {
-          "concurrency": 30,
+          "concurrency": 65,
           "priority": 1,
           "rate_multiplier": 1.0
         },
         "extra": {
           "base_rpm": 84,
           "rpm_sticky_buffer": 30,
-          "max_sessions": 180,
+          "max_sessions": 350,
           "session_idle_timeout_minutes": 8,
           "window_cost_limit": 800,
           "window_cost_sticky_reserve": 0
