@@ -780,6 +780,26 @@ else
     echo "  ok: data-layer capacity verdict green/approaching/trigger fixtures pass"
 fi
 
+# ---- sub2api: edge-health verdict selftest ---------------------------------
+# The edge-health threshold logic (healthy/thin/degraded/down) lives in
+# edge_health_verdict.py and turns probe-edge-health.sh output into the one signal
+# that can tell a dead edge from a healthy one (prod's upstream-429 cannot — see the
+# 2026-06-06 yace burst). Its fixtures pin the six real edges + boundaries, so a
+# threshold/logic regression fails preflight instead of silently mis-verdicting edge
+# health. Read-only, no AWS.
+echo ""
+echo "=== sub2api: edge-health verdict selftest ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for edge-health verdict selftest)"
+    errors=$((errors + 1))
+elif ! python3 ./ops/observability/edge_health_verdict.py --selftest >/dev/null 2>&1; then
+    echo "  FAIL: edge-health verdict selftest"
+    echo "        — run: python3 ops/observability/edge_health_verdict.py --selftest"
+    errors=$((errors + 1))
+else
+    echo "  ok: edge-health verdict healthy/thin/degraded/down fixtures pass"
+fi
+
 # ---- sub2api: pgdump timer cadence parity ----------------------------------
 # The tokenkey-pgdump systemd timer is defined in TWO places that must stay in
 # sync: the first-boot copy in stage0-ec2-bootstrap.sh and the live-host refresh
