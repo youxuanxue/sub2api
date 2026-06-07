@@ -26,8 +26,9 @@ description: >-
 | Gateway UA/TLS / usage_logs / ops / docker 指纹交叉对比（窄时间窗） | 机械 | `ops/observability/probe-gateway-ua-tls-compare.sh`（通过 run-probe.sh 投递；`WINDOW_MINUTES` 收窄 DB 窗） |
 | `SUB2API_DEBUG_GATEWAY_BODY` 日志拉回本机（SSM gzip → S3 presigned PUT → 本地 gunzip） | 机械 | `ops/observability/fetch-gateway-debug-log.sh --target prod\|edge:<id>`（**本地** orchestrator，不走 run-probe） |
 | anthropic capacity / cap 与 schedulable 证据 | 机械 | `ops/observability/probe-caps.sh`（已有，通过 run-probe.sh 投递）/ `ops/anthropic/manage-anthropic-config.py snapshot` |
+| 镜像 edge 死活/容量判定（fleet 横扫：served_200:no_available_429 + 可调度账号数 → verdict） | 机械 | `ops/observability/scan-edge-health.sh`（本地 fan-out 全 deployable edge）/ 单边远端 `probe-edge-health.sh` + 纯函数 `edge_health_verdict.py`（`--selftest` 已进 preflight） |
 | 时间窗规范（UTC ↔ Asia/Shanghai 双写） | 判断 | prompt（含报告口径，无机械抓手） |
-| 解读规则：final_status vs upstream events、镜像账号链式失败 | 判断 | prompt（架构判断，§0 列出 8 个 trap 已固化） |
+| 解读规则：final_status vs upstream events、镜像账号链式失败、prod upstream-429 不反映 edge 死活 | 判断 | prompt（架构判断，§0 列出 9 个 trap 已固化） |
 | 根因 / 风险分级 / 建议下一步 | 判断 | prompt（爆炸半径 / 回滚成本） |
 
 ## 调用参数
@@ -65,6 +66,7 @@ description: >-
 6. **区分最终失败和中间 upstream event。** `ops_error_logs.status_code` 是最终用户侧状态；`upstream_errors[*]` 可能是被重试/降级恢复的中间错误。
 7. **禁止泄漏敏感信息。** 不输出 Authorization、API key、cookie、完整 request_body、OAuth token、数据库密码。必要时只输出 sanitized/truncated 摘要。
 8. **一次失败先修命令，不扩大权限。** SSM/SQL 失败时先读 error、修 quoting/schema；不要改线上状态来绕过。
+9. **prod 的 `upstream-429 by account` / `recovered-200` 不反映镜像 edge 死活——别拿它当 triage 主信号。** 这两个数被双重灌水：(a) 客户端断流（context canceled）在重试/failover 中途被打上残留 `upstream_status=429`；(b) `shouldFailoverUpstreamError` 对 429 也 failover，死 edge 的 429 沿 failover 链涂抹到链尾每个账号。2026-06-06 压测中 **edge-us5 实发 77 个 429，prod 却记 1266（16×）**；六个镜像 edge 的 prod upstream-429 都是 1272–1941，看着齐平，**底下从全健康（us5）到全宕 3.5h（us3：0×200）都有**。更反直觉：**`recovered-200` 越高 = edge 越死**（全靠 failover 救回，健康 edge 直接服务无需"恢复"）。判断 edge 死活的**唯一可靠口径** = edge **自身** access-log 的 `served_200 : no_available_429` 比 + 可调度账号数 → 跑 `ops/observability/scan-edge-health.sh`（见 §6.1 D）。详见 memory「判断 edge 死活看 edge 自身比值非 prod upstream-429」与 §0 上方的 `upstream_error_rate` 假 P0 记忆。
 
 ## 1) Target 解析
 
@@ -335,6 +337,16 @@ bash ops/observability/run-probe.sh \
   --script ops/observability/probe-caps.sh \
   --env PLATFORM=anthropic
 ```
+
+```bash
+# D) 镜像 edge 死活/容量 fleet 横扫（判断"哪个 edge 真在服务" vs "被 prod failover 掩盖的死 edge"）
+#    —— 镜像 edge 事件（cc-<edge> 账号 error/cooldown，或"某 edge 像挂了"）应 *先* 跑这一步，再钻 ops_error_logs。
+bash ops/observability/scan-edge-health.sh                          # 全 deployable edge
+bash ops/observability/scan-edge-health.sh --with-prod --since 15h  # 含 prod + 加宽窗口（压测/事后复盘）
+bash ops/observability/scan-edge-health.sh --edges us3,us6          # 子集
+```
+
+输出一张按严重度排序的表：每 edge `schedulable_accounts / served_200 / no_available_429 / ratio / wait_timeout / SPOF / verdict(healthy|thin|degraded|down|idle)`，并附 ACTION（down/degraded/unreachable）与 RISK（单账号 SPOF）摘要。**判定来自 edge 自身 access-log，不受 §0 trap 9 的 prod upstream-429 污染。** verdict 逻辑在纯函数 `edge_health_verdict.py`（`--selftest` fixtures 钉死六个真 edge + 边界，已进 preflight），阈值 + rationale 在 `edge-health-thresholds.json`。
 
 `group.rpm_limit` 与 `user_group_rate_multipliers` 由 admin UI 维护，不由本 skill 派生（按 memory「group.rpm_limit 与 account 字段独立」）；如需读 group 状态请直接看 admin UI，不要在 SKILL 里写漂移容易的 SELECT。
 

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "rationale": "Edge-health verdict thresholds — the deterministic answer to 'is this edge actually serving, or silently dead?'. Born from the 2026-06-06 yace load test: prod's 'upstream-429 by account' read 1272-1941 across ALL six mirror edges, looking uniformly bad, while the true edge states ranged from fully healthy (us5: 3 accounts, 2251x200, 77x429) to 100% dead for 3.5h (us3: 0x200, 33748x'no available'429). prod's upstream-429 / recovered-200 are polluted by client-cancel tagging + failover smear and CANNOT distinguish a dead edge from a healthy one. The only reliable edge-health signal is the edge's OWN access log served_200 vs no_available_429, plus its schedulable-account count. This file is the threshold half; the logic is edge_health_verdict.py, the transport is probe-edge-health.sh.",
+  "thresholds": {
+    "min_healthy_schedulable_accounts": {
+      "value": 2,
+      "unit": "accounts",
+      "note": "Below this an edge is single-point-of-failure ('thin'): one account paused / OAuth-revoked / 5h-window-locked drops the whole edge to empty pool. us5 (3 accounts) held the burst with zero empty-pool; uk1/us2/us3/us6/us7 (1 effective account) did not."
+    },
+    "served_ratio": {
+      "down": 0.05,
+      "degraded": 0.80,
+      "unit": "ratio",
+      "note": "served_200 / (served_200 + no_available_429). <=down => the edge is serving essentially nothing, all empty-pool (us3=0.0, us6=0.005, us7=0.008). <degraded => serving but bleeding empty-pool (uk1=0.30). >=degraded with >=2 accounts => healthy (us5=0.968). Single-account edges that still serve well by ratio (us2=0.93) fall through to 'thin' on the account-count gate."
+    }
+  }
+}

@@ -32,6 +32,7 @@ description: >-
 | 拉 access log + sticky.scheduler_entry → /tmp/acc.txt / /tmp/sse.txt | 机械 | `ops/observability/probe-traffic-logs.sh` |
 | 逐分钟重建 RPM / sticky / activeSess / conc | 机械 | `ops/observability/profile-traffic.py` |
 | 历史 cost-window 累计（5h gauge 校准） | 机械 | psql `usage_logs` 派生（SKILL §3 末段 SQL） |
+| 镜像 edge 死活/容量 fleet 横扫（served_200:no_available_429 + 可调度账号数 → verdict） | 机械 | `ops/observability/scan-edge-health.sh`（§4.1 双跳归因的确定性落点；verdict 纯函数 `edge_health_verdict.py` + `--selftest`） |
 | §0 的 8 个 trap pattern（base_rpm 误判、列号陷阱、镜像账号链式失败、activeSess 上界） | 判断 | prompt（架构 + 历史现场判断） |
 | §4 解读规则（哪个 cap 触顶） | 判断 | prompt（依赖同时段的 503 / 粘性 vs 非粘性现象） |
 | 镜像账号双跳归因（prod cooldown → edge 实因） | 判断 | prompt（必须 edge 同时段画像，单跳不算结论） |
@@ -242,6 +243,8 @@ prod 上 anthropic Key 账号若命名形如 `cc-<edge>-oauth`（如 `cc-us1-oau
 确认是否镜像账号：`SELECT credentials->>'base_url' FROM accounts WHERE id=<prod_acct_id>;`（或 `credentials->>'endpoint'`，依字段名而定）。base_url 指向 `api-<edge>.tokenkey.dev/*` 即镜像。
 
 操作上：先在 prod 跑一次 §1 拿 `temp_unschedulable_reason`，从 `triggered_at_unix` 反推 edge 上的事发分钟（同一秒精度），再到 edge 跑 §1+§3，对照那几分钟的 `actSess / sRPM / nonStk / ZCARD-now / max_sessions / concurrency` 才能定真因。
+
+**机械落点**：这套"切到 edge 逐分钟画像"的双跳，先用 `ops/observability/scan-edge-health.sh [--edges <id>] [--since <N>h]` 一眼定位哪个 edge `verdict=down/degraded`（基于 edge **自身** `served_200 : no_available_429` 比 + 可调度账号数，**不被 prod upstream-429 污染**——prod 那个数对死/活 edge 都显示 ~1300，2026-06-06 压测中 edge-us5 实发 77 个 429、prod 记 1266，详见 troubleshooting skill §0 trap 9），再对 verdict 异常的 edge 跑 §1+§3 逐分钟坐实。**不要**用 prod 的 `upstream-429 by account` 或 `recovered-200` 推断 edge 死活（`recovered-200` 越高反而 = edge 越死、全靠 failover 救）。
 
 ## 5) 输出模板
 
