@@ -30,12 +30,11 @@ class ResolveEdgeDeployRouteTest(unittest.TestCase):
         self.assertEqual(route["confirm_flag"], "confirm_instance")
         self.assertTrue(route["confirm_value"].endswith("-ls"))
 
-    def test_us1_routes_to_ec2(self) -> None:
-        route = self._route("us1")
-        self.assertEqual(route["platform"], "ec2")
-        self.assertEqual(route["workflow_file"], "deploy-edge-stage0.yml")
-        self.assertEqual(route["confirm_flag"], "confirm_stack")
-        self.assertIn("tokenkey-edge-us1", route["confirm_value"])
+    # NOTE: us1 was the last EC2 edge; it is being retired (deployable=false →
+    # decommission, replaced by the us6 Lightsail edge). With no deployable EC2 edge
+    # left in the matrix there is no live fixture for the EC2 routing branch, so the
+    # former `test_us1_routes_to_ec2` happy-path test is dropped. The rejection path
+    # below still exercises non-deployable resolution.
 
     def test_non_deployable_edge_fails(self) -> None:
         proc = subprocess.run(
