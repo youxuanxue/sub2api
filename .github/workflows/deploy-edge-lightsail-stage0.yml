@@ -1,7 +1,8 @@
 name: Edge Lightsail Stage0 Deploy
 
-# Parallel Edge path on AWS Lightsail (not EC2/CFN). Shares image manifest
-# checks, SSM upgrade primitive, and smoke scripts with deploy-edge-stage0.yml.
+# Sole Edge deploy path — on AWS Lightsail (the EC2/CFN edge path was removed
+# 2026-06-07; prod stays EC2/CFN). Shares image manifest checks, SSM upgrade
+# primitive, and smoke scripts with deploy-stage0.yml.
 # See deploy/aws/lightsail/README.md and docs/spec-delta-edge-lightsail.md.
 
 on:

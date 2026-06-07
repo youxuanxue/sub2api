@@ -4,7 +4,7 @@
 # Variables (plaintext) are fetched via gh API. Secrets are write-only on GitHub —
 # this script verifies they exist on the Environment but cannot read their values.
 # Export secret values yourself (same TK_SMOKE_* names) before sourcing, or run
-# smoke via deploy-stage0 / deploy-edge-stage0 workflows.
+# smoke via deploy-stage0 / deploy-edge-lightsail-stage0 workflows.
 #
 # Usage:
 #   eval "$(bash ops/stage0/load_smoke_github_env.sh prod)"

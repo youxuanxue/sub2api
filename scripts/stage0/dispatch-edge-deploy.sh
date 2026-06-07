@@ -6,7 +6,7 @@
 #     --edge-id uk1 --operation upgrade --tag 1.2.3 [--smoke-phase infra]
 #
 # Resolves platform via scripts/stage0/resolve-edge-deploy-route.py and calls
-# gh workflow run on deploy-edge-stage0.yml or deploy-edge-lightsail-stage0.yml.
+# gh workflow run on deploy-edge-lightsail-stage0.yml (EC2 edge path removed 2026-06-07).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
