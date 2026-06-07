@@ -144,14 +144,14 @@
     "l2": {
       "baseline": {
         "account": {
-          "concurrency": 6,
+          "concurrency": 100,
           "priority": 1,
           "rate_multiplier": 1.0
         },
         "extra": {
-          "base_rpm": 42,
-          "rpm_sticky_buffer": 15,
-          "max_sessions": 75,
+          "base_rpm": 120,
+          "rpm_sticky_buffer": 30,
+          "max_sessions": 600,
           "session_idle_timeout_minutes": 8,
           "window_cost_limit": 800,
           "window_cost_sticky_reserve": 0,
