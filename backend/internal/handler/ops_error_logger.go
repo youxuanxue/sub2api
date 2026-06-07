@@ -1300,9 +1300,19 @@ func classifyOpsSeverity(errType string, status int) string {
 
 func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status int) (phase string, isBusinessLimited bool, errorOwner string, errorSource string) {
 	phase = classifyOpsPhase(errType, message, code)
-	routingCapacityLimited := isOpsRoutingCapacityLimited(c)
-	clientBusinessLimited := service.HasOpsClientBusinessLimited(c)
 	upstreamError := hasOpsUpstreamErrorContext(c)
+	// TK (mirror-edge metric pollution, 2026-06-06 yace load test): a relayed
+	// downstream-capacity verdict — an upstream (a TokenKey edge reached via a
+	// cc-<edge> apikey mirror account) answered 429/5xx with a "no available
+	// accounts" / "all available accounts exhausted" body — is OUR fleet capacity,
+	// not provider health. Fold it into routingCapacityLimited so it is owned as
+	// routing (out of upstream_error_rate) exactly like a LOCAL empty pool, mirroring
+	// the cooldown-ladder skip in ratelimit_service_tk_downstream_no_available.go.
+	// Boundary (anthropic_amplifier_exemption_boundary): only TokenKey phrases match;
+	// a real provider 429 (rate_limit_error) / raw 5xx still counts. See
+	// tkUpstreamDownstreamCapacity.
+	routingCapacityLimited := isOpsRoutingCapacityLimited(c) || (upstreamError && tkUpstreamDownstreamCapacity(c))
+	clientBusinessLimited := service.HasOpsClientBusinessLimited(c)
 	// TK: an upstream client-induced request rejection (invalid_request_error /
 	// request_too_large / 413 / unsupported-model-for-account) is caller-fault, not
 	// provider health. Own it to the client (request phase) instead of relabeling

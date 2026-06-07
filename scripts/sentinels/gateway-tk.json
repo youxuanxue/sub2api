@@ -1863,12 +1863,13 @@
     {
       "path": "backend/internal/handler/ops_error_logger.go",
       "must_contain": [
+        "routingCapacityLimited := isOpsRoutingCapacityLimited(c) || (upstreamError && tkUpstreamDownstreamCapacity(c))",
         "clientInducedUpstream := upstreamError && tkUpstreamClientInducedRejection(c)",
         "clientCanceledUpstream := upstreamError && tkUpstreamClientCanceled(c)",
         "if upstreamError && !routingCapacityLimited && !clientInducedUpstream && !clientCanceledUpstream {",
         "if (clientInducedUpstream || clientCanceledUpstream) && !routingCapacityLimited {"
       ],
-      "rationale": "Injection point in classifyOpsErrorLog: an upstream client-induced 4xx (tkUpstreamClientInducedRejection) AND a client/caller disconnect with no upstream status (tkUpstreamClientCanceled, issue #625) must NOT take the upstream/provider phase override (which feeds error_owner=provider -> upstream_error_rate), and must instead be owned to the client (phase=request). routingCapacityLimited still wins last so 'no available accounts' SLA-exclusion is preserved. An upstream merge that rewrites this classifier and copies back the unconditional 'if upstreamError { phase = upstream }' shape silently restores the prod P0 false page (and the quad-edge context-canceled false P0); this sentinel anchors the guard plus both the client-induced and client-canceled branches."
+      "rationale": "Injection point in classifyOpsErrorLog: an upstream client-induced 4xx (tkUpstreamClientInducedRejection) AND a client/caller disconnect with no upstream status (tkUpstreamClientCanceled, issue #625) must NOT take the upstream/provider phase override (which feeds error_owner=provider -> upstream_error_rate), and must instead be owned to the client (phase=request). routingCapacityLimited still wins last so 'no available accounts' SLA-exclusion is preserved. The routingCapacityLimited assignment ALSO folds in tkUpstreamDownstreamCapacity (mirror-edge metric pollution, 2026-06-06): a RELAYED downstream-capacity verdict — an edge answered 429/5xx with a TokenKey 'no available accounts' / 'all available accounts exhausted' body — is OUR fleet capacity, not provider health, so it is owned as routing (out of upstream_error_rate) exactly like a LOCAL empty pool; this corrects the old asymmetry where a relayed no-available counted for SLA while a local one did not (which made upstream_error_rate read ~1300 on both a dead and a healthy edge). Boundary: only TokenKey phrases match; real provider 429/5xx still counts. An upstream merge that rewrites this classifier and copies back the unconditional 'if upstreamError { phase = upstream }' shape, or drops the tkUpstreamDownstreamCapacity fold, silently restores the prod P0 false page (and the quad-edge context-canceled false P0 / the mirror-edge upstream-429 pollution); this sentinel anchors the guard plus the routing-capacity fold and both the client-induced and client-canceled branches."
     },
     {
       "path": "backend/internal/handler/ops_error_logger_tk_client_induced_upstream_test.go",
@@ -1950,6 +1951,25 @@
         "tkObserveCancelStorm(c, ops)"
       ],
       "rationale": "Per-API-key cancel-storm detector chokepoint hook (PR #635, Phase 1 detect-only). OpsErrorLoggerMiddleware is the single terminal-outcome observation point on /v1; this one line right after c.Next() feeds every request (success + >=400, independent of the ops-monitoring master switch) into OpsService.ObserveCancelStorm so a borrowed key issuing a context-canceled flood (the non-human-harness shape that got a subscription-OAuth account org-disabled) raises a real-time Feishu alert. The hook is small and compile-clean if dropped, so an upstream merge could silently revert it and re-blind the fleet to cancel storms. This sentinel pins the literal call; the detector itself (window counting + threshold + alert) lives in ops_cancel_storm_tk.go, which a missing hook would leave dead."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_tk_downstream_capacity.go",
+      "must_contain": [
+        "func tkUpstreamDownstreamCapacity(c *gin.Context) bool",
+        "if status != 429 && status < 500 {",
+        "isOpsNoAvailableAccountMessage(combined)",
+        "opsDownstreamFailoverExhaustedPhrase"
+      ],
+      "rationale": "Mirror-edge metric pollution (2026-06-06 yace load test): prod relays to Edge stacks via cc-<edge> apikey mirror accounts; an empty edge pool returns 429/503 with a TokenKey 'No available accounts' body (tkNoAvailableAccounts, PR #575). Because that 429 carries a definitive upstream status, tkUpstreamClientCanceled (status-0 gate) deliberately skips it and classifyOpsErrorLog counted it as phase=upstream/provider — so a dead single-account edge (us3: served_200=0, no_available_429=33748) and a healthy 3-account edge (us5: 2251x200, 77x429) both read ~1300 upstream-429 on prod, making the provider-health metric unable to tell a dead edge from a healthy one. This predicate detects a relayed TokenKey downstream-capacity verdict (status 429 or >=500 AND body text 'no available accounts' / 'all available accounts exhausted') so classifyOpsErrorLog can fold it into routingCapacityLimited and own it as routing (out of upstream_error_rate), exactly like a LOCAL empty pool and mirroring the cooldown-ladder skip in ratelimit_service_tk_downstream_no_available.go. Boundary (anthropic_amplifier_exemption_boundary): the status gate keeps status-0 transport errors with tkUpstreamClientCanceled, and ONLY the TokenKey-generated phrases match — a real Anthropic 429 (rate_limit_error) or raw 5xx carries no such phrase and stays provider-owned. Dropping the predicate (or broadening it past the TK phrases) re-arms the mirror-edge false P0 / blinds provider health."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_tk_downstream_capacity_test.go",
+      "must_contain": [
+        "TestClassifyOpsDownstreamCapacityOwnedAsRouting",
+        "TestClassifyOpsGenuineUpstreamStaysProviderDespiteCapacityHelper",
+        "TestTkUpstreamDownstreamCapacityPredicate"
+      ],
+      "rationale": "Focused regressions proving the mirror-edge boundary: (1) a relayed edge 'no available accounts' 429 (with and without a trailing client-cancel) and an 'all available accounts exhausted' 503 classify as phase=routing / error_owner=platform / businessLimited (out of upstream_error_rate); (2) a genuine provider 429 (rate_limit_error) and a raw 5xx with no TokenKey phrase stay phase=upstream / error_owner=provider so they keep counting; (3) the predicate status gate (status 0 owned by client-cancel) and phrase boundary hold. Dropping these lets an upstream merge silently revert the mirror-edge upstream-429 exclusion through the classifier."
     }
   ]
 }
