@@ -2,6 +2,9 @@ package admin
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -57,7 +60,43 @@ func (h *EdgeAccountsHandler) List(c *gin.Context) {
 		response.Error(c, 500, "failed to aggregate edge accounts")
 		return
 	}
+
+	// ETag/304 so the page's periodic auto-refresh skips the body (and the
+	// frontend skips a re-render) when nothing changed. Mirrors the admin accounts
+	// list (handler.buildAccountsListETag / ifNoneMatchMatched, same package).
+	if etag := buildEdgeAccountsETag(agg); etag != "" {
+		c.Header("ETag", etag)
+		c.Header("Vary", "If-None-Match")
+		if ifNoneMatchMatched(c.GetHeader("If-None-Match"), etag) {
+			c.Status(http.StatusNotModified)
+			return
+		}
+	}
 	response.Success(c, agg)
+}
+
+// buildEdgeAccountsETag hashes the aggregate's stable content — Platform + Edges —
+// deliberately EXCLUDING EdgeAccountsAggregate.TS, which is the per-fan-out wall
+// clock (time.Now().Unix()) and would otherwise churn the ETag on every refresh
+// even when the account inventory is byte-identical, defeating the 304 path.
+// Mirrors handler.buildAccountsListETag (account_handler.go).
+func buildEdgeAccountsETag(agg *service.EdgeAccountsAggregate) string {
+	if agg == nil {
+		return ""
+	}
+	payload := struct {
+		Platform string                       `json:"platform"`
+		Edges    []service.EdgeAccountsResult `json:"edges"`
+	}{
+		Platform: agg.Platform,
+		Edges:    agg.Edges,
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(raw)
+	return "\"" + hex.EncodeToString(sum[:]) + "\""
 }
 
 // adminSessionResponse is returned to the prod admin UI: a ready-to-open handoff
