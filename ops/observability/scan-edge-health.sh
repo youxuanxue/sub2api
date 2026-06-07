@@ -89,7 +89,7 @@ for line in open(sys.argv[1], encoding="utf-8"):
     line = line.strip()
     if line:
         try: rows.append(json.loads(line))
-        except json.JSONDecodeError: pass
+        except json.JSONDecodeError: pass  # preflight-allow: swallow — a non-JSON verdict line (unreachable edge note) is skipped, not fatal
 
 # sort: most severe first
 order = {"down": 0, "unreachable": 0, "parse-error": 0, "degraded": 1,

@@ -39,7 +39,7 @@ CONTAINER="${CONTAINER:-tokenkey}"
 PSQL='docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t'
 
 echo "=== docker ps (tokenkey stack) ==="
-docker ps --filter name=tokenkey --format '{{.Names}}\t{{.Status}}' 2>/dev/null || true  # preflight-allow: diagnostic header only
+docker ps --filter name=tokenkey --format '{{.Names}}\t{{.Status}}' 2>/dev/null || true  # preflight-allow: swallow — diagnostic header only
 
 echo "=== ACCT roster (platform=$PLATFORM; field names embedded) ==="
 # One JSON object per account, prefixed ACCT. session_window_status is a top-level
@@ -58,17 +58,18 @@ SELECT 'ACCT '||row_to_json(t)::text FROM (
 
 echo "=== TRAFFIC (access-log counts over --since $SINCE) ==="
 LOGF="$(mktemp /tmp/eh_full.XXXXXX)"
-docker logs "$CONTAINER" --since "$SINCE" >"$LOGF" 2>&1 || true
-COMPLETED="$(grep -F 'http request completed' "$LOGF" 2>/dev/null || true)"
+docker logs "$CONTAINER" --since "$SINCE" >"$LOGF" 2>&1 || true  # preflight-allow: swallow — no-logs window is a valid 0-count, not a probe failure
+COMPLETED="$(grep -F 'http request completed' "$LOGF" 2>/dev/null || true)"  # preflight-allow: swallow — grep exit 1 on zero matches is the wanted empty result
 
-# served_200 / all_429: tolerate "status_code":200 and "status_code": 200 (build-dependent spacing)
-SERVED_200="$(printf '%s' "$COMPLETED" | grep -cE '"status_code":[[:space:]]*200' || true)"
-ALL_429="$(printf '%s' "$COMPLETED" | grep -cE '"status_code":[[:space:]]*429' || true)"
-TOTAL_COMPLETED="$(printf '%s' "$COMPLETED" | grep -c . || true)"
+# served_200 / all_429: tolerate "status_code":200 and "status_code": 200 (build-dependent spacing).
+# Every `|| true` below absorbs grep -c's exit 1 on zero matches — a 0 count IS the answer, not an error.
+SERVED_200="$(printf '%s' "$COMPLETED" | grep -cE '"status_code":[[:space:]]*200' || true)"  # preflight-allow: swallow — zero-match => 0
+ALL_429="$(printf '%s' "$COMPLETED" | grep -cE '"status_code":[[:space:]]*429' || true)"  # preflight-allow: swallow — zero-match => 0
+TOTAL_COMPLETED="$(printf '%s' "$COMPLETED" | grep -c . || true)"  # preflight-allow: swallow — zero-match => 0
 # Structured markers (robust, not status-line dependent):
-NO_AVAIL="$(grep -cF 'select_account_no_available' "$LOGF" 2>/dev/null || true)"
-WAIT_TIMEOUT="$(grep -cF 'wait timeout' "$LOGF" 2>/dev/null || true)"
-CLIENT_CANCEL="$(grep -cF 'context canceled' "$LOGF" 2>/dev/null || true)"
+NO_AVAIL="$(grep -cF 'select_account_no_available' "$LOGF" 2>/dev/null || true)"  # preflight-allow: swallow — zero-match => 0
+WAIT_TIMEOUT="$(grep -cF 'wait timeout' "$LOGF" 2>/dev/null || true)"  # preflight-allow: swallow — zero-match => 0
+CLIENT_CANCEL="$(grep -cF 'context canceled' "$LOGF" 2>/dev/null || true)"  # preflight-allow: swallow — zero-match => 0
 rm -f "$LOGF"
 
 printf 'TRAFFIC {"since":"%s","served_200":%s,"all_429":%s,"no_available_429":%s,"wait_timeout":%s,"client_cancel":%s,"total_completed":%s}\n' \
