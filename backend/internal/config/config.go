@@ -1172,7 +1172,8 @@ type GatewaySchedulingConfig struct {
 
 	// AnthropicConfigReconcilerConcurrencyMirrorEnabled 开启 surface-C 并发镜像消费端
 	// （prod：经 HTTP 实时拉每个镜像 stub 指向的 edge capacity，把 stub.concurrency 收敛为
-	// edge 的 live Σschedulable）。仅在 prod 部署开启；edge 无匹配 stub 时天然空转。默认 false。
+	// edge 的 live Σschedulable）。真实作用于 prod 的镜像 stub；edge 无匹配 stub 时天然空转，
+	// 故作全局默认安全（新 edge 自动继承，无需逐节点配）。默认 true。
 	AnthropicConfigReconcilerConcurrencyMirrorEnabled bool `mapstructure:"anthropic_config_reconciler_concurrency_mirror_enabled"`
 
 	// AnthropicConfigReconcilerBalanceFloorEnabled 开启 edge operator（users.id=1）余额地板
@@ -2069,7 +2070,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.scheduling.rate_limit_reaper_interval_seconds", 5)
 	viper.SetDefault("gateway.scheduling.rate_limit_reaper_lookback_seconds", 30)
 	viper.SetDefault("gateway.scheduling.anthropic_config_reconciler_interval_seconds", 300)
-	viper.SetDefault("gateway.scheduling.anthropic_config_reconciler_concurrency_mirror_enabled", false)
+	viper.SetDefault("gateway.scheduling.anthropic_config_reconciler_concurrency_mirror_enabled", true)
 	viper.SetDefault("gateway.scheduling.anthropic_config_reconciler_balance_floor_enabled", false)
 	viper.SetDefault("gateway.usage_record.worker_count", 128)
 	viper.SetDefault("gateway.usage_record.queue_size", 16384)
