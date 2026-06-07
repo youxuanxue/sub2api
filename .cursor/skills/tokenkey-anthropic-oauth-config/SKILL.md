@@ -6,13 +6,14 @@ description: >-
 
 # TokenKey：Anthropic OAuth 配置流水线（check 联查 + TLS 模板 + HTTP UA）
 
-适用于本仓库（TokenKey fork of sub2api）。本 skill **不再是五条写入面的写库流水线**——tier 配置数值与其级联（operator 并发 Σ、pool_mode、concurrency 镜像、claude_code_only、edge 余额）已在 `origin/main` 下沉到**后端 per-node 自愈 reconciler + admin UI**（详 §3）。本 skill 现在只编排后端**不**负责的三件事，全部由 `ops/anthropic/manage-anthropic-config.py` 承载：
+适用于本仓库（TokenKey fork of sub2api）。本 skill **不再是五条写入面的写库流水线**——tier 配置数值与其级联（operator 并发 Σ、pool_mode、concurrency 镜像、claude_code_only、edge 余额）已在 `origin/main` 下沉到**后端 per-node 自愈 reconciler + admin UI**（详 §3）。本 skill 现在只编排后端**不**负责的四件事，全部由 `ops/anthropic/manage-anthropic-config.py` 承载：
 
 | 能力 | 子命令 | 写入面 | 后端为何不接管 |
 |---|---|---|---|
 | **check 联查**（只读） | `snapshot` + `check` | 无（只读 SSM live → 比对 baseline） | reconciler 只看本机库；跨 deployable edge + prod 的一次性 fleet 联查仍要 operator 触发 |
 | **TLS canonical 模板** | `plan-guard-drift-fix` / `remediate-guard-drift`（+ `apply --sync-runtime`） | `tls_fingerprint_profiles` upsert + `accounts.extra.tls_fingerprint_profile_id` 绑定（force-template-rewrite） | reconciler 把单账号 tier 字段漂移设为 **report-only**（tier 经 admin UI ApplyTier 显式设定），TLS 模板的 fleet 重绑定不在自愈范围 |
 | **HTTP UA / mimicry 同步** | `sync-runtime`（或 `plan-http-mimicry-sync` 出审计 plan） | `settings.claude_code_user_agent_version` + `settings.claude_code_http_mimicry_manifest` UPSERT；`DEL fingerprint:{oauth_account_id}` | settings/UA 是部署级运行时旋钮，reconciler 不写 settings 表 |
+| **tier 值实时下发**（不发版） | `apply-tiers-live`（+ `--verify-only`） | 逐节点 `tiers` 表 UPDATE + Redis tier 缓存失效（`DEL tiers`/`PUBLISH tiers_updated`）+ `accounts.concurrency` UPDATE + `scheduler_outbox` + operator Σ 同步 | `ensureSeededFromBaseline` 只在**重启/发版**把 git 值 seed 进 tiers 表；把**已合并**的 git tier 值**实时**铺到全 fleet（不等发版）仍要 operator 触发。admin UI ApplyTier 是 per-account 手点，本工具是 **fleet + 从 git 单一源**。详 §2.5 |
 
 ## 0. 确定性硬纪律
 
@@ -172,9 +173,52 @@ planned / 未快照的 edge 带 `skipped_reason`（或 `error`）且无 `oauth_a
 
 > 上面 stub 里的 `cred_pool_mode` / `concurrency` 等字段如今由**后端 reconciler 自愈**（§3），本 skill 只读它们做 check 联查与 UA 同步，**不**再驱动它们的写入。
 
+## 2.5 tier 值实时下发（check → apply-tiers-live → verify，不发版）
+
+**场景**：tier baseline 改动**已合并进 git**（如 PR #604/#629 改 L1–L5 的 concurrency / caps），想**立即**铺到全 fleet，不等下次发版。`check` 会把这种「live 旧值 vs git 新值」报成 `tier_table_drift`（每节点每 tier）。此时用 **`apply-tiers-live`** 把 git 值实时下发。
+
+**与 §3 的关系**：这**不是** §3 里那些废弃的 `plan-tier-bump` 等 escape hatch。tier **数值**仍以 git baseline JSON 为单一源；`apply-tiers-live` 只是把**已在 git 的值**确定性地铺到运行库，落库状态与 admin UI ApplyTier 完全一致，且与下次发版幂等收敛（embed == 同一份 JSON，由 `check-tier-baseline-embed.py` 钉死）。reconciler 仍对单账号 tier 字段漂移 report-only——本工具是 operator 显式触发的 fleet 下发，不抢 reconciler 的活。
+
+**硬约束（顺序不能错）**：
+
+1. **新值必须先合并进 git**。运行时 8 个 cap 从本机 `tiers` 表 overlay（账号 extra 为 null，#472），`apply-tiers-live` 读**磁盘上的 git JSON**。若推未提交的工作区值，下次发版 `ensureSeededFromBaseline` 用 embed(=已合并值)盖回 → live 改动丢失。**tier 值改动走独立小 PR 合并后再 apply。**
+2. **直连 SQL over SSM，复刻后端三个副作用**（与 admin handler 一致）：① `tiers` 表 UPDATE（11 strategy 列，**不碰** tls_profile）+ Redis `DEL tiers`/`PUBLISH tiers_updated refresh`（= `TierService.invalidateAndNotify`）；② `accounts.concurrency` UPDATE + `scheduler_outbox('account_changed')` INSERT（worker 1s 内 re-read DB 重建快照）；③ **operator(users.id=1) Σ 同步**（同事务，= sanctioned tier-apply 注入的 `render_admin_operator_concurrency_sync_sql`，立即对齐不靠 reconciler 时序）。concurrency 不在 tier_table_drift 比对键（只比 8 cap），故 verify 单独断言 tiers/账号 concurrency==git。
+3. **不用 admin-API**：运行镜像无 curl（busybox wget 不能 PUT）、admin 鉴权未 bootstrap；psql+redis-cli 镜像里就有且本脚本族已在用。
+
+**一条龙命令**：
+
+```bash
+JOBDIR="$CLAUDE_JOB_DIR"
+MGR=ops/anthropic/manage-anthropic-config.py
+
+# 0) 先确认 git main 已含目标 tier 值（独立 PR 已合并）
+python3 -c "import importlib.util as u;s=u.spec_from_file_location('m','$MGR');m=u.module_from_spec(s);s.loader.exec_module(m);print(m._load_expected_tiers()['l5'])"
+
+# 1) check：报 tier_table_drift（live 旧 vs git 新）
+python3 $MGR snapshot --out $JOBDIR/snap-pre.json
+python3 $MGR check --snapshot $JOBDIR/snap-pre.json        # exit 1 + tier_table_drift items
+
+# 2) apply：实时下发 git 值到全 deployable edge + prod
+python3 $MGR apply-tiers-live --snapshot $JOBDIR/snap-pre.json \
+  --confirm yes-apply-tiers-live-from-git --job-dir $JOBDIR --json
+#   选项：--edges uk1,us7  限定范围；--skip-prod；--no-concurrency 只改 tiers 表+缓存
+
+# 3) verify：必须传【重新抓的】snapshot（pre 的反映不了 apply 后状态）
+python3 $MGR snapshot --out $JOBDIR/snap-post.json
+python3 $MGR apply-tiers-live --snapshot $JOBDIR/snap-post.json --verify-only --json
+#   期望 clean=True：tier_table_drift==0 且 tiers/accounts concurrency==git
+python3 $MGR check --snapshot $JOBDIR/snap-post.json        # 独立第三方确认：any_violation=False + redis_cache_drift 干净
+```
+
+**确认码**：`--confirm yes-apply-tiers-live-from-git`（区别于级联 `CONFIRM_CODE`，防误粘）。
+
+**残留风险**：live 写、非发版。值扛过 tier 缓存 pub/sub、scheduler outbox、5min 全量 rebuild；唯一回滚点是**下次发版前某节点在旧镜像上重启**（tiers 行被旧 embed reseed 回去；`accounts.concurrency` 列不被 tier seeding 重写，扛过重启）。不静默——下次 `check` 重报 `tier_table_drift`。**根治 = 下次例行发版**（embed==git，幂等 reseed 同值，重启 durable）。本工具是「立即生效」桥，发版是「永久固化」。
+
 ## 3. 已下沉到后端（不再由本 skill 驱动）
 
 这些能力曾是本 skill 的写入面 (A) tier 数值 / (B) / (C) / (D) / (E)；在 `origin/main` 上已下沉到**后端 per-node 自愈 reconciler + admin UI**，本 skill **不再编排其写入**。改这些值请走对应入口，不要再用 `plan-tier-bump` / `plan-stub-pool` / `plan-concurrency-mirror` / `plan-group-claude-code-only` / `plan-edge-operator-balance`（脚本里仍保留这些子命令作 fleet 级紧急 escape hatch，但不再是推荐路径）。
+
+> **注意区分**：§2.5 的 `apply-tiers-live` **不在**上面这串废弃命令里。废弃的 `plan-tier-bump` 写**账号 extra** 的 tier-managed 键——#472 后那些键运行时从 tiers 表 overlay、账号侧已剥离，所以 plan-tier-bump 对 cap 是 **inert**（写进去会被 strip）。`apply-tiers-live` 写的是**正确的面**：`tiers` 表（cap 的真正 overlay 源）+ `accounts.concurrency`（账号列）+ 缓存失效 + operator Σ，是把**已合并 git 值实时下发**的推荐路径。tier **数值的单一源**仍是 git baseline JSON / admin UI ApplyTier（per-account）——`apply-tiers-live` 不另起事实源，只做 fleet 下发。
 
 | 旧写入面 | 现在谁负责 | 入口 |
 |---|---|---|
@@ -228,7 +272,7 @@ operate 流程：
 | `tls_profile` drift（`/tls_profile/...` 或 UK 模式：启用 TLS 却无 profile） | 用 **`plan-guard-drift-fix`** 或 **`remediate-guard-drift`**（含 `apply --sync-runtime`）force-template-rewrite，不要手工拼 SQL |
 | check guard 报 `status: drift` 且 `diffs[].path` 含 `/credentials/temp_unschedulable_rules`，但数值字段全等 | guard-drift force-template-rewrite 会重写 credentials 端字段；apply 完跑一次 `check` 当真值 |
 | check guard 对账号 `extra.base_rpm` / `max_sessions` 等报 drift | **不应再发生**：PR #472 后这 8 个 tier-managed 键由 `tiers` 表 overlay、账号侧不持久化，guard 已停止比对它们（旧逻辑假报）。若仍看到，说明 guard 未更新——核对 `check-edge-oauth-stability.py` 的 `TIER_MANAGED_EXTRA_KEYS` 排除逻辑 |
-| check 报 `tier_table_drift`（live `tiers` 表 != git baseline，violation/exit 1） | tier 行被 admin 后台改过（`PUT /admin/tiers/:id`），全副本即时生效但下次重启/发版被 `ensureSeededFromBaseline` 回刷。看 `items[].warning` 定位 node/tier/字段；**撤销后台改动**（admin UI 改回），或若是有意调整就**把新值落进 git baseline JSON**（`deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json` + 同步 embed/迁移，过 `check-tier-baseline-embed.py`）再发版固化 |
+| check 报 `tier_table_drift`（live `tiers` 表 != git baseline，violation/exit 1） | 三种成因分流：(a) **git baseline 刚改过**（新值已合并、live 还是旧镜像的旧值）→ 想立即生效不等发版用 **§2.5 `apply-tiers-live`**，否则等下次例行发版 `ensureSeededFromBaseline` reseed；(b) tier 行被 **admin 后台**改过（`PUT /admin/tiers/:id`，全副本即时生效但下次重启/发版被回刷）→ 若误改就 admin UI 改回，若有意就**把新值落进 git baseline JSON**（`deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json` + 同步 embed/迁移，过 `check-tier-baseline-embed.py`）后再 `apply-tiers-live` / 发版固化。看 `items[].warning` 定位 node/tier/字段 |
 | check 报账号 `account_field_drift`（非 tier-managed 字段，如 priority / concurrency） | concurrency 由 reconciler 自愈（§3）；其余账号级字段走 admin UI |
 | check 报 `operator_balance` 低于门槛 / pool_mode / concurrency 漂移 | 由后端 reconciler 自愈（§3）；若持续未自愈，查该节点 reconciler leader 锁 / slog 日志，不要手工 plan |
 | check 报 `http_ua_drift` / HTTP UA 未生效 | `sync-runtime --target …`（或先 `plan-http-mimicry-sync` 核对 manifest）；确认 `anthropic-http-mimicry-baselines.json` 的 `cc_version` 已是目标版本。典型成因：cc 版本 bump PR 合并后忘了跑 sync-runtime，fleet live UA 仍停在旧版本——check 现在会 violation（exit 1），不再假绿 |
@@ -259,7 +303,8 @@ operate 流程：
 
 ## 9. 扩展阅读
 
-- `ops/anthropic/manage-anthropic-config.py`（orchestrator；本 skill 用其 `snapshot` / `check` / `plan-guard-drift-fix` / `remediate-guard-drift` / `apply` / `sync-runtime` / `plan-http-mimicry-sync` / `verify`）
+- `ops/anthropic/manage-anthropic-config.py`（orchestrator；本 skill 用其 `snapshot` / `check` / `plan-guard-drift-fix` / `remediate-guard-drift` / `apply` / `sync-runtime` / `plan-http-mimicry-sync` / `verify` / `apply-tiers-live`）
+- `backend/internal/service/tier_service.go`（`ensureSeededFromBaseline` UpsertByName + `invalidateAndNotify`：§2.5 `apply-tiers-live` 复刻的缓存失效真值源）
 - `backend/internal/service/anthropic_config_reconciler.go`（**§3 写入面 A 并发 / B / C / E 的 per-node 自愈真值源**；文件头列出 boundary 与 step 顺序）
 - `backend/internal/handler/admin/account_handler_tk_tier.go` + `backend/internal/service/tier_service.go`（admin UI `ApplyTier`：tier 数值的写入入口）
 - `backend/internal/handler/admin/group_handler.go`（group `claude_code_only` 写入入口）

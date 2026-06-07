@@ -13,13 +13,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// G4 — model-dimension cooldown for Anthropic unified-window 429s.
+// G4 — model-dimension cooldown for Anthropic per-class sub-bucket 429s.
 //
-// Prod motivation (edge us6, account edge-ls-oh-3-d): opus burned the shared
-// 5h window, upstream returned a unified-window 429, and the legacy
-// account-level SetRateLimited pulled the WHOLE account out of scheduling —
-// taking healthy sonnet/haiku offline with it. G4 scopes that cooldown to
-// (account × model class) so only opus is cooled.
+// Corrected semantics (edge-us3 upstream probe, 2026-06-06): the account-wide
+// unified 5h/7d windows (anthropic-ratelimit-unified-{5h,7d}-*, no class
+// suffix) are SHARED across all model classes — exhausting one 429s every
+// class even when that class's own sub-bucket is allowed. So an account-wide
+// window exhaustion (anthropic429Result.window == "5h"/"7d") cools the WHOLE
+// account (account-level SetRateLimited); model-scoping is reserved for a
+// genuine per-class sub-bucket limit (window == "", neither overall window
+// surpassed) so siblings stay schedulable only when they truly have capacity.
 
 func tkModelClassScope(class string) string {
 	return anthropicModelClassRateLimitPrefix + class
@@ -59,13 +62,30 @@ func TestTkAnthropicModelClassScopeKeyForModel(t *testing.T) {
 	require.Empty(t, tkAnthropicModelClassScopeKeyForModel(""))
 }
 
-// --- write side: 5h exceeded → model-class cooldown, NOT account-level --------
+// --- write side: account-wide window exceeded → account-level, NOT model-scoped --
 
+// anthropic5hExceededHeaders models an ACCOUNT-WIDE 5h window exhaustion
+// (5h utilization >= 1.0). Per the corrected semantics this must cool the
+// whole account, never a single model class.
 func anthropic5hExceededHeaders(resetAt int64) http.Header {
 	headers := http.Header{}
 	headers.Set("anthropic-ratelimit-unified-5h-utilization", "1.02")
 	headers.Set("anthropic-ratelimit-unified-5h-reset", strconv.FormatInt(resetAt, 10))
 	headers.Set("anthropic-ratelimit-unified-7d-utilization", "0.30")
+	headers.Set("anthropic-ratelimit-unified-7d-reset", strconv.FormatInt(resetAt+3600*24, 10))
+	return headers
+}
+
+// anthropicPerClassNoOverallExceededHeaders models a genuine per-class
+// sub-bucket limit: neither account-wide 5h nor 7d window is surpassed, but
+// the upstream still 429'd (e.g. anthropic-ratelimit-unified-7d_opus-status
+// rejected). calculateAnthropic429ResetTime yields result.window == "" here,
+// which is the only case where model-scoping is correct.
+func anthropicPerClassNoOverallExceededHeaders(resetAt int64) http.Header {
+	headers := http.Header{}
+	headers.Set("anthropic-ratelimit-unified-5h-utilization", "0.30")
+	headers.Set("anthropic-ratelimit-unified-5h-reset", strconv.FormatInt(resetAt, 10))
+	headers.Set("anthropic-ratelimit-unified-7d-utilization", "0.40")
 	headers.Set("anthropic-ratelimit-unified-7d-reset", strconv.FormatInt(resetAt+3600*24, 10))
 	return headers
 }
@@ -79,7 +99,10 @@ func newG4RateLimitService(repo *rateLimitAccountRepoStub) *RateLimitService {
 	return svc
 }
 
-func TestG4_OpusUnifiedWindow429_CoolsModelClassNotAccount(t *testing.T) {
+func TestG4_OverallWindow429_CoolsAccountNotModelClass(t *testing.T) {
+	// An account-wide 5h window exhaustion blocks every model class (the shared
+	// window is rejected regardless of per-class sub-bucket headroom — edge-us3
+	// upstream probe). It MUST cool the whole account, not just opus.
 	repo := &rateLimitAccountRepoStub{}
 	svc := newG4RateLimitService(repo)
 	account := &Account{ID: 901, Platform: PlatformAnthropic, Type: AccountTypeOAuth}
@@ -94,29 +117,58 @@ func TestG4_OpusUnifiedWindow429_CoolsModelClassNotAccount(t *testing.T) {
 		"claude-opus-4-8",
 	)
 
-	// model-scoped cooldown is authoritative → account is not error-disabled
+	// rate-limited (not error-disabled) account
 	require.False(t, shouldDisable)
-	// account-level rate limit MUST NOT be written (that's the amplification G4 removes)
-	require.Equal(t, 0, repo.setRateLimitedCalls,
-		"unified-window opus 429 must NOT call account-level SetRateLimited")
+	// account-level rate limit IS written — the whole account is cooled
+	require.Equal(t, 1, repo.setRateLimitedCalls,
+		"account-wide 5h window exhaustion must call account-level SetRateLimited")
+	// NO model-class cooldown — that would falsely leave sibling classes schedulable
+	require.Empty(t, repo.modelRateLimitCalls,
+		"account-wide window exhaustion must NOT be model-scoped")
 	require.Equal(t, 0, repo.tempCalls,
-		"authoritative model cooldown suppresses the 3/3 ladder temp-unschedulable")
-	// model-class cooldown for opus written exactly once
-	require.Len(t, repo.modelRateLimitCalls, 1)
-	call := repo.modelRateLimitCalls[0]
-	require.Equal(t, int64(901), call.accountID)
-	require.Equal(t, tkModelClassScope("opus"), call.scope)
-	require.Equal(t, tkAnthropicModelCooldownReason, call.reason)
-	require.WithinDuration(t, time.Unix(resetAt, 0), call.resetAt, 2*time.Second)
-	// account-global 5h window is still recorded (operator usage gauge depends
-	// on it) — only the cooldown SCOPE narrowed, not the window signal.
+		"authoritative SetRateLimited suppresses the 3/3 ladder temp-unschedulable")
+	// account-global 5h session window recorded (operator usage gauge)
 	require.Equal(t, 1, repo.updateSessionWindowCalls,
-		"model-scoped cooldown must still record the account-global 5h session window")
+		"account-level path records the account-global 5h session window")
 	require.Equal(t, "rejected", repo.lastSessionWindowStatus)
 }
 
+func TestG4_PerClassSubBucket429_ModelScopedSiblingsSchedulable(t *testing.T) {
+	// Genuine per-class sub-bucket limit: neither overall 5h nor 7d window is
+	// surpassed (result.window == ""), so model-scoping is correct — only the
+	// requested class is cooled and the account-global window is NOT touched.
+	repo := &rateLimitAccountRepoStub{}
+	svc := newG4RateLimitService(repo)
+	account := &Account{ID: 921, Platform: PlatformAnthropic, Type: AccountTypeOAuth}
+
+	resetAt := time.Now().Add(90 * time.Minute).Unix()
+	shouldDisable := svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusTooManyRequests,
+		anthropicPerClassNoOverallExceededHeaders(resetAt),
+		[]byte(`{"error":{"type":"rate_limit_error","message":"per-class limit reached"}}`),
+		"claude-opus-4-8",
+	)
+
+	require.False(t, shouldDisable)
+	// model-class cooldown for opus written exactly once
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	call := repo.modelRateLimitCalls[0]
+	require.Equal(t, int64(921), call.accountID)
+	require.Equal(t, tkModelClassScope("opus"), call.scope)
+	require.Equal(t, tkAnthropicModelCooldownReason, call.reason)
+	// NO account-level rate limit (siblings keep their genuine capacity)
+	require.Equal(t, 0, repo.setRateLimitedCalls,
+		"per-class sub-bucket limit must NOT cool the whole account")
+	// per-class path must NOT force the account-global 5h session window rejected
+	require.Equal(t, 0, repo.updateSessionWindowCalls,
+		"per-class cooldown must not corrupt the account-global 5h session window")
+}
+
 func TestG4_OpusCooled_SonnetHaikuStillSchedulable(t *testing.T) {
-	// Simulate the post-write account state: opus class cooled until reset.
+	// Reader-side: represents a genuine per-class cooldown (only opus class
+	// cooled). Simulate the post-write account state: opus class cooled until reset.
 	resetAt := time.Now().Add(90 * time.Minute)
 	account := &Account{
 		ID:          902,

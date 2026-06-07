@@ -100,6 +100,17 @@ type OpsRuntimeLogConfig struct {
 type OpsAlertRuntimeSettings struct {
 	EvaluationIntervalSeconds int `json:"evaluation_interval_seconds"`
 
+	// RateRuleMinSamples is the minimum number of SLA-counted requests that must
+	// exist in a rule window before a ratio metric (success_rate / error_rate /
+	// upstream_error_rate) is evaluated. Below this floor the metric returns
+	// ok=false and the rule is skipped, so a near-empty low-traffic window cannot
+	// produce a misleading 100% rate and page a false P0 (2026-06-06 us2/us5: a
+	// ~25min window held only 19 / 1 requests, yet a couple of transient upstream
+	// blips pushed upstream_error_rate to 100%). 0 (or missing on legacy
+	// settings rows) is filled to the default; set 1 to restore the legacy
+	// behavior where only the >0 denominator guard applies.
+	RateRuleMinSamples int `json:"rate_rule_min_samples"`
+
 	DistributedLock OpsDistributedLockSettings `json:"distributed_lock"`
 	Silencing       OpsAlertSilencingSettings  `json:"silencing"`
 	Thresholds      OpsMetricThresholds        `json:"thresholds"` // 指标阈值配置

@@ -3858,7 +3858,12 @@ def render_account_concurrency_live_sql(updates: list[dict]) -> str:
             f"VALUES ('account_changed', {aid}, NULL, NULL);"
         )
     lines.append("COMMIT;")
-    return "\n".join(lines) + "\n"
+    body = "\n".join(lines) + "\n"
+    # Same transaction, after the account UPDATEs: re-align the operator
+    # (users.id=1) concurrency to the new Σ schedulable anthropic concurrency —
+    # exactly what render_edge_account_tier_sql injects (surface A). Without this
+    # the operator Σ is stale until reconciler Step A self-heals on its next cycle.
+    return _inject_sql_before_commit(body, render_admin_operator_concurrency_sync_sql())
 
 
 def render_tiers_cache_invalidation_shell() -> str:

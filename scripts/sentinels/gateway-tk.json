@@ -84,9 +84,10 @@
         "\"anthropic_cooldown_tier_escalation_count\"",
         "SetAnthropicUpstreamErrorCounterCache",
         "GetAnthropicCooldownTierEscalations",
-        "AnthropicCooldownTierEscalationsKey"
+        "AnthropicCooldownTierEscalationsKey",
+        "rateSampleFloor"
       ],
-      "rationale": "Ops alert evaluator must call the TK companion notification fanout and report Feishu sends in the heartbeat. If an upstream merge restores the old email-only call, P0 Feishu delivery silently stops while alert event creation still works. The anthropic_cooldown_tier_escalation_count metric case is the PR #337 follow-up that turns persistent ladder escalation into Feishu/email alerts; dropping the case (or the cache injection seam / shared canonical key) silently disables the alert while the writer side keeps incrementing the counter."
+      "rationale": "Ops alert evaluator must call the TK companion notification fanout and report Feishu sends in the heartbeat. If an upstream merge restores the old email-only call, P0 Feishu delivery silently stops while alert event creation still works. The anthropic_cooldown_tier_escalation_count metric case is the PR #337 follow-up that turns persistent ladder escalation into Feishu/email alerts; dropping the case (or the cache injection seam / shared canonical key) silently disables the alert while the writer side keeps incrementing the counter. `rateSampleFloor` is the min-sample guard for ratio metrics (success_rate / error_rate / upstream_error_rate): below RateRuleMinSamples SLA-counted requests the metric returns ok=false so a near-empty low-traffic window can't page a false 100% P0 (2026-06-06 us2/us5). If an upstream merge restores the bare `RequestCountSLA <= 0` guard, low-traffic edges silently regress to firing P0 on a 1-request window."
     },
     {
       "path": "backend/internal/service/ops_alert_notifications_tk_feishu.go",
@@ -116,9 +117,10 @@
       "must_contain": [
         "OpsFeishuAlertConfig",
         "WebhookURLConfigured",
-        "SigningSecretConfigured"
+        "SigningSecretConfigured",
+        "RateRuleMinSamples"
       ],
-      "rationale": "Ops email notification config JSON must preserve the Feishu write-only webhook/secret state without a DB migration. If this model shape is overwritten, frontend saves can drop Feishu config or leak secret fields."
+      "rationale": "Ops email notification config JSON must preserve the Feishu write-only webhook/secret state without a DB migration. If this model shape is overwritten, frontend saves can drop Feishu config or leak secret fields. RateRuleMinSamples is the runtime-tunable min-sample floor for ratio-metric P0 rules (default 20, 0/missing filled on read so legacy settings rows get the guard without a migration); if an upstream merge drops the field the false-P0 low-traffic guard silently disappears."
     },
     {
       "path": "backend/internal/service/openai_messages_compaction_tk.go",
@@ -1822,10 +1824,11 @@
         "func tkAnthropicModelClass(model string) string",
         "anthropicModelClassRateLimitPrefix = \"anthropic:class:\"",
         "func (s *RateLimitService) tkTryAnthropicModelScopedCooldown(",
+        "if result.window == anthropicUnifiedWindow5h || result.window == anthropicUnifiedWindow7d {",
         "SetModelRateLimit(ctx, account.ID, scopeKey, resetAt, tkAnthropicModelCooldownReason)",
         "func (a *Account) tkAnthropicModelClassRateLimitActive(requestedModel string) bool"
       ],
-      "rationale": "G4 model-dimension cooldown companion. Anthropic OAuth accounts share a unified 5h/7d window across model classes; when opus exhausts it, upstream returns a unified-window 429 and the LEGACY behaviour cooled the WHOLE account (SetRateLimited), taking healthy sonnet/haiku offline (prod edge us6, account edge-ls-oh-3-d). This file scopes that cooldown to (account x model class) via the existing model_rate_limits store with an 'anthropic:class:<opus|sonnet|haiku>' scope key (mirrors the antigravity 'antigravity:gemini' family-key precedent). Losing tkTryAnthropicModelScopedCooldown / tkAnthropicModelClass on an upstream merge would silently re-introduce the account-level amplification; this sentinel catches that."
+      "rationale": "G4 model-dimension cooldown companion. Anthropic OAuth accounts share a unified 5h/7d window across model classes. The model-scoped cooldown is ONLY correct for a genuine per-class sub-bucket limit; an account-wide unified window (anthropic-ratelimit-unified-{5h,7d}-* with NO class suffix) is shared and blocks every class even when that class's own sub-bucket is allowed (direct upstream probe edge-us3 account a1, 2026-06-06: unified-7d-status=rejected returned 429 to a sonnet request while unified-7d_sonnet-status=allowed). The 'if result.window == anthropicUnifiedWindow5h || ...7d' guard makes tkTryAnthropicModelScopedCooldown DECLINE (return false -> caller does account-level SetRateLimited) for account-wide windows, so all classes are cooled; model-scoping survives only for window=='' (per-class sub-bucket). Losing that guard re-introduces the bug where a 7d-exhausted account leaves haiku falsely schedulable and unmarked. Losing tkTryAnthropicModelScopedCooldown / tkAnthropicModelClass on an upstream merge would silently re-introduce the original account-level amplification; this sentinel catches both."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
