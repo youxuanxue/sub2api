@@ -152,7 +152,11 @@ if $RENEW_CERT; then
   trap cleanup_param EXIT
   python3 - <<'PY' >"${PARAM_BODY}"
 import json, sys
-json.dump({"commands": ["sudo docker restart tokenkey-caddy", "sleep 15"]}, sys.stdout)
+# Single &&-chained command: AWS-RunShellScript joins the `commands` array into
+# one script with NO `set -e`, so a separate trailing `sleep 15` would mask a
+# failed `docker restart` (the SSM invocation would report success even if Caddy
+# never restarted). Chain so a restart failure surfaces as a Failed invocation.
+json.dump({"commands": ["sudo docker restart tokenkey-caddy && sleep 15"]}, sys.stdout)
 PY
   COMMAND_ID="$(aws ssm send-command \
     --region "$REGION" \
