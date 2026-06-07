@@ -177,7 +177,7 @@
       "purpose": "us-east-2-ohio-egress (rehomed 2026-06-05 from retired us-east-1 edge-ls-us-va-2/44.216.223.210 to adopted console-created edge-ls-us-oh-4 / StaticIp-oh-4)"
     },
     "uk2": {
-      "deployable": false,
+      "deployable": true,
       "profile": "edge-lightsail-minimal",
       "swap_gib": 2,
       "lightsail_region": "eu-west-2",
@@ -191,10 +191,10 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/uk2",
-      "purpose": "uk-egress-lightsail-prod-relay (adopted console-created edge-ls-uk-2 / StaticIp-uk-2; deployable flips true after DNS + smoke green)"
+      "purpose": "uk-egress-lightsail-prod-relay (adopted console-created edge-ls-uk-2 / StaticIp-uk-2)"
     },
     "uk3": {
-      "deployable": false,
+      "deployable": true,
       "profile": "edge-lightsail-minimal",
       "swap_gib": 2,
       "lightsail_region": "eu-west-2",
@@ -208,7 +208,7 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/uk3",
-      "purpose": "uk-egress-lightsail-prod-relay (adopted console-created edge-ls-uk-3 / StaticIp-uk-3; deployable flips true after DNS + smoke green)"
+      "purpose": "uk-egress-lightsail-prod-relay (adopted console-created edge-ls-uk-3 / StaticIp-uk-3)"
     }
   }
 }

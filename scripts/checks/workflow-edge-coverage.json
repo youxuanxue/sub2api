@@ -13,6 +13,8 @@
       "required_set": "all-deployable",
       "opt_out_edges": [
         {"id": "uk1", "reason": "pg_dump SSM cadence not yet extended to Lightsail edges; fleet-wide cadence is a separate ops decision (us1 EC2 pilot retired 2026-06-07)"},
+        {"id": "uk2", "reason": "pg_dump SSM cadence not yet extended to Lightsail edges; fleet-wide cadence is a separate ops decision (us1 EC2 pilot retired 2026-06-07)"},
+        {"id": "uk3", "reason": "pg_dump SSM cadence not yet extended to Lightsail edges; fleet-wide cadence is a separate ops decision (us1 EC2 pilot retired 2026-06-07)"},
         {"id": "us2", "reason": "pg_dump SSM cadence not yet extended to Lightsail edges; fleet-wide cadence is a separate ops decision (us1 EC2 pilot retired 2026-06-07)"},
         {"id": "us3", "reason": "pg_dump SSM cadence not yet extended to Lightsail edges; fleet-wide cadence is a separate ops decision (us1 EC2 pilot retired 2026-06-07)"},
         {"id": "us4", "reason": "pg_dump SSM cadence not yet extended to Lightsail edges; fleet-wide cadence is a separate ops decision (us1 EC2 pilot retired 2026-06-07)"},
