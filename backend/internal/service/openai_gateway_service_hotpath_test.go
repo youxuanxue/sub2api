@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -117,7 +118,10 @@ func TestOpenAIGatewayService_Forward_HTTPPatchPathKeepsLargeInputRaw(t *testing
 	// 上游期望的其余请求体——以此既覆盖上游 patch-path 不变量，又反映 TK 注入行为。
 	require.True(t, strings.HasPrefix(gjson.GetBytes(upstream.lastBody, "prompt_cache_key").String(), "tk_"))
 	bodyWithoutSticky, _ := sjson.DeleteBytes(append([]byte(nil), upstream.lastBody...), "prompt_cache_key")
-	require.JSONEq(t, `{"model":"gpt-5","stream":false,"reasoning":{"effort":"none"},"instructions":"You are a helpful coding assistant.","input":[{"type":"message","content":[{"type":"input_text","text":"hi","nonce":9007199254740993}]}]}`, string(bodyWithoutSticky))
+	// 合成路径默认 instructions 现按模型填入真实 Codex base prompt（此处 inbound model=gpt-5）。
+	encodedInstr, _ := json.Marshal(defaultCodexSynthInstructions("gpt-5"))
+	expectedBody := fmt.Sprintf(`{"model":"gpt-5","stream":false,"reasoning":{"effort":"none"},"instructions":%s,"input":[{"type":"message","content":[{"type":"input_text","text":"hi","nonce":9007199254740993}]}]}`, string(encodedInstr))
+	require.JSONEq(t, expectedBody, string(bodyWithoutSticky))
 	require.Equal(t, "9007199254740993", gjson.GetBytes(upstream.lastBody, "input.0.content.0.nonce").Raw)
 }
 

@@ -50,9 +50,15 @@ func tkApplyChannelFlatOverridesAsFallback(chPricing *ChannelModelPricing, resol
 		resolved.BasePricing.CacheReadPricePerToken = *chPricing.CacheReadPrice
 		resolved.BasePricing.CacheReadPricePerTokenPriority = *chPricing.CacheReadPrice
 	}
+	// Channel pricing fully overrides image output: set explicit flag so billing
+	// doesn't fall back to LiteLLM catalog. If nil, the channel intentionally
+	// prices image output at $0 (upstream Wei-Shaw/sub2api PR #2930 behavior).
 	if chPricing.ImageOutputPrice != nil {
 		resolved.BasePricing.ImageOutputPricePerToken = *chPricing.ImageOutputPrice
+	} else {
+		resolved.BasePricing.ImageOutputPricePerToken = 0
 	}
+	resolved.BasePricing.ImageOutputPriceExplicit = true
 }
 
 // tkOverlayIntervalOntoBasePricing returns the effective pricing for a matched

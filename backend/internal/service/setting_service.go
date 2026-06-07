@@ -669,6 +669,8 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyChannelMonitorDefaultIntervalSeconds,
 		SettingKeyAvailableChannelsEnabled,
 		SettingKeyAffiliateEnabled,
+		SettingKeyRiskControlEnabled,
+		SettingKeyAllowUserViewErrorRequests,
 	}
 
 	settings, err := s.settingRepo.GetMultiple(ctx, keys)
@@ -779,6 +781,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		AvailableChannelsEnabled:             settings[SettingKeyAvailableChannelsEnabled] == "true",
 		AffiliateEnabled:                     settings[SettingKeyAffiliateEnabled] == "true",
 		RiskControlEnabled:                   settings[SettingKeyRiskControlEnabled] == "true",
+		AllowUserViewErrorRequests:           settings[SettingKeyAllowUserViewErrorRequests] == "true",
 	}
 	pub.SignupBonusEnabled = s.IsSignupBonusEnabled(ctx)
 	pub.SignupBonusBalanceDisplayUSD = s.ComputeSignupBonus(ctx)
@@ -857,6 +860,17 @@ func (s *SettingService) GetAvailableChannelsRuntime(ctx context.Context) Availa
 	return AvailableChannelsRuntime{
 		Enabled: vals[SettingKeyAvailableChannelsEnabled] == "true",
 	}
+}
+
+// IsUserErrorViewAllowed reads the user-facing error-requests visibility switch
+// directly from the settings store. Fail-closed: on error returns false (opt-in default).
+func (s *SettingService) IsUserErrorViewAllowed(ctx context.Context) bool {
+	vals, err := s.settingRepo.GetMultiple(ctx, []string{SettingKeyAllowUserViewErrorRequests})
+	if err != nil {
+		slog.Warn("failed to get allow_user_view_error_requests setting, defaulting to false", "error", err)
+		return false
+	}
+	return vals[SettingKeyAllowUserViewErrorRequests] == "true"
 }
 
 // GetAntigravityUserAgentVersion 返回 Antigravity 上游请求使用的版本号。
@@ -1155,7 +1169,6 @@ type PublicSettingsInjectionPayload struct {
 	PricingCatalogPublic             bool                     `json:"pricing_catalog_public"`
 	SignupBonusEnabled               bool                     `json:"signup_bonus_enabled"`
 	SignupBonusBalanceDisplayUSD     float64                  `json:"signup_bonus_balance_usd"`
-	RiskControlEnabled               bool                     `json:"risk_control_enabled"`
 
 	// Feature flags — MUST match the opt-in/opt-out registry in
 	// frontend/src/utils/featureFlags.ts. Missing a field here is the bug
@@ -1164,6 +1177,8 @@ type PublicSettingsInjectionPayload struct {
 	ChannelMonitorDefaultIntervalSeconds int  `json:"channel_monitor_default_interval_seconds"`
 	AvailableChannelsEnabled             bool `json:"available_channels_enabled"`
 	AffiliateEnabled                     bool `json:"affiliate_enabled"`
+	RiskControlEnabled                   bool `json:"risk_control_enabled"`
+	AllowUserViewErrorRequests           bool `json:"allow_user_view_error_requests"`
 }
 
 // GetPublicSettingsForInjection returns public settings in a format suitable for HTML injection.
@@ -1229,6 +1244,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		AvailableChannelsEnabled:             settings.AvailableChannelsEnabled,
 		AffiliateEnabled:                     settings.AffiliateEnabled,
 		RiskControlEnabled:                   settings.RiskControlEnabled,
+		AllowUserViewErrorRequests:           settings.AllowUserViewErrorRequests,
 	}, nil
 }
 
@@ -1838,6 +1854,8 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 		}
 		updates[SettingKeyDefaultPlatformQuotas] = string(blob)
 	}
+
+	updates[SettingKeyAllowUserViewErrorRequests] = strconv.FormatBool(settings.AllowUserViewErrorRequests)
 
 	// Do not persist here: callers (UpdateSettings / UpdateSettingsWithAuthSourceDefaults)
 	// must perform a single SetMultiple so auth-source merges stay atomic with system keys.
@@ -2810,6 +2828,8 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingPaymentVisibleMethodAlipayEnabled:     "false",
 		SettingPaymentVisibleMethodWxpayEnabled:      "false",
 		openAIAdvancedSchedulerSettingKey:            "false",
+
+		SettingKeyAllowUserViewErrorRequests: "false",
 	}
 	tkMergeDefaultTokenKeyBridgeSettings(defaults)
 	tkMergeDefaultAnthropicNormalizeSettings(defaults)
@@ -3354,6 +3374,8 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 			result.DefaultPlatformQuotas = parsed
 		}
 	}
+
+	result.AllowUserViewErrorRequests = settings[SettingKeyAllowUserViewErrorRequests] == "true" // default false
 
 	return result
 }

@@ -11,6 +11,7 @@ import (
 const (
 	modelRateLimitsKey                 = "model_rate_limits"
 	antigravityGeminiModelRateLimitKey = "antigravity:gemini"
+	openAIImageGenerationRateLimitKey  = "openai:image_generation"
 )
 
 // isRateLimitActiveForKey 检查指定 key 的限流是否生效
@@ -33,34 +34,20 @@ func (a *Account) getRateLimitRemainingForKey(key string) time.Duration {
 }
 
 func (a *Account) isModelRateLimitedWithContext(ctx context.Context, requestedModel string) bool {
-	if a == nil {
-		return false
-	}
-
-	modelKey := a.GetMappedModel(requestedModel)
-	switch a.Platform {
-	case PlatformAntigravity:
-		modelKey = resolveFinalAntigravityModelKey(ctx, a, requestedModel)
-		if isAntigravityGeminiModel(modelKey) && a.isRateLimitActiveForKey(antigravityGeminiModelRateLimitKey) {
-			return true
-		}
-	case PlatformGemini:
-		modelKey = resolveFinalGeminiModelKey(ctx, requestedModel)
-	case PlatformAnthropic:
-		// TK G4: a unified-window 429 (opus 5h/7d exhausted) is cooled at
-		// (account × model class) scope, not the whole account. Honour the
-		// class-scope key alongside the exact-model-name key so a cooled opus
-		// keeps sibling sonnet/haiku schedulable. See
-		// ratelimit_service_tk_model_cooldown.go.
-		if a.tkAnthropicModelClassRateLimitActive(requestedModel) {
+	for _, key := range a.modelRateLimitKeysForRequest(ctx, requestedModel) {
+		if a.isRateLimitActiveForKey(key) {
 			return true
 		}
 	}
-	modelKey = strings.TrimSpace(modelKey)
-	if modelKey == "" {
-		return false
+	// TK G4: a unified-window 429 (opus 5h/7d exhausted) is cooled at
+	// (account × model class) scope, not the whole account. Honour the
+	// class-scope key alongside the exact-model-name key so a cooled opus
+	// keeps sibling sonnet/haiku schedulable. See
+	// ratelimit_service_tk_model_cooldown.go.
+	if a.tkAnthropicModelClassRateLimitActive(requestedModel) {
+		return true
 	}
-	return a.isRateLimitActiveForKey(modelKey)
+	return false
 }
 
 // GetModelRateLimitRemainingTime 获取模型限流剩余时间
@@ -70,25 +57,10 @@ func (a *Account) GetModelRateLimitRemainingTime(requestedModel string) time.Dur
 }
 
 func (a *Account) GetModelRateLimitRemainingTimeWithContext(ctx context.Context, requestedModel string) time.Duration {
-	if a == nil {
-		return 0
-	}
-
-	modelKey := a.GetMappedModel(requestedModel)
-	switch a.Platform {
-	case PlatformAntigravity:
-		modelKey = resolveFinalAntigravityModelKey(ctx, a, requestedModel)
-	case PlatformGemini:
-		modelKey = resolveFinalGeminiModelKey(ctx, requestedModel)
-	}
-	modelKey = strings.TrimSpace(modelKey)
-	if modelKey == "" {
-		return 0
-	}
-	remaining := a.getRateLimitRemainingForKey(modelKey)
-	if a.Platform == PlatformAntigravity && isAntigravityGeminiModel(modelKey) {
-		if familyRemaining := a.getRateLimitRemainingForKey(antigravityGeminiModelRateLimitKey); familyRemaining > remaining {
-			return familyRemaining
+	remaining := time.Duration(0)
+	for _, key := range a.modelRateLimitKeysForRequest(ctx, requestedModel) {
+		if keyRemaining := a.getRateLimitRemainingForKey(key); keyRemaining > remaining {
+			remaining = keyRemaining
 		}
 	}
 	// TK G4: surface the longer of the exact-model and model-class cooldowns
@@ -99,6 +71,63 @@ func (a *Account) GetModelRateLimitRemainingTimeWithContext(ctx context.Context,
 		return classRemaining
 	}
 	return remaining
+}
+
+func (a *Account) modelRateLimitKeysForRequest(ctx context.Context, requestedModel string) []string {
+	if a == nil {
+		return nil
+	}
+
+	modelKey := a.GetMappedModel(requestedModel)
+	switch a.Platform {
+	case PlatformAntigravity:
+		modelKey = resolveFinalAntigravityModelKey(ctx, a, requestedModel)
+	case PlatformGemini:
+		modelKey = resolveFinalGeminiModelKey(ctx, requestedModel)
+	}
+	modelKey = strings.TrimSpace(modelKey)
+	if modelKey == "" {
+		return nil
+	}
+
+	keys := []string{modelKey}
+	switch a.Platform {
+	case PlatformAntigravity:
+		if isAntigravityGeminiModel(modelKey) && modelKey != antigravityGeminiModelRateLimitKey {
+			keys = append(keys, antigravityGeminiModelRateLimitKey)
+		}
+	case PlatformOpenAI:
+		if openAIImageGenerationRateLimitApplies(ctx, requestedModel, modelKey) && modelKey != openAIImageGenerationRateLimitKey {
+			keys = append(keys, openAIImageGenerationRateLimitKey)
+		}
+	case PlatformAnthropic:
+		if classKey := tkAnthropicModelClassScopeKeyForModel(requestedModel); classKey != "" && classKey != modelKey {
+			keys = append(keys, classKey)
+		}
+	}
+	return keys
+}
+
+func openAIImageGenerationRateLimitApplies(ctx context.Context, requestedModel, modelKey string) bool {
+	if isOpenAIImageGenerationModel(requestedModel) || isOpenAIImageGenerationModel(modelKey) {
+		return true
+	}
+	return OpenAIImageGenerationIntentFromContext(ctx)
+}
+
+func WithOpenAIImageGenerationIntent(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, ctxkey.OpenAIImageGenerationIntent, true)
+}
+
+func OpenAIImageGenerationIntentFromContext(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	enabled, ok := ctx.Value(ctxkey.OpenAIImageGenerationIntent).(bool)
+	return ok && enabled
 }
 
 func resolveFinalAntigravityModelKey(ctx context.Context, account *Account, requestedModel string) string {
