@@ -339,7 +339,7 @@ section only records sub2api-specific choices.
 
 技能正文只在 [.cursor/skills/](.cursor/skills/) 下各目录的 `SKILL.md`。仓库根的 `.claude/skills` **仅为**指向 `.cursor/skills` 的 symlink（不要在 `.claude/skills/` 下创建真实文件或副本）。全局禁令见 **`dev-rules/global/CLAUDE.md`** §4「Agent Skills」。
 
-- **Stage0 发布与 rollout：** [.cursor/skills/tokenkey-stage0-release-rollout/SKILL.md](.cursor/skills/tokenkey-stage0-release-rollout/SKILL.md) — `main` → VERSION/tag → `release.yml` → `deploy-stage0` prod 与 `deploy-edge-stage0` Edge rollout → 烟测。
+- **Stage0 发布与 rollout：** [.cursor/skills/tokenkey-stage0-release-rollout/SKILL.md](.cursor/skills/tokenkey-stage0-release-rollout/SKILL.md) — `main` → VERSION/tag → `release.yml` → `deploy-stage0` prod 与 `deploy-edge-lightsail-stage0` Edge rollout（edges 为 Lightsail-only）→ 烟测。
 - **本机 Stage0 Docker：** [.cursor/skills/tokenkey-stage0-local-deploy/SKILL.md](.cursor/skills/tokenkey-stage0-local-deploy/SKILL.md) — 与 `deploy/aws/stage0` 对齐的 compose、`AUTO_SETUP`、默认 `REPO_ROOT` / sibling `new-api` / `.cache` 路径见该 skill。
 - **cc 指纹对齐（抓包 → diff → PR）：** [.cursor/skills/tokenkey-cc-fingerprint-alignment/SKILL.md](.cursor/skills/tokenkey-cc-fingerprint-alignment/SKILL.md) — `capture-cc-fingerprint.sh` + `capture_cc_fingerprint.py`；cc0-here 实机 TLS/HTTP 对照 TokenKey 常量。
 
