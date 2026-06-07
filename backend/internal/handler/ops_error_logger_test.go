@@ -969,13 +969,31 @@ func TestClassifyOpsUpstreamAuthTextStillCountsForSLA(t *testing.T) {
 	}
 }
 
-func TestClassifyOpsUpstreamNoAvailableTextStillCountsForSLA(t *testing.T) {
+// POLICY CHANGE (2026-06-06, mirror-edge metric pollution): an upstream verdict
+// carrying a TokenKey "No available accounts" envelope is now owned as routing (out
+// of upstream_error_rate), NOT counted as provider health. This intentionally
+// reverses the original assertion from the 2026-05-18 "SLA 排除逻辑" commit
+// (ae6ee23e), which predates the mirror-edge topology understanding.
+//
+// Why the reversal: prod relays to Edge stacks via cc-<edge> apikey mirror accounts;
+// an empty edge pool returns 429/503 "No available accounts" (tkNoAvailableAccounts,
+// PR #575). The old asymmetry — local empty pool excluded (routingCapacityLimited)
+// but a RELAYED "no available" counted — treated OUR own fleet capacity as Anthropic
+// health. During the yace load test that made upstream_error_rate read ~1300 on a
+// dead single-account edge AND a healthy 3-account edge alike (16x client-cancel +
+// failover smear), so the metric could not tell a dead edge from a healthy one. Edge
+// health now has a dedicated truthful signal (ops/observability/scan-edge-health.sh,
+// #640); upstream_error_rate is reserved for genuine provider health. A real provider
+// 429 (rate_limit_error) / raw 5xx carries no TokenKey phrase and still counts — see
+// TestClassifyOpsGenuineUpstreamStaysProviderDespiteCapacityHelper.
+// tkUpstreamDownstreamCapacity is the predicate; it folds into routingCapacityLimited.
+func TestClassifyOpsUpstreamNoAvailableTextExcludedFromSLA(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	service.SetOpsUpstreamError(c, http.StatusServiceUnavailable, "No available accounts", "")
 
-	phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(
+	phase, isBusinessLimited, errorOwner, _ := classifyOpsErrorLog(
 		c,
 		"api_error",
 		"No available accounts",
@@ -983,10 +1001,9 @@ func TestClassifyOpsUpstreamNoAvailableTextStillCountsForSLA(t *testing.T) {
 		http.StatusServiceUnavailable,
 	)
 
-	require.Equal(t, "upstream", phase)
-	require.False(t, isBusinessLimited)
-	require.Equal(t, "provider", errorOwner)
-	require.Equal(t, "upstream_http", errorSource)
+	require.Equal(t, "routing", phase, "relayed downstream-capacity verdict is routing, not provider health")
+	require.True(t, isBusinessLimited, "TK fleet capacity is a business/capacity limit, like a local empty pool")
+	require.Equal(t, "platform", errorOwner, "must NOT be provider — otherwise it feeds upstream_error_rate")
 }
 
 func TestParseOpsErrorResponsePreservesNestedStringCode(t *testing.T) {
