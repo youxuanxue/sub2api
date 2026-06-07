@@ -19,4 +19,5 @@ Active edge EIP rotation runbook: [`.cursor/skills/tokenkey-stage0-edge-ip-rotat
 | `18.135.59.111` | eu-west-2 | Lightsail edge-uk1 tokenkey-edge-uk1-ls-ip superseded 2026-05-26; released after matrix correction to 13.134.80.182 |
 | `100.48.129.133` | us-east-1 | Lightsail edge-us2 StaticIp-2 upstream API risk-block (2026-05-29) |
 | `52.47.52.132` | eu-west-3 | EC2 fra1 EIP released 2026-06-01 on EC2 decommission (fra1 goes Lightsail-only; not upstream pollution; exclude from re-allocation) |
+| `16.147.170.3` | us-west-2 | EC2 us1 EIP released 2026-06-07 on edge retirement (accounts migrated to us6 Lightsail; cc/codex fingerprint egress migrated to 52.15.35.197; not upstream pollution; exclude from re-allocation) |
 <!-- END edge-ip-status:polluted -->
