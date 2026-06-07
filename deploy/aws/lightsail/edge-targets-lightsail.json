@@ -40,7 +40,7 @@
       "blueprint_id": "amazon_linux_2023",
       "monthly_budget_usd": 12,
       "ssm_prefix": "/tokenkey/lightsail/us1",
-      "purpose": "us-clean-egress-lightsail-poc-planned (EC2 owns us1 today; flip deployable=true only after taking EC2 us1 deployable=false to avoid DNS collision)"
+      "purpose": "us-west-2-clean-egress-lightsail-planned (deployable=false until provisioned)"
     },
     "fra1": {
       "deployable": false,
