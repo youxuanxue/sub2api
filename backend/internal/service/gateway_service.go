@@ -4856,8 +4856,14 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		// 记录本次实际发送的 wire body；只有请求成功后才写回 ParsedRequest，避免 400 retry 基于已签名 CCH 再改写。
 		lastWireBody = wireBody
 
-		// 发送请求
+		// 发送请求。流式请求在等待上游响应头期间发送 SSE keepalive，防止空闲敏感的
+		// 中间层（Cloudflare Tunnel / Caddy / 客户端 SDK）在上游排队/首字节前断开连接
+		// （Wei-Shaw/sub2api#2121）。首个 ping 延迟一个 keepalive 间隔，故快速 failover
+		// 错误（429/503/5xx）在写出任何字节前已返回，handler 的 c.Writer.Written()
+		// failover 门禁得以保留。详见 gateway_service_tk_header_wait_keepalive.go。
+		hwka := s.beginHeaderWaitKeepalive(c, reqStream)
 		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
+		hwka.stop()
 		if err != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
