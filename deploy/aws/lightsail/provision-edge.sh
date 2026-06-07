@@ -207,16 +207,18 @@ if [[ -z "$managed_id" || "$managed_id" == "None" || "$managed_id" == "null" ]];
 fi
 
 # SSM registration (mi-*) only proves the agent is up — the docker compose stack
-# (postgres + app) is still pulling/starting via bootstrap user-data. Without
-# this gate the workflow's next steps (Sync Feishu alert config does
-# `docker exec tokenkey-postgres ...`) race the stack and fail with
-# "No such container: tokenkey-postgres" on a fresh provision. Wait until both
-# tokenkey-postgres and the tokenkey app container report healthy before
-# declaring provision complete.
-echo "waiting for docker compose stack health (tokenkey + tokenkey-postgres) on ${managed_id} (up to 6m)"
+# (postgres + app) is still pulling/starting via bootstrap user-data, and the
+# app's healthcheck is /health/live (liveness), which goes green BEFORE the app
+# finishes DB migrations. Without this gate the workflow's next step (Sync Feishu
+# alert config does `docker exec tokenkey-postgres psql ... INSERT INTO settings`)
+# races and fails with either "No such container: tokenkey-postgres" (stack not
+# up) or 'relation "settings" does not exist' (migrations not done yet). Gate on
+# postgres healthy AND the settings table existing (= app migrations have run) —
+# the exact precondition for the Feishu sync — before declaring provision done.
+echo "waiting for docker compose stack health (postgres healthy + settings table) on ${managed_id} (up to 6m)"
 stack_check_json="$(mktemp)"
 cat > "$stack_check_json" <<'JSON'
-{"commands":["docker ps --filter name=tokenkey-postgres --filter health=healthy --format '{{.Names}}' | grep -qx tokenkey-postgres","docker ps --filter name=tokenkey --filter health=healthy --format '{{.Names}}' | grep -qx tokenkey","echo STACK_READY"]}
+{"commands":["docker ps --filter name=tokenkey-postgres --filter health=healthy --format '{{.Names}}' | grep -qx tokenkey-postgres","docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -tAc \"SELECT to_regclass('public.settings')\" 2>/dev/null | grep -qx settings","echo STACK_READY"]}
 JSON
 stack_ready=false
 stack_deadline=$(( $(date +%s) + 360 ))
