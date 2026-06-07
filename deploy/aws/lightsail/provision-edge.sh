@@ -217,8 +217,15 @@ fi
 # the exact precondition for the Feishu sync — before declaring provision done.
 echo "waiting for docker compose stack health (postgres healthy + settings table) on ${managed_id} (up to 6m)"
 stack_check_json="$(mktemp)"
+# IMPORTANT: AWS-RunShellScript concatenates the `commands` array into ONE shell
+# script with NO `set -e`, so a non-zero intermediate command does NOT stop the
+# script — only the LAST command's effect is observed. If the two health checks
+# were separate array elements, `echo STACK_READY` would run unconditionally and
+# the gate would pass on the first poll regardless of actual health. Chain both
+# checks with `&&` into a single command so STACK_READY is emitted ONLY when
+# postgres is healthy AND the settings table exists.
 cat > "$stack_check_json" <<'JSON'
-{"commands":["docker ps --filter name=tokenkey-postgres --filter health=healthy --format '{{.Names}}' | grep -qx tokenkey-postgres","docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -tAc \"SELECT to_regclass('public.settings')\" 2>/dev/null | grep -qx settings","echo STACK_READY"]}
+{"commands":["docker ps --filter name=tokenkey-postgres --filter health=healthy --format '{{.Names}}' | grep -qx tokenkey-postgres && docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -tAc \"SELECT to_regclass('public.settings')\" 2>/dev/null | grep -qx settings && echo STACK_READY"]}
 JSON
 stack_ready=false
 stack_deadline=$(( $(date +%s) + 360 ))
@@ -237,7 +244,7 @@ while [[ $(date +%s) -lt $stack_deadline ]]; do
 done
 rm -f "$stack_check_json"
 if [[ "$stack_ready" != true ]]; then
-  echo "::error::docker compose stack did not reach healthy (tokenkey + tokenkey-postgres) within timeout; check /var/log/tokenkey-lightsail-bootstrap.log"
+  echo "::error::docker compose stack did not reach ready (tokenkey-postgres healthy + settings table migrated) within timeout; check /var/log/tokenkey-lightsail-bootstrap.log"
   exit 1
 fi
 echo "docker compose stack healthy on ${managed_id}"
