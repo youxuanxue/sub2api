@@ -98,6 +98,20 @@ if [[ -n "$existing" ]]; then
     sleep 5
   done
   aws lightsail delete-instance --region "$LIGHTSAIL_REGION" --instance-name "$INSTANCE_NAME" >/dev/null
+  # Deregister stale SSM managed-instance(s) for this edge. delete-instance drops
+  # the Lightsail instance but its SSM managed-instance (mi-*) registration
+  # lingers Online and stays tagged EdgeId=<id>; the post-recreate mi-* resolution
+  # (tag/ComputerName fallback) could then pick the zombie and the workflow polls
+  # a dead instance. Deregister every currently-tagged mi-* so the fresh instance
+  # below registers the only one. Requires ssm:DeregisterManagedInstance
+  # (granted by cicd-oidc-lightsail-addon).
+  for stale_mi in $(aws ssm describe-instance-information --region "$LIGHTSAIL_REGION" \
+      --filters "Key=tag:EdgeId,Values=${EDGE_ID}" \
+      --query 'InstanceInformationList[].InstanceId' --output text 2>/dev/null || true); do
+    [[ -z "$stale_mi" || "$stale_mi" == "None" ]] && continue
+    echo "deregistering stale SSM managed-instance ${stale_mi} (EdgeId=${EDGE_ID})"
+    aws ssm deregister-managed-instance --region "$LIGHTSAIL_REGION" --instance-id "$stale_mi" >/dev/null 2>&1 || true
+  done
   # Detach only — keep the allocated Static IP (and its address) for re-attach below.
   # Releasing would force allocate-static-ip to mint a new address, breaking
   # pre-provisioned / DNS-pinned IPs (edge-us2/us3/us4 Lightsail rollout).
