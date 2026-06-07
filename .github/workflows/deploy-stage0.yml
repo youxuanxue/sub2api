@@ -105,8 +105,8 @@ jobs:
           fi
 
       - name: Verify GHCR multi-arch manifest
-        # Shared with deploy-edge-stage0.yml so prod and Edge never grow
-        # divergent image-architecture gates.
+        # Shared with deploy-edge-lightsail-stage0.yml so prod and Edge never
+        # grow divergent image-architecture gates.
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash ops/stage0/verify_ghcr_manifest.sh "$INPUT_TAG" "$INPUT_OVERRIDE"

@@ -43,8 +43,8 @@ if ! docker compose version >/dev/null 2>&1; then
   chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 fi
 
-# Match EC2 edge-minimal (stage0-edge-ec2.yaml SwapSizeGiB=2): micro Lightsail
-# bundles have no swap by default; without this, memory spikes can hang the VM.
+# Swap (2 GiB): micro Lightsail bundles have no swap by default; without this,
+# memory spikes can hang the VM.
 SWAP_SIZE_GIB="${SWAP_SIZE_GIB:-2}"
 if [ "${SWAP_SIZE_GIB}" -gt 0 ] && [ ! -f /swapfile ]; then
   fallocate -l "${SWAP_SIZE_GIB}G" /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=$((SWAP_SIZE_GIB * 1024)) status=progress

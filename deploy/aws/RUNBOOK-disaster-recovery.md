@@ -273,5 +273,5 @@ TOKENKEY_BASE_URL=https://api.tokenkey.dev DURATION_SECONDS=60 \
 
 ## 范围外
 
-- 不涉及 edge 节点恢复（edge 是无状态资源出口，重新 provision 即可，见 `tokenkey-stage0-edge-*` skills）。
+- 不涉及 edge 节点恢复（edge 是无状态资源出口，重新 provision 即可，见 `tokenkey-stage0-edge-lightsail-expansion` / `tokenkey-stage0-edge-lightsail-ip-rotation` skills）。
 - 不涉及多区 active-active / 热备 / 自动 failover（100 用户阶段不做；触发阈值见蓝绿 backlog）。

@@ -1197,7 +1197,7 @@ if [ ! -x ./deploy/aws/stage0/build-cfn.sh ]; then
     echo "  FAIL: deploy/aws/stage0/build-cfn.sh missing or not executable"
     errors=$((errors + 1))
 elif ! bash ./deploy/aws/stage0/build-cfn.sh --check >/dev/null 2>&1; then
-    echo "  FAIL: deploy/aws/cloudformation/stage0-{single,edge}-ec2.yaml carries stale gzip|base64"
+    echo "  FAIL: deploy/aws/cloudformation/stage0-single-ec2.yaml carries stale gzip|base64"
     echo "        — run: bash deploy/aws/stage0/build-cfn.sh && git add deploy/aws/cloudformation/"
     errors=$((errors + 1))
 else

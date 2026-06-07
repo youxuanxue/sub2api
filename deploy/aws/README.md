@@ -137,7 +137,7 @@ ops/stage0/sync-feishu-config.sh
 
 **Anthropic OAuth 稳定基线**：新增 Edge 账号时，按 [`docs/accounts/anthropic-oauth-edge-stability-baseline-index.md`](../../docs/accounts/anthropic-oauth-edge-stability-baseline-index.md) 选择 L1-L5 等级，再用只读检查命令比对线上状态：`python3 ops/anthropic/check-edge-oauth-stability.py --edge-id <edge_id> --account-name <account_name>`。唯一机器可读基线是 `deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json`；脚本默认不修改线上，`--emit-sql` 只生成审阅用 SQL。
 
-**GitHub**：每种 Edge 绑定 Environment `edge-<edge_id>`（例如 `edge-uk1`、`edge-fra1`），请在仓库 Settings → Environments 里按需配置 Required reviewer。**`edge-fra1` 的 Variables / Secrets 可与 `edge-uk1` 逐项相同复制**（`EDGE_ACME_EMAIL`、`EDGE_MAIN_GATEWAY_ALLOWED_CIDR`、`TK_SMOKE_EDGE_CANARY_KEY` 等）；**例外**：不要在 fra1 复制一条指向 uk1 路径的 **`EDGE_GHCR_PAT_SSM_NAME`**——该项若在 uk1 里设为 `/tokenkey/edge/uk1/ghcr/pat`，fra1 Environment 应**不设**该变量（workflow 会按矩阵自动用 `/tokenkey/edge/fra1/ghcr/pat`）。仓库级 **`AWS_OIDC_ROLE_ARN`**、**`AWS_OIDC_STACK_REGION`/`AWS_REGION`** 仍与各 Edge 共用，无需按 Environment 重复。
+**GitHub**：每个 Edge 绑定 Environment `edge-<edge_id>`，请在仓库 Settings → Environments 里按需配置 Required reviewer。新 Edge 的 Variables / Secrets 可逐项参照已上线 Edge 复制（`EDGE_ACME_EMAIL`、`EDGE_MAIN_GATEWAY_ALLOWED_CIDR`，以及仅跑 main-via-edge smoke 的 Edge 才需的 `TK_SMOKE_EDGE_CANARY_KEY`）。**GHCR 当前为 public，默认 anonymous pull，无需 PAT**（workflow 输入 `ghcr_pat_required` 默认 `false`）；仅当镜像转私有时，按 edge 落 SSM SecureString `/tokenkey/lightsail/<edge_id>/ghcr/pat` 并在 provision 时翻 `ghcr_pat_required=true`——切勿跨 edge 复制别人路径的 PAT 配置。仓库级 **`AWS_OIDC_ROLE_ARN`**、**`AWS_OIDC_STACK_REGION`/`AWS_REGION`** 仍与各 Edge 共用，无需按 Environment 重复。
 
 **飞书告警自动接入（无需按 Edge 重复配）**：账号失效 / P0 卡片靠每个节点 DB 里的
 `settings.ops_email_notification_config.feishu`（webhook + signing_secret + enabled）。这份配置不在镜像、
@@ -146,7 +146,7 @@ ops/stage0/sync-feishu-config.sh
 - webhook/secret 作为**仓库级** GitHub secrets **`TK_FEISHU_WEBHOOK_URL`**、**`TK_FEISHU_SIGNING_SECRET`**
   配置**一次**即可——repo 级密钥对**所有** `environment:`（`prod` / `edge-*`）的 job 都可见,**不要**在每个
   `edge-<id>` Environment 里重复配（也别在 Environment 里建同名密钥,否则会覆盖 repo 级）。webhook 全 fleet 共用一个。
-- 三条部署 workflow（prod / edge-ec2 / edge-lightsail）在 health 之后、smoke 之前调用
+- 两条部署 workflow（prod / edge-lightsail）在 health 之后、smoke 之前调用
   `ops/stage0/sync-feishu-config.sh`,**幂等**注入并启用,然后**写后回读自验**:配不齐就让该步骤失败 →
   部署变红（把"靠自觉的手工步骤"硬化成 deploy-time gate）。
 - 手工补配 / 排障:`TK_FEISHU_WEBHOOK_URL=… TK_FEISHU_SIGNING_SECRET=… bash ops/stage0/sync-feishu-config.sh <edge-id|prod>`;
@@ -154,6 +154,19 @@ ops/stage0/sync-feishu-config.sh
   脚本绝不打印 webhook/secret。
 
 **IAM**：prod 的 OIDC/SSM/CFN 权限仍在 `deploy/aws/cloudformation/cicd-oidc.yaml`（**`tokenkey-cicd-oidc`**，部署区域须与仓库变量 **`AWS_OIDC_STACK_REGION`** 一致；未设置时 workflow 使用 `vars.AWS_REGION`，再没有则用 `us-east-1`，与 `docs/approved/deploy-stage0-workflow.md` 默认一致）。**所有 Lightsail edge** 走独立一次性 addon（`cicd-oidc-lightsail-addon.yaml`，Lightsail API + SSM Hybrid Activation 权限），不再有按 edge 的 CFN execution role。
+
+> **live==repo 漂移检查（IAM/OIDC CFN stack 非自动部署，手工 deploy 易漏）。** `cicd-oidc.yaml` / `cicd-oidc-lightsail-addon.yaml` 由人工 `aws cloudformation deploy`，git 改了模板若忘了重新部署，live 就会落后（2026-06-07 addon 的 `lightsail:OpenInstancePublicPorts` 即因此缺失，导致 provision 开 443 被拒、edge 防火墙关着）。用 `ops/stage0/check-cfn-live-drift.sh` 拿 repo 模板对 live stack 建 no-execute changeset、断言无变更来抓这类漂移（需 PowerUserAccess 等带 `cloudformation:CreateChangeSet` 的凭证；退出码 0 同步 / 1 漂移 / 2 出错）：
+>
+> ```bash
+> # addon（默认参数即 live 值,无需 params）
+> bash ops/stage0/check-cfn-live-drift.sh tokenkey-cicd-lightsail-addon us-east-1 \
+>   deploy/aws/cloudformation/cicd-oidc-lightsail-addon.yaml
+> # OIDC stack（参数按 region 不同,传一份全 UsePreviousValue 的 params 文件只比模板体）
+> bash ops/stage0/check-cfn-live-drift.sh tokenkey-cicd-oidc eu-west-2 \
+>   deploy/aws/cloudformation/cicd-oidc.yaml /path/to/use-previous-params.json
+> ```
+>
+> 未挂进 `ops-daily-diagnostics.yml`：那个 OIDC role 仅有 `cloudformation:DescribeStacks`,给它加 `CreateChangeSet` 会为低频检查永久放大 CI 攻击面;改完模板后顺手 deploy + 跑一次本脚本即可。
 
 ### 新增 / 初次创建 edge（Lightsail）
 
@@ -198,7 +211,7 @@ IP 被上游污染需轮换 Static IP：[`.cursor/skills/tokenkey-stage0-edge-li
 >
 > **背景**：1000x 流量审视下，prod 单实例 `t4g.small`（2 GiB）内存是硬瓶颈（PG + Redis + app + Caddy 全家桶同机；历史上 us2 edge 曾被一个爬虫吃 ~390 MB 就拖进 swap-thrash）。升 `t4g.large`（8 GiB）消化内存红利、给 PG/Redis/Go heap 留足空间、远离 swap。
 >
-> **为何走 SOP 而非 workflow**：resize 是低频一次性操作。`deploy-stage0.yml` 用的 OIDC role 对 prod 栈**只有** `cloudformation:DescribeStacks`（见 `cloudformation/cicd-oidc.yaml` 的 `DescribeStackForInstanceLookup`），跑不了 `cloudformation deploy`。为一年一次的操作给 CI 永久放开 prod 的 CFN-deploy + `ec2` instance-replace 权限，等于为低频操作永久放大攻击面——一次性高权操作用**管理员本地凭证**执行更符合最小权限。（若 prod 将来也需要频繁 CFN 原地变更，如 EIP 轮换/卷扩容，再照 edge 的 `EdgeUs1CloudFormationExecutionRole` 范式建一套独立 execution role + PassRole，届时摊销才合理。）
+> **为何走 SOP 而非 workflow**：resize 是低频一次性操作。`deploy-stage0.yml` 用的 OIDC role 对 prod 栈**只有** `cloudformation:DescribeStacks`（见 `cloudformation/cicd-oidc.yaml` 的 `DescribeStackForInstanceLookup`），跑不了 `cloudformation deploy`。为一年一次的操作给 CI 永久放开 prod 的 CFN-deploy + `ec2` instance-replace 权限，等于为低频操作永久放大攻击面——一次性高权操作用**管理员本地凭证**执行更符合最小权限。（若 prod 将来也需要频繁 CFN 原地变更，如 EIP 轮换/卷扩容，再建一套独立的 CFN execution role + PassRole 给 OIDC role，届时摊销才合理。）
 
 **前置**：
 
@@ -280,9 +293,7 @@ aws cloudformation update-stack --region "$REGION" --stack-name "$OIDC_STACK" \
   --use-previous-template --capabilities CAPABILITY_NAMED_IAM \
   --parameters \
     ParameterKey=TargetInstanceId,ParameterValue="$NEW_ID" \
-    ParameterKey=EdgeUs1TargetInstanceId,UsePreviousValue=true \
     ParameterKey=CreateOIDCProvider,UsePreviousValue=true \
-    ParameterKey=EdgeUs1Region,UsePreviousValue=true \
     ParameterKey=AllowedSubjects,UsePreviousValue=true \
     ParameterKey=GitHubRepo,UsePreviousValue=true
 aws cloudformation wait stack-update-complete --region "$REGION" --stack-name "$OIDC_STACK" && echo "OIDC 重指完成"
