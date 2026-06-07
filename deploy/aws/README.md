@@ -155,6 +155,19 @@ ops/stage0/sync-feishu-config.sh
 
 **IAM**：prod 的 OIDC/SSM/CFN 权限仍在 `deploy/aws/cloudformation/cicd-oidc.yaml`（**`tokenkey-cicd-oidc`**，部署区域须与仓库变量 **`AWS_OIDC_STACK_REGION`** 一致；未设置时 workflow 使用 `vars.AWS_REGION`，再没有则用 `us-east-1`，与 `docs/approved/deploy-stage0-workflow.md` 默认一致）。**所有 Lightsail edge** 走独立一次性 addon（`cicd-oidc-lightsail-addon.yaml`，Lightsail API + SSM Hybrid Activation 权限），不再有按 edge 的 CFN execution role。
 
+> **live==repo 漂移检查（IAM/OIDC CFN stack 非自动部署，手工 deploy 易漏）。** `cicd-oidc.yaml` / `cicd-oidc-lightsail-addon.yaml` 由人工 `aws cloudformation deploy`，git 改了模板若忘了重新部署，live 就会落后（2026-06-07 addon 的 `lightsail:OpenInstancePublicPorts` 即因此缺失，导致 provision 开 443 被拒、edge 防火墙关着）。用 `ops/stage0/check-cfn-live-drift.sh` 拿 repo 模板对 live stack 建 no-execute changeset、断言无变更来抓这类漂移（需 PowerUserAccess 等带 `cloudformation:CreateChangeSet` 的凭证；退出码 0 同步 / 1 漂移 / 2 出错）：
+>
+> ```bash
+> # addon（默认参数即 live 值,无需 params）
+> bash ops/stage0/check-cfn-live-drift.sh tokenkey-cicd-lightsail-addon us-east-1 \
+>   deploy/aws/cloudformation/cicd-oidc-lightsail-addon.yaml
+> # OIDC stack（参数按 region 不同,传一份全 UsePreviousValue 的 params 文件只比模板体）
+> bash ops/stage0/check-cfn-live-drift.sh tokenkey-cicd-oidc eu-west-2 \
+>   deploy/aws/cloudformation/cicd-oidc.yaml /path/to/use-previous-params.json
+> ```
+>
+> 未挂进 `ops-daily-diagnostics.yml`：那个 OIDC role 仅有 `cloudformation:DescribeStacks`,给它加 `CreateChangeSet` 会为低频检查永久放大 CI 攻击面;改完模板后顺手 deploy + 跑一次本脚本即可。
+
 ### 新增 / 初次创建 edge（Lightsail）
 
 所有 edge 的 provision / DNS / smoke / 升级 / 回滚都走 `deploy-edge-lightsail-stage0.yml` +
