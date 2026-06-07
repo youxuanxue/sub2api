@@ -30,6 +30,52 @@
             <span v-if="lastFetchedAt" class="text-xs text-gray-400 dark:text-gray-500">
               {{ t('admin.edgeAccounts.lastFetched') }}: {{ formatDateTime(lastFetchedAt) }}
             </span>
+            <!-- Auto-refresh control: same toggle + interval dropdown + countdown the
+                 admin accounts page uses (reuses its i18n keys). The composable owns
+                 the ETag/304 + incremental edge merge behind it. -->
+            <div class="relative" ref="autoRefreshDropdownRef">
+              <button
+                type="button"
+                class="btn btn-secondary inline-flex items-center gap-2"
+                :title="t('admin.accounts.autoRefresh')"
+                @click="showAutoRefreshDropdown = !showAutoRefreshDropdown"
+              >
+                <Icon name="refresh" size="sm" :class="autoRefreshEnabled ? 'animate-spin' : ''" />
+                <span>
+                  {{
+                    autoRefreshEnabled
+                      ? t('admin.accounts.autoRefreshCountdown', { seconds: autoRefreshCountdown })
+                      : t('admin.accounts.autoRefresh')
+                  }}
+                </span>
+              </button>
+              <div
+                v-if="showAutoRefreshDropdown"
+                class="absolute right-0 z-50 mt-2 w-56 origin-top-right rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800"
+              >
+                <div class="p-2">
+                  <button
+                    type="button"
+                    class="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+                    @click="setAutoRefreshEnabled(!autoRefreshEnabled)"
+                  >
+                    <span>{{ t('admin.accounts.enableAutoRefresh') }}</span>
+                    <Icon v-if="autoRefreshEnabled" name="check" size="sm" class="text-primary-500" />
+                  </button>
+                  <div class="my-1 border-t border-gray-100 dark:border-gray-700"></div>
+                  <button
+                    v-for="sec in autoRefreshIntervals"
+                    :key="sec"
+                    type="button"
+                    class="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+                    @click="setAutoRefreshInterval(sec)"
+                  >
+                    <span>{{ autoRefreshIntervalLabel(sec) }}</span>
+                    <Icon v-if="autoRefreshIntervalSeconds === sec" name="check" size="sm" class="text-primary-500" />
+                  </button>
+                </div>
+              </div>
+            </div>
             <button
               type="button"
               class="btn btn-secondary inline-flex items-center gap-2"
@@ -223,7 +269,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -283,7 +329,36 @@ const {
   totalAccounts,
   totals,
   fetch,
-  setPlatform
+  setPlatform,
+  autoRefreshEnabled,
+  autoRefreshIntervalSeconds,
+  autoRefreshIntervals,
+  autoRefreshCountdown,
+  setAutoRefreshEnabled,
+  setAutoRefreshInterval
 } = useTkEdgeAccounts()
-// Initial fetch + periodic auto-refresh are owned by useTkEdgeAccounts.
+// Initial fetch + periodic auto-refresh (ETag/304 + incremental edge merge) are
+// owned by useTkEdgeAccounts; only the dropdown open/close lives in the view.
+
+const showAutoRefreshDropdown = ref(false)
+const autoRefreshDropdownRef = ref<HTMLElement | null>(null)
+
+// Interval option labels, reusing the admin accounts page's i18n keys.
+const autoRefreshIntervalLabel = (sec: number) => {
+  if (sec === 5) return t('admin.accounts.refreshInterval5s')
+  if (sec === 10) return t('admin.accounts.refreshInterval10s')
+  if (sec === 15) return t('admin.accounts.refreshInterval15s')
+  if (sec === 30) return t('admin.accounts.refreshInterval30s')
+  return `${sec}s`
+}
+
+const handleClickOutside = (event: MouseEvent) => {
+  const target = event.target as Node
+  if (autoRefreshDropdownRef.value && !autoRefreshDropdownRef.value.contains(target)) {
+    showAutoRefreshDropdown.value = false
+  }
+}
+
+onMounted(() => document.addEventListener('click', handleClickOutside))
+onUnmounted(() => document.removeEventListener('click', handleClickOutside))
 </script>
