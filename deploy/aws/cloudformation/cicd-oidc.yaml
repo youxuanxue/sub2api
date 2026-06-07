@@ -1,12 +1,20 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
   GitHub Actions OIDC provider + scoped IAM role for the sub2api repository.
-  Lets the Error Clustering Daily workflow (and future ops workflows) call
-  ssm:SendCommand against the prod instance without storing long-lived AWS
-  credentials in GitHub. Trust policy is locked to a single repo + branch
-  pattern; SSM action scope is locked to the prod instance + AWS-RunShellScript
-  document. This stack is independent of the stage0 runtime stack so it can be
-  changed without risking instance replacement.
+  Lets ops + deploy workflows call ssm:SendCommand against the prod instance
+  without storing long-lived AWS credentials in GitHub. Trust policy is locked
+  to a single repo + environment pattern; SSM action scope is locked to the
+  prod instance + AWS-RunShellScript document. This stack is independent of the
+  stage0 runtime stack so it can be changed without risking instance
+  replacement.
+
+  Region-agnostic: the ClusteringRole name embeds ${AWS::Region}, so the same
+  template serves the us-east-1 (prod) and eu-west-2 (uk-edge) OIDC stacks.
+  EC2 Edge CloudFormation execution roles + EIP-rotation / decommission
+  permissions were removed 2026-06-07 when the EC2 Edge path was retired —
+  edges are Lightsail-only and deploy via the separate
+  tokenkey-cicd-lightsail-addon stack, not a per-edge CFN execution role.
+  (prod itself remains EC2 and is unaffected.)
 
 Parameters:
   GitHubRepo:
@@ -20,13 +28,11 @@ Parameters:
     Description: >-
       Full OIDC sub claims (StringLike patterns) allowed to assume the role.
       Default allows main (for ops-daily-diagnostics.yml),
-      environment:prod (for deploy-stage0.yml),
-      environment:edge-uk1 / environment:edge-fra1 (Lightsail deploy) and
-      environment:edge-us1 (EC2 Edge Stage0). The Environment
+      environment:prod (for deploy-stage0.yml), and the Lightsail edge
+      environments (edge-uk1/uk2/uk3, edge-fra1, edge-us1..us7). The Environment
       binding is what makes reviewer gates load-bearing on the AWS side, not
-      just GitHub UI cosmetic. Temporarily add e.g.
-      "repo:youxuanxue/sub2api:ref:refs/heads/feature/clustering-oidc-ssm"
-      while bootstrapping, then narrow back to the defaults afterwards.
+      just GitHub UI cosmetic. This is a union default across both regional
+      stacks; each live stack narrows it per region via --parameter-overrides.
   TargetInstanceId:
     Type: String
     Default: ""
@@ -35,20 +41,6 @@ Parameters:
       Optional prod EC2 instance the role is allowed to send SSM commands to.
       Empty suppresses the prod SSM statement, which lets a regional OIDC stack
       bootstrap before the target Stage0 instance exists.
-  EdgeUs1Region:
-    Type: String
-    Default: us-west-2
-    AllowedPattern: "^[a-z]{2}-[a-z]+-[0-9]+$"
-    Description: AWS region for the us1 Edge Stage0 stack.
-  EdgeUs1TargetInstanceId:
-    Type: String
-    Default: ""
-    AllowedPattern: "^(i-[0-9a-f]{8,17})?$"
-    Description: >-
-      Optional us1 Edge EC2 instance the role may send SSM commands to after
-      tokenkey-edge-us1-stage0 is provisioned. Empty suppresses the us1 SSM
-      statement; fill this with the stack output InstanceId before running
-      deploy-edge-stage0 upgrade/smoke/rollback for us1.
 
   CreateOIDCProvider:
     Type: String
@@ -66,7 +58,6 @@ Parameters:
 Conditions:
   ShouldCreateOIDC: !Equals [!Ref CreateOIDCProvider, "true"]
   HasProdInstance: !Not [!Equals [!Ref TargetInstanceId, ""]]
-  HasEdgeUs1Instance: !Not [!Equals [!Ref EdgeUs1TargetInstanceId, ""]]
 
 Resources:
   GitHubOIDCProvider:
@@ -120,15 +111,6 @@ Resources:
               ForAnyValue:StringLike:
                 "token.actions.githubusercontent.com:sub": !Ref AllowedSubjects
       Policies:
-        - PolicyName: EdgeStagesCloudFormationExecutionAssume
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - sts:AssumeRole
-                Resource:
-                  - !GetAtt EdgeUs1CloudFormationExecutionRole.Arn
         - PolicyName: SsmSendCommandStage0
           PolicyDocument:
             Version: "2012-10-17"
@@ -143,16 +125,6 @@ Resources:
                     - !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${TargetInstanceId}"
                     - !Sub "arn:aws:ssm:${AWS::Region}::document/AWS-RunShellScript"
                 - !Ref AWS::NoValue
-              - !If
-                - HasEdgeUs1Instance
-                - Sid: SendRunShellScriptEdgeUs1
-                  Effect: Allow
-                  Action:
-                    - ssm:SendCommand
-                  Resource:
-                    - !Sub "arn:aws:ec2:${EdgeUs1Region}:${AWS::AccountId}:instance/${EdgeUs1TargetInstanceId}"
-                    - !Sub "arn:aws:ssm:${EdgeUs1Region}::document/AWS-RunShellScript"
-                - !Ref AWS::NoValue
               - Sid: ReadCommandResult
                 Effect: Allow
                 Action:
@@ -161,9 +133,8 @@ Resources:
                   - ssm:ListCommands
                 Resource: "*"
               - Sid: DescribeInstanceInformationForSsmReadiness
-                # verify-ssm-online.sh polls until PingStatus=Online after EIP
-                # rotation. The action requires "*" resource per IAM docs; gate
-                # on edge regions only.
+                # SSM readiness poll (PingStatus=Online). The action requires
+                # "*" resource per IAM docs; gate on this stack's region only.
                 Effect: Allow
                 Action:
                   - ssm:DescribeInstanceInformation
@@ -172,88 +143,6 @@ Resources:
                   StringEquals:
                     "aws:RequestedRegion":
                       - !Ref AWS::Region
-                      - !Ref EdgeUs1Region
-              - Sid: DescribeEgressEipForRotation
-                # Read-side of EIP rotation: discover current allocation-id,
-                # candidate state, post-swap public-IP confirmation. AWS does
-                # not support resource-level scoping for ec2:Describe*; gate on
-                # edge regions only.
-                Effect: Allow
-                Action:
-                  - ec2:DescribeAddresses
-                  - ec2:DescribeInstances
-                Resource: "*"
-                Condition:
-                  StringEquals:
-                    "aws:RequestedRegion":
-                      - !Ref EdgeUs1Region
-              - Sid: AllocateAndTagEgressEipForRotation
-                # Write-side, allocate: workflow allocates a fresh candidate EIP
-                # before update-stack swaps it in. CreateTags is conditioned on
-                # the allocate action via ec2:CreateAction so we cannot tag
-                # arbitrary pre-existing resources.
-                Effect: Allow
-                Action:
-                  - ec2:AllocateAddress
-                Resource: "*"
-                Condition:
-                  StringEquals:
-                    "aws:RequestedRegion":
-                      - !Ref EdgeUs1Region
-              - Sid: TagFreshEgressEipOnAllocate
-                Effect: Allow
-                Action:
-                  - ec2:CreateTags
-                Resource: "*"
-                Condition:
-                  StringEquals:
-                    "ec2:CreateAction": AllocateAddress
-                    "aws:RequestedRegion":
-                      - !Ref EdgeUs1Region
-              - Sid: ReleaseTaggedTokenkeyCandidateEip
-                # Write-side, release: only EIPs we tagged (Project=tokenkey)
-                # can be released by this role. Used on revert (post-swap probe
-                # detected pollution) and on operator-initiated retirement of
-                # the previous EIP after DNS propagation.
-                Effect: Allow
-                Action:
-                  - ec2:ReleaseAddress
-                Resource: "*"
-                Condition:
-                  StringEquals:
-                    "aws:ResourceTag/Project": tokenkey
-                    "aws:RequestedRegion":
-                      - !Ref EdgeUs1Region
-              - Sid: SnapshotEbsRootBeforeDecommission
-                # decommission op (deploy-edge-stage0.yml operation=decommission)
-                # snapshots the edge root EBS volume before delete-stack as a
-                # 30-day rollback artifact. CreateSnapshot covers the source
-                # volume + the new snapshot; DescribeSnapshots is the readiness
-                # poll. Neither supports useful resource-level scoping here, so
-                # gate on edge regions only (add new edge regions as they land).
-                Effect: Allow
-                Action:
-                  - ec2:CreateSnapshot
-                  - ec2:DescribeSnapshots
-                Resource: "*"
-                Condition:
-                  StringEquals:
-                    "aws:RequestedRegion":
-                      - !Ref EdgeUs1Region
-              - Sid: TagSnapshotOnCreate
-                # the snapshot step passes --tag-specifications, so CreateTags
-                # is checked with ec2:CreateAction=CreateSnapshot. Mirror the
-                # AllocateAddress tag gate above so we cannot tag arbitrary
-                # pre-existing resources.
-                Effect: Allow
-                Action:
-                  - ec2:CreateTags
-                Resource: "*"
-                Condition:
-                  StringEquals:
-                    "ec2:CreateAction": CreateSnapshot
-                    "aws:RequestedRegion":
-                      - !Ref EdgeUs1Region
               - Sid: DescribeStackForInstanceLookup
                 Effect: Allow
                 Action:
@@ -261,120 +150,11 @@ Resources:
                 Resource:
                   - !Sub "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/tokenkey-cicd-oidc/*"
                   - !Sub "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/tokenkey-prod-stage0/*"
-                  - !Sub "arn:aws:cloudformation:${EdgeUs1Region}:${AWS::AccountId}:stack/tokenkey-edge-us1-stage0/*"
-              - Sid: DeployEdgeUs1Stack
-                Effect: Allow
-                Action:
-                  - cloudformation:CreateChangeSet
-                  - cloudformation:ExecuteChangeSet
-                  - cloudformation:DescribeChangeSet
-                  - cloudformation:DeleteChangeSet
-                  - cloudformation:GetTemplateSummary
-                Resource:
-                  - !Sub "arn:aws:cloudformation:${EdgeUs1Region}:${AWS::AccountId}:stack/tokenkey-edge-us1-stage0/*"
-              - Sid: PassEdgeCloudFormationExecutionRoles
-                Effect: Allow
-                Action:
-                  - iam:PassRole
-                Resource:
-                  - !GetAtt EdgeUs1CloudFormationExecutionRole.Arn
       Tags:
         - Key: Project
           Value: tokenkey
         - Key: ManagedBy
           Value: cloudformation
-
-  EdgeUs1CloudFormationExecutionRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub "tokenkey-cfn-${EdgeUs1Region}-edge-us1-stage0"
-      Description: >-
-        CloudFormation execution role for tokenkey-edge-us1-stage0. GitHub
-        Actions may pass this role, but does not receive direct EC2/IAM
-        provisioning permissions.
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: cloudformation.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: ProvisionEdgeUs1Resources
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - ec2:CreateVpc
-                  - ec2:DeleteVpc
-                  - ec2:ModifyVpcAttribute
-                  - ec2:CreateInternetGateway
-                  - ec2:DeleteInternetGateway
-                  - ec2:AttachInternetGateway
-                  - ec2:DetachInternetGateway
-                  - ec2:CreateSubnet
-                  - ec2:DeleteSubnet
-                  - ec2:ModifySubnetAttribute
-                  - ec2:CreateRouteTable
-                  - ec2:DeleteRouteTable
-                  - ec2:CreateRoute
-                  - ec2:DeleteRoute
-                  - ec2:AssociateRouteTable
-                  - ec2:DisassociateRouteTable
-                  - ec2:CreateSecurityGroup
-                  - ec2:DeleteSecurityGroup
-                  - ec2:AuthorizeSecurityGroupIngress
-                  - ec2:RevokeSecurityGroupIngress
-                  - ec2:AllocateAddress
-                  - ec2:ReleaseAddress
-                  - ec2:AssociateAddress
-                  - ec2:DisassociateAddress
-                  - ec2:RunInstances
-                  - ec2:TerminateInstances
-                  - ec2:StartInstances
-                  - ec2:StopInstances
-                  - ec2:CreateVolume
-                  - ec2:DeleteVolume
-                  - ec2:AttachVolume
-                  - ec2:DetachVolume
-                  - ec2:ModifyInstanceAttribute
-                  - ec2:CreateTags
-                  - ec2:DeleteTags
-                  - ec2:Describe*
-                  - iam:CreateRole
-                  - iam:DeleteRole
-                  - iam:GetRole
-                  - iam:TagRole
-                  - iam:UntagRole
-                  - iam:PassRole
-                  - iam:AttachRolePolicy
-                  - iam:DetachRolePolicy
-                  - iam:PutRolePolicy
-                  - iam:DeleteRolePolicy
-                  - iam:CreateInstanceProfile
-                  - iam:DeleteInstanceProfile
-                  - iam:TagInstanceProfile
-                  - iam:UntagInstanceProfile
-                  - iam:AddRoleToInstanceProfile
-                  - iam:RemoveRoleFromInstanceProfile
-                  - iam:GetInstanceProfile
-                  - iam:ListInstanceProfilesForRole
-                  - ssm:PutParameter
-                  - ssm:DeleteParameter
-                  - ssm:GetParameter
-                  - ssm:GetParameters
-                  - cloudwatch:PutMetricAlarm
-                  - cloudwatch:DeleteAlarms
-                  - cloudwatch:DescribeAlarms
-                Resource: "*"
-      Tags:
-        - Key: Project
-          Value: tokenkey
-        - Key: ManagedBy
-          Value: cloudformation
-        - Key: EdgeId
-          Value: us1
 
 Outputs:
   RoleArn:
@@ -382,8 +162,3 @@ Outputs:
     Value: !GetAtt ClusteringRole.Arn
     Export:
       Name: !Sub "${AWS::StackName}-RoleArn"
-  EdgeUs1CloudFormationExecutionRoleArn:
-    Description: CloudFormation execution role for tokenkey-edge-us1-stage0.
-    Value: !GetAtt EdgeUs1CloudFormationExecutionRole.Arn
-    Export:
-      Name: !Sub "${AWS::StackName}-EdgeUs1CloudFormationExecutionRoleArn"
