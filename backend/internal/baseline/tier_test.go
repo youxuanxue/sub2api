@@ -87,15 +87,20 @@ func TestEffectiveBaselineForTier(t *testing.T) {
 //     base means tier no longer biases cross-tier scheduling. Asserting
 //     uniformity (not a specific value) stays value-agnostic while catching an
 //     accidental drift back to a per-tier priority ladder.
-//   - the RPM / session / cost ladder is monotonic non-decreasing l1 -> l5
+//
+// NOTE: there is intentionally NO l1->l5 monotonic-non-decreasing assertion on
+// the RPM / session / cost caps. Tiers are caps-only labels (priority uniform,
+// scheduling owned by window-rebalance), so the tier NAME carries no ordering
+// contract — operators repurpose individual slots freely (e.g. L1 is deliberately
+// set to a high-capacity profile: L5 caps + concurrency 30). A monotonic guard
+// would only fight that legitimate use; per-tier positive-caps below is the
+// invariant that actually matters.
 func TestTierLadderInvariants(t *testing.T) {
 	order, err := TierOrder()
 	if err != nil {
 		t.Fatalf("TierOrder: %v", err)
 	}
 	requiredCaps := []string{"base_rpm", "rpm_sticky_buffer", "max_sessions", "window_cost_limit"}
-	ladder := []string{"base_rpm", "max_sessions", "window_cost_limit"}
-	prev := map[string]float64{}
 	var firstPriority int
 	for i, name := range order {
 		eff, err := EffectiveBaselineForTier(name)
@@ -120,13 +125,6 @@ func TestTierLadderInvariants(t *testing.T) {
 			if !ok || v <= 0 {
 				t.Fatalf("%s extra[%q] = %v want float64 > 0", name, k, eff.Extra[k])
 			}
-		}
-		for _, k := range ladder {
-			v := eff.Extra[k].(float64)
-			if v < prev[k] {
-				t.Fatalf("%s extra[%q] = %v < lower tier %v (ladder must be non-decreasing)", name, k, v, prev[k])
-			}
-			prev[k] = v
 		}
 	}
 }
