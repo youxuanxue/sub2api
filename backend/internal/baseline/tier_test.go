@@ -9,13 +9,13 @@ func TestLoadTierBaselineDoc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadTierBaselineDoc: %v", err)
 	}
-	if got := len(doc.Tiers); got != 5 {
-		t.Fatalf("expected 5 tiers, got %d", got)
+	if got := len(doc.Tiers); got != 6 {
+		t.Fatalf("expected 6 tiers, got %d", got)
 	}
 	if doc.SharedBaseline.TLSProfile.Name != "tk_canonical_cc_oauth" {
 		t.Fatalf("unexpected canonical tls profile name %q", doc.SharedBaseline.TLSProfile.Name)
 	}
-	wantOrder := []string{"l1", "l2", "l3", "l4", "l5"}
+	wantOrder := []string{"l1", "l2", "l3", "l4", "l5", "l6"}
 	if len(doc.Policy.TierOrder) != len(wantOrder) {
 		t.Fatalf("tier_order = %v", doc.Policy.TierOrder)
 	}

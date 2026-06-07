@@ -4189,7 +4189,7 @@ def main() -> int:
                         help="declare an edge OAuth tier change; emit plan JSON")
     sp.add_argument("--edge-id", "--edge", dest="edge_id", required=True)
     sp.add_argument("--account-name", "--account", dest="account_name", required=True)
-    sp.add_argument("--tier", required=True, help="l1 / l2 / l3 / l4 / l5")
+    sp.add_argument("--tier", required=True, help="l1 / l2 / l3 / l4 / l5 / l6")
     sp.add_argument("--snapshot", required=True)
     sp.add_argument("--out", help="write plan JSON (otherwise stdout)")
     sp.add_argument(
@@ -4207,7 +4207,7 @@ def main() -> int:
     sp = sub.add_parser(
         "plan-tier-bump",
         help="re-apply a tier's baseline to every account on that tier (one multi-action plan)")
-    sp.add_argument("--tier", required=True, help="l1 / l2 / l3 / l4 / l5")
+    sp.add_argument("--tier", required=True, help="l1 / l2 / l3 / l4 / l5 / l6")
     sp.add_argument("--snapshot", required=True)
     sp.add_argument("--out", help="write plan JSON (otherwise stdout)")
     sp.add_argument(

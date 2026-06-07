@@ -332,7 +332,7 @@
       "must_contain": [
         "ACCOUNT_TIER_OPTIONS"
       ],
-      "rationale": "TK-only tier dropdown options (l1..l5) for the admin 'Set Tier' action. Display labels only — the backend embedded baseline owns the numeric tier values. Guards the constant against silent upstream-merge deletion that would break the tier modal import."
+      "rationale": "TK-only tier dropdown options (l1..l6) for the admin 'Set Tier' action. Display labels only — the backend embedded baseline owns the numeric tier values. Guards the constant against silent upstream-merge deletion that would break the tier modal import."
     },
     {
       "path": "frontend/src/composables/useTkAccountTier.ts",

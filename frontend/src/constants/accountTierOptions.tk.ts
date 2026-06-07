@@ -4,7 +4,7 @@
  *
  * The backend tiers table (projection of the git baseline,
  * backend/internal/baseline/anthropic-oauth-stability-baselines-tiered.json,
- * tier_order l1..l5) is the SINGLE SOURCE OF TRUTH for per-tier VALUES. The
+ * tier_order l1..l6) is the SINGLE SOURCE OF TRUTH for per-tier VALUES. The
  * picker (useTkAccountTier) fetches them live from GET /admin/tiers and renders
  * the numeric hints from that response. This constant is ONLY a label fallback
  * if that fetch fails — so it deliberately carries no numeric config (hardcoding
@@ -24,4 +24,5 @@ export const ACCOUNT_TIER_OPTIONS: AccountTierOption[] = [
   { value: 'l3', label: 'L3', hint: '' },
   { value: 'l4', label: 'L4', hint: '' },
   { value: 'l5', label: 'L5', hint: '' },
+  { value: 'l6', label: 'L6', hint: '' },
 ]
