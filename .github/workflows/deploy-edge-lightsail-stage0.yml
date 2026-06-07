@@ -8,11 +8,13 @@ on:
   workflow_dispatch:
     inputs:
       edge_id:
-        description: "Edge target from deploy/aws/lightsail/edge-targets-lightsail.json (deployable=true)."
+        description: "Edge target id from deploy/aws/lightsail/edge-targets-lightsail.json (provision may target a deployable=false edge; upgrade/smoke expect it live)."
         required: true
         type: choice
         options:
           - uk1
+          - uk2
+          - uk3
           - us1
           - us2
           - us3
