@@ -3444,8 +3444,15 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		c.Set("openai_passthrough", true)
 	}
 
+	// 流式请求在等待上游响应头期间发送 SSE keepalive（comment 帧），防止空闲敏感的
+	// 中间层（Cloudflare Tunnel / Caddy / 客户端 SDK）在上游排队/首字节前断开连接
+	// （Wei-Shaw/sub2api#2121）。首个 ping 延迟一个 keepalive 间隔，故快速 failover
+	// 错误在写出任何字节前已返回，handler 的 c.Writer.Size() failover 门禁得以保留。
+	// 详见 gateway_service_tk_header_wait_keepalive.go。
+	hwka := s.beginHeaderWaitKeepalive(c, reqStream)
 	upstreamStart := time.Now()
 	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+	hwka.stop()
 	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 	if err != nil {
 		safeErr := sanitizeUpstreamErrorMessage(err.Error())

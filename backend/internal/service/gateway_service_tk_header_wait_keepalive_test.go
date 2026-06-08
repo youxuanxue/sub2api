@@ -25,7 +25,7 @@ func newKeepaliveTestContext(t *testing.T) (*gin.Context, *httptest.ResponseReco
 func TestStartHeaderWaitKeepalive_EmitsPingsAfterInterval(t *testing.T) {
 	c, rec := newKeepaliveTestContext(t)
 
-	k := startHeaderWaitKeepalive(c, 20*time.Millisecond)
+	k := startHeaderWaitKeepalive(c, 20*time.Millisecond, anthropicSSEPingFrame)
 	if k == nil {
 		t.Fatal("expected non-nil keepalive handle for positive interval")
 	}
@@ -55,7 +55,7 @@ func TestStartHeaderWaitKeepalive_EmitsPingsAfterInterval(t *testing.T) {
 func TestStartHeaderWaitKeepalive_NoWriteBeforeInterval(t *testing.T) {
 	c, rec := newKeepaliveTestContext(t)
 
-	k := startHeaderWaitKeepalive(c, 500*time.Millisecond)
+	k := startHeaderWaitKeepalive(c, 500*time.Millisecond, anthropicSSEPingFrame)
 	if k == nil {
 		t.Fatal("expected non-nil keepalive handle")
 	}
@@ -73,7 +73,7 @@ func TestStartHeaderWaitKeepalive_NoWriteBeforeInterval(t *testing.T) {
 
 func TestStartHeaderWaitKeepalive_DisabledReturnsNil(t *testing.T) {
 	c, _ := newKeepaliveTestContext(t)
-	if k := startHeaderWaitKeepalive(c, 0); k != nil {
+	if k := startHeaderWaitKeepalive(c, 0, anthropicSSEPingFrame); k != nil {
 		t.Fatal("expected nil handle when interval <= 0")
 	}
 	// stop() on a nil handle must be a safe no-op.
@@ -87,5 +87,35 @@ func TestBeginHeaderWaitKeepalive_NonStreamReturnsNil(t *testing.T) {
 	// service is sufficient.
 	if k := (&GatewayService{}).beginHeaderWaitKeepalive(c, false); k != nil {
 		t.Fatal("expected nil handle for non-streaming request")
+	}
+	// Same contract for the OpenAI passthrough analogue.
+	if k := (&OpenAIGatewayService{}).beginHeaderWaitKeepalive(c, false); k != nil {
+		t.Fatal("expected nil handle for non-streaming OpenAI request")
+	}
+}
+
+// The OpenAI/Codex passthrough heartbeat must be a bare SSE comment (":\n\n"),
+// never a typed event frame — the strict Codex/Responses SDK rejects unknown
+// events. This pins the frame and the same pre-headers behavior.
+func TestStartHeaderWaitKeepalive_OpenAICommentFrame(t *testing.T) {
+	c, rec := newKeepaliveTestContext(t)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+
+	k := startHeaderWaitKeepalive(c, 20*time.Millisecond, openaiSSECommentFrame)
+	if k == nil {
+		t.Fatal("expected non-nil keepalive handle for positive interval")
+	}
+	time.Sleep(90 * time.Millisecond)
+	k.stop()
+
+	body := rec.Body.String()
+	if !strings.Contains(body, ":\n\n") {
+		t.Fatalf("expected SSE comment keepalive, got %q", body)
+	}
+	if strings.Contains(body, "event:") {
+		t.Fatalf("OpenAI keepalive must not emit a typed event frame, got %q", body)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("expected SSE content-type committed before first comment, got %q", ct)
 	}
 }
