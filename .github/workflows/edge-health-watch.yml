@@ -115,8 +115,14 @@ jobs:
           python3 ops/observability/edge-health-alert.py --window "$SINCE" \
             --prev-key-file "$KEYFILE" < verdicts.jsonl > decision.json
           cat decision.json
-          # Persist the new key for the next run's state-diff (saved by the cache step).
-          python3 -c "import json;open('.edge-health-state/key','w').write(json.load(open('decision.json'))['key'])"
+          # Persist the new key for the next run's state-diff — but only on a real run.
+          # A dry-run must be side-effect-free: it must NOT advance the dedup state, or
+          # testing on a live incident would pre-ack the current bad set and suppress the
+          # next real alert. The cache "Save state key" step is also gated on !dry_run; the
+          # local write here is belt-and-suspenders (the file is discarded with the runner).
+          if [ "$DRY_RUN" != "true" ]; then
+            python3 -c "import json;open('.edge-health-state/key','w').write(json.load(open('decision.json'))['key'])"
+          fi
 
           SHOULD=$(python3 -c "import json;print(json.load(open('decision.json'))['should_alert'])")
           if [ "$SHOULD" != "True" ]; then
@@ -155,7 +161,8 @@ jobs:
           PY
 
       - name: Save state key
-        if: steps.precheck.outputs.skip == 'false' && steps.scan.outputs.scan_ok == 'true'
+        # Not on dry-run: a dry-run must not advance the dedup state (see Decide step).
+        if: steps.precheck.outputs.skip == 'false' && steps.scan.outputs.scan_ok == 'true' && inputs.dry_run != 'true'
         uses: actions/cache/save@v4
         with:
           path: .edge-health-state
