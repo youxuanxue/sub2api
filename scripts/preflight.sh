@@ -823,6 +823,26 @@ else
     echo "  ok: edge-health verdict healthy/thin/degraded/down fixtures pass"
 fi
 
+# ---- sub2api: edge-health alert decision selftest --------------------------
+# The edge-health-watch alert logic (actionable-set + state-diff dedup + Feishu
+# message) lives in edge-health-alert.py and is the decision half of
+# .github/workflows/edge-health-watch.yml. Its fixtures pin the 2026-06-07 incident
+# shapes + the dedup behavior (no re-spam on a steady incident, alert on escalation /
+# recovery, chronic thin does not trigger), so a logic regression fails preflight
+# instead of silently re-spamming or going silent. Read-only, no AWS / no HTTP.
+echo ""
+echo "=== sub2api: edge-health alert decision selftest ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for edge-health alert selftest)"
+    errors=$((errors + 1))
+elif ! python3 ./ops/observability/edge-health-alert.py --selftest >/dev/null 2>&1; then
+    echo "  FAIL: edge-health alert decision selftest"
+    echo "        — run: python3 ops/observability/edge-health-alert.py --selftest"
+    errors=$((errors + 1))
+else
+    echo "  ok: edge-health alert decision/dedup fixtures pass"
+fi
+
 # ---- sub2api: pgdump timer cadence parity ----------------------------------
 # The tokenkey-pgdump systemd timer is defined in TWO places that must stay in
 # sync: the first-boot copy in stage0-ec2-bootstrap.sh and the live-host refresh

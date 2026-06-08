@@ -34,11 +34,13 @@ RESOLVE="$REPO_ROOT/deploy/aws/stage0/resolve-edge-target.py"
 SINCE="2h"
 WITH_PROD=0
 EDGES_CSV=""
+JSON=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --since) SINCE="$2"; shift 2 ;;
     --with-prod) WITH_PROD=1; shift ;;
     --edges) EDGES_CSV="$2"; shift 2 ;;
+    --json) JSON=1; shift ;;
     -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "scan-edge-health: unknown arg '$1'" >&2; exit 1 ;;
   esac
@@ -92,6 +94,13 @@ for tgt in "${TARGETS[@]}"; do
     printf '{"edge":"%s","verdict":"unreachable"}\n' "$label" >> "$RESULTS"
   fi
 done
+
+# --json: emit the per-edge verdict JSON lines verbatim (machine-readable, for the
+# edge-health-watch workflow / edge-health-alert.py) and skip the human table.
+if [ "$JSON" = "1" ]; then
+  cat "$RESULTS"
+  exit 0
+fi
 
 echo
 echo "=== edge health (truth from each edge's own access log, NOT prod upstream-429) ==="
