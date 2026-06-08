@@ -322,7 +322,7 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 	// Content-Type: text/event-stream，经 WriteFilteredHeaders 透传后会污染
 	// 响应头；而 c.Data/c.JSON 走 Gin 的 writeContentType（仅当头不存在时才设置），
 	// 无法覆盖已存在的 SSE 头。这里显式 Set 强制改回 JSON，避免下游中间层
-	// （如 new-api）按 Content-Type 误判为流式。
+	// （如 new-api）按 Content-Type 误判为流式。Wei-Shaw/sub2api#1311
 	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 	// Marshal then bytes-replace so tool name mapping is reversed at byte level
 	// (parity with Parrot non-stream flow that marshals → restore → emit).
