@@ -95,8 +95,8 @@ jobs:
           mkdir -p .edge-health-state
           bash ops/observability/scan-edge-health.sh --with-prod --since "$SINCE" \
             --timeout-seconds "$SCAN_PROBE_TIMEOUT" --json > verdicts.jsonl 2> scan.stderr || true
-          echo "---- verdicts ----"; cat verdicts.jsonl || true
-          echo "---- scan stderr (tail) ----"; tail -20 scan.stderr || true
+          echo "---- verdicts ----"; cat verdicts.jsonl || true  # preflight-allow: swallow — diagnostic echo
+          echo "---- scan stderr (tail) ----"; tail -20 scan.stderr || true  # preflight-allow: swallow — diagnostic echo
           # Single decision: a non-empty verdict file is the only thing that lets us
           # judge + alert. An empty file (scan crashed / all targets unreachable) must
           # NOT be read as "fleet healthy" — guard against a false all-clear.
