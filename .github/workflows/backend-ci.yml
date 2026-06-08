@@ -57,40 +57,18 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache-and-checkout-new-api
-      # cache:false — setup-go's go.sum-keyed cache is IMMUTABLE (saved once on
-      # first miss, never refreshed) AND shared across test-unit/test-integration/
-      # golangci-lint, which build different objects (-tags=unit vs =integration
-      # vs none). Whichever job won the save race poisoned the others, so the unit
-      # test-result cache was effectively NEVER restored — every CI run cold-compiled
-      # AND re-ran all 52 packages (~262s). We own caching explicitly below instead.
+      # cache:false + ./.github/actions/go-rolling-cache — setup-go's built-in
+      # cache is immutable and was shared across the three Go jobs despite their
+      # differing build tags, so the test-result cache never persisted (every run
+      # cold-compiled + re-ran all packages). See that composite for the full why.
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
           check-latest: false
           cache: false
-      # Shared, immutable module cache — modules only change with go.sum, so a
-      # single entry keyed on go.sum is correct and avoids triplicating ~1GB of
-      # GOMODCACHE across the three rolling build caches (10GB/repo budget).
-      - name: Go module cache
-        uses: actions/cache@v4
+      - uses: ./.github/actions/go-rolling-cache
         with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-gomod-${{ hashFiles('backend/go.sum') }}
-          restore-keys: ${{ runner.os }}-gomod-
-      # Rolling per-job build+test cache (mirrors warm-release-cache below): a
-      # run_id-unique SAVE key always re-saves at post-job so the cache rolls
-      # forward every run; restore-keys seeds from the previous run (incremental,
-      # not cold). Distinct `unit` prefix keeps it from colliding with the
-      # integration/lint build objects. Go's cache is content-addressed, so a
-      # stale entry is unused, never wrong.
-      - name: Go build/test cache (rolling, unit)
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/go-build
-          key: ${{ runner.os }}-gobuild-unit-${{ hashFiles('backend/go.sum') }}-${{ github.run_id }}
-          restore-keys: |
-            ${{ runner.os }}-gobuild-unit-${{ hashFiles('backend/go.sum') }}-
-            ${{ runner.os }}-gobuild-unit-
+          prefix: unit
       - name: Verify Go version
         run: |
           go version | grep -q 'go1.26.4'
@@ -104,26 +82,15 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache-and-checkout-new-api
-      # cache:false + explicit rolling cache — see test-unit rationale above.
+      # cache:false + ./.github/actions/go-rolling-cache — see test-unit above.
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
           check-latest: false
           cache: false
-      - name: Go module cache
-        uses: actions/cache@v4
+      - uses: ./.github/actions/go-rolling-cache
         with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-gomod-${{ hashFiles('backend/go.sum') }}
-          restore-keys: ${{ runner.os }}-gomod-
-      - name: Go build/test cache (rolling, integration)
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/go-build
-          key: ${{ runner.os }}-gobuild-integration-${{ hashFiles('backend/go.sum') }}-${{ github.run_id }}
-          restore-keys: |
-            ${{ runner.os }}-gobuild-integration-${{ hashFiles('backend/go.sum') }}-
-            ${{ runner.os }}-gobuild-integration-
+          prefix: integration
       - name: Verify Go version
         run: |
           go version | grep -q 'go1.26.4'
@@ -161,28 +128,17 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache-and-checkout-new-api
-      # cache:false + explicit rolling cache — see test-unit rationale above.
+      # cache:false + ./.github/actions/go-rolling-cache — see test-unit above.
       # golangci-lint-action manages its own analysis cache (~/.cache/golangci-lint)
-      # on top of the GOCACHE we roll here; the two are independent.
+      # on top of the GOCACHE this rolls; the two are independent.
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
           check-latest: false
           cache: false
-      - name: Go module cache
-        uses: actions/cache@v4
+      - uses: ./.github/actions/go-rolling-cache
         with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-gomod-${{ hashFiles('backend/go.sum') }}
-          restore-keys: ${{ runner.os }}-gomod-
-      - name: Go build cache (rolling, lint)
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/go-build
-          key: ${{ runner.os }}-gobuild-lint-${{ hashFiles('backend/go.sum') }}-${{ github.run_id }}
-          restore-keys: |
-            ${{ runner.os }}-gobuild-lint-${{ hashFiles('backend/go.sum') }}-
-            ${{ runner.os }}-gobuild-lint-
+          prefix: lint
       - name: Verify Go version
         run: |
           go version | grep -q 'go1.26.4'

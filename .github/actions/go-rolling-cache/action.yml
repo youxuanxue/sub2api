@@ -1,0 +1,45 @@
+# Single source for the Go cache strategy shared by the heavy Go CI jobs
+# (test-unit / test-integration / golangci-lint). Replaces setup-go's built-in
+# cache, which is keyed only on hash(go.sum), IMMUTABLE (saved once on first
+# miss), and was shared across these jobs even though they build different
+# objects (-tags=unit vs =integration vs none) — whichever job won the post-job
+# save race poisoned the others, so the test-result cache effectively never
+# restored and every run cold-compiled + re-ran all packages.
+#
+# Two caches, deliberately split:
+#   - module cache: identical across all jobs, only changes with go.sum, so one
+#     shared immutable entry is correct and avoids triplicating ~1GB of
+#     GOMODCACHE against the 10GB/repo budget.
+#   - build/test cache: per-job (prefix) + run_id-unique save key so it ROLLS
+#     forward every run; restore-keys seeds from the previous run (incremental,
+#     not cold). Go's cache is content-addressed, so a stale entry is unused,
+#     never wrong.
+#
+# Set `cache: false` on the calling job's actions/setup-go step and call this
+# AFTER it (mirrors warm-release-cache in backend-ci.yml).
+name: Go rolling build/test cache
+description: Shared module cache + per-job rolling Go build/test cache (replaces setup-go's immutable shared cache).
+
+inputs:
+  prefix:
+    description: Per-job cache namespace (e.g. unit / integration / lint) — keeps build objects from colliding across build tags.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Go module cache
+      uses: actions/cache@v4
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-gomod-${{ hashFiles('backend/go.sum') }}
+        restore-keys: ${{ runner.os }}-gomod-
+
+    - name: Go build/test cache (rolling, ${{ inputs.prefix }})
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/go-build
+        key: ${{ runner.os }}-gobuild-${{ inputs.prefix }}-${{ hashFiles('backend/go.sum') }}-${{ github.run_id }}
+        restore-keys: |
+          ${{ runner.os }}-gobuild-${{ inputs.prefix }}-${{ hashFiles('backend/go.sum') }}-
+          ${{ runner.os }}-gobuild-${{ inputs.prefix }}-
