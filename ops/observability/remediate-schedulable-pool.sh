@@ -33,7 +33,8 @@ WHERE platform = 'anthropic'
   AND status = 'active'
   AND coalesce(error_message, '') = '';
 "
-    # Ungrouped active oauth with empty error: attach default group so group-scoped routes see it.
+    # Ungrouped active oauth with empty error: attach the default group (id=1,
+    # seeded by migrations/008_seed_default_group.sql) so group-scoped routes see it.
     $PSQL -c "
 UPDATE accounts SET group_id = 1
 WHERE platform = 'anthropic'
@@ -60,7 +61,7 @@ SELECT row_to_json(t) FROM (
   SELECT id, name, schedulable, status, rate_limited_at, temp_unschedulable_until,
          left(coalesce(temp_unschedulable_reason::text,''),120) AS reason
   FROM accounts
-  WHERE platform='anthropic' AND type='api-key'
+  WHERE platform='anthropic' AND type='apikey'
     AND name ~ '^(cc-|kiro-)'
   ORDER BY id
 ) t;"
@@ -72,7 +73,7 @@ UPDATE accounts SET
   rate_limited_at = NULL,
   rate_limit_reset_at = NULL
 WHERE platform = 'anthropic'
-  AND type = 'api-key'
+  AND type = 'apikey'
   AND name ~ '^(cc-|kiro-)';
 "
     echo "=== after ==="
@@ -80,7 +81,7 @@ WHERE platform = 'anthropic'
 SELECT row_to_json(t) FROM (
   SELECT id, name, schedulable, status, rate_limited_at, temp_unschedulable_until
   FROM accounts
-  WHERE platform='anthropic' AND type='api-key'
+  WHERE platform='anthropic' AND type='apikey'
     AND name ~ '^(cc-|kiro-)'
   ORDER BY id
 ) t;"
