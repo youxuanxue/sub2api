@@ -811,8 +811,10 @@ def run_check_env(
     gost_port = int(os.environ.get("CC0_GOST_HTTP_PORT", "11800"))
     # Fallback only — the operator's ~/.config/cc0/env CC0_EXPECT_EGRESS_IP wins.
     # Current canonical cc0 SOCKS-chain egress (see docs/spec-delta-cc-2.1.16x.md).
-    # 16.147.170.3 (retired EC2 us1 EIP) was decommissioned 2026-06-07; egress moved here.
-    expect_ip = os.environ.get("CC0_EXPECT_EGRESS_IP", "52.15.35.197")
+    # 16.147.170.3 (retired EC2 us1 EIP) was decommissioned 2026-06-07; egress moved to
+    # edge-ls-us-oh-3 (StaticIp-oh-3). Its public IP rotated 52.15.35.197 → 3.148.79.145
+    # on 2026-06-08 (old IP was an ephemeral AWS re-adopted to *.coverahealth.com).
+    expect_ip = os.environ.get("CC0_EXPECT_EGRESS_IP", "3.148.79.145")
     try:
         socks_host, socks_port = _parse_host_port(socks, default_host="127.0.0.1")
     except ValueError as exc:
