@@ -14,9 +14,11 @@ import (
 // Injected from repository layer to avoid import cycles.
 type PrivacyClientFactory func(proxyURL string) (*req.Client, error)
 
-const (
-	openAISettingsURL = "https://chatgpt.com/backend-api/settings/account_user_setting"
+// openAISettingsURL is the training-toggle PATCH endpoint. var (not const) only so
+// tests can point it at an httptest server, mirroring openAISettingsUserURL (the read side).
+var openAISettingsURL = "https://chatgpt.com/backend-api/settings/account_user_setting"
 
+const (
 	PrivacyModeTrainingOff = "training_off"
 	PrivacyModeFailed      = "training_set_failed"
 	PrivacyModeCFBlocked   = "training_set_cf_blocked"
@@ -40,6 +42,17 @@ func shouldSkipOpenAIPrivacyEnsure(extra map[string]any) bool {
 func disableOpenAITraining(ctx context.Context, clientFactory PrivacyClientFactory, accessToken, proxyURL string) string {
 	if accessToken == "" || clientFactory == nil {
 		return ""
+	}
+
+	// TK: read-first. The settings PATCH below is Cloudflare-challenged from a datacenter
+	// egress (-> training_set_cf_blocked) even when training is already disabled. A GET of
+	// the same settings resource is not challenged, so if upstream training_allowed is
+	// already false we record training_off without issuing the (blocked) PATCH. An
+	// inconclusive read (error / non-2xx / unparseable) falls through to the PATCH path
+	// unchanged. Read+parse live in openai_privacy_tk_read.go to keep this a thin call site.
+	if disabled, ok := readOpenAITrainingDisabled(ctx, clientFactory, accessToken, proxyURL); ok && disabled {
+		slog.Info("openai_privacy_read_already_disabled")
+		return PrivacyModeTrainingOff
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
