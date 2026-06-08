@@ -46,17 +46,30 @@ done
 
 # Resolve the target list. Default = the deployable-edge matrix (EC2 ∪ Lightsail,
 # same source the deploy workflows use). Subset via --edges.
+EDGES=()
 if [ -n "$EDGES_CSV" ]; then
   IFS=',' read -r -a EDGES <<< "$EDGES_CSV"
 else
-  mapfile -t EDGES < <(python3 "$RESOLVE" --list-deployable)
+  # macOS default bash is 3.2 and has no `mapfile`; read line-by-line so the
+  # default (no --edges) invocation works for operators on a Mac, not just the
+  # --edges path.
+  while IFS= read -r _edge; do
+    [ -n "$_edge" ] && EDGES+=("$_edge")
+  done < <(python3 "$RESOLVE" --list-deployable)
 fi
 
 TARGETS=()
-for e in "${EDGES[@]}"; do
+# "${EDGES[@]+...}" guards expanding an empty array under `set -u` on bash 3.2
+# (newer bash treats empty-array expansion as unset; the +-form is portable).
+for e in "${EDGES[@]+"${EDGES[@]}"}"; do
   [ -n "$e" ] && TARGETS+=("edge:$e")
 done
 [ "$WITH_PROD" = "1" ] && TARGETS+=("prod")
+
+if [ "${#TARGETS[@]}" -eq 0 ]; then
+  echo "scan-edge-health: no targets resolved (check --edges / resolve-edge-target.py --list-deployable)" >&2
+  exit 1
+fi
 
 echo "scan-edge-health: ${#TARGETS[@]} targets, traffic window since=$SINCE" >&2
 
