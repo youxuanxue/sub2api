@@ -11,7 +11,8 @@ import (
 // PATCH endpoint (openAISettingsURL), a GET here is NOT Cloudflare-challenged from a
 // datacenter egress, so it can confirm the current training_allowed state even when the
 // PATCH would be blocked. See disableOpenAITraining for how the two combine.
-const openAISettingsUserURL = "https://chatgpt.com/backend-api/settings/user"
+// var (not const) only so tests can point it at an httptest server.
+var openAISettingsUserURL = "https://chatgpt.com/backend-api/settings/user"
 
 // openAIUserSettings is the subset of GET /backend-api/settings/user we depend on.
 // TrainingAllowed is a pointer so an absent field is distinguishable from an explicit false.
