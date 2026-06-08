@@ -42,6 +42,10 @@ CONSTANTS_GO = REPO_ROOT / "backend/internal/pkg/claude/constants.go"
 IDENTITY_CANONICAL_GO = REPO_ROOT / "backend/internal/service/identity_service_tk_canonical_http.go"
 IDENTITY_GO = REPO_ROOT / "backend/internal/service/identity_service.go"
 TLS_PROFILE_JSON = REPO_ROOT / "deploy/aws/stage0/tk_canonical_cc_oauth.json"
+# Single declared source for the CC system-prompt anchors (shared with the
+# guard scripts/sentinels/check-cc-system-prompt.py). Only the stable identity
+# anchors + billing prefix are tracked — the full prompt is dynamic.
+SYSTEM_PROMPT_REGISTRY = REPO_ROOT / "scripts/sentinels/cc-system-prompt.json"
 
 # Fields that block merge / require code fix when mismatched.
 CRITICAL_HTTP_FIELDS = frozenset(
@@ -52,6 +56,9 @@ CRITICAL_HTTP_FIELDS = frozenset(
         "canonical.stainless_package_version",
         "betas.sonnet_mimicry",
         "betas.haiku_mimicry",
+        # Identity banner drift means spoofed clients no longer look like real
+        # CC to upstream Anthropic (client_validation_error 403). Hard fail.
+        "system.identity_anchor",
     }
 )
 
@@ -134,6 +141,23 @@ def _ua_version(ua: str) -> str:
     return m.group(1) if m else ""
 
 
+def _load_system_prompt_anchors(repo_root: Path | None = None) -> dict[str, Any]:
+    """Read the canonical CC system-prompt anchors from the sentinel registry.
+
+    Returns ``{"identity_prefixes": [...], "billing_prefix": "..."}``. The same
+    file is the source of truth for the Go-copy guard, so the capture diff and
+    the guard can never disagree on what "canonical" means.
+    """
+    root = repo_root or REPO_ROOT
+    path = root / SYSTEM_PROMPT_REGISTRY.relative_to(REPO_ROOT)
+    data = json.loads(_read_text(path))
+    anchors = data.get("capture_anchors") or {}
+    return {
+        "identity_prefixes": list(anchors.get("identity_prefixes") or []),
+        "billing_prefix": str(anchors.get("billing_prefix") or ""),
+    }
+
+
 def load_tokenkey_baseline(repo_root: Path | None = None) -> dict[str, Any]:
     root = repo_root or REPO_ROOT
     constants_src = _read_text(root / CONSTANTS_GO.relative_to(REPO_ROOT))
@@ -181,6 +205,7 @@ def load_tokenkey_baseline(repo_root: Path | None = None) -> dict[str, Any]:
             "sonnet_mimicry": _resolve_betas(constants_src, "FullClaudeCodeMimicryBetas"),
             "haiku_mimicry": _resolve_betas(constants_src, "FullClaudeCodeHaikuMimicryBetas"),
         },
+        "system": _load_system_prompt_anchors(root),
     }
 
 
@@ -304,12 +329,30 @@ def load_http_log(path: Path) -> dict[str, dict[str, Any]]:
     return {variant: _dominant_record(v) for variant, v in dist.items()}
 
 
+def aggregate_system_anchors(records: list[dict[str, Any]]) -> list[str]:
+    """Union of every observed system-block head across all HTTP records.
+
+    Different CC requests carry different system blocks (main response vs
+    background tasks, billing block vs identity banner), so collect the
+    deduped set of ``text_head`` strings — order-preserving for determinism.
+    """
+    seen: dict[str, None] = {}
+    for rec in records:
+        for anchor in rec.get("system_anchors") or []:
+            if isinstance(anchor, dict):
+                head = str(anchor.get("text_head") or "").strip()
+                if head:
+                    seen.setdefault(head, None)
+    return list(seen.keys())
+
+
 def bundle_from_artifacts(
     *,
     cc_version: str,
     tls_observed: dict[str, Any],
     http_by_variant: dict[str, dict[str, Any]] | None = None,
     http_variants: dict[str, dict[str, Any]] | None = None,
+    system_anchors: list[str] | None = None,
     collector_url: str = "",
 ) -> dict[str, Any]:
     return {
@@ -330,6 +373,9 @@ def bundle_from_artifacts(
         # per-family beta distribution so bimodal fields stay visible (#429).
         "http": http_by_variant or {},
         "http_variants": http_variants or {},
+        # Deduped heads of every observed system block (identity banner + billing
+        # block). Optional — TLS-only bundles omit it; the diff then SKIPs.
+        "system": {"anchors": list(system_anchors or [])},
     }
 
 
@@ -516,6 +562,82 @@ def diff_baseline_vs_capture(
                 )
             )
 
+    rows.extend(_system_prompt_rows(baseline, capture))
+    return rows
+
+
+def _system_prompt_rows(
+    baseline: dict[str, Any], capture: dict[str, Any]
+) -> list[DiffRow]:
+    """System-prompt anchor rows: identity banner (hard) + billing prefix (soft).
+
+    Only the stable anchors are compared (prefix/substring match) — the full CC
+    system prompt is dynamic (cwd/git/date/env) and is never byte-aligned.
+    """
+    base_system = baseline.get("system") or {}
+    identity_prefixes = [p for p in (base_system.get("identity_prefixes") or []) if p]
+    billing_prefix = str(base_system.get("billing_prefix") or "")
+    cap_anchors = [
+        str(a) for a in ((capture.get("system") or {}).get("anchors") or []) if a
+    ]
+
+    rows: list[DiffRow] = []
+    tk_identity = " | ".join(identity_prefixes)
+
+    if not cap_anchors:
+        rows.append(
+            DiffRow(
+                "system.identity_anchor",
+                tk_identity,
+                "",
+                "missing_capture",
+                critical="system.identity_anchor" in CRITICAL_HTTP_FIELDS,
+                note="Run HTTP mitm capture with --http (no system blocks recorded)",
+            )
+        )
+        return rows
+
+    matched_head = next(
+        (h for h in cap_anchors for p in identity_prefixes if h.startswith(p)),
+        "",
+    )
+    rows.append(
+        DiffRow(
+            "system.identity_anchor",
+            tk_identity,
+            matched_head or " | ".join(cap_anchors),
+            "match" if matched_head else "mismatch",
+            critical="system.identity_anchor" in CRITICAL_HTTP_FIELDS,
+            note=(
+                ""
+                if matched_head
+                else "No captured system block matches any canonical CC identity "
+                "anchor — real CC banner drifted. Update "
+                "scripts/sentinels/cc-system-prompt.json + the Go copies with "
+                "capture evidence (docs/spec-delta-cc-system-prompt.md)."
+            ),
+        )
+    )
+
+    billing_present = bool(billing_prefix) and any(
+        billing_prefix in h for h in cap_anchors
+    )
+    rows.append(
+        DiffRow(
+            "system.billing_prefix",
+            billing_prefix,
+            "present" if billing_present else "absent",
+            "match" if billing_present else "needs_investigation",
+            critical=False,
+            note=(
+                ""
+                if billing_present
+                else "Billing-attribution block prefix not seen in this capture. "
+                "Expected for count_tokens / some sub-requests; INVESTIGATE only "
+                "if missing from a normal /v1/messages call."
+            ),
+        )
+    )
     return rows
 
 
@@ -931,15 +1053,19 @@ def cmd_bundle_from_artifacts(args: argparse.Namespace) -> int:
         observed = (tls_data.get("fingerprints") or [None])[0] or observed
     http_by_variant: dict[str, dict[str, Any]] = {}
     http_variants: dict[str, dict[str, Any]] = {}
+    system_anchors: list[str] = []
     if args.http_log:
-        dist = aggregate_http_records(load_http_records(Path(args.http_log)))
+        records = load_http_records(Path(args.http_log))
+        dist = aggregate_http_records(records)
         http_by_variant = {v: _dominant_record(d) for v, d in dist.items()}
         http_variants = serialize_http_variants(dist)
+        system_anchors = aggregate_system_anchors(records)
     bundle = bundle_from_artifacts(
         cc_version=args.cc_version or _ua_version(observed.get("user_agent", "")),
         tls_observed=observed,
         http_by_variant=http_by_variant,
         http_variants=http_variants,
+        system_anchors=system_anchors,
         collector_url=args.collector or "",
     )
     out = Path(args.out)

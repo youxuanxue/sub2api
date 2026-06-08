@@ -524,6 +524,29 @@ else
     echo "  ok: cc_version in anthropic-http-mimicry-baselines.json synced to all copies"
 fi
 
+# ---- sub2api: cc system prompt single-source --------------------------------
+# The CC system prompt is a load-bearing fingerprint dimension hardcoded in 3+
+# Go copies (validator templates + gateway inject banner/prefixes). They can
+# silently diverge, and a drift from real CC risks upstream
+# `client_validation_error 403` for spoofed clients (linux.do 2.1.15 incident).
+# Source of truth is scripts/sentinels/cc-system-prompt.json; the guard proves
+# every Go copy still carries the anchors and the banner is byte-identical
+# across files. Real CC drift is detected separately by the capture skill.
+echo ""
+echo "=== sub2api: cc system prompt single-source ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for cc system prompt check)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/sentinels/check-cc-system-prompt.py --selftest >/dev/null; then
+    echo "  FAIL: check-cc-system-prompt.py self-test failed"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/sentinels/check-cc-system-prompt.py --quiet; then
+    # check-cc-system-prompt.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: cc system prompt anchors consistent across Go copies"
+fi
+
 # ---- sub2api: sentinel registry update gate ---------------------------------
 # Existing sentinel checks prove current guarded literals still exist. This gate
 # proves PRs that modify guarded/hotspot files also update the matching registry,
