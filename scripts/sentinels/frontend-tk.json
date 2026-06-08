@@ -505,6 +505,21 @@
         "claude-opus-4-8[1m]"
       ],
       "rationale": "The 'Use API Key' modal recommends ANTHROPIC_MODEL for Claude Code. The base id MUST be an empirically-servable Anthropic model (backend supportedAnthropicCatalogModels, regenerated from a live prod probe — PR #608), NOT a bare alias. The gateway strips the trailing [1m] context-window suffix (gateway_anthropic_context_window_alias_tk.go), so a bare 'opus[1m]' collapses to 'opus' and is rejected as a non-servable model name → 400 invalid_request (PR #617), while the user silently never gets 1M context. Pinning the servable id catches a regression back to the bare alias on upstream merge or careless edit. Advance this needle (and the modal's export/settings strings) together when the servable opus generation moves past claude-opus-4-8."
+    },
+    {
+      "path": "frontend/src/views/HomeView.vue",
+      "must_contain": [
+        "HomeTkLanding"
+      ],
+      "rationale": "TokenKey's entire public /home landing lives in the TK-only component HomeTkLanding.tk.vue (CLAUDE.md §5 convergence); HomeView.vue is a thin wrapper whose default branch renders <HomeTkLanding/> while preserving the upstream admin home_content override (iframe/HTML). Upstream's HomeView default branch is the generic sub2api landing markup — a future `git merge upstream/main` could silently re-inline that markup and drop the <HomeTkLanding/> delegation: it would compile fine, just revert the whole TokenKey landing (terminal CLI demo, advantage tags, moat cards, brand). The sentinel turns that silent backward-drift into a failed merge gate."
+    },
+    {
+      "path": "frontend/src/i18n/index.ts",
+      "must_contain": [
+        "./tk/home.tk",
+        "mergeLocaleMessage"
+      ],
+      "rationale": "All TokenKey home/landing copy (tags, feature/moat cards, comparison, providers, CTA) lives in the TK-only overlay i18n/tk/home.tk.ts and is deep-merged over the upstream locale by this two-line injection in loadLocaleMessages (await import('./tk/home.tk') + i18n.global.mergeLocaleMessage). The upstream locale files (locales/en.ts, zh.ts) are deliberately kept at ZERO diff so they merge cleanly — which means EVERY TK home string depends entirely on this overlay call. An upstream merge that rewrites loadLocaleMessages could silently drop it, reverting all TK home copy to the upstream defaults (Antigravity card, '扩展引擎', sub2api wording) with no compile error and no visible failure. This is the single most fragile point of the convergence; the sentinel makes its removal a hard merge-gate failure."
     }
   ]
 }
