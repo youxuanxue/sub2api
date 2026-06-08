@@ -57,12 +57,18 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache-and-checkout-new-api
+      # cache:false + ./.github/actions/go-rolling-cache — setup-go's built-in
+      # cache is immutable and was shared across the three Go jobs despite their
+      # differing build tags, so the test-result cache never persisted (every run
+      # cold-compiled + re-ran all packages). See that composite for the full why.
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
           check-latest: false
-          cache: true
-          cache-dependency-path: backend/go.sum
+          cache: false
+      - uses: ./.github/actions/go-rolling-cache
+        with:
+          prefix: unit
       - name: Verify Go version
         run: |
           go version | grep -q 'go1.26.4'
@@ -76,12 +82,15 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache-and-checkout-new-api
+      # cache:false + ./.github/actions/go-rolling-cache — see test-unit above.
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
           check-latest: false
-          cache: true
-          cache-dependency-path: backend/go.sum
+          cache: false
+      - uses: ./.github/actions/go-rolling-cache
+        with:
+          prefix: integration
       - name: Verify Go version
         run: |
           go version | grep -q 'go1.26.4'
@@ -119,12 +128,17 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/cache-and-checkout-new-api
+      # cache:false + ./.github/actions/go-rolling-cache — see test-unit above.
+      # golangci-lint-action manages its own analysis cache (~/.cache/golangci-lint)
+      # on top of the GOCACHE this rolls; the two are independent.
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
           check-latest: false
-          cache: true
-          cache-dependency-path: backend/go.sum
+          cache: false
+      - uses: ./.github/actions/go-rolling-cache
+        with:
+          prefix: lint
       - name: Verify Go version
         run: |
           go version | grep -q 'go1.26.4'
