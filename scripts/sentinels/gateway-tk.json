@@ -337,14 +337,18 @@
         "account.GetCredentialAsInt64(\"_token_version\")",
         "s.oauth401AfterRefreshCounter.RecordOAuth401AfterRefresh(",
         "oauth_401_after_refresh_revoked",
+        "oauth_401_same_version_persists_revoked",
+        "func (s *RateLimitService) getOAuth401SameVersionThreshold()",
+        "func (s *RateLimitService) getOAuth401SameVersionDebounceSeconds()",
         "manual re-authorization required",
         "s.handleAuthError(ctx, account, msg)",
         "oauth401AfterRefreshDisableThresholdDefault",
         "oauth401AfterRefreshWindowMinutesDefault",
+        "oauth401SameVersionDisableThresholdDefault",
         "func (s *RateLimitService) SetOAuth401AfterRefreshCounter(",
         "func (s *RateLimitService) ResetOAuth401AfterRefreshCounter("
       ],
-      "rationale": "TK companion holding the OAuth 'refresh endpoint succeeds but the freshly minted token still 401s' escalation (effective grant revocation). The flap it fixes is silent: the gateway 401 handler only writes temp_unschedulable while the background refresh treats a successful refresh as healthy (only invalid_grant hits SetError), so a revoked grant whose refresh still 200s bounces active<->temp_unschedulable forever with status=active, no error and no alert (observed draining single-account edge-uk1 into intermittent 503). The escalation is load-bearing and MUST survive upstream merges: (1) the _token_version gate (GetCredentialAsInt64) distinguishes 'a NEW token still 401s' from benign expiry/concurrent bursts — without it the counter would permanently disable accounts on ordinary transient 401s; (2) RecordOAuth401AfterRefresh feeds the windowed version-gated counter; (3) at threshold it calls handleAuthError (SetError + scheduling-blocked alert) with a message prompting manual re-authorization; (4) the oauth_401_after_refresh_revoked slog marker is the ops observability anchor. Dropping any anchor silently restores the infinite-flap blind spot, which compiles clean and passes the pre-existing 401 cooldown tests."
+      "rationale": "TK companion holding the OAuth grant-revocation escalation, with TWO complementary triggers that MUST both survive upstream merges. (A) version-bump ('refresh endpoint succeeds but the freshly minted token still 401s'): the _token_version gate (GetCredentialAsInt64) distinguishes 'a NEW token still 401s' from benign expiry/concurrent bursts; oauth_401_after_refresh_revoked is its slog marker. (B) same-version ('grant revoked while access_token is still valid'): when the token is NOT near expiry NeedsRefresh=false → no refresh ever fires → _token_version is frozen → trigger A's version gate can never advance, so the account flaps active<->temp_unschedulable forever (observed on edge-uk1 account#2 2026-06-08: Redis counter {ver,count=0} stuck, 8+ clean 10-min 401 cycles, status=active, no alert). Trigger B counts same-version 401s across cooldown cycles (debounced to collapse concurrent bursts) via getOAuth401SameVersionThreshold (default 1) and escalates with the oauth_401_same_version_persists_revoked marker. Both triggers funnel to handleAuthError (SetError + scheduling-blocked auth_error alert) prompting manual re-authorization. The flap is silent: the gateway 401 handler only writes temp_unschedulable while background refresh treats a successful/absent refresh as healthy (only invalid_grant hits SetError). Dropping any anchor silently restores the infinite-flap blind spot, which compiles clean and passes the pre-existing 401 cooldown tests. NB force-refresh-on-401 was deliberately NOT used (5b37e9ae→6aec5050 reverted it: writing the request-start credential snapshot resurrects a rotated refresh_token and falsely disables accounts)."
     },
     {
       "path": "backend/internal/service/oauth_401_after_refresh_counter.go",
@@ -361,10 +365,11 @@
         "oauth_401_after_refresh:account:",
         "NewOAuth401AfterRefreshCounterCache",
         "if ver > stored then",
+        "if (now - sameAt) >= debounce then",
         "RecordOAuth401AfterRefresh",
         "ResetOAuth401AfterRefresh"
       ],
-      "rationale": "Redis-backed atomic counter using a Hash {ver,count} + Lua script. The `if ver > stored then` branch is the load-bearing version gate: it only increments when the token used by this 401 is newer than the one recorded at the previous 401 (a successful refresh happened in between yet it still 401'd). The oauth_401_after_refresh:account: key prefix must stay stable so all app replicas share the same baseline/count. A refactor that drops the version comparison would turn the counter into a naive 401 counter and start permanently disabling accounts on ordinary transient/expiry 401s."
+      "rationale": "Redis-backed atomic counter using a Hash {ver,count,same,same_at} + Lua script returning {count, same} — two load-bearing version-gated dimensions. (1) The `if ver > stored then` branch is the version gate: increments `count` only when this 401's token is newer than the previously recorded one (a refresh happened yet it still 401'd). (2) The `if (now - sameAt) >= debounce then` branch is the same-version gate: when the version is FROZEN (grant revoked but access_token still valid → never refreshed) it increments `same` at most once per cooldown cycle (debounce collapses concurrent bursts; uses server-side redis.call('TIME') so multiple app replicas agree). The oauth_401_after_refresh:account: key prefix must stay stable so all replicas share one baseline. Dropping the version comparison turns it into a naive 401 counter (permanently disables accounts on transient/expiry 401s); dropping the same-version gate (or its debounce) re-opens the valid-but-revoked-token infinite-flap blind spot that trigger A is structurally blind to."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_oauth401_test.go",

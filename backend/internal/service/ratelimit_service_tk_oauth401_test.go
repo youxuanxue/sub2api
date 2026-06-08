@@ -13,29 +13,37 @@ import (
 )
 
 // oauth401AfterRefreshCounterStub 是 OAuth401AfterRefreshCounterCache 的可控 fake：
-// counts 按调用顺序弹出返回值（空则返回 0，对应「种 baseline / 不计数」）；err 注入故障。
+// counts / sameCounts 按调用顺序弹出 version-bump / same-version 返回值（空则返回 0，
+// 对应「种 baseline / 不计数」）；err 注入故障。
 type oauth401AfterRefreshCounterStub struct {
-	counts         []int64
-	recordIDs      []int64
-	recordVersions []int64
-	recordWindows  []int
-	resetCalls     []int64
-	err            error
+	counts          []int64
+	sameCounts      []int64
+	recordIDs       []int64
+	recordVersions  []int64
+	recordWindows   []int
+	recordDebounces []int
+	resetCalls      []int64
+	err             error
 }
 
-func (s *oauth401AfterRefreshCounterStub) RecordOAuth401AfterRefresh(_ context.Context, accountID int64, tokenVersion int64, windowMinutes int) (int64, error) {
+func (s *oauth401AfterRefreshCounterStub) RecordOAuth401AfterRefresh(_ context.Context, accountID int64, tokenVersion int64, windowMinutes, debounceSeconds int) (int64, int64, error) {
 	s.recordIDs = append(s.recordIDs, accountID)
 	s.recordVersions = append(s.recordVersions, tokenVersion)
 	s.recordWindows = append(s.recordWindows, windowMinutes)
+	s.recordDebounces = append(s.recordDebounces, debounceSeconds)
 	if s.err != nil {
-		return 0, s.err
+		return 0, 0, s.err
 	}
-	if len(s.counts) == 0 {
-		return 0, nil
+	var count, same int64
+	if len(s.counts) > 0 {
+		count = s.counts[0]
+		s.counts = s.counts[1:]
 	}
-	count := s.counts[0]
-	s.counts = s.counts[1:]
-	return count, nil
+	if len(s.sameCounts) > 0 {
+		same = s.sameCounts[0]
+		s.sameCounts = s.sameCounts[1:]
+	}
+	return count, same, nil
 }
 
 func (s *oauth401AfterRefreshCounterStub) ResetOAuth401AfterRefresh(_ context.Context, accountID int64) error {
@@ -181,4 +189,68 @@ func TestRateLimitService_OAuth401AfterRefresh_ClearRateLimitResets(t *testing.T
 
 	require.NoError(t, service.ClearRateLimit(context.Background(), 707))
 	require.Equal(t, []int64{707}, counter.resetCalls)
+}
+
+// same-version 达阈值（默认 1）：token 仍有效却跨冷却周期持续 401（版本未递增），
+// 升级为 SetError + 告警，文案区别于 version-bump（提示 grant 在有效期内被吊销）。
+func TestRateLimitService_OAuth401SameVersion_EscalatesAtThreshold(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	// version-bump 维度恒 0（无刷新），same-version 维度返回 1。
+	counter := &oauth401AfterRefreshCounterStub{sameCounts: []int64{1}}
+	blocker := &runtimeBlockRecorder{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetOAuth401AfterRefreshCounter(counter)
+	service.SetAccountRuntimeBlocker(blocker)
+	account := newOAuth401AnthropicAccount(801, 1737654321000)
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("unauthorized"))
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, repo.setErrorCalls, "same-version at threshold must SetError (permanent)")
+	require.Equal(t, 0, repo.tempCalls, "must NOT fall through to temp_unschedulable cooldown")
+	require.Contains(t, repo.lastErrorMsg, "still-valid token")
+	require.Contains(t, repo.lastErrorMsg, "grant likely revoked upstream")
+	require.Contains(t, repo.lastErrorMsg, "manual re-authorization")
+	require.Len(t, blocker.accounts, 1, "escalation must notify scheduling-blocked for alerting")
+	require.Equal(t, "auth_error", blocker.reasons[0])
+	// 默认 cooldown 10min → 派生 debounce = 10*60/2 = 300s，透传给计数器。
+	require.Equal(t, []int{300}, counter.recordDebounces)
+}
+
+// same-version 阈值可配（=3）：count=2 仍冷却，count=3 才升级。
+func TestRateLimitService_OAuth401SameVersion_ThresholdConfigurable(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	counter := &oauth401AfterRefreshCounterStub{sameCounts: []int64{2, 3}}
+	cfg := &config.Config{}
+	cfg.RateLimit.OAuth401SameVersionDisableThreshold = 3
+	service := NewRateLimitService(repo, nil, cfg, nil, nil)
+	service.SetOAuth401AfterRefreshCounter(counter)
+	account := newOAuth401AnthropicAccount(802, 1737654321000)
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("unauthorized"))
+	require.True(t, shouldDisable)
+	require.Equal(t, 0, repo.setErrorCalls, "same-version below threshold 3 must not escalate")
+	require.Equal(t, 1, repo.tempCalls, "falls through to temp_unschedulable cooldown")
+
+	shouldDisable = service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("unauthorized"))
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, repo.setErrorCalls, "same-version at configured threshold 3 must escalate")
+	require.Equal(t, 1, repo.tempCalls, "no extra cooldown on escalation")
+	require.Contains(t, repo.lastErrorMsg, "still-valid token")
+}
+
+// version-bump 与 same-version 同时达阈值时，version-bump 优先（信号更强，文案不同）。
+func TestRateLimitService_OAuth401_VersionBumpTakesPriorityOverSameVersion(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	counter := &oauth401AfterRefreshCounterStub{counts: []int64{1}, sameCounts: []int64{5}}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetOAuth401AfterRefreshCounter(counter)
+	account := newOAuth401AnthropicAccount(803, 1737654321000)
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("unauthorized"))
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, repo.setErrorCalls)
+	require.Contains(t, repo.lastErrorMsg, "refresh_token likely revoked", "version-bump branch wins")
+	require.NotContains(t, repo.lastErrorMsg, "still-valid token")
 }
