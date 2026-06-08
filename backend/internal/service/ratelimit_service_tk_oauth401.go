@@ -130,8 +130,10 @@ func (s *RateLimitService) tkTryEscalateRevokedOAuth401(ctx context.Context, acc
 
 	// 两条互补触发，任一达阈值即升级为 error 永久停调度 + 告警（handleAuthError 内 notify + SetError）。
 	// version-bump 优先（信号更强：换过新 token 仍 401）；same-version 补其盲区。
+	versionThreshold := s.getOAuth401AfterRefreshThreshold()
+	sameThreshold := s.getOAuth401SameVersionThreshold()
 	switch {
-	case versionBumpCount >= s.getOAuth401AfterRefreshThreshold():
+	case versionBumpCount >= versionThreshold:
 		msg := fmt.Sprintf(
 			"OAuth 401 persists after %d successful token refresh(es) — refresh_token likely revoked, manual re-authorization required (re-login via account management)",
 			versionBumpCount,
@@ -144,12 +146,12 @@ func (s *RateLimitService) tkTryEscalateRevokedOAuth401(ctx context.Context, acc
 			"account_id", account.ID,
 			"platform", account.Platform,
 			"count", versionBumpCount,
-			"threshold", s.getOAuth401AfterRefreshThreshold(),
+			"threshold", versionThreshold,
 			"token_version", tokenVersion,
 		)
 		s.handleAuthError(ctx, account, msg)
 		return true
-	case sameVersionCount >= s.getOAuth401SameVersionThreshold():
+	case sameVersionCount >= sameThreshold:
 		// token 仍有效却跨冷却周期持续 401：access_token 未到期 → 不触发刷新 → 版本冻结，
 		// 而上游持续拒——grant 在有效期内被吊销。这是 version-bump 闸门看不到的盲区。
 		msg := fmt.Sprintf(
@@ -164,7 +166,7 @@ func (s *RateLimitService) tkTryEscalateRevokedOAuth401(ctx context.Context, acc
 			"account_id", account.ID,
 			"platform", account.Platform,
 			"same_version_count", sameVersionCount,
-			"threshold", s.getOAuth401SameVersionThreshold(),
+			"threshold", sameThreshold,
 			"token_version", tokenVersion,
 		)
 		s.handleAuthError(ctx, account, msg)

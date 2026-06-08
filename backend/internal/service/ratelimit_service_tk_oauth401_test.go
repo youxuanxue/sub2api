@@ -217,10 +217,10 @@ func TestRateLimitService_OAuth401SameVersion_EscalatesAtThreshold(t *testing.T)
 	require.Equal(t, []int{300}, counter.recordDebounces)
 }
 
-// same-version 低于阈值（配置=3，count=2）：不升级，回退 temp_unschedulable 冷却。
-func TestRateLimitService_OAuth401SameVersion_BelowThresholdFallsThroughToCooldown(t *testing.T) {
+// same-version 阈值可配（=3）：count=2 仍冷却，count=3 才升级。
+func TestRateLimitService_OAuth401SameVersion_ThresholdConfigurable(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
-	counter := &oauth401AfterRefreshCounterStub{sameCounts: []int64{2}}
+	counter := &oauth401AfterRefreshCounterStub{sameCounts: []int64{2, 3}}
 	cfg := &config.Config{}
 	cfg.RateLimit.OAuth401SameVersionDisableThreshold = 3
 	service := NewRateLimitService(repo, nil, cfg, nil, nil)
@@ -228,10 +228,15 @@ func TestRateLimitService_OAuth401SameVersion_BelowThresholdFallsThroughToCooldo
 	account := newOAuth401AnthropicAccount(802, 1737654321000)
 
 	shouldDisable := service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("unauthorized"))
-
 	require.True(t, shouldDisable)
-	require.Equal(t, 0, repo.setErrorCalls, "same-version below threshold must not escalate")
+	require.Equal(t, 0, repo.setErrorCalls, "same-version below threshold 3 must not escalate")
 	require.Equal(t, 1, repo.tempCalls, "falls through to temp_unschedulable cooldown")
+
+	shouldDisable = service.HandleUpstreamError(context.Background(), account, 401, http.Header{}, []byte("unauthorized"))
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, repo.setErrorCalls, "same-version at configured threshold 3 must escalate")
+	require.Equal(t, 1, repo.tempCalls, "no extra cooldown on escalation")
+	require.Contains(t, repo.lastErrorMsg, "still-valid token")
 }
 
 // version-bump 与 same-version 同时达阈值时，version-bump 优先（信号更强，文案不同）。
