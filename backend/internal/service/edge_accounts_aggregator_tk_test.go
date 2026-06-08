@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -23,24 +25,28 @@ func (s *edgeAccountsStoreStub) ListByPlatform(_ context.Context, _ string) ([]A
 	return s.accounts, s.err
 }
 
-// fakeEdgeDoer routes by request host, records the x-api-key seen per host, and
-// returns a canned response or error.
+// fakeEdgeDoer routes by request host, records the x-api-key seen per host, counts
+// total calls (for cache-hit assertions), and returns a canned response or error.
+// The whole body runs under the mutex so it is race-safe under the SWR background
+// refresh (which calls Do concurrently with the test goroutine).
 type fakeEdgeDoer struct {
 	mu           sync.Mutex
 	bodyByHost   map[string]string // host -> JSON body for a 200
 	errByHost    map[string]error  // host -> transport error
 	statusByHost map[string]int    // host -> non-200 status
 	keysSeen     map[string]string // host -> x-api-key
+	calls        atomic.Int64      // total Do invocations across all fan-outs
 }
 
 func (f *fakeEdgeDoer) Do(req *http.Request) (*http.Response, error) {
+	f.calls.Add(1)
 	host := req.URL.Host
 	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.keysSeen == nil {
 		f.keysSeen = map[string]string{}
 	}
 	f.keysSeen[host] = req.Header.Get("x-api-key")
-	f.mu.Unlock()
 
 	if err := f.errByHost[host]; err != nil {
 		return nil, err
@@ -265,6 +271,75 @@ func TestEdgeAccountsAggregator_ListError(t *testing.T) {
 	agg := NewEdgeAccountsAggregator(store, &fakeEdgeDoer{})
 	_, err := agg.Aggregate(context.Background(), "anthropic")
 	require.Error(t, err)
+}
+
+// testClock is an injectable, race-safe clock for driving the soft-TTL window.
+type testClock struct{ ns atomic.Int64 }
+
+func newTestClock() *testClock {
+	c := &testClock{}
+	c.ns.Store(time.Unix(1_700_000_000, 0).UnixNano())
+	return c
+}
+func (c *testClock) now() time.Time          { return time.Unix(0, c.ns.Load()) }
+func (c *testClock) advance(d time.Duration) { c.ns.Add(int64(d)) }
+
+// Within edgeAccountsSoftTTL a second Aggregate is served from cache — no second
+// fan-out. This is the core "太慢" fix: repeated loads/refreshes don't re-fan-out.
+func TestEdgeAccountsAggregator_CacheServesWithinSoftTTL(t *testing.T) {
+	store := &edgeAccountsStoreStub{accounts: []Account{
+		mirrorStub(1, "https://api-us1.tokenkey.dev", "key-us1"),
+	}}
+	doer := &fakeEdgeDoer{bodyByHost: map[string]string{
+		"api-us1.tokenkey.dev": `{"code":0,"data":{"accounts":[]}}`,
+	}}
+	clk := newTestClock()
+	agg := NewEdgeAccountsAggregator(store, doer)
+	agg.now = clk.now
+
+	out1, err := agg.Aggregate(context.Background(), "anthropic")
+	require.NoError(t, err)
+	require.Len(t, out1.Edges, 1)
+	require.Equal(t, int64(1), doer.calls.Load(), "cold load fans out once")
+
+	clk.advance(edgeAccountsSoftTTL / 2) // still fresh
+	out2, err := agg.Aggregate(context.Background(), "anthropic")
+	require.NoError(t, err)
+	require.Len(t, out2.Edges, 1)
+	require.Equal(t, int64(1), doer.calls.Load(), "fresh hit must not re-fan-out")
+}
+
+// Past the soft TTL, Aggregate returns the cached (stale) aggregate immediately and
+// refreshes in the background; the next call (now fresh again) serves the refreshed
+// data. A slow/dead edge therefore only ever costs the background goroutine.
+func TestEdgeAccountsAggregator_StaleServesCachedThenBackgroundRefresh(t *testing.T) {
+	store := &edgeAccountsStoreStub{accounts: []Account{
+		mirrorStub(1, "https://api-us1.tokenkey.dev", "key-us1"),
+	}}
+	doer := &fakeEdgeDoer{bodyByHost: map[string]string{
+		"api-us1.tokenkey.dev": `{"code":0,"data":{"accounts":[]}}`,
+	}}
+	clk := newTestClock()
+	agg := NewEdgeAccountsAggregator(store, doer)
+	agg.now = clk.now
+
+	_, err := agg.Aggregate(context.Background(), "anthropic")
+	require.NoError(t, err)
+	require.Equal(t, int64(1), doer.calls.Load())
+
+	clk.advance(edgeAccountsSoftTTL + time.Second) // now stale
+	out, err := agg.Aggregate(context.Background(), "anthropic")
+	require.NoError(t, err)
+	require.Len(t, out.Edges, 1, "stale read still serves the cached aggregate")
+
+	// The background refresh fires asynchronously; wait for the second fan-out.
+	require.Eventually(t, func() bool { return doer.calls.Load() == 2 }, time.Second, 5*time.Millisecond,
+		"stale read must trigger one background refresh")
+
+	// A subsequent read is fresh again (refreshed cache, clock unchanged) — no new fan-out.
+	_, err = agg.Aggregate(context.Background(), "anthropic")
+	require.NoError(t, err)
+	require.Equal(t, int64(2), doer.calls.Load())
 }
 
 func TestEdgeIDFromBaseURL(t *testing.T) {

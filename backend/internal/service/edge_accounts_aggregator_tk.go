@@ -42,6 +42,13 @@ const (
 	// edgeAccountsFanoutCap bounds concurrent edge reads — cheap insurance if the
 	// mirror-stub count ever grows large; today the fleet is well under this.
 	edgeAccountsFanoutCap = 16
+	// edgeAccountsSoftTTL is how long a cached aggregate is served as-is before a
+	// background refresh is kicked off. The overview is a read-only ops dashboard,
+	// so a few seconds of staleness is fine; in exchange, a slow/dead edge (up to
+	// edgeAccountsHTTPTO per fan-out) only ever costs the background goroutine, never
+	// the operator's request. After the first (cold) load, every load/refresh —
+	// manual button, periodic auto-refresh, a second admin — returns instantly.
+	edgeAccountsSoftTTL = 15 * time.Second
 )
 
 // edgeIDPattern extracts the edge id from an internal edge base_url:
@@ -87,16 +94,40 @@ type EdgeAccountsAggregate struct {
 	TS       int64                `json:"ts"`
 }
 
+// cachedAggregate is one platform's last successfully fanned-out aggregate plus
+// when it was produced, so Aggregate can serve it within edgeAccountsSoftTTL and
+// fall back to it (stale) while a background refresh is in flight.
+type cachedAggregate struct {
+	agg       *EdgeAccountsAggregate
+	fetchedAt time.Time
+}
+
 // EdgeAccountsAggregator discovers edges and fans out the read.
+//
+// A per-platform stale-while-revalidate cache fronts the fan-out: see Aggregate.
+// The fan-out itself (discover + concurrent edge reads + sort) is in fanout.
 type EdgeAccountsAggregator struct {
 	accounts edgeAccountsStore
 	http     httpDoer
+
+	// now is injectable so tests can drive the soft-TTL clock; defaults to time.Now.
+	now func() time.Time
+
+	mu         sync.Mutex
+	cache      map[string]cachedAggregate // platform -> last good aggregate
+	refreshing map[string]bool            // platform -> a background refresh is in flight
 }
 
 // NewEdgeAccountsAggregator constructs the aggregator. A nil accounts store makes
 // Aggregate return an empty (non-error) result, keeping wire wiring safe.
 func NewEdgeAccountsAggregator(accounts edgeAccountsStore, client httpDoer) *EdgeAccountsAggregator {
-	return &EdgeAccountsAggregator{accounts: accounts, http: client}
+	return &EdgeAccountsAggregator{
+		accounts:   accounts,
+		http:       client,
+		now:        time.Now,
+		cache:      make(map[string]cachedAggregate),
+		refreshing: make(map[string]bool),
+	}
 }
 
 // edgeTarget is a deduped {base_url, api_key, edge_id} discovered from a stub,
@@ -109,16 +140,89 @@ type edgeTarget struct {
 	schedulable bool
 }
 
-// Aggregate discovers mirror-stub edges and concurrently reads each edge's
-// account inventory for the given platform. The discovery scan itself is always
-// against anthropic accounts (mirror stubs are anthropic api-key accounts); the
-// platform argument is forwarded to each edge's /accounts query.
+// Aggregate returns the cross-edge account inventory for the given platform,
+// fronted by a per-platform stale-while-revalidate cache so a slow/dead edge never
+// drags the operator's request:
+//
+//   - fresh hit (age < edgeAccountsSoftTTL): return the cached aggregate at once;
+//   - stale hit: return the (stale) cached aggregate at once AND launch a
+//     single-flight background refresh so the next caller gets fresher data;
+//   - cold (no cache yet): synchronously fan out — the only slow path, paid once.
+//
+// The actual discovery + concurrent edge reads live in fanout.
 func (a *EdgeAccountsAggregator) Aggregate(ctx context.Context, platform string) (*EdgeAccountsAggregate, error) {
 	platform = strings.ToLower(strings.TrimSpace(platform))
 	if platform == "" {
 		platform = PlatformAnthropic
 	}
-	out := &EdgeAccountsAggregate{Platform: platform, Edges: []EdgeAccountsResult{}, TS: time.Now().Unix()}
+	if a == nil || a.accounts == nil {
+		return &EdgeAccountsAggregate{Platform: platform, Edges: []EdgeAccountsResult{}, TS: a.nowUnix()}, nil
+	}
+
+	a.mu.Lock()
+	entry, ok := a.cache[platform]
+	if ok {
+		stale := a.now().Sub(entry.fetchedAt) >= edgeAccountsSoftTTL
+		if stale && !a.refreshing[platform] {
+			a.refreshing[platform] = true
+			go a.refreshAsync(platform)
+		}
+		a.mu.Unlock()
+		return entry.agg, nil
+	}
+	a.mu.Unlock()
+
+	// Cold cache: fan out synchronously (first load only).
+	agg, err := a.fanout(ctx, platform)
+	if err != nil {
+		return nil, err
+	}
+	a.mu.Lock()
+	a.cache[platform] = cachedAggregate{agg: agg, fetchedAt: a.now()}
+	a.mu.Unlock()
+	return agg, nil
+}
+
+// refreshAsync re-fans-out a platform in the background and replaces its cache
+// entry on success. It uses context.Background() (NOT a request context, which is
+// cancelled the moment the serving request returns) with its own timeout; on
+// failure it keeps the stale entry so the overview never regresses to empty.
+func (a *EdgeAccountsAggregator) refreshAsync(platform string) {
+	defer func() {
+		a.mu.Lock()
+		a.refreshing[platform] = false
+		a.mu.Unlock()
+	}()
+	// Bound the whole fan-out: edge reads are individually capped at
+	// edgeAccountsHTTPTO, run concurrently, so a small margin over that covers
+	// discovery + scheduling.
+	ctx, cancel := context.WithTimeout(context.Background(), edgeAccountsHTTPTO+2*time.Second)
+	defer cancel()
+	agg, err := a.fanout(ctx, platform)
+	if err != nil {
+		slog.Warn("edge accounts aggregator: background refresh failed; keeping stale cache",
+			"platform", platform, "error", err)
+		return
+	}
+	a.mu.Lock()
+	a.cache[platform] = cachedAggregate{agg: agg, fetchedAt: a.now()}
+	a.mu.Unlock()
+}
+
+// nowUnix returns the current unix timestamp via the injectable clock.
+func (a *EdgeAccountsAggregator) nowUnix() int64 {
+	if a == nil || a.now == nil {
+		return time.Now().Unix()
+	}
+	return a.now().Unix()
+}
+
+// fanout discovers mirror-stub edges and concurrently reads each edge's account
+// inventory for the given platform. The discovery scan itself is always against
+// anthropic accounts (mirror stubs are anthropic api-key accounts); the platform
+// argument is forwarded to each edge's /accounts query. Caller owns caching.
+func (a *EdgeAccountsAggregator) fanout(ctx context.Context, platform string) (*EdgeAccountsAggregate, error) {
+	out := &EdgeAccountsAggregate{Platform: platform, Edges: []EdgeAccountsResult{}, TS: a.nowUnix()}
 	if a == nil || a.accounts == nil {
 		return out, nil
 	}

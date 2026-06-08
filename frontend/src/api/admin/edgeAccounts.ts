@@ -118,6 +118,40 @@ export async function list(params: EdgeAccountsListParams = {}): Promise<EdgeAcc
 }
 
 /**
+ * ETag-aware variant for the periodic auto-refresh. Sends If-None-Match and, when
+ * the backend's aggregate is unchanged (304), returns `notModified` with no body so
+ * the caller can skip a re-render entirely. Mirrors api/admin/accounts.ts:listWithEtag.
+ */
+export interface EdgeAccountsListWithEtagResult {
+  notModified: boolean
+  etag: string | null
+  data: EdgeAccountsAggregate | null
+}
+
+export async function listWithEtag(
+  params: EdgeAccountsListParams = {},
+  options?: { signal?: AbortSignal; etag?: string | null }
+): Promise<EdgeAccountsListWithEtagResult> {
+  const headers: Record<string, string> = {}
+  if (options?.etag) {
+    headers['If-None-Match'] = options.etag
+  }
+
+  const response = await apiClient.get<EdgeAccountsAggregate>('/admin/edge-accounts', {
+    params,
+    headers,
+    signal: options?.signal,
+    validateStatus: (status) => (status >= 200 && status < 300) || status === 304
+  })
+
+  const etagHeader = typeof response.headers?.etag === 'string' ? response.headers.etag : null
+  if (response.status === 304) {
+    return { notModified: true, etag: etagHeader, data: null }
+  }
+  return { notModified: false, etag: etagHeader, data: response.data }
+}
+
+/**
  * Mint result for the "manage accounts" handoff: a ready-to-open URL on the
  * target edge that auto-logs-in and lands on its own /admin/accounts page. The
  * short-lived token rides in the URL fragment (see backend buildEdgeHandoffURL).
@@ -141,6 +175,7 @@ export async function adminSession(edgeId: string): Promise<EdgeAdminSessionResu
 
 export const edgeAccountsAPI = {
   list,
+  listWithEtag,
   adminSession
 }
 

@@ -19,9 +19,13 @@ import (
 type aggregatorStub struct {
 	session *service.EdgeAdminSession
 	err     error
+	agg     *service.EdgeAccountsAggregate
 }
 
 func (s aggregatorStub) Aggregate(_ context.Context, _ string) (*service.EdgeAccountsAggregate, error) {
+	if s.agg != nil {
+		return s.agg, nil
+	}
 	return &service.EdgeAccountsAggregate{}, nil
 }
 
@@ -108,4 +112,59 @@ func TestMintAdminSession_MissingEdgeIs400(t *testing.T) {
 	h := NewEdgeAccountsHandler(aggregatorStub{})
 	w := performMintRequest(t, h, "")
 	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func performListRequest(t *testing.T, h *EdgeAccountsHandler, ifNoneMatch string) *httptest.ResponseRecorder {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/edge-accounts?platform=all", nil)
+	if ifNoneMatch != "" {
+		c.Request.Header.Set("If-None-Match", ifNoneMatch)
+	}
+	h.List(c)
+	// Calling the handler directly bypasses the gin engine, which is what normally
+	// flushes a body-less c.Status (e.g. the 304 path) to the underlying writer.
+	// Flush explicitly so the recorder observes the real status code.
+	c.Writer.WriteHeaderNow()
+	return w
+}
+
+func TestList_SetsETagOn200(t *testing.T) {
+	h := NewEdgeAccountsHandler(aggregatorStub{agg: &service.EdgeAccountsAggregate{
+		Platform: "all",
+		Edges:    []service.EdgeAccountsResult{{EdgeID: "us1", BaseURL: "https://api-us1.tokenkey.dev", OK: true}},
+		TS:       111,
+	}})
+	w := performListRequest(t, h, "")
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NotEmpty(t, w.Header().Get("ETag"))
+	require.Equal(t, "If-None-Match", w.Header().Get("Vary"))
+}
+
+func TestList_NotModifiedWhenIfNoneMatchMatches(t *testing.T) {
+	h := NewEdgeAccountsHandler(aggregatorStub{agg: &service.EdgeAccountsAggregate{
+		Platform: "all",
+		Edges:    []service.EdgeAccountsResult{{EdgeID: "us1", BaseURL: "https://api-us1.tokenkey.dev", OK: true}},
+		TS:       111,
+	}})
+	first := performListRequest(t, h, "")
+	require.Equal(t, http.StatusOK, first.Code)
+	etag := first.Header().Get("ETag")
+	require.NotEmpty(t, etag)
+
+	second := performListRequest(t, h, etag)
+	require.Equal(t, http.StatusNotModified, second.Code)
+	require.Empty(t, second.Body.Bytes(), "304 carries no body")
+}
+
+// The ETag deliberately excludes the per-fan-out TS, so an unchanged inventory keeps
+// the same ETag even after a background refresh bumps TS — otherwise the 304 path
+// would never fire on a live page.
+func TestList_ETagIgnoresTimestamp(t *testing.T) {
+	edges := []service.EdgeAccountsResult{{EdgeID: "us1", BaseURL: "https://api-us1.tokenkey.dev", OK: true}}
+	hA := NewEdgeAccountsHandler(aggregatorStub{agg: &service.EdgeAccountsAggregate{Platform: "all", Edges: edges, TS: 111}})
+	hB := NewEdgeAccountsHandler(aggregatorStub{agg: &service.EdgeAccountsAggregate{Platform: "all", Edges: edges, TS: 999}})
+	require.Equal(t, performListRequest(t, hA, "").Header().Get("ETag"), performListRequest(t, hB, "").Header().Get("ETag"))
 }

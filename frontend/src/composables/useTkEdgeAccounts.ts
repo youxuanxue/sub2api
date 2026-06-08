@@ -2,11 +2,15 @@
  * Edge Accounts overview composable (TokenKey-only).
  *
  * Owns all state + the API call for the read-only cross-edge account view, and
- * keeps the data live with a periodic auto-refresh (mirroring the per-edge admin
- * accounts page, which auto-refreshes). Without it the page only fetched once on
- * mount and could show a stale snapshot — e.g. a 5h-window utilization captured
- * just after a window roll — diverging from the always-fresh per-edge page.
- * Mirrors the TK convention of useTk*.ts composables (CLAUDE.md §5).
+ * keeps the data live with the same auto-refresh engine the admin accounts page
+ * uses (views/admin/AccountsView.vue): a 1s countdown tick, a configurable
+ * interval (5/10/15/30s) persisted to localStorage, an enable toggle, ETag/304 so
+ * an unchanged poll is a no-op, and an incremental edge merge so unchanged edge
+ * cards keep their reference (no full-table flicker). Without auto-refresh the page
+ * would only fetch once on mount and could show a stale snapshot — e.g. a
+ * 5h-window utilization captured just after a window roll — diverging from the
+ * always-fresh per-edge page. Mirrors the TK convention of useTk*.ts composables
+ * (CLAUDE.md §5).
  */
 
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
@@ -14,9 +18,63 @@ import { useIntervalFn } from '@vueuse/core'
 import { adminAPI } from '@/api/admin'
 import type { EdgeAccountsResult } from '@/api/admin/edgeAccounts'
 
-// Each refresh fans out to every edge, so keep the cadence gentle. 30s is fresh
-// enough to track the per-edge page without hammering the fan-out.
-const AUTO_REFRESH_MS = 30_000
+// Selectable auto-refresh cadences (seconds), matching the admin accounts page. The
+// backend fronts the fan-out with a stale-while-revalidate cache + ETag, so even a
+// 5s cadence is cheap (cache hit / 304) — no longer "hammering the fan-out".
+export const EDGE_AUTO_REFRESH_INTERVALS = [5, 10, 15, 30] as const
+export type EdgeAutoRefreshInterval = (typeof EDGE_AUTO_REFRESH_INTERVALS)[number]
+
+const AUTO_REFRESH_STORAGE_KEY = 'edge-accounts-auto-refresh'
+const DEFAULT_INTERVAL: EdgeAutoRefreshInterval = 30
+
+interface PersistedPrefs {
+  enabled: boolean
+  interval: EdgeAutoRefreshInterval
+}
+
+function loadPrefs(): PersistedPrefs {
+  // Default: enabled at 30s — preserve the page's prior always-fresh ops behavior.
+  const fallback: PersistedPrefs = { enabled: true, interval: DEFAULT_INTERVAL }
+  if (typeof localStorage === 'undefined') return fallback
+  try {
+    const raw = localStorage.getItem(AUTO_REFRESH_STORAGE_KEY)
+    if (!raw) return fallback
+    const parsed = JSON.parse(raw) as Partial<PersistedPrefs>
+    const interval = EDGE_AUTO_REFRESH_INTERVALS.includes(parsed.interval as EdgeAutoRefreshInterval)
+      ? (parsed.interval as EdgeAutoRefreshInterval)
+      : DEFAULT_INTERVAL
+    return { enabled: parsed.enabled !== false, interval }
+  } catch {
+    return fallback
+  }
+}
+
+/**
+ * Merge a freshly-fetched edges array into the current one, preserving the object
+ * reference of any edge whose content is byte-identical so Vue does not re-render
+ * its card. Edge payloads are small (≤ a few edges, ≤ a handful of accounts each),
+ * so a per-edge JSON compare is cheap. Analog of AccountsView's
+ * mergeAccountsIncrementally, at edge granularity.
+ */
+export function mergeEdges(current: EdgeAccountsResult[], next: EdgeAccountsResult[]): EdgeAccountsResult[] {
+  const byId = new Map(current.map((e) => [e.edge_id, e]))
+  let changed = next.length !== current.length
+  const merged = next.map((n) => {
+    const cur = byId.get(n.edge_id)
+    if (cur && JSON.stringify(cur) === JSON.stringify(n)) return cur
+    changed = true
+    return n
+  })
+  if (!changed) {
+    for (let i = 0; i < merged.length; i += 1) {
+      if (merged[i].edge_id !== current[i]?.edge_id) {
+        changed = true
+        break
+      }
+    }
+  }
+  return changed ? merged : current
+}
 
 // 'all' is the sentinel the backend maps to an empty platform filter (every
 // platform). The page defaults to it so the overview is complete; the filter
@@ -28,8 +86,8 @@ export function useTkEdgeAccounts(initialPlatform = 'all') {
   const error = ref<string | null>(null)
   const lastFetchedAt = ref<Date | null>(null)
 
-  const okEdges = computed(() => edges.value.filter(e => e.ok))
-  const failedEdges = computed(() => edges.value.filter(e => !e.ok))
+  const okEdges = computed(() => edges.value.filter((e) => e.ok))
+  const failedEdges = computed(() => edges.value.filter((e) => !e.ok))
   const totalAccounts = computed(() =>
     edges.value.reduce((n, e) => n + e.accounts.length, 0)
   )
@@ -85,43 +143,124 @@ export function useTkEdgeAccounts(initialPlatform = 'all') {
     }
   })
 
+  // --- Auto-refresh engine (mirrors AccountsView.vue) ---
+  const prefs = loadPrefs()
+  const autoRefreshEnabled = ref(prefs.enabled)
+  const autoRefreshIntervalSeconds = ref<EdgeAutoRefreshInterval>(prefs.interval)
+  const autoRefreshCountdown = ref(0)
+  const autoRefreshIntervals = EDGE_AUTO_REFRESH_INTERVALS
+  const etag = ref<string | null>(null)
+  const fetching = ref(false)
+
+  function persistPrefs() {
+    if (typeof localStorage === 'undefined') return
+    try {
+      localStorage.setItem(
+        AUTO_REFRESH_STORAGE_KEY,
+        JSON.stringify({ enabled: autoRefreshEnabled.value, interval: autoRefreshIntervalSeconds.value })
+      )
+    } catch {
+      // ignore quota / privacy-mode write failures
+    }
+  }
+
+  // Full (re)load: used on mount, manual refresh, and platform change. Replaces the
+  // visible loading state and resets the ETag baseline.
   async function fetch() {
     if (loading.value) return
     loading.value = true
     error.value = null
     try {
-      const agg = await adminAPI.edgeAccounts.list({ platform: platform.value })
-      edges.value = agg.edges ?? []
+      const res = await adminAPI.edgeAccounts.listWithEtag({ platform: platform.value })
+      if (!res.notModified && res.data) {
+        edges.value = res.data.edges ?? []
+      }
+      etag.value = res.etag
       lastFetchedAt.value = new Date()
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : String(e)
       edges.value = []
+      etag.value = null
     } finally {
       loading.value = false
     }
   }
 
+  // Background incremental refresh driven by the countdown. Skips the visible
+  // loading spinner; on 304 it is a true no-op, on 200 it merges so unchanged edge
+  // cards keep their reference.
+  async function refreshIncrementally() {
+    if (fetching.value || loading.value) return
+    fetching.value = true
+    try {
+      const res = await adminAPI.edgeAccounts.listWithEtag(
+        { platform: platform.value },
+        { etag: etag.value }
+      )
+      if (res.etag) etag.value = res.etag
+      if (!res.notModified && res.data) {
+        edges.value = mergeEdges(edges.value, res.data.edges ?? [])
+      }
+      lastFetchedAt.value = new Date()
+    } catch {
+      // Transient auto-refresh failures keep the last-good view; the next tick retries.
+    } finally {
+      fetching.value = false
+    }
+  }
+
   // Switch the platform filter and immediately refetch (the auto-refresh would
-  // otherwise leave the old platform's rows on screen for up to AUTO_REFRESH_MS).
+  // otherwise leave the old platform's rows on screen for up to the interval).
   function setPlatform(p: string) {
     if (p === platform.value) return
     platform.value = p
+    etag.value = null // different filter → different aggregate
     void fetch()
+    if (autoRefreshEnabled.value) autoRefreshCountdown.value = autoRefreshIntervalSeconds.value
   }
 
-  // Periodic auto-refresh; skip when the tab is hidden or a fetch is in flight.
+  // 1s countdown tick (mirrors AccountsView.vue): skip when disabled, tab hidden, or
+  // a fetch is already in flight; when the countdown hits 0, refresh and reset it.
   const { pause, resume } = useIntervalFn(
     () => {
+      if (!autoRefreshEnabled.value) return
       if (typeof document !== 'undefined' && document.hidden) return
-      void fetch()
+      if (loading.value || fetching.value) return
+      if (autoRefreshCountdown.value <= 0) {
+        autoRefreshCountdown.value = autoRefreshIntervalSeconds.value
+        void refreshIncrementally()
+        return
+      }
+      autoRefreshCountdown.value -= 1
     },
-    AUTO_REFRESH_MS,
+    1000,
     { immediate: false }
   )
 
+  function setAutoRefreshEnabled(enabled: boolean) {
+    autoRefreshEnabled.value = enabled
+    persistPrefs()
+    if (enabled) {
+      autoRefreshCountdown.value = autoRefreshIntervalSeconds.value
+      resume()
+    } else {
+      pause()
+      autoRefreshCountdown.value = 0
+    }
+  }
+
+  function setAutoRefreshInterval(seconds: EdgeAutoRefreshInterval) {
+    autoRefreshIntervalSeconds.value = seconds
+    persistPrefs()
+    if (autoRefreshEnabled.value) autoRefreshCountdown.value = seconds
+  }
+
   onMounted(() => {
     void fetch()
-    resume()
+    if (autoRefreshEnabled.value) {
+      autoRefreshCountdown.value = autoRefreshIntervalSeconds.value
+      resume()
+    }
   })
   onBeforeUnmount(() => pause())
 
@@ -136,6 +275,13 @@ export function useTkEdgeAccounts(initialPlatform = 'all') {
     totalAccounts,
     totals,
     fetch,
-    setPlatform
+    setPlatform,
+    // auto-refresh controls
+    autoRefreshEnabled,
+    autoRefreshIntervalSeconds,
+    autoRefreshIntervals,
+    autoRefreshCountdown,
+    setAutoRefreshEnabled,
+    setAutoRefreshInterval
   }
 }
