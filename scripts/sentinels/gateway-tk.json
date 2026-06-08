@@ -1980,11 +1980,13 @@
       "path": "backend/internal/service/gateway_service_tk_header_wait_keepalive.go",
       "must_contain": [
         "func (s *GatewayService) beginHeaderWaitKeepalive(c *gin.Context, reqStream bool) *headerWaitKeepalive",
-        "func startHeaderWaitKeepalive(c *gin.Context, interval time.Duration) *headerWaitKeepalive",
+        "func startHeaderWaitKeepalive(c *gin.Context, interval time.Duration, frame string) *headerWaitKeepalive",
         "func (k *headerWaitKeepalive) stop()",
-        "anthropicSSEPingFrame"
+        "anthropicSSEPingFrame",
+        "func (s *OpenAIGatewayService) beginHeaderWaitKeepalive(c *gin.Context, reqStream bool) *headerWaitKeepalive",
+        "openaiSSECommentFrame"
       ],
-      "rationale": "Header-wait SSE keepalive (Wei-Shaw/sub2api#2121): emits Anthropic-shaped ping frames to the downstream client while Forward blocks in DoWithTLS waiting for upstream response headers, so idle-sensitive intermediaries (Cloudflare Tunnel / Caddy / client SDKs) do not drop a slow request before the first upstream byte. This closes the gap left by the in-stream keepalive (which only fires AFTER the first SSE byte) and is amplified on the prod->edge mirror relay. The first ping is delayed one keepalive interval so fast failover-eligible errors return before any byte is written, preserving the handler's c.Writer.Written() failover gate. An upstream merge that overwrites this companion would silently re-open the slow-header connection-drop on the busiest path."
+      "rationale": "Header-wait SSE keepalive (Wei-Shaw/sub2api#2121): emits Anthropic-shaped ping frames to the downstream client while Forward blocks in DoWithTLS waiting for upstream response headers, so idle-sensitive intermediaries (Cloudflare Tunnel / Caddy / client SDKs) do not drop a slow request before the first upstream byte. This closes the gap left by the in-stream keepalive (which only fires AFTER the first SSE byte) and is amplified on the prod->edge mirror relay. The first ping is delayed one keepalive interval so fast failover-eligible errors return before any byte is written, preserving the handler's c.Writer.Written() failover gate. An upstream merge that overwrites this companion would silently re-open the slow-header connection-drop on the busiest path. Now parameterized by frame and used by BOTH the Anthropic Forward path (event:ping frame) and the OpenAI/Codex passthrough path (bare SSE comment frame) — one keepalive implementation, two platforms."
     },
     {
       "path": "backend/internal/service/gateway_service.go",
@@ -2002,6 +2004,14 @@
         "TestBeginHeaderWaitKeepalive_NonStreamReturnsNil"
       ],
       "rationale": "Focused regressions for the header-wait keepalive: (1) ping frames + SSE headers are emitted once one interval elapses on a slow upstream; (2) NOT a single byte is written before the interval, which is the failover-gate contract (a fast 429/503/5xx must still be able to failover via c.Writer.Written()==false); (3) non-streaming requests get a nil no-op. Dropping these lets an upstream merge silently revert the failover-safe delayed-ping behavior."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "hwka := s.beginHeaderWaitKeepalive(c, reqStream)",
+        "hwka.stop()"
+      ],
+      "rationale": "Header-wait SSE keepalive injection on the OpenAI/Codex passthrough streaming forward (forwardOpenAIPassthrough, around s.httpUpstream.Do). Same Wei-Shaw/sub2api#2121 idle-drop fix as the Anthropic Forward path, same failover-safe delayed-first-ping (the handler's failover gate compares c.Writer.Size() before/after forward). stop() must run the instant Do() returns. Catches an upstream merge that copies the old Do() shape back over the injection."
     }
   ]
 }
