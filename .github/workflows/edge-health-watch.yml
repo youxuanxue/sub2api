@@ -94,7 +94,7 @@ jobs:
           set -uo pipefail
           mkdir -p .edge-health-state
           bash ops/observability/scan-edge-health.sh --with-prod --since "$SINCE" \
-            --timeout-seconds "$SCAN_PROBE_TIMEOUT" --json > verdicts.jsonl 2> scan.stderr || true
+            --timeout-seconds "$SCAN_PROBE_TIMEOUT" --json > verdicts.jsonl 2> scan.stderr || true  # preflight-allow: swallow — exit code ignored on purpose; the verdict-file emptiness check below is the gate
           echo "---- verdicts ----"; cat verdicts.jsonl || true  # preflight-allow: swallow — diagnostic echo
           echo "---- scan stderr (tail) ----"; tail -20 scan.stderr || true  # preflight-allow: swallow — diagnostic echo
           # Single decision: a non-empty verdict file is the only thing that lets us
