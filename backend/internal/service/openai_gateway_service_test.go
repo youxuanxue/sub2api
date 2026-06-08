@@ -632,7 +632,11 @@ func TestOpenAISelectAccountForModelWithExclusions_StickyOutsideGroupClearsSessi
 	repo := groupAwareStubOpenAIAccountRepo{
 		stubOpenAIAccountRepo{
 			accounts: []Account{
-				{ID: 1, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true, Concurrency: 1},
+				// TK conservative sticky-group semantics (openaiStickyAccountStillInGroup):
+				// the stale sticky account must have KNOWN membership excluding the
+				// requested group to be cleared (empty membership is intentionally kept,
+				// US013/US015). Pin it to a concrete foreign group (#1934 reassign case).
+				{ID: 1, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true, Concurrency: 1, AccountGroups: []AccountGroup{{GroupID: 2002}}},
 				{ID: 2, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true, Concurrency: 1, AccountGroups: []AccountGroup{{GroupID: groupID}}},
 			},
 		},

@@ -1727,6 +1727,15 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_ClearsStickyAccountOuts
 			Schedulable: true,
 			Concurrency: 1,
 			Priority:    0,
+			// TK conservative sticky-group semantics (openaiStickyAccountStillInGroup):
+			// an account is only treated as drifted-out when its membership is KNOWN and
+			// excludes the requested group. Give the stale sticky account a concrete
+			// foreign group (the real #1934 reassign-to-another-group scenario) so it is
+			// unambiguously outside group 1013 and gets cleared. An empty membership set
+			// is intentionally KEPT (US013/US015), which would not exercise this path.
+			AccountGroups: []AccountGroup{
+				{AccountID: 2401, GroupID: 9999},
+			},
 		},
 		{
 			ID:          2402,

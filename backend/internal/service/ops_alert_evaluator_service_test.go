@@ -142,7 +142,7 @@ func TestComputeRuleMetric_AccountTempUnscheduledCount(t *testing.T) {
 
 	rule := &OpsAlertRule{MetricType: "account_temp_unscheduled_count"}
 	val, ok := svc.computeRuleMetric(context.Background(), rule, nil,
-		now.Add(-5*time.Minute), now, "", nil)
+		now.Add(-5*time.Minute), now, "", nil, 0)
 
 	require.True(t, ok)
 	require.InDelta(t, 2.0, val, 0.0001, "only 2 accounts have an active temp-unsched window")
