@@ -16,7 +16,7 @@ echo "=== probe_user_traffic user_id=$USER_ID window_minutes=$WINDOW_MINUTES db_
 echo "=== user ==="
 $PSQL -c "
 SELECT row_to_json(t) FROM (
-  SELECT id, email, username, status FROM users WHERE id=$USER_ID
+  SELECT id, email, username, status FROM users WHERE id=$USER_ID AND deleted_at IS NULL
 ) t;"
 
 echo "=== usage_logs summary (success path) ==="

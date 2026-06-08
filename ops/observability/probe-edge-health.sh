@@ -51,7 +51,7 @@ SELECT 'ACCT '||row_to_json(t)::text FROM (
          session_window_status,
          (extra->>'stability_tier') AS tier
   FROM accounts
-  WHERE platform = '${PLATFORM}'
+  WHERE platform = '${PLATFORM}' AND deleted_at IS NULL
   ORDER BY id
 ) t;
 " 2>&1

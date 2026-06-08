@@ -352,7 +352,7 @@ WITH target AS (
          COALESCE(jsonb_agg(g.id ORDER BY g.id), '[]'::jsonb) AS ids
   FROM target t
   LEFT JOIN account_groups ag ON ag.account_id = t.id
-  LEFT JOIN groups g ON g.id = ag.group_id
+  LEFT JOIN groups g ON g.id = ag.group_id AND g.deleted_at IS NULL
   WHERE g.id IS NOT NULL
 ), tls_profile AS (
   SELECT CASE WHEN p.id IS NULL THEN NULL ELSE jsonb_build_object(
@@ -451,7 +451,7 @@ jsonb_build_object(
     )
     FROM {target_from} t
     LEFT JOIN account_groups ag ON ag.account_id = t.id
-    LEFT JOIN groups g ON g.id = ag.group_id
+    LEFT JOIN groups g ON g.id = ag.group_id AND g.deleted_at IS NULL
     WHERE g.id IS NOT NULL
   ),
   'tls_profile', (
