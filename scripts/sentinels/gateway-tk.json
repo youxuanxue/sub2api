@@ -1651,9 +1651,18 @@
     {
       "path": "backend/internal/service/openai_privacy_service.go",
       "must_contain": [
-        "classifyOpenAIPrivacyResponse(resp.StatusCode, resp.GetContentType(), resp.String())"
+        "classifyOpenAIPrivacyResponse(resp.StatusCode, resp.GetContentType(), resp.String())",
+        "readOpenAITrainingDisabled(ctx, clientFactory, accessToken, proxyURL)"
       ],
-      "rationale": "The OpenAI 'disable training data sharing' PATCH to chatgpt.com/backend-api gets served an OpenAI-branded Cloudflare anti-bot interstitial (gray logo SVG + <meta http-equiv=refresh>, status 403) from a datacenter egress IP. That page contains NONE of the legacy cloudflare/cf-/Just-a-moment markers, so the original inline detection mis-recorded it as training_set_failed (red 'Fail') instead of training_set_cf_blocked (yellow 'CF' — blocked, retryable, not an account fault). disableOpenAITraining now delegates classification to classifyOpenAIPrivacyResponse in openai_privacy_tk_classify.go (broadened HTML / <html> / cf / meta-refresh detection). An upstream merge that restores the old inline 3-marker block here compiles clean but silently reverts the fix and leaves the companion file as dead code — this sentinel catches that revert."
+      "rationale": "The OpenAI 'disable training data sharing' PATCH to chatgpt.com/backend-api gets served an OpenAI-branded Cloudflare anti-bot interstitial (gray logo SVG + <meta http-equiv=refresh>, status 403) from a datacenter egress IP. That page contains NONE of the legacy cloudflare/cf-/Just-a-moment markers, so the original inline detection mis-recorded it as training_set_failed (red 'Fail') instead of training_set_cf_blocked (yellow 'CF' — blocked, retryable, not an account fault). disableOpenAITraining now delegates classification to classifyOpenAIPrivacyResponse in openai_privacy_tk_classify.go (broadened HTML / <html> / cf / meta-refresh detection), and READS training state first via readOpenAITrainingDisabled (openai_privacy_tk_read.go): because Cloudflare challenges only the PATCH (write) and not the settings GET (read), an account whose training_allowed is already false is recorded training_off without ever issuing the blocked PATCH. An upstream merge that restores the old inline 3-marker block OR drops the read-first hook compiles clean but silently reverts the fix and leaves the companion files as dead code — this sentinel catches that revert."
+    },
+    {
+      "path": "backend/internal/service/openai_privacy_tk_read.go",
+      "must_contain": [
+        "https://chatgpt.com/backend-api/settings/user",
+        "func parseOpenAITrainingDisabled(body []byte) (disabled bool, ok bool)"
+      ],
+      "rationale": "Read side of the OpenAI privacy fix. The settings PATCH (openAISettingsURL) is Cloudflare-challenged from a datacenter egress, pinning privacy_mode at training_set_cf_blocked even when training is already off; the settings GET (openAISettingsUserURL = /backend-api/settings/user) is NOT challenged. readOpenAITrainingDisabled reads training_allowed and, when already false, lets disableOpenAITraining record training_off without the blocked PATCH; parseOpenAITrainingDisabled is the pure, table-tested decision (mirrors the write side: training_allowed alone). If this file or its GET URL is deleted by an upstream merge/refactor, the read-first hook in openai_privacy_service.go would fail to compile or silently lose its only non-CF path back to training_off — this sentinel guards both anchors."
     },
     {
       "path": "backend/internal/service/account_usage_service.go",
