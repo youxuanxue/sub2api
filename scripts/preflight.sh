@@ -1188,6 +1188,27 @@ elif ! python3 ./scripts/checks/ops-sql-coverage.py; then
     errors=$((errors + 1))
 fi
 
+# ---- sub2api: ops tool orphan check -----------------------------------------
+# Every tool under ops/ must be wired — referenced from a skill / workflow /
+# preflight / sibling script / deploy asset / doc. An orphan (referenced
+# nowhere) is dead weight the next operator/agent never discovers and re-hand-
+# writes. A god-view audit (PR #663) found 7 such orphans and wired them; this
+# gate stops new ones. Source: scripts/checks/ops-tool-orphan.py (+ --selftest).
+echo ""
+echo "=== sub2api: ops tool orphan check ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for ops tool orphan check)"
+    errors=$((errors + 1))
+else
+    if ! python3 ./scripts/checks/ops-tool-orphan.py; then
+        # ops-tool-orphan.py already printed the actionable orphan list.
+        errors=$((errors + 1))
+    fi
+    if ! python3 ./scripts/checks/ops-tool-orphan.py --selftest; then
+        errors=$((errors + 1))
+    fi
+fi
+
 # ---- sub2api: workflow edge coverage ----------------------------------------
 # Gate C. Per-edge workflows carry hardcoded choice option lists (GitHub Actions
 # cannot compute them dynamically); a new deployable edge in the matrices would

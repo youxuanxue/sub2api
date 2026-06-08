@@ -28,6 +28,7 @@ description: >-
 | Provision dispatch + watch | 机械 | `gh workflow run deploy-edge-lightsail-stage0.yml` + `gh run watch --exit-status` |
 | 升级/回滚/烟测 dispatch | 机械 | 同上（operation 参数化） |
 | Provision 后落盘 admin 账密 | 机械 | `bash ops/stage0/ensure-edge-admin-credentials.sh --platform lightsail <edge_id>` |
+| 跨 edge 搬账号+凭据（admin UI 进不去的 live blob，如 kiro OAuth grant）+ groups，server→S3→server | 机械 | `ops/migration/migrate-edge-accounts.py extract\|build\|load`（写侧默认 dry-run，`--execute` 落地；详见 §2.3） |
 | 防火墙 443 + DNS 后 HTTPS / ACME 验收 | 机械 | `bash ops/stage0/verify-edge-lightsail-network.sh <edge_id> [--fix-443] [--renew-cert]` |
 | matrix 编辑 / IAM scope / GHCR PAT 落 SSM | 判断 | prompt（成本/区域/权限是架构决定） |
 | DNS A 记录指向 Lightsail Static IP | 判断 | prompt（Porkbun 手工步骤） |
@@ -275,6 +276,19 @@ bash ops/stage0/verify-edge-lightsail-network.sh <edge_id> --fix-443
 ### 2.3 新 edge Anthropic baseline（OAuth 账号就绪后）
 
 DNS cutover 且 admin 可登录后，按 `tokenkey-anthropic-oauth-config` 对新 edge 跑 tier baseline + concurrency mirror verify（Lightsail 矩阵 `deployable=true` 的 edge 已纳入双矩阵 domain 链接）。
+
+**从既有 edge 搬账号（凭据 admin UI 进不去时）：** 新 edge 需要的 OAuth/setup-token 若是从旧 edge 迁移而非重新授权——尤其 kiro OAuth grant 这类 admin UI 无法重新录入的 live credential blob——用 `ops/migration/migrate-edge-accounts.py`，按 `extract`→`build`→`load` 三步离散执行：
+
+```bash
+# 旧 edge → 本机 .cache（含列类型，永不打印 secret 值，只列 KEY 名）
+python3 ops/migration/migrate-edge-accounts.py extract --from edge:us1 --account-ids 5,6,7
+# 本机生成 migrate.sql + 改名（账号/组），打印脱敏摘要
+python3 ops/migration/migrate-edge-accounts.py build --rename kiro-us1-real=kiro-us6-real --rename-group kiro-us1=kiro-us6
+# 默认 dry-run；--execute 才落地到新 edge
+python3 ops/migration/migrate-edge-accounts.py load --to edge:us6 [--execute]
+```
+
+raw SQL insert 绕过了 repo 层的 Redis 快照写 + scheduler_outbox 入队，脚本会自动插一条 `full_rebuild` outbox 行重建快照（gateway 也每 `full_rebuild_interval_seconds` 默认 300s 兜底）。`tier_id`/`proxy_id` 是宿主机特异、不可移植，已在脚本里 reset。烟测/拆机用的 `set-schedulable` / `soft-delete` 子命令同样默认 dry-run。
 
 ## 3) DNS 与 ACME 时序
 
