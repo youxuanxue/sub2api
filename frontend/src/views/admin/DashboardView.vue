@@ -373,6 +373,7 @@ import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import Select from '@/components/common/Select.vue'
 import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'
 import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
+import { rollingWindowTs } from '@/utils/dashboardWindow.tk'
 
 import {
   Chart as ChartJS,
@@ -438,6 +439,10 @@ const granularity = ref<'day' | 'hour'>('hour')
 const defaultRange = getLast24HoursRangeDates()
 const startDate = ref(defaultRange.start)
 const endDate = ref(defaultRange.end)
+// TK: tracks the active DateRangePicker preset so rolling presets can be sent
+// as an absolute (timezone-independent) epoch-ms window. Defaults to
+// 'last24Hours' to match the default range above. See utils/dashboardWindow.tk.ts.
+const activePreset = ref<string | null>('last24Hours')
 
 // Granularity options for Select component
 const granularityOptions = computed(() => [
@@ -668,6 +673,8 @@ const onDateRangeChange = (range: {
   endDate: string
   preset: string | null
 }) => {
+  // TK: remember the preset so rolling windows go out as absolute epoch-ms.
+  activePreset.value = range.preset
   // Auto-select granularity based on date range
   const start = new Date(range.startDate)
   const end = new Date(range.endDate)
@@ -694,6 +701,7 @@ const loadDashboardSnapshot = async (includeStats: boolean) => {
     const response = await adminAPI.dashboard.getSnapshotV2({
       start_date: startDate.value,
       end_date: endDate.value,
+      ...rollingWindowTs(activePreset.value),
       granularity: granularity.value,
       include_stats: includeStats,
       include_trend: true,
@@ -726,6 +734,7 @@ const loadUsersTrend = async () => {
     const response = await adminAPI.dashboard.getUserUsageTrend({
       start_date: startDate.value,
       end_date: endDate.value,
+      ...rollingWindowTs(activePreset.value),
       granularity: granularity.value,
       limit: 12
     })
@@ -750,6 +759,7 @@ const loadUserSpendingRanking = async () => {
     const response = await adminAPI.dashboard.getUserSpendingRanking({
       start_date: startDate.value,
       end_date: endDate.value,
+      ...rollingWindowTs(activePreset.value),
       limit: rankingLimit
     })
     if (currentSeq !== rankingLoadSeq) return

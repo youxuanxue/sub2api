@@ -2026,6 +2026,13 @@
         "hwka.stop()"
       ],
       "rationale": "Header-wait SSE keepalive injection on the OpenAI/Codex passthrough streaming forward (forwardOpenAIPassthrough, around s.httpUpstream.Do). Same Wei-Shaw/sub2api#2121 idle-drop fix as the Anthropic Forward path, same failover-safe delayed-first-ping (the handler's failover gate compares c.Writer.Size() before/after forward). stop() must run the instant Do() returns. Catches an upstream merge that copies the old Do() shape back over the injection."
+    },
+    {
+      "path": "backend/internal/handler/admin/dashboard_handler.go",
+      "must_contain": [
+        "if s, e, ok := parseAbsoluteRange(c); ok {"
+      ],
+      "rationale": "Thin TK injection at the top of the upstream-owned parseTimeRange (the single chokepoint for all 7 dashboard time-window endpoints). Rolling presets (近24小时/7/14/30天) send absolute epoch-ms start_ts/end_ts so the window is timezone-independent; without this hook the window falls back to the viewer's browser-reported timezone and two admin sessions on different timezones (e.g. a fingerprint browser spoofing a US zone vs Asia/Shanghai) again see materially different dashboard numbers for the same selection. The implementation lives in the dashboard_handler_tk_window.go companion; this sentinel anchors the one-line call site that an upstream merge copying the old parseTimeRange shape back would silently drop."
     }
   ]
 }
