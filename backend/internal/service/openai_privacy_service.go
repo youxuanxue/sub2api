@@ -14,9 +14,11 @@ import (
 // Injected from repository layer to avoid import cycles.
 type PrivacyClientFactory func(proxyURL string) (*req.Client, error)
 
-const (
-	openAISettingsURL = "https://chatgpt.com/backend-api/settings/account_user_setting"
+// openAISettingsURL is the training-toggle PATCH endpoint. var (not const) only so
+// tests can point it at an httptest server, mirroring openAISettingsUserURL (the read side).
+var openAISettingsURL = "https://chatgpt.com/backend-api/settings/account_user_setting"
 
+const (
 	PrivacyModeTrainingOff = "training_off"
 	PrivacyModeFailed      = "training_set_failed"
 	PrivacyModeCFBlocked   = "training_set_cf_blocked"

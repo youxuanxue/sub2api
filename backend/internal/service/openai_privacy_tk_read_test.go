@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/imroc/req/v3"
@@ -115,4 +116,52 @@ func TestReadOpenAITrainingDisabled_Guards(t *testing.T) {
 	disabled, ok = readOpenAITrainingDisabled(context.Background(), errFactory, "tok", "")
 	require.False(t, ok)
 	require.False(t, disabled)
+}
+
+// TestDisableOpenAITraining_ReadFirstShortCircuit is the end-to-end assertion of the
+// PR's headline behavior: when the upstream read says training is already off,
+// disableOpenAITraining returns training_off WITHOUT issuing the (Cloudflare-blocked)
+// PATCH; when the read says training is on, it falls through and DOES issue the PATCH.
+// A single httptest server serves both the read GET and the write PATCH so the test is
+// hermetic. Runs sequentially (it swaps package-level URL vars).
+func TestDisableOpenAITraining_ReadFirstShortCircuit(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		readBody     string
+		wantPatchHit bool
+	}{
+		{name: "read says training off -> skip PATCH", readBody: `{"training_allowed":false}`, wantPatchHit: false},
+		{name: "read says training on -> do PATCH", readBody: `{"training_allowed":true}`, wantPatchHit: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var patchHit bool
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/settings/user"):
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = io.WriteString(w, tc.readBody)
+				case r.Method == http.MethodPatch && strings.HasSuffix(r.URL.Path, "/account_user_setting"):
+					patchHit = true
+					w.WriteHeader(http.StatusOK)
+					_, _ = io.WriteString(w, `{"ok":true}`)
+				default:
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer srv.Close()
+
+			origRead, origPatch := openAISettingsUserURL, openAISettingsURL
+			openAISettingsUserURL = srv.URL + "/backend-api/settings/user"
+			openAISettingsURL = srv.URL + "/backend-api/settings/account_user_setting"
+			defer func() { openAISettingsUserURL = origRead; openAISettingsURL = origPatch }()
+
+			factory := func(proxyURL string) (*req.Client, error) { return req.C(), nil }
+			got := disableOpenAITraining(context.Background(), factory, "tok-xyz", "")
+
+			// Both branches end at training_off (read short-circuit, or PATCH 200 -> classify),
+			// so the PATCH-hit flag is what proves the short-circuit actually skipped the write.
+			require.Equal(t, PrivacyModeTrainingOff, got)
+			require.Equal(t, tc.wantPatchHit, patchHit)
+		})
+	}
 }
