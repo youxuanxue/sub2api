@@ -1975,6 +1975,33 @@
         "TestTkUpstreamDownstreamCapacityPredicate"
       ],
       "rationale": "Focused regressions proving the mirror-edge boundary: (1) a relayed edge 'no available accounts' 429 (with and without a trailing client-cancel) and an 'all available accounts exhausted' 503 classify as phase=routing / error_owner=platform / businessLimited (out of upstream_error_rate); (2) a genuine provider 429 (rate_limit_error) and a raw 5xx with no TokenKey phrase stay phase=upstream / error_owner=provider so they keep counting; (3) the predicate status gate (status 0 owned by client-cancel) and phrase boundary hold. Dropping these lets an upstream merge silently revert the mirror-edge upstream-429 exclusion through the classifier."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_header_wait_keepalive.go",
+      "must_contain": [
+        "func (s *GatewayService) beginHeaderWaitKeepalive(c *gin.Context, reqStream bool) *headerWaitKeepalive",
+        "func startHeaderWaitKeepalive(c *gin.Context, interval time.Duration) *headerWaitKeepalive",
+        "func (k *headerWaitKeepalive) stop()",
+        "anthropicSSEPingFrame"
+      ],
+      "rationale": "Header-wait SSE keepalive (Wei-Shaw/sub2api#2121): emits Anthropic-shaped ping frames to the downstream client while Forward blocks in DoWithTLS waiting for upstream response headers, so idle-sensitive intermediaries (Cloudflare Tunnel / Caddy / client SDKs) do not drop a slow request before the first upstream byte. This closes the gap left by the in-stream keepalive (which only fires AFTER the first SSE byte) and is amplified on the prod->edge mirror relay. The first ping is delayed one keepalive interval so fast failover-eligible errors return before any byte is written, preserving the handler's c.Writer.Written() failover gate. An upstream merge that overwrites this companion would silently re-open the slow-header connection-drop on the busiest path."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "hwka := s.beginHeaderWaitKeepalive(c, reqStream)",
+        "hwka.stop()"
+      ],
+      "rationale": "Thin injection point of the header-wait SSE keepalive around the primary streaming DoWithTLS call in Forward. Begin returns a no-op for non-streaming/disabled requests; stop() must run the instant DoWithTLS returns and before any other write to c.Writer so a ping cannot race the stream handler. Catches an upstream merge that copies the old DoWithTLS shape back over the injection."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_header_wait_keepalive_test.go",
+      "must_contain": [
+        "TestStartHeaderWaitKeepalive_EmitsPingsAfterInterval",
+        "TestStartHeaderWaitKeepalive_NoWriteBeforeInterval",
+        "TestBeginHeaderWaitKeepalive_NonStreamReturnsNil"
+      ],
+      "rationale": "Focused regressions for the header-wait keepalive: (1) ping frames + SSE headers are emitted once one interval elapses on a slow upstream; (2) NOT a single byte is written before the interval, which is the failover-gate contract (a fast 429/503/5xx must still be able to failover via c.Writer.Written()==false); (3) non-streaming requests get a nil no-op. Dropping these lets an upstream merge silently revert the failover-safe delayed-ping behavior."
     }
   ]
 }
