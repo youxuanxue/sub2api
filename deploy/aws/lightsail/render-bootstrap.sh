@@ -128,6 +128,16 @@ QA_B64='${qa_b64}'
 PRUNE_B64='${prune_b64}'
 LAUNCH_EMBED
 
+# Renderer-side notes (kept OUT of the embedded artifact — Lightsail user-data
+# has a 16384-byte hard cap, we stay under 14336; see test_render_bootstrap.py):
+# - GHCR: anonymous pull works because ghcr.io/* manifests allow anonymous
+#   bearer for public images. If the image ever turns private, set
+#   GHCR_PAT_SSM_NAME on the workflow side and the docker-login branch engages
+#   with no other changes.
+# - GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_BALANCE_FLOOR_ENABLED=true
+#   (edge .env below): enables reconciler Step E — edge operator (users.id=1)
+#   balance floor self-heal (<100 → 9999999). Compose default is false so prod
+#   (real billing surface) never gets it; only the edge .env flips it on.
 cat >>"${OUT}.tmp" <<'LAUNCH_TAIL'
 printf '%s' "$COMPOSE_GZB64" | base64 -d | gunzip > /var/lib/tokenkey/docker-compose.yml
 printf '%s' "$CADDY_GZB64" | base64 -d | gunzip > /var/lib/tokenkey/caddy/Caddyfile.template
@@ -175,21 +185,19 @@ ADMIN_PASSWORD=
 JWT_SECRET=${JWT_SECRET}
 JWT_EXPIRE_HOUR=1
 TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY}
+GATEWAY_SCHEDULING_ANTHROPIC_CONFIG_RECONCILER_BALANCE_FLOOR_ENABLED=true
 ENVEOF
 chmod 0600 /var/lib/tokenkey/.env
 
 if [ -n "${GHCR_PAT_SSM_NAME:-}" ]; then
-  # Private-image path: pull the PAT from SSM SecureString and docker login.
+  # Private-image path: PAT from SSM SecureString.
   GHCR_PAT="$(aws --region "${LIGHTSAIL_REGION}" ssm get-parameter \
     --name "${GHCR_PAT_SSM_NAME}" --with-decryption \
     --query Parameter.Value --output text)"
   echo "${GHCR_PAT}" | docker login ghcr.io -u "${GHCR_PULL_USER}" --password-stdin
   unset GHCR_PAT
 else
-  # Public-image path (default for TokenKey GHCR): no docker login. Anonymous
-  # pull works because ghcr.io/* manifests are accessible via anonymous bearer.
-  # If the image ever turns private, set GHCR_PAT_SSM_NAME on the workflow side
-  # and the docker login branch above engages with no other changes.
+  # Public-image path (default): anonymous pull, no docker login.
   echo "GHCR_PAT_SSM_NAME unset; relying on anonymous pull for public image ${TOKENKEY_IMAGE}"
 fi
 
