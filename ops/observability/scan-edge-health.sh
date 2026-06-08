@@ -34,11 +34,15 @@ RESOLVE="$REPO_ROOT/deploy/aws/stage0/resolve-edge-target.py"
 SINCE="2h"
 WITH_PROD=0
 EDGES_CSV=""
+JSON=0
+PROBE_TIMEOUT=150 # per-edge SSM timeout (s); the watch lowers it to bound total wall-clock
 while [ $# -gt 0 ]; do
   case "$1" in
     --since) SINCE="$2"; shift 2 ;;
     --with-prod) WITH_PROD=1; shift ;;
     --edges) EDGES_CSV="$2"; shift 2 ;;
+    --json) JSON=1; shift ;;
+    --timeout-seconds) PROBE_TIMEOUT="$2"; shift 2 ;;
     -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "scan-edge-health: unknown arg '$1'" >&2; exit 1 ;;
   esac
@@ -46,17 +50,30 @@ done
 
 # Resolve the target list. Default = the deployable-edge matrix (EC2 ∪ Lightsail,
 # same source the deploy workflows use). Subset via --edges.
+EDGES=()
 if [ -n "$EDGES_CSV" ]; then
   IFS=',' read -r -a EDGES <<< "$EDGES_CSV"
 else
-  mapfile -t EDGES < <(python3 "$RESOLVE" --list-deployable)
+  # macOS default bash is 3.2 and has no `mapfile`; read line-by-line so the
+  # default (no --edges) invocation works for operators on a Mac, not just the
+  # --edges path.
+  while IFS= read -r _edge; do
+    [ -n "$_edge" ] && EDGES+=("$_edge")
+  done < <(python3 "$RESOLVE" --list-deployable)
 fi
 
 TARGETS=()
-for e in "${EDGES[@]}"; do
+# "${EDGES[@]+...}" guards expanding an empty array under `set -u` on bash 3.2
+# (newer bash treats empty-array expansion as unset; the +-form is portable).
+for e in "${EDGES[@]+"${EDGES[@]}"}"; do
   [ -n "$e" ] && TARGETS+=("edge:$e")
 done
 [ "$WITH_PROD" = "1" ] && TARGETS+=("prod")
+
+if [ "${#TARGETS[@]}" -eq 0 ]; then
+  echo "scan-edge-health: no targets resolved (check --edges / resolve-edge-target.py --list-deployable)" >&2
+  exit 1
+fi
 
 echo "scan-edge-health: ${#TARGETS[@]} targets, traffic window since=$SINCE" >&2
 
@@ -68,7 +85,7 @@ for tgt in "${TARGETS[@]}"; do
   echo "  probing $tgt ..." >&2
   if out="$(bash "$RUN_PROBE" --target "$tgt" --script "$PROBE" \
               --env "PLATFORM=anthropic" --env "SINCE=$SINCE" \
-              --timeout-seconds 150 2>/dev/null)"; then
+              --timeout-seconds "$PROBE_TIMEOUT" 2>/dev/null)"; then
     verdict_json="$(printf '%s\n' "$out" | python3 "$VERDICT" --label "$label" 2>/dev/null)"
     if [ -n "$verdict_json" ]; then
       printf '%s\n' "$verdict_json" >> "$RESULTS"
@@ -79,6 +96,13 @@ for tgt in "${TARGETS[@]}"; do
     printf '{"edge":"%s","verdict":"unreachable"}\n' "$label" >> "$RESULTS"
   fi
 done
+
+# --json: emit the per-edge verdict JSON lines verbatim (machine-readable, for the
+# edge-health-watch workflow / edge-health-alert.py) and skip the human table.
+if [ "$JSON" = "1" ]; then
+  cat "$RESULTS"
+  exit 0
+fi
 
 echo
 echo "=== edge health (truth from each edge's own access log, NOT prod upstream-429) ==="
