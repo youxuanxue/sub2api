@@ -193,9 +193,9 @@ def cmd_extract(args: argparse.Namespace) -> None:
         "  'accounts', (SELECT json_agg(json_build_object('column_name',column_name,'data_type',data_type) ORDER BY ordinal_position) FROM information_schema.columns WHERE table_name='accounts'),"
         "  'groups',   (SELECT json_agg(json_build_object('column_name',column_name,'data_type',data_type) ORDER BY ordinal_position) FROM information_schema.columns WHERE table_name='groups')"
         "),"
-        f"'accounts', (SELECT json_agg(row_to_json(a)) FROM accounts a WHERE a.id IN ({id_list})),"
+        f"'accounts', (SELECT json_agg(row_to_json(a)) FROM accounts a WHERE a.id IN ({id_list}) AND a.deleted_at IS NULL),"
         f"'bindings', (SELECT json_agg(row_to_json(b)) FROM account_groups b WHERE b.account_id IN ({id_list})),"
-        f"'groups',   (SELECT json_agg(row_to_json(g)) FROM groups g WHERE g.id IN (SELECT DISTINCT group_id FROM account_groups WHERE account_id IN ({id_list})))"
+        f"'groups',   (SELECT json_agg(row_to_json(g)) FROM groups g WHERE g.id IN (SELECT DISTINCT group_id FROM account_groups WHERE account_id IN ({id_list})) AND g.deleted_at IS NULL)"
         ")"
     )
     remote = f"/tmp/migrate-extract-{stamp}.json"
@@ -475,7 +475,7 @@ def cmd_soft_delete(args: argparse.Namespace) -> None:
         print(sql)
         return
     verify_sql = (f"SELECT id||' deleted_at='||COALESCE(deleted_at::text,'NULL') "
-                  f"FROM accounts WHERE id IN ({id_list})")
+                  f"FROM accounts WHERE id IN ({id_list})")  # ops-allow-soft-deleted: verifies the soft-delete set deleted_at — must read the now-deleted rows
     out = ssm_run(region, iid, [
         "set -euo pipefail",
         f"{PG} -c {shq(sql)}",

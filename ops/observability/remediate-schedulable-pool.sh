@@ -63,6 +63,7 @@ SELECT row_to_json(t) FROM (
   FROM accounts
   WHERE platform='anthropic' AND type='apikey'
     AND name ~ '^(cc-|kiro-)'
+    AND deleted_at IS NULL
   ORDER BY id
 ) t;"
     echo "=== apply ==="
@@ -74,7 +75,8 @@ UPDATE accounts SET
   rate_limit_reset_at = NULL
 WHERE platform = 'anthropic'
   AND type = 'apikey'
-  AND name ~ '^(cc-|kiro-)';
+  AND name ~ '^(cc-|kiro-)'
+  AND deleted_at IS NULL;
 "
     echo "=== after ==="
     $PSQL -c "
@@ -83,6 +85,7 @@ SELECT row_to_json(t) FROM (
   FROM accounts
   WHERE platform='anthropic' AND type='apikey'
     AND name ~ '^(cc-|kiro-)'
+    AND deleted_at IS NULL
   ORDER BY id
 ) t;"
     ;;

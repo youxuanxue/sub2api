@@ -48,6 +48,7 @@ $PSQL -c "
 SELECT row_to_json(t) FROM (
   SELECT ul.account_id, a.name acct, count(*) n
   FROM usage_logs ul LEFT JOIN accounts a ON a.id=ul.account_id
+  -- ops-allow-soft-deleted: usage_logs traffic profile; keep rows whose account was since soft-deleted (real historical traffic must not vanish from the profile)
   WHERE ul.created_at >= now() - interval '${M} minutes'
   GROUP BY 1,2 ORDER BY n DESC LIMIT 10
 ) t;"
@@ -76,6 +77,7 @@ SELECT row_to_json(t) FROM (
          count(*) FILTER (WHERE oel.status_code=502) f502,
          count(*) FILTER (WHERE oel.status_code=200) recovered
   FROM ops_error_logs oel JOIN accounts a ON a.id=oel.account_id
+  -- ops-allow-soft-deleted: error-event profile; keep events emitted by accounts that were since soft-deleted (the errors really happened in-window)
   WHERE oel.created_at >= now() - interval '${M} minutes'
     AND a.platform='anthropic' AND a.type='apikey'
   GROUP BY 1,2 ORDER BY err DESC LIMIT 10

@@ -95,7 +95,7 @@ body_img() { printf '{"model":"%s","prompt":"a small red circle on white","n":1,
 main() {
 	local akey okey
 	if [ -n "${ANTHROPIC_MODELS:-}" ]; then
-		akey="$($PSQL -c "SELECT credentials->>'api_key' FROM accounts WHERE id=$AACCT" | tr -d '[:space:]')"
+		akey="$($PSQL -c "SELECT credentials->>'api_key' FROM accounts WHERE id=$AACCT AND deleted_at IS NULL" | tr -d '[:space:]')"
 		if [ -z "$akey" ]; then
 			emit anthropic "*" 000 "auth_error"
 		else
@@ -103,7 +103,7 @@ main() {
 		fi
 	fi
 	if [ -n "${OPENAI_CHAT_MODELS:-}${OPENAI_RESPONSES_MODELS:-}${OPENAI_IMAGE_MODELS:-}" ]; then
-		okey="$($PSQL -c "SELECT key FROM api_keys WHERE user_id=1 AND name='$OKEY_NAME' LIMIT 1" | tr -d '[:space:]')"
+		okey="$($PSQL -c "SELECT key FROM api_keys WHERE user_id=1 AND name='$OKEY_NAME' AND deleted_at IS NULL LIMIT 1" | tr -d '[:space:]')"
 		if [ -z "$okey" ]; then
 			emit openai "*" 000 "auth_error"
 		else
