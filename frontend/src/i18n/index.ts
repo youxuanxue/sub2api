@@ -67,6 +67,10 @@ export async function loadLocaleMessages(locale: LocaleCode): Promise<void> {
   const loader = localeLoaders[locale]
   const module = await loader()
   i18n.global.setLocaleMessage(locale, module.default)
+  // TK: deep-merge TokenKey-only home/landing strings over the upstream locale.
+  // Keeps locales/{en,zh}.ts near-upstream and merge-safe (CLAUDE.md §5).
+  const tkHome = await import('./tk/home.tk')
+  i18n.global.mergeLocaleMessage(locale, tkHome.default[locale] ?? {})
   loadedLocales.add(locale)
 }
 
