@@ -35,12 +35,14 @@ SINCE="2h"
 WITH_PROD=0
 EDGES_CSV=""
 JSON=0
+PROBE_TIMEOUT=150 # per-edge SSM timeout (s); the watch lowers it to bound total wall-clock
 while [ $# -gt 0 ]; do
   case "$1" in
     --since) SINCE="$2"; shift 2 ;;
     --with-prod) WITH_PROD=1; shift ;;
     --edges) EDGES_CSV="$2"; shift 2 ;;
     --json) JSON=1; shift ;;
+    --timeout-seconds) PROBE_TIMEOUT="$2"; shift 2 ;;
     -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "scan-edge-health: unknown arg '$1'" >&2; exit 1 ;;
   esac
@@ -83,7 +85,7 @@ for tgt in "${TARGETS[@]}"; do
   echo "  probing $tgt ..." >&2
   if out="$(bash "$RUN_PROBE" --target "$tgt" --script "$PROBE" \
               --env "PLATFORM=anthropic" --env "SINCE=$SINCE" \
-              --timeout-seconds 150 2>/dev/null)"; then
+              --timeout-seconds "$PROBE_TIMEOUT" 2>/dev/null)"; then
     verdict_json="$(printf '%s\n' "$out" | python3 "$VERDICT" --label "$label" 2>/dev/null)"
     if [ -n "$verdict_json" ]; then
       printf '%s\n' "$verdict_json" >> "$RESULTS"

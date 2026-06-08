@@ -52,10 +52,6 @@ def _num(v, default=0):
 
 def build_decision(rows: list, prev_key: str, window: str) -> dict:
     """Pure: verdict rows + previous state key -> alert decision + message."""
-    by_verdict: dict = {}
-    for r in rows:
-        by_verdict.setdefault(r.get("verdict"), []).append(r)
-
     actionable = [r for r in rows if r.get("verdict") in ACTIONABLE]
     # Stable key: sorted "verdict:edge" of the actionable set. Same incident => same
     # key => no re-alert; any change (new edge, recovery) flips it.
@@ -65,7 +61,9 @@ def build_decision(rows: list, prev_key: str, window: str) -> dict:
     changed = key != (prev_key or "")
     should_alert = changed  # breakage, escalation, AND recovery all flip the key
 
-    thin = sorted(r.get("edge") for r in by_verdict.get("thin", []))
+    # `idle-thin` (a single-account edge with no traffic) is a SPOF too — surface it
+    # in the thin context line, not silently dropped.
+    thin = sorted(r.get("edge") for r in rows if r.get("verdict") in ("thin", "idle-thin"))
     healthy = sorted(
         r.get("edge") for r in rows if r.get("verdict") in ("healthy", "idle")
     )
@@ -131,13 +129,6 @@ def _format_message(actionable: list, thin: list, healthy: list, window: str, se
 
 
 # --- selftest fixtures: the 2026-06-07 incident shapes + dedup behavior ----------
-def _rows(*specs):
-    out = []
-    for s in specs:
-        out.append(s)
-    return out
-
-
 _SELFTEST = []
 
 

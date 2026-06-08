@@ -45,12 +45,16 @@ concurrency:
 jobs:
   watch:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    # >= worst-case scan (10 targets x SCAN_PROBE_TIMEOUT) + setup. The scan caps each
+    # probe at SCAN_PROBE_TIMEOUT below so a fully-degraded SSM cycle cannot run past
+    # this and get the job killed mid-scan (which would drop the alert + state save).
+    timeout-minutes: 15
     env:
       OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
       SINCE: ${{ inputs.since || '2h' }}
       DRY_RUN: ${{ inputs.dry_run || 'false' }}
+      SCAN_PROBE_TIMEOUT: "60" # per-edge SSM timeout; 10 targets x 60s = 600s < job timeout
       FEISHU_WEBHOOK_URL: ${{ secrets.TK_FEISHU_WEBHOOK_URL }}
       FEISHU_SIGNING_SECRET: ${{ secrets.TK_FEISHU_SIGNING_SECRET }}
     steps:
@@ -76,10 +80,6 @@ jobs:
           restore-keys: |
             edge-health-watch-state-
 
-      - name: Install boto3 (run-probe SSM resolution)
-        if: steps.precheck.outputs.skip == 'false'
-        run: pip install --quiet boto3
-
       - name: Configure AWS credentials via OIDC
         if: steps.precheck.outputs.skip == 'false'
         uses: aws-actions/configure-aws-credentials@v6
@@ -93,17 +93,16 @@ jobs:
         run: |
           set -uo pipefail
           mkdir -p .edge-health-state
-          if bash ops/observability/scan-edge-health.sh --with-prod --since "$SINCE" --json \
-               > verdicts.jsonl 2> scan.stderr; then
-            echo "scan_ok=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "scan_ok=false" >> "$GITHUB_OUTPUT"
-          fi
+          bash ops/observability/scan-edge-health.sh --with-prod --since "$SINCE" \
+            --timeout-seconds "$SCAN_PROBE_TIMEOUT" --json > verdicts.jsonl 2> scan.stderr || true
           echo "---- verdicts ----"; cat verdicts.jsonl || true
           echo "---- scan stderr (tail) ----"; tail -20 scan.stderr || true
-          # A totally empty scan (all targets unreachable / scan crashed) must NOT be
-          # read as "fleet healthy" — guard against a false all-clear.
-          if [ ! -s verdicts.jsonl ]; then
+          # Single decision: a non-empty verdict file is the only thing that lets us
+          # judge + alert. An empty file (scan crashed / all targets unreachable) must
+          # NOT be read as "fleet healthy" — guard against a false all-clear.
+          if [ -s verdicts.jsonl ]; then
+            echo "scan_ok=true" >> "$GITHUB_OUTPUT"
+          else
             echo "::warning::scan produced no verdicts — skipping alert decision this cycle."
             echo "scan_ok=false" >> "$GITHUB_OUTPUT"
           fi
