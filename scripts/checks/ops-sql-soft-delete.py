@@ -1,26 +1,30 @@
 #!/usr/bin/env python3
-"""sub2api: ops SQL soft-delete filter gate.
+"""sub2api: ops/deploy SQL soft-delete filter gate.
 
-Hand-written ops SQL (psql embedded in ops/*.sh / ops/*.py) bypasses Ent's
-soft-delete interceptor. The interceptor auto-adds `deleted_at IS NULL` to every
-Go query, but a hand-written query that omits it silently resurrects soft-deleted
-*ghost* rows — and soft-delete does NOT reset `status` / `schedulable`, so a
-deleted row still reads `status=active schedulable=true`. This has repeatedly
-misled operators (e.g. a duplicate account soft-deleted a month ago still showing
-as a live schedulable account in a caps probe).
+Hand-written operational SQL (psql embedded in ops/ and deploy/ shell, python and
+.sql templates) bypasses Ent's soft-delete interceptor. The interceptor auto-adds
+`deleted_at IS NULL` to every Go query, but a hand-written query that omits it
+silently resurrects soft-deleted *ghost* rows — and soft-delete does NOT reset
+`status` / `schedulable`, so a deleted row still reads `status=active
+schedulable=true`. This has repeatedly misled operators (e.g. a duplicate account
+soft-deleted a month ago still showing as a live schedulable account in a caps
+probe).
 
-This gate scans ops/ and flags every `FROM`/`JOIN` over a soft-delete table whose
-SQL statement contains no `deleted_at` filter at all. Recall-oriented: it only
-fires when `deleted_at` is entirely absent from the statement (the exact failure
-mode seen in practice), so a query that already filters is never touched.
+This gate scans the operational dirs and flags every `FROM`/`JOIN` over a
+soft-delete table whose SQL statement contains no `deleted_at` filter at all.
+Recall-oriented: it only fires when `deleted_at` is entirely absent from the
+statement (the exact failure mode seen in practice), so a query that already
+filters is never touched.
 
 Escape hatch: if a query genuinely must include soft-deleted rows (reaper /
-audit / restore / orphan-finder), put the marker `ops-allow-soft-deleted` in a
-comment inside the statement; the gate then skips it.
+audit / restore / orphan-finder / soft-delete verify), put the marker
+`ops-allow-soft-deleted` in a comment inside the statement; the gate then skips it.
 
-Scope is ops/ only — that is where DB-mutating / DB-reading operations live and
-where the trap has recurred. Go code is covered by the Ent interceptor; migrations
-are out of scope.
+Scope: SCAN_DIRS (ops/ + deploy/) × SCAN_EXTS (.sh/.py/.sql) — every place that
+runs hand-written SQL against a live edge/prod DB. Deliberately excluded: backend/
+(covered by the Ent interceptor), backend/migrations/ (DDL/backfill follow other
+rules), and scripts/ (CI/static helpers, and this gate's own selftest fixtures
+embed `FROM accounts ...` strings that must not self-trip).
 
 Usage:
   ops-sql-soft-delete.py [--quiet]   # exit 1 if any unfiltered query found
@@ -45,7 +49,8 @@ MARKER = "ops-allow-soft-deleted"
 WINDOW = 40  # max lines of a multi-line statement to scan forward for deleted_at
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-OPS_DIR = os.path.join(ROOT, "ops")
+SCAN_DIRS = ("ops", "deploy")
+SCAN_EXTS = (".sh", ".py", ".sql")
 
 # Longest table names first so `user_subscriptions` wins over `users`.
 _TABLE_ALT = "|".join(sorted(SOFT_DELETE_TABLES, key=len, reverse=True))
@@ -78,28 +83,32 @@ def scan_text(text):
     return findings
 
 
-def _iter_ops_files():
-    for dirpath, dirnames, filenames in os.walk(OPS_DIR):
-        dirnames[:] = [d for d in dirnames if d != "__pycache__"]
-        for fn in sorted(filenames):
-            if not (fn.endswith(".sh") or fn.endswith(".py")):
-                continue
-            if fn.startswith("test_") or fn.endswith("_test.py") or fn.endswith("_test.sh"):
-                continue
-            yield os.path.join(dirpath, fn)
+def _iter_target_files():
+    for scan_dir in SCAN_DIRS:
+        base = os.path.join(ROOT, scan_dir)
+        if not os.path.isdir(base):
+            continue
+        for dirpath, dirnames, filenames in os.walk(base):
+            dirnames[:] = [d for d in dirnames if d != "__pycache__"]
+            for fn in sorted(filenames):
+                if not fn.endswith(SCAN_EXTS):
+                    continue
+                if fn.startswith("test_") or fn.endswith("_test.py") or fn.endswith("_test.sh"):
+                    continue
+                yield os.path.join(dirpath, fn)
 
 
 def run(quiet):
     findings = []
-    for path in _iter_ops_files():
+    for path in _iter_target_files():
         with open(path, encoding="utf-8", errors="replace") as fh:
             text = fh.read()
         for lineno, table, snippet in scan_text(text):
             findings.append((os.path.relpath(path, ROOT), lineno, table, snippet))
 
     if findings:
-        print("ops SQL soft-delete filter gate: FAIL")
-        print("  Hand-written ops SQL over a soft-delete table is missing a `deleted_at` filter.")
+        print("ops/deploy SQL soft-delete filter gate: FAIL")
+        print("  Hand-written ops/deploy SQL over a soft-delete table is missing a `deleted_at` filter.")
         print("  Soft-deleted rows keep status=active/schedulable=true and will leak into the result.")
         print("  Fix: add `AND deleted_at IS NULL` (alias-qualified in joins), or if the query")
         print(f"  intentionally needs soft-deleted rows, add a `{MARKER}` comment in the statement.")
@@ -109,7 +118,8 @@ def run(quiet):
         return 1
 
     if not quiet:
-        print("ops SQL soft-delete filter gate: PASS (all soft-delete-table queries in ops/ filtered)")
+        scanned = " + ".join(SCAN_DIRS)
+        print(f"ops/deploy SQL soft-delete filter gate: PASS (all soft-delete-table queries in {scanned} filtered)")
     return 0
 
 

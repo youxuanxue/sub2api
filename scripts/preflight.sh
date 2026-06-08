@@ -1188,19 +1188,19 @@ elif ! python3 ./scripts/checks/ops-sql-coverage.py; then
     errors=$((errors + 1))
 fi
 
-# ---- sub2api: ops SQL soft-delete filter -------------------------------------
-# Hand-written ops SQL (psql in ops/*.sh / ops/*.py) bypasses Ent's soft-delete
-# interceptor; a query over a soft-delete table (accounts/users/groups/...) that
-# omits `deleted_at IS NULL` resurrects ghost rows — and soft-delete does NOT reset
-# status/schedulable, so a deleted account still reads active+schedulable and has
-# repeatedly misled operators. This gate flags any FROM/JOIN over a soft-delete
-# table in ops/ whose statement lacks a deleted_at filter; intentional all-rows
+# ---- sub2api: ops/deploy SQL soft-delete filter ------------------------------
+# Hand-written operational SQL (psql in ops/ + deploy/ .sh/.py/.sql) bypasses Ent's
+# soft-delete interceptor; a query over a soft-delete table (accounts/users/groups
+# /...) that omits `deleted_at IS NULL` resurrects ghost rows — and soft-delete does
+# NOT reset status/schedulable, so a deleted account still reads active+schedulable
+# and has repeatedly misled operators. This gate flags any FROM/JOIN over a
+# soft-delete table whose statement lacks a deleted_at filter; intentional all-rows
 # queries (reaper/audit/restore/verify) opt out with an `ops-allow-soft-deleted`
 # comment. Source: scripts/checks/ops-sql-soft-delete.py (+ --selftest).
 echo ""
-echo "=== sub2api: ops SQL soft-delete filter ==="
+echo "=== sub2api: ops/deploy SQL soft-delete filter ==="
 if ! command -v python3 >/dev/null 2>&1; then
-    echo "  FAIL: python3 not on PATH (required for ops SQL soft-delete check)"
+    echo "  FAIL: python3 not on PATH (required for ops/deploy SQL soft-delete check)"
     errors=$((errors + 1))
 elif ! python3 ./scripts/checks/ops-sql-soft-delete.py --selftest >/dev/null; then
     echo "  FAIL: ops-sql-soft-delete selftest failed (gate logic regression)"
@@ -1210,7 +1210,7 @@ elif ! python3 ./scripts/checks/ops-sql-soft-delete.py --quiet; then
     # ops-sql-soft-delete.py already printed the actionable failure.
     errors=$((errors + 1))
 else
-    echo "  ok: ops/ soft-delete-table queries all filter deleted_at (or marked intentional)"
+    echo "  ok: ops/ + deploy/ soft-delete-table queries all filter deleted_at (or marked intentional)"
 fi
 
 # ---- sub2api: ops tool orphan check -----------------------------------------
