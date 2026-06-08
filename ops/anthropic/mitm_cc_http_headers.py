@@ -16,6 +16,32 @@ def _log_path() -> str | None:
     return path or None
 
 
+# Anthropic `system` is either a string or an array of {type:"text", text:...}
+# blocks. Keep only the leading slice of each block's text so the capture stays
+# small and never persists user/session content.
+_ANCHOR_HEAD_LEN = 160
+
+
+def _extract_system_anchors(system) -> list[dict]:
+    anchors: list[dict] = []
+    if isinstance(system, str):
+        text = system.strip()
+        if text:
+            anchors.append({"index": 0, "text_head": text[:_ANCHOR_HEAD_LEN]})
+        return anchors
+    if isinstance(system, list):
+        for i, entry in enumerate(system):
+            text = ""
+            if isinstance(entry, dict):
+                text = str(entry.get("text") or "")
+            elif isinstance(entry, str):
+                text = entry
+            text = text.strip()
+            if text:
+                anchors.append({"index": i, "text_head": text[:_ANCHOR_HEAD_LEN]})
+    return anchors
+
+
 def request(flow: http.HTTPFlow) -> None:
     if "anthropic.com" not in (flow.request.host or ""):
         return
@@ -31,13 +57,16 @@ def request(flow: http.HTTPFlow) -> None:
     }
     body = flow.request.get_text(strict=False) or ""
     model = ""
+    system_anchors: list[dict] = []
     try:
         import json as _json
 
         parsed = _json.loads(body) if body.strip().startswith("{") else {}
         model = str(parsed.get("model") or "")
+        system_anchors = _extract_system_anchors(parsed.get("system"))
     except Exception:
         model = ""
+        system_anchors = []
 
     record = {
         "path": path,
@@ -46,6 +75,11 @@ def request(flow: http.HTTPFlow) -> None:
         "anthropic_beta": hdrs.get("anthropic-beta", ""),
         "x_stainless": stainless,
         "x_app": hdrs.get("x-app", ""),
+        # Stable head of each system block, for the system-prompt anchor axis of
+        # /tokenkey-cc-fingerprint-alignment (identity banner + billing prefix).
+        # Only the head is kept — the full CC system prompt is dynamic
+        # (cwd/git/date/env) and must NOT be byte-aligned.
+        "system_anchors": system_anchors,
     }
     line = json.dumps(record, ensure_ascii=False, sort_keys=True)
 

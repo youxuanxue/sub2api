@@ -60,6 +60,8 @@ TOKENKEY_CC_DAILY_DRY_RUN=1 bash ops/anthropic/cc_fingerprint_open_tls_drift_pr.
 | 读取 TokenKey baseline | 机械 | `python3 ops/anthropic/capture_cc_fingerprint.py show-baseline` |
 | TLS collector 采集 ClientHello | 机械 | `bash ops/anthropic/capture-cc-fingerprint.sh capture` |
 | HTTP mitm 采集 `/v1/messages` headers | 机械 | `bash ops/anthropic/capture-cc-fingerprint.sh capture --http` |
+| system prompt 锚点抓取 + diff（身份 banner + 计费前缀） | 机械 | mitm addon 记 `system_anchors` → `capture_cc_fingerprint.py check` 的 `system.*` 行 |
+| system prompt 副本单一源守卫（Go 3+ 处不漂） | 机械 | `python3 scripts/sentinels/check-cc-system-prompt.py`（preflight 内）|
 | 多请求 beta 一致性校验（haiku/sonnet/opus 各 N 次） | 机械 | `bash ops/anthropic/capture-http-comprehensive.sh` |
 | bundle 组装 + diff + `--check` 门禁 | 机械 | `capture_cc_fingerprint.py` / `check-tls` |
 | HTTP 漂移修复 + spec-delta PR | 机械 | 分支 + commit + `gh pr create`（见 §5） |
@@ -125,6 +127,8 @@ bash ops/anthropic/capture-cc-fingerprint.sh capture --http
 # 仅 TLS：bash ops/anthropic/capture-cc-fingerprint.sh capture
 ```
 
+`--http` 现在除 header 外还落 **`system_anchors`**（每个 system 块 text 的前 ~160 字符，仅锚点不存正文）；`bundle-from-artifacts` 汇总进 bundle 的 `system.anchors`，供 `system.identity_anchor` / `system.billing_prefix` diff 行使用（仅 TLS 跑则该维 SKIP）。
+
 ### 2.3 门禁
 
 ```bash
@@ -183,6 +187,9 @@ bash ops/anthropic/capture-http-comprehensive.sh
 | `*.stainless_package_version` | 以实测为准 | mitm/collector |
 | `betas.*` (`FAIL`) | token 集合或顺序错（且非双峰，或 baseline 一个变体都不命中）| `anthropic-http-mimicry-baselines.json` + `constants.go` + tests |
 | `betas.*` (`INVESTIGATE`) | 该族 beta **双峰**，baseline 命中其一 → 非硬错（exit 0）| 先刻画 A/B 差异，再按 #429 决定 canonical；勿凭单样本对齐 |
+| `system.identity_anchor` (`FAIL`) | 真实 CC system 块不命中任一 canonical 身份锚点 = banner 漂移（上游 403 风险，**actionable**）| 走 §4.3：改注册表 + Go 副本 + spec-delta |
+| `system.identity_anchor` (`SKIP`) | 本次未抓到 system 块（仅 TLS 跑）| 跑 `capture --http` 再看 |
+| `system.billing_prefix` (`INVESTIGATE`) | 未见 `x-anthropic-billing-header` 块 → 非硬错 | count_tokens / 子请求本就不带；仅当正常 `/v1/messages` 也缺才查 |
 
 ## 4) 代码修复清单（HTTP-only 型）
 
@@ -221,10 +228,22 @@ bash ops/anthropic/capture-http-comprehensive.sh
   `docs/cc-fingerprint-changelog.md` 追加一行、type 标 `decision` 并链到该记录。
   （bimodal Haiku A/B 已在 `spec-delta-cc-2.1.160.md` + #429 刻画，勿逐 patch 重述。）
 
+### 4.3 system prompt 锚点漂移（`system.identity_anchor` FAIL，需抓包证据）
+
+CC system prompt 是 load-bearing 指纹维度（上游检测身份 banner + 计费块）。只对齐**稳定锚点**，不对齐动态全文。单一声明源 = `scripts/sentinels/cc-system-prompt.json` 的 `capture_anchors`，同时被守卫与抓包 diff 共用。锚点真变了才手改，且必须有正常 `/v1/messages` 抓包证据：
+
+- `scripts/sentinels/cc-system-prompt.json`（唯一声明源：`capture_anchors` + `sentinels[].must_contain` + `byte_identical`）。
+- 同一 commit 同步 Go 副本：`claude_code_validator.go` 的 `claudeCodeSystemPrompts[]` / `claudeCodeBillingHeaderPrefix`、`gateway_service.go` 的 `claudeCodeSystemPrompt`（banner）/ `claudeCodePromptPrefixes[]`；banner 在两文件须**字节一致**。
+- `ops/anthropic/test_capture_cc_fingerprint.py` 的 system 断言（如锚点串变了）。
+- 决策记录就地更新 `docs/spec-delta-cc-system-prompt.md` + `docs/cc-fingerprint-changelog.md` 追加 `decision` 行。
+
+守卫 `check-cc-system-prompt.py` 是**纯守卫无 `--write`**：它只证明"代码 == 注册表 + banner 字节一致"；漂移由抓包侧发现，人工带证据改。无发版（capture + 守卫 + 文档，无运行时/编译产物变更）。
+
 ## 5) 验证与 PR（默认 open_pr=true）
 
 ```bash
 python3 scripts/sentinels/check-cc-version-sync.py --selftest && python3 scripts/sentinels/check-cc-version-sync.py
+python3 scripts/sentinels/check-cc-system-prompt.py --selftest && python3 scripts/sentinels/check-cc-system-prompt.py
 go test -tags=unit ./internal/pkg/claude/... -run TestFullClaudeCode
 python3 -m unittest discover -s ops/anthropic -p 'test_capture_cc_fingerprint.py' -t ops/anthropic
 ./scripts/preflight.sh
@@ -253,6 +272,8 @@ bash ops/anthropic/cc_fingerprint_apply_http_runtime.sh
 ## 6) 禁止事项
 
 - 未抓包就改 beta / stainless
+- 未抓包就改 system prompt 锚点 / 注入 banner（`cc-system-prompt.json` + Go 副本）；banner 两文件须字节一致
+- 试图 byte 对齐 system prompt 全文（动态：cwd/git/date/env）——只对齐锚点
 - 从旧 patch 推断 ja3
 - ja3 变了却只改 HTTP 常量
 - 用 `cc0-here` 直接做 HTTP mitm（应走 `http_capture_invoke.sh`）
@@ -266,6 +287,7 @@ check env → capture --http → comprehensive (beta consistency)
     → [ja3变?] manage-anthropic-config apply + TLS drift PR
     → [仅UA/版本?] 编辑 baselines.json cc_version → check-cc-version-sync --write（自动改全部副本）→ changelog 追加一行（不写独立 spec-delta）
     → [beta集合变?] baselines 数组 + constants betas + tests + 主题命名 spec-delta 决策记录 + changelog 一行（§4.2，需抓包证据）
+    → [system锚点变?] cc-system-prompt.json + Go 副本(validator/gateway, banner 字节一致) + tests + spec-delta-cc-system-prompt + changelog（§4.3，需抓包证据）
     → preflight → open PR (default) → merge
     → sync-runtime / cc_fingerprint_apply_http_runtime.sh（无发版）
     → [可选] 下一班 release 更新 compile default

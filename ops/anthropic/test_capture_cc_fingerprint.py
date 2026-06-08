@@ -54,6 +54,13 @@ class CaptureCCFingerprintTest(unittest.TestCase):
                     "anthropic_beta": ",".join(baseline["betas"]["sonnet_mimicry"]),
                 },
             },
+            "system": {
+                "anchors": [
+                    baseline["system"]["billing_prefix"] + ": cc_entrypoint=cli",
+                    baseline["system"]["identity_prefixes"][0]
+                    + ".\n\ndynamic cwd=/x git=main",
+                ]
+            },
         }
         rows = mod.diff_baseline_vs_capture(baseline, capture)
         self.assertFalse(mod.has_actionable_mismatch(rows))
@@ -280,6 +287,74 @@ class CaptureCCFingerprintTest(unittest.TestCase):
         self.assertEqual("mismatch", haiku_row.status)
         # Baseline matches no observed variant -> genuine, actionable drift.
         self.assertTrue(mod.has_actionable_mismatch(rows))
+
+    def test_system_baseline_loaded_from_registry(self) -> None:
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        self.assertIn("system", baseline)
+        self.assertTrue(baseline["system"]["identity_prefixes"])
+        self.assertEqual(
+            "x-anthropic-billing-header", baseline["system"]["billing_prefix"]
+        )
+
+    def test_system_identity_anchor_match_and_billing_present(self) -> None:
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        bundle = mod.bundle_from_artifacts(
+            cc_version=baseline["canonical_http"]["default_version"],
+            tls_observed={},
+            system_anchors=[
+                baseline["system"]["billing_prefix"] + ": cc_entrypoint=cli",
+                baseline["system"]["identity_prefixes"][0] + ".\n\ndynamic tail",
+            ],
+        )
+        rows = mod.diff_baseline_vs_capture(baseline, bundle)
+        ident = next(r for r in rows if r.field == "system.identity_anchor")
+        billing = next(r for r in rows if r.field == "system.billing_prefix")
+        self.assertEqual("match", ident.status)
+        self.assertEqual("match", billing.status)
+
+    def test_system_identity_anchor_drift_is_actionable(self) -> None:
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        bundle = mod.bundle_from_artifacts(
+            cc_version=baseline["canonical_http"]["default_version"],
+            tls_observed={},
+            system_anchors=["You are SomethingElse, a totally different tool."],
+        )
+        rows = mod.diff_baseline_vs_capture(baseline, bundle)
+        ident = next(r for r in rows if r.field == "system.identity_anchor")
+        self.assertEqual("mismatch", ident.status)
+        self.assertTrue(ident.critical)
+        # Identity drift is a hard, actionable mismatch (upstream 403 risk).
+        self.assertTrue(mod.has_actionable_mismatch(rows))
+        # Billing missing on a non-billing capture is INVESTIGATE, not actionable.
+        billing = next(r for r in rows if r.field == "system.billing_prefix")
+        self.assertEqual("needs_investigation", billing.status)
+        self.assertFalse(billing.critical)
+
+    def test_system_missing_capture_is_skip_not_actionable(self) -> None:
+        baseline = mod.load_tokenkey_baseline(mod.REPO_ROOT)
+        bundle = mod.bundle_from_artifacts(
+            cc_version=baseline["canonical_http"]["default_version"],
+            tls_observed={},
+            system_anchors=[],  # TLS-only run: no system blocks recorded
+        )
+        rows = mod.diff_baseline_vs_capture(baseline, bundle)
+        ident = next(r for r in rows if r.field == "system.identity_anchor")
+        self.assertEqual("missing_capture", ident.status)
+        # A missing system capture must never by itself fail the check.
+        self.assertFalse(
+            any(
+                r.field.startswith("system.") and r.status == "mismatch"
+                for r in rows
+            )
+        )
+
+    def test_aggregate_system_anchors_dedupes_across_records(self) -> None:
+        records = [
+            {"system_anchors": [{"index": 0, "text_head": "alpha"}, {"index": 1, "text_head": "beta"}]},
+            {"system_anchors": [{"index": 0, "text_head": "alpha"}]},
+            {"model": "haiku"},  # no system_anchors key
+        ]
+        self.assertEqual(["alpha", "beta"], mod.aggregate_system_anchors(records))
 
 
 if __name__ == "__main__":
