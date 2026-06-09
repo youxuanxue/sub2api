@@ -12,6 +12,9 @@
 //          of the whitelist; «获取模型列表» still appears under both modes.
 //   AC-6 — the raw model_mapping JSON textarea no longer renders (single
 //          source for credentials.model_mapping is the structured selector).
+//   AC-7 — hideTransportCredentials suppresses the base_url + api_key inputs
+//          (newapi Vertex service_account auth is the SA JSON, not those
+//          transit creds; PR #677). Default keeps both visible.
 
 import { describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
@@ -104,6 +107,27 @@ describe('AccountNewApiPlatformFields', () => {
     })
 
     expect(wrapper.find('[data-testid="newapi-pricing-status"]').text()).toBe('priced')
+  })
+
+  it('renders base_url + api_key inputs by default (AC-7)', () => {
+    const wrapper = mountFields()
+    const labels = wrapper.findAll('label').map((l) => l.text())
+    expect(labels.some((l) => l.includes('admin.accounts.newApiPlatform.baseUrl'))).toBe(true)
+    expect(labels.some((l) => l.includes('admin.accounts.newApiPlatform.apiKey'))).toBe(true)
+    expect(wrapper.find('input[type="password"]').exists()).toBe(true)
+  })
+
+  it('hides base_url + api_key inputs when hideTransportCredentials is true (AC-7 — Vertex SA auth)', () => {
+    const wrapper = mountFields({ hideTransportCredentials: true })
+    const labels = wrapper.findAll('label').map((l) => l.text())
+    expect(labels.some((l) => l.includes('admin.accounts.newApiPlatform.baseUrl'))).toBe(false)
+    expect(labels.some((l) => l.includes('admin.accounts.newApiPlatform.apiKey'))).toBe(false)
+    // the api_key input is the only type=password field, so its absence is a
+    // direct signal the transit-credential block is gone.
+    expect(wrapper.find('input[type="password"]').exists()).toBe(false)
+    // the structured models selector (the reason the SA block reuses this
+    // component at all) must still render.
+    expect(wrapper.find('[data-testid="newapi-models-selector"]').exists()).toBe(true)
   })
 
   it('hides the 获取模型列表 button when fetch_models_enabled is false (D3 — non-fetchable channel type)', () => {
