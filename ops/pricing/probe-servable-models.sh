@@ -9,16 +9,19 @@
 #   OPENAI_CHAT_MODELS       -> POST <prod>/v1/chat/completions
 #   OPENAI_RESPONSES_MODELS  -> POST <prod>/v1/responses   (codex family)
 #   OPENAI_IMAGE_MODELS      -> POST <prod>/v1/images/generations (best-effort)
-#   GEMINI_CHAT_MODELS       -> POST <gemini-base>/v1/chat/completions  (newapi/Vertex)
-#   GEMINI_IMAGE_MODELS      -> POST <gemini-base>/v1/images/generations
-#   GEMINI_VIDEO_MODELS      -> POST <gemini-base>/v1/video/generations (async submit; 200-on-submit=servable, best-effort)
+#   GEMINI_CHAT_MODELS       -> POST app:8080/v1/chat/completions  (newapi/Vertex, edge-internal)
+#   GEMINI_IMAGE_MODELS      -> POST app:8080/v1/images/generations
+#   GEMINI_VIDEO_MODELS      -> POST app:8080/v1/video/generations (async submit; 200-on-submit=servable, best-effort)
+#     NB gemini families run ON the edge host and hit the app container directly
+#     (the edge Caddy 403s host-local /v1/* — it only allows the prod gateway CIDR).
 # Optional env:
 #   ANTHROPIC_EDGE_BASE      default https://api-us7.tokenkey.dev
 #   ANTHROPIC_KEY_ACCOUNT_ID default 54  (its credentials.api_key relays to the edge)
 #   PROD_BASE                default https://api.tokenkey.dev
 #   OPENAI_KEY_NAME          default TK_SMOKE_PROD_OPENAI_OAUTH_KEY (api_keys.user_id=1)
-#   GEMINI_BASE              default https://api-us6.tokenkey.dev (node hosting the google group)
 #   GEMINI_GROUP_NAME        default google  (probe key pulled from an api_key bound to this group)
+#   GEMINI_APP_CONTAINER     default tokenkey-caddy (a container on the compose net with busybox wget)
+#   GEMINI_APP_URL           default http://tokenkey:8080 (the app, reached internally)
 #   REQ_SLEEP                default 2  (seconds between requests; avoids pool exhaustion)
 #
 # Output: one TSV line per model on stdout (keys never printed):
@@ -42,8 +45,14 @@ AEDGE="${ANTHROPIC_EDGE_BASE:-https://api-us7.tokenkey.dev}"
 AACCT="${ANTHROPIC_KEY_ACCOUNT_ID:-54}"
 PROD="${PROD_BASE:-https://api.tokenkey.dev}"
 OKEY_NAME="${OPENAI_KEY_NAME:-TK_SMOKE_PROD_OPENAI_OAUTH_KEY}"
-GEMINI_BASE="${GEMINI_BASE:-https://api-us6.tokenkey.dev}"
 GEMINI_GROUP_NAME="${GEMINI_GROUP_NAME:-google}"
+# Gemini/Vertex lives on an EDGE node whose Caddy restricts /v1/* to the prod
+# gateway CIDR (a host-local request to the public api-<edge> domain 403s with
+# "edge relay path is restricted"). The probe therefore hits the app container
+# directly on the docker network, bypassing the edge Caddy. The caddy container
+# carries busybox wget and resolves the app service name on the compose network.
+GEMINI_APP_CONTAINER="${GEMINI_APP_CONTAINER:-tokenkey-caddy}"
+GEMINI_APP_URL="${GEMINI_APP_URL:-http://tokenkey:8080}"
 REQ_SLEEP="${REQ_SLEEP:-2}"
 UA='claude-cli/2.1.165 (external, sdk-cli)'
 SYS='You are Claude Code, the official CLI for Claude.'
@@ -102,6 +111,26 @@ probe_openai_endpoint() { # back-compat wrapper: openai family always targets PR
 	probe_compat_endpoint openai "$PROD" "$1" "$2" "$3" "$4"
 }
 
+# probe_gemini_internal: same OpenAI-compat surface, but reached via the app
+# container on the docker network (bypasses the edge Caddy /v1/* restriction).
+# Uses busybox wget inside GEMINI_APP_CONTAINER: -S prints the response status
+# line to stderr (captured to a header file), -O - streams the body to stdout.
+# Key value lives in a shell var only; never emitted.
+probe_gemini_internal() { # $1=key $2=endpoint $3=models $4=jsonbody-template-fn
+	local key="$1" path="$2" models="$3" buildfn="$4" m hf bf code body
+	for m in $models; do
+		hf="$(mktemp)"; bf="$(mktemp)"; body="$($buildfn "$m")"
+		sudo docker exec "$GEMINI_APP_CONTAINER" wget -S -q -O - --timeout=90 \
+			--header="Authorization: Bearer $key" --header='content-type: application/json' \
+			--post-data="$body" "$GEMINI_APP_URL$path" >"$bf" 2>"$hf" || true
+		code="$(grep -oE 'HTTP/[0-9.]+ [0-9]{3}' "$hf" | tail -1 | grep -oE '[0-9]{3}$')"
+		[ -z "$code" ] && code=000
+		emit gemini "$m" "$code" "$(verdict "$code" "$bf")"
+		rm -f "$hf" "$bf"
+		sleep "$REQ_SLEEP"
+	done
+}
+
 body_chat() { printf '{"model":"%s","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}' "$1"; }
 body_resp() { printf '{"model":"%s","instructions":"You are a helpful assistant.","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Say OK"}]}],"stream":false}' "$1"; }
 body_img() { printf '{"model":"%s","prompt":"a small red circle on white","n":1,"size":"1024x1024"}' "$1"; }
@@ -134,9 +163,9 @@ main() {
 		if [ -z "$gkey" ]; then
 			emit gemini "*" 000 "auth_error"
 		else
-			[ -n "${GEMINI_CHAT_MODELS:-}" ] && probe_compat_endpoint gemini "$GEMINI_BASE" "$gkey" /v1/chat/completions "$GEMINI_CHAT_MODELS" body_chat
-			[ -n "${GEMINI_IMAGE_MODELS:-}" ] && probe_compat_endpoint gemini "$GEMINI_BASE" "$gkey" /v1/images/generations "$GEMINI_IMAGE_MODELS" body_img
-			[ -n "${GEMINI_VIDEO_MODELS:-}" ] && probe_compat_endpoint gemini "$GEMINI_BASE" "$gkey" /v1/video/generations "$GEMINI_VIDEO_MODELS" body_video
+			[ -n "${GEMINI_CHAT_MODELS:-}" ] && probe_gemini_internal "$gkey" /v1/chat/completions "$GEMINI_CHAT_MODELS" body_chat
+			[ -n "${GEMINI_IMAGE_MODELS:-}" ] && probe_gemini_internal "$gkey" /v1/images/generations "$GEMINI_IMAGE_MODELS" body_img
+			[ -n "${GEMINI_VIDEO_MODELS:-}" ] && probe_gemini_internal "$gkey" /v1/video/generations "$GEMINI_VIDEO_MODELS" body_video
 		fi
 	fi
 }

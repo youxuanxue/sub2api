@@ -61,6 +61,13 @@ claude/gpt 经 prod 探测；**gemini/Vertex 经 us6 的 `google` 组探测**（
 `GEMINI_VIDEO_MODELS`→`/v1/video/generations`（异步 submit 200 即 servable，best-effort）。
 probe key 取自**绑定 `google` 组的 api_key**（`api_keys.group_id→groups.id`，永不回显）。
 
+**edge 内网访问（关键，否则全 403）**：edge 的 Caddy 把 `/v1/*` 只放行给 prod 网关 CIDR
+（`Caddyfile.edge` 的 `@allowed_relay … remote_ip ${MAIN_GATEWAY_ALLOWED_CIDR}`），edge 主机本地直打
+公网 `api-<edge>` 域名会被 Caddy 返 `edge relay path is restricted` 403。所以 gemini 三族**在 edge
+主机上经 `docker exec <app容器> wget http://tokenkey:8080` 直打 app、绕过 Caddy**（`GEMINI_APP_CONTAINER`
+/`GEMINI_APP_URL`）。这测的是同一条 account→Vertex 真实链路，Caddy 只是访问控制层、不影响模型可服务性。
+（「对客 prod→edge relay 拓扑」是另一回事——是产品/架构决策，与本探测无关。）
+
 - **候选来源（不走 litellm）**：账号的 `credentials.model_pricing_status`（上游发现清单）∪ imagen/veo
   种子。经 `--discovered <file>` 传入（接受该 JSON 对象、JSON list 或换行清单）；省略则只探 imagen/veo 种子。
   ```bash
