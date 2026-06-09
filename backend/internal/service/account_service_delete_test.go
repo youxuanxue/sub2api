@@ -191,6 +191,10 @@ func (s *accountRepoStub) UpdateSessionWindow(ctx context.Context, id int64, sta
 	panic("unexpected UpdateSessionWindow call")
 }
 
+func (s *accountRepoStub) UpdateSessionWindowEnd(ctx context.Context, id int64, end time.Time) error {
+	panic("unexpected UpdateSessionWindowEnd call")
+}
+
 func (s *accountRepoStub) UpdateExtra(ctx context.Context, id int64, updates map[string]any) error {
 	panic("unexpected UpdateExtra call")
 }
@@ -217,6 +221,10 @@ func (s *accountRepoStub) SumConcurrencyAnthropicByGroup(context.Context, string
 
 func (s *accountRepoStub) SumConcurrencyByPlatform(context.Context, string) (int64, error) {
 	return 0, nil
+}
+
+func (s *accountRepoStub) RevertProxyFallback(ctx context.Context, accountID int64) error {
+	panic("unexpected RevertProxyFallback call")
 }
 
 // TestAccountService_Delete_NotFound 测试删除不存在的账号时返回正确的错误。
