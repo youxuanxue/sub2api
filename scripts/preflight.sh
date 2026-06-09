@@ -1073,7 +1073,8 @@ elif ! python3 ops/pricing/refresh-servable-allowlist.py selftest >/dev/null 2>&
 else
     _markers_ok=1
     for _m in "servable-allowlist:begin anthropic" "servable-allowlist:end anthropic" \
-        "servable-allowlist:begin openai" "servable-allowlist:end openai"; do
+        "servable-allowlist:begin openai" "servable-allowlist:end openai" \
+        "servable-allowlist:begin gemini" "servable-allowlist:end gemini"; do
         if ! grep -qF "$_m" "$_servable_go"; then
             echo "  FAIL: splice marker missing in $_servable_go: $_m"
             _markers_ok=0

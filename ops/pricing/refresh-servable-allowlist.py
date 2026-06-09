@@ -52,6 +52,23 @@ DATED_RE = re.compile(r"^(.+)-(?:\d{8}|\d{4}-\d{2}-\d{2})$")
 # is chunked into several run-probe invocations and the TSV concatenated.
 BATCH_SIZE = 12
 
+# ----- gemini / Vertex (newapi fifth platform) -----
+# The google group lives on edge us6 (not prod), so gemini batches target it.
+GEMINI_TARGET = "edge:us6"
+# Predict-API media models are NOT in upstream /v1/models discovery; seed them
+# explicitly (they ride the model_mapping today). Imagen -> images, veo -> video.
+GEMINI_PREDICT_MODELS = (
+    "imagen-4.0-generate-001",
+    "imagen-4.0-fast-generate-001",
+    "imagen-4.0-ultra-generate-001",
+    "veo-3.1-generate-001",
+)
+# Catch-all SCOPE = core generative families only (chat / image / video). Exotic
+# families are excluded from the candidate set so an empty model_mapping never
+# silently $0-serves them: gemma open-weight, lyria music, deep-research,
+# robotics, antigravity, computer-use, tts/audio.
+GEMINI_EXCLUDE_RE = re.compile(r"gemma-|lyria-|deep-research|robotics|antigravity|computer-use|tts")
+
 
 # ----- vendor → platform (mirrors service.inferPlatformFromVendor) -----
 def platform_of(vendor: str) -> str:
@@ -88,6 +105,56 @@ def derive_candidates(catalog: dict) -> dict[str, list[str]]:
     return out
 
 
+def split_gemini_families(discovered: list[str]) -> dict[str, list[str]]:
+    """Split discovered Vertex model ids (+ the predict-API seed) into probe
+    families, keeping ONLY core generative families. chat -> /v1/chat/completions,
+    image -> /v1/images/generations, video -> /v1/video/generations. Exotic
+    families (see GEMINI_EXCLUDE_RE) are dropped so the catch-all never $0-serves
+    an unpriced niche model."""
+    fams: dict[str, list[str]] = {"gemini_chat": [], "gemini_image": [], "gemini_video": []}
+    seen: set[str] = set()
+    for mid in list(discovered) + list(GEMINI_PREDICT_MODELS):
+        mid = mid.strip()
+        if not mid or mid in seen:
+            continue
+        seen.add(mid)
+        if GEMINI_EXCLUDE_RE.search(mid):
+            continue
+        if mid.startswith("veo-"):
+            fams["gemini_video"].append(mid)
+        elif mid.startswith("imagen-") or "image" in mid or "nano-banana" in mid:
+            fams["gemini_image"].append(mid)
+        elif mid.startswith("gemini-"):
+            fams["gemini_chat"].append(mid)
+        # other-vendor ids are ignored (not part of the google catch-all scope)
+    for k in fams:
+        fams[k] = sorted(set(fams[k]))
+    return fams
+
+
+def load_discovered(path: str | None) -> list[str]:
+    """Load the discovered Vertex model universe for gemini candidates. Accepts a
+    JSON object (account.credentials.model_pricing_status — keys used), a JSON
+    list, or a newline list. None/empty -> [] (media-only seed still applies)."""
+    if not path:
+        return []
+    raw = Path(path).read_text(encoding="utf-8").strip()
+    if not raw:
+        return []
+    if raw.lstrip()[:1] in ("[", "{"):
+        data = json.loads(raw)
+        return list(data.keys()) if isinstance(data, dict) else list(data)
+    return [ln.strip() for ln in raw.splitlines() if ln.strip()]
+
+
+def build_candidates(catalog: dict, discovered: list[str]) -> dict[str, list[str]]:
+    """anthropic/openai families from the litellm catalog + gemini families from
+    the discovered Vertex universe (+ predict seed)."""
+    c = derive_candidates(catalog)
+    c.update(split_gemini_families(discovered))
+    return c
+
+
 # ----- de-duplication (operator rule) -----
 def dedup(servable: set[str]) -> list[str]:
     """Drop a dated `<base>-YYYYMMDD` form when its non-dated base also serves,
@@ -106,7 +173,7 @@ def dedup(servable: set[str]) -> list[str]:
 # ----- results TSV parsing -----
 def parse_results(text: str) -> dict[str, set[str]]:
     """platform -> set of servable model ids. Lines: platform\\tmodel\\tcode\\tverdict."""
-    out: dict[str, set[str]] = {"anthropic": set(), "openai": set()}
+    out: dict[str, set[str]] = {"anthropic": set(), "openai": set(), "gemini": set()}
     for line in text.splitlines():
         parts = line.rstrip("\n").split("\t")
         if len(parts) != 4:
@@ -133,8 +200,15 @@ def splice_go(text: str, platform: str, ids: list[str]) -> str:
 
 def write_allowlists(servable: dict[str, set[str]]) -> dict[str, list[str]]:
     text = GO_FILE.read_text(encoding="utf-8")
-    final = {p: dedup(servable.get(p, set())) for p in ("anthropic", "openai")}
-    for plat in ("anthropic", "openai"):
+    platforms = ("anthropic", "openai", "gemini")
+    final = {p: dedup(servable.get(p, set())) for p in platforms}
+    for plat in platforms:
+        if not final[plat]:
+            # Empty => this platform was not probed in this run (a partial refresh,
+            # e.g. gemini-only). Skip so we never WIPE an existing allowlist with a
+            # subset probe. A genuine "all dropped" is rare; clear it by hand if so.
+            print(f"[refresh] {plat}: 0 servable in results — leaving existing block untouched", file=sys.stderr)
+            continue
         text = splice_go(text, plat, final[plat])
     GO_FILE.write_text(text, encoding="utf-8")
     subprocess.run(["gofmt", "-w", str(GO_FILE)], check=True)
@@ -148,16 +222,19 @@ def chunk(items: list[str], size: int) -> list[list[str]]:
 
 # ----- live probe -----
 ENV_BY_FAMILY = (
-    ("ANTHROPIC_MODELS", "anthropic"),
-    ("OPENAI_CHAT_MODELS", "openai_chat"),
-    ("OPENAI_RESPONSES_MODELS", "openai_responses"),
-    ("OPENAI_IMAGE_MODELS", "openai_image"),
+    ("ANTHROPIC_MODELS", "anthropic", "prod"),
+    ("OPENAI_CHAT_MODELS", "openai_chat", "prod"),
+    ("OPENAI_RESPONSES_MODELS", "openai_responses", "prod"),
+    ("OPENAI_IMAGE_MODELS", "openai_image", "prod"),
+    ("GEMINI_CHAT_MODELS", "gemini_chat", GEMINI_TARGET),
+    ("GEMINI_IMAGE_MODELS", "gemini_image", GEMINI_TARGET),
+    ("GEMINI_VIDEO_MODELS", "gemini_video", GEMINI_TARGET),
 )
 
 
-def _run_probe_batch(env_args: list[str]) -> str:
+def _run_probe_batch(env_args: list[str], target: str = "prod") -> str:
     cmd = [
-        "bash", str(RUN_PROBE), "--target", "prod", "--script", str(PROBE),
+        "bash", str(RUN_PROBE), "--target", target, "--script", str(PROBE),
         "--timeout-seconds", "600", *env_args,
     ]
     proc = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -173,16 +250,16 @@ def live_probe(candidates: dict[str, list[str]]) -> str:
         raise SystemExit("FATAL: run-probe.sh or probe-servable-models.sh missing")
     # One run-probe invocation per family-batch: a single command spanning the
     # whole catalog would exceed the SSM waiter window and be reported failed.
-    batches: list[list[str]] = []
-    for env_key, fam in ENV_BY_FAMILY:
-        for c in chunk(candidates[fam], BATCH_SIZE):
-            batches.append([env_key, c])  # type: ignore[list-item]
-    total = sum(len(candidates[f]) for _, f in ENV_BY_FAMILY)
+    batches: list[tuple[str, list[str], str]] = []
+    for env_key, fam, target in ENV_BY_FAMILY:
+        for c in chunk(candidates.get(fam, []), BATCH_SIZE):
+            batches.append((env_key, c, target))
+    total = sum(len(candidates.get(f, [])) for _, f, _ in ENV_BY_FAMILY)
     print(f"[refresh] probing {total} models in {len(batches)} batch(es) of <= {BATCH_SIZE} …", file=sys.stderr)
     rows: list[str] = []
-    for i, (env_key, models) in enumerate(batches, 1):
-        print(f"[refresh] batch {i}/{len(batches)} ({env_key}: {len(models)}) …", file=sys.stderr)
-        out = _run_probe_batch(["--env", f"{env_key}={' '.join(models)}"])
+    for i, (env_key, models, target) in enumerate(batches, 1):
+        print(f"[refresh] batch {i}/{len(batches)} ({env_key}@{target}: {len(models)}) …", file=sys.stderr)
+        out = _run_probe_batch(["--env", f"{env_key}={' '.join(models)}"], target=target)
         if out:
             rows.append(out)
     return "\n".join(rows)
@@ -196,9 +273,10 @@ def open_pr(final: dict[str, list[str]]) -> None:
     title = "chore(pricing-catalog): refresh servable model allowlist from live probe"
     body = (
         f"anthropic ({len(final['anthropic'])}): {', '.join(final['anthropic'])}\n"
-        f"openai ({len(final['openai'])}): {', '.join(final['openai'])}\n\n"
+        f"openai ({len(final['openai'])}): {', '.join(final['openai'])}\n"
+        f"gemini ({len(final.get('gemini', []))}): {', '.join(final.get('gemini', []))}\n\n"
         "Regenerated by `ops/pricing/refresh-servable-allowlist.py run --open-pr`\n"
-        "(live prod probe; kept verdict==servable, de-duplicated dated snapshots).\n\n"
+        "(live probe; kept verdict==servable, de-duplicated dated snapshots).\n\n"
         "no-web-impact\n"
     )
     def git(*a):
@@ -236,7 +314,39 @@ def selftest() -> int:
     assert c["openai_responses"] == ["gpt-5.3-codex"], c["openai_responses"]
     assert c["openai_image"] == ["gpt-image-2"], c["openai_image"]
     assert "gpt-4o" not in sum(c.values(), []), "unpriced must be skipped"
-    assert "gemini-2.5-pro" not in sum(c.values(), []), "non-curated vendor not a candidate"
+    assert "gemini-2.5-pro" not in sum(c.values(), []), "vertex not a litellm-catalog candidate"
+
+    # gemini family split: core families kept, exotic dropped, predict seed merged
+    g = split_gemini_families([
+        "gemini-2.5-pro", "gemini-3-pro-preview", "gemini-2.5-flash-image",
+        "gemini-3-pro-image", "nano-banana-pro-preview",
+        "gemma-4-31b-it", "lyria-3-pro-preview", "deep-research-pro-preview-12-2025",
+        "gemini-2.5-pro-preview-tts", "gemini-robotics-er-1.6-preview",
+        "gemini-2.5-computer-use-preview-10-2025",
+    ])
+    assert g["gemini_chat"] == ["gemini-2.5-pro", "gemini-3-pro-preview"], g["gemini_chat"]
+    # discovered image models classified into the image family (alongside imagen seed)
+    for img in ("gemini-2.5-flash-image", "gemini-3-pro-image", "nano-banana-pro-preview"):
+        assert img in g["gemini_image"], (img, g["gemini_image"])
+    # predict seed always merged into video/image even with empty discovery
+    assert "veo-3.1-generate-001" in g["gemini_video"], g["gemini_video"]
+    assert "imagen-4.0-generate-001" in g["gemini_image"], g["gemini_image"]
+    assert g["gemini_image"] == sorted(g["gemini_image"]), "families must be sorted"
+    for exotic in ("gemma-4-31b-it", "lyria-3-pro-preview", "deep-research-pro-preview-12-2025",
+                   "gemini-2.5-pro-preview-tts", "gemini-robotics-er-1.6-preview",
+                   "gemini-2.5-computer-use-preview-10-2025"):
+        assert exotic not in sum(g.values(), []), f"exotic {exotic} must be excluded"
+    # load_discovered accepts a model_pricing_status-shaped JSON object (keys)
+    import os
+    import tempfile
+    tf = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+    try:
+        tf.write('{"gemini-2.5-pro": "priced", "gemini-3-pro-image": "missing"}')
+        tf.close()
+        disc = load_discovered(tf.name)
+    finally:
+        os.unlink(tf.name)
+    assert set(disc) == {"gemini-2.5-pro", "gemini-3-pro-image"}, disc
 
     # de-dup: drop dated-with-base + -thinking; keep dated whose base is absent
     servable = {
@@ -255,19 +365,27 @@ def selftest() -> int:
     cks = chunk(big, BATCH_SIZE)
     assert all(len(c) <= BATCH_SIZE for c in cks) and sum(cks, []) == big
 
-    # parse
-    tsv = "anthropic\tclaude-opus-4-8\t200\tservable\nopenai\tgpt-4o\t400\tunsupported\nopenai\t*\t000\tauth_error"
+    # parse: gemini rows land in the gemini bucket; non-servable/auth dropped
+    tsv = (
+        "anthropic\tclaude-opus-4-8\t200\tservable\n"
+        "openai\tgpt-4o\t400\tunsupported\nopenai\t*\t000\tauth_error\n"
+        "gemini\tgemini-2.5-pro\t200\tservable\ngemini\tgemma-4-31b-it\t400\tunsupported"
+    )
     p = parse_results(tsv)
-    assert p == {"anthropic": {"claude-opus-4-8"}, "openai": set()}, p
+    assert p == {"anthropic": {"claude-opus-4-8"}, "openai": set(), "gemini": {"gemini-2.5-pro"}}, p
 
-    # splice round-trips between markers and is idempotent
+    # splice round-trips between markers and is idempotent (anthropic + gemini)
     sample = (
         "x{\n\t// servable-allowlist:begin anthropic\n\t\"old\": {},\n"
-        "\t// servable-allowlist:end anthropic\n}\n"
+        "\t// servable-allowlist:end anthropic\n"
+        "\t// servable-allowlist:begin gemini\n\t// servable-allowlist:end gemini\n}\n"
     )
     out = splice_go(sample, "anthropic", ["claude-opus-4-8", "claude-sonnet-4-6"])
     assert '"claude-opus-4-8": {},' in out and '"old"' not in out, out
     assert splice_go(out, "anthropic", ["claude-opus-4-8", "claude-sonnet-4-6"]) == out, "not idempotent"
+    gout = splice_go(out, "gemini", ["gemini-2.5-pro", "imagen-4.0-generate-001"])
+    assert '"gemini-2.5-pro": {},' in gout, gout
+    assert splice_go(gout, "gemini", ["gemini-2.5-pro", "imagen-4.0-generate-001"]) == gout, "gemini not idempotent"
 
     print("refresh-servable-allowlist selftest: PASS")
     return 0
@@ -276,38 +394,51 @@ def selftest() -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("candidates")
-    sub.add_parser("probe")
+    DISC_HELP = (
+        "gemini discovered-models source: JSON object (account.model_pricing_status "
+        "— keys), JSON list, or newline list. Omit to probe only the imagen/veo seed."
+    )
+    ap_cand = sub.add_parser("candidates")
+    ap_cand.add_argument("--discovered", help=DISC_HELP)
+    ap_probe = sub.add_parser("probe")
+    ap_probe.add_argument("--discovered", help=DISC_HELP)
     ap_apply = sub.add_parser("apply")
     ap_apply.add_argument("--results", required=True, help="TSV results file (- for stdin)")
     ap_run = sub.add_parser("run")
     ap_run.add_argument("--open-pr", action="store_true")
+    ap_run.add_argument("--discovered", help=DISC_HELP)
     sub.add_parser("selftest")
     args = ap.parse_args()
+
+    def _report(final: dict[str, list[str]]) -> None:
+        print(
+            f"[refresh] anthropic={final['anthropic']}\n[refresh] openai={final['openai']}\n"
+            f"[refresh] gemini={final.get('gemini', [])}",
+            file=sys.stderr,
+        )
 
     if args.cmd == "selftest":
         return selftest()
 
     if args.cmd == "candidates":
-        cands = derive_candidates(json.loads(CATALOG.read_text(encoding="utf-8")))
+        cands = build_candidates(json.loads(CATALOG.read_text(encoding="utf-8")), load_discovered(args.discovered))
         print(json.dumps(cands, indent=2, ensure_ascii=False))
         return 0
 
     if args.cmd == "probe":
-        cands = derive_candidates(json.loads(CATALOG.read_text(encoding="utf-8")))
+        cands = build_candidates(json.loads(CATALOG.read_text(encoding="utf-8")), load_discovered(args.discovered))
         print(live_probe(cands))
         return 0
 
     if args.cmd == "apply":
         text = sys.stdin.read() if args.results == "-" else Path(args.results).read_text(encoding="utf-8")
-        final = write_allowlists(parse_results(text))
-        print(f"[refresh] anthropic={final['anthropic']}\n[refresh] openai={final['openai']}", file=sys.stderr)
+        _report(write_allowlists(parse_results(text)))
         return 0
 
     if args.cmd == "run":
-        cands = derive_candidates(json.loads(CATALOG.read_text(encoding="utf-8")))
+        cands = build_candidates(json.loads(CATALOG.read_text(encoding="utf-8")), load_discovered(args.discovered))
         final = write_allowlists(parse_results(live_probe(cands)))
-        print(f"[refresh] anthropic={final['anthropic']}\n[refresh] openai={final['openai']}", file=sys.stderr)
+        _report(final)
         if args.open_pr:
             open_pr(final)
         return 0
