@@ -55,6 +55,18 @@ UPDATE ops_alert_rules
  WHERE name = '成功率过低'
    AND enabled = true;
 
+-- 1b) Resolve any still-firing event for the rule we just disabled. The
+--     evaluator skips disabled rules (ops_alert_evaluator_service.go gates the
+--     "resolve active event" path behind `rule.Enabled`), so an event that
+--     happened to be firing at disable-time would otherwise stay 'firing'
+--     forever (orphaned on the dashboard, no resolve notification). Resolving
+--     here keeps the state machine consistent. Idempotent: 0 rows once applied.
+UPDATE ops_alert_events
+   SET status = 'resolved',
+       resolved_at = NOW()
+ WHERE status = 'firing'
+   AND rule_id IN (SELECT id FROM ops_alert_rules WHERE name = '成功率过低');
+
 -- 2) Fix the numerator + form the P1->P0 ladder: repoint the P1 from raw
 --    error_rate to cleaned upstream_error_rate at 8%.
 UPDATE ops_alert_rules
