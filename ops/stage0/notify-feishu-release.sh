@@ -147,16 +147,62 @@ body = "\n".join(lines)
 
 elements = [{"tag": "div", "text": {"tag": "lark_md", "content": body}}]
 
-# Inline the changelog ("自上次版本以来的变更") under its own section when
-# provided. Truncate for card readability — the full list always lives behind
-# the GitHub Release link above.
+# Clean + group the goreleaser changelog into an operator-friendly "本次更新"
+# section: strip commit SHAs / (#PR) / contributor handles / section headers /
+# the "Full Changelog" footer, then bucket by conventional-commit type. The full
+# raw list always lives behind the GitHub Release link above, so over-trimming
+# here is safe. Best-effort: if cleaning yields nothing we fall back to the raw
+# (truncated) body rather than silently dropping a real changelog.
+def clean_changelog(raw):
+    import re
+
+    feat, fix, other = [], [], []
+    for ln in raw.splitlines():
+        s = ln.strip()
+        if not s:
+            continue
+        # drop goreleaser section headers ("## Changelog", "### Features") and
+        # the "**Full Changelog**: <url>" footer line.
+        if s.startswith("#"):
+            continue
+        if re.match(r"^\**\s*full changelog\b", s, flags=re.I):
+            continue
+        s = re.sub(r"^[\-\*\+]\s+", "", s)            # leading list marker
+        s = re.sub(r"^[0-9a-f]{7,40}[:\s]\s*", "", s)  # leading commit SHA
+        s = re.sub(r"\s*\(#\d+\)", "", s)              # (#PR) anywhere
+        s = re.sub(r"\s*(by\s+@[\w-]+|\(@[\w-]+\)|@[\w-]+)\s*$", "", s, flags=re.I)  # trailing contributor
+        s = s.strip()
+        if not s:
+            continue
+        m = re.match(r"^(\w+)(\([^)]*\))?!?:\s*(.*)$", s)  # type(scope): desc
+        if m and m.group(3).strip():
+            typ, desc = m.group(1).lower(), m.group(3).strip()
+        else:
+            typ, desc = "", s
+        if typ in ("feat", "feature"):
+            feat.append(desc)
+        elif typ in ("fix", "bugfix"):
+            fix.append(desc)
+        else:
+            other.append(desc)
+    sections = []
+    for title, items in (("✨ 新功能", feat), ("🐛 修复", fix), ("🔧 其他", other)):
+        if items:
+            sections.append(f"**{title}**\n" + "\n".join(f"• {i}" for i in items))
+    return "\n\n".join(sections)
+
+
 if notes:
     cap = 1200
-    shown = notes if len(notes) <= cap else notes[:cap].rstrip() + "\n\n…(更多见 GitHub Release)"
-    elements.append({"tag": "hr"})
-    elements.append(
-        {"tag": "div", "text": {"tag": "lark_md", "content": "**本次更新**\n" + shown}}
-    )
+    cleaned = clean_changelog(notes)
+    shown = cleaned if cleaned else notes  # fall back to raw if cleaning emptied it
+    if len(shown) > cap:
+        shown = shown[:cap].rstrip() + "\n\n…(更多见 GitHub Release)"
+    if shown.strip():
+        elements.append({"tag": "hr"})
+        elements.append(
+            {"tag": "div", "text": {"tag": "lark_md", "content": "**本次更新**\n" + shown}}
+        )
 
 payload = {
     "msg_type": "interactive",

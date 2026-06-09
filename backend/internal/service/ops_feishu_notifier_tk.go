@@ -203,12 +203,22 @@ func buildOpsFeishuAlertText(rule *OpsAlertRule, event *OpsAlertEvent, nodeLabel
 	if strings.TrimSpace(nodeLabel) == "" {
 		nodeLabel = "overall"
 	}
+	// Severity label for the advice line — use the event's severity (set from
+	// the rule at fire time), fall back to the rule's, then a neutral default so
+	// a P1 rule no longer reads "处理该 P0 rule".
+	sev := strings.TrimSpace(event.Severity)
+	if sev == "" {
+		sev = strings.TrimSpace(rule.Severity)
+	}
+	if sev == "" {
+		sev = "告警"
+	}
 	// dashboardURL is our own constructed URL (base + opsDashboardPath); render
 	// it as a lark_md link. When the node has no frontend_url configured we fall
 	// back to plain prose so the card still reads cleanly.
-	advice := "打开 Ops Dashboard 检查账号可用性 / 网关健康，并处理该 P0 rule 指向的容量问题。"
+	advice := fmt.Sprintf("打开 Ops Dashboard 检查账号可用性 / 网关健康，并处理该 %s rule 指向的容量问题。", sev)
 	if strings.TrimSpace(dashboardURL) != "" {
-		advice = fmt.Sprintf("[打开 Ops Dashboard](%s) 检查账号可用性 / 网关健康，并处理该 P0 rule 指向的容量问题。", dashboardURL)
+		advice = fmt.Sprintf("[打开 Ops Dashboard](%s) 检查账号可用性 / 网关健康，并处理该 %s rule 指向的容量问题。", dashboardURL, sev)
 	}
 	return fmt.Sprintf("**节点**：%s\n**规则**：%s\n**指标**：%s %s %s\n**当前值**：%s\n**范围**：%s\n**时间**：%s\n\n**建议**：%s",
 		escapeFeishuText(nodeLabel),
