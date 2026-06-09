@@ -213,8 +213,21 @@
                     </div>
                     <!-- temp-unschedulable reason shown inline: the reused AccountStatusIndicator's
                          temp-unsched badge opens an admin modal we don't have here (read-only), so
-                         surface the reason passively rather than behind an inert click. -->
-                    <div v-if="acct.temp_unschedulable_reason" class="mt-0.5 max-w-xs truncate text-xs text-amber-600 dark:text-amber-400" :title="acct.temp_unschedulable_reason">
+                         surface the reason passively rather than behind an inert click.
+                         The reason persists in the DB after the cooldown lapses (forensic
+                         breadcrumb, never cleared), so gate the alarming amber styling on
+                         isTempUnschedActive — an expired cooldown renders dimmed with a 已恢复
+                         tag instead of reading as a live problem. -->
+                    <div
+                      v-if="acct.temp_unschedulable_reason"
+                      class="mt-0.5 max-w-xs truncate text-xs"
+                      :class="isTempUnschedActive(acct) ? 'text-amber-600 dark:text-amber-400' : 'text-gray-400 dark:text-gray-500'"
+                      :title="acct.temp_unschedulable_reason"
+                    >
+                      <span
+                        v-if="!isTempUnschedActive(acct)"
+                        class="mr-1 rounded bg-gray-100 px-1 text-[10px] font-medium dark:bg-dark-700"
+                      >{{ t('admin.edgeAccounts.cooldownRecovered') }}</span>
                       {{ acct.temp_unschedulable_reason }}
                     </div>
                     <!-- Operator 备注, mirroring the admin accounts page name cell.
@@ -278,7 +291,7 @@ import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { useTkEdgeAccounts } from '@/composables/useTkEdgeAccounts'
-import { schedulableCount, toAccountLike, toWindowStats, toUsageInfo } from '@/utils/edgeAccounts.tk'
+import { schedulableCount, toAccountLike, toWindowStats, toUsageInfo, isTempUnschedActive } from '@/utils/edgeAccounts.tk'
 import { GATEWAY_PLATFORMS } from '@/constants/gatewayPlatforms'
 import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'

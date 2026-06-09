@@ -16,6 +16,22 @@ export function schedulableCount(e: EdgeAccountsResult): number {
 }
 
 /**
+ * Whether an account's temp-unschedulable cooldown is STILL active right now.
+ *
+ * `temp_unschedulable_reason` is NOT cleared when the cooldown lapses — it
+ * persists in the DB as a forensic breadcrumb. A populated reason therefore does
+ * NOT mean the account is currently cooled; the decisive check is whether
+ * `temp_unschedulable_until` is still in the future (mirrors the same gate in
+ * AccountStatusIndicator.vue / TempUnschedStatusModal.vue). The Edge Accounts
+ * page must gate the alarming amber reason styling on this, or every account
+ * that ever hit a short 429 cooldown reads as a live problem forever.
+ */
+export function isTempUnschedActive(s: EdgeAccountSummary): boolean {
+  if (!s.temp_unschedulable_until) return false
+  return new Date(s.temp_unschedulable_until).getTime() > Date.now()
+}
+
+/**
  * Adapts a credential-free EdgeAccountSummary into the admin `Account` shape so
  * the read-only Edge Accounts page can reuse AccountCapacityCell verbatim (the
  * cell only reads capacity/gauge fields). Missing-but-required Account fields are
