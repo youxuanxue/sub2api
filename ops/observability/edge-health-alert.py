@@ -86,11 +86,63 @@ def build_decision(rows: list, prev_key: str, window: str) -> dict:
     }
 
 
+def _classify(r: dict) -> tuple:
+    """Deterministic (cause_tag, action) for one actionable verdict row, derived ONLY
+    from fields already in the verdict payload (no extra I/O). The tags are the operator
+    judgment the raw `sched=…/ratio=…` line cannot convey on its own:
+
+      - The 2026-06-09 alert read `sched=0 served200=3 noavail429=0 ratio=1.0` — which
+        looks self-contradictory (down, yet ratio 1.0, zero 429). The truth is "the pool
+        just emptied and HASN'T started rejecting yet" — a LEADING indicator, not an
+        active outage. That distinction (noavail429==0 vs >0) changes the urgency.
+      - `sched=0 total=0` (no accounts provisioned) vs `sched=0 total>0` (accounts exist
+        but every one is unschedulable: cooldown / schedulable-flag / OAuth) point at
+        completely different fixes — the raw line never showed `total`.
+    """
+    verdict = r.get("verdict")
+    if verdict in ("unreachable", "parse-error"):
+        return ("探测不可达", "SSM/probe 打不通——查实例是否存活、安全组/SSM agent、run-probe 是否超时")
+    sched = _num(r.get("schedulable_accounts"))
+    total = _num(r.get("total_accounts"))
+    noavail = _num(r.get("no_available_429"))
+    if verdict == "down":
+        if sched == 0 and total == 0:
+            return ("未配置账号", "该 edge 没有任何账号——需新增账号，或确认是否应下线该 edge")
+        if sched == 0 and noavail == 0:
+            return ("池刚空·尚未拒单(领先告警)",
+                    "账号已全部不可调度但还没开始 429——下一批请求即将掉单，按下方排查三连逐账号定位")
+        if sched == 0:
+            return ("活跃掉单·账号全不可调度",
+                    "正在大量 429、客户端已受影响（紧急）——按下方排查三连逐账号定位")
+        return ("在调度但几乎全 429",
+                "账号可调度却几乎不出 200——多为上游限流/会话拒绝；查 cooldown 原因，勿清冷却、勿盲目扩容")
+    if verdict == "degraded":
+        return ("在服务但漏 429·池不足",
+                "有 200 也有空池 429——账号数撑不住当前流量；补健康账号或分流，单边 ≥2 账号")
+    return ("", "")
+
+
+def _needs_triage_runbook(actionable: list) -> bool:
+    """Show the sched=0 排查三连 runbook only when an edge is down with accounts that
+    EXIST but are all unschedulable (total>0) — that is the case where "what do I do" is
+    acute and the answer is the cooldown/flag/OAuth decision tree. An unreachable-only or
+    未配置账号-only alert gets its per-edge action instead, no runbook."""
+    return any(
+        r.get("verdict") == "down"
+        and _num(r.get("schedulable_accounts")) == 0
+        and _num(r.get("total_accounts")) > 0
+        for r in actionable
+    )
+
+
+_VERDICT_ZH = {"down": "宕机", "unreachable": "不可达", "parse-error": "解析失败", "degraded": "降级"}
+
+
 def _format_message(actionable: list, thin: list, healthy: list, window: str, severity: str) -> str:
     if not actionable:
-        head = "✅ TokenKey Edge Health — all edges recovered (no down/degraded)"
+        head = "✅ TokenKey 边缘健康 — 全部恢复（无 宕机/降级）"
     else:
-        head = f"🔴 TokenKey Edge Health — {len(actionable)} edge(s) need action"
+        head = f"🔴 TokenKey 边缘健康 — {len(actionable)} 个 edge 需要处理"
     lines = [head, ""]
 
     grouped: dict = {}
@@ -101,30 +153,43 @@ def _format_message(actionable: list, thin: list, healthy: list, window: str, se
         rs = grouped.get(verdict)
         if not rs:
             continue
-        lines.append(f"{verdict.upper()}:")
+        lines.append(f"{_VERDICT_ZH.get(verdict, verdict).upper()}（{verdict}）:")
         for r in rs:
+            cause, action = _classify(r)
             if verdict in ("unreachable", "parse-error"):
-                lines.append(f"  • {r.get('edge')}")
+                lines.append(f"  • {r.get('edge')}  ← {cause}")
             else:
                 sched = _num(r.get("schedulable_accounts"))
+                total = _num(r.get("total_accounts"))
                 served = _num(r.get("served_200"))
                 noavail = _num(r.get("no_available_429"))
                 ratio = r.get("served_ratio")
                 wait = _num(r.get("wait_timeout"))
-                tail = f"sched={sched} served200={served} noavail429={noavail}"
+                # sched=N/M makes "no accounts" vs "accounts exist but unschedulable"
+                # readable at a glance — the single most actionable missing field.
+                tail = f"sched={sched}/{total} served200={served} noavail429={noavail}"
                 if ratio is not None:
                     tail += f" ratio={ratio}"
                 if wait:
                     tail += f" wait_to={wait}"
-                lines.append(f"  • {r.get('edge')}  {tail}")
+                lines.append(f"  • {r.get('edge')}  {tail}  ← {cause}")
+            if action:
+                lines.append(f"      ↳ {action}")
+
+    if _needs_triage_runbook(actionable):
+        lines.append("")
+        lines.append("排查三连（sched=0 但账号存在时，逐一定位 N/M 中不可调度的账号）:")
+        lines.append("  1. 冷却/窗口烧穿: 账号 active 但 5h/7d 窗口或上游限流冷却中 → 等恢复或按窗口剩余重排 priority；勿清冷却、勿扩容")
+        lines.append("  2. schedulable=false 被钉死: OAuth 健康+无冷却却调度关闭 → admin UI 手动启用（无自愈）")
+        lines.append("  3. OAuth 吊销: refresh 报成功仍 401 → 重新授权/换号，重刷无效")
 
     if thin:
         lines.append("")
-        lines.append(f"thin/SPOF (single account): {', '.join(thin)}")
+        lines.append(f"薄边/SPOF（单账号，应补到 ≥2）: {', '.join(thin)}")
     if healthy:
-        lines.append(f"healthy: {', '.join(healthy)}")
+        lines.append(f"健康: {', '.join(healthy)}")
     lines.append("")
-    lines.append(f"window={window} • detail: ops/observability/scan-edge-health.sh --with-prod")
+    lines.append(f"窗口={window} • 逐账号明细(status/cooldown/schedulable/refresh): ops/observability/scan-edge-health.sh --with-prod")
     return "\n".join(lines)
 
 
@@ -211,6 +276,52 @@ _case(
 )
 
 
+# --- message-content fixtures: lock the operator-value enrichment (cause tags, sched=N/M,
+# the 排查三连 runbook) so a regression that strips guidance fails preflight, not prod ----
+_MESSAGE_CASES = []
+
+
+def _msg_case(name, rows, must_contain, must_not_contain=()):
+    _MESSAGE_CASES.append((name, rows, must_contain, must_not_contain))
+
+
+_msg_case(
+    "leading-indicator down (sched=0, accounts exist, no 429 yet) => leading tag + N/M + runbook",
+    [
+        {"edge": "uk1", "verdict": "down", "schedulable_accounts": 0, "total_accounts": 2,
+         "served_200": 3, "no_available_429": 0, "served_ratio": 1.0},
+        {"edge": "prod", "verdict": "healthy", "schedulable_accounts": 14},
+    ],
+    ["池刚空·尚未拒单(领先告警)", "sched=0/2", "排查三连", "schedulable=false 被钉死", "OAuth 吊销"],
+)
+_msg_case(
+    "active-outage down (sched=0, 429 flooding) => urgent tag, not the leading tag",
+    [{"edge": "us3", "verdict": "down", "schedulable_accounts": 0, "total_accounts": 1,
+      "served_200": 0, "no_available_429": 33748, "served_ratio": 0.0}],
+    ["活跃掉单·账号全不可调度", "sched=0/1"],
+    ["池刚空·尚未拒单"],
+)
+_msg_case(
+    "no-accounts down (total=0) => 未配置账号, NO 排查三连 runbook",
+    [{"edge": "fra1", "verdict": "down", "schedulable_accounts": 0, "total_accounts": 0,
+      "served_200": 0, "no_available_429": 0}],
+    ["未配置账号"],
+    ["排查三连"],
+)
+_msg_case(
+    "unreachable => 探测不可达 action, no runbook",
+    [{"edge": "sg1", "verdict": "unreachable"}],
+    ["探测不可达", "实例是否存活"],
+    ["排查三连"],
+)
+_msg_case(
+    "degraded => 池不足 tag",
+    [{"edge": "us5", "verdict": "degraded", "schedulable_accounts": 3, "total_accounts": 3,
+      "served_200": 11102, "no_available_429": 4841, "served_ratio": 0.696, "wait_timeout": 5656}],
+    ["在服务但漏 429·池不足", "wait_to=5656"],
+)
+
+
 def _run_selftest() -> int:
     failures = 0
     for name, rows, prev_key, expect in _SELFTEST:
@@ -222,10 +333,23 @@ def _run_selftest() -> int:
                 break
         else:
             print(f"  [ok] {name}", file=sys.stderr)
+    for name, rows, must_contain, must_not_contain in _MESSAGE_CASES:
+        msg = build_decision(rows, "", "2h")["message"]
+        missing = [s for s in must_contain if s not in msg]
+        present = [s for s in must_not_contain if s in msg]
+        if missing or present:
+            failures += 1
+            if missing:
+                print(f"  [FAIL] msg/{name}: missing {missing}", file=sys.stderr)
+            if present:
+                print(f"  [FAIL] msg/{name}: should not contain {present}", file=sys.stderr)
+        else:
+            print(f"  [ok] msg/{name}", file=sys.stderr)
+    total = len(_SELFTEST) + len(_MESSAGE_CASES)
     if failures:
         print(f"edge-health-alert selftest: {failures} FAILED", file=sys.stderr)
         return 1
-    print(f"edge-health-alert selftest: all {len(_SELFTEST)} cases passed", file=sys.stderr)
+    print(f"edge-health-alert selftest: all {total} cases passed", file=sys.stderr)
     return 0
 
 
