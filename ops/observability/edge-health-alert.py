@@ -75,7 +75,7 @@ def build_decision(rows: list, prev_key: str, window: str) -> dict:
     else:
         severity = "warning"
 
-    message = _format_message(actionable, thin, healthy, window, severity)
+    message = _format_message(actionable, thin, healthy, window)
     return {
         "key": key,
         "actionable_count": len(actionable),
@@ -138,7 +138,7 @@ def _needs_triage_runbook(actionable: list) -> bool:
 _VERDICT_ZH = {"down": "宕机", "unreachable": "不可达", "parse-error": "解析失败", "degraded": "降级"}
 
 
-def _format_message(actionable: list, thin: list, healthy: list, window: str, severity: str) -> str:
+def _format_message(actionable: list, thin: list, healthy: list, window: str) -> str:
     if not actionable:
         head = "✅ TokenKey 边缘健康 — 全部恢复（无 宕机/降级）"
     else:
