@@ -3678,6 +3678,8 @@ export default {
       vertexSaJsonSelectBtn: '选择 JSON',
       vertexSaJsonUploadHint: '上传或拖入 JSON 后会自动读取 project_id，密钥内容仅用于创建账号提交。',
       vertexSaJsonEditHint: 'Service Account JSON 不在编辑页显示；需要更换 JSON 时请删除账号后重新创建。',
+      vertexSaJsonNewapiEditHint: '留空则保留当前 Service Account JSON；粘贴新的 JSON 可轮换密钥，project_id 会自动重新解析。',
+      vertexSaJsonNewapiEditPlaceholder: '留空保留当前；或粘贴新的 Service Account JSON 以替换',
       vertexProjectIdPlaceholder: '从 JSON 自动读取',
       vertexLocationHint: '不同 Vertex 模型可用 location 可能不同，这里选择账号默认 endpoint location。',
       vertexLocationRequired: '请填写 Vertex location',
