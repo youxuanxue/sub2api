@@ -71,4 +71,8 @@ type ExportFilter struct {
 	Until          time.Time
 	SynthSessionID string
 	SynthRole      string
+	// Format selects the export shape: "" / "v1" = legacy per-message
+	// ExportRow JSONL; "v2" = richer session/turns (traj v2, .examples-aligned,
+	// one TrajSessionV2 object per line, carries thinking/signature/usage).
+	Format string
 }

@@ -33,13 +33,14 @@ import (
 )
 
 type Service struct {
-	client        *ent.Client
-	cfg           config.QACaptureConfig
-	store         BlobStore
-	pool          pond.Pool
-	bodyMaxBytes  int
-	retentionDays int
-	dlqDir        string
+	client            *ent.Client
+	cfg               config.QACaptureConfig
+	store             BlobStore
+	pool              pond.Pool
+	bodyMaxBytes      int
+	optInBodyMaxBytes int
+	retentionDays     int
+	dlqDir            string
 }
 
 var (
@@ -92,12 +93,13 @@ func NewService(cfg *config.Config, client *ent.Client) (*Service, error) {
 		dataDir = "/app/data"
 	}
 	svc := &Service{
-		client:        client,
-		cfg:           cfg.QACapture,
-		store:         store,
-		bodyMaxBytes:  cfg.QACapture.BodyMaxBytes,
-		retentionDays: cfg.QACapture.RetentionDays,
-		dlqDir:        filepath.Join(dataDir, "qa_dlq"),
+		client:            client,
+		cfg:               cfg.QACapture,
+		store:             store,
+		bodyMaxBytes:      cfg.QACapture.BodyMaxBytes,
+		optInBodyMaxBytes: cfg.QACapture.OptInBodyMaxBytes,
+		retentionDays:     cfg.QACapture.RetentionDays,
+		dlqDir:            filepath.Join(dataDir, "qa_dlq"),
 	}
 	svc.pool = pond.NewPool(cfg.QACapture.WorkerCount, pond.WithQueueSize(cfg.QACapture.QueueSize))
 	return svc, nil
@@ -123,6 +125,18 @@ func (s *Service) BodyMaxBytes() int {
 		return 256 * 1024
 	}
 	return s.bodyMaxBytes
+}
+
+// OptInBodyMaxBytes 返回 traj/synth opt-in 记录的捕获上限（默认高于普通上限，
+// 避免长 thinking 被截断）。<=0 或低于普通上限时回退到 BodyMaxBytes()。
+func (s *Service) OptInBodyMaxBytes() int {
+	if s == nil {
+		return 1024 * 1024
+	}
+	if s.optInBodyMaxBytes > s.BodyMaxBytes() {
+		return s.optInBodyMaxBytes
+	}
+	return s.BodyMaxBytes()
 }
 
 func (s *Service) Submit(input CaptureInput) {
@@ -530,14 +544,21 @@ func (s *Service) DeleteUserData(ctx context.Context, userID int64, before *time
 }
 
 func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []string, error) {
-	requestValue := sanitizeQABytes(input.RequestBody, s.bodyMaxBytes)
-	responseValue := sanitizeQABytes(input.ResponseBody, s.bodyMaxBytes)
+	// traj-opt-in 的 Anthropic 记录：保留 thinking 块的 signature（仅 thinking 块，
+	// 见 thinking_preserve.go）。默认（非 opt-in / 非 Anthropic）行为不变。
+	preserveThinking := isAnthropicThinkingOptIn(input.Platform, input.DialogSynth)
+	requestValue := s.sanitizeQABody(input.RequestBody, preserveThinking)
+	responseValue := s.sanitizeQABody(input.ResponseBody, preserveThinking)
 
 	chunks := make([]map[string]any, 0, len(input.StreamChunks))
 	for _, chunk := range input.StreamChunks {
+		redacted := logredact.RedactText(string(chunk.Bytes))
+		if preserveThinking {
+			redacted = restoreThinkingSignatureInChunk(redacted, chunk.Bytes)
+		}
 		chunks = append(chunks, map[string]any{
 			"t":       chunk.RecvAtMs,
-			"raw_b64": base64.StdEncoding.EncodeToString([]byte(logredact.RedactText(string(chunk.Bytes)))),
+			"raw_b64": base64.StdEncoding.EncodeToString([]byte(redacted)),
 		})
 	}
 
@@ -605,6 +626,37 @@ func sanitizeQABytes(raw []byte, maxBytes int) any {
 	if json.Valid([]byte(trimmed)) {
 		var out any
 		if err := json.Unmarshal([]byte(logredact.RedactJSON([]byte(trimmed))), &out); err == nil {
+			return out
+		}
+	}
+	return logredact.RedactText(trimmed)
+}
+
+// sanitizeQABody 与 sanitizeQABytes 同语义；当 preserveThinking=true 时，在脱敏后把
+// thinking 块的真实 signature 结构化回填（仅 thinking 块）。opt-in 记录用更高的截断上限，
+// 避免长 thinking 被切断。
+func (s *Service) sanitizeQABody(raw []byte, preserveThinking bool) any {
+	maxBytes := s.bodyMaxBytes
+	if preserveThinking && s.optInBodyMaxBytes > maxBytes {
+		maxBytes = s.optInBodyMaxBytes
+	}
+	if !preserveThinking {
+		return sanitizeQABytes(raw, maxBytes)
+	}
+	if len(raw) == 0 {
+		return map[string]any{}
+	}
+	if maxBytes > 0 && len(raw) > maxBytes {
+		raw = raw[:maxBytes]
+	}
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" {
+		return map[string]any{}
+	}
+	if json.Valid([]byte(trimmed)) {
+		redacted := restoreThinkingSignatures(logredact.RedactJSON([]byte(trimmed)), []byte(trimmed))
+		var out any
+		if err := json.Unmarshal([]byte(redacted), &out); err == nil {
 			return out
 		}
 	}
@@ -880,6 +932,17 @@ func captureSynthHeaders(c *gin.Context) (session, role, level string, dialogSyn
 	pipeline := clip(c.Request.Header.Get("X-Synth-Pipeline"))
 	dialogSynth = session != "" || pipeline != ""
 	return
+}
+
+// requestIsSynthOptIn 在请求阶段（CaptureFromContext 之前）判定该请求是否为
+// traj/synth opt-in，信号与 captureSynthHeaders 的 dialogSynth 一致：
+// X-Synth-Session 或 X-Synth-Pipeline 存在即视为 opt-in。
+func requestIsSynthOptIn(c *gin.Context) bool {
+	if c == nil || c.Request == nil {
+		return false
+	}
+	return strings.TrimSpace(c.Request.Header.Get("X-Synth-Session")) != "" ||
+		strings.TrimSpace(c.Request.Header.Get("X-Synth-Pipeline")) != ""
 }
 
 func captureResponseHeaders(c *gin.Context) map[string]string {

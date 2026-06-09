@@ -45,12 +45,37 @@ func (s *Service) ExportUserTrajectoryData(ctx context.Context, userID int64, fi
 		sources = append(sources, trajectory.SourceRecord{Record: record, Blob: blob})
 	}
 
-	rows, summary, err := trajectory.ProjectRecords(sources)
-	if err != nil {
-		return nil, err
+	var lines [][]byte
+	var recordCount int
+	if strings.EqualFold(strings.TrimSpace(filter.Format), "v2") {
+		sessions, summary, err := trajectory.BuildTrajSessionsV2(sources)
+		if err != nil {
+			return nil, err
+		}
+		for i := range sessions {
+			encoded, err := json.Marshal(sessions[i])
+			if err != nil {
+				return nil, err
+			}
+			lines = append(lines, encoded)
+		}
+		recordCount = summary.RecordCount
+	} else {
+		rows, summary, err := trajectory.ProjectRecords(sources)
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			encoded, err := json.Marshal(row)
+			if err != nil {
+				return nil, err
+			}
+			lines = append(lines, encoded)
+		}
+		recordCount = summary.RecordCount
 	}
 
-	if len(rows) == 0 {
+	if len(lines) == 0 {
 		return nil, fmt.Errorf("trajectory export has no rows")
 	}
 
@@ -60,12 +85,8 @@ func (s *Service) ExportUserTrajectoryData(ctx context.Context, userID int64, fi
 	if err != nil {
 		return nil, err
 	}
-	for _, row := range rows {
-		encoded, err := json.Marshal(row)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := indexWriter.Write(append(encoded, '\n')); err != nil {
+	for _, line := range lines {
+		if _, err := indexWriter.Write(append(line, '\n')); err != nil {
 			return nil, err
 		}
 	}
@@ -85,7 +106,7 @@ func (s *Service) ExportUserTrajectoryData(ctx context.Context, userID int64, fi
 	return &ExportResult{
 		DownloadURL: url,
 		ExpiresAt:   signedAt.Add(presignedURLTTL),
-		RecordCount: summary.RecordCount,
+		RecordCount: recordCount,
 		StorageKey:  key,
 	}, nil
 }

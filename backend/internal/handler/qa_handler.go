@@ -51,6 +51,9 @@ func NewQAHandler(service *qa.Service) *QAHandler {
 type ExportSelfRequest struct {
 	SynthSessionID string `json:"synth_session_id"`
 	SynthRole      string `json:"synth_role"`
+	// Format: "" / "v1" = legacy ExportRow; "v2" = traj v2 session/turns
+	// (.examples-aligned, carries thinking/signature/usage/stop_reason).
+	Format string `json:"format"`
 }
 
 // ExportSelfResponse mirrors the contract documented in issue #59.
