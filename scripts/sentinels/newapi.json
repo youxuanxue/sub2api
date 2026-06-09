@@ -207,6 +207,14 @@
       "rationale": "The shared NewAPI field component must pass #128 pricing_status metadata into the whitelist selector without changing submit semantics. Dropping this binding compiles cleanly but regresses the pricing-source-of-truth UI contract."
     },
     {
+      "path": "frontend/src/components/account/AccountNewApiPlatformFields.vue",
+      "must_contain": [
+        "hideTransportCredentials",
+        "v-if=\"!hideTransportCredentials\""
+      ],
+      "rationale": "newapi + Vertex service_account (channel_type=41) authenticates via SA JSON, not base_url/api_key (ChannelBaseURLs[41]=VertexAI is empty). The EditAccountModal SA branch passes :hide-transport-credentials=true so this shared component suppresses the base_url (required-starred) + api_key inputs whose edits that submit path silently drops. Dropping the prop or the v-if guard compiles cleanly but re-surfaces a misleading required base_url field — exactly the silent-regression class sentinels guard. Paired with the EditAccountModal pass-site literal in frontend-tk.json."
+    },
+    {
       "path": "frontend/src/components/account/ModelWhitelistSelector.vue",
       "must_contain": [
         "modelValue: unknown[]",

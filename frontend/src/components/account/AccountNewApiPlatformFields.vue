@@ -23,6 +23,15 @@ withDefaults(
     fetchModelsDisabled?: boolean
     /** Spinner state for the fetch button. */
     fetchModelsLoading?: boolean
+    /**
+     * Hide the base_url + api_key inputs. Set by parents whose account shape
+     * authenticates by some other means and does not forward those transit
+     * credentials — e.g. a newapi + Vertex service_account (channel_type=41),
+     * where auth is the SA JSON and ChannelBaseURLs[41] (VertexAI) is empty.
+     * Showing a required-starred base_url there is misleading and any edit is
+     * silently dropped by the parent submit path, so suppress both fields.
+     */
+    hideTransportCredentials?: boolean
   }>(),
   {
     channelTypesError: null,
@@ -30,6 +39,7 @@ withDefaults(
     fetchModelsEnabled: false,
     fetchModelsDisabled: false,
     fetchModelsLoading: false,
+    hideTransportCredentials: false,
   }
 )
 
@@ -112,7 +122,7 @@ function removeMapping(index: number): void {
       />
       <p v-if="variant === 'create' && channelTypesError" class="mt-1 text-xs text-red-500">{{ channelTypesError }}</p>
     </div>
-    <div>
+    <div v-if="!hideTransportCredentials">
       <label class="input-label">
         {{ t('admin.accounts.newApiPlatform.baseUrl') }}
         <span class="text-red-500">*</span>
@@ -125,7 +135,7 @@ function removeMapping(index: number): void {
       />
       <p class="input-hint">{{ t('admin.accounts.newApiPlatform.baseUrlHint') }}</p>
     </div>
-    <div>
+    <div v-if="!hideTransportCredentials">
       <label class="input-label">
         {{ t('admin.accounts.newApiPlatform.apiKey') }}
         <span v-if="variant === 'create'" class="text-red-500">*</span>
