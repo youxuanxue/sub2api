@@ -36,8 +36,12 @@
 
 set -euo pipefail
 
+# print_usage — render the comment banner (lines 2-35) as help text. Single
+# source for both the no-args error and -h/--help so the line range never drifts.
+print_usage() { sed -n '2,35p' "$0" | sed 's/^# \{0,1\}//'; }
+
 if [ "$#" -lt 1 ]; then
-  sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
+  print_usage
   exit 1
 fi
 
@@ -52,7 +56,7 @@ while [ "$#" -gt 0 ]; do
     --no-push) PUSH=0; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     --allow-empty-changelog) ALLOW_EMPTY=1; shift ;;
-    -h|--help) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) print_usage; exit 0 ;;
     v*) TAG="$1"; shift ;;
     *) echo "ERROR: unknown arg or invalid tag (must start with v): $1" >&2; exit 1 ;;
   esac
