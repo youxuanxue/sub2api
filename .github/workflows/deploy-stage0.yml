@@ -179,6 +179,20 @@ jobs:
           # already-deployed image.
           bash ops/stage0/post_deploy_smoke.sh
 
+      - name: Notify Feishu (release rollout)
+        # Best-effort 发版公告。默认 step gating 保证它只在 prod 换镜像 +
+        # External health + smoke 全绿后才跑 —— 卡片 == "该版本已上线且烟测通过"。
+        # continue-on-error 让 webhook 抽风不把成功的 prod deploy 标红(对齐
+        # release.yml 的 Telegram 步)。脚本本身也始终 exit 0(双保险),失败时
+        # 打 ::warning::,绝不打印 webhook/secret。
+        continue-on-error: true
+        env:
+          TK_FEISHU_WEBHOOK_URL: ${{ secrets.TK_FEISHU_WEBHOOK_URL }}
+          TK_FEISHU_SIGNING_SECRET: ${{ secrets.TK_FEISHU_SIGNING_SECRET }}
+          API_URL: ${{ steps.instance.outputs.api_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash ops/stage0/notify-feishu-release.sh "$INPUT_TAG" "$API_URL" --run-url "$RUN_URL"
+
       - name: Job summary
         if: always()
         env:
