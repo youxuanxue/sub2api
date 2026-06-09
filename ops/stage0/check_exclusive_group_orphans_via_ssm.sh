@@ -66,9 +66,11 @@ ssm_region_args=()
 _region="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
 [[ -n "${_region}" ]] && ssm_region_args=(--region "${_region}")
 
-# Read-only orphan COUNT + detail (same predicate as the backfill remedy above).
-# Single-statement-per-line; piped in as base64 so no shell/JSON quoting of the
-# SQL string literals ('subscription', 'orphans=', …) is needed.
+# Read-only orphan COUNT + detail. The orphan predicate (same as the backfill
+# remedy above) is repeated in both queries on purpose: a psql CTE scopes only to
+# the single statement it prefixes, so the count and detail must each carry it.
+# The two WHEREs sit adjacent here — keep them in sync. Piped in as base64 so no
+# shell/JSON quoting of the SQL literals ('subscription', 'orphans=', …) is needed.
 read -r -d '' ORPHAN_SQL <<'SQL' || true
 \pset pager off
 \set ON_ERROR_STOP on
@@ -149,7 +151,9 @@ if [[ "${orphans}" -eq 0 ]]; then
 fi
 
 echo "::warning::exclusive-group orphan check: ${orphans} api key(s) bound to an exclusive standard group whose user is NOT in user_allowed_groups — they will 403 GROUP_NOT_ALLOWED. Confirm intended-revocation vs backfill the grant (remedy SQL in script header). Affected:"
-grep -E '^orphan_detail\|' "${stdout_file}" | while IFS='|' read -r _tag key_id user_id email group_id group_name; do
+# `|| true` guard: under `set -e`+`pipefail` a no-match grep (exit 1) would abort
+# the script before the final `exit 0`, breaking the "ALWAYS exit 0" contract.
+{ grep -E '^orphan_detail\|' "${stdout_file}" || true; } | while IFS='|' read -r _tag key_id user_id email group_id group_name; do
   echo "::warning::  api_key=${key_id} user=${user_id} <${email}> group=${group_id} (${group_name})"
 done
 exit 0
