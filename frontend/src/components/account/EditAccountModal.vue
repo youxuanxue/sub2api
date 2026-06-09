@@ -4035,24 +4035,68 @@ const handleSubmit = async () => {
 
       updatePayload.credentials = newCredentials
     } else if (props.account.platform === 'newapi' && props.account.type === 'service_account') {
-      // 第五平台 newapi + Vertex service_account: channel_type + base_url +
-      // model_mapping 走 newapi composable.buildSubmitBundle（与 apikey 路径同一
-      // 套结构化 selector），Vertex SA 专属字段（service_account_json 写一次 /
-      // location / tier_id）在此叠加。SA JSON 留空 = 保留现有密钥（与 api_key 同
-      // 语义），永不回吐脱敏后的存储值。
+      // 第五平台 newapi + Vertex service_account: 复用 newapi 结构化 selector
+      // 的 channel_type + model_mapping（与 apikey 路径同一套控件），但 **不** 走
+      // buildSubmitBundle —— 后者强制 base_url + api_key，二者对 Vertex 都不适用
+      // （ChannelBaseURLs[41]=VertexAI 上游为空串；鉴权走 SA JSON 而非 api_key）。
+      // 这里直接读 composable 暴露的 ref 拼装，叠加 Vertex 专属字段
+      // （service_account_json 写一次 / location / tier_id）。SA JSON 留空 = 保留
+      // 现有密钥（与 api_key 同语义），永不回吐脱敏后的存储值。
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
-      const bundle = newapiBuildSubmitBundle('edit')
-      if (!bundle) return
-      const newCredentials: Record<string, unknown> = { ...currentCredentials, ...bundle.credentials }
+      const newCredentials: Record<string, unknown> = { ...currentCredentials }
 
-      // newapi bundle 不带 api_key（Vertex 鉴权走 SA JSON），从 base credentials
-      // 移除残留 api_key 避免误用。
+      if (!newapiChannelType.value || newapiChannelType.value <= 0) {
+        appStore.showError(t('admin.accounts.newApiPlatform.pleaseSelectChannelType'))
+        return
+      }
+      updatePayload.channel_type = newapiChannelType.value
+
+      // Vertex 鉴权不依赖 api_key / base_url：移除残留 api_key 避免误用，base_url
+      // 仅在账号原本携带时透传（不强制、不注入空串）。
       delete newCredentials.api_key
-      // composable 没填的字段意味着「清空」——edit 路径需主动 delete。
-      if (!bundle.credentials.model_mapping) delete newCredentials.model_mapping
-      if (!bundle.credentials.status_code_mapping) delete newCredentials.status_code_mapping
-      if (!bundle.credentials.openai_organization) delete newCredentials.openai_organization
-      updatePayload.channel_type = bundle.channelType
+
+      const saModelMapping = buildModelMappingObject(
+        newapiRestrictionMode.value,
+        newapiAllowedModels.value,
+        newapiModelMappings.value
+      )
+      if (saModelMapping) {
+        newCredentials.model_mapping = saModelMapping
+      } else {
+        delete newCredentials.model_mapping
+      }
+      if (Object.keys(newapiUpstreamModelPricingStatus.value).length > 0) {
+        newCredentials.model_pricing_status = { ...newapiUpstreamModelPricingStatus.value }
+      } else {
+        delete newCredentials.model_pricing_status
+      }
+
+      const saStatusCodeMapping = newapiStatusCodeMapping.value.trim()
+      if (saStatusCodeMapping) {
+        // Same validation the apikey path gets via buildSubmitBundle: a non-empty
+        // status_code_mapping must be a JSON object, else block (don't persist
+        // malformed transit config).
+        let saStatusCodeValid = false
+        try {
+          const parsed = JSON.parse(saStatusCodeMapping)
+          saStatusCodeValid = parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+        } catch {
+          saStatusCodeValid = false
+        }
+        if (!saStatusCodeValid) {
+          appStore.showError(t('admin.accounts.newApiPlatform.jsonObjectRequired'))
+          return
+        }
+        newCredentials.status_code_mapping = saStatusCodeMapping
+      } else {
+        delete newCredentials.status_code_mapping
+      }
+      const saOpenaiOrganization = newapiOpenAIOrganization.value.trim()
+      if (saOpenaiOrganization) {
+        newCredentials.openai_organization = saOpenaiOrganization
+      } else {
+        delete newCredentials.openai_organization
+      }
 
       if (!editVertexLocation.value.trim()) {
         appStore.showError(t('admin.accounts.vertexLocationRequired'))
