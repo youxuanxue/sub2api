@@ -179,6 +179,29 @@ jobs:
           # already-deployed image.
           bash ops/stage0/post_deploy_smoke.sh
 
+      - name: Notify Feishu (release rollout)
+        # Best-effort 发版公告。默认 step gating 保证它只在 prod 换镜像 +
+        # External health + smoke 全绿后才跑 —— 卡片 == "该版本已上线且烟测通过"。
+        # 标 continue-on-error 让 webhook 抽风不把成功的 prod deploy 标红(对齐
+        # release.yml 的 Telegram 步)。脚本本身也始终 exit 0(双保险),失败时
+        # 打 ::warning::,绝不打印 webhook/secret。
+        continue-on-error: true  # preflight-allow: swallow
+        env:
+          TK_FEISHU_WEBHOOK_URL: ${{ secrets.TK_FEISHU_WEBHOOK_URL }}
+          TK_FEISHU_SIGNING_SECRET: ${{ secrets.TK_FEISHU_SIGNING_SECRET }}
+          API_URL: ${{ steps.instance.outputs.api_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          # 取本次 Release 的 changelog(goreleaser 自动生成,内含自上次 tag 以来
+          # 的提交)内联到卡片;Release 尚未建/手动重放旧 tag 取不到时退回空,
+          # 卡片降级为只留 Release 链接。无 set -e,gh 失败只让 NOTES 为空,
+          # 不影响通知本身(best-effort)。
+          NOTES="$(gh release view "v$INPUT_TAG" --json body --jq '.body' 2>/dev/null)"
+          bash ops/stage0/notify-feishu-release.sh "$INPUT_TAG" "$API_URL" \
+            --run-url "$RUN_URL" --notes "$NOTES"
+
       - name: Job summary
         if: always()
         env:
