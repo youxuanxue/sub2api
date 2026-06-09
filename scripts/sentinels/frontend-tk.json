@@ -333,9 +333,10 @@
         "account.platform === 'newapi' && account.type === 'service_account'",
         "applyEditVertexServiceAccountJson",
         "newCredentials.service_account_json = editVertexServiceAccountJson.value.trim()",
-        ":hide-transport-credentials=\"true\""
+        ":hide-transport-credentials=\"true\"",
+        "previewEditVertexServiceAccountJson"
       ],
-      "rationale": "Fifth-platform newapi + Vertex service_account (channel_type=41, e.g. gemini-imagen-veo-paid) accounts fall through BOTH upstream credential blocks (apikey block is type==='apikey', Vertex block is platform gemini|anthropic), so without this dedicated branch the Edit modal renders NO credential fields and operators must edit channel_type / model_mapping / vertex_location / SA JSON via raw SQL. The first literal pins the template v-if that surfaces AccountNewApiPlatformFields (channel_type + structured model_mapping selector) for this account shape; the second pins the write-once SA JSON parse helper (paste re-derives project_id/client_email, leave empty keeps the redacted secret); the third pins the submit-path persist of a rotated service_account_json. The fourth pins the :hide-transport-credentials pass-site that suppresses the inert base_url (required-starred) + api_key inputs this SA submit path never forwards; its component-side guard is anchored in newapi.json. Compile still passes if a future upstream merge silently drops any one of these — the branch would just stop rendering, stop persisting, or re-show dead fields — so all four are anchored to keep the load/edit/persist chain intact."
+      "rationale": "Fifth-platform newapi + Vertex service_account (channel_type=41, e.g. gemini-imagen-veo-paid) accounts fall through BOTH upstream credential blocks (apikey block is type==='apikey', Vertex block is platform gemini|anthropic), so without this dedicated branch the Edit modal renders NO credential fields and operators must edit channel_type / model_mapping / vertex_location / SA JSON via raw SQL. The first literal pins the template v-if that surfaces AccountNewApiPlatformFields (channel_type + structured model_mapping selector) for this account shape; the second pins the write-once SA JSON parse helper (paste re-derives project_id/client_email, leave empty keeps the redacted secret); the third pins the submit-path persist of a rotated service_account_json. The fourth pins the :hide-transport-credentials pass-site that suppresses the inert base_url (required-starred) + api_key inputs this SA submit path never forwards; its component-side guard is anchored in newapi.json. The fifth pins the on-blur previewEditVertexServiceAccountJson that live-updates the read-only Project ID when a new SA JSON is pasted. Compile still passes if a future upstream merge silently drops any one of these — the branch would just stop rendering, stop persisting, stop previewing, or re-show dead fields — so all are anchored to keep the load/edit/persist chain intact."
     },
     {
       "path": "frontend/src/constants/accountTierOptions.tk.ts",
@@ -532,6 +533,27 @@
         "mergeLocaleMessage"
       ],
       "rationale": "All TokenKey home/landing copy (tags, feature/moat cards, comparison, providers, CTA) lives in the TK-only overlay i18n/tk/home.tk.ts and is deep-merged over the upstream locale by this two-line injection in loadLocaleMessages (await import('./tk/home.tk') + i18n.global.mergeLocaleMessage). The upstream locale files (locales/en.ts, zh.ts) are deliberately kept at ZERO diff so they merge cleanly — which means EVERY TK home string depends entirely on this overlay call. An upstream merge that rewrites loadLocaleMessages could silently drop it, reverting all TK home copy to the upstream defaults (Antigravity card, '扩展引擎', sub2api wording) with no compile error and no visible failure. This is the single most fragile point of the convergence; the sentinel makes its removal a hard merge-gate failure."
+    },
+    {
+      "path": "frontend/src/components/account/EditAccountModal.vue",
+      "must_contain": [
+        "form.concurrency = Math.max(0, form.concurrency || 0)"
+      ],
+      "rationale": "TK changes the upstream account concurrency input default: the gateway treats concurrency<=0 as UNLIMITED (concurrency_service.go AcquireAccountSlot), so the input must allow 0. Upstream pins min=\"1\" with a Math.max(1,…) clamp, which can neither set 'unlimited' nor open+save an account already at 0 (API/SQL-seeded) — native HTML5 validation silently blocks submit with no toast. This anchors the min=\"0\" + Math.max(0,…) clamp; an upstream merge that re-overwrites this modal and reverts the clamp compiles cleanly but silently re-breaks editing 0-concurrency accounts and removes the unlimited option. priority's matching min=\"0\" reverts in the same upstream block, so this one clamp anchor guards the whole number-input fix. Mirrored in CreateAccountModal + BulkEditAccountModal entries."
+    },
+    {
+      "path": "frontend/src/components/account/CreateAccountModal.vue",
+      "must_contain": [
+        "form.concurrency = Math.max(0, form.concurrency || 0)"
+      ],
+      "rationale": "Same 0=unlimited concurrency guard as the EditAccountModal entry, for the create path. Anchors min=\"0\" + Math.max(0,…); a future upstream merge reverting to min=\"1\"/Math.max(1,…) would silently remove the ability to create an unlimited-concurrency account. See the EditAccountModal entry for the full rationale (concurrency_service.go treats concurrency<=0 as unlimited)."
+    },
+    {
+      "path": "frontend/src/components/account/BulkEditAccountModal.vue",
+      "must_contain": [
+        "concurrency = Math.max(0, concurrency || 0)"
+      ],
+      "rationale": "Same 0=unlimited concurrency guard as EditAccountModal, for the bulk-edit path (the third account-form surface). Anchors min=\"0\" + Math.max(0,…); without it a bulk update reverted by an upstream merge could neither set unlimited nor preserve a 0 and would clamp it back to 1. Keeps the 0=unlimited behavior consistent across single-edit / create / bulk-edit for every platform."
     }
   ]
 }
