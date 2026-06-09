@@ -3532,6 +3532,8 @@ export default {
       vertexSaJsonSelectBtn: 'Select JSON',
       vertexSaJsonUploadHint: 'After uploading or dropping a JSON file, the project_id will be auto-extracted. Key content is only used for account creation.',
       vertexSaJsonEditHint: 'Service Account JSON is not shown on the edit page; to change the JSON, delete the account and recreate it.',
+      vertexSaJsonNewapiEditHint: 'Leave empty to keep the current Service Account JSON. Paste a new JSON to rotate the key — the project_id will be re-extracted automatically.',
+      vertexSaJsonNewapiEditPlaceholder: 'Leave empty to keep current — or paste a new Service Account JSON to replace it',
       vertexProjectIdPlaceholder: 'Auto-extracted from JSON',
       vertexLocationHint: 'Available locations vary by Vertex model. Select the default endpoint location for this account.',
       vertexLocationRequired: 'Please enter a Vertex location',

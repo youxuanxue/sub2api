@@ -328,6 +328,15 @@
       "rationale": "Post-2026-05-29 upstream merge: EditAccountModal was 3-way re-merged after the original merge took upstream wholesale and dropped TK customizations. This guards the upstream features TK adopted in that re-merge — per-account 5h/7d quota auto-pause threshold persistence (auto_pause_5h/7d_threshold, paired with the backend shouldAutoPauseOpenAIAccountByQuota gate) and the OpenAI endpoint-capability selection (openAIEndpointCapabilities). A future merge that re-overwrites this modal must keep them or the admin loses the auto-pause / capability controls. The TK compaction/pricing literals are guarded by the existing frontend-tk + newapi sentinels."
     },
     {
+      "path": "frontend/src/components/account/EditAccountModal.vue",
+      "must_contain": [
+        "account.platform === 'newapi' && account.type === 'service_account'",
+        "applyEditVertexServiceAccountJson",
+        "newCredentials.service_account_json = editVertexServiceAccountJson.value.trim()"
+      ],
+      "rationale": "Fifth-platform newapi + Vertex service_account (channel_type=41, e.g. gemini-imagen-veo-paid) accounts fall through BOTH upstream credential blocks (apikey block is type==='apikey', Vertex block is platform gemini|anthropic), so without this dedicated branch the Edit modal renders NO credential fields and operators must edit channel_type / model_mapping / vertex_location / SA JSON via raw SQL. The first literal pins the template v-if that surfaces AccountNewApiPlatformFields (channel_type + structured model_mapping selector) for this account shape; the second pins the write-once SA JSON parse helper (paste re-derives project_id/client_email, leave empty keeps the redacted secret); the third pins the submit-path persist of a rotated service_account_json. Compile still passes if a future upstream merge silently drops any one of these — the branch would just stop rendering or stop persisting — so all three are anchored to keep the load/edit/persist chain intact."
+    },
+    {
       "path": "frontend/src/constants/accountTierOptions.tk.ts",
       "must_contain": [
         "ACCOUNT_TIER_OPTIONS"
