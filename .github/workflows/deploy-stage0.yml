@@ -206,11 +206,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
-          # 取本次 Release 的 changelog(goreleaser 自动生成,内含自上次 tag 以来
-          # 的提交)内联到卡片;Release 尚未建/手动重放旧 tag 取不到时退回空,
-          # 卡片降级为只留 Release 链接。无 set -e,gh 失败只让 NOTES 为空,
-          # 不影响通知本身(best-effort)。
-          NOTES="$(gh release view "v$INPUT_TAG" --json body --jq '.body' 2>/dev/null)"
+          # changelog 的唯一源是 tag 注解正文(release-tag.sh 自动生成,release.yml
+          # 也读它喂给 GitHub Release header)。直接读 tag body 而非渲染后的
+          # `gh release view` —— 后者还含 goreleaser 的 README 标语 header + 安装
+          # footer,会被 clean_changelog 倒进「其他」桶污染卡片。runner 默认浅克隆
+          # 无 tag,先 fetch。取不到 → NOTES 空 → 卡片降级为只留链接(best-effort,
+          # 无 set -e,失败不影响通知本身)。
+          git fetch origin "refs/tags/v${INPUT_TAG}:refs/tags/v${INPUT_TAG}" --force 2>/dev/null || true
+          NOTES="$(git tag -l --format='%(contents:body)' "v$INPUT_TAG" 2>/dev/null)"
           bash ops/stage0/notify-feishu-release.sh "$INPUT_TAG" "$API_URL" \
             --run-url "$RUN_URL" --notes "$NOTES"
 
