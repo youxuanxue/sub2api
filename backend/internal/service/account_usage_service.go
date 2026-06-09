@@ -337,10 +337,14 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64, for
 			if cache, ok := cached.(*apiUsageCache); ok {
 				age := time.Since(cache.timestamp)
 				if cache.err != nil && age < apiErrorCacheTTL {
-					// 负缓存命中：返回缓存的错误，避免重试风暴
+					// 负缓存命中：返回缓存的错误，避免重试风暴。
+					// force 也尊重负缓存：上游 usage 端点刚 429 时，手动「查询」
+					// 不应在 1 分钟内反复打它。
 					return nil, cache.err
 				}
-				if cache.response != nil && age < apiCacheTTL {
+				// force（手动「查询」）跳过正缓存命中以强制刷新，对齐 41e7ae53
+				// 对 OpenAI manual refresh 的修复；singleflight + jitter + 负缓存仍生效。
+				if !forceProbe && cache.response != nil && age < apiCacheTTL {
 					apiResp = cache.response
 				}
 			}
@@ -366,7 +370,7 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64, for
 						if cache.err != nil && age < apiErrorCacheTTL {
 							return nil, cache.err
 						}
-						if cache.response != nil && age < apiCacheTTL {
+						if !forceProbe && cache.response != nil && age < apiCacheTTL {
 							return cache.response, nil
 						}
 					}
