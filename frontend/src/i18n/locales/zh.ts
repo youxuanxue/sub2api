@@ -3948,6 +3948,7 @@ export default {
       proxy: '代理',
       noProxy: '无代理',
       concurrency: '并发数',
+      concurrencyZeroHint: '0 = 不限制（无并发上限）',
       loadFactor: '负载因子',
       loadFactorHint: '提高负载因子可以提高对账号的调度频率',
       priority: '优先级',

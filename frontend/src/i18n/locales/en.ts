@@ -3812,6 +3812,7 @@ export default {
       proxy: 'Proxy',
       noProxy: 'No Proxy',
       concurrency: 'Concurrency',
+      concurrencyZeroHint: '0 = unlimited (no concurrency limit)',
       loadFactor: 'Load Factor',
       loadFactorHint: 'Higher load factor increases scheduling frequency',
       priority: 'Priority',
