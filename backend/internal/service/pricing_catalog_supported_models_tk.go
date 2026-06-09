@@ -54,6 +54,7 @@ package service
 // supportedAnthropicCatalogModels — claude IDs confirmed servable.
 var supportedAnthropicCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin anthropic
+	"claude-fable-5":    {},
 	"claude-haiku-4-5":  {},
 	"claude-opus-4-1":   {},
 	"claude-opus-4-5":   {},

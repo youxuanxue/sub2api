@@ -674,10 +674,19 @@ func sanitizeBedrockThinking(body []byte, modelID string) []byte {
 		return body
 	}
 
-	if isBedrockOpus47OrNewer(modelID) {
-		if thinkingType == "enabled" {
+	if isBedrockOpus47OrNewer(modelID) || isFableModel(modelID) {
+		switch thinkingType {
+		case "enabled":
 			body, _ = sjson.SetBytes(body, "thinking.type", "adaptive")
 			body, _ = sjson.DeleteBytes(body, "thinking.budget_tokens")
+		case "disabled":
+			// Fable rejects an explicit thinking.type "disabled" with a 400 (Opus
+			// 4.7+ still accepts it); omitting the field is the documented
+			// equivalent. Proactive strip here since the bedrock path runs before
+			// the first send. See docs/spec-delta-cc-fable-5.md.
+			if isFableModel(modelID) {
+				body, _ = sjson.DeleteBytes(body, "thinking")
+			}
 		}
 		return body
 	}
