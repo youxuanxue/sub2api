@@ -871,6 +871,7 @@
           :fetch-models-disabled="newapiFetchModelsDisabled"
           :fetch-models-loading="newapiFetchModelsLoading"
           variant="edit"
+          :hide-transport-credentials="true"
           @fetch-models="newapiHandleFetchUpstreamModels"
         />
 
@@ -885,6 +886,7 @@
               autocomplete="off"
               class="input font-mono text-xs"
               :placeholder="t('admin.accounts.vertexSaJsonNewapiEditPlaceholder')"
+              @change="previewEditVertexServiceAccountJson"
             ></textarea>
             <p class="input-hint">{{ t('admin.accounts.vertexSaJsonNewapiEditHint') }}</p>
           </div>
@@ -3064,25 +3066,47 @@ const buildModelRestrictionMapping = () =>
  * CreateAccountModal.applyVertexServiceAccountJson but writes the normalized
  * JSON back into editVertexServiceAccountJson so the submit path forwards a
  * compact, validated blob. Returns false (with a toast) on invalid input.
+ *
+ * Options:
+ *   - silent:  suppress the validation toast (used by the on-blur preview,
+ *     where the textarea may still be mid-edit; submit re-validates loudly).
+ *   - rewrite: write the compact normalized JSON back into the textarea ref.
+ *     The preview leaves the textarea untouched so the operator's formatting
+ *     is not collapsed while they are still editing.
  */
-const applyEditVertexServiceAccountJson = (raw: string): boolean => {
+const applyEditVertexServiceAccountJson = (
+  raw: string,
+  opts: { silent?: boolean; rewrite?: boolean } = {}
+): boolean => {
+  const { silent = false, rewrite = true } = opts
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown>
     const projectId = (parsed.project_id as string) || ''
     const clientEmail = (parsed.client_email as string) || ''
     const privateKey = (parsed.private_key as string) || ''
     if (!projectId || !clientEmail || !privateKey) {
-      appStore.showError(t('admin.accounts.vertexSaJsonMissingFields'))
+      if (!silent) appStore.showError(t('admin.accounts.vertexSaJsonMissingFields'))
       return false
     }
     editVertexProjectId.value = projectId
     editVertexClientEmail.value = clientEmail
-    editVertexServiceAccountJson.value = JSON.stringify(parsed)
+    if (rewrite) editVertexServiceAccountJson.value = JSON.stringify(parsed)
     return true
   } catch {
-    appStore.showError(t('admin.accounts.vertexSaJsonInvalid'))
+    if (!silent) appStore.showError(t('admin.accounts.vertexSaJsonInvalid'))
     return false
   }
+}
+
+/**
+ * On-blur preview for the newapi Vertex SA JSON textarea: silently re-derive
+ * the read-only Project ID (and client_email) as soon as a valid JSON is
+ * pasted, so the field stops showing the stale value before submit. Invalid /
+ * partial input is left for the authoritative submit-time validation.
+ */
+const previewEditVertexServiceAccountJson = (): void => {
+  const raw = editVertexServiceAccountJson.value.trim()
+  if (raw) applyEditVertexServiceAccountJson(raw, { silent: true, rewrite: false })
 }
 
 const syncFormFromAccount = (newAccount: Account | null) => {
