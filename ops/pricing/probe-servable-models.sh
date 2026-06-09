@@ -130,7 +130,7 @@ main() {
 	# Gemini family: newapi/Vertex models served through the google group on GEMINI_BASE.
 	# Key is an api_key BOUND TO that group (api_keys.group_id -> groups.id); never printed.
 	if [ -n "${GEMINI_CHAT_MODELS:-}${GEMINI_IMAGE_MODELS:-}${GEMINI_VIDEO_MODELS:-}" ]; then
-		gkey="$($PSQL -c "SELECT ak.key FROM api_keys ak JOIN groups g ON g.id=ak.group_id WHERE g.name='$GEMINI_GROUP_NAME' AND ak.deleted_at IS NULL ORDER BY ak.id LIMIT 1" | tr -d '[:space:]')"
+		gkey="$($PSQL -c "SELECT ak.key FROM api_keys ak JOIN groups g ON g.id=ak.group_id WHERE g.name='$GEMINI_GROUP_NAME' AND ak.deleted_at IS NULL AND g.deleted_at IS NULL ORDER BY ak.id LIMIT 1" | tr -d '[:space:]')"
 		if [ -z "$gkey" ]; then
 			emit gemini "*" 000 "auth_error"
 		else

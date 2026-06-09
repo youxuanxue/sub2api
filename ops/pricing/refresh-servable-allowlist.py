@@ -331,11 +331,15 @@ def selftest() -> int:
                    "gemini-2.5-computer-use-preview-10-2025"):
         assert exotic not in sum(g.values(), []), f"exotic {exotic} must be excluded"
     # load_discovered accepts a model_pricing_status-shaped JSON object (keys)
+    import os
     import tempfile
-    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
+    tf = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+    try:
         tf.write('{"gemini-2.5-pro": "priced", "gemini-3-pro-image": "missing"}')
-        tf.flush()
+        tf.close()
         disc = load_discovered(tf.name)
+    finally:
+        os.unlink(tf.name)
     assert set(disc) == {"gemini-2.5-pro", "gemini-3-pro-image"}, disc
 
     # de-dup: drop dated-with-base + -thinking; keep dated whose base is absent
