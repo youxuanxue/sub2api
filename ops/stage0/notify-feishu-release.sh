@@ -15,7 +15,7 @@ set -euo pipefail
 # Design:
 #   - Best-effort. ANY send failure prints a ::warning:: and exits 0, so a flaky
 #     webhook never reddens an already-successful prod deploy. The workflow step
-#     ALSO sets continue-on-error: true (belt and suspenders).
+#     itself is ALSO marked continue-on-error (belt and suspenders).
 #   - Card shape + HMAC signature mirror the backend canonical sender
 #     backend/internal/service/ops_feishu_notifier_tk.go (feishuCardPayload /
 #     signFeishuWebhook): sign = base64(hmac_sha256(key = ts+"\n"+secret, msg="")).
@@ -24,12 +24,16 @@ set -euo pipefail
 #
 # Usage:
 #   TK_FEISHU_WEBHOOK_URL=... [TK_FEISHU_SIGNING_SECRET=...] \
-#     bash ops/stage0/notify-feishu-release.sh <tag> <api_url> [--run-url URL] [--dry-run]
+#     bash ops/stage0/notify-feishu-release.sh <tag> <api_url> \
+#       [--run-url URL] [--notes TEXT] [--dry-run]
 #
 #   <tag>      released image tag WITHOUT leading v (e.g. 1.7.83). A leading v is
 #              tolerated and stripped.
 #   <api_url>  prod gateway URL (e.g. https://api.tokenkey.dev).
 #   --run-url  link to the deploy workflow run (optional).
+#   --notes    release changelog (e.g. `gh release view` body) to inline under a
+#              "本次更新" section; truncated for card readability. Empty/absent →
+#              section omitted, card degrades to version + links (optional).
 #   --dry-run  build + sign the card, print a SANITIZED payload, do NOT POST.
 #
 # Requires: python3, curl. GITHUB_REPOSITORY (auto-set in Actions) enriches the
@@ -39,19 +43,27 @@ usage() {
   cat <<'EOF'
 Usage:
   TK_FEISHU_WEBHOOK_URL=... [TK_FEISHU_SIGNING_SECRET=...] \
-    bash ops/stage0/notify-feishu-release.sh <tag> <api_url> [--run-url URL] [--dry-run]
+    bash ops/stage0/notify-feishu-release.sh <tag> <api_url> \
+      [--run-url URL] [--notes TEXT] [--dry-run]
 EOF
 }
 
 TAG=""
 API_URL=""
 RUN_URL=""
+NOTES=""
 DRY_RUN=0
+
+# Flags that take a value: require the value to be present so a trailing
+# `--run-url` (no arg) fails loudly instead of `shift 2` erroring under set -e.
+need_val() { [ "$2" -ge 2 ] || { echo "[error] $1 needs a value" >&2; usage; exit 2; }; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --run-url) RUN_URL="${2:-}"; shift 2 ;;
+    --run-url) need_val "$1" "$#"; RUN_URL="$2"; shift 2 ;;
     --run-url=*) RUN_URL="${1#*=}"; shift ;;
+    --notes) need_val "$1" "$#"; NOTES="$2"; shift 2 ;;
+    --notes=*) NOTES="${1#*=}"; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     -h | --help) usage; exit 0 ;;
     --*) echo "[error] unknown flag: $1" >&2; usage; exit 2 ;;
@@ -92,6 +104,7 @@ PAYLOAD_JSON="$(
   NF_TAG="$TAG" \
   NF_API_URL="$API_URL" \
   NF_RUN_URL="$RUN_URL" \
+  NF_NOTES="$NOTES" \
   NF_SECRET="$SECRET" \
   NF_DRY_RUN="$DRY_RUN" \
   python3 <<'PY'
@@ -106,6 +119,7 @@ import time
 tag = os.environ["NF_TAG"]
 api_url = os.environ["NF_API_URL"]
 run_url = os.environ.get("NF_RUN_URL", "").strip()
+notes = os.environ.get("NF_NOTES", "").strip()
 secret = os.environ.get("NF_SECRET", "").strip()
 repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
 dry = os.environ.get("NF_DRY_RUN") == "1"
@@ -131,6 +145,19 @@ if links:
     lines.append("  ·  ".join(links))
 body = "\n".join(lines)
 
+elements = [{"tag": "div", "text": {"tag": "lark_md", "content": body}}]
+
+# Inline the changelog ("自上次版本以来的变更") under its own section when
+# provided. Truncate for card readability — the full list always lives behind
+# the GitHub Release link above.
+if notes:
+    cap = 1200
+    shown = notes if len(notes) <= cap else notes[:cap].rstrip() + "\n\n…(更多见 GitHub Release)"
+    elements.append({"tag": "hr"})
+    elements.append(
+        {"tag": "div", "text": {"tag": "lark_md", "content": "**本次更新**\n" + shown}}
+    )
+
 payload = {
     "msg_type": "interactive",
     "card": {
@@ -138,9 +165,7 @@ payload = {
             "template": "green",
             "title": {"tag": "plain_text", "content": f"🚀 TokenKey 发版上线 v{tag}"},
         },
-        "elements": [
-            {"tag": "div", "text": {"tag": "lark_md", "content": body}},
-        ],
+        "elements": elements,
     },
 }
 
