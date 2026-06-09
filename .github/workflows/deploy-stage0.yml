@@ -151,6 +151,18 @@ jobs:
           API_URL: ${{ steps.instance.outputs.api_url }}
         run: bash ops/stage0/external_health.sh "$API_URL"
 
+      - name: Post-deploy data invariant check (exclusive-group orphans)
+        # ADVISORY ONLY — never blocks the deploy. Reads (read-only) whether any
+        # API key is bound to an exclusive standard group whose user is NOT in
+        # user_allowed_groups (would 403 under #669). The sanctioned admin-UI
+        # path can't produce this; only manual DB edits / legacy rows can — so
+        # this surfaces drift right after deploy (often follows DB surgery).
+        # continue-on-error + the script's always-0 exit are belt-and-suspenders.
+        continue-on-error: true
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+        run: bash ops/stage0/check_exclusive_group_orphans_via_ssm.sh "$INSTANCE_ID" "deploy-stage0 orphan check env=prod"
+
       - name: Sync Feishu alert config
         # Inject the shared Feishu webhook/secret into prod's
         # ops_email_notification_config and enable alerting (idempotent). The

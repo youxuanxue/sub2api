@@ -315,6 +315,7 @@ aws cloudformation describe-stacks --region "$REGION" --stack-name "$OIDC_STACK"
 - **R4: 回滚能力依赖快照与冷备**：迁移窗口前必须完成 root EBS snapshot 和 tar 冷备，不满足则不应执行 deploy。
 - **R5: 实例替换会按陈旧 CFN `ImageTag` 静默降级**：日常 SSM 热更不回写 CFN，CFN `ImageTag` 是很旧的 init 值；任何 replace（resize/AMI/UserData 变更）都会让新机按它 bootstrap → 线上退版。**对策**：替换类操作必须 `--parameter-overrides ImageTag=<运行态 tag>`（见 §实例规格升级 step 0）。
 - **R6: 实例替换会锁死 CI 部署**：新实例 ID 变化后，`cicd-oidc` 的 `TargetInstanceId` 仍指旧机 → `deploy-stage0.yml`（含 release 自动触发）全部 `AccessDeniedException: ssm:SendCommand`。**对策**：替换后立即把 OIDC 栈 `TargetInstanceId` 重指新机（见 §实例规格升级 step 4）。
+- **R7: 专属分组发卡只能走 admin UI，禁手改 `api_keys.group_id`**：#669 起，key 绑的专属标准组要求用户在 `user_allowed_groups` 白名单，否则请求 403 `GROUP_NOT_ALLOWED`。admin 后台「绑定/迁移分组」会原子写白名单，自助建卡会 gate——所以正规路径不会产生孤儿。**只有直接 SQL 改 `api_keys.group_id` 会**。手术后请跑 `ops/stage0/check_exclusive_group_orphans_via_ssm.sh <instance-id>`（发版时该步自动跑，仅告警不阻断）；发现孤儿用脚本头部的 backfill SQL 补授权（确认用户确应有权后）。
 
 > **事故记录 2026-06-05（resize 三连副作用）**：prod 按本 SOP 早期版本做 `t4g.small → t4g.large` resize，CFN `UPDATE_COMPLETE`、规格与数据(`DataVolume` Retain)均正确，但触发**三个**实例替换副作用：①(已在 #582 修)`build-cfn.sh` 把注释 marker 写进 UserData 致 `#!/bin/bash` 非首行 → cloud-init 不跑 bootstrap，新机空跑、靠手动 SSM 救活；②救活/bootstrap 用的是陈旧 CFN `ImageTag=1.7.11`，线上从 1.7.70 退版（本 PR step 0 修）；③OIDC `TargetInstanceId` 仍指旧机，`deploy-stage0.yml` 部署 1.7.70 时 `ssm:SendCommand` AccessDenied（本 PR step 4 修）。恢复：用管理员本地凭证跑 `ops/stage0/deploy_via_ssm.sh 1.7.70 <new-id>`（绕过坏 OIDC）热换回 1.7.70 + 重指 OIDC。**根因共性：任何实例替换都要同步 ImageTag 与 OIDC TargetInstanceId**。
 
