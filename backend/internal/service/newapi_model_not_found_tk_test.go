@@ -24,6 +24,12 @@ func TestIsOpenAICompatModelNotFound404(t *testing.T) {
 		{"volcengine error.code in JSON body", `{"error":{"code":"InvalidEndpointOrModel.NotFound","message":"The model ` + "`x`" + ` does not exist or you do not have access to it."}}`, "", true},
 		{"volcengine message substring", "", "The model `doubao-lite-32k-240828` does not exist or you do not have access to it.", true},
 		{"code-prefixed message (as recorded by the bridge dispatch)", "", "InvalidEndpointOrModel.NotFound: The model `x` does not exist or you do not have access to it.", true},
+		// DashScope / Qwen (channel_type=17) real 404 (direct probe 2026-06-10): the
+		// OpenAI-standard model_not_found envelope. Matched by BOTH the prose phrase
+		// and the structured code, so a vendor reword of either still classifies.
+		{"dashscope model_not_found JSON body", `{"error":{"message":"The model ` + "`qwen-x`" + ` does not exist or you do not have access to it.","type":"invalid_request_error","code":"model_not_found"}}`, "", true},
+		{"dashscope code-prefixed message (bridge path)", "", "model_not_found: The model `qwen-x` does not exist or you do not have access to it.", true},
+		{"model_not_found structured code alone (prose reworded)", `{"error":{"code":"model_not_found","message":"whatever wording the vendor uses"}}`, "", true},
 		{"genuine 5xx is NOT model-not-found", `{"error":{"message":"upstream service temporarily unavailable"}}`, "Upstream request failed", false},
 		{"rate limit is NOT model-not-found", "", "Upstream rate limit exceeded, please retry later", false},
 		{"empty", "", "", false},
