@@ -43,6 +43,12 @@ interface Props {
    * 只关心费率、不关心有效期的场景）。
    */
   alwaysShowRate?: boolean
+  /**
+   * TK: 用户级页面隐藏倍率数值。开启后不展示标准倍率标签 `{rate}x` 与删除线
+   * 专属倍率（订阅「订阅/剩余天数」标签仍保留——那不是倍率）。运营要求倍率仅
+   * 在管理页可见、用户页一律不可见；调用方在用户视图传入 true。
+   */
+  hideRateValue?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -50,15 +56,22 @@ const props = withDefaults(defineProps<Props>(), {
   showRate: true,
   daysRemaining: null,
   userRateMultiplier: null,
-  alwaysShowRate: false
+  alwaysShowRate: false,
+  hideRateValue: false
 })
 
 const { t } = useI18n()
 
 const isSubscription = computed(() => props.subscriptionType === 'subscription')
 
-// 是否有专属倍率（且与默认倍率不同）
+// TK: hideRateValue 时把 always-show-rate 视为关闭，使订阅组回落到「订阅/天数」
+// 标签而非倍率。
+const effectiveAlwaysShowRate = computed(() => props.alwaysShowRate && !props.hideRateValue)
+
+// 是否有专属倍率（且与默认倍率不同）。hideRateValue 时一律视为无，绝不展示
+// 删除线专属倍率。
 const hasCustomRate = computed(() => {
+  if (props.hideRateValue) return false
   return (
     props.userRateMultiplier !== null &&
     props.userRateMultiplier !== undefined &&
@@ -70,16 +83,17 @@ const hasCustomRate = computed(() => {
 // 是否显示右侧标签
 const showLabel = computed(() => {
   if (!props.showRate) return false
-  // 订阅类型：显示天数或"订阅"
+  // 订阅类型：显示天数或"订阅"（非倍率，hideRateValue 不影响）
   if (isSubscription.value) return true
-  // 标准类型：显示倍率（包括专属倍率）
+  // 标准类型：显示倍率（包括专属倍率）—— hideRateValue 时整体隐藏
+  if (props.hideRateValue) return false
   return props.rateMultiplier !== undefined || hasCustomRate.value
 })
 
 // Label text
 const labelText = computed(() => {
   const rateLabel = props.rateMultiplier !== undefined ? `${props.rateMultiplier}x` : ''
-  if (isSubscription.value && !props.alwaysShowRate) {
+  if (isSubscription.value && !effectiveAlwaysShowRate.value) {
     // 如果有剩余天数，显示天数
     if (props.daysRemaining !== null && props.daysRemaining !== undefined) {
       if (props.daysRemaining <= 0) {

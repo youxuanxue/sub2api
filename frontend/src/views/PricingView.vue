@@ -133,7 +133,7 @@
                   :key="g.id"
                   :value="g.id"
                 >
-                  {{ g.name }}{{ formatGroupRateBadge(g) }}
+                  {{ g.name }}
                 </option>
               </select>
             </label>
@@ -432,9 +432,6 @@
                 <template v-else>
                   {{ t('pricing.footer.total', { count: rowTotal }) }}
                 </template>
-                <span v-if="rateHint" class="ml-2 text-gray-600 dark:text-dark-300">
-                  · {{ rateHint }}
-                </span>
               </p>
               <p class="text-left sm:text-right">
                 {{ t('pricing.updatedAt', { time: formattedUpdatedAt }) }}
@@ -679,29 +676,15 @@ const formattedUpdatedAt = computed(() => {
   }
 })
 
-// ============================== rate-hint ==============================
-
-const rateHint = computed(() => {
-  if (viewMode.value !== 'my' || !myCatalog.value) return ''
-  const tg = myCatalog.value.target_group
-  const rate = tg.rate_multiplier
-  if (rate === 1 && !tg.has_override) return ''
-  const fmt = rate === 0 ? '×0' : `×${rate}`
-  const suffix = tg.has_override ? ` (${t('pricing.my.rateOverride')})` : ''
-  return t('pricing.my.rateHint', { multiplier: fmt }) + suffix
-})
-
 // ============================== group switcher ==============================
+//
+// TK: pricing 页（分组目录/所有目录）一律展示官方定价，与分组倍率/个人覆写
+// 彻底脱钩——故不再有倍率提示（原 rateHint）、对比下拉不再拼 ×N 倍率角标。
 
 const groupsForComparison = computed<MePricingGroupRef[]>(() => {
   if (!myCatalog.value) return []
   return myCatalog.value.accessible_groups
 })
-
-function formatGroupRateBadge(g: MePricingGroupRef): string {
-  if (g.rate_multiplier === 1) return ''
-  return ` · ×${g.rate_multiplier}`
-}
 
 interface ExploreBanner {
   message: string
@@ -717,8 +700,7 @@ const exploreBanner = computed<ExploreBanner | null>(() => {
   // User is viewing a group they don't hold a key in → upgrade-CTA banner.
   return {
     message: t('pricing.my.exploreBanner.message', {
-      group: tg.name,
-      multiplier: tg.rate_multiplier
+      group: tg.name
     }),
     ctaLabel: t('pricing.my.exploreBanner.cta', { group: tg.name }),
     ctaTo: { path: '/dashboard/keys', query: { group_id: String(tg.id) } }
