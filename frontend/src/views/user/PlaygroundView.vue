@@ -17,6 +17,21 @@
       </div>
 
       <div class="flex flex-wrap items-end gap-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-dark-700 dark:bg-dark-900">
+        <!-- Key first: the key's group decides which platform/models the gateway serves. -->
+        <div class="min-w-[200px] flex-1">
+          <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-dark-400" for="pg-key">{{
+            t('playground.apiKey')
+          }}</label>
+          <select
+            id="pg-key"
+            v-model="selectedKeyId"
+            class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-dark-600 dark:bg-dark-950 dark:text-white"
+            :disabled="!keys.length || sending"
+          >
+            <option v-if="!keys.length" disabled :value="null">{{ t('playground.pickKeyPlaceholder') }}</option>
+            <option v-for="k in keys" :key="k.id" :value="k.id">{{ keyLabel(k) }}</option>
+          </select>
+        </div>
         <div class="min-w-[200px] flex-1">
           <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-dark-400" for="pg-model">{{
             t('playground.model')
@@ -25,9 +40,10 @@
             id="pg-model"
             v-model="selectedModelId"
             class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-dark-600 dark:bg-dark-950 dark:text-white"
-            :disabled="!models.length || sending || !!loadError"
+            :disabled="!models.length || sending || modelsLoading"
           >
-            <option v-if="!models.length" disabled value="">{{ t('playground.pickModelPlaceholder') }}</option>
+            <option v-if="modelsLoading" disabled value="">{{ t('playground.loadingModels') }}</option>
+            <option v-else-if="!models.length" disabled value="">{{ t('playground.pickModelPlaceholder') }}</option>
             <option v-for="m in models" :key="m.id" :value="m.id">{{ m.id }}</option>
           </select>
         </div>
@@ -169,6 +185,40 @@
           <p class="text-xs text-gray-500 dark:text-dark-400">
             {{ t('playground.limitsHint', { turns: PLAYGROUND_MAX_TURNS, maxTok: PLAYGROUND_MAX_TOKENS_CAP }) }}
           </p>
+          <div class="rounded-lg border border-gray-200 bg-white p-3 dark:border-dark-600 dark:bg-dark-900">
+            <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('playground.integrationsTitle') }}</h3>
+            <p class="mt-1 text-xs text-gray-500 dark:text-dark-400">{{ t('playground.integrationsHint') }}</p>
+            <div class="mt-3 grid grid-cols-2 gap-2">
+              <button
+                v-for="client in TK_CLIENT_INTEGRATIONS"
+                :key="client.id"
+                type="button"
+                class="inline-flex items-center justify-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs font-medium text-gray-700 hover:border-primary-400 hover:text-primary-600 disabled:cursor-not-allowed disabled:opacity-50 dark:border-dark-600 dark:bg-dark-950 dark:text-dark-200 dark:hover:border-primary-500 dark:hover:text-primary-400"
+                :disabled="!apiKey"
+                :title="client.kind === 'app' ? t('playground.integrationsAppHint') : ''"
+                @click="openIntegration(client)"
+              >
+                {{ client.name }}
+              </button>
+            </div>
+            <div class="mt-3 flex flex-wrap gap-3 border-t border-gray-100 pt-2 text-xs dark:border-dark-700">
+              <button
+                type="button"
+                class="font-medium text-primary-600 hover:underline dark:text-primary-400"
+                @click="copyToClipboard(gatewayBase, t('playground.baseUrlCopied'))"
+              >
+                {{ t('playground.copyBaseUrl') }}
+              </button>
+              <button
+                type="button"
+                class="font-medium text-primary-600 hover:underline disabled:opacity-50 dark:text-primary-400"
+                :disabled="!apiKey"
+                @click="copyToClipboard(apiKey, t('playground.keyCopied'))"
+              >
+                {{ t('playground.copyKey') }}
+              </button>
+            </div>
+          </div>
           <div v-if="lastUsage" class="rounded-lg border border-gray-200 bg-white p-3 text-xs dark:border-dark-600 dark:bg-dark-900">
             <div class="font-medium text-gray-800 dark:text-dark-100">{{ t('playground.lastUsage') }}</div>
             <dl class="mt-2 space-y-1 text-gray-600 dark:text-dark-300">
@@ -200,7 +250,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -216,17 +266,30 @@ import {
   type ChatMessage,
   type GatewayModelEntry
 } from '@/api/playground'
+import {
+  resolveTkClientIntegrationUrl,
+  TK_CLIENT_INTEGRATIONS,
+  type TkClientIntegration
+} from '@/constants/clientIntegrations.tk'
+import { useClipboard } from '@/composables/useClipboard'
 import { useAppStore } from '@/stores/app'
+import type { ApiKey } from '@/types'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const { copyToClipboard } = useClipboard()
 
 marked.setOptions({ gfm: true, breaks: true })
 
-const apiKey = ref<string>('')
+const keys = ref<ApiKey[]>([])
+const selectedKeyId = ref<number | null>(null)
 const gatewayBase = ref('')
 const models = ref<GatewayModelEntry[]>([])
+const modelsLoading = ref(false)
 const selectedModelId = ref('')
+
+const selectedKey = computed(() => keys.value.find((k) => k.id === selectedKeyId.value))
+const apiKey = computed(() => selectedKey.value?.key || '')
 const temperature = ref(1)
 const maxTokens = ref(PLAYGROUND_DEFAULT_MAX_TOKENS)
 const systemPromptLocal = ref('')
@@ -269,6 +332,11 @@ function trimConversation(msgs: ChatMessage[]): ChatMessage[] {
   return rest
 }
 
+function keyLabel(k: ApiKey): string {
+  const group = k.group?.name || t('playground.defaultGroup')
+  return `${k.name || k.id} · ${group}`
+}
+
 async function bootstrap(): Promise<void> {
   loadError.value = ''
   await appStore.fetchPublicSettings()
@@ -276,16 +344,35 @@ async function bootstrap(): Promise<void> {
 
   try {
     const page = await keysAPI.list(1, 50, { status: 'active' })
-    const rows = page.items || []
-    const trial = rows.find((k) => k.name?.toLowerCase() === 'trial')
-    const pick = trial || rows[0]
-    if (!pick?.key) {
+    keys.value = (page.items || []).filter((k) => !!k.key)
+    const trial = keys.value.find((k) => k.name?.toLowerCase() === 'trial')
+    const pick = trial || keys.value[0]
+    if (!pick) {
       loadError.value = t('playground.noApiKey')
       return
     }
-    apiKey.value = pick.key
+    // Assignment triggers the selectedKeyId watcher → loadModelsForKey.
+    selectedKeyId.value = pick.id
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : t('playground.loadFailed')
+  }
+}
 
-    const list = await gatewayListModels(apiKey.value, gatewayBase.value)
+let modelsAbort: AbortController | null = null
+
+/** The key's group decides the model pool; reload /v1/models whenever the key changes. */
+async function loadModelsForKey(key: string): Promise<void> {
+  modelsAbort?.abort()
+  const ctrl = new AbortController()
+  modelsAbort = ctrl
+
+  loadError.value = ''
+  models.value = []
+  selectedModelId.value = ''
+  modelsLoading.value = true
+  try {
+    const list = await gatewayListModels(key, gatewayBase.value, ctrl.signal)
+    if (ctrl.signal.aborted) return
     models.value = list.data || []
     if (models.value.length) {
       selectedModelId.value = models.value[0].id
@@ -293,8 +380,29 @@ async function bootstrap(): Promise<void> {
       loadError.value = t('playground.noModels')
     }
   } catch (e) {
+    if (ctrl.signal.aborted) return
     loadError.value = e instanceof Error ? e.message : t('playground.loadFailed')
+  } finally {
+    if (modelsAbort === ctrl) {
+      modelsLoading.value = false
+    }
   }
+}
+
+watch(selectedKeyId, () => {
+  if (apiKey.value) {
+    void loadModelsForKey(apiKey.value)
+  }
+})
+
+function openIntegration(client: TkClientIntegration): void {
+  if (!apiKey.value) return
+  const url = resolveTkClientIntegrationUrl({
+    template: client.template,
+    apiKey: apiKey.value,
+    baseUrl: gatewayBase.value
+  })
+  window.open(url, '_blank')
 }
 
 function clearConversation(): void {

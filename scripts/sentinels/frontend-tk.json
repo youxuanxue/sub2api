@@ -584,6 +584,44 @@
         "accountIdHint: '该 edge 上账号的 ID（edge 本地数据库主键）"
       ],
       "rationale": "PR #697: Chinese counterparts of the en.ts accountIdHint anchors above (admin.accounts.accountIdHint + admin.edgeAccounts.accountIdHint, the latter carrying the edge-local-keyspace warning). Moves in lockstep with en.ts so neither language silently regresses during an i18n upstream merge."
+    },
+    {
+      "path": "frontend/src/views/user/PlaygroundView.vue",
+      "must_contain": [
+        "selectedKeyId",
+        "loadModelsForKey",
+        "resolveTkClientIntegrationUrl",
+        "TK_CLIENT_INTEGRATIONS"
+      ],
+      "rationale": "Playground key-first cascade + external-client integrations: the user picks an API key first (its group decides the /v1/models pool — required since image/video groups like volcengine/google-vertex serve disjoint model sets), and the selected key feeds one-click deeplink imports into Cherry Studio etc. Both behaviors live in this TK-only view; an upstream merge or refactor that drops the watcher or the integrations wiring silently reverts the UX to auto-picked-key chat-only."
+    },
+    {
+      "path": "frontend/src/constants/clientIntegrations.tk.ts",
+      "must_contain": [
+        "resolveTkClientIntegrationUrl",
+        "cherrystudio://providers/api-keys?v=1&data={cherryConfig}",
+        "id: 'new-api'"
+      ],
+      "must_not_contain": [
+        "`sk-${"
+      ],
+      "rationale": "Deeplink templates + encoding mirror new-api's resolveChatUrl so external clients (Cherry Studio / DeepChat / AionUI) accept TokenKey unchanged: payload id/platform MUST stay 'new-api' (clients key off that identifier), and the API key MUST pass through verbatim — TokenKey keys already carry the sk- prefix (api_key_service.go), so any new-api-style `sk-${...}` prefixing would double it and break every import."
+    },
+    {
+      "path": "frontend/src/i18n/locales/en.ts",
+      "must_contain": [
+        "integrationsTitle: 'Connect external apps'",
+        "pickKeyPlaceholder: 'Select an API key…'"
+      ],
+      "rationale": "Playground key-first selector + integrations card strings; anchors keep the TK playground i18n block from being dropped in an i18n-heavy upstream merge."
+    },
+    {
+      "path": "frontend/src/i18n/locales/zh.ts",
+      "must_contain": [
+        "integrationsTitle: '一键接入外部客户端'",
+        "pickKeyPlaceholder: '请选择 API 密钥…'"
+      ],
+      "rationale": "Chinese counterparts of the en.ts playground anchors above; moves in lockstep so neither language silently regresses."
     }
   ]
 }
