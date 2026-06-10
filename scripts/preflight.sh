@@ -639,15 +639,22 @@ fi
 # turning the recurring review ask "补充必要的 upstream merge 覆写防护门禁" into
 # a hard preflight failure instead of human memory.
 echo ""
-echo "=== sub2api: sentinel registry update gate ==="
+echo "=== sub2api: sentinel registry update gate (advisory locally) ==="
+# MARKER_GATE_ADVISORY=1: pre-commit/pre-push structurally cannot see the
+# in-flight commit message or the PR body, so a hard block here is a false
+# deadlock (benign pure-insertion / i18n PRs paid stash+force-push tax). The
+# script prints guidance but exits 0; the HARD gate runs in CI against the PR
+# body (.github/workflows/marker-acknowledgement-pr.yml + upstream-merge-pr-shape
+# Check 12). Pure-insertion / i18n changes are auto-accepted by the script.
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for sentinel registry update gate)"
     errors=$((errors + 1))
-elif ! python3 ./scripts/sentinels/check-registry-update-gate.py --quiet; then
-    # check-sentinel-registry-update-gate.py already printed the actionable failure.
+elif ! MARKER_GATE_ADVISORY=1 python3 ./scripts/sentinels/check-registry-update-gate.py --quiet; then
+    # advisory mode never returns non-zero; this branch only fires on a hard
+    # script error (exit 2 — malformed registry / unresolved base).
     errors=$((errors + 1))
 else
-    echo "  ok: guarded hotspot changes update their sentinel registries"
+    echo "  ok: sentinel update gate evaluated (advisory; CI enforces on PR body)"
 fi
 
 # ---- sub2api: script ref existence ------------------------------------------
@@ -695,15 +702,19 @@ fi
 # acknowledgement that this PR's diff against an upstream merge has been
 # considered.
 echo ""
-echo "=== sub2api: upstream override marker ==="
+echo "=== sub2api: upstream override marker (advisory locally) ==="
+# MARKER_GATE_ADVISORY=1 — advisory locally (cannot see in-flight commit /
+# PR body); HARD gate is .github/workflows/marker-acknowledgement-pr.yml which
+# reads the PR body. Pure-insertion / i18n diffs are auto-accepted.
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for upstream override marker check)"
     errors=$((errors + 1))
-elif ! python3 ./scripts/checks/upstream-override-marker.py --quiet; then
-    # check-upstream-override-marker.py already printed the actionable failure.
+elif ! MARKER_GATE_ADVISORY=1 python3 ./scripts/checks/upstream-override-marker.py --quiet; then
+    # advisory mode never returns non-zero; this branch only fires on a hard
+    # script error (exit 2 — git failure).
     errors=$((errors + 1))
 else
-    echo "  ok: upstream-shaped paths protected (sentinel update or marker present)"
+    echo "  ok: upstream override marker evaluated (advisory; CI enforces on PR body)"
 fi
 
 # ---- sub2api: redaction version contract ------------------------------------
