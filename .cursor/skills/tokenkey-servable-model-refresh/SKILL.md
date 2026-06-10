@@ -96,6 +96,29 @@ probe key 取自**绑定 `google` 组的 api_key**（`api_keys.group_id→groups
 4. 发版 → soak 回读确认零 $0 → **此时才**永久清空 `model_mapping` + `schedulable=true`
    （裸 SQL 后刷 `scheduler_outbox`，见 memory `gemini_media`）。
 
+## Volcengine / ark 三族（直连数据面，开通真值，免调度窗口）
+
+volcengine（newapi `channel_type=45`）模型的「有权限访问」检查**不走 TK 网关**，三族直打 ark 数据面：
+`ARK_CHAT_MODELS`→`/api/v3/chat/completions`、`ARK_IMAGE_MODELS`→`/api/v3/images/generations`、
+`ARK_VIDEO_MODELS`→`/api/v3/contents/generations/tasks`。凭据取自 `accounts.id=ARK_ACCOUNT_ID`
+（默认 7）的 `credentials.api_key/base_url`，**账号保持 `schedulable=false` 也能探**——零 prod
+配置改动、零客户暴露面。
+
+```bash
+bash ops/observability/run-probe.sh --target prod --script ops/pricing/probe-servable-models.sh \
+  --env "ARK_CHAT_MODELS=doubao-seed-1-6-250615 kimi-k2-250711" --timeout-seconds 300
+```
+
+- **为什么直连**（2026-06-10 实证）：ark 的 `GET /api/v3/models` 是**平台目录非开通清单**（kimi/qwen
+  在列但调用全拒）；经 TK 网关探测时 ark 的 404 被 bridge 包成不透明 502 读不出语义。直连后判别确定：
+  **200=已开通；404 `InvalidEndpointOrModel.NotFound`=未开通/已下线（落 unsupported）；429/5xx=transient**。
+- **费用**：未开通模型的 404 免费；已开通模型 chat 仅 16 token、image 计 ~1 张、**video 会创建真实
+  付费任务**——video 族只对真要上架的模型探，别全量扫。
+- **结果不进 Go allowlist**：`refresh-servable-allowlist.py parse_results` 只认 anthropic/openai/gemini，
+  `volcengine` 行天然忽略（该 vendor 在公开目录是 passthrough）。本族是运营对账工具：输出与账号
+  `model_mapping` 做差集 → 未开通的从 mapping 清掉，已开通∩未定价的先补价再放行（对照 deepseek-v4
+  渠道定价样板，见 memory `volc_video_submit_200_and_ark_pricing_path`）。
+
 ## 判断要点 / 坑
 
 - **verdict 语义**：200=servable（留）；400/404+retired/not-found/"not supported when using

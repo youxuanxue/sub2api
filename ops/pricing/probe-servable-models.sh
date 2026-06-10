@@ -14,7 +14,21 @@
 #   GEMINI_VIDEO_MODELS      -> POST app:8080/v1/video/generations (async submit; 200-on-submit=servable, best-effort)
 #     NB gemini families run ON the edge host and hit the app container directly
 #     (the edge Caddy 403s host-local /v1/* — it only allows the prod gateway CIDR).
+#   ARK_CHAT_MODELS          -> POST <ark>/api/v3/chat/completions  (DIRECT ark data plane)
+#   ARK_IMAGE_MODELS         -> POST <ark>/api/v3/images/generations (direct; a servable model bills ~1 image)
+#   ARK_VIDEO_MODELS         -> POST <ark>/api/v3/contents/generations/tasks (direct; a servable model creates a REAL paid video task — probe sparingly)
+#     NB ark families bypass the TK gateway entirely: credentials come from the
+#     accounts row id=ARK_ACCOUNT_ID, so NO schedulable window is needed and the
+#     account may stay disabled. This is the ACTIVATION-truth probe: ark's GET
+#     /api/v3/models is the platform CATALOG, not the activation list — a model
+#     can be listed there yet reject every call. Per-model classification
+#     (verified 2026-06-10 against prod account 7): 200 = activated; 404
+#     InvalidEndpointOrModel.NotFound "does not exist or you do not have access"
+#     = not activated / retired (-> unsupported via the does-not-exist match);
+#     429/5xx = transient (-> inconclusive). The TK-gateway probe path wraps that
+#     404 into an opaque 502, which is why these families talk to ark directly.
 # Optional env:
+#   ARK_ACCOUNT_ID           default 7   (accounts row holding the ark api_key + base_url)
 #   ANTHROPIC_EDGE_BASE      default https://api-us7.tokenkey.dev
 #   ANTHROPIC_KEY_ACCOUNT_ID default 54  (its credentials.api_key relays to the edge)
 #   PROD_BASE                default https://api.tokenkey.dev
@@ -135,9 +149,12 @@ body_chat() { printf '{"model":"%s","max_tokens":16,"messages":[{"role":"user","
 body_resp() { printf '{"model":"%s","instructions":"You are a helpful assistant.","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Say OK"}]}],"stream":false}' "$1"; }
 body_img() { printf '{"model":"%s","prompt":"a small red circle on white","n":1,"size":"1024x1024"}' "$1"; }
 body_video() { printf '{"model":"%s","prompt":"a small red ball rolling on a table","seconds":"4"}' "$1"; }
+# ark create-task shape (seedance text commands ride inside the prompt text);
+# smallest billable settings so an activated model costs as little as possible.
+body_ark_video() { printf '{"model":"%s","content":[{"type":"text","text":"a small red ball rolling on a table --resolution 480p --duration 5"}]}' "$1"; }
 
 main() {
-	local akey okey gkey
+	local akey okey gkey arkacct arkkey arkbase
 	if [ -n "${ANTHROPIC_MODELS:-}" ]; then
 		akey="$($PSQL -c "SELECT credentials->>'api_key' FROM accounts WHERE id=$AACCT AND deleted_at IS NULL" | tr -d '[:space:]')"
 		if [ -z "$akey" ]; then
@@ -154,6 +171,25 @@ main() {
 			[ -n "${OPENAI_CHAT_MODELS:-}" ] && probe_openai_endpoint "$okey" /v1/chat/completions "$OPENAI_CHAT_MODELS" body_chat
 			[ -n "${OPENAI_RESPONSES_MODELS:-}" ] && probe_openai_endpoint "$okey" /v1/responses "$OPENAI_RESPONSES_MODELS" body_resp
 			[ -n "${OPENAI_IMAGE_MODELS:-}" ] && probe_openai_endpoint "$okey" /v1/images/generations "$OPENAI_IMAGE_MODELS" body_img
+		fi
+	fi
+	# Ark families: DIRECT volcengine data-plane probe (activation truth). Bypasses
+	# the TK gateway — no schedulable window, the account row may stay disabled.
+	# 404 InvalidEndpointOrModel.NotFound = not activated (verdict: unsupported).
+	if [ -n "${ARK_CHAT_MODELS:-}${ARK_IMAGE_MODELS:-}${ARK_VIDEO_MODELS:-}" ]; then
+		arkacct="${ARK_ACCOUNT_ID:-7}"
+		arkkey="$($PSQL -c "SELECT credentials->>'api_key' FROM accounts WHERE id=$arkacct AND deleted_at IS NULL" | tr -d '[:space:]')"
+		arkbase="$($PSQL -c "SELECT credentials->>'base_url' FROM accounts WHERE id=$arkacct AND deleted_at IS NULL" | tr -d '[:space:]')"
+		arkbase="${arkbase%/}"
+		# Mirror NormalizeArkChannelBaseURL (integration/newapi): operators commonly
+		# paste .../api/v3 into base_url; the data plane wants the host root.
+		arkbase="${arkbase%/api/v3}"
+		if [ -z "$arkkey" ] || [ -z "$arkbase" ]; then
+			emit volcengine "*" 000 "auth_error"
+		else
+			[ -n "${ARK_CHAT_MODELS:-}" ] && probe_compat_endpoint volcengine "$arkbase" "$arkkey" /api/v3/chat/completions "$ARK_CHAT_MODELS" body_chat
+			[ -n "${ARK_IMAGE_MODELS:-}" ] && probe_compat_endpoint volcengine "$arkbase" "$arkkey" /api/v3/images/generations "$ARK_IMAGE_MODELS" body_img
+			[ -n "${ARK_VIDEO_MODELS:-}" ] && probe_compat_endpoint volcengine "$arkbase" "$arkkey" /api/v3/contents/generations/tasks "$ARK_VIDEO_MODELS" body_ark_video
 		fi
 	fi
 	# Gemini family: newapi/Vertex models served through the google group on GEMINI_BASE.
