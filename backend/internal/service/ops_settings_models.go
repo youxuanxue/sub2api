@@ -43,6 +43,9 @@ type OpsFeishuAlertConfig struct {
 	// AccountIncidentDigestSeconds 控制账号失效事件中「临时冷却」类（429/529/temp）
 	// 聚合摘要的 flush 间隔（秒）。永久失效类即时单发，不受此值影响。默认 600。
 	AccountIncidentDigestSeconds int `json:"account_incident_digest_seconds"`
+	// PricingMissingDigestSeconds 控制缺价模型零成本流量聚合摘要的 flush 间隔
+	// （秒）。首见模型的即时卡不受此值影响。默认 1800。
+	PricingMissingDigestSeconds int `json:"pricing_missing_digest_seconds"`
 }
 
 // OpsEmailNotificationConfigUpdateRequest allows partial updates, while the

@@ -123,6 +123,11 @@ func NewMePricingCatalogService(
 type MePricingCatalogOptions struct {
 	APIKeyID *int64
 	GroupID  *int64
+	// HideUserRateOverrides 隐藏 per-user 专属倍率的"数值痕迹"：倍率提示
+	// 字段（rate_multiplier / has_override / accessible_groups 的倍率）回落
+	// 到分组默认值，但 models 的 your_price 仍按真实生效倍率计算——价格
+	// 必须与实际计费一致。非 admin 请求由 handler 置位。
+	HideUserRateOverrides bool
 }
 
 // MePricingCatalogResponse is the top-level DTO returned to the user UI.
@@ -297,12 +302,21 @@ func (s *MePricingCatalogService) BuildForUser(
 
 	models := s.buildModelsForGroup(ctx, targetGroup, effective)
 
+	// HideUserRateOverrides：倍率提示字段回落到分组默认值（your_price 已按
+	// 真实 effective 计算完毕，不回滚——价格必须与实际计费一致）。
+	shownRate := effective
+	shownOverride := hasOverride
+	if opts.HideUserRateOverrides {
+		shownRate = listMult
+		shownOverride = false
+	}
+
 	// Build picker DTO for accessible_groups with effective rate per group.
 	groupRefs := make([]MePricingGroupRef, 0, len(accessibleGroups))
 	for i := range accessibleGroups {
 		g := accessibleGroups[i]
 		rate := g.RateMultiplier
-		if r, ok := userRates[g.ID]; ok {
+		if r, ok := userRates[g.ID]; ok && !opts.HideUserRateOverrides {
 			rate = r
 		}
 		groupRefs = append(groupRefs, MePricingGroupRef{
@@ -321,9 +335,9 @@ func (s *MePricingCatalogService) BuildForUser(
 			ID:               targetGroup.ID,
 			Name:             targetGroup.Name,
 			Platform:         targetGroup.Platform,
-			RateMultiplier:   effective,
+			RateMultiplier:   shownRate,
 			ListMultiplier:   listMult,
-			HasOverride:      hasOverride,
+			HasOverride:      shownOverride,
 			IsExclusive:      targetGroup.IsExclusive,
 			SubscriptionType: targetGroup.SubscriptionType,
 		},

@@ -646,6 +646,9 @@ type GatewayService struct {
 	// TK: per-account thinking-block signature_error preempt cache. Injected via
 	// SetAnthropicSigPreemptCache (TK companion). nil = feature disabled.
 	tkAnthropicSigPreemptCache AnthropicSignaturePreemptCache
+	// TK: pricing-missing → Feishu notifier. Injected via
+	// SetPricingMissingNotifier (TK companion). nil = feature disabled.
+	tkPricingMissingNotifier PricingMissingNotifier
 	// TK: Kiro (sixth platform) forwarder. Routes IsKiro() accounts to the
 	// vendored CodeWhisperer EventStream protocol layer.
 	kiroGateway *KiroGatewayService
@@ -4826,7 +4829,9 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	// #63885 / #64777), THEN strip empty text blocks (including nested in
 	// tool_result). Sanitize runs first because StripEmptyTextBlocks parses the
 	// body as JSON; both prevent an upstream 400 before the first call.
-	if err := replaceBody(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account))); err != nil {
+	// tkStripFableDisabledThinking: fable rejects explicit thinking.type=disabled
+	// with a 400 (gateway_request_tk_fable.go).
+	if err := replaceBody(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account)))); err != nil {
 		return nil, err
 	}
 
@@ -5159,8 +5164,9 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 				// Claude for Mac、第三方 SDK）仍发老格式 → 上游 400 挂会话。反应式自愈：只在上游
 				// 真的回该 400 时把 enabled→adaptive 重试一次，happy path 一字节不碰。复用 budget
 				// 整流总开关（thinking-type 与 thinking-budget 同属思考整流，共用 kill-switch，
-				// 不新增配置面），并硬门控 isOpus47OrNewer(reqModel) 防误伤 sonnet / opus-4.6。
-				if isThinkingTypeAdaptiveRequiredError(errMsg) && isOpus47OrNewer(reqModel) && s.settingService.IsBudgetRectifierEnabled(ctx) {
+				// 不新增配置面），并硬门控 requiresAdaptiveOnlyThinking(reqModel)（opus-4.7+ / fable）
+				// 防误伤 sonnet / opus-4.6。
+				if isThinkingTypeAdaptiveRequiredError(errMsg) && requiresAdaptiveOnlyThinking(reqModel) && s.settingService.IsBudgetRectifierEnabled(ctx) {
 					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 						Platform:           account.Platform,
 						AccountID:          account.ID,
@@ -5517,7 +5523,9 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	// #60168 / #63885 / #64777), THEN strip empty text blocks (including nested
 	// in tool_result). Sanitize runs first because StripEmptyTextBlocks parses
 	// the body as JSON; both prevent an upstream 400.
-	input.Body = StripEmptyTextBlocks(TkSanitizeRequestBody(input.Body, account))
+	// tkStripFableDisabledThinking: fable rejects explicit thinking.type=disabled
+	// with a 400 (gateway_request_tk_fable.go).
+	input.Body = tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(input.Body, account)))
 	if input.Parsed != nil {
 		// 透传分支也会改写实际 wire body，成功 usage hash 依赖这里同步当前 body。
 		if err := input.Parsed.ReplaceBody(input.Body); err != nil {
@@ -5669,10 +5677,10 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 					}
 				}
 
-				// Opus 4.7+ reject thinking.type=enabled (only adaptive). Reactive repair
-				// mirrors the main path's 4th priority; hard-gated by isOpus47OrNewer.
+				// Opus 4.7+ and Fable reject thinking.type=enabled (only adaptive). Reactive
+				// repair mirrors the main path's 4th priority; hard-gated by requiresAdaptiveOnlyThinking.
 				if !adaptiveRetryAttempted && attempt < maxRetryAttempts && time.Since(retryStart) < maxRetryElapsed &&
-					isThinkingTypeAdaptiveRequiredError(errMsg) && isOpus47OrNewer(modelForRepair) && s.settingService.IsBudgetRectifierEnabled(ctx) {
+					isThinkingTypeAdaptiveRequiredError(errMsg) && requiresAdaptiveOnlyThinking(modelForRepair) && s.settingService.IsBudgetRectifierEnabled(ctx) {
 					if rectified, applied := RectifyThinkingTypeAdaptive(input.Body); applied {
 						appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 							Platform:           account.Platform,
@@ -9634,8 +9642,8 @@ func (s *GatewayService) calculateTokenCost(
 		// TK (upstream Wei-Shaw/sub2api#1833 / #1544): surface pricing-missing as a
 		// structured, observable zero-cost record instead of a silent ActualCost:0
 		// leak — at parity with the OpenAI record-usage path. See
-		// logTokenCostPricingMissing.
-		logTokenCostPricingMissing(billingModel, apiKey, result, err)
+		// recordTokenCostPricingMissing (log + Feishu pricing-missing notifier).
+		s.recordTokenCostPricingMissing(billingModel, apiKey, result, tokens, err)
 		if isUsagePricingUnavailableError(err) {
 			return &CostBreakdown{BillingMode: string(BillingModeToken)}
 		}
@@ -9911,7 +9919,9 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	// #60168 / #63885 / #64777), THEN strip empty text blocks. Sanitize runs
 	// first because StripEmptyTextBlocks parses the body as JSON; both prevent
 	// an upstream 400 (here also guarding the per-account upstream-error breaker).
-	if err := replaceBody(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account))); err != nil {
+	// tkStripFableDisabledThinking: fable rejects explicit thinking.type=disabled
+	// with a 400 (gateway_request_tk_fable.go).
+	if err := replaceBody(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account)))); err != nil {
 		return err
 	}
 

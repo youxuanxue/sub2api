@@ -789,6 +789,25 @@ func TestSanitizeBedrockThinking(t *testing.T) {
 		assert.Equal(t, "enabled", gjson.GetBytes(result, "thinking.type").String())
 		assert.Equal(t, int64(defaultThinkingBudgetTokens), gjson.GetBytes(result, "thinking.budget_tokens").Int())
 	})
+
+	t.Run("fable converts enabled to adaptive (adaptive-only, like opus 4.7+)", func(t *testing.T) {
+		input := `{"thinking":{"type":"enabled","budget_tokens":10000},"messages":[]}`
+		result := sanitizeBedrockThinking([]byte(input), "anthropic.claude-fable-5")
+		assert.Equal(t, "adaptive", gjson.GetBytes(result, "thinking.type").String())
+		assert.False(t, gjson.GetBytes(result, "thinking.budget_tokens").Exists())
+	})
+
+	t.Run("fable strips explicit disabled (fable 400s on disabled; opus 4.7+ accepts)", func(t *testing.T) {
+		input := `{"thinking":{"type":"disabled"},"messages":[]}`
+		result := sanitizeBedrockThinking([]byte(input), "anthropic.claude-fable-5")
+		assert.False(t, gjson.GetBytes(result, "thinking").Exists(), "thinking field must be omitted for fable disabled")
+	})
+
+	t.Run("opus 4.7 keeps explicit disabled unchanged (only fable strips it)", func(t *testing.T) {
+		input := `{"thinking":{"type":"disabled"},"messages":[]}`
+		result := sanitizeBedrockThinking([]byte(input), "us.anthropic.claude-opus-4-7-v1")
+		assert.Equal(t, "disabled", gjson.GetBytes(result, "thinking.type").String())
+	})
 }
 
 func TestSanitizeBedrockToolUseIDs(t *testing.T) {

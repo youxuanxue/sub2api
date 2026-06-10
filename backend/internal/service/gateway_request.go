@@ -1346,8 +1346,8 @@ func RectifyThinkingBudget(body []byte, modelID string) ([]byte, bool) {
 		return body, false
 	}
 
-	// Opus 4.7+ only accepts adaptive: never force "enabled"/budget_tokens for these models.
-	if isOpus47OrNewer(modelID) {
+	// Opus 4.7+ and Fable only accept adaptive: never force "enabled"/budget_tokens for these models.
+	if requiresAdaptiveOnlyThinking(modelID) {
 		modified, changed := RectifyThinkingTypeAdaptive(body)
 		// Still honor a sane max_tokens floor so a tiny client max_tokens doesn't choke thinking.
 		if maxTokens := gjson.GetBytes(modified, "max_tokens").Int(); maxTokens > 0 && maxTokens < int64(BudgetRectifyMinMaxTokens) {

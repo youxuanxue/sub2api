@@ -1323,9 +1323,9 @@
       "path": "backend/internal/service/gateway_service.go",
       "must_contain": [
         "topLevelCacheControl := gjson.GetBytes(out, \"cache_control\").Exists()",
-        "logTokenCostPricingMissing(billingModel, apiKey, result, err)"
+        "s.recordTokenCostPricingMissing(billingModel, apiKey, result, tokens, err)"
       ],
-      "rationale": "TK#2013: enforceCacheControlLimit must count a non-standard top-level cache_control toward the 4-block limit (else Anthropic 400 'Found 5'). TK#1833/#1544: calculateTokenCost must surface pricing-missing as an observable marked zero-cost record instead of a silent ActualCost:0 revenue leak."
+      "rationale": "TK#2013: enforceCacheControlLimit must count a non-standard top-level cache_control toward the 4-block limit (else Anthropic 400 'Found 5'). TK#1833/#1544: calculateTokenCost must surface pricing-missing as an observable marked zero-cost record instead of a silent ActualCost:0 revenue leak (call renamed to recordTokenCostPricingMissing when the Feishu pricing-missing notifier was layered on top — it still emits the same structured log)."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_billing_pricing_missing.go",
@@ -2033,6 +2033,45 @@
         "if s, e, ok := parseAbsoluteRange(c); ok {"
       ],
       "rationale": "Thin TK injection at the top of the upstream-owned parseTimeRange (the single chokepoint for all 7 dashboard time-window endpoints). Rolling presets (近24小时/7/14/30天) send absolute epoch-ms start_ts/end_ts so the window is timezone-independent; without this hook the window falls back to the viewer's browser-reported timezone and two admin sessions on different timezones (e.g. a fingerprint browser spoofing a US zone vs Asia/Shanghai) again see materially different dashboard numbers for the same selection. The implementation lives in the dashboard_handler_tk_window.go companion; this sentinel anchors the one-line call site that an upstream merge copying the old parseTimeRange shape back would silently drop."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "s.recordTokenCostPricingMissing(billingModel, apiKey, result, tokens, err)",
+        "tkPricingMissingNotifier PricingMissingNotifier"
+      ],
+      "rationale": "Pricing-missing -> Feishu notifier hook on the Anthropic/generic billing funnel (PR #675 follow-up). Unpriced models are served and recorded at zero cost by design (never refused); this one-line call + struct field are the only bridge from calculateRecordUsageCost into PricingMissingNotifier. Both compile-clean if an upstream merge reverts the call back to the bare logTokenCostPricingMissing shape, which would silently turn revenue-leak alerting back into log-only observability."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "s.notifyOpenAIPricingMissing(input, result, apiKey, billingModels, tokens)",
+        "tkPricingMissingNotifier PricingMissingNotifier"
+      ],
+      "rationale": "Pricing-missing -> Feishu notifier hook on the OpenAI-compat record-usage funnel (covers newapi fifth platform + image/video relays). The upstream-owned openai_usage.pricing_missing_record_zero_cost log line stays untouched; this adjacent one-line call is the only feed into PricingMissingNotifier on this path and is compile-clean if dropped by an upstream merge."
+    },
+    {
+      "path": "backend/internal/service/gateway_request_tk_fable.go",
+      "must_contain": [
+        "func tkStripFableDisabledThinking(body []byte) []byte",
+        "sjson.DeleteBytes(body, \"thinking\")"
+      ],
+      "rationale": "Proactive pre-send strip of explicit thinking:{type:\"disabled\"} for Fable-tier models. Upstream rejects the explicit disabled shape on fable with a 400 ('\"thinking.type.disabled\" is not supported for this model …', prod 2026-06-10 user 16) while Opus 4.7+ still accepts it — so the gate is isFableModel, NOT requiresAdaptiveOnlyThinking, and omitting the field is the documented equivalent (same rule the bedrock path already applies in sanitizeBedrockThinking's disabled case). If this function is silently dropped, fable clients sending thinking.type=disabled regress to raw upstream 400s on the direct Anthropic path."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "replaceBody(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account))))",
+        "input.Body = tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(input.Body, account)))"
+      ],
+      "rationale": "The three pre-send sanitize chains (main Forward ~4834, API-Key passthrough ~5526, count_tokens ~9922) must wrap the StripEmptyTextBlocks(TkSanitizeRequestBody(...)) combo with tkStripFableDisabledThinking so an explicit thinking.type=disabled never reaches upstream for fable models. An upstream merge that restores the bare two-function chain silently reverts the fix and fable+disabled requests 400 again. The replaceBody form covers both Forward and count_tokens; the input.Body form covers the passthrough path."
+    },
+    {
+      "path": "backend/internal/handler/api_key_handler.go",
+      "must_contain": [
+        "if tkHideUserRateValues(c) {"
+      ],
+      "rationale": "GetUserGroupRates (GET /groups/rates) must short-circuit to an empty map for non-admin requesters so per-user rate-override values never reach customer-facing pages (API key badges / group selector / available channels). The helper lives in api_key_handler_tk_rate_visibility.go (TK-owned); an upstream merge that restores the bare handler silently re-exposes every customer's negotiated multiplier."
     },
     {
       "path": "backend/internal/service/gateway_service.go",

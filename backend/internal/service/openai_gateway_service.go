@@ -401,6 +401,9 @@ type OpenAIGatewayService struct {
 	codexSnapshotThrottle               *accountWriteThrottle
 	openaiCompatSessionResponses        sync.Map
 	openaiCompatAnthropicDigestSessions sync.Map
+	// TK: pricing-missing → Feishu notifier. Injected via
+	// SetPricingMissingNotifier (TK companion). nil = feature disabled.
+	tkPricingMissingNotifier PricingMissingNotifier
 }
 
 // NewOpenAIGatewayService creates a new OpenAIGatewayService
@@ -6108,6 +6111,9 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 			zap.Int64("api_key_id", apiKey.ID),
 			zap.Int64("account_id", account.ID),
 		).Warn("openai_usage.pricing_missing_record_zero_cost", zap.Error(err))
+		// TK: feed the pricing-missing Feishu notifier (see
+		// openai_gateway_service_tk_pricing_missing.go). Service is NOT refused.
+		s.notifyOpenAIPricingMissing(input, result, apiKey, billingModels, tokens)
 		cost = &CostBreakdown{BillingMode: string(BillingModeToken)}
 	}
 

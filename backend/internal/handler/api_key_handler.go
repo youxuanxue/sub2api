@@ -301,6 +301,12 @@ func (h *APIKeyHandler) GetUserGroupRates(c *gin.Context) {
 		return
 	}
 
+	// TK: 非 admin 用户不下发专属倍率值（见 api_key_handler_tk_rate_visibility.go）
+	if tkHideUserRateValues(c) {
+		response.Success(c, map[int64]float64{})
+		return
+	}
+
 	rates, err := h.apiKeyService.GetUserGroupRates(c.Request.Context(), subject.UserID)
 	if err != nil {
 		response.ErrorFrom(c, err)

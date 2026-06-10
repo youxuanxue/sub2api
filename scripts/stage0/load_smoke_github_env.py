@@ -7,10 +7,13 @@ import subprocess
 import sys
 from typing import Final
 
+# Keep in sync with required_secrets_for_env() in ops/stage0/load_smoke_github_env.sh
+# (all four prod smoke keys are hard prerequisites of deploy-stage0.yml).
 PROD_SECRETS: Final[tuple[str, ...]] = (
     "TK_SMOKE_PROD_ANTHROPIC_KEY",
     "TK_SMOKE_PROD_GEMINI_KEY",
     "TK_SMOKE_PROD_OPENAI_OAUTH_KEY",
+    "TK_SMOKE_PROD_KIRO_KEY",
 )
 EDGE_SECRETS: Final[tuple[str, ...]] = ("TK_SMOKE_EDGE_CANARY_KEY",)
 
@@ -52,17 +55,20 @@ def resolve_repo(repo_root: str) -> str:
 
 
 def fetch_tk_smoke_variables(repo: str, env_name: str) -> dict[str, str]:
+    # Single request, no --paginate: the endpoint returns ONE object
+    # ({"total_count": N, "variables": [...]}), and `gh api --paginate` on an
+    # object-shaped endpoint concatenates raw objects that json.loads cannot
+    # parse as a list (the old code asserted list and died with "unexpected gh
+    # variables response" even on a healthy single page). per_page=100 is far
+    # above any realistic TK_SMOKE_* variable count.
     payload = _gh_json(
-        [
-            "api",
-            f"repos/{repo}/environments/{env_name}/variables?per_page=100",
-            "--paginate",
-        ]
+        ["api", f"repos/{repo}/environments/{env_name}/variables?per_page=100"]
     )
-    if not isinstance(payload, list):
-        raise RuntimeError("unexpected gh variables response")
+    pages = payload if isinstance(payload, list) else [payload]
     out: dict[str, str] = {}
-    for page in payload:
+    for page in pages:
+        if not isinstance(page, dict):
+            raise RuntimeError("unexpected gh variables response")
         for item in page.get("variables", []):
             name = str(item.get("name", ""))
             if name.startswith("TK_SMOKE_"):

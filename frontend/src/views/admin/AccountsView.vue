@@ -194,6 +194,7 @@
           <template #cell-name="{ row, value }">
             <div class="flex flex-col">
               <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
+              <span class="font-mono text-xs text-gray-400 dark:text-gray-500" :title="t('admin.accounts.accountIdHint')">ID: {{ row.id }}</span>
               <span
                 v-if="row.extra?.email_address || row.extra?.email || row.credentials?.email"
                 class="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[200px]"

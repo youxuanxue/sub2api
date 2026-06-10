@@ -2,8 +2,10 @@
 # release-decide-version.sh — Mechanical 3-state version/tag decision for the
 # tokenkey-stage0-release-rollout skill §"决策：要不要升 patch 版本".
 #
-# Reads backend/cmd/server/VERSION (after main is synced with origin) and the
-# remote tag list, then emits one of three actions:
+# Reads backend/cmd/server/VERSION as committed on origin/main (fetched fresh;
+# the local checkout/branch is never consulted — it is shared with parallel
+# agents and may sit on any stale feature branch) and the remote tag list,
+# then emits one of three actions:
 #
 #   action=tag-only           VERSION already on main + tag does NOT exist on origin.
 #                             Operator should run scripts/release-tag.sh v<VERSION>.
@@ -23,7 +25,7 @@
 #
 # Output (always on stdout, parseable with grep+cut):
 #   action=tag-only|bump-and-tag|skip-bump-skip-tag
-#   current_version=<X.Y.Z>           # from backend/cmd/server/VERSION
+#   current_version=<X.Y.Z>           # from origin/main:backend/cmd/server/VERSION
 #   current_tag=v<X.Y.Z>
 #   tag_on_origin=<true|false>
 #   main_synced_with_tag=<true|false> # only meaningful when tag_on_origin=true
@@ -52,19 +54,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION_FILE="$REPO_ROOT/backend/cmd/server/VERSION"
-
-if [ ! -f "$VERSION_FILE" ]; then
-  echo "[release-decide-version] ERROR: VERSION file not found: $VERSION_FILE" >&2
-  exit 1
-fi
-
-CURRENT_VERSION=$(tr -d '[:space:]' < "$VERSION_FILE")
-if ! [[ "$CURRENT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "[release-decide-version] ERROR: VERSION not X.Y.Z: '$CURRENT_VERSION'" >&2
-  exit 1
-fi
-CURRENT_TAG="v$CURRENT_VERSION"
+VERSION_PATH="backend/cmd/server/VERSION"
 
 # Fetch tags + origin/main quietly; surface failure as exit 2
 if [ "$FETCH_QUIET" -eq 1 ]; then
@@ -78,6 +68,21 @@ else
     exit 2
   }
 fi
+
+# Read VERSION from origin/main, NOT the working tree: the calling checkout is
+# shared with parallel agents and may sit on any feature branch with a stale
+# VERSION — exactly the threat model release-bump-and-tag.sh isolates against.
+# A stale value here would drive a wrong (possibly downgrading) bump decision.
+if ! CURRENT_VERSION=$(git -C "$REPO_ROOT" show "origin/main:$VERSION_PATH" 2>/dev/null | tr -d '[:space:]') \
+   || [ -z "$CURRENT_VERSION" ]; then
+  echo "[release-decide-version] ERROR: cannot read origin/main:$VERSION_PATH" >&2
+  exit 1
+fi
+if ! [[ "$CURRENT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "[release-decide-version] ERROR: VERSION not X.Y.Z: '$CURRENT_VERSION'" >&2
+  exit 1
+fi
+CURRENT_TAG="v$CURRENT_VERSION"
 
 # Does the tag exist on origin?
 TAG_ON_ORIGIN="false"

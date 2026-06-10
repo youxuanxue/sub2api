@@ -1,24 +1,43 @@
 {
   "_meta": {
     "note": "TK-owned pricing overlay for models the runtime price source lacks. fill-only: merged into PricingService AFTER any source load (Wei-Shaw remote OR disk fallback), and ONLY for keys the source does not already carry. The Wei-Shaw runtime mirror is a TRIMMED litellm mirror that drops provider-prefixed keys and token-less media entries, so imagen-*/veo-* resolve to nothing there; litellm itself also lags new provider models (deepseek-v4-*), which then bill $0. Media price = vertex_ai provider (TK media flow routes through Vertex ch41); falls back to gemini only when no vertex variant exists. Text price = provider official list price. Self-deprecating: the day the source carries a bare key natively, the source value wins and the entry below is ignored. fill-only cannot CORRECT wrong source prices (deepseek-chat/reasoner still carry the pre-V4 rate in the mirror) — use channel pricing (DB) for that.",
-    "provenance": "media: BerriAI/litellm model_prices_and_context_window.json, captured 2026-06-01; deepseek-v4-*: https://api-docs.deepseek.com/quick_start/pricing, captured 2026-06-04 (cache-hit input = cache_read; cache writes billed as normal input, no separate write fee)",
+    "provenance": "media: BerriAI/litellm model_prices_and_context_window.json, captured 2026-06-01; deepseek-v4-*: https://api-docs.deepseek.com/quick_start/pricing, captured 2026-06-04 (cache-hit input = cache_read; cache writes billed as normal input, no separate write fee); volcengine doubao-*/glm-4-7-251222: VolcEngine Ark official model-pricing page, captured 2026-06-10 (≤32K input tier, CNY/USD=7.3); glm-4.7 matches Zhipu official",
     "regen": "manual curation; no auto-sync (entries are few + slow-moving). If they proliferate, add provider-aware sync."
+  },
+  "claude-fable-5": {
+    "litellm_provider": "anthropic",
+    "mode": "chat",
+    "input_cost_per_token": 1e-05,
+    "output_cost_per_token": 5e-05,
+    "cache_creation_input_token_cost": 1.25e-05,
+    "cache_creation_input_token_cost_above_1hr": 2e-05,
+    "cache_read_input_token_cost": 1e-06,
+    "max_input_tokens": 1000000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "Anthropic official Fable 5 list price (2026-06: in $10/M, out $50/M, 1M ctx, 128K out); litellm mirror lags new model"
   },
   "deepseek-v4-flash": {
     "litellm_provider": "deepseek",
     "mode": "chat",
-    "input_cost_per_token": 0.00000014,
-    "output_cost_per_token": 0.00000028,
-    "cache_read_input_token_cost": 0.0000000028,
+    "input_cost_per_token": 1.4e-07,
+    "output_cost_per_token": 2.8e-07,
+    "cache_read_input_token_cost": 2.8e-09,
     "supports_prompt_caching": true,
     "source": "https://api-docs.deepseek.com/quick_start/pricing (2026-06-04: in $0.14/M cache-miss, $0.0028/M cache-hit, out $0.28/M)"
   },
   "deepseek-v4-pro": {
     "litellm_provider": "deepseek",
     "mode": "chat",
-    "input_cost_per_token": 0.000000435,
-    "output_cost_per_token": 0.00000087,
-    "cache_read_input_token_cost": 0.000000003625,
+    "input_cost_per_token": 4.35e-07,
+    "output_cost_per_token": 8.7e-07,
+    "cache_read_input_token_cost": 3.625e-09,
     "supports_prompt_caching": true,
     "source": "https://api-docs.deepseek.com/quick_start/pricing (2026-06-04: in $0.435/M cache-miss, $0.003625/M cache-hit, out $0.87/M)"
   },
@@ -111,5 +130,181 @@
     "mode": "video_generation",
     "output_cost_per_second": 0.05,
     "source": "litellm:gemini/veo-3.1-lite-generate-preview"
+  },
+  "doubao-seed-2-0-pro-260215": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 4.38356164384e-07,
+    "output_cost_per_token": 2.19178082192e-06,
+    "cache_read_input_token_cost": 8.76712328767e-08,
+    "supports_prompt_caching": true,
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥3.2/M, out ¥16/M, cache-hit ¥0.64/M; CNY/USD=7.3"
+  },
+  "doubao-seed-2-0-code-preview-260215": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 4.38356164384e-07,
+    "output_cost_per_token": 2.19178082192e-06,
+    "cache_read_input_token_cost": 8.76712328767e-08,
+    "supports_prompt_caching": true,
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥3.2/M, out ¥16/M, cache-hit ¥0.64/M; CNY/USD=7.3"
+  },
+  "doubao-seed-2-0-lite-260215": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 8.21917808219e-08,
+    "output_cost_per_token": 4.93150684932e-07,
+    "cache_read_input_token_cost": 1.64383561644e-08,
+    "supports_prompt_caching": true,
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.6/M, out ¥3.6/M, cache-hit ¥0.12/M; CNY/USD=7.3"
+  },
+  "doubao-seed-2-0-lite-260428": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 8.21917808219e-08,
+    "output_cost_per_token": 4.93150684932e-07,
+    "cache_read_input_token_cost": 1.64383561644e-08,
+    "supports_prompt_caching": true,
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.6/M, out ¥3.6/M, cache-hit ¥0.12/M; CNY/USD=7.3"
+  },
+  "doubao-seed-2-0-mini-260215": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 2.7397260274e-08,
+    "output_cost_per_token": 2.7397260274e-07,
+    "cache_read_input_token_cost": 5.47945205479e-09,
+    "supports_prompt_caching": true,
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.2/M, out ¥2/M, cache-hit ¥0.04/M; CNY/USD=7.3"
+  },
+  "doubao-seed-2-0-mini-260428": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 2.7397260274e-08,
+    "output_cost_per_token": 2.7397260274e-07,
+    "cache_read_input_token_cost": 5.47945205479e-09,
+    "supports_prompt_caching": true,
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.2/M, out ¥2/M, cache-hit ¥0.04/M; CNY/USD=7.3"
+  },
+  "doubao-seed-1-8-251228": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 1.09589041096e-07,
+    "output_cost_per_token": 1.09589041096e-06,
+    "cache_read_input_token_cost": 2.19178082192e-08,
+    "supports_prompt_caching": true,
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.8/M, out ¥8/M, cache-hit ¥0.16/M; CNY/USD=7.3"
+  },
+  "doubao-seed-1-6-250615": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 1.09589041096e-07,
+    "output_cost_per_token": 1.09589041096e-06,
+    "cache_read_input_token_cost": 2.19178082192e-08,
+    "supports_prompt_caching": true,
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.8/M, out ¥8/M, cache-hit ¥0.16/M; CNY/USD=7.3"
+  },
+  "doubao-seed-1-6-251015": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 1.09589041096e-07,
+    "output_cost_per_token": 1.09589041096e-06,
+    "cache_read_input_token_cost": 2.19178082192e-08,
+    "supports_prompt_caching": true,
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.8/M, out ¥8/M, cache-hit ¥0.16/M; CNY/USD=7.3"
+  },
+  "doubao-seed-1-6-flash-250615": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 2.05479452055e-08,
+    "output_cost_per_token": 2.05479452055e-07,
+    "cache_read_input_token_cost": 4.1095890411e-09,
+    "supports_prompt_caching": true,
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.15/M, out ¥1.5/M, cache-hit ¥0.03/M; CNY/USD=7.3"
+  },
+  "doubao-seed-1-6-flash-250828": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 2.05479452055e-08,
+    "output_cost_per_token": 2.05479452055e-07,
+    "cache_read_input_token_cost": 4.1095890411e-09,
+    "supports_prompt_caching": true,
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.15/M, out ¥1.5/M, cache-hit ¥0.03/M; CNY/USD=7.3"
+  },
+  "doubao-seed-1-6-vision-250815": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 1.09589041096e-07,
+    "output_cost_per_token": 1.09589041096e-06,
+    "cache_read_input_token_cost": 2.19178082192e-08,
+    "supports_prompt_caching": true,
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.8/M, out ¥8/M, cache-hit ¥0.16/M; CNY/USD=7.3"
+  },
+  "doubao-seed-character-251128": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 1.09589041096e-07,
+    "output_cost_per_token": 2.7397260274e-07,
+    "cache_read_input_token_cost": 2.19178082192e-08,
+    "supports_prompt_caching": true,
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.8/M, out ¥2/M, cache-hit ¥0.16/M; CNY/USD=7.3"
+  },
+  "doubao-seed-code-preview-251028": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 1.64383561644e-07,
+    "output_cost_per_token": 1.09589041096e-06,
+    "cache_read_input_token_cost": 3.28767123288e-08,
+    "supports_prompt_caching": true,
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥1.2/M, out ¥8/M, cache-hit ¥0.24/M; CNY/USD=7.3"
+  },
+  "doubao-1-5-pro-32k-250115": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 1.09589041096e-07,
+    "output_cost_per_token": 2.7397260274e-07,
+    "cache_read_input_token_cost": 2.19178082192e-08,
+    "supports_prompt_caching": true,
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.8/M, out ¥2/M, cache-hit ¥0.16/M; CNY/USD=7.3"
+  },
+  "doubao-1-5-pro-32k-character-250715": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 1.09589041096e-07,
+    "output_cost_per_token": 2.7397260274e-07,
+    "cache_read_input_token_cost": 2.19178082192e-08,
+    "supports_prompt_caching": true,
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.8/M, out ¥2/M, cache-hit ¥0.16/M; CNY/USD=7.3"
+  },
+  "doubao-1-5-lite-32k-250115": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 4.1095890411e-08,
+    "output_cost_per_token": 8.21917808219e-08,
+    "cache_read_input_token_cost": 8.21917808219e-09,
+    "supports_prompt_caching": true,
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.3/M, out ¥0.6/M, cache-hit ¥0.06/M; CNY/USD=7.3"
+  },
+  "doubao-1-5-vision-pro-32k-250115": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 4.1095890411e-07,
+    "output_cost_per_token": 1.23287671233e-06,
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥3/M, out ¥9/M; CNY/USD=7.3"
+  },
+  "doubao-seed-translation-250915": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 1.64383561644e-07,
+    "output_cost_per_token": 4.93150684932e-07,
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥1.2/M, out ¥3.6/M; CNY/USD=7.3"
+  },
+  "glm-4-7-251222": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 4.1095890411e-07,
+    "output_cost_per_token": 1.91780821918e-06,
+    "cache_read_input_token_cost": 8.21917808219e-08,
+    "supports_prompt_caching": true,
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥3/M, out ¥14/M, cache-hit ¥0.6/M; CNY/USD=7.3"
   }
 }

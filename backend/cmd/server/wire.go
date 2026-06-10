@@ -112,6 +112,10 @@ func provideCleanup(
 	// Stopped at shutdown, and so wire forces evaluation of
 	// ProvideTKAccountIncidentNotifier (which attaches it onto RateLimitService).
 	accountIncidentNotifier *service.TKAccountIncidentNotifier,
+	// TokenKey: pricing-missing Feishu notifier. Passed so its digest ticker is
+	// Stopped at shutdown, and so wire forces evaluation of
+	// ProvideTKPricingMissingNotifier (which attaches it onto both gateways).
+	pricingMissingNotifier *service.TKPricingMissingNotifier,
 	// TokenKey: forces wire to evaluate ProvideTKAuthServiceColdStart so the
 	// trial-key issuer gets wired onto AuthService at startup. The value is
 	// unused — only the dependency edge matters. See US-029 / US-030.
@@ -306,6 +310,12 @@ func provideCleanup(
 			{"AccountIncidentNotifier", func() error {
 				if accountIncidentNotifier != nil {
 					accountIncidentNotifier.Stop()
+				}
+				return nil
+			}},
+			{"PricingMissingNotifier", func() error {
+				if pricingMissingNotifier != nil {
+					pricingMissingNotifier.Stop()
 				}
 				return nil
 			}},

@@ -11,7 +11,8 @@
 #      and the only recovery is a manual `gh workflow run` dispatch.
 #   3. backend/cmd/server/VERSION matches the tag (without the leading 'v').
 #   4. Tag does not already exist locally or on origin.
-#   5. We're on `main` and up to date with `origin/main`.
+#   5. HEAD is exactly origin/main (branch `main` in sync, or a detached
+#      worktree HEAD created by release-bump-and-tag.sh).
 #
 # Changelog: when --message is NOT given, the annotated tag BODY is filled
 # deterministically with the conventional-commit subjects since the previous
@@ -175,18 +176,18 @@ if git ls-remote --tags origin "$TAG" 2>/dev/null | grep -q "refs/tags/$TAG"; th
   exit 1
 fi
 
-# 5. Branch + sync check
-CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-if [ "$CURRENT_BRANCH" != "main" ]; then
-  echo "ERROR: must tag from 'main' (current: $CURRENT_BRANCH)" >&2
-  exit 1
-fi
+# 5. Sync check: HEAD must be exactly origin/main. This is the real invariant
+# behind the old "must be on branch main" rule — it additionally admits a
+# detached worktree HEAD (release-bump-and-tag.sh) while still rejecting any
+# feature branch that has diverged from origin/main.
 git fetch origin main --quiet 2>/dev/null || { echo "ERROR: cannot fetch origin" >&2; exit 2; }
 LOCAL=$(git rev-parse HEAD)
 REMOTE=$(git rev-parse origin/main)
 if [ "$LOCAL" != "$REMOTE" ]; then
-  echo "ERROR: local main ($LOCAL) is not in sync with origin/main ($REMOTE)" >&2
-  echo "       Pull or push first." >&2
+  CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  echo "ERROR: HEAD ($LOCAL, branch: $CURRENT_BRANCH) is not origin/main ($REMOTE)." >&2
+  echo "       Tags must point at the pushed origin/main tip. Pull/push first," >&2
+  echo "       or use scripts/release-bump-and-tag.sh (worktree-isolated)." >&2
   exit 1
 fi
 

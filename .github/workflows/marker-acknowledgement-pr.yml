@@ -1,0 +1,107 @@
+name: Marker Acknowledgement (PR surface)
+
+# Hard gate for the "acknowledgement marker" family on EVERY PR to main.
+#
+# Why this workflow exists (CLAUDE.md §5.y.1 evolution):
+#   The upstream-touch-* and sentinel-registry-reviewed markers used to be
+#   checked only in local pre-commit/preflight, against the *committed*
+#   range origin/main..HEAD. But pre-commit runs BEFORE the commit exists,
+#   so the marker can never be in range yet — a structural false deadlock
+#   that forced stash / empty-commit / force-push gymnastics on every benign
+#   PR that touched an upstream-shaped file (the #697 account-id display PR
+#   paid this tax twice).
+#
+#   Fix: the marker is acknowledgement, not a mechanical fact, so it belongs
+#   on the MUTABLE PR surface — the PR description — checked in CI. A failing
+#   check means "edit the PR body, re-run" (this workflow re-runs on `edited`),
+#   never "rewrite git history". Locally the same scripts run in advisory mode
+#   (MARKER_GATE_ADVISORY=1 in scripts/preflight.sh) so they inform without
+#   blocking. The mechanical sentinel ANCHOR verifiers (must_contain literals)
+#   are unchanged and still hard — this only moves the acknowledgement step.
+#
+#   Trigger narrowing also lives in the scripts: pure-insertion diffs
+#   (no deleted lines — cannot drop an upstream symbol) and i18n locale
+#   dictionaries are auto-accepted, so most benign PRs never need a marker.
+#
+# Marker tokens (put ONE in the PR description when the gate asks):
+#   upstream-touch-guarded / upstream-touch-trivial / upstream-merge /
+#   no-upstream-touch        — for the upstream-override gate
+#   sentinel-registry-reviewed                       — for the sentinel gate
+
+on:
+  pull_request:
+    # `edited` is essential: editing the PR body to add a marker must re-run
+    # this gate without a new push.
+    types: [opened, synchronize, reopened, edited]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 so PR base..head plumbing resolves. submodules: recursive
+      # because the no-web-impact gate lives in the dev-rules submodule
+      # (dev-rules/scripts/check_web_surface_alignment.py).
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+          submodules: recursive
+
+      - name: upstream-override marker (PR body)
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          BASE_SHA='${{ github.event.pull_request.base.sha }}'
+          if [ ! -f ./scripts/checks/upstream-override-marker.py ]; then
+            echo "::error::scripts/checks/upstream-override-marker.py missing."
+            exit 1
+          fi
+          # HARD mode (no MARKER_GATE_ADVISORY). The checked-out HEAD is the PR
+          # head.sha, so the script's base...HEAD diff is the PR diff.
+          if ! python3 ./scripts/checks/upstream-override-marker.py --base "$BASE_SHA" --pr-body "$PR_BODY"; then
+            echo "::error::Upstream-override acknowledgement missing."
+            echo "::error::Add one of upstream-touch-guarded / upstream-touch-trivial / upstream-merge / no-upstream-touch to the PR description, then re-run (this gate re-runs on PR edit)."
+            exit 1
+          fi
+
+      - name: sentinel registry update gate (PR body)
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          BASE_SHA='${{ github.event.pull_request.base.sha }}'
+          HEAD_SHA='${{ github.event.pull_request.head.sha }}'
+          if [ ! -f ./scripts/sentinels/check-registry-update-gate.py ]; then
+            echo "::error::scripts/sentinels/check-registry-update-gate.py missing."
+            exit 1
+          fi
+          if ! python3 ./scripts/sentinels/check-registry-update-gate.py --base "$BASE_SHA" --head "$HEAD_SHA" --pr-body "$PR_BODY"; then
+            echo "::error::Sentinel registry update gate failed."
+            echo "::error::Either update scripts/sentinels/*.json, or add sentinel-registry-reviewed to the PR description, then re-run."
+            exit 1
+          fi
+
+      - name: no-web-impact gate (PR body)
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # The dev-rules no-web-impact check is advisory in local preflight
+          # (cannot see the PR body); this is its HARD gate, reading the mutable
+          # PR description. A backend/business-logic change must ship Web/config/
+          # contract alignment evidence OR carry a 'no-web-impact' token in the
+          # PR description. The script lives in the dev-rules submodule.
+          BASE_SHA='${{ github.event.pull_request.base.sha }}'
+          GATE=dev-rules/scripts/check_web_surface_alignment.py
+          if [ ! -f "$GATE" ]; then
+            echo "::error::$GATE missing (dev-rules submodule not checked out?)."
+            exit 1
+          fi
+          if ! python3 "$GATE" --base "$BASE_SHA" --pr-body "$PR_BODY"; then
+            echo "::error::no-web-impact gate failed."
+            echo "::error::Add Web/config/contract alignment evidence, or put 'no-web-impact' in the PR description, then re-run."
+            exit 1
+          fi
