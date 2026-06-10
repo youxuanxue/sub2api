@@ -101,7 +101,13 @@ func Middleware(svc *Service) gin.HandlerFunc {
 			}
 		}
 
-		tee := newTeeResponseWriter(c.Writer, svc.BodyMaxBytes())
+		// traj/synth opt-in 请求用更高的捕获上限，避免长 thinking 被截断；
+		// opt-in 信号同 captureSynthHeaders（X-Synth-Session / X-Synth-Pipeline）。
+		maxBytes := svc.BodyMaxBytes()
+		if requestIsSynthOptIn(c) {
+			maxBytes = svc.OptInBodyMaxBytes()
+		}
+		tee := newTeeResponseWriter(c.Writer, maxBytes)
 		c.Writer = tee
 		c.Set(contextKeyTeeWriter, tee)
 		c.Next()

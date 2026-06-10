@@ -2072,6 +2072,15 @@
         "if tkHideUserRateValues(c) {"
       ],
       "rationale": "GetUserGroupRates (GET /groups/rates) must short-circuit to an empty map for non-admin requesters so per-user rate-override values never reach customer-facing pages (API key badges / group selector / available channels). The helper lives in api_key_handler_tk_rate_visibility.go (TK-owned); an upstream merge that restores the bare handler silently re-exposes every customer's negotiated multiplier."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "setOpsUpstreamRequestBody(c, body)",
+        "setOpsUpstreamRequestBody(c, retryWireBody)",
+        "setOpsUpstreamRequestBody(c, retryWireBody2)"
+      ],
+      "rationale": "The native anthropic Forward path must stash the final (post-rewrite) upstream request body before the retry loop AND re-stash after a successful filtered-thinking / tool-downgrade retry. Two consumers depend on it: ops_error_logs per-attempt body context, and the traj v2 upstream-request divergence capture (qa reads the same gin key for opt-in records; see scripts/sentinels/trajectory.json required_file_hooks). An upstream merge dropping any of these calls silently corrupts exported training pairs instead of failing loudly."
     }
   ]
 }

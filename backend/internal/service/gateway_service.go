@@ -4958,6 +4958,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 									_ = retryResp.Body.Close()
 									return nil, err
 								}
+								setOpsUpstreamRequestBody(c, retryWireBody)
 								logger.LegacyPrintf("service.gateway", "Account %d: thinking block retry succeeded (blocks downgraded)", account.ID)
 								resp = retryResp
 								break
@@ -5007,6 +5008,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 													_ = retryResp2.Body.Close()
 													return nil, err
 												}
+												setOpsUpstreamRequestBody(c, retryWireBody2)
 											}
 											resp = retryResp2
 											break
