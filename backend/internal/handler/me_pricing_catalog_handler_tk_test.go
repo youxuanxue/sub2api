@@ -172,3 +172,36 @@ func TestMePricingHandler_GenericErrorIs500(t *testing.T) {
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
+
+// TK: 非 admin（含 role 缺失）请求必须置位 HideUserRateOverrides；admin 不置位。
+func TestMePricingHandler_HideUserRateOverridesByRole(t *testing.T) {
+	cases := []struct {
+		name string
+		role string
+		hide bool
+	}{
+		{name: "admin sees overrides", role: "admin", hide: false},
+		{name: "user hidden", role: "user", hide: true},
+		{name: "missing role hidden", role: "", hide: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &fakeMePricingSvc{resp: &service.MePricingCatalogResponse{}}
+			gin.SetMode(gin.TestMode)
+			h := &MePricingCatalogHandler{svc: svc}
+			r := gin.New()
+			r.GET("/api/v1/me/pricing-catalog", func(c *gin.Context) {
+				c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 42})
+				if tc.role != "" {
+					c.Set(string(middleware.ContextKeyUserRole), tc.role)
+				}
+				h.Get(c)
+			})
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/me/pricing-catalog", nil)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			require.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, tc.hide, svc.seenOpt.HideUserRateOverrides)
+		})
+	}
+}

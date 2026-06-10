@@ -2065,6 +2065,13 @@
         "input.Body = tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(input.Body, account)))"
       ],
       "rationale": "The three pre-send sanitize chains (main Forward ~4834, API-Key passthrough ~5526, count_tokens ~9922) must wrap the StripEmptyTextBlocks(TkSanitizeRequestBody(...)) combo with tkStripFableDisabledThinking so an explicit thinking.type=disabled never reaches upstream for fable models. An upstream merge that restores the bare two-function chain silently reverts the fix and fable+disabled requests 400 again. The replaceBody form covers both Forward and count_tokens; the input.Body form covers the passthrough path."
+    },
+    {
+      "path": "backend/internal/handler/api_key_handler.go",
+      "must_contain": [
+        "if tkHideUserRateValues(c) {"
+      ],
+      "rationale": "GetUserGroupRates (GET /groups/rates) must short-circuit to an empty map for non-admin requesters so per-user rate-override values never reach customer-facing pages (API key badges / group selector / available channels). The helper lives in api_key_handler_tk_rate_visibility.go (TK-owned); an upstream merge that restores the bare handler silently re-exposes every customer's negotiated multiplier."
     }
   ]
 }
