@@ -12,7 +12,7 @@ import (
 
 // TokenKey: bare claude family-name fallback ("opus" → latest servable opus id).
 //
-// Prod incident 2026-06-06 (user_id=16): clients send the bare family word and
+// Prod incident 2026-06-10 (user_id=16): clients send the bare family word and
 // die with the #617 unsupported-model 400. Friendlier contract: a bare family
 // name means "the best model of that family you can serve". Truth source is
 // supportedAnthropicCatalogModels (pricing_catalog_supported_models_tk.go);
