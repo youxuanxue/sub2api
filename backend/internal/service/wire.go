@@ -652,6 +652,11 @@ var ProviderSet = wire.NewSet(
 	// Returns the instance so provideCleanup (cmd/server/wire.go) can Stop() the
 	// ticker at shutdown — same lifecycle shape as ChannelMonitorRunner.
 	ProvideTKAccountIncidentNotifier,
+	// TokenKey: pricing-missing → Feishu notifier. Builds the notifier, starts
+	// its digest ticker, and wires it onto GatewayService + OpenAIGatewayService
+	// post-construction. Returns the instance so provideCleanup
+	// (cmd/server/wire.go) can Stop() the ticker at shutdown.
+	ProvideTKPricingMissingNotifier,
 )
 
 // TKAuthServiceColdStartReady is a wire sentinel: holding it proves that
@@ -810,6 +815,38 @@ func ProvideTKAccountIncidentNotifier(
 	n.Start()
 	if rl != nil {
 		rl.SetAccountIncidentNotifier(n)
+	}
+	return n
+}
+
+// ProvideTKPricingMissingNotifier builds the pricing-missing Feishu notifier,
+// starts its background digest ticker, and wires it onto both billing funnels
+// (GatewayService + OpenAIGatewayService) post-construction. Same lifecycle
+// shape as ProvideTKAccountIncidentNotifier: returns the concrete instance so
+// provideCleanup can Stop() the ticker at shutdown. Setters are nil-safe.
+func ProvideTKPricingMissingNotifier(
+	gw *GatewayService,
+	openaiGw *OpenAIGatewayService,
+	ops *OpsService,
+	cfg *config.Config,
+) *TKPricingMissingNotifier {
+	site := "unknown"
+	if cfg != nil {
+		site = siteFromFrontendURL(cfg.Server.FrontendURL)
+	}
+	// Pass a nil interface (not a typed-nil *OpsService) when ops is absent so the
+	// notifier's `cfgProvider != nil` guards short-circuit cleanly.
+	var provider opsFeishuConfigProvider
+	if ops != nil {
+		provider = ops
+	}
+	n := newTKPricingMissingNotifier(provider, site)
+	n.Start()
+	if gw != nil {
+		gw.SetPricingMissingNotifier(n)
+	}
+	if openaiGw != nil {
+		openaiGw.SetPricingMissingNotifier(n)
 	}
 	return n
 }

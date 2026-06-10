@@ -428,6 +428,25 @@ else
     echo "  ok: pricing overlay valid (anchors present, no \$0)"
 fi
 
+# ---- sub2api: pricing-hotfix runbook selftest -------------------------------
+# ops/pricing/apply-pricing-hotfix.py is the runbook the PricingMissingNotifier
+# Feishu card points operators at (lookup / apply channel pricing / stage
+# overlay). Its selftest is offline and covers all pure logic — run it so a
+# refactor of the overlay file format or upsert rules fails preflight instead
+# of failing the operator mid-incident.
+echo ""
+echo "=== sub2api: pricing-hotfix runbook selftest ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for pricing-hotfix selftest)"
+    errors=$((errors + 1))
+elif ! python3 ./ops/pricing/apply-pricing-hotfix.py selftest >/dev/null 2>&1; then
+    echo "  FAIL: pricing-hotfix runbook selftest"
+    echo "        — run: python3 ops/pricing/apply-pricing-hotfix.py selftest"
+    errors=$((errors + 1))
+else
+    echo "  ok: pricing-hotfix runbook selftest"
+fi
+
 # ---- sub2api: frontend TK sentinel registry ---------------------------------
 # Source of truth: scripts/sentinels/frontend-tk.json. Verifies that load-bearing
 # TokenKey-only frontend surfaces (sidebar geometry, fluid table mode, sticky

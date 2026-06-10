@@ -646,6 +646,9 @@ type GatewayService struct {
 	// TK: per-account thinking-block signature_error preempt cache. Injected via
 	// SetAnthropicSigPreemptCache (TK companion). nil = feature disabled.
 	tkAnthropicSigPreemptCache AnthropicSignaturePreemptCache
+	// TK: pricing-missing → Feishu notifier. Injected via
+	// SetPricingMissingNotifier (TK companion). nil = feature disabled.
+	tkPricingMissingNotifier PricingMissingNotifier
 	// TK: Kiro (sixth platform) forwarder. Routes IsKiro() accounts to the
 	// vendored CodeWhisperer EventStream protocol layer.
 	kiroGateway *KiroGatewayService
@@ -9633,8 +9636,8 @@ func (s *GatewayService) calculateTokenCost(
 		// TK (upstream Wei-Shaw/sub2api#1833 / #1544): surface pricing-missing as a
 		// structured, observable zero-cost record instead of a silent ActualCost:0
 		// leak — at parity with the OpenAI record-usage path. See
-		// logTokenCostPricingMissing.
-		logTokenCostPricingMissing(billingModel, apiKey, result, err)
+		// recordTokenCostPricingMissing (log + Feishu pricing-missing notifier).
+		s.recordTokenCostPricingMissing(billingModel, apiKey, result, tokens, err)
 		if isUsagePricingUnavailableError(err) {
 			return &CostBreakdown{BillingMode: string(BillingModeToken)}
 		}
