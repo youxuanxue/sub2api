@@ -3160,6 +3160,7 @@ export default {
       stubPausedHint:
         'The prod-side stub for this edge is paused (关调度) — prod no longer routes traffic here, though the edge itself stays reachable.',
       cooldownRecovered: 'Recovered',
+      accountIdHint: "Account ID on this edge (edge-local database primary key), used to pinpoint it when troubleshooting",
       columns: {
         name: 'Name',
         platformType: 'Platform / Type',
@@ -3263,6 +3264,7 @@ export default {
       schedulableHint: 'Enable to include this account in API request scheduling',
       schedulableEnabled: 'Scheduling enabled',
       schedulableDisabled: 'Scheduling disabled',
+      accountIdHint: 'Account ID (database primary key), used to pinpoint this account when troubleshooting',
       failedToToggleSchedulable: 'Failed to toggle scheduling status',
       groupCountTotal: '{count} groups total',
       platforms: {
