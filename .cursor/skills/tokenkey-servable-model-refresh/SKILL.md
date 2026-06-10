@@ -109,3 +109,19 @@ probe key 取自**绑定 `google` 组的 api_key**（`api_keys.group_id→groups
 - **改了 allowlist 后**：公开目录 + 我的菜单两面同源（见
   `supportedCatalogModelIDsForPlatform` / `FilterPublicCatalogToServable`），上线需**发版**才生效。
 - **合并永远等人授权**；本 skill 的 `--open-pr` 只开 PR，不合并。
+
+## 姊妹 runbook：缺价模型定价热更新
+
+收到飞书「**模型缺价（已记零成本）**」卡片（PricingMissingNotifier：缺价模型**照常服务**、
+按零成本记账，不拒绝客户）时，处置走 `ops/pricing/apply-pricing-hotfix.py`：
+
+```bash
+python3 ops/pricing/apply-pricing-hotfix.py lookup --model <模型名>   # litellm 全量源取价（含被裁剪镜像丢掉的带前缀键）
+export TOKENKEY_ADMIN_API_KEY=...                                     # settings.admin_api_key
+python3 ops/pricing/apply-pricing-hotfix.py channels                  # 选 --channel-id
+python3 ops/pricing/apply-pricing-hotfix.py apply --model <模型名> --channel-id N --platform <平台> --from-litellm --yes   # 热更：渠道定价凌驾一切，立即生效无需发版
+python3 ops/pricing/apply-pricing-hotfix.py stage-overlay --model <模型名> --from-litellm   # 固化：fill-only 进 tk_pricing_overlay.json，提 PR
+```
+
+细则（per-channel 语义、litellm 没收录时的 `--entry-json` 路径、镜像价格错误时只能用渠道定价修）
+见 `ops/pricing/README.md` §"Pricing-missing hotfix"。

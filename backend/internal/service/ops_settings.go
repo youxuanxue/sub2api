@@ -22,6 +22,9 @@ const (
 	opsFeishuAlertCooldownSecondsDefault  = 3600
 	// 账号失效事件「临时冷却」聚合摘要的默认 flush 间隔（秒）。
 	opsFeishuAccountIncidentDigestSecondsDefault = 600
+	// 缺价模型零成本流量聚合摘要的默认 flush 间隔（秒）。运营配置动作级别，
+	// 不是 P0 故障流，默认半小时。
+	opsFeishuPricingMissingDigestSecondsDefault = 1800
 )
 
 // =========================
@@ -219,6 +222,7 @@ func defaultOpsFeishuAlertConfig() OpsFeishuAlertConfig {
 		RateLimitPerHour:             opsFeishuAlertRateLimitPerHourDefault,
 		CooldownSeconds:              opsFeishuAlertCooldownSecondsDefault,
 		AccountIncidentDigestSeconds: opsFeishuAccountIncidentDigestSecondsDefault,
+		PricingMissingDigestSeconds:  opsFeishuPricingMissingDigestSecondsDefault,
 	}
 }
 
@@ -236,6 +240,7 @@ func updateOpsFeishuAlertConfig(dst *OpsFeishuAlertConfig, req *OpsFeishuAlertCo
 	dst.RateLimitPerHour = req.RateLimitPerHour
 	dst.CooldownSeconds = req.CooldownSeconds
 	dst.AccountIncidentDigestSeconds = req.AccountIncidentDigestSeconds
+	dst.PricingMissingDigestSeconds = req.PricingMissingDigestSeconds
 }
 
 func normalizeOpsFeishuAlertConfig(cfg *OpsFeishuAlertConfig) {
@@ -255,6 +260,9 @@ func normalizeOpsFeishuAlertConfig(cfg *OpsFeishuAlertConfig) {
 	if cfg.AccountIncidentDigestSeconds == 0 {
 		cfg.AccountIncidentDigestSeconds = opsFeishuAccountIncidentDigestSecondsDefault
 	}
+	if cfg.PricingMissingDigestSeconds == 0 {
+		cfg.PricingMissingDigestSeconds = opsFeishuPricingMissingDigestSecondsDefault
+	}
 }
 
 func validateOpsFeishuAlertConfig(cfg OpsFeishuAlertConfig) error {
@@ -272,6 +280,9 @@ func validateOpsFeishuAlertConfig(cfg OpsFeishuAlertConfig) error {
 	}
 	if cfg.AccountIncidentDigestSeconds < 30 || cfg.AccountIncidentDigestSeconds > 86400 {
 		return errors.New("feishu.account_incident_digest_seconds must be between 30 and 86400")
+	}
+	if cfg.PricingMissingDigestSeconds < 30 || cfg.PricingMissingDigestSeconds > 86400 {
+		return errors.New("feishu.pricing_missing_digest_seconds must be between 30 and 86400")
 	}
 	return nil
 }

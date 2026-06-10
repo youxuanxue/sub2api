@@ -14,6 +14,7 @@ live in
 | --- | --- |
 | `probe-servable-models.sh` | Runs ON the prod host (via `ops/observability/run-probe.sh`). Pulls the edge-us7 relay key + the GPT-line key from the DB (never printed), sends one minimal real request per candidate model, emits `platform⇥model⇥http⇥verdict` TSV. A model is **servable** iff it returns a real `200`. |
 | `refresh-servable-allowlist.py` | Orchestrator: derives candidates from the litellm catalog, runs the probe, keeps `verdict==servable`, de-duplicates dated snapshots, and splices the two Go maps. `selftest` covers all deterministic glue (no prod). |
+| `apply-pricing-hotfix.py` | Companion runbook for the **"模型缺价（已记零成本）" Feishu alert** (PricingMissingNotifier). Hot-applies channel pricing via the prod admin API (immediate, no release) and stages the durable fill-only entry into `tk_pricing_overlay.json`. `selftest` covers all pure logic (no network). See "Pricing-missing hotfix" below. |
 
 ## Re-run (operator, needs AWS creds for prod SSM)
 
@@ -35,6 +36,43 @@ Split the steps when you want to inspect the raw verdicts first:
 python3 ops/pricing/refresh-servable-allowlist.py probe | tee /tmp/servable.tsv
 python3 ops/pricing/refresh-servable-allowlist.py apply --results /tmp/servable.tsv
 ```
+
+## Pricing-missing hotfix (Feishu「模型缺价」告警的处置 runbook)
+
+Unpriced models are **served and recorded at zero cost** (never refused —
+pricing data lag must not become a customer-facing outage); the
+`PricingMissingNotifier` Feishu card tells you which `(platform, model)` is
+leaking. Remediation is two-step, mirroring the TLS-fingerprint / tiers
+"repo baseline + live push" hot-update shape:
+
+```bash
+# 0. what does litellm (FULL source, incl. provider-prefixed keys the trimmed
+#    mirror drops) say this model costs?
+python3 ops/pricing/apply-pricing-hotfix.py lookup --model doubao-seedream-9
+
+# 1. HOT (immediate, no release): upsert channel pricing via prod admin API.
+#    Channel pricing (DB) overrides every other pricing source; the channel
+#    cache invalidates on write. Dry-run by default; --yes to commit.
+export TOKENKEY_ADMIN_API_KEY=...   # settings.admin_api_key
+python3 ops/pricing/apply-pricing-hotfix.py channels   # pick --channel-id
+python3 ops/pricing/apply-pricing-hotfix.py apply \
+  --model doubao-seedream-9 --channel-id 4 --platform newapi --from-litellm --yes
+
+# 2. DURABLE (next release): append the fill-only entry to
+#    backend/internal/service/tk_pricing_overlay.json and open a PR.
+#    Self-deprecating: the day the trimmed mirror carries the bare key, the
+#    source value wins. For models litellm lacks entirely, use
+#    --entry-json with the provider's official list price.
+python3 ops/pricing/apply-pricing-hotfix.py stage-overlay \
+  --model doubao-seedream-9 --from-litellm
+python3 scripts/checks/pricing-overlay.py && bash scripts/preflight.sh
+```
+
+Caveats: channel pricing is per-channel — if the leaking traffic spans several
+channels, repeat `apply` per channel. `--from-litellm` cannot fix WRONG mirror
+prices for already-priced models (fill-only never overrides); channel pricing
+is exactly the tool for that. Alert digest cadence is
+`feishu.pricing_missing_digest_seconds` (default 1800s).
 
 ## Classification & de-dup rules
 
