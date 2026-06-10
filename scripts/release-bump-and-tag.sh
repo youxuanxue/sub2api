@@ -100,9 +100,12 @@ trap cleanup EXIT
 
 echo "[release-bump-and-tag] creating ephemeral worktree: $WT_DIR (detached at origin/main)"
 git -C "$REPO_ROOT" fetch origin main --tags --quiet || { echo "[release-bump-and-tag] ERROR: fetch failed" >&2; exit 2; }
-git -C "$REPO_ROOT" worktree add --detach "$WT_DIR" origin/main --quiet
+# Options MUST precede positional args: git rejects a trailing `--quiet` after
+# the commit-ish / pathspec as an unknown pathspec (git 2.52: "pathspec
+# '--quiet' did not match any file"), which aborted the first live release run.
+git -C "$REPO_ROOT" worktree add --quiet --detach "$WT_DIR" origin/main
 # preflight (pre-commit hook) delegates generic checks to the dev-rules submodule.
-git -C "$WT_DIR" submodule update --init dev-rules --quiet
+git -C "$WT_DIR" submodule update --quiet --init dev-rules
 
 if [ "$ACTION" = "bump-and-tag" ]; then
   # Monotonic belt: the bump commit is pushed to origin/main BEFORE the tag
