@@ -400,16 +400,20 @@ jobs:
           fi
 
       - name: Check 12 — sentinel registry update gate (PR diff ↔ registries coupled)
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           # Preflight parity: scripts/sentinels/check-registry-update-gate.py — forces any
           # change to sentinel-covered or hotspot-listed sources to accompany a registry edit.
+          # --pr-body lets the review marker live on the mutable PR description (edit + re-run,
+          # no commit rewrite); same acceptance logic preflight runs in advisory mode locally.
           if [ ! -f ./scripts/sentinels/check-registry-update-gate.py ]; then
             echo "::error::scripts/sentinels/check-registry-update-gate.py missing."
             exit 1
           fi
           BASE_SHA='${{ github.event.pull_request.base.sha }}'
           HEAD_SHA='${{ github.event.pull_request.head.sha }}'
-          if ! python3 ./scripts/sentinels/check-registry-update-gate.py --base "$BASE_SHA" --head "$HEAD_SHA"; then
+          if ! python3 ./scripts/sentinels/check-registry-update-gate.py --base "$BASE_SHA" --head "$HEAD_SHA" --pr-body "$PR_BODY"; then
             echo "::error::Sentinel registry update gate failed."
             echo "::error::Changing load-bearing hotspots requires updating scripts/sentinels/*.json in the same PR."
             exit 1

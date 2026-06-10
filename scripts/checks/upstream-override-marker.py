@@ -98,6 +98,11 @@ UPSTREAM_SHAPED_EXCLUDE = [
     re.compile(r"^frontend/src/constants/.*\.tk\.ts$"),
     re.compile(r"^frontend/src/api/admin/tk/"),
     re.compile(r"^frontend/src/__tests__/"),
+    # i18n locale dictionaries are append-heavy by nature: TK adds keys on
+    # nearly every feature PR, so requiring a marker on every touch is pure
+    # ceremony. Upstream-merge conflicts there are surfaced by the 3-way
+    # merge itself, not by this acknowledgement gate. Excluded outright.
+    re.compile(r"^frontend/src/i18n/locales/.*\.ts$"),
 ]
 
 MARKERS = [
@@ -136,12 +141,145 @@ def is_upstream_shaped(path: str) -> bool:
     return False
 
 
+def is_pure_insertion(base: str, files: list[str]) -> bool:
+    """True when EVERY given file's diff against base adds lines but deletes
+    none (`git diff --numstat` deleted-count == 0). A pure-insertion diff
+    cannot delete or rewrite an upstream symbol, so it carries no
+    upstream-merge revert risk and is treated as an implicit
+    `upstream-touch-trivial`.
+
+    Conservative: any file that is binary (`-` numstat), renamed (path not
+    matched verbatim), or missing from the numstat output fails the test and
+    falls through to the marker requirement.
+    """
+    if not files:
+        return False
+    out = subprocess.check_output(
+        ["git", "diff", "--numstat", f"{base}...HEAD", "--", *files],
+        text=True,
+    )
+    stat: dict[str, tuple[str, str]] = {}
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 3:
+            continue
+        added, deleted, path = parts
+        stat[path] = (added, deleted)
+    for f in files:
+        if f not in stat:
+            return False  # renamed / not found — be conservative
+        added, deleted = stat[f]
+        if added == "-" or deleted == "-":
+            return False  # binary — can't tell
+        if int(deleted) != 0:
+            return False
+    return True
+
+
+def decide(
+    upstream_files: list[str],
+    sentinel_touched: list[str],
+    pure_insertion: bool,
+    marker_text: str,
+) -> tuple[bool, str]:
+    """Pure verdict function (no git / IO) so the acceptance logic is unit
+    testable. Returns (ok, reason). Acceptance order:
+      1. no upstream-shaped paths touched
+      2. a sentinel registry was updated in the same PR
+      3. the diff is pure-insertion (implicit upstream-touch-trivial)
+      4. an explicit marker token appears in commit messages OR the PR body
+    """
+    if not upstream_files:
+        return True, "no upstream-shaped paths changed"
+    if sentinel_touched:
+        return True, "sentinel registry updated: " + ", ".join(sorted(sentinel_touched))
+    if pure_insertion:
+        return True, "pure-insertion diff (no deletions) — implicit upstream-touch-trivial"
+    for marker in MARKERS:
+        if marker in marker_text:
+            return True, f"marker '{marker}' present"
+    return False, "upstream-shaped paths changed without sentinel / marker / pure-insertion"
+
+
+def _print_failure(upstream_files: list[str], stream) -> None:
+    print("Upstream-shaped files in this PR:", file=stream)
+    for f in upstream_files[:30]:
+        print(f"  {f}", file=stream)
+    if len(upstream_files) > 30:
+        print(f"  ... and {len(upstream_files) - 30} more", file=stream)
+    print("", file=stream)
+    print("Fix (any one):", file=stream)
+    print("  (a) make the change pure-insertion (no deleted lines), OR", file=stream)
+    print("  (b) add one of these tokens to the PR description (mutable — no commit rewrite): "
+          + ", ".join(MARKERS) + ", OR", file=stream)
+    print("  (c) update one of scripts/sentinels/*.json with anchor(s) for the change.", file=stream)
+    print("", file=stream)
+    print("Marker semantics:", file=stream)
+    print("  upstream-touch-guarded — anchors are pinned in a sentinel registry", file=stream)
+    print("  upstream-touch-trivial — change has no upstream-merge revert risk", file=stream)
+    print("  upstream-merge         — this is the upstream-merge PR itself", file=stream)
+    print("  no-upstream-touch      — paths were misclassified; assert no upstream surface", file=stream)
+
+
+def run_selftest() -> int:
+    cases = [
+        # (upstream_files, sentinel_touched, pure_insertion, marker_text, expect_ok)
+        ([], [], False, "", True),                                   # nothing upstream
+        (["backend/internal/handler/x.go"], ["scripts/sentinels/newapi.json"], False, "", True),  # sentinel
+        (["frontend/src/views/admin/AccountsView.vue"], [], True, "", True),  # pure insertion
+        (["backend/internal/service/x.go"], [], False, "feat: ... upstream-touch-guarded ...", True),  # commit marker
+        (["backend/internal/service/x.go"], [], False, "no-upstream-touch in PR body", True),  # pr-body marker (same text channel)
+        (["backend/internal/service/x.go"], [], False, "", False),   # nothing → fail
+        (["backend/internal/service/x.go"], [], False, "guarded but not the token", False),  # near-miss
+    ]
+    failed = 0
+    for i, (uf, st, pure, txt, expect) in enumerate(cases):
+        ok, _ = decide(uf, st, pure, txt)
+        status = "PASS" if ok == expect else "FAIL"
+        if ok != expect:
+            failed += 1
+        print(f"  {status} case {i}: expect_ok={expect} got_ok={ok}")
+    # path classification: i18n excluded, view included, _tk_ excluded
+    cls = [
+        ("frontend/src/i18n/locales/en.ts", False),
+        ("frontend/src/views/admin/AccountsView.vue", True),
+        ("frontend/src/views/admin/EdgeAccountsView.vue", True),
+        ("backend/internal/service/foo_tk_bar.go", False),
+        ("backend/internal/service/foo.go", True),
+    ]
+    for path, expect in cls:
+        got = is_upstream_shaped(path)
+        status = "PASS" if got == expect else "FAIL"
+        if got != expect:
+            failed += 1
+        print(f"  {status} classify {path}: expect={expect} got={got}")
+    if failed:
+        print(f"upstream-override-marker selftest: {failed} case(s) FAILED", file=sys.stderr)
+        return 1
+    print("ok: upstream-override-marker selftest passed")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--base", default=os.environ.get("PREFLIGHT_BASE", "origin/main"))
     ap.add_argument("--quiet", action="store_true",
                     help="suppress success output (used by preflight wrapper)")
+    ap.add_argument("--pr-body", default="",
+                    help="PR description text; marker tokens here satisfy the gate "
+                         "(mutable surface — CI passes ${{ github.event.pull_request.body }})")
+    ap.add_argument("--selftest", action="store_true",
+                    help="run the pure-logic self-test and exit")
     args = ap.parse_args()
+
+    if args.selftest:
+        return run_selftest()
+
+    # Advisory mode: local pre-commit/pre-push cannot see the in-flight commit
+    # message or the PR body, so a hard block there is a structural false
+    # deadlock. Preflight sets MARKER_GATE_ADVISORY=1 → we compute and print
+    # guidance but never block. The hard gate runs in CI against the PR body.
+    advisory = bool(os.environ.get("MARKER_GATE_ADVISORY"))
 
     try:
         paths = changed_paths(args.base)
@@ -150,54 +288,36 @@ def main() -> int:
         return 2
 
     upstream_files = [p for p in paths if is_upstream_shaped(p)]
-    if not upstream_files:
-        if not args.quiet:
-            print("[check_upstream_override_marker] no upstream-shaped paths changed")
-        return 0
-
     sentinel_touched = [p for p in paths if SENTINEL_REGISTRY_RE.match(p)]
-    if sentinel_touched:
+
+    pure_insertion = False
+    if upstream_files and not sentinel_touched:
+        try:
+            pure_insertion = is_pure_insertion(args.base, upstream_files)
+        except subprocess.CalledProcessError as e:
+            print(f"FAIL: git diff --numstat failed: {e}", file=sys.stderr)
+            return 2
+
+    marker_text = args.pr_body or ""
+    if upstream_files and not sentinel_touched and not pure_insertion:
+        try:
+            marker_text += "\n" + commit_messages(args.base)
+        except subprocess.CalledProcessError as e:
+            print(f"FAIL: git log failed: {e}", file=sys.stderr)
+            return 2
+
+    ok, reason = decide(upstream_files, sentinel_touched, pure_insertion, marker_text)
+    if ok:
         if not args.quiet:
-            print(
-                "[check_upstream_override_marker] sentinel registry updated: "
-                + ", ".join(sorted(sentinel_touched))
-            )
+            print(f"[check_upstream_override_marker] {reason}")
         return 0
 
-    try:
-        msg = commit_messages(args.base)
-    except subprocess.CalledProcessError as e:
-        print(f"FAIL: git log failed: {e}", file=sys.stderr)
-        return 2
-
-    for marker in MARKERS:
-        if marker in msg:
-            if not args.quiet:
-                print(f"[check_upstream_override_marker] marker '{marker}' present in commit message")
-            return 0
-
-    # Fail
-    print(
-        "[check_upstream_override_marker] FAIL: upstream-shaped paths changed "
-        "without a sentinel-registry update and without an explicit marker.",
-        file=sys.stderr,
-    )
-    print("Upstream-shaped files in this PR:", file=sys.stderr)
-    for f in upstream_files[:30]:
-        print(f"  {f}", file=sys.stderr)
-    if len(upstream_files) > 30:
-        print(f"  ... and {len(upstream_files) - 30} more", file=sys.stderr)
-    print("", file=sys.stderr)
-    print("Fix: either", file=sys.stderr)
-    print("  (a) update one of scripts/sentinels/*.json with anchor(s) for the change, OR", file=sys.stderr)
-    print(f"  (b) include one of these tokens in any commit message: {', '.join(MARKERS)}", file=sys.stderr)
-    print("", file=sys.stderr)
-    print("Marker semantics:", file=sys.stderr)
-    print("  upstream-touch-guarded — anchors are pinned in a sentinel registry", file=sys.stderr)
-    print("  upstream-touch-trivial — change is pure delete/rename/comment-only, no revert risk", file=sys.stderr)
-    print("  upstream-merge         — this is the upstream-merge PR itself", file=sys.stderr)
-    print("  no-upstream-touch      — paths were misclassified; assert no upstream surface", file=sys.stderr)
-    return 1
+    stream = sys.stdout if advisory else sys.stderr
+    prefix = "advisory (not blocking — CI enforces on PR body)" if advisory else "FAIL"
+    print(f"[check_upstream_override_marker] {prefix}: upstream-shaped paths "
+          "changed without sentinel / marker / pure-insertion.", file=stream)
+    _print_failure(upstream_files, stream)
+    return 0 if advisory else 1
 
 
 if __name__ == "__main__":
