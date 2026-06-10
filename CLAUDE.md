@@ -64,7 +64,7 @@ sub2api/                                  # This repo (.git)
 │   │   ├── web/                          # Embedded frontend dist
 │   │   ├── testutil/                     # Test fixtures & stubs
 │   │   └── util/                         # Shared utilities
-│   ├── migrations/                       # SQL migrations (001–092+)
+│   ├── migrations/                       # SQL migrations (numbered NNN_* + TK-only tk_NNN_*)
 │   └── resources/model-pricing/          # Model pricing data
 ├── frontend/src/
 │   ├── api/                              # API client
