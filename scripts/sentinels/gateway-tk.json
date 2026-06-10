@@ -2033,6 +2033,15 @@
         "if s, e, ok := parseAbsoluteRange(c); ok {"
       ],
       "rationale": "Thin TK injection at the top of the upstream-owned parseTimeRange (the single chokepoint for all 7 dashboard time-window endpoints). Rolling presets (近24小时/7/14/30天) send absolute epoch-ms start_ts/end_ts so the window is timezone-independent; without this hook the window falls back to the viewer's browser-reported timezone and two admin sessions on different timezones (e.g. a fingerprint browser spoofing a US zone vs Asia/Shanghai) again see materially different dashboard numbers for the same selection. The implementation lives in the dashboard_handler_tk_window.go companion; this sentinel anchors the one-line call site that an upstream merge copying the old parseTimeRange shape back would silently drop."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "setOpsUpstreamRequestBody(c, body)",
+        "setOpsUpstreamRequestBody(c, retryWireBody)",
+        "setOpsUpstreamRequestBody(c, retryWireBody2)"
+      ],
+      "rationale": "The native anthropic Forward path must stash the final (post-rewrite) upstream request body before the retry loop AND re-stash after a successful filtered-thinking / tool-downgrade retry. Two consumers depend on it: ops_error_logs per-attempt body context, and the traj v2 upstream-request divergence capture (qa reads the same gin key for opt-in records; see scripts/sentinels/trajectory.json required_file_hooks). An upstream merge dropping any of these calls silently corrupts exported training pairs instead of failing loudly."
     }
   ]
 }

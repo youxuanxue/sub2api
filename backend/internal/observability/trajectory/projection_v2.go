@@ -198,6 +198,12 @@ func reconstructAssistantTurn(rec SourceRecord) ([]any, map[string]any) {
 	if eff := reqBody.Get("thinking.type"); eff.Exists() {
 		callMeta["thinking_effort"] = eff.String()
 	}
+	// 网关在转发前改写过请求体（非 passthrough 路径的 normalize / signature-preempt
+	// 剥 thinking 等）：本调用的「捕获请求」≠「产生该响应的真实上游请求」。显式标记
+	// 而非静默——traj 消费侧据此决定丢弃或降级使用该样本。
+	if rec.Blob.Request.UpstreamDivergent {
+		callMeta["upstream_request_divergent"] = true
+	}
 
 	var blocks []any
 	content := respBody.Get("content")

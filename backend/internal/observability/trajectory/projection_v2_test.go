@@ -278,3 +278,45 @@ func TestBuildTrajSessionsV2_PrefixBreakSignal(t *testing.T) {
 		t.Errorf("pre-break user turns wrong: %+v %+v", turns[0], turns[1])
 	}
 }
+
+// 网关改写过请求体的记录（blob 标 upstream_divergent）→ assistant turn 的
+// call_meta 显式携带 upstream_request_divergent=true；未改写记录不带该键。
+func TestBuildTrajSessionsV2_UpstreamDivergentFlag(t *testing.T) {
+	base := time.Date(2026, 5, 14, 15, 0, 0, 0, time.UTC)
+	mkBlob := func(divergent bool) *EvidenceBlob {
+		b := &EvidenceBlob{}
+		b.Request.Body = mustBody(t, `{"model":"m","messages":[{"role":"user","content":"q"}]}`)
+		b.Response.Body = mustBody(t, `{"id":"msg_d","stop_reason":"end_turn","content":[{"type":"text","text":"a"}]}`)
+		if divergent {
+			b.Request.UpstreamBody = mustBody(t, `{"model":"m","messages":[{"role":"user","content":"q"}],"tool_choice":{"type":"auto"}}`)
+			b.Request.UpstreamDivergent = true
+		}
+		return b
+	}
+	sources := []SourceRecord{
+		{Record: &ent.QARecord{RequestID: "req_d0", CreatedAt: base, Platform: "anthropic", RequestedModel: "m", TrajectoryID: strptr("traj-div")}, Blob: mkBlob(true)},
+		{Record: &ent.QARecord{RequestID: "req_d1", CreatedAt: base.Add(time.Second), Platform: "anthropic", RequestedModel: "m", TrajectoryID: strptr("traj-div")}, Blob: mkBlob(false)},
+	}
+	sessions, _, err := BuildTrajSessionsV2(sources)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("want 1 session, got %d", len(sessions))
+	}
+	var assistants []TrajTurnV2
+	for _, turn := range sessions[0].Turns {
+		if turn.Role == "assistant" {
+			assistants = append(assistants, turn)
+		}
+	}
+	if len(assistants) != 2 {
+		t.Fatalf("want 2 assistant turns, got %d", len(assistants))
+	}
+	if assistants[0].CallMeta["upstream_request_divergent"] != true {
+		t.Errorf("divergent call missing upstream_request_divergent: %+v", assistants[0].CallMeta)
+	}
+	if _, ok := assistants[1].CallMeta["upstream_request_divergent"]; ok {
+		t.Errorf("non-divergent call must not carry the key: %+v", assistants[1].CallMeta)
+	}
+}

@@ -179,6 +179,7 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 	if raw, ok := requestBytes.([]byte); ok {
 		requestBody = raw
 	}
+	upstreamRequestBody := captureUpstreamRequestBody(c, requestBody)
 	var responseBody []byte
 	var streamChunks []RawSSEChunk
 	var responseTruncated bool
@@ -243,6 +244,7 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 		FirstTokenMs:               firstTokenMs,
 		Stream:                     captureStreamFlag(c, streamChunks),
 		RequestBody:                requestBody,
+		UpstreamRequestBody:        upstreamRequestBody,
 		ResponseBody:               responseBody,
 		ResponseHeaders:            captureResponseHeaders(c),
 		StreamChunks:               streamChunks,
@@ -562,14 +564,25 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 		})
 	}
 
+	requestPayload := map[string]any{
+		"path": input.InboundEndpoint,
+		"body": requestValue,
+	}
+	// 非 passthrough 网关路径（如 cc-edges）转发前可能改写请求体（normalize /
+	// alias strip / signature-preempt 剥 thinking 等）。改写发生时，「捕获的客户端
+	// 请求」≠「真正产生该响应的上游请求」——对 traj 样本这是静默失真。CaptureFromContext
+	// 只在 opt-in 且字节不等时才填 UpstreamRequestBody，这里原样落进 blob，导出侧
+	// 据此机械标记 divergent 记录。
+	if len(input.UpstreamRequestBody) > 0 {
+		requestPayload["upstream_body"] = s.sanitizeQABody(input.UpstreamRequestBody, preserveThinking)
+		requestPayload["upstream_divergent"] = true
+	}
+
 	payload := map[string]any{
 		"request_id":    input.RequestID,
 		"trajectory_id": strings.TrimSpace(input.TrajectoryID),
 		"captured_at":   input.CreatedAt.Format(time.RFC3339),
-		"request": map[string]any{
-			"path": input.InboundEndpoint,
-			"body": requestValue,
-		},
+		"request":       requestPayload,
 		"response": map[string]any{
 			"status_code": input.StatusCode,
 			"headers":     input.ResponseHeaders,
@@ -942,6 +955,35 @@ func requestIsSynthOptIn(c *gin.Context) bool {
 	}
 	return strings.TrimSpace(c.Request.Header.Get("X-Synth-Session")) != "" ||
 		strings.TrimSpace(c.Request.Header.Get("X-Synth-Pipeline")) != ""
+}
+
+// opsUpstreamRequestBodyContextKey 是网关在转发前存放「改写后最终上游请求体」的
+// gin context key。字面量必须与 service.OpsUpstreamRequestBodyKey 一致（qa 不能
+// import service，否则成环）；一致性由 scripts/sentinels/trajectory.json 钉住。
+const opsUpstreamRequestBodyContextKey = "ops_upstream_request_body"
+
+// captureUpstreamRequestBody 在 traj/synth opt-in 请求上读取网关 stash 的上游
+// 请求体；仅当它与客户端原始请求字节不等（= 网关真的改写过，所有改写 helper 在
+// no-op 时原样返回输入）才返回。非 opt-in 流量直接返回 nil，零额外开销。
+func captureUpstreamRequestBody(c *gin.Context, clientBody []byte) []byte {
+	if !requestIsSynthOptIn(c) {
+		return nil
+	}
+	value, ok := c.Get(opsUpstreamRequestBodyContextKey)
+	if !ok {
+		return nil
+	}
+	var upstream []byte
+	switch raw := value.(type) {
+	case []byte:
+		upstream = raw
+	case string:
+		upstream = []byte(raw)
+	}
+	if len(upstream) == 0 || bytes.Equal(upstream, clientBody) {
+		return nil
+	}
+	return upstream
 }
 
 func captureResponseHeaders(c *gin.Context) map[string]string {

@@ -95,6 +95,27 @@ def check_route_contracts(contracts: list[dict[str, object]]) -> list[str]:
     return failures
 
 
+def check_file_hooks(entries: list[dict[str, object]]) -> list[str]:
+    """Generic per-file literal anchors: [{source, must_contain[], rationale}].
+
+    Used for cross-file contracts the type system cannot see — e.g. the
+    `ops_upstream_request_body` gin-context key literal that must stay
+    identical between internal/service (producer) and observability/qa
+    (consumer, which cannot import service without a cycle)."""
+    failures: list[str] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            failures.append("required_file_hooks entry must be an object/dict")
+            continue
+        source = str(entry.get("source", ""))
+        must_contain = entry.get("must_contain", [])
+        if not source or not isinstance(must_contain, list) or not all(isinstance(v, str) for v in must_contain):
+            failures.append(f"required_file_hooks entry invalid (source={source!r})")
+            continue
+        failures.extend(check_required_literals(source, must_contain))
+    return failures
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--quiet", action="store_true", help="only print failures")
@@ -108,7 +129,10 @@ def main() -> int:
     required_capture_hooks = registry.get("required_capture_hooks")
 
     semantic_route_contracts = registry.get("semantic_route_contracts", [])
+    required_file_hooks = registry.get("required_file_hooks", [])
 
+    if not isinstance(required_file_hooks, list):
+        fatal("registry field 'required_file_hooks' must be an array when present")
     if not isinstance(route_source, str) or not route_source.strip():
         fatal("registry missing non-empty string field 'route_source'")
     if not isinstance(capture_source, str) or not capture_source.strip():
@@ -124,6 +148,7 @@ def main() -> int:
     failures.extend(check_required_literals(route_source, required_route_hooks))
     failures.extend(check_required_literals(capture_source, required_capture_hooks))
     failures.extend(check_route_contracts(semantic_route_contracts))
+    failures.extend(check_file_hooks(required_file_hooks))
 
     report = {
         "registry": str(REGISTRY_PATH.relative_to(REPO_ROOT)),
@@ -132,6 +157,7 @@ def main() -> int:
         "required_route_hooks": required_route_hooks,
         "required_capture_hooks": required_capture_hooks,
         "semantic_route_contracts": semantic_route_contracts,
+        "required_file_hooks": required_file_hooks,
         "failures": failures,
     }
 
