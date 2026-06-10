@@ -81,7 +81,7 @@ const DefaultCacheControlTTL = "5m"
 // CLICurrentVersion 是 sub2api 当前对外伪装的 Claude Code CLI 版本号（三段 semver）。
 // 用于 billing attribution block 中的 cc_version=X.Y.Z.{fp} 前缀以及 fingerprint 计算。
 // 必须与 DefaultHeaders["User-Agent"] 中的版本号严格一致；不一致会被 Anthropic 判第三方。
-const CLICurrentVersion = "2.1.169"
+const CLICurrentVersion = "2.1.170"
 
 // JoinBetaHeader joins beta tokens into the wire anthropic-beta header value.
 func JoinBetaHeader(betas []string) string {
@@ -137,7 +137,7 @@ func FullClaudeCodeHaikuMimicryBetas() []string {
 // 包依赖方向为 service → claude，claude 无法反向 import service，故这里以同步字面量
 // 承载，由守卫测试强制对齐。
 var DefaultHeaders = map[string]string{
-	"User-Agent":                                "claude-cli/2.1.169 (external, sdk-cli)",
+	"User-Agent":                                "claude-cli/2.1.170 (external, sdk-cli)",
 	"X-Stainless-Lang":                          "js",
 	"X-Stainless-Package-Version":               "0.94.0",
 	"X-Stainless-OS":                            "MacOS",
@@ -160,6 +160,12 @@ type Model struct {
 
 // DefaultModels Claude Code 客户端支持的默认模型列表
 var DefaultModels = []Model{
+	{
+		ID:          "claude-fable-5",
+		Type:        "model",
+		DisplayName: "Claude Fable 5",
+		CreatedAt:   "2026-06-09T00:00:00Z",
+	},
 	{
 		ID:          "claude-opus-4-5-20251101",
 		Type:        "model",

@@ -84,6 +84,10 @@ func TestGetModelPricing_FallbackMatchesByFamily(t *testing.T) {
 		{"claude-3-5-sonnet-20241022", 3e-6},
 		{"claude-3-5-haiku-20241022", 1e-6},
 		{"claude-3-haiku-20240307", 0.25e-6},
+		// Fable 5 is the tier above Opus ($10/MTok); must NOT fall through to the
+		// generic claude→sonnet ($3) catch-all (would underbill ~3.3x).
+		{"claude-fable-5", 10e-6},
+		{"claude-fable-5[1m]", 10e-6},
 	}
 
 	for _, tt := range tests {
@@ -342,6 +346,8 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{name: "claude opus 4.6", model: "claude-opus-4.6-20260201", expectedInput: 5e-6},
 		{name: "claude opus 4.5 alt separator", model: "claude-opus-4-5-20260101", expectedInput: 5e-6},
 		{name: "claude generic model fallback sonnet", model: "claude-foo-bar", expectedInput: 3e-6},
+		{name: "claude fable 5 (above opus, $10)", model: "claude-fable-5", expectedInput: 10e-6},
+		{name: "claude fable 5 1m alias", model: "claude-fable-5[1m]", expectedInput: 10e-6},
 		{name: "gemini explicit fallback", model: "gemini-3-1-pro", expectedInput: 2e-6},
 		// upstream Wei-Shaw/sub2api#2486: unknown gemini-* must NOT bill $0; falls back to gemini-3.1-pro pricing.
 		{name: "gemini unknown falls back to 3.1-pro", model: "gemini-2.0-pro", expectedInput: 2e-6},
