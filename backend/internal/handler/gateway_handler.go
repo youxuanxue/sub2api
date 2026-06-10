@@ -165,6 +165,12 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	}
 	reqModel := parsedReq.Model
 	reqStream := parsedReq.Stream
+
+	// TK: bare claude family-name → latest servable full id (see service/gateway_request_tk_bare_model_alias.go).
+	if newBody, resolved := service.TkApplyBareModelAlias(service.QuotaPlatform(c.Request.Context(), apiKey), parsedReq); resolved != "" {
+		body, reqModel = newBody, resolved
+	}
+
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
 
 	// 解析渠道级模型映射
@@ -1740,6 +1746,11 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
 		return
 	}
+	// TK: bare claude family-name → latest servable full id (see service/gateway_request_tk_bare_model_alias.go).
+	if newBody, resolved := service.TkApplyBareModelAlias(service.QuotaPlatform(c.Request.Context(), apiKey), parsedReq); resolved != "" {
+		body = newBody
+	}
+
 	// count_tokens 走 messages 严格校验时，复用已解析请求，避免二次反序列化。
 	SetClaudeCodeClientContext(c, body, parsedReq)
 	reqLog = reqLog.With(zap.String("model", parsedReq.Model), zap.Bool("stream", parsedReq.Stream))
