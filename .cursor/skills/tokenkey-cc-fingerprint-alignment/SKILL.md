@@ -15,16 +15,21 @@ description: >-
 
 关联：`cc0-claude0-launcher` skill（cc0-here 环境）、`tokenkey-anthropic-oauth-config` skill（ja3 变更时的 TLS profile apply）、`docs/spec-delta-cc-canonical-ua-beta-2.1.152.md`（PR #423 实例）。
 
-## 自动化（每日 sessionStart）
+## 每日漂移流程（手动按需 —— sessionStart 自动触发已关停）
 
-项目已注册 Cursor hook（`.cursor/hooks.json` → `sessionStart`）：
+> **2026-06-10 起：每日 sessionStart 自动 hook 已关停**（`.cursor/hooks.json` 已清空、
+> `.claude/settings.json` 的 `export-tls-fingerprint-profile` 条目已移除——价值不高、易污染本地 git）。
+> 下面是同一条流程的**手动**跑法：需要时直接调 `ops/anthropic/cc_fingerprint_daily_hook.sh`
+> （脚本本身不变，只是不再被 sessionStart 自动拉起）。
 
-- 每个 **UTC 日** 在 Agent 会话启动时后台跑一次（`ops/anthropic/cc_fingerprint_daily_hook.sh`）。
-- 先 `check env`（cc0 gost/SOCKS + claude0-here；Desktop 未开仅 WARN，见 `--relax-desktop`）。
+手动跑一次 `bash ops/anthropic/cc_fingerprint_daily_hook.sh` 的行为：
+
+- 一次完整的 `check env`（cc0 gost/SOCKS + claude0-here；Desktop 未开仅 WARN，见 `--relax-desktop`）。
 - 再 TLS `capture` + `check-tls`。
 - 若 **ja3 与 TokenKey baseline 不一致**，自动 `docs/spec-delta-cc-tls-drift-*.md` + `gh pr create`（需本机 `gh auth`）。
 - 日志：`.tls_list/cc-fingerprint-daily-hook.log`；漂移摘要：`.tls_list/cc-fingerprint-drift-alert.json`。
 - 自动开 PR 时,**所有 git 操作在 `git worktree add` 出的临时 worktree 里完成**(`.tls_list/.drift-worktree-${stamp}-$$`),user 当前 checkout / 当前分支不受影响;cleanup trap 兜底。
+- 一日一锁仍生效（`TOKENKEY_CC_DAILY_STATE_DIR`）：同一 UTC 日重复手动调会被跳过，要强跑用 `TOKENKEY_CC_DAILY_FORCE=1`。
 
 ### 控制 env vars
 
