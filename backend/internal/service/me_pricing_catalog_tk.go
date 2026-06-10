@@ -1,6 +1,6 @@
 package service
 
-// TokenKey: per-user pricing catalog ("Your Menu").
+// TokenKey: per-user pricing catalog ("Group Catalog" / "分组目录").
 //
 // Unlike service.PricingCatalogService.BuildPublicCatalog (a platform-wide
 // flat list of LiteLLM list prices), MePricingCatalogService builds a view
@@ -509,7 +509,7 @@ func (s *MePricingCatalogService) buildModelsForGroup(
 //     allowed, the native OAuth case) — emit the platform's canonical
 //     model list (claude/openai/gemini/antigravity default models, the
 //     same source gateway `/v1/models` uses). This is what fixes the
-//     empty "Your Menu" for Anthropic OAuth groups: those accounts are
+//     empty "Group Catalog" for Anthropic OAuth groups: those accounts are
 //     not channels and carry no whitelist, so before this branch both
 //     the channel stage and the whitelist stage produced nothing.
 //
@@ -585,7 +585,7 @@ func addFallbackModel(
 }
 
 // platformDefaultModelIDs returns the model-ID list an unrestricted native
-// account contributes to Your Menu.
+// account contributes to the Group Catalog.
 //
 // Anthropic / OpenAI use the empirically-servable allowlist
 // (supportedCatalogModelIDsForPlatform) — the SAME source the public /pricing

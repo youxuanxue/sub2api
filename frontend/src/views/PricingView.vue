@@ -57,7 +57,7 @@
             <p class="text-xs text-gray-600 dark:text-dark-400">{{ t('pricing.ctaBonusHint') }}</p>
           </div>
 
-          <!-- Segmented view switch: 我的菜单 / 公开目录. Only shown when logged in. -->
+          <!-- Segmented view switch: 分组目录 / 所有目录. Only shown when logged in. -->
           <div v-if="canShowMyView" class="mt-6 flex justify-center">
             <div
               role="tablist"
@@ -85,7 +85,7 @@
       </div>
 
       <div class="mx-auto flex min-h-0 w-full max-w-[90rem] flex-1 flex-col">
-        <!-- "我的菜单" toolbar: key picker + group switcher + banner -->
+        <!-- "分组目录" toolbar: key picker + group switcher + banner -->
         <div
           v-if="viewMode === 'my' && !loading && !errorMessage && myCatalog"
           class="mb-4 flex flex-col gap-3"
@@ -452,11 +452,11 @@
  *  - Public view (unauthenticated default): GET /api/v1/public/pricing returns
  *    the platform-wide LiteLLM list-price catalog. Behaves per US-028 AC-005
  *    (empty when source unavailable; 404 when admin disabled public catalog).
- *  - "我的菜单" view (authenticated default when accessible groups exist):
+ *  - "分组目录" view (authenticated default when accessible groups exist):
  *    GET /api/v1/me/pricing-catalog returns models scoped to the user's
- *    selected key's group, with prices already multiplied by their effective
- *    rate (group default × per-user override). The user can switch keys or
- *    explore other accessible groups for upgrade comparison.
+ *    selected key's group, at OFFICIAL list prices (decoupled from the
+ *    group/override rate — see me_pricing_catalog_tk.go header). The user can
+ *    switch keys or explore other accessible groups.
  *
  * Both feed a single normalized row shape so the table markup stays identical
  * between modes — this is by design; the v1 trade-off accepted in
