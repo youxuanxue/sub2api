@@ -148,6 +148,14 @@ bash scripts/upstream/sync-new-api.sh --bump <sha>   # update .new-api-ref + syn
 - When upstream changes break compilation, fix the bridge — do NOT modify New API from this repo.
 - New-api packages may register top-level `flag.Bool` (e.g. `-version`) in their `init()`; check `flag.Lookup` before defining your own to avoid `flag redefined` panics at startup. See `backend/cmd/server/main.go`.
 
+**Worktrees + the `../../new-api` sibling (turnkey bootstrap):**
+
+Default to an **isolated git worktree** for any commit-bearing task — sharing the primary checkout's single mutable HEAD/index with a parallel agent (e.g. a twin worker) lets one `git checkout` land your commits on the wrong branch. A worktree created at a deep path (`EnterWorktree` → `.claude/worktrees/<name>/`) breaks the `replace … => ../../new-api` resolution, which is exactly the friction that makes people skip worktrees. Make it free instead of skipping it:
+
+- Run `bash dev-rules/templates/worktree-bootstrap.sh <worktree_dir>` after creating a worktree. It inits the `dev-rules` submodule and runs this repo's `scripts/worktree-bootstrap-hook.sh`, which symlinks the deep-path-resolved `new-api` location to the real sibling clone so `go build` / preflight work.
+- Sibling-placed worktrees (e.g. twin's `<parent>/<repo>-twin-*`) resolve `../../new-api` natively — the hook is a no-op there.
+- The real sibling clone is still located/synced by `scripts/upstream/sync-new-api.sh` (`.new-api-ref`); the hook only fixes path resolution, never the pin.
+
 ### 5. Upstream Isolation
 
 This repo is a fork of `Wei-Shaw/sub2api`, tracked via the `upstream` remote (`upstream/main`). Minimize diff against upstream:
