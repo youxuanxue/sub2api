@@ -88,6 +88,9 @@ adapt_with_caddy() {
 }
 
 failures=0
+# The three adapts are independent; run the containers concurrently — serial
+# `docker run` startup (~1-3s each) made this gate the preflight long pole.
+declare -a _adapt_pids=() _adapt_rels=()
 for rel in "${FILES[@]}"; do
   src="$REPO_ROOT/$rel"
   if [ ! -f "$src" ]; then
@@ -96,14 +99,22 @@ for rel in "${FILES[@]}"; do
     continue
   fi
 
-  rendered="$WORK_DIR/.caddy-$(basename "$rel").rendered"
+  # Full rel path in the name — deploy/Caddyfile and deploy/aws/stage0/Caddyfile
+  # share a basename, and a collision here would let one render overwrite the
+  # other before its (now concurrent) adapt reads it.
+  rendered="$WORK_DIR/.caddy-$(echo "$rel" | tr '/' '_').rendered"
   render_template "$src" "$rendered"
 
-  if ! adapt_with_caddy "$rendered"; then
-    echo "FAIL: caddy adapt failed for $rel" >&2
+  adapt_with_caddy "$rendered" &
+  _adapt_pids+=($!)
+  _adapt_rels+=("$rel")
+done
+
+for i in "${!_adapt_pids[@]}"; do
+  if ! wait "${_adapt_pids[$i]}"; then
+    echo "FAIL: caddy adapt failed for ${_adapt_rels[$i]}" >&2
     failures=$((failures + 1))
   fi
-
 done
 
 if [ "$failures" -ne 0 ]; then

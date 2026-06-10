@@ -90,7 +90,33 @@ cd "$REPO_ROOT"
 # This is mechanical R-004 fix; previously the workaround lived only in memory
 # ("when in doubt, unset core.bare and retry") which is OPC anti-pattern.
 git config --local --unset core.bare >/dev/null 2>&1 || true
-trap 'git config --local --unset core.bare >/dev/null 2>&1 || true' EXIT
+_preflight_bg_dir="$(mktemp -d "${TMPDIR:-/tmp}/preflight-bg.XXXXXX")"
+# On exit: clear the worktree core.bare debt, kill any still-running background
+# gate (e.g. when the dev-rules template fails and we exit before the joins),
+# then drop the scratch dir.
+trap 'git config --local --unset core.bare >/dev/null 2>&1 || true; { cat "$_preflight_bg_dir"/*.pid 2>/dev/null | xargs kill; wait; } 2>/dev/null; rm -rf "$_preflight_bg_dir"' EXIT
+
+# ---- TK: background-job helpers ----------------------------------------------
+# The most expensive sub2api gates (QA go test, the unittest-discover suites,
+# the dockerized Caddyfile adapt) are independent of every other section, so
+# they are spawned in the background right after the dev-rules template returns
+# and joined at their original section position. Wall-clock for the expensive
+# block becomes max(job) instead of sum(job) while output/FAIL semantics stay
+# byte-equivalent per section.
+_bg_spawn() {  # _bg_spawn <key> <cmd...>
+    local key="$1"; shift
+    ( "$@" >"$_preflight_bg_dir/$key.out" 2>&1; echo "$?" >"$_preflight_bg_dir/$key.rc" ) &
+    echo "$!" >"$_preflight_bg_dir/$key.pid"
+}
+_bg_join() {  # _bg_join <key> → sets _bg_rc to the captured exit code; output in $_preflight_bg_dir/<key>.out
+    # Must run in the MAIN shell (never inside $(...)): `wait` can only reap
+    # children of the shell that spawned them.
+    local key="$1"
+    wait "$(cat "$_preflight_bg_dir/$key.pid")" 2>/dev/null
+    _bg_rc="$(cat "$_preflight_bg_dir/$key.rc")"
+    return 0
+}
+_bg_spawned() { [ -f "$_preflight_bg_dir/$1.pid" ]; }
 
 # ---- Sections 1-8: delegate to dev-rules template ----------------------------
 if [ ! -x ./dev-rules/templates/preflight.sh ]; then
@@ -134,6 +160,47 @@ fi
 if [ -z "$template_base" ] && has_merge_base_with_head HEAD; then
     template_base="HEAD"
 fi
+
+# ---- TK: spawn the expensive independent gates early --------------------------
+# Spawned BEFORE the dev-rules template so the heavy jobs (QA go test, the
+# unittest-discover suites, the dockerized Caddyfile adapt) overlap with the
+# template's own ~25s of generic + network checks. Joined at their original
+# section positions below. Spawn guards mirror each section's prerequisite
+# checks; a missing prerequisite leaves the job unspawned and the section
+# falls back to its serial FAIL/skip path.
+_qa_evidence_gate_run() {
+    cd backend && go test -tags=unit -v ./internal/observability/qa -run 'TestUS077_QAEvidenceDatasetCheck_'
+}
+if command -v python3 >/dev/null 2>&1 && command -v go >/dev/null 2>&1; then
+    _bg_spawn qa_evidence _qa_evidence_gate_run
+fi
+if command -v python3 >/dev/null 2>&1; then
+    _bg_spawn anthropic_unittest \
+        python3 -m unittest discover -s ops/anthropic -p 'test_*.py' -t ops/anthropic
+    for _det_dir in ops/observability ops/stage0 scripts deploy/aws/stage0 deploy/aws/lightsail; do
+        _bg_spawn "det_$(echo "$_det_dir" | tr '/' '_')" \
+            env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR \
+            python3 -m unittest discover -s "$_det_dir" -p 'test_*.py' -t "$_det_dir"
+    done
+    unset _det_dir
+fi
+if [ -x ./scripts/checks/caddyfile-syntax.sh ]; then
+    _bg_spawn caddyfile ./scripts/checks/caddyfile-syntax.sh
+fi
+# Git-free self-contained checks (file walkers / sandboxed selftests / unittest
+# suites) also overlap with the template. Checks that read repo git state
+# (git log / diff / merge-base) deliberately stay serial below to avoid racing
+# the template's submodule walkers on worktree-local git config (core.bare debt).
+if command -v python3 >/dev/null 2>&1; then
+    _bg_spawn script_ref python3 ./scripts/checks/script-ref-existence.py
+    _bg_spawn script_ref_test bash ./scripts/checks/script-ref-existence_test.sh
+    _bg_spawn newapi_sibling_test bash ./scripts/checks/ensure-new-api-sibling_test.sh
+    _bg_spawn redactor_test bash ./scripts/agent/redact-stream_test.sh
+    _bg_spawn smoke_unittest python3 -m unittest scripts.test_smoke_suite \
+        scripts.test_edge_smoke_phase_contract scripts.test_smoke_env \
+        scripts.test_load_smoke_github_env -q
+fi
+_bg_spawn ssm_parse bash ./scripts/checks/check-stage0-ssm-host-parse.sh
 
 PREFLIGHT_BASE="$template_base" PREFLIGHT_REPO_ROOT="$REPO_ROOT" ./dev-rules/templates/preflight.sh "$@"
 dev_status=$?
@@ -601,17 +668,20 @@ if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for script ref existence check)"
     errors=$((errors + 1))
 else
-    if ! python3 ./scripts/checks/script-ref-existence.py; then
-        # script-ref-existence.py already printed the actionable failure list.
-        errors=$((errors + 1))
-    fi
-    if ! bash ./scripts/checks/script-ref-existence_test.sh; then
-        # script-ref-existence_test.sh already printed which case(s) failed.
-        errors=$((errors + 1))
-    fi
-    if ! bash ./scripts/checks/ensure-new-api-sibling_test.sh; then
-        errors=$((errors + 1))
-    fi
+    for _sr_key in script_ref script_ref_test newapi_sibling_test; do
+        _bg_rc=1
+        if _bg_spawned "$_sr_key"; then
+            _bg_join "$_sr_key"
+            # The scripts print their own actionable failure lists.
+            cat "$_preflight_bg_dir/$_sr_key.out"
+        else
+            echo "  FAIL: $_sr_key background job was not spawned (internal preflight bug)"
+        fi
+        if [ "$_bg_rc" -ne 0 ]; then
+            errors=$((errors + 1))
+        fi
+    done
+    unset _sr_key
 fi
 
 # ---- sub2api: upstream override marker --------------------------------------
@@ -715,15 +785,23 @@ if ! command -v python3 >/dev/null 2>&1; then
 elif ! command -v go >/dev/null 2>&1; then
     echo "  FAIL: go not on PATH (required to run QA evidence dataset regression tests)"
     errors=$((errors + 1))
-elif [ "$(cd backend && go test -tags=unit ./internal/observability/qa -list 'TestUS077_QAEvidenceDatasetCheck_' 2>/dev/null | grep -c '^TestUS077_QAEvidenceDatasetCheck_')" -lt 1 ]; then
-    # `go test -run <regex>` exits 0 on ZERO matches — a rename/move would pass
-    # vacuously. Assert ≥1 match before trusting the -run result below.
-    echo "  FAIL: -run 'TestUS077_QAEvidenceDatasetCheck_' matched ZERO tests (renamed/moved?); go test -run exits 0 on no match"
-    errors=$((errors + 1))
-elif ! (cd backend && go test -tags=unit ./internal/observability/qa -run 'TestUS077_QAEvidenceDatasetCheck_' -count=1); then
+elif ! _bg_spawned qa_evidence; then
+    echo "  FAIL: QA evidence gate background job was not spawned (internal preflight bug)"
     errors=$((errors + 1))
 else
-    echo "  ok: QA evidence dataset validator accepts/rejects covered fixtures as expected"
+    _bg_join qa_evidence
+    if [ "$_bg_rc" -ne 0 ]; then
+        tail -40 "$_preflight_bg_dir/qa_evidence.out" | sed 's/^/    /'
+        errors=$((errors + 1))
+    elif ! grep -q -- '--- PASS: TestUS077_QAEvidenceDatasetCheck_' "$_preflight_bg_dir/qa_evidence.out"; then
+        # `go test -run <regex>` exits 0 on ZERO matches — a rename/move would pass
+        # vacuously. The -v output (replayed verbatim on cached runs too) must show
+        # at least one matching top-level test PASS.
+        echo "  FAIL: -run 'TestUS077_QAEvidenceDatasetCheck_' matched ZERO tests (renamed/moved?); go test -run exits 0 on no match"
+        errors=$((errors + 1))
+    else
+        echo "  ok: QA evidence dataset validator accepts/rejects covered fixtures as expected"
+    fi
 fi
 
 # ---- sub2api: frontend release asset contract -------------------------------
@@ -773,14 +851,24 @@ fi
 # (e.g. unquoted parens in an echo — the #512 bug caught only by a us1 canary).
 echo ""
 echo "=== sub2api: SSM host command script parse ==="
-if ! bash ./scripts/checks/check-stage0-ssm-host-parse.sh; then
+_bg_rc=1
+if _bg_spawned ssm_parse; then
+    _bg_join ssm_parse
+    cat "$_preflight_bg_dir/ssm_parse.out"
+fi
+if [ "$_bg_rc" -ne 0 ]; then
   echo "  FAIL: an SSM host command script has a shell syntax error"
   errors=$((errors + 1))
 fi
 
 echo ""
 echo "=== sub2api: gateway smoke suite unit tests ==="
-if ! python3 -m unittest scripts.test_smoke_suite scripts.test_edge_smoke_phase_contract scripts.test_smoke_env scripts.test_load_smoke_github_env -q; then
+_bg_rc=1
+if _bg_spawned smoke_unittest; then
+    _bg_join smoke_unittest
+fi
+if [ "$_bg_rc" -ne 0 ]; then
+  cat "$_preflight_bg_dir/smoke_unittest.out" 2>/dev/null
   echo "  FAIL: smoke suite contract tests"
   errors=$((errors + 1))
 else
@@ -948,13 +1036,17 @@ fi
 # before merge rather than surfacing during deploy.
 echo ""
 echo "=== sub2api: Caddyfile syntax gate ==="
-if [ ! -x ./scripts/checks/caddyfile-syntax.sh ]; then
+if [ ! -x ./scripts/checks/caddyfile-syntax.sh ] || ! _bg_spawned caddyfile; then
     echo "  FAIL: scripts/checks/caddyfile-syntax.sh missing or not executable"
     errors=$((errors + 1))
-elif ! ./scripts/checks/caddyfile-syntax.sh; then
-    errors=$((errors + 1))
 else
-    echo "  ok: Caddyfile syntax gate"
+    _bg_join caddyfile
+    sed 's/^/    /' "$_preflight_bg_dir/caddyfile.out"
+    if [ "$_bg_rc" -ne 0 ]; then
+        errors=$((errors + 1))
+    else
+        echo "  ok: Caddyfile syntax gate"
+    fi
 fi
 
 # ---- sub2api: edge-ip-status doc / live AWS drift ---------------------------
@@ -1068,11 +1160,17 @@ echo "=== sub2api: ops/anthropic orchestrators unittest ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by ops/anthropic unittest suite)"
     errors=$((errors + 1))
-elif ! python3 -m unittest discover -s ops/anthropic -p 'test_*.py' -t ops/anthropic >/dev/null 2>&1; then
-    echo "  FAIL: ops/anthropic unittest failed (re-run: python3 -m unittest discover -s ops/anthropic -p 'test_*.py' -t ops/anthropic -v)"
-    errors=$((errors + 1))
 else
-    echo "  ok: ops/anthropic unittest suite (tier plan + oauth priority rebalance)"
+    _bg_rc=1
+    if _bg_spawned anthropic_unittest; then
+        _bg_join anthropic_unittest
+    fi
+    if [ "$_bg_rc" -ne 0 ]; then
+        echo "  FAIL: ops/anthropic unittest failed (re-run: python3 -m unittest discover -s ops/anthropic -p 'test_*.py' -t ops/anthropic -v)"
+        errors=$((errors + 1))
+    else
+        echo "  ok: ops/anthropic unittest suite (tier plan + oauth priority rebalance)"
+    fi
 fi
 
 # Servable-model allowlist generator (ops/pricing). The deterministic glue
@@ -1122,12 +1220,16 @@ else
     # spin up tmpdir-isolated git repos via subprocess.run(["git", ...], cwd=…),
     # and the cwd= argument is ignored when GIT_DIR is set — so every test sees
     # the host repo's index instead of its tmpdir and fails with non-zero
-    # CalledProcessError. Strip these vars at the boundary so the suites behave
-    # identically inside the hook and standalone.
+    # CalledProcessError. The background spawn strips these vars at the boundary
+    # so the suites behave identically inside the hook and standalone.
     _det_baseline_failed=0
     for _det_dir in ops/observability ops/stage0 scripts deploy/aws/stage0 deploy/aws/lightsail; do
-        if ! env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR \
-              python3 -m unittest discover -s "$_det_dir" -p 'test_*.py' -t "$_det_dir" >/dev/null 2>&1; then
+        _det_key="det_$(echo "$_det_dir" | tr '/' '_')"
+        _bg_rc=1
+        if _bg_spawned "$_det_key"; then
+            _bg_join "$_det_key"
+        fi
+        if [ "$_bg_rc" -ne 0 ]; then
             echo "  FAIL: $_det_dir unittest failed (re-run: env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE python3 -m unittest discover -s $_det_dir -p 'test_*.py' -t $_det_dir -v)"
             errors=$((errors + 1))
             _det_baseline_failed=1
@@ -1332,11 +1434,17 @@ echo "=== sub2api: agent stream redactor self-test ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by redact-agent-stream.py)"
     errors=$((errors + 1))
-elif ! bash ./scripts/agent/redact-stream_test.sh >/dev/null; then
-    echo "  FAIL: scripts/agent/redact-stream_test.sh failed (re-run for details)"
-    errors=$((errors + 1))
 else
-    echo "  ok: agent stream redactor self-test"
+    _bg_rc=1
+    if _bg_spawned redactor_test; then
+        _bg_join redactor_test
+    fi
+    if [ "$_bg_rc" -ne 0 ]; then
+        echo "  FAIL: scripts/agent/redact-stream_test.sh failed (re-run for details)"
+        errors=$((errors + 1))
+    else
+        echo "  ok: agent stream redactor self-test"
+    fi
 fi
 
 echo ""
