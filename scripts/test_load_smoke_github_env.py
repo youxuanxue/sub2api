@@ -32,6 +32,7 @@ class LoadSmokeGithubEnvTest(unittest.TestCase):
             "TK_SMOKE_PROD_ANTHROPIC_KEY": "sk-a",
             "TK_SMOKE_PROD_GEMINI_KEY": "sk-g",
             "TK_SMOKE_PROD_OPENAI_OAUTH_KEY": "sk-o",
+            "TK_SMOKE_PROD_KIRO_KEY": "sk-k",
         },
         clear=True,
     )
