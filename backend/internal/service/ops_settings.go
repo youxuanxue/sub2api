@@ -239,8 +239,16 @@ func updateOpsFeishuAlertConfig(dst *OpsFeishuAlertConfig, req *OpsFeishuAlertCo
 	}
 	dst.RateLimitPerHour = req.RateLimitPerHour
 	dst.CooldownSeconds = req.CooldownSeconds
-	dst.AccountIncidentDigestSeconds = req.AccountIncidentDigestSeconds
-	dst.PricingMissingDigestSeconds = req.PricingMissingDigestSeconds
+	// 两个 digest-seconds 字段晚于原始契约加入：早于它们的客户端发的"完整"
+	// feishu payload 不含这些键（解码为 0），而 validate 先于 normalize 执行——
+	// 无条件拷贝会让 0 覆盖存量值并使整个更新 400。0 对这两个字段本就非法
+	// （下限 30），故按"0=未提供"保留存量值，不破坏既有客户端。
+	if req.AccountIncidentDigestSeconds != 0 {
+		dst.AccountIncidentDigestSeconds = req.AccountIncidentDigestSeconds
+	}
+	if req.PricingMissingDigestSeconds != 0 {
+		dst.PricingMissingDigestSeconds = req.PricingMissingDigestSeconds
+	}
 }
 
 func normalizeOpsFeishuAlertConfig(cfg *OpsFeishuAlertConfig) {

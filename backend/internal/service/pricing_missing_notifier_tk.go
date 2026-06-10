@@ -387,7 +387,10 @@ func formatPricingMissingTokens(t int64) string {
 }
 
 // totalUsageTokensForPricingMissing 估算一次请求未计费的 token 总量。
+// CacheCreation5m/1h 是 CacheCreationTokens 的细分桶，不重复累加；
+// ImageOutputTokens 独立计入（图像缺价流量否则在摘要里显示 0 tokens）。
 func totalUsageTokensForPricingMissing(tokens UsageTokens) int64 {
 	return int64(tokens.InputTokens) + int64(tokens.OutputTokens) +
-		int64(tokens.CacheCreationTokens) + int64(tokens.CacheReadTokens)
+		int64(tokens.CacheCreationTokens) + int64(tokens.CacheReadTokens) +
+		int64(tokens.ImageOutputTokens)
 }

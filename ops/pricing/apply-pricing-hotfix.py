@@ -86,6 +86,31 @@ def litellm_candidates(pricing: dict, model: str) -> dict:
     return out
 
 
+def pick_litellm_candidate(found: dict, model: str, explicit_key: str | None = None):
+    """从多候选里确定性选一个条目。
+
+    apply --yes 直接写计费配置，不允许猜：裸名精确键优先（litellm 的规范键）；
+    只剩一个候选时取它；多个 provider 前缀键并存（价格可能不同）则拒绝，
+    要求 --litellm-key 显式指定。返回 (key, entry)。
+    """
+    if explicit_key:
+        if explicit_key not in found:
+            raise SystemExit(f"--litellm-key {explicit_key!r} not among matches: "
+                             f"{', '.join(sorted(found))}")
+        return explicit_key, found[explicit_key]
+    lower = model.strip().lower()
+    for key in found:
+        if key.lower() == lower:
+            return key, found[key]
+    if len(found) == 1:
+        key = next(iter(found))
+        return key, found[key]
+    raise SystemExit(
+        f"ambiguous: {len(found)} litellm keys match {model!r} with no bare-name key: "
+        f"{', '.join(sorted(found))} — prices may differ per provider; "
+        "pass --litellm-key to choose explicitly")
+
+
 def synthesize_overlay_entry(litellm_entry: dict, source_note: str) -> dict:
     """从 litellm 条目裁出 overlay 条目（只保留 overlay 解析面认识的字段）。"""
     out = {}
@@ -271,9 +296,10 @@ def cmd_lookup(args) -> int:
     for key, entry in found.items():
         print(f"\n=== litellm key: {key}")
         print(json.dumps(entry, indent=2, ensure_ascii=False))
-    pick = next(iter(found.values()))
-    note = f"litellm {next(iter(found.keys()))} (captured via apply-pricing-hotfix.py lookup)"
-    print("\n=== suggested overlay entry (stage-overlay --from-litellm uses this):")
+    picked_key, pick = pick_litellm_candidate(found, args.model, args.litellm_key)
+    note = f"litellm {picked_key} (captured via apply-pricing-hotfix.py lookup)"
+    print(f"\n=== suggested overlay entry (from {picked_key}; "
+          "stage-overlay --from-litellm uses this):")
     print(render_overlay_block(args.model, synthesize_overlay_entry(pick, note)))
     print("\n=== suggested channel pricing payload element (apply --from-litellm uses this):")
     print(json.dumps(synthesize_channel_pricing(args.model, args.platform, pick),
@@ -303,8 +329,8 @@ def cmd_apply(args) -> int:
         if not found:
             raise SystemExit(f"--from-litellm: no litellm entry for {args.model!r}; "
                              "pass explicit --input-price/--output-price instead")
-        new_entry = synthesize_channel_pricing(args.model, args.platform,
-                                               next(iter(found.values())))
+        _, picked = pick_litellm_candidate(found, args.model, args.litellm_key)
+        new_entry = synthesize_channel_pricing(args.model, args.platform, picked)
     else:
         new_entry = {"platform": args.platform, "models": [args.model]}
         if args.per_request_price is not None:
@@ -356,9 +382,10 @@ def cmd_stage_overlay(args) -> int:
         if not found:
             raise SystemExit(f"no litellm entry for {args.model!r}; "
                              "provide --entry-json with provider official prices")
-        note = args.source or (f"litellm {next(iter(found.keys()))} "
+        picked_key, picked = pick_litellm_candidate(found, args.model, args.litellm_key)
+        note = args.source or (f"litellm {picked_key} "
                                "(captured via apply-pricing-hotfix.py)")
-        entry = synthesize_overlay_entry(next(iter(found.values())), note)
+        entry = synthesize_overlay_entry(picked, note)
 
     text = OVERLAY_PATH.read_text()
     new_text = insert_overlay_entry(text, args.model, entry)
@@ -395,6 +422,29 @@ def cmd_selftest(_args) -> int:
         ["vertex_ai/imagen-9.0-generate-001"]
     assert list(litellm_candidates(fixture, "DeepSeek-V9")) == ["deepseek/deepseek-v9"]
     assert litellm_candidates(fixture, "nope") == {}
+
+    # pick_litellm_candidate: 裸名优先；单候选直取；多前缀键无裸名 → 拒绝（防止
+    # 不同 provider 价格不同时静默取错）；--litellm-key 显式指定必须存在于候选。
+    multi = {
+        "openrouter/foo-1": {"input_cost_per_token": 9e-06},
+        "vertex_ai/foo-1": {"input_cost_per_token": 1e-06},
+    }
+    k, _ = pick_litellm_candidate(dict(multi, **{"foo-1": {"input_cost_per_token": 2e-06}}), "foo-1")
+    assert k == "foo-1"  # 裸名优先
+    k, _ = pick_litellm_candidate({"vertex_ai/foo-1": multi["vertex_ai/foo-1"]}, "foo-1")
+    assert k == "vertex_ai/foo-1"  # 单候选直取
+    try:
+        pick_litellm_candidate(multi, "foo-1")
+        raise AssertionError("multi-candidate without bare key must be rejected")
+    except SystemExit:
+        pass
+    k, _ = pick_litellm_candidate(multi, "foo-1", "vertex_ai/foo-1")
+    assert k == "vertex_ai/foo-1"  # 显式指定
+    try:
+        pick_litellm_candidate(multi, "foo-1", "nope/foo-1")
+        raise AssertionError("unknown --litellm-key must be rejected")
+    except SystemExit:
+        pass
 
     # synthesize_overlay_entry: 只保留白名单字段 + source。
     ov = synthesize_overlay_entry(fixture["deepseek/deepseek-v9"], "note")
@@ -474,6 +524,7 @@ def main() -> int:
     p.add_argument("--platform", default="anthropic",
                    help="platform used in the suggested channel payload (default anthropic)")
     p.add_argument("--litellm-url", default=LITELLM_URL_DEFAULT)
+    p.add_argument("--litellm-key", help="exact litellm key to use when several match")
     p.set_defaults(fn=cmd_lookup)
 
     p = sub.add_parser("channels", help="list channels to pick --channel-id")
@@ -487,6 +538,7 @@ def main() -> int:
                    help="group platform the pricing entry binds to (anthropic/openai/gemini/newapi/...)")
     p.add_argument("--from-litellm", action="store_true")
     p.add_argument("--litellm-url", default=LITELLM_URL_DEFAULT)
+    p.add_argument("--litellm-key", help="exact litellm key to use when several match")
     p.add_argument("--input-price", type=float, help="USD per input token")
     p.add_argument("--output-price", type=float, help="USD per output token")
     p.add_argument("--cache-read-price", type=float)
@@ -500,6 +552,7 @@ def main() -> int:
     p.add_argument("--model", required=True)
     p.add_argument("--from-litellm", action="store_true")
     p.add_argument("--litellm-url", default=LITELLM_URL_DEFAULT)
+    p.add_argument("--litellm-key", help="exact litellm key to use when several match")
     p.add_argument("--entry-json", help="path to a JSON object (or '-' for stdin) "
                                         "with overlay fields, for models litellm lacks")
     p.add_argument("--source", help="provenance note stored in the entry's source field")
