@@ -306,5 +306,40 @@
     "cache_read_input_token_cost": 8.21917808219e-08,
     "supports_prompt_caching": true,
     "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥3/M, out ¥14/M, cache-hit ¥0.6/M; CNY/USD=7.3"
-  }
+  },
+    "qwen3.7-max": {
+      "litellm_provider": "dashscope",
+      "mode": "chat",
+      "input_cost_per_token": 1.64383561644e-06,
+      "output_cost_per_token": 4.93150684932e-06,
+      "source": "Alibaba DashScope 通义千问 qwen3.7-max 官方标准按量价 (2026-06: in ¥12/M, out ¥36/M; help.aliyun.com/zh/model-studio/model-pricing, captured 2026-06-10); CNY/USD=7.3; list price (限时5折 promo NOT applied — bill at list to avoid undercharge on promo end)"
+    },
+    "qwen3.7-max-preview": {
+      "litellm_provider": "dashscope",
+      "mode": "chat",
+      "input_cost_per_token": 1.64383561644e-06,
+      "output_cost_per_token": 4.93150684932e-06,
+      "source": "Alibaba DashScope 通义千问 qwen3.7-max 官方标准按量价 (2026-06: in ¥12/M, out ¥36/M; help.aliyun.com/zh/model-studio/model-pricing, captured 2026-06-10); CNY/USD=7.3; list price (限时5折 promo NOT applied — bill at list to avoid undercharge on promo end)"
+    },
+    "qwen3.7-max-2026-05-17": {
+      "litellm_provider": "dashscope",
+      "mode": "chat",
+      "input_cost_per_token": 1.64383561644e-06,
+      "output_cost_per_token": 4.93150684932e-06,
+      "source": "Alibaba DashScope 通义千问 qwen3.7-max 官方标准按量价 (2026-06: in ¥12/M, out ¥36/M; help.aliyun.com/zh/model-studio/model-pricing, captured 2026-06-10); CNY/USD=7.3; list price (限时5折 promo NOT applied — bill at list to avoid undercharge on promo end)"
+    },
+    "qwen3.7-max-2026-05-20": {
+      "litellm_provider": "dashscope",
+      "mode": "chat",
+      "input_cost_per_token": 1.64383561644e-06,
+      "output_cost_per_token": 4.93150684932e-06,
+      "source": "Alibaba DashScope 通义千问 qwen3.7-max 官方标准按量价 (2026-06: in ¥12/M, out ¥36/M; help.aliyun.com/zh/model-studio/model-pricing, captured 2026-06-10); CNY/USD=7.3; list price (限时5折 promo NOT applied — bill at list to avoid undercharge on promo end)"
+    },
+    "qwen3.7-max-2026-06-08": {
+      "litellm_provider": "dashscope",
+      "mode": "chat",
+      "input_cost_per_token": 1.64383561644e-06,
+      "output_cost_per_token": 4.93150684932e-06,
+      "source": "Alibaba DashScope 通义千问 qwen3.7-max 官方标准按量价 (2026-06: in ¥12/M, out ¥36/M; help.aliyun.com/zh/model-studio/model-pricing, captured 2026-06-10); CNY/USD=7.3; list price (限时5折 promo NOT applied — bill at list to avoid undercharge on promo end)"
+    }
 }
