@@ -203,18 +203,18 @@
         "anthropicCacheTTL1hInjection: 'Anthropic Cache TTL 1h Injection'",
         "providerAirwallex: 'Airwallex'",
         "airwallex: 'Airwallex'",
-        "tabMy: 'Your Menu'",
+        "tabMy: 'Group Catalog'",
         "exploreBanner: {"
       ],
-      "rationale": "English admin settings labels must stay in sync with the global sticky and Anthropic Cache TTL 1h controls so upstream locale merges cannot silently regress one language while the template still compiles. The Airwallex provider/method labels are likewise load-bearing for admin payment setup and frontend method rendering. The pricing 'Your Menu' i18n keys (tabMy, exploreBanner) anchor the per-key pricing catalog feature so an upstream locale merge cannot silently strip them and degrade the segmented control + upgrade-banner UI to raw keys."
+      "rationale": "English admin settings labels must stay in sync with the global sticky and Anthropic Cache TTL 1h controls so upstream locale merges cannot silently regress one language while the template still compiles. The Airwallex provider/method labels are likewise load-bearing for admin payment setup and frontend method rendering. The pricing catalog i18n keys (tabMy='Group Catalog', exploreBanner) anchor the per-group pricing catalog feature so an upstream locale merge cannot silently strip them and degrade the segmented control + upgrade-banner UI to raw keys."
     },
     {
       "path": "frontend/src/i18n/locales/zh.ts",
       "must_contain": [
-        "tabMy: '我的菜单'",
+        "tabMy: '分组目录'",
         "exploreBanner: {"
       ],
-      "rationale": "Chinese pricing 'Your Menu' i18n keys (tabMy, exploreBanner) must move in lockstep with the English copies above. An upstream merge that drops only one language leaves operators staring at raw `pricing.my.*` paths in either zh or en — a regression that compiles but visibly breaks the page."
+      "rationale": "Chinese pricing catalog i18n keys (tabMy='分组目录', exploreBanner) must move in lockstep with the English copies above. An upstream merge that drops only one language leaves operators staring at raw `pricing.my.*` paths in either zh or en — a regression that compiles but visibly breaks the page."
     },
     {
       "path": "frontend/src/views/admin/SettingsView.vue",

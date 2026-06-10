@@ -184,7 +184,9 @@ func mkPublicCatalogModel(modelID, vendor string, in, out, cacheR float64) Publi
 
 // ----- tests -----
 
-func TestMePricingCatalog_DefaultToFirstKeyGroup_AppliesGroupMultiplier(t *testing.T) {
+// TK: 价格一律官方基价（倍率 1.0），TargetGroup 的 RateMultiplier 字段仍反映
+// 真实生效倍率（1.5），但不再作用于 YourPrice。
+func TestMePricingCatalog_DefaultToFirstKeyGroup_OfficialPrice(t *testing.T) {
 	gPro := mkGroupForMe(10, "Pro", "newapi", 1.5)
 	gMax := mkGroupForMe(20, "Max", "newapi", 0.8)
 	k1 := mkKeyForMe(1, 7, "default", ptrI(10))
@@ -210,9 +212,9 @@ func TestMePricingCatalog_DefaultToFirstKeyGroup_AppliesGroupMultiplier(t *testi
 	assert.Equal(t, 1.5, resp.TargetGroup.ListMultiplier)
 	assert.False(t, resp.TargetGroup.HasOverride)
 	require.Len(t, resp.Models, 1)
-	// 0.000003 * 1000 * 1.5 = 0.0045
-	assert.InDelta(t, 0.0045, *resp.Models[0].YourPrice.InputPer1K, 1e-9)
-	assert.InDelta(t, 0.0225, *resp.Models[0].YourPrice.OutputPer1K, 1e-9)
+	// 官方基价：0.000003 * 1000 = 0.003（不乘 1.5 倍率）
+	assert.InDelta(t, 0.003, *resp.Models[0].YourPrice.InputPer1K, 1e-9)
+	assert.InDelta(t, 0.015, *resp.Models[0].YourPrice.OutputPer1K, 1e-9)
 	// my_keys + accessible_groups populated
 	require.Len(t, resp.MyKeys, 1)
 	assert.Equal(t, int64(1), resp.MyKeys[0].ID)
@@ -249,15 +251,18 @@ func TestMePricingCatalog_UserOverrideTakesPrecedence(t *testing.T) {
 	)
 	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
 	require.NoError(t, err)
+	// 覆写仍体现在 RateMultiplier 字段（生效 0.5），但价格按官方基价展示。
 	assert.Equal(t, 0.5, resp.TargetGroup.RateMultiplier)
 	assert.Equal(t, 1.0, resp.TargetGroup.ListMultiplier)
 	assert.True(t, resp.TargetGroup.HasOverride)
-	// 0.000010 * 1000 * 0.5 = 0.005
-	assert.InDelta(t, 0.005, *resp.Models[0].YourPrice.InputPer1K, 1e-9)
-	assert.InDelta(t, 0.010, *resp.Models[0].YourPrice.OutputPer1K, 1e-9)
+	// 官方基价：0.000010 * 1000 = 0.01（不乘 0.5 覆写）
+	assert.InDelta(t, 0.01, *resp.Models[0].YourPrice.InputPer1K, 1e-9)
+	assert.InDelta(t, 0.02, *resp.Models[0].YourPrice.OutputPer1K, 1e-9)
 }
 
-func TestMePricingCatalog_ZeroRateIsLegitFree(t *testing.T) {
+// TK: rate 0（免费订阅）仍体现在 RateMultiplier 字段，但 pricing 页与倍率
+// 脱钩——展示官方基价而非 0。真实计费在网关按 0 倍率执行。
+func TestMePricingCatalog_ZeroRateShownAsOfficialPrice(t *testing.T) {
 	gPro := mkGroupForMe(10, "Pro", "newapi", 1.0)
 	k1 := mkKeyForMe(1, 7, "default", ptrI(10))
 
@@ -281,8 +286,9 @@ func TestMePricingCatalog_ZeroRateIsLegitFree(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0.0, resp.TargetGroup.RateMultiplier)
 	assert.True(t, resp.TargetGroup.HasOverride)
-	assert.Equal(t, 0.0, *resp.Models[0].YourPrice.InputPer1K)
-	assert.Equal(t, 0.0, *resp.Models[0].YourPrice.OutputPer1K)
+	// 官方基价（不因 rate 0 归零）：0.000010 * 1000 = 0.01
+	assert.InDelta(t, 0.01, *resp.Models[0].YourPrice.InputPer1K, 1e-9)
+	assert.InDelta(t, 0.02, *resp.Models[0].YourPrice.OutputPer1K, 1e-9)
 }
 
 func TestMePricingCatalog_ExploreOtherGroup(t *testing.T) {
@@ -567,7 +573,8 @@ func TestMePricingCatalog_PerRequestBillingPreservesPrice(t *testing.T) {
 	require.Len(t, resp.Models, 1)
 	assert.Equal(t, string(BillingModePerRequest), resp.Models[0].BillingMode)
 	require.NotNil(t, resp.Models[0].YourPrice.PerRequest)
-	assert.InDelta(t, 0.04, *resp.Models[0].YourPrice.PerRequest, 1e-9)
+	// 官方基价：per-request 0.02（不乘 2.0 倍率）
+	assert.InDelta(t, 0.02, *resp.Models[0].YourPrice.PerRequest, 1e-9)
 	assert.Nil(t, resp.Models[0].YourPrice.InputPer1K)
 }
 
@@ -576,8 +583,8 @@ func TestMePricingCatalog_PerRequestBillingPreservesPrice(t *testing.T) {
 // TestBuildForUser_AccountWhitelistOnly_NoChannels mirrors the production
 // incident that motivated the bridge: operator created an account, ticked
 // the model-whitelist boxes in admin, never configured any channels. The
-// menu should reflect the whitelist with LiteLLM-derived default prices
-// × group rate, not be empty.
+// menu should reflect the whitelist with LiteLLM-derived OFFICIAL prices
+// (decoupled from group rate), not be empty.
 func TestBuildForUser_AccountWhitelistOnly_NoChannels(t *testing.T) {
 	gOpenAI := mkGroupForMe(30, "GPT", "openai", 2.0)
 	k1 := mkKeyForMe(1, 7, "gpt-key", ptrI(30))
@@ -603,11 +610,11 @@ func TestBuildForUser_AccountWhitelistOnly_NoChannels(t *testing.T) {
 	}
 	require.Contains(t, byID, "gpt-5.2")
 	require.NotNil(t, byID["gpt-5.2"].YourPrice.InputPer1K)
-	assert.InDelta(t, 0.010, *byID["gpt-5.2"].YourPrice.InputPer1K, 1e-9, "0.005 catalog × 2.0 effective rate")
+	assert.InDelta(t, 0.005, *byID["gpt-5.2"].YourPrice.InputPer1K, 1e-9, "0.005 catalog 官方价（不乘 2.0 倍率）")
 	require.NotNil(t, byID["gpt-5.2"].YourPrice.OutputPer1K)
-	assert.InDelta(t, 0.040, *byID["gpt-5.2"].YourPrice.OutputPer1K, 1e-9, "0.020 catalog × 2.0 effective rate")
+	assert.InDelta(t, 0.020, *byID["gpt-5.2"].YourPrice.OutputPer1K, 1e-9, "0.020 catalog 官方价（不乘 2.0 倍率）")
 	require.NotNil(t, byID["gpt-4o"].YourPrice.InputPer1K)
-	assert.InDelta(t, 0.005, *byID["gpt-4o"].YourPrice.InputPer1K, 1e-9)
+	assert.InDelta(t, 0.0025, *byID["gpt-4o"].YourPrice.InputPer1K, 1e-9, "0.0025 catalog 官方价")
 }
 
 // TestBuildForUser_ChannelAndAccount_ChannelWins guards the "channel

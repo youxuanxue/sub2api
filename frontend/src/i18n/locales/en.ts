@@ -50,24 +50,24 @@ export default {
     ctaBonus: 'Register — get {amount} trial credit',
     ctaBonusHint: 'Shown when signup bonus is enabled for this site.',
     perRequest: '/ request',
-    // TK: authenticated "Your Menu" view (GET /api/v1/me/pricing-catalog).
+    // TK: authenticated "Group Catalog" view (GET /api/v1/me/pricing-catalog).
+    // Prices always show official list pricing, decoupled from group/override
+    // multipliers.
     my: {
-      tabMy: 'Your Menu',
-      tabPublic: 'Public Catalog',
-      title: 'Your Model Menu',
-      subtitle: 'Models available to the group of your selected API key, at your effective price',
+      tabMy: 'Group Catalog',
+      tabPublic: 'All Catalog',
+      title: 'Group Model Catalog',
+      subtitle: 'Models available to the group of your selected API key, at official pricing',
       description:
-        'Prices are already multiplied by your effective rate (group default × your override), per 1,000 tokens. Switch keys to see another group, or compare other accessible groups to decide whether to upgrade.',
+        'Shows the models available to the selected group and their official pricing, per 1,000 tokens. Switch keys to see another group, or compare other accessible groups.',
       pickerKey: 'Current key:',
       pickerCompare: 'Compare group:',
       compareDefault: 'Keep current',
       noKeyHint: 'You have no active API keys yet — create one in the console first.',
       columns: {
-        input: 'Input (your price)',
-        output: 'Output (your price)'
+        input: 'Input (official price)',
+        output: 'Output (official price)'
       },
-      rateHint: 'Multiplier {multiplier} applied',
-      rateOverride: 'includes personal override',
       empty: {
         noAccess: {
           title: 'No accessible group',
@@ -79,7 +79,7 @@ export default {
         }
       },
       exploreBanner: {
-        message: 'Viewing {group} catalog · multiplier ×{multiplier}',
+        message: 'Viewing {group} catalog',
         cta: 'Create key in {group}'
       },
       billingMode: {

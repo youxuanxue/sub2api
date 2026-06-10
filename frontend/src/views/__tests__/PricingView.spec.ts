@@ -66,23 +66,21 @@ vi.mock('vue-i18n', async () => {
     'pricing.tableHint': '',
     'pricing.search.noMatches': '',
     'common.loading': 'Loading',
-    'pricing.my.tabMy': 'Your Menu',
-    'pricing.my.tabPublic': 'Public Catalog',
-    'pricing.my.title': 'Your Model Menu',
+    'pricing.my.tabMy': 'Group Catalog',
+    'pricing.my.tabPublic': 'All Catalog',
+    'pricing.my.title': 'Group Model Catalog',
     'pricing.my.subtitle': '',
     'pricing.my.description': '',
     'pricing.my.pickerKey': 'Current key:',
     'pricing.my.pickerCompare': 'Compare group:',
     'pricing.my.compareDefault': 'Keep current',
-    'pricing.my.columns.input': 'Input (your price)',
-    'pricing.my.columns.output': 'Output (your price)',
-    'pricing.my.rateHint': 'Multiplier {multiplier} applied',
-    'pricing.my.rateOverride': 'includes personal override',
+    'pricing.my.columns.input': 'Input (official price)',
+    'pricing.my.columns.output': 'Output (official price)',
     'pricing.my.empty.noModels.title': 'This group has no models yet',
     'pricing.my.empty.noModels.hint': '',
     'pricing.my.empty.noAccess.title': 'No accessible group',
     'pricing.my.empty.noAccess.hint': '',
-    'pricing.my.exploreBanner.message': 'Viewing {group} catalog · ×{multiplier}',
+    'pricing.my.exploreBanner.message': 'Viewing {group} catalog',
     'pricing.my.exploreBanner.cta': 'Create key in {group}',
     'pricing.my.noKeyHint': '',
     'pricing.perRequest': '/ request'
@@ -180,7 +178,7 @@ describe('PricingView', () => {
     expect(wrapper.html()).toContain('max-w-[90rem]')
   })
 
-  it('authenticated user defaults to "Your Menu" view with your_price applied', async () => {
+  it('authenticated user defaults to "Group Catalog" view showing official catalog prices', async () => {
     authState.isAuthenticated = true
     const me: MePricingCatalogResponse = {
       target_group: {
@@ -237,11 +235,11 @@ describe('PricingView', () => {
 
     expect(getMePricingCatalog).toHaveBeenCalled()
     expect(getPublicPricing).not.toHaveBeenCalled()
-    // Hero swaps to "Your Model Menu" copy.
-    expect(wrapper.text()).toContain('Your Model Menu')
-    // your_price applied — input 0.0045 → "$0.0045"
+    // Hero swaps to "Group Model Catalog" copy.
+    expect(wrapper.text()).toContain('Group Model Catalog')
+    // Catalog price rendered from your_price (now the official price) — 0.0045 → "$0.0045"
     expect(wrapper.text()).toContain('$0.0045')
-    // Rate hint shown when multiplier != 1.
-    expect(wrapper.text()).toContain('Multiplier ×1.5 applied')
+    // TK: pricing 页与倍率脱钩——不再展示倍率提示。
+    expect(wrapper.text()).not.toContain('Multiplier')
   })
 })

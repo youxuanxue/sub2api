@@ -1,14 +1,19 @@
 package service
 
-// TokenKey: per-user pricing catalog ("Your Menu").
+// TokenKey: per-user pricing catalog ("Group Catalog" / "分组目录").
 //
 // Unlike service.PricingCatalogService.BuildPublicCatalog (a platform-wide
 // flat list of LiteLLM list prices), MePricingCatalogService builds a view
 // scoped to ONE group — the group of the user's selected API key, or any
-// other group the user can access ("explore other group" mode). Prices
-// are the prices the user is actually charged: channel-configured rates
-// multiplied by `group.rate_multiplier`, with `user_group_rate` override
-// layered on top.
+// other group the user can access ("explore other group" mode).
+//
+// TK pricing-display policy (运营要求，展示端与倍率彻底脱钩): the prices
+// emitted here are the OFFICIAL list prices (multiplier 1.0) — they do NOT
+// apply `group.rate_multiplier` nor the `user_group_rate` override. The
+// pricing page ("分组目录"/"所有目录") is a catalog of official prices; a
+// customer's real cost depends on their (hidden) rate. The billing path is
+// unaffected: the gateway still charges the true effective rate. `your_price`
+// keeps its field name for DTO stability but now carries the official price.
 //
 // Why a separate service / why not extend ChannelService.ListAvailable:
 //   - This is a TK-only surface; ChannelService is upstream-shaped and we
@@ -20,17 +25,14 @@ package service
 //   - LiteLLM metadata (context_window, capabilities) is joined post-hoc
 //     from PricingCatalogService — the channel layer doesn't carry those.
 //
-// Pricing precedence (matches gateway billing path):
-//   effective_rate = user_group_rate[group_id]  if present
-//                  else group.rate_multiplier
-//   A user_group_rate of 0 is the legitimate "free subscription" value
-//   and is NOT short-circuited — we emit zeros.
+// Effective rate (user_group_rate override else group.rate_multiplier) is
+// still computed for the target_group rate hint fields (see #693's
+// HideUserRateOverrides), but it is NO LONGER applied to model prices.
 //
 // Multi-channel dedupe rule: when the same model_id appears on multiple
 // active channels mapped to the target group, we keep the row with the
-// LOWEST combined input+output price. This matches the implicit promise
-// of "your menu" — the headline price equals the cheapest path the user
-// can actually be billed under.
+// LOWEST combined input+output (official) price — the headline price equals
+// the cheapest catalog path for that model.
 
 import (
 	"context"
@@ -233,7 +235,8 @@ const keyListPageSize = 200
 //  4. Walk channels, filter to active + mapped to target group, filter
 //     SupportedModels.Platform == targetGroup.Platform (cross-platform leak guard).
 //  5. Dedupe by model_id, keep the cheapest (input + output sum) row.
-//  6. Multiply every price by effectiveRate.
+//  6. Emit OFFICIAL prices (multiplier 1.0) — effectiveRate is computed but
+//     NOT applied to model prices (TK pricing-display policy; see file header).
 //  7. Join LiteLLM metadata for capabilities / context_window / max_output.
 //  8. Sort alpha by model_id.
 func (s *MePricingCatalogService) BuildForUser(
@@ -300,10 +303,13 @@ func (s *MePricingCatalogService) BuildForUser(
 		hasOverride = r != listMult
 	}
 
-	models := s.buildModelsForGroup(ctx, targetGroup, effective)
+	// TK: 模型价格一律按官方基础价（倍率 1.0）计算，不乘 effective/override。
+	// pricing 页是官方定价目录；真实计费在网关按 effective 倍率执行，不受此影响。
+	const officialRate = 1.0
+	models := s.buildModelsForGroup(ctx, targetGroup, officialRate)
 
-	// HideUserRateOverrides：倍率提示字段回落到分组默认值（your_price 已按
-	// 真实 effective 计算完毕，不回滚——价格必须与实际计费一致）。
+	// HideUserRateOverrides：倍率提示字段回落到分组默认值（前端已不再渲染这些
+	// 字段——pricing 页与倍率彻底脱钩——但保留 #693 的口径以稳住 DTO 与测试）。
 	shownRate := effective
 	shownOverride := hasOverride
 	if opts.HideUserRateOverrides {
@@ -503,7 +509,7 @@ func (s *MePricingCatalogService) buildModelsForGroup(
 //     allowed, the native OAuth case) — emit the platform's canonical
 //     model list (claude/openai/gemini/antigravity default models, the
 //     same source gateway `/v1/models` uses). This is what fixes the
-//     empty "Your Menu" for Anthropic OAuth groups: those accounts are
+//     empty "Group Catalog" for Anthropic OAuth groups: those accounts are
 //     not channels and carry no whitelist, so before this branch both
 //     the channel stage and the whitelist stage produced nothing.
 //
@@ -579,7 +585,7 @@ func addFallbackModel(
 }
 
 // platformDefaultModelIDs returns the model-ID list an unrestricted native
-// account contributes to Your Menu.
+// account contributes to the Group Catalog.
 //
 // Anthropic / OpenAI use the empirically-servable allowlist
 // (supportedCatalogModelIDsForPlatform) — the SAME source the public /pricing

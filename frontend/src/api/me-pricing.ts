@@ -3,10 +3,10 @@
  *
  * Backed by GET /api/v1/me/pricing-catalog
  * (handler/me_pricing_catalog_handler_tk.go). Returns the model menu for
- * the group of the user's selected API key, with prices already multiplied
- * by the user's effective rate (group.rate_multiplier × per-user override).
- * The same endpoint serves the "explore other group" comparison view when
- * `group_id` is supplied.
+ * the group of the user's selected API key, at OFFICIAL list prices —
+ * decoupled from the group/override rate (TK pricing-display policy; see
+ * me_pricing_catalog_tk.go header). The same endpoint serves the "explore
+ * other group" comparison view when `group_id` is supplied.
  *
  * Response shape uses the standard `{code,message,data}` envelope, which
  * the axios response interceptor unwraps — callers receive the `data`
@@ -19,10 +19,11 @@ import { apiClient } from './client'
 export type MePricingBillingMode = 'token' | 'per_request' | 'image' | string
 
 /**
- * "Your price" — already multiplied by effective rate (group default ×
- * per-user override). Per-1k for token modes; per-call for per_request.
- * Nil-valued fields mean "no data" (the field is omitted from the JSON
- * payload entirely thanks to backend `omitempty`).
+ * Official list price (field name kept as `your_price` for DTO stability,
+ * but no longer multiplied by the group/override rate). Per-1k for token
+ * modes; per-call for per_request. Nil-valued fields mean "no data" (the
+ * field is omitted from the JSON payload entirely thanks to backend
+ * `omitempty`).
  */
 export interface MePricingPrice {
   currency: string
