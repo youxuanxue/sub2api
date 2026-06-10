@@ -1,11 +1,4 @@
 {
   "version": 1,
-  "hooks": {
-    "sessionStart": [
-      {
-        "command": ".cursor/hooks/cc-fingerprint-daily.sh",
-        "timeout": 15
-      }
-    ]
-  }
+  "hooks": {}
 }
