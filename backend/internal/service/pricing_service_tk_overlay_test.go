@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/Wei-Shaw/sub2api/internal/config"
 )
 
 // TestTKPricingOverlay_FillsDeepseekV4 verifies the overlay supplies pricing for
@@ -80,4 +82,98 @@ func TestTKPricingOverlay_MediaEntriesStillPresent(t *testing.T) {
 	veo := data["veo-3.0-generate-001"]
 	require.NotNil(t, veo, "media overlay entry veo-3.0-generate-001 must survive the rename")
 	require.InDelta(t, 0.4, veo.OutputCostPerSecond, 1e-12)
+}
+
+// TestTKPricingOverlay_CopiesCacheCreation1hPrice guards the overlay loader's
+// field copy of cache_creation_input_token_cost_above_1hr. The loader used to
+// drop it (only the main parsePricingData entry path copied it), so any overlay
+// model with a 1h cache-write tier — claude-fable-5 — silently billed 1h cache
+// creation at the 5m rate ($12.50/MTok instead of $20/MTok).
+func TestTKPricingOverlay_CopiesCacheCreation1hPrice(t *testing.T) {
+	overlay := loadTKPricingOverlay()
+	fable := overlay["claude-fable-5"]
+	require.NotNil(t, fable, "overlay must carry claude-fable-5")
+	require.InDelta(t, 1.25e-5, fable.CacheCreationInputTokenCost, 1e-15)
+	require.InDelta(t, 2e-5, fable.CacheCreationInputTokenCostAbove1hr, 1e-15,
+		"overlay loader must copy the 1h cache-write price")
+}
+
+// TestBilling_FableOverlayEnablesCacheBreakdown verifies end-to-end that a
+// claude-fable-5 pricing resolved via the TK overlay (the model is absent from
+// the trimmed runtime source) enables 5m/1h cache breakdown billing:
+// price1h (2e-5) > price5m (1.25e-5) > 0.
+func TestBilling_FableOverlayEnablesCacheBreakdown(t *testing.T) {
+	svc := &PricingService{}
+	data, err := svc.parsePricingData([]byte(`{
+		"gpt-5.4": {"input_cost_per_token": 0.0000025, "output_cost_per_token": 0.000015, "litellm_provider": "openai", "mode": "chat"}
+	}`))
+	require.NoError(t, err)
+	require.NotNil(t, data["claude-fable-5"], "fable must be injected by the overlay (absent from source body)")
+
+	billing := NewBillingService(&config.Config{}, &PricingService{pricingData: data})
+	pricing, err := billing.GetModelPricing("claude-fable-5")
+	require.NoError(t, err)
+	require.True(t, pricing.SupportsCacheBreakdown, "1h > 5m price must enable breakdown")
+	require.InDelta(t, 1.25e-5, pricing.CacheCreation5mPrice, 1e-15)
+	require.InDelta(t, 2e-5, pricing.CacheCreation1hPrice, 1e-15)
+}
+
+// TestBilling_Fable1hCacheCreationCost_ProdShape is the regression reproduction
+// with the exact prod token shape that exposed the bug (usage_logs, 2026-06):
+// cache_creation_5m_tokens=0, cache_creation_1h_tokens=684124. Correct cost is
+// 684124 * 2e-5 = $13.68248; before the fix the overlay dropped the 1h price,
+// breakdown stayed off, and the same shape billed flat 5m rate:
+// 684124 * 1.25e-5 = $8.55155.
+func TestBilling_Fable1hCacheCreationCost_ProdShape(t *testing.T) {
+	svc := &PricingService{}
+	data, err := svc.parsePricingData([]byte(`{
+		"gpt-5.4": {"input_cost_per_token": 0.0000025, "output_cost_per_token": 0.000015, "litellm_provider": "openai", "mode": "chat"}
+	}`))
+	require.NoError(t, err)
+
+	billing := NewBillingService(&config.Config{}, &PricingService{pricingData: data})
+	tokens := UsageTokens{
+		CacheCreationTokens:   684124,
+		CacheCreation5mTokens: 0,
+		CacheCreation1hTokens: 684124,
+	}
+	breakdown, err := billing.CalculateCost("claude-fable-5", tokens, 1.0)
+	require.NoError(t, err)
+	require.InDelta(t, 13.68248, breakdown.CacheCreationCost, 1e-6)
+}
+
+// TestBilling_SourceCarried1hPriceUnaffected is the no-regression control: a
+// model whose 1h cache-write price comes from the runtime source (main
+// parsePricingData path, which always copied the field) must bill exactly as
+// before the overlay-loader fix.
+func TestBilling_SourceCarried1hPriceUnaffected(t *testing.T) {
+	svc := &PricingService{}
+	data, err := svc.parsePricingData([]byte(`{
+		"claude-opus-4-6": {
+			"input_cost_per_token": 5e-06,
+			"output_cost_per_token": 2.5e-05,
+			"cache_creation_input_token_cost": 6.25e-06,
+			"cache_creation_input_token_cost_above_1hr": 1e-05,
+			"cache_read_input_token_cost": 5e-07,
+			"litellm_provider": "anthropic",
+			"mode": "chat"
+		}
+	}`))
+	require.NoError(t, err)
+
+	billing := NewBillingService(&config.Config{}, &PricingService{pricingData: data})
+	pricing, err := billing.GetModelPricing("claude-opus-4-6")
+	require.NoError(t, err)
+	require.True(t, pricing.SupportsCacheBreakdown)
+	require.InDelta(t, 6.25e-6, pricing.CacheCreation5mPrice, 1e-15)
+	require.InDelta(t, 1e-5, pricing.CacheCreation1hPrice, 1e-15)
+
+	breakdown, err := billing.CalculateCost("claude-opus-4-6", UsageTokens{
+		CacheCreationTokens:   1000000,
+		CacheCreation5mTokens: 400000,
+		CacheCreation1hTokens: 600000,
+	}, 1.0)
+	require.NoError(t, err)
+	// 400000*6.25e-6 + 600000*1e-5 = 2.5 + 6.0
+	require.InDelta(t, 8.5, breakdown.CacheCreationCost, 1e-9)
 }
