@@ -69,6 +69,8 @@ func (h *MePricingCatalogHandler) Get(c *gin.Context) {
 	if !ok {
 		return
 	}
+	// TK: 非 admin 用户不下发专属倍率值（见 api_key_handler_tk_rate_visibility.go）
+	opts.HideUserRateOverrides = tkHideUserRateValues(c)
 
 	if h == nil || h.svc == nil {
 		response.InternalError(c, "pricing service unavailable")
