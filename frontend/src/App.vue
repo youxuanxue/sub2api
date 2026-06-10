@@ -15,6 +15,7 @@ const appStore = useAppStore()
 const authStore = useAuthStore()
 const subscriptionStore = useSubscriptionStore()
 const announcementStore = useAnnouncementStore()
+const adminComplianceStore = useAdminComplianceStore()
 
 /**
  * Update favicon dynamically
@@ -81,6 +82,7 @@ watch(
       // User logged out: clear data and stop polling
       subscriptionStore.clear()
       announcementStore.reset()
+      adminComplianceStore.reset()
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }
   },
@@ -96,9 +98,12 @@ router.afterEach(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', onVisibilityChange)
+  window.removeEventListener('admin-compliance-required', onAdminComplianceRequired)
 })
 
 onMounted(async () => {
+  window.addEventListener('admin-compliance-required', onAdminComplianceRequired)
+
   // Check if setup is needed
   try {
     const status = await getSetupStatus()
@@ -123,4 +128,5 @@ onMounted(async () => {
   <RouterView />
   <Toast />
   <AnnouncementPopup />
+  <AdminComplianceDialog />
 </template>

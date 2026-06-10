@@ -22,13 +22,15 @@ func newAdminRoutesTestRouter() *gin.Engine {
 		v1,
 		&handler.Handlers{
 			Admin: &handler.AdminHandlers{
-				Channel:   &adminhandler.ChannelHandler{},
-				TKChannel: &adminhandler.TKChannelAdminHandler{},
+				Channel:    &adminhandler.ChannelHandler{},
+				TKChannel:  &adminhandler.TKChannelAdminHandler{},
+				Compliance: &adminhandler.ComplianceHandler{},
 			},
 		},
 		servermiddleware.AdminAuthMiddleware(func(c *gin.Context) {
 			c.Next()
 		}),
+		nil, // settingService — nil is safe; AdminComplianceGuard bypasses guard when nil
 	)
 
 	return router

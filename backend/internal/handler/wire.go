@@ -41,6 +41,7 @@ func ProvideAdminHandlers(
 	contentModerationHandler *admin.ContentModerationHandler,
 	paymentHandler *admin.PaymentHandler,
 	affiliateHandler *admin.AffiliateHandler,
+	complianceHandler *admin.ComplianceHandler,
 	tkChannelHandler *admin.TKChannelAdminHandler,
 	tierHandler *admin.TierHandler,
 	edgeAccountsHandler *admin.EdgeAccountsHandler,
@@ -76,6 +77,7 @@ func ProvideAdminHandlers(
 		ContentModeration:      contentModerationHandler,
 		Payment:                paymentHandler,
 		Affiliate:              affiliateHandler,
+		Compliance:             complianceHandler,
 		TKChannel:              tkChannelHandler,
 		Tier:                   tierHandler,
 		EdgeAccounts:           edgeAccountsHandler,
@@ -332,6 +334,7 @@ var ProviderSet = wire.NewSet(
 	admin.NewTKChannelAdminHandler,
 	admin.NewPaymentHandler,
 	admin.NewAffiliateHandler,
+	admin.NewComplianceHandler,
 	// TK: anthropic-oauth stability tier reference table CRUD — see tier_handler_tk.go.
 	admin.NewTierHandler,
 	// TK: prod-side cross-edge read-only account overview — see edge_accounts_handler_tk.go.
