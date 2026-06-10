@@ -200,7 +200,10 @@ func (d *cancelStormDetector) observe(apiKeyID int64, apiKeyName, model string, 
 	if cfg.Mode != cancelStormModeDetectOnly {
 		return
 	}
-	if cfg.OpusOnly && !isOpusModel(model) {
+	// OpusOnly watches the expensive tier for client-cancel abuse. Fable is the
+	// tier above Opus (priciest of all), so it belongs in scope too — otherwise
+	// the costliest model would silently escape the costly-model watch.
+	if cfg.OpusOnly && !isOpusModel(model) && !isFableModel(model) {
 		return
 	}
 

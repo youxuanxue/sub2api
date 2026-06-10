@@ -245,6 +245,16 @@ func (s *BillingService) initFallbackPricing() {
 	// Claude 4.7 Opus (暂与4.6同价，待官方定价更新)
 	s.fallbackPrices["claude-opus-4.7"] = s.fallbackPrices["claude-opus-4.6"]
 
+	// Claude Fable 5 (Opus 之上的新档；官方 $10/$50 per MTok)。
+	// cache 写 = 1.25× 输入 ($12.5)，cache 读 = 0.1× 输入 ($1.0)，与其它 claude 档一致。
+	s.fallbackPrices["claude-fable-5"] = &ModelPricing{
+		InputPricePerToken:         10e-6,   // $10 per MTok
+		OutputPricePerToken:        50e-6,   // $50 per MTok
+		CacheCreationPricePerToken: 12.5e-6, // $12.50 per MTok
+		CacheReadPricePerToken:     1.0e-6,  // $1.00 per MTok
+		SupportsCacheBreakdown:     false,
+	}
+
 	// Gemini 3.1 Pro
 	s.fallbackPrices["gemini-3.1-pro"] = &ModelPricing{
 		InputPricePerToken:         2e-6,   // $2 per MTok
@@ -335,6 +345,11 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 			return s.fallbackPrices["claude-3-5-haiku"]
 		}
 		return s.fallbackPrices["claude-3-haiku"]
+	}
+	// Claude Fable 5（Opus 之上的新档）必须先于下面的 claude 兜底命中，
+	// 否则会被误判为 sonnet（$3/$15）严重少收费。
+	if strings.Contains(modelLower, "fable") {
+		return s.fallbackPrices["claude-fable-5"]
 	}
 	// Claude 未知型号统一回退到 Sonnet，避免计费中断。
 	if strings.Contains(modelLower, "claude") {

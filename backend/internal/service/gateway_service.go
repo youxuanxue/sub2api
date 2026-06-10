@@ -5157,8 +5157,9 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 				// Claude for Mac、第三方 SDK）仍发老格式 → 上游 400 挂会话。反应式自愈：只在上游
 				// 真的回该 400 时把 enabled→adaptive 重试一次，happy path 一字节不碰。复用 budget
 				// 整流总开关（thinking-type 与 thinking-budget 同属思考整流，共用 kill-switch，
-				// 不新增配置面），并硬门控 isOpus47OrNewer(reqModel) 防误伤 sonnet / opus-4.6。
-				if isThinkingTypeAdaptiveRequiredError(errMsg) && isOpus47OrNewer(reqModel) && s.settingService.IsBudgetRectifierEnabled(ctx) {
+				// 不新增配置面），并硬门控 requiresAdaptiveOnlyThinking(reqModel)（opus-4.7+ / fable）
+				// 防误伤 sonnet / opus-4.6。
+				if isThinkingTypeAdaptiveRequiredError(errMsg) && requiresAdaptiveOnlyThinking(reqModel) && s.settingService.IsBudgetRectifierEnabled(ctx) {
 					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 						Platform:           account.Platform,
 						AccountID:          account.ID,
@@ -5667,10 +5668,10 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 					}
 				}
 
-				// Opus 4.7+ reject thinking.type=enabled (only adaptive). Reactive repair
-				// mirrors the main path's 4th priority; hard-gated by isOpus47OrNewer.
+				// Opus 4.7+ and Fable reject thinking.type=enabled (only adaptive). Reactive
+				// repair mirrors the main path's 4th priority; hard-gated by requiresAdaptiveOnlyThinking.
 				if !adaptiveRetryAttempted && attempt < maxRetryAttempts && time.Since(retryStart) < maxRetryElapsed &&
-					isThinkingTypeAdaptiveRequiredError(errMsg) && isOpus47OrNewer(modelForRepair) && s.settingService.IsBudgetRectifierEnabled(ctx) {
+					isThinkingTypeAdaptiveRequiredError(errMsg) && requiresAdaptiveOnlyThinking(modelForRepair) && s.settingService.IsBudgetRectifierEnabled(ctx) {
 					if rectified, applied := RectifyThinkingTypeAdaptive(input.Body); applied {
 						appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 							Platform:           account.Platform,
