@@ -37,7 +37,7 @@ while [ "$#" -gt 0 ]; do
     --tag) TAG="${2:-}"; shift 2 ;;
     --skip) SKIP="${2:-}"; shift 2 ;;
     --edges) EDGES="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "rollout-edges: unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -72,14 +72,21 @@ echo "rollout-edges: tag=$TAG edges=[$EDGES]"
 
 # find_run — resolve the run id created by the dispatch we just issued.
 # Prefer the run URL the dispatch prints (newer gh); fall back to polling the
-# workflow's run list for a run created at/after our dispatch timestamp.
+# run list of the workflow the dispatch itself reported (`workflow=…` on its
+# status line — single source of truth, dispatch routes per edge platform),
+# for a run created at/after our dispatch timestamp.
 find_run() {
-  local dispatch_out="$1" t0="$2" run_id=""
+  local dispatch_out="$1" t0="$2" run_id="" workflow=""
   run_id="$(printf '%s' "$dispatch_out" | grep -oE 'https://github.com/[^ ]*/actions/runs/[0-9]+' | head -1 | grep -oE '[0-9]+$' || true)"
   if [ -n "$run_id" ]; then printf '%s' "$run_id"; return 0; fi
+  workflow="$(printf '%s' "$dispatch_out" | grep -oE 'workflow=[^ ]+' | head -1 | cut -d= -f2 || true)"
+  if [ -z "$workflow" ]; then
+    echo "rollout-edges: cannot resolve workflow from dispatch output" >&2
+    return 1
+  fi
   local i
   for i in $(seq 1 12); do
-    run_id="$(gh run list --workflow=deploy-edge-lightsail-stage0.yml --limit 5 \
+    run_id="$(gh run list --workflow="$workflow" --limit 5 \
       --json databaseId,createdAt --jq \
       "[.[] | select(.createdAt >= \"$t0\")] | sort_by(.createdAt) | last | .databaseId // empty" || true)"
     if [ -n "$run_id" ]; then printf '%s' "$run_id"; return 0; fi

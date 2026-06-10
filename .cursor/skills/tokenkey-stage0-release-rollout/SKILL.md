@@ -559,7 +559,7 @@ bash scripts/release-rollout-summary.sh --mode release
 
 ## release 之后 main 是否还有提交
 
-`release.yml` 可能产生 sync-version 写回提交。流程结束后执行 `git fetch origin main`，若本地落后则 `git pull --ff-only`。不要手改 `docs/agent_integration.md`；有变更应跑 `python scripts/export_agent_contract.py` 并过 preflight。
+`release.yml` 可能产生 sync-version 写回提交。流程结束后执行 `git fetch origin main` 即可让后续命令（如 `release-rollout-summary.sh`、下次 `release-bump-and-tag.sh`）看到最新远端；**不要**在共享 checkout 里 `git pull` / 切分支（checkout 可能在并行 agent 的分支上，pull 会把 origin/main 合进去——同 §「决策 + bump + tag」的纪律）。不要手改 `docs/agent_integration.md`；有变更应跑 `python scripts/export_agent_contract.py` 并过 preflight。
 
 ## 故障速查
 
