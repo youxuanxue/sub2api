@@ -146,6 +146,19 @@ func TestCancelStormOpusOnlyGatesNonOpus(t *testing.T) {
 	require.Empty(t, d.states)
 }
 
+func TestCancelStormOpusOnlyIncludesFable(t *testing.T) {
+	// Fable is the tier above Opus (priciest), so opus_only must still watch it —
+	// otherwise the costliest model escapes the costly-model cancel-storm watch.
+	now := time.Unix(1700000000, 0)
+	doer := &blockingFeishuDoer{done: make(chan struct{}, 8)}
+	d := newTestCancelStormDetector(&CancelStormConfig{Mode: cancelStormModeDetectOnly, WindowSeconds: 600, MinSampleCount: 2, CancelRateThreshold: 0.5, AlertCooldownSeconds: 600, OpusOnly: true}, doer, now)
+	for i := 0; i < 10; i++ {
+		d.observe(7, "k", "claude-fable-5", true)
+	}
+	waitForFeishuCalls(t, doer, 1)
+	require.Equal(t, 1, doer.callCount(), "opus_only must still watch fable (priciest tier)")
+}
+
 func TestCancelStormWindowTumblingResets(t *testing.T) {
 	now := time.Unix(1700000000, 0)
 	cur := now
