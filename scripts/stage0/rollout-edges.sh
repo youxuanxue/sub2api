@@ -71,12 +71,16 @@ fi
 echo "rollout-edges: tag=$TAG edges=[$EDGES]"
 
 # find_run — resolve the run id created by the dispatch we just issued.
-# Prefer the run URL the dispatch prints (newer gh); fall back to polling the
-# run list of the workflow the dispatch itself reported (`workflow=…` on its
-# status line — single source of truth, dispatch routes per edge platform),
-# for a run created at/after our dispatch timestamp.
+# Prefer the run URL the dispatch prints (if gh ever starts printing one);
+# otherwise poll the run list of the workflow the dispatch itself reported
+# (`workflow=…` on its status line — single source of truth, dispatch routes
+# per edge platform). All edges share that workflow file, so a bare
+# createdAt>=t0 match can be hijacked by a concurrent dispatch for another
+# edge — match the run-name identity (`edge=<id> `, set by the workflow's
+# run-name) first, and only fall back to the newest run after t0 (with a
+# warning) for runs dispatched from refs that predate the run-name.
 find_run() {
-  local dispatch_out="$1" t0="$2" run_id="" workflow=""
+  local dispatch_out="$1" t0="$2" edge="$3" run_id="" workflow=""
   run_id="$(printf '%s' "$dispatch_out" | grep -oE 'https://github.com/[^ ]*/actions/runs/[0-9]+' | head -1 | grep -oE '[0-9]+$' || true)"
   if [ -n "$run_id" ]; then printf '%s' "$run_id"; return 0; fi
   workflow="$(printf '%s' "$dispatch_out" | grep -oE 'workflow=[^ ]+' | head -1 | cut -d= -f2 || true)"
@@ -86,12 +90,21 @@ find_run() {
   fi
   local i
   for i in $(seq 1 12); do
-    run_id="$(gh run list --workflow="$workflow" --limit 5 \
-      --json databaseId,createdAt --jq \
-      "[.[] | select(.createdAt >= \"$t0\")] | sort_by(.createdAt) | last | .databaseId // empty" || true)"
+    run_id="$(gh run list --workflow="$workflow" --limit 10 \
+      --json databaseId,createdAt,displayTitle --jq \
+      "[.[] | select(.createdAt >= \"$t0\") | select(.displayTitle | startswith(\"edge=$edge \"))] | sort_by(.createdAt) | first | .databaseId // empty" || true)"
     if [ -n "$run_id" ]; then printf '%s' "$run_id"; return 0; fi
     sleep 5
   done
+  # Legacy fallback: run-name only takes effect once the dispatched ref carries
+  # it; identity is then NOT verified, so warn loudly.
+  run_id="$(gh run list --workflow="$workflow" --limit 5 \
+    --json databaseId,createdAt --jq \
+    "[.[] | select(.createdAt >= \"$t0\")] | sort_by(.createdAt) | first | .databaseId // empty" || true)"
+  if [ -n "$run_id" ]; then
+    echo "rollout-edges: WARN: no run-name match for edge=$edge; falling back to newest run after t0 (identity unverified)" >&2
+    printf '%s' "$run_id"; return 0
+  fi
   return 1
 }
 
@@ -114,6 +127,21 @@ watch_run() {
   return 1
 }
 
+# fetch_run_log — gh run view --log with retries: a transient gh/proxy failure
+# must not masquerade as a missing smoke marker (which would fail-stop the
+# whole rollout); the two outcomes get distinct result lines + exit codes.
+fetch_run_log() {
+  local run_id="$1" attempt log=""
+  for attempt in 1 2 3; do
+    if log="$(gh run view "$run_id" --log 2>/dev/null)" && [ -n "$log" ]; then
+      printf '%s' "$log"
+      return 0
+    fi
+    sleep 5
+  done
+  return 1
+}
+
 COUNT=0
 for EDGE in $EDGES; do
   echo "rollout-edges: dispatching edge=$EDGE"
@@ -124,7 +152,7 @@ for EDGE in $EDGES; do
     echo "rollout-edges: edge=$EDGE run_id=unknown result=fail (dispatch)" >&2
     exit 2
   fi
-  if ! RUN_ID="$(find_run "$DISPATCH_OUT" "$T0")"; then
+  if ! RUN_ID="$(find_run "$DISPATCH_OUT" "$T0" "$EDGE")"; then
     echo "rollout-edges: edge=$EDGE run_id=unknown result=fail (run not found after dispatch)" >&2
     exit 2
   fi
@@ -132,7 +160,11 @@ for EDGE in $EDGES; do
     echo "rollout-edges: edge=$EDGE run_id=$RUN_ID result=fail (run failed)" >&2
     exit 1
   fi
-  if ! gh run view "$RUN_ID" --log 2>/dev/null | grep -q 'tk_edge_post_deploy_smoke: OK phase=infra'; then
+  if ! RUN_LOG="$(fetch_run_log "$RUN_ID")"; then
+    echo "rollout-edges: edge=$EDGE run_id=$RUN_ID result=fail (could not fetch run log)" >&2
+    exit 2
+  fi
+  if ! printf '%s' "$RUN_LOG" | grep -q 'tk_edge_post_deploy_smoke: OK phase=infra'; then
     echo "rollout-edges: edge=$EDGE run_id=$RUN_ID result=fail (smoke marker missing)" >&2
     exit 1
   fi

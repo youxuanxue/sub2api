@@ -1,5 +1,10 @@
 name: Edge Lightsail Stage0 Deploy
 
+# run-name carries the dispatch identity so automation (rollout-edges.sh
+# find_run) and the Actions UI can attribute a run to its edge without
+# opening logs — all edges share this one workflow file.
+run-name: "edge=${{ inputs.edge_id }} op=${{ inputs.operation }} tag=${{ inputs.tag || 'none' }}"
+
 # Sole Edge deploy path — on AWS Lightsail (the EC2/CFN edge path was removed
 # 2026-06-07; prod stays EC2/CFN). Shares image manifest checks, SSM upgrade
 # primitive, and smoke scripts with deploy-stage0.yml.

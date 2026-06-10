@@ -105,6 +105,15 @@ git -C "$REPO_ROOT" worktree add --detach "$WT_DIR" origin/main --quiet
 git -C "$WT_DIR" submodule update --init dev-rules --quiet
 
 if [ "$ACTION" = "bump-and-tag" ]; then
+  # Monotonic belt: the bump commit is pushed to origin/main BEFORE the tag
+  # gate runs, so a wrong decision input must be stopped here — never let a
+  # non-incrementing VERSION reach main.
+  WT_VERSION="$(tr -d '[:space:]' < "$WT_DIR/backend/cmd/server/VERSION")"
+  if [ "$WT_VERSION" = "$NEXT_VERSION" ] \
+     || [ "$(printf '%s\n%s\n' "$WT_VERSION" "$NEXT_VERSION" | sort -V | tail -1)" != "$NEXT_VERSION" ]; then
+    echo "[release-bump-and-tag] ERROR: refusing non-incrementing bump: origin/main VERSION=$WT_VERSION, proposed=$NEXT_VERSION" >&2
+    exit 1
+  fi
   printf '%s\n' "$NEXT_VERSION" > "$WT_DIR/backend/cmd/server/VERSION"
   git -C "$WT_DIR" add backend/cmd/server/VERSION
   # NOTE: the commit body must never contain the bracketed skip-ci marker
