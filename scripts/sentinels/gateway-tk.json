@@ -559,9 +559,10 @@
       "path": "backend/internal/service/openai_codex_transform.go",
       "must_contain": [
         "chatGPTOAuthUpstreamModelNames",
-        "codex-mini-latest"
+        "codex-mini-latest",
+        "var chatGPTOAuthUpstreamModelNames = map[string]string{}"
       ],
-      "rationale": "ChatGPT OAuth backend rejects gpt-5.3-codex with 400 'not supported when using Codex with a ChatGPT account'; the accepted wire name is codex-mini-latest. This reverse-mapping table in normalizeOpenAIModelForUpstream is the only gate preventing the internal canonical name from leaking to the upstream API."
+      "rationale": "ChatGPT OAuth model-name contract REVERSED on 2026-05-29 (2026-06-10 prod probe, OAuth accounts 9+48): the backend now 400-rejects codex-mini-latest, so the former gpt-5.3-codex -> codex-mini-latest rewrite must stay removed and the table must stay EMPTY until the contract flips again. The lookup seam in normalizeOpenAIModelForUpstream plus the contract-timeline comment (with the verbatim codex-mini-latest 400 literal as grep anchor) must survive upstream merges; losing them either re-introduces the stale rewrite (silent 400 on every OAuth codex request) or erases the documented seam for the next reversal."
     },
     {
       "path": "backend/internal/service/openai_gateway_service.go",
