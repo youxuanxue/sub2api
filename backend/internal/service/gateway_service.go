@@ -4829,7 +4829,9 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	// #63885 / #64777), THEN strip empty text blocks (including nested in
 	// tool_result). Sanitize runs first because StripEmptyTextBlocks parses the
 	// body as JSON; both prevent an upstream 400 before the first call.
-	if err := replaceBody(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account))); err != nil {
+	// tkStripFableDisabledThinking: fable rejects explicit thinking.type=disabled
+	// with a 400 (gateway_request_tk_fable.go).
+	if err := replaceBody(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account)))); err != nil {
 		return nil, err
 	}
 
@@ -5519,7 +5521,9 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	// #60168 / #63885 / #64777), THEN strip empty text blocks (including nested
 	// in tool_result). Sanitize runs first because StripEmptyTextBlocks parses
 	// the body as JSON; both prevent an upstream 400.
-	input.Body = StripEmptyTextBlocks(TkSanitizeRequestBody(input.Body, account))
+	// tkStripFableDisabledThinking: fable rejects explicit thinking.type=disabled
+	// with a 400 (gateway_request_tk_fable.go).
+	input.Body = tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(input.Body, account)))
 	if input.Parsed != nil {
 		// 透传分支也会改写实际 wire body，成功 usage hash 依赖这里同步当前 body。
 		if err := input.Parsed.ReplaceBody(input.Body); err != nil {
@@ -9913,7 +9917,9 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	// #60168 / #63885 / #64777), THEN strip empty text blocks. Sanitize runs
 	// first because StripEmptyTextBlocks parses the body as JSON; both prevent
 	// an upstream 400 (here also guarding the per-account upstream-error breaker).
-	if err := replaceBody(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account))); err != nil {
+	// tkStripFableDisabledThinking: fable rejects explicit thinking.type=disabled
+	// with a 400 (gateway_request_tk_fable.go).
+	if err := replaceBody(tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account)))); err != nil {
 		return err
 	}
 
