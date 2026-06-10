@@ -73,6 +73,41 @@ func TestClassifyOpsUpstreamClientInducedRejectionOwnedByClient(t *testing.T) {
 		require.Equal(t, "client", errorOwner)
 	})
 
+	t.Run("newapi/dashscope upstream 404 model_not_found (Qwen ct=17) owned by client", func(t *testing.T) {
+		// Direct probe 2026-06-10: DashScope (Qwen extension-engine channel) returns the
+		// OpenAI-standard 404 model_not_found envelope for a retired/unknown model. The
+		// bridge records it code-prefixed; it must be client-owned so a future Qwen model
+		// drift cannot re-fire the upstream_error_rate P0 (same class as the volcengine case).
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		service.SetOpsUpstreamError(c, http.StatusNotFound,
+			"model_not_found: The model `qwen3.7-max-retired` does not exist or you do not have access to it.",
+			"model_not_found")
+
+		phase, _, errorOwner, _ := classifyOpsErrorLog(c, "upstream_error", "Upstream request failed", "", http.StatusBadGateway)
+
+		require.Equal(t, "request", phase, "dashscope 404 model_not_found must be client-owned")
+		require.Equal(t, "client", errorOwner)
+	})
+
+	t.Run("newapi/deepseek upstream 400 invalid_request_error (DeepSeek ct=43) owned by client", func(t *testing.T) {
+		// Direct probe 2026-06-10: DeepSeek (extension-engine channel) returns HTTP 400
+		// invalid_request_error for an unknown model ("The supported API model names are
+		// deepseek-v4-pro or deepseek-v4-flash, but you passed X."). It rides the existing
+		// 400 invalid_request_error branch (not the 404 helper), so model drift on the
+		// DeepSeek channel is likewise out of upstream_error_rate.
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		service.SetOpsUpstreamError(c, http.StatusBadRequest,
+			"invalid_request_error: The supported API model names are deepseek-v4-pro or deepseek-v4-flash, but you passed deepseek-v4-retired.",
+			"invalid_request_error")
+
+		phase, _, errorOwner, _ := classifyOpsErrorLog(c, "upstream_error", "Upstream request failed", "", http.StatusBadGateway)
+
+		require.Equal(t, "request", phase, "deepseek 400 invalid_request_error must be client-owned")
+		require.Equal(t, "client", errorOwner)
+	})
+
 	t.Run("genuine newapi upstream 503 stays provider-owned (must keep counting)", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(rec)

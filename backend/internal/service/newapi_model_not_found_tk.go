@@ -11,12 +11,26 @@ import (
 // IsOpenAICompatModelNotFound404 reports whether an OpenAI-compatible / newapi
 // upstream 404 is a CALLER-fault "the requested model does not exist / is not
 // accessible on this channel" rather than a provider-health failure. The newapi
-// fifth-platform sibling of IsAnthropicModelNotFound404 — VolcEngine Ark returns
+// fifth-platform sibling of IsAnthropicModelNotFound404. Two real upstream shapes
+// (both captured by direct probe, 2026-06-10):
 //
-//	{"error":{"code":"InvalidEndpointOrModel.NotFound",
-//	          "message":"The model `X` does not exist or you do not have access to it."}}
+//	VolcEngine Ark (channel_type=45): un-activated / retired model →
+//	  {"error":{"code":"InvalidEndpointOrModel.NotFound",
+//	            "message":"The model `X` does not exist or you do not have access to it."}}
 //
-// for a model that is not 开通 (activated) or already 下线 (retired) on the channel.
+//	DashScope / Qwen (channel_type=17, OpenAI-compatible mode): unknown / retired
+//	  model → HTTP 404 with the OpenAI-standard envelope
+//	  {"error":{"code":"model_not_found",
+//	            "message":"The model `X` does not exist or you do not have access to it."}}
+//
+// (DeepSeek, channel_type=43, instead returns HTTP 400 invalid_request_error for an
+// unknown model — "The supported API model names are ...". That is already owned to
+// the client by the 400 invalid_request_error branch in tkUpstreamClientInducedRejection,
+// so it never reaches this 404 helper.)
+//
+// Both the prose phrase ("does not exist or you do not have access") and the
+// structured code ("model_not_found" / "InvalidEndpointOrModel.NotFound") are
+// matched, so the classification survives a vendor changing one without the other.
 //
 // classifyOpsErrorLog uses this (via tkUpstreamClientInducedRejection) to own the
 // error to the client (phase=request → error_owner=client), keeping it OUT of
@@ -29,10 +43,11 @@ func IsOpenAICompatModelNotFound404(responseBody []byte, upstreamMsg string) boo
 		return false
 	}
 	if strings.Contains(combined, "invalidendpointormodel.notfound") ||
+		strings.Contains(combined, "model_not_found") ||
 		strings.Contains(combined, "does not exist or you do not have access") {
 		return true
 	}
-	if code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(responseBody, "error.code").String())); code == "invalidendpointormodel.notfound" {
+	if code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(responseBody, "error.code").String())); code == "invalidendpointormodel.notfound" || code == "model_not_found" {
 		return true
 	}
 	return false
