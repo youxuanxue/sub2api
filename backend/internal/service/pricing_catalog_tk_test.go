@@ -48,13 +48,12 @@ const litellmFixtureJSON = `{
 }`
 
 func TestPricingCatalogService_ParsesLiteLLMShape(t *testing.T) {
-	s := &PricingCatalogService{}
 	ts := time.Date(2026, 4, 22, 10, 0, 0, 0, time.UTC)
-	s.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-		return []byte(litellmFixtureJSON), ts, true
-	})
-
-	resp := s.BuildPublicCatalog(context.Background())
+	// Test the pure parser directly: BuildPublicCatalog additionally fill-merges
+	// the always-on TK pricing overlay (applyCatalogOverlayPricing), which would
+	// add ~24 unrelated overlay models here. buildCatalogFromBytes is exactly the
+	// parse-mechanics seam these assertions target.
+	resp := buildCatalogFromBytes([]byte(litellmFixtureJSON), ts)
 	require.NotNil(t, resp)
 	assert.Equal(t, "list", resp.Object)
 	assert.Equal(t, ts, resp.UpdatedAt, "updated_at must reflect source mtime")
@@ -82,6 +81,48 @@ func TestPricingCatalogService_ParsesLiteLLMShape(t *testing.T) {
 	// supports_function_calling alone also yields tool_use.
 	assert.Contains(t, gpt.Capabilities, "tool_use")
 	assert.Contains(t, gpt.Capabilities, "vision")
+}
+
+// TestPricingCatalogService_AppliesTKOverlayPricing pins the display-side overlay
+// merge: models priced ONLY in tk_pricing_overlay.json (deepseek-v4-pro, doubao-*,
+// glm-4-7-251222 — the VolcEngine fifth-platform batch + deepseek) must surface in
+// the public catalog / Your-Menu with their prices, matching the billing path that
+// already applies the overlay. The merge is fill-only: a model the file source
+// prices natively keeps the source value (overlay never overrides).
+func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
+	// Healthy source: one base model + deepseek-v4-flash at a deliberately absurd
+	// price so the fill-only assertion can prove the source wins over the overlay.
+	const fixture = `{
+	  "gpt-5.4": {"input_cost_per_token":0.0000005,"output_cost_per_token":0.000002,"litellm_provider":"openai"},
+	  "deepseek-v4-flash": {"input_cost_per_token":0.999,"output_cost_per_token":0.999,"litellm_provider":"deepseek"}
+	}`
+	s := &PricingCatalogService{}
+	s.SetSourceForTesting(func() ([]byte, time.Time, bool) {
+		return []byte(fixture), time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC), true
+	})
+
+	resp := s.BuildPublicCatalog(context.Background())
+	require.NotNil(t, resp)
+	byID := make(map[string]PublicCatalogModel, len(resp.Data))
+	for _, m := range resp.Data {
+		byID[m.ModelID] = m
+	}
+
+	// overlay-only models surface with their overlay price (per-token ×1000 = per-1K).
+	pro, ok := byID["deepseek-v4-pro"]
+	require.True(t, ok, "overlay-only deepseek-v4-pro must surface in catalog")
+	assert.InDelta(t, 0.000435, pro.Pricing.InputPer1KTokens, 1e-9, "deepseek-v4-pro input = overlay $0.435/M")
+	assert.InDelta(t, 0.00087, pro.Pricing.OutputPer1KTokens, 1e-9, "deepseek-v4-pro output = overlay $0.87/M")
+	_, ok = byID["doubao-seed-2-0-pro-260215"]
+	assert.True(t, ok, "doubao overlay model must surface")
+	_, ok = byID["glm-4-7-251222"]
+	assert.True(t, ok, "glm-4-7 overlay model must surface")
+
+	// fill-only: a model present in BOTH source and overlay keeps the SOURCE price.
+	flash, ok := byID["deepseek-v4-flash"]
+	require.True(t, ok)
+	assert.InDelta(t, 999.0, flash.Pricing.InputPer1KTokens, 1e-6,
+		"source price wins over overlay (fill-only); overlay must NOT override")
 }
 
 // TestPublicCatalog_FiltersUnservableClaudeAndGpt covers the support filter
