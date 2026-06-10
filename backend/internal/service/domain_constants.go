@@ -120,6 +120,21 @@ const (
 	// gateway_anthropic_request_normalize_tk.go for the rules.
 	SettingKeyAnthropicRequestNormalizeEnabled = "tk_anthropic_request_normalize_enabled"
 
+	// SettingKeyAnthropicCanonicalIngressStrictEnabled toggles strict ingress
+	// hardening on the canonical Anthropic OAuth path (accounts bound to the
+	// tk_canonical_cc_oauth TLS profile). Defaults to false = keep the current
+	// deny-list / upstream behavior (zero regression). When set to "true" it:
+	//   1. switches the ingress UA gate from deny-list to allow-list — only
+	//      claude-cli/ or claude-code/ UA prefixes pass; empty + unknown UAs reject;
+	//   2. runs the same allow-list gate on the count_tokens path;
+	//   3. injects the Claude Code system/billing block for non-CC haiku too
+	//      (closes the "CC headers but no CC billing block" cohort gap).
+	// Admin-toggleable + settings-pubsub hot-updatable so an operator can canary
+	// a single edge and roll back in seconds without a deploy. See
+	// setting_service_tk_canonical_ingress.go and
+	// gateway_service_tk_canonical_oauth_guard.go.
+	SettingKeyAnthropicCanonicalIngressStrictEnabled = "anthropic_canonical_ingress_strict_enabled"
+
 	// SettingKeyOpenAIImplicitThrottleCooldownSeconds enables an opt-in,
 	// cross-request cooldown for OpenAI-compat accounts being implicitly throttled
 	// by the upstream (repeated 5xx / header-timeout with no explicit 429).

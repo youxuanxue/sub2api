@@ -85,6 +85,52 @@ func checkCanonicalIngressUA(headers http.Header) error {
 	return nil
 }
 
+// canonicalIngressUAAllowedPrefixes lists the case-insensitive UA prefixes that
+// the strict allow-list gate accepts. Only real Claude Code clients emit these
+// ("claude-cli/" is the CLI/SDK, "claude-code/" is the IDE/extension build);
+// everything else — including empty and unknown UAs — is rejected.
+var canonicalIngressUAAllowedPrefixes = []string{
+	"claude-cli/",
+	"claude-code/",
+}
+
+// checkCanonicalIngressUAStrict is the allow-list counterpart of
+// checkCanonicalIngressUA, used only when
+// SettingKeyAnthropicCanonicalIngressStrictEnabled is true. It returns nil only
+// when the trimmed, lower-cased User-Agent starts with one of
+// canonicalIngressUAAllowedPrefixes; an empty UA or any unknown UA returns
+// *CanonicalIngressUARejectedError (HTTP 403 at the handler).
+//
+// Rationale: with cc_only relaxed on a group, the canonical OAuth path is the
+// only client-identity gate left for a personal subscription's edge account. An
+// empty UA is a real passed-through client signal on the transparent prod→edge
+// relay (not a relay artifact), so strict mode must require an explicit CC
+// identity rather than tolerating anonymous traffic. The default deny-list path
+// (checkCanonicalIngressUA) is preserved unchanged for zero regression.
+func checkCanonicalIngressUAStrict(headers http.Header) error {
+	ua := strings.TrimSpace(headers.Get("User-Agent"))
+	lower := strings.ToLower(ua)
+	for _, p := range canonicalIngressUAAllowedPrefixes {
+		if strings.HasPrefix(lower, p) {
+			return nil
+		}
+	}
+	return &CanonicalIngressUARejectedError{IngressUA: ua}
+}
+
+// shouldRewriteSystemForNonCCMimicry decides whether the OAuth mimicry path
+// should rewrite the system prompt for a non-CC request. Default behavior skips
+// haiku (it carries CC headers but no CC system rewrite). When canonicalStrict
+// is true the haiku skip is lifted so the cohort stays consistent (CC headers +
+// CC system/billing block together). Non-haiku models are always rewritten.
+// Pure predicate so the gating contract is unit-testable in isolation.
+func shouldRewriteSystemForNonCCMimicry(reqModel string, canonicalStrict bool) bool {
+	if canonicalStrict {
+		return true
+	}
+	return !strings.Contains(strings.ToLower(reqModel), "haiku")
+}
+
 // canonicalDefaultOpus is the current Claude Code default opus tier; deprecated
 // opus model ids are remapped to this on the canonical OAuth path.
 const canonicalDefaultOpus = "claude-opus-4-7"

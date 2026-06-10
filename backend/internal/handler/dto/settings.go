@@ -27,20 +27,21 @@ type CustomEndpoint struct {
 
 // SystemSettings represents the admin settings API response payload.
 type SystemSettings struct {
-	RegistrationEnabled              bool                     `json:"registration_enabled"`
-	EmailVerifyEnabled               bool                     `json:"email_verify_enabled"`
-	RegistrationEmailSuffixWhitelist []string                 `json:"registration_email_suffix_whitelist"`
-	PromoCodeEnabled                 bool                     `json:"promo_code_enabled"`
-	KiroEnabled                      bool                     `json:"kiro_enabled"` // TK: Kiro 第六平台转发门禁（默认 false / ToS）
-	PasswordResetEnabled             bool                     `json:"password_reset_enabled"`
-	FrontendURL                      string                   `json:"frontend_url"`
-	InvitationCodeEnabled            bool                     `json:"invitation_code_enabled"`
-	TotpEnabled                      bool                     `json:"totp_enabled"`                   // TOTP 双因素认证
-	TotpEncryptionKeyConfigured      bool                     `json:"totp_encryption_key_configured"` // TOTP 加密密钥是否已配置
-	LoginAgreementEnabled            bool                     `json:"login_agreement_enabled"`
-	LoginAgreementMode               string                   `json:"login_agreement_mode"`
-	LoginAgreementUpdatedAt          string                   `json:"login_agreement_updated_at"`
-	LoginAgreementDocuments          []LoginAgreementDocument `json:"login_agreement_documents"`
+	RegistrationEnabled                    bool                     `json:"registration_enabled"`
+	EmailVerifyEnabled                     bool                     `json:"email_verify_enabled"`
+	RegistrationEmailSuffixWhitelist       []string                 `json:"registration_email_suffix_whitelist"`
+	PromoCodeEnabled                       bool                     `json:"promo_code_enabled"`
+	KiroEnabled                            bool                     `json:"kiro_enabled"`                               // TK: Kiro 第六平台转发门禁（默认 false / ToS）
+	AnthropicCanonicalIngressStrictEnabled bool                     `json:"anthropic_canonical_ingress_strict_enabled"` // TK: canonical Anthropic OAuth 入口 strict 收紧（默认 false / 零回归）
+	PasswordResetEnabled                   bool                     `json:"password_reset_enabled"`
+	FrontendURL                            string                   `json:"frontend_url"`
+	InvitationCodeEnabled                  bool                     `json:"invitation_code_enabled"`
+	TotpEnabled                            bool                     `json:"totp_enabled"`                   // TOTP 双因素认证
+	TotpEncryptionKeyConfigured            bool                     `json:"totp_encryption_key_configured"` // TOTP 加密密钥是否已配置
+	LoginAgreementEnabled                  bool                     `json:"login_agreement_enabled"`
+	LoginAgreementMode                     string                   `json:"login_agreement_mode"`
+	LoginAgreementUpdatedAt                string                   `json:"login_agreement_updated_at"`
+	LoginAgreementDocuments                []LoginAgreementDocument `json:"login_agreement_documents"`
 
 	SMTPHost               string `json:"smtp_host"`
 	SMTPPort               int    `json:"smtp_port"`

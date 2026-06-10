@@ -12,19 +12,20 @@ func firstNonEmpty(values ...string) string {
 }
 
 type SystemSettings struct {
-	RegistrationEnabled              bool
-	EmailVerifyEnabled               bool
-	RegistrationEmailSuffixWhitelist []string
-	PromoCodeEnabled                 bool
-	KiroEnabled                      bool // TK: Kiro 第六平台转发门禁（默认 false / ToS）
-	PasswordResetEnabled             bool
-	FrontendURL                      string
-	InvitationCodeEnabled            bool
-	TotpEnabled                      bool // TOTP 双因素认证
-	LoginAgreementEnabled            bool
-	LoginAgreementMode               string
-	LoginAgreementUpdatedAt          string
-	LoginAgreementDocuments          []LoginAgreementDocument
+	RegistrationEnabled                    bool
+	EmailVerifyEnabled                     bool
+	RegistrationEmailSuffixWhitelist       []string
+	PromoCodeEnabled                       bool
+	KiroEnabled                            bool // TK: Kiro 第六平台转发门禁（默认 false / ToS）
+	AnthropicCanonicalIngressStrictEnabled bool // TK: canonical Anthropic OAuth 入口 strict 收紧（默认 false / 零回归）
+	PasswordResetEnabled                   bool
+	FrontendURL                            string
+	InvitationCodeEnabled                  bool
+	TotpEnabled                            bool // TOTP 双因素认证
+	LoginAgreementEnabled                  bool
+	LoginAgreementMode                     string
+	LoginAgreementUpdatedAt                string
+	LoginAgreementDocuments                []LoginAgreementDocument
 
 	SMTPHost               string
 	SMTPPort               int

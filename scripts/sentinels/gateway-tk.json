@@ -469,6 +469,9 @@
         "GetOrCreateFingerprint(ctx, account.ID, clientHeaders, s.tlsFingerprintProfileNameForAccount(account))",
         "s.isCanonicalAnthropicOAuth(account)",
         "checkCanonicalIngressUA(c.Request.Header)",
+        "s.settingService.IsAnthropicCanonicalIngressStrictEnabled(ctx)",
+        "shouldRewriteSystemForNonCCMimicry(reqModel, canonicalIngressStrict)",
+        "checkCanonicalIngressUAStrict(c.Request.Header)",
         "remapDeprecatedOpusOnCanonical(reqModel)",
         "applyClaudeCodeMimicHeaders(req *http.Request, _ bool)",
         "getHeaderRaw(req.Header, key) != \"\"",
@@ -1232,12 +1235,15 @@
         "type CanonicalIngressUARejectedError struct",
         "canonicalIngressUAForbiddenSubstrings",
         "func checkCanonicalIngressUA(headers http.Header) error",
+        "canonicalIngressUAAllowedPrefixes",
+        "func checkCanonicalIngressUAStrict(headers http.Header) error",
+        "func shouldRewriteSystemForNonCCMimicry(reqModel string, canonicalStrict bool) bool",
         "canonicalDefaultOpus = \"claude-opus-4-7\"",
         "canonicalDeprecatedOpusPrefixes",
         "func remapDeprecatedOpusOnCanonical(model string) (string, bool)",
         "func (s *GatewayService) isCanonicalAnthropicOAuth(account *Account) bool"
       ],
-      "rationale": "Canonical Anthropic OAuth ingress gates collapse the two cohort signals that drove the 2026-05-25 Anthropic hold on edge-uk1 (EN-LD-EC2-16-3): (1) third-party SDK UAs (OpenAI/Python, httpx, requests, axios, ...) silently draining a personal Claude Code subscription, and (2) retired opus model ids (claude-opus-4-6 / claude-opus-4-5*) routed alongside the current 4-7 default — a mix pattern real claude-cli/2.1.150 no longer produces. Both gates are scoped to OAuth + canonical TLS only via `isCanonicalAnthropicOAuth`; dropping the helper, the deny-list, or the deprecated-opus remap silently re-opens the abuse path while compiling clean. The forbidden-substring list is intentionally explicit and case-insensitive so a future SDK variant requires a one-line registry update rather than a rewrite."
+      "rationale": "Canonical Anthropic OAuth ingress gates collapse the two cohort signals that drove the 2026-05-25 Anthropic hold on edge-uk1 (EN-LD-EC2-16-3): (1) third-party SDK UAs (OpenAI/Python, httpx, requests, axios, ...) silently draining a personal Claude Code subscription, and (2) retired opus model ids (claude-opus-4-6 / claude-opus-4-5*) routed alongside the current 4-7 default — a mix pattern real claude-cli/2.1.150 no longer produces. Both gates are scoped to OAuth + canonical TLS only via `isCanonicalAnthropicOAuth`; dropping the helper, the deny-list, or the deprecated-opus remap silently re-opens the abuse path while compiling clean. The forbidden-substring list is intentionally explicit and case-insensitive so a future SDK variant requires a one-line registry update rather than a rewrite. The strict counterpart (checkCanonicalIngressUAStrict allow-list of claude-cli/ | claude-code/ prefixes, plus shouldRewriteSystemForNonCCMimicry lifting the haiku skip) is gated behind SettingKeyAnthropicCanonicalIngressStrictEnabled (default false = deny-list / upstream behavior). It is the only client-identity gate left once an operator relaxes a group's cc_only flag; dropping either function or the allow-list silently reverts strict mode to a no-op, re-exposing a bare canonical OAuth edge account to empty/unknown-UA anonymous traffic."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_canonical_oauth_guard_test.go",

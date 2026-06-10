@@ -4644,7 +4644,14 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	//      stays consistent with what real claude-cli/2.1.152 produces
 	// Scoped to anthropic OAuth + canonical TLS profile only.
 	if c != nil && s.isCanonicalAnthropicOAuth(account) {
-		if err := checkCanonicalIngressUA(c.Request.Header); err != nil {
+		// strict: allow-list UA gate (claude-cli/ | claude-code/ only, reject empty
+		// + unknown). Default false keeps the deny-list gate (zero regression).
+		// See SettingKeyAnthropicCanonicalIngressStrictEnabled.
+		if s.settingService.IsAnthropicCanonicalIngressStrictEnabled(ctx) {
+			if err := checkCanonicalIngressUAStrict(c.Request.Header); err != nil {
+				return nil, err
+			}
+		} else if err := checkCanonicalIngressUA(c.Request.Header); err != nil {
 			return nil, err
 		}
 		if newModel, remapped := remapDeprecatedOpusOnCanonical(reqModel); remapped {
@@ -4690,7 +4697,14 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		// 检测到"有 CC prompt 但无 billing block"的不一致而判为 third-party。
 		// Parrot 的 transform_request 从不检查客户端 system 内容，直接覆盖。
 		systemRewritten := false
-		if !strings.Contains(strings.ToLower(reqModel), "haiku") {
+		// haiku normally skips system rewrite. Under strict canonical-ingress mode
+		// rewrite haiku too, so a non-CC haiku request does not carry CC headers
+		// without the matching CC system/billing block (cohort inconsistency).
+		// Append-only `strict ||`: default false keeps the haiku skip (zero regression).
+		// See SettingKeyAnthropicCanonicalIngressStrictEnabled.
+		canonicalIngressStrict := s.isCanonicalAnthropicOAuth(account) &&
+			s.settingService.IsAnthropicCanonicalIngressStrictEnabled(ctx)
+		if shouldRewriteSystemForNonCCMimicry(reqModel, canonicalIngressStrict) {
 			systemRaw, _ := parsed.SystemValue()
 			if err := replaceBody(rewriteSystemForNonClaudeCode(body, systemRaw)); err != nil {
 				return nil, err
@@ -9947,6 +9961,20 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 			"account_name", account.Name,
 			"fields", stripped,
 		)
+	}
+
+	// TK canonical-OAuth strict ingress UA gate on count_tokens. Without this the
+	// allow-list gate would only cover /v1/messages and a third-party client could
+	// probe/drain a personal subscription via count_tokens (cohort signal bypass).
+	// Scoped to anthropic OAuth + canonical TLS, and only when strict mode is on;
+	// default false leaves count_tokens untouched (zero regression). On reject we
+	// write a 403 and return nil (no failover), mirroring the Antigravity-404 path.
+	if c != nil && s.isCanonicalAnthropicOAuth(account) &&
+		s.settingService.IsAnthropicCanonicalIngressStrictEnabled(ctx) {
+		if err := checkCanonicalIngressUAStrict(c.Request.Header); err != nil {
+			s.countTokensError(c, http.StatusForbidden, "permission_error", err.Error())
+			return nil
+		}
 	}
 
 	isClaudeCodeCT := IsClaudeCodeClient(ctx) || isClaudeCodeClient(c.GetHeader("User-Agent"), parsed.MetadataUserID)
