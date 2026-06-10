@@ -125,6 +125,39 @@ func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 		"source price wins over overlay (fill-only); overlay must NOT override")
 }
 
+// TestPricingCatalogService_ZeroPlaceholderRowGetsOverlayPrice verifies the
+// display side of the absent-or-zero fill: a source row whose every price field
+// is 0.0 (litellm "cost unknown" — the prod shape of deepseek-v3-2-251201 under
+// volcengine) must show the overlay price in the public catalog, matching what
+// billing actually charges. Row metadata (context window) stays from the file
+// source.
+func TestPricingCatalogService_ZeroPlaceholderRowGetsOverlayPrice(t *testing.T) {
+	const fixture = `{
+	  "gpt-5.4": {"input_cost_per_token":0.0000005,"output_cost_per_token":0.000002,"litellm_provider":"openai"},
+	  "deepseek-v3-2-251201": {"input_cost_per_token":0.0,"output_cost_per_token":0.0,"litellm_provider":"volcengine","max_input_tokens":98304,"max_output_tokens":32768}
+	}`
+	s := &PricingCatalogService{}
+	s.SetSourceForTesting(func() ([]byte, time.Time, bool) {
+		return []byte(fixture), time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC), true
+	})
+
+	resp := s.BuildPublicCatalog(context.Background())
+	require.NotNil(t, resp)
+	byID := make(map[string]PublicCatalogModel, len(resp.Data))
+	for _, m := range resp.Data {
+		byID[m.ModelID] = m
+	}
+
+	v32, ok := byID["deepseek-v3-2-251201"]
+	require.True(t, ok)
+	assert.InDelta(t, 2.73972602740e-4, v32.Pricing.InputPer1KTokens, 1e-12,
+		"zero placeholder row must display the overlay Ark price (¥2/M ÷ 7.3 × 1K)")
+	assert.InDelta(t, 4.10958904110e-4, v32.Pricing.OutputPer1KTokens, 1e-12)
+	assert.InDelta(t, 5.47945205479e-5, v32.Pricing.CacheReadPer1K, 1e-12)
+	assert.Equal(t, 98304, v32.ContextWindow, "file-source row metadata must be preserved")
+	assert.Equal(t, 32768, v32.MaxOutputTokens)
+}
+
 // TestPublicCatalog_FiltersUnservableClaudeAndGpt covers the support filter
 // (pricing_catalog_supported_models_tk.go): retired/unservable claude + gpt
 // rows are pruned, servable ones kept, and every non-claude/gpt vendor passes

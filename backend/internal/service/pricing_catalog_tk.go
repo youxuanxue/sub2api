@@ -257,11 +257,15 @@ func buildCatalogFromBytes(data []byte, modTime time.Time) *PublicCatalogRespons
 // (GetModelPricing applies it) but NOT this display path — hence empty/missing
 // price rows for the entire VolcEngine fifth-platform batch + deepseek-v4-pro.
 //
-// Fill-only mirrors the billing priority (model_pricing_resolver: channel DB >
-// litellm mirror > TK overlay): a name already present from the file source is
-// left untouched, so a model the mirror prices natively keeps the mirror value.
-// Channel pricing stays a strictly higher tier handled upstream (me menu Stage 1
-// / billing resolver), so the overlay only ever fills the litellm tier.
+// Fill mirrors the billing priority (model_pricing_resolver: channel DB >
+// litellm mirror > TK overlay) with the same absent-or-zero semantics as the
+// billing path (applyTKPricingOverlay / tkIsEffectivelyUnpriced): a name whose
+// file-source row carries a real non-zero price is left untouched, while an
+// all-zero placeholder row (litellm "cost unknown", e.g. deepseek-v3-2-251201)
+// gets its DISPLAYED price replaced by the overlay value — otherwise the
+// catalog would show $0 for a model billing actually charges. Channel pricing
+// stays a strictly higher tier handled upstream (me menu Stage 1 / billing
+// resolver), so the overlay only ever fills the litellm tier.
 //
 // Only token-priced entries merge. Per-image / per-second media overlay entries
 // (imagen-*/veo-*/seedream/seedance) carry no token price and are skipped, which
@@ -275,9 +279,9 @@ func applyCatalogOverlayPricing(resp *PublicCatalogResponse) {
 	if len(overlay) == 0 {
 		return
 	}
-	seen := make(map[string]struct{}, len(resp.Data))
+	seen := make(map[string]int, len(resp.Data))
 	for i := range resp.Data {
-		seen[resp.Data[i].ModelID] = struct{}{}
+		seen[resp.Data[i].ModelID] = i
 	}
 	names := make([]string, 0, len(overlay))
 	for name := range overlay {
@@ -287,11 +291,24 @@ func applyCatalogOverlayPricing(resp *PublicCatalogResponse) {
 
 	appended := false
 	for _, name := range names {
-		if _, ok := seen[name]; ok {
-			continue
-		}
 		p := overlay[name]
 		if p == nil || (p.InputCostPerToken == 0 && p.OutputCostPerToken == 0) {
+			continue
+		}
+		if idx, ok := seen[name]; ok {
+			// 文件源已有该行：仅当它是全零占位（litellm "cost unknown"，与计费
+			// 侧 tkIsEffectivelyUnpriced 同语义）时用 overlay 价覆盖展示，保持
+			// 展示=计费；行内 context window 等元数据保留文件源的值。真实非零
+			// 文件价永不覆盖。
+			row := &resp.Data[idx]
+			if row.Pricing.InputPer1KTokens != 0 || row.Pricing.OutputPer1KTokens != 0 ||
+				row.Pricing.CacheReadPer1K != 0 || row.Pricing.CacheWritePer1K != 0 {
+				continue
+			}
+			row.Pricing.InputPer1KTokens = p.InputCostPerToken * 1000
+			row.Pricing.OutputPer1KTokens = p.OutputCostPerToken * 1000
+			row.Pricing.CacheReadPer1K = p.CacheReadInputTokenCost * 1000
+			row.Pricing.CacheWritePer1K = p.CacheCreationInputTokenCost * 1000
 			continue
 		}
 		in, out := p.InputCostPerToken, p.OutputCostPerToken

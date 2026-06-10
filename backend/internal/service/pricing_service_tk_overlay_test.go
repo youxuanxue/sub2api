@@ -65,6 +65,69 @@ func TestTKPricingOverlay_FillOnlySourceWins(t *testing.T) {
 	require.InDelta(t, 2e-6, flash.OutputCostPerToken, 1e-15, "source value must win over overlay")
 }
 
+// TestTKPricingOverlay_ZeroPlaceholderIsReplaced verifies the absent-or-zero fill:
+// a source entry whose every cost field is 0.0 (litellm's "cost unknown" shape —
+// the exact prod state of deepseek-v3-2-251201 under volcengine, which billed 683
+// requests at $0 through 2026-06-10) must NOT shadow the curated overlay price.
+func TestTKPricingOverlay_ZeroPlaceholderIsReplaced(t *testing.T) {
+	svc := &PricingService{}
+	body := []byte(`{
+		"deepseek-v3-2-251201": {
+			"input_cost_per_token": 0.0,
+			"output_cost_per_token": 0.0,
+			"litellm_provider": "volcengine",
+			"mode": "chat"
+		}
+	}`)
+
+	data, err := svc.parsePricingData(body)
+	require.NoError(t, err)
+
+	v32 := data["deepseek-v3-2-251201"]
+	require.NotNil(t, v32)
+	require.InDelta(t, 2.73972602740e-7, v32.InputCostPerToken, 1e-15,
+		"zero placeholder must be replaced by the overlay Ark price")
+	require.InDelta(t, 4.10958904110e-7, v32.OutputCostPerToken, 1e-15)
+	require.InDelta(t, 5.47945205479e-8, v32.CacheReadInputTokenCost, 1e-15)
+}
+
+// TestTKIsEffectivelyUnpriced pins the predicate: zero-everything (and nil) are
+// unpriced; any single non-zero cost field — token, cache, or media — counts as
+// priced, so media entries (per-image / per-second only) are never mistaken for
+// placeholders.
+func TestTKIsEffectivelyUnpriced(t *testing.T) {
+	require.True(t, tkIsEffectivelyUnpriced(nil))
+	require.True(t, tkIsEffectivelyUnpriced(&LiteLLMModelPricing{LiteLLMProvider: "volcengine", Mode: "chat"}))
+
+	require.False(t, tkIsEffectivelyUnpriced(&LiteLLMModelPricing{InputCostPerToken: 1e-7}))
+	require.False(t, tkIsEffectivelyUnpriced(&LiteLLMModelPricing{CacheReadInputTokenCost: 1e-9}))
+	require.False(t, tkIsEffectivelyUnpriced(&LiteLLMModelPricing{OutputCostPerImage: 0.04}), "per-image-only media entry is priced")
+	require.False(t, tkIsEffectivelyUnpriced(&LiteLLMModelPricing{OutputCostPerSecond: 0.4}), "per-second-only media entry is priced")
+}
+
+// TestBilling_ZeroPlaceholderFallsToPricingMissing verifies the billing-side use
+// of the same predicate: a zero-placeholder entry for a model with no overlay
+// entry and no hardcoded fallback must surface ErrModelPricingUnavailable (the
+// existing zero-cost + Feishu pricing-missing funnel), not silently return $0
+// prices as a successful lookup.
+func TestBilling_ZeroPlaceholderFallsToPricingMissing(t *testing.T) {
+	svc := &PricingService{}
+	data, err := svc.parsePricingData([]byte(`{
+		"some-future-model-not-curated": {
+			"input_cost_per_token": 0.0,
+			"output_cost_per_token": 0.0,
+			"litellm_provider": "volcengine",
+			"mode": "chat"
+		}
+	}`))
+	require.NoError(t, err)
+
+	billing := NewBillingService(&config.Config{}, &PricingService{pricingData: data})
+	_, err = billing.GetModelPricing("some-future-model-not-curated")
+	require.ErrorIs(t, err, ErrModelPricingUnavailable,
+		"zero placeholder must be treated as pricing-missing, not a $0 price")
+}
+
 // TestTKPricingOverlay_MediaEntriesStillPresent guards the original media scope
 // through the media→generic rename: imagen/veo per-image and per-second prices
 // must keep flowing from the renamed embed.

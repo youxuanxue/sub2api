@@ -16,14 +16,21 @@ package service
 // media (imagen-*/veo-*, priced per-image/per-second) AND text models that litellm
 // itself has not yet catalogued (e.g. deepseek-v4-*, which billed $0 in prod via
 // "pricing_missing_record_zero_cost" until channel pricing was hand-configured).
-// fill-only cannot fix WRONG source prices (e.g. deepseek-chat still carried at the
-// pre-V4 rate): for those, use channel pricing (DB) — it overrides everything.
+// fill-only cannot fix WRONG NON-ZERO source prices (e.g. deepseek-chat still carried
+// at the pre-V4 rate): those are a judgment call between two claimed prices — use
+// channel pricing (DB), it overrides everything.
 //
 // Semantics: merged into every parsePricingData result (remote OR disk fallback) so the
-// entries are present regardless of source. fill-only — the loaded source is authoritative
-// and is never overwritten, so the overlay is self-deprecating: the day the source carries
-// a bare key natively, the source value wins and the entry here is ignored. The
-// DB-backed ModelPricing override (model_pricing_resolver.go) still sits above everything.
+// entries are present regardless of source. Fill applies when the source key is ABSENT
+// or the source entry is EFFECTIVELY UNPRICED (every cost field zero — see
+// tkIsEffectivelyUnpriced). A zero-priced entry is not a price, it is the absence of a
+// price wearing a price's shape: litellm marks unknown costs 0.0 (e.g.
+// deepseek-v3-2-251201 under volcengine), which billed $0 in prod for weeks with no
+// alert because the key LOOKED present. The source stays authoritative for any entry
+// carrying a real (non-zero) cost, so the overlay remains self-deprecating: the day the
+// source carries a real price for a bare key, the source value wins and the entry here
+// is ignored. The DB-backed ModelPricing override (model_pricing_resolver.go) still
+// sits above everything.
 //
 // Media prices = vertex_ai provider (TK media traffic routes through Vertex ch41); text
 // prices = the provider's official list price. See the JSON _meta block for provenance.
@@ -104,15 +111,39 @@ func loadTKPricingOverlay() map[string]*LiteLLMModelPricing {
 }
 
 // applyTKPricingOverlay fills in TK-owned pricing for models the loaded source
-// does not already carry. fill-only by design (see file header).
+// does not already carry — or carries only as an effectively-unpriced (all-zero)
+// placeholder. Real source prices are never overwritten (see file header).
 func applyTKPricingOverlay(result map[string]*LiteLLMModelPricing) {
 	if result == nil {
 		return
 	}
 	for name, pricing := range loadTKPricingOverlay() {
-		if _, ok := result[name]; ok {
+		if existing, ok := result[name]; ok && !tkIsEffectivelyUnpriced(existing) {
 			continue
 		}
 		result[name] = pricing
 	}
+}
+
+// tkIsEffectivelyUnpriced reports whether a pricing entry carries no billable
+// price at all: every cost field is zero. litellm uses 0.0 for "cost unknown"
+// (not "free"), so such an entry must not shadow a curated overlay price, and
+// billing must not treat it as a successful pricing lookup. Entries priced only
+// per-image / per-second (imagen, veo) have zero token costs but a non-zero
+// media cost field, so they correctly count as priced.
+func tkIsEffectivelyUnpriced(p *LiteLLMModelPricing) bool {
+	if p == nil {
+		return true
+	}
+	return p.InputCostPerToken == 0 &&
+		p.InputCostPerTokenPriority == 0 &&
+		p.OutputCostPerToken == 0 &&
+		p.OutputCostPerTokenPriority == 0 &&
+		p.CacheCreationInputTokenCost == 0 &&
+		p.CacheCreationInputTokenCostAbove1hr == 0 &&
+		p.CacheReadInputTokenCost == 0 &&
+		p.CacheReadInputTokenCostPriority == 0 &&
+		p.OutputCostPerImage == 0 &&
+		p.OutputCostPerImageToken == 0 &&
+		p.OutputCostPerSecond == 0
 }
