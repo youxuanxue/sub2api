@@ -3234,6 +3234,7 @@ export default {
       stubPaused: '调度已关闭',
       stubPausedHint: '该 edge 在 prod 侧的 stub 已关调度——prod 不再向其调度流量，但该 edge 本身仍可达。',
       cooldownRecovered: '已恢复',
+      accountIdHint: '该 edge 上账号的 ID（edge 本地数据库主键），排查问题时用于精确定位',
       columns: {
         name: '名称',
         platformType: '平台 / 类型',
@@ -3338,6 +3339,7 @@ export default {
       schedulableHint: '开启后账号参与API请求调度',
       schedulableEnabled: '调度已开启',
       schedulableDisabled: '调度已关闭',
+      accountIdHint: '账号 ID（数据库主键），排查问题时用于精确定位该账号',
       failedToToggleSchedulable: '切换调度状态失败',
       groupCountTotal: '共 {count} 个分组',
       columns: {

@@ -208,6 +208,7 @@
                 <tr v-for="acct in edge.accounts" :key="acct.id" class="hover:bg-gray-50 dark:hover:bg-dark-700/40">
                   <td class="px-4 py-2 align-top">
                     <div class="font-medium text-gray-900 dark:text-white">{{ acct.name }}</div>
+                    <div class="font-mono text-xs text-gray-400 dark:text-gray-500" :title="t('admin.edgeAccounts.accountIdHint')">ID: {{ acct.id }}</div>
                     <div v-if="acct.error_message" class="mt-0.5 max-w-xs truncate text-xs text-red-500" :title="acct.error_message">
                       {{ acct.error_message }}
                     </div>
