@@ -154,7 +154,7 @@ body_video() { printf '{"model":"%s","prompt":"a small red ball rolling on a tab
 body_ark_video() { printf '{"model":"%s","content":[{"type":"text","text":"a small red ball rolling on a table --resolution 480p --duration 5"}]}' "$1"; }
 
 main() {
-	local akey okey gkey
+	local akey okey gkey arkacct arkkey arkbase
 	if [ -n "${ANTHROPIC_MODELS:-}" ]; then
 		akey="$($PSQL -c "SELECT credentials->>'api_key' FROM accounts WHERE id=$AACCT AND deleted_at IS NULL" | tr -d '[:space:]')"
 		if [ -z "$akey" ]; then
@@ -181,6 +181,9 @@ main() {
 		arkkey="$($PSQL -c "SELECT credentials->>'api_key' FROM accounts WHERE id=$arkacct AND deleted_at IS NULL" | tr -d '[:space:]')"
 		arkbase="$($PSQL -c "SELECT credentials->>'base_url' FROM accounts WHERE id=$arkacct AND deleted_at IS NULL" | tr -d '[:space:]')"
 		arkbase="${arkbase%/}"
+		# Mirror NormalizeArkChannelBaseURL (integration/newapi): operators commonly
+		# paste .../api/v3 into base_url; the data plane wants the host root.
+		arkbase="${arkbase%/api/v3}"
 		if [ -z "$arkkey" ] || [ -z "$arkbase" ]; then
 			emit volcengine "*" 000 "auth_error"
 		else
