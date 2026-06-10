@@ -81,8 +81,13 @@ WITH upd AS (
         ),
         schedulable = true,
         updated_at = NOW()
+    -- channel_type=45 guards cross-deployment blast radius: these migrations run
+    -- on every TK stack (prod, edges, local stage0), and a bare id can collide
+    -- with an unrelated account in another DB. Only the VolcEngine Ark adaptor
+    -- channel may match.
     WHERE id = 7
       AND platform = 'newapi'
+      AND channel_type = 45
       AND deleted_at IS NULL
     RETURNING id
 )
