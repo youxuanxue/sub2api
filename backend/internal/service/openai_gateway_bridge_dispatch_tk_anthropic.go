@@ -125,7 +125,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropicDispatched(
 			message = "Bridge dispatch failed"
 		}
 		writeAnthropicError(c, statusCode, errType, message)
-		return nil, &NewAPIRelayError{Err: apiErr}
+		return nil, tkWrapBridgeRelayError(c, apiErr)
 	}
 
 	logger.L().Info("openai_gateway.newapi_bridge_anthropic_dispatch",

@@ -51,7 +51,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 			zap.String("bridge_path", "newapi_adaptor_error"),
 			zap.Int64("account_id", account.ID),
 		)
-		return nil, &NewAPIRelayError{Err: apiErr}
+		return nil, tkWrapBridgeRelayError(c, apiErr)
 	}
 	logger.L().Info("openai_gateway.newapi_bridge_dispatch",
 		zap.String("endpoint", BridgeEndpointChatCompletions),
@@ -123,7 +123,7 @@ func (s *OpenAIGatewayService) ForwardAsResponsesDispatched(
 			zap.String("bridge_path", "newapi_adaptor_error"),
 			zap.Int64("account_id", account.ID),
 		)
-		return nil, &NewAPIRelayError{Err: apiErr}
+		return nil, tkWrapBridgeRelayError(c, apiErr)
 	}
 	logger.L().Info("openai_gateway.newapi_bridge_dispatch",
 		zap.String("endpoint", BridgeEndpointResponses),
@@ -174,7 +174,7 @@ func (s *OpenAIGatewayService) ForwardAsEmbeddingsDispatched(
 			zap.String("bridge_path", "newapi_adaptor_error"),
 			zap.Int64("account_id", account.ID),
 		)
-		return nil, &NewAPIRelayError{Err: apiErr}
+		return nil, tkWrapBridgeRelayError(c, apiErr)
 	}
 	logger.L().Info("openai_gateway.newapi_bridge_dispatch",
 		zap.String("endpoint", BridgeEndpointEmbeddings),
@@ -225,7 +225,7 @@ func (s *OpenAIGatewayService) ForwardAsImageGenerationsDispatched(
 			zap.String("bridge_path", "newapi_adaptor_error"),
 			zap.Int64("account_id", account.ID),
 		)
-		return nil, &NewAPIRelayError{Err: apiErr}
+		return nil, tkWrapBridgeRelayError(c, apiErr)
 	}
 	logger.L().Info("openai_gateway.newapi_bridge_dispatch",
 		zap.String("endpoint", BridgeEndpointImages),
