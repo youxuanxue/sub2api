@@ -929,14 +929,13 @@ func captureSynthHeaders(c *gin.Context) (session, role, level string, dialogSyn
 	session = clip(c.Request.Header.Get("X-Synth-Session"))
 	role = clip(c.Request.Header.Get("X-Synth-Role"))
 	level = clip(c.Request.Header.Get("X-Synth-Engineer-Level"))
-	pipeline := clip(c.Request.Header.Get("X-Synth-Pipeline"))
-	dialogSynth = session != "" || pipeline != ""
+	dialogSynth = requestIsSynthOptIn(c)
 	return
 }
 
-// requestIsSynthOptIn 在请求阶段（CaptureFromContext 之前）判定该请求是否为
-// traj/synth opt-in，信号与 captureSynthHeaders 的 dialogSynth 一致：
-// X-Synth-Session 或 X-Synth-Pipeline 存在即视为 opt-in。
+// requestIsSynthOptIn 是 traj/synth opt-in 信号的唯一判定：X-Synth-Session 或
+// X-Synth-Pipeline 存在即 opt-in。captureSynthHeaders 的 dialogSynth 与请求阶段
+// （tee 上限选择）都复用这一处，避免双实现漂移。
 func requestIsSynthOptIn(c *gin.Context) bool {
 	if c == nil || c.Request == nil {
 		return false

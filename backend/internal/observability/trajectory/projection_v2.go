@@ -81,6 +81,13 @@ func BuildTrajSessionsV2(sources []SourceRecord) ([]TrajSessionV2, ExportSummary
 			lastReq = reqBody
 			msgs := reqBody.Get("messages").Array()
 
+			// 前缀递增假设被打破（如长会话 context compaction 重写/缩短历史）时，
+			// 增量无法对齐——显式标记并从新基线续走，绝不静默跳过当作没发生。
+			prefixBreak := len(msgs) < prevMsgCount
+			if prefixBreak {
+				prevMsgCount = len(msgs)
+			}
+
 			for k := prevMsgCount; k < len(msgs); k++ {
 				m := msgs[k]
 				switch m.Get("role").String() {
@@ -98,6 +105,9 @@ func BuildTrajSessionsV2(sources []SourceRecord) ([]TrajSessionV2, ExportSummary
 			prevMsgCount = len(msgs)
 
 			blocks, callMeta := reconstructAssistantTurn(rec)
+			if prefixBreak {
+				callMeta["prefix_break"] = true
+			}
 			turns = append(turns, TrajTurnV2{
 				Role:     "assistant",
 				Blocks:   blocks,

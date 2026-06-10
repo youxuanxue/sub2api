@@ -241,3 +241,40 @@ func TestBuildTrajSessionsV2_StreamTruncatedSignal(t *testing.T) {
 		t.Errorf("expected truncated=true for incomplete stream, got: %v", a.CallMeta["truncated"])
 	}
 }
+
+// 前缀递增被打破（context compaction 缩短历史）→ 不静默丢消息，标 prefix_break 并从新基线续走。
+func TestBuildTrajSessionsV2_PrefixBreakSignal(t *testing.T) {
+	base := time.Date(2026, 5, 14, 14, 0, 0, 0, time.UTC)
+	mkBlob := func(req, resp string) *EvidenceBlob {
+		b := &EvidenceBlob{}
+		b.Request.Body = mustBody(t, req)
+		b.Response.Body = mustBody(t, resp)
+		return b
+	}
+	// call0: 3 messages; call1: compacted to 1 message (prefix shrink)
+	call0Req := `{"model":"m","messages":[` +
+		`{"role":"user","content":"q1"},` +
+		`{"role":"assistant","content":[{"type":"text","text":"a1"}]},` +
+		`{"role":"user","content":"q2"}]}`
+	call0Resp := `{"id":"msg_p0","stop_reason":"end_turn","content":[{"type":"text","text":"a2"}]}`
+	call1Req := `{"model":"m","messages":[{"role":"user","content":"compacted summary"}]}`
+	call1Resp := `{"id":"msg_p1","stop_reason":"end_turn","content":[{"type":"text","text":"a3"}]}`
+
+	sources := []SourceRecord{
+		{Record: &ent.QARecord{RequestID: "req_p0", CreatedAt: base, Platform: "anthropic", RequestedModel: "m", TrajectoryID: strptr("traj-pb")}, Blob: mkBlob(call0Req, call0Resp)},
+		{Record: &ent.QARecord{RequestID: "req_p1", CreatedAt: base.Add(time.Second), Platform: "anthropic", RequestedModel: "m", TrajectoryID: strptr("traj-pb")}, Blob: mkBlob(call1Req, call1Resp)},
+	}
+	sessions, _, err := BuildTrajSessionsV2(sources)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	turns := sessions[0].Turns
+	last := turns[len(turns)-1]
+	if last.Role != "assistant" || last.CallMeta["prefix_break"] != true {
+		t.Errorf("expected prefix_break=true on post-compaction assistant turn, got: %+v", last.CallMeta)
+	}
+	// 第一条记录的 turns 不受影响（user q1, q2 + assistant a2）
+	if turns[0].Role != "user" || turns[1].Role != "user" {
+		t.Errorf("pre-break user turns wrong: %+v %+v", turns[0], turns[1])
+	}
+}
