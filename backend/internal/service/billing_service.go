@@ -391,9 +391,11 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 	model = strings.ToLower(model)
 
 	// 1. 优先从动态价格服务获取
+	// TK: 全零价条目视同未命中（litellm 用 0.0 表示"价格未知"而非"免费"），
+	// 落入 fallback / ErrModelPricingUnavailable，让缺价 funnel 记零成本并告警。
 	if s.pricingService != nil {
 		litellmPricing := s.pricingService.GetModelPricing(model)
-		if litellmPricing != nil {
+		if litellmPricing != nil && !tkIsEffectivelyUnpriced(litellmPricing) {
 			// 启用 5m/1h 分类计费的条件：
 			// 1. 存在 1h 价格
 			// 2. 1h 价格 > 5m 价格（防止 LiteLLM 数据错误导致少收费）

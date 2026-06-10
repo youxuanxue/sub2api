@@ -1,7 +1,7 @@
 {
   "_meta": {
-    "note": "TK-owned pricing overlay for models the runtime price source lacks. fill-only: merged into PricingService AFTER any source load (Wei-Shaw remote OR disk fallback), and ONLY for keys the source does not already carry. The Wei-Shaw runtime mirror is a TRIMMED litellm mirror that drops provider-prefixed keys and token-less media entries, so imagen-*/veo-* resolve to nothing there; litellm itself also lags new provider models (deepseek-v4-*), which then bill $0. Media price = vertex_ai provider (TK media flow routes through Vertex ch41); falls back to gemini only when no vertex variant exists. Text price = provider official list price. Self-deprecating: the day the source carries a bare key natively, the source value wins and the entry below is ignored. fill-only cannot CORRECT wrong source prices (deepseek-chat/reasoner still carry the pre-V4 rate in the mirror) — use channel pricing (DB) for that.",
-    "provenance": "media: BerriAI/litellm model_prices_and_context_window.json, captured 2026-06-01; deepseek-v4-*: https://api-docs.deepseek.com/quick_start/pricing, captured 2026-06-04 (cache-hit input = cache_read; cache writes billed as normal input, no separate write fee); volcengine doubao-*/glm-4-7-251222: VolcEngine Ark official model-pricing page, captured 2026-06-10 (≤32K input tier, CNY/USD=7.3); glm-4.7 matches Zhipu official",
+    "note": "TK-owned pricing overlay for models the runtime price source lacks. Merged into PricingService AFTER any source load (Wei-Shaw remote OR disk fallback); an entry below applies when the source key is ABSENT or the source entry is EFFECTIVELY UNPRICED (every cost field 0.0 — litellm's 'unknown', not 'free'; see tkIsEffectivelyUnpriced). The Wei-Shaw runtime mirror is a TRIMMED litellm mirror that drops provider-prefixed keys and token-less media entries, so imagen-*/veo-* resolve to nothing there; litellm itself also lags new provider models (deepseek-v4-*) or carries them as zero placeholders (deepseek-v3-2-251201), which then bill $0. Media price = vertex_ai provider (TK media flow routes through Vertex ch41); falls back to gemini only when no vertex variant exists. Text price = provider official list price. Self-deprecating: the day the source carries a real (non-zero) price under the bare key, the source value wins and the entry below is ignored. The overlay cannot CORRECT wrong NON-ZERO source prices (deepseek-chat/reasoner still carry the pre-V4 rate in the mirror) — use channel pricing (DB) for that.",
+    "provenance": "media: BerriAI/litellm model_prices_and_context_window.json, captured 2026-06-01; deepseek-v4-*: https://api-docs.deepseek.com/quick_start/pricing, captured 2026-06-04 (cache-hit input = cache_read; cache writes billed as normal input, no separate write fee); volcengine doubao-*/glm-4-7-251222/deepseek-v3-2-251201: VolcEngine Ark official model-pricing page, captured 2026-06-10 (≤32K input tier, CNY/USD=7.3); glm-4.7 matches Zhipu official; qwen3.7-max*: Alibaba DashScope official list price, captured 2026-06-10 (per-entry source)",
     "regen": "manual curation; no auto-sync (entries are few + slow-moving). If they proliferate, add provider-aware sync."
   },
   "claude-fable-5": {
@@ -40,6 +40,15 @@
     "cache_read_input_token_cost": 3.625e-09,
     "supports_prompt_caching": true,
     "source": "https://api-docs.deepseek.com/quick_start/pricing (2026-06-04: in $0.435/M cache-miss, $0.003625/M cache-hit, out $0.87/M)"
+  },
+  "deepseek-v3-2-251201": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 2.73972602740e-07,
+    "output_cost_per_token": 4.10958904110e-07,
+    "cache_read_input_token_cost": 5.47945205479e-08,
+    "supports_prompt_caching": true,
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥2/M, out ¥3/M, cache-hit ¥0.4/M; CNY/USD=7.3. litellm carries this key with all costs 0.0 ('unknown', volcengine provider) — served via Ark account 7 / group 5 exclusively (683 reqs billed $0 through 2026-06-10); the absent-or-zero overlay fill replaces the zero placeholder. Ark price ≈ DeepSeek official V3.2 list ($0.274/$0.411 vs $0.28/$0.42 per M), so either routing basis bills the same"
   },
   "imagen-3.0-capability-001": {
     "litellm_provider": "vertex_ai",
