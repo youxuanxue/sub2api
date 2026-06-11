@@ -2188,7 +2188,21 @@
       "must_contain": [
         "middleware.TkAdminComplianceGuardIfEnabled(settingService)"
       ],
-      "rationale": "The registration site of the TK compliance-gate override. The companion middleware existing is not enough — if an upstream merge resolves this line back to middleware.AdminComplianceGuard(settingService), the override is compiled but dead and the fleet 423-locks. Double-trigger with the companion-file sentinel above."
+      "rationale": "The registration site of the TK compliance-gate override. The companion middleware existing is not enough — if an upstream merge resolves this line back to middleware.AdminComplianceGuard(settingService), the override is compiled but dead and the fleet 423-locks. Double-trigger with the companion-file sentinel above. Same rule for the other two admin-surface registration sites (page_handler.go admin pages list, routes/payment.go admin payment group) — each pinned by its own entry below."
+    },
+    {
+      "path": "backend/internal/handler/page_handler.go",
+      "must_contain": [
+        "middleware2.TkAdminComplianceGuardIfEnabled(settingService)"
+      ],
+      "rationale": "Second registration site of the upstream admin compliance guard (admin pages list). An upstream merge resolving this back to the bare AdminComplianceGuard 423-locks /api/v1/pages for fleet automation even though the routes/admin.go override survives — the override must cover every Use() site."
+    },
+    {
+      "path": "backend/internal/server/routes/payment.go",
+      "must_contain": [
+        "middleware.TkAdminComplianceGuardIfEnabled(settingService)"
+      ],
+      "rationale": "Third registration site of the upstream admin compliance guard (admin payment group). Same silent-revert mode as page_handler.go — bare AdminComplianceGuard here 423-locks /api/v1/admin/payment/* for fleet automation."
     }
   ]
 }
