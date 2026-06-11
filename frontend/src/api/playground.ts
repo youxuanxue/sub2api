@@ -75,15 +75,15 @@ export async function gatewayListModels(
   return res.json() as Promise<GatewayModelsResponse>
 }
 
-export async function gatewayChatCompletion(
+/** Shared gateway JSON call with per-request timeout + caller abort linkage. */
+async function gatewayRequestJSON(
   apiKey: string,
-  gatewayBaseUrl: string,
-  body: ChatCompletionRequest,
+  url: string,
+  init: { method: 'GET' | 'POST'; body?: unknown; timeoutMs: number },
   signal?: AbortSignal
 ): Promise<unknown> {
-  const url = `${stripTrailingSlashes(gatewayBaseUrl)}/v1/chat/completions`
   const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), PLAYGROUND_FETCH_TIMEOUT_MS)
+  const timer = setTimeout(() => ctrl.abort(), init.timeoutMs)
   const onAbort = (): void => {
     ctrl.abort()
   }
@@ -96,19 +96,13 @@ export async function gatewayChatCompletion(
   }
   try {
     const res = await fetch(url, {
-      method: 'POST',
+      method: init.method,
       headers: {
         Authorization: `Bearer ${apiKey}`,
         Accept: 'application/json',
-        'Content-Type': 'application/json'
+        ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {})
       },
-      body: JSON.stringify({
-        model: body.model,
-        messages: body.messages,
-        temperature: body.temperature,
-        max_tokens: body.max_tokens,
-        stream: false
-      }),
+      ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
       signal: ctrl.signal
     })
     const json = await res.json().catch(() => null)
@@ -126,4 +120,90 @@ export async function gatewayChatCompletion(
       signal.removeEventListener('abort', onAbort)
     }
   }
+}
+
+export async function gatewayChatCompletion(
+  apiKey: string,
+  gatewayBaseUrl: string,
+  body: ChatCompletionRequest,
+  signal?: AbortSignal
+): Promise<unknown> {
+  const url = `${stripTrailingSlashes(gatewayBaseUrl)}/v1/chat/completions`
+  return gatewayRequestJSON(
+    apiKey,
+    url,
+    {
+      method: 'POST',
+      body: {
+        model: body.model,
+        messages: body.messages,
+        temperature: body.temperature,
+        max_tokens: body.max_tokens,
+        stream: false
+      },
+      timeoutMs: PLAYGROUND_FETCH_TIMEOUT_MS
+    },
+    signal
+  )
+}
+
+export interface ImageGenerationRequest {
+  model: string
+  prompt: string
+  /** omit for upstream default */
+  size?: string
+}
+
+/** Image generation can run well past a minute upstream. */
+export const PLAYGROUND_IMAGE_TIMEOUT_MS = 180_000
+
+export async function gatewayImageGenerations(
+  apiKey: string,
+  gatewayBaseUrl: string,
+  body: ImageGenerationRequest,
+  signal?: AbortSignal
+): Promise<unknown> {
+  const url = `${stripTrailingSlashes(gatewayBaseUrl)}/v1/images/generations`
+  const payload: Record<string, unknown> = { model: body.model, prompt: body.prompt }
+  if (body.size) payload.size = body.size
+  return gatewayRequestJSON(
+    apiKey,
+    url,
+    { method: 'POST', body: payload, timeoutMs: PLAYGROUND_IMAGE_TIMEOUT_MS },
+    signal
+  )
+}
+
+export interface VideoGenerationRequest {
+  model: string
+  prompt: string
+  /** seconds; gateway default is 8 when omitted */
+  duration?: number
+}
+
+export async function gatewayVideoSubmit(
+  apiKey: string,
+  gatewayBaseUrl: string,
+  body: VideoGenerationRequest,
+  signal?: AbortSignal
+): Promise<unknown> {
+  const url = `${stripTrailingSlashes(gatewayBaseUrl)}/v1/video/generations`
+  const payload: Record<string, unknown> = { model: body.model, prompt: body.prompt }
+  if (body.duration) payload.duration = body.duration
+  return gatewayRequestJSON(
+    apiKey,
+    url,
+    { method: 'POST', body: payload, timeoutMs: PLAYGROUND_FETCH_TIMEOUT_MS },
+    signal
+  )
+}
+
+export async function gatewayVideoFetch(
+  apiKey: string,
+  gatewayBaseUrl: string,
+  taskId: string,
+  signal?: AbortSignal
+): Promise<unknown> {
+  const url = `${stripTrailingSlashes(gatewayBaseUrl)}/v1/video/generations/${encodeURIComponent(taskId)}`
+  return gatewayRequestJSON(apiKey, url, { method: 'GET', timeoutMs: 30_000 }, signal)
 }

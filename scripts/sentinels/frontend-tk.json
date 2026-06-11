@@ -622,6 +622,51 @@
         "pickKeyPlaceholder: '请选择 API 密钥…'"
       ],
       "rationale": "Chinese counterparts of the en.ts playground anchors above; moves in lockstep so neither language silently regresses."
+    },
+    {
+      "path": "frontend/src/constants/playgroundMedia.tk.ts",
+      "must_contain": [
+        "modalityForModel",
+        "id.startsWith('gpt-image-')",
+        "id.includes('seedance') || id.startsWith('veo-')",
+        "videoStateFromFetch"
+      ],
+      "rationale": "Playground media modality table + tolerant response parsing. /v1/models returns bare ids and the public catalog has no image/video capability tag, so this frontend table is the only thing routing gpt-image-*/imagen-*/seedream prompts to /v1/images/generations and veo-*/seedance prompts to the vt_ video task flow. The gpt-image- prefix mirrors the backend's own intent predicate (openai_images.go isOpenAIImageGenerationModel) — if either side changes family patterns the other must follow."
+    },
+    {
+      "path": "frontend/src/views/user/PlaygroundView.vue",
+      "must_contain": [
+        "modalityForModel",
+        "gatewayImageGenerations",
+        "gatewayVideoSubmit",
+        "scheduleVideoPoll"
+      ],
+      "rationale": "Playground image/video modes: modality switch off the selected model, sync image generation, and the vt_ task submit→poll loop (poll key captured at submit time; fetch error or terminal status ends the loop — server deletes terminal records and TTLs the rest at 24h). Dropping this wiring silently reverts media models to chat submits that can only error."
+    },
+    {
+      "path": "frontend/src/api/playground.ts",
+      "must_contain": [
+        "gatewayImageGenerations",
+        "gatewayVideoFetch",
+        "/v1/video/generations/"
+      ],
+      "rationale": "Gateway media calls for the playground (images sync POST with 180s timeout, video submit + per-task fetch). Paths must stay the TK gateway aliases registered in routes/gateway_tk_openai_compat_handlers.go."
+    },
+    {
+      "path": "frontend/src/i18n/locales/en.ts",
+      "must_contain": [
+        "imageGenerate: 'Generate image'",
+        "videoStatusProcessing: 'Processing'"
+      ],
+      "rationale": "Playground media-mode strings (image panel + video task card); anchors keep the block from being dropped in an i18n-heavy upstream merge."
+    },
+    {
+      "path": "frontend/src/i18n/locales/zh.ts",
+      "must_contain": [
+        "imageGenerate: '生成图片'",
+        "videoStatusProcessing: '处理中'"
+      ],
+      "rationale": "Chinese counterparts of the en.ts playground media anchors; moves in lockstep so neither language silently regresses."
     }
   ]
 }
