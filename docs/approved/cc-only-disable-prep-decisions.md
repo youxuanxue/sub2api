@@ -19,6 +19,8 @@ related_commits: []
 
 ## 0. 一句话结论
 
+> ⚠️ **方向已修订（2026-06-11）——本节及 D1–D4 的「单开关 / 入口拒绝」结论已被文末「[方向修订（D1/D4）](#方向修订d1d42026-06-11运营授权)」一节覆盖，以那一节为准。** 下面保留为决策演进的审计记录：原方向是「在入口拒掉非 CC」（单开关），实际落地方向是「放行非 CC + canonical TLS 出口兜底转换」，并把单开关拆成两个正交开关（入口拒绝 / haiku 出口补全）。读本文请先读文末修订节再回看 D1–D4 的论证。
+
 关 cc-only 后，**canonical OAuth 入口 UA 门禁是唯一的客户端身份闸**。它今天是 deny-list（空 UA / 未知 UA 全放行），这对"裸奔的 edge"是危险的。但**把它无条件改成 allow-list（拒空 UA）会误杀真实匿名客户端**——因为 prod→edge 是**透明 apikey 透传，客户端 UA 原样穿过**（已用代码证实，见 §1），空 UA 是真实客户端信号而非中继伪影。因此最优解不是"一刀切收紧门禁"，而是：**新增一个默认关闭的 admin setting，把门禁从 deny-list 升级为 allow-list（含拒空 UA），并把这套收紧行为整体置于该 setting 之后**。未开启 = 完全保持当前 upstream 行为（零回归）；运营在关某个组的 cc_only 之前，先在目标 edge 开这个 setting 做单边 canary，秒级可回滚。
 
 ---
@@ -40,6 +42,8 @@ related_commits: []
 ---
 
 ## D1（核心）：入口 UA 门禁 deny-list → allow-list；空 UA 与中继如何处理
+
+> ⚠️ **已被文末「方向修订」覆盖**：实际方向不是「在入口拒非 CC」，而是「放行非 CC、靠出口兜底转换」。本节的 allow-list 拒绝只是**两条策略之一**（reject-at-door），由 `anthropic_canonical_ingress_strict_enabled` 单独门控、默认关。
 
 **结论**：保留 `checkCanonicalIngressUA` 现有 deny-list 作为**默认行为不变**；新增一个默认关闭的 setting `anthropic_canonical_ingress_strict_enabled`。当且仅当该 setting 开启时，门禁切换为 **allow-list 语义**：只放行 UA 前缀属于 `claude-cli/` 或 `claude-code/`（大小写不敏感、允许前导空白），**其余一律拒**——包括空 UA 与未知 UA。不开启时维持今天的 deny-list（空/未知放行），零回归。
 
@@ -68,6 +72,8 @@ related_commits: []
 ---
 
 ## D4：开关形态与默认值（宪法 §5.x 覆写默认 + admin setting）
+
+> ⚠️ **已被文末「方向修订」覆盖**：本节的「单一开关统辖三处」是错的——目标配置需要「haiku 出口补全 ON、入口拒绝 OFF」，单开关无法表达。实际拆成**两个正交开关** `anthropic_canonical_ingress_strict_enabled`（#1#2 入口拒绝）与 `anthropic_canonical_haiku_mimicry_enabled`（#3 出口补全），均默认 false。详见文末修订节。
 
 **结论**：新增单一布尔 setting，统辖 D1/D2/D3 三处收紧（一个开关，整套收紧行为，符合"聚焦/简洁"）。
 
