@@ -35,6 +35,9 @@ func (r *tkBridgePenaltyIncidentRecorder) NotifyAccountRecovered(accountID int64
 	r.recovered = append(r.recovered, accountID)
 }
 
+func (r *tkBridgePenaltyIncidentRecorder) NotifyPlatformPoolExhausted(platform string, trigger *Account, until time.Time, reason string) {
+}
+
 func newBridgePenaltyTestService() (*RateLimitService, *rateLimitAccountRepoStub, *runtimeBlockRecorder, *tkBridgePenaltyIncidentRecorder) {
 	repo := &rateLimitAccountRepoStub{}
 	blocker := &runtimeBlockRecorder{}
