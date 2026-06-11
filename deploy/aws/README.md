@@ -194,7 +194,7 @@ prod (EC2) 与 edge (Lightsail) 的公网暴露收窄到**只剩 TCP 443**：
 5. **prod 关 22**：`aws cloudformation deploy ... --parameter-overrides AdminCidr=127.0.0.1/32 ImageTag=<当前运行态 tag>`（pin ImageTag 防 R5 静默退版）。改 SG ingress 是 in-place 更新、不替换实例。验证 `aws ssm start-session` 可进 + `https://api.tokenkey.dev/health` 正常。
 6. **prod 关 80**：确认 prod Caddy 已在 ALPN 配置（步骤 2）且证书可续后，再 `aws cloudformation deploy`（应用去掉 80 ingress 的新模板）→ `ops/stage0/post_deploy_smoke.sh` 全链路冒烟。
 
-回滚：edge 重 `aws lightsail open-instance-public-ports ...80`；prod 恢复 SG 80 规则后 `aws cloudformation deploy`。
+回滚：edge 临时重开 80 用 `aws lightsail put-instance-public-ports --port-infos "fromPort=443,toPort=443,protocol=tcp,cidrs=0.0.0.0/0" "fromPort=80,toPort=80,protocol=tcp,cidrs=0.0.0.0/0"`（声明 443+80，用已授权的 put 而非已删的 open-instance-public-ports）；prod 恢复 SG 80 规则后 `aws cloudformation deploy`。
 
 ## 升级 / 发版（生产 Stage0）
 
