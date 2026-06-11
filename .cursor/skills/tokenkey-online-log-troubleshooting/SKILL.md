@@ -293,7 +293,7 @@ CLI 契约：
 
 | 参数 / env | 默认 | 含义 |
 |---|---|---|
-| `--target` | （必填） | `prod` 或 `edge:<id>`（Lightsail/EC2 均经 `ops/stage0/edge_ssm_execution.py` 解析 instance） |
+| `--target` | （必填） | `prod` 或 `edge:<id>`（edge 经 `ops/stage0/edge_ssm_execution.py` 解析为 `mi-*`；prod 走 CFN） |
 | `--out` / `OUT_DIR` | `./.cache/gateway-debug` | 本机输出目录 |
 | `--log-path` / `LOG_PATH` | `/app/data/gateway_debug.log` | 容器内 debug 文件路径 |
 | `SSM_OUTPUT_S3_BUCKET` | layer-zip-repro-… | 临时对象桶（上传后脚本会 `aws s3 rm` 清理 key） |
