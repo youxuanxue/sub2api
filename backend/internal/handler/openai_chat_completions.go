@@ -156,7 +156,9 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			)
 			if len(failedAccountIDs) == 0 {
 				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-				h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable", streamStarted)
+				// TK: empty pool fast-fails 429 (#575 parity); other scheduler errors stay 503.
+				tkStatus, tkMsg := tkSelectFailureStatusMessage(c, err)
+				h.handleStreamingAwareError(c, tkStatus, "api_error", tkMsg, streamStarted)
 				return
 			} else {
 				if lastFailoverErr != nil {

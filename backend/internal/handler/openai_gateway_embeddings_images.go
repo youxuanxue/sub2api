@@ -160,7 +160,10 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 					}
 				}
 				if err != nil {
-					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable", streamStarted)
+					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+					// TK: empty pool fast-fails 429 (#575 parity); other scheduler errors stay 503.
+					tkStatus, tkMsg := tkSelectFailureStatusMessage(c, err)
+					h.handleStreamingAwareError(c, tkStatus, "api_error", tkMsg, streamStarted)
 					return
 				}
 			} else {
@@ -458,7 +461,10 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 					}
 				}
 				if err != nil {
-					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable", streamStarted)
+					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+					// TK: empty pool fast-fails 429 (#575 parity); other scheduler errors stay 503.
+					tkStatus, tkMsg := tkSelectFailureStatusMessage(c, err)
+					h.handleStreamingAwareError(c, tkStatus, "api_error", tkMsg, streamStarted)
 					return
 				}
 			} else {

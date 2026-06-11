@@ -38,3 +38,25 @@ func tkNoAvailableAccounts(c *gin.Context) int {
 	c.Header("Retry-After", tkNoAvailableAccountsRetryAfterSeconds)
 	return http.StatusTooManyRequests
 }
+
+// tkSelectFailureStatusMessage maps a FIRST-attempt account-selection error
+// (len(failedAccountIDs)==0, no upstream attempt was made yet) to the
+// client-facing (status, message) pair.
+//
+// Empty pool — the "no available accounts" error family, classified by
+// isOpsNoAvailableAccountError, the exact predicate ops logging already uses in
+// markOpsRoutingCapacityLimitedIfNoAvailable — gets the #575 fast-fail
+// semantics: 429 + Retry-After via tkNoAvailableAccounts (see that helper's
+// comment for why 503 melts the node behind Caddy passive health). Any other
+// scheduler failure (DB outage, context errors, ...) keeps 503: those are real
+// service faults, not capacity backoff hints.
+//
+// This converged the openai/newapi compat handlers with the anthropic path,
+// which adopted the 429 semantics in #575; before this helper the two branches
+// of the same handler disagreed (selection==nil → 429, select error → 503).
+func tkSelectFailureStatusMessage(c *gin.Context, err error) (int, string) {
+	if isOpsNoAvailableAccountError(err) {
+		return tkNoAvailableAccounts(c), "No available accounts: " + err.Error()
+	}
+	return http.StatusServiceUnavailable, "Service temporarily unavailable"
+}
