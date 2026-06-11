@@ -66,9 +66,20 @@ func tkUpstreamClientInducedRejection(c *gin.Context) bool {
 		return service.IsAnthropicModelNotFound404([]byte(body), msg) ||
 			service.IsOpenAICompatModelNotFound404([]byte(body), msg)
 	}
-	// Only request-validation 4xx are caller-fault. 401/403 and any 5xx stay
-	// provider-owned (account auth / availability / genuine upstream failure); 404
-	// model-not-found is handled as caller-fault just above.
+	// TK (PR #691 cc-only canary prep): a 403 carrying TokenKey's own
+	// canonical-ingress rejection phrase is a downstream strict-mode edge
+	// rejecting the END CLIENT's identity — caller-fault, not provider health.
+	// Without this, a canary edge's strict rejections relayed through the prod
+	// mirror stub would count toward upstream_error_rate and could fire the
+	// provider-health P0 alert. Matches ONLY the TokenKey phrase; genuine
+	// Anthropic 403s (org disabled, bot challenge) stay provider-owned below.
+	if status == 403 {
+		body, msg := tkOpsUpstreamErrorText(c)
+		return service.IsCanonicalIngressUARejectMessage([]byte(body), msg)
+	}
+	// Only request-validation 4xx are caller-fault. 401 (and non-TK 403) and any
+	// 5xx stay provider-owned (account auth / availability / genuine upstream
+	// failure); 404 model-not-found is handled as caller-fault just above.
 	if status != 400 && status != 422 {
 		return false
 	}

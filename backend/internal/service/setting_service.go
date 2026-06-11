@@ -121,6 +121,8 @@ type cachedGatewayForwardingSettings struct {
 	anthropicCacheTTL1hInjection bool
 	rewriteMessageCacheControl   bool
 	anthropicRequestNormalize    bool
+	canonicalIngressStrict       bool
+	canonicalHaikuMimicry        bool
 	expiresAt                    int64 // unix nano
 }
 
@@ -1617,6 +1619,8 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyRegistrationEmailSuffixWhitelist] = string(registrationEmailSuffixWhitelistJSON)
 	updates[SettingKeyPromoCodeEnabled] = strconv.FormatBool(settings.PromoCodeEnabled)
 	updates[SettingKeyKiroEnabled] = strconv.FormatBool(settings.KiroEnabled)
+	updates[SettingKeyAnthropicCanonicalIngressStrictEnabled] = strconv.FormatBool(settings.AnthropicCanonicalIngressStrictEnabled)
+	updates[SettingKeyAnthropicCanonicalHaikuMimicryEnabled] = strconv.FormatBool(settings.AnthropicCanonicalHaikuMimicryEnabled)
 	updates[SettingKeyPasswordResetEnabled] = strconv.FormatBool(settings.PasswordResetEnabled)
 	updates[SettingKeyFrontendURL] = settings.FrontendURL
 	updates[SettingKeyInvitationCodeEnabled] = strconv.FormatBool(settings.InvitationCodeEnabled)
@@ -1969,6 +1973,8 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 		anthropicCacheTTL1hInjection: settings.EnableAnthropicCacheTTL1hInjection,
 		rewriteMessageCacheControl:   settings.RewriteMessageCacheControl,
 		anthropicRequestNormalize:    settings.AnthropicRequestNormalizeEnabled,
+		canonicalIngressStrict:       settings.AnthropicCanonicalIngressStrictEnabled,
+		canonicalHaikuMimicry:        settings.AnthropicCanonicalHaikuMimicryEnabled,
 		expiresAt:                    time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
 	})
 	s.antigravityUAVersionSF.Forget("antigravity_user_agent_version")
@@ -2122,6 +2128,8 @@ func (s *SettingService) IsBackendModeEnabled(ctx context.Context) bool {
 
 type gatewayForwardingSettingsResult struct {
 	fp, mp, cch, cacheTTL1h, rewriteMessageCacheControl, anthropicRequestNormalize bool
+	canonicalIngressStrict                                                         bool
+	canonicalHaikuMimicry                                                          bool
 }
 
 func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context) gatewayForwardingSettingsResult {
@@ -2134,6 +2142,8 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 				cacheTTL1h:                 cached.anthropicCacheTTL1hInjection,
 				rewriteMessageCacheControl: cached.rewriteMessageCacheControl,
 				anthropicRequestNormalize:  cached.anthropicRequestNormalize,
+				canonicalIngressStrict:     cached.canonicalIngressStrict,
+				canonicalHaikuMimicry:      cached.canonicalHaikuMimicry,
 			}
 		}
 	}
@@ -2147,6 +2157,8 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 					cacheTTL1h:                 cached.anthropicCacheTTL1hInjection,
 					rewriteMessageCacheControl: cached.rewriteMessageCacheControl,
 					anthropicRequestNormalize:  cached.anthropicRequestNormalize,
+					canonicalIngressStrict:     cached.canonicalIngressStrict,
+					canonicalHaikuMimicry:      cached.canonicalHaikuMimicry,
 				}, nil
 			}
 		}
@@ -2159,6 +2171,8 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			SettingKeyEnableAnthropicCacheTTL1hInjection,
 			SettingKeyRewriteMessageCacheControl,
 			SettingKeyAnthropicRequestNormalizeEnabled,
+			SettingKeyAnthropicCanonicalIngressStrictEnabled,
+			SettingKeyAnthropicCanonicalHaikuMimicryEnabled,
 		})
 		if err != nil {
 			slog.Warn("failed to get gateway forwarding settings", "error", err)
@@ -2169,6 +2183,8 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 				anthropicCacheTTL1hInjection: false,
 				rewriteMessageCacheControl:   s.defaultRewriteMessageCacheControl(),
 				anthropicRequestNormalize:    true,
+				canonicalIngressStrict:       false,
+				canonicalHaikuMimicry:        false,
 				expiresAt:                    time.Now().Add(gatewayForwardingErrorTTL).UnixNano(),
 			})
 			return gatewayForwardingSettingsResult{
@@ -2178,6 +2194,8 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 				cacheTTL1h:                 false,
 				rewriteMessageCacheControl: s.defaultRewriteMessageCacheControl(),
 				anthropicRequestNormalize:  true,
+				canonicalIngressStrict:     false,
+				canonicalHaikuMimicry:      false,
 			}, nil
 		}
 		fp := true
@@ -2193,6 +2211,10 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 		}
 		// Default-true: missing / empty value means enabled. Explicit "false" disables.
 		anthropicRequestNormalize := !isFalseSettingValue(values[SettingKeyAnthropicRequestNormalizeEnabled])
+		// Default-false: only explicit "true" enables the canonical-ingress strict gate.
+		canonicalIngressStrict := values[SettingKeyAnthropicCanonicalIngressStrictEnabled] == "true"
+		// Default-false: only explicit "true" enables the canonical haiku mimicry completion.
+		canonicalHaikuMimicry := values[SettingKeyAnthropicCanonicalHaikuMimicryEnabled] == "true"
 		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
 			fingerprintUnification:       fp,
 			metadataPassthrough:          mp,
@@ -2200,6 +2222,8 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			anthropicCacheTTL1hInjection: cacheTTL1h,
 			rewriteMessageCacheControl:   rewriteMessageCacheControl,
 			anthropicRequestNormalize:    anthropicRequestNormalize,
+			canonicalIngressStrict:       canonicalIngressStrict,
+			canonicalHaikuMimicry:        canonicalHaikuMimicry,
 			expiresAt:                    time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
 		})
 		return gatewayForwardingSettingsResult{
@@ -2209,6 +2233,8 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			cacheTTL1h:                 cacheTTL1h,
 			rewriteMessageCacheControl: rewriteMessageCacheControl,
 			anthropicRequestNormalize:  anthropicRequestNormalize,
+			canonicalIngressStrict:     canonicalIngressStrict,
+			canonicalHaikuMimicry:      canonicalHaikuMimicry,
 		}, nil
 	})
 	if r, ok := val.(gatewayForwardingSettingsResult); ok {
@@ -2851,38 +2877,40 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		apiKeyACLTrustForwardedIP = s.cfg.Security.TrustForwardedIPForAPIKeyACL
 	}
 	result := &SystemSettings{
-		RegistrationEnabled:              settings[SettingKeyRegistrationEnabled] == "true",
-		EmailVerifyEnabled:               emailVerifyEnabled,
-		RegistrationEmailSuffixWhitelist: ParseRegistrationEmailSuffixWhitelist(settings[SettingKeyRegistrationEmailSuffixWhitelist]),
-		PromoCodeEnabled:                 settings[SettingKeyPromoCodeEnabled] != "false", // 默认启用
-		KiroEnabled:                      settings[SettingKeyKiroEnabled] == "true",       // TK: Kiro 第六平台门禁，默认关闭（ToS）
-		PasswordResetEnabled:             emailVerifyEnabled && settings[SettingKeyPasswordResetEnabled] == "true",
-		FrontendURL:                      settings[SettingKeyFrontendURL],
-		InvitationCodeEnabled:            settings[SettingKeyInvitationCodeEnabled] == "true",
-		TotpEnabled:                      settings[SettingKeyTotpEnabled] == "true",
-		SMTPHost:                         settings[SettingKeySMTPHost],
-		SMTPUsername:                     settings[SettingKeySMTPUsername],
-		SMTPFrom:                         settings[SettingKeySMTPFrom],
-		SMTPFromName:                     settings[SettingKeySMTPFromName],
-		SMTPUseTLS:                       settings[SettingKeySMTPUseTLS] == "true",
-		SMTPPasswordConfigured:           settings[SettingKeySMTPPassword] != "",
-		TurnstileEnabled:                 settings[SettingKeyTurnstileEnabled] == "true",
-		TurnstileSiteKey:                 settings[SettingKeyTurnstileSiteKey],
-		TurnstileSecretKeyConfigured:     settings[SettingKeyTurnstileSecretKey] != "",
-		APIKeyACLTrustForwardedIP:        apiKeyACLTrustForwardedIP,
-		SiteName:                         s.getStringOrDefault(settings, SettingKeySiteName, "TokenKey"),
-		SiteLogo:                         settings[SettingKeySiteLogo],
-		SiteSubtitle:                     s.getStringOrDefault(settings, SettingKeySiteSubtitle, "AI API Gateway Platform"),
-		APIBaseURL:                       settings[SettingKeyAPIBaseURL],
-		ContactInfo:                      settings[SettingKeyContactInfo],
-		DocURL:                           settings[SettingKeyDocURL],
-		HomeContent:                      settings[SettingKeyHomeContent],
-		HideCcsImportButton:              settings[SettingKeyHideCcsImportButton] == "true",
-		PurchaseSubscriptionEnabled:      settings[SettingKeyPurchaseSubscriptionEnabled] == "true",
-		PurchaseSubscriptionURL:          strings.TrimSpace(settings[SettingKeyPurchaseSubscriptionURL]),
-		CustomMenuItems:                  settings[SettingKeyCustomMenuItems],
-		CustomEndpoints:                  settings[SettingKeyCustomEndpoints],
-		BackendModeEnabled:               settings[SettingKeyBackendModeEnabled] == "true",
+		RegistrationEnabled:                    settings[SettingKeyRegistrationEnabled] == "true",
+		EmailVerifyEnabled:                     emailVerifyEnabled,
+		RegistrationEmailSuffixWhitelist:       ParseRegistrationEmailSuffixWhitelist(settings[SettingKeyRegistrationEmailSuffixWhitelist]),
+		PromoCodeEnabled:                       settings[SettingKeyPromoCodeEnabled] != "false",                      // 默认启用
+		KiroEnabled:                            settings[SettingKeyKiroEnabled] == "true",                            // TK: Kiro 第六平台门禁，默认关闭（ToS）
+		AnthropicCanonicalIngressStrictEnabled: settings[SettingKeyAnthropicCanonicalIngressStrictEnabled] == "true", // TK: canonical 入口 UA strict 拒绝（#1#2），默认关闭（零回归）
+		AnthropicCanonicalHaikuMimicryEnabled:  settings[SettingKeyAnthropicCanonicalHaikuMimicryEnabled] == "true",  // TK: canonical 非 CC haiku 出口 mimicry 补全（#3），默认关闭（零回归）
+		PasswordResetEnabled:                   emailVerifyEnabled && settings[SettingKeyPasswordResetEnabled] == "true",
+		FrontendURL:                            settings[SettingKeyFrontendURL],
+		InvitationCodeEnabled:                  settings[SettingKeyInvitationCodeEnabled] == "true",
+		TotpEnabled:                            settings[SettingKeyTotpEnabled] == "true",
+		SMTPHost:                               settings[SettingKeySMTPHost],
+		SMTPUsername:                           settings[SettingKeySMTPUsername],
+		SMTPFrom:                               settings[SettingKeySMTPFrom],
+		SMTPFromName:                           settings[SettingKeySMTPFromName],
+		SMTPUseTLS:                             settings[SettingKeySMTPUseTLS] == "true",
+		SMTPPasswordConfigured:                 settings[SettingKeySMTPPassword] != "",
+		TurnstileEnabled:                       settings[SettingKeyTurnstileEnabled] == "true",
+		TurnstileSiteKey:                       settings[SettingKeyTurnstileSiteKey],
+		TurnstileSecretKeyConfigured:           settings[SettingKeyTurnstileSecretKey] != "",
+		APIKeyACLTrustForwardedIP:              apiKeyACLTrustForwardedIP,
+		SiteName:                               s.getStringOrDefault(settings, SettingKeySiteName, "TokenKey"),
+		SiteLogo:                               settings[SettingKeySiteLogo],
+		SiteSubtitle:                           s.getStringOrDefault(settings, SettingKeySiteSubtitle, "AI API Gateway Platform"),
+		APIBaseURL:                             settings[SettingKeyAPIBaseURL],
+		ContactInfo:                            settings[SettingKeyContactInfo],
+		DocURL:                                 settings[SettingKeyDocURL],
+		HomeContent:                            settings[SettingKeyHomeContent],
+		HideCcsImportButton:                    settings[SettingKeyHideCcsImportButton] == "true",
+		PurchaseSubscriptionEnabled:            settings[SettingKeyPurchaseSubscriptionEnabled] == "true",
+		PurchaseSubscriptionURL:                strings.TrimSpace(settings[SettingKeyPurchaseSubscriptionURL]),
+		CustomMenuItems:                        settings[SettingKeyCustomMenuItems],
+		CustomEndpoints:                        settings[SettingKeyCustomEndpoints],
+		BackendModeEnabled:                     settings[SettingKeyBackendModeEnabled] == "true",
 	}
 	tkApplyTokenKeyBridgeParsed(settings, result)
 	tkApplyAnthropicNormalizeParsed(settings, result)
