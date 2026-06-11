@@ -22,8 +22,10 @@ import (
 //     SetTempUnschedulable so last-write-wins doesn't replace the upstream-
 //     authoritative reset time with a less-precise local cooldown. The
 //     counters still advance.
-// P3: 529 with a successful SetOverloaded write must likewise suppress the
-//     ladder cooldown write.
+// P3: 529 WITHOUT Retry-After writes only the 30s tier-0 floor and does NOT
+//     suppress the ladder, so a sustained 529 storm escalates via the ladder
+//     (amplifier removal 2026-06-11). A precise Retry-After is still authoritative
+//     and suppresses the ladder, same as 429-reset.
 // P4: A second 403 hit whose prior reason was also a 403 temp-unschedulable
 //     must escalate (tryTempUnschedulable returns false) so handle403's
 //     downstream Anthropic path runs without writing yet another 6h cooldown.
@@ -119,9 +121,15 @@ func TestRateLimitService_HandleUpstreamError_Anthropic429NoResetHeaderStillLadd
 		"third 429 without reset header MUST land the ladder cooldown — that's the only signal of a failing account")
 }
 
-// --- P3: 529 successful overload suppresses ladder cooldown -------------------
-
-func TestRateLimitService_HandleUpstreamError_Anthropic529SetOverloadedSuppressesLadder(t *testing.T) {
+// --- P3: 529 short floor, then ladder escalates on sustained ------------------
+//
+// 2026-06-11 16:50 UTC amplifier removal: a 529 WITHOUT Retry-After is no longer
+// "authoritative" — handle529 writes only the 30s tier-0 floor and does NOT
+// suppress the ladder. So a SUSTAINED 529 storm (3/3 threshold) escalates via the
+// existing ladder (SetTempUnschedulable, 30s→2m→10m), instead of being flat-
+// locked for 10 min on the first hit. (A precise Retry-After is still honored and
+// suppresses the ladder — see the 429-reset test above and the handle529 tests.)
+func TestRateLimitService_HandleUpstreamError_Anthropic529FloorThenLadderEscalates(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	counter := &anthropicUpstreamErrorCounterCacheStub{
 		counts:     []int64{1, 2, 3},
@@ -145,14 +153,16 @@ func TestRateLimitService_HandleUpstreamError_Anthropic529SetOverloadedSuppresse
 			context.Background(),
 			account,
 			529,
-			http.Header{},
+			http.Header{}, // no Retry-After → 30s floor, ladder NOT suppressed
 			[]byte(`{"error":{"type":"overloaded_error","message":"upstream overloaded"}}`),
 		)
 	}
 
-	require.Equal(t, 3, repo.setOverloadedCalls, "every 529 wrote SetOverloaded")
-	require.Equal(t, 0, repo.tempCalls,
-		"ladder must NOT write SetTempUnschedulable when SetOverloaded landed")
+	require.Equal(t, 3, repo.setOverloadedCalls, "every 529 still writes the SetOverloaded floor")
+	require.Equal(t, 1, repo.tempCalls,
+		"the 3rd (threshold) 529 must escalate via the ladder — no longer suppressed when no Retry-After landed")
+	require.Equal(t, []int64{703, 703, 703}, counter.incrementIDs,
+		"3/3 short-window counter advanced on every 529")
 }
 
 // --- P4: 403 second hit escalates ---------------------------------------------

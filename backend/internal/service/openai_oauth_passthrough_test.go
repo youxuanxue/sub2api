@@ -851,7 +851,9 @@ func TestOpenAIGatewayService_OpenAIPassthrough_429And529TriggerFailover(t *test
 			assertRepo: func(t *testing.T, repo *openAIPassthroughFailoverRepo, start time.Time) {
 				require.Empty(t, repo.rateLimitCalls)
 				require.Len(t, repo.overloadCalls, 1)
-				require.WithinDuration(t, start.Add(10*time.Minute), repo.overloadCalls[0], 5*time.Second)
+				// 529 without Retry-After now gets the 30s tier-0 floor, not flat 10min
+				// (amplifier removal, 2026-06-11). Sustained 529 escalates via the 3/3 ladder.
+				require.WithinDuration(t, start.Add(anthropicCooldownTierLadder[0]), repo.overloadCalls[0], 5*time.Second)
 			},
 		},
 		{
@@ -876,7 +878,9 @@ func TestOpenAIGatewayService_OpenAIPassthrough_429And529TriggerFailover(t *test
 			assertRepo: func(t *testing.T, repo *openAIPassthroughFailoverRepo, start time.Time) {
 				require.Empty(t, repo.rateLimitCalls)
 				require.Len(t, repo.overloadCalls, 1)
-				require.WithinDuration(t, start.Add(10*time.Minute), repo.overloadCalls[0], 5*time.Second)
+				// 529 without Retry-After now gets the 30s tier-0 floor, not flat 10min
+				// (amplifier removal, 2026-06-11). Sustained 529 escalates via the 3/3 ladder.
+				require.WithinDuration(t, start.Add(anthropicCooldownTierLadder[0]), repo.overloadCalls[0], 5*time.Second)
 			},
 		},
 	}
