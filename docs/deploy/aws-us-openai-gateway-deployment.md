@@ -63,7 +63,7 @@ flowchart TD
     EIP --> EC2
 
     subgraph EC2["EC2 t4g.small (公有子网, 单 AZ)"]
-        CADDY[Caddy: 443/80<br/>Let's Encrypt 自动签证书]
+        CADDY[Caddy: 443<br/>Let's Encrypt TLS-ALPN-01 自动签证书]
         APP[tokenkey:8080]
         PG[(postgres:18-alpine)]
         RDS[(redis:8-alpine)]
@@ -81,9 +81,9 @@ flowchart TD
 |---|---|
 | 实例 | EC2 **t4g.small**（ARM Graviton, 2 vCPU / 2 GiB；可降本至 `t4g.micro`，详见 3.3） |
 | 存储 | 30 GiB **gp3** EBS（系统 + 数据合一，路径集中在 `/var/lib/tokenkey/`） |
-| 入口 | EIP（绑定 EC2 时不计费）+ Caddy 443/80 |
+| 入口 | EIP（绑定 EC2 时不计费）+ Caddy **仅 443**（公网 80/22 已关，详见 `deploy/aws/README.md` 公网端口收窄） |
 | 出口 | 直连 OpenAI（**无 NAT GW**；EC2 自带公网 IP） |
-| TLS | Let's Encrypt（Caddy ACME HTTP-01，自动续签） |
+| TLS | Let's Encrypt（Caddy ACME **TLS-ALPN-01**，走 443 自动续签，无需公网 80） |
 | 数据栈 | 同机 docker-compose：tokenkey 应用 / PostgreSQL 18 / Redis 8 / Caddy 2 |
 | 备份 | 每日 EBS 整盘快照（DLM）+ 每 2 小时 `pg_dump`（systemd timer，滚动保留 12 份 / ~24h） |
 | 登录 | **AWS SSM Session Manager**（不开 SSH 密钥，免维护跳板机） |

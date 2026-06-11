@@ -172,11 +172,29 @@ ops/stage0/sync-feishu-config.sh
 
 所有 edge 的 provision / DNS / smoke / 升级 / 回滚都走 `deploy-edge-lightsail-stage0.yml` +
 `edge-targets-lightsail.json`。一次性 IAM addon、GHCR PAT 路径（`/tokenkey/lightsail/<edge_id>/ghcr/pat`）、
-端口放行（80/443）、Static IP / DNS 核对、Anthropic OAuth 重建等完整步骤见
+端口放行（**仅 443**，见下「公网端口收窄」）、Static IP / DNS 核对、Anthropic OAuth 重建等完整步骤见
 [`deploy/aws/lightsail/README.md`](lightsail/README.md) 与
 [`.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/SKILL.md`](../../.cursor/skills/tokenkey-stage0-edge-lightsail-expansion/SKILL.md)（`operation=full`）。
 
 IP 被上游污染需轮换 Static IP：[`.cursor/skills/tokenkey-stage0-edge-lightsail-ip-rotation/SKILL.md`](../../.cursor/skills/tokenkey-stage0-edge-lightsail-ip-rotation/SKILL.md) + `ops/lightsail/rotate-static-ip.sh`。
+
+## 公网端口收窄（443-only）
+
+prod (EC2) 与 edge (Lightsail) 的公网暴露收窄到**只剩 TCP 443**：
+
+- **80 关闭**：证书改用 **TLS-ALPN-01**（走 443，Caddyfile `disable_http_challenge`），不再需要 HTTP-01 / `:80` 跳转。
+- **22 关闭**：运维全走 SSM Session Manager（prod）/ Lightsail 控制台 browser SSH（edge），均不依赖公网 22。prod 由 `AdminCidr` 默认 `127.0.0.1/32` 收口；edge 由 `put-instance-public-ports` 声明完整端口集 = 仅 443（覆盖掉 Lightsail 默认的 22）。
+
+唯一实质风险是证书续签——靠「**先切 ALPN 配置 → 验证可签 → 再关 80**」的顺序消除。**rollout 必须按此序，PR 合并本身零 live 影响（现网证书 ~30d 内仍有效）：**
+
+1. **(edge) 重部署 IAM addon**：本次新增 `lightsail:PutInstancePublicPorts` 权限，必须先 `aws cloudformation deploy` 重部 `cicd-oidc-lightsail-addon.yaml`（手工 stack，见上「live==repo 漂移检查」），否则 provision / `--enforce-ports` 会 AccessDenied。
+2. **下发 ALPN 配置（80 仍开）**：`bash ops/stage0/sync_caddyfile_via_ssm.sh` 把新 Caddyfile 热同步到 prod + 全 edge，Caddy reload，业务不断。
+3. **canary 一个 edge 验签**：`bash ops/stage0/verify-edge-lightsail-network.sh <edge> --enforce-ports`（关 80/22，仅留 443）→ SSM 删该 edge 的 `caddy/data` 证书目录并重启 `tokenkey-caddy` → 确认在 80 已关 下经 TLS-ALPN-01 重新签发成功（Caddy 日志 `tls-alpn-01`）→ `https` 冒烟。**ALPN 签不出即停在此、不扩散。**
+4. **edge fleet 收口**：`for e in $(deployable edges); do bash ops/stage0/verify-edge-lightsail-network.sh "$e" --enforce-ports; done`，逐个确认仅剩 443 + https 冒烟。
+5. **prod 关 22**：`aws cloudformation deploy ... --parameter-overrides AdminCidr=127.0.0.1/32 ImageTag=<当前运行态 tag>`（pin ImageTag 防 R5 静默退版）。改 SG ingress 是 in-place 更新、不替换实例。验证 `aws ssm start-session` 可进 + `https://api.tokenkey.dev/health` 正常。
+6. **prod 关 80**：确认 prod Caddy 已在 ALPN 配置（步骤 2）且证书可续后，再 `aws cloudformation deploy`（应用去掉 80 ingress 的新模板）→ `ops/stage0/post_deploy_smoke.sh` 全链路冒烟。
+
+回滚：edge 重 `aws lightsail open-instance-public-ports ...80`；prod 恢复 SG 80 规则后 `aws cloudformation deploy`。
 
 ## 升级 / 发版（生产 Stage0）
 

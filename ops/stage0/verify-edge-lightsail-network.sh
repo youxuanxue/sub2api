@@ -1,17 +1,24 @@
 #!/usr/bin/env bash
 # verify-edge-lightsail-network.sh — Post-provision / post-DNS checks for Lightsail edges.
 #
-# Confirms Lightsail instance firewall allows TCP 80+443 and (optionally) public HTTPS
-# /health succeeds. Can open missing 443 and restart Caddy when DNS was late (ACME NXDOMAIN).
+# Hardened public-port baseline (since the 443-only narrowing): TCP 443 OPEN,
+# TCP 80 and 22 CLOSED. Certs use TLS-ALPN-01 on 443 (Caddyfile.edge
+# disable_http_challenge), so HTTP-01 / public 80 is unneeded; SSH (22) is
+# operated via SSM / Lightsail console, never the public port.
+#
+# Confirms the firewall matches that baseline and (optionally) public HTTPS
+# /health succeeds. --enforce-ports rewrites the firewall to 443-only (closes
+# 22/80); --fix-443 (legacy) only opens 443; --renew-cert restarts Caddy when
+# DNS was late (ACME NXDOMAIN).
 #
 # Usage:
-#   bash ops/stage0/verify-edge-lightsail-network.sh <edge_id> [--fix-443] [--renew-cert]
+#   bash ops/stage0/verify-edge-lightsail-network.sh <edge_id> [--enforce-ports] [--fix-443] [--renew-cert]
 #
 # Exit codes:
 #   0 — ports OK (+ health OK when DNS resolves to static IP)
 #   1 — usage / matrix error
 #   2 — AWS or curl failure after remediation attempts
-#   3 — ports still wrong after --fix-443 (permissions?)
+#   3 — 443 still not open after remediation (permissions?)
 
 set -euo pipefail
 
@@ -20,22 +27,26 @@ REPO_ROOT="$(cd "${_OPS_DIR}/../.." && pwd)"
 RESOLVE="${REPO_ROOT}/deploy/aws/lightsail/resolve-edge-lightsail-target.py"
 
 FIX_443=false
+ENFORCE_PORTS=false
 RENEW_CERT=false
 EDGE_ID=""
 
 usage() {
   cat <<'EOF'
 Usage:
-  bash ops/stage0/verify-edge-lightsail-network.sh <edge_id> [--fix-443] [--renew-cert]
+  bash ops/stage0/verify-edge-lightsail-network.sh <edge_id> [--enforce-ports] [--fix-443] [--renew-cert]
+
+Hardened baseline: TCP 443 open; TCP 80 and 22 closed.
 
 Checks:
-  - Lightsail public ports 80 and 443 are open
+  - Lightsail public port 443 is open (80/22 expected closed; drift warned)
   - dig @1.1.1.1 A record matches static IP (when DNS exists)
   - curl https://api-<edge_id>.tokenkey.dev/health (best effort)
 
 Options:
-  --fix-443     call open-instance-public-ports for TCP 443 if missing
-  --renew-cert  restart tokenkey-caddy via SSM (after DNS cutover / ACME retry)
+  --enforce-ports  put-instance-public-ports to 443-only (closes public 22 and 80)
+  --fix-443        legacy: open-instance-public-ports for TCP 443 if missing (does not close 22/80)
+  --renew-cert     restart tokenkey-caddy via SSM (after DNS cutover / ACME retry)
 EOF
 }
 
@@ -44,6 +55,10 @@ while [[ $# -gt 0 ]]; do
     -h | --help)
       usage
       exit 0
+      ;;
+    --enforce-ports)
+      ENFORCE_PORTS=true
+      shift
       ;;
     --fix-443)
       FIX_443=true
@@ -118,32 +133,39 @@ port_open() {
 echo "[verify-edge-lightsail-network] edge_id=${EDGE_ID} region=${REGION} instance=${INSTANCE}"
 echo "[verify-edge-lightsail-network] domain=${DOMAIN} static_ip=${STATIC_IP}"
 
-missing_ports=()
-port_open 80 || missing_ports+=("80")
-port_open 443 || missing_ports+=("443")
-
-if [[ ${#missing_ports[@]} -gt 0 ]]; then
-  echo "[verify-edge-lightsail-network] WARN: firewall missing open TCP: ${missing_ports[*]}" >&2
-  if $FIX_443; then
-    for port in "${missing_ports[@]}"; do
-      echo "[verify-edge-lightsail-network] opening TCP ${port}..."
-      aws lightsail open-instance-public-ports \
-        --region "$REGION" \
-        --instance-name "$INSTANCE" \
-        --port-info "fromPort=${port},toPort=${port},protocol=tcp,cidrs=0.0.0.0/0" >/dev/null \
-        || echo "[verify-edge-lightsail-network] WARN: open-instance-public-ports tcp/${port} failed" >&2
-    done
-    missing_ports=()
-    port_open 80 || missing_ports+=("80")
-    port_open 443 || missing_ports+=("443")
-  fi
+# Hardened baseline = 443 open, 80/22 closed. --enforce-ports rewrites the whole
+# firewall to exactly that (put = replace semantics, so it also drops the
+# Lightsail-default public SSH 22 and any historical 80).
+if $ENFORCE_PORTS; then
+  echo "[verify-edge-lightsail-network] enforcing public ports = 443-only (closes 22 and 80)..."
+  aws lightsail put-instance-public-ports \
+    --region "$REGION" \
+    --instance-name "$INSTANCE" \
+    --port-infos "fromPort=443,toPort=443,protocol=tcp,cidrs=0.0.0.0/0" >/dev/null \
+    || { echo "[verify-edge-lightsail-network] FAIL: put-instance-public-ports failed" >&2; exit 3; }
+elif $FIX_443 && ! port_open 443; then
+  # Legacy: only ensure 443 is open, do not touch 22/80.
+  echo "[verify-edge-lightsail-network] opening TCP 443 (legacy --fix-443)..."
+  aws lightsail open-instance-public-ports \
+    --region "$REGION" \
+    --instance-name "$INSTANCE" \
+    --port-info "fromPort=443,toPort=443,protocol=tcp,cidrs=0.0.0.0/0" >/dev/null \
+    || echo "[verify-edge-lightsail-network] WARN: open-instance-public-ports tcp/443 failed" >&2
 fi
 
-if [[ ${#missing_ports[@]} -gt 0 ]]; then
-  echo "[verify-edge-lightsail-network] FAIL: still missing TCP ${missing_ports[*]}" >&2
+if ! port_open 443; then
+  echo "[verify-edge-lightsail-network] FAIL: TCP 443 not open (rerun with --enforce-ports)" >&2
   exit 3
 fi
-echo "[verify-edge-lightsail-network] ok: firewall TCP 80 and 443 open"
+echo "[verify-edge-lightsail-network] ok: firewall TCP 443 open"
+
+# Drift from the hardened baseline: 80 / 22 should be closed.
+drift_ports=()
+port_open 80 && drift_ports+=("80")
+port_open 22 && drift_ports+=("22")
+if [[ ${#drift_ports[@]} -gt 0 ]]; then
+  echo "[verify-edge-lightsail-network] WARN: public TCP ${drift_ports[*]} still open (baseline is 443-only) — run with --enforce-ports to close" >&2
+fi
 
 if $RENEW_CERT; then
   echo "[verify-edge-lightsail-network] restarting tokenkey-caddy via SSM..."
