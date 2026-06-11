@@ -44,6 +44,17 @@ func TestOverlayLoader_ParsesIntervals(t *testing.T) {
 	// flat base is the out-of-range fallback = tier 1.
 	require.InDelta(t, 5.74e-07, coder.InputCostPerToken, 1e-15)
 	require.False(t, tkIsEffectivelyUnpriced(coder))
+
+	// VolcEngine doubao-seed-2.0-pro: 3 input tiers with per-tier cache-hit price
+	// (official ¥/M ÷ 6.7): [0,32K] 3.2/0.64/16, (32,128K] 4.8/0.96/24, (128K,∞] 9.6/1.92/48.
+	pro := overlay["doubao-seed-2-0-pro-260215"]
+	require.NotNil(t, pro)
+	require.Len(t, pro.Intervals, 3)
+	require.InDelta(t, 3.2/6.7e6, *pro.Intervals[0].InputPrice, 1e-15)
+	require.InDelta(t, 0.64/6.7e6, *pro.Intervals[0].CacheReadPrice, 1e-15, "per-tier cache-hit price, not $0")
+	require.InDelta(t, 9.6/6.7e6, *pro.Intervals[2].InputPrice, 1e-15, "top tier (128K+) input")
+	require.InDelta(t, 48.0/6.7e6, *pro.Intervals[2].OutputPrice, 1e-15, "top tier output")
+	require.Nil(t, pro.Intervals[2].MaxTokens, "top tier unbounded")
 }
 
 // TestOverlayIntervalPricing_CoderPlusWholeRequestTier verifies the end-to-end
