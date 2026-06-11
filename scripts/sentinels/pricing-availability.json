@@ -96,9 +96,10 @@
     {
       "path": "backend/internal/service/billing_service.go",
       "must_contain": [
-        "tkIsEffectivelyUnpriced"
+        "tkIsEffectivelyUnpriced",
+        "litellmPricing.Intervals"
       ],
-      "rationale": "BillingService.GetModelPricing carries a 1-line TK hook: a litellm entry whose every cost field is zero (litellm's 'cost unknown' placeholder — e.g. deepseek-v3-2-251201 under volcengine) is treated as pricing-missing instead of a successful $0 lookup, falling through to fallback / ErrModelPricingUnavailable so the existing zero-cost record + Feishu pricing-missing funnel fires. Without this hook, zero-placeholder models silently bill $0 with no alert (683 prod requests leaked through 2026-06-10 before it existed). An upstream merge restructuring GetModelPricing could drop the `&& !tkIsEffectivelyUnpriced(...)` guard without any compile error. The predicate itself lives in pricing_service_tk_overlay.go (shared with the overlay absent-or-zero fill)."
+      "rationale": "BillingService.GetModelPricing carries a 1-line TK hook: a litellm entry whose every cost field is zero (litellm's 'cost unknown' placeholder — e.g. deepseek-v3-2-251201 under volcengine) is treated as pricing-missing instead of a successful $0 lookup, falling through to fallback / ErrModelPricingUnavailable so the existing zero-cost record + Feishu pricing-missing funnel fires. Without this hook, zero-placeholder models silently bill $0 with no alert (683 prod requests leaked through 2026-06-10 before it existed). An upstream merge restructuring GetModelPricing could drop the `&& !tkIsEffectivelyUnpriced(...)` guard without any compile error. The predicate itself lives in pricing_service_tk_overlay.go (shared with the overlay absent-or-zero fill). SECOND hook on the same constructor: GetModelPricing MUST copy `Intervals: litellmPricing.Intervals` onto ModelPricing so overlay interval (tiered) pricing is carried into billing (consumed downstream via ResolvedPricing.Intervals -> GetIntervalPricing); dropping the copy silently flattens every overlay-tiered model to its base-tier price with no compile error."
     }
   ]
 }

@@ -651,9 +651,10 @@
       "path": "backend/internal/service/model_pricing_resolver.go",
       "must_contain": [
         "tkApplyChannelFlatOverridesAsFallback(chPricing, resolved)",
-        "tkOverlayIntervalOntoBasePricing(resolved.BasePricing, iv, resolved.SupportsCacheBreakdown)"
+        "tkOverlayIntervalOntoBasePricing(resolved.BasePricing, iv, resolved.SupportsCacheBreakdown)",
+        "tkApplyOverlayIntervals(resolved)"
       ],
-      "rationale": "TK channel-pricing policy: applyTokenOverrides MUST delegate flat-default application to the TK companion regardless of whether intervals are configured (upstream #2107 — out-of-range fallback). GetIntervalPricing MUST delegate matched-interval pricing to the TK overlay helper instead of building a brand-new ModelPricing from interval fields only (upstream #2363 — in-range cache_read/cache_write/image_output preservation). Either revert silently re-introduces $0 or wrong-tier billing on the most cache-hit-heavy traffic that sticky-routing was designed to bank."
+      "rationale": "TK channel-pricing policy: applyTokenOverrides MUST delegate flat-default application to the TK companion regardless of whether intervals are configured (upstream #2107 — out-of-range fallback). GetIntervalPricing MUST delegate matched-interval pricing to the TK overlay helper instead of building a brand-new ModelPricing from interval fields only (upstream #2363 — in-range cache_read/cache_write/image_output preservation). Either revert silently re-introduces $0 or wrong-tier billing on the most cache-hit-heavy traffic that sticky-routing was designed to bank. ALSO: Resolve MUST call tkApplyOverlayIntervals(resolved) so overlay-defined interval (tiered) pricing reaches ResolvedPricing.Intervals when no channel override is present; an upstream merge dropping the call silently flattens every overlay-tiered model (qwen3-coder-plus/plus/flash, doubao-*/glm-4.7/deepseek-v3.2) to its tier-1 base price with no compile error."
     },
     {
       "path": "backend/internal/service/model_pricing_resolver_tk_channel_flat_fallback.go",

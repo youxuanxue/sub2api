@@ -303,9 +303,10 @@
     {
       "path": "backend/internal/service/pricing_service_tk_overlay.go",
       "must_contain": [
-        "p.CacheCreationInputTokenCostAbove1hr = *e.CacheCreationInputTokenCostAbove1hr"
+        "p.CacheCreationInputTokenCostAbove1hr = *e.CacheCreationInputTokenCostAbove1hr",
+        "tkBuildOverlayIntervals(ext.Intervals)"
       ],
-      "rationale": "The overlay loader manually copies LiteLLMRawEntry fields into LiteLLMModelPricing; a missing copy is invisible at compile time and silently zeroes that price for every overlay-only model. This exact field was dropped once in prod: claude-fable-5 (absent from the trimmed runtime source, priced only by the overlay) billed all 1h cache-creation tokens at the 5m rate ($12.50/MTok instead of the official $20/MTok) because billing_service.go's breakdown predicate price1h>price5m saw price1h=0. Pinning the copy line keeps the 1h cache-write tier alive for any overlay entry carrying cache_creation_input_token_cost_above_1hr."
+      "rationale": "The overlay loader manually copies LiteLLMRawEntry fields into LiteLLMModelPricing; a missing copy is invisible at compile time and silently zeroes that price for every overlay-only model. This exact field was dropped once in prod: claude-fable-5 (absent from the trimmed runtime source, priced only by the overlay) billed all 1h cache-creation tokens at the 5m rate ($12.50/MTok instead of the official $20/MTok) because billing_service.go's breakdown predicate price1h>price5m saw price1h=0. Pinning the copy line keeps the 1h cache-write tier alive for any overlay entry carrying cache_creation_input_token_cost_above_1hr. SAME silent-drop class for tiered pricing: the loader MUST parse the overlay 'intervals' array via tkBuildOverlayIntervals(ext.Intervals) (a second raw-entry unmarshal, because the upstream LiteLLMRawEntry has no intervals field); dropping it silently flattens every overlay-tiered model (qwen plus/flash/coder, doubao-*/glm-4.7/deepseek-v3.2) to its base tier with no compile error."
     },
     {
       "path": "backend/internal/service/pricing_service_tk_overlay_test.go",
