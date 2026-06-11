@@ -248,6 +248,9 @@ func (s *RateLimitService) notifyAccountSchedulingBlocked(account *Account, unti
 	s.runtimeBlocker.BlockAccountScheduling(account, until, reason)
 	// TK: 同一汇聚点上报账号失效事件给飞书（kind 由 reason 在 classifyIncident 内精确派生）。
 	s.notifyAccountIncident(account, until, reason, IncidentKindUnknown, detail...)
+	// TK: 池级检查——若这是该平台最后一个可调度账号,即时发全池不可调度 P0。
+	// 见 ratelimit_service_tk_pool_exhausted.go。
+	s.tkCheckPlatformPoolExhausted(account, until, reason)
 }
 
 func (s *RateLimitService) notifyAccountSchedulingBlockCleared(accountID int64) {
@@ -497,6 +500,19 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 				"status_code", statusCode)
 		}
 	case 429:
+		// TK (prod 2026-06-11 incident): a deterministic policy 429 — e.g.
+		// "Usage credits are required for long context requests." — is a
+		// property of the REQUEST, not of account health. The gateway short-
+		// circuits it before side effects (gateway_service_tk_request_owned_429.go);
+		// this is the defense-in-depth for every other HandleUpstreamError
+		// caller: skip the ladder/cooldown so one poisoned request can never
+		// cool a healthy account, let alone lock the whole mirror pool.
+		if account.Platform == PlatformAnthropic && tkIsAnthropicRequestOwned429Message(upstreamMsg, responseBody) {
+			slog.Info("anthropic_request_owned_429_skip_penalty",
+				"account_id", account.ID,
+				"status_code", statusCode)
+			return true
+		}
 		// TK (prod 2026-06): edges empty-pool fast-fail is 429+Retry-After, not
 		// 503. Same downstream-exhaustion semantics as handleAnthropicUpstreamError
 		// skip path — do not classify as upstream rate-limit cooldown / Feishu 429.
