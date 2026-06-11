@@ -71,7 +71,7 @@
   ],
   "observed": {
     "model": "claude-haiku-4-5-20251001",
-    "user_agent": "claude-cli/2.1.170 (external, sdk-cli)",
+    "user_agent": "claude-cli/2.1.172 (external, sdk-cli)",
     "stainless_os": "MacOS",
     "stainless_arch": "arm64",
     "stainless_runtime": "node",
