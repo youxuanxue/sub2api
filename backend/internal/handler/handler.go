@@ -37,6 +37,7 @@ type AdminHandlers struct {
 	ContentModeration      *admin.ContentModerationHandler
 	Payment                *admin.PaymentHandler
 	Affiliate              *admin.AffiliateHandler
+	Compliance             *admin.ComplianceHandler
 	TKChannel              *admin.TKChannelAdminHandler
 	// TK: anthropic-oauth stability tier reference table CRUD — see tier_handler_tk.go.
 	Tier *admin.TierHandler

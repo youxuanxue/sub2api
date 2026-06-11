@@ -68,6 +68,8 @@ func RegisterPaymentRoutes(
 	// --- Admin payment endpoints (admin auth) ---
 	adminGroup := v1.Group("/admin/payment")
 	adminGroup.Use(gin.HandlerFunc(adminAuth))
+	// TK: setting-gated, default off — see middleware/admin_compliance_tk_gate.go.
+	adminGroup.Use(middleware.TkAdminComplianceGuardIfEnabled(settingService))
 	{
 		// Dashboard
 		adminGroup.GET("/dashboard", adminPaymentHandler.GetDashboard)

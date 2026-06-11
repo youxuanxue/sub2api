@@ -276,6 +276,37 @@ describe('channelFormConversion (US-017 — round-trip preserves all 5 gateway p
     expect(payload.features_config).not.toHaveProperty('web_search_emulation')
   })
 
+  it('round-trips bedrock_cc_compat as a flat boolean (backend reads .(bool); a per-platform record silently disables the feature)', () => {
+    const channel = makeChannel({
+      group_ids: [1],
+      features_config: { bedrock_cc_compat: true },
+    })
+
+    const sections = apiToFormSections(channel, ALL_GROUPS)
+    const ant = sections.find((s) => s.platform === 'anthropic')!
+    expect(ant.bedrock_cc_compat).toBe(true)
+
+    const payload = formSectionsToApi(sections, channel.features_config)
+    expect(payload.features_config.bedrock_cc_compat).toBe(true)
+  })
+
+  it('persists bedrock_cc_compat toggle on→off and treats a legacy record value as disabled', () => {
+    // Legacy UI versions saved { anthropic: true }; the backend bool assertion
+    // never honored that shape, so reading it as disabled matches runtime truth.
+    const channel = makeChannel({
+      group_ids: [1],
+      features_config: { bedrock_cc_compat: { anthropic: true } },
+    })
+
+    const sections = apiToFormSections(channel, ALL_GROUPS)
+    const ant = sections.find((s) => s.platform === 'anthropic')!
+    expect(ant.bedrock_cc_compat).toBe(false)
+
+    ant.bedrock_cc_compat = false
+    const payload = formSectionsToApi(sections, channel.features_config)
+    expect(payload.features_config.bedrock_cc_compat).toBe(false)
+  })
+
   it('skips disabled sections when emitting payload (UI can stage edits then deselect a platform)', () => {
     const sections: PlatformSection[] = [
       {
