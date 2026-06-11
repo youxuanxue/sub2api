@@ -208,12 +208,67 @@ describe('user UsageView tooltip', () => {
     const text = wrapper.text()
     expect(text).toContain('Service tier')
     expect(text).toContain('Fast')
-    expect(text).toContain('Rate')
-    expect(text).toContain('1.00x')
+    expect(text).not.toContain('1.00x')
+    expect(text).not.toContain('Original')
     expect(text).toContain('Billed')
     expect(text).toContain('$0.092883')
     expect(text).toContain('$5.0000 / 1M tokens')
     expect(text).toContain('$30.0000 / 1M tokens')
+  })
+
+  it('shows rate-multiplied actual costs and unit prices, hides standard cost', async () => {
+    query.mockResolvedValue({ items: [], total: 0, pages: 0 })
+    getStatsByDateRange.mockResolvedValue({
+      total_requests: 1,
+      total_tokens: 100,
+      total_cost: 0.1,
+      avg_duration_ms: 1,
+    })
+    list.mockResolvedValue({ items: [] })
+
+    const wrapper = mount(UsageView, {
+      global: {
+        stubs: {
+          AppLayout: AppLayoutStub,
+          TablePageLayout: TablePageLayoutStub,
+          Pagination: true,
+          EmptyState: true,
+          Select: true,
+          DateRangePicker: true,
+          DataTable: DataTableStub,
+          Icon: true,
+          Teleport: true,
+        },
+      },
+    })
+
+    await flushPromises()
+    await nextTick()
+
+    const setupState = (wrapper.vm as any).$?.setupState
+    setupState.tooltipData = {
+      request_id: 'req-user-2',
+      actual_cost: 0.012,
+      total_cost: 0.024,
+      rate_multiplier: 0.5,
+      service_tier: null,
+      input_cost: 0.02,
+      output_cost: 0.004,
+      cache_creation_cost: 0,
+      cache_read_cost: 0,
+      input_tokens: 4000,
+      output_tokens: 100,
+    }
+    setupState.tooltipVisible = true
+    await nextTick()
+
+    const text = wrapper.text()
+    expect(text).toContain('$0.010000')
+    expect(text).toContain('$2.5000 / 1M tokens')
+    expect(text).toContain('$20.0000 / 1M tokens')
+    expect(text).toContain('$0.012000')
+    expect(text).not.toContain('$0.024')
+    expect(text).not.toContain('0.50x')
   })
 
   it('exports csv with input and output unit price columns', async () => {
@@ -392,6 +447,9 @@ describe('user UsageView tooltip', () => {
     })
     expect(csv).toContain('Billing Mode')
     expect(csv).toContain('Image')
+    expect(csv).toContain('Billed Cost')
+    expect(csv).not.toContain('Rate Multiplier')
+    expect(csv).not.toContain('Original Cost')
     expect(csv).not.toContain(',Token,0,0,0,0,')
 
     window.URL.createObjectURL = originalCreateObjectURL
