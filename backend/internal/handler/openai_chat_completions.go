@@ -269,6 +269,22 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 					)
 					continue
 				}
+				// Preserve upstream NewAPIRelayError detail for newapi accounts (mirrors
+				// the /v1/responses handler): without this branch the fallback below
+				// masks the adaptor's structured error (402 insufficient balance,
+				// 429 rate limit, …) as a generic 502 "Upstream request failed" —
+				// the 2026-06-11 DeepSeek prod incident shape. The sibling block
+				// further down (after the else) is only reachable on the
+				// image-partial-result path and never fires for plain chat errors.
+				if TkTryWriteNewAPIRelayErrorJSON(c, err, streamStarted, writerSizeBeforeForward) {
+					h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
+					reqLog.Warn("openai_chat_completions.forward_failed",
+						zap.Int64("account_id", account.ID),
+						zap.Bool("fallback_error_response_written", false),
+						zap.Error(err),
+					)
+					return
+				}
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
 				upstreamErrorAlreadyCommunicated := openAIForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward, err)
 				wroteFallback := false
