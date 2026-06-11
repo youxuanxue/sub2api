@@ -2098,6 +2098,34 @@
         "setOpsUpstreamRequestBody(c, retryWireBody2)"
       ],
       "rationale": "The native anthropic Forward path must stash the final (post-rewrite) upstream request body before the retry loop AND re-stash after a successful filtered-thinking / tool-downgrade retry. Two consumers depend on it: ops_error_logs per-attempt body context, and the traj v2 upstream-request divergence capture (qa reads the same gin key for opt-in records; see scripts/sentinels/trajectory.json required_file_hooks). An upstream merge dropping any of these calls silently corrupts exported training pairs instead of failing loudly."
+    },
+    {
+      "path": "backend/internal/repository/ops_repo_dashboard.go",
+      "must_contain": [
+        "COALESCE(status_code, 0) >= 400 AND error_owner = 'provider'"
+      ],
+      "rationale": "upstream_error_rate numerator (upstream_excl) requires a final failure (status >= 400): provider errors recovered to 200 (signature_preempt thinking_blocks_stripped retries, failover) must not drive the P0 capacity alert — us7 false P0 2026-06-10 was 60 recovered-200 rows / 5min window reading 27.5%. The filter is an in-place edit inside upstream-shaped SQL hotspots, compile-clean if dropped, so an upstream merge resolving these SELECT blocks can silently revert it and the false P0 recurs. Same gate must stay in all four sites: dashboard queryErrorCounts (alert evaluator raw path), trends, preagg hourly, 1m metrics collector."
+    },
+    {
+      "path": "backend/internal/repository/ops_repo_trends.go",
+      "must_contain": [
+        "COALESCE(status_code, 0) >= 400 AND error_owner = 'provider'"
+      ],
+      "rationale": "upstream_error_rate numerator (upstream_excl) requires a final failure (status >= 400): provider errors recovered to 200 (signature_preempt thinking_blocks_stripped retries, failover) must not drive the P0 capacity alert — us7 false P0 2026-06-10 was 60 recovered-200 rows / 5min window reading 27.5%. The filter is an in-place edit inside upstream-shaped SQL hotspots, compile-clean if dropped, so an upstream merge resolving these SELECT blocks can silently revert it and the false P0 recurs. Same gate must stay in all four sites: dashboard queryErrorCounts (alert evaluator raw path), trends, preagg hourly, 1m metrics collector."
+    },
+    {
+      "path": "backend/internal/repository/ops_repo_preagg.go",
+      "must_contain": [
+        "COALESCE(client_status_code, 0) >= 400 AND error_owner = 'provider'"
+      ],
+      "rationale": "upstream_error_rate numerator (upstream_excl) requires a final failure (status >= 400): provider errors recovered to 200 (signature_preempt thinking_blocks_stripped retries, failover) must not drive the P0 capacity alert — us7 false P0 2026-06-10 was 60 recovered-200 rows / 5min window reading 27.5%. The filter is an in-place edit inside upstream-shaped SQL hotspots, compile-clean if dropped, so an upstream merge resolving these SELECT blocks can silently revert it and the false P0 recurs. Same gate must stay in all four sites: dashboard queryErrorCounts (alert evaluator raw path), trends, preagg hourly, 1m metrics collector."
+    },
+    {
+      "path": "backend/internal/service/ops_metrics_collector.go",
+      "must_contain": [
+        "COALESCE(status_code, 0) >= 400 AND error_owner = 'provider'"
+      ],
+      "rationale": "upstream_error_rate numerator (upstream_excl) requires a final failure (status >= 400): provider errors recovered to 200 (signature_preempt thinking_blocks_stripped retries, failover) must not drive the P0 capacity alert — us7 false P0 2026-06-10 was 60 recovered-200 rows / 5min window reading 27.5%. The filter is an in-place edit inside upstream-shaped SQL hotspots, compile-clean if dropped, so an upstream merge resolving these SELECT blocks can silently revert it and the false P0 recurs. Same gate must stay in all four sites: dashboard queryErrorCounts (alert evaluator raw path), trends, preagg hourly, 1m metrics collector."
     }
   ]
 }
