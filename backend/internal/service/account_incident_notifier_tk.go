@@ -214,14 +214,16 @@ func (n *TKAccountIncidentNotifier) NotifyAccountIncident(account *Account, unti
 		return
 	}
 	n.trackActive(account, cls, until)
-	if cls.kind == IncidentKindPermanentDisable {
-		// 永久失效是整账号下线,无上游维度细分语义 → 忽略 detail。
-		n.handlePermanent(account, reason, cls)
-		return
-	}
 	d := ""
 	if len(detail) > 0 {
 		d = strings.TrimSpace(detail[0])
+	}
+	if cls.kind == IncidentKindPermanentDisable {
+		// 永久失效卡片把 detail 渲染为「详情」行（携带真实上游 status + message,
+		// 如 "Payment required (402): Insufficient Balance"）,运营无需再查 DB
+		// error_message 才能定位是余额耗尽还是凭证吊销。
+		n.handlePermanent(account, reason, cls, d)
+		return
 	}
 	n.recordTemporary(account, cls, d)
 }
@@ -284,7 +286,8 @@ func (n *TKAccountIncidentNotifier) NotifyAccountRecovered(accountID int64) {
 }
 
 // handlePermanent: 同步只做内存去重判定,命中后异步发即时单条 P0 卡片。
-func (n *TKAccountIncidentNotifier) handlePermanent(account *Account, reason string, cls incidentClass) {
+// detail（可为空）是上游真实错误摘要,渲染为卡片「详情」行。
+func (n *TKAccountIncidentNotifier) handlePermanent(account *Account, reason string, cls incidentClass, detail string) {
 	now := n.currentTime()
 	key := accountIncidentDedupeKey(n.siteID, account.ID, cls.reasonClass)
 	n.mu.Lock()
@@ -300,7 +303,7 @@ func (n *TKAccountIncidentNotifier) handlePermanent(account *Account, reason str
 	n.mu.Unlock()
 
 	title := fmt.Sprintf("TokenKey 账号永久失效 [%s]", n.siteID)
-	body := buildAccountIncidentPermanentText(n.siteID, account, reason, cls, now)
+	body := buildAccountIncidentPermanentText(n.siteID, account, reason, cls, now, detail)
 	n.send(title, "red", body, fmt.Sprintf("account_id=%d reason=%s", account.ID, reason))
 }
 
@@ -459,14 +462,20 @@ func (n *TKAccountIncidentNotifier) currentTime() time.Time {
 	return time.Now()
 }
 
-func buildAccountIncidentPermanentText(site string, account *Account, reason string, cls incidentClass, now time.Time) string {
-	return fmt.Sprintf("**节点**：%s\n**账号**：%s\n**平台**：%s\n**组**：%s\n**事件**：%s\n**reason**：%s\n**时间**：%s\n\n**建议**：%s",
+func buildAccountIncidentPermanentText(site string, account *Account, reason string, cls incidentClass, now time.Time, detail string) string {
+	detailLine := ""
+	if d := strings.TrimSpace(detail); d != "" {
+		// 上游真实错误摘要（含 upstream status,如 "Payment required (402): …"）。
+		detailLine = "\n**详情**：" + escapeFeishuText(d)
+	}
+	return fmt.Sprintf("**节点**：%s\n**账号**：%s\n**平台**：%s\n**组**：%s\n**事件**：%s\n**reason**：%s%s\n**时间**：%s\n\n**建议**：%s",
 		escapeFeishuText(site),
 		escapeFeishuText(accountIncidentLabel(account)),
 		escapeFeishuText(strings.TrimSpace(account.Platform)),
 		escapeFeishuText(accountGroupNames(account)),
 		escapeFeishuText(cls.kindZh),
 		escapeFeishuText(strings.TrimSpace(reason)),
+		detailLine,
 		escapeFeishuText(formatAlertTime(now)),
 		escapeFeishuText(cls.advice),
 	)

@@ -314,6 +314,29 @@
         "TestBilling_Fable1hCacheCreationCost_ProdShape"
       ],
       "rationale": "Regression reproduction with the prod token shape (cache_creation_5m=0, cache_creation_1h=684124) asserting the corrected $13.68 cache-creation cost end-to-end through GetModelPricing + CalculateCost. Dropping this test re-opens the silent 5m-rate undercharge path for overlay-priced models with a 1h cache tier."
+    },
+    {
+      "path": "backend/internal/service/newapi_bridge_penalty_tk.go",
+      "must_contain": [
+        "tkHandleBridgeUpstreamPenalty",
+        "tkWrapBridgeRelayErrorWithPenalty",
+        "tkBridgePenaltyStatusEligible"
+      ],
+      "rationale": "TK companion that routes real bridge.Dispatch* upstream errors (401/402/429 allowlist) into RateLimitService.HandleUpstreamError so newapi accounts get disabled/cooled and the Feishu account-incident alert fires. Without it the fifth platform regresses to the 2026-06-11 prod incident: a 402 'Insufficient Balance' DeepSeek account stayed schedulable=true while the gateway hammered the exhausted upstream 6946 times in 2h with zero alerts. The narrow status allowlist is itself load-bearing: it is what keeps client-induced 400/404 (and the synthetic missing-credential/unsupported-channel 400s) from draining the pool (the #617 class)."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch.go",
+      "must_contain": [
+        "tkWrapBridgeRelayErrorWithPenalty"
+      ],
+      "rationale": "Every real-upstream-error dispatch site in the OpenAI-gateway bridge boundary must call the penalty-wrapping chokepoint (not the penalty-less tkWrapBridgeRelayError). An upstream merge that restructures these dispatch functions and reverts to the plain wrapper silently disconnects the newapi account-penalty path again with no compile error."
+    },
+    {
+      "path": "backend/internal/handler/openai_chat_completions.go",
+      "must_contain": [
+        "TkTryWriteNewAPIRelayErrorJSON(c, err, streamStarted, writerSizeBeforeForward)"
+      ],
+      "rationale": "Chat-completions handler must preserve the NewAPIRelayError's real upstream status (402/429/...) to the client instead of masking it as 502 'Upstream request failed'. The reachable call lives INSIDE the non-failover error branch (mirroring the /v1/responses handler); a merge that drops it reverts every newapi bridge error to an opaque 502 (the 2026-06-11 DeepSeek incident shape, 6946 masked 402s)."
     }
   ]
 }

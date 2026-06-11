@@ -930,7 +930,11 @@ func (s *RateLimitService) GeminiCooldown(ctx context.Context, account *Account)
 
 // handleAuthError 处理认证类错误(401/403)，停止账号调度
 func (s *RateLimitService) handleAuthError(ctx context.Context, account *Account, errorMsg string) {
-	s.notifyAccountSchedulingBlocked(account, time.Time{}, "auth_error")
+	// TK: forward errorMsg as detail so the Feishu permanent-disable card shows
+	// the real upstream verdict (e.g. "Payment required (402): Insufficient
+	// Balance"), not just the opaque reason "auth_error". The 2026-06-11 newapi
+	// 402 incident had account name/platform on the card but no upstream status.
+	s.notifyAccountSchedulingBlocked(account, time.Time{}, "auth_error", errorMsg)
 	if err := s.accountRepo.SetError(ctx, account.ID, errorMsg); err != nil {
 		slog.Warn("account_set_error_failed", "account_id", account.ID, "error", err)
 		return
