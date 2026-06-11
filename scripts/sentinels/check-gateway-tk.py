@@ -78,8 +78,8 @@ def lint_entry_hygiene(entry: dict) -> list[str]:
         if n in seen:
             problems.append(f"duplicate needle in same entry: `{n}`")
         seen.add(n)
-    for a in seen:
-        for b in seen:
+    for a in sorted(seen):
+        for b in sorted(seen):
             if a != b and a in b:
                 problems.append(
                     f"vacuous needle `{a}` is a substring of sibling needle `{b}` "
@@ -97,8 +97,9 @@ def check_sentinel(entry: dict) -> tuple[bool, list[str]]:
         return False, [f"file missing: {path_str}"]
     failures: list[str] = lint_entry_hygiene(entry)
     must_contain = entry.get("must_contain") or []
-    if not must_contain and not failures:
-        return True, []
+    must_not_contain = entry.get("must_not_contain") or []
+    if not must_contain and not must_not_contain:
+        return (len(failures) == 0), failures
     try:
         content = read_file_cached(path_str)
     except OSError as exc:
@@ -106,7 +107,7 @@ def check_sentinel(entry: dict) -> tuple[bool, list[str]]:
     for needle in must_contain:
         if needle not in content:
             failures.append(f"missing literal `{needle}` in {path_str}")
-    for needle in entry.get("must_not_contain") or []:
+    for needle in must_not_contain:
         if needle in content:
             failures.append(f"forbidden literal `{needle}` still present in {path_str}")
     return (len(failures) == 0), failures
