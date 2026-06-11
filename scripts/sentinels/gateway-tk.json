@@ -104,7 +104,7 @@
     {
       "path": "backend/internal/service/ops_feishu_notifier_tk.go",
       "must_contain": [
-        "sanitizeFeishuWebhook",
+        "func sanitizeFeishuWebhook(",
         "sanitizeFeishuWebhookError",
         "signFeishuWebhook",
         "SigningSecret",
@@ -165,17 +165,17 @@
         "openai_403_cf_challenge_skip_cooldown",
         "openAIIsHTMLBody",
         "openai_403_html_body_skip_cooldown",
-        "handleAnthropicUpstreamError",
+        "handleAnthropicUpstreamError(",
         "handleAnthropicUpstreamErrorWithOptions",
         "IncrementAnthropicUpstreamErrorCount",
-        "IncrementAnthropicCooldownTier",
+        "IncrementAnthropicCooldownTier(",
         "IncrementAnthropicCooldownTierEscalations",
         "anthropic_cooldown_tier_escalation",
         "anthropic_upstream_error_cooldown_write_skipped",
         "anthropic_tls_fingerprint_failure_suspected",
         "403_escalated_to_error",
         "SetTempUnschedulable(ctx, account.ID, until, reason)",
-        "ResetAnthropicUpstreamErrorCounter",
+        ") ResetAnthropicUpstreamErrorCounter(",
         "ResetAnthropicCooldownTier",
         "if account.IsPoolMode() && !customErrorCodesEnabled && account.Platform != PlatformAnthropic {",
         "if !account.ShouldHandleErrorCode(statusCode) && account.Platform != PlatformAnthropic {",
@@ -199,7 +199,7 @@
         "type AnthropicUpstreamErrorCounterCache interface",
         "IncrementAnthropicUpstreamErrorCount",
         "ResetAnthropicUpstreamErrorCount",
-        "IncrementAnthropicCooldownTier",
+        "IncrementAnthropicCooldownTier(",
         "ResetAnthropicCooldownTier",
         "IncrementAnthropicCooldownTierEscalations",
         "GetAnthropicCooldownTierEscalations",
@@ -220,7 +220,7 @@
         "NewAnthropicUpstreamErrorCounterCache",
         "IncrementAnthropicUpstreamErrorCount",
         "ResetAnthropicUpstreamErrorCount",
-        "IncrementAnthropicCooldownTier",
+        "IncrementAnthropicCooldownTier(",
         "ResetAnthropicCooldownTier",
         "IncrementAnthropicCooldownTierEscalations",
         "GetAnthropicCooldownTierEscalations",
@@ -268,7 +268,7 @@
         "invalid_request_error",
         "request_too_large"
       ],
-      "rationale": "G1 client-induced exemption predicate. An Anthropic invalid_request_error (#2608) OR request_too_large is a caller-side fault, not account health, and must be skipped from the 3/3 ladder (via case 400 catch-all and case 413 in ratelimit_service.go). Dropping the request_too_large arm re-arms the oversized-body amplifier on the 400-shape; dropping invalid_request_error restores the original #2608 amplifier where any caller can pause a shared OAuth account with malformed requests."
+      "rationale": "G1 client-induced exemption predicate. An Anthropic invalid_request_error (#2608) OR request_too_large is a caller-side fault, not account health, and must be skipped from the 3/3 ladder (via case 400 catch-all and case 413 in ratelimit_service.go). Dropping the request_too_large arm re-arms the oversized-body amplifier on the 400-shape; dropping invalid_request_error restores the original #2608 amplifier where any caller can pause a shared OAuth account with malformed requests. Removing the predicate reopens the external account-disable abuse vector (TK#2608)."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_downstream_no_available.go",
@@ -280,7 +280,7 @@
         "all available accounts exhausted",
         "ErrNoAvailableAccounts.Error()"
       ],
-      "rationale": "Downstream capacity-signal skips for prod→edge mirror stubs. 'no available accounts' (429/503, empty downstream pool) and 'all available accounts exhausted' (G2 narrow, 429/5xx, downstream failover loop ran dry) are both TokenKey-generated downstream-capacity strings the real provider APIs never emit; a healthy forwarding stub must fail over without advancing the 3/3 ladder. Both skips match ONLY these TokenKey phrases, so raw edge-infra 5xx and genuine provider errors still count and keep the PR #333 route-away cooldown. Dropping any function silently re-arms the corresponding downstream-error amplifier; widening the match beyond the TokenKey phrases would break route-away on genuinely-broken edges."
+      "rationale": "Downstream capacity-signal skips for prod→edge mirror stubs. 'no available accounts' (429/503, empty downstream pool) and 'all available accounts exhausted' (G2 narrow, 429/5xx, downstream failover loop ran dry) are both TokenKey-generated downstream-capacity strings the real provider APIs never emit; a healthy forwarding stub must fail over without advancing the 3/3 ladder. Both skips match ONLY these TokenKey phrases, so raw edge-infra 5xx and genuine provider errors still count and keep the PR #333 route-away cooldown. Dropping any function silently re-arms the corresponding downstream-error amplifier; widening the match beyond the TokenKey phrases would break route-away on genuinely-broken edges. Prod incidents 2026-05-31 / 2026-06 were both this misattribution: empty-pool downstream 503/429 punished as account health."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_request_too_large_test.go",
@@ -441,7 +441,7 @@
     {
       "path": "backend/internal/service/sticky_session_injector.go",
       "must_contain": [
-        "StickyKeySourceClientClaudeCodeSessionID",
+        "StickyKeySourceClientClaudeCodeSessionID = \"client_claude_code_session_id\"",
         "headers.Get(\"X-Claude-Code-Session-Id\")",
         "req.IsClaudeCodeUA || key.Source == StickyKeySourceClientClaudeCodeSessionID",
         "//  1. headers[\"session_id\"] / headers[\"conversation_id\"] / headers[\"X-Claude-Code-Session-Id\"] / headers[\"X-Session-Id\"]"
@@ -465,7 +465,7 @@
         "logger.WriteSinkEvent(\"info\", \"http.access.sticky\", \"sticky.hash_source\"",
         "\"session_hash_short\": shortSessionHash(sessionHash)",
         "resolveOpsTLSFingerprintProfile(c, s.tlsFPProfileService, account)",
-        "tlsFingerprintProfileNameForAccount(account)",
+        "GetOrCreateFingerprint(ctx, account.ID, c.Request.Header, s.tlsFingerprintProfileNameForAccount(account))",
         "GetOrCreateFingerprint(ctx, account.ID, clientHeaders, s.tlsFingerprintProfileNameForAccount(account))",
         "s.isCanonicalAnthropicOAuth(account)",
         "checkCanonicalIngressUA(c.Request.Header)",
@@ -481,7 +481,7 @@
         "Passthrough:        true,",
         "Wei-Shaw/sub2api#2506",
         "!strings.Contains(strings.ToLower(modelID), \"haiku\")",
-        "StripCountTokensUnsupportedFields(body)",
+        "if next, stripped := StripCountTokensUnsupportedFields(body); len(stripped) > 0 {",
         "count_tokens.stripped_unsupported_fields",
         "tkCountTokensSkipBreaker(resp.StatusCode)",
         "body, _ = StripCountTokensUnsupportedFields(body)",
@@ -562,7 +562,6 @@
     {
       "path": "backend/internal/service/openai_codex_transform.go",
       "must_contain": [
-        "chatGPTOAuthUpstreamModelNames",
         "codex-mini-latest",
         "var chatGPTOAuthUpstreamModelNames = map[string]string{}"
       ],
@@ -571,7 +570,7 @@
     {
       "path": "backend/internal/service/openai_gateway_service.go",
       "must_contain": [
-        "openAICompatSSEFrame",
+        "type openAICompatSSEFrame struct",
         "openAICompatSSEFrameParser",
         "openAICompatPayloadWithEventType",
         "extractOpenAISSEEventLine",
@@ -687,7 +686,6 @@
     {
       "path": "backend/internal/repository/account_repo.go",
       "must_contain": [
-        "SumConcurrencyAnthropic",
         "func (r *accountRepository) SumConcurrencyAnthropic",
         "WHERE platform = $1 AND schedulable = true AND deleted_at IS NULL",
         "dbproxy.StatusEQ(service.StatusActive)",
@@ -1363,23 +1361,6 @@
         "anthropic_downstream_no_available_accounts_skip_penalty"
       ],
       "rationale": "TK#2608: client-induced Anthropic 400 invalid_request_error must not advance the per-account cooldown counter (else an external caller can pause a shared OAuth subscription account). TK#1981: opt-in clamp of long OpenAI 429 resets so released accounts are re-probed by traffic instead of idling. Prod incident 2026-05-31 / 2026-06: a downstream 503 or 429 whose body is our own 'no available accounts' pool-exhaustion signal (edge empty pool or thin-pool burst, surfaced through a prod per-edge mirror stub) must fail over to the next stub WITHOUT handle429 cooldown, anthropic_upstream_error counter advance, or Feishu digest '限流冷却（429）' — else intentional edge shutdown or a brief edge burst cools the whole stub and collapses the prod pool."
-    },
-    {
-      "path": "backend/internal/service/ratelimit_service_tk_client_induced_400.go",
-      "must_contain": [
-        "func tkIsAnthropicClientInducedBadRequest",
-        "invalid_request_error"
-      ],
-      "rationale": "TK#2608: the predicate distinguishing client-induced 400s from account-level punishment. Removing it reopens the external account-disable abuse vector."
-    },
-    {
-      "path": "backend/internal/service/ratelimit_service_tk_downstream_no_available.go",
-      "must_contain": [
-        "func tkIsDownstreamNoAvailableAccounts",
-        "func tkSkipDownstreamNoAvailableAccountsPenalty",
-        "ErrNoAvailableAccounts.Error()"
-      ],
-      "rationale": "Prod incident 2026-05-31 / 2026-06: predicates distinguishing a downstream gateway's own 'no available accounts' pool-exhaustion 503/429 (transient edge capacity blip or intentional edge shutdown on a forwarded-to pool) from a genuine account-health upstream rate limit. Removing them lets empty-pool 429 hit handle429 + Feishu '限流冷却' noise and reintroduces the self-inflicted stub-cooldown amplifier."
     },
     {
       "path": "backend/internal/service/openai_gateway_service_tk_implicit_throttle.go",
