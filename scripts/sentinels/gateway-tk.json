@@ -2223,9 +2223,10 @@
       "must_contain": [
         "usage credits are required",
         "tkAnthropic429SameTextThreshold",
-        "MarkResponseCommitted"
+        "MarkResponseCommitted",
+        "tkSkipDownstreamNoAvailableAccountsPenalty"
       ],
-      "rationale": "Companion owning the request-owned 429 classifier (known policy phrase) + same-text failover circuit breaker + ORIGINAL-body passthrough. Body passthrough is load-bearing for the prod<->edge mirror topology: preserving the upstream phrase is what lets the prod hop re-classify the relayed 429 instead of seeing a rewritten generic text the exemption predicates cannot match."
+      "rationale": "Companion owning the request-owned 429 classifier (known policy phrase) + same-text failover circuit breaker + ORIGINAL-body passthrough. Body passthrough is load-bearing for the prod<->edge mirror topology: preserving the upstream phrase is what lets the prod hop re-classify the relayed 429 instead of seeing a rewritten generic text the exemption predicates cannot match. The capacity-envelope exemption (tkSkipDownstreamNoAvailableAccountsPenalty / failover-exhausted / generic rewrite text) must stay wired into the breaker path: without it, identical empty-pool 429s from several edges would trip the breaker and prematurely stop legitimate cross-edge failover."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
