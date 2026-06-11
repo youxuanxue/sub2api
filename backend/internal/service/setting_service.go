@@ -122,6 +122,7 @@ type cachedGatewayForwardingSettings struct {
 	rewriteMessageCacheControl   bool
 	anthropicRequestNormalize    bool
 	canonicalIngressStrict       bool
+	canonicalHaikuMimicry        bool
 	expiresAt                    int64 // unix nano
 }
 
@@ -1619,6 +1620,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyPromoCodeEnabled] = strconv.FormatBool(settings.PromoCodeEnabled)
 	updates[SettingKeyKiroEnabled] = strconv.FormatBool(settings.KiroEnabled)
 	updates[SettingKeyAnthropicCanonicalIngressStrictEnabled] = strconv.FormatBool(settings.AnthropicCanonicalIngressStrictEnabled)
+	updates[SettingKeyAnthropicCanonicalHaikuMimicryEnabled] = strconv.FormatBool(settings.AnthropicCanonicalHaikuMimicryEnabled)
 	updates[SettingKeyPasswordResetEnabled] = strconv.FormatBool(settings.PasswordResetEnabled)
 	updates[SettingKeyFrontendURL] = settings.FrontendURL
 	updates[SettingKeyInvitationCodeEnabled] = strconv.FormatBool(settings.InvitationCodeEnabled)
@@ -1972,6 +1974,7 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 		rewriteMessageCacheControl:   settings.RewriteMessageCacheControl,
 		anthropicRequestNormalize:    settings.AnthropicRequestNormalizeEnabled,
 		canonicalIngressStrict:       settings.AnthropicCanonicalIngressStrictEnabled,
+		canonicalHaikuMimicry:        settings.AnthropicCanonicalHaikuMimicryEnabled,
 		expiresAt:                    time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
 	})
 	s.antigravityUAVersionSF.Forget("antigravity_user_agent_version")
@@ -2126,6 +2129,7 @@ func (s *SettingService) IsBackendModeEnabled(ctx context.Context) bool {
 type gatewayForwardingSettingsResult struct {
 	fp, mp, cch, cacheTTL1h, rewriteMessageCacheControl, anthropicRequestNormalize bool
 	canonicalIngressStrict                                                         bool
+	canonicalHaikuMimicry                                                          bool
 }
 
 func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context) gatewayForwardingSettingsResult {
@@ -2139,6 +2143,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 				rewriteMessageCacheControl: cached.rewriteMessageCacheControl,
 				anthropicRequestNormalize:  cached.anthropicRequestNormalize,
 				canonicalIngressStrict:     cached.canonicalIngressStrict,
+				canonicalHaikuMimicry:      cached.canonicalHaikuMimicry,
 			}
 		}
 	}
@@ -2153,6 +2158,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 					rewriteMessageCacheControl: cached.rewriteMessageCacheControl,
 					anthropicRequestNormalize:  cached.anthropicRequestNormalize,
 					canonicalIngressStrict:     cached.canonicalIngressStrict,
+					canonicalHaikuMimicry:      cached.canonicalHaikuMimicry,
 				}, nil
 			}
 		}
@@ -2166,6 +2172,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			SettingKeyRewriteMessageCacheControl,
 			SettingKeyAnthropicRequestNormalizeEnabled,
 			SettingKeyAnthropicCanonicalIngressStrictEnabled,
+			SettingKeyAnthropicCanonicalHaikuMimicryEnabled,
 		})
 		if err != nil {
 			slog.Warn("failed to get gateway forwarding settings", "error", err)
@@ -2177,6 +2184,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 				rewriteMessageCacheControl:   s.defaultRewriteMessageCacheControl(),
 				anthropicRequestNormalize:    true,
 				canonicalIngressStrict:       false,
+				canonicalHaikuMimicry:        false,
 				expiresAt:                    time.Now().Add(gatewayForwardingErrorTTL).UnixNano(),
 			})
 			return gatewayForwardingSettingsResult{
@@ -2187,6 +2195,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 				rewriteMessageCacheControl: s.defaultRewriteMessageCacheControl(),
 				anthropicRequestNormalize:  true,
 				canonicalIngressStrict:     false,
+				canonicalHaikuMimicry:      false,
 			}, nil
 		}
 		fp := true
@@ -2204,6 +2213,8 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 		anthropicRequestNormalize := !isFalseSettingValue(values[SettingKeyAnthropicRequestNormalizeEnabled])
 		// Default-false: only explicit "true" enables the canonical-ingress strict gate.
 		canonicalIngressStrict := values[SettingKeyAnthropicCanonicalIngressStrictEnabled] == "true"
+		// Default-false: only explicit "true" enables the canonical haiku mimicry completion.
+		canonicalHaikuMimicry := values[SettingKeyAnthropicCanonicalHaikuMimicryEnabled] == "true"
 		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
 			fingerprintUnification:       fp,
 			metadataPassthrough:          mp,
@@ -2212,6 +2223,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			rewriteMessageCacheControl:   rewriteMessageCacheControl,
 			anthropicRequestNormalize:    anthropicRequestNormalize,
 			canonicalIngressStrict:       canonicalIngressStrict,
+			canonicalHaikuMimicry:        canonicalHaikuMimicry,
 			expiresAt:                    time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
 		})
 		return gatewayForwardingSettingsResult{
@@ -2222,6 +2234,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			rewriteMessageCacheControl: rewriteMessageCacheControl,
 			anthropicRequestNormalize:  anthropicRequestNormalize,
 			canonicalIngressStrict:     canonicalIngressStrict,
+			canonicalHaikuMimicry:      canonicalHaikuMimicry,
 		}, nil
 	})
 	if r, ok := val.(gatewayForwardingSettingsResult); ok {
@@ -2869,7 +2882,8 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		RegistrationEmailSuffixWhitelist:       ParseRegistrationEmailSuffixWhitelist(settings[SettingKeyRegistrationEmailSuffixWhitelist]),
 		PromoCodeEnabled:                       settings[SettingKeyPromoCodeEnabled] != "false",                      // 默认启用
 		KiroEnabled:                            settings[SettingKeyKiroEnabled] == "true",                            // TK: Kiro 第六平台门禁，默认关闭（ToS）
-		AnthropicCanonicalIngressStrictEnabled: settings[SettingKeyAnthropicCanonicalIngressStrictEnabled] == "true", // TK: canonical OAuth 入口 strict，默认关闭（零回归）
+		AnthropicCanonicalIngressStrictEnabled: settings[SettingKeyAnthropicCanonicalIngressStrictEnabled] == "true", // TK: canonical 入口 UA strict 拒绝（#1#2），默认关闭（零回归）
+		AnthropicCanonicalHaikuMimicryEnabled:  settings[SettingKeyAnthropicCanonicalHaikuMimicryEnabled] == "true",  // TK: canonical 非 CC haiku 出口 mimicry 补全（#3），默认关闭（零回归）
 		PasswordResetEnabled:                   emailVerifyEnabled && settings[SettingKeyPasswordResetEnabled] == "true",
 		FrontendURL:                            settings[SettingKeyFrontendURL],
 		InvitationCodeEnabled:                  settings[SettingKeyInvitationCodeEnabled] == "true",

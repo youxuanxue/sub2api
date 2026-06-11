@@ -126,6 +126,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		PromoCodeEnabled:                       settings.PromoCodeEnabled,
 		KiroEnabled:                            settings.KiroEnabled,
 		AnthropicCanonicalIngressStrictEnabled: settings.AnthropicCanonicalIngressStrictEnabled,
+		AnthropicCanonicalHaikuMimicryEnabled:  settings.AnthropicCanonicalHaikuMimicryEnabled,
 		PasswordResetEnabled:                   settings.PasswordResetEnabled,
 		FrontendURL:                            settings.FrontendURL,
 		InvitationCodeEnabled:                  settings.InvitationCodeEnabled,
@@ -396,7 +397,8 @@ type UpdateSettingsRequest struct {
 	RegistrationEmailSuffixWhitelist       []string                     `json:"registration_email_suffix_whitelist"`
 	PromoCodeEnabled                       bool                         `json:"promo_code_enabled"`
 	KiroEnabled                            bool                         `json:"kiro_enabled"`                               // TK: Kiro 第六平台转发门禁（默认 false / ToS）
-	AnthropicCanonicalIngressStrictEnabled *bool                        `json:"anthropic_canonical_ingress_strict_enabled"` // TK: canonical Anthropic OAuth 入口 strict 收紧（默认 false / 零回归）；指针 = 缺字段时保留当前值，防旧前端整单保存把 canary 防线静默关回 false
+	AnthropicCanonicalIngressStrictEnabled *bool                        `json:"anthropic_canonical_ingress_strict_enabled"` // TK: canonical 入口 UA strict 拒绝（#1#2，默认 false）；指针 = 缺字段时保留当前值，防旧前端整单保存把 canary 防线静默关回 false
+	AnthropicCanonicalHaikuMimicryEnabled  *bool                        `json:"anthropic_canonical_haiku_mimicry_enabled"`  // TK: canonical 非 CC haiku 出口 mimicry 补全（#3，默认 false）；指针 = 缺字段时保留当前值（同上，独立开关）
 	PasswordResetEnabled                   bool                         `json:"password_reset_enabled"`
 	FrontendURL                            string                       `json:"frontend_url"`
 	InvitationCodeEnabled                  bool                         `json:"invitation_code_enabled"`
@@ -1509,6 +1511,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.AnthropicCanonicalIngressStrictEnabled
 		}(),
+		AnthropicCanonicalHaikuMimicryEnabled: func() bool {
+			if req.AnthropicCanonicalHaikuMimicryEnabled != nil {
+				return *req.AnthropicCanonicalHaikuMimicryEnabled
+			}
+			return previousSettings.AnthropicCanonicalHaikuMimicryEnabled
+		}(),
 		PasswordResetEnabled:    req.PasswordResetEnabled,
 		FrontendURL:             req.FrontendURL,
 		InvitationCodeEnabled:   req.InvitationCodeEnabled,
@@ -1972,6 +1980,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		PromoCodeEnabled:                       updatedSettings.PromoCodeEnabled,
 		KiroEnabled:                            updatedSettings.KiroEnabled,
 		AnthropicCanonicalIngressStrictEnabled: updatedSettings.AnthropicCanonicalIngressStrictEnabled,
+		AnthropicCanonicalHaikuMimicryEnabled:  updatedSettings.AnthropicCanonicalHaikuMimicryEnabled,
 		PasswordResetEnabled:                   updatedSettings.PasswordResetEnabled,
 		FrontendURL:                            updatedSettings.FrontendURL,
 		InvitationCodeEnabled:                  updatedSettings.InvitationCodeEnabled,
@@ -2233,6 +2242,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.AnthropicCanonicalIngressStrictEnabled != after.AnthropicCanonicalIngressStrictEnabled {
 		changed = append(changed, "anthropic_canonical_ingress_strict_enabled")
+	}
+	if before.AnthropicCanonicalHaikuMimicryEnabled != after.AnthropicCanonicalHaikuMimicryEnabled {
+		changed = append(changed, "anthropic_canonical_haiku_mimicry_enabled")
 	}
 	if before.InvitationCodeEnabled != after.InvitationCodeEnabled {
 		changed = append(changed, "invitation_code_enabled")

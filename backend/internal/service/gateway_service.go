@@ -4697,14 +4697,17 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		// 检测到"有 CC prompt 但无 billing block"的不一致而判为 third-party。
 		// Parrot 的 transform_request 从不检查客户端 system 内容，直接覆盖。
 		systemRewritten := false
-		// haiku normally skips system rewrite. Under strict canonical-ingress mode
-		// rewrite haiku too, so a non-CC haiku request does not carry CC headers
-		// without the matching CC system/billing block (cohort inconsistency).
-		// Append-only `strict ||`: default false keeps the haiku skip (zero regression).
-		// See SettingKeyAnthropicCanonicalIngressStrictEnabled.
-		canonicalIngressStrict := s.isCanonicalAnthropicOAuth(account) &&
-			s.settingService.IsAnthropicCanonicalIngressStrictEnabled(ctx)
-		if shouldRewriteSystemForNonCCMimicry(reqModel, canonicalIngressStrict) {
+		// haiku normally skips system rewrite. Under the canonical haiku-mimicry
+		// toggle, rewrite haiku too, so a non-CC haiku request does not carry CC
+		// headers without the matching CC system/billing block (cohort inconsistency)
+		// — the egress "admit and launder" half. This is INDEPENDENT of the ingress
+		// UA strict gate: when an operator relaxes cc_only and routes non-CC traffic
+		// to a canonical fallback account, ingress stays open but this completes the
+		// disguise. Append-only `mimicry ||`: default false keeps the haiku skip
+		// (zero regression). See SettingKeyAnthropicCanonicalHaikuMimicryEnabled.
+		canonicalHaikuMimicry := s.isCanonicalAnthropicOAuth(account) &&
+			s.settingService.IsAnthropicCanonicalHaikuMimicryEnabled(ctx)
+		if shouldRewriteSystemForNonCCMimicry(reqModel, canonicalHaikuMimicry) {
 			systemRaw, _ := parsed.SystemValue()
 			if err := replaceBody(rewriteSystemForNonClaudeCode(body, systemRaw)); err != nil {
 				return nil, err

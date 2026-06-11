@@ -17,7 +17,8 @@ type SystemSettings struct {
 	RegistrationEmailSuffixWhitelist       []string
 	PromoCodeEnabled                       bool
 	KiroEnabled                            bool // TK: Kiro 第六平台转发门禁（默认 false / ToS）
-	AnthropicCanonicalIngressStrictEnabled bool // TK: canonical Anthropic OAuth 入口 strict 收紧（默认 false / 零回归）
+	AnthropicCanonicalIngressStrictEnabled bool // TK: canonical 入口 UA strict 拒绝（拒非 CC，#1#2，默认 false / 零回归）
+	AnthropicCanonicalHaikuMimicryEnabled  bool // TK: canonical 非 CC haiku 出口 mimicry 补全（放行+兜底，#3，默认 false / 零回归）
 	PasswordResetEnabled                   bool
 	FrontendURL                            string
 	InvitationCodeEnabled                  bool

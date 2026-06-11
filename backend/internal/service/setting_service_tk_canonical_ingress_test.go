@@ -76,3 +76,56 @@ func TestSettingService_IsAnthropicCanonicalIngressStrictEnabled(t *testing.T) {
 		require.False(t, svc.IsAnthropicCanonicalIngressStrictEnabled(context.Background()))
 	})
 }
+
+func TestSettingService_IsAnthropicCanonicalHaikuMimicryEnabled(t *testing.T) {
+	resetCache := func() {
+		gatewayForwardingSF.Forget("gateway_forwarding")
+		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{})
+	}
+	t.Cleanup(resetCache)
+	t.Run("默认关闭（设置缺失=零回归）", func(t *testing.T) {
+		resetCache()
+		svc := NewSettingService(&canonicalIngressStrictSettingRepoStub{values: map[string]string{}}, &config.Config{})
+		require.False(t, svc.IsAnthropicCanonicalHaikuMimicryEnabled(context.Background()))
+	})
+	t.Run("值为 true 时开启", func(t *testing.T) {
+		resetCache()
+		svc := NewSettingService(&canonicalIngressStrictSettingRepoStub{values: map[string]string{
+			SettingKeyAnthropicCanonicalHaikuMimicryEnabled: "true",
+		}}, &config.Config{})
+		require.True(t, svc.IsAnthropicCanonicalHaikuMimicryEnabled(context.Background()))
+	})
+}
+
+// TestSettingService_CanonicalToggles_Orthogonal pins the core design contract of
+// the PR #691 direction revision: the two canonical toggles are INDEPENDENT.
+// Specifically the "admit and launder" config (relax cc_only, route non-CC to a
+// canonical fallback) needs HaikuMimicry=ON while IngressStrict stays OFF — a
+// single switch could not express this, which is why they were split.
+func TestSettingService_CanonicalToggles_Orthogonal(t *testing.T) {
+	resetCache := func() {
+		gatewayForwardingSF.Forget("gateway_forwarding")
+		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{})
+	}
+	t.Cleanup(resetCache)
+
+	t.Run("haiku 补全开、入口拒绝关（admit-and-launder 配置）", func(t *testing.T) {
+		resetCache()
+		svc := NewSettingService(&canonicalIngressStrictSettingRepoStub{values: map[string]string{
+			SettingKeyAnthropicCanonicalHaikuMimicryEnabled:  "true",
+			SettingKeyAnthropicCanonicalIngressStrictEnabled: "false",
+		}}, &config.Config{})
+		require.True(t, svc.IsAnthropicCanonicalHaikuMimicryEnabled(context.Background()), "haiku launder must be ON")
+		require.False(t, svc.IsAnthropicCanonicalIngressStrictEnabled(context.Background()), "ingress reject must stay OFF so non-CC clients are admitted")
+	})
+
+	t.Run("入口拒绝开、haiku 补全关（reject-at-door 配置）", func(t *testing.T) {
+		resetCache()
+		svc := NewSettingService(&canonicalIngressStrictSettingRepoStub{values: map[string]string{
+			SettingKeyAnthropicCanonicalIngressStrictEnabled: "true",
+			SettingKeyAnthropicCanonicalHaikuMimicryEnabled:  "false",
+		}}, &config.Config{})
+		require.True(t, svc.IsAnthropicCanonicalIngressStrictEnabled(context.Background()))
+		require.False(t, svc.IsAnthropicCanonicalHaikuMimicryEnabled(context.Background()))
+	})
+}

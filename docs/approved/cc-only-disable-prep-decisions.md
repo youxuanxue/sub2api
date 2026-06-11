@@ -196,3 +196,26 @@ PR #691 审查发现四处缺口，已随 review fix commit 一并落地；D1–
 - **R-002（修订 D4 读取实现）**：`IsAnthropicCanonicalIngressStrictEnabled` 不走每请求 `settingRepo.GetValue` 直查（canonical 热路径每请求 +1~2 次 DB 点查、DB 抖动 fail-open），改为并入共享 60s `gatewayForwardingCache`（singleflight + settings pubsub 刷新）——即 D4 原文"接入 GatewayForwardingSettings"的字面要求。
 - **R-003（补 D7 观测）**：strict 403 在 edge 本地以 `MarkOpsClientBusinessLimited(LocalPolicyDenied)` 标记（messages handler 分支 + count_tokens 路径），否则 `permission_error` 落 phase=internal/P2 计入错误率，canary 一开拒绝量直接打污 error dashboards。
 - **R-004（补 D1/D7 跨跳交互，prod 侧代码准备）**：edge strict 403 经 prod `cc-<edge>` 镜像 stub 回程时是**终端客户端身份问题，不是 stub/edge 健康问题**。不豁免则 1 分钟 3 次拒绝即推进 anthropic 3/3 阶梯、冷却 canary edge 的 stub（任意第三方客户端可把 canary edge 从 prod 池打掉，复刻 2026-05-31 no-available 放大器形态），且计入 `upstream_error_rate` 可触发 provider-health 假 P0。修复：`canonicalIngressRejectNeedle` 为 wire contract 单一源短语；prod 侧 `tkSkipRelayedCanonicalIngressRejectPenalty`（handle403 前置豁免，fail over 不进阶梯）+ ops 分类器 403 特例归 client-owned。边界纪律同 no-available skip：只认 TokenKey 自产短语，真 Anthropic 403（org disabled / bot challenge）原路计数。**灰度顺序推论：prod 必须先发版携带此豁免，才能在任何 edge 开 strict canary。**
+
+---
+
+## 方向修订（D1/D4，2026-06-11，运营授权）
+
+原 D1/D4 把「canonical 入口收紧」设计成**单一开关统辖三处**（#1 入口 UA allow-list 拒绝 / #2 count_tokens 拒绝 / #3 非 CC haiku mimicry 补全），方向是「在入口拒掉非 CC」。运营复盘目标线上配置后授权调整方向，原结论作废，替换如下：
+
+**目标配置（运营给定）**：default 组保持 cc-only=true；新建 default-fallback 组 cc-only=false；新增 2 个 edge anthropic OAuth 账号，**绑 canonical TLS**（对 anthropic OAuth 账号做兜底指纹保护是硬要求，绝不为放开而裸奔），**放行非 CC 客户端流量**，由 canonical TLS 那一套出口兜底转换（system 重写 + billing block + UA 钉死 + 指纹）把非 CC 流量洗成干净 CC cohort。
+
+**关键发现**：在「账号必须 canonical」的硬约束下，#1#2（入口拒非 CC）与「放行非 CC + 出口兜底转换」**方向相反**——前者把后者想放进来的非 CC（第三方/空 UA）又拒在门口。而 #3（haiku 补全）是出口兜底转换的**必需补丁**（非 CC haiku 占 Claude Code 后台流量大头，缺它则半成品伪装裸奔出口，威胁订阅号 standing）。单开关把三者绑死 → 目标配置需要「#3=ON 且 #1#2=OFF」，单开关两种状态都给不了。
+
+**修订**：拆成**两个正交开关**（均默认 false / 零回归，均 scoped canonical OAuth + 经 gatewayForwardingCache 热更）：
+
+| 开关 | key | 管 | 策略 | 目标配置取值 |
+|---|---|---|---|---|
+| 入口 UA strict | `anthropic_canonical_ingress_strict_enabled` | #1 入口 allow-list + #2 count_tokens | 「reject at the door」：不容忍非 CC 上 canonical | **OFF** |
+| haiku mimicry 补全 | `anthropic_canonical_haiku_mimicry_enabled` | #3 非 CC haiku 出口 system/billing 补全 | 「admit and launder」：放行非 CC，出口洗干净 | **ON** |
+
+两个开关**不假设一起开关**：目标配置只开 haiku 补全、不开入口拒绝，即可达成「放行非 CC + 出口兜底、新订阅号不裸奔」。原 D1「拒空 UA」语义保留为另一条相反策略（reject-at-door）供需要时单独使用。
+
+**R-003/R-004 适配**：strict 403 仅在「入口 UA strict」开关开启时产生，目标配置不开，故 R-003（business-limited 标记）/R-004（prod 跨跳豁免）在目标配置下不触发——逻辑保留不变，覆盖另一条策略被启用的场景。
+
+**授权来源**：运营 2026-06-11 口头指示「按拆开关方向改 PR」「2 个新 edge 账号绑 canonical TLS 必须兜底保护」。frontmatter 的 approved_by 维持原值；本节为方向修订的可追溯锚点。
