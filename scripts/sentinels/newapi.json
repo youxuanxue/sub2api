@@ -327,16 +327,51 @@
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch.go",
       "must_contain": [
-        "tkWrapBridgeRelayErrorWithPenalty"
+        "s.tkWrapBridgeRelayErrorWithPenalty(ctx, c, account, apiErr)"
       ],
-      "rationale": "Every real-upstream-error dispatch site in the OpenAI-gateway bridge boundary must call the penalty-wrapping chokepoint (not the penalty-less tkWrapBridgeRelayError). An upstream merge that restructures these dispatch functions and reverts to the plain wrapper silently disconnects the newapi account-penalty path again with no compile error."
+      "must_not_contain": [
+        "tkWrapBridgeRelayError(c, apiErr)"
+      ],
+      "rationale": "Every real-upstream-error dispatch site in the OpenAI-gateway bridge boundary (chat/responses/embeddings/images, 4 sites) must call the penalty-wrapping chokepoint. The 4 call lines are textually identical, so must_contain alone cannot catch a partial revert — must_not_contain asserts ZERO penalty-less tkWrapBridgeRelayError(c, apiErr) calls remain in this file, which catches any single site regressing. A refactor that reverts to the plain wrapper silently disconnects the newapi account-penalty path with no compile error."
+    },
+    {
+      "path": "backend/internal/service/gateway_bridge_dispatch.go",
+      "must_contain": [
+        "s.tkWrapBridgeRelayErrorWithPenalty(ctx, c, account, apiErr)"
+      ],
+      "must_not_contain": [
+        "tkWrapBridgeRelayError(c, apiErr)"
+      ],
+      "rationale": "The Anthropic-gateway bridge boundary (GatewayService ForwardAsChatCompletionsDispatched / ForwardAsResponsesDispatched, 2 sites) is the same penalty chokepoint class as openai_gateway_bridge_dispatch.go and must stay wired identically: zero penalty-less tkWrapBridgeRelayError(c, apiErr) calls. Without this entry only the OpenAI-gateway file was anchored and a refactor here would silently drop the account penalty for messages-dispatch newapi traffic."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_anthropic.go",
+      "must_contain": [
+        "s.tkWrapBridgeRelayErrorWithPenalty(ctx, c, account, apiErr)"
+      ],
+      "rationale": "ForwardAsAnthropicDispatched is the 7th penalty wiring site (anthropic-shaped requests routed over the newapi bridge). Same risk class as the other dispatch boundaries: reverting to the plain wrapper compiles clean and silently disconnects the account penalty."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_video.go",
+      "must_contain": [
+        "s.tkWrapBridgeRelayErrorWithPenalty(ctx, c, account, apiErr)",
+        "No account penalty here"
+      ],
+      "rationale": "Video SUBMIT must penalize (the selected account is in hand); video FETCH must NOT (account-agnostic VideoTaskCache registry routing — a poll failure long after submit must not punish whichever account currently maps to the channel). Anchors the submit-site penalty call plus the fetch-path exemption comment so neither side of the asymmetry is silently flattened: no must_not_contain here because the fetch path legitimately keeps the plain tkWrapBridgeRelayError."
     },
     {
       "path": "backend/internal/handler/openai_chat_completions.go",
       "must_contain": [
-        "TkTryWriteNewAPIRelayErrorJSON(c, err, streamStarted, writerSizeBeforeForward)"
+        "// image-partial-result path and never fires for plain chat errors.\n\t\t\t\tif TkTryWriteNewAPIRelayErrorJSON(c, err, streamStarted, writerSizeBeforeForward) {"
       ],
-      "rationale": "Chat-completions handler must preserve the NewAPIRelayError's real upstream status (402/429/...) to the client instead of masking it as 502 'Upstream request failed'. The reachable call lives INSIDE the non-failover error branch (mirroring the /v1/responses handler); a merge that drops it reverts every newapi bridge error to an opaque 502 (the 2026-06-11 DeepSeek incident shape, 6946 masked 402s)."
+      "rationale": "Chat-completions handler must preserve the NewAPIRelayError's real upstream status (402/429/...) to the client instead of masking it as 502 'Upstream request failed'. The load-bearing call lives INSIDE the non-failover error branch (mirroring the /v1/responses handler); the file contains a SECOND textually-identical call further down that is only reachable on the image-partial-result path, so a bare single-line needle would still pass after a merge dropped the reachable branch. The needle therefore pins the comment tail + if-line contiguous to the in-branch site; a merge that drops it reverts every newapi chat bridge error to an opaque 502 (the 2026-06-11 DeepSeek incident shape, 6946 masked 402s)."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "s.notifyAccountSchedulingBlocked(account, time.Time{}, \"auth_error\", errorMsg)"
+      ],
+      "rationale": "handleAuthError must forward the upstream error message as the Feishu permanent-disable card detail (e.g. 'Payment required (402): Insufficient Balance'). notifyAccountSchedulingBlocked's detail parameter is variadic, so an upstream merge reverting this call to the bare 3-arg form compiles clean and silently strips the upstream status/message from the P0 card — losing the alert-content half of the 2026-06-11 incident fix while the alert itself still fires."
     }
   ]
 }
