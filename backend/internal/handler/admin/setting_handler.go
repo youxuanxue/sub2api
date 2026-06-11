@@ -396,7 +396,7 @@ type UpdateSettingsRequest struct {
 	RegistrationEmailSuffixWhitelist       []string                     `json:"registration_email_suffix_whitelist"`
 	PromoCodeEnabled                       bool                         `json:"promo_code_enabled"`
 	KiroEnabled                            bool                         `json:"kiro_enabled"`                               // TK: Kiro 第六平台转发门禁（默认 false / ToS）
-	AnthropicCanonicalIngressStrictEnabled bool                         `json:"anthropic_canonical_ingress_strict_enabled"` // TK: canonical Anthropic OAuth 入口 strict 收紧（默认 false / 零回归）
+	AnthropicCanonicalIngressStrictEnabled *bool                        `json:"anthropic_canonical_ingress_strict_enabled"` // TK: canonical Anthropic OAuth 入口 strict 收紧（默认 false / 零回归）；指针 = 缺字段时保留当前值，防旧前端整单保存把 canary 防线静默关回 false
 	PasswordResetEnabled                   bool                         `json:"password_reset_enabled"`
 	FrontendURL                            string                       `json:"frontend_url"`
 	InvitationCodeEnabled                  bool                         `json:"invitation_code_enabled"`
@@ -1498,30 +1498,35 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		// 系统全局 platform quota 默认值（整体替换语义）
 		DefaultPlatformQuotas: req.DefaultPlatformQuotas,
 
-		RegistrationEnabled:                    req.RegistrationEnabled,
-		EmailVerifyEnabled:                     req.EmailVerifyEnabled,
-		RegistrationEmailSuffixWhitelist:       req.RegistrationEmailSuffixWhitelist,
-		PromoCodeEnabled:                       req.PromoCodeEnabled,
-		KiroEnabled:                            req.KiroEnabled,
-		AnthropicCanonicalIngressStrictEnabled: req.AnthropicCanonicalIngressStrictEnabled,
-		PasswordResetEnabled:                   req.PasswordResetEnabled,
-		FrontendURL:                            req.FrontendURL,
-		InvitationCodeEnabled:                  req.InvitationCodeEnabled,
-		TotpEnabled:                            req.TotpEnabled,
-		LoginAgreementEnabled:                  req.LoginAgreementEnabled,
-		LoginAgreementMode:                     loginAgreementMode,
-		LoginAgreementUpdatedAt:                loginAgreementUpdatedAt,
-		LoginAgreementDocuments:                loginAgreementDocuments,
-		SMTPHost:                               req.SMTPHost,
-		SMTPPort:                               req.SMTPPort,
-		SMTPUsername:                           req.SMTPUsername,
-		SMTPPassword:                           req.SMTPPassword,
-		SMTPFrom:                               req.SMTPFrom,
-		SMTPFromName:                           req.SMTPFromName,
-		SMTPUseTLS:                             req.SMTPUseTLS,
-		TurnstileEnabled:                       req.TurnstileEnabled,
-		TurnstileSiteKey:                       req.TurnstileSiteKey,
-		TurnstileSecretKey:                     req.TurnstileSecretKey,
+		RegistrationEnabled:              req.RegistrationEnabled,
+		EmailVerifyEnabled:               req.EmailVerifyEnabled,
+		RegistrationEmailSuffixWhitelist: req.RegistrationEmailSuffixWhitelist,
+		PromoCodeEnabled:                 req.PromoCodeEnabled,
+		KiroEnabled:                      req.KiroEnabled,
+		AnthropicCanonicalIngressStrictEnabled: func() bool {
+			if req.AnthropicCanonicalIngressStrictEnabled != nil {
+				return *req.AnthropicCanonicalIngressStrictEnabled
+			}
+			return previousSettings.AnthropicCanonicalIngressStrictEnabled
+		}(),
+		PasswordResetEnabled:    req.PasswordResetEnabled,
+		FrontendURL:             req.FrontendURL,
+		InvitationCodeEnabled:   req.InvitationCodeEnabled,
+		TotpEnabled:             req.TotpEnabled,
+		LoginAgreementEnabled:   req.LoginAgreementEnabled,
+		LoginAgreementMode:      loginAgreementMode,
+		LoginAgreementUpdatedAt: loginAgreementUpdatedAt,
+		LoginAgreementDocuments: loginAgreementDocuments,
+		SMTPHost:                req.SMTPHost,
+		SMTPPort:                req.SMTPPort,
+		SMTPUsername:            req.SMTPUsername,
+		SMTPPassword:            req.SMTPPassword,
+		SMTPFrom:                req.SMTPFrom,
+		SMTPFromName:            req.SMTPFromName,
+		SMTPUseTLS:              req.SMTPUseTLS,
+		TurnstileEnabled:        req.TurnstileEnabled,
+		TurnstileSiteKey:        req.TurnstileSiteKey,
+		TurnstileSecretKey:      req.TurnstileSecretKey,
 		APIKeyACLTrustForwardedIP: func() bool {
 			if req.APIKeyACLTrustForwardedIP != nil {
 				return *req.APIKeyACLTrustForwardedIP

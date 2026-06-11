@@ -185,3 +185,14 @@ related_commits: []
 - **§6 接口完整性**：`IsAnthropicCanonicalIngressStrictEnabled` 是 `*SettingService` 具体方法，非接口新增方法，无需补 stub；若 `SettingService` 在网关侧经接口注入，需在该接口及所有 mock 补此方法（提交前 grep 确认）。⚠️ 实现者必查。
 - **§8 层依赖**：service 调 service（settingService），不反向。✅
 - **零回归**：默认 false 时 D1/D2/D3 全部退回当前行为。✅
+
+---
+
+## 审查补强（xj-review R-001..R-004，2026-06-11）
+
+PR #691 审查发现四处缺口，已随 review fix commit 一并落地；D1–D7 结论不变，以下为对原文的修订与补充：
+
+- **R-001（修订 D4 接线）**：`UpdateSettingsRequest.AnthropicCanonicalIngressStrictEnabled` 用 `*bool` preserve-on-absent（仿 `APIKeyACLTrustForwardedIP`），缺字段时回退 `previousSettings` 当前值。原因：本 PR 不带前端，旧 admin UI 整单保存的 payload 不含该字段，非指针 bool 会把 canary 期间已开启的 strict 静默重置回 false——防线被无声拆除。
+- **R-002（修订 D4 读取实现）**：`IsAnthropicCanonicalIngressStrictEnabled` 不走每请求 `settingRepo.GetValue` 直查（canonical 热路径每请求 +1~2 次 DB 点查、DB 抖动 fail-open），改为并入共享 60s `gatewayForwardingCache`（singleflight + settings pubsub 刷新）——即 D4 原文"接入 GatewayForwardingSettings"的字面要求。
+- **R-003（补 D7 观测）**：strict 403 在 edge 本地以 `MarkOpsClientBusinessLimited(LocalPolicyDenied)` 标记（messages handler 分支 + count_tokens 路径），否则 `permission_error` 落 phase=internal/P2 计入错误率，canary 一开拒绝量直接打污 error dashboards。
+- **R-004（补 D1/D7 跨跳交互，prod 侧代码准备）**：edge strict 403 经 prod `cc-<edge>` 镜像 stub 回程时是**终端客户端身份问题，不是 stub/edge 健康问题**。不豁免则 1 分钟 3 次拒绝即推进 anthropic 3/3 阶梯、冷却 canary edge 的 stub（任意第三方客户端可把 canary edge 从 prod 池打掉，复刻 2026-05-31 no-available 放大器形态），且计入 `upstream_error_rate` 可触发 provider-health 假 P0。修复：`canonicalIngressRejectNeedle` 为 wire contract 单一源短语；prod 侧 `tkSkipRelayedCanonicalIngressRejectPenalty`（handle403 前置豁免，fail over 不进阶梯）+ ops 分类器 403 特例归 client-owned。边界纪律同 no-available skip：只认 TokenKey 自产短语，真 Anthropic 403（org disabled / bot challenge）原路计数。**灰度顺序推论：prod 必须先发版携带此豁免，才能在任何 edge 开 strict canary。**

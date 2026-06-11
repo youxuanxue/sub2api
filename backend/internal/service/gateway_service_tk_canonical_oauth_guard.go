@@ -27,8 +27,29 @@ type CanonicalIngressUARejectedError struct {
 	IngressUA string
 }
 
+// canonicalIngressRejectNeedle is the stable TokenKey-generated phrase carried
+// by every canonical-ingress UA rejection (Error() below). Real provider APIs
+// never emit it, so — like ErrNoAvailableAccounts — it doubles as the relay-hop
+// recognition signal: when a prod mirror stub receives this 403 from a strict-
+// mode edge, IsCanonicalIngressUARejectMessage matches it and the prod side
+// fails over without cooling the stub (see
+// ratelimit_service_tk_canonical_ingress_reject.go and
+// ops_error_logger_tk_client_induced_upstream.go). Changing this string breaks
+// that recognition across mixed prod/edge versions — treat it as a wire contract.
+const canonicalIngressRejectNeedle = "canonical claude oauth path rejects non-cc client"
+
 func (e *CanonicalIngressUARejectedError) Error() string {
-	return fmt.Sprintf("canonical claude oauth path rejects non-cc client: ingress user_agent=%q (use claude-cli)", e.IngressUA)
+	return fmt.Sprintf("%s: ingress user_agent=%q (use claude-cli)", canonicalIngressRejectNeedle, e.IngressUA)
+}
+
+// IsCanonicalIngressUARejectMessage reports whether an upstream error body /
+// message is a TokenKey canonical-ingress UA rejection relayed from a
+// downstream strict-mode edge. Exported for the handler-layer ops classifier.
+func IsCanonicalIngressUARejectMessage(responseBody []byte, upstreamMsg string) bool {
+	if strings.Contains(strings.ToLower(upstreamMsg), canonicalIngressRejectNeedle) {
+		return true
+	}
+	return strings.Contains(strings.ToLower(string(responseBody)), canonicalIngressRejectNeedle)
 }
 
 // canonicalIngressUAForbiddenSubstrings lists case-insensitive substrings that

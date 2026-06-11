@@ -809,9 +809,13 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				}
 
 				// TK canonical-OAuth ingress UA reject: 403 immediately, no failover.
+				// Local policy denial, not account/provider health — mark it
+				// business-limited so strict-mode canary reject volume stays out of
+				// error-rate dashboards (mirrors the BetaBlockedError branch above).
 				// See gateway_service_tk_canonical_oauth_guard.go.
 				var canonicalUARejectErr *service.CanonicalIngressUARejectedError
 				if errors.As(err, &canonicalUARejectErr) {
+					service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalPolicyDenied)
 					h.errorResponse(c, http.StatusForbidden, "permission_error", canonicalUARejectErr.Error())
 					return
 				}

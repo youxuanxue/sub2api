@@ -23,7 +23,13 @@ func (s *canonicalIngressStrictSettingRepoStub) Set(ctx context.Context, key, va
 	panic("unused")
 }
 func (s *canonicalIngressStrictSettingRepoStub) GetMultiple(ctx context.Context, keys []string) (map[string]string, error) {
-	panic("unused")
+	out := make(map[string]string, len(keys))
+	for _, k := range keys {
+		if v, ok := s.values[k]; ok {
+			out[k] = v
+		}
+	}
+	return out, nil
 }
 func (s *canonicalIngressStrictSettingRepoStub) SetMultiple(ctx context.Context, settings map[string]string) error {
 	panic("unused")
@@ -36,23 +42,34 @@ func (s *canonicalIngressStrictSettingRepoStub) Delete(ctx context.Context, key 
 }
 
 func TestSettingService_IsAnthropicCanonicalIngressStrictEnabled(t *testing.T) {
+	// The value rides the shared package-level gatewayForwardingCache; reset it
+	// (and the singleflight) per subtest so each case reads through its own stub.
+	resetCache := func() {
+		gatewayForwardingSF.Forget("gateway_forwarding")
+		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{})
+	}
+	t.Cleanup(resetCache)
 	t.Run("默认关闭（设置缺失=零回归）", func(t *testing.T) {
+		resetCache()
 		svc := NewSettingService(&canonicalIngressStrictSettingRepoStub{values: map[string]string{}}, &config.Config{})
 		require.False(t, svc.IsAnthropicCanonicalIngressStrictEnabled(context.Background()))
 	})
 	t.Run("值为 true 时开启", func(t *testing.T) {
+		resetCache()
 		svc := NewSettingService(&canonicalIngressStrictSettingRepoStub{values: map[string]string{
 			SettingKeyAnthropicCanonicalIngressStrictEnabled: "true",
 		}}, &config.Config{})
 		require.True(t, svc.IsAnthropicCanonicalIngressStrictEnabled(context.Background()))
 	})
 	t.Run("值为 false 时关闭", func(t *testing.T) {
+		resetCache()
 		svc := NewSettingService(&canonicalIngressStrictSettingRepoStub{values: map[string]string{
 			SettingKeyAnthropicCanonicalIngressStrictEnabled: "false",
 		}}, &config.Config{})
 		require.False(t, svc.IsAnthropicCanonicalIngressStrictEnabled(context.Background()))
 	})
 	t.Run("值为非法字符串时关闭", func(t *testing.T) {
+		resetCache()
 		svc := NewSettingService(&canonicalIngressStrictSettingRepoStub{values: map[string]string{
 			SettingKeyAnthropicCanonicalIngressStrictEnabled: "yes",
 		}}, &config.Config{})

@@ -121,6 +121,7 @@ type cachedGatewayForwardingSettings struct {
 	anthropicCacheTTL1hInjection bool
 	rewriteMessageCacheControl   bool
 	anthropicRequestNormalize    bool
+	canonicalIngressStrict       bool
 	expiresAt                    int64 // unix nano
 }
 
@@ -1970,6 +1971,7 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 		anthropicCacheTTL1hInjection: settings.EnableAnthropicCacheTTL1hInjection,
 		rewriteMessageCacheControl:   settings.RewriteMessageCacheControl,
 		anthropicRequestNormalize:    settings.AnthropicRequestNormalizeEnabled,
+		canonicalIngressStrict:       settings.AnthropicCanonicalIngressStrictEnabled,
 		expiresAt:                    time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
 	})
 	s.antigravityUAVersionSF.Forget("antigravity_user_agent_version")
@@ -2123,6 +2125,7 @@ func (s *SettingService) IsBackendModeEnabled(ctx context.Context) bool {
 
 type gatewayForwardingSettingsResult struct {
 	fp, mp, cch, cacheTTL1h, rewriteMessageCacheControl, anthropicRequestNormalize bool
+	canonicalIngressStrict                                                         bool
 }
 
 func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context) gatewayForwardingSettingsResult {
@@ -2135,6 +2138,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 				cacheTTL1h:                 cached.anthropicCacheTTL1hInjection,
 				rewriteMessageCacheControl: cached.rewriteMessageCacheControl,
 				anthropicRequestNormalize:  cached.anthropicRequestNormalize,
+				canonicalIngressStrict:     cached.canonicalIngressStrict,
 			}
 		}
 	}
@@ -2148,6 +2152,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 					cacheTTL1h:                 cached.anthropicCacheTTL1hInjection,
 					rewriteMessageCacheControl: cached.rewriteMessageCacheControl,
 					anthropicRequestNormalize:  cached.anthropicRequestNormalize,
+					canonicalIngressStrict:     cached.canonicalIngressStrict,
 				}, nil
 			}
 		}
@@ -2160,6 +2165,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			SettingKeyEnableAnthropicCacheTTL1hInjection,
 			SettingKeyRewriteMessageCacheControl,
 			SettingKeyAnthropicRequestNormalizeEnabled,
+			SettingKeyAnthropicCanonicalIngressStrictEnabled,
 		})
 		if err != nil {
 			slog.Warn("failed to get gateway forwarding settings", "error", err)
@@ -2170,6 +2176,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 				anthropicCacheTTL1hInjection: false,
 				rewriteMessageCacheControl:   s.defaultRewriteMessageCacheControl(),
 				anthropicRequestNormalize:    true,
+				canonicalIngressStrict:       false,
 				expiresAt:                    time.Now().Add(gatewayForwardingErrorTTL).UnixNano(),
 			})
 			return gatewayForwardingSettingsResult{
@@ -2179,6 +2186,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 				cacheTTL1h:                 false,
 				rewriteMessageCacheControl: s.defaultRewriteMessageCacheControl(),
 				anthropicRequestNormalize:  true,
+				canonicalIngressStrict:     false,
 			}, nil
 		}
 		fp := true
@@ -2194,6 +2202,8 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 		}
 		// Default-true: missing / empty value means enabled. Explicit "false" disables.
 		anthropicRequestNormalize := !isFalseSettingValue(values[SettingKeyAnthropicRequestNormalizeEnabled])
+		// Default-false: only explicit "true" enables the canonical-ingress strict gate.
+		canonicalIngressStrict := values[SettingKeyAnthropicCanonicalIngressStrictEnabled] == "true"
 		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
 			fingerprintUnification:       fp,
 			metadataPassthrough:          mp,
@@ -2201,6 +2211,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			anthropicCacheTTL1hInjection: cacheTTL1h,
 			rewriteMessageCacheControl:   rewriteMessageCacheControl,
 			anthropicRequestNormalize:    anthropicRequestNormalize,
+			canonicalIngressStrict:       canonicalIngressStrict,
 			expiresAt:                    time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
 		})
 		return gatewayForwardingSettingsResult{
@@ -2210,6 +2221,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			cacheTTL1h:                 cacheTTL1h,
 			rewriteMessageCacheControl: rewriteMessageCacheControl,
 			anthropicRequestNormalize:  anthropicRequestNormalize,
+			canonicalIngressStrict:     canonicalIngressStrict,
 		}, nil
 	})
 	if r, ok := val.(gatewayForwardingSettingsResult); ok {

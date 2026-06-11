@@ -10,12 +10,15 @@ import "context"
 // SettingKeyAnthropicCanonicalIngressStrictEnabled takes effect, scoped to
 // anthropic OAuth accounts bound to the canonical TLS profile only.
 //
-// Reads through SettingService.GetValue so the value participates in the
-// settings pubsub hot-update path (admin can toggle without a deploy).
+// Reads through the shared 60s gatewayForwardingCache (singleflight) — the same
+// cache every adjacent hot-path Anthropic forwarding setting uses, refreshed in
+// place by the settings pubsub on admin update (toggle without a deploy). A
+// direct per-request settingRepo.GetValue here would add a DB roundtrip to
+// every canonical /v1/messages + count_tokens request and silently fail-open on
+// a DB blip; the cache serves the last-known value instead.
 func (s *SettingService) IsAnthropicCanonicalIngressStrictEnabled(ctx context.Context) bool {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyAnthropicCanonicalIngressStrictEnabled)
-	if err != nil {
-		return false // 默认关闭，保持 deny-list / upstream 行为
+	if s == nil {
+		return false
 	}
-	return value == "true"
+	return s.getGatewayForwardingSettingsCached(ctx).canonicalIngressStrict
 }
