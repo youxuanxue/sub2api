@@ -101,6 +101,25 @@ func TestTkHandleAnthropicRequestOwned429_DistinctTextsNeverTrip(t *testing.T) {
 	}
 }
 
+// TK capacity envelopes (#575 empty-pool fast-fail, failover-exhausted rewrite)
+// are EDGE-scoped signals where cross-edge failover is the designed remedy —
+// identical text from many edges must never trip the breaker.
+func TestTkHandleAnthropicRequestOwned429_CapacityEnvelopesExempt(t *testing.T) {
+	envelopes := []string{
+		`{"type":"error","error":{"type":"api_error","message":"No available accounts: no available accounts"}}`,
+		`{"type":"error","error":{"type":"rate_limit_error","message":"Upstream rate limit exceeded, please retry later"}}`,
+	}
+	for _, body := range envelopes {
+		c, _ := newRequestOwned429TestContext(t)
+		svc := &GatewayService{}
+		for i := 1; i <= tkAnthropic429SameTextThreshold+2; i++ {
+			account := &Account{ID: int64(i), Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+			_, _, handled := svc.tkHandleAnthropicRequestOwned429(c, account, anthropic429Response(body), []byte(body))
+			require.False(t, handled, "capacity envelope must never trip the breaker (occurrence %d, body=%s)", i, body)
+		}
+	}
+}
+
 func TestTkHandleAnthropicRequestOwned429_ScopeGuards(t *testing.T) {
 	c, _ := newRequestOwned429TestContext(t)
 	svc := &GatewayService{}

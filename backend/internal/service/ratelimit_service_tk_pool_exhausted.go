@@ -42,7 +42,7 @@ func (s *RateLimitService) tkCheckPlatformPoolExhausted(account *Account, until 
 
 // tkPlatformPoolExhaustedCheck 是可同步调用的检查本体（拆出便于单测）。
 func (s *RateLimitService) tkPlatformPoolExhaustedCheck(ctx context.Context, platform string, trigger *Account, until time.Time, reason string) {
-	if s == nil || s.incidentNotifier == nil || s.accountRepo == nil {
+	if s == nil || s.incidentNotifier == nil || s.accountRepo == nil || trigger == nil {
 		return
 	}
 	accounts, err := s.accountRepo.ListSchedulableByPlatform(ctx, platform)

@@ -111,6 +111,21 @@ func (s *GatewayService) tkHandleAnthropicRequestOwned429(c *gin.Context, accoun
 	normalized := strings.ToLower(upstreamMsg)
 
 	known := tkIsAnthropicRequestOwned429Message(upstreamMsg, respBody)
+	if !known {
+		// TK capacity envelopes are exempt from the same-text breaker: a prod
+		// mirror hop receiving "No available accounts" (#575 fast-fail) or the
+		// failover-exhausted rewrite "Upstream rate limit exceeded, please
+		// retry later" from several edges is seeing EDGE-scoped capacity
+		// signals — cross-edge failover is the designed remedy there, and the
+		// texts are identical by construction, not because the request is
+		// poisoned. The breaker stays focused on provider-originated
+		// deterministic texts.
+		if tkSkipDownstreamNoAvailableAccountsPenalty(resp.StatusCode, upstreamMsg, respBody) ||
+			tkSkipDownstreamFailoverExhaustedPenalty(resp.StatusCode, upstreamMsg, respBody) ||
+			strings.Contains(normalized, "upstream rate limit exceeded") {
+			return nil, nil, false
+		}
+	}
 	occurrences := tkNoteAnthropic429Text(c, normalized)
 	if !known && occurrences < tkAnthropic429SameTextThreshold {
 		return nil, nil, false
