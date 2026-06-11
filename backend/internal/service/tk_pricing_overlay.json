@@ -321,6 +321,7 @@
     "mode": "chat",
     "input_cost_per_token": 1.65e-06,
     "output_cost_per_token": 4.951e-06,
+    "cache_read_input_token_cost": 1.65e-06,
     "source": "Alibaba DashScope qwen3.7-max official USD list price (in $1.65/M, out $4.951/M; China-mainland deployment, 0<token<=1M tier, non-thinking & thinking; help.aliyun.com/zh/model-studio/model-pricing, captured 2026-06-11). List price only — Batch (half-price) and context-cache discounts intentionally NOT modeled (bill at list)."
   },
   "qwen3.7-max-preview": {
@@ -328,6 +329,7 @@
     "mode": "chat",
     "input_cost_per_token": 1.65e-06,
     "output_cost_per_token": 4.951e-06,
+    "cache_read_input_token_cost": 1.65e-06,
     "source": "Alibaba DashScope qwen3.7-max official USD list price (in $1.65/M, out $4.951/M; China-mainland deployment, 0<token<=1M tier, non-thinking & thinking; help.aliyun.com/zh/model-studio/model-pricing, captured 2026-06-11). List price only — Batch (half-price) and context-cache discounts intentionally NOT modeled (bill at list)."
   },
   "qwen3.7-max-2026-05-17": {
@@ -335,6 +337,7 @@
     "mode": "chat",
     "input_cost_per_token": 1.65e-06,
     "output_cost_per_token": 4.951e-06,
+    "cache_read_input_token_cost": 1.65e-06,
     "source": "Alibaba DashScope qwen3.7-max official USD list price (in $1.65/M, out $4.951/M; China-mainland deployment, 0<token<=1M tier, non-thinking & thinking; help.aliyun.com/zh/model-studio/model-pricing, captured 2026-06-11). List price only — Batch (half-price) and context-cache discounts intentionally NOT modeled (bill at list)."
   },
   "qwen3.7-max-2026-05-20": {
@@ -342,6 +345,7 @@
     "mode": "chat",
     "input_cost_per_token": 1.65e-06,
     "output_cost_per_token": 4.951e-06,
+    "cache_read_input_token_cost": 1.65e-06,
     "source": "Alibaba DashScope qwen3.7-max official USD list price (in $1.65/M, out $4.951/M; China-mainland deployment, 0<token<=1M tier, non-thinking & thinking; help.aliyun.com/zh/model-studio/model-pricing, captured 2026-06-11). List price only — Batch (half-price) and context-cache discounts intentionally NOT modeled (bill at list)."
   },
   "qwen3.7-max-2026-06-08": {
@@ -349,6 +353,7 @@
     "mode": "chat",
     "input_cost_per_token": 1.65e-06,
     "output_cost_per_token": 4.951e-06,
+    "cache_read_input_token_cost": 1.65e-06,
     "source": "Alibaba DashScope qwen3.7-max official USD list price (in $1.65/M, out $4.951/M; China-mainland deployment, 0<token<=1M tier, non-thinking & thinking; help.aliyun.com/zh/model-studio/model-pricing, captured 2026-06-11). List price only — Batch (half-price) and context-cache discounts intentionally NOT modeled (bill at list)."
   },
   "qwen3.7-plus": {
@@ -356,18 +361,21 @@
     "mode": "chat",
     "input_cost_per_token": 2.76e-07,
     "output_cost_per_token": 1.101e-06,
+    "cache_read_input_token_cost": 2.76e-07,
     "intervals": [
       {
         "min_tokens": 0,
         "max_tokens": 256000,
         "input_cost_per_token": 2.76e-07,
-        "output_cost_per_token": 1.101e-06
+        "output_cost_per_token": 1.101e-06,
+        "cache_read_input_token_cost": 2.76e-07
       },
       {
         "min_tokens": 256000,
         "max_tokens": null,
         "input_cost_per_token": 8.26e-07,
-        "output_cost_per_token": 3.301e-06
+        "output_cost_per_token": 3.301e-06,
+        "cache_read_input_token_cost": 8.26e-07
       }
     ],
     "source": "Alibaba DashScope qwen3.7-plus official USD list (China-mainland; tiered by input tokens: 0<Token<=256K in $0.276/M out $1.101/M, 256K<Token<=1M in $0.826/M out $3.301/M; non-thinking == thinking output; help.aliyun.com/zh/model-studio/model-pricing captured 2026-06-11). List price only — Batch/context-cache discounts not modeled. Whole-request input-tier via overlay intervals."
@@ -377,18 +385,21 @@
     "mode": "chat",
     "input_cost_per_token": 1.65e-07,
     "output_cost_per_token": 9.9e-07,
+    "cache_read_input_token_cost": 1.65e-07,
     "intervals": [
       {
         "min_tokens": 0,
         "max_tokens": 256000,
         "input_cost_per_token": 1.65e-07,
-        "output_cost_per_token": 9.9e-07
+        "output_cost_per_token": 9.9e-07,
+        "cache_read_input_token_cost": 1.65e-07
       },
       {
         "min_tokens": 256000,
         "max_tokens": null,
         "input_cost_per_token": 6.6e-07,
-        "output_cost_per_token": 3.961e-06
+        "output_cost_per_token": 3.961e-06,
+        "cache_read_input_token_cost": 6.6e-07
       }
     ],
     "source": "Alibaba DashScope qwen3.6-flash official USD list (China-mainland; tiered by input tokens: 0<Token<=256K in $0.165/M out $0.99/M, 256K<Token<=1M in $0.66/M out $3.961/M; help.aliyun.com/zh/model-studio/model-pricing captured 2026-06-11). List price only — Batch (half-price)/context-cache discounts not modeled. Whole-request input-tier via overlay intervals."
@@ -398,30 +409,35 @@
     "mode": "chat",
     "input_cost_per_token": 5.74e-07,
     "output_cost_per_token": 2.294e-06,
+    "cache_read_input_token_cost": 5.74e-07,
     "intervals": [
       {
         "min_tokens": 0,
         "max_tokens": 32000,
         "input_cost_per_token": 5.74e-07,
-        "output_cost_per_token": 2.294e-06
+        "output_cost_per_token": 2.294e-06,
+        "cache_read_input_token_cost": 5.74e-07
       },
       {
         "min_tokens": 32000,
         "max_tokens": 128000,
         "input_cost_per_token": 8.61e-07,
-        "output_cost_per_token": 3.441e-06
+        "output_cost_per_token": 3.441e-06,
+        "cache_read_input_token_cost": 8.61e-07
       },
       {
         "min_tokens": 128000,
         "max_tokens": 256000,
         "input_cost_per_token": 1.434e-06,
-        "output_cost_per_token": 5.735e-06
+        "output_cost_per_token": 5.735e-06,
+        "cache_read_input_token_cost": 1.434e-06
       },
       {
         "min_tokens": 256000,
         "max_tokens": null,
         "input_cost_per_token": 2.868e-06,
-        "output_cost_per_token": 2.8671e-05
+        "output_cost_per_token": 2.8671e-05,
+        "cache_read_input_token_cost": 2.868e-06
       }
     ],
     "source": "Alibaba DashScope qwen3-coder-plus official USD list (China-mainland; tiered by input tokens: 0<=32K in $0.574/$2.294 per M, 32K<=128K $0.861/$3.441, 128K<=256K $1.434/$5.735, 256K<=1M $2.868/$28.671; help.aliyun.com/zh/model-studio/model-pricing captured 2026-06-11). List price only — context-cache discount not modeled. Whole-request input-tier via overlay intervals."

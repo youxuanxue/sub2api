@@ -72,6 +72,11 @@ func TestOverlayIntervalPricing_CoderPlusWholeRequestTier(t *testing.T) {
 		require.NotNilf(t, p, "interval pricing @ %d ctx", c.ctxTokens)
 		require.InDeltaf(t, c.in, p.InputPricePerToken, 1e-15, "input @ %d ctx", c.ctxTokens)
 		require.InDeltaf(t, c.out, p.OutputPricePerToken, 1e-15, "output @ %d ctx", c.ctxTokens)
+		// Cache-read tokens must bill at the tier's full input rate ("用原价", no
+		// discount) — never $0. DashScope reports cached_tokens and the bridge maps
+		// them to CacheReadTokens (newapi_bridge_usage.go), so an unset cache price
+		// would silently bill cache hits free.
+		require.InDeltaf(t, c.in, p.CacheReadPricePerToken, 1e-15, "cache-read @ %d ctx must equal input rate", c.ctxTokens)
 	}
 }
 
@@ -99,4 +104,6 @@ func TestOverlayIntervals_FlatModelUnaffected(t *testing.T) {
 	require.Empty(t, resolved.Intervals, "flat overlay model must not gain intervals")
 	require.NotNil(t, resolved.BasePricing)
 	require.InDelta(t, 1.65e-06, resolved.BasePricing.InputPricePerToken, 1e-15)
+	// cache-read billed at full input rate ("用原价"), not $0.
+	require.InDelta(t, 1.65e-06, resolved.BasePricing.CacheReadPricePerToken, 1e-15)
 }
