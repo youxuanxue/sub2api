@@ -1,7 +1,7 @@
 {
   "_meta": {
     "note": "TK-owned pricing overlay for models the runtime price source lacks. Merged into PricingService AFTER any source load (Wei-Shaw remote OR disk fallback); an entry below applies when the source key is ABSENT or the source entry is EFFECTIVELY UNPRICED (every cost field 0.0 — litellm's 'unknown', not 'free'; see tkIsEffectivelyUnpriced). The Wei-Shaw runtime mirror is a TRIMMED litellm mirror that drops provider-prefixed keys and token-less media entries, so imagen-*/veo-* resolve to nothing there; litellm itself also lags new provider models (deepseek-v4-*) or carries them as zero placeholders (deepseek-v3-2-251201), which then bill $0. Media price = vertex_ai provider (TK media flow routes through Vertex ch41); falls back to gemini only when no vertex variant exists. Text price = provider official list price. Self-deprecating: the day the source carries a real (non-zero) price under the bare key, the source value wins and the entry below is ignored. The overlay cannot CORRECT wrong NON-ZERO source prices (deepseek-chat/reasoner still carry the pre-V4 rate in the mirror) — use channel pricing (DB) for that.",
-    "provenance": "media: BerriAI/litellm model_prices_and_context_window.json, captured 2026-06-01; deepseek-v4-*: https://api-docs.deepseek.com/quick_start/pricing, captured 2026-06-04 (cache-hit input = cache_read; cache writes billed as normal input, no separate write fee); volcengine doubao-*/glm-4-7-251222/deepseek-v3-2-251201: VolcEngine Ark official model-pricing page, captured 2026-06-10 (≤32K input tier, CNY/USD=7.3); glm-4.7 matches Zhipu official; qwen3.7-max*: Alibaba DashScope official list price, captured 2026-06-10 (per-entry source)",
+    "provenance": "media: BerriAI/litellm model_prices_and_context_window.json, captured 2026-06-01; deepseek-v4-*: https://api-docs.deepseek.com/quick_start/pricing, captured 2026-06-04 (cache-hit input = cache_read; cache writes billed as normal input, no separate write fee); volcengine doubao-*/glm-4-7-251222/deepseek-v3-2-251201: VolcEngine Ark official model-pricing page, captured 2026-06-10 (≤32K input tier, CNY/USD=6.7); glm-4.7 matches Zhipu official; qwen3.7-max*: Alibaba DashScope official list price, captured 2026-06-10 (per-entry source)",
     "regen": "manual curation; no auto-sync (entries are few + slow-moving). If they proliferate, add provider-aware sync."
   },
   "claude-fable-5": {
@@ -44,11 +44,11 @@
   "deepseek-v3-2-251201": {
     "litellm_provider": "volcengine",
     "mode": "chat",
-    "input_cost_per_token": 2.73972602740e-07,
-    "output_cost_per_token": 4.10958904110e-07,
-    "cache_read_input_token_cost": 5.47945205479e-08,
+    "input_cost_per_token": 2.985074626868657e-07,
+    "output_cost_per_token": 4.4776119403029855e-07,
+    "cache_read_input_token_cost": 5.970149253726418e-08,
     "supports_prompt_caching": true,
-    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥2/M, out ¥3/M, cache-hit ¥0.4/M; CNY/USD=7.3. litellm carries this key with all costs 0.0 ('unknown', volcengine provider) — served via Ark account 7 / group 5 exclusively (683 reqs billed $0 through 2026-06-10); the absent-or-zero overlay fill replaces the zero placeholder. Ark price ≈ DeepSeek official V3.2 list ($0.274/$0.411 vs $0.28/$0.42 per M), so either routing basis bills the same"
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥2/M, out ¥3/M, cache-hit ¥0.4/M; CNY/USD=6.7. litellm carries this key with all costs 0.0 ('unknown', volcengine provider) — served via Ark account 7 / group 5 exclusively (683 reqs billed $0 through 2026-06-10); the absent-or-zero overlay fill replaces the zero placeholder. Ark price ≈ DeepSeek official V3.2 list ($0.274/$0.411 vs $0.28/$0.42 per M), so either routing basis bills the same"
   },
   "imagen-3.0-capability-001": {
     "litellm_provider": "vertex_ai",
@@ -143,212 +143,212 @@
   "doubao-seed-2-0-pro-260215": {
     "litellm_provider": "volcengine",
     "mode": "chat",
-    "input_cost_per_token": 4.38356164384e-07,
-    "output_cost_per_token": 2.19178082192e-06,
-    "cache_read_input_token_cost": 8.76712328767e-08,
+    "input_cost_per_token": 4.77611940298985e-07,
+    "output_cost_per_token": 2.3880597014949255e-06,
+    "cache_read_input_token_cost": 9.552238805968806e-08,
     "supports_prompt_caching": true,
-    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥3.2/M, out ¥16/M, cache-hit ¥0.64/M; CNY/USD=7.3"
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥3.2/M, out ¥16/M, cache-hit ¥0.64/M; CNY/USD=6.7"
   },
   "doubao-seed-2-0-code-preview-260215": {
     "litellm_provider": "volcengine",
     "mode": "chat",
-    "input_cost_per_token": 4.38356164384e-07,
-    "output_cost_per_token": 2.19178082192e-06,
-    "cache_read_input_token_cost": 8.76712328767e-08,
+    "input_cost_per_token": 4.77611940298985e-07,
+    "output_cost_per_token": 2.3880597014949255e-06,
+    "cache_read_input_token_cost": 9.552238805968806e-08,
     "supports_prompt_caching": true,
-    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥3.2/M, out ¥16/M, cache-hit ¥0.64/M; CNY/USD=7.3"
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥3.2/M, out ¥16/M, cache-hit ¥0.64/M; CNY/USD=6.7"
   },
   "doubao-seed-2-0-lite-260215": {
     "litellm_provider": "volcengine",
     "mode": "chat",
-    "input_cost_per_token": 8.21917808219e-08,
-    "output_cost_per_token": 4.93150684932e-07,
-    "cache_read_input_token_cost": 1.64383561644e-08,
+    "input_cost_per_token": 8.955223880595076e-08,
+    "output_cost_per_token": 5.373134328363583e-07,
+    "cache_read_input_token_cost": 1.791044776121194e-08,
     "supports_prompt_caching": true,
-    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.6/M, out ¥3.6/M, cache-hit ¥0.12/M; CNY/USD=7.3"
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.6/M, out ¥3.6/M, cache-hit ¥0.12/M; CNY/USD=6.7"
   },
   "doubao-seed-2-0-lite-260428": {
     "litellm_provider": "volcengine",
     "mode": "chat",
-    "input_cost_per_token": 8.21917808219e-08,
-    "output_cost_per_token": 4.93150684932e-07,
-    "cache_read_input_token_cost": 1.64383561644e-08,
+    "input_cost_per_token": 8.955223880595076e-08,
+    "output_cost_per_token": 5.373134328363583e-07,
+    "cache_read_input_token_cost": 1.791044776121194e-08,
     "supports_prompt_caching": true,
-    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.6/M, out ¥3.6/M, cache-hit ¥0.12/M; CNY/USD=7.3"
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.6/M, out ¥3.6/M, cache-hit ¥0.12/M; CNY/USD=6.7"
   },
   "doubao-seed-2-0-mini-260215": {
     "litellm_provider": "volcengine",
     "mode": "chat",
-    "input_cost_per_token": 2.7397260274e-08,
-    "output_cost_per_token": 2.7397260274e-07,
-    "cache_read_input_token_cost": 5.47945205479e-09,
+    "input_cost_per_token": 2.9850746268686566e-08,
+    "output_cost_per_token": 2.985074626868657e-07,
+    "cache_read_input_token_cost": 5.970149253726418e-09,
     "supports_prompt_caching": true,
-    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.2/M, out ¥2/M, cache-hit ¥0.04/M; CNY/USD=7.3"
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.2/M, out ¥2/M, cache-hit ¥0.04/M; CNY/USD=6.7"
   },
   "doubao-seed-2-0-mini-260428": {
     "litellm_provider": "volcengine",
     "mode": "chat",
-    "input_cost_per_token": 2.7397260274e-08,
-    "output_cost_per_token": 2.7397260274e-07,
-    "cache_read_input_token_cost": 5.47945205479e-09,
+    "input_cost_per_token": 2.9850746268686566e-08,
+    "output_cost_per_token": 2.985074626868657e-07,
+    "cache_read_input_token_cost": 5.970149253726418e-09,
     "supports_prompt_caching": true,
-    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.2/M, out ¥2/M, cache-hit ¥0.04/M; CNY/USD=7.3"
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.2/M, out ¥2/M, cache-hit ¥0.04/M; CNY/USD=6.7"
   },
   "doubao-seed-1-8-251228": {
     "litellm_provider": "volcengine",
     "mode": "chat",
-    "input_cost_per_token": 1.09589041096e-07,
-    "output_cost_per_token": 1.09589041096e-06,
-    "cache_read_input_token_cost": 2.19178082192e-08,
+    "input_cost_per_token": 1.1940298507474626e-07,
+    "output_cost_per_token": 1.1940298507474627e-06,
+    "cache_read_input_token_cost": 2.3880597014949256e-08,
     "supports_prompt_caching": true,
-    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.8/M, out ¥8/M, cache-hit ¥0.16/M; CNY/USD=7.3"
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.8/M, out ¥8/M, cache-hit ¥0.16/M; CNY/USD=6.7"
   },
   "doubao-seed-1-6-250615": {
     "litellm_provider": "volcengine",
     "mode": "chat",
-    "input_cost_per_token": 1.09589041096e-07,
-    "output_cost_per_token": 1.09589041096e-06,
-    "cache_read_input_token_cost": 2.19178082192e-08,
+    "input_cost_per_token": 1.1940298507474626e-07,
+    "output_cost_per_token": 1.1940298507474627e-06,
+    "cache_read_input_token_cost": 2.3880597014949256e-08,
     "supports_prompt_caching": true,
-    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.8/M, out ¥8/M, cache-hit ¥0.16/M; CNY/USD=7.3"
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.8/M, out ¥8/M, cache-hit ¥0.16/M; CNY/USD=6.7"
   },
   "doubao-seed-1-6-251015": {
     "litellm_provider": "volcengine",
     "mode": "chat",
-    "input_cost_per_token": 1.09589041096e-07,
-    "output_cost_per_token": 1.09589041096e-06,
-    "cache_read_input_token_cost": 2.19178082192e-08,
+    "input_cost_per_token": 1.1940298507474626e-07,
+    "output_cost_per_token": 1.1940298507474627e-06,
+    "cache_read_input_token_cost": 2.3880597014949256e-08,
     "supports_prompt_caching": true,
-    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.8/M, out ¥8/M, cache-hit ¥0.16/M; CNY/USD=7.3"
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.8/M, out ¥8/M, cache-hit ¥0.16/M; CNY/USD=6.7"
   },
   "doubao-seed-1-6-flash-250615": {
     "litellm_provider": "volcengine",
     "mode": "chat",
-    "input_cost_per_token": 2.05479452055e-08,
-    "output_cost_per_token": 2.05479452055e-07,
-    "cache_read_input_token_cost": 4.1095890411e-09,
+    "input_cost_per_token": 2.2388059701514924e-08,
+    "output_cost_per_token": 2.2388059701514928e-07,
+    "cache_read_input_token_cost": 4.477611940302985e-09,
     "supports_prompt_caching": true,
-    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.15/M, out ¥1.5/M, cache-hit ¥0.03/M; CNY/USD=7.3"
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.15/M, out ¥1.5/M, cache-hit ¥0.03/M; CNY/USD=6.7"
   },
   "doubao-seed-1-6-flash-250828": {
     "litellm_provider": "volcengine",
     "mode": "chat",
-    "input_cost_per_token": 2.05479452055e-08,
-    "output_cost_per_token": 2.05479452055e-07,
-    "cache_read_input_token_cost": 4.1095890411e-09,
+    "input_cost_per_token": 2.2388059701514924e-08,
+    "output_cost_per_token": 2.2388059701514928e-07,
+    "cache_read_input_token_cost": 4.477611940302985e-09,
     "supports_prompt_caching": true,
-    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.15/M, out ¥1.5/M, cache-hit ¥0.03/M; CNY/USD=7.3"
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.15/M, out ¥1.5/M, cache-hit ¥0.03/M; CNY/USD=6.7"
   },
   "doubao-seed-1-6-vision-250815": {
     "litellm_provider": "volcengine",
     "mode": "chat",
-    "input_cost_per_token": 1.09589041096e-07,
-    "output_cost_per_token": 1.09589041096e-06,
-    "cache_read_input_token_cost": 2.19178082192e-08,
+    "input_cost_per_token": 1.1940298507474626e-07,
+    "output_cost_per_token": 1.1940298507474627e-06,
+    "cache_read_input_token_cost": 2.3880597014949256e-08,
     "supports_prompt_caching": true,
-    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.8/M, out ¥8/M, cache-hit ¥0.16/M; CNY/USD=7.3"
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.8/M, out ¥8/M, cache-hit ¥0.16/M; CNY/USD=6.7"
   },
   "doubao-seed-character-251128": {
     "litellm_provider": "volcengine",
     "mode": "chat",
-    "input_cost_per_token": 1.09589041096e-07,
-    "output_cost_per_token": 2.7397260274e-07,
-    "cache_read_input_token_cost": 2.19178082192e-08,
+    "input_cost_per_token": 1.1940298507474626e-07,
+    "output_cost_per_token": 2.985074626868657e-07,
+    "cache_read_input_token_cost": 2.3880597014949256e-08,
     "supports_prompt_caching": true,
-    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.8/M, out ¥2/M, cache-hit ¥0.16/M; CNY/USD=7.3"
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.8/M, out ¥2/M, cache-hit ¥0.16/M; CNY/USD=6.7"
   },
   "doubao-seed-code-preview-251028": {
     "litellm_provider": "volcengine",
     "mode": "chat",
-    "input_cost_per_token": 1.64383561644e-07,
-    "output_cost_per_token": 1.09589041096e-06,
-    "cache_read_input_token_cost": 3.28767123288e-08,
+    "input_cost_per_token": 1.791044776121194e-07,
+    "output_cost_per_token": 1.1940298507474627e-06,
+    "cache_read_input_token_cost": 3.582089552242388e-08,
     "supports_prompt_caching": true,
-    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥1.2/M, out ¥8/M, cache-hit ¥0.24/M; CNY/USD=7.3"
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥1.2/M, out ¥8/M, cache-hit ¥0.24/M; CNY/USD=6.7"
   },
   "doubao-1-5-pro-32k-250115": {
     "litellm_provider": "volcengine",
     "mode": "chat",
-    "input_cost_per_token": 1.09589041096e-07,
-    "output_cost_per_token": 2.7397260274e-07,
-    "cache_read_input_token_cost": 2.19178082192e-08,
+    "input_cost_per_token": 1.1940298507474626e-07,
+    "output_cost_per_token": 2.985074626868657e-07,
+    "cache_read_input_token_cost": 2.3880597014949256e-08,
     "supports_prompt_caching": true,
-    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.8/M, out ¥2/M, cache-hit ¥0.16/M; CNY/USD=7.3"
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.8/M, out ¥2/M, cache-hit ¥0.16/M; CNY/USD=6.7"
   },
   "doubao-1-5-pro-32k-character-250715": {
     "litellm_provider": "volcengine",
     "mode": "chat",
-    "input_cost_per_token": 1.09589041096e-07,
-    "output_cost_per_token": 2.7397260274e-07,
-    "cache_read_input_token_cost": 2.19178082192e-08,
+    "input_cost_per_token": 1.1940298507474626e-07,
+    "output_cost_per_token": 2.985074626868657e-07,
+    "cache_read_input_token_cost": 2.3880597014949256e-08,
     "supports_prompt_caching": true,
-    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.8/M, out ¥2/M, cache-hit ¥0.16/M; CNY/USD=7.3"
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.8/M, out ¥2/M, cache-hit ¥0.16/M; CNY/USD=6.7"
   },
   "doubao-1-5-lite-32k-250115": {
     "litellm_provider": "volcengine",
     "mode": "chat",
-    "input_cost_per_token": 4.1095890411e-08,
-    "output_cost_per_token": 8.21917808219e-08,
-    "cache_read_input_token_cost": 8.21917808219e-09,
+    "input_cost_per_token": 4.477611940302985e-08,
+    "output_cost_per_token": 8.955223880595076e-08,
+    "cache_read_input_token_cost": 8.955223880595076e-09,
     "supports_prompt_caching": true,
-    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.3/M, out ¥0.6/M, cache-hit ¥0.06/M; CNY/USD=7.3"
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥0.3/M, out ¥0.6/M, cache-hit ¥0.06/M; CNY/USD=6.7"
   },
   "doubao-1-5-vision-pro-32k-250115": {
     "litellm_provider": "volcengine",
     "mode": "chat",
-    "input_cost_per_token": 4.1095890411e-07,
-    "output_cost_per_token": 1.23287671233e-06,
-    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥3/M, out ¥9/M; CNY/USD=7.3"
+    "input_cost_per_token": 4.4776119403029855e-07,
+    "output_cost_per_token": 1.3432835820908954e-06,
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥3/M, out ¥9/M; CNY/USD=6.7"
   },
   "doubao-seed-translation-250915": {
     "litellm_provider": "volcengine",
     "mode": "chat",
-    "input_cost_per_token": 1.64383561644e-07,
-    "output_cost_per_token": 4.93150684932e-07,
-    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥1.2/M, out ¥3.6/M; CNY/USD=7.3"
+    "input_cost_per_token": 1.791044776121194e-07,
+    "output_cost_per_token": 5.373134328363583e-07,
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥1.2/M, out ¥3.6/M; CNY/USD=6.7"
   },
   "glm-4-7-251222": {
     "litellm_provider": "volcengine",
     "mode": "chat",
-    "input_cost_per_token": 4.1095890411e-07,
-    "output_cost_per_token": 1.91780821918e-06,
-    "cache_read_input_token_cost": 8.21917808219e-08,
+    "input_cost_per_token": 4.4776119403029855e-07,
+    "output_cost_per_token": 2.0895522388080597e-06,
+    "cache_read_input_token_cost": 8.955223880595076e-08,
     "supports_prompt_caching": true,
-    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥3/M, out ¥14/M, cache-hit ¥0.6/M; CNY/USD=7.3"
+    "source": "VolcEngine Ark official (2026-06-10, ≤32K input tier): in ¥3/M, out ¥14/M, cache-hit ¥0.6/M; CNY/USD=6.7"
   },
-    "qwen3.7-max": {
-      "litellm_provider": "dashscope",
-      "mode": "chat",
-      "input_cost_per_token": 1.64383561644e-06,
-      "output_cost_per_token": 4.93150684932e-06,
-      "source": "Alibaba DashScope 通义千问 qwen3.7-max 官方标准按量价 (2026-06: in ¥12/M, out ¥36/M; help.aliyun.com/zh/model-studio/model-pricing, captured 2026-06-10); CNY/USD=7.3; list price (限时5折 promo NOT applied — bill at list to avoid undercharge on promo end)"
-    },
-    "qwen3.7-max-preview": {
-      "litellm_provider": "dashscope",
-      "mode": "chat",
-      "input_cost_per_token": 1.64383561644e-06,
-      "output_cost_per_token": 4.93150684932e-06,
-      "source": "Alibaba DashScope 通义千问 qwen3.7-max 官方标准按量价 (2026-06: in ¥12/M, out ¥36/M; help.aliyun.com/zh/model-studio/model-pricing, captured 2026-06-10); CNY/USD=7.3; list price (限时5折 promo NOT applied — bill at list to avoid undercharge on promo end)"
-    },
-    "qwen3.7-max-2026-05-17": {
-      "litellm_provider": "dashscope",
-      "mode": "chat",
-      "input_cost_per_token": 1.64383561644e-06,
-      "output_cost_per_token": 4.93150684932e-06,
-      "source": "Alibaba DashScope 通义千问 qwen3.7-max 官方标准按量价 (2026-06: in ¥12/M, out ¥36/M; help.aliyun.com/zh/model-studio/model-pricing, captured 2026-06-10); CNY/USD=7.3; list price (限时5折 promo NOT applied — bill at list to avoid undercharge on promo end)"
-    },
-    "qwen3.7-max-2026-05-20": {
-      "litellm_provider": "dashscope",
-      "mode": "chat",
-      "input_cost_per_token": 1.64383561644e-06,
-      "output_cost_per_token": 4.93150684932e-06,
-      "source": "Alibaba DashScope 通义千问 qwen3.7-max 官方标准按量价 (2026-06: in ¥12/M, out ¥36/M; help.aliyun.com/zh/model-studio/model-pricing, captured 2026-06-10); CNY/USD=7.3; list price (限时5折 promo NOT applied — bill at list to avoid undercharge on promo end)"
-    },
-    "qwen3.7-max-2026-06-08": {
-      "litellm_provider": "dashscope",
-      "mode": "chat",
-      "input_cost_per_token": 1.64383561644e-06,
-      "output_cost_per_token": 4.93150684932e-06,
-      "source": "Alibaba DashScope 通义千问 qwen3.7-max 官方标准按量价 (2026-06: in ¥12/M, out ¥36/M; help.aliyun.com/zh/model-studio/model-pricing, captured 2026-06-10); CNY/USD=7.3; list price (限时5折 promo NOT applied — bill at list to avoid undercharge on promo end)"
-    }
+  "qwen3.7-max": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 1.7910447761211942e-06,
+    "output_cost_per_token": 5.3731343283635816e-06,
+    "source": "Alibaba DashScope 通义千问 qwen3.7-max 官方标准按量价 (2026-06: in ¥12/M, out ¥36/M; help.aliyun.com/zh/model-studio/model-pricing, captured 2026-06-10); CNY/USD=6.7; list price (限时5折 promo NOT applied — bill at list to avoid undercharge on promo end)"
+  },
+  "qwen3.7-max-preview": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 1.7910447761211942e-06,
+    "output_cost_per_token": 5.3731343283635816e-06,
+    "source": "Alibaba DashScope 通义千问 qwen3.7-max 官方标准按量价 (2026-06: in ¥12/M, out ¥36/M; help.aliyun.com/zh/model-studio/model-pricing, captured 2026-06-10); CNY/USD=6.7; list price (限时5折 promo NOT applied — bill at list to avoid undercharge on promo end)"
+  },
+  "qwen3.7-max-2026-05-17": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 1.7910447761211942e-06,
+    "output_cost_per_token": 5.3731343283635816e-06,
+    "source": "Alibaba DashScope 通义千问 qwen3.7-max 官方标准按量价 (2026-06: in ¥12/M, out ¥36/M; help.aliyun.com/zh/model-studio/model-pricing, captured 2026-06-10); CNY/USD=6.7; list price (限时5折 promo NOT applied — bill at list to avoid undercharge on promo end)"
+  },
+  "qwen3.7-max-2026-05-20": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 1.7910447761211942e-06,
+    "output_cost_per_token": 5.3731343283635816e-06,
+    "source": "Alibaba DashScope 通义千问 qwen3.7-max 官方标准按量价 (2026-06: in ¥12/M, out ¥36/M; help.aliyun.com/zh/model-studio/model-pricing, captured 2026-06-10); CNY/USD=6.7; list price (限时5折 promo NOT applied — bill at list to avoid undercharge on promo end)"
+  },
+  "qwen3.7-max-2026-06-08": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 1.7910447761211942e-06,
+    "output_cost_per_token": 5.3731343283635816e-06,
+    "source": "Alibaba DashScope 通义千问 qwen3.7-max 官方标准按量价 (2026-06: in ¥12/M, out ¥36/M; help.aliyun.com/zh/model-studio/model-pricing, captured 2026-06-10); CNY/USD=6.7; list price (限时5折 promo NOT applied — bill at list to avoid undercharge on promo end)"
+  }
 }
