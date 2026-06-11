@@ -2210,6 +2210,38 @@
         "middleware.TkAdminComplianceGuardIfEnabled(settingService)"
       ],
       "rationale": "Third registration site of the upstream admin compliance guard (admin payment group). Same silent-revert mode as page_handler.go — bare AdminComplianceGuard here 423-locks /api/v1/admin/payment/* for fleet automation."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "tkHandleAnthropicRequestOwned429"
+      ],
+      "rationale": "Incident 2026-06-11 (anthropic mirror-pool 10-min full-cooldown): the request-owned-429 short circuit must stay wired into BOTH failover branches of Forward AND forwardAnthropicAPIKeyPassthroughWithInput. If an upstream merge drops these calls, a single deterministic policy 429 (e.g. 'Usage credits are required for long context requests.') again fans out across every cc-<edge> mirror account and locks the whole pool via the 3/3 ladder."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_request_owned_429.go",
+      "must_contain": [
+        "usage credits are required",
+        "tkAnthropic429SameTextThreshold",
+        "MarkResponseCommitted"
+      ],
+      "rationale": "Companion owning the request-owned 429 classifier (known policy phrase) + same-text failover circuit breaker + ORIGINAL-body passthrough. Body passthrough is load-bearing for the prod<->edge mirror topology: preserving the upstream phrase is what lets the prod hop re-classify the relayed 429 instead of seeing a rewritten generic text the exemption predicates cannot match."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "anthropic_request_owned_429_skip_penalty",
+        "tkCheckPlatformPoolExhausted"
+      ],
+      "rationale": "Two incident-2026-06-11 guards inside upstream-owned ratelimit_service.go: (a) defense-in-depth skip in case 429 so a request-owned policy 429 never advances the anthropic ladder regardless of which caller reached HandleUpstreamError; (b) the pool-exhausted check hook on the notifyAccountSchedulingBlocked funnel — the only place that can observe the 'last schedulable account just got cooled' transition for the platform-pool P0 Feishu card."
+    },
+    {
+      "path": "backend/internal/service/account_incident_notifier_tk_pool.go",
+      "must_contain": [
+        "NotifyPlatformPoolExhausted",
+        "accountIncidentPoolExhaustedDedupeWindow"
+      ],
+      "rationale": "Platform-pool-exhausted P0 Feishu card (closes the #516 blind spot where 7 simultaneous per-account cooldowns produced no pool-level signal and the 06:49-06:58 outage went unalerted). Dedupe-per-platform is required: every subsequent account block during a cooldown storm re-triggers the pool check."
     }
   ]
 }

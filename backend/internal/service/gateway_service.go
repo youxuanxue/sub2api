@@ -5309,6 +5309,13 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			_ = resp.Body.Close()
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
+			// TK: request-owned 429 (policy phrase / same-text breaker) — pass the
+			// upstream body through, skip penalty + failover. See
+			// gateway_service_tk_request_owned_429.go.
+			if tkResult, tkErr, handled := s.tkHandleAnthropicRequestOwned429(c, account, resp, respBody); handled {
+				return tkResult, tkErr
+			}
+
 			// 调试日志：打印重试耗尽后的错误响应
 			logger.LegacyPrintf("service.gateway", "[Forward] Upstream error (retry exhausted, failover): Account=%d(%s) Status=%d RequestID=%s Body=%s",
 				account.ID, account.Name, resp.StatusCode, resp.Header.Get("x-request-id"), truncateString(string(respBody), 1000))
@@ -5343,6 +5350,12 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		respBody, _ := s.readUpstreamErrorBody(resp)
 		_ = resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
+
+		// TK: request-owned 429 — same short-circuit as the retry-exhausted
+		// branch above. See gateway_service_tk_request_owned_429.go.
+		if tkResult, tkErr, handled := s.tkHandleAnthropicRequestOwned429(c, account, resp, respBody); handled {
+			return tkResult, tkErr
+		}
 
 		// 调试日志：打印上游错误响应
 		logger.LegacyPrintf("service.gateway", "[Forward] Upstream error (failover): Account=%d(%s) Status=%d RequestID=%s Body=%s",
@@ -5793,6 +5806,12 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 			_ = resp.Body.Close()
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
+			// TK: request-owned 429 — the prod mirror hop sees the edge's relayed
+			// policy 429 here. See gateway_service_tk_request_owned_429.go.
+			if tkResult, tkErr, handled := s.tkHandleAnthropicRequestOwned429(c, account, resp, respBody); handled {
+				return tkResult, tkErr
+			}
+
 			logger.LegacyPrintf("service.gateway", "[Anthropic Passthrough] Upstream error (retry exhausted, failover): Account=%d(%s) Status=%d RequestID=%s Body=%s",
 				account.ID, account.Name, resp.StatusCode, resp.Header.Get("x-request-id"), truncateString(string(respBody), 1000))
 
@@ -5826,6 +5845,12 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 		respBody, _ := s.readUpstreamErrorBody(resp)
 		_ = resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
+
+		// TK: request-owned 429 — same short-circuit as the retry-exhausted
+		// branch above. See gateway_service_tk_request_owned_429.go.
+		if tkResult, tkErr, handled := s.tkHandleAnthropicRequestOwned429(c, account, resp, respBody); handled {
+			return tkResult, tkErr
+		}
 
 		logger.LegacyPrintf("service.gateway", "[Anthropic Passthrough] Upstream error (failover): Account=%d(%s) Status=%d RequestID=%s Body=%s",
 			account.ID, account.Name, resp.StatusCode, resp.Header.Get("x-request-id"), truncateString(string(respBody), 1000))

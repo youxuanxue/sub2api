@@ -44,6 +44,10 @@ type AccountIncidentNotifier interface {
 	// admin 重测恢复)时调用,对此前告警过的账号发一条即时恢复绿卡。事件驱动:纯定时器
 	// 到期自愈不经此路径,也不播报(原冷却卡已写明 until)。未告警账号调用为 no-op。
 	NotifyAccountRecovered(accountID int64)
+	// NotifyPlatformPoolExhausted 在某平台可调度账号数降为 0 时发即时 P0 卡片
+	// （事件驱动,由账号冷却汇聚点触发的池级检查上报;trigger 是压垮池的最后一个
+	// 账号）。实现侧按 platform 去重防 flap 刷屏。见 account_incident_notifier_tk_pool.go。
+	NotifyPlatformPoolExhausted(platform string, trigger *Account, until time.Time, reason string)
 }
 
 const (
@@ -157,12 +161,13 @@ type TKAccountIncidentNotifier struct {
 	siteID      string
 	now         func() time.Time
 
-	mu             sync.Mutex
-	permSentAt     map[string]time.Time                   // 永久失效去重: key -> 上次发送
-	permLimiter    *slidingWindowLimiter                  // 永久失效防爆量
-	digest         map[string]*accountIncidentDigestEntry // reasonClass -> 聚合条目
-	active         map[int64]map[string]*activeIncident   // accountID -> reasonClass -> 活跃事件(恢复台账)
-	recoverySentAt map[int64]time.Time                    // 恢复绿卡去重: accountID -> 上次发送
+	mu                sync.Mutex
+	permSentAt        map[string]time.Time                   // 永久失效去重: key -> 上次发送
+	permLimiter       *slidingWindowLimiter                  // 永久失效防爆量
+	digest            map[string]*accountIncidentDigestEntry // reasonClass -> 聚合条目
+	active            map[int64]map[string]*activeIncident   // accountID -> reasonClass -> 活跃事件(恢复台账)
+	recoverySentAt    map[int64]time.Time                    // 恢复绿卡去重: accountID -> 上次发送
+	poolExhaustSentAt map[string]time.Time                   // 平台池全不可调度 P0 去重: platform -> 上次发送
 
 	stopCh   chan struct{}
 	stopOnce sync.Once
@@ -170,16 +175,17 @@ type TKAccountIncidentNotifier struct {
 
 func newTKAccountIncidentNotifier(cfgProvider opsFeishuConfigProvider, siteID string) *TKAccountIncidentNotifier {
 	n := &TKAccountIncidentNotifier{
-		cfgProvider:    cfgProvider,
-		httpClient:     &http.Client{Timeout: opsFeishuWebhookTimeout},
-		siteID:         strings.TrimSpace(siteID),
-		now:            time.Now,
-		permSentAt:     map[string]time.Time{},
-		permLimiter:    newSlidingWindowLimiter(accountIncidentPermanentRatePerHour, time.Hour),
-		digest:         map[string]*accountIncidentDigestEntry{},
-		active:         map[int64]map[string]*activeIncident{},
-		recoverySentAt: map[int64]time.Time{},
-		stopCh:         make(chan struct{}),
+		cfgProvider:       cfgProvider,
+		httpClient:        &http.Client{Timeout: opsFeishuWebhookTimeout},
+		siteID:            strings.TrimSpace(siteID),
+		now:               time.Now,
+		permSentAt:        map[string]time.Time{},
+		permLimiter:       newSlidingWindowLimiter(accountIncidentPermanentRatePerHour, time.Hour),
+		digest:            map[string]*accountIncidentDigestEntry{},
+		active:            map[int64]map[string]*activeIncident{},
+		recoverySentAt:    map[int64]time.Time{},
+		poolExhaustSentAt: map[string]time.Time{},
+		stopCh:            make(chan struct{}),
 	}
 	if n.siteID == "" {
 		n.siteID = "unknown"
