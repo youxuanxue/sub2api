@@ -85,10 +85,11 @@ func TestTKPricingOverlay_ZeroPlaceholderIsReplaced(t *testing.T) {
 
 	v32 := data["deepseek-v3-2-251201"]
 	require.NotNil(t, v32)
-	require.InDelta(t, 2.73972602740e-7, v32.InputCostPerToken, 1e-15,
+	// Ark official ¥/M ÷ CNY-USD 6.7 (in ¥2/M, out ¥3/M, cache-hit ¥0.4/M).
+	require.InDelta(t, 2.0/6.7e6, v32.InputCostPerToken, 1e-15,
 		"zero placeholder must be replaced by the overlay Ark price")
-	require.InDelta(t, 4.10958904110e-7, v32.OutputCostPerToken, 1e-15)
-	require.InDelta(t, 5.47945205479e-8, v32.CacheReadInputTokenCost, 1e-15)
+	require.InDelta(t, 3.0/6.7e6, v32.OutputCostPerToken, 1e-15)
+	require.InDelta(t, 0.4/6.7e6, v32.CacheReadInputTokenCost, 1e-15)
 }
 
 // TestTKIsEffectivelyUnpriced pins the predicate: zero-everything (and nil) are

@@ -973,6 +973,17 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 		return s.handleOpenAI403(ctx, account, upstreamMsg, responseBody)
 	}
 	if account.Platform == PlatformAnthropic {
+		// TK (PR #691 cc-only canary prep): a relayed canonical-ingress strict 403
+		// from a downstream strict-mode edge is the end client's identity problem,
+		// not stub health — fail over to the next stub without advancing the 3/3
+		// ladder or cooling this stub. Matches ONLY TokenKey's own rejection
+		// phrase; genuine Anthropic 403s fall through unchanged. See
+		// ratelimit_service_tk_canonical_ingress_reject.go.
+		if tkSkipRelayedCanonicalIngressRejectPenalty(http.StatusForbidden, upstreamMsg, responseBody) {
+			slog.Info("anthropic_downstream_canonical_ingress_reject_skip_penalty",
+				"account_id", account.ID)
+			return true
+		}
 		// TLS / bot-detection 失效专项：上游用 403 拒绝是因为 Cloudflare / WAF
 		// 识别到 JA3/JA4 不像真实 Claude Code CLI（指纹库失效或 CLI 版本升级）。
 		// 这种情况下账号本身没问题，是基础设施层面的问题，需要 ops 立即介入

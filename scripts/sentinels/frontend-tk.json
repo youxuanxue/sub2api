@@ -667,6 +667,76 @@
         "videoStatusProcessing: '处理中'"
       ],
       "rationale": "Chinese counterparts of the en.ts playground media anchors; moves in lockstep so neither language silently regresses."
+    },
+    {
+      "path": "frontend/src/components/user/dashboard/UserDashboardCharts.vue",
+      "must_contain": [
+        "t('dashboard.actual')"
+      ],
+      "must_not_contain": [
+        "dashboard.standard",
+        "formatCost(model.cost)"
+      ],
+      "rationale": "PR #718: user-level model-distribution table shows ONLY actual (rate-multiplied) cost; the standard-cost column was removed by product decision. An upstream merge restoring the standard column/header here silently re-exposes pre-multiplier pricing to end users."
+    },
+    {
+      "path": "frontend/src/components/user/dashboard/UserDashboardStats.vue",
+      "must_contain": [
+        "today_actual_cost"
+      ],
+      "must_not_contain": [
+        "dashboard.standard"
+      ],
+      "rationale": "PR #718: user dashboard today/total spend cards show only actual cost — the '/ $standard' secondary span must not come back via upstream merge."
+    },
+    {
+      "path": "frontend/src/components/user/dashboard/UserDashboardRecentUsage.vue",
+      "must_contain": [
+        "formatCost(log.actual_cost)"
+      ],
+      "must_not_contain": [
+        "dashboard.standard",
+        "formatCost(log.total_cost)"
+      ],
+      "rationale": "PR #718: user recent-usage list shows only actual cost per log entry; the standard-cost span must not be restored by an upstream merge."
+    },
+    {
+      "path": "frontend/src/views/user/UsageView.vue",
+      "must_contain": [
+        "const actualized = (cost?: number | null): number =>",
+        "actualized(tooltipData.input_cost)",
+        "!getDisplayBillingMode(tooltipData) || getDisplayBillingMode(tooltipData) === BILLING_MODE_TOKEN",
+        "'Billed Cost',"
+      ],
+      "must_not_contain": [
+        "usage.original",
+        "formatMultiplier",
+        "'Rate Multiplier',",
+        "'Original Cost',"
+      ],
+      "rationale": "PR #718: user usage records expose only actual (rate-multiplied) amounts — tooltip cost breakdown is scaled via actualized(), the Rate×N / Original rows are gone, and the CSV export carries Billed Cost only. The tooltip token-branch must route through getDisplayBillingMode so historical image rows (no billing_mode) keep the Image branch. Upstream merges of this large upstream-shaped view tend to restore the raw multiplier/standard displays."
+    },
+    {
+      "path": "frontend/src/utils/billingMode.ts",
+      "must_contain": [
+        "if (!row?.billing_mode && (row?.image_count ?? 0) > 0) {",
+        "return BILLING_MODE_IMAGE"
+      ],
+      "rationale": "PR #718 R-001: getDisplayBillingMode must derive Image mode for historical rows lacking billing_mode (regression originally introduced by extraction commit ef5ad0fb — signature took image_count but ignored it). Without this anchor a refactor/merge can silently re-drop the derivation; the symptom is historical image usage rendering as Token billing."
+    },
+    {
+      "path": "frontend/src/components/admin/usage/UsageTable.vue",
+      "must_contain": [
+        "!getDisplayBillingMode(tooltipData) || getDisplayBillingMode(tooltipData) === BILLING_MODE_TOKEN"
+      ],
+      "rationale": "PR #718 R-001: admin usage tooltip token-branch must route through getDisplayBillingMode (same historical-image-row fix as the user view); raw tooltipData.billing_mode here regresses historical image rows into the token branch."
+    },
+    {
+      "path": "Makefile",
+      "must_contain": [
+        "src/views/user/__tests__/UsageView.spec.ts"
+      ],
+      "rationale": "PR #718 R-002: UsageView.spec.ts sat red for ~a month because it was outside FRONTEND_CRITICAL_VITEST. Keeping it in the critical set is what makes the user usage-page behavior (actual-only display + image billing derivation) CI-visible."
     }
   ]
 }

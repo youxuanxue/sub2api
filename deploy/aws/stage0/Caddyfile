@@ -1,7 +1,8 @@
 # tokenkey · AWS Stage 0 · Caddyfile
 # -----------------------------------------------------------------------------
 # Cloud-Init 会用 envsubst 把 ${API_DOMAIN}/${ACME_EMAIL} 替换为实际值。
-# Caddy 容器启动后会通过 HTTP-01 自动申请并续签 Let's Encrypt 证书。
+# Caddy 通过 TLS-ALPN-01（443 上）自动申请并续签 Let's Encrypt 证书。
+# 不用 HTTP-01：公网 80 已在 AWS 安全组层关闭，证书签发/续签不依赖 80。
 # -----------------------------------------------------------------------------
 
 {
@@ -22,6 +23,11 @@ ${API_DOMAIN} {
 
 	tls {
 		protocols tls1.2 tls1.3
+		# 只用 TLS-ALPN-01（走 443），关掉 HTTP-01，从而无需公网 80。
+		issuer acme {
+			email ${ACME_EMAIL}
+			disable_http_challenge
+		}
 	}
 
 	reverse_proxy tokenkey:8080 {

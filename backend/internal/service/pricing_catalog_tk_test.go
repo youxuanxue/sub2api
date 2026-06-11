@@ -150,10 +150,10 @@ func TestPricingCatalogService_ZeroPlaceholderRowGetsOverlayPrice(t *testing.T) 
 
 	v32, ok := byID["deepseek-v3-2-251201"]
 	require.True(t, ok)
-	assert.InDelta(t, 2.73972602740e-4, v32.Pricing.InputPer1KTokens, 1e-12,
-		"zero placeholder row must display the overlay Ark price (¥2/M ÷ 7.3 × 1K)")
-	assert.InDelta(t, 4.10958904110e-4, v32.Pricing.OutputPer1KTokens, 1e-12)
-	assert.InDelta(t, 5.47945205479e-5, v32.Pricing.CacheReadPer1K, 1e-12)
+	assert.InDelta(t, 2.0/6.7e3, v32.Pricing.InputPer1KTokens, 1e-12,
+		"zero placeholder row must display the overlay Ark price (¥2/M ÷ 6.7 × 1K)")
+	assert.InDelta(t, 3.0/6.7e3, v32.Pricing.OutputPer1KTokens, 1e-12)
+	assert.InDelta(t, 0.4/6.7e3, v32.Pricing.CacheReadPer1K, 1e-12)
 	assert.Equal(t, 98304, v32.ContextWindow, "file-source row metadata must be preserved")
 	assert.Equal(t, 32768, v32.MaxOutputTokens)
 }

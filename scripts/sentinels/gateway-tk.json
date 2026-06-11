@@ -469,6 +469,10 @@
         "GetOrCreateFingerprint(ctx, account.ID, clientHeaders, s.tlsFingerprintProfileNameForAccount(account))",
         "s.isCanonicalAnthropicOAuth(account)",
         "checkCanonicalIngressUA(c.Request.Header)",
+        "s.settingService.IsAnthropicCanonicalIngressStrictEnabled(ctx)",
+        "s.settingService.IsAnthropicCanonicalHaikuMimicryEnabled(ctx)",
+        "shouldRewriteSystemForNonCCMimicry(reqModel, canonicalHaikuMimicry)",
+        "checkCanonicalIngressUAStrict(c.Request.Header)",
         "remapDeprecatedOpusOnCanonical(reqModel)",
         "applyClaudeCodeMimicHeaders(req *http.Request, _ bool)",
         "getHeaderRaw(req.Header, key) != \"\"",
@@ -651,9 +655,10 @@
       "path": "backend/internal/service/model_pricing_resolver.go",
       "must_contain": [
         "tkApplyChannelFlatOverridesAsFallback(chPricing, resolved)",
-        "tkOverlayIntervalOntoBasePricing(resolved.BasePricing, iv, resolved.SupportsCacheBreakdown)"
+        "tkOverlayIntervalOntoBasePricing(resolved.BasePricing, iv, resolved.SupportsCacheBreakdown)",
+        "tkApplyOverlayIntervals(resolved)"
       ],
-      "rationale": "TK channel-pricing policy: applyTokenOverrides MUST delegate flat-default application to the TK companion regardless of whether intervals are configured (upstream #2107 — out-of-range fallback). GetIntervalPricing MUST delegate matched-interval pricing to the TK overlay helper instead of building a brand-new ModelPricing from interval fields only (upstream #2363 — in-range cache_read/cache_write/image_output preservation). Either revert silently re-introduces $0 or wrong-tier billing on the most cache-hit-heavy traffic that sticky-routing was designed to bank."
+      "rationale": "TK channel-pricing policy: applyTokenOverrides MUST delegate flat-default application to the TK companion regardless of whether intervals are configured (upstream #2107 — out-of-range fallback). GetIntervalPricing MUST delegate matched-interval pricing to the TK overlay helper instead of building a brand-new ModelPricing from interval fields only (upstream #2363 — in-range cache_read/cache_write/image_output preservation). Either revert silently re-introduces $0 or wrong-tier billing on the most cache-hit-heavy traffic that sticky-routing was designed to bank. ALSO: Resolve MUST call tkApplyOverlayIntervals(resolved) so overlay-defined interval (tiered) pricing reaches ResolvedPricing.Intervals when no channel override is present; an upstream merge dropping the call silently flattens every overlay-tiered model (qwen3-coder-plus/plus/flash, doubao-*/glm-4.7/deepseek-v3.2) to its tier-1 base price with no compile error."
     },
     {
       "path": "backend/internal/service/model_pricing_resolver_tk_channel_flat_fallback.go",
@@ -1231,12 +1236,25 @@
         "type CanonicalIngressUARejectedError struct",
         "canonicalIngressUAForbiddenSubstrings",
         "func checkCanonicalIngressUA(headers http.Header) error",
+        "canonicalIngressUAAllowedPrefixes",
+        "func checkCanonicalIngressUAStrict(headers http.Header) error",
+        "func shouldRewriteSystemForNonCCMimicry(reqModel string, canonicalStrict bool) bool",
         "canonicalDefaultOpus = \"claude-opus-4-7\"",
         "canonicalDeprecatedOpusPrefixes",
         "func remapDeprecatedOpusOnCanonical(model string) (string, bool)",
         "func (s *GatewayService) isCanonicalAnthropicOAuth(account *Account) bool"
       ],
-      "rationale": "Canonical Anthropic OAuth ingress gates collapse the two cohort signals that drove the 2026-05-25 Anthropic hold on edge-uk1 (EN-LD-EC2-16-3): (1) third-party SDK UAs (OpenAI/Python, httpx, requests, axios, ...) silently draining a personal Claude Code subscription, and (2) retired opus model ids (claude-opus-4-6 / claude-opus-4-5*) routed alongside the current 4-7 default — a mix pattern real claude-cli/2.1.150 no longer produces. Both gates are scoped to OAuth + canonical TLS only via `isCanonicalAnthropicOAuth`; dropping the helper, the deny-list, or the deprecated-opus remap silently re-opens the abuse path while compiling clean. The forbidden-substring list is intentionally explicit and case-insensitive so a future SDK variant requires a one-line registry update rather than a rewrite."
+      "rationale": "Canonical Anthropic OAuth ingress gates collapse the two cohort signals that drove the 2026-05-25 Anthropic hold on edge-uk1 (EN-LD-EC2-16-3): (1) third-party SDK UAs (OpenAI/Python, httpx, requests, axios, ...) silently draining a personal Claude Code subscription, and (2) retired opus model ids (claude-opus-4-6 / claude-opus-4-5*) routed alongside the current 4-7 default — a mix pattern real claude-cli/2.1.150 no longer produces. Both gates are scoped to OAuth + canonical TLS only via `isCanonicalAnthropicOAuth`; dropping the helper, the deny-list, or the deprecated-opus remap silently re-opens the abuse path while compiling clean. The forbidden-substring list is intentionally explicit and case-insensitive so a future SDK variant requires a one-line registry update rather than a rewrite. Two ORTHOGONAL opt-in helpers ride on top (PR #691, both default-off, scoped to canonical OAuth): checkCanonicalIngressUAStrict (allow-list of claude-cli/ | claude-code/ prefixes — the 'reject at the door' ingress strategy, gated by SettingKeyAnthropicCanonicalIngressStrictEnabled) and shouldRewriteSystemForNonCCMimicry (lifts the haiku skip so non-CC haiku is laundered into a clean CC cohort on egress — the 'admit and launder' strategy, gated by SettingKeyAnthropicCanonicalHaikuMimicryEnabled). They are deliberately on SEPARATE switches because a cc_only-relax that routes non-CC traffic to a canonical fallback account needs the haiku launder ON but the ingress reject OFF. Dropping either function silently reverts its strategy to a no-op."
+    },
+    {
+      "path": "backend/internal/service/setting_service_tk_canonical_ingress.go",
+      "must_contain": [
+        "func (s *SettingService) IsAnthropicCanonicalIngressStrictEnabled(ctx context.Context) bool",
+        "func (s *SettingService) IsAnthropicCanonicalHaikuMimicryEnabled(ctx context.Context) bool",
+        "getGatewayForwardingSettingsCached(ctx).canonicalIngressStrict",
+        "getGatewayForwardingSettingsCached(ctx).canonicalHaikuMimicry"
+      ],
+      "rationale": "PR #691 cc-only canary prep readers. Two ORTHOGONAL default-off toggles for the canonical Anthropic OAuth path: IngressStrict ('reject non-CC at the door', #1 ingress UA allow-list + #2 count_tokens) and HaikuMimicry ('admit non-CC and launder on egress', #3 non-CC haiku system/billing-block injection). They are split because relaxing a group's cc_only and routing non-CC traffic to a canonical fallback account needs HaikuMimicry=ON but IngressStrict=OFF — a single switch could not express that. Both read through the shared 60s gatewayForwardingCache (settings-pubsub hot-update, no per-request DB roundtrip / fail-open). Collapsing the two back into one switch, or pointing either reader at a bare settingRepo.GetValue, silently breaks the canary's strategy selection or re-introduces a hot-path DB read."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_canonical_oauth_guard_test.go",
@@ -2126,6 +2144,36 @@
         "COALESCE(status_code, 0) >= 400 AND error_owner = 'provider'"
       ],
       "rationale": "upstream_error_rate numerator (upstream_excl) requires a final failure (status >= 400): provider errors recovered to 200 (signature_preempt thinking_blocks_stripped retries, failover) must not drive the P0 capacity alert — us7 false P0 2026-06-10 was 60 recovered-200 rows / 5min window reading 27.5%. The filter is an in-place edit inside upstream-shaped SQL hotspots, compile-clean if dropped, so an upstream merge resolving these SELECT blocks can silently revert it and the false P0 recurs. Same gate must stay in all four sites: dashboard queryErrorCounts (alert evaluator raw path), trends, preagg hourly, 1m metrics collector."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_canonical_ingress_reject.go",
+      "must_contain": [
+        "func tkSkipRelayedCanonicalIngressRejectPenalty(statusCode int, upstreamMsg string, responseBody []byte) bool",
+        "IsCanonicalIngressUARejectMessage(responseBody, upstreamMsg)"
+      ],
+      "rationale": "Relayed canonical-ingress strict-403 skip for prod→edge mirror stubs (PR #691 cc-only canary prep). When a strict-mode edge rejects a non-CC / empty-UA client, the prod stub sees a 403 carrying TokenKey's own canonicalIngressRejectNeedle phrase — an end-client identity verdict, not stub/edge health. Without this skip, three rejections within a minute advance the anthropic 3/3 ladder and cool the canary edge's stub for up to 10 minutes: any third-party client probing prod could evict the canary edge from the pool (same amplifier shape as the 2026-05-31 no-available incident). Matches ONLY the TokenKey phrase; genuine Anthropic 403s (org disabled, TLS/bot challenge) still flow through handle403's keyword check and tiered cooldown."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "tkSkipRelayedCanonicalIngressRejectPenalty(http.StatusForbidden, upstreamMsg, responseBody)"
+      ],
+      "rationale": "handle403 call site of the relayed canonical-ingress strict-403 skip — must run before the TLS-keyword check and handleAnthropicUpstreamError so the relayed end-client rejection never advances the 3/3 ladder. Deleting the call silently re-arms the canary-edge cooldown amplifier while compiling clean."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_canonical_oauth_guard.go",
+      "must_contain": [
+        "canonicalIngressRejectNeedle = \"canonical claude oauth path rejects non-cc client\"",
+        "func IsCanonicalIngressUARejectMessage(responseBody []byte, upstreamMsg string) bool"
+      ],
+      "rationale": "Wire contract of the strict-403 relay recognition: the needle is embedded in every CanonicalIngressUARejectedError and matched by the prod-side ladder skip and the ops client-owned classifier across mixed prod/edge versions. Changing the string or dropping the exported predicate breaks recognition — prod would resume cooling canary-edge stubs and counting end-client rejections into upstream_error_rate."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_tk_client_induced_upstream.go",
+      "must_contain": [
+        "service.IsCanonicalIngressUARejectMessage([]byte(body), msg)"
+      ],
+      "rationale": "Ops classification of the relayed strict-403: client-owned (phase=request), out of upstream_error_rate and the provider-health P0 alert. Dropping this re-creates the false-P0 class (canary edge rejections counted as provider failures) that #602/#628/#704 each fixed for other status codes."
     }
   ]
 }

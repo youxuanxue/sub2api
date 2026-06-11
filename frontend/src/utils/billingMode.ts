@@ -28,7 +28,11 @@ export function isImageUsage(row: Pick<ImageBillingRow, 'image_count' | 'billing
   return (row?.image_count ?? 0) > 0 && row?.billing_mode !== BILLING_MODE_TOKEN
 }
 
+// 历史图片记录没有 billing_mode 字段，靠 image_count 推导回 Image 模式
 export function getDisplayBillingMode(row: Pick<ImageBillingRow, 'billing_mode' | 'image_count'> | null | undefined): string | null | undefined {
+  if (!row?.billing_mode && (row?.image_count ?? 0) > 0) {
+    return BILLING_MODE_IMAGE
+  }
   return row?.billing_mode
 }
 
