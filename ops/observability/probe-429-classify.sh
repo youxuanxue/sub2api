@@ -43,7 +43,7 @@ echo "=== window_minutes (status>=429 per 5min) ==="
 $PSQL -c "
 WITH b AS (SELECT now()-interval '${WINDOW_HOURS} hour' AS s, now() AS u)
 SELECT row_to_json(t) FROM (
-  SELECT to_char(date_trunc('hour',created_at)+date_part('minute',created_at)::int/5*interval '5 min' AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI\"Z\"') AS slot5,
+  SELECT to_char(date_bin('5 min', created_at, timestamptz 'epoch') AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI\"Z\"') AS slot5,
          status_code, COUNT(*) AS n
   FROM ops_error_logs l, b
   WHERE l.created_at>=b.s AND l.created_at<b.u AND status_code>=429
