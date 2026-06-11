@@ -45,7 +45,14 @@ func (r *complianceGuardRepoStub) Delete(ctx context.Context, key string) error 
 
 func TestAdminComplianceGuardBlocksAdminRouteWhenMissing(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	svc := service.NewSettingService(&complianceGuardRepoStub{}, &config.Config{})
+	// TK: the ack requirement is now a single gate-aware decision in
+	// GetAdminComplianceStatus (default-off override, see
+	// service/admin_compliance_tk_gate.go). The upstream guard only blocks once
+	// the gate is enabled — in production it is always wrapped by
+	// TkAdminComplianceGuardIfEnabled, which skips the guard entirely when off.
+	svc := service.NewSettingService(&complianceGuardRepoStub{
+		values: map[string]string{service.SettingKeyTkAdminComplianceGateEnabled: "true"},
+	}, &config.Config{})
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set(string(ContextKeyUser), AuthSubject{UserID: 1})

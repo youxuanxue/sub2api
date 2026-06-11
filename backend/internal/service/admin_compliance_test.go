@@ -55,7 +55,13 @@ func (r *adminComplianceRepoStub) Delete(ctx context.Context, key string) error 
 }
 
 func TestAdminComplianceStatusRequiresAckWhenMissing(t *testing.T) {
-	svc := NewSettingService(&adminComplianceRepoStub{}, &config.Config{})
+	// TK: the upstream always-required semantics only apply once an operator
+	// opts the node in via tk_admin_compliance_gate_enabled=true (default-off
+	// override, see admin_compliance_tk_gate.go). Gate-off behavior is covered
+	// in admin_compliance_tk_gate_test.go.
+	svc := NewSettingService(&adminComplianceRepoStub{
+		values: map[string]string{SettingKeyTkAdminComplianceGateEnabled: "true"},
+	}, &config.Config{})
 
 	status, err := svc.GetAdminComplianceStatus(context.Background(), 1)
 	require.NoError(t, err)
@@ -78,7 +84,11 @@ func TestAcceptAdminComplianceRejectsWrongPhrase(t *testing.T) {
 }
 
 func TestAcceptAdminCompliancePersistsCurrentVersion(t *testing.T) {
-	repo := &adminComplianceRepoStub{}
+	// TK: gate enabled so the post-accept GetAdminComplianceStatus reads back the
+	// persisted acknowledgement instead of short-circuiting on the default-off gate.
+	repo := &adminComplianceRepoStub{
+		values: map[string]string{SettingKeyTkAdminComplianceGateEnabled: "true"},
+	}
 	svc := NewSettingService(repo, &config.Config{})
 
 	status, err := svc.AcceptAdminCompliance(context.Background(), AdminComplianceAcceptInput{
@@ -104,7 +114,10 @@ func TestAdminComplianceStatusRequiresAckOnOldVersion(t *testing.T) {
 	old, err := json.Marshal(AdminComplianceAcknowledgement{Version: "v2026.01.01"})
 	require.NoError(t, err)
 	svc := NewSettingService(&adminComplianceRepoStub{
-		values: map[string]string{adminComplianceAcknowledgementKey(1): string(old)},
+		values: map[string]string{
+			SettingKeyTkAdminComplianceGateEnabled: "true",
+			adminComplianceAcknowledgementKey(1):   string(old),
+		},
 	}, &config.Config{})
 
 	status, err := svc.GetAdminComplianceStatus(context.Background(), 1)
@@ -120,7 +133,10 @@ func TestAdminComplianceStatusIsPerAdminUser(t *testing.T) {
 	})
 	require.NoError(t, err)
 	svc := NewSettingService(&adminComplianceRepoStub{
-		values: map[string]string{adminComplianceAcknowledgementKey(1): string(current)},
+		values: map[string]string{
+			SettingKeyTkAdminComplianceGateEnabled: "true",
+			adminComplianceAcknowledgementKey(1):   string(current),
+		},
 	}, &config.Config{})
 
 	statusForUserOne, err := svc.GetAdminComplianceStatus(context.Background(), 1)
