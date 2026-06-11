@@ -52,11 +52,14 @@ Point the IDE at the proxy (one of):
 Trust the mitmproxy CA (~/.mitmproxy/mitmproxy-ca-cert.pem) in the OS/Node trust store.
 
 Requires: python3, mitmdump (mitmproxy). --tls additionally needs tcpdump + tshark (sudo).
+Exit codes: 0 = aligned (or nothing captured), 1 = actionable HTTP drift (capture/check),
+            2 = usage/env error — matches the umbrella orchestrator's drift/error mapping.
 EOF
 }
 
+# Exit-code contract (umbrella maps rc): 0 = aligned, 1 = drift, 2 = usage/env error.
 require_cmd() {
-  command -v "$1" >/dev/null 2>&1 || { echo "error: required command not found: $1" >&2; exit 1; }
+  command -v "$1" >/dev/null 2>&1 || { echo "error: required command not found: $1" >&2; exit 2; }
 }
 
 cmd_check_env() {
@@ -77,7 +80,7 @@ cmd_check_env() {
   else
     echo "  · no Antigravity process detected (install + log in to the IDE before capturing)"
   fi
-  [[ "$ok" -eq 1 ]] || { echo "check env: missing prerequisites" >&2; exit 1; }
+  [[ "$ok" -eq 1 ]] || { echo "check env: missing prerequisites" >&2; exit 2; }
   echo "check env: ok"
 }
 
@@ -99,6 +102,14 @@ run_http_capture() {
   local waited=0
   while [[ "$waited" -lt "$CAPTURE_SECONDS" ]]; do
     sleep 3; waited=$((waited + 3))
+    # mitmdump dying early (port in use, broken python env, addon error) is NOT an
+    # IDE/proxy problem — detect it explicitly instead of blaming the IDE after a
+    # full silent window (same trap class as the cc engine's "empty mitm log").
+    if ! kill -0 "$mitm_pid" 2>/dev/null; then
+      echo "  ! mitmdump exited prematurely — not an IDE/proxy issue. Its log tail:" >&2
+      tail -n 20 "$OUT_DIR/${stamp}-mitmdump.log" >&2 || true  # preflight-allow: swallow (log may be empty/missing; the error above already fails the run)
+      exit 2
+    fi
     [[ -s "$http_log" ]] && { echo "  captured $(wc -l <"$http_log" | tr -d ' ') request line(s)"; break; }
   done
   kill "$mitm_pid" 2>/dev/null || true  # preflight-allow: swallow (mitmdump backgrounded; we stop it after the window)
@@ -164,7 +175,7 @@ cmd_capture() {
       --proxy-port) PROXY_PORT="$2"; shift 2 ;;
       --seconds) CAPTURE_SECONDS="$2"; shift 2 ;;
       --out-dir) OUT_DIR="$2"; shift 2 ;;
-      *) echo "unknown arg: $1" >&2; usage; exit 1 ;;
+      *) echo "unknown arg: $1" >&2; usage; exit 2 ;;
     esac
   done
   require_cmd python3
@@ -186,7 +197,9 @@ cmd_capture() {
 
   echo
   echo "bundle=$bundle"
-  python3 "$PY" diff --bundle "$bundle"
+  # --check: exit 1 on actionable HTTP drift so the umbrella orchestrator can map
+  # rc=1 -> drift (same contract as the cc engine's capture).
+  python3 "$PY" diff --bundle "$bundle" --check
 }
 
 main() {
@@ -200,7 +213,7 @@ main() {
     check-tls) require_cmd python3; exec python3 "$PY" check-tls "$@" ;;
     show-baseline) require_cmd python3; exec python3 "$PY" show-baseline "$@" ;;
     -h|--help|"") usage ;;
-    *) echo "unknown command: $cmd" >&2; usage; exit 1 ;;
+    *) echo "unknown command: $cmd" >&2; usage; exit 2 ;;
   esac
 }
 

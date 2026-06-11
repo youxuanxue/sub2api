@@ -18,9 +18,11 @@ description: >-
 ## 每日漂移流程（手动按需 —— sessionStart 自动触发已关停）
 
 > **2026-06-10 起：每日 sessionStart 自动 hook 已关停**（`.cursor/hooks.json` 已清空、
-> `.claude/settings.json` 的 `export-tls-fingerprint-profile` 条目已移除——价值不高、易污染本地 git）。
+> `.claude/settings.json` 的 `export-tls-fingerprint-profile` 条目已移除，两个零调用的
+> sessionStart wrapper 脚本 `.cursor/hooks/cc-fingerprint-daily.sh`、
+> `.claude/hooks/export-tls-fingerprint-profile.sh` 已一并删除——价值不高、易污染本地 git）。
 > 下面是同一条流程的**手动**跑法：需要时直接调 `ops/anthropic/cc_fingerprint_daily_hook.sh`
-> （脚本本身不变，只是不再被 sessionStart 自动拉起）。
+> （该脚本本身不变，只是不再被 sessionStart 自动拉起）。
 
 手动跑一次 `bash ops/anthropic/cc_fingerprint_daily_hook.sh` 的行为：
 
