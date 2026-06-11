@@ -21,6 +21,20 @@ var ensureNewAPIDepsOnce sync.Once
 
 func ensureNewAPIDeps() {
 	ensureNewAPIDepsOnce.Do(func() {
+		// TK never calls newapi common.InitEnv(), so transport tuning vars are zero
+		// values unless set here (zero MaxIdleConnsPerHost falls back to Go's
+		// DefaultMaxIdleConnsPerHost=2, zero IdleConnTimeout never reaps idle conns).
+		// Mirror upstream InitEnv defaults; must run before InitHttpClient, which
+		// reads these when building its transport.
+		if common.RelayMaxIdleConns <= 0 {
+			common.RelayMaxIdleConns = 500
+		}
+		if common.RelayMaxIdleConnsPerHost <= 0 {
+			common.RelayMaxIdleConnsPerHost = 100
+		}
+		if common.RelayIdleConnTimeout <= 0 {
+			common.RelayIdleConnTimeout = 90
+		}
 		if service.GetHttpClient() == nil {
 			service.InitHttpClient()
 		}
