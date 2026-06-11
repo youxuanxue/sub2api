@@ -18,7 +18,10 @@ func RegisterAdminRoutes(
 ) {
 	admin := v1.Group("/admin")
 	admin.Use(gin.HandlerFunc(adminAuth))
-	admin.Use(middleware.AdminComplianceGuard(settingService))
+	// TK: compliance gate is setting-gated, default off (CLAUDE.md §5.x — fleet
+	// admin automation has no interactive ack step). Upstream guard runs as-is
+	// once tk_admin_compliance_gate_enabled=true.
+	admin.Use(middleware.TkAdminComplianceGuardIfEnabled(settingService))
 	{
 		// 部署与运营合规确认
 		registerAdminComplianceRoutes(admin, h)
