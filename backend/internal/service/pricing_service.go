@@ -74,6 +74,12 @@ type LiteLLMModelPricing struct {
 	OutputCostPerImage                  float64 `json:"output_cost_per_image"`       // 图片生成模型每张图片价格
 	OutputCostPerImageToken             float64 `json:"output_cost_per_image_token"` // 图片输出 token 价格
 	OutputCostPerSecond                 float64 `json:"output_cost_per_second"`      // 视频生成模型每秒价格（veo 等）
+
+	// Intervals 输入-token 区间分档定价（TK overlay 专用，见 tk_pricing_overlay.json
+	// 的 "intervals"）。仅 TK overlay 条目填充；litellm 源无此概念。空 = 扁平定价。
+	// 解析见 pricing_service_tk_overlay.go，接进 ResolvedPricing.Intervals 见
+	// model_pricing_resolver_tk_overlay_intervals.go。
+	Intervals []PricingInterval `json:"-"`
 }
 
 // PricingRemoteClient 远程价格数据获取接口

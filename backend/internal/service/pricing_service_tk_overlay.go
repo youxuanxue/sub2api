@@ -103,6 +103,17 @@ func loadTKPricingOverlay() map[string]*LiteLLMModelPricing {
 			if e.CacheReadInputTokenCost != nil {
 				p.CacheReadInputTokenCost = *e.CacheReadInputTokenCost
 			}
+			// TK: input-token interval (tiered) pricing. LiteLLMRawEntry has no
+			// "intervals" field (it is TK-overlay-only), so parse the raw entry a
+			// second time into a TK-local shape. An entry's flat input/output cost
+			// stays as the out-of-range fallback (BasePricing); the intervals drive
+			// whole-request tier billing via ResolvedPricing.Intervals.
+			var ext struct {
+				Intervals []tkOverlayRawInterval `json:"intervals"`
+			}
+			if err := json.Unmarshal(rawEntry, &ext); err == nil && len(ext.Intervals) > 0 {
+				p.Intervals = tkBuildOverlayIntervals(ext.Intervals)
+			}
 			out[name] = p
 		}
 		tkPricingOverlay = out
@@ -135,6 +146,11 @@ func tkIsEffectivelyUnpriced(p *LiteLLMModelPricing) bool {
 	if p == nil {
 		return true
 	}
+	// Interval (tiered) pricing is a price even if the flat base fields were left
+	// zero — never treat a tiered overlay entry as a placeholder.
+	if len(p.Intervals) > 0 {
+		return false
+	}
 	return p.InputCostPerToken == 0 &&
 		p.InputCostPerTokenPriority == 0 &&
 		p.OutputCostPerToken == 0 &&
@@ -146,4 +162,38 @@ func tkIsEffectivelyUnpriced(p *LiteLLMModelPricing) bool {
 		p.OutputCostPerImage == 0 &&
 		p.OutputCostPerImageToken == 0 &&
 		p.OutputCostPerSecond == 0
+}
+
+// tkOverlayRawInterval is the JSON shape of one entry in an overlay model's
+// "intervals" array. Boundaries follow FindMatchingInterval (channel.go):
+// MinTokens is EXCLUSIVE, MaxTokens INCLUSIVE (nil = unbounded), keyed on the
+// request's input context tokens (InputTokens + CacheReadTokens) — exactly the
+// DashScope "0<Token<=256K" tier semantics. Costs are USD per single token.
+type tkOverlayRawInterval struct {
+	MinTokens                   int      `json:"min_tokens"`
+	MaxTokens                   *int     `json:"max_tokens"`
+	InputCostPerToken           *float64 `json:"input_cost_per_token"`
+	OutputCostPerToken          *float64 `json:"output_cost_per_token"`
+	CacheReadInputTokenCost     *float64 `json:"cache_read_input_token_cost"`
+	CacheCreationInputTokenCost *float64 `json:"cache_creation_input_token_cost"`
+}
+
+// tkBuildOverlayIntervals converts the parsed overlay intervals into the shared
+// PricingInterval shape the billing engine already consumes (FindMatchingInterval
+// + tkOverlayIntervalOntoBasePricing). SortOrder preserves the JSON order.
+func tkBuildOverlayIntervals(raw []tkOverlayRawInterval) []PricingInterval {
+	out := make([]PricingInterval, 0, len(raw))
+	for i := range raw {
+		r := raw[i]
+		out = append(out, PricingInterval{
+			MinTokens:       r.MinTokens,
+			MaxTokens:       r.MaxTokens,
+			InputPrice:      r.InputCostPerToken,
+			OutputPrice:     r.OutputCostPerToken,
+			CacheReadPrice:  r.CacheReadInputTokenCost,
+			CacheWritePrice: r.CacheCreationInputTokenCost,
+			SortOrder:       i,
+		})
+	}
+	return out
 }

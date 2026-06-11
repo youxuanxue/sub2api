@@ -104,6 +104,7 @@ type ModelPricing struct {
 	LongContextOutputMultiplier    float64 // 长上下文整次会话输出倍率
 	ImageOutputPricePerToken       float64 // 图片输出 token 价格 (USD)
 	ImageOutputPriceExplicit       bool    // 是否由渠道定价显式设定（为 true 时即使 == 0 也不回退）
+	Intervals                      []PricingInterval // 输入-token 区间分档（来自 TK overlay；空 = 扁平）。接进 ResolvedPricing.Intervals。
 }
 
 const (
@@ -417,6 +418,7 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 				LongContextInputMultiplier:     litellmPricing.LongContextInputCostMultiplier,
 				LongContextOutputMultiplier:    litellmPricing.LongContextOutputCostMultiplier,
 				ImageOutputPricePerToken:       litellmPricing.OutputCostPerImageToken,
+				Intervals:                      litellmPricing.Intervals,
 			}), nil
 		}
 	}
