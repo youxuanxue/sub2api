@@ -1851,10 +1851,36 @@
       "path": "backend/internal/handler/no_available_accounts_tk.go",
       "must_contain": [
         "func tkNoAvailableAccounts",
+        "func tkSelectFailureStatusMessage",
+        "isOpsNoAvailableAccountError(err)",
         "http.StatusTooManyRequests",
         "Retry-After"
       ],
-      "rationale": "Empty-pool fast-fail returns 429+Retry-After (not 503) so Caddy passive-health on the single Stage0 upstream does not conflate an empty scheduling pool with a backend outage and stall all traffic incl. the dashboard. An upstream merge re-introducing 503 at the account-select call sites regresses the prod flood-containment fix (PR #572 / IP 58.213.121.60 1540 RPM incident)."
+      "rationale": "Empty-pool fast-fail returns 429+Retry-After (not 503) so Caddy passive-health on the single Stage0 upstream does not conflate an empty scheduling pool with a backend outage and stall all traffic incl. the dashboard. An upstream merge re-introducing 503 at the account-select call sites regresses the prod flood-containment fix (PR #572 / IP 58.213.121.60 1540 RPM incident). tkSelectFailureStatusMessage (PR #723) extends the same semantics to the openai/newapi compat first-selection failure branches: the no-available error family (classified by isOpsNoAvailableAccountError, the same predicate ops capacity-limited marking uses) maps to 429, while genuine scheduler faults (DB outage, context errors) keep 503."
+    },
+    {
+      "path": "backend/internal/handler/openai_chat_completions.go",
+      "must_contain": [
+        "tkStatus, tkMsg := tkSelectFailureStatusMessage(c, err)"
+      ],
+      "rationale": "/v1/chat/completions first-selection failure (len(failedAccountIDs)==0) must route through tkSelectFailureStatusMessage so an empty openai/newapi pool fast-fails 429 instead of 503 (PR #723, #575 parity; prod 2026-06-11: 480 empty-pool 503s in 2min when both GPT accounts hit upstream 429). Reverting this one-line hook to the upstream 503 literal compiles clean but re-exposes the Caddy passive-health melt + SDK retry storm the no_available_accounts_tk.go sentinel documents."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler.go",
+      "must_contain": [
+        "h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), \"compact_not_supported\"",
+        "h.handleStreamingAwareError(c, tkStatus, \"api_error\", tkMsg, streamStarted)",
+        "h.anthropicStreamingAwareError(c, tkStatus, \"api_error\", tkMsg, streamStarted)"
+      ],
+      "rationale": "Responses + openai_messages first-selection failure branches must route through tkSelectFailureStatusMessage (429 on empty pool, 503 on real scheduler faults), and the empty compact pool (ErrNoAvailableCompactAccounts) keeps its compact_not_supported code but joins the 429 no-available family (PR #723, #575 parity). The two helper-call sites have identical assignment lines, so the anchors pin the two distinct error-writer lines (handleStreamingAwareError for Responses, anthropicStreamingAwareError for Messages) — losing either on an upstream merge silently reverts that endpoint to empty-pool 503."
+    },
+    {
+      "path": "backend/internal/handler/openai_images.go",
+      "must_contain": [
+        "tkStatus, tkMsg := tkSelectFailureStatusMessage(c, err)",
+        "h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), \"api_error\", \"No available compatible accounts\", streamStarted)"
+      ],
+      "rationale": "Images first-selection failure must route through tkSelectFailureStatusMessage, and the selection==nil branch returns 429 via tkNoAvailableAccounts — previously the only selection==nil branch still answering 503, inconsistent with its sibling handlers (PR #723, #575 parity). An upstream merge restoring either 503 literal compiles clean but regresses the image surface back to the Caddy passive-health failure mode."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_model_cooldown.go",
