@@ -76,6 +76,48 @@ python3 ops/antigravity/capture_antigravity_fingerprint.py check --bundle .antig
 #    对齐 exit 0;UA 版本/body userAgent/ideType/gl-node 任一漂移 exit 1
 ```
 
+## 用 Antigravity CLI（`agy`）采集（真机已验 2026-06-11）
+
+本机没装 IDE 时，可改用 **Antigravity CLI**（`agy`，brew cask `antigravity-cli`；`agy0-here`
+经 cc0 指纹链启动）触发真实 `v1internal:*` 请求。**与 IDE 路径有两处实测差异**：
+
+1. **CA 信任：`agy` 是 Go 二进制（go1.27），Go 在 macOS 的 TLS 校验只认系统/login 钥匙串，
+   忽略 `SSL_CERT_FILE` 和 `NODE_EXTRA_CA_CERTS`**（上面 IDE 流程第 1 步的 Node 变量对 CLI 无效）。
+   把 mitm CA 信任进 **login keychain（免 sudo，弹一次 GUI 授权）**，采集后移除：
+   ```bash
+   security add-trusted-cert -r trustRoot -k "$HOME/Library/Keychains/login.keychain-db" \
+     "$HOME/.mitmproxy/mitmproxy-ca-cert.pem"
+   # …采集完务必撤销：
+   security delete-certificate -c mitmproxy -t "$HOME/Library/Keychains/login.keychain-db"
+   ```
+2. **出口保持在指纹链**：mitmproxy 用 **upstream 模式串到 gost**（`agy0` 用的 cc0 链
+   `:11800 → socks5 :1114 → CC0_EXPECT_EGRESS_IP`），而非自己直连：
+   ```bash
+   ANTIGRAVITY_CAPTURE_HTTP_LOG=/tmp/ag-http.jsonl \
+     mitmdump -p 8080 --mode upstream:http://127.0.0.1:11800 \
+     -s ops/antigravity/mitm_antigravity_http_headers.py &
+   # 在【空目录】发一次 print（否则 agy 会去索引当前大仓库、迟迟不发网络请求像假死）：
+   ( cd "$(mktemp -d)" && HTTP_PROXY=http://127.0.0.1:8080 HTTPS_PROXY=http://127.0.0.1:8080 \
+       agy --print "Reply with one word: pong" --print-timeout 60s </dev/null )
+   # 之后照常 bundle-from-artifacts + check（mitm log 路径同上）
+   ```
+
+**CLI ≠ IDE，是不同的客户端指纹**（引擎 baseline 对标 IDE，喂 CLI 抓包必然报「drift」，
+属预期，**不是 TK 回归**）。实测对照：
+
+| 维度 | CLI 实测（`agy` 1.0.7 / Mac） | IDE 基线（TK 镜像对象） |
+|---|---|---|
+| UA | `antigravity/cli/1.0.7 darwin/arm64`（多 `/cli/` 段、Go 非 Node） | `antigravity/1.23.2 windows/amd64` |
+| body `userAgent` | `antigravity` ✓ 同 | `antigravity` |
+| `ideType` | `ANTIGRAVITY` ✓ 同 | `ANTIGRAVITY` |
+| `X-Goog-Api-Client` | **空**（Go 不发 gl-node 头） | `gl-node/22.21.1` |
+| 端点 host | `daily-cloudcode-pa.googleapis.com` | `cloudcode-pa.googleapis.com` |
+| model（streamGenerateContent）| `gemini-3.5-flash-low` / `gemini-3.1-flash-lite` | — |
+
+> 引擎的 UA 版本正则是 `antigravity/<ver>`，匹配不了 CLI 的 `antigravity/cli/<ver>` → 标
+> `ua_version: missing_capture`；`platform` 会报 `DARWIN_ARM64` vs `PLATFORM_UNSPECIFIED`。
+> 要把 CLI 也纳入对齐需单独扩 baseline；当前 TK 仅镜像 **IDE**，CLI 抓包用于交叉验证工具链。
+
 ## 漂移修复
 
 - **仅 UA 版本漂移(最常见)**:改 `oauth.go` `DefaultUserAgentVersion` + 改

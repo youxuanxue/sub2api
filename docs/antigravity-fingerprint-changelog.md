@@ -18,3 +18,4 @@ Drift-fix recipe (see the `tokenkey-antigravity-fingerprint-alignment` skill):
 | date (UTC) | UA version | type | change | note |
 |---|---|---|---|---|
 | 2026-06-10 | 1.23.2 | baseline | — | capture toolchain added; `DefaultUserAgentVersion=1.23.2`, body `userAgent="antigravity"`, ideType=`ANTIGRAVITY`, `X-Goog-Api-Client=gl-node/22.21.1`. No real-IDE capture yet (IDE not installed locally). |
+| 2026-06-11 | 1.23.2 | toolchain-verify | — | First real-client capture via the **Antigravity CLI** (`agy` 1.0.7, Go) through mitmproxy→gost, not the IDE. Confirms body `userAgent="antigravity"` ✓ and ideType=`ANTIGRAVITY` ✓. CLI is a distinct client from the IDE the baseline mirrors: UA `antigravity/cli/1.0.7 darwin/arm64`, no `gl-node` header (Go, not Node), endpoint `daily-cloudcode-pa.googleapis.com`. No baseline change — IDE remains the mimic target; see skill § "用 Antigravity CLI（`agy`）采集" for the Go-CLI login-keychain trust path. |
