@@ -104,6 +104,20 @@ func (s *SettingService) GetAdminComplianceStatus(ctx context.Context, adminUser
 		return status, nil
 	}
 
+	// TK: the admin compliance acknowledgement is setting-gated and default-off
+	// (see admin_compliance_tk_gate.go). The frontend dialog is driven solely by
+	// status.Required, and this status endpoint is intentionally NOT wrapped by
+	// TkAdminComplianceGuardIfEnabled (it must stay reachable so the dialog can
+	// load). Without this check the dialog would block the admin console even on
+	// fleet nodes where the gate is disabled — exactly the regression that shipped
+	// when the upstream feature first merged. When the gate is off the
+	// acknowledgement is simply not required; the upstream ack flow below runs
+	// only once an operator opts the node in.
+	if !s.IsTkAdminComplianceGateEnabled(ctx) {
+		status.Required = false
+		return status, nil
+	}
+
 	raw, err := s.settingRepo.GetValue(ctx, adminComplianceAcknowledgementKey(adminUserID))
 	if err != nil {
 		if errors.Is(err, ErrSettingNotFound) {
