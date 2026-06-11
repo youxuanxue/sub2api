@@ -29,6 +29,9 @@ func newAdminRoutesTestRouter() *gin.Engine {
 		servermiddleware.AdminAuthMiddleware(func(c *gin.Context) {
 			c.Next()
 		}),
+		// nil settingService → AdminComplianceGuard no-ops, keeping this a pure
+		// route-registration test.
+		nil,
 	)
 
 	return router

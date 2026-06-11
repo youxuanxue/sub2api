@@ -2174,6 +2174,35 @@
         "service.IsCanonicalIngressUARejectMessage([]byte(body), msg)"
       ],
       "rationale": "Ops classification of the relayed strict-403: client-owned (phase=request), out of upstream_error_rate and the provider-health P0 alert. Dropping this re-creates the false-P0 class (canary edge rejections counted as provider failures) that #602/#628/#704 each fixed for other status codes."
+    },
+    {
+      "path": "backend/internal/server/middleware/admin_compliance_tk_gate.go",
+      "must_contain": [
+        "func TkAdminComplianceGuardIfEnabled(settingService *service.SettingService) gin.HandlerFunc",
+        "IsTkAdminComplianceGateEnabled"
+      ],
+      "rationale": "TK default-off override for upstream's always-on admin compliance acknowledgement gate (CLAUDE.md §5.x option 2). Upstream 423-locks every /api/v1/admin/* route per admin user until an interactive frontend ack; TokenKey fleet admin automation (admin_api_key over x-api-key, forged short-lived edge JWTs, SSM ops scripts) has no ack step — an upstream merge that silently restores the bare AdminComplianceGuard registration bricks every automated admin surface across prod + edges at once. tk_admin_compliance_gate_enabled=true re-enables the upstream behavior per node."
+    },
+    {
+      "path": "backend/internal/server/routes/admin.go",
+      "must_contain": [
+        "middleware.TkAdminComplianceGuardIfEnabled(settingService)"
+      ],
+      "rationale": "The registration site of the TK compliance-gate override. The companion middleware existing is not enough — if an upstream merge resolves this line back to middleware.AdminComplianceGuard(settingService), the override is compiled but dead and the fleet 423-locks. Double-trigger with the companion-file sentinel above. Same rule for the other two admin-surface registration sites (page_handler.go admin pages list, routes/payment.go admin payment group) — each pinned by its own entry below."
+    },
+    {
+      "path": "backend/internal/handler/page_handler.go",
+      "must_contain": [
+        "middleware2.TkAdminComplianceGuardIfEnabled(settingService)"
+      ],
+      "rationale": "Second registration site of the upstream admin compliance guard (admin pages list). An upstream merge resolving this back to the bare AdminComplianceGuard 423-locks /api/v1/pages for fleet automation even though the routes/admin.go override survives — the override must cover every Use() site."
+    },
+    {
+      "path": "backend/internal/server/routes/payment.go",
+      "must_contain": [
+        "middleware.TkAdminComplianceGuardIfEnabled(settingService)"
+      ],
+      "rationale": "Third registration site of the upstream admin compliance guard (admin payment group). Same silent-revert mode as page_handler.go — bare AdminComplianceGuard here 423-locks /api/v1/admin/payment/* for fleet automation."
     }
   ]
 }
