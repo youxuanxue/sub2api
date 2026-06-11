@@ -223,7 +223,7 @@
             </div>
             <figure
               v-for="(img, idx) in imageResults"
-              :key="idx"
+              :key="`${img.src.slice(-32)}-${idx}`"
               class="overflow-hidden rounded-xl border border-gray-200 dark:border-dark-700"
             >
               <a :href="img.src" target="_blank" rel="noopener">
