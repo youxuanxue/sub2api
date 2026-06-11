@@ -150,19 +150,22 @@ aws lightsail attach-static-ip \
   --instance-name "$INSTANCE_NAME"
 
 # Instance-level firewall (Lightsail "Networking"): distinct from EC2 SGs / Caddy allowlists.
-# Default blueprints commonly expose SSH only — without 80/443, public curls time out (~2m) despite correct DNS/static IP.
-echo "opening Lightsail public ports 80 and 443 (IPv4) on ${INSTANCE_NAME}"
-for port in 80 443; do
-  if aws lightsail open-instance-public-ports \
-    --region "$LIGHTSAIL_REGION" \
-    --instance-name "$INSTANCE_NAME" \
-    --port-info "fromPort=${port},toPort=${port},protocol=tcp,cidrs=0.0.0.0/0" >/dev/null; then
-    echo "lightsail firewall: TCP ${port} allowed from 0.0.0.0/0"
-  else
-    echo "::notice::open-instance-public-ports tcp/${port} failed or rule already exists — check:" >&2
-    echo "       aws lightsail get-instance-port-states --region ${LIGHTSAIL_REGION} --instance-name ${INSTANCE_NAME}" >&2
-  fi
-done
+# We declare the COMPLETE desired port set with put-instance-public-ports (replace
+# semantics), not open-instance-public-ports (add-only). This atomically:
+#   - opens 443 (business + ACME TLS-ALPN-01),
+#   - drops the Lightsail-default public SSH (22) — operate via SSM / console SSH,
+#   - keeps public 80 closed — certs use TLS-ALPN-01 on 443, so HTTP-01 is unneeded.
+# Operate existing edges to this same set via ops/stage0/verify-edge-lightsail-network.sh --enforce-ports.
+echo "setting Lightsail public ports to 443-only (IPv4) on ${INSTANCE_NAME}"
+if aws lightsail put-instance-public-ports \
+  --region "$LIGHTSAIL_REGION" \
+  --instance-name "$INSTANCE_NAME" \
+  --port-infos "fromPort=443,toPort=443,protocol=tcp,cidrs=0.0.0.0/0" >/dev/null; then
+  echo "lightsail firewall: public ports set to TCP 443 only (22/80 closed)"
+else
+  echo "::notice::put-instance-public-ports failed — check:" >&2
+  echo "       aws lightsail get-instance-port-states --region ${LIGHTSAIL_REGION} --instance-name ${INSTANCE_NAME}" >&2
+fi
 
 public_ip="$(aws lightsail get-static-ip --region "$LIGHTSAIL_REGION" --static-ip-name "$STATIC_IP_NAME" \
   --query 'staticIp.ipAddress' --output text)"

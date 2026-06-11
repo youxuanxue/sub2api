@@ -1,6 +1,8 @@
 # tokenkey · AWS Edge Stage 0 · Caddyfile
 # Cloud-Init uses envsubst for ${API_DOMAIN}, ${ACME_EMAIL}, and
 # ${MAIN_GATEWAY_ALLOWED_CIDR}. Relay paths are not public user entry points.
+# Certs use TLS-ALPN-01 (on 443); HTTP-01 is disabled because the Lightsail
+# firewall keeps public port 80 closed.
 
 {
 	email ${ACME_EMAIL}
@@ -50,6 +52,10 @@ ${API_DOMAIN} {
 
 	tls {
 		protocols tls1.2 tls1.3
+		issuer acme {
+			email ${ACME_EMAIL}
+			disable_http_challenge
+		}
 	}
 
 	@relay_paths {
