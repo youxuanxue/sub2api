@@ -50,6 +50,12 @@ describe('extractImageItems', () => {
     expect(extractImageItems({ data: 'oops' })).toEqual([])
     expect(extractImageItems({ data: [{}] })).toEqual([])
   })
+
+  it('drops non-http(s) urls — src lands in <a :href>', () => {
+    expect(extractImageItems({ data: [{ url: 'javascript:alert(1)' }] })).toEqual([])
+    expect(extractImageItems({ data: [{ url: 'data:text/html;base64,PGI+' }] })).toEqual([])
+    expect(extractImageItems({ data: [{ url: 'HTTPS://cdn.example/x.png' }] })).toHaveLength(1)
+  })
 })
 
 describe('video task helpers', () => {

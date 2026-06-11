@@ -48,7 +48,10 @@ export function extractImageItems(resp: unknown): PlaygroundImageItem[] {
     const rec = asRecord(entry)
     if (!rec) continue
     const revised = typeof rec.revised_prompt === 'string' ? rec.revised_prompt : undefined
-    if (typeof rec.url === 'string' && rec.url) {
+    // http(s) only — the src lands in <a :href>/<img :src>, so a hostile
+    // upstream payload must not smuggle javascript:/data: schemes (the video
+    // path applies the same guard in extractVideoUrl).
+    if (typeof rec.url === 'string' && /^https?:\/\//i.test(rec.url)) {
       items.push({ src: rec.url, revisedPrompt: revised })
     } else if (typeof rec.b64_json === 'string' && rec.b64_json) {
       items.push({ src: `data:image/png;base64,${rec.b64_json}`, revisedPrompt: revised })

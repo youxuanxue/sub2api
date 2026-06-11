@@ -637,6 +637,11 @@ function videoStateLabel(state: PlaygroundVideoState): string {
 }
 
 const VIDEO_POLL_INTERVAL_MS = 5_000
+// A billed video task must not be declared failed off one network blip; only
+// consecutive fetch errors (covers the genuine 404 of a deleted/TTL-expired
+// record within 3 polls) end the loop.
+const VIDEO_POLL_MAX_CONSECUTIVE_ERRORS = 3
+let videoPollErrors = 0
 
 function stopVideoPolling(): void {
   if (videoPollTimer) {
@@ -662,6 +667,7 @@ async function pollVideoOnce(taskId: string, key: string, startedAtMs: number): 
   try {
     const raw = await gatewayVideoFetch(key, gatewayBase.value, taskId, ctrl.signal)
     if (ctrl.signal.aborted || videoTask.value?.id !== taskId) return
+    videoPollErrors = 0
     const state = videoStateFromFetch(raw)
     videoTask.value = {
       ...videoTask.value,
@@ -674,8 +680,13 @@ async function pollVideoOnce(taskId: string, key: string, startedAtMs: number): 
     }
   } catch (e) {
     if (ctrl.signal.aborted || videoTask.value?.id !== taskId) return
-    // Terminal records are deleted server-side and expire after 24h — a fetch
-    // error (404 included) ends the poll loop instead of retrying forever.
+    videoPollErrors += 1
+    if (videoPollErrors < VIDEO_POLL_MAX_CONSECUTIVE_ERRORS) {
+      scheduleVideoPoll(taskId, key, startedAtMs)
+      return
+    }
+    // Terminal records are deleted server-side and expire after 24h — repeated
+    // fetch errors (404 included) end the poll loop instead of retrying forever.
     videoTask.value = { ...videoTask.value, state: 'failed' }
     requestError.value = (e as Error).message || t('playground.requestFailed')
   }
@@ -712,6 +723,7 @@ async function submitVideo(): Promise<void> {
     }
     videoPrompt.value = ''
     videoElapsedS.value = 0
+    videoPollErrors = 0
     if (state === 'processing') {
       scheduleVideoPoll(taskId, key, Date.now())
     }

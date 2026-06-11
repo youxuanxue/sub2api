@@ -105,12 +105,20 @@ async function gatewayRequestJSON(
       ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
       signal: ctrl.signal
     })
-    const json = await res.json().catch(() => null)
+    // Read the body once as text: a second res.text() after res.json() would
+    // always throw (stream already consumed), losing plain-text error bodies.
+    const text = await res.text().catch(() => '')
+    let json: unknown = null
+    try {
+      json = JSON.parse(text)
+    } catch {
+      json = null
+    }
     if (!res.ok) {
       const msg =
-        json && typeof json === 'object' && json !== null && 'error' in json
+        json && typeof json === 'object' && 'error' in json
           ? JSON.stringify((json as { error?: unknown }).error)
-          : await res.text().catch(() => '')
+          : text
       throw new Error(msg || `HTTP ${res.status}`)
     }
     return json
