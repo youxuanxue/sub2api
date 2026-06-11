@@ -331,10 +331,13 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			if len(failedAccountIDs) == 0 {
 				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 				if errors.Is(err, service.ErrNoAvailableCompactAccounts) {
-					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "compact_not_supported", "No available OpenAI accounts support /responses/compact", streamStarted)
+					// TK: empty compact pool is the same no-available family → 429 (#575 parity).
+					h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "compact_not_supported", "No available OpenAI accounts support /responses/compact", streamStarted)
 					return
 				}
-				h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable", streamStarted)
+				// TK: empty pool fast-fails 429 (#575 parity); other scheduler errors stay 503.
+				tkStatus, tkMsg := tkSelectFailureStatusMessage(c, err)
+				h.handleStreamingAwareError(c, tkStatus, "api_error", tkMsg, streamStarted)
 				return
 			}
 			if lastFailoverErr != nil {
@@ -769,7 +772,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			if len(failedAccountIDs) == 0 {
 				if err != nil {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-					h.anthropicStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable", streamStarted)
+					// TK: empty pool fast-fails 429 (#575 parity); other scheduler errors stay 503.
+					tkStatus, tkMsg := tkSelectFailureStatusMessage(c, err)
+					h.anthropicStreamingAwareError(c, tkStatus, "api_error", tkMsg, streamStarted)
 					return
 				}
 			} else {

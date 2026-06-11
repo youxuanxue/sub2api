@@ -158,7 +158,9 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			)
 			if len(failedAccountIDs) == 0 {
 				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-				h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available compatible accounts", streamStarted)
+				// TK: empty pool fast-fails 429 (#575 parity); other scheduler errors stay 503.
+				tkStatus, tkMsg := tkSelectFailureStatusMessage(c, err)
+				h.handleStreamingAwareError(c, tkStatus, "api_error", tkMsg, streamStarted)
 				return
 			}
 			if lastFailoverErr != nil {
@@ -170,7 +172,8 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		}
 		if selection == nil || selection.Account == nil {
 			markOpsRoutingCapacityLimited(c)
-			h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available compatible accounts", streamStarted)
+			// TK: empty pool fast-fails 429 (#575 parity with the other selection==nil branches).
+			h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "api_error", "No available compatible accounts", streamStarted)
 			return
 		}
 
