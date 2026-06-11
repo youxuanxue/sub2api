@@ -87,7 +87,7 @@ Lightsail **实例控制台「Networking」防火墙**的硬化基线是**仅放
   `bash ops/stage0/verify-edge-lightsail-network.sh <edge_id> --enforce-ports`  
   其内部即 `aws lightsail put-instance-public-ports --region <region> --instance-name <instance_name> --port-infos fromPort=443,toPort=443,protocol=tcp,cidrs=0.0.0.0/0`（put = 替换语义，顺带关掉默认 22 与历史 80）。
 - IaC：`provision-edge.sh` 会在 attach Static IP 后用 `put-instance-public-ports` 设为 **仅 443**；CI OIDC role 需在
-  `cicd-oidc-lightsail-addon.yaml` 中包含 `lightsail:PutInstancePublicPorts`（及 `GetInstancePortStates`、保留 `OpenInstancePublicPorts` 供 legacy `--fix-443`）。
+  `cicd-oidc-lightsail-addon.yaml` 中包含 `lightsail:PutInstancePublicPorts`（及 `GetInstancePortStates`）。
 
 ### Admin 登录 / 忘记密码
 
