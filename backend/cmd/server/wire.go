@@ -94,6 +94,10 @@ func provideCleanup(
 	subscriptionExpiry *service.SubscriptionExpiryService,
 	usageCleanup *service.UsageCleanupService,
 	idempotencyCleanup *service.IdempotencyCleanupService,
+	// TokenKey: pre-flight balance-hold reconciler — passed so its sweep ticker
+	// is Stopped at shutdown and so wire forces evaluation of
+	// ProvideHoldReconcilerService (which starts the ticker at construction).
+	holdReconciler *service.HoldReconcilerService,
 	pricing *service.PricingService,
 	emailQueue *service.EmailQueueService,
 	billingCache *service.BillingCacheService,
@@ -223,6 +227,12 @@ func provideCleanup(
 			{"IdempotencyCleanupService", func() error {
 				if idempotencyCleanup != nil {
 					idempotencyCleanup.Stop()
+				}
+				return nil
+			}},
+			{"HoldReconcilerService", func() error {
+				if holdReconciler != nil {
+					holdReconciler.Stop()
 				}
 				return nil
 			}},

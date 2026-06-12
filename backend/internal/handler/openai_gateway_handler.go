@@ -276,6 +276,17 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	// Get subscription info (may be nil)
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 
+	// TK: pre-flight balance hold (concurrent-overdraft fix; see
+	// openai_gateway_handler_tk_hold.go). Reserve before forwarding; refund
+	// ownership is handed to the usage-record task at submit time, the deferred
+	// release only covers never-billed paths. Balance users only.
+	hold, holdReject := h.tkApplyBalanceHold(c, apiKey, reqModel, body)
+	if holdReject {
+		h.errorResponse(c, http.StatusForbidden, "insufficient_balance", tkInsufficientBalanceForHoldMsg)
+		return
+	}
+	defer hold.ReleaseUnlessSettling()
+
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
 
@@ -519,6 +530,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		upstreamEndpoint := GetUpstreamEndpoint(c, account.Platform)
 
 		// 使用量记录通过有界 worker 池提交，避免请求热路径创建无界 goroutine。
+		tkHoldRequestID := hold.HandOffToSettlement()
 		h.submitOpenAIUsageRecordTask(c.Request.Context(), result, func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 				Result:             result,
@@ -532,6 +544,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				IPAddress:          clientIP,
 				RequestPayloadHash: requestPayloadHash,
 				APIKeyService:      h.apiKeyService,
+				TkHoldRequestID:    tkHoldRequestID,
 				ChannelUsageFields: channelMapping.ToUsageFields(reqModel, result.UpstreamModel),
 			}); err != nil {
 				logger.L().With(
@@ -714,6 +727,18 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	}
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+
+	// TK: pre-flight balance hold (concurrent-overdraft fix; see
+	// openai_gateway_handler_tk_hold.go). Reserve before forwarding; refund
+	// ownership is handed to the usage-record task at submit time, the deferred
+	// release only covers never-billed paths. Balance users only;
+	// Anthropic-shaped error surface.
+	hold, holdReject := h.tkApplyBalanceHold(c, apiKey, reqModel, body)
+	if holdReject {
+		h.anthropicErrorResponse(c, http.StatusForbidden, "insufficient_balance", tkInsufficientBalanceForHoldMsg)
+		return
+	}
+	defer hold.ReleaseUnlessSettling()
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
@@ -913,6 +938,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		inboundEndpoint := GetInboundEndpoint(c)
 		upstreamEndpoint := GetUpstreamEndpoint(c, account.Platform)
 
+		tkHoldRequestID := hold.HandOffToSettlement()
 		h.submitOpenAIUsageRecordTask(c.Request.Context(), result, func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 				Result:             result,
@@ -926,6 +952,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				IPAddress:          clientIP,
 				RequestPayloadHash: requestPayloadHash,
 				APIKeyService:      h.apiKeyService,
+				TkHoldRequestID:    tkHoldRequestID,
 				ChannelUsageFields: channelMappingMsg.ToUsageFields(reqModel, result.UpstreamModel),
 			}); err != nil {
 				logger.L().With(
@@ -1358,6 +1385,28 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		return
 	}
 
+	// TK: pre-flight balance holds, one per billed turn (concurrent-overdraft
+	// fix; see openai_gateway_handler_tk_hold.go). Turn 1 reserves here from
+	// the validated first message; later turns reserve in BeforeRequest. Each
+	// turn's refund ownership is handed to its usage-record task in AfterTurn;
+	// the deferred release covers a turn that never reaches billing.
+	var wsTurnHold *tkHoldHandle
+	defer func() { wsTurnHold.ReleaseUnlessSettling() }()
+	wsHoldSeq := 0
+	wsReserveTurnHold := func(model string, payload []byte) error {
+		wsHoldSeq++
+		turnHold, holdReject := h.tkApplyWSTurnHold(c, apiKey, model, payload, wsHoldSeq)
+		if holdReject {
+			return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, tkInsufficientBalanceForHoldMsg, nil)
+		}
+		wsTurnHold = turnHold
+		return nil
+	}
+	if err := wsReserveTurnHold(reqModel, firstMessage); err != nil {
+		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, tkInsufficientBalanceForHoldMsg)
+		return
+	}
+
 	sessionHash := h.gatewayService.GenerateSessionHashWithFallback(
 		c,
 		firstMessage,
@@ -1469,6 +1518,13 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					writeContentModerationWSError(ctx, wsConn, decision)
 					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, decision.Message, nil)
 				}
+				// TK: reserve this turn's balance hold (turn 1 reserved pre-loop;
+				// non-nil also covers a failover retry of an unbilled turn).
+				if wsTurnHold == nil {
+					if err := wsReserveTurnHold(model, payload); err != nil {
+						return err
+					}
+				}
 				return nil
 			},
 			BeforeTurn: func(turn int) error {
@@ -1503,6 +1559,12 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				return nil
 			},
 			AfterTurn: func(turn int, result *service.OpenAIForwardResult, turnErr error) {
+				// TK: this turn's hold leaves the loop here — either handed to
+				// the usage-record task below or released by the defer (turn
+				// never billed).
+				turnHold := wsTurnHold
+				wsTurnHold = nil
+				defer turnHold.ReleaseUnlessSettling()
 				releaseTurnSlots()
 				if turnErr != nil {
 					if result == nil || result.ImageCount <= 0 {
@@ -1525,6 +1587,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, result.FirstTokenMs)
 				inboundEndpoint := GetInboundEndpoint(c)
 				upstreamEndpoint := GetUpstreamEndpoint(c, account.Platform)
+				tkHoldRequestID := turnHold.HandOffToSettlement()
 				h.submitOpenAIUsageRecordTask(ctx, result, func(taskCtx context.Context) {
 					if err := h.gatewayService.RecordUsage(taskCtx, &service.OpenAIRecordUsageInput{
 						Result:             result,
@@ -1538,6 +1601,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 						IPAddress:          clientIP,
 						RequestPayloadHash: requestPayloadHash,
 						APIKeyService:      h.apiKeyService,
+						TkHoldRequestID:    tkHoldRequestID,
 						ChannelUsageFields: channelMappingWS.ToUsageFields(reqModel, result.UpstreamModel),
 					}); err != nil {
 						reqLog.Error("openai.websocket_record_usage_failed",

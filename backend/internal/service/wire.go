@@ -448,6 +448,16 @@ func ProvideIdempotencyCleanupService(repo IdempotencyRepository, cfg *config.Co
 	return svc
 }
 
+// ProvideHoldReconcilerService builds and starts the pre-flight balance-hold
+// reconciler (crash-recovery for the overdraft fix; see
+// hold_reconciler_service.go). No-op when the repository lacks the hold
+// capability.
+func ProvideHoldReconcilerService(repo UsageBillingRepository) *HoldReconcilerService {
+	svc := NewHoldReconcilerService(repo)
+	svc.Start()
+	return svc
+}
+
 // ProvideScheduledTestService creates ScheduledTestService.
 func ProvideScheduledTestService(
 	planRepo ScheduledTestPlanRepository,
@@ -644,6 +654,7 @@ var ProviderSet = wire.NewSet(
 	ProvideIdempotencyCoordinator,
 	ProvideSystemOperationLockService,
 	ProvideIdempotencyCleanupService,
+	ProvideHoldReconcilerService,
 	ProvideScheduledTestService,
 	ProvideScheduledTestRunnerService,
 	NewGroupCapacityService,

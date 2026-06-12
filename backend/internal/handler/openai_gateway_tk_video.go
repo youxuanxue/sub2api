@@ -120,6 +120,18 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 	}
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 
+	// TK: pre-flight balance hold (concurrent-overdraft fix; see
+	// openai_gateway_handler_tk_hold.go). Video reserves the exact submit-time
+	// cost (same request-derived seconds the billing path uses); refund
+	// ownership is handed to the usage-record task at submit time. Balance
+	// users only.
+	hold, holdReject := h.tkApplyVideoHold(c, apiKey, reqModel, videoRequestedSeconds(body))
+	if holdReject {
+		h.errorResponse(c, http.StatusForbidden, "insufficient_balance", tkInsufficientBalanceForHoldMsg)
+		return
+	}
+	defer hold.ReleaseUnlessSettling()
+
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
 
@@ -250,6 +262,7 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 	// full billing context (apiKey/user/account/subscription), and 8s is veo's
 	// conservative max so we never under-charge when the field is omitted.
 	videoSeconds := videoRequestedSeconds(body)
+	tkHoldRequestID := hold.HandOffToSettlement()
 	h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 		if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 			Result: &service.OpenAIForwardResult{
@@ -269,6 +282,7 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 			UserAgent:        userAgent,
 			IPAddress:        clientIP,
 			APIKeyService:    h.apiKeyService,
+			TkHoldRequestID:  tkHoldRequestID,
 		}); err != nil {
 			logger.L().With(
 				zap.String("component", "handler.openai_gateway.video_submit"),

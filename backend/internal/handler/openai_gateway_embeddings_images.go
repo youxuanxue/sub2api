@@ -91,6 +91,17 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 
+	// TK: pre-flight balance hold (concurrent-overdraft fix; see
+	// openai_gateway_handler_tk_hold.go). Embeddings produce no output tokens,
+	// so the no-output estimate is used; refund ownership is handed to the
+	// usage-record task at submit time. Balance users only.
+	hold, holdReject := h.tkApplyBalanceHoldNoOutput(c, apiKey, reqModel, body)
+	if holdReject {
+		h.errorResponse(c, http.StatusForbidden, "insufficient_balance", tkInsufficientBalanceForHoldMsg)
+		return
+	}
+	defer hold.ReleaseUnlessSettling()
+
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
 
@@ -282,6 +293,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 		userAgent := c.GetHeader("User-Agent")
 		clientIP := ip.GetClientIP(c)
 
+		tkHoldRequestID := hold.HandOffToSettlement()
 		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			upstreamModelForUsage := ""
 			if result != nil {
@@ -298,6 +310,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 				UserAgent:          userAgent,
 				IPAddress:          clientIP,
 				APIKeyService:      h.apiKeyService,
+				TkHoldRequestID:    tkHoldRequestID,
 				ChannelUsageFields: channelMapping.ToUsageFields(reqModel, upstreamModelForUsage),
 			}); err != nil {
 				logger.L().With(
@@ -397,6 +410,17 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 	}
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+
+	// TK: pre-flight balance hold (concurrent-overdraft fix; see
+	// openai_gateway_handler_tk_hold.go). Image holds reserve the requested
+	// image count at the tier-max price; refund ownership is handed to the
+	// usage-record task at submit time. Balance users only.
+	hold, holdReject := h.tkApplyImageHold(c, apiKey, reqModel, int(gjson.GetBytes(body, "n").Int()))
+	if holdReject {
+		h.errorResponse(c, http.StatusForbidden, "insufficient_balance", tkInsufficientBalanceForHoldMsg)
+		return
+	}
+	defer hold.ReleaseUnlessSettling()
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
@@ -589,6 +613,7 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 		userAgent := c.GetHeader("User-Agent")
 		clientIP := ip.GetClientIP(c)
 
+		tkHoldRequestID := hold.HandOffToSettlement()
 		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			upstreamModelForUsage := ""
 			if result != nil {
@@ -605,6 +630,7 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 				UserAgent:          userAgent,
 				IPAddress:          clientIP,
 				APIKeyService:      h.apiKeyService,
+				TkHoldRequestID:    tkHoldRequestID,
 				ChannelUsageFields: channelMapping.ToUsageFields(reqModel, upstreamModelForUsage),
 			}); err != nil {
 				logger.L().With(

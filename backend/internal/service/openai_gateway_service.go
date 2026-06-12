@@ -6028,6 +6028,10 @@ type OpenAIRecordUsageInput struct {
 	IPAddress          string // 请求的客户端 IP 地址
 	RequestPayloadHash string
 	APIKeyService      APIKeyQuotaUpdater
+	// TkHoldRequestID is the pre-flight balance-hold key handed off by the
+	// handler at usage-task submit time; settlement consumes (refunds) it in the
+	// same transaction as the balance deduction (see usage_billing_hold_tk.go).
+	TkHoldRequestID string
 	ChannelUsageFields
 }
 
@@ -6256,6 +6260,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 			AccountRateMultiplier: accountRateMultiplier,
 			APIKeyService:         input.APIKeyService,
 			Platform:              PlatformFromAPIKey(apiKey),
+			TkHoldRequestID:       input.TkHoldRequestID,
 		}, s.billingDeps(), s.usageBillingRepo)
 		return err
 	}()
