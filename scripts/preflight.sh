@@ -645,9 +645,15 @@ echo "=== sub2api: sentinel registry update gate (advisory locally) ==="
 # deadlock (benign pure-insertion / i18n PRs paid stash+force-push tax). The
 # script prints guidance but exits 0; the HARD gate runs in CI against the PR
 # body (.github/workflows/marker-acknowledgement-pr.yml + upstream-merge-pr-shape
-# Check 12). Pure-insertion / i18n changes are auto-accepted by the script.
+# Check 12). Pure-insertion edits of EXISTING files / i18n changes are
+# auto-accepted by the script; newly ADDED hotspot files (new TK companions /
+# bridge files / TK frontend modules) are NOT — a new load-bearing surface
+# must gain sentinel anchors or carry sentinel-registry-reviewed in the PR body.
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for sentinel registry update gate)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/sentinels/check-registry-update-gate.py --selftest >/dev/null; then
+    echo "  FAIL: check-registry-update-gate.py self-test failed"
     errors=$((errors + 1))
 elif ! MARKER_GATE_ADVISORY=1 python3 ./scripts/sentinels/check-registry-update-gate.py --quiet; then
     # advisory mode never returns non-zero; this branch only fires on a hard
