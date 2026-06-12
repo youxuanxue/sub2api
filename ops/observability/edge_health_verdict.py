@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """edge_health_verdict.py — turn the read-only edge probe output into a deterministic
-edge-health verdict (healthy | thin | degraded | down | idle | no-accounts).
+edge-health verdict (healthy | thin | idle-thin | degraded | down | idle | no-accounts).
 
 This is the *logic* half; the *transport* half is the read-only bash probe
 `probe-edge-health.sh` (delivered to each edge host via run-probe.sh), and the

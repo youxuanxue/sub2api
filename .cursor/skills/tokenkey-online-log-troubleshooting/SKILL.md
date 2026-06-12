@@ -334,7 +334,7 @@ bash ops/observability/scan-edge-health.sh --with-prod --since 15h  # 含 prod +
 bash ops/observability/scan-edge-health.sh --edges us3,us6          # 子集
 ```
 
-输出一张按严重度排序的表：每 edge `schedulable_accounts / served_200 / no_available_429 / ratio / wait_timeout / SPOF / verdict(healthy|thin|degraded|down|idle)`，并附 ACTION（down/degraded/unreachable）与 RISK（单账号 SPOF）摘要。**判定来自 edge 自身 access-log，不受 §0 trap 9 的 prod upstream-429 污染。** verdict 逻辑在纯函数 `edge_health_verdict.py`（`--selftest` fixtures 钉死六个真 edge + 边界，已进 preflight），阈值 + rationale 在 `edge-health-thresholds.json`。
+输出一张按严重度排序的表：每 edge `schedulable_accounts / served_200 / no_available_429 / ratio / wait_timeout / SPOF / verdict(healthy|thin|idle-thin|degraded|down|idle|no-accounts)`，并附 ACTION（down/degraded/unreachable）、RISK（单账号 SPOF）与 PLAN（no-accounts：0 账号且无被拒流量，补号或下线的态势待办，不算事故）摘要。**判定来自 edge 自身 access-log，不受 §0 trap 9 的 prod upstream-429 污染。** verdict 逻辑在纯函数 `edge_health_verdict.py`（`--selftest` fixtures 钉死六个真 edge + 边界，已进 preflight），阈值 + rationale 在 `edge-health-thresholds.json`。
 
 `group.rpm_limit` 与 `user_group_rate_multipliers` 由 admin UI 维护，不由本 skill 派生（按 memory「group.rpm_limit 与 account 字段独立」）；如需读 group 状态请直接看 admin UI，不要在 SKILL 里写漂移容易的 SELECT。
 
