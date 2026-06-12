@@ -1,7 +1,7 @@
 {
   "_meta": {
     "note": "TK-owned pricing overlay for models the runtime price source lacks. Merged into PricingService AFTER any source load (Wei-Shaw remote OR disk fallback); an entry below applies when the source key is ABSENT or the source entry is EFFECTIVELY UNPRICED (every cost field 0.0 — litellm's 'unknown', not 'free'; see tkIsEffectivelyUnpriced). The Wei-Shaw runtime mirror is a TRIMMED litellm mirror that drops provider-prefixed keys and token-less media entries, so imagen-*/veo-* resolve to nothing there; litellm itself also lags new provider models (deepseek-v4-*) or carries them as zero placeholders (deepseek-v3-2-251201), which then bill $0. Media price = vertex_ai provider (TK media flow routes through Vertex ch41); falls back to gemini only when no vertex variant exists. Text price = provider official list price. Self-deprecating: the day the source carries a real (non-zero) price under the bare key, the source value wins and the entry below is ignored. The overlay cannot CORRECT wrong NON-ZERO source prices (deepseek-chat/reasoner still carry the pre-V4 rate in the mirror) — use channel pricing (DB) for that. Video entries MUST declare failure_billing (currently only 'success_only' is legal): TokenKey refunds the user in full when a video task ends failed, which is only loss-free if the provider does not charge for failed tasks — the person pricing a new video model verifies that on the official page and declares it here; scripts/checks/pricing-overlay.py enforces the field, and any other value must first change the refund design.",
-    "provenance": "media: BerriAI/litellm model_prices_and_context_window.json, captured 2026-06-01; deepseek-v4-*: https://api-docs.deepseek.com/quick_start/pricing, captured 2026-06-04 (cache-hit input = cache_read; cache writes billed as normal input, no separate write fee); volcengine doubao-*/glm-4-7-251222/deepseek-v3-2-251201: VolcEngine Ark official model-pricing page, captured 2026-06-10 (≤32K input tier, CNY/USD=6.7); glm-4.7 matches Zhipu official; qwen3.7-max*: Alibaba DashScope official list price, captured 2026-06-10 (per-entry source); qwen2.5-coder-32b/7b: retired & absent from current Alibaba list — proxy-filled from lineage successors qwen3-coder-plus / qwen3-coder-flash, Beijing RMB list ÷ 6.7, docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12 (per-entry source); seedream/seedance media: VolcEngine Ark official model-pricing page (https://www.volcengine.com/docs/82379/1099320), captured 2026-06-12, CNY/USD=6.7 — per-image flat price; per-second video price derived at each model's max supported tier (1080p@24fps; 2.0-fast 720p), online standard rate, derivation formula in per-entry source; only IDs present in new-api ch45/54 model lists are included — seedream-4.5/5.0(-lite) & seedance-1.0-pro-fast are priced upstream but absent from new-api constants, seedance-1.0-lite is listed but retired/unpriced, all deliberately NOT included (served_zero_cost P0 probe covers the gap; a wrong price has no probe)",
+    "provenance": "media: BerriAI/litellm model_prices_and_context_window.json, captured 2026-06-01; deepseek-v4-*: https://api-docs.deepseek.com/quick_start/pricing, captured 2026-06-04 (cache-hit input = cache_read; cache writes billed as normal input, no separate write fee); volcengine doubao-*/glm-4-7-251222/deepseek-v3-2-251201: VolcEngine Ark official model-pricing page, captured 2026-06-10 (≤32K input tier, CNY/USD=6.7); glm-4.7 matches Zhipu official; qwen3.7-max*: Alibaba DashScope official list price, captured 2026-06-10 (per-entry source); qwen2.5-coder-32b/7b: retired & absent from current Alibaba list — proxy-filled from lineage successors qwen3-coder-plus / qwen3-coder-flash, Beijing RMB list ÷ 6.7, docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12 (per-entry source); seedream/seedance media: VolcEngine Ark official model-pricing page (https://www.volcengine.com/docs/82379/1099320), captured 2026-06-12, CNY/USD=6.7 — per-image flat price; per-second video price derived at each model's max supported tier (1080p@24fps; 2.0-fast 720p), online standard rate, derivation formula in per-entry source; only IDs present in new-api ch45/54 model lists are included — seedream-4.5/5.0(-lite) & seedance-1.0-pro-fast are priced upstream but absent from new-api constants, seedance-1.0-lite is listed but retired/unpriced, all deliberately NOT included (served_zero_cost P0 probe covers the gap; a wrong price has no probe); video failure_billing evidence: seedance entries carry the verified official Ark wording (success-only, captured 2026-06-12); veo entries are metric-inferred (billed per generated output second) with the official Google sentence still pending capture",
     "regen": "manual curation; no auto-sync (entries are few + slow-moving). If they proliferate, add provider-aware sync."
   },
   "claude-fable-5": {
@@ -111,56 +111,56 @@
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
     "output_cost_per_second": 0.35,
-    "source": "litellm:vertex_ai/veo-2.0-generate-001",
+    "source": "litellm:vertex_ai/veo-2.0-generate-001 failure_billing evidence (METRIC-INFERRED, official sentence pending): Google bills Veo per second of GENERATED output video (Vertex pricing unit), so a failed generation produces zero billable seconds; the explicit failure-billing sentence could not be captured on 2026-06-12 (Google docs unreachable from the capture network) — replace this note with the official quote when reachable.",
     "failure_billing": "success_only"
   },
   "veo-3.0-fast-generate-001": {
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
     "output_cost_per_second": 0.15,
-    "source": "litellm:vertex_ai/veo-3.0-fast-generate-001",
+    "source": "litellm:vertex_ai/veo-3.0-fast-generate-001 failure_billing evidence (METRIC-INFERRED, official sentence pending): Google bills Veo per second of GENERATED output video (Vertex pricing unit), so a failed generation produces zero billable seconds; the explicit failure-billing sentence could not be captured on 2026-06-12 (Google docs unreachable from the capture network) — replace this note with the official quote when reachable.",
     "failure_billing": "success_only"
   },
   "veo-3.0-generate-001": {
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
     "output_cost_per_second": 0.4,
-    "source": "litellm:vertex_ai/veo-3.0-generate-001",
+    "source": "litellm:vertex_ai/veo-3.0-generate-001 failure_billing evidence (METRIC-INFERRED, official sentence pending): Google bills Veo per second of GENERATED output video (Vertex pricing unit), so a failed generation produces zero billable seconds; the explicit failure-billing sentence could not be captured on 2026-06-12 (Google docs unreachable from the capture network) — replace this note with the official quote when reachable.",
     "failure_billing": "success_only"
   },
   "veo-3.1-fast-generate-001": {
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
     "output_cost_per_second": 0.15,
-    "source": "litellm:vertex_ai/veo-3.1-fast-generate-001",
+    "source": "litellm:vertex_ai/veo-3.1-fast-generate-001 failure_billing evidence (METRIC-INFERRED, official sentence pending): Google bills Veo per second of GENERATED output video (Vertex pricing unit), so a failed generation produces zero billable seconds; the explicit failure-billing sentence could not be captured on 2026-06-12 (Google docs unreachable from the capture network) — replace this note with the official quote when reachable.",
     "failure_billing": "success_only"
   },
   "veo-3.1-fast-generate-preview": {
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
     "output_cost_per_second": 0.15,
-    "source": "litellm:vertex_ai/veo-3.1-fast-generate-preview",
+    "source": "litellm:vertex_ai/veo-3.1-fast-generate-preview failure_billing evidence (METRIC-INFERRED, official sentence pending): Google bills Veo per second of GENERATED output video (Vertex pricing unit), so a failed generation produces zero billable seconds; the explicit failure-billing sentence could not be captured on 2026-06-12 (Google docs unreachable from the capture network) — replace this note with the official quote when reachable.",
     "failure_billing": "success_only"
   },
   "veo-3.1-generate-001": {
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
     "output_cost_per_second": 0.4,
-    "source": "litellm:vertex_ai/veo-3.1-generate-001",
+    "source": "litellm:vertex_ai/veo-3.1-generate-001 failure_billing evidence (METRIC-INFERRED, official sentence pending): Google bills Veo per second of GENERATED output video (Vertex pricing unit), so a failed generation produces zero billable seconds; the explicit failure-billing sentence could not be captured on 2026-06-12 (Google docs unreachable from the capture network) — replace this note with the official quote when reachable.",
     "failure_billing": "success_only"
   },
   "veo-3.1-generate-preview": {
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
     "output_cost_per_second": 0.4,
-    "source": "litellm:vertex_ai/veo-3.1-generate-preview",
+    "source": "litellm:vertex_ai/veo-3.1-generate-preview failure_billing evidence (METRIC-INFERRED, official sentence pending): Google bills Veo per second of GENERATED output video (Vertex pricing unit), so a failed generation produces zero billable seconds; the explicit failure-billing sentence could not be captured on 2026-06-12 (Google docs unreachable from the capture network) — replace this note with the official quote when reachable.",
     "failure_billing": "success_only"
   },
   "veo-3.1-lite-generate-preview": {
     "litellm_provider": "gemini",
     "mode": "video_generation",
     "output_cost_per_second": 0.05,
-    "source": "litellm:gemini/veo-3.1-lite-generate-preview",
+    "source": "litellm:gemini/veo-3.1-lite-generate-preview failure_billing evidence (METRIC-INFERRED, official sentence pending): Google bills Veo per second of GENERATED output video (Vertex pricing unit), so a failed generation produces zero billable seconds; the explicit failure-billing sentence could not be captured on 2026-06-12 (Google docs unreachable from the capture network) — replace this note with the official quote when reachable.",
     "failure_billing": "success_only"
   },
   "doubao-seedream-4-0-250828": {
@@ -179,35 +179,35 @@
     "litellm_provider": "volcengine",
     "mode": "video_generation",
     "output_cost_per_second": 0.10880597014925374,
-    "source": "VolcEngine Ark official https://www.volcengine.com/docs/82379/1099320, captured 2026-06-12: doubao-seedance-1.0-pro online = 15 CNY/M tokens; video tokens = duration*W*H*fps/1024. Priced at the model's MAX tier 1080p(1920x1080)@24fps so lower-resolution requests over- not under-charge: 1920*1080*24/1024 = 48600 tokens/s -> 48600*15/1e6 = 0.729 CNY/s ÷ 6.7 = 0.1088060 USD/s (matches official 1080p 5s example ~3.645 CNY). 720p actual cost is 4/9 of this.",
+    "source": "VolcEngine Ark official https://www.volcengine.com/docs/82379/1099320, captured 2026-06-12: doubao-seedance-1.0-pro online = 15 CNY/M tokens; video tokens = duration*W*H*fps/1024. Priced at the model's MAX tier 1080p(1920x1080)@24fps so lower-resolution requests over- not under-charge: 1920*1080*24/1024 = 48600 tokens/s -> 48600*15/1e6 = 0.729 CNY/s ÷ 6.7 = 0.1088060 USD/s (matches official 1080p 5s example ~3.645 CNY). 720p actual cost is 4/9 of this. failure_billing evidence (VERIFIED, official wording): VolcEngine Ark model-pricing page https://www.volcengine.com/docs/82379/1099320 video section, captured 2026-06-12: 「仅对成功生成的视频计费。因审核等原因导致生成失败的，不收取费用。」",
     "failure_billing": "success_only"
   },
   "seedance-1-0-pro-250528": {
     "litellm_provider": "volcengine",
     "mode": "video_generation",
     "output_cost_per_second": 0.10880597014925374,
-    "source": "No-prefix alias of doubao-seedance-1-0-pro-250528 (new-api volcengine ModelList carries both; billing key = requested_model). Same derivation: 1080p@24fps max tier, 48600 tokens/s * 15 CNY/M = 0.729 CNY/s ÷ 6.7. Captured 2026-06-12.",
+    "source": "No-prefix alias of doubao-seedance-1-0-pro-250528 (new-api volcengine ModelList carries both; billing key = requested_model). Same derivation: 1080p@24fps max tier, 48600 tokens/s * 15 CNY/M = 0.729 CNY/s ÷ 6.7. Captured 2026-06-12. failure_billing evidence (VERIFIED, official wording): VolcEngine Ark model-pricing page https://www.volcengine.com/docs/82379/1099320 video section, captured 2026-06-12: 「仅对成功生成的视频计费。因审核等原因导致生成失败的，不收取费用。」",
     "failure_billing": "success_only"
   },
   "doubao-seedance-1-5-pro-251215": {
     "litellm_provider": "volcengine",
     "mode": "video_generation",
     "output_cost_per_second": 0.11611940298507463,
-    "source": "VolcEngine Ark official https://www.volcengine.com/docs/82379/1099320, captured 2026-06-12: doubao-seedance-1.5-pro, MAX tier = 1080p WITH audio (16 CNY/M tokens). Official example table 1080p 16:9 5s with-audio = 3.89 CNY -> 0.778 CNY/s ÷ 6.7 = 0.1161194 USD/s; token-formula cross-check 48600*16/1e6 = 0.7776 CNY/s (<0.1% off). Silent 1080p is half; 480p/720p cheaper — single per-second price never under-charges those.",
+    "source": "VolcEngine Ark official https://www.volcengine.com/docs/82379/1099320, captured 2026-06-12: doubao-seedance-1.5-pro, MAX tier = 1080p WITH audio (16 CNY/M tokens). Official example table 1080p 16:9 5s with-audio = 3.89 CNY -> 0.778 CNY/s ÷ 6.7 = 0.1161194 USD/s; token-formula cross-check 48600*16/1e6 = 0.7776 CNY/s (<0.1% off). Silent 1080p is half; 480p/720p cheaper — single per-second price never under-charges those. failure_billing evidence (VERIFIED, official wording): VolcEngine Ark model-pricing page https://www.volcengine.com/docs/82379/1099320 video section, captured 2026-06-12: 「仅对成功生成的视频计费。因审核等原因导致生成失败的，不收取费用。」",
     "failure_billing": "success_only"
   },
   "doubao-seedance-2-0-260128": {
     "litellm_provider": "volcengine",
     "mode": "video_generation",
     "output_cost_per_second": 0.3698507462686567,
-    "source": "VolcEngine Ark official https://www.volcengine.com/docs/82379/1099320, captured 2026-06-12: doubao-seedance-2.0, MAX output tier 1080p, input-without-video (text/image-to-video, 51 CNY/M tokens). Official example 1080p 5s = 12.39 CNY -> 2.478 CNY/s ÷ 6.7 = 0.3698507 USD/s; cross-check 48600*51/1e6 = 2.4786 CNY/s. CAVEAT: video-input continuation bills (input+output) duration upstream and can exceed this single per-second rate up to ~2.4x — restrict or re-price before enabling video input on TK.",
+    "source": "VolcEngine Ark official https://www.volcengine.com/docs/82379/1099320, captured 2026-06-12: doubao-seedance-2.0, MAX output tier 1080p, input-without-video (text/image-to-video, 51 CNY/M tokens). Official example 1080p 5s = 12.39 CNY -> 2.478 CNY/s ÷ 6.7 = 0.3698507 USD/s; cross-check 48600*51/1e6 = 2.4786 CNY/s. CAVEAT: video-input continuation bills (input+output) duration upstream and can exceed this single per-second rate up to ~2.4x — restrict or re-price before enabling video input on TK. failure_billing evidence (VERIFIED, official wording): VolcEngine Ark model-pricing page https://www.volcengine.com/docs/82379/1099320 video section, captured 2026-06-12: 「仅对成功生成的视频计费。因审核等原因导致生成失败的，不收取费用。」",
     "failure_billing": "success_only"
   },
   "doubao-seedance-2-0-fast-260128": {
     "litellm_provider": "volcengine",
     "mode": "video_generation",
     "output_cost_per_second": 0.11940298507462686,
-    "source": "VolcEngine Ark official https://www.volcengine.com/docs/82379/1099320, captured 2026-06-12: doubao-seedance-2.0-fast, MAX supported output is 720p (no 1080p), input-without-video (37 CNY/M tokens). Official example 720p 5s = 4.00 CNY -> 0.8 CNY/s ÷ 6.7 = 0.1194030 USD/s; cross-check 1280*720*24/1024 = 21600 tokens/s * 37/1e6 = 0.7992 CNY/s. Same video-input caveat as seedance-2.0.",
+    "source": "VolcEngine Ark official https://www.volcengine.com/docs/82379/1099320, captured 2026-06-12: doubao-seedance-2.0-fast, MAX supported output is 720p (no 1080p), input-without-video (37 CNY/M tokens). Official example 720p 5s = 4.00 CNY -> 0.8 CNY/s ÷ 6.7 = 0.1194030 USD/s; cross-check 1280*720*24/1024 = 21600 tokens/s * 37/1e6 = 0.7992 CNY/s. Same video-input caveat as seedance-2.0. failure_billing evidence (VERIFIED, official wording): VolcEngine Ark model-pricing page https://www.volcengine.com/docs/82379/1099320 video section, captured 2026-06-12: 「仅对成功生成的视频计费。因审核等原因导致生成失败的，不收取费用。」",
     "failure_billing": "success_only"
   },
   "doubao-seed-2-0-pro-260215": {
