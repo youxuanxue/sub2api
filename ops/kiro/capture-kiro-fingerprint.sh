@@ -186,10 +186,11 @@ cmd_capture() {
 
   echo
   echo "bundle=$bundle"
-  python3 "$PY" diff --bundle "$bundle"
-  echo
-  echo "To commit the canonical profile (first capture):"
+  echo "To commit/refresh the canonical profile (first capture or drift):"
   echo "  python3 $PY emit-profile --bundle $bundle"
+  # --check: exit 1 on actionable drift so the umbrella orchestrator can map
+  # rc=1 -> drift (same contract as the cc / antigravity engines' capture).
+  python3 "$PY" diff --bundle "$bundle" --check
 }
 
 main() {
