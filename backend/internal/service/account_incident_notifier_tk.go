@@ -104,6 +104,16 @@ func classifyIncident(reason string, until time.Time, kind AccountIncidentKind) 
 		return incidentClass{true, IncidentKindTemporaryCooldown, "403", "OpenAI 403 临时冷却", "检查 IP/账号风控状态"}
 	case "temp_unschedulable", "stream_timeout_temp_unschedulable":
 		return incidentClass{true, IncidentKindTemporaryCooldown, "temp", "临时不可调度", "观察是否自愈"}
+	case "newapi_arrears":
+		// TK (prod 2026-06-12, account 60 "Qwen" / DashScope arrears): an upstream
+		// account-standing / 欠费 failure that arrives as a 400 ("Arrearage"). The
+		// account is COOLED (not hard-disabled) so a recharge auto-recovers, but
+		// the ALERT must be IMMEDIATE + actionable — arrears is persistent until a
+		// human recharges, so it must NOT fold into the #730 default-OFF temporary
+		// digest. Route it through the permanent (immediate P0 card) path with the
+		// 1h per-account dedupe so a persistently-arrears account fires at most
+		// once per window instead of one card per request.
+		return incidentClass{true, IncidentKindPermanentDisable, "newapi_arrears", "上游账号欠费", "DashScope 等上游账号欠费(Arrearage),需在对应控制台(如阿里云百炼)充值/还款;账号已临时摘出轮换,充值后冷却到期自动恢复"}
 	case "429_model_class":
 		// G4(#600)模型维度 cooldown：单模型类(如 opus)打穿 5h/7d 用量窗口,只冷却该模型类,
 		// 账号其它模型仍可调度。不能复用兜底的"账号临时冷却"——那会误报成整账号下线。
