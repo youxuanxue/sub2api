@@ -199,3 +199,64 @@ func TestBuildUpstreamBalanceLowText(t *testing.T) {
 		t.Errorf("expected urgent availability note when is_available=false\n%s", body2)
 	}
 }
+
+type fakeHeartbeat struct{ last *OpsUpsertJobHeartbeatInput }
+
+func (h *fakeHeartbeat) UpsertJobHeartbeat(_ context.Context, in *OpsUpsertJobHeartbeatInput) error {
+	h.last = in
+	return nil
+}
+
+// TestSentinelHeartbeatCarriesBalance drives runOnce end-to-end and asserts the
+// probed account's actual balance lands in the heartbeat last_result.
+func TestSentinelHeartbeatCarriesBalance(t *testing.T) {
+	hb := &fakeHeartbeat{}
+	doer := &fakeBalanceDoer{bodies: []string{dsBody("3262.07", true)}}
+	notifier := newTKAccountIncidentNotifier(fakeFeishuCfg{threshold: 50, enabled: true}, "test")
+	s := NewUpstreamBalanceSentinel(
+		fakeAccountStore{accounts: []Account{dsAccount(39)}},
+		doer, notifier,
+		fakeFeishuCfg{threshold: 50, enabled: true},
+		nil, hb, nil,
+	)
+	s.runOnce(context.Background())
+	if hb.last == nil || hb.last.LastResult == nil {
+		t.Fatalf("expected a success heartbeat with last_result")
+	}
+	got := *hb.last.LastResult
+	for _, want := range []string{"checked=1", "low=0", "probe_errors=0", "balances=[ds-test:3262.07]"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("last_result missing %q: %s", want, got)
+		}
+	}
+}
+
+func TestFormatSentinelHeartbeatResult(t *testing.T) {
+	if got := formatSentinelHeartbeatResult(0, 0, 0, nil); got != "checked=0 low=0 probe_errors=0" {
+		t.Errorf("no-balance form wrong: %q", got)
+	}
+	if got := formatSentinelHeartbeatResult(2, 1, 0, []string{"ds-x:42.50", "y:100.00"}); got != "checked=2 low=1 probe_errors=0 balances=[ds-x:42.50,y:100.00]" {
+		t.Errorf("balance form wrong: %q", got)
+	}
+	big := make([]string, 0, 500)
+	for i := 0; i < 500; i++ {
+		big = append(big, "acctname:1234.56")
+	}
+	if got := formatSentinelHeartbeatResult(500, 0, 0, big); len(got) > 2048 {
+		t.Errorf("expected clamp to 2048, got %d", len(got))
+	}
+}
+
+func TestSanitizeBalanceSampleName(t *testing.T) {
+	cases := map[string]string{
+		"ds-官":       "ds-官",
+		"a,b:c[d]e":  "a_b_c_d_e",
+		"  spaced  ": "spaced",
+		"":           "?",
+	}
+	for in, want := range cases {
+		if got := sanitizeBalanceSampleName(in); got != want {
+			t.Errorf("sanitize(%q)=%q want %q", in, got, want)
+		}
+	}
+}

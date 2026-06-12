@@ -197,6 +197,11 @@ func (s *UpstreamBalanceSentinel) runOnce(ctx context.Context) {
 	rechargeURL := s.rechargeURL(ctx)
 
 	checked, low, probeErrs := 0, 0, 0
+	// balances carries each probed account's current balance into the heartbeat
+	// last_result so operators reading ops_job_heartbeats see the ACTUAL remaining
+	// balance + its trend across ticks — not just the low=0/1 binary. (low=0 only
+	// proves "≥ threshold"; 60 vs 3262 撑得久天差地别。)
+	balances := make([]string, 0, len(accounts))
 	for i := range accounts {
 		acc := &accounts[i]
 		probe, ok := newapi.BalanceProbeFor(acc.ChannelType)
@@ -218,6 +223,7 @@ func (s *UpstreamBalanceSentinel) runOnce(ctx context.Context) {
 			slog.Warn("upstream balance probe failed", "account_id", acc.ID, "name", acc.Name, "err", perr)
 			continue
 		}
+		balances = append(balances, fmt.Sprintf("%s:%.2f", sanitizeBalanceSampleName(acc.Name), res.AvailableCNY))
 		isLow := !res.IsAvailable || res.AvailableCNY < threshold
 		if isLow {
 			low++
@@ -231,7 +237,7 @@ func (s *UpstreamBalanceSentinel) runOnce(ctx context.Context) {
 		}
 	}
 
-	s.recordHeartbeatSuccess(startedAt, checked, low, probeErrs)
+	s.recordHeartbeatSuccess(startedAt, checked, low, probeErrs, balances)
 }
 
 // thresholdConfig reads the low-balance threshold and whether Feishu alerting is
@@ -258,13 +264,13 @@ func (s *UpstreamBalanceSentinel) rechargeURL(ctx context.Context) string {
 	return strings.TrimSpace(v)
 }
 
-func (s *UpstreamBalanceSentinel) recordHeartbeatSuccess(runAt time.Time, checked, low, probeErrs int) {
+func (s *UpstreamBalanceSentinel) recordHeartbeatSuccess(runAt time.Time, checked, low, probeErrs int, balances []string) {
 	if s == nil || s.heartbeat == nil {
 		return
 	}
 	now := time.Now().UTC()
 	durMs := time.Since(runAt).Milliseconds()
-	result := fmt.Sprintf("checked=%d low=%d probe_errors=%d", checked, low, probeErrs)
+	result := formatSentinelHeartbeatResult(checked, low, probeErrs, balances)
 	ctx, cancel := context.WithTimeout(context.Background(), upstreamBalanceHeartbeatTO)
 	defer cancel()
 	_ = s.heartbeat.UpsertJobHeartbeat(ctx, &OpsUpsertJobHeartbeatInput{
@@ -274,6 +280,31 @@ func (s *UpstreamBalanceSentinel) recordHeartbeatSuccess(runAt time.Time, checke
 		LastDurationMs: &durMs,
 		LastResult:     &result,
 	})
+}
+
+// formatSentinelHeartbeatResult renders the heartbeat last_result string, e.g.
+// "checked=1 low=0 probe_errors=0 balances=[ds-官:3262.07]". Pure + 2048-clamped
+// (ops_job_heartbeats.last_result column bound) so it's deterministically testable.
+func formatSentinelHeartbeatResult(checked, low, probeErrs int, balances []string) string {
+	result := fmt.Sprintf("checked=%d low=%d probe_errors=%d", checked, low, probeErrs)
+	if len(balances) > 0 {
+		result += " balances=[" + strings.Join(balances, ",") + "]"
+	}
+	if len(result) > 2048 {
+		result = result[:2048]
+	}
+	return result
+}
+
+// sanitizeBalanceSampleName keeps the heartbeat balances=[...] list parseable by
+// stripping the delimiter chars an account name could otherwise inject (`,` `:`
+// `[` `]`). Balance is operational data (not a secret), so the name is kept legible.
+func sanitizeBalanceSampleName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "?"
+	}
+	return strings.NewReplacer(",", "_", ":", "_", "[", "_", "]", "_").Replace(name)
 }
 
 func (s *UpstreamBalanceSentinel) recordHeartbeatError(runAt time.Time, err error) {
