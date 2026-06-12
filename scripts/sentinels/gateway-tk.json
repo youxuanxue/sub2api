@@ -2250,6 +2250,32 @@
         "accountIncidentPoolExhaustedDedupeWindow"
       ],
       "rationale": "Platform-pool-exhausted P0 Feishu card (closes the #516 blind spot where 7 simultaneous per-account cooldowns produced no pool-level signal and the 06:49-06:58 outage went unalerted). Dedupe-per-platform is required: every subsequent account block during a cooldown storm re-triggers the pool check."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_cc_only_fallback.go",
+      "must_contain": [
+        "func tkCCOnlyFallbackGroupValid(fallback *service.Group) bool",
+        "func (h *GatewayHandler) tkResolveCCOnlyFallback(",
+        "if fallback.ClaudeCodeOnly {",
+        "if fallback.Platform != service.PlatformAnthropic {",
+        "cloneAPIKeyWithGroup(apiKey, fallbackGroup)",
+        "h.billingCacheService.CheckBillingEligibility("
+      ],
+      "rationale": "TK companion implementing CC-only-group fallback routing on the OpenAI-compat paths (/v1/chat/completions, /v1/responses). A group with claude_code_only=true hard-403s non-CC traffic; operators set fallback_group_id expecting that traffic to fall back instead. This helper resolves+validates the fallback group and re-binds the apiKey so the request is served by the fallback group's accounts instead of being rejected. The validation guards are load-bearing: ClaudeCodeOnly reject is the no-loop guard (a CC-only fallback would re-fire the same 403), Platform==anthropic keeps the fallback servable on these anthropic-only OpenAI-compat paths, and billing eligibility must pass before routing. Dropping any guard either re-opens the 403 loop or silently routes to an unservable/unbilled group."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_chat_completions.go",
+      "must_contain": [
+        "h.tkResolveCCOnlyFallback(c, apiKey, reqLog, writeForbidden, writeBillingError)"
+      ],
+      "rationale": "Thin injection point for CC-only fallback routing in the upstream-shaped /v1/chat/completions handler. The bare CC-only 403 was replaced by a call into the TK companion (gateway_handler_tk_cc_only_fallback.go) that, on a valid fallback_group_id, re-binds apiKey to the fallback group and continues the request. An upstream merge that copies the old bare-403 shape back over this hook silently reverts the fallback feature."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_responses.go",
+      "must_contain": [
+        "h.tkResolveCCOnlyFallback(c, apiKey, reqLog, writeForbidden, writeBillingError)"
+      ],
+      "rationale": "Thin injection point for CC-only fallback routing in the upstream-shaped /v1/responses handler. Mirrors the /v1/chat/completions hook: the bare CC-only 403 delegates to the TK companion so a valid fallback_group_id routes non-CC traffic to the fallback group instead of rejecting it. Anchors the hook against an upstream merge silently restoring the bare 403."
     }
   ]
 }

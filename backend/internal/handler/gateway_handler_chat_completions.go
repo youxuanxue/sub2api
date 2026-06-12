@@ -88,11 +88,24 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
 
-	// Claude Code only restriction
+	// Claude Code only restriction.
+	// TK: when a CC-only group declares a valid fallback_group_id, route non-CC
+	// OpenAI-compat traffic to that fallback group instead of hard-403'ing (see
+	// gateway_handler_tk_cc_only_fallback.go). No/invalid fallback keeps the 403.
 	if apiKey.Group != nil && apiKey.Group.ClaudeCodeOnly {
-		h.chatCompletionsErrorResponse(c, http.StatusForbidden, "permission_error",
-			"This group is restricted to Claude Code clients (/v1/messages only)")
-		return
+		writeForbidden := func() {
+			h.chatCompletionsErrorResponse(c, http.StatusForbidden, "permission_error", tkCCOnlyForbiddenMessage)
+		}
+		writeBillingError := func(status int, code, message string) {
+			h.chatCompletionsErrorResponse(c, status, code, message)
+		}
+		fallbackAPIKey, handled := h.tkResolveCCOnlyFallback(c, apiKey, reqLog, writeForbidden, writeBillingError)
+		if handled {
+			return
+		}
+		apiKey = fallbackAPIKey
+		// Re-resolve channel-level model mapping against the fallback group.
+		channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
 	}
 
 	if decision := h.checkContentModeration(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIChat, reqModel, body); decision != nil && decision.Blocked {
