@@ -46,6 +46,15 @@ func tkHandleBridgeUpstreamPenalty(ctx context.Context, rls *RateLimitService, a
 	if rls == nil || account == nil || apiErr == nil {
 		return
 	}
+	// TK (prod 2026-06-12, account 60 "Qwen" / DashScope arrears): an upstream
+	// account-standing / arrears 400 ("Arrearage") is an ACCOUNT-level failure
+	// disguised as a client 400. It must be caught BEFORE the status allowlist
+	// below (which deliberately excludes 400 to avoid the #617 client-400
+	// pool-drain). This narrow exception cools the account + fires an immediate
+	// P0 Feishu card. See newapi_bridge_arrears_tk.go.
+	if tkHandleBridgeArrearsPenalty(ctx, rls, account, apiErr) {
+		return
+	}
 	if !tkBridgePenaltyStatusEligible(apiErr.StatusCode) {
 		return
 	}
