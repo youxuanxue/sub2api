@@ -350,21 +350,38 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 
 	// On terminal status we drop the entry to bound storage; clients that
 	// need the URL must have already consumed the response body above.
-	switch strings.ToLower(out.Status) {
-	case "failure", "failed":
-		// The user paid at submit for a video that never materialized —
-		// reverse the charge. Idempotency lives in the refund itself
-		// (usage_billing_dedup keyed by the public task id), so a concurrent
-		// poll racing this Delete cannot double-refund. Clients that never
-		// poll a failed task are never refunded (registry record expires
-		// with its TTL); openai_video_refund.* logs are the audit trail.
+	if terminal, failed := videoTerminalOutcome(out.Status); terminal {
 		h.videoTaskCache.Delete(c.Request.Context(), publicTaskID)
-		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
-			h.gatewayService.RefundVideoUsageOnFailure(ctx, rec)
-		})
-	case "success", "succeeded":
-		h.videoTaskCache.Delete(c.Request.Context(), publicTaskID)
+		if failed {
+			// The user paid at submit for a video that never materialized —
+			// reverse the charge. Idempotency lives in the refund itself
+			// (usage_billing_dedup keyed by the public task id), so a concurrent
+			// poll racing this Delete cannot double-refund. Clients that never
+			// poll a failed task are never refunded (registry record expires
+			// with its TTL); openai_video_refund.* logs are the audit trail.
+			h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
+				h.gatewayService.RefundVideoUsageOnFailure(ctx, rec)
+			})
+		}
 	}
+}
+
+// videoTerminalOutcome classifies an upstream task status string for the
+// fetch path: terminal=true drops the registry entry; failed=true triggers
+// the submit-charge refund. The status reaching here is string(TaskInfo.Status)
+// — i.e. new-api's model.TaskStatus* constants ("SUCCESS"/"FAILURE"/...) plus
+// the lowercase OpenAI-video spellings some adaptors emit. The contract test
+// in openai_gateway_tk_video_contract_test.go locks this mapping against the
+// pinned new-api constants so a .new-api-ref bump that renames them goes red
+// here instead of silently disabling refunds.
+func videoTerminalOutcome(status string) (terminal bool, failed bool) {
+	switch strings.ToLower(status) {
+	case "failure", "failed":
+		return true, true
+	case "success", "succeeded":
+		return true, false
+	}
+	return false, false
 }
 
 // generateVideoTaskID — `vt_` prefix mirrors OpenAI's `vid_` / `task_`

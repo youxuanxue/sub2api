@@ -441,6 +441,14 @@
         "GetVideoUsageByBillingRequestID"
       ],
       "rationale": "Read half of the video refund: finds the original billing_mode='video' usage row by (request_id, user_id). Removing it makes the refund's type assertion miss and every refund silently skip."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_tk_video_contract_test.go",
+      "must_contain": [
+        "TestVideoTerminalOutcome_NewAPITaskStatusContract",
+        "TestVideoSubmitHasVideoInput_ParityWithNewAPIMetadataDecoding"
+      ],
+      "rationale": "Upstream-merge overwrite-protection gates for the video refund + video-input price guard: lock TK's terminal-status classification to the pinned new-api model.TaskStatus* constants and the input guard to TaskSubmitReq's accepted metadata carrier shapes (incl. metadata-as-JSON-string). Deleting these tests re-opens the silent-drift channel they exist to close — a .new-api-ref bump could rename statuses (refunds stop firing) or add carrier shapes (guard bypassed) with zero compile errors."
     }
   ]
 }
