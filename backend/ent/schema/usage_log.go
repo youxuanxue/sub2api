@@ -149,6 +149,12 @@ func (UsageLog) Fields() []ent.Field {
 		field.JSON("image_size_breakdown", map[string]int{}).
 			Optional().
 			SchemaType(map[string]string{dialect.Postgres: "jsonb"}),
+		// 视频生成字段（异步视频 /v1/video/generations 按秒计费）
+		// video_duration_seconds: 本次请求计费的视频秒数（submit 时取请求 duration，缺省 8）。
+		// NULL = 非视频请求，或 tk_025 之前的历史视频行。
+		field.Int64("video_duration_seconds").
+			Optional().
+			Nillable(),
 		// Cache TTL Override 标记（管理员强制替换了缓存 TTL 计费）
 		field.Bool("cache_ttl_overridden").
 			Default(false),

@@ -104,9 +104,10 @@
       "path": "backend/internal/service/video_task_registry.go",
       "must_contain": [
         "VideoTaskCache",
-        "VideoTaskRecord"
+        "VideoTaskRecord",
+        "BillingRequestID"
       ],
-      "rationale": "Service-side interface (VideoTaskCache) + DTO (VideoTaskRecord) for the video task registry. Concrete impl lives in repository/video_task_cache.go (Redis-backed; depguard forbids service from importing redis directly). Removing this file collapses the entire video-fetch path: handler can't compile, dispatch helper can't compile, registry routing pin disappears."
+      "rationale": "Service-side interface (VideoTaskCache) + DTO (VideoTaskRecord) for the video task registry. Concrete impl lives in repository/video_task_cache.go (Redis-backed; depguard forbids service from importing redis directly). Removing this file collapses the entire video-fetch path: handler can't compile, dispatch helper can't compile, registry routing pin disappears. BillingRequestID is the refund anchor stamped at submit (matches usage_logs.request_id); dropping the field silently disables every terminal-failure refund."
     },
     {
       "path": "backend/internal/repository/video_task_cache.go",
@@ -415,6 +416,39 @@
         "ProvideUpstreamBalanceSentinel,"
       ],
       "rationale": "ProviderSet member that constructs AND Start()s the upstream low-balance sentinel. The sentinel is a side-effect service consumed only by provideCleanup, so if an upstream merge drops this wire.NewSet entry together with the provideCleanup wiring, Wire regenerates clean with no sentinel and the background poller silently never starts. The trailing comma pins the set member specifically (dropping the provider func instead fails compile, so only the registration needs guarding)."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service_tk_video_refund.go",
+      "must_contain": [
+        "RefundVideoUsageOnFailure",
+        "buildVideoRefundFromUsage",
+        "TkVideoRefundRequestIDPrefix"
+      ],
+      "rationale": "TK companion that reverses the submit-time video charge when the upstream reports terminal failed: looks up the original usage_logs row by VideoTaskRecord.BillingRequestID, applies the money rollback at-most-once, writes the double-entry video_refund compensation row. Removing it silently reverts to charge-and-never-refund for every failed video task."
+    },
+    {
+      "path": "backend/internal/repository/usage_billing_repo_tk_video_refund.go",
+      "must_contain": [
+        "ApplyVideoRefund",
+        "claimUsageBillingKey",
+        "GREATEST"
+      ],
+      "rationale": "Money-movement half of the video refund: claims the same usage_billing_dedup key space as forward billing (idempotent under concurrent terminal polls), returns balance / rolls back subscription usage with a GREATEST(...,0) floor, releases api-key quota and re-activates exhausted keys. Removing it makes RefundVideoUsageOnFailure silently skip (type assertion misses) — refunds stop without any compile error."
+    },
+    {
+      "path": "backend/internal/repository/usage_log_repo_tk_video_refund.go",
+      "must_contain": [
+        "GetVideoUsageByBillingRequestID"
+      ],
+      "rationale": "Read half of the video refund: finds the original billing_mode='video' usage row by (request_id, user_id). Removing it makes the refund's type assertion miss and every refund silently skip."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_tk_video_contract_test.go",
+      "must_contain": [
+        "TestVideoTerminalOutcome_NewAPITaskStatusContract",
+        "TestVideoSubmitHasVideoInput_ParityWithNewAPIMetadataDecoding"
+      ],
+      "rationale": "Upstream-merge overwrite-protection gates for the video refund + video-input price guard: lock TK's terminal-status classification to the pinned new-api model.TaskStatus* constants and the input guard to TaskSubmitReq's accepted metadata carrier shapes (incl. metadata-as-JSON-string). Deleting these tests re-opens the silent-drift channel they exist to close — a .new-api-ref bump could rename statuses (refunds stop firing) or add carrier shapes (guard bypassed) with zero compile errors."
     }
   ]
 }

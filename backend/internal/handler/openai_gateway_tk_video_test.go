@@ -130,3 +130,28 @@ func TestVideoRequestedSeconds(t *testing.T) {
 		}
 	}
 }
+
+func TestVideoSubmitHasVideoInput(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"no content", `{"model":"m","prompt":"x","seconds":5}`, false},
+		{"text only", `{"content":[{"type":"text","text":"hi"}]}`, false},
+		{"first-frame image passes", `{"content":[{"type":"image_url","image_url":{"url":"https://a/b.png"}}]}`, false},
+		{"video_url type", `{"content":[{"type":"video_url","video_url":{"url":"https://a/b.mp4"}}]}`, true},
+		{"video_url key without type", `{"content":[{"video_url":{"url":"https://a/b.mp4"}}]}`, true},
+		{"mixed image then video", `{"content":[{"type":"image_url","image_url":{"url":"u"}},{"type":"video_url","video_url":{"url":"v"}}]}`, true},
+		{"pre-nested metadata.content", `{"metadata":{"content":[{"type":"video_url","video_url":{"url":"v"}}]}}`, true},
+		{"stringified metadata with video (new-api accepts metadata as JSON string)", `{"metadata":"{\"content\":[{\"type\":\"video_url\",\"video_url\":{\"url\":\"v\"}}]}"}`, true},
+		{"stringified metadata image only passes", `{"metadata":"{\"content\":[{\"type\":\"image_url\",\"image_url\":{\"url\":\"u\"}}]}"}`, false},
+		{"stringified metadata not json", `{"metadata":"not json at all"}`, false},
+		{"content not an array", `{"content":"a string"}`, false},
+	}
+	for _, c := range cases {
+		if got := videoSubmitHasVideoInput([]byte(c.body)); got != c.want {
+			t.Errorf("%s: videoSubmitHasVideoInput=%v want %v", c.name, got, c.want)
+		}
+	}
+}

@@ -126,6 +126,28 @@ func TestDispatchVideoSubmit_RejectsEmptyPublicTaskID(t *testing.T) {
 	}
 }
 
+// TestDispatchVideoSubmit_RejectsEmptyUpstreamTaskID locks in the bridge's single-point
+// guard: DispatchVideoSubmit is the only producer of TaskSubmitOutcome, and a 200
+// upstream response carrying an empty task id must surface as an error — never as a
+// success outcome the handler would persist (the fetch path would then 404 forever
+// while the user was already billed at submit).
+func TestDispatchVideoSubmit_RejectsEmptyUpstreamTaskID(t *testing.T) {
+	upstream := &fakeUpstreamHandler{upstreamTaskID: ""}
+	srv := httptest.NewServer(upstream)
+	defer srv.Close()
+
+	body := mustJSON(t, map[string]any{"model": "doubao-seedance-1-0-pro-250528", "prompt": "x"})
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/video/generations", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	in := ChannelContextInput{ChannelType: newapiconstant.ChannelTypeVolcEngine, ChannelID: 42, BaseURL: srv.URL, APIKey: "k", UserID: 7}
+	out, apiErr := DispatchVideoSubmit(context.Background(), c, in, "vt_test_empty", body)
+	if apiErr == nil {
+		t.Fatalf("expected error for empty upstream task id, got success outcome %+v", out)
+	}
+}
+
 // TestDispatchVideoSubmit_RejectsUnknownChannelType asserts that the bridge
 // returns a typed error rather than nil when no task adaptor is registered.
 // This protects the gateway from silently 5xx-ing if an admin assigns
