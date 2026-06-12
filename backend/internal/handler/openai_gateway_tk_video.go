@@ -403,13 +403,22 @@ func videoRequestedSeconds(body []byte) int64 {
 // would under-charge — the submit handler rejects them until they are priced.
 // First-frame image input (image_url parts) must pass.
 //
-// Clients send the parts as a top-level "content" array (the new-api
-// TaskSubmitReq routes unknown top-level fields into Metadata, where the
-// doubao adaptor reads metadata["content"]); "metadata.content" is scanned
-// too for clients that pre-nest it.
+// Carrier shapes (new-api TaskSubmitReq semantics): on the JSON path the real
+// carrier is "metadata.content" — sent either as a nested object OR as a
+// JSON-ENCODED STRING (TaskSubmitReq.UnmarshalJSON accepts both; the doubao
+// adaptor reads metadata["content"] after either form). Top-level "content"
+// is only routed into Metadata on the multipart path; on JSON it is dropped
+// upstream — still rejected here so a client's video_url is never silently
+// ignored while they are billed for a text-to-video run.
 func videoSubmitHasVideoInput(body []byte) bool {
-	for _, path := range []string{"content", "metadata.content"} {
-		parts := gjson.GetBytes(body, path)
+	candidates := []gjson.Result{
+		gjson.GetBytes(body, "content"),
+		gjson.GetBytes(body, "metadata.content"),
+	}
+	if md := gjson.GetBytes(body, "metadata"); md.Type == gjson.String {
+		candidates = append(candidates, gjson.Parse(md.String()).Get("content"))
+	}
+	for _, parts := range candidates {
 		if !parts.IsArray() {
 			continue
 		}

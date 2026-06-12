@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"go.uber.org/zap"
@@ -149,16 +150,38 @@ func (s *OpenAIGatewayService) RefundVideoUsageOnFailure(ctx context.Context, re
 		return
 	}
 
-	orig, err := lookup.GetVideoUsageByBillingRequestID(ctx, rec.BillingRequestID, rec.UserID)
-	if err != nil {
-		log.Error("openai_video_refund.original_lookup_failed", zap.Error(err))
-		return
+	// The submit-time RecordUsage runs on the same async worker pool with no
+	// ordering guarantee relative to this refund task; a fast terminal poll
+	// can race ahead of the billed row landing. Bounded retry turns that
+	// narrow window from a permanently lost refund (the registry record is
+	// already deleted) into a short wait.
+	var orig *UsageLog
+	var err error
+	for attempt := 1; ; attempt++ {
+		orig, err = lookup.GetVideoUsageByBillingRequestID(ctx, rec.BillingRequestID, rec.UserID)
+		if err != nil {
+			log.Error("openai_video_refund.original_lookup_failed", zap.Error(err))
+			return
+		}
+		if orig != nil || attempt >= 3 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			log.Error("openai_video_refund.original_usage_not_found",
+				zap.String("billing_request_id", rec.BillingRequestID),
+				zap.Int("attempts", attempt), zap.Error(ctx.Err()))
+			return
+		case <-time.After(2 * time.Second):
+		}
 	}
 	if orig == nil {
-		// Submit-time usage record may have failed or still be in flight —
-		// surface for manual reconciliation instead of refunding blind.
-		log.Warn("openai_video_refund.original_usage_not_found",
-			zap.String("billing_request_id", rec.BillingRequestID))
+		// Unrecoverable from here (registry record already deleted; clients
+		// rarely re-poll a failed task) — Error level so reconciliation
+		// alerting sees it.
+		log.Error("openai_video_refund.original_usage_not_found",
+			zap.String("billing_request_id", rec.BillingRequestID),
+			zap.Int("attempts", 3))
 		return
 	}
 
