@@ -30,16 +30,18 @@ func enabledFeishuConfig() *OpsEmailNotificationConfig {
 		Feishu: OpsFeishuAlertConfig{
 			Enabled:                      true,
 			WebhookURL:                   "https://open.feishu.cn/open-apis/bot/v2/hook/test",
+			AccountIncidentDigestEnabled: true, // 显式开自愈摘要（opt-in）
 			AccountIncidentDigestSeconds: 600,
 		},
 	}
 }
 
 // disabledDigestFeishuConfig keeps Feishu on but turns the self-healing
-// temporary-cooldown digest OFF (opt-in): account_incident_digest_seconds<=0.
+// temporary-cooldown digest OFF (opt-in): account_incident_digest_enabled=false.
+// seconds stays > 0 to prove enable is gated on the bool, NOT on seconds.
 func disabledDigestFeishuConfig() *OpsEmailNotificationConfig {
 	cfg := enabledFeishuConfig()
-	cfg.Feishu.AccountIncidentDigestSeconds = 0
+	cfg.Feishu.AccountIncidentDigestEnabled = false
 	return cfg
 }
 

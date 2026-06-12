@@ -40,8 +40,19 @@ type OpsFeishuAlertConfig struct {
 	SigningSecretConfigured bool   `json:"signing_secret_configured"`
 	RateLimitPerHour        int    `json:"rate_limit_per_hour"`
 	CooldownSeconds         int    `json:"cooldown_seconds"`
+	// AccountIncidentDigestEnabled 是账号失效事件中「临时冷却」类（429/529/temp）自愈
+	// 聚合摘要的总开关。**零值 false = 默认关（opt-in）**——运营判定这类自愈橙头摘要在
+	// provider 抖动时是噪音，会淹没真故障 P0。仅当显式设为 true 才发摘要；永久失效 P0、
+	// 池级全不可调度 P0、恢复绿卡走另一条路径，恒发不受此开关影响。
+	//
+	// 历史上 enable 语义曾错绑在 AccountIncidentDigestSeconds>0（见 PR#730），但
+	// normalizeOpsFeishuAlertConfig 的 0→600 回填使 seconds 永不为 0，致 enable 恒真、
+	// 默认关从未生效。本字段把 enable 与 interval 彻底解耦：enable 看本 bool，
+	// interval 看 seconds。
+	AccountIncidentDigestEnabled bool `json:"account_incident_digest_enabled"`
 	// AccountIncidentDigestSeconds 控制账号失效事件中「临时冷却」类（429/529/temp）
-	// 聚合摘要的 flush 间隔（秒）。永久失效类即时单发，不受此值影响。默认 600。
+	// 聚合摘要的 flush 间隔（秒）——**仅间隔，不含 enable 语义**（enable 见上面的
+	// AccountIncidentDigestEnabled）。永久失效类即时单发，不受此值影响。默认 600。
 	AccountIncidentDigestSeconds int `json:"account_incident_digest_seconds"`
 	// PricingMissingDigestSeconds 控制缺价模型零成本流量聚合摘要的 flush 间隔
 	// （秒）。首见模型的即时卡不受此值影响。默认 1800。

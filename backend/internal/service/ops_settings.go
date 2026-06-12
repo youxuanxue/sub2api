@@ -243,6 +243,10 @@ func updateOpsFeishuAlertConfig(dst *OpsFeishuAlertConfig, req *OpsFeishuAlertCo
 	}
 	dst.RateLimitPerHour = req.RateLimitPerHour
 	dst.CooldownSeconds = req.CooldownSeconds
+	// AccountIncidentDigestEnabled 是自愈摘要的显式开关（默认 false=关）。bool 没有
+	// "0=未提供"的回填歧义——零值 false 正是想要的默认，故无条件拷贝（同 dst.Enabled）。
+	// 旧客户端不发此键时解码为 false，正确落到默认关；这是有意为之，不是被旧 payload 抹掉。
+	dst.AccountIncidentDigestEnabled = req.AccountIncidentDigestEnabled
 	// 两个 digest-seconds 字段晚于原始契约加入：早于它们的客户端发的"完整"
 	// feishu payload 不含这些键（解码为 0），而 validate 先于 normalize 执行——
 	// 无条件拷贝会让 0 覆盖存量值并使整个更新 400。0 对这两个字段本就非法
