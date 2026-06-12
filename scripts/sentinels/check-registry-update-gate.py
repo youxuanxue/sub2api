@@ -8,6 +8,22 @@ merge 覆写防护门禁". Existing sentinel checkers prove that current literal
 still present; this checker proves that PRs changing known hotspot files also
 update the relevant registry in the same branch.
 
+Two trigger shapes:
+
+  1. EDIT with deletions — a hotspot/sentinel-covered file changed and at
+     least one line was deleted (an anchored literal may have been dropped).
+     Pure-insertion edits of EXISTING files stay exempt: they cannot remove
+     an anchor.
+  2. NEW load-bearing surface — a newly ADDED file matches a hotspot pattern
+     (new `*_tk_*.go` companion, new bridge file, new TK composable /
+     constants module). New files are pure-insertion by definition, so
+     without this trigger they sail through every marker gate with zero
+     sentinel coverage — exactly the recurring post-review ask "增加 upstream
+     merge 覆写防护门禁". The author must either pin anchors for the new
+     surface (and ideally its injection point in the upstream file) in a
+     sentinel registry, or acknowledge with the `sentinel-registry-reviewed`
+     marker in the PR description.
+
 Exit codes:
   0 — no hotspot/sentinel-covered source changed, or matching registry changed.
   1 — source changed without a matching sentinel registry update.
@@ -79,6 +95,15 @@ HOTSPOT_PATTERNS: dict[str, list[str]] = {
     "backend/internal/integration/newapi/**/*.go": ["scripts/sentinels/newapi.json"],
     "backend/internal/**/*_tk_*.go": ["scripts/sentinels/newapi.json", "scripts/sentinels/gateway-tk.json"],
     "backend/internal/relay/bridge/*.go": ["scripts/sentinels/newapi.json"],
+    # Generic TK-only frontend conventions (mirror of the override-marker
+    # EXCLUDE list): these files are invisible to the upstream-override gate
+    # by design, so THIS gate is the only thing forcing sentinel coverage for
+    # a brand-new TK frontend surface. fnmatch `*` crosses `/`, so the
+    # admin/tk pattern covers nested files too.
+    "frontend/src/composables/useTk*.ts": ["scripts/sentinels/frontend-tk.json"],
+    "frontend/src/constants/*.tk.ts": ["scripts/sentinels/frontend-tk.json"],
+    "frontend/src/components/admin/tk/*.vue": ["scripts/sentinels/frontend-tk.json"],
+    "frontend/src/api/admin/tk/*.ts": ["scripts/sentinels/frontend-tk.json"],
 }
 
 
@@ -131,6 +156,23 @@ def working_tree_changed_files() -> set[str]:
         proc = run_git(args)
         changed.update(line.strip() for line in proc.stdout.splitlines() if line.strip())
     return changed
+
+
+def added_files(base: str, head: str) -> set[str]:
+    """Newly ADDED paths across the same three sources `changed_files` /
+    `deletion_counts` read (committed range, working tree, index)."""
+    added: set[str] = set()
+    sources = (
+        ["diff", "--name-only", "--diff-filter=A", f"{base}...{head}"],
+        ["diff", "--name-only", "--diff-filter=A"],
+        ["diff", "--cached", "--name-only", "--diff-filter=A"],
+    )
+    for args in sources:
+        proc = run_git(args, check=False)
+        if proc.returncode != 0:
+            continue
+        added.update(line.strip() for line in proc.stdout.splitlines() if line.strip())
+    return added
 
 
 def commit_messages(base: str, head: str) -> str:
@@ -217,9 +259,67 @@ def matching_hotspot_registries(path: str) -> set[str]:
     return registries
 
 
+def required_registries(path: str, deleted: int, is_added: bool, covered: set[str]) -> set[str]:
+    """Pure per-path verdict (no git / IO, unit-tested by --selftest).
+    Returns the registries this path obliges the PR to update (empty set =
+    no obligation). Obligation triggers:
+      - covered/hotspot file changed WITH deletions (an anchor may be gone), or
+      - hotspot-matching file is NEWLY ADDED (a brand-new load-bearing TK
+        surface with zero sentinel coverage — pure-insertion must NOT exempt
+        it, that is the exact shape that previously sailed through).
+    """
+    if I18N_LOCALE_RE.match(path):
+        return set()
+    hotspot = matching_hotspot_registries(path)
+    related = covered | hotspot
+    if not related:
+        return set()
+    if deleted == 0 and not (is_added and hotspot):
+        return set()  # pure-insertion edit of an existing file — cannot drop an anchor
+    return related
+
+
 def compact(items: Iterable[str]) -> str:
     values = sorted(set(items))
     return ", ".join(values) if values else "(none)"
+
+
+def run_selftest() -> int:
+    nj = "scripts/sentinels/newapi.json"
+    gj = "scripts/sentinels/gateway-tk.json"
+    fj = "scripts/sentinels/frontend-tk.json"
+    cases = [
+        # (path, deleted, is_added, covered, expected_required)
+        # EDIT with deletions on a hotspot → obligation
+        ("backend/internal/service/foo_tk_bar.go", 3, False, set(), {nj, gj}),
+        # pure-insertion EDIT of an existing hotspot → exempt (unchanged behavior)
+        ("backend/internal/service/foo_tk_bar.go", 0, False, set(), set()),
+        # NEW hotspot file, pure-insertion → obligation (the new trigger)
+        ("backend/internal/service/foo_tk_bar.go", 0, True, set(), {nj, gj}),
+        ("backend/internal/relay/bridge/new_relay.go", 0, True, set(), {nj}),
+        ("frontend/src/composables/useTkNewThing.ts", 0, True, set(), {fj}),
+        ("frontend/src/constants/newThing.tk.ts", 0, True, set(), {fj}),
+        ("frontend/src/components/admin/tk/NewPanel.vue", 0, True, set(), {fj}),
+        # NEW file that matches no hotspot → exempt (override gate's domain)
+        ("backend/internal/handler/plain.go", 0, True, set(), set()),
+        # sentinel-covered (non-hotspot) path: deletions oblige, insertion doesn't
+        ("backend/internal/server/routes/gateway.go", 2, False, {gj}, {gj}),
+        ("backend/internal/server/routes/gateway.go", 0, False, {gj}, set()),
+        # i18n always exempt
+        ("frontend/src/i18n/locales/en.ts", 9, False, set(), set()),
+    ]
+    failed = 0
+    for i, (path, deleted, is_added, covered, expect) in enumerate(cases):
+        got = required_registries(path, deleted, is_added, covered)
+        status = "PASS" if got == expect else "FAIL"
+        if got != expect:
+            failed += 1
+        print(f"  {status} case {i}: {path} deleted={deleted} added={is_added} → {sorted(got)}")
+    if failed:
+        print(f"registry-update-gate selftest: {failed} case(s) FAILED", file=sys.stderr)
+        return 1
+    print("ok: registry-update-gate selftest passed")
+    return 0
 
 
 def main() -> int:
@@ -230,7 +330,12 @@ def main() -> int:
     parser.add_argument("--pr-body", default="",
                         help="PR description text; a review marker here satisfies the gate "
                              "(mutable surface — CI passes the PR body)")
+    parser.add_argument("--selftest", action="store_true",
+                        help="run the pure-logic self-test and exit")
     args = parser.parse_args()
+
+    if args.selftest:
+        return run_selftest()
 
     # Advisory mode: local pre-commit/pre-push cannot see the in-flight commit
     # message or the PR body, so a hard block there is a structural false
@@ -260,23 +365,22 @@ def main() -> int:
     coverage = covered_paths_by_registry()
     changed_registries = {p for p in changed if fnmatch.fnmatch(p, REGISTRY_GLOB)}
     # Pure-insertion paths (no deletions anywhere) cannot remove a load-bearing
-    # symbol → no anchor can have been dropped → safe to auto-accept.
+    # symbol → no anchor can have been dropped → safe to auto-accept, EXCEPT
+    # newly ADDED hotspot files: a brand-new load-bearing TK surface has zero
+    # sentinel coverage, and "pure insertion" is its normal shape.
     deletions = deletion_counts(base, args.head)
-    violations: list[tuple[str, set[str], set[str]]] = []
+    added = added_files(base, args.head)
+    violations: list[tuple[str, set[str], set[str], bool]] = []
 
     for path in sorted(changed):
         if fnmatch.fnmatch(path, REGISTRY_GLOB):
             continue
-        if I18N_LOCALE_RE.match(path):
-            continue  # i18n locale dictionaries excluded outright
-        if deletions.get(path, 0) == 0:
-            continue  # pure-insertion — implicit sentinel-registry-reviewed
-        related = {registry for registry, paths in coverage.items() if path in paths}
-        related.update(matching_hotspot_registries(path))
+        covered = {registry for registry, paths in coverage.items() if path in paths}
+        related = required_registries(path, deletions.get(path, 0), path in added, covered)
         if not related:
             continue
         if changed_registries.isdisjoint(related):
-            violations.append((path, related, changed_registries))
+            violations.append((path, related, changed_registries, path in added))
 
     if not violations:
         if not args.quiet:
@@ -304,20 +408,24 @@ def main() -> int:
     prefix = "advisory (not blocking — CI enforces on PR body)" if advisory else "FAIL"
     print(f"sentinel registry update gate: {prefix}", file=stream)
     print(
-        "  Load-bearing TK/NewAPI surfaces changed (with deletions) without updating the matching sentinel registry.",
+        "  Load-bearing TK/NewAPI surfaces changed (with deletions, or newly added) "
+        "without updating the matching sentinel registry.",
         file=stream,
     )
-    for path, related, seen in violations:
-        print(f"  - {path}", file=stream)
+    for path, related, seen, is_new in violations:
+        tag = " [NEW load-bearing surface]" if is_new else ""
+        print(f"  - {path}{tag}", file=stream)
         print(f"      update one of: {compact(related)}", file=stream)
         print(f"      changed registries in this diff: {compact(seen)}", file=stream)
     print(
         "  Fix (any one): "
-        "(a) make the change pure-insertion (no deleted lines); "
-        "(b) add/adjust the relevant sentinel literal in the same PR; "
+        "(a) for EDITED files: make the change pure-insertion (no deleted lines); "
+        "(b) add sentinel anchor(s) for the surface in the same PR — for a NEW "
+        "TK companion, anchor BOTH the new file and its injection line in the "
+        "upstream file; "
         "(c) put one of these markers in the PR description: "
         + ", ".join(SENTINEL_GATE_MARKERS)
-        + " — use marker only when you reviewed the hotspots and confirmed no anchor change is required.",
+        + " — use marker only when you reviewed the surface and confirmed no anchor is required.",
         file=stream,
     )
     return 0 if advisory else 1

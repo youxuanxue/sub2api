@@ -314,6 +314,12 @@ section only records sub2api-specific choices.
     surface for newapi MUST add a sentinel entry in the same commit. See
     `docs/approved/newapi-as-fifth-platform.md` § 12 for the registry
     doctrine (categories, double-trigger, evolution discipline).
+    Mechanized for ALL platforms by
+    `scripts/sentinels/check-registry-update-gate.py`: a newly ADDED
+    hotspot file (new `*_tk_*.go` companion, bridge file, TK frontend
+    module) fails the marker-acknowledgement CI gate unless the PR adds
+    sentinel anchor(s) for it or carries `sentinel-registry-reviewed`
+    in the PR description — pure-insertion no longer exempts new files.
   When adding a new sub2api-only check, append it to `scripts/preflight.sh`
   (NEVER edit the dev-rules template — it is shared across all consumer
   projects). If the check turns out to be useful for more than just
