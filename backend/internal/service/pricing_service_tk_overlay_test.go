@@ -241,3 +241,51 @@ func TestBilling_SourceCarried1hPriceUnaffected(t *testing.T) {
 	// 400000*6.25e-6 + 600000*1e-5 = 2.5 + 6.0
 	require.InDelta(t, 8.5, breakdown.CacheCreationCost, 1e-9)
 }
+
+// TestTKPricingOverlay_FillsRetiredQwen25Coder verifies the overlay supplies
+// pricing for qwen2.5-coder-32b / qwen2.5-coder-7b — retired models absent from
+// both the runtime price source AND Alibaba's current price list, proxy-filled
+// from lineage successors qwen3-coder-plus / qwen3-coder-flash (Beijing RMB list
+// ÷ 6.7). Before this fill they billed $0: in 2026-04/05 a trajectory harness
+// served 66,556 requests (mapped to gpt-5.4) at $0 because the unpriced requested
+// name was the billing key. The fill makes both names carry a non-zero,
+// input-tiered price so they no longer silently leak via pricing-missing $0.
+func TestTKPricingOverlay_FillsRetiredQwen25Coder(t *testing.T) {
+	svc := &PricingService{}
+	// Source deliberately carries neither qwen2.5-coder key (mirrors prod, where
+	// the trimmed source lacks them), so the overlay fill must apply.
+	body := []byte(`{
+		"gpt-5.4": {
+			"input_cost_per_token": 0.0000025,
+			"output_cost_per_token": 0.000015,
+			"litellm_provider": "openai",
+			"mode": "chat"
+		}
+	}`)
+
+	data, err := svc.parsePricingData(body)
+	require.NoError(t, err)
+
+	c32 := data["qwen2.5-coder-32b"]
+	require.NotNil(t, c32, "overlay must inject qwen2.5-coder-32b")
+	require.InDelta(t, 5.970149e-07, c32.InputCostPerToken, 1e-13)
+	require.InDelta(t, 2.38806e-06, c32.OutputCostPerToken, 1e-13)
+	require.InDelta(t, 5.970149e-07, c32.CacheReadInputTokenCost, 1e-13)
+	require.Len(t, c32.Intervals, 4, "32b must carry the 4 input-token tiers")
+	top32 := c32.Intervals[len(c32.Intervals)-1]
+	require.Nil(t, top32.MaxTokens, "last 32b tier is unbounded (>256K)")
+	require.NotNil(t, top32.InputPrice)
+	require.NotNil(t, top32.OutputPrice)
+	require.InDelta(t, 2.985075e-06, *top32.InputPrice, 1e-13)
+	require.InDelta(t, 2.985075e-05, *top32.OutputPrice, 1e-13)
+
+	c7 := data["qwen2.5-coder-7b"]
+	require.NotNil(t, c7, "overlay must inject qwen2.5-coder-7b")
+	require.InDelta(t, 1.492537e-07, c7.InputCostPerToken, 1e-13)
+	require.InDelta(t, 5.970149e-07, c7.OutputCostPerToken, 1e-13)
+	require.InDelta(t, 1.492537e-07, c7.CacheReadInputTokenCost, 1e-13)
+	require.Len(t, c7.Intervals, 4, "7b must carry the 4 input-token tiers")
+	base7 := c7.Intervals[0]
+	require.NotNil(t, base7.InputPrice)
+	require.InDelta(t, 1.492537e-07, *base7.InputPrice, 1e-13)
+}

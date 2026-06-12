@@ -6,48 +6,15 @@ package service
 // observability and stays untouched). Service is NOT refused — see
 // pricing_missing_notifier_tk.go for the design rationale.
 
-// SetPricingMissingNotifier wires the pricing-missing Feishu notifier
-// post-construction so the upstream constructor signature stays unchanged.
-// nil = feature disabled.
+// SetPricingMissingNotifier wires the pricing-missing / served-zero-cost Feishu
+// notifier post-construction so the upstream constructor signature stays
+// unchanged. nil = feature disabled. The actual notify trigger lives in the
+// result-side probe (tkNotifyServedZeroCost in
+// openai_gateway_service_tk_served_zero_cost.go); the former error-side
+// notifyOpenAIPricingMissing was consolidated into it.
 func (s *OpenAIGatewayService) SetPricingMissingNotifier(n PricingMissingNotifier) {
 	if s == nil {
 		return
 	}
 	s.tkPricingMissingNotifier = n
-}
-
-// notifyOpenAIPricingMissing builds a PricingMissingEvent from the record-usage
-// context and feeds the notifier. nil-safe on every input.
-func (s *OpenAIGatewayService) notifyOpenAIPricingMissing(
-	input *OpenAIRecordUsageInput,
-	result *OpenAIForwardResult,
-	apiKey *APIKey,
-	billingModels []string,
-	tokens UsageTokens,
-) {
-	if s == nil || s.tkPricingMissingNotifier == nil {
-		return
-	}
-	ev := PricingMissingEvent{
-		BillingModel: firstUsageBillingModel(billingModels),
-		Tokens:       totalUsageTokensForPricingMissing(tokens),
-	}
-	if input != nil {
-		ev.RequestedModel = input.OriginalModel
-	}
-	if result != nil {
-		ev.UpstreamModel = result.UpstreamModel
-		if ev.RequestedModel == "" {
-			ev.RequestedModel = result.Model
-		}
-	}
-	if apiKey != nil {
-		ev.APIKeyID = apiKey.ID
-		if apiKey.Group != nil {
-			ev.GroupID = apiKey.Group.ID
-			ev.GroupName = apiKey.Group.Name
-			ev.Platform = apiKey.Group.Platform
-		}
-	}
-	s.tkPricingMissingNotifier.NotifyPricingMissing(ev)
 }

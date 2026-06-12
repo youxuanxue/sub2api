@@ -1,7 +1,7 @@
 {
   "_meta": {
     "note": "TK-owned pricing overlay for models the runtime price source lacks. Merged into PricingService AFTER any source load (Wei-Shaw remote OR disk fallback); an entry below applies when the source key is ABSENT or the source entry is EFFECTIVELY UNPRICED (every cost field 0.0 — litellm's 'unknown', not 'free'; see tkIsEffectivelyUnpriced). The Wei-Shaw runtime mirror is a TRIMMED litellm mirror that drops provider-prefixed keys and token-less media entries, so imagen-*/veo-* resolve to nothing there; litellm itself also lags new provider models (deepseek-v4-*) or carries them as zero placeholders (deepseek-v3-2-251201), which then bill $0. Media price = vertex_ai provider (TK media flow routes through Vertex ch41); falls back to gemini only when no vertex variant exists. Text price = provider official list price. Self-deprecating: the day the source carries a real (non-zero) price under the bare key, the source value wins and the entry below is ignored. The overlay cannot CORRECT wrong NON-ZERO source prices (deepseek-chat/reasoner still carry the pre-V4 rate in the mirror) — use channel pricing (DB) for that.",
-    "provenance": "media: BerriAI/litellm model_prices_and_context_window.json, captured 2026-06-01; deepseek-v4-*: https://api-docs.deepseek.com/quick_start/pricing, captured 2026-06-04 (cache-hit input = cache_read; cache writes billed as normal input, no separate write fee); volcengine doubao-*/glm-4-7-251222/deepseek-v3-2-251201: VolcEngine Ark official model-pricing page, captured 2026-06-10 (≤32K input tier, CNY/USD=6.7); glm-4.7 matches Zhipu official; qwen3.7-max*: Alibaba DashScope official list price, captured 2026-06-10 (per-entry source)",
+    "provenance": "media: BerriAI/litellm model_prices_and_context_window.json, captured 2026-06-01; deepseek-v4-*: https://api-docs.deepseek.com/quick_start/pricing, captured 2026-06-04 (cache-hit input = cache_read; cache writes billed as normal input, no separate write fee); volcengine doubao-*/glm-4-7-251222/deepseek-v3-2-251201: VolcEngine Ark official model-pricing page, captured 2026-06-10 (≤32K input tier, CNY/USD=6.7); glm-4.7 matches Zhipu official; qwen3.7-max*: Alibaba DashScope official list price, captured 2026-06-10 (per-entry source); qwen2.5-coder-32b/7b: retired & absent from current Alibaba list — proxy-filled from lineage successors qwen3-coder-plus / qwen3-coder-flash, Beijing RMB list ÷ 6.7, docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12 (per-entry source)",
     "regen": "manual curation; no auto-sync (entries are few + slow-moving). If they proliferate, add provider-aware sync."
   },
   "claude-fable-5": {
@@ -771,5 +771,81 @@
       }
     ],
     "source": "Alibaba DashScope qwen3-coder-plus official USD list (China-mainland; tiered by input tokens: 0<=32K in $0.574/$2.294 per M, 32K<=128K $0.861/$3.441, 128K<=256K $1.434/$5.735, 256K<=1M $2.868/$28.671; help.aliyun.com/zh/model-studio/model-pricing captured 2026-06-11). List price only — context-cache discount not modeled. Whole-request input-tier via overlay intervals."
+  },
+  "qwen2.5-coder-32b": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 5.970149e-07,
+    "output_cost_per_token": 2.38806e-06,
+    "cache_read_input_token_cost": 5.970149e-07,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 5.970149e-07,
+        "output_cost_per_token": 2.38806e-06,
+        "cache_read_input_token_cost": 5.970149e-07
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 128000,
+        "input_cost_per_token": 8.955224e-07,
+        "output_cost_per_token": 3.58209e-06,
+        "cache_read_input_token_cost": 8.955224e-07
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": 256000,
+        "input_cost_per_token": 1.492537e-06,
+        "output_cost_per_token": 5.970149e-06,
+        "cache_read_input_token_cost": 1.492537e-06
+      },
+      {
+        "min_tokens": 256000,
+        "max_tokens": null,
+        "input_cost_per_token": 2.985075e-06,
+        "output_cost_per_token": 2.985075e-05,
+        "cache_read_input_token_cost": 2.985075e-06
+      }
+    ],
+    "source": "TK proxy fill — qwen2.5-coder-32b is retired/absent from the runtime price source AND from Alibaba's current price list; priced via its lineage successor qwen3-coder-plus. Alibaba DashScope qwen3-coder-plus China-mainland (Beijing) RMB list ÷ 6.7 (0<=32K ¥4/¥16, 32K<=128K ¥6/¥24, 128K<=256K ¥10/¥40, 256K<=1M ¥20/¥200 per M); docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12. List price only — batch/context-cache discounts not modeled. Whole-request input-tier via overlay intervals."
+  },
+  "qwen2.5-coder-7b": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 1.492537e-07,
+    "output_cost_per_token": 5.970149e-07,
+    "cache_read_input_token_cost": 1.492537e-07,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 1.492537e-07,
+        "output_cost_per_token": 5.970149e-07,
+        "cache_read_input_token_cost": 1.492537e-07
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 128000,
+        "input_cost_per_token": 2.238806e-07,
+        "output_cost_per_token": 8.955224e-07,
+        "cache_read_input_token_cost": 2.238806e-07
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": 256000,
+        "input_cost_per_token": 3.731343e-07,
+        "output_cost_per_token": 1.492537e-06,
+        "cache_read_input_token_cost": 3.731343e-07
+      },
+      {
+        "min_tokens": 256000,
+        "max_tokens": null,
+        "input_cost_per_token": 7.462687e-07,
+        "output_cost_per_token": 3.731343e-06,
+        "cache_read_input_token_cost": 7.462687e-07
+      }
+    ],
+    "source": "TK proxy fill — qwen2.5-coder-7b is retired/absent from the runtime price source AND from Alibaba's current price list; priced via its lineage successor qwen3-coder-flash. Alibaba DashScope qwen3-coder-flash China-mainland (Beijing) RMB list ÷ 6.7 (0<=32K ¥1/¥4, 32K<=128K ¥1.5/¥6, 128K<=256K ¥2.5/¥10, 256K<=1M ¥5/¥25 per M); docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12. List price only — batch/context-cache discounts not modeled. Whole-request input-tier via overlay intervals."
   }
 }

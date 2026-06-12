@@ -51,8 +51,14 @@ const (
 	pricingMissingDigestMaxGroupSamples = 8
 )
 
-// PricingMissingEvent 是单次"缺价记零成本"事件的最小快照。
+// PricingMissingEvent 是单次"已服务但零计费"事件的最小快照。
 type PricingMissingEvent struct {
+	// Reason 是漏算原因，驱动卡片文案：
+	//   "unpriced"            — 倍率前 TotalCost==0，价格本身为零（无价模型/渠道$0/
+	//                           视频·per_request 无价/cost-calc 错误吞 $0）。
+	//   "negative_multiplier" — 价格有效但被负倍率归零。
+	// 空字符串向后兼容，按 "unpriced" 处理。
+	Reason         string
 	Platform       string // group 平台（anthropic/openai/gemini/newapi/...）
 	BillingModel   string // 计费解析最终落到的模型名（聚合键）
 	RequestedModel string // 客户端请求的模型名（样例展示）
@@ -60,7 +66,17 @@ type PricingMissingEvent struct {
 	GroupID        int64
 	GroupName      string
 	APIKeyID       int64
-	Tokens         int64 // 本次未计费 token 估算（input+output+cache）
+	Tokens         int64 // 本次未计费计费单元估算（token 总量或图片张数）
+}
+
+// pricingMissingReasonLabel 把 Reason 码翻成中文卡片文案；空/未知按无价处理。
+func pricingMissingReasonLabel(reason string) string {
+	switch reason {
+	case "negative_multiplier":
+		return "负倍率归零（价格有效但被负费率倍率清零）"
+	default:
+		return "模型无价（倍率前成本为零）"
+	}
 }
 
 // PricingMissingNotifier 是计费 funnel 注入的最小通知面（仿 AccountIncidentNotifier）。
@@ -195,9 +211,9 @@ func (n *TKPricingMissingNotifier) NotifyPricingMissing(ev PricingMissingEvent) 
 	n.firstSentAt[dedupeKey] = now
 	n.mu.Unlock()
 
-	title := fmt.Sprintf("TokenKey 模型缺价（已记零成本）[%s]", n.siteID)
+	title := fmt.Sprintf("TokenKey P0 计费漏算：已服务但零计费 [%s]", n.siteID)
 	body := buildPricingMissingFirstSeenText(n.siteID, ev, platform, model, now)
-	n.send(title, "orange", body, fmt.Sprintf("platform=%s model=%s", platform, model))
+	n.send(title, "red", body, fmt.Sprintf("reason=%s platform=%s model=%s", ev.Reason, platform, model))
 }
 
 func (n *TKPricingMissingNotifier) digestLoop() {
@@ -260,7 +276,7 @@ func (n *TKPricingMissingNotifier) flushDigest() {
 		return entries[i].billingModel < entries[j].billingModel
 	})
 	now := n.currentTime()
-	title := fmt.Sprintf("TokenKey 缺价模型零成本摘要 [%s]", n.siteID)
+	title := fmt.Sprintf("TokenKey 已服务零计费摘要 [%s]", n.siteID)
 	body := buildPricingMissingDigestText(n.siteID, entries, now)
 	n.send(title, "orange", body, "digest")
 }
@@ -329,14 +345,16 @@ func buildPricingMissingFirstSeenText(site string, ev PricingMissingEvent, platf
 	if ev.GroupID > 0 {
 		group = pricingMissingGroupLabel(ev.GroupID, ev.GroupName)
 	}
-	return fmt.Sprintf("**节点**：%s\n**平台**：%s\n**计费模型**：%s\n**请求模型**：%s\n**上游模型**：%s\n**组**：%s\n**api_key**：#%d\n**时间**：%s\n\n首次发现该模型缺价（24h 内同模型不再即时提醒，后续进周期摘要）。\n\n%s",
+	return fmt.Sprintf("**节点**：%s\n**原因**：%s\n**平台**：%s\n**计费模型**：%s\n**请求模型**：%s\n**上游模型**：%s\n**组**：%s\n**api_key**：#%d\n**本次计费单元**：%d\n**时间**：%s\n\n首次发现该（platform, model）已服务却零计费（24h 内同模型不再即时提醒，后续进周期摘要）。\n\n%s",
 		escapeFeishuText(site),
+		escapeFeishuText(pricingMissingReasonLabel(ev.Reason)),
 		escapeFeishuText(platform),
 		escapeFeishuText(model),
 		escapeFeishuText(requested),
 		escapeFeishuText(upstream),
 		escapeFeishuText(group),
 		ev.APIKeyID,
+		ev.Tokens,
 		escapeFeishuText(formatAlertTime(now)),
 		pricingMissingAdviceText,
 	)
@@ -384,13 +402,4 @@ func formatPricingMissingTokens(t int64) string {
 	default:
 		return fmt.Sprintf("%d", t)
 	}
-}
-
-// totalUsageTokensForPricingMissing 估算一次请求未计费的 token 总量。
-// CacheCreation5m/1h 是 CacheCreationTokens 的细分桶，不重复累加；
-// ImageOutputTokens 独立计入（图像缺价流量否则在摘要里显示 0 tokens）。
-func totalUsageTokensForPricingMissing(tokens UsageTokens) int64 {
-	return int64(tokens.InputTokens) + int64(tokens.OutputTokens) +
-		int64(tokens.CacheCreationTokens) + int64(tokens.CacheReadTokens) +
-		int64(tokens.ImageOutputTokens)
 }

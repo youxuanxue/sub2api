@@ -1340,9 +1340,9 @@
       "path": "backend/internal/service/gateway_service.go",
       "must_contain": [
         "topLevelCacheControl := gjson.GetBytes(out, \"cache_control\").Exists()",
-        "s.recordTokenCostPricingMissing(billingModel, apiKey, result, tokens, err)"
+        "logTokenCostPricingMissing(billingModel, apiKey, result, err)"
       ],
-      "rationale": "TK#2013: enforceCacheControlLimit must count a non-standard top-level cache_control toward the 4-block limit (else Anthropic 400 'Found 5'). TK#1833/#1544: calculateTokenCost must surface pricing-missing as an observable marked zero-cost record instead of a silent ActualCost:0 revenue leak (call renamed to recordTokenCostPricingMissing when the Feishu pricing-missing notifier was layered on top — it still emits the same structured log)."
+      "rationale": "TK#2013: enforceCacheControlLimit must count a non-standard top-level cache_control toward the 4-block limit (else Anthropic 400 'Found 5'). TK#1833/#1544: calculateTokenCost must surface pricing-missing as an observable structured log instead of a silent ActualCost:0 revenue leak. The Feishu P0 alert was consolidated into the result-side served-but-zero-cost probe (tkNotifyServedZeroCost); this call now keeps only the grep-able structured log."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_billing_pricing_missing.go",
@@ -2065,18 +2065,18 @@
     {
       "path": "backend/internal/service/gateway_service.go",
       "must_contain": [
-        "s.recordTokenCostPricingMissing(billingModel, apiKey, result, tokens, err)",
+        "s.tkNotifyServedZeroCost(cost, result, apiKey, billingModel, requestedModel, multiplier, accountRateMultiplier)",
         "tkPricingMissingNotifier PricingMissingNotifier"
       ],
-      "rationale": "Pricing-missing -> Feishu notifier hook on the Anthropic/generic billing funnel (PR #675 follow-up). Unpriced models are served and recorded at zero cost by design (never refused); this one-line call + struct field are the only bridge from calculateRecordUsageCost into PricingMissingNotifier. Both compile-clean if an upstream merge reverts the call back to the bare logTokenCostPricingMissing shape, which would silently turn revenue-leak alerting back into log-only observability."
+      "rationale": "Served-but-zero-cost -> Feishu P0 hook on the Anthropic/generic billing funnel (root-cause ②). After cost is resolved in recordUsageCore, this result-side probe (tkServedZeroCostReason: pre-multiplier TotalCost==0, or valid price zeroed by a negative multiplier) is the only bridge into PricingMissingNotifier — covering unpriced models AND the silent $0 paths (channel/video/per_request/cost-calc-error) that never return an error. Compile-clean if an upstream merge drops the call, which would silently turn revenue-leak P0 alerting back into log-only observability."
     },
     {
       "path": "backend/internal/service/openai_gateway_service.go",
       "must_contain": [
-        "s.notifyOpenAIPricingMissing(input, result, apiKey, billingModels, tokens)",
+        "s.tkNotifyServedZeroCost(cost, result, apiKey, input, billingModels, actualInputTokens, multiplier, accountRateMultiplier)",
         "tkPricingMissingNotifier PricingMissingNotifier"
       ],
-      "rationale": "Pricing-missing -> Feishu notifier hook on the OpenAI-compat record-usage funnel (covers newapi fifth platform + image/video relays). The upstream-owned openai_usage.pricing_missing_record_zero_cost log line stays untouched; this adjacent one-line call is the only feed into PricingMissingNotifier on this path and is compile-clean if dropped by an upstream merge."
+      "rationale": "Served-but-zero-cost -> Feishu P0 hook on the OpenAI-compat record-usage funnel (covers newapi fifth platform + image/video relays). The upstream-owned openai_usage.pricing_missing_record_zero_cost log line stays untouched; this adjacent result-side probe is the only feed into PricingMissingNotifier on this path (root-cause ②) and is compile-clean if dropped by an upstream merge."
     },
     {
       "path": "backend/internal/service/gateway_request_tk_fable.go",

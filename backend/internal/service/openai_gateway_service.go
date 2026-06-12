@@ -6120,9 +6120,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 			zap.Int64("api_key_id", apiKey.ID),
 			zap.Int64("account_id", account.ID),
 		).Warn("openai_usage.pricing_missing_record_zero_cost", zap.Error(err))
-		// TK: feed the pricing-missing Feishu notifier (see
-		// openai_gateway_service_tk_pricing_missing.go). Service is NOT refused.
-		s.notifyOpenAIPricingMissing(input, result, apiKey, billingModels, tokens)
+		// TK 根因②：错误侧不再单独 notify——已收敛到记账点的"已服务但零计费"
+		// 统一探针（tkNotifyServedZeroCost，下方），避免一次事件两张卡。日志保留。
 		cost = &CostBreakdown{BillingMode: string(BillingModeToken)}
 	}
 
@@ -6136,6 +6135,10 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	// Create usage log
 	durationMs := int(result.Duration.Milliseconds())
 	accountRateMultiplier := account.BillingRateMultiplier()
+
+	// TK 根因②：已服务但零计费统一探针（cost 已知后判定，命中发 P0 告警）。
+	s.tkNotifyServedZeroCost(cost, result, apiKey, input, billingModels, actualInputTokens, multiplier, accountRateMultiplier)
+
 	requestID := resolveUsageBillingRequestID(ctx, result.RequestID)
 	if result.OpenAIWSMode {
 		if upstreamRequestID := strings.TrimSpace(result.RequestID); upstreamRequestID != "" {

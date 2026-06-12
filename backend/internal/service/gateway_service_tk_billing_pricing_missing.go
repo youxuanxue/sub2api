@@ -59,31 +59,10 @@ func (s *GatewayService) SetPricingMissingNotifier(n PricingMissingNotifier) {
 	s.tkPricingMissingNotifier = n
 }
 
-// recordTokenCostPricingMissing is the single funnel entry called from
-// calculateRecordUsageCost: it keeps the structured zero-cost log (grepped by
-// ops tooling and the #675 probe cross-check) and additionally feeds the
-// pricing-missing Feishu notifier so operators get told to configure pricing
-// instead of discovering revenue leaks in logs. Service is NOT refused.
-func (s *GatewayService) recordTokenCostPricingMissing(billingModel string, apiKey *APIKey, result *ForwardResult, tokens UsageTokens, err error) {
-	logTokenCostPricingMissing(billingModel, apiKey, result, err)
-	if s == nil || s.tkPricingMissingNotifier == nil || !isUsagePricingUnavailableError(err) {
-		return
-	}
-	ev := PricingMissingEvent{
-		BillingModel: billingModel,
-		Tokens:       totalUsageTokensForPricingMissing(tokens),
-	}
-	if result != nil {
-		ev.RequestedModel = result.Model
-		ev.UpstreamModel = result.UpstreamModel
-	}
-	if apiKey != nil {
-		ev.APIKeyID = apiKey.ID
-		if apiKey.Group != nil {
-			ev.GroupID = apiKey.Group.ID
-			ev.GroupName = apiKey.Group.Name
-			ev.Platform = apiKey.Group.Platform
-		}
-	}
-	s.tkPricingMissingNotifier.NotifyPricingMissing(ev)
-}
+// Note: the former recordTokenCostPricingMissing (error-side log + Feishu notify)
+// has been consolidated. The structured log is now emitted directly via
+// logTokenCostPricingMissing at the calculateTokenCost error branch, and the
+// Feishu P0 alert moved to the result-side "served but zero cost" probe
+// (tkNotifyServedZeroCost / tkServedZeroCostReason in
+// gateway_service_tk_served_zero_cost.go), which also catches the silent $0
+// paths that never return an error.
