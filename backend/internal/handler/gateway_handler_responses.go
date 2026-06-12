@@ -106,14 +106,23 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 
 	// Claude Code only restriction:
 	// /v1/responses is never a Claude Code endpoint.
-	// When claude_code_only is enabled, this endpoint is rejected.
-	// The existing service-layer checkClaudeCodeRestriction handles degradation
-	// to fallback groups when the Forward path calls SelectAccountForModelWithExclusions.
-	// Here we just reject at handler level since /v1/responses clients can't be Claude Code.
+	// TK: when a CC-only group declares a valid fallback_group_id, route non-CC
+	// OpenAI-compat traffic to that fallback group instead of hard-403'ing (see
+	// gateway_handler_tk_cc_only_fallback.go). No/invalid fallback keeps the 403.
 	if apiKey.Group != nil && apiKey.Group.ClaudeCodeOnly {
-		h.responsesErrorResponse(c, http.StatusForbidden, "permission_error",
-			"This group is restricted to Claude Code clients (/v1/messages only)")
-		return
+		writeForbidden := func() {
+			h.responsesErrorResponse(c, http.StatusForbidden, "permission_error", tkCCOnlyForbiddenMessage)
+		}
+		writeBillingError := func(status int, code, message string) {
+			h.responsesErrorResponse(c, status, code, message)
+		}
+		fallbackAPIKey, handled := h.tkResolveCCOnlyFallback(c, apiKey, reqLog, writeForbidden, writeBillingError)
+		if handled {
+			return
+		}
+		apiKey = fallbackAPIKey
+		// Re-resolve channel-level model mapping against the fallback group.
+		channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(requestCtx, apiKey.GroupID, reqModel)
 	}
 
 	if decision := h.checkContentModeration(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIResponses, reqModel, body); decision != nil && decision.Blocked {
