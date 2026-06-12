@@ -97,6 +97,7 @@ function sampleConfig(overrides: Partial<EmailNotificationConfig> = {}): EmailNo
       signing_secret_configured: false,
       rate_limit_per_hour: 3,
       cooldown_seconds: 3600,
+      upstream_balance_low_threshold_cny: 50,
     },
     ...overrides,
   }
@@ -131,6 +132,7 @@ describe('OpsEmailNotificationCard', () => {
         signing_secret_configured: true,
         rate_limit_per_hour: 3,
         cooldown_seconds: 3600,
+        upstream_balance_low_threshold_cny: 50,
       },
     }))
 

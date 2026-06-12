@@ -5707,6 +5707,8 @@ export default {
         feishuSecretKeepPlaceholder: '已配置，留空保留',
         feishuSecretConfiguredHint: '已配置，留空保留；输入新值会覆盖。',
         feishuCooldownSeconds: '冷却时间（秒）',
+        feishuUpstreamBalanceLowThreshold: '上游余额告警阈值（元）',
+        feishuUpstreamBalanceLowThresholdHint: '后台定时拉有公开余额接口的上游渠道账号（当前 DeepSeek）余额，低于此值提前发飞书预警，避免归零断供。需启用上方飞书告警。',
         configured: '已配置',
         notConfigured: '未配置',
         dailySummary: '每日摘要',
@@ -5732,7 +5734,8 @@ export default {
           feishuWebhookRequired: '启用飞书 P0 告警时必须配置 Webhook',
           feishuWebhookHttps: '飞书 Webhook 必须是 HTTPS URL',
           feishuRateLimitRange: '飞书每小时限额必须在 1 到 24 之间',
-          feishuCooldownRange: '飞书冷却时间必须在 60 到 86400 秒之间'
+          feishuCooldownRange: '飞书冷却时间必须在 60 到 86400 秒之间',
+          feishuUpstreamBalanceLowThresholdRange: '上游余额告警阈值必须在 1 到 1000000 之间'
         }
       },
       settings: {

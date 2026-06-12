@@ -762,6 +762,7 @@ export interface EmailNotificationConfig {
     signing_secret_configured: boolean
     rate_limit_per_hour: number
     cooldown_seconds: number
+    upstream_balance_low_threshold_cny: number
   }
 }
 

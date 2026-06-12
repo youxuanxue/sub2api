@@ -391,6 +391,30 @@
         "s.notifyAccountSchedulingBlocked(account, time.Time{}, \"auth_error\", errorMsg)"
       ],
       "rationale": "handleAuthError must forward the upstream error message as the Feishu permanent-disable card detail (e.g. 'Payment required (402): Insufficient Balance'). notifyAccountSchedulingBlocked's detail parameter is variadic, so an upstream merge reverting this call to the bare 3-arg form compiles clean and silently strips the upstream status/message from the P0 card — losing the alert-content half of the 2026-06-11 incident fix while the alert itself still fires."
+    },
+    {
+      "path": "backend/internal/integration/newapi/balance_probe_tk.go",
+      "must_contain": [
+        "func BalanceProbeFor",
+        "newapiconstant.ChannelTypeDeepSeek: ProbeDeepSeekBalance"
+      ],
+      "rationale": "Per-channel upstream balance-probe dispatch for the fifth platform. The DeepSeek registry binding is the only thing wiring channel_type=43 to a real /user/balance probe; dropping it (or BalanceProbeFor) compiles clean and silently turns the upstream low-balance sentinel into a no-op (it lists accounts, finds no probe, alerts nothing) — re-opening the 2026-06-11 DeepSeek balance-zero blind spot the sentinel exists to pre-empt. Only channels with a per-api-key balance endpoint belong here (火山/千问 balances are cloud-account-level AK/SK billing APIs, intentionally absent)."
+    },
+    {
+      "path": "backend/internal/service/upstream_balance_sentinel_tk.go",
+      "must_contain": [
+        "newapi.BalanceProbeFor(acc.ChannelType)",
+        "s.notifier.NotifyUpstreamBalanceLow",
+        "ListByPlatform(ctx, PlatformNewAPI)"
+      ],
+      "rationale": "The poll->detect->alert chain of the upstream low-balance sentinel: list newapi accounts, probe those exposing a per-key balance API, fire a pre-emptive Feishu warning below threshold. An upstream merge that drops any link (the PlatformNewAPI listing, the BalanceProbeFor lookup, or the NotifyUpstreamBalanceLow call) compiles clean but silently disables proactive low-balance alerting, leaving only the reactive #724 402 path that fires after the account is already balance-exhausted and permanently disabled."
+    },
+    {
+      "path": "backend/internal/service/wire.go",
+      "must_contain": [
+        "ProvideUpstreamBalanceSentinel,"
+      ],
+      "rationale": "ProviderSet member that constructs AND Start()s the upstream low-balance sentinel. The sentinel is a side-effect service consumed only by provideCleanup, so if an upstream merge drops this wire.NewSet entry together with the provideCleanup wiring, Wire regenerates clean with no sentinel and the background poller silently never starts. The trailing comma pins the set member specifically (dropping the provider func instead fails compile, so only the registration needs guarding)."
     }
   ]
 }
