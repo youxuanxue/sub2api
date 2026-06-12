@@ -233,7 +233,7 @@ func (n *TKAccountIncidentNotifier) NotifyAccountIncident(account *Account, unti
 		// 自愈类临时冷却摘要默认关（opt-in）：不记恢复台账、不入 digest buffer、不发摘要。
 		// 临时冷却卡片本身已写明 until，自愈静默即可。池级全不可调度 P0
 		// （NotifyPlatformPoolExhausted）、永久失效 P0（handlePermanent）、永久恢复绿卡
-		// 走不同路径，恒发不受影响。设 feishu.account_incident_digest_seconds 为正数即恢复。
+		// 走不同路径，恒发不受影响。设 feishu.account_incident_digest_enabled=true 即恢复。
 		return
 	}
 	n.trackActive(account, cls, until)
@@ -404,9 +404,13 @@ func (n *TKAccountIncidentNotifier) pruneStaleActive() {
 }
 
 // temporaryDigestEnabled 报告自愈类临时冷却摘要是否开启。opt-in 语义：仅当
-// feishu.account_incident_digest_seconds 被显式设为 > 0 才开启；默认（未配 / <=0）
+// feishu.account_incident_digest_enabled 被显式设为 true 才开启；默认（未配 / false）
 // 关闭——运营判定 529/429/temp 这类自愈橙头摘要在 provider 抖动时是噪音。池级 P0
-// 与永久失效 P0/恢复绿卡在另一条路径，恒发。设正数间隔即重新开启。
+// 与永久失效 P0/恢复绿卡在另一条路径，恒发。
+//
+// 注意：enable 必须看本 bool，绝不能复用 AccountIncidentDigestSeconds>0——后者被
+// normalizeOpsFeishuAlertConfig 的 0→600 回填使其永不为 0，曾让 PR#730 的“默认关”
+// 被悄悄打开（gate 恒真）。seconds 现在只表示 flush 间隔（见 digestInterval）。
 func (n *TKAccountIncidentNotifier) temporaryDigestEnabled() bool {
 	if n == nil || n.cfgProvider == nil {
 		return false
@@ -415,10 +419,11 @@ func (n *TKAccountIncidentNotifier) temporaryDigestEnabled() bool {
 	if err != nil || cfg == nil {
 		return false
 	}
-	return cfg.Feishu.AccountIncidentDigestSeconds > 0
+	return cfg.Feishu.AccountIncidentDigestEnabled
 }
 
-// digestInterval 从配置读 flush 间隔（秒）,下限 30s,缺失则兜底 600s。
+// digestInterval 从配置读 flush 间隔（秒）,下限 30s,缺失则兜底 600s。只管间隔不管
+// enable——是否发摘要由 temporaryDigestEnabled() 决定。
 func (n *TKAccountIncidentNotifier) digestInterval() time.Duration {
 	secs := accountIncidentDigestSecondsFallback
 	if n.cfgProvider != nil {
