@@ -13,9 +13,11 @@ This check hardens that against silent regression (CLAUDE.md §5 "upgrade princi
 a soft rule that bit us once becomes a mechanical gate). It asserts:
   1. The overlay parses and is non-empty.
   2. Anchor models are present with a non-zero price in the right field:
-       imagen-4.0-generate-001 -> output_cost_per_image > 0
-       veo-3.1-generate-001    -> output_cost_per_second > 0
-       deepseek-v4-flash       -> input_cost_per_token > 0
+       imagen-4.0-generate-001        -> output_cost_per_image > 0
+       veo-3.1-generate-001           -> output_cost_per_second > 0
+       deepseek-v4-flash              -> input_cost_per_token > 0
+       doubao-seedream-4-0-250828     -> output_cost_per_image > 0
+       doubao-seedance-1-0-pro-250528 -> output_cost_per_second > 0
   3. EVERY entry has a recognized mode and a > 0 price in the matching field(s)
      (no silently-shipped $0 entry, which would deduct nothing):
        image_generation -> output_cost_per_image
@@ -46,6 +48,8 @@ ANCHORS = {
     "imagen-4.0-generate-001": "output_cost_per_image",
     "veo-3.1-generate-001": "output_cost_per_second",
     "deepseek-v4-flash": "input_cost_per_token",
+    "doubao-seedream-4-0-250828": "output_cost_per_image",
+    "doubao-seedance-1-0-pro-250528": "output_cost_per_second",
 }
 
 

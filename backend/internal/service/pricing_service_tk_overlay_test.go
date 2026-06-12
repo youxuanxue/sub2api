@@ -148,6 +148,37 @@ func TestTKPricingOverlay_MediaEntriesStillPresent(t *testing.T) {
 	require.InDelta(t, 0.4, veo.OutputCostPerSecond, 1e-12)
 }
 
+// TestTKPricingOverlay_SeedMediaEntries guards the VolcEngine seedream (per-image)
+// and seedance (per-second) overlay prices: the runtime mirror is a trimmed litellm
+// that has no media entries for these IDs, so without the overlay every seedream
+// image bills $0 and every seedance second bills $0.
+func TestTKPricingOverlay_SeedMediaEntries(t *testing.T) {
+	svc := &PricingService{}
+	data, err := svc.parsePricingData([]byte(`{
+		"gpt-5.4": {"input_cost_per_token": 0.0000025, "output_cost_per_token": 0.000015, "litellm_provider": "openai", "mode": "chat"}
+	}`))
+	require.NoError(t, err)
+	for model, wantPerImage := range map[string]float64{
+		"doubao-seedream-4-0-250828": 0.029850746268656716,
+		"seedream-4-0-250828":        0.029850746268656716,
+	} {
+		entry := data[model]
+		require.NotNil(t, entry, "overlay must carry %s", model)
+		require.InDelta(t, wantPerImage, entry.OutputCostPerImage, 1e-12, model)
+	}
+	for model, wantPerSecond := range map[string]float64{
+		"doubao-seedance-1-0-pro-250528":  0.10880597014925374,
+		"seedance-1-0-pro-250528":         0.10880597014925374,
+		"doubao-seedance-1-5-pro-251215":  0.11611940298507463,
+		"doubao-seedance-2-0-260128":      0.36985074626865673,
+		"doubao-seedance-2-0-fast-260128": 0.11940298507462686,
+	} {
+		entry := data[model]
+		require.NotNil(t, entry, "overlay must carry %s", model)
+		require.InDelta(t, wantPerSecond, entry.OutputCostPerSecond, 1e-12, model)
+	}
+}
+
 // TestTKPricingOverlay_CopiesCacheCreation1hPrice guards the overlay loader's
 // field copy of cache_creation_input_token_cost_above_1hr. The loader used to
 // drop it (only the main parsePricingData entry path copied it), so any overlay
