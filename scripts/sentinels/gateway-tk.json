@@ -1694,9 +1694,11 @@
         "func (n *TKAccountIncidentNotifier) trackActive(",
         "func (n *TKAccountIncidentNotifier) pruneStaleActive(",
         "TokenKey 账号恢复",
-        "n.send(title, \"green\", body,"
+        "n.send(title, \"green\", body,",
+        "func (n *TKAccountIncidentNotifier) temporaryDigestEnabled() bool",
+        "cls.kind == IncidentKindTemporaryCooldown && !n.temporaryDigestEnabled()"
       ],
-      "rationale": "账号失效 → 飞书告警的核心实现（TK-only，无上游对应）。NotifyAccountIncident 按 classifyIncident 的派生形态分流：永久失效（status=error 终态）即时单条 P0；临时冷却（429/529/...自愈）写聚合 buffer 由后台 ticker flush 成低频摘要，保住信噪比不刷屏。classifyIncident 把底层 reason 字符串映射成 (形态, 去重类, 中文文案, 运营建议)。`case \"429_model_class\"` 是 G4(#600)模型维度 cooldown 的专属分类——缺它会落兜底\"账号临时冷却\"，把 opus-only 冷却误报成整账号下线。**恢复通知（事件驱动）**：trackActive 登记活跃事件台账；NotifyAccountRecovered 在真实清除事件(ClearRateLimit/RecoverAccountState)时对此前告警过的账号发即时绿卡（`green` header），永久+临时两类都发；pruneStaleActive 静默修剪纯定时器到期(无 clear 事件)的陈旧条目、**不发卡**(按设计:定时器到期不播报)。删掉任一 anchor 会让恢复链路断裂或模型类告警回到误报兜底。整文件易在大重构/上游合并中被整体误删——删掉等于告警链路断裂。"
+      "rationale": "账号失效 → 飞书告警的核心实现（TK-only，无上游对应）。NotifyAccountIncident 按 classifyIncident 的派生形态分流：永久失效（status=error 终态）即时单条 P0；临时冷却（429/529/...自愈）写聚合 buffer 由后台 ticker flush 成低频摘要，保住信噪比不刷屏。classifyIncident 把底层 reason 字符串映射成 (形态, 去重类, 中文文案, 运营建议)。`case \"429_model_class\"` 是 G4(#600)模型维度 cooldown 的专属分类——缺它会落兜底\"账号临时冷却\"，把 opus-only 冷却误报成整账号下线。**恢复通知（事件驱动）**：trackActive 登记活跃事件台账；NotifyAccountRecovered 在真实清除事件(ClearRateLimit/RecoverAccountState)时对此前告警过的账号发即时绿卡（`green` header），永久+临时两类都发；pruneStaleActive 静默修剪纯定时器到期(无 clear 事件)的陈旧条目、**不发卡**(按设计:定时器到期不播报)。删掉任一 anchor 会让恢复链路断裂或模型类告警回到误报兜底。整文件易在大重构/上游合并中被整体误删——删掉等于告警链路断裂。**自愈摘要 opt-in 默认关（PR#730）**：temporaryDigestEnabled + NotifyAccountIncident 里 `cls.kind == IncidentKindTemporaryCooldown && !n.temporaryDigestEnabled()` 的早返门把 529/429/temp 自愈类摘要改成默认静默(feishu.account_incident_digest_seconds>0 才发)；上游合并/重构若删掉该门会让自愈类摘要回到默认刷屏，淹没真故障 P0。"
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_incident.go",
@@ -2224,17 +2226,22 @@
         "usage credits are required",
         "tkAnthropic429SameTextThreshold",
         "MarkResponseCommitted",
-        "tkSkipDownstreamNoAvailableAccountsPenalty"
+        "tkSkipDownstreamNoAvailableAccountsPenalty",
+        "resp.StatusCode != 529",
+        "c.Data(resp.StatusCode, \"application/json\", respBody)"
       ],
-      "rationale": "Companion owning the request-owned 429 classifier (known policy phrase) + same-text failover circuit breaker + ORIGINAL-body passthrough. Body passthrough is load-bearing for the prod<->edge mirror topology: preserving the upstream phrase is what lets the prod hop re-classify the relayed 429 instead of seeing a rewritten generic text the exemption predicates cannot match. The capacity-envelope exemption (tkSkipDownstreamNoAvailableAccountsPenalty / failover-exhausted / generic rewrite text) must stay wired into the breaker path: without it, identical empty-pool 429s from several edges would trip the breaker and prematurely stop legitimate cross-edge failover."
+      "rationale": "Companion owning the request-owned 429 classifier (known policy phrase) + same-text failover circuit breaker + ORIGINAL-body passthrough. Body passthrough is load-bearing for the prod<->edge mirror topology: preserving the upstream phrase is what lets the prod hop re-classify the relayed 429 instead of seeing a rewritten generic text the exemption predicates cannot match. The capacity-envelope exemption (tkSkipDownstreamNoAvailableAccountsPenalty / failover-exhausted / generic rewrite text) must stay wired into the breaker path: without it, identical empty-pool 429s from several edges would trip the breaker and prematurely stop legitimate cross-edge failover. 529 generalization (prod 2026-06-11 16:42-17:03 UTC Anthropic-wide overload): the breaker gate must keep 529 in scope ('resp.StatusCode != 529') and pass the ORIGINAL status through ('c.Data(resp.StatusCode, ...)') instead of the old hardcoded 429 — a future upstream merge reverting either anchor re-opens the 529 fan-out that PR#730 closed (a single deterministic 529 poisoning a whole multi-account pool, and the client seeing 429 instead of 529)."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
         "anthropic_request_owned_429_skip_penalty",
-        "tkCheckPlatformPoolExhausted"
+        "tkCheckPlatformPoolExhausted",
+        "func (s *RateLimitService) handle529(ctx context.Context, account *Account, headers http.Header) bool",
+        "cooldown = anthropicCooldownTierLadder[0]",
+        "retryAfterOwned := s.handle529(ctx, account, headers)"
       ],
-      "rationale": "Two incident-2026-06-11 guards inside upstream-owned ratelimit_service.go: (a) defense-in-depth skip in case 429 so a request-owned policy 429 never advances the anthropic ladder regardless of which caller reached HandleUpstreamError; (b) the pool-exhausted check hook on the notifyAccountSchedulingBlocked funnel — the only place that can observe the 'last schedulable account just got cooled' transition for the platform-pool P0 Feishu card."
+      "rationale": "Three incident-2026-06-11 guards inside upstream-owned ratelimit_service.go: (a) defense-in-depth skip in case 429 so a request-owned policy 429 never advances the anthropic ladder regardless of which caller reached HandleUpstreamError; (b) the pool-exhausted check hook on the notifyAccountSchedulingBlocked funnel — the only place that can observe the 'last schedulable account just got cooled' transition for the platform-pool P0 Feishu card; (c) handle529 amplifier removal (16:50 UTC全edge全宕): handle529 takes 'headers' to honor upstream Retry-After and writes only the 30s tier-0 floor ('cooldown = anthropicCooldownTierLadder[0]') instead of the legacy flat 10-min SetOverloaded, and case 529 feeds its return as skipCooldownWrite ('retryAfterOwned := s.handle529(...)') so a no-Retry-After 529 does NOT suppress the 3/3 ladder — sustained 529 still escalates while a single provider-wide blip costs only 30s. A future upstream merge reverting any anchor (dropping headers, reinstating a flat-minutes cooldown, or suppressing the ladder unconditionally) re-arms the single-account-edge 10-min lockout PR#730 fixed."
     },
     {
       "path": "backend/internal/service/account_incident_notifier_tk_pool.go",

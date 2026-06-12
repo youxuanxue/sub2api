@@ -2004,9 +2004,12 @@ func persistOpenAI429PlanType(ctx context.Context, repo AccountRepository, accou
 //     升级；单次/少量瞬时 529 到不了阈值，只付 30s。
 //
 // 返回值语义随之从“是否写了 overload”改为“是否写了精确 Retry-After（调用方据此
-// 决定是否抑制阶梯）”。settings.Enabled 仍是 529 是否进入即时过载冷却的总开关；
-// CooldownMinutes 的定长角色被阶梯取代（沿用 2026-05-21 阶梯替换 flat 的同一杠杆），
-// 仅在 operator 显式设更大值时作为 30s 地板的上调下限保留其“想要更长 529 冷却”意图。
+// 决定是否抑制阶梯）”。settings.Enabled 仍是 529 是否进入即时过载冷却的总开关。
+// settings.CooldownMinutes 的定长角色被 tier 阶梯【彻底】取代——本函数不再读取它
+// 来定时长（沿用 2026-05-21 阶梯替换 flat 的同一杠杆）。因此 admin 的 cooldown_minutes
+// 设置目前对【冷却时长】已失效（Enabled 开关仍生效）；若 operator 需要收紧 529 冷却
+// 上限，后续应把它接成阶梯末级 cap，而非在此当地板（默认 10 会把单次 529 又锁回
+// 10min，正是本次要消除的放大器）。
 func (s *RateLimitService) handle529(ctx context.Context, account *Account, headers http.Header) bool {
 	var settings *OverloadCooldownSettings
 	if s.settingService != nil {
@@ -2018,8 +2021,9 @@ func (s *RateLimitService) handle529(ctx context.Context, account *Account, head
 		}
 	}
 	if settings == nil {
-		// 回退到配置文件：仅取 Enabled 语义，时长走阶梯（不再用 flat 分钟数）。
-		settings = &OverloadCooldownSettings{Enabled: true, CooldownMinutes: s.cfg.RateLimit.OverloadCooldownMinutes}
+		// 回退：仅需 Enabled 语义,时长走阶梯,不再读 cfg.RateLimit.OverloadCooldownMinutes
+		// 这条 flat 分钟数（CooldownMinutes 留零值,本函数也不读它定时长）。
+		settings = &OverloadCooldownSettings{Enabled: true}
 	}
 
 	if !settings.Enabled {
