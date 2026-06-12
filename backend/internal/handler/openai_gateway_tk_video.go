@@ -92,6 +92,16 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "prompt is required")
 		return
 	}
+	// Video-INPUT (continuation / reference video) is rejected until it is
+	// priced: upstream bills (input+output) duration for video-in requests,
+	// so the per-output-second price would under-charge 1.6–2.4x. First-frame
+	// image input stays allowed. Re-pricing must land together with lifting
+	// this guard — do not add a bypass toggle without it.
+	if videoSubmitHasVideoInput(body) {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error",
+			"Video input (video_url content) is not supported: video-input generation is not yet priced on this gateway. Remove the video_url content part; first-frame image input (image_url) is supported.")
+		return
+	}
 	reqLog = reqLog.With(zap.String("model", reqModel))
 
 	setOpsRequestModelAndBody(c, reqModel, false, body)
@@ -179,6 +189,11 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 	if apiKey.GroupID != nil {
 		groupID = *apiKey.GroupID
 	}
+	// Resolved once and stamped on BOTH the registry record and the usage
+	// record below, so the terminal-failure refund can find the billed
+	// usage_logs row by request_id in every resolution branch (ctx-derived
+	// or generated).
+	billingRequestID := service.TkResolveUsageBillingRequestID(c.Request.Context())
 	rec := &service.VideoTaskRecord{
 		PublicTaskID:   publicTaskID,
 		UpstreamTaskID: outcome.UpstreamTaskID,
@@ -196,11 +211,12 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 		// (credentials.api_key → openai_api_key fallback, base_url platform
 		// guard) — duplicating it here would be a DRY violation and a source
 		// of subtle drift.
-		BaseURL:       outcome.BaseURL,
-		APIKey:        outcome.APIKey,
-		OriginModel:   outcome.OriginModel,
-		UpstreamModel: outcome.UpstreamModel,
-		CreatedAt:     time.Now(),
+		BaseURL:          outcome.BaseURL,
+		APIKey:           outcome.APIKey,
+		OriginModel:      outcome.OriginModel,
+		UpstreamModel:    outcome.UpstreamModel,
+		BillingRequestID: billingRequestID,
+		CreatedAt:        time.Now(),
 	}
 	if err := h.videoTaskCache.Save(c.Request.Context(), rec); err != nil {
 		// At this point the bridge has already written the success body
@@ -231,6 +247,7 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 			Result: &service.OpenAIForwardResult{
 				Model:                outcome.OriginModel,
 				UpstreamModel:        outcome.UpstreamModel,
+				RequestID:            billingRequestID,
 				Stream:               false,
 				Duration:             outcome.Duration,
 				VideoDurationSeconds: &videoSeconds,
@@ -334,7 +351,18 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 	// On terminal status we drop the entry to bound storage; clients that
 	// need the URL must have already consumed the response body above.
 	switch strings.ToLower(out.Status) {
-	case "success", "succeeded", "failure", "failed":
+	case "failure", "failed":
+		// The user paid at submit for a video that never materialized —
+		// reverse the charge. Idempotency lives in the refund itself
+		// (usage_billing_dedup keyed by the public task id), so a concurrent
+		// poll racing this Delete cannot double-refund. Clients that never
+		// poll a failed task are never refunded (registry record expires
+		// with its TTL); openai_video_refund.* logs are the audit trail.
+		h.videoTaskCache.Delete(c.Request.Context(), publicTaskID)
+		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
+			h.gatewayService.RefundVideoUsageOnFailure(ctx, rec)
+		})
+	case "success", "succeeded":
 		h.videoTaskCache.Delete(c.Request.Context(), publicTaskID)
 	}
 }
@@ -367,4 +395,35 @@ func videoRequestedSeconds(body []byte) int64 {
 		}
 	}
 	return 8
+}
+
+// videoSubmitHasVideoInput reports whether a video submit body carries a
+// VIDEO input content part (continuation / reference video). Upstream bills
+// (input+output) duration for those, so TokenKey's per-output-second price
+// would under-charge — the submit handler rejects them until they are priced.
+// First-frame image input (image_url parts) must pass.
+//
+// Clients send the parts as a top-level "content" array (the new-api
+// TaskSubmitReq routes unknown top-level fields into Metadata, where the
+// doubao adaptor reads metadata["content"]); "metadata.content" is scanned
+// too for clients that pre-nest it.
+func videoSubmitHasVideoInput(body []byte) bool {
+	for _, path := range []string{"content", "metadata.content"} {
+		parts := gjson.GetBytes(body, path)
+		if !parts.IsArray() {
+			continue
+		}
+		hasVideo := false
+		parts.ForEach(func(_, part gjson.Result) bool {
+			if part.Get("type").String() == "video_url" || part.Get("video_url").Exists() {
+				hasVideo = true
+				return false
+			}
+			return true
+		})
+		if hasVideo {
+			return true
+		}
+	}
+	return false
 }

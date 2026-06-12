@@ -1649,9 +1649,11 @@
       "path": "backend/internal/handler/openai_gateway_tk_video.go",
       "must_contain": [
         "videoRequestedSeconds",
-        "VideoDurationSeconds"
+        "VideoDurationSeconds",
+        "RefundVideoUsageOnFailure",
+        "videoSubmitHasVideoInput"
       ],
-      "rationale": "Per-second video (veo) billing: VideoSubmit records usage with the requested duration (default 8s via videoRequestedSeconds) so the cost path bills duration x per-second rate. Without this anchor veo silently bills $0 (no tokens, no per-second branch)."
+      "rationale": "Per-second video (veo) billing: VideoSubmit records usage with the requested duration (default 8s via videoRequestedSeconds) so the cost path bills duration x per-second rate. Without this anchor veo silently bills $0 (no tokens, no per-second branch). RefundVideoUsageOnFailure anchors the terminal-failed refund trigger (user paid at submit for a video that never materialized); videoSubmitHasVideoInput anchors the video-INPUT reject guard (upstream bills input+output duration for video-in, so the per-output-second price would under-charge 1.6-2.4x — lifting the guard requires re-pricing in the same PR)."
     },
     {
       "path": "backend/internal/service/openai_privacy_service.go",
