@@ -393,33 +393,13 @@ jobs:
                 disable_web_page_preview: true
               }')"
 
-  queue-prod-deploy:
-    needs: [release]
-    # NOTE: GitHub Actions 禁止在 job-level if 里引用 env 上下文
-    # (https://docs.github.com/en/actions/learn-github-actions/contexts —
-    # env is unavailable when GitHub evaluates if for jobs).
-    # 引用了会让工作流文件直接解析失败 (HTTP 422 "Unrecognized named-value: 'env'")，
-    # tag-push 与 workflow_dispatch 双双被拒；2026-05-06 v1.7.17 实事故。
-    # 这里展开 workflow-level env 的两个底层来源 vars + inputs，效果一致。
-    if: ${{ needs.release.result == 'success' && vars.SIMPLE_RELEASE != 'true' && github.event.inputs.simple_release != 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Queue prod Stage0 deploy
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG_NAME=${{ github.event.inputs.tag }}
-          else
-            TAG_NAME=${GITHUB_REF#refs/tags/}
-          fi
-          VERSION=${TAG_NAME#v}
-          gh workflow run deploy-stage0.yml \
-            --repo "$REPO" \
-            -f tag="$VERSION"
-          echo "queued prod deploy for ${VERSION}; prod Environment approval is still required before deploy steps run"
+  # NOTE: prod 部署不再由 release.yml 自动 queue（去掉了原 queue-prod-deploy job）。
+  # release.yml 只负责 build multi-arch 镜像；部署改由 tokenkey-stage0-release-rollout
+  # skill 在 build 成功后显式 dispatch deploy-stage0.yml（target=prod 直接 dispatch，
+  # target=all 在 edge canary infra smoke 绿后再 dispatch prod），由 skill 持有 rollout
+  # 意图与 canary-first 顺序。好处：① 不再有提前 queue 卡 waiting 的 prod run；
+  # ② 消除「自动 queue + 手动 dispatch」两个并行 prod run 的故障；③ build 与 deploy
+  # 职责分离。裸 tag-push 不再自动部署 prod —— 发版请走 skill（带 canary/smoke/followup）。
 
   sync-version-file:
     needs: [release]

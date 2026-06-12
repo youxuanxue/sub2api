@@ -153,16 +153,10 @@ bash scripts/release-bump-and-tag.sh --dry-run  # 只看决策与计划，不写
 
 ### prod：主网关
 
-`release.yml` 成功后会自动 dispatch `deploy-stage0.yml -f tag=<VERSION>`（由 `github-actions[bot]` 触发；job 固定绑定 **`prod`** Environment）。先检查，避免重复 dispatch：
+`release.yml` **不再自动 queue prod**（原 `queue-prod-deploy` job 已移除）——release 只 build 镜像，部署由本 skill 在 build 成功后**显式 dispatch**（顺序与 rollout 意图由 skill 持有；裸 tag-push 不会自动部署 prod，发版务必走 skill）。先确认没有遗留的同 tag run，再 dispatch（tag 不带 `v`）：
 
 ```bash
-gh run list --workflow=deploy-stage0.yml --limit 3 --json databaseId,actor,createdAt,status,displayTitle
-```
-
-- Bot 已自动触发，且 `createdAt` 在 release 完成后：直接 `gh run watch <id> --exit-status`。
-- 未自动触发：手动 dispatch（tag 不带 `v`）：
-
-```bash
+gh run list --workflow=deploy-stage0.yml --limit 3 --json databaseId,event,createdAt,status,displayTitle
 gh workflow run deploy-stage0.yml \
   -f tag="$TARGET_TAG"
 ```
@@ -180,7 +174,7 @@ gh run view "$RUN_ID" --json status --jq .status   # 期望 in_progress
 
 若 API 返回 403（执行账号非 reviewer），则回落人工批准，不要换号绕过。
 
-**target=all 注意**：如果 release 已自动 queue prod，而 Edge canary 尚未完成，不取消 prod run；若它卡在 `prod` Environment approval，先不要批准，等第一个 deployable Edge canary 成功后再批准（用上面的命令自批）。若 prod 已开始，继续完成，不强行中断，并在摘要标记“prod 已先行”。
+**target=all 注意**：prod 不再被 release 自动 queue，所以**先不要 dispatch prod**——等第一个 deployable Edge canary infra smoke 绿后，再 `gh workflow run deploy-stage0.yml -f tag=$TARGET_TAG`，然后按上面的 approval 命令自批。canary-first 顺序由"先不 dispatch"自然保证，不再依赖"先不批准"的提前 waiting run。
 
 ### edge-<edge_id>：Edge 资源节点（Lightsail，单一 dispatch 入口）
 
@@ -233,7 +227,7 @@ python3 scripts/stage0/resolve-edge-deploy-route.py --edge-id "$EDGE_ID" --json
    ```
 
 3. 取矩阵**第一个** deployable Edge 作为 canary：`dispatch-edge-deploy.sh --operation upgrade --tag=$TARGET_TAG`（**infra smoke**，workflow 默认 `smoke_phase=infra`），watch 到 success。
-4. 推进 prod deploy：优先使用 release 自动 queue 的 prod run；没有则手动 dispatch。watch 到 success。
+4. 推进 prod deploy：canary infra smoke 绿后 `gh workflow run deploy-stage0.yml -f tag=$TARGET_TAG`（prod 不再自动 queue），按 approval 命令自批，watch 到 success。
 5. **prod 验收（CI 唯一源）**：在本次 `deploy-stage0` run log 搜索 `tk_post_deploy_smoke: OK`，并核对 models/chat/messages 等 shape（见「prod 真实测试」§A）。**不要**在本地再跑完整 `post_deploy_smoke.sh`，除非 CI secret 缺失或日志不可解析。
 6. **canary main-via-edge（仅此一次）**：`dispatch-edge-deploy.sh --operation smoke --smoke-phase main-via-edge`（prod 已升级后）。缺 **`TK_SMOKE_EDGE_CANARY_KEY`** 则标记 partial，不 rollback。
 7. **其余 deployable Edge（单命令，fail-stop）**：
@@ -570,8 +564,7 @@ bash scripts/release-rollout-summary.sh --mode release
 | `release-tag.sh` 报 HEAD 含 skip-ci 标记 | 修改触发打 tag 的最近一次提交说明后重试，或按 `CLAUDE.md` 用 `gh workflow dispatch` 触发 `release.yml`。 |
 | `tag already exists on origin` | 升 `VERSION` 再打新 tag，或仅 dispatch deploy 已有 tag。 |
 | deploy 报单架构 manifest | 重新跑 `release.yml` 且 `simple_release=false`；prod / Edge 都不要 override。 |
-| 出现两个并行 prod deploy run | `release.yml` 已自动触发，不要再手动 dispatch；取消多余手动 run，watch Bot run。 |
-| target=all 但 prod run 已自动 queue | 若在 Environment waiting，先等 Edge canary 成功再批准；若已开始，不中断，完成后摘要标记 prod 先行。 |
+| 误 dispatch 了一个多余 prod deploy run | release 不再自动 queue，多出来的一定是手动重复 dispatch；取消多余 run、watch 留下的那个即可。 |
 | Edge `confirm_stack` mismatch | 停止；检查 `deploy/aws/stage0/edge-targets.json`，不要手改成别的栈名绕过。 |
 | Edge smoke 403 | public runner 访问 `/v1/models` 403 是预期；主网关来源 403 才查 `EDGE_MAIN_GATEWAY_ALLOWED_CIDR` 与 prod EIP。 |
 | main-via-edge smoke HTTP 503 `"no available accounts"` | 先在 prod 上确认对应账号（如 `cc-<edge_id>-oauth`）是否被设为可调度；这是 prod 路由策略，与本次镜像无关。若设计上就不可调度，把这条 smoke 从 hard-fail 降为"infra OK / business-link by design"，**不要 rollback**。若运维想恢复该链路，请按 `/tokenkey-anthropic-oauth-config` 调可调度位再 `dispatch-edge-deploy.sh --operation smoke --smoke-phase main-via-edge` 复验。 |
