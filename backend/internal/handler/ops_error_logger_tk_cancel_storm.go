@@ -29,5 +29,13 @@ func tkObserveCancelStorm(c *gin.Context, ops *service.OpsService) {
 			model = s
 		}
 	}
-	ops.ObserveCancelStorm(apiKey.ID, apiKey.Name, model, tkUpstreamClientCanceled(c))
+	// Authoritative group platform (anthropic/openai/gemini/antigravity/newapi) so
+	// the alert names the actual upstream at risk instead of always blaming
+	// Anthropic. Only the real group platform is trusted; an empty fallback (no path
+	// guess) keeps this off the per-request hot path with zero allocation and avoids
+	// a fresh misattribution — guessPlatformFromPath maps /v1/messages to openai,
+	// which would mislabel an anthropic key whose Group is not loaded. Unknown
+	// platform → cancelStormAdvice emits the neutral, un-named wording.
+	platform := resolveOpsPlatform(apiKey, "")
+	ops.ObserveCancelStorm(apiKey.ID, apiKey.Name, model, platform, tkUpstreamClientCanceled(c))
 }
