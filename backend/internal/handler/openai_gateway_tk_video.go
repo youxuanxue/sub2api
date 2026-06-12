@@ -102,6 +102,14 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 			"Video input (video_url content) is not supported: video-input generation is not yet priced on this gateway. Remove the video_url content part; first-frame image input (image_url) is supported.")
 		return
 	}
+	// Unpriced media is not served (pre-spend 400 instead of post-spend $0 +
+	// P0 alert — one video task is real upstream money); see
+	// openai_gateway_service_tk_media_unpriced_guard.go for the policy.
+	if h.gatewayService.TkVideoModelUnpriced(reqModel) {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error",
+			service.TkUnpricedMediaModelMessage(reqModel, "video"))
+		return
+	}
 	reqLog = reqLog.With(zap.String("model", reqModel))
 
 	setOpsRequestModelAndBody(c, reqModel, false, body)

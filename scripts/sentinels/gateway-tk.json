@@ -1652,7 +1652,8 @@
         "VideoDurationSeconds",
         "RefundVideoUsageOnFailure",
         "videoSubmitHasVideoInput",
-        "videoTerminalOutcome"
+        "videoTerminalOutcome",
+        "TkVideoModelUnpriced"
       ],
       "rationale": "Per-second video (veo) billing: VideoSubmit records usage with the requested duration (default 8s via videoRequestedSeconds) so the cost path bills duration x per-second rate. Without this anchor veo silently bills $0 (no tokens, no per-second branch). RefundVideoUsageOnFailure anchors the terminal-failed refund trigger (user paid at submit for a video that never materialized); videoSubmitHasVideoInput anchors the video-INPUT reject guard (upstream bills input+output duration for video-in, so the per-output-second price would under-charge 1.6-2.4x — lifting the guard requires re-pricing in the same PR)."
     },
@@ -2279,6 +2280,22 @@
         "h.tkResolveCCOnlyFallback(c, apiKey, reqLog, writeForbidden, writeBillingError)"
       ],
       "rationale": "Thin injection point for CC-only fallback routing in the upstream-shaped /v1/responses handler. Mirrors the /v1/chat/completions hook: the bare CC-only 403 delegates to the TK companion so a valid fallback_group_id routes non-CC traffic to the fallback group instead of rejecting it. Anchors the hook against an upstream merge silently restoring the bare 403."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service_tk_media_unpriced_guard.go",
+      "must_contain": [
+        "TkVideoModelUnpriced",
+        "TkImageModelUnpriced",
+        "TkUnpricedMediaModelMessage"
+      ],
+      "rationale": "Media unpriced-reject policy (operator decision 2026-06-12): image/video gateway surfaces refuse to serve models with no usable price — the pre-spend 400 replaces the post-spend served_zero_cost P0 for media, where one task is real upstream money (video up to ~$22) and image otherwise falls back to a blind hardcoded $0.134. Also the safety premise that lets new upstream channels auto-enable: their models arrive unpriced and are rejected until the human pricing act. Removing this file silently reverts media to serve-unpriced."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_embeddings_images.go",
+      "must_contain": [
+        "TkImageModelUnpriced"
+      ],
+      "rationale": "Second TK hook for the media unpriced-reject policy: ImageGenerations() is the OpenAI-compat pool entry for POST /images/generations (newapi groups route here, NOT through openai_images.go Images()). The first guard rollout missed this entry and unpriced image requests sailed to the upstream — caught by local e2e. Dropping this call silently re-opens that exact hole."
     }
   ]
 }

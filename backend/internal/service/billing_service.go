@@ -951,8 +951,10 @@ func (s *BillingService) getImageUnitPrice(model string, imageSize string, group
 // where the per-second rate comes from the LiteLLM table (e.g. veo `output_cost_per_second`,
 // resolved via the provider-prefix fallback in GetModelPricing). Callers pass the requested
 // duration (handlers default to a conservative 8s when the request omits it). When no
-// per-second price exists the cost is zero — an unpriced model must never block the request,
-// and the real spend ceiling is the upstream provider budget, not this internal estimate.
+// per-second price exists the cost is zero — this function stays non-blocking, but the
+// submit handler rejects unpriced models BEFORE dispatch via TkVideoModelUnpriced
+// (openai_gateway_service_tk_media_unpriced_guard.go), so a zero here should only be
+// reachable when pricing was removed between admission and billing.
 func (s *BillingService) CalculateVideoCost(model string, seconds int64, rateMultiplier float64) *CostBreakdown {
 	if seconds <= 0 {
 		seconds = 1
