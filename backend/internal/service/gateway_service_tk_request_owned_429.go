@@ -26,14 +26,17 @@ import (
 //     429 is short-circuited on the FIRST hop — the original upstream body is
 //     passed through to the caller (so a prod mirror hop can re-classify the
 //     same phrase), no account penalty, no failover.
-//  2. Same-text circuit breaker (tkAnthropic429SameTextThreshold): for future
-//     deterministic 429 variants we cannot enumerate, identical 429 message
-//     text from N distinct accounts within ONE request is judged
+//  2. Same-text circuit breaker (tkAnthropic429SameTextThreshold): for
+//     deterministic error variants we cannot enumerate, identical upstream
+//     message text from N distinct accounts within ONE request is judged
 //     request-owned — stop the fan-out, skip side effects from that hop on.
 //     Legitimate per-account rate limits rarely repeat the exact same body
 //     text N times in a single failover chain; genuine multi-account burn is
-//     surfaced to the client as the 429 it is (with the real upstream text)
-//     instead of poisoning the remaining pool.
+//     surfaced to the client as the error it is (with the real upstream text)
+//     instead of poisoning the remaining pool. The breaker is status-
+//     generalized to 429 AND 529 (see tkHandleAnthropicRequestOwned429): the
+//     06:44 UTC 429 incident recurred on 529 during the 16:42–17:03 UTC
+//     Anthropic-wide overload event because this breaker was 429-only.
 //
 // Body passthrough is load-bearing: the prod ↔ edge mirror topology relays the
 // edge's response body to prod, so preserving the original phrase is what lets
@@ -91,10 +94,18 @@ func tkNoteAnthropic429Text(c *gin.Context, normalizedMsg string) int {
 }
 
 // tkHandleAnthropicRequestOwned429 short-circuits a request-owned anthropic
-// 429: it writes the ORIGINAL upstream status + body through to the client
-// (preserving the policy phrase for the next mirror hop), records ops
-// telemetry, and returns handled=true so the caller skips account side
-// effects and failover. Returns handled=false for everything else.
+// 429 OR a same-text-fanned 529: it writes the ORIGINAL upstream status + body
+// through to the client (preserving the policy phrase for the next mirror hop),
+// records ops telemetry, and returns handled=true so the caller skips account
+// side effects and failover. Returns handled=false for everything else.
+//
+// 529 coverage (prod 2026-06-11 16:42–17:03 UTC Anthropic-wide overload event):
+// the same-text breaker is status-generalized so an identical 529 "overloaded"
+// text fanned across one request's failover chain stops poisoning the rest of a
+// multi-account pool — failing over more during a provider-wide overload is
+// pointless and cools every account. There is no request-owned PHRASE for 529
+// (overload is provider state, not a request property), so 529 only ever takes
+// the same-text path, never the known-phrase first-hop short-circuit.
 //
 // Call sites are the anthropic failover branches of Forward /
 // forwardAnthropicAPIKeyPassthroughWithInput, after the error body has been
@@ -103,7 +114,10 @@ func (s *GatewayService) tkHandleAnthropicRequestOwned429(c *gin.Context, accoun
 	if c == nil || account == nil || resp == nil {
 		return nil, nil, false
 	}
-	if resp.StatusCode != http.StatusTooManyRequests || account.Platform != PlatformAnthropic {
+	// 529 (overloaded) joins 429 here; both are in shouldFailoverUpstreamError so
+	// both reach these call sites. http has no 529 constant — match the literal
+	// the rest of the codebase uses.
+	if (resp.StatusCode != http.StatusTooManyRequests && resp.StatusCode != 529) || account.Platform != PlatformAnthropic {
 		return nil, nil, false
 	}
 	upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
@@ -136,9 +150,13 @@ func (s *GatewayService) tkHandleAnthropicRequestOwned429(c *gin.Context, accoun
 		reason = fmt.Sprintf("same_text_x%d", occurrences)
 	}
 	logger.LegacyPrintf("service.gateway",
-		"[RequestOwned429] short-circuit (reason=%s): Account=%d(%s) RequestID=%s Msg=%s",
-		reason, account.ID, account.Name, resp.Header.Get("x-request-id"), truncateString(upstreamMsg, 300))
+		"[RequestOwned429] short-circuit (status=%d reason=%s): Account=%d(%s) RequestID=%s Msg=%s",
+		resp.StatusCode, reason, account.ID, account.Name, resp.Header.Get("x-request-id"), truncateString(upstreamMsg, 300))
 
+	kind := "request_owned_429"
+	if resp.StatusCode == 529 {
+		kind = "request_owned_529"
+	}
 	setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, "")
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 		Platform:           account.Platform,
@@ -146,7 +164,7 @@ func (s *GatewayService) tkHandleAnthropicRequestOwned429(c *gin.Context, accoun
 		AccountName:        account.Name,
 		UpstreamStatusCode: resp.StatusCode,
 		UpstreamRequestID:  resp.Header.Get("x-request-id"),
-		Kind:               "request_owned_429",
+		Kind:               kind,
 		Message:            upstreamMsg,
 	})
 
@@ -154,8 +172,19 @@ func (s *GatewayService) tkHandleAnthropicRequestOwned429(c *gin.Context, accoun
 	if ra := strings.TrimSpace(resp.Header.Get("Retry-After")); ra != "" {
 		c.Header("Retry-After", ra)
 	}
+	// Pass the ORIGINAL upstream status through (was hardcoded 429): a 529 must
+	// reach the client as 529 so the prod mirror hop re-classifies it as overload,
+	// not rate-limit. Empty-body fallback is keyed by status.
 	if len(respBody) > 0 {
-		c.Data(http.StatusTooManyRequests, "application/json", respBody)
+		c.Data(resp.StatusCode, "application/json", respBody)
+	} else if resp.StatusCode == 529 {
+		c.JSON(529, gin.H{
+			"type": "error",
+			"error": gin.H{
+				"type":    "overloaded_error",
+				"message": "Upstream service overloaded, please retry later",
+			},
+		})
 	} else {
 		c.JSON(http.StatusTooManyRequests, gin.H{
 			"type": "error",
@@ -167,7 +196,7 @@ func (s *GatewayService) tkHandleAnthropicRequestOwned429(c *gin.Context, accoun
 	}
 
 	if upstreamMsg == "" {
-		return nil, fmt.Errorf("upstream error: 429 request-owned (%s)", reason), true
+		return nil, fmt.Errorf("upstream error: %d request-owned (%s)", resp.StatusCode, reason), true
 	}
-	return nil, fmt.Errorf("upstream error: 429 request-owned (%s) message=%s", reason, upstreamMsg), true
+	return nil, fmt.Errorf("upstream error: %d request-owned (%s) message=%s", resp.StatusCode, reason, upstreamMsg), true
 }

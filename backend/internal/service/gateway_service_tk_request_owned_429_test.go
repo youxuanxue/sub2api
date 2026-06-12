@@ -120,6 +120,40 @@ func TestTkHandleAnthropicRequestOwned429_CapacityEnvelopesExempt(t *testing.T) 
 	}
 }
 
+func anthropicStatusResponse(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Header:     http.Header{},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+}
+
+// Incident 2026-06-11 16:42–17:03 UTC (Anthropic-wide overload event): the
+// same-text breaker is status-generalized to 529. An identical "overloaded"
+// 529 text fanned across one request's failover chain must trip the breaker at
+// the Nth occurrence AND be written back to the client AS 529 — not rewritten
+// to 429 — so the prod mirror hop re-classifies it as overload, not rate-limit.
+func TestTkHandleAnthropicRequestOwned429_Overloaded529SameTextBreaker(t *testing.T) {
+	c, rec := newRequestOwned429TestContext(t)
+	svc := &GatewayService{}
+	body := `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`
+
+	for i := 1; i < tkAnthropic429SameTextThreshold; i++ {
+		account := &Account{ID: int64(i), Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+		_, _, handled := svc.tkHandleAnthropicRequestOwned429(c, account, anthropicStatusResponse(529, body), []byte(body))
+		require.False(t, handled, "529 occurrence %d must keep normal failover semantics", i)
+	}
+
+	last := &Account{ID: 99, Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+	_, err, handled := svc.tkHandleAnthropicRequestOwned429(c, last, anthropicStatusResponse(529, body), []byte(body))
+	require.True(t, handled, "identical 529 text at threshold must trip the breaker")
+	require.Error(t, err)
+	var failoverErr *UpstreamFailoverError
+	require.False(t, errors.As(err, &failoverErr), "tripped 529 must not fan out further")
+	require.Equal(t, 529, rec.Code, "529 must pass through as 529, not be rewritten to 429")
+	require.Contains(t, rec.Body.String(), "Overloaded")
+}
+
 func TestTkHandleAnthropicRequestOwned429_ScopeGuards(t *testing.T) {
 	c, _ := newRequestOwned429TestContext(t)
 	svc := &GatewayService{}

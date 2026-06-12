@@ -545,12 +545,19 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			shouldDisable = false
 		}
 	case 529:
-		// Same rationale as 429: when handle529 successfully wrote
-		// SetOverloaded with the configured cooldown, suppress the
-		// ladder's redundant SetTempUnschedulable write.
-		overloadSet := s.handle529(ctx, account)
+		// 529 overload: handle529 writes a SHORT transient cooldown — the upstream
+		// Retry-After when present, else a 30s floor (tier-0). It returns true ONLY
+		// when it honored a precise Retry-After, in which case we suppress the
+		// ladder so that authoritative reset is not raced. The common no-Retry-
+		// After 529 returns false, so a SUSTAINED 529 storm still escalates via the
+		// existing 3/3 ladder (30s→2m→10m, slot-gated, capped at 10min) below —
+		// while single transient 529s never reach the ladder threshold and cost
+		// only the 30s floor. This replaces the legacy flat 10-min SetOverloaded
+		// that turned a single provider-wide 529 blip into a 10-min full-pool lock
+		// on single-account edges (2026-06-11 16:50 UTC全edge全宕).
+		retryAfterOwned := s.handle529(ctx, account, headers)
 		if account.Platform == PlatformAnthropic {
-			shouldDisable = s.handleAnthropicUpstreamErrorWithOptions(ctx, account, statusCode, upstreamMsg, responseBody, overloadSet)
+			shouldDisable = s.handleAnthropicUpstreamErrorWithOptions(ctx, account, statusCode, upstreamMsg, responseBody, retryAfterOwned)
 		} else {
 			shouldDisable = false
 		}
@@ -1983,17 +1990,27 @@ func persistOpenAI429PlanType(ctx context.Context, repo AccountRepository, accou
 	slog.Info("openai_429_plan_type_synced", "account_id", account.ID, "previous_plan_type", current, "plan_type", planType)
 }
 
-// handle529 处理529过载错误
-// 根据配置决定是否暂停账号调度及冷却时长
-// handle529 marks the account overloaded for the configured cooldown and
-// returns true when an exact SetOverloaded write succeeded. The return is
-// consumed by the case 529 dispatch so handleAnthropicUpstreamError can
-// skip writing a parallel SetTempUnschedulable cooldown that would only
-// race the just-written overload_until (last-write-wins) — the per-account
-// counter and tier counter still advance so a repeat 529 storm still
-// escalates the ladder. A false return means the caller should fall back
-// to the ladder write (settings disabled or Redis/DB failure).
-func (s *RateLimitService) handle529(ctx context.Context, account *Account) bool {
+// handle529 处理529过载错误：写一个【短】的瞬时过载冷却，而非旧的固定 10 分钟。
+//
+// 529 是 provider 级瞬时过载（不是某账号的健康问题）。旧实现对单次 529 直接
+// SetOverloaded(now + 10min)，把一次上游抖动放大成（常为单账号的）edge 池 10
+// 分钟全锁——这正是 tier 阶梯（30s→2m→10m，anthropicCooldownTierLadder）当年要
+// 取代的 flat 行为，而 529 是唯一还在走 flat 老路的状态码（2026-06-11 16:50 UTC
+// 七 edge 全宕）。新语义：
+//   - 上游带 Retry-After      → 采纳之（authoritative，clamp ≤ 阶梯末级 10min），
+//     返回 true 让调用方抑制阶梯写以免覆盖该精确值；
+//   - 否则（常见 529）        → 30s 地板（tier-0），返回 false —— 持续 529 风暴仍由
+//     case 529 里的 3/3 阶梯（slot 门控、capped 10min）
+//     升级；单次/少量瞬时 529 到不了阈值，只付 30s。
+//
+// 返回值语义随之从“是否写了 overload”改为“是否写了精确 Retry-After（调用方据此
+// 决定是否抑制阶梯）”。settings.Enabled 仍是 529 是否进入即时过载冷却的总开关。
+// settings.CooldownMinutes 的定长角色被 tier 阶梯【彻底】取代——本函数不再读取它
+// 来定时长（沿用 2026-05-21 阶梯替换 flat 的同一杠杆）。因此 admin 的 cooldown_minutes
+// 设置目前对【冷却时长】已失效（Enabled 开关仍生效）；若 operator 需要收紧 529 冷却
+// 上限，后续应把它接成阶梯末级 cap，而非在此当地板（默认 10 会把单次 529 又锁回
+// 10min，正是本次要消除的放大器）。
+func (s *RateLimitService) handle529(ctx context.Context, account *Account, headers http.Header) bool {
 	var settings *OverloadCooldownSettings
 	if s.settingService != nil {
 		var err error
@@ -2003,13 +2020,10 @@ func (s *RateLimitService) handle529(ctx context.Context, account *Account) bool
 			settings = nil
 		}
 	}
-	// 回退到配置文件
 	if settings == nil {
-		cooldown := s.cfg.RateLimit.OverloadCooldownMinutes
-		if cooldown <= 0 {
-			cooldown = 10
-		}
-		settings = &OverloadCooldownSettings{Enabled: true, CooldownMinutes: cooldown}
+		// 回退：仅需 Enabled 语义,时长走阶梯,不再读 cfg.RateLimit.OverloadCooldownMinutes
+		// 这条 flat 分钟数（CooldownMinutes 留零值,本函数也不读它定时长）。
+		settings = &OverloadCooldownSettings{Enabled: true}
 	}
 
 	if !settings.Enabled {
@@ -2017,20 +2031,37 @@ func (s *RateLimitService) handle529(ctx context.Context, account *Account) bool
 		return false
 	}
 
-	cooldownMinutes := settings.CooldownMinutes
-	if cooldownMinutes <= 0 {
-		cooldownMinutes = 10
+	now := time.Now()
+	maxCooldown := anthropicCooldownTierLadder[len(anthropicCooldownTierLadder)-1]
+
+	var cooldown time.Duration
+	retryAfterOwned := false
+	if resetAt := parseRetryAfterResetTime(headers, now); resetAt != nil && resetAt.After(now) {
+		cooldown = resetAt.Sub(now)
+		if cooldown > maxCooldown {
+			cooldown = maxCooldown
+		}
+		retryAfterOwned = true
+	} else {
+		// 30s 瞬时地板（tier-0）。CooldownMinutes 的定长角色被阶梯彻底取代——不能拿它
+		// 当地板，否则默认值 10（DefaultOverloadCooldownSettings）会把单次 529 又锁回
+		// 10min，正是本次要消除的放大器。持续 529 由 case 529 的 3/3 阶梯升级到 10min。
+		cooldown = anthropicCooldownTierLadder[0]
 	}
 
-	until := time.Now().Add(time.Duration(cooldownMinutes) * time.Minute)
+	until := now.Add(cooldown)
 	s.notifyAccountSchedulingBlocked(account, until, "529")
 	if err := s.accountRepo.SetOverloaded(ctx, account.ID, until); err != nil {
 		slog.Warn("overload_set_failed", "account_id", account.ID, "error", err)
 		return false
 	}
 
-	slog.Info("account_overloaded", "account_id", account.ID, "until", until)
-	return true
+	slog.Info("account_overloaded",
+		"account_id", account.ID,
+		"until", until,
+		"cooldown_seconds", int(cooldown.Seconds()),
+		"retry_after_owned", retryAfterOwned)
+	return retryAfterOwned
 }
 
 // UpdateSessionWindow 从成功响应更新5h窗口状态
