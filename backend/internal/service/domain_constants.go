@@ -509,6 +509,13 @@ const (
 	// 全池再排队（upstream #2859，默认 true）。为 false 时退回今日行为：槽满即在
 	// 原 sticky 账号上排队。详见 docs/approved/sticky-routing.md §11.5。
 	SettingKeyStickySlotFullEscapeEnabled = "gateway.sticky_routing.slot_full_escape_enabled"
+	// SettingKeyAnthropicSaturatedStubDeprioritizeEnabled (TK) 控制是否对持续返回
+	// 下游容量信号（"No available accounts" / "all available accounts exhausted"）
+	// 的 anthropic 镜像 stub 账号施加 BOUNDED 调度去优先级偏好（默认 true）。这是
+	// 一个调度偏好而非冷却：饱和 stub 仍是候选、仍可作为最后兜底被选中；偏好随
+	// Redis 短窗计数 TTL 自行消散。为 false 时退回纯优先级/负载选择（无 saturation 项）。
+	// 详见 backend/internal/service/gateway_service_tk_saturation_penalty.go。
+	SettingKeyAnthropicSaturatedStubDeprioritizeEnabled = "gateway.anthropic_saturated_stub_deprioritize.enabled"
 	// SettingKeyEnableAnthropicCacheTTL1hInjection 是否对 Anthropic OAuth/SetupToken 请求体注入 1h cache_control ttl（默认 false）
 	SettingKeyEnableAnthropicCacheTTL1hInjection = "enable_anthropic_cache_ttl_1h_injection"
 	// SettingKeyRewriteMessageCacheControl 是否改写 messages[*].content[*].cache_control（默认 false）

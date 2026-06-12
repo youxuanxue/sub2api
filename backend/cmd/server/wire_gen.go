@@ -312,9 +312,11 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	tkGatewayPricingAvailabilityReady := service.ProvideTKGatewayPricingAvailability(gatewayService, pricingAvailabilityService)
 	anthropicSignaturePreemptCache := repository.NewAnthropicSignaturePreemptCache(redisClient)
 	tkGatewayAnthropicSigPreemptReady := service.ProvideTKGatewayAnthropicSigPreempt(gatewayService, anthropicSignaturePreemptCache)
+	anthropicSaturationCounterCache := repository.NewAnthropicSaturationCounterCache(redisClient)
+	tkAnthropicSaturationReady := service.ProvideTKAnthropicSaturation(gatewayService, rateLimitService, anthropicSaturationCounterCache)
 	modelListFilter := service.NewModelListFilter(pricingCatalogService, pricingAvailabilityService)
 	tkGatewayHandlerModelListReady := handler.ProvideTKGatewayHandlerModelList(gatewayHandler, modelListFilter)
-	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, schedulerSnapshotService, schedulerRateLimitReaper, anthropicConfigReconciler, upstreamBalanceSentinel, tokenRefreshService, accountExpiryService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, qaService, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, channelMonitorRunner, tkAccountIncidentNotifier, tkPricingMissingNotifier, tkAuthServiceColdStartReady, tkGatewayPricingAvailabilityReady, tkGatewayAnthropicSigPreemptReady, tkGatewayHandlerModelListReady)
+	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, schedulerSnapshotService, schedulerRateLimitReaper, anthropicConfigReconciler, upstreamBalanceSentinel, tokenRefreshService, accountExpiryService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, qaService, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, channelMonitorRunner, tkAccountIncidentNotifier, tkPricingMissingNotifier, tkAuthServiceColdStartReady, tkGatewayPricingAvailabilityReady, tkGatewayAnthropicSigPreemptReady, tkAnthropicSaturationReady, tkGatewayHandlerModelListReady)
 	application := &Application{
 		Server:  httpServer,
 		Cleanup: v,
@@ -386,6 +388,8 @@ func provideCleanup(
 	_ service.TKGatewayPricingAvailabilityReady,
 
 	_ service.TKGatewayAnthropicSigPreemptReady,
+
+	_ service.TKAnthropicSaturationReady,
 
 	_ handler.TKGatewayHandlerModelListReady,
 ) func() {

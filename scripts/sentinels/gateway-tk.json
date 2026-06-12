@@ -2296,6 +2296,69 @@
         "TkImageModelUnpriced"
       ],
       "rationale": "Second TK hook for the media unpriced-reject policy: ImageGenerations() is the OpenAI-compat pool entry for POST /images/generations (newapi groups route here, NOT through openai_images.go Images()). The first guard rollout missed this entry and unpriced image requests sailed to the upstream — caught by local e2e. Dropping this call silently re-opens that exact hole."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_saturation_penalty.go",
+      "must_contain": [
+        "func (s *GatewayService) computeAnthropicSaturationPenalties(",
+        "func (a accountWithLoad) effectivePriority() int",
+        "anthropicSaturationPriorityPenalty = 1000",
+        "IsAnthropicSaturatedStubDeprioritizeEnabled"
+      ],
+      "rationale": "Read side of the anthropic saturated mirror-stub de-prioritization (prod 2026-06-12): a BOUNDED additive priority penalty folded into the load-aware candidate ranking so prod routes AWAY from an edge stub emitting SUSTAINED downstream-capacity 429/502 instead of selecting it first and wasting a failover hop every request for the whole ~47-min upstream-limit window. It is a PREFERENCE not a cooldown — the penalty is a finite ADD (1000) that can never exclude a stub from the candidate set (filterByMinPriority compares values, all-saturated keeps relative order), so amplifier-safety (2026-05-31 503 amplifier) is preserved by construction. Dropping this file silently reverts prod to selecting the dead stub first. The kill-switch read (IsAnthropicSaturatedStubDeprioritizeEnabled) keeps it operator-disableable."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "s.computeAnthropicSaturationPenalties(ctx, available)",
+        "minPriority := accounts[0].effectivePriority()"
+      ],
+      "rationale": "Thin injection of the saturation de-prioritization into the upstream-shaped load-aware scheduler: the penalty is computed once on the Layer-2 'available' set, and filterByMinPriority ranks on effectivePriority() (Priority+saturationPenalty) instead of bare Priority. Removing the compute call leaves penalties at 0 (feature inert); reverting filterByMinPriority to bare account.Priority drops the fold-in even if penalties are set. Either silently disables the preference, so both anchors are pinned."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_saturation.go",
+      "must_contain": [
+        "func (s *RateLimitService) recordAnthropicStubSaturation(",
+        "anthropicSaturationThreshold int64 = 4",
+        "anthropicSaturationWindowSeconds = 90",
+        "anthropic_stub_saturated_deprioritized"
+      ],
+      "rationale": "Write side of the saturation de-prioritization: increments the per-stub short-window counter ONLY on the downstream-capacity skip-penalty path (no-available / failover-exhausted). The fixed window (90s) self-clears so the preference evaporates ~1.5min after an edge recovers; the small threshold (4) preserves current behaviour for transient blips. Crucially this NEVER advances the 3/3 ladder / SetTempUnschedulable — it is a preference feed, not a cooldown. The threshold-crossing slog line (anthropic_stub_saturated_deprioritized) is the ops visibility for a stub entering the de-prioritized state. Dropping this file stops feeding the counter and the scheduler preference becomes inert."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, \"no_available_accounts\")",
+        "s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, \"all_available_accounts_exhausted\")"
+      ],
+      "rationale": "Thin injection of the saturation counter increments at the two HandleUpstreamError skip-penalty branches (429 empty-pool + legacy 503 no-available, and the failover-exhausted 502 sibling). These sit AFTER the skip decision (the function still returns true to fail over) so they never change the cooldown/ladder behaviour — they only feed the de-prioritization preference. An upstream merge that rewrites the skip branches would silently drop the feed; these literal call anchors catch it."
+    },
+    {
+      "path": "backend/internal/repository/anthropic_saturation_counter_cache.go",
+      "must_contain": [
+        "func NewAnthropicSaturationCounterCache(",
+        "anthropic_saturation_count:account:",
+        "anthropicSaturationIncrScript",
+        "func (c *anthropicSaturationCounterCache) GetSaturationBatch("
+      ],
+      "rationale": "Redis-backed fixed-window counter for the saturation de-prioritization. The INCR+EXPIRE-on-first-hit Lua keeps the ORIGINAL window (no sliding) so the count tracks a sustained burst and self-clears on TTL; GetSaturationBatch (MGET) is the scheduler's per-selection hot-path read. Deleting this repo file breaks the wire provider and disables the feature."
+    },
+    {
+      "path": "backend/internal/service/setting_service_tk_saturation.go",
+      "must_contain": [
+        "func (s *SettingService) IsAnthropicSaturatedStubDeprioritizeEnabled(",
+        "SettingKeyAnthropicSaturatedStubDeprioritizeEnabled"
+      ],
+      "rationale": "Kill-switch accessor (default ON, fail-open) for the saturation de-prioritization. Mirrors IsStickyRoutingEnabled: process-level cache + singleflight + default-true on missing/error. Removing it forces the read site to a compile error (or, if also reverted, removes the operator's ability to disable the preference) — pinned so the kill-switch survives merges."
+    },
+    {
+      "path": "backend/internal/service/wire.go",
+      "must_contain": [
+        "func ProvideTKAnthropicSaturation(",
+        "gw.SetAnthropicSaturationCounter(cache)",
+        "rl.SetAnthropicSaturationCounter(cache)"
+      ],
+      "rationale": "Wire glue that attaches the saturation counter onto BOTH GatewayService (read) and RateLimitService (write) post-construction, keeping the upstream NewGatewayService/NewRateLimitService signatures stable. One provider, two setters — if either setter call is dropped, one half of the feature goes inert (scheduler can't read, or skip path can't write). The TKAnthropicSaturationReady sentinel forces wire to evaluate it; these anchors pin the dual-setter wiring."
     }
   ]
 }

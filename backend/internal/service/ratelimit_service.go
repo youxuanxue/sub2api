@@ -37,8 +37,12 @@ type RateLimitService struct {
 	// TK: 账号失效事件 → 飞书即时告警。挂钩在 notifyAccountSchedulingBlocked,
 	// 实现在 account_incident_notifier_tk.go / ratelimit_service_tk_incident.go。
 	incidentNotifier AccountIncidentNotifier
-	usageCacheMu     sync.RWMutex
-	usageCache       map[int64]*geminiUsageCacheEntry
+	// TK: anthropic 镜像 stub 「下游容量饱和」短窗计数器（可选依赖）。在 skip-penalty
+	// 路径上递增；由调度器读取施加 bounded 去优先级偏好。逻辑在
+	// ratelimit_service_tk_saturation.go。
+	anthropicSaturationCounter AnthropicSaturationCounterCache
+	usageCacheMu               sync.RWMutex
+	usageCache                 map[int64]*geminiUsageCacheEntry
 }
 
 type AccountRuntimeBlocker interface {
@@ -520,6 +524,10 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			slog.Info("anthropic_downstream_no_available_accounts_skip_penalty",
 				"account_id", account.ID,
 				"status_code", statusCode)
+			// TK: feed the bounded saturation de-prioritization preference (not a
+			// cooldown; ladder/cooldown stay untouched). See
+			// ratelimit_service_tk_saturation.go.
+			s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "no_available_accounts")
 			return true
 		}
 		// TK (G2, narrow): the sibling downstream capacity signal — a forwarded
@@ -530,6 +538,8 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			slog.Info("anthropic_downstream_failover_exhausted_skip_penalty",
 				"account_id", account.ID,
 				"status_code", statusCode)
+			// TK: feed the bounded saturation de-prioritization preference.
+			s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "all_available_accounts_exhausted")
 			return true
 		}
 		// handle429 returns true when SetRateLimited landed on an upstream-
@@ -1104,6 +1114,9 @@ func (s *RateLimitService) handleAnthropicUpstreamError(ctx context.Context, acc
 		slog.Info("anthropic_downstream_no_available_accounts_skip_penalty",
 			"account_id", account.ID,
 			"status_code", statusCode)
+		// TK: feed the bounded saturation de-prioritization preference (legacy 503
+		// path). Not a cooldown — ladder/SetTempUnschedulable stay untouched.
+		s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "no_available_accounts")
 		return true
 	}
 
@@ -1118,6 +1131,8 @@ func (s *RateLimitService) handleAnthropicUpstreamError(ctx context.Context, acc
 		slog.Info("anthropic_downstream_failover_exhausted_skip_penalty",
 			"account_id", account.ID,
 			"status_code", statusCode)
+		// TK: feed the bounded saturation de-prioritization preference.
+		s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "all_available_accounts_exhausted")
 		return true
 	}
 
