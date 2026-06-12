@@ -118,6 +118,31 @@ python3 ops/antigravity/capture_antigravity_fingerprint.py check --bundle .antig
 > `ua_version: missing_capture`；`platform` 会报 `DARWIN_ARM64` vs `PLATFORM_UNSPECIFIED`。
 > 要把 CLI 也纳入对齐需单独扩 baseline；当前 TK 仅镜像 **IDE**，CLI 抓包用于交叉验证工具链。
 
+## 真实 IDE 校验（无需 on-wire；2026-06-12 实证）
+
+想直接抓**真实 Antigravity IDE**（`brew install --cask antigravity`，2.0.11）的 on-wire 流量会**撞墙**，记录如下省得重踩：
+
+- IDE 的 Go `language_server`（真正的 cloudcode-pa 客户端）**直连 Google、无视一切 HTTP 代理**——`HTTP(S)_PROXY` 环境变量、macOS 系统代理、`.zshrc`、VS Code `http.proxy` 设了都没用，它照样 `dial tcp <google-ip>:443`。所以 **proxy-env 的 mitm 抓不到 IDE**；唯一能抓的是系统级 TUN（如 ClashX Pro 增强模式把直连引到本地 mitmproxy），重且脆。
+- **不用抓也能校验**——IDE 启动 `language_server` 的命令行就是权威身份来源（IDE 主进程日志 / `ps` 可见）：
+  ```
+  language_server --standalone --override_ide_name antigravity --subclient_type hub \
+    --override_ide_version 2.0.11 --override_user_agent_name antigravity \
+    --cloud_code_endpoint https://daily-cloudcode-pa.googleapis.com
+  ```
+  配合 `strings <language_server>` 看二进制里的字面量，即可逐项核对，无需联网。
+
+**2026-06-12 校验结论（IDE 2.0.11）：**
+
+| 维度 | TK 常量 | 真实 IDE（spawn 参数 / 二进制） | 判定 |
+|---|---|---|---|
+| UA 格式 | `antigravity/%s windows/amd64` | `--override_user_agent_name antigravity` + `subclient=hub`（无 `/cli/` 段，区别于 CLI）| ✅ 格式正确 |
+| UA 版本 | `1.23.2` | binary 默认 `1.23.2`，但 IDE `--override_ide_version` **2.0.11** 覆盖上线 | ⚠️ 仅此漂移 |
+| `gl-node` | `gl-node/22.21.1` | 二进制含 `22.21.1` | ✅ 现行 |
+| ideType/ideName | `ANTIGRAVITY`/`antigravity` | spawn `--override_ide_name antigravity` + 二进制 `ANTIGRAVITY` | ✅ |
+| platform/pluginType | `PLATFORM_UNSPECIFIED`/`GEMINI` | 二进制字面量 | ✅ |
+
+> **版本不要硬编 bump。** `2.0.11` = IDE 的 app 版本，**每次自动更新就变**，且 oauth.go 与 upstream 同源——为一个移动目标改 upstream 文件会持续制造 merge 冲突。要让 TK 贴合当前出厂版本，用 admin 热推 `antigravity_user_agent_version`（运行时 overlay，见下），不改编译常量。
+
 ## 漂移修复
 
 - **仅 UA 版本漂移(最常见)**:改 `oauth.go` `DefaultUserAgentVersion` + 改

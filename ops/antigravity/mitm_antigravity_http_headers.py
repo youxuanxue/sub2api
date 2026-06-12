@@ -31,6 +31,27 @@ from mitmproxy import http
 _TARGET_HOST_SUBSTR = "cloudcode-pa.googleapis.com"
 _TARGET_PATH_SUBSTR = "v1internal:"
 
+# Header names whose VALUE is a secret (OAuth bearer, cookies, api keys). We keep
+# the name + wire position (that ordering/presence IS fingerprint signal) but never
+# persist the value. Matched case-insensitively by exact name or substring.
+_SECRET_HEADER_EXACT = frozenset({"authorization", "cookie", "proxy-authorization", "set-cookie"})
+_SECRET_HEADER_SUBSTR = ("auth", "token", "secret", "api-key", "apikey")
+
+
+def _redact(name: str, value: str) -> str:
+    low = name.lower()
+    if low in _SECRET_HEADER_EXACT or any(s in low for s in _SECRET_HEADER_SUBSTR):
+        return f"<redacted:{len(value)}b>"
+    return value
+
+
+def _ordered_headers(hdrs) -> list:
+    """Full request header list in on-wire order, secret values redacted. The
+    ordered set (names + order + non-secret values) is the comprehensive HTTP
+    fingerprint — analog of the cc addon's UA/beta/stainless axes, but we don't
+    yet know which antigravity headers are load-bearing, so we keep them all."""
+    return [[k, _redact(k, v)] for k, v in hdrs.items(multi=True)]
+
 
 def _log_path() -> str | None:
     path = os.environ.get("ANTIGRAVITY_CAPTURE_HTTP_LOG", "").strip()
@@ -71,6 +92,10 @@ def request(flow: http.HTTPFlow) -> None:
         "ide_name": meta.get("ideName", "") if isinstance(meta, dict) else "",
         "platform": meta.get("platform", "") if isinstance(meta, dict) else "",
         "plugin_type": meta.get("pluginType", "") if isinstance(meta, dict) else "",
+        # Comprehensive axis: every request header in on-wire order (secret values
+        # redacted). Lets the diff see headers beyond the named ones above and
+        # confirm header ORDER, which the named extraction loses.
+        "headers_ordered": _ordered_headers(hdrs),
     }
     line = json.dumps(record, ensure_ascii=False, sort_keys=True)
 
