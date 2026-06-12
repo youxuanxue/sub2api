@@ -46,6 +46,11 @@ type OpsFeishuAlertConfig struct {
 	// PricingMissingDigestSeconds 控制缺价模型零成本流量聚合摘要的 flush 间隔
 	// （秒）。首见模型的即时卡不受此值影响。默认 1800。
 	PricingMissingDigestSeconds int `json:"pricing_missing_digest_seconds"`
+	// UpstreamBalanceLowThresholdCNY 是「上游账号低余额」主动告警的触发阈值（人民币）。
+	// 后台 upstream_balance_sentinel 哨兵定时拉有公开余额 API 的上游渠道账号（当前仅
+	// DeepSeek channel_type=43）的余额，低于此值时提前发一条橙头飞书预警，让运营在归零
+	// 触发全量 402 断供前充值。正向触发级别（非开关）——总开关沿用 Feishu.Enabled。默认 50。
+	UpstreamBalanceLowThresholdCNY float64 `json:"upstream_balance_low_threshold_cny"`
 }
 
 // OpsEmailNotificationConfigUpdateRequest allows partial updates, while the

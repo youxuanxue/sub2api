@@ -25,6 +25,9 @@ const (
 	// 缺价模型零成本流量聚合摘要的默认 flush 间隔（秒）。运营配置动作级别，
 	// 不是 P0 故障流，默认半小时。
 	opsFeishuPricingMissingDigestSecondsDefault = 1800
+	// 上游账号低余额主动告警的默认触发阈值（人民币）。开箱即可工作；运营可在
+	// ops 通知设置里上调。
+	opsFeishuUpstreamBalanceLowThresholdCNYDefault = 50.0
 )
 
 // =========================
@@ -218,11 +221,12 @@ func validateOpsEmailNotificationConfig(cfg *OpsEmailNotificationConfig) error {
 
 func defaultOpsFeishuAlertConfig() OpsFeishuAlertConfig {
 	return OpsFeishuAlertConfig{
-		Enabled:                      false,
-		RateLimitPerHour:             opsFeishuAlertRateLimitPerHourDefault,
-		CooldownSeconds:              opsFeishuAlertCooldownSecondsDefault,
-		AccountIncidentDigestSeconds: opsFeishuAccountIncidentDigestSecondsDefault,
-		PricingMissingDigestSeconds:  opsFeishuPricingMissingDigestSecondsDefault,
+		Enabled:                        false,
+		RateLimitPerHour:               opsFeishuAlertRateLimitPerHourDefault,
+		CooldownSeconds:                opsFeishuAlertCooldownSecondsDefault,
+		AccountIncidentDigestSeconds:   opsFeishuAccountIncidentDigestSecondsDefault,
+		PricingMissingDigestSeconds:    opsFeishuPricingMissingDigestSecondsDefault,
+		UpstreamBalanceLowThresholdCNY: opsFeishuUpstreamBalanceLowThresholdCNYDefault,
 	}
 }
 
@@ -249,6 +253,11 @@ func updateOpsFeishuAlertConfig(dst *OpsFeishuAlertConfig, req *OpsFeishuAlertCo
 	if req.PricingMissingDigestSeconds != 0 {
 		dst.PricingMissingDigestSeconds = req.PricingMissingDigestSeconds
 	}
+	// 同上「0=未提供」语义：阈值 0 既是早于本字段的客户端的缺省解码值，也不是合法
+	// 触发级别（normalize 会回填默认 50），故保留存量值，不被旧 payload 抹零。
+	if req.UpstreamBalanceLowThresholdCNY != 0 {
+		dst.UpstreamBalanceLowThresholdCNY = req.UpstreamBalanceLowThresholdCNY
+	}
 }
 
 func normalizeOpsFeishuAlertConfig(cfg *OpsFeishuAlertConfig) {
@@ -271,6 +280,9 @@ func normalizeOpsFeishuAlertConfig(cfg *OpsFeishuAlertConfig) {
 	if cfg.PricingMissingDigestSeconds == 0 {
 		cfg.PricingMissingDigestSeconds = opsFeishuPricingMissingDigestSecondsDefault
 	}
+	if cfg.UpstreamBalanceLowThresholdCNY == 0 {
+		cfg.UpstreamBalanceLowThresholdCNY = opsFeishuUpstreamBalanceLowThresholdCNYDefault
+	}
 }
 
 func validateOpsFeishuAlertConfig(cfg OpsFeishuAlertConfig) error {
@@ -291,6 +303,11 @@ func validateOpsFeishuAlertConfig(cfg OpsFeishuAlertConfig) error {
 	}
 	if cfg.PricingMissingDigestSeconds < 30 || cfg.PricingMissingDigestSeconds > 86400 {
 		return errors.New("feishu.pricing_missing_digest_seconds must be between 30 and 86400")
+	}
+	// 阈值是正向触发级别（人民币）；normalize 已把 0 回填为默认，故此处不接受非正值。
+	// 上限给一个宽松的现实护栏，挡住明显误填。
+	if cfg.UpstreamBalanceLowThresholdCNY < 1 || cfg.UpstreamBalanceLowThresholdCNY > 1000000 {
+		return errors.New("feishu.upstream_balance_low_threshold_cny must be between 1 and 1000000")
 	}
 	return nil
 }

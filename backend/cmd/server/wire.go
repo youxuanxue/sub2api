@@ -87,6 +87,7 @@ func provideCleanup(
 	// TK: per-node anthropic config self-healer — see
 	// internal/service/anthropic_config_reconciler.go.
 	anthropicConfigReconciler *service.AnthropicConfigReconciler,
+	upstreamBalanceSentinel *service.UpstreamBalanceSentinel,
 	tokenRefresh *service.TokenRefreshService,
 	accountExpiry *service.AccountExpiryService,
 	proxyExpiry *service.ProxyExpiryService,
@@ -200,6 +201,12 @@ func provideCleanup(
 			{"AnthropicConfigReconciler", func() error {
 				if anthropicConfigReconciler != nil {
 					anthropicConfigReconciler.Stop()
+				}
+				return nil
+			}},
+			{"UpstreamBalanceSentinel", func() error {
+				if upstreamBalanceSentinel != nil {
+					upstreamBalanceSentinel.Stop()
 				}
 				return nil
 			}},

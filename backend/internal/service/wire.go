@@ -270,6 +270,34 @@ func ProvideAnthropicConfigReconciler(
 	return rec
 }
 
+// ProvideUpstreamBalanceSentinel creates and starts the TK per-node upstream
+// low-balance sentinel. It polls newapi channel accounts that expose a public
+// balance API (currently DeepSeek) and fires a pre-emptive Feishu warning before
+// an account's balance hits zero. accountRepo/opsRepo satisfy the narrow
+// dependencies; ops provides the threshold + Feishu-enabled read; settingSvc
+// supplies the recharge link. Read-only against upstream; never writes accounts.
+func ProvideUpstreamBalanceSentinel(
+	accountRepo AccountRepository,
+	httpUpstream HTTPUpstream,
+	notifier *TKAccountIncidentNotifier,
+	ops *OpsService,
+	settingRepo SettingRepository,
+	opsRepo OpsRepository,
+	redisClient *redis.Client,
+) *UpstreamBalanceSentinel {
+	var cfgProvider opsFeishuConfigProvider
+	if ops != nil {
+		cfgProvider = ops
+	}
+	var recharge rechargeURLResolver
+	if settingRepo != nil {
+		recharge = settingRepo
+	}
+	s := NewUpstreamBalanceSentinel(accountRepo, httpUpstream, notifier, cfgProvider, recharge, opsRepo, redisClient)
+	s.Start()
+	return s
+}
+
 // ProvideEdgeAccountsAggregator creates the prod-side cross-edge read-only
 // account aggregator. It owns its own short-timeout HTTP client (constructed
 // here rather than wired) to avoid colliding with other *http.Client providers
@@ -588,6 +616,7 @@ var ProviderSet = wire.NewSet(
 	// scheduler_rate_limit_reaper.go.
 	ProvideSchedulerRateLimitReaper,
 	ProvideAnthropicConfigReconciler,
+	ProvideUpstreamBalanceSentinel,
 	// TK: prod-side cross-edge read-only account overview — see edge_accounts_aggregator_tk.go.
 	ProvideEdgeAccountsAggregator,
 	NewIdentityService,

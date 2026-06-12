@@ -166,6 +166,9 @@ const editorValidation = computed(() => {
   if (!(typeof draft.value.feishu.cooldown_seconds === 'number' && Number.isFinite(draft.value.feishu.cooldown_seconds) && draft.value.feishu.cooldown_seconds >= 60 && draft.value.feishu.cooldown_seconds <= 86400)) {
     errors.push(t('admin.ops.email.validation.feishuCooldownRange'))
   }
+  if (!(typeof draft.value.feishu.upstream_balance_low_threshold_cny === 'number' && Number.isFinite(draft.value.feishu.upstream_balance_low_threshold_cny) && draft.value.feishu.upstream_balance_low_threshold_cny >= 1 && draft.value.feishu.upstream_balance_low_threshold_cny <= 1000000)) {
+    errors.push(t('admin.ops.email.validation.feishuUpstreamBalanceLowThresholdRange'))
+  }
 
   return { valid: errors.length === 0, errors }
 })
@@ -282,6 +285,10 @@ onMounted(() => {
           <div class="text-xs text-gray-600 dark:text-gray-300">
             {{ t('admin.ops.email.feishuCooldownSeconds') }}:
             <span class="ml-1 font-medium text-gray-900 dark:text-white">{{ config.feishu.cooldown_seconds }}</span>
+          </div>
+          <div class="text-xs text-gray-600 dark:text-gray-300">
+            {{ t('admin.ops.email.feishuUpstreamBalanceLowThreshold') }}:
+            <span class="ml-1 font-medium text-gray-900 dark:text-white">{{ config.feishu.upstream_balance_low_threshold_cny }}</span>
           </div>
         </div>
       </div>
@@ -431,6 +438,11 @@ onMounted(() => {
           <div>
             <div class="mb-1 text-xs font-medium text-gray-600 dark:text-gray-300">{{ t('admin.ops.email.feishuCooldownSeconds') }}</div>
             <input v-model.number="draft.feishu.cooldown_seconds" data-testid="ops-feishu-cooldown-input" type="number" min="60" max="86400" class="input" />
+          </div>
+          <div>
+            <div class="mb-1 text-xs font-medium text-gray-600 dark:text-gray-300">{{ t('admin.ops.email.feishuUpstreamBalanceLowThreshold') }}</div>
+            <input v-model.number="draft.feishu.upstream_balance_low_threshold_cny" data-testid="ops-feishu-upstream-balance-threshold-input" type="number" min="1" max="1000000" class="input" />
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.ops.email.feishuUpstreamBalanceLowThresholdHint') }}</p>
           </div>
         </div>
       </div>

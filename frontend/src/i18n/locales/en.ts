@@ -5551,6 +5551,8 @@ export default {
         feishuSecretKeepPlaceholder: 'Configured, leave empty to keep',
         feishuSecretConfiguredHint: 'Configured, leave empty to keep; enter a new value to replace it.',
         feishuCooldownSeconds: 'Cooldown seconds',
+        feishuUpstreamBalanceLowThreshold: 'Upstream balance alert threshold (CNY)',
+        feishuUpstreamBalanceLowThresholdHint: 'A background sentinel polls upstream channel accounts that expose a public balance API (currently DeepSeek) and sends a pre-emptive Feishu warning when balance drops below this value, before it hits zero. Requires Feishu alerts enabled above.',
         configured: 'Configured',
         notConfigured: 'Not configured',
         dailySummary: 'Daily summary',
@@ -5576,7 +5578,8 @@ export default {
           feishuWebhookRequired: 'Feishu P0 alerts require a configured webhook when enabled',
           feishuWebhookHttps: 'Feishu webhook must be an HTTPS URL',
           feishuRateLimitRange: 'Feishu rate limit per hour must be between 1 and 24',
-          feishuCooldownRange: 'Feishu cooldown must be between 60 and 86400 seconds'
+          feishuCooldownRange: 'Feishu cooldown must be between 60 and 86400 seconds',
+          feishuUpstreamBalanceLowThresholdRange: 'Upstream balance alert threshold must be between 1 and 1000000'
         }
       },
       settings: {
