@@ -1,6 +1,9 @@
 package service
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // TK: media unpriced = reject (操作员拍板 2026-06-12，反转媒体路径的
 // "先服务后补价"默认).
@@ -45,6 +48,12 @@ func (s *BillingService) TkVideoModelUnpriced(model string) bool {
 // operating discipline it only holds non-zero corrections of models that
 // already carry a static price, so it cannot be a model's sole price).
 func (s *BillingService) TkImageModelUnpriced(model string, group *Group) bool {
+	if strings.TrimSpace(model) == "" {
+		// Model-less image requests are legal on the OAuth path (the forward
+		// layer defaults them, e.g. to gpt-image-2) — defaulting and model
+		// validation belong to that layer, so an empty name fails OPEN here.
+		return false
+	}
 	if group != nil && (group.ImagePrice1K != nil || group.ImagePrice2K != nil || group.ImagePrice4K != nil) {
 		return false
 	}

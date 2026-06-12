@@ -60,6 +60,10 @@ func TestTkImageModelUnpriced(t *testing.T) {
 	group := &Group{ImagePrice2K: &price}
 	require.False(t, svc.TkImageModelUnpriced("never-priced-image-model", group))
 
+	// Model-less requests (OAuth path defaults the model downstream) fail OPEN.
+	require.False(t, svc.TkImageModelUnpriced("", nil))
+	require.False(t, svc.TkImageModelUnpriced("   ", nil))
+
 	// Fail OPEN on missing wiring.
 	require.False(t, (&BillingService{}).TkImageModelUnpriced("anything", nil))
 }
