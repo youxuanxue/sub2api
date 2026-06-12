@@ -86,6 +86,20 @@ def main() -> int:
             price = pricing.get(field)
             if not isinstance(price, (int, float)) or price <= 0:
                 errors.append(f"{model}: mode={mode} requires {field} > 0, got {price!r}")
+        if mode == "video_generation":
+            # TokenKey refunds the user in full when a video task ends failed —
+            # loss-free ONLY if the provider does not charge for failed tasks.
+            # Whoever prices a video model verifies that on the official pricing
+            # page and declares it here; a provider that charges on failure must
+            # not be priced (= not served) until the refund design handles it.
+            failure_billing = pricing.get("failure_billing")
+            if failure_billing != "success_only":
+                errors.append(
+                    f"{model}: video entries must declare failure_billing='success_only' "
+                    f"(got {failure_billing!r}); a provider that charges for failed tasks "
+                    f"breaks the terminal-failure refund — change the refund design before "
+                    f"pricing it"
+                )
 
     for model, field in ANCHORS.items():
         pricing = entries.get(model)
