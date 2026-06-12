@@ -8947,6 +8947,9 @@ type postUsageBillingParams struct {
 	AccountRateMultiplier float64
 	APIKeyService         APIKeyQuotaUpdater
 	Platform              string // 来自 APIKey 关联 Group 的平台标识
+	// TK: pre-flight balance-hold key handed off by the handler; consumed in the
+	// settlement transaction (see UsageBillingCommand.TkHoldRequestID).
+	TkHoldRequestID string
 }
 
 // PlatformFromAPIKey 从 APIKey 关联的 Group 推导 platform 名称。
@@ -9092,6 +9095,7 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 		AccountID:          p.Account.ID,
 		AccountType:        p.Account.Type,
 		RequestPayloadHash: strings.TrimSpace(p.RequestPayloadHash),
+		TkHoldRequestID:    strings.TrimSpace(p.TkHoldRequestID),
 	}
 	if usageLog != nil {
 		cmd.Model = usageLog.Model

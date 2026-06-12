@@ -17,12 +17,19 @@ import (
 //
 // Invariant: reserve is atomic `UPDATE users SET balance = balance - hold
 // WHERE balance >= hold`. Row-lock serialization ⇒ after admitting k concurrent
-// requests balance = B - Σholdᵢ ≥ 0, so Σholdᵢ ≤ B. At request end each releases
-// its hold; the async path bills actualᵢ. If hold is a true upper bound
-// (actualᵢ ≤ holdᵢ — guaranteed by the EstimateHold* formulas in
+// requests balance = B - Σholdᵢ ≥ 0, so Σholdᵢ ≤ B. If hold is a true upper
+// bound (actualᵢ ≤ holdᵢ — guaranteed by the EstimateHold* formulas in
 // billing_service_tk_hold.go), then final balance = B - Σactualᵢ ≥ B - Σholdᵢ ≥ 0.
 // Provably never negative. The hold's deliberate over-estimate only briefly
 // shrinks AVAILABLE balance; settlement still bills exact actual.
+//
+// Release ordering is part of the invariant: billing settles asynchronously,
+// so a hold refunded at handler return while its bill is still queued would
+// re-expose the funds to concurrent admission. Hence the hand-off protocol —
+// when a usage-record task is submitted, the handler hands refund ownership to
+// settlement (UsageBillingCommand.TkHoldRequestID) and the hold is consumed in
+// the SAME transaction as the balance deduction; only never-billed paths
+// refund at handler return, and crashes are repaid by the hold reconciler.
 //
 // Capability is consumed by type assertion (same pattern as
 // UsageBillingVideoRefundApplier) so the wide UsageBillingRepository interface
@@ -44,7 +51,7 @@ type UsageBillingHoldApplier interface {
 	// guarded by `balance >= amount` and records a usage_holds row, in one
 	// transaction. Returns (true, nil) when reserved (or a hold for this
 	// request_id already exists — idempotent), (false, nil) when the balance is
-	// insufficient (caller rejects with 402), (false, err) on a DB error.
+	// insufficient (caller rejects with 403), (false, err) on a DB error.
 	ReserveBalanceHold(ctx context.Context, cmd *HoldCommand) (reserved bool, err error)
 
 	// ReleaseBalanceHold refunds the reserved amount and deletes the hold row,

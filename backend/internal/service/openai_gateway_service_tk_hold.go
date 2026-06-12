@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"go.uber.org/zap"
 )
@@ -18,8 +19,9 @@ import (
 
 // tkReserveBalanceHold reserves an upper-bound hold via the repository's narrow
 // hold capability. Returns:
-//   - held=true            → balance reserved; caller MUST release at request end.
-//   - held=false, reject=true  → insufficient balance; caller rejects with 402.
+//   - held=true            → balance reserved; the caller owns the release
+//     (request-end refund, or hand-off to settlement).
+//   - held=false, reject=true  → insufficient balance; caller rejects with 403.
 //   - held=false, reject=false → not gated (no hold capability, or amount ≤ 0 —
 //     e.g. an unpriced chat model that bills $0 by design); let post-hoc billing
 //     proceed unchanged.
@@ -74,19 +76,25 @@ func (s *OpenAIGatewayService) tkHoldRateMultiplier(ctx context.Context, user *U
 	return multiplier
 }
 
+// tkHoldGatingDisabled reports whether hold gating is off for this deployment:
+// simple mode records usage but never bills, so a reservation would only pin
+// user money until the reconciler refunds it.
+func (s *OpenAIGatewayService) tkHoldGatingDisabled() bool {
+	return s.cfg != nil && s.cfg.RunMode == config.RunModeSimple
+}
+
 // TkReserveTokenHold estimates an upper-bound token cost and reserves it.
-// requestID must be the usage-billing request id (TkResolveUsageBillingRequestID)
-// so release/reconcile key off the same value the billed row carries. promptTokens
-// must be an UPPER BOUND on the request's input tokens (callers over-estimate);
-// embeddings pass maxOutputTokens=0.
+// requestID must be derived from the usage-billing request id
+// (TkResolveUsageBillingRequestID) so reconciliation can anchor a hold to its
+// request. promptTokens must be an UPPER BOUND on the request's input tokens
+// (callers over-estimate); embeddings pass maxOutputTokens=0.
 //
-// Returns held (caller must release at request end) and reject (caller returns
-// 402). A pricing/DB failure is fail-open (held=false, reject=false) + an ALERT
-// log: a reservation outage must not deny service (availability wins, same
-// regime as unpriced-chat serve-and-alert), it only narrows the guarantee until
-// resolved.
+// Returns held (caller owns the release) and reject (caller returns 403). A
+// pricing/DB failure is fail-open (held=false, reject=false) + an ALERT log: a
+// reservation outage must not deny service (availability wins, same regime as
+// unpriced-chat serve-and-alert), it only narrows the guarantee until resolved.
 func (s *OpenAIGatewayService) TkReserveTokenHold(ctx context.Context, requestID, model, serviceTier string, user *User, apiKey *APIKey, promptTokens, maxOutputTokens int) (held bool, reject bool) {
-	if s == nil || user == nil || apiKey == nil || requestID == "" {
+	if s == nil || user == nil || apiKey == nil || requestID == "" || s.tkHoldGatingDisabled() {
 		return false, false
 	}
 	multiplier := s.tkHoldRateMultiplier(ctx, user, apiKey)
@@ -121,7 +129,7 @@ func (s *OpenAIGatewayService) TkReserveTokenHold(ctx context.Context, requestID
 // image-output tokens; the tier-max image estimate still collapses the
 // concurrent-overdraft amplification there, but is not a proven bound.
 func (s *OpenAIGatewayService) TkReserveImageHold(ctx context.Context, requestID, model string, user *User, apiKey *APIKey, n int) (held bool, reject bool) {
-	if s == nil || user == nil || apiKey == nil || requestID == "" {
+	if s == nil || user == nil || apiKey == nil || requestID == "" || s.tkHoldGatingDisabled() {
 		return false, false
 	}
 	multiplier := resolveImageRateMultiplier(apiKey, s.tkHoldRateMultiplier(ctx, user, apiKey))
@@ -182,7 +190,7 @@ func (s *OpenAIGatewayService) tkEstimateImageHoldAmount(ctx context.Context, mo
 // CalculateVideoCost over the same request-derived seconds, same multiplier.
 // Same fail-open posture as TkReserveTokenHold.
 func (s *OpenAIGatewayService) TkReserveVideoHold(ctx context.Context, requestID, model string, user *User, apiKey *APIKey, seconds int64) (held bool, reject bool) {
-	if s == nil || user == nil || apiKey == nil || requestID == "" {
+	if s == nil || user == nil || apiKey == nil || requestID == "" || s.tkHoldGatingDisabled() {
 		return false, false
 	}
 	multiplier := s.tkHoldRateMultiplier(ctx, user, apiKey)

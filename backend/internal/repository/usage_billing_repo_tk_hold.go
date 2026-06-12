@@ -144,6 +144,40 @@ func (r *usageBillingRepository) ReleaseBalanceHold(ctx context.Context, request
 	return true, nil
 }
 
+// tkConsumeBalanceHoldInTx refunds a handed-off pre-flight hold INSIDE the
+// settlement transaction (applyUsageBillingEffects), so the balance leaves the
+// tx as B + hold − actual in one atomic step. This closes the only timing gap
+// of the overdraft fix: if the hold were refunded at handler end while the
+// settlement was still queued, a concurrent request could be admitted against
+// the not-yet-debited balance. Idempotent: a missing row (hold already
+// consumed by an earlier settle of the same request, or refunded by the
+// reconciler after a crash) moves no money.
+func tkConsumeBalanceHoldInTx(ctx context.Context, tx *sql.Tx, holdRequestID string) error {
+	if holdRequestID == "" {
+		return nil
+	}
+	var userID int64
+	var amount float64
+	err := tx.QueryRowContext(ctx, `
+		DELETE FROM usage_holds
+		WHERE request_id = $1
+		RETURNING user_id, amount
+	`, holdRequestID).Scan(&userID, &amount)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
+		UPDATE users
+		SET balance = balance + $1,
+			updated_at = NOW()
+		WHERE id = $2 AND deleted_at IS NULL
+	`, amount, userID)
+	return err
+}
+
 // ReleaseExpiredBalanceHolds refunds holds older than olderThan (up to batch
 // rows) in a single transaction — the crash-recovery sweep for reserve/release
 // pairs whose request-end release never ran. FOR UPDATE SKIP LOCKED keeps it

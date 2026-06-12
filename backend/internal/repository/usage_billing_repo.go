@@ -106,6 +106,12 @@ func (r *usageBillingRepository) claimUsageBillingKey(ctx context.Context, tx *s
 }
 
 func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand, result *service.UsageBillingApplyResult) error {
+	// TK: consume the pre-flight balance hold in the SAME transaction as the
+	// deduction below (see usage_billing_repo_tk_hold.go).
+	if err := tkConsumeBalanceHoldInTx(ctx, tx, cmd.TkHoldRequestID); err != nil {
+		return err
+	}
+
 	if cmd.SubscriptionCost > 0 && cmd.SubscriptionID != nil {
 		if err := incrementUsageBillingSubscription(ctx, tx, *cmd.SubscriptionID, cmd.SubscriptionCost); err != nil {
 			return err

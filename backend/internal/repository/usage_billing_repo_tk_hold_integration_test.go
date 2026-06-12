@@ -109,6 +109,65 @@ func TestReserveBalanceHold_ConcurrentNeverNegative(t *testing.T) {
 	require.InDelta(t, 10-float64(success), bal, 1e-9, "balance must equal 10 minus successful holds")
 }
 
+// The release-before-settle closure: a hold handed off to settlement must be
+// consumed (refunded) in the SAME billing transaction as the deduction, so the
+// balance moves B → B + hold − actual in one atomic step and is never exposed
+// at B + hold with the bill still pending.
+func TestApply_ConsumesHandedOffHoldAtomically(t *testing.T) {
+	ctx := context.Background()
+	client := testEntClient(t)
+	repo := NewUsageBillingRepository(client, integrationDB)
+	applier, ok := repo.(service.UsageBillingHoldApplier)
+	require.True(t, ok)
+
+	user := mustCreateUser(t, client, &service.User{
+		Email:        fmt.Sprintf("hold-settle-%s@example.com", uuid.NewString()),
+		PasswordHash: "hash",
+		Balance:      10,
+	})
+	apiKey := mustCreateApiKey(t, client, &service.APIKey{
+		UserID: user.ID,
+		Key:    "sk-hold-settle-" + uuid.NewString(),
+		Name:   "hold-settle",
+		Quota:  1,
+	})
+
+	holdID := "local:" + uuid.NewString()
+	reserved, err := applier.ReserveBalanceHold(ctx, &service.HoldCommand{
+		RequestID: holdID, UserID: user.ID, APIKeyID: apiKey.ID, Amount: 5,
+	})
+	require.NoError(t, err)
+	require.True(t, reserved)
+	require.InDelta(t, 5, holdBalance(t, user.ID), 1e-9)
+
+	cmd := &service.UsageBillingCommand{
+		RequestID:       uuid.NewString(), // billing id may differ from the hold id (WS turns)
+		APIKeyID:        apiKey.ID,
+		UserID:          user.ID,
+		AccountID:       1,
+		AccountType:     service.AccountTypeAPIKey,
+		Model:           "test-model",
+		BalanceCost:     3,
+		TkHoldRequestID: holdID,
+	}
+	cmd.Normalize()
+	result, err := repo.Apply(ctx, cmd)
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+	require.InDelta(t, 7, holdBalance(t, user.ID), 1e-9, "settle must net hold refund (+5) and actual (−3)")
+
+	var n int
+	require.NoError(t, integrationDB.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM usage_holds WHERE request_id = $1", holdID).Scan(&n))
+	require.Equal(t, 0, n, "consumed hold row must be gone")
+
+	// A late handler-end release must find nothing to refund.
+	released, err := applier.ReleaseBalanceHold(ctx, holdID)
+	require.NoError(t, err)
+	require.False(t, released)
+	require.InDelta(t, 7, holdBalance(t, user.ID), 1e-9)
+}
+
 func TestReleaseExpiredBalanceHolds_RefundsLeaks(t *testing.T) {
 	ctx := context.Background()
 	applier, user, apiKey := newHoldApplier(t)
