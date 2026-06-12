@@ -72,8 +72,24 @@ if [[ -z "${_TK_SMOKE_LIB_LOADED:-}" ]]; then
         ;;
       *)
         case "${err_msg}" in
-          *"no available accounts"*)
-            echo "::warning::tk_post_deploy_smoke: ${label} returned HTTP ${http} with 'no available accounts' — pool exhausted, not a control-plane regression." >&2
+          # Pool exhaustion is a runtime resource state, not a control-plane
+          # regression. Two distinct gateway phrasings reach here:
+          #   "no available accounts"        — empty/throttled pool on the
+          #                                    directly-bound group.
+          #   "All available accounts exhausted" — the CC-only fallback path
+          #                                    (PR #740): a claude_code_only key
+          #                                    routes /v1/chat|/v1/responses to
+          #                                    its fallback_group_id, and that
+          #                                    fallback pool was exhausted. Before
+          #                                    #740 this same key returned the
+          #                                    "restricted to Claude Code clients"
+          #                                    rejection below (already soft-skipped),
+          #                                    so matching only the first phrase
+          #                                    turned an unchanged pool state into
+          #                                    a hard smoke failure. /v1/messages
+          #                                    stays the canonical signal for this key.
+          *"no available accounts"*|*"available accounts exhausted"*)
+            echo "::warning::tk_post_deploy_smoke: ${label} returned HTTP ${http} with a pool-exhaustion message ('no available accounts' / 'All available accounts exhausted') — pool exhausted, not a control-plane regression." >&2
             jq . "${resp_file}" >&2 2>/dev/null || cat "${resp_file}" >&2
             echo "tk_post_deploy_smoke: ${label} section soft-skipped (pool exhausted)"
             return 1
