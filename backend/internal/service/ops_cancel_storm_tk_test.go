@@ -88,7 +88,7 @@ func TestCancelStormModeOffNoAlert(t *testing.T) {
 	doer := &blockingFeishuDoer{}
 	d := newTestCancelStormDetector(&CancelStormConfig{Mode: cancelStormModeOff, WindowSeconds: 60, MinSampleCount: 2}, doer, now)
 	for i := 0; i < 10; i++ {
-		d.observe(7, "borrowed-key", "claude-opus-4-8", true)
+		d.observe(7, "borrowed-key", "claude-opus-4-8", "anthropic", true)
 	}
 	time.Sleep(30 * time.Millisecond)
 	require.Equal(t, 0, doer.callCount(), "mode=off must never alert")
@@ -101,7 +101,7 @@ func TestCancelStormBelowMinSampleNoAlert(t *testing.T) {
 	d := newTestCancelStormDetector(&CancelStormConfig{Mode: cancelStormModeDetectOnly, WindowSeconds: 60, MinSampleCount: 5, CancelRateThreshold: 0.5}, doer, now)
 	// 4 requests all canceled: rate 1.0 but below the 5-sample floor.
 	for i := 0; i < 4; i++ {
-		d.observe(7, "k", "claude-opus-4-8", true)
+		d.observe(7, "k", "claude-opus-4-8", "anthropic", true)
 	}
 	time.Sleep(30 * time.Millisecond)
 	require.Equal(t, 0, doer.callCount())
@@ -114,12 +114,33 @@ func TestCancelStormCrossThresholdAlerts(t *testing.T) {
 	// 5 requests, 3 canceled -> rate 0.6 >= 0.5 and total 5 >= 5 -> alert.
 	pattern := []bool{true, true, true, false, false}
 	for _, c := range pattern {
-		d.observe(7, "borrowed-key", "claude-opus-4-8", c)
+		d.observe(7, "borrowed-key", "claude-opus-4-8", "anthropic", c)
 	}
 	waitForFeishuCalls(t, doer, 1)
 	body := doer.lastBody()
 	require.Contains(t, body, "borrowed-key (#7)")
 	require.Contains(t, body, "60%")
+	// anthropic key keeps the sharp catastrophic warning (org-disable risk).
+	require.Contains(t, body, "Anthropic")
+	require.Contains(t, body, "org-disable")
+}
+
+// A non-anthropic platform (e.g. newapi/deepseek) must NOT inherit the hardcoded
+// "Anthropic 封禁承载账号" warning — that account is not in its path. The alert
+// names the real upstream platform instead. Guards the newapi/deepseek misattribution.
+func TestCancelStormNonAnthropicAdviceNamesRealPlatform(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	doer := &blockingFeishuDoer{done: make(chan struct{}, 4)}
+	d := newTestCancelStormDetector(&CancelStormConfig{Mode: cancelStormModeDetectOnly, WindowSeconds: 60, MinSampleCount: 5, CancelRateThreshold: 0.5, AlertCooldownSeconds: 600}, doer, now)
+	pattern := []bool{true, true, true, false, false}
+	for _, c := range pattern {
+		d.observe(9, "eval-deepseek-key", "deepseek-v4-pro", "newapi", c)
+	}
+	waitForFeishuCalls(t, doer, 1)
+	body := doer.lastBody()
+	require.Contains(t, body, "newapi", "advice must name the real upstream platform")
+	require.NotContains(t, body, "Anthropic", "non-anthropic key must not blame Anthropic")
+	require.NotContains(t, body, "org-disable", "org-disable risk is anthropic-only")
 }
 
 func TestCancelStormDedupWithinCooldown(t *testing.T) {
@@ -127,7 +148,7 @@ func TestCancelStormDedupWithinCooldown(t *testing.T) {
 	doer := &blockingFeishuDoer{done: make(chan struct{}, 8)}
 	d := newTestCancelStormDetector(&CancelStormConfig{Mode: cancelStormModeDetectOnly, WindowSeconds: 600, MinSampleCount: 2, CancelRateThreshold: 0.5, AlertCooldownSeconds: 600}, doer, now)
 	for i := 0; i < 10; i++ {
-		d.observe(7, "k", "claude-opus-4-8", true)
+		d.observe(7, "k", "claude-opus-4-8", "anthropic", true)
 	}
 	waitForFeishuCalls(t, doer, 1)
 	time.Sleep(40 * time.Millisecond)
@@ -139,7 +160,7 @@ func TestCancelStormOpusOnlyGatesNonOpus(t *testing.T) {
 	doer := &blockingFeishuDoer{}
 	d := newTestCancelStormDetector(&CancelStormConfig{Mode: cancelStormModeDetectOnly, WindowSeconds: 60, MinSampleCount: 2, CancelRateThreshold: 0.5, OpusOnly: true}, doer, now)
 	for i := 0; i < 10; i++ {
-		d.observe(7, "k", "claude-sonnet-4-6", true)
+		d.observe(7, "k", "claude-sonnet-4-6", "anthropic", true)
 	}
 	time.Sleep(30 * time.Millisecond)
 	require.Equal(t, 0, doer.callCount(), "opus_only must skip non-opus models")
@@ -153,7 +174,7 @@ func TestCancelStormOpusOnlyIncludesFable(t *testing.T) {
 	doer := &blockingFeishuDoer{done: make(chan struct{}, 8)}
 	d := newTestCancelStormDetector(&CancelStormConfig{Mode: cancelStormModeDetectOnly, WindowSeconds: 600, MinSampleCount: 2, CancelRateThreshold: 0.5, AlertCooldownSeconds: 600, OpusOnly: true}, doer, now)
 	for i := 0; i < 10; i++ {
-		d.observe(7, "k", "claude-fable-5", true)
+		d.observe(7, "k", "claude-fable-5", "anthropic", true)
 	}
 	waitForFeishuCalls(t, doer, 1)
 	require.Equal(t, 1, doer.callCount(), "opus_only must still watch fable (priciest tier)")
@@ -172,7 +193,7 @@ func TestCancelStormWindowTumblingResets(t *testing.T) {
 
 	// Fill the first window with cancels (min_sample high so no alert).
 	for i := 0; i < 3; i++ {
-		d.observe(7, "k", "claude-opus-4-8", true)
+		d.observe(7, "k", "claude-opus-4-8", "anthropic", true)
 	}
 	d.mu.Lock()
 	require.Equal(t, 3, d.states[7].total)
@@ -181,7 +202,7 @@ func TestCancelStormWindowTumblingResets(t *testing.T) {
 
 	// Advance past the window; the next observe must reset, not accumulate.
 	cur = now.Add(61 * time.Second)
-	d.observe(7, "k", "claude-opus-4-8", false)
+	d.observe(7, "k", "claude-opus-4-8", "anthropic", false)
 	d.mu.Lock()
 	require.Equal(t, 1, d.states[7].total, "window must tumble-reset total")
 	require.Equal(t, 0, d.states[7].canceled, "old-window cancels must not carry over")

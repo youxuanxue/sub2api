@@ -191,8 +191,10 @@ func (d *cancelStormDetector) loadConfig() *CancelStormConfig {
 
 // observe feeds one terminal request outcome into the per-key window and fires an
 // alert when the cancel rate crosses the configured threshold. No-op unless mode
-// is "detect_only".
-func (d *cancelStormDetector) observe(apiKeyID int64, apiKeyName, model string, canceled bool) {
+// is "detect_only". platform is the request's resolved group platform; it only
+// shapes the alert's risk wording (anthropic OAuth org-disable vs. generic
+// upstream-spend on the other platforms), never the detection.
+func (d *cancelStormDetector) observe(apiKeyID int64, apiKeyName, model, platform string, canceled bool) {
 	if d == nil || apiKeyID <= 0 {
 		return
 	}
@@ -246,7 +248,7 @@ func (d *cancelStormDetector) observe(apiKeyID int64, apiKeyName, model string, 
 	d.mu.Unlock()
 
 	if shouldAlert {
-		go d.sendAlert(apiKeyID, apiKeyName, model, rate, total, cancels, cfg)
+		go d.sendAlert(apiKeyID, apiKeyName, model, platform, rate, total, cancels, cfg)
 	}
 }
 
@@ -270,7 +272,7 @@ func (d *cancelStormDetector) sweepLocked(now time.Time, window time.Duration) {
 	}
 }
 
-func (d *cancelStormDetector) sendAlert(apiKeyID int64, apiKeyName, model string, rate float64, total, canceled int, cfg *CancelStormConfig) {
+func (d *cancelStormDetector) sendAlert(apiKeyID int64, apiKeyName, model, platform string, rate float64, total, canceled int, cfg *CancelStormConfig) {
 	defer func() {
 		if r := recover(); r != nil {
 			logger.LegacyPrintf("service.cancel_storm", "[CancelStorm] alert panic recovered: %v", r)
@@ -290,14 +292,14 @@ func (d *cancelStormDetector) sendAlert(apiKeyID int64, apiKeyName, model string
 	if d.siteID != "" && d.siteID != "unknown" {
 		title = title + " · " + d.siteID
 	}
-	body := buildCancelStormText(d.siteID, apiKeyID, apiKeyName, model, rate, total, canceled, cfg, d.currentTime())
+	body := buildCancelStormText(d.siteID, apiKeyID, apiKeyName, model, platform, rate, total, canceled, cfg, d.currentTime())
 	payload := feishuCardPayload(fcfg.Feishu, d.now, "orange", title, body)
 	if sErr := sendFeishuPayload(ctx, d.httpClient, fcfg.Feishu, payload); sErr != nil {
 		logger.LegacyPrintf("service.cancel_storm", "[CancelStorm] feishu send failed: %s", sErr.Error())
 	}
 }
 
-func buildCancelStormText(site string, apiKeyID int64, apiKeyName, model string, rate float64, total, canceled int, cfg *CancelStormConfig, now time.Time) string {
+func buildCancelStormText(site string, apiKeyID int64, apiKeyName, model, platform string, rate float64, total, canceled int, cfg *CancelStormConfig, now time.Time) string {
 	keyLabel := fmt.Sprintf("#%d", apiKeyID)
 	if name := strings.TrimSpace(apiKeyName); name != "" {
 		keyLabel = fmt.Sprintf("%s (#%d)", name, apiKeyID)
@@ -306,7 +308,6 @@ func buildCancelStormText(site string, apiKeyID int64, apiKeyName, model string,
 	if modelLabel == "" {
 		modelLabel = "-"
 	}
-	advice := "疑似外部客户端以短超时/程序化方式滥用该 key,持续高取消率会触发上游(Anthropic)滥用风控并可能封禁承载账号。建议核查该 key 来源,必要时降并发/限流或暂停该 key。"
 	return fmt.Sprintf("**节点**：%s\n**API Key**：%s\n**模型**：%s\n**取消率**：%.0f%%（%d/%d，窗口 %ds）\n**模式**：%s\n**时间**：%s\n\n**建议**：%s",
 		escapeFeishuText(site),
 		escapeFeishuText(keyLabel),
@@ -314,8 +315,32 @@ func buildCancelStormText(site string, apiKeyID int64, apiKeyName, model string,
 		rate*100, canceled, total, cfg.WindowSeconds,
 		escapeFeishuText(cfg.Mode),
 		escapeFeishuText(formatAlertTime(now)),
-		advice,
+		cancelStormAdvice(platform),
 	)
+}
+
+// cancelStormAdvice tailors the alert's risk wording to the account-carrying
+// platform. The detector was born from an Anthropic subscription-OAuth account
+// getting org-disabled by a client-cancel flood — that catastrophic, hard-to-
+// recover failure mode is unique to anthropic and must keep its sharp warning.
+// For every other platform the same hardcoded "Anthropic 封禁承载账号" string is a
+// misattribution (a newapi/openai/gemini key never routes to an anthropic OAuth
+// account), so it would point oncall at an account that is not in the path. There
+// the real cost is wasted upstream spend + that provider's own abuse/rate
+// controls, so we name the actual platform instead of Anthropic.
+func cancelStormAdvice(platform string) string {
+	const prefix = "疑似外部客户端以短超时/程序化方式滥用该 key。"
+	const suffix = "建议核查该 key 来源，必要时降并发/限流或暂停该 key。"
+	var risk string
+	switch strings.ToLower(strings.TrimSpace(platform)) {
+	case PlatformAnthropic:
+		risk = "持续高取消率会触发上游 Anthropic 滥用风控，可能导致订阅 OAuth 承载账号被封禁（org-disable，难以恢复）。"
+	case "":
+		risk = "持续高取消率会无谓消耗上游算力与额度，并可能触发上游服务商的滥用/限流风控。"
+	default:
+		risk = fmt.Sprintf("持续高取消率会无谓消耗上游（%s）算力与额度，并可能触发该上游服务商的滥用/限流风控。", platform)
+	}
+	return prefix + risk + suffix
 }
 
 func isOpusModel(model string) bool {
@@ -323,11 +348,13 @@ func isOpusModel(model string) bool {
 }
 
 // ObserveCancelStorm feeds one terminal request outcome (api key id + name, model,
-// whether the client canceled) into the per-key cancel-storm detector. No-op
-// unless cancel_storm_config mode is "detect_only". Safe on nil receiver / detector.
-func (s *OpsService) ObserveCancelStorm(apiKeyID int64, apiKeyName, model string, canceled bool) {
+// resolved group platform, whether the client canceled) into the per-key
+// cancel-storm detector. No-op unless cancel_storm_config mode is "detect_only".
+// Safe on nil receiver / detector. platform only shapes the alert's risk wording,
+// never the detection.
+func (s *OpsService) ObserveCancelStorm(apiKeyID int64, apiKeyName, model, platform string, canceled bool) {
 	if s == nil || s.cancelStorm == nil {
 		return
 	}
-	s.cancelStorm.observe(apiKeyID, apiKeyName, model, canceled)
+	s.cancelStorm.observe(apiKeyID, apiKeyName, model, platform, canceled)
 }
