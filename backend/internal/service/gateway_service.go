@@ -9505,6 +9505,10 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 
 	// 创建使用日志
 	accountRateMultiplier := account.BillingRateMultiplier()
+
+	// TK 根因②：已服务但零计费统一探针（cost 已知后判定，命中发 P0 告警）。
+	s.tkNotifyServedZeroCost(cost, result, apiKey, billingModel, requestedModel, multiplier, accountRateMultiplier)
+
 	usageLog := s.buildRecordUsageLog(ctx, input, result, apiKey, user, account, subscription,
 		requestedModel, multiplier, imageMultiplier, accountRateMultiplier, billingType, cacheTTLOverridden, cost, opts)
 
@@ -9700,10 +9704,13 @@ func (s *GatewayService) calculateTokenCost(
 	}
 	if err != nil {
 		// TK (upstream Wei-Shaw/sub2api#1833 / #1544): surface pricing-missing as a
-		// structured, observable zero-cost record instead of a silent ActualCost:0
-		// leak — at parity with the OpenAI record-usage path. See
-		// recordTokenCostPricingMissing (log + Feishu pricing-missing notifier).
-		s.recordTokenCostPricingMissing(billingModel, apiKey, result, tokens, err)
+		// structured, observable zero-cost log instead of a silent ActualCost:0
+		// leak — at parity with the OpenAI record-usage path. The P0 Feishu alert
+		// is no longer fired here: it is consolidated into the result-side
+		// "served but zero cost" probe (tkNotifyServedZeroCost) at the record-usage
+		// site, which catches this error-path zero-cost AND the silent $0 paths
+		// that never error. This call keeps only the grep-able structured log.
+		logTokenCostPricingMissing(billingModel, apiKey, result, err)
 		if isUsagePricingUnavailableError(err) {
 			return &CostBreakdown{BillingMode: string(BillingModeToken)}
 		}

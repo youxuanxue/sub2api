@@ -3,7 +3,6 @@
 package service
 
 import (
-	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -156,7 +155,7 @@ func TestPricingMissingNotifier_DigestIntervalFromConfig(t *testing.T) {
 	require.Equal(t, time.Duration(pricingMissingDigestSecondsFallback)*time.Second, n2.digestInterval())
 }
 
-// --- funnel hook tests ----------------------------------------------------
+// --- served-but-zero-cost probe tests (root-cause ②) -----------------------
 
 type recordingPricingMissingNotifier struct {
 	events []PricingMissingEvent
@@ -166,17 +165,49 @@ func (r *recordingPricingMissingNotifier) NotifyPricingMissing(ev PricingMissing
 	r.events = append(r.events, ev)
 }
 
-func TestGatewayRecordTokenCostPricingMissing_FeedsNotifier(t *testing.T) {
+func TestServedZeroCostReason_TruthTable(t *testing.T) {
+	// 倍率前 TotalCost==0 且有计费单元 → unpriced（无价模型/渠道$0/视频·per_request
+	// 无价/cost-calc 错误吞 $0 都落这里）。
+	reason, ok := tkServedZeroCostReason(&CostBreakdown{TotalCost: 0, ActualCost: 0}, 160, 1.0, 1.0)
+	require.True(t, ok)
+	require.Equal(t, "unpriced", reason)
+
+	// 价格有效但负倍率归零 → negative_multiplier（group 倍率 / account 倍率任一为负）。
+	reason, ok = tkServedZeroCostReason(&CostBreakdown{TotalCost: 10, ActualCost: 0}, 160, -1.0, 1.0)
+	require.True(t, ok)
+	require.Equal(t, "negative_multiplier", reason)
+	_, ok = tkServedZeroCostReason(&CostBreakdown{TotalCost: 10, ActualCost: 0}, 160, 1.0, -2.0)
+	require.True(t, ok)
+
+	// 合法免费分组（倍率恰为 0、价格有效）→ 不报。
+	_, ok = tkServedZeroCostReason(&CostBreakdown{TotalCost: 10, ActualCost: 0}, 160, 0.0, 1.0)
+	require.False(t, ok, "multiplier==0 is a legitimate free tier, must NOT alert")
+
+	// 无计费单元（失败/空请求/count_tokens）→ 不报。
+	_, ok = tkServedZeroCostReason(&CostBreakdown{TotalCost: 0}, 0, 1.0, 1.0)
+	require.False(t, ok)
+
+	// nil cost → 不报。
+	_, ok = tkServedZeroCostReason(nil, 100, 1.0, 1.0)
+	require.False(t, ok)
+}
+
+func TestGatewayTkNotifyServedZeroCost_FeedsNotifier(t *testing.T) {
 	rec := &recordingPricingMissingNotifier{}
 	svc := &GatewayService{tkPricingMissingNotifier: rec}
 
-	result := &ForwardResult{Model: "glm-5", UpstreamModel: "glm-5-air"}
+	result := &ForwardResult{
+		Model:         "glm-5",
+		UpstreamModel: "glm-5-air",
+		Usage:         ClaudeUsage{InputTokens: 100, OutputTokens: 50, CacheReadInputTokens: 10},
+	}
 	apiKey := &APIKey{ID: 7, Group: &Group{ID: 3, Name: "g3", Platform: PlatformAnthropic}}
-	tokens := UsageTokens{InputTokens: 100, OutputTokens: 50, CacheReadTokens: 10}
 
-	svc.recordTokenCostPricingMissing("glm-5", apiKey, result, tokens, ErrModelPricingUnavailable)
+	// unpriced：TotalCost==0 且已服务 → 喂通知器。
+	svc.tkNotifyServedZeroCost(&CostBreakdown{TotalCost: 0}, result, apiKey, "glm-5", "glm-5", 1.0, 1.0)
 	require.Len(t, rec.events, 1)
 	ev := rec.events[0]
+	require.Equal(t, "unpriced", ev.Reason)
 	require.Equal(t, "glm-5", ev.BillingModel)
 	require.Equal(t, "glm-5-air", ev.UpstreamModel)
 	require.Equal(t, PlatformAnthropic, ev.Platform)
@@ -184,41 +215,51 @@ func TestGatewayRecordTokenCostPricingMissing_FeedsNotifier(t *testing.T) {
 	require.Equal(t, int64(7), ev.APIKeyID)
 	require.Equal(t, int64(160), ev.Tokens)
 
-	// 非缺价类计费错误:只记日志,不喂通知器。
-	svc.recordTokenCostPricingMissing("glm-5", apiKey, result, tokens, errors.New("unexpected cost-calc failure"))
+	// 合法免费（倍率=0、价格有效）→ 不喂。
+	svc.tkNotifyServedZeroCost(&CostBreakdown{TotalCost: 10, ActualCost: 0}, result, apiKey, "glm-5", "glm-5", 0.0, 1.0)
 	require.Len(t, rec.events, 1)
+
+	// 负倍率 → 喂（negative_multiplier）。
+	svc.tkNotifyServedZeroCost(&CostBreakdown{TotalCost: 10, ActualCost: 0}, result, apiKey, "glm-5", "glm-5", -1.0, 1.0)
+	require.Len(t, rec.events, 2)
+	require.Equal(t, "negative_multiplier", rec.events[1].Reason)
 }
 
-func TestGatewayRecordTokenCostPricingMissing_NilNotifierSafe(t *testing.T) {
+func TestGatewayTkNotifyServedZeroCost_NilSafe(t *testing.T) {
 	svc := &GatewayService{}
 	require.NotPanics(t, func() {
-		svc.recordTokenCostPricingMissing("glm-5", nil, nil, UsageTokens{}, ErrModelPricingUnavailable)
+		svc.tkNotifyServedZeroCost(&CostBreakdown{TotalCost: 0}, &ForwardResult{Usage: ClaudeUsage{InputTokens: 1}}, nil, "m", "m", 1.0, 1.0)
 	})
 }
 
-func TestOpenAINotifyPricingMissing_FeedsNotifier(t *testing.T) {
+func TestOpenAITkNotifyServedZeroCost_FeedsNotifier(t *testing.T) {
 	rec := &recordingPricingMissingNotifier{}
 	svc := &OpenAIGatewayService{tkPricingMissingNotifier: rec}
 
 	input := &OpenAIRecordUsageInput{}
 	input.OriginalModel = "doubao-seedream-9"
-	result := &OpenAIForwardResult{UpstreamModel: "doubao-seedream-9-250901"}
+	result := &OpenAIForwardResult{
+		Model:         "doubao-seedream-9",
+		UpstreamModel: "doubao-seedream-9-250901",
+		Usage:         OpenAIUsage{OutputTokens: 5},
+	}
 	apiKey := &APIKey{ID: 9, Group: &Group{ID: 5, Name: "np", Platform: PlatformNewAPI}}
 
-	svc.notifyOpenAIPricingMissing(input, result, apiKey,
-		[]string{"doubao-seedream-9"}, UsageTokens{InputTokens: 20, OutputTokens: 5})
+	// unpriced：actualInputTokens=20 + output 5 = 25 计费单元。
+	svc.tkNotifyServedZeroCost(&CostBreakdown{TotalCost: 0}, result, apiKey, input, []string{"doubao-seedream-9"}, 20, 1.0, 1.0)
 	require.Len(t, rec.events, 1)
 	ev := rec.events[0]
+	require.Equal(t, "unpriced", ev.Reason)
 	require.Equal(t, "doubao-seedream-9", ev.BillingModel)
 	require.Equal(t, "doubao-seedream-9", ev.RequestedModel)
 	require.Equal(t, "doubao-seedream-9-250901", ev.UpstreamModel)
 	require.Equal(t, PlatformNewAPI, ev.Platform)
 	require.Equal(t, int64(25), ev.Tokens)
 
-	// nil notifier 安全。
+	// nil 输入安全。
 	bare := &OpenAIGatewayService{}
 	require.NotPanics(t, func() {
-		bare.notifyOpenAIPricingMissing(nil, nil, nil, nil, UsageTokens{})
+		bare.tkNotifyServedZeroCost(nil, nil, nil, nil, nil, 0, 1.0, 1.0)
 	})
 }
 
