@@ -170,6 +170,9 @@ type UsageLog struct {
 	ImageSizeBreakdown map[string]int
 	MediaType          *string
 
+	// VideoDurationSeconds 视频生成计费秒数（异步视频按秒计费；nil = 非视频请求或历史行）
+	VideoDurationSeconds *int64
+
 	CreatedAt time.Time
 
 	User         *User
