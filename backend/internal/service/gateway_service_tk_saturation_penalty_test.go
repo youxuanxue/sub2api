@@ -28,13 +28,6 @@ func (f *fakeSaturationCache) IncrementSaturation(_ context.Context, accountID i
 	return f.counts[accountID], nil
 }
 
-func (f *fakeSaturationCache) GetSaturation(_ context.Context, accountID int64) (int64, error) {
-	if f.getErr != nil {
-		return 0, f.getErr
-	}
-	return f.counts[accountID], nil
-}
-
 func (f *fakeSaturationCache) GetSaturationBatch(_ context.Context, ids []int64) (map[int64]int64, error) {
 	if f.getErr != nil {
 		return nil, f.getErr

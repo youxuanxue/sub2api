@@ -24,25 +24,22 @@ func TestAnthropicSaturationCounter_IncrementAndGet(t *testing.T) {
 	cache, _ := newSaturationTestCache(t)
 	ctx := context.Background()
 
-	// Empty key reads 0.
-	n, err := cache.GetSaturation(ctx, 7)
+	// Empty key reads 0 via the batch read.
+	zero, err := cache.GetSaturationBatch(ctx, []int64{7})
 	require.NoError(t, err)
-	require.Equal(t, int64(0), n)
+	require.Empty(t, zero, "absent key must not appear")
 
-	// Three increments => count 3, Get reflects it without mutating.
+	// Three increments => count 3, batch read reflects it without mutating.
 	for i := 1; i <= 3; i++ {
 		c, incErr := cache.IncrementSaturation(ctx, 7, 90)
 		require.NoError(t, incErr)
 		require.Equal(t, int64(i), c)
 	}
-	got, err := cache.GetSaturation(ctx, 7)
+	got, err := cache.GetSaturationBatch(ctx, []int64{7, 8})
 	require.NoError(t, err)
-	require.Equal(t, int64(3), got)
-
-	// A different account is independent.
-	other, err := cache.GetSaturation(ctx, 8)
-	require.NoError(t, err)
-	require.Equal(t, int64(0), other)
+	require.Equal(t, int64(3), got[7])
+	_, has8 := got[8] // a different account is independent
+	require.False(t, has8)
 }
 
 func TestAnthropicSaturationCounter_FixedWindowTTLSelfClears(t *testing.T) {
@@ -65,9 +62,9 @@ func TestAnthropicSaturationCounter_FixedWindowTTLSelfClears(t *testing.T) {
 
 	// After the window fully elapses, the counter self-clears back to 0.
 	mr.FastForward(90 * time.Second)
-	got, err := cache.GetSaturation(ctx, 42)
+	got, err := cache.GetSaturationBatch(ctx, []int64{42})
 	require.NoError(t, err)
-	require.Equal(t, int64(0), got, "counter must self-clear on TTL expiry")
+	require.Empty(t, got, "counter must self-clear on TTL expiry")
 }
 
 func TestAnthropicSaturationCounter_GetBatch(t *testing.T) {

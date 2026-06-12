@@ -56,22 +56,6 @@ func (c *anthropicSaturationCounterCache) IncrementSaturation(ctx context.Contex
 	return count, nil
 }
 
-func (c *anthropicSaturationCounterCache) GetSaturation(ctx context.Context, accountID int64) (int64, error) {
-	key := anthropicSaturationKey(accountID)
-	raw, err := c.rdb.Get(ctx, key).Result()
-	if err == redis.Nil {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, fmt.Errorf("get anthropic saturation: %w", err)
-	}
-	n, convErr := strconv.ParseInt(raw, 10, 64)
-	if convErr != nil {
-		return 0, fmt.Errorf("parse anthropic saturation %q: %w", raw, convErr)
-	}
-	return n, nil
-}
-
 func (c *anthropicSaturationCounterCache) GetSaturationBatch(ctx context.Context, accountIDs []int64) (map[int64]int64, error) {
 	out := make(map[int64]int64, len(accountIDs))
 	if len(accountIDs) == 0 {

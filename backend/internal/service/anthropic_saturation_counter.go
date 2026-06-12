@@ -23,11 +23,6 @@ type AnthropicSaturationCounterCache interface {
 	// window rather than sliding it forward indefinitely). Returns the new count.
 	IncrementSaturation(ctx context.Context, accountID int64, windowSeconds int) (count int64, err error)
 
-	// GetSaturation returns the current in-window count for accountID without
-	// mutating it (0 when the key is absent/expired). Used by the scheduler to
-	// compute the de-prioritization penalty per selection.
-	GetSaturation(ctx context.Context, accountID int64) (count int64, err error)
-
 	// GetSaturationBatch returns the current in-window counts for accountIDs in a
 	// single round trip (MGET). Missing/expired keys map to 0. The scheduler
 	// scores a whole candidate set per selection, so a batch read avoids N
