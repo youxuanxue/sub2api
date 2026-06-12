@@ -26,7 +26,10 @@ from __future__ import annotations
 import json
 import os
 
-from mitmproxy import http
+try:  # only mitmdump's interpreter has mitmproxy; unit tests exercise the pure
+    from mitmproxy import http  # helpers (_redact/_ordered_headers) without it.
+except ImportError:  # `http` is referenced only in string annotations at runtime.
+    http = None  # type: ignore[assignment]
 
 _TARGET_HOST_SUBSTR = "cloudcode-pa.googleapis.com"
 _TARGET_PATH_SUBSTR = "v1internal:"

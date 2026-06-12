@@ -187,5 +187,50 @@ class BundleRoundtripTests(unittest.TestCase):
             self.assertEqual(rc_check, 0)
 
 
+import mitm_antigravity_http_headers as addon  # noqa: E402
+
+
+class _FakeHeaders:
+    """Minimal stand-in for mitmproxy Headers: ordered, duplicate-preserving items()."""
+
+    def __init__(self, pairs):
+        self._pairs = list(pairs)
+
+    def items(self, multi=False):  # noqa: ARG002 - signature parity with mitmproxy
+        return list(self._pairs)
+
+
+class RedactionTest(unittest.TestCase):
+    def test_redact_masks_secret_value_keeps_name(self):
+        # bearer / cookie / *auth* / *token* / *key* values are masked to <redacted:Nb>
+        secret = "supersecretvalue"
+        for name in ("Authorization", "Cookie", "Proxy-Authorization",
+                     "X-Goog-Api-Key", "X-Auth-Token", "some-secret-header"):
+            out = addon._redact(name, secret)
+            self.assertEqual(out, f"<redacted:{len(secret)}b>", f"{name} should be redacted")
+            self.assertNotIn("supersecret", out)
+
+    def test_redact_keeps_nonsecret_values(self):
+        # the load-bearing fingerprint headers must survive verbatim
+        self.assertEqual(addon._redact("User-Agent", "antigravity/2.0.11 windows/amd64"),
+                         "antigravity/2.0.11 windows/amd64")
+        self.assertEqual(addon._redact("X-Goog-Api-Client", "gl-node/22.21.1"), "gl-node/22.21.1")
+        self.assertEqual(addon._redact("Content-Type", "application/json"), "application/json")
+
+    def test_ordered_headers_preserves_order_and_redacts(self):
+        hdrs = _FakeHeaders([
+            ("Host", "daily-cloudcode-pa.googleapis.com"),
+            ("User-Agent", "antigravity/2.0.11 windows/amd64"),
+            ("Authorization", "Bearer aaa.bbb.ccc"),
+            ("Content-Type", "application/json"),
+        ])
+        out = addon._ordered_headers(hdrs)
+        self.assertEqual([n for n, _ in out],
+                         ["Host", "User-Agent", "Authorization", "Content-Type"])
+        self.assertEqual(out[1][1], "antigravity/2.0.11 windows/amd64")  # UA verbatim
+        self.assertTrue(out[2][1].startswith("<redacted:"))  # bearer masked
+        self.assertNotIn("Bearer", out[2][1])
+
+
 if __name__ == "__main__":
     unittest.main()
