@@ -109,7 +109,7 @@ func (s *GatewayService) ForwardAsChatCompletionsDispatched(
 			zap.String("bridge_path", "newapi_adaptor_error"),
 			zap.Int64("account_id", account.ID),
 		)
-		return nil, &NewAPIRelayError{Err: apiErr}
+		return nil, s.tkWrapBridgeRelayErrorWithPenalty(ctx, c, account, apiErr)
 	}
 	logger.L().Info("gateway.newapi_bridge_dispatch",
 		zap.String("endpoint", BridgeEndpointChatCompletions),
@@ -160,7 +160,7 @@ func (s *GatewayService) ForwardAsResponsesDispatched(
 			zap.String("bridge_path", "newapi_adaptor_error"),
 			zap.Int64("account_id", account.ID),
 		)
-		return nil, &NewAPIRelayError{Err: apiErr}
+		return nil, s.tkWrapBridgeRelayErrorWithPenalty(ctx, c, account, apiErr)
 	}
 	logger.L().Info("gateway.newapi_bridge_dispatch",
 		zap.String("endpoint", BridgeEndpointResponses),

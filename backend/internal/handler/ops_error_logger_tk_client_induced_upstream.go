@@ -56,14 +56,30 @@ func tkUpstreamClientInducedRejection(c *gin.Context) bool {
 		if combined == "" || tkOpsIsAccountLevel4xx(combined) {
 			return false
 		}
-		// Reuse the SAME predicate the gateway response path uses (B-2,
-		// service.handleErrorResponse) so this metric classification can never
-		// drift from the client-facing 400 "Unsupported model" decision.
-		return service.IsAnthropicModelNotFound404([]byte(body), msg)
+		// Reuse the SAME predicates the gateway uses so this metric classification
+		// can never drift from the client-facing decision: anthropic 404 (B-2,
+		// service.handleErrorResponse "Unsupported model"); newapi/openai-compat 404
+		// model-not-found (VolcEngine InvalidEndpointOrModel.NotFound — an
+		// un-activated / retired model on a fifth-platform channel; 2026-06-10 false
+		// P0). The newapi upstream status now reaches here via the bridge's
+		// service.TkRecordBridgeUpstreamError (text/embedding/image/responses relays).
+		return service.IsAnthropicModelNotFound404([]byte(body), msg) ||
+			service.IsOpenAICompatModelNotFound404([]byte(body), msg)
 	}
-	// Only request-validation 4xx are caller-fault. 401/403 and any 5xx stay
-	// provider-owned (account auth / availability / genuine upstream failure); 404
-	// model-not-found is handled as caller-fault just above.
+	// TK (PR #691 cc-only canary prep): a 403 carrying TokenKey's own
+	// canonical-ingress rejection phrase is a downstream strict-mode edge
+	// rejecting the END CLIENT's identity — caller-fault, not provider health.
+	// Without this, a canary edge's strict rejections relayed through the prod
+	// mirror stub would count toward upstream_error_rate and could fire the
+	// provider-health P0 alert. Matches ONLY the TokenKey phrase; genuine
+	// Anthropic 403s (org disabled, bot challenge) stay provider-owned below.
+	if status == 403 {
+		body, msg := tkOpsUpstreamErrorText(c)
+		return service.IsCanonicalIngressUARejectMessage([]byte(body), msg)
+	}
+	// Only request-validation 4xx are caller-fault. 401 (and non-TK 403) and any
+	// 5xx stay provider-owned (account auth / availability / genuine upstream
+	// failure); 404 model-not-found is handled as caller-fault just above.
 	if status != 400 && status != 422 {
 		return false
 	}

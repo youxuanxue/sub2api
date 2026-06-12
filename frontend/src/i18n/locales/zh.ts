@@ -49,24 +49,23 @@ export default {
     ctaBonus: '立即注册 · 获赠 {amount} 试用额度',
     ctaBonusHint: '当本站开启注册赠额时显示此提示。',
     perRequest: '/ 次',
-    // TK: 登录态「我的菜单」视图（GET /api/v1/me/pricing-catalog）
+    // TK: 登录态「分组目录」视图（GET /api/v1/me/pricing-catalog）。价格一律
+    // 展示官方定价，与分组倍率/个人覆写脱钩。
     my: {
-      tabMy: '我的菜单',
-      tabPublic: '公开目录',
-      title: '我的模型菜单',
-      subtitle: '当前 API Key 所属分组可调用的模型与你的实际单价',
+      tabMy: '分组目录',
+      tabPublic: '所有目录',
+      title: '分组模型目录',
+      subtitle: '当前 API Key 所属分组可调用的模型与官方定价',
       description:
-        '价格已按你的有效倍率（分组默认 × 个人覆写）计算，单位为每 1,000 tokens。切换 API Key 查看不同 group，或对比其他可用 group 决定是否升级。',
+        '展示所选分组可调用的模型及其官方定价，单位为每 1,000 tokens。切换 API Key 查看不同 group，或对比其他可用 group。',
       pickerKey: '当前 Key：',
       pickerCompare: '对比其他 group：',
       compareDefault: '保持当前',
       noKeyHint: '你还没有可用的 API Key，先去控制台创建一个。',
       columns: {
-        input: '输入（你的单价）',
-        output: '输出（你的单价）'
+        input: '输入（官方单价）',
+        output: '输出（官方单价）'
       },
-      rateHint: '已应用 {multiplier} 倍率',
-      rateOverride: '含个人覆写',
       empty: {
         noAccess: {
           title: '暂无可用分组',
@@ -78,7 +77,7 @@ export default {
         }
       },
       exploreBanner: {
-        message: '正在查看 {group} 的目录 · 倍率 ×{multiplier}',
+        message: '正在查看 {group} 的目录',
         cta: '在 {group} 创建 Key'
       },
       billingMode: {
@@ -90,7 +89,18 @@ export default {
 
   playground: {
     title: 'Playground',
-    subtitle: '使用您的 API Key 试用对话补全；请求直达 /v1/chat/completions，无额外后端路由。',
+    subtitle: '先选择 API 密钥——密钥所属分组决定可用模型；请求直达 /v1/chat/completions。',
+    apiKey: 'API 密钥',
+    pickKeyPlaceholder: '请选择 API 密钥…',
+    loadingModels: '加载模型中…',
+    defaultGroup: '默认分组',
+    integrationsTitle: '一键接入外部客户端',
+    integrationsHint: '将网关地址与当前选中的 API 密钥一键导入客户端。',
+    integrationsAppHint: '需已安装对应客户端（通过自定义 URL Scheme 打开）。',
+    copyBaseUrl: '复制接入地址',
+    copyKey: '复制 API 密钥',
+    baseUrlCopied: '接入地址已复制',
+    keyCopied: 'API 密钥已复制',
     model: '模型',
     temperature: '温度',
     maxTokens: 'Max tokens',
@@ -116,7 +126,29 @@ export default {
     completionTokens: '输出 tokens',
     totalTokens: '总计 tokens',
     cancelled: '请求已取消。',
-    requestFailed: '请求失败。'
+    requestFailed: '请求失败。',
+    modalityImage: '图片生成',
+    modalityVideo: '视频生成',
+    imageSize: '尺寸',
+    imageSizeAuto: '自动',
+    imageEmptyHint: '输入图片描述并生成，结果将显示在此。',
+    imagePromptPlaceholder: '描述要生成的图片…（Enter 生成）',
+    imageGenerate: '生成图片',
+    imageGenerating: '生成中…',
+    imageNoResult: '网关未返回图片数据。',
+    videoDuration: '时长（秒）',
+    videoEmptyHint: '输入视频描述并提交，任务会在此轮询直到完成。',
+    videoPromptPlaceholder: '描述要生成的视频…（Enter 提交）',
+    videoGenerate: '生成视频',
+    videoSubmitting: '提交中…',
+    videoElapsed: '已等待 {s} 秒',
+    videoStopPolling: '停止轮询',
+    videoRaw: '原始响应',
+    videoNoUrlHint: '任务成功但未解析出视频链接，请查看原始响应。',
+    videoNoTaskId: '提交未返回任务 ID。',
+    videoStatusProcessing: '处理中',
+    videoStatusSucceeded: '已完成',
+    videoStatusFailed: '失败'
   },
 
   // Home Page
@@ -466,6 +498,34 @@ export default {
     }
   },
 
+  adminCompliance: {
+    title: '部署与运营合规确认',
+    blockingNotice: '继续使用控制台前，须完成部署与运营合规确认。',
+    riskNotice: '本确认用于以清晰、显著、可留痕的方式提示自部署实例的合规义务与运营风险。',
+    version: '协议版本',
+    openDocument: '在 GitHub 查看协议文件',
+    documentSource: '协议正文来自本项目仓库中的 Markdown 文件。修改协议内容时必须同步递增协议版本；已确认的旧版本将失效，控制台使用者须重新确认。',
+    inputLabel: '请逐字输入以下确认短语',
+    inputPlaceholder: '输入确认短语以继续',
+    inputMismatch: '确认短语不匹配，请逐字输入提示内容。',
+    legalNote: '本确认用于明确自部署实例与开源项目、著作权人、贡献者及维护者之间的非关联关系和责任边界；部署、运营或控制相关实例的主体应独立承担其适用义务。',
+    logout: '退出登录',
+    accept: '确认并继续',
+    accepted: '合规确认已记录',
+    acceptFailed: '提交确认失败'
+  },
+
+  legal: {
+    loadFailed: '文档加载失败',
+    retryLater: '请稍后刷新页面重试。',
+    notFound: '文档不存在',
+    notFoundDescription: '当前条款文档不存在或已被管理员移除。',
+    updatedAt: '更新日期：{date}',
+    empty: '暂无正文内容',
+    loginAgreement: '登录条款',
+    adminCompliance: '部署与运营合规承诺'
+  },
+
   // Navigation
   nav: {
     dashboard: '仪表盘',
@@ -772,7 +832,6 @@ export default {
     requests: '请求',
     tokens: 'Token',
     actual: '实际',
-    standard: '标准',
     input: '输入',
     output: '输出',
     cache: '缓存',
@@ -984,7 +1043,6 @@ export default {
     totalTokens: '总 Token',
     totalCost: '总消费',
     standardCost: '标准',
-    actualCost: '实际',
     accountCost: '成本',
     userBilled: '用户扣费',
     accountBilled: '账号计费',

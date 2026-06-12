@@ -43,12 +43,14 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      # fetch-depth: 0 so PR base..head plumbing resolves. submodules are NOT
-      # needed: both scripts live in this repo (scripts/checks, scripts/sentinels).
+      # fetch-depth: 0 so PR base..head plumbing resolves. submodules: recursive
+      # because the no-web-impact gate lives in the dev-rules submodule
+      # (dev-rules/scripts/check_web_surface_alignment.py).
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
+          submodules: recursive
 
       - name: upstream-override marker (PR body)
         env:
@@ -80,5 +82,26 @@ jobs:
           if ! python3 ./scripts/sentinels/check-registry-update-gate.py --base "$BASE_SHA" --head "$HEAD_SHA" --pr-body "$PR_BODY"; then
             echo "::error::Sentinel registry update gate failed."
             echo "::error::Either update scripts/sentinels/*.json, or add sentinel-registry-reviewed to the PR description, then re-run."
+            exit 1
+          fi
+
+      - name: no-web-impact gate (PR body)
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # The dev-rules no-web-impact check is advisory in local preflight
+          # (cannot see the PR body); this is its HARD gate, reading the mutable
+          # PR description. A backend/business-logic change must ship Web/config/
+          # contract alignment evidence OR carry a 'no-web-impact' token in the
+          # PR description. The script lives in the dev-rules submodule.
+          BASE_SHA='${{ github.event.pull_request.base.sha }}'
+          GATE=dev-rules/scripts/check_web_surface_alignment.py
+          if [ ! -f "$GATE" ]; then
+            echo "::error::$GATE missing (dev-rules submodule not checked out?)."
+            exit 1
+          fi
+          if ! python3 "$GATE" --base "$BASE_SHA" --pr-body "$PR_BODY"; then
+            echo "::error::no-web-impact gate failed."
+            echo "::error::Add Web/config/contract alignment evidence, or put 'no-web-impact' in the PR description, then re-run."
             exit 1
           fi

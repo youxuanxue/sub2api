@@ -1,6 +1,6 @@
 {
-  "version": 2,
-  "rationale": "Snapshot of the gateway trajectory / QA capture hook contract. Main gateway surfaces must keep both trajectory_id assignment and QA capture middleware, and the QA middleware must still terminate in Service.CaptureFromContext so request evidence remains on by default.",
+  "version": 3,
+  "rationale": "Snapshot of the gateway trajectory / QA capture hook contract. Main gateway surfaces must keep both trajectory_id assignment and QA capture middleware, and the QA middleware must still terminate in Service.CaptureFromContext so request evidence remains on by default. v3 adds the upstream-request divergence contract: the gateway must keep stashing the final (post-rewrite) upstream request body under the ops_upstream_request_body gin key, and the qa consumer must keep reading it by the identical duplicated literal.",
   "route_source": "backend/internal/server/routes/gateway.go",
   "capture_source": "backend/internal/observability/qa/sse_tee.go",
   "required_route_hooks": [
@@ -21,6 +21,30 @@
     "func Middleware(svc *Service) gin.HandlerFunc {",
     "c.Set(contextKeyTeeWriter, tee)",
     "svc.CaptureFromContext(c)"
+  ],
+  "required_file_hooks": [
+    {
+      "source": "backend/internal/service/ops_upstream_context.go",
+      "must_contain": [
+        "OpsUpstreamRequestBodyKey = \"ops_upstream_request_body\""
+      ],
+      "rationale": "qa capture reads this gin key by duplicated literal (qa cannot import service without an import cycle); renaming the key here silently kills upstream-request divergence capture for traj opt-in records"
+    },
+    {
+      "source": "backend/internal/observability/qa/service.go",
+      "must_contain": [
+        "opsUpstreamRequestBodyContextKey = \"ops_upstream_request_body\"",
+        "captureUpstreamRequestBody(c, requestBody)"
+      ],
+      "rationale": "consumer-side duplicate of OpsUpstreamRequestBodyKey plus the CaptureFromContext hook; either disappearing silently drops request.upstream_body / upstream_divergent from opt-in blobs"
+    },
+    {
+      "source": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "setOpsUpstreamRequestBody(c, body)"
+      ],
+      "rationale": "pre-flight stash of the final upstream request body on the native anthropic path; an upstream merge dropping this call disables both ops_error_logs body context and traj divergence capture"
+    }
   ],
   "semantic_route_contracts": [
     {

@@ -35,6 +35,14 @@ func enabledFeishuConfig() *OpsEmailNotificationConfig {
 	}
 }
 
+// disabledDigestFeishuConfig keeps Feishu on but turns the self-healing
+// temporary-cooldown digest OFF (opt-in): account_incident_digest_seconds<=0.
+func disabledDigestFeishuConfig() *OpsEmailNotificationConfig {
+	cfg := enabledFeishuConfig()
+	cfg.Feishu.AccountIncidentDigestSeconds = 0
+	return cfg
+}
+
 type blockingFeishuDoer struct {
 	mu     sync.Mutex
 	calls  int
@@ -198,6 +206,45 @@ func TestNotifyTemporaryBuffersUntilFlush(t *testing.T) {
 	n.mu.Lock()
 	require.Empty(t, n.digest)
 	n.mu.Unlock()
+}
+
+// Self-healing temporary-cooldown digest is opt-in (default off). When
+// account_incident_digest_seconds<=0, a 429/529 temp cooldown must NOT buffer,
+// NOT register an active-recovery ledger entry, and NOT send — while the
+// pool-level全不可调度 P0 and permanent-failure P0 stay on their always-fire paths.
+func TestTemporaryDigestDisabled_SilencesSelfHealingButKeepsP0(t *testing.T) {
+	doer := &blockingFeishuDoer{done: make(chan struct{}, 4)}
+	fixedNow := time.Date(2026, 6, 11, 16, 50, 0, 0, time.UTC)
+	n := newTestNotifier(&fakeIncidentConfigProvider{cfg: disabledDigestFeishuConfig()}, doer, fixedNow)
+
+	// Temporary cooldown (529) is fully silenced.
+	n.NotifyAccountIncident(testAccount(1, "cc-us3", "anthropic"), fixedNow.Add(30*time.Second), "529", IncidentKindUnknown)
+	n.mu.Lock()
+	require.Empty(t, n.digest, "disabled digest must not buffer temporary cooldowns")
+	require.Empty(t, n.active, "disabled digest must not track temporary cooldowns for recovery")
+	n.mu.Unlock()
+	n.flushDigest()
+	time.Sleep(50 * time.Millisecond)
+	require.Equal(t, 0, doer.callCount(), "no temporary digest send when disabled")
+
+	// Pool-level P0 still fires.
+	n.NotifyPlatformPoolExhausted(PlatformAnthropic, testAccount(1, "cc-us3", "anthropic"), fixedNow.Add(30*time.Second), "529")
+	select {
+	case <-doer.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("pool-exhausted P0 must still fire when digest disabled")
+	}
+	require.Equal(t, 1, doer.callCount())
+	require.Contains(t, doer.lastBody(), "平台池全不可调度")
+
+	// Permanent failure P0 still fires immediately.
+	n.NotifyAccountIncident(testAccount(2, "cc-us6", "anthropic"), time.Time{}, "auth_error", IncidentKindUnknown)
+	select {
+	case <-doer.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("permanent P0 must still fire when digest disabled")
+	}
+	require.Equal(t, 2, doer.callCount())
 }
 
 func TestModelClassCooldownDetailSubdividesDigest(t *testing.T) {

@@ -7,9 +7,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
-import PlaygroundPrototype, { type PlaygroundState } from '../PlaygroundPrototype.vue'
-
-const ALL_STATES: PlaygroundState[] = ['empty', 'typing', 'responded', 'error']
+import PlaygroundPrototype from '../PlaygroundPrototype.vue'
 
 describe('PlaygroundPrototype', () => {
   it('renders empty state', () => {

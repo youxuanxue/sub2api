@@ -50,24 +50,24 @@ export default {
     ctaBonus: 'Register — get {amount} trial credit',
     ctaBonusHint: 'Shown when signup bonus is enabled for this site.',
     perRequest: '/ request',
-    // TK: authenticated "Your Menu" view (GET /api/v1/me/pricing-catalog).
+    // TK: authenticated "Group Catalog" view (GET /api/v1/me/pricing-catalog).
+    // Prices always show official list pricing, decoupled from group/override
+    // multipliers.
     my: {
-      tabMy: 'Your Menu',
-      tabPublic: 'Public Catalog',
-      title: 'Your Model Menu',
-      subtitle: 'Models available to the group of your selected API key, at your effective price',
+      tabMy: 'Group Catalog',
+      tabPublic: 'All Catalog',
+      title: 'Group Model Catalog',
+      subtitle: 'Models available to the group of your selected API key, at official pricing',
       description:
-        'Prices are already multiplied by your effective rate (group default × your override), per 1,000 tokens. Switch keys to see another group, or compare other accessible groups to decide whether to upgrade.',
+        'Shows the models available to the selected group and their official pricing, per 1,000 tokens. Switch keys to see another group, or compare other accessible groups.',
       pickerKey: 'Current key:',
       pickerCompare: 'Compare group:',
       compareDefault: 'Keep current',
       noKeyHint: 'You have no active API keys yet — create one in the console first.',
       columns: {
-        input: 'Input (your price)',
-        output: 'Output (your price)'
+        input: 'Input (official price)',
+        output: 'Output (official price)'
       },
-      rateHint: 'Multiplier {multiplier} applied',
-      rateOverride: 'includes personal override',
       empty: {
         noAccess: {
           title: 'No accessible group',
@@ -79,7 +79,7 @@ export default {
         }
       },
       exploreBanner: {
-        message: 'Viewing {group} catalog · multiplier ×{multiplier}',
+        message: 'Viewing {group} catalog',
         cta: 'Create key in {group}'
       },
       billingMode: {
@@ -91,7 +91,18 @@ export default {
 
   playground: {
     title: 'Playground',
-    subtitle: 'Try chat completions with your API key. No extra backend route — calls go to /v1/chat/completions.',
+    subtitle: 'Pick an API key first — its group decides which models you can call. Requests go straight to /v1/chat/completions.',
+    apiKey: 'API Key',
+    pickKeyPlaceholder: 'Select an API key…',
+    loadingModels: 'Loading models…',
+    defaultGroup: 'Default group',
+    integrationsTitle: 'Connect external apps',
+    integrationsHint: 'Import the gateway address and the selected API key into a client with one click.',
+    integrationsAppHint: 'Requires the client app installed (opens a custom URL scheme).',
+    copyBaseUrl: 'Copy base URL',
+    copyKey: 'Copy API key',
+    baseUrlCopied: 'Base URL copied',
+    keyCopied: 'API key copied',
     model: 'Model',
     temperature: 'Temperature',
     maxTokens: 'Max tokens',
@@ -117,7 +128,29 @@ export default {
     completionTokens: 'Completion tokens',
     totalTokens: 'Total tokens',
     cancelled: 'Request cancelled.',
-    requestFailed: 'Request failed.'
+    requestFailed: 'Request failed.',
+    modalityImage: 'Image generation',
+    modalityVideo: 'Video generation',
+    imageSize: 'Size',
+    imageSizeAuto: 'Auto',
+    imageEmptyHint: 'Describe an image and generate; results show here.',
+    imagePromptPlaceholder: 'Describe the image… (Enter to generate)',
+    imageGenerate: 'Generate image',
+    imageGenerating: 'Generating…',
+    imageNoResult: 'The gateway returned no image data.',
+    videoDuration: 'Duration (s)',
+    videoEmptyHint: 'Describe a video and submit; the task is polled here until it finishes.',
+    videoPromptPlaceholder: 'Describe the video… (Enter to submit)',
+    videoGenerate: 'Generate video',
+    videoSubmitting: 'Submitting…',
+    videoElapsed: 'waited {s}s',
+    videoStopPolling: 'Stop polling',
+    videoRaw: 'Raw response',
+    videoNoUrlHint: 'Task succeeded but no video URL could be parsed — check the raw response.',
+    videoNoTaskId: 'Submit returned no task id.',
+    videoStatusProcessing: 'Processing',
+    videoStatusSucceeded: 'Succeeded',
+    videoStatusFailed: 'Failed'
   },
 
   // Home Page
@@ -467,6 +500,34 @@ export default {
     }
   },
 
+  adminCompliance: {
+    title: 'Deployment and Operation Compliance Acknowledgment',
+    blockingNotice: 'Deployment and operation compliance acknowledgment is required before continuing to use the console.',
+    riskNotice: 'This acknowledgment provides clear, conspicuous, and reproducible notice of compliance obligations and operation risks for self-hosted instances.',
+    version: 'Document Version',
+    openDocument: 'Open the GitHub document',
+    documentSource: 'The agreement text comes from Markdown files in this project repository. When the agreement content changes, the document version must be incremented; acknowledgments of older versions become invalid and console users must acknowledge again.',
+    inputLabel: 'Type the following confirmation phrase exactly',
+    inputPlaceholder: 'Type the confirmation phrase to continue',
+    inputMismatch: 'The confirmation phrase does not match. Type the displayed text exactly.',
+    legalNote: 'This acknowledgment defines the no-affiliation relationship and responsibility boundary between self-hosted instances and the open-source project, copyright holders, contributors, and maintainers. The party that deploys, operates, or controls the relevant instance remains independently responsible for its applicable obligations.',
+    logout: 'Log out',
+    accept: 'Acknowledge and Continue',
+    accepted: 'Compliance acknowledgment recorded',
+    acceptFailed: 'Failed to submit acknowledgment'
+  },
+
+  legal: {
+    loadFailed: 'Failed to load document',
+    retryLater: 'Refresh the page and try again later.',
+    notFound: 'Document not found',
+    notFoundDescription: 'This legal document does not exist or has been removed by an administrator.',
+    updatedAt: 'Updated: {date}',
+    empty: 'No content',
+    loginAgreement: 'Login Agreement',
+    adminCompliance: 'Deployment and Operation Compliance Commitment'
+  },
+
   // Navigation
   nav: {
     dashboard: 'Dashboard',
@@ -774,7 +835,6 @@ export default {
     requests: 'Requests',
     tokens: 'Tokens',
     actual: 'Actual',
-    standard: 'Standard',
     input: 'Input',
     output: 'Output',
     cache: 'Cache',
@@ -981,7 +1041,6 @@ export default {
     totalTokens: 'Total Tokens',
     totalCost: 'Total Cost',
     standardCost: 'Standard',
-    actualCost: 'Actual',
     accountCost: 'Cost',
     userBilled: 'User billed',
     accountBilled: 'Account billed',

@@ -177,6 +177,9 @@ backend/cmd/server/server
 deploy/docker-compose.override.yml
 .gocache/
 vite.config.js
+# TK: upstream ignores docs/* (keeps only payment/legal docs); TokenKey tracks
+# docs/ as planning + approved-design source of truth, so that rule is not adopted.
+.serena/
 .codex/
 frontend/coverage/
 aicodex

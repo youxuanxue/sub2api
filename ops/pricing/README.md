@@ -58,9 +58,11 @@ python3 ops/pricing/apply-pricing-hotfix.py channels   # pick --channel-id
 python3 ops/pricing/apply-pricing-hotfix.py apply \
   --model doubao-seedream-9 --channel-id 4 --platform newapi --from-litellm --yes
 
-# 2. DURABLE (next release): append the fill-only entry to
+# 2. DURABLE (next release): append the overlay entry to
 #    backend/internal/service/tk_pricing_overlay.json and open a PR.
-#    Self-deprecating: the day the trimmed mirror carries the bare key, the
+#    Fill applies when the mirror key is absent OR an all-zero placeholder
+#    (litellm's "cost unknown" — see tkIsEffectivelyUnpriced); self-deprecating:
+#    the day the mirror carries a real non-zero price under the bare key, the
 #    source value wins. For models litellm lacks entirely, use
 #    --entry-json with the provider's official list price.
 python3 ops/pricing/apply-pricing-hotfix.py stage-overlay \
@@ -69,9 +71,11 @@ python3 scripts/checks/pricing-overlay.py && bash scripts/preflight.sh
 ```
 
 Caveats: channel pricing is per-channel — if the leaking traffic spans several
-channels, repeat `apply` per channel. `--from-litellm` cannot fix WRONG mirror
-prices for already-priced models (fill-only never overrides); channel pricing
-is exactly the tool for that. Alert digest cadence is
+channels, repeat `apply` per channel. Mirror entries that are all-zero
+placeholders self-heal via the overlay (absent-or-zero fill) and now surface the
+pricing-missing alert instead of silently billing $0; the overlay still cannot
+fix WRONG **non-zero** mirror prices (the source stays authoritative there) —
+channel pricing is exactly the tool for that. Alert digest cadence is
 `feishu.pricing_missing_digest_seconds` (default 1800s).
 
 ## Classification & de-dup rules

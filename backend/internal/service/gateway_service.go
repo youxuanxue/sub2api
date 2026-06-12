@@ -2413,14 +2413,16 @@ func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *i
 				"platform", platform,
 				"use_mixed", useMixed,
 				"count", len(accounts))
-			for _, acc := range accounts {
-				slog.Debug("account_scheduling_account_detail",
-					"account_id", acc.ID,
-					"name", acc.Name,
-					"platform", acc.Platform,
-					"type", acc.Type,
-					"status", acc.Status,
-					"tls_fingerprint", acc.IsTLSFingerprintEnabled())
+			if slog.Default().Enabled(ctx, slog.LevelDebug) {
+				for _, acc := range accounts {
+					slog.Debug("account_scheduling_account_detail",
+						"account_id", acc.ID,
+						"name", acc.Name,
+						"platform", acc.Platform,
+						"type", acc.Type,
+						"status", acc.Status,
+						"tls_fingerprint", acc.IsTLSFingerprintEnabled())
+				}
 			}
 		}
 		return accounts, useMixed, err
@@ -2456,14 +2458,16 @@ func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *i
 			"platform", platform,
 			"raw_count", len(accounts),
 			"filtered_count", len(filtered))
-		for _, acc := range filtered {
-			slog.Debug("account_scheduling_account_detail",
-				"account_id", acc.ID,
-				"name", acc.Name,
-				"platform", acc.Platform,
-				"type", acc.Type,
-				"status", acc.Status,
-				"tls_fingerprint", acc.IsTLSFingerprintEnabled())
+		if slog.Default().Enabled(ctx, slog.LevelDebug) {
+			for _, acc := range filtered {
+				slog.Debug("account_scheduling_account_detail",
+					"account_id", acc.ID,
+					"name", acc.Name,
+					"platform", acc.Platform,
+					"type", acc.Type,
+					"status", acc.Status,
+					"tls_fingerprint", acc.IsTLSFingerprintEnabled())
+			}
 		}
 		return filtered, useMixed, nil
 	}
@@ -2489,14 +2493,16 @@ func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *i
 		"group_id", derefGroupID(groupID),
 		"platform", platform,
 		"count", len(accounts))
-	for _, acc := range accounts {
-		slog.Debug("account_scheduling_account_detail",
-			"account_id", acc.ID,
-			"name", acc.Name,
-			"platform", acc.Platform,
-			"type", acc.Type,
-			"status", acc.Status,
-			"tls_fingerprint", acc.IsTLSFingerprintEnabled())
+	if slog.Default().Enabled(ctx, slog.LevelDebug) {
+		for _, acc := range accounts {
+			slog.Debug("account_scheduling_account_detail",
+				"account_id", acc.ID,
+				"name", acc.Name,
+				"platform", acc.Platform,
+				"type", acc.Type,
+				"status", acc.Status,
+				"tls_fingerprint", acc.IsTLSFingerprintEnabled())
+		}
 	}
 	return accounts, useMixed, nil
 }
@@ -4644,7 +4650,14 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	//      stays consistent with what real claude-cli/2.1.152 produces
 	// Scoped to anthropic OAuth + canonical TLS profile only.
 	if c != nil && s.isCanonicalAnthropicOAuth(account) {
-		if err := checkCanonicalIngressUA(c.Request.Header); err != nil {
+		// strict: allow-list UA gate (claude-cli/ | claude-code/ only, reject empty
+		// + unknown). Default false keeps the deny-list gate (zero regression).
+		// See SettingKeyAnthropicCanonicalIngressStrictEnabled.
+		if s.settingService.IsAnthropicCanonicalIngressStrictEnabled(ctx) {
+			if err := checkCanonicalIngressUAStrict(c.Request.Header); err != nil {
+				return nil, err
+			}
+		} else if err := checkCanonicalIngressUA(c.Request.Header); err != nil {
 			return nil, err
 		}
 		if newModel, remapped := remapDeprecatedOpusOnCanonical(reqModel); remapped {
@@ -4690,7 +4703,17 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		// 检测到"有 CC prompt 但无 billing block"的不一致而判为 third-party。
 		// Parrot 的 transform_request 从不检查客户端 system 内容，直接覆盖。
 		systemRewritten := false
-		if !strings.Contains(strings.ToLower(reqModel), "haiku") {
+		// haiku normally skips system rewrite. Under the canonical haiku-mimicry
+		// toggle, rewrite haiku too, so a non-CC haiku request does not carry CC
+		// headers without the matching CC system/billing block (cohort inconsistency)
+		// — the egress "admit and launder" half. This is INDEPENDENT of the ingress
+		// UA strict gate: when an operator relaxes cc_only and routes non-CC traffic
+		// to a canonical fallback account, ingress stays open but this completes the
+		// disguise. Append-only `mimicry ||`: default false keeps the haiku skip
+		// (zero regression). See SettingKeyAnthropicCanonicalHaikuMimicryEnabled.
+		canonicalHaikuMimicry := s.isCanonicalAnthropicOAuth(account) &&
+			s.settingService.IsAnthropicCanonicalHaikuMimicryEnabled(ctx)
+		if shouldRewriteSystemForNonCCMimicry(reqModel, canonicalHaikuMimicry) {
 			systemRaw, _ := parsed.SystemValue()
 			if err := replaceBody(rewriteSystemForNonClaudeCode(body, systemRaw)); err != nil {
 				return nil, err
@@ -4958,6 +4981,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 									_ = retryResp.Body.Close()
 									return nil, err
 								}
+								setOpsUpstreamRequestBody(c, retryWireBody)
 								logger.LegacyPrintf("service.gateway", "Account %d: thinking block retry succeeded (blocks downgraded)", account.ID)
 								resp = retryResp
 								break
@@ -5007,6 +5031,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 													_ = retryResp2.Body.Close()
 													return nil, err
 												}
+												setOpsUpstreamRequestBody(c, retryWireBody2)
 											}
 											resp = retryResp2
 											break
@@ -5284,6 +5309,13 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			_ = resp.Body.Close()
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
+			// TK: request-owned 429 (policy phrase / same-text breaker) — pass the
+			// upstream body through, skip penalty + failover. See
+			// gateway_service_tk_request_owned_429.go.
+			if tkResult, tkErr, handled := s.tkHandleAnthropicRequestOwned429(c, account, resp, respBody); handled {
+				return tkResult, tkErr
+			}
+
 			// 调试日志：打印重试耗尽后的错误响应
 			logger.LegacyPrintf("service.gateway", "[Forward] Upstream error (retry exhausted, failover): Account=%d(%s) Status=%d RequestID=%s Body=%s",
 				account.ID, account.Name, resp.StatusCode, resp.Header.Get("x-request-id"), truncateString(string(respBody), 1000))
@@ -5318,6 +5350,12 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		respBody, _ := s.readUpstreamErrorBody(resp)
 		_ = resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
+
+		// TK: request-owned 429 — same short-circuit as the retry-exhausted
+		// branch above. See gateway_service_tk_request_owned_429.go.
+		if tkResult, tkErr, handled := s.tkHandleAnthropicRequestOwned429(c, account, resp, respBody); handled {
+			return tkResult, tkErr
+		}
 
 		// 调试日志：打印上游错误响应
 		logger.LegacyPrintf("service.gateway", "[Forward] Upstream error (failover): Account=%d(%s) Status=%d RequestID=%s Body=%s",
@@ -5768,6 +5806,12 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 			_ = resp.Body.Close()
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
+			// TK: request-owned 429 — the prod mirror hop sees the edge's relayed
+			// policy 429 here. See gateway_service_tk_request_owned_429.go.
+			if tkResult, tkErr, handled := s.tkHandleAnthropicRequestOwned429(c, account, resp, respBody); handled {
+				return tkResult, tkErr
+			}
+
 			logger.LegacyPrintf("service.gateway", "[Anthropic Passthrough] Upstream error (retry exhausted, failover): Account=%d(%s) Status=%d RequestID=%s Body=%s",
 				account.ID, account.Name, resp.StatusCode, resp.Header.Get("x-request-id"), truncateString(string(respBody), 1000))
 
@@ -5801,6 +5845,12 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 		respBody, _ := s.readUpstreamErrorBody(resp)
 		_ = resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
+
+		// TK: request-owned 429 — same short-circuit as the retry-exhausted
+		// branch above. See gateway_service_tk_request_owned_429.go.
+		if tkResult, tkErr, handled := s.tkHandleAnthropicRequestOwned429(c, account, resp, respBody); handled {
+			return tkResult, tkErr
+		}
 
 		logger.LegacyPrintf("service.gateway", "[Anthropic Passthrough] Upstream error (failover): Account=%d(%s) Status=%d RequestID=%s Body=%s",
 			account.ID, account.Name, resp.StatusCode, resp.Header.Get("x-request-id"), truncateString(string(respBody), 1000))
@@ -6307,15 +6357,24 @@ func writeAnthropicPassthroughResponseHeaders(dst http.Header, src http.Header, 
 }
 
 // ApplyBedrockCCCompat 应用 Bedrock CC 兼容转换（渠道级模型映射后调用）
-// 清理 Anthropic API 专有字段、注入 Bedrock 必需字段、修复 thinking/tool_use ID
-func (s *GatewayService) ApplyBedrockCCCompat(ctx context.Context, body []byte, model string, account *Account, groupID *int64) []byte {
-	if !s.isBedrockCCCompatEnabled(ctx, account, groupID) {
+// 清理 body 中 Anthropic API 专有字段、修复 thinking/tool_use ID、过滤 beta token，
+// 同时过滤 HTTP header 中的 anthropic-beta（防止 Passthrough 路径透传不支持的 token）。
+func (s *GatewayService) ApplyBedrockCCCompat(c *gin.Context, body []byte, model string, account *Account, groupID *int64) []byte {
+	if !s.isBedrockCCCompatEnabled(c.Request.Context(), account, groupID) {
 		return body
 	}
 	body = sanitizeBedrockCCFields(body)
 	body = sanitizeBedrockThinking(body, model)
 	body = sanitizeBedrockToolUseIDs(body)
 	body = sanitizeBedrockCCBetaTokens(body, model)
+	// 过滤 HTTP header 中的 anthropic-beta，只保留 Bedrock 支持的 token
+	if betaHeader := c.GetHeader("anthropic-beta"); betaHeader != "" {
+		if filtered := ResolveBedrockBetaTokens(betaHeader, body, model); len(filtered) > 0 {
+			c.Request.Header.Set("anthropic-beta", strings.Join(filtered, ", "))
+		} else {
+			c.Request.Header.Del("anthropic-beta")
+		}
+	}
 	return body
 }
 
@@ -7842,6 +7901,8 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 		return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: body}
 	}
 
+	MarkResponseCommitted(c)
+
 	// 记录上游错误响应体摘要便于排障（可选：由配置控制；不回显到客户端）
 	if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
 		logger.LegacyPrintf("service.gateway",
@@ -7992,6 +8053,7 @@ func (s *GatewayService) handleFailoverSideEffects(ctx context.Context, resp *ht
 // OAuth 403：标记账号异常
 // API Key 未配置错误码：仅返回错误，不标记账号
 func (s *GatewayService) handleRetryExhaustedError(ctx context.Context, resp *http.Response, c *gin.Context, account *Account) (*ForwardResult, error) {
+	MarkResponseCommitted(c)
 	// Capture upstream error body before side-effects consume the stream.
 	respBody, _ := s.readUpstreamErrorBody(resp)
 	_ = resp.Body.Close()
@@ -9945,6 +10007,23 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 			"account_name", account.Name,
 			"fields", stripped,
 		)
+	}
+
+	// TK canonical-OAuth strict ingress UA gate on count_tokens. Without this the
+	// allow-list gate would only cover /v1/messages and a third-party client could
+	// probe/drain a personal subscription via count_tokens (cohort signal bypass).
+	// Scoped to anthropic OAuth + canonical TLS, and only when strict mode is on;
+	// default false leaves count_tokens untouched (zero regression). On reject we
+	// write a 403 and return nil (no failover), mirroring the Antigravity-404 path.
+	if c != nil && s.isCanonicalAnthropicOAuth(account) &&
+		s.settingService.IsAnthropicCanonicalIngressStrictEnabled(ctx) {
+		if err := checkCanonicalIngressUAStrict(c.Request.Header); err != nil {
+			// Local policy denial — keep strict-mode reject volume out of
+			// error-rate dashboards (parity with the /v1/messages handler branch).
+			MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
+			s.countTokensError(c, http.StatusForbidden, "permission_error", err.Error())
+			return nil
+		}
 	}
 
 	isClaudeCodeCT := IsClaudeCodeClient(ctx) || isClaudeCodeClient(c.GetHeader("User-Agent"), parsed.MetadataUserID)

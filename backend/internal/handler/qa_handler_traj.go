@@ -39,6 +39,7 @@ func (h *QAHandler) ExportSelfTrajectory(c *gin.Context) {
 	filter := qa.ExportFilter{
 		SynthSessionID: strings.TrimSpace(req.SynthSessionID),
 		SynthRole:      strings.TrimSpace(req.SynthRole),
+		Format:         strings.TrimSpace(req.Format),
 	}
 	if filter.SynthSessionID == "" {
 		filter.Until = time.Now().UTC()

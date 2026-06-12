@@ -128,7 +128,16 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 	)
 	if err != nil || selection == nil || selection.Account == nil {
 		reqLog.Warn("openai_video_submit.account_select_failed", zap.Error(err))
-		h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable")
+		if err == nil {
+			// Scheduler returned no usable selection without an error → empty pool.
+			markOpsRoutingCapacityLimited(c)
+			h.errorResponse(c, tkNoAvailableAccounts(c), "api_error", "No available accounts")
+			return
+		}
+		markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+		// Empty pool fast-fails 429 (#575 parity); other scheduler errors stay 503.
+		tkStatus, tkMsg := tkSelectFailureStatusMessage(c, err)
+		h.errorResponse(c, tkStatus, "api_error", tkMsg)
 		return
 	}
 	account := selection.Account

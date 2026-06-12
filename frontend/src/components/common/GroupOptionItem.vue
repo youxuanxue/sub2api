@@ -25,7 +25,7 @@
     <!-- Right: rate pill + checkmark (vertically centered to first row) -->
     <div class="flex shrink-0 items-center gap-2 pt-0.5">
       <!-- Rate pill (platform color) -->
-      <span v-if="rateMultiplier !== undefined" :class="['inline-flex items-center whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold', ratePillClass]">
+      <span v-if="rateMultiplier !== undefined && !hideRateValue" :class="['inline-flex items-center whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold', ratePillClass]">
         <template v-if="hasCustomRate">
           <span class="mr-1 line-through opacity-50">{{ rateMultiplier }}x</span>
           <span class="font-bold">{{ userRateMultiplier }}x</span>
@@ -63,13 +63,19 @@ interface Props {
   description?: string | null
   selected?: boolean
   showCheckmark?: boolean
+  /**
+   * TK: 用户级页面隐藏倍率数值。开启后右侧倍率 pill 整体不渲染。运营要求倍率
+   * 仅在管理页可见、用户页一律不可见；调用方在用户视图传入 true。
+   */
+  hideRateValue?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   subscriptionType: 'standard',
   selected: false,
   showCheckmark: true,
-  userRateMultiplier: null
+  userRateMultiplier: null,
+  hideRateValue: false
 })
 
 // Whether user has a custom rate different from default

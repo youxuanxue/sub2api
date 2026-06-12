@@ -125,6 +125,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		RegistrationEmailSuffixWhitelist:       settings.RegistrationEmailSuffixWhitelist,
 		PromoCodeEnabled:                       settings.PromoCodeEnabled,
 		KiroEnabled:                            settings.KiroEnabled,
+		AnthropicCanonicalIngressStrictEnabled: settings.AnthropicCanonicalIngressStrictEnabled,
+		AnthropicCanonicalHaikuMimicryEnabled:  settings.AnthropicCanonicalHaikuMimicryEnabled,
 		PasswordResetEnabled:                   settings.PasswordResetEnabled,
 		FrontendURL:                            settings.FrontendURL,
 		InvitationCodeEnabled:                  settings.InvitationCodeEnabled,
@@ -390,19 +392,21 @@ func loginAgreementDocumentsToService(items []dto.LoginAgreementDocument) []serv
 // UpdateSettingsRequest 更新设置请求
 type UpdateSettingsRequest struct {
 	// 注册设置
-	RegistrationEnabled              bool                         `json:"registration_enabled"`
-	EmailVerifyEnabled               bool                         `json:"email_verify_enabled"`
-	RegistrationEmailSuffixWhitelist []string                     `json:"registration_email_suffix_whitelist"`
-	PromoCodeEnabled                 bool                         `json:"promo_code_enabled"`
-	KiroEnabled                      bool                         `json:"kiro_enabled"` // TK: Kiro 第六平台转发门禁（默认 false / ToS）
-	PasswordResetEnabled             bool                         `json:"password_reset_enabled"`
-	FrontendURL                      string                       `json:"frontend_url"`
-	InvitationCodeEnabled            bool                         `json:"invitation_code_enabled"`
-	TotpEnabled                      bool                         `json:"totp_enabled"` // TOTP 双因素认证
-	LoginAgreementEnabled            bool                         `json:"login_agreement_enabled"`
-	LoginAgreementMode               string                       `json:"login_agreement_mode"`
-	LoginAgreementUpdatedAt          string                       `json:"login_agreement_updated_at"`
-	LoginAgreementDocuments          []dto.LoginAgreementDocument `json:"login_agreement_documents"`
+	RegistrationEnabled                    bool                         `json:"registration_enabled"`
+	EmailVerifyEnabled                     bool                         `json:"email_verify_enabled"`
+	RegistrationEmailSuffixWhitelist       []string                     `json:"registration_email_suffix_whitelist"`
+	PromoCodeEnabled                       bool                         `json:"promo_code_enabled"`
+	KiroEnabled                            bool                         `json:"kiro_enabled"`                               // TK: Kiro 第六平台转发门禁（默认 false / ToS）
+	AnthropicCanonicalIngressStrictEnabled *bool                        `json:"anthropic_canonical_ingress_strict_enabled"` // TK: canonical 入口 UA strict 拒绝（#1#2，默认 false）；指针 = 缺字段时保留当前值，防旧前端整单保存把 canary 防线静默关回 false
+	AnthropicCanonicalHaikuMimicryEnabled  *bool                        `json:"anthropic_canonical_haiku_mimicry_enabled"`  // TK: canonical 非 CC haiku 出口 mimicry 补全（#3，默认 false）；指针 = 缺字段时保留当前值（同上，独立开关）
+	PasswordResetEnabled                   bool                         `json:"password_reset_enabled"`
+	FrontendURL                            string                       `json:"frontend_url"`
+	InvitationCodeEnabled                  bool                         `json:"invitation_code_enabled"`
+	TotpEnabled                            bool                         `json:"totp_enabled"` // TOTP 双因素认证
+	LoginAgreementEnabled                  bool                         `json:"login_agreement_enabled"`
+	LoginAgreementMode                     string                       `json:"login_agreement_mode"`
+	LoginAgreementUpdatedAt                string                       `json:"login_agreement_updated_at"`
+	LoginAgreementDocuments                []dto.LoginAgreementDocument `json:"login_agreement_documents"`
 
 	// 邮件服务设置
 	SMTPHost     string `json:"smtp_host"`
@@ -1501,24 +1505,36 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		RegistrationEmailSuffixWhitelist: req.RegistrationEmailSuffixWhitelist,
 		PromoCodeEnabled:                 req.PromoCodeEnabled,
 		KiroEnabled:                      req.KiroEnabled,
-		PasswordResetEnabled:             req.PasswordResetEnabled,
-		FrontendURL:                      req.FrontendURL,
-		InvitationCodeEnabled:            req.InvitationCodeEnabled,
-		TotpEnabled:                      req.TotpEnabled,
-		LoginAgreementEnabled:            req.LoginAgreementEnabled,
-		LoginAgreementMode:               loginAgreementMode,
-		LoginAgreementUpdatedAt:          loginAgreementUpdatedAt,
-		LoginAgreementDocuments:          loginAgreementDocuments,
-		SMTPHost:                         req.SMTPHost,
-		SMTPPort:                         req.SMTPPort,
-		SMTPUsername:                     req.SMTPUsername,
-		SMTPPassword:                     req.SMTPPassword,
-		SMTPFrom:                         req.SMTPFrom,
-		SMTPFromName:                     req.SMTPFromName,
-		SMTPUseTLS:                       req.SMTPUseTLS,
-		TurnstileEnabled:                 req.TurnstileEnabled,
-		TurnstileSiteKey:                 req.TurnstileSiteKey,
-		TurnstileSecretKey:               req.TurnstileSecretKey,
+		AnthropicCanonicalIngressStrictEnabled: func() bool {
+			if req.AnthropicCanonicalIngressStrictEnabled != nil {
+				return *req.AnthropicCanonicalIngressStrictEnabled
+			}
+			return previousSettings.AnthropicCanonicalIngressStrictEnabled
+		}(),
+		AnthropicCanonicalHaikuMimicryEnabled: func() bool {
+			if req.AnthropicCanonicalHaikuMimicryEnabled != nil {
+				return *req.AnthropicCanonicalHaikuMimicryEnabled
+			}
+			return previousSettings.AnthropicCanonicalHaikuMimicryEnabled
+		}(),
+		PasswordResetEnabled:    req.PasswordResetEnabled,
+		FrontendURL:             req.FrontendURL,
+		InvitationCodeEnabled:   req.InvitationCodeEnabled,
+		TotpEnabled:             req.TotpEnabled,
+		LoginAgreementEnabled:   req.LoginAgreementEnabled,
+		LoginAgreementMode:      loginAgreementMode,
+		LoginAgreementUpdatedAt: loginAgreementUpdatedAt,
+		LoginAgreementDocuments: loginAgreementDocuments,
+		SMTPHost:                req.SMTPHost,
+		SMTPPort:                req.SMTPPort,
+		SMTPUsername:            req.SMTPUsername,
+		SMTPPassword:            req.SMTPPassword,
+		SMTPFrom:                req.SMTPFrom,
+		SMTPFromName:            req.SMTPFromName,
+		SMTPUseTLS:              req.SMTPUseTLS,
+		TurnstileEnabled:        req.TurnstileEnabled,
+		TurnstileSiteKey:        req.TurnstileSiteKey,
+		TurnstileSecretKey:      req.TurnstileSecretKey,
 		APIKeyACLTrustForwardedIP: func() bool {
 			if req.APIKeyACLTrustForwardedIP != nil {
 				return *req.APIKeyACLTrustForwardedIP
@@ -1963,6 +1979,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		RegistrationEmailSuffixWhitelist:       updatedSettings.RegistrationEmailSuffixWhitelist,
 		PromoCodeEnabled:                       updatedSettings.PromoCodeEnabled,
 		KiroEnabled:                            updatedSettings.KiroEnabled,
+		AnthropicCanonicalIngressStrictEnabled: updatedSettings.AnthropicCanonicalIngressStrictEnabled,
+		AnthropicCanonicalHaikuMimicryEnabled:  updatedSettings.AnthropicCanonicalHaikuMimicryEnabled,
 		PasswordResetEnabled:                   updatedSettings.PasswordResetEnabled,
 		FrontendURL:                            updatedSettings.FrontendURL,
 		InvitationCodeEnabled:                  updatedSettings.InvitationCodeEnabled,
@@ -2221,6 +2239,12 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.KiroEnabled != after.KiroEnabled {
 		changed = append(changed, "kiro_enabled")
+	}
+	if before.AnthropicCanonicalIngressStrictEnabled != after.AnthropicCanonicalIngressStrictEnabled {
+		changed = append(changed, "anthropic_canonical_ingress_strict_enabled")
+	}
+	if before.AnthropicCanonicalHaikuMimicryEnabled != after.AnthropicCanonicalHaikuMimicryEnabled {
+		changed = append(changed, "anthropic_canonical_haiku_mimicry_enabled")
 	}
 	if before.InvitationCodeEnabled != after.InvitationCodeEnabled {
 		changed = append(changed, "invitation_code_enabled")

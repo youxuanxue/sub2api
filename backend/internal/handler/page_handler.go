@@ -277,6 +277,8 @@ func RegisterPageRoutes(v1 *gin.RouterGroup, dataDir string, jwtAuth gin.Handler
 	// Admin-only: list all available pages
 	adminPages := v1.Group("/pages")
 	adminPages.Use(adminAuth)
+	// TK: setting-gated, default off — see middleware/admin_compliance_tk_gate.go.
+	adminPages.Use(middleware2.TkAdminComplianceGuardIfEnabled(settingService))
 	{
 		adminPages.GET("", h.ListPages)
 	}

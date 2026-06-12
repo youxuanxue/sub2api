@@ -103,6 +103,11 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 		r.applyChannelOverrides(ctx, *input.GroupID, input.Model, resolved)
 	}
 
+	// TK: fill interval (tiered) pricing from the curated overlay when channel
+	// pricing did not supply intervals (channel still wins). See
+	// model_pricing_resolver_tk_overlay_intervals.go.
+	tkApplyOverlayIntervals(resolved)
+
 	return resolved
 }
 

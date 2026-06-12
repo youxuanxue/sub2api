@@ -75,8 +75,11 @@ Resources:
               - lightsail:GetBundles
               - lightsail:GetRegions
               # Caddy/Let's Encrypt inbound; omitting firewall rules yields public HTTPS timeouts (DNS resolves, TCP never completes).
+              # PutInstancePublicPorts declares the COMPLETE firewall set (replace semantics) to
+              # enforce the hardened 443-only baseline — opens 443 and closes the Lightsail-default
+              # public SSH 22 and 80 in one call. GetInstancePortStates is the read-back check.
               - lightsail:GetInstancePortStates
-              - lightsail:OpenInstancePublicPorts
+              - lightsail:PutInstancePublicPorts
             Resource: "*"
           - Sid: SsmHybridActivation
             Effect: Allow

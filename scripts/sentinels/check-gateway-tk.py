@@ -8,9 +8,22 @@ Reads `scripts/sentinels/gateway-tk.json` and for each entry verifies:
   2. Every literal string in `must_contain` appears at least once in the file.
   3. Every literal string in `must_not_contain` is absent from the file.
 
+It also lints registry hygiene WITHIN each entry (anti-bloat guard):
+
+  - duplicate `must_contain` needles in the same entry are noise;
+  - a needle that is a substring of another needle in the same entry is
+    vacuous (the longer literal present always implies the shorter one) —
+    either drop it or strengthen it (e.g. `Name` → `Name(` / `func Name(` /
+    `type Name struct`) so it pins a distinct symbol occurrence.
+
+  Cross-entry overlap is intentionally NOT linted: two entries may share an
+  anchor under different rationales, and a long needle in one entry must not
+  excuse a short needle in another (entries evolve independently).
+
 Exit codes:
   0  — all sentinels intact.
-  1  — at least one sentinel missing or has lost a required symbol.
+  1  — at least one sentinel missing, lost a required symbol, or failed
+       registry hygiene.
   2  — registry file missing or malformed.
 """
 from __future__ import annotations
@@ -43,6 +56,38 @@ def load_registry() -> dict:
     return data
 
 
+_CONTENT_CACHE: dict[str, str] = {}
+
+
+def read_file_cached(path_str: str) -> str:
+    """Read a sentinel target file once even when many entries share the path
+    (gateway_service.go alone is anchored by 15+ entries)."""
+    if path_str not in _CONTENT_CACHE:
+        _CONTENT_CACHE[path_str] = (REPO_ROOT / path_str).read_text(
+            encoding="utf-8", errors="replace"
+        )
+    return _CONTENT_CACHE[path_str]
+
+
+def lint_entry_hygiene(entry: dict) -> list[str]:
+    """Within-entry anti-bloat lint; see module docstring."""
+    needles = entry.get("must_contain") or []
+    problems: list[str] = []
+    seen: set[str] = set()
+    for n in needles:
+        if n in seen:
+            problems.append(f"duplicate needle in same entry: `{n}`")
+        seen.add(n)
+    for a in sorted(seen):
+        for b in sorted(seen):
+            if a != b and a in b:
+                problems.append(
+                    f"vacuous needle `{a}` is a substring of sibling needle `{b}` "
+                    "— drop it or strengthen it to pin a distinct symbol"
+                )
+    return problems
+
+
 def check_sentinel(entry: dict) -> tuple[bool, list[str]]:
     path_str = entry.get("path")
     if not path_str:
@@ -50,18 +95,19 @@ def check_sentinel(entry: dict) -> tuple[bool, list[str]]:
     file_path = REPO_ROOT / path_str
     if not file_path.is_file():
         return False, [f"file missing: {path_str}"]
+    failures: list[str] = lint_entry_hygiene(entry)
     must_contain = entry.get("must_contain") or []
-    if not must_contain:
-        return True, []
+    must_not_contain = entry.get("must_not_contain") or []
+    if not must_contain and not must_not_contain:
+        return (len(failures) == 0), failures
     try:
-        content = file_path.read_text(encoding="utf-8", errors="replace")
+        content = read_file_cached(path_str)
     except OSError as exc:
         return False, [f"cannot read {path_str}: {exc}"]
-    failures: list[str] = []
     for needle in must_contain:
         if needle not in content:
             failures.append(f"missing literal `{needle}` in {path_str}")
-    for needle in entry.get("must_not_contain") or []:
+    for needle in must_not_contain:
         if needle in content:
             failures.append(f"forbidden literal `{needle}` still present in {path_str}")
     return (len(failures) == 0), failures

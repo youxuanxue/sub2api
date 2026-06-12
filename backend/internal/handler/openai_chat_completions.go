@@ -156,7 +156,9 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			)
 			if len(failedAccountIDs) == 0 {
 				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-				h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable", streamStarted)
+				// TK: empty pool fast-fails 429 (#575 parity); other scheduler errors stay 503.
+				tkStatus, tkMsg := tkSelectFailureStatusMessage(c, err)
+				h.handleStreamingAwareError(c, tkStatus, "api_error", tkMsg, streamStarted)
 				return
 			} else {
 				if lastFailoverErr != nil {
@@ -266,6 +268,22 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 						zap.Int("max_switches", maxAccountSwitches),
 					)
 					continue
+				}
+				// Preserve upstream NewAPIRelayError detail for newapi accounts (mirrors
+				// the /v1/responses handler): without this branch the fallback below
+				// masks the adaptor's structured error (402 insufficient balance,
+				// 429 rate limit, …) as a generic 502 "Upstream request failed" —
+				// the 2026-06-11 DeepSeek prod incident shape. The sibling block
+				// further down (after the else) is only reachable on the
+				// image-partial-result path and never fires for plain chat errors.
+				if TkTryWriteNewAPIRelayErrorJSON(c, err, streamStarted, writerSizeBeforeForward) {
+					h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
+					reqLog.Warn("openai_chat_completions.forward_failed",
+						zap.Int64("account_id", account.ID),
+						zap.Bool("fallback_error_response_written", false),
+						zap.Error(err),
+					)
+					return
 				}
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
 				upstreamErrorAlreadyCommunicated := openAIForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward, err)

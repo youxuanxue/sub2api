@@ -303,9 +303,10 @@
     {
       "path": "backend/internal/service/pricing_service_tk_overlay.go",
       "must_contain": [
-        "p.CacheCreationInputTokenCostAbove1hr = *e.CacheCreationInputTokenCostAbove1hr"
+        "p.CacheCreationInputTokenCostAbove1hr = *e.CacheCreationInputTokenCostAbove1hr",
+        "tkBuildOverlayIntervals(ext.Intervals)"
       ],
-      "rationale": "The overlay loader manually copies LiteLLMRawEntry fields into LiteLLMModelPricing; a missing copy is invisible at compile time and silently zeroes that price for every overlay-only model. This exact field was dropped once in prod: claude-fable-5 (absent from the trimmed runtime source, priced only by the overlay) billed all 1h cache-creation tokens at the 5m rate ($12.50/MTok instead of the official $20/MTok) because billing_service.go's breakdown predicate price1h>price5m saw price1h=0. Pinning the copy line keeps the 1h cache-write tier alive for any overlay entry carrying cache_creation_input_token_cost_above_1hr."
+      "rationale": "The overlay loader manually copies LiteLLMRawEntry fields into LiteLLMModelPricing; a missing copy is invisible at compile time and silently zeroes that price for every overlay-only model. This exact field was dropped once in prod: claude-fable-5 (absent from the trimmed runtime source, priced only by the overlay) billed all 1h cache-creation tokens at the 5m rate ($12.50/MTok instead of the official $20/MTok) because billing_service.go's breakdown predicate price1h>price5m saw price1h=0. Pinning the copy line keeps the 1h cache-write tier alive for any overlay entry carrying cache_creation_input_token_cost_above_1hr. SAME silent-drop class for tiered pricing: the loader MUST parse the overlay 'intervals' array via tkBuildOverlayIntervals(ext.Intervals) (a second raw-entry unmarshal, because the upstream LiteLLMRawEntry has no intervals field); dropping it silently flattens every overlay-tiered model (qwen plus/flash/coder, doubao-*/glm-4.7/deepseek-v3.2) to its base tier with no compile error."
     },
     {
       "path": "backend/internal/service/pricing_service_tk_overlay_test.go",
@@ -313,6 +314,83 @@
         "TestBilling_Fable1hCacheCreationCost_ProdShape"
       ],
       "rationale": "Regression reproduction with the prod token shape (cache_creation_5m=0, cache_creation_1h=684124) asserting the corrected $13.68 cache-creation cost end-to-end through GetModelPricing + CalculateCost. Dropping this test re-opens the silent 5m-rate undercharge path for overlay-priced models with a 1h cache tier."
+    },
+    {
+      "path": "backend/internal/service/newapi_bridge_penalty_tk.go",
+      "must_contain": [
+        "tkHandleBridgeUpstreamPenalty",
+        "tkWrapBridgeRelayErrorWithPenalty",
+        "tkBridgePenaltyStatusEligible",
+        "tkHandleBridgeArrearsPenalty(ctx, rls, account, apiErr)"
+      ],
+      "rationale": "TK companion that routes real bridge.Dispatch* upstream errors (401/402/429 allowlist) into RateLimitService.HandleUpstreamError so newapi accounts get disabled/cooled and the Feishu account-incident alert fires. Without it the fifth platform regresses to the 2026-06-11 prod incident: a 402 'Insufficient Balance' DeepSeek account stayed schedulable=true while the gateway hammered the exhausted upstream 6946 times in 2h with zero alerts. The narrow status allowlist is itself load-bearing: it is what keeps client-induced 400/404 (and the synthetic missing-credential/unsupported-channel 400s) from draining the pool (the #617 class). The tkHandleBridgeArrearsPenalty call MUST run BEFORE the tkBridgePenaltyStatusEligible allowlist (which excludes 400): an upstream DashScope arrears 400 ('Arrearage') is an account-standing failure disguised as a client 400 and must cool+alert, not pass through. Reordering it after the allowlist (or dropping it) silently re-opens the 2026-06-12 prod incident where account 60 'Qwen' stayed schedulable with confusing 400s and no recharge alert."
+    },
+    {
+      "path": "backend/internal/service/newapi_bridge_arrears_tk.go",
+      "must_contain": [
+        "tkIsBridgeUpstreamArrears",
+        "tkHandleBridgeArrearsPenalty",
+        "tkBridgeArrearsIncidentReason",
+        "arrearage"
+      ],
+      "rationale": "TK companion implementing the narrow upstream account-standing / arrears (欠费) classifier + account-level penalty + immediate Feishu alert for the fifth platform. tkIsBridgeUpstreamArrears matches ONLY the DashScope/百炼 arrears verdict (provider code/type == 'Arrearage' case-insensitive, OR message containing 'account is in good standing' / 'overdue' / 'arrear') — never a generic client 400, which would re-open the #617 pool-drain. tkHandleBridgeArrearsPenalty cools the account (SetTempUnschedulable, NOT hard-disable, so a recharge auto-recovers) and funnels the incident through notifyAccountSchedulingBlocked with reason 'newapi_arrears'. Dropping any symbol or weakening the matcher regresses the 2026-06-12 prod incident (account 60 'Qwen' arrears → confusing pass-through 400 + no alert) or, if widened, drains the pool on legitimate client 400s."
+    },
+    {
+      "path": "backend/internal/service/account_incident_notifier_tk.go",
+      "must_contain": [
+        "case \"newapi_arrears\":",
+        "IncidentKindPermanentDisable, \"newapi_arrears\", \"上游账号欠费\""
+      ],
+      "rationale": "classifyIncident MUST map reason 'newapi_arrears' to the IMMEDIATE P0 card path (IncidentKindPermanentDisable), NOT the temporary-cooldown digest that PR #730 made default-OFF. Upstream arrears is persistent until a human recharges — it will not self-heal — so folding it into the silenced self-healing digest would mean operators never learn the upstream account needs a recharge. Re-mapping it to IncidentKindTemporaryCooldown silently regresses the 2026-06-12 alerting gap."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch.go",
+      "must_contain": [
+        "s.tkWrapBridgeRelayErrorWithPenalty(ctx, c, account, apiErr)"
+      ],
+      "must_not_contain": [
+        "tkWrapBridgeRelayError(c, apiErr)"
+      ],
+      "rationale": "Every real-upstream-error dispatch site in the OpenAI-gateway bridge boundary (chat/responses/embeddings/images, 4 sites) must call the penalty-wrapping chokepoint. The 4 call lines are textually identical, so must_contain alone cannot catch a partial revert — must_not_contain asserts ZERO penalty-less tkWrapBridgeRelayError(c, apiErr) calls remain in this file, which catches any single site regressing. A refactor that reverts to the plain wrapper silently disconnects the newapi account-penalty path with no compile error."
+    },
+    {
+      "path": "backend/internal/service/gateway_bridge_dispatch.go",
+      "must_contain": [
+        "s.tkWrapBridgeRelayErrorWithPenalty(ctx, c, account, apiErr)"
+      ],
+      "must_not_contain": [
+        "tkWrapBridgeRelayError(c, apiErr)"
+      ],
+      "rationale": "The Anthropic-gateway bridge boundary (GatewayService ForwardAsChatCompletionsDispatched / ForwardAsResponsesDispatched, 2 sites) is the same penalty chokepoint class as openai_gateway_bridge_dispatch.go and must stay wired identically: zero penalty-less tkWrapBridgeRelayError(c, apiErr) calls. Without this entry only the OpenAI-gateway file was anchored and a refactor here would silently drop the account penalty for messages-dispatch newapi traffic."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_anthropic.go",
+      "must_contain": [
+        "s.tkWrapBridgeRelayErrorWithPenalty(ctx, c, account, apiErr)"
+      ],
+      "rationale": "ForwardAsAnthropicDispatched is the 7th penalty wiring site (anthropic-shaped requests routed over the newapi bridge). Same risk class as the other dispatch boundaries: reverting to the plain wrapper compiles clean and silently disconnects the account penalty."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_video.go",
+      "must_contain": [
+        "s.tkWrapBridgeRelayErrorWithPenalty(ctx, c, account, apiErr)",
+        "No account penalty here"
+      ],
+      "rationale": "Video SUBMIT must penalize (the selected account is in hand); video FETCH must NOT (account-agnostic VideoTaskCache registry routing — a poll failure long after submit must not punish whichever account currently maps to the channel). Anchors the submit-site penalty call plus the fetch-path exemption comment so neither side of the asymmetry is silently flattened: no must_not_contain here because the fetch path legitimately keeps the plain tkWrapBridgeRelayError."
+    },
+    {
+      "path": "backend/internal/handler/openai_chat_completions.go",
+      "must_contain": [
+        "// image-partial-result path and never fires for plain chat errors.\n\t\t\t\tif TkTryWriteNewAPIRelayErrorJSON(c, err, streamStarted, writerSizeBeforeForward) {"
+      ],
+      "rationale": "Chat-completions handler must preserve the NewAPIRelayError's real upstream status (402/429/...) to the client instead of masking it as 502 'Upstream request failed'. The load-bearing call lives INSIDE the non-failover error branch (mirroring the /v1/responses handler); the file contains a SECOND textually-identical call further down that is only reachable on the image-partial-result path, so a bare single-line needle would still pass after a merge dropped the reachable branch. The needle therefore pins the comment tail + if-line contiguous to the in-branch site; a merge that drops it reverts every newapi chat bridge error to an opaque 502 (the 2026-06-11 DeepSeek incident shape, 6946 masked 402s)."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "s.notifyAccountSchedulingBlocked(account, time.Time{}, \"auth_error\", errorMsg)"
+      ],
+      "rationale": "handleAuthError must forward the upstream error message as the Feishu permanent-disable card detail (e.g. 'Payment required (402): Insufficient Balance'). notifyAccountSchedulingBlocked's detail parameter is variadic, so an upstream merge reverting this call to the bare 3-arg form compiles clean and silently strips the upstream status/message from the P0 card — losing the alert-content half of the 2026-06-11 incident fix while the alert itself still fires."
     }
   ]
 }

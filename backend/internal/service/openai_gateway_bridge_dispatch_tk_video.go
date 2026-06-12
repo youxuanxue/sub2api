@@ -78,7 +78,7 @@ func (s *OpenAIGatewayService) ForwardAsVideoSubmitDispatched(
 			zap.String("bridge_path", "newapi_adaptor_error"),
 			zap.Int64("account_id", account.ID),
 		)
-		return nil, &NewAPIRelayError{Err: apiErr}
+		return nil, s.tkWrapBridgeRelayErrorWithPenalty(ctx, c, account, apiErr)
 	}
 	logger.L().Info("openai_gateway.newapi_bridge_dispatch",
 		zap.String("endpoint", BridgeEndpointVideoSubmit),
@@ -113,7 +113,11 @@ func (s *OpenAIGatewayService) ForwardAsVideoFetchDispatched(
 			zap.String("bridge_path", "newapi_adaptor_error"),
 			zap.String("upstream_task_id", in.UpstreamTaskID),
 		)
-		return nil, &NewAPIRelayError{Err: apiErr}
+		// No account penalty here: the fetch path is account-agnostic (routing
+		// comes from the VideoTaskCache registry snapshot, the *Account is not
+		// in hand), and a poll failure long after submit must not punish
+		// whichever account currently maps to the channel.
+		return nil, tkWrapBridgeRelayError(c, apiErr)
 	}
 	logger.L().Info("openai_gateway.newapi_bridge_dispatch",
 		zap.String("endpoint", BridgeEndpointVideoFetch),

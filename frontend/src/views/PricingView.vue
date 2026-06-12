@@ -57,7 +57,7 @@
             <p class="text-xs text-gray-600 dark:text-dark-400">{{ t('pricing.ctaBonusHint') }}</p>
           </div>
 
-          <!-- Segmented view switch: 我的菜单 / 公开目录. Only shown when logged in. -->
+          <!-- Segmented view switch: 分组目录 / 所有目录. Only shown when logged in. -->
           <div v-if="canShowMyView" class="mt-6 flex justify-center">
             <div
               role="tablist"
@@ -85,7 +85,7 @@
       </div>
 
       <div class="mx-auto flex min-h-0 w-full max-w-[90rem] flex-1 flex-col">
-        <!-- "我的菜单" toolbar: key picker + group switcher + banner -->
+        <!-- "分组目录" toolbar: key picker + group switcher + banner -->
         <div
           v-if="viewMode === 'my' && !loading && !errorMessage && myCatalog"
           class="mb-4 flex flex-col gap-3"
@@ -133,7 +133,7 @@
                   :key="g.id"
                   :value="g.id"
                 >
-                  {{ g.name }}{{ formatGroupRateBadge(g) }}
+                  {{ g.name }}
                 </option>
               </select>
             </label>
@@ -432,9 +432,6 @@
                 <template v-else>
                   {{ t('pricing.footer.total', { count: rowTotal }) }}
                 </template>
-                <span v-if="rateHint" class="ml-2 text-gray-600 dark:text-dark-300">
-                  · {{ rateHint }}
-                </span>
               </p>
               <p class="text-left sm:text-right">
                 {{ t('pricing.updatedAt', { time: formattedUpdatedAt }) }}
@@ -455,11 +452,11 @@
  *  - Public view (unauthenticated default): GET /api/v1/public/pricing returns
  *    the platform-wide LiteLLM list-price catalog. Behaves per US-028 AC-005
  *    (empty when source unavailable; 404 when admin disabled public catalog).
- *  - "我的菜单" view (authenticated default when accessible groups exist):
+ *  - "分组目录" view (authenticated default when accessible groups exist):
  *    GET /api/v1/me/pricing-catalog returns models scoped to the user's
- *    selected key's group, with prices already multiplied by their effective
- *    rate (group default × per-user override). The user can switch keys or
- *    explore other accessible groups for upgrade comparison.
+ *    selected key's group, at OFFICIAL list prices (decoupled from the
+ *    group/override rate — see me_pricing_catalog_tk.go header). The user can
+ *    switch keys or explore other accessible groups.
  *
  * Both feed a single normalized row shape so the table markup stays identical
  * between modes — this is by design; the v1 trade-off accepted in
@@ -679,29 +676,15 @@ const formattedUpdatedAt = computed(() => {
   }
 })
 
-// ============================== rate-hint ==============================
-
-const rateHint = computed(() => {
-  if (viewMode.value !== 'my' || !myCatalog.value) return ''
-  const tg = myCatalog.value.target_group
-  const rate = tg.rate_multiplier
-  if (rate === 1 && !tg.has_override) return ''
-  const fmt = rate === 0 ? '×0' : `×${rate}`
-  const suffix = tg.has_override ? ` (${t('pricing.my.rateOverride')})` : ''
-  return t('pricing.my.rateHint', { multiplier: fmt }) + suffix
-})
-
 // ============================== group switcher ==============================
+//
+// TK: pricing 页（分组目录/所有目录）一律展示官方定价，与分组倍率/个人覆写
+// 彻底脱钩——故不再有倍率提示（原 rateHint）、对比下拉不再拼 ×N 倍率角标。
 
 const groupsForComparison = computed<MePricingGroupRef[]>(() => {
   if (!myCatalog.value) return []
   return myCatalog.value.accessible_groups
 })
-
-function formatGroupRateBadge(g: MePricingGroupRef): string {
-  if (g.rate_multiplier === 1) return ''
-  return ` · ×${g.rate_multiplier}`
-}
 
 interface ExploreBanner {
   message: string
@@ -717,8 +700,7 @@ const exploreBanner = computed<ExploreBanner | null>(() => {
   // User is viewing a group they don't hold a key in → upgrade-CTA banner.
   return {
     message: t('pricing.my.exploreBanner.message', {
-      group: tg.name,
-      multiplier: tg.rate_multiplier
+      group: tg.name
     }),
     ctaLabel: t('pricing.my.exploreBanner.cta', { group: tg.name }),
     ctaTo: { path: '/dashboard/keys', query: { group_id: String(tg.id) } }

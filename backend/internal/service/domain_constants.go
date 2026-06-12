@@ -120,6 +120,44 @@ const (
 	// gateway_anthropic_request_normalize_tk.go for the rules.
 	SettingKeyAnthropicRequestNormalizeEnabled = "tk_anthropic_request_normalize_enabled"
 
+	// The canonical Anthropic OAuth path (accounts bound to the
+	// tk_canonical_cc_oauth TLS profile) has TWO ORTHOGONAL hardening toggles,
+	// deliberately split so an operator can pick the strategy that matches their
+	// cc_only-relax plan. They are NOT redundant and are NOT meant to move
+	// together — see docs/approved/cc-only-disable-prep-decisions.md (D1/D4,
+	// 2026-06-11 direction revision).
+	//
+	// SettingKeyAnthropicCanonicalIngressStrictEnabled = INGRESS strategy "reject
+	// at the door". Defaults to false (keep deny-list / upstream behavior, zero
+	// regression). When "true":
+	//   1. the ingress UA gate flips deny-list -> allow-list — only claude-cli/ or
+	//      claude-code/ UA prefixes pass; empty + unknown UAs reject;
+	//   2. the same allow-list gate runs on the count_tokens path.
+	// Use this when you do NOT want non-CC traffic on canonical accounts at all.
+	// It is INCOMPATIBLE with "relax cc_only and let non-CC clients in", because
+	// it rejects exactly the non-CC clients such a relax aims to admit.
+	SettingKeyAnthropicCanonicalIngressStrictEnabled = "anthropic_canonical_ingress_strict_enabled"
+
+	// SettingKeyAnthropicCanonicalHaikuMimicryEnabled = EGRESS strategy "admit and
+	// launder". Defaults to false (keep the haiku skip, zero regression). When
+	// "true", a non-CC haiku request on a canonical OAuth account also gets the CC
+	// system/billing block injected, closing the "CC headers but no CC billing
+	// block" cohort gap that the default haiku skip leaves open.
+	//
+	// This is the toggle to pair with relaxing a group's cc_only and routing non-CC
+	// traffic to a canonical fallback account: ingress stays OPEN (this switch does
+	// not reject anyone), and the egress mimicry is completed so even non-CC haiku
+	// leaves the edge as a clean CC cohort. It is the missing piece that makes
+	// "admit non-CC, launder on the wire" safe; without it, non-CC haiku (heavy in
+	// Claude Code background traffic) would egress half-disguised and risk the
+	// edge subscription account's standing.
+	//
+	// Both toggles are admin-settable + settings-pubsub hot-updatable (canary a
+	// single edge, roll back in seconds, no deploy). See
+	// setting_service_tk_canonical_ingress.go and
+	// gateway_service_tk_canonical_oauth_guard.go.
+	SettingKeyAnthropicCanonicalHaikuMimicryEnabled = "anthropic_canonical_haiku_mimicry_enabled"
+
 	// SettingKeyOpenAIImplicitThrottleCooldownSeconds enables an opt-in,
 	// cross-request cooldown for OpenAI-compat accounts being implicitly throttled
 	// by the upstream (repeated 5xx / header-timeout with no explicit 429).

@@ -97,6 +97,8 @@ Data Volume 用于持久化 PostgreSQL、Redis、Caddy 状态与应用数据。C
 
 ### 入站规则
 
+> **注（2026-05-10 后已收窄）**：公网入站现仅保留 **TCP 443**；80（证书改 TLS-ALPN-01，无需 HTTP-01）与 22（运维走 SSM，`AdminCidr` 默认 `127.0.0.1/32`）均已关闭。下表为快照当时状态，最新基线见 `deploy/aws/README.md` 公网端口收窄。
+
 | 协议 | 端口 | 来源 | 用途 |
 |---|---:|---|---|
 | TCP | 80 | `0.0.0.0/0` | HTTP / Let's Encrypt HTTP-01 / redirect |

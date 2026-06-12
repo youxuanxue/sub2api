@@ -44,6 +44,10 @@ type AccountIncidentNotifier interface {
 	// admin 重测恢复)时调用,对此前告警过的账号发一条即时恢复绿卡。事件驱动:纯定时器
 	// 到期自愈不经此路径,也不播报(原冷却卡已写明 until)。未告警账号调用为 no-op。
 	NotifyAccountRecovered(accountID int64)
+	// NotifyPlatformPoolExhausted 在某平台可调度账号数降为 0 时发即时 P0 卡片
+	// （事件驱动,由账号冷却汇聚点触发的池级检查上报;trigger 是压垮池的最后一个
+	// 账号）。实现侧按 platform 去重防 flap 刷屏。见 account_incident_notifier_tk_pool.go。
+	NotifyPlatformPoolExhausted(platform string, trigger *Account, until time.Time, reason string)
 }
 
 const (
@@ -100,6 +104,16 @@ func classifyIncident(reason string, until time.Time, kind AccountIncidentKind) 
 		return incidentClass{true, IncidentKindTemporaryCooldown, "403", "OpenAI 403 临时冷却", "检查 IP/账号风控状态"}
 	case "temp_unschedulable", "stream_timeout_temp_unschedulable":
 		return incidentClass{true, IncidentKindTemporaryCooldown, "temp", "临时不可调度", "观察是否自愈"}
+	case "newapi_arrears":
+		// TK (prod 2026-06-12, account 60 "Qwen" / DashScope arrears): an upstream
+		// account-standing / 欠费 failure that arrives as a 400 ("Arrearage"). The
+		// account is COOLED (not hard-disabled) so a recharge auto-recovers, but
+		// the ALERT must be IMMEDIATE + actionable — arrears is persistent until a
+		// human recharges, so it must NOT fold into the #730 default-OFF temporary
+		// digest. Route it through the permanent (immediate P0 card) path with the
+		// 1h per-account dedupe so a persistently-arrears account fires at most
+		// once per window instead of one card per request.
+		return incidentClass{true, IncidentKindPermanentDisable, "newapi_arrears", "上游账号欠费", "DashScope 等上游账号欠费(Arrearage),需在对应控制台(如阿里云百炼)充值/还款;账号已临时摘出轮换,充值后冷却到期自动恢复"}
 	case "429_model_class":
 		// G4(#600)模型维度 cooldown：单模型类(如 opus)打穿 5h/7d 用量窗口,只冷却该模型类,
 		// 账号其它模型仍可调度。不能复用兜底的"账号临时冷却"——那会误报成整账号下线。
@@ -157,12 +171,13 @@ type TKAccountIncidentNotifier struct {
 	siteID      string
 	now         func() time.Time
 
-	mu             sync.Mutex
-	permSentAt     map[string]time.Time                   // 永久失效去重: key -> 上次发送
-	permLimiter    *slidingWindowLimiter                  // 永久失效防爆量
-	digest         map[string]*accountIncidentDigestEntry // reasonClass -> 聚合条目
-	active         map[int64]map[string]*activeIncident   // accountID -> reasonClass -> 活跃事件(恢复台账)
-	recoverySentAt map[int64]time.Time                    // 恢复绿卡去重: accountID -> 上次发送
+	mu                sync.Mutex
+	permSentAt        map[string]time.Time                   // 永久失效去重: key -> 上次发送
+	permLimiter       *slidingWindowLimiter                  // 永久失效防爆量
+	digest            map[string]*accountIncidentDigestEntry // reasonClass -> 聚合条目
+	active            map[int64]map[string]*activeIncident   // accountID -> reasonClass -> 活跃事件(恢复台账)
+	recoverySentAt    map[int64]time.Time                    // 恢复绿卡去重: accountID -> 上次发送
+	poolExhaustSentAt map[string]time.Time                   // 平台池全不可调度 P0 去重: platform -> 上次发送
 
 	stopCh   chan struct{}
 	stopOnce sync.Once
@@ -170,16 +185,17 @@ type TKAccountIncidentNotifier struct {
 
 func newTKAccountIncidentNotifier(cfgProvider opsFeishuConfigProvider, siteID string) *TKAccountIncidentNotifier {
 	n := &TKAccountIncidentNotifier{
-		cfgProvider:    cfgProvider,
-		httpClient:     &http.Client{Timeout: opsFeishuWebhookTimeout},
-		siteID:         strings.TrimSpace(siteID),
-		now:            time.Now,
-		permSentAt:     map[string]time.Time{},
-		permLimiter:    newSlidingWindowLimiter(accountIncidentPermanentRatePerHour, time.Hour),
-		digest:         map[string]*accountIncidentDigestEntry{},
-		active:         map[int64]map[string]*activeIncident{},
-		recoverySentAt: map[int64]time.Time{},
-		stopCh:         make(chan struct{}),
+		cfgProvider:       cfgProvider,
+		httpClient:        &http.Client{Timeout: opsFeishuWebhookTimeout},
+		siteID:            strings.TrimSpace(siteID),
+		now:               time.Now,
+		permSentAt:        map[string]time.Time{},
+		permLimiter:       newSlidingWindowLimiter(accountIncidentPermanentRatePerHour, time.Hour),
+		digest:            map[string]*accountIncidentDigestEntry{},
+		active:            map[int64]map[string]*activeIncident{},
+		recoverySentAt:    map[int64]time.Time{},
+		poolExhaustSentAt: map[string]time.Time{},
+		stopCh:            make(chan struct{}),
 	}
 	if n.siteID == "" {
 		n.siteID = "unknown"
@@ -213,15 +229,24 @@ func (n *TKAccountIncidentNotifier) NotifyAccountIncident(account *Account, unti
 	if !cls.alert {
 		return
 	}
-	n.trackActive(account, cls, until)
-	if cls.kind == IncidentKindPermanentDisable {
-		// 永久失效是整账号下线,无上游维度细分语义 → 忽略 detail。
-		n.handlePermanent(account, reason, cls)
+	if cls.kind == IncidentKindTemporaryCooldown && !n.temporaryDigestEnabled() {
+		// 自愈类临时冷却摘要默认关（opt-in）：不记恢复台账、不入 digest buffer、不发摘要。
+		// 临时冷却卡片本身已写明 until，自愈静默即可。池级全不可调度 P0
+		// （NotifyPlatformPoolExhausted）、永久失效 P0（handlePermanent）、永久恢复绿卡
+		// 走不同路径，恒发不受影响。设 feishu.account_incident_digest_seconds 为正数即恢复。
 		return
 	}
+	n.trackActive(account, cls, until)
 	d := ""
 	if len(detail) > 0 {
 		d = strings.TrimSpace(detail[0])
+	}
+	if cls.kind == IncidentKindPermanentDisable {
+		// 永久失效卡片把 detail 渲染为「详情」行（携带真实上游 status + message,
+		// 如 "Payment required (402): Insufficient Balance"）,运营无需再查 DB
+		// error_message 才能定位是余额耗尽还是凭证吊销。
+		n.handlePermanent(account, reason, cls, d)
+		return
 	}
 	n.recordTemporary(account, cls, d)
 }
@@ -284,7 +309,8 @@ func (n *TKAccountIncidentNotifier) NotifyAccountRecovered(accountID int64) {
 }
 
 // handlePermanent: 同步只做内存去重判定,命中后异步发即时单条 P0 卡片。
-func (n *TKAccountIncidentNotifier) handlePermanent(account *Account, reason string, cls incidentClass) {
+// detail（可为空）是上游真实错误摘要,渲染为卡片「详情」行。
+func (n *TKAccountIncidentNotifier) handlePermanent(account *Account, reason string, cls incidentClass, detail string) {
 	now := n.currentTime()
 	key := accountIncidentDedupeKey(n.siteID, account.ID, cls.reasonClass)
 	n.mu.Lock()
@@ -300,7 +326,7 @@ func (n *TKAccountIncidentNotifier) handlePermanent(account *Account, reason str
 	n.mu.Unlock()
 
 	title := fmt.Sprintf("TokenKey 账号永久失效 [%s]", n.siteID)
-	body := buildAccountIncidentPermanentText(n.siteID, account, reason, cls, now)
+	body := buildAccountIncidentPermanentText(n.siteID, account, reason, cls, now, detail)
 	n.send(title, "red", body, fmt.Sprintf("account_id=%d reason=%s", account.ID, reason))
 }
 
@@ -375,6 +401,21 @@ func (n *TKAccountIncidentNotifier) pruneStaleActive() {
 			delete(n.recoverySentAt, id)
 		}
 	}
+}
+
+// temporaryDigestEnabled 报告自愈类临时冷却摘要是否开启。opt-in 语义：仅当
+// feishu.account_incident_digest_seconds 被显式设为 > 0 才开启；默认（未配 / <=0）
+// 关闭——运营判定 529/429/temp 这类自愈橙头摘要在 provider 抖动时是噪音。池级 P0
+// 与永久失效 P0/恢复绿卡在另一条路径，恒发。设正数间隔即重新开启。
+func (n *TKAccountIncidentNotifier) temporaryDigestEnabled() bool {
+	if n == nil || n.cfgProvider == nil {
+		return false
+	}
+	cfg, err := n.cfgProvider.GetEmailNotificationConfig(context.Background())
+	if err != nil || cfg == nil {
+		return false
+	}
+	return cfg.Feishu.AccountIncidentDigestSeconds > 0
 }
 
 // digestInterval 从配置读 flush 间隔（秒）,下限 30s,缺失则兜底 600s。
@@ -459,14 +500,20 @@ func (n *TKAccountIncidentNotifier) currentTime() time.Time {
 	return time.Now()
 }
 
-func buildAccountIncidentPermanentText(site string, account *Account, reason string, cls incidentClass, now time.Time) string {
-	return fmt.Sprintf("**节点**：%s\n**账号**：%s\n**平台**：%s\n**组**：%s\n**事件**：%s\n**reason**：%s\n**时间**：%s\n\n**建议**：%s",
+func buildAccountIncidentPermanentText(site string, account *Account, reason string, cls incidentClass, now time.Time, detail string) string {
+	detailLine := ""
+	if d := strings.TrimSpace(detail); d != "" {
+		// 上游真实错误摘要（含 upstream status,如 "Payment required (402): …"）。
+		detailLine = "\n**详情**：" + escapeFeishuText(d)
+	}
+	return fmt.Sprintf("**节点**：%s\n**账号**：%s\n**平台**：%s\n**组**：%s\n**事件**：%s\n**reason**：%s%s\n**时间**：%s\n\n**建议**：%s",
 		escapeFeishuText(site),
 		escapeFeishuText(accountIncidentLabel(account)),
 		escapeFeishuText(strings.TrimSpace(account.Platform)),
 		escapeFeishuText(accountGroupNames(account)),
 		escapeFeishuText(cls.kindZh),
 		escapeFeishuText(strings.TrimSpace(reason)),
+		detailLine,
 		escapeFeishuText(formatAlertTime(now)),
 		escapeFeishuText(cls.advice),
 	)
