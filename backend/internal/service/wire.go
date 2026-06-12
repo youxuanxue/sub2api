@@ -676,6 +676,11 @@ var ProviderSet = wire.NewSet(
 	// Same shape as ProvideTKGatewayPricingAvailability; consumed by
 	// provideCleanup in cmd/server/wire.go so wire forces evaluation.
 	ProvideTKGatewayAnthropicSigPreempt,
+	// TokenKey: anthropic saturated mirror-stub de-prioritization — wires the
+	// Redis saturation counter onto GatewayService (scheduler read) and
+	// RateLimitService (skip-penalty write). Consumed by provideCleanup so wire
+	// forces evaluation.
+	ProvideTKAnthropicSaturation,
 	// TokenKey: account-incident → Feishu notifier. Builds the notifier, starts
 	// its digest ticker, and wires it onto RateLimitService post-construction.
 	// Returns the instance so provideCleanup (cmd/server/wire.go) can Stop() the
@@ -813,6 +818,32 @@ func ProvideTKGatewayAnthropicSigPreempt(
 		gw.SetAnthropicSigPreemptCache(cache)
 	}
 	return TKGatewayAnthropicSigPreemptReady{}
+}
+
+// TKAnthropicSaturationReady is a wire sentinel proving that the anthropic
+// saturation counter has been wired onto BOTH GatewayService (read side, the
+// scheduler penalty) and RateLimitService (write side, the skip-penalty
+// increments). provideCleanup (cmd/server/wire.go) consumes it as an unused
+// parameter so wire forces evaluation of the side-effect.
+type TKAnthropicSaturationReady struct{}
+
+// ProvideTKAnthropicSaturation wires the Redis-backed anthropic saturation
+// counter into the gateway scheduler (read) and the rate-limit skip-penalty
+// path (write). One provider, two setters — both nil-safe; if cache is nil the
+// feature is inert (no penalty, no increments). See
+// gateway_service_tk_saturation_penalty.go / ratelimit_service_tk_saturation.go.
+func ProvideTKAnthropicSaturation(
+	gw *GatewayService,
+	rl *RateLimitService,
+	cache AnthropicSaturationCounterCache,
+) TKAnthropicSaturationReady {
+	if gw != nil {
+		gw.SetAnthropicSaturationCounter(cache)
+	}
+	if rl != nil {
+		rl.SetAnthropicSaturationCounter(cache)
+	}
+	return TKAnthropicSaturationReady{}
 }
 
 // ProvideTKAccountIncidentNotifier builds the account-incident Feishu notifier,

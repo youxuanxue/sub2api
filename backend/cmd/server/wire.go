@@ -132,6 +132,10 @@ func provideCleanup(
 	// this dependency edge wire would dead-code the post-construction setter
 	// because no other production component references the sentinel.
 	_ service.TKGatewayAnthropicSigPreemptReady,
+	// TokenKey: forces wire to evaluate ProvideTKAnthropicSaturation so the
+	// saturation counter is wired onto GatewayService + RateLimitService at
+	// startup (otherwise wire dead-codes the post-construction setters).
+	_ service.TKAnthropicSaturationReady,
 	// TokenKey: forces wire to evaluate ProvideTKGatewayHandlerModelList so
 	// GatewayHandler.SetModelListFilter is called at startup. See R-003 /
 	// Goal 2 of docs/approved/pricing-availability-source-of-truth.md.

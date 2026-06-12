@@ -94,6 +94,11 @@ type forceCacheBillingKeyType struct{}
 type accountWithLoad struct {
 	account  *Account
 	loadInfo *AccountLoadInfo
+	// saturationPenalty (TK) 是加到 account.Priority 上的 BOUNDED 去优先级偏好，仅
+	// 对持续返回下游容量信号的 anthropic 镜像 stub 非零。filterByMinPriority 按
+	// effectivePriority()（Priority+saturationPenalty）排序。详见
+	// gateway_service_tk_saturation_penalty.go。
+	saturationPenalty int
 }
 
 var ForceCacheBillingContextKey = forceCacheBillingKeyType{}
@@ -646,6 +651,10 @@ type GatewayService struct {
 	// TK: per-account thinking-block signature_error preempt cache. Injected via
 	// SetAnthropicSigPreemptCache (TK companion). nil = feature disabled.
 	tkAnthropicSigPreemptCache AnthropicSignaturePreemptCache
+	// TK: per-stub anthropic downstream-capacity saturation counter. Injected via
+	// SetAnthropicSaturationCounter (TK companion). nil = feature disabled. Read
+	// to apply a bounded de-prioritization preference in load-aware selection.
+	tkAnthropicSaturationCounter AnthropicSaturationCounterCache
 	// TK: pricing-missing → Feishu notifier. Injected via
 	// SetPricingMissingNotifier (TK companion). nil = feature disabled.
 	tkPricingMissingNotifier PricingMissingNotifier
@@ -2183,6 +2192,11 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			}
 		}
 
+		// TK: 为持续饱和的 anthropic 镜像 stub 计算 bounded 去优先级偏好，折入
+		// effectivePriority()，使其在下面的分层过滤中排到非饱和 stub 之后但不被
+		// 排除。详见 gateway_service_tk_saturation_penalty.go。
+		s.computeAnthropicSaturationPenalties(ctx, available)
+
 		// 分层过滤选择：优先级 → 负载率 → LRU
 		for len(available) > 0 {
 			// 1. 取优先级最小的集合
@@ -2908,20 +2922,23 @@ func (s *GatewayService) newSelectionResult(ctx context.Context, account *Accoun
 	}, nil
 }
 
-// filterByMinPriority 过滤出优先级最小的账号集合
+// filterByMinPriority 过滤出（有效）优先级最小的账号集合。
+// 有效优先级 = account.Priority + saturationPenalty（TK），后者默认 0，仅对持续
+// 饱和的 anthropic 镜像 stub 为正的 BOUNDED 常量，使其排在所有非饱和 stub 之后，
+// 但仍保留在候选集中（不排除）。详见 gateway_service_tk_saturation_penalty.go。
 func filterByMinPriority(accounts []accountWithLoad) []accountWithLoad {
 	if len(accounts) == 0 {
 		return accounts
 	}
-	minPriority := accounts[0].account.Priority
+	minPriority := accounts[0].effectivePriority()
 	for _, acc := range accounts[1:] {
-		if acc.account.Priority < minPriority {
-			minPriority = acc.account.Priority
+		if acc.effectivePriority() < minPriority {
+			minPriority = acc.effectivePriority()
 		}
 	}
 	result := make([]accountWithLoad, 0, len(accounts))
 	for _, acc := range accounts {
-		if acc.account.Priority == minPriority {
+		if acc.effectivePriority() == minPriority {
 			result = append(result, acc)
 		}
 	}

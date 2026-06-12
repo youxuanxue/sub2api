@@ -92,6 +92,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		service.TKAuthServiceColdStartReady{}, // TK: forces SetTrialKeyIssuer wiring
 		service.TKGatewayPricingAvailabilityReady{}, // TK: forces SetPricingAvailabilityService wiring
 		service.TKGatewayAnthropicSigPreemptReady{}, // TK: forces SetAnthropicSigPreemptCache wiring
+		service.TKAnthropicSaturationReady{},        // TK: forces SetAnthropicSaturationCounter wiring
 		handler.TKGatewayHandlerModelListReady{},    // TK: forces SetModelListFilter wiring
 	)
 
