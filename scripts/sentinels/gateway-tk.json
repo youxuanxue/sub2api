@@ -2359,6 +2359,99 @@
         "rl.SetAnthropicSaturationCounter(cache)"
       ],
       "rationale": "Wire glue that attaches the saturation counter onto BOTH GatewayService (read) and RateLimitService (write) post-construction, keeping the upstream NewGatewayService/NewRateLimitService signatures stable. One provider, two setters — if either setter call is dropped, one half of the feature goes inert (scheduler can't read, or skip path can't write). The TKAnthropicSaturationReady sentinel forces wire to evaluate it; these anchors pin the dual-setter wiring."
+    },
+    {
+      "path": "backend/internal/handler/openai_chat_completions.go",
+      "must_contain": [
+        "hold, holdReject := h.tkApplyBalanceHold(c, apiKey, reqModel, body)",
+        "tkHoldRequestID := hold.HandOffToSettlement()",
+        "TkHoldRequestID:    tkHoldRequestID,"
+      ],
+      "rationale": "Pre-flight balance HOLD on /v1/chat/completions (PR #746 concurrent-overdraft fix): reserve before forward + hand refund ownership to the usage-record task. Dropping the reserve reopens unbounded concurrent overdraft on the busiest balance route; dropping the hand-off reopens the release-before-settle window (hold refunded while the bill is still queued). Logic lives in openai_gateway_handler_tk_hold.go; these are the thin hooks an upstream merge can silently revert."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler.go",
+      "must_contain": [
+        "hold, holdReject := h.tkApplyBalanceHold(c, apiKey, reqModel, body)",
+        "h.errorResponse(c, http.StatusForbidden, \"insufficient_balance\", tkInsufficientBalanceForHoldMsg)",
+        "h.anthropicErrorResponse(c, http.StatusForbidden, \"insufficient_balance\", tkInsufficientBalanceForHoldMsg)",
+        "TkHoldRequestID:    tkHoldRequestID,"
+      ],
+      "rationale": "Pre-flight balance HOLD on /v1/responses (errorResponse-form rejection) and /v1/messages dispatch (anthropicErrorResponse-form rejection) — PR #746 overdraft fix. The two routes share the apply literal, so the per-route rejection lines are the anchors proving EACH injection survived an upstream merge, not just one of them."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler.go",
+      "must_contain": [
+        "wsReserveTurnHold := func(model string, payload []byte) error {",
+        "if err := wsReserveTurnHold(reqModel, firstMessage); err != nil {",
+        "if err := wsReserveTurnHold(model, payload); err != nil {",
+        "tkHoldRequestID := turnHold.HandOffToSettlement()"
+      ],
+      "rationale": "Per-turn balance HOLD on the Responses WebSocket ingress (PR #746 review R-002): turn 1 reserves pre-loop from firstMessage, later turns reserve in BeforeRequest, AfterTurn hands each turn's refund to its usage-record task. WS bills per turn on balance, so losing any of these silently reopens the overdraft bypass through the WS surface."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_embeddings_images.go",
+      "must_contain": [
+        "hold, holdReject := h.tkApplyBalanceHoldNoOutput(c, apiKey, reqModel, body)",
+        "hold, holdReject := h.tkApplyImageHold(c, apiKey, reqModel, int(gjson.GetBytes(body, \"n\").Int()))",
+        "tkHoldRequestID := hold.HandOffToSettlement()"
+      ],
+      "rationale": "Pre-flight balance HOLD on /v1/embeddings (no-output estimate — embeddings have no max_tokens, the 200k output fallback would over-reserve 1000x) and /v1/images/generations compat route (requested count at tier-max price). PR #746 overdraft fix; thin hooks into upstream-shaped handlers."
+    },
+    {
+      "path": "backend/internal/handler/openai_images.go",
+      "must_contain": [
+        "hold, holdReject := h.tkApplyImageHold(c, apiKey, requestModel, parsed.N)",
+        "tkHoldRequestID := hold.HandOffToSettlement()",
+        "TkHoldRequestID:    tkHoldRequestID,"
+      ],
+      "rationale": "Pre-flight balance HOLD on the OpenAI Images API route (JSON + multipart): reserve parsed.N images at tier-max price before forward, hand refund to the mandatory usage-record task. PR #746 overdraft fix."
+    },
+    {
+      "path": "backend/internal/repository/usage_billing_repo.go",
+      "must_contain": [
+        "tkConsumeBalanceHoldInTx(ctx, tx, cmd.TkHoldRequestID)"
+      ],
+      "rationale": "Settlement-side hold consumption INSIDE the billing transaction (PR #746 review R-001): balance leaves applyUsageBillingEffects as B + hold − actual in one atomic step. Removing this single call silently reverts the overdraft fix to the broken release-before-settle shape — every handed-off hold would leak to the 30m reconciler and the funds-re-exposure window would return. The helper lives in usage_billing_repo_tk_hold.go; this is the one-line hook."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "TkHoldRequestID string",
+        "TkHoldRequestID:       input.TkHoldRequestID,"
+      ],
+      "rationale": "Hold hand-off threading (PR #746): OpenAIRecordUsageInput.TkHoldRequestID carries the handler's hold key into RecordUsage and onto postUsageBillingParams. If an upstream merge drops the field or the assignment, holds are never consumed at settle — compile may still pass if both vanish together, so the literals are pinned."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "TkHoldRequestID string",
+        "TkHoldRequestID:    strings.TrimSpace(p.TkHoldRequestID),"
+      ],
+      "rationale": "Hold hand-off threading (PR #746): postUsageBillingParams.TkHoldRequestID → UsageBillingCommand inside buildUsageBillingCommand. Same silent-revert risk as the openai_gateway_service.go entry — both sides of the thread are pinned."
+    },
+    {
+      "path": "backend/internal/service/usage_billing.go",
+      "must_contain": [
+        "TkHoldRequestID string"
+      ],
+      "rationale": "UsageBillingCommand.TkHoldRequestID is the contract the repository's settlement transaction consumes the hold by (PR #746). Deliberately excluded from the billing fingerprint; losing the field severs handler→settlement hand-off."
+    },
+    {
+      "path": "backend/internal/service/wire.go",
+      "must_contain": [
+        "func ProvideHoldReconcilerService(repo UsageBillingRepository) *HoldReconcilerService {",
+        "ProvideHoldReconcilerService,"
+      ],
+      "rationale": "Hold reconciler DI registration (PR #746): the crash-recovery sweep that refunds leaked holds. If the provider drops out of ProviderSet together with its cleanup parameter, the build still compiles — and every crash-leaked hold pins user balance forever. Sentinel makes the silent-consistent deletion loud."
+    },
+    {
+      "path": "backend/cmd/server/wire.go",
+      "must_contain": [
+        "holdReconciler *service.HoldReconcilerService,",
+        "{\"HoldReconcilerService\", func() error {"
+      ],
+      "rationale": "Hold reconciler shutdown hook in provideCleanup (PR #746): forces wire to construct (and therefore start) the reconciler and stops its ticker at shutdown. Same silent-consistent-deletion risk as the service/wire.go entry."
     }
   ]
 }
