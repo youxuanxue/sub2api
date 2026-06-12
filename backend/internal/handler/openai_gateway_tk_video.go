@@ -120,6 +120,17 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 	}
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 
+	// TK: pre-flight balance hold (concurrent-overdraft fix; see
+	// openai_gateway_handler_tk_hold.go). Video reserves the exact submit-time
+	// cost (same request-derived seconds the billing path uses); balance users
+	// only. Released at handler end — the async RecordUsage settles the bill.
+	if release, reject := h.tkApplyVideoHold(c, apiKey, reqModel, videoRequestedSeconds(body)); reject {
+		h.errorResponse(c, http.StatusForbidden, "insufficient_balance", tkInsufficientBalanceForHoldMsg)
+		return
+	} else if release != nil {
+		defer release()
+	}
+
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
 

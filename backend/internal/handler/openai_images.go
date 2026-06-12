@@ -116,6 +116,16 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 
+	// TK: pre-flight balance hold (concurrent-overdraft fix; see
+	// openai_gateway_handler_tk_hold.go). Image holds reserve the requested
+	// image count at the tier-max price; balance users only.
+	if release, reject := h.tkApplyImageHold(c, apiKey, requestModel, parsed.N); reject {
+		h.errorResponse(c, http.StatusForbidden, "insufficient_balance", tkInsufficientBalanceForHoldMsg)
+		return
+	} else if release != nil {
+		defer release()
+	}
+
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
 

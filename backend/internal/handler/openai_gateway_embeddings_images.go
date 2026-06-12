@@ -91,6 +91,16 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 
+	// TK: pre-flight balance hold (concurrent-overdraft fix; see
+	// openai_gateway_handler_tk_hold.go). Embeddings produce no output tokens,
+	// so the no-output estimate is used; balance users only.
+	if release, reject := h.tkApplyBalanceHoldNoOutput(c, apiKey, reqModel, body); reject {
+		h.errorResponse(c, http.StatusForbidden, "insufficient_balance", tkInsufficientBalanceForHoldMsg)
+		return
+	} else if release != nil {
+		defer release()
+	}
+
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
 
@@ -397,6 +407,16 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 	}
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+
+	// TK: pre-flight balance hold (concurrent-overdraft fix; see
+	// openai_gateway_handler_tk_hold.go). Image holds reserve the requested
+	// image count at the tier-max price; balance users only.
+	if release, reject := h.tkApplyImageHold(c, apiKey, reqModel, int(gjson.GetBytes(body, "n").Int())); reject {
+		h.errorResponse(c, http.StatusForbidden, "insufficient_balance", tkInsufficientBalanceForHoldMsg)
+		return
+	} else if release != nil {
+		defer release()
+	}
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()

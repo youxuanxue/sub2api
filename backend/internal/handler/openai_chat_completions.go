@@ -106,6 +106,16 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 
+	// TK: pre-flight balance hold (concurrent-overdraft fix; see
+	// openai_gateway_handler_tk_hold.go). Reserve before forwarding, release at
+	// request end; balance users only.
+	if release, reject := h.tkApplyBalanceHold(c, apiKey, reqModel, body); reject {
+		h.errorResponse(c, http.StatusForbidden, "insufficient_balance", tkInsufficientBalanceForHoldMsg)
+		return
+	} else if release != nil {
+		defer release()
+	}
+
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
 
