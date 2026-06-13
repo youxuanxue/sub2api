@@ -570,6 +570,10 @@ type adminServiceImpl struct {
 	userSubRepo          UserSubscriptionRepository
 	privacyClientFactory PrivacyClientFactory
 	runtimeBlocker       AccountRuntimeBlocker
+	// availability gates the model-whitelist candidate list on live
+	// model_availability so the admin selector self-heals (a structurally-gone
+	// model auto-drops). Nil-safe (degrades to no pruning). R-003 / PR #752.
+	availability MePricingAvailability
 }
 
 type userGroupRateBatchReader interface {
@@ -596,7 +600,12 @@ func NewAdminService(
 	userSubRepo UserSubscriptionRepository,
 	privacyClientFactory PrivacyClientFactory,
 	runtimeBlocker AccountRuntimeBlocker,
+	availability *PricingAvailabilityService,
 ) AdminService {
+	var avail MePricingAvailability
+	if availability != nil {
+		avail = availability
+	}
 	return &adminServiceImpl{
 		userRepo:             userRepo,
 		groupRepo:            groupRepo,
@@ -616,6 +625,7 @@ func NewAdminService(
 		userSubRepo:          userSubRepo,
 		privacyClientFactory: privacyClientFactory,
 		runtimeBlocker:       runtimeBlocker,
+		availability:         avail,
 	}
 }
 
@@ -1756,7 +1766,10 @@ func (s *adminServiceImpl) GetGroupModelsListCandidates(ctx context.Context, id 
 		platform = PlatformAnthropic
 	}
 
-	candidates := defaultModelsListCandidateIDs(platform)
+	// Self-healing source (R-003): empirically-servable allowlist + live
+	// model_availability pruning, instead of the canonical defaults (which still
+	// list retired / access-gated models). per-platform truth is preserved.
+	candidates := tkServableCandidateIDs(ctx, platform, s.availability)
 	if id <= 0 || s.accountRepo == nil {
 		return candidates, nil
 	}
