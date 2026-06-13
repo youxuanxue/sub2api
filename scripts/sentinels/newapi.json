@@ -221,9 +221,11 @@
         "modelValue: unknown[]",
         "const modelID = (value: unknown): string",
         "selectedModels",
-        "pricingStatusByModel"
+        "pricingStatusByModel",
+        "useServableModels",
+        "const effectivePlatforms = computed"
       ],
-      "rationale": "The selector is the UI crash point from the production incident: object-shaped model entries from #128 must be normalized to IDs before includes/render paths, while pricing_status remains badge metadata only. Upstream merges touching this shared component can revert to string[] assumptions without compile failures."
+      "rationale": "The selector is the UI crash point from the production incident: object-shaped model entries from #128 must be normalized to IDs before includes/render paths, while pricing_status remains badge metadata only. R-003: it also derives its candidate lists from the self-healing backend (useServableModels.ensureLoaded + effectivePlatforms, which fall back to all API-backed platforms when none is selected) instead of hardcoded arrays. Upstream merges touching this shared component can revert to string[] assumptions OR re-hardcode the candidate source without compile failures; these anchors pin both contracts."
     },
     {
       "path": "frontend/src/components/common/ModelIcon.vue",
@@ -240,9 +242,10 @@
         "function normalizeModelID(value: unknown): string",
         "allowedModels: unknown[]",
         "const model = normalizeModelID(item)",
-        "claude-opus-4-7"
+        "isApiBackedPlatform(platform)",
+        "return servableModelsFor(platform) ?? []"
       ],
-      "rationale": "buildModelMappingObject must tolerate stale object entries and emit only string-to-string model_mapping pairs. Without this normalization, the submit path can hit `includes is not a function` or persist invalid object-shaped model mappings after #128 responses. This file also owns the admin default model lists; keep Claude defaults on currently-available 4.5/4.6/4.7 models and do not re-add (a) retired 3.x snapshots: claude-3-7-sonnet-20250219, claude-3-5-sonnet-20241022, claude-3-5-sonnet-20240620, claude-3-5-haiku-20241022, claude-3-haiku-20240307, claude-3-opus-20240229, claude-3-sonnet-20240229 — Anthropic API returns not_found_error for these (model-deprecations page verified 2026-05-21); nor (b) deprecated 4.0 snapshots claude-sonnet-4-20250514 and claude-opus-4-20250514 which Anthropic retires on 2026-06-15."
+      "rationale": "Two load-bearing contracts. (1) buildModelMappingObject must tolerate stale object entries and emit only string-to-string model_mapping pairs (normalizeModelID), or the submit path hits `includes is not a function` after #128 responses. (2) R-003 self-heal: the per-platform candidate lists are NO LONGER hardcoded here — getModelsByPlatform routes the API-backed platforms (anthropic/openai/gemini/antigravity) to servableModelsFor (the self-healing backend cache from useServableModels), keeping only newapi + the long-tail providers static. An upstream merge that re-hardcodes claude/openai/gemini arrays here would re-introduce retired/access-gated models (e.g. claude-fable-5) and defeat the self-heal; these anchors pin the API derivation. (The retired-model list that used to live here moved to the backend allowlist + pricing-availability sentinels.)"
     },
     {
       "path": "backend/internal/service/pricing_catalog_membership_tk.go",

@@ -135,22 +135,14 @@ func NewMePricingCatalogService(
 }
 
 // pruneStructurallyGoneIDs drops model IDs that live model_availability reports
-// as structurally gone upstream (model_not_found → unreachable). Nil-safe: with
-// no availability dep (tests / Phase-1) the static list passes through
-// unchanged. Queried once per default-model list (not per account).
+// as structurally gone upstream (model_not_found → unreachable). Delegates to the
+// shared tkPruneStructurallyGoneIDs so the per-user menu and the admin selector
+// prune identically. Nil-safe.
 func (s *MePricingCatalogService) pruneStructurallyGoneIDs(ctx context.Context, platform string, ids []string) []string {
-	if s == nil || s.availability == nil || len(ids) == 0 {
+	if s == nil {
 		return ids
 	}
-	kept := make([]string, 0, len(ids))
-	for _, id := range ids {
-		st, err := s.availability.GetAvailability(ctx, platform, id)
-		if err == nil && tkAvailabilityStructurallyGone(st) {
-			continue
-		}
-		kept = append(kept, id)
-	}
-	return kept
+	return tkPruneStructurallyGoneIDs(ctx, platform, ids, s.availability)
 }
 
 // MePricingCatalogOptions selects which group the menu is built for.

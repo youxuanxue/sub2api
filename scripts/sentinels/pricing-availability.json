@@ -78,6 +78,23 @@
       "rationale": "Single source for the empirically-servable claude + gpt sets, shared by the public /pricing presentation filter (FilterPublicCatalogToServable) and the Your-Menu unrestricted-account fallback (supportedCatalogModelIDsForPlatform). Losing the allowlist vars would silently widen both surfaces back to the full unservable set; losing the funcs breaks both call sites. The `servable-allowlist:begin/end` splice markers are load-bearing for ops/pricing/refresh-servable-allowlist.py (it rewrites the maps between them); an upstream merge that drops the markers would break the re-runnable refresh. Other vendors (gemini, deepseek, …) intentionally pass through — only the claude + gpt families are curated."
     },
     {
+      "path": "backend/internal/service/pricing_catalog_candidates_tk.go",
+      "must_contain": [
+        "func tkServableCandidateIDs(",
+        "func tkPruneStructurallyGoneIDs(",
+        "supportedCatalogModelIDsForPlatform(platform)",
+        "tkAvailabilityStructurallyGone(st)"
+      ],
+      "rationale": "R-003 single self-healing candidate source, shared by the admin model-whitelist selector (admin_service.GetGroupModelsListCandidates) and the per-user menu fallback (me_pricing). tkServableCandidateIDs draws anthropic/openai/gemini from the empirical allowlist and prunes structurally-gone models (model_not_found -> unreachable) via live model_availability (tkPruneStructurallyGoneIDs / tkAvailabilityStructurallyGone); antigravity/newapi keep canonical defaults. If an upstream merge or refactor drops this file, BOTH surfaces silently revert to the canonical defaults (claude.DefaultModels etc.) that still list retired / access-gated models like claude-fable-5 — exactly the hand-maintenance toil R-003 removed. Pins the function and its self-healing primitives."
+    },
+    {
+      "path": "backend/internal/service/admin_service.go",
+      "must_contain": [
+        "tkServableCandidateIDs(ctx, platform, s.availability)"
+      ],
+      "rationale": "GetGroupModelsListCandidates must call the self-healing tkServableCandidateIDs, NOT the canonical defaultModelsListCandidateIDs. The admin model-whitelist selector and GroupsView consume this endpoint; an upstream merge that reverts the call to the canonical defaults re-advertises retired / access-gated models (the R-003 regression) and renders the frontend self-heal inert. Pins the injection call site in the (upstream-shaped) admin service."
+    },
+    {
       "path": "backend/internal/service/pricing_catalog_tk_test.go",
       "must_contain": [
         "TestPublicCatalog_FiltersUnservableClaudeAndGpt",

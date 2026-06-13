@@ -3332,7 +3332,6 @@ import { ref, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import {
-  claudeModels,
   getPresetMappingsByPlatform,
   getModelsByPlatform,
   commonErrorCodes,
@@ -3340,6 +3339,7 @@ import {
   fetchAntigravityDefaultMappings,
   isValidWildcardPattern
 } from '@/composables/useModelWhitelist'
+import { useServableModels } from '@/composables/useServableModels'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
 import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
@@ -3528,6 +3528,15 @@ const modelMappings = ref<ModelMapping[]>([])
 const openAICompactModelMappings = ref<ModelMapping[]>([])
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
+
+// Fill allowedModels with a platform's candidate models. For API-backed
+// platforms this awaits the self-healing fetch (useServableModels) so the
+// fill reflects the live servable list instead of a stale hardcoded array.
+const { ensureLoaded } = useServableModels()
+async function fillAllowedFromPlatform(platform: string): Promise<void> {
+  await ensureLoaded(platform)
+  allowedModels.value = [...getModelsByPlatform(platform)]
+}
 const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
 const DEFAULT_POOL_MODE_RETRY_STATUS_CODES = [401, 403, 429]
@@ -3964,8 +3973,8 @@ watch(
       adminAPI.tlsFingerprintProfiles.list()
         .then(profiles => { tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name })) })
         .catch(() => { tlsFingerprintProfiles.value = [] })
-      // Modal opened - fill related models
-      allowedModels.value = [...getModelsByPlatform(form.platform)]
+      // Modal opened - fill related models (self-healing for API-backed platforms)
+      void fillAllowedFromPlatform(form.platform)
       // 第五平台 newapi：触发一次（已缓存）的 channel-type catalog 加载
       newapiBootstrap()
       // Antigravity: 默认使用映射模式并填充默认映射
@@ -4156,7 +4165,7 @@ watch(
   [modelRestrictionMode, () => form.platform],
   ([newMode]) => {
     if (newMode === 'whitelist') {
-      allowedModels.value = [...getModelsByPlatform(form.platform)]
+      void fillAllowedFromPlatform(form.platform)
     }
   }
 )
@@ -4478,7 +4487,7 @@ const resetForm = () => {
   modelMappings.value = []
   openAICompactModelMappings.value = []
   modelRestrictionMode.value = 'whitelist'
-  allowedModels.value = [...claudeModels] // Default fill related models
+  void fillAllowedFromPlatform('claude') // Default fill related models (self-healing)
 
   antigravityModelRestrictionMode.value = 'mapping'
   antigravityWhitelistModels.value = []
