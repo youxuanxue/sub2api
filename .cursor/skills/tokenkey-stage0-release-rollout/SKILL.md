@@ -34,6 +34,7 @@ description: >-
 | Edge upgrade/smoke/rollback dispatch | 机械 | `bash scripts/stage0/dispatch-edge-deploy.sh --edge-id … --operation …` |
 | **其余 Edge 顺序 rollout（fail-stop + smoke 标记验收）** | 机械 | `bash scripts/stage0/rollout-edges.sh --tag X.Y.Z --skip <canary>` |
 | dispatch release.yml / deploy-stage0.yml + watch | 机械 | `gh workflow run` + `gh run watch --exit-status` |
+| prod 镜像预热（deploy 前，把 ~150s pull 移出关键路径） | 机械 | `gh workflow run warm-image-stage0.yml` + 自批 + watch（只读、非致命；命令形状见 §「部署目标矩阵 → prod」） |
 | prod Environment approval（canary 绿后） | 机械 | `gh api -X POST …/pending_deployments`（命令形状见 §「部署目标矩阵 → prod」；批不批、何时批是判断） |
 | prod 完整 smoke（CI 唯一验收源） | 机械 | `deploy-stage0.yml` job log 内 `tk_post_deploy_smoke: OK`（`GATEWAY_SMOKE_SUITE=full`） |
 | Edge smoke 分阶段（infra / main-via-edge / full） | 机械 | `ops/stage0/edge_post_deploy_smoke.sh` + workflow `smoke_phase`；main-via-edge 用 `GATEWAY_SMOKE_SUITE=main-via-edge`（/v1/messages + Claude UA，不走 chat） |
@@ -153,7 +154,29 @@ bash scripts/release-bump-and-tag.sh --dry-run  # 只看决策与计划，不写
 
 ### prod：主网关
 
-`release.yml` **不再自动 queue prod**（原 `queue-prod-deploy` job 已移除）——release 只 build 镜像，部署由本 skill 在 build 成功后**显式 dispatch**（顺序与 rollout 意图由 skill 持有；裸 tag-push 不会自动部署 prod，发版务必走 skill）。先确认没有遗留的同 tag run，再 dispatch（tag 不带 `v`）：
+`release.yml` **不再自动 queue prod**（原 `queue-prod-deploy` job 已移除）——release 只 build 镜像，部署由本 skill 在 build 成功后**显式 dispatch**（顺序与 rollout 意图由 skill 持有；裸 tag-push 不会自动部署 prod，发版务必走 skill）。
+
+**先预热镜像（把 deploy 的 ~150s 镜像 pull 移出关键路径）**：`deploy-stage0` 的 in-band `docker compose pull` 是其 SSM 步骤最大耗时（prod 实测 ~150s，占 ~84%）。`warm-image-stage0.yml` 在 prod 主机上**只读** `docker pull` 新 tag（不改 `.env`、不重启容器），warm 完成后 deploy 的 pull 退化成 ~3s no-op。warm 是只读的，所以**自批它的 `prod` Environment 门禁是安全的**（门禁是为「改变在跑服务的 deploy」设的）。warm **失败/超时非致命**——deploy 仍会自己 pull，绝不阻断发版。dispatch deploy 前先 warm：
+
+```bash
+# 1) dispatch 只读预热（与 deploy 同 prod Environment）
+gh workflow run warm-image-stage0.yml -f tag="$TARGET_TAG"
+# 取刚触发的 warm run：选最近一个**未完成**的（卡在 waiting/in_progress 的就是它），
+# 避免 --limit 1 抓到上一次已 completed 的旧 run。必要时 sleep 几秒等 run 出现。
+WARM_RUN_ID=$(gh run list --workflow=warm-image-stage0.yml --event=workflow_dispatch --limit 5 \
+  --json databaseId,status --jq '[.[]|select(.status!="completed")][0].databaseId')
+# 2) 自批 prod Environment（warm 只读，自批安全；与 deploy 同一 --input JSON 形状，
+#    -f/-F 在数组字段上类型推断不可靠）。run 卡在 waiting 后才有 pending_deployment，
+#    必要时轮询到 .[0] 出现再批。
+WARM_ENV_ID=$(gh api "repos/{owner}/{repo}/actions/runs/$WARM_RUN_ID/pending_deployments" --jq '.[0].environment.id')
+gh api -X POST "repos/{owner}/{repo}/actions/runs/$WARM_RUN_ID/pending_deployments" --input - <<EOF
+{"environment_ids":[$WARM_ENV_ID],"state":"approved","comment":"read-only image prewarm for $TARGET_TAG"}
+EOF
+# 3) watch 到完成；非致命——失败也继续 deploy（deploy 自己付 pull）
+gh run watch "$WARM_RUN_ID" --exit-status || echo "warm non-fatal failure — proceeding to deploy (it will pay the in-band pull)"
+```
+
+先确认没有遗留的同 tag deploy run，再 dispatch（tag 不带 `v`）：
 
 ```bash
 gh run list --workflow=deploy-stage0.yml --limit 3 --json databaseId,event,createdAt,status,displayTitle
@@ -174,7 +197,7 @@ gh run view "$RUN_ID" --json status --jq .status   # 期望 in_progress
 
 若 API 返回 403（执行账号非 reviewer），则回落人工批准，不要换号绕过。
 
-**target=all 注意**：prod 不再被 release 自动 queue，所以**先不要 dispatch prod**——等第一个 deployable Edge canary infra smoke 绿后，再 `gh workflow run deploy-stage0.yml -f tag=$TARGET_TAG`，然后按上面的 approval 命令自批。canary-first 顺序由"先不 dispatch"自然保证，不再依赖"先不批准"的提前 waiting run。
+**target=all 注意**：prod 不再被 release 自动 queue，所以**先不要 dispatch prod deploy**——等第一个 deployable Edge canary infra smoke 绿后，再 `gh workflow run deploy-stage0.yml -f tag=$TARGET_TAG`，然后按上面的 approval 命令自批。canary-first 顺序由"先不 dispatch deploy"自然保证，不再依赖"先不批准"的提前 waiting run。**prod 的 warm（上面的预热块）是例外**：它只读、与 canary 无依赖，应在 canary infra smoke **跑的同时**就提前 dispatch+自批，让镜像 pull 与 canary 并行——这样 canary 绿后 dispatch prod deploy 时层已在盘上，净省一次 pull 的墙钟。
 
 ### edge-<edge_id>：Edge 资源节点（Lightsail，单一 dispatch 入口）
 

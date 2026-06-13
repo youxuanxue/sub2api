@@ -16,10 +16,23 @@
 #   3. Send SIGUSR1 to tokenkey → wait for /health/inflight to report
 #      draining=true && in_flight=0 (pre-drain so live SSE finishes). Only now
 #      does Caddy active health (health_uri /health) remove the old upstream.
+#      Bounded by TWO early-exits so a node carrying long-lived SSE never burns
+#      the full budget for a drain that will not complete: (a) a hard cap of 15
+#      tries × 2s = 30s, and (b) a plateau break — if in_flight stops decreasing
+#      for 3 consecutive VALID readings, stop waiting (the remaining streams are
+#      long-lived and the swap will sever them regardless). A failed/empty poll
+#      is treated as no-information: it does not advance the plateau counter (and
+#      the in_flight=0 break already reads an empty poll as not-drained), so a
+#      transient wget blip cannot end the drain early. Measured on the prod
+#      1.7.100 redeploy (2026-06-13): under sustained streaming the old 38-try
+#      (76s) loop NEVER reached in_flight=0 — it drifted 18→8 and plateaued at 8
+#      from try ~31, so it paid the full 76s AND still severed 8 streams at swap.
+#      The cap+plateau cut that wasted wait to ≤30s (≈10s once plateaued) for the
+#      same client outcome.
 #      SKIPPED when the outgoing container is not `healthy`: a crash-looping /
 #      unhealthy container has no in-flight to drain (Caddy already flipped it
 #      out at /health!=200), and SIGUSR1 + the inflight-wait would block the
-#      full ~76s on a container whose `docker exec wget` never answers —
+#      full ~30s on a container whose `docker exec wget` never answers —
 #      starving the new container's health window and tripping the rollback
 #      trap, which then restores the (broken) previous image. That exact loop
 #      kept uk1 pinned to a crash-looping image on 2026-06-03; gating the drain
@@ -69,7 +82,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ssm_resolve_invocation_mi.
 TAG="${1:-${INPUT_TAG:-}}"
 INSTANCE_ID="${2:-${INSTANCE_ID:-}}"
 COMMENT="${3:-${SSM_COMMENT:-deploy-stage0}}"
-# Default bumped 300 -> 480 to cover pre-drain (≤ ~76s) + image pull + container
+# Default bumped 300 -> 480 to cover pre-drain (≤ ~30s) + image pull + container
 # start + healthcheck (≤ start_period 60s) + headroom on a slow link.
 TIMEOUT_SECONDS="${STAGE0_SSM_TIMEOUT_SECONDS:-480}"
 OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.}"
@@ -108,7 +121,7 @@ jq -n --arg tag "${TAG}" '{
     "cd /var/lib/tokenkey && sudo docker compose --env-file .env pull tokenkey",
     "echo \"=== pre-drain: SIGUSR1 + wait in_flight=0 (only when outgoing container healthy) ===\"",
     "OLD_HEALTH=$(sudo docker inspect tokenkey --format '\''{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}'\'' 2>/dev/null || echo missing); echo \"pre-drain: outgoing container health=$OLD_HEALTH\"",
-    "if [ \"$OLD_HEALTH\" = healthy ]; then sudo docker kill -s USR1 tokenkey 2>/dev/null || true; for i in $(seq 1 38); do body=$(sudo docker exec tokenkey wget -q -T 3 -O - http://localhost:8080/health/inflight 2>/dev/null); n=$(printf '\''%s'\'' \"$body\" | sed -n '\''s/.*\"in_flight\":\\([0-9]*\\).*/\\1/p'\''); if printf '\''%s'\'' \"$body\" | grep -q '\''\"draining\":true'\''; then d=true; else d=false; fi; echo \"pre-drain: draining=$d in_flight=${n:-?} try=$i/38\"; [ \"$d\" = true ] && [ \"${n:-1}\" = 0 ] && break; sleep 2; done; else echo \"pre-drain SKIPPED: outgoing container not healthy (health=$OLD_HEALTH) — Caddy already flipped it out, nothing to drain; straight to recreate (avoids burning the ~76s drain budget on a crash-looping container, which previously starved the new container health window and tripped the rollback trap — uk1 2026-06-03)\"; fi",
+    "if [ \"$OLD_HEALTH\" = healthy ]; then sudo docker kill -s USR1 tokenkey 2>/dev/null || true; prev=-1; stall=0; for i in $(seq 1 15); do body=$(sudo docker exec tokenkey wget -q -T 3 -O - http://localhost:8080/health/inflight 2>/dev/null); n=$(printf '\''%s'\'' \"$body\" | sed -n '\''s/.*\"in_flight\":\\([0-9]*\\).*/\\1/p'\''); if printf '\''%s'\'' \"$body\" | grep -q '\''\"draining\":true'\''; then d=true; else d=false; fi; echo \"pre-drain: draining=$d in_flight=${n:-?} try=$i/15\"; [ \"$d\" = true ] && [ \"${n:-1}\" = 0 ] && break; if [ -n \"$n\" ]; then if [ \"$prev\" -ge 0 ] && [ \"$n\" -ge \"$prev\" ]; then stall=$((stall+1)); else stall=0; fi; prev=$n; [ \"$stall\" -ge 3 ] && { echo \"pre-drain: in_flight plateaued at $n for 3 tries (long-lived streams will not finish in the drain budget); stop waiting — swap will sever them\"; break; }; fi; sleep 2; done; else echo \"pre-drain SKIPPED: outgoing container not healthy (health=$OLD_HEALTH) — Caddy already flipped it out, nothing to drain; straight to recreate (avoids burning the ~30s drain budget on a crash-looping container, which previously starved the new container health window and tripped the rollback trap — uk1 2026-06-03)\"; fi",
     "echo \"=== swap: stop-old + start-new (image already on disk from pull above) ===\"",
     "cd /var/lib/tokenkey && sudo docker compose --env-file .env up -d --no-deps --force-recreate tokenkey",
     "for i in 1 2 3 4 5 6 7 8 9 10 11 12; do s=$(sudo docker inspect tokenkey --format '\''{{.State.Health.Status}}'\'' 2>/dev/null || echo missing); echo \"try $i: $s\"; [ \"$s\" = healthy ] && break; sleep 5; done",
