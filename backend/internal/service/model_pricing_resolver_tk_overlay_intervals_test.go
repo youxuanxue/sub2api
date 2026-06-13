@@ -36,13 +36,13 @@ func TestOverlayLoader_ParsesIntervals(t *testing.T) {
 	require.NotNil(t, coder.Intervals[0].MaxTokens)
 	require.Equal(t, 32000, *coder.Intervals[0].MaxTokens)
 	require.NotNil(t, coder.Intervals[0].InputPrice)
-	require.InDelta(t, 5.74e-07, *coder.Intervals[0].InputPrice, 1e-15)
+	require.InDelta(t, 4/6.7e6, *coder.Intervals[0].InputPrice, 1e-15)
 	require.Nil(t, coder.Intervals[3].MaxTokens, "top tier must be unbounded (>256K)")
 	require.NotNil(t, coder.Intervals[3].OutputPrice)
-	require.InDelta(t, 2.8671e-05, *coder.Intervals[3].OutputPrice, 1e-15)
+	require.InDelta(t, 200/6.7e6, *coder.Intervals[3].OutputPrice, 1e-15)
 
 	// flat base is the out-of-range fallback = tier 1.
-	require.InDelta(t, 5.74e-07, coder.InputCostPerToken, 1e-15)
+	require.InDelta(t, 4/6.7e6, coder.InputCostPerToken, 1e-15)
 	require.False(t, tkIsEffectivelyUnpriced(coder))
 
 	// VolcEngine doubao-seed-2.0-pro: 3 input tiers with per-tier cache-hit price
@@ -72,11 +72,11 @@ func TestOverlayIntervalPricing_CoderPlusWholeRequestTier(t *testing.T) {
 		ctxTokens int
 		in, out   float64
 	}{
-		{10_000, 5.74e-07, 2.294e-06},   // tier1 (0,32K]
-		{32_000, 5.74e-07, 2.294e-06},   // 32K boundary stays tier1 (max inclusive)
-		{32_001, 8.61e-07, 3.441e-06},   // tier2 (32K,128K]
-		{200_000, 1.434e-06, 5.735e-06}, // tier3 (128K,256K]
-		{500_000, 2.868e-06, 2.8671e-05}, // tier4 (256K,inf)
+		{10_000, 4 / 6.7e6, 16 / 6.7e6},   // tier1 (0,32K] ¥4/¥16
+		{32_000, 4 / 6.7e6, 16 / 6.7e6},   // 32K boundary stays tier1 (max inclusive)
+		{32_001, 6 / 6.7e6, 24 / 6.7e6},   // tier2 (32K,128K] ¥6/¥24
+		{200_000, 10 / 6.7e6, 40 / 6.7e6}, // tier3 (128K,256K] ¥10/¥40
+		{500_000, 20 / 6.7e6, 200 / 6.7e6}, // tier4 (256K,inf) ¥20/¥200
 	}
 	for _, c := range cases {
 		p := r.GetIntervalPricing(resolved, c.ctxTokens)
@@ -97,14 +97,14 @@ func TestOverlayIntervalPricing_PlusFlashTwoTier(t *testing.T) {
 
 	plus := r.Resolve(context.Background(), PricingInput{Model: "qwen3.7-plus"})
 	require.Len(t, plus.Intervals, 2)
-	require.InDelta(t, 2.76e-07, r.GetIntervalPricing(plus, 100_000).InputPricePerToken, 1e-15)
-	require.InDelta(t, 8.26e-07, r.GetIntervalPricing(plus, 300_000).InputPricePerToken, 1e-15)
-	require.InDelta(t, 3.301e-06, r.GetIntervalPricing(plus, 300_000).OutputPricePerToken, 1e-15)
+	require.InDelta(t, 2/6.7e6, r.GetIntervalPricing(plus, 100_000).InputPricePerToken, 1e-15)   // tier1 ¥2
+	require.InDelta(t, 6/6.7e6, r.GetIntervalPricing(plus, 300_000).InputPricePerToken, 1e-15)   // tier2 ¥6
+	require.InDelta(t, 24/6.7e6, r.GetIntervalPricing(plus, 300_000).OutputPricePerToken, 1e-15) // tier2 ¥24
 
 	flash := r.Resolve(context.Background(), PricingInput{Model: "qwen3.6-flash"})
 	require.Len(t, flash.Intervals, 2)
-	require.InDelta(t, 1.65e-07, r.GetIntervalPricing(flash, 100_000).InputPricePerToken, 1e-15)
-	require.InDelta(t, 3.961e-06, r.GetIntervalPricing(flash, 300_000).OutputPricePerToken, 1e-15)
+	require.InDelta(t, 1.2/6.7e6, r.GetIntervalPricing(flash, 100_000).InputPricePerToken, 1e-15)  // tier1 ¥1.2
+	require.InDelta(t, 28.8/6.7e6, r.GetIntervalPricing(flash, 300_000).OutputPricePerToken, 1e-15) // tier2 ¥28.8
 }
 
 // TestOverlayIntervals_FlatModelUnaffected guards the orthogonality: a flat overlay
@@ -114,7 +114,7 @@ func TestOverlayIntervals_FlatModelUnaffected(t *testing.T) {
 	resolved := r.Resolve(context.Background(), PricingInput{Model: "qwen3.7-max"})
 	require.Empty(t, resolved.Intervals, "flat overlay model must not gain intervals")
 	require.NotNil(t, resolved.BasePricing)
-	require.InDelta(t, 1.65e-06, resolved.BasePricing.InputPricePerToken, 1e-15)
+	require.InDelta(t, 12/6.7e6, resolved.BasePricing.InputPricePerToken, 1e-15)
 	// cache-read billed at full input rate ("用原价"), not $0.
-	require.InDelta(t, 1.65e-06, resolved.BasePricing.CacheReadPricePerToken, 1e-15)
+	require.InDelta(t, 12/6.7e6, resolved.BasePricing.CacheReadPricePerToken, 1e-15)
 }
