@@ -120,6 +120,14 @@ var DefaultAntigravityModelMapping = map[string]string{
 	// Gemini 3 image 兼容映射（向 3.1 image 迁移）
 	"gemini-3-pro-image":         "gemini-3.1-flash-image",
 	"gemini-3-pro-image-preview": "gemini-3.1-flash-image",
+	// Gemini 3.5 Flash 实测 wire id（2026-06 /v1internal:fetchAvailableModels；
+	// thinkingBudget 由 wire id 在上游决定，app 下拉显示名见各行注释）
+	"gemini-3.5-flash-low":       "gemini-3.5-flash-low",       // app "Gemini 3.5 Flash (Medium)"
+	"gemini-3.5-flash-extra-low": "gemini-3.5-flash-extra-low", // app "Gemini 3.5 Flash (Low)"
+	"gemini-3-flash-agent":       "gemini-3-flash-agent",       // app "Gemini 3.5 Flash (High)"
+	"gemini-3.5-flash":           "gemini-3.5-flash-low",       // 友好别名 → Medium 档
+	// Gemini 3.1 Pro (High) 实测 wire id（gemini-3.1-pro-high 上游已废弃 → gemini-pro-agent）
+	"gemini-pro-agent": "gemini-pro-agent",
 	// 其他官方模型
 	"gpt-oss-120b-medium":    "gpt-oss-120b-medium",
 	"tab_flash_lite_preview": "tab_flash_lite_preview",

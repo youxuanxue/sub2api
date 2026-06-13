@@ -165,6 +165,46 @@ describe('UseKeyModal', () => {
     expect(fable.options.thinking).not.toHaveProperty('budgetTokens')
   })
 
+  it('renders new empirical gemini wire ids in antigravity Gemini OpenCode config', async () => {
+    const wrapper = mount(UseKeyModal, {
+      props: {
+        show: true,
+        apiKey: 'sk-test',
+        baseUrl: 'https://example.com/v1',
+        platform: 'antigravity'
+      },
+      global: {
+        stubs: {
+          BaseDialog: {
+            template: '<div><slot /><slot name="footer" /></div>'
+          },
+          Icon: {
+            template: '<span />'
+          }
+        }
+      }
+    })
+
+    const opencodeTab = wrapper.findAll('button').find((button) =>
+      button.text().includes('keys.useKeyModal.cliTabs.opencode')
+    )
+    expect(opencodeTab).toBeDefined()
+    await opencodeTab!.trigger('click')
+    await nextTick()
+
+    const geminiConfig = wrapper.findAll('pre code')
+      .map((code) => code.text())
+      .find((content) => content.includes('"antigravity-gemini"'))
+
+    expect(geminiConfig).toBeDefined()
+    const models = JSON.parse(geminiConfig!).provider['antigravity-gemini'].models
+
+    expect(models['gemini-3.5-flash-low'].name).toBe('Gemini 3.5 Flash (Medium)')
+    expect(models['gemini-3.5-flash-low'].options.thinking).toEqual({ budgetTokens: 4000, type: 'enabled' })
+    expect(models['gemini-pro-agent']).toBeDefined()
+    expect(models['gpt-oss-120b-medium']).toBeDefined()
+  })
+
   it('renders anti-down-grading env vars in Claude Code tab and keeps NONESSENTIAL_TRAFFIC commented out', async () => {
     const wrapper = mount(UseKeyModal, {
       props: {

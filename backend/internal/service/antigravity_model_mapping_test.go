@@ -309,3 +309,20 @@ func TestMapAntigravityModel_WildcardTargetEqualsRequest(t *testing.T) {
 		})
 	}
 }
+
+// 2026-06 实测新增 gemini/gpt-oss wire id 在默认映射下应解析（claude 仍保留、由其它用例覆盖）。
+func TestAntigravityGatewayService_GetMappedModel_EmpiricalGeminiWireIDs(t *testing.T) {
+	svc := &AntigravityGatewayService{}
+	cases := map[string]string{
+		"gemini-3.5-flash-low":       "gemini-3.5-flash-low",
+		"gemini-3.5-flash-extra-low": "gemini-3.5-flash-extra-low",
+		"gemini-3-flash-agent":       "gemini-3-flash-agent",
+		"gemini-pro-agent":           "gemini-pro-agent",
+		"gemini-3.5-flash":           "gemini-3.5-flash-low", // 友好别名 → Medium 档
+		"gpt-oss-120b-medium":        "gpt-oss-120b-medium",
+	}
+	for requested, expected := range cases {
+		account := &Account{Platform: PlatformAntigravity}
+		require.Equal(t, expected, svc.getMappedModel(account, requested), "model: %s", requested)
+	}
+}

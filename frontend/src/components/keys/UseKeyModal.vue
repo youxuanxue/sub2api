@@ -905,6 +905,37 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
   }
 
   const antigravityGeminiModels = {
+    // 2026-06 实测 /v1internal:fetchAvailableModels 的当前 user-facing wire id（app 下拉显示名见 name）
+    'gemini-3.5-flash-low': {
+      name: 'Gemini 3.5 Flash (Medium)',
+      limit: { context: 1048576, output: 65536 },
+      modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
+      options: { thinking: { budgetTokens: 4000, type: 'enabled' } }
+    },
+    'gemini-3-flash-agent': {
+      name: 'Gemini 3.5 Flash (High)',
+      limit: { context: 1048576, output: 65536 },
+      modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
+      options: { thinking: { budgetTokens: 10000, type: 'enabled' } }
+    },
+    'gemini-3.5-flash-extra-low': {
+      name: 'Gemini 3.5 Flash (Low)',
+      limit: { context: 1048576, output: 65536 },
+      modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
+      options: { thinking: { budgetTokens: 1000, type: 'enabled' } }
+    },
+    'gemini-pro-agent': {
+      name: 'Gemini 3.1 Pro (High)',
+      limit: { context: 1048576, output: 65536 },
+      modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
+      options: { thinking: { budgetTokens: 10001, type: 'enabled' } }
+    },
+    'gpt-oss-120b-medium': {
+      name: 'GPT-OSS 120B (Medium)',
+      limit: { context: 131072, output: 32768 },
+      modalities: { input: ['text'], output: ['text'] },
+      options: { thinking: { budgetTokens: 8192, type: 'enabled' } }
+    },
     'gemini-2.5-flash': {
       name: 'Gemini 2.5 Flash',
       limit: {
