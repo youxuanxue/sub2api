@@ -1841,14 +1841,16 @@
         "func tkSelectFailureStatusMessage",
         "isOpsNoAvailableAccountError(err)",
         "http.StatusTooManyRequests",
-        "Retry-After"
+        "Retry-After",
+        "errors.Is(err, service.ErrUnsupportedModel)",
+        "http.StatusBadRequest"
       ],
-      "rationale": "Empty-pool fast-fail returns 429+Retry-After (not 503) so Caddy passive-health on the single Stage0 upstream does not conflate an empty scheduling pool with a backend outage and stall all traffic incl. the dashboard. An upstream merge re-introducing 503 at the account-select call sites regresses the prod flood-containment fix (PR #572 / IP 58.213.121.60 1540 RPM incident). tkSelectFailureStatusMessage (PR #723) extends the same semantics to the openai/newapi compat first-selection failure branches: the no-available error family (classified by isOpsNoAvailableAccountError, the same predicate ops capacity-limited marking uses) maps to 429, while genuine scheduler faults (DB outage, context errors) keep 503."
+      "rationale": "Empty-pool fast-fail returns 429+Retry-After (not 503) so Caddy passive-health on the single Stage0 upstream does not conflate an empty scheduling pool with a backend outage and stall all traffic incl. the dashboard. An upstream merge re-introducing 503 at the account-select call sites regresses the prod flood-containment fix (PR #572 / IP 58.213.121.60 1540 RPM incident). tkSelectFailureStatusMessage (PR #723) extends the same semantics to the openai/newapi compat first-selection failure branches: the no-available error family (classified by isOpsNoAvailableAccountError, the same predicate ops capacity-limited marking uses) maps to 429, while genuine scheduler faults (DB outage, context errors) keep 503. The ErrUnsupportedModel→400 (StatusBadRequest) branch (prod 2026-06-13) splits 'no account serves this model NAME' out of the 429 capacity family into a client invalid_request_error, so an unservable model id (e.g. deepseek-chat/qwen-max against a pool mapping only deepseek-v4-*/qwen3.7-*) stops masquerading as a capacity signal that fires ops alerts; it is checked FIRST because ErrUnsupportedModel's message omits 'no available accounts'."
     },
     {
       "path": "backend/internal/handler/openai_chat_completions.go",
       "must_contain": [
-        "tkStatus, tkMsg := tkSelectFailureStatusMessage(c, err)"
+        "tkStatus, tkType, tkMsg := tkSelectFailureStatusMessage(c, err, reqModel)"
       ],
       "rationale": "/v1/chat/completions first-selection failure (len(failedAccountIDs)==0) must route through tkSelectFailureStatusMessage so an empty openai/newapi pool fast-fails 429 instead of 503 (PR #723, #575 parity; prod 2026-06-11: 480 empty-pool 503s in 2min when both GPT accounts hit upstream 429). Reverting this one-line hook to the upstream 503 literal compiles clean but re-exposes the Caddy passive-health melt + SDK retry storm the no_available_accounts_tk.go sentinel documents."
     },
@@ -1856,18 +1858,35 @@
       "path": "backend/internal/handler/openai_gateway_handler.go",
       "must_contain": [
         "h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), \"compact_not_supported\"",
-        "h.handleStreamingAwareError(c, tkStatus, \"api_error\", tkMsg, streamStarted)",
-        "h.anthropicStreamingAwareError(c, tkStatus, \"api_error\", tkMsg, streamStarted)"
+        "h.handleStreamingAwareError(c, tkStatus, tkType, tkMsg, streamStarted)",
+        "h.anthropicStreamingAwareError(c, tkStatus, tkType, tkMsg, streamStarted)"
       ],
       "rationale": "Responses + openai_messages first-selection failure branches must route through tkSelectFailureStatusMessage (429 on empty pool, 503 on real scheduler faults), and the empty compact pool (ErrNoAvailableCompactAccounts) keeps its compact_not_supported code but joins the 429 no-available family (PR #723, #575 parity). The two helper-call sites have identical assignment lines, so the anchors pin the two distinct error-writer lines (handleStreamingAwareError for Responses, anthropicStreamingAwareError for Messages) — losing either on an upstream merge silently reverts that endpoint to empty-pool 503."
     },
     {
       "path": "backend/internal/handler/openai_images.go",
       "must_contain": [
-        "tkStatus, tkMsg := tkSelectFailureStatusMessage(c, err)",
+        "tkStatus, tkType, tkMsg := tkSelectFailureStatusMessage(c, err, requestModel)",
         "h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), \"api_error\", \"No available compatible accounts\", streamStarted)"
       ],
       "rationale": "Images first-selection failure must route through tkSelectFailureStatusMessage, and the selection==nil branch returns 429 via tkNoAvailableAccounts — previously the only selection==nil branch still answering 503, inconsistent with its sibling handlers (PR #723, #575 parity). An upstream merge restoring either 503 literal compiles clean but regresses the image surface back to the Caddy passive-health failure mode."
+    },
+    {
+      "path": "backend/internal/service/openai_account_scheduler_tk_errors.go",
+      "must_contain": [
+        "func (s *defaultOpenAIAccountScheduler) openAICompatNoCandidateErr",
+        "tkSelectionFailedDueToUnsupportedModel(stats)",
+        "ErrUnsupportedModel",
+        "func collectOpenAICompatSelectionFailureStats"
+      ],
+      "rationale": "openAICompatNoCandidateErr is the OpenAI-compat scheduler's single exit for the len(filtered)==0 branch (prod 2026-06-13): when EVERY schedulable account was rejected purely because it does not serve the requested model NAME, it returns service.ErrUnsupportedModel (→ HTTP 400 invalid_request_error via tkSelectFailureStatusMessage) instead of an empty-pool 429 that reads as a capacity signal and fires ops alerts. collectOpenAICompatSelectionFailureStats counts a model-supporting-but-filtered account as Unschedulable so it SUPPRESSES the 400 (the model is served, just not selectable now → keep 429), mirroring the anthropic tkWrapSelectionFailure predicate. Losing this companion on an upstream merge silently reverts unservable-model requests to the misleading empty-pool 429."
+    },
+    {
+      "path": "backend/internal/service/openai_account_scheduler.go",
+      "must_contain": [
+        "s.openAICompatNoCandidateErr(req, accounts)"
+      ],
+      "rationale": "The candidate-filter-empty branch (len(filtered)==0) in selectByLoadBalance must route through openAICompatNoCandidateErr (TK companion) so a pool emptied purely by unservable model NAME surfaces ErrUnsupportedModel→400, not empty-pool 429 (prod 2026-06-13). Reverting this one-line hook to the inline noAvailableOpenAISelectionError/platform-label returns compiles clean but re-buries 'client asked for a model nobody serves' inside the 429 capacity family, re-triggering false ops alerts. Only this branch routes here — the len(accounts)==0 and post-load-balance slot-acquire branches stay 429 (genuine capacity)."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_model_cooldown.go",

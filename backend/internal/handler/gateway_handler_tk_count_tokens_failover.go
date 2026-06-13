@@ -65,8 +65,8 @@ func (h *GatewayHandler) forwardCountTokensWithFailover(
 			}
 			reqLog.Warn("gateway.count_tokens_select_account_failed", zap.Error(err))
 			markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-			tkStatus, tkMsg := tkSelectFailureStatusMessage(c, err)
-			h.errorResponse(c, tkStatus, "api_error", tkMsg)
+			tkStatus, tkType, tkMsg := tkSelectFailureStatusMessage(c, err, parsedReq.Model)
+			h.errorResponse(c, tkStatus, tkType, tkMsg)
 			return
 		}
 		setOpsSelectedAccount(c, account.ID, account.Platform)

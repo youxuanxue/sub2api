@@ -765,6 +765,45 @@
     ],
     "source": "Alibaba DashScope qwen3.7-plus official USD list (China-mainland; tiered by input tokens: 0<Token<=256K in $0.276/M out $1.101/M, 256K<Token<=1M in $0.826/M out $3.301/M; non-thinking == thinking output; help.aliyun.com/zh/model-studio/model-pricing captured 2026-06-11). List price only — Batch/context-cache discounts not modeled. Whole-request input-tier via overlay intervals."
   },
+  "qwen-max": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 3.582089552238806e-07,
+    "output_cost_per_token": 1.432835820895522e-06,
+    "cache_read_input_token_cost": 3.582089552238806e-07,
+    "source": "Alibaba DashScope qwen-max (legacy stable alias, 当前能力等同 qwen-max snapshot) official China-mainland (Beijing) RMB list ÷ 6.7 (无阶梯计价 in ¥2.4/M out ¥9.6/M); docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-06-13: client-facing legacy alias served via account 60 (dashscope.aliyuncs.com) that the qwen3.7-* mapping did not cover (empty-pool 429 incident). List price only — Batch (half-price)/context-cache discounts not modeled (bill at list). International deployment is ~5x higher (¥11.743/¥46.971) and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
+  },
+  "qwen-plus": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 1.194029850746269e-07,
+    "output_cost_per_token": 2.985074626865672e-07,
+    "cache_read_input_token_cost": 1.194029850746269e-07,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 128000,
+        "input_cost_per_token": 1.194029850746269e-07,
+        "output_cost_per_token": 2.985074626865672e-07,
+        "cache_read_input_token_cost": 1.194029850746269e-07
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": 256000,
+        "input_cost_per_token": 3.582089552238806e-07,
+        "output_cost_per_token": 2.985074626865672e-06,
+        "cache_read_input_token_cost": 3.582089552238806e-07
+      },
+      {
+        "min_tokens": 256000,
+        "max_tokens": null,
+        "input_cost_per_token": 7.164179104477612e-07,
+        "output_cost_per_token": 7.164179104477612e-06,
+        "cache_read_input_token_cost": 7.164179104477612e-07
+      }
+    ],
+    "source": "Alibaba DashScope qwen-plus (legacy stable alias, 当前能力等同 qwen-plus-2025-12-01) official China-mainland (Beijing) RMB list ÷ 6.7, tiered by input tokens (0<=128K in ¥0.8 out ¥2; 128K<=256K in ¥2.4 out ¥20; 256K<=1M in ¥4.8 out ¥48 per M); docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-06-13: client-facing legacy alias served via account 60 (dashscope.aliyuncs.com) that the qwen3.7-* mapping did not cover. Output priced at NON-thinking list; thinking-mode output is higher (¥8/¥24/¥64 per tier) and intentionally NOT modeled (bill at non-thinking list). Batch (half-price)/context-cache discounts not modeled. Whole-request input-tier via overlay intervals."
+  },
   "qwen3.6-flash": {
     "litellm_provider": "dashscope",
     "mode": "chat",

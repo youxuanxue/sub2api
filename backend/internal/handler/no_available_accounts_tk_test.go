@@ -30,9 +30,10 @@ func TestTkSelectFailureStatusMessage(t *testing.T) {
 
 	t.Run("no_available_accounts_sentinel_returns_429_with_retry_after", func(t *testing.T) {
 		c, w := newCtx(t)
-		status, msg := tkSelectFailureStatusMessage(c, service.ErrNoAvailableAccounts)
+		status, errType, msg := tkSelectFailureStatusMessage(c, service.ErrNoAvailableAccounts, "gpt-5.2")
 
 		require.Equal(t, http.StatusTooManyRequests, status)
+		assert.Equal(t, "api_error", errType)
 		assert.Equal(t, tkNoAvailableAccountsRetryAfterSeconds, w.Header().Get("Retry-After"))
 		assert.Contains(t, msg, "No available accounts")
 	})
@@ -40,16 +41,33 @@ func TestTkSelectFailureStatusMessage(t *testing.T) {
 	t.Run("wrapped_no_available_accounts_returns_429", func(t *testing.T) {
 		c, w := newCtx(t)
 		wrapped := fmt.Errorf("%w supporting model: gpt-5.2 (channel pricing restriction)", service.ErrNoAvailableAccounts)
-		status, msg := tkSelectFailureStatusMessage(c, wrapped)
+		status, errType, msg := tkSelectFailureStatusMessage(c, wrapped, "gpt-5.2")
 
 		require.Equal(t, http.StatusTooManyRequests, status)
+		assert.Equal(t, "api_error", errType)
 		assert.Equal(t, tkNoAvailableAccountsRetryAfterSeconds, w.Header().Get("Retry-After"))
 		assert.Contains(t, msg, "gpt-5.2")
 	})
 
+	t.Run("unsupported_model_returns_400_invalid_request", func(t *testing.T) {
+		// The scheduler determined no account in the pool serves this model NAME
+		// (e.g. a client sending "deepseek-chat" to a pool mapping only
+		// "deepseek-v4-*"). That is a client error → 400 invalid_request_error, NOT
+		// an empty-pool 429, so it never reads as a capacity signal / fires alerts.
+		c, w := newCtx(t)
+		wrapped := fmt.Errorf("%w: deepseek-chat (total=1 eligible=0 ...)", service.ErrUnsupportedModel)
+		status, errType, msg := tkSelectFailureStatusMessage(c, wrapped, "deepseek-chat")
+
+		require.Equal(t, http.StatusBadRequest, status)
+		assert.Equal(t, service.TkUnsupportedModelErrType, errType)
+		assert.Equal(t, service.TkUnsupportedModelMessage("deepseek-chat"), msg)
+		// Must NOT carry the 429 capacity backoff hint.
+		assert.Empty(t, w.Header().Get("Retry-After"))
+	})
+
 	t.Run("no_available_compact_accounts_returns_429", func(t *testing.T) {
 		c, _ := newCtx(t)
-		status, _ := tkSelectFailureStatusMessage(c, service.ErrNoAvailableCompactAccounts)
+		status, _, _ := tkSelectFailureStatusMessage(c, service.ErrNoAvailableCompactAccounts, "gpt-5.2")
 
 		require.Equal(t, http.StatusTooManyRequests, status)
 	})
@@ -58,16 +76,17 @@ func TestTkSelectFailureStatusMessage(t *testing.T) {
 		// Relay-hop case: the upstream TokenKey edge serialized the sentinel into a
 		// plain message; the substring classifier must still catch it.
 		c, _ := newCtx(t)
-		status, _ := tkSelectFailureStatusMessage(c, errors.New("scheduler: no available openai accounts in group 7"))
+		status, _, _ := tkSelectFailureStatusMessage(c, errors.New("scheduler: no available openai accounts in group 7"), "gpt-5.2")
 
 		require.Equal(t, http.StatusTooManyRequests, status)
 	})
 
 	t.Run("other_scheduler_errors_stay_503_without_retry_after", func(t *testing.T) {
 		c, w := newCtx(t)
-		status, msg := tkSelectFailureStatusMessage(c, errors.New("pq: connection refused"))
+		status, errType, msg := tkSelectFailureStatusMessage(c, errors.New("pq: connection refused"), "gpt-5.2")
 
 		require.Equal(t, http.StatusServiceUnavailable, status)
+		assert.Equal(t, "api_error", errType)
 		assert.Empty(t, w.Header().Get("Retry-After"))
 		assert.Equal(t, "Service temporarily unavailable", msg)
 	})

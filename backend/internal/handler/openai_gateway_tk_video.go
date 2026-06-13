@@ -166,8 +166,8 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 		}
 		markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 		// Empty pool fast-fails 429 (#575 parity); other scheduler errors stay 503.
-		tkStatus, tkMsg := tkSelectFailureStatusMessage(c, err)
-		h.errorResponse(c, tkStatus, "api_error", tkMsg)
+		tkStatus, tkType, tkMsg := tkSelectFailureStatusMessage(c, err, reqModel)
+		h.errorResponse(c, tkStatus, tkType, tkMsg)
 		return
 	}
 	account := selection.Account
