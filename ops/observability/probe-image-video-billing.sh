@@ -21,14 +21,21 @@ set -u
 
 WINDOW_MIN="${WINDOW_MIN:-30}"
 CTX_HOURS="${CTX_HOURS:-6}"
+# Integer-validate before interpolating into SQL interval literals (matches
+# probe-429-classify.sh's WINDOW_HOURS guard; closes the injection vector).
+case "$WINDOW_MIN" in ''|*[!0-9]*) echo "bad WINDOW_MIN (want integer minutes)" >&2; exit 2;; esac
+case "$CTX_HOURS"  in ''|*[!0-9]*) echo "bad CTX_HOURS (want integer hours)"   >&2; exit 2;; esac
 PSQL='docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t'
 
 W="interval '${WINDOW_MIN} minutes'"
 C="interval '${CTX_HOURS} hours'"
 
-# usage_logs predicates
+# usage_logs predicates — keep image/video symmetric: billing_mode is the
+# precise tag, the others are belt-and-suspenders. video submit rows can have
+# NULL video_duration_seconds, so billing_mode='video' is load-bearing here
+# (without it those zero-cost submit rows — exactly what we watch for — slip).
 IMG_U="(billing_mode = 'image' OR COALESCE(image_count,0) > 0 OR inbound_endpoint ILIKE '%image%')"
-VID_U="(video_duration_seconds IS NOT NULL OR inbound_endpoint ILIKE '%video%')"
+VID_U="(billing_mode = 'video' OR video_duration_seconds IS NOT NULL OR inbound_endpoint ILIKE '%video%')"
 # ops_error_logs predicates
 IMG_E="(request_path ILIKE '%/images%' OR inbound_endpoint ILIKE '%image%')"
 VID_E="(request_path ILIKE '%/video%' OR inbound_endpoint ILIKE '%video%')"
