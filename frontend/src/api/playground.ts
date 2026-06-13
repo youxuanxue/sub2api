@@ -160,6 +160,8 @@ export interface ImageGenerationRequest {
   prompt: string
   /** omit for upstream default */
   size?: string
+  /** number of images (1-4); backend bills per delivered image. Omit → upstream default (1). */
+  n?: number
 }
 
 /** Image generation can run well past a minute upstream. */
@@ -174,6 +176,7 @@ export async function gatewayImageGenerations(
   const url = `${stripTrailingSlashes(gatewayBaseUrl)}/v1/images/generations`
   const payload: Record<string, unknown> = { model: body.model, prompt: body.prompt }
   if (body.size) payload.size = body.size
+  if (body.n && body.n > 0) payload.n = body.n
   return gatewayRequestJSON(
     apiKey,
     url,
@@ -187,6 +190,12 @@ export interface VideoGenerationRequest {
   prompt: string
   /** seconds; gateway default is 8 when omitted */
   duration?: number
+  /**
+   * Optional framing hint forwarded verbatim to the task adaptor (e.g. "16:9").
+   * Omit to use the model's own default — the proven zero-extra-field path. The
+   * gateway passes the body through; the adaptor decides whether to honor it.
+   */
+  aspectRatio?: string
 }
 
 export async function gatewayVideoSubmit(
@@ -198,6 +207,7 @@ export async function gatewayVideoSubmit(
   const url = `${stripTrailingSlashes(gatewayBaseUrl)}/v1/video/generations`
   const payload: Record<string, unknown> = { model: body.model, prompt: body.prompt }
   if (body.duration) payload.duration = body.duration
+  if (body.aspectRatio) payload.aspect_ratio = body.aspectRatio
   return gatewayRequestJSON(
     apiKey,
     url,

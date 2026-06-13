@@ -49,6 +49,15 @@ export default {
     ctaBonus: '立即注册 · 获赠 {amount} 试用额度',
     ctaBonusHint: '当本站开启注册赠额时显示此提示。',
     perRequest: '/ 次',
+    perImage: '/ 张',
+    perSecond: '/ 秒',
+    videoClipExample: '5秒 {five} · 10秒 {ten}',
+    modality: {
+      all: '全部',
+      text: '文本',
+      image: '图片',
+      video: '视频'
+    },
     // TK: 登录态「分组目录」视图（GET /api/v1/me/pricing-catalog）。价格一律
     // 展示官方定价，与分组倍率/个人覆写脱钩。
     my: {
@@ -149,6 +158,107 @@ export default {
     videoStatusProcessing: '处理中',
     videoStatusSucceeded: '已完成',
     videoStatusFailed: '失败'
+  },
+
+  // 媒体工作室（图片 / 视频生成）— TK
+  studio: {
+    title: '工作室',
+    subtitle: '跨平台生成图片与视频——一把 key，价格印在按钮上，结果在页面里播放出来。',
+    balance: '余额',
+    apiKey: 'API 密钥',
+    pickKeyPlaceholder: '选择一个 API 密钥…',
+    loadingModels: '正在加载模型…',
+    noModels: '该密钥未返回任何模型，请检查分组路由或换一个密钥。',
+    loadFailed: '工作室加载失败。',
+    noApiKey: '没有可用的 API 密钥，请先在「API 密钥」里创建一个。',
+    manageKeys: '管理 API 密钥',
+    defaultGroup: '默认分组',
+    modeImage: '图片',
+    modeVideo: '视频',
+    clear: '清空',
+    topUp: '去充值',
+    viewPricing: '查看价格',
+    via: '经 {vendor}',
+    cost: {
+      thisGeneration: '本次生成',
+      thisVideo: '这个视频',
+      estimate: '预估',
+      balance: '余额',
+      afterGeneration: '生成后'
+    },
+    errors: {
+      insufficient_balance: '余额不足——充值后即可生成。',
+      permission: '该分组未开通此类生成。',
+      unpriced: '该模型当前不可用于生成。',
+      rate_limited: '请求过于频繁，请稍后再试。',
+      unauthorized: 'API 密钥无效或已过期。',
+      generic: '生成失败，请重试。'
+    },
+    image: {
+      tierLabel: '质量档位',
+      tierEmpty: '当前分组暂无可用的图片模型。',
+      perImageUnit: ' /张',
+      promptPlaceholder: '描述你想要的图片…',
+      aspectLabel: '画幅',
+      aspect: { square: '方形', landscape: '横向', portrait: '竖向' },
+      billedAs: '按 {tier} 计费 · ×{mult}',
+      count: '数量',
+      resultsTitle: '结果',
+      emptyHint: '选个档位并生成——结果会显示在这里，刷新也不丢。',
+      download: '下载',
+      usePrompt: '用此 prompt',
+      generate: '生成 · {cost}',
+      generateTopUp: '生成 · {cost} — 去充值',
+      generating: '生成中…',
+      noResult: '网关未返回图片数据。',
+      formula: '{base} × {tier} ×{mult} × {n}'
+    },
+    video: {
+      tierLabel: '质量档位',
+      tierEmpty: '当前分组暂无可用的视频模型。',
+      perSecondUnit: ' /秒',
+      promptPlaceholder: '描述你想要的视频…',
+      duration: '时长',
+      aspect: '宽高比',
+      aspectAuto: '默认',
+      emptyHint: '描述视频并生成——提交后可离开，好了会在这里播放。',
+      statusProcessing: '生成中',
+      statusSucceeded: '就绪',
+      statusRefunded: '失败 — 已退款 {cost}',
+      stepSubmitted: '已提交',
+      stepGenerating: '生成中',
+      stepReady: '就绪',
+      reserved: '已预留 {cost} · 失败则退款',
+      notifyMe: '完成通知我',
+      usuallyTakes: '通常 30–90 秒',
+      noUrlHint: '任务成功，但未能解析出视频地址。',
+      open: '打开 ↗',
+      failedRefunded: '生成失败 — 已退你 {cost}。试试更短的片子或别的档位。',
+      techDetails: '技术详情',
+      refundLine: '失败的视频全额退款',
+      generate: '生成视频 · {cost}',
+      generateTopUp: '生成 · {cost} — 去充值',
+      submitting: '提交中…',
+      formula: '{rate}/秒 × {seconds} 秒',
+      noTaskId: '提交未返回任务 id。',
+      doneToast: '你的视频好了。',
+      failedToast: '一个视频失败了 — 已退款 {cost}。',
+      notifyTitle: 'TokenKey 工作室',
+      notifyEnabled: '视频完成时会通知你。',
+      notifyDenied: '浏览器已屏蔽通知。'
+    },
+    tiers: {
+      image: {
+        draft: { label: '草稿', tagline: '快 · 省 · 迭代', sample: '东京雨夜的霓虹小巷，电影感，浅景深' },
+        standard: { label: '标准', tagline: '最佳平衡', sample: '东京雨夜的霓虹小巷，电影感，浅景深' },
+        ultra: { label: '极致', tagline: '最高细节', sample: '东京雨夜的霓虹小巷，电影感，浅景深，35mm' }
+      },
+      video: {
+        fast: { label: '快', tagline: '快速出片', sample: '霓虹东京小巷，慢推镜头，雨，反射光' },
+        standard: { label: '标准', tagline: '平衡', sample: '霓虹东京小巷，慢推镜头，雨，反射光' },
+        cinematic: { label: '电影级', tagline: '电影质感', sample: '霓虹东京小巷，慢推镜头，雨，反射光，电影感' }
+      }
+    }
   },
 
   // Home Page
@@ -563,6 +673,7 @@ export default {
     paymentConfig: '支付配置',
     paymentPlans: '订阅套餐',
     playground: 'Playground',
+    studio: '工作室',
     channelManagement: '渠道管理',
     channelPricing: '渠道定价',
     channelMonitor: '渠道监控',

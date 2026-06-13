@@ -18,6 +18,37 @@
       "rationale": "AppSidebar's expanded-rail width must reference the TK constant. Without this reference an upstream merge could silently restore the literal `w-64` and the sidebar visually reverts to upstream — compiles fine, no runtime error, just wrong-looking UI."
     },
     {
+      "path": "frontend/src/components/layout/AppSidebar.vue",
+      "must_contain": [
+        "t('nav.studio')"
+      ],
+      "rationale": "The Media Studio (/studio) user-nav entry. Without this anchor an upstream merge to the nav builder could silently drop the Studio link, hiding the image/video generation surface from users while everything still compiles."
+    },
+    {
+      "path": "frontend/src/views/user/studio/MediaStudioView.vue",
+      "must_contain": [
+        "data-testid=\"studio-mode-image\"",
+        "data-testid=\"studio-mode-video\""
+      ],
+      "rationale": "The Studio's EXPLICIT image|video modality tabs are the source of truth for which gateway endpoint a request hits — replacing the old modalityForModel() id-prefix guess that silently misrouted non-{seedance,veo,gpt-image,imagen,seedream} media model ids to /v1/chat/completions. Losing these tabs regresses to implicit-modality misrouting."
+    },
+    {
+      "path": "frontend/src/utils/mediaCostEstimate.tk.ts",
+      "must_contain": [
+        "export function estimateImageCost",
+        "export function estimateVideoCost"
+      ],
+      "rationale": "Single source of truth for the client-side media cost MIRROR (price on the Generate button + cost panel + pricing estimator). Must stay aligned with backend CalculateImageCost / CalculateVideoCost; deleting it silently drops the pre-generation price the whole 'price on the button' UX depends on."
+    },
+    {
+      "path": "frontend/src/views/PricingView.vue",
+      "must_contain": [
+        "row.billingMode === 'image'",
+        "row.billingMode === 'video'"
+      ],
+      "rationale": "The /pricing media rendering branches (per-image / per-second). Without them media models render as '—' (the pre-batch-2 bug); an upstream merge that reverts the price cell to token-only silently hides image/video prices from buyers."
+    },
+    {
       "path": "frontend/src/components/layout/AppLayout.vue",
       "must_contain": [
         "TK_SIDEBAR_MAIN_MARGIN_CLASS"

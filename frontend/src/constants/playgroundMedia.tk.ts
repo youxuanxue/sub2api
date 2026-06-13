@@ -98,7 +98,10 @@ export function extractVideoUrl(resp: unknown): string {
   const content = asRecord(root.content)
   const data = asRecord(root.data)
   for (const v of [content?.video_url, data?.video_url, root.video_url, data?.url]) {
-    if (typeof v === 'string' && v.startsWith('http')) return v
+    // http(s) only, anchored + case-insensitive — same guard as extractImageItems
+    // so a hostile payload cannot smuggle a javascript:/data: (or malformed
+    // http*) scheme into <video :src> / <a :href>.
+    if (typeof v === 'string' && /^https?:\/\//i.test(v)) return v
   }
   return deepScanVideoUrl(root, 0)
 }
@@ -117,7 +120,7 @@ function deepScanVideoUrl(node: unknown, depth: number): string {
   const rec = asRecord(node)
   if (!rec) return ''
   for (const [key, value] of Object.entries(rec)) {
-    if (typeof value === 'string' && value.startsWith('http')) {
+    if (typeof value === 'string' && /^https?:\/\//i.test(value)) {
       const k = key.toLowerCase()
       if (k.includes('video') || /\.(mp4|webm|mov)(\?|$)/i.test(value)) return value
     }

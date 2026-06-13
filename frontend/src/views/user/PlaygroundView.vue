@@ -576,7 +576,11 @@ async function loadModelsForKey(key: string): Promise<void> {
   try {
     const list = await gatewayListModels(key, gatewayBase.value, ctrl.signal)
     if (ctrl.signal.aborted) return
-    models.value = list.data || []
+    // TK: the Playground is chat-only — image/video generation moved to the
+    // Media Studio (/studio), which has the cost-on-button + balance gating.
+    // Filter media models out of the picker so this surface only ever calls
+    // /v1/chat/completions (the image/video panels below are unreachable).
+    models.value = (list.data || []).filter((m) => modalityForModel(m.id) === 'chat')
     if (models.value.length) {
       selectedModelId.value = models.value[0].id
     } else {
