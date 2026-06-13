@@ -160,6 +160,9 @@ tests
 !.claude/hooks
 !.claude/settings.json
 .codex
+# Antigravity CLI workspace skills symlink (.agents/skills → ../.cursor/skills),
+# generated locally by dev-rules/sync.sh; local-only like .codex.
+.agents
 # docs/ — keep fully tracked (no subtree ignore here). Generated or local-only
 # material belongs under paths already ignored (.auto-reports/, output/, etc.).
 #
