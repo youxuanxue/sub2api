@@ -175,8 +175,8 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			if len(failedAccountIDs) == 0 {
 				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 				// TK: empty pool fast-fails 429 (#575 parity); other scheduler errors stay 503.
-				tkStatus, tkMsg := tkSelectFailureStatusMessage(c, err)
-				h.handleStreamingAwareError(c, tkStatus, "api_error", tkMsg, streamStarted)
+				tkStatus, tkType, tkMsg := tkSelectFailureStatusMessage(c, err, requestModel)
+				h.handleStreamingAwareError(c, tkStatus, tkType, tkMsg, streamStarted)
 				return
 			}
 			if lastFailoverErr != nil {

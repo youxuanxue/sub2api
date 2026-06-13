@@ -347,8 +347,8 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					return
 				}
 				// TK: empty pool fast-fails 429 (#575 parity); other scheduler errors stay 503.
-				tkStatus, tkMsg := tkSelectFailureStatusMessage(c, err)
-				h.handleStreamingAwareError(c, tkStatus, "api_error", tkMsg, streamStarted)
+				tkStatus, tkType, tkMsg := tkSelectFailureStatusMessage(c, err, reqModel)
+				h.handleStreamingAwareError(c, tkStatus, tkType, tkMsg, streamStarted)
 				return
 			}
 			if lastFailoverErr != nil {
@@ -798,8 +798,8 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				if err != nil {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 					// TK: empty pool fast-fails 429 (#575 parity); other scheduler errors stay 503.
-					tkStatus, tkMsg := tkSelectFailureStatusMessage(c, err)
-					h.anthropicStreamingAwareError(c, tkStatus, "api_error", tkMsg, streamStarted)
+					tkStatus, tkType, tkMsg := tkSelectFailureStatusMessage(c, err, currentRoutingModel)
+					h.anthropicStreamingAwareError(c, tkStatus, tkType, tkMsg, streamStarted)
 					return
 				}
 			} else {

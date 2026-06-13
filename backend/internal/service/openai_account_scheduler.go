@@ -1027,10 +1027,10 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		})
 	}
 	if len(filtered) == 0 {
-		if req.GroupPlatform != "" && req.GroupPlatform != PlatformOpenAI {
-			return nil, 0, 0, 0, fmt.Errorf("no available accounts for platform %q", openAICompatErrorPlatformLabel(req.GroupPlatform))
-		}
-		return nil, 0, 0, 0, noAvailableOpenAISelectionError(req.RequestedModel, false, req.GroupPlatform)
+		// TK: when the schedulable pool was emptied PURELY because no account serves
+		// the requested model name, surface ErrUnsupportedModel (→ HTTP 400) instead
+		// of an empty-pool 429. See openAICompatNoCandidateError (TK companion).
+		return nil, 0, 0, 0, openAICompatNoCandidateError(req.RequestedModel, req.GroupPlatform, false, accounts, req.ExcludedIDs)
 	}
 
 	loadMap := map[int64]*AccountLoadInfo{}
