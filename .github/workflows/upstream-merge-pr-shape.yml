@@ -225,6 +225,29 @@ jobs:
             exit 1
           fi
 
+      - name: Check 4c — antigravity fingerprint sentinels still intact after merge
+        run: |
+          # Single source of truth: scripts/sentinels/antigravity.json. Same script
+          # that scripts/preflight.sh runs locally as the "antigravity fingerprint
+          # sentinel registry" check, so a green local preflight implies a green
+          # check here. Failure means the upstream merge silently reverted a
+          # TokenKey fingerprint divergence — the `/hub/` subclient segment in
+          # oauth.go BuildUserAgent, or re-added the gl-node X-Goog-Api-Client
+          # header on client.go privacy calls. oauth.go/client.go are
+          # upstream-shaped, so this clobber lands with a trivial test-passing
+          # diff — fix the merge to keep the TK values, do NOT delete the entry.
+          if [ ! -f ./scripts/sentinels/check-antigravity.py ]; then
+            echo "::error::scripts/sentinels/check-antigravity.py missing."
+            echo "::error::Per CLAUDE.md §5.x, this guard cannot be silently disabled."
+            exit 1
+          fi
+          if ! python3 ./scripts/sentinels/check-antigravity.py; then
+            echo "::error::Upstream merge regressed at least one antigravity fingerprint sentinel."
+            echo "::error::Restore the TK fingerprint values (/hub/ UA segment, gl-node removal)"
+            echo "::error::in this merge PR. Do NOT 'fix' by deleting the sentinel entry."
+            exit 1
+          fi
+
       - name: Check 5 — brand sentinels still intact after merge
         run: |
           # Single source of truth: scripts/sentinels/brand.json. This stays
