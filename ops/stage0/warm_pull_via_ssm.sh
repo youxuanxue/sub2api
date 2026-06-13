@@ -107,16 +107,16 @@ done
 
 aws "${ssm_region_args[@]}" ssm get-command-invocation \
   --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
-  --query 'StandardOutputContent' --output text > "${stdout_file}" 2>/dev/null || true
+  --query 'StandardOutputContent' --output text > "${stdout_file}" 2>/dev/null || true  # preflight-allow: swallow (diagnostic fetch; warm is non-fatal)
 aws "${ssm_region_args[@]}" ssm get-command-invocation \
   --command-id "${cmd_id}" --instance-id "${INSTANCE_ID}" \
-  --query 'StandardErrorContent' --output text > "${stderr_file}" 2>/dev/null || true
+  --query 'StandardErrorContent' --output text > "${stderr_file}" 2>/dev/null || true  # preflight-allow: swallow (diagnostic fetch; warm is non-fatal)
 
 echo '--- ssm warm stdout (last 4KB) ---'
-tail -c 4096 "${stdout_file}" 2>/dev/null || true
+tail -c 4096 "${stdout_file}" 2>/dev/null || true  # preflight-allow: swallow (display only)
 echo
 echo '--- ssm warm stderr (last 4KB) ---'
-tail -c 4096 "${stderr_file}" 2>/dev/null || true
+tail -c 4096 "${stderr_file}" 2>/dev/null || true  # preflight-allow: swallow (display only)
 echo
 
 # A warm failure is non-fatal: the deploy still works, it just pays the pull.

@@ -17,7 +17,8 @@
 # its params file WITHOUT touching AWS, then `bash -n` the joined commands.
 #
 # Scope (explicit, not silent): covers the prod/edge MUTATION primitives
-# (deploy image, sync Caddyfile, sync docs, sync Feishu config).
+# (deploy image, sync Caddyfile, sync docs, sync Feishu config) plus the
+# read-only warm-image primitive (same jq-host-command shape, same blind spot).
 # edge_post_deploy_smoke.sh also builds an SSM `commands` array, but is left out
 # on purpose — its array is assembled inside functions behind many runtime env
 # vars (no clean "args -> params file" entrypoint to stub), and an unparseable
@@ -58,7 +59,11 @@ check_one() {
   # The missing-file case is handled explicitly below.
   PATH="${stub}:${PATH}" STAGE0_SSM_OUTPUT_DIR="${tmp}/${out}" AWS_REGION=us-east-1 \
     "$@" >/dev/null 2>"${tmp}/${out}/err" || true  # preflight-allow: swallow
-  local pf="${tmp}/${out}/ssm-params.json"
+  # Primitives name their params file differently (deploy: ssm-params.json,
+  # warm: warm-ssm-params.json) — match any *ssm-params.json so the parse gate
+  # stays agnostic to the exact filename.
+  local pf
+  pf="$(ls "${tmp}/${out}/"*ssm-params.json 2>/dev/null | head -1)"
   if [[ ! -f "${pf}" ]]; then
     echo "  FAIL: ${label} — no ssm-params.json emitted (stub run aborted before params generation)" >&2
     tail -3 "${tmp}/${out}/err" 2>/dev/null | sed 's/^/      /' >&2 || true  # preflight-allow: swallow (diagnostic only)
@@ -75,6 +80,7 @@ check_one() {
 }
 
 check_one "deploy_via_ssm.sh"               deploy    bash "${OPS}/deploy_via_ssm.sh" 1.0.0 i-0stub probe
+check_one "warm_pull_via_ssm.sh"            warm      bash "${OPS}/warm_pull_via_ssm.sh" 1.0.0 i-0stub probe
 check_one "sync_caddyfile_via_ssm.sh prod"  sync-prod bash "${OPS}/sync_caddyfile_via_ssm.sh" prod i-0stub probe
 check_one "sync_caddyfile_via_ssm.sh edge"  sync-edge bash "${OPS}/sync_caddyfile_via_ssm.sh" edge i-0stub probe
 check_one "sync_docs_pages.sh"              sync-docs bash "${OPS}/sync_docs_pages.sh" i-0stub
