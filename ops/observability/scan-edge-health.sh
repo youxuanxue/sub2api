@@ -117,11 +117,11 @@ for line in open(sys.argv[1], encoding="utf-8"):
 
 # sort: most severe first
 order = {"down": 0, "unreachable": 0, "parse-error": 0, "degraded": 1,
-         "thin": 2, "idle-thin": 3, "idle": 4, "healthy": 5}
+         "thin": 2, "no-accounts": 3, "idle-thin": 4, "idle": 5, "healthy": 6}
 rows.sort(key=lambda r: (order.get(r.get("verdict"), 9), r.get("edge") or ""))
 
 hdr = ("EDGE", "VERDICT", "SCHED", "SERVED_200", "NO_AVAIL_429", "RATIO", "WAIT_TO", "SPOF")
-w = (6, 10, 6, 11, 13, 7, 8, 5)
+w = (6, 11, 6, 11, 13, 7, 8, 5)
 def fmt(vals): return "  ".join(str(v).ljust(width) for v, width in zip(vals, w))
 print(fmt(hdr))
 for r in rows:
@@ -139,11 +139,14 @@ for r in rows:
 print()
 # loud summary of the edges that need action
 bad = [r for r in rows if r.get("verdict") in ("down", "degraded", "unreachable")]
-spof = [r for r in rows if r.get("single_account_risk") and r.get("verdict") not in ("down","unreachable")]
+spof = [r for r in rows if r.get("single_account_risk") and r.get("verdict") not in ("down","unreachable","no-accounts")]
+noacct = [r for r in rows if r.get("verdict") == "no-accounts"]
 if bad:
     print("ACTION — down/degraded/unreachable:", ", ".join(r.get("edge","?") for r in bad))
 if spof:
     print("RISK   — single-account (SPOF):    ", ", ".join(r.get("edge","?") for r in spof))
-if not bad and not spof:
+if noacct:
+    print("PLAN   — no accounts provisioned:  ", ", ".join(r.get("edge","?") for r in noacct), "(add accounts or decommission)")
+if not bad and not spof and not noacct:
     print("all edges healthy with >=2 schedulable accounts")
 PY

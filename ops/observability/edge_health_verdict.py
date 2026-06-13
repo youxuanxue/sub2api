@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """edge_health_verdict.py — turn the read-only edge probe output into a deterministic
-edge-health verdict (healthy | thin | degraded | down | idle).
+edge-health verdict (healthy | thin | idle-thin | degraded | down | idle | no-accounts).
 
 This is the *logic* half; the *transport* half is the read-only bash probe
 `probe-edge-health.sh` (delivered to each edge host via run-probe.sh), and the
@@ -75,7 +75,16 @@ def compute_verdict(accounts: list, traffic: dict, thresholds: dict) -> dict:
 
     # Verdict precedence — most-severe wins. Each branch carries a `reason` so the
     # table is self-explaining and the selftest pins the exact boundary that fired.
-    if n_sched == 0:
+    #
+    # total==0 is PROVISIONING POSTURE, not an incident — as long as nothing is being
+    # rejected. uk2/uk3 (2026-06: registered Stage0 stacks awaiting the add-accounts vs
+    # decommission decision) sat at total=0 with served_200≈720/2h — exactly the 10s
+    # health-check cadence, zero real demand — yet read `down` and pinned every alert
+    # cycle to critical. The moment demand DOES hit an unprovisioned edge
+    # (no_available_429 > 0), it falls through to `down`: clients are eating 429s.
+    if n_total == 0 and no_avail == 0:
+        verdict, reason = "no-accounts", "no accounts provisioned and no rejected demand (posture: add accounts or decommission)"
+    elif n_sched == 0:
         verdict, reason = "down", "no schedulable accounts (empty pool by construction)"
     elif denom == 0:
         # No served traffic AND no empty-pool signal in the window => nothing to judge
@@ -181,6 +190,24 @@ _SELFTEST_CASES = [
         "no schedulable accounts => down",
         [{"schedulable": False, "name": "a1"}, {"schedulable": False, "name": "a2"}],
         {"served_200": 0, "no_available_429": 0, "total_completed": 0},
+        "down",
+    ),
+    (
+        "uk2 shape: zero accounts, health-check 200s only, no rejected demand => no-accounts",
+        [],
+        {"served_200": 719, "no_available_429": 0, "total_completed": 719, "since": "2h"},
+        "no-accounts",
+    ),
+    (
+        "zero accounts, fully idle => no-accounts",
+        [],
+        {"served_200": 0, "no_available_429": 0, "total_completed": 0, "since": "2h"},
+        "no-accounts",
+    ),
+    (
+        "zero accounts BUT demand being rejected => still down (clients eating 429)",
+        [],
+        {"served_200": 0, "no_available_429": 412, "total_completed": 412, "since": "2h"},
         "down",
     ),
     (
