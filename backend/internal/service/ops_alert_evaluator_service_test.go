@@ -28,6 +28,13 @@ func (s *stubOpsRepo) GetDashboardOverview(ctx context.Context, filter *OpsDashb
 	return &OpsDashboardOverview{}, nil
 }
 
+// GetTopErrorCause is overridden (the embedded OpsRepository is nil) so the
+// evaluator's best-effort top-cause lookup never panics in these tests; an empty
+// result simply means no 主因 line is attached.
+func (s *stubOpsRepo) GetTopErrorCause(ctx context.Context, filter *OpsDashboardFilter, upstreamOnly bool, limit int) ([]*OpsTopErrorCause, error) {
+	return nil, nil
+}
+
 func TestComputeGroupAvailableRatio(t *testing.T) {
 	t.Parallel()
 

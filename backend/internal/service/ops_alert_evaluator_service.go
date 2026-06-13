@@ -291,6 +291,17 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 				}
 			}
 
+			dimensions := buildOpsAlertDimensions(scopePlatform, scopeGroupID)
+			// TK (us7 P0 2026-06-13): attach the top offending model/reason so the
+			// notification card is self-diagnosing (real fire vs client noise)
+			// without an SSH/dashboard drill. Best-effort — never blocks firing.
+			if cause := s.computeTopCause(ctx, rule, windowStart, windowEnd, scopePlatform, scopeGroupID); cause != "" {
+				if dimensions == nil {
+					dimensions = map[string]any{}
+				}
+				dimensions["top_cause"] = cause
+			}
+
 			firedEvent := &OpsAlertEvent{
 				RuleID:         rule.ID,
 				Severity:       strings.TrimSpace(rule.Severity),
@@ -299,7 +310,7 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 				Description:    buildOpsAlertDescription(rule, metricValue, windowMinutes, scopePlatform, scopeGroupID),
 				MetricValue:    float64Ptr(metricValue),
 				ThresholdValue: float64Ptr(rule.Threshold),
-				Dimensions:     buildOpsAlertDimensions(scopePlatform, scopeGroupID),
+				Dimensions:     dimensions,
 				FiredAt:        now,
 				CreatedAt:      now,
 			}

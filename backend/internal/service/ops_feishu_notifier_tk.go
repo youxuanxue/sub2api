@@ -220,7 +220,15 @@ func buildOpsFeishuAlertText(rule *OpsAlertRule, event *OpsAlertEvent, nodeLabel
 	if strings.TrimSpace(dashboardURL) != "" {
 		advice = fmt.Sprintf("[打开 Ops Dashboard](%s) 检查账号可用性 / 网关健康，并处理该 %s rule 指向的容量问题。", dashboardURL, sev)
 	}
-	return fmt.Sprintf("**节点**：%s\n**规则**：%s\n**指标**：%s %s %s\n**当前值**：%s\n**范围**：%s\n**时间**：%s\n\n**建议**：%s",
+	// TK (us7 P0 2026-06-13): the top offending model/reason, when the evaluator
+	// attached it (error-rate rules). Rendered as its own line right under 范围 so
+	// an operator can tell a real fire from client noise (e.g. a hammered
+	// access-gated model) without drilling the dashboard.
+	topCauseLine := ""
+	if cause := opsFeishuTopCause(event.Dimensions); cause != "" {
+		topCauseLine = fmt.Sprintf("\n**主因**：%s", escapeFeishuText(cause))
+	}
+	return fmt.Sprintf("**节点**：%s\n**规则**：%s\n**指标**：%s %s %s\n**当前值**：%s\n**范围**：%s%s\n**时间**：%s\n\n**建议**：%s",
 		escapeFeishuText(nodeLabel),
 		escapeFeishuText(strings.TrimSpace(rule.Name)),
 		escapeFeishuText(strings.TrimSpace(rule.MetricType)),
@@ -228,9 +236,25 @@ func buildOpsFeishuAlertText(rule *OpsAlertRule, event *OpsAlertEvent, nodeLabel
 		escapeFeishuText(thresholdValue),
 		escapeFeishuText(metricValue),
 		escapeFeishuText(dimensions),
+		topCauseLine,
 		escapeFeishuText(formatAlertTime(event.FiredAt)),
 		advice,
 	)
+}
+
+// opsFeishuTopCause extracts the pre-formatted "主因" string the alert evaluator
+// stashed on the event dimensions (survives the DB JSON round-trip as a plain
+// string). Returns "" when absent.
+func opsFeishuTopCause(dimensions map[string]any) string {
+	if len(dimensions) == 0 {
+		return ""
+	}
+	if v, ok := dimensions["top_cause"]; ok {
+		if s, ok := v.(string); ok {
+			return strings.TrimSpace(s)
+		}
+	}
+	return ""
 }
 
 func formatOpsFeishuDimensions(dimensions map[string]any) string {
