@@ -38,11 +38,11 @@ truth，**Go 常量** 当待对齐对象。**承重维度是 HTTP，不是 JA3**
 
 | 维度 | 真值源 | 当前值 |
 |---|---|---|
-| HTTP UA 版本（承重） | `oauth.go` `DefaultUserAgentVersion` | `1.23.2` |
-| UA 格式 | `oauth.go` `BuildUserAgent` | `antigravity/%s windows/amd64` |
+| HTTP UA 版本（承重） | `oauth.go` `DefaultUserAgentVersion` | `2.0.11`（2026-06-13 on-wire 对齐；随 IDE 自更新，走热推）|
+| UA 格式 | `oauth.go` `BuildUserAgent` | `antigravity/hub/%s windows/amd64`（`hub`=subclient_type，on-wire 确认必带）|
 | body userAgent | `request_transformer.go` | `antigravity` |
 | ideType/ideName/platform/pluginType | `client.go` | `ANTIGRAVITY`/`antigravity`/`PLATFORM_UNSPECIFIED`/`GEMINI` |
-| privacy `X-Goog-Api-Client` | `client.go` | `gl-node/22.21.1` |
+| privacy `X-Goog-Api-Client` | `client.go` | **不发**（2026-06-13 on-wire：真实 IDE 在 setUserSettings/fetchUserInfo 上不发 gl-node，已移除）|
 | OAuth ClientID / 5 scopes | `oauth.go` | client_id + cclog/experimentsandconfigs 等 |
 
 > UA 的 `windows/amd64` 是 TK **故意钉死**的（无论宿主 OS）。在 Mac 上抓到
@@ -131,17 +131,21 @@ python3 ops/antigravity/capture_antigravity_fingerprint.py check --bundle .antig
   ```
   配合 `strings <language_server>` 看二进制里的字面量，即可逐项核对，无需联网。
 
-**2026-06-12 校验结论（IDE 2.0.11）：**
+**2026-06-13 on-wire 真机抓包结论（IDE 2.0.11，已 36 条样本对齐，推翻 06-12 的 spawn 参数推断）：**
 
-| 维度 | TK 常量 | 真实 IDE（spawn 参数 / 二进制） | 判定 |
+> ⚠️ 06-12 仅靠 spawn 参数 + 二进制 strings **误判了两处**——只有 on-wire 抓包才看得出。抓法：IDE → mitmproxy(8080) → sing-box(trojan 桥) → SG 出口 → Google，靠 **ClashX TUN** 抓 `language_server` 的直连（它无视 HTTP 代理）。**坑：sing-box 桥必须在 TUN 开启前先连好 SG，否则它到 SG 服务器的连接被 TUN 套回 SG-trojan 形成 trojan-套-trojan 回环 → EOF；`IP-CIDR <sg-ip> DIRECT` 规则在 ClashX premium TUN 下不一定拆得开。**
+
+| 维度 | TK 原常量 | 真实 IDE on-wire | 判定/动作 |
 |---|---|---|---|
-| UA 格式 | `antigravity/%s windows/amd64` | `--override_user_agent_name antigravity` + `subclient=hub`（无 `/cli/` 段，区别于 CLI）| ✅ 格式正确 |
-| UA 版本 | `1.23.2` | binary 默认 `1.23.2`，但 IDE `--override_ide_version` **2.0.11** 覆盖上线 | ⚠️ 仅此漂移 |
-| `gl-node` | `gl-node/22.21.1` | 二进制含 `22.21.1` | ✅ 现行 |
-| ideType/ideName | `ANTIGRAVITY`/`antigravity` | spawn `--override_ide_name antigravity` + 二进制 `ANTIGRAVITY` | ✅ |
-| platform/pluginType | `PLATFORM_UNSPECIFIED`/`GEMINI` | 二进制字面量 | ✅ |
+| UA | `antigravity/%s windows/amd64` | `antigravity/hub/2.0.11 darwin/arm64` | ⚠️ **缺 `/hub/` 段** → 改为 `antigravity/hub/%s …`（06-12 误判为「格式正确」）|
+| UA 版本 | `1.23.2` | `2.0.11` | ⚠️ bump（见下）|
+| `X-Goog-Api-Client` | `gl-node/22.21.1`（setUserSettings/fetchUserInfo）| **不发** | ⚠️ 06-12 误判「现行」；真机这两端点不发 → **移除** |
+| body userAgent | `antigravity` | `antigravity` | ✅ |
+| ideType | `ANTIGRAVITY` | `ANTIGRAVITY` | ✅ |
+| platform | `PLATFORM_UNSPECIFIED` | `DARWIN_ARM64`(真机机型) | 暂留 PLATFORM_UNSPECIFIED（与 windows/amd64 钉死策略一致；要钉 Windows 枚举需 Win 机抓包）|
+| os/arch | `windows/amd64`(钉死) | `darwin/arm64`(本机) | info，仍钉死 |
 
-> **版本不要硬编 bump。** `2.0.11` = IDE 的 app 版本，**每次自动更新就变**，且 oauth.go 与 upstream 同源——为一个移动目标改 upstream 文件会持续制造 merge 冲突。要让 TK 贴合当前出厂版本，用 admin 热推 `antigravity_user_agent_version`（运行时 overlay，见下），不改编译常量。
+> **版本可以 bump，但记住它是移动目标。** `2.0.11` = IDE 的 app 版本，每次自更新就变。本次随 `/hub/`+gl-node 一起把编译默认 bump 到 2.0.11（与现役一致）；后续新版本优先走 admin 热推 `antigravity_user_agent_version`（运行时 overlay），别为每个小版本都改 oauth.go。
 
 ## 漂移修复
 

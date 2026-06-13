@@ -438,6 +438,27 @@ else
     echo "  ok: all kiro sentinels intact"
 fi
 
+# ---- sub2api: antigravity fingerprint sentinel registry ---------------------
+# Source of truth: scripts/sentinels/antigravity.json. Guards the TokenKey
+# divergences in the Antigravity (cloudcode-pa) client fingerprint that an
+# upstream merge would silently revert: the `/hub/` subclient segment in
+# BuildUserAgent (oauth.go) and the gl-node X-Goog-Api-Client removal on the
+# privacy calls (client.go). oauth.go/client.go are upstream-shaped, so a
+# `git merge upstream/main` can clobber these with a trivial, test-passing diff
+# — exactly the backward-drift this guard catches. Aligned to the real on-wire
+# IDE 2.0.11 capture (2026-06-13); see docs/antigravity-fingerprint-changelog.md.
+echo ""
+echo "=== sub2api: antigravity fingerprint sentinel registry ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required to read antigravity.json)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/sentinels/check-antigravity.py --quiet; then
+    # check-antigravity.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: all antigravity fingerprint sentinels intact"
+fi
+
 # ---- sub2api: brand sentinel registry ---------------------------------------
 # Source of truth: scripts/sentinels/brand.json. Verifies that outward TokenKey
 # brand surfaces (default title, deploy/operator docs, image metadata,

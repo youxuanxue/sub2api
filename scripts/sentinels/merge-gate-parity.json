@@ -3,6 +3,7 @@
   "scripts": [
     "scripts/sentinels/check-newapi.py",
     "scripts/sentinels/check-kiro.py",
+    "scripts/sentinels/check-antigravity.py",
     "scripts/sentinels/check-brand.py",
     "scripts/sentinels/check-frontend-tk.py",
     "scripts/sentinels/check-gateway-tk.py",
