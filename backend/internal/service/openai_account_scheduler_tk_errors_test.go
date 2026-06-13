@@ -25,22 +25,20 @@ func newapiAcctWithMapping(id int64, served ...string) Account {
 	}
 }
 
-// TestOpenAICompatNoCandidateErr_UnsupportedModel is the core of the 2026-06-13
-// fix: when the schedulable pool was emptied PURELY because no account serves the
-// requested model NAME, the OpenAI-compat scheduler must surface
-// ErrUnsupportedModel (→ HTTP 400), not an empty-pool 429.
-func TestOpenAICompatNoCandidateErr_UnsupportedModel(t *testing.T) {
-	s := &defaultOpenAIAccountScheduler{}
-
+// TestOpenAICompatNoCandidateError is the core of the 2026-06-13 fix: when the
+// schedulable pool was emptied PURELY because no account serves the requested
+// model NAME, the OpenAI-compat selection paths must surface ErrUnsupportedModel
+// (→ HTTP 400), not an empty-pool 429. The same function backs both the
+// load-balance scheduler and the selectBestAccount (count_tokens/sticky) path.
+func TestOpenAICompatNoCandidateError(t *testing.T) {
 	t.Run("all_accounts_lack_model_mapping_entry_returns_unsupported", func(t *testing.T) {
 		// Prod shape: group 11 "deepseek" maps only deepseek-v4-*, client asks for
 		// the legacy "deepseek-chat".
 		accounts := []Account{
 			newapiAcctWithMapping(39, "deepseek-v4-pro", "deepseek-v4-flash"),
 		}
-		req := OpenAIAccountScheduleRequest{RequestedModel: "deepseek-chat", GroupPlatform: PlatformNewAPI}
 
-		err := s.openAICompatNoCandidateErr(req, accounts)
+		err := openAICompatNoCandidateError("deepseek-chat", PlatformNewAPI, false, accounts, nil)
 
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, ErrUnsupportedModel), "expected ErrUnsupportedModel, got %v", err)
@@ -57,9 +55,8 @@ func TestOpenAICompatNoCandidateErr_UnsupportedModel(t *testing.T) {
 			newapiAcctWithMapping(39, "deepseek-v4-pro"),
 			newapiAcctWithMapping(40, "deepseek-chat"),
 		}
-		req := OpenAIAccountScheduleRequest{RequestedModel: "deepseek-chat", GroupPlatform: PlatformNewAPI}
 
-		err := s.openAICompatNoCandidateErr(req, accounts)
+		err := openAICompatNoCandidateError("deepseek-chat", PlatformNewAPI, false, accounts, nil)
 
 		require.Error(t, err)
 		assert.False(t, errors.Is(err, ErrUnsupportedModel))
@@ -73,13 +70,8 @@ func TestOpenAICompatNoCandidateErr_UnsupportedModel(t *testing.T) {
 		accounts := []Account{
 			newapiAcctWithMapping(39, "deepseek-chat"),
 		}
-		req := OpenAIAccountScheduleRequest{
-			RequestedModel: "deepseek-chat",
-			GroupPlatform:  PlatformNewAPI,
-			ExcludedIDs:    map[int64]struct{}{39: {}},
-		}
 
-		err := s.openAICompatNoCandidateErr(req, accounts)
+		err := openAICompatNoCandidateError("deepseek-chat", PlatformNewAPI, false, accounts, map[int64]struct{}{39: {}})
 
 		require.Error(t, err)
 		assert.False(t, errors.Is(err, ErrUnsupportedModel))
@@ -87,9 +79,8 @@ func TestOpenAICompatNoCandidateErr_UnsupportedModel(t *testing.T) {
 
 	t.Run("empty_model_never_unsupported", func(t *testing.T) {
 		accounts := []Account{newapiAcctWithMapping(39, "deepseek-v4-pro")}
-		req := OpenAIAccountScheduleRequest{RequestedModel: "", GroupPlatform: PlatformNewAPI}
 
-		err := s.openAICompatNoCandidateErr(req, accounts)
+		err := openAICompatNoCandidateError("", PlatformNewAPI, false, accounts, nil)
 
 		require.Error(t, err)
 		assert.False(t, errors.Is(err, ErrUnsupportedModel))
@@ -100,9 +91,8 @@ func TestOpenAICompatNoCandidateErr_UnsupportedModel(t *testing.T) {
 		// never unsupported; the model is forwarded and any upstream 404 is handled
 		// by the response-path unsupported-model classifier (path B).
 		accounts := []Account{{ID: 9, Platform: PlatformOpenAI}}
-		req := OpenAIAccountScheduleRequest{RequestedModel: "gpt-9-turbo"}
 
-		err := s.openAICompatNoCandidateErr(req, accounts)
+		err := openAICompatNoCandidateError("gpt-9-turbo", "", false, accounts, nil)
 
 		require.Error(t, err)
 		assert.False(t, errors.Is(err, ErrUnsupportedModel))
@@ -112,12 +102,10 @@ func TestOpenAICompatNoCandidateErr_UnsupportedModel(t *testing.T) {
 // TestCollectOpenAICompatSelectionFailureStats pins the categorization the
 // unsupported-model predicate depends on.
 func TestCollectOpenAICompatSelectionFailureStats(t *testing.T) {
-	req := OpenAIAccountScheduleRequest{RequestedModel: "deepseek-chat"}
-
 	t.Run("all_unsupported", func(t *testing.T) {
 		stats := collectOpenAICompatSelectionFailureStats(
 			[]Account{newapiAcctWithMapping(1, "deepseek-v4-pro"), newapiAcctWithMapping(2, "deepseek-v4-flash")},
-			req,
+			"deepseek-chat", nil,
 		)
 		assert.Equal(t, 2, stats.ModelUnsupported)
 		assert.Equal(t, 0, stats.Unschedulable)
@@ -127,7 +115,7 @@ func TestCollectOpenAICompatSelectionFailureStats(t *testing.T) {
 	t.Run("mixed_supporting_suppresses", func(t *testing.T) {
 		stats := collectOpenAICompatSelectionFailureStats(
 			[]Account{newapiAcctWithMapping(1, "deepseek-v4-pro"), newapiAcctWithMapping(2, "deepseek-chat")},
-			req,
+			"deepseek-chat", nil,
 		)
 		assert.Equal(t, 1, stats.ModelUnsupported)
 		assert.Equal(t, 1, stats.Unschedulable)

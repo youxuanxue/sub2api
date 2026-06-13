@@ -1737,7 +1737,11 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 	selected, compactBlocked := s.selectBestAccount(ctx, groupID, accounts, requestedModel, excludedIDs, groupPlatform, requireCompact)
 
 	if selected == nil {
-		return nil, noAvailableOpenAISelectionError(requestedModel, compactBlocked, groupPlatform)
+		// TK: route through the shared no-candidate classifier so a pool emptied
+		// PURELY by unservable model name surfaces ErrUnsupportedModel (→ HTTP 400),
+		// not an empty-pool 429 — parity with the selectByLoadBalance path so
+		// count_tokens / sticky callers do not misclassify (prod 2026-06-13).
+		return nil, openAICompatNoCandidateError(requestedModel, groupPlatform, compactBlocked, accounts, excludedIDs)
 	}
 
 	hydrated, err := s.hydrateSelectedAccount(ctx, selected)

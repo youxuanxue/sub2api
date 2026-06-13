@@ -767,8 +767,13 @@ func TestOpenAISelectAccountForModelWithExclusions_NoModelSupport(t *testing.T) 
 	if acc != nil {
 		t.Fatalf("expected nil account for unsupported model")
 	}
-	if !strings.Contains(err.Error(), "supporting model") {
-		t.Fatalf("unexpected error: %v", err)
+	// TK 2026-06-13: a model name that NO account in the pool serves is now a
+	// CLIENT error (ErrUnsupportedModel → HTTP 400 invalid_request_error), not the
+	// generic no-available "supporting model" 429 family — so this exact path
+	// (selectBestAccount → nil) stops misclassifying an unservable model id as a
+	// capacity signal. See openAICompatNoCandidateError.
+	if !errors.Is(err, ErrUnsupportedModel) {
+		t.Fatalf("expected ErrUnsupportedModel for unservable model name, got: %v", err)
 	}
 }
 

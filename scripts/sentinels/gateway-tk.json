@@ -1874,19 +1874,26 @@
     {
       "path": "backend/internal/service/openai_account_scheduler_tk_errors.go",
       "must_contain": [
-        "func (s *defaultOpenAIAccountScheduler) openAICompatNoCandidateErr",
+        "func openAICompatNoCandidateError",
         "tkSelectionFailedDueToUnsupportedModel(stats)",
         "ErrUnsupportedModel",
         "func collectOpenAICompatSelectionFailureStats"
       ],
-      "rationale": "openAICompatNoCandidateErr is the OpenAI-compat scheduler's single exit for the len(filtered)==0 branch (prod 2026-06-13): when EVERY schedulable account was rejected purely because it does not serve the requested model NAME, it returns service.ErrUnsupportedModel (→ HTTP 400 invalid_request_error via tkSelectFailureStatusMessage) instead of an empty-pool 429 that reads as a capacity signal and fires ops alerts. collectOpenAICompatSelectionFailureStats counts a model-supporting-but-filtered account as Unschedulable so it SUPPRESSES the 400 (the model is served, just not selectable now → keep 429), mirroring the anthropic tkWrapSelectionFailure predicate. Losing this companion on an upstream merge silently reverts unservable-model requests to the misleading empty-pool 429."
+      "rationale": "openAICompatNoCandidateError is the SHARED single exit for BOTH OpenAI-compat pool-emptied points (prod 2026-06-13): selectByLoadBalance len(filtered)==0 AND selectAccountForModelWithExclusions selectBestAccount→nil. When EVERY schedulable account was rejected purely because it does not serve the requested model NAME, it returns service.ErrUnsupportedModel (→ HTTP 400 invalid_request_error via tkSelectFailureStatusMessage) instead of an empty-pool 429 that reads as a capacity signal and fires ops alerts. collectOpenAICompatSelectionFailureStats counts a model-supporting-but-filtered account as Unschedulable so it SUPPRESSES the 400 (the model is served, just not selectable now → keep 429), mirroring the anthropic tkWrapSelectionFailure predicate. Losing this companion on an upstream merge silently reverts unservable-model requests to the misleading empty-pool 429."
     },
     {
       "path": "backend/internal/service/openai_account_scheduler.go",
       "must_contain": [
-        "s.openAICompatNoCandidateErr(req, accounts)"
+        "openAICompatNoCandidateError(req.RequestedModel, req.GroupPlatform, false, accounts, req.ExcludedIDs)"
       ],
-      "rationale": "The candidate-filter-empty branch (len(filtered)==0) in selectByLoadBalance must route through openAICompatNoCandidateErr (TK companion) so a pool emptied purely by unservable model NAME surfaces ErrUnsupportedModel→400, not empty-pool 429 (prod 2026-06-13). Reverting this one-line hook to the inline noAvailableOpenAISelectionError/platform-label returns compiles clean but re-buries 'client asked for a model nobody serves' inside the 429 capacity family, re-triggering false ops alerts. Only this branch routes here — the len(accounts)==0 and post-load-balance slot-acquire branches stay 429 (genuine capacity)."
+      "rationale": "The candidate-filter-empty branch (len(filtered)==0) in selectByLoadBalance must route through openAICompatNoCandidateError (TK companion) so a pool emptied purely by unservable model NAME surfaces ErrUnsupportedModel→400, not empty-pool 429 (prod 2026-06-13). Reverting this one-line hook to the inline noAvailableOpenAISelectionError/platform-label returns compiles clean but re-buries 'client asked for a model nobody serves' inside the 429 capacity family, re-triggering false ops alerts. Only this branch routes here — the len(accounts)==0 and post-load-balance slot-acquire branches stay 429 (genuine capacity)."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "openAICompatNoCandidateError(requestedModel, groupPlatform, compactBlocked, accounts, excludedIDs)"
+      ],
+      "rationale": "selectAccountForModelWithExclusions (the priority/LRU path used by count_tokens + sticky/legacy callers) must route its selected==nil exit through the SAME openAICompatNoCandidateError as the load-balance scheduler, so an unservable model NAME surfaces ErrUnsupportedModel→400 on every OpenAI-compat surface, not just /v1/chat/completions (prod 2026-06-13 parity). Reverting to the bare noAvailableOpenAISelectionError compiles clean but re-buries unservable-model as empty-pool 429 on these surfaces and makes the handler's ErrUnsupportedModel→400 mapping dead code there."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_model_cooldown.go",

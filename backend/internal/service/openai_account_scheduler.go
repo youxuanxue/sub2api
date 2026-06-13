@@ -1029,8 +1029,8 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 	if len(filtered) == 0 {
 		// TK: when the schedulable pool was emptied PURELY because no account serves
 		// the requested model name, surface ErrUnsupportedModel (→ HTTP 400) instead
-		// of an empty-pool 429. See openAICompatNoCandidateErr (TK companion).
-		return nil, 0, 0, 0, s.openAICompatNoCandidateErr(req, accounts)
+		// of an empty-pool 429. See openAICompatNoCandidateError (TK companion).
+		return nil, 0, 0, 0, openAICompatNoCandidateError(req.RequestedModel, req.GroupPlatform, false, accounts, req.ExcludedIDs)
 	}
 
 	loadMap := map[int64]*AccountLoadInfo{}
