@@ -743,6 +743,23 @@ func (s *OpenAIGatewayService) handleOpenAIImagesErrorResponse(
 		}
 	}
 
+	// TK (prod P0 2026-06-13, GPT专线): a capability/scope-level 401 (the serving
+	// OAuth token is missing the image-generation scope, e.g. Missing scopes:
+	// api.model.images.request) is a per-request capability gap, not an account-side
+	// auth failure — surface it as a 400 invalid_request. The no-cooldown guard in
+	// HandleUpstreamError already kept the account schedulable for every other model.
+	// See ratelimit_service_tk_capability_scope_401.go.
+	if tkIsCapabilityScope401(resp.StatusCode, body) {
+		upErr := &OpenAIImagesUpstreamError{
+			StatusCode:        http.StatusBadRequest,
+			ErrorType:         "invalid_request_error",
+			Message:           tkCapabilityScope401ClientMessage(upstreamMsg),
+			UpstreamRequestID: strings.TrimSpace(resp.Header.Get("x-request-id")),
+		}
+		writeOpenAIImagesUpstreamErrorResponse(c, upErr)
+		return nil, upErr
+	}
+
 	// Surface the real upstream error to the client.
 	upErr := openAIImagesUpstreamErrorFromHTTP(resp.StatusCode, resp.Header, body)
 	writeOpenAIImagesUpstreamErrorResponse(c, upErr)
