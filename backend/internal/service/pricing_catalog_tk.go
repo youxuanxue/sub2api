@@ -50,7 +50,7 @@ type PublicCatalogModel struct {
 	ContextWindow   int                  `json:"context_window,omitempty"`
 	MaxOutputTokens int                  `json:"max_output_tokens,omitempty"`
 	Capabilities    []string             `json:"capabilities"`
-	// Availability is injected post-build by DecorateWithAvailability when
+	// Availability is injected post-build by DecorateAndPruneByAvailability when
 	// the PricingAvailabilityService is wired (Phase 2 / Phase 3). nil = not
 	// yet available / feature flag off. Clients that pre-date this field see
 	// no change (omitempty).
