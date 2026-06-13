@@ -38,7 +38,7 @@ description: >-
 | prod 完整 smoke（CI 唯一验收源） | 机械 | `deploy-stage0.yml` job log 内 `tk_post_deploy_smoke: OK`（`GATEWAY_SMOKE_SUITE=full`） |
 | Edge smoke 分阶段（infra / main-via-edge / full） | 机械 | `ops/stage0/edge_post_deploy_smoke.sh` + workflow `smoke_phase`；main-via-edge 用 `GATEWAY_SMOKE_SUITE=main-via-edge`（/v1/messages + Claude UA，不走 chat） |
 | 发版前 smoke 模型校验 | 机械 | `python3 scripts/stage0/check_smoke_config.py`（`TK_SMOKE_PROD_ANTHROPIC_MODEL` 及 `TK_SMOKE_PROD_KIRO_MODEL` ∈ 各自 key 的 `/v1/models`）。**完整校验需要 smoke key，只在 CI 可跑**；本地降级为 `bash ops/stage0/load_smoke_github_env.sh --check prod`（只验 secrets/vars 已配置） |
-| 发版后跟进档位（skip / single / extended） | 机械 | `bash scripts/release-impact-files.sh PREV NEW` → `.followup.tier` |
+| 发版后跟进档位（skip / single） | 机械 | `bash scripts/release-impact-files.sh PREV NEW` → `.followup.tier` |
 | 发版后 tick 探针（hook 计数 + 流量/5xx/panic） | 机械 | `ops/observability/probe-post-release-tick.sh`（经 `run-probe.sh` 投递；`HOOK_PATTERNS` 里的 hook 关键词由模型按 Step A 命名——命名是判断，计数是机械） |
 | **发版后 Anthropic OAuth 配置检查（snapshot → check）** | 机械 | `python3 ops/anthropic/manage-anthropic-config.py snapshot` + `check --snapshot`（见 §「发版后 Anthropic OAuth 配置检查」；canonical：`/tokenkey-anthropic-oauth-config`） |
 | rollout 摘要（git log / diff stat / sentinel / deletion） | 机械 | `bash scripts/release-rollout-summary.sh --mode release` |
@@ -240,10 +240,9 @@ python3 scripts/stage0/resolve-edge-deploy-route.py --edge-id "$EDGE_ID" --json
    脚本逐个 dispatch upgrade → watch（自动重连抖动的 `gh run watch`）→ 验 `tk_edge_post_deploy_smoke: OK phase=infra`，任一失败立即停（其余 edge 留在旧 tag）。**不再**对每个 edge 跑 main-via-edge。
    - **main-via-edge canary** 仍通常仅 **uk1 / us1**（需 `TK_SMOKE_EDGE_CANARY_KEY`）。
    - **us2 / us3 / us4** 等 Lightsail-only edge：rollout 以 infra smoke + 可选 `curl https://api-<id>.tokenkey.dev/health` 为准；勿因缺 canary secret 判失败。
-8. **发版后跟进（按 diff 档位，非固定三轮）**：跑 `release-impact-files.sh` 读 `.followup.tier`：
+8. **发版后跟进（按 diff 档位，至多一次 tick）**：跑 `release-impact-files.sh` 读 `.followup.tier`：
    - `skip` → 不跟进，直接 rollout summary。
-   - `single` → 仅 **+5min** 一次轻量诊断。
-   - `extended` → **+5 / +10 / +15min** 三轮（gateway/schema/config 类变更）。
+   - `single` → 仅 **+5min** 一次轻量诊断（含 gateway/schema/config 类变更；多轮 extended 档已下线，更长窗口仅人工显式发起）。
 9. **Anthropic OAuth 配置检查（默认，在 followup 之前）**：见 §「发版后 Anthropic OAuth 配置检查」。smoke 全绿后立即跑；violations 不触发 rollback，写入 rollout 摘要为 **yellow** 并指向 `/tokenkey-anthropic-oauth-config` 修复路径。
 
 ## prod 真实测试
@@ -367,22 +366,21 @@ prod smoke 失败：停，优先 rollback prod；不要继续 Edge rollout。Edg
 
 ## 完成后：发版后跟进（按 diff 档位）
 
-**不要**每次发版固定 +5/+10/+15min 三轮。先机械化分档：
+发版后跟进**至多一次 +5min tick**（多轮 extended 档已下线——一次 tick 足以暴露启动/hook 级回归，更长窗口仅人工显式发起）。先机械化分档：
 
 ```bash
 PREV_TAG=$(git tag --sort=-version:refname | grep '^v[0-9]' | sed -n '2p')
 NEW_TAG=$(git tag --sort=-version:refname | grep '^v[0-9]' | head -1)
 bash scripts/release-impact-files.sh "${PREV_TAG}" "${NEW_TAG}"
-# 读 JSON .followup.tier → skip | single | extended
+# 读 JSON .followup.tier → skip | single
 ```
 
 | tier | 动作 |
 |---|---|
 | `skip` | 不跟进；直接 rollout summary |
 | `single` | **仅 +5min** 一次轻量诊断 |
-| `extended` | **+5 / +10 / +15min** 三轮 |
 
-### Step A：重点观察变量（extended / single 时）
+### Step A：重点观察变量（single 时）
 
 跟进基于本次 diff，不跑固定 metric 集。文件桶分类机械化（`release-impact-files.sh`），桶内 hook 名由模型按 release 内容命名（判断）。
 
@@ -441,13 +439,12 @@ verdict: green | yellow | red — <one-line reason>
 - **yellow**：control plane OK 但某条路径错误率上升 / 重点 hook 未按预期触发或频次异常 / 流量明显偏低或偏高 → 列出可疑 cluster + 建议是否需要人工触发更长窗口观察
 - **red**：control plane 任一点 fail / 错误聚类含 new type 且 rate 高于基线 2× / 重点 hook 触发后立即 5xx / 流量塌方 → **立即汇报，不再续 tick**，建议人工立即决定是否 rollback 到 `previous_tag`
 
-### Step D：最后一次 tick 后的综合建议
+### Step D：tick 后的综合建议
 
 - **`single`**：+5min 一次 tick 后立即给综合建议（1 tick）。
-- **`extended`**：第 3 次（+15min）tick 后立即给综合建议（3 ticks）。
 - **`skip`**：跳过本节。
 
-综合建议结构（按 tier 调整 tick 计数文案）：
+综合建议结构：
 
 ```text
 === Post-release follow-up summary (${NEW_TAG}, <N> tick(s)) ===
@@ -465,8 +462,7 @@ control plane：<N>/<N> ticks green | <or list any failure tick>
 
 ### 调度纪律
 
-- **`single`**：最后一个 smoke 通过后 **+5min** 一次，green 即结束。
-- **`extended`**：+5 / +10 / +15min 三次；任意 red → 停后续 tick。
+- **`single`**：最后一个 smoke 通过后 **+5min** 一次，green / yellow / red 都在这一次 tick 给结论，不自行加轮。
 - 更长窗口（+1h / +6h）仅人工显式发起；会话内不要自行无限延期。
 
 ## 发版后 Anthropic OAuth 配置检查（默认）

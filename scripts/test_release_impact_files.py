@@ -149,12 +149,14 @@ class ReleaseImpactFilesTest(unittest.TestCase):
             "backend/internal/service/zzz.go",
         ])
 
-    def test_followup_tier_extended_for_handler_change(self) -> None:
+    def test_followup_tier_single_for_handler_change(self) -> None:
+        # High-impact buckets cap at "single" too: post-release follow-up is at
+        # most ONE +5min tick per release (the "extended" tier was retired).
         head = self._commit({
             "backend/internal/handler/gateway.go": "package handler\n",
         }, "handler change")
         out = self._classify(self.base_sha, head)
-        self.assertEqual(out["followup"]["tier"], "extended")
+        self.assertEqual(out["followup"]["tier"], "single")
 
     def test_followup_tier_skip_for_docs_only(self) -> None:
         head = self._commit({
