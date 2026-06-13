@@ -376,6 +376,17 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		}
 		// 其他 400 错误（如参数问题）不处理，不禁用账号
 	case 401:
+		// TK (prod P0 2026-06-13, GPT专线): a capability/scope-level 401 (the
+		// upstream rejects a specific capability — e.g. image generation — because
+		// the serving OAuth token lacks that capability's scope) must NOT cool or
+		// disable the account. The account can still serve every other model; the
+		// caller's gateway error mapping surfaces this as a 400 capability-unservable
+		// error for THIS request only. See ratelimit_service_tk_capability_scope_401.go.
+		if tkIsCapabilityScope401(statusCode, responseBody) {
+			slog.Info("capability_scope_401_skip_penalty",
+				"account_id", account.ID, "platform", account.Platform, "message", upstreamMsg)
+			return false
+		}
 		// OpenAI: token_invalidated / token_revoked 表示 token 被永久作废（非过期），直接标记 error
 		openai401Code := extractUpstreamErrorCode(responseBody)
 		if account.Platform == PlatformOpenAI && (openai401Code == "token_invalidated" || openai401Code == "token_revoked") {

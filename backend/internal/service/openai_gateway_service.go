@@ -2458,6 +2458,15 @@ func (s *OpenAIGatewayService) shouldFailoverUpstreamError(statusCode int) bool 
 }
 
 func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	// TK (prod P0 2026-06-13, GPT专线): a capability/scope-level 401 must NOT
+	// failover. Every account in the pool shares the same missing capability scope,
+	// so failing over just poisons each account in turn (and, with the no-cooldown
+	// guard in HandleUpstreamError, would otherwise loop the whole pool before the
+	// empty-pool 429). Route it straight to the non-failover error handler, which
+	// maps it to a client 400. See ratelimit_service_tk_capability_scope_401.go.
+	if tkIsCapabilityScope401(statusCode, upstreamBody) {
+		return false
+	}
 	if s.shouldFailoverUpstreamError(statusCode) {
 		return true
 	}
@@ -4629,6 +4638,17 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 
 	switch resp.StatusCode {
 	case 401:
+		// TK (prod P0 2026-06-13, GPT专线): a capability/scope-level 401 is a
+		// per-request capability gap (token missing the scope for this operation,
+		// e.g. image generation), not an account-side auth failure — surface it as a
+		// 400 invalid_request so the caller knows the model/capability is not
+		// available on the serving account. See ratelimit_service_tk_capability_scope_401.go.
+		if tkIsCapabilityScope401(resp.StatusCode, body) {
+			statusCode = http.StatusBadRequest
+			errType = "invalid_request_error"
+			errMsg = tkCapabilityScope401ClientMessage(upstreamMsg)
+			break
+		}
 		statusCode = http.StatusBadGateway
 		errType = "upstream_error"
 		errMsg = "Upstream authentication failed, please contact administrator"
@@ -4786,6 +4806,15 @@ func (s *OpenAIGatewayService) handleCompatErrorResponse(
 	}
 
 	MarkResponseCommitted(c)
+
+	// TK (prod P0 2026-06-13, GPT专线): a capability/scope-level 401 is a
+	// per-request capability gap, not an account-side auth failure — surface it as a
+	// 400 invalid_request (the account stays schedulable for every other model).
+	// See ratelimit_service_tk_capability_scope_401.go.
+	if tkIsCapabilityScope401(resp.StatusCode, body) {
+		writeError(c, http.StatusBadRequest, "invalid_request_error", tkCapabilityScope401ClientMessage(upstreamMsg))
+		return nil, fmt.Errorf("upstream error: %d (capability scope 401) %s", resp.StatusCode, upstreamMsg)
+	}
 
 	// Map status code to error type and write response
 	errType := "api_error"

@@ -2479,6 +2479,40 @@
         "{\"HoldReconcilerService\", func() error {"
       ],
       "rationale": "Hold reconciler shutdown hook in provideCleanup (PR #746): forces wire to construct (and therefore start) the reconciler and stops its ticker at shutdown. Same silent-consistent-deletion risk as the service/wire.go entry."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_capability_scope_401.go",
+      "must_contain": [
+        "func tkIsCapabilityScope401(statusCode int, body []byte) bool",
+        "tkCapabilityScope401MissingScopes  = \"missing scopes\"",
+        "tkCapabilityScope401InsufficientOp = \"insufficient permissions for this operation\"",
+        "func tkCapabilityScope401ClientMessage(upstreamMsg string) string"
+      ],
+      "rationale": "TK fix (prod P0 2026-06-13, GPT专线 group_id=2): a capability/scope-level upstream 401 (token missing a capability scope, e.g. images Missing scopes: api.model.images.request) must NOT cool the whole account — that drained a thin OpenAI OAuth pool to zero and 429'd ALL models for ~10min (503/429 amplifier, cf. #725). The detector keys on BOTH 'missing scopes' AND 'insufficient permissions for this operation' to distinguish capability-401 from a genuine account-level 401. If an upstream merge drops this file the no-cooldown / no-failover / client-400 guards below silently revert to cooling the account again."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "tkIsCapabilityScope401(statusCode, responseBody)",
+        "capability_scope_401_skip_penalty"
+      ],
+      "rationale": "Injection point: HandleUpstreamError case 401 short-circuits a capability-scope 401 to shouldDisable=false BEFORE any temp_unschedulable / SetError path, so the account stays schedulable for every other model. Anchors the no-cooldown guard against silent upstream-merge reversion (paired with ratelimit_service_tk_capability_scope_401.go)."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "if tkIsCapabilityScope401(statusCode, upstreamBody) {",
+        "if tkIsCapabilityScope401(resp.StatusCode, body) {"
+      ],
+      "rationale": "Injection points: shouldFailoverOpenAIUpstreamResponse suppresses failover for a capability-scope 401 (every pool account shares the missing scope), and the non-failover handleErrorResponse/handleCompatErrorResponse 401 sites map it to a client 400 invalid_request_error. Anchors the no-failover + client-400 guards against silent upstream-merge reversion."
+    },
+    {
+      "path": "backend/internal/service/openai_images_responses.go",
+      "must_contain": [
+        "if tkIsCapabilityScope401(resp.StatusCode, body) {",
+        "tkCapabilityScope401ClientMessage(upstreamMsg)"
+      ],
+      "rationale": "Injection point: handleOpenAIImagesErrorResponse (the actual incident path for POST /v1/images/generations) maps a capability-scope 401 to a client 400 invalid_request_error instead of surfacing the upstream 401 / triggering cooldown. Anchors the image-path client-400 guard against silent upstream-merge reversion."
     }
   ]
 }
