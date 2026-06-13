@@ -161,8 +161,10 @@ bash scripts/release-bump-and-tag.sh --dry-run  # 只看决策与计划，不写
 ```bash
 # 1) dispatch 只读预热（与 deploy 同 prod Environment）
 gh workflow run warm-image-stage0.yml -f tag="$TARGET_TAG"
-# 取刚触发的 warm run（按 workflow_dispatch + 最新；必要时 sleep 几秒等 run 出现）
-WARM_RUN_ID=$(gh run list --workflow=warm-image-stage0.yml --event=workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId')
+# 取刚触发的 warm run：选最近一个**未完成**的（卡在 waiting/in_progress 的就是它），
+# 避免 --limit 1 抓到上一次已 completed 的旧 run。必要时 sleep 几秒等 run 出现。
+WARM_RUN_ID=$(gh run list --workflow=warm-image-stage0.yml --event=workflow_dispatch --limit 5 \
+  --json databaseId,status --jq '[.[]|select(.status!="completed")][0].databaseId')
 # 2) 自批 prod Environment（warm 只读，自批安全；与 deploy 同一 --input JSON 形状，
 #    -f/-F 在数组字段上类型推断不可靠）。run 卡在 waiting 后才有 pending_deployment，
 #    必要时轮询到 .[0] 出现再批。
