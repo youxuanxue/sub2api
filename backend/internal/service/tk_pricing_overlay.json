@@ -110,57 +110,57 @@
   "veo-2.0-generate-001": {
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
-    "output_cost_per_second": 0.35,
-    "source": "litellm:vertex_ai/veo-2.0-generate-001 failure_billing evidence (METRIC-INFERRED, official sentence pending): Google bills Veo per second of GENERATED output video (Vertex pricing unit), so a failed generation produces zero billable seconds; the explicit failure-billing sentence could not be captured on 2026-06-12 (Google docs unreachable from the capture network) — replace this note with the official quote when reachable.",
+    "output_cost_per_second": 0.5,
+    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 2 video = $0.50/second (720p). TK bills a single flat per-second rate per model (no resolution/audio granularity), so this is set to the model's MAX official tier to never under-charge. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
     "failure_billing": "success_only"
   },
   "veo-3.0-fast-generate-001": {
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
     "output_cost_per_second": 0.15,
-    "source": "litellm:vertex_ai/veo-3.0-fast-generate-001 failure_billing evidence (METRIC-INFERRED, official sentence pending): Google bills Veo per second of GENERATED output video (Vertex pricing unit), so a failed generation produces zero billable seconds; the explicit failure-billing sentence could not be captured on 2026-06-12 (Google docs unreachable from the capture network) — replace this note with the official quote when reachable.",
+    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3 Fast MAX tier = $0.12/second (1080p + audio); no 4k tier. TK's flat $0.15 already exceeds the official max across all reachable resolution/audio combos — retained (not lowered) to avoid reducing existing revenue. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
     "failure_billing": "success_only"
   },
   "veo-3.0-generate-001": {
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
     "output_cost_per_second": 0.4,
-    "source": "litellm:vertex_ai/veo-3.0-generate-001 failure_billing evidence (METRIC-INFERRED, official sentence pending): Google bills Veo per second of GENERATED output video (Vertex pricing unit), so a failed generation produces zero billable seconds; the explicit failure-billing sentence could not be captured on 2026-06-12 (Google docs unreachable from the capture network) — replace this note with the official quote when reachable.",
+    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3 MAX tier = $0.40/second (720p/1080p + audio); no 4k tier. TK's flat $0.40 matches the official max — covers all reachable resolution/audio combos. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
     "failure_billing": "success_only"
   },
   "veo-3.1-fast-generate-001": {
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
-    "output_cost_per_second": 0.15,
-    "source": "litellm:vertex_ai/veo-3.1-fast-generate-001 failure_billing evidence (METRIC-INFERRED, official sentence pending): Google bills Veo per second of GENERATED output video (Vertex pricing unit), so a failed generation produces zero billable seconds; the explicit failure-billing sentence could not be captured on 2026-06-12 (Google docs unreachable from the capture network) — replace this note with the official quote when reachable.",
+    "output_cost_per_second": 0.3,
+    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3.1 Fast MAX tier = $0.30/second (4k + audio); lower tiers 720p $0.10, 1080p $0.12, video-only 4k $0.25. TK bills a single flat per-second rate per model (no resolution/audio granularity), so this is set to the model's MAX official tier to never under-charge. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
     "failure_billing": "success_only"
   },
   "veo-3.1-fast-generate-preview": {
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
-    "output_cost_per_second": 0.15,
-    "source": "litellm:vertex_ai/veo-3.1-fast-generate-preview failure_billing evidence (METRIC-INFERRED, official sentence pending): Google bills Veo per second of GENERATED output video (Vertex pricing unit), so a failed generation produces zero billable seconds; the explicit failure-billing sentence could not be captured on 2026-06-12 (Google docs unreachable from the capture network) — replace this note with the official quote when reachable.",
+    "output_cost_per_second": 0.3,
+    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3.1 Fast MAX tier = $0.30/second (4k + audio); lower tiers 720p $0.10, 1080p $0.12, video-only 4k $0.25. TK bills a single flat per-second rate per model (no resolution/audio granularity), so this is set to the model's MAX official tier to never under-charge. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
     "failure_billing": "success_only"
   },
   "veo-3.1-generate-001": {
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
-    "output_cost_per_second": 0.4,
-    "source": "litellm:vertex_ai/veo-3.1-generate-001 failure_billing evidence (METRIC-INFERRED, official sentence pending): Google bills Veo per second of GENERATED output video (Vertex pricing unit), so a failed generation produces zero billable seconds; the explicit failure-billing sentence could not be captured on 2026-06-12 (Google docs unreachable from the capture network) — replace this note with the official quote when reachable.",
+    "output_cost_per_second": 0.6,
+    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3.1 MAX tier = $0.60/second (4k + audio); lower tiers 720p/1080p + audio $0.40, video-only 4k $0.40, video-only 720p/1080p $0.20. TK bills a single flat per-second rate per model (no resolution/audio granularity), so this is set to the model's MAX official tier to never under-charge. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
     "failure_billing": "success_only"
   },
   "veo-3.1-generate-preview": {
     "litellm_provider": "vertex_ai",
     "mode": "video_generation",
-    "output_cost_per_second": 0.4,
-    "source": "litellm:vertex_ai/veo-3.1-generate-preview failure_billing evidence (METRIC-INFERRED, official sentence pending): Google bills Veo per second of GENERATED output video (Vertex pricing unit), so a failed generation produces zero billable seconds; the explicit failure-billing sentence could not be captured on 2026-06-12 (Google docs unreachable from the capture network) — replace this note with the official quote when reachable.",
+    "output_cost_per_second": 0.6,
+    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3.1 MAX tier = $0.60/second (4k + audio); lower tiers 720p/1080p + audio $0.40, video-only 4k $0.40, video-only 720p/1080p $0.20. TK bills a single flat per-second rate per model (no resolution/audio granularity), so this is set to the model's MAX official tier to never under-charge. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
     "failure_billing": "success_only"
   },
   "veo-3.1-lite-generate-preview": {
     "litellm_provider": "gemini",
     "mode": "video_generation",
-    "output_cost_per_second": 0.05,
-    "source": "litellm:gemini/veo-3.1-lite-generate-preview failure_billing evidence (METRIC-INFERRED, official sentence pending): Google bills Veo per second of GENERATED output video (Vertex pricing unit), so a failed generation produces zero billable seconds; the explicit failure-billing sentence could not be captured on 2026-06-12 (Google docs unreachable from the capture network) — replace this note with the official quote when reachable.",
+    "output_cost_per_second": 0.08,
+    "source": "Official Vertex AI pricing (cloud.google.com/vertex-ai/generative-ai/pricing, verified 2026-06-13): Veo 3.1 Lite MAX tier = $0.08/second (1080p + audio); lower tiers 720p + audio $0.05, video-only 720p $0.03 / 1080p $0.05; no 4k tier. TK bills a single flat per-second rate per model (no resolution/audio granularity), so this is set to the model's MAX official tier to never under-charge. Google bills Veo per second of GENERATED output video, so a failed generation produces zero billable seconds (failure_billing=success_only).",
     "failure_billing": "success_only"
   },
   "doubao-seedream-4-0-250828": {
