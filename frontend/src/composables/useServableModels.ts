@@ -30,6 +30,10 @@ export function isApiBackedPlatform(platform: string): boolean {
   return platform in API_PLATFORMS
 }
 
+// One representative frontend name per backend platform — used by the selector's
+// no-platform ("all models") case to fetch + union every self-healing list.
+export const apiBackedPlatforms: readonly string[] = ['anthropic', 'openai', 'gemini', 'antigravity']
+
 // servableModelsFor returns the cached self-healing list for an API-backed
 // platform (reactive — Vue computeds re-run when the fetch resolves), `[]` while
 // a fetch is still pending, or undefined for a non-API platform (the caller then
