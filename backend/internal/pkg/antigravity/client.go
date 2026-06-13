@@ -839,7 +839,9 @@ func (c *Client) SetUserSettings(ctx context.Context, accessToken string) (*SetU
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("User-Agent", GetUserAgentForContext(ctx))
-	req.Header.Set("X-Goog-Api-Client", "gl-node/22.21.1")
+	// 2026-06-13 真机 on-wire 抓包（IDE 2.0.11，setUserSettings/fetchUserInfo @ daily-cloudcode-pa）
+	// 确认真实客户端在这两个隐私端点上【不发】X-Goog-Api-Client(gl-node) 头——此前钉死的
+	// gl-node/22.21.1 是多发的指纹噪声，移除以对齐。
 	req.Host = "daily-cloudcode-pa.googleapis.com"
 
 	resp, err := c.httpClient.Do(req)
@@ -882,7 +884,7 @@ func (c *Client) FetchUserInfo(ctx context.Context, accessToken, projectID strin
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("User-Agent", GetUserAgentForContext(ctx))
-	req.Header.Set("X-Goog-Api-Client", "gl-node/22.21.1")
+	// 2026-06-13 真机抓包确认 fetchUserInfo 不发 X-Goog-Api-Client(gl-node)，移除对齐（同 setUserSettings）。
 	req.Host = "daily-cloudcode-pa.googleapis.com"
 
 	resp, err := c.httpClient.Do(req)
