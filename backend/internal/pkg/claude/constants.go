@@ -159,13 +159,19 @@ type Model struct {
 }
 
 // DefaultModels Claude Code 客户端支持的默认模型列表
+//
+// claude-fable-5 removed 2026-06-13 (us7 P0): Anthropic now access-gates Fable 5
+// on the OAuth path and answers 404 "Claude Fable 5 is not available, use Opus
+// 4.8". It must not be advertised by the anthropic gateway /v1/models (this list
+// is the candidate source for GatewayHandler.tkClaudeDefaultModelIDs), or
+// clients pick it and hit a 400 unservable-model error (the deploy smoke's
+// /claude/i auto-pick even selected it as the first entry — see the #761
+// main-via-edge follow-up). Mirrors the same removal already applied to the
+// servable allowlist (pricing_catalog_supported_models_tk.go). Antigravity keeps
+// its OWN fable-5 entry (internal/pkg/antigravity/claude_types.go) — fable stays
+// servable there, so per-platform truth is preserved. Do NOT re-add here on an
+// upstream merge.
 var DefaultModels = []Model{
-	{
-		ID:          "claude-fable-5",
-		Type:        "model",
-		DisplayName: "Claude Fable 5",
-		CreatedAt:   "2026-06-09T00:00:00Z",
-	},
 	{
 		ID:          "claude-opus-4-5-20251101",
 		Type:        "model",
