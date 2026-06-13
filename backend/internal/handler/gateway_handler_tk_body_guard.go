@@ -11,13 +11,19 @@ package handler
 // logic lives in this file so the upstream-shaped entry files stay 1-line
 // hooks.
 //
-// Why this exists: edge:us1 observed claude-opus-4-7 upstream 403s
-// concentrated entirely on body >= ~940 KB requests (same OAuth account,
-// same model, same window). claude-cli/2.1.144 then retries the same body
-// 3x before giving up, wasting OAuth quota and polluting ops_error_logs.
-// Defaults (loaded by config.load() when gateway.upstream_body_guards is
-// absent) warn at 600 KB and reject at 900 KB for anthropic claude-opus-4-7;
-// operators can override per-(platform, model_prefix) via yaml.
+// Why this exists (and why it ships DEFAULT OFF): pre-flighting on client byte
+// count is the wrong proxy metric. The original 900 KB reject came from a
+// single 2026-05-20 edge:us1 observation (PR #322) of claude-opus-4-7 upstream
+// 403s on bodies >= ~940 KB. Re-validated 2026-06-13: opus-4-7 AND opus-4-8
+// both serve >1 MB requests (tested up to 1.03 MB / ~317K input tokens) with
+// HTTP 200 on the current fleet — the ~940 KB 403 cliff no longer reproduces.
+// Per Anthropic, oversize is 413 @ 32 MB and 403 is permission/WAF-class, so
+// the old 403 was a WAF/datacenter-IP edge condition, not a stable size limit.
+// So TK injects NO default guard; a returning size cliff is caught reactively
+// via the upstream's real reject codes (403/413) surfaced in ops_error_logs /
+// edge-health. This mechanism is retained as an OPT-IN operator tool: it is a
+// pure no-op until an operator configures gateway.upstream_body_guards
+// per-(platform, model_prefix) in yaml.
 //
 // Contract:
 //   - Function does NOT write a response — each platform uses its own error
