@@ -2,21 +2,12 @@
 // 模型列表（硬编码，与 new-api 一致）
 // =====================
 
-// OpenAI
-const openaiModels = [
-  // GPT-5.2 系列
-  'gpt-5.2', 'gpt-5.2-2025-12-11', 'gpt-5.2-chat-latest',
-  'gpt-5.2-pro', 'gpt-5.2-pro-2025-12-11',
-  // GPT-5.5 系列
-  'gpt-5.5',
-  // GPT-5.4 系列
-  'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-2026-03-05',
-  // GPT-5.3 / Codex 系列
-  'gpt-5.3-codex', 'gpt-5.3-codex-spark', 'codex-auto-review',
-  'gpt-4o-audio-preview', 'gpt-4o-realtime-preview',
-  // GPT Image 系列
-  'gpt-image-1', 'gpt-image-1.5', 'gpt-image-2'
-]
+// OpenAI / Claude / Gemini / Antigravity are NO LONGER hardcoded here (R-003,
+// follow-up to PR #752): the admin selector derives them from the self-healing
+// backend candidate endpoint via useServableModels — an upstream-retired model
+// auto-drops without a manual edit, and per-platform truth is the backend's.
+// Only newapi (channel-driven) and the long-tail direct providers below keep
+// static lists (the backend has no empirical source for those).
 
 // NewAPI（第五平台）—— 独立维护白名单，不与 openai 共享同一数组引用。
 // 当前内容与 openai 基本对齐，后续允许按 newapi 供应侧单独演进。
@@ -39,69 +30,8 @@ const newapiModels = [
   'gpt-image-1', 'gpt-image-1.5', 'gpt-image-2'
 ]
 
-// Anthropic Claude
-// claude-fable-5 removed 2026-06-13 (us7 P0): Anthropic access-gates Fable 5
-// on the OAuth path (404 "not available, use Opus 4.8"), so it must not be
-// offered as a whitelistable claude model. The real fix is to drive this list
-// from the self-healing /pricing catalog API rather than hand-maintaining it;
-// until then keep the anthropic-path list in sync with the backend allowlist.
-// (Antigravity's fable-5 status is separate/unverified — left untouched.)
-export const claudeModels = [
-  'claude-opus-4-1-20250805',
-  'claude-sonnet-4-5-20250929', 'claude-haiku-4-5-20251001',
-  'claude-opus-4-5-20251101',
-  'claude-opus-4-6',
-  'claude-opus-4-7',
-  'claude-opus-4-8',
-  'claude-sonnet-4-6'
-]
-
-// Google Gemini
-const geminiModels = [
-  // Keep in sync with backend curated Gemini lists.
-  // This list is intentionally conservative (models commonly available across OAuth/API key).
-  'gemini-3.1-flash-image',
-  'gemini-2.5-flash-image',
-  'gemini-2.0-flash',
-  'gemini-2.5-flash',
-  'gemini-2.5-pro',
-  'gemini-3.5-flash',
-  'gemini-3-flash-preview',
-  'gemini-3-pro-preview'
-]
-
-// Antigravity 官方支持的模型（精确匹配）
-// 基于官方 API 返回的模型列表，只支持 Claude 4.5+ 和 Gemini 2.5+
-const antigravityModels = [
-  // Claude 4.5+ 系列
-  'claude-fable-5',
-  'claude-opus-4-6',
-  'claude-opus-4-6-thinking',
-  'claude-opus-4-7',
-  'claude-opus-4-8',
-  'claude-opus-4-5-thinking',
-  'claude-sonnet-4-6',
-  'claude-sonnet-4-5',
-  'claude-sonnet-4-5-thinking',
-  // Gemini 2.5 系列
-  'gemini-3.1-flash-image',
-  'gemini-2.5-flash-image',
-  'gemini-2.5-flash',
-  'gemini-2.5-flash-lite',
-  'gemini-2.5-flash-thinking',
-  'gemini-2.5-pro',
-  // Gemini 3 系列
-  'gemini-3-flash',
-  'gemini-3-pro-high',
-  'gemini-3-pro-low',
-  // Gemini 3.1 系列
-  'gemini-3.1-pro-high',
-  'gemini-3.1-pro-low',
-  'gemini-3-pro-image',
-  // 其他
-  'gpt-oss-120b-medium',
-  'tab_flash_lite_preview'
-]
+// (claudeModels / geminiModels / antigravityModels removed — see the note above;
+//  the selector now fetches these from the self-healing backend endpoint.)
 
 // 智谱 GLM
 const zhipuModels = [
@@ -229,10 +159,11 @@ const perplexityModels = [
 ]
 
 // 所有模型（去重）
+// allModels is the dropdown master list for the no-platform-selected case. The
+// API-backed platforms (openai/claude/gemini/antigravity) are intentionally NOT
+// here — when a platform is selected the selector derives those from the
+// self-healing endpoint; this list covers only the static long-tail providers.
 const allModelsList: string[] = [
-  ...openaiModels,
-  ...claudeModels,
-  ...geminiModels,
   ...zhipuModels,
   ...qwenModels,
   ...deepseekModels,
@@ -360,6 +291,7 @@ const bedrockPresetMappings = [
 // Antigravity 默认映射（从后端 API 获取，与 constants.go 保持一致）
 // 使用 fetchAntigravityDefaultMappings() 异步获取
 import { getAntigravityDefaultModelMapping } from '@/api/admin/accounts'
+import { isApiBackedPlatform, servableModelsFor } from '@/composables/useServableModels'
 
 let _antigravityDefaultMappingsCache: { from: string; to: string }[] | null = null
 
@@ -397,15 +329,15 @@ export const commonErrorCodes = [
 
 // 按平台获取模型
 export function getModelsByPlatform(platform: string): string[] {
+  // API-backed platforms (anthropic/claude/openai/gemini/antigravity) come from
+  // the self-healing backend cache (reactive — computeds re-run when the fetch
+  // resolves; [] while pending or on error → custom input is the escape hatch).
+  if (isApiBackedPlatform(platform)) {
+    return servableModelsFor(platform) ?? []
+  }
   switch (platform) {
-    case 'openai':
-      return openaiModels
     case 'newapi':
       return newapiModels
-    case 'anthropic':
-    case 'claude': return claudeModels
-    case 'gemini': return geminiModels
-    case 'antigravity': return antigravityModels
     case 'zhipu': return zhipuModels
     case 'qwen': return qwenModels
     case 'deepseek': return deepseekModels
@@ -421,7 +353,9 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'spark': return sparkModels
     case 'hunyuan': return hunyuanModels
     case 'perplexity': return perplexityModels
-    default: return claudeModels
+    // Unknown platform → empty (the selector's custom input lets the admin type
+    // any model id); API-backed platforms are handled above the switch.
+    default: return []
   }
 }
 
