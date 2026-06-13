@@ -4661,11 +4661,17 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		}
 	}
 
-	// TK canonical-OAuth ingress gates (see gateway_service_tk_canonical_oauth_guard.go):
-	//   1. reject third-party SDK UAs that would silently drain a personal cc subscription
-	//   2. remap retired opus model ids to the current default so the upstream model mix
-	//      stays consistent with what real claude-cli/2.1.152 produces
-	// Scoped to anthropic OAuth + canonical TLS profile only.
+	// TK OAuth ingress gates (see gateway_service_tk_canonical_oauth_guard.go).
+	// The two gates have DELIBERATELY DIFFERENT scopes:
+	//   1. UA reject — anthropic OAuth + canonical TLS only (isCanonicalAnthropicOAuth):
+	//      a personal-subscription abuse gate blocking third-party SDK UAs that would
+	//      silently drain a canonical cc subscription.
+	//   2. deprecated-opus remap — ALL anthropic OAuth/SetupToken (deprecatedOpusRemapEligible):
+	//      a model-hygiene gate. Retired opus (4-6/4-5) no longer emits extended thinking
+	//      upstream AND routing it raw produces the retired-model cohort signal real
+	//      claude-cli no longer makes — both bad on every OAuth path, not just canonical TLS.
+	//      Broadened from canonical-only so a non-canonical OAuth account requesting opus-4-6
+	//      gets the current thinking-capable default instead of a silent no-thinking response.
 	if c != nil && s.isCanonicalAnthropicOAuth(account) {
 		// strict: allow-list UA gate (claude-cli/ | claude-code/ only, reject empty
 		// + unknown). Default false keeps the deny-list gate (zero regression).
@@ -4677,10 +4683,12 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		} else if err := checkCanonicalIngressUA(c.Request.Header); err != nil {
 			return nil, err
 		}
+	}
+	if deprecatedOpusRemapEligible(account) {
 		if newModel, remapped := remapDeprecatedOpusOnCanonical(reqModel); remapped {
 			body = s.replaceModelInBody(body, newModel)
 			logger.LegacyPrintf("service.gateway",
-				"Canonical OAuth model remap: %s -> %s (account: %s)",
+				"Deprecated-opus OAuth model remap: %s -> %s (account: %s)",
 				reqModel, newModel, account.Name)
 			reqModel = newModel
 		}

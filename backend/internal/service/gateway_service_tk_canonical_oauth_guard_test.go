@@ -293,3 +293,42 @@ func TestRemapDeprecatedOpusOnCanonical_OpusPrefixIsolation(t *testing.T) {
 		}
 	}
 }
+
+// TestDeprecatedOpusRemapEligible_ScopedToAnthropicOAuthOrSetupToken asserts the
+// broadened remap gate: ALL Anthropic OAuth/SetupToken accounts are eligible
+// (not just canonical-TLS ones), while API-key and non-Anthropic accounts are not.
+func TestDeprecatedOpusRemapEligible_ScopedToAnthropicOAuthOrSetupToken(t *testing.T) {
+	cases := []struct {
+		name    string
+		account *Account
+		want    bool
+	}{
+		{"anthropic_oauth", &Account{Platform: PlatformAnthropic, Type: AccountTypeOAuth}, true},
+		{"anthropic_setup_token", &Account{Platform: PlatformAnthropic, Type: AccountTypeSetupToken}, true},
+		{"anthropic_apikey", &Account{Platform: PlatformAnthropic, Type: AccountTypeAPIKey}, false},
+		{"openai_oauth", &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}, false},
+		{"nil_account", nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := deprecatedOpusRemapEligible(tc.account); got != tc.want {
+				t.Errorf("deprecatedOpusRemapEligible(%s) = %v, want %v", tc.name, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestDeprecatedOpusRemapEligible_BroaderThanCanonicalUAGate documents the
+// intentional scope split: a non-canonical Anthropic OAuth account (one the
+// canonical UA-reject gate would skip) is still eligible for the deprecated-opus
+// remap. That is the whole point of broadening — retired opus must be upgraded on
+// every OAuth path, not only the canonical-TLS one.
+func TestDeprecatedOpusRemapEligible_BroaderThanCanonicalUAGate(t *testing.T) {
+	acct := &Account{Platform: PlatformAnthropic, Type: AccountTypeOAuth}
+	if !deprecatedOpusRemapEligible(acct) {
+		t.Fatal("non-canonical Anthropic OAuth account must be remap-eligible")
+	}
+	if got, remapped := remapDeprecatedOpusOnCanonical("claude-opus-4-6"); !remapped || got != canonicalDefaultOpus {
+		t.Errorf("retired opus must remap to %q, got %q remapped=%v", canonicalDefaultOpus, got, remapped)
+	}
+}

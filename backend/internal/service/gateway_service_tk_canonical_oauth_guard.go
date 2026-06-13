@@ -170,6 +170,23 @@ var canonicalDeprecatedOpusPrefixes = []string{
 	"claude-opus-4-0",
 }
 
+// deprecatedOpusRemapEligible reports whether the deprecated-opus → current-opus
+// remap (remapDeprecatedOpusOnCanonical) should apply to this account.
+//
+// Scope is ALL Anthropic OAuth / SetupToken accounts — broader than the canonical
+// UA-reject gate (isCanonicalAnthropicOAuth), on purpose. The remap is a
+// model-hygiene concern, not a personal-subscription abuse concern: retired opus
+// ids (4-6/4-5) (a) no longer emit extended thinking upstream and (b) routing them
+// raw produces the retired-model cohort signal that real claude-cli no longer
+// makes. Both apply to every Anthropic OAuth path, not just accounts bound to the
+// canonical TLS profile — so a non-canonical OAuth account requesting opus-4-6
+// must still be upgraded to the current thinking-capable default rather than
+// receiving a silent no-thinking response. API-key channels keep upstream-default
+// behavior (they have their own thinking-shape 400 self-heal); out of scope here.
+func deprecatedOpusRemapEligible(account *Account) bool {
+	return account != nil && account.IsAnthropicOAuthOrSetupToken()
+}
+
 // remapDeprecatedOpusOnCanonical returns the canonical opus model id if the
 // input matches a known retired prefix, plus a remapped=true flag. Non-opus
 // models and the current default pass through unchanged.
