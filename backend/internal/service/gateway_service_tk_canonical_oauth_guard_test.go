@@ -234,15 +234,15 @@ func TestShouldRewriteSystemForNonCCMimicry(t *testing.T) {
 
 func TestRemapDeprecatedOpusOnCanonical_RetiredOpusToCurrentDefault(t *testing.T) {
 	cases := map[string]string{
-		"claude-opus-4-6":          canonicalDefaultOpus,
-		"claude-opus-4-6-20250930": canonicalDefaultOpus,
+		// NOTE: claude-opus-4-6 is intentionally NOT here — it still serves upstream
+		// with plaintext thinking and must pass through (see *_Opus46PassesThrough).
 		"claude-opus-4-5":          canonicalDefaultOpus,
 		"claude-opus-4-5-20250520": canonicalDefaultOpus,
 		"claude-opus-4-4":          canonicalDefaultOpus,
 		"claude-opus-4-1":          canonicalDefaultOpus,
 		"claude-opus-4-0":          canonicalDefaultOpus,
 		// case-insensitive
-		"Claude-Opus-4-6": canonicalDefaultOpus,
+		"Claude-Opus-4-5": canonicalDefaultOpus,
 	}
 	for in, want := range cases {
 		got, remapped := remapDeprecatedOpusOnCanonical(in)
@@ -260,6 +260,12 @@ func TestRemapDeprecatedOpusOnCanonical_CurrentAndNonOpusUnchanged(t *testing.T)
 	cases := []string{
 		"claude-opus-4-7",
 		"claude-opus-4-7-20260301",
+		// opus-4-6 still serves upstream with plaintext thinking — must pass through
+		// unchanged (remapping it to 4-7 would silently drop the thinking + swap the
+		// billing key). See gateway_service_tk_canonical_oauth_guard.go NOTE.
+		"claude-opus-4-6",
+		"claude-opus-4-6-20250930",
+		"Claude-Opus-4-6",
 		"claude-sonnet-4-6",
 		"claude-sonnet-4-5",
 		"claude-haiku-4-5-20251001",

@@ -14,8 +14,10 @@ import (
 // 2026-05-25 Anthropic hold on edge-uk1 account EN-LD-EC2-16-3:
 //   1. third-party SDK UAs (OpenAI/Python, httpx, requests, ...) silently
 //      draining a personal Claude Code subscription
-//   2. retired models (claude-opus-4-6 / claude-opus-4-5*) routed alongside the
+//   2. retired models (claude-opus-4-5* and older) routed alongside the
 //      current 4-7 default — a mix-pattern real cc clients no longer produce.
+//      (claude-opus-4-6 is deliberately excluded — see canonicalDeprecatedOpusPrefixes:
+//      it still serves upstream WITH plaintext thinking, so remapping it away is harmful.)
 //
 // Both gates are scoped to OAuth + canonical TLS only; API-key channels and
 // non-canonical OAuth accounts keep upstream-default behavior.
@@ -156,12 +158,20 @@ func shouldRewriteSystemForNonCCMimicry(reqModel string, canonicalStrict bool) b
 // opus model ids are remapped to this on the canonical OAuth path.
 const canonicalDefaultOpus = "claude-opus-4-7"
 
-// canonicalDeprecatedOpusPrefixes lists the opus model ids that the 2.1.150
-// Claude Code CLI no longer emits by default; routing them alongside 4-7
-// produces a mix-pattern that current real clients do not. Each entry is the
-// model-id prefix (so dated variants like claude-opus-4-6-20250930 are caught).
+// canonicalDeprecatedOpusPrefixes lists opus model ids to remap to the current
+// default. Each entry is a model-id prefix (so dated variants like
+// claude-opus-4-5-20250520 are caught too).
+//
+// NOTE: claude-opus-4-6 is intentionally NOT in this list. It is still served
+// upstream and — unlike opus >= 4-7 — still returns PLAINTEXT extended thinking
+// (verified 2026-06-13: opus-4-6 -> HTTP 200 with ~1800-3800 chars of thinking,
+// while opus-4-7/4-8 return an empty thinking block + signature only). Remapping
+// 4-6 -> 4-7 silently destroyed that thinking (and silently substituted the
+// model the caller asked for / its billing key). The remap's original rationale
+// ("retired opus no longer emits thinking") proved false for 4-6, so it passes
+// through. opus-4-5 stays remapped only because it rejects the thinking shape we
+// send (`adaptive`); 4-4 and older are genuinely 404 upstream.
 var canonicalDeprecatedOpusPrefixes = []string{
-	"claude-opus-4-6",
 	"claude-opus-4-5",
 	"claude-opus-4-4",
 	"claude-opus-4-3",
