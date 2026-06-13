@@ -89,21 +89,14 @@ func TestLoadDefaultUpstreamBodyGuards(t *testing.T) {
 		t.Fatalf("Load() error: %v", err)
 	}
 
-	if len(cfg.Gateway.UpstreamBodyGuards) != 1 {
-		t.Fatalf("UpstreamBodyGuards len = %d, want 1", len(cfg.Gateway.UpstreamBodyGuards))
-	}
-	g := cfg.Gateway.UpstreamBodyGuards[0]
-	if g.Platform != "anthropic" {
-		t.Fatalf("default guard Platform = %q, want anthropic", g.Platform)
-	}
-	if g.ModelPrefix != "claude-opus-4-7" {
-		t.Fatalf("default guard ModelPrefix = %q, want claude-opus-4-7", g.ModelPrefix)
-	}
-	if g.WarnBytes != 600000 {
-		t.Fatalf("default guard WarnBytes = %d, want 600000", g.WarnBytes)
-	}
-	if g.RejectBytes != 900000 {
-		t.Fatalf("default guard RejectBytes = %d, want 900000", g.RejectBytes)
+	// Default OFF: TK no longer pre-injects an opus-4-7 body guard. Pre-flighting
+	// on client byte count is the wrong proxy (2026-06-13 re-validation: opus-4-7
+	// and opus-4-8 both serve >1 MB with HTTP 200); a returning size cliff is
+	// caught reactively via upstream 403/413 in ops_error_logs. The mechanism is
+	// opt-in — operators add rules via gateway.upstream_body_guards in yaml.
+	if len(cfg.Gateway.UpstreamBodyGuards) != 0 {
+		t.Fatalf("default UpstreamBodyGuards len = %d, want 0 (default off after 2026-06-13 re-validation): %+v",
+			len(cfg.Gateway.UpstreamBodyGuards), cfg.Gateway.UpstreamBodyGuards)
 	}
 }
 

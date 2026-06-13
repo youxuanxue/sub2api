@@ -708,10 +708,11 @@ const (
 
 // UpstreamBodyGuardConfig TK: 上游大请求体软门禁规则（按 platform + model_prefix 匹配）。
 //
-// 背景：实测发现 anthropic claude-opus-4-7 上游对 body ≥ ~940KB 的请求直接 403（无 anthropic JSON），
-// 同账号同模型同窗口下 ≤ 400KB 的请求 200 成功。默认对该模型预填 warn=600KB / reject=900KB，
-// 让大请求在 forward 之前 fail-fast，避免 (a) 消耗 OAuth 配额，(b) 污染 ops 错误统计，
-// (c) 让客户端拿到可操作的 hint（/compact 或新会话）。
+// 背景：按客户端字节预拦是错误的代理指标。2026-06-13 复验 opus-4-7 与 opus-4-8 均能正常服务 >1MB 请求
+// （实测至 1.03MB / ~317K input tokens、HTTP 200），原 ~940KB 的 403 拐点（PR #322 / 2026-05-20 edge:us1
+// 单点观测）不再复现；Anthropic 侧超限是 413@32MB、403 属 permission/WAF 类，故旧 403 是 WAF/数据中心 IP
+// 的边缘条件而非稳定尺寸上限。**默认不再预填任何规则**（default off），改为依赖上游真实拒绝码（403/413）的
+// 反应式告警。本机制保留供运维按需配置（opt-in）：在 gateway.upstream_body_guards 显式配规则才生效。
 //
 // 匹配规则：
 //   - Platform 必须等于 account.Platform（如 "anthropic" / "openai" / "gemini"）。
@@ -1597,19 +1598,12 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 		cfg.Gateway.OpenAIWS.StickyResponseIDTTLSeconds = cfg.Gateway.OpenAIWS.StickyPreviousResponseTTLSeconds
 	}
 
-	// TK: upstream body guards 默认值。
-	// 未配置时填充 anthropic claude-opus-4-7 默认规则，基于 edge:us1 实测数据：
-	// body ≤ ~400KB 成功，≥ ~940KB 上游 403。要禁用默认规则，请显式在 yaml 中配 1 条 reject_bytes=0 / warn_bytes=0 的同 platform/model_prefix 规则。
-	if len(cfg.Gateway.UpstreamBodyGuards) == 0 {
-		cfg.Gateway.UpstreamBodyGuards = []UpstreamBodyGuardConfig{
-			{
-				Platform:    "anthropic",
-				ModelPrefix: "claude-opus-4-7",
-				WarnBytes:   600000,
-				RejectBytes: 900000,
-			},
-		}
-	}
+	// TK: upstream body guards 默认 OFF——不再预填任何规则。
+	// 按客户端字节预拦是错误的代理指标：2026-06-13 复验 opus-4-7 与 opus-4-8 均能正常服务 >1MB 请求
+	// （实测至 1.03MB / ~317K input tokens、HTTP 200），原 ~940KB 的 403 拐点（PR #322 / 2026-05-20
+	// edge:us1 单点观测）不再复现；Anthropic 侧超限是 413@32MB、403 属 permission/WAF 类，故旧 403 是
+	// WAF/数据中心 IP 的边缘条件而非稳定尺寸上限。默认不再预拦，改为依赖上游真实拒绝码（403/413）的反应式
+	// 告警（见 ops_error_logs / edge-health）。机制保留供运维按需在 gateway.upstream_body_guards 配置。
 	for i := range cfg.Gateway.UpstreamBodyGuards {
 		cfg.Gateway.UpstreamBodyGuards[i].Platform = strings.TrimSpace(cfg.Gateway.UpstreamBodyGuards[i].Platform)
 		cfg.Gateway.UpstreamBodyGuards[i].ModelPrefix = strings.TrimSpace(cfg.Gateway.UpstreamBodyGuards[i].ModelPrefix)
