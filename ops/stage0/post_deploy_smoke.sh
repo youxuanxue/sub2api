@@ -154,7 +154,18 @@ fi
 
 echo "tk_post_deploy_smoke: /v1/models shape object=${models_object} count=${models_count}"
 
-model="$(smoke_pick_model_from_list "$tmpdir/models.json" "${TK_SMOKE_PROD_ANTHROPIC_MODEL:-}")" || exit 1
+# Anthropic model override: prod full suite sets TK_SMOKE_PROD_ANTHROPIC_MODEL
+# (a prod Environment var). The main-via-edge canary runs in an edge Environment
+# that has NO such var, so without a fallback smoke_pick_model_from_list auto-picks
+# the first /claude/i id from /v1/models — which can be an access-gated model
+# (e.g. claude-fable-5: 404/400 on the OAuth path) and fails the smoke spuriously.
+# Fall back to TK_SMOKE_EDGE_LOCAL_CHAT_MODEL (default claude-sonnet-4-6) so the
+# canary always probes a servable model instead of whatever sorts first.
+anthropic_model_override="${TK_SMOKE_PROD_ANTHROPIC_MODEL:-}"
+if [[ -z "${anthropic_model_override}" && "${GATEWAY_SMOKE_SUITE:-}" == "main-via-edge" ]]; then
+  anthropic_model_override="${TK_SMOKE_EDGE_LOCAL_CHAT_MODEL:-}"
+fi
+model="$(smoke_pick_model_from_list "$tmpdir/models.json" "${anthropic_model_override}")" || exit 1
 echo "tk_post_deploy_smoke: using model=${model}"
 
 # --- 4) OpenAI-compat chat ---
