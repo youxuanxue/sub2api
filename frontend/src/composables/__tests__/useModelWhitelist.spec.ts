@@ -57,7 +57,10 @@ describe('useModelWhitelist', () => {
   })
 
   it('Claude 模型列表包含新发布的 Claude 模型', () => {
-    expect(getModelsByPlatform('claude')).toContain('claude-fable-5')
+    // claude-fable-5 removed from the claude (anthropic-path) list 2026-06-13
+    // (us7 P0: Anthropic access-gates Fable 5 → 404 on the OAuth path). The
+    // antigravity path is a separate platform and keeps it (unverified there).
+    expect(getModelsByPlatform('claude')).not.toContain('claude-fable-5')
     expect(getModelsByPlatform('antigravity')).toContain('claude-fable-5')
     expect(getModelsByPlatform('claude')).toContain('claude-opus-4-8')
     expect(getModelsByPlatform('antigravity')).toContain('claude-opus-4-8')

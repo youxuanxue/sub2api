@@ -167,6 +167,23 @@ func tkOpsUpstreamErrorText(c *gin.Context) (body string, msg string) {
 				if body == "" && strings.TrimSpace(events[i].UpstreamResponseBody) != "" {
 					body = events[i].UpstreamResponseBody
 				}
+				// TK (us7 P0 2026-06-13, upstream_error_rate=48.57% false page): the
+				// Anthropic forward path (gateway_service.handleErrorResponse /
+				// handleRetryExhaustedError) records the upstream error body in
+				// Detail, NOT UpstreamResponseBody. Anthropic's availability-gating
+				// 404 ("Claude Fable 5 is not available. Please use Opus 4.8",
+				// envelope error.type=not_found_error) therefore reached this
+				// classifier with only the human Message — no error.type signal — so
+				// IsAnthropicModelNotFound404 returned false, the 404 was owned to the
+				// provider, and it counted toward upstream_error_rate. The gateway
+				// RESPONSE path matched fine because it holds the full body locally;
+				// this is the metric-layer half of the same predicate, and it must
+				// read the same body to "never drift". Detail carries the identical
+				// truncated body (gateway.log_upstream_error_body, default on), so
+				// fall back to it when the dedicated field was not populated.
+				if body == "" && strings.TrimSpace(events[i].Detail) != "" {
+					body = events[i].Detail
+				}
 				if msg == "" && strings.TrimSpace(events[i].Message) != "" {
 					msg = events[i].Message
 				}

@@ -159,6 +159,36 @@ func TestClassifyOpsUpstreamClientInducedRejectionOwnedByClient(t *testing.T) {
 		require.Equal(t, "request", phase)
 		require.Equal(t, "client", errorOwner, "must NOT be provider — otherwise it feeds upstream_error_rate")
 	})
+
+	// TK (us7 P0 2026-06-13, upstream_error_rate=48.57% false page): the REAL
+	// production shape, distinct from the case above. A client hardcoded
+	// claude-fable-5; Anthropic access-gates Fable 5 and answers 404
+	// not_found_error with the human message "Claude Fable 5 is not available.
+	// Please use Opus 4.8". The forward path records the upstream body in Detail
+	// (NOT UpstreamResponseBody) and the human message in Message. The case above
+	// passed because it (wrongly) put the body in UpstreamResponseBody — a field
+	// production never populates on this path — so it never exercised the leak.
+	// This case pins the Detail fallback: the not_found_error envelope must be
+	// recognized from Detail so the 404 stays client-owned and drops out of
+	// upstream_error_rate.
+	t.Run("anthropic availability-gating 404 with body only in Detail (real us7 prod shape)", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Set(service.OpsUpstreamErrorMessageKey,
+			"Claude Fable 5 is not available. Please use Opus 4.8. Learn more: https://www.anthropic.com/news/fable-mythos-access")
+		c.Set(service.OpsUpstreamErrorsKey, []*service.OpsUpstreamErrorEvent{{
+			UpstreamStatusCode: http.StatusNotFound,
+			Message:            "Claude Fable 5 is not available. Please use Opus 4.8. Learn more: https://www.anthropic.com/news/fable-mythos-access",
+			// Body lives in Detail, NOT UpstreamResponseBody — the gateway forward
+			// path populates Detail (gateway.log_upstream_error_body, default on).
+			Detail: `{"error":{"message":"Claude Fable 5 is not available. Please use Opus 4.8. Learn more: https://www.anthropic.com/news/fable-mythos-access","type":"not_found_error"},"request_id":"req_011CbzedV3jWa6rNy"}`,
+		}})
+
+		phase, _, errorOwner, _ := classifyOpsErrorLog(c, "api_error", "Unsupported model: claude-fable-5", "", http.StatusBadRequest)
+
+		require.Equal(t, "request", phase, "availability-gating 404 must be client-owned, out of upstream_error_rate")
+		require.Equal(t, "client", errorOwner, "must NOT be provider — otherwise it re-fires the us7 false P0")
+	})
 }
 
 func TestClassifyOpsGenuineUpstreamErrorsStayProvider(t *testing.T) {
