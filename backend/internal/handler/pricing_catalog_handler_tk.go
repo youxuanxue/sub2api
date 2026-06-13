@@ -96,8 +96,13 @@ func (h *PricingCatalogHandler) GetPublicCatalog(c *gin.Context) {
 	// priced catalog from BuildPublicCatalog still backs IsModelPriced and the
 	// Your-Menu metadata join. See pricing_catalog_supported_models_tk.go.
 	resp = service.FilterPublicCatalogToServable(resp)
-	// DecorateWithAvailability is nil-safe; when availability == nil (Phase 1
-	// with flag off) returns resp unchanged.
-	resp = service.DecorateWithAvailability(ctx, resp, h.availability)
+	// DecorateAndPruneByAvailability is nil-safe (availability == nil → resp
+	// unchanged). It badges every model AND removes the structurally-gone ones
+	// (upstream model_not_found → unreachable, e.g. an access-gated
+	// claude-fable-5) in one pass — the catalog self-heals from live
+	// model_availability instead of waiting for a manual servable-allowlist
+	// refresh. Degraded-but-present models (transient 5xx/network) keep their
+	// badge and stay listed. See pricing_catalog_availability_tk.go (us7 P0).
+	resp = service.DecorateAndPruneByAvailability(ctx, resp, h.availability)
 	c.JSON(http.StatusOK, resp)
 }

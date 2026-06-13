@@ -85,6 +85,17 @@ type MePricingCatalogService struct {
 	channels MePricingChannelLister
 	catalog  MePricingCatalogProvider
 	accounts MePricingAccountSource
+	// availability gates the unrestricted-account fallback on live
+	// model_availability so a structurally-gone model (us7 P0 2026-06-13)
+	// auto-drops from the menu without a manual servable-allowlist edit. Nil
+	// (Phase-1 / tests) degrades to "no gating" — the static allowlist alone.
+	availability MePricingAvailability
+}
+
+// MePricingAvailability is the read slice of PricingAvailabilityService the
+// menu needs: the per-(platform, model) verified-availability state.
+type MePricingAvailability interface {
+	GetAvailability(ctx context.Context, platform, modelID string) (AvailabilityState, error)
 }
 
 // NewMePricingCatalogService is the production constructor. Any nil
@@ -96,12 +107,14 @@ func NewMePricingCatalogService(
 	channels *ChannelService,
 	catalog *PricingCatalogService,
 	accounts *AccountService,
+	availability *PricingAvailabilityService,
 ) *MePricingCatalogService {
 	var (
-		k MePricingKeyAccess
-		c MePricingChannelLister
-		p MePricingCatalogProvider
-		a MePricingAccountSource
+		k     MePricingKeyAccess
+		c     MePricingChannelLister
+		p     MePricingCatalogProvider
+		a     MePricingAccountSource
+		avail MePricingAvailability
 	)
 	if keys != nil {
 		k = keys
@@ -115,7 +128,29 @@ func NewMePricingCatalogService(
 	if accounts != nil {
 		a = accounts
 	}
-	return &MePricingCatalogService{keys: k, channels: c, catalog: p, accounts: a}
+	if availability != nil {
+		avail = availability
+	}
+	return &MePricingCatalogService{keys: k, channels: c, catalog: p, accounts: a, availability: avail}
+}
+
+// pruneStructurallyGoneIDs drops model IDs that live model_availability reports
+// as structurally gone upstream (model_not_found → unreachable). Nil-safe: with
+// no availability dep (tests / Phase-1) the static list passes through
+// unchanged. Queried once per default-model list (not per account).
+func (s *MePricingCatalogService) pruneStructurallyGoneIDs(ctx context.Context, platform string, ids []string) []string {
+	if s == nil || s.availability == nil || len(ids) == 0 {
+		return ids
+	}
+	kept := make([]string, 0, len(ids))
+	for _, id := range ids {
+		st, err := s.availability.GetAvailability(ctx, platform, id)
+		if err == nil && tkAvailabilityStructurallyGone(st) {
+			continue
+		}
+		kept = append(kept, id)
+	}
+	return kept
 }
 
 // MePricingCatalogOptions selects which group the menu is built for.
@@ -545,7 +580,11 @@ func (s *MePricingCatalogService) fillAccountFallback(
 	if err != nil || len(accounts) == 0 {
 		return
 	}
-	platformDefaults := platformDefaultModelIDs(targetGroup.Platform)
+	// Self-heal (us7 P0 2026-06-13): drop models live model_availability reports
+	// as structurally gone (model_not_found → unreachable) so an upstream-retired
+	// model auto-disappears from the menu without a manual servable-allowlist
+	// edit — same gone-vs-degraded rule as the public /pricing storefront.
+	platformDefaults := s.pruneStructurallyGoneIDs(ctx, targetGroup.Platform, platformDefaultModelIDs(targetGroup.Platform))
 	for i := range accounts {
 		a := &accounts[i]
 		if !accountInGroupScope(a, targetGroup.Platform) {

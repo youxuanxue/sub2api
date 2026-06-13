@@ -198,6 +198,29 @@ func (f *ModelListFilter) FilterClientFacing(ctx context.Context, platform strin
 **事实源**，公开 catalog 仍要包含所有 priced 模型；只在 `availability` 字段里
 反映状态（§5），让客户端自行决定如何展示。
 
+#### 2.5.1 细分（us7 P0 2026-06-13）：「gone」隐藏 vs「degraded」徽章
+
+原 decorate-not-gate 把所有 `unreachable` 一视同仁（带徽章、不隐藏）。实践暴露一个
+盲点:**「上游不存在」≠「此刻不舒服」**。一个 access-gate / 退役的模型(上游回
+`model_not_found`,如 access-gated `claude-fable-5`)是**结构性消失**——不会自愈,
+带删除线徽章继续摆在橱窗里只是把过滤的活甩给客户;而一个正常模型偶发 5xx/网络抖动
+是**暂时降级**,直接隐藏会让它在橱窗里闪进闪出(`unreachable` 单样本即翻)。
+
+因此 handler 层(`pricing_catalog_handler_tk.go` → `service.DecorateAndPruneByAvailability`)
+按谓词 `tkAvailabilityStructurallyGone = (status=unreachable ∧ last_failure_kind=
+model_not_found)` **隐藏结构性消失的模型**,其余(含 5xx/network 触发的 unreachable、
+stale、untested)一律保留并带徽章。这不是反转「事实源」原则——全量 priced + 全状态
+真值仍在 `BuildPublicCatalog` 与 admin/可用性视图里;隐藏只发生在**公开橱窗呈现层**,
+且只针对上游确认不存在的模型。`model_not_found` 是 platform-wide 信号(模型存在与否
+与账号无关),与 `model_availability` 的 `(platform, model)` 全局键一致;account-level
+的 rate_limit/auth 失败永不置该 kind,故不会误隐藏。
+
+「我的菜单」unrestricted 回退(`me_pricing_catalog_tk.go:fillAccountFallback` →
+`pruneStructurallyGoneIDs`)套用**同一谓词**,与公开橱窗口径一致。两者共同把静态
+servable allowlist(`pricing_catalog_supported_models_tk.go`,手工 probe 刷新)降级为
+**兜底**而非唯一真值:模型上游消失后由 live `model_availability` 自动剔除,无需人肉摘
+allowlist(这正是 us7 fable-5 滞留要根治的 toil)。
+
 ## 3. 数据模型
 
 ### 3.1 新表 `model_availability`（migration `tk_009`，PR-1 已落）

@@ -275,7 +275,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	}
 	pricingCatalogHandler := handler.ProvideTKPricingCatalogHandler(pricingCatalogService, settingService, pricingAvailabilityService)
 	accountService := service.NewAccountService(accountRepository, groupRepository)
-	mePricingCatalogService := service.NewMePricingCatalogService(apiKeyService, channelService, pricingCatalogService, accountService)
+	mePricingCatalogService := service.NewMePricingCatalogService(apiKeyService, channelService, pricingCatalogService, accountService, pricingAvailabilityService)
 	mePricingCatalogHandler := handler.NewMePricingCatalogHandler(mePricingCatalogService)
 	qaHandler := handler.NewQAHandler(qaService)
 	edgeCapacityHandler := handler.ProvideEdgeCapacityHandler(accountRepository)

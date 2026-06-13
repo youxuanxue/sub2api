@@ -44,6 +44,59 @@ func DecorateWithAvailability(ctx context.Context, resp *PublicCatalogResponse, 
 	return decorated
 }
 
+// tkAvailabilityStructurallyGone reports whether availability says the model
+// does NOT EXIST upstream — `model_not_found` having flipped status to
+// `unreachable`. This is the "gone" half of the gone-vs-degraded split (us7 P0
+// 2026-06-13): a model the upstream rejects as not-found is structurally gone
+// (it will not self-recover) and is hidden from the servable surfaces, whereas
+// a model with TRANSIENT trouble (5xx / network / rate-limit → stale or
+// soft-unreachable) keeps its badge and stays listed — so a normal model having
+// a bad few minutes never flaps in and out of the storefront. model_not_found
+// is platform-wide (the model exists or it doesn't), which matches
+// model_availability's (platform, model) global keying; account-level signals
+// (rate_limit / auth) never set this kind, so they cannot hide a model here.
+func tkAvailabilityStructurallyGone(s AvailabilityState) bool {
+	return s.Status == AvailabilityStatusUnreachable && s.LastFailureKind == FailureKindModelNotFound
+}
+
+// DecorateAndPruneByAvailability overlays per-model availability badges AND
+// removes structurally-gone models (tkAvailabilityStructurallyGone) from the
+// catalog response, in a single pass (one GetAvailability per model). This is
+// the catalog self-heal: a model the upstream stops serving (e.g. an
+// access-gated claude-fable-5 answering 404 model_not_found) auto-disappears
+// from the public /pricing storefront without a manual servable-allowlist edit,
+// while degraded-but-present models keep their badge. svc == nil (Phase-1 flag
+// off) → returns resp unchanged. Replaces DecorateWithAvailability on the public
+// /pricing path; DecorateWithAvailability stays for badge-only callers/tests.
+func DecorateAndPruneByAvailability(ctx context.Context, resp *PublicCatalogResponse, svc *PricingAvailabilityService) *PublicCatalogResponse {
+	if svc == nil || resp == nil || len(resp.Data) == 0 {
+		return resp
+	}
+	out := &PublicCatalogResponse{
+		Object:    resp.Object,
+		UpdatedAt: resp.UpdatedAt,
+		Data:      make([]PublicCatalogModel, 0, len(resp.Data)),
+	}
+	for _, model := range resp.Data {
+		platform := inferPlatformFromVendor(model.Vendor)
+		if platform == "" {
+			out.Data = append(out.Data, model)
+			continue
+		}
+		state, err := svc.GetAvailability(ctx, platform, model.ModelID)
+		if err != nil {
+			out.Data = append(out.Data, model)
+			continue
+		}
+		if tkAvailabilityStructurallyGone(state) {
+			continue // gone upstream → hide from the storefront
+		}
+		model.Availability = stateToAvailability(state)
+		out.Data = append(out.Data, model)
+	}
+	return out
+}
+
 // inferPlatformFromVendor maps the vendor string in the catalog to the
 // platform string used in model_availability. Vendor values come from the
 // litellm_provider field in model_pricing.json.
