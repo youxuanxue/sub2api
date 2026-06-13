@@ -71,11 +71,13 @@
         "supportedAnthropicCatalogModels",
         "supportedOpenAICatalogModels",
         "supportedGeminiCatalogModels",
+        "supportedAntigravityCatalogModels",
         "servable-allowlist:begin anthropic",
         "servable-allowlist:begin openai",
-        "servable-allowlist:begin gemini"
+        "servable-allowlist:begin gemini",
+        "servable-allowlist:begin antigravity"
       ],
-      "rationale": "Single source for the empirically-servable claude + gpt sets, shared by the public /pricing presentation filter (FilterPublicCatalogToServable) and the Your-Menu unrestricted-account fallback (supportedCatalogModelIDsForPlatform). Losing the allowlist vars would silently widen both surfaces back to the full unservable set; losing the funcs breaks both call sites. The `servable-allowlist:begin/end` splice markers are load-bearing for ops/pricing/refresh-servable-allowlist.py (it rewrites the maps between them); an upstream merge that drops the markers would break the re-runnable refresh. Other vendors (gemini, deepseek, …) intentionally pass through — only the claude + gpt families are curated."
+      "rationale": "Single source for the empirically-servable claude + gpt sets, shared by the public /pricing presentation filter (FilterPublicCatalogToServable) and the Your-Menu unrestricted-account fallback (supportedCatalogModelIDsForPlatform). Losing the allowlist vars would silently widen both surfaces back to the full unservable set; losing the funcs breaks both call sites. The `servable-allowlist:begin/end` splice markers are load-bearing for ops/pricing/refresh-servable-allowlist.py (it rewrites the maps between them); an upstream merge that drops the markers would break the re-runnable refresh. The antigravity allowlist (supportedAntigravityCatalogModels, gemini-only per operator policy — claude routed to anthropic, gpt-oss off antigravity) is hand-maintained from the 2026-06-13 empirical probe (the refresh tool has no antigravity family, so it never rewrites the antigravity anchors); losing it silently reverts antigravity to passthrough. Other vendors (deepseek, …) intentionally pass through — claude + gpt + antigravity-gemini are curated."
     },
     {
       "path": "backend/internal/service/pricing_catalog_candidates_tk.go",
@@ -98,9 +100,10 @@
       "path": "backend/internal/service/pricing_catalog_tk_test.go",
       "must_contain": [
         "TestPublicCatalog_FiltersUnservableClaudeAndGpt",
-        "TestIsPublicCatalogModelSupported"
+        "TestIsPublicCatalogModelSupported",
+        "TestSupportedCatalogModelIDsForPlatform_Antigravity"
       ],
-      "rationale": "Regression coverage for the public-catalog support filter: asserts retired/unservable claude+gpt rows are pruned, servable ones kept, and non-curated vendors pass through. Pinned so an upstream merge that rewrites the catalog test file cannot silently drop the filter's regression guard. (This file also matches the *_tk_*.go hotspot via its _tk_test.go suffix, so the registry-update gate requires it to be tracked in a sentinel registry; pricing-availability is its correct domain.)"
+      "rationale": "Regression coverage for the public-catalog support filter: asserts retired/unservable claude+gpt rows are pruned, servable ones kept, the antigravity gate is gemini-only (claude + gpt-oss excluded), and non-curated vendors pass through. Pinned so an upstream merge that rewrites the catalog test file cannot silently drop the filter's regression guard. (This file also matches the *_tk_*.go hotspot via its _tk_test.go suffix, so the registry-update gate requires it to be tracked in a sentinel registry; pricing-availability is its correct domain.)"
     },
     {
       "path": "backend/internal/service/pricing_catalog_tk.go",
