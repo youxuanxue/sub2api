@@ -202,7 +202,8 @@ describe('UseKeyModal', () => {
     expect(models['gemini-3.5-flash-low'].name).toBe('Gemini 3.5 Flash (Medium)')
     expect(models['gemini-3.5-flash-low'].options.thinking).toEqual({ budgetTokens: 4000, type: 'enabled' })
     expect(models['gemini-pro-agent']).toBeDefined()
-    expect(models['gpt-oss-120b-medium']).toBeDefined()
+    // gpt-oss 已从 antigravity 服务面移除（和 claude 一样）
+    expect(models['gpt-oss-120b-medium']).toBeUndefined()
   })
 
   it('renders anti-down-grading env vars in Claude Code tab and keeps NONESSENTIAL_TRAFFIC commented out', async () => {

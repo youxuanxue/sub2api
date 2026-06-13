@@ -930,12 +930,6 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
       modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
       options: { thinking: { budgetTokens: 10001, type: 'enabled' } }
     },
-    'gpt-oss-120b-medium': {
-      name: 'GPT-OSS 120B (Medium)',
-      limit: { context: 131072, output: 32768 },
-      modalities: { input: ['text'], output: ['text'] },
-      options: { thinking: { budgetTokens: 8192, type: 'enabled' } }
-    },
     'gemini-2.5-flash': {
       name: 'Gemini 2.5 Flash',
       limit: {

@@ -75,18 +75,6 @@
     "supports_reasoning": true,
     "source": "TK overlay: Antigravity wire id (app 'Gemini 3.1 Pro (High)', thinkingBudget 10001; also the migration target of deprecated gemini-3.1-pro-high) priced at equivalent public model gemini-3.1-pro market rate, no markup (in $2/M, out $12/M, cache $0.2/M). Ref: backend/resources/model-pricing/model_prices_and_context_window.json gemini-3.1-pro-low/-high; captured 2026-06-13 via /v1internal:fetchAvailableModels. Billing keys on requested_model."
   },
-  "gpt-oss-120b-medium": {
-    "litellm_provider": "antigravity",
-    "mode": "chat",
-    "input_cost_per_token": 1.5e-07,
-    "output_cost_per_token": 6e-07,
-    "cache_read_input_token_cost": 1.5e-08,
-    "max_input_tokens": 131072,
-    "max_output_tokens": 32768,
-    "supports_function_calling": true,
-    "supports_reasoning": true,
-    "source": "TK overlay: Antigravity wire id (app 'GPT-OSS 120B (Medium)', thinkingBudget 8192) at GPT-OSS-120B representative public market rate, no markup (in $0.15/M, out $0.60/M, cache $0.015/M). gpt-oss-120b is open-weight; provider spread is ~$0.04-0.15/M in & $0.10-0.60/M out across OpenRouter/Google-Vertex/DeepInfra (https://artificialanalysis.ai/models/gpt-oss-120b) — using the Vertex/Artificial-Analysis representative (Antigravity is Google-hosted). Captured 2026-06-13 via /v1internal:fetchAvailableModels. Billing keys on requested_model; adjust here if a firmer rate is chosen."
-  },
   "deepseek-v4-flash": {
     "litellm_provider": "deepseek",
     "mode": "chat",
