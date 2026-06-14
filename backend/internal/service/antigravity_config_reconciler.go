@@ -29,6 +29,7 @@ package service
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -199,6 +200,25 @@ func (r *AntigravityConfigReconciler) tryAcquireLock() (func(), bool) {
 	}, true
 }
 
+// antigravityCanServeExcluded reports whether an antigravity account can still
+// serve a claude-* or gpt-oss-* model and therefore violates the gemini-only
+// policy. Two complementary checks (mirroring the post-rollout
+// check-antigravity-account-config.py invariant so the reconciler heals exactly
+// what the check flags):
+//   - scan the resolved mapping keys for a claude-* / gpt-oss-* prefix — catches
+//     ANY excluded id (e.g. claude-opus-4-8), not just the probe ids, and catches
+//     the empty-map case (which resolves to DefaultAntigravityModelMapping);
+//   - probe the representative ids — catches a catch-all wildcard (e.g. "*") that
+//     would match claude/gpt-oss without carrying a literal claude-* key.
+func antigravityCanServeExcluded(a *Account) bool {
+	for k := range a.GetModelMapping() {
+		if strings.HasPrefix(k, "claude-") || strings.HasPrefix(k, "gpt-oss-") {
+			return true
+		}
+	}
+	return a.IsModelSupported(antigravityClaudeProbeModel) || a.IsModelSupported(antigravityGptOssProbeModel)
+}
+
 // runOnce enforces gemini-only model_mapping on every antigravity account in the
 // LOCAL DB. An account that can still serve claude/gpt-oss (an empty mapping
 // falls back to DefaultAntigravityModelMapping, which includes both) has its
@@ -218,7 +238,7 @@ func (r *AntigravityConfigReconciler) runOnce(ctx context.Context) {
 	var drifted []int64
 	for i := range accounts {
 		a := &accounts[i]
-		if a.IsModelSupported(antigravityClaudeProbeModel) || a.IsModelSupported(antigravityGptOssProbeModel) {
+		if antigravityCanServeExcluded(a) {
 			drifted = append(drifted, a.ID)
 		}
 	}

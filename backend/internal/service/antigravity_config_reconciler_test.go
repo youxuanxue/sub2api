@@ -90,6 +90,37 @@ func TestAntigravityReconciler_OnlyDriftedAccountsRewritten(t *testing.T) {
 	require.Equal(t, []int64{1}, acc.bulkCalls[0].ids)
 }
 
+// R-001 regression: a custom mapping that serves a claude id OTHER than the probe
+// id (claude-opus-4-8, no claude-sonnet-4-6, no gpt-oss, no wildcard) must still be
+// detected as drifted and reconciled — the key scan catches any claude-* key, not
+// just the probe id. This aligns the reconciler with the post-rollout check, which
+// flags any claude-*/gpt-oss-* key.
+func TestAntigravityReconciler_NonProbeClaudeId_StillReconciled(t *testing.T) {
+	acc := &reconcilerAccountStub{
+		byPlatform: map[string][]Account{
+			PlatformAntigravity: {
+				{
+					ID:       9,
+					Platform: PlatformAntigravity,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{
+							"claude-opus-4-8":      "claude-opus-4-8",
+							"gemini-3.5-flash-low": "gemini-3.5-flash-low",
+						},
+					},
+				},
+			},
+		},
+	}
+	r := NewAntigravityConfigReconciler(acc, nil, nil)
+	r.runOnce(context.Background())
+
+	require.Len(t, acc.bulkCalls, 1, "custom map with claude-opus must be reconciled")
+	require.Equal(t, []int64{9}, acc.bulkCalls[0].ids)
+	mm := acc.bulkCalls[0].updates.Credentials["model_mapping"].(map[string]any)
+	require.NotContains(t, mm, "claude-opus-4-8")
+}
+
 // Nil store / nil reconciler must be safe (mirrors the wire minimal-deps smoke).
 func TestAntigravityReconciler_NilSafe(t *testing.T) {
 	var nilRec *AntigravityConfigReconciler
