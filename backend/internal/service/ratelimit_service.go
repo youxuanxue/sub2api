@@ -564,6 +564,11 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		// ratelimit_service_tk_nonauthoritative_429.go.
 		if account.Platform == PlatformAnthropic && s.tkSkipAnthropicNonAuthoritative429(ctx, headers, responseBody) {
 			tkLogAnthropicNonAuthoritative429Skip(account, statusCode)
+			// TK: feed the bounded saturation de-prioritization preference, same as the
+			// two sibling capacity-envelope skips above — a header-less envelope means
+			// the forwarded-to edge is transiently dry, so bias scheduling away from it
+			// (no cooldown; ladder untouched). See ratelimit_service_tk_saturation.go.
+			s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "non_authoritative_429")
 			return true
 		}
 		// handle429 returns true when SetRateLimited landed on an upstream-
