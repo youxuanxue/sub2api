@@ -1579,6 +1579,31 @@
       "rationale": "Per-node in-process self-healer that drops the ops/anthropic high-frequency safe-item writes into the backend: operator-Σ alignment, prod stub pool_mode, edge balance floor, and the surface-C concurrency mirror — plus REPORT-ONLY tier drift (never silently rewrites a UI-set tier). The surface-C 'never write 0 on a failed edge read' invariant and the report-only tier-drift boundary are load-bearing correctness properties; a silent upstream-merge deletion or weakening must be caught."
     },
     {
+      "path": "backend/internal/service/antigravity_config_reconciler.go",
+      "must_contain": [
+        "func (r *AntigravityConfigReconciler) runOnce(",
+        "func antigravityCanServeExcluded(",
+        "domain.GeminiOnlyAntigravityModelMapping"
+      ],
+      "rationale": "Per-node in-process self-healer that enforces the operator policy 'Antigravity serves gemini only' by rewriting every antigravity account's credentials.model_mapping to domain.GeminiOnlyAntigravityModelMapping (claude routed to anthropic, gpt-oss off antigravity). It is a plain-named (non-_tk_) service file that is compile-clean if dropped, so an upstream merge or refactor could silently delete it and the gemini-only auto-sync would stop with no test failure. antigravityCanServeExcluded is the load-bearing drift predicate (scan claude-*/gpt-oss-* keys + catch-all-wildcard probe) that must stay aligned with the post-rollout check ops/antigravity/check-antigravity-account-config.py; weakening it back to a two-id probe re-opens the claude-leak the reconciler exists to close (xj-review R-001)."
+    },
+    {
+      "path": "backend/internal/domain/constants.go",
+      "must_contain": [
+        "func buildGeminiOnlyAntigravityModelMapping(",
+        "strings.HasPrefix(k, \"claude-\") || strings.HasPrefix(k, \"gpt-oss-\")"
+      ],
+      "rationale": "GeminiOnlyAntigravityModelMapping — the canonical map the AntigravityConfigReconciler writes onto every antigravity account — is derived once at package init from DefaultAntigravityModelMapping by dropping claude-* / gpt-oss-* keys. A silent upstream-merge change to (or removal of) the builder's prefix filter would let claude/gpt-oss back into the map the reconciler writes, i.e. silently serve claude on antigravity — the exact backward-drift this guards. Locked by TestGeminiOnlyAntigravityModelMapping too; this sentinel additionally catches a source revert that lands without the test running."
+    },
+    {
+      "path": "backend/internal/service/wire.go",
+      "must_contain": [
+        "func ProvideAntigravityConfigReconciler(",
+        "ProvideAntigravityConfigReconciler,"
+      ],
+      "rationale": "AntigravityConfigReconciler DI registration. If the provider drops out of ProviderSet (the trailing-comma membership line) while its provider func and cmd/server cleanup parameter remain, the build still compiles and wire just never constructs/Start()s the reconciler — the gemini-only auto-sync silently never runs. Pin both the provider definition and the ProviderSet membership so a silent upstream-merge drop is caught (mirrors the ProvideHoldReconcilerService guard)."
+    },
+    {
       "path": "backend/internal/service/anthropic_config_reconciler_tk_account_baseline.go",
       "must_contain": [
         "func (r *AnthropicConfigReconciler) reconcileAccountBaselineDrift(",
