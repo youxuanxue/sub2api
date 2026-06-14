@@ -88,11 +88,15 @@ func TestRateLimitService_HandleUpstreamError_Anthropic429PreciseResetSuppresses
 		"3/3 short-window counter advanced on every 429")
 }
 
-// 429 without an upstream reset header falls back to handle429's
-// apply429FallbackRateLimit; that path is NOT considered an "authoritative
-// upstream cooldown" so the ladder cooldown write SHOULD still happen
-// (otherwise we lose the only signal that the account is failing).
-func TestRateLimitService_HandleUpstreamError_Anthropic429NoResetHeaderStillLadders(t *testing.T) {
+// A 429 carrying NO anthropic-ratelimit-* header is non-authoritative (真窗口限流
+// 一定带头): it is the edge's capacity / failover envelope ("Upstream rate limit
+// exceeded …", "No available accounts", …) relayed to a mirror stub, NOT a
+// failing-account signal. It must fail over WITHOUT a fallback cooldown or 3/3
+// ladder advance — cooling a healthy stub here is what locked cc-us7 (2026-06-13
+// 23:11, tier-0 30s). See ratelimit_service_tk_nonauthoritative_429.go. (A
+// header-FUL genuine window-limit still ladders — see
+// TestRateLimitService_HandleUpstreamError_Genuine429_StillPenalizes.)
+func TestRateLimitService_HandleUpstreamError_Anthropic429NoResetHeaderIsNonAuthoritative(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	counter := &anthropicUpstreamErrorCounterCacheStub{
 		counts:     []int64{1, 2, 3},
@@ -112,13 +116,15 @@ func TestRateLimitService_HandleUpstreamError_Anthropic429NoResetHeaderStillLadd
 			context.Background(),
 			account,
 			http.StatusTooManyRequests,
-			http.Header{}, // no reset header
-			[]byte(`{"error":{"message":"some other 429 without reset hint"}}`),
+			http.Header{}, // no anthropic-ratelimit-* header => non-authoritative
+			[]byte(`{"error":{"message":"some header-less 429 envelope"}}`),
 		)
 	}
 
-	require.Equal(t, 1, repo.tempCalls,
-		"third 429 without reset header MUST land the ladder cooldown — that's the only signal of a failing account")
+	require.Equal(t, 0, repo.tempCalls,
+		"header-less (non-authoritative) 429 must NOT land a ladder cooldown on a healthy account")
+	require.Empty(t, counter.incrementIDs,
+		"header-less 429 must NOT advance the 3/3 ladder counter")
 }
 
 // --- P3: 529 short floor, then ladder escalates on sustained ------------------

@@ -450,6 +450,12 @@ const (
 	// SettingKeyRateLimit429CooldownSettings stores JSON config for 429 fallback cooldown handling.
 	SettingKeyRateLimit429CooldownSettings = "rate_limit_429_cooldown_settings"
 
+	// SettingKeyAnthropicNonAuthoritative429Failover gates whether an Anthropic 429
+	// carrying NO anthropic-ratelimit-* headers is treated as non-authoritative
+	// (fail over without cooldown / 3/3 ladder). Empty/unset => default true.
+	// See ratelimit_service_tk_nonauthoritative_429.go.
+	SettingKeyAnthropicNonAuthoritative429Failover = "anthropic_non_authoritative_429_failover"
+
 	// =========================
 	// Stream Timeout Handling
 	// =========================

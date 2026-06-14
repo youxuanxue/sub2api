@@ -553,6 +553,19 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "all_available_accounts_exhausted")
 			return true
 		}
+		// TK: a 429 with NO authoritative anthropic-ratelimit-* headers is not a
+		// real account window limit (真窗口限流一定带头). This generalises the two
+		// needle-based skips above to catch the edge's header-less rate-limit
+		// failover-exhausted envelope ("Upstream rate limit exceeded, please retry
+		// later") — which neither needle matched and which cooled cc-us7 via the
+		// 3/3 ladder — plus any other header-less provider 429. Fail over without a
+		// fallback cooldown or ladder advance; a real relayed window-limit still
+		// carries the headers and is unaffected. See
+		// ratelimit_service_tk_nonauthoritative_429.go.
+		if account.Platform == PlatformAnthropic && s.tkSkipAnthropicNonAuthoritative429(ctx, headers, responseBody) {
+			tkLogAnthropicNonAuthoritative429Skip(account, statusCode)
+			return true
+		}
 		// handle429 returns true when SetRateLimited landed on an upstream-
 		// provided reset time. If so, suppress the ladder's parallel
 		// SetTempUnschedulable write (last-write-wins would otherwise

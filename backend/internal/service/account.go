@@ -856,14 +856,19 @@ func (a *Account) IsCustomErrorCodesEnabled() bool {
 }
 
 // IsPoolMode 检查 API Key / Bedrock 账号是否启用池模式。
-// 池模式下，上游错误不标记本地账号状态，行为对所有平台统一：
+// 池模式下：
 //   - 401 / 403 / 429（默认）或 per-account pool_mode_retry_status_codes 配置的
 //     状态码：在同账号 in-place retry N 次
 //     （N = GetPoolModeRetryCount，默认 3，最大 10；见 isPoolModeRetryableStatus）；
-//   - retry 全部用尽后由上层 failover 自然切下一账号，不写入
-//     temp_unschedulable_until / rate_limited_at / error 等本地状态字段；
-//   - Anthropic 平台额外跳过 handleAnthropicUpstreamError 内的 3/3
-//     短窗 temp_unschedulable 阈值，避免级联拉黑。
+//   - retry 全部用尽后由上层 failover 自然切下一账号。
+//
+// 「不写本地状态」只对**非 Anthropic** 平台成立：HandleUpstreamError 的 pool_mode
+// 跳过短路带 `&& Platform != PlatformAnthropic`（见 ratelimit_service.go），所以
+// **Anthropic 的 pool_mode 账号仍然走 handle429 + 3/3 阶梯冷却**——pool_mode 不豁免
+// anthropic 冷却。anthropic 侧真正的豁免是各 capacity / 非权威信封跳过：
+// tkSkipDownstreamNoAvailableAccountsPenalty / tkSkipDownstreamFailoverExhaustedPenalty /
+// tkSkipAnthropicNonAuthoritative429（无 anthropic-ratelimit-* 头）。注意 pool_mode 的
+// 同账号重试此前会逐跳重喂 3/3 阶梯，故 tkRetryableOnSameAccount 对非权威 429 关掉重试。
 //
 // OAuth 账号永远返回 false（IsAPIKeyOrBedrock 前置）。
 func (a *Account) IsPoolMode() bool {
