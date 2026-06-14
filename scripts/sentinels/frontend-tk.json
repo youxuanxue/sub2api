@@ -18,6 +18,47 @@
       "rationale": "AppSidebar's expanded-rail width must reference the TK constant. Without this reference an upstream merge could silently restore the literal `w-64` and the sidebar visually reverts to upstream — compiles fine, no runtime error, just wrong-looking UI."
     },
     {
+      "path": "frontend/src/components/layout/AppSidebar.vue",
+      "must_contain": [
+        "t('nav.studio')"
+      ],
+      "rationale": "The Media Studio (/studio) user-nav entry. Without this anchor an upstream merge to the nav builder could silently drop the Studio link, hiding the image/video generation surface from users while everything still compiles."
+    },
+    {
+      "path": "frontend/src/views/user/studio/MediaStudioView.vue",
+      "must_contain": [
+        "data-testid=\"studio-mode-image\"",
+        "data-testid=\"studio-mode-video\"",
+        "data-testid=\"studio-mode-bakeoff\""
+      ],
+      "rationale": "The Studio's EXPLICIT image|video|bake-off modality tabs are the source of truth for which gateway endpoint a request hits — replacing the old modalityForModel() id-prefix guess that silently misrouted non-{seedance,veo,gpt-image,imagen,seedream} media model ids to /v1/chat/completions. The bake-off tab opens the cross-model compare view (BakeOff.vue). Losing these tabs regresses to implicit-modality misrouting or hides a generation surface."
+    },
+    {
+      "path": "frontend/src/views/user/studio/BakeOff.vue",
+      "must_contain": [
+        "data-testid=\"bakeoff-tier\"",
+        "data-testid=\"studio-bakeoff-run\"",
+        "data-testid=\"bakeoff-panel\""
+      ],
+      "rationale": "BakeOff.vue is the TK-only Studio 'bake-off' compare surface — one prompt rendered across 2-4 priced image/video models side by side, each panel showing its own real price + latency. It is mounted by MediaStudioView.vue (view==='bakeoff') and is the only multi-model compare flow; the test-ids are the contract the studio e2e (frontend/e2e/studio.e2e.ts) drives and the anchors that keep an upstream merge from silently dropping the view (compiles green, feature gone). Note: the bakeoff image/video sub-mode toggle reuses data-testid=\"bakeoff-mode-image\"/\"bakeoff-mode-video\"; the run button + tier chips + result panels are anchored here."
+    },
+    {
+      "path": "frontend/src/utils/mediaCostEstimate.tk.ts",
+      "must_contain": [
+        "export function estimateImageCost",
+        "export function estimateVideoCost"
+      ],
+      "rationale": "Single source of truth for the client-side media cost MIRROR (price on the Generate button + cost panel + pricing estimator). Must stay aligned with backend CalculateImageCost / CalculateVideoCost; deleting it silently drops the pre-generation price the whole 'price on the button' UX depends on."
+    },
+    {
+      "path": "frontend/src/views/PricingView.vue",
+      "must_contain": [
+        "row.billingMode === 'image'",
+        "row.billingMode === 'video'"
+      ],
+      "rationale": "The /pricing media rendering branches (per-image / per-second). Without them media models render as '—' (the pre-batch-2 bug); an upstream merge that reverts the price cell to token-only silently hides image/video prices from buyers."
+    },
+    {
       "path": "frontend/src/components/layout/AppLayout.vue",
       "must_contain": [
         "TK_SIDEBAR_MAIN_MARGIN_CLASS"
@@ -636,12 +677,9 @@
     {
       "path": "frontend/src/views/user/PlaygroundView.vue",
       "must_contain": [
-        "modalityForModel",
-        "gatewayImageGenerations",
-        "gatewayVideoSubmit",
-        "scheduleVideoPoll"
+        "modalityForModel"
       ],
-      "rationale": "Playground image/video modes: modality switch off the selected model, sync image generation, and the vt_ task submit→poll loop (poll key captured at submit time; fetch error or terminal status ends the loop — server deletes terminal records and TTLs the rest at 24h). Dropping this wiring silently reverts media models to chat submits that can only error."
+      "rationale": "The Playground is now CHAT-ONLY: image/video generation moved to the Media Studio (/studio) where the price-on-button + login/balance gating lives. modalityForModel is retained here ONLY as a list FILTER (models.value = (list.data||[]).filter(m => modalityForModel(m.id) === 'chat')) so media model ids never appear in the chat picker where they could only 400 against /v1/chat/completions. The old playground media submit/poll wiring (gatewayImageGenerations / gatewayVideoSubmit / scheduleVideoPoll) was intentionally removed by the media-studio feature; its guard role moved to the Studio sentinels below (MediaStudioView modality tabs, mediaCostEstimate.tk exports, playgroundMedia.tk parsing). If an upstream merge drops this filter, the playground re-lists media models that can only error."
     },
     {
       "path": "frontend/src/api/playground.ts",

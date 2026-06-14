@@ -83,6 +83,38 @@ func TestPricingCatalogService_ParsesLiteLLMShape(t *testing.T) {
 	assert.Contains(t, gpt.Capabilities, "vision")
 }
 
+// TestPublicCatalog_SurfacesMediaUnits pins the batch-2 media surfacing: an
+// image_generation entry (output_cost_per_image) and a video_generation entry
+// (output_cost_per_second) — both with NO token price — must appear with their
+// billing_mode + per-unit price instead of being dropped by the old token-only
+// guard. This is the data the /pricing page and Studio render as "$0.04 /image"
+// and "$0.40 /s" (docs/playground-media-redesign.md batch 2).
+func TestPublicCatalog_SurfacesMediaUnits(t *testing.T) {
+	const fixture = `{
+	  "imagen-4.0-generate-001": {"output_cost_per_image":0.04,"mode":"image_generation","litellm_provider":"vertex_ai"},
+	  "veo-3.1-generate-001":    {"output_cost_per_second":0.4,"mode":"video_generation","litellm_provider":"vertex_ai"}
+	}`
+	resp := buildCatalogFromBytes([]byte(fixture), time.Date(2026, 6, 13, 0, 0, 0, 0, time.UTC))
+	require.NotNil(t, resp)
+	byID := make(map[string]PublicCatalogModel, len(resp.Data))
+	for _, m := range resp.Data {
+		byID[m.ModelID] = m
+	}
+
+	img, ok := byID["imagen-4.0-generate-001"]
+	require.True(t, ok, "image model must surface (not dropped by the token-only guard)")
+	assert.Equal(t, "image", img.Pricing.BillingMode)
+	assert.InDelta(t, 0.04, img.Pricing.OutputCostPerImage, 1e-9)
+	assert.Zero(t, img.Pricing.OutputCostPerSecond)
+	assert.Zero(t, img.Pricing.InputPer1KTokens, "media has no token price")
+
+	vid, ok := byID["veo-3.1-generate-001"]
+	require.True(t, ok, "video model must surface")
+	assert.Equal(t, "video", vid.Pricing.BillingMode)
+	assert.InDelta(t, 0.4, vid.Pricing.OutputCostPerSecond, 1e-9)
+	assert.Zero(t, vid.Pricing.OutputCostPerImage)
+}
+
 // TestPricingCatalogService_AppliesTKOverlayPricing pins the display-side overlay
 // merge: models priced ONLY in tk_pricing_overlay.json (deepseek-v4-pro, doubao-*,
 // glm-4-7-251222 — the VolcEngine fifth-platform batch + deepseek) must surface in

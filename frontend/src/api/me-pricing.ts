@@ -15,8 +15,8 @@
 
 import { apiClient } from './client'
 
-/** Billing mode mirrors backend service.BillingMode. */
-export type MePricingBillingMode = 'token' | 'per_request' | 'image' | string
+/** Billing mode mirrors backend service.BillingMode (+ 'video' for per-second media). */
+export type MePricingBillingMode = 'token' | 'per_request' | 'image' | 'video' | string
 
 /**
  * Official list price (field name kept as `your_price` for DTO stability,
@@ -33,6 +33,10 @@ export interface MePricingPrice {
   cache_write_per_1k?: number
   image_output_per_1k?: number
   per_request?: number
+  /** USD per generated image (image billing_mode), scaled by the user's rate. */
+  per_image?: number
+  /** USD per second of generated video (video billing_mode), scaled by the user's rate. */
+  per_second?: number
 }
 
 export interface MePricingModel {

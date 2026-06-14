@@ -216,6 +216,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/studio',
+    name: 'Studio',
+    component: () => import('@/views/user/studio/MediaStudioView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Studio',
+      titleKey: 'studio.title',
+      descriptionKey: 'studio.subtitle'
+    }
+  },
+  {
     path: '/keys',
     name: 'Keys',
     component: () => import('@/views/user/KeysView.vue'),

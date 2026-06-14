@@ -3,10 +3,81 @@
 package service
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+// videoRefundLogRepoStub satisfies the narrow lookup/create capability the refund
+// needs; it embeds UsageLogRepository so the rest of the interface is unused.
+type videoRefundLogRepoStub struct {
+	UsageLogRepository
+	orig      *UsageLog
+	lookupErr error
+	created   *UsageLog
+}
+
+func (s *videoRefundLogRepoStub) GetVideoUsageByBillingRequestID(_ context.Context, _ string, _ int64) (*UsageLog, error) {
+	return s.orig, s.lookupErr
+}
+
+func (s *videoRefundLogRepoStub) Create(_ context.Context, log *UsageLog) (bool, error) {
+	s.created = log
+	return true, nil
+}
+
+type videoRefundBillingRepoStub struct {
+	UsageBillingRepository
+	applied    bool
+	applyErr   error
+	applyCalls int
+}
+
+func (s *videoRefundBillingRepoStub) ApplyVideoRefund(_ context.Context, _ *VideoRefundCommand) (bool, error) {
+	s.applyCalls++
+	return s.applied, s.applyErr
+}
+
+// TestRefundVideoUsageOnFailure_Outcomes covers the outcome enum the handler's
+// bounded re-attempt loop keys on. The money math (buildVideoRefundFromUsage) is
+// covered above; the applied (money-moving) path also exercises billingDeps/Create
+// and is covered by the repository integration test, so the cases here stop at
+// the pre-cache decision points.
+func TestRefundVideoUsageOnFailure_Outcomes(t *testing.T) {
+	rec := &VideoTaskRecord{PublicTaskID: "vt_x", UserID: 7, APIKeyID: 11, BillingRequestID: "local:req-1"}
+
+	t.Run("no billing request id is skipped", func(t *testing.T) {
+		svc := &OpenAIGatewayService{usageLogRepo: &videoRefundLogRepoStub{}, usageBillingRepo: &videoRefundBillingRepoStub{}}
+		require.Equal(t, VideoRefundSkipped, svc.RefundVideoUsageOnFailure(context.Background(), &VideoTaskRecord{PublicTaskID: "vt_nobill"}))
+	})
+
+	t.Run("billed row not landed yet is retryable (pending)", func(t *testing.T) {
+		svc := &OpenAIGatewayService{usageLogRepo: &videoRefundLogRepoStub{orig: nil}, usageBillingRepo: &videoRefundBillingRepoStub{}}
+		require.Equal(t, VideoRefundOriginPending, svc.RefundVideoUsageOnFailure(context.Background(), rec))
+	})
+
+	t.Run("lookup error is failed (not retryable here)", func(t *testing.T) {
+		svc := &OpenAIGatewayService{usageLogRepo: &videoRefundLogRepoStub{lookupErr: errors.New("db down")}, usageBillingRepo: &videoRefundBillingRepoStub{}}
+		require.Equal(t, VideoRefundFailed, svc.RefundVideoUsageOnFailure(context.Background(), rec))
+	})
+
+	t.Run("zero-cost original is nothing-to-refund", func(t *testing.T) {
+		svc := &OpenAIGatewayService{usageLogRepo: &videoRefundLogRepoStub{orig: &UsageLog{UserID: 7, ActualCost: 0}}, usageBillingRepo: &videoRefundBillingRepoStub{}}
+		require.Equal(t, VideoRefundNothing, svc.RefundVideoUsageOnFailure(context.Background(), rec))
+	})
+
+	t.Run("idempotent no-op when applier reports already applied", func(t *testing.T) {
+		billing := &videoRefundBillingRepoStub{applied: false}
+		svc := &OpenAIGatewayService{
+			usageLogRepo:     &videoRefundLogRepoStub{orig: &UsageLog{UserID: 7, APIKeyID: 11, ActualCost: 0.5, TotalCost: 0.5, BillingType: BillingTypeBalance}},
+			usageBillingRepo: billing,
+		}
+		require.Equal(t, VideoRefundAlreadyApplied, svc.RefundVideoUsageOnFailure(context.Background(), rec))
+		require.Equal(t, 1, billing.applyCalls)
+	})
+}
 
 func TestBuildVideoRefundFromUsage_BalanceMode(t *testing.T) {
 	groupID := int64(3)

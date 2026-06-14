@@ -50,6 +50,15 @@ export default {
     ctaBonus: 'Register — get {amount} trial credit',
     ctaBonusHint: 'Shown when signup bonus is enabled for this site.',
     perRequest: '/ request',
+    perImage: '/ image',
+    perSecond: '/ second',
+    videoClipExample: '5s {five} · 10s {ten}',
+    modality: {
+      all: 'All',
+      text: 'Text',
+      image: 'Image',
+      video: 'Video'
+    },
     // TK: authenticated "Group Catalog" view (GET /api/v1/me/pricing-catalog).
     // Prices always show official list pricing, decoupled from group/override
     // multipliers.
@@ -114,6 +123,7 @@ export default {
     clear: 'Clear chat',
     emptyHint: 'Send a message to see the assistant reply here.',
     manageKeys: 'Manage API keys',
+    mediaInStudio: 'Image / video → Studio',
     noApiKey: 'No active API key found. Create one under API Keys.',
     noModels: 'No models returned for your key. Check group routing or try another key.',
     loadFailed: 'Could not load playground.',
@@ -151,6 +161,120 @@ export default {
     videoStatusProcessing: 'Processing',
     videoStatusSucceeded: 'Succeeded',
     videoStatusFailed: 'Failed'
+  },
+
+  // Media Studio (image / video generation) — TK
+  studio: {
+    title: 'Studio',
+    subtitle: 'Generate images and video across every platform — one key, the price on the button, results that play right here.',
+    balance: 'Balance',
+    apiKey: 'API Key',
+    pickKeyPlaceholder: 'Select an API key…',
+    loadingModels: 'Loading models…',
+    noModels: 'No models returned for your key. Check group routing or try another key.',
+    loadFailed: 'Could not load Studio.',
+    noApiKey: 'No active API key found. Create one under API Keys.',
+    manageKeys: 'Manage API keys',
+    defaultGroup: 'Default group',
+    modeImage: 'Image',
+    modeVideo: 'Video',
+    modeBakeoff: 'Bake-Off',
+    clear: 'Clear',
+    topUp: 'Top up',
+    viewPricing: 'See pricing',
+    via: 'via {vendor}',
+    bakeoff: {
+      hint: 'One prompt, several models side by side — each with its real price and speed.',
+      needTwo: 'Need at least two priced models in this group to compare.',
+      promptPlaceholder: 'Describe what to generate across models…',
+      pickModels: 'Compare:',
+      run: 'Generate across {count}',
+      running: 'Generating…',
+      totalCost: 'Total ≈ {cost}',
+      cannotAfford: 'Balance too low for this run.',
+      generating: 'Generating…',
+      failed: 'Failed'
+    },
+    cost: {
+      thisGeneration: 'This generation',
+      thisVideo: 'This video',
+      estimate: 'Estimate',
+      balance: 'Balance',
+      afterGeneration: 'After'
+    },
+    errors: {
+      insufficient_balance: 'Insufficient balance — top up to generate.',
+      permission: 'This group is not enabled for this generation type.',
+      unpriced: 'This model is not available for generation right now.',
+      rate_limited: 'Too many requests — slow down and try again shortly.',
+      unauthorized: 'Your API key is invalid or expired.',
+      generic: 'Generation failed. Please try again.'
+    },
+    image: {
+      tierLabel: 'Quality tier',
+      tierEmpty: 'No image models are available for this group yet.',
+      perImageUnit: ' /image',
+      promptPlaceholder: 'Describe the image…',
+      aspectLabel: 'Aspect',
+      aspect: { square: 'Square', landscape: 'Landscape', portrait: 'Portrait' },
+      billedAs: 'Billed as {tier} · ×{mult}',
+      count: 'Count',
+      resultsTitle: 'Results',
+      emptyHint: 'Pick a tier and generate — results appear here and persist across reloads.',
+      download: 'Download',
+      usePrompt: 'Use prompt',
+      generate: 'Generate · {cost}',
+      generateTopUp: 'Generate · {cost} — top up',
+      generating: 'Generating…',
+      noResult: 'The gateway returned no image data.',
+      formula: '{base} × {tier} ×{mult} × {n}'
+    },
+    video: {
+      tierLabel: 'Quality tier',
+      tierEmpty: 'No video models are available for this group yet.',
+      perSecondUnit: ' /s',
+      promptPlaceholder: 'Describe the video…',
+      duration: 'Duration',
+      aspect: 'Aspect ratio',
+      aspectAuto: 'Auto',
+      emptyHint: 'Describe a video and generate — submit and walk away; it plays here when ready.',
+      statusProcessing: 'Generating',
+      statusSucceeded: 'Ready',
+      statusRefunded: 'Failed — refunded {cost}',
+      stepSubmitted: 'Submitted',
+      stepGenerating: 'Generating',
+      stepReady: 'Ready',
+      reserved: '{cost} reserved · refunded if it fails',
+      notifyMe: 'Notify me when done',
+      usuallyTakes: 'Usually 30–90s',
+      noUrlHint: 'Task succeeded but no video URL could be parsed.',
+      open: 'Open ↗',
+      failedRefunded: 'Generation failed — {cost} refunded. Try a shorter clip or another tier.',
+      techDetails: 'Technical details',
+      refundLine: 'Failed videos are refunded in full',
+      generate: 'Generate video · {cost}',
+      generateTopUp: 'Generate · {cost} — top up',
+      submitting: 'Submitting…',
+      formula: '{rate}/s × {seconds}s',
+      noTaskId: 'Submit returned no task id.',
+      doneToast: 'Your video is ready.',
+      failedToast: 'A video failed — {cost} was refunded.',
+      notifyTitle: 'TokenKey Studio',
+      notifyEnabled: 'We will notify you when videos finish.',
+      notifyDenied: 'Notifications are blocked in your browser.'
+    },
+    tiers: {
+      image: {
+        draft: { label: 'Draft', tagline: 'Fast · cheap · iterate', sample: 'A neon Tokyo alley at night, cinematic, shallow depth of field' },
+        standard: { label: 'Standard', tagline: 'Best balance', sample: 'A neon Tokyo alley at night, cinematic, shallow depth of field' },
+        ultra: { label: 'Ultra', tagline: 'Highest detail', sample: 'A neon Tokyo alley at night, cinematic, shallow depth of field, 35mm' }
+      },
+      video: {
+        fast: { label: 'Fast', tagline: 'Quick takes', sample: 'Neon Tokyo alley, slow push-in, rain, reflections' },
+        standard: { label: 'Standard', tagline: 'Balanced', sample: 'Neon Tokyo alley, slow push-in, rain, reflections' },
+        cinematic: { label: 'Cinematic', tagline: 'Film-grade', sample: 'Neon Tokyo alley, slow push-in, rain, reflections, cinematic' }
+      }
+    }
   },
 
   // Home Page
@@ -565,6 +689,7 @@ export default {
     paymentConfig: 'Payment Config',
     paymentPlans: 'Plans',
     playground: 'Playground',
+    studio: 'Studio',
     channelManagement: 'Channels',
     channelPricing: 'Channel Pricing',
     channelMonitor: 'Channel Monitor',

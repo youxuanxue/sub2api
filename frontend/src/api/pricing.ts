@@ -16,6 +16,12 @@ export interface PublicPricing {
   output_per_1k_tokens: number
   cache_read_per_1k?: number
   cache_write_per_1k?: number
+  /** "token" (default/omitted), "image" (per-image) or "video" (per-second). */
+  billing_mode?: string
+  /** USD per generated image (image billing_mode). */
+  output_cost_per_image?: number
+  /** USD per second of generated video (video billing_mode). */
+  output_cost_per_second?: number
 }
 
 export interface PublicCatalogModel {

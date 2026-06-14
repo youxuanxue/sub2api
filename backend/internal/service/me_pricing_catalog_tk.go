@@ -206,6 +206,11 @@ type MePricingPrice struct {
 	CacheWritePer1K  *float64 `json:"cache_write_per_1k,omitempty"`
 	ImageOutputPer1K *float64 `json:"image_output_per_1k,omitempty"`
 	PerRequest       *float64 `json:"per_request,omitempty"`
+	// TK media units: per-generated-image (image billing_mode) and per-second
+	// (video billing_mode), scaled by the user's effective rate. Carried from
+	// the public catalog meta (which now surfaces media — pricing_catalog_tk.go).
+	PerImage  *float64 `json:"per_image,omitempty"`
+	PerSecond *float64 `json:"per_second,omitempty"`
 }
 
 // MePricingKeyRef populates the key-picker dropdown. Only active keys
@@ -741,10 +746,16 @@ func buildAccountFallbackEntry(modelID string, rate float64, metaByID map[string
 		return entry
 	}
 	entry.Vendor = meta.Vendor
+	if meta.Pricing.BillingMode != "" {
+		entry.BillingMode = meta.Pricing.BillingMode
+	}
 	entry.YourPrice.InputPer1K = scaleCatalogPrice(meta.Pricing.InputPer1KTokens, rate)
 	entry.YourPrice.OutputPer1K = scaleCatalogPrice(meta.Pricing.OutputPer1KTokens, rate)
 	entry.YourPrice.CacheReadPer1K = scaleCatalogPrice(meta.Pricing.CacheReadPer1K, rate)
 	entry.YourPrice.CacheWritePer1K = scaleCatalogPrice(meta.Pricing.CacheWritePer1K, rate)
+	// Media units (nil when 0 — non-media models stay token-only).
+	entry.YourPrice.PerImage = scaleCatalogPrice(meta.Pricing.OutputCostPerImage, rate)
+	entry.YourPrice.PerSecond = scaleCatalogPrice(meta.Pricing.OutputCostPerSecond, rate)
 	return entry
 }
 

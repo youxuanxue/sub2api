@@ -224,6 +224,20 @@
               />
             </div>
             <div class="flex shrink-0 flex-wrap items-center gap-4">
+              <div role="tablist" class="flex rounded-lg border border-gray-200 bg-white p-0.5 text-xs font-medium dark:border-dark-700 dark:bg-dark-900">
+                <button
+                  v-for="opt in modalityOptions"
+                  :key="opt.value"
+                  role="tab"
+                  type="button"
+                  :aria-selected="pricingModality === opt.value"
+                  class="rounded-md px-2.5 py-1 transition-colors"
+                  :class="pricingModality === opt.value ? 'bg-primary-600 text-white' : 'text-gray-600 hover:text-primary-700 dark:text-dark-300'"
+                  @click="pricingModality = opt.value"
+                >
+                  {{ opt.label }}
+                </button>
+              </div>
               <fieldset class="flex items-center gap-3 text-xs">
                 <legend class="sr-only">{{ t('pricing.search.modeLabel') }}</legend>
                 <label class="inline-flex cursor-pointer items-center gap-1.5 text-gray-700 dark:text-dark-200">
@@ -348,7 +362,15 @@
                       {{ row.vendor || '—' }}
                     </td>
                     <td class="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-gray-900 dark:text-white">
-                      <template v-if="row.billingMode === 'per_request' && row.perRequest != null">
+                      <template v-if="row.billingMode === 'image' && row.perImage != null">
+                        {{ formatPrice(row.perImage) }}
+                        <span class="ml-0.5 text-xs text-gray-400">{{ t('pricing.perImage') }}</span>
+                      </template>
+                      <template v-else-if="row.billingMode === 'video' && row.perSecond != null">
+                        {{ formatPrice(row.perSecond) }}
+                        <span class="ml-0.5 text-xs text-gray-400">{{ t('pricing.perSecond') }}</span>
+                      </template>
+                      <template v-else-if="row.billingMode === 'per_request' && row.perRequest != null">
                         {{ formatPrice(row.perRequest) }}
                         <span class="ml-0.5 text-xs text-gray-400">{{ t('pricing.perRequest') }}</span>
                       </template>
@@ -361,7 +383,11 @@
                       <template v-else>—</template>
                     </td>
                     <td class="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-gray-900 dark:text-white">
-                      <template v-if="row.billingMode === 'per_request'">—</template>
+                      <!-- Media (image/video) and per_request bill on a single unit; the output column is the worked example for video, "—" otherwise. -->
+                      <template v-if="row.billingMode === 'video' && row.perSecond != null">
+                        <span class="text-xs text-gray-500 dark:text-dark-400">{{ t('pricing.videoClipExample', { five: formatPrice(row.perSecond * 5), ten: formatPrice(row.perSecond * 10) }) }}</span>
+                      </template>
+                      <template v-else-if="row.billingMode === 'image' || row.billingMode === 'per_request'">—</template>
                       <template v-else-if="row.outputPer1K != null">
                         {{ formatPrice(row.outputPer1K) }}
                         <span class="ml-0.5 text-xs text-gray-400">{{
@@ -506,6 +532,8 @@ interface NormalizedRow {
   capabilities: string[]
   billingMode?: string
   perRequest?: number | null
+  perImage?: number | null
+  perSecond?: number | null
 }
 
 const signupBonusFormatted = computed(() =>
@@ -545,6 +573,24 @@ const loading = ref(true)
 const errorMessage = ref('')
 const modelSearchQuery = ref('')
 const modelSearchMode = ref<PricingCatalogSearchMode>('fuzzy')
+
+// Modality filter (text / image / video) — billing_mode-driven so media models
+// (image per-image, video per-second) are discoverable instead of buried in a
+// token-centric list.
+type PricingModality = 'all' | 'text' | 'image' | 'video'
+const pricingModality = ref<PricingModality>('all')
+const modalityOptions = computed<{ value: PricingModality; label: string }[]>(() => [
+  { value: 'all', label: t('pricing.modality.all') },
+  { value: 'text', label: t('pricing.modality.text') },
+  { value: 'image', label: t('pricing.modality.image') },
+  { value: 'video', label: t('pricing.modality.video') }
+])
+
+function rowModality(billingMode?: string): PricingModality {
+  if (billingMode === 'image') return 'image'
+  if (billingMode === 'video') return 'video'
+  return 'text'
+}
 
 // Public catalog state (unchanged from v1 — US-028 backing data).
 const publicCatalog = ref<PublicCatalogResponse | null>(null)
@@ -602,8 +648,10 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
       contextWindow: m.context_window ?? 0,
       maxOutputTokens: m.max_output_tokens ?? 0,
       capabilities: m.capabilities ?? [],
-      billingMode: 'token',
-      perRequest: null
+      billingMode: m.pricing.billing_mode || 'token',
+      perRequest: null,
+      perImage: m.pricing.output_cost_per_image ?? null,
+      perSecond: m.pricing.output_cost_per_second ?? null
     }))
   }
   // 'my' view
@@ -619,13 +667,17 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
     maxOutputTokens: m.max_output_tokens ?? 0,
     capabilities: m.capabilities ?? [],
     billingMode: m.billing_mode,
-    perRequest: m.your_price.per_request ?? null
+    perRequest: m.your_price.per_request ?? null,
+    perImage: m.your_price.per_image ?? null,
+    perSecond: m.your_price.per_second ?? null
   }))
 })
 
-const filteredRows = computed(() =>
-  filterPricingCatalogByModel(normalizedRows.value, modelSearchQuery.value, modelSearchMode.value)
-)
+const filteredRows = computed(() => {
+  const byName = filterPricingCatalogByModel(normalizedRows.value, modelSearchQuery.value, modelSearchMode.value)
+  if (pricingModality.value === 'all') return byName
+  return byName.filter((r) => rowModality(r.billingMode) === pricingModality.value)
+})
 
 const hasCacheColumns = computed(() =>
   normalizedRows.value.some(
