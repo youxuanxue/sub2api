@@ -35,8 +35,11 @@ func TestRateLimitService_HandleUpstreamError_RequestOwned429_DoesNotPenalize(t 
 	require.Empty(t, counter.incrementIDs, "request-owned 429 must NOT advance the 3/3 ladder counter")
 }
 
-// A genuine anthropic rate-limit 429 must keep the pre-existing penalty path
-// (regression guard for the new skip being too broad).
+// A genuine anthropic rate-limit 429 carries the anthropic-ratelimit-* headers
+// (真窗口限流一定带头) — only those are authoritative. It must keep the pre-existing
+// penalty path (regression guard that BOTH the request-owned skip AND the new
+// non-authoritative-header skip are not too broad). The header-LESS variant is the
+// non-authoritative case, covered separately.
 func TestRateLimitService_HandleUpstreamError_Genuine429_StillPenalizes(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	counter := &anthropicUpstreamErrorCounterCacheStub{counts: []int64{1}}
@@ -44,8 +47,10 @@ func TestRateLimitService_HandleUpstreamError_Genuine429_StillPenalizes(t *testi
 	service.SetAnthropicUpstreamErrorCounterCache(counter)
 	account := &Account{ID: 4044, Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
 
+	// Authoritative: a real per-window limit carries an anthropic-ratelimit-* reset.
+	hdr := http.Header{"Anthropic-Ratelimit-Unified-5h-Reset": {"9999999999"}}
 	body := []byte(`{"type":"error","error":{"type":"rate_limit_error","message":"Number of request tokens has exceeded your per-minute rate limit"}}`)
-	service.HandleUpstreamError(context.Background(), account, http.StatusTooManyRequests, http.Header{}, body)
+	service.HandleUpstreamError(context.Background(), account, http.StatusTooManyRequests, hdr, body)
 
-	require.NotEmpty(t, counter.incrementIDs, "genuine 429 must still advance the ladder counter")
+	require.NotEmpty(t, counter.incrementIDs, "genuine (header-ful) 429 must still advance the ladder counter")
 }

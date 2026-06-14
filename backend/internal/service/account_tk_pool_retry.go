@@ -1,5 +1,7 @@
 package service
 
+import "net/http"
+
 // tkExtraPoolModeRetryableStatusCodes 是 TK 在 upstream 默认
 // pool-mode 同账号重试集 {401,403,429}（defaultPoolModeRetryableStatusCodes）
 // 之上**追加**的状态码。
@@ -30,4 +32,25 @@ func tkIsPoolModeRetryableStatus(statusCode int) bool {
 		}
 	}
 	return false
+}
+
+// tkRetryableOnSameAccount 是 UpstreamFailoverError 构造点用的「同账号重试」判定，
+// 在 pool_mode 谓词基础上**减去** anthropic 非权威 429 一种情形：无 anthropic-ratelimit-*
+// 头的 429 是 edge 的 capacity/failover 信封（"Upstream rate limit exceeded …"、
+// "No available accounts" 等），在**同一**转发 stub 上重试不会变好（它转发到的 edge 只是
+// 瞬时干涸），应立刻换账号，而不是烧掉同账号重试预算 —— 这些重试此前每跳都会重跑
+// handleFailoverSideEffects→HandleUpstreamError，单个请求就能把 3/3 阶梯喂满。
+// 带权威头的真窗口限流仍照常 RetryableOnSameAccount。
+func tkRetryableOnSameAccount(account *Account, resp *http.Response, responseBody []byte) bool {
+	if account == nil || resp == nil {
+		return false
+	}
+	if !account.IsPoolMode() || !account.IsPoolModeRetryableStatus(resp.StatusCode) {
+		return false
+	}
+	if account.Platform == PlatformAnthropic && resp.StatusCode == http.StatusTooManyRequests &&
+		tkIsAnthropicNonAuthoritative429(resp.Header, responseBody) {
+		return false
+	}
+	return true
 }
