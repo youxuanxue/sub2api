@@ -430,6 +430,19 @@ func TestAccountGetModelMapping_AntigravityEnsuresGeminiDefaultPassthroughs(t *t
 	if mapping["gemini-3.1-pro-low"] != "gemini-3.1-pro-low" {
 		t.Fatalf("expected gemini-3.1-pro-low passthrough to be auto-filled, got: %q", mapping["gemini-3.1-pro-low"])
 	}
+	// 2026-06 实测可服务 wire id：自定义 model_mapping 账号也须经 safety-net 透传，
+	// 否则公共目录 / UseKeyModal 宣告可服务但自定义账号拒绝（三档 thinking budget
+	// 须对称，extra-low 不得遗漏）。
+	for _, id := range []string{
+		"gemini-3.5-flash-low",
+		"gemini-3.5-flash-extra-low",
+		"gemini-3-flash-agent",
+		"gemini-pro-agent",
+	} {
+		if mapping[id] != id {
+			t.Fatalf("expected %q identity passthrough to be auto-filled for custom-mapped antigravity account, got: %q", id, mapping[id])
+		}
+	}
 }
 
 func TestAccountGetModelMapping_AntigravityRespectsWildcardOverride(t *testing.T) {

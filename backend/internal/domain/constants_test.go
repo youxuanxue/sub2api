@@ -67,6 +67,22 @@ func TestDefaultAntigravityModelMapping_ContainsEmpiricalGeminiWireIDs(t *testin
 	}
 }
 
+// §5.x keep-don't-strip 守卫：gpt-oss-120b-medium 与 claude 一样仅从 antigravity
+// 服务面（pricing/allowlist/usage-guide）移除，但必须保留在默认映射里（按账号
+// credentials.model_mapping 排除，而非删默认）。与 claude keep-guard 对称，防止
+// 未来 merge 静默删掉它而无测试翻红。
+func TestDefaultAntigravityModelMapping_KeepsGptOss(t *testing.T) {
+	t.Parallel()
+
+	got, ok := DefaultAntigravityModelMapping["gpt-oss-120b-medium"]
+	if !ok {
+		t.Fatalf("expected gpt-oss-120b-medium to remain in DefaultAntigravityModelMapping (§5.x keep-don't-strip)")
+	}
+	if got != "gpt-oss-120b-medium" {
+		t.Fatalf("unexpected mapping for gpt-oss-120b-medium: got %q want identity", got)
+	}
+}
+
 func TestDefaultBedrockModelMapping_ContainsNewClaudeModels(t *testing.T) {
 	t.Parallel()
 

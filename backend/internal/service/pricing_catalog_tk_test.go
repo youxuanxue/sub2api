@@ -231,8 +231,10 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 	}
 }
 
-// 验证 antigravity 平台的 Your-Menu fallback 返回实测可服务集合（gemini only；
-// claude 走 anthropic、gpt-oss 已从 antigravity 移除）。
+// 直接固化 supportedCatalogModelIDsForPlatform 的 antigravity 契约：实测 gemini-only
+// 集合（claude 走 anthropic、gpt-oss 已从 antigravity 移除）。注意此 accessor 目前
+// 仅由本测试触达——线上 Your-Menu fallback 对 antigravity 走 DefaultAntigravityModelMapping
+// 而非此函数；保留 antigravity 分支是为与公共目录 gate 对称，未来接线即正确。
 func TestSupportedCatalogModelIDsForPlatform_Antigravity(t *testing.T) {
 	ids := supportedCatalogModelIDsForPlatform(PlatformAntigravity)
 	require.NotEmpty(t, ids)

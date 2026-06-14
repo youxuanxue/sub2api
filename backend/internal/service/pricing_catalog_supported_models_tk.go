@@ -162,7 +162,8 @@ func isPublicCatalogModelSupported(vendor, modelID string) bool {
 		return ok
 	case PlatformAntigravity:
 		// Empty set => not yet probed => passthrough (no regression). Populated
-		// here from the 2026-06-13 empirical probe (gemini + gpt-oss).
+		// here from the 2026-06-13 empirical probe (gemini only; claude routed
+		// to anthropic, gpt-oss off antigravity per operator policy).
 		if len(supportedAntigravityCatalogModels) == 0 {
 			return true
 		}
@@ -203,10 +204,16 @@ func FilterPublicCatalogToServable(resp *PublicCatalogResponse) *PublicCatalogRe
 }
 
 // supportedCatalogModelIDsForPlatform returns the empirically-servable model
-// IDs for a platform, or nil for platforms without an empirical set (gemini,
-// antigravity, newapi, …). Used by the Your-Menu unrestricted-account
+// IDs for a platform, or nil for platforms whose empirical set is empty
+// (unprobed) or absent (newapi, …). Used by the Your-Menu unrestricted-account
 // fallback so that surface advertises the same servable set as the public
 // catalog. The returned slice is freshly built each call (callers may sort).
+//
+// anthropic/openai/gemini/antigravity have curated sets, but the antigravity
+// arm is currently only exercised by tests: the live Your-Menu fallback routes
+// antigravity through DefaultAntigravityModelMapping, not this accessor. The
+// branch is kept symmetric with the public-catalog gate (isPublicCatalogModelSupported)
+// so a future wiring change is correct by construction.
 func supportedCatalogModelIDsForPlatform(platform string) []string {
 	var src map[string]struct{}
 	switch platform {
