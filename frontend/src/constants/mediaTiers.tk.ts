@@ -150,11 +150,6 @@ export function resolveAvailableTiers(
   return out
 }
 
-/** True when at least one tier of the modality is backed by an available model. */
-export function modalityHasTiers(modality: StudioModality, availableIds: ReadonlySet<string>): boolean {
-  return resolveAvailableTiers(modality, availableIds).length > 0
-}
-
 /**
  * Image aspect/size presets. We send only sizes the current gateway path is
  * proven to accept (the existing playground set), and surface each preset's

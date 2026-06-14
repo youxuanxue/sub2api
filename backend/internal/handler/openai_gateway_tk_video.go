@@ -412,8 +412,14 @@ func shouldRetryVideoRefund(outcome service.VideoRefundOutcome, attempt int) boo
 // keyed by the public task id) makes overlapping attempts safe. When the bound is
 // exhausted and the row still has not landed (e.g. the submit-time record task was
 // dropped under load), it leaves an Error-level reconciliation trail.
+//
+// Dispatched as MANDATORY (sync fallback on pool-drop): the non-mandatory path
+// silently drops under queue pressure, which for a refund is unrecoverable money
+// loss with no audit trail — the dropped task never runs, so neither the retry
+// timer nor the reconciliation Error log fires. Mandatory guarantees the attempt
+// executes (matching how image-generation usage records are recorded).
 func (h *OpenAIGatewayHandler) scheduleVideoRefundAttempt(parent context.Context, rec *service.VideoTaskRecord, attempt int) {
-	h.submitUsageRecordTask(parent, func(ctx context.Context) {
+	h.submitMandatoryUsageRecordTask(parent, func(ctx context.Context) {
 		outcome := h.gatewayService.RefundVideoUsageOnFailure(ctx, rec)
 		if shouldRetryVideoRefund(outcome, attempt) {
 			time.AfterFunc(videoRefundRetryDelay, func() {
