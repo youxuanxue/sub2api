@@ -211,18 +211,44 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		{"anthropic", "claude-3-haiku-20240307", false},
 		{"anthropic", "claude-opus-4-6-20260205", false},
 		{"openai", "gpt-5.4", true},
-		{"openai", "gpt-5-mini", true},      // servable extra beyond canonical
-		{"openai", "gpt-5.2", false},        // canonical but probe-unservable (502)
-		{"openai", "gpt-image-2", false},    // not servable on a probeable path
+		{"openai", "gpt-5-mini", true},   // servable extra beyond canonical
+		{"openai", "gpt-5.2", false},     // canonical but probe-unservable (502)
+		{"openai", "gpt-image-2", false}, // not servable on a probeable path
 		{"openai", "gpt-4o", false},
-		{"azure_openai", "gpt-4", false}, // azure_openai → openai platform, gated
+		{"azure_openai", "gpt-4", false},                      // azure_openai → openai platform, gated
 		{"vertex_ai-language-models", "gemini-2.5-pro", true}, // other vendor: pass-through
 		{"deepseek", "deepseek-chat", true},
-		{"", "anything", true}, // unknown vendor: pass-through
+		// antigravity (2026-06-13 empirical probe): gated to the gemini-only set.
+		{"antigravity", "gemini-3.5-flash-low", true},
+		{"antigravity", "gpt-oss-120b-medium", false}, // gpt-oss off antigravity (operator policy)
+		{"antigravity", "claude-sonnet-4-6", false},   // claude routed to anthropic
+		{"antigravity", "gemini-2.5-pro", false},      // 503 at probe, not in antigravity set
+		{"", "anything", true},                        // unknown vendor: pass-through
 	}
 	for _, c := range cases {
 		assert.Equalf(t, c.want, isPublicCatalogModelSupported(c.vendor, c.model),
 			"vendor=%q model=%q", c.vendor, c.model)
+	}
+}
+
+// 直接固化 supportedCatalogModelIDsForPlatform 的 antigravity 契约：实测 gemini-only
+// 集合（claude 走 anthropic、gpt-oss 已从 antigravity 移除）。注意此 accessor 目前
+// 仅由本测试触达——线上 Your-Menu fallback 对 antigravity 走 DefaultAntigravityModelMapping
+// 而非此函数；保留 antigravity 分支是为与公共目录 gate 对称，未来接线即正确。
+func TestSupportedCatalogModelIDsForPlatform_Antigravity(t *testing.T) {
+	ids := supportedCatalogModelIDsForPlatform(PlatformAntigravity)
+	require.NotEmpty(t, ids)
+	set := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		set[id] = struct{}{}
+	}
+	for _, want := range []string{"gemini-3.5-flash-low", "gemini-pro-agent"} {
+		_, ok := set[want]
+		assert.Truef(t, ok, "expected antigravity menu to advertise %q", want)
+	}
+	for _, deny := range []string{"claude-sonnet-4-6", "gpt-oss-120b-medium"} {
+		_, ok := set[deny]
+		assert.Falsef(t, ok, "antigravity menu must not advertise %q (routed off antigravity)", deny)
 	}
 }
 

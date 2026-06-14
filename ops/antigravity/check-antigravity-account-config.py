@@ -1,0 +1,189 @@
+#!/usr/bin/env python3
+"""TokenKey post-rollout antigravity account config check (read-only).
+
+Verifies every ``platform=antigravity`` account across all deployable edges + prod
+carries a **gemini-only** ``credentials.model_mapping`` — i.e. ``claude-*`` and
+``gpt-oss-*`` are NOT reachable. Operator policy: antigravity serves gemini only
+(claude routed to anthropic, gpt-oss off antigravity).
+
+The backend ``AntigravityConfigReconciler`` self-heals this on every node (writes
+the gemini-only map to any drifted account on boot + on its tick). This tool is
+the post-rollout *verification* that the self-heal converged fleet-wide.
+
+A **violation** is any antigravity account whose ``model_mapping`` is null/empty
+(an empty map falls back to ``DefaultAntigravityModelMapping``, which still
+includes claude + gpt-oss) or contains any key with prefix ``claude-`` /
+``gpt-oss-``.
+
+Exit codes (mirrors the anthropic post-release check): ``0`` = all gemini-only
+(green); ``1`` = violations found (yellow, non-blocking at rollout); ``2`` = could
+not run (yellow). Read-only — never mutates. stdlib-only; reuses the shared
+``ops/stage0`` routing + SSM identity helpers (single source for the edge matrix).
+"""
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import json
+import pathlib
+import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+
+# prod is pinned (not an entry in the edge matrix), same as manage-anthropic-config.py.
+PROD_TARGET = {"region": "us-east-1", "stack": "tokenkey-prod-stage0", "label": "prod"}
+
+# Read-only snapshot of antigravity accounts and their model_mapping, aggregated
+# as one JSON blob per target. `deleted_at IS NULL` is mandatory (soft-delete gate
+# + correctness: soft-deleted rows are not served).
+ANTIGRAVITY_ACCOUNTS_SQL = (
+    "SELECT COALESCE(json_agg(json_build_object("
+    "'id', id, 'name', name, 'model_mapping', credentials->'model_mapping'))::text, '[]') "
+    "FROM accounts WHERE platform = 'antigravity' AND deleted_at IS NULL;"
+)
+
+# ops-sql-coverage gate: ssm_run_sql ships SQL over SSM, it does not build it.
+SELF_CHECK_EXEMPT: dict[str, str] = {
+    "ssm_run_sql": "executes SQL over SSM, does not build it",
+}
+
+
+def iter_self_check_sql() -> list[tuple[str, str]]:
+    """(label, rendered_sql) for the ops-sql-coverage real-Postgres self-check."""
+    return [("ANTIGRAVITY_ACCOUNTS_SQL", ANTIGRAVITY_ACCOUNTS_SQL)]
+
+
+def fail(msg: str) -> None:
+    print(f"error: {msg}", file=sys.stderr)
+    raise SystemExit(2)
+
+
+def _load(rel: str, name: str):
+    spec = importlib.util.spec_from_file_location(name, REPO_ROOT / rel)
+    if spec is None or spec.loader is None:
+        fail(f"cannot load {rel}")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault(name, mod)
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    return mod
+
+
+# edge_ssm_execution self-bootstraps ops/stage0 onto sys.path for its sibling
+# import of edge_routing_matrix, so loading it first is enough; routing is
+# boto-free and safe to importlib-load directly for the matrix helpers.
+_SSM = _load("ops/stage0/edge_ssm_execution.py", "tk_edge_ssm_execution")
+_ROUTING = _load("ops/stage0/edge_routing_matrix.py", "tk_edge_routing_matrix")
+
+
+def ssm_run_sql(region: str, instance_id: str, sql: str, comment: str) -> str:
+    """Pipe SQL via SSM into the target's tokenkey-postgres. Returns stdout."""
+    remote = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -t -A -v ON_ERROR_STOP=1"
+    command = f"set -euo pipefail\n{remote} <<'SQL'\n{sql}\nSQL"
+    params = json.dumps({"commands": [command]}, ensure_ascii=False)
+    try:
+        cid = subprocess.check_output(
+            [
+                "aws", "ssm", "send-command",
+                "--region", region,
+                "--instance-ids", instance_id,
+                "--document-name", "AWS-RunShellScript",
+                "--comment", comment,
+                "--parameters", params,
+                "--query", "Command.CommandId",
+                "--output", "text",
+            ],
+            text=True,
+        ).strip()
+    except subprocess.CalledProcessError as e:
+        fail(f"ssm send-command failed ({comment}): {e}")
+    subprocess.run(
+        ["aws", "ssm", "wait", "command-executed", "--region", region,
+         "--command-id", cid, "--instance-id", instance_id],
+        check=False,
+    )
+    inv = json.loads(
+        subprocess.check_output(
+            ["aws", "ssm", "get-command-invocation", "--region", region,
+             "--command-id", cid, "--instance-id", instance_id, "--output", "json"],
+            text=True,
+        )
+    )
+    if inv.get("Status") != "Success" or inv.get("ResponseCode") != 0:
+        err = (inv.get("StandardErrorContent") or "").strip()[:1200]
+        fail(f"ssm cmd {cid} status={inv.get('Status')} rc={inv.get('ResponseCode')} ({comment})\n  stderr: {err}")
+    return (inv.get("StandardOutputContent") or "").strip()
+
+
+def _account_violation(row: dict) -> str | None:
+    """Return a human reason if the account is NOT gemini-only, else None."""
+    mm = row.get("model_mapping")
+    if not mm or not isinstance(mm, dict):
+        return "empty/missing model_mapping (falls back to default → serves claude/gpt-oss)"
+    leaked = sorted(k for k in mm if k.startswith("claude-") or k.startswith("gpt-oss-"))
+    if leaked:
+        return "serves excluded models: " + ", ".join(leaked)
+    return None
+
+
+def _check_target(label: str, region: str, instance_id: str) -> list[dict]:
+    out = ssm_run_sql(region, instance_id, ANTIGRAVITY_ACCOUNTS_SQL, f"antigravity-config-check {label}")
+    try:
+        rows = json.loads(out or "[]")
+    except json.JSONDecodeError:
+        fail(f"{label}: could not parse antigravity snapshot JSON: {out[:300]!r}")
+    bad: list[dict] = []
+    for r in rows:
+        reason = _account_violation(r)
+        if reason:
+            bad.append({"target": label, "id": r.get("id"), "name": r.get("name"), "reason": reason})
+    return bad
+
+
+def _resolve_targets(skip_prod: bool) -> list[tuple[str, str, str]]:
+    ec2_matrix = _ROUTING.load_matrix(REPO_ROOT / "deploy/aws/stage0/edge-targets.json")
+    ls_targets = _ROUTING.load_lightsail_targets(REPO_ROOT)
+    edge_ids = _ROUTING.iter_effective_deployable_edge_ids(ec2_matrix, ls_targets)
+    targets: list[tuple[str, str, str]] = []
+    for eid in edge_ids:
+        ident = _SSM.resolve_edge_execution_identity(REPO_ROOT, eid)
+        targets.append((eid, ident.region, ident.instance_id))
+    if not skip_prod:
+        prod_inst = _SSM.cfn_resolve_instance_id(PROD_TARGET["region"], PROD_TARGET["stack"])
+        targets.append((PROD_TARGET["label"], PROD_TARGET["region"], prod_inst))
+    return targets
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="Post-rollout antigravity account gemini-only config check (read-only).")
+    ap.add_argument("--json", action="store_true", help="machine-readable output")
+    ap.add_argument("--skip-prod", action="store_true", help="check edges only")
+    ap.add_argument("--parallel", type=int, default=6, help="parallel SSM workers")
+    args = ap.parse_args()
+
+    targets = _resolve_targets(args.skip_prod)
+    violations: list[dict] = []
+    with ThreadPoolExecutor(max_workers=max(1, args.parallel)) as ex:
+        futs = {ex.submit(_check_target, *t): t for t in targets}
+        for fut in as_completed(futs):
+            violations.extend(fut.result())
+
+    if args.json:
+        print(json.dumps({
+            "targets": [t[0] for t in targets],
+            "violation_count": len(violations),
+            "violations": sorted(violations, key=lambda v: (str(v["target"]), v.get("id") or 0)),
+        }, indent=2, ensure_ascii=False))
+    elif violations:
+        print(f"FAIL: {len(violations)} antigravity account(s) not gemini-only across {len(targets)} target(s):")
+        for v in sorted(violations, key=lambda v: (str(v["target"]), v.get("id") or 0)):
+            print(f"  [{v['target']}] account {v['id']} ({v['name']}): {v['reason']}")
+    else:
+        print(f"OK: all antigravity accounts gemini-only across {len(targets)} target(s)")
+
+    return 1 if violations else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

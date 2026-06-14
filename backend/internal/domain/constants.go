@@ -1,5 +1,7 @@
 package domain
 
+import "strings"
+
 // Status constants
 const (
 	StatusActive   = "active"
@@ -120,9 +122,38 @@ var DefaultAntigravityModelMapping = map[string]string{
 	// Gemini 3 image 兼容映射（向 3.1 image 迁移）
 	"gemini-3-pro-image":         "gemini-3.1-flash-image",
 	"gemini-3-pro-image-preview": "gemini-3.1-flash-image",
+	// Gemini 3.5 Flash 实测 wire id（2026-06 /v1internal:fetchAvailableModels；
+	// thinkingBudget 由 wire id 在上游决定，app 下拉显示名见各行注释）
+	"gemini-3.5-flash-low":       "gemini-3.5-flash-low",       // app "Gemini 3.5 Flash (Medium)"
+	"gemini-3.5-flash-extra-low": "gemini-3.5-flash-extra-low", // app "Gemini 3.5 Flash (Low)"
+	"gemini-3-flash-agent":       "gemini-3-flash-agent",       // app "Gemini 3.5 Flash (High)"
+	"gemini-3.5-flash":           "gemini-3.5-flash-low",       // 友好别名 → Medium 档
+	// Gemini 3.1 Pro (High) 实测 wire id（gemini-3.1-pro-high 上游已废弃 → gemini-pro-agent）
+	"gemini-pro-agent": "gemini-pro-agent",
 	// 其他官方模型
 	"gpt-oss-120b-medium":    "gpt-oss-120b-medium",
 	"tab_flash_lite_preview": "tab_flash_lite_preview",
+}
+
+// GeminiOnlyAntigravityModelMapping 是 DefaultAntigravityModelMapping 去掉所有
+// claude-* 与 gpt-oss-* 键后的「gemini-only」服务映射——运营策略下 antigravity 只服务
+// gemini（claude 路由到 anthropic、gpt-oss 移出 antigravity）的规范账号映射，由
+// AntigravityConfigReconciler 自动写入每个 antigravity 账号。
+//
+// 在 DefaultAntigravityModelMapping 上方新增一个 gemini wire id 会自动流入此处（单一
+// 真值源）。保留全部 gemini-* 以及 Google 原生 tab_flash_lite_preview（二者都不是
+// claude/gpt-oss）——「gemini-only」按 PR #767 明确点名的两类排除（claude + gpt-oss）。
+var GeminiOnlyAntigravityModelMapping = buildGeminiOnlyAntigravityModelMapping()
+
+func buildGeminiOnlyAntigravityModelMapping() map[string]string {
+	out := make(map[string]string, len(DefaultAntigravityModelMapping))
+	for k, v := range DefaultAntigravityModelMapping {
+		if strings.HasPrefix(k, "claude-") || strings.HasPrefix(k, "gpt-oss-") {
+			continue
+		}
+		out[k] = v
+	}
+	return out
 }
 
 // DefaultBedrockModelMapping 是 AWS Bedrock 平台的默认模型映射

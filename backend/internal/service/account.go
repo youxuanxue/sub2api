@@ -522,6 +522,13 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 				"gemini-3-flash",
 				"gemini-3.1-pro-high",
 				"gemini-3.1-pro-low",
+				// 2026-06 实测新增 user-facing wire id（三档 thinking budget
+				// low/extra-low/high=agent 全部可服务，须对称补全；友好别名
+				// gemini-3.5-flash 不在此列——它须重映到 -low 而非 identity 透传）
+				"gemini-3.5-flash-low",
+				"gemini-3.5-flash-extra-low",
+				"gemini-3-flash-agent",
+				"gemini-pro-agent",
 			})
 		}
 		return result

@@ -23,6 +23,58 @@
     "supports_reasoning": true,
     "source": "Anthropic official Fable 5 list price (2026-06: in $10/M, out $50/M, 1M ctx, 128K out); litellm mirror lags new model"
   },
+  "gemini-3.5-flash-low": {
+    "litellm_provider": "antigravity",
+    "mode": "chat",
+    "input_cost_per_token": 1.5e-06,
+    "output_cost_per_token": 9e-06,
+    "cache_read_input_token_cost": 1.5e-07,
+    "max_input_tokens": 1048576,
+    "max_output_tokens": 65536,
+    "supports_function_calling": true,
+    "supports_vision": true,
+    "supports_reasoning": true,
+    "source": "TK overlay: Antigravity wire id (app 'Gemini 3.5 Flash (Medium)', thinkingBudget 4000) priced at equivalent public model gemini-3.5-flash market rate, no markup (in $1.5/M, out $9/M, cache $0.15/M). Ref: backend/resources/model-pricing/model_prices_and_context_window.json gemini-3.5-flash; captured 2026-06-13 via /v1internal:fetchAvailableModels. Billing keys on requested_model; antigravity wire ids absent from the trimmed litellm mirror."
+  },
+  "gemini-3.5-flash-extra-low": {
+    "litellm_provider": "antigravity",
+    "mode": "chat",
+    "input_cost_per_token": 1.5e-06,
+    "output_cost_per_token": 9e-06,
+    "cache_read_input_token_cost": 1.5e-07,
+    "max_input_tokens": 1048576,
+    "max_output_tokens": 65536,
+    "supports_function_calling": true,
+    "supports_vision": true,
+    "supports_reasoning": true,
+    "source": "TK overlay: Antigravity wire id (app 'Gemini 3.5 Flash (Low)', thinkingBudget 1000) priced at equivalent public model gemini-3.5-flash market rate, no markup (in $1.5/M, out $9/M, cache $0.15/M). Ref: gemini-3.5-flash; captured 2026-06-13. Billing keys on requested_model."
+  },
+  "gemini-3-flash-agent": {
+    "litellm_provider": "antigravity",
+    "mode": "chat",
+    "input_cost_per_token": 1.5e-06,
+    "output_cost_per_token": 9e-06,
+    "cache_read_input_token_cost": 1.5e-07,
+    "max_input_tokens": 1048576,
+    "max_output_tokens": 65536,
+    "supports_function_calling": true,
+    "supports_vision": true,
+    "supports_reasoning": true,
+    "source": "TK overlay: Antigravity wire id (app 'Gemini 3.5 Flash (High)', thinkingBudget 10000) priced at equivalent public model gemini-3.5-flash market rate, no markup (in $1.5/M, out $9/M, cache $0.15/M). Ref: gemini-3.5-flash; captured 2026-06-13. Billing keys on requested_model."
+  },
+  "gemini-pro-agent": {
+    "litellm_provider": "antigravity",
+    "mode": "chat",
+    "input_cost_per_token": 2e-06,
+    "output_cost_per_token": 1.2e-05,
+    "cache_read_input_token_cost": 2e-07,
+    "max_input_tokens": 1048576,
+    "max_output_tokens": 65536,
+    "supports_function_calling": true,
+    "supports_vision": true,
+    "supports_reasoning": true,
+    "source": "TK overlay: Antigravity wire id (app 'Gemini 3.1 Pro (High)', thinkingBudget 10001; also the migration target of deprecated gemini-3.1-pro-high) priced at equivalent public model gemini-3.1-pro market rate, no markup (in $2/M, out $12/M, cache $0.2/M). Ref: backend/resources/model-pricing/model_prices_and_context_window.json gemini-3.1-pro-low/-high; captured 2026-06-13 via /v1internal:fetchAvailableModels. Billing keys on requested_model."
+  },
   "deepseek-v4-flash": {
     "litellm_provider": "deepseek",
     "mode": "chat",

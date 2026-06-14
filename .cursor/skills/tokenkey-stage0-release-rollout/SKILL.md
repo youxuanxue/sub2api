@@ -543,6 +543,45 @@ guard_failures: <count guards with exit_code != 0>
 next: none | /tokenkey-anthropic-oauth-config <plan kind>
 ```
 
+## 发版后 Antigravity 账号配置检查（默认）
+
+**触发**（同时满足）：
+
+- `operation=release`（非 check / smoke-only / rollback）
+- 本次请求的 deploy + smoke 已验收通过（与上一段同条件）
+- 未显式 `antigravity_config_check=false`
+
+**做什么 / 不做什么**：本段**只读**——逐 deployable edge + prod 经 SSM 读 `platform=antigravity` 账号的 `credentials.model_mapping`，断言每个账号都是 **gemini-only**（不含 `claude-*` / `gpt-oss-*` 键，且 model_mapping 非空——空映射会回退到含 claude 的默认）。不写任何库。后端 `AntigravityConfigReconciler` 已在每个节点启动时 + 周期自愈这条策略（gateway.scheduling.antigravity_config_reconciler_interval_seconds，默认 300s），本检查是发版后的**收敛验证**。
+
+**机械化命令**：
+
+```bash
+NEW_TAG="${NEW_TAG:-$(git tag --sort=-version:refname | grep '^v[0-9]' | head -1 | sed 's/^v//')}"
+JOBDIR="${JOBDIR:-/tmp/tk-post-release-${NEW_TAG}-$$}"
+mkdir -p "$JOBDIR"
+
+python3 ops/antigravity/check-antigravity-account-config.py --json \
+  | tee "$JOBDIR/post-release-antigravity-check.json" >/dev/null
+AGY_RC=${PIPESTATUS[0]}
+```
+
+**exit 语义**（写入 rollout 摘要）：
+
+| rc | 摘要 verdict | 动作 |
+|---|---|---|
+| 0 | **green** — 所有 antigravity 账号 gemini-only | 无需动作（reconciler 已收敛） |
+| 1 | **yellow** — 有账号仍可服务 claude/gpt-oss | 不 rollback 镜像；多为 reconciler 尚未跑到（或被 `antigravity_config_reconciler_interval_seconds<=0` 关闭）。等一个 reconciler 周期后重跑；持续 violation 则查该节点 reconciler 日志 / 配置 |
+| 2 | **yellow** — SSM/OIDC 只读失败 | 不 rollback；记 `JOBDIR` 路径，人工补跑 |
+
+**报告形状**（固定块，贴进 rollout 摘要）：
+
+```text
+=== Post-release Antigravity account config check (${NEW_TAG}) ===
+result: OK | VIOLATION rc=1 | SKIP rc=2 → $JOBDIR/post-release-antigravity-check.json
+violation_count: <from JSON .violation_count>
+next: none | 等 reconciler 周期后重跑 / 查节点 reconciler 日志
+```
+
 ## 完成后：rollout 摘要（机械化）
 
 烟测全部完成后，由 `scripts/release-rollout-summary.sh` 渲染统一摘要（与 local-deploy / upstream-merge 共享同一脚本）：
@@ -562,6 +601,7 @@ bash scripts/release-rollout-summary.sh --mode release
 | edge-<edge_id>-canary（每个 deployable edge 一行） | dispatch 脚本 → deploy-edge-lightsail-stage0 | ... | X.Y.Z | success/fail/skipped | infra / main-via-edge(仅 canary) |
 | prod | deploy-stage0 | ... | X.Y.Z | success/fail/skipped | full/partial |
 | anthropic-oauth-config | manage-anthropic-config.py | — | — | check OK / violation / skip | snapshot+check（只读） |
+| antigravity-account-config | check-antigravity-account-config.py | — | — | gemini-only OK / violation / skip | 逐 edge+prod model_mapping（只读） |
 
 并补充：
 
