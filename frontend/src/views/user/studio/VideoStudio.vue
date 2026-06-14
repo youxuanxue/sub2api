@@ -146,7 +146,7 @@
           <div class="flex gap-3 text-[11px] font-medium text-gray-500 dark:text-dark-400">
             <a v-if="task.url" :href="task.url" target="_blank" rel="noopener" class="text-primary-600 dark:text-primary-300">{{ t('studio.video.open') }}</a>
             <button type="button" @click="reuse(task)">{{ t('studio.image.usePrompt') }}</button>
-            <button type="button" @click="library.removeVideoTask(task.id)">{{ t('studio.clear') }}</button>
+            <button type="button" @click="removeTask(task.id)">{{ t('studio.clear') }}</button>
           </div>
         </div>
 
@@ -157,7 +157,7 @@
             <summary class="cursor-pointer">{{ t('studio.video.techDetails') }}</summary>
             <pre class="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded bg-gray-50 p-2 dark:bg-dark-950">{{ task.errorMessage }}</pre>
           </details>
-          <button type="button" class="text-[11px] text-gray-400 hover:text-gray-700 dark:hover:text-dark-200" @click="library.removeVideoTask(task.id)">{{ t('studio.clear') }}</button>
+          <button type="button" class="text-[11px] text-gray-400 hover:text-gray-700 dark:hover:text-dark-200" @click="removeTask(task.id)">{{ t('studio.clear') }}</button>
         </div>
       </div>
     </div>
@@ -277,8 +277,14 @@ const poll = useVideoTaskPoll({
   onTerminal: (task, state) => {
     emit('spent')
     if (state === 'succeeded') {
-      lastEvent.value = t('studio.video.doneToast')
-      maybeNotify(t('studio.video.notifyTitle'), task.prompt)
+      if (task.url) {
+        lastEvent.value = t('studio.video.doneToast')
+        maybeNotify(t('studio.video.notifyTitle'), task.prompt)
+      } else {
+        // Succeeded upstream but no playable URL could be extracted — surface the
+        // same hint the card shows instead of a false "ready" notification.
+        lastEvent.value = t('studio.video.noUrlHint')
+      }
     } else {
       lastEvent.value = t('studio.video.failedToast', { cost: formatUsd(task.estCost) })
     }
@@ -315,6 +321,14 @@ function formatElapsed(s: number): string {
 function reuse(task: VideoTaskItem): void {
   prompt.value = task.prompt
   userEditedPrompt.value = true
+}
+
+function removeTask(id: string): void {
+  // Stop the poll loop BEFORE dropping the task, otherwise clearing an in-flight
+  // task leaves a phantom poller (setTimeout + AbortController) running until the
+  // component unmounts — it would keep patching a task that no longer exists.
+  poll.stop(id)
+  library.removeVideoTask(id)
 }
 
 async function enableNotify(): Promise<void> {

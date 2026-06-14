@@ -185,6 +185,13 @@ vite.config.js
 .serena/
 .codex/
 frontend/coverage/
+# Playwright e2e run outputs (TK Media Studio acceptance). Only the *.e2e.ts
+# sources + playwright.config.ts are tracked; screenshots/video/trace/report are
+# local-only (real-upstream runs, large binaries).
+frontend/e2e/artifacts/
+frontend/e2e/report/
+frontend/test-results/
+frontend/playwright-report/
 aicodex
 output/
 exports/

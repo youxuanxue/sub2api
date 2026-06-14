@@ -36,6 +36,21 @@ function asRecord(v: unknown): Record<string, unknown> | null {
 }
 
 /**
+ * Cap on the length of an inline base64 string we will turn into a `data:` URI.
+ * The bytes arrive from upstream verbatim; a hostile/compromised relay could
+ * return a multi-hundred-MB string that freezes the tab when the browser decodes
+ * it into an <img>/<video :src>. ~48 MB decoded (64M base64 chars) is far above
+ * any legitimate short clip / generated image yet bounds the worst case. Over the
+ * cap (or empty) → treated as "no media", so the UI shows the raw JSON details
+ * instead of hanging.
+ */
+const MAX_INLINE_B64_CHARS = 64 * 1024 * 1024
+
+function withinInlineB64Cap(b64: string): boolean {
+  return b64.length > 0 && b64.length <= MAX_INLINE_B64_CHARS
+}
+
+/**
  * Normalize an images-generations response (upstream JSON passed through by
  * bridge.RunImageRelay): {data:[{url} | {b64_json, revised_prompt?}]}.
  */
@@ -53,7 +68,7 @@ export function extractImageItems(resp: unknown): PlaygroundImageItem[] {
     // path applies the same guard in extractVideoUrl).
     if (typeof rec.url === 'string' && /^https?:\/\//i.test(rec.url)) {
       items.push({ src: rec.url, revisedPrompt: revised })
-    } else if (typeof rec.b64_json === 'string' && rec.b64_json) {
+    } else if (typeof rec.b64_json === 'string' && withinInlineB64Cap(rec.b64_json)) {
       items.push({ src: `data:image/png;base64,${rec.b64_json}`, revisedPrompt: revised })
     }
   }
@@ -72,35 +87,79 @@ export function extractVideoTaskId(resp: unknown): string {
 export type PlaygroundVideoState = 'processing' | 'succeeded' | 'failed'
 
 /**
- * Map the fetch response's status to a terminal/non-terminal state, same
- * vocabulary the backend uses to expire its task record (video_relay.go
- * ParseTaskResult: success/succeeded and failure/failed are terminal).
+ * Map the fetch response to a terminal/non-terminal state. The body is the
+ * upstream task JSON verbatim (vendor-specific), so two shapes must be handled:
+ *
+ *  - Vertex / Gemini long-running OPERATION: {done:bool, error?:{message}, response}
+ *    (new-api relay/channel/task/vertex ParseTaskResult). No `status` string —
+ *    done+error are the signal. This is what veo-3.1 returns.
+ *  - Volcengine / doubao / OpenAI-video STRING status: {status:"succeeded"|…}.
+ *
+ * Same terminal vocabulary the backend uses to expire its task record.
  */
 export function videoStateFromFetch(resp: unknown): PlaygroundVideoState {
   const root = asRecord(resp)
-  const status = typeof root?.status === 'string' ? root.status.toLowerCase() : ''
-  if (status === 'success' || status === 'succeeded') return 'succeeded'
-  if (status === 'failure' || status === 'failed') return 'failed'
+  if (!root) return 'processing'
+  // Vertex/Gemini operation shape.
+  if (typeof root.done === 'boolean') {
+    const err = asRecord(root.error)
+    if (err && typeof err.message === 'string' && err.message.trim()) return 'failed'
+    return root.done ? 'succeeded' : 'processing'
+  }
+  // String-status shape (volcengine/doubao + OpenAI-video "completed").
+  const status = typeof root.status === 'string' ? root.status.toLowerCase() : ''
+  if (status === 'success' || status === 'succeeded' || status === 'completed') return 'succeeded'
+  if (status === 'failure' || status === 'failed' || status === 'error') return 'failed'
   return 'processing'
 }
 
 /**
  * The fetch response body is the upstream task JSON verbatim (vendor-specific),
- * so the video URL has no single canonical path. Check the shapes we know
- * (Volc ark content.video_url, generic data.video_url / video_url / data.url),
- * then fall back to a bounded deep scan for the first http(s) string under a
- * video-ish key or with a video file extension. Empty string when nothing
- * matches — the UI then shows the raw JSON instead of a broken player.
+ * so the video URL has no single canonical path. Handle:
+ *
+ *  - Vertex / Gemini operation: response.videos[0].bytesBase64Encoded (or
+ *    response.bytesBase64Encoded / response.video) — base64-inline video that we
+ *    wrap into a `data:video/…;base64,…` URI (veo returns the bytes, not a URL).
+ *  - Volcengine ark: content.video_url; generic data.video_url / video_url / data.url.
+ *  - Last resort: a bounded deep scan for the first http(s) string under a
+ *    video-ish key or with a video file extension.
+ *
+ * http(s) is anchored/case-insensitive and inline bytes are limited to
+ * `data:video/…` so a hostile payload cannot smuggle a javascript:/data:text
+ * scheme into <video :src> / <a :href>. Empty string → the UI shows the raw
+ * JSON details instead of a broken player.
  */
 export function extractVideoUrl(resp: unknown): string {
   const root = asRecord(resp)
   if (!root) return ''
+
+  // Vertex/Gemini operation: inline base64 video bytes.
+  const response = asRecord(root.response)
+  if (response) {
+    const videos = response.videos
+    if (Array.isArray(videos) && videos.length) {
+      const v0 = asRecord(videos[0])
+      const b64 = v0 && typeof v0.bytesBase64Encoded === 'string' ? v0.bytesBase64Encoded : ''
+      if (withinInlineB64Cap(b64)) {
+        // Enforce the documented invariant: the inline scheme is `data:video/…`
+        // ONLY. mimeType is upstream-controlled, so a compromised relay must not
+        // be able to set text/html (or any non-video type) on a URI that lands
+        // in <video :src> / <a :href>. Anything else falls back to video/mp4.
+        const claimed = v0 && typeof v0.mimeType === 'string' ? v0.mimeType : ''
+        const mime = /^video\//i.test(claimed) ? claimed : 'video/mp4'
+        return `data:${mime};base64,${b64}`
+      }
+    }
+    for (const key of ['bytesBase64Encoded', 'video']) {
+      const b = response[key]
+      if (typeof b === 'string' && withinInlineB64Cap(b)) return `data:video/mp4;base64,${b}`
+    }
+  }
+
   const content = asRecord(root.content)
   const data = asRecord(root.data)
   for (const v of [content?.video_url, data?.video_url, root.video_url, data?.url]) {
-    // http(s) only, anchored + case-insensitive — same guard as extractImageItems
-    // so a hostile payload cannot smuggle a javascript:/data: (or malformed
-    // http*) scheme into <video :src> / <a :href>.
+    // http(s) only, anchored + case-insensitive — same guard as extractImageItems.
     if (typeof v === 'string' && /^https?:\/\//i.test(v)) return v
   }
   return deepScanVideoUrl(root, 0)

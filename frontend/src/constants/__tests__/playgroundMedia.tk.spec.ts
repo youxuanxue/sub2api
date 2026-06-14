@@ -68,10 +68,56 @@ describe('video task helpers', () => {
   it('maps upstream status vocabulary to terminal states', () => {
     expect(videoStateFromFetch({ status: 'succeeded' })).toBe('succeeded')
     expect(videoStateFromFetch({ status: 'SUCCESS' })).toBe('succeeded')
+    expect(videoStateFromFetch({ status: 'completed' })).toBe('succeeded')
     expect(videoStateFromFetch({ status: 'failed' })).toBe('failed')
     expect(videoStateFromFetch({ status: 'failure' })).toBe('failed')
+    expect(videoStateFromFetch({ status: 'error' })).toBe('failed')
     expect(videoStateFromFetch({ status: 'processing' })).toBe('processing')
     expect(videoStateFromFetch({})).toBe('processing')
+  })
+
+  it('maps the Vertex/Gemini operation shape (done/error, no status string) — veo', () => {
+    // veo-3.1 returns a long-running operation: done flips true, error absent on success.
+    expect(videoStateFromFetch({ done: false })).toBe('processing')
+    expect(videoStateFromFetch({ done: true, response: { videos: [{ bytesBase64Encoded: 'AAAA' }] } })).toBe('succeeded')
+    expect(videoStateFromFetch({ done: true, error: { message: 'RESOURCE_EXHAUSTED' } })).toBe('failed')
+    // An empty error object is not a failure (done governs).
+    expect(videoStateFromFetch({ done: true, error: {} })).toBe('succeeded')
+    expect(videoStateFromFetch({ done: false, error: { message: 'transient' } })).toBe('failed')
+  })
+
+  it('extracts inline base64 video bytes from the Vertex operation shape', () => {
+    expect(
+      extractVideoUrl({ response: { videos: [{ bytesBase64Encoded: 'QUJD', mimeType: 'video/mp4' }] } })
+    ).toBe('data:video/mp4;base64,QUJD')
+    // mimeType honored when it is a video/* type.
+    expect(
+      extractVideoUrl({ response: { videos: [{ bytesBase64Encoded: 'QUJD', mimeType: 'video/webm' }] } })
+    ).toBe('data:video/webm;base64,QUJD')
+    // response.bytesBase64Encoded / response.video fallbacks.
+    expect(extractVideoUrl({ response: { bytesBase64Encoded: 'WFla' } })).toBe('data:video/mp4;base64,WFla')
+    expect(extractVideoUrl({ response: { video: 'WFla' } })).toBe('data:video/mp4;base64,WFla')
+  })
+
+  it('rejects an oversized inline base64 payload (client tab-DoS guard)', () => {
+    // > MAX_INLINE_B64_CHARS (64 MiB of base64 chars). Allocated once, reused.
+    const huge = 'A'.repeat(64 * 1024 * 1024 + 1)
+    expect(extractVideoUrl({ response: { videos: [{ bytesBase64Encoded: huge }] } })).toBe('')
+    expect(extractVideoUrl({ response: { bytesBase64Encoded: huge } })).toBe('')
+    expect(extractImageItems({ data: [{ b64_json: huge }] })).toEqual([])
+    // a normal-size payload still passes
+    expect(extractVideoUrl({ response: { videos: [{ bytesBase64Encoded: 'QUJD' }] } })).toBe('data:video/mp4;base64,QUJD')
+  })
+
+  it('refuses a non-video mimeType on the inline data URI — src/href XSS guard', () => {
+    // A compromised relay must not be able to smuggle text/html (or any
+    // non-video scheme) onto a URI that lands in <video :src> / <a :href>.
+    expect(
+      extractVideoUrl({ response: { videos: [{ bytesBase64Encoded: 'QUJD', mimeType: 'text/html' }] } })
+    ).toBe('data:video/mp4;base64,QUJD')
+    expect(
+      extractVideoUrl({ response: { videos: [{ bytesBase64Encoded: 'QUJD', mimeType: 'image/svg+xml' }] } })
+    ).toBe('data:video/mp4;base64,QUJD')
   })
 
   it('extracts the video url from known vendor shapes', () => {

@@ -36,7 +36,7 @@
           <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-dark-400" for="pg-model">{{
             t('playground.model')
           }}</label>
-              <select
+          <select
             id="pg-model"
             v-model="selectedModelId"
             class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-dark-600 dark:bg-dark-950 dark:text-white"
@@ -47,7 +47,7 @@
             <option v-for="m in models" :key="m.id" :value="m.id">{{ m.id }}</option>
           </select>
         </div>
-        <div v-if="modality === 'chat'" class="min-w-[80px]">
+        <div class="min-w-[80px]">
           <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-dark-400" for="pg-temp">{{
             t('playground.temperature')
           }}</label>
@@ -62,7 +62,7 @@
             :disabled="sending"
           />
         </div>
-        <div v-if="modality === 'chat'" class="min-w-[100px]">
+        <div class="min-w-[100px]">
           <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-dark-400" for="pg-max">{{
             t('playground.maxTokens')
           }}</label>
@@ -77,48 +77,16 @@
             :disabled="sending"
           />
         </div>
-        <div v-if="modality === 'image'" class="min-w-[140px]">
-          <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-dark-400" for="pg-img-size">{{
-            t('playground.imageSize')
-          }}</label>
-          <select
-            id="pg-img-size"
-            v-model="imageSize"
-            class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-dark-600 dark:bg-dark-950 dark:text-white"
-            :disabled="sending"
-          >
-            <option value="">{{ t('playground.imageSizeAuto') }}</option>
-            <option value="1024x1024">1024×1024</option>
-            <option value="1536x1024">1536×1024</option>
-            <option value="1024x1536">1024×1536</option>
-          </select>
-        </div>
-        <div v-if="modality === 'video'" class="min-w-[110px]">
-          <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-dark-400" for="pg-video-sec">{{
-            t('playground.videoDuration')
-          }}</label>
-          <input
-            id="pg-video-sec"
-            v-model.number="videoDuration"
-            type="number"
-            min="1"
-            max="60"
-            step="1"
-            class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-dark-600 dark:bg-dark-950 dark:text-white"
-            :disabled="sending"
-          />
-        </div>
-        <span
-          v-if="modality !== 'chat'"
-          class="mb-2 inline-flex items-center rounded-full bg-primary-50 px-2.5 py-1 text-xs font-medium text-primary-700 dark:bg-primary-950/50 dark:text-primary-300"
+        <router-link
+          to="/studio"
+          class="mb-1 inline-flex items-center rounded-full bg-primary-50 px-2.5 py-1 text-xs font-medium text-primary-700 hover:bg-primary-100 dark:bg-primary-950/50 dark:text-primary-300 dark:hover:bg-primary-900/50"
         >
-          {{ modality === 'image' ? t('playground.modalityImage') : t('playground.modalityVideo') }}
-        </span>
+          {{ t('playground.mediaInStudio') }}
+        </router-link>
       </div>
 
       <div class="grid gap-6 lg:grid-cols-[1fr_minmax(240px,280px)]">
         <div
-          v-if="modality === 'chat'"
           class="flex min-h-[420px] flex-col rounded-xl border border-gray-200 bg-white shadow-sm dark:border-dark-700 dark:bg-dark-900"
         >
           <div class="scrollbar-thin flex-1 space-y-4 overflow-y-auto p-4">
@@ -212,136 +180,8 @@
           </div>
         </div>
 
-        <!-- Image generation: prompt → POST /v1/images/generations → result gallery -->
-        <div
-          v-else-if="modality === 'image'"
-          class="flex min-h-[420px] flex-col rounded-xl border border-gray-200 bg-white shadow-sm dark:border-dark-700 dark:bg-dark-900"
-        >
-          <div class="scrollbar-thin flex-1 space-y-4 overflow-y-auto p-4">
-            <div v-if="!imageResults.length" class="py-16 text-center text-sm text-gray-500 dark:text-dark-400">
-              {{ t('playground.imageEmptyHint') }}
-            </div>
-            <figure
-              v-for="(img, idx) in imageResults"
-              :key="`${img.src.slice(-32)}-${idx}`"
-              class="overflow-hidden rounded-xl border border-gray-200 dark:border-dark-700"
-            >
-              <a :href="img.src" target="_blank" rel="noopener">
-                <img :src="img.src" :alt="img.prompt" class="max-h-[480px] w-full object-contain" loading="lazy" />
-              </a>
-              <figcaption class="space-y-0.5 px-3 py-2 text-xs text-gray-600 dark:text-dark-300">
-                <div>{{ img.prompt }}</div>
-                <div v-if="img.revisedPrompt" class="text-gray-400 dark:text-dark-500">{{ img.revisedPrompt }}</div>
-              </figcaption>
-            </figure>
-          </div>
-          <div class="border-t border-gray-100 p-4 dark:border-dark-700">
-            <textarea
-              v-model="imagePrompt"
-              rows="3"
-              class="mb-3 w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-dark-600 dark:bg-dark-950 dark:text-white dark:placeholder:text-dark-500"
-              :placeholder="t('playground.imagePromptPlaceholder')"
-              :disabled="sending || !apiKey"
-              @keydown.enter.exact.prevent="generateImage"
-            />
-            <div class="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                class="inline-flex items-center rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
-                :disabled="sending || !apiKey || !imagePrompt.trim()"
-                @click="generateImage"
-              >
-                {{ sending ? t('playground.imageGenerating') : t('playground.imageGenerate') }}
-              </button>
-              <button
-                v-if="sending && abortCtrl"
-                type="button"
-                class="text-sm font-medium text-gray-600 underline dark:text-dark-300"
-                @click="abortCtrl.abort()"
-              >
-                {{ t('playground.cancel') }}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Video generation: submit → vt_ task id → poll until terminal -->
-        <div
-          v-else
-          class="flex min-h-[420px] flex-col rounded-xl border border-gray-200 bg-white shadow-sm dark:border-dark-700 dark:bg-dark-900"
-        >
-          <div class="scrollbar-thin flex-1 space-y-4 overflow-y-auto p-4">
-            <div v-if="!videoTask" class="py-16 text-center text-sm text-gray-500 dark:text-dark-400">
-              {{ t('playground.videoEmptyHint') }}
-            </div>
-            <div v-else class="space-y-3 rounded-xl border border-gray-200 p-3 dark:border-dark-700">
-              <div class="flex flex-wrap items-center gap-2 text-xs">
-                <span class="font-mono text-gray-500 dark:text-dark-400">{{ videoTask.id }}</span>
-                <span
-                  class="inline-flex items-center rounded-full px-2 py-0.5 font-medium"
-                  :class="{
-                    'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300': videoTask.state === 'processing',
-                    'bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-300': videoTask.state === 'succeeded',
-                    'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300': videoTask.state === 'failed'
-                  }"
-                >
-                  {{ videoStateLabel(videoTask.state) }}
-                </span>
-                <span v-if="videoTask.state === 'processing'" class="text-gray-400 dark:text-dark-500">
-                  {{ t('playground.videoElapsed', { s: videoElapsedS }) }}
-                </span>
-                <button
-                  v-if="videoTask.state === 'processing'"
-                  type="button"
-                  class="text-gray-600 underline dark:text-dark-300"
-                  @click="stopVideoPolling"
-                >
-                  {{ t('playground.videoStopPolling') }}
-                </button>
-              </div>
-              <div class="text-xs text-gray-600 dark:text-dark-300">{{ videoTask.prompt }}</div>
-              <video
-                v-if="videoTask.state === 'succeeded' && videoTask.url"
-                :src="videoTask.url"
-                controls
-                class="max-h-[420px] w-full rounded-lg bg-black"
-              />
-              <p
-                v-else-if="videoTask.state === 'succeeded'"
-                class="text-xs text-amber-700 dark:text-amber-300"
-              >
-                {{ t('playground.videoNoUrlHint') }}
-              </p>
-              <details v-if="videoTask.rawPretty" class="text-xs">
-                <summary class="cursor-pointer text-gray-500 dark:text-dark-400">{{ t('playground.videoRaw') }}</summary>
-                <pre class="scrollbar-thin mt-2 max-h-64 overflow-auto rounded-lg bg-gray-50 p-2 text-[11px] dark:bg-dark-950">{{ videoTask.rawPretty }}</pre>
-              </details>
-            </div>
-          </div>
-          <div class="border-t border-gray-100 p-4 dark:border-dark-700">
-            <textarea
-              v-model="videoPrompt"
-              rows="3"
-              class="mb-3 w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-dark-600 dark:bg-dark-950 dark:text-white dark:placeholder:text-dark-500"
-              :placeholder="t('playground.videoPromptPlaceholder')"
-              :disabled="sending || !apiKey"
-              @keydown.enter.exact.prevent="submitVideo"
-            />
-            <div class="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                class="inline-flex items-center rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
-                :disabled="sending || !apiKey || !videoPrompt.trim()"
-                @click="submitVideo"
-              >
-                {{ sending ? t('playground.videoSubmitting') : t('playground.videoGenerate') }}
-              </button>
-            </div>
-          </div>
-        </div>
-
         <aside class="space-y-4 rounded-xl border border-gray-200 bg-gray-50/80 p-4 dark:border-dark-700 dark:bg-dark-800/40">
-          <div v-if="modality === 'chat'">
+          <div>
             <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('playground.systemPrompt') }}</h3>
             <textarea
               v-model="systemPromptLocal"
@@ -350,7 +190,7 @@
               :disabled="sending"
             />
           </div>
-          <p v-if="modality === 'chat'" class="text-xs text-gray-500 dark:text-dark-400">
+          <p class="text-xs text-gray-500 dark:text-dark-400">
             {{ t('playground.limitsHint', { turns: PLAYGROUND_MAX_TURNS, maxTok: PLAYGROUND_MAX_TOKENS_CAP }) }}
           </p>
           <div class="rounded-lg border border-gray-200 bg-white p-3 dark:border-dark-600 dark:bg-dark-900">
@@ -388,7 +228,7 @@
             </div>
           </div>
           <div
-            v-if="modality === 'chat' && lastUsage"
+            v-if="lastUsage"
             class="rounded-lg border border-gray-200 bg-white p-3 text-xs dark:border-dark-600 dark:bg-dark-900"
           >
             <div class="font-medium text-gray-800 dark:text-dark-100">{{ t('playground.lastUsage') }}</div>
@@ -421,7 +261,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+// TK: the Playground is a CHAT-only debug tool. Image/video generation moved to
+// the Media Studio (/studio), which carries the cost-on-button + login/balance
+// gating. The model picker is filtered to chat models so this surface only ever
+// calls /v1/chat/completions.
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -429,10 +273,7 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 import { keysAPI } from '@/api/keys'
 import {
   gatewayChatCompletion,
-  gatewayImageGenerations,
   gatewayListModels,
-  gatewayVideoFetch,
-  gatewayVideoSubmit,
   PLAYGROUND_DEFAULT_MAX_TOKENS,
   PLAYGROUND_MAX_TOKENS_CAP,
   PLAYGROUND_MAX_TURNS,
@@ -440,14 +281,7 @@ import {
   type ChatMessage,
   type GatewayModelEntry
 } from '@/api/playground'
-import {
-  extractImageItems,
-  extractVideoTaskId,
-  extractVideoUrl,
-  modalityForModel,
-  videoStateFromFetch,
-  type PlaygroundVideoState
-} from '@/constants/playgroundMedia.tk'
+import { modalityForModel } from '@/constants/playgroundMedia.tk'
 import {
   resolveTkClientIntegrationUrl,
   TK_CLIENT_INTEGRATIONS,
@@ -472,27 +306,7 @@ const selectedModelId = ref('')
 
 const selectedKey = computed(() => keys.value.find((k) => k.id === selectedKeyId.value))
 const apiKey = computed(() => selectedKey.value?.key || '')
-const modality = computed(() => modalityForModel(selectedModelId.value))
 
-// Image mode state
-const imagePrompt = ref('')
-const imageSize = ref('')
-const imageResults = ref<Array<{ src: string; prompt: string; revisedPrompt?: string }>>([])
-
-// Video mode state (one task at a time; submit replaces the previous card)
-interface VideoTaskView {
-  id: string
-  prompt: string
-  state: PlaygroundVideoState
-  url: string
-  rawPretty: string
-}
-const videoPrompt = ref('')
-const videoDuration = ref(8)
-const videoTask = ref<VideoTaskView | null>(null)
-const videoElapsedS = ref(0)
-let videoPollTimer: ReturnType<typeof setTimeout> | null = null
-let videoPollAbort: AbortController | null = null
 const temperature = ref(1)
 const maxTokens = ref(PLAYGROUND_DEFAULT_MAX_TOKENS)
 const systemPromptLocal = ref('')
@@ -576,10 +390,7 @@ async function loadModelsForKey(key: string): Promise<void> {
   try {
     const list = await gatewayListModels(key, gatewayBase.value, ctrl.signal)
     if (ctrl.signal.aborted) return
-    // TK: the Playground is chat-only — image/video generation moved to the
-    // Media Studio (/studio), which has the cost-on-button + balance gating.
-    // Filter media models out of the picker so this surface only ever calls
-    // /v1/chat/completions (the image/video panels below are unreachable).
+    // Chat-only: image/video models are served by the Media Studio (/studio).
     models.value = (list.data || []).filter((m) => modalityForModel(m.id) === 'chat')
     if (models.value.length) {
       selectedModelId.value = models.value[0].id
@@ -601,146 +412,6 @@ watch(selectedKeyId, () => {
     void loadModelsForKey(apiKey.value)
   }
 })
-
-async function generateImage(): Promise<void> {
-  const text = imagePrompt.value.trim()
-  if (!text || !apiKey.value || !selectedModelId.value || sending.value) return
-
-  requestError.value = ''
-  sending.value = true
-  abortCtrl.value = new AbortController()
-  try {
-    const raw = await gatewayImageGenerations(
-      apiKey.value,
-      gatewayBase.value,
-      { model: selectedModelId.value, prompt: text, size: imageSize.value || undefined },
-      abortCtrl.value.signal
-    )
-    const items = extractImageItems(raw)
-    if (!items.length) {
-      throw new Error(t('playground.imageNoResult'))
-    }
-    imageResults.value = [
-      ...items.map((i) => ({ src: i.src, prompt: text, revisedPrompt: i.revisedPrompt })),
-      ...imageResults.value
-    ].slice(0, 8)
-    imagePrompt.value = ''
-  } catch (e) {
-    const err = e as Error
-    requestError.value = err.name === 'AbortError' ? t('playground.cancelled') : err.message || t('playground.requestFailed')
-  } finally {
-    sending.value = false
-    abortCtrl.value = null
-  }
-}
-
-function videoStateLabel(state: PlaygroundVideoState): string {
-  if (state === 'succeeded') return t('playground.videoStatusSucceeded')
-  if (state === 'failed') return t('playground.videoStatusFailed')
-  return t('playground.videoStatusProcessing')
-}
-
-const VIDEO_POLL_INTERVAL_MS = 5_000
-// A billed video task must not be declared failed off one network blip; only
-// consecutive fetch errors (covers the genuine 404 of a deleted/TTL-expired
-// record within 3 polls) end the loop.
-const VIDEO_POLL_MAX_CONSECUTIVE_ERRORS = 3
-let videoPollErrors = 0
-
-function stopVideoPolling(): void {
-  if (videoPollTimer) {
-    clearTimeout(videoPollTimer)
-    videoPollTimer = null
-  }
-  videoPollAbort?.abort()
-  videoPollAbort = null
-}
-
-function scheduleVideoPoll(taskId: string, key: string, startedAtMs: number): void {
-  videoPollTimer = setTimeout(() => {
-    void pollVideoOnce(taskId, key, startedAtMs)
-  }, VIDEO_POLL_INTERVAL_MS)
-}
-
-/** Poll with the key captured at submit time — the task belongs to that key even if the selector moved on. */
-async function pollVideoOnce(taskId: string, key: string, startedAtMs: number): Promise<void> {
-  if (videoTask.value?.id !== taskId) return
-  videoElapsedS.value = Math.round((Date.now() - startedAtMs) / 1000)
-  const ctrl = new AbortController()
-  videoPollAbort = ctrl
-  try {
-    const raw = await gatewayVideoFetch(key, gatewayBase.value, taskId, ctrl.signal)
-    if (ctrl.signal.aborted || videoTask.value?.id !== taskId) return
-    videoPollErrors = 0
-    const state = videoStateFromFetch(raw)
-    videoTask.value = {
-      ...videoTask.value,
-      state,
-      url: state === 'succeeded' ? extractVideoUrl(raw) : '',
-      rawPretty: JSON.stringify(raw, null, 2)
-    }
-    if (state === 'processing') {
-      scheduleVideoPoll(taskId, key, startedAtMs)
-    }
-  } catch (e) {
-    if (ctrl.signal.aborted || videoTask.value?.id !== taskId) return
-    videoPollErrors += 1
-    if (videoPollErrors < VIDEO_POLL_MAX_CONSECUTIVE_ERRORS) {
-      scheduleVideoPoll(taskId, key, startedAtMs)
-      return
-    }
-    // Terminal records are deleted server-side and expire after 24h — repeated
-    // fetch errors (404 included) end the poll loop instead of retrying forever.
-    videoTask.value = { ...videoTask.value, state: 'failed' }
-    requestError.value = (e as Error).message || t('playground.requestFailed')
-  }
-}
-
-async function submitVideo(): Promise<void> {
-  const text = videoPrompt.value.trim()
-  if (!text || !apiKey.value || !selectedModelId.value || sending.value) return
-
-  requestError.value = ''
-  stopVideoPolling()
-  sending.value = true
-  abortCtrl.value = new AbortController()
-  const key = apiKey.value
-  try {
-    const duration = Math.min(Math.max(1, Math.round(videoDuration.value || 8)), 60)
-    const raw = await gatewayVideoSubmit(
-      key,
-      gatewayBase.value,
-      { model: selectedModelId.value, prompt: text, duration },
-      abortCtrl.value.signal
-    )
-    const taskId = extractVideoTaskId(raw)
-    if (!taskId) {
-      throw new Error(t('playground.videoNoTaskId'))
-    }
-    const state = videoStateFromFetch(raw)
-    videoTask.value = {
-      id: taskId,
-      prompt: text,
-      state,
-      url: state === 'succeeded' ? extractVideoUrl(raw) : '',
-      rawPretty: JSON.stringify(raw, null, 2)
-    }
-    videoPrompt.value = ''
-    videoElapsedS.value = 0
-    videoPollErrors = 0
-    if (state === 'processing') {
-      scheduleVideoPoll(taskId, key, Date.now())
-    }
-  } catch (e) {
-    const err = e as Error
-    requestError.value = err.name === 'AbortError' ? t('playground.cancelled') : err.message || t('playground.requestFailed')
-  } finally {
-    sending.value = false
-    abortCtrl.value = null
-  }
-}
-
-onUnmounted(stopVideoPolling)
 
 function openIntegration(client: TkClientIntegration): void {
   if (!apiKey.value) return

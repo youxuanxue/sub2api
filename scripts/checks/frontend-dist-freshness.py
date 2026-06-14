@@ -18,7 +18,14 @@ EXCLUDED_SUFFIXES = (
     ".spec.tsx",
     ".test.ts",
     ".test.tsx",
+    # Playwright e2e specs are test-only and never bundled into the dist, so they
+    # must not gate dist freshness (same principle as the unit *.spec.ts above).
+    ".e2e.ts",
+    ".e2e.tsx",
 )
+
+# Test-only top-level files that are not part of the built app bundle.
+EXCLUDED_NAMES = {".DS_Store", "playwright.config.ts"}
 
 
 def iter_frontend_input_paths() -> list[Path]:
@@ -39,11 +46,11 @@ def filter_input_paths(paths) -> list[Path]:
     filtered: list[Path] = []
     for path in paths:
         rel = path.relative_to(REPO_ROOT)
-        if any(part in {"node_modules", "dist", "coverage", "__tests__", ".vite"} for part in rel.parts):
+        if any(part in {"node_modules", "dist", "coverage", "__tests__", ".vite", "e2e"} for part in rel.parts):
             continue
         if rel.name.endswith(EXCLUDED_SUFFIXES):
             continue
-        if rel.name in {".DS_Store"}:
+        if rel.name in EXCLUDED_NAMES:
             continue
         filtered.append(path)
     return sorted(filtered)

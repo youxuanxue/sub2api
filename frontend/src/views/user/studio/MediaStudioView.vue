@@ -34,24 +34,35 @@
           <button
             role="tab"
             type="button"
-            :aria-selected="modality === 'image'"
+            :aria-selected="view === 'image'"
             class="rounded-lg px-4 py-1.5 transition-colors"
-            :class="modality === 'image' ? 'bg-primary-600 text-white shadow-sm dark:bg-primary-500' : 'text-gray-600 hover:text-primary-700 dark:text-dark-300'"
+            :class="view === 'image' ? 'bg-primary-600 text-white shadow-sm dark:bg-primary-500' : 'text-gray-600 hover:text-primary-700 dark:text-dark-300'"
             data-testid="studio-mode-image"
-            @click="modality = 'image'"
+            @click="view = 'image'"
           >
             {{ t('studio.modeImage') }}
           </button>
           <button
             role="tab"
             type="button"
-            :aria-selected="modality === 'video'"
+            :aria-selected="view === 'video'"
             class="rounded-lg px-4 py-1.5 transition-colors"
-            :class="modality === 'video' ? 'bg-primary-600 text-white shadow-sm dark:bg-primary-500' : 'text-gray-600 hover:text-primary-700 dark:text-dark-300'"
+            :class="view === 'video' ? 'bg-primary-600 text-white shadow-sm dark:bg-primary-500' : 'text-gray-600 hover:text-primary-700 dark:text-dark-300'"
             data-testid="studio-mode-video"
-            @click="modality = 'video'"
+            @click="view = 'video'"
           >
             {{ t('studio.modeVideo') }}
+          </button>
+          <button
+            role="tab"
+            type="button"
+            :aria-selected="view === 'bakeoff'"
+            class="rounded-lg px-4 py-1.5 transition-colors"
+            :class="view === 'bakeoff' ? 'bg-primary-600 text-white shadow-sm dark:bg-primary-500' : 'text-gray-600 hover:text-primary-700 dark:text-dark-300'"
+            data-testid="studio-mode-bakeoff"
+            @click="view = 'bakeoff'"
+          >
+            {{ t('studio.modeBakeoff') }}
           </button>
         </div>
 
@@ -74,7 +85,7 @@
       </div>
 
       <ImageStudio
-        v-if="userReady && !loadError && modality === 'image'"
+        v-if="userReady && !loadError && view === 'image'"
         :api-key="apiKey"
         :gateway-base="gatewayBase"
         :available-ids="availableIds"
@@ -84,12 +95,23 @@
         @spent="refreshBalance"
       />
       <VideoStudio
-        v-else-if="userReady && !loadError && modality === 'video'"
+        v-else-if="userReady && !loadError && view === 'video'"
         :api-key="apiKey"
         :gateway-base="gatewayBase"
         :available-ids="availableIds"
         :balance="balance"
         :user-id="userId"
+        :key-id="selectedKeyId"
+        :keys="keys"
+        :rate-multiplier="1"
+        @spent="refreshBalance"
+      />
+      <BakeOff
+        v-else-if="userReady && !loadError && view === 'bakeoff'"
+        :api-key="apiKey"
+        :gateway-base="gatewayBase"
+        :available-ids="availableIds"
+        :balance="balance"
         :key-id="selectedKeyId"
         :keys="keys"
         :rate-multiplier="1"
@@ -105,10 +127,10 @@ import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import ImageStudio from '@/views/user/studio/ImageStudio.vue'
 import VideoStudio from '@/views/user/studio/VideoStudio.vue'
+import BakeOff from '@/views/user/studio/BakeOff.vue'
 import { keysAPI } from '@/api/keys'
 import { gatewayListModels, resolveGatewayBaseUrl } from '@/api/playground'
 import { formatUsd } from '@/utils/mediaCostEstimate.tk'
-import type { StudioModality } from '@/constants/mediaTiers.tk'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import type { ApiKey } from '@/types'
@@ -117,7 +139,7 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 
-const modality = ref<StudioModality>('image')
+const view = ref<'image' | 'video' | 'bakeoff'>('image')
 const keys = ref<ApiKey[]>([])
 const selectedKeyId = ref<number | null>(null)
 const gatewayBase = ref('')
