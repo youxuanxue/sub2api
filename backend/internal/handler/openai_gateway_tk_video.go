@@ -381,11 +381,55 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 			// poll racing this Delete cannot double-refund. Clients that never
 			// poll a failed task are never refunded (registry record expires
 			// with its TTL); openai_video_refund.* logs are the audit trail.
-			h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
-				h.gatewayService.RefundVideoUsageOnFailure(ctx, rec)
-			})
+			h.scheduleVideoRefundAttempt(c.Request.Context(), rec, 0)
 		}
 	}
+}
+
+// videoRefund* bound the terminal-failure refund re-attempt. The submit-time
+// billed row is written by the same async usage-record worker pool with no
+// ordering guarantee, so a fast terminal poll can run before it lands. Each
+// worker task has only a few seconds of ctx budget, so instead of blocking a
+// worker we re-attempt across fresh tasks spaced by a timer, up to a bound.
+const (
+	videoRefundMaxAttempts = 6
+	videoRefundRetryDelay  = 5 * time.Second
+)
+
+// shouldRetryVideoRefund reports whether a refund attempt that returned
+// `outcome` on 0-based `attempt` should be re-scheduled. Pure so the bound is
+// unit-testable: only VideoRefundOriginPending (billed row not landed yet) is
+// retryable, capped at videoRefundMaxAttempts total attempts.
+func shouldRetryVideoRefund(outcome service.VideoRefundOutcome, attempt int) bool {
+	return outcome == service.VideoRefundOriginPending && attempt+1 < videoRefundMaxAttempts
+}
+
+// scheduleVideoRefundAttempt runs the terminal-failure refund on the usage-record
+// worker pool and, when the submit-time billed row has not landed yet
+// (VideoRefundOriginPending), re-schedules a later attempt via a timer — NOT a
+// blocked worker — so the bounded per-task ctx budget does not cap the total race
+// window. Bounded by videoRefundMaxAttempts; idempotency (usage_billing_dedup
+// keyed by the public task id) makes overlapping attempts safe. When the bound is
+// exhausted and the row still has not landed (e.g. the submit-time record task was
+// dropped under load), it leaves an Error-level reconciliation trail.
+func (h *OpenAIGatewayHandler) scheduleVideoRefundAttempt(parent context.Context, rec *service.VideoTaskRecord, attempt int) {
+	h.submitUsageRecordTask(parent, func(ctx context.Context) {
+		outcome := h.gatewayService.RefundVideoUsageOnFailure(ctx, rec)
+		if shouldRetryVideoRefund(outcome, attempt) {
+			time.AfterFunc(videoRefundRetryDelay, func() {
+				h.scheduleVideoRefundAttempt(parent, rec, attempt+1)
+			})
+			return
+		}
+		if outcome == service.VideoRefundOriginPending {
+			logger.L().With(
+				zap.String("component", "handler.openai_gateway.video_refund"),
+				zap.String("public_task_id", rec.PublicTaskID),
+				zap.Int64("user_id", rec.UserID),
+				zap.Int("attempts", attempt+1),
+			).Error("openai_video_refund.abandoned_origin_never_landed")
+		}
+	})
 }
 
 // videoTerminalOutcome classifies an upstream task status string for the

@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"strings"
-	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"go.uber.org/zap"
@@ -46,6 +45,32 @@ const TkVideoRefundRequestIDPrefix = "video-refund:"
 // TkBillingModeVideoRefund marks compensating usage_logs rows written by the
 // terminal-failure refund (negative costs; forward video rows carry "video").
 const TkBillingModeVideoRefund = "video_refund"
+
+// VideoRefundOutcome reports what RefundVideoUsageOnFailure did, so the caller
+// can decide whether a later re-attempt is worthwhile. The original billed row
+// is written by the same async usage-record worker pool with NO ordering
+// guarantee relative to the refund, so a fast terminal poll can run before the
+// row lands — that case is reported as VideoRefundOriginPending (retryable) so
+// the caller can re-attempt on a fresh task rather than block this worker (the
+// per-task budget is only a few seconds).
+type VideoRefundOutcome int
+
+const (
+	// VideoRefundApplied: money was returned to the user on this call.
+	VideoRefundApplied VideoRefundOutcome = iota
+	// VideoRefundAlreadyApplied: a prior call already refunded (idempotent no-op).
+	VideoRefundAlreadyApplied
+	// VideoRefundNothing: the original was billed $0 — nothing to reverse.
+	VideoRefundNothing
+	// VideoRefundOriginPending: the billed row was not found yet — RETRYABLE; the
+	// submit-time RecordUsage has likely not landed. The caller may re-attempt.
+	VideoRefundOriginPending
+	// VideoRefundSkipped: not refundable here (no billing request id, or the repo
+	// does not support the refund capability). Not retryable.
+	VideoRefundSkipped
+	// VideoRefundFailed: a lookup/apply error occurred. Not retryable on this path.
+	VideoRefundFailed
+)
 
 // VideoRefundCommand is the money-movement half of a video refund, applied
 // at-most-once by UsageBillingVideoRefundApplier.
@@ -120,11 +145,19 @@ func buildVideoRefundFromUsage(rec *VideoTaskRecord, orig *UsageLog) (*VideoRefu
 }
 
 // RefundVideoUsageOnFailure reverses the submit-time charge after the upstream
-// reported a terminal failed status. Runs on the usage-record worker pool;
-// every outcome is logged (never returns an error to the poll response path).
-func (s *OpenAIGatewayService) RefundVideoUsageOnFailure(ctx context.Context, rec *VideoTaskRecord) {
+// reported a terminal failed status. Runs on the usage-record worker pool; every
+// outcome is logged and returned (it never errors into the poll response path).
+//
+// It does ONE lookup of the original billed row per call. Because that row is
+// written by the same async worker pool with no ordering guarantee, a fast
+// terminal poll can run before it lands — reported as VideoRefundOriginPending
+// so the caller can re-attempt on a fresh task (the per-task ctx budget is only
+// a few seconds; blocking this worker to wait would starve the pool). Idempotency
+// (usage_billing_dedup keyed by the public task id) makes overlapping/re-attempt
+// calls apply at most once.
+func (s *OpenAIGatewayService) RefundVideoUsageOnFailure(ctx context.Context, rec *VideoTaskRecord) VideoRefundOutcome {
 	if s == nil || rec == nil {
-		return
+		return VideoRefundSkipped
 	}
 	log := logger.L().With(
 		zap.String("component", "service.openai_gateway.video_refund"),
@@ -137,70 +170,50 @@ func (s *OpenAIGatewayService) RefundVideoUsageOnFailure(ctx context.Context, re
 		// Records saved before BillingRequestID existed cannot be refunded
 		// automatically — leave a reconciliation trail.
 		log.Warn("openai_video_refund.skipped_no_billing_request_id")
-		return
+		return VideoRefundSkipped
 	}
 	lookup, ok := s.usageLogRepo.(VideoUsageRefundLookupProvider)
 	if !ok {
 		log.Warn("openai_video_refund.skipped_lookup_unsupported")
-		return
+		return VideoRefundSkipped
 	}
 	applier, ok := s.usageBillingRepo.(UsageBillingVideoRefundApplier)
 	if !ok {
 		log.Warn("openai_video_refund.skipped_applier_unsupported")
-		return
+		return VideoRefundSkipped
 	}
 
-	// The submit-time RecordUsage runs on the same async worker pool with no
-	// ordering guarantee relative to this refund task; a fast terminal poll
-	// can race ahead of the billed row landing. Bounded retry turns that
-	// narrow window from a permanently lost refund (the registry record is
-	// already deleted) into a short wait.
-	var orig *UsageLog
-	var err error
-	for attempt := 1; ; attempt++ {
-		orig, err = lookup.GetVideoUsageByBillingRequestID(ctx, rec.BillingRequestID, rec.UserID)
-		if err != nil {
-			log.Error("openai_video_refund.original_lookup_failed", zap.Error(err))
-			return
-		}
-		if orig != nil || attempt >= 3 {
-			break
-		}
-		select {
-		case <-ctx.Done():
-			log.Error("openai_video_refund.original_usage_not_found",
-				zap.String("billing_request_id", rec.BillingRequestID),
-				zap.Int("attempts", attempt), zap.Error(ctx.Err()))
-			return
-		case <-time.After(2 * time.Second):
-		}
+	orig, err := lookup.GetVideoUsageByBillingRequestID(ctx, rec.BillingRequestID, rec.UserID)
+	if err != nil {
+		log.Error("openai_video_refund.original_lookup_failed", zap.Error(err))
+		return VideoRefundFailed
 	}
 	if orig == nil {
-		// Unrecoverable from here (registry record already deleted; clients
-		// rarely re-poll a failed task) — Error level so reconciliation
-		// alerting sees it.
-		log.Error("openai_video_refund.original_usage_not_found",
-			zap.String("billing_request_id", rec.BillingRequestID),
-			zap.Int("attempts", 3))
-		return
+		// Billed row not landed yet — retryable. The caller (handler
+		// scheduleVideoRefundAttempt) re-attempts on a fresh task; only when it
+		// exhausts its bounded attempts does it escalate to an Error-level
+		// reconciliation log.
+		log.Warn("openai_video_refund.original_usage_pending",
+			zap.String("billing_request_id", rec.BillingRequestID))
+		return VideoRefundOriginPending
 	}
 
 	cmd, refundLog := buildVideoRefundFromUsage(rec, orig)
 	if cmd == nil {
 		log.Info("openai_video_refund.nothing_to_refund",
 			zap.Float64("original_actual_cost", orig.ActualCost))
-		return
+		return VideoRefundNothing
 	}
 
 	applied, err := applier.ApplyVideoRefund(ctx, cmd)
 	if err != nil {
 		log.Error("openai_video_refund.apply_failed",
 			zap.Float64("amount", cmd.Amount), zap.Error(err))
-		return
+		return VideoRefundFailed
 	}
 	if !applied {
 		log.Info("openai_video_refund.already_refunded")
-		return
+		return VideoRefundAlreadyApplied
 	}
 
 	if _, err := s.usageLogRepo.Create(ctx, refundLog); err != nil {
@@ -230,4 +243,5 @@ func (s *OpenAIGatewayService) RefundVideoUsageOnFailure(ctx context.Context, re
 		zap.Int8("billing_type", cmd.BillingType),
 		zap.String("billing_request_id", rec.BillingRequestID),
 	)
+	return VideoRefundApplied
 }
