@@ -562,7 +562,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		// fallback cooldown or ladder advance; a real relayed window-limit still
 		// carries the headers and is unaffected. See
 		// ratelimit_service_tk_nonauthoritative_429.go.
-		if account.Platform == PlatformAnthropic && s.tkSkipAnthropicNonAuthoritative429(ctx, headers, responseBody) {
+		if account.Platform == PlatformAnthropic && tkIsAnthropicNonAuthoritative429(headers, responseBody) {
 			tkLogAnthropicNonAuthoritative429Skip(account, statusCode)
 			// TK: feed the bounded saturation de-prioritization preference, same as the
 			// two sibling capacity-envelope skips above — a header-less envelope means

@@ -867,7 +867,7 @@ func (a *Account) IsCustomErrorCodesEnabled() bool {
 // **Anthropic 的 pool_mode 账号仍然走 handle429 + 3/3 阶梯冷却**——pool_mode 不豁免
 // anthropic 冷却。anthropic 侧真正的豁免是各 capacity / 非权威信封跳过：
 // tkSkipDownstreamNoAvailableAccountsPenalty / tkSkipDownstreamFailoverExhaustedPenalty /
-// tkSkipAnthropicNonAuthoritative429（无 anthropic-ratelimit-* 头）。注意 pool_mode 的
+// tkIsAnthropicNonAuthoritative429（无 anthropic-ratelimit-* 头）。注意 pool_mode 的
 // 同账号重试此前会逐跳重喂 3/3 阶梯，故 tkRetryableOnSameAccount 对非权威 429 关掉重试。
 //
 // OAuth 账号永远返回 false（IsAPIKeyOrBedrock 前置）。

@@ -3,11 +3,8 @@
 package service
 
 import (
-	"context"
 	"net/http"
 	"testing"
-
-	"github.com/Wei-Shaw/sub2api/internal/config"
 )
 
 func TestTkIsAnthropicNonAuthoritative429(t *testing.T) {
@@ -108,28 +105,4 @@ func TestTkRetryableOnSameAccount(t *testing.T) {
 			t.Fatal("expected false for nil resp")
 		}
 	})
-}
-
-// The skip is gated by SettingKeyAnthropicNonAuthoritative429Failover (default on):
-// an operator on a direct (non-mirror) deployment can disable it.
-func TestTkSkipAnthropicNonAuthoritative429_SettingGate(t *testing.T) {
-	headers := http.Header{} // header-less => predicate true; the setting gate decides.
-	body := []byte(`{"type":"error","error":{"type":"rate_limit_error","message":"Error"}}`)
-
-	// Explicit "false" closes the skip even though the body is non-authoritative.
-	settingRepo := newMockSettingRepo()
-	settingRepo.data[SettingKeyAnthropicNonAuthoritative429Failover] = "false"
-	svc := NewRateLimitService(&rateLimitAccountRepoStub{}, nil, &config.Config{}, nil, nil)
-	svc.SetSettingService(NewSettingService(settingRepo, &config.Config{}))
-	nonAuth429Cache.Store(&nonAuth429CacheEntry{expiresAt: 0})        // force a fresh DB read
-	defer nonAuth429Cache.Store(&nonAuth429CacheEntry{expiresAt: 0}) // don't leak the cached value
-	if svc.tkSkipAnthropicNonAuthoritative429(context.Background(), headers, body) {
-		t.Fatal("setting=false must disable the non-authoritative-429 skip")
-	}
-
-	// Default (no settingService wired) => skip stays active (fail-open default-on).
-	svc2 := NewRateLimitService(&rateLimitAccountRepoStub{}, nil, &config.Config{}, nil, nil)
-	if !svc2.tkSkipAnthropicNonAuthoritative429(context.Background(), headers, body) {
-		t.Fatal("default (no settingService) must keep the skip active")
-	}
 }

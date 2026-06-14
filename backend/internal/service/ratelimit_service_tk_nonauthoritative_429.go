@@ -1,7 +1,6 @@
 package service
 
 import (
-	"context"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -35,10 +34,12 @@ import (
 //
 // This header-presence classifier generalises the needle skips: no
 // anthropic-ratelimit-* headers ⇒ non-authoritative ⇒ fail over to the next stub
-// without a fallback cooldown or ladder advance. A real relayed window-limit still
-// carries the headers and is unaffected. Retry-After is deliberately NOT treated as
-// authoritative: TokenKey's own capacity envelopes (and the empty-pool fast-fail)
-// set Retry-After:5, so keying on it would mis-classify the very envelopes above.
+// without a fallback cooldown or ladder advance. It is ALWAYS ON — same posture as
+// its two sibling capacity-envelope skips, which carry no setting either. A real
+// relayed window-limit still carries the headers and is unaffected. Retry-After is
+// deliberately NOT treated as authoritative: TokenKey's own capacity envelopes (and
+// the empty-pool fast-fail) set Retry-After:5, so keying on it would mis-classify
+// the very envelopes above.
 
 // tkIsAnthropicNonAuthoritative429 reports whether an Anthropic 429 lacks ANY
 // authoritative anthropic-ratelimit-* signal in its response headers. Pure; no
@@ -64,22 +65,6 @@ func tkIsAnthropicNonAuthoritative429(headers http.Header, responseBody []byte) 
 		if strings.HasPrefix(strings.ToLower(k), "anthropic-ratelimit-") {
 			return false
 		}
-	}
-	return true
-}
-
-// tkSkipAnthropicNonAuthoritative429 is true when a 429 should fail over WITHOUT
-// any account penalty (no handle429 fallback cooldown, no anthropic_upstream_error
-// 3/3 ladder advance) because it carries no authoritative anthropic-ratelimit-*
-// headers. Gated by SettingKeyAnthropicNonAuthoritative429Failover (default on);
-// an operator on a direct (non-mirror) Anthropic deployment can disable it to keep
-// the conservative 5s fallback cooldown. Caller ensures Platform==anthropic.
-func (s *RateLimitService) tkSkipAnthropicNonAuthoritative429(ctx context.Context, headers http.Header, responseBody []byte) bool {
-	if !tkIsAnthropicNonAuthoritative429(headers, responseBody) {
-		return false
-	}
-	if s.settingService != nil && !s.settingService.IsAnthropicNonAuthoritative429FailoverEnabled(ctx) {
-		return false
 	}
 	return true
 }
