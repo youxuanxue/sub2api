@@ -80,9 +80,9 @@ EXPECTED_ACTIONS: list[tuple[str, str]] = [
     ("lightsail:AttachStaticIp", "bind IP to instance"),
     ("lightsail:DetachStaticIp", "recreate=true path"),
     ("lightsail:ReleaseStaticIp", "recreate=true path + ip rotation"),
-    # --- Lightsail instance firewall (443-only hardened baseline) -------
+    # --- Lightsail instance firewall (443 + 8443 hardened baseline) -----
     ("lightsail:GetInstancePortStates", "read-back firewall state in provision + verify-edge"),
-    ("lightsail:PutInstancePublicPorts", "provision + verify-edge --enforce-ports set 443-only (closes 22/80)"),
+    ("lightsail:PutInstancePublicPorts", "provision + verify-edge --enforce-ports set 443 + 8443 (closes 22/80)"),
     # --- SSM managed-instance ops after registration -------------------
     ("ssm:DescribeInstanceInformation", "poll for mi-* registration"),
     ("ssm:SendCommand", "upgrade / smoke / log fetch via Hybrid managed instance"),

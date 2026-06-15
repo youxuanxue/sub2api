@@ -153,15 +153,19 @@ aws lightsail attach-static-ip \
 # We declare the COMPLETE desired port set with put-instance-public-ports (replace
 # semantics), not open-instance-public-ports (add-only). This atomically:
 #   - opens 443 (business + ACME TLS-ALPN-01),
+#   - opens 8443 (alternate connection port — kept open by design; NOT force-closed),
 #   - drops the Lightsail-default public SSH (22) — operate via SSM / console SSH,
 #   - keeps public 80 closed — certs use TLS-ALPN-01 on 443, so HTTP-01 is unneeded.
+# Cert renewal still rides 443 only (TLS-ALPN-01); 8443 is a spare ingress port.
 # Operate existing edges to this same set via ops/stage0/verify-edge-lightsail-network.sh --enforce-ports.
-echo "setting Lightsail public ports to 443-only (IPv4) on ${INSTANCE_NAME}"
+echo "setting Lightsail public ports to 443 + 8443 (IPv4) on ${INSTANCE_NAME}"
 if aws lightsail put-instance-public-ports \
   --region "$LIGHTSAIL_REGION" \
   --instance-name "$INSTANCE_NAME" \
-  --port-infos "fromPort=443,toPort=443,protocol=tcp,cidrs=0.0.0.0/0" >/dev/null; then
-  echo "lightsail firewall: public ports set to TCP 443 only (22/80 closed)"
+  --port-infos \
+    "fromPort=443,toPort=443,protocol=tcp,cidrs=0.0.0.0/0" \
+    "fromPort=8443,toPort=8443,protocol=tcp,cidrs=0.0.0.0/0" >/dev/null; then
+  echo "lightsail firewall: public ports set to TCP 443 + 8443 (22/80 closed)"
 else
   echo "::notice::put-instance-public-ports failed — check:" >&2
   echo "       aws lightsail get-instance-port-states --region ${LIGHTSAIL_REGION} --instance-name ${INSTANCE_NAME}" >&2
