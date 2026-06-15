@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Push refreshed pg_dump cadence (hourly, ≤24 rolling files) into a running
+# Push refreshed pg_dump cadence (hourly, keep newest 6 rolling files) into a running
 # Stage0 EC2 via SSM Run-Command. Mirrors deploy/aws/stage0/tokenkey-pgdump.sh
 # and systemd units from stage0-ec2-bootstrap.sh so the live timer matches the
 # template-of-record without rebuilding the EC2.
@@ -68,7 +68,7 @@ jq -n \
   '{
     commands: [
       "set -euo pipefail",
-      "echo === pg_dump refresh: hourly, max 24 rolling files ===",
+      "echo === pg_dump refresh: hourly, keep newest 6 rolling files ===",
       ("echo " + $sh + " | base64 -d | sudo tee /usr/local/bin/tokenkey-pgdump.sh > /dev/null"),
       "sudo chmod +x /usr/local/bin/tokenkey-pgdump.sh",
       ("echo " + $svc + " | base64 -d | sudo tee /etc/systemd/system/tokenkey-pgdump.service > /dev/null"),

@@ -702,7 +702,7 @@ sudo systemctl list-timers tokenkey-pgdump.timer
 sudo systemctl list-timers tokenkey-disk-metrics.timer   # → CloudWatch tokenkey/EC2 DataVolumeUsedPercent
 sudo systemctl list-timers tokenkey-qa-stale-cleanup.timer
 ls -lh /var/lib/tokenkey/pgdump/ 2>/dev/null || echo '(no dumps yet — first dump runs on next scheduled timer tick)'
-# pg_dump 每 2 小时一次，滚动保留约 24 小时内最多 12 份 tokenkey-*.sql.gz；卷使用率告警见 CFN DataVolumeDiskAlarm / 主文档 §3.8
+# pg_dump 每小时一次，本地只滚动保留最近 6 份 tokenkey-*.sql.gz（S3 TOKENKEY_PGDUMP_S3_URI 才是归档源，本地仅供快速恢复）；清理在 dump 之前先跑以自愈满盘死锁。卷使用率告警：CFN DataVolumeDiskAlarm（探测）+ tokenkey-disk-metrics timer 的 on-box 飞书告警（通知，USED≥85%）/ 主文档 §3.8
 # 旧版手工/迁移快照 `pre-*.dump` 属存量文件；确认不需回滚后可删除，新模板的 pgdump timer 也会清理。
 # QA：`QaStaleRetentionDays`（默认 1.5 天）每日清理旧 qa_records + qa_blobs/qa_dlq；与 ops/prod/qa-export-and-purge.sh 范围对齐，0=关闭
 sudo cat /var/lib/tokenkey/.env                           # 含明文密码，慎查
