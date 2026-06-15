@@ -277,10 +277,11 @@ func ProvideAnthropicConfigReconciler(
 // Start()s the ticker. See antigravity_config_reconciler.go for the doctrine.
 func ProvideAntigravityConfigReconciler(
 	accountRepo AccountRepository,
+	groupRepo GroupRepository,
 	cfg *config.Config,
 	redisClient *redis.Client,
 ) *AntigravityConfigReconciler {
-	rec := NewAntigravityConfigReconciler(accountRepo, cfg, redisClient)
+	rec := NewAntigravityConfigReconciler(accountRepo, groupRepo, cfg, redisClient)
 	rec.Start()
 	return rec
 }

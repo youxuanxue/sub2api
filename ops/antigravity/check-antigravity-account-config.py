@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
-"""TokenKey post-rollout antigravity account config check (read-only).
+"""TokenKey post-rollout antigravity config check (read-only).
 
-Verifies every ``platform=antigravity`` account across all deployable edges + prod
-carries a **gemini-only** ``credentials.model_mapping`` — i.e. ``claude-*`` and
-``gpt-oss-*`` are NOT reachable. Operator policy: antigravity serves gemini only
-(claude routed to anthropic, gpt-oss off antigravity).
+Verifies the gemini-only operator policy (antigravity serves gemini only; claude
+routed to anthropic, gpt-oss off antigravity) across all deployable edges + prod,
+on BOTH surfaces the backend ``AntigravityConfigReconciler`` self-heals:
 
-The backend ``AntigravityConfigReconciler`` self-heals this on every node (writes
-the gemini-only map to any drifted account on boot + on its tick). This tool is
-the post-rollout *verification* that the self-heal converged fleet-wide.
+  1. **accounts** — every ``platform=antigravity`` account carries a gemini-only
+     ``credentials.model_mapping`` (no ``claude-*`` / ``gpt-oss-*`` keys).
+  2. **groups** — every active ``platform=antigravity`` group carries gemini-only
+     ``supported_model_scopes`` (exactly ``[gemini_text, gemini_image]``), so
+     ``/antigravity/v1/models`` + the API key usage guide hide claude.
+
+The reconciler self-heals both on every node (boot + tick). This tool is the
+post-rollout *verification* that the self-heal converged fleet-wide.
 
 A **violation** is any antigravity account whose ``model_mapping`` is null/empty
 (an empty map falls back to ``DefaultAntigravityModelMapping``, which still
-includes claude + gpt-oss) or contains any key with prefix ``claude-`` /
-``gpt-oss-``.
+includes claude + gpt-oss) or contains any ``claude-`` / ``gpt-oss-`` key; OR any
+active antigravity group whose ``supported_model_scopes`` is empty (unrestricted →
+advertises claude) or not exactly the gemini-only set.
 
 Exit codes (mirrors the anthropic post-release check): ``0`` = all gemini-only
 (green); ``1`` = violations found (yellow, non-blocking at rollout); ``2`` = could
@@ -44,6 +49,19 @@ ANTIGRAVITY_ACCOUNTS_SQL = (
     "FROM accounts WHERE platform = 'antigravity' AND deleted_at IS NULL;"
 )
 
+# Active antigravity groups + their supported_model_scopes. status='active' mirrors
+# the reconciler's ListActiveByPlatform (same口径: only groups the reconciler heals
+# are asserted). `deleted_at IS NULL` mandatory (soft-delete gate).
+ANTIGRAVITY_GROUPS_SQL = (
+    "SELECT COALESCE(json_agg(json_build_object("
+    "'id', id, 'name', name, 'scopes', supported_model_scopes))::text, '[]') "
+    "FROM groups WHERE platform = 'antigravity' AND status = 'active' AND deleted_at IS NULL;"
+)
+
+# Canonical gemini-only group scopes — mirrors domain.GeminiOnlyAntigravityModelScopes
+# and the reconciler's antigravityGroupScopesNeedGeminiOnly predicate.
+GEMINI_ONLY_SCOPES = {"gemini_text", "gemini_image"}
+
 # ops-sql-coverage gate: ssm_run_sql ships SQL over SSM, it does not build it.
 SELF_CHECK_EXEMPT: dict[str, str] = {
     "ssm_run_sql": "executes SQL over SSM, does not build it",
@@ -52,7 +70,10 @@ SELF_CHECK_EXEMPT: dict[str, str] = {
 
 def iter_self_check_sql() -> list[tuple[str, str]]:
     """(label, rendered_sql) for the ops-sql-coverage real-Postgres self-check."""
-    return [("ANTIGRAVITY_ACCOUNTS_SQL", ANTIGRAVITY_ACCOUNTS_SQL)]
+    return [
+        ("ANTIGRAVITY_ACCOUNTS_SQL", ANTIGRAVITY_ACCOUNTS_SQL),
+        ("ANTIGRAVITY_GROUPS_SQL", ANTIGRAVITY_GROUPS_SQL),
+    ]
 
 
 def fail(msg: str) -> None:
@@ -127,17 +148,44 @@ def _account_violation(row: dict) -> str | None:
     return None
 
 
-def _check_target(label: str, region: str, instance_id: str) -> list[dict]:
-    out = ssm_run_sql(region, instance_id, ANTIGRAVITY_ACCOUNTS_SQL, f"antigravity-config-check {label}")
+def _group_violation(row: dict) -> str | None:
+    """Return a human reason if the group scopes are NOT gemini-only, else None."""
+    scopes = row.get("scopes")
+    if not scopes or not isinstance(scopes, list):
+        return "empty/missing supported_model_scopes (unrestricted → advertises claude on /models + usage guide)"
+    got = {str(s).strip() for s in scopes}
+    if got == GEMINI_ONLY_SCOPES:
+        return None
+    parts = []
+    extra = sorted(got - GEMINI_ONLY_SCOPES)
+    missing = sorted(GEMINI_ONLY_SCOPES - got)
+    if extra:
+        parts.append("unexpected: " + ", ".join(extra))
+    if missing:
+        parts.append("missing: " + ", ".join(missing))
+    return "scopes not gemini-only (" + "; ".join(parts) + ")"
+
+
+def _parse_rows(label: str, out: str) -> list:
     try:
-        rows = json.loads(out or "[]")
+        return json.loads(out or "[]")
     except json.JSONDecodeError:
         fail(f"{label}: could not parse antigravity snapshot JSON: {out[:300]!r}")
+        return []  # unreachable (fail raises)
+
+
+def _check_target(label: str, region: str, instance_id: str) -> list[dict]:
     bad: list[dict] = []
-    for r in rows:
+    acc_out = ssm_run_sql(region, instance_id, ANTIGRAVITY_ACCOUNTS_SQL, f"antigravity-account-check {label}")
+    for r in _parse_rows(label, acc_out):
         reason = _account_violation(r)
         if reason:
-            bad.append({"target": label, "id": r.get("id"), "name": r.get("name"), "reason": reason})
+            bad.append({"target": label, "kind": "account", "id": r.get("id"), "name": r.get("name"), "reason": reason})
+    grp_out = ssm_run_sql(region, instance_id, ANTIGRAVITY_GROUPS_SQL, f"antigravity-group-check {label}")
+    for r in _parse_rows(label, grp_out):
+        reason = _group_violation(r)
+        if reason:
+            bad.append({"target": label, "kind": "group", "id": r.get("id"), "name": r.get("name"), "reason": reason})
     return bad
 
 
@@ -169,18 +217,21 @@ def main() -> int:
         for fut in as_completed(futs):
             violations.extend(fut.result())
 
+    def _sort_key(v: dict):
+        return (str(v["target"]), v.get("kind", ""), v.get("id") or 0)
+
     if args.json:
         print(json.dumps({
             "targets": [t[0] for t in targets],
             "violation_count": len(violations),
-            "violations": sorted(violations, key=lambda v: (str(v["target"]), v.get("id") or 0)),
+            "violations": sorted(violations, key=_sort_key),
         }, indent=2, ensure_ascii=False))
     elif violations:
-        print(f"FAIL: {len(violations)} antigravity account(s) not gemini-only across {len(targets)} target(s):")
-        for v in sorted(violations, key=lambda v: (str(v["target"]), v.get("id") or 0)):
-            print(f"  [{v['target']}] account {v['id']} ({v['name']}): {v['reason']}")
+        print(f"FAIL: {len(violations)} antigravity config violation(s) not gemini-only across {len(targets)} target(s):")
+        for v in sorted(violations, key=_sort_key):
+            print(f"  [{v['target']}] {v.get('kind', 'account')} {v['id']} ({v['name']}): {v['reason']}")
     else:
-        print(f"OK: all antigravity accounts gemini-only across {len(targets)} target(s)")
+        print(f"OK: all antigravity accounts + groups gemini-only across {len(targets)} target(s)")
 
     return 1 if violations else 0
 

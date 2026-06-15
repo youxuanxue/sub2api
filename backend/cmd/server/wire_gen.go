@@ -298,7 +298,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	rateLimitExpiryRepository := repository.NewRateLimitExpiryRepository(db)
 	schedulerRateLimitReaper := service.ProvideSchedulerRateLimitReaper(rateLimitExpiryRepository, configConfig)
 	anthropicConfigReconciler := service.ProvideAnthropicConfigReconciler(accountRepository, userRepository, adminService, tierService, accountTierService, tlsFingerprintProfileService, settingService, configConfig, redisClient)
-	antigravityConfigReconciler := service.ProvideAntigravityConfigReconciler(accountRepository, configConfig, redisClient)
+	antigravityConfigReconciler := service.ProvideAntigravityConfigReconciler(accountRepository, groupRepository, configConfig, redisClient)
 	tkAccountIncidentNotifier := service.ProvideTKAccountIncidentNotifier(rateLimitService, opsService, configConfig)
 	upstreamBalanceSentinel := service.ProvideUpstreamBalanceSentinel(accountRepository, httpUpstream, tkAccountIncidentNotifier, opsService, settingRepository, opsRepository, redisClient)
 	tokenRefreshService := service.ProvideTokenRefreshService(accountRepository, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, compositeTokenCacheInvalidator, schedulerCache, configConfig, tempUnschedCache, privacyClientFactory, proxyRepository, oAuthRefreshAPI, openAIGatewayService)
