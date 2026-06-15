@@ -452,6 +452,13 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 
 	finalizeStream := func() (*ForwardResult, error) {
 		if finalEvents := apicompat.FinalizeAnthropicResponsesStream(state); len(finalEvents) > 0 {
+			// Non-empty finalize events mean the upstream stream ended without a
+			// terminal message_stop; FinalizeAnthropicResponsesStream synthesizes a
+			// response.incomplete terminal so the strict client is not left hanging.
+			// Surface it for ops: the turn is truncated, not a clean completion.
+			logger.L().Info("forward_as_responses stream: upstream ended without terminal event; emitted response.incomplete",
+				zap.String("request_id", requestID),
+			)
 			for _, evt := range finalEvents {
 				sse, err := apicompat.ResponsesEventToSSE(evt)
 				if err != nil {

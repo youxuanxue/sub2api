@@ -341,6 +341,17 @@
       "summary": "OpenAI scheduling now queries account_groups for the requested group, so grouped balance traffic should not select ungrouped accounts."
     },
     {
+      "upstream": "Wei-Shaw/sub2api#2245",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/pkg/apicompat/anthropic_to_responses_response.go",
+        "backend/internal/pkg/apicompat/anthropic_to_responses_truncation_test.go",
+        "backend/internal/service/gateway_forward_as_responses.go",
+        "backend/internal/service/gateway_forward_as_responses_test.go"
+      ],
+      "summary": "OpenAI Responses streaming: when the upstream SSE stream ends without a terminal event (Anthropic message_stop), the /responses conversion finalizes the turn as a spec-valid response.incomplete (status=incomplete, incomplete_details.reason=interrupted) instead of a fake response.completed. The streaming terminal event type is now derived from response.status, so strict Responses clients (Codex CLI / OpenAI SDK) receive a correct terminal event and a truncated turn is not reported (to client or billing) as a clean success."
+    },
+    {
       "upstream": "Wei-Shaw/sub2api#2258",
       "tokenkey_pr": "youxuanxue/sub2api#232",
       "status": "fixed_in_tokenkey",

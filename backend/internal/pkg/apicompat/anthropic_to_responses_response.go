@@ -196,8 +196,14 @@ func AnthropicEventToResponsesEvents(
 	}
 }
 
-// FinalizeAnthropicResponsesStream emits synthetic termination events if the
-// stream ended without a proper message_stop.
+// FinalizeAnthropicResponsesStream emits a synthetic terminal event when the
+// upstream stream ended without a message_stop — i.e. the connection dropped
+// before the turn finished. The response is genuinely truncated, so it emits a
+// spec-valid response.incomplete (status="incomplete") rather than a fake
+// response.completed: a strict Responses client (Codex CLI / OpenAI SDK)
+// otherwise either errors with "stream closed before response.completed" (when
+// no terminal arrives at all) or, worse, is told a cut-off turn succeeded and
+// consumes the partial output as if it were complete. See Wei-Shaw/sub2api#2245.
 func FinalizeAnthropicResponsesStream(state *AnthropicEventToResponsesState) []ResponsesStreamEvent {
 	if !state.CreatedSent || state.CompletedSent {
 		return nil
@@ -208,8 +214,11 @@ func FinalizeAnthropicResponsesStream(state *AnthropicEventToResponsesState) []R
 	// Close any open item
 	events = append(events, closeCurrentResponsesItem(state)...)
 
-	// Emit response.completed
-	events = append(events, makeResponsesCompletedEvent(state, "completed", nil))
+	// Reaching here means the upstream never sent message_stop; surface the turn
+	// as incomplete instead of synthesizing a successful completion.
+	events = append(events, makeResponsesCompletedEvent(state, responsesStatusIncomplete, &ResponsesIncompleteDetails{
+		Reason: responsesIncompleteReasonInterrupted,
+	}))
 	state.CompletedSent = true
 	return events
 }
@@ -485,6 +494,41 @@ func makeResponsesCreatedEvent(state *AnthropicEventToResponsesState) ResponsesS
 	}
 }
 
+// Responses terminal-event status values. The streaming terminal event type
+// must agree with response.status — real OpenAI emits response.incomplete /
+// response.failed (not response.completed carrying a non-"completed" status),
+// and strict SDKs (Codex CLI / OpenAI SDK) validate the Responses stream
+// lifecycle against that.
+const (
+	responsesStatusIncomplete = "incomplete"
+	responsesStatusFailed     = "failed"
+
+	// responsesIncompleteReasonInterrupted marks a turn whose upstream stream
+	// ended before any terminal event (connection dropped mid-response). It is
+	// deliberately not one of OpenAI's model-driven reasons (max_output_tokens /
+	// content_filter): the cause is a transport-level truncation.
+	responsesIncompleteReasonInterrupted = "interrupted"
+)
+
+// responsesTerminalEventTypeForStatus maps a response.status to its matching
+// streaming terminal event type so the two never disagree.
+func responsesTerminalEventTypeForStatus(status string) string {
+	switch status {
+	case responsesStatusIncomplete:
+		return "response.incomplete"
+	case responsesStatusFailed:
+		return "response.failed"
+	case "cancelled", "canceled":
+		return "response.cancelled"
+	default:
+		return "response.completed"
+	}
+}
+
+// makeResponsesCompletedEvent builds a Responses terminal stream event. The
+// event type is derived from status (see responsesTerminalEventTypeForStatus),
+// so a status="incomplete"/"failed" turn emits response.incomplete/response.failed
+// rather than a mislabelled response.completed.
 func makeResponsesCompletedEvent(
 	state *AnthropicEventToResponsesState,
 	status string,
@@ -508,7 +552,7 @@ func makeResponsesCompletedEvent(
 	}
 
 	return ResponsesStreamEvent{
-		Type:           "response.completed",
+		Type:           responsesTerminalEventTypeForStatus(status),
 		SequenceNumber: seq,
 		Response: &ResponsesResponse{
 			ID:                state.ResponseID,

@@ -567,6 +567,23 @@
         "backend/internal/service/openai_gateway_service.go:Do NOT reintroduce a 100-raw inversion",
         "backend/internal/service/openai_gateway_service_codex_snapshot_test.go:TestNormalize_ProdLayoutUsedPercentPassthrough"
       ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2245",
+      "severity": "high",
+      "summary": "OpenAI Responses streaming: when the upstream SSE stream ends without a terminal event (Anthropic message_stop), the /responses conversion finalizes the turn as a spec-valid response.incomplete (status=incomplete, incomplete_details.reason=interrupted) instead of a fake response.completed. The streaming terminal event type is now derived from response.status, so strict Responses clients (Codex CLI / OpenAI SDK) receive a correct terminal event and a truncated turn is not reported (to client or billing) as a clean success.",
+      "fixed_by": [
+        "backend/internal/pkg/apicompat/anthropic_to_responses_response.go",
+        "backend/internal/pkg/apicompat/anthropic_to_responses_truncation_test.go",
+        "backend/internal/service/gateway_forward_as_responses.go",
+        "backend/internal/service/gateway_forward_as_responses_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/pkg/apicompat/anthropic_to_responses_response.go:responsesTerminalEventTypeForStatus",
+        "backend/internal/pkg/apicompat/anthropic_to_responses_response.go:responsesIncompleteReasonInterrupted",
+        "backend/internal/pkg/apicompat/anthropic_to_responses_truncation_test.go:TestFinalizeAnthropicResponsesStream_TruncationEmitsIncomplete",
+        "backend/internal/service/gateway_forward_as_responses_test.go:TestHandleResponsesStreamingResponse_TruncatedUpstreamEmitsIncomplete"
+      ]
     }
   ]
 }

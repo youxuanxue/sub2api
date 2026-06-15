@@ -5,8 +5,8 @@
   "rationale": "TokenKey-local triage cache for upstream open issues. Use this file before re-triaging upstream issues; update entries when TokenKey fixes, dismisses, or reclassifies an issue.",
   "counts": {
     "needs_review": 409,
-    "fixed": 38,
-    "needs_prod_validation": 2,
+    "needs_prod_validation": 1,
+    "fixed": 39,
     "medium": 123,
     "not_applicable": 1,
     "low": 110,
@@ -5115,24 +5115,6 @@
       "updated_at": "2026-05-11T07:02:08Z"
     },
     {
-      "upstream": "Wei-Shaw/sub2api#2245",
-      "url": "https://github.com/Wei-Shaw/sub2api/issues/2245",
-      "title": "OpenAI Responses SSE 流未完成时被转发为 HTTP 200 导致 stream closed before response.completed 问题",
-      "impact": "needs_prod_validation",
-      "categories": [
-        "rate_limit_cooldown",
-        "billing_usage",
-        "account_pool_health",
-        "ops_observability",
-        "compatibility",
-        "enhancement",
-        "docs"
-      ],
-      "tokenkey_status": "known_protocol_limitation",
-      "rationale": "Responses stream terminal-event detection exists, but downstream may already have received HTTP 200 before an incomplete SSE is detected.",
-      "updated_at": "2026-05-07T06:36:20Z"
-    },
-    {
       "upstream": "Wei-Shaw/sub2api#1048",
       "url": "https://github.com/Wei-Shaw/sub2api/issues/1048",
       "title": "功能建议：建议新增gemini的openai兼容协议。openclaw中gemini的原生v1beta协议无法使用",
@@ -6894,6 +6876,24 @@
       "tokenkey_status": "fixed_in_tokenkey",
       "rationale": "Account scheduling now queries the account_groups join table for the requested group; balance-group requests should not schedule ungrouped accounts.",
       "updated_at": "2026-05-05T18:45:31Z"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2245",
+      "url": "https://github.com/Wei-Shaw/sub2api/issues/2245",
+      "title": "OpenAI Responses SSE 流未完成时被转发为 HTTP 200 导致 stream closed before response.completed 问题",
+      "impact": "fixed",
+      "categories": [
+        "rate_limit_cooldown",
+        "billing_usage",
+        "account_pool_health",
+        "ops_observability",
+        "compatibility",
+        "enhancement",
+        "docs"
+      ],
+      "tokenkey_status": "fixed_in_tokenkey",
+      "rationale": "OpenAI Responses streaming: when the upstream SSE stream ends without a terminal event (Anthropic message_stop), the /responses conversion finalizes the turn as a spec-valid response.incomplete (status=incomplete, incomplete_details.reason=interrupted) instead of a fake response.completed. The streaming terminal event type is now derived from response.status, so strict Responses clients (Codex CLI / OpenAI SDK) receive a correct terminal event and a truncated turn is not reported (to client or billing) as a clean success.",
+      "updated_at": "2026-05-07T06:36:20Z"
     },
     {
       "upstream": "Wei-Shaw/sub2api#2258",
