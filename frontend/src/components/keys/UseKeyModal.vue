@@ -149,7 +149,9 @@ interface Props {
   allowMessagesDispatch?: boolean
   // 分组的「支持的模型系列」(claude / gemini_text / gemini_image)。仅 antigravity 用：
   // 不含 'claude' 时隐藏 Claude flavor（Claude Code tab + OpenCode antigravity-claude
-  // provider），与 /antigravity/v1/models 的 scope 过滤同口径。空/未传 = 不限制。
+  // provider）。本指南只按 claude flavor 做粗粒度 gate；gemini_text 与 gemini_image 的
+  // 细分仅后端 /antigravity/v1/models 生效（运营策略下两者总是成对 = gemini-only）。
+  // 空/未传 = 不限制。
   supportedModelScopes?: string[]
 }
 
@@ -186,8 +188,9 @@ const activeClientTab = ref<string>('claude')
 // ChatGPT WebSocket auth, so codex (HTTP) is the right default — same as
 // `openai` minus codex-ws.
 // antigravity 的 Claude flavor 是否对当前分组开放：分组 supported_model_scopes 含
-// 'claude' 才显示（与后端 /antigravity/v1/models 的 scope 过滤同口径）。空/未传 =
-// 不限制（向后兼容旧分组）。非 antigravity 平台不受影响。
+// 'claude' 才显示。这是 claude 维度上与后端 /antigravity/v1/models scope 过滤的一致点；
+// 本指南不做 gemini_text/gemini_image 的逐模型细分（那只在后端 /models 生效）。
+// 空/未传 = 不限制（向后兼容旧分组）。非 antigravity 平台不受影响。
 const antigravityClaudeAllowed = computed(() => {
   if (props.platform !== 'antigravity') return true
   const scopes = props.supportedModelScopes

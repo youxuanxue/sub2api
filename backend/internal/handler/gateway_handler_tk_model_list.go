@@ -141,8 +141,11 @@ func (h *GatewayHandler) tkGeminiFallbackModelsList(ctx context.Context) gemini.
 // antigravityModelScope classifies an antigravity model id into the group
 // supported_model_scopes vocabulary ("claude" / "gemini_text" / "gemini_image").
 // gpt-oss gets its own bucket so a gemini-only group filters it out too (it is
-// neither a gemini text nor image scope). Mirrors the frontend SubscriptionPlanCard
-// / UseKeyModal classification so /antigravity/v1/models and the usage guide agree.
+// neither a gemini text nor image scope). Same bucketing as the frontend
+// SubscriptionPlanCard badge labels (claude / gemini_text→Gemini / gemini_image→
+// Imagen). Note the UseKeyModal usage guide does NOT classify per-model — it only
+// gates the claude *flavor* on scopes.includes('claude'); the gemini_text vs
+// gemini_image split is enforced here on /antigravity/v1/models only.
 func antigravityModelScope(id string) string {
 	l := strings.ToLower(strings.TrimSpace(id))
 	switch {
