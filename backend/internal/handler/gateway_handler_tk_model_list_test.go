@@ -213,3 +213,67 @@ func (r *capturedRepo2) Get(_ context.Context, p, m string) (service.Availabilit
 	defer r.mu.Unlock()
 	return r.rows[r.key(p, m)], nil
 }
+
+func TestAntigravityModelScope(t *testing.T) {
+	cases := map[string]string{
+		"claude-sonnet-4-6":      "claude",
+		"claude-opus-4-8":        "claude",
+		"gpt-oss-120b-medium":    "gpt_oss",
+		"gemini-3.1-flash-image": "gemini_image",
+		"gemini-2.5-flash-image": "gemini_image",
+		"gemini-3-pro-image":     "gemini_image",
+		"gemini-3-flash":         "gemini_text",
+		"gemini-pro-agent":       "gemini_text",
+		"gemini-2.5-pro":         "gemini_text",
+		"tab_flash_lite_preview": "gemini_text",
+	}
+	for id, want := range cases {
+		if got := antigravityModelScope(id); got != want {
+			t.Fatalf("antigravityModelScope(%q)=%q want %q", id, got, want)
+		}
+	}
+}
+
+func TestTkAntigravityFilterModelsByGroupScopes(t *testing.T) {
+	models := []antigravity.ClaudeModel{
+		{ID: "claude-sonnet-4-6"},
+		{ID: "claude-opus-4-8"},
+		{ID: "gpt-oss-120b-medium"},
+		{ID: "gemini-3-flash"},
+		{ID: "gemini-pro-agent"},
+		{ID: "gemini-3.1-flash-image"},
+	}
+	ids := func(ms []antigravity.ClaudeModel) []string {
+		out := make([]string, len(ms))
+		for i, m := range ms {
+			out[i] = m.ID
+		}
+		return out
+	}
+
+	// gemini-only group (operator policy): claude + gpt-oss dropped.
+	got := tkAntigravityFilterModelsByGroupScopes([]string{"gemini_text", "gemini_image"}, models)
+	want := []string{"gemini-3-flash", "gemini-pro-agent", "gemini-3.1-flash-image"}
+	if strings.Join(ids(got), ",") != strings.Join(want, ",") {
+		t.Fatalf("gemini-only scope filter = %v, want %v", ids(got), want)
+	}
+
+	// gemini_text only: image dropped too.
+	got = tkAntigravityFilterModelsByGroupScopes([]string{"gemini_text"}, models)
+	want = []string{"gemini-3-flash", "gemini-pro-agent"}
+	if strings.Join(ids(got), ",") != strings.Join(want, ",") {
+		t.Fatalf("gemini_text scope filter = %v, want %v", ids(got), want)
+	}
+
+	// claude included: claude kept (but gpt-oss still dropped — not a scope value).
+	got = tkAntigravityFilterModelsByGroupScopes([]string{"claude", "gemini_text", "gemini_image"}, models)
+	if strings.Join(ids(got), ",") != "claude-sonnet-4-6,claude-opus-4-8,gemini-3-flash,gemini-pro-agent,gemini-3.1-flash-image" {
+		t.Fatalf("claude+gemini scope filter unexpected: %v", ids(got))
+	}
+
+	// empty scopes = no restriction (back-compat).
+	got = tkAntigravityFilterModelsByGroupScopes(nil, models)
+	if len(got) != len(models) {
+		t.Fatalf("empty scopes should be unrestricted, got %d of %d", len(got), len(models))
+	}
+}

@@ -1626,6 +1626,14 @@
       "rationale": "Antigravity 自定义-映射账号的 safety-net 透传列表（GetModelMapping 内）。这是 antigravity gemini-only 服务面的「五面」之一：公共目录 / UseKeyModal 宣告可服务的 wire id，若自定义 model_mapping 账号未显式声明，必须由此列表补 identity 透传，否则静默 404（xj-review R / memory antigravity_claude_exclude_per_account_not_global_default）。2026-06-15（PR #774）起该列表已移除上游 deprecated 的 gemini-3.1-pro-high（identity 透传 → 400），等价档走 gemini-pro-agent。上游 merge 若删除 ensureAntigravityDefaultPassthroughs 调用或丢失 gemini-pro-agent / gemini-3-flash-agent 成员，自定义账号会静默拒绝可服务模型——本 sentinel 守护该调用与收敛后的成员。"
     },
     {
+      "path": "backend/internal/handler/gateway_handler_tk_model_list.go",
+      "must_contain": [
+        "func tkAntigravityFilterModelsByGroupScopes(",
+        "func antigravityModelScope("
+      ],
+      "rationale": "supported_model_scopes 的请求路径 enforcement（首次落地，PR 后续）：/antigravity/v1/models 经 AntigravityModels handler 调用 tkAntigravityFilterModelsByGroupScopes 按分组 supported_model_scopes（claude / gemini_text / gemini_image）过滤已宣告模型，使 gemini-only 分组（[gemini_text, gemini_image]）从 /models 隐藏 claude，与 per-account gemini-only model_mapping + 前端 UseKeyModal 的 claude-flavor gate 同口径。antigravityModelScope 是 model→scope 归类器（claude-/gpt-oss-/含 image/其余=gemini_text），与前端分类镜像。上游 merge 若删除这两个函数或 AntigravityModels 里的过滤调用，/models 会静默回退到含 claude 的全目录——本 sentinel 守护。"
+    },
+    {
       "path": "backend/internal/service/wire.go",
       "must_contain": [
         "func ProvideAntigravityConfigReconciler(",

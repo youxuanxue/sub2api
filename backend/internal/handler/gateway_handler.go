@@ -1191,9 +1191,16 @@ func (h *GatewayHandler) AntigravityModels(c *gin.Context) {
 	// availability. Candidate set is always the antigravity-specific list (not the
 	// full cross-platform catalog). Response shape is always []antigravity.ClaudeModel.
 	// Goal 2 / R-003; shape/scope regression fix from review-20260507 R-001/R-002.
+	models := h.tkAntigravityDefaultModels(c.Request.Context())
+	// TK: enforce the group's supported_model_scopes on the advertised list, so a
+	// gemini-only antigravity group ([gemini_text, gemini_image]) hides claude here —
+	// matching the per-account gemini-only model_mapping. Empty scopes = unrestricted.
+	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.Group != nil {
+		models = tkAntigravityFilterModelsByGroupScopes(apiKey.Group.SupportedModelScopes, models)
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"object": "list",
-		"data":   h.tkAntigravityDefaultModels(c.Request.Context()),
+		"data":   models,
 	})
 }
 

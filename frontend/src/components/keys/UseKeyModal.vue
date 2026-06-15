@@ -147,6 +147,12 @@ interface Props {
   baseUrl: string
   platform: GroupPlatform | null
   allowMessagesDispatch?: boolean
+  // 分组的「支持的模型系列」(claude / gemini_text / gemini_image)。仅 antigravity 用：
+  // 不含 'claude' 时隐藏 Claude flavor（Claude Code tab + OpenCode antigravity-claude
+  // provider）。本指南只按 claude flavor 做粗粒度 gate；gemini_text 与 gemini_image 的
+  // 细分仅后端 /antigravity/v1/models 生效（运营策略下两者总是成对 = gemini-only）。
+  // 空/未传 = 不限制。
+  supportedModelScopes?: string[]
 }
 
 interface Emits {
@@ -181,6 +187,17 @@ const activeClientTab = ref<string>('claude')
 // upstream speaks OpenAI's /v1/chat/completions shape but does not expose
 // ChatGPT WebSocket auth, so codex (HTTP) is the right default — same as
 // `openai` minus codex-ws.
+// antigravity 的 Claude flavor 是否对当前分组开放：分组 supported_model_scopes 含
+// 'claude' 才显示。这是 claude 维度上与后端 /antigravity/v1/models scope 过滤的一致点；
+// 本指南不做 gemini_text/gemini_image 的逐模型细分（那只在后端 /models 生效）。
+// 空/未传 = 不限制（向后兼容旧分组）。非 antigravity 平台不受影响。
+const antigravityClaudeAllowed = computed(() => {
+  if (props.platform !== 'antigravity') return true
+  const scopes = props.supportedModelScopes
+  if (!scopes || scopes.length === 0) return true
+  return scopes.includes('claude')
+})
+
 const defaultClientTab = computed(() => {
   switch (props.platform) {
     case 'openai':
@@ -190,7 +207,7 @@ const defaultClientTab = computed(() => {
     case 'gemini':
       return 'gemini'
     case 'antigravity':
-      return 'claude'
+      return antigravityClaudeAllowed.value ? 'claude' : 'gemini'
     default:
       return 'claude'
   }
@@ -288,12 +305,16 @@ const clientTabs = computed((): TabConfig[] => {
         { id: 'gemini', label: t('keys.useKeyModal.cliTabs.geminiCli'), icon: SparkleIcon },
         { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
       ]
-    case 'antigravity':
-      return [
-        { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
-        { id: 'gemini', label: t('keys.useKeyModal.cliTabs.geminiCli'), icon: SparkleIcon },
-        { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
-      ]
+    case 'antigravity': {
+      const tabs: TabConfig[] = []
+      // gemini-only 分组（supported_model_scopes 不含 claude）隐藏 Claude Code tab。
+      if (antigravityClaudeAllowed.value) {
+        tabs.push({ id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon })
+      }
+      tabs.push({ id: 'gemini', label: t('keys.useKeyModal.cliTabs.geminiCli'), icon: SparkleIcon })
+      tabs.push({ id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon })
+      return tabs
+    }
     case 'newapi': {
       // OpenAI-compat HTTP only; no codex-ws. Optionally claude tab when the
       // group enables messages dispatch (mirrors the openai branch).
@@ -434,11 +455,15 @@ const currentFiles = computed((): FileConfig[] => {
         return [generateOpenCodeConfig('openai', apiBase, apiKey)]
       case 'gemini':
         return [generateOpenCodeConfig('gemini', geminiBase, apiKey)]
-      case 'antigravity':
-        return [
-          generateOpenCodeConfig('antigravity-claude', antigravityBase, apiKey, 'opencode.json (Claude)'),
-          generateOpenCodeConfig('antigravity-gemini', antigravityGeminiBase, apiKey, 'opencode.json (Gemini)')
-        ]
+      case 'antigravity': {
+        const configs: FileConfig[] = []
+        // gemini-only 分组隐藏 antigravity-claude provider，只给 gemini 配置。
+        if (antigravityClaudeAllowed.value) {
+          configs.push(generateOpenCodeConfig('antigravity-claude', antigravityBase, apiKey, 'opencode.json (Claude)'))
+        }
+        configs.push(generateOpenCodeConfig('antigravity-gemini', antigravityGeminiBase, apiKey, 'opencode.json (Gemini)'))
+        return configs
+      }
       default:
         return [generateOpenCodeConfig('openai', apiBase, apiKey)]
     }
