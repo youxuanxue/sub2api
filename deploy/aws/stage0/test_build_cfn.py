@@ -66,6 +66,30 @@ class BuildCfnSizeTest(unittest.TestCase):
             msg=f"build-cfn --check failed:\nstdout={proc.stdout}\nstderr={proc.stderr}",
         )
 
+    def test_build_cfn_check_detects_source_drift(self) -> None:
+        # Negative path: the content-based --check must FAIL when a source script
+        # changes but its embedded CFN blob is not regenerated — that drift gate is
+        # the whole point of --check. (Decodes the committed blob and compares to the
+        # now-tampered source, so it stays robust to gzip/zlib *version* differences.)
+        src = STAGE0 / "tokenkey-pgdump.sh"
+        original = src.read_bytes()
+        try:
+            src.write_bytes(original + b"\n# build-cfn drift sentinel\n")
+            proc = subprocess.run(
+                ["bash", str(STAGE0 / "build-cfn.sh"), "--check"],
+                cwd=_REPO,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(
+                proc.returncode,
+                0,
+                msg="build-cfn --check passed despite a tampered source; the drift gate is broken",
+            )
+        finally:
+            src.write_bytes(original)
+
     def test_cfn_has_bootstrap_ssm_markers(self) -> None:
         text = CFN_MAIN.read_text()
         for marker in (

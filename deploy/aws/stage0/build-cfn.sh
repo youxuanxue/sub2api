@@ -162,24 +162,51 @@ refresh_template() {
   rm -f "${userdata_tmp}"
 }
 
-tmp_main="$(mktemp)"
-trap 'rm -f "${tmp_main}"' EXIT
-
-refresh_template "${CFN_FILE}" "${tmp_main}" "${CADDY_GZB64}"
-
 if [[ "${mode}" == "check" ]]; then
+  # Content-based drift check: decode each committed blob and compare to its source
+  # file. This is robust to gzip/zlib *version* differences — any valid gzip of the
+  # right content passes, so a macOS/Linux/CI contributor with a different zlib can
+  # all regenerate and commit without spurious drift. A byte-exact compare of
+  # recompressed output (the old approach) failed across zlib 1.2.11 vs 1.3 and
+  # across BSD vs GNU gzip, which made the pre-commit hook unsatisfiable on macOS
+  # for PR #778 (the committed bytes could never match a non-CI contributor's gzip).
   drift=0
-  if ! diff -q "${CFN_FILE}" "${tmp_main}" >/dev/null; then
-    echo "stage0 CFN drift detected — run: bash deploy/aws/stage0/build-cfn.sh" >&2
-    diff -u "${CFN_FILE}" "${tmp_main}" | head -n 80 >&2 || true
-    drift=1
-  fi
+  committed_value() {  # $1 = marker name; prints the base64 inside its Value: '...'
+    awk -v m="$1" -v q="'" '
+      index($0, ">>> " m " START") { g = 1; next }
+      index($0, ">>> " m " END")   { g = 0 }
+      g && /Value:/ {
+        s = $0
+        sub("^[[:space:]]*Value:[[:space:]]*" q, "", s)
+        sub(q "[[:space:]]*$", "", s)
+        print s; g = 0
+      }
+    ' "${CFN_FILE}"
+  }
+  report() { echo "  drift: ${1} embed no longer decodes to its source — run: bash deploy/aws/stage0/build-cfn.sh" >&2; drift=1; }
+
+  # gzip+base64 payloads (the version-fragile ones):
+  committed_value COMPOSE_GZB64_SSM | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${COMPOSE_SRC}" || report compose
+  committed_value CADDY_GZB64_SSM   | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${CADDY_SRC}"   || report caddy
+  { committed_value BOOTSTRAP_GZB64_SSM_PART1; committed_value BOOTSTRAP_GZB64_SSM_PART2; } \
+    | tr -d '\n' | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${BOOTSTRAP_SRC}" || report bootstrap
+  # plain base64 payloads:
+  committed_value QA_CLEANUP_B64_PARAM | base64 -d 2>/dev/null | cmp -s - "${QA_CLEANUP_SRC}" || report qa-cleanup
+  committed_value PGDUMP_B64_PARAM     | base64 -d 2>/dev/null | cmp -s - "${PGDUMP_SRC}"     || report pgdump
+  committed_value GHCR_PRUNE_B64_PARAM | base64 -d 2>/dev/null | cmp -s - "${PRUNE_SRC}"      || report ghcr-prune
+  # (The thin UserData launcher is a pass-through YAML block, not a marker-spliced
+  #  SSM embed, so it is not part of the gzip-drift surface; its 16 KiB size guard
+  #  above still runs in both modes.)
+
   if [[ "${drift}" -eq 0 ]]; then
-    echo "stage0 CFN embeds are up to date."
+    echo "stage0 CFN embeds are up to date (content-verified)."
   fi
   exit "${drift}"
 fi
 
+tmp_main="$(mktemp)"
+trap 'rm -f "${tmp_main}"' EXIT
+refresh_template "${CFN_FILE}" "${tmp_main}" "${CADDY_GZB64}"
 mv "${tmp_main}" "${CFN_FILE}"
 trap - EXIT
 
