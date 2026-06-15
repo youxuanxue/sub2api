@@ -79,14 +79,14 @@ gh workflow run deploy-edge-lightsail-stage0.yml \
 
 ### 冒烟 / 本机 curl 对域名长期 `HTTP 000` 或 TCP 超时
 
-Lightsail **实例控制台「Networking」防火墙**的硬化基线是**仅放行 TCP 443**（HTTPS + ACME TLS-ALPN-01）；
-**80 与 22 关闭**（证书走 TLS-ALPN-01 无需 80；SSH 走 SSM / 控制台 browser SSH，不依赖公网 22）。仅靠正确 DNS（A → Static IP）不够；若 443 没开，`curl https://api-…/health` 会与 GitHub runner 一致：约 130s 级连接超时。
+Lightsail **实例控制台「Networking」防火墙**的硬化基线是**放行 TCP 443 + 8443**（443 = HTTPS 业务 + ACME TLS-ALPN-01；
+8443 = 备用连接口，按设计保持开放、不强制关掉）；**80 与 22 关闭**（证书走 TLS-ALPN-01 无需 80，续签仍只走 443；SSH 走 SSM / 控制台 browser SSH，不依赖公网 22）。仅靠正确 DNS（A → Static IP）不够；若 443 没开，`curl https://api-…/health` 会与 GitHub runner 一致：约 130s 级连接超时。
 
-- 自检：`aws lightsail get-instance-port-states --region <region> --instance-name <instance_name>`（期望仅 443 open）
+- 自检：`aws lightsail get-instance-port-states --region <region> --instance-name <instance_name>`（期望 443 + 8443 open，80/22 closed）
 - 一次性修复 / 收口到基线（与 provision 脚本行为一致，原子覆盖整张防火墙表）：  
   `bash ops/stage0/verify-edge-lightsail-network.sh <edge_id> --enforce-ports`  
-  其内部即 `aws lightsail put-instance-public-ports --region <region> --instance-name <instance_name> --port-infos fromPort=443,toPort=443,protocol=tcp,cidrs=0.0.0.0/0`（put = 替换语义，顺带关掉默认 22 与历史 80）。
-- IaC：`provision-edge.sh` 会在 attach Static IP 后用 `put-instance-public-ports` 设为 **仅 443**；CI OIDC role 需在
+  其内部即 `aws lightsail put-instance-public-ports --region <region> --instance-name <instance_name> --port-infos fromPort=443,toPort=443,protocol=tcp,cidrs=0.0.0.0/0 fromPort=8443,toPort=8443,protocol=tcp,cidrs=0.0.0.0/0`（put = 替换语义，顺带关掉默认 22 与历史 80，同时保留 8443）。
+- IaC：`provision-edge.sh` 会在 attach Static IP 后用 `put-instance-public-ports` 设为 **443 + 8443**；CI OIDC role 需在
   `cicd-oidc-lightsail-addon.yaml` 中包含 `lightsail:PutInstancePublicPorts`（及 `GetInstancePortStates`）。
 
 ### Admin 登录 / 忘记密码

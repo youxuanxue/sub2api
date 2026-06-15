@@ -178,12 +178,12 @@ ops/stage0/sync-feishu-config.sh
 
 IP 被上游污染需轮换 Static IP：[`.cursor/skills/tokenkey-stage0-edge-lightsail-ip-rotation/SKILL.md`](../../.cursor/skills/tokenkey-stage0-edge-lightsail-ip-rotation/SKILL.md) + `ops/lightsail/rotate-static-ip.sh`。
 
-## 公网端口收窄（443-only）
+## 公网端口收窄（prod 443-only；edge 443 + 8443）
 
-prod (EC2) 与 edge (Lightsail) 的公网暴露收窄到**只剩 TCP 443**：
+公网暴露收窄到 TCP 443（**prod 仅 443**；**edge 为 443 + 8443**，8443 为备用连接口、按设计保持开放）：
 
-- **80 关闭**：证书改用 **TLS-ALPN-01**（走 443，Caddyfile `disable_http_challenge`），不再需要 HTTP-01 / `:80` 跳转。
-- **22 关闭**：运维全走 SSM Session Manager（prod）/ Lightsail 控制台 browser SSH（edge），均不依赖公网 22。prod 由 `AdminCidr` 默认 `127.0.0.1/32` 收口；edge 由 `put-instance-public-ports` 声明完整端口集 = 仅 443（覆盖掉 Lightsail 默认的 22）。
+- **80 关闭**：证书改用 **TLS-ALPN-01**（走 443，Caddyfile `disable_http_challenge`），不再需要 HTTP-01 / `:80` 跳转；edge 的 8443 不参与续签，TLS-ALPN-01 仍只在 443 上完成。
+- **22 关闭**：运维全走 SSM Session Manager（prod）/ Lightsail 控制台 browser SSH（edge），均不依赖公网 22。prod 由 `AdminCidr` 默认 `127.0.0.1/32` 收口；edge 由 `put-instance-public-ports` 声明完整端口集 = 443 + 8443（覆盖掉 Lightsail 默认的 22）。
 
 唯一实质风险是证书续签——靠「**先切 ALPN 配置 → 验证可签 → 再关 80**」的顺序消除。**rollout 必须按此序，PR 合并本身零 live 影响（现网证书 ~30d 内仍有效）：**
 
