@@ -259,6 +259,44 @@ USED="$(df -P /var/lib/tokenkey 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print
 aws cloudwatch put-metric-data --region "${REGION}" \
   --namespace tokenkey/EC2 \
   --metric-data "MetricName=DataVolumeUsedPercent,Value=${USED},Unit=Percent,Dimensions=[{Name=InstanceId,Value=${IID}}]"
+
+# --- on-box disk-full alert (2026-06-15 prod P0) ------------------------------
+# A full data volume crashes Postgres AND degrades the app, so a disk-full alert
+# MUST NOT route through the app (it is dead exactly when needed). This timer
+# already runs every few minutes independent of Docker/Postgres, so it is the
+# robust place to fire the alert. CloudWatch's DataVolumeDiskAlarm correctly
+# detected 91%->100% for ~6h before the crash but had no AlarmAction wired (no
+# SNS topic in the account), so nothing ever notified anyone — this closes that
+# gap with a self-contained Feishu post.
+# Webhook + secret are injected via /var/lib/tokenkey/.env (same off-box-secret
+# injection point as TOKENKEY_PGDUMP_S3_URI); absent webhook => silent no-op.
+THRESHOLD="${TOKENKEY_DISK_ALERT_THRESHOLD:-85}"
+COOLDOWN="${TOKENKEY_DISK_ALERT_COOLDOWN_SEC:-1800}"
+STAMP=/run/tokenkey-disk-alert.stamp
+WEBHOOK=""; SECRET=""; NODE="${IID}"
+if [ -r /var/lib/tokenkey/.env ]; then
+  WEBHOOK="$(sed -n 's/^TOKENKEY_FEISHU_WEBHOOK_URL=//p' /var/lib/tokenkey/.env | head -1)"
+  SECRET="$(sed -n 's/^TOKENKEY_FEISHU_WEBHOOK_SECRET=//p' /var/lib/tokenkey/.env | head -1)"
+  DOM="$(sed -n 's/^API_DOMAIN=//p' /var/lib/tokenkey/.env | head -1)"
+  [ -n "${DOM}" ] && NODE="${DOM}"
+fi
+if [ "${USED}" -ge "${THRESHOLD}" ] && [ -n "${WEBHOOK}" ]; then
+  NOW="$(date +%s)"
+  LAST=0; [ -r "${STAMP}" ] && LAST="$(cat "${STAMP}" 2>/dev/null || echo 0)"
+  if [ "$((NOW - LAST))" -ge "${COOLDOWN}" ]; then
+    TEXT="🔴 P0 磁盘将满 ${NODE} — DataVolume /var/lib/tokenkey 使用率 ${USED}% (阈值 ${THRESHOLD}%)。Postgres 满盘会崩溃→登录/网关全挂。立即清 pgdump/日志或扩容数据卷。instance=${IID}"
+    # Feishu custom-bot signed message: sign = base64(HMAC-SHA256(key=ts\nsecret, "")).
+    if [ -n "${SECRET}" ]; then
+      SIGN="$(printf '' | openssl dgst -sha256 -hmac "${NOW}"$'\n'"${SECRET}" -binary 2>/dev/null | base64)"
+      PAYLOAD="$(printf '{"timestamp":"%s","sign":"%s","msg_type":"text","content":{"text":"%s"}}' "${NOW}" "${SIGN}" "${TEXT}")"
+    else
+      PAYLOAD="$(printf '{"msg_type":"text","content":{"text":"%s"}}' "${TEXT}")"
+    fi
+    if curl -fsS -m 10 -X POST "${WEBHOOK}" -H 'Content-Type: application/json' -d "${PAYLOAD}" >/dev/null 2>&1; then
+      echo "${NOW}" > "${STAMP}" || true  # preflight-allow: swallow — best-effort cooldown stamp; alert already sent
+    fi
+  fi
+fi
 DISKEOF
 
 cat > /etc/systemd/system/tokenkey.service <<'UNITEOF'
@@ -285,12 +323,13 @@ UNITEOF
 
 cat > /etc/systemd/system/tokenkey-disk-metrics.service <<'DMSEOF'
 [Unit]
-Description=Publish tokenkey DataVolume used_percent to CloudWatch
+Description=Publish tokenkey DataVolume used_percent to CloudWatch + on-box disk-full Feishu alert
 After=network-online.target tokenkey.service
 Wants=network-online.target
 
 [Service]
 Type=oneshot
+EnvironmentFile=-/var/lib/tokenkey/.env
 ExecStart=/usr/local/bin/tokenkey-disk-metrics.sh
 DMSEOF
 
