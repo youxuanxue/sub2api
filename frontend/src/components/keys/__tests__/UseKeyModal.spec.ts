@@ -249,4 +249,64 @@ describe('UseKeyModal', () => {
     expect(activeBlocks).toHaveLength(0)
     expect(joined).toMatch(/#\s*export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1/)
   })
+  it('hides Claude flavor for a gemini-only antigravity group (scope gate)', async () => {
+    const wrapper = mount(UseKeyModal, {
+      props: {
+        show: true,
+        apiKey: 'sk-test',
+        baseUrl: 'https://example.com/v1',
+        platform: 'antigravity',
+        supportedModelScopes: ['gemini_text', 'gemini_image']
+      },
+      global: {
+        stubs: {
+          BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
+          Icon: { template: '<span />' }
+        }
+      }
+    })
+    await nextTick()
+
+    // Claude Code tab is hidden when the group scopes exclude claude.
+    const claudeTab = wrapper.findAll('button').find((b) =>
+      b.text().includes('keys.useKeyModal.cliTabs.claudeCode')
+    )
+    expect(claudeTab).toBeUndefined()
+
+    // OpenCode tab yields only the gemini provider, never antigravity-claude.
+    const opencodeTab = wrapper.findAll('button').find((b) =>
+      b.text().includes('keys.useKeyModal.cliTabs.opencode')
+    )
+    expect(opencodeTab).toBeDefined()
+    await opencodeTab!.trigger('click')
+    await nextTick()
+
+    const blocks = wrapper.findAll('pre code').map((c) => c.text())
+    expect(blocks.some((c) => c.includes('"antigravity-claude"'))).toBe(false)
+    expect(blocks.some((c) => c.includes('"antigravity-gemini"'))).toBe(true)
+  })
+
+  it('keeps Claude flavor for antigravity when scopes include claude or are absent', async () => {
+    const wrapper = mount(UseKeyModal, {
+      props: {
+        show: true,
+        apiKey: 'sk-test',
+        baseUrl: 'https://example.com/v1',
+        platform: 'antigravity',
+        supportedModelScopes: ['claude', 'gemini_text', 'gemini_image']
+      },
+      global: {
+        stubs: {
+          BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
+          Icon: { template: '<span />' }
+        }
+      }
+    })
+    await nextTick()
+    const claudeTab = wrapper.findAll('button').find((b) =>
+      b.text().includes('keys.useKeyModal.cliTabs.claudeCode')
+    )
+    expect(claudeTab).toBeDefined()
+  })
+
 })

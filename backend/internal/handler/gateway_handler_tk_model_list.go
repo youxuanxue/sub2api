@@ -137,3 +137,46 @@ func (h *GatewayHandler) tkGeminiFallbackModelsList(ctx context.Context) gemini.
 	}
 	return gemini.ModelsListResponse{Models: out}
 }
+
+// antigravityModelScope classifies an antigravity model id into the group
+// supported_model_scopes vocabulary ("claude" / "gemini_text" / "gemini_image").
+// gpt-oss gets its own bucket so a gemini-only group filters it out too (it is
+// neither a gemini text nor image scope). Mirrors the frontend SubscriptionPlanCard
+// / UseKeyModal classification so /antigravity/v1/models and the usage guide agree.
+func antigravityModelScope(id string) string {
+	l := strings.ToLower(strings.TrimSpace(id))
+	switch {
+	case strings.HasPrefix(l, "claude-"):
+		return "claude"
+	case strings.HasPrefix(l, "gpt-oss"):
+		return "gpt_oss"
+	case strings.Contains(l, "image"):
+		return "gemini_image"
+	default:
+		return "gemini_text"
+	}
+}
+
+// tkAntigravityFilterModelsByGroupScopes keeps only models whose scope is in the
+// group's supported_model_scopes. Empty scopes = no restriction (back-compat for
+// pre-#774 groups). This is the FIRST request-path enforcement of
+// supported_model_scopes: the operator policy "antigravity serves gemini only"
+// (group scopes [gemini_text, gemini_image]) now actually hides claude from
+// /antigravity/v1/models, matching the per-account gemini-only model_mapping
+// (see domain.GeminiOnlyAntigravityModelMapping + AntigravityConfigReconciler).
+func tkAntigravityFilterModelsByGroupScopes(scopes []string, models []antigravity.ClaudeModel) []antigravity.ClaudeModel {
+	if len(scopes) == 0 {
+		return models
+	}
+	allow := make(map[string]bool, len(scopes))
+	for _, s := range scopes {
+		allow[strings.TrimSpace(s)] = true
+	}
+	out := make([]antigravity.ClaudeModel, 0, len(models))
+	for _, m := range models {
+		if allow[antigravityModelScope(m.ID)] {
+			out = append(out, m)
+		}
+	}
+	return out
+}
