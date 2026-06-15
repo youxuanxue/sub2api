@@ -69,12 +69,26 @@ type antigravityReconcilerAccountStore interface {
 	BulkUpdate(ctx context.Context, ids []int64, updates AccountBulkUpdate) (int64, error)
 }
 
+// antigravityReconcilerGroupStore is the narrow group dependency. GroupRepository
+// satisfies it (both methods already exist on that interface), so no new repo
+// surface / stub churn is needed. Group scopes have no token-like sibling field,
+// so the reconciler reuses the existing full Update (read-modify-write) rather
+// than a partial column write — and only fires on drift (idempotent), so the
+// clobber window is a freshly-created / just-edited group, negligible in practice.
+type antigravityReconcilerGroupStore interface {
+	ListActiveByPlatform(ctx context.Context, platform string) ([]Group, error)
+	Update(ctx context.Context, group *Group) error
+}
+
 // AntigravityConfigReconciler runs a single ticker that, each tick (and once
 // immediately on start), acquires a redis leader lock (best-effort; degrades to
-// lockless on no redis) and enforces gemini-only model_mapping on the local DB's
-// antigravity accounts.
+// lockless on no redis) and enforces the gemini-only operator policy on the local
+// DB: gemini-only model_mapping on antigravity accounts AND gemini-only
+// supported_model_scopes on antigravity groups (so /antigravity/v1/models + the
+// API key usage guide hide claude for new / drifted groups too).
 type AntigravityConfigReconciler struct {
 	accounts   antigravityReconcilerAccountStore
+	groups     antigravityReconcilerGroupStore
 	cfg        *config.Config
 	redis      *redis.Client
 	instanceID string
@@ -87,15 +101,17 @@ type AntigravityConfigReconciler struct {
 	warnNoRedisOnce sync.Once
 }
 
-// NewAntigravityConfigReconciler constructs the reconciler. A nil accounts store
-// produces a no-op on Start, keeping wire wiring safe for minimal test deps.
+// NewAntigravityConfigReconciler constructs the reconciler. A nil accounts/groups
+// store no-ops that half, keeping wire wiring safe for minimal test deps.
 func NewAntigravityConfigReconciler(
 	accounts antigravityReconcilerAccountStore,
+	groups antigravityReconcilerGroupStore,
 	cfg *config.Config,
 	redisClient *redis.Client,
 ) *AntigravityConfigReconciler {
 	return &AntigravityConfigReconciler{
 		accounts:   accounts,
+		groups:     groups,
 		cfg:        cfg,
 		redis:      redisClient,
 		instanceID: uuid.NewString(),
@@ -227,6 +243,15 @@ func antigravityCanServeExcluded(a *Account) bool {
 // sub-object — dropping claude/gpt-oss keys — and enqueues a scheduler_outbox
 // event so the change takes effect). Tests call it directly.
 func (r *AntigravityConfigReconciler) runOnce(ctx context.Context) {
+	if r == nil {
+		return
+	}
+	r.reconcileAccounts(ctx)
+	r.reconcileGroups(ctx)
+}
+
+// reconcileAccounts enforces gemini-only model_mapping on every antigravity account.
+func (r *AntigravityConfigReconciler) reconcileAccounts(ctx context.Context) {
 	if r == nil || r.accounts == nil {
 		return
 	}
@@ -256,4 +281,58 @@ func (r *AntigravityConfigReconciler) runOnce(ctx context.Context) {
 		return
 	}
 	slog.Info("antigravity config reconciler: enforced gemini-only model_mapping", "accounts", len(drifted))
+}
+
+// reconcileGroups enforces gemini-only supported_model_scopes on every antigravity
+// group, so /antigravity/v1/models and the API key usage guide hide claude for
+// newly-created or operator-drifted groups too — symmetric with the per-account
+// model_mapping enforcement, and the request-path consumer of supported_model_scopes
+// (gateway_handler AntigravityModels filter + UseKeyModal claude-flavor gate).
+func (r *AntigravityConfigReconciler) reconcileGroups(ctx context.Context) {
+	if r == nil || r.groups == nil {
+		return
+	}
+	groups, err := r.groups.ListActiveByPlatform(ctx, PlatformAntigravity)
+	if err != nil {
+		slog.Warn("antigravity config reconciler: list groups failed", "err", err)
+		return
+	}
+	enforced := 0
+	for i := range groups {
+		g := &groups[i]
+		if !antigravityGroupScopesNeedGeminiOnly(g.SupportedModelScopes) {
+			continue
+		}
+		g.SupportedModelScopes = append([]string(nil), domain.GeminiOnlyAntigravityModelScopes...)
+		if err := r.groups.Update(ctx, g); err != nil {
+			slog.Warn("antigravity config reconciler: update group scopes failed", "err", err, "group", g.ID)
+			continue
+		}
+		enforced++
+	}
+	if enforced > 0 {
+		slog.Info("antigravity config reconciler: enforced gemini-only group scopes", "groups", enforced)
+	}
+}
+
+// antigravityGroupScopesNeedGeminiOnly reports whether a group's
+// supported_model_scopes diverges from the canonical gemini-only set
+// (domain.GeminiOnlyAntigravityModelScopes). Empty/nil (= unrestricted → advertises
+// claude), claude present, or any non-canonical set (extra/missing/duplicate) all
+// count as drift. Order-independent.
+func antigravityGroupScopesNeedGeminiOnly(scopes []string) bool {
+	want := domain.GeminiOnlyAntigravityModelScopes
+	if len(scopes) != len(want) {
+		return true
+	}
+	got := make(map[string]bool, len(scopes))
+	for _, s := range scopes {
+		got[strings.TrimSpace(s)] = true
+	}
+	for _, w := range want {
+		if !got[w] {
+			return true
+		}
+	}
+	return false
 }

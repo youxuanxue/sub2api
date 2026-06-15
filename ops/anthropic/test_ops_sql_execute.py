@@ -41,7 +41,7 @@ CREATE TABLE accounts(id bigint, name text, platform text, type text, status tex
   session_window_end timestamptz, credentials jsonb DEFAULT '{}', extra jsonb DEFAULT '{}',
   created_at timestamptz, updated_at timestamptz, deleted_at timestamptz);
 CREATE TABLE groups(id bigint, name text, platform text, status text, claude_code_only boolean,
-  fallback_group_id bigint, created_at timestamptz, updated_at timestamptz, deleted_at timestamptz);
+  supported_model_scopes jsonb, fallback_group_id bigint, created_at timestamptz, updated_at timestamptz, deleted_at timestamptz);
 CREATE TABLE account_groups(account_id bigint, group_id bigint);
 CREATE TABLE users(id bigint, balance numeric, concurrency int,
   created_at timestamptz, updated_at timestamptz, deleted_at timestamptz);

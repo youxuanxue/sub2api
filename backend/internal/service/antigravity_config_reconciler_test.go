@@ -23,7 +23,7 @@ func TestAntigravityReconciler_EmptyMapAccount_ReconciledToGeminiOnly(t *testing
 			},
 		},
 	}
-	r := NewAntigravityConfigReconciler(acc, nil, nil)
+	r := NewAntigravityConfigReconciler(acc, nil, nil, nil)
 	r.runOnce(context.Background())
 
 	require.Len(t, acc.bulkCalls, 1, "expected one BulkUpdate for the claude-serving account")
@@ -60,7 +60,7 @@ func TestAntigravityReconciler_AlreadyGeminiOnly_Skip(t *testing.T) {
 			},
 		},
 	}
-	r := NewAntigravityConfigReconciler(acc, nil, nil)
+	r := NewAntigravityConfigReconciler(acc, nil, nil, nil)
 	r.runOnce(context.Background())
 
 	require.Empty(t, acc.bulkCalls, "already-gemini-only account must not be rewritten")
@@ -83,7 +83,7 @@ func TestAntigravityReconciler_OnlyDriftedAccountsRewritten(t *testing.T) {
 			},
 		},
 	}
-	r := NewAntigravityConfigReconciler(acc, nil, nil)
+	r := NewAntigravityConfigReconciler(acc, nil, nil, nil)
 	r.runOnce(context.Background())
 
 	require.Len(t, acc.bulkCalls, 1)
@@ -112,7 +112,7 @@ func TestAntigravityReconciler_NonProbeClaudeId_StillReconciled(t *testing.T) {
 			},
 		},
 	}
-	r := NewAntigravityConfigReconciler(acc, nil, nil)
+	r := NewAntigravityConfigReconciler(acc, nil, nil, nil)
 	r.runOnce(context.Background())
 
 	require.Len(t, acc.bulkCalls, 1, "custom map with claude-opus must be reconciled")
@@ -126,6 +126,75 @@ func TestAntigravityReconciler_NilSafe(t *testing.T) {
 	var nilRec *AntigravityConfigReconciler
 	require.NotPanics(t, func() { nilRec.runOnce(context.Background()); nilRec.Start(); nilRec.Stop() })
 
-	rec := NewAntigravityConfigReconciler(nil, nil, nil)
+	rec := NewAntigravityConfigReconciler(nil, nil, nil, nil)
 	require.NotPanics(t, func() { rec.runOnce(context.Background()); rec.Start(); rec.Stop() })
+}
+
+// --- group scope reconciliation ---
+
+type reconcilerGroupStub struct {
+	byPlatform  map[string][]Group
+	updateCalls []Group
+	listErr     error
+}
+
+func (s *reconcilerGroupStub) ListActiveByPlatform(_ context.Context, platform string) ([]Group, error) {
+	if s.listErr != nil {
+		return nil, s.listErr
+	}
+	return s.byPlatform[platform], nil
+}
+
+func (s *reconcilerGroupStub) Update(_ context.Context, g *Group) error {
+	s.updateCalls = append(s.updateCalls, *g)
+	return nil
+}
+
+func TestAntigravityGroupScopesNeedGeminiOnly(t *testing.T) {
+	cases := []struct {
+		scopes []string
+		drift  bool
+	}{
+		{nil, true},        // empty = unrestricted → advertises claude
+		{[]string{}, true}, // empty
+		{[]string{"claude", "gemini_text", "gemini_image"}, true}, // default (includes claude)
+		{[]string{"gemini_text"}, true},                           // missing image
+		{[]string{"gemini_text", "gemini_text"}, true},            // duplicate, missing image
+		{[]string{"gemini_text", "gemini_image"}, false},          // canonical
+		{[]string{"gemini_image", "gemini_text"}, false},          // canonical, order-independent
+	}
+	for _, c := range cases {
+		if got := antigravityGroupScopesNeedGeminiOnly(c.scopes); got != c.drift {
+			t.Fatalf("antigravityGroupScopesNeedGeminiOnly(%v)=%v want %v", c.scopes, got, c.drift)
+		}
+	}
+}
+
+func TestAntigravityReconciler_GroupScopes_HealsDriftedToGeminiOnly(t *testing.T) {
+	grp := &reconcilerGroupStub{
+		byPlatform: map[string][]Group{
+			PlatformAntigravity: {
+				{ID: 1, Platform: PlatformAntigravity, SupportedModelScopes: []string{"claude", "gemini_text", "gemini_image"}}, // drift
+				{ID: 2, Platform: PlatformAntigravity, SupportedModelScopes: []string{"gemini_text", "gemini_image"}},           // aligned → skip
+				{ID: 3, Platform: PlatformAntigravity, SupportedModelScopes: nil},                                               // empty → drift
+			},
+		},
+	}
+	r := NewAntigravityConfigReconciler(nil, grp, nil, nil)
+	r.runOnce(context.Background())
+
+	require.Len(t, grp.updateCalls, 2, "only the two drifted groups should be updated")
+	ids := []int64{grp.updateCalls[0].ID, grp.updateCalls[1].ID}
+	require.ElementsMatch(t, []int64{1, 3}, ids)
+	for _, g := range grp.updateCalls {
+		require.Equal(t, domain.GeminiOnlyAntigravityModelScopes, g.SupportedModelScopes,
+			"healed group %d must carry canonical gemini-only scopes", g.ID)
+	}
+}
+
+func TestAntigravityReconciler_GroupScopes_NilStoreSafe(t *testing.T) {
+	// accounts present, groups nil → group reconcile no-ops, no panic.
+	acc := &reconcilerAccountStub{byPlatform: map[string][]Account{}}
+	r := NewAntigravityConfigReconciler(acc, nil, nil, nil)
+	require.NotPanics(t, func() { r.runOnce(context.Background()) })
 }

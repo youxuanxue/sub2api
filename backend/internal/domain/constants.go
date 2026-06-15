@@ -162,6 +162,14 @@ func buildGeminiOnlyAntigravityModelMapping() map[string]string {
 	return out
 }
 
+// GeminiOnlyAntigravityModelScopes 是 gemini-only 运营策略下 antigravity 分组的规范
+// supported_model_scopes：只 gemini 文本 + gemini 图片，不含 claude（claude 路由到
+// anthropic）。AntigravityConfigReconciler 把每个 antigravity 分组的 scopes 自愈为此值，
+// 与「每个 antigravity 账号 model_mapping 收成 GeminiOnlyAntigravityModelMapping」对称——
+// 使 /antigravity/v1/models 与 API key 使用指南对新建/漂移分组都自动隐藏 claude。
+// scope 词表为 claude / gemini_text / gemini_image（migration 046b），故 gemini-only 即此两项。
+var GeminiOnlyAntigravityModelScopes = []string{"gemini_text", "gemini_image"}
+
 // DefaultBedrockModelMapping 是 AWS Bedrock 平台的默认模型映射
 // 将 Anthropic 标准模型名映射到 Bedrock 模型 ID
 // 注意：此处的 "us." 前缀仅为默认值，ResolveBedrockModelID 会根据账号配置的

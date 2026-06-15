@@ -1595,9 +1595,12 @@
       "must_contain": [
         "func (r *AntigravityConfigReconciler) runOnce(",
         "func antigravityCanServeExcluded(",
-        "domain.GeminiOnlyAntigravityModelMapping"
+        "domain.GeminiOnlyAntigravityModelMapping",
+        "func (r *AntigravityConfigReconciler) reconcileGroups(",
+        "func antigravityGroupScopesNeedGeminiOnly(",
+        "domain.GeminiOnlyAntigravityModelScopes"
       ],
-      "rationale": "Per-node in-process self-healer that enforces the operator policy 'Antigravity serves gemini only' by rewriting every antigravity account's credentials.model_mapping to domain.GeminiOnlyAntigravityModelMapping (claude routed to anthropic, gpt-oss off antigravity). It is a plain-named (non-_tk_) service file that is compile-clean if dropped, so an upstream merge or refactor could silently delete it and the gemini-only auto-sync would stop with no test failure. antigravityCanServeExcluded is the load-bearing drift predicate (scan claude-*/gpt-oss-* keys + catch-all-wildcard probe) that must stay aligned with the post-rollout check ops/antigravity/check-antigravity-account-config.py; weakening it back to a two-id probe re-opens the claude-leak the reconciler exists to close (xj-review R-001)."
+      "rationale": "Per-node in-process self-healer that enforces the operator policy 'Antigravity serves gemini only' on TWO surfaces: (1) accounts — rewrites every antigravity account's credentials.model_mapping to domain.GeminiOnlyAntigravityModelMapping (antigravityCanServeExcluded drift predicate); (2) groups — rewrites every active antigravity group's supported_model_scopes to domain.GeminiOnlyAntigravityModelScopes (antigravityGroupScopesNeedGeminiOnly drift predicate, reconcileGroups), so /antigravity/v1/models + the API key usage guide hide claude for newly-created / drifted groups too. It is a plain-named (non-_tk_) service file that is compile-clean if dropped, so an upstream merge or refactor could silently delete either half and the gemini-only auto-sync would stop with no test failure. Both drift predicates must stay aligned with the post-rollout check ops/antigravity/check-antigravity-account-config.py (accounts + groups same口径); weakening antigravityCanServeExcluded back to a two-id probe re-opens the claude-leak the reconciler exists to close (xj-review R-001); dropping reconcileGroups re-opens claude in /models + usage guide for new groups."
     },
     {
       "path": "backend/internal/domain/constants.go",
