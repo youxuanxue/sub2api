@@ -9,8 +9,10 @@ func TestDefaultAntigravityModelMapping_ImageCompatibilityAliases(t *testing.T) 
 	t.Parallel()
 
 	cases := map[string]string{
-		"gemini-2.5-flash-image":         "gemini-2.5-flash-image",
-		"gemini-2.5-flash-image-preview": "gemini-2.5-flash-image",
+		// 2.5-flash-image 上游返回 502（2026-06-15 prod 中继实测）→ 全部图片别名收敛到
+		// 可服务的 3.1-flash-image。
+		"gemini-2.5-flash-image":         "gemini-3.1-flash-image",
+		"gemini-2.5-flash-image-preview": "gemini-3.1-flash-image",
 		"gemini-3.1-flash-image":         "gemini-3.1-flash-image",
 		"gemini-3.1-flash-image-preview": "gemini-3.1-flash-image",
 		"gemini-3-pro-image":             "gemini-3.1-flash-image",
@@ -24,6 +26,35 @@ func TestDefaultAntigravityModelMapping_ImageCompatibilityAliases(t *testing.T) 
 		}
 		if got != want {
 			t.Fatalf("unexpected mapping for %q: got %q want %q", from, got, want)
+		}
+	}
+}
+
+// TestDefaultAntigravityModelMapping_DeprecatedProRemap 守护 2026-06-15 prod 中继实测
+// 暴露的「假成功 / 弃用」Pro 档收敛：gemini-3-pro-* 上游目录已无（返回 200 但 0/0），
+// gemini-3.1-pro-high 在上游 deprecatedModelIds（返回 400）。两者及其 preview 别名都必须
+// 重指到等价可服务 wire id，不得回退到不可服务的裸名。
+func TestDefaultAntigravityModelMapping_DeprecatedProRemap(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"gemini-3-pro-high":      "gemini-pro-agent",
+		"gemini-3-pro-low":       "gemini-3.1-pro-low",
+		"gemini-3-pro-preview":   "gemini-pro-agent",
+		"gemini-3.1-pro-high":    "gemini-pro-agent",
+		"gemini-3.1-pro-preview": "gemini-pro-agent",
+	}
+	for from, want := range cases {
+		got, ok := DefaultAntigravityModelMapping[from]
+		if !ok {
+			t.Fatalf("expected mapping for %q to exist", from)
+		}
+		if got != want {
+			t.Fatalf("unexpected mapping for %q: got %q want %q", from, got, want)
+		}
+		// 重指目标本身必须是映射内的可服务 wire id（防再次指向不可服务裸名）。
+		if _, ok := DefaultAntigravityModelMapping[want]; !ok {
+			t.Fatalf("remap target %q for %q is not itself a known servable wire id", want, from)
 		}
 	}
 }

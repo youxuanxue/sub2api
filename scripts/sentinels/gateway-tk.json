@@ -1608,6 +1608,24 @@
       "rationale": "GeminiOnlyAntigravityModelMapping — the canonical map the AntigravityConfigReconciler writes onto every antigravity account — is derived once at package init from DefaultAntigravityModelMapping by dropping claude-* / gpt-oss-* keys. A silent upstream-merge change to (or removal of) the builder's prefix filter would let claude/gpt-oss back into the map the reconciler writes, i.e. silently serve claude on antigravity — the exact backward-drift this guards. Locked by TestGeminiOnlyAntigravityModelMapping too; this sentinel additionally catches a source revert that lands without the test running."
     },
     {
+      "path": "backend/internal/domain/constants.go",
+      "must_contain": [
+        "\"gemini-3-pro-high\": \"gemini-pro-agent\"",
+        "\"gemini-3.1-pro-high\": \"gemini-pro-agent\"",
+        "\"gemini-2.5-flash-image-preview\": \"gemini-3.1-flash-image\""
+      ],
+      "rationale": "DefaultAntigravityModelMapping 收敛锚点（2026-06-15 prod 中继实测，PR #774）。三类坏映射必须保持重指到等价可服务 wire id，不得回退到不可服务裸名 identity：(1) gemini-3-pro-*（high/low/preview）上游目录已无 gemini-3-pro-*，identity 请求返回 200 但 0/0（静默空响应）→ high/preview→gemini-pro-agent、low→gemini-3.1-pro-low；(2) gemini-3.1-pro-high（及 -pro-preview）在上游 deprecatedModelIds，identity 请求返回 400 → gemini-pro-agent（非弃用、上游显示名同为 'Gemini 3.1 Pro (High)'）；(3) gemini-2.5-flash-image（及 -preview）上游返回 502 → gemini-3.1-flash-image。上游 merge 若把这些 target 改回 identity 即重新静默服务坏模型；与 TestDefaultAntigravityModelMapping_DeprecatedProRemap / _ImageCompatibilityAliases 双重守护，sentinel 额外兜住源码 revert 未跑测试的情况。"
+    },
+    {
+      "path": "backend/internal/service/account.go",
+      "must_contain": [
+        "ensureAntigravityDefaultPassthroughs(result, []string{",
+        "\"gemini-3-flash-agent\",",
+        "\"gemini-pro-agent\","
+      ],
+      "rationale": "Antigravity 自定义-映射账号的 safety-net 透传列表（GetModelMapping 内）。这是 antigravity gemini-only 服务面的「五面」之一：公共目录 / UseKeyModal 宣告可服务的 wire id，若自定义 model_mapping 账号未显式声明，必须由此列表补 identity 透传，否则静默 404（xj-review R / memory antigravity_claude_exclude_per_account_not_global_default）。2026-06-15（PR #774）起该列表已移除上游 deprecated 的 gemini-3.1-pro-high（identity 透传 → 400），等价档走 gemini-pro-agent。上游 merge 若删除 ensureAntigravityDefaultPassthroughs 调用或丢失 gemini-pro-agent / gemini-3-flash-agent 成员，自定义账号会静默拒绝可服务模型——本 sentinel 守护该调用与收敛后的成员。"
+    },
+    {
       "path": "backend/internal/service/wire.go",
       "must_contain": [
         "func ProvideAntigravityConfigReconciler(",

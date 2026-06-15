@@ -424,8 +424,10 @@ func TestAccountGetModelMapping_AntigravityEnsuresGeminiDefaultPassthroughs(t *t
 	if mapping["gemini-3-flash"] != "gemini-3-flash" {
 		t.Fatalf("expected gemini-3-flash passthrough to be auto-filled, got: %q", mapping["gemini-3-flash"])
 	}
-	if mapping["gemini-3.1-pro-high"] != "gemini-3.1-pro-high" {
-		t.Fatalf("expected gemini-3.1-pro-high passthrough to be auto-filled, got: %q", mapping["gemini-3.1-pro-high"])
+	// gemini-3.1-pro-high 上游已 deprecated（identity 透传会 400），已从 safety-net 移除：
+	// 自定义映射未显式声明时不再被补全（客户端改用 gemini-pro-agent）。
+	if _, exists := mapping["gemini-3.1-pro-high"]; exists {
+		t.Fatalf("did not expect deprecated gemini-3.1-pro-high to be auto-filled, got: %q", mapping["gemini-3.1-pro-high"])
 	}
 	if mapping["gemini-3.1-pro-low"] != "gemini-3.1-pro-low" {
 		t.Fatalf("expected gemini-3.1-pro-low passthrough to be auto-filled, got: %q", mapping["gemini-3.1-pro-low"])

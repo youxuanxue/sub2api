@@ -520,7 +520,9 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 		if a.Platform == domain.PlatformAntigravity {
 			ensureAntigravityDefaultPassthroughs(result, []string{
 				"gemini-3-flash",
-				"gemini-3.1-pro-high",
+				// gemini-3.1-pro-high 上游已 deprecated（直接请求 400，2026-06-15 prod 中继实测）；
+				// safety-net 只能补 identity 透传（→ 400），故不再补全——等价的非弃用档
+				// 走下方 gemini-pro-agent（上游显示名同为 "Gemini 3.1 Pro (High)"）。
 				"gemini-3.1-pro-low",
 				// 2026-06 实测新增 user-facing wire id（三档 thinking budget
 				// low/extra-low/high=agent 全部可服务，须对称补全；友好别名

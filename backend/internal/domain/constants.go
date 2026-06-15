@@ -97,24 +97,30 @@ var DefaultAntigravityModelMapping = map[string]string{
 	"claude-haiku-4-5":          "claude-sonnet-4-6",
 	"claude-haiku-4-5-20251001": "claude-sonnet-4-6",
 	// Gemini 2.5 白名单
-	"gemini-2.5-flash":               "gemini-2.5-flash",
-	"gemini-2.5-flash-image":         "gemini-2.5-flash-image",
-	"gemini-2.5-flash-image-preview": "gemini-2.5-flash-image",
-	"gemini-2.5-flash-lite":          "gemini-2.5-flash-lite",
+	"gemini-2.5-flash":      "gemini-2.5-flash",
+	"gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
+	// 2.5-flash-image 上游对该账号返回 502（2026-06-15 prod 中继实测）→ 重指可服务的
+	// 3.1-flash-image（保留别名兼容，客户端无需改名）。
+	"gemini-2.5-flash-image":         "gemini-3.1-flash-image",
+	"gemini-2.5-flash-image-preview": "gemini-3.1-flash-image",
 	"gemini-2.5-flash-thinking":      "gemini-2.5-flash-thinking",
 	"gemini-2.5-pro":                 "gemini-2.5-pro",
-	// Gemini 3 白名单
+	// Gemini 3 白名单。gemini-3-pro-* 上游目录已无（仅剩 gemini-3-flash 与 gemini-3.1-pro-*）
+	// → 2026-06-15 prod 中继实测 gemini-3-pro-high/low 返回 200 但 0/0（静默空响应）。
+	// 重指到等价可服务 wire id：high→gemini-pro-agent（上游显示名同为 "Gemini 3.1 Pro (High)"）、
+	// low→gemini-3.1-pro-low。
 	"gemini-3-flash":    "gemini-3-flash",
-	"gemini-3-pro-high": "gemini-3-pro-high",
-	"gemini-3-pro-low":  "gemini-3-pro-low",
+	"gemini-3-pro-high": "gemini-pro-agent",
+	"gemini-3-pro-low":  "gemini-3.1-pro-low",
 	// Gemini 3 preview 映射
 	"gemini-3-flash-preview": "gemini-3-flash",
-	"gemini-3-pro-preview":   "gemini-3-pro-high",
-	// Gemini 3.1 白名单
-	"gemini-3.1-pro-high": "gemini-3.1-pro-high",
+	"gemini-3-pro-preview":   "gemini-pro-agent",
+	// Gemini 3.1 白名单。gemini-3.1-pro-high 在上游 deprecatedModelIds 中，直接请求返回 400
+	// （2026-06-15 实测）→ 重指 gemini-pro-agent（非弃用、同为 3.1 Pro High）。
+	"gemini-3.1-pro-high": "gemini-pro-agent",
 	"gemini-3.1-pro-low":  "gemini-3.1-pro-low",
 	// Gemini 3.1 preview 映射
-	"gemini-3.1-pro-preview": "gemini-3.1-pro-high",
+	"gemini-3.1-pro-preview": "gemini-pro-agent",
 	// Gemini 3.1 image 白名单
 	"gemini-3.1-flash-image": "gemini-3.1-flash-image",
 	// Gemini 3.1 image preview 映射
