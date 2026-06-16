@@ -248,6 +248,7 @@ export default {
       notifyMe: 'Notify me when done',
       usuallyTakes: 'Usually 30–90s',
       noUrlHint: 'Task succeeded but no video URL could be parsed.',
+      download: 'Download',
       open: 'Open ↗',
       failedRefunded: 'Generation failed — {cost} refunded. Try a shorter clip or another tier.',
       techDetails: 'Technical details',

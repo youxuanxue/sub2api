@@ -246,6 +246,7 @@ export default {
       notifyMe: '完成通知我',
       usuallyTakes: '通常 30–90 秒',
       noUrlHint: '任务成功，但未能解析出视频地址。',
+      download: '下载',
       open: '打开 ↗',
       failedRefunded: '生成失败 — 已退你 {cost}。试试更短的片子或别的档位。',
       techDetails: '技术详情',
