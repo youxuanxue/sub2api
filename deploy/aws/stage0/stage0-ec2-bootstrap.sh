@@ -292,9 +292,14 @@ if [ "${USED}" -ge "${THRESHOLD}" ] && [ -n "${WEBHOOK}" ]; then
     else
       PAYLOAD="$(printf '{"msg_type":"text","content":{"text":"%s"}}' "${TEXT}")"
     fi
-    if curl -fsS -m 10 -X POST "${WEBHOOK}" -H 'Content-Type: application/json' -d "${PAYLOAD}" >/dev/null 2>&1; then
-      echo "${NOW}" > "${STAMP}" || true  # preflight-allow: swallow — best-effort cooldown stamp; alert already sent
-    fi
+    # Feishu returns HTTP 200 even when it REJECTS (bad signature / missing keyword);
+    # the real status is the body's "code" field (0 = delivered). Stamp the cooldown
+    # only on code:0, so a misconfigured webhook keeps retrying every tick instead of
+    # silently dropping every alert while the stamp suppresses retries for COOLDOWN.
+    RESP="$(curl -sS -m 10 -X POST "${WEBHOOK}" -H 'Content-Type: application/json' -d "${PAYLOAD}" 2>/dev/null || true)"  # preflight-allow: swallow — curl failure ⇒ empty RESP ⇒ no stamp ⇒ retry next tick
+    case "${RESP}" in
+      *'"code":0'*) echo "${NOW}" > "${STAMP}" || true ;;  # preflight-allow: swallow — best-effort cooldown stamp; alert delivered
+    esac
   fi
 fi
 DISKEOF
