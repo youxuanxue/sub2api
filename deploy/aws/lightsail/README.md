@@ -161,7 +161,7 @@ PREFLIGHT_BASE=origin/main bash scripts/preflight.sh
 矩阵基线：**EC2 `uk1.deployable=false`**（`deploy/aws/stage0/edge-targets.json`），**Lightsail `uk1.deployable=true`**（本目录 `edge-targets-lightsail.json`）。
 同名域名只能由一个平台对外服务；两边的 `deployable` 同时为 `true` 会被 **`scripts/checks/edge-platform-exclusivity.py`** 拦下。
 
-**Porkbun（prod，`api-uk1.tokenkey.dev`）：** A 记录必须等于 Lightsail Static IP（`aws lightsail get-static-ip --static-ip-name tokenkey-edge-uk1-ls-ip` 的 `ipAddress`）。当前矩阵记在 `edge-targets-lightsail.json` → **`targets.uk1.porkbun_a_ipv4`**（**`13.134.80.182`**），作为人工 DNS **唯一真值**。
+**Porkbun（prod，`api-uk1.tokenkey.dev`）：** A 记录必须等于 Lightsail Static IP（`aws lightsail get-static-ip --static-ip-name vless-uk-fresh-1` 的 `ipAddress`）。当前矩阵记在 `edge-targets-lightsail.json` → **`targets.uk1.porkbun_a_ipv4`**（**`18.175.27.120`**），作为人工 DNS **唯一真值**。
 
 **不能与 EC2 EIP 混用：** 旧 EC2 Edge 的 Elastic IP（例如历史 **`16.61.87.51` / `eipalloc-03b2653ddd57b9c93`**）**无法挂到 Lightsail 实例**。若 Porkbun 仍指向已游离的 EC2 EIP，公网会超时。迁到 Lightsail 后必须把 A 记录改到 **Lightsail Static IP**；不再需要的老 EIP 可通过 `release-address` 回收。
 
