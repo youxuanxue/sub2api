@@ -112,7 +112,6 @@ interface UseTkUseKeyArgs {
 export function useTkUseKey(args: UseTkUseKeyArgs) {
   const servableModels = ref<UseKeyServableModel[]>([])
   const modelsLoading = ref(false)
-  const modelsError = ref<string | null>(null)
   /** chosen model id per flavor; persists across tab switches within a session */
   const selectedByFlavor = ref<Record<UseKeyFlavor, string>>({
     anthropic: '',
@@ -128,7 +127,6 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
     selectedByFlavor.value = { anthropic: '', openai: '', gemini: '' }
     if (id == null) return
     modelsLoading.value = true
-    modelsError.value = null
     try {
       const res = await getMePricingCatalog({ apiKeyId: id })
       servableModels.value = (res.models ?? []).map((m: MePricingModel) => ({
@@ -137,8 +135,10 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
         contextWindow: m.context_window,
         maxOutput: m.max_output_tokens,
       }))
-    } catch (e) {
-      modelsError.value = e instanceof Error ? e.message : String(e)
+    } catch {
+      // Load failure leaves servableModels empty; the modal then shows its
+      // "couldn't load — type manually" hint and snippets use the fallback id.
+      servableModels.value = []
     } finally {
       modelsLoading.value = false
     }
@@ -147,10 +147,6 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
   function modelsForFlavor(flavor: UseKeyFlavor): UseKeyServableModel[] {
     return servableModels.value.filter((m) => flavorOfModel(m.id) === flavor)
   }
-
-  /** The live servable id set (lowercased) — used to prune retired entries from
-   * the static OpenCode catalog. Empty while loading → caller shows full list. */
-  const servableIdSet = computed(() => new Set(servableModels.value.map((m) => m.id.toLowerCase())))
 
   /** Currently effective model for a flavor: explicit pick → first servable of
    * that flavor → hardcoded fallback. Never empty, so snippets always render. */
@@ -260,9 +256,6 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
   return {
     servableModels,
     modelsLoading,
-    modelsError,
-    servableIdSet,
-    selectedByFlavor,
     testState,
     isClaudeCodeOnly,
     loadModels,
@@ -270,7 +263,6 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
     effectiveModel,
     setModel,
     runTest,
-    cancelTest,
   }
 }
 

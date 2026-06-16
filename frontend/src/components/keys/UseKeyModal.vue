@@ -317,11 +317,16 @@ const tk = useTkUseKey({
   baseRoot,
 })
 
-// (Re)load the live servable model menu whenever the modal opens for a key.
+// (Re)load the live servable model menu whenever the modal opens for a key, and
+// reset per-key view state so a previous key's revealed secret / test verdict
+// never bleed into the next one.
 watch(
   () => [props.show, props.apiKeyId] as const,
   ([show]) => {
-    if (show) void tk.loadModels()
+    if (!show) return
+    keyRevealed.value = false
+    tk.testState.value = { status: 'idle' }
+    void tk.loadModels()
   },
   { immediate: true },
 )
@@ -358,7 +363,9 @@ function onTest(): void {
 
 function formatCtx(n?: number): string {
   if (!n) return ''
-  return n >= 1000 ? `${Math.round(n / 1000)}k ctx` : `${n} ctx`
+  if (n >= 1024 * 1024) return `${Math.round(n / (1024 * 1024))}M ctx`
+  if (n >= 1000) return `${Math.round(n / 1000)}k ctx`
+  return `${n} ctx`
 }
 
 // Reset tabs when platform changes.
