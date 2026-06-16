@@ -249,6 +249,26 @@ jobs:
           TK_FEISHU_SIGNING_SECRET: ${{ secrets.TK_FEISHU_SIGNING_SECRET }}
         run: bash ops/stage0/sync-feishu-config.sh --platform lightsail "${{ steps.edge.outputs.edge_id }}"
 
+      - name: Sync edge host units (disk-full alert + QA stale cleanup)
+        # prod (deploy/aws/stage0/stage0-ec2-bootstrap.sh) installs AND enables
+        # tokenkey-disk-metrics.timer (#778 on-box disk alert) and
+        # tokenkey-qa-stale-cleanup.timer; the Lightsail user-data 14 KB cap means
+        # render-bootstrap can only ship the scripts, not wire the units, and
+        # deploy_via_ssm.sh never re-runs bootstrap. So existing edges silently
+        # lacked the disk alert (filled-disk crash with no notice) and QA cleanup
+        # (qa_records/qa_blobs grew unbounded). This SSM push reaches existing edges
+        # and new ones (after provision). Runs AFTER the Feishu step so the disk
+        # alert finds TOKENKEY_FEISHU_WEBHOOK_URL/_SECRET in .env on its first fire.
+        if: inputs.operation == 'provision' || inputs.operation == 'upgrade' || inputs.operation == 'rollback' || inputs.operation == 'smoke'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.managed_instance_id }}
+          AWS_REGION: ${{ steps.edge.outputs.lightsail_region }}
+          # 1.5 days = prod parity (CFN QaStaleRetentionDays default); edges are
+          # pure relays so QA there is low-value — keep retention short.
+          TK_QA_STALE_RETENTION_DAYS: "1.5"
+          STAGE0_SSM_OUTPUT_DIR: .
+        run: bash ops/stage0/sync-edge-host-units-via-ssm.sh "$INSTANCE_ID" "edge-host-units edge=${{ steps.edge.outputs.edge_id }}"
+
       - name: Edge smoke
         if: inputs.operation == 'smoke' || inputs.operation == 'upgrade' || inputs.operation == 'rollback'
         env:
