@@ -56,6 +56,35 @@ func TestTkEnrichForbiddenMessage_BodyOnly(t *testing.T) {
 	}
 }
 
+// Small-body 403 (e.g. the prod 88-byte cc-us7 WAF reject) must NOT advise
+// /compact — that fossilizes "body size" as the cause. See
+// upstream_byte_403_is_waf_not_size_limit.
+func TestTkEnrichForbiddenMessage_SmallBodyNoCompactHint(t *testing.T) {
+	c := newTestGinCtxForUpstreamMsg()
+	c.Set(OpsModelKey, "claude-opus-4-8")
+	c.Set(OpsRequestBodyKey, make([]byte, 88))
+	got := TkEnrichForbiddenMessage(c, "default")
+	if strings.Contains(got, "/compact") {
+		t.Fatalf("small body must NOT suggest /compact, got %q", got)
+	}
+	if !strings.Contains(got, "unrelated to request size") {
+		t.Fatalf("small body should say the rejection is unrelated to size, got %q", got)
+	}
+	if !strings.Contains(got, "88") {
+		t.Fatalf("expected body bytes 88 in msg, got %q", got)
+	}
+}
+
+// A genuinely large body (>= threshold) keeps the /compact suggestion.
+func TestTkEnrichForbiddenMessage_LargeBodyKeepsCompactHint(t *testing.T) {
+	c := newTestGinCtxForUpstreamMsg()
+	c.Set(OpsRequestBodyKey, make([]byte, tkForbiddenCompactHintThreshold+1))
+	got := TkEnrichForbiddenMessage(c, "default")
+	if !strings.Contains(got, "/compact") {
+		t.Fatalf("large body must keep /compact hint, got %q", got)
+	}
+}
+
 func TestTkEnrichForbiddenMessage_ModelOnly(t *testing.T) {
 	c := newTestGinCtxForUpstreamMsg()
 	c.Set(OpsModelKey, "claude-opus-4-7")

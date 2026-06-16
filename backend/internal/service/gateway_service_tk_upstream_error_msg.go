@@ -53,8 +53,31 @@ func TkEnrichForbiddenMessage(c *gin.Context, defaultMsg string) string {
 	default:
 		detail = fmt.Sprintf("Model %q was rejected by upstream. ", model)
 	}
-	return "Upstream returned 403 for this request. " + detail +
-		"If body is large, run /compact or start a new conversation to reduce it; otherwise contact administrator."
+	return "Upstream returned 403 for this request. " + detail + tkForbiddenAdvice(bodyLen)
+}
+
+// tkForbiddenCompactHintThreshold is the request-body size (bytes) at/above
+// which the "run /compact" advice is plausibly relevant. Below it, an upstream
+// 403 is almost never about request size: Anthropic's real size ceiling is
+// ~32 MB and surfaces as 413, not 403. A small-body 403 is an upstream
+// access/policy rejection — edge auth guard (e.g. canonical claude-cli-only
+// path rejecting a non-cc client), WAF / datacenter-IP / fingerprint, or
+// credential scope — none of which /compact can fix. Suggesting /compact there
+// sends the caller chasing the wrong cause and fossilizes "body size" as the
+// explanation (exactly the failure mode behind the removed byte soft-gate, ops
+// memory "upstream_byte_403_is_waf_not_size_limit").
+const tkForbiddenCompactHintThreshold = 1 << 20 // 1 MiB
+
+// tkForbiddenAdvice returns the actionable tail of the 403 message. Only a
+// genuinely large body gets the /compact suggestion; otherwise we say the
+// rejection is an upstream access/policy decision unrelated to size, so the
+// caller retries / escalates instead of uselessly shrinking an already-tiny
+// request.
+func tkForbiddenAdvice(bodyLen int) string {
+	if bodyLen >= tkForbiddenCompactHintThreshold {
+		return "If body is large, run /compact or start a new conversation to reduce it; otherwise contact administrator."
+	}
+	return "This is an upstream access/policy rejection unrelated to request size; retry the request, and contact administrator if it persists."
 }
 
 // TkEnrichClaudeIncidentMessage rewrites a failover-exhausted client message
