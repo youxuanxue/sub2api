@@ -150,6 +150,9 @@ func (s *Service) queryExportRecords(ctx context.Context, userID int64, filter E
 	if filter.APIKeyID != nil {
 		predicates = append(predicates, qarecord.APIKeyIDEQ(*filter.APIKeyID))
 	}
+	if p := strings.TrimSpace(filter.Platform); p != "" {
+		predicates = append(predicates, qarecord.PlatformEQ(p))
+	}
 	if synthSession := strings.TrimSpace(filter.SynthSessionID); synthSession != "" {
 		predicates = append(predicates, qarecord.SynthSessionIDEQ(synthSession))
 	} else {

@@ -343,9 +343,9 @@
                 <Icon v-else name="checkCircle" size="sm" />
                 <span class="text-xs">{{ row.status === 'active' ? t('keys.disable') : t('keys.enable') }}</span>
               </button>
-              <!-- Export Conversations Button (admin-granted per-user switch) -->
+              <!-- Export Conversations Button (admin-granted per-user switch; anthropic keys only — the traj projector is Anthropic-shaped) -->
               <button
-                v-if="canExportTraj"
+                v-if="canExportTraj && row.group?.platform === 'anthropic'"
                 @click="exportKeyTraj(row)"
                 :disabled="exportingKeyId !== null"
                 :title="t('keys.exportTooltip')"

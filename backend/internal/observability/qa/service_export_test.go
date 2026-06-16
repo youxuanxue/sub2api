@@ -510,6 +510,37 @@ func mustInsertQARecordWithBlob(t *testing.T, ctx context.Context, client *dbent
 	require.NoError(t, err)
 }
 
+// The traj v2 projector is Anthropic-shaped, so the traj export pins
+// Platform="anthropic"; records from other platforms (openai/gemini) must be
+// excluded even when they share the same user and API key.
+func TestExportUserTrajectoryData_PlatformFilterExcludesNonAnthropic(t *testing.T) {
+	svc, client, _ := newQAExportTestService(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	mk := func(reqID, platform string) {
+		_, err := client.QARecord.Create().
+			SetRequestID(reqID).
+			SetUserID(7).
+			SetAPIKeyID(1).
+			SetPlatform(platform).
+			SetCreatedAt(now).
+			SetRetentionUntil(now.Add(7 * 24 * time.Hour)).
+			Save(ctx)
+		require.NoError(t, err)
+	}
+	mk("anthropic-1", "anthropic")
+	mk("openai-1", "openai")
+	mk("gemini-1", "gemini")
+
+	key1 := int64(1)
+	recs, err := svc.queryExportRecords(ctx, 7, ExportFilter{APIKeyID: &key1, Platform: "anthropic"})
+	require.NoError(t, err)
+	require.Len(t, recs, 1)
+	require.Equal(t, "anthropic", recs[0].Platform)
+	require.Equal(t, "anthropic-1", recs[0].RequestID)
+}
+
 // Per-key export ("导出该 Key 的对话记录") must restrict the record set to a
 // single API key while keeping the user_id scope as the outer AND — so a
 // foreign user id with the same key id yields zero rows.

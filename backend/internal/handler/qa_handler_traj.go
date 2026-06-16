@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -53,7 +54,12 @@ func (h *QAHandler) ExportSelfTrajectory(c *gin.Context) {
 		SynthSessionID: strings.TrimSpace(req.SynthSessionID),
 		SynthRole:      strings.TrimSpace(req.SynthRole),
 		APIKeyID:       req.APIKeyID,
-		Format:         strings.TrimSpace(req.Format),
+		// The traj v2 projector only faithfully reconstructs Anthropic
+		// /v1/messages trajectories; openai/gemini blobs project to empty or
+		// garbage turns. Pin the export to anthropic so a non-anthropic key
+		// (UI already hides the entry) can't yield a misleading non-empty zip.
+		Platform: domain.PlatformAnthropic,
+		Format:   strings.TrimSpace(req.Format),
 	}
 	// Per-key export ("导出该 Key 的对话记录") drops the trailing-24h default
 	// window and returns the key's full retained trajectory; the data set is
