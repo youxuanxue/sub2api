@@ -4,20 +4,36 @@
 TokenKey is a fork of Wei-Shaw/sub2api (which itself imports QuantumNous/
 new-api). Edits to upstream-shaped files can be silently reverted by a
 future `git merge upstream/main`. This check forces the author to handle
-that risk **on every PR** that touches upstream-shaped paths, by either:
+that risk **on every PR** that touches upstream-shaped paths.
 
-  1. Updating one of the sentinel registries under scripts/sentinels/*.json
-     (preferred — the anchors are then independently verified by
-     gateway-tk-sentinel / brand-sentinel / frontend-tk-sentinel /
-     newapi-sentinel / pricing-availability-sentinel / etc.).
-  2. Carrying an explicit marker token in any commit message of the PR:
-       upstream-touch-guarded  — anchors live in a sentinel registry already
-       upstream-touch-trivial  — change is pure delete/rename/comment-only with no revert risk
+The only thing that *actually* prevents silent clobber is a **sentinel
+anchor**: a pinned literal that fails CI if a merge drops it. So the gate is
+coverage-first — it verifies real protection rather than trusting a label:
+
+  1. Pure-insertion diff (no deleted lines) — cannot drop an upstream symbol,
+     so no revert risk. Auto-pass.
+  2. **Verified coverage** — every revert-risk (deletion-bearing) upstream file
+     is pinned by a `path` entry in some scripts/sentinels/*.json (pre-existing
+     OR added in this PR). Auto-pass, no marker needed. This is the protected,
+     honest path: real anchors → silence.
+  3. A sentinel registry was edited in this PR (lenient back-compat pass).
+  4. Otherwise an explicit marker token in any commit message OR the PR body:
+       upstream-touch-guarded  — VERIFIED, NOT trusted: asserts the revert-risk
+                                 files are already pinned. If they are NOT, the
+                                 claim is false and the gate FAILS (this is the
+                                 teeth — the marker can no longer be a free
+                                 bypass; covered files already passed at step 2).
+       upstream-touch-trivial  — change is pure delete/rename/comment-only with
+                                 no revert risk (reviewer-audited human judgment)
        upstream-merge          — this is the upstream-merge PR itself
-       no-upstream-touch       — paths were misclassified; author asserts no upstream surface
+       no-upstream-touch       — paths were misclassified; author asserts no
+                                 upstream surface
 
-Same shape as `no-web-impact`: force the author to think about a specific
-cross-cutting concern (here: upstream merge drift) before merge.
+`upstream-touch-guarded` is the only marker that makes a *checkable claim about
+repo state* (anchors exist), so it is the only one verified. The other three
+assert protection is *not needed* — genuine judgment that stays an honest,
+reviewer-visible opt-out. Same shape as `no-web-impact`: force the author to
+confront upstream-merge drift before merge.
 
 Path classification
 -------------------
@@ -49,10 +65,14 @@ Usage
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import subprocess
 import sys
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 UPSTREAM_SHAPED_INCLUDE = [
     # Backend Go — every upstream-owned subpackage explicitly. Listing each
@@ -141,19 +161,17 @@ def is_upstream_shaped(path: str) -> bool:
     return False
 
 
-def is_pure_insertion(base: str, files: list[str]) -> bool:
-    """True when EVERY given file's diff against base adds lines but deletes
-    none (`git diff --numstat` deleted-count == 0). A pure-insertion diff
-    cannot delete or rewrite an upstream symbol, so it carries no
-    upstream-merge revert risk and is treated as an implicit
-    `upstream-touch-trivial`.
+def files_with_deletions(base: str, files: list[str]) -> set[str]:
+    """Return the subset of `files` whose diff against base deletes >=1 line —
+    the *revert-risk* set a future `git merge upstream/main` could clobber.
+    Pure-insertion files (added lines only) carry no clobber risk and are NOT
+    returned, so an empty result means the whole change is pure-insertion.
 
-    Conservative: any file that is binary (`-` numstat), renamed (path not
-    matched verbatim), or missing from the numstat output fails the test and
-    falls through to the marker requirement.
+    Conservative: a file that is binary (`-` numstat), renamed, or missing from
+    the numstat output is treated as risky (can't prove it's insertion-only).
     """
     if not files:
-        return False
+        return set()
     out = subprocess.check_output(
         ["git", "diff", "--numstat", f"{base}...HEAD", "--", *files],
         text=True,
@@ -165,76 +183,149 @@ def is_pure_insertion(base: str, files: list[str]) -> bool:
             continue
         added, deleted, path = parts
         stat[path] = (added, deleted)
+    risky: set[str] = set()
     for f in files:
         if f not in stat:
-            return False  # renamed / not found — be conservative
+            risky.add(f)  # renamed / not found — be conservative
+            continue
         added, deleted = stat[f]
         if added == "-" or deleted == "-":
-            return False  # binary — can't tell
+            risky.add(f)  # binary — can't tell
+            continue
         if int(deleted) != 0:
-            return False
-    return True
+            risky.add(f)
+    return risky
+
+
+def covered_sentinel_paths() -> set[str]:
+    """File paths pinned by a `path` entry in any scripts/sentinels/*.json.
+
+    A path here is independently anchor-verified by the per-registry sentinel
+    checkers (gateway-tk / newapi / frontend-tk / ...), so a deletion-bearing
+    upstream edit to such a file is protected from silent upstream-merge
+    clobber. Mirrors check-registry-update-gate.py's covered_paths_by_registry()
+    (same JSON shape: {version, rationale, sentinels: [{path, must_contain}]}).
+    Read from disk = read HEAD, so anchors ADDED in this PR count as coverage.
+    """
+    covered: set[str] = set()
+    for registry in sorted(REPO_ROOT.glob("scripts/sentinels/*.json")):
+        try:
+            data = json.loads(registry.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        sentinels = data.get("sentinels")
+        if not isinstance(sentinels, list):
+            continue
+        for entry in sentinels:
+            if isinstance(entry, dict) and isinstance(entry.get("path"), str):
+                covered.add(entry["path"])
+    return covered
 
 
 def decide(
     upstream_files: list[str],
     sentinel_touched: list[str],
-    pure_insertion: bool,
+    risky_files: list[str],
+    covered_paths: set[str],
     marker_text: str,
 ) -> tuple[bool, str]:
     """Pure verdict function (no git / IO) so the acceptance logic is unit
-    testable. Returns (ok, reason). Acceptance order:
+    testable. `risky_files` = upstream-shaped files with deletions (a merge can
+    clobber them); `covered_paths` = files pinned by some sentinel registry.
+    Returns (ok, reason). Coverage-first acceptance order:
       1. no upstream-shaped paths touched
-      2. a sentinel registry was updated in the same PR
-      3. the diff is pure-insertion (implicit upstream-touch-trivial)
-      4. an explicit marker token appears in commit messages OR the PR body
+      2. pure-insertion (no risky files) — cannot drop an upstream symbol
+      3. verified coverage — every risky file is sentinel-pinned (no marker
+         needed; this is the protected honest path)
+      4. a sentinel registry was edited in this PR (lenient back-compat)
+      5. an explicit marker token in commit messages OR the PR body, where
+         `upstream-touch-guarded` is VERIFIED against coverage (a false claim
+         fails — covered files already passed at step 3, so reaching the marker
+         loop means `uncovered` is non-empty and the claim cannot be true)
     """
     if not upstream_files:
         return True, "no upstream-shaped paths changed"
+    if not risky_files:
+        return True, "pure-insertion diff (no deletions) — no upstream-merge revert risk"
+    uncovered = sorted(f for f in risky_files if f not in covered_paths)
+    if not uncovered:
+        return True, (
+            "verified coverage — all revert-risk upstream files are pinned in "
+            "scripts/sentinels/*.json: " + ", ".join(sorted(risky_files))
+        )
     if sentinel_touched:
         return True, "sentinel registry updated: " + ", ".join(sorted(sentinel_touched))
-    if pure_insertion:
-        return True, "pure-insertion diff (no deletions) — implicit upstream-touch-trivial"
     for marker in MARKERS:
         if marker in marker_text:
+            if marker == "upstream-touch-guarded":
+                return False, (
+                    "marker 'upstream-touch-guarded' claims existing sentinel coverage, but these "
+                    "revert-risk upstream files are pinned by NO scripts/sentinels/*.json entry: "
+                    + ", ".join(uncovered)
+                    + ". Add an anchor (pin the injection line in the upstream file), or use "
+                    "'upstream-touch-trivial' if they truly carry no revert risk."
+                )
             return True, f"marker '{marker}' present"
-    return False, "upstream-shaped paths changed without sentinel / marker / pure-insertion"
+    return False, "upstream-shaped paths changed without sentinel coverage / marker / pure-insertion"
 
 
-def _print_failure(upstream_files: list[str], stream) -> None:
+def _print_failure(upstream_files: list[str], stream, uncovered: list[str] | None = None) -> None:
     print("Upstream-shaped files in this PR:", file=stream)
     for f in upstream_files[:30]:
         print(f"  {f}", file=stream)
     if len(upstream_files) > 30:
         print(f"  ... and {len(upstream_files) - 30} more", file=stream)
     print("", file=stream)
+    if uncovered:
+        print("Revert-risk upstream files pinned by NO sentinel (a future upstream merge "
+              "could silently clobber these):", file=stream)
+        for f in uncovered[:30]:
+            print(f"  {f}", file=stream)
+        if len(uncovered) > 30:
+            print(f"  ... and {len(uncovered) - 30} more", file=stream)
+        print("", file=stream)
     print("Fix (any one):", file=stream)
-    print("  (a) make the change pure-insertion (no deleted lines), OR", file=stream)
-    print("  (b) add one of these tokens to the PR description (mutable — no commit rewrite): "
-          + ", ".join(MARKERS) + ", OR", file=stream)
-    print("  (c) update one of scripts/sentinels/*.json with anchor(s) for the change.", file=stream)
+    print("  (a) add anchor(s) in scripts/sentinels/*.json for the revert-risk file(s) — "
+          "pin the injection line; this is REAL overwrite protection (preferred), OR", file=stream)
+    print("  (b) make the change pure-insertion (no deleted lines), OR", file=stream)
+    print("  (c) add an honest opt-out token to the PR description (mutable — no commit rewrite): "
+          + ", ".join(m for m in MARKERS if m != "upstream-touch-guarded") + ".", file=stream)
     print("", file=stream)
     print("Marker semantics:", file=stream)
-    print("  upstream-touch-guarded — anchors are pinned in a sentinel registry", file=stream)
-    print("  upstream-touch-trivial — change has no upstream-merge revert risk", file=stream)
+    print("  upstream-touch-guarded — VERIFIED, not trusted: the revert-risk files must already be "
+          "pinned in a sentinel registry; a false claim fails this gate", file=stream)
+    print("  upstream-touch-trivial — change has no upstream-merge revert risk (reviewer-audited)", file=stream)
     print("  upstream-merge         — this is the upstream-merge PR itself", file=stream)
     print("  no-upstream-touch      — paths were misclassified; assert no upstream surface", file=stream)
 
 
 def run_selftest() -> int:
+    SVC = "backend/internal/service/x.go"
+    HDL = "backend/internal/handler/x.go"
+    VIEW = "frontend/src/views/admin/AccountsView.vue"
     cases = [
-        # (upstream_files, sentinel_touched, pure_insertion, marker_text, expect_ok)
-        ([], [], False, "", True),                                   # nothing upstream
-        (["backend/internal/handler/x.go"], ["scripts/sentinels/newapi.json"], False, "", True),  # sentinel
-        (["frontend/src/views/admin/AccountsView.vue"], [], True, "", True),  # pure insertion
-        (["backend/internal/service/x.go"], [], False, "feat: ... upstream-touch-guarded ...", True),  # commit marker
-        (["backend/internal/service/x.go"], [], False, "no-upstream-touch in PR body", True),  # pr-body marker (same text channel)
-        (["backend/internal/service/x.go"], [], False, "", False),   # nothing → fail
-        (["backend/internal/service/x.go"], [], False, "guarded but not the token", False),  # near-miss
+        # (upstream_files, sentinel_touched, risky_files, covered_paths, marker_text, expect_ok)
+        ([], [], [], set(), "", True),                               # nothing upstream
+        ([VIEW], [], [], set(), "", True),                           # pure insertion (no risky)
+        # verified coverage: risky file IS pinned, NO marker → auto-pass (the honest path)
+        ([SVC], [], [SVC], {SVC}, "", True),
+        # guarded + risky file IS covered → passes at coverage step before marker is read
+        ([SVC], [], [SVC], {SVC}, "feat: ... upstream-touch-guarded ...", True),
+        # guarded + risky file NOT covered → FAIL (the new teeth — false claim)
+        ([SVC], [], [SVC], set(), "feat: ... upstream-touch-guarded ...", False),
+        # sentinel edited this PR but risky still uncovered → lenient back-compat pass
+        ([HDL], ["scripts/sentinels/newapi.json"], [HDL], set(), "", True),
+        # honest opt-outs on an uncovered risky file → pass
+        ([SVC], [], [SVC], set(), "no-upstream-touch in PR body", True),
+        ([SVC], [], [SVC], set(), "... upstream-touch-trivial ...", True),
+        # uncovered risky file, no marker → fail
+        ([SVC], [], [SVC], set(), "", False),
+        # near-miss marker text → fail
+        ([SVC], [], [SVC], set(), "guarded but not the token", False),
     ]
     failed = 0
-    for i, (uf, st, pure, txt, expect) in enumerate(cases):
-        ok, _ = decide(uf, st, pure, txt)
+    for i, (uf, st, risky, covered, txt, expect) in enumerate(cases):
+        ok, _ = decide(uf, st, risky, covered, txt)
         status = "PASS" if ok == expect else "FAIL"
         if ok != expect:
             failed += 1
@@ -290,23 +381,30 @@ def main() -> int:
     upstream_files = [p for p in paths if is_upstream_shaped(p)]
     sentinel_touched = [p for p in paths if SENTINEL_REGISTRY_RE.match(p)]
 
-    pure_insertion = False
-    if upstream_files and not sentinel_touched:
+    risky_files: list[str] = []
+    covered_paths: set[str] = set()
+    if upstream_files:
+        covered_paths = covered_sentinel_paths()
         try:
-            pure_insertion = is_pure_insertion(args.base, upstream_files)
+            risky_files = sorted(files_with_deletions(args.base, upstream_files))
         except subprocess.CalledProcessError as e:
             print(f"FAIL: git diff --numstat failed: {e}", file=sys.stderr)
             return 2
 
+    uncovered = [f for f in risky_files if f not in covered_paths]
+
+    # A marker is only consulted when there ARE uncovered revert-risk files and
+    # no registry was edited this PR (every other branch passes/fails without
+    # reading the marker), so only fetch commit messages in that case.
     marker_text = args.pr_body or ""
-    if upstream_files and not sentinel_touched and not pure_insertion:
+    if uncovered and not sentinel_touched:
         try:
             marker_text += "\n" + commit_messages(args.base)
         except subprocess.CalledProcessError as e:
             print(f"FAIL: git log failed: {e}", file=sys.stderr)
             return 2
 
-    ok, reason = decide(upstream_files, sentinel_touched, pure_insertion, marker_text)
+    ok, reason = decide(upstream_files, sentinel_touched, risky_files, covered_paths, marker_text)
     if ok:
         if not args.quiet:
             print(f"[check_upstream_override_marker] {reason}")
@@ -314,9 +412,8 @@ def main() -> int:
 
     stream = sys.stdout if advisory else sys.stderr
     prefix = "advisory (not blocking — CI enforces on PR body)" if advisory else "FAIL"
-    print(f"[check_upstream_override_marker] {prefix}: upstream-shaped paths "
-          "changed without sentinel / marker / pure-insertion.", file=stream)
-    _print_failure(upstream_files, stream)
+    print(f"[check_upstream_override_marker] {prefix}: {reason}", file=stream)
+    _print_failure(upstream_files, stream, uncovered=uncovered)
     return 0 if advisory else 1
 
 
