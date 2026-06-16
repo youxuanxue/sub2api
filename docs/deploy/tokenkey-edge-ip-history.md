@@ -22,4 +22,5 @@ Active edge EIP rotation runbook: [`.cursor/skills/tokenkey-stage0-edge-ip-rotat
 | `16.147.170.3` | us-west-2 | EC2 us1 EIP released 2026-06-07 on edge retirement (accounts migrated to us6 Lightsail; cc/codex fingerprint egress migrated to 52.15.35.197; not upstream pollution; exclude from re-allocation) |
 | `3.128.102.134` | us-east-2 | Lightsail edge-us3 Static-oh-1 upstream API risk-block (2026-06-16); swapped to vless-oh-fresh-1 / 18.220.195.44; old Static-oh-1 detached, exclude from re-allocation |
 | `44.224.133.40` | us-west-2 | Lightsail edge-us5 StaticIp-or-2 upstream API risk-block (2026-06-16); swapped to vless-or-fresh-1 / 32.185.163.163; old StaticIp-or-2 detached, exclude from re-allocation |
+| `13.134.80.182` | eu-west-2 | Lightsail edge-uk1 tokenkey-edge-uk1-ls-ip upstream API risk-block (2026-06-16); swapped to vless-uk-fresh-1 / 18.175.27.120; old static IP released, exclude from re-allocation |
 <!-- END edge-ip-status:polluted -->

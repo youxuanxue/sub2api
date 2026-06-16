@@ -64,6 +64,13 @@
       "platform": "lightsail",
       "edge_id": "us5",
       "notes": "Lightsail edge-us5 StaticIp-or-2 upstream API risk-block (2026-06-16); swapped to vless-or-fresh-1 / 32.185.163.163; old StaticIp-or-2 detached, exclude from re-allocation"
+    },
+    {
+      "ip": "13.134.80.182",
+      "region": "eu-west-2",
+      "notes": "Lightsail edge-uk1 tokenkey-edge-uk1-ls-ip upstream API risk-block (2026-06-16); swapped to vless-uk-fresh-1 / 18.175.27.120; old static IP released, exclude from re-allocation",
+      "edge_id": "uk1",
+      "platform": "lightsail"
     }
   ]
 }
