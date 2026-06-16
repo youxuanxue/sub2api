@@ -13,6 +13,11 @@
       "rationale": "Grok must be in BOTH OpenAICompatPlatforms() (so it rides the OpenAI-compat routes/scheduler/sticky path with channel_type=0, like openai) AND AllSchedulingPlatforms() (so background sweeps/snapshot hydration include the grok pool). Losing either silently drops grok from routing or from rate-limit reaping/snapshot scheduling."
     },
     {
+      "path": "backend/internal/model/error_passthrough_rule.go",
+      "must_contain": ["PlatformKiro, PlatformGrok}"],
+      "rationale": "The SECOND, separate platform registry (model.AllPlatforms, distinct from domain/constants.go) that feeds the error-passthrough rule UI's applicable-platform list. grok (and kiro) must stay in the AllPlatforms() return slice — anchored on the slice tail `PlatformKiro, PlatformGrok}` (not just the const, which would still match if grok were dropped only from the return). This is the one grok injection an upstream merge can drop SILENTLY: no compile error and no test pins the slice contents, so without this anchor grok would lose error-passthrough applicability unnoticed (the exact silent-drift mode the sentinel registry exists to catch)."
+    },
+    {
       "path": "backend/internal/pkg/xai/oauth.go",
       "must_contain": ["ClientID = \"b1a00492-073a-47ea-816f-4c329264a828\"", "func RefreshToken", "DefaultAPIBaseURL = \"https://api.x.ai/v1\""],
       "rationale": "Stdlib-only xAI OAuth refresh helper (discovery + refresh-token grant) + the public Grok CLI client_id and the api.x.ai base URL. Losing RefreshToken stops grok token auto-refresh; accounts silently expire and drop out of the pool with no recovery."
