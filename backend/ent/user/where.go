@@ -175,6 +175,11 @@ func RpmLimit(v int) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldRpmLimit, v))
 }
 
+// TrajExportEnabled applies equality check predicate on the "traj_export_enabled" field. It's identical to TrajExportEnabledEQ.
+func TrajExportEnabled(v bool) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldTrajExportEnabled, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldCreatedAt, v))
@@ -1393,6 +1398,16 @@ func RpmLimitLT(v int) predicate.User {
 // RpmLimitLTE applies the LTE predicate on the "rpm_limit" field.
 func RpmLimitLTE(v int) predicate.User {
 	return predicate.User(sql.FieldLTE(FieldRpmLimit, v))
+}
+
+// TrajExportEnabledEQ applies the EQ predicate on the "traj_export_enabled" field.
+func TrajExportEnabledEQ(v bool) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldTrajExportEnabled, v))
+}
+
+// TrajExportEnabledNEQ applies the NEQ predicate on the "traj_export_enabled" field.
+func TrajExportEnabledNEQ(v bool) predicate.User {
+	return predicate.User(sql.FieldNEQ(FieldTrajExportEnabled, v))
 }
 
 // HasAPIKeys applies the HasEdge predicate on the "api_keys" edge.

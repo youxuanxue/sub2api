@@ -151,6 +151,9 @@ type UpdateUserInput struct {
 	RPMLimit      *int     // 使用指针区分"未提供"和"设置为0"
 	Status        string
 	AllowedGroups *[]int64 // 使用指针区分"未提供"和"设置为空数组"
+	// TrajExportEnabled 管理员授予的「可导出对话记录(traj)」开关。
+	// 指针区分"未提供"（不改动）与显式 true/false。
+	TrajExportEnabled *bool
 	// GroupRates 用户专属分组倍率配置
 	// map[groupID]*rate，nil 表示删除该分组的专属倍率
 	GroupRates map[int64]*float64
@@ -827,6 +830,10 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 
 	if input.RPMLimit != nil {
 		user.RPMLimit = *input.RPMLimit
+	}
+
+	if input.TrajExportEnabled != nil {
+		user.TrajExportEnabled = *input.TrajExportEnabled
 	}
 
 	if input.AllowedGroups != nil {

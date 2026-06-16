@@ -45,7 +45,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-
 type qaMemBlobStore struct{ objects map[string][]byte }
 
 func (m *qaMemBlobStore) Put(_ context.Context, key string, body []byte, _ string) (string, error) {
@@ -119,6 +118,20 @@ func newQAHandlerRouterWithStore(
 	r.POST("/api/v1/users/me/qa/traj/export", h.ExportSelfTrajectory)
 	r.GET("/api/v1/users/me/qa/traj/exports/*key", h.DownloadSelfTrajectoryExport)
 	return r, h
+}
+
+// seedTrajExportUser inserts a user with the given traj_export_enabled flag and
+// returns its (auto-assigned) ID — the trajectory export endpoint now gates on
+// this admin-granted switch, so success-path tests must seed an authorized user.
+func seedTrajExportUser(t *testing.T, ctx context.Context, client *dbent.Client, enabled bool) int64 {
+	t.Helper()
+	u, err := client.User.Create().
+		SetEmail("traj-export@test.local").
+		SetPasswordHash("x").
+		SetTrajExportEnabled(enabled).
+		Save(ctx)
+	require.NoError(t, err)
+	return u.ID
 }
 
 func TestUS059_ExportSelf_Unauthenticated_401(t *testing.T) {
@@ -356,6 +369,7 @@ func TestUS077_ExportSelfTrajectory_BySynthSessionID_200(t *testing.T) {
 	r, client, _ := newQAHandlerTestEnv(t, true, 7)
 	ctx := context.Background()
 	now := time.Now().UTC()
+	uid := seedTrajExportUser(t, ctx, client, true)
 
 	store := &qaMemBlobStore{objects: map[string][]byte{}}
 	blob := bytes.Buffer{}
@@ -368,7 +382,7 @@ func TestUS077_ExportSelfTrajectory_BySynthSessionID_200(t *testing.T) {
 
 	_, err = client.QARecord.Create().
 		SetRequestID("traj-handler").
-		SetUserID(7).
+		SetUserID(uid).
 		SetAPIKeyID(1).
 		SetPlatform("anthropic").
 		SetSynthSessionID("m0-TRAJ-H").
@@ -380,7 +394,7 @@ func TestUS077_ExportSelfTrajectory_BySynthSessionID_200(t *testing.T) {
 		Save(ctx)
 	require.NoError(t, err)
 
-	r, _ = newQAHandlerRouterWithStore(7, true, client, store)
+	r, _ = newQAHandlerRouterWithStore(uid, true, client, store)
 	body := bytes.NewBufferString(`{"synth_session_id":"m0-TRAJ-H"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/qa/traj/export", body)
 	req.Header.Set("Content-Type", "application/json")
@@ -409,6 +423,7 @@ func TestUS077_ExportSelfTrajectory_LocalFSDownloadURLIsHTTPReachable(t *testing
 
 	ctx := context.Background()
 	now := time.Now().UTC()
+	uid := seedTrajExportUser(t, ctx, client, true)
 	blob := bytes.Buffer{}
 	enc, err := zstd.NewWriter(&blob)
 	require.NoError(t, err)
@@ -418,7 +433,7 @@ func TestUS077_ExportSelfTrajectory_LocalFSDownloadURLIsHTTPReachable(t *testing
 
 	_, err = client.QARecord.Create().
 		SetRequestID("traj-localfs").
-		SetUserID(7).
+		SetUserID(uid).
 		SetAPIKeyID(1).
 		SetPlatform("anthropic").
 		SetSynthSessionID("m0-TRAJ-HTTP").
@@ -431,7 +446,7 @@ func TestUS077_ExportSelfTrajectory_LocalFSDownloadURLIsHTTPReachable(t *testing
 	require.NoError(t, err)
 
 	store := &qaLocalFSLikeBlobStore{qaMemBlobStore{objects: map[string][]byte{"evidence/traj-localfs.zst": blob.Bytes()}}}
-	r, _ := newQAHandlerRouterWithStore(7, true, client, store)
+	r, _ := newQAHandlerRouterWithStore(uid, true, client, store)
 
 	body := bytes.NewBufferString(`{"synth_session_id":"m0-TRAJ-HTTP"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/qa/traj/export", body)
@@ -460,6 +475,23 @@ func TestUS077_ExportSelfTrajectory_LocalFSDownloadURLIsHTTPReachable(t *testing
 	require.NoError(t, err)
 	require.Len(t, zr.File, 1)
 	require.Equal(t, "trajectory.jsonl", zr.File[0].Name)
+}
+
+// Per-user authorization backstop: a user whose traj_export_enabled switch is
+// off (the default) gets 403 even with a valid auth subject and captured data.
+func TestExportSelfTrajectory_Forbidden_WhenSwitchOff(t *testing.T) {
+	r, client, _ := newQAHandlerTestEnv(t, true, 7)
+	ctx := context.Background()
+	uid := seedTrajExportUser(t, ctx, client, false) // admin switch OFF
+	r, _ = newQAHandlerRouterWithStore(uid, true, client, &qaMemBlobStore{objects: map[string][]byte{}})
+
+	body := bytes.NewBufferString(`{"format":"v2"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/qa/traj/export", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusForbidden, w.Code, "body=%s", w.Body.String())
 }
 
 func TestUS033_DownloadSelfExport_RejectsCrossUserAndTraversalKeys(t *testing.T) {

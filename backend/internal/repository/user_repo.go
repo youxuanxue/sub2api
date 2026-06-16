@@ -95,6 +95,7 @@ func (r *userRepository) Create(ctx context.Context, userIn *service.User) error
 		SetNillableLastLoginAt(userIn.LastLoginAt).
 		SetNillableLastActiveAt(userIn.LastActiveAt).
 		SetRpmLimit(userIn.RPMLimit).
+		SetTrajExportEnabled(userIn.TrajExportEnabled).
 		Save(txCtx)
 	if err != nil {
 		return translatePersistenceError(err, nil, service.ErrEmailExists)
@@ -239,7 +240,8 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User) error
 		SetNillableBalanceNotifyThreshold(userIn.BalanceNotifyThreshold).
 		SetBalanceNotifyExtraEmails(marshalExtraEmails(userIn.BalanceNotifyExtraEmails)).
 		SetTotalRecharged(userIn.TotalRecharged).
-		SetRpmLimit(userIn.RPMLimit)
+		SetRpmLimit(userIn.RPMLimit).
+		SetTrajExportEnabled(userIn.TrajExportEnabled)
 	if userIn.SignupSource != "" {
 		updateOp = updateOp.SetSignupSource(userIn.SignupSource)
 	}

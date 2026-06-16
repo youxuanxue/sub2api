@@ -130,8 +130,29 @@ func (s *Service) DownloadUserTrajectoryExport(ctx context.Context, userID int64
 	return body, err
 }
 
+// UserTrajExportEnabled reports whether the admin has granted this user the
+// traj_export_enabled switch. It is the handler-layer authorization backstop
+// behind the UI visibility gate — a hand-crafted POST cannot bypass it. A
+// missing user resolves to false (denied) rather than an error.
+func (s *Service) UserTrajExportEnabled(ctx context.Context, userID int64) (bool, error) {
+	u, err := s.client.User.Get(ctx, userID)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return u.TrajExportEnabled, nil
+}
+
 func (s *Service) queryExportRecords(ctx context.Context, userID int64, filter ExportFilter) ([]*ent.QARecord, error) {
 	predicates := []predicate.QARecord{qarecord.UserIDEQ(userID)}
+	if filter.APIKeyID != nil {
+		predicates = append(predicates, qarecord.APIKeyIDEQ(*filter.APIKeyID))
+	}
+	if p := strings.TrimSpace(filter.Platform); p != "" {
+		predicates = append(predicates, qarecord.PlatformEQ(p))
+	}
 	if synthSession := strings.TrimSpace(filter.SynthSessionID); synthSession != "" {
 		predicates = append(predicates, qarecord.SynthSessionIDEQ(synthSession))
 	} else {

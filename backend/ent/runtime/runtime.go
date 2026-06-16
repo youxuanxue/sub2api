@@ -2107,6 +2107,10 @@ func init() {
 	userDescRpmLimit := userFields[20].Descriptor()
 	// user.DefaultRpmLimit holds the default value on creation for the rpm_limit field.
 	user.DefaultRpmLimit = userDescRpmLimit.Default.(int)
+	// userDescTrajExportEnabled is the schema descriptor for traj_export_enabled field.
+	userDescTrajExportEnabled := userFields[21].Descriptor()
+	// user.DefaultTrajExportEnabled holds the default value on creation for the traj_export_enabled field.
+	user.DefaultTrajExportEnabled = userDescTrajExportEnabled.Default.(bool)
 	userallowedgroupFields := schema.UserAllowedGroup{}.Fields()
 	_ = userallowedgroupFields
 	// userallowedgroupDescCreatedAt is the schema descriptor for created_at field.

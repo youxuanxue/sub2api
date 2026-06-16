@@ -33,6 +33,9 @@ type User struct {
 	OnboardingTourSeenAt *time.Time `json:"onboarding_tour_seen_at"`
 	// RPMLimit 用户级每分钟请求数上限（0 = 不限制），仅在所用分组未设置 rpm_limit 时作为兜底生效。
 	RPMLimit int `json:"rpm_limit"`
+	// TrajExportEnabled 管理员授予的「可导出对话记录(traj)」开关。
+	// 前端据此在每个 API Key 行渲染导出入口；后端导出端点亦据此 403 兜底。
+	TrajExportEnabled bool `json:"traj_export_enabled"`
 
 	APIKeys       []APIKey           `json:"api_keys,omitempty"`
 	Subscriptions []UserSubscription `json:"subscriptions,omitempty"`
