@@ -144,6 +144,7 @@
             <span class="shrink-0 rounded bg-primary-50 px-1.5 py-0.5 font-semibold text-primary-700 dark:bg-primary-950/50 dark:text-primary-300">{{ formatUsd(task.estCost) }}</span>
           </div>
           <div class="flex gap-3 text-[11px] font-medium text-gray-500 dark:text-dark-400">
+            <button v-if="task.url" type="button" class="text-primary-600 dark:text-primary-300" @click="downloadMedia(task.url, `tokenkey-${task.id}.mp4`)">{{ t('studio.video.download') }}</button>
             <a v-if="task.url" :href="task.url" target="_blank" rel="noopener" class="text-primary-600 dark:text-primary-300">{{ t('studio.video.open') }}</a>
             <button type="button" @click="reuse(task)">{{ t('studio.image.usePrompt') }}</button>
             <button type="button" @click="removeTask(task.id)">{{ t('studio.clear') }}</button>
@@ -162,8 +163,9 @@
       </div>
     </div>
 
-    <!-- RIGHT: cost panel + button -->
-    <div class="space-y-4">
+    <!-- RIGHT: cost panel + button. Hidden when the group serves no video tier —
+         no point showing a $0 panel and a dead Generate button. -->
+    <div v-if="tiers.length" class="space-y-4">
       <div class="rounded-xl border border-primary-200 bg-primary-50/40 p-4 shadow-sm dark:border-primary-900/40 dark:bg-primary-950/30">
         <div class="text-xs font-semibold uppercase tracking-wide text-primary-700 dark:text-primary-300">{{ t('studio.cost.thisVideo') }}</div>
         <div class="mt-2 font-mono text-[12px] text-gray-600 dark:text-dark-300">{{ formula }}</div>
@@ -184,11 +186,11 @@
         @click="generate"
       >
         <template v-if="sending">{{ t('studio.video.submitting') }}</template>
-        <template v-else-if="!canAfford && tiers.length">{{ t('studio.video.generateTopUp', { cost: formatUsd(estimate) }) }}</template>
+        <template v-else-if="!canAfford">{{ t('studio.video.generateTopUp', { cost: formatUsd(estimate) }) }}</template>
         <template v-else>{{ t('studio.video.generate', { cost: formatUsd(estimate) }) }}</template>
       </button>
       <router-link
-        v-if="!canAfford && tiers.length"
+        v-if="!canAfford"
         to="/purchase"
         class="block text-center text-xs font-medium text-primary-600 underline dark:text-primary-400"
       >
@@ -220,6 +222,7 @@ import {
   resolveAvailableTiers,
 } from '@/constants/mediaTiers.tk'
 import { estimateVideoCost, formatUsd } from '@/utils/mediaCostEstimate.tk'
+import { downloadMedia } from '@/utils/studioDownload.tk'
 import { classifyGatewayError, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
 import { useMediaLibrary, type VideoTaskItem } from '@/composables/useMediaLibrary'
 import { useVideoTaskPoll, requestVideoNotifyPermission, maybeNotify } from '@/composables/useVideoTaskPoll'

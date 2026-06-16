@@ -169,7 +169,6 @@ export default {
     apiKey: 'API 密钥',
     pickKeyPlaceholder: '选择一个 API 密钥…',
     loadingModels: '正在加载模型…',
-    noModels: '该密钥未返回任何模型，请检查分组路由或换一个密钥。',
     loadFailed: '工作室加载失败。',
     noApiKey: '没有可用的 API 密钥，请先在「API 密钥」里创建一个。',
     manageKeys: '管理 API 密钥',
@@ -181,6 +180,7 @@ export default {
     topUp: '去充值',
     viewPricing: '查看价格',
     via: '经 {vendor}',
+    keyNoModality: '此模式无可用模型',
     bakeoff: {
       hint: '一条 prompt，多个模型并排出片——各自带真实价格和速度。',
       needTwo: '该分组至少需要两个已定价模型才能对比。',
@@ -246,6 +246,7 @@ export default {
       notifyMe: '完成通知我',
       usuallyTakes: '通常 30–90 秒',
       noUrlHint: '任务成功，但未能解析出视频地址。',
+      download: '下载',
       open: '打开 ↗',
       failedRefunded: '生成失败 — 已退你 {cost}。试试更短的片子或别的档位。',
       techDetails: '技术详情',

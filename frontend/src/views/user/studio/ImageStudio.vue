@@ -106,8 +106,9 @@
       </div>
     </div>
 
-    <!-- RIGHT: cost panel + button (the spine) -->
-    <div class="space-y-4">
+    <!-- RIGHT: cost panel + button (the spine). Hidden when the group serves no
+         image tier — no point showing a $0 panel and a dead Generate button. -->
+    <div v-if="tiers.length" class="space-y-4">
       <div class="rounded-xl border border-primary-200 bg-primary-50/40 p-4 shadow-sm dark:border-primary-900/40 dark:bg-primary-950/30">
         <div class="text-xs font-semibold uppercase tracking-wide text-primary-700 dark:text-primary-300">{{ t('studio.cost.thisGeneration') }}</div>
         <div class="mt-2 font-mono text-[12px] text-gray-600 dark:text-dark-300">{{ formula }}</div>
@@ -126,11 +127,11 @@
         @click="generate"
       >
         <template v-if="sending">{{ t('studio.image.generating') }}</template>
-        <template v-else-if="!canAfford && tiers.length">{{ t('studio.image.generateTopUp', { cost: formatUsd(estimate) }) }}</template>
+        <template v-else-if="!canAfford">{{ t('studio.image.generateTopUp', { cost: formatUsd(estimate) }) }}</template>
         <template v-else>{{ t('studio.image.generate', { cost: formatUsd(estimate) }) }}</template>
       </button>
       <router-link
-        v-if="!canAfford && tiers.length"
+        v-if="!canAfford"
         to="/purchase"
         class="block text-center text-xs font-medium text-primary-600 underline dark:text-primary-400"
       >
@@ -168,6 +169,7 @@ import {
   IMAGE_SIZE_MULTIPLIER,
 } from '@/utils/mediaCostEstimate.tk'
 import { classifyGatewayError, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
+import { downloadMedia } from '@/utils/studioDownload.tk'
 import { useMediaLibrary, type ImageHistoryItem } from '@/composables/useMediaLibrary'
 
 const props = defineProps<{
@@ -260,20 +262,7 @@ function reuse(img: ImageHistoryItem): void {
 }
 
 function download(img: ImageHistoryItem): void {
-  try {
-    const a = document.createElement('a')
-    a.href = img.src
-    a.download = `tokenkey-${img.id}.png`
-    if (!img.src.startsWith('data:')) {
-      a.target = '_blank'
-      a.rel = 'noopener'
-    }
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-  } catch {
-    window.open(img.src, '_blank')
-  }
+  downloadMedia(img.src, `tokenkey-${img.id}.png`)
 }
 
 async function generate(): Promise<void> {

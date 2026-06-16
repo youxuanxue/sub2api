@@ -171,7 +171,6 @@ export default {
     apiKey: 'API Key',
     pickKeyPlaceholder: 'Select an API key…',
     loadingModels: 'Loading models…',
-    noModels: 'No models returned for your key. Check group routing or try another key.',
     loadFailed: 'Could not load Studio.',
     noApiKey: 'No active API key found. Create one under API Keys.',
     manageKeys: 'Manage API keys',
@@ -183,6 +182,7 @@ export default {
     topUp: 'Top up',
     viewPricing: 'See pricing',
     via: 'via {vendor}',
+    keyNoModality: 'no models for this mode',
     bakeoff: {
       hint: 'One prompt, several models side by side — each with its real price and speed.',
       needTwo: 'Need at least two priced models in this group to compare.',
@@ -248,6 +248,7 @@ export default {
       notifyMe: 'Notify me when done',
       usuallyTakes: 'Usually 30–90s',
       noUrlHint: 'Task succeeded but no video URL could be parsed.',
+      download: 'Download',
       open: 'Open ↗',
       failedRefunded: 'Generation failed — {cost} refunded. Try a shorter clip or another tier.',
       techDetails: 'Technical details',

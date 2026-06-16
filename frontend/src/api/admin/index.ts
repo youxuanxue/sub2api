@@ -34,6 +34,7 @@ import riskControlAPI from './riskControl'
 import adminComplianceAPI from './compliance'
 import tierAPI from './tier'
 import edgeAccountsAPI from './edgeAccounts'
+import inviteTrialAPI from './inviteTrial'
 
 /**
  * Unified admin API object for convenient access
@@ -69,7 +70,8 @@ export const adminAPI = {
   riskControl: riskControlAPI,
   compliance: adminComplianceAPI,
   tiers: tierAPI,
-  edgeAccounts: edgeAccountsAPI
+  edgeAccounts: edgeAccountsAPI,
+  inviteTrial: inviteTrialAPI
 }
 
 export {
@@ -103,7 +105,8 @@ export {
   riskControlAPI,
   adminComplianceAPI,
   tierAPI,
-  edgeAccountsAPI
+  edgeAccountsAPI,
+  inviteTrialAPI
 }
 
 export default adminAPI
@@ -115,6 +118,13 @@ export type { BackupAgentHealth, DataManagementConfig } from './dataManagement'
 export type { TLSFingerprintProfile, CreateProfileRequest, UpdateProfileRequest } from './tlsFingerprintProfile'
 export type { ContentModerationConfig, ContentModerationLog, ModerationMode } from './riskControl'
 export type { Tier, TierRequest } from './tier'
+export type {
+  TrialPreset,
+  TrialPlan,
+  TrialRecipient,
+  InviteTrialRequest,
+  TrialCredential
+} from './inviteTrial'
 export type {
   EdgeAccountSummary,
   EdgeTodayStats,
