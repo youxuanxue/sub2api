@@ -344,6 +344,18 @@ def run_selftest() -> int:
         if got != expect:
             failed += 1
         print(f"  {status} classify {path}: expect={expect} got={got}")
+    # Coverage-helper smoke: the whole gate hinges on covered_sentinel_paths()
+    # actually resolving REPO_ROOT and reading the `sentinels[].path` shape. If
+    # a future refactor breaks the path math or the JSON key, it returns an
+    # empty set and the verifier silently goes toothless (every file reads as
+    # uncovered) while decide()'s pure cases still pass. Anchor that here: a
+    # non-empty set of str proves the helper still reads real registries.
+    covered = covered_sentinel_paths()
+    helper_ok = isinstance(covered, set) and len(covered) > 0 and all(isinstance(p, str) for p in covered)
+    status = "PASS" if helper_ok else "FAIL"
+    if not helper_ok:
+        failed += 1
+    print(f"  {status} covered_sentinel_paths() reads real registries: count={len(covered)}")
     if failed:
         print(f"upstream-override-marker selftest: {failed} case(s) FAILED", file=sys.stderr)
         return 1
