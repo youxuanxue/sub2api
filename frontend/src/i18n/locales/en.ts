@@ -171,7 +171,6 @@ export default {
     apiKey: 'API Key',
     pickKeyPlaceholder: 'Select an API key…',
     loadingModels: 'Loading models…',
-    noModels: 'No models returned for your key. Check group routing or try another key.',
     loadFailed: 'Could not load Studio.',
     noApiKey: 'No active API key found. Create one under API Keys.',
     manageKeys: 'Manage API keys',

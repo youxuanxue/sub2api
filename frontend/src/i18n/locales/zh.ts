@@ -169,7 +169,6 @@ export default {
     apiKey: 'API 密钥',
     pickKeyPlaceholder: '选择一个 API 密钥…',
     loadingModels: '正在加载模型…',
-    noModels: '该密钥未返回任何模型，请检查分组路由或换一个密钥。',
     loadFailed: '工作室加载失败。',
     noApiKey: '没有可用的 API 密钥，请先在「API 密钥」里创建一个。',
     manageKeys: '管理 API 密钥',
