@@ -43,6 +43,46 @@ class AccountViolationTest(unittest.TestCase):
         self.assertIn("claude-opus-4-8", r)
         self.assertIsNotNone(CHK._account_violation({"model_mapping": {"gpt-oss-120b-medium": "x"}}))
 
+    def _gemini_only_mm(self):
+        return {"gemini-3-flash": "gemini-3-flash"}
+
+    def test_active_schedulable_unbound_is_violation(self):
+        # the us4 gap: healthy gemini-only account but no account_groups binding.
+        r = CHK._account_violation({
+            "model_mapping": self._gemini_only_mm(),
+            "status": "active", "schedulable": True, "bound": False,
+        })
+        self.assertIsNotNone(r)
+        self.assertIn("not bound", r.lower())
+
+    def test_active_schedulable_bound_is_clean(self):
+        self.assertIsNone(CHK._account_violation({
+            "model_mapping": self._gemini_only_mm(),
+            "status": "active", "schedulable": True, "bound": True,
+        }))
+
+    def test_parked_account_unbound_is_not_flagged(self):
+        # schedulable=false (intentionally parked) → binding not required, no false flag.
+        self.assertIsNone(CHK._account_violation({
+            "model_mapping": self._gemini_only_mm(),
+            "status": "active", "schedulable": False, "bound": False,
+        }))
+
+    def test_inactive_unbound_is_not_flagged(self):
+        self.assertIsNone(CHK._account_violation({
+            "model_mapping": self._gemini_only_mm(),
+            "status": "inactive", "schedulable": True, "bound": False,
+        }))
+
+    def test_bad_mapping_and_unbound_reports_both(self):
+        r = CHK._account_violation({
+            "model_mapping": {"claude-opus-4-8": "x"},
+            "status": "active", "schedulable": True, "bound": False,
+        })
+        self.assertIsNotNone(r)
+        self.assertIn("claude-opus-4-8", r)
+        self.assertIn("not bound", r.lower())
+
 
 class GroupViolationTest(unittest.TestCase):
     def test_canonical_gemini_only_clean(self):
