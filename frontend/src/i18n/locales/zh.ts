@@ -4251,6 +4251,17 @@ export default {
         pleaseEnterClientSecret: '请输入 IdC Client Secret',
         pleaseAcknowledgeTos: '创建账号前请先勾选确认 Kiro 服务条款'
       },
+      grokPlatform: {
+        refreshToken: 'Refresh Token',
+        refreshTokenPlaceholder: 'xAI Grok OAuth refresh token',
+        refreshTokenHint: '创建时 TokenKey 会立刻用它换取 access token —— 这里若失败，说明 token 无效或该账号不是 SuperGrok Heavy。',
+        refreshTokenHowTo: '在本机运行 xAI Grok CLI 登录（loopback OAuth）拿到 refresh_token 后粘贴到这里。xAI 公共 client 无服务端 redirect / device-code 流程，故 token 须在本机铸取。',
+        baseUrl: 'Base URL（可选）',
+        baseUrlHint: '默认 https://api.x.ai/v1，仅自建反代时覆盖。',
+        tokenEditHint: '留空表示保留当前值',
+        heavyNote: 'xAI 把 OAuth API 面限定给 SuperGrok Heavy；标准 / 过期订阅会在请求时返回 HTTP 403。',
+        pleaseEnterRefreshToken: '请输入 Grok refresh token'
+      },
       // OAuth flow
       oauth: {
         title: 'Claude 账号授权',

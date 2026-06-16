@@ -2421,6 +2421,17 @@ func (s *OpenAIGatewayService) schedulingConfig() config.GatewaySchedulingConfig
 
 // GetAccessToken gets the access token for an OpenAI account
 func (s *OpenAIGatewayService) GetAccessToken(ctx context.Context, account *Account) (string, string, error) {
+	// Grok (seventh platform): xAI OAuth issues a plain Bearer to api.x.ai/v1 and
+	// does NOT use the ChatGPT/Codex token provider (which is IsOpenAI-gated). The
+	// background GrokTokenRefresher keeps the stored access token fresh, so return
+	// it directly — same posture as Kiro's GetKiroAccessToken.
+	if account.IsGrok() {
+		accessToken := account.GetGrokAccessToken()
+		if accessToken == "" {
+			return "", "", errors.New("grok access_token not found in credentials")
+		}
+		return accessToken, "oauth", nil
+	}
 	switch account.Type {
 	case AccountTypeOAuth:
 		// 使用 TokenProvider 获取缓存的 token
@@ -2465,6 +2476,13 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode i
 	// empty-pool 429). Route it straight to the non-failover error handler, which
 	// maps it to a client 400. See ratelimit_service_tk_capability_scope_401.go.
 	if tkIsCapabilityScope401(statusCode, upstreamBody) {
+		return false
+	}
+	// TK (grok seventh platform): a grok entitlement-403 (xAI Heavy-only gate) is
+	// pool-wide — failing over just poisons each grok account then hits the
+	// empty-pool 429. Route it straight to the non-failover error handler, which
+	// maps it to a clean client error. See ratelimit_service_tk_grok_entitlement_403.go.
+	if tkIsGrokEntitlement403(statusCode, upstreamBody) {
 		return false
 	}
 	if s.shouldFailoverUpstreamError(statusCode) {
@@ -4657,6 +4675,16 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 		errType = "upstream_error"
 		errMsg = "Upstream payment required: insufficient balance or billing issue"
 	case 403:
+		// TK (grok seventh platform): a grok entitlement-403 (xAI Heavy-only gate)
+		// is per-request/entitlement, not a transient WAF block — surface it as a
+		// clean 403 with the actionable message instead of masking it as a generic
+		// 502. See ratelimit_service_tk_grok_entitlement_403.go.
+		if tkIsGrokEntitlement403(resp.StatusCode, body) {
+			statusCode = http.StatusForbidden
+			errType = "permission_error"
+			errMsg = tkGrokEntitlement403ClientMessage(upstreamMsg)
+			break
+		}
 		statusCode = http.StatusBadGateway
 		errType = "upstream_error"
 		errMsg = TkEnrichForbiddenMessage(c, "Upstream access forbidden, please contact administrator")

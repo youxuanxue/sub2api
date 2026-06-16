@@ -49,6 +49,16 @@ func (s *OpenAIGatewayService) buildOpenAIV1TargetURL(account *Account, segment 
 		}
 		return buildOpenAIV1SegmentURL(validated, segment), nil
 	case AccountTypeOAuth:
+		// Grok (seventh platform) OAuth forwards to api.x.ai/v1 (OpenAI-compatible),
+		// NOT the ChatGPT platform base. The Bearer is the grok OAuth token resolved
+		// by GetAccessToken's grok branch.
+		if account.IsGrok() {
+			validated, err := s.validateUpstreamBaseURL(strings.TrimSpace(account.GetGrokBaseURL()))
+			if err != nil {
+				return "", err
+			}
+			return buildOpenAIV1SegmentURL(validated, segment), nil
+		}
 		return buildOpenAIV1SegmentURL(openAIPlatformV1Base, segment), nil
 	default:
 		return "", fmt.Errorf("unsupported account type: %s", account.Type)

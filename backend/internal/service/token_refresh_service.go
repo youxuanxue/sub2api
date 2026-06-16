@@ -67,6 +67,8 @@ func NewTokenRefreshService(
 	agRefresher := NewAntigravityTokenRefresher(antigravityOAuthService)
 	// Kiro（第六平台）刷新器无外部依赖，刷新走 vendor 包级 kiroproto.RefreshToken。
 	kiroRefresher := NewKiroTokenRefresher()
+	// Grok（第七平台）刷新器无外部依赖，刷新走 stdlib-only 的 pkg/xai.RefreshToken。
+	grokRefresher := NewGrokTokenRefresher()
 
 	// 注册平台特定的刷新器（TokenRefresher 接口）
 	s.refreshers = []TokenRefresher{
@@ -75,6 +77,7 @@ func NewTokenRefreshService(
 		geminiRefresher,
 		agRefresher,
 		kiroRefresher,
+		grokRefresher,
 	}
 
 	// 注册对应的 OAuthRefreshExecutor（带 CacheKey 方法），顺序与 refreshers 一一对应
@@ -84,6 +87,7 @@ func NewTokenRefreshService(
 		geminiRefresher,
 		agRefresher,
 		kiroRefresher,
+		grokRefresher,
 	}
 
 	return s

@@ -17,7 +17,7 @@ const (
 )
 
 func OpenAICompatPlatforms() []string {
-	return []string{domain.PlatformOpenAI, domain.PlatformNewAPI}
+	return []string{domain.PlatformOpenAI, domain.PlatformNewAPI, domain.PlatformGrok}
 }
 
 func IsOpenAICompatPlatform(platform string) bool {
@@ -53,5 +53,6 @@ func AllSchedulingPlatforms() []string {
 		domain.PlatformAntigravity,
 		domain.PlatformNewAPI,
 		domain.PlatformKiro,
+		domain.PlatformGrok,
 	}
 }
