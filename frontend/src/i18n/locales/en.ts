@@ -166,7 +166,7 @@ export default {
   // Media Studio (image / video generation) — TK
   studio: {
     title: 'Studio',
-    subtitle: 'Generate images and video across every platform — one key, the price on the button, results that play right here.',
+    subtitle: "Turn what's in your head into images and video you can watch.",
     balance: 'Balance',
     apiKey: 'API Key',
     pickKeyPlaceholder: 'Select an API key…',
@@ -183,6 +183,23 @@ export default {
     viewPricing: 'See pricing',
     via: 'via {vendor}',
     keyNoModality: 'no models for this mode',
+    needsApikeyAccount: 'Needs an API-key account',
+    badge: {
+      draft: 'Draft',
+      standard: 'Standard',
+      ultra: 'Ultra',
+      fast: 'Fast',
+      cinematic: 'Cinematic'
+    },
+    advanced: {
+      toggle: 'Advanced',
+      negativePrompt: 'Avoid',
+      negativePromptHint: 'Describe what to keep out (optional)',
+      seed: 'Seed',
+      seedHint: 'Leave blank for random',
+      firstFrame: 'First frame image (URL)',
+      firstFrameHint: 'Paste an image URL to use as the first frame (optional)'
+    },
     bakeoff: {
       hint: 'One prompt, several models side by side — each with its real price and speed.',
       needTwo: 'Need at least two priced models in this group to compare.',
@@ -211,11 +228,12 @@ export default {
       generic: 'Generation failed. Please try again.'
     },
     image: {
-      tierLabel: 'Quality tier',
-      tierEmpty: 'No image models are available for this group yet.',
+      modelLabel: 'Model',
+      modelEmpty: 'No image models are available for this group yet.',
+      samplePrompt: 'A neon Tokyo alley at night, cinematic, shallow depth of field',
       perImageUnit: ' /image',
       promptPlaceholder: 'Describe the image…',
-      aspectLabel: 'Aspect',
+      aspectLabel: 'Size',
       aspect: { square: 'Square', landscape: 'Landscape', portrait: 'Portrait' },
       billedAs: 'Billed as {tier} · ×{mult}',
       count: 'Count',
@@ -230,8 +248,9 @@ export default {
       formula: '{base} × {tier} ×{mult} × {n}'
     },
     video: {
-      tierLabel: 'Quality tier',
-      tierEmpty: 'No video models are available for this group yet.',
+      modelLabel: 'Model',
+      modelEmpty: 'No video models are available for this group yet.',
+      samplePrompt: 'A neon Tokyo alley, slow push-in, rain, reflections, cinematic',
       perSecondUnit: ' /s',
       promptPlaceholder: 'Describe the video…',
       duration: 'Duration',
@@ -263,18 +282,6 @@ export default {
       notifyTitle: 'TokenKey Studio',
       notifyEnabled: 'We will notify you when videos finish.',
       notifyDenied: 'Notifications are blocked in your browser.'
-    },
-    tiers: {
-      image: {
-        draft: { label: 'Draft', tagline: 'Fast · cheap · iterate', sample: 'A neon Tokyo alley at night, cinematic, shallow depth of field' },
-        standard: { label: 'Standard', tagline: 'Best balance', sample: 'A neon Tokyo alley at night, cinematic, shallow depth of field' },
-        ultra: { label: 'Ultra', tagline: 'Highest detail', sample: 'A neon Tokyo alley at night, cinematic, shallow depth of field, 35mm' }
-      },
-      video: {
-        fast: { label: 'Fast', tagline: 'Quick takes', sample: 'Neon Tokyo alley, slow push-in, rain, reflections' },
-        standard: { label: 'Standard', tagline: 'Balanced', sample: 'Neon Tokyo alley, slow push-in, rain, reflections' },
-        cinematic: { label: 'Cinematic', tagline: 'Film-grade', sample: 'Neon Tokyo alley, slow push-in, rain, reflections, cinematic' }
-      }
     }
   },
 

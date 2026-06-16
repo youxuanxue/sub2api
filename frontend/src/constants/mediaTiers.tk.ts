@@ -18,147 +18,26 @@
 
 export type StudioModality = 'image' | 'video'
 
-export interface MediaTierCandidate {
-  /** Exact model id sent to the gateway and used as the billing key. */
-  modelId: string
-  /** Display-only vendor label, e.g. "Google Vertex" / "VolcEngine". */
-  vendorLabel: string
-  /** USD per image at the 1K base tier (image tiers only). */
-  baseImagePrice?: number
-  /** USD per second (video tiers only). */
-  perSecond?: number
-}
-
-export interface MediaTier {
-  id: string
-  modality: StudioModality
-  /** i18n key for the tier name, e.g. studio.tier.image.draft.label */
-  labelKey: string
-  /** i18n key for the one-line tagline. */
-  taglineKey: string
-  /** i18n key for the pre-filled "known-good" prompt (never-blank rule). */
-  samplePromptKey: string
-  candidates: MediaTierCandidate[]
-}
-
 const VERTEX = 'Google Vertex'
 const VOLC = 'VolcEngine'
 
 /**
- * Image tiers. Prices: imagen-4 fast/std/ultra = $0.02/$0.04/$0.06;
- * seedream-4 = $0.0298507 (tk_pricing_overlay.json, verified 2026-06-13).
- */
-export const IMAGE_TIERS: MediaTier[] = [
-  {
-    id: 'draft',
-    modality: 'image',
-    labelKey: 'studio.tiers.image.draft.label',
-    taglineKey: 'studio.tiers.image.draft.tagline',
-    samplePromptKey: 'studio.tiers.image.draft.sample',
-    candidates: [
-      { modelId: 'imagen-4.0-fast-generate-001', vendorLabel: VERTEX, baseImagePrice: 0.02 },
-      { modelId: 'seedream-4-0-250828', vendorLabel: VOLC, baseImagePrice: 0.029850746268656716 },
-      { modelId: 'doubao-seedream-4-0-250828', vendorLabel: VOLC, baseImagePrice: 0.029850746268656716 },
-    ],
-  },
-  {
-    id: 'standard',
-    modality: 'image',
-    labelKey: 'studio.tiers.image.standard.label',
-    taglineKey: 'studio.tiers.image.standard.tagline',
-    samplePromptKey: 'studio.tiers.image.standard.sample',
-    candidates: [{ modelId: 'imagen-4.0-generate-001', vendorLabel: VERTEX, baseImagePrice: 0.04 }],
-  },
-  {
-    id: 'ultra',
-    modality: 'image',
-    labelKey: 'studio.tiers.image.ultra.label',
-    taglineKey: 'studio.tiers.image.ultra.tagline',
-    samplePromptKey: 'studio.tiers.image.ultra.sample',
-    candidates: [{ modelId: 'imagen-4.0-ultra-generate-001', vendorLabel: VERTEX, baseImagePrice: 0.06 }],
-  },
-]
-
-/**
- * Video tiers. Prices: veo-3.1 = $0.40/s, veo-3.1-fast = $0.15/s,
- * seedance-1.0-pro = $0.1088/s, seedance-2.0-fast = $0.1194/s
- * (tk_pricing_overlay.json output_cost_per_second, verified 2026-06-13).
- */
-export const VIDEO_TIERS: MediaTier[] = [
-  {
-    id: 'fast',
-    modality: 'video',
-    labelKey: 'studio.tiers.video.fast.label',
-    taglineKey: 'studio.tiers.video.fast.tagline',
-    samplePromptKey: 'studio.tiers.video.fast.sample',
-    candidates: [
-      { modelId: 'veo-3.1-fast-generate-001', vendorLabel: VERTEX, perSecond: 0.15 },
-      { modelId: 'doubao-seedance-2-0-fast-260128', vendorLabel: VOLC, perSecond: 0.11940298507462686 },
-    ],
-  },
-  {
-    id: 'standard',
-    modality: 'video',
-    labelKey: 'studio.tiers.video.standard.label',
-    taglineKey: 'studio.tiers.video.standard.tagline',
-    samplePromptKey: 'studio.tiers.video.standard.sample',
-    candidates: [
-      { modelId: 'seedance-1-0-pro-250528', vendorLabel: VOLC, perSecond: 0.10880597014925374 },
-      { modelId: 'doubao-seedance-1-0-pro-250528', vendorLabel: VOLC, perSecond: 0.10880597014925374 },
-    ],
-  },
-  {
-    id: 'cinematic',
-    modality: 'video',
-    labelKey: 'studio.tiers.video.cinematic.label',
-    taglineKey: 'studio.tiers.video.cinematic.tagline',
-    samplePromptKey: 'studio.tiers.video.cinematic.sample',
-    candidates: [{ modelId: 'veo-3.1-generate-001', vendorLabel: VERTEX, perSecond: 0.4 }],
-  },
-]
-
-export interface ResolvedTier {
-  tier: MediaTier
-  candidate: MediaTierCandidate
-}
-
-/**
- * Resolve a tier against the set of available (priced+servable) model ids from
- * the user's key group. Returns the first candidate present in `availableIds`,
- * or null when the tier has no backing model for this key (so the UI hides it).
- */
-export function resolveTier(tier: MediaTier, availableIds: ReadonlySet<string>): ResolvedTier | null {
-  for (const candidate of tier.candidates) {
-    if (availableIds.has(candidate.modelId)) {
-      return { tier, candidate }
-    }
-  }
-  return null
-}
-
-/** Resolve all tiers for a modality; drops tiers with no available candidate. */
-export function resolveAvailableTiers(
-  modality: StudioModality,
-  availableIds: ReadonlySet<string>
-): ResolvedTier[] {
-  const tiers = modality === 'image' ? IMAGE_TIERS : VIDEO_TIERS
-  const out: ResolvedTier[] = []
-  for (const tier of tiers) {
-    const resolved = resolveTier(tier, availableIds)
-    if (resolved) out.push(resolved)
-  }
-  return out
-}
-
-/**
- * True when this model pool backs at least one tier of the modality — i.e. the
- * Studio tab is actually usable for a key whose group exposes `availableIds`.
+ * True when this group's pool backs at least one media model of the modality —
+ * i.e. the Studio tab is usable for a key whose group exposes `availableIds`.
+ * Drives the modality-aware key picker (pickModalityKey), which runs across ALL
+ * the user's groups, so it is PRICE-AGNOSTIC by design: it must not require a
+ * per-group price-catalog fetch. /v1/models is already filtered to priced models
+ * upstream, so servable here implies priced for the per-key card resolver.
  */
 export function modalityHasTiers(
   modality: StudioModality,
   availableIds: ReadonlySet<string>
 ): boolean {
-  return resolveAvailableTiers(modality, availableIds).length > 0
+  return MEDIA_MODELS.some(
+    (m) =>
+      m.modality === modality &&
+      [m.modelId, ...(m.aliasIds ?? [])].some((id) => availableIds.has(id))
+  )
 }
 
 /** One selectable key, reduced to what the modality-aware picker needs. */
@@ -241,3 +120,208 @@ export const VIDEO_DURATION_DEFAULT = 8
 /** Image count bounds for the n stepper. */
 export const IMAGE_N_MIN = 1
 export const IMAGE_N_MAX = 4
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Model catalog (transparent model picker)
+ *
+ * The Studio now lets the user pick the ACTUAL model — shown humanely (friendly
+ * name + price + vendor footnote + raw id subtext), not a bare quality tier.
+ * This completes the originally-planned "Advanced model picker" (design §3.2)
+ * that #769 left unshipped. The quality label becomes a card BADGE, not the
+ * selection axis.
+ *
+ * Same hard rule as resolveTier: only models BOTH (a) priced+servable here and
+ * (b) present in the user's key-group pool (GET /v1/models) are shown — never a
+ * 400-on-submit footgun. The raw modelId stays the billing key; displayName is
+ * cosmetic only.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Advanced params the Studio can surface. Each is gated by a model's
+ * `supportedParams` capability list so we NEVER render a control the selected
+ * model's UPSTREAM ADAPTOR silently ignores ("real & transparent"). Membership
+ * is verified against the new-api task/image adaptor request-builders, NOT
+ * assumed — e.g. imagen/seedream honor none; seedance drops negative_prompt;
+ * fps is honored by no adaptor (removed).
+ */
+export type StudioParam =
+  | 'negativePrompt' // veo only: VeoParameters.NegativePrompt (gemini task adaptor)
+  | 'seed' // veo + seedance: VeoParameters.Seed / doubao requestPayload.Seed
+  | 'firstFrameImage' // veo + seedance: image-to-video first frame (sent as `image`)
+
+export type QualityBadge = 'draft' | 'standard' | 'ultra' | 'fast' | 'cinematic'
+
+export interface MediaModel {
+  /** EXACT id sent to the gateway = billing key. Never substitute the display name. */
+  modelId: string
+  /** Friendly display name, e.g. "Imagen 4 · Ultra" (frontend-derived; no backend name). */
+  displayName: string
+  /** Quality badge shown ON the card (label, not the selection axis). */
+  qualityBadge: QualityBadge
+  /** i18n key for the badge text. */
+  qualityBadgeKey: string
+  /** Display-only vendor footnote, e.g. "Google Vertex" / "VolcEngine". */
+  vendorLabel: string
+  modality: StudioModality
+  /**
+   * Advanced params whose upstream adaptor ACTUALLY reads them (capability map,
+   * verified against new-api adaptor code). Empty = no advanced controls.
+   */
+  supportedParams: StudioParam[]
+  /** Other ids that are the SAME model under a different name (dedup display). */
+  aliasIds?: string[]
+  /** True ⇒ never auto-select; render a hard "needs apikey account" warning. */
+  needsApikeyAccount?: boolean
+}
+
+/**
+ * Static catalog of media models = display metadata + the verified capability
+ * map ONLY. Prices are NOT hardcoded here — they come live from the per-user
+ * pricing catalog (getMePricingCatalog, the same source #788 established), so a
+ * price change in the overlay can't drift. A model is shown only when it is BOTH
+ * in the key-group's GET /v1/models pool AND carries a live catalog price
+ * (priced ∩ servable — never a 400-on-submit footgun). modelId stays the billing
+ * key; displayName is cosmetic.
+ */
+export const MEDIA_MODELS: MediaModel[] = [
+  // ── image (imagen/seedream honor NO advanced params per adaptor) ──
+  {
+    modelId: 'imagen-4.0-fast-generate-001',
+    displayName: 'Imagen 4 · Fast',
+    qualityBadge: 'draft',
+    qualityBadgeKey: 'studio.badge.draft',
+    vendorLabel: VERTEX,
+    modality: 'image',
+    supportedParams: [],
+  },
+  {
+    modelId: 'seedream-4-0-250828',
+    aliasIds: ['doubao-seedream-4-0-250828'],
+    displayName: 'Seedream 4.0',
+    qualityBadge: 'standard',
+    qualityBadgeKey: 'studio.badge.standard',
+    vendorLabel: VOLC,
+    modality: 'image',
+    supportedParams: [],
+  },
+  {
+    modelId: 'imagen-4.0-generate-001',
+    displayName: 'Imagen 4 · Standard',
+    qualityBadge: 'standard',
+    qualityBadgeKey: 'studio.badge.standard',
+    vendorLabel: VERTEX,
+    modality: 'image',
+    supportedParams: [],
+  },
+  {
+    modelId: 'imagen-4.0-ultra-generate-001',
+    displayName: 'Imagen 4 · Ultra',
+    qualityBadge: 'ultra',
+    qualityBadgeKey: 'studio.badge.ultra',
+    vendorLabel: VERTEX,
+    modality: 'image',
+    supportedParams: [],
+  },
+  // gpt-image-* is deliberately ABSENT: it needs a type=apikey OpenAI account
+  // (OAuth subscriptions 502). If a future probe adds an apikey-backed group,
+  // add it here with needsApikeyAccount: true.
+
+  // ── video ──
+  {
+    modelId: 'seedance-1-0-pro-250528',
+    aliasIds: ['doubao-seedance-1-0-pro-250528'],
+    displayName: 'Seedance 1.0 · Pro',
+    qualityBadge: 'standard',
+    qualityBadgeKey: 'studio.badge.standard',
+    vendorLabel: VOLC,
+    modality: 'video',
+    // doubao adaptor reads Seed + first-frame image; it has NO NegativePrompt field.
+    supportedParams: ['seed', 'firstFrameImage'],
+  },
+  {
+    modelId: 'doubao-seedance-2-0-fast-260128',
+    displayName: 'Seedance 2.0 · Fast',
+    qualityBadge: 'fast',
+    qualityBadgeKey: 'studio.badge.fast',
+    vendorLabel: VOLC,
+    modality: 'video',
+    supportedParams: ['seed', 'firstFrameImage'],
+  },
+  {
+    modelId: 'veo-3.1-fast-generate-001',
+    displayName: 'Veo 3.1 · Fast',
+    qualityBadge: 'fast',
+    qualityBadgeKey: 'studio.badge.fast',
+    vendorLabel: VERTEX,
+    modality: 'video',
+    // VeoParameters honors NegativePrompt + Seed; first-frame image supported.
+    supportedParams: ['negativePrompt', 'seed', 'firstFrameImage'],
+  },
+  {
+    modelId: 'veo-3.1-generate-001',
+    displayName: 'Veo 3.1 · Cinematic',
+    qualityBadge: 'cinematic',
+    qualityBadgeKey: 'studio.badge.cinematic',
+    vendorLabel: VERTEX,
+    modality: 'video',
+    supportedParams: ['negativePrompt', 'seed', 'firstFrameImage'],
+  },
+]
+
+/** Live per-model price from the user's pricing catalog (getMePricingCatalog). */
+export interface MediaPrice {
+  /** USD per image at the 1K base tier (image models). */
+  perImage?: number
+  /** USD per second (video models). */
+  perSecond?: number
+}
+export type MediaPriceMap = ReadonlyMap<string, MediaPrice>
+
+export interface ResolvedModel {
+  model: MediaModel
+  /** The concrete id present in availableIds (primary or an alias). Billing key. */
+  servedId: string
+  /** Live price for this model (from the catalog), per modality. */
+  baseImagePrice?: number
+  perSecond?: number
+}
+
+/**
+ * Resolve the models the user can actually use for `modality`: shown only when
+ * (a) its primary OR an alias id is in `availableIds` (servable) AND (b) the live
+ * `priceMap` has a price for it (priced) — priced ∩ servable, never a footgun.
+ * Sorted cheap → premium.
+ */
+export function resolveAvailableModels(
+  modality: StudioModality,
+  availableIds: ReadonlySet<string>,
+  priceMap: MediaPriceMap
+): ResolvedModel[] {
+  const out: ResolvedModel[] = []
+  for (const model of MEDIA_MODELS) {
+    if (model.modality !== modality) continue
+    const ids = [model.modelId, ...(model.aliasIds ?? [])]
+    const servedId = ids.find((id) => availableIds.has(id))
+    if (!servedId) continue
+    const price = ids.map((id) => priceMap.get(id)).find((p) => p != null)
+    const baseImagePrice = modality === 'image' ? price?.perImage : undefined
+    const perSecond = modality === 'video' ? price?.perSecond : undefined
+    if (baseImagePrice == null && perSecond == null) continue // no live price → hide
+    out.push({ model, servedId, baseImagePrice, perSecond })
+  }
+  out.sort((a, b) => (a.baseImagePrice ?? a.perSecond ?? 0) - (b.baseImagePrice ?? b.perSecond ?? 0))
+  return out
+}
+
+/**
+ * First model the Studio should auto-select for a modality: the cheapest served
+ * model that is NOT a footgun (needsApikeyAccount). Null when none are servable.
+ */
+export function defaultModelId(models: readonly ResolvedModel[]): string | null {
+  const safe = models.find((r) => !r.model.needsApikeyAccount)
+  return safe ? safe.model.modelId : null
+}
+
+/** Advanced param bounds. */
+export const SEED_MIN = 0
+export const SEED_MAX = 2147483647

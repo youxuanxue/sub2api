@@ -89,6 +89,7 @@
         :api-key="apiKey"
         :gateway-base="gatewayBase"
         :available-ids="availableIds"
+        :price-map="priceMap"
         :balance="balance"
         :user-id="userId"
         :rate-multiplier="1"
@@ -99,6 +100,7 @@
         :api-key="apiKey"
         :gateway-base="gatewayBase"
         :available-ids="availableIds"
+        :price-map="priceMap"
         :balance="balance"
         :user-id="userId"
         :key-id="selectedKeyId"
@@ -111,6 +113,7 @@
         :api-key="apiKey"
         :gateway-base="gatewayBase"
         :available-ids="availableIds"
+        :price-map="priceMap"
         :balance="balance"
         :key-id="selectedKeyId"
         :keys="keys"
@@ -130,12 +133,14 @@ import VideoStudio from '@/views/user/studio/VideoStudio.vue'
 import BakeOff from '@/views/user/studio/BakeOff.vue'
 import { keysAPI } from '@/api/keys'
 import { gatewayListModels, resolveGatewayBaseUrl } from '@/api/playground'
+import { getMePricingCatalog } from '@/api/me-pricing'
 import { formatUsd } from '@/utils/mediaCostEstimate.tk'
 import {
   modalityHasTiers,
   pickModalityKey,
   type ModalityKeyOption,
   type StudioModality,
+  type MediaPrice,
 } from '@/constants/mediaTiers.tk'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
@@ -153,6 +158,9 @@ const gatewayBase = ref('')
 // group up front so the picker (and the dropdown annotations) can reason about
 // EVERY key's modality, not just the one currently selected.
 const groupModelSets = ref<Map<string, Set<string>>>(new Map())
+// Live per-model price for the SELECTED key's group (getMePricingCatalog) — the
+// single source of media prices (no hardcoding, so prices can't drift).
+const priceMap = ref<Map<string, MediaPrice>>(new Map())
 const modelsLoading = ref(false)
 const probed = ref(false)
 const loadError = ref('')
@@ -250,6 +258,28 @@ async function probeAllGroups(): Promise<void> {
   }
 }
 
+// Live media prices for the selected key's group. your_price from the catalog is
+// the OFFICIAL list price (rate-decoupled by ops policy) — exactly what the cost
+// mirror needs (settlement applies the rate later), so the studio keeps
+// rateMultiplier=1. A model with no per_image/per_second price is simply omitted
+// (priced ∩ servable). Failure → empty map (models hide) rather than stale prices.
+async function loadPriceMap(keyId: number): Promise<void> {
+  try {
+    const catalog = await getMePricingCatalog({ apiKeyId: keyId })
+    const next = new Map<string, MediaPrice>()
+    for (const m of catalog.models || []) {
+      const perImage = m.your_price?.per_image
+      const perSecond = m.your_price?.per_second
+      if (perImage != null || perSecond != null) {
+        next.set(m.model_id, { perImage: perImage ?? undefined, perSecond: perSecond ?? undefined })
+      }
+    }
+    priceMap.value = next
+  } catch {
+    priceMap.value = new Map()
+  }
+}
+
 // Re-pick when the modality tab changes: if the current key already serves the
 // new modality it is kept, otherwise we move to one that does (the dropdown
 // still lets the user override). Bake-off (null modality) keeps the current key.
@@ -258,6 +288,12 @@ watch(view, () => {
   const m = pickerModality.value
   if (!m) return
   selectedKeyId.value = pickModalityKey(modalityOptions(), m, selectedKeyId.value)
+})
+
+// Refetch the price catalog whenever the selected key changes (prices are
+// per-group). Bootstrap awaits the first load before mounting the studios.
+watch(selectedKeyId, (id) => {
+  if (probed.value && id != null) void loadPriceMap(id)
 })
 
 async function bootstrap(): Promise<void> {
@@ -278,6 +314,9 @@ async function bootstrap(): Promise<void> {
     // Seed with the historical default, then let the picker move to a key whose
     // group actually serves the landing modality (view is 'image' at mount).
     selectedKeyId.value = pickModalityKey(modalityOptions(), pickerModality.value ?? 'image', seed)
+    // Load the first key's live prices before mounting, so the model cards never
+    // flash an empty "no models" state while the catalog is in flight.
+    if (selectedKeyId.value != null) await loadPriceMap(selectedKeyId.value)
     probed.value = true
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : t('studio.loadFailed')

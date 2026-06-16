@@ -196,6 +196,15 @@ export interface VideoGenerationRequest {
    * gateway passes the body through; the adaptor decides whether to honor it.
    */
   aspectRatio?: string
+  /**
+   * Advanced (optional, only sent when set). seed/negativePrompt ride the
+   * upstream `metadata.*` catch-all (read by the veo/doubao adaptors); `image` is
+   * a first-frame image-to-video reference sent top-level. We never send
+   * `video_url` — the backend rejects video input as unpriced.
+   */
+  seed?: number
+  negativePrompt?: string
+  image?: string
 }
 
 export async function gatewayVideoSubmit(
@@ -208,6 +217,11 @@ export async function gatewayVideoSubmit(
   const payload: Record<string, unknown> = { model: body.model, prompt: body.prompt }
   if (body.duration) payload.duration = body.duration
   if (body.aspectRatio) payload.aspect_ratio = body.aspectRatio
+  if (body.image) payload.image = body.image
+  const metadata: Record<string, unknown> = {}
+  if (typeof body.seed === 'number') metadata.seed = body.seed
+  if (body.negativePrompt) metadata.negative_prompt = body.negativePrompt
+  if (Object.keys(metadata).length > 0) payload.metadata = metadata
   return gatewayRequestJSON(
     apiKey,
     url,

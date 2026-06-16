@@ -25,7 +25,7 @@
         <p class="text-sm text-gray-500 dark:text-dark-400">{{ t('studio.bakeoff.hint') }}</p>
       </div>
 
-      <div v-if="tiers.length < 2" class="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-center text-sm text-gray-500 dark:border-dark-700 dark:bg-dark-900/40 dark:text-dark-400">
+      <div v-if="models.length < 2" class="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-center text-sm text-gray-500 dark:border-dark-700 dark:bg-dark-900/40 dark:text-dark-400">
         {{ t('studio.bakeoff.needTwo') }}
       </div>
 
@@ -41,19 +41,19 @@
         <div class="mt-3 flex flex-wrap items-center gap-2">
           <span class="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-dark-500">{{ t('studio.bakeoff.pickModels') }}</span>
           <button
-            v-for="r in tiers"
-            :key="r.tier.id"
+            v-for="r in models"
+            :key="r.model.modelId"
             type="button"
             class="rounded-lg border px-3 py-1.5 text-sm font-medium transition"
-            :class="selectedTierIds.includes(r.tier.id)
+            :class="selectedModelIds.includes(r.model.modelId)
               ? 'border-primary-600 bg-primary-600 text-white'
               : 'border-gray-200 text-gray-600 hover:border-primary-300 dark:border-dark-600 dark:text-dark-300'"
-            :disabled="running || (!selectedTierIds.includes(r.tier.id) && selectedTierIds.length >= MAX_PANELS)"
+            :disabled="running || (!selectedModelIds.includes(r.model.modelId) && selectedModelIds.length >= MAX_PANELS)"
             data-testid="bakeoff-tier"
-            @click="toggleTier(r.tier.id)"
+            @click="toggleModel(r.model.modelId)"
           >
-            {{ t(r.tier.labelKey) }}
-            <span class="opacity-70">{{ modality === 'image' ? formatUsd(r.candidate.baseImagePrice || 0) + t('studio.image.perImageUnit') : formatUsd(r.candidate.perSecond || 0) + t('studio.video.perSecondUnit') }}</span>
+            {{ r.model.displayName }}
+            <span class="opacity-70">{{ modality === 'image' ? formatUsd(r.baseImagePrice || 0) + t('studio.image.perImageUnit') : formatUsd(r.perSecond || 0) + t('studio.video.perSecondUnit') }}</span>
           </button>
         </div>
 
@@ -71,7 +71,7 @@
             data-testid="studio-bakeoff-run"
             @click="run"
           >
-            {{ running ? t('studio.bakeoff.running') : t('studio.bakeoff.run', { count: selectedTierIds.length }) }}
+            {{ running ? t('studio.bakeoff.running') : t('studio.bakeoff.run', { count: selectedModelIds.length }) }}
           </button>
           <span class="rounded-lg bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-900/50">
             {{ t('studio.bakeoff.totalCost', { cost: formatUsd(totalCost) }) }}
@@ -91,9 +91,9 @@
 
     <!-- side-by-side panels -->
     <div v-if="panels.length" class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-      <div v-for="p in panels" :key="p.tierId" data-testid="bakeoff-panel" class="rounded-xl border border-gray-200 bg-white p-3 shadow-sm dark:border-dark-700 dark:bg-dark-900">
+      <div v-for="p in panels" :key="p.modelId" data-testid="bakeoff-panel" class="rounded-xl border border-gray-200 bg-white p-3 shadow-sm dark:border-dark-700 dark:bg-dark-900">
         <div class="mb-2 flex items-center justify-between">
-          <span class="text-sm font-semibold text-gray-900 dark:text-white">{{ t(p.labelKey) }}</span>
+          <span class="text-sm font-semibold text-gray-900 dark:text-white">{{ p.label }}</span>
           <span class="text-[11px] text-gray-400 dark:text-dark-500">{{ t('studio.via', { vendor: p.vendorLabel }) }}</span>
         </div>
         <!-- image -->
@@ -136,8 +136,9 @@ import {
   VIDEO_DURATION_MIN,
   VIDEO_DURATION_MAX,
   VIDEO_DURATION_DEFAULT,
-  resolveAvailableTiers,
+  resolveAvailableModels,
   type StudioModality,
+  type MediaPriceMap,
 } from '@/constants/mediaTiers.tk'
 import { estimateImageCost, estimateImageHoldCost, estimateVideoCost, formatUsd } from '@/utils/mediaCostEstimate.tk'
 import { classifyGatewayError, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
@@ -149,6 +150,7 @@ const props = defineProps<{
   apiKey: string
   gatewayBase: string
   availableIds: Set<string>
+  priceMap: MediaPriceMap
   balance: number
   keyId: number | null
   keys: ApiKey[]
@@ -162,8 +164,8 @@ const MAX_PANELS = 4
 const DEFAULT_IMAGE_SIZE = '1024x1024'
 
 const modality = ref<StudioModality>('video')
-const tiers = computed(() => resolveAvailableTiers(modality.value, props.availableIds))
-const selectedTierIds = ref<string[]>([])
+const models = computed(() => resolveAvailableModels(modality.value, props.availableIds, props.priceMap))
+const selectedModelIds = ref<string[]>([])
 const prompt = ref('')
 const duration = ref(VIDEO_DURATION_DEFAULT)
 const running = ref(false)
@@ -171,9 +173,10 @@ const errorMessage = ref('')
 const errorCode = ref<StudioErrorCode | ''>('')
 
 interface BakePanel {
-  tierId: string
-  labelKey: string
+  /** modelId for selection identity; servedId is the billing key sent upstream. */
   modelId: string
+  servedId: string
+  label: string
   vendorLabel: string
   cost: number
   state: 'idle' | 'processing' | 'succeeded' | 'failed'
@@ -210,15 +213,15 @@ const poll = useVideoTaskPoll({
 })
 
 function selectedResolved() {
-  return tiers.value.filter((r) => selectedTierIds.value.includes(r.tier.id))
+  return models.value.filter((r) => selectedModelIds.value.includes(r.model.modelId))
 }
 
 const totalCost = computed(() =>
   selectedResolved().reduce((sum, r) => {
     if (modality.value === 'image') {
-      return sum + estimateImageCost({ baseImagePrice: r.candidate.baseImagePrice || 0, size: DEFAULT_IMAGE_SIZE, n: 1, rateMultiplier: props.rateMultiplier })
+      return sum + estimateImageCost({ baseImagePrice: r.baseImagePrice || 0, size: DEFAULT_IMAGE_SIZE, n: 1, rateMultiplier: props.rateMultiplier })
     }
-    return sum + estimateVideoCost({ perSecond: r.candidate.perSecond || 0, seconds: duration.value, rateMultiplier: props.rateMultiplier })
+    return sum + estimateVideoCost({ perSecond: r.perSecond || 0, seconds: duration.value, rateMultiplier: props.rateMultiplier })
   }, 0)
 )
 
@@ -226,29 +229,29 @@ const totalCost = computed(() =>
 const totalHold = computed(() =>
   selectedResolved().reduce((sum, r) => {
     if (modality.value === 'image') {
-      return sum + estimateImageHoldCost({ baseImagePrice: r.candidate.baseImagePrice || 0, n: 1, rateMultiplier: props.rateMultiplier })
+      return sum + estimateImageHoldCost({ baseImagePrice: r.baseImagePrice || 0, n: 1, rateMultiplier: props.rateMultiplier })
     }
-    return sum + estimateVideoCost({ perSecond: r.candidate.perSecond || 0, seconds: duration.value, rateMultiplier: props.rateMultiplier })
+    return sum + estimateVideoCost({ perSecond: r.perSecond || 0, seconds: duration.value, rateMultiplier: props.rateMultiplier })
   }, 0)
 )
 const canAfford = computed(() => totalHold.value <= props.balance)
 const canRun = computed(
-  () => !running.value && !!props.apiKey && !!prompt.value.trim() && selectedTierIds.value.length >= 2 && canAfford.value && props.keyId != null
+  () => !running.value && !!props.apiKey && !!prompt.value.trim() && selectedModelIds.value.length >= 2 && canAfford.value && props.keyId != null
 )
 
 function setModality(m: StudioModality): void {
   if (running.value) return
   modality.value = m
-  selectedTierIds.value = []
+  selectedModelIds.value = []
   panels.value = []
   videoTasks.value = []
 }
 
-function toggleTier(id: string): void {
+function toggleModel(id: string): void {
   if (running.value) return
-  const i = selectedTierIds.value.indexOf(id)
-  if (i >= 0) selectedTierIds.value.splice(i, 1)
-  else if (selectedTierIds.value.length < MAX_PANELS) selectedTierIds.value.push(id)
+  const i = selectedModelIds.value.indexOf(id)
+  if (i >= 0) selectedModelIds.value.splice(i, 1)
+  else if (selectedModelIds.value.length < MAX_PANELS) selectedModelIds.value.push(id)
 }
 
 function formatElapsed(s: number): string {
@@ -267,14 +270,14 @@ async function run(): Promise<void> {
   videoTasks.value = []
   // Seed panels.
   panels.value = chosen.map((r) => ({
-    tierId: r.tier.id,
-    labelKey: r.tier.labelKey,
-    modelId: r.candidate.modelId,
-    vendorLabel: r.candidate.vendorLabel,
+    modelId: r.model.modelId,
+    servedId: r.servedId,
+    label: r.model.displayName,
+    vendorLabel: r.model.vendorLabel,
     cost:
       modality.value === 'image'
-        ? estimateImageCost({ baseImagePrice: r.candidate.baseImagePrice || 0, size: DEFAULT_IMAGE_SIZE, n: 1, rateMultiplier: props.rateMultiplier })
-        : estimateVideoCost({ perSecond: r.candidate.perSecond || 0, seconds: duration.value, rateMultiplier: props.rateMultiplier }),
+        ? estimateImageCost({ baseImagePrice: r.baseImagePrice || 0, size: DEFAULT_IMAGE_SIZE, n: 1, rateMultiplier: props.rateMultiplier })
+        : estimateVideoCost({ perSecond: r.perSecond || 0, seconds: duration.value, rateMultiplier: props.rateMultiplier }),
     state: 'processing',
   }))
 
@@ -283,7 +286,7 @@ async function run(): Promise<void> {
       await Promise.all(
         panels.value.map(async (panel) => {
           try {
-            const raw = await gatewayImageGenerations(props.apiKey, props.gatewayBase, { model: panel.modelId, prompt: text, size: DEFAULT_IMAGE_SIZE, n: 1 })
+            const raw = await gatewayImageGenerations(props.apiKey, props.gatewayBase, { model: panel.servedId, prompt: text, size: DEFAULT_IMAGE_SIZE, n: 1 })
             const items = extractImageItems(raw)
             if (!items.length) throw new Error('no_image')
             panel.src = items[0].src
@@ -300,7 +303,7 @@ async function run(): Promise<void> {
       await Promise.all(
         panels.value.map(async (panel) => {
           try {
-            const raw = await gatewayVideoSubmit(props.apiKey, props.gatewayBase, { model: panel.modelId, prompt: text, duration: duration.value })
+            const raw = await gatewayVideoSubmit(props.apiKey, props.gatewayBase, { model: panel.servedId, prompt: text, duration: duration.value })
             const taskId = extractVideoTaskId(raw)
             if (!taskId) throw new Error('no_task')
             panel.taskId = taskId
@@ -310,7 +313,7 @@ async function run(): Promise<void> {
             const task: VideoTaskItem = {
               id: taskId,
               prompt: text,
-              model: panel.modelId,
+              model: panel.servedId,
               vendorLabel: panel.vendorLabel,
               seconds: duration.value,
               estCost: panel.cost,
