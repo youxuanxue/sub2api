@@ -233,7 +233,7 @@ export default {
       samplePrompt: 'A neon Tokyo alley at night, cinematic, shallow depth of field',
       perImageUnit: ' /image',
       promptPlaceholder: 'Describe the image…',
-      aspectLabel: 'Aspect',
+      aspectLabel: 'Size',
       aspect: { square: 'Square', landscape: 'Landscape', portrait: 'Portrait' },
       billedAs: 'Billed as {tier} · ×{mult}',
       count: 'Count',

@@ -55,13 +55,16 @@
               v-for="p in IMAGE_ASPECT_PRESETS"
               :key="p.id"
               type="button"
-              class="rounded-lg border px-3 py-1.5 text-sm font-medium transition"
+              class="rounded-lg border px-3 py-1.5 text-left transition"
               :class="aspectId === p.id
                 ? 'border-primary-600 bg-primary-600 text-white'
                 : 'border-gray-200 text-gray-600 hover:border-primary-300 dark:border-dark-600 dark:text-dark-300'"
               @click="aspectId = p.id"
             >
-              {{ t(p.labelKey) }}
+              <div class="text-sm font-medium">{{ t(p.labelKey) }}</div>
+              <!-- Real size + price multiplier on the chip: this is a SIZE control,
+                   not a bare aspect ratio — landscape/portrait bill at ×1.5. -->
+              <div class="text-[10px] tabular-nums opacity-70">{{ p.size }} · ×{{ presetMultiplier(p) }}</div>
             </button>
           </div>
           <p class="mt-1.5 text-[11px] text-gray-400 dark:text-dark-500">
@@ -171,6 +174,7 @@ import {
   resolveAvailableModels,
   defaultModelId,
   type MediaPriceMap,
+  type ImageAspectPreset,
 } from '@/constants/mediaTiers.tk'
 import {
   classifyImageBillingTier,
@@ -205,6 +209,10 @@ const aspectId = ref<string>(IMAGE_ASPECT_PRESETS[0].id)
 const aspectPreset = computed(() => IMAGE_ASPECT_PRESETS.find((p) => p.id === aspectId.value) ?? IMAGE_ASPECT_PRESETS[0])
 const classifiedTier = computed(() => classifyImageBillingTier(aspectPreset.value.size))
 const sizeMultiplier = computed(() => IMAGE_SIZE_MULTIPLIER[classifiedTier.value])
+// Per-preset billing multiplier (shown on each chip so the size→price tie is visible).
+function presetMultiplier(p: ImageAspectPreset): number {
+  return IMAGE_SIZE_MULTIPLIER[classifyImageBillingTier(p.size)]
+}
 
 const n = ref(1)
 const prompt = ref('')
