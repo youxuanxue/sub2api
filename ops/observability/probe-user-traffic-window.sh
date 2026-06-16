@@ -25,6 +25,7 @@ SELECT row_to_json(t) FROM (
   SELECT count(*) AS reqs,
          count(*) FILTER (WHERE total_cost > 0) AS billed_reqs,
          round(sum(total_cost)::numeric, 4) AS total_cost,
+         round(sum(actual_cost)::numeric, 4) AS actual_cost,
          min(created_at) AS first_at,
          max(created_at) AS last_at
   FROM usage_logs
@@ -47,7 +48,9 @@ SELECT row_to_json(t) FROM (
 echo "=== usage_logs by_model top ==="
 $PSQL -c "
 SELECT row_to_json(t) FROM (
-  SELECT model, count(*) AS n, round(sum(total_cost)::numeric, 4) AS cost
+  SELECT model, count(*) AS n,
+         round(sum(total_cost)::numeric, 4) AS total_cost,
+         round(sum(actual_cost)::numeric, 4) AS actual_cost
   FROM usage_logs
   WHERE user_id=$USER_ID
     AND created_at >= now() - interval '${WINDOW_MINUTES} minutes'
