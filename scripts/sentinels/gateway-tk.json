@@ -2579,6 +2579,25 @@
         "tkCapabilityScope401ClientMessage(upstreamMsg)"
       ],
       "rationale": "Injection point: handleOpenAIImagesErrorResponse (the actual incident path for POST /v1/images/generations) maps a capability-scope 401 to a client 400 invalid_request_error instead of surfacing the upstream 401 / triggering cooldown. Anchors the image-path client-400 guard against silent upstream-merge reversion."
+    },
+    {
+      "path": "backend/internal/service/account_usage_service.go",
+      "must_contain": [
+        "func buildPassiveWindow(extra map[string]any, utilKey, resetKey string) *UsageProgress {",
+        "info.SevenDaySonnet = buildPassiveWindow(account.Extra, \"passive_usage_7d_sonnet_utilization\", \"passive_usage_7d_sonnet_reset\")",
+        "extraUpdates[\"passive_usage_7d_sonnet_utilization\"] = usage.SevenDaySonnet.Utilization / 100"
+      ],
+      "rationale": "TK 7d-Sonnet passive round-trip (PR #782): seven_day_sonnet has NO anthropic-ratelimit-unified-* header source, so it only comes from the active /api/oauth/usage endpoint. syncActiveToPassive persists it to passive_usage_7d_sonnet_* and GetPassiveUsage rebuilds it via buildPassiveWindow, so the admin 用量窗口 column's 7d-S survives a passive refresh. These touches are compile-clean if dropped; an upstream merge that reverts GetPassiveUsage / syncActiveToPassive would silently make 7d-S vanish on refresh again. Anchors all three legs (helper + rebuild + persist)."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "5h 窗口重置时只清除 5h 自己的陈旧 utilization"
+      ],
+      "must_not_contain": [
+        "\"passive_usage_7d_utilization\": nil"
+      ],
+      "rationale": "TK fix (PR #782): on a 5h session-window roll (needInitWindow) UpdateSessionWindow must clear ONLY session_window_utilization, never the independent 7d family (passive_usage_7d_* / passive_usage_7d_sonnet_*). The pre-fix code cleared the 7d keys as nil on every 5h roll (4-5x/day), blanking the admin 7d / 7d-S windows until new traffic re-sampled the header. must_contain pins the fixed comment; must_not_contain catches an upstream merge that re-introduces the 7d nil-clear — the bare key still legitimately appears in the header-sampling block as an index assignment (extraUpdates[...] = ts), so the map-literal `: nil` form is the revert-specific signal."
     }
   ]
 }
