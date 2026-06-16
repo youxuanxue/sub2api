@@ -20,11 +20,13 @@ func TestTkIsGrokEntitlement403(t *testing.T) {
 		body   string
 		want   bool
 	}{
-		{"no active grok subscription", 403, `{"error":{"message":"You do not have an active Grok subscription"}}`, true},
-		{"out of available resources", 403, `{"error":{"message":"You have run out of available resources"}}`, true},
-		{"supergrok heavy required", 403, `{"error":{"message":"This requires SuperGrok Heavy"}}`, true},
-		{"generic WAF 403 not matched", 403, `{"error":{"message":"Forbidden"}}`, false},
-		{"401 with grok body is not 403", 401, `{"error":{"message":"active Grok subscription"}}`, false},
+		// xAI's real envelope (confirmed live against api.x.ai): {"code":"...","error":"<string>"}
+		{"no active grok subscription (xAI string shape)", 403, `{"code":"forbidden","error":"You do not have an active Grok subscription"}`, true},
+		{"out of available resources (xAI string shape)", 403, `{"code":"forbidden","error":"You have run out of available resources"}`, true},
+		// OpenAI object shape must still match (defense in depth)
+		{"supergrok heavy required (object shape)", 403, `{"error":{"message":"This requires SuperGrok Heavy"}}`, true},
+		{"generic WAF 403 not matched", 403, `{"code":"forbidden","error":"Forbidden"}`, false},
+		{"401 with grok body is not 403", 401, `{"code":"unauthenticated","error":"active Grok subscription"}`, false},
 		{"empty body", 403, ``, false},
 	}
 	for _, c := range cases {

@@ -57,7 +57,7 @@ func tkGrokEntitlement403Haystack(body []byte) string {
 	if len(body) == 0 {
 		return ""
 	}
-	parts := make([]string, 0, 3)
+	parts := make([]string, 0, 5)
 	if msg := strings.TrimSpace(extractUpstreamErrorMessage(body)); msg != "" {
 		parts = append(parts, msg)
 	}
@@ -66,6 +66,19 @@ func tkGrokEntitlement403Haystack(body []byte) string {
 	}
 	if detail := strings.TrimSpace(gjson.GetBytes(body, "detail").String()); detail != "" {
 		parts = append(parts, detail)
+	}
+	// xAI's error envelope is {"code":"...","error":"<string>"} — the `error` field
+	// is a STRING, not OpenAI's {"error":{"message":...}} object (confirmed live
+	// against api.x.ai 2026-06). extractUpstreamErrorMessage / error.message do NOT
+	// see it, so scan the top-level string `error` + `code` explicitly, else the
+	// entitlement markers below are never matched and the honesty guard misfires.
+	if errVal := gjson.GetBytes(body, "error"); errVal.Type == gjson.String {
+		if s := strings.TrimSpace(errVal.String()); s != "" {
+			parts = append(parts, s)
+		}
+	}
+	if code := strings.TrimSpace(gjson.GetBytes(body, "code").String()); code != "" {
+		parts = append(parts, code)
 	}
 	return strings.ToLower(strings.Join(parts, "\n"))
 }
