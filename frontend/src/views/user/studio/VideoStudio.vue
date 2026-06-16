@@ -32,7 +32,7 @@
               <span class="text-[12px] font-bold text-primary-700 dark:text-primary-300">{{ formatUsd(r.model.perSecond || 0) }}{{ t('studio.video.perSecondUnit') }}</span>
               <span class="text-[10px] text-gray-400 dark:text-dark-500">{{ t('studio.via', { vendor: r.model.vendorLabel }) }}</span>
             </div>
-            <div class="mt-0.5 truncate font-mono text-[10px] text-gray-300 dark:text-dark-600" :title="r.servedId">{{ r.servedId }}</div>
+            <div class="mt-0.5 truncate font-mono text-[10px] text-gray-400 dark:text-dark-500" :title="r.servedId">{{ r.servedId }}</div>
             <div v-if="r.model.needsApikeyAccount" class="mt-1 text-[10px] font-medium text-amber-600 dark:text-amber-400">{{ t('studio.needsApikeyAccount') }}</div>
           </button>
         </div>
