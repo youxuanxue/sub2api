@@ -87,3 +87,25 @@ func TestGrokTokenRefresher_CanRefreshNeedsRefresh(t *testing.T) {
 		t.Fatal("NeedsRefresh should be true when within the refresh window")
 	}
 }
+
+// TestTkInputHasNonEmptyCredential guards the UpdateAccount gate: a grok edit
+// only fires the live xAI re-validate when the refresh_token was actually
+// (re)pasted — a blank/absent field must NOT trigger a network call (else an
+// unrelated edit would be blocked by a transient xAI outage).
+func TestTkInputHasNonEmptyCredential(t *testing.T) {
+	if !tkInputHasNonEmptyCredential(map[string]any{"refresh_token": "rt"}, "refresh_token") {
+		t.Fatal("re-pasted refresh_token must be detected as provided")
+	}
+	if tkInputHasNonEmptyCredential(map[string]any{"refresh_token": "   "}, "refresh_token") {
+		t.Fatal("whitespace-only refresh_token must count as not provided")
+	}
+	if tkInputHasNonEmptyCredential(map[string]any{}, "refresh_token") {
+		t.Fatal("absent refresh_token must count as not provided")
+	}
+	if tkInputHasNonEmptyCredential(nil, "refresh_token") {
+		t.Fatal("nil credentials must count as not provided")
+	}
+	if tkInputHasNonEmptyCredential(map[string]any{"refresh_token": 123}, "refresh_token") {
+		t.Fatal("non-string refresh_token must count as not provided")
+	}
+}

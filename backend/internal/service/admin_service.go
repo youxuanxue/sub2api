@@ -2885,6 +2885,16 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if err := resolveNewAPIMoonshotBaseURLOnSave(ctx, account); err != nil {
 		return nil, err
 	}
+	// Grok (seventh platform): when the admin re-pastes a refresh_token on edit
+	// (credential rotation after invalid_grant), re-validate + re-prime it with a
+	// live xAI refresh, exactly like create. Gated on the refresh_token being
+	// re-provided in THIS update so an unrelated edit (a blank field = "keep
+	// current") isn't blocked by a transient xAI outage. See admin_service_tk_grok_save.go.
+	if account.Platform == PlatformGrok && tkInputHasNonEmptyCredential(input.Credentials, "refresh_token") {
+		if err := resolveGrokTokenOnSave(ctx, account); err != nil {
+			return nil, err
+		}
+	}
 
 	if err := s.accountRepo.Update(ctx, account); err != nil {
 		return nil, err

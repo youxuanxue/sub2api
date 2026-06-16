@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
@@ -64,4 +65,20 @@ func resolveGrokTokenOnSave(ctx context.Context, account *Account) error {
 		account.Credentials["token_endpoint"] = res.TokenEndpoint
 	}
 	return nil
+}
+
+// tkInputHasNonEmptyCredential reports whether the caller explicitly provided a
+// non-empty value for the given credential key in this request. Used on the
+// UpdateAccount path to gate the grok live re-validate: a blank refresh_token
+// field means "keep current" (handled by MergePreservingSensitiveCreds + the
+// background refresher), so an unrelated grok edit (concurrency / priority / …)
+// must NOT fire an xAI refresh and must NOT be blocked by a transient xAI outage.
+func tkInputHasNonEmptyCredential(creds map[string]any, key string) bool {
+	if creds == nil {
+		return false
+	}
+	if v, ok := creds[key].(string); ok {
+		return strings.TrimSpace(v) != ""
+	}
+	return false
 }

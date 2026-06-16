@@ -79,8 +79,8 @@
     },
     {
       "path": "backend/internal/service/admin_service_tk_grok_save.go",
-      "must_contain": ["func resolveGrokTokenOnSave"],
-      "rationale": "Create-time validate+prime: pastes a grok refresh_token, does a live xAI refresh, and either primes the account (access_token/expires_at/token_endpoint) or rejects creation with the exact upstream reason (missing/invalid token, Heavy-only 403). Losing it lets dead grok accounts materialize that only fail on the first request."
+      "must_contain": ["func resolveGrokTokenOnSave", "func tkInputHasNonEmptyCredential"],
+      "rationale": "Create-time validate+prime (resolveGrokTokenOnSave): pastes a grok refresh_token, does a live xAI refresh, and either primes the account (access_token/expires_at/token_endpoint) or rejects with the exact upstream reason. tkInputHasNonEmptyCredential gates the UpdateAccount re-validate so an unrelated grok edit isn't blocked by a transient xAI outage. Losing either lets dead grok accounts materialize, or fires an xAI call on every edit."
     },
     {
       "path": "backend/internal/service/admin_service.go",
@@ -106,6 +106,11 @@
       "path": "frontend/src/components/account/CreateAccountModal.vue",
       "must_contain": ["AccountGrokPlatformFields", "grokBuildSubmitBundle"],
       "rationale": "The grok branch + field-component wiring + submit assembly in the account-create modal. Losing it strands UI account creation for grok."
+    },
+    {
+      "path": "frontend/src/components/account/EditAccountModal.vue",
+      "must_contain": ["AccountGrokPlatformFields", "grokBuildSubmitBundle"],
+      "rationale": "The grok credential-rotation wiring in the account-edit modal (re-paste refresh_token, blank=keep). Losing it forces delete+recreate to rotate a dead grok refresh_token (invalid_grant). Paired with the UpdateAccount resolveGrokTokenOnSave gate (admin_service.go)."
     },
     {
       "path": "frontend/src/i18n/locales/en.ts",
