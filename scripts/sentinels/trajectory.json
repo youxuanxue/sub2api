@@ -44,6 +44,23 @@
         "setOpsUpstreamRequestBody(c, body)"
       ],
       "rationale": "pre-flight stash of the final upstream request body on the native anthropic path; an upstream merge dropping this call disables both ops_error_logs body context and traj divergence capture"
+    },
+    {
+      "source": "backend/internal/handler/qa_handler_traj.go",
+      "must_contain": [
+        "UserTrajExportEnabled",
+        "domain.PlatformAnthropic"
+      ],
+      "rationale": "Per-key conversation-record (traj) export must keep BOTH gates: the admin-granted per-user switch (UserTrajExportEnabled -> 403) and the anthropic-only pin (Platform: domain.PlatformAnthropic). The traj v2 projector only faithfully reconstructs Anthropic /v1/messages; an upstream merge or refactor dropping the gate silently re-opens export to unauthorized users, and dropping the platform pin silently hands non-anthropic keys misleading non-empty garbage zips."
+    },
+    {
+      "source": "backend/internal/observability/qa/service_traj_export.go",
+      "must_contain": [
+        "func (s *Service) UserTrajExportEnabled",
+        "qarecord.APIKeyIDEQ",
+        "qarecord.PlatformEQ"
+      ],
+      "rationale": "The export authorization helper plus the per-key (APIKeyIDEQ) and platform (PlatformEQ) scoping predicates. Losing the helper drops the 403 backstop; losing either predicate silently widens a self-export across keys or platforms beyond what the UI gate allows."
     }
   ],
   "semantic_route_contracts": [
