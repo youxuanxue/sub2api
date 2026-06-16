@@ -181,9 +181,12 @@ const availableIds = computed<Set<string>>(() =>
   selectedKey.value ? availableIdsOf(selectedKey.value) : new Set<string>()
 )
 
-// Modality the picker cares about: bake-off compares image models, so it shares
-// the image pool requirement.
-const pickerModality = computed<StudioModality>(() => (view.value === 'video' ? 'video' : 'image'))
+// The single modality the picker can optimize a key for. Bake-off has its OWN
+// internal image/video toggle, so no single key serves both of its sub-modes —
+// we leave its key selection to the user there (null = don't auto-pick / annotate).
+const pickerModality = computed<StudioModality | null>(() =>
+  view.value === 'image' ? 'image' : view.value === 'video' ? 'video' : null
+)
 
 function modalityOptions(): ModalityKeyOption[] {
   return keys.value.map((k) => ({
@@ -197,8 +200,9 @@ function keyLabel(k: ApiKey): string {
   const group = k.group?.name || t('studio.defaultGroup')
   const base = `${k.name || k.id} · ${group}`
   // Once probed, flag keys whose group can't serve the active modality so the
-  // user isn't left guessing which key to pick.
-  if (probed.value && !modalityHasTiers(pickerModality.value, availableIdsOf(k))) {
+  // user isn't left guessing which key to pick. Skipped on bake-off (dual modality).
+  const m = pickerModality.value
+  if (probed.value && m && !modalityHasTiers(m, availableIdsOf(k))) {
     return `${base} · ${t('studio.keyNoModality')}`
   }
   return base
@@ -248,10 +252,12 @@ async function probeAllGroups(): Promise<void> {
 
 // Re-pick when the modality tab changes: if the current key already serves the
 // new modality it is kept, otherwise we move to one that does (the dropdown
-// still lets the user override).
+// still lets the user override). Bake-off (null modality) keeps the current key.
 watch(view, () => {
   if (!probed.value) return
-  selectedKeyId.value = pickModalityKey(modalityOptions(), pickerModality.value, selectedKeyId.value)
+  const m = pickerModality.value
+  if (!m) return
+  selectedKeyId.value = pickModalityKey(modalityOptions(), m, selectedKeyId.value)
 })
 
 async function bootstrap(): Promise<void> {
@@ -270,8 +276,8 @@ async function bootstrap(): Promise<void> {
     await probeAllGroups()
     if (loadError.value) return
     // Seed with the historical default, then let the picker move to a key whose
-    // group actually serves the landing modality.
-    selectedKeyId.value = pickModalityKey(modalityOptions(), pickerModality.value, seed)
+    // group actually serves the landing modality (view is 'image' at mount).
+    selectedKeyId.value = pickModalityKey(modalityOptions(), pickerModality.value ?? 'image', seed)
     probed.value = true
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : t('studio.loadFailed')
