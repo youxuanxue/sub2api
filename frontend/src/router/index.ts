@@ -204,16 +204,10 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    // TK: /playground was merged into the Studio as its Chat modality. Keep the
+    // path as a redirect so old deep-links / bookmarks land on the chat tab.
     path: '/playground',
-    name: 'Playground',
-    component: () => import('@/views/user/PlaygroundView.vue'),
-    meta: {
-      requiresAuth: true,
-      requiresAdmin: false,
-      title: 'Playground',
-      titleKey: 'playground.title',
-      descriptionKey: 'playground.description'
-    }
+    redirect: { path: '/studio', query: { mode: 'chat' } }
   },
   {
     path: '/studio',

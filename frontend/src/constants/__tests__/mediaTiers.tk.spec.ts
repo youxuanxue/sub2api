@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   modalityHasTiers,
+  groupServes,
   pickModalityKey,
   resolveAvailableModels,
   defaultModelId,
@@ -37,6 +38,26 @@ describe('modalityHasTiers', () => {
   })
 })
 
+describe('groupServes (chat as a peer picker modality)', () => {
+  it('serves chat when the pool exposes any chat-classified id', () => {
+    // modalityForModel classifies non image/video ids as chat.
+    expect(groupServes('chat', ANTIGRAVITY)).toBe(true) // claude/gemini text models
+    expect(groupServes('chat', new Set(['gpt-5']))).toBe(true)
+  })
+
+  it('does NOT serve chat for an image/video-only pool', () => {
+    expect(groupServes('chat', IMAGEN)).toBe(false)
+    expect(groupServes('chat', VEO)).toBe(false)
+    expect(groupServes('chat', new Set())).toBe(false)
+  })
+
+  it('delegates to media tiers for image/video', () => {
+    expect(groupServes('image', IMAGEN)).toBe(true)
+    expect(groupServes('video', VEO)).toBe(true)
+    expect(groupServes('image', ANTIGRAVITY)).toBe(false)
+  })
+})
+
 function opt(id: number, isTrial: boolean, availableIds: Set<string>): ModalityKeyOption {
   return { id, isTrial, availableIds }
 }
@@ -68,6 +89,15 @@ describe('pickModalityKey', () => {
     const opts = [opt(1, false, IMAGEN), opt(2, false, VEO)]
     expect(pickModalityKey(opts, 'image', null)).toBe(1)
     expect(pickModalityKey(opts, 'video', null)).toBe(2)
+  })
+
+  it('lands a chat key on a chat-serving group, off a media-only current key', () => {
+    // Studio now defaults to the chat tab: a media-only key must yield to a
+    // chat-serving one (the inverse of the imagen regression above).
+    const opts = [opt(1, false, IMAGEN), opt(2, true, ANTIGRAVITY)]
+    expect(pickModalityKey(opts, 'chat', 1)).toBe(2)
+    // keep a chat-serving current key untouched
+    expect(pickModalityKey(opts, 'chat', 2)).toBe(2)
   })
 
   it('falls back to the seed/global default when nothing serves the modality', () => {

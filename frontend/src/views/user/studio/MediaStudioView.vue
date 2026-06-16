@@ -34,6 +34,17 @@
           <button
             role="tab"
             type="button"
+            :aria-selected="view === 'chat'"
+            class="rounded-lg px-4 py-1.5 transition-colors"
+            :class="view === 'chat' ? 'bg-primary-600 text-white shadow-sm dark:bg-primary-500' : 'text-gray-600 hover:text-primary-700 dark:text-dark-300'"
+            data-testid="studio-mode-chat"
+            @click="view = 'chat'"
+          >
+            {{ t('studio.modeChat') }}
+          </button>
+          <button
+            role="tab"
+            type="button"
             :aria-selected="view === 'image'"
             class="rounded-lg px-4 py-1.5 transition-colors"
             :class="view === 'image' ? 'bg-primary-600 text-white shadow-sm dark:bg-primary-500' : 'text-gray-600 hover:text-primary-700 dark:text-dark-300'"
@@ -84,8 +95,14 @@
         <p v-if="modelsLoading" class="text-xs text-gray-400 dark:text-dark-500">{{ t('studio.loadingModels') }}</p>
       </div>
 
+      <ChatStudio
+        v-if="userReady && !loadError && probed && view === 'chat'"
+        :api-key="apiKey"
+        :gateway-base="gatewayBase"
+        :available-ids="availableIds"
+      />
       <ImageStudio
-        v-if="userReady && !loadError && probed && view === 'image'"
+        v-else-if="userReady && !loadError && probed && view === 'image'"
         :api-key="apiKey"
         :gateway-base="gatewayBase"
         :available-ids="availableIds"
@@ -126,8 +143,10 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import ChatStudio from '@/views/user/studio/ChatStudio.vue'
 import ImageStudio from '@/views/user/studio/ImageStudio.vue'
 import VideoStudio from '@/views/user/studio/VideoStudio.vue'
 import BakeOff from '@/views/user/studio/BakeOff.vue'
@@ -136,10 +155,10 @@ import { gatewayListModels, resolveGatewayBaseUrl } from '@/api/playground'
 import { getMePricingCatalog } from '@/api/me-pricing'
 import { formatUsd } from '@/utils/mediaCostEstimate.tk'
 import {
-  modalityHasTiers,
+  groupServes,
   pickModalityKey,
   type ModalityKeyOption,
-  type StudioModality,
+  type PickerModality,
   type MediaPrice,
 } from '@/constants/mediaTiers.tk'
 import { useAppStore } from '@/stores/app'
@@ -147,10 +166,22 @@ import { useAuthStore } from '@/stores/auth'
 import type { ApiKey } from '@/types'
 
 const { t } = useI18n()
+const route = useRoute()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 
-const view = ref<'image' | 'video' | 'bakeoff'>('image')
+// Chat is the default landing modality: zero-cost + almost every group serves a
+// chat model, so the first touch "just works" (image/video need a Vertex/Volc
+// group and can dead-end). `?mode=chat|image|video|bakeoff` (compare = bakeoff)
+// deep-links a tab — e.g. the retired /playground redirects here with mode=chat.
+const VIEW_MODES = ['chat', 'image', 'video', 'bakeoff'] as const
+type StudioView = (typeof VIEW_MODES)[number]
+function initialView(): StudioView {
+  const m = String(route.query.mode || '').toLowerCase()
+  if (m === 'compare') return 'bakeoff'
+  return (VIEW_MODES as readonly string[]).includes(m) ? (m as StudioView) : 'chat'
+}
+const view = ref<StudioView>(initialView())
 const keys = ref<ApiKey[]>([])
 const selectedKeyId = ref<number | null>(null)
 const gatewayBase = ref('')
@@ -192,8 +223,9 @@ const availableIds = computed<Set<string>>(() =>
 // The single modality the picker can optimize a key for. Bake-off has its OWN
 // internal image/video toggle, so no single key serves both of its sub-modes —
 // we leave its key selection to the user there (null = don't auto-pick / annotate).
-const pickerModality = computed<StudioModality | null>(() =>
-  view.value === 'image' ? 'image' : view.value === 'video' ? 'video' : null
+// Chat / image / video each map straight to a PickerModality.
+const pickerModality = computed<PickerModality | null>(() =>
+  view.value === 'bakeoff' ? null : view.value
 )
 
 function modalityOptions(): ModalityKeyOption[] {
@@ -210,7 +242,7 @@ function keyLabel(k: ApiKey): string {
   // Once probed, flag keys whose group can't serve the active modality so the
   // user isn't left guessing which key to pick. Skipped on bake-off (dual modality).
   const m = pickerModality.value
-  if (probed.value && m && !modalityHasTiers(m, availableIdsOf(k))) {
+  if (probed.value && m && !groupServes(m, availableIdsOf(k))) {
     return `${base} · ${t('studio.keyNoModality')}`
   }
   return base

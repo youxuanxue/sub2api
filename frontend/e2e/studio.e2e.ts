@@ -18,7 +18,9 @@ async function login(page: Page): Promise<void> {
 test('image generation — real Vertex imagen, price on button', async ({ page }) => {
   await login(page)
   await page.goto('/studio')
-  await expect(page.getByTestId('studio-mode-image')).toBeVisible()
+  // Studio now lands on the Chat tab — switch to Image explicitly (the modality-
+  // aware picker re-targets a key whose group serves imagen).
+  await page.getByTestId('studio-mode-image').click()
 
   const gen = page.getByTestId('studio-image-generate')
   await expect(gen).toContainText('$') // killer A: the price is on the Generate button
@@ -75,8 +77,20 @@ test('bake-off — one prompt across multiple image models', async ({ page }) =>
 test('balance gating — cost on button + balance panel visible', async ({ page }) => {
   await login(page)
   await page.goto('/studio')
+  await page.getByTestId('studio-mode-image').click() // default tab is now Chat
   // Price on the generate button + a balance readout in the header/cost panel.
   await expect(page.getByTestId('studio-image-generate')).toContainText('$')
   await expect(page.getByText(/Balance|余额/i).first()).toBeVisible()
   await page.screenshot({ path: 'e2e/artifacts/05-gating.png', fullPage: true })
+})
+
+test('chat — Studio lands on the Chat tab with a working composer', async ({ page }) => {
+  await login(page)
+  await page.goto('/studio')
+  // Chat is the default landing modality (zero-cost, near-universal key support).
+  const chatTab = page.getByTestId('studio-mode-chat')
+  await expect(chatTab).toHaveAttribute('aria-selected', 'true')
+  // The composer renders and is ready (a chat-serving key was auto-picked).
+  await expect(page.locator('textarea').first()).toBeVisible()
+  await page.screenshot({ path: 'e2e/artifacts/06-chat.png', fullPage: true })
 })
