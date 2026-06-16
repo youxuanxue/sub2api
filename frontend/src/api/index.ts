@@ -13,6 +13,7 @@ export { authAPI, isTotp2FARequired, type LoginResponse } from './auth'
 
 // User APIs
 export { keysAPI } from './keys'
+export { qaTrajAPI, type TrajExportResult } from './qaTraj'
 export { usageAPI } from './usage'
 export { userAPI } from './user'
 export { redeemAPI, type RedeemHistoryItem } from './redeem'

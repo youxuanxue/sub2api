@@ -75,6 +75,10 @@ type ExportFilter struct {
 	Until          time.Time
 	SynthSessionID string
 	SynthRole      string
+	// APIKeyID, when non-nil, restricts the export to records produced by a
+	// single API key (TK per-key "导出对话记录"). Combined as AND with the
+	// user_id scope, so a foreign key id simply yields zero rows.
+	APIKeyID *int64
 	// Format selects the export shape: "" / "v1" = legacy per-message
 	// ExportRow JSONL; "v2" = richer session/turns (traj v2, .examples-aligned,
 	// one TrajSessionV2 object per line, carries thinking/signature/usage).

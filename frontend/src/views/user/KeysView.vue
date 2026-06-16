@@ -343,6 +343,17 @@
                 <Icon v-else name="checkCircle" size="sm" />
                 <span class="text-xs">{{ row.status === 'active' ? t('keys.disable') : t('keys.enable') }}</span>
               </button>
+              <!-- Export Conversations Button (admin-granted per-user switch) -->
+              <button
+                v-if="canExportTraj"
+                @click="exportKeyTraj(row)"
+                :disabled="exportingKeyId !== null"
+                :title="t('keys.exportTooltip')"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-indigo-50 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-indigo-900/20 dark:hover:text-indigo-400"
+              >
+                <Icon :name="exportingKeyId === row.id ? 'refresh' : 'download'" size="sm" :class="{ 'animate-spin': exportingKeyId === row.id }" />
+                <span class="text-xs">{{ exportingKeyId === row.id ? t('keys.exporting') : t('keys.export') }}</span>
+              </button>
               <!-- Edit Button -->
               <button
                 @click="editKey(row)"
@@ -1060,7 +1071,8 @@
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 
 const { t } = useI18n()
-import { keysAPI, authAPI, usageAPI, userGroupsAPI } from '@/api'
+import { keysAPI, authAPI, usageAPI, userGroupsAPI, qaTrajAPI } from '@/api'
+import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 	import DataTable from '@/components/common/DataTable.vue'
@@ -1103,8 +1115,13 @@ interface GroupOption {
 }
 
 const appStore = useAppStore()
+const authStore = useAuthStore()
 const onboardingStore = useOnboardingStore()
 const { copyToClipboard: clipboardCopy } = useClipboard()
+
+// Admin-granted per-user switch: only then does each key row expose the
+// conversation-record export entry (backend also enforces 403).
+const canExportTraj = computed(() => authStore.user?.traj_export_enabled === true)
 
 const columns = computed<Column[]>(() => [
   { key: 'name', label: t('common.name'), sortable: true },
@@ -1154,6 +1171,7 @@ const showCcsClientSelect = ref(false)
 const pendingCcsRow = ref<ApiKey | null>(null)
 const selectedKey = ref<ApiKey | null>(null)
 const copiedKeyId = ref<number | null>(null)
+const exportingKeyId = ref<number | null>(null)
 const groupSelectorKeyId = ref<number | null>(null)
 const publicSettings = ref<PublicSettings | null>(null)
 const dropdownRef = ref<HTMLElement | null>(null)
@@ -1762,6 +1780,28 @@ const handleCcsClientSelect = (clientType: CcSwitchClientType) => {
   }
   showCcsClientSelect.value = false
   pendingCcsRow.value = null
+}
+
+// Export this key's captured conversation records (qa traj v2). One click:
+// build the export → download the zip. Empty capture → friendly toast, no file.
+const exportKeyTraj = async (row: ApiKey) => {
+  if (exportingKeyId.value !== null) return
+  exportingKeyId.value = row.id
+  try {
+    const result = await qaTrajAPI.exportKey(row.id)
+    if (!result.record_count) {
+      appStore.showInfo(t('keys.exportEmpty'))
+      return
+    }
+    const stamp = new Date().toISOString().slice(0, 10)
+    const safeName = (row.name || `key-${row.id}`).replace(/[^\w.-]+/g, '_')
+    await qaTrajAPI.download(result.download_url, `conversations-${safeName}-${stamp}.zip`)
+    appStore.showSuccess(t('keys.exportSuccess', { count: result.record_count }))
+  } catch (error) {
+    appStore.showError(t('keys.exportFailed'))
+  } finally {
+    exportingKeyId.value = null
+  }
 }
 
 const closeCcsClientSelect = () => {

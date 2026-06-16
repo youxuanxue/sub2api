@@ -28,6 +28,19 @@ func (h *QAHandler) ExportSelfTrajectory(c *gin.Context) {
 		return
 	}
 
+	// Per-user authorization backstop behind the UI visibility gate: the
+	// export entry is hidden unless the admin set users.traj_export_enabled,
+	// but never trust the client — re-check before doing any work.
+	authorized, err := h.service.UserTrajExportEnabled(c.Request.Context(), subject.UserID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if !authorized {
+		response.Forbidden(c, "Conversation export is not enabled for this account")
+		return
+	}
+
 	req := ExportSelfRequest{}
 	if c.Request != nil && c.Request.ContentLength != 0 {
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -39,9 +52,14 @@ func (h *QAHandler) ExportSelfTrajectory(c *gin.Context) {
 	filter := qa.ExportFilter{
 		SynthSessionID: strings.TrimSpace(req.SynthSessionID),
 		SynthRole:      strings.TrimSpace(req.SynthRole),
+		APIKeyID:       req.APIKeyID,
 		Format:         strings.TrimSpace(req.Format),
 	}
-	if filter.SynthSessionID == "" {
+	// Per-key export ("导出该 Key 的对话记录") drops the trailing-24h default
+	// window and returns the key's full retained trajectory; the data set is
+	// already bounded by qa_capture.retention_days. The default 24h window
+	// only guards the unscoped "export my recent traffic" path.
+	if filter.SynthSessionID == "" && filter.APIKeyID == nil {
 		filter.Until = time.Now().UTC()
 		filter.Since = filter.Until.Add(-defaultQAExportWindow)
 	}
