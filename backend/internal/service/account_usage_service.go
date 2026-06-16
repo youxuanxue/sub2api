@@ -423,6 +423,32 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64, for
 	return nil, fmt.Errorf("account type %s does not support usage query", account.Type)
 }
 
+// buildPassiveWindow 从 Extra 的被动采样键重建一个用量窗口（7d / 7d-Sonnet 同构）。
+// utilKey 存 0-1 小数利用率，resetKey 存 Unix 秒重置时间。两者都缺（≤0）时返回 nil，
+// 让调用方把对应窗口留空而不是渲染一个 0% 空窗。
+func buildPassiveWindow(extra map[string]any, utilKey, resetKey string) *UsageProgress {
+	util := parseExtraFloat64(extra[utilKey])
+	resetRaw := parseExtraFloat64(extra[resetKey])
+	if util <= 0 && resetRaw <= 0 {
+		return nil
+	}
+	var resetAt *time.Time
+	var remaining int
+	if resetRaw > 0 {
+		t := time.Unix(int64(resetRaw), 0)
+		resetAt = &t
+		remaining = int(time.Until(t).Seconds())
+		if remaining < 0 {
+			remaining = 0
+		}
+	}
+	return &UsageProgress{
+		Utilization:      util * 100,
+		ResetsAt:         resetAt,
+		RemainingSeconds: remaining,
+	}
+}
+
 // GetPassiveUsage 从 Account.Extra 中的被动采样数据构建 UsageInfo，不调用外部 API。
 // 仅适用于 Anthropic OAuth / SetupToken 账号。
 func (s *AccountUsageService) GetPassiveUsage(ctx context.Context, accountID int64) (*UsageInfo, error) {
@@ -442,47 +468,10 @@ func (s *AccountUsageService) GetPassiveUsage(ctx context.Context, accountID int
 	// 设置采样时间
 	info.UpdatedAt = parseExtraSampledAt(account.Extra["passive_usage_sampled_at"])
 
-	// 构建 7d 窗口（从被动采样数据）
-	util7d := parseExtraFloat64(account.Extra["passive_usage_7d_utilization"])
-	reset7dRaw := parseExtraFloat64(account.Extra["passive_usage_7d_reset"])
-	if util7d > 0 || reset7dRaw > 0 {
-		var resetAt *time.Time
-		var remaining int
-		if reset7dRaw > 0 {
-			t := time.Unix(int64(reset7dRaw), 0)
-			resetAt = &t
-			remaining = int(time.Until(t).Seconds())
-			if remaining < 0 {
-				remaining = 0
-			}
-		}
-		info.SevenDay = &UsageProgress{
-			Utilization:      util7d * 100,
-			ResetsAt:         resetAt,
-			RemainingSeconds: remaining,
-		}
-	}
-
-	// 构建 7d Sonnet 子窗口（从被动采样数据；仅由 active 查询回写，见 syncActiveToPassive）
-	util7dSonnet := parseExtraFloat64(account.Extra["passive_usage_7d_sonnet_utilization"])
-	reset7dSonnetRaw := parseExtraFloat64(account.Extra["passive_usage_7d_sonnet_reset"])
-	if util7dSonnet > 0 || reset7dSonnetRaw > 0 {
-		var resetAt *time.Time
-		var remaining int
-		if reset7dSonnetRaw > 0 {
-			t := time.Unix(int64(reset7dSonnetRaw), 0)
-			resetAt = &t
-			remaining = int(time.Until(t).Seconds())
-			if remaining < 0 {
-				remaining = 0
-			}
-		}
-		info.SevenDaySonnet = &UsageProgress{
-			Utilization:      util7dSonnet * 100,
-			ResetsAt:         resetAt,
-			RemainingSeconds: remaining,
-		}
-	}
+	// 构建 7d 窗口 + 7d Sonnet 子窗口（均从被动采样数据；7d-S 仅由 active 查询回写，
+	// 见 syncActiveToPassive——限流响应头里没有 sonnet 子窗）。
+	info.SevenDay = buildPassiveWindow(account.Extra, "passive_usage_7d_utilization", "passive_usage_7d_reset")
+	info.SevenDaySonnet = buildPassiveWindow(account.Extra, "passive_usage_7d_sonnet_utilization", "passive_usage_7d_sonnet_reset")
 
 	// 添加窗口统计
 	s.addWindowStats(ctx, account, info)
