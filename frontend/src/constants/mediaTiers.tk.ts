@@ -151,6 +151,57 @@ export function resolveAvailableTiers(
 }
 
 /**
+ * True when this model pool backs at least one tier of the modality — i.e. the
+ * Studio tab is actually usable for a key whose group exposes `availableIds`.
+ */
+export function modalityHasTiers(
+  modality: StudioModality,
+  availableIds: ReadonlySet<string>
+): boolean {
+  return resolveAvailableTiers(modality, availableIds).length > 0
+}
+
+/** One selectable key, reduced to what the modality-aware picker needs. */
+export interface ModalityKeyOption {
+  id: number
+  /** A key literally named "trial" is the historical default landing key. */
+  isTrial: boolean
+  /** Model ids exposed by this key's group (its GET /v1/models pool). */
+  availableIds: ReadonlySet<string>
+}
+
+/**
+ * Pick the key the Studio should land on for `modality`.
+ *
+ * The Studio tab is dead unless the selected key's GROUP serves the modality —
+ * image (Vertex/gemini), seedream-image (VolcEngine/newapi) and the video tiers
+ * each live on a different platform group, so a single key rarely serves all
+ * three. The historical bootstrap grabbed `trial`/`keys[0]` blind to modality,
+ * which on prod routinely landed on an antigravity key with no image models
+ * (the "当前分组暂无可用的图片模型" dead-end). This makes the choice modality-aware:
+ *
+ *  1. keep `currentId` when it already serves the modality (respect the user's
+ *     explicit selection, and keep the e2e's imagen-serving default stable);
+ *  2. else prefer a serving key — `trial` first, then the first serving key;
+ *  3. else fall back to `currentId`, then the global `trial`/first key, so the
+ *     UI still has a selection and shows the honest empty state.
+ */
+export function pickModalityKey(
+  options: readonly ModalityKeyOption[],
+  modality: StudioModality,
+  currentId: number | null
+): number | null {
+  if (options.length === 0) return currentId
+  const serving = options.filter((o) => modalityHasTiers(modality, o.availableIds))
+  if (currentId != null && serving.some((o) => o.id === currentId)) return currentId
+  const pickServing = serving.find((o) => o.isTrial) ?? serving[0]
+  if (pickServing) return pickServing.id
+  if (currentId != null) return currentId
+  const fallback = options.find((o) => o.isTrial) ?? options[0]
+  return fallback ? fallback.id : null
+}
+
+/**
  * Image aspect/size presets. We send only sizes the current gateway path is
  * proven to accept (the existing playground set), and surface each preset's
  * CLASSIFIED billing tier + multiplier (mirrored client-side) so pricing stays
