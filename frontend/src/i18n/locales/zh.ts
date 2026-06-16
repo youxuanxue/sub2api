@@ -181,6 +181,7 @@ export default {
     topUp: '去充值',
     viewPricing: '查看价格',
     via: '经 {vendor}',
+    keyNoModality: '此模式无可用模型',
     bakeoff: {
       hint: '一条 prompt，多个模型并排出片——各自带真实价格和速度。',
       needTwo: '该分组至少需要两个已定价模型才能对比。',

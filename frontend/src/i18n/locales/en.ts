@@ -183,6 +183,7 @@ export default {
     topUp: 'Top up',
     viewPricing: 'See pricing',
     via: 'via {vendor}',
+    keyNoModality: 'no models for this mode',
     bakeoff: {
       hint: 'One prompt, several models side by side — each with its real price and speed.',
       needTwo: 'Need at least two priced models in this group to compare.',

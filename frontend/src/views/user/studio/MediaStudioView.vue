@@ -85,7 +85,7 @@
       </div>
 
       <ImageStudio
-        v-if="userReady && !loadError && view === 'image'"
+        v-if="userReady && !loadError && probed && view === 'image'"
         :api-key="apiKey"
         :gateway-base="gatewayBase"
         :available-ids="availableIds"
@@ -95,7 +95,7 @@
         @spent="refreshBalance"
       />
       <VideoStudio
-        v-else-if="userReady && !loadError && view === 'video'"
+        v-else-if="userReady && !loadError && probed && view === 'video'"
         :api-key="apiKey"
         :gateway-base="gatewayBase"
         :available-ids="availableIds"
@@ -107,7 +107,7 @@
         @spent="refreshBalance"
       />
       <BakeOff
-        v-else-if="userReady && !loadError && view === 'bakeoff'"
+        v-else-if="userReady && !loadError && probed && view === 'bakeoff'"
         :api-key="apiKey"
         :gateway-base="gatewayBase"
         :available-ids="availableIds"
@@ -131,6 +131,12 @@ import BakeOff from '@/views/user/studio/BakeOff.vue'
 import { keysAPI } from '@/api/keys'
 import { gatewayListModels, resolveGatewayBaseUrl } from '@/api/playground'
 import { formatUsd } from '@/utils/mediaCostEstimate.tk'
+import {
+  modalityHasTiers,
+  pickModalityKey,
+  type ModalityKeyOption,
+  type StudioModality,
+} from '@/constants/mediaTiers.tk'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import type { ApiKey } from '@/types'
@@ -143,8 +149,12 @@ const view = ref<'image' | 'video' | 'bakeoff'>('image')
 const keys = ref<ApiKey[]>([])
 const selectedKeyId = ref<number | null>(null)
 const gatewayBase = ref('')
-const availableIds = ref<Set<string>>(new Set())
+// Per-group model pools, keyed by groupKeyOf(). Probed once for every distinct
+// group up front so the picker (and the dropdown annotations) can reason about
+// EVERY key's modality, not just the one currently selected.
+const groupModelSets = ref<Map<string, Set<string>>>(new Map())
 const modelsLoading = ref(false)
+const probed = ref(false)
 const loadError = ref('')
 
 const selectedKey = computed(() => keys.value.find((k) => k.id === selectedKeyId.value))
@@ -156,33 +166,42 @@ const balance = computed(() => authStore.user?.balance ?? 0)
 const userReady = computed(() => authStore.user?.id != null)
 const userId = computed(() => authStore.user?.id ?? 'anon')
 
-function keyLabel(k: ApiKey): string {
-  const group = k.group?.name || t('studio.defaultGroup')
-  return `${k.name || k.id} · ${group}`
+// Keys in the same group share one /v1/models pool — dedup the probe by group,
+// falling back to the key id for the (rare) ungrouped key.
+function groupKeyOf(k: ApiKey): string {
+  return k.group?.id != null ? `g${k.group.id}` : `k${k.id}`
+}
+function availableIdsOf(k: ApiKey): Set<string> {
+  return groupModelSets.value.get(groupKeyOf(k)) ?? new Set<string>()
 }
 
-let modelsAbort: AbortController | null = null
+// Model pool of the currently selected key — what the child studios resolve
+// tiers against.
+const availableIds = computed<Set<string>>(() =>
+  selectedKey.value ? availableIdsOf(selectedKey.value) : new Set<string>()
+)
 
-async function loadModelsForKey(key: string): Promise<void> {
-  modelsAbort?.abort()
-  const ctrl = new AbortController()
-  modelsAbort = ctrl
-  loadError.value = ''
-  availableIds.value = new Set()
-  modelsLoading.value = true
-  try {
-    const list = await gatewayListModels(key, gatewayBase.value, ctrl.signal)
-    if (ctrl.signal.aborted) return
-    availableIds.value = new Set((list.data || []).map((m) => m.id))
-    if (availableIds.value.size === 0) {
-      loadError.value = t('studio.noModels')
-    }
-  } catch (e) {
-    if (ctrl.signal.aborted) return
-    loadError.value = e instanceof Error ? e.message : t('studio.loadFailed')
-  } finally {
-    if (modelsAbort === ctrl) modelsLoading.value = false
+// Modality the picker cares about: bake-off compares image models, so it shares
+// the image pool requirement.
+const pickerModality = computed<StudioModality>(() => (view.value === 'video' ? 'video' : 'image'))
+
+function modalityOptions(): ModalityKeyOption[] {
+  return keys.value.map((k) => ({
+    id: k.id,
+    isTrial: k.name?.toLowerCase() === 'trial',
+    availableIds: availableIdsOf(k),
+  }))
+}
+
+function keyLabel(k: ApiKey): string {
+  const group = k.group?.name || t('studio.defaultGroup')
+  const base = `${k.name || k.id} · ${group}`
+  // Once probed, flag keys whose group can't serve the active modality so the
+  // user isn't left guessing which key to pick.
+  if (probed.value && !modalityHasTiers(pickerModality.value, availableIdsOf(k))) {
+    return `${base} · ${t('studio.keyNoModality')}`
   }
+  return base
 }
 
 async function refreshBalance(): Promise<void> {
@@ -193,8 +212,46 @@ async function refreshBalance(): Promise<void> {
   }
 }
 
-watch(selectedKeyId, () => {
-  if (apiKey.value) void loadModelsForKey(apiKey.value)
+// Probe /v1/models for every distinct group, in parallel. A failed probe maps to
+// an empty pool (so that group's tiers stay hidden); only an all-failed result
+// is surfaced as a hard load error.
+async function probeAllGroups(): Promise<void> {
+  const reps = new Map<string, ApiKey>()
+  for (const k of keys.value) {
+    const gk = groupKeyOf(k)
+    if (!reps.has(gk)) reps.set(gk, k)
+  }
+  const entries = [...reps.entries()]
+  if (entries.length === 0) return
+  modelsLoading.value = true
+  try {
+    const results = await Promise.allSettled(
+      entries.map(([, k]) => gatewayListModels(k.key, gatewayBase.value))
+    )
+    const next = new Map<string, Set<string>>()
+    let anyOk = false
+    results.forEach((r, i) => {
+      const gk = entries[i][0]
+      if (r.status === 'fulfilled') {
+        anyOk = true
+        next.set(gk, new Set((r.value.data || []).map((m) => m.id)))
+      } else {
+        next.set(gk, new Set())
+      }
+    })
+    groupModelSets.value = next
+    if (!anyOk) loadError.value = t('studio.loadFailed')
+  } finally {
+    modelsLoading.value = false
+  }
+}
+
+// Re-pick when the modality tab changes: if the current key already serves the
+// new modality it is kept, otherwise we move to one that does (the dropdown
+// still lets the user override).
+watch(view, () => {
+  if (!probed.value) return
+  selectedKeyId.value = pickModalityKey(modalityOptions(), pickerModality.value, selectedKeyId.value)
 })
 
 async function bootstrap(): Promise<void> {
@@ -205,12 +262,17 @@ async function bootstrap(): Promise<void> {
     const page = await keysAPI.list(1, 50, { status: 'active' })
     keys.value = (page.items || []).filter((k) => !!k.key)
     const trial = keys.value.find((k) => k.name?.toLowerCase() === 'trial')
-    const pick = trial || keys.value[0]
-    if (!pick) {
+    const seed = (trial || keys.value[0])?.id ?? null
+    if (seed == null) {
       loadError.value = t('studio.noApiKey')
       return
     }
-    selectedKeyId.value = pick.id
+    await probeAllGroups()
+    if (loadError.value) return
+    // Seed with the historical default, then let the picker move to a key whose
+    // group actually serves the landing modality.
+    selectedKeyId.value = pickModalityKey(modalityOptions(), pickerModality.value, seed)
+    probed.value = true
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : t('studio.loadFailed')
   }
