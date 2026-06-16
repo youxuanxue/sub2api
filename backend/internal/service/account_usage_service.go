@@ -463,6 +463,27 @@ func (s *AccountUsageService) GetPassiveUsage(ctx context.Context, accountID int
 		}
 	}
 
+	// 构建 7d Sonnet 子窗口（从被动采样数据；仅由 active 查询回写，见 syncActiveToPassive）
+	util7dSonnet := parseExtraFloat64(account.Extra["passive_usage_7d_sonnet_utilization"])
+	reset7dSonnetRaw := parseExtraFloat64(account.Extra["passive_usage_7d_sonnet_reset"])
+	if util7dSonnet > 0 || reset7dSonnetRaw > 0 {
+		var resetAt *time.Time
+		var remaining int
+		if reset7dSonnetRaw > 0 {
+			t := time.Unix(int64(reset7dSonnetRaw), 0)
+			resetAt = &t
+			remaining = int(time.Until(t).Seconds())
+			if remaining < 0 {
+				remaining = 0
+			}
+		}
+		info.SevenDaySonnet = &UsageProgress{
+			Utilization:      util7dSonnet * 100,
+			ResetsAt:         resetAt,
+			RemainingSeconds: remaining,
+		}
+	}
+
 	// 添加窗口统计
 	s.addWindowStats(ctx, account, info)
 
@@ -472,7 +493,7 @@ func (s *AccountUsageService) GetPassiveUsage(ctx context.Context, accountID int
 // syncActiveToPassive 将主动查询的最新数据回写到 Extra 被动缓存，
 // 这样下次被动加载时能看到最新值。
 func (s *AccountUsageService) syncActiveToPassive(ctx context.Context, accountID int64, usage *UsageInfo) {
-	extraUpdates := make(map[string]any, 4)
+	extraUpdates := make(map[string]any, 6)
 
 	if usage.FiveHour != nil {
 		extraUpdates["session_window_utilization"] = usage.FiveHour.Utilization / 100
@@ -481,6 +502,14 @@ func (s *AccountUsageService) syncActiveToPassive(ctx context.Context, accountID
 		extraUpdates["passive_usage_7d_utilization"] = usage.SevenDay.Utilization / 100
 		if usage.SevenDay.ResetsAt != nil {
 			extraUpdates["passive_usage_7d_reset"] = usage.SevenDay.ResetsAt.Unix()
+		}
+	}
+	// 7d Sonnet 子窗口只来自 active /api/oauth/usage（限流响应头没有 sonnet 子窗），
+	// 必须显式回写，否则点击「查询」拿到的 7d-S 在下次 passive 加载时丢失。
+	if usage.SevenDaySonnet != nil {
+		extraUpdates["passive_usage_7d_sonnet_utilization"] = usage.SevenDaySonnet.Utilization / 100
+		if usage.SevenDaySonnet.ResetsAt != nil {
+			extraUpdates["passive_usage_7d_sonnet_reset"] = usage.SevenDaySonnet.ResetsAt.Unix()
 		}
 	}
 

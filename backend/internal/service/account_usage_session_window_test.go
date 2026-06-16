@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -131,5 +132,79 @@ func TestSyncActiveToPassive_SkipsSessionWindowEndWhenResetMissing(t *testing.T)
 	defer repo.mu.Unlock()
 	if len(repo.sessionWindowEnds) != 0 {
 		t.Fatalf("expected no UpdateSessionWindowEnd calls when ResetsAt is nil, got %d", len(repo.sessionWindowEnds))
+	}
+}
+
+// TestSyncActiveToPassive_PersistsSevenDaySonnet pins that a manual「查询」(active)
+// result's 7d-Sonnet sub-window is written back to Extra. Without this the only
+// source of 7d-S (the active /api/oauth/usage endpoint) is lost on the next passive
+// load, so the admin "用量窗口" column can never show 7d-S after a refresh.
+func TestSyncActiveToPassive_PersistsSevenDaySonnet(t *testing.T) {
+	t.Parallel()
+
+	repo := &sessionWindowSyncRepo{}
+	svc := &AccountUsageService{accountRepo: repo}
+	sonnetReset := time.Now().Add(5 * 24 * time.Hour).UTC().Truncate(time.Second)
+	svc.syncActiveToPassive(context.Background(), 7, &UsageInfo{
+		FiveHour:       &UsageProgress{Utilization: 17},
+		SevenDay:       &UsageProgress{Utilization: 4},
+		SevenDaySonnet: &UsageProgress{Utilization: 6, ResetsAt: &sonnetReset},
+	})
+
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	if len(repo.extraUpdates) != 1 {
+		t.Fatalf("expected 1 UpdateExtra call, got %d", len(repo.extraUpdates))
+	}
+	u := repo.extraUpdates[0]
+	if v, ok := u["passive_usage_7d_sonnet_utilization"].(float64); !ok || math.Abs(v-6.0/100) > 1e-9 {
+		t.Fatalf("expected passive_usage_7d_sonnet_utilization=%v, got %v", 6.0/100, u["passive_usage_7d_sonnet_utilization"])
+	}
+	if v, ok := u["passive_usage_7d_sonnet_reset"].(int64); !ok || v != sonnetReset.Unix() {
+		t.Fatalf("expected passive_usage_7d_sonnet_reset=%d, got %v", sonnetReset.Unix(), u["passive_usage_7d_sonnet_reset"])
+	}
+}
+
+// TestGetPassiveUsage_RebuildsSevenDaySonnet pins the read side: once 7d-S has been
+// persisted (by a prior active query), a passive load rebuilds it so it survives
+// page refresh / 自动刷新.
+func TestGetPassiveUsage_RebuildsSevenDaySonnet(t *testing.T) {
+	t.Parallel()
+
+	sonnetReset := time.Now().Add(5 * 24 * time.Hour).Truncate(time.Second)
+	acct := Account{
+		ID:       8,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeOAuth,
+		Extra: map[string]any{
+			"passive_usage_7d_utilization":        0.04,
+			"passive_usage_7d_reset":              float64(time.Now().Add(5 * 24 * time.Hour).Unix()),
+			"passive_usage_7d_sonnet_utilization": 0.06,
+			"passive_usage_7d_sonnet_reset":       float64(sonnetReset.Unix()),
+		},
+	}
+	cache := NewUsageCache()
+	// Preseed window-stats cache so addWindowStats never touches a nil usageLogRepo.
+	cache.windowStatsCache.Store(acct.ID, &windowStatsCache{stats: &WindowStats{}, timestamp: time.Now()})
+	svc := &AccountUsageService{
+		accountRepo: stubOpenAIAccountRepo{accounts: []Account{acct}},
+		cache:       cache,
+	}
+
+	info, err := svc.GetPassiveUsage(context.Background(), acct.ID)
+	if err != nil {
+		t.Fatalf("GetPassiveUsage error: %v", err)
+	}
+	if info.SevenDay == nil {
+		t.Fatal("expected SevenDay (overall 7d) to rebuild")
+	}
+	if info.SevenDaySonnet == nil {
+		t.Fatal("expected SevenDaySonnet to be rebuilt from passive extra, got nil")
+	}
+	if math.Abs(info.SevenDaySonnet.Utilization-6) > 1e-9 {
+		t.Fatalf("expected SevenDaySonnet.Utilization=6, got %v", info.SevenDaySonnet.Utilization)
+	}
+	if info.SevenDaySonnet.ResetsAt == nil || info.SevenDaySonnet.ResetsAt.Unix() != sonnetReset.Unix() {
+		t.Fatalf("expected SevenDaySonnet.ResetsAt unix=%d, got %v", sonnetReset.Unix(), info.SevenDaySonnet.ResetsAt)
 	}
 }
