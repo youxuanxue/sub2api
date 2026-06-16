@@ -40,16 +40,12 @@
 
 ## Linked Tests
 
-- `frontend/src/components/playground/__tests__/PlaygroundPrototype.spec.ts`::`PlaygroundPrototype`
-- `frontend/src/components/playground/__tests__/PlaygroundPrototype.spec.ts`::`renders empty state`
-- `frontend/src/components/playground/__tests__/PlaygroundPrototype.spec.ts`::`renders typing state`
-- `frontend/src/components/playground/__tests__/PlaygroundPrototype.spec.ts`::`renders responded state`
-- `frontend/src/components/playground/__tests__/PlaygroundPrototype.spec.ts`::`renders error state`
+> Archived：原型件 `PlaygroundPrototype.vue` + spec 已作为死 mock 删除（见 Status）。原 4 状态断言（empty / typing / responded / error）的视觉契约由 Studio 的 Chat 模态承接——`ChatStudio.vue` + `frontend/e2e/studio.e2e.ts` 的 chat 冒烟。下方运行命令指向后继覆盖。
 
 运行命令：
 
 ```bash
-cd frontend && pnpm vitest run src/components/playground/__tests__/PlaygroundPrototype.spec.ts
+cd frontend && pnpm playwright test e2e/studio.e2e.ts -g chat
 ```
 
 ## Evidence
@@ -59,7 +55,8 @@ cd frontend && pnpm vitest run src/components/playground/__tests__/PlaygroundPro
 
 ## Status
 
-- [x] InTest — `PlaygroundPrototype.vue` + 4 个 Vitest 状态断言全绿；未引入 `/playground` 路由 / sidebar 入口（AC-006 通过 `git diff --name-only` 核对）。后续以实装页与 e2e 承接真实体验，不再维护静态 HTML attachment 副本。
+- [x] Archived — 原型使命已完成并被取代。该故事目的是「写后端 wiring 前先看 4 个画面的视觉级 prototype」；Playground 据此落地（`PlaygroundView.vue`），随后在 PR `feat/merge-playground-into-studio` 中并入 Media Studio 作为 **Chat 模态**（`ChatStudio.vue`），原 `/playground` 301 重定向到 `/studio?mode=chat`。死 mock `PlaygroundPrototype.vue` + 其 spec 按 `docs/playground-media-redesign.md`（L60/360）作为 US-032 遗留删除；视觉/状态契约由 `ChatStudio.vue` + `frontend/e2e/studio.e2e.ts` chat 冒烟承接。归档保留历史，下方原 Linked Tests 已随 spec 删除失效。
+- 历史 InTest 记录：`PlaygroundPrototype.vue` + 4 个 Vitest 状态断言全绿；未引入 `/playground` 路由 / sidebar 入口（AC-006 通过 `git diff --name-only` 核对）。后续以实装页与 e2e 承接真实体验，不再维护静态 HTML attachment 副本。
 
 ## 实施差异说明
 
