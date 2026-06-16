@@ -31,6 +31,12 @@ const (
 	// so it is exposed through the native Anthropic /v1/messages path and schedules
 	// in its own isolated pool — it is intentionally NOT an OpenAI-compat member.
 	PlatformKiro = "kiro"
+	// PlatformGrok is the seventh platform: xAI / Grok (SuperGrok Heavy) OAuth
+	// subscriptions relayed to api.x.ai/v1. Unlike Kiro, xAI speaks the
+	// OpenAI-compatible wire protocol, so grok is an OpenAI-compat pool member and
+	// reuses the OpenAI-compat routing/scheduling/forward path — it differs from
+	// the openai (Codex) platform only in its OAuth refresh endpoint and base URL.
+	PlatformGrok = "grok"
 )
 
 // Account type constants

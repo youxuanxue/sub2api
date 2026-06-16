@@ -58,7 +58,7 @@ func (ModelAvailability) Mixin() []ent.Mixin {
 func (ModelAvailability) Fields() []ent.Field {
 	return []ent.Field{
 		field.Enum("platform").
-			Values("openai", "anthropic", "gemini", "antigravity", "newapi", "kiro"),
+			Values("openai", "anthropic", "gemini", "antigravity", "newapi", "kiro", "grok"),
 		field.String("model_id").
 			NotEmpty().
 			MaxLen(200),

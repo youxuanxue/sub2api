@@ -438,6 +438,26 @@ else
     echo "  ok: all kiro sentinels intact"
 fi
 
+# ---- sub2api: grok sentinel registry ----------------------------------------
+# Source of truth: scripts/sentinels/grok.json. Verifies that every load-bearing
+# surface of the seventh platform (`grok`, xAI / SuperGrok Heavy OAuth) is still
+# present: PlatformGrok identity, the OpenAICompatPlatforms + AllSchedulingPlatforms
+# membership, the pkg/xai OAuth refresh helper + GrokTokenRefresher, the two forward
+# seams (grok OAuth forwards like the apikey branch, NOT the ChatGPT/Codex branch),
+# the Heavy-403 honesty guard, and the pricing/enum rows. Same failure mode as the
+# kiro/newapi guards: an upstream merge silently dropping a file or injection branch.
+echo ""
+echo "=== sub2api: grok sentinel registry ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required to read grok.json)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/sentinels/check-grok.py --quiet; then
+    # check-grok.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: all grok sentinels intact"
+fi
+
 # ---- sub2api: antigravity fingerprint sentinel registry ---------------------
 # Source of truth: scripts/sentinels/antigravity.json. Guards the TokenKey
 # divergences in the Antigravity (cloudcode-pa) client fingerprint that an

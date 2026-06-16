@@ -2699,6 +2699,12 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if err := resolveNewAPIMoonshotBaseURLOnSave(ctx, account); err != nil {
 		return nil, err
 	}
+	// Grok (seventh platform): validate + prime the OAuth token at create time so a
+	// pasted refresh_token "just works" (green check) or is rejected with the exact
+	// xAI reason. See admin_service_tk_grok_save.go.
+	if err := resolveGrokTokenOnSave(ctx, account); err != nil {
+		return nil, err
+	}
 	if err := s.accountRepo.Create(ctx, account); err != nil {
 		return nil, err
 	}

@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "rationale": "Load-bearing files and symbols that anchor TokenKey's seventh platform `grok` (xAI / SuperGrok Heavy OAuth). Unlike kiro, xAI speaks the OpenAI-compatible wire protocol, so grok is an OpenAICompatPool member and REUSES the OpenAI-compat routing/scheduling/forward/billing path; the only grok-specific code is the OAuth refresh, the two forward seams that make the OAuth branch forward like the apikey branch (plain Bearer + api.x.ai base_url, NOT the ChatGPT/Codex branch), and the Heavy-403 honesty guard. If any sentinel below is missing, the platform either silently disappears from scheduling/UI or mis-forwards/mis-bills at runtime. Single source of truth read by both `scripts/preflight.sh` and `.github/workflows/upstream-merge-pr-shape.yml`. Adding a new load-bearing surface for grok MUST add a sentinel here in the same commit.",
+  "sentinels": [
+    {
+      "path": "backend/internal/domain/constants.go",
+      "must_contain": ["PlatformGrok = \"grok\""],
+      "rationale": "Identity constant for the seventh platform string `grok`. Removing it collapses every grok invariant (pool membership, account predicate, refresher gate)."
+    },
+    {
+      "path": "backend/internal/engine/provider.go",
+      "must_contain": ["domain.PlatformGrok"],
+      "rationale": "Grok must be in BOTH OpenAICompatPlatforms() (so it rides the OpenAI-compat routes/scheduler/sticky path with channel_type=0, like openai) AND AllSchedulingPlatforms() (so background sweeps/snapshot hydration include the grok pool). Losing either silently drops grok from routing or from rate-limit reaping/snapshot scheduling."
+    },
+    {
+      "path": "backend/internal/pkg/xai/oauth.go",
+      "must_contain": ["ClientID = \"b1a00492-073a-47ea-816f-4c329264a828\"", "func RefreshToken", "DefaultAPIBaseURL = \"https://api.x.ai/v1\""],
+      "rationale": "Stdlib-only xAI OAuth refresh helper (discovery + refresh-token grant) + the public Grok CLI client_id and the api.x.ai base URL. Losing RefreshToken stops grok token auto-refresh; accounts silently expire and drop out of the pool with no recovery."
+    },
+    {
+      "path": "backend/internal/service/account_tk_grok.go",
+      "must_contain": ["func (a *Account) IsGrok()", "func (a *Account) GetGrokBaseURL()", "func (a *Account) GetGrokAccessToken()", "func (a *Account) GetGrokRefreshToken()"],
+      "rationale": "Account-domain predicate + the grok-specific credential getters and base URL (api.x.ai/v1). GetGrok* exist because the GetOpenAI* getters are IsOpenAI-gated and return empty for grok. Losing IsGrok() removes grok from the OpenAI-compat pool and the forward seams; losing the getters breaks token/base_url resolution."
+    },
+    {
+      "path": "backend/internal/service/grok_token_refresher.go",
+      "must_contain": ["type GrokTokenRefresher", "grok:account:", "func (r *GrokTokenRefresher) Refresh"],
+      "rationale": "Implements OAuthRefreshExecutor for grok (xAI OAuth, short-lived access tokens). Losing it stops grok token auto-refresh; accounts silently expire and drop out of the pool with no recovery."
+    },
+    {
+      "path": "backend/internal/service/token_refresh_service.go",
+      "must_contain": ["NewGrokTokenRefresher"],
+      "rationale": "Registration of GrokTokenRefresher into the background refresh ticker's refreshers[]/executors[]. An upstream merge that rewrites NewTokenRefreshService must preserve this line, or grok refresh never runs even though the refresher type still exists."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": ["if account.IsGrok()", "tkIsGrokEntitlement403"],
+      "rationale": "The grok arm of GetAccessToken (returns the grok OAuth Bearer instead of routing through the IsOpenAI-gated ChatGPT/Codex token provider) AND the wiring of the Heavy-403 honesty guard into shouldFailoverOpenAIUpstreamResponse (no failover) and the error mapper (clean client 403, not a masked 502). Losing the IsGrok() branch makes grok unable to fetch a token; losing the tkIsGrokEntitlement403 wiring re-arms the pool-wide 403 failover amplifier and re-masks the entitlement error as 502."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_grok_entitlement_403.go",
+      "must_contain": ["func tkIsGrokEntitlement403", "func tkGrokEntitlement403ClientMessage"],
+      "rationale": "The xAI Heavy-only entitlement-403 classifier + clean client message. Without it a grok 403 (standard/expired/downgraded Heavy) fails over pool-wide and is masked into a 502 — the single xAI policy change that would silently kill a thin grok pool (the marquee sharp edge)."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions.go",
+      "must_contain": ["account.IsGrok()"],
+      "rationale": "The chat dispatch seam: grok+OAuth is routed to the RAW CC forwarder (plain Bearer + api.x.ai base_url) BEFORE the CC→Responses→Codex transform, which is hardwired to chatgpt.com. Losing this arm sends grok through the Codex path and every grok chat request fails."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
+      "must_contain": ["account.IsGrok()"],
+      "rationale": "The raw CC forwarder resolves the grok OAuth Bearer + api.x.ai base_url here (the path is otherwise apikey-gated via GetOpenAIApiKey/GetOpenAIBaseURL). Losing this arm makes grok forward with an empty credential / wrong base URL."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_v1_forward.go",
+      "must_contain": ["account.IsGrok()"],
+      "rationale": "The image (/v1/images/generations) seam: buildOpenAIV1TargetURL hardcodes api.openai.com for the OAuth case; the grok arm redirects it to api.x.ai/v1. Losing it points grok image requests at OpenAI."
+    },
+    {
+      "path": "backend/internal/service/tk_pricing_overlay.json",
+      "must_contain": ["grok-imagine-image"],
+      "rationale": "Grok image pricing rows. Image models with no usable static price are REJECTED with a pre-spend 400 by TkImageModelUnpriced — so losing these rows makes grok image generation fail outright (not just bill $0)."
+    },
+    {
+      "path": "backend/migrations/tk_028_allow_grok_model_availability_platform.sql",
+      "must_contain": ["'grok'"],
+      "rationale": "Widens the model_availability.platform CHECK to include 'grok' (paired with the ent enum). Without it every grok forward logs pricing.availability.record_failed (invalid enum value), the DB layer of the two-layered enum gate."
+    },
+    {
+      "path": "backend/ent/schema/model_availability.go",
+      "must_contain": ["\"grok\""],
+      "rationale": "The ent layer of the model_availability platform enum. Must be regenerated (go generate ./ent) so the Go PlatformValidator accepts 'grok'; paired with tk_028."
+    },
+    {
+      "path": "backend/internal/service/admin_service_tk_grok_save.go",
+      "must_contain": ["func resolveGrokTokenOnSave"],
+      "rationale": "Create-time validate+prime: pastes a grok refresh_token, does a live xAI refresh, and either primes the account (access_token/expires_at/token_endpoint) or rejects creation with the exact upstream reason (missing/invalid token, Heavy-only 403). Losing it lets dead grok accounts materialize that only fail on the first request."
+    },
+    {
+      "path": "backend/internal/service/admin_service.go",
+      "must_contain": ["resolveGrokTokenOnSave(ctx, account)"],
+      "rationale": "The wiring of the grok create-time validate+prime into CreateAccount (next to resolveNewAPIMoonshotBaseURLOnSave). An upstream merge that rewrites CreateAccount must preserve this call, or grok accounts are created unvalidated/unprimed."
+    },
+    {
+      "path": "frontend/src/constants/gatewayPlatforms.ts",
+      "must_contain": ["'grok'"],
+      "rationale": "grok's membership in GATEWAY_PLATFORMS + OPENAI_COMPAT_PLATFORMS + GROUP_DISPATCH_CONFIG_PLATFORMS + the exhaustive Record<AccountPlatform> color maps. OPENAI_COMPAT_PLATFORMS must mirror the backend engine.OpenAICompatPlatforms() (preflight newapi compat-pool drift guard watches the lockstep); removing 'grok' drops it from the admin platform pickers/badges and breaks the pool mirror."
+    },
+    {
+      "path": "frontend/src/composables/usePlatformOptions.ts",
+      "must_contain": ["grok:"],
+      "rationale": "grok's brand label (PLATFORM_LABELS, exhaustive Record<AccountPlatform>). Without it typecheck fails and the platform renders an untranslated value."
+    },
+    {
+      "path": "frontend/src/composables/useTkAccountGrokPlatform.ts",
+      "must_contain": ["export function useTkAccountGrokPlatform", "refresh_token"],
+      "rationale": "The grok add/edit form state + credentials assembly (refresh_token paste). Losing it makes operators unable to create grok accounts via the UI."
+    },
+    {
+      "path": "frontend/src/components/account/CreateAccountModal.vue",
+      "must_contain": ["AccountGrokPlatformFields", "grokBuildSubmitBundle"],
+      "rationale": "The grok branch + field-component wiring + submit assembly in the account-create modal. Losing it strands UI account creation for grok."
+    },
+    {
+      "path": "frontend/src/i18n/locales/en.ts",
+      "must_contain": ["grokPlatform"],
+      "rationale": "English i18n strings for the grok account form. Losing them surfaces raw i18n keys in the UI."
+    },
+    {
+      "path": "frontend/src/i18n/locales/zh.ts",
+      "must_contain": ["grokPlatform"],
+      "rationale": "Chinese i18n strings for the grok account form. Kept paired with en.ts so the two locales never drift for grok."
+    }
+  ]
+}
