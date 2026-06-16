@@ -242,6 +242,12 @@
               </button>
             </div>
 
+            <!-- TK: Invite to Trial — one-step batch provisioning + credential cards -->
+            <button @click="openInviteTrial()" class="btn btn-secondary flex-1 md:flex-initial">
+              <Icon name="gift" size="md" class="mr-2" />
+              {{ t('admin.users.inviteTrial.button') }}
+            </button>
+
             <!-- Create User Button (full width on mobile, auto width on desktop) -->
             <button @click="showCreateModal = true" class="btn btn-primary flex-1 md:flex-initial">
               <Icon name="plus" size="md" class="mr-2" />
@@ -715,6 +721,17 @@
 
               <div class="my-1 border-t border-gray-100 dark:border-dark-700"></div>
 
+              <!-- TK: Invite another like this (复制账号 = seed Invite-to-Trial from this user) -->
+              <button
+                @click="openInviteTrial(user); closeActionMenu()"
+                class="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+              >
+                <Icon name="gift" size="sm" class="text-gray-400" :stroke-width="2" />
+                {{ t('admin.users.inviteTrial.reinvite') }}
+              </button>
+
+              <div class="my-1 border-t border-gray-100 dark:border-dark-700"></div>
+
               <!-- Delete (not for admin) -->
               <button
                 v-if="user.role !== 'admin'"
@@ -732,6 +749,7 @@
 
     <ConfirmDialog :show="showDeleteDialog" :title="t('admin.users.deleteUser')" :message="t('admin.users.deleteConfirm', { email: deletingUser?.email })" :danger="true" @confirm="confirmDelete" @cancel="showDeleteDialog = false" />
     <UserCreateModal :show="showCreateModal" @close="showCreateModal = false" @success="loadUsers" />
+    <InviteTrialModal :show="showInviteTrialModal" :seed="inviteSeed" @close="showInviteTrialModal = false" @success="loadUsers" />
     <UserEditModal :show="showEditModal" :user="editingUser" @close="closeEditModal" @success="loadUsers" />
     <UserPlatformQuotaModal
       :show="showPlatformQuotaModal"
@@ -778,6 +796,7 @@ import PlatformUsageBreakdown from '@/components/user/PlatformUsageBreakdown.vue
 import PlatformCostCell from '@/components/user/PlatformCostCell.vue'
 import UserPlatformQuotaCell from '@/components/user/UserPlatformQuotaCell.vue'
 import UserCreateModal from '@/components/admin/user/UserCreateModal.vue'
+import InviteTrialModal from '@/components/admin/user/InviteTrialModal.vue'
 import UserEditModal from '@/components/admin/user/UserEditModal.vue'
 import UserPlatformQuotaModal from '@/components/admin/user/UserPlatformQuotaModal.vue'
 import UserApiKeysModal from '@/components/admin/user/UserApiKeysModal.vue'
@@ -1271,6 +1290,34 @@ const pagination = reactive({
 })
 
 const showCreateModal = ref(false)
+
+// TK: Invite-to-Trial modal. inviteSeed prefills the inline plan from an existing
+// user (= "复制账号 / 再邀请一个"); null = a fresh blank invite.
+const showInviteTrialModal = ref(false)
+const inviteSeed = ref<{
+  groupId?: number | null
+  balance?: number
+  concurrency?: number
+  rpmLimit?: number
+  rate?: number | null
+} | null>(null)
+
+const openInviteTrial = (user?: AdminUser) => {
+  if (user) {
+    const groupId = user.allowed_groups && user.allowed_groups.length > 0 ? user.allowed_groups[0] : null
+    const rate = groupId != null ? user.group_rates?.[groupId] ?? null : null
+    inviteSeed.value = {
+      groupId,
+      balance: user.balance,
+      concurrency: user.concurrency,
+      rpmLimit: user.rpm_limit ?? 0,
+      rate
+    }
+  } else {
+    inviteSeed.value = null
+  }
+  showInviteTrialModal.value = true
+}
 const showEditModal = ref(false)
 const showDeleteDialog = ref(false)
 const showApiKeysModal = ref(false)

@@ -43,6 +43,8 @@ type AdminHandlers struct {
 	Tier *admin.TierHandler
 	// TK: prod-side cross-edge read-only account overview — see edge_accounts_handler_tk.go.
 	EdgeAccounts *admin.EdgeAccountsHandler
+	// TK: Invite-to-Trial batch provisioning + 试用方案 presets — see user_handler_tk_provision.go.
+	TrialProvision *admin.TrialProvisionHandler
 }
 
 // Handlers contains all HTTP handlers
