@@ -35,6 +35,13 @@
       "rationale": "The Studio's EXPLICIT chat|image|video|bake-off modality tabs are the source of truth for which gateway endpoint a request hits — replacing the old modalityForModel() id-prefix guess that silently misrouted non-{seedance,veo,gpt-image,imagen,seedream} media model ids to /v1/chat/completions. Chat is the folded-in /playground surface (default landing); the bake-off tab opens the cross-model compare view (BakeOff.vue). Losing these tabs regresses to implicit-modality misrouting or hides a generation surface."
     },
     {
+      "path": "frontend/src/router/index.ts",
+      "must_contain": [
+        "redirect: { path: '/studio', query: { mode: 'chat' } }"
+      ],
+      "rationale": "The retired /playground route 301-redirects to the Studio Chat modality (playground was folded in as the fourth Studio tab). This redirect is the only thing keeping old /playground bookmarks/links from 404-ing; a router-table rewrite (TK refactor or an upstream merge touching router/index.ts) could silently drop it. Anchor the redirect target so the dead-link guarantee can't regress unnoticed."
+    },
+    {
       "path": "frontend/src/views/user/studio/BakeOff.vue",
       "must_contain": [
         "data-testid=\"bakeoff-tier\"",
