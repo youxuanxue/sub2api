@@ -111,6 +111,16 @@
       "path": "frontend/src/i18n/locales/zh.ts",
       "must_contain": ["grokPlatform"],
       "rationale": "Chinese i18n strings for the grok account form. Kept paired with en.ts so the two locales never drift for grok."
+    },
+    {
+      "path": "backend/internal/pkg/xai/oauth_test.go",
+      "must_contain": ["TestValidateEndpoint", "TestRefreshToken_InputGuards"],
+      "rationale": "Load-bearing QA evidence for the OAuth helper: the SSRF endpoint guard (must stay x.ai-only) and the no-network input guards. Matches the hotspot-evidence rule."
+    },
+    {
+      "path": "backend/internal/service/grok_test.go",
+      "must_contain": ["TestTkIsGrokEntitlement403", "TestGrokTokenRefresher_CanRefreshNeedsRefresh"],
+      "rationale": "Load-bearing QA evidence for the Heavy-403 entitlement classifier (the pool-kill-amplifier guard) and the refresher gating/expiry-window logic. Losing it removes the regression guard around grok's two most failure-prone pure-logic surfaces."
     }
   ]
 }
