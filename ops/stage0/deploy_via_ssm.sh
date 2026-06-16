@@ -37,14 +37,28 @@
 #      trap, which then restores the (broken) previous image. That exact loop
 #      kept uk1 pinned to a crash-looping image on 2026-06-03; gating the drain
 #      on old-container health lets a deploy recover an already-broken node.
-#   4. `compose up -d --no-deps --force-recreate tokenkey`. The image is
-#      already on disk from step 2, so this is just stop-old + start-new.
+#   4. `compose up -d --no-deps --force-recreate --timeout 30 tokenkey`. The
+#      image is already on disk from step 2, so this is just stop-old + start-new.
 #      `--force-recreate` is load-bearing: step 3 already flipped drainFlag=true
 #      on the running container, and there is no SetDrain(false) call site —
 #      only a fresh process can clear drain. Without --force-recreate, a
 #      same-tag re-deploy (sed is a no-op when $tag matches the live image)
 #      would leave the container running with /health=503 indefinitely until
 #      manual `docker restart`. Always recreate.
+#      `--timeout 30` is ALSO load-bearing: the compose service sets
+#      `stop_grace_period: 180s` (correct for a manual `docker stop` / host
+#      reboot, where we DO want to let in-flight streams finish gracefully).
+#      But the deploy path already ran its OWN bounded drain in step 3 — and
+#      when that drain plateaus (long-lived benchmark streams that won't finish
+#      in the ~30s budget), step 3 explicitly decides "swap will sever them".
+#      Without an override here, `compose up` would then re-grant those exact
+#      streams a fresh up-to-180s graceful window before SIGKILL, silently
+#      undoing step 3 and stretching the swap to ~2.5min on a busy prod host
+#      (observed: run 27625029035, old container took 151s to stop → 226s total
+#      deploy; the 40s-254s deploy-step variance was entirely this wait scaling
+#      with live stream count). `--timeout 30` caps the stop-old wait so the
+#      swap is deterministic regardless of traffic. Do NOT lower the global
+#      `stop_grace_period` instead — that would also de-grace non-deploy stops.
 #   5. Wait for container.Health.Status=healthy; rollback on ERR (which
 #      also uses --force-recreate for the same reason).
 #
@@ -82,7 +96,8 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ssm_resolve_invocation_mi.
 TAG="${1:-${INPUT_TAG:-}}"
 INSTANCE_ID="${2:-${INSTANCE_ID:-}}"
 COMMENT="${3:-${SSM_COMMENT:-deploy-stage0}}"
-# Default bumped 300 -> 480 to cover pre-drain (≤ ~30s) + image pull + container
+# Default bumped 300 -> 480 to cover pre-drain (≤ ~30s) + bounded swap stop-old
+# (≤ ~30s via `compose up --timeout 30`, see step 4) + image pull + container
 # start + healthcheck (≤ start_period 60s) + headroom on a slow link.
 TIMEOUT_SECONDS="${STAGE0_SSM_TIMEOUT_SECONDS:-480}"
 OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.}"
@@ -112,7 +127,7 @@ jq -n --arg tag "${TAG}" '{
     ("echo === deploy stage0 to tag=" + $tag + " ==="),
     ("BACKUP=/var/lib/tokenkey/.env.before-" + $tag),
     "sudo cp -a /var/lib/tokenkey/.env \"$BACKUP\"",
-    "rollback() { rc=$?; echo \"::warning::deploy failed; restoring previous tokenkey image\"; if [ -f \"$BACKUP\" ]; then sudo cp -a \"$BACKUP\" /var/lib/tokenkey/.env; cd /var/lib/tokenkey && sudo docker compose --env-file .env up -d --no-deps --force-recreate tokenkey || true; for i in 1 2 3 4 5 6 7 8 9 10 11 12; do s=$(sudo docker inspect tokenkey --format '\''{{.State.Health.Status}}'\'' 2>/dev/null || echo missing); echo \"rollback try $i: $s\"; [ \"$s\" = healthy ] && break; sleep 5; done; [ \"$s\" = healthy ] || echo \"::error::rollback restored the previous image but it is ALSO not healthy (health=$s) — node requires MANUAL intervention; do NOT assume service is restored. next: deploy/aws/RUNBOOK-disaster-recovery.md — recovery decision tree + Agent handoff contract\"; sudo docker logs tokenkey --since 2m 2>&1 | tail -50 || true; fi; exit $rc; }",
+    "rollback() { rc=$?; echo \"::warning::deploy failed; restoring previous tokenkey image\"; if [ -f \"$BACKUP\" ]; then sudo cp -a \"$BACKUP\" /var/lib/tokenkey/.env; cd /var/lib/tokenkey && sudo docker compose --env-file .env up -d --no-deps --force-recreate --timeout 30 tokenkey || true; for i in 1 2 3 4 5 6 7 8 9 10 11 12; do s=$(sudo docker inspect tokenkey --format '\''{{.State.Health.Status}}'\'' 2>/dev/null || echo missing); echo \"rollback try $i: $s\"; [ \"$s\" = healthy ] && break; sleep 5; done; [ \"$s\" = healthy ] || echo \"::error::rollback restored the previous image but it is ALSO not healthy (health=$s) — node requires MANUAL intervention; do NOT assume service is restored. next: deploy/aws/RUNBOOK-disaster-recovery.md — recovery decision tree + Agent handoff contract\"; sudo docker logs tokenkey --since 2m 2>&1 | tail -50 || true; fi; exit $rc; }",
     "trap rollback ERR",
     ("sudo sed -i '\''s|sub2api:[^[:space:]]*|sub2api:" + $tag + "|'\'' /var/lib/tokenkey/.env"),
     "if ! grep -q '\''^SERVER_FRONTEND_URL='\'' /var/lib/tokenkey/.env; then d=$(sed -n '\''s/^API_DOMAIN=//p'\'' /var/lib/tokenkey/.env | head -1); if [ -n \"$d\" ]; then echo \"SERVER_FRONTEND_URL=https://$d\" | sudo tee -a /var/lib/tokenkey/.env >/dev/null; echo \"ensured SERVER_FRONTEND_URL=https://$d\"; else echo \"API_DOMAIN empty; skip SERVER_FRONTEND_URL backfill\"; fi; else echo \"SERVER_FRONTEND_URL already present\"; fi",
@@ -124,7 +139,7 @@ jq -n --arg tag "${TAG}" '{
     "OLD_HEALTH=$(sudo docker inspect tokenkey --format '\''{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}'\'' 2>/dev/null || echo missing); echo \"pre-drain: outgoing container health=$OLD_HEALTH\"",
     "if [ \"$OLD_HEALTH\" = healthy ]; then sudo docker kill -s USR1 tokenkey 2>/dev/null || true; prev=-1; stall=0; for i in $(seq 1 15); do body=$(sudo docker exec tokenkey wget -q -T 3 -O - http://localhost:8080/health/inflight 2>/dev/null); n=$(printf '\''%s'\'' \"$body\" | sed -n '\''s/.*\"in_flight\":\\([0-9]*\\).*/\\1/p'\''); if printf '\''%s'\'' \"$body\" | grep -q '\''\"draining\":true'\''; then d=true; else d=false; fi; echo \"pre-drain: draining=$d in_flight=${n:-?} try=$i/15\"; [ \"$d\" = true ] && [ \"${n:-1}\" = 0 ] && break; if [ -n \"$n\" ]; then if [ \"$prev\" -ge 0 ] && [ \"$n\" -ge \"$prev\" ]; then stall=$((stall+1)); else stall=0; fi; prev=$n; [ \"$stall\" -ge 3 ] && { echo \"pre-drain: in_flight plateaued at $n for 3 tries (long-lived streams will not finish in the drain budget); stop waiting — swap will sever them\"; break; }; fi; sleep 2; done; else echo \"pre-drain SKIPPED: outgoing container not healthy (health=$OLD_HEALTH) — Caddy already flipped it out, nothing to drain; straight to recreate (avoids burning the ~30s drain budget on a crash-looping container, which previously starved the new container health window and tripped the rollback trap — uk1 2026-06-03)\"; fi",
     "echo \"=== swap: stop-old + start-new (image already on disk from pull above) ===\"",
-    "cd /var/lib/tokenkey && sudo docker compose --env-file .env up -d --no-deps --force-recreate tokenkey",
+    "cd /var/lib/tokenkey && sudo docker compose --env-file .env up -d --no-deps --force-recreate --timeout 30 tokenkey",
     "for i in 1 2 3 4 5 6 7 8 9 10 11 12; do s=$(sudo docker inspect tokenkey --format '\''{{.State.Health.Status}}'\'' 2>/dev/null || echo missing); echo \"try $i: $s\"; [ \"$s\" = healthy ] && break; sleep 5; done",
     "FINAL=$(sudo docker inspect tokenkey --format '\''{{.State.Health.Status}}'\'' 2>/dev/null || echo missing)",
     "if [ \"$FINAL\" != \"healthy\" ]; then echo \"::error::container did not reach healthy state (final=$FINAL)\"; sudo docker logs tokenkey --since 2m 2>&1 | tail -50; exit 1; fi",
