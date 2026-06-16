@@ -4,6 +4,25 @@
     "provenance": "media: BerriAI/litellm model_prices_and_context_window.json, captured 2026-06-01; deepseek-v4-*: https://api-docs.deepseek.com/quick_start/pricing, captured 2026-06-04 (cache-hit input = cache_read; cache writes billed as normal input, no separate write fee); volcengine doubao-*/glm-4-7-251222/deepseek-v3-2-251201: VolcEngine Ark official model-pricing page, captured 2026-06-10 (≤32K input tier, CNY/USD=6.7); glm-4.7 matches Zhipu official; qwen3.7-max* / qwen3.7-plus / qwen3.6-flash / qwen3-coder-plus / qwen-max / qwen-plus: Alibaba DashScope China-mainland (Beijing) RMB list ÷ 6.7, docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12 (per-entry source; the qwen3.7-* / qwen3.6-flash / qwen3-coder-plus values were corrected 2026-06-13 from a prior USD-list basis ≈÷7.27 to the table's canonical CNY/USD=6.7); qwen2.5-coder-32b/7b: retired & absent from current Alibaba list — proxy-filled from lineage successors qwen3-coder-plus / qwen3-coder-flash, Beijing RMB list ÷ 6.7, docs/accounts/aliyun_pricing_20260612.md captured 2026-06-12 (per-entry source); seedream/seedance media: VolcEngine Ark official model-pricing page (https://www.volcengine.com/docs/82379/1099320), captured 2026-06-12, CNY/USD=6.7 — per-image flat price; per-second video price derived at each model's max supported tier (1080p@24fps; 2.0-fast 720p), online standard rate, derivation formula in per-entry source; only IDs present in new-api ch45/54 model lists are included — seedream-4.5/5.0(-lite) & seedance-1.0-pro-fast are priced upstream but absent from new-api constants, seedance-1.0-lite is listed but retired/unpriced, all deliberately NOT included (served_zero_cost P0 probe covers the gap; a wrong price has no probe); video failure_billing evidence: seedance entries carry the verified official Ark wording (success-only, captured 2026-06-12); veo entries are metric-inferred (billed per generated output second) with the official Google sentence still pending capture",
     "regen": "manual curation; no auto-sync (entries are few + slow-moving). If they proliferate, add provider-aware sync."
   },
+  "grok-imagine-image": {
+    "litellm_provider": "xai",
+    "mode": "image_generation",
+    "output_cost_per_image": 0.02,
+    "source": "xAI official API list (x.ai/api), captured 2026-06; grok-imagine-image standard tier, flat $0.02/img (1K=2K). Verify in console.x.ai before relying."
+  },
+  "grok-imagine-image-quality": {
+    "litellm_provider": "xai",
+    "mode": "image_generation",
+    "output_cost_per_image": 0.07,
+    "source": "xAI official API list (x.ai/api), captured 2026-06; grok-imagine-image-quality $0.05/img@1K, $0.07/img@2K — priced at the 2K worst case (conservative, never under-bills; the OpenAI /v1/images path passes no size param). Replaced the retired grok-imagine-image-pro 2026-05-15. Verify in console.x.ai."
+  },
+  "grok-code-fast-1": {
+    "litellm_provider": "xai",
+    "mode": "chat",
+    "input_cost_per_token": 2e-07,
+    "output_cost_per_token": 1.5e-06,
+    "source": "xAI official (x.ai/news/grok-code-fast-1) post-promo list $0.20/Mtok in, $1.50/Mtok out, captured 2026-06. NOTE: grok-4.x chat models (incl. grok-4.3 — the SuperGrok Heavy OAuth default) are intentionally NOT priced here — their 2026 list price was unconfirmed at authoring time; they bill $0 (served_zero_cost P0 alerts) until the operator adds verified rows from console.x.ai. Per the overlay's 'a wrong price has no probe' discipline, a missing-but-alarmed price is safer than a guessed one."
+  },
   "claude-fable-5": {
     "litellm_provider": "anthropic",
     "mode": "chat",

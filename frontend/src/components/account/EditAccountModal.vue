@@ -26,6 +26,16 @@
         <p class="input-hint">{{ t('admin.accounts.notesHint') }}</p>
       </div>
 
+      <!-- grok (7th platform, OAuth): refresh_token rotation. Blank = keep current;
+           a re-pasted token is re-validated + re-primed by the backend on save. -->
+      <div v-if="account.platform === 'grok'" class="space-y-4">
+        <AccountGrokPlatformFields
+          v-model:refreshToken="grokRefreshToken"
+          v-model:baseUrl="grokBaseUrl"
+          variant="edit"
+        />
+      </div>
+
       <!-- API Key fields (only for apikey type) -->
       <div v-if="account.type === 'apikey'" class="space-y-4">
         <!--
@@ -2513,6 +2523,8 @@ import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import AccountNewApiPlatformFields from './AccountNewApiPlatformFields.vue'
 import { useTkAccountNewApiPlatform } from '@/composables/useTkAccountNewApiPlatform'
+import AccountGrokPlatformFields from './AccountGrokPlatformFields.vue'
+import { useTkAccountGrokPlatform } from '@/composables/useTkAccountGrokPlatform'
 import { applyInterceptWarmup } from '@/components/account/credentialsBuilder'
 import { formatDateTime, formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
@@ -2617,6 +2629,14 @@ const {
   isNewapi: () => props.account?.platform === 'newapi',
   storedAccount: () => (props.account ? { id: props.account.id, channel_type: props.account.channel_type } : null),
 })
+
+// 第七平台 grok：编辑时的 refresh_token 轮换 + base_url。
+const {
+  refreshToken: grokRefreshToken,
+  baseUrl: grokBaseUrl,
+  populateFromAccount: grokPopulateFromAccount,
+  buildSubmitBundle: grokBuildSubmitBundle,
+} = useTkAccountGrokPlatform()
 // Bedrock credentials
 const editBedrockAccessKeyId = ref('')
 const editBedrockSecretAccessKey = ref('')
@@ -3322,6 +3342,12 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       }
     }
 
+    // 第七平台 grok：refresh_token 是敏感字段，编辑时留空表示保留现有值（composable
+    // 不回填），base_url 回填。
+    if (newAccount.platform === 'grok') {
+      grokPopulateFromAccount({ credentials })
+    }
+
     // Load model mappings and detect mode
     loadModelRestrictionFromMapping(credentials.model_mapping as Record<string, unknown> | undefined)
 
@@ -3925,6 +3951,17 @@ const handleSubmit = async () => {
       updatePayload.load_factor = 0
     }
     updatePayload.auto_pause_on_expired = autoPauseOnExpired.value
+
+    // 第七平台 grok（oauth，非 apikey）：仅在重粘了 refresh_token 或改了 base_url 时
+    // 才发 credentials。refresh_token 留空 = 保留现有（后端 MergePreservingSensitiveCreds
+    // + 后台刷新器处理）；重粘则后端 resolveGrokTokenOnSave 活体校验 + 重新 prime。
+    if (props.account.platform === 'grok') {
+      const bundle = grokBuildSubmitBundle('edit')
+      if (!bundle) return
+      if (Object.keys(bundle.credentials).length > 0) {
+        updatePayload.credentials = bundle.credentials
+      }
+    }
 
     // For apikey type, handle credentials update
     if (props.account.type === 'apikey') {

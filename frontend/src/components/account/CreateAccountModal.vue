@@ -184,6 +184,25 @@
             <Icon name="sparkles" size="sm" />
             {{ PLATFORM_LABELS.kiro }}
           </button>
+          <!--
+            7th platform: Grok (xAI / SuperGrok Heavy, OAuth refresh_token paste).
+            Slate styling from CREATE_ACCOUNT_PLATFORM_SEGMENT_ACTIVE (single source
+            of truth per CLAUDE.md §5). xAI is OpenAI-wire compatible, so grok reuses
+            the OpenAI-compat forward/scheduling — only the OAuth refresh differs.
+          -->
+          <button
+            type="button"
+            @click="form.platform = 'grok'"
+            :class="[
+              'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+              form.platform === 'grok'
+                ? 'bg-white text-slate-700 shadow-sm dark:bg-dark-600 dark:text-slate-300'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+          >
+            <Icon name="sparkles" size="sm" />
+            {{ PLATFORM_LABELS.grok }}
+          </button>
         </div>
       </div>
 
@@ -224,6 +243,15 @@
           v-model:clientSecret="kiroClientSecret"
           v-model:profileArn="kiroProfileArn"
           v-model:tosAcknowledged="kiroTosAcknowledged"
+          variant="create"
+        />
+      </div>
+
+      <!-- grok (7th platform): OAuth refresh_token paste directly under platform picker. -->
+      <div v-if="form.platform === 'grok'" class="space-y-4">
+        <AccountGrokPlatformFields
+          v-model:refreshToken="grokRefreshToken"
+          v-model:baseUrl="grokBaseUrl"
           variant="create"
         />
       </div>
@@ -3390,6 +3418,8 @@ import AccountNewApiPlatformFields from './AccountNewApiPlatformFields.vue'
 import { useTkAccountNewApiPlatform } from '@/composables/useTkAccountNewApiPlatform'
 import AccountKiroPlatformFields from './AccountKiroPlatformFields.vue'
 import { useTkAccountKiroPlatform } from '@/composables/useTkAccountKiroPlatform'
+import AccountGrokPlatformFields from './AccountGrokPlatformFields.vue'
+import { useTkAccountGrokPlatform } from '@/composables/useTkAccountGrokPlatform'
 import { PLATFORM_LABELS } from '@/composables/usePlatformOptions'
 
 // Type for exposed OAuthAuthorizationFlow component
@@ -3660,6 +3690,14 @@ const {
   reset: kiroReset,
   buildSubmitBundle: kiroBuildSubmitBundle,
 } = useTkAccountKiroPlatform()
+
+// 第七平台 grok 的表单状态 + 校验 + credentials 拼装收口在 composable。
+const {
+  refreshToken: grokRefreshToken,
+  baseUrl: grokBaseUrl,
+  reset: grokReset,
+  buildSubmitBundle: grokBuildSubmitBundle,
+} = useTkAccountGrokPlatform()
 
 const tempUnschedEnabled = ref(false)
 const tempUnschedRules = ref<TempUnschedRuleForm[]>([])
@@ -3936,6 +3974,11 @@ const isOAuthFlow = computed(() => {
   if (form.platform === 'kiro') {
     return false
   }
+  // grok (7th platform) creates by pasting a refresh_token — no interactive OAuth step
+  // (xAI's public client is loopback-only; the token is minted out-of-band).
+  if (form.platform === 'grok') {
+    return false
+  }
   return accountCategory.value === 'oauth-based'
 })
 
@@ -4014,6 +4057,11 @@ watch(
       form.type = 'oauth'
       return
     }
+    // grok (7th platform): always oauth type (refresh_token paste), regardless of addMethod.
+    if (form.platform === 'grok') {
+      form.type = 'oauth'
+      return
+    }
     if ((form.platform === 'gemini' || form.platform === 'anthropic') && category === 'service_account') {
       form.type = 'service_account' as AccountType
     } else if (category === 'oauth-based') {
@@ -4065,6 +4113,14 @@ watch(
       // watcher A 把 form.type 同步成 'oauth'（与后端 type=oauth 契约对齐），
       // 同时避免渲染通用 apikey / 配额块。kiro 字段重置由 composable.reset()
       // 在 resetForm 中负责，平台切换不清除已填字段。
+      accountCategory.value = 'oauth-based'
+      allowOverages.value = false
+      antigravityWhitelistModels.value = []
+      antigravityModelMappings.value = []
+      antigravityModelRestrictionMode.value = 'mapping'
+    } else if (newPlatform === 'grok') {
+      // 第七平台 grok：oauth(refresh_token)直填，accountCategory='oauth-based' 让
+      // watcher A 把 form.type 同步成 'oauth'。字段重置由 composable.reset() 负责。
       accountCategory.value = 'oauth-based'
       allowOverages.value = false
       antigravityWhitelistModels.value = []
@@ -4541,6 +4597,8 @@ const resetForm = () => {
   newapiReset()
   // 第六平台 kiro 字段重置由 composable 统一管理
   kiroReset()
+  // 第七平台 grok 字段重置由 composable 统一管理
+  grokReset()
   tempUnschedEnabled.value = false
   tempUnschedRules.value = []
   geminiOAuthType.value = 'code_assist'
@@ -4894,6 +4952,34 @@ const handleSubmit = async () => {
       name: form.name,
       notes: form.notes,
       platform: 'kiro',
+      type: 'oauth',
+      credentials: bundle.credentials,
+      extra: buildAPIKeyOrBedrockExtra(),
+      proxy_id: form.proxy_id,
+      concurrency: form.concurrency,
+      load_factor: form.load_factor ?? undefined,
+      priority: form.priority,
+      rate_multiplier: form.rate_multiplier,
+      group_ids: form.group_ids,
+      expires_at: form.expires_at,
+      auto_pause_on_expired: autoPauseOnExpired.value
+    })
+    return
+  }
+
+  // 第七平台 grok：粘 refresh_token，type=oauth；创建期后端 resolveGrokTokenOnSave
+  // 用 refresh_token 立刻换 access_token（绿勾 / 明确报错），无需手填 access_token。
+  if (form.platform === 'grok') {
+    if (!form.name.trim()) {
+      appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
+      return
+    }
+    const bundle = grokBuildSubmitBundle('create')
+    if (!bundle) return
+    await doCreateAccount({
+      name: form.name,
+      notes: form.notes,
+      platform: 'grok',
       type: 'oauth',
       credentials: bundle.credentials,
       extra: buildAPIKeyOrBedrockExtra(),

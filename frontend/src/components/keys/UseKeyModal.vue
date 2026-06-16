@@ -390,6 +390,8 @@ const defaultClientTab = computed(() => {
       return 'codex'
     case 'newapi':
       return 'codex'
+    case 'grok':
+      return 'codex'
     case 'gemini':
       return 'gemini'
     case 'antigravity':
@@ -512,9 +514,11 @@ const clientTabs = computed((): TabConfig[] => {
       tabs.push({ id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon })
       return tabs
     }
-    case 'newapi': {
+    case 'newapi':
+    case 'grok': {
       // OpenAI-compat HTTP only; no codex-ws. Optionally claude tab when the
-      // group enables messages dispatch (mirrors the openai branch).
+      // group enables messages dispatch (mirrors the openai branch). grok (xAI)
+      // shares this flavor: api.x.ai is OpenAI-compatible.
       const tabs: TabConfig[] = [
         { id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCli'), icon: TerminalIcon },
       ]
@@ -570,7 +574,7 @@ const currentTabs = computed(() => {
 // instructions are identical (codex CLI + opencode), and our gateway already
 // routes both platforms through the OpenAI-compat handlers.
 const isOpenAICompatPlatform = computed(
-  () => props.platform === 'openai' || props.platform === 'newapi',
+  () => props.platform === 'openai' || props.platform === 'newapi' || props.platform === 'grok',
 )
 
 const platformDescription = computed(() => {
@@ -660,10 +664,11 @@ const currentFiles = computed((): FileConfig[] => {
         return [generateOpenCodeConfig('anthropic', apiBase, apiKey)]
       case 'openai':
       case 'newapi':
-        // newapi shares OpenAI-compat HTTP shape: codex CLI / opencode use
-        // identical config (provider=openai, baseURL=apiBase). Sticking
-        // both branches together avoids a parallel newapi catalog that
-        // would drift from openai's.
+      case 'grok':
+        // newapi/grok share the OpenAI-compat HTTP shape: codex CLI / opencode
+        // use identical config (provider=openai, baseURL=apiBase). Sticking
+        // these branches together avoids a parallel catalog that would drift
+        // from openai's.
         return [generateOpenCodeConfig('openai', apiBase, apiKey)]
       case 'gemini':
         return [generateOpenCodeConfig('gemini', geminiBase, apiKey)]
@@ -701,8 +706,10 @@ const currentFiles = computed((): FileConfig[] => {
       }
       return generateOpenAIFiles(baseUrl, apiKey, model)
     case 'newapi':
-      // newapi has no OAuth WS path (codex-ws not offered in its tabs).
-      // claude tab only appears when the group enables messages dispatch.
+    case 'grok':
+      // newapi/grok: OpenAI-compat HTTP, no OAuth WS path (codex-ws not offered
+      // in their tabs). claude tab only appears when the group enables messages
+      // dispatch. grok (xAI) is OpenAI-compatible, so it shares the openai files.
       if (activeClientTab.value === 'claude') {
         return generateAnthropicFiles(baseUrl, apiKey, model)
       }

@@ -43,6 +43,7 @@ const (
 	PlatformAntigravity = domain.PlatformAntigravity
 	PlatformNewAPI      = domain.PlatformNewAPI
 	PlatformKiro        = domain.PlatformKiro
+	PlatformGrok        = domain.PlatformGrok
 )
 
 // AllowedQuotaPlatforms 是允许设置 user × platform quota 的平台列表（单一权威来源）。

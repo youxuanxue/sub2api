@@ -9,6 +9,7 @@ export const PLATFORM_LABELS: Record<AccountPlatform, string> = {
   antigravity: 'Antigravity',
   newapi: 'Extension Engine',
   kiro: 'Kiro',
+  grok: 'Grok',
 }
 
 export function getPlatformLabel(platform: string | null | undefined): string {
