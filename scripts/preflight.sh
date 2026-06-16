@@ -903,6 +903,30 @@ if [[ "${_smoke_syntax_ok}" == "true" ]]; then
   echo "  ok: stage0 smoke scripts parse"
 fi
 
+# ---- sub2api: standalone host script syntax (tokenkey-*.sh) ------------------
+# The tokenkey-*.sh host scripts (pgdump, qa-stale-cleanup, prune, disk-metrics)
+# ship to prod/edge boxes either embedded in the CFN/Lightsail bootstrap or
+# base64-pushed by the *_via_ssm.sh refresh primitives. In the base64 path the
+# SSM host-parse guard below only sees the OPAQUE base64 blob, so a syntax error
+# in the decoded script would slip every local gate and only surface at runtime
+# on the box — and for the disk-full alert that means a SILENTLY broken safety
+# net (the exact #778 failure mode). bash -n them as standalone files here.
+# Glob (not an enumerated list) so a new tokenkey-*.sh is covered on day one.
+echo ""
+echo "=== sub2api: standalone host script syntax (tokenkey-*.sh) ==="
+_host_syntax_ok=true
+for _host_script in ./deploy/aws/stage0/tokenkey-*.sh ./deploy/aws/lightsail/tokenkey-*.sh; do
+  [ -e "${_host_script}" ] || continue
+  if ! bash -n "${_host_script}"; then
+    echo "  FAIL: ${_host_script} has bash syntax errors"
+    errors=$((errors + 1))
+    _host_syntax_ok=false
+  fi
+done
+if [[ "${_host_syntax_ok}" == "true" ]]; then
+  echo "  ok: standalone tokenkey-*.sh host scripts parse"
+fi
+
 # ---- sub2api: SSM host command script parses (deploy/sync primitives) --------
 # The jq `commands` array these scripts send to AWS-RunShellScript is joined and
 # run on the host; "JSON valid" locally does NOT catch host-shell syntax errors
