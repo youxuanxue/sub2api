@@ -27,11 +27,12 @@
     {
       "path": "frontend/src/views/user/studio/MediaStudioView.vue",
       "must_contain": [
+        "data-testid=\"studio-mode-chat\"",
         "data-testid=\"studio-mode-image\"",
         "data-testid=\"studio-mode-video\"",
         "data-testid=\"studio-mode-bakeoff\""
       ],
-      "rationale": "The Studio's EXPLICIT image|video|bake-off modality tabs are the source of truth for which gateway endpoint a request hits — replacing the old modalityForModel() id-prefix guess that silently misrouted non-{seedance,veo,gpt-image,imagen,seedream} media model ids to /v1/chat/completions. The bake-off tab opens the cross-model compare view (BakeOff.vue). Losing these tabs regresses to implicit-modality misrouting or hides a generation surface."
+      "rationale": "The Studio's EXPLICIT chat|image|video|bake-off modality tabs are the source of truth for which gateway endpoint a request hits — replacing the old modalityForModel() id-prefix guess that silently misrouted non-{seedance,veo,gpt-image,imagen,seedream} media model ids to /v1/chat/completions. Chat is the folded-in /playground surface (default landing); the bake-off tab opens the cross-model compare view (BakeOff.vue). Losing these tabs regresses to implicit-modality misrouting or hides a generation surface."
     },
     {
       "path": "frontend/src/views/user/studio/BakeOff.vue",
@@ -635,14 +636,13 @@
       "rationale": "PR #697: Chinese counterparts of the en.ts accountIdHint anchors above (admin.accounts.accountIdHint + admin.edgeAccounts.accountIdHint, the latter carrying the edge-local-keyspace warning). Moves in lockstep with en.ts so neither language silently regresses during an i18n upstream merge."
     },
     {
-      "path": "frontend/src/views/user/PlaygroundView.vue",
+      "path": "frontend/src/views/user/studio/ChatStudio.vue",
       "must_contain": [
-        "selectedKeyId",
-        "loadModelsForKey",
         "resolveTkClientIntegrationUrl",
-        "TK_CLIENT_INTEGRATIONS"
+        "TK_CLIENT_INTEGRATIONS",
+        "gatewayChatCompletion"
       ],
-      "rationale": "Playground key-first cascade + external-client integrations: the user picks an API key first (its group decides the /v1/models pool — required since image/video groups like volcengine/google-vertex serve disjoint model sets), and the selected key feeds one-click deeplink imports into Cherry Studio etc. Both behaviors live in this TK-only view; an upstream merge or refactor that drops the watcher or the integrations wiring silently reverts the UX to auto-picked-key chat-only."
+      "rationale": "Chat surface, folded from the retired /playground into the Studio's Chat modality (route /playground now redirects to /studio?mode=chat). The external-client one-click deeplink imports (Cherry Studio etc.) and the /v1/chat/completions call live here; the key-first cascade moved to the shell (MediaStudioView selectedKeyId + pickModalityKey). An upstream merge or refactor that drops the integrations wiring silently reverts the connect-your-tools UX."
     },
     {
       "path": "frontend/src/constants/clientIntegrations.tk.ts",
@@ -662,15 +662,15 @@
         "integrationsTitle: 'Connect external apps'",
         "pickKeyPlaceholder: 'Select an API key…'"
       ],
-      "rationale": "Playground key-first selector + integrations card strings; anchors keep the TK playground i18n block from being dropped in an i18n-heavy upstream merge."
+      "rationale": "Studio chat key-selector + integrations card strings (studio.chat.integrationsTitle / studio.pickKeyPlaceholder, folded in from the retired playground block); anchors keep the TK i18n from being dropped in an i18n-heavy upstream merge."
     },
     {
       "path": "frontend/src/i18n/locales/zh.ts",
       "must_contain": [
         "integrationsTitle: '一键接入外部客户端'",
-        "pickKeyPlaceholder: '请选择 API 密钥…'"
+        "pickKeyPlaceholder: '选择一个 API 密钥…'"
       ],
-      "rationale": "Chinese counterparts of the en.ts playground anchors above; moves in lockstep so neither language silently regresses."
+      "rationale": "Chinese counterparts of the en.ts Studio chat anchors above; moves in lockstep so neither language silently regresses."
     },
     {
       "path": "frontend/src/constants/playgroundMedia.tk.ts",
@@ -683,11 +683,11 @@
       "rationale": "Playground media modality table + tolerant response parsing. /v1/models returns bare ids and the public catalog has no image/video capability tag, so this frontend table is the only thing routing gpt-image-*/imagen-*/seedream prompts to /v1/images/generations and veo-*/seedance prompts to the vt_ video task flow. The gpt-image- prefix mirrors the backend's own intent predicate (openai_images.go isOpenAIImageGenerationModel) — if either side changes family patterns the other must follow."
     },
     {
-      "path": "frontend/src/views/user/PlaygroundView.vue",
+      "path": "frontend/src/views/user/studio/ChatStudio.vue",
       "must_contain": [
         "modalityForModel"
       ],
-      "rationale": "The Playground is now CHAT-ONLY: image/video generation moved to the Media Studio (/studio) where the price-on-button + login/balance gating lives. modalityForModel is retained here ONLY as a list FILTER (models.value = (list.data||[]).filter(m => modalityForModel(m.id) === 'chat')) so media model ids never appear in the chat picker where they could only 400 against /v1/chat/completions. The old playground media submit/poll wiring (gatewayImageGenerations / gatewayVideoSubmit / scheduleVideoPoll) was intentionally removed by the media-studio feature; its guard role moved to the Studio sentinels below (MediaStudioView modality tabs, mediaCostEstimate.tk exports, playgroundMedia.tk parsing). If an upstream merge drops this filter, the playground re-lists media models that can only error."
+      "rationale": "The Studio Chat modality filters its model picker to chat-classified ids (chatModels = [...availableIds].filter(id => modalityForModel(id) === 'chat')) so media model ids never appear in the chat picker where they could only 400 against /v1/chat/completions. The shell (MediaStudioView) owns the key picker + /v1/models probe; this is the chat surface folded in from the retired /playground. If an upstream merge drops this filter, the chat picker re-lists media models that can only error."
     },
     {
       "path": "frontend/src/api/playground.ts",
@@ -697,22 +697,6 @@
         "/v1/video/generations/"
       ],
       "rationale": "Gateway media calls for the playground (images sync POST with 180s timeout, video submit + per-task fetch). Paths must stay the TK gateway aliases registered in routes/gateway_tk_openai_compat_handlers.go."
-    },
-    {
-      "path": "frontend/src/i18n/locales/en.ts",
-      "must_contain": [
-        "imageGenerate: 'Generate image'",
-        "videoStatusProcessing: 'Processing'"
-      ],
-      "rationale": "Playground media-mode strings (image panel + video task card); anchors keep the block from being dropped in an i18n-heavy upstream merge."
-    },
-    {
-      "path": "frontend/src/i18n/locales/zh.ts",
-      "must_contain": [
-        "imageGenerate: '生成图片'",
-        "videoStatusProcessing: '处理中'"
-      ],
-      "rationale": "Chinese counterparts of the en.ts playground media anchors; moves in lockstep so neither language silently regresses."
     },
     {
       "path": "frontend/src/components/user/dashboard/UserDashboardCharts.vue",

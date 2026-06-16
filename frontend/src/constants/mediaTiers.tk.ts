@@ -16,7 +16,18 @@
  * the source of truth and corrects any drift.
  */
 
+import { modalityForModel } from '@/constants/playgroundMedia.tk'
+
 export type StudioModality = 'image' | 'video'
+
+/**
+ * The modality axis the Studio SHELL reasons about for key selection. Chat is a
+ * peer Studio tab (folded in from the retired /playground), but it has no media
+ * tier catalog — a key "serves chat" when its /v1/models pool exposes any
+ * chat-classified id (modalityForModel). image/video keep the media-tier check.
+ * Bake-off passes no picker modality (dual sub-modality → user owns the key).
+ */
+export type PickerModality = StudioModality | 'chat'
 
 const VERTEX = 'Google Vertex'
 const VOLC = 'VolcEngine'
@@ -38,6 +49,25 @@ export function modalityHasTiers(
       m.modality === modality &&
       [m.modelId, ...(m.aliasIds ?? [])].some((id) => availableIds.has(id))
   )
+}
+
+/**
+ * Whether this group's pool serves `modality` for the SHELL's key picker.
+ * Dispatches chat (any chat-classified id in the pool) vs media (tier catalog),
+ * so the modality-aware landing/annotation logic treats chat as a first-class
+ * peer of image/video without a media tier entry.
+ */
+export function groupServes(
+  modality: PickerModality,
+  availableIds: ReadonlySet<string>
+): boolean {
+  if (modality === 'chat') {
+    for (const id of availableIds) {
+      if (modalityForModel(id) === 'chat') return true
+    }
+    return false
+  }
+  return modalityHasTiers(modality, availableIds)
 }
 
 /** One selectable key, reduced to what the modality-aware picker needs. */
@@ -67,11 +97,11 @@ export interface ModalityKeyOption {
  */
 export function pickModalityKey(
   options: readonly ModalityKeyOption[],
-  modality: StudioModality,
+  modality: PickerModality,
   currentId: number | null
 ): number | null {
   if (options.length === 0) return currentId
-  const serving = options.filter((o) => modalityHasTiers(modality, o.availableIds))
+  const serving = options.filter((o) => groupServes(modality, o.availableIds))
   if (currentId != null && serving.some((o) => o.id === currentId)) return currentId
   const pickServing = serving.find((o) => o.isTrial) ?? serving[0]
   if (pickServing) return pickServing.id
