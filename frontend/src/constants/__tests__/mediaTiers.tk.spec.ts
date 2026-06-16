@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest'
 import {
   modalityHasTiers,
   pickModalityKey,
-  resolveAvailableTiers,
   resolveAvailableModels,
   defaultModelId,
   MEDIA_MODELS,
@@ -30,8 +29,8 @@ describe('modalityHasTiers', () => {
     expect(modalityHasTiers('image', new Set())).toBe(false)
   })
 
-  it('agrees with resolveAvailableTiers', () => {
-    expect(modalityHasTiers('image', IMAGEN)).toBe(resolveAvailableTiers('image', IMAGEN).length > 0)
+  it('agrees with resolveAvailableModels', () => {
+    expect(modalityHasTiers('image', IMAGEN)).toBe(resolveAvailableModels('image', IMAGEN).length > 0)
   })
 })
 
@@ -127,17 +126,12 @@ describe('defaultModelId', () => {
 })
 
 describe('capability map honesty', () => {
-  const VALID: StudioParam[] = ['quality', 'style', 'negativePrompt', 'seed', 'firstFrameImage', 'fps', 'resolution']
+  // Only params that take effect for a shipped model exist in StudioParam — a
+  // control is never rendered for a param the model silently ignores.
+  const VALID: StudioParam[] = ['negativePrompt', 'seed', 'firstFrameImage', 'fps']
   it('every supportedParams entry is a valid StudioParam', () => {
     for (const m of MEDIA_MODELS) {
       for (const p of m.supportedParams) expect(VALID).toContain(p)
-    }
-  })
-  it('no shipped model claims quality/style/resolution (none take effect today)', () => {
-    for (const m of MEDIA_MODELS) {
-      expect(m.supportedParams).not.toContain('quality')
-      expect(m.supportedParams).not.toContain('style')
-      expect(m.supportedParams).not.toContain('resolution')
     }
   })
   it('veo omits seed/fps (Vertex video path does not honor them)', () => {

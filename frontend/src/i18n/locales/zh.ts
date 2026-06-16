@@ -191,8 +191,6 @@ export default {
     },
     advanced: {
       toggle: '高级',
-      quality: '质量',
-      style: '风格',
       negativePrompt: '不要出现',
       negativePromptHint: '描述要避免的元素（可选）',
       seed: '随机种子',
@@ -283,18 +281,6 @@ export default {
       notifyTitle: 'TokenKey 工作室',
       notifyEnabled: '视频完成时会通知你。',
       notifyDenied: '浏览器已屏蔽通知。'
-    },
-    tiers: {
-      image: {
-        draft: { label: '草稿', tagline: '快 · 省 · 迭代', sample: '东京雨夜的霓虹小巷，电影感，浅景深' },
-        standard: { label: '标准', tagline: '最佳平衡', sample: '东京雨夜的霓虹小巷，电影感，浅景深' },
-        ultra: { label: '极致', tagline: '最高细节', sample: '东京雨夜的霓虹小巷，电影感，浅景深，35mm' }
-      },
-      video: {
-        fast: { label: '快', tagline: '快速出片', sample: '霓虹东京小巷，慢推镜头，雨，反射光' },
-        standard: { label: '标准', tagline: '平衡', sample: '霓虹东京小巷，慢推镜头，雨，反射光' },
-        cinematic: { label: '电影级', tagline: '电影质感', sample: '霓虹东京小巷，慢推镜头，雨，反射光，电影感' }
-      }
     }
   },
 

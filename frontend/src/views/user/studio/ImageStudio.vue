@@ -88,18 +88,6 @@
             {{ t('studio.advanced.toggle') }} <span>{{ showAdvanced ? '▴' : '▾' }}</span>
           </button>
           <div v-if="showAdvanced" class="mt-2 space-y-3 rounded-lg border border-dashed border-gray-200 p-3 dark:border-dark-700">
-            <div v-if="supports('quality')">
-              <div class="mb-1 text-xs font-medium text-gray-600 dark:text-dark-400">{{ t('studio.advanced.quality') }}</div>
-              <div class="flex gap-2">
-                <button v-for="q in IMAGE_QUALITY_OPTIONS" :key="q" type="button" class="rounded-lg border px-3 py-1 text-xs font-medium transition" :class="quality === q ? 'border-primary-600 bg-primary-600 text-white' : 'border-gray-200 text-gray-600 dark:border-dark-600 dark:text-dark-300'" @click="quality = q">{{ q }}</button>
-              </div>
-            </div>
-            <div v-if="supports('style')">
-              <div class="mb-1 text-xs font-medium text-gray-600 dark:text-dark-400">{{ t('studio.advanced.style') }}</div>
-              <div class="flex gap-2">
-                <button v-for="s in IMAGE_STYLE_OPTIONS" :key="s" type="button" class="rounded-lg border px-3 py-1 text-xs font-medium transition" :class="style === s ? 'border-primary-600 bg-primary-600 text-white' : 'border-gray-200 text-gray-600 dark:border-dark-600 dark:text-dark-300'" @click="style = s">{{ s }}</button>
-              </div>
-            </div>
             <div v-if="supports('negativePrompt')">
               <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-dark-400">{{ t('studio.advanced.negativePrompt') }}</label>
               <input v-model="negativePrompt" type="text" :placeholder="t('studio.advanced.negativePromptHint')" class="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-900 dark:border-dark-600 dark:bg-dark-950 dark:text-white" />
@@ -200,8 +188,6 @@ import {
   IMAGE_ASPECT_PRESETS,
   IMAGE_N_MIN,
   IMAGE_N_MAX,
-  IMAGE_QUALITY_OPTIONS,
-  IMAGE_STYLE_OPTIONS,
   SEED_MIN,
   SEED_MAX,
   resolveAvailableModels,
@@ -251,8 +237,6 @@ const errorCode = ref<StudioErrorCode | ''>('')
 
 // Advanced (optional; only sent when set). Smooth defaults: hit Generate works.
 const showAdvanced = ref(false)
-const quality = ref<string>('standard')
-const style = ref<string>('vivid')
 const seed = ref<number | null>(null)
 const negativePrompt = ref('')
 
@@ -325,8 +309,6 @@ async function generate(): Promise<void> {
       prompt: text,
       size: aspectPreset.value.size,
       n: n.value,
-      ...(supports('quality') && quality.value !== 'standard' ? { quality: quality.value } : {}),
-      ...(supports('style') ? { style: style.value } : {}),
       ...(supports('negativePrompt') && negativePrompt.value.trim()
         ? { negative_prompt: negativePrompt.value.trim() }
         : {}),

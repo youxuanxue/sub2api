@@ -18,147 +18,19 @@
 
 export type StudioModality = 'image' | 'video'
 
-export interface MediaTierCandidate {
-  /** Exact model id sent to the gateway and used as the billing key. */
-  modelId: string
-  /** Display-only vendor label, e.g. "Google Vertex" / "VolcEngine". */
-  vendorLabel: string
-  /** USD per image at the 1K base tier (image tiers only). */
-  baseImagePrice?: number
-  /** USD per second (video tiers only). */
-  perSecond?: number
-}
-
-export interface MediaTier {
-  id: string
-  modality: StudioModality
-  /** i18n key for the tier name, e.g. studio.tier.image.draft.label */
-  labelKey: string
-  /** i18n key for the one-line tagline. */
-  taglineKey: string
-  /** i18n key for the pre-filled "known-good" prompt (never-blank rule). */
-  samplePromptKey: string
-  candidates: MediaTierCandidate[]
-}
-
 const VERTEX = 'Google Vertex'
 const VOLC = 'VolcEngine'
 
 /**
- * Image tiers. Prices: imagen-4 fast/std/ultra = $0.02/$0.04/$0.06;
- * seedream-4 = $0.0298507 (tk_pricing_overlay.json, verified 2026-06-13).
- */
-export const IMAGE_TIERS: MediaTier[] = [
-  {
-    id: 'draft',
-    modality: 'image',
-    labelKey: 'studio.tiers.image.draft.label',
-    taglineKey: 'studio.tiers.image.draft.tagline',
-    samplePromptKey: 'studio.tiers.image.draft.sample',
-    candidates: [
-      { modelId: 'imagen-4.0-fast-generate-001', vendorLabel: VERTEX, baseImagePrice: 0.02 },
-      { modelId: 'seedream-4-0-250828', vendorLabel: VOLC, baseImagePrice: 0.029850746268656716 },
-      { modelId: 'doubao-seedream-4-0-250828', vendorLabel: VOLC, baseImagePrice: 0.029850746268656716 },
-    ],
-  },
-  {
-    id: 'standard',
-    modality: 'image',
-    labelKey: 'studio.tiers.image.standard.label',
-    taglineKey: 'studio.tiers.image.standard.tagline',
-    samplePromptKey: 'studio.tiers.image.standard.sample',
-    candidates: [{ modelId: 'imagen-4.0-generate-001', vendorLabel: VERTEX, baseImagePrice: 0.04 }],
-  },
-  {
-    id: 'ultra',
-    modality: 'image',
-    labelKey: 'studio.tiers.image.ultra.label',
-    taglineKey: 'studio.tiers.image.ultra.tagline',
-    samplePromptKey: 'studio.tiers.image.ultra.sample',
-    candidates: [{ modelId: 'imagen-4.0-ultra-generate-001', vendorLabel: VERTEX, baseImagePrice: 0.06 }],
-  },
-]
-
-/**
- * Video tiers. Prices: veo-3.1 = $0.40/s, veo-3.1-fast = $0.15/s,
- * seedance-1.0-pro = $0.1088/s, seedance-2.0-fast = $0.1194/s
- * (tk_pricing_overlay.json output_cost_per_second, verified 2026-06-13).
- */
-export const VIDEO_TIERS: MediaTier[] = [
-  {
-    id: 'fast',
-    modality: 'video',
-    labelKey: 'studio.tiers.video.fast.label',
-    taglineKey: 'studio.tiers.video.fast.tagline',
-    samplePromptKey: 'studio.tiers.video.fast.sample',
-    candidates: [
-      { modelId: 'veo-3.1-fast-generate-001', vendorLabel: VERTEX, perSecond: 0.15 },
-      { modelId: 'doubao-seedance-2-0-fast-260128', vendorLabel: VOLC, perSecond: 0.11940298507462686 },
-    ],
-  },
-  {
-    id: 'standard',
-    modality: 'video',
-    labelKey: 'studio.tiers.video.standard.label',
-    taglineKey: 'studio.tiers.video.standard.tagline',
-    samplePromptKey: 'studio.tiers.video.standard.sample',
-    candidates: [
-      { modelId: 'seedance-1-0-pro-250528', vendorLabel: VOLC, perSecond: 0.10880597014925374 },
-      { modelId: 'doubao-seedance-1-0-pro-250528', vendorLabel: VOLC, perSecond: 0.10880597014925374 },
-    ],
-  },
-  {
-    id: 'cinematic',
-    modality: 'video',
-    labelKey: 'studio.tiers.video.cinematic.label',
-    taglineKey: 'studio.tiers.video.cinematic.tagline',
-    samplePromptKey: 'studio.tiers.video.cinematic.sample',
-    candidates: [{ modelId: 'veo-3.1-generate-001', vendorLabel: VERTEX, perSecond: 0.4 }],
-  },
-]
-
-export interface ResolvedTier {
-  tier: MediaTier
-  candidate: MediaTierCandidate
-}
-
-/**
- * Resolve a tier against the set of available (priced+servable) model ids from
- * the user's key group. Returns the first candidate present in `availableIds`,
- * or null when the tier has no backing model for this key (so the UI hides it).
- */
-export function resolveTier(tier: MediaTier, availableIds: ReadonlySet<string>): ResolvedTier | null {
-  for (const candidate of tier.candidates) {
-    if (availableIds.has(candidate.modelId)) {
-      return { tier, candidate }
-    }
-  }
-  return null
-}
-
-/** Resolve all tiers for a modality; drops tiers with no available candidate. */
-export function resolveAvailableTiers(
-  modality: StudioModality,
-  availableIds: ReadonlySet<string>
-): ResolvedTier[] {
-  const tiers = modality === 'image' ? IMAGE_TIERS : VIDEO_TIERS
-  const out: ResolvedTier[] = []
-  for (const tier of tiers) {
-    const resolved = resolveTier(tier, availableIds)
-    if (resolved) out.push(resolved)
-  }
-  return out
-}
-
-/**
- * True when this model pool backs at least one tier of the modality — i.e. the
- * Studio tab is actually usable for a key whose group exposes `availableIds`.
+ * True when this group's pool backs at least one media model of the modality —
+ * i.e. the Studio tab is actually usable for a key whose group exposes
+ * `availableIds`. Drives the modality-aware key picker (pickModalityKey).
  */
 export function modalityHasTiers(
   modality: StudioModality,
   availableIds: ReadonlySet<string>
 ): boolean {
-  return resolveAvailableTiers(modality, availableIds).length > 0
+  return resolveAvailableModels(modality, availableIds).length > 0
 }
 
 /** One selectable key, reduced to what the modality-aware picker needs. */
@@ -262,14 +134,15 @@ export const IMAGE_N_MAX = 4
  * `supportedParams` capability list so we NEVER render a control that the
  * selected model silently ignores (the "real & transparent" rule).
  */
+// Only params that ACTUALLY take effect for a shipped model are listed — we
+// never render a control that the selected model silently ignores. (quality /
+// style / resolution were dropped: no shipped model honors them today; add them
+// back here the day a model in MEDIA_MODELS actually does.)
 export type StudioParam =
-  | 'quality' // image: enum standard|hd (native channels) — cosmetic, no TK price delta
-  | 'style' // image: vivid|natural (DALL-E family) — passthrough
   | 'negativePrompt' // image+video: forwarded via Extra / metadata.negative_prompt
   | 'seed' // image+video: forwarded via Extra / metadata.seed
   | 'firstFrameImage' // video: image-to-video first frame (sent as `image`)
   | 'fps' // video: metadata.fps (seedance honors)
-  | 'resolution' // video: metadata.resolution per-channel
 
 export type QualityBadge = 'draft' | 'standard' | 'ultra' | 'fast' | 'cinematic'
 
@@ -433,9 +306,7 @@ export function defaultModelId(models: readonly ResolvedModel[]): string | null 
   return safe ? safe.model.modelId : null
 }
 
-/** Advanced param options + recommended defaults (smooth: hit Generate works). */
-export const IMAGE_QUALITY_OPTIONS = ['standard', 'hd'] as const
-export const IMAGE_STYLE_OPTIONS = ['vivid', 'natural'] as const
+/** Advanced param bounds + recommended defaults (smooth: hit Generate works). */
 export const SEED_MIN = 0
 export const SEED_MAX = 2147483647
 export const VIDEO_FPS_OPTIONS = [16, 24] as const

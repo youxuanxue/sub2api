@@ -40,9 +40,7 @@ describe('gatewayImageGenerations payload', () => {
       negative_prompt: 'blurry',
     })
     const b = getBody()
-    expect(b).toMatchObject({ model: 'm', prompt: 'hi', size: '1024x1024', n: 2, seed: 7, negative_prompt: 'blurry' })
-    expect('quality' in b).toBe(false)
-    expect('style' in b).toBe(false)
+    expect(b).toEqual({ model: 'm', prompt: 'hi', size: '1024x1024', n: 2, seed: 7, negative_prompt: 'blurry' })
   })
 })
 

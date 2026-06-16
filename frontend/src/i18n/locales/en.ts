@@ -193,8 +193,6 @@ export default {
     },
     advanced: {
       toggle: 'Advanced',
-      quality: 'Quality',
-      style: 'Style',
       negativePrompt: 'Avoid',
       negativePromptHint: 'Describe what to keep out (optional)',
       seed: 'Seed',
@@ -285,18 +283,6 @@ export default {
       notifyTitle: 'TokenKey Studio',
       notifyEnabled: 'We will notify you when videos finish.',
       notifyDenied: 'Notifications are blocked in your browser.'
-    },
-    tiers: {
-      image: {
-        draft: { label: 'Draft', tagline: 'Fast · cheap · iterate', sample: 'A neon Tokyo alley at night, cinematic, shallow depth of field' },
-        standard: { label: 'Standard', tagline: 'Best balance', sample: 'A neon Tokyo alley at night, cinematic, shallow depth of field' },
-        ultra: { label: 'Ultra', tagline: 'Highest detail', sample: 'A neon Tokyo alley at night, cinematic, shallow depth of field, 35mm' }
-      },
-      video: {
-        fast: { label: 'Fast', tagline: 'Quick takes', sample: 'Neon Tokyo alley, slow push-in, rain, reflections' },
-        standard: { label: 'Standard', tagline: 'Balanced', sample: 'Neon Tokyo alley, slow push-in, rain, reflections' },
-        cinematic: { label: 'Cinematic', tagline: 'Film-grade', sample: 'Neon Tokyo alley, slow push-in, rain, reflections, cinematic' }
-      }
     }
   },
 
