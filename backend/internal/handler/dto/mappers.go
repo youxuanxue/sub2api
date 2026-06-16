@@ -150,12 +150,12 @@ func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
 		DefaultMappedModel:          g.DefaultMappedModel,
 		MessagesDispatchModelConfig: g.MessagesDispatchModelConfig,
 		ModelsListConfig:            g.ModelsListConfig,
-		SupportedModelScopes:        g.SupportedModelScopes,
-		AccountCount:                g.AccountCount,
-		ActiveAccountCount:          g.ActiveAccountCount,
-		RateLimitedAccountCount:     g.RateLimitedAccountCount,
-		SortOrder:                   g.SortOrder,
-		StickyRoutingMode:           g.StickyRoutingMode,
+		// SupportedModelScopes 现由内嵌 Group（groupFromServiceBase）填充。
+		AccountCount:            g.AccountCount,
+		ActiveAccountCount:      g.ActiveAccountCount,
+		RateLimitedAccountCount: g.RateLimitedAccountCount,
+		SortOrder:               g.SortOrder,
+		StickyRoutingMode:       g.StickyRoutingMode,
 	}
 	if len(g.AccountGroups) > 0 {
 		out.AccountGroups = make([]AccountGroup, 0, len(g.AccountGroups))
@@ -195,6 +195,7 @@ func groupFromServiceBase(g *service.Group) Group {
 		RPMLimit:                               g.RPMLimit,
 		MessagesCompactionEnabled:              g.MessagesCompactionEnabled,
 		MessagesCompactionInputTokensThreshold: g.MessagesCompactionInputTokensThreshold,
+		SupportedModelScopes:                   g.SupportedModelScopes,
 		CreatedAt:                              g.CreatedAt,
 		UpdatedAt:                              g.UpdatedAt,
 	}

@@ -125,6 +125,11 @@ type Group struct {
 	MessagesCompactionEnabled              *bool `json:"messages_compaction_enabled"`
 	MessagesCompactionInputTokensThreshold *int  `json:"messages_compaction_input_tokens_threshold"`
 
+	// 支持的模型系列（仅 antigravity 平台使用）。用户侧 keys 接口也需返回，供
+	// UseKeyModal 使用指南据此隐藏 gemini-only 分组的 Claude flavor（与后端
+	// /antigravity/v1/models 的 scope 过滤同源）。空 = 不限制。
+	SupportedModelScopes []string `json:"supported_model_scopes,omitempty"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -146,8 +151,8 @@ type AdminGroup struct {
 	MessagesDispatchModelConfig domain.OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config"`
 	ModelsListConfig            domain.GroupModelsListConfig             `json:"models_list_config"`
 
-	// 支持的模型系列（仅 antigravity 平台使用）
-	SupportedModelScopes    []string       `json:"supported_model_scopes"`
+	// 注：SupportedModelScopes 已上移到基础 Group（用户侧 keys DTO 也返回），
+	// AdminGroup 经内嵌 Group 继承，无需在此重复声明。
 	AccountGroups           []AccountGroup `json:"account_groups,omitempty"`
 	AccountCount            int64          `json:"account_count,omitempty"`
 	ActiveAccountCount      int64          `json:"active_account_count,omitempty"`
