@@ -191,6 +191,17 @@ commands = [
     "echo \"FEISHU_ENABLED=${FEISHU_ENABLED} FEISHU_WEBHOOK_PRESENT=${FEISHU_WEBHOOK_PRESENT} FEISHU_SECRET_PRESENT=${FEISHU_SECRET_PRESENT}\"",
     "if [ \"${FEISHU_ENABLED}\" != \"true\" ] || [ \"${FEISHU_WEBHOOK_PRESENT}\" != \"t\" ] || [ \"${FEISHU_SECRET_PRESENT}\" != \"t\" ]; then echo '[error] feishu config not fully applied' >&2; exit 1; fi",
     "echo FEISHU_SYNC_OK=1",
+    # Mirror webhook/secret into /var/lib/tokenkey/.env so the on-box disk-full
+    # Feishu alert (tokenkey-disk-metrics.sh) can read them when the app/DB is
+    # DOWN — which is exactly when a full disk strikes. The DB copy above feeds
+    # the in-app alert path; this .env copy feeds the independent on-box timer.
+    # Quoted heredoc => values pass through literally, never echoed.
+    "sudo sed -i '/^TOKENKEY_FEISHU_WEBHOOK_URL=/d;/^TOKENKEY_FEISHU_WEBHOOK_SECRET=/d' /var/lib/tokenkey/.env",
+    "sudo tee -a /var/lib/tokenkey/.env >/dev/null <<'EOENV'",
+    "TOKENKEY_FEISHU_WEBHOOK_URL=" + webhook,
+    "TOKENKEY_FEISHU_WEBHOOK_SECRET=" + secret,
+    "EOENV",
+    "echo ENV_FEISHU_SYNC_OK=1",
 ]
 print(json.dumps(commands))
 PY
