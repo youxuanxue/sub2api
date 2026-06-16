@@ -30,7 +30,7 @@
               <span class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-dark-800 dark:text-dark-300">{{ t(r.model.qualityBadgeKey) }}</span>
             </div>
             <div class="mt-1 flex items-center justify-between gap-2">
-              <span class="text-[12px] font-bold text-primary-700 dark:text-primary-300">{{ formatUsd(r.model.baseImagePrice || 0) }}{{ t('studio.image.perImageUnit') }}</span>
+              <span class="text-[12px] font-bold text-primary-700 dark:text-primary-300">{{ formatUsd(r.baseImagePrice || 0) }}{{ t('studio.image.perImageUnit') }}</span>
               <span class="text-[10px] text-gray-400 dark:text-dark-500">{{ t('studio.via', { vendor: r.model.vendorLabel }) }}</span>
             </div>
             <div class="mt-0.5 truncate font-mono text-[10px] text-gray-400 dark:text-dark-500" :title="r.servedId">{{ r.servedId }}</div>
@@ -76,28 +76,8 @@
             <button type="button" class="h-7 w-7 rounded-lg border border-gray-200 text-gray-600 hover:border-primary-300 disabled:opacity-40 dark:border-dark-600 dark:text-dark-300" :disabled="n >= IMAGE_N_MAX" @click="n = Math.min(IMAGE_N_MAX, n + 1)">+</button>
           </div>
         </div>
-
-        <!-- Advanced: only params the SELECTED model actually honors are rendered. -->
-        <template v-if="selected && selected.model.supportedParams.length">
-          <button
-            type="button"
-            class="mt-3 flex items-center gap-1 text-xs font-medium text-primary-600 dark:text-primary-300"
-            data-testid="studio-image-advanced-toggle"
-            @click="showAdvanced = !showAdvanced"
-          >
-            {{ t('studio.advanced.toggle') }} <span>{{ showAdvanced ? '▴' : '▾' }}</span>
-          </button>
-          <div v-if="showAdvanced" class="mt-2 space-y-3 rounded-lg border border-dashed border-gray-200 p-3 dark:border-dark-700">
-            <div v-if="supports('negativePrompt')">
-              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-dark-400">{{ t('studio.advanced.negativePrompt') }}</label>
-              <input v-model="negativePrompt" type="text" :placeholder="t('studio.advanced.negativePromptHint')" class="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-900 dark:border-dark-600 dark:bg-dark-950 dark:text-white" />
-            </div>
-            <div v-if="supports('seed')">
-              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-dark-400">{{ t('studio.advanced.seed') }}</label>
-              <input v-model.number="seed" type="number" :min="SEED_MIN" :max="SEED_MAX" :placeholder="t('studio.advanced.seedHint')" class="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-900 dark:border-dark-600 dark:bg-dark-950 dark:text-white" />
-            </div>
-          </div>
-        </template>
+        <!-- No Advanced panel for image: imagen / seedream adaptors honor no
+             tunable params beyond size + count (verified against new-api). -->
       </div>
     </div>
 
@@ -188,11 +168,9 @@ import {
   IMAGE_ASPECT_PRESETS,
   IMAGE_N_MIN,
   IMAGE_N_MAX,
-  SEED_MIN,
-  SEED_MAX,
   resolveAvailableModels,
   defaultModelId,
-  type StudioParam,
+  type MediaPriceMap,
 } from '@/constants/mediaTiers.tk'
 import {
   classifyImageBillingTier,
@@ -209,6 +187,7 @@ const props = defineProps<{
   apiKey: string
   gatewayBase: string
   availableIds: Set<string>
+  priceMap: MediaPriceMap
   balance: number
   userId: number | string
   rateMultiplier: number
@@ -218,10 +197,9 @@ const emit = defineEmits<{ (e: 'spent'): void }>()
 const { t } = useI18n()
 const library = useMediaLibrary(props.userId)
 
-const models = computed(() => resolveAvailableModels('image', props.availableIds))
+const models = computed(() => resolveAvailableModels('image', props.availableIds, props.priceMap))
 const selectedModelId = ref<string>('')
 const selected = computed(() => models.value.find((r) => r.model.modelId === selectedModelId.value) ?? null)
-const supports = (p: StudioParam): boolean => !!selected.value?.model.supportedParams.includes(p)
 
 const aspectId = ref<string>(IMAGE_ASPECT_PRESETS[0].id)
 const aspectPreset = computed(() => IMAGE_ASPECT_PRESETS.find((p) => p.id === aspectId.value) ?? IMAGE_ASPECT_PRESETS[0])
@@ -235,15 +213,10 @@ const sending = ref(false)
 const errorMessage = ref('')
 const errorCode = ref<StudioErrorCode | ''>('')
 
-// Advanced (optional; only sent when set). Smooth defaults: hit Generate works.
-const showAdvanced = ref(false)
-const seed = ref<number | null>(null)
-const negativePrompt = ref('')
-
 const estimate = computed(() => {
   if (!selected.value) return 0
   return estimateImageCost({
-    baseImagePrice: selected.value.model.baseImagePrice || 0,
+    baseImagePrice: selected.value.baseImagePrice || 0,
     size: aspectPreset.value.size,
     n: n.value,
     rateMultiplier: props.rateMultiplier,
@@ -255,7 +228,7 @@ const estimate = computed(() => {
 const holdEstimate = computed(() => {
   if (!selected.value) return 0
   return estimateImageHoldCost({
-    baseImagePrice: selected.value.model.baseImagePrice || 0,
+    baseImagePrice: selected.value.baseImagePrice || 0,
     n: n.value,
     rateMultiplier: props.rateMultiplier,
   })
@@ -266,7 +239,7 @@ const canGenerate = computed(
 )
 const formula = computed(() => {
   if (!selected.value) return ''
-  const base = formatUsd(selected.value.model.baseImagePrice || 0)
+  const base = formatUsd(selected.value.baseImagePrice || 0)
   return t('studio.image.formula', { base, tier: classifiedTier.value, mult: sizeMultiplier.value, n: n.value })
 })
 
@@ -309,15 +282,11 @@ async function generate(): Promise<void> {
       prompt: text,
       size: aspectPreset.value.size,
       n: n.value,
-      ...(supports('negativePrompt') && negativePrompt.value.trim()
-        ? { negative_prompt: negativePrompt.value.trim() }
-        : {}),
-      ...(supports('seed') && seed.value != null ? { seed: seed.value } : {}),
     })
     const items = extractImageItems(raw)
     if (!items.length) throw new Error(t('studio.image.noResult'))
     const perImage = estimateImageCost({
-      baseImagePrice: resolved.model.baseImagePrice || 0,
+      baseImagePrice: resolved.baseImagePrice || 0,
       size: aspectPreset.value.size,
       n: 1,
       rateMultiplier: props.rateMultiplier,

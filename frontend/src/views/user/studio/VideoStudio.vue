@@ -29,7 +29,7 @@
               <span class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-dark-800 dark:text-dark-300">{{ t(r.model.qualityBadgeKey) }}</span>
             </div>
             <div class="mt-1 flex items-center justify-between gap-2">
-              <span class="text-[12px] font-bold text-primary-700 dark:text-primary-300">{{ formatUsd(r.model.perSecond || 0) }}{{ t('studio.video.perSecondUnit') }}</span>
+              <span class="text-[12px] font-bold text-primary-700 dark:text-primary-300">{{ formatUsd(r.perSecond || 0) }}{{ t('studio.video.perSecondUnit') }}</span>
               <span class="text-[10px] text-gray-400 dark:text-dark-500">{{ t('studio.via', { vendor: r.model.vendorLabel }) }}</span>
             </div>
             <div class="mt-0.5 truncate font-mono text-[10px] text-gray-400 dark:text-dark-500" :title="r.servedId">{{ r.servedId }}</div>
@@ -104,12 +104,6 @@
             <div v-if="supports('firstFrameImage')">
               <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-dark-400">{{ t('studio.advanced.firstFrame') }}</label>
               <input v-model="firstFrameImage" type="text" :placeholder="t('studio.advanced.firstFrameHint')" class="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-900 dark:border-dark-600 dark:bg-dark-950 dark:text-white" />
-            </div>
-            <div v-if="supports('fps')">
-              <div class="mb-1 text-xs font-medium text-gray-600 dark:text-dark-400">{{ t('studio.advanced.fps') }}</div>
-              <div class="flex gap-2">
-                <button v-for="f in VIDEO_FPS_OPTIONS" :key="f" type="button" class="rounded-lg border px-3 py-1 text-xs font-medium transition" :class="fps === f ? 'border-primary-600 bg-primary-600 text-white' : 'border-gray-200 text-gray-600 dark:border-dark-600 dark:text-dark-300'" @click="fps = f">{{ f }}</button>
-              </div>
             </div>
             <div v-if="supports('seed')">
               <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-dark-400">{{ t('studio.advanced.seed') }}</label>
@@ -257,12 +251,12 @@ import {
   VIDEO_DURATION_MIN,
   VIDEO_DURATION_MAX,
   VIDEO_DURATION_DEFAULT,
-  VIDEO_FPS_OPTIONS,
   SEED_MIN,
   SEED_MAX,
   resolveAvailableModels,
   defaultModelId,
   type StudioParam,
+  type MediaPriceMap,
 } from '@/constants/mediaTiers.tk'
 import { estimateVideoCost, formatUsd } from '@/utils/mediaCostEstimate.tk'
 import { downloadMedia } from '@/utils/studioDownload.tk'
@@ -275,6 +269,7 @@ const props = defineProps<{
   apiKey: string
   gatewayBase: string
   availableIds: Set<string>
+  priceMap: MediaPriceMap
   balance: number
   userId: number | string
   keyId: number | null
@@ -286,7 +281,7 @@ const emit = defineEmits<{ (e: 'spent'): void }>()
 const { t } = useI18n()
 const library = useMediaLibrary(props.userId)
 
-const models = computed(() => resolveAvailableModels('video', props.availableIds))
+const models = computed(() => resolveAvailableModels('video', props.availableIds, props.priceMap))
 const selectedModelId = ref<string>('')
 const selected = computed(() => models.value.find((r) => r.model.modelId === selectedModelId.value) ?? null)
 const supports = (p: StudioParam): boolean => !!selected.value?.model.supportedParams.includes(p)
@@ -304,13 +299,12 @@ const lastEvent = ref('')
 const showAdvanced = ref(false)
 const seed = ref<number | null>(null)
 const negativePrompt = ref('')
-const fps = ref<number | null>(null)
 const firstFrameImage = ref('')
 
 const estimate = computed(() => {
   if (!selected.value) return 0
   return estimateVideoCost({
-    perSecond: selected.value.model.perSecond || 0,
+    perSecond: selected.value.perSecond || 0,
     seconds: duration.value,
     rateMultiplier: props.rateMultiplier,
   })
@@ -321,7 +315,7 @@ const canGenerate = computed(
 )
 const formula = computed(() => {
   if (!selected.value) return ''
-  return t('studio.video.formula', { rate: formatUsd(selected.value.model.perSecond || 0), seconds: duration.value })
+  return t('studio.video.formula', { rate: formatUsd(selected.value.perSecond || 0), seconds: duration.value })
 })
 
 const poll = useVideoTaskPoll({
@@ -402,7 +396,6 @@ async function generate(): Promise<void> {
         ? { negativePrompt: negativePrompt.value.trim() }
         : {}),
       ...(supports('seed') && seed.value != null ? { seed: seed.value } : {}),
-      ...(supports('fps') && fps.value != null ? { fps: fps.value } : {}),
       ...(supports('firstFrameImage') && firstFrameImage.value.trim()
         ? { image: firstFrameImage.value.trim() }
         : {}),

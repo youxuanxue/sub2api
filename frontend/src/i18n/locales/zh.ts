@@ -195,7 +195,6 @@ export default {
       negativePromptHint: '描述要避免的元素（可选）',
       seed: '随机种子',
       seedHint: '留空则随机',
-      fps: '帧率',
       firstFrame: '首帧图片（URL）',
       firstFrameHint: '粘贴一张图片 URL，作为视频首帧（可选）'
     },

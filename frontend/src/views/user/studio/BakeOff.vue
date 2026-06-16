@@ -53,7 +53,7 @@
             @click="toggleModel(r.model.modelId)"
           >
             {{ r.model.displayName }}
-            <span class="opacity-70">{{ modality === 'image' ? formatUsd(r.model.baseImagePrice || 0) + t('studio.image.perImageUnit') : formatUsd(r.model.perSecond || 0) + t('studio.video.perSecondUnit') }}</span>
+            <span class="opacity-70">{{ modality === 'image' ? formatUsd(r.baseImagePrice || 0) + t('studio.image.perImageUnit') : formatUsd(r.perSecond || 0) + t('studio.video.perSecondUnit') }}</span>
           </button>
         </div>
 
@@ -138,6 +138,7 @@ import {
   VIDEO_DURATION_DEFAULT,
   resolveAvailableModels,
   type StudioModality,
+  type MediaPriceMap,
 } from '@/constants/mediaTiers.tk'
 import { estimateImageCost, estimateImageHoldCost, estimateVideoCost, formatUsd } from '@/utils/mediaCostEstimate.tk'
 import { classifyGatewayError, studioErrorI18nKey, type StudioErrorCode } from '@/utils/studioGatewayError.tk'
@@ -149,6 +150,7 @@ const props = defineProps<{
   apiKey: string
   gatewayBase: string
   availableIds: Set<string>
+  priceMap: MediaPriceMap
   balance: number
   keyId: number | null
   keys: ApiKey[]
@@ -162,7 +164,7 @@ const MAX_PANELS = 4
 const DEFAULT_IMAGE_SIZE = '1024x1024'
 
 const modality = ref<StudioModality>('video')
-const models = computed(() => resolveAvailableModels(modality.value, props.availableIds))
+const models = computed(() => resolveAvailableModels(modality.value, props.availableIds, props.priceMap))
 const selectedModelIds = ref<string[]>([])
 const prompt = ref('')
 const duration = ref(VIDEO_DURATION_DEFAULT)
@@ -217,9 +219,9 @@ function selectedResolved() {
 const totalCost = computed(() =>
   selectedResolved().reduce((sum, r) => {
     if (modality.value === 'image') {
-      return sum + estimateImageCost({ baseImagePrice: r.model.baseImagePrice || 0, size: DEFAULT_IMAGE_SIZE, n: 1, rateMultiplier: props.rateMultiplier })
+      return sum + estimateImageCost({ baseImagePrice: r.baseImagePrice || 0, size: DEFAULT_IMAGE_SIZE, n: 1, rateMultiplier: props.rateMultiplier })
     }
-    return sum + estimateVideoCost({ perSecond: r.model.perSecond || 0, seconds: duration.value, rateMultiplier: props.rateMultiplier })
+    return sum + estimateVideoCost({ perSecond: r.perSecond || 0, seconds: duration.value, rateMultiplier: props.rateMultiplier })
   }, 0)
 )
 
@@ -227,9 +229,9 @@ const totalCost = computed(() =>
 const totalHold = computed(() =>
   selectedResolved().reduce((sum, r) => {
     if (modality.value === 'image') {
-      return sum + estimateImageHoldCost({ baseImagePrice: r.model.baseImagePrice || 0, n: 1, rateMultiplier: props.rateMultiplier })
+      return sum + estimateImageHoldCost({ baseImagePrice: r.baseImagePrice || 0, n: 1, rateMultiplier: props.rateMultiplier })
     }
-    return sum + estimateVideoCost({ perSecond: r.model.perSecond || 0, seconds: duration.value, rateMultiplier: props.rateMultiplier })
+    return sum + estimateVideoCost({ perSecond: r.perSecond || 0, seconds: duration.value, rateMultiplier: props.rateMultiplier })
   }, 0)
 )
 const canAfford = computed(() => totalHold.value <= props.balance)
@@ -274,8 +276,8 @@ async function run(): Promise<void> {
     vendorLabel: r.model.vendorLabel,
     cost:
       modality.value === 'image'
-        ? estimateImageCost({ baseImagePrice: r.model.baseImagePrice || 0, size: DEFAULT_IMAGE_SIZE, n: 1, rateMultiplier: props.rateMultiplier })
-        : estimateVideoCost({ perSecond: r.model.perSecond || 0, seconds: duration.value, rateMultiplier: props.rateMultiplier }),
+        ? estimateImageCost({ baseImagePrice: r.baseImagePrice || 0, size: DEFAULT_IMAGE_SIZE, n: 1, rateMultiplier: props.rateMultiplier })
+        : estimateVideoCost({ perSecond: r.perSecond || 0, seconds: duration.value, rateMultiplier: props.rateMultiplier }),
     state: 'processing',
   }))
 

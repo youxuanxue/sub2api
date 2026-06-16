@@ -23,14 +23,21 @@ const VOLC = 'VolcEngine'
 
 /**
  * True when this group's pool backs at least one media model of the modality —
- * i.e. the Studio tab is actually usable for a key whose group exposes
- * `availableIds`. Drives the modality-aware key picker (pickModalityKey).
+ * i.e. the Studio tab is usable for a key whose group exposes `availableIds`.
+ * Drives the modality-aware key picker (pickModalityKey), which runs across ALL
+ * the user's groups, so it is PRICE-AGNOSTIC by design: it must not require a
+ * per-group price-catalog fetch. /v1/models is already filtered to priced models
+ * upstream, so servable here implies priced for the per-key card resolver.
  */
 export function modalityHasTiers(
   modality: StudioModality,
   availableIds: ReadonlySet<string>
 ): boolean {
-  return resolveAvailableModels(modality, availableIds).length > 0
+  return MEDIA_MODELS.some(
+    (m) =>
+      m.modality === modality &&
+      [m.modelId, ...(m.aliasIds ?? [])].some((id) => availableIds.has(id))
+  )
 }
 
 /** One selectable key, reduced to what the modality-aware picker needs. */
@@ -131,18 +138,16 @@ export const IMAGE_N_MAX = 4
 
 /**
  * Advanced params the Studio can surface. Each is gated by a model's
- * `supportedParams` capability list so we NEVER render a control that the
- * selected model silently ignores (the "real & transparent" rule).
+ * `supportedParams` capability list so we NEVER render a control the selected
+ * model's UPSTREAM ADAPTOR silently ignores ("real & transparent"). Membership
+ * is verified against the new-api task/image adaptor request-builders, NOT
+ * assumed — e.g. imagen/seedream honor none; seedance drops negative_prompt;
+ * fps is honored by no adaptor (removed).
  */
-// Only params that ACTUALLY take effect for a shipped model are listed — we
-// never render a control that the selected model silently ignores. (quality /
-// style / resolution were dropped: no shipped model honors them today; add them
-// back here the day a model in MEDIA_MODELS actually does.)
 export type StudioParam =
-  | 'negativePrompt' // image+video: forwarded via Extra / metadata.negative_prompt
-  | 'seed' // image+video: forwarded via Extra / metadata.seed
-  | 'firstFrameImage' // video: image-to-video first frame (sent as `image`)
-  | 'fps' // video: metadata.fps (seedance honors)
+  | 'negativePrompt' // veo only: VeoParameters.NegativePrompt (gemini task adaptor)
+  | 'seed' // veo + seedance: VeoParameters.Seed / doubao requestPayload.Seed
+  | 'firstFrameImage' // veo + seedance: image-to-video first frame (sent as `image`)
 
 export type QualityBadge = 'draft' | 'standard' | 'ultra' | 'fast' | 'cinematic'
 
@@ -158,11 +163,10 @@ export interface MediaModel {
   /** Display-only vendor footnote, e.g. "Google Vertex" / "VolcEngine". */
   vendorLabel: string
   modality: StudioModality
-  /** USD per image at the 1K base tier (image only). */
-  baseImagePrice?: number
-  /** USD per second (video only). */
-  perSecond?: number
-  /** Advanced params that ACTUALLY take effect for this model (capability map). */
+  /**
+   * Advanced params whose upstream adaptor ACTUALLY reads them (capability map,
+   * verified against new-api adaptor code). Empty = no advanced controls.
+   */
   supportedParams: StudioParam[]
   /** Other ids that are the SAME model under a different name (dedup display). */
   aliasIds?: string[]
@@ -171,13 +175,16 @@ export interface MediaModel {
 }
 
 /**
- * Catalog of priced+servable media models, authored cheap → premium. Prices are
- * verified against backend/internal/service/tk_pricing_overlay.json and mirror
- * the same per-unit numbers the tier candidates used. The `availableIds ∩`
- * filter in resolveAvailableModels() hides any a given key-group can't serve.
+ * Static catalog of media models = display metadata + the verified capability
+ * map ONLY. Prices are NOT hardcoded here — they come live from the per-user
+ * pricing catalog (getMePricingCatalog, the same source #788 established), so a
+ * price change in the overlay can't drift. A model is shown only when it is BOTH
+ * in the key-group's GET /v1/models pool AND carries a live catalog price
+ * (priced ∩ servable — never a 400-on-submit footgun). modelId stays the billing
+ * key; displayName is cosmetic.
  */
 export const MEDIA_MODELS: MediaModel[] = [
-  // ── image (cheap → premium) ──
+  // ── image (imagen/seedream honor NO advanced params per adaptor) ──
   {
     modelId: 'imagen-4.0-fast-generate-001',
     displayName: 'Imagen 4 · Fast',
@@ -185,8 +192,7 @@ export const MEDIA_MODELS: MediaModel[] = [
     qualityBadgeKey: 'studio.badge.draft',
     vendorLabel: VERTEX,
     modality: 'image',
-    baseImagePrice: 0.02,
-    supportedParams: ['seed', 'negativePrompt'],
+    supportedParams: [],
   },
   {
     modelId: 'seedream-4-0-250828',
@@ -196,8 +202,7 @@ export const MEDIA_MODELS: MediaModel[] = [
     qualityBadgeKey: 'studio.badge.standard',
     vendorLabel: VOLC,
     modality: 'image',
-    baseImagePrice: 0.029850746268656716,
-    supportedParams: ['seed', 'negativePrompt'],
+    supportedParams: [],
   },
   {
     modelId: 'imagen-4.0-generate-001',
@@ -206,8 +211,7 @@ export const MEDIA_MODELS: MediaModel[] = [
     qualityBadgeKey: 'studio.badge.standard',
     vendorLabel: VERTEX,
     modality: 'image',
-    baseImagePrice: 0.04,
-    supportedParams: ['seed', 'negativePrompt'],
+    supportedParams: [],
   },
   {
     modelId: 'imagen-4.0-ultra-generate-001',
@@ -216,14 +220,13 @@ export const MEDIA_MODELS: MediaModel[] = [
     qualityBadgeKey: 'studio.badge.ultra',
     vendorLabel: VERTEX,
     modality: 'image',
-    baseImagePrice: 0.06,
-    supportedParams: ['seed', 'negativePrompt'],
+    supportedParams: [],
   },
   // gpt-image-* is deliberately ABSENT: it needs a type=apikey OpenAI account
   // (OAuth subscriptions 502). If a future probe adds an apikey-backed group,
   // add it here with needsApikeyAccount: true.
 
-  // ── video (cheap → premium) ──
+  // ── video ──
   {
     modelId: 'seedance-1-0-pro-250528',
     aliasIds: ['doubao-seedance-1-0-pro-250528'],
@@ -232,8 +235,8 @@ export const MEDIA_MODELS: MediaModel[] = [
     qualityBadgeKey: 'studio.badge.standard',
     vendorLabel: VOLC,
     modality: 'video',
-    perSecond: 0.10880597014925374,
-    supportedParams: ['seed', 'negativePrompt', 'fps', 'firstFrameImage'],
+    // doubao adaptor reads Seed + first-frame image; it has NO NegativePrompt field.
+    supportedParams: ['seed', 'firstFrameImage'],
   },
   {
     modelId: 'doubao-seedance-2-0-fast-260128',
@@ -242,8 +245,7 @@ export const MEDIA_MODELS: MediaModel[] = [
     qualityBadgeKey: 'studio.badge.fast',
     vendorLabel: VOLC,
     modality: 'video',
-    perSecond: 0.11940298507462686,
-    supportedParams: ['seed', 'negativePrompt', 'fps', 'firstFrameImage'],
+    supportedParams: ['seed', 'firstFrameImage'],
   },
   {
     modelId: 'veo-3.1-fast-generate-001',
@@ -252,8 +254,8 @@ export const MEDIA_MODELS: MediaModel[] = [
     qualityBadgeKey: 'studio.badge.fast',
     vendorLabel: VERTEX,
     modality: 'video',
-    perSecond: 0.15,
-    supportedParams: ['negativePrompt', 'firstFrameImage'],
+    // VeoParameters honors NegativePrompt + Seed; first-frame image supported.
+    supportedParams: ['negativePrompt', 'seed', 'firstFrameImage'],
   },
   {
     modelId: 'veo-3.1-generate-001',
@@ -262,38 +264,52 @@ export const MEDIA_MODELS: MediaModel[] = [
     qualityBadgeKey: 'studio.badge.cinematic',
     vendorLabel: VERTEX,
     modality: 'video',
-    perSecond: 0.4,
-    supportedParams: ['negativePrompt', 'firstFrameImage'],
+    supportedParams: ['negativePrompt', 'seed', 'firstFrameImage'],
   },
 ]
+
+/** Live per-model price from the user's pricing catalog (getMePricingCatalog). */
+export interface MediaPrice {
+  /** USD per image at the 1K base tier (image models). */
+  perImage?: number
+  /** USD per second (video models). */
+  perSecond?: number
+}
+export type MediaPriceMap = ReadonlyMap<string, MediaPrice>
 
 export interface ResolvedModel {
   model: MediaModel
   /** The concrete id present in availableIds (primary or an alias). Billing key. */
   servedId: string
+  /** Live price for this model (from the catalog), per modality. */
+  baseImagePrice?: number
+  perSecond?: number
 }
 
 /**
- * Resolve the models the user can actually use for `modality`: a model is shown
- * only when its primary OR an alias id is in `availableIds` (priced ∩ servable).
- * Sorted cheap → premium. Mirrors resolveTier's filter at model granularity.
+ * Resolve the models the user can actually use for `modality`: shown only when
+ * (a) its primary OR an alias id is in `availableIds` (servable) AND (b) the live
+ * `priceMap` has a price for it (priced) — priced ∩ servable, never a footgun.
+ * Sorted cheap → premium.
  */
 export function resolveAvailableModels(
   modality: StudioModality,
-  availableIds: ReadonlySet<string>
+  availableIds: ReadonlySet<string>,
+  priceMap: MediaPriceMap
 ): ResolvedModel[] {
   const out: ResolvedModel[] = []
   for (const model of MEDIA_MODELS) {
     if (model.modality !== modality) continue
     const ids = [model.modelId, ...(model.aliasIds ?? [])]
     const servedId = ids.find((id) => availableIds.has(id))
-    if (servedId) out.push({ model, servedId })
+    if (!servedId) continue
+    const price = ids.map((id) => priceMap.get(id)).find((p) => p != null)
+    const baseImagePrice = modality === 'image' ? price?.perImage : undefined
+    const perSecond = modality === 'video' ? price?.perSecond : undefined
+    if (baseImagePrice == null && perSecond == null) continue // no live price → hide
+    out.push({ model, servedId, baseImagePrice, perSecond })
   }
-  out.sort(
-    (a, b) =>
-      (a.model.baseImagePrice ?? a.model.perSecond ?? 0) -
-      (b.model.baseImagePrice ?? b.model.perSecond ?? 0)
-  )
+  out.sort((a, b) => (a.baseImagePrice ?? a.perSecond ?? 0) - (b.baseImagePrice ?? b.perSecond ?? 0))
   return out
 }
 
@@ -306,8 +322,6 @@ export function defaultModelId(models: readonly ResolvedModel[]): string | null 
   return safe ? safe.model.modelId : null
 }
 
-/** Advanced param bounds + recommended defaults (smooth: hit Generate works). */
+/** Advanced param bounds. */
 export const SEED_MIN = 0
 export const SEED_MAX = 2147483647
-export const VIDEO_FPS_OPTIONS = [16, 24] as const
-export const VIDEO_FPS_DEFAULT = 24

@@ -197,7 +197,6 @@ export default {
       negativePromptHint: 'Describe what to keep out (optional)',
       seed: 'Seed',
       seedHint: 'Leave blank for random',
-      fps: 'Frame rate',
       firstFrame: 'First frame image (URL)',
       firstFrameHint: 'Paste an image URL to use as the first frame (optional)'
     },
