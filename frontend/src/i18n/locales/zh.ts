@@ -1044,6 +1044,19 @@ export default {
       copy: '复制',
       copied: '已复制',
       note: '这些环境变量将在当前终端会话中生效。如需永久配置，请将其添加到 ~/.bashrc、~/.zshrc 或相应的配置文件中。',
+      modelLabel: '模型',
+      baseUrlLabel: '地址',
+      keyLabel: '密钥',
+      reveal: '显示',
+      hide: '隐藏',
+      testKey: '测试密钥',
+      testing: '测试中…',
+      testModelOk: '模型可用，配置正确',
+      testKeyValid: '密钥有效（请在 Claude Code 内使用）',
+      modelsLoading: '正在加载该密钥可服务的模型…',
+      modelsEmpty: '未能加载可服务模型清单，可在下方配置中手动填写模型名',
+      ccOnlyWarning:
+        '此分组仅允许 Claude Code 客户端（claude-cli），且仅 /v1/messages。curl / Python / OpenCode 等会被网关以 403 拒绝。',
       noGroupTitle: '请先分配分组',
       noGroupDescription:
         '此 API 密钥尚未分配分组，请先在密钥列表中点击分组列进行分配，然后才能查看使用配置。',
@@ -1059,6 +1072,8 @@ export default {
         geminiCli: 'Gemini CLI',
         codexCli: 'Codex CLI',
         codexCliWs: 'Codex CLI (WebSocket)',
+        curl: 'cURL',
+        python: 'Python',
         opencode: 'OpenCode'
       },
       claudeCode: {
@@ -1079,7 +1094,6 @@ export default {
       gemini: {
         description:
           '将以下环境变量添加到您的终端配置文件或直接在终端中运行，以配置 Gemini CLI 访问。',
-        modelComment: '如果你有 Gemini 3 权限可以填：gemini-3-pro-preview',
         note: '这些环境变量将在当前终端会话中生效。如需永久配置，请将其添加到 ~/.bashrc、~/.zshrc 或相应的配置文件中。'
       },
       opencode: {

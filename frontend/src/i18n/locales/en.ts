@@ -1048,6 +1048,19 @@ export default {
       copy: 'Copy',
       copied: 'Copied',
       note: 'These environment variables will be active in the current terminal session. For permanent configuration, add them to ~/.bashrc, ~/.zshrc, or the appropriate configuration file.',
+      modelLabel: 'Model',
+      baseUrlLabel: 'Base URL',
+      keyLabel: 'API Key',
+      reveal: 'Show',
+      hide: 'Hide',
+      testKey: 'Test key',
+      testing: 'Testing…',
+      testModelOk: 'Model reachable — config is correct',
+      testKeyValid: 'Key valid (use it inside Claude Code)',
+      modelsLoading: 'Loading the models this key can serve…',
+      modelsEmpty: 'Could not load the servable model list; you can type a model name manually in the config below',
+      ccOnlyWarning:
+        'This group only accepts Claude Code clients (claude-cli) and only /v1/messages. curl / Python / OpenCode and the like are rejected by the gateway with 403.',
       noGroupTitle: 'Please assign a group first',
       noGroupDescription: 'This API key has not been assigned to a group. Please click the group column in the key list to assign one before viewing the configuration.',
       openai: {
@@ -1061,6 +1074,8 @@ export default {
         geminiCli: 'Gemini CLI',
         codexCli: 'Codex CLI',
         codexCliWs: 'Codex CLI (WebSocket)',
+        curl: 'cURL',
+        python: 'Python',
         opencode: 'OpenCode',
       },
       claudeCode: {
@@ -1078,7 +1093,6 @@ export default {
       },
       gemini: {
         description: 'Add the following environment variables to your terminal profile or run directly in terminal to configure Gemini CLI access.',
-        modelComment: 'If you have Gemini 3 access, you can use: gemini-3-pro-preview',
         note: 'These environment variables will be active in the current terminal session. For permanent configuration, add them to ~/.bashrc, ~/.zshrc, or the appropriate configuration file.',
       },
       opencode: {

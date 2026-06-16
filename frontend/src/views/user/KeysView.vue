@@ -927,8 +927,10 @@
     <UseKeyModal
       :show="showUseKeyModal"
       :api-key="selectedKey?.key || ''"
+      :api-key-id="selectedKey?.id ?? null"
       :base-url="publicSettings?.api_base_url || ''"
       :platform="selectedKey?.group?.platform || null"
+      :claude-code-only="selectedKey?.group?.claude_code_only || false"
       :allow-messages-dispatch="selectedKey?.group?.allow_messages_dispatch || false"
       :supported-model-scopes="selectedKey?.group?.supported_model_scopes"
       @close="closeUseKeyModal"
