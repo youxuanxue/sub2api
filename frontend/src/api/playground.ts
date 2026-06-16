@@ -162,6 +162,12 @@ export interface ImageGenerationRequest {
   size?: string
   /** number of images (1-4); backend bills per delivered image. Omit → upstream default (1). */
   n?: number
+  /** Advanced (optional, only sent when set; honored by native channels, no TK price delta). */
+  quality?: string
+  style?: string
+  seed?: number
+  negative_prompt?: string
+  response_format?: 'b64_json' | 'url'
 }
 
 /** Image generation can run well past a minute upstream. */
@@ -177,6 +183,12 @@ export async function gatewayImageGenerations(
   const payload: Record<string, unknown> = { model: body.model, prompt: body.prompt }
   if (body.size) payload.size = body.size
   if (body.n && body.n > 0) payload.n = body.n
+  // Advanced passthrough — only send fields the user actually set.
+  if (body.quality) payload.quality = body.quality
+  if (body.style) payload.style = body.style
+  if (typeof body.seed === 'number') payload.seed = body.seed
+  if (body.negative_prompt) payload.negative_prompt = body.negative_prompt
+  if (body.response_format) payload.response_format = body.response_format
   return gatewayRequestJSON(
     apiKey,
     url,
@@ -196,6 +208,17 @@ export interface VideoGenerationRequest {
    * gateway passes the body through; the adaptor decides whether to honor it.
    */
   aspectRatio?: string
+  /**
+   * Advanced (optional, only sent when set). seed/negativePrompt/fps/resolution
+   * ride the upstream `metadata.*` catch-all (forwarded verbatim per channel);
+   * `image` is a first-frame image-to-video reference sent top-level. We never
+   * send `video_url` — the backend rejects video input as unpriced.
+   */
+  seed?: number
+  negativePrompt?: string
+  fps?: number
+  resolution?: string
+  image?: string
 }
 
 export async function gatewayVideoSubmit(
@@ -208,6 +231,13 @@ export async function gatewayVideoSubmit(
   const payload: Record<string, unknown> = { model: body.model, prompt: body.prompt }
   if (body.duration) payload.duration = body.duration
   if (body.aspectRatio) payload.aspect_ratio = body.aspectRatio
+  if (body.image) payload.image = body.image
+  const metadata: Record<string, unknown> = {}
+  if (typeof body.seed === 'number') metadata.seed = body.seed
+  if (body.negativePrompt) metadata.negative_prompt = body.negativePrompt
+  if (typeof body.fps === 'number') metadata.fps = body.fps
+  if (body.resolution) metadata.resolution = body.resolution
+  if (Object.keys(metadata).length > 0) payload.metadata = metadata
   return gatewayRequestJSON(
     apiKey,
     url,

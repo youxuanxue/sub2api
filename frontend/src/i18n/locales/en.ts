@@ -166,7 +166,7 @@ export default {
   // Media Studio (image / video generation) — TK
   studio: {
     title: 'Studio',
-    subtitle: 'Generate images and video across every platform — one key, the price on the button, results that play right here.',
+    subtitle: "Turn what's in your head into images and video you can watch.",
     balance: 'Balance',
     apiKey: 'API Key',
     pickKeyPlaceholder: 'Select an API key…',
@@ -183,6 +183,26 @@ export default {
     viewPricing: 'See pricing',
     via: 'via {vendor}',
     keyNoModality: 'no models for this mode',
+    needsApikeyAccount: 'Needs an API-key account',
+    badge: {
+      draft: 'Draft',
+      standard: 'Standard',
+      ultra: 'Ultra',
+      fast: 'Fast',
+      cinematic: 'Cinematic'
+    },
+    advanced: {
+      toggle: 'Advanced',
+      quality: 'Quality',
+      style: 'Style',
+      negativePrompt: 'Avoid',
+      negativePromptHint: 'Describe what to keep out (optional)',
+      seed: 'Seed',
+      seedHint: 'Leave blank for random',
+      fps: 'Frame rate',
+      firstFrame: 'First frame image (URL)',
+      firstFrameHint: 'Paste an image URL to use as the first frame (optional)'
+    },
     bakeoff: {
       hint: 'One prompt, several models side by side — each with its real price and speed.',
       needTwo: 'Need at least two priced models in this group to compare.',
@@ -211,8 +231,9 @@ export default {
       generic: 'Generation failed. Please try again.'
     },
     image: {
-      tierLabel: 'Quality tier',
-      tierEmpty: 'No image models are available for this group yet.',
+      modelLabel: 'Model',
+      modelEmpty: 'No image models are available for this group yet.',
+      samplePrompt: 'A neon Tokyo alley at night, cinematic, shallow depth of field',
       perImageUnit: ' /image',
       promptPlaceholder: 'Describe the image…',
       aspectLabel: 'Aspect',
@@ -230,8 +251,9 @@ export default {
       formula: '{base} × {tier} ×{mult} × {n}'
     },
     video: {
-      tierLabel: 'Quality tier',
-      tierEmpty: 'No video models are available for this group yet.',
+      modelLabel: 'Model',
+      modelEmpty: 'No video models are available for this group yet.',
+      samplePrompt: 'A neon Tokyo alley, slow push-in, rain, reflections, cinematic',
       perSecondUnit: ' /s',
       promptPlaceholder: 'Describe the video…',
       duration: 'Duration',

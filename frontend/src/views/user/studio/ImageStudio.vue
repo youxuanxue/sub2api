@@ -2,37 +2,44 @@
   <div class="grid grid-cols-1 gap-5 lg:grid-cols-[340px_1fr_250px]">
     <!-- LEFT: orchestration -->
     <div class="space-y-4">
-      <div v-if="tiers.length === 0" class="rounded-xl border border-dashed border-gray-300 bg-white/60 p-6 text-center text-sm text-gray-500 dark:border-dark-700 dark:bg-dark-900/40 dark:text-dark-400">
-        {{ t('studio.image.tierEmpty') }}
+      <div v-if="models.length === 0" class="rounded-xl border border-dashed border-gray-300 bg-white/60 p-6 text-center text-sm text-gray-500 dark:border-dark-700 dark:bg-dark-900/40 dark:text-dark-400">
+        {{ t('studio.image.modelEmpty') }}
         <router-link class="mt-1 block font-medium text-primary-600 underline dark:text-primary-400" to="/pricing">
           {{ t('studio.viewPricing') }}
         </router-link>
       </div>
 
+      <!-- Transparent MODEL picker: the actual model is the choice, shown humanely
+           (friendly name + price + vendor + raw id subtext + quality badge). -->
       <div v-else class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-dark-700 dark:bg-dark-900">
-        <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-dark-500">{{ t('studio.image.tierLabel') }}</div>
-        <div class="grid grid-cols-3 gap-2">
+        <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-dark-500">{{ t('studio.image.modelLabel') }}</div>
+        <div class="space-y-2">
           <button
-            v-for="r in tiers"
-            :key="r.tier.id"
+            v-for="r in models"
+            :key="r.model.modelId"
             type="button"
-            class="rounded-xl border p-2.5 text-left transition"
-            :class="selectedTierId === r.tier.id
+            class="w-full rounded-xl border p-3 text-left transition"
+            :class="selectedModelId === r.model.modelId
               ? 'border-primary-500 bg-primary-50 ring-2 ring-primary-500/30 dark:border-primary-500 dark:bg-primary-950/40'
               : 'border-gray-200 hover:border-primary-300 dark:border-dark-600'"
-            @click="selectTier(r.tier.id)"
+            data-testid="studio-image-model"
+            @click="selectedModelId = r.model.modelId"
           >
-            <div class="text-[13px] font-semibold text-gray-900 dark:text-white">{{ t(r.tier.labelKey) }}</div>
-            <div class="text-[11px] text-gray-500 dark:text-dark-400">{{ t(r.tier.taglineKey) }}</div>
-            <div class="mt-1 text-[12px] font-bold text-primary-700 dark:text-primary-300">
-              {{ formatUsd(r.candidate.baseImagePrice || 0) }}{{ t('studio.image.perImageUnit') }}
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-[13px] font-semibold text-gray-900 dark:text-white">{{ r.model.displayName }}</span>
+              <span class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-dark-800 dark:text-dark-300">{{ t(r.model.qualityBadgeKey) }}</span>
             </div>
-            <div class="text-[10px] text-gray-400 dark:text-dark-500">{{ t('studio.via', { vendor: r.candidate.vendorLabel }) }}</div>
+            <div class="mt-1 flex items-center justify-between gap-2">
+              <span class="text-[12px] font-bold text-primary-700 dark:text-primary-300">{{ formatUsd(r.model.baseImagePrice || 0) }}{{ t('studio.image.perImageUnit') }}</span>
+              <span class="text-[10px] text-gray-400 dark:text-dark-500">{{ t('studio.via', { vendor: r.model.vendorLabel }) }}</span>
+            </div>
+            <div class="mt-0.5 truncate font-mono text-[10px] text-gray-300 dark:text-dark-600" :title="r.servedId">{{ r.servedId }}</div>
+            <div v-if="r.model.needsApikeyAccount" class="mt-1 text-[10px] font-medium text-amber-600 dark:text-amber-400">{{ t('studio.needsApikeyAccount') }}</div>
           </button>
         </div>
       </div>
 
-      <div v-if="tiers.length" class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-dark-700 dark:bg-dark-900">
+      <div v-if="models.length" class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-dark-700 dark:bg-dark-900">
         <textarea
           v-model="prompt"
           rows="3"
@@ -69,6 +76,40 @@
             <button type="button" class="h-7 w-7 rounded-lg border border-gray-200 text-gray-600 hover:border-primary-300 disabled:opacity-40 dark:border-dark-600 dark:text-dark-300" :disabled="n >= IMAGE_N_MAX" @click="n = Math.min(IMAGE_N_MAX, n + 1)">+</button>
           </div>
         </div>
+
+        <!-- Advanced: only params the SELECTED model actually honors are rendered. -->
+        <template v-if="selected && selected.model.supportedParams.length">
+          <button
+            type="button"
+            class="mt-3 flex items-center gap-1 text-xs font-medium text-primary-600 dark:text-primary-300"
+            data-testid="studio-image-advanced-toggle"
+            @click="showAdvanced = !showAdvanced"
+          >
+            {{ t('studio.advanced.toggle') }} <span>{{ showAdvanced ? '▴' : '▾' }}</span>
+          </button>
+          <div v-if="showAdvanced" class="mt-2 space-y-3 rounded-lg border border-dashed border-gray-200 p-3 dark:border-dark-700">
+            <div v-if="supports('quality')">
+              <div class="mb-1 text-xs font-medium text-gray-600 dark:text-dark-400">{{ t('studio.advanced.quality') }}</div>
+              <div class="flex gap-2">
+                <button v-for="q in IMAGE_QUALITY_OPTIONS" :key="q" type="button" class="rounded-lg border px-3 py-1 text-xs font-medium transition" :class="quality === q ? 'border-primary-600 bg-primary-600 text-white' : 'border-gray-200 text-gray-600 dark:border-dark-600 dark:text-dark-300'" @click="quality = q">{{ q }}</button>
+              </div>
+            </div>
+            <div v-if="supports('style')">
+              <div class="mb-1 text-xs font-medium text-gray-600 dark:text-dark-400">{{ t('studio.advanced.style') }}</div>
+              <div class="flex gap-2">
+                <button v-for="s in IMAGE_STYLE_OPTIONS" :key="s" type="button" class="rounded-lg border px-3 py-1 text-xs font-medium transition" :class="style === s ? 'border-primary-600 bg-primary-600 text-white' : 'border-gray-200 text-gray-600 dark:border-dark-600 dark:text-dark-300'" @click="style = s">{{ s }}</button>
+              </div>
+            </div>
+            <div v-if="supports('negativePrompt')">
+              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-dark-400">{{ t('studio.advanced.negativePrompt') }}</label>
+              <input v-model="negativePrompt" type="text" :placeholder="t('studio.advanced.negativePromptHint')" class="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-900 dark:border-dark-600 dark:bg-dark-950 dark:text-white" />
+            </div>
+            <div v-if="supports('seed')">
+              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-dark-400">{{ t('studio.advanced.seed') }}</label>
+              <input v-model.number="seed" type="number" :min="SEED_MIN" :max="SEED_MAX" :placeholder="t('studio.advanced.seedHint')" class="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-900 dark:border-dark-600 dark:bg-dark-950 dark:text-white" />
+            </div>
+          </div>
+        </template>
       </div>
     </div>
 
@@ -107,8 +148,8 @@
     </div>
 
     <!-- RIGHT: cost panel + button (the spine). Hidden when the group serves no
-         image tier — no point showing a $0 panel and a dead Generate button. -->
-    <div v-if="tiers.length" class="space-y-4">
+         image model — no point showing a $0 panel and a dead Generate button. -->
+    <div v-if="models.length" class="space-y-4">
       <div class="rounded-xl border border-primary-200 bg-primary-50/40 p-4 shadow-sm dark:border-primary-900/40 dark:bg-primary-950/30">
         <div class="text-xs font-semibold uppercase tracking-wide text-primary-700 dark:text-primary-300">{{ t('studio.cost.thisGeneration') }}</div>
         <div class="mt-2 font-mono text-[12px] text-gray-600 dark:text-dark-300">{{ formula }}</div>
@@ -159,7 +200,13 @@ import {
   IMAGE_ASPECT_PRESETS,
   IMAGE_N_MIN,
   IMAGE_N_MAX,
-  resolveAvailableTiers,
+  IMAGE_QUALITY_OPTIONS,
+  IMAGE_STYLE_OPTIONS,
+  SEED_MIN,
+  SEED_MAX,
+  resolveAvailableModels,
+  defaultModelId,
+  type StudioParam,
 } from '@/constants/mediaTiers.tk'
 import {
   classifyImageBillingTier,
@@ -185,9 +232,10 @@ const emit = defineEmits<{ (e: 'spent'): void }>()
 const { t } = useI18n()
 const library = useMediaLibrary(props.userId)
 
-const tiers = computed(() => resolveAvailableTiers('image', props.availableIds))
-const selectedTierId = ref<string>('')
-const selected = computed(() => tiers.value.find((r) => r.tier.id === selectedTierId.value) ?? null)
+const models = computed(() => resolveAvailableModels('image', props.availableIds))
+const selectedModelId = ref<string>('')
+const selected = computed(() => models.value.find((r) => r.model.modelId === selectedModelId.value) ?? null)
+const supports = (p: StudioParam): boolean => !!selected.value?.model.supportedParams.includes(p)
 
 const aspectId = ref<string>(IMAGE_ASPECT_PRESETS[0].id)
 const aspectPreset = computed(() => IMAGE_ASPECT_PRESETS.find((p) => p.id === aspectId.value) ?? IMAGE_ASPECT_PRESETS[0])
@@ -201,10 +249,17 @@ const sending = ref(false)
 const errorMessage = ref('')
 const errorCode = ref<StudioErrorCode | ''>('')
 
+// Advanced (optional; only sent when set). Smooth defaults: hit Generate works.
+const showAdvanced = ref(false)
+const quality = ref<string>('standard')
+const style = ref<string>('vivid')
+const seed = ref<number | null>(null)
+const negativePrompt = ref('')
+
 const estimate = computed(() => {
   if (!selected.value) return 0
   return estimateImageCost({
-    baseImagePrice: selected.value.candidate.baseImagePrice || 0,
+    baseImagePrice: selected.value.model.baseImagePrice || 0,
     size: aspectPreset.value.size,
     n: n.value,
     rateMultiplier: props.rateMultiplier,
@@ -216,7 +271,7 @@ const estimate = computed(() => {
 const holdEstimate = computed(() => {
   if (!selected.value) return 0
   return estimateImageHoldCost({
-    baseImagePrice: selected.value.candidate.baseImagePrice || 0,
+    baseImagePrice: selected.value.model.baseImagePrice || 0,
     n: n.value,
     rateMultiplier: props.rateMultiplier,
   })
@@ -227,29 +282,21 @@ const canGenerate = computed(
 )
 const formula = computed(() => {
   if (!selected.value) return ''
-  const base = formatUsd(selected.value.candidate.baseImagePrice || 0)
+  const base = formatUsd(selected.value.model.baseImagePrice || 0)
   return t('studio.image.formula', { base, tier: classifiedTier.value, mult: sizeMultiplier.value, n: n.value })
 })
 
-function selectTier(id: string): void {
-  selectedTierId.value = id
-}
-
 function applySamplePrompt(): void {
   if (userEditedPrompt.value) return
-  if (selected.value) prompt.value = t(selected.value.tier.samplePromptKey)
+  prompt.value = t('studio.image.samplePrompt')
 }
 
-// Pick the first tier once tiers resolve; refresh sample prompt on tier change.
+// Pick the cheapest non-footgun model once models resolve.
 watch(
-  tiers,
+  models,
   (list) => {
-    if (!list.length) {
-      selectedTierId.value = ''
-      return
-    }
-    if (!list.some((r) => r.tier.id === selectedTierId.value)) {
-      selectedTierId.value = list[0].tier.id
+    if (!list.some((r) => r.model.modelId === selectedModelId.value)) {
+      selectedModelId.value = defaultModelId(list) ?? ''
     }
   },
   { immediate: true }
@@ -274,15 +321,21 @@ async function generate(): Promise<void> {
   sending.value = true
   try {
     const raw = await gatewayImageGenerations(props.apiKey, props.gatewayBase, {
-      model: resolved.candidate.modelId,
+      model: resolved.servedId,
       prompt: text,
       size: aspectPreset.value.size,
       n: n.value,
+      ...(supports('quality') && quality.value !== 'standard' ? { quality: quality.value } : {}),
+      ...(supports('style') ? { style: style.value } : {}),
+      ...(supports('negativePrompt') && negativePrompt.value.trim()
+        ? { negative_prompt: negativePrompt.value.trim() }
+        : {}),
+      ...(supports('seed') && seed.value != null ? { seed: seed.value } : {}),
     })
     const items = extractImageItems(raw)
     if (!items.length) throw new Error(t('studio.image.noResult'))
     const perImage = estimateImageCost({
-      baseImagePrice: resolved.candidate.baseImagePrice || 0,
+      baseImagePrice: resolved.model.baseImagePrice || 0,
       size: aspectPreset.value.size,
       n: 1,
       rateMultiplier: props.rateMultiplier,
@@ -293,8 +346,8 @@ async function generate(): Promise<void> {
       src: it.src,
       prompt: text,
       revisedPrompt: it.revisedPrompt,
-      model: resolved.candidate.modelId,
-      vendorLabel: resolved.candidate.vendorLabel,
+      model: resolved.servedId,
+      vendorLabel: resolved.model.vendorLabel,
       size: aspectPreset.value.size,
       cost: perImage,
       ts,

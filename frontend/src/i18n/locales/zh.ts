@@ -164,7 +164,7 @@ export default {
   // 媒体工作室（图片 / 视频生成）— TK
   studio: {
     title: '工作室',
-    subtitle: '跨平台生成图片与视频——一把 key，价格印在按钮上，结果在页面里播放出来。',
+    subtitle: '把脑子里的画面，变成能播放的图片和视频。',
     balance: '余额',
     apiKey: 'API 密钥',
     pickKeyPlaceholder: '选择一个 API 密钥…',
@@ -181,6 +181,26 @@ export default {
     viewPricing: '查看价格',
     via: '经 {vendor}',
     keyNoModality: '此模式无可用模型',
+    needsApikeyAccount: '需要 apikey 类型账号',
+    badge: {
+      draft: '草稿',
+      standard: '标准',
+      ultra: '极致',
+      fast: '快速',
+      cinematic: '电影级'
+    },
+    advanced: {
+      toggle: '高级',
+      quality: '质量',
+      style: '风格',
+      negativePrompt: '不要出现',
+      negativePromptHint: '描述要避免的元素（可选）',
+      seed: '随机种子',
+      seedHint: '留空则随机',
+      fps: '帧率',
+      firstFrame: '首帧图片（URL）',
+      firstFrameHint: '粘贴一张图片 URL，作为视频首帧（可选）'
+    },
     bakeoff: {
       hint: '一条 prompt，多个模型并排出片——各自带真实价格和速度。',
       needTwo: '该分组至少需要两个已定价模型才能对比。',
@@ -209,8 +229,9 @@ export default {
       generic: '生成失败，请重试。'
     },
     image: {
-      tierLabel: '质量档位',
-      tierEmpty: '当前分组暂无可用的图片模型。',
+      modelLabel: '模型',
+      modelEmpty: '当前分组暂无可用的图片模型。',
+      samplePrompt: '东京雨夜的霓虹小巷，电影感，浅景深',
       perImageUnit: ' /张',
       promptPlaceholder: '描述你想要的图片…',
       aspectLabel: '画幅',
@@ -228,8 +249,9 @@ export default {
       formula: '{base} × {tier} ×{mult} × {n}'
     },
     video: {
-      tierLabel: '质量档位',
-      tierEmpty: '当前分组暂无可用的视频模型。',
+      modelLabel: '模型',
+      modelEmpty: '当前分组暂无可用的视频模型。',
+      samplePrompt: '霓虹东京小巷，慢推镜头，雨，反射光，电影感',
       perSecondUnit: ' /秒',
       promptPlaceholder: '描述你想要的视频…',
       duration: '时长',
