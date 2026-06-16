@@ -510,6 +510,74 @@ func mustInsertQARecordWithBlob(t *testing.T, ctx context.Context, client *dbent
 	require.NoError(t, err)
 }
 
+// The traj v2 projector is Anthropic-shaped, so the traj export pins
+// Platform="anthropic"; records from other platforms (openai/gemini) must be
+// excluded even when they share the same user and API key.
+func TestExportUserTrajectoryData_PlatformFilterExcludesNonAnthropic(t *testing.T) {
+	svc, client, _ := newQAExportTestService(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	mk := func(reqID, platform string) {
+		_, err := client.QARecord.Create().
+			SetRequestID(reqID).
+			SetUserID(7).
+			SetAPIKeyID(1).
+			SetPlatform(platform).
+			SetCreatedAt(now).
+			SetRetentionUntil(now.Add(7 * 24 * time.Hour)).
+			Save(ctx)
+		require.NoError(t, err)
+	}
+	mk("anthropic-1", "anthropic")
+	mk("openai-1", "openai")
+	mk("gemini-1", "gemini")
+
+	key1 := int64(1)
+	recs, err := svc.queryExportRecords(ctx, 7, ExportFilter{APIKeyID: &key1, Platform: "anthropic"})
+	require.NoError(t, err)
+	require.Len(t, recs, 1)
+	require.Equal(t, "anthropic", recs[0].Platform)
+	require.Equal(t, "anthropic-1", recs[0].RequestID)
+}
+
+// Per-key export ("导出该 Key 的对话记录") must restrict the record set to a
+// single API key while keeping the user_id scope as the outer AND — so a
+// foreign user id with the same key id yields zero rows.
+func TestExportUserTrajectoryData_ScopedByAPIKey(t *testing.T) {
+	svc, client, store := newQAExportTestService(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	simpleBlob := map[string]any{
+		"request":  map[string]any{"path": "/v1/messages", "body": map[string]any{"messages": []any{map[string]any{"role": "user", "content": "hi"}}}},
+		"response": map[string]any{"status_code": 200, "headers": map[string]any{}, "body": map[string]any{"content": []any{map[string]any{"type": "text", "text": "ok"}}}},
+		"stream":   map[string]any{"chunks": []any{}},
+	}
+	// Same user (7), two different API keys: two records under key 1, one under key 2.
+	mustInsertQARecordWithBlob(t, ctx, client, store, qaRecordBuilder{requestID: "key1-a", userID: 7, apiKeyID: 1, createdAt: now.Add(-2 * time.Hour)}, simpleBlob)
+	mustInsertQARecordWithBlob(t, ctx, client, store, qaRecordBuilder{requestID: "key1-b", userID: 7, apiKeyID: 1, createdAt: now.Add(-1 * time.Hour)}, simpleBlob)
+	mustInsertQARecordWithBlob(t, ctx, client, store, qaRecordBuilder{requestID: "key2-a", userID: 7, apiKeyID: 2, createdAt: now.Add(-30 * time.Minute)}, simpleBlob)
+
+	key1 := int64(1)
+	recs, err := svc.queryExportRecords(ctx, 7, ExportFilter{APIKeyID: &key1})
+	require.NoError(t, err)
+	require.Len(t, recs, 2, "only key 1's two records, key 2 excluded")
+	for _, r := range recs {
+		require.Equal(t, int64(1), r.APIKeyID)
+	}
+
+	// Foreign user id with the same key id → zero rows (user scope ANDs first).
+	foreign, err := svc.queryExportRecords(ctx, 8, ExportFilter{APIKeyID: &key1})
+	require.NoError(t, err)
+	require.Empty(t, foreign)
+
+	// End-to-end export scoped by key 1 builds a non-empty trajectory.
+	res, err := svc.ExportUserTrajectoryData(ctx, 7, ExportFilter{APIKeyID: &key1})
+	require.NoError(t, err)
+	require.Positive(t, res.RecordCount)
+}
+
 func TestUS077_ExportUserTrajectoryData_ProjectsSessionTurnAndTools(t *testing.T) {
 	svc, client, store := newQAExportTestService(t)
 	ctx := context.Background()

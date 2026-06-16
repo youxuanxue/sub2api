@@ -75,6 +75,15 @@ type ExportFilter struct {
 	Until          time.Time
 	SynthSessionID string
 	SynthRole      string
+	// APIKeyID, when non-nil, restricts the export to records produced by a
+	// single API key (TK per-key "导出对话记录"). Combined as AND with the
+	// user_id scope, so a foreign key id simply yields zero rows.
+	APIKeyID *int64
+	// Platform, when non-empty, restricts the export to one platform. The traj
+	// v2 projector only faithfully reconstructs Anthropic /v1/messages shapes,
+	// so the traj export pins this to "anthropic"; non-anthropic records (whose
+	// blobs would project to empty/garbage turns) are excluded.
+	Platform string
 	// Format selects the export shape: "" / "v1" = legacy per-message
 	// ExportRow JSONL; "v2" = richer session/turns (traj v2, .examples-aligned,
 	// one TrajSessionV2 object per line, carries thinking/signature/usage).

@@ -803,6 +803,22 @@
         "supportedParams"
       ],
       "rationale": "TK-only Studio model catalog + capability map. MEDIA_MODELS lists each priced+servable media model (friendly name, vendor, price, supportedParams); resolveAvailableModels(modality, availableIds) is the priced∩servable filter the model-card picker drives (replacing the tier-card selection). Dropping these silently regresses the transparent model picker or, worse, lets an unservable/unpriced model surface as a 400-on-submit footgun. supportedParams is the honest Advanced-panel capability gate — only params a model actually honors are rendered."
+    },
+    {
+      "path": "frontend/src/views/user/KeysView.vue",
+      "must_contain": [
+        "canExportTraj && row.group?.platform === 'anthropic'"
+      ],
+      "rationale": "PR #792: the per-key conversation-record (traj) Export chip is gated by BOTH the admin-granted per-user switch (canExportTraj) AND anthropic-only (row.group.platform === 'anthropic'), because the traj v2 projector only reconstructs Anthropic /v1/messages. KeysView.vue is upstream-shaped; a git merge upstream/main that overwrites it back to upstream shape would silently drop the chip or its dual gate, exposing the export entry to every platform/user while still compiling."
+    },
+    {
+      "path": "frontend/src/api/qaTraj.ts",
+      "must_contain": [
+        "qaTrajAPI",
+        "format: 'v2'",
+        "api_key_id"
+      ],
+      "rationale": "PR #792: the TK-only conversation-export API client. qaTrajAPI.exportKey posts {api_key_id, format:'v2'} to the per-key self-export endpoint; an upstream merge replacing the api/ layer or dropping this module would silently sever the export wiring (KeysView import breaks loud, but a merge that rewrites both would not)."
     }
   ]
 }

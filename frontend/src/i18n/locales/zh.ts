@@ -982,6 +982,12 @@ export default {
     copyToClipboard: '复制到剪贴板',
     copied: '已复制！',
     importToCcSwitch: '导入到 CCS',
+    export: '导出',
+    exporting: '导出中…',
+    exportTooltip: '导出该 Key 的对话记录（训练就绪 JSONL）',
+    exportSuccess: '已导出 {count} 条对话记录',
+    exportEmpty: '该 Key 暂无可导出的对话记录',
+    exportFailed: '导出失败，请重试',
     enable: '启用',
     disable: '禁用',
     nameLabel: '名称',
@@ -2240,7 +2246,9 @@ export default {
         selectStatus: '选择状态',
         rpmLimit: '每分钟请求数 (RPM)',
         rpmLimitPlaceholder: '0 表示不限制',
-        rpmLimitHint: '该用户每分钟最大请求数，0 = 不限制；仅在所用分组未设置 rpm_limit 时作为兜底生效'
+        rpmLimitHint: '该用户每分钟最大请求数，0 = 不限制；仅在所用分组未设置 rpm_limit 时作为兜底生效',
+        trajExport: '允许导出对话记录',
+        trajExportHint: '开启后，该用户每个 API Key 可单独导出其捕获的对话记录'
       },
       adjustBalance: '调整余额',
       adjustConcurrency: '调整并发数',

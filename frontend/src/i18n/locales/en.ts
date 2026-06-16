@@ -985,6 +985,12 @@ export default {
     copyToClipboard: 'Copy to clipboard',
     copied: 'Copied!',
     importToCcSwitch: 'Import to CCS',
+    export: 'Export',
+    exporting: 'Exporting…',
+    exportTooltip: "Export this key's conversation records (training-ready JSONL)",
+    exportSuccess: 'Exported {count} conversation records',
+    exportEmpty: 'No conversation records captured for this key yet',
+    exportFailed: 'Export failed, please try again',
     enable: 'Enable',
     disable: 'Disable',
     nameLabel: 'Name',
@@ -2136,7 +2142,9 @@ export default {
       form: {
         rpmLimit: 'Requests Per Minute (RPM)',
         rpmLimitPlaceholder: '0 = unlimited',
-        rpmLimitHint: 'Max requests per minute for this user; 0 = unlimited. Acts as a fallback only when the group has no rpm_limit set.'
+        rpmLimitHint: 'Max requests per minute for this user; 0 = unlimited. Acts as a fallback only when the group has no rpm_limit set.',
+        trajExport: 'Allow conversation export',
+        trajExportHint: "When on, the user can export each API key's captured conversation records individually."
       },
       columns: {
         user: 'User',
