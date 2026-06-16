@@ -6,19 +6,23 @@ routed to anthropic, gpt-oss off antigravity) across all deployable edges + prod
 on BOTH surfaces the backend ``AntigravityConfigReconciler`` self-heals:
 
   1. **accounts** — every ``platform=antigravity`` account carries a gemini-only
-     ``credentials.model_mapping`` (no ``claude-*`` / ``gpt-oss-*`` keys).
+     ``credentials.model_mapping`` (no ``claude-*`` / ``gpt-oss-*`` keys), AND any
+     active+schedulable account is bound to an antigravity group (account_groups).
   2. **groups** — every active ``platform=antigravity`` group carries gemini-only
      ``supported_model_scopes`` (exactly ``[gemini_text, gemini_image]``), so
      ``/antigravity/v1/models`` + the API key usage guide hide claude.
 
-The reconciler self-heals both on every node (boot + tick). This tool is the
-post-rollout *verification* that the self-heal converged fleet-wide.
+The reconciler self-heals the gemini-only config on every node (boot + tick); the
+group binding is a one-time provisioning step the reconciler does NOT heal, so this
+tool is the only safety net for it. This tool is the post-rollout *verification*.
 
 A **violation** is any antigravity account whose ``model_mapping`` is null/empty
 (an empty map falls back to ``DefaultAntigravityModelMapping``, which still
-includes claude + gpt-oss) or contains any ``claude-`` / ``gpt-oss-`` key; OR any
-active antigravity group whose ``supported_model_scopes`` is empty (unrestricted →
-advertises claude) or not exactly the gemini-only set.
+includes claude + gpt-oss) or contains any ``claude-`` / ``gpt-oss-`` key, OR an
+active+schedulable account with no antigravity-group binding (account_groups missing
+→ scheduler "No available accounts" 429: looks ready but silently never serves); OR
+any active antigravity group whose ``supported_model_scopes`` is empty (unrestricted
+→ advertises claude) or not exactly the gemini-only set.
 
 Exit codes (mirrors the anthropic post-release check): ``0`` = all gemini-only
 (green); ``1`` = violations found (yellow, non-blocking at rollout); ``2`` = could
@@ -45,8 +49,12 @@ PROD_TARGET = {"region": "us-east-1", "stack": "tokenkey-prod-stage0", "label": 
 # + correctness: soft-deleted rows are not served).
 ANTIGRAVITY_ACCOUNTS_SQL = (
     "SELECT COALESCE(json_agg(json_build_object("
-    "'id', id, 'name', name, 'model_mapping', credentials->'model_mapping'))::text, '[]') "
-    "FROM accounts WHERE platform = 'antigravity' AND deleted_at IS NULL;"
+    "'id', a.id, 'name', a.name, 'model_mapping', a.credentials->'model_mapping', "
+    "'status', a.status, 'schedulable', a.schedulable, "
+    "'bound', EXISTS(SELECT 1 FROM account_groups ag JOIN groups g ON g.id = ag.group_id "
+    "WHERE ag.account_id = a.id AND g.platform = 'antigravity' AND g.deleted_at IS NULL)"
+    "))::text, '[]') "
+    "FROM accounts a WHERE a.platform = 'antigravity' AND a.deleted_at IS NULL;"
 )
 
 # Active antigravity groups + their supported_model_scopes. status='active' mirrors
@@ -138,14 +146,32 @@ def ssm_run_sql(region: str, instance_id: str, sql: str, comment: str) -> str:
 
 
 def _account_violation(row: dict) -> str | None:
-    """Return a human reason if the account is NOT gemini-only, else None."""
+    """Return a human reason if the account is misconfigured, else None.
+
+    Two independent checks (both reported if both fail):
+      1. gemini-only model_mapping (no claude-* / gpt-oss-* keys, non-empty).
+      2. group binding — an active+schedulable account MUST be bound to an
+         antigravity group via account_groups, else the scheduler finds no
+         account for that group and fast-fails every request with
+         "No available accounts" 429 (the account looks ready but silently
+         never serves). This binding is a provisioning step the reconciler does
+         NOT self-heal, so the post-rollout check is the only safety net.
+    """
+    reasons: list[str] = []
+
     mm = row.get("model_mapping")
     if not mm or not isinstance(mm, dict):
-        return "empty/missing model_mapping (falls back to default → serves claude/gpt-oss)"
-    leaked = sorted(k for k in mm if k.startswith("claude-") or k.startswith("gpt-oss-"))
-    if leaked:
-        return "serves excluded models: " + ", ".join(leaked)
-    return None
+        reasons.append("empty/missing model_mapping (falls back to default → serves claude/gpt-oss)")
+    else:
+        leaked = sorted(k for k in mm if k.startswith("claude-") or k.startswith("gpt-oss-"))
+        if leaked:
+            reasons.append("serves excluded models: " + ", ".join(leaked))
+
+    if row.get("status") == "active" and row.get("schedulable") and not row.get("bound"):
+        reasons.append("active+schedulable but NOT bound to any antigravity group "
+                       "(account_groups missing → scheduler 'No available accounts' 429)")
+
+    return "; ".join(reasons) if reasons else None
 
 
 def _group_violation(row: dict) -> str | None:
