@@ -1637,6 +1637,21 @@
       "rationale": "supported_model_scopes 的请求路径 enforcement（首次落地，PR 后续）：/antigravity/v1/models 经 AntigravityModels handler 调用 tkAntigravityFilterModelsByGroupScopes 按分组 supported_model_scopes（claude / gemini_text / gemini_image）过滤已宣告模型，使 gemini-only 分组（[gemini_text, gemini_image]）从 /models 隐藏 claude，与 per-account gemini-only model_mapping + 前端 UseKeyModal 的 claude-flavor gate 同口径。antigravityModelScope 是 model→scope 归类器（claude-/gpt-oss-/含 image/其余=gemini_text），与前端分类镜像。上游 merge 若删除这两个函数或 AntigravityModels 里的过滤调用，/models 会静默回退到含 claude 的全目录——本 sentinel 守护。"
     },
     {
+      "path": "backend/internal/handler/dto/types.go",
+      "must_contain": [
+        "json:\"supported_model_scopes,omitempty\""
+      ],
+      "rationale": "supported_model_scopes 的用户侧呈现路径（PR #784）—— 字段必须挂在基础 Group DTO（带 omitempty），而非仅 AdminGroup：用户 keys 接口经 APIKeyFromService → GroupFromServiceShallow → groupFromServiceBase 序列化基础 Group，只有该字段在基础 Group 上，前端 KeysView/UseKeyModal 才拿得到 supported_model_scopes，进而对 gemini-only antigravity 分组隐藏 Claude flavor（与 gateway-tk 的 tkAntigravityFilterModelsByGroupScopes /models 过滤、reconcileGroups 自愈、per-account gemini-only model_mapping 同口径）。dto/types.go 是 upstream-shaped（Wei-Shaw/sub2api 原版仅在 AdminGroup 上有该字段、且无 omitempty），一次 git merge upstream/main 可能把该字段从基础 Group 移回 AdminGroup 或整体覆盖，使用户路径静默回退到 undefined → 前端 gate 默认放行 → 使用指南重新出现 antigravity-claude tab，且 admin 路径仍正常、无测试失败（正是本 sentinel 守护的 backward-drift）。锚 `json:\"supported_model_scopes,omitempty\"` 唯一标识基础 Group 上的该字段形态（AdminGroup 旧版用无 omitempty 的 tag）。配套 mappers.go 的 groupFromServiceBase 填充锚。"
+    },
+    {
+      "path": "backend/internal/handler/dto/mappers.go",
+      "must_contain": [
+        "func groupFromServiceBase(",
+        "SupportedModelScopes:"
+      ],
+      "rationale": "承接 dto/types.go 的 supported_model_scopes 用户侧呈现锚（PR #784）：基础 Group struct 有字段还不够，groupFromServiceBase 必须把 service.Group.SupportedModelScopes 填进基础 Group DTO，用户 keys 路径才会真正返回它（否则 omitempty 恒省略 → 前端 gate 失效、指南重新显示 antigravity-claude）。SupportedModelScopes 赋值现仅存在于 groupFromServiceBase（已从 GroupFromServiceAdmin 移除，admin 经内嵌 Group 继承）。dto/mappers.go 是 upstream-shaped、且上游从无此字段，一次 git merge upstream/main 整体覆盖该文件会让 `SupportedModelScopes:` 赋值消失而编译照常通过、admin 路径不受影响、无测试失败 —— 本 sentinel 守护该 backward-drift。"
+    },
+    {
       "path": "backend/internal/service/wire.go",
       "must_contain": [
         "func ProvideAntigravityConfigReconciler(",
