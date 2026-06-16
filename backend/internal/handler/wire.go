@@ -45,6 +45,7 @@ func ProvideAdminHandlers(
 	tkChannelHandler *admin.TKChannelAdminHandler,
 	tierHandler *admin.TierHandler,
 	edgeAccountsHandler *admin.EdgeAccountsHandler,
+	trialProvisionHandler *admin.TrialProvisionHandler,
 ) *AdminHandlers {
 	return &AdminHandlers{
 		Dashboard:              dashboardHandler,
@@ -81,6 +82,7 @@ func ProvideAdminHandlers(
 		TKChannel:              tkChannelHandler,
 		Tier:                   tierHandler,
 		EdgeAccounts:           edgeAccountsHandler,
+		TrialProvision:         trialProvisionHandler,
 	}
 }
 
@@ -216,6 +218,29 @@ func ProvideTKEdgeAccountsAdminHandler(agg *service.EdgeAccountsAggregator) *adm
 	return admin.NewEdgeAccountsHandler(agg)
 }
 
+// ProvideTrialProvisionHandler constructs the Invite-to-Trial service from
+// already-wired deps and wraps it in the admin handler. Keeping construction in
+// a Provide func (rather than registering a separate service provider) avoids
+// adding the concrete service to the provider set. See user_handler_tk_provision.go.
+func ProvideTrialProvisionHandler(
+	subscriptionService *service.SubscriptionService,
+	apiKeyService *service.APIKeyService,
+	settingService *service.SettingService,
+	userRepo service.UserRepository,
+	userGroupRateRepo service.UserGroupRateRepository,
+	groupRepo service.GroupRepository,
+) *admin.TrialProvisionHandler {
+	svc := service.NewTrialProvisionService(
+		subscriptionService,
+		apiKeyService,
+		settingService,
+		userRepo,
+		userGroupRateRepo,
+		groupRepo,
+	)
+	return admin.NewTrialProvisionHandler(svc)
+}
+
 // ProvideHandlers creates the Handlers struct
 func ProvideHandlers(
 	authHandler *AuthHandler,
@@ -339,6 +364,8 @@ var ProviderSet = wire.NewSet(
 	admin.NewTierHandler,
 	// TK: prod-side cross-edge read-only account overview — see edge_accounts_handler_tk.go.
 	ProvideTKEdgeAccountsAdminHandler,
+	// TK: Invite-to-Trial batch provisioning + 试用方案 presets — see user_handler_tk_provision.go.
+	ProvideTrialProvisionHandler,
 
 	// AdminHandlers and Handlers constructors
 	ProvideAdminHandlers,

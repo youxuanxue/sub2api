@@ -71,6 +71,9 @@ export async function loadLocaleMessages(locale: LocaleCode): Promise<void> {
   // Keeps locales/{en,zh}.ts near-upstream and merge-safe (CLAUDE.md §5).
   const tkHome = await import('./tk/home.tk')
   i18n.global.mergeLocaleMessage(locale, tkHome.default[locale] ?? {})
+  // TK: Invite-to-Trial admin strings (admin.users.inviteTrial.*).
+  const tkInviteTrial = await import('./tk/inviteTrial.tk')
+  i18n.global.mergeLocaleMessage(locale, tkInviteTrial.default[locale] ?? {})
   loadedLocales.add(locale)
 }
 

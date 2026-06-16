@@ -274,6 +274,9 @@ func registerUserManagementRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		// User attribute values
 		users.GET("/:id/attributes", h.Admin.UserAttribute.GetUserAttributes)
 		users.PUT("/:id/attributes", h.Admin.UserAttribute.UpdateUserAttributes)
+
+		// TK: Invite-to-Trial — one-step batch provisioning + 试用方案 presets.
+		registerTKInviteTrialRoutes(users, h)
 	}
 }
 
