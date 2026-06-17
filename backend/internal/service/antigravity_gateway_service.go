@@ -4141,23 +4141,16 @@ func (s *AntigravityGatewayService) extractImageInputSize(body []byte) string {
 	return ""
 }
 
-// isImageGenerationModel 判断模型是否为图片生成模型
-// 支持的模型：gemini-3.1-flash-image, gemini-3-pro-image, gemini-2.5-flash-image 等
+// isImageGenerationModel 判断模型是否为图片生成模型（gemini-3.1-flash-image,
+// gemini-3-pro-image, gemini-2.5-flash-image, nano-banana 等）。
+//
+// 委托给 antigravity.IsImageModel（单一真值源），消除此前 service 硬编码白名单与
+// antigravity 包谓词的重复维护（xj-review #814 R-002）。两者对所有已有/已测模型结果
+// 一致；canonical 版本以 `gemini-*-image` 子串 + nano-banana 识别，故未来新增的 gemini
+// 图片模型会被自动识别，不再需要手工追加白名单（旧白名单遗漏即静默漏计费）。前端
+// GEMINI_NATIVE_IMAGE_RE 因语言隔离仍为镜像（无法共享 Go 代码）。
 func isImageGenerationModel(model string) bool {
-	modelLower := strings.ToLower(model)
-	// 移除 models/ 前缀
-	modelLower = strings.TrimPrefix(modelLower, "models/")
-
-	// 精确匹配或前缀匹配
-	return modelLower == "gemini-3.1-flash-image" ||
-		modelLower == "gemini-3.1-flash-image-preview" ||
-		strings.HasPrefix(modelLower, "gemini-3.1-flash-image-") ||
-		modelLower == "gemini-3-pro-image" ||
-		modelLower == "gemini-3-pro-image-preview" ||
-		strings.HasPrefix(modelLower, "gemini-3-pro-image-") ||
-		modelLower == "gemini-2.5-flash-image" ||
-		modelLower == "gemini-2.5-flash-image-preview" ||
-		strings.HasPrefix(modelLower, "gemini-2.5-flash-image-")
+	return antigravity.IsImageModel(model)
 }
 
 // cleanGeminiRequest 清理 Gemini 请求体中的 Schema
