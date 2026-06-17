@@ -13,6 +13,10 @@ const (
 	anthropicUpstreamErrorCounterPrefix   = "anthropic_upstream_error_count:account:"
 	anthropicCooldownTierPrefix           = "anthropic_cooldown_tier:account:"
 	anthropicCooldownEscalationSlotPrefix = "anthropic_cooldown_escalation_slot:account:"
+	// anthropicBodyless403CounterPrefix is a DISTINCT namespace from the general
+	// upstream-error counter so the bodyless-403 terminal-disable threshold is
+	// driven ONLY by empty/unstructured 403s, never polluted by 429/5xx.
+	anthropicBodyless403CounterPrefix = "anthropic_bodyless_403_count:account:"
 )
 
 var anthropicUpstreamErrorCounterIncrScript = redis.NewScript(`
@@ -51,6 +55,25 @@ func (c *anthropicUpstreamErrorCounterCache) IncrementAnthropicUpstreamErrorCoun
 
 func (c *anthropicUpstreamErrorCounterCache) ResetAnthropicUpstreamErrorCount(ctx context.Context, accountID int64) error {
 	key := fmt.Sprintf("%s%d", anthropicUpstreamErrorCounterPrefix, accountID)
+	return c.rdb.Del(ctx, key).Err()
+}
+
+func (c *anthropicUpstreamErrorCounterCache) IncrementAnthropicBodyless403Count(ctx context.Context, accountID int64, windowMinutes int) (int64, error) {
+	key := fmt.Sprintf("%s%d", anthropicBodyless403CounterPrefix, accountID)
+	ttlSeconds := windowMinutes * 60
+	if ttlSeconds < 60 {
+		ttlSeconds = 60
+	}
+
+	result, err := anthropicUpstreamErrorCounterIncrScript.Run(ctx, c.rdb, []string{key}, ttlSeconds).Int64()
+	if err != nil {
+		return 0, fmt.Errorf("increment anthropic bodyless 403 count: %w", err)
+	}
+	return result, nil
+}
+
+func (c *anthropicUpstreamErrorCounterCache) ResetAnthropicBodyless403Count(ctx context.Context, accountID int64) error {
+	key := fmt.Sprintf("%s%d", anthropicBodyless403CounterPrefix, accountID)
 	return c.rdb.Del(ctx, key).Err()
 }
 

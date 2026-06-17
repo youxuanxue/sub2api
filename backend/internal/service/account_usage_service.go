@@ -330,6 +330,20 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64, for
 
 	// 只有oauth类型账号可以通过API获取usage（有profile scope）
 	if account.CanGetUsage() {
+		// TK (handle403 gap, 2026-06-16 edge us6): 被上游封禁的账号(status=error 且 forbidden
+		// 类错误)不再实时打上游 usage 端点——否则运维查看/前端轮询会给已封 org 又加一次 403。
+		// 改回 passive(纯 DB)+ 存储错误。可恢复 token 错误不在此 scope,仍走实时拉取以保留自愈。
+		// 见 account_usage_service_tk_banned_shortcircuit.go。
+		if account.Status == StatusError && tkIsForbiddenAccountError(account.ErrorMessage) {
+			if passive, perr := s.GetPassiveUsage(ctx, accountID); perr == nil && passive != nil {
+				enrichUsageWithAccountError(passive, account)
+				return passive, nil
+			}
+			info := &UsageInfo{Source: "active"}
+			enrichUsageWithAccountError(info, account)
+			return info, nil
+		}
+
 		var apiResp *ClaudeUsageResponse
 
 		// 1. 检查缓存（成功响应 3 分钟 / 错误响应 1 分钟）

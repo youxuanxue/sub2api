@@ -57,12 +57,21 @@ var tkAnthropicOrgBan403Keywords = []string{
 // Returns false (→ falls through to the existing tiered cooldown unchanged) when
 // nothing matches, so any non-org-ban 403 behaves exactly as before. Fail-safe:
 // a missing match never escalates.
+// tkMatchAnthropicOrgBan403Body reports which org-ban keyword (if any) a 403's
+// upstream message + body matches. Extracted as a pure predicate so both the
+// permanent-disable breaker here AND the in-place-retry skip
+// (tkIsAccountFatal403, gateway_service_tk_oauth_fatal_403_skip.go) decide
+// "this 403 is an org ban" from one source of truth — they must never drift.
+func tkMatchAnthropicOrgBan403Body(upstreamMsg string, responseBody []byte) string {
+	haystack := strings.ToLower(strings.TrimSpace(upstreamMsg) + " " + string(responseBody))
+	return matchTempUnschedKeyword(haystack, tkAnthropicOrgBan403Keywords)
+}
+
 func (s *RateLimitService) tkTryDisableAnthropicOrgBan403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) bool {
 	if s == nil || account == nil {
 		return false
 	}
-	haystack := strings.ToLower(strings.TrimSpace(upstreamMsg) + " " + string(responseBody))
-	matched := matchTempUnschedKeyword(haystack, tkAnthropicOrgBan403Keywords)
+	matched := tkMatchAnthropicOrgBan403Body(upstreamMsg, responseBody)
 	if matched == "" {
 		return false
 	}

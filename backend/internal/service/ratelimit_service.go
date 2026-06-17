@@ -1097,6 +1097,13 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 				"upstream_msg", upstreamMsg)
 			return true
 		}
+		// TK (handle403 gap, 空 body org-ban): #810 的结构化短语 breaker 抓不到以**空 body**
+		// 返回的 org 封禁（id=1 历史即如此），它会落回下面自动恢复的 3/3 阶梯永久 flap。
+		// 持续空 body 403 累计到阈值即永久禁用 + 告警。见
+		// ratelimit_service_tk_anthropic_bodyless_403.go。
+		if s.tkTryEscalatePersistentBodyless403(ctx, account, upstreamMsg, responseBody) {
+			return true
+		}
 		return s.handleAnthropicUpstreamError(ctx, account, http.StatusForbidden, upstreamMsg, responseBody)
 	}
 	msg := buildForbiddenErrorMessage(
@@ -2276,6 +2283,13 @@ func (s *RateLimitService) ResetAnthropicUpstreamErrorCounter(ctx context.Contex
 	// instead of waiting out a stale slot left from the previous episode.
 	if err := s.anthropicUpstreamErrorCounterCache.ResetAnthropicCooldownEscalationSlot(ctx, accountID); err != nil {
 		slog.Warn("anthropic_cooldown_escalation_slot_reset_failed", "account_id", accountID, "error", err)
+	}
+	// TK: clear the persistent-bodyless-403 strike counter too, so a healed
+	// account does not carry stale bodyless-403 strikes toward a future
+	// permanent disable. Co-located here (rather than a parallel reset method)
+	// because this helper is already invoked from every recovery hotpath.
+	if err := s.anthropicUpstreamErrorCounterCache.ResetAnthropicBodyless403Count(ctx, accountID); err != nil {
+		slog.Warn("anthropic_bodyless_403_reset_failed", "account_id", accountID, "error", err)
 	}
 }
 
