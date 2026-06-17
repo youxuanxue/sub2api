@@ -45,12 +45,22 @@ class BuildCfnSizeTest(unittest.TestCase):
             "cloud-init only runs UserData as a shell script when shebang is the first non-empty line",
         )
 
-    def test_bootstrap_gzip_b64_fits_two_ssm_standard_parts(self) -> None:
+    def test_bootstrap_gzip_b64_fits_three_ssm_standard_parts(self) -> None:
+        # The bootstrap gzip|base64 blob is split across SSM Standard parameters
+        # (each <= 4096 chars) and reassembled by the UserData launcher. The 2-part
+        # budget was exhausted by the 2026-06-17 swap + memory-pressure-alert
+        # additions, so the template now carries 3 part slots (see build-cfn.sh
+        # split_b64_for_ssm + the BOOTSTRAP_GZB64_SSM_PART3 markers).
         raw = (STAGE0 / "stage0-ec2-bootstrap.sh").read_bytes()
         b64 = __import__("base64").b64encode(gzip.compress(raw, 9)).decode()
-        self.assertLessEqual(len(b64), SSM_STANDARD_LIMIT * 2)
-        self.assertLessEqual(len(b64[:SSM_STANDARD_LIMIT]), SSM_STANDARD_LIMIT)
-        self.assertLessEqual(len(b64[SSM_STANDARD_LIMIT:]), SSM_STANDARD_LIMIT)
+        parts = [b64[i:i + SSM_STANDARD_LIMIT] for i in range(0, len(b64), SSM_STANDARD_LIMIT)]
+        self.assertLessEqual(
+            len(parts),
+            3,
+            f"bootstrap needs {len(parts)} SSM parts; template has 3 slots — add part4 plumbing",
+        )
+        for part in parts:
+            self.assertLessEqual(len(part), SSM_STANDARD_LIMIT)
 
     def test_build_cfn_check_passes(self) -> None:
         proc = subprocess.run(
