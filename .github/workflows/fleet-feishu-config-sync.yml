@@ -1,0 +1,159 @@
+name: Fleet Feishu Config Sync
+
+# Periodic, self-healing injection of the shared Feishu webhook/secret into EVERY
+# deployable Stage0 node (all Lightsail edges + prod), so a node can never sit
+# silently alert-blind for long.
+#
+# WHY (2026-06-16 us3 / oh1-ls-b incident — the SECOND occurrence of the
+# 2026-06-06 us7 failure documented in ops/stage0/sync-feishu-config.sh):
+#   The deterministic Feishu injection (sync-feishu-config.sh) is already wired
+#   into deploy-edge-lightsail-stage0.yml — but it only runs AT DEPLOY TIME. us3
+#   served traffic for ~19 days with feishu.enabled=false (its config was only
+#   written during today's redeploy), and an OAuth-401 permanent-disable P0 fired
+#   inside that blind window → the card was generated internally and silently
+#   dropped at TKAccountIncidentNotifier.sendNow (!enabled || webhook==""). There
+#   was no CONTINUOUS guarantee that a LIVE node still has alerting on.
+#
+#   This workflow turns "alert-blind until next deploy" into "alert-blind for at
+#   most ~1 day, then auto-healed". It re-runs the SAME idempotent, self-verifying
+#   injector on a cadence across the deployable matrix + prod. sync-feishu-config.sh
+#   PRESERVES every other ops_email_notification_config field, asserts enabled=true
+#   + webhook + secret present, and exits non-zero on failure — so any node that
+#   cannot be made alert-capable turns this job RED. Secrets are never printed.
+#
+# Read/write scope: GHA -> AWS STS (OIDC) -> SSM. The only writes are the same
+# idempotent jsonb_set + /var/lib/tokenkey/.env edits the deploy step already makes.
+
+on:
+  schedule:
+    - cron: "17 5 * * *" # daily 05:17 UTC, off the :00/:30 mark (GHA best-effort)
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: "Comma-separated target subset (edge ids and/or 'prod'); empty = all deployable edges + prod"
+        required: false
+        default: ""
+      dry_run:
+        description: "Only resolve + print the target list; do NOT run the sync"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: fleet-feishu-config-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    # ~10 targets, each a couple of SSM round-trips; generous ceiling so a slow
+    # SSM cycle cannot kill the job mid-fleet (which would skip later targets).
+    timeout-minutes: 20
+    env:
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      TARGETS_INPUT: ${{ inputs.targets || '' }}
+      DRY_RUN: ${{ inputs.dry_run || 'false' }}
+      # sync-feishu-config.sh fails fast if either is empty (a misconfigured env
+      # is caught there, not silently skipped).
+      TK_FEISHU_WEBHOOK_URL: ${{ secrets.TK_FEISHU_WEBHOOK_URL }}
+      TK_FEISHU_SIGNING_SECRET: ${{ secrets.TK_FEISHU_SIGNING_SECRET }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Precheck OIDC role + secrets
+        id: precheck
+        run: |
+          set -euo pipefail
+          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
+            echo "::warning::AWS_OIDC_ROLE_ARN repo variable is empty — cannot reach SSM; skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "${TK_FEISHU_WEBHOOK_URL:-}" ] || [ -z "${TK_FEISHU_SIGNING_SECRET:-}" ]; then
+            echo "::error::TK_FEISHU_WEBHOOK_URL / TK_FEISHU_SIGNING_SECRET repo secrets are empty — refusing to run a no-op fleet sync."
+            exit 1
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve target list
+        if: steps.precheck.outputs.skip == 'false'
+        id: targets
+        run: |
+          set -euo pipefail
+          # Default = the deployable-edge matrix (same source the deploy workflows
+          # use) + prod. A new deployable edge is covered automatically — no options
+          # to update. Subset override via the `targets` dispatch input.
+          if [ -n "${TARGETS_INPUT// /}" ]; then
+            TLIST="$(printf '%s' "$TARGETS_INPUT" | tr ',' '\n' | sed 's/[[:space:]]//g' | grep -E '.' || true)"
+          else
+            EDGES="$(python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable)"
+            TLIST="$(printf '%s\nprod\n' "$EDGES")"
+          fi
+          TLIST="$(printf '%s\n' "$TLIST" | grep -E '.' | sort -u)"
+          echo "resolved targets:"
+          printf '  - %s\n' $TLIST
+          # stash to a file for the next step (newline-delimited)
+          printf '%s\n' "$TLIST" > .feishu-sync-targets
+          COUNT="$(printf '%s\n' "$TLIST" | grep -cE '.')"
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials via OIDC
+        if: steps.precheck.outputs.skip == 'false' && env.DRY_RUN != 'true'
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Sync Feishu config across the fleet
+        if: steps.precheck.outputs.skip == 'false'
+        run: |
+          set -uo pipefail
+          {
+            echo "## Fleet Feishu config sync"
+            echo ""
+            echo "| target | result | verify (enabled / webhook / secret) |"
+            echo "| --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          FAILED=()
+          while IFS= read -r tgt; do
+            [ -n "$tgt" ] || continue
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "DRY_RUN — would sync: $tgt"
+              echo "| \`$tgt\` | dry-run (skipped) | — |" >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+            # prod resolves to EC2 (auto); every edge is Lightsail. The script never
+            # prints the webhook/secret; we only surface its VERIFY booleans.
+            if [ "$tgt" = "prod" ]; then
+              PLATFORM_FLAG=()
+            else
+              PLATFORM_FLAG=(--platform lightsail)
+            fi
+            echo "::group::sync $tgt"
+            if out="$(bash ops/stage0/sync-feishu-config.sh "${PLATFORM_FLAG[@]}" "$tgt" 2>&1)"; then
+              printf '%s\n' "$out"
+              verify="$(printf '%s\n' "$out" | grep -E '^VERIFY=' | tail -n1 | sed 's/^VERIFY=//')"
+              echo "| \`$tgt\` | ✅ ok | ${verify:-<none>} |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              printf '%s\n' "$out"
+              echo "::error::feishu config sync FAILED for $tgt"
+              echo "| \`$tgt\` | ❌ FAILED | — |" >> "$GITHUB_STEP_SUMMARY"
+              FAILED+=("$tgt")
+            fi
+            echo "::endgroup::"
+          done < .feishu-sync-targets
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${#FAILED[@]}" -gt 0 ]; then
+            echo "::error::Feishu config sync failed for: ${FAILED[*]}"
+            echo "**FAILED targets:** ${FAILED[*]}" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "all targets alert-capable (feishu enabled + webhook + secret)" >> "$GITHUB_STEP_SUMMARY"
