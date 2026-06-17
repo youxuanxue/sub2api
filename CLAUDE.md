@@ -252,7 +252,7 @@ handler → service → repository → ent
 
 ### 9. Release Discipline (ARM + Tag Triggers)
 
-Production deployment (`api.tokenkey.dev`) runs on **AWS Graviton (`t4g.small`, `arm64`)**, and Release workflow is triggered by `tags: v*`. Two pitfalls have already broken prod once each — both are now **hard rules**:
+Production deployment (`api.tokenkey.dev`) runs on **AWS Graviton (`arm64`)**, and Release workflow is triggered by `tags: v*`. Two pitfalls have already broken prod once each — both are now **hard rules**:
 
 #### 9.1 `simple_release` MUST stay `false`
 
