@@ -88,9 +88,10 @@ func buildSessionForShape(recs []SourceRecord, summary *ExportSummary) (TrajSess
 		return buildOpenAIChatSession(recs, summary)
 	case WireOpenAIResponses:
 		return buildOpenAIResponsesSession(recs, summary)
-	// Commit C wires WireGemini here. Until then gemini/unknown shapes skip
-	// (the export handler still pins anthropic, so they are unreachable in prod).
+	case WireGemini:
+		return buildGeminiSession(recs, summary)
 	default:
+		// WireUnknown (non-conversation endpoint / unprojectable) — skip.
 		return TrajSessionV2{}, false
 	}
 }
