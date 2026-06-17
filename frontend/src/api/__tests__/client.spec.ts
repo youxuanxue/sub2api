@@ -144,6 +144,25 @@ describe('API Client', () => {
       )
     })
 
+    it('拒绝值是 Error 实例（根除全站 [object Object] 渲染）', async () => {
+      // The interceptor must reject with a real Error (ApiError), not a plain object —
+      // otherwise every `e instanceof Error ? e.message : String(e)` call site renders
+      // "[object Object]" (the bug this fixes at the source). One representative path
+      // (HTTP error response) is enough; all reject points share createApiError.
+      const adapter = vi.fn().mockRejectedValue({
+        response: { status: 500, data: { code: 'INTERNAL', message: 'edge fan-out failed' } },
+        config: { url: '/test' },
+        code: 'ERR_BAD_REQUEST',
+      })
+      apiClient.defaults.adapter = adapter
+
+      await expect(apiClient.get('/test')).rejects.toBeInstanceOf(Error)
+      const err = await apiClient.get('/test').catch((e) => e)
+      expect(err).toBeInstanceOf(Error)
+      expect(err.message).toBe('edge fan-out failed')
+      expect(String(err)).not.toBe('[object Object]')
+    })
+
     it('部署与运营合规未确认时广播事件且保留登录态', async () => {
       localStorage.setItem('auth_token', 'admin-token')
       const listener = vi.fn()
