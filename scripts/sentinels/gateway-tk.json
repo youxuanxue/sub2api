@@ -2644,6 +2644,24 @@
         "s.incidentNotifier.NotifyPlatformPoolExhausted(platform, trigger, until, reason)"
       ],
       "rationale": "Platform-pool-exhausted P0 enablement set (2026-06-17 'gpt 号池满了' incident). The immediate P0 card was anthropic-only until this; tkPoolExhaustedPlatforms now also holds PlatformOpenAI + PlatformGemini so an emptied gpt/google pool's fast-fail-to-429 transition pages ops at once. PlatformOpenAI/PlatformGemini appear nowhere else in this file, so the sentinel mechanically protects pool coverage: an upstream merge or 'simplify' refactor that drops either key (reverting to anthropic-only and re-blinding gpt/google) makes the substring vanish and fails the gate. The tkPoolExhaustedEnabled predicate + the guard call site + the NotifyPlatformPoolExhausted dispatch are anchored too so the membership check can't be bypassed by removing the guard. Pairs with the existing ratelimit_service.go (tkCheckPlatformPoolExhausted hook) and account_incident_notifier_tk_pool.go (card) sentinels."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_anthropic_org_ban_403.go",
+      "must_contain": [
+        "var tkAnthropicOrgBan403Keywords = []string{",
+        "\"authentication is currently not allowed for this organization\"",
+        "\"organization has been disabled\"",
+        "func (s *RateLimitService) tkTryDisableAnthropicOrgBan403(",
+        "s.handleAuthError(ctx, account, msg)"
+      ],
+      "rationale": "Anthropic 403 org-ban permanent-disable (2026-06-16 edge us6 account edge-ls-oh-3-d incident). A 403 permission_error 'OAuth authentication is currently not allowed for this organization' is an irrecoverable org-level ban (token refresh keeps succeeding — grant alive, org policy-blocked at request time), but handle403 previously routed it into handleAnthropicUpstreamError's generic 3/3 ladder whose 10-min cooldown AUTO-RECOVERS, so a banned account flapped forever (cool 10m -> re-enter pool -> 403 -> re-cool). The keyword list + the tkTryDisableAnthropicOrgBan403 function + its handleAuthError (SetError, no auto-recovery) call are the whole fix: if an upstream merge or refactor deletes any of them, the org-ban 403 silently falls back to the eternal-flap ladder and the regression is invisible until an operator notices the wasted failover + attribution noise. Pairs with the ratelimit_service.go injection-point sentinel."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "if s.tkTryDisableAnthropicOrgBan403(ctx, account, upstreamMsg, responseBody) {"
+      ],
+      "rationale": "Injection point that wires the Anthropic 403 org-ban permanent-disable (ratelimit_service_tk_anthropic_org_ban_403.go) into handle403, BEFORE the TLS-fingerprint cooldown and the handleAnthropicUpstreamError 3/3 ladder. handle403 is an upstream-shaped file whose 403 branch attracts upstream merges; without this anchor, a merge that rewrites the anthropic 403 branch could drop the one-line call and silently restore the eternal-flap behaviour (the companion file would still compile, so the gateway-tk.json file sentinel alone would not catch a dead call site). Pairs with the ratelimit_service_tk_anthropic_org_ban_403.go function/keyword sentinel."
     }
   ]
 }

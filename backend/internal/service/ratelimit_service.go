@@ -1050,6 +1050,14 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 				"account_id", account.ID)
 			return true
 		}
+		// TK (handle403 gap, 2026-06-16 edge us6 incident): a 403 permission_error
+		// signalling a PERMANENT organization-level OAuth ban must permanently
+		// disable + alert, not flap forever on the transient 3/3 ladder (whose
+		// 10-min cooldown auto-recovers and re-offers a banned account every
+		// cycle). See ratelimit_service_tk_anthropic_org_ban_403.go.
+		if s.tkTryDisableAnthropicOrgBan403(ctx, account, upstreamMsg, responseBody) {
+			return true
+		}
 		// TLS / bot-detection 失效专项：上游用 403 拒绝是因为 Cloudflare / WAF
 		// 识别到 JA3/JA4 不像真实 Claude Code CLI（指纹库失效或 CLI 版本升级）。
 		// 这种情况下账号本身没问题，是基础设施层面的问题，需要 ops 立即介入
