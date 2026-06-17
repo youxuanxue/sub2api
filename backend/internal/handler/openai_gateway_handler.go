@@ -262,6 +262,11 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
 	forwardBody := openAIModelMappedBody(body, channelMapping.Mapped, channelMapping.MappedModel, h.gatewayService.ReplaceModelInBody)
+	// TK: /v1/responses 入口补套 group messages-dispatch 模型映射（claude 家族名 →
+	// 配置的 gpt 模型），与 /v1/messages、/v1/chat/completions 同源。否则裸 claude 名
+	// 透传 Codex/ChatGPT 后端会被上游拒为 400 "model not supported"。
+	// 见 openai_gateway_handler_tk_responses_dispatch.go。
+	forwardBody = tkApplyResponsesDispatchModelMapping(apiKey, forwardBody, h.gatewayService.ReplaceModelInBody)
 
 	// 提前校验 function_call_output 是否具备可关联上下文，避免上游 400。
 	if !h.validateFunctionCallOutputRequest(c, body, reqLog) {
