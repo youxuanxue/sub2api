@@ -485,7 +485,31 @@ jobs:
             exit 1
           fi
 
+      - name: Check 14 — served-models manifest agrees with price/display/migration
+        run: |
+          # Preflight parity: scripts/checks/catalog-serving-drift.py — guards the
+          # #812-class regression where a model is priced + advertised-as-intended in
+          # backend/internal/service/tk_served_models.json but never wired onto the
+          # serving account's credentials.model_mapping (=> empty pool 429/503). The
+          # same script scripts/preflight.sh runs locally, so a green local preflight
+          # implies a green check here. Selftest first (offline fixtures), then the
+          # real run against the manifest + tk_pricing_overlay.json + the Go
+          # servable-allowlist maps + tk_*.sql model_mapping migrations.
+          if [ ! -f ./scripts/checks/catalog-serving-drift.py ]; then
+            echo "::error::scripts/checks/catalog-serving-drift.py missing."
+            exit 1
+          fi
+          if ! python3 ./scripts/checks/catalog-serving-drift.py --selftest; then
+            echo "::error::catalog-serving-drift.py selftest failed (guard logic broke)."
+            exit 1
+          fi
+          if ! python3 ./scripts/checks/catalog-serving-drift.py; then
+            echo "::error::served-models manifest drift: a manifest entry disagrees with its price, display allowlist, or model_mapping migration."
+            echo "::error::Land the missing tk_NNN_*_model_mapping migration (or add the 'served-via-admin-ui' notes opt-out), or remove the row — do NOT delete the guard."
+            exit 1
+          fi
+
       - name: Summary
         run: |
-          echo "All thirteen §5.y / §5.x checks passed for merge/upstream-* PR."
+          echo "All fourteen §5.y / §5.x checks passed for merge/upstream-* PR."
           echo "Reviewer reminder: pick GitHub 'Create a merge commit' (not Squash)."
