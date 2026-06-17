@@ -171,6 +171,7 @@ export default {
       promptPlaceholder: 'Describe the image…',
       aspectLabel: 'Aspect ratio',
       billedAs: 'Billed as {tier} · ×{mult}',
+      billedFlat: 'Flat per-image price (one image per run)',
       count: 'Count',
       resultsTitle: 'Results',
       emptyHint: 'Pick a tier and generate — results appear here and persist across reloads.',
@@ -180,7 +181,8 @@ export default {
       generateTopUp: 'Generate · {cost} — top up',
       generating: 'Generating…',
       noResult: 'The gateway returned no image data.',
-      formula: '{base} × {tier} ×{mult} × {n}'
+      formula: '{base} × {tier} ×{mult} × {n}',
+      formulaFlat: '{base} × {n}'
     },
     video: {
       modelLabel: 'Model',

@@ -685,9 +685,11 @@
         "modalityForModel",
         "id.startsWith('gpt-image-')",
         "id.includes('seedance') || id.startsWith('veo-')",
-        "videoStateFromFetch"
+        "videoStateFromFetch",
+        "isGeminiNativeImageModel",
+        "extractChatImageItems"
       ],
-      "rationale": "Playground media modality table + tolerant response parsing. /v1/models returns bare ids and the public catalog has no image/video capability tag, so this frontend table is the only thing routing gpt-image-*/imagen-*/seedream prompts to /v1/images/generations and veo-*/seedance prompts to the vt_ video task flow. The gpt-image- prefix mirrors the backend's own intent predicate (openai_images.go isOpenAIImageGenerationModel) — if either side changes family patterns the other must follow."
+      "rationale": "Playground media modality table + tolerant response parsing. /v1/models returns bare ids and the public catalog has no image/video capability tag, so this frontend table is the only thing routing gpt-image-*/imagen-*/seedream prompts to /v1/images/generations and veo-*/seedance prompts to the vt_ video task flow. The gpt-image- prefix mirrors the backend's own intent predicate (openai_images.go isOpenAIImageGenerationModel) — if either side changes family patterns the other must follow. isGeminiNativeImageModel classifies gemini-*-image / nano-banana ids as 'image' (mirrors backend isImageGenerationModel) — they are served via /v1/chat/completions (verified prod: the image returns as ![image](data:…) markdown for antigravity + newapi groups), so extractChatImageItems is the ONLY parser pulling that inline image out of the chat response; dropping either silently regresses gemini-native image in the Studio."
     },
     {
       "path": "frontend/src/views/user/studio/ChatStudio.vue",
@@ -811,7 +813,8 @@
         "export function resolveAvailableModels",
         "supportedParams",
         "export const IMAGEN_IMAGE_SIZES",
-        "export const SEEDREAM_IMAGE_SIZES"
+        "export const SEEDREAM_IMAGE_SIZES",
+        "export const GEMINI_IMAGE_SIZES"
       ],
       "rationale": "TK-only Studio model catalog + capability map. MEDIA_MODELS lists each priced+servable media model (friendly name, vendor, price, supportedParams); resolveAvailableModels(modality, availableIds) is the priced∩servable filter the model-card picker drives (replacing the tier-card selection). Dropping these silently regresses the transparent model picker or, worse, lets an unservable/unpriced model surface as a 400-on-submit footgun. supportedParams is the honest Advanced-panel capability gate — only params a model actually honors are rendered. IMAGEN_IMAGE_SIZES / SEEDREAM_IMAGE_SIZES are the per-model aspect-ratio option sets: Imagen MUST send ratio codes {1:1,3:4,4:3,9:16,16:9} verbatim and Seedream MUST send pixel WxH — losing them reverts to the fixed-pixel preset that made the gemini/vertex adaptor emit 3:2/2:3, which Imagen hard-400s ('Invalid aspect ratio, 3:2')."
     },

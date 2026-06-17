@@ -11,16 +11,39 @@
 //              priced in tk_pricing_overlay.json.
 //   - video  — veo-* (Vertex) and *seedance* (Doubao Seedance) are the families
 //              served via /v1/video/generations (task adaptor channel types 45/54).
+//   - image (gemini-native) — gemini-*-image / nano-banana ("Nano Banana") models
+//              output images, but via /v1/chat/completions (responseModalities
+//              IMAGE), NOT /v1/images/generations. The predicate mirrors the
+//              backend isImageGenerationModel() family (antigravity_gateway_service.go).
 // Unknown ids stay 'chat' — wrong-modality submits get a clear gateway error,
 // never a silent misroute.
 
 export type PlaygroundModality = 'chat' | 'image' | 'video'
 
+/**
+ * Gemini-native image-generation ids: `gemini…-image`, `gemini…-image-preview`,
+ * `gemini…-image-<variant>`, and the `nano-banana` family. Must NOT match plain
+ * gemini chat ids (e.g. gemini-2.5-flash, gemini-3-flash-agent) — only ids whose
+ * name carries an `-image` segment. Mirrors backend isImageGenerationModel().
+ */
+const GEMINI_NATIVE_IMAGE_RE = /(?:^|\/)gemini[-\w.]*-image(?:-[-\w.]*)?$/
+
+export function isGeminiNativeImageModel(modelId: string): boolean {
+  const id = (modelId || '').trim().toLowerCase()
+  return GEMINI_NATIVE_IMAGE_RE.test(id) || id.includes('nano-banana')
+}
+
 export function modalityForModel(modelId: string): PlaygroundModality {
   const id = (modelId || '').trim().toLowerCase()
   if (!id) return 'chat'
   if (id.includes('seedance') || id.startsWith('veo-')) return 'video'
-  if (id.startsWith('gpt-image-') || id.startsWith('imagen-') || id.includes('seedream')) return 'image'
+  if (
+    id.startsWith('gpt-image-') ||
+    id.startsWith('imagen-') ||
+    id.includes('seedream') ||
+    isGeminiNativeImageModel(id)
+  )
+    return 'image'
   return 'chat'
 }
 
@@ -70,6 +93,64 @@ export function extractImageItems(resp: unknown): PlaygroundImageItem[] {
       items.push({ src: rec.url, revisedPrompt: revised })
     } else if (typeof rec.b64_json === 'string' && withinInlineB64Cap(rec.b64_json)) {
       items.push({ src: `data:image/png;base64,${rec.b64_json}`, revisedPrompt: revised })
+    }
+  }
+  return items
+}
+
+/**
+ * Extract image(s) from a CHAT COMPLETION response — gemini-native image models
+ * (Nano Banana family) are served via /v1/chat/completions (verified against prod:
+ * antigravity + newapi groups both return the image, NOT the /v1beta native route
+ * which is gemini-platform-group only). The image arrives as markdown in
+ * choices[].message.content: `![image](data:image/jpeg;base64,…)`. Some upstreams
+ * may instead return structured content parts (image_url / inline_data); handle both.
+ * Reuses extractImageItems' scheme guard + decoded-size cap so a hostile relay can't
+ * smuggle a javascript: scheme or a tab-freezing multi-hundred-MB b64.
+ */
+export function extractChatImageItems(resp: unknown): PlaygroundImageItem[] {
+  const root = asRecord(resp)
+  const choices = root?.choices
+  if (!Array.isArray(choices)) return []
+  const items: PlaygroundImageItem[] = []
+  const pushDataUri = (uri: string): void => {
+    const m = /^data:image\/[\w.+-]+;base64,([A-Za-z0-9+/=]+)$/i.exec(uri)
+    if (m && withinInlineB64Cap(m[1])) items.push({ src: uri })
+  }
+  const pushUrl = (url: string): void => {
+    if (/^https?:\/\//i.test(url)) items.push({ src: url })
+    else pushDataUri(url)
+  }
+  for (const choice of choices) {
+    const message = asRecord(asRecord(choice)?.message)
+    if (!message) continue
+    const content = message.content
+    if (typeof content === 'string') {
+      // markdown ![…](data:image/…;base64,…) — pull every data: image URI out.
+      const re = /\(\s*(data:image\/[\w.+-]+;base64,[A-Za-z0-9+/=]+)\s*\)/gi
+      let mm: RegExpExecArray | null
+      while ((mm = re.exec(content)) !== null) pushDataUri(mm[1])
+    } else if (Array.isArray(content)) {
+      // structured parts: {type:'image_url', image_url:{url}} or {inline_data:{data,mime_type}}.
+      for (const part of content) {
+        const p = asRecord(part)
+        if (!p) continue
+        const imageUrl = asRecord(p.image_url)
+        if (typeof imageUrl?.url === 'string') pushUrl(imageUrl.url)
+        else if (typeof p.image_url === 'string') pushUrl(p.image_url)
+        const inline = asRecord(p.inline_data) ?? asRecord(p.inlineData)
+        if (inline && typeof inline.data === 'string') {
+          const mime =
+            typeof inline.mime_type === 'string'
+              ? inline.mime_type
+              : typeof inline.mimeType === 'string'
+                ? inline.mimeType
+                : 'image/png'
+          if (mime.startsWith('image') && withinInlineB64Cap(inline.data)) {
+            items.push({ src: `data:${mime};base64,${inline.data}` })
+          }
+        }
+      }
     }
   }
   return items

@@ -70,10 +70,12 @@
             </button>
           </div>
           <p class="mt-1.5 text-[11px] text-gray-400 dark:text-dark-500">
-            {{ t('studio.image.billedAs', { tier: classifiedTier, mult: sizeMultiplier }) }}
+            <template v-if="isFlatImage">{{ t('studio.image.billedFlat') }}</template>
+            <template v-else>{{ t('studio.image.billedAs', { tier: classifiedTier, mult: sizeMultiplier }) }}</template>
           </p>
         </div>
-        <div class="mt-3 flex items-center justify-between">
+        <!-- Count stepper hidden for gemini-native image: the chat surface returns one image per request. -->
+        <div v-if="!isFlatImage" class="mt-3 flex items-center justify-between">
           <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{ t('studio.image.count') }}</span>
           <div class="flex items-center gap-2">
             <button type="button" class="h-7 w-7 rounded-lg border border-gray-200 text-gray-600 hover:border-primary-300 disabled:opacity-40 dark:border-dark-600 dark:text-dark-300" :disabled="n <= IMAGE_N_MIN" @click="n = Math.max(IMAGE_N_MIN, n - 1)">−</button>
@@ -167,8 +169,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { gatewayImageGenerations } from '@/api/playground'
-import { extractImageItems } from '@/constants/playgroundMedia.tk'
+import { gatewayImageGenerations, gatewayGeminiImageViaChat } from '@/api/playground'
+import { extractImageItems, extractChatImageItems } from '@/constants/playgroundMedia.tk'
 import {
   IMAGE_N_MIN,
   IMAGE_N_MAX,
@@ -218,6 +220,11 @@ const selectedSize = computed(
 const sentSize = computed(() => selectedSize.value?.value ?? '')
 const classifiedTier = computed(() => classifyImageBillingTier(sentSize.value))
 const sizeMultiplier = computed(() => IMAGE_SIZE_MULTIPLIER[classifiedTier.value])
+// Gemini-native image is served via /v1/chat/completions and bills a FLAT
+// output_cost_per_image (no 1K/2K/4K size tier, one image per request). Skip the
+// size-tier multiplier and the count stepper for these models.
+const isFlatImage = computed(() => !!selected.value?.model.flatImageBilling)
+const effectiveN = computed(() => (isFlatImage.value ? 1 : n.value))
 // Show the literal pixel size as a subtext when it differs from the ratio label
 // (Seedream); for Imagen the value IS the ratio, so no redundant subtext.
 function sizeSubtext(value: string, ratio: string): string {
@@ -235,16 +242,25 @@ const estimate = computed(() => {
   if (!selected.value) return 0
   return estimateImageCost({
     baseImagePrice: selected.value.baseImagePrice || 0,
-    size: sentSize.value,
-    n: n.value,
+    size: isFlatImage.value ? '1K' : sentSize.value, // flat ⇒ ×1, no size tier
+    n: effectiveN.value,
     rateMultiplier: props.rateMultiplier,
   })
 })
-// Affordability is gated on the backend HOLD upper bound (4K tier-max), NOT the
-// per-size estimate — otherwise a balance between the headline price and the
-// hold would enable a request the gateway then 403s (insufficient_balance).
+// Affordability is gated on the backend HOLD upper bound. For imagen/seedream that
+// is the 4K tier-max (settlement bills the real size), so the UI can't enable a
+// request the gateway then 403s. Gemini bills flat per-image (no tier), so its hold
+// IS the flat estimate.
 const holdEstimate = computed(() => {
   if (!selected.value) return 0
+  if (isFlatImage.value) {
+    return estimateImageCost({
+      baseImagePrice: selected.value.baseImagePrice || 0,
+      size: '1K',
+      n: 1,
+      rateMultiplier: props.rateMultiplier,
+    })
+  }
   return estimateImageHoldCost({
     baseImagePrice: selected.value.baseImagePrice || 0,
     n: n.value,
@@ -258,6 +274,9 @@ const canGenerate = computed(
 const formula = computed(() => {
   if (!selected.value) return ''
   const base = formatUsd(selected.value.baseImagePrice || 0)
+  if (isFlatImage.value) {
+    return t('studio.image.formulaFlat', { base, n: effectiveN.value })
+  }
   return t('studio.image.formula', { base, tier: classifiedTier.value, mult: sizeMultiplier.value, n: n.value })
 })
 
@@ -306,17 +325,30 @@ async function generate(): Promise<void> {
   errorCode.value = ''
   sending.value = true
   try {
-    const raw = await gatewayImageGenerations(props.apiKey, props.gatewayBase, {
-      model: resolved.servedId,
-      prompt: text,
-      size: sentSize.value,
-      n: n.value,
-    })
-    const items = extractImageItems(raw)
+    // Gemini-native image rides /v1/chat/completions (image returned as markdown in
+    // the chat response — the universal path that works for antigravity + newapi
+    // groups); imagen/seedream ride /v1/images/generations. Route by the model.
+    let items
+    if (isFlatImage.value) {
+      const raw = await gatewayGeminiImageViaChat(props.apiKey, props.gatewayBase, {
+        model: resolved.servedId,
+        prompt: text,
+        aspectRatio: sentSize.value // ratio code → extra_body.google.image_config.aspect_ratio
+      })
+      items = extractChatImageItems(raw)
+    } else {
+      const raw = await gatewayImageGenerations(props.apiKey, props.gatewayBase, {
+        model: resolved.servedId,
+        prompt: text,
+        size: sentSize.value,
+        n: n.value,
+      })
+      items = extractImageItems(raw)
+    }
     if (!items.length) throw new Error(t('studio.image.noResult'))
     const perImage = estimateImageCost({
       baseImagePrice: resolved.baseImagePrice || 0,
-      size: sentSize.value,
+      size: isFlatImage.value ? '1K' : sentSize.value,
       n: 1,
       rateMultiplier: props.rateMultiplier,
     })

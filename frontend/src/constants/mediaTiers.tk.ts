@@ -31,6 +31,7 @@ export type PickerModality = StudioModality | 'chat'
 
 const VERTEX = 'Google Vertex'
 const VOLC = 'VolcEngine'
+const GEMINI = 'Google Gemini'
 
 /**
  * True when this group's pool backs at least one media model of the modality —
@@ -159,6 +160,26 @@ export const SEEDREAM_IMAGE_SIZES: ImageSizeOption[] = [
   { ratio: '16:9', value: '2048x1152' },
 ]
 
+/**
+ * Gemini-native image (Nano Banana / Gemini 3 image): served via /v1/chat/completions
+ * with `extra_body.google.image_config.aspect_ratio` = the ratio code (sent verbatim,
+ * value === ratio). Gemini supports a BROADER set than Imagen — its 10 documented
+ * ratios (ref: Google Nano Banana / Gemini 3 Pro Image docs). Per the #801 per-model
+ * design, each model lists its OWN supported ratios; this is gemini's full set.
+ */
+export const GEMINI_IMAGE_SIZES: ImageSizeOption[] = [
+  { ratio: '1:1', value: '1:1' },
+  { ratio: '2:3', value: '2:3' },
+  { ratio: '3:2', value: '3:2' },
+  { ratio: '3:4', value: '3:4' },
+  { ratio: '4:3', value: '4:3' },
+  { ratio: '4:5', value: '4:5' },
+  { ratio: '5:4', value: '5:4' },
+  { ratio: '9:16', value: '9:16' },
+  { ratio: '16:9', value: '16:9' },
+  { ratio: '21:9', value: '21:9' },
+]
+
 /** Video aspect ratios — passthrough hint to the task adaptor (TK does not interpret). */
 export interface VideoAspectPreset {
   id: string
@@ -234,9 +255,15 @@ export interface MediaModel {
   /**
    * Image modality only: the aspect-ratio options this model's UPSTREAM accepts,
    * each carrying the exact `size` string to send. Imagen ⇒ ratio codes, Seedream
-   * ⇒ pixel WxH (see ImageSizeOption). Absent for video models.
+   * ⇒ pixel WxH, Gemini-native ⇒ ratio codes (see ImageSizeOption). Absent for video.
    */
   imageSizes?: ImageSizeOption[]
+  /**
+   * True ⇒ this model is served via /v1/chat/completions (gemini-native image), not
+   * /v1/images/generations, and bills a FLAT output_cost_per_image (no 1K/2K/4K size
+   * tier). The Studio routes it through chat and skips the size-tier cost multiplier.
+   */
+  flatImageBilling?: boolean
 }
 
 /**
@@ -290,6 +317,44 @@ export const MEDIA_MODELS: MediaModel[] = [
     modality: 'image',
     supportedParams: [],
     imageSizes: IMAGEN_IMAGE_SIZES,
+  },
+  // ── gemini-native image (Nano Banana family) — served via /v1/chat/completions
+  //    (responseModalities IMAGE), NOT /v1/images/generations. Flat per-image billing.
+  {
+    modelId: 'gemini-3.1-flash-image',
+    aliasIds: ['gemini-3.1-flash-image-preview'],
+    displayName: 'Gemini 3.1 Flash Image',
+    qualityBadge: 'fast',
+    qualityBadgeKey: 'studio.badge.fast',
+    vendorLabel: GEMINI,
+    modality: 'image',
+    supportedParams: [],
+    imageSizes: GEMINI_IMAGE_SIZES,
+    flatImageBilling: true,
+  },
+  {
+    modelId: 'gemini-2.5-flash-image',
+    aliasIds: ['gemini-2.5-flash-image-preview'],
+    displayName: 'Gemini 2.5 Flash Image',
+    qualityBadge: 'standard',
+    qualityBadgeKey: 'studio.badge.standard',
+    vendorLabel: GEMINI,
+    modality: 'image',
+    supportedParams: [],
+    imageSizes: GEMINI_IMAGE_SIZES,
+    flatImageBilling: true,
+  },
+  {
+    modelId: 'gemini-3-pro-image-preview',
+    aliasIds: ['gemini-3-pro-image', 'nano-banana-pro-preview'],
+    displayName: 'Nano Banana Pro (Gemini 3 Pro Image)',
+    qualityBadge: 'ultra',
+    qualityBadgeKey: 'studio.badge.ultra',
+    vendorLabel: GEMINI,
+    modality: 'image',
+    supportedParams: [],
+    imageSizes: GEMINI_IMAGE_SIZES,
+    flatImageBilling: true,
   },
   // gpt-image-* is deliberately ABSENT: it needs a type=apikey OpenAI account
   // (OAuth subscriptions 502). If a future probe adds an apikey-backed group,

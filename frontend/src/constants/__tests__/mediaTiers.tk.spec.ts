@@ -8,6 +8,7 @@ import {
   MEDIA_MODELS,
   IMAGEN_IMAGE_SIZES,
   SEEDREAM_IMAGE_SIZES,
+  GEMINI_IMAGE_SIZES,
   type ModalityKeyOption,
   type StudioParam,
 } from '@/constants/mediaTiers.tk'
@@ -235,8 +236,13 @@ describe('image aspect options (per-model, upstream-valid wire values)', () => {
     }
   })
 
-  it('no image model offers an Imagen-invalid ratio (regression: 3:2 / 2:3)', () => {
-    for (const m of MEDIA_MODELS.filter((m) => m.modality === 'image')) {
+  it('IMAGEN models never offer an Imagen-invalid ratio (regression: 3:2 / 2:3)', () => {
+    // The 3:2/2:3 rule is IMAGEN-specific: those map to a hard-400 on Vertex.
+    // Gemini legitimately supports 3:2/2:3/21:9 (different upstream), so the guard
+    // is scoped to imagen models (the ones whose imageSizes is IMAGEN_IMAGE_SIZES).
+    const imagenModels = MEDIA_MODELS.filter((m) => m.imageSizes === IMAGEN_IMAGE_SIZES)
+    expect(imagenModels.length).toBeGreaterThan(0)
+    for (const m of imagenModels) {
       for (const opt of m.imageSizes ?? []) {
         expect(opt.ratio).not.toBe('3:2')
         expect(opt.ratio).not.toBe('2:3')
@@ -251,6 +257,27 @@ describe('image aspect options (per-model, upstream-valid wire values)', () => {
       expect(IMAGEN_VALID.has(opt.value)).toBe(true)
     }
     expect(new Set(IMAGEN_IMAGE_SIZES.map((o) => o.ratio))).toEqual(IMAGEN_VALID)
+  })
+
+  it('Gemini sends ratio codes verbatim, from its broader documented set', () => {
+    // Nano Banana / Gemini 3 image: 10 ratios (superset of Imagen's 5).
+    const GEMINI_VALID = new Set(['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'])
+    for (const opt of GEMINI_IMAGE_SIZES) {
+      expect(opt.value).toBe(opt.ratio) // ratio code on the wire (→ image_config.aspect_ratio)
+      expect(GEMINI_VALID.has(opt.ratio)).toBe(true)
+    }
+    expect(new Set(GEMINI_IMAGE_SIZES.map((o) => o.ratio))).toEqual(GEMINI_VALID)
+  })
+
+  it('gemini image models are flatImageBilling; imagen/seedream are not', () => {
+    for (const m of MEDIA_MODELS.filter((m) => m.imageSizes === GEMINI_IMAGE_SIZES)) {
+      expect(m.flatImageBilling).toBe(true)
+    }
+    for (const m of MEDIA_MODELS.filter(
+      (m) => m.imageSizes === IMAGEN_IMAGE_SIZES || m.imageSizes === SEEDREAM_IMAGE_SIZES
+    )) {
+      expect(m.flatImageBilling).toBeFalsy()
+    }
   })
 
   it('Seedream sends pixel WxH within ARK range [1024², 4096²], ratio range [1/16,16]', () => {

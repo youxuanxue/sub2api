@@ -169,6 +169,7 @@ export default {
       promptPlaceholder: '描述你想要的图片…',
       aspectLabel: '比例',
       billedAs: '按 {tier} 计费 · ×{mult}',
+      billedFlat: '按张计费（固定单价，每次一张）',
       count: '数量',
       resultsTitle: '结果',
       emptyHint: '选个档位并生成——结果会显示在这里，刷新也不丢。',
@@ -178,7 +179,8 @@ export default {
       generateTopUp: '生成 · {cost} — 去充值',
       generating: '生成中…',
       noResult: '网关未返回图片数据。',
-      formula: '{base} × {tier} ×{mult} × {n}'
+      formula: '{base} × {tier} ×{mult} × {n}',
+      formulaFlat: '{base} × {n}'
     },
     video: {
       modelLabel: '模型',
