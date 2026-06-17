@@ -49,7 +49,9 @@ const en: InviteTrialOverlay = {
         apiKey: 'API key',
         expiresAt: 'Expires',
         createMore: 'Create more',
-        presetSaved: 'Preset saved'
+        presetSaved: 'Preset saved',
+        submitFailed: 'Failed to create trial credentials',
+        savePresetFailed: 'Failed to save preset'
       }
     }
   }
@@ -96,7 +98,9 @@ const zh: InviteTrialOverlay = {
         apiKey: 'API Key',
         expiresAt: '到期',
         createMore: '继续创建',
-        presetSaved: '方案已保存'
+        presetSaved: '方案已保存',
+        submitFailed: '创建试用凭证失败',
+        savePresetFailed: '保存方案失败'
       }
     }
   }

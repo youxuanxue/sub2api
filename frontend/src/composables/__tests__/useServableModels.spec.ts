@@ -46,6 +46,19 @@ describe('useServableModels', () => {
     expect(error.value).toContain('boom')
   })
 
+  it('surfaces the message from the interceptor-flattened error object (not [object Object])', async () => {
+    // api/client.ts rejects with a plain object { status, code, message }, not an
+    // Error — String(e) used to store "[object Object]" here.
+    mockGet.mockRejectedValueOnce({ status: 500, code: 'INTERNAL', message: 'candidate fetch failed' })
+    const { ensureLoaded, error } = useServableModels()
+
+    await ensureLoaded('gemini')
+
+    expect(servableModelsFor('gemini')).toEqual([])
+    expect(error.value).toBe('candidate fetch failed')
+    expect(error.value).not.toBe('[object Object]')
+  })
+
   it('non-API platform is a no-op (no fetch, undefined list → caller uses its static fallback)', async () => {
     const { ensureLoaded } = useServableModels()
     await ensureLoaded('zhipu')
