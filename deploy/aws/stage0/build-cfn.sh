@@ -60,11 +60,11 @@ split_b64_for_ssm() {
   if ((${#parts[@]} == 0)); then
     parts+=("")
   fi
-  if ((${#parts[@]} > 2)); then
-    echo "bootstrap gzip+base64 needs ${#parts[@]} SSM parts (>2); raise part slots in CFN template" >&2
+  if ((${#parts[@]} > 3)); then
+    echo "bootstrap gzip+base64 needs ${#parts[@]} SSM parts (>3); raise part slots in CFN template" >&2
     exit 1
   fi
-  while ((${#parts[@]} < 2)); do
+  while ((${#parts[@]} < 3)); do
     parts+=("")
   done
   printf '%s\n' "${parts[@]}"
@@ -79,6 +79,7 @@ BOOTSTRAP_GZB64="$(encode_gzb64 "${BOOTSTRAP_SRC}")"
 
 BOOTSTRAP_PART1="$(split_b64_for_ssm "${BOOTSTRAP_GZB64}" | sed -n '1p')"
 BOOTSTRAP_PART2="$(split_b64_for_ssm "${BOOTSTRAP_GZB64}" | sed -n '2p')"
+BOOTSTRAP_PART3="$(split_b64_for_ssm "${BOOTSTRAP_GZB64}" | sed -n '3p')"
 
 check_ssm_len() {
   local label="$1"
@@ -96,6 +97,7 @@ check_ssm_len pgdump "${PGDUMP_B64}"
 check_ssm_len prune "${PRUNE_B64}"
 check_ssm_len bootstrap_part1 "${BOOTSTRAP_PART1}"
 check_ssm_len bootstrap_part2 "${BOOTSTRAP_PART2}"
+check_ssm_len bootstrap_part3 "${BOOTSTRAP_PART3}"
 
 indent_launcher() {
   local indent='          '
@@ -123,6 +125,7 @@ refresh_template() {
   local new_prune="${indent}Value: '${PRUNE_B64}'"
   local new_bootstrap1="${indent}Value: '${BOOTSTRAP_PART1}'"
   local new_bootstrap2="${indent}Value: '${BOOTSTRAP_PART2}'"
+  local new_bootstrap3="${indent}Value: '${BOOTSTRAP_PART3}'"
   local userdata_tmp
   userdata_tmp="$(mktemp)"
   printf '%s\n' "${USERDATA_BODY}" >"${userdata_tmp}"
@@ -134,6 +137,7 @@ refresh_template() {
       -v new_prune_ssm="${new_prune}" \
       -v new_bootstrap1_ssm="${new_bootstrap1}" \
       -v new_bootstrap2_ssm="${new_bootstrap2}" \
+      -v new_bootstrap3_ssm="${new_bootstrap3}" \
       -v userdata_file="${userdata_tmp}" '
     BEGIN { skip = 0 }
     />>> COMPOSE_GZB64_SSM START/ { print; print new_compose_ssm; skip = 1; next }
@@ -150,6 +154,8 @@ refresh_template() {
     />>> BOOTSTRAP_GZB64_SSM_PART1 END/ { skip = 0; print; next }
     />>> BOOTSTRAP_GZB64_SSM_PART2 START/ { print; print new_bootstrap2_ssm; skip = 1; next }
     />>> BOOTSTRAP_GZB64_SSM_PART2 END/ { skip = 0; print; next }
+    />>> BOOTSTRAP_GZB64_SSM_PART3 START/ { print; print new_bootstrap3_ssm; skip = 1; next }
+    />>> BOOTSTRAP_GZB64_SSM_PART3 END/ { skip = 0; print; next }
     />>> USERDATA_LAUNCHER START/ {
       while ((getline line < userdata_file) > 0) print line
       close(userdata_file)
@@ -188,7 +194,7 @@ if [[ "${mode}" == "check" ]]; then
   # gzip+base64 payloads (the version-fragile ones):
   committed_value COMPOSE_GZB64_SSM | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${COMPOSE_SRC}" || report compose
   committed_value CADDY_GZB64_SSM   | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${CADDY_SRC}"   || report caddy
-  { committed_value BOOTSTRAP_GZB64_SSM_PART1; committed_value BOOTSTRAP_GZB64_SSM_PART2; } \
+  { committed_value BOOTSTRAP_GZB64_SSM_PART1; committed_value BOOTSTRAP_GZB64_SSM_PART2; committed_value BOOTSTRAP_GZB64_SSM_PART3; } \
     | tr -d '\n' | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${BOOTSTRAP_SRC}" || report bootstrap
   # plain base64 payloads:
   committed_value QA_CLEANUP_B64_PARAM | base64 -d 2>/dev/null | cmp -s - "${QA_CLEANUP_SRC}" || report qa-cleanup
@@ -216,7 +222,7 @@ echo "  caddy gzip+base64 (SSM): ${#CADDY_GZB64} chars"
 echo "  qa cleanup base64 (SSM): ${#QA_CLEANUP_B64} chars"
 echo "  pgdump base64 (SSM): ${#PGDUMP_B64} chars"
 echo "  ghcr prune base64 (SSM): ${#PRUNE_B64} chars"
-echo "  bootstrap gzip+base64 (SSM total): ${#BOOTSTRAP_GZB64} chars (part1=${#BOOTSTRAP_PART1}, part2=${#BOOTSTRAP_PART2})"
+echo "  bootstrap gzip+base64 (SSM total): ${#BOOTSTRAP_GZB64} chars (part1=${#BOOTSTRAP_PART1}, part2=${#BOOTSTRAP_PART2}, part3=${#BOOTSTRAP_PART3})"
 echo "  prod UserData launcher: ${USERDATA_BYTES} bytes (EC2 limit ${EC2_USERDATA_LIMIT})"
 if (( USERDATA_BYTES > USERDATA_WARN_BYTES )); then
   echo "WARNING: UserData approaching EC2 limit." >&2

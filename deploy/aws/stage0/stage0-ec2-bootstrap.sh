@@ -46,6 +46,35 @@ curl -fsSL "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE
 chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 usermod -aG docker ec2-user
 
+# --- 1b. swap (memory-pressure release valve) ---------------------------
+# 2026-06-17 prod incident: an unbounded in-RAM qa export drove memused 7%->92%
+# on this 8 GiB box with NO swap; the kernel had no release valve, evicted the
+# entire page cache, then thrashed re-reading it off the Postgres data volume
+# (iowait 91%, load 20, 22 D-state tasks) until the OS half-deadlocked and had
+# to be rebooted. A modest swapfile turns that cliff into graceful (slow)
+# degradation. Lives on the ROOT volume so swap I/O never contends with
+# Postgres on /var/lib/tokenkey. Idempotent: skip if already active.
+SWAPFILE=/swapfile
+SWAP_SIZE_MB="${TK_SWAP_SIZE_MB:-4096}"
+if ! swapon --show=NAME --noheadings 2>/dev/null | grep -qx "${SWAPFILE}"; then
+  if [ ! -e "${SWAPFILE}" ]; then
+    fallocate -l "${SWAP_SIZE_MB}M" "${SWAPFILE}" 2>/dev/null \
+      || dd if=/dev/zero of="${SWAPFILE}" bs=1M count="${SWAP_SIZE_MB}" status=none
+  fi
+  chmod 600 "${SWAPFILE}"
+  mkswap "${SWAPFILE}" >/dev/null 2>&1 || true
+  swapon "${SWAPFILE}" || true
+fi
+grep -q "^${SWAPFILE} " /etc/fstab || echo "${SWAPFILE} none swap sw 0 0" >> /etc/fstab
+cat > /etc/sysctl.d/90-tokenkey-swap.conf <<'SYSCTLEOF'
+# Only swap under genuine memory pressure (protect steady-state latency), and
+# bias the kernel toward keeping the page cache instead of dropping it — both
+# directly counter the 2026-06-17 no-swap page-cache-thrash failure mode.
+vm.swappiness=10
+vm.vfs_cache_pressure=50
+SYSCTLEOF
+sysctl --system >/dev/null 2>&1 || true
+
 # --- 2a. attach + mount persistent data volume --------------------------
 DATA_DEVICE='/dev/sdf'
 IMDS_TOKEN="$(curl -fsS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")"
@@ -254,25 +283,14 @@ set -euo pipefail
 IMDS_TOKEN="$(curl -fsS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")"
 REGION="$(curl -fsS -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://169.254.169.254/latest/meta-data/placement/region)"
 IID="$(curl -fsS -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://169.254.169.254/latest/meta-data/instance-id)"
-USED="$(df -P /var/lib/tokenkey 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5}')"
-[ -z "${USED}" ] && exit 0
-aws cloudwatch put-metric-data --region "${REGION}" \
-  --namespace tokenkey/EC2 \
-  --metric-data "MetricName=DataVolumeUsedPercent,Value=${USED},Unit=Percent,Dimensions=[{Name=InstanceId,Value=${IID}}]"
 
-# --- on-box disk-full alert (2026-06-15 prod P0) ------------------------------
-# A full data volume crashes Postgres AND degrades the app, so a disk-full alert
-# MUST NOT route through the app (it is dead exactly when needed). This timer
-# already runs every few minutes independent of Docker/Postgres, so it is the
-# robust place to fire the alert. CloudWatch's DataVolumeDiskAlarm correctly
-# detected 91%->100% for ~6h before the crash but had no AlarmAction wired (no
-# SNS topic in the account), so nothing ever notified anyone — this closes that
-# gap with a self-contained Feishu post.
-# Webhook + secret are injected via /var/lib/tokenkey/.env (same off-box-secret
-# injection point as TOKENKEY_PGDUMP_S3_URI); absent webhook => silent no-op.
-THRESHOLD="${TOKENKEY_DISK_ALERT_THRESHOLD:-85}"
+# These alerts MUST NOT route through the app (it is dead exactly when needed: a
+# full data volume crashes Postgres; a memory spike thrashes the box into an I/O
+# half-deadlock). This timer runs every few minutes independent of Docker, so it
+# is the robust place to fire. (2026-06-15 disk P0 + 2026-06-17 memory/IO P0.)
+# Webhook + secret injected via /var/lib/tokenkey/.env (same off-box-secret
+# point as TOKENKEY_PGDUMP_S3_URI); absent webhook => silent no-op.
 COOLDOWN="${TOKENKEY_DISK_ALERT_COOLDOWN_SEC:-1800}"
-STAMP=/run/tokenkey-disk-alert.stamp
 WEBHOOK=""; SECRET=""; NODE="${IID}"
 if [ -r /var/lib/tokenkey/.env ]; then
   WEBHOOK="$(sed -n 's/^TOKENKEY_FEISHU_WEBHOOK_URL=//p' /var/lib/tokenkey/.env | head -1)"
@@ -280,27 +298,50 @@ if [ -r /var/lib/tokenkey/.env ]; then
   DOM="$(sed -n 's/^API_DOMAIN=//p' /var/lib/tokenkey/.env | head -1)"
   [ -n "${DOM}" ] && NODE="${DOM}"
 fi
-if [ "${USED}" -ge "${THRESHOLD}" ] && [ -n "${WEBHOOK}" ]; then
-  NOW="$(date +%s)"
-  LAST=0; [ -r "${STAMP}" ] && LAST="$(cat "${STAMP}" 2>/dev/null || echo 0)"
-  if [ "$((NOW - LAST))" -ge "${COOLDOWN}" ]; then
-    TEXT="🔴 P0 磁盘将满 ${NODE} — DataVolume /var/lib/tokenkey 使用率 ${USED}% (阈值 ${THRESHOLD}%)。Postgres 满盘会崩溃→登录/网关全挂。立即清 pgdump/日志或扩容数据卷。instance=${IID}"
-    # Feishu custom-bot signed message: sign = base64(HMAC-SHA256(key=ts\nsecret, "")).
-    if [ -n "${SECRET}" ]; then
-      SIGN="$(printf '' | openssl dgst -sha256 -hmac "${NOW}"$'\n'"${SECRET}" -binary 2>/dev/null | base64)"
-      PAYLOAD="$(printf '{"timestamp":"%s","sign":"%s","msg_type":"text","content":{"text":"%s"}}' "${NOW}" "${SIGN}" "${TEXT}")"
-    else
-      PAYLOAD="$(printf '{"msg_type":"text","content":{"text":"%s"}}' "${TEXT}")"
-    fi
-    # Feishu returns HTTP 200 even when it REJECTS (bad signature / missing keyword);
-    # the real status is the body's "code" field (0 = delivered). Stamp the cooldown
-    # only on code:0, so a misconfigured webhook keeps retrying every tick instead of
-    # silently dropping every alert while the stamp suppresses retries for COOLDOWN.
-    RESP="$(curl -sS -m 10 -X POST "${WEBHOOK}" -H 'Content-Type: application/json' -d "${PAYLOAD}" 2>/dev/null || true)"  # preflight-allow: swallow — curl failure ⇒ empty RESP ⇒ no stamp ⇒ retry next tick
-    case "${RESP}" in
-      *'"code":0'*) echo "${NOW}" > "${STAMP}" || true ;;  # preflight-allow: swallow — best-effort cooldown stamp; alert delivered
-    esac
+
+# Self-contained Feishu alert with per-stamp cooldown. $1=stamp file, $2=text.
+# Feishu returns HTTP 200 even when it REJECTS; the real status is the body's
+# "code" field (0 = delivered). Stamp the cooldown only on code:0, so a
+# misconfigured webhook keeps retrying instead of silently dropping every alert.
+tk_feishu_alert() {
+  local stamp="$1" text="$2" now last sign payload resp
+  [ -n "${WEBHOOK}" ] || return 0
+  now="$(date +%s)"; last=0
+  [ -r "${stamp}" ] && last="$(cat "${stamp}" 2>/dev/null || echo 0)"
+  [ "$((now - last))" -ge "${COOLDOWN}" ] || return 0
+  if [ -n "${SECRET}" ]; then
+    sign="$(printf '' | openssl dgst -sha256 -hmac "${now}"$'\n'"${SECRET}" -binary 2>/dev/null | base64)"
+    payload="$(printf '{"timestamp":"%s","sign":"%s","msg_type":"text","content":{"text":"%s"}}' "${now}" "${sign}" "${text}")"
+  else
+    payload="$(printf '{"msg_type":"text","content":{"text":"%s"}}' "${text}")"
   fi
+  resp="$(curl -sS -m 10 -X POST "${WEBHOOK}" -H 'Content-Type: application/json' -d "${payload}" 2>/dev/null || true)"  # preflight-allow: swallow — curl failure ⇒ retry next tick
+  case "${resp}" in *'"code":0'*) echo "${now}" > "${stamp}" || true ;; esac  # preflight-allow: swallow — best-effort cooldown stamp
+}
+
+# --- DataVolume usage metric + disk-full alert (2026-06-15 prod P0) -----------
+USED="$(df -P /var/lib/tokenkey 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5}')"
+if [ -n "${USED}" ]; then
+  aws cloudwatch put-metric-data --region "${REGION}" \
+    --namespace tokenkey/EC2 \
+    --metric-data "MetricName=DataVolumeUsedPercent,Value=${USED},Unit=Percent,Dimensions=[{Name=InstanceId,Value=${IID}}]"
+  DISK_THRESHOLD="${TOKENKEY_DISK_ALERT_THRESHOLD:-85}"
+  if [ "${USED}" -ge "${DISK_THRESHOLD}" ]; then
+    tk_feishu_alert /run/tokenkey-disk-alert.stamp "🔴 P0 磁盘将满 ${NODE} — DataVolume /var/lib/tokenkey 使用率 ${USED}% (阈值 ${DISK_THRESHOLD}%)。Postgres 满盘会崩溃→登录/网关全挂。立即清 pgdump/日志或扩容数据卷。instance=${IID}"
+  fi
+fi
+
+# --- memory-pressure alert (2026-06-17 prod P0) ------------------------------
+# Leading indicator: MemAvailable collapses (memused% high) minutes BEFORE the
+# page-cache-thrash wedge, so 90% fires while the box is still reachable and the
+# operator can kill the offending workload (heavy export / full-table query).
+# Swap (added 2026-06-17) softens the cliff; this alert is the early heads-up.
+MEM_THRESHOLD="${TOKENKEY_MEM_ALERT_THRESHOLD:-90}"
+MEMUSEDPCT="$(awk '/^MemTotal:/{t=$2} /^MemAvailable:/{a=$2} END{ if(t>0) printf "%d",(t-a)*100/t; else print 0 }' /proc/meminfo 2>/dev/null || echo 0)"
+if [ "${MEMUSEDPCT:-0}" -ge "${MEM_THRESHOLD}" ]; then
+  SWAPPCT="$(awk '/^SwapTotal:/{t=$2} /^SwapFree:/{f=$2} END{ if(t>0) printf "%d",(t-f)*100/t; else print 0 }' /proc/meminfo 2>/dev/null || echo 0)"
+  LOAD1="$(awk '{print $1}' /proc/loadavg 2>/dev/null || echo 0)"
+  tk_feishu_alert /run/tokenkey-mem-alert.stamp "🟠 P1 内存压力 ${NODE} — 内存 ${MEMUSEDPCT}% (阈值 ${MEM_THRESHOLD}%), swap ${SWAPPCT}%, load1 ${LOAD1}。无 headroom 会驱逐 page cache→数据盘 I/O 颠簸→OS 半死锁。立即查并终止重导出/全表查询等吃内存任务。instance=${IID}"
 fi
 DISKEOF
 
@@ -328,7 +369,7 @@ UNITEOF
 
 cat > /etc/systemd/system/tokenkey-disk-metrics.service <<'DMSEOF'
 [Unit]
-Description=Publish tokenkey DataVolume used_percent to CloudWatch + on-box disk-full Feishu alert
+Description=Publish tokenkey DataVolume used_percent to CloudWatch + on-box disk-full & memory-pressure Feishu alerts
 After=network-online.target tokenkey.service
 Wants=network-online.target
 
@@ -419,6 +460,7 @@ cat > /opt/aws/amazon-cloudwatch-agent/etc/tokenkey.json <<'CWEOF'
     "namespace": "tokenkey/EC2",
     "append_dimensions": {"InstanceId": "${aws:InstanceId}"},
     "metrics_collected": {
+      "cpu":  {"measurement": ["cpu_usage_iowait", "cpu_usage_idle"], "totalcpu": true},
       "mem":  {"measurement": ["mem_used_percent"]},
       "disk": {"measurement": ["used_percent"], "resources": ["/", "/var/lib/tokenkey"]}
     }
