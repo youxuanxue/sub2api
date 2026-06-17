@@ -8,6 +8,7 @@ import {
   MEDIA_MODELS,
   IMAGEN_IMAGE_SIZES,
   SEEDREAM_IMAGE_SIZES,
+  GEMINI_IMAGE_SIZES,
   type ModalityKeyOption,
   type StudioParam,
 } from '@/constants/mediaTiers.tk'
@@ -226,14 +227,13 @@ describe('image aspect options (per-model, upstream-valid wire values)', () => {
   // and Imagen must send the ratio code verbatim.
   const IMAGEN_VALID = new Set(['1:1', '3:4', '4:3', '9:16', '16:9'])
 
-  it('imagen/seedream image models carry imageSizes; gemini (flat) and video carry none', () => {
-    // Gemini-native image has NO aspect picker (the ratio control is not honored on its
-    // serving path — #807 R-001), so its entries carry no imageSizes.
-    for (const m of MEDIA_MODELS.filter((m) => m.modality === 'image' && !m.flatImageBilling)) {
+  it('all image models carry imageSizes (gemini too, post-canary); video carry none', () => {
+    // Gemini-native image regained its aspect picker: a prod canary (2026-06-17) confirmed
+    // cloudcode-pa honors imageConfig.aspectRatio for all 10 documented ratios, lifting the
+    // #807 R-001 "no picker" deferral. So every image model now carries imageSizes; only
+    // video models (passthrough hint, separate VIDEO_ASPECT_PRESETS) carry none.
+    for (const m of MEDIA_MODELS.filter((m) => m.modality === 'image')) {
       expect(m.imageSizes && m.imageSizes.length).toBeTruthy()
-    }
-    for (const m of MEDIA_MODELS.filter((m) => m.modality === 'image' && m.flatImageBilling)) {
-      expect(m.imageSizes).toBeUndefined()
     }
     for (const m of MEDIA_MODELS.filter((m) => m.modality === 'video')) {
       expect(m.imageSizes).toBeUndefined()
@@ -263,17 +263,29 @@ describe('image aspect options (per-model, upstream-valid wire values)', () => {
     expect(new Set(IMAGEN_IMAGE_SIZES.map((o) => o.ratio))).toEqual(IMAGEN_VALID)
   })
 
-  it('gemini image models are flatImageBilling with no aspect picker; imagen/seedream are tiered', () => {
+  it('gemini image models are flatImageBilling AND carry the 10-ratio picker; imagen/seedream are tiered', () => {
     const gemini = MEDIA_MODELS.filter((m) => m.modality === 'image' && m.flatImageBilling)
     expect(gemini.length).toBeGreaterThan(0)
     for (const m of gemini) {
-      expect(m.imageSizes).toBeUndefined() // ratio control not honored on the serving path (#807 R-001)
+      // flat billing (no 1K/2K/4K size tier) is orthogonal to aspect ratio: the picker
+      // now drives aspect_ratio only, billing stays flat per image.
+      expect(m.imageSizes).toBe(GEMINI_IMAGE_SIZES)
     }
     for (const m of MEDIA_MODELS.filter(
       (m) => m.imageSizes === IMAGEN_IMAGE_SIZES || m.imageSizes === SEEDREAM_IMAGE_SIZES
     )) {
       expect(m.flatImageBilling).toBeFalsy()
     }
+  })
+
+  it('GEMINI_IMAGE_SIZES sends the ratio code verbatim and is exactly the 10 prod-verified ratios', () => {
+    // Mirrors the prod canary (2026-06-17): each of these returned dims matching the
+    // requested ratio. value === ratio because gemini bills flat (no pixel size).
+    const PROD_VERIFIED = new Set(['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'])
+    for (const opt of GEMINI_IMAGE_SIZES) {
+      expect(opt.value).toBe(opt.ratio)
+    }
+    expect(new Set(GEMINI_IMAGE_SIZES.map((o) => o.ratio))).toEqual(PROD_VERIFIED)
   })
 
   it('Seedream sends pixel WxH within ARK range [1024², 4096²], ratio range [1/16,16]', () => {

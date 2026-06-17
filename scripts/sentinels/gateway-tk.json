@@ -635,9 +635,10 @@
       "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
       "must_contain": [
         "Wei-Shaw/sub2api#1311",
-        "c.Writer.Header().Set(\"Content-Type\", \"application/json; charset=utf-8\")"
+        "c.Writer.Header().Set(\"Content-Type\", \"application/json; charset=utf-8\")",
+        "anthropicBody = tkInjectGeminiImageAspectRatio(body, anthropicBody)"
       ],
-      "rationale": "Gateway Anthropic-backed /v1/chat/completions non-stream path (handleCCBufferedFromAnthropic) shares the upstream #1311 Content-Type leak root cause and must explicitly override Content-Type after WriteFilteredHeaders so the converted chat.completion JSON body is not labeled text/event-stream."
+      "rationale": "Gateway Anthropic-backed /v1/chat/completions non-stream path (handleCCBufferedFromAnthropic) shares the upstream #1311 Content-Type leak root cause and must explicitly override Content-Type after WriteFilteredHeaders so the converted chat.completion JSON body is not labeled text/event-stream. Also the call site wiring the gemini-native image aspect-ratio injection (tkInjectGeminiImageAspectRatio, gateway_forward_as_chat_completions_tk_image.go) into the OpenAI-compat → Anthropic forward, after enforceCacheControlLimit and before buildUpstreamRequest — the companion compiling alone would not catch a dropped call site, so the one-line hook is anchored here separately."
     },
     {
       "path": "backend/internal/service/gateway_forward_as_responses_tk_content_type_test.go",
@@ -2678,6 +2679,15 @@
         "func tkResolveResponsesSelectionModel("
       ],
       "rationale": "TK companion (PR #809) holding the /v1/responses dispatch model-mapping helpers: forward-body rewrite (tkApplyResponsesDispatchModelMapping) and account-selection model (tkResolveResponsesSelectionModel). Load-bearing: deleting the file silently regresses /v1/responses for claude model names (upstream 400) and the responses<->messages selection parity. Anchored so an upstream merge or refactor cannot remove the companion without tripping the sentinel; pairs with the openai_gateway_handler.go injection-site sentinel above."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions_tk_image.go",
+      "must_contain": [
+        "func tkInjectGeminiImageAspectRatio(",
+        "extra_body.google.image_config.aspect_ratio",
+        "sjson.SetBytes(anthropicBody, \"image_config.aspect_ratio\", ar)"
+      ],
+      "rationale": "Gemini-native image aspect-ratio passthrough, prod side. The Studio rides extra_body.google.image_config.aspect_ratio on /v1/chat/completions; apicompat.ChatCompletionsRequest does not model extra_body, so the OpenAI-compat path (ForwardAsChatCompletions) would silently drop it (exactly how it was lost pre-fix — PR #807 R-001). This helper re-reads the ratio off the raw CC body (parity with extractCCReasoningEffortFromBody) and stamps it onto the relayed Anthropic /v1/messages body as image_config.aspect_ratio, where the edge antigravity transform turns it into generationConfig.imageConfig.aspectRatio. A prod canary (2026-06-17) confirmed cloudcode-pa honors all 10 ratios. The call site lives in gateway_forward_as_chat_completions.go (anchored there); the antigravity request_transformer.go emit is anchored in antigravity.json. If any is dropped by an upstream merge the ratio silently reverts to upstream default and the regression is invisible."
     }
   ]
 }

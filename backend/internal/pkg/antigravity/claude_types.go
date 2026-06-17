@@ -17,6 +17,18 @@ type ClaudeRequest struct {
 	Tools       []ClaudeTool    `json:"tools,omitempty"`
 	Thinking    *ThinkingConfig `json:"thinking,omitempty"`
 	Metadata    *ClaudeMetadata `json:"metadata,omitempty"`
+	// ImageConfig is the TK gemini-native image aspect-ratio carrier. The OpenAI-compat
+	// inbound (extra_body.google.image_config.aspect_ratio) threads it onto the Anthropic
+	// /v1/messages body across the prod→edge relay; buildGenerationConfig reads it and emits
+	// generationConfig.imageConfig.aspectRatio to cloudcode-pa. Upstream honors all 10
+	// documented ratios (prod canary 2026-06-17); not a Claude-spec field.
+	ImageConfig *ClaudeImageConfig `json:"image_config,omitempty"`
+}
+
+// ClaudeImageConfig carries the gemini-native image aspect ratio from the OpenAI-compat
+// inbound to the Gemini image transform. AspectRatio is a code like "1:1" / "16:9".
+type ClaudeImageConfig struct {
+	AspectRatio string `json:"aspect_ratio,omitempty"`
 }
 
 // ClaudeMessage Claude 消息

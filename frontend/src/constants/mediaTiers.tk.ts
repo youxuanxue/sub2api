@@ -160,13 +160,27 @@ export const SEEDREAM_IMAGE_SIZES: ImageSizeOption[] = [
   { ratio: '16:9', value: '2048x1152' },
 ]
 
-// NB: gemini-native image has NO aspect-ratio picker. The control was verified
-// non-functional on the antigravity serving path (prod: 1:1 / 9:16 / 16:9 all return
-// 1408x768 — extra_body.google.image_config.aspect_ratio is dropped before the
-// upstream). Rather than ship a cosmetic control we omit it; gemini image generates at
-// the model's default ratio. Forwarding the ratio is a separate backend effort (it must
-// thread aspect_ratio through the OpenAI→Claude→Gemini transform) gated on a prod canary
-// that confirms cloudcode-pa actually honors it. See PR #807 review R-001.
+/**
+ * Gemini-native image: send the ratio code verbatim — it rides extra_body.google.
+ * image_config.aspect_ratio and the antigravity transform emits it as generationConfig.
+ * imageConfig.aspectRatio to cloudcode-pa. A prod canary (2026-06-17) confirmed upstream
+ * honors all 10 documented ratios (returned dims match each requested ratio within ~1%),
+ * which is why R-001's "no picker" deferral is now lifted. Value === ratio (no pixel size:
+ * gemini bills flat per image, so sentSize feeds aspect_ratio only). (ref: Google Gemini-3
+ * image docs — supported aspectRatio set.)
+ */
+export const GEMINI_IMAGE_SIZES: ImageSizeOption[] = [
+  { ratio: '1:1', value: '1:1' },
+  { ratio: '2:3', value: '2:3' },
+  { ratio: '3:2', value: '3:2' },
+  { ratio: '3:4', value: '3:4' },
+  { ratio: '4:3', value: '4:3' },
+  { ratio: '4:5', value: '4:5' },
+  { ratio: '5:4', value: '5:4' },
+  { ratio: '9:16', value: '9:16' },
+  { ratio: '16:9', value: '16:9' },
+  { ratio: '21:9', value: '21:9' },
+]
 
 /** Video aspect ratios — passthrough hint to the task adaptor (TK does not interpret). */
 export interface VideoAspectPreset {
@@ -318,6 +332,7 @@ export const MEDIA_MODELS: MediaModel[] = [
     modality: 'image',
     supportedParams: [],
     flatImageBilling: true,
+    imageSizes: GEMINI_IMAGE_SIZES,
   },
   {
     modelId: 'gemini-2.5-flash-image',
@@ -329,6 +344,7 @@ export const MEDIA_MODELS: MediaModel[] = [
     modality: 'image',
     supportedParams: [],
     flatImageBilling: true,
+    imageSizes: GEMINI_IMAGE_SIZES,
   },
   {
     modelId: 'gemini-3-pro-image-preview',
@@ -340,6 +356,7 @@ export const MEDIA_MODELS: MediaModel[] = [
     modality: 'image',
     supportedParams: [],
     flatImageBilling: true,
+    imageSizes: GEMINI_IMAGE_SIZES,
   },
   // gpt-image-* is deliberately ABSENT: it needs a type=apikey OpenAI account
   // (OAuth subscriptions 502). If a future probe adds an apikey-backed group,
