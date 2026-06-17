@@ -3938,6 +3938,15 @@ func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedMo
 			requestedModel = claude.NormalizeModelID(requestedModel)
 		}
 	}
+	// TK 跨厂商脏模型前置拦截：anthropic 直连账号（OAuth/SetupToken/APIKey，上游确为
+	// api.anthropic.com）的 passthrough（空 model_mapping）会把客户端原样模型名转发上游，而上游只服务
+	// claude-*。非 claude-* 名（deepseek-/gpt-/gemini- …）转发必 404，且是滥用风控的指纹异常。此处判
+	// false → 选择失败 → ErrUnsupportedModel → Path A 本地 400，永不离开网关。ServiceAccount(Vertex)
+	// 上游不是 anthropic、模型名形态不同，已在上方排除；Bedrock 在函数顶部已 early-return。
+	if account.Platform == PlatformAnthropic && account.Type != AccountTypeServiceAccount &&
+		!tkIsForwardableAnthropicModelName(requestedModel) {
+		return false
+	}
 	// 其他平台使用账户的模型支持检查
 	return account.IsModelSupported(requestedModel)
 }
