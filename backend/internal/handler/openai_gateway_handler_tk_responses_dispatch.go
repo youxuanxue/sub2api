@@ -42,3 +42,18 @@ func tkApplyResponsesDispatchModelMapping(
 	}
 	return replace(forwardBody, mapped)
 }
+
+// tkResolveResponsesSelectionModel returns the model name the /v1/responses
+// account-selection step should route on. When the requested model is a claude
+// family name it returns the group dispatch-mapped gpt model (parity with
+// /v1/messages, which selects on its preferredMappedModel), so the scheduler's
+// channel-pricing / model-restriction filtering and load/sticky decisions see the
+// real upstream-bound model rather than a claude name that never reaches the
+// upstream. Non-claude models (mapping returns "") and nil apiKey fall through to
+// the original requested model unchanged.
+func tkResolveResponsesSelectionModel(apiKey *service.APIKey, requestedModel string) string {
+	if mapped := resolveOpenAIMessagesDispatchMappedModel(apiKey, requestedModel); mapped != "" {
+		return mapped
+	}
+	return requestedModel
+}

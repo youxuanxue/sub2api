@@ -85,3 +85,31 @@ func Test_tkApplyResponsesDispatchModelMapping(t *testing.T) {
 		}
 	})
 }
+
+// Test_tkResolveResponsesSelectionModel pins that account selection routes on the
+// dispatch-mapped gpt model for claude family names (parity with /v1/messages) and
+// leaves non-claude names / nil apiKey unchanged.
+func Test_tkResolveResponsesSelectionModel(t *testing.T) {
+	keyWith := func(cfg service.OpenAIMessagesDispatchModelConfig) *service.APIKey {
+		return &service.APIKey{Group: &service.Group{ID: 2, Platform: service.PlatformOpenAI, MessagesDispatchModelConfig: cfg}}
+	}
+
+	cases := []struct {
+		name      string
+		apiKey    *service.APIKey
+		requested string
+		want      string
+	}{
+		{"claude opus routes on configured gpt", keyWith(service.OpenAIMessagesDispatchModelConfig{OpusMappedModel: "gpt-5.5"}), "claude-opus-4-7", "gpt-5.5"},
+		{"claude opus routes on default gpt when unset", keyWith(service.OpenAIMessagesDispatchModelConfig{}), "claude-opus-4-7", "gpt-5.5"},
+		{"non-claude model routes unchanged", keyWith(service.OpenAIMessagesDispatchModelConfig{OpusMappedModel: "gpt-5.5"}), "gpt-5.5", "gpt-5.5"},
+		{"nil apiKey routes unchanged", nil, "claude-opus-4-7", "claude-opus-4-7"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tkResolveResponsesSelectionModel(tc.apiKey, tc.requested); got != tc.want {
+				t.Fatalf("selection model = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
