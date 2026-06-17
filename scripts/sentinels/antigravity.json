@@ -15,6 +15,14 @@
         "Header.Set(\"X-Goog-Api-Client\""
       ],
       "rationale": "On-wire-confirmed: the real IDE sends NO X-Goog-Api-Client(gl-node) header on setUserSettings/fetchUserInfo. TK removed the pinned `gl-node/22.21.1`. An upstream merge re-adding it re-introduces a header the real client never sends (fingerprint noise). Locked by client_test.go TestPrivacyCalls_无GlNode且UA带hub too — this sentinel additionally catches an upstream merge that reverts the source without the test running."
+    },
+    {
+      "path": "backend/internal/pkg/antigravity/request_transformer.go",
+      "must_contain": [
+        "func IsImageModel(model string) bool {",
+        "config.ImageConfig = &GeminiImageConfig{AspectRatio: ar}"
+      ],
+      "rationale": "Gemini-native image aspect-ratio passthrough, edge transform side. buildGenerationConfig emits generationConfig.imageConfig.aspectRatio (the GeminiImageConfig wire struct existed but was never populated until 2026-06-17) from ClaudeRequest.ImageConfig, gated on IsImageModel so chat models never get an imageConfig. A prod canary confirmed cloudcode-pa honors all 10 documented ratios; if an upstream merge or refactor drops the emit or the gate, the ratio silently reverts to the model default (1408x768) — invisible because the request still 200s. Pairs with the prod-side gateway_forward_as_chat_completions.go injection sentinel (gateway-tk.json)."
     }
   ]
 }

@@ -654,7 +654,32 @@ func buildGenerationConfig(req *ClaudeRequest) *GeminiGenerationConfig {
 		config.TopK = req.TopK
 	}
 
+	// TK: gemini-native image aspect-ratio passthrough. Only image models, and only
+	// when the inbound carried a ratio (extra_body.google.image_config.aspect_ratio →
+	// ClaudeRequest.ImageConfig). Emitted as generationConfig.imageConfig.aspectRatio;
+	// cloudcode-pa honors all 10 documented ratios (prod canary 2026-06-17). The wire
+	// struct (GeminiImageConfig) already existed but was never populated.
+	if req.ImageConfig != nil && IsImageModel(req.Model) {
+		if ar := strings.TrimSpace(req.ImageConfig.AspectRatio); ar != "" {
+			config.ImageConfig = &GeminiImageConfig{AspectRatio: ar}
+		}
+	}
+
 	return config
+}
+
+// IsImageModel reports whether an antigravity (Gemini) model id is a native image
+// generation model — ids carrying an "-image" segment (gemini-3.1-flash-image,
+// …-image-preview, …-image-<variant>) or the nano-banana family. Mirrors the service
+// isImageGenerationModel allowlist and the frontend GEMINI_NATIVE_IMAGE_RE; deliberately
+// does NOT match plain gemini chat ids. Used to gate aspectRatio injection.
+func IsImageModel(model string) bool {
+	m := strings.ToLower(strings.TrimSpace(model))
+	m = strings.TrimPrefix(m, "models/")
+	if strings.Contains(m, "nano-banana") {
+		return true
+	}
+	return strings.HasPrefix(m, "gemini-") && (strings.HasSuffix(m, "-image") || strings.Contains(m, "-image-"))
 }
 
 func hasWebSearchTool(tools []ClaudeTool) bool {
