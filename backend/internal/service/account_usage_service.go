@@ -463,7 +463,7 @@ func (s *AccountUsageService) GetPassiveUsage(ctx context.Context, accountID int
 	// 用量窗口，与 anthropic 行为一致；在此之前 OpenAI 走到下面的 gate 直接报错，
 	// 概览只能显示「-」。
 	if account.IsOpenAIOAuth() {
-		return s.buildPassiveOpenAIUsage(ctx, account), nil
+		return s.buildPassiveOpenAIUsage(account), nil
 	}
 
 	if !account.IsAnthropicOAuthOrSetupToken() {
@@ -492,8 +492,12 @@ func (s *AccountUsageService) GetPassiveUsage(ctx context.Context, accountID int
 // （codex_5h/7d_used_percent + reset）重建 5h/7d 用量窗口，绝不调用上游
 // /responses 探测——这正是它与 getOpenAIUsage 的区别：后者会按条件主动探测，
 // 而被动列表端点（edge accounts overview）跨全部账号扇出，渲染概览时不能打上游。
-// 本地 usage 日志可用时补窗口统计，保持与 getOpenAIUsage 返回结构一致。
-func (s *AccountUsageService) buildPassiveOpenAIUsage(ctx context.Context, account *Account) *UsageInfo {
+//
+// 刻意不补本地 usage 日志的窗口统计：edge 概览的 DTO（toEdgeUsageWindows）只取
+// utilization + reset，per-window 统计由前端从 today_stats 单独提供；没有任何调用
+// 方会读这里的 WindowStats，补了即死代码。无 codex 采样时窗口留空（cell 显示
+// "-"），与 anthropic 被动路径（buildPassiveWindow 无采样即 nil）同口径。
+func (s *AccountUsageService) buildPassiveOpenAIUsage(account *Account) *UsageInfo {
 	now := time.Now()
 	usage := &UsageInfo{Source: "passive", UpdatedAt: &now}
 	if account == nil {
@@ -505,22 +509,6 @@ func (s *AccountUsageService) buildPassiveOpenAIUsage(ctx context.Context, accou
 	}
 	if progress := buildCodexUsageProgressFromExtra(account.Extra, "7d", now); progress != nil {
 		usage.SevenDay = progress
-	}
-
-	if s.usageLogRepo == nil {
-		return usage
-	}
-	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, codexWindowStatsStart(usage.FiveHour, 5*time.Hour, now)); err == nil {
-		if usage.FiveHour == nil {
-			usage.FiveHour = &UsageProgress{Utilization: 0}
-		}
-		usage.FiveHour.WindowStats = windowStatsFromAccountStats(stats)
-	}
-	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, codexWindowStatsStart(usage.SevenDay, 7*24*time.Hour, now)); err == nil {
-		if usage.SevenDay == nil {
-			usage.SevenDay = &UsageProgress{Utilization: 0}
-		}
-		usage.SevenDay.WindowStats = windowStatsFromAccountStats(stats)
 	}
 
 	return usage
