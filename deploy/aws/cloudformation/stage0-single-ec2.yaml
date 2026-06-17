@@ -72,7 +72,7 @@ Parameters:
     MaxValue: 200
   DataVolumeSizeGiB:
     Type: Number
-    Default: 30
+    Default: 50
     MinValue: 20
     MaxValue: 500
     Description: |
@@ -82,11 +82,24 @@ Parameters:
       instance is replaced (e.g. by an ImageTag CFN change — see issue #8 +
       persistent data volume hardening), this volume detaches and re-attaches to the new
       instance with all data intact, instead of being thrown away with the
-      old root EBS. Default 30 GiB matches the prior root-EBS data layout.
+      old root EBS. Sized for prod organic growth: live PostgreSQL + ~1.5 days
+      of QA blobs + 6 hourly pgdump retained copies; 30 GiB proved too tight.
   AmazonLinux2023Arm64Ami:
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
-    Description: SSM parameter that always resolves to the latest AL2023 ARM64 AMI in the current region.
+    Type: AWS::EC2::Image::Id
+    Default: ami-0b183bb1259186479
+    Description: >-
+      Pinned AL2023 ARM64 AMI id (us-east-1). DELIBERATELY pinned, NOT the SSM
+      `latest` alias: the SSM-resolved type re-resolves to the newest AMI on
+      every stack update, so any unrelated UpdateStack (a param tweak, a volume
+      grow) changes ImageId -> RequiresRecreation=Always -> the EC2 instance is
+      REPLACED and cloud-init reinstalls whatever `ImageTag` the stack carries
+      (prod runs SSM-hot-deployed images, so ImageTag lags) -- turning a
+      one-line param change into a version regression + EIP churn. Pinning makes
+      the AMI behave like ImageTag: stable across updates, bumped on purpose. To
+      bump: read the latest from SSM
+      (/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64),
+      set it here, and plan a maintenance-window instance replacement that syncs
+      ImageTag in the same op.
 
   AdminCidr:
     Type: String
