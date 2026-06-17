@@ -1,0 +1,175 @@
+{
+  "_doc": "TokenKey served-models MANIFEST — the single declarative source of intent for 'TK serves model M on platform P via an account credentials.model_mapping whitelist, at price π, display=yes/no'. This is a THIN INTENT layer ABOVE the two existing mechanisms it must agree with: (1) per-account credentials.model_mapping (the runtime servable WHITELIST, set by tk_NNN_*_model_mapping*.sql migrations and admin-UI edits), and (2) tk_pricing_overlay.json + the runtime litellm mirror (the PRICE). It is NOT a replacement for either — its projections must AGREE with them, and scripts/checks/catalog-serving-drift.py asserts that agreement (drift guard). SCOPE: ONLY the TK-curated, account-model_mapping-served newapi long-tail (qwen/deepseek families on the two dedicated single-account groups). NOT the litellm catalog, NOT the four native-platform first-class catalogs (anthropic/openai/gemini/antigravity — those have Go servable-allowlist maps in pricing_catalog_supported_models_tk.go), NOT grok (native seventh platform served by platform routing + ch48, not by a 39/60 model_mapping). Consumers: drift guard (now), tokenkey-onboard-model skill (now), future newapi reconciler (//go:embed of THIS file). Co-located with tk_pricing_overlay.json so the same Go package can embed both and the same preflight can parse both.",
+  "_schema": {
+    "version": 1,
+    "entry_key": "<platform>/<model_id>",
+    "fields": {
+      "platform": "account/group platform string; for this manifest always 'newapi' (the fifth platform). MUST equal the served account's accounts.platform.",
+      "model_id": "the client-facing model id that must appear as a KEY in the served account's credentials.model_mapping whitelist (identity-mapped: key==value for these accounts).",
+      "served_on": "string list of accounts.id (as strings) whose credentials.model_mapping MUST advertise model_id. For the seed every entry is a single dedicated account. This is the #812-catching anchor: the guard scans tk_*_model_mapping*.sql for model_id under each listed account.",
+      "channel_type": "the newapi channel_type of the serving account (17=Ali/DashScope, 43=DeepSeek). Documents the upstream adaptor; not asserted against DB (admin-UI editable) but recorded for the reconciler.",
+      "price_source": "one of 'overlay' (priced in tk_pricing_overlay.json), 'mirror' (priced by the runtime litellm/Wei-Shaw mirror under the bare key — overlay deliberately absent because the mirror already carries a non-zero price), 'channel' (priced via channel_model_pricing DB rows). The guard resolves price differently per source.",
+      "price_key": "the key under which the price resolves in the named source (overlay JSON key, or mirror/litellm key, or channel pricing model id). Usually == model_id.",
+      "display": "bool. true => model_id MUST be present in the platform's Go servable-allowlist map (pricing_catalog_supported_models_tk.go). newapi has NO such map, so every seed entry is false (catalog renders these via price-presence passthrough, not via a map). Reserved true for a future curated newapi map.",
+      "notes": "free-form provenance / known-gap marker."
+    }
+  },
+  "entries": {
+    "newapi/deepseek-v4-pro": {
+      "platform": "newapi",
+      "model_id": "deepseek-v4-pro",
+      "served_on": [
+        "39"
+      ],
+      "channel_type": 43,
+      "price_source": "overlay",
+      "price_key": "deepseek-v4-pro",
+      "display": false,
+      "notes": "ds-官 account 39. Mapped by tk_022 (identity whitelist). Priced in overlay (litellm lags V4). served-via-admin-ui (model_mapping predates the tk_*.sql era / set out-of-band; A3 downgraded to WARN)."
+    },
+    "newapi/deepseek-v4-flash": {
+      "platform": "newapi",
+      "model_id": "deepseek-v4-flash",
+      "served_on": [
+        "39"
+      ],
+      "channel_type": 43,
+      "price_source": "overlay",
+      "price_key": "deepseek-v4-flash",
+      "display": false,
+      "notes": "ds-官 account 39. Mapped by tk_022. Priced in overlay; pricing-overlay.py anchor. served-via-admin-ui (model_mapping predates the tk_*.sql era / set out-of-band; A3 downgraded to WARN)."
+    },
+    "newapi/deepseek-chat": {
+      "platform": "newapi",
+      "model_id": "deepseek-chat",
+      "served_on": [
+        "39"
+      ],
+      "channel_type": 43,
+      "price_source": "mirror",
+      "price_key": "deepseek-chat",
+      "display": false,
+      "notes": "ds-官 account 39. Legacy/canonical alias mapped by tk_027. NOT in overlay on purpose: the runtime litellm mirror carries a non-zero (pre-V4) deepseek-chat price, and the overlay is fill-only and cannot correct a wrong-but-non-zero source price (see overlay header). price_source=mirror => guard does NOT require an overlay key, only that no overlay key with value 0 shadows it."
+    },
+    "newapi/deepseek-reasoner": {
+      "platform": "newapi",
+      "model_id": "deepseek-reasoner",
+      "served_on": [
+        "39"
+      ],
+      "channel_type": 43,
+      "price_source": "mirror",
+      "price_key": "deepseek-reasoner",
+      "display": false,
+      "notes": "ds-官 account 39. Legacy/canonical alias mapped by tk_027. Same mirror-priced rationale as deepseek-chat."
+    },
+    "newapi/qwen3.7-max": {
+      "platform": "newapi",
+      "model_id": "qwen3.7-max",
+      "served_on": [
+        "60"
+      ],
+      "channel_type": 17,
+      "price_source": "overlay",
+      "price_key": "qwen3.7-max",
+      "display": false,
+      "notes": "Qwen account 60. Mapped by tk_021/tk_022 (also the Claude-Code dispatch target for group 18). Priced in overlay. Dated/preview snapshots (qwen3.7-max-preview/-2026-*) are priced in overlay but intentionally NOT manifest entries — they are not separately model_mapped and the manifest curates client-facing names, not every dated variant."
+    },
+    "newapi/qwen3.7-plus": {
+      "platform": "newapi",
+      "model_id": "qwen3.7-plus",
+      "served_on": [
+        "60"
+      ],
+      "channel_type": 17,
+      "price_source": "overlay",
+      "price_key": "qwen3.7-plus",
+      "display": false,
+      "notes": "Qwen account 60. Mapped by tk_024. Tiered (overlay intervals)."
+    },
+    "newapi/qwen3.6-flash": {
+      "platform": "newapi",
+      "model_id": "qwen3.6-flash",
+      "served_on": [
+        "60"
+      ],
+      "channel_type": 17,
+      "price_source": "overlay",
+      "price_key": "qwen3.6-flash",
+      "display": false,
+      "notes": "Qwen account 60. Mapped by tk_024. Tiered (overlay intervals)."
+    },
+    "newapi/qwen3-coder-plus": {
+      "platform": "newapi",
+      "model_id": "qwen3-coder-plus",
+      "served_on": [
+        "60"
+      ],
+      "channel_type": 17,
+      "price_source": "overlay",
+      "price_key": "qwen3-coder-plus",
+      "display": false,
+      "notes": "Qwen account 60. Mapped by tk_024. Tiered (overlay intervals)."
+    },
+    "newapi/qwen-max": {
+      "platform": "newapi",
+      "model_id": "qwen-max",
+      "served_on": [
+        "60"
+      ],
+      "channel_type": 17,
+      "price_source": "overlay",
+      "price_key": "qwen-max",
+      "display": false,
+      "notes": "Qwen account 60. Legacy stable alias mapped by tk_027. Flat-priced in overlay."
+    },
+    "newapi/qwen-plus": {
+      "platform": "newapi",
+      "model_id": "qwen-plus",
+      "served_on": [
+        "60"
+      ],
+      "channel_type": 17,
+      "price_source": "overlay",
+      "price_key": "qwen-plus",
+      "display": false,
+      "notes": "Qwen account 60. Legacy stable alias mapped by tk_027. Tiered (overlay intervals), non-thinking list."
+    },
+    "newapi/qwen3-8b": {
+      "platform": "newapi",
+      "model_id": "qwen3-8b",
+      "served_on": [
+        "60"
+      ],
+      "channel_type": 17,
+      "price_source": "overlay",
+      "price_key": "qwen3-8b",
+      "display": false,
+      "notes": "KNOWN GAP (#812-class): priced in overlay (added 2026-06-17 per customer request) but NO migration maps it onto account 60's credentials.model_mapping (highest model_mapping migration is tk_027; tk_028 is unrelated). Until tk_029 advertises it on account 60, the runtime pool is empty for qwen3-8b => 429/503. SEEDED ON PURPOSE so the served_on=>migration drift guard HARD-FAILS this row, surfacing the gap in CI."
+    },
+    "newapi/qwen3-14b": {
+      "platform": "newapi",
+      "model_id": "qwen3-14b",
+      "served_on": [
+        "60"
+      ],
+      "channel_type": 17,
+      "price_source": "overlay",
+      "price_key": "qwen3-14b",
+      "display": false,
+      "notes": "KNOWN GAP (#812-class): priced in overlay, NOT model_mapped on account 60. Same as qwen3-8b — needs tk_029. Drift guard HARD-FAILS until then."
+    },
+    "newapi/qwen3-32b": {
+      "platform": "newapi",
+      "model_id": "qwen3-32b",
+      "served_on": [
+        "60"
+      ],
+      "channel_type": 17,
+      "price_source": "overlay",
+      "price_key": "qwen3-32b",
+      "display": false,
+      "notes": "KNOWN GAP (#812-class): priced in overlay, NOT model_mapped on account 60. Same as qwen3-8b — needs tk_029. Drift guard HARD-FAILS until then."
+    }
+  }
+}

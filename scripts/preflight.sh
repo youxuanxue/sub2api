@@ -536,6 +536,32 @@ else
     echo "  ok: pricing overlay valid (anchors present, no \$0)"
 fi
 
+# ---- sub2api: catalog serving drift -----------------------------------------
+# Source of truth: backend/internal/service/tk_served_models.json — the THIN intent
+# manifest ("TK serves model M on platform P via an account credentials.model_mapping
+# whitelist, at price π, display=yes/no") that must AGREE with (1) the tk_*.sql
+# model_mapping migrations, (2) tk_pricing_overlay.json, and (3) the Go
+# servable-allowlist maps in pricing_catalog_supported_models_tk.go. Guards the
+# #812-class regression where a model is priced + advertised-as-intended but never
+# wired onto the serving account's model_mapping (=> empty pool 429/503). Selftest
+# first (offline fixtures), then the real cross-file agreement check. CLAUDE.md
+# §「升级原则」: a soft rule that bit us once becomes a mechanical gate.
+echo ""
+echo "=== sub2api: catalog serving drift ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required to validate tk_served_models.json)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/catalog-serving-drift.py --selftest >/dev/null 2>&1; then
+    echo "  FAIL: catalog-serving-drift.py selftest"
+    echo "        — run: python3 scripts/checks/catalog-serving-drift.py --selftest"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/catalog-serving-drift.py --quiet; then
+    # catalog-serving-drift.py already printed the actionable failure.
+    errors=$((errors + 1))
+else
+    echo "  ok: served-models manifest agrees with price/display/migration"
+fi
+
 # ---- sub2api: pricing-hotfix runbook selftest -------------------------------
 # ops/pricing/apply-pricing-hotfix.py is the runbook the PricingMissingNotifier
 # Feishu card points operators at (lookup / apply channel pricing / stage
