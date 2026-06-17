@@ -29,6 +29,8 @@ func TestNotifyPlatformPoolExhausted_SendsP0AndDedupes(t *testing.T) {
 	require.Contains(t, body, "平台池全不可调度")
 	require.Contains(t, body, PlatformAnthropic)
 	require.Contains(t, body, "cc-us7")
+	// anthropic CTA keeps the prod→edge relay remediation.
+	require.Contains(t, body, "scan-edge-health.sh")
 
 	// Cooldown-storm shape: every subsequent account block re-triggers the
 	// pool check; only the first card within the dedupe window goes out.
@@ -44,4 +46,11 @@ func TestNotifyPlatformPoolExhausted_SendsP0AndDedupes(t *testing.T) {
 		t.Fatal("second-platform pool-exhausted card was not sent")
 	}
 	require.Equal(t, 2, doer.callCount())
+	// openai(gpt) has no edge topology: the CTA must point at adding accounts /
+	// checking seats, NOT the anthropic-only edge-health script (would misdirect
+	// ops during a gpt incident — 2026-06-17).
+	openaiBody := doer.lastBody()
+	require.Contains(t, openaiBody, PlatformOpenAI)
+	require.Contains(t, openaiBody, "补充可调度账号")
+	require.NotContains(t, openaiBody, "scan-edge-health.sh")
 }

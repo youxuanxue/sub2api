@@ -2628,6 +2628,18 @@
         "len(account.GetModelMapping()) == 0 && !tkIsForwardableAnthropicModelName(requestedModel)"
       ],
       "rationale": "TK fix (PR #806): the injection point in isModelSupportedByAccount that routes a cross-vendor model name on a passthrough (empty model_mapping) anthropic direct account to the local Path A 400 instead of forwarding it to api.anthropic.com. Pinning the full guard expression also anchors the passthrough-only scope (len(GetModelMapping())==0) so a refactor cannot silently widen it to over-block mapped accounts or narrow it to re-open the leak. Pairs with the predicate sentinel on gateway_service_tk_unsupported_model.go."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_pool_exhausted.go",
+      "must_contain": [
+        "var tkPoolExhaustedPlatforms = map[string]struct{}{",
+        "PlatformOpenAI",
+        "PlatformGemini",
+        "func tkPoolExhaustedEnabled(platform string) bool {",
+        "if !tkPoolExhaustedEnabled(account.Platform) {",
+        "s.incidentNotifier.NotifyPlatformPoolExhausted(platform, trigger, until, reason)"
+      ],
+      "rationale": "Platform-pool-exhausted P0 enablement set (2026-06-17 'gpt 号池满了' incident). The immediate P0 card was anthropic-only until this; tkPoolExhaustedPlatforms now also holds PlatformOpenAI + PlatformGemini so an emptied gpt/google pool's fast-fail-to-429 transition pages ops at once. PlatformOpenAI/PlatformGemini appear nowhere else in this file, so the sentinel mechanically protects pool coverage: an upstream merge or 'simplify' refactor that drops either key (reverting to anthropic-only and re-blinding gpt/google) makes the substring vanish and fails the gate. The tkPoolExhaustedEnabled predicate + the guard call site + the NotifyPlatformPoolExhausted dispatch are anchored too so the membership check can't be bypassed by removing the guard. Pairs with the existing ratelimit_service.go (tkCheckPlatformPoolExhausted hook) and account_incident_notifier_tk_pool.go (card) sentinels."
     }
   ]
 }
