@@ -1960,7 +1960,7 @@ func setDefaults() {
 	viper.SetDefault("qa_capture.body_max_bytes", 256*1024)
 	// traj/synth opt-in 记录用更高上限，避免长 thinking 被截断。
 	viper.SetDefault("qa_capture.opt_in_body_max_bytes", 1024*1024)
-	viper.SetDefault("qa_capture.retention_days", 60)
+	viper.SetDefault("qa_capture.retention_days", 1)
 	viper.SetDefault("qa_capture.worker_count", 8)
 	viper.SetDefault("qa_capture.queue_size", 2048)
 	viper.SetDefault("qa_capture.storage.driver", "localfs")

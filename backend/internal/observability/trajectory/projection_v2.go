@@ -49,27 +49,18 @@ type TrajTurnV2 struct {
 
 // BuildTrajSessionsV2 把多条记录聚合为按 session 的 v2 轨迹（每 session 一个对象）。
 func BuildTrajSessionsV2(sources []SourceRecord) ([]TrajSessionV2, ExportSummary, error) {
-	bySession := map[string][]SourceRecord{}
-	order := []string{}
-	for _, s := range sources {
-		if s.Record == nil || s.Blob == nil {
-			continue
-		}
-		sid := resolveSessionID(s.Record)
-		if _, ok := bySession[sid]; !ok {
-			order = append(order, sid)
-		}
-		bySession[sid] = append(bySession[sid], s)
-	}
-	sort.Strings(order)
+	// Group by conversation via message-prefix chaining, NOT by trajectory_id.
+	// middleware.TrajectoryID() mints a fresh uuid per HTTP request, so grouping
+	// by trajectory_id (resolveSessionID) put every /v1/messages call in its own
+	// "session" and defeated the prefix-dedup below — a conversation's N calls
+	// exploded into N redundant nested-prefix lines. groupByConversation folds
+	// them back into one session. See groupByConversation.
+	groups := groupByConversation(sources)
 
-	sessions := make([]TrajSessionV2, 0, len(order))
+	sessions := make([]TrajSessionV2, 0, len(groups))
 	summary := ExportSummary{}
-	for _, sid := range order {
-		recs := bySession[sid]
-		sort.SliceStable(recs, func(i, j int) bool {
-			return recs[i].Record.CreatedAt.Before(recs[j].Record.CreatedAt)
-		})
+	for _, recs := range groups {
+		sid := sessionIDForGroup(recs)
 
 		turns := make([]TrajTurnV2, 0, len(recs)*3)
 		prevMsgCount := 0
@@ -132,6 +123,104 @@ func BuildTrajSessionsV2(sources []SourceRecord) ([]TrajSessionV2, ExportSummary
 	}
 	summary.RecordCount = len(sources)
 	return sessions, summary, nil
+}
+
+// groupByConversation 把记录按「会话」聚类——同一会话的连续 /v1/messages 调用，其
+// request.messages 是严格递增前缀。按 created_at 升序遍历：当前记录的 messages 若是
+// 前一条的前缀扩展（messages[:len(prev)] 深度相等），或更短（context compaction 收缩
+// 历史），则续同会话；否则起新会话。这取代了原先按 per-request trajectory_id 分组——
+// 那让每次调用各成一个 session，把投影器的前缀去重逻辑架空。
+//
+// 局限：仅与「前一条」比较。若两个不同会话恰好共享开头前缀，可能被并到一起（罕见，
+// 且远好于今天「一个会话碎成 N 行」）。彻底解法是客户端传稳定会话 id，超出本函数范围。
+func groupByConversation(sources []SourceRecord) [][]SourceRecord {
+	valid := make([]SourceRecord, 0, len(sources))
+	for _, s := range sources {
+		if s.Record == nil || s.Blob == nil {
+			continue
+		}
+		valid = append(valid, s)
+	}
+	// 导出查询已按 created_at 升序，但单测可能直接传切片——防御性再排一次。
+	sort.SliceStable(valid, func(i, j int) bool {
+		if !valid[i].Record.CreatedAt.Equal(valid[j].Record.CreatedAt) {
+			return valid[i].Record.CreatedAt.Before(valid[j].Record.CreatedAt)
+		}
+		return valid[i].Record.RequestID < valid[j].Record.RequestID
+	})
+
+	var groups [][]SourceRecord
+	var prevMsgs []gjson.Result
+	for _, s := range valid {
+		msgs := marshalToGJSON(s.Blob.Request.Body).Get("messages").Array()
+		continued := len(groups) > 0 && messagesContinue(prevMsgs, msgs)
+		if continued {
+			groups[len(groups)-1] = append(groups[len(groups)-1], s)
+		} else {
+			groups = append(groups, []SourceRecord{s})
+		}
+		prevMsgs = msgs
+	}
+	return groups
+}
+
+// messagesContinue 报告 cur 是否延续 prev 所在的会话：cur 是 prev 的前缀扩展，
+// 或更短（context compaction 收缩了历史）。
+func messagesContinue(prev, cur []gjson.Result) bool {
+	return len(cur) < len(prev) || messagesEqualPrefix(prev, cur)
+}
+
+// RequestMessagesContinue 是 messagesContinue 的导出包装，供流式导出按会话边界增量
+// flush（无需把整批记录的 blob 同时读进内存）。入参是两条记录各自的 request.body。
+func RequestMessagesContinue(prevReqBody, curReqBody any) bool {
+	prev := marshalToGJSON(prevReqBody).Get("messages").Array()
+	cur := marshalToGJSON(curReqBody).Get("messages").Array()
+	return messagesContinue(prev, cur)
+}
+
+// messagesEqualPrefix 报告 cur 的前 len(prev) 条消息是否与 prev 逐条深度相等。
+func messagesEqualPrefix(prev, cur []gjson.Result) bool {
+	if len(cur) < len(prev) {
+		return false
+	}
+	for i := range prev {
+		if canonicalJSON(prev[i].Raw) != canonicalJSON(cur[i].Raw) {
+			return false
+		}
+	}
+	return true
+}
+
+// canonicalJSON 把一段 JSON 规范化（map key 排序、数字归一），使网关重新 marshal
+// 导致的 key 顺序差异不会让逻辑相同的消息被判为不同。非法 JSON 回退到 trim 后的原文。
+func canonicalJSON(raw string) string {
+	var v any
+	if err := json.Unmarshal([]byte(raw), &v); err != nil {
+		return strings.TrimSpace(raw)
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return strings.TrimSpace(raw)
+	}
+	return string(b)
+}
+
+// sessionIDForGroup 取会话首条记录的 trajectory_id 作为稳定 session_id（重复导出不变、
+// 每会话唯一）；缺失则回退 request_id。
+func sessionIDForGroup(group []SourceRecord) string {
+	for _, s := range group {
+		if s.Record == nil {
+			continue
+		}
+		if id := strings.TrimSpace(derefString(s.Record.TrajectoryID)); id != "" {
+			return id
+		}
+		if id := strings.TrimSpace(s.Record.RequestID); id != "" {
+			return id
+		}
+		return "unknown"
+	}
+	return "unknown"
 }
 
 func buildMetaV2(recs []SourceRecord, lastReq gjson.Result, assistantModel string) TrajMetaV2 {

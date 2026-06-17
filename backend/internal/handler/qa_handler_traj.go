@@ -70,17 +70,55 @@ func (h *QAHandler) ExportSelfTrajectory(c *gin.Context) {
 		filter.Since = filter.Until.Add(-defaultQAExportWindow)
 	}
 
-	result, err := h.service.ExportUserTrajectoryData(c.Request.Context(), subject.UserID, filter)
+	// Async: enqueue the export on the dedicated single-worker pool and return a
+	// job id immediately. The heavy work (blob reads + zip build) runs off the
+	// request path so it can never block or starve the gateway — the synchronous,
+	// in-memory build is what hung prod on 2026-06-17. The client polls
+	// GET .../traj/export/jobs/:job_id and downloads when status == done.
+	job, err := h.service.EnqueueExport(subject.UserID, filter)
 	if err != nil {
+		if errors.Is(err, qa.ErrExportBusy) {
+			response.Error(c, http.StatusTooManyRequests, "An export is already being prepared, please try again shortly")
+			return
+		}
 		response.ErrorFrom(c, err)
 		return
 	}
+	response.Success(c, ExportJobResponse{JobID: job.ID, Status: string(job.Status)})
+}
 
-	response.Success(c, ExportSelfResponse{
-		DownloadURL: h.clientTrajectoryDownloadURL(c, result),
-		ExpiresAt:   result.ExpiresAt,
-		RecordCount: result.RecordCount,
-	})
+// GetSelfTrajectoryExportJob handles GET
+// /api/v1/users/me/qa/traj/export/jobs/:job_id — the poll endpoint for an async
+// export. Returns the job status and, once done, a client-usable download URL.
+func (h *QAHandler) GetSelfTrajectoryExportJob(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if !h.service.Enabled() {
+		response.Error(c, http.StatusServiceUnavailable, "QA capture is disabled in this environment")
+		return
+	}
+
+	jobID := strings.Trim(c.Param("job_id"), "/")
+	job, found := h.service.GetExportJob(subject.UserID, jobID)
+	if !found {
+		response.NotFound(c, "Export job not found or expired")
+		return
+	}
+
+	resp := ExportJobResponse{
+		JobID:       job.ID,
+		Status:      string(job.Status),
+		RecordCount: job.RecordCount,
+		Error:       job.Error,
+	}
+	if job.Status == qa.ExportJobDone {
+		resp.DownloadURL = h.clientTrajDownloadURL(c, job.DownloadURL, job.StorageKey)
+		resp.ExpiresAt = job.ExpiresAt
+	}
+	response.Success(c, resp)
 }
 
 func (h *QAHandler) DownloadSelfTrajectoryExport(c *gin.Context) {
@@ -119,12 +157,22 @@ func (h *QAHandler) DownloadSelfTrajectoryExport(c *gin.Context) {
 	})
 }
 
-func (h *QAHandler) clientTrajectoryDownloadURL(c *gin.Context, result *qa.ExportResult) string {
-	if result == nil {
-		return ""
+// ExportJobResponse is the async traj-export contract: POST returns {job_id,
+// status:"pending"}; the poll GET returns the evolving status and, on done, a
+// download_url + expires_at. error carries a machine code (no_records /
+// export_failed / busy) for the UI to localize.
+type ExportJobResponse struct {
+	JobID       string    `json:"job_id"`
+	Status      string    `json:"status"`
+	DownloadURL string    `json:"download_url,omitempty"`
+	ExpiresAt   time.Time `json:"expires_at,omitempty"`
+	RecordCount int       `json:"record_count"`
+	Error       string    `json:"error,omitempty"`
+}
+
+func (h *QAHandler) clientTrajDownloadURL(c *gin.Context, downloadURL, storageKey string) string {
+	if !strings.HasPrefix(downloadURL, "file://") || storageKey == "" {
+		return downloadURL
 	}
-	if !strings.HasPrefix(result.DownloadURL, "file://") || result.StorageKey == "" {
-		return result.DownloadURL
-	}
-	return absoluteRequestURL(c, "/api/v1/users/me/qa/traj/exports/"+result.StorageKey)
+	return absoluteRequestURL(c, "/api/v1/users/me/qa/traj/exports/"+storageKey)
 }

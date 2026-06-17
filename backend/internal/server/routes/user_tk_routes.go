@@ -45,7 +45,8 @@ func registerTKUserRoutes(authenticated, user *gin.RouterGroup, h *handler.Handl
 // Endpoints (JWT OR API-key):
 //   - POST /api/v1/users/me/qa/export — issue #59 + #63.
 //   - GET /api/v1/users/me/qa/exports/*key — issue #67 + #68 localfs download.
-//   - POST /api/v1/users/me/qa/traj/export — traj projection export.
+//   - POST /api/v1/users/me/qa/traj/export — enqueue async traj export (returns job_id).
+//   - GET /api/v1/users/me/qa/traj/export/jobs/:job_id — poll async export status.
 //   - GET /api/v1/users/me/qa/traj/exports/*key — traj localfs/proxied download.
 func registerTKUserDualAuthRoutes(
 	v1 *gin.RouterGroup,
@@ -60,6 +61,7 @@ func registerTKUserDualAuthRoutes(
 		dualAuth.POST("/users/me/qa/export", h.QA.ExportSelf)
 		dualAuth.GET("/users/me/qa/exports/*key", h.QA.DownloadSelfExport)
 		dualAuth.POST("/users/me/qa/traj/export", h.QA.ExportSelfTrajectory)
+		dualAuth.GET("/users/me/qa/traj/export/jobs/:job_id", h.QA.GetSelfTrajectoryExportJob)
 		dualAuth.GET("/users/me/qa/traj/exports/*key", h.QA.DownloadSelfTrajectoryExport)
 	}
 }

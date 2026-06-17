@@ -147,6 +147,73 @@ func TestBuildTrajSessionsV2_Reconstruct(t *testing.T) {
 	}
 }
 
+// 回归：真实 prod 里 middleware.TrajectoryID() 每请求一个新 uuid，所以同一会话的多次
+// 调用 trajectory_id 各不相同。折叠必须靠 messages 前缀链，而非 trajectory_id —— 两条
+// trajectory_id 不同、但 messages 前缀递增的记录，必须合成 ONE session。
+func TestBuildTrajSessionsV2_FoldsAcrossPerRequestTrajectoryIDs(t *testing.T) {
+	base := time.Date(2026, 6, 15, 7, 0, 0, 0, time.UTC)
+	call0Req := `{"model":"claude-opus-4-8","messages":[{"role":"user","content":"build X"}]}`
+	call0Resp := `{"id":"m0","stop_reason":"tool_use","usage":{"output_tokens":5},` +
+		`"content":[{"type":"tool_use","id":"tu_1","name":"Bash","input":{"command":"ls"}}]}`
+	call1Req := `{"model":"claude-opus-4-8","messages":[` +
+		`{"role":"user","content":"build X"},` +
+		`{"role":"assistant","content":[{"type":"tool_use","id":"tu_1","name":"Bash","input":{"command":"ls"}}]},` +
+		`{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_1","content":"ok"}]}` +
+		`]}`
+	call1Resp := `{"id":"m1","stop_reason":"end_turn","usage":{"output_tokens":3},"content":[{"type":"text","text":"done"}]}`
+
+	mkBlob := func(req, resp string) *EvidenceBlob {
+		b := &EvidenceBlob{}
+		b.Request.Body = mustBody(t, req)
+		b.Response.Body = mustBody(t, resp)
+		return b
+	}
+	sources := []SourceRecord{
+		{Record: &ent.QARecord{RequestID: "req_0", CreatedAt: base, Platform: "anthropic", TrajectoryID: strptr("traj-AAAA")}, Blob: mkBlob(call0Req, call0Resp)},
+		{Record: &ent.QARecord{RequestID: "req_1", CreatedAt: base.Add(2 * time.Second), Platform: "anthropic", TrajectoryID: strptr("traj-BBBB")}, Blob: mkBlob(call1Req, call1Resp)},
+	}
+
+	sessions, _, err := BuildTrajSessionsV2(sources)
+	if err != nil {
+		t.Fatalf("BuildTrajSessionsV2: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("per-request trajectory_ids must still fold into 1 session, got %d", len(sessions))
+	}
+	if len(sessions[0].Turns) != 4 {
+		t.Fatalf("want 4 turns (user, assistant, tool, assistant), got %d", len(sessions[0].Turns))
+	}
+	if sessions[0].SessionID != "traj-AAAA" {
+		t.Errorf("session id should be the first record's trajectory_id, got %q", sessions[0].SessionID)
+	}
+}
+
+// 反例：两条 request 各自独立、首条 user 消息不同（无前缀关系）→ 必须保持 2 个 session，
+// 即使它们 trajectory_id 相同也不能误并。
+func TestBuildTrajSessionsV2_DistinctConversationsStaySeparate(t *testing.T) {
+	base := time.Date(2026, 6, 15, 8, 0, 0, 0, time.UTC)
+	reqA := `{"model":"claude-opus-4-8","messages":[{"role":"user","content":"question A"}]}`
+	reqB := `{"model":"claude-opus-4-8","messages":[{"role":"user","content":"unrelated question B"}]}`
+	resp := `{"id":"m","stop_reason":"end_turn","usage":{"output_tokens":1},"content":[{"type":"text","text":"ok"}]}`
+	mkBlob := func(req string) *EvidenceBlob {
+		b := &EvidenceBlob{}
+		b.Request.Body = mustBody(t, req)
+		b.Response.Body = mustBody(t, resp)
+		return b
+	}
+	sources := []SourceRecord{
+		{Record: &ent.QARecord{RequestID: "a", CreatedAt: base, Platform: "anthropic", TrajectoryID: strptr("same")}, Blob: mkBlob(reqA)},
+		{Record: &ent.QARecord{RequestID: "b", CreatedAt: base.Add(time.Second), Platform: "anthropic", TrajectoryID: strptr("same")}, Blob: mkBlob(reqB)},
+	}
+	sessions, _, err := BuildTrajSessionsV2(sources)
+	if err != nil {
+		t.Fatalf("BuildTrajSessionsV2: %v", err)
+	}
+	if len(sessions) != 2 {
+		t.Fatalf("distinct conversations must stay separate, got %d sessions", len(sessions))
+	}
+}
+
 // 流式：response.body 为空，从 SSE chunks 重建 thinking+signature+text+tool_use 与 stop_reason。
 func TestBuildTrajSessionsV2_StreamReconstruct(t *testing.T) {
 	base := time.Date(2026, 5, 14, 12, 0, 0, 0, time.UTC)

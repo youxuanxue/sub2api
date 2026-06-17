@@ -263,9 +263,9 @@ jobs:
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.managed_instance_id }}
           AWS_REGION: ${{ steps.edge.outputs.lightsail_region }}
-          # 1.5 days = prod parity (CFN QaStaleRetentionDays default); edges are
+          # 1 day = prod parity (CFN QaStaleRetentionDays default); edges are
           # pure relays so QA there is low-value — keep retention short.
-          TK_QA_STALE_RETENTION_DAYS: "1.5"
+          TK_QA_STALE_RETENTION_DAYS: "1"
           STAGE0_SSM_OUTPUT_DIR: .
         run: bash ops/stage0/sync-edge-host-units-via-ssm.sh "$INSTANCE_ID" "edge-host-units edge=${{ steps.edge.outputs.edge_id }}"
 

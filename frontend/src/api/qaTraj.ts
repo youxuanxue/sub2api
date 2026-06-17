@@ -9,22 +9,40 @@
 
 import { apiClient } from './client'
 
-export interface TrajExportResult {
-  download_url: string
-  expires_at: string
+export type TrajExportStatus = 'pending' | 'running' | 'done' | 'failed'
+
+/**
+ * Async export job. POST enqueues and returns {job_id, status:"pending"}; the
+ * poll endpoint returns the evolving status and, once done, a download_url +
+ * record_count. The heavy work runs off the request path on the server's single
+ * export worker, so a large key can't block or starve the gateway.
+ */
+export interface TrajExportJob {
+  job_id: string
+  status: TrajExportStatus
+  download_url?: string
+  expires_at?: string
   record_count: number
+  error?: string
 }
 
 /**
- * Build a trajectory export for a single API key. Returns the download URL plus
- * record_count so the caller can distinguish "captured but empty" (0) from a
- * real export. Format is always v2 (.examples-aligned, training-ready).
+ * Enqueue a trajectory export for a single API key. Returns the job to poll.
+ * Format is always v2 (.examples-aligned, training-ready).
  */
-async function exportKey(apiKeyId: number): Promise<TrajExportResult> {
-  const { data } = await apiClient.post<TrajExportResult>('/users/me/qa/traj/export', {
+async function exportKey(apiKeyId: number): Promise<TrajExportJob> {
+  const { data } = await apiClient.post<TrajExportJob>('/users/me/qa/traj/export', {
     api_key_id: apiKeyId,
     format: 'v2'
   })
+  return data
+}
+
+/** Poll one export job's status. */
+async function getJob(jobId: string): Promise<TrajExportJob> {
+  const { data } = await apiClient.get<TrajExportJob>(
+    `/users/me/qa/traj/export/jobs/${encodeURIComponent(jobId)}`
+  )
   return data
 }
 
@@ -63,5 +81,6 @@ async function download(downloadUrl: string, filename: string): Promise<void> {
 
 export const qaTrajAPI = {
   exportKey,
+  getJob,
   download
 }

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -41,6 +42,15 @@ type Service struct {
 	optInBodyMaxBytes int
 	retentionDays     int
 	dlqDir            string
+
+	// Trajectory export runs off the request path on its own single-worker pool
+	// (NOT the capture pool) so a heavy export can never contend with live
+	// capture or the gateway. exportJobs tracks status in memory; the artifact
+	// is durable in the blob store, so a restart just means the user re-clicks
+	// (the export is idempotent).
+	exportPool   pond.Pool
+	exportJobs   map[string]*ExportJob
+	exportJobsMu sync.Mutex
 }
 
 var (
@@ -102,14 +112,23 @@ func NewService(cfg *config.Config, client *ent.Client) (*Service, error) {
 		dlqDir:            filepath.Join(dataDir, "qa_dlq"),
 	}
 	svc.pool = pond.NewPool(cfg.QACapture.WorkerCount, pond.WithQueueSize(cfg.QACapture.QueueSize))
+	// Single-worker export pool: at most one trajectory export materializes at a
+	// time, so bulk export can never fan out and starve the gateway.
+	svc.exportPool = pond.NewPool(1, pond.WithQueueSize(exportQueueSize))
+	svc.exportJobs = map[string]*ExportJob{}
 	return svc, nil
 }
 
 func (s *Service) Stop() {
-	if s == nil || s.pool == nil {
+	if s == nil {
 		return
 	}
-	s.pool.StopAndWait()
+	if s.pool != nil {
+		s.pool.StopAndWait()
+	}
+	if s.exportPool != nil {
+		s.exportPool.StopAndWait()
+	}
 }
 
 func (s *Service) Middleware() gin.HandlerFunc {

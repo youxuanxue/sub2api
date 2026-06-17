@@ -56,6 +56,17 @@ func (m *qaMemBlobStore) Put(_ context.Context, key string, body []byte, _ strin
 	m.objects[key] = cp
 	return "mem://" + key, nil
 }
+func (m *qaMemBlobStore) PutReader(_ context.Context, key string, r io.Reader, _ string) (string, error) {
+	body, err := io.ReadAll(r)
+	if err != nil {
+		return "", err
+	}
+	if m.objects == nil {
+		m.objects = map[string][]byte{}
+	}
+	m.objects[key] = body
+	return "mem://" + key, nil
+}
 func (m *qaMemBlobStore) Get(_ context.Context, key string) ([]byte, error) {
 	v, ok := m.objects[key]
 	if !ok {
@@ -116,8 +127,47 @@ func newQAHandlerRouterWithStore(
 	r.POST("/api/v1/users/me/qa/export", h.ExportSelf)
 	r.GET("/api/v1/users/me/qa/exports/*key", h.DownloadSelfExport)
 	r.POST("/api/v1/users/me/qa/traj/export", h.ExportSelfTrajectory)
+	r.GET("/api/v1/users/me/qa/traj/export/jobs/:job_id", h.GetSelfTrajectoryExportJob)
 	r.GET("/api/v1/users/me/qa/traj/exports/*key", h.DownloadSelfTrajectoryExport)
 	return r, h
+}
+
+// pollTrajExport POSTs an async traj export, then polls the job endpoint until
+// the job reaches a terminal state, returning the final job response data map.
+// The poll request carries the https host so a done job's localfs download_url
+// is rewritten to an absolute, client-reachable URL.
+func pollTrajExport(t *testing.T, r *gin.Engine, jsonBody string) map[string]any {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/qa/traj/export", bytes.NewBufferString(jsonBody))
+	req.Host = "api.tokenkey.test"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "enqueue body=%s", w.Body.String())
+	var env response.Response
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	data, _ := env.Data.(map[string]any)
+	jobID, _ := data["job_id"].(string)
+	require.NotEmpty(t, jobID, "POST must return a job_id")
+
+	for i := 0; i < 400; i++ {
+		gw := httptest.NewRecorder()
+		greq := httptest.NewRequest(http.MethodGet, "/api/v1/users/me/qa/traj/export/jobs/"+jobID, nil)
+		greq.Host = "api.tokenkey.test"
+		greq.Header.Set("X-Forwarded-Proto", "https")
+		r.ServeHTTP(gw, greq)
+		require.Equal(t, http.StatusOK, gw.Code, "poll body=%s", gw.Body.String())
+		var genv response.Response
+		require.NoError(t, json.Unmarshal(gw.Body.Bytes(), &genv))
+		gdata, _ := genv.Data.(map[string]any)
+		if s, _ := gdata["status"].(string); s == "done" || s == "failed" {
+			return gdata
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	t.Fatal("traj export job did not reach a terminal state in time")
+	return nil
 }
 
 // seedTrajExportUser inserts a user with the given traj_export_enabled flag and
@@ -395,19 +445,10 @@ func TestUS077_ExportSelfTrajectory_BySynthSessionID_200(t *testing.T) {
 	require.NoError(t, err)
 
 	r, _ = newQAHandlerRouterWithStore(uid, true, client, store)
-	body := bytes.NewBufferString(`{"synth_session_id":"m0-TRAJ-H"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/qa/traj/export", body)
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
-	var env response.Response
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
-	dataMap, ok := env.Data.(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, float64(4), dataMap["record_count"])
-	require.Contains(t, dataMap, "download_url")
+	job := pollTrajExport(t, r, `{"synth_session_id":"m0-TRAJ-H"}`)
+	require.Equal(t, "done", job["status"], "job=%v", job)
+	require.Equal(t, float64(4), job["record_count"])
+	require.Contains(t, job, "download_url")
 }
 
 func TestUS077_ExportSelfTrajectory_LocalFSDownloadURLIsHTTPReachable(t *testing.T) {
@@ -448,19 +489,9 @@ func TestUS077_ExportSelfTrajectory_LocalFSDownloadURLIsHTTPReachable(t *testing
 	store := &qaLocalFSLikeBlobStore{qaMemBlobStore{objects: map[string][]byte{"evidence/traj-localfs.zst": blob.Bytes()}}}
 	r, _ := newQAHandlerRouterWithStore(uid, true, client, store)
 
-	body := bytes.NewBufferString(`{"synth_session_id":"m0-TRAJ-HTTP"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/qa/traj/export", body)
-	req.Host = "api.tokenkey.test"
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Forwarded-Proto", "https")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
-	var env response.Response
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
-	dataMap := env.Data.(map[string]any)
-	downloadURL, ok := dataMap["download_url"].(string)
+	job := pollTrajExport(t, r, `{"synth_session_id":"m0-TRAJ-HTTP"}`)
+	require.Equal(t, "done", job["status"], "job=%v", job)
+	downloadURL, ok := job["download_url"].(string)
 	require.True(t, ok)
 	require.True(t, strings.HasPrefix(downloadURL, "https://api.tokenkey.test/api/v1/users/me/qa/traj/exports/"))
 	require.NotContains(t, downloadURL, "file://")
