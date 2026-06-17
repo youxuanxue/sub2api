@@ -66,6 +66,7 @@ export interface EdgeUsageWindows {
   source: string
   five_hour?: EdgeUsageProgress
   seven_day?: EdgeUsageProgress
+  seven_day_sonnet?: EdgeUsageProgress
 }
 
 export interface EdgeUsageProgress {
