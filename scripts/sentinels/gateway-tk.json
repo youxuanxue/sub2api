@@ -2613,6 +2613,21 @@
         "\"passive_usage_7d_utilization\": nil"
       ],
       "rationale": "TK fix (PR #782): on a 5h session-window roll (needInitWindow) UpdateSessionWindow must clear ONLY session_window_utilization, never the independent 7d family (passive_usage_7d_* / passive_usage_7d_sonnet_*). The pre-fix code cleared the 7d keys as nil on every 5h roll (4-5x/day), blanking the admin 7d / 7d-S windows until new traffic re-sampled the header. must_contain pins the fixed comment; must_not_contain catches an upstream merge that re-introduces the 7d nil-clear — the bare key still legitimately appears in the header-sampling block as an index assignment (extraUpdates[...] = ts), so the map-literal `: nil` form is the revert-specific signal."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_unsupported_model.go",
+      "must_contain": [
+        "func tkIsForwardableAnthropicModelName(model string) bool {",
+        "return strings.HasPrefix(m, \"claude-\")"
+      ],
+      "rationale": "TK fix (PR #806): tkIsForwardableAnthropicModelName is the namespace-prefix predicate that keeps cross-vendor model names (deepseek-/gpt-/gemini- …) from being forwarded to api.anthropic.com on a passthrough anthropic account — they 404 upstream AND are an abuse-detection fingerprint anomaly (prod 2026-06-16 edge us3 oh1-ls-b ID 4 was OAuth-revoked; it had sent deepseek-v4-flash). must_contain pins both the function and the claude- prefix rule so an upstream merge or refactor that deletes the predicate (re-opening the leak) fails the sentinel check."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "len(account.GetModelMapping()) == 0 && !tkIsForwardableAnthropicModelName(requestedModel)"
+      ],
+      "rationale": "TK fix (PR #806): the injection point in isModelSupportedByAccount that routes a cross-vendor model name on a passthrough (empty model_mapping) anthropic direct account to the local Path A 400 instead of forwarding it to api.anthropic.com. Pinning the full guard expression also anchors the passthrough-only scope (len(GetModelMapping())==0) so a refactor cannot silently widen it to over-block mapped accounts or narrow it to re-open the leak. Pairs with the predicate sentinel on gateway_service_tk_unsupported_model.go."
     }
   ]
 }
