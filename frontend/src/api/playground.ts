@@ -185,6 +185,48 @@ export async function gatewayImageGenerations(
   )
 }
 
+export interface GeminiImageViaChatRequest {
+  model: string
+  prompt: string
+  /**
+   * Aspect-ratio code (e.g. "16:9") → extra_body.google.image_config.aspect_ratio.
+   * Degrades gracefully (model's default ratio) if an upstream strips it.
+   */
+  aspectRatio?: string
+}
+
+/**
+ * Gemini-native image generation rides /v1/chat/completions (NOT /v1/images/
+ * generations, NOT the /v1beta native route — that one is gemini-platform-group only
+ * and 400s for antigravity/newapi groups). Verified against prod: the response is a
+ * regular OpenAI chat completion whose choices[].message.content carries the image as
+ * `![image](data:image/…;base64,…)` markdown (new-api / antigravity both convert the
+ * gemini inline image to this shape). Parse with extractChatImageItems. This is the
+ * universal, platform-adaptive path. Uses the image timeout (gen can exceed a minute).
+ */
+export async function gatewayGeminiImageViaChat(
+  apiKey: string,
+  gatewayBaseUrl: string,
+  body: GeminiImageViaChatRequest,
+  signal?: AbortSignal
+): Promise<unknown> {
+  const url = `${stripTrailingSlashes(gatewayBaseUrl)}/v1/chat/completions`
+  const payload: Record<string, unknown> = {
+    model: body.model,
+    messages: [{ role: 'user', content: body.prompt }],
+    stream: false
+  }
+  if (body.aspectRatio) {
+    payload.extra_body = { google: { image_config: { aspect_ratio: body.aspectRatio } } }
+  }
+  return gatewayRequestJSON(
+    apiKey,
+    url,
+    { method: 'POST', body: payload, timeoutMs: PLAYGROUND_IMAGE_TIMEOUT_MS },
+    signal
+  )
+}
+
 export interface VideoGenerationRequest {
   model: string
   prompt: string

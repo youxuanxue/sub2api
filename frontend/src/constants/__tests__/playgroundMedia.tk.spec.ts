@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  extractChatImageItems,
   extractImageItems,
   extractVideoTaskId,
   extractVideoUrl,
+  isGeminiNativeImageModel,
   modalityForModel,
   videoStateFromFetch
 } from '@/constants/playgroundMedia.tk'
@@ -12,6 +14,27 @@ describe('modalityForModel', () => {
     for (const id of ['gpt-image-1', 'gpt-image-2-2026-04-21', 'imagen-4.0-generate-001', 'doubao-seedream-4-0-250828']) {
       expect(modalityForModel(id)).toBe('image')
     }
+  })
+
+  it('classifies gemini-native image models as image (served via chat)', () => {
+    for (const id of [
+      'gemini-3.1-flash-image',
+      'gemini-3.1-flash-image-preview',
+      'gemini-2.5-flash-image',
+      'gemini-3-pro-image-preview',
+      'nano-banana-pro-preview'
+    ]) {
+      expect(modalityForModel(id)).toBe('image')
+    }
+  })
+
+  it('does NOT misclassify plain gemini chat models as image', () => {
+    for (const id of ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-3-flash-agent', 'gemini-3.5-flash-extra-low']) {
+      expect(modalityForModel(id)).toBe('chat')
+      expect(isGeminiNativeImageModel(id)).toBe(false)
+    }
+    expect(isGeminiNativeImageModel('gemini-3.1-flash-image')).toBe(true)
+    expect(isGeminiNativeImageModel('models/gemini-2.5-flash-image')).toBe(true)
   })
 
   it('classifies the served video families', () => {
@@ -55,6 +78,45 @@ describe('extractImageItems', () => {
     expect(extractImageItems({ data: [{ url: 'javascript:alert(1)' }] })).toEqual([])
     expect(extractImageItems({ data: [{ url: 'data:text/html;base64,PGI+' }] })).toEqual([])
     expect(extractImageItems({ data: [{ url: 'HTTPS://cdn.example/x.png' }] })).toHaveLength(1)
+  })
+})
+
+describe('extractChatImageItems (gemini image via /v1/chat/completions)', () => {
+  const chat = (content: unknown): unknown => ({ choices: [{ message: { content } }] })
+
+  it('pulls the markdown data-image URI out of message content (verified prod shape)', () => {
+    // Real prod response: content = "![image](data:image/jpeg;base64,…)".
+    const items = extractChatImageItems(chat('![image](data:image/jpeg;base64,aGVsbG8=)'))
+    expect(items).toEqual([{ src: 'data:image/jpeg;base64,aGVsbG8=' }])
+  })
+
+  it('handles multiple images and a leading caption', () => {
+    const items = extractChatImageItems(
+      chat('here:\n![a](data:image/png;base64,QQ==) and ![b](data:image/jpeg;base64,Qg==)')
+    )
+    expect(items.map((i) => i.src)).toEqual(['data:image/png;base64,QQ==', 'data:image/jpeg;base64,Qg=='])
+  })
+
+  it('handles structured content parts (image_url / inline_data)', () => {
+    expect(
+      extractChatImageItems(chat([{ type: 'image_url', image_url: { url: 'https://cdn.example/x.png' } }]))
+    ).toEqual([{ src: 'https://cdn.example/x.png' }])
+    expect(extractChatImageItems(chat([{ inline_data: { mime_type: 'image/webp', data: 'd2VicA==' } }]))).toEqual([
+      { src: 'data:image/webp;base64,d2VicA==' }
+    ])
+  })
+
+  it('returns empty for text-only / malformed responses', () => {
+    expect(extractChatImageItems(chat('just text, no image'))).toEqual([])
+    expect(extractChatImageItems(null)).toEqual([])
+    expect(extractChatImageItems({ choices: 'oops' })).toEqual([])
+    expect(extractChatImageItems({ choices: [{}] })).toEqual([])
+  })
+
+  it('drops non-image / oversized data URIs (same guard as extractImageItems)', () => {
+    expect(extractChatImageItems(chat('![x](data:text/html;base64,PGI+)'))).toEqual([])
+    const huge = 'A'.repeat(64 * 1024 * 1024 + 1)
+    expect(extractChatImageItems(chat(`![x](data:image/png;base64,${huge})`))).toEqual([])
   })
 })
 

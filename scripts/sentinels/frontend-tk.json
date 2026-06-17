@@ -685,9 +685,11 @@
         "modalityForModel",
         "id.startsWith('gpt-image-')",
         "id.includes('seedance') || id.startsWith('veo-')",
-        "videoStateFromFetch"
+        "videoStateFromFetch",
+        "isGeminiNativeImageModel",
+        "extractChatImageItems"
       ],
-      "rationale": "Playground media modality table + tolerant response parsing. /v1/models returns bare ids and the public catalog has no image/video capability tag, so this frontend table is the only thing routing gpt-image-*/imagen-*/seedream prompts to /v1/images/generations and veo-*/seedance prompts to the vt_ video task flow. The gpt-image- prefix mirrors the backend's own intent predicate (openai_images.go isOpenAIImageGenerationModel) — if either side changes family patterns the other must follow."
+      "rationale": "Playground media modality table + tolerant response parsing. /v1/models returns bare ids and the public catalog has no image/video capability tag, so this frontend table is the only thing routing gpt-image-*/imagen-*/seedream prompts to /v1/images/generations and veo-*/seedance prompts to the vt_ video task flow. The gpt-image- prefix mirrors the backend's own intent predicate (openai_images.go isOpenAIImageGenerationModel) — if either side changes family patterns the other must follow. isGeminiNativeImageModel classifies gemini-*-image / nano-banana ids as 'image' (mirrors backend isImageGenerationModel) — they are served via /v1/chat/completions (verified prod: the image returns as ![image](data:…) markdown for antigravity + newapi groups), so extractChatImageItems is the ONLY parser pulling that inline image out of the chat response; dropping either silently regresses gemini-native image in the Studio."
     },
     {
       "path": "frontend/src/views/user/studio/ChatStudio.vue",

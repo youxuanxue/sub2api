@@ -226,17 +226,27 @@ describe('image aspect options (per-model, upstream-valid wire values)', () => {
   // and Imagen must send the ratio code verbatim.
   const IMAGEN_VALID = new Set(['1:1', '3:4', '4:3', '9:16', '16:9'])
 
-  it('every image model carries a non-empty imageSizes; video models carry none', () => {
-    for (const m of MEDIA_MODELS.filter((m) => m.modality === 'image')) {
+  it('imagen/seedream image models carry imageSizes; gemini (flat) and video carry none', () => {
+    // Gemini-native image has NO aspect picker (the ratio control is not honored on its
+    // serving path — #807 R-001), so its entries carry no imageSizes.
+    for (const m of MEDIA_MODELS.filter((m) => m.modality === 'image' && !m.flatImageBilling)) {
       expect(m.imageSizes && m.imageSizes.length).toBeTruthy()
+    }
+    for (const m of MEDIA_MODELS.filter((m) => m.modality === 'image' && m.flatImageBilling)) {
+      expect(m.imageSizes).toBeUndefined()
     }
     for (const m of MEDIA_MODELS.filter((m) => m.modality === 'video')) {
       expect(m.imageSizes).toBeUndefined()
     }
   })
 
-  it('no image model offers an Imagen-invalid ratio (regression: 3:2 / 2:3)', () => {
-    for (const m of MEDIA_MODELS.filter((m) => m.modality === 'image')) {
+  it('IMAGEN models never offer an Imagen-invalid ratio (regression: 3:2 / 2:3)', () => {
+    // The 3:2/2:3 rule is IMAGEN-specific: those map to a hard-400 on Vertex.
+    // Gemini legitimately supports 3:2/2:3/21:9 (different upstream), so the guard
+    // is scoped to imagen models (the ones whose imageSizes is IMAGEN_IMAGE_SIZES).
+    const imagenModels = MEDIA_MODELS.filter((m) => m.imageSizes === IMAGEN_IMAGE_SIZES)
+    expect(imagenModels.length).toBeGreaterThan(0)
+    for (const m of imagenModels) {
       for (const opt of m.imageSizes ?? []) {
         expect(opt.ratio).not.toBe('3:2')
         expect(opt.ratio).not.toBe('2:3')
@@ -251,6 +261,19 @@ describe('image aspect options (per-model, upstream-valid wire values)', () => {
       expect(IMAGEN_VALID.has(opt.value)).toBe(true)
     }
     expect(new Set(IMAGEN_IMAGE_SIZES.map((o) => o.ratio))).toEqual(IMAGEN_VALID)
+  })
+
+  it('gemini image models are flatImageBilling with no aspect picker; imagen/seedream are tiered', () => {
+    const gemini = MEDIA_MODELS.filter((m) => m.modality === 'image' && m.flatImageBilling)
+    expect(gemini.length).toBeGreaterThan(0)
+    for (const m of gemini) {
+      expect(m.imageSizes).toBeUndefined() // ratio control not honored on the serving path (#807 R-001)
+    }
+    for (const m of MEDIA_MODELS.filter(
+      (m) => m.imageSizes === IMAGEN_IMAGE_SIZES || m.imageSizes === SEEDREAM_IMAGE_SIZES
+    )) {
+      expect(m.flatImageBilling).toBeFalsy()
+    }
   })
 
   it('Seedream sends pixel WxH within ARK range [1024², 4096²], ratio range [1/16,16]', () => {
