@@ -72,7 +72,7 @@ Parameters:
     MaxValue: 200
   DataVolumeSizeGiB:
     Type: Number
-    Default: 30
+    Default: 50
     MinValue: 20
     MaxValue: 500
     Description: |
@@ -82,11 +82,28 @@ Parameters:
       instance is replaced (e.g. by an ImageTag CFN change — see issue #8 +
       persistent data volume hardening), this volume detaches and re-attaches to the new
       instance with all data intact, instead of being thrown away with the
-      old root EBS. Default 30 GiB matches the prior root-EBS data layout.
+      old root EBS. Default 50 GiB: prod organic growth (live PG + 1.5d QA
+      blobs + 6x hourly pgdump) hit the 85% alarm at 30 GiB on 2026-06-17;
+      grown to 50 GiB online (no garbage to reclaim — all data legitimate).
   AmazonLinux2023Arm64Ami:
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
-    Description: SSM parameter that always resolves to the latest AL2023 ARM64 AMI in the current region.
+    Type: AWS::EC2::Image::Id
+    Default: ami-0b183bb1259186479
+    Description: >-
+      Pinned AL2023 ARM64 AMI id (us-east-1). DELIBERATELY pinned, NOT the SSM
+      `latest` alias. The SSM-resolved type re-resolves to the newest AMI on
+      EVERY stack update, so any unrelated UpdateStack (a param tweak, a volume
+      grow) silently changes ImageId -> RequiresRecreation=Always -> the EC2
+      instance is REPLACED and cloud-init reinstalls the stale `ImageTag` param
+      (prod runs on SSM-hot-deployed images, so ImageTag lags far behind). That
+      turns a one-line param change into a prod version regression + EIP churn
+      (see prod_t4g_resize_instance_replace_triple_sideeffect; confirmed
+      2026-06-17 via change-set: a DataVolumeSizeGiB-only update still showed
+      Instance Replacement=True, CausingEntity=ImageId). Pinning makes the AMI
+      behave like ImageTag: stable across updates, bumped on purpose. To bump:
+      `aws ssm get-parameter --name
+      /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+      --query Parameter.Value --output text`, set it here, and plan a
+      maintenance-window instance replacement (sync ImageTag in the same op).
 
   AdminCidr:
     Type: String
