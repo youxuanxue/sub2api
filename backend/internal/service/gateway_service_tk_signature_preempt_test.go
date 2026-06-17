@@ -145,7 +145,7 @@ func TestApplyPreempt_NilCache_PassesBodyThrough(t *testing.T) {
 	s := &GatewayService{}
 	c := newTestGin()
 	body := []byte(`{"foo":"bar"}`)
-	out := s.applySigPreemptIfArmed(context.Background(), c, newTestAccount(), body)
+	out := s.applySigPreemptIfArmed(context.Background(), c, newTestAccount(), body, "claude-3-5-sonnet-20241022")
 	require.Equal(t, body, out)
 	require.Empty(t, getOpsEvents(c))
 }
@@ -155,7 +155,7 @@ func TestApplyPreempt_NotArmed_PassesBodyThrough(t *testing.T) {
 	s := &GatewayService{tkAnthropicSigPreemptCache: cache}
 	c := newTestGin()
 	body := []byte(`{"messages":[{"role":"user","content":"hi"}]}`)
-	out := s.applySigPreemptIfArmed(context.Background(), c, newTestAccount(), body)
+	out := s.applySigPreemptIfArmed(context.Background(), c, newTestAccount(), body, "claude-3-5-sonnet-20241022")
 	require.Equal(t, body, out)
 	require.Empty(t, getOpsEvents(c))
 }
@@ -169,7 +169,7 @@ func TestApplyPreempt_Armed_StripsThinkingBlocks(t *testing.T) {
 	// Body with a thinking block at the top level and on an assistant message.
 	body := []byte(`{"thinking":{"type":"enabled","budget_tokens":1024},"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"hidden reasoning","signature":"sig-x"}]},{"role":"user","content":"continue"}]}`)
 
-	out := s.applySigPreemptIfArmed(context.Background(), c, newTestAccount(), body)
+	out := s.applySigPreemptIfArmed(context.Background(), c, newTestAccount(), body, "claude-3-5-sonnet-20241022")
 
 	require.NotEqual(t, body, out, "armed run with thinking content must transform body")
 	require.False(t, bytes.Contains(out, []byte(`"type":"thinking"`)),
@@ -192,7 +192,7 @@ func TestApplyPreempt_Armed_NoThinkingContent_StaysSilent(t *testing.T) {
 	c := newTestGin()
 
 	body := []byte(`{"messages":[{"role":"user","content":"hello"}]}`)
-	out := s.applySigPreemptIfArmed(context.Background(), c, newTestAccount(), body)
+	out := s.applySigPreemptIfArmed(context.Background(), c, newTestAccount(), body, "claude-3-5-sonnet-20241022")
 
 	require.Equal(t, body, out, "no-thinking body returned unchanged even when armed")
 	require.Equal(t, int32(1), cache.isArmCalls.Load(), "armed flag must still be checked")
@@ -204,7 +204,7 @@ func TestApplyPreempt_IsArmedError_FailOpen(t *testing.T) {
 	s := &GatewayService{tkAnthropicSigPreemptCache: cache}
 	c := newTestGin()
 	body := []byte(`{"foo":"bar"}`)
-	out := s.applySigPreemptIfArmed(context.Background(), c, newTestAccount(), body)
+	out := s.applySigPreemptIfArmed(context.Background(), c, newTestAccount(), body, "claude-3-5-sonnet-20241022")
 	require.Equal(t, body, out, "fail-open returns original body when cache errors")
 	require.Empty(t, getOpsEvents(c), "no events emitted on cache error")
 }
@@ -233,7 +233,7 @@ func TestApplyPreempt_Armed_PreservesToolUseThinking(t *testing.T) {
 
 	body := []byte(`{"model":"claude-opus-4-1","thinking":{"type":"enabled"},"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"tool reasoning","signature":"sigTOOL"},{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"ls"}}]}]}`)
 
-	out := s.applySigPreemptIfArmed(context.Background(), c, newTestAccount(), body)
+	out := s.applySigPreemptIfArmed(context.Background(), c, newTestAccount(), body, "claude-3-5-sonnet-20241022")
 
 	// Tool-coupled thinking + its signature must pass through verbatim.
 	require.Contains(t, string(out), `"type":"thinking"`, "tool-coupled thinking must NOT be stripped while preempt is armed")

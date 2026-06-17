@@ -148,6 +148,8 @@ type SystemSettings struct {
 	DefaultConcurrency           int
 	DefaultBalance               float64
 	RiskControlEnabled           bool
+	CyberSessionBlockEnabled     bool
+	CyberSessionBlockTTLSeconds  int
 	AffiliateEnabled             bool
 	AffiliateRebateRate          float64
 	AffiliateRebateFreezeHours   int
@@ -207,16 +209,19 @@ type SystemSettings struct {
 	PricingCatalogPublic         bool    // 公开 pricing 目录页开关，默认 true
 
 	// Gateway forwarding behavior
-	EnableFingerprintUnification       bool   // 是否统一 OAuth 账号的指纹头（默认 true）
-	EnableMetadataPassthrough          bool   // 是否透传客户端原始 metadata（默认 false）
-	EnableCCHSigning                   bool   // 是否对 billing header cch 进行签名（默认 false）
-	EnableAnthropicCacheTTL1hInjection bool   // 是否对 Anthropic OAuth/SetupToken 请求体注入 1h cache_control ttl（默认 false）
-	StickyRoutingEnabled               bool   // 全局 prompt cache 粘性路由总开关（默认 true，详见 docs/approved/sticky-routing.md）
-	RewriteMessageCacheControl         bool   // 是否改写 messages[*].content[*].cache_control（默认 false）
-	AntigravityUserAgentVersion        string // Antigravity 上游 User-Agent 版本号；空值使用配置/默认值
-	ClaudeCodeUserAgentVersion         string // Claude Code canonical OAuth 上游 User-Agent 版本号（不含 prefix/suffix）；空值使用配置/默认值
-	OpenAICodexUserAgent               string // OpenAI Codex 上游完整 User-Agent；空值使用内置默认
-	OpenAIAllowClaudeCodeCodexPlugin   bool   // 全局开关：是否额外放行 Claude Code 的 Codex 插件（默认 false）
+	EnableFingerprintUnification           bool   // 是否统一 OAuth 账号的指纹头（默认 true）
+	EnableMetadataPassthrough              bool   // 是否透传客户端原始 metadata（默认 false）
+	EnableCCHSigning                       bool   // 是否对 billing header cch 进行签名（默认 false）
+	EnableClaudeOAuthSystemPromptInjection bool   // 是否对 Claude OAuth mimic 路径注入 Claude Code system blocks（默认 true）
+	ClaudeOAuthSystemPrompt                string // Claude OAuth mimic 路径注入的通用扩展 system prompt；空值使用内置默认
+	ClaudeOAuthSystemPromptBlocks          string // Claude OAuth mimic 路径注入的 system blocks JSON 配置；空值使用内置默认
+	EnableAnthropicCacheTTL1hInjection     bool   // 是否对 Anthropic OAuth/SetupToken 请求体注入 1h cache_control ttl（默认 false）
+	StickyRoutingEnabled                   bool   // 全局 prompt cache 粘性路由总开关（默认 true，详见 docs/approved/sticky-routing.md）
+	RewriteMessageCacheControl             bool   // 是否改写 messages[*].content[*].cache_control（默认 false）
+	AntigravityUserAgentVersion            string // Antigravity 上游 User-Agent 版本号；空值使用配置/默认值
+	ClaudeCodeUserAgentVersion             string // Claude Code canonical OAuth 上游 User-Agent 版本号（不含 prefix/suffix）；空值使用配置/默认值
+	OpenAICodexUserAgent                   string // OpenAI Codex 上游完整 User-Agent；空值使用内置默认
+	OpenAIAllowClaudeCodeCodexPlugin       bool   // 全局开关：是否额外放行 Claude Code 的 Codex 插件（默认 false）
 
 	// Web Search Emulation
 	WebSearchEmulationEnabled bool // 是否启用 web search 模拟

@@ -158,6 +158,7 @@ func ProvideOpenAIGatewayHandler(
 	usageRecordWorkerPool *service.UsageRecordWorkerPool,
 	errorPassthroughService *service.ErrorPassthroughService,
 	contentModerationService *service.ContentModerationService,
+	opsService *service.OpsService,
 	cfg *config.Config,
 	videoTaskCache service.VideoTaskCache,
 ) *OpenAIGatewayHandler {
@@ -169,6 +170,7 @@ func ProvideOpenAIGatewayHandler(
 		usageRecordWorkerPool,
 		errorPassthroughService,
 		contentModerationService,
+		opsService,
 		cfg,
 	)
 	h.SetVideoTaskCache(videoTaskCache)

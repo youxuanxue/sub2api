@@ -3620,6 +3620,237 @@
                 <Toggle v-model="form.enable_cch_signing" />
               </div>
 
+              <!-- Claude OAuth System Prompt Injection -->
+              <div class="flex items-center justify-between">
+                <div>
+                  <label
+                    class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{
+                      t(
+                        "admin.settings.gatewayForwarding.claudeOAuthSystemPromptInjection",
+                      )
+                    }}
+                  </label>
+                  <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{
+                      t(
+                        "admin.settings.gatewayForwarding.claudeOAuthSystemPromptInjectionHint",
+                      )
+                    }}
+                  </p>
+                </div>
+                <Toggle
+                  v-model="form.enable_claude_oauth_system_prompt_injection"
+                />
+              </div>
+
+              <div>
+                <label
+                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  {{
+                    t(
+                      "admin.settings.gatewayForwarding.claudeOAuthSystemPromptBlocks",
+                    )
+                  }}
+                </label>
+                <div class="space-y-3">
+                  <div
+                    v-for="(block, index) in claudeOAuthSystemPromptBlocks"
+                    :key="block.id"
+                    class="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-dark-700 dark:bg-dark-800/60"
+                  >
+                    <div
+                      :class="[
+                        'flex flex-wrap items-center justify-between gap-3',
+                        block.expanded && 'mb-3',
+                      ]"
+                    >
+                      <div class="min-w-0">
+                        <div
+                          class="text-sm font-medium text-gray-900 dark:text-white"
+                        >
+                          {{
+                            t(
+                              "admin.settings.gatewayForwarding.systemBlockTitle",
+                              { index: index + 1 },
+                            )
+                          }}
+                        </div>
+                        <div
+                          class="mt-0.5 text-xs text-gray-500 dark:text-gray-400"
+                        >
+                          {{ getClaudeOAuthPresetLabel(block.preset) }}
+                        </div>
+                      </div>
+                      <div class="flex items-center gap-2">
+                        <button
+                          type="button"
+                          class="btn btn-secondary btn-sm px-2"
+                          :title="
+                            block.expanded
+                              ? t(
+                                  'admin.settings.gatewayForwarding.systemBlockHide',
+                                )
+                              : t(
+                                  'admin.settings.gatewayForwarding.systemBlockShow',
+                                )
+                          "
+                          :aria-label="
+                            block.expanded
+                              ? t(
+                                  'admin.settings.gatewayForwarding.systemBlockHide',
+                                )
+                              : t(
+                                  'admin.settings.gatewayForwarding.systemBlockShow',
+                                )
+                          "
+                          @click="toggleClaudeOAuthSystemPromptBlock(index)"
+                        >
+                          <Icon
+                            :name="block.expanded ? 'eyeOff' : 'eye'"
+                            size="xs"
+                          />
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn-secondary btn-sm px-2"
+                          :disabled="index === 0"
+                          @click="moveClaudeOAuthSystemPromptBlock(index, -1)"
+                        >
+                          <Icon name="arrowUp" size="xs" />
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn-secondary btn-sm px-2"
+                          :disabled="
+                            index === claudeOAuthSystemPromptBlocks.length - 1
+                          "
+                          @click="moveClaudeOAuthSystemPromptBlock(index, 1)"
+                        >
+                          <Icon name="arrowDown" size="xs" />
+                        </button>
+                        <Toggle v-model="block.enabled" />
+                        <button
+                          type="button"
+                          class="btn btn-secondary btn-sm px-2 text-red-600 hover:text-red-700 dark:text-red-400"
+                          @click="removeClaudeOAuthSystemPromptBlock(index)"
+                        >
+                          <Icon name="trash" size="xs" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div v-show="block.expanded">
+                      <div class="grid gap-3 md:grid-cols-2">
+                        <div>
+                          <label
+                            class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300"
+                          >
+                            {{
+                              t(
+                                "admin.settings.gatewayForwarding.systemBlockPreset",
+                              )
+                            }}
+                          </label>
+                          <Select
+                            v-model="block.preset"
+                            :options="claudeOAuthSystemPromptPresetOptions"
+                            @change="
+                              (value) =>
+                                applyClaudeOAuthSystemPromptPreset(index, value)
+                            "
+                          />
+                        </div>
+                        <div>
+                          <label
+                            class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300"
+                          >
+                            {{
+                              t(
+                                "admin.settings.gatewayForwarding.systemBlockType",
+                              )
+                            }}
+                          </label>
+                          <Select
+                            v-model="block.type"
+                            :options="claudeOAuthSystemPromptBlockTypeOptions"
+                          />
+                        </div>
+                      </div>
+
+                      <div class="mt-3">
+                        <label
+                          class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300"
+                        >
+                          {{ t("admin.settings.gatewayForwarding.systemBlockText") }}
+                        </label>
+                        <textarea
+                          v-model="block.text"
+                          rows="6"
+                          class="input w-full resize-y font-mono text-xs leading-5"
+                          @input="markClaudeOAuthSystemPromptBlockCustom(block)"
+                        />
+                      </div>
+
+                      <div
+                        class="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_160px]"
+                      >
+                        <div class="flex items-center justify-between gap-4">
+                          <div>
+                            <label
+                              class="text-xs font-medium text-gray-600 dark:text-gray-300"
+                            >
+                              {{
+                                t(
+                                  "admin.settings.gatewayForwarding.systemBlockCacheControl",
+                                )
+                              }}
+                            </label>
+                          </div>
+                          <Toggle v-model="block.cacheControlEnabled" />
+                        </div>
+                        <div v-if="block.cacheControlEnabled">
+                          <Select
+                            v-model="block.cacheControlTTL"
+                            :options="claudeOAuthSystemPromptCacheTTLOptions"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    @click="addClaudeOAuthSystemPromptBlock"
+                  >
+                    <Icon name="plus" size="xs" />
+                    {{ t("admin.settings.gatewayForwarding.addSystemBlock") }}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    @click="resetClaudeOAuthSystemPromptBlocks"
+                  >
+                    <Icon name="refresh" size="xs" />
+                    {{
+                      t("admin.settings.gatewayForwarding.resetSystemBlocks")
+                    }}
+                  </button>
+                </div>
+                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{
+                    t(
+                      "admin.settings.gatewayForwarding.claudeOAuthSystemPromptBlocksHint",
+                    )
+                  }}
+                </p>
+              </div>
+
               <!-- Anthropic Cache TTL 1h Injection -->
               <div class="flex items-center justify-between">
                 <div>
@@ -4782,6 +5013,207 @@
           </div>
         </div>
         <!-- /Tab: General -->
+	        <!-- Tab: Login Agreement -->
+	        <div v-show="activeTab === 'agreement'" class="space-y-6">
+	          <div class="card">
+	            <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+	              <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+	                <div>
+	                  <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+	                    {{ localText("登录条款确认", "Login agreement") }}
+	                  </h2>
+	                  <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+	                    {{
+	                      localText(
+	                        "控制登录页是否要求用户先阅读并同意服务条款、隐私政策或其他 Markdown 文档。",
+	                        "Control whether the login page requires users to accept Markdown policy documents first.",
+	                      )
+	                    }}
+	                  </p>
+	                </div>
+	                <div class="flex items-center gap-3">
+	                  <span class="text-sm text-gray-600 dark:text-gray-300">
+	                    {{ form.login_agreement_enabled ? localText("已启用", "Enabled") : localText("未启用", "Disabled") }}
+	                  </span>
+	                  <Toggle v-model="form.login_agreement_enabled" />
+	                </div>
+	              </div>
+	            </div>
+
+	            <div class="space-y-6 p-6">
+	              <div class="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_220px]">
+	                <div>
+	                  <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+	                    {{ localText("展示形式", "Display mode") }}
+	                  </label>
+	                  <div class="grid grid-cols-2 gap-2 rounded-lg bg-gray-100 p-1 dark:bg-dark-700">
+                    <button
+                      type="button"
+                      class="inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition"
+                      :class="
+                        form.login_agreement_mode === 'modal'
+                          ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300'
+                          : 'text-gray-600 hover:text-gray-900 dark:text-dark-300 dark:hover:text-white'
+                      "
+                      @click="form.login_agreement_mode = 'modal'"
+                    >
+                      <Icon name="shield" size="sm" />
+                      {{ localText("弹窗", "Modal") }}
+                    </button>
+                    <button
+                      type="button"
+                      class="inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition"
+                      :class="
+                        form.login_agreement_mode === 'checkbox'
+                          ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300'
+                          : 'text-gray-600 hover:text-gray-900 dark:text-dark-300 dark:hover:text-white'
+                      "
+                      @click="form.login_agreement_mode = 'checkbox'"
+                    >
+                      <Icon name="checkCircle" size="sm" />
+                      {{ localText("复选框", "Checkbox") }}
+                    </button>
+                  </div>
+                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{
+                      form.login_agreement_mode === "checkbox"
+                        ? localText("复选框会显示在登录按钮下方，未勾选前所有登录入口禁用。", "The checkbox appears below the login button and gates all login actions.")
+                        : localText("弹窗会在登录页打开，用户拒绝后所有登录入口保持禁用。", "The modal opens on the login page and gates all login actions until accepted.")
+                    }}
+                  </p>
+                </div>
+
+                <div>
+                  <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {{ localText("条款更新日期", "Updated date") }}
+                  </label>
+                  <input
+                    v-model="form.login_agreement_updated_at"
+                    type="date"
+                    class="input"
+                  />
+                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ localText("日期或文档内容变化后，用户需要重新同意。", "Changing the date or content requires fresh consent.") }}
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 class="text-sm font-medium text-gray-900 dark:text-white">
+                      {{ localText("协议文档", "Agreement documents") }}
+                    </h3>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {{
+                        localText(
+                          "文档名称可自定义，内容按 Markdown 保存。可参考：服务条款、使用政策、支持的国家和地区、服务特定条款。",
+                          "Document titles are customizable and content is saved as Markdown.",
+                        )
+                      }}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    class="btn btn-primary btn-sm inline-flex items-center gap-1.5"
+                    @click="addLoginAgreementDocument"
+                  >
+                    <Icon name="plus" size="sm" />
+                    {{ localText("添加文档", "Add document") }}
+                  </button>
+                </div>
+
+                <div class="mt-4 space-y-3">
+                  <div
+                    v-for="(doc, index) in form.login_agreement_documents"
+                    :key="doc.id || index"
+                    class="rounded-lg border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-800/60"
+                  >
+                    <div class="mb-3 flex items-center justify-between gap-3">
+                      <div class="flex min-w-0 items-center gap-3">
+                        <span class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-gray-100 text-gray-700 dark:bg-dark-700 dark:text-dark-200">
+                          <Icon
+                            :name="
+                              index === 1
+                                ? 'shield'
+                                : index === 2
+                                  ? 'globe'
+                                  : index === 3
+                                    ? 'cog'
+                                    : 'document'
+                            "
+                            size="sm"
+                          />
+                        </span>
+                        <div class="min-w-0">
+                          <p class="truncate text-sm font-semibold text-gray-900 dark:text-white">
+                            {{ doc.title || localText("未命名文档", "Untitled document") }}
+                          </p>
+                          <p class="truncate text-xs text-gray-500 dark:text-gray-400">
+                            {{ loginAgreementRoutePath(doc, index) }}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        class="rounded-md p-2 text-red-400 transition hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-red-900/20"
+                        :disabled="
+                          form.login_agreement_enabled &&
+                          form.login_agreement_documents.length <= 1
+                        "
+                        @click="removeLoginAgreementDocument(index)"
+                      >
+                        <Icon name="trash" size="sm" />
+                      </button>
+                    </div>
+
+                    <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                      <div>
+                        <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                          {{ localText("文档名称", "Document title") }}
+                        </label>
+                        <input
+                          v-model="doc.title"
+                          type="text"
+                          class="input text-sm"
+                          :placeholder="localText('例如：服务条款', 'Example: Terms of Service')"
+                        />
+                      </div>
+                      <div>
+                        <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                          {{ localText("路由标识", "Route slug") }}
+                        </label>
+                        <div class="flex overflow-hidden rounded-lg border border-gray-300 bg-white focus-within:border-primary-500 focus-within:ring-1 focus-within:ring-primary-500 dark:border-dark-600 dark:bg-dark-900">
+                          <span class="inline-flex flex-shrink-0 items-center border-r border-gray-200 bg-gray-50 px-3 text-sm text-gray-500 dark:border-dark-700 dark:bg-dark-800 dark:text-dark-400">
+                            /legal/
+                          </span>
+                          <input
+                            v-model="doc.id"
+                            type="text"
+                            class="min-w-0 flex-1 border-0 bg-transparent px-3 py-2 text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:ring-0 dark:text-white dark:placeholder:text-dark-500"
+                            placeholder="usage-policy"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <div class="mt-3">
+                      <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                        {{ localText("Markdown 内容", "Markdown content") }}
+                      </label>
+                        <textarea
+                          v-model="doc.content_md"
+                          rows="8"
+                          class="input font-mono text-sm"
+                          :placeholder="localText('在这里填写正式 Markdown 内容。', 'Write the final Markdown content here.')"
+                        ></textarea>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- /Tab: Login Agreement -->
 
         <!-- Tab: Features (功能开关) -->
         <div v-show="activeTab === 'features'" class="space-y-6">
@@ -4896,6 +5328,64 @@
                 </p>
               </div>
               <Toggle v-model="form.available_channels_enabled" />
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.settings.features.riskControl.title') }}
+            </h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.features.riskControl.description') }}
+            </p>
+            <p class="mt-1.5 text-xs">
+              <router-link
+                to="/admin/risk-control"
+                class="inline-flex items-center gap-1 text-primary-600 hover:underline dark:text-primary-400"
+              >
+                {{ t('admin.settings.features.riskControl.configureLink') }}
+                <span aria-hidden="true">→</span>
+              </router-link>
+            </p>
+          </div>
+          <div class="space-y-5 p-6">
+            <div class="flex items-center justify-between">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.features.riskControl.enabled') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.features.riskControl.enabledHint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.risk_control_enabled" />
+            </div>
+
+            <div class="flex items-center justify-between">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.features.riskControl.cyberSessionBlock') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.features.riskControl.cyberSessionBlockHint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.cyber_session_block_enabled" />
+            </div>
+
+            <div v-if="form.cyber_session_block_enabled">
+              <label class="input-label">
+                {{ t('admin.settings.features.riskControl.cyberSessionBlockTTL') }}
+                <span class="text-red-500">*</span>
+              </label>
+              <input
+                v-model.number="form.cyber_session_block_ttl_seconds"
+                type="number"
+                min="1"
+                class="input"
+              />
             </div>
           </div>
         </div>
@@ -6322,7 +6812,7 @@ import type {
   WebSearchProviderConfig,
   WebSearchTestResult,
 } from "@/api/admin/settings";
-import type { AdminGroup, Proxy, NotifyEmailEntry } from "@/types";
+import type { AdminGroup, LoginAgreementDocument, Proxy, NotifyEmailEntry } from "@/types";
 import type { ProviderInstance } from "@/types/payment";
 import AppLayout from "@/components/layout/AppLayout.vue";
 import Icon from "@/components/icons/Icon.vue";
@@ -6375,6 +6865,7 @@ const paymentMethodsHref = computed(() =>
 
 type SettingsTab =
   | "general"
+  | "agreement"
   | "features"
   | "security"
   | "users"
@@ -6530,6 +7021,458 @@ const tablePageSizeMin = 5;
 const tablePageSizeMax = 1000;
 const tablePageSizeDefault = 20;
 
+function defaultLoginAgreementDocuments(): LoginAgreementDocument[] {
+  return [
+    {
+      id: "terms",
+      title: "服务条款",
+      content_md: "",
+    },
+    {
+      id: "usage-policy",
+      title: "使用政策",
+      content_md: "",
+    },
+    {
+      id: "supported-regions",
+      title: "支持的国家和地区",
+      content_md: "",
+    },
+    {
+      id: "service-specific-terms",
+      title: "服务特定条款",
+      content_md: "",
+    },
+  ];
+}
+
+function normalizeLoginAgreementDocumentId(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/[-_]{2,}/g, "-")
+    .replace(/^[-_]+|[-_]+$/g, "");
+}
+
+function loginAgreementRoutePath(
+  doc: LoginAgreementDocument,
+  index: number,
+): string {
+  const id =
+    normalizeLoginAgreementDocumentId(doc.id || doc.title) || `doc-${index + 1}`;
+  return `/legal/${id}`;
+}
+
+function addLoginAgreementDocument() {
+  form.login_agreement_documents.push({
+    id: `custom-${Date.now().toString(36)}`,
+    title: "",
+    content_md: "",
+  });
+}
+
+function removeLoginAgreementDocument(index: number) {
+  form.login_agreement_documents.splice(index, 1);
+}
+
+function normalizeLoginAgreementDocumentsForSave(): LoginAgreementDocument[] {
+  return form.login_agreement_documents
+    .map((doc, index) => ({
+      id:
+        normalizeLoginAgreementDocumentId(doc.id || doc.title) ||
+        `doc-${index + 1}`,
+      title: doc.title.trim(),
+      content_md: doc.content_md.trim(),
+    }))
+    .filter((doc) => doc.title || doc.content_md);
+}
+
+function findDuplicateLoginAgreementDocumentId(
+  documents: LoginAgreementDocument[],
+): string | null {
+  const seen = new Set<string>();
+  for (const doc of documents) {
+    if (seen.has(doc.id)) {
+      return doc.id;
+    }
+    seen.add(doc.id);
+  }
+  return null;
+}
+
+type ClaudeOAuthSystemPromptPreset =
+  | "billing"
+  | "system"
+  | "expansion"
+  | "custom";
+
+interface ClaudeOAuthSystemPromptBlock {
+  id: string;
+  enabled: boolean;
+  expanded: boolean;
+  type: "text";
+  preset: ClaudeOAuthSystemPromptPreset;
+  text: string;
+  cacheControlEnabled: boolean;
+  cacheControlTTL: string;
+}
+
+interface ClaudeOAuthSystemPromptRawBlock {
+  enabled?: boolean;
+  type?: string;
+  text?: string;
+  cache_control?: unknown;
+}
+
+const defaultClaudeCodeSystemPrompt =
+  "You are Claude Code, Anthropic's official CLI for Claude.";
+
+const defaultClaudeCodeExpansionPrompt = `You are an interactive agent that helps users with software engineering tasks. Use the instructions below and the tools available to you to assist the user.
+
+IMPORTANT: Assist with authorized security testing, defensive security, CTF challenges, and educational contexts. Refuse requests for destructive techniques, DoS attacks, mass targeting, supply chain compromise, or detection evasion for malicious purposes. Dual-use security tools (C2 frameworks, credential testing, exploit development) require clear authorization context: pentesting engagements, CTF competitions, security research, or defensive use cases.
+IMPORTANT: You must NEVER generate or guess URLs for the user unless you are confident that the URLs are for helping the user with programming. You may use URLs provided by the user in their messages or local files.
+
+# Tone and style
+ - Only use emojis if the user explicitly requests it. Avoid using emojis in all communication unless asked.
+ - Your responses should be short and concise.
+ - When referencing specific functions or pieces of code include the pattern file_path:line_number to allow the user to easily navigate to the source code location.
+ - When referencing GitHub issues or pull requests, use the owner/repo#123 format (e.g. anthropics/claude-code#100) so they render as clickable links.
+ - Do not use a colon before tool calls. Your tool calls may not be shown directly in the output, so text like "Let me read the file:" followed by a read tool call should just be "Let me read the file." with a period.`;
+
+let claudeOAuthSystemPromptBlockID = 0;
+
+function nextClaudeOAuthSystemPromptBlockID(): string {
+  claudeOAuthSystemPromptBlockID += 1;
+  return `claude-oauth-system-prompt-block-${claudeOAuthSystemPromptBlockID}`;
+}
+
+function normalizeClaudeOAuthSystemPromptCacheTTL(value: unknown): string {
+  return typeof value === "string" && value.trim() ? value.trim() : "5m";
+}
+
+function detectClaudeOAuthSystemPromptPreset(
+  text: string,
+): ClaudeOAuthSystemPromptPreset {
+  const trimmed = text.trim();
+  if (trimmed === "{billing_header}") {
+    return "billing";
+  }
+  if (
+    trimmed === "{claude_code_system_prompt}" ||
+    trimmed === defaultClaudeCodeSystemPrompt
+  ) {
+    return "system";
+  }
+  if (
+    trimmed === "{claude_code_expansion_prompt}" ||
+    trimmed === defaultClaudeCodeExpansionPrompt
+  ) {
+    return "expansion";
+  }
+  return "custom";
+}
+
+function normalizeClaudeOAuthSystemPromptBlockText(
+  text: string,
+  expansionPrompt = "",
+): string {
+  const trimmed = text.trim();
+  if (trimmed === "{claude_code_system_prompt}") {
+    return defaultClaudeCodeSystemPrompt;
+  }
+  if (trimmed === "{claude_code_expansion_prompt}") {
+    return expansionPrompt.trim() || defaultClaudeCodeExpansionPrompt;
+  }
+  return text;
+}
+
+function createClaudeOAuthSystemPromptBlock(
+  overrides: Partial<ClaudeOAuthSystemPromptBlock> = {},
+): ClaudeOAuthSystemPromptBlock {
+  const text = overrides.text ?? "";
+  return {
+    id: nextClaudeOAuthSystemPromptBlockID(),
+    enabled: overrides.enabled ?? true,
+    expanded: overrides.expanded ?? true,
+    type: "text",
+    preset: overrides.preset ?? detectClaudeOAuthSystemPromptPreset(text),
+    text,
+    cacheControlEnabled: overrides.cacheControlEnabled ?? false,
+    cacheControlTTL: overrides.cacheControlTTL ?? "5m",
+  };
+}
+
+function createDefaultClaudeOAuthSystemPromptBlocks(
+  expansionPrompt = "",
+): ClaudeOAuthSystemPromptBlock[] {
+  const normalizedExpansionPrompt = expansionPrompt.trim();
+  const expansionText =
+    normalizedExpansionPrompt || defaultClaudeCodeExpansionPrompt;
+
+  return [
+    createClaudeOAuthSystemPromptBlock({
+      preset: "billing",
+      text: "{billing_header}",
+    }),
+    createClaudeOAuthSystemPromptBlock({
+      preset: "system",
+      text: defaultClaudeCodeSystemPrompt,
+    }),
+    createClaudeOAuthSystemPromptBlock({
+      preset:
+        expansionText === defaultClaudeCodeExpansionPrompt
+          ? "expansion"
+          : "custom",
+      text: expansionText,
+      cacheControlEnabled: true,
+      cacheControlTTL: "5m",
+    }),
+  ];
+}
+
+function parseClaudeOAuthSystemPromptCacheControl(cacheControl: unknown): {
+  enabled: boolean;
+  ttl: string;
+} {
+  if (cacheControl === true) {
+    return { enabled: true, ttl: "5m" };
+  }
+  if (
+    cacheControl &&
+    typeof cacheControl === "object" &&
+    !Array.isArray(cacheControl)
+  ) {
+    return {
+      enabled: true,
+      ttl: normalizeClaudeOAuthSystemPromptCacheTTL(
+        (cacheControl as Record<string, unknown>).ttl,
+      ),
+    };
+  }
+  return { enabled: false, ttl: "5m" };
+}
+
+function parseClaudeOAuthSystemPromptBlocks(
+  raw: string,
+  expansionPrompt = "",
+): ClaudeOAuthSystemPromptBlock[] {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return createDefaultClaudeOAuthSystemPromptBlocks(expansionPrompt);
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as
+      | ClaudeOAuthSystemPromptRawBlock[]
+      | { blocks?: ClaudeOAuthSystemPromptRawBlock[] };
+    const rawBlocks = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsed.blocks)
+        ? parsed.blocks
+        : [];
+
+    if (rawBlocks.length === 0) {
+      return createDefaultClaudeOAuthSystemPromptBlocks(expansionPrompt);
+    }
+
+    return rawBlocks.map((block) => {
+      const cacheControl = parseClaudeOAuthSystemPromptCacheControl(
+        block.cache_control,
+      );
+      const text = normalizeClaudeOAuthSystemPromptBlockText(
+        typeof block.text === "string" ? block.text : "",
+        expansionPrompt,
+      );
+      return createClaudeOAuthSystemPromptBlock({
+        enabled: block.enabled !== false,
+        type: "text",
+        text,
+        preset: detectClaudeOAuthSystemPromptPreset(text),
+        cacheControlEnabled: cacheControl.enabled,
+        cacheControlTTL: cacheControl.ttl,
+      });
+    });
+  } catch (_error) {
+    return createDefaultClaudeOAuthSystemPromptBlocks(expansionPrompt);
+  }
+}
+
+function serializeClaudeOAuthSystemPromptBlocksToJSON(
+  blocks: ClaudeOAuthSystemPromptBlock[],
+): string {
+  const source =
+    blocks.length > 0
+      ? blocks
+      : [
+          createClaudeOAuthSystemPromptBlock({
+            enabled: false,
+            preset: "custom",
+            text: "",
+          }),
+        ];
+
+  const rawBlocks = source.map((block) => {
+    const raw: ClaudeOAuthSystemPromptRawBlock = {
+      enabled: block.enabled,
+      type: block.type || "text",
+      text: block.text,
+    };
+    if (block.cacheControlEnabled) {
+      raw.cache_control = {
+        type: "ephemeral",
+        ttl: normalizeClaudeOAuthSystemPromptCacheTTL(block.cacheControlTTL),
+      };
+    }
+    return raw;
+  });
+
+  return JSON.stringify(rawBlocks, null, 2);
+}
+
+const defaultClaudeOAuthSystemPromptBlocks =
+  serializeClaudeOAuthSystemPromptBlocksToJSON(
+    createDefaultClaudeOAuthSystemPromptBlocks(),
+  );
+
+const claudeOAuthSystemPromptBlocks = ref<ClaudeOAuthSystemPromptBlock[]>(
+  createDefaultClaudeOAuthSystemPromptBlocks(),
+);
+
+const claudeOAuthSystemPromptPresetOptions = computed(() => [
+  {
+    value: "billing",
+    label: t("admin.settings.gatewayForwarding.systemBlockPresetBilling"),
+  },
+  {
+    value: "system",
+    label: t("admin.settings.gatewayForwarding.systemBlockPresetIdentity"),
+  },
+  {
+    value: "expansion",
+    label: t("admin.settings.gatewayForwarding.systemBlockPresetExpansion"),
+  },
+  {
+    value: "custom",
+    label: t("admin.settings.gatewayForwarding.systemBlockPresetCustom"),
+  },
+]);
+
+const claudeOAuthSystemPromptBlockTypeOptions = computed(() => [
+  {
+    value: "text",
+    label: t("admin.settings.gatewayForwarding.systemBlockTypeText"),
+  },
+]);
+
+const claudeOAuthSystemPromptCacheTTLOptions = computed(() => [
+  { value: "5m", label: t("admin.settings.gatewayForwarding.cacheTTL5m") },
+  { value: "1h", label: t("admin.settings.gatewayForwarding.cacheTTL1h") },
+]);
+
+function getClaudeOAuthPresetLabel(
+  preset: ClaudeOAuthSystemPromptPreset,
+): string {
+  return (
+    claudeOAuthSystemPromptPresetOptions.value.find(
+      (option) => option.value === preset,
+    )?.label || t("admin.settings.gatewayForwarding.systemBlockPresetCustom")
+  );
+}
+
+function syncClaudeOAuthSystemPromptBlocksFormField(): void {
+  form.claude_oauth_system_prompt_blocks =
+    serializeClaudeOAuthSystemPromptBlocksToJSON(
+      claudeOAuthSystemPromptBlocks.value,
+    );
+}
+
+function addClaudeOAuthSystemPromptBlock(): void {
+  claudeOAuthSystemPromptBlocks.value.push(
+    createClaudeOAuthSystemPromptBlock({
+      expanded: true,
+      preset: "custom",
+      text: "",
+    }),
+  );
+  syncClaudeOAuthSystemPromptBlocksFormField();
+}
+
+function toggleClaudeOAuthSystemPromptBlock(index: number): void {
+  const block = claudeOAuthSystemPromptBlocks.value[index];
+  if (!block) {
+    return;
+  }
+  block.expanded = !block.expanded;
+}
+
+function removeClaudeOAuthSystemPromptBlock(index: number): void {
+  claudeOAuthSystemPromptBlocks.value.splice(index, 1);
+  syncClaudeOAuthSystemPromptBlocksFormField();
+}
+
+function moveClaudeOAuthSystemPromptBlock(
+  index: number,
+  direction: -1 | 1,
+): void {
+  const targetIndex = index + direction;
+  if (
+    targetIndex < 0 ||
+    targetIndex >= claudeOAuthSystemPromptBlocks.value.length
+  ) {
+    return;
+  }
+  const blocks = claudeOAuthSystemPromptBlocks.value;
+  const current = blocks[index];
+  blocks[index] = blocks[targetIndex];
+  blocks[targetIndex] = current;
+  syncClaudeOAuthSystemPromptBlocksFormField();
+}
+
+function applyClaudeOAuthSystemPromptPreset(
+  index: number,
+  value: string | number | boolean | null,
+): void {
+  const block = claudeOAuthSystemPromptBlocks.value[index];
+  if (!block) {
+    return;
+  }
+  const preset = String(value || "custom") as ClaudeOAuthSystemPromptPreset;
+  block.preset = preset;
+  block.type = "text";
+  if (preset === "billing") {
+    block.text = "{billing_header}";
+    block.cacheControlEnabled = false;
+    block.cacheControlTTL = "5m";
+  } else if (preset === "system") {
+    block.text = defaultClaudeCodeSystemPrompt;
+    block.cacheControlEnabled = false;
+    block.cacheControlTTL = "5m";
+  } else if (preset === "expansion") {
+    block.text =
+      form.claude_oauth_system_prompt.trim() ||
+      defaultClaudeCodeExpansionPrompt;
+    block.cacheControlEnabled = true;
+    block.cacheControlTTL = "5m";
+  }
+  syncClaudeOAuthSystemPromptBlocksFormField();
+}
+
+function markClaudeOAuthSystemPromptBlockCustom(
+  block: ClaudeOAuthSystemPromptBlock,
+): void {
+  block.preset = detectClaudeOAuthSystemPromptPreset(block.text);
+  syncClaudeOAuthSystemPromptBlocksFormField();
+}
+
+function resetClaudeOAuthSystemPromptBlocks(): void {
+  claudeOAuthSystemPromptBlocks.value = createDefaultClaudeOAuthSystemPromptBlocks(
+    form.claude_oauth_system_prompt,
+  );
+  syncClaudeOAuthSystemPromptBlocksFormField();
+}
+
+
 interface DefaultSubscriptionGroupOption {
   value: number;
   label: string;
@@ -6579,7 +7522,7 @@ const form = reactive<SettingsForm>({
   login_agreement_enabled: false,
   login_agreement_mode: "modal",
   login_agreement_updated_at: "",
-  login_agreement_documents: [],
+  login_agreement_documents: defaultLoginAgreementDocuments(),
   default_balance: 0,
   default_platform_quotas: normalizePlatformQuotasMap() as DefaultPlatformQuotasMap,
   affiliate_rebate_rate: 20,
@@ -6601,6 +7544,8 @@ const form = reactive<SettingsForm>({
   hide_ccs_import_button: false,
   payment_enabled: false,
   risk_control_enabled: false,
+  cyber_session_block_enabled: false,
+  cyber_session_block_ttl_seconds: 3600,
   payment_min_amount: 1,
   payment_max_amount: 10000,
   payment_daily_limit: 50000,
@@ -6755,6 +7700,9 @@ const form = reactive<SettingsForm>({
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false,
   enable_cch_signing: false,
+  enable_claude_oauth_system_prompt_injection: true,
+  claude_oauth_system_prompt: "",
+  claude_oauth_system_prompt_blocks: defaultClaudeOAuthSystemPromptBlocks,
   enable_anthropic_cache_ttl_1h_injection: false,
   tk_anthropic_request_normalize_enabled: true,
   sticky_routing_enabled: true,
@@ -7349,14 +8297,28 @@ async function loadSettings() {
         (form as Record<string, unknown>)[key] = value;
       }
     }
-    form.default_subscriptions = Array.isArray(settings.default_subscriptions)
-      ? settings.default_subscriptions
-          .filter((item) => item.group_id > 0 && item.validity_days > 0)
-          .map((item) => ({
-            group_id: item.group_id,
-            validity_days: item.validity_days
+    if (!form.claude_oauth_system_prompt_blocks?.trim()) {
+      form.claude_oauth_system_prompt_blocks =
+        defaultClaudeOAuthSystemPromptBlocks;
+    }
+    claudeOAuthSystemPromptBlocks.value = parseClaudeOAuthSystemPromptBlocks(
+      form.claude_oauth_system_prompt_blocks,
+      form.claude_oauth_system_prompt,
+    );
+    syncClaudeOAuthSystemPromptBlocksFormField();
+    form.login_agreement_mode =
+      settings.login_agreement_mode === "checkbox" ? "checkbox" : "modal";
+    form.login_agreement_updated_at =
+      settings.login_agreement_updated_at || "2026-03-31";
+    form.login_agreement_documents =
+      Array.isArray(settings.login_agreement_documents) &&
+      settings.login_agreement_documents.length > 0
+        ? settings.login_agreement_documents.map((doc) => ({
+            id: doc.id || "",
+            title: doc.title || "",
+            content_md: doc.content_md || "",
           }))
-      : []
+      : defaultLoginAgreementDocuments()
     registrationEmailSuffixWhitelistTags.value = normalizeRegistrationEmailSuffixDomains(
       settings.registration_email_suffix_whitelist
     )
@@ -7573,6 +8535,44 @@ async function saveSettings() {
     form.table_default_page_size = normalizedTableDefaultPageSize;
     form.table_page_size_options = normalizedTablePageSizeOptions;
 
+    const normalizedLoginAgreementDocuments =
+      normalizeLoginAgreementDocumentsForSave();
+    if (form.login_agreement_enabled && normalizedLoginAgreementDocuments.length === 0) {
+      appStore.showError(
+        localText(
+          "启用登录条款确认时，至少需要保留一份文档。",
+          "At least one document is required when login agreement is enabled.",
+        ),
+      );
+      return;
+    }
+    const emptyTitleDocument = normalizedLoginAgreementDocuments.find(
+      (doc) => !doc.title,
+    );
+    if (emptyTitleDocument) {
+      appStore.showError(
+        localText(
+          "登录条款文档名称不能为空。",
+          "Login agreement document title cannot be empty.",
+        ),
+      );
+      return;
+    }
+    const duplicateLoginAgreementDocumentId =
+      findDuplicateLoginAgreementDocumentId(normalizedLoginAgreementDocuments);
+    if (duplicateLoginAgreementDocumentId) {
+      appStore.showError(
+        localText(
+          `登录条款文档路由不能重复：/legal/${duplicateLoginAgreementDocumentId}`,
+          `Login agreement document routes cannot be duplicated: /legal/${duplicateLoginAgreementDocumentId}`,
+        ),
+      );
+      return;
+    }
+    form.login_agreement_mode =
+      form.login_agreement_mode === "checkbox" ? "checkbox" : "modal";
+    form.login_agreement_documents = normalizedLoginAgreementDocuments;
+
     const normalizedDefaultSubscriptions = normalizeDefaultSubscriptionSettings(
       form.default_subscriptions,
     );
@@ -7638,6 +8638,12 @@ async function saveSettings() {
       form.wechat_connect_mobile_enabled,
       form.wechat_connect_mode,
     );
+    const claudeOAuthSystemPromptBlocksJSON =
+      serializeClaudeOAuthSystemPromptBlocksToJSON(
+        claudeOAuthSystemPromptBlocks.value,
+      );
+    form.claude_oauth_system_prompt_blocks =
+      claudeOAuthSystemPromptBlocksJSON;
 
     const payload: UpdateSettingsRequest = {
       registration_enabled: form.registration_enabled,
@@ -7787,6 +8793,12 @@ async function saveSettings() {
       enable_fingerprint_unification: form.enable_fingerprint_unification,
       enable_metadata_passthrough: form.enable_metadata_passthrough,
       enable_cch_signing: form.enable_cch_signing,
+      enable_claude_oauth_system_prompt_injection:
+        form.enable_claude_oauth_system_prompt_injection,
+      claude_oauth_system_prompt: form.claude_oauth_system_prompt?.trim()
+        ? form.claude_oauth_system_prompt
+        : "",
+      claude_oauth_system_prompt_blocks: claudeOAuthSystemPromptBlocksJSON,
       enable_anthropic_cache_ttl_1h_injection:
         form.enable_anthropic_cache_ttl_1h_injection,
       sticky_routing_enabled: form.sticky_routing_enabled,
@@ -7800,6 +8812,10 @@ async function saveSettings() {
       openai_allow_claude_code_codex_plugin: form.openai_allow_claude_code_codex_plugin,
       // Payment configuration
       payment_enabled: form.payment_enabled,
+      risk_control_enabled: form.risk_control_enabled,
+      cyber_session_block_enabled: form.cyber_session_block_enabled,
+      cyber_session_block_ttl_seconds:
+        Number(form.cyber_session_block_ttl_seconds) || 3600,
       payment_min_amount: Number(form.payment_min_amount) || 0,
       payment_max_amount: Number(form.payment_max_amount) || 0,
       payment_daily_limit: Number(form.payment_daily_limit) || 0,
