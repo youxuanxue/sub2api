@@ -198,7 +198,7 @@ func TestEdgeAccountsHandler_EnrichesRuntimeGauges(t *testing.T) {
 		fakeUsageReader{
 			today:   map[int64]*service.WindowStats{7: {Requests: 80, Tokens: 65_900_000, Cost: 36.53, UserCost: 36.53}},
 			wcost:   36.53,
-			passive: &service.UsageInfo{Source: "passive", FiveHour: &service.UsageProgress{Utilization: 2}, SevenDay: &service.UsageProgress{Utilization: 4}},
+			passive: &service.UsageInfo{Source: "passive", FiveHour: &service.UsageProgress{Utilization: 2}, SevenDay: &service.UsageProgress{Utilization: 4}, SevenDaySonnet: &service.UsageProgress{Utilization: 6}},
 		},
 	)
 	w := performEdgeAccountsRequest(t, h, "?platform=anthropic")
@@ -230,6 +230,8 @@ func TestEdgeAccountsHandler_EnrichesRuntimeGauges(t *testing.T) {
 	require.Equal(t, 2.0, got.Usage.FiveHour.Utilization)
 	require.NotNil(t, got.Usage.SevenDay)
 	require.Equal(t, 4.0, got.Usage.SevenDay.Utilization)
+	require.NotNil(t, got.Usage.SevenDaySonnet, "anthropic account must forward the 7d Sonnet sub-window to the edge overview")
+	require.Equal(t, 6.0, got.Usage.SevenDaySonnet.Utilization)
 }
 
 // OpenAI OAuth (codex) accounts must also carry the passive 5h/7d usage windows

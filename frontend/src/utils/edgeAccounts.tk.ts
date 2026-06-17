@@ -107,6 +107,6 @@ export function toUsageInfo(s: EdgeAccountSummary): AccountUsageInfo | null {
     updated_at: null,
     five_hour: mk(s.usage.five_hour),
     seven_day: mk(s.usage.seven_day),
-    seven_day_sonnet: null
+    seven_day_sonnet: mk(s.usage.seven_day_sonnet)
   }
 }
