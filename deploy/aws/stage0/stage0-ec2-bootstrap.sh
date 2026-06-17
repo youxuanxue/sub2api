@@ -56,16 +56,23 @@ usermod -aG docker ec2-user
 # Postgres on /var/lib/tokenkey. Idempotent: skip if already active.
 SWAPFILE=/swapfile
 SWAP_SIZE_MB="${TK_SWAP_SIZE_MB:-4096}"
+# Best-effort: swap is defense-in-depth, so a setup failure must NEVER abort the
+# essential bootstrap (every step here is `|| true`-guarded under set -e), and we
+# persist the fstab entry only after swap is confirmed active so a partial setup
+# can't leave a broken entry that trips `swapon -a` on the next boot.
 if ! swapon --show=NAME --noheadings 2>/dev/null | grep -qx "${SWAPFILE}"; then
   if [ ! -e "${SWAPFILE}" ]; then
     fallocate -l "${SWAP_SIZE_MB}M" "${SWAPFILE}" 2>/dev/null \
-      || dd if=/dev/zero of="${SWAPFILE}" bs=1M count="${SWAP_SIZE_MB}" status=none
+      || dd if=/dev/zero of="${SWAPFILE}" bs=1M count="${SWAP_SIZE_MB}" status=none 2>/dev/null \
+      || true
   fi
-  chmod 600 "${SWAPFILE}"
+  chmod 600 "${SWAPFILE}" 2>/dev/null || true
   mkswap "${SWAPFILE}" >/dev/null 2>&1 || true
-  swapon "${SWAPFILE}" || true
+  swapon "${SWAPFILE}" 2>/dev/null || true
 fi
-grep -q "^${SWAPFILE} " /etc/fstab || echo "${SWAPFILE} none swap sw 0 0" >> /etc/fstab
+if swapon --show=NAME --noheadings 2>/dev/null | grep -qx "${SWAPFILE}"; then
+  grep -q "^${SWAPFILE} " /etc/fstab || echo "${SWAPFILE} none swap sw 0 0" >> /etc/fstab
+fi
 cat > /etc/sysctl.d/90-tokenkey-swap.conf <<'SYSCTLEOF'
 # Only swap under genuine memory pressure (protect steady-state latency), and
 # bias the kernel toward keeping the page cache instead of dropping it — both
