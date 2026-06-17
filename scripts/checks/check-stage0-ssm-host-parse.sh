@@ -18,8 +18,8 @@
 #
 # Scope (explicit, not silent): covers the prod/edge MUTATION primitives
 # (deploy image, sync Caddyfile, sync docs, sync Feishu config, sync edge host
-# units) plus the read-only warm-image primitive (same jq-host-command shape,
-# same blind spot).
+# units, sync host mem-guard) plus the read-only warm-image primitive (same
+# jq-host-command shape, same blind spot).
 # edge_post_deploy_smoke.sh also builds an SSM `commands` array, but is left out
 # on purpose — its array is assembled inside functions behind many runtime env
 # vars (no clean "args -> params file" entrypoint to stub), and an unparseable
@@ -93,5 +93,7 @@ check_one "sync-feishu-config.sh"           sync-feishu \
   bash "${OPS}/sync-feishu-config.sh" prod
 check_one "sync-edge-host-units-via-ssm.sh" sync-host-units \
   bash "${OPS}/sync-edge-host-units-via-ssm.sh" mi-0stub
+check_one "sync-host-mem-guard-via-ssm.sh"  sync-mem-guard \
+  bash "${OPS}/sync-host-mem-guard-via-ssm.sh" i-0stub
 
 exit "${rc}"

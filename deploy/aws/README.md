@@ -59,6 +59,13 @@ EDGE_ID=<edge> bash ops/stage0/sync_caddyfile_via_ssm.sh edge <mi-id>
 
 脚本复刻开机渲染：`API_DOMAIN`/`ACME_EMAIL` 取自主机 `.env`；edge 的 `MAIN_GATEWAY_ALLOWED_CIDR`（不在 `.env`）从当前 Caddyfile 的 `remote_ip` 行反读以原样保留 allowlist。先在一次性 caddy 容器里 `caddy validate`，通过才**就地**写回（`cat > Caddyfile` 保 inode，避免 bind-mount 单文件换 inode 后容器看不到），再 `caddy reload`；任一步失败自动回滚到备份并 reload。
 
+### 把 #811 的 swap + 内存压力告警落到「已经在跑」的 prod（不重建实例）
+
+同一道理：`deploy-stage0.yml` 只换镜像、**不跑 bootstrap**，所以 #811 给 `stage0-ec2-bootstrap.sh` 加的 `/swapfile` 释放阀 + `vm.swappiness`/`vfs_cache_pressure` sysctl，以及 `tokenkey-disk-metrics.sh` 里的内存压力告警，都只在**实例 bootstrap**时落地——#811 之前 provision 的 prod 实例不会有。两条生效路径：
+
+- **下次重建生效**：换机 / CFN 更新时 bootstrap 自动装上（#804 已 pin AMI，换机不退版）。
+- **立刻生效（live host，prod-only）**：dispatch `ops-stage0-host-mem-guard.yml -f target=prod`（或本地 `bash ops/stage0/sync-host-mem-guard-via-ssm.sh <instance-id>`）。原语在运行中的实例上 fallocate swap + 写 sysctl + 刷新 `tokenkey-disk-metrics.sh`，**两段 payload 都从 `stage0-ec2-bootstrap.sh` 运行时抽取**（单一源、无副本漂移）；幂等（swap 已在则跳过、disk-metrics 原地覆盖由 5min timer 复跑）。edge 是 Lightsail 中继、另一套 bootstrap、无此 timer，故不覆盖。
+
 ## Quick Start
 
 完整步骤在主文档 §3.5。最小操作如下：
