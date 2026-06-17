@@ -14,6 +14,23 @@
 #   GEMINI_VIDEO_MODELS      -> POST app:8080/v1/video/generations (async submit; 200-on-submit=servable, best-effort)
 #     NB gemini families run ON the edge host and hit the app container directly
 #     (the edge Caddy 403s host-local /v1/* — it only allows the prod gateway CIDR).
+#   DASHSCOPE_CHAT_MODELS    -> POST <prod>/v1/chat/completions  (newapi channel_type=17, qwen3 dense)
+#     The newapi fifth-platform pool IS served at prod (unlike gemini, which is
+#     edge-internal), so this family routes through the normal prod TK gateway
+#     with a TK api_key BOUND TO the newapi/qwen group (account 60 lives there).
+#     This is the SERVABLE-end-to-end truth probe for channel_type=17: a real 200
+#     proves the model id is both upstream-activated AND allowlisted at the TK
+#     scheduling layer (account model_mapping). The empty-pool 429 ("No available
+#     accounts" + Retry-After: 5) is NOT an upstream rate-limit — it is the
+#     TK-scheduling gap that hid qwen3-8b/14b/32b in the #812 incident, so it gets
+#     its own verdict (not_allowlisted) instead of inconclusive.
+#     Dashscope HARD CONSTRAINT: qwen3 DENSE thinking mode must STREAM; a
+#     non-streaming call must explicitly set enable_thinking=false, else upstream
+#     400s with "enable_thinking must be set to false for non-streaming calls".
+#     This family therefore probes BOTH variants per model — thinking (stream:true,
+#     enable_thinking:true) and non-thinking (stream:false, enable_thinking:false)
+#     — so a default (thinking) call that 400s on shape alone never masks a
+#     genuinely servable model.
 #   ARK_CHAT_MODELS          -> POST <ark>/api/v3/chat/completions  (DIRECT ark data plane)
 #   ARK_IMAGE_MODELS         -> POST <ark>/api/v3/images/generations (direct; a servable model bills ~1 image)
 #   ARK_VIDEO_MODELS         -> POST <ark>/api/v3/contents/generations/tasks (direct; a servable model creates a REAL paid video task — probe sparingly)
@@ -36,17 +53,19 @@
 #   GEMINI_GROUP_NAME        default google  (probe key pulled from an api_key bound to this group)
 #   GEMINI_APP_CONTAINER     default tokenkey-caddy (a container on the compose net with busybox wget)
 #   GEMINI_APP_URL           default http://tokenkey:8080 (the app, reached internally)
+#   DASHSCOPE_GROUP_NAME     default qwen  (TK api_key bound to this newapi/qwen group; never printed)
 #   REQ_SLEEP                default 2  (seconds between requests; avoids pool exhaustion)
 #
 # Output: one TSV line per model on stdout (keys never printed):
 #   <platform>\t<model>\t<http_code>\t<verdict>
-# verdict in: servable | unsupported | inconclusive | auth_error
+# verdict in: servable | unsupported | inconclusive | not_allowlisted | auth_error
 #
 # Classification (a model is "servable" iff a real 200 came back):
 #   200                                   -> servable
 #   400/404 + retired/not-found/invalid   -> unsupported (deprecated gate / upstream reject)
 #   400 "not supported when using Codex"  -> unsupported (this account does not serve it)
-#   502/503/429                           -> inconclusive (capacity / wrong protocol / no account)
+#   429 + "No available accounts"          -> not_allowlisted (TK empty-pool: model not allowlisted at scheduling layer)
+#   429(other) / 502 / 503                  -> inconclusive (capacity / wrong protocol / rate-limit)
 #   401/403                               -> auth_error (probe setup wrong, not a model signal)
 #
 # Determinism / safety: keys are pulled from the local DB into shell vars and
@@ -67,6 +86,7 @@ GEMINI_GROUP_NAME="${GEMINI_GROUP_NAME:-google}"
 # carries busybox wget and resolves the app service name on the compose network.
 GEMINI_APP_CONTAINER="${GEMINI_APP_CONTAINER:-tokenkey-caddy}"
 GEMINI_APP_URL="${GEMINI_APP_URL:-http://tokenkey:8080}"
+DASHSCOPE_GROUP_NAME="${DASHSCOPE_GROUP_NAME:-qwen}"
 REQ_SLEEP="${REQ_SLEEP:-2}"
 UA='claude-cli/2.1.165 (external, sdk-cli)'
 SYS='You are Claude Code, the official CLI for Claude.'
@@ -84,7 +104,19 @@ verdict() { # $1=code $2=bodyfile -> echoes verdict
 			echo "inconclusive"
 		fi
 		;;
-	429 | 502 | 503) echo "inconclusive" ;;
+	429)
+		# Distinguish the TK empty-pool 429 ("No available accounts" + Retry-After: 5)
+		# from a genuine upstream rate-limit. The former is NOT a capacity problem —
+		# it means the requested model id is not allowlisted on any schedulable
+		# account at the TK scheduling layer (the #812 / channel_type=17 funnel), the
+		# actionable onboarding signal. The latter is transient (inconclusive).
+		if grep -qiE 'no available accounts' "$f"; then
+			echo "not_allowlisted"
+		else
+			echo "inconclusive"
+		fi
+		;;
+	502 | 503) echo "inconclusive" ;;
 	401 | 403) echo "auth_error" ;;
 	*) echo "inconclusive" ;;
 	esac
@@ -152,9 +184,39 @@ body_video() { printf '{"model":"%s","prompt":"a small red ball rolling on a tab
 # ark create-task shape (seedance text commands ride inside the prompt text);
 # smallest billable settings so an activated model costs as little as possible.
 body_ark_video() { printf '{"model":"%s","content":[{"type":"text","text":"a small red ball rolling on a table --resolution 480p --duration 5"}]}' "$1"; }
+# Dashscope qwen3 DENSE bodies. Thinking mode REQUIRES streaming; the non-thinking
+# variant MUST set enable_thinking=false explicitly (else upstream 400s). Probing
+# both per model means a default-thinking call that only 400s on request shape
+# never masks a genuinely servable model.
+body_qwen_thinking() { printf '{"model":"%s","max_tokens":16,"stream":true,"enable_thinking":true,"messages":[{"role":"user","content":"hi"}]}' "$1"; }
+body_qwen_nonthinking() { printf '{"model":"%s","max_tokens":16,"stream":false,"enable_thinking":false,"messages":[{"role":"user","content":"hi"}]}' "$1"; }
+
+# probe_dashscope: routes qwen3 dense through the PROD TK gateway /v1/chat/completions
+# (the newapi channel_type=17 pool is served at prod). Bearer auth uses a TK api_key
+# bound to the newapi/qwen group (pulled in main(), never printed). For each model it
+# fires the thinking (streaming) variant and the non-thinking variant; a real 200 (a
+# valid SSE stream opens with 200 on the thinking path, or a plain 200 on the
+# non-thinking path) => servable. The emitted model carries a (thinking)/(non-thinking)
+# suffix so the two paths are distinguishable in the TSV. -N keeps curl from buffering
+# the stream; we only need the status line + a short body sample for classification.
+probe_dashscope() { # $1=key  (models from $DASHSCOPE_CHAT_MODELS)
+	local key="$1" m f code variant buildfn
+	for m in $DASHSCOPE_CHAT_MODELS; do
+		for variant in thinking nonthinking; do
+			if [ "$variant" = thinking ]; then buildfn=body_qwen_thinking; else buildfn=body_qwen_nonthinking; fi
+			f="$(mktemp)"
+			code="$(curl -s -N -o "$f" -w '%{http_code}' -m 75 -X POST "$PROD/v1/chat/completions" \
+				-H "Authorization: Bearer $key" -H 'content-type: application/json' \
+				--data-binary "$($buildfn "$m")")"
+			emit newapi "$m ($variant)" "$code" "$(verdict "$code" "$f")"
+			rm -f "$f"
+			sleep "$REQ_SLEEP"
+		done
+	done
+}
 
 main() {
-	local akey okey gkey arkacct arkkey arkbase
+	local akey okey gkey dkey arkacct arkkey arkbase
 	if [ -n "${ANTHROPIC_MODELS:-}" ]; then
 		akey="$($PSQL -c "SELECT credentials->>'api_key' FROM accounts WHERE id=$AACCT AND deleted_at IS NULL" | tr -d '[:space:]')"
 		if [ -z "$akey" ]; then
@@ -190,6 +252,18 @@ main() {
 			[ -n "${ARK_CHAT_MODELS:-}" ] && probe_compat_endpoint volcengine "$arkbase" "$arkkey" /api/v3/chat/completions "$ARK_CHAT_MODELS" body_chat
 			[ -n "${ARK_IMAGE_MODELS:-}" ] && probe_compat_endpoint volcengine "$arkbase" "$arkkey" /api/v3/images/generations "$ARK_IMAGE_MODELS" body_img
 			[ -n "${ARK_VIDEO_MODELS:-}" ] && probe_compat_endpoint volcengine "$arkbase" "$arkkey" /api/v3/contents/generations/tasks "$ARK_VIDEO_MODELS" body_ark_video
+		fi
+	fi
+	# Dashscope/qwen family: newapi channel_type=17 (account 60 "Qwen", Ali) served
+	# through the PROD TK gateway /v1/chat/completions. Probe key is a TK api_key BOUND
+	# TO the newapi/qwen group (api_keys.group_id -> groups.id, joined by group name);
+	# never printed. Routes at prod (the newapi pool is prod-served, unlike gemini).
+	if [ -n "${DASHSCOPE_CHAT_MODELS:-}" ]; then
+		dkey="$($PSQL -c "SELECT ak.key FROM api_keys ak JOIN groups g ON g.id=ak.group_id WHERE g.name='$DASHSCOPE_GROUP_NAME' AND ak.deleted_at IS NULL AND g.deleted_at IS NULL ORDER BY ak.id LIMIT 1" | tr -d '[:space:]')"
+		if [ -z "$dkey" ]; then
+			emit newapi "*" 000 "auth_error"
+		else
+			probe_dashscope "$dkey"
 		fi
 	fi
 	# Gemini family: newapi/Vertex models served through the google group on GEMINI_BASE.
