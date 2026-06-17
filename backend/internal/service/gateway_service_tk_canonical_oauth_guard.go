@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -205,4 +206,32 @@ func (s *GatewayService) isCanonicalAnthropicOAuth(account *Account) bool {
 		return false
 	}
 	return IsCanonicalTLSProfileName(s.tlsFingerprintProfileNameForAccount(account))
+}
+
+// tkGroupAdmitsNonCC reports whether the request's effective group has opted into
+// serving non-Claude-Code traffic (group.ClaudeCodeOnly == false). This is the
+// single operator-facing control that, on a canonical OAuth account, switches the
+// non-CC policy from "reject at ingress" (deny-list 403) to "admit and launder on
+// the wire" (the existing egress mimicry path completes the CC disguise).
+//
+// Rationale (no separate setting): cc_only IS the switch. A non-CC client only
+// ever reaches forwarding under a cc_only=false group — the cc-only gate
+// (gateway_service.go, ErrClaudeCodeOnly) follows fallbacks until the resolved
+// group is non-cc-only or the client is real CC. So when the deny-list would fire
+// (always on a non-CC UA), the operator has already declared admission via
+// cc_only=false; re-rejecting at the account level only contradicts that intent.
+//
+// Fail-closed: a nil request, missing group id, or resolution error returns false
+// so the canonical deny-list guard stays in force (zero regression on the unknown
+// path). The explicit strict-ingress toggle is unaffected — it remains the
+// override for operators who want to reject all non-CC even under cc_only=false.
+func (s *GatewayService) tkGroupAdmitsNonCC(ctx context.Context, parsed *ParsedRequest) bool {
+	if parsed == nil || parsed.GroupID == nil {
+		return false
+	}
+	g, err := s.resolveGroupByID(ctx, *parsed.GroupID)
+	if err != nil || g == nil {
+		return false
+	}
+	return !g.ClaudeCodeOnly
 }

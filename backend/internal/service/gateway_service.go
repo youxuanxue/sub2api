@@ -4679,6 +4679,13 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	//   2. remap retired opus model ids to the current default so the upstream model mix
 	//      stays consistent with what real claude-cli/2.1.152 produces
 	// Scoped to anthropic OAuth + canonical TLS profile only.
+	//
+	// TK: when the request's group is cc_only=false, the operator has declared this
+	// path admits non-CC traffic. That single switch governs the canonical non-CC
+	// policy — admit at ingress and launder on the wire (egress mimicry below) —
+	// so no separate setting is needed. Computed once, reused at the egress haiku
+	// gate. See tkGroupAdmitsNonCC.
+	groupAdmitsNonCC := s.tkGroupAdmitsNonCC(ctx, parsed)
 	if c != nil && s.isCanonicalAnthropicOAuth(account) {
 		// strict: allow-list UA gate (claude-cli/ | claude-code/ only, reject empty
 		// + unknown). Default false keeps the deny-list gate (zero regression).
@@ -4687,8 +4694,13 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			if err := checkCanonicalIngressUAStrict(c.Request.Header); err != nil {
 				return nil, err
 			}
-		} else if err := checkCanonicalIngressUA(c.Request.Header); err != nil {
-			return nil, err
+		} else if !groupAdmitsNonCC {
+			// cc_only=false 分组：放行 deny-list UA（curl/python 等），交给下方 egress
+			// mimicry 把它洗白成 CC cohort。cc_only=true（或分组无法解析）时保留 deny-list
+			// 防护。strict 开关独立生效，仍是"拒绝一切非 CC"的显式 override。
+			if err := checkCanonicalIngressUA(c.Request.Header); err != nil {
+				return nil, err
+			}
 		}
 		if newModel, remapped := remapDeprecatedOpusOnCanonical(reqModel); remapped {
 			body = s.replaceModelInBody(body, newModel)
@@ -4741,8 +4753,13 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		// to a canonical fallback account, ingress stays open but this completes the
 		// disguise. Append-only `mimicry ||`: default false keeps the haiku skip
 		// (zero regression). See SettingKeyAnthropicCanonicalHaikuMimicryEnabled.
+		// Complete the haiku disguise when EITHER the explicit haiku-mimicry toggle
+		// is on OR the group admits non-CC (cc_only=false). The latter ensures a
+		// non-CC haiku request admitted at ingress above does not egress with CC
+		// headers but no CC system/billing block (the cohort gap). Same signal,
+		// one switch.
 		canonicalHaikuMimicry := s.isCanonicalAnthropicOAuth(account) &&
-			s.settingService.IsAnthropicCanonicalHaikuMimicryEnabled(ctx)
+			(s.settingService.IsAnthropicCanonicalHaikuMimicryEnabled(ctx) || groupAdmitsNonCC)
 		if shouldRewriteSystemForNonCCMimicry(reqModel, canonicalHaikuMimicry) {
 			systemRaw, _ := parsed.SystemValue()
 			if err := replaceBody(rewriteSystemForNonClaudeCode(body, systemRaw)); err != nil {
