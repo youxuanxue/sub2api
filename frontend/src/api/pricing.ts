@@ -14,6 +14,10 @@ export interface PublicPricing {
   currency: string
   input_per_1k_tokens: number
   output_per_1k_tokens: number
+  /** Higher output price charged in thinking mode for the same model id
+   *  (Alibaba DashScope qwen3 dense). Present only when the model has a
+   *  thinking-mode premium; output_per_1k_tokens stays the non-thinking rate. */
+  thinking_output_per_1k_tokens?: number
   cache_read_per_1k?: number
   cache_write_per_1k?: number
   /** "token" (default/omitted), "image" (per-image) or "video" (per-second). */

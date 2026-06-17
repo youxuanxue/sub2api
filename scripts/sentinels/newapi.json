@@ -293,9 +293,10 @@
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch.go",
       "must_contain": [
-        "ImageCount: out.ImageCount"
+        "ImageCount: out.ImageCount",
+        "EnableThinking: tkThinkingModeActiveFromBody(body)"
       ],
-      "rationale": "Per-image billing for imagen via the newapi bridge: ForwardAsImageGenerationsDispatched must propagate bridge.DispatchOutcome.ImageCount onto OpenAIForwardResult, otherwise the gateway's `result.ImageCount > 0` branch never fires and imagen bills by tokens instead of output_cost_per_image (silent under-charge). Pairs with the TK pricing overlay (without a resolvable per-image price the count is moot; without the count the resolved price never applies). An upstream merge restructuring the bridge image dispatch could drop this one line."
+      "rationale": "Per-image billing for imagen via the newapi bridge: ForwardAsImageGenerationsDispatched must propagate bridge.DispatchOutcome.ImageCount onto OpenAIForwardResult, otherwise the gateway's `result.ImageCount > 0` branch never fires and imagen bills by tokens instead of output_cost_per_image (silent under-charge). Pairs with the TK pricing overlay (without a resolvable per-image price the count is moot; without the count the resolved price never applies). An upstream merge restructuring the bridge image dispatch could drop this one line. SECOND result-field propagation in the same file (Qwen3 thinking-mode billing): the chat/completions + responses dispatch results MUST set `EnableThinking: tkThinkingModeActiveFromBody(body)`, otherwise OpenAIForwardResult.EnableThinking defaults to false and computeTokenBreakdown bills the non-thinking output rate even when the request ran in thinking mode (the default for DashScope dense Qwen3) — a silent under-charge with no compile error. The selection it feeds is anchored in pricing-availability.json (billing_service.go)."
     },
     {
       "path": "backend/internal/service/pricing_service.go",

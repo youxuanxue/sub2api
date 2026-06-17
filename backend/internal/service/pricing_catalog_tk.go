@@ -83,8 +83,15 @@ type PublicCatalogPricing struct {
 	Currency          string  `json:"currency"`
 	InputPer1KTokens  float64 `json:"input_per_1k_tokens"`
 	OutputPer1KTokens float64 `json:"output_per_1k_tokens"`
-	CacheReadPer1K    float64 `json:"cache_read_per_1k,omitempty"`
-	CacheWritePer1K   float64 `json:"cache_write_per_1k,omitempty"`
+	// ThinkingOutputPer1KTokens, when > 0, is the higher output price charged in
+	// thinking mode for the SAME model id (Alibaba DashScope qwen3-8b/14b/32b).
+	// Lets the client show "非思考 / 思考" output prices transparently. Omitted for
+	// models with no thinking-mode premium. OutputPer1KTokens stays the non-thinking
+	// rate; for these models enable_thinking defaults to true, so thinking is the
+	// default-mode price (see computeTokenBreakdown).
+	ThinkingOutputPer1KTokens float64 `json:"thinking_output_per_1k_tokens,omitempty"`
+	CacheReadPer1K            float64 `json:"cache_read_per_1k,omitempty"`
+	CacheWritePer1K           float64 `json:"cache_write_per_1k,omitempty"`
 	// TK media units. BillingMode is "token" (default, omitted), "image"
 	// (per-generated-image) or "video" (per-second). For media models the
 	// token fields above are 0 and the per-image / per-second field carries the
@@ -104,6 +111,7 @@ type PublicCatalogPricing struct {
 type catalogRichEntry struct {
 	InputCostPerToken           *float64 `json:"input_cost_per_token"`
 	OutputCostPerToken          *float64 `json:"output_cost_per_token"`
+	ThinkingOutputCostPerToken  *float64 `json:"thinking_output_cost_per_token"`
 	CacheCreationInputTokenCost *float64 `json:"cache_creation_input_token_cost"`
 	CacheReadInputTokenCost     *float64 `json:"cache_read_input_token_cost"`
 	OutputCostPerImage          *float64 `json:"output_cost_per_image"`
@@ -327,6 +335,7 @@ func applyCatalogOverlayPricing(resp *PublicCatalogResponse) {
 			}
 			row.Pricing.InputPer1KTokens = p.InputCostPerToken * 1000
 			row.Pricing.OutputPer1KTokens = p.OutputCostPerToken * 1000
+			row.Pricing.ThinkingOutputPer1KTokens = p.ThinkingOutputCostPerToken * 1000
 			row.Pricing.CacheReadPer1K = p.CacheReadInputTokenCost * 1000
 			row.Pricing.CacheWritePer1K = p.CacheCreationInputTokenCost * 1000
 			continue
@@ -341,6 +350,12 @@ func applyCatalogOverlayPricing(resp *PublicCatalogResponse) {
 			LiteLLMProvider:             p.LiteLLMProvider,
 			Mode:                        p.Mode,
 			SupportsPromptCaching:       p.SupportsPromptCaching,
+		}
+		// Thinking-mode output price (qwen3 dense): surface it so the public
+		// catalog can show both 非思考/思考 output rates for the one model id.
+		if p.ThinkingOutputCostPerToken > 0 {
+			tout := p.ThinkingOutputCostPerToken
+			e.ThinkingOutputCostPerToken = &tout
 		}
 		// Media overlay entries (imagen-*/veo-*/seedream/seedance) carry the
 		// per-image / per-second price the trimmed litellm mirror drops — pass
@@ -365,11 +380,12 @@ func applyCatalogOverlayPricing(resp *PublicCatalogResponse) {
 
 func catalogModelFromEntry(name string, e *catalogRichEntry) PublicCatalogModel {
 	pricing := PublicCatalogPricing{
-		Currency:          "USD",
-		InputPer1KTokens:  perTokenTo1K(e.InputCostPerToken),
-		OutputPer1KTokens: perTokenTo1K(e.OutputCostPerToken),
-		CacheReadPer1K:    perTokenTo1K(e.CacheReadInputTokenCost),
-		CacheWritePer1K:   perTokenTo1K(e.CacheCreationInputTokenCost),
+		Currency:                  "USD",
+		InputPer1KTokens:          perTokenTo1K(e.InputCostPerToken),
+		OutputPer1KTokens:         perTokenTo1K(e.OutputCostPerToken),
+		ThinkingOutputPer1KTokens: perTokenTo1K(e.ThinkingOutputCostPerToken),
+		CacheReadPer1K:            perTokenTo1K(e.CacheReadInputTokenCost),
+		CacheWritePer1K:           perTokenTo1K(e.CacheCreationInputTokenCost),
 	}
 	// Media billing mode is derived from the priced unit (robust to a missing
 	// `mode`): per-second → video, per-image → image, else token (default).

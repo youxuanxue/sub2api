@@ -29,6 +29,7 @@ export default {
       filtered: '显示 {shown} / {total} 个模型'
     },
     perThousandTokens: '/ 1K tokens',
+    thinkingOutput: '思考',
     contextTokens: '{count} tokens',
     updatedAt: '更新于 {time}',
     empty: {
