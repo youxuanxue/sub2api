@@ -14,8 +14,10 @@
  */
 
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useIntervalFn } from '@vueuse/core'
 import { adminAPI } from '@/api/admin'
+import { unknownToErrorMessage } from '@/utils/authError'
 import type { EdgeAccountsResult } from '@/api/admin/edgeAccounts'
 
 // Selectable auto-refresh cadences (seconds), matching the admin accounts page. The
@@ -80,6 +82,7 @@ export function mergeEdges(current: EdgeAccountsResult[], next: EdgeAccountsResu
 // platform). The page defaults to it so the overview is complete; the filter
 // narrows to a single platform.
 export function useTkEdgeAccounts(initialPlatform = 'all') {
+  const { t } = useI18n()
   const platform = ref(initialPlatform)
   const edges = ref<EdgeAccountsResult[]>([])
   const loading = ref(false)
@@ -178,7 +181,12 @@ export function useTkEdgeAccounts(initialPlatform = 'all') {
       etag.value = res.etag
       lastFetchedAt.value = new Date()
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : String(e)
+      // The axios response interceptor (api/client.ts) rejects with a *flattened
+      // plain object* { status, code, message, ... }, NOT an Error instance — so
+      // `String(e)` here rendered "[object Object]" in the error banner. Pull the
+      // backend message off that shape via the shared helper, like the other TK
+      // composables (useNewApiChannelTypes.ts) do.
+      error.value = unknownToErrorMessage(e, t('admin.edgeAccounts.loadFailed'))
       edges.value = []
       etag.value = null
     } finally {

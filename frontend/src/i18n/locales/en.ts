@@ -3322,6 +3322,7 @@ export default {
       allPlatforms: 'All platforms',
       manageAccounts: 'Manage accounts',
       manageFailed: 'Failed to open this edge for management',
+      loadFailed: 'Failed to load edge accounts',
       handoff: {
         signingIn: 'Signing in to this edge…',
         failed: 'Sign-in failed or the link expired.',

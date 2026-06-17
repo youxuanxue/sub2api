@@ -3396,6 +3396,7 @@ export default {
       allPlatforms: '全部平台',
       manageAccounts: '管理账号',
       manageFailed: '打开该 edge 管理页失败',
+      loadFailed: '加载 edge 账号失败',
       handoff: {
         signingIn: '正在登录该 edge…',
         failed: '登录失败或链接已过期。',

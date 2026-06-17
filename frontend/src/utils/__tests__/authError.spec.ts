@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildAuthErrorMessage } from '@/utils/authError'
+import { buildAuthErrorMessage, unknownToErrorMessage } from '@/utils/authError'
 
 describe('buildAuthErrorMessage', () => {
   it('prefers response detail message when available', () => {
@@ -86,5 +86,20 @@ describe('buildAuthErrorMessage', () => {
       }
     )
     expect(message).toBe('refresh hint')
+  })
+})
+
+describe('unknownToErrorMessage', () => {
+  // Regression: the axios response interceptor (api/client.ts) rejects with a
+  // *flattened plain object* { status, code, message } — NOT an Error instance.
+  // Callers that did `String(e)` rendered "[object Object]" (Edge Accounts banner).
+  it('extracts message from the interceptor-flattened error object', () => {
+    const flattened = { status: 500, code: 'INTERNAL', message: 'edge fan-out failed' }
+    expect(unknownToErrorMessage(flattened, 'fallback')).toBe('edge fan-out failed')
+    expect(unknownToErrorMessage(flattened, 'fallback')).not.toBe('[object Object]')
+  })
+
+  it('uses fallback when the object carries no message', () => {
+    expect(unknownToErrorMessage({ status: 500, code: 'INTERNAL' }, 'fallback')).toBe('fallback')
   })
 })
