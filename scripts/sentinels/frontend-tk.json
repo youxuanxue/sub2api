@@ -846,9 +846,9 @@
     {
       "path": "frontend/src/views/user/KeysView.vue",
       "must_contain": [
-        "canExportTraj && row.group?.platform === 'anthropic'"
+        "canExportTraj && trajExportPlatforms.includes(row.group?.platform"
       ],
-      "rationale": "PR #792: the per-key conversation-record (traj) Export chip is gated by BOTH the admin-granted per-user switch (canExportTraj) AND anthropic-only (row.group.platform === 'anthropic'), because the traj v2 projector only reconstructs Anthropic /v1/messages. KeysView.vue is upstream-shaped; a git merge upstream/main that overwrites it back to upstream shape would silently drop the chip or its dual gate, exposing the export entry to every platform/user while still compiling."
+      "rationale": "PR #792/#808 + multi-platform: the per-key conversation-record (traj) Export chip is gated by BOTH the admin-granted per-user switch (canExportTraj) AND the server-driven projectable-platform allowlist (trajExportPlatforms, from /auth/me traj_export_platforms = engine.TrajProjectablePlatforms). The platform list is no longer hardcoded in the UI. KeysView.vue is upstream-shaped; a git merge that overwrites it back to upstream shape would silently drop the chip or its dual gate, exposing the export entry to every platform/user while still compiling."
     },
     {
       "path": "frontend/src/api/qaTraj.ts",

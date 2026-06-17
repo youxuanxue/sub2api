@@ -48,19 +48,47 @@
     {
       "source": "backend/internal/handler/qa_handler_traj.go",
       "must_contain": [
-        "UserTrajExportEnabled",
-        "domain.PlatformAnthropic"
+        "UserTrajExportEnabled"
       ],
-      "rationale": "Per-key conversation-record (traj) export must keep BOTH gates: the admin-granted per-user switch (UserTrajExportEnabled -> 403) and the anthropic-only pin (Platform: domain.PlatformAnthropic). The traj v2 projector only faithfully reconstructs Anthropic /v1/messages; an upstream merge or refactor dropping the gate silently re-opens export to unauthorized users, and dropping the platform pin silently hands non-anthropic keys misleading non-empty garbage zips."
+      "rationale": "Per-key conversation-record (traj) export must keep the admin-granted per-user switch (UserTrajExportEnabled -> 403). An upstream merge or refactor dropping it silently re-opens export to unauthorized users. (The former anthropic-only Platform pin was removed when the projector became multi-platform; see the projection_v2.go and engine/provider.go anchors below for the wire-shape dispatch + projectable-platform single source.)"
     },
     {
       "source": "backend/internal/observability/qa/service_traj_export.go",
       "must_contain": [
         "func (s *Service) UserTrajExportEnabled",
         "qarecord.APIKeyIDEQ",
-        "qarecord.PlatformEQ"
+        "qarecord.PlatformEQ",
+        "trajectory.RequestContinues"
       ],
-      "rationale": "The export authorization helper plus the per-key (APIKeyIDEQ) and platform (PlatformEQ) scoping predicates. Losing the helper drops the 403 backstop; losing either predicate silently widens a self-export across keys or platforms beyond what the UI gate allows."
+      "rationale": "The export authorization helper, the per-key (APIKeyIDEQ) and platform (PlatformEQ) scoping predicates, and the shape-aware streaming continuation (RequestContinues). Losing the helper drops the 403 backstop; losing a predicate silently widens a self-export beyond the UI gate; reverting RequestContinues to a messages-only predicate would mis-fold non-anthropic conversations."
+    },
+    {
+      "source": "backend/internal/observability/trajectory/projection_v2.go",
+      "must_contain": [
+        "func buildSessionForShape",
+        "case WireOpenAIChat:",
+        "case WireOpenAIResponses:",
+        "case WireGemini:"
+      ],
+      "rationale": "The traj v2 projector dispatches reconstruction by wire shape so openai / gemini / antigravity / kiro / newapi export faithfully (not just anthropic). An upstream merge collapsing buildSessionForShape back to an anthropic-only projection silently regresses every non-anthropic key's export to empty/garbage; these case anchors make that revert fail CI."
+    },
+    {
+      "source": "backend/internal/observability/trajectory/wire_shape.go",
+      "must_contain": [
+        "func WireShapeForRecord",
+        "WireAnthropicMessages",
+        "WireOpenAIChat",
+        "WireOpenAIResponses",
+        "WireGemini"
+      ],
+      "rationale": "WireShapeForRecord is the single dispatch axis keyed on (platform, inbound_endpoint). Losing a shape constant or the mapping silently drops a platform from projectable export."
+    },
+    {
+      "source": "backend/internal/engine/provider.go",
+      "must_contain": [
+        "func TrajProjectablePlatforms"
+      ],
+      "rationale": "Single source for the platforms whose captured wire the projector reconstructs; surfaced to the frontend export chip via /auth/me traj_export_platforms. Removing it would orphan the chip's server-driven allowlist."
     }
   ],
   "semantic_route_contracts": [

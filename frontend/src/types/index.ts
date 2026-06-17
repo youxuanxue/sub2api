@@ -89,6 +89,7 @@ export interface User {
   concurrency: number // Allowed concurrent requests
   rpm_limit?: number // User-level RPM cap (0 = unlimited); effective as fallback when group has no rpm_limit
   traj_export_enabled?: boolean // Admin-granted: allow exporting each API key's captured conversation records
+  traj_export_platforms?: string[] // Server-driven allowlist (/auth/me): platforms whose conversation records the traj projector can reconstruct; gates the export chip
   status: 'active' | 'disabled' // Account status
   allowed_groups: number[] | null // Allowed group IDs (null = all non-exclusive groups)
   balance_notify_enabled: boolean
