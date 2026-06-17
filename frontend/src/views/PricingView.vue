@@ -393,6 +393,10 @@
                         <span class="ml-0.5 text-xs text-gray-400">{{
                           t('pricing.perThousandTokens')
                         }}</span>
+                        <div v-if="row.thinkingOutputPer1K" class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">
+                          {{ t('pricing.thinkingOutput') }} {{ formatPrice(row.thinkingOutputPer1K) }}
+                          <span class="text-gray-400">{{ t('pricing.perThousandTokens') }}</span>
+                        </div>
                       </template>
                       <template v-else>—</template>
                     </td>
@@ -525,6 +529,7 @@ interface NormalizedRow {
   vendor: string
   inputPer1K: number | null
   outputPer1K: number | null
+  thinkingOutputPer1K: number | null
   cacheReadPer1K: number | null
   cacheWritePer1K: number | null
   contextWindow: number
@@ -643,6 +648,7 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
       vendor: m.vendor ?? '',
       inputPer1K: m.pricing.input_per_1k_tokens ?? null,
       outputPer1K: m.pricing.output_per_1k_tokens ?? null,
+      thinkingOutputPer1K: m.pricing.thinking_output_per_1k_tokens ?? null,
       cacheReadPer1K: m.pricing.cache_read_per_1k ?? null,
       cacheWritePer1K: m.pricing.cache_write_per_1k ?? null,
       contextWindow: m.context_window ?? 0,
@@ -661,6 +667,7 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
     vendor: m.vendor ?? '',
     inputPer1K: m.your_price.input_per_1k ?? null,
     outputPer1K: m.your_price.output_per_1k ?? null,
+    thinkingOutputPer1K: null,
     cacheReadPer1K: m.your_price.cache_read_per_1k ?? null,
     cacheWritePer1K: m.your_price.cache_write_per_1k ?? null,
     contextWindow: m.context_window ?? 0,

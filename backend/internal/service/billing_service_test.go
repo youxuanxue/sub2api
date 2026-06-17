@@ -990,7 +990,7 @@ func TestComputeTokenBreakdown_ExplicitZeroImagePrice_NoFallback(t *testing.T) {
 		OutputTokens:      200,
 		ImageOutputTokens: 50,
 	}
-	bd := svc.computeTokenBreakdown(pricing, tokens, 1.0, "", false)
+	bd := svc.computeTokenBreakdown(pricing, tokens, 1.0, "", false, false)
 
 	// ImageOutputTokens should NOT fall back to outputPrice
 	require.Equal(t, 0.0, bd.ImageOutputCost)
@@ -1012,10 +1012,59 @@ func TestComputeTokenBreakdown_NonExplicitZeroImagePrice_FallsBackToOutput(t *te
 		OutputTokens:      200,
 		ImageOutputTokens: 50,
 	}
-	bd := svc.computeTokenBreakdown(pricing, tokens, 1.0, "", false)
+	bd := svc.computeTokenBreakdown(pricing, tokens, 1.0, "", false, false)
 
 	// Should fall back to outputPrice since not explicit
 	require.InDelta(t, 50*15e-6, bd.ImageOutputCost, 1e-12)
 	// textOutputTokens = 200 - 50 = 150
 	require.InDelta(t, 150*15e-6, bd.OutputCost, 1e-12)
+}
+
+// TestComputeTokenBreakdown_ThinkingOutputPrice mirrors the Alibaba DashScope
+// two-rate model (qwen3-8b/14b/32b: one id, output billed higher in thinking
+// mode). enableThinking selects ThinkingOutputPricePerToken over the
+// non-thinking OutputPricePerToken; with the field unset it must be a no-op.
+func TestComputeTokenBreakdown_ThinkingOutputPrice(t *testing.T) {
+	svc := newTestBillingService()
+
+	// qwen3-8b: out ¥2/M non-thinking, ¥5/M thinking (÷6.7 → USD per token).
+	pricing := &ModelPricing{
+		InputPricePerToken:          0.5 / 6.7e6,
+		OutputPricePerToken:         2.0 / 6.7e6,
+		ThinkingOutputPricePerToken: 5.0 / 6.7e6,
+	}
+	tokens := UsageTokens{InputTokens: 1000, OutputTokens: 1000}
+
+	nonThinking := svc.computeTokenBreakdown(pricing, tokens, 1.0, "", false, false)
+	thinking := svc.computeTokenBreakdown(pricing, tokens, 1.0, "", true, false)
+
+	require.InDelta(t, 1000*(2.0/6.7e6), nonThinking.OutputCost, 1e-15,
+		"non-thinking must bill the lower output rate")
+	require.InDelta(t, 1000*(5.0/6.7e6), thinking.OutputCost, 1e-15,
+		"thinking must bill the higher output rate")
+	require.Greater(t, thinking.OutputCost, nonThinking.OutputCost,
+		"thinking output cost must exceed non-thinking")
+	// Input is mode-independent.
+	require.InDelta(t, nonThinking.InputCost, thinking.InputCost, 1e-18)
+
+	// No thinking rate configured → enableThinking is a no-op (other models).
+	flat := &ModelPricing{InputPricePerToken: 1e-6, OutputPricePerToken: 3e-6}
+	a := svc.computeTokenBreakdown(flat, tokens, 1.0, "", false, false)
+	b := svc.computeTokenBreakdown(flat, tokens, 1.0, "", true, false)
+	require.InDelta(t, a.OutputCost, b.OutputCost, 1e-18,
+		"models without a thinking rate must be unaffected by enableThinking")
+}
+
+// TestTKPricingOverlay_Qwen3DenseThinkingRate guards that the overlay actually
+// carries a thinking output rate higher than the non-thinking one for the three
+// Qwen3 dense models — the default-mode price (enable_thinking defaults to true).
+func TestTKPricingOverlay_Qwen3DenseThinkingRate(t *testing.T) {
+	overlay := loadTKPricingOverlay()
+	for _, id := range []string{"qwen3-8b", "qwen3-14b", "qwen3-32b"} {
+		p := overlay[id]
+		require.NotNil(t, p, "overlay must carry %s", id)
+		require.Greater(t, p.OutputCostPerToken, 0.0, "%s non-thinking output > 0", id)
+		require.Greater(t, p.ThinkingOutputCostPerToken, p.OutputCostPerToken,
+			"%s thinking output rate must exceed non-thinking", id)
+	}
 }

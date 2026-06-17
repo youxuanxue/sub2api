@@ -93,6 +93,7 @@ type ModelPricing struct {
 	InputPricePerTokenPriority     float64           // priority service tier 下每token输入价格 (USD)
 	OutputPricePerToken            float64           // 每token输出价格 (USD)
 	OutputPricePerTokenPriority    float64           // priority service tier 下每token输出价格 (USD)
+	ThinkingOutputPricePerToken    float64           // 思考模式下每token输出价格 (USD)；0 = 该模型无思考溢价。见 computeTokenBreakdown
 	CacheCreationPricePerToken     float64           // 缓存创建每token价格 (USD)
 	CacheReadPricePerToken         float64           // 缓存读取每token价格 (USD)
 	CacheReadPricePerTokenPriority float64           // priority service tier 下缓存读取每token价格 (USD)
@@ -408,6 +409,7 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 				InputPricePerTokenPriority:     litellmPricing.InputCostPerTokenPriority,
 				OutputPricePerToken:            litellmPricing.OutputCostPerToken,
 				OutputPricePerTokenPriority:    litellmPricing.OutputCostPerTokenPriority,
+				ThinkingOutputPricePerToken:    litellmPricing.ThinkingOutputCostPerToken,
 				CacheCreationPricePerToken:     litellmPricing.CacheCreationInputTokenCost,
 				CacheReadPricePerToken:         litellmPricing.CacheReadInputTokenCost,
 				CacheReadPricePerTokenPriority: litellmPricing.CacheReadInputTokenCostPriority,
@@ -481,6 +483,7 @@ type CostInput struct {
 	SizeTier       string // 按次/图片模式的层级标签（"1K","2K","4K","HD" 等）
 	RateMultiplier float64
 	ServiceTier    string                // "priority","flex","" 等
+	EnableThinking bool                  // 本次请求是否处于思考模式（含默认开启）；仅对带 ThinkingOutputPricePerToken 的模型改变输出价
 	Resolver       *ModelPricingResolver // 定价解析器
 	Resolved       *ResolvedPricing      // 可选：预解析的定价结果（避免重复 Resolve 调用）
 }
@@ -538,7 +541,7 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 	// 长上下文定价仅在无区间定价时应用（区间定价已包含上下文分层）
 	applyLongCtx := len(resolved.Intervals) == 0
 
-	return s.computeTokenBreakdown(pricing, input.Tokens, input.RateMultiplier, input.ServiceTier, applyLongCtx), nil
+	return s.computeTokenBreakdown(pricing, input.Tokens, input.RateMultiplier, input.ServiceTier, input.EnableThinking, applyLongCtx), nil
 }
 
 // computeTokenBreakdown 是 token 计费的核心逻辑，由 calculateTokenCost 和 calculateCostInternal 共用。
@@ -546,6 +549,7 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 func (s *BillingService) computeTokenBreakdown(
 	pricing *ModelPricing, tokens UsageTokens,
 	rateMultiplier float64, serviceTier string,
+	enableThinking bool,
 	applyLongCtx bool,
 ) *CostBreakdown {
 	// 保存时强制 > 0；若仍有负数泄漏，按 0 处理避免按 1x 误扣。
@@ -555,6 +559,12 @@ func (s *BillingService) computeTokenBreakdown(
 
 	inputPrice := pricing.InputPricePerToken
 	outputPrice := pricing.OutputPricePerToken
+	// 思考模式输出溢价：上游（如 Alibaba DashScope qwen3 dense）对同一 model id 在
+	// enable_thinking 开启时按更高的输出价计费。仅当该模型配了 ThinkingOutputPricePerToken
+	// (>0) 才生效，故对其它模型恒为 no-op。serviceTier priority 价（下方）仍可继续覆盖。
+	if enableThinking && pricing.ThinkingOutputPricePerToken > 0 {
+		outputPrice = pricing.ThinkingOutputPricePerToken
+	}
 	cacheReadPrice := pricing.CacheReadPricePerToken
 	cacheCreationMultiplier := 1.0
 	tierMultiplier := 1.0
@@ -691,8 +701,9 @@ func (s *BillingService) calculateCostInternal(model string, tokens UsageTokens,
 		return nil, err
 	}
 
-	// 旧路径始终检查长上下文定价（无区间定价概念）
-	return s.computeTokenBreakdown(pricing, tokens, rateMultiplier, serviceTier, true), nil
+	// 旧路径始终检查长上下文定价（无区间定价概念）。该路径不携带 enable_thinking
+	// （仅 CalculateCostUnified/CostInput 链路透传思考模式），故按非思考计费。
+	return s.computeTokenBreakdown(pricing, tokens, rateMultiplier, serviceTier, false, true), nil
 }
 
 func (s *BillingService) applyModelSpecificPricingPolicy(model string, pricing *ModelPricing) *ModelPricing {

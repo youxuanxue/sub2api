@@ -94,6 +94,9 @@ func loadTKPricingOverlay() map[string]*LiteLLMModelPricing {
 			if e.OutputCostPerToken != nil {
 				p.OutputCostPerToken = *e.OutputCostPerToken
 			}
+			if e.ThinkingOutputCostPerToken != nil {
+				p.ThinkingOutputCostPerToken = *e.ThinkingOutputCostPerToken
+			}
 			if e.CacheCreationInputTokenCost != nil {
 				p.CacheCreationInputTokenCost = *e.CacheCreationInputTokenCost
 			}

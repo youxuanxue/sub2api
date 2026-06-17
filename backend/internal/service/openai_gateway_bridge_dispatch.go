@@ -66,11 +66,12 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 		upstreamModel = out.Model
 	}
 	return &OpenAIForwardResult{
-		Model:         out.Model,
-		UpstreamModel: upstreamModel,
-		Stream:        out.Stream,
-		Duration:      out.Duration,
-		Usage:         openAIUsageFromNewAPIDTO(out.Usage),
+		Model:          out.Model,
+		UpstreamModel:  upstreamModel,
+		Stream:         out.Stream,
+		Duration:       out.Duration,
+		Usage:          openAIUsageFromNewAPIDTO(out.Usage),
+		EnableThinking: tkThinkingModeActiveFromBody(body),
 	}, nil
 }
 
@@ -138,11 +139,12 @@ func (s *OpenAIGatewayService) ForwardAsResponsesDispatched(
 		upstreamModel = out.Model
 	}
 	return &OpenAIForwardResult{
-		Model:         out.Model,
-		UpstreamModel: upstreamModel,
-		Stream:        out.Stream,
-		Duration:      out.Duration,
-		Usage:         openAIUsageFromNewAPIDTO(out.Usage),
+		Model:          out.Model,
+		UpstreamModel:  upstreamModel,
+		Stream:         out.Stream,
+		Duration:       out.Duration,
+		Usage:          openAIUsageFromNewAPIDTO(out.Usage),
+		EnableThinking: tkThinkingModeActiveFromBody(body),
 	}, nil
 }
 

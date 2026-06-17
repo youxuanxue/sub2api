@@ -247,7 +247,12 @@ type OpenAIForwardResult struct {
 	ServiceTier *string
 	// ReasoningEffort is extracted from request body (reasoning.effort) or derived from model suffix.
 	// Stored for usage records display; nil means not provided / not applicable.
-	ReasoningEffort  *string
+	ReasoningEffort *string
+	// EnableThinking records whether the request runs in thinking mode (the upstream
+	// enable_thinking parameter, treated as active unless explicitly false — matches
+	// Qwen3 open-source dense defaults). Only changes billing for models that carry a
+	// ThinkingOutputPricePerToken (qwen3-8b/14b/32b); no-op otherwise.
+	EnableThinking   bool
 	Stream           bool
 	OpenAIWSMode     bool
 	ResponseHeaders  http.Header
@@ -6171,7 +6176,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if result.ServiceTier != nil {
 		serviceTier = strings.TrimSpace(*result.ServiceTier)
 	}
-	cost, err = s.calculateOpenAIRecordUsageCost(ctx, result, apiKey, billingModels, multiplier, imageMultiplier, tokens, serviceTier)
+	cost, err = s.calculateOpenAIRecordUsageCost(ctx, result, apiKey, billingModels, multiplier, imageMultiplier, tokens, serviceTier, result.EnableThinking)
 	if err != nil {
 		if !isUsagePricingUnavailableError(err) {
 			return err
@@ -6343,6 +6348,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	imageMultiplier float64,
 	tokens UsageTokens,
 	serviceTier string,
+	enableThinking bool,
 ) (*CostBreakdown, error) {
 	billingModel := firstUsageBillingModel(billingModels)
 	if result != nil && result.VideoDurationSeconds != nil && *result.VideoDurationSeconds > 0 {
@@ -6363,7 +6369,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 		if candidate == "" {
 			continue
 		}
-		cost, err := s.calculateOpenAIRecordUsageTokenCost(ctx, apiKey, candidate, multiplier, tokens, serviceTier)
+		cost, err := s.calculateOpenAIRecordUsageTokenCost(ctx, apiKey, candidate, multiplier, tokens, serviceTier, enableThinking)
 		if err == nil {
 			return cost, nil
 		}
@@ -6393,6 +6399,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageTokenCost(
 	multiplier float64,
 	tokens UsageTokens,
 	serviceTier string,
+	enableThinking bool,
 ) (*CostBreakdown, error) {
 	if s.resolver != nil && apiKey.Group != nil {
 		gid := apiKey.Group.ID
@@ -6404,6 +6411,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageTokenCost(
 			RequestCount:   1,
 			RateMultiplier: multiplier,
 			ServiceTier:    serviceTier,
+			EnableThinking: enableThinking,
 			Resolver:       s.resolver,
 		})
 	}

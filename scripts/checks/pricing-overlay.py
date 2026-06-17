@@ -52,6 +52,12 @@ ANCHORS = {
     "doubao-seedance-1-0-pro-250528": "output_cost_per_second",
 }
 
+# Models that MUST carry a thinking-mode output price. For Qwen3 open-source dense
+# models enable_thinking defaults to true, so dropping thinking_output_cost_per_token
+# would make the DEFAULT request bill the cheaper non-thinking rate — a silent
+# under-bill. These anchors fail the check if the field goes missing.
+THINKING_ANCHORS = ("qwen3-8b", "qwen3-14b", "qwen3-32b")
+
 
 def main() -> int:
     quiet = "--quiet" in sys.argv
@@ -86,6 +92,17 @@ def main() -> int:
             price = pricing.get(field)
             if not isinstance(price, (int, float)) or price <= 0:
                 errors.append(f"{model}: mode={mode} requires {field} > 0, got {price!r}")
+        # TK thinking-mode output price (e.g. qwen3-8b/14b/32b): an optional field
+        # that, when present, must be a real positive price — a $0 thinking rate
+        # would silently under-bill thinking traffic, which for these models is the
+        # DEFAULT mode (enable_thinking defaults to true). Mirrors Alibaba's two-rate
+        # table; consumed by computeTokenBreakdown.
+        if "thinking_output_cost_per_token" in pricing:
+            tp = pricing.get("thinking_output_cost_per_token")
+            if not isinstance(tp, (int, float)) or tp <= 0:
+                errors.append(
+                    f"{model}: thinking_output_cost_per_token must be > 0 when present, got {tp!r}"
+                )
         if mode == "video_generation":
             # TokenKey refunds the user in full when a video task ends failed —
             # loss-free ONLY if the provider does not charge for failed tasks.
@@ -109,6 +126,18 @@ def main() -> int:
         price = pricing.get(field)
         if not isinstance(price, (int, float)) or price <= 0:
             errors.append(f"anchor {model}: {field} must be > 0, got {price!r}")
+
+    for model in THINKING_ANCHORS:
+        pricing = entries.get(model)
+        if not isinstance(pricing, dict):
+            errors.append(f"thinking-anchor {model} missing from overlay")
+            continue
+        tp = pricing.get("thinking_output_cost_per_token")
+        if not isinstance(tp, (int, float)) or tp <= 0:
+            errors.append(
+                f"thinking-anchor {model}: thinking_output_cost_per_token must be > 0 "
+                f"(enable_thinking defaults to true → this is the default-mode price), got {tp!r}"
+            )
 
     if errors:
         print(f"  FAIL: pricing overlay invalid ({len(errors)} issue(s)):", flush=True)

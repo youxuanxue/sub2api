@@ -30,6 +30,7 @@ export default {
       filtered: 'Showing {shown} of {total} models'
     },
     perThousandTokens: '/ 1K tokens',
+    thinkingOutput: 'Thinking',
     contextTokens: '{count} tokens',
     updatedAt: 'Last updated {time}',
     empty: {
