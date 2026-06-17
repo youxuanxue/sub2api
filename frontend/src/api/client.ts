@@ -6,7 +6,7 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios'
 import type { ApiResponse } from '@/types'
 import { getLocale } from '@/i18n'
-import { createNetworkError, isNetworkError, networkErrorFromAxios, requestUrlFromError } from './client.tk'
+import { createApiError, createNetworkError, isNetworkError, networkErrorFromAxios, requestUrlFromError } from './client.tk'
 
 // ==================== Axios Instance Configuration ====================
 
@@ -95,13 +95,13 @@ apiClient.interceptors.response.use(
       } else {
         // API error
         const resp = apiResponse as unknown as Record<string, unknown>
-        return Promise.reject({
+        return Promise.reject(createApiError({
           status: response.status,
           code: apiResponse.code,
           message: apiResponse.message || 'Unknown error',
-          reason: resp.reason,
-          metadata: resp.metadata,
-        })
+          reason: resp.reason as string | undefined,
+          metadata: resp.metadata as Record<string, unknown> | undefined,
+        }))
       }
     }
     return response
@@ -141,12 +141,12 @@ apiClient.interceptors.response.use(
           window.location.href = '/admin/settings'
         }
 
-        return Promise.reject({
+        return Promise.reject(createApiError({
           status,
           code: 'OPS_DISABLED',
           message: apiData.message || error.message,
           url
-        })
+        }))
       }
 
       if (status === 423 && apiData.code === 'ADMIN_COMPLIANCE_ACK_REQUIRED') {
@@ -158,12 +158,12 @@ apiClient.interceptors.response.use(
           // ignore event failures
         }
 
-        return Promise.reject({
+        return Promise.reject(createApiError({
           status,
           code: apiData.code,
           message: apiData.message || error.message,
           metadata: apiData.metadata,
-        })
+        }))
       }
 
       // 401: Try to refresh the token if we have a refresh token
@@ -190,11 +190,11 @@ apiClient.interceptors.response.use(
                   resolve(apiClient(originalRequest))
                 } else {
                   // Refresh failed, reject with original error
-                  reject({
+                  reject(createApiError({
                     status,
                     code: apiData.code,
                     message: apiData.message || apiData.detail || error.message
-                  })
+                  }))
                 }
               })
             })
@@ -262,11 +262,11 @@ apiClient.interceptors.response.use(
               window.location.href = '/login'
             }
 
-            return Promise.reject({
+            return Promise.reject(createApiError({
               status: 401,
               code: 'TOKEN_REFRESH_FAILED',
               message: 'Session expired. Please log in again.'
-            })
+            }))
           }
         }
 
@@ -295,14 +295,14 @@ apiClient.interceptors.response.use(
       }
 
       // Return structured error
-      return Promise.reject({
+      return Promise.reject(createApiError({
         status,
         code: apiData.code,
         reason: apiData.reason,
         error: apiData.error,
         message: apiData.message || apiData.detail || error.message,
         metadata: apiData.metadata,
-      })
+      }))
     }
 
     // Network error

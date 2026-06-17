@@ -112,6 +112,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useTkInviteTrial } from '@/composables/useTkInviteTrial'
+import { unknownToErrorMessage } from '@/utils/authError'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import TrialResultCards from './TrialResultCards.vue'
 
@@ -184,7 +185,10 @@ const onSubmit = async () => {
     await submit()
     emit('success') // refresh the user list behind the modal
   } catch (e) {
-    errorText.value = e instanceof Error ? e.message : String(e)
+    // The axios interceptor (api/client.ts) rejects with a flattened plain object
+    // { status, code, message, ... }, not an Error — so String(e) rendered
+    // "[object Object]" in the modal. Pull the backend message via the helper.
+    errorText.value = unknownToErrorMessage(e, t('admin.users.inviteTrial.submitFailed'))
   }
 }
 
@@ -196,7 +200,7 @@ const onSavePreset = async () => {
     appStore.showSuccess(t('admin.users.inviteTrial.presetSaved'))
     form.presetName = name
   } catch (e) {
-    errorText.value = e instanceof Error ? e.message : String(e)
+    errorText.value = unknownToErrorMessage(e, t('admin.users.inviteTrial.savePresetFailed'))
   }
 }
 

@@ -1,5 +1,6 @@
 import { reactive, ref } from 'vue'
 import { getModelsListCandidates } from '@/api/admin/groups'
+import { unknownToErrorMessage } from '@/utils/authError'
 import type { GroupPlatform } from '@/types'
 
 // TK (R-003, follow-up to PR #752): the self-healing servable model lists for the
@@ -57,7 +58,10 @@ export function useServableModels() {
     try {
       cache[backend] = await getModelsListCandidates(0, backend)
     } catch (e) {
-      error.value = e instanceof Error ? e.message : String(e)
+      // The axios interceptor (api/client.ts) rejects with a flattened plain
+      // object { status, code, message, ... }, not an Error — so String(e) would
+      // store "[object Object]". Pull the backend message via the shared helper.
+      error.value = unknownToErrorMessage(e, 'Failed to load servable models')
       cache[backend] = [] // loaded-empty; the selector's custom input stays the escape hatch
     } finally {
       inflight.delete(backend)

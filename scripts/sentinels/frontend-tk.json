@@ -832,6 +832,21 @@
         "api_key_id"
       ],
       "rationale": "PR #792: the TK-only conversation-export API client. qaTrajAPI.exportKey posts {api_key_id, format:'v2'} to the per-key self-export endpoint; an upstream merge replacing the api/ layer or dropping this module would silently sever the export wiring (KeysView import breaks loud, but a merge that rewrites both would not)."
+    },
+    {
+      "path": "frontend/src/api/client.tk.ts",
+      "must_contain": [
+        "class ApiError extends Error",
+        "export function createApiError"
+      ],
+      "rationale": "PR #803: ApiError is the TK-only Error subclass the axios response interceptor rejects with, so `e instanceof Error` holds across the whole app and no call site renders \"[object Object]\". It carries the flattened backend fields (status/code/message/reason/error/metadata) as enumerable own properties. If an upstream merge replaced client.tk.ts or dropped this class, client.ts's createApiError import would break loud — but a merge rewriting both would silently revert every error banner to the [object Object] bug. createNetworkError also returns an ApiError instance; the isNetworkError duck-type guard (status===0) still matches it."
+    },
+    {
+      "path": "frontend/src/api/client.ts",
+      "must_contain": [
+        "createApiError("
+      ],
+      "rationale": "PR #803: the upstream-shaped axios response interceptor must reject with createApiError(...) (a real Error), NOT a plain object. This is the load-bearing injection point — an upstream merge that restores the original `Promise.reject({ status, code, message })` plain-object shape would compile fine and silently reintroduce the app-wide [object Object] rendering bug at every `e instanceof Error ? e.message : String(e)` call site. Anchoring the createApiError( call makes that revert fail the merge gate instead of shipping silently."
     }
   ]
 }
