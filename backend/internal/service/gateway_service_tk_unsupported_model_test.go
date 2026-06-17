@@ -171,8 +171,8 @@ func TestIsModelSupportedByAccount_TkDirtyModelGuard(t *testing.T) {
 
 func TestIsModelSupportedByAccount_TkGuardWithExplicitMapping(t *testing.T) {
 	svc := &GatewayService{}
-	// An anthropic account WITH an explicit model_mapping (Path A) is constrained by
-	// the mapping; the namespace guard neither loosens nor changes it.
+	// An anthropic account WITH an explicit model_mapping is constrained by the
+	// mapping; the namespace guard (passthrough-only) does not run for it.
 	mapped := &Account{
 		ID:       9,
 		Platform: PlatformAnthropic,
@@ -186,5 +186,27 @@ func TestIsModelSupportedByAccount_TkGuardWithExplicitMapping(t *testing.T) {
 	}
 	if svc.isModelSupportedByAccount(mapped, "deepseek-v4-flash") {
 		t.Error("mapped anthropic account should not support an unmapped cross-vendor model")
+	}
+
+	// Guard must NOT run for a mapped account: a non-claude REQUEST name that the
+	// account explicitly maps to a claude model is served — the forwarded model is
+	// the mapped claude name (no leak), so the passthrough-only guard does not block
+	// it. (Regression for the over-block where the guard short-circuited before the
+	// mapping was consulted.)
+	foreignToClaude := &Account{
+		ID:       10,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"gpt-4o": "claude-sonnet-4-5"},
+		},
+	}
+	if !svc.isModelSupportedByAccount(foreignToClaude, "gpt-4o") {
+		t.Error("anthropic account mapping gpt-4o->claude-sonnet-4-5 should support gpt-4o (forwarded model is claude, no leak)")
+	}
+	// A different non-claude name not in the mapping is still unsupported (mapping is
+	// the allowlist) — unchanged behavior.
+	if svc.isModelSupportedByAccount(foreignToClaude, "deepseek-v4-flash") {
+		t.Error("mapped account should not support a cross-vendor model absent from its mapping")
 	}
 }

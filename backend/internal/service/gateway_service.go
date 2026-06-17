@@ -3939,12 +3939,16 @@ func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedMo
 		}
 	}
 	// TK 跨厂商脏模型前置拦截：anthropic 直连账号（OAuth/SetupToken/APIKey，上游确为
-	// api.anthropic.com）的 passthrough（空 model_mapping）会把客户端原样模型名转发上游，而上游只服务
-	// claude-*。非 claude-* 名（deepseek-/gpt-/gemini- …）转发必 404，且是滥用风控的指纹异常。此处判
-	// false → 选择失败 → ErrUnsupportedModel → Path A 本地 400，永不离开网关。ServiceAccount(Vertex)
-	// 上游不是 anthropic、模型名形态不同，已在上方排除；Bedrock 在函数顶部已 early-return。
+	// api.anthropic.com）的 **passthrough（空 model_mapping）** 会把客户端原样模型名转发上游，而上游只
+	// 服务 claude-*。非 claude-* 名（deepseek-/gpt-/gemini- …）转发必 404，且是滥用风控的指纹异常。此处
+	// 判 false → 选择失败 → ErrUnsupportedModel → Path A 本地 400，永不离开网关。
+	//
+	// 只约束 passthrough：带显式 model_mapping 的账号转发的是 **mapped 后的** 模型名（见
+	// account.GetMappedModel 的转发用法），例如 {gpt-4o→claude-sonnet} 实际发的是 claude-sonnet、不泄漏，
+	// 故交回下方 IsModelSupported 按账号映射裁决，不被本守卫误拦。ServiceAccount(Vertex) 上游不是
+	// anthropic、模型名形态不同，在本条件内用 Type 排除；Bedrock 在函数顶部已 early-return。
 	if account.Platform == PlatformAnthropic && account.Type != AccountTypeServiceAccount &&
-		!tkIsForwardableAnthropicModelName(requestedModel) {
+		len(account.GetModelMapping()) == 0 && !tkIsForwardableAnthropicModelName(requestedModel) {
 		return false
 	}
 	// 其他平台使用账户的模型支持检查
