@@ -49,26 +49,29 @@
           @input="userEditedPrompt = true"
         />
         <div class="mt-3">
-          <div class="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-dark-500">{{ t('studio.image.aspectLabel') }}</div>
-          <!-- Ratios are the SELECTED MODEL's actual supported set, shown raw (the
-               exact value goes on the wire). Imagen ⇒ ratio code; Seedream ⇒ the
-               literal pixel size is shown as a subtext. -->
-          <div class="flex flex-wrap gap-2">
-            <button
-              v-for="opt in sizeOptions"
-              :key="opt.ratio"
-              type="button"
-              class="rounded-lg border px-3 py-1.5 text-left transition"
-              :class="selectedRatio === opt.ratio
-                ? 'border-primary-600 bg-primary-600 text-white'
-                : 'border-gray-200 text-gray-600 hover:border-primary-300 dark:border-dark-600 dark:text-dark-300'"
-              data-testid="studio-image-aspect"
-              @click="selectedRatio = opt.ratio"
-            >
-              <div class="text-sm font-medium tabular-nums">{{ opt.ratio }}</div>
-              <div v-if="sizeSubtext(opt.value, opt.ratio)" class="text-[10px] tabular-nums opacity-70">{{ sizeSubtext(opt.value, opt.ratio) }}</div>
-            </button>
-          </div>
+          <!-- Aspect picker is shown only when the selected model has supported ratios
+               (Imagen ratio codes / Seedream pixel sizes). Gemini-native image has no
+               picker: the ratio control is not honored on its serving path (see #807
+               R-001), so we omit it rather than ship a cosmetic control. -->
+          <template v-if="sizeOptions.length">
+            <div class="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-dark-500">{{ t('studio.image.aspectLabel') }}</div>
+            <div class="flex flex-wrap gap-2">
+              <button
+                v-for="opt in sizeOptions"
+                :key="opt.ratio"
+                type="button"
+                class="rounded-lg border px-3 py-1.5 text-left transition"
+                :class="selectedRatio === opt.ratio
+                  ? 'border-primary-600 bg-primary-600 text-white'
+                  : 'border-gray-200 text-gray-600 hover:border-primary-300 dark:border-dark-600 dark:text-dark-300'"
+                data-testid="studio-image-aspect"
+                @click="selectedRatio = opt.ratio"
+              >
+                <div class="text-sm font-medium tabular-nums">{{ opt.ratio }}</div>
+                <div v-if="sizeSubtext(opt.value, opt.ratio)" class="text-[10px] tabular-nums opacity-70">{{ sizeSubtext(opt.value, opt.ratio) }}</div>
+              </button>
+            </div>
+          </template>
           <p class="mt-1.5 text-[11px] text-gray-400 dark:text-dark-500">
             <template v-if="isFlatImage">{{ t('studio.image.billedFlat') }}</template>
             <template v-else>{{ t('studio.image.billedAs', { tier: classifiedTier, mult: sizeMultiplier }) }}</template>

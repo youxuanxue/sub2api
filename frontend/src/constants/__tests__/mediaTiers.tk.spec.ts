@@ -8,7 +8,6 @@ import {
   MEDIA_MODELS,
   IMAGEN_IMAGE_SIZES,
   SEEDREAM_IMAGE_SIZES,
-  GEMINI_IMAGE_SIZES,
   type ModalityKeyOption,
   type StudioParam,
 } from '@/constants/mediaTiers.tk'
@@ -227,9 +226,14 @@ describe('image aspect options (per-model, upstream-valid wire values)', () => {
   // and Imagen must send the ratio code verbatim.
   const IMAGEN_VALID = new Set(['1:1', '3:4', '4:3', '9:16', '16:9'])
 
-  it('every image model carries a non-empty imageSizes; video models carry none', () => {
-    for (const m of MEDIA_MODELS.filter((m) => m.modality === 'image')) {
+  it('imagen/seedream image models carry imageSizes; gemini (flat) and video carry none', () => {
+    // Gemini-native image has NO aspect picker (the ratio control is not honored on its
+    // serving path — #807 R-001), so its entries carry no imageSizes.
+    for (const m of MEDIA_MODELS.filter((m) => m.modality === 'image' && !m.flatImageBilling)) {
       expect(m.imageSizes && m.imageSizes.length).toBeTruthy()
+    }
+    for (const m of MEDIA_MODELS.filter((m) => m.modality === 'image' && m.flatImageBilling)) {
+      expect(m.imageSizes).toBeUndefined()
     }
     for (const m of MEDIA_MODELS.filter((m) => m.modality === 'video')) {
       expect(m.imageSizes).toBeUndefined()
@@ -259,19 +263,11 @@ describe('image aspect options (per-model, upstream-valid wire values)', () => {
     expect(new Set(IMAGEN_IMAGE_SIZES.map((o) => o.ratio))).toEqual(IMAGEN_VALID)
   })
 
-  it('Gemini sends ratio codes verbatim, from its broader documented set', () => {
-    // Nano Banana / Gemini 3 image: 10 ratios (superset of Imagen's 5).
-    const GEMINI_VALID = new Set(['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'])
-    for (const opt of GEMINI_IMAGE_SIZES) {
-      expect(opt.value).toBe(opt.ratio) // ratio code on the wire (→ image_config.aspect_ratio)
-      expect(GEMINI_VALID.has(opt.ratio)).toBe(true)
-    }
-    expect(new Set(GEMINI_IMAGE_SIZES.map((o) => o.ratio))).toEqual(GEMINI_VALID)
-  })
-
-  it('gemini image models are flatImageBilling; imagen/seedream are not', () => {
-    for (const m of MEDIA_MODELS.filter((m) => m.imageSizes === GEMINI_IMAGE_SIZES)) {
-      expect(m.flatImageBilling).toBe(true)
+  it('gemini image models are flatImageBilling with no aspect picker; imagen/seedream are tiered', () => {
+    const gemini = MEDIA_MODELS.filter((m) => m.modality === 'image' && m.flatImageBilling)
+    expect(gemini.length).toBeGreaterThan(0)
+    for (const m of gemini) {
+      expect(m.imageSizes).toBeUndefined() // ratio control not honored on the serving path (#807 R-001)
     }
     for (const m of MEDIA_MODELS.filter(
       (m) => m.imageSizes === IMAGEN_IMAGE_SIZES || m.imageSizes === SEEDREAM_IMAGE_SIZES
